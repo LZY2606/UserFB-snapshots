@@ -40,15 +40,6 @@ namespace CalPhysique {
         CalVector4* output_vertex);
 #endif
 
-#ifndef IMVU_NO_ASM_BLOCKS
-    CAL3D_API void calculateVerticesAndNormals_SSE(
-        const BoneTransform* boneTransforms,
-        size_t vertexCount,
-        const CalCoreSubmesh::Vertex* vertices,
-        const CalCoreSubmesh::Influence* influences,
-        CalVector4* output_vertices);
-#endif
-
     CAL3D_API void calculateVerticesAndNormals(
         const BoneTransform* boneTransforms,
         const CalSubmesh* pSubmesh,

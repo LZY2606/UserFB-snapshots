@@ -329,7 +329,8 @@ int CSkeletonCandidate::GetBoneId(const std::string& strName)
 	for(size_t boneCandidateId = 0; boneCandidateId < m_vectorBoneCandidate.size(); boneCandidateId++)
 	{
 		// check if the bone candidate is the one we are looking for
-		if(m_vectorBoneCandidate[boneCandidateId]->GetName() == strName) return boneCandidateId;
+		if(m_vectorBoneCandidate[boneCandidateId]->GetName() == strName) 
+			return boneCandidateId;
 	}
 
 	return -1;

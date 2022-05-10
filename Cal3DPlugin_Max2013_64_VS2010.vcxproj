@@ -64,16 +64,16 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.40219.1</_ProjectFileVersion>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(SolutionDir)$(Configuration)\</OutDir>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">c:\program files\autodesk\3ds max 2013\plugins\</OutDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(Configuration)\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Configuration)\Max2013x64\</IntDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\..\Binaries\$(Configuration)2013\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\..\Binaries\Plugins\Max2013-2014\$(Configuration)\x64\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\..\Build\Source\cal3d\$(Configuration)2013\plugins\cal3d_max_exporter</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\..\Build\Source\Plugins\Max2013-2014\$(Configuration)\x64\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)$(Configuration)\</OutDir>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">c:\program files\autodesk\3ds max 2013\plugins\</OutDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(Configuration)\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Configuration)\Max2013x64\</IntDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\..\Binaries\$(Configuration)2013\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\..\Binaries\Plugins\Max2013-2014\$(Configuration)\x64\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\..\Build\Source\cal3d\$(Configuration)2013\plugins\cal3d_max_exporter</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\..\Build\Source\Plugins\Max2013-2014\$(Configuration)\x64\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cal3d_max_exporter</TargetName>
@@ -84,7 +84,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>.\plugins\src;.\plugins\src\win32;.\plugins\cal3d_max_exporter;.\src;..\..\Ext\boost_1_42_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;plugins\src;plugins\cal3d_max_exporter;plugins\src\win32;..\..\Ext\boost_1_61_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WINVER=0x0600;_AFXDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>true</MinimalRebuild>
@@ -99,17 +99,18 @@
       <PreprocessorDefinitions>_UNICODE1;UNICODE1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\IMVU\don\Ext\3dsmax2013\maxsdk\x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;morpher.lib;cal3d_debug.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\..\Ext\3dsmax2013\maxsdk\x64\lib;..\..\Binaries\$(Configuration)2011</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <TargetMachine>MachineX86</TargetMachine>
+      <ModuleDefinitionFile>plugins\cal3d_max_exporter\cal3d_max_exporter.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>.\plugins\src;.\plugins\src\win32;.\plugins\cal3d_max_exporter;.\src;..\..\Ext\boost_1_42_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;plugins\src;plugins\cal3d_max_exporter;plugins\src\win32;..\..\Ext\boost_1_61_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WINVER=0x0600;_AFXDLL;USEMORPHLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -124,10 +125,10 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;morpher.lib;cal3d.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\IMVU\don\Ext\3dsmax2013\maxsdk\x64\lib;c:\program files\autodesk\3ds max 2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\Ext\3dsmax2013\maxsdk\x64\lib;..\..\Binaries\Cal3d\Max2012-2014\$(Configuration)\x64</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
-      <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
+      <OutputFile>c:\program files\autodesk\3ds max 2013\plugins\$(TargetName)$(TargetExt)</OutputFile>
       <ModuleDefinitionFile>plugins\cal3d_max_exporter\cal3d_max_exporter.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
@@ -135,7 +136,7 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>.\plugins\src;.\plugins\src\win32;.\plugins\cal3d_max_exporter;.\src;..\..\Ext\boost_1_42_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;plugins\src;plugins\cal3d_max_exporter;plugins\src\win32;..\..\Ext\boost_1_61_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WINVER=0x0600;_AFXDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
@@ -149,20 +150,21 @@
       <PreprocessorDefinitions>_UNICODE1;UNICODE1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ResourceCompile>
     <Link>
-      <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\IMVU\don\Ext\3dsmax2013\maxsdk\x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;morpher.lib;cal3d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\..\Ext\3dsmax2013\maxsdk\x64\lib;..\..\Binaries\$(Configuration)2011</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <TargetMachine>MachineX86</TargetMachine>
+      <ModuleDefinitionFile>plugins\cal3d_max_exporter\cal3d_max_exporter.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>.\plugins\src;.\plugins\src\win32;.\plugins\cal3d_max_exporter;.\src;..\..\Ext\boost_1_42_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;plugins\src;plugins\cal3d_max_exporter;plugins\src\win32;..\..\Ext\boost_1_61_0;..\..\Ext\rapidxml-1.13;..\..\Ext\3dsmax2013\maxsdk\include;..\..\Ext\3dsmax2013\maxsdk\include\CS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WINVER=0x0600;_AFXDLL;USEMORPHLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
@@ -177,7 +179,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>core.lib;geom.lib;gfx.lib;mesh.lib;maxutil.lib;maxscrpt.lib;paramblk2.lib;morpher.lib;cal3d.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\IMVU\don\Ext\3dsmax2013\maxsdk\x64\lib;c:\program files\autodesk\3ds max 2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\Ext\3dsmax2013\maxsdk\x64\lib;..\..\Binaries\Cal3d\Max2012-2014\$(Configuration)\x64</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>

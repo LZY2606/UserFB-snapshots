@@ -27,6 +27,8 @@ public:
 
     void scale(float factor);
     void fixup(const CalCoreSkeletonPtr& skeleton);
+    void removeEmptySubmeshes();
+    void splitSubmeshesToBoneLimit(unsigned boneLimit);
 
     CalCoreSubmeshVector submeshes;
 };

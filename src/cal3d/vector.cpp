@@ -16,3 +16,7 @@
 #include "cal3d/vector4.h"
 #include "cal3d/quaternion.h"
 #include "cal3d/transform.h"
+
+CalVector4 CalVector::asCalVector4() const {
+    return CalVector4(x, y, z);
+}

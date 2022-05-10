@@ -16,6 +16,7 @@
 #include "MaxAnimationExport.h"
 #include "Exporter.h"
 #include "MaxInterface.h"
+#include "strbasic.h"
 
 //----------------------------------------------------------------------------//
 // Constructors                                                               //
@@ -37,14 +38,14 @@ CMaxAnimationExport::~CMaxAnimationExport()
 // Following methods have to be implemented to make it a valid plugin         //
 //----------------------------------------------------------------------------//
 
-const TCHAR *CMaxAnimationExport::AuthorName()
+const MCHAR *CMaxAnimationExport::AuthorName()
 {
-	return _T("IMVU Inc; Bruno 'Beosil' Heidelberger");
+    return _M_TEXT("IMVU Inc; Bruno 'Beosil' Heidelberger");
 }
 
-const TCHAR *CMaxAnimationExport::CopyrightMessage()
+const MCHAR *CMaxAnimationExport::CopyrightMessage()
 {
-	return _T("Copyright (c) 2010 IMVU Inc; Copyright (C) 2001 Bruno 'Beosil' Heidelberger");
+    return _M_TEXT("Copyright (c) 2010-2015 IMVU Inc; Copyright (C) 2001 Bruno 'Beosil' Heidelberger");
 }
 
 static char const *t2c(TCHAR const *tch)
@@ -66,35 +67,35 @@ int CMaxAnimationExport::DoExport(const TCHAR *name, ExpInterface *ei, Interface
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(ei, i))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// export the animation
 	if(!theExporter.ExportAnimation(t2c(name)))
 	{
-		MessageBoxA(0, "Animation Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Animation Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	return 1;
 }
 
-const TCHAR *CMaxAnimationExport::Ext(int i)
+const MCHAR *CMaxAnimationExport::Ext(int i)
 {
 	switch(i)
 	{
 	case 0:
-		return _T("xaf");
+        return _M_TEXT("xaf");
 	default:
-		return _T("");
+        return _M_TEXT("");
 	}
 }
 
@@ -103,24 +104,24 @@ int CMaxAnimationExport::ExtCount()
 	return 1;
 }
 
-const TCHAR *CMaxAnimationExport::LongDesc()
+const MCHAR *CMaxAnimationExport::LongDesc()
 {
-	return _T("Cal3D Animation File");
+    return _M_TEXT("Cal3D Animation File");
 }
 
-const TCHAR *CMaxAnimationExport::OtherMessage1()
+const MCHAR *CMaxAnimationExport::OtherMessage1()
 {
-	return _T("");
+    return _M_TEXT("");
 }
 
-const TCHAR *CMaxAnimationExport::OtherMessage2()
+const MCHAR *CMaxAnimationExport::OtherMessage2()
 {
-	return _T("");
+    return _M_TEXT("");
 }
 
-const TCHAR *CMaxAnimationExport::ShortDesc()
+const MCHAR *CMaxAnimationExport::ShortDesc()
 {
-	return _T("Cal3D Animation File");
+    return _M_TEXT("Cal3D Animation File");
 }
 
 void CMaxAnimationExport::ShowAbout(HWND hWnd)
@@ -144,21 +145,21 @@ bool CMaxAnimationExport::ExportAnimationFromMaxscriptCall(const TCHAR *name, An
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(NULL, GetCOREInterface()))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// export the animation
 	if(! theExporter.ExportAnimationFromMaxscriptCall(t2c(name), (void*)_animexportparams))
 	{
-		MessageBoxA(0, "Animation Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Animation Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 

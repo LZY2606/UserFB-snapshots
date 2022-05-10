@@ -59,7 +59,7 @@ int CMaxMorphAnimationExport::DoExport(const TCHAR *name, ExpInterface *ei, Inte
 	if(!maxInterface.Create(ei, i))
 	{
     ::OutputDebugString(_T("maxInterface.Create() failed\n"));
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -67,7 +67,7 @@ int CMaxMorphAnimationExport::DoExport(const TCHAR *name, ExpInterface *ei, Inte
 	if(!theExporter.Create(&maxInterface))
 	{
     ::OutputDebugString(_T("theExporter.Create() failed\n"));
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -77,7 +77,7 @@ int CMaxMorphAnimationExport::DoExport(const TCHAR *name, ExpInterface *ei, Inte
 	if(!theExporter.ExportMorphAnimation(cname.c_str()))
 	{
     ::OutputDebugString(_T("theExporter.ExportMorphAnimation() failed\n"));
-		MessageBoxA(0, "Morph Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Morph Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -142,14 +142,14 @@ bool CMaxMorphAnimationExport::ExportMorphAnimationFromMaxscriptCall(const TCHAR
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(NULL, GetCOREInterface()))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -157,7 +157,7 @@ bool CMaxMorphAnimationExport::ExportMorphAnimationFromMaxscriptCall(const TCHAR
     std::string cname(name, name+_tcslen(name));
 	if(! theExporter.ExportMorphAnimationFromMaxscriptCall(cname.c_str(), (void*)_animexportparams))
 	{
-		MessageBoxA(0, "Morph Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Morph Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 

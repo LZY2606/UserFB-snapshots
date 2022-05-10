@@ -87,7 +87,7 @@ LRESULT CLevelOfDetailPage::EndPage()
 		// create the LOD data
 		if(!m_pMeshCandidate->CalculateLOD())
 		{
-			::MessageBoxA(0, "LOD Calculation Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+			::MessageBoxA(0, theExporter.GetLastError().c_str(), "LOD Calculation Error", MB_OK | MB_ICONEXCLAMATION);
 			return -1;
 		}
 	}
@@ -96,7 +96,7 @@ LRESULT CLevelOfDetailPage::EndPage()
 		// disable the LOD data
 		if(!m_pMeshCandidate->DisableLOD())
 		{
-			::MessageBoxA(0, "LOD Disabling Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+			::MessageBoxA(0, theExporter.GetLastError().c_str(), "LOD Disabling Error", MB_OK | MB_ICONEXCLAMATION);
 			return -1;
 		}
 	}

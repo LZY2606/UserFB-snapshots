@@ -79,74 +79,6 @@ TEST_F(LoaderFixture, position_from_mesh_is_correct) {
     setlocale(LC_ALL, old);
 }
 
-TEST_F(LoaderFixture, loads_mesh_which_causes_vector_Xlen_exception_and_not_crash) {
-    CalBufferSource cbs(fromString(goodMeshData));
-    CalCoreMeshPtr goodMesh(CalLoader::loadCoreMesh(cbs));
-    CalCoreSubmeshPtr subMesh(goodMesh->submeshes[0]);
-    std::ostringstream ssm;
-    bool bRet = true;
-    bRet = CalSaver::saveCoreMesh(ssm, goodMesh.get());
-    CHECK_EQUAL(bRet, true);
-    char* pBuf = new char[ssm.str().length()];
-    memcpy(pBuf, ssm.str().c_str(), ssm.str().length());
-
-    char* pCurPosInBuf = pBuf;
-    float* tempFloatVec = NULL;
-    int tempInt = 0;
-    pCurPosInBuf = pBuf + sizeof(int); //magic num
-    int version = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int); //version
-    tempInt = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int); //submesh count
-    bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
-    bool hasMorphTargetsInMorphFiles = (version >= cal3d::FIRST_FILE_VERSION_WITH_MORPH_TARGETS_IN_MORPH_FILES);
-    tempInt =  getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int); //coreMaterialThreadId
-    int vertexCount = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int);//vertexCount
-    tempInt = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int);//faceCount
-    tempInt = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int);//lodCount
-    tempInt = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int); //springCount
-    int texCoordinateCount = getIntFromBuf(pCurPosInBuf);
-    pCurPosInBuf += sizeof(int);//textureCoordinateCount
-    if (hasMorphTargetsInMorphFiles) {
-        tempInt = getIntFromBuf(pCurPosInBuf);
-        pCurPosInBuf += sizeof(int);
-    }
-    if (vertexCount > 0) {
-        tempFloatVec = getFloatVecFromBuf(pCurPosInBuf);
-        pCurPosInBuf += sizeof(float) * 3;//pos
-        tempFloatVec = getFloatVecFromBuf(pCurPosInBuf);
-        pCurPosInBuf += sizeof(float) * 3;//normal
-        if (hasVertexColors) {
-            tempFloatVec = getFloatVecFromBuf(pCurPosInBuf);
-            pCurPosInBuf += sizeof(float) * 3;
-        }
-        tempInt = getIntFromBuf(pCurPosInBuf);
-        pCurPosInBuf += sizeof(int); //collapseId
-        tempInt = getIntFromBuf(pCurPosInBuf);
-        pCurPosInBuf += sizeof(int); //faceCollapseCount
-        size_t texCoordOffset = texCoordinateCount * sizeof(float) * 2;
-        tempFloatVec = getFloatVecFromBuf(pCurPosInBuf);
-        pCurPosInBuf += texCoordOffset;
-        tempInt = getIntFromBuf(pCurPosInBuf);
-        //put in a value which is sure to cause an exception due to vector allocation
-        int tempNewInfluenceCount =  std::numeric_limits<int>::max();
-        *reinterpret_cast<int*>(pCurPosInBuf) = tempNewInfluenceCount;
-    }
-    //load the buffer back in
-    //should not crash
-    CalBufferSource cbs2(pBuf, ssm.str().length());
-    CalCoreMeshPtr badMesh(CalLoader::loadCoreMesh(cbs2));
-    CalCoreMesh* pMesh = badMesh.get();
-
-    CHECK(!pMesh);
-    delete [] pBuf;
-}
-
 const char unsortedInfluences[] =
     "<HEADER MAGIC=\"XMF\" VERSION=\"919\" />"
     "<MESH NUMSUBMESH=\"1\">"
@@ -416,6 +348,68 @@ TEST_F(LoaderFixture, simple_two_bone_skeleton) {
     CHECK_EQUAL(parentIdOfChildBone, 0);
 }
 
+
+
+const char nan_bone_skeleton[] =
+    "<HEADER MAGIC=\"XSF\" VERSION=\"919\" />"
+    "<SKELETON NUMBONES=\"2\" SCENEAMBIENTCOLOR=\"0.5 0.5 0.5\">"
+    "    <BONE NAME=\"AttachmentRoot\" NUMCHILDS=\"1\" ID=\"0\">"
+    "        <TRANSLATION>0.346893 -12.6875 772.958</TRANSLATION>"
+    "        <ROTATION>nan nan nan nan</ROTATION>"
+    "        <LOCALTRANSLATION>-772.275 34.8962 -0.333774</LOCALTRANSLATION>"
+    "        <LOCALROTATION>0.706778 -0.0217732 0.706766 -0.0217552</LOCALROTATION>"
+    "        <PARENTID>-1</PARENTID>"
+    "        <CHILDID>1</CHILDID>"
+    "    </BONE>"
+    "    <BONE NAME=\"AttachmentNode\" NUMCHILDS=\"0\" ID=\"1\">"
+    "        <TRANSLATION>0.0930318 1.64391e-006 -4.76993e-008</TRANSLATION>"
+    "        <ROTATION>nan nan nan 0</ROTATION>"
+    "        <LOCALTRANSLATION>-772.368 34.8961 -0.334036</LOCALTRANSLATION>"
+    "        <LOCALROTATION>0.706778 -0.0217731 0.706766 -0.0217552</LOCALROTATION>"
+    "        <PARENTID>0</PARENTID>"
+    "    </BONE>"
+    "</SKELETON>"
+    ;
+
+TEST_F(LoaderFixture, nan_bone_skeleton) {
+    float tol = 0.001f;
+    CalBufferSource cbs(fromString(nan_bone_skeleton));
+    CalCoreSkeletonPtr skel(CalLoader::loadCoreSkeleton(cbs));
+    CHECK(skel);
+    CHECK_EQUAL(skel->coreBones.size(), 2u);
+    CalVector sceneAmbientClr = skel->sceneAmbientColor;
+    CHECK_EQUAL(CalVector(0.5f, 0.5f, 0.5f), sceneAmbientClr);
+    CalCoreBone* rootBone = skel->coreBones[0].get();
+    CHECK(rootBone);
+    const std::string rootBoneName = rootBone->name;
+    CHECK_EQUAL(rootBoneName.c_str(), "AttachmentRoot");
+    std::vector<int> childrenOfRootBone = skel->getChildIds(rootBone);
+    CHECK_EQUAL(childrenOfRootBone.size(), 1u);
+    int parentIdOfRootBone = rootBone->parentId;
+    CHECK_EQUAL(parentIdOfRootBone, -1);
+    const CalQuaternion& rot = rootBone->relativeTransform.rotation;
+    CHECK_CLOSE(rot.x, 0, tol);
+    CHECK_CLOSE(rot.y, 0, tol);
+    CHECK_CLOSE(rot.z, 0, tol);
+    CHECK_CLOSE(rot.w, 1, tol);
+    const CalQuaternion& boneSpaceRot = rootBone->inverseBindPoseTransform.rotation;
+    CHECK_CLOSE(boneSpaceRot.x, 0.706778, tol);
+    CHECK_CLOSE(boneSpaceRot.y, -0.0217732, tol);
+    CHECK_CLOSE(boneSpaceRot.z, 0.706766, tol);
+    CHECK_CLOSE(boneSpaceRot.w, 0.0217552, tol);
+    const CalVector& trans = rootBone->relativeTransform.translation;
+    CHECK_CLOSE(trans.x, 0, tol);
+    CHECK_CLOSE(trans.y, 0, tol);
+    CHECK_CLOSE(trans.z, 0, tol);
+    const CalVector& boneSpaceTrans = rootBone->inverseBindPoseTransform.translation;
+    CHECK_CLOSE(boneSpaceTrans.x, -772.275, tol);
+    CHECK_CLOSE(boneSpaceTrans.y, 34.8962, tol);
+    CHECK_CLOSE(boneSpaceTrans.z, -0.333774, tol);
+    CalCoreBone* child = skel->coreBones[childrenOfRootBone[0]].get();
+    int parentIdOfChildBone = child->parentId;
+    CHECK_EQUAL(parentIdOfChildBone, 0);
+}
+
 const char nontopological_two_bone_skeleton[] =
     "<HEADER MAGIC=\"XSF\" VERSION=\"919\" />"
     "<SKELETON NUMBONES=\"2\" SCENEAMBIENTCOLOR=\"0.5 0.5 0.5\">"
@@ -629,6 +623,8 @@ TEST_F(LoaderFixture, loading_mesh_without_vertex_colors_defaults_to_white) {
     CHECK_EQUAL(1u, cm.submeshes.size());
     CHECK_EQUAL(1u, loaded->submeshes.size());
 
+    CHECK_EQUAL(1U, loaded->submeshes[0]->getVertexColors().size());
+    CHECK_EQUAL(4294967295U, loaded->submeshes[0]->getVertexColors()[0]);
 }
 
 TEST_F(LoaderFixture, converting_xml_to_binary_then_back_to_xml_does_not_modify_animation) {

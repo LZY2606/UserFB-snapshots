@@ -44,3 +44,20 @@ Note: This is highly technical! You will have to debug the crashing export to fi
 7) Update the WiX scripts to install the release exporter if the appropriate version of 3ds Max is found on the target computer.
 The WiX source is in: Source\WiX\ImvuCal3DMaxExport.wxs
 The build script is in: s\build_max_exporter_installer.bat
+
+BUILD INFO:
+
+Exporters for Max version before 2010 are built by scons as part of the normal IMVU build
+and use an older version of cal3d.
+
+Newer MAX exporters are built using Visual Studio (the s/build_max_exporter_installer.bat script)
+and use a newer version of cal3d (the sources in stable/Source/cal3d/newsrc).
+There are two versions because the client depends on the older version as well as
+the MAX exporters. The newer version of cal3d is only used by the newer MAX exporters.
+
+You must first run the scons build and then run build_max_exporter_installer.bat.
+You need Visual Studio 2010 AND Visual Studio 2012 installed to build the MAX exporters.
+(Visual Studio 2012 is only required for Max 2015).
+
+Status of Max 2015 exporter: It has a separate Wix file and successfully builds but won't run
+in Max 2015 (it is missing a component - not sure what).

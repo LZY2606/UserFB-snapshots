@@ -9,7 +9,7 @@
 //****************************************************************************//
 
 #pragma once
-
+#include <ctime>
 #include <ostream>
 #include <set>
 #include <map>
@@ -34,17 +34,7 @@ enum CalMorphTargetType {
     CalMorphTargetTypeExclusive
 };
 
-enum SplitMeshBasedOnBoneLimitType {
-    SplitMeshBoneLimitOK,
-    SplitMeshBoneLimitVtxTrglMismatch,
-    SplitMeshBoneLimitEmptyVertices
-};
-
 CAL3D_PTR(CalCoreSubmesh);
-
-#define VECTOR_CONTAINS(a, b)       (std::find(a.begin(), a.end(), b)!=a.end())
-#define VECTOR_REMOVE_VALUE(a, b)   (a.erase(std::find(a.begin(), a.end(), b)))
-#define VECTOR_ADD_UNIQUE(a, b)     do {  if(std::find(a.begin(), a.end(), b)==a.end())  a.push_back(b); } while(0)
 
 // NOTE: Influence extraction could probably be done more efficiently with fixed-length
 // arrays, if we're willing to settle on a fixed number of influences.
@@ -145,43 +135,6 @@ public:
             return true;
         }
     };
-
-    struct Triangle;
-    struct reduxVertex;
-
-    struct reduxVertex {
-    public:
-        CalVector       position; // location of point in euclidean space
-        float           u, v; // texture coordinates
-        int             id;       // place of vertex in original list
-        std::vector<reduxVertex *>   neighbor; // adjacent vertices
-        std::vector<Triangle *> face;     // adjacent triangles
-        float            objdist;  // cached cost of collapsing edge
-        reduxVertex *         collapse; // candidate vertex for collapse
-        std::vector<reduxVertex *> &parent_vertices;
-        bool isBorder(); // test if vertex is on border
-        reduxVertex(std::vector<reduxVertex *> &vertices, const CalPoint4 &p, int _id);
-        reduxVertex(std::vector<reduxVertex *> &vertices, const CalPoint4 &p, float _u, float _v, int _id);
-        ~reduxVertex();
-        void             RemoveIfNonNeighbor(reduxVertex *n);
-    };
-
-    struct Triangle {
-    public:
-        reduxVertex *         vertex[3]; // the 3 points that make this tri
-        CalVector        normal;    // unit vector othogonal to this face
-        CalVector        T;    // vector tangent (delta u)
-        CalVector        B;    // vector bitangent (delta v)
-        std::vector<reduxVertex *> &parent_vertices;
-        std::vector<Triangle *> &parent_triangles;
-        Triangle(std::vector<reduxVertex *> &vertices, std::vector<Triangle *> &triangles, reduxVertex *v0, reduxVertex *v1, reduxVertex *v2);
-        ~Triangle();
-        void             ComputeNormal();
-        void             ComputeTB();
-        void             ReplaceVertex(reduxVertex *vold, reduxVertex *vnew);
-        int              HasVertex(reduxVertex *v);
-    };
-
     
     CAL3D_ALIGN_HEAD(16)
     struct Vertex {
@@ -196,7 +149,11 @@ public:
 
     struct Face {
         Face(){}
-        Face(CalIndex v0, CalIndex v1, CalIndex v2){vertexId[0]=v0; vertexId[1]= v1; vertexId[2]=v2;}
+        Face(CalIndex v0, CalIndex v1, CalIndex v2){
+            vertexId[0] = v0;
+            vertexId[1] = v1;
+            vertexId[2] = v2;
+        }
         CalIndex vertexId[3];
 
         bool operator==(const Face& rhs) const {
@@ -277,27 +234,22 @@ public:
     }
     
     void duplicateTriangles();
-    void sortTris(CalCoreSubmesh&);
+    void sortBackToFrontJonWatte();
+    void sortBackToFrontByCoverage();
+    void sortBackToFrontTopologically();
+    void sortBackToFrontByDistance();
+
     bool simplifySubmesh(unsigned int tri_count, unsigned int quality);
 
-    boost::shared_ptr<CalCoreSubmesh> emitSubmesh(VerticesSet & verticesSetThisSplit, VectorFace & trianglesThisSplit, SplitMeshBasedOnBoneLimitType& rc);
-
-    SplitMeshBasedOnBoneLimitType splitMeshBasedOnBoneLimit(CalCoreSubmeshPtrVector& newSubmeshes, size_t boneLimit);
-
+    void splitSubmeshesToBoneLimit(std::vector<CalCoreSubmeshPtr>& out, unsigned boneLimit) const;
     void optimizeVertexCache();
-    void optimizeVertexCacheSubset(unsigned int faceStartIndex, unsigned int faceCount);
     void renumberIndices();
     void normalizeNormals();
-    void sortForBlending();
 
-    CalExportedInfluences exportInfluences(unsigned int influenceLimit);
+    CalExportedInfluences exportInfluences(unsigned int influenceLimit, float influenceMargin) const;
 
 private:
     unsigned int m_currentVertexId;
-    int m_isolateds;
-    std::vector<reduxVertex *> vertices;
-    std::vector<Triangle *> triangles;
-
 
     // The following arrays should always be the same size.
     VectorVertex m_vertices;
@@ -308,27 +260,18 @@ private:
 
     MorphTargetArray m_morphTargets;
 
+    // computed from referenced vertices (todo: move out of this structure)
     bool m_isStatic;
     InfluenceSet m_staticInfluenceSet;
 
     InfluenceVector m_influences;
-    CalAABox m_boundingVolume;
+    CalAABox m_boundingVolume; // computed from referenced vertices (todo: move out of this structure)
 
+    // face data
     VectorFace m_faces;
     size_t m_minimumVertexBufferSize;
 
-    void addVertices(CalCoreSubmesh& submeshTo, unsigned submeshToVertexOffset, float normalMul);
-
-    // internal simplification prototypes
-    float ComputeEdgeCollapseCost(reduxVertex *u, reduxVertex *v);
-    bool ComputeEdgeCostAtVertex(reduxVertex *v);
-    bool ComputeAllEdgeCollapseCosts();
-    void Collapse(reduxVertex *u, reduxVertex *v);
-    void reduxAddFaces(const VectorFace &tri);
-    void reduxAddVertices(const VectorVertex &vert, const VectorTextureCoordinate &tex);
-    void ApplyFaces(const VectorFace &tris);
-    bool matchFaces(Triangle *t0, Triangle *t1);
-    reduxVertex *MinimumCostEdge();
+    static const int m_maxInfluencesPerVertex;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const CalCoreSubmesh::Influence& influence) {

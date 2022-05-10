@@ -6,6 +6,7 @@
 #include <cal3d/streamops.h>
 
 #include <TestFramework/TestFramework.h>
+#include <cal3d/memory.h>
 #include <cal3d/vector4.h>
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
@@ -23,4 +24,18 @@ inline bool AreClose(
     float tolerance
 ) {
     return (p1.asCalVector4() - p2.asCalVector4()).length() < tolerance;
+}
+
+template <typename Tolerance>
+inline bool AreClose(
+    const CalVector4& p1,
+    const CalVector4& p2,
+    Tolerance tolerance
+) {
+    return (p1 - p2).length() < tolerance;
+}
+
+template <typename T, size_t N>
+cal3d::SSEArray<T> arrayToSSEArray(T (&array)[N]) {
+    return convertArray<cal3d::SSEArray<T> >(array);
 }

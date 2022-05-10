@@ -21,7 +21,7 @@
 CAL3D_PTR(CalCoreBone);
 class CalQuaternion;
 
-class CAL3D_API CalCoreSkeleton : private boost::noncopyable {
+class CAL3D_API CalCoreSkeleton {
 public:
     CalCoreSkeleton(const std::vector<CalCoreBonePtr>& bones = std::vector<CalCoreBonePtr>());
 

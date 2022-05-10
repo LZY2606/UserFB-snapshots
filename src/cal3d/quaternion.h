@@ -14,6 +14,7 @@
 #include "cal3d/vector4.h"
 #include "cal3d/matrix.h"
 
+extern std::string QuaternionRepr(const CalQuaternion& q);
 
 class CAL3D_API CalQuaternion {
 public:
@@ -74,11 +75,41 @@ public:
     void setAxisAngle(const CalVector& axis, float angle) {
         float h2 = angle * 0.5f;
         float s = sin(h2);
-        w = cos(h2); 
+        w = cos(h2);
         x = s * axis.x;
         y = s * axis.y;
         z = s * axis.z;
     }
+
+/*Some customers' products have NAN value for rotation of transform. In order to make those products
+ * survive in Pure, we replace NAN value with 0 such that those products can be loaded,
+ * but still the animations wouldn't work. Customers are the most important.*/
+    static bool nanToZero(float& x, float& y, float& z, float& w){
+        bool changed = false;
+        if (x != x || ((x/2) == x) ) {
+            x = 0;
+            changed = true;
+        }
+        if (y != y || ((y/2) == y)) {
+            y = 0;
+            changed = true;
+        }
+        if (z != z || ((z/2) == z)) {
+            z = 0;
+            changed = true;
+        }
+        if (w != w || ((w/2) == w)) {
+            w = 0;
+            changed = true;
+        }
+        return changed;
+    }
+
+    bool nanToZero(){
+        bool ret =  CalQuaternion::nanToZero(x,y,z,w);
+        return ret;
+    }
+
 };
 
 inline CalQuaternion operator*(const CalQuaternion& outer, const CalQuaternion& inner) {

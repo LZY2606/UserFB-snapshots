@@ -87,7 +87,7 @@ LRESULT CSpringSystemPage::EndPage()
 		// create the spring system data
 		if(!m_pMeshCandidate->CalculateSpringSystem())
 		{
-			::MessageBoxA(0, "Spring Calculation Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+			::MessageBoxA(0, theExporter.GetLastError().c_str(), "Spring Calculation Error", MB_OK | MB_ICONEXCLAMATION);
 			return -1;
 		}
 	}

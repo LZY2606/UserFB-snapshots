@@ -6,16 +6,13 @@
 
 #include <cstring>
 
+#ifndef IMVU_NO_INTRINSICS
+// Pull in __rdtsc() intrinsic
 #if defined(_MSC_VER)
 #   include <intrin.h>
 #else
-
-inline cal3d_uint64 __rdtsc(void) {
-    cal3d_uint64 myvar;
-    __asm__ volatile("rdtsc \n\t" : "=A"(myvar));
-    return myvar;
-}
-
+#   include <x86intrin.h>
+#endif
 #endif
 
 FIXTURE(PhysiqueFixture) {
@@ -38,7 +35,6 @@ FIXTURE(skin_SSE_intrinsics) {
 #endif
 
 
-#ifdef IMVU_NO_ASM_BLOCKS
 #ifdef IMVU_NO_INTRINSICS
 FIXTURE(skin_SSE) {
     CalPhysique::SkinRoutine skin;
@@ -48,14 +44,6 @@ FIXTURE(skin_SSE) {
 };
 #else
 FIXTURE_EXTENDS(skin_SSE, skin_SSE_intrinsics) {
-};
-#endif
-#else
-FIXTURE(skin_SSE) {
-    CalPhysique::SkinRoutine skin;
-    SETUP(skin_SSE) {
-        skin = CalPhysique::calculateVerticesAndNormals_SSE;
-    }
 };
 #endif
 
@@ -201,6 +189,7 @@ ABSTRACT_TEST(two_rotated_bones) {
 }
 APPLY_SKIN_FIXTURES(two_rotated_bones);
 
+#ifndef IMVU_NO_INTRINSICS
 ABSTRACT_TEST(skin_10000_vertices_1_influence_cycle_count) {
     const int N = 10000;
     const int TrialCount = 10;
@@ -234,6 +223,7 @@ ABSTRACT_TEST(skin_10000_vertices_1_influence_cycle_count) {
     printf("Cycles per vertex: %d\n", (int)(min / N));
 }
 APPLY_SKIN_FIXTURES(skin_10000_vertices_1_influence_cycle_count);
+#endif
 
 static CalCoreSubmeshPtr djinnCoreSubmesh(int N) {
     CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(N, 0, 0));
@@ -263,6 +253,7 @@ static CalCoreMorphTargetPtr djinnMorphTarget(int N, const char* name) {
     return morphTarget;
 }
 
+#ifndef IMVU_NO_INTRINSICS
 TEST_F(PhysiqueFixture, morph_targets_performance_test) {
     const int N = 10000;
     const int TrialCount = 10;
@@ -329,6 +320,7 @@ TEST_F(PhysiqueFixture, bunch_of_unweighted_morph_targets_performance_test) {
 
     printf("Cycles per vertex: %d\n", (int)(min / N));
 }
+#endif
 
 TEST_F(PhysiqueFixture, single_morph_target) {
     std::vector<CalCoreSubmesh::Influence> inf(1);

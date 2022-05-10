@@ -61,14 +61,14 @@ int CMaxMaterialExport::DoExport(const TCHAR *name, ExpInterface *ei, Interface 
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(ei, i))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -77,7 +77,7 @@ int CMaxMaterialExport::DoExport(const TCHAR *name, ExpInterface *ei, Interface 
     std::string cname(tname.begin(), tname.end());
 	if(!theExporter.ExportMaterial(cname.c_str()))
 	{
-		MessageBoxA(0, "Material Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Material Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -144,21 +144,21 @@ bool CMaxMaterialExport::ExportMaterialFromMaxscriptCall(const char* fullpathfil
 	//Set the tab of materials into our Max interface
 	if(! maxInterface.Create(NULL, GetCOREInterface(), _stdmatfrommaxscript))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// export the materials
 	if(!theExporter.ExportMaterialFromMaxscriptCall(fullpathfilename))
 	{
-		MessageBoxA(0, "Material Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Material Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 

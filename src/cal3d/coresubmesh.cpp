@@ -19,6 +19,7 @@
 #include "cal3d/transform.h"
 #include "cal3d/forsythtriangleorderoptimizer.h"
 #include "cal3d/trisort.h"
+#include "cal3d/simplify.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,8 @@
 #include <iostream>
 #include <limits>
 #include <set>
+
+const int CalCoreSubmesh::m_maxInfluencesPerVertex = 10;
 
 CalCoreSubmesh::CalCoreSubmesh(int vertexCount, bool hasTextureCoordinates, int faceCount)
     : coreMaterialThreadId(0)
@@ -472,38 +475,6 @@ CalCoreSubmeshPtr MakeCube() {
     return MakeCubeScale(1.0f);
 }
 
-#define PRINT_MOD 200
-#define PRINT_STATUS 0
-
-void CalCoreSubmesh::addVertices(CalCoreSubmesh& submeshTo, unsigned submeshToVertexOffset, float normalMul) {
-    size_t c = 0;
-    size_t i = 0;
-    for (size_t v = 0; v < getVertexCount(); v++) {
-        const Vertex& oldVert = m_vertices[v];
-        Vertex newVert;
-        newVert.position = oldVert.position;
-        newVert.normal = oldVert.normal;
-        newVert.normal *= normalMul;
-
-        InfluenceVector newInfs;
-        while (!m_influences[i].lastInfluenceForThisVertex) {
-            Influence inf(m_influences[i].boneId, m_influences[i].weight, false);
-            newInfs.push_back(inf);
-            i++;
-        }
-
-        Influence infLast(m_influences[i].boneId, m_influences[i].weight, true);
-        newInfs.push_back(infLast);
-        i++;
-
-        submeshTo.addVertex(newVert, getVertexColors()[c], newInfs);
-        if (getTextureCoordinates().size() > 0) {
-            submeshTo.setTextureCoordinate(submeshToVertexOffset + c, getTextureCoordinates()[c]);
-        }
-        c++;
-    }
-}
-
 void CalCoreSubmesh::duplicateTriangles() {
     size_t faceCount = m_faces.size();
 
@@ -521,13 +492,12 @@ void CalCoreSubmesh::duplicateTriangles() {
 
 struct FaceSortRef {
     float fscore;
-    unsigned short face;
+    unsigned face;
 };
 
 struct FaceSort {
-    unsigned short ix[3];       //  the face
     unsigned short nfront;      //  how many faces I am in front of
-    FaceSortRef *infront;       //  refs to faces I am in front of, with scores
+    size_t infront;       //  refs to faces I am in front of, with scores
     CalVector fnorm;            //  the face normal
     float fdist;                //  the face distance from origin in the direction of the normal
     float score;                //  the current cost of this face (sum of other faces behind)
@@ -535,45 +505,16 @@ struct FaceSort {
 };
 
 // http://www.mindcontrol.org/~hplus/graphics/sort-alpha.html
-void CalCoreSubmesh::sortTris(CalCoreSubmesh& submeshTo) {
-    size_t numVertices = getVertexCount();
+void CalCoreSubmesh::sortBackToFrontJonWatte() {
     size_t numFaces = m_faces.size();
 
-#if PRINT_STATUS > 0
-    std::cout << "\n\nCalCoreSubmesh::sortTris\n" <<
-            "Input submesh numVertices: " <<  numVertices <<
-            ", numFaces: " << numFaces << "\n" <<
-            "Output submesh numVertices: " <<  submeshTo.getVertexCount() <<
-            ", numFaces: " << submeshTo.getFaces().size() << "\n";
-#endif
+    std::vector<FaceSort> facesStorage(numFaces);
+    FaceSort* faces = cal3d::pointerFromVector(facesStorage);
+    memset(faces, 0, sizeof(FaceSort) * numFaces);
 
-    addVertices(submeshTo, 0, 1.f);
-    addVertices(submeshTo, numVertices, -1.f);
-    for (size_t mt = 0; mt < getMorphTargets().size(); ++mt) {
-        const CalCoreMorphTargetPtr& mtPtr = getMorphTargets()[mt];
-        CalCoreMorphTarget::VertexOffsetArray voDup;
-        for (CalCoreMorphTarget::VertexOffsetArray::const_iterator voi = mtPtr->vertexOffsets.begin(); voi != mtPtr->vertexOffsets.end(); ++voi) {
-            voDup.push_back(VertexOffset(voi->vertexId, voi->position, voi->normal));
-        }
-        for (CalCoreMorphTarget::VertexOffsetArray::const_iterator voi = mtPtr->vertexOffsets.begin(); voi != mtPtr->vertexOffsets.end(); ++voi) {
-            voDup.push_back(VertexOffset(voi->vertexId + numVertices, voi->position, voi->normal));
-        }
-        CalCoreMorphTargetPtr mtPtrDup(new CalCoreMorphTarget(mtPtr->name, numVertices * 2, voDup));
-        submeshTo.addMorphTarget(mtPtrDup);
-    }
-    submeshTo.coreMaterialThreadId = coreMaterialThreadId;
-
-    FaceSort *faces = new FaceSort[numFaces * 2];
-    memset(faces, 0, sizeof(FaceSort)*(numFaces * 2));
-    FaceSortRef *frefs = new FaceSortRef[numFaces * 2 * numFaces * 2];
-    memset(frefs, 0, sizeof(FaceSortRef) * numFaces * 2 * numFaces * 2);
-    size_t frtop = 0;
+    std::vector<FaceSortRef> frefs;
 
     for (size_t f = 0; f < numFaces; ++f) {
-        faces[f].ix[0] = m_faces[f].vertexId[0];
-        faces[f].ix[1] = m_faces[f].vertexId[1];
-        faces[f].ix[2] = m_faces[f].vertexId[2];
-
         faces[f].nfront = 0;
         faces[f].infront = 0;
 
@@ -594,38 +535,25 @@ void CalCoreSubmesh::sortTris(CalCoreSubmesh& submeshTo) {
         faces[f].score = 0;
     }
 
-    memcpy(faces + numFaces, faces, sizeof(FaceSort) * numFaces);
-    for (size_t f = numFaces; f < numFaces * 2; ++f) {
-        unsigned short s = faces[f].ix[0];
-        faces[f].ix[0] = (unsigned short)(faces[f].ix[1] + numVertices);
-        faces[f].ix[1] = (unsigned short)(s + numVertices);
-        faces[f].ix[2] = (unsigned short)(faces[f].ix[2] + numVertices);
-        faces[f].nfront = 0;
-        faces[f].infront = 0;
-        faces[f].fnorm *= -1;
-        faces[f].fdist *= -1;
-        faces[f].score = 0;
-    }
-
     unsigned totalSearch = 0;
-    for (size_t g = 0; g < numFaces * 2; ++g) {
-        assert(faces[g].ix[0] != faces[g].ix[1]);
-        faces[g].infront = frefs + frtop;
+    for (size_t g = 0; g < numFaces; ++g) {
+        assert(m_faces[g].vertexId[0] != m_faces[g].vertexId[1]);
+        faces[g].infront = frefs.size();
 
-        for (size_t f = 0; f < numFaces * 2; ++f) {
+        for (size_t f = 0; f < numFaces; ++f) {
             if (f == g) {
               continue;
             }
 
             int vfront = 0, gfront = 0;
             for (int i = 0; i < 3; ++i) {
-                CalVector v = submeshTo.getVectorVertex()[faces[g].ix[i]].position.asCalVector();
+                CalVector v = m_vertices[m_faces[g].vertexId[i]].position.asCalVector();
                 float d = dot(v, faces[f].fnorm) - faces[f].fdist;
                 if (d < -1e-4) {
                   vfront++;
                 }
 
-                v = submeshTo.getVectorVertex()[faces[f].ix[i]].position.asCalVector();
+                v = m_vertices[m_faces[f].vertexId[i]].position.asCalVector();
                 d = dot(v, faces[g].fnorm) - faces[g].fdist;
                 if (d < 1e-4) {
                   gfront++;
@@ -635,55 +563,42 @@ void CalCoreSubmesh::sortTris(CalCoreSubmesh& submeshTo) {
             }
 
             if (vfront && (gfront < 3)) {
-              FaceSortRef &fr = faces[g].infront[faces[g].nfront];
-              fr.face = (unsigned short)f;
+              FaceSortRef fr;
+              fr.face = f;
               fr.fscore = (float)(std::max(faces[f].area, faces[g].area) * (1 + dot(faces[f].fnorm, faces[g].fnorm)) * 0.5 * vfront / 3);
               faces[g].nfront++;
               faces[f].score += fr.fscore;
-              ++frtop;
+              frefs.push_back(fr);
             }
         }
-
-
-#if PRINT_STATUS > 0
-      if (!(g % PRINT_MOD)) {
-          std::cout << "Face " << g << ", num searches so far: " << totalSearch << " (" << (totalSearch / 1000000) << "M)" << "\n";
-      }
-#endif
-
     }
 
+    std::vector<Face> newFaces;
+
     Face newFace;
-    for (size_t i = 0; i < numFaces * 2; ++i) {
+    for (size_t i = 0; i < numFaces; ++i) {
         float lowest = faces[i].score;
         size_t lowestIx = i;
-        for (size_t f = 0; f < numFaces * 2; ++f) {
+        for (size_t f = 0; f < numFaces; ++f) {
             if (faces[f].score < lowest) {
                 lowest = faces[f].score;
                 lowestIx = f;
             }
         }
         assert(lowest < 1e20f);
-        assert(faces[lowestIx].ix[0] != faces[lowestIx].ix[1]);
+        assert(m_faces[lowestIx].vertexId[0] != m_faces[lowestIx].vertexId[1]);
         assert(faces[lowestIx].score == lowest);
 
-        newFace.vertexId[0] = faces[lowestIx].ix[0];
-        newFace.vertexId[1] = faces[lowestIx].ix[1];
-        newFace.vertexId[2] = faces[lowestIx].ix[2];
-        submeshTo.addFace(newFace);
+        newFace = m_faces[lowestIx];
+        newFaces.push_back(newFace);
 
         faces[lowestIx].score = 1e20f;
         for (size_t q = 0; q < faces[lowestIx].nfront; ++q) {
-          faces[faces[lowestIx].infront[q].face].score -= faces[lowestIx].infront[q].fscore;
+          faces[frefs[faces[lowestIx].infront + q].face].score -= frefs[faces[lowestIx].infront + q].fscore;
         }
-
-#if PRINT_STATUS > 0
-        if (!(i % PRINT_MOD) && (i > 0)) {
-            std::cout << "Generated " << i << " faces.\n";
-        }
-#endif
-
     }
+
+    newFaces.swap(m_faces);
 }
 
 typedef std::vector<std::vector<CalCoreSubmesh::Influence>> InfluenceVectorVector;
@@ -701,6 +616,7 @@ static InfluenceVectorVector extractInfluenceVector(const CalCoreSubmesh::Influe
     }
     return result;
 }
+
 static CalCoreSubmesh::InfluenceVector generateInfluenceVector(const InfluenceVectorVector& iv) {
     CalCoreSubmesh::InfluenceVector result;
     for (auto influences = iv.begin(); influences != iv.end(); ++influences) {
@@ -716,106 +632,89 @@ static CalCoreSubmesh::InfluenceVector generateInfluenceVector(const InfluenceVe
     return result;
 }
 
-CalCoreSubmeshPtr CalCoreSubmesh::emitSubmesh(VerticesSet & verticesSetThisSplit, VectorFace & trianglesThisSplit, SplitMeshBasedOnBoneLimitType& rc) {
-    auto influencesVector = extractInfluenceVector(m_influences);
+static CalCoreSubmeshPtr newEmptySubmeshWithVertices(const CalCoreSubmesh& self) {
+    auto influenceVector = extractInfluenceVector(self.getInfluences());
+    assert(influenceVector.size() == self.getVectorVertex().size());
 
-    typedef std::map<int, int> VertexMap;
-    VertexMap vertexMapper;
-    int vIdx = 0;
-    int numTris;
-    for (std::set<int>::iterator it = verticesSetThisSplit.begin(); it != verticesSetThisSplit.end(); ++it) {
-        vertexMapper[*it] = vIdx++;
+    CalCoreSubmeshPtr newSubmesh(
+        new CalCoreSubmesh(
+            self.getVertexCount(),
+            !self.getTextureCoordinates().empty(),
+            self.getFaceCount() /* just a hint */));
+    newSubmesh->coreMaterialThreadId = self.coreMaterialThreadId;
+
+    for (size_t i = 0; i < self.getMorphTargets().size(); ++i) {
+        newSubmesh->addMorphTarget(self.getMorphTargets()[i]);
     }
-    numTris = trianglesThisSplit.size();
-    for (int x = 0; x < numTris; ++x) {
-        if (verticesSetThisSplit.find(trianglesThisSplit[x].vertexId[0]) == verticesSetThisSplit.end()
-            || verticesSetThisSplit.find(trianglesThisSplit[x].vertexId[1]) == verticesSetThisSplit.end()
-            || verticesSetThisSplit.find(trianglesThisSplit[x].vertexId[2]) == verticesSetThisSplit.end()) {
-            rc = SplitMeshBoneLimitVtxTrglMismatch;
-            CalCoreSubmeshPtr newSubmesh;
-            return newSubmesh;
+
+    for (size_t i = 0; i < self.getVertexCount(); ++i) {
+        newSubmesh->addVertex(
+            self.getVectorVertex()[i],
+            self.getVertexColors()[i],
+            influenceVector[i]);
+        if (!self.getTextureCoordinates().empty()) {
+            newSubmesh->setTextureCoordinate(i, self.getTextureCoordinates()[i]);
         }
-        trianglesThisSplit[x].vertexId[0] = vertexMapper[trianglesThisSplit[x].vertexId[0]];
-        trianglesThisSplit[x].vertexId[1] = vertexMapper[trianglesThisSplit[x].vertexId[1]];
-        trianglesThisSplit[x].vertexId[2] = vertexMapper[trianglesThisSplit[x].vertexId[2]];
     }
 
-    CalCoreSubmeshPtr newSubmesh(new CalCoreSubmesh(verticesSetThisSplit.size(), m_textureCoordinates.size() > 0, numTris)); 
-
-    vIdx = 0;
-    for (auto it = verticesSetThisSplit.begin(); it != verticesSetThisSplit.end(); ++it) {
-        int v = *it;
-        struct Vertex originalVertex = m_vertices[v];
-        newSubmesh->addVertex(originalVertex, m_vertexColors[v], influencesVector[v]);
-        newSubmesh->setTextureCoordinate(vIdx, m_textureCoordinates[v]);
-        ++vIdx;
-    }
-    for (int x = 0; x < numTris; ++x) {
-        newSubmesh->addFace(trianglesThisSplit[x]);
-    }
-    newSubmesh->coreMaterialThreadId = coreMaterialThreadId;
-    rc = SplitMeshBoneLimitOK;
     return newSubmesh;
 }
 
-static void getBoneIndicesFromFace(InfluenceVectorVector& influences, std::set<int>& bSet, CalCoreSubmesh::Face& t) {
-    for (int i = 0; i < 3; ++i) {
-        auto& iv = influences[t.vertexId[i]];
-        for (size_t indx = 0; indx < iv.size(); ++indx) {
-            bSet.insert(iv[indx].boneId);
+void CalCoreSubmesh::splitSubmeshesToBoneLimit(
+    std::vector<CalCoreSubmeshPtr>& out,
+    unsigned boneLimit
+) const {
+    if (m_faces.empty()) {
+        return;
+    }
+
+    auto influenceVector = extractInfluenceVector(getInfluences());
+    for (std::size_t i = 0; i < influenceVector.size(); i++) {
+        if (influenceVector[i].size() > m_maxInfluencesPerVertex) {
+            std::sort(influenceVector[i].begin(), influenceVector[i].end(),
+                      [](const auto& inf0, const auto& inf1) { return inf0.weight > inf1.weight; });
+            influenceVector[i].resize(m_maxInfluencesPerVertex);
         }
     }
-}
+    // This function produces meshes with lots of unused data.  That's
+    // OK, subsequent passes like optimizeVertxCache and
+    // renumberIndices will eliminate all of that.
 
-SplitMeshBasedOnBoneLimitType CalCoreSubmesh::splitMeshBasedOnBoneLimit(CalCoreSubmeshPtrVector& newSubmeshes, size_t boneLimit) {
-    std::set<int> boneIndicesThisMesh_New;
-    std::set<int> boneIndicesTemp;
-    std::set<int> boneIndicesThisMesh;
-    VerticesSet verticesForThisSplit;
-    std::vector<Face> trianglesForThisSplit;
-    SplitMeshBasedOnBoneLimitType rc;
-    CalCoreSubmeshPtr newSubmeshSP;
+    auto newSubmesh = newEmptySubmeshWithVertices(*this);
 
-    auto influencesVector = extractInfluenceVector(m_influences);
+    std::set<unsigned> referencedBones;
 
-    VectorFace::size_type sz = m_faces.size();
-    for (unsigned i = 0; i < sz; i++) {
-        Face& t = m_faces[i];
-        getBoneIndicesFromFace(influencesVector, boneIndicesTemp, t);
-        boneIndicesThisMesh_New.insert(boneIndicesTemp.begin(), boneIndicesTemp.end());
+    for (size_t i = 0; i < m_faces.size(); ++i) {
+        const auto& face = m_faces[i];
 
-        if (boneIndicesThisMesh_New.size() > boneLimit) {
-            newSubmeshSP = emitSubmesh(verticesForThisSplit, trianglesForThisSplit, rc);
-            if (rc != SplitMeshBoneLimitOK) {
-                return rc;
+        std::set<unsigned> thisTriangleBones;
+        for (int t = 0; t < 3; ++t) {
+            const auto& infs = influenceVector[face.vertexId[t]];
+            for (size_t k = 0; k < infs.size(); ++k) {
+                thisTriangleBones.insert(infs[k].boneId);
             }
-            boneIndicesThisMesh_New.clear();
-            boneIndicesThisMesh_New.insert(boneIndicesTemp.begin(), boneIndicesTemp.end());
-            verticesForThisSplit.clear();
-            trianglesForThisSplit.clear();
-            newSubmeshes.push_back(newSubmeshSP);
         }
-        verticesForThisSplit.insert(t.vertexId[0]);
-        verticesForThisSplit.insert(t.vertexId[1]);
-        verticesForThisSplit.insert(t.vertexId[2]);
-        trianglesForThisSplit.push_back(t);
-        boneIndicesTemp.clear();
-    }
-    if (!trianglesForThisSplit.empty()) {
-        if (verticesForThisSplit.empty()) {
-            return SplitMeshBoneLimitEmptyVertices;
+
+        std::set<unsigned> boneUnion;
+        std::set_union(
+            referencedBones.begin(), referencedBones.end(),
+            thisTriangleBones.begin(), thisTriangleBones.end(),
+            std::inserter(boneUnion, boneUnion.begin()));
+        if (boneUnion.size() > boneLimit) {
+            out.push_back(newSubmesh);
+            newSubmesh = newEmptySubmeshWithVertices(*this);
+            referencedBones.clear();
         }
-        newSubmeshSP = emitSubmesh(verticesForThisSplit, trianglesForThisSplit, rc);
-        if (rc != SplitMeshBoneLimitOK) {
-            return rc;
-        }
-        verticesForThisSplit.clear();
-        trianglesForThisSplit.clear();
-        boneIndicesThisMesh_New.clear();
-        newSubmeshes.push_back(newSubmeshSP);
+
+        std::set_union(
+            referencedBones.begin(), referencedBones.end(),
+            thisTriangleBones.begin(), thisTriangleBones.end(),
+            std::inserter(referencedBones, referencedBones.begin()));
+
+         newSubmesh->addFace(face);
     }
 
-    return SplitMeshBoneLimitOK;
+    out.push_back(newSubmesh);
 }
 
 void CalCoreSubmesh::optimizeVertexCache() {
@@ -833,33 +732,6 @@ void CalCoreSubmesh::optimizeVertexCache() {
         32);
 
     m_faces.swap(newFaces);
-}
-
-void CalCoreSubmesh::optimizeVertexCacheSubset(
-    unsigned int faceStartIndex,
-    unsigned int faceCount
-) {
-    if (m_faces.empty()) {
-        return;
-    }
-    assert(faceStartIndex + faceCount <= m_faces.size());
-
-    std::vector<Face> newFaces(faceCount);
-
-    Forsyth::OptimizeFaces(
-        m_faces[faceStartIndex].vertexId,
-        3 * faceCount,
-        m_vertices.size(),
-        newFaces[0].vertexId,
-        32);
-
-    // Without these temp variable castings, MSVC 2010 will insert bounds
-    // asserts into std::copy() in debug builds, to keep us from abusing our
-    // fixed length arrays.  Presumably this will be better in C++11.
-    const CalIndex* srcStart = &(newFaces[0].vertexId[0]);
-    const CalIndex* srcEnd = srcStart + faceCount * 3;
-    CalIndex* destStart = &(m_faces[faceStartIndex].vertexId[0]);
-    std::copy(srcStart, srcEnd, destStart);
 }
 
 void CalCoreSubmesh::renumberIndices() {
@@ -958,19 +830,43 @@ void CalCoreSubmesh::normalizeNormals() {
     }
 }
 
-void CalCoreSubmesh::sortForBlending() {
+void CalCoreSubmesh::sortBackToFrontByCoverage() {
     if (m_faces.empty()) {
         return;
     }
 
-    sortTrianglesBackToFront(
+    sortTrianglesByCoverage(
         m_faces.size(),
         m_faces[0].vertexId,
         &m_vertices[0].position.x,
         sizeof(Vertex) / sizeof(float));
 }
 
-CalExportedInfluences CalCoreSubmesh::exportInfluences(unsigned int influenceLimit) {
+void CalCoreSubmesh::sortBackToFrontTopologically() {
+    if (m_faces.empty()) {
+        return;
+    }
+
+    sortTrianglesTopologically(
+        m_faces.size(),
+        m_faces[0].vertexId,
+        &m_vertices[0].position.x,
+        sizeof(Vertex) / sizeof(float));
+}
+
+void CalCoreSubmesh::sortBackToFrontByDistance() {
+    if (m_faces.empty()) {
+        return;
+    }
+
+    sortTrianglesByDistanceToCenter(
+        m_faces.size(),
+        m_faces[0].vertexId,
+        &m_vertices[0].position.x,
+        sizeof(Vertex) / sizeof(float));
+}
+
+CalExportedInfluences CalCoreSubmesh::exportInfluences(unsigned int influenceLimit, float influenceMargin) const {
     CalExportedInfluences outInfluenceData;
 
     // NOTE: May be a bit more efficient to use a sorted vector, hash map, or
@@ -982,8 +878,9 @@ CalExportedInfluences CalCoreSubmesh::exportInfluences(unsigned int influenceLim
     for (auto it = m_influences.begin(); it != m_influences.end(); ++it) {
         const auto& influence = *it;
 
-        if (pair.weights.size() < influenceLimit) {
-            pair.weights.push_back(influence.weight);
+        // At least one bone has to be maintained - even if it has zero or minimal influence.
+        if (pair.weights.size() < influenceLimit && (pair.weights.empty() || influence.weight > influenceMargin)) {
+            pair.weights.push_back(std::max(0.0f, influence.weight));
             pair.boneIds.push_back(influence.boneId);
             usedBoneIds.insert(influence.boneId);
         }
@@ -1020,433 +917,19 @@ CalExportedInfluences CalCoreSubmesh::exportInfluences(unsigned int influenceLim
 
     return outInfluenceData;
 }
-
-/*
- *  Mesh Polygon Reduction Algorithm from Progressive Mesh code
- *  by Stan Melax (c) 1998
- *  Permission to use any of this code wherever you want is granted..
- *  Although, please do acknowledge authorship if appropriate.
- *
- *  See the header file progmesh.h for a description of this module
- *  Ported to STL & Cal3D by IMVU (c) 2014 - progressive permutation
- *  removed.
- */
-
-/*
- *  For the polygon reduction algorithm we use data structures
- *  that contain a little bit more information than the usual
- *  indexed face set type of data structure.
- *  From a vertex we wish to be able to quickly get the
- *  neighbouring faces and vertices.
- */
-
-CalCoreSubmesh::Triangle::Triangle(std::vector<reduxVertex *> &vertices, std::vector<Triangle *> &triangles, reduxVertex *v0, reduxVertex *v1, reduxVertex *v2)
-    : parent_vertices(vertices)
-    , parent_triangles(triangles)
-{
-    vertex[0] = v0;
-    vertex[1] = v1;
-    vertex[2] = v2;
-    ComputeNormal();
-    ComputeTB();
-    for (int i = 0; i<3; i++) {
-        vertex[i]->face.push_back(this);
-        for (int j = 0; j<3; j++) if (i != j) {
-            VECTOR_ADD_UNIQUE(vertex[i]->neighbor, vertex[j]);
-        }
-    }
-}
-
-CalCoreSubmesh::Triangle::~Triangle(){
-    int i;
-    VECTOR_REMOVE_VALUE(parent_triangles, this);
-    for (i = 0; i<3; i++) {
-        if (vertex[i])
-        {
-            VECTOR_REMOVE_VALUE(vertex[i]->face, this);
-        }
-    }
-    for (i = 0; i<3; i++) {
-        int i2 = (i + 1) % 3;
-        if (!vertex[i] || !vertex[i2]) continue;
-        vertex[i]->RemoveIfNonNeighbor(vertex[i2]);
-        vertex[i2]->RemoveIfNonNeighbor(vertex[i]);
-    }
-}
-int CalCoreSubmesh::Triangle::HasVertex(reduxVertex *v) {
-    return (v == vertex[0] || v == vertex[1] || v == vertex[2]);
-}
-void CalCoreSubmesh::Triangle::ComputeNormal(){
-    CalVector v0 = vertex[0]->position;
-    CalVector v1 = vertex[1]->position;
-    CalVector v2 = vertex[2]->position;
-    normal = cross((v1 - v0), (v2 - v1));
-    normal.normalize();
-}
-void CalCoreSubmesh::Triangle::ComputeTB(){
-    //Calculate Tangent and Bitangent (AKA binormal)
-
-    float dx1 = vertex[1]->position.x - vertex[0]->position.x;
-    float dx2 = vertex[2]->position.x - vertex[0]->position.x;
-    float dy1 = vertex[1]->position.y - vertex[0]->position.y;
-    float dy2 = vertex[2]->position.y - vertex[0]->position.y;
-    float dz1 = vertex[1]->position.z - vertex[0]->position.z;
-    float dz2 = vertex[2]->position.z - vertex[0]->position.z;
-    
-    float du1 = vertex[1]->u - vertex[0]->u;
-    float du2 = vertex[2]->u - vertex[0]->u;
-    float dv1 = vertex[1]->u - vertex[0]->v;
-    float dv2 = vertex[2]->v - vertex[0]->v;
-        
-    float recip = 1.0f / (du1 * dv2 - du2 * dv1);
-    T = CalVector((dv2 * dx1 - dv1 * dx2) * recip, (dv2 * dy1 - dv1 * dy2) * recip, (dv2 * dz1 - dv1 * dz2) * recip);
-    B = CalVector((du1 * dx2 - du2 * dx1) * recip, (du1 * dy2 - du2 * dy1) * recip, (du1 * dz2 - du2 * dz1) * recip);
-    // this means dot product later only accounts for angular changes
-    // in texture derivative, that'll do for now
-    T.normalize();
-    B.normalize();
-}
-void CalCoreSubmesh::Triangle::ReplaceVertex(reduxVertex *vold, reduxVertex *vnew) {
-    assert(vold && vnew);
-    assert(vold == vertex[0] || vold == vertex[1] || vold == vertex[2]);
-    assert(vnew != vertex[0] && vnew != vertex[1] && vnew != vertex[2]);
-    if (vold == vertex[0]){
-        vertex[0] = vnew;
-    }
-    else if (vold == vertex[1]){
-        vertex[1] = vnew;
-    }
-    else {
-        assert(vold == vertex[2]);
-        vertex[2] = vnew;
-    }
-    int i;
-    VECTOR_REMOVE_VALUE(vold->face, this);
-    assert(!VECTOR_CONTAINS(vnew->face, this));
-    vnew->face.push_back(this);
-    for (i = 0; i<3; i++) {
-        vold->RemoveIfNonNeighbor(vertex[i]);
-        vertex[i]->RemoveIfNonNeighbor(vold);
-    }
-    for (i = 0; i<3; i++) {
-        assert(VECTOR_CONTAINS(vertex[i]->face, this));
-        for (int j = 0; j<3; j++) if (i != j) {
-            VECTOR_ADD_UNIQUE(vertex[i]->neighbor, vertex[j]);
-        }
-    }
-    ComputeNormal();
-    ComputeTB();
-}
-
-CalCoreSubmesh::reduxVertex::reduxVertex(std::vector<reduxVertex *> &vertices, const CalPoint4 &p, int _id)
-    : parent_vertices(vertices)
-{
-    position.x = p.x;
-    position.y = p.y;
-    position.z = p.z;
-    u = v = 0.0f;
-    id = _id;
-}
-CalCoreSubmesh::reduxVertex::reduxVertex(std::vector<reduxVertex *> &vertices, const CalPoint4 &p, float _u, float _v, int _id)
-    : parent_vertices(vertices)
-{
-    position.x = p.x;
-    position.y = p.y;
-    position.z = p.z;
-    u = _u;
-    v = _v;
-    id = _id;
-}
-
-CalCoreSubmesh::reduxVertex::~reduxVertex(){
-    assert(face.size() == 0);
-    while (neighbor.size()) {
-        VECTOR_REMOVE_VALUE(neighbor[0]->neighbor, this);
-        VECTOR_REMOVE_VALUE(neighbor, neighbor[0]);
-    }
-    VECTOR_REMOVE_VALUE(parent_vertices, this);
-}
-
-bool CalCoreSubmesh::reduxVertex::isBorder() {
-    unsigned int i, j;
-    
-    for(i=0; i< neighbor.size(); i++) {
-        int count = 0;
-        for(j=0; j< face.size(); j++) {
-            if(face[j]->HasVertex(neighbor[i])) {
-                count++;
-            }
-        }
-        assert(count > 0);
-        if(count==1) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void CalCoreSubmesh::reduxVertex::RemoveIfNonNeighbor(reduxVertex *n) {
-    // removes n from neighbor list if n isn't a neighbor.
-    if (!VECTOR_CONTAINS(neighbor, n)) return;
-    for (unsigned int i = 0; i<face.size(); i++) {
-        if (face[i]->HasVertex(n)) return;
-    }
-    VECTOR_REMOVE_VALUE(neighbor, n);
-}
-
-float CalCoreSubmesh::ComputeEdgeCollapseCost(reduxVertex *u, reduxVertex *v) {
-    // if we collapse edge uv by moving u to v then how 
-    // much different will the model change, i.e. how much "error".
-    // Texture, vertex normal, and border vertex code was removed
-    // to keep this demo as simple as possible.
-    // The method of determining cost was designed in order 
-    // to exploit small and coplanar regions for
-    // effective polygon reduction.
-    // Is is possible to add some checks here to see if "folds"
-    // would be generated.  i.e. normal of a remaining face gets
-    // flipped.  I never seemed to run into this problem and
-    // therefore never added code to detect this case.
-    unsigned int i;
-    float edgelength = (v->position - u->position).length();
-    float curvature = 0;
-
-    // find the "sides" triangles that are on the edge uv
-    std::vector<Triangle *> sides;
-    for (i = 0; i<u->face.size(); i++) {
-        if (u->face[i]->HasVertex(v)){
-            sides.push_back(u->face[i]);
-        }
-    }
-
-    // use the triangle facing most away from the sides 
-    // to determine our curvature term
-    for (i = 0; i<u->face.size(); i++) {
-        float mincurv = 1.0f; // curve for face i and closer side to it
-        for (unsigned int j = 0; j<sides.size(); j++) {
-            // use dot product of face normals.
-            float dotprod = dot(u->face[i]->normal, sides[j]->normal);
-            float dotprodT = dot(u->face[i]->T, sides[j]->T);
-            float dotprodB = dot(u->face[i]->B, sides[j]->B);
-            mincurv = std::min(mincurv, (1.0f - dotprodT) / 8.0f + (1.0f - dotprodB) / 8.0f + (1.0f - dotprod) / 2.0f);
-        }
-        curvature = std::max(curvature, mincurv);
-    }
-    
-    // the more coplanar the lower the curvature term 
-    // but adjust for border adjacency
-    bool uedge = u->isBorder();
-    bool vedge = v->isBorder();
-    if(u->face.size() == 1) {
-        curvature += 5.0;
-        m_isolateds++;
-    }
-    else if (u->face.size() == 2) {
-        if( matchFaces(u->face[0], u->face[1]) ) {
-            curvature += 5.0;
-            m_isolateds++;
-        }
-    }
-    if(uedge) {
-        curvature += 4.5;
-        if(vedge) {
-            curvature -= 2.75;
-        }
-    }
-    return edgelength * curvature;
-}
-
-bool CalCoreSubmesh::matchFaces(Triangle *t0, Triangle *t1)
-{
-    if( (t0->vertex[0] == t1->vertex[0] || t0->vertex[0] == t1->vertex[1] || t0->vertex[0] == t1->vertex[2]) &&
-        (t0->vertex[1] == t1->vertex[0] || t0->vertex[1] == t1->vertex[1] || t0->vertex[1] == t1->vertex[2]) &&
-        (t0->vertex[2] == t1->vertex[0] || t0->vertex[2] == t1->vertex[1] || t0->vertex[2] == t1->vertex[2]) ) {
-        return true;
-    }
-    return false;
-}
-
-bool CalCoreSubmesh::ComputeEdgeCostAtVertex(reduxVertex *v) {
-    // compute the edge collapse cost for all edges that start
-    // from vertex v.  Since we are only interested in reducing
-    // the object by selecting the min cost edge at each step, we
-    // only cache the cost of the least cost edge at this vertex
-    // (in member variable collapse) as well as the value of the 
-    // cost (in member variable objdist).
-    if (v->neighbor.size() == 0) {
-        // v doesn't have neighbors so it costs nothing to collapse
-        v->collapse = NULL;
-        v->objdist = -0.01f;
-        return true;
-    }
-    v->objdist = 1000000;
-    v->collapse = NULL;
-    if(v->neighbor.size() > 25) {
-        return false; // abort
-    }
-    // search all neighboring edges for "least cost" edge
-    for (unsigned int i = 0; i<v->neighbor.size(); i++) {
-        float dist;
-        dist = ComputeEdgeCollapseCost(v, v->neighbor[i]);
-        if (dist<v->objdist) {
-            v->collapse = v->neighbor[i];  // candidate for edge collapse
-            v->objdist = dist;             // cost of the collapse
-        }
-    }
-    return true;
-}
-
-bool CalCoreSubmesh::ComputeAllEdgeCollapseCosts() {
-    // For all the edges, compute the difference it would make
-    // to the model if it was collapsed.  The least of these
-    // per vertex is cached in each vertex object.
-    for (unsigned int i = 0; i<vertices.size(); i++) {
-        if(! ComputeEdgeCostAtVertex(vertices[i])) {
-            return false; // abort
-        }
-    }
-    return true;
-}
-
-void CalCoreSubmesh::Collapse(reduxVertex *u, reduxVertex *v){
-    // Collapse the edge uv by moving vertex u onto v
-    // Actually remove tris on uv, then update tris that
-    // have u to have v, and then remove u.
-    if (!v) {
-        // u is a vertex all by itself so just delete it
-        delete u;
-        return;
-    }
-    int i;
-    std::vector<reduxVertex *>tmp;
-    // make tmp a list of all the neighbors of u
-    for (i = 0; i<static_cast<int>(u->neighbor.size()); i++) {
-        tmp.push_back(u->neighbor[i]);
-    }
-    // delete triangles on edge uv:
-    for (i = static_cast<int>(u->face.size()) - 1; i >= 0; i--) {
-        if (u->face[i]->HasVertex(v)) {
-            delete(u->face[i]);
-        }
-    }
-    // update remaining triangles to have v instead of u
-    for (i = static_cast<int>(u->face.size()) - 1; i >= 0; i--) {
-        u->face[i]->ReplaceVertex(u, v);
-    }
-    delete u;
-    // recompute the edge collapse costs for neighboring vertices
-    for (i = 0; i<static_cast<int>(tmp.size()); i++) {
-        ComputeEdgeCostAtVertex(tmp[i]);
-    }
-}
-
-void CalCoreSubmesh::reduxAddVertices(const CalCoreSubmesh::VectorVertex &vert, const CalCoreSubmesh::VectorTextureCoordinate &tex){
-    if(tex.size() == vert.size()) {
-        for (unsigned int i = 0; i<vert.size(); i++) {
-            vertices.push_back(new reduxVertex(vertices, vert[i].position, tex[i].u, tex[i].v, i));
-        }
-    }
-    else
-    { 
-        for (unsigned int i = 0; i<vert.size(); i++) {
-            vertices.push_back(new reduxVertex(vertices, vert[i].position, i));
-        }
-    }
-}
-
-void CalCoreSubmesh::reduxAddFaces(const CalCoreSubmesh::VectorFace &tri){
-    for (unsigned int i = 0; i<tri.size(); i++) {
-        if(!(tri[i].vertexId[0] == tri[i].vertexId[1] ||
-             tri[i].vertexId[1] == tri[i].vertexId[2] ||
-             tri[i].vertexId[2] == tri[i].vertexId[0])) {
-                    
-                triangles.push_back(
-                    new Triangle(vertices, triangles,
-                        vertices[tri[i].vertexId[0]],
-                        vertices[tri[i].vertexId[1]],
-                        vertices[tri[i].vertexId[2]]));
-        }
-    }
-}
-
-void CalCoreSubmesh::ApplyFaces(const CalCoreSubmesh::VectorFace &tris){
-    int gone = m_faces.size() - tris.size();
-    if(gone >0){
-        m_faces.clear();
-        
-        //m_faces.push_back(CalCoreSubmesh::Face(0, 1, 2));
-        for (unsigned int i = 0; i<tris.size(); i++) {
-            m_faces.push_back(tris[i]);
-        }
-    }
-}
-
-CalCoreSubmesh::reduxVertex *CalCoreSubmesh::MinimumCostEdge(){
-    // Find the edge that when collapsed will affect model the least.
-    // This funtion actually returns a reduxVertex, the second vertex
-    // of the edge (collapse candidate) is stored in the vertex data.
-    // Serious optimization opportunity here: this function currently
-    // does a sequential search through an unsorted list :-(
-    // Our algorithm could be O(n*lg(n)) instead of O(n*n)
-    CalCoreSubmesh::reduxVertex *mn = vertices[0];
-    for (unsigned int i = 0; i<vertices.size(); i++) {
-        if (vertices[i]->objdist < mn->objdist) {
-            mn = vertices[i];
-        }
-    }
-    return mn;
-}
-
 bool CalCoreSubmesh::simplifySubmesh(unsigned int target_tri_count, unsigned int quality) {
     bool retval = false;
     if(target_tri_count < m_faces.size()) {
-        vertices.clear();
-        triangles.clear();
-        reduxAddVertices(getVectorVertex(), getTextureCoordinates());  // put input data into our data structures
-        reduxAddFaces(getFaces());
-        float lastError, error;
-        m_isolateds = 0;
+    
+        auto simplifier = new Simplify;
+        simplifier->addVertices(m_vertices, m_textureCoordinates);
+        simplifier->addFaces(m_faces);
+        retval = simplifier->meshSimplify(target_tri_count, quality);
+        // apply results to this submesh indexed triangle
+        simplifier->applyFaces(m_faces);
+        delete simplifier;
         
-        lastError = error = (100.0f-quality ) * 0.00001f;
-
-        if (ComputeAllEdgeCollapseCosts()) { // cache all edge collapse costs
-            if(m_isolateds / static_cast<float>(m_faces.size()) < 0.4f) {
-                if(m_isolateds / static_cast<float>(m_faces.size()) > 0.21f) { // boost poly count if isolateds are high
-                    target_tri_count += ( m_faces.size() - target_tri_count) /2;
-                }
-                while (triangles.size() > target_tri_count || vertices.size() > 65535 ||
-                      ( lastError < error && triangles.size() > (target_tri_count/2)) ) {
-                    // get the next vertex to collapse
-                    reduxVertex *mn = MinimumCostEdge();
-                    lastError = mn->objdist;
-                    Collapse(mn, mn->collapse);
-                }
-
-                CalCoreSubmesh::VectorFace tris;
-                tris.reserve(triangles.size());
-                for (unsigned int i = 0; i<triangles.size(); i++) {
-                    tris.push_back( CalCoreSubmesh::Face(   triangles[i]->vertex[0]->id,
-                                                            triangles[i]->vertex[1]->id,
-                                                            triangles[i]->vertex[2]->id ));
-                }
-                ApplyFaces(tris);
-                retval = true;
-            }
-        }
-        
-        // cleanup memory
-        //while (triangles.size() > 0) {
-            // get the next vertex to collapse
-        //    reduxVertex *mn = MinimumCostEdge();
-        //    Collapse(mn, mn->collapse);
-        //}
-        for(unsigned int i = 0; i < triangles.size(); i++)
-        {
-            delete triangles[i];
-        }
-        vertices.clear();
-        triangles.clear();
     }
     return retval;
 }
-
- 
+    

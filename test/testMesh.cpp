@@ -60,3 +60,41 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
     CHECK_EQUAL(CalPoint4(4, 4, 4), submesh->getVectorVertex()[0].position);
     CHECK_EQUAL(CalVector4(4, 4, 4), submesh->getVectorVertex()[0].normal);
 }
+
+std::vector<CalCoreSubmesh::Influence> makeInfluences(unsigned boneId) {
+    std::vector<CalCoreSubmesh::Influence> v;
+    v.push_back(CalCoreSubmesh::Influence(boneId, 1.0f, true));
+    return v;
+}
+
+TEST_F(MeshFixture, split_mesh_by_bone_limit) {
+    CalCoreSubmesh::Vertex v;
+    CalColor32 c = 0;
+
+    CalCoreSubmeshPtr submesh(new CalCoreSubmesh(4, false, 2));
+    submesh->addVertex(v, c, makeInfluences(0));
+    submesh->addVertex(v, c, makeInfluences(1));
+    submesh->addVertex(v, c, makeInfluences(2));
+    submesh->addVertex(v, c, makeInfluences(3));
+    submesh->addFace(CalCoreSubmesh::Face(0, 1, 2));
+    submesh->addFace(CalCoreSubmesh::Face(0, 1, 3));
+
+    CalCoreMesh mesh;
+    mesh.submeshes.push_back(submesh);
+    mesh.splitSubmeshesToBoneLimit(3);
+
+    CHECK_EQUAL(2u, mesh.submeshes.size());
+    auto sm0 = mesh.submeshes[0];
+    auto sm1 = mesh.submeshes[1];
+    CHECK_EQUAL(1u, sm0->getFaceCount());
+    CHECK_EQUAL(1u, sm1->getFaceCount());
+
+    CHECK_EQUAL(4u, sm0->getVertexCount());
+    CHECK_EQUAL(4u, sm1->getVertexCount());
+
+    sm0->renumberIndices();
+    sm1->renumberIndices();
+
+    CHECK_EQUAL(3u, sm0->getVertexCount());
+    CHECK_EQUAL(3u, sm1->getVertexCount());
+}

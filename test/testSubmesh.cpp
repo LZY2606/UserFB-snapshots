@@ -471,34 +471,6 @@ TEST_F(SubmeshFixture, can_optimize_vertex_cache) {
     CHECK_EQUAL(1U, getIndexDistance(v0FaceIndexAfter, v6FaceIndexAfter));
 }
 
-TEST_F(SubmeshFixture, can_optimize_vertex_cache_subset) {
-    CalCoreSubmesh csm = makeMeshWithUnoptimizedVertexCache();
-
-    size_t v0FaceIndexBefore = getFaceIndexWithVertexIndex(csm, 0);
-    size_t v6FaceIndexBefore = getFaceIndexWithVertexIndex(csm, 6);
-    CHECK_EQUAL(2U, getIndexDistance(v0FaceIndexBefore, v6FaceIndexBefore));
-
-    csm.optimizeVertexCacheSubset(0, 3);
-
-    // We expect vertex cache optimization to move the two faces that share
-    // vertices together.
-    size_t v0FaceIndexAfter = getFaceIndexWithVertexIndex(csm, 0);
-    size_t v6FaceIndexAfter = getFaceIndexWithVertexIndex(csm, 6);
-    CHECK_EQUAL(1U,  getIndexDistance(v0FaceIndexAfter, v6FaceIndexAfter));
-}
-
-TEST_F(SubmeshFixture, optimizing_vertex_cache_subset_does_not_affect_verts_outside_of_subset) {
-    CalCoreSubmesh csm1 = makeMeshWithUnoptimizedVertexCache();
-    CHECK_EQUAL(2U, getFaceIndexWithVertexIndex(csm1, 6));
-    csm1.optimizeVertexCacheSubset(0, 2);
-    CHECK_EQUAL(2U, getFaceIndexWithVertexIndex(csm1, 6));
-
-    CalCoreSubmesh csm2 = makeMeshWithUnoptimizedVertexCache();
-    CHECK_EQUAL(0U, getFaceIndexWithVertexIndex(csm2, 0));
-    csm2.optimizeVertexCacheSubset(1, 2);
-    CHECK_EQUAL(0U, getFaceIndexWithVertexIndex(csm2, 0));
-}
-
 TEST_F(SubmeshFixture, renumber_renumberIndices_without_texcoords) {
     CalCoreSubmesh csm(4, false, 2);
     csm.addFace(CalCoreSubmesh::Face(3, 2, 1));
@@ -719,7 +691,7 @@ TEST_F(SubmeshFixture, can_export_influences) {
     csm.addFace(CalCoreSubmesh::Face(0, 1, 2));
     csm.addFace(CalCoreSubmesh::Face(2, 1, 3));
 
-    auto influences = csm.exportInfluences(4);
+    auto influences = csm.exportInfluences(4, 0.001f);
     CHECK_EQUAL(2U, influences.maximumInfluenceCount);
 
     CHECK_EQUAL(4U, influences.weightsBoneIdsPairs.size());
@@ -747,12 +719,12 @@ TEST_F(SubmeshFixture, exportInfluences_raises_exception_on_incomplete_mesh) {
     // We declared two verts in the constructor, but we only add one, so the
     // vertex and influence counts don't match:
     csm.addVertex(vertex, 0, influenceVector);
-    CHECK_THROW(csm.exportInfluences(4), std::runtime_error);
+    CHECK_THROW(csm.exportInfluences(4, 0.001f), std::runtime_error);
 }
 
 TEST_F(SubmeshFixture, exportInfluences_handles_empty_mesh) {
     CalCoreSubmesh csm(0, 0, 0);
-    auto influences = csm.exportInfluences(4);
+    auto influences = csm.exportInfluences(4, 0.001f);
     CHECK_EQUAL(0U, influences.maximumInfluenceCount);
     CHECK(influences.weightsBoneIdsPairs.empty());
     CHECK(influences.usedBoneIds.empty());
@@ -761,7 +733,7 @@ TEST_F(SubmeshFixture, exportInfluences_handles_empty_mesh) {
 TEST_F(SubmeshFixture, exportInfluences_limits_influences_and_renormalizes) {
     auto csm = makeSubmeshWithMultipleInfluences(8);
 
-    auto influences2 = csm.exportInfluences(2);
+    auto influences2 = csm.exportInfluences(2, 0.001f);
 
     float expWeights2Arr[] = {0.5f, 0.5f};
     CHECK_VECTOR_CLOSE(arrayToVector(expWeights2Arr), influences2.weightsBoneIdsPairs[0].weights, 0.001f);
@@ -772,7 +744,7 @@ TEST_F(SubmeshFixture, exportInfluences_limits_influences_and_renormalizes) {
     unsigned int expUsedBoneIds2Arr[] = {0, 1};
     CHECK_EQUAL(arrayToVector(expUsedBoneIds2Arr), influences2.usedBoneIds);
 
-    auto influences4 = csm.exportInfluences(4);
+    auto influences4 = csm.exportInfluences(4, 0.001f);
 
     float expWeights4Arr[] = {0.25f, 0.25f, 0.25f, 0.25f};
     CHECK_VECTOR_CLOSE(arrayToVector(expWeights4Arr), influences4.weightsBoneIdsPairs[0].weights, 0.001f);
@@ -782,4 +754,101 @@ TEST_F(SubmeshFixture, exportInfluences_limits_influences_and_renormalizes) {
 
     unsigned int expUsedBoneIds4Arr[] = {0, 1, 2, 3};
     CHECK_EQUAL(arrayToVector(expUsedBoneIds4Arr), influences4.usedBoneIds);
+
+    auto influences6 = csm.exportInfluences(6, 0.001f);
+
+    float expWeights6Arr[] = {0.16667f, 0.16667f, 0.16667f, 0.16667f, 0.16667f, 0.16667f};
+    CHECK_VECTOR_CLOSE(arrayToVector(expWeights6Arr), influences6.weightsBoneIdsPairs[0].weights, 0.001f);
+
+    unsigned int expBoneIds6Arr[] = {0, 1, 2, 3, 4, 5};
+    CHECK_EQUAL(arrayToVector(expBoneIds6Arr), influences6.weightsBoneIdsPairs[0].boneIds);
+
+    unsigned int expUsedBoneIds6Arr[] = {0, 1, 2, 3, 4, 5};
+    CHECK_EQUAL(arrayToVector(expUsedBoneIds6Arr), influences6.usedBoneIds);
+}
+
+TEST_F(SubmeshFixture, exportInfluences_clamps_negative_weights) {
+    // PID 10702830 ("-DD- Furry Giant Pillow") contains a small negative
+    // weight.  We're coping by clamping negative weights to zero.  In so
+    // doing, we assume that we don't care about products that rely on the
+    // client's behavior in the face of negative weights. (NSTAR-3761)
+
+    CalCoreSubmesh csm(3, 0, 1);
+    CalCoreSubmesh::Vertex vertex;
+
+    CalCoreSubmesh::InfluenceVector iv0;
+    iv0.push_back(CalCoreSubmesh::Influence(0, 1.0f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(1, 0.5f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(2, -0.5f, true));
+
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+
+    csm.addFace(CalCoreSubmesh::Face(0, 1, 2));
+
+    auto influences = csm.exportInfluences(4, 0.001f);
+    CHECK_EQUAL(2U, influences.maximumInfluenceCount);
+
+    CHECK_EQUAL(3U, influences.weightsBoneIdsPairs.size());
+
+    float expWeights0Arr[] = {0.6667f, 0.3333f, 0.0f, 0.0f};
+    CHECK_VECTOR_CLOSE(arrayToVector(expWeights0Arr), influences.weightsBoneIdsPairs[0].weights, 0.001f);
+
+    unsigned int expBoneIds0Arr[] = {0, 1, 0, 0};
+    CHECK_EQUAL(arrayToVector(expBoneIds0Arr), influences.weightsBoneIdsPairs[0].boneIds);
+}
+
+TEST_F(SubmeshFixture, exportInfluences_filter_negligible_values) {
+    CalCoreSubmesh csm(3, 0, 1);
+    CalCoreSubmesh::Vertex vertex;
+
+    CalCoreSubmesh::InfluenceVector iv0;
+    iv0.push_back(CalCoreSubmesh::Influence(0, 0.999f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(1, 0.0005f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(2, 0.0005f, true));
+
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+
+    csm.addFace(CalCoreSubmesh::Face(0, 1, 2));
+
+    auto influences = csm.exportInfluences(4, 0.001f);
+    CHECK_EQUAL(1U, influences.maximumInfluenceCount);
+
+    CHECK_EQUAL(3U, influences.weightsBoneIdsPairs.size());
+
+    float expWeights0Arr[] = {1.0f, 0.0f, 0.0f, 0.0f};
+    CHECK_VECTOR_CLOSE(arrayToVector(expWeights0Arr), influences.weightsBoneIdsPairs[0].weights, 0.001f);
+
+    unsigned int expBoneIds0Arr[] = {0, 0, 0, 0};
+    CHECK_EQUAL(arrayToVector(expBoneIds0Arr), influences.weightsBoneIdsPairs[0].boneIds);
+}
+
+TEST_F(SubmeshFixture, exportInfluences_filter_negligible_values_except_first) {
+    CalCoreSubmesh csm(3, 0, 1);
+    CalCoreSubmesh::Vertex vertex;
+
+    CalCoreSubmesh::InfluenceVector iv0;
+    iv0.push_back(CalCoreSubmesh::Influence(0, 0.0005f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(1, 0.0005f, false));
+    iv0.push_back(CalCoreSubmesh::Influence(2, 0.0005f, true));
+
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+    csm.addVertex(makeVertex(0), 0, iv0);
+
+    csm.addFace(CalCoreSubmesh::Face(0, 1, 2));
+
+    auto influences = csm.exportInfluences(4, 0.001f);
+    CHECK_EQUAL(1U, influences.maximumInfluenceCount);
+
+    CHECK_EQUAL(3U, influences.weightsBoneIdsPairs.size());
+
+    float expWeights0Arr[] = {0.0f, 0.0f, 0.0f, 0.0f};
+    CHECK_VECTOR_CLOSE(arrayToVector(expWeights0Arr), influences.weightsBoneIdsPairs[0].weights, 0.001f);
+
+    unsigned int expBoneIds0Arr[] = {0, 0, 0, 0};
+    CHECK_EQUAL(arrayToVector(expBoneIds0Arr), influences.weightsBoneIdsPairs[0].boneIds);
 }

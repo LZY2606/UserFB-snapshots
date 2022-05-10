@@ -108,7 +108,7 @@ LRESULT CSkeletonFilePage::EndPage()
 	if(strFilename.IsEmpty())
 	{
 		theExporter.SetLastError("No file selected.", __FILE__, __LINE__);
-		::MessageBoxA(0, "Skeleton File Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		::MessageBoxA(0, theExporter.GetLastError().c_str(), "Skeleton File Error", MB_OK | MB_ICONEXCLAMATION);
 		return -1;
 	}
 
@@ -117,7 +117,7 @@ LRESULT CSkeletonFilePage::EndPage()
     std::string s(ts.begin(), ts.end());
     if(!m_pSkeletonCandidate->CreateFromSkeletonFile(s))
 	{
-		::MessageBoxA(0, "Skeleton Import Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		::MessageBoxA(0, theExporter.GetLastError().c_str(), "Skeleton Import Error", MB_OK | MB_ICONEXCLAMATION);
 		return -1;
 	}
 

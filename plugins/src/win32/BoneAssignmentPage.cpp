@@ -93,7 +93,7 @@ LRESULT CBoneAssignmentPage::EndPage()
 	// create the mesh candidate
 	if(!m_pMeshCandidate->Create(m_pSkeletonCandidate, m_maxBoneCount, m_weightThreshold))
 	{
-		::MessageBoxA(0, "Bone Assignment Mesh Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		::MessageBoxA(0, theExporter.GetLastError().c_str(), "Bone Assignment Mesh Error", MB_OK | MB_ICONEXCLAMATION);
 		return -1;
 	}
 

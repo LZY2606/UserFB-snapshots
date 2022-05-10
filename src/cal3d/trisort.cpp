@@ -16,7 +16,35 @@ namespace {
 
     struct Vec3f {
         float x, y, z;
+
+        Vec3f()
+            : x(0)
+            , y(0)
+            , z(0)
+        {}
+
+        Vec3f& operator+=(const Vec3f& rhs) {
+            x += rhs.x;
+            y += rhs.y;
+            z += rhs.z;
+            return *this;
+        }
+
+        Vec3f& operator/=(float s) {
+            x /= s;
+            y /= s;
+            z /= z;
+            return *this;
+        }
     };
+
+     Vec3f operator+(const Vec3f& lhs, const Vec3f& rhs) {
+         Vec3f rv;
+         rv.x = lhs.x + rhs.x;
+         rv.y = lhs.y + rhs.y;
+         rv.z = lhs.z + rhs.z;
+         return rv;
+    }
 
     Vec3f operator-(const Vec3f& lhs, const Vec3f& rhs) {
         Vec3f rv;
@@ -26,8 +54,24 @@ namespace {
         return rv;
     }
 
+    Vec3f operator/(const Vec3f& v, float f) {
+        Vec3f rv;
+        rv.x = v.x / f;
+        rv.y = v.y / f;
+        rv.z = v.z / f;
+        return rv;
+    }
+
+    float lengthSquared(const Vec3f& v) {
+        return v.x * v.x + v.y * v.y + v.z * v.z;
+    }
+
     float length(const Vec3f& v) {
-        return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+        return sqrtf(lengthSquared(v));
+    }
+
+    float dot(const Vec3f& a, const Vec3f& b) {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
     }
 
     Vec3f cross(const Vec3f& a, const Vec3f& u) {
@@ -75,7 +119,7 @@ struct TriangleSorter {
         private:
             TriangleSorter* ts;
         };
-        std::sort(triangles, triangles + triangleCount, SortByArea(this));
+        std::stable_sort(triangles, triangles + triangleCount, SortByArea(this));
     }
 
     void buildDigraph() {
@@ -129,9 +173,131 @@ struct TriangleSorter {
         std::copy(newTriangles.begin(), newTriangles.end(), triangles);
     }
 
+    // begin second algorithm
+
+    void sortByCoverage() {
+        // precalculate areas
+        std::vector<float> areas(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            areas[i] = area(triangles[i]);
+        }
+
+        // precalculate normals
+        std::vector<Vec3f> normals(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            normals[i] = normal(triangles[i]);
+        }
+
+        // precalculate barycenters
+        std::vector<Vec3f> barycenters(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            barycenters[i] = center(triangles[i]);
+        }
+
+        std::vector<float> coverages(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            float coverage = 0;
+            for (unsigned j = 0; j < triangleCount; ++j) {
+                if (i == j) {
+                    continue;
+                }
+
+                Vec3f d = barycenters[j] - barycenters[i];
+
+                float c = (areas[j] * std::max(0.0f, dot(d, normals[j])) * std::max(0.0f, dot(d, normals[i]))) / (lengthSquared(d) * lengthSquared(d));
+                coverage += c;
+            }
+            coverages[i] = coverage;
+        }
+
+        // sort triangles by reverse coverages
+        struct SortByCoverage {
+            SortByCoverage(float* coverages)
+                : coverages(coverages)
+            {}
+
+            bool operator()(const unsigned& lhs, const unsigned& rhs) {
+                return coverages[lhs] > coverages[rhs];
+            }
+
+        private:
+            float* coverages;
+        };
+        std::vector<unsigned> triangle_sequence(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            triangle_sequence[i] = i;
+        }
+        std::stable_sort(triangle_sequence.begin(), triangle_sequence.end(), SortByCoverage(vec_data(coverages)));
+
+        std::vector<Triangle> newTriangles;
+        newTriangles.reserve(triangleCount);
+
+        for (auto i = triangle_sequence.begin(); i != triangle_sequence.end(); ++i) {
+            newTriangles.push_back(triangles[*i]);
+        }
+
+        std::copy(newTriangles.begin(), newTriangles.end(), triangles);
+    }
+
+    // begin third algorithm
+
+    void sortByDistanceToCenter() {
+        // calculate barycenter
+        Vec3f center;
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            center += getPosition(triangles[i].v0);
+            center += getPosition(triangles[i].v1);
+            center += getPosition(triangles[i].v2);
+        }
+        center /= (triangleCount * 3.0f);
+
+        // signed distance from triangle plane to parallel plane containing barycenter
+        std::vector<float> distances(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            distances[i] = dot(normal(triangles[i]), center - getPosition(triangles[i].v0));
+        }
+
+        // sort triangles by signed distance
+        struct SortByDistance {
+            SortByDistance(float* distances)
+                : distances(distances)
+            {}
+
+            bool operator()(const unsigned& lhs, const unsigned& rhs) {
+                return distances[lhs] > distances[rhs];
+            }
+
+        private:
+            float* distances;
+        };
+
+        std::vector<unsigned> triangle_sequence(triangleCount);
+        for (unsigned i = 0; i < triangleCount; ++i) {
+            triangle_sequence[i] = i;
+        }
+        std::stable_sort(triangle_sequence.begin(), triangle_sequence.end(), SortByDistance(vec_data(distances)));
+
+        std::vector<Triangle> newTriangles;
+        newTriangles.reserve(triangleCount);
+
+        for (auto i = triangle_sequence.begin(); i != triangle_sequence.end(); ++i) {
+            newTriangles.push_back(triangles[*i]);
+        }
+
+        std::copy(newTriangles.begin(), newTriangles.end(), triangles);
+    }
+
 private:
     const Vec3f& getPosition(unsigned short i) {
         return *reinterpret_cast<const Vec3f*>(positions + i * positionStride);
+    }
+
+    Vec3f normal(const Triangle& t) {
+        return cross(getPosition(t.v1) - getPosition(t.v0), getPosition(t.v2) - getPosition(t.v0));
+    }
+
+    Vec3f center(const Triangle& t) {
+        return (getPosition(t.v0) + getPosition(t.v1) + getPosition(t.v2)) / 3;
     }
 
     float area(const Triangle& t) {
@@ -207,7 +373,7 @@ private:
     unsigned* output; // fast access
 };
 
-void sortTrianglesBackToFront(
+void sortTrianglesTopologically(
     unsigned triangleCount,
     unsigned short* indices,
     const float* positions,
@@ -226,3 +392,38 @@ void sortTrianglesBackToFront(
     ts.topologicalSort();
     ts.writeOutput();
 }
+
+void sortTrianglesByCoverage(
+    unsigned triangleCount,
+    unsigned short* indices,
+    const float* positions,
+    unsigned positionStride
+) {
+    // so we can count on there being at least one entry in all the arrays
+    if (!triangleCount) {
+        return;
+    }
+
+    Triangle* triangles = reinterpret_cast<Triangle*>(indices);
+
+    TriangleSorter ts(triangleCount, triangles, positions, positionStride);
+    ts.sortByCoverage();
+}
+
+void sortTrianglesByDistanceToCenter(
+    unsigned triangleCount,
+    unsigned short* indices,
+    const float* positions,
+    unsigned positionStride
+) {
+    // so we can count on there being at least one entry in all the arrays
+    if (!triangleCount) {
+        return;
+    }
+
+    Triangle* triangles = reinterpret_cast<Triangle*>(indices);
+
+    TriangleSorter ts(triangleCount, triangles, positions, positionStride);
+    ts.sortByDistanceToCenter();
+}
+

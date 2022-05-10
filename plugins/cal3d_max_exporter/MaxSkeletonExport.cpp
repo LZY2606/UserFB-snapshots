@@ -62,14 +62,14 @@ int CMaxSkeletonExport::DoExport(const TCHAR *name, ExpInterface *ei, Interface 
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(ei, i))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -78,7 +78,7 @@ int CMaxSkeletonExport::DoExport(const TCHAR *name, ExpInterface *ei, Interface 
     std::string cname(tname.begin(), tname.end());
 	if(!theExporter.ExportSkeleton(cname.c_str()))
 	{
-		MessageBoxA(0, "Skeleton Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Skeleton Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -93,14 +93,14 @@ int CMaxSkeletonExport::ExportSkeletonFromMaxscriptCall(const TCHAR *name, INode
 	CMaxInterface maxInterface;
 	if(!maxInterface.Create(NULL, GetCOREInterface(),_tabnode))
 	{
-		MessageBoxA(0, "Max Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Max Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
 	// create an exporter instance 
 	if(!theExporter.Create(&maxInterface))
 	{
-		MessageBoxA(0, "Exporter Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Exporter Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 
@@ -109,7 +109,7 @@ int CMaxSkeletonExport::ExportSkeletonFromMaxscriptCall(const TCHAR *name, INode
     std::string cname(tname.begin(), tname.end());
 	if(!theExporter.ExportSkeletonFromMaxscriptCall(cname.c_str(), bShowUI))
 	{
-		MessageBoxA(0, "Skeleton Export Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		MessageBoxA(0, theExporter.GetLastError().c_str(), "Skeleton Export Error", MB_OK | MB_ICONEXCLAMATION);
 		return 0;
 	}
 

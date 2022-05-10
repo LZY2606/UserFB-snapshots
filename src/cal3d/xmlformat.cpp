@@ -25,6 +25,9 @@ struct InvalidFileFormat {
     InvalidFileFormat() {
         CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
     }
+    InvalidFileFormat(const std::string & strFile, int line) {
+        CalError::setLastError(CalError::INVALID_FILE_FORMAT, strFile, line);
+    }
 
     operator CalCoreSkeletonPtr() const { return CalCoreSkeletonPtr(); }
     operator CalCoreMaterialPtr() const { return CalCoreMaterialPtr(); }
@@ -32,6 +35,7 @@ struct InvalidFileFormat {
     operator CalCoreAnimationPtr() const { return CalCoreAnimationPtr(); }
     operator CalCoreMorphAnimationPtr() const { return CalCoreMorphAnimationPtr(); }
 };
+#define InvalidFileFormatTracked() InvalidFileFormat(__FILE__, __LINE__)
 
 static inline void ReadPair(char const* buffer, float* f1, float* f2) {
     float a = 0.0f;
@@ -248,12 +252,47 @@ static inline bool CalVectorFromXml(
     }
 }
 
+
+static size_t ReadFloat(char const* buffer, float* f1) {
+    float a = 0.0f;
+    std::string buf(buffer);
+    size_t originalStart = 0;
+    size_t start = buf.find_first_not_of(" \t\r\n");
+    size_t end = buf.find_first_of(" \t\r\n");
+    if (end < start && start != std::string::npos) {
+        originalStart = start;
+        buf = buf.c_str() + start;
+        start = buf.find_first_not_of(" \t\r\n");
+        end = buf.find_first_of(" \t\r\n");
+    }
+    sscanf(buffer, " %f", &a);
+    *f1 = a;
+    if (end != std::string::npos && originalStart != std::string::npos) {
+        end = originalStart+end;
+    }
+    return end;
+}
+
+
 static inline void ReadQuadFloat(char const* buffer, float* f1, float* f2, float* f3, float* f4) {
     float a = 0.0f;
     float b = 0.0f;
     float c = 0.0f;
     float d = 0.0f;
-    sscanf(buffer, " %f %f %f %f", &a, &b, &c, &d);
+
+    char const* buf = buffer;
+    size_t next = ReadFloat(buf, &a);
+    if (next != std::string::npos) {
+        buf = buf + next;
+        next = ReadFloat(buf, &b);
+        if (next != std::string::npos) {
+            buf = buf + next;
+            next = ReadFloat(buf, &c);
+            if (next != std::string::npos) {
+                ReadFloat(buf + next, &d);
+            }
+        }
+    }
     *f1 = a;
     *f2 = b;
     *f3 = c;
@@ -265,7 +304,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
     } catch (const rapidxml::parse_error&) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     return loadXmlCoreSkeletonDoc(document);
@@ -276,7 +315,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMesh(char* dataSrc) {
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
     } catch (const rapidxml::parse_error&) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     return loadXmlCoreMeshDoc(document);
@@ -288,7 +327,7 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterial(char* dataSrc) {
     try {
         doc.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
     } catch (const rapidxml::parse_error&) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     return loadXmlCoreMaterialDoc(doc);
@@ -302,7 +341,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimation(char* dataSrc) {
     } catch (const rapidxml::parse_error&) {
         //int distance = e.where() - dataSrc;
         //std::string s = e.what();
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     return loadXmlCoreAnimationDoc(doc);
@@ -314,19 +353,10 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
     try {
         doc.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
     } catch (const rapidxml::parse_error&) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     return loadXmlCoreMorphAnimationDoc(doc);
-}
-
-/*Some customers' products have NAN value for rotation of transform. In order to make those products
- * survive in Pure, we replace NAN value with 0 such that those products can be loaded, 
- * but still the animations wouldn't work. Customers are the most important.*/
-static inline void xmlfmt_quaternion_nan_to_zero(float& x, float& y, float& z, float& w) {
-    if (x != x && y != y && z != z && w != w) {
-        x = y = z = w = 0;
-    }
 }
 
 CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_document<>& doc) {
@@ -335,24 +365,24 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
     TiXmlElement* header = doc.first_node();
     if (!header || !has_name(header, "header")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!isHeaderWellFormed(header)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!has_attribute_value(header, "magic", cal3d::SKELETON_XMLFILE_EXTENSION)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (get_int_attribute(header, "version") < cal3d::EARLIEST_COMPATIBLE_FILE_VERSION) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     TiXmlElement* skeleton = header->next_sibling();
     if (!skeleton || !has_name(skeleton, "skeleton")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     boost::optional<CalVector> sceneAmbientColor;
@@ -368,7 +398,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
     for (TiXmlElement* bone = skeleton->first_node(); bone; bone = bone->next_sibling()) {
         if (!has_name(bone, "BONE")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         // safe because rapidxml keeps string pointers alive as long as the source text is alive
@@ -385,12 +415,12 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
         if (attrStr) {
             ReadTripleFloat(attrStr, &lightColor.x, &lightColor.y, &lightColor.z);
         }
-        
+
         // get the translation of the bone
 
         TiXmlElement* translation = bone->first_node();
         if (!translation || !has_name(translation, "TRANSLATION")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         float tx, ty, tz;
@@ -400,7 +430,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
         TiXmlElement* rotation = translation->next_sibling();
         if (!rotation || !has_name(rotation, "ROTATION")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         float rx, ry, rz, rw;
@@ -410,7 +440,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
         TiXmlElement* translationBoneSpace = rotation->next_sibling();
         if (!translationBoneSpace || !has_name(translationBoneSpace, "LOCALTRANSLATION")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         float txBoneSpace, tyBoneSpace, tzBoneSpace;
@@ -420,7 +450,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
         TiXmlElement* rotationBoneSpace = translationBoneSpace->next_sibling();
         if (!rotationBoneSpace || !has_name(rotationBoneSpace, "LOCALROTATION")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         float rxBoneSpace, ryBoneSpace, rzBoneSpace, rwBoneSpace;
@@ -430,14 +460,13 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
 
         TiXmlElement* parent = rotationBoneSpace->next_sibling();
         if (!parent || !has_name(parent, "PARENTID")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         int parentId = get_int_value(parent);
 
         CalCoreBonePtr pCoreBone(new CalCoreBone(strName, parentId));
 
-        xmlfmt_quaternion_nan_to_zero(rx, ry, rz, rw);
         CalVector trans = CalVector(tx, ty, tz);
         CalQuaternion rot = CalQuaternion(rx, ry, rz, -rw);
 
@@ -452,7 +481,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
         TiXmlElement* child;
         for (child = parent->next_sibling(); child; child = child->next_sibling()) {
             if (!has_name(child, "CHILDID")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
         }
 
@@ -472,29 +501,29 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
 
     TiXmlElement* header = doc.first_node();
     if (!header || !has_name(header, "HEADER")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!isHeaderWellFormed(header)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!has_attribute_value(header, "MAGIC", cal3d::ANIMATION_XMLFILE_EXTENSION)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (get_int_attribute(header, "VERSION") < cal3d::EARLIEST_COMPATIBLE_FILE_VERSION) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     TiXmlElement* animation = header->next_sibling();
     if (!animation || !has_name(animation, "ANIMATION")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     float duration = get_float_attribute(animation, "DURATION");
     if (duration <= 0.0f) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     CalCoreAnimationPtr pCoreAnimation(new CalCoreAnimation);
@@ -506,7 +535,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
         track = track->next_sibling()
     ) {
         if (!has_name(track, "TRACK")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         int coreBoneId = get_int_attribute(track, "BONEID");
@@ -542,7 +571,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
         // read the number of keyframes
         int keyframeCount = get_int_attribute(track, "NUMKEYFRAMES");
         if (keyframeCount <= 0) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
 
         bool hasLastKeyframe = false;
@@ -553,7 +582,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
             keyframe = keyframe->next_sibling()
         ) {
             if (!has_name(keyframe, "KEYFRAME")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             float time = get_float_attribute(keyframe, "TIME");
@@ -574,7 +603,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
             }
 
             if (!translation) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             if (has_name(translation, "TRANSLATION")) {
                 ReadTripleFloat(get_string_value(translation), &t.x, &t.y, &t.z);
@@ -582,7 +611,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
             }
 
             if (!rotation || !has_name(rotation, "ROTATION")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             float rx, ry, rz, rw;
@@ -610,19 +639,19 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml:
 
     TiXmlElement* header = doc.first_node();
     if (!header || !has_name(header, "HEADER")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!isHeaderWellFormed(header)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!has_attribute_value(header, "MAGIC", cal3d::ANIMATEDMORPH_XMLFILE_EXTENSION)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (get_int_attribute(header, "VERSION") < cal3d::EARLIEST_COMPATIBLE_FILE_VERSION) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     // allocate a new core animatedMorph instance
@@ -630,36 +659,36 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml:
 
     TiXmlElement* animatedMorph = header->next_sibling();
     if (!animatedMorph || !has_name(animatedMorph, "ANIMATION")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     coreMorphAnimation->duration = get_float_attribute(animatedMorph, "DURATION");
     if (coreMorphAnimation->duration <= 0.0f) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     for (TiXmlElement* track = animatedMorph->first_node(); track; track = track->next_sibling()) {
        if (!has_name(track, "TRACK")) {
-           return InvalidFileFormat();
+           return InvalidFileFormatTracked();
        }
 
         CalCoreMorphTrack t;
         t.morphName = get_string_attribute(track, "MORPHNAME");
         for (TiXmlElement* keyframe = track->first_node(); keyframe; keyframe = keyframe->next_sibling()) {
             if (!has_name(keyframe, "KEYFRAME")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             CalCoreMorphKeyframe kf;
             kf.time = get_float_attribute(keyframe, "TIME");
-            
+
             if (TiXmlElement* child = keyframe->first_node()) {
                 if (!has_name(child, "WEIGHT")) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
                 kf.weight = get_float_value(child);
             } else {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             t.keyframes.push_back(kf);
         }
@@ -674,27 +703,27 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
 
     xml_node* header = doc.first_node();
     if (!header || !has_name(header, "header")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!isHeaderWellFormed(header)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!has_attribute_value(header, "magic", cal3d::MESH_XMLFILE_EXTENSION)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     int version = get_int_attribute(header, "version");
     if (version < cal3d::EARLIEST_COMPATIBLE_FILE_VERSION) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
 
     xml_node* mesh = header->next_sibling();
     if (!mesh || !has_name(mesh, "mesh")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     CalCoreMeshPtr pCoreMesh(new CalCoreMesh);
@@ -718,20 +747,20 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
 
         for (int vertexId = 0; vertexId < vertexCount; ++vertexId) {
             if (!ValidateTag(vertex, "VERTEX", pCoreMesh, pCoreSubmesh)) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             CalCoreSubmesh::Vertex Vertex;
             CalColor32 vertexColor = CalMakeColor(CalVector(1.0f, 1.0f, 1.0f));
 
             xml_node* pos = vertex->first_node();
             if (!ValidateTag(pos, "POS", pCoreMesh, pCoreSubmesh)) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             ReadTripleFloat(pos->value(), &Vertex.position.x, &Vertex.position.y, &Vertex.position.z);
 
             xml_node* norm = pos->next_sibling();
             if (!ValidateTag(norm, "NORM", pCoreMesh, pCoreSubmesh)) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             ReadTripleFloat(norm->value(),  &Vertex.normal.x, &Vertex.normal.y, &Vertex.normal.z);
@@ -740,7 +769,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
             xml_node* collapse = 0;
             if (!vertColor || !has_name(vertColor, "color")) {
                 if (hasVertexColors) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 } else {
                     collapse = vertColor;
                 }
@@ -752,21 +781,21 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
                 collapse = vertColor->next_sibling();
             }
             if (!collapse) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             if (has_name(collapse, "COLLAPSEID")) {
                 const char* collapseid = collapse->value();
                 if (!collapseid) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
                 xml_node* collapseCount = collapse->next_sibling();
                 if (!collapseCount || !has_name(collapseCount, "COLLAPSECOUNT")) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
 
                 const char* collapseCountData = collapseCount->value();
                 if (!collapseCountData) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
                 collapse = collapseCount->next_sibling();
             }
@@ -778,7 +807,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
                 CalCoreSubmesh::TextureCoordinate textureCoordinate;
                 // load data of the influence
                 if (!texcoord || !has_name(texcoord, "TEXCOORD")) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
 
                 ReadPair(texcoord->value(), &textureCoordinate.u, &textureCoordinate.v);
@@ -793,7 +822,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
             // get the number of influences
             int influenceCount = get_int_attribute(vertex, "NUMINFLUENCES");
             if (influenceCount < 0) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             std::vector<CalCoreSubmesh::Influence> influences(influenceCount);
@@ -804,7 +833,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
             int influenceId;
             for (influenceId = 0; influenceId < influenceCount; ++influenceId) {
                 if (!influence || !has_name(influence, "INFLUENCE")) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
 
                 influences[influenceId].boneId = get_int_attribute(influence, "ID");
@@ -821,7 +850,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
 
         for (int springId = 0; springId < springCount; ++springId) {
             if (!spring || !has_name(spring, "SPRING")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             spring = spring->next_sibling();
         }
@@ -831,7 +860,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
         xml_node* morph = face;
         for (int morphId = 0; morphId < morphCount; morphId++) {
             if (!has_name(morph, "MORPH")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
 
             CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
@@ -851,17 +880,17 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
 
                 if (!copyOrig) {
                     if (!ValidateTag(blendVert, "BLENDVERTEX", pCoreMesh, pCoreSubmesh)) {
-                        return InvalidFileFormat();
+                        return InvalidFileFormatTracked();
                     }
 
                     xml_node* pos = blendVert->first_node();
                     if (!CalVectorFromXml(pos, "POSITION", &Vertex.position, pCoreMesh, pCoreSubmesh)) {
-                        return InvalidFileFormat();
+                        return InvalidFileFormatTracked();
                     }
 
                     xml_node* norm = pos->next_sibling();
                     if (!CalVectorFromXml(norm, "NORMAL", &Vertex.normal, pCoreMesh, pCoreSubmesh)) {
-                        return InvalidFileFormat();
+                        return InvalidFileFormatTracked();
                     }
 
                     xml_node* texcoord = norm->next_sibling();
@@ -876,7 +905,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
                                 pCoreMesh,
                                 pCoreSubmesh)
                         ) {
-                            return InvalidFileFormat();
+                            return InvalidFileFormatTracked();
                         }
                         texcoord = texcoord->next_sibling();
                     }
@@ -906,14 +935,14 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
         // load all faces
         for (int faceId = 0; faceId < faceCount; ++faceId) {
             if (!has_name(face, "FACE")) {
-                return InvalidFileFormat();
+                return InvalidFileFormatTracked();
             }
             int tmp[3];
             ReadTripleInt(get_string_attribute(face, "VERTEXID"), tmp, tmp + 1, tmp + 2);
 
             if (sizeof(CalIndex) == 2) {
                 if (tmp[0] > 65535 || tmp[1] > 65535 || tmp[2] > 65535) {
-                    return InvalidFileFormat();
+                    return InvalidFileFormatTracked();
                 }
             }
             pCoreSubmesh->addFace(CalCoreSubmesh::Face(tmp[0], tmp[1], tmp[2]));
@@ -935,31 +964,31 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_documen
 
     TiXmlElement* header = doc.first_node();
     if (!header || !has_name(header, "HEADER")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!isHeaderWellFormed(header)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (!has_attribute_value(header, "MAGIC", cal3d::MATERIAL_XMLFILE_EXTENSION)) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     if (get_int_attribute(header, "VERSION") < cal3d::EARLIEST_COMPATIBLE_FILE_VERSION) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     TiXmlElement* material = header->next_sibling();
     if (!material || !has_name(material, "MATERIAL")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     CalCoreMaterialPtr pCoreMaterial(new CalCoreMaterial);
 
     TiXmlElement* ambient = material->first_node();
     if (!ambient || !has_name(ambient, "AMBIENT")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     int r, g, b, a; // never used
@@ -967,21 +996,21 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_documen
 
     TiXmlElement* diffuse = ambient->next_sibling();
     if (!diffuse || !has_name(diffuse, "DIFFUSE")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     ReadQuadInt(get_string_value(diffuse), &r, &g, &b, &a);
 
     TiXmlElement* specular = diffuse->next_sibling();
     if (!specular || !has_name(specular, "SPECULAR")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     ReadQuadInt(get_string_value(specular), &r, &g, &b, &a);
 
     TiXmlElement* shininess = specular->next_sibling();
     if (!shininess || !has_name(shininess, "SHININESS")) {
-        return InvalidFileFormat();
+        return InvalidFileFormatTracked();
     }
 
     std::vector<std::string> MatFileName;
@@ -989,9 +1018,9 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_documen
 
     for (TiXmlElement* map = shininess->next_sibling(); map; map = map->next_sibling()) {
         if (!map || !has_name(map, "MAP")) {
-            return InvalidFileFormat();
+            return InvalidFileFormatTracked();
         }
-        
+
         MatFileName.push_back(get_string_value(map));
 
         std::string mapType = "Diffuse Color";

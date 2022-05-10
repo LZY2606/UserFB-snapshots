@@ -512,7 +512,8 @@ bool CExporter::ExportMesh(const std::string& strFilename)
           }
           if (!coreMesh.addAsMorphTarget(&morphCoreMesh, morphNode->GetName())) {
             SetLastError(CalError::getLastErrorText(), __FILE__, __LINE__);
-            return false;
+			if(MessageBoxA(0, theExporter.GetLastError().c_str(), "Mesh problem: Click OK to skip this morph, Cancel to quit export", MB_OKCANCEL | MB_ICONWARNING) == IDCANCEL)
+				return false;
           }
             
         }

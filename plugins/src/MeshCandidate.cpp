@@ -325,7 +325,8 @@ bool CMeshCandidate::Create(CBaseNode* _basenode, CSkeletonCandidate *pSkeletonC
 		}
 
 		// create the new submesh candidate
-		if(!pSubmeshCandidate->Create(m_pMesh->GetSubmeshMaterialThreadId(submeshId), m_pMesh->GetSubmeshMapCount(submeshId))) return false;
+		if(!pSubmeshCandidate->Create(m_pMesh->GetSubmeshMaterialThreadId(submeshId), m_pMesh->GetSubmeshMapCount(submeshId))) 
+			return false;
 
 		// add submesh candidate to the submesh candidate vector
 		m_vectorSubmeshCandidate.push_back(pSubmeshCandidate);

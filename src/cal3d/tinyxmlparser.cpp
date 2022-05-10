@@ -51,7 +51,7 @@ public:
     //TiXmlParsingData( const char* now, const TiXmlParsingData* prevData );
     void Stamp(const char* now);
 
-    const TiXmlCursor& Cursor()	{
+    const TiXmlCursor& Cursor() {
         return cursor;
     }
     //void Update( const char* now );
@@ -66,9 +66,9 @@ private:
         cursor.col = col;
     }
 
-    TiXmlCursor		cursor;
-    const char*		stamp;
-    int				tabsize;
+    TiXmlCursor cursor;
+    const char* stamp;
+    int         tabsize;
 };
 
 
@@ -154,7 +154,7 @@ const char* TiXmlBase::SkipWhiteSpace(const char* p) {
         return 0;
     }
     while (p && *p) {
-        if (isspace(*p) || *p == '\n' || *p == '\r') {	// Still using old rules for white space.
+        if (isspace(*p) || *p == '\n' || *p == '\r') { // Still using old rules for white space.
             ++p;
         } else {
             break;
@@ -202,7 +202,7 @@ const char* TiXmlBase::ReadName(const char* p, TIXML_STRING* name) {
     if (p && *p
             && (isalpha((unsigned char) *p) || *p == '_')) {
         while (p && *p
-                &&	(isalnum((unsigned char) *p)
+                && (isalnum((unsigned char) *p)
                      || *p == '_'
                      || *p == '-'
                      || *p == '.'
@@ -265,7 +265,7 @@ const char* TiXmlBase::GetEntity(const char* p, char* value) {
     }
 
     // So it wasn't an entity, its unrecognized, or something like that.
-    *value = *p;	// Don't put back the last one, since we return it!
+    *value = *p; // Don't put back the last one, since we return it!
     return p + 1;
 }
 
@@ -296,7 +296,7 @@ bool TiXmlBase::StringEqual(const char* p,
                 ++tag;
             }
 
-            if (*tag == 0) {	// Have we found the end of the tag, and everything equal?
+            if (*tag == 0) { // Have we found the end of the tag, and everything equal?
                 return true;
             }
         } else {
@@ -320,8 +320,8 @@ const char* TiXmlBase::ReadText(const char* p,
                                 const char* endTag,
                                 bool caseInsensitive) {
     *text = "";
-    if (!trimWhiteSpace			// certain tags always keep whitespace
-            || !condenseWhiteSpace) {	// if true, whitespace is always kept
+    if (!trimWhiteSpace // certain tags always keep whitespace
+            || !condenseWhiteSpace) { // if true, whitespace is always kept
         // Keep all the white space.
         while (p && *p
                 && !StringEqual(p, endTag, caseInsensitive)
@@ -556,9 +556,9 @@ void TiXmlElement::StreamIn(TIXML_ISTREAM* in, TIXML_STRING* tag) {
         return;
     } else if (tag->at(tag->length() - 1) == '>') {
         // There is more. Could be:
-        //		text
-        //		closing tag
-        //		another node.
+        //    text
+        //    closing tag
+        //    another node.
         for (;;) {
             StreamWhiteSpace(in, tag);
 
@@ -642,7 +642,7 @@ const char* TiXmlElement::Parse(const char* p, TiXmlParsingData* data) {
         return 0;
     }
 
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();
@@ -662,7 +662,7 @@ const char* TiXmlElement::Parse(const char* p, TiXmlParsingData* data) {
 
     p = ReadName(p, &value);
     if (!p || !*p) {
-        if (document)	{
+        if (document) {
             document->SetError(TIXML_ERROR_FAILED_TO_READ_ELEMENT_NAME, pErr, data);
         }
         return 0;
@@ -698,7 +698,7 @@ const char* TiXmlElement::Parse(const char* p, TiXmlParsingData* data) {
             // Read the value -- which can include other
             // elements -- read the end tag, and return.
             ++p;
-            p = ReadValue(p, data);		// Note this is an Element method, and will set the error if one happens.
+            p = ReadValue(p, data); // Note this is an Element method, and will set the error if one happens.
             if (!p || !*p) {
                 return 0;
             }
@@ -818,7 +818,7 @@ const char* TiXmlUnknown::Parse(const char* p, TiXmlParsingData* data) {
     TiXmlDocument* document = GetDocument();
     p = SkipWhiteSpace(p);
 
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();
@@ -838,7 +838,7 @@ const char* TiXmlUnknown::Parse(const char* p, TiXmlParsingData* data) {
     }
 
     if (!p) {
-        if (document)	{
+        if (document) {
             document->SetError(TIXML_ERROR_PARSING_UNKNOWN, 0, 0);
         }
     }
@@ -868,7 +868,7 @@ const char* TiXmlComment::Parse(const char* p, TiXmlParsingData* data) {
 
     p = SkipWhiteSpace(p);
 
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();
@@ -897,7 +897,7 @@ const char* TiXmlAttribute::Parse(const char* p, TiXmlParsingData* data) {
         tabsize = document->TabSize();
     }
 
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();
@@ -919,7 +919,7 @@ const char* TiXmlAttribute::Parse(const char* p, TiXmlParsingData* data) {
         return 0;
     }
 
-    ++p;	// skip '='
+    ++p; // skip '='
     p = SkipWhiteSpace(p);
     if (!p || !*p) {
         if (document) {
@@ -943,9 +943,9 @@ const char* TiXmlAttribute::Parse(const char* p, TiXmlParsingData* data) {
         // But this is such a common error that the parser will try
         // its best, even without them.
         value = "";
-        while (p && *p										// existence
-                && !isspace(*p) && *p != '\n' && *p != '\r'	// whitespace
-                && *p != '/' && *p != '>') {					// tag end
+        while (p && *p                                      // existence
+                && !isspace(*p) && *p != '\n' && *p != '\r' // whitespace
+                && *p != '/' && *p != '>') {                // tag end
             value += *p;
             ++p;
         }
@@ -967,7 +967,7 @@ void TiXmlText::StreamIn(TIXML_ISTREAM* in, TIXML_STRING* tag) {
 
 const char* TiXmlText::Parse(const char* p, TiXmlParsingData* data) {
     value = "";
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();
@@ -1005,7 +1005,7 @@ const char* TiXmlDeclaration::Parse(const char* p, TiXmlParsingData* data) {
         }
         return 0;
     }
-//	TiXmlParsingData data( p, prevData );
+// TiXmlParsingData data( p, prevData );
     if (data) {
         data->Stamp(p);
         location = data->Cursor();

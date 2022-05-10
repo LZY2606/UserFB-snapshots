@@ -120,7 +120,7 @@ LRESULT CMaterialSelectionPage::EndPage()
 	if(pMaterialCandidate == (CMaterialCandidate *)-1)
 	{
 		theExporter.SetLastError("Invalid material selected.", __FILE__, __LINE__);
-		::MessageBoxA(0, "Material Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+		::MessageBoxA(0, theExporter.GetLastError().c_str(), "Material Error", MB_OK | MB_ICONEXCLAMATION);
 		return -1;
 	}
 

@@ -85,7 +85,7 @@ bool CExporter::ExportMorphAnimationFromMaxscriptCall(const std::string& strFile
 		// create the skeleton candidate from the skeleton file
 		if(! skeletonCandidate.CreateFromSkeletonFile(param->m_skeletonfilepath))
 		{
-			MessageBoxA(0, "Skeleton Error", theExporter.GetLastError().c_str(), MB_OK | MB_ICONEXCLAMATION);
+			MessageBoxA(0, theExporter.GetLastError().c_str(), "Skeleton Error", MB_OK | MB_ICONEXCLAMATION);
 			return false;
 		}	
 

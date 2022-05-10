@@ -62,7 +62,8 @@ bool CMaxMesh::AddBoneInfluence(CSkeletonCandidate *pSkeletonCandidate, CVertexC
     TCHAR const *tname = pNode->GetName();
     std::string sname(tname, tname + _tcslen(tname));
     boneId = pSkeletonCandidate->GetBoneId(sname.c_str());
-    if(boneId == -1) return false;
+    if(boneId == -1) 
+		return false;
 
     // add the influence to the vertex candidate
     pVertexCandidate->AddInfluence(boneId, weight);
@@ -841,7 +842,11 @@ CMaxMesh::numMorphChannels()
     for(int i = 0; i < numMC; i++)
     {
         MaxMorphChannel mmc = maxMorphModifier.GetMorphChannel(i);
-        if(mmc.IsActive() && _tcscmp(mmc.GetName(), L"- empty -"))
+#if defined(_UNICODE)
+		if(mmc.IsActive() && _tcscmp(mmc.GetName(), L"- empty -"))
+#else
+        if(mmc.IsActive() && _tcscmp(mmc.GetName(), "- empty -"))
+#endif
             activeCt++;
     }
     return activeCt;

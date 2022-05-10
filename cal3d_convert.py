@@ -5,7 +5,7 @@ from cal3d.pycal3d import Cal3d
 
 
 def usage():
-    print 'Usage: cal3d_convert.py <input> <output>'
+    print('Usage: cal3d_convert.py <input> <output>')
     return 2
 
 
