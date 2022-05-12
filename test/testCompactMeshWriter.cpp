@@ -14,6 +14,8 @@ struct MorphSummary {
     unsigned int length;
 };
 
+using CalCompactSubmeshData = std::pair<std::string, std::string>;
+
 namespace cal3d {
     template<>
     MaybeError jsonGet(const Json& val, CalQuantizedData& result) {
@@ -133,7 +135,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     std::vector<CalIndex> extractIndices(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -144,7 +146,7 @@ FIXTURE(CompactMeshWriterFixture) {
         size_t count;
         JSON_GET_KEY(*indicesJson, "count", count);
 
-        auto indicesData = extractDescribedData(*indicesJson, data.binaryData);
+        auto indicesData = extractDescribedData(*indicesJson, data.second);
         auto indicesAsInts = CalCompactUtil::decodeHighWaterMark(CalCompactUtil::decodeMidiToShorts(indicesData));
 
         return std::vector<CalIndex>(indicesAsInts.begin(), indicesAsInts.end());
@@ -178,7 +180,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     cal3d::SSEArray<CalPoint4> extractPositions(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -190,9 +192,9 @@ FIXTURE(CompactMeshWriterFixture) {
         JSON_GET_KEY(*positionsJson, "count", count);
 
         std::vector<std::vector<float> > coords;
-        coords.push_back(extractDescribedQuantizedValues(positionsJson, "x", data.binaryData));
-        coords.push_back(extractDescribedQuantizedValues(positionsJson, "y", data.binaryData));
-        coords.push_back(extractDescribedQuantizedValues(positionsJson, "z", data.binaryData));
+        coords.push_back(extractDescribedQuantizedValues(positionsJson, "x", data.second));
+        coords.push_back(extractDescribedQuantizedValues(positionsJson, "y", data.second));
+        coords.push_back(extractDescribedQuantizedValues(positionsJson, "z", data.second));
 
         for (auto it = coords.begin(); it != coords.end(); ++it) {
             assert(count == (*it).size());
@@ -208,7 +210,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     std::vector<std::pair<float, uint8_t> > extractInfluences(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -223,7 +225,7 @@ FIXTURE(CompactMeshWriterFixture) {
         JSON_GET_KEY(*influencesJson, "maximum", maximum);
 
         std::vector<std::pair<float, uint8_t> > pairs;
-        auto influenceData = extractDescribedData(*influencesJson, data.binaryData);
+        auto influenceData = extractDescribedData(*influencesJson, data.second);
         const char* influenceDataPtr = influenceData.c_str();
         const char* influenceDataEnd = influenceDataPtr + influenceData.size() * sizeof(char);
         for (size_t i = 0; i < count; ++i) {
@@ -249,7 +251,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     std::vector<CalCoreSubmesh::TextureCoordinate> extractTexCoords(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -266,8 +268,8 @@ FIXTURE(CompactMeshWriterFixture) {
             return uvs;
         }
 
-        auto us = extractDescribedQuantizedValues(texCoordsJson, "u", data.binaryData);
-        auto vs = extractDescribedQuantizedValues(texCoordsJson, "v", data.binaryData);
+        auto us = extractDescribedQuantizedValues(texCoordsJson, "u", data.second);
+        auto vs = extractDescribedQuantizedValues(texCoordsJson, "v", data.second);
         if (us.size() != count) {
             throw std::runtime_error("U texture coord size mismatch");
         }
@@ -284,7 +286,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     cal3d::SSEArray<CalVector4> extractNormals(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -292,7 +294,7 @@ FIXTURE(CompactMeshWriterFixture) {
         const cal3d::Json* normalsJson;
         JSON_GET_KEY(json, "normals", normalsJson);
 
-        auto normalsData = extractDescribedData(*normalsJson, data.binaryData);
+        auto normalsData = extractDescribedData(*normalsJson, data.second);
 
         std::vector<uint16_t> encodedNormals;
         size_t count = normalsData.size() / 2;
@@ -308,7 +310,7 @@ FIXTURE(CompactMeshWriterFixture) {
 
     std::vector<CalColor32> extractColors(const CalCompactSubmeshData& data) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -316,7 +318,7 @@ FIXTURE(CompactMeshWriterFixture) {
         const cal3d::Json* colorsJson;
         JSON_GET_KEY(json, "colors", colorsJson);
 
-        auto colorsData = extractDescribedData(*colorsJson, data.binaryData);
+        auto colorsData = extractDescribedData(*colorsJson, data.second);
 
         std::vector<CalColor32> colors;
         size_t count = colorsData.size() / 4;
@@ -343,7 +345,7 @@ FIXTURE(CompactMeshWriterFixture) {
         std::vector<MorphSummary>& outMorphSummaries
     ) {
         rapidjson::Document json;
-        json.Parse<0>(data.jsonData.c_str());
+        json.Parse<0>(data.first.c_str());
         if (json.HasParseError()) {
             throw std::runtime_error("Could not parse JSON");
         }
@@ -354,13 +356,13 @@ FIXTURE(CompactMeshWriterFixture) {
         size_t count;
         JSON_GET_KEY(*morphsJson, "count", count);
 
-        auto ids = extractDescribedIndexValues(morphsJson, "indices", data.binaryData);
-        auto px = extractDescribedQuantizedValues(morphsJson, "px", data.binaryData);
-        auto py = extractDescribedQuantizedValues(morphsJson, "py", data.binaryData);
-        auto pz = extractDescribedQuantizedValues(morphsJson, "pz", data.binaryData);
-        auto nx = extractDescribedQuantizedValues(morphsJson, "nx", data.binaryData);
-        auto ny = extractDescribedQuantizedValues(morphsJson, "ny", data.binaryData);
-        auto nz = extractDescribedQuantizedValues(morphsJson, "nz", data.binaryData);
+        auto ids = extractDescribedIndexValues(morphsJson, "indices", data.second);
+        auto px = extractDescribedQuantizedValues(morphsJson, "px", data.second);
+        auto py = extractDescribedQuantizedValues(morphsJson, "py", data.second);
+        auto pz = extractDescribedQuantizedValues(morphsJson, "pz", data.second);
+        auto nx = extractDescribedQuantizedValues(morphsJson, "nx", data.second);
+        auto ny = extractDescribedQuantizedValues(morphsJson, "ny", data.second);
+        auto nz = extractDescribedQuantizedValues(morphsJson, "nz", data.second);
 
         assert(ids.size() == count);
         assert(px.size() == count);
@@ -592,7 +594,7 @@ TEST_F(CompactMeshWriterFixture, does_not_send_metadata_if_there_are_no_texCoord
     auto data = CalCompactMeshWriter::saveCompactCoreSubmesh(submesh, 6);
 
     rapidjson::Document json;
-    json.Parse<0>(data.jsonData.c_str());
+    json.Parse<0>(data.first.c_str());
     if (json.HasParseError()) {
         throw std::runtime_error("Could not parse JSON");
     }
