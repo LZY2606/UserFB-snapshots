@@ -192,7 +192,7 @@ bool CExporter::ExportMeshFromMaxscriptCall(const std::string& strFilename, void
 				pVertexCandidate = vectorVertexCandidate[vertexCandidateId];
 
 				CalCoreSubmesh::Vertex vertex;
-                                CalColor32 vertexColor;
+                CalColor32 vertexColor;
 
 				// set the vertex position
 				CalVector position;
@@ -205,7 +205,7 @@ bool CExporter::ExportMeshFromMaxscriptCall(const std::string& strFilename, void
                                 vertex.normal = CalVector4(normal);
 
                                 // set the vert color
-                                CalVector vc;
+                                CalVector4 vc;
                                 pVertexCandidate->GetVertColor(vc);
                                 vertexColor = CalMakeColor(vc);
 
@@ -230,8 +230,8 @@ bool CExporter::ExportMeshFromMaxscriptCall(const std::string& strFilename, void
 				std::vector<CalCoreSubmesh::Influence>& vectorInfluence = pVertexCandidate->GetVectorInfluence();
 
 				// set vertex in the core submesh instance
-                                assert(false); // Not sure exactly how this call should work.
-                                pCoreSubmesh->addVertex(vertex, vertexColor, vectorInfluence);
+                assert(false); // Not sure exactly how this call should work.
+                pCoreSubmesh->addVertex(vertex, vertexColor, vectorInfluence);
 			}
 
 			size_t faceId;

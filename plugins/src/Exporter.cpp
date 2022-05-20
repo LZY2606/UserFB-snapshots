@@ -582,7 +582,7 @@ bool CExporter::meshCandidateToCoreMesh(CMeshCandidate const & meshCandidate, Ca
                                 vertex.position = CalPoint4(position);
 
                                 // set the vertex color
-                                CalVector vc;
+                                CalVector4 vc;
                                 pVertexCandidate->GetVertColor(vc);
                                 vertexColor = CalMakeColor(vc);
 

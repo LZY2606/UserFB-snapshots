@@ -13,18 +13,18 @@ TEST_F(VectorFixture, Vector) {
     CHECK_EQUAL(t, CalVector(0, 0, 0));
 }
 
-#define CHECK_COLOR(uint32, float3) \
+#define CHECK_COLOR(uint32, float4) \
     do { \
-        CHECK_EQUAL(uint32, CalMakeColor(float3)); \
-        CHECK_EQUAL(float3, CalVectorFromColor(uint32)); \
+        CHECK_EQUAL(uint32, CalMakeColor(float4)); \
+        CHECK_EQUAL(float3, CalVector4FromColor(uint32)); \
     } while (0)
 
 TEST_F(VectorFixture, ColorFromVector) {
-    CHECK_COLOR(0xff000000, CalVector(0.0f, 0.0f, 0.0f));
-    CHECK_COLOR(0xffff0000, CalVector(1.0f, 0.0f, 0.0f));
-    CHECK_COLOR(0xff00ff00, CalVector(0.0f, 1.0f, 0.0f));
-    CHECK_COLOR(0xff0000ff, CalVector(0.0f, 0.0f, 1.0f));
-    CHECK_COLOR(0xffffffff, CalVector(1.0f, 1.0f, 1.0f));
+    CHECK_COLOR(0xff000000, CalVector4(0.0f, 0.0f, 0.0f, 1.0f));
+    CHECK_COLOR(0xffff0000, CalVector4(1.0f, 0.0f, 0.0f, 1.0f));
+    CHECK_COLOR(0xff00ff00, CalVector4(0.0f, 1.0f, 0.0f, 1.0f));
+    CHECK_COLOR(0xff0000ff, CalVector4(0.0f, 0.0f, 1.0f, 1.0f));
+    CHECK_COLOR(0xffffffff, CalVector4(1.0f, 1.0f, 1.0f, 1.0f));
 }
 
 TEST_F(VectorFixture, Vector4_default) {

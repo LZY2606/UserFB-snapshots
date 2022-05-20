@@ -624,10 +624,12 @@ bool CalSaver::saveCoreSubmesh(std::ostream& os, CalCoreSubmesh* pCoreSubmesh) {
         CalPlatform::writeFloat(os, vertex.normal.x);
         CalPlatform::writeFloat(os, vertex.normal.y);
         CalPlatform::writeFloat(os, vertex.normal.z);
-        CalVector vc(CalVectorFromColor(vertexColors[vertexId]));
+        CalVector4 vc(CalVector4FromColor(vertexColors[vertexId]));
+
         CalPlatform::writeFloat(os, vc.x);
         CalPlatform::writeFloat(os, vc.y);
         CalPlatform::writeFloat(os, vc.z);
+
         CalPlatform::writeInteger(os, -1); // collapseId
         CalPlatform::writeInteger(os, 0); // faceCollapseCount
 
@@ -1218,7 +1220,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
             TiXmlElement vertColor("COLOR");
 
             str.str("");
-            CalVector vc(CalVectorFromColor(vertexColor));
+            CalVector4 vc(CalVector4FromColor(vertexColor));
             str << vc.x << " " << vc.y << " " << vc.z;
 
             TiXmlText colordata(str.str());

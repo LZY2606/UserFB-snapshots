@@ -914,12 +914,13 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
         dataSrc.readFloat(vertex.normal.x);
         dataSrc.readFloat(vertex.normal.y);
         dataSrc.readFloat(vertex.normal.z);
-        vertexColor = CalMakeColor(CalVector(1.0f, 1.0f, 1.0f));
+        vertexColor = CalMakeColor(CalVector4(1.0f, 1.0f, 1.0f, 1.0f));
         if (hasVertexColors) {
-            CalVector vc;
+            CalVector4 vc;
             dataSrc.readFloat(vc.x);
             dataSrc.readFloat(vc.y);
             dataSrc.readFloat(vc.z);
+            vc.w = 1.0f;
             vertexColor = CalMakeColor(vc);
         }
         int collapseId;
