@@ -608,7 +608,7 @@ TEST_F(LoaderFixture, CalVectorFromDataSrc) {
 TEST_F(LoaderFixture, loading_mesh_without_vertex_colors_defaults_to_white) {
     CalCoreSubmeshPtr sm(new CalCoreSubmesh(1, 0, 0));
     CalCoreSubmesh::Vertex v;
-    sm->addVertex(v, CalMakeColor(CalVector(1, 1, 1)), std::vector<CalCoreSubmesh::Influence>());
+    sm->addVertex(v, CalMakeColor(CalVector4(1, 1, 1, 1)), std::vector<CalCoreSubmesh::Influence>());
 
     CalCoreMesh cm;
     cm.submeshes.push_back(sm);

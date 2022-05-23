@@ -531,9 +531,9 @@ TEST_F(CompactMeshWriterFixture, sends_normals) {
 TEST_F(CompactMeshWriterFixture, sends_colors) {
     // Vertex color technically doesn't include alpha, even though we send it?
     CalColor32 colorsArr[] = {
-        CalMakeColor(CalVector(1.0f, 0.0f, 0.0f)),
-        CalMakeColor(CalVector(0.1f, 0.2f, 0.3f)),
-        CalMakeColor(CalVector(0.5f, 0.6f, 0.7f))
+        CalMakeColor(CalVector4(1.0f, 0.0f, 0.0f, 1.f)),
+        CalMakeColor(CalVector4(0.1f, 0.2f, 0.3f, 1.f)),
+        CalMakeColor(CalVector4(0.5f, 0.6f, 0.7f, 1.f))
     };
     auto colors = arrayToVector(colorsArr);
 

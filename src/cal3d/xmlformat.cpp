@@ -750,7 +750,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
                 return InvalidFileFormatTracked();
             }
             CalCoreSubmesh::Vertex Vertex;
-            CalColor32 vertexColor = CalMakeColor(CalVector(1.0f, 1.0f, 1.0f));
+            CalColor32 vertexColor = CalMakeColor(CalVector4(1.0f, 1.0f, 1.0f, 1.0f));
 
             xml_node* pos = vertex->first_node();
             if (!ValidateTag(pos, "POS", pCoreMesh, pCoreSubmesh)) {
@@ -774,7 +774,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
                     collapse = vertColor;
                 }
             } else {
-                CalVector vc(1.0f, 1.0f, 1.0f);
+                CalVector4 vc(1.0f, 1.0f, 1.0f, 1.f);
                 ReadTripleFloat(vertColor->value(), &vc.x, &vc.y, &vc.z);
                 vertexColor = CalMakeColor(vc);
 
