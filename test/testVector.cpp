@@ -16,7 +16,7 @@ TEST_F(VectorFixture, Vector) {
 #define CHECK_COLOR(uint32, float4) \
     do { \
         CHECK_EQUAL(uint32, CalMakeColor(float4)); \
-        CHECK_EQUAL(float3, CalVector4FromColor(uint32)); \
+        CHECK_EQUAL(float4, CalVector4FromColor(uint32)); \
     } while (0)
 
 TEST_F(VectorFixture, ColorFromVector) {
