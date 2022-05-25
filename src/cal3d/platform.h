@@ -73,22 +73,25 @@ typedef unsigned long long cal3d_uint64;
 // Endianness setup                                                           //
 //****************************************************************************//
 
-#if  defined(__i386__) || \
-     defined(__ia64__) || \
-     defined(WIN32) || \
-     defined(__alpha__) || defined(__alpha) || \
-     defined(__arm__) || \
-    (defined(__mips__) && defined(__MIPSEL__)) || \
-     defined(__SYMBIAN32__) || \
-     defined(__x86_64__) || \
-     defined(__LITTLE_ENDIAN__)
-
-#define CAL3D_LITTLE_ENDIAN
-
+/* Modern GNU C, Clang, Sun Studio  provide __BYTE_ORDER__
+ * Older GNU C (ca. 4.0.1) provides __BIG_ENDIAN__/__LITTLE_ENDIAN__
+ */
+#if defined(__BYTE_ORDER__)
+#  if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#    define CAL3D_LITTLE_ENDIAN
+#  elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#    define CAL3D_BIG_ENDIAN
+#  else
+#    error "Unknown byte order"
+#  endif
+#elif __BIG_ENDIAN__ == 1
+#  define CAL3D_BIG_ENDIAN
+#elif __LITTLE_ENDIAN__ == 1
+#  define CAL3D_LITTLE_ENDIAN
+#elif defined(WIN32)
+#  define CAL3D_LITTLE_ENDIAN
 #else
-
-#define CAL3D_BIG_ENDIAN
-
+#  error "Could not detect byte order"
 #endif
 
 
