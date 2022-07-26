@@ -662,7 +662,7 @@ bool CalSaver::saveCoreSubmesh(std::ostream& os, CalCoreSubmesh* pCoreSubmesh) {
 
         // write all influences of this vertex
         for (; currentInfluence != nextVertex; ++currentInfluence) {
-            CalPlatform::writeInteger(os, currentInfluence->boneId);
+            CalPlatform::writeInteger(os, (int)currentInfluence->boneId);
             CalPlatform::writeFloat(os, currentInfluence->weight);
 
             // check if an error happend
@@ -737,7 +737,7 @@ bool CalSaver::saveCoreTrack(std::ostream& file, const std::string& strFilename,
     }
 
     // Write the coreBoneId.
-    if (!CalPlatform::writeInteger(file, pCoreTrack->coreBoneId)) {
+    if (!CalPlatform::writeInteger(file, (int)pCoreTrack->coreBoneId)) {
         CalError::setLastError(CalError::FILE_WRITING_FAILED, __FILE__, __LINE__, strFilename);
         return false;
     }
@@ -959,7 +959,7 @@ bool CalSaver::saveXmlCoreAnimation(std::ostream& os, CalCoreAnimation* pCoreAni
         const CalCoreTrack* pCoreTrack = &*iteratorCoreTrack;
 
         TiXmlElement track("TRACK");
-        track.SetAttribute("BONEID", pCoreTrack->coreBoneId);
+        track.SetAttribute("BONEID", (int)pCoreTrack->coreBoneId);
 
         // Always save out the TRANSLATIONREQUIRED flag in XML, and save the translations iff the flag is true.
         bool translationIsDynamic = pCoreTrack->translationIsDynamic;
@@ -1249,7 +1249,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
             for (; currentInfluence != nextVertex; ++currentInfluence) {
                 TiXmlElement influence("INFLUENCE");
 
-                influence.SetAttribute("ID", currentInfluence->boneId);
+                influence.SetAttribute("ID", (int)currentInfluence->boneId);
 
                 str.str("");
                 str << currentInfluence->weight;
