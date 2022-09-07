@@ -870,11 +870,36 @@ CalCoreMorphKeyframePtr CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSr
 }
 
 // We may need this in other places in the future.
-bool isAscii(const std::string &str) {
+bool isValidUTF8(const std::string &str) {
     for (std::string::const_iterator iter = str.begin(); iter != str.end(); ++iter) {
-        uint8_t ch = *iter;
-        if (ch >= 0x80) {
+        uint8_t c = *iter;
+        int num;
+        if ((c & 0x80) == 0x00) {
+            // U+0000 to U+007F
+            continue;
+        } else if ((c & 0xE0) == 0xC0) {
+            // U+0080 to U+07FF 
+            num = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            // U+0800 to U+FFFF 
+            num = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            // U+10000 to U+10FFFF 
+            num = 4;
+        } else {
             return false;
+        }
+
+        for (int i = 1; i < num; ++i) {
+            if (iter == str.end()) {
+                return false;
+            }
+
+            ++iter;
+            c = *iter;
+            if ((c & 0xC0) != 0x80) {
+                return false;
+            }
         }
     }
     return true;
@@ -882,15 +907,14 @@ bool isAscii(const std::string &str) {
 
 std::string convertLatin1toUTF8(const std::string &str) {
     std::string strOut;
-    for (std::string::const_iterator iter = str.begin(); iter != str.end(); ++iter)
-    {
-        uint8_t ch = *iter;
-        if (ch < 0x80) {
-            strOut.push_back(ch);
+    for (std::string::const_iterator iter = str.begin(); iter != str.end(); ++iter) {
+        uint8_t c = *iter;
+        if (c < 0x80) {
+            strOut.push_back(c);
         }
         else {
-            strOut.push_back(0xc0 | ch >> 6);
-            strOut.push_back(0x80 | (ch & 0x3f));
+            strOut.push_back(0xc0 | c >> 6);
+            strOut.push_back(0x80 | (c & 0x3f));
         }
     }
     return strOut;
@@ -1032,7 +1056,7 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
             }
         }
 
-        if (isAscii(morphName) == false) {
+        if (isValidUTF8(morphName) == false) {
             morphName = convertLatin1toUTF8(morphName);
         }
 
