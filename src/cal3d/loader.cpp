@@ -869,6 +869,33 @@ CalCoreMorphKeyframePtr CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSr
     return pCoreMorphKeyframe;
 }
 
+// We may need this in other places in the future.
+bool isAscii(const std::string &str) {
+    for (std::string::const_iterator iter = str.begin(); iter != str.end(); ++iter) {
+        uint8_t ch = *iter;
+        if (ch >= 0x80) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string convertLatin1toUTF8(const std::string &str) {
+    std::string strOut;
+    for (std::string::const_iterator iter = str.begin(); iter != str.end(); ++iter)
+    {
+        uint8_t ch = *iter;
+        if (ch < 0x80) {
+            strOut.push_back(ch);
+        }
+        else {
+            strOut.push_back(0xc0 | ch >> 6);
+            strOut.push_back(0x80 | (ch & 0x3f));
+        }
+    }
+    return strOut;
+}
+
 
 CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int version) {
     bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
@@ -1004,6 +1031,11 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
                 dataSrc.readInteger(blendVertId);
             }
         }
+
+        if (isAscii(morphName) == false) {
+            morphName = convertLatin1toUTF8(morphName);
+        }
+
         CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
         pCoreSubmesh->addMorphTarget(morphTarget);
     }
