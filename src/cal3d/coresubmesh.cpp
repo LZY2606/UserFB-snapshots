@@ -672,7 +672,7 @@ void CalCoreSubmesh::splitSubmeshesToBoneLimit(
     for (std::size_t i = 0; i < influenceVector.size(); i++) {
         if (influenceVector[i].size() > m_maxInfluencesPerVertex) {
             std::sort(influenceVector[i].begin(), influenceVector[i].end(),
-                      [](const auto& inf0, const auto& inf1) { return inf0.weight > inf1.weight; });
+                      [](const Influence& inf0, const Influence& inf1) { return inf0.weight > inf1.weight; });
             influenceVector[i].resize(m_maxInfluencesPerVertex);
         }
     }
