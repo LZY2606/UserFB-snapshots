@@ -473,7 +473,7 @@ static void s_writeMorphTargets(
     jsonWriter.EndObject();
 }
 
-std::pair<std::string, std::string> CalCompactMeshWriter::saveCompactCoreSubmesh(const CalCoreSubmeshPtr& submesh, unsigned int influenceLimit, float influenceMargin) {
+CalCompactSubmeshData CalCompactMeshWriter::saveCompactCoreSubmesh(const CalCoreSubmeshPtr& submesh, unsigned int influenceLimit, float influenceMargin) {
     BinaryWriter binaryWriter;
     JsonBuffer jsonBuffer;
     JsonWriter jsonWriter(jsonBuffer);
@@ -490,7 +490,8 @@ std::pair<std::string, std::string> CalCompactMeshWriter::saveCompactCoreSubmesh
 
     jsonWriter.EndObject();
 
-    auto jsonData = jsonBuffer.GetString();
-    auto binaryData = binaryWriter.data;
-    return std::make_pair(jsonData, binaryData);
+    CalCompactSubmeshData result;
+    result.jsonData = jsonBuffer.GetString();
+    result.binaryData = binaryWriter.data;
+    return result;
 }

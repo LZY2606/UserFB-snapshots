@@ -7,7 +7,13 @@
 
 CAL3D_PTR(CalCoreSubmesh);
 
+class CAL3D_API CalCompactSubmeshData {
+public:
+    std::string jsonData;
+    std::string binaryData;
+};
+
 class CAL3D_API CalCompactMeshWriter {
 public:
-    static std::pair<std::string, std::string> saveCompactCoreSubmesh(const CalCoreSubmeshPtr&, unsigned int influenceLimit=4, float influenceMargin=0.001);
+    static CalCompactSubmeshData saveCompactCoreSubmesh(const CalCoreSubmeshPtr&, unsigned int influenceLimit=4, float influenceMargin=0.001);
 };
