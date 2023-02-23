@@ -14,6 +14,7 @@
 
 #include <boost/optional.hpp>
 #include <stdexcept>
+#include <stdint.h>
 #include <rapidxml.hpp>
 #include "cal3d/memory.h"
 #include "cal3d/loader.h"

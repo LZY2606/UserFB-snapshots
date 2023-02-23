@@ -7,7 +7,7 @@
 
 typedef unsigned int CalColor32; // 32-bit integer, compatible with NSPR
 
-inline CalColor32 CalMakeColor(CalVector4 cv) {
+inline CalColor32 CalMakeColor(const CalVector4& cv) {
     return
         ((unsigned int)(cv.z * 0xff) << 0) +
         (((unsigned int)(cv.y * 0xff)) << 8) +
