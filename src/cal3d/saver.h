@@ -13,17 +13,17 @@
 
 #include "cal3d/global.h"
 
-CAL3D_PTR(CalCoreSkeleton);
+class CalCoreSkeleton;
 class CalCoreBone;
-CAL3D_PTR(CalCoreAnimation);
-CAL3D_PTR(CalCoreMorphAnimation);
+class CalCoreAnimation;
+class CalCoreMorphAnimation;
 class CalCoreTrack;
 class CalCoreKeyframe;
 class CalCoreMorphTrack;
 class CalCoreMorphKeyframe;
-CAL3D_PTR(CalCoreMesh);
+class CalCoreMesh;
 class CalCoreSubmesh;
-CAL3D_PTR(CalCoreMaterial);
+class CalCoreMaterial;
 class CalVector;
 class CalQuaternion;
 
