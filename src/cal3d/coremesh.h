@@ -12,8 +12,8 @@
 
 #include "cal3d/global.h"
 
-CAL3D_PTR(CalCoreSkeleton);
-CAL3D_PTR(CalCoreSubmesh);
+class CalCoreSkeleton;
+class CalCoreSubmesh;
 class CalQuaternion;
 
 class CAL3D_API CalCoreMesh {
