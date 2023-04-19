@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-CAL3D_PTR(CalCoreSubmesh);
+class CalCoreSubmesh;
 
 class CAL3D_API CalCompactSubmeshData {
 public:
