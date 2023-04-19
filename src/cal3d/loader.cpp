@@ -256,7 +256,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBuffer
     // load all core bones
     for (int trackId = 0; trackId < trackCount; ++trackId) {
         // load the core track
-        CalCoreTrackPtr pCoreTrack(loadCoreTrack(dataSrc, version, useAnimationCompression));
+        boost::shared_ptr<CalCoreTrack> pCoreTrack(loadCoreTrack(dataSrc, version, useAnimationCompression));
         if (!pCoreTrack) {
             return null;
         }
@@ -1082,12 +1082,12 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
     return pCoreSubmesh;
 }
 
-CalCoreTrackPtr CalLoader::loadCoreTrack(
+boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
     CalBufferSource& dataSrc,
     int version,
     bool useAnimationCompression
 ) {
-    const CalCoreTrackPtr null;
+    const boost::shared_ptr<CalCoreTrack> null;
 
     // Read the bone id.
     int coreBoneId;
@@ -1149,7 +1149,7 @@ CalCoreTrackPtr CalLoader::loadCoreTrack(
         keyframes.push_back(kf);
     }
 
-    CalCoreTrackPtr pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+    boost::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
     pCoreTrack->translationRequired = translationRequired;
     pCoreTrack->translationIsDynamic = translationIsDynamic;
     return pCoreTrack;

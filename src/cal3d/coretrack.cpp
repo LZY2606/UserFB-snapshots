@@ -190,14 +190,14 @@ KeyFrameSequenceLength(KeyLink* p, double transTolerance, double rotTolerance) {
 }
 
 
-CalCoreTrackPtr CalCoreTrack::compress(
+boost::shared_ptr<CalCoreTrack> CalCoreTrack::compress(
     double translationTolerance,
     double rotationToleranceDegrees,
     CalCoreSkeleton* skelOrNull
 ) const {
     size_t numFrames = keyframes.size();
     if (!numFrames) {
-        return CalCoreTrackPtr(new CalCoreTrack(coreBoneId, KeyframeList()));
+        return boost::shared_ptr<CalCoreTrack>(new CalCoreTrack(coreBoneId, KeyframeList()));
     }
 
     // I want to iterate through the vector as a list, and remove elements easily.
@@ -255,7 +255,7 @@ CalCoreTrackPtr CalCoreTrack::compress(
         }
     }
 
-    CalCoreTrackPtr result(new CalCoreTrack(coreBoneId, output));
+    boost::shared_ptr<CalCoreTrack> result(new CalCoreTrack(coreBoneId, output));
 
     // Update the flag saying whether the translation, which I have loaded, is actually required.
     // If translation is not required, I can't do any better than that so I leave it alone.

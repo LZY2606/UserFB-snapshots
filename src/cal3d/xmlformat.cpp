@@ -624,7 +624,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rap
 
             keyframes.push_back(pCoreKeyframe);
         }
-        CalCoreTrackPtr pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+        boost::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
         pCoreTrack->translationRequired = translationRequired;
         pCoreTrack->translationIsDynamic = translationIsDynamic;
         pCoreAnimation->tracks.push_back(*pCoreTrack);

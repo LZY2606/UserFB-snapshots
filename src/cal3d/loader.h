@@ -93,7 +93,7 @@ private:
             bool useAnimationCompression);
     static CalCoreMorphKeyframePtr loadCoreMorphKeyframe(CalBufferSource& dataSrc);
     static CalCoreSubmeshPtr loadCoreSubmesh(CalBufferSource& dataSrc, int version);
-    static CalCoreTrackPtr loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
+    static boost::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
     static CalCoreMorphTrackPtr loadCoreMorphTrack(CalBufferSource& dataSrc);
 
     static bool usesAnimationCompression(int version);
