@@ -8,7 +8,7 @@
 #include <TestFramework/TestFramework.h>
 #include <cal3d/memory.h>
 #include <cal3d/vector4.h>
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include <boost/scoped_ptr.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/scoped_array.hpp>

@@ -12,10 +12,10 @@
 #include "config.h"
 #endif
 
-#include <boost/optional.hpp>
 #include <stdexcept>
 #include <stdint.h>
 #include <rapidxml.hpp>
+#include "cal3d/BoostToStd.h"
 #include "cal3d/memory.h"
 #include "cal3d/loader.h"
 #include "cal3d/error.h"

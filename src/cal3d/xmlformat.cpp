@@ -1,7 +1,8 @@
-#include <boost/optional.hpp>
+
 #include <rapidxml.hpp>
 #include <cmath>
 #include <float.h>
+#include "cal3d/BoostToStd.h"
 #include "cal3d/loader.h"
 #include "cal3d/error.h"
 #include "cal3d/vector.h"

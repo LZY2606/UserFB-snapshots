@@ -1,6 +1,6 @@
 #pragma once
 
-#include <boost/optional.hpp>
+#include "cal3d/BoostToStd.h"
 #include <rapidjson/document.h>
 
 #include <cstring>

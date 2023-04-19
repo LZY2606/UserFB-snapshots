@@ -1,6 +1,6 @@
 #pragma once
 
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include "cal3d/global.h"
 
 class CalCoreAnimation;

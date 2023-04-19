@@ -12,7 +12,7 @@
 
 #include <stdexcept>
 #include <math.h>
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include <string>
 #include <vector>
 #include <list>
@@ -23,7 +23,7 @@ typedef unsigned short CalIndex;
 
 const float EPSILON = 1e-5f;
 
-#define CAL3D_PTR(c) typedef boost::shared_ptr<class c> c##Ptr
+#define CAL3D_PTR(c) typedef ISTD::shared_ptr<class c> c##Ptr
 
 namespace cal3d {
     inline bool close(float a, float b) {

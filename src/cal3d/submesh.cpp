@@ -13,13 +13,13 @@
 #endif
 
 #include <string>
-#include <boost/static_assert.hpp>
+#include "cal3d/BoostToStd.h"
 #include "cal3d/submesh.h"
 #include "cal3d/error.h"
 #include "cal3d/coresubmesh.h"
 #include "cal3d/coremorphtarget.h"
 
-BOOST_STATIC_ASSERT(sizeof(CalIndex) == 2);
+IMVU_STATIC_ASSERT(sizeof(CalIndex) == 2);
 
 // For Exclusive type morph targets, we record a replacement attenuation after
 // encountering the first Replace blend.  Until then, we recognize that we do

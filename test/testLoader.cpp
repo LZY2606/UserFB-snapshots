@@ -563,7 +563,7 @@ unsigned char hmmmAnimation[] = {
     2, 0, 0, 64, 3, 128, 0, 0, 0, 64, 3, 128, 128, 27, 86, 64, 2, 0, 58, 237, 1, 24, 0, 0, 58, 237, 1, 24, 128, 27
 };
 
-BOOST_STATIC_ASSERT(sizeof(hmmmAnimation) == hmmmLength);
+IMVU_STATIC_ASSERT(sizeof(hmmmAnimation) == hmmmLength);
 
 TEST_F(LoaderFixture, load_hmmm) {
     CalBufferSource cbs(fromString(hmmmAnimation));

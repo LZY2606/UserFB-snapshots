@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include <math.h>
 #include <string>
 #include "cal3d/global.h"

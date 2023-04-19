@@ -5,5 +5,5 @@
 #include <set>
 #include <map>
 #include <fstream>
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include <assert.h>

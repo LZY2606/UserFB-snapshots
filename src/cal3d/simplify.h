@@ -15,7 +15,7 @@
 #include <ostream>
 #include <set>
 #include <map>
-#include <boost/shared_ptr.hpp>
+#include "cal3d/BoostToStd.h"
 #include "cal3d/aabox.h"
 #include "cal3d/color.h"
 #include "cal3d/global.h"
