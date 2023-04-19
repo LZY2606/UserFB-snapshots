@@ -96,13 +96,13 @@ FIXTURE(BoneMixerFixture) {
     CalMixer mixer;
 
     static boost::shared_ptr<CalCoreSkeleton> makeFakeSkeleton() {
-        CalCoreBonePtr actualRoot(new CalCoreBone("actualRoot"));
+        boost::shared_ptr<CalCoreBone> actualRoot(new CalCoreBone("actualRoot"));
 
-        CalCoreBonePtr coreRoot(new CalCoreBone("root", 0));
+        boost::shared_ptr<CalCoreBone> coreRoot(new CalCoreBone("root", 0));
         coreRoot->relativeTransform.translation.x = 1;
         coreRoot->inverseBindPoseTransform.translation = CalVector(10, 10, 10);
 
-        CalCoreBonePtr coreBone(new CalCoreBone("bone", 1));
+        boost::shared_ptr<CalCoreBone> coreBone(new CalCoreBone("bone", 1));
         coreBone->relativeTransform.translation.x = 2;
         coreBone->inverseBindPoseTransform.translation = CalVector(20, 20, 20);
 
@@ -140,7 +140,7 @@ TEST_F(BoneScaleFixture, scale_is_in_bone_space) {
 
     CHECK_EQUAL(CalVector(-4, 2, 8), aboutZ * CalVector(2, 4, 8));
 
-    CalCoreBonePtr root(new CalCoreBone("root"));
+    boost::shared_ptr<CalCoreBone> root(new CalCoreBone("root"));
     root->inverseBindPoseTransform = cal3d::RotateTranslate(aboutZ, CalVector(2, 4, 8));
 
     boost::shared_ptr<CalCoreSkeleton> coreSkeleton(new CalCoreSkeleton);

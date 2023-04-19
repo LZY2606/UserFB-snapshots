@@ -512,10 +512,10 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSo
         sceneAmbientColor = sceneColor;
     }
 
-    std::vector<CalCoreBonePtr> bones;
+    std::vector<boost::shared_ptr<CalCoreBone>> bones;
 
     for (int boneId = 0; boneId < boneCount; ++boneId) {
-        CalCoreBonePtr pCoreBone(loadCoreBones(dataSrc, version));
+        boost::shared_ptr<CalCoreBone> pCoreBone(loadCoreBones(dataSrc, version));
         if (!pCoreBone) {
             return null;
         }
@@ -544,8 +544,8 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSo
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreBonePtr CalLoader::loadCoreBones(CalBufferSource& dataSrc, int version) {
-    const CalCoreBonePtr null;
+boost::shared_ptr<CalCoreBone> CalLoader::loadCoreBones(CalBufferSource& dataSrc, int version) {
+    const boost::shared_ptr<CalCoreBone> null;
 
     bool hasNodeLights = (version >= cal3d::FIRST_FILE_VERSION_WITH_NODE_LIGHTS);
 
@@ -597,7 +597,7 @@ CalCoreBonePtr CalLoader::loadCoreBones(CalBufferSource& dataSrc, int version) {
     CalVector trans(tx, ty, tz);
 
     // allocate a new core bone instance
-    CalCoreBonePtr pCoreBone(new CalCoreBone(strName, parentId));
+    boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
 
     // set all attributes of the bone
     pCoreBone->relativeTransform.translation = trans;

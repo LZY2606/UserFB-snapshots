@@ -18,17 +18,17 @@
 #include "cal3d/coreskeleton.h"
 #include "cal3d/corebone.h"
 
-std::vector<CalCoreBonePtr> findInvalidParents(
-    const std::vector<CalCoreBonePtr>& bones,
-    const std::map<unsigned, CalCoreBonePtr>& originalIndices
+std::vector<boost::shared_ptr<CalCoreBone>> findInvalidParents(
+    const std::vector<boost::shared_ptr<CalCoreBone>>& bones,
+    const std::map<unsigned, boost::shared_ptr<CalCoreBone>>& originalIndices
 ) {
-    std::set<CalCoreBonePtr> unknown(bones.begin(), bones.end());
+    std::set<boost::shared_ptr<CalCoreBone>> unknown(bones.begin(), bones.end());
 
-    std::vector<CalCoreBonePtr> knownInvalid;
+    std::vector<boost::shared_ptr<CalCoreBone>> knownInvalid;
     while (!unknown.empty()) {
-        CalCoreBonePtr p = *unknown.begin();
+        boost::shared_ptr<CalCoreBone> p = *unknown.begin();
 
-        std::set<CalCoreBonePtr> path;
+        std::set<boost::shared_ptr<CalCoreBone>> path;
         
         path.insert(p);
         while (p->parentId != -1) {
@@ -37,7 +37,7 @@ std::vector<CalCoreBonePtr> findInvalidParents(
                 break;
             }
 
-            CalCoreBonePtr next = cal3d::map_get(originalIndices, static_cast<unsigned>(p->parentId));
+            boost::shared_ptr<CalCoreBone> next = cal3d::map_get(originalIndices, static_cast<unsigned>(p->parentId));
             if (path.count(next)) {
                 knownInvalid.insert(knownInvalid.end(), path.begin(), path.end());
                 break;
@@ -47,39 +47,39 @@ std::vector<CalCoreBonePtr> findInvalidParents(
         }
 
         // clear path
-        for (std::set<CalCoreBonePtr>::iterator i = path.begin(); i != path.end(); ++i) {
+        for (std::set<boost::shared_ptr<CalCoreBone>>::iterator i = path.begin(); i != path.end(); ++i) {
             unknown.erase(*i);
         }
     }
     return knownInvalid;
 }
 
-CalCoreSkeleton::CalCoreSkeleton(const std::vector<CalCoreBonePtr>& bones)
+CalCoreSkeleton::CalCoreSkeleton(const std::vector<boost::shared_ptr<CalCoreBone>>& bones)
     : coreBones(m_coreBones)
 {
     m_coreBones.reserve(bones.size());
 
-    std::map<unsigned, CalCoreBonePtr> originalIndices;
+    std::map<unsigned, boost::shared_ptr<CalCoreBone>> originalIndices;
     for (size_t i = 0; i < bones.size(); ++i) {
         originalIndices[i] = bones[i];
     }
 
-    std::vector<CalCoreBonePtr> invalidParents = findInvalidParents(bones, originalIndices);
+    std::vector<boost::shared_ptr<CalCoreBone>> invalidParents = findInvalidParents(bones, originalIndices);
     for (size_t i = 0; i < invalidParents.size(); ++i) {
         invalidParents[i]->parentId = -1;
     }
 
-    std::queue<CalCoreBonePtr> q;
+    std::queue<boost::shared_ptr<CalCoreBone>> q;
     for (size_t i = 0; i < bones.size(); ++i) {
         q.push(bones[i]);
     }
 
-    std::set<CalCoreBonePtr> added;
+    std::set<boost::shared_ptr<CalCoreBone>> added;
 
-    std::map<CalCoreBonePtr, unsigned> newIndices;
+    std::map<boost::shared_ptr<CalCoreBone>, unsigned> newIndices;
 
     while (!q.empty()) {
-        CalCoreBonePtr p = q.front();
+        boost::shared_ptr<CalCoreBone> p = q.front();
         q.pop();
 
         if (p->parentId == -1 || added.count(originalIndices[p->parentId])) {
@@ -103,7 +103,7 @@ CalCoreSkeleton::CalCoreSkeleton(const std::vector<CalCoreBonePtr>& bones)
     cal3d::verify(boneIdTranslation.size() == m_coreBones.size(), "ID->index translation table and bone list must have identical lengths");
 }
 
-size_t CalCoreSkeleton::addCoreBone(const CalCoreBonePtr& coreBone) {
+size_t CalCoreSkeleton::addCoreBone(const boost::shared_ptr<CalCoreBone>& coreBone) {
     cal3d::verify(coreBone->parentId == -1 || size_t(coreBone->parentId) < coreBones.size(), "bones must be added in topological order");
 
     // skeletons can only have one root

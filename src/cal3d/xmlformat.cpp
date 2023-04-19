@@ -394,7 +394,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
         sceneAmbientColor = sceneColor;
     }
 
-    std::vector<CalCoreBonePtr> bones;
+    std::vector<boost::shared_ptr<CalCoreBone>> bones;
 
     for (TiXmlElement* bone = skeleton->first_node(); bone; bone = bone->next_sibling()) {
         if (!has_name(bone, "BONE")) {
@@ -465,7 +465,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
 
         int parentId = get_int_value(parent);
 
-        CalCoreBonePtr pCoreBone(new CalCoreBone(strName, parentId));
+        boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
 
         CalVector trans = CalVector(tx, ty, tz);
         CalQuaternion rot = CalQuaternion(rx, ry, rz, -rw);

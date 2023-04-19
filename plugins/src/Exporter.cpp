@@ -702,7 +702,7 @@ bool CExporter::ExportSkeleton(const std::string& strFilename)
             selectedId++;
 
                         int parentId = skeletonCandidate.GetParentSelectedId(boneCandidateId);
-                        CalCoreBonePtr pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
+                        boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
                         
             // get the translation and the rotation of the bone candidate
             CalVector translation;

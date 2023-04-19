@@ -13,7 +13,7 @@ FIXTURE(MixerFixture) {
 
     static boost::shared_ptr<CalCoreSkeleton> fakeMixerSkeleton() {
         boost::shared_ptr<CalCoreSkeleton> p(new CalCoreSkeleton());
-        CalCoreBonePtr root(new CalCoreBone("root"));
+        boost::shared_ptr<CalCoreBone> root(new CalCoreBone("root"));
         p->addCoreBone(root);
         return p;
     }

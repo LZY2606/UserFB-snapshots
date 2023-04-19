@@ -126,7 +126,7 @@ bool CExporter::ExportSkeletonFromMaxscriptCall(const std::string& strFilename, 
 			// get the parent id of the bone candidate
 			int parentId = skeletonCandidate.GetParentSelectedId(boneCandidateId);
 
-                        CalCoreBonePtr pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
+                        boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
 
 			// get the translation and the rotation of the bone candidate
 			CalVector translation;

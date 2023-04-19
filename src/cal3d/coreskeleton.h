@@ -22,17 +22,17 @@ class CalQuaternion;
 
 class CAL3D_API CalCoreSkeleton {
 public:
-    CalCoreSkeleton(const std::vector<CalCoreBonePtr>& bones = std::vector<CalCoreBonePtr>());
+    CalCoreSkeleton(const std::vector<boost::shared_ptr<CalCoreBone>>& bones = std::vector<boost::shared_ptr<CalCoreBone>>());
 
-    size_t addCoreBone(const CalCoreBonePtr& coreBone);
+    size_t addCoreBone(const boost::shared_ptr<CalCoreBone>& coreBone);
     int getBoneId(const CalCoreBone* coreBone) const;
 
     void scale(float factor);
 
     cal3d::RotateTranslate getAdjustedRootTransform(size_t boneIndex) const;
 
-    const std::vector<CalCoreBonePtr>& coreBones; // points to the internal m_coreBones
-    const std::vector<CalCoreBonePtr>& getCoreBones() const {
+    const std::vector<boost::shared_ptr<CalCoreBone>>& coreBones; // points to the internal m_coreBones
+    const std::vector<boost::shared_ptr<CalCoreBone>>& getCoreBones() const {
         return coreBones;
     }
 
@@ -48,7 +48,7 @@ public:
 private:
     cal3d::RotateTranslate inverseOriginalRootTransform;
     std::set<size_t> adjustedRoots;
-    std::vector<CalCoreBonePtr> m_coreBones;
+    std::vector<boost::shared_ptr<CalCoreBone>> m_coreBones;
 };
 
 CAL3D_PTR(CalCoreSkeleton);

@@ -86,7 +86,7 @@ private:
 
     static bool isHeaderWellFormed(const rapidxml::xml_node<char>* node);
 
-    static CalCoreBonePtr loadCoreBones(CalBufferSource& dataSrc, int version);
+    static boost::shared_ptr<CalCoreBone> loadCoreBones(CalBufferSource& dataSrc, int version);
     static CalCoreKeyframePtr loadCoreKeyframe(CalBufferSource& dataSrc,
             int version, CalCoreKeyframe* lastCoreKeyframe,
             bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
