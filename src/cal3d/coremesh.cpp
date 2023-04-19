@@ -160,7 +160,7 @@ void CalCoreMesh::scale(float factor) {
     }
 }
 
-void CalCoreMesh::fixup(const CalCoreSkeletonPtr& skeleton) {
+void CalCoreMesh::fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton) {
     for (auto i = submeshes.begin(); i != submeshes.end(); ++i) {
         (*i)->fixup(skeleton);
     }

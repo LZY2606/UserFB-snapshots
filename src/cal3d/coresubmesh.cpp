@@ -165,7 +165,7 @@ void CalCoreSubmesh::scale(float factor) {
 }
 
 
-void CalCoreSubmesh::fixup(const CalCoreSkeletonPtr& skeleton) {
+void CalCoreSubmesh::fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton) {
     for (size_t i = 0; i < m_influences.size(); ++i) {
         Influence& inf = m_influences[i];
         inf.boneId = (inf.boneId < skeleton->boneIdTranslation.size())

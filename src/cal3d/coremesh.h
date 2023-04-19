@@ -26,7 +26,7 @@ public:
     void replaceMeshWithMorphTarget(const std::string& morphTargetName);
 
     void scale(float factor);
-    void fixup(const CalCoreSkeletonPtr& skeleton);
+    void fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton);
     void removeEmptySubmeshes();
     void splitSubmeshesToBoneLimit(unsigned boneLimit);
 

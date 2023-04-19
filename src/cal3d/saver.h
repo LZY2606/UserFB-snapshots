@@ -33,7 +33,7 @@ public:
     static std::string saveCoreMorphAnimationToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation);
     static std::string saveCoreMaterialToBuffer(CalCoreMaterialPtr pCoreMaterial);
     static std::string saveCoreMeshToBuffer(CalCoreMeshPtr pCoreMesh);
-    static std::string saveCoreSkeletonToBuffer(CalCoreSkeletonPtr pCoreSkeleton);
+    static std::string saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton);
 
     static std::string saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
 

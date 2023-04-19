@@ -60,14 +60,14 @@ public:
     static CalCoreMorphAnimationPtr loadCoreMorphAnimation(CalBufferSource& inputSrc);
     static CalCoreMaterialPtr loadCoreMaterial(CalBufferSource& inputSrc);
     static CalCoreMeshPtr loadCoreMesh(CalBufferSource& inputSrc);
-    static CalCoreSkeletonPtr loadCoreSkeleton(CalBufferSource& inputSrc);
+    static boost::shared_ptr<CalCoreSkeleton> loadCoreSkeleton(CalBufferSource& inputSrc);
 
 private:
     static boost::shared_ptr<CalCoreAnimation> loadBinaryCoreAnimation(CalBufferSource& inputSrc);
     static CalCoreMorphAnimationPtr loadBinaryCoreMorphAnimation(CalBufferSource& inputSrc);
     static CalCoreMaterialPtr loadBinaryCoreMaterial(CalBufferSource& inputSrc);
     static CalCoreMeshPtr loadBinaryCoreMesh(CalBufferSource& inputSrc);
-    static CalCoreSkeletonPtr loadBinaryCoreSkeleton(CalBufferSource& inputSrc);
+    static boost::shared_ptr<CalCoreSkeleton> loadBinaryCoreSkeleton(CalBufferSource& inputSrc);
 
     static boost::shared_ptr<CalCoreAnimation> loadXmlCoreAnimation(char*);
     static boost::shared_ptr<CalCoreAnimation> loadXmlCoreAnimationDoc(const rapidxml::xml_document<char>& doc);
@@ -75,8 +75,8 @@ private:
     static CalCoreMorphAnimationPtr loadXmlCoreMorphAnimation(char*);
     static CalCoreMorphAnimationPtr loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<char>& doc);
 
-    static CalCoreSkeletonPtr loadXmlCoreSkeleton(char*);
-    static CalCoreSkeletonPtr loadXmlCoreSkeletonDoc(const rapidxml::xml_document<char>& doc);
+    static boost::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeleton(char*);
+    static boost::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeletonDoc(const rapidxml::xml_document<char>& doc);
 
     static CalCoreMeshPtr loadXmlCoreMesh(char*);
     static CalCoreMeshPtr loadXmlCoreMeshDoc(const rapidxml::xml_document<char>& doc);

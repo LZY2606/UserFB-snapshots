@@ -11,8 +11,8 @@ FIXTURE(MixerFixture) {
         , skeleton(coreSkeleton)
     {}
 
-    static CalCoreSkeletonPtr fakeMixerSkeleton() {
-        CalCoreSkeletonPtr p(new CalCoreSkeleton());
+    static boost::shared_ptr<CalCoreSkeleton> fakeMixerSkeleton() {
+        boost::shared_ptr<CalCoreSkeleton> p(new CalCoreSkeleton());
         CalCoreBonePtr root(new CalCoreBone("root"));
         p->addCoreBone(root);
         return p;
@@ -25,7 +25,7 @@ FIXTURE(MixerFixture) {
             std::vector<BoneScaleAdjustment>());
     }
 
-    CalCoreSkeletonPtr coreSkeleton;
+    boost::shared_ptr<CalCoreSkeleton> coreSkeleton;
     CalSkeleton skeleton;
     CalMixer mixer;
 };

@@ -312,7 +312,7 @@ const char simple_two_bone_skeleton[] =
 TEST_F(LoaderFixture, simple_two_bone_skeleton) {
     float tol = 0.001f;
     CalBufferSource cbs(fromString(simple_two_bone_skeleton));
-    CalCoreSkeletonPtr skel(CalLoader::loadCoreSkeleton(cbs));
+    boost::shared_ptr<CalCoreSkeleton> skel(CalLoader::loadCoreSkeleton(cbs));
     CHECK(skel);
     CHECK_EQUAL(skel->coreBones.size(), 2u);
     CalVector sceneAmbientClr = skel->sceneAmbientColor;
@@ -374,7 +374,7 @@ const char nan_bone_skeleton[] =
 TEST_F(LoaderFixture, nan_bone_skeleton) {
     float tol = 0.001f;
     CalBufferSource cbs(fromString(nan_bone_skeleton));
-    CalCoreSkeletonPtr skel(CalLoader::loadCoreSkeleton(cbs));
+    boost::shared_ptr<CalCoreSkeleton> skel(CalLoader::loadCoreSkeleton(cbs));
     CHECK(skel);
     CHECK_EQUAL(skel->coreBones.size(), 2u);
     CalVector sceneAmbientClr = skel->sceneAmbientColor;
@@ -434,7 +434,7 @@ const char nontopological_two_bone_skeleton[] =
 TEST_F(LoaderFixture, two_bone_skeleton_with_bones_in_nontopological_order) {
     float tol = 0.001f;
     CalBufferSource cbs(fromString(nontopological_two_bone_skeleton));
-    CalCoreSkeletonPtr skel(CalLoader::loadCoreSkeleton(cbs));
+    boost::shared_ptr<CalCoreSkeleton> skel(CalLoader::loadCoreSkeleton(cbs));
     CHECK(skel);
     CHECK_EQUAL(skel->coreBones.size(), 2u);
     CalVector sceneAmbientClr = skel->sceneAmbientColor;
@@ -500,7 +500,7 @@ const char animation_for_a_nonexistent_bone[] =
 
 TEST_F(LoaderFixture, load_animation_for_non_existent_bone) {
     CalBufferSource cbs(fromString(one_bone_skeleton));
-    CalCoreSkeletonPtr skel(CalLoader::loadCoreSkeleton(cbs));
+    boost::shared_ptr<CalCoreSkeleton> skel(CalLoader::loadCoreSkeleton(cbs));
     CHECK(skel);
 
     CalBufferSource cbs2(fromString(animation_for_a_nonexistent_bone));

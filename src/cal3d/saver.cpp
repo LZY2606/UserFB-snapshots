@@ -78,7 +78,7 @@ std::string CalSaver::saveCoreMeshToBuffer(CalCoreMeshPtr pCoreMesh) {
     return save(pCoreMesh, &saveCoreMesh);
 }
 
-std::string CalSaver::saveCoreSkeletonToBuffer(CalCoreSkeletonPtr pCoreSkeleton) {
+std::string CalSaver::saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton) {
     return save(pCoreSkeleton, &saveCoreSkeleton);
 }
 

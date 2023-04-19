@@ -26,7 +26,7 @@ protected:
 	std::vector<CBoneCandidate *> m_vectorBoneCandidate;
 	std::list<int> m_listRootBoneCandidateId;
 	std::string m_strFilename;
-        CalCoreSkeletonPtr m_skeleton;
+        boost::shared_ptr<CalCoreSkeleton> m_skeleton;
 
 public:
 	CSkeletonCandidate();

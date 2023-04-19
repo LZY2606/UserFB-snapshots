@@ -20,7 +20,7 @@
 #include "cal3d/coreskeleton.h"
 #include "cal3d/corebone.h" // DEBUG
 
-CalSkeleton::CalSkeleton(const CalCoreSkeletonPtr& coreSkeleton) {
+CalSkeleton::CalSkeleton(const boost::shared_ptr<CalCoreSkeleton>& coreSkeleton) {
     // clone the skeleton structure of the core skeleton
     const auto& coreBones = coreSkeleton->coreBones;
 

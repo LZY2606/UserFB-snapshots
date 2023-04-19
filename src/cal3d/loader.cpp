@@ -194,7 +194,7 @@ CalCoreMeshPtr CalLoader::loadCoreMesh(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMesh, &loadXmlCoreMesh);
 }
 
-CalCoreSkeletonPtr CalLoader::loadCoreSkeleton(CalBufferSource& inputSrc) {
+boost::shared_ptr<CalCoreSkeleton> CalLoader::loadCoreSkeleton(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreSkeleton, &loadXmlCoreSkeleton);
 }
 
@@ -480,8 +480,8 @@ CalCoreMeshPtr CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreSkeletonPtr CalLoader::loadBinaryCoreSkeleton(CalBufferSource& dataSrc) {
-    const CalCoreSkeletonPtr null;
+boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreSkeleton> null;
 
     char magic[4];
     if (!dataSrc.readBytes(&magic[0], 4) || (memcmp(&magic[0], cal3d::SKELETON_FILE_MAGIC, 4) != 0)) {
@@ -523,7 +523,7 @@ CalCoreSkeletonPtr CalLoader::loadBinaryCoreSkeleton(CalBufferSource& dataSrc) {
         bones.push_back(pCoreBone);
     }
 
-    CalCoreSkeletonPtr pCoreSkeleton(new CalCoreSkeleton(bones));
+    boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }

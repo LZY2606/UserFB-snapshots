@@ -329,7 +329,7 @@ TEST_F(SubmeshFixture, CalRenderer_getNormals_when_there_are_no_normals) {
     CalCoreMeshPtr coreMesh(new CalCoreMesh);
     coreMesh->submeshes.push_back(coreSubmesh);
 
-    CalCoreSkeletonPtr coreSkeleton(new CalCoreSkeleton);
+    boost::shared_ptr<CalCoreSkeleton> coreSkeleton(new CalCoreSkeleton);
 
     CalSkeleton skeleton(coreSkeleton);
     CalSubmesh submesh(coreSubmesh);

@@ -218,7 +218,7 @@ public:
     void replaceMeshWithMorphTarget(const std::string& morphTargetName);
 
     void scale(float factor);
-    void fixup(const CalCoreSkeletonPtr& skeleton);
+    void fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton);
 
     bool isStatic() const;
     BoneTransform getStaticTransform(const BoneTransform* bones) const;

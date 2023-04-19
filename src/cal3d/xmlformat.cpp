@@ -29,7 +29,7 @@ struct InvalidFileFormat {
         CalError::setLastError(CalError::INVALID_FILE_FORMAT, strFile, line);
     }
 
-    operator CalCoreSkeletonPtr() const { return CalCoreSkeletonPtr(); }
+    operator boost::shared_ptr<CalCoreSkeleton>() const { return boost::shared_ptr<CalCoreSkeleton>(); }
     operator CalCoreMaterialPtr() const { return CalCoreMaterialPtr(); }
     operator CalCoreMeshPtr() const { return CalCoreMeshPtr(); }
     operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
@@ -299,7 +299,7 @@ static inline void ReadQuadFloat(char const* buffer, float* f1, float* f2, float
     *f4 = d;
 }
 
-CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
+boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
     rapidxml::xml_document<> document;
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
@@ -359,7 +359,7 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
     return loadXmlCoreMorphAnimationDoc(doc);
 }
 
-CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_document<>& doc) {
+boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -488,7 +488,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
         bones.push_back(pCoreBone);
     }
 
-    CalCoreSkeletonPtr pCoreSkeleton(new CalCoreSkeleton(bones));
+    boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }

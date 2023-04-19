@@ -28,7 +28,7 @@ public:
 
     void scale(float factor);
     void fixup(
-        const CalCoreSkeletonPtr& skeleton,
+        const boost::shared_ptr<CalCoreSkeleton>& skeleton,
         cal3d::RotateTranslate rt = cal3d::RotateTranslate(),
         bool doFingerFix = false);
     void optimize();
