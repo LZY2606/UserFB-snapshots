@@ -15,8 +15,6 @@
 #include "cal3d/global.h"
 #include "cal3d/vector.h"
 
-CAL3D_PTR(CalCoreMaterial);
-
 namespace cal3d {
     class CAL3D_API MorphTarget {
     public:
