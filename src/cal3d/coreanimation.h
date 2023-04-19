@@ -14,7 +14,7 @@
 #include "cal3d/global.h"
 #include "cal3d/coretrack.h"
 
-CAL3D_PTR(CalCoreSkeleton);
+class CalCoreSkeleton;
 class CalQuaternion;
 
 class CAL3D_API CalCoreAnimation {
