@@ -15,7 +15,7 @@
 
 class CBoneCandidate;
 class CBaseNode;
-CAL3D_PTR(CalCoreSkeleton);
+class CalCoreSkeleton;
 class CalCoreBone;
 class CalQuaternion;
 class CalVector;
