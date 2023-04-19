@@ -9,7 +9,7 @@
 
 namespace cal3d {
     typedef rapidjson::Value Json;
-    typedef boost::optional<std::string> MaybeError;
+    typedef ISTD::optional<std::string> MaybeError;
 
     inline MaybeError jsonSuccess() {
         return MaybeError();

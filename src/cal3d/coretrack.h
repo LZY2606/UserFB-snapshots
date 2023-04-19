@@ -43,7 +43,7 @@ public:
 
     cal3d::RotateTranslate getCurrentTransform(float time) const;
 
-    boost::shared_ptr<CalCoreTrack> compress(double translationTolerance, double rotationToleranceDegrees, CalCoreSkeleton* skelOrNull) const;
+    ISTD::shared_ptr<CalCoreTrack> compress(double translationTolerance, double rotationToleranceDegrees, CalCoreSkeleton* skelOrNull) const;
     void translationCompressibility(
         bool* transRequiredResult, bool* transDynamicResult,
         float threshold, CalCoreSkeleton* skel

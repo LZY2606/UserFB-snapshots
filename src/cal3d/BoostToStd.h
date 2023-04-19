@@ -1,9 +1,12 @@
 #pragma once
 
+// #define USE_CAL3D_WITH_CPP_11 1
+
 #if defined(USE_CAL3D_WITH_CPP_11)
 
 #include <memory>
 #include <optional>
+#include <algorithm>
 
 #define ISTD std
 #define IMVU_STATIC_ASSERT static_assert

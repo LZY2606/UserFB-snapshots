@@ -29,13 +29,13 @@ class CalQuaternion;
 
 class CAL3D_API CalSaver {
 public:
-    static std::string saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
-    static std::string saveCoreMorphAnimationToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
-    static std::string saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial> pCoreMaterial);
-    static std::string saveCoreMeshToBuffer(boost::shared_ptr<CalCoreMesh> pCoreMesh);
-    static std::string saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton);
+    static std::string saveCoreAnimationToBuffer(ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation);
+    static std::string saveCoreMorphAnimationToBuffer(ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
+    static std::string saveCoreMaterialToBuffer(ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial);
+    static std::string saveCoreMeshToBuffer(ISTD::shared_ptr<CalCoreMesh> pCoreMesh);
+    static std::string saveCoreSkeletonToBuffer(ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton);
 
-    static std::string saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
+    static std::string saveCoreAnimationXmlToBuffer(ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation);
 
     static bool saveCoreAnimation(const std::string& strFilename, CalCoreAnimation* pCoreAnimation);
     static bool saveCoreAnimation(std::ostream& stream, CalCoreAnimation* coreAnimation);
@@ -43,7 +43,7 @@ public:
     static bool saveCoreMorphAnimation(const std::string& strFilename, CalCoreMorphAnimation* pCoreMorphAnimation);
     static bool saveCoreMorphAnimation(std::ostream& file, CalCoreMorphAnimation* pCoreMorphAnimation);
 
-    static std::string saveCoreMorphAnimationXmlToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
+    static std::string saveCoreMorphAnimationXmlToBuffer(ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
 
     static bool saveCoreMaterial(const std::string& strFilename, CalCoreMaterial* pCoreMaterial);
     static bool saveCoreMaterial(std::ostream& file, CalCoreMaterial* pCoreMaterial);

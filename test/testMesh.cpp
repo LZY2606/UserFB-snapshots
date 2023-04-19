@@ -22,7 +22,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
     influences.push_back(influence);
 
     CalCoreMesh mesh;
-    boost::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(1, false, 1));
+    ISTD::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(1, false, 1));
     submesh->addFace(face);
     submesh->addVertex(vertex, CalColor32(), influences);
 
@@ -33,7 +33,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
 
     CalCoreMorphTarget::VertexOffsetArray aVertexOffsets;
     aVertexOffsets.push_back(aVO);
-    boost::shared_ptr<CalCoreMorphTarget> aTarget(new CalCoreMorphTarget("A", 1, aVertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> aTarget(new CalCoreMorphTarget("A", 1, aVertexOffsets));
 
     VertexOffset bVO;
     bVO.vertexId = 0;
@@ -42,7 +42,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
 
     CalCoreMorphTarget::VertexOffsetArray bVertexOffsets;
     bVertexOffsets.push_back(bVO);
-    boost::shared_ptr<CalCoreMorphTarget> bTarget(new CalCoreMorphTarget("B", 1, bVertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> bTarget(new CalCoreMorphTarget("B", 1, bVertexOffsets));
 
     submesh->addMorphTarget(aTarget);
     submesh->addMorphTarget(bTarget);
@@ -71,7 +71,7 @@ TEST_F(MeshFixture, split_mesh_by_bone_limit) {
     CalCoreSubmesh::Vertex v;
     CalColor32 c = 0;
 
-    boost::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(4, false, 2));
+    ISTD::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(4, false, 2));
     submesh->addVertex(v, c, makeInfluences(0));
     submesh->addVertex(v, c, makeInfluences(1));
     submesh->addVertex(v, c, makeInfluences(2));

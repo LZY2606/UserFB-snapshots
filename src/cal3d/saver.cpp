@@ -35,7 +35,7 @@
 #include "cal3d/xmlformat.h"
 
 template<typename T>
-std::string save(const boost::shared_ptr<T>& t, bool (saveBinary)(std::ostream&, T*)) {
+std::string save(const ISTD::shared_ptr<T>& t, bool (saveBinary)(std::ostream&, T*)) {
     std::ostringstream os;
     if (saveBinary(os, t.get())) {
         return os.str();
@@ -44,11 +44,11 @@ std::string save(const boost::shared_ptr<T>& t, bool (saveBinary)(std::ostream&,
     }
 }
 
-std::string CalSaver::saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation) {
+std::string CalSaver::saveCoreAnimationToBuffer(ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation) {
     return save(pCoreAnimation, &saveCoreAnimation);
 }
 
-std::string CalSaver::saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation) {
+std::string CalSaver::saveCoreAnimationXmlToBuffer(ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation) {
     std::ostringstream os;
     if (saveXmlCoreAnimation(os, pCoreAnimation.get())) {
         return os.str();
@@ -57,11 +57,11 @@ std::string CalSaver::saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnim
     }
 }
 
-std::string CalSaver::saveCoreMorphAnimationToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
+std::string CalSaver::saveCoreMorphAnimationToBuffer(ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
     return save(pCoreMorphAnimation, &saveCoreMorphAnimation);
 }
 
-std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
+std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
     std::ostringstream os;
     if (saveXmlCoreMorphAnimation(os, pCoreMorphAnimation.get())) {
         return os.str();
@@ -70,15 +70,15 @@ std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(boost::shared_ptr<CalCor
     }
 }
 
-std::string CalSaver::saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial> pCoreMaterial) {
+std::string CalSaver::saveCoreMaterialToBuffer(ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial) {
     return save(pCoreMaterial, &saveCoreMaterial);
 }
 
-std::string CalSaver::saveCoreMeshToBuffer(boost::shared_ptr<CalCoreMesh> pCoreMesh) {
+std::string CalSaver::saveCoreMeshToBuffer(ISTD::shared_ptr<CalCoreMesh> pCoreMesh) {
     return save(pCoreMesh, &saveCoreMesh);
 }
 
-std::string CalSaver::saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton) {
+std::string CalSaver::saveCoreSkeletonToBuffer(ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton) {
     return save(pCoreSkeleton, &saveCoreSkeleton);
 }
 
@@ -674,7 +674,7 @@ bool CalSaver::saveCoreSubmesh(std::ostream& os, CalCoreSubmesh* pCoreSubmesh) {
     }
 
     for (size_t morphId = 0; morphId < vectorMorphs.size(); morphId++) {
-        boost::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
+        ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
         CalPlatform::writeString(os, morphTarget->name);
 
         const CalCoreMorphTarget::VertexOffsetArray& vertices = morphTarget->vertexOffsets;
@@ -1151,7 +1151,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
     // write all core submeshes
     int submeshId;
     for (submeshId = 0; submeshId < (int)vectorCoreSubmesh.size(); ++submeshId) {
-        const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh = vectorCoreSubmesh[submeshId];
+        const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh = vectorCoreSubmesh[submeshId];
 
         TiXmlElement submesh("SUBMESH");
 
@@ -1265,7 +1265,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
 
         // write all morphs
         for (size_t morphId = 0; morphId < vectorMorphs.size(); ++morphId) {
-            boost::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
+            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
 
             TiXmlElement morph("MORPH");
             str.str("");

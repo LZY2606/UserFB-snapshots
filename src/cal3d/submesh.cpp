@@ -26,7 +26,7 @@ IMVU_STATIC_ASSERT(sizeof(CalIndex) == 2);
 // not yet have a value by setting this field to this specific invalid value.
 static float const ReplacementAttenuationNull = 100.0; // Any number not between zero and one.
 
-cal3d::MorphTarget::MorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& cmt)
+cal3d::MorphTarget::MorphTarget(const ISTD::shared_ptr<CalCoreMorphTarget>& cmt)
     : coreMorphTarget(cmt)
 {
     resetState();
@@ -38,7 +38,7 @@ void cal3d::MorphTarget::resetState() {
     replacementAttenuation = ReplacementAttenuationNull;
 }
 
-CalSubmesh::CalSubmesh(const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh)
+CalSubmesh::CalSubmesh(const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh)
     : coreSubmesh(pCoreSubmesh)
 {
     assert(pCoreSubmesh);
@@ -53,7 +53,7 @@ CalSubmesh::CalSubmesh(const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh)
 
 void CalSubmesh::setMorphTargetWeight(std::string const& morphName, float weight) {
     for (size_t i = 0; i < morphTargets.size(); i++) {
-        const boost::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
+        const ISTD::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
         if (target->name == morphName) {
             morphTargets[i].weight = weight;
             return;
@@ -71,7 +71,7 @@ void CalSubmesh::clearMorphTargetScales() {
 
 void CalSubmesh::clearMorphTargetState(std::string const& morphName) {
     for (size_t i = 0; i < morphTargets.size(); i++) {
-        const boost::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
+        const ISTD::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
         if (target->name == morphName) {
             morphTargets[i].resetState();
         }
@@ -89,7 +89,7 @@ void CalSubmesh::blendMorphTargetScale(
     size_t size = morphTargets.size();
     for (size_t i = 0; i < size; i++) {
         cal3d::MorphTarget& morphTargetState = morphTargets[i];
-        const boost::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
+        const ISTD::shared_ptr<CalCoreMorphTarget>& target = coreSubmesh->getMorphTargets()[i];
         if (target->name == morphName) {
             CalMorphTargetType mtype = target->morphTargetType;
             switch (mtype) {

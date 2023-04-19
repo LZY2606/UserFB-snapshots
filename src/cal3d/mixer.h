@@ -41,8 +41,8 @@ struct BoneScaleAdjustment {
 
 class CAL3D_API CalMixer {
 public:
-    void addAnimation(const boost::shared_ptr<CalAnimation>& animation);
-    void removeAnimation(const boost::shared_ptr<CalAnimation>& animation);
+    void addAnimation(const ISTD::shared_ptr<CalAnimation>& animation);
+    void removeAnimation(const ISTD::shared_ptr<CalAnimation>& animation);
 
     void updateSkeleton(
         CalSkeleton* skeleton,
@@ -55,6 +55,6 @@ private:
         const std::vector<BoneTransformAdjustment>& boneTransformAdjustments,
         const std::vector<BoneScaleAdjustment>& boneScaleAdjustments);
 
-    typedef std::list<boost::shared_ptr<CalAnimation>> AnimationList;
+    typedef std::list<ISTD::shared_ptr<CalAnimation>> AnimationList;
     AnimationList activeAnimations;
 };

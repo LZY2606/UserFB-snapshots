@@ -178,28 +178,28 @@ RV tryBothLoaders(
     }
 }
 
-boost::shared_ptr<CalCoreAnimation> CalLoader::loadCoreAnimation(CalBufferSource& inputSrc) {
+ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadCoreAnimation(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreAnimation, &loadXmlCoreAnimation);
 }
 
-boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadCoreMorphAnimation(CalBufferSource& inputSrc) {
+ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadCoreMorphAnimation(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMorphAnimation, &loadXmlCoreMorphAnimation);
 }
 
-boost::shared_ptr<CalCoreMaterial> CalLoader::loadCoreMaterial(CalBufferSource& inputSrc) {
+ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadCoreMaterial(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMaterial, &loadXmlCoreMaterial);
 }
 
-boost::shared_ptr<CalCoreMesh> CalLoader::loadCoreMesh(CalBufferSource& inputSrc) {
+ISTD::shared_ptr<CalCoreMesh> CalLoader::loadCoreMesh(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMesh, &loadXmlCoreMesh);
 }
 
-boost::shared_ptr<CalCoreSkeleton> CalLoader::loadCoreSkeleton(CalBufferSource& inputSrc) {
+ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadCoreSkeleton(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreSkeleton, &loadXmlCoreSkeleton);
 }
 
-boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreAnimation> null;
+ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreAnimation> null;
 
     // check if this is a valid file
     char magic[4];
@@ -227,7 +227,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBuffer
     }
 
 
-    boost::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
+    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
 
     float duration;
     if (!dataSrc.readFloat(duration)) {
@@ -256,7 +256,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBuffer
     // load all core bones
     for (int trackId = 0; trackId < trackCount; ++trackId) {
         // load the core track
-        boost::shared_ptr<CalCoreTrack> pCoreTrack(loadCoreTrack(dataSrc, version, useAnimationCompression));
+        ISTD::shared_ptr<CalCoreTrack> pCoreTrack(loadCoreTrack(dataSrc, version, useAnimationCompression));
         if (!pCoreTrack) {
             return null;
         }
@@ -270,8 +270,8 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBuffer
 
 
 
-boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreMorphAnimation> null;
+ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreMorphAnimation> null;
 
     char magic[4];
     if (!dataSrc.readBytes(&magic[0], 4) || (memcmp(&magic[0], cal3d::ANIMATEDMORPH_FILE_MAGIC, 4) != 0)) {
@@ -287,7 +287,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation
     }
 
     // allocate a new core animatedMorph instance
-    boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation(new CalCoreMorphAnimation);
+    ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation(new CalCoreMorphAnimation);
 
     // get the duration of the core animatedMorph
     float duration;
@@ -313,7 +313,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation
     }
 
     for (int trackId = 0; trackId < trackCount; ++trackId) {
-        boost::shared_ptr<CalCoreMorphTrack> pCoreTrack = loadCoreMorphTrack(dataSrc);
+        ISTD::shared_ptr<CalCoreMorphTrack> pCoreTrack = loadCoreMorphTrack(dataSrc);
         if (!pCoreTrack) {
             return null;
         }
@@ -337,8 +337,8 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreMaterial> null;
+ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreMaterial> null;
 
     // check if this is a valid file
     char magic[4];
@@ -357,7 +357,7 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSo
     bool hasMaterialTypes = (version >= cal3d::FIRST_FILE_VERSION_WITH_MATERIAL_TYPES);
 
     // allocate a new core material instance
-    boost::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
+    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
 
     // get the ambient color of the core material
     unsigned char ambientColor[4];
@@ -427,8 +427,8 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSo
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreMesh> null;
+ISTD::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreMesh> null;
 
     // check if this is a valid file
     char magic[4];
@@ -451,12 +451,12 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& da
         return null;
     }
 
-    boost::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
+    ISTD::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
 
     // load all core submeshes
     for (int submeshId = 0; submeshId < submeshCount; ++submeshId) {
         // load the core submesh
-        boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(loadCoreSubmesh(dataSrc, version));
+        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(loadCoreSubmesh(dataSrc, version));
         if (!pCoreSubmesh) {
             return null;
         }
@@ -480,8 +480,8 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& da
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreSkeleton> null;
+ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreSkeleton> null;
 
     char magic[4];
     if (!dataSrc.readBytes(&magic[0], 4) || (memcmp(&magic[0], cal3d::SKELETON_FILE_MAGIC, 4) != 0)) {
@@ -505,17 +505,17 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSo
         return null;
     }
 
-    boost::optional<CalVector> sceneAmbientColor;
+    ISTD::optional<CalVector> sceneAmbientColor;
     if (hasNodeLights) {
         CalVector sceneColor;
         CalVectorFromDataSrc(dataSrc, &sceneColor);
         sceneAmbientColor = sceneColor;
     }
 
-    std::vector<boost::shared_ptr<CalCoreBone>> bones;
+    std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
 
     for (int boneId = 0; boneId < boneCount; ++boneId) {
-        boost::shared_ptr<CalCoreBone> pCoreBone(loadCoreBones(dataSrc, version));
+        ISTD::shared_ptr<CalCoreBone> pCoreBone(loadCoreBones(dataSrc, version));
         if (!pCoreBone) {
             return null;
         }
@@ -523,7 +523,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSo
         bones.push_back(pCoreBone);
     }
 
-    boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
+    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }
@@ -544,8 +544,8 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSo
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreBone> CalLoader::loadCoreBones(CalBufferSource& dataSrc, int version) {
-    const boost::shared_ptr<CalCoreBone> null;
+ISTD::shared_ptr<CalCoreBone> CalLoader::loadCoreBones(CalBufferSource& dataSrc, int version) {
+    const ISTD::shared_ptr<CalCoreBone> null;
 
     bool hasNodeLights = (version >= cal3d::FIRST_FILE_VERSION_WITH_NODE_LIGHTS);
 
@@ -597,7 +597,7 @@ boost::shared_ptr<CalCoreBone> CalLoader::loadCoreBones(CalBufferSource& dataSrc
     CalVector trans(tx, ty, tz);
 
     // allocate a new core bone instance
-    boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
+    ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
 
     // set all attributes of the bone
     pCoreBone->relativeTransform.translation = trans;
@@ -637,13 +637,13 @@ CalLoader::usesAnimationCompression(int version) {
 }
 
 
-boost::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
+ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
     CalBufferSource& dataSrc, int version,
     CalCoreKeyframe* prevCoreKeyframe,
     bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
     bool useAnimationCompression
 ) {
-    const boost::shared_ptr<CalCoreKeyframe> null;
+    const ISTD::shared_ptr<CalCoreKeyframe> null;
 
     float time;
     CalVector t;
@@ -703,7 +703,7 @@ boost::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
         dataSrc.readFloat(rw);
     }
 
-    boost::shared_ptr<CalCoreKeyframe> pCoreKeyframe(new CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
+    ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe(new CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
     return pCoreKeyframe;
 }
 
@@ -853,8 +853,8 @@ CalLoader::readCompressedKeyframe(
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreMorphKeyframe> null;
+ISTD::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreMorphKeyframe> null;
 
     // get the time of the morphKeyframe
     float time;
@@ -864,7 +864,7 @@ boost::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBuff
     float weight;
     dataSrc.readFloat(weight);
 
-    boost::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe(new CalCoreMorphKeyframe);
+    ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe(new CalCoreMorphKeyframe);
     pCoreMorphKeyframe->time = time;
     pCoreMorphKeyframe->weight = weight;
     return pCoreMorphKeyframe;
@@ -922,7 +922,7 @@ std::string convertLatin1toUTF8(const std::string &str) {
 }
 
 
-boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int version) {
+ISTD::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int version) {
     bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
     bool hasMorphTargetsInMorphFiles = (version >= cal3d::FIRST_FILE_VERSION_WITH_MORPH_TARGETS_IN_MORPH_FILES);
 
@@ -952,7 +952,7 @@ boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& da
         dataSrc.readInteger(morphCount);
     }
 
-    boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+    ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
     pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
     for (int vertexId = 0; vertexId < vertexCount; ++vertexId) {
@@ -994,7 +994,7 @@ boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& da
         // get the number of influences
         int influenceCount;
         if (!dataSrc.readInteger(influenceCount) || (influenceCount < 0)) {
-            return boost::shared_ptr<CalCoreSubmesh>();
+            return ISTD::shared_ptr<CalCoreSubmesh>();
         }
 
         std::vector<CalCoreSubmesh::Influence> influences;
@@ -1061,7 +1061,7 @@ boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& da
             morphName = convertLatin1toUTF8(morphName);
         }
 
-        boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
+        ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
         pCoreSubmesh->addMorphTarget(morphTarget);
     }
 
@@ -1073,7 +1073,7 @@ boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& da
 
         if (tmp[0] > 65535 || tmp[1] > 65535 || tmp[2] > 65535) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
-            return boost::shared_ptr<CalCoreSubmesh>();
+            return ISTD::shared_ptr<CalCoreSubmesh>();
         }
 
         pCoreSubmesh->addFace(CalCoreSubmesh::Face(tmp[0], tmp[1], tmp[2]));
@@ -1082,12 +1082,12 @@ boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& da
     return pCoreSubmesh;
 }
 
-boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
+ISTD::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
     CalBufferSource& dataSrc,
     int version,
     bool useAnimationCompression
 ) {
-    const boost::shared_ptr<CalCoreTrack> null;
+    const ISTD::shared_ptr<CalCoreTrack> null;
 
     // Read the bone id.
     int coreBoneId;
@@ -1131,7 +1131,7 @@ boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
     CalCoreKeyframe lastCoreKeyframe;
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
         // load the core keyframe
-        boost::shared_ptr<CalCoreKeyframe> pCoreKeyframe = loadCoreKeyframe(
+        ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe = loadCoreKeyframe(
             dataSrc,
             version,
             (hasLastKeyframe ? &lastCoreKeyframe : 0),
@@ -1149,7 +1149,7 @@ boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
         keyframes.push_back(kf);
     }
 
-    boost::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+    ISTD::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
     pCoreTrack->translationRequired = translationRequired;
     pCoreTrack->translationIsDynamic = translationIsDynamic;
     return pCoreTrack;
@@ -1168,8 +1168,8 @@ boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-boost::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSource& dataSrc) {
-    const boost::shared_ptr<CalCoreMorphTrack> null;
+ISTD::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSource& dataSrc) {
+    const ISTD::shared_ptr<CalCoreMorphTrack> null;
     
     // read the morph name
     std::string morphName;
@@ -1179,7 +1179,7 @@ boost::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSour
     }
 
     // allocate a new core morphTrack instance
-    boost::shared_ptr<CalCoreMorphTrack> pCoreMorphTrack(new CalCoreMorphTrack);
+    ISTD::shared_ptr<CalCoreMorphTrack> pCoreMorphTrack(new CalCoreMorphTrack);
 
     // link the core morphTrack to the appropriate morph name
     pCoreMorphTrack->morphName = morphName;
@@ -1194,7 +1194,7 @@ boost::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSour
     // load all core keyframes
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
         // load the core keyframe
-        boost::shared_ptr<CalCoreMorphKeyframe> pCoreKeyframe = loadCoreMorphKeyframe(dataSrc);
+        ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreKeyframe = loadCoreMorphKeyframe(dataSrc);
         if (!pCoreKeyframe) {
             return null;
         }

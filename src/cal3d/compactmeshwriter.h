@@ -15,5 +15,5 @@ public:
 
 class CAL3D_API CalCompactMeshWriter {
 public:
-    static CalCompactSubmeshData saveCompactCoreSubmesh(const boost::shared_ptr<CalCoreSubmesh>&, unsigned int influenceLimit=4, float influenceMargin=0.001);
+    static CalCompactSubmeshData saveCompactCoreSubmesh(const ISTD::shared_ptr<CalCoreSubmesh>&, unsigned int influenceLimit=4, float influenceMargin=0.001);
 };

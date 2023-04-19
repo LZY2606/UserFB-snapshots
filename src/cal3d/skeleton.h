@@ -24,7 +24,7 @@ class CAL3D_API CalSkeleton {
 public:
     typedef cal3d::SSEArray<CalBone> BoneArray;
 
-    CalSkeleton(const boost::shared_ptr<CalCoreSkeleton>& coreSkeleton);
+    CalSkeleton(const ISTD::shared_ptr<CalCoreSkeleton>& coreSkeleton);
 
     void resetPose();
     void calculateAbsolutePose();

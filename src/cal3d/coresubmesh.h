@@ -159,7 +159,7 @@ public:
         }
     };
 
-    typedef std::vector<boost::shared_ptr<CalCoreMorphTarget>> MorphTargetArray;
+    typedef std::vector<ISTD::shared_ptr<CalCoreMorphTarget>> MorphTargetArray;
     typedef std::vector<Face> VectorFace;
     typedef std::vector<TextureCoordinate> VectorTextureCoordinate;
     typedef cal3d::SSEArray<Vertex> VectorVertex;
@@ -208,7 +208,7 @@ public:
     void addVertex(const Vertex& vertex, CalColor32 vertexColor, const InfluenceVector& influences);
     void setTextureCoordinate(int vertexId, const TextureCoordinate& textureCoordinate);
 
-    void addMorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& morphTarget);
+    void addMorphTarget(const ISTD::shared_ptr<CalCoreMorphTarget>& morphTarget);
     const MorphTargetArray& getMorphTargets() const {
         return m_morphTargets;
     }
@@ -216,7 +216,7 @@ public:
     void replaceMeshWithMorphTarget(const std::string& morphTargetName);
 
     void scale(float factor);
-    void fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton);
+    void fixup(const ISTD::shared_ptr<CalCoreSkeleton>& skeleton);
 
     bool isStatic() const;
     BoneTransform getStaticTransform(const BoneTransform* bones) const;
@@ -237,7 +237,7 @@ public:
 
     bool simplifySubmesh(unsigned int tri_count, unsigned int quality);
 
-    void splitSubmeshesToBoneLimit(std::vector<boost::shared_ptr<CalCoreSubmesh>>& out, unsigned boneLimit) const;
+    void splitSubmeshesToBoneLimit(std::vector<ISTD::shared_ptr<CalCoreSubmesh>>& out, unsigned boneLimit) const;
     void optimizeVertexCache();
     void renumberIndices();
     void normalizeNormals();
@@ -276,4 +276,4 @@ inline std::ostream& operator<<(std::ostream& os, const CalCoreSubmesh::Influenc
 
 CAL3D_PTR(CalCoreSubmesh);
 
-CAL3D_API boost::shared_ptr<CalCoreSubmesh> MakeCube();
+CAL3D_API ISTD::shared_ptr<CalCoreSubmesh> MakeCube();

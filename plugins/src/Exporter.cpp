@@ -557,7 +557,7 @@ bool CExporter::meshCandidateToCoreMesh(CMeshCandidate const & meshCandidate, Ca
             std::vector<CVertexCandidate *>& vectorVertexCandidate = pSubmeshCandidate->GetVectorVertexCandidate();
 
             // allocate new core submesh instance
-            boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
+            ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
                     vectorVertexCandidate.size(),
                     pSubmeshCandidate->GetMapCount() ? true : false,
                     vectorFace.size()));
@@ -702,7 +702,7 @@ bool CExporter::ExportSkeleton(const std::string& strFilename)
             selectedId++;
 
                         int parentId = skeletonCandidate.GetParentSelectedId(boneCandidateId);
-                        boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
+                        ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
                         
             // get the translation and the rotation of the bone candidate
             CalVector translation;

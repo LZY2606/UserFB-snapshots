@@ -62,7 +62,7 @@ void CalCoreAnimation::optimize() {
         std::mem_fun_ref(&CalCoreTrack::optimize));
 }
 
-void CalCoreAnimation::fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton, cal3d::RotateTranslate rt, bool doFingerFix) {
+void CalCoreAnimation::fixup(const ISTD::shared_ptr<CalCoreSkeleton>& skeleton, cal3d::RotateTranslate rt, bool doFingerFix) {
     const auto& coreBones = skeleton->coreBones;
 
     TrackList output;

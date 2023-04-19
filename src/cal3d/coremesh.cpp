@@ -24,8 +24,8 @@ void CalCoreMesh()
     CalError::setLastError(CalError::INTERNAL, __FILE__, __LINE__, "In CalCoreMesh constructor");
 }
 
-size_t sizeInBytes(const boost::shared_ptr<CalCoreSubmesh>& submesh) {
-    return sizeof(boost::shared_ptr<CalCoreSubmesh>) + submesh->sizeInBytes();
+size_t sizeInBytes(const ISTD::shared_ptr<CalCoreSubmesh>& submesh) {
+    return sizeof(ISTD::shared_ptr<CalCoreSubmesh>) + submesh->sizeInBytes();
 }
 
 size_t CalCoreMesh::sizeInBytes() const {
@@ -73,8 +73,8 @@ bool CalCoreMesh::addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& mo
             CalError::setLastError(CalError::INTERNAL, __FILE__, __LINE__, buf);
             return false; 
         }
-        boost::shared_ptr<CalCoreSubmesh> baseMesh = (*iteratorCoreSubmesh);
-        boost::shared_ptr<CalCoreSubmesh> morphMesh = (*otherIteratorCoreSubmesh);
+        ISTD::shared_ptr<CalCoreSubmesh> baseMesh = (*iteratorCoreSubmesh);
+        ISTD::shared_ptr<CalCoreSubmesh> morphMesh = (*otherIteratorCoreSubmesh);
         count1 = baseMesh->getFaceCount();
         count2 = morphMesh->getFaceCount();
         if (count1 != count2) {
@@ -138,7 +138,7 @@ bool CalCoreMesh::addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& mo
                     vectorVertex[i].position - vectorCoreVertex[i].position,
                     vectorVertex[i].normal - vectorCoreVertex[i].normal));
             }
-            boost::shared_ptr<CalCoreMorphTarget> pCalCoreMorphTarget(new CalCoreMorphTarget(morphTargetName, vertexCount, vertices));
+            ISTD::shared_ptr<CalCoreMorphTarget> pCalCoreMorphTarget(new CalCoreMorphTarget(morphTargetName, vertexCount, vertices));
             (*iteratorCoreSubmesh)->addMorphTarget(pCalCoreMorphTarget);
         }
         ++submeshIndex;
@@ -160,7 +160,7 @@ void CalCoreMesh::scale(float factor) {
     }
 }
 
-void CalCoreMesh::fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton) {
+void CalCoreMesh::fixup(const ISTD::shared_ptr<CalCoreSkeleton>& skeleton) {
     for (auto i = submeshes.begin(); i != submeshes.end(); ++i) {
         (*i)->fixup(skeleton);
     }

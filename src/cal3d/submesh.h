@@ -18,10 +18,10 @@
 namespace cal3d {
     class CAL3D_API MorphTarget {
     public:
-        MorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& coreMorphTarget);
+        MorphTarget(const ISTD::shared_ptr<CalCoreMorphTarget>& coreMorphTarget);
         void resetState();
 
-        boost::shared_ptr<CalCoreMorphTarget> coreMorphTarget;
+        ISTD::shared_ptr<CalCoreMorphTarget> coreMorphTarget;
 
         float weight;
         float accumulatedWeight;
@@ -33,10 +33,10 @@ namespace cal3d {
 
 class CAL3D_API CalSubmesh {
 public:
-    const boost::shared_ptr<CalCoreSubmesh> coreSubmesh;
+    const ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh;
     std::vector<cal3d::MorphTarget> morphTargets; // index maps to CoreSubMorphTarget in CoreSubmesh
 
-    CalSubmesh(const boost::shared_ptr<CalCoreSubmesh>& coreSubmesh);
+    CalSubmesh(const ISTD::shared_ptr<CalCoreSubmesh>& coreSubmesh);
 
     void setMorphTargetWeight(std::string const& morphName, float weight);
     void clearMorphTargetScales();

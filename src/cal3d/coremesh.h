@@ -18,7 +18,7 @@ class CalQuaternion;
 
 class CAL3D_API CalCoreMesh {
 public:
-    typedef std::vector<boost::shared_ptr<CalCoreSubmesh>> CalCoreSubmeshVector;
+    typedef std::vector<ISTD::shared_ptr<CalCoreSubmesh>> CalCoreSubmeshVector;
 
     size_t sizeInBytes() const;
     bool addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& morphTargetName);
@@ -26,7 +26,7 @@ public:
     void replaceMeshWithMorphTarget(const std::string& morphTargetName);
 
     void scale(float factor);
-    void fixup(const boost::shared_ptr<CalCoreSkeleton>& skeleton);
+    void fixup(const ISTD::shared_ptr<CalCoreSkeleton>& skeleton);
     void removeEmptySubmeshes();
     void splitSubmeshesToBoneLimit(unsigned boneLimit);
 

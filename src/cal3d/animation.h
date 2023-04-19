@@ -7,9 +7,9 @@ class CalCoreAnimation;
 
 class CAL3D_API CalAnimation {
 public:
-    CalAnimation(const boost::shared_ptr<CalCoreAnimation>& pCoreAnimation, float weight, unsigned priority);
+    CalAnimation(const ISTD::shared_ptr<CalCoreAnimation>& pCoreAnimation, float weight, unsigned priority);
 
-    const boost::shared_ptr<CalCoreAnimation> coreAnimation;
+    const ISTD::shared_ptr<CalCoreAnimation> coreAnimation;
 
     float time; // current time
     float rampValue; // 0->1 fade in, 1->0 fade out

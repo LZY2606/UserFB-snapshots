@@ -56,45 +56,45 @@ public:
     static float const keyframePosRangeSmall;
     static unsigned int const keyframePosBytesSmall;
 
-    static boost::shared_ptr<CalCoreAnimation> loadCoreAnimation(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMorphAnimation> loadCoreMorphAnimation(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMaterial> loadCoreMaterial(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMesh> loadCoreMesh(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreSkeleton> loadCoreSkeleton(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreAnimation> loadCoreAnimation(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMorphAnimation> loadCoreMorphAnimation(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMaterial> loadCoreMaterial(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMesh> loadCoreMesh(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreSkeleton> loadCoreSkeleton(CalBufferSource& inputSrc);
 
 private:
-    static boost::shared_ptr<CalCoreAnimation> loadBinaryCoreAnimation(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMorphAnimation> loadBinaryCoreMorphAnimation(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMaterial> loadBinaryCoreMaterial(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreMesh> loadBinaryCoreMesh(CalBufferSource& inputSrc);
-    static boost::shared_ptr<CalCoreSkeleton> loadBinaryCoreSkeleton(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreAnimation> loadBinaryCoreAnimation(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMorphAnimation> loadBinaryCoreMorphAnimation(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMaterial> loadBinaryCoreMaterial(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreMesh> loadBinaryCoreMesh(CalBufferSource& inputSrc);
+    static ISTD::shared_ptr<CalCoreSkeleton> loadBinaryCoreSkeleton(CalBufferSource& inputSrc);
 
-    static boost::shared_ptr<CalCoreAnimation> loadXmlCoreAnimation(char*);
-    static boost::shared_ptr<CalCoreAnimation> loadXmlCoreAnimationDoc(const rapidxml::xml_document<char>& doc);
+    static ISTD::shared_ptr<CalCoreAnimation> loadXmlCoreAnimation(char*);
+    static ISTD::shared_ptr<CalCoreAnimation> loadXmlCoreAnimationDoc(const rapidxml::xml_document<char>& doc);
 
-    static boost::shared_ptr<CalCoreMorphAnimation> loadXmlCoreMorphAnimation(char*);
-    static boost::shared_ptr<CalCoreMorphAnimation> loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<char>& doc);
+    static ISTD::shared_ptr<CalCoreMorphAnimation> loadXmlCoreMorphAnimation(char*);
+    static ISTD::shared_ptr<CalCoreMorphAnimation> loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<char>& doc);
 
-    static boost::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeleton(char*);
-    static boost::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeletonDoc(const rapidxml::xml_document<char>& doc);
+    static ISTD::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeleton(char*);
+    static ISTD::shared_ptr<CalCoreSkeleton> loadXmlCoreSkeletonDoc(const rapidxml::xml_document<char>& doc);
 
-    static boost::shared_ptr<CalCoreMesh> loadXmlCoreMesh(char*);
-    static boost::shared_ptr<CalCoreMesh> loadXmlCoreMeshDoc(const rapidxml::xml_document<char>& doc);
+    static ISTD::shared_ptr<CalCoreMesh> loadXmlCoreMesh(char*);
+    static ISTD::shared_ptr<CalCoreMesh> loadXmlCoreMeshDoc(const rapidxml::xml_document<char>& doc);
 
-    static boost::shared_ptr<CalCoreMaterial> loadXmlCoreMaterial(char*);
-    static boost::shared_ptr<CalCoreMaterial> loadXmlCoreMaterialDoc(const rapidxml::xml_document<char>& doc);
+    static ISTD::shared_ptr<CalCoreMaterial> loadXmlCoreMaterial(char*);
+    static ISTD::shared_ptr<CalCoreMaterial> loadXmlCoreMaterialDoc(const rapidxml::xml_document<char>& doc);
 
     static bool isHeaderWellFormed(const rapidxml::xml_node<char>* node);
 
-    static boost::shared_ptr<CalCoreBone> loadCoreBones(CalBufferSource& dataSrc, int version);
-    static boost::shared_ptr<CalCoreKeyframe> loadCoreKeyframe(CalBufferSource& dataSrc,
+    static ISTD::shared_ptr<CalCoreBone> loadCoreBones(CalBufferSource& dataSrc, int version);
+    static ISTD::shared_ptr<CalCoreKeyframe> loadCoreKeyframe(CalBufferSource& dataSrc,
             int version, CalCoreKeyframe* lastCoreKeyframe,
             bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
             bool useAnimationCompression);
-    static boost::shared_ptr<CalCoreMorphKeyframe> loadCoreMorphKeyframe(CalBufferSource& dataSrc);
-    static boost::shared_ptr<CalCoreSubmesh> loadCoreSubmesh(CalBufferSource& dataSrc, int version);
-    static boost::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
-    static boost::shared_ptr<CalCoreMorphTrack> loadCoreMorphTrack(CalBufferSource& dataSrc);
+    static ISTD::shared_ptr<CalCoreMorphKeyframe> loadCoreMorphKeyframe(CalBufferSource& dataSrc);
+    static ISTD::shared_ptr<CalCoreSubmesh> loadCoreSubmesh(CalBufferSource& dataSrc, int version);
+    static ISTD::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
+    static ISTD::shared_ptr<CalCoreMorphTrack> loadCoreMorphTrack(CalBufferSource& dataSrc);
 
     static bool usesAnimationCompression(int version);
     static unsigned int compressedKeyframeRequiredBytes(CalCoreKeyframe* lastCoreKeyframe, bool translationRequired, bool highRangeRequired, bool translationIsDynamic);

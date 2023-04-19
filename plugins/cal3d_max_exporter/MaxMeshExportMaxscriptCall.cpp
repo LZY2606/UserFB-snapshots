@@ -176,7 +176,7 @@ bool CExporter::ExportMeshFromMaxscriptCall(const std::string& strFilename, void
 			std::vector<CVertexCandidate *>& vectorVertexCandidate = pSubmeshCandidate->GetVectorVertexCandidate();
 
 			// allocate new core submesh instance
-                        boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
+                        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
                           vectorVertexCandidate.size(),
                           pSubmeshCandidate->GetMapCount() ? true : false,
                           vectorFace.size()));

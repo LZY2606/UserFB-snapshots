@@ -30,11 +30,11 @@ struct InvalidFileFormat {
         CalError::setLastError(CalError::INVALID_FILE_FORMAT, strFile, line);
     }
 
-    operator boost::shared_ptr<CalCoreSkeleton>() const { return boost::shared_ptr<CalCoreSkeleton>(); }
-    operator boost::shared_ptr<CalCoreMaterial>() const { return boost::shared_ptr<CalCoreMaterial>(); }
-    operator boost::shared_ptr<CalCoreMesh>() const { return boost::shared_ptr<CalCoreMesh>(); }
-    operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
-    operator boost::shared_ptr<CalCoreMorphAnimation>() const { return boost::shared_ptr<CalCoreMorphAnimation>(); }
+    operator ISTD::shared_ptr<CalCoreSkeleton>() const { return ISTD::shared_ptr<CalCoreSkeleton>(); }
+    operator ISTD::shared_ptr<CalCoreMaterial>() const { return ISTD::shared_ptr<CalCoreMaterial>(); }
+    operator ISTD::shared_ptr<CalCoreMesh>() const { return ISTD::shared_ptr<CalCoreMesh>(); }
+    operator ISTD::shared_ptr<CalCoreAnimation>() const { return ISTD::shared_ptr<CalCoreAnimation>(); }
+    operator ISTD::shared_ptr<CalCoreMorphAnimation>() const { return ISTD::shared_ptr<CalCoreMorphAnimation>(); }
 };
 #define InvalidFileFormatTracked() InvalidFileFormat(__FILE__, __LINE__)
 
@@ -129,8 +129,8 @@ template<class T>
 static inline bool _ValidateTag(
     T* element,
     char const* requiredTag,
-    const boost::shared_ptr<CalCoreMesh>& /*pCoreMesh*/,
-    const boost::shared_ptr<CalCoreSubmesh>& /*pCoreSubmesh*/,
+    const ISTD::shared_ptr<CalCoreMesh>& /*pCoreMesh*/,
+    const ISTD::shared_ptr<CalCoreSubmesh>& /*pCoreSubmesh*/,
     char const* file,
     int line
 ) {
@@ -156,8 +156,8 @@ static inline bool TexCoordFromXml(
     rapidxml::xml_node<>* texcoord,
     char const* tag,
     CalCoreSubmesh::TextureCoordinate* texCoord,
-    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
+    const ISTD::shared_ptr<CalCoreMesh>& pCoreMesh,
+    const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     if (!ValidateTag(texcoord, tag, pCoreMesh, pCoreSubmesh)) {
         return false;
@@ -207,8 +207,8 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalVector* calVec,
-    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
+    const ISTD::shared_ptr<CalCoreMesh>& pCoreMesh,
+    const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     if (!ValidateTag(pos, tag, pCoreMesh, pCoreSubmesh)) {
         return false;
@@ -225,8 +225,8 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalVector4* calVec,
-    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
+    const ISTD::shared_ptr<CalCoreMesh>& pCoreMesh,
+    const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     CalVector v;
     if (CalVectorFromXml(pos, tag, &v, pCoreMesh, pCoreSubmesh)) {
@@ -241,8 +241,8 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalPoint4* calVec,
-    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
+    const ISTD::shared_ptr<CalCoreMesh>& pCoreMesh,
+    const ISTD::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     CalVector v;
     if (CalVectorFromXml(pos, tag, &v, pCoreMesh, pCoreSubmesh)) {
@@ -300,7 +300,7 @@ static inline void ReadQuadFloat(char const* buffer, float* f1, float* f2, float
     *f4 = d;
 }
 
-boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
+ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
     rapidxml::xml_document<> document;
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
@@ -311,7 +311,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc)
     return loadXmlCoreSkeletonDoc(document);
 }
 
-boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMesh(char* dataSrc) {
+ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMesh(char* dataSrc) {
     rapidxml::xml_document<> document;
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
@@ -322,7 +322,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMesh(char* dataSrc) {
     return loadXmlCoreMeshDoc(document);
 }
 
-boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterial(char* dataSrc) {
+ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterial(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -334,7 +334,7 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterial(char* dataSrc)
     return loadXmlCoreMaterialDoc(doc);
 }
 
-boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimation(char* dataSrc) {
+ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimation(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -348,7 +348,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimation(char* dataSr
     return loadXmlCoreAnimationDoc(doc);
 }
 
-boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
+ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -360,7 +360,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimation(ch
     return loadXmlCoreMorphAnimationDoc(doc);
 }
 
-boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_document<>& doc) {
+ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -386,7 +386,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
         return InvalidFileFormatTracked();
     }
 
-    boost::optional<CalVector> sceneAmbientColor;
+    ISTD::optional<CalVector> sceneAmbientColor;
 
     char const* attrStr = get_string_attribute(skeleton, "SCENEAMBIENTCOLOR");
     if (attrStr) {
@@ -395,7 +395,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
         sceneAmbientColor = sceneColor;
     }
 
-    std::vector<boost::shared_ptr<CalCoreBone>> bones;
+    std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
 
     for (TiXmlElement* bone = skeleton->first_node(); bone; bone = bone->next_sibling()) {
         if (!has_name(bone, "BONE")) {
@@ -466,7 +466,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
 
         int parentId = get_int_value(parent);
 
-        boost::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
+        ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
 
         CalVector trans = CalVector(tx, ty, tz);
         CalQuaternion rot = CalQuaternion(rx, ry, rz, -rw);
@@ -489,14 +489,14 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapid
         bones.push_back(pCoreBone);
     }
 
-    boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
+    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }
     return pCoreSkeleton;
 }
 
-boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_document<>& doc) {
+ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -527,7 +527,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rap
         return InvalidFileFormatTracked();
     }
 
-    boost::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
+    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
     pCoreAnimation->duration = duration;
 
     for (
@@ -625,7 +625,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rap
 
             keyframes.push_back(pCoreKeyframe);
         }
-        boost::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+        ISTD::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
         pCoreTrack->translationRequired = translationRequired;
         pCoreTrack->translationIsDynamic = translationIsDynamic;
         pCoreAnimation->tracks.push_back(*pCoreTrack);
@@ -634,7 +634,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rap
     return pCoreAnimation;
 }
 
-boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<>& doc) {
+ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -656,7 +656,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc
     }
 
     // allocate a new core animatedMorph instance
-    boost::shared_ptr<CalCoreMorphAnimation> coreMorphAnimation(new CalCoreMorphAnimation);
+    ISTD::shared_ptr<CalCoreMorphAnimation> coreMorphAnimation(new CalCoreMorphAnimation);
 
     TiXmlElement* animatedMorph = header->next_sibling();
     if (!animatedMorph || !has_name(animatedMorph, "ANIMATION")) {
@@ -699,7 +699,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc
     return coreMorphAnimation;
 }
 
-boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc) {
+ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> xml_node;
 
     xml_node* header = doc.first_node();
@@ -727,7 +727,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
         return InvalidFileFormatTracked();
     }
 
-    boost::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
+    ISTD::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
 
     for (xml_node* submesh = mesh->first_node(); submesh; submesh = submesh->next_sibling()) {
         if (!has_name(submesh, "submesh")) {
@@ -741,7 +741,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
         int textureCoordinateCount = get_int_attribute(submesh, "NUMTEXCOORDS");
         int morphCount = get_int_attribute(submesh, "nummorphs");
 
-        boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
         pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
         xml_node* vertex = submesh->first_node();
@@ -926,7 +926,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
                 name = nameAttribute->value();
             }
 
-            boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(name, vertexCount, vertexOffsets));
+            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(name, vertexCount, vertexOffsets));
             pCoreSubmesh->addMorphTarget(morphTarget);
 
             morph = morph->next_sibling();
@@ -959,7 +959,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
 }
 
 
-boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_document<>& doc) {
+ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -985,7 +985,7 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterialDoc(const rapid
         return InvalidFileFormatTracked();
     }
 
-    boost::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
+    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
 
     TiXmlElement* ambient = material->first_node();
     if (!ambient || !has_name(ambient, "AMBIENT")) {
