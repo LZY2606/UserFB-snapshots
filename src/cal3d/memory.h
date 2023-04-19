@@ -6,7 +6,6 @@
 #include <list>
 #include <map>
 #include <set>
-#include <boost/noncopyable.hpp>
 #include "cal3d/global.h"
 
 namespace cal3d {
@@ -16,7 +15,7 @@ namespace cal3d {
     // http://ompf.org/forum/viewtopic.php?f=11&t=686
     // http://social.msdn.microsoft.com/Forums/en-US/vclanguage/thread/0adabdb5-f732-4db7-a8de-e3e83af0e147/
     template<typename T>
-    struct SSEArray : boost::noncopyable {
+    struct SSEArray {
         typedef T value_type;
         typedef size_t size_type;
         typedef ptrdiff_t difference_type;
