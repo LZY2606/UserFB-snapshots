@@ -71,7 +71,7 @@ TEST_F(LoaderFixture, position_from_mesh_is_correct) {
     CHECK(old);
 
     CalBufferSource cbs(fromString(goodMeshData));
-    CalCoreMeshPtr goodMesh(CalLoader::loadCoreMesh(cbs));
+    boost::shared_ptr<CalCoreMesh> goodMesh(CalLoader::loadCoreMesh(cbs));
     CalCoreSubmeshPtr subMesh(goodMesh->submeshes[0]);
 
     CHECK_EQUAL(CalVector4(5759.05f, -1176.88f, -0.00023478f, 1), subMesh->getVectorVertex()[0].position);
@@ -99,7 +99,7 @@ const char unsortedInfluences[] =
 
 TEST_F(LoaderFixture, loading_mesh_sorts_influences) {
     CalBufferSource cbs(fromString(unsortedInfluences));
-    CalCoreMeshPtr mesh(CalLoader::loadCoreMesh(cbs));
+    boost::shared_ptr<CalCoreMesh> mesh(CalLoader::loadCoreMesh(cbs));
     CalCoreSubmeshPtr submesh(mesh->submeshes[0]);
     CHECK_EQUAL(1u, submesh->getVectorVertex().size());
     CHECK_EQUAL(CalCoreSubmesh::Influence(2, 0.5f, false), submesh->getInfluences()[0]);
@@ -618,7 +618,7 @@ TEST_F(LoaderFixture, loading_mesh_without_vertex_colors_defaults_to_white) {
 
     std::string str = os.str();
     CalBufferSource cbs(str.data(), str.size());
-    CalCoreMeshPtr loaded = CalLoader::loadCoreMesh(cbs);
+    boost::shared_ptr<CalCoreMesh> loaded = CalLoader::loadCoreMesh(cbs);
     CHECK(loaded);
     CHECK_EQUAL(1u, cm.submeshes.size());
     CHECK_EQUAL(1u, loaded->submeshes.size());

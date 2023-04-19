@@ -138,7 +138,7 @@ TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_
 
         std::string buffer = os.str();
         CalBufferSource source(buffer.c_str(), buffer.size());
-        CalCoreMeshPtr loaded = CalLoader::loadCoreMesh(source);
+        boost::shared_ptr<CalCoreMesh> loaded = CalLoader::loadCoreMesh(source);
         CHECK(loaded);
 
         CHECK_EQUAL(1u, loaded->submeshes.size());
@@ -155,7 +155,7 @@ TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_
 
         std::string buffer = os.str();
         CalBufferSource source(buffer.c_str(), buffer.size());
-        CalCoreMeshPtr loaded = CalLoader::loadCoreMesh(source);
+        boost::shared_ptr<CalCoreMesh> loaded = CalLoader::loadCoreMesh(source);
         CHECK(loaded);
 
         CHECK_EQUAL(1u, loaded->submeshes.size());
@@ -326,7 +326,7 @@ TEST_F(SubmeshFixture, CalRenderer_getTextureCoordinates_when_there_are_no_textu
 TEST_F(SubmeshFixture, CalRenderer_getNormals_when_there_are_no_normals) {
     CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(0, 0, 0));
 
-    CalCoreMeshPtr coreMesh(new CalCoreMesh);
+    boost::shared_ptr<CalCoreMesh> coreMesh(new CalCoreMesh);
     coreMesh->submeshes.push_back(coreSubmesh);
 
     boost::shared_ptr<CalCoreSkeleton> coreSkeleton(new CalCoreSkeleton);

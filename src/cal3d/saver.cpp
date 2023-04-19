@@ -74,7 +74,7 @@ std::string CalSaver::saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial
     return save(pCoreMaterial, &saveCoreMaterial);
 }
 
-std::string CalSaver::saveCoreMeshToBuffer(CalCoreMeshPtr pCoreMesh) {
+std::string CalSaver::saveCoreMeshToBuffer(boost::shared_ptr<CalCoreMesh> pCoreMesh) {
     return save(pCoreMesh, &saveCoreMesh);
 }
 

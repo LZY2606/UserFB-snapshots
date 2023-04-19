@@ -31,7 +31,7 @@ struct InvalidFileFormat {
 
     operator boost::shared_ptr<CalCoreSkeleton>() const { return boost::shared_ptr<CalCoreSkeleton>(); }
     operator boost::shared_ptr<CalCoreMaterial>() const { return boost::shared_ptr<CalCoreMaterial>(); }
-    operator CalCoreMeshPtr() const { return CalCoreMeshPtr(); }
+    operator boost::shared_ptr<CalCoreMesh>() const { return boost::shared_ptr<CalCoreMesh>(); }
     operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
     operator CalCoreMorphAnimationPtr() const { return CalCoreMorphAnimationPtr(); }
 };
@@ -128,7 +128,7 @@ template<class T>
 static inline bool _ValidateTag(
     T* element,
     char const* requiredTag,
-    const CalCoreMeshPtr& /*pCoreMesh*/,
+    const boost::shared_ptr<CalCoreMesh>& /*pCoreMesh*/,
     const CalCoreSubmeshPtr& /*pCoreSubmesh*/,
     char const* file,
     int line
@@ -155,7 +155,7 @@ static inline bool TexCoordFromXml(
     rapidxml::xml_node<>* texcoord,
     char const* tag,
     CalCoreSubmesh::TextureCoordinate* texCoord,
-    const CalCoreMeshPtr& pCoreMesh,
+    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
     const CalCoreSubmeshPtr& pCoreSubmesh
 ) {
     if (!ValidateTag(texcoord, tag, pCoreMesh, pCoreSubmesh)) {
@@ -206,7 +206,7 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalVector* calVec,
-    const CalCoreMeshPtr& pCoreMesh,
+    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
     const CalCoreSubmeshPtr& pCoreSubmesh
 ) {
     if (!ValidateTag(pos, tag, pCoreMesh, pCoreSubmesh)) {
@@ -224,7 +224,7 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalVector4* calVec,
-    const CalCoreMeshPtr& pCoreMesh,
+    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
     const CalCoreSubmeshPtr& pCoreSubmesh
 ) {
     CalVector v;
@@ -240,7 +240,7 @@ static inline bool CalVectorFromXml(
     rapidxml::xml_node<>* pos,
     char const* tag,
     CalPoint4* calVec,
-    const CalCoreMeshPtr& pCoreMesh,
+    const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
     const CalCoreSubmeshPtr& pCoreSubmesh
 ) {
     CalVector v;
@@ -310,7 +310,7 @@ boost::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc)
     return loadXmlCoreSkeletonDoc(document);
 }
 
-CalCoreMeshPtr CalLoader::loadXmlCoreMesh(char* dataSrc) {
+boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMesh(char* dataSrc) {
     rapidxml::xml_document<> document;
     try {
         document.parse<rapidxml::parse_no_data_nodes | rapidxml::parse_no_entity_translation>(dataSrc);
@@ -698,7 +698,7 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml:
     return coreMorphAnimation;
 }
 
-CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc) {
+boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> xml_node;
 
     xml_node* header = doc.first_node();
@@ -726,7 +726,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
         return InvalidFileFormatTracked();
     }
 
-    CalCoreMeshPtr pCoreMesh(new CalCoreMesh);
+    boost::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
 
     for (xml_node* submesh = mesh->first_node(); submesh; submesh = submesh->next_sibling()) {
         if (!has_name(submesh, "submesh")) {

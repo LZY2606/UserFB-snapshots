@@ -190,7 +190,7 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadCoreMaterial(CalBufferSource& 
     return tryBothLoaders(inputSrc, &loadBinaryCoreMaterial, &loadXmlCoreMaterial);
 }
 
-CalCoreMeshPtr CalLoader::loadCoreMesh(CalBufferSource& inputSrc) {
+boost::shared_ptr<CalCoreMesh> CalLoader::loadCoreMesh(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMesh, &loadXmlCoreMesh);
 }
 
@@ -427,8 +427,8 @@ boost::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSo
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreMeshPtr CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
-    const CalCoreMeshPtr null;
+boost::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreMesh> null;
 
     // check if this is a valid file
     char magic[4];
@@ -451,7 +451,7 @@ CalCoreMeshPtr CalLoader::loadBinaryCoreMesh(CalBufferSource& dataSrc) {
         return null;
     }
 
-    CalCoreMeshPtr pCoreMesh(new CalCoreMesh);
+    boost::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
 
     // load all core submeshes
     for (int submeshId = 0; submeshId < submeshCount; ++submeshId) {
