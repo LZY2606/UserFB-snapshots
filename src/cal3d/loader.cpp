@@ -186,7 +186,7 @@ CalCoreMorphAnimationPtr CalLoader::loadCoreMorphAnimation(CalBufferSource& inpu
     return tryBothLoaders(inputSrc, &loadBinaryCoreMorphAnimation, &loadXmlCoreMorphAnimation);
 }
 
-CalCoreMaterialPtr CalLoader::loadCoreMaterial(CalBufferSource& inputSrc) {
+boost::shared_ptr<CalCoreMaterial> CalLoader::loadCoreMaterial(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMaterial, &loadXmlCoreMaterial);
 }
 
@@ -337,8 +337,8 @@ CalCoreMorphAnimationPtr CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreMaterialPtr CalLoader::loadBinaryCoreMaterial(CalBufferSource& dataSrc) {
-    const CalCoreMaterialPtr null;
+boost::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreMaterial> null;
 
     // check if this is a valid file
     char magic[4];
@@ -357,7 +357,7 @@ CalCoreMaterialPtr CalLoader::loadBinaryCoreMaterial(CalBufferSource& dataSrc) {
     bool hasMaterialTypes = (version >= cal3d::FIRST_FILE_VERSION_WITH_MATERIAL_TYPES);
 
     // allocate a new core material instance
-    CalCoreMaterialPtr pCoreMaterial(new CalCoreMaterial);
+    boost::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
 
     // get the ambient color of the core material
     unsigned char ambientColor[4];

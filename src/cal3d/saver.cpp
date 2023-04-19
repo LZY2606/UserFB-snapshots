@@ -70,7 +70,7 @@ std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(CalCoreMorphAnimationPtr
     }
 }
 
-std::string CalSaver::saveCoreMaterialToBuffer(CalCoreMaterialPtr pCoreMaterial) {
+std::string CalSaver::saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial> pCoreMaterial) {
     return save(pCoreMaterial, &saveCoreMaterial);
 }
 

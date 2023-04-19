@@ -31,7 +31,7 @@ class CAL3D_API CalSaver {
 public:
     static std::string saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
     static std::string saveCoreMorphAnimationToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation);
-    static std::string saveCoreMaterialToBuffer(CalCoreMaterialPtr pCoreMaterial);
+    static std::string saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial> pCoreMaterial);
     static std::string saveCoreMeshToBuffer(CalCoreMeshPtr pCoreMesh);
     static std::string saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton);
 

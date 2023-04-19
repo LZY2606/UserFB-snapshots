@@ -30,7 +30,7 @@ struct InvalidFileFormat {
     }
 
     operator boost::shared_ptr<CalCoreSkeleton>() const { return boost::shared_ptr<CalCoreSkeleton>(); }
-    operator CalCoreMaterialPtr() const { return CalCoreMaterialPtr(); }
+    operator boost::shared_ptr<CalCoreMaterial>() const { return boost::shared_ptr<CalCoreMaterial>(); }
     operator CalCoreMeshPtr() const { return CalCoreMeshPtr(); }
     operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
     operator CalCoreMorphAnimationPtr() const { return CalCoreMorphAnimationPtr(); }
@@ -321,7 +321,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMesh(char* dataSrc) {
     return loadXmlCoreMeshDoc(document);
 }
 
-CalCoreMaterialPtr CalLoader::loadXmlCoreMaterial(char* dataSrc) {
+boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterial(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -958,7 +958,7 @@ CalCoreMeshPtr CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_document<>& doc
 }
 
 
-CalCoreMaterialPtr CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_document<>& doc) {
+boost::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -984,7 +984,7 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterialDoc(const rapidxml::xml_documen
         return InvalidFileFormatTracked();
     }
 
-    CalCoreMaterialPtr pCoreMaterial(new CalCoreMaterial);
+    boost::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
 
     TiXmlElement* ambient = material->first_node();
     if (!ambient || !has_name(ambient, "AMBIENT")) {
