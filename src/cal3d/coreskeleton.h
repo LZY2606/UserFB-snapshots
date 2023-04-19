@@ -12,7 +12,6 @@
 
 #include <set>
 #include <string>
-#include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
 #include "cal3d/global.h"
 #include "cal3d/vector.h"

@@ -16,7 +16,6 @@
 #ifndef IMVU_NO_INTRINSICS
 #include <xmmintrin.h>
 #endif
-#include <boost/static_assert.hpp>
 #include "cal3d/error.h"
 #include "cal3d/physique.h"
 #include "cal3d/submesh.h"
