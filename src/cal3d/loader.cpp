@@ -853,8 +853,8 @@ CalLoader::readCompressedKeyframe(
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreMorphKeyframePtr CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
-    const CalCoreMorphKeyframePtr null;
+boost::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreMorphKeyframe> null;
 
     // get the time of the morphKeyframe
     float time;
@@ -864,7 +864,7 @@ CalCoreMorphKeyframePtr CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSr
     float weight;
     dataSrc.readFloat(weight);
 
-    CalCoreMorphKeyframePtr pCoreMorphKeyframe(new CalCoreMorphKeyframe);
+    boost::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe(new CalCoreMorphKeyframe);
     pCoreMorphKeyframe->time = time;
     pCoreMorphKeyframe->weight = weight;
     return pCoreMorphKeyframe;
@@ -1194,7 +1194,7 @@ boost::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSour
     // load all core keyframes
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
         // load the core keyframe
-        CalCoreMorphKeyframePtr pCoreKeyframe = loadCoreMorphKeyframe(dataSrc);
+        boost::shared_ptr<CalCoreMorphKeyframe> pCoreKeyframe = loadCoreMorphKeyframe(dataSrc);
         if (!pCoreKeyframe) {
             return null;
         }

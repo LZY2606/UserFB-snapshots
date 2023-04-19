@@ -91,7 +91,7 @@ private:
             int version, CalCoreKeyframe* lastCoreKeyframe,
             bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
             bool useAnimationCompression);
-    static CalCoreMorphKeyframePtr loadCoreMorphKeyframe(CalBufferSource& dataSrc);
+    static boost::shared_ptr<CalCoreMorphKeyframe> loadCoreMorphKeyframe(CalBufferSource& dataSrc);
     static boost::shared_ptr<CalCoreSubmesh> loadCoreSubmesh(CalBufferSource& dataSrc, int version);
     static boost::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
     static boost::shared_ptr<CalCoreMorphTrack> loadCoreMorphTrack(CalBufferSource& dataSrc);
