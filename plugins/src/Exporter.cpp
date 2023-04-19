@@ -557,10 +557,11 @@ bool CExporter::meshCandidateToCoreMesh(CMeshCandidate const & meshCandidate, Ca
             std::vector<CVertexCandidate *>& vectorVertexCandidate = pSubmeshCandidate->GetVectorVertexCandidate();
 
             // allocate new core submesh instance
-            ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
-                    vectorVertexCandidate.size(),
-                    pSubmeshCandidate->GetMapCount() ? true : false,
-                    vectorFace.size()));
+            ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh = ISTD::make_shared<CalCoreSubmesh>(
+                vectorVertexCandidate.size(),
+                pSubmeshCandidate->GetMapCount() ? true : false,
+                vectorFace.size()
+            );
 
             // set the core material id
             pCoreSubmesh->coreMaterialThreadId = pSubmeshCandidate->GetMaterialThreadId();
@@ -701,8 +702,8 @@ bool CExporter::ExportSkeleton(const std::string& strFilename)
             m_pInterface->SetProgressInfo(int(100.0f * (selectedId + 1) / selectedCount));
             selectedId++;
 
-                        int parentId = skeletonCandidate.GetParentSelectedId(boneCandidateId);
-                        ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(pBoneCandidate->GetNode()->GetName(), parentId));
+            int parentId = skeletonCandidate.GetParentSelectedId(boneCandidateId);
+            ISTD::shared_ptr<CalCoreBone> pCoreBone = ISTD::make_shared<CalCoreBone>(pBoneCandidate->GetNode()->GetName(), parentId);
                         
             // get the translation and the rotation of the bone candidate
             CalVector translation;

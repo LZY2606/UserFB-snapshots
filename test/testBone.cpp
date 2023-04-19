@@ -96,17 +96,17 @@ FIXTURE(BoneMixerFixture) {
     CalMixer mixer;
 
     static ISTD::shared_ptr<CalCoreSkeleton> makeFakeSkeleton() {
-        ISTD::shared_ptr<CalCoreBone> actualRoot(new CalCoreBone("actualRoot"));
+        ISTD::shared_ptr<CalCoreBone> actualRoot = ISTD::make_shared<CalCoreBone>("actualRoot");
 
-        ISTD::shared_ptr<CalCoreBone> coreRoot(new CalCoreBone("root", 0));
+        ISTD::shared_ptr<CalCoreBone> coreRoot = ISTD::make_shared<CalCoreBone>("root", 0);
         coreRoot->relativeTransform.translation.x = 1;
         coreRoot->inverseBindPoseTransform.translation = CalVector(10, 10, 10);
 
-        ISTD::shared_ptr<CalCoreBone> coreBone(new CalCoreBone("bone", 1));
+        ISTD::shared_ptr<CalCoreBone> coreBone = ISTD::make_shared<CalCoreBone>("bone", 1);
         coreBone->relativeTransform.translation.x = 2;
         coreBone->inverseBindPoseTransform.translation = CalVector(20, 20, 20);
 
-        ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton);
+        ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>();
         cs->addCoreBone(actualRoot);
         cs->addCoreBone(coreRoot);
         cs->addCoreBone(coreBone);
@@ -140,10 +140,10 @@ TEST_F(BoneScaleFixture, scale_is_in_bone_space) {
 
     CHECK_EQUAL(CalVector(-4, 2, 8), aboutZ * CalVector(2, 4, 8));
 
-    ISTD::shared_ptr<CalCoreBone> root(new CalCoreBone("root"));
+    ISTD::shared_ptr<CalCoreBone> root = ISTD::make_shared<CalCoreBone>("root");
     root->inverseBindPoseTransform = cal3d::RotateTranslate(aboutZ, CalVector(2, 4, 8));
 
-    ISTD::shared_ptr<CalCoreSkeleton> coreSkeleton(new CalCoreSkeleton);
+    ISTD::shared_ptr<CalCoreSkeleton> coreSkeleton = ISTD::make_shared<CalCoreSkeleton>();
     coreSkeleton->addCoreBone(root);
 
     CalSkeleton skeleton(coreSkeleton);

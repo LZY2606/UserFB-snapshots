@@ -242,7 +242,7 @@ void CalCoreSubmesh::replaceMeshWithMorphTarget(const std::string& morphTargetNa
 
  
 ISTD::shared_ptr<CalCoreSubmesh> MakeCubeScale(float scale) {
-    ISTD::shared_ptr<CalCoreSubmesh> cube(new CalCoreSubmesh(24, true, 12));
+    ISTD::shared_ptr<CalCoreSubmesh> cube = ISTD::make_shared<CalCoreSubmesh>(24, true, 12);
     
     const CalColor32 black = 0;
     
@@ -801,7 +801,7 @@ void CalCoreSubmesh::renumberIndices() {
                 newOffsets.push_back(VertexOffset(newIndex, vo->position, vo->normal));
             }
         }
-        newMorphTargets.push_back(ISTD::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget(mt->name, newVertices.size(), newOffsets)));
+        newMorphTargets.push_back(ISTD::make_shared<CalCoreMorphTarget>(mt->name, newVertices.size(), newOffsets));
     }
 
     m_vertices.swap(newVertices);

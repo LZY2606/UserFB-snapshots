@@ -466,7 +466,7 @@ ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapidx
 
         int parentId = get_int_value(parent);
 
-        ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
+        ISTD::shared_ptr<CalCoreBone> pCoreBone = ISTD::make_shared<CalCoreBone>(strName, parentId);
 
         CalVector trans = CalVector(tx, ty, tz);
         CalQuaternion rot = CalQuaternion(rx, ry, rz, -rw);
@@ -489,7 +489,7 @@ ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeletonDoc(const rapidx
         bones.push_back(pCoreBone);
     }
 
-    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
+    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton = ISTD::make_shared<CalCoreSkeleton>(bones);
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }
@@ -527,7 +527,7 @@ ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapi
         return InvalidFileFormatTracked();
     }
 
-    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
+    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation = ISTD::make_shared<CalCoreAnimation>();
     pCoreAnimation->duration = duration;
 
     for (
@@ -625,7 +625,7 @@ ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapi
 
             keyframes.push_back(pCoreKeyframe);
         }
-        ISTD::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+        ISTD::shared_ptr<CalCoreTrack> pCoreTrack = ISTD::make_shared<CalCoreTrack>(coreBoneId, keyframes);
         pCoreTrack->translationRequired = translationRequired;
         pCoreTrack->translationIsDynamic = translationIsDynamic;
         pCoreAnimation->tracks.push_back(*pCoreTrack);
@@ -656,7 +656,7 @@ ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc(
     }
 
     // allocate a new core animatedMorph instance
-    ISTD::shared_ptr<CalCoreMorphAnimation> coreMorphAnimation(new CalCoreMorphAnimation);
+    ISTD::shared_ptr<CalCoreMorphAnimation> coreMorphAnimation = ISTD::make_shared<CalCoreMorphAnimation>();
 
     TiXmlElement* animatedMorph = header->next_sibling();
     if (!animatedMorph || !has_name(animatedMorph, "ANIMATION")) {
@@ -727,7 +727,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
         return InvalidFileFormatTracked();
     }
 
-    ISTD::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
+    ISTD::shared_ptr<CalCoreMesh> pCoreMesh = ISTD::make_shared<CalCoreMesh>();
 
     for (xml_node* submesh = mesh->first_node(); submesh; submesh = submesh->next_sibling()) {
         if (!has_name(submesh, "submesh")) {
@@ -741,7 +741,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
         int textureCoordinateCount = get_int_attribute(submesh, "NUMTEXCOORDS");
         int morphCount = get_int_attribute(submesh, "nummorphs");
 
-        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh = ISTD::make_shared<CalCoreSubmesh>(vertexCount, textureCoordinateCount ? true : false, faceCount);
         pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
         xml_node* vertex = submesh->first_node();
@@ -926,7 +926,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
                 name = nameAttribute->value();
             }
 
-            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(name, vertexCount, vertexOffsets));
+            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>(name, vertexCount, vertexOffsets);
             pCoreSubmesh->addMorphTarget(morphTarget);
 
             morph = morph->next_sibling();
@@ -985,7 +985,7 @@ ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadXmlCoreMaterialDoc(const rapidx
         return InvalidFileFormatTracked();
     }
 
-    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
+    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial = ISTD::make_shared<CalCoreMaterial>();
 
     TiXmlElement* ambient = material->first_node();
     if (!ambient || !has_name(ambient, "AMBIENT")) {

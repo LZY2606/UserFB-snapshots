@@ -12,8 +12,8 @@ FIXTURE(MixerFixture) {
     {}
 
     static ISTD::shared_ptr<CalCoreSkeleton> fakeMixerSkeleton() {
-        ISTD::shared_ptr<CalCoreSkeleton> p(new CalCoreSkeleton());
-        ISTD::shared_ptr<CalCoreBone> root(new CalCoreBone("root"));
+        ISTD::shared_ptr<CalCoreSkeleton> p = ISTD::make_shared<CalCoreSkeleton>();
+        ISTD::shared_ptr<CalCoreBone> root = ISTD::make_shared<CalCoreBone>("root");
         p->addCoreBone(root);
         return p;
     }
@@ -40,10 +40,10 @@ static ISTD::shared_ptr<CalAnimation> makeAnimation(CalVector t, unsigned priori
     keyframes.push_back(CalCoreKeyframe(0, t, CalQuaternion()));
     CalCoreTrack track(0, keyframes);
 
-    ISTD::shared_ptr<CalCoreAnimation> coreAnimation(new CalCoreAnimation());
+    ISTD::shared_ptr<CalCoreAnimation> coreAnimation = ISTD::make_shared<CalCoreAnimation>();
     coreAnimation->tracks.push_back(track);
 
-    ISTD::shared_ptr<CalAnimation> anim(new CalAnimation(coreAnimation, weight, priority));
+    ISTD::shared_ptr<CalAnimation> anim = ISTD::make_shared<CalAnimation>(coreAnimation, weight, priority);
     return anim;
 }
 

@@ -227,7 +227,7 @@ ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBufferS
     }
 
 
-    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
+    ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation = ISTD::make_shared<CalCoreAnimation>();
 
     float duration;
     if (!dataSrc.readFloat(duration)) {
@@ -287,7 +287,7 @@ ISTD::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation(
     }
 
     // allocate a new core animatedMorph instance
-    ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation(new CalCoreMorphAnimation);
+    ISTD::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation = ISTD::make_shared<CalCoreMorphAnimation>();
 
     // get the duration of the core animatedMorph
     float duration;
@@ -357,7 +357,7 @@ ISTD::shared_ptr<CalCoreMaterial> CalLoader::loadBinaryCoreMaterial(CalBufferSou
     bool hasMaterialTypes = (version >= cal3d::FIRST_FILE_VERSION_WITH_MATERIAL_TYPES);
 
     // allocate a new core material instance
-    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial(new CalCoreMaterial);
+    ISTD::shared_ptr<CalCoreMaterial> pCoreMaterial = ISTD::make_shared<CalCoreMaterial>();
 
     // get the ambient color of the core material
     unsigned char ambientColor[4];
@@ -451,7 +451,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& dat
         return null;
     }
 
-    ISTD::shared_ptr<CalCoreMesh> pCoreMesh(new CalCoreMesh);
+    ISTD::shared_ptr<CalCoreMesh> pCoreMesh = ISTD::make_shared<CalCoreMesh>();
 
     // load all core submeshes
     for (int submeshId = 0; submeshId < submeshCount; ++submeshId) {
@@ -523,7 +523,7 @@ ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadBinaryCoreSkeleton(CalBufferSou
         bones.push_back(pCoreBone);
     }
 
-    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton(new CalCoreSkeleton(bones));
+    ISTD::shared_ptr<CalCoreSkeleton> pCoreSkeleton = ISTD::make_shared<CalCoreSkeleton>(bones);
     if (sceneAmbientColor) {
         pCoreSkeleton->sceneAmbientColor = *sceneAmbientColor;
     }
@@ -597,7 +597,7 @@ ISTD::shared_ptr<CalCoreBone> CalLoader::loadCoreBones(CalBufferSource& dataSrc,
     CalVector trans(tx, ty, tz);
 
     // allocate a new core bone instance
-    ISTD::shared_ptr<CalCoreBone> pCoreBone(new CalCoreBone(strName, parentId));
+    ISTD::shared_ptr<CalCoreBone> pCoreBone = ISTD::make_shared<CalCoreBone>(strName, parentId);
 
     // set all attributes of the bone
     pCoreBone->relativeTransform.translation = trans;
@@ -703,7 +703,7 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
         dataSrc.readFloat(rw);
     }
 
-    ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe(new CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
+    ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe = ISTD::make_shared<CalCoreKeyframe>(time, t, CalQuaternion(rx, ry, rz, -rw));
     return pCoreKeyframe;
 }
 
@@ -864,7 +864,7 @@ ISTD::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBuffe
     float weight;
     dataSrc.readFloat(weight);
 
-    ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe(new CalCoreMorphKeyframe);
+    ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe = ISTD::make_shared<CalCoreMorphKeyframe>();
     pCoreMorphKeyframe->time = time;
     pCoreMorphKeyframe->weight = weight;
     return pCoreMorphKeyframe;
@@ -952,7 +952,7 @@ ISTD::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& dat
         dataSrc.readInteger(morphCount);
     }
 
-    ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+    ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh = ISTD::make_shared<CalCoreSubmesh>(vertexCount, textureCoordinateCount ? true : false, faceCount);
     pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
     for (int vertexId = 0; vertexId < vertexCount; ++vertexId) {
@@ -1061,7 +1061,7 @@ ISTD::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& dat
             morphName = convertLatin1toUTF8(morphName);
         }
 
-        ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
+        ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>(morphName, vertexCount, vertexOffsets);
         pCoreSubmesh->addMorphTarget(morphTarget);
     }
 
@@ -1149,7 +1149,7 @@ ISTD::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
         keyframes.push_back(kf);
     }
 
-    ISTD::shared_ptr<CalCoreTrack> pCoreTrack(new CalCoreTrack(coreBoneId, keyframes));
+    ISTD::shared_ptr<CalCoreTrack> pCoreTrack = ISTD::make_shared<CalCoreTrack>(coreBoneId, keyframes);
     pCoreTrack->translationRequired = translationRequired;
     pCoreTrack->translationIsDynamic = translationIsDynamic;
     return pCoreTrack;
@@ -1179,7 +1179,7 @@ ISTD::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSourc
     }
 
     // allocate a new core morphTrack instance
-    ISTD::shared_ptr<CalCoreMorphTrack> pCoreMorphTrack(new CalCoreMorphTrack);
+    ISTD::shared_ptr<CalCoreMorphTrack> pCoreMorphTrack = ISTD::make_shared<CalCoreMorphTrack>();
 
     // link the core morphTrack to the appropriate morph name
     pCoreMorphTrack->morphName = morphName;

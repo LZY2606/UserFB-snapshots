@@ -113,7 +113,7 @@ TEST_F(SubmeshFixture, duplicate_triangles) {
 }
 
 TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_in_memory_but_absolute_in_file) {
-    ISTD::shared_ptr<CalCoreSubmesh> csm(new CalCoreSubmesh(1, 0, 0));
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 0, 0);
     CalCoreSubmesh::Vertex vertex;
     vertex.position = CalVector4(1, 1, 1, 0);
     vertex.normal = CalVector4(-1, -1 -1, 0);
@@ -125,7 +125,7 @@ TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_
     mv.position = CalVector4(2, 2, 2, 0);
     mv.normal = CalVector4(-2, -2, -2, 0);
     vertexOffsets.push_back(mv);
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("m", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>("m", 1, vertexOffsets);
     csm->addMorphTarget(morphTarget);
 
     CalCoreMesh cm;
@@ -310,26 +310,26 @@ TEST_F(SubmeshFixture, is_not_static_if_has_morph_targets) {
     mv.normal = CalVector4(0, -1, -2, 0);
     vertexOffsets.push_back(mv);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>("", 1, vertexOffsets);
     csm.addMorphTarget(morphTarget);
 
     CHECK(!csm.isStatic());
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getTextureCoordinates_when_there_are_no_texture_coordinates) {
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(0, 1, 0));
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, 1, 0);
 
     const std::vector<CalCoreSubmesh::TextureCoordinate>& texCoords = coreSubmesh->getTextureCoordinates();
     CHECK_EQUAL(0u, texCoords.size());
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getNormals_when_there_are_no_normals) {
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(0, 0, 0));
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, 0, 0);
 
-    ISTD::shared_ptr<CalCoreMesh> coreMesh(new CalCoreMesh);
+    ISTD::shared_ptr<CalCoreMesh> coreMesh = ISTD::make_shared<CalCoreMesh>();
     coreMesh->submeshes.push_back(coreSubmesh);
 
-    ISTD::shared_ptr<CalCoreSkeleton> coreSkeleton(new CalCoreSkeleton);
+    ISTD::shared_ptr<CalCoreSkeleton> coreSkeleton = ISTD::make_shared<CalCoreSkeleton>();
 
     CalSkeleton skeleton(coreSkeleton);
     CalSubmesh submesh(coreSubmesh);
@@ -399,7 +399,7 @@ TEST_F(SubmeshFixture, make_cube_validate_submesh) {
 }
 
 TEST_F(SubmeshFixture, validate_submesh_is_failed) {
-    ISTD::shared_ptr<CalCoreSubmesh> cube(new CalCoreSubmesh(4, true, 2));
+    ISTD::shared_ptr<CalCoreSubmesh> cube = ISTD::make_shared<CalCoreSubmesh>(4, true, 2);
 
     std::vector<CalCoreSubmesh::Influence> inf(1);
     inf[0].boneId = 0;
@@ -551,7 +551,7 @@ TEST_F(SubmeshFixture, renumber_morphs) {
 
     CalCoreMorphTarget::VertexOffsetArray offsets;
     offsets.push_back(VertexOffset(2, CalPoint4(), CalVector4()));
-    csm.addMorphTarget(ISTD::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget("morph", 3, offsets)));
+    csm.addMorphTarget(ISTD::make_shared<CalCoreMorphTarget>("morph", 3, offsets));
 
     csm.renumberIndices();
 
@@ -574,7 +574,7 @@ TEST_F(SubmeshFixture, drop_morph_offsets_for_unused_vertices) {
 
     CalCoreMorphTarget::VertexOffsetArray offsets;
     offsets.push_back(VertexOffset(3, CalPoint4(), CalVector4()));
-    csm.addMorphTarget(ISTD::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget("morph", csm.getVertexCount(), offsets)));
+    csm.addMorphTarget(ISTD::make_shared<CalCoreMorphTarget>("morph", csm.getVertexCount(), offsets));
 
     csm.renumberIndices();
 

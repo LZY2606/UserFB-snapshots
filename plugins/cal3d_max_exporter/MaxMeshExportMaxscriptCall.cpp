@@ -176,10 +176,10 @@ bool CExporter::ExportMeshFromMaxscriptCall(const std::string& strFilename, void
 			std::vector<CVertexCandidate *>& vectorVertexCandidate = pSubmeshCandidate->GetVectorVertexCandidate();
 
 			// allocate new core submesh instance
-                        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(
+                        ISTD::shared_ptr<CalCoreSubmesh> pCoreSubmesh = ISTD::make_shared<CalCoreSubmesh>(
                           vectorVertexCandidate.size(),
                           pSubmeshCandidate->GetMapCount() ? true : false,
-                          vectorFace.size()));
+                          vectorFace.size());
 
 			// set the core material id
 			pCoreSubmesh->coreMaterialThreadId = pSubmeshCandidate->GetMaterialThreadId();

@@ -138,7 +138,7 @@ bool CalCoreMesh::addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& mo
                     vectorVertex[i].position - vectorCoreVertex[i].position,
                     vectorVertex[i].normal - vectorCoreVertex[i].normal));
             }
-            ISTD::shared_ptr<CalCoreMorphTarget> pCalCoreMorphTarget(new CalCoreMorphTarget(morphTargetName, vertexCount, vertices));
+            ISTD::shared_ptr<CalCoreMorphTarget> pCalCoreMorphTarget = ISTD::make_shared<CalCoreMorphTarget>(morphTargetName, vertexCount, vertices);
             (*iteratorCoreSubmesh)->addMorphTarget(pCalCoreMorphTarget);
         }
         ++submeshIndex;

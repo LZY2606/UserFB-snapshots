@@ -13,8 +13,8 @@ FIXTURE(CoreSkeletonFixture) {
 };
 
 TEST_F(CoreSkeletonFixture, can_only_have_one_root) {
-    ISTD::shared_ptr<CalCoreBone> root1(new CalCoreBone("root1"));
-    ISTD::shared_ptr<CalCoreBone> root2(new CalCoreBone("root2"));
+    ISTD::shared_ptr<CalCoreBone> root1 = ISTD::make_shared<CalCoreBone>("root1");
+    ISTD::shared_ptr<CalCoreBone> root2 = ISTD::make_shared<CalCoreBone>("root2");
     
     CalCoreSkeleton cs;
     cs.addCoreBone(root1);
@@ -27,9 +27,9 @@ TEST_F(CoreSkeletonFixture, can_only_have_one_root) {
 }
 
 TEST_F(CoreSkeletonFixture, second_roots_are_transformed_relative_to_first_root) {
-    ISTD::shared_ptr<CalCoreBone> root1(new CalCoreBone("root1"));
+    ISTD::shared_ptr<CalCoreBone> root1 = ISTD::make_shared<CalCoreBone>("root1");
     root1->relativeTransform.translation = CalVector(1, 1, 1);
-    ISTD::shared_ptr<CalCoreBone> root2(new CalCoreBone("root2"));
+    ISTD::shared_ptr<CalCoreBone> root2 = ISTD::make_shared<CalCoreBone>("root2");
     root2->relativeTransform.translation = CalVector(-1, -1, -1);
     
     CalCoreSkeleton cs;
@@ -42,9 +42,9 @@ TEST_F(CoreSkeletonFixture, second_roots_are_transformed_relative_to_first_root)
 }
 
 TEST_F(CoreSkeletonFixture, second_root_animations_are_transformed_relative_to_first_root) {
-    ISTD::shared_ptr<CalCoreBone> root1(new CalCoreBone("root1"));
+    ISTD::shared_ptr<CalCoreBone> root1 = ISTD::make_shared<CalCoreBone>("root1");
     root1->relativeTransform.translation = CalVector(1, 1, 1);
-    ISTD::shared_ptr<CalCoreBone> root2(new CalCoreBone("root2"));
+    ISTD::shared_ptr<CalCoreBone> root2 = ISTD::make_shared<CalCoreBone>("root2");
     root2->relativeTransform.translation = CalVector(-1, -1, -1);
 
     CalCoreTrack::KeyframeList keyframes;
@@ -52,16 +52,16 @@ TEST_F(CoreSkeletonFixture, second_root_animations_are_transformed_relative_to_f
     keyframes.push_back(CalCoreKeyframe(1.0f, CalVector(-1, -1, -1), CalQuaternion()));
     CalCoreTrack track(1, keyframes);
 
-    ISTD::shared_ptr<CalCoreAnimation> coreAnim(new CalCoreAnimation);
+    ISTD::shared_ptr<CalCoreAnimation> coreAnim = ISTD::make_shared<CalCoreAnimation>();
     coreAnim->tracks.push_back(track);
     
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton);
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>();
     cs->addCoreBone(root1);
     cs->addCoreBone(root2);
 
     coreAnim->fixup(cs);
 
-    ISTD::shared_ptr<CalAnimation> anim(new CalAnimation(coreAnim, 1.0f, 1));
+    ISTD::shared_ptr<CalAnimation> anim = ISTD::make_shared<CalAnimation>(coreAnim, 1.0f, 1);
     anim->time = 0.0f;
 
     CalSkeleton skeleton(cs);
@@ -75,8 +75,8 @@ TEST_F(CoreSkeletonFixture, second_root_animations_are_transformed_relative_to_f
 
 TEST_F(CoreSkeletonFixture, loader_topologically_sorts) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", -1)));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", -1));
     CalCoreSkeleton cs(bones);
 
     CHECK_EQUAL(cs.coreBones[0].get(), bones[1].get());
@@ -88,7 +88,7 @@ TEST_F(CoreSkeletonFixture, loader_topologically_sorts) {
 
 TEST_F(CoreSkeletonFixture, addCoreBone_adds_id_translation_to_table) {
     CalCoreSkeleton skeleton;
-    ISTD::shared_ptr<CalCoreBone> bone(new CalCoreBone("a"));
+    ISTD::shared_ptr<CalCoreBone> bone = ISTD::make_shared<CalCoreBone>("a");
     skeleton.addCoreBone(bone);
     CHECK_EQUAL(skeleton.coreBones.size(), skeleton.boneIdTranslation.size());
     CHECK_EQUAL(0u, skeleton.boneIdTranslation[0]);
@@ -96,7 +96,7 @@ TEST_F(CoreSkeletonFixture, addCoreBone_adds_id_translation_to_table) {
 
 TEST_F(CoreSkeletonFixture, loader_disregards_self_parents) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 0)));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 0));
     CalCoreSkeleton cs(bones);
 
     CHECK_EQUAL(1u, cs.coreBones.size());
@@ -105,7 +105,7 @@ TEST_F(CoreSkeletonFixture, loader_disregards_self_parents) {
 
 TEST_F(CoreSkeletonFixture, loader_disregards_out_of_range_parents) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
     CalCoreSkeleton cs(bones);
 
     CHECK_EQUAL(1u, cs.coreBones.size());
@@ -114,8 +114,8 @@ TEST_F(CoreSkeletonFixture, loader_disregards_out_of_range_parents) {
 
 TEST_F(CoreSkeletonFixture, loader_disregards_cyclic_parents) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", 0)));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", 0));
     CalCoreSkeleton cs(bones);
 
     CHECK_EQUAL(2u, cs.coreBones.size());
@@ -125,8 +125,8 @@ TEST_F(CoreSkeletonFixture, loader_disregards_cyclic_parents) {
 
 TEST_F(CoreSkeletonFixture, loader_disregards_paths_to_out_of_range) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 2)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", 0)));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 2));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", 0));
     CalCoreSkeleton cs(bones);
 
     CHECK_EQUAL(2u, cs.coreBones.size());
@@ -136,16 +136,16 @@ TEST_F(CoreSkeletonFixture, loader_disregards_paths_to_out_of_range) {
 
 TEST_F(CoreSkeletonFixture, topologically_sorted_skeletons_can_fixup_mesh_references) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", -1)));
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton(bones));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", -1));
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>(bones);
 
     CalCoreSubmesh::Vertex v;
     std::vector<CalCoreSubmesh::Influence> influences;
     influences.push_back(CalCoreSubmesh::Influence(0, 0, false));
     influences.push_back(CalCoreSubmesh::Influence(1, 1, true));
 
-    ISTD::shared_ptr<CalCoreSubmesh> csm(new CalCoreSubmesh(1, 1, 1));
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 1, 1);
     csm->addVertex(v, 0, influences);
 
     CalCoreMesh cm;
@@ -170,15 +170,15 @@ TEST_F(CoreSkeletonFixture, topologically_sorted_skeletons_can_fixup_mesh_refere
 
 TEST_F(CoreSkeletonFixture, fixup_out_of_range_influences_resets_to_zero) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", -1)));
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton(bones));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", -1));
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>(bones);
 
     CalCoreSubmesh::Vertex v;
     std::vector<CalCoreSubmesh::Influence> influences;
     influences.push_back(CalCoreSubmesh::Influence(2, 1, true));
 
-    ISTD::shared_ptr<CalCoreSubmesh> csm(new CalCoreSubmesh(1, 1, 1));
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 1, 1);
     csm->addVertex(v, 0, influences);
 
     CalCoreMesh cm;
@@ -192,9 +192,9 @@ TEST_F(CoreSkeletonFixture, fixup_out_of_range_influences_resets_to_zero) {
 
 TEST_F(CoreSkeletonFixture, topologically_sorted_skeletons_can_fixup_animations) {
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("a", 1)));
-    bones.push_back(ISTD::shared_ptr<CalCoreBone>(new CalCoreBone("b", -1)));
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton(bones));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("a", 1));
+    bones.push_back(ISTD::make_shared<CalCoreBone>("b", -1));
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>(bones);
 
     CalCoreTrack ct(0, std::vector<CalCoreKeyframe>());
 
@@ -206,14 +206,14 @@ TEST_F(CoreSkeletonFixture, topologically_sorted_skeletons_can_fixup_animations)
 }
 
 TEST_F(CoreSkeletonFixture, multiroot_skeletons_can_fixup_animation_transforms) {
-    ISTD::shared_ptr<CalCoreBone> root0(new CalCoreBone("r0"));
+    ISTD::shared_ptr<CalCoreBone> root0 = ISTD::make_shared<CalCoreBone>("r0");
     root0->relativeTransform.translation = CalVector(-1, -1, -1);
 
-    ISTD::shared_ptr<CalCoreBone> root1(new CalCoreBone("r1"));
+    ISTD::shared_ptr<CalCoreBone> root1 = ISTD::make_shared<CalCoreBone>("r1");
     root1->relativeTransform.translation = CalVector(1, 1, 1);
 
     std::vector<ISTD::shared_ptr<CalCoreBone>> bones;
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton);
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>();
     cs->addCoreBone(root0);
     cs->addCoreBone(root1);
 
@@ -241,10 +241,10 @@ TEST_F(CoreSkeletonFixture, multiroot_skeletons_can_fixup_animation_transforms) 
 }
 
 TEST_F(CoreSkeletonFixture, fixup_zeroes_out_transforms_of_root_bone_keyframes) {
-    ISTD::shared_ptr<CalCoreBone> root(new CalCoreBone("root"));
-    ISTD::shared_ptr<CalCoreBone> bone(new CalCoreBone("bone", 0));
+    ISTD::shared_ptr<CalCoreBone> root = ISTD::make_shared<CalCoreBone>("root");
+    ISTD::shared_ptr<CalCoreBone> bone = ISTD::make_shared<CalCoreBone>("bone", 0);
 
-    ISTD::shared_ptr<CalCoreSkeleton> cs(new CalCoreSkeleton);
+    ISTD::shared_ptr<CalCoreSkeleton> cs = ISTD::make_shared<CalCoreSkeleton>();
     cs->addCoreBone(root);
     cs->addCoreBone(bone);
     
@@ -268,8 +268,8 @@ TEST_F(CoreSkeletonFixture, fixup_zeroes_out_transforms_of_root_bone_keyframes) 
 }
 
 TEST_F(CoreSkeletonFixture, loader_zeroes_out_root_transform_of_skeleton) {
-    ISTD::shared_ptr<CalCoreBone> root0(new CalCoreBone("root0"));
-    ISTD::shared_ptr<CalCoreBone> root1(new CalCoreBone("root1"));
+    ISTD::shared_ptr<CalCoreBone> root0 = ISTD::make_shared<CalCoreBone>("root0");
+    ISTD::shared_ptr<CalCoreBone> root1 = ISTD::make_shared<CalCoreBone>("root1");
 
     root0->relativeTransform.translation = CalVector(-1, -1, -1);
     root1->relativeTransform.translation = CalVector(2, 2, 2);

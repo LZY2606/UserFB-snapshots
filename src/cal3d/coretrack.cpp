@@ -197,7 +197,7 @@ ISTD::shared_ptr<CalCoreTrack> CalCoreTrack::compress(
 ) const {
     size_t numFrames = keyframes.size();
     if (!numFrames) {
-        return ISTD::shared_ptr<CalCoreTrack>(new CalCoreTrack(coreBoneId, KeyframeList()));
+        return ISTD::make_shared<CalCoreTrack>(coreBoneId, KeyframeList());
     }
 
     // I want to iterate through the vector as a list, and remove elements easily.
@@ -255,7 +255,7 @@ ISTD::shared_ptr<CalCoreTrack> CalCoreTrack::compress(
         }
     }
 
-    ISTD::shared_ptr<CalCoreTrack> result(new CalCoreTrack(coreBoneId, output));
+    ISTD::shared_ptr<CalCoreTrack> result = ISTD::make_shared<CalCoreTrack>(coreBoneId, output);
 
     // Update the flag saying whether the translation, which I have loaded, is actually required.
     // If translation is not required, I can't do any better than that so I leave it alone.

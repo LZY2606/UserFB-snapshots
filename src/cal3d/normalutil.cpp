@@ -32,7 +32,7 @@ ISTD::shared_ptr<CalCoreSubmesh> CalNormalUtil::decodeMeshNormals(const std::str
         data.push_back(value);
     }
     auto normals = decode(data);
-    ISTD::shared_ptr<CalCoreSubmesh> mesh(new CalCoreSubmesh(normals.size(), 0, 0));
+    ISTD::shared_ptr<CalCoreSubmesh> mesh = ISTD::make_shared<CalCoreSubmesh>(normals.size(), 0, 0);
     for (size_t i = 0; i < normals.size(); ++i) {
         CalCoreSubmesh::Vertex vertex;
         vertex.normal = normals[i];

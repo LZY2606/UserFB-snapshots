@@ -90,7 +90,7 @@ FIXTURE(CompactMeshWriterFixture) {
         const std::vector<CalCoreSubmesh::InfluenceVector>& influenceVectors,
         const std::vector<CalCoreSubmesh::TextureCoordinate>& texCoords
     ) {
-        ISTD::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(positions.size(), !texCoords.empty(), faces.size()));
+        ISTD::shared_ptr<CalCoreSubmesh> submesh = ISTD::make_shared<CalCoreSubmesh>(positions.size(), !texCoords.empty(), faces.size());
         for (auto it = faces.begin(); it != faces.end(); ++it) {
             submesh->addFace(*it);
         }
@@ -390,11 +390,11 @@ FIXTURE(CompactMeshWriterFixture) {
                 );
                 ++morphIndex;
             }
-            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(
+            ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>(
                 morphSummary.name,
                 vertexCount,
                 vertexOffsets
-            ));
+            );
             morphTargets.push_back(morphTarget);
         }
         outMorphSummaries = morphSummaries;
@@ -748,19 +748,19 @@ TEST_F(CompactMeshWriterFixture, can_encode_morph_target_types) {
     CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
     vertexOffsets.push_back(aVO);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget0(new CalCoreMorphTarget("name.exclusive", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget0 = ISTD::make_shared<CalCoreMorphTarget>("name.exclusive", 1, vertexOffsets);
     submesh->addMorphTarget(morphTarget0);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget1(new CalCoreMorphTarget("name.additive", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget1 = ISTD::make_shared<CalCoreMorphTarget>("name.additive", 1, vertexOffsets);
     submesh->addMorphTarget(morphTarget1);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget2(new CalCoreMorphTarget("name.clamped", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget2 = ISTD::make_shared<CalCoreMorphTarget>("name.clamped", 1, vertexOffsets);
     submesh->addMorphTarget(morphTarget2);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget3(new CalCoreMorphTarget("name.average", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget3 = ISTD::make_shared<CalCoreMorphTarget>("name.average", 1, vertexOffsets);
     submesh->addMorphTarget(morphTarget3);
 
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget4(new CalCoreMorphTarget("name", 1, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget4 = ISTD::make_shared<CalCoreMorphTarget>("name", 1, vertexOffsets);
     submesh->addMorphTarget(morphTarget4);
 
     auto data = CalCompactMeshWriter::saveCompactCoreSubmesh(submesh, 6);
@@ -801,7 +801,7 @@ TEST_F(CompactMeshWriterFixture, sorts_morph_blendVertices_by_id) {
     CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
     vertexOffsets.push_back(aVO);
     vertexOffsets.push_back(bVO);
-    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("name", 2, vertexOffsets));
+    ISTD::shared_ptr<CalCoreMorphTarget> morphTarget = ISTD::make_shared<CalCoreMorphTarget>("name", 2, vertexOffsets);
 
     submesh->addMorphTarget(morphTarget);
 
