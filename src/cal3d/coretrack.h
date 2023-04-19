@@ -16,7 +16,6 @@
 #include "cal3d/transform.h"
 
 CAL3D_PTR(CalCoreBone);
-CAL3D_PTR(CalCoreTrack);
 class CalCoreSkeleton;
 class CalQuaternion;
 
@@ -53,7 +52,6 @@ public:
 private:
     KeyframeList::const_iterator getUpperBound(float time) const;
 };
-CAL3D_PTR(CalCoreTrack);
 
 inline bool operator==(const CalCoreTrack& lhs, const CalCoreTrack& rhs) {
     return lhs.coreBoneId == rhs.coreBoneId &&
