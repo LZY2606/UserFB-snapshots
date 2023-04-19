@@ -637,13 +637,13 @@ CalLoader::usesAnimationCompression(int version) {
 }
 
 
-CalCoreKeyframePtr CalLoader::loadCoreKeyframe(
+boost::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
     CalBufferSource& dataSrc, int version,
     CalCoreKeyframe* prevCoreKeyframe,
     bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
     bool useAnimationCompression
 ) {
-    const CalCoreKeyframePtr null;
+    const boost::shared_ptr<CalCoreKeyframe> null;
 
     float time;
     CalVector t;
@@ -703,7 +703,7 @@ CalCoreKeyframePtr CalLoader::loadCoreKeyframe(
         dataSrc.readFloat(rw);
     }
 
-    CalCoreKeyframePtr pCoreKeyframe(new CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
+    boost::shared_ptr<CalCoreKeyframe> pCoreKeyframe(new CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
     return pCoreKeyframe;
 }
 
@@ -1131,7 +1131,7 @@ boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
     CalCoreKeyframe lastCoreKeyframe;
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
         // load the core keyframe
-        CalCoreKeyframePtr pCoreKeyframe = loadCoreKeyframe(
+        boost::shared_ptr<CalCoreKeyframe> pCoreKeyframe = loadCoreKeyframe(
             dataSrc,
             version,
             (hasLastKeyframe ? &lastCoreKeyframe : 0),
