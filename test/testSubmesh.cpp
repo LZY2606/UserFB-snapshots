@@ -125,7 +125,7 @@ TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_
     mv.position = CalVector4(2, 2, 2, 0);
     mv.normal = CalVector4(-2, -2, -2, 0);
     vertexOffsets.push_back(mv);
-    CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget("m", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("m", 1, vertexOffsets));
     csm->addMorphTarget(morphTarget);
 
     CalCoreMesh cm;
@@ -310,7 +310,7 @@ TEST_F(SubmeshFixture, is_not_static_if_has_morph_targets) {
     mv.normal = CalVector4(0, -1, -2, 0);
     vertexOffsets.push_back(mv);
 
-    CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget("", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("", 1, vertexOffsets));
     csm.addMorphTarget(morphTarget);
 
     CHECK(!csm.isStatic());
@@ -551,7 +551,7 @@ TEST_F(SubmeshFixture, renumber_morphs) {
 
     CalCoreMorphTarget::VertexOffsetArray offsets;
     offsets.push_back(VertexOffset(2, CalPoint4(), CalVector4()));
-    csm.addMorphTarget(CalCoreMorphTargetPtr(new CalCoreMorphTarget("morph", 3, offsets)));
+    csm.addMorphTarget(boost::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget("morph", 3, offsets)));
 
     csm.renumberIndices();
 
@@ -574,7 +574,7 @@ TEST_F(SubmeshFixture, drop_morph_offsets_for_unused_vertices) {
 
     CalCoreMorphTarget::VertexOffsetArray offsets;
     offsets.push_back(VertexOffset(3, CalPoint4(), CalVector4()));
-    csm.addMorphTarget(CalCoreMorphTargetPtr(new CalCoreMorphTarget("morph", csm.getVertexCount(), offsets)));
+    csm.addMorphTarget(boost::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget("morph", csm.getVertexCount(), offsets)));
 
     csm.renumberIndices();
 

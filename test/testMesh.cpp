@@ -33,7 +33,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
 
     CalCoreMorphTarget::VertexOffsetArray aVertexOffsets;
     aVertexOffsets.push_back(aVO);
-    CalCoreMorphTargetPtr aTarget(new CalCoreMorphTarget("A", 1, aVertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> aTarget(new CalCoreMorphTarget("A", 1, aVertexOffsets));
 
     VertexOffset bVO;
     bVO.vertexId = 0;
@@ -42,7 +42,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
 
     CalCoreMorphTarget::VertexOffsetArray bVertexOffsets;
     bVertexOffsets.push_back(bVO);
-    CalCoreMorphTargetPtr bTarget(new CalCoreMorphTarget("B", 1, bVertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> bTarget(new CalCoreMorphTarget("B", 1, bVertexOffsets));
 
     submesh->addMorphTarget(aTarget);
     submesh->addMorphTarget(bTarget);

@@ -20,10 +20,10 @@ CAL3D_PTR(CalCoreMaterial);
 namespace cal3d {
     class CAL3D_API MorphTarget {
     public:
-        MorphTarget(const CalCoreMorphTargetPtr& coreMorphTarget);
+        MorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& coreMorphTarget);
         void resetState();
 
-        CalCoreMorphTargetPtr coreMorphTarget;
+        boost::shared_ptr<CalCoreMorphTarget> coreMorphTarget;
 
         float weight;
         float accumulatedWeight;

@@ -674,7 +674,7 @@ bool CalSaver::saveCoreSubmesh(std::ostream& os, CalCoreSubmesh* pCoreSubmesh) {
     }
 
     for (size_t morphId = 0; morphId < vectorMorphs.size(); morphId++) {
-        CalCoreMorphTargetPtr morphTarget = vectorMorphs[morphId];
+        boost::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
         CalPlatform::writeString(os, morphTarget->name);
 
         const CalCoreMorphTarget::VertexOffsetArray& vertices = morphTarget->vertexOffsets;
@@ -1265,7 +1265,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
 
         // write all morphs
         for (size_t morphId = 0; morphId < vectorMorphs.size(); ++morphId) {
-            CalCoreMorphTargetPtr morphTarget = vectorMorphs[morphId];
+            boost::shared_ptr<CalCoreMorphTarget> morphTarget = vectorMorphs[morphId];
 
             TiXmlElement morph("MORPH");
             str.str("");

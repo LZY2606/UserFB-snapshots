@@ -240,7 +240,7 @@ static CalCoreSubmeshPtr djinnCoreSubmesh(int N) {
     return coreSubmesh;
 }
 
-static CalCoreMorphTargetPtr djinnMorphTarget(int N, const char* name) {
+static boost::shared_ptr<CalCoreMorphTarget> djinnMorphTarget(int N, const char* name) {
     CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
     for (int k = 0; k < N; ++k) {
         VertexOffset bv;
@@ -249,7 +249,7 @@ static CalCoreMorphTargetPtr djinnMorphTarget(int N, const char* name) {
         bv.normal.set(0.0f, 0.0f, 1.0f, 0.0f);
         vertexOffsets.push_back(bv);
     }
-    CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget(name, N, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(name, N, vertexOffsets));
     return morphTarget;
 }
 
@@ -349,7 +349,7 @@ TEST_F(PhysiqueFixture, single_morph_target) {
     bv.vertexId = 2;
     vertexOffsets.push_back(bv);
 
-    CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget("foo", 3, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("foo", 3, vertexOffsets));
     coreSubmesh->addMorphTarget(morphTarget);
 
     CalSubmesh submesh(coreSubmesh);
@@ -401,7 +401,7 @@ TEST_F(PhysiqueFixture, two_morph_targets) {
     bv.vertexId = 2;
     morphVertices1.push_back(bv);
 
-    CalCoreMorphTargetPtr morphTarget1(new CalCoreMorphTarget("foo", 3, morphVertices1));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget1(new CalCoreMorphTarget("foo", 3, morphVertices1));
     coreSubmesh->addMorphTarget(morphTarget1);
 
     CalCoreMorphTarget::VertexOffsetArray morphVertices2;
@@ -412,7 +412,7 @@ TEST_F(PhysiqueFixture, two_morph_targets) {
     bv.vertexId = 2;
     morphVertices2.push_back(bv);
 
-    CalCoreMorphTargetPtr morphTarget2(new CalCoreMorphTarget("bar", 3, morphVertices2));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget2(new CalCoreMorphTarget("bar", 3, morphVertices2));
     coreSubmesh->addMorphTarget(morphTarget2);
 
     CalSubmesh submesh(coreSubmesh);
@@ -460,14 +460,14 @@ TEST_F(PhysiqueFixture, two_disjoint_morph_targets) {
     bv.vertexId = 0;
     morphVertices1.push_back(bv);
 
-    CalCoreMorphTargetPtr morphTarget1(new CalCoreMorphTarget("foo", 2, morphVertices1));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget1(new CalCoreMorphTarget("foo", 2, morphVertices1));
     coreSubmesh->addMorphTarget(morphTarget1);
 
     CalCoreMorphTarget::VertexOffsetArray morphVertices2;
     bv.vertexId = 1;
     morphVertices2.push_back(bv);
 
-    CalCoreMorphTargetPtr morphTarget2(new CalCoreMorphTarget("bar", 2, morphVertices2));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget2(new CalCoreMorphTarget("bar", 2, morphVertices2));
     coreSubmesh->addMorphTarget(morphTarget2);
 
     CalSubmesh submesh(coreSubmesh);

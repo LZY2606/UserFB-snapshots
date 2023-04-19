@@ -925,7 +925,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
                 name = nameAttribute->value();
             }
 
-            CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget(name, vertexCount, vertexOffsets));
+            boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(name, vertexCount, vertexOffsets));
             pCoreSubmesh->addMorphTarget(morphTarget);
 
             morph = morph->next_sibling();

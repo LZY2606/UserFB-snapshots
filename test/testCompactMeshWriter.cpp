@@ -337,7 +337,7 @@ FIXTURE(CompactMeshWriterFixture) {
         return colors;
     }
 
-    std::vector<CalCoreMorphTargetPtr> extractMorphTargets(
+    std::vector<boost::shared_ptr<CalCoreMorphTarget>> extractMorphTargets(
         const CalCompactSubmeshData& data,
         size_t vertexCount,
         std::vector<MorphSummary>& outMorphSummaries
@@ -377,7 +377,7 @@ FIXTURE(CompactMeshWriterFixture) {
         JSON_GET(*morphsSummariesJson, morphSummaries);
 
         size_t morphIndex = 0;
-        std::vector<CalCoreMorphTargetPtr> morphTargets;
+        std::vector<boost::shared_ptr<CalCoreMorphTarget>> morphTargets;
         for (size_t i = 0; i < morphSummaries.size(); ++i) {
             const auto& morphSummary = morphSummaries[i];
             CalCoreMorphTarget::VertexOffsetArray vertexOffsets(morphSummary.length);
@@ -390,7 +390,7 @@ FIXTURE(CompactMeshWriterFixture) {
                 );
                 ++morphIndex;
             }
-            CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget(
+            boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(
                 morphSummary.name,
                 vertexCount,
                 vertexOffsets
@@ -748,19 +748,19 @@ TEST_F(CompactMeshWriterFixture, can_encode_morph_target_types) {
     CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
     vertexOffsets.push_back(aVO);
 
-    CalCoreMorphTargetPtr morphTarget0(new CalCoreMorphTarget("name.exclusive", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget0(new CalCoreMorphTarget("name.exclusive", 1, vertexOffsets));
     submesh->addMorphTarget(morphTarget0);
 
-    CalCoreMorphTargetPtr morphTarget1(new CalCoreMorphTarget("name.additive", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget1(new CalCoreMorphTarget("name.additive", 1, vertexOffsets));
     submesh->addMorphTarget(morphTarget1);
 
-    CalCoreMorphTargetPtr morphTarget2(new CalCoreMorphTarget("name.clamped", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget2(new CalCoreMorphTarget("name.clamped", 1, vertexOffsets));
     submesh->addMorphTarget(morphTarget2);
 
-    CalCoreMorphTargetPtr morphTarget3(new CalCoreMorphTarget("name.average", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget3(new CalCoreMorphTarget("name.average", 1, vertexOffsets));
     submesh->addMorphTarget(morphTarget3);
 
-    CalCoreMorphTargetPtr morphTarget4(new CalCoreMorphTarget("name", 1, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget4(new CalCoreMorphTarget("name", 1, vertexOffsets));
     submesh->addMorphTarget(morphTarget4);
 
     auto data = CalCompactMeshWriter::saveCompactCoreSubmesh(submesh, 6);
@@ -801,7 +801,7 @@ TEST_F(CompactMeshWriterFixture, sorts_morph_blendVertices_by_id) {
     CalCoreMorphTarget::VertexOffsetArray vertexOffsets;
     vertexOffsets.push_back(aVO);
     vertexOffsets.push_back(bVO);
-    CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget("name", 2, vertexOffsets));
+    boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget("name", 2, vertexOffsets));
 
     submesh->addMorphTarget(morphTarget);
 

@@ -161,7 +161,7 @@ public:
         }
     };
 
-    typedef std::vector<CalCoreMorphTargetPtr> MorphTargetArray;
+    typedef std::vector<boost::shared_ptr<CalCoreMorphTarget>> MorphTargetArray;
     typedef std::vector<Face> VectorFace;
     typedef std::vector<TextureCoordinate> VectorTextureCoordinate;
     typedef cal3d::SSEArray<Vertex> VectorVertex;
@@ -210,7 +210,7 @@ public:
     void addVertex(const Vertex& vertex, CalColor32 vertexColor, const InfluenceVector& influences);
     void setTextureCoordinate(int vertexId, const TextureCoordinate& textureCoordinate);
 
-    void addMorphTarget(const CalCoreMorphTargetPtr& morphTarget);
+    void addMorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& morphTarget);
     const MorphTargetArray& getMorphTargets() const {
         return m_morphTargets;
     }

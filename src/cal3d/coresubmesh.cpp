@@ -206,7 +206,7 @@ BoneTransform CalCoreSubmesh::getStaticTransform(const BoneTransform* bones) con
     return rm;
 }
 
-void CalCoreSubmesh::addMorphTarget(const CalCoreMorphTargetPtr& morphTarget) {
+void CalCoreSubmesh::addMorphTarget(const boost::shared_ptr<CalCoreMorphTarget>& morphTarget) {
     if (morphTarget->vertexOffsets.size() > 0) {
         m_morphTargets.push_back(morphTarget);
     }
@@ -801,7 +801,7 @@ void CalCoreSubmesh::renumberIndices() {
                 newOffsets.push_back(VertexOffset(newIndex, vo->position, vo->normal));
             }
         }
-        newMorphTargets.push_back(CalCoreMorphTargetPtr(new CalCoreMorphTarget(mt->name, newVertices.size(), newOffsets)));
+        newMorphTargets.push_back(boost::shared_ptr<CalCoreMorphTarget>(new CalCoreMorphTarget(mt->name, newVertices.size(), newOffsets)));
     }
 
     m_vertices.swap(newVertices);

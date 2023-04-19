@@ -1061,7 +1061,7 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
             morphName = convertLatin1toUTF8(morphName);
         }
 
-        CalCoreMorphTargetPtr morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
+        boost::shared_ptr<CalCoreMorphTarget> morphTarget(new CalCoreMorphTarget(morphName, vertexCount, vertexOffsets));
         pCoreSubmesh->addMorphTarget(morphTarget);
     }
 
