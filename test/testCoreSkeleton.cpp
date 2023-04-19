@@ -61,7 +61,7 @@ TEST_F(CoreSkeletonFixture, second_root_animations_are_transformed_relative_to_f
 
     coreAnim->fixup(cs);
 
-    CalAnimationPtr anim(new CalAnimation(coreAnim, 1.0f, 1));
+    boost::shared_ptr<CalAnimation> anim(new CalAnimation(coreAnim, 1.0f, 1));
     anim->time = 0.0f;
 
     CalSkeleton skeleton(cs);

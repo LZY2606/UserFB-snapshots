@@ -22,7 +22,7 @@
 #include "cal3d/bone.h"
 #include "cal3d/animation.h"
 
-void CalMixer::addAnimation(const CalAnimationPtr& animation) {
+void CalMixer::addAnimation(const boost::shared_ptr<CalAnimation>& animation) {
     AnimationList::iterator i = activeAnimations.begin();
     while (i != activeAnimations.end() && animation->priority < (*i)->priority) {
         ++i;
@@ -30,7 +30,7 @@ void CalMixer::addAnimation(const CalAnimationPtr& animation) {
     activeAnimations.insert(i, animation);
 }
 
-void CalMixer::removeAnimation(const CalAnimationPtr& animation) {
+void CalMixer::removeAnimation(const boost::shared_ptr<CalAnimation>& animation) {
     activeAnimations.remove(animation);
 }
 
