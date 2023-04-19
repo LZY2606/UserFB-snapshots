@@ -123,7 +123,7 @@ const char animationText[] =
 
 TEST_F(LoaderFixture, LoadSimpleXmlAnimation) {
     CalBufferSource cbs(fromString(animationText));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim);
     CHECK_EQUAL(anim->tracks.size(), 1u);
     CHECK_EQUAL(anim->duration, 40);
@@ -159,7 +159,7 @@ const char animation_with_out_of_order_keyframes[] =
 
 TEST_F(LoaderFixture, sorts_keyframes_upon_load) {
     CalBufferSource cbs(fromString(animation_with_out_of_order_keyframes));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim);
 
     CHECK_EQUAL(anim->tracks.size(), 1u);
@@ -193,7 +193,7 @@ const char animation_with_translations[] =
 
 TEST_F(LoaderFixture, load_animation_with_translation) {
     CalBufferSource cbs(fromString(animation_with_translations));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim);
 
     CHECK_EQUAL(anim->tracks.size(), 1u);
@@ -230,7 +230,7 @@ const char animation_with_static_translations[] =
 
 TEST_F(LoaderFixture, load_animation_with_static_translations) {
     CalBufferSource cbs(fromString(animation_with_static_translations));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim);
 
     CHECK_EQUAL(anim->tracks.size(), 1u);
@@ -267,7 +267,7 @@ const char animation_with_mismatched_track_and_keyframe_count[] =
 
 TEST_F(LoaderFixture, load_animation_with_mismatched_counts) {
     CalBufferSource cbs(fromString(animation_with_mismatched_track_and_keyframe_count));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim);
 
     CHECK_EQUAL(anim->tracks.size(), 1u);
@@ -504,7 +504,7 @@ TEST_F(LoaderFixture, load_animation_for_non_existent_bone) {
     CHECK(skel);
 
     CalBufferSource cbs2(fromString(animation_for_a_nonexistent_bone));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs2);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs2);
     CHECK(anim);
     anim->fixup(skel);
     CHECK_EQUAL(anim->tracks.size(), 0u);
@@ -567,7 +567,7 @@ BOOST_STATIC_ASSERT(sizeof(hmmmAnimation) == hmmmLength);
 
 TEST_F(LoaderFixture, load_hmmm) {
     CalBufferSource cbs(fromString(hmmmAnimation));
-    CalCoreAnimationPtr anim = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim = CalLoader::loadCoreAnimation(cbs);
     CHECK_EQUAL(anim->tracks.size(), 70u);
 
     CalCoreKeyframe expected[14] = {
@@ -629,7 +629,7 @@ TEST_F(LoaderFixture, loading_mesh_without_vertex_colors_defaults_to_white) {
 
 TEST_F(LoaderFixture, converting_xml_to_binary_then_back_to_xml_does_not_modify_animation) {
     CalBufferSource cbs(fromString(animationText));
-    CalCoreAnimationPtr anim1 = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim1 = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim1);
 
     std::stringstream buf1;
@@ -640,7 +640,7 @@ TEST_F(LoaderFixture, converting_xml_to_binary_then_back_to_xml_does_not_modify_
 
     std::string str = output.str();
     CalBufferSource cbs2(str.data(), str.size());
-    CalCoreAnimationPtr anim2 = CalLoader::loadCoreAnimation(cbs2);
+    boost::shared_ptr<CalCoreAnimation> anim2 = CalLoader::loadCoreAnimation(cbs2);
     CHECK(anim2);
 
     CHECK_EQUAL(*anim1, *anim2);
@@ -648,7 +648,7 @@ TEST_F(LoaderFixture, converting_xml_to_binary_then_back_to_xml_does_not_modify_
 
 TEST_F(LoaderFixture, converting_xml_to_binary_then_test_nan_duration_animation) {
     CalBufferSource cbs(fromString(animationText));
-    CalCoreAnimationPtr anim1 = CalLoader::loadCoreAnimation(cbs);
+    boost::shared_ptr<CalCoreAnimation> anim1 = CalLoader::loadCoreAnimation(cbs);
     CHECK(anim1);
 
     std::stringstream output;
@@ -659,7 +659,7 @@ TEST_F(LoaderFixture, converting_xml_to_binary_then_test_nan_duration_animation)
 
     std::string str = output.str();
     CalBufferSource cbs2(str.data(), str.size());
-    CalCoreAnimationPtr anim2 = CalLoader::loadCoreAnimation(cbs2);
+    boost::shared_ptr<CalCoreAnimation> anim2 = CalLoader::loadCoreAnimation(cbs2);
     CHECK(anim2);
 
     CHECK_EQUAL(anim2->duration, 0);

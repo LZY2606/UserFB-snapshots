@@ -40,7 +40,7 @@ static CalAnimationPtr makeAnimation(CalVector t, unsigned priority, float weigh
     keyframes.push_back(CalCoreKeyframe(0, t, CalQuaternion()));
     CalCoreTrack track(0, keyframes);
 
-    CalCoreAnimationPtr coreAnimation(new CalCoreAnimation());
+    boost::shared_ptr<CalCoreAnimation> coreAnimation(new CalCoreAnimation());
     coreAnimation->tracks.push_back(track);
 
     CalAnimationPtr anim(new CalAnimation(coreAnimation, weight, priority));

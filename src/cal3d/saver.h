@@ -29,13 +29,13 @@ class CalQuaternion;
 
 class CAL3D_API CalSaver {
 public:
-    static std::string saveCoreAnimationToBuffer(CalCoreAnimationPtr pCoreAnimation);
+    static std::string saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
     static std::string saveCoreMorphAnimationToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation);
     static std::string saveCoreMaterialToBuffer(CalCoreMaterialPtr pCoreMaterial);
     static std::string saveCoreMeshToBuffer(CalCoreMeshPtr pCoreMesh);
     static std::string saveCoreSkeletonToBuffer(CalCoreSkeletonPtr pCoreSkeleton);
 
-    static std::string saveCoreAnimationXmlToBuffer(CalCoreAnimationPtr pCoreAnimation);
+    static std::string saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
 
     static bool saveCoreAnimation(const std::string& strFilename, CalCoreAnimation* pCoreAnimation);
     static bool saveCoreAnimation(std::ostream& stream, CalCoreAnimation* coreAnimation);

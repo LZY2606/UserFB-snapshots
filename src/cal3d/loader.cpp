@@ -178,7 +178,7 @@ RV tryBothLoaders(
     }
 }
 
-CalCoreAnimationPtr CalLoader::loadCoreAnimation(CalBufferSource& inputSrc) {
+boost::shared_ptr<CalCoreAnimation> CalLoader::loadCoreAnimation(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreAnimation, &loadXmlCoreAnimation);
 }
 
@@ -198,8 +198,8 @@ CalCoreSkeletonPtr CalLoader::loadCoreSkeleton(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreSkeleton, &loadXmlCoreSkeleton);
 }
 
-CalCoreAnimationPtr CalLoader::loadBinaryCoreAnimation(CalBufferSource& dataSrc) {
-    const CalCoreAnimationPtr null;
+boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreAnimation> null;
 
     // check if this is a valid file
     char magic[4];
@@ -227,7 +227,7 @@ CalCoreAnimationPtr CalLoader::loadBinaryCoreAnimation(CalBufferSource& dataSrc)
     }
 
 
-    CalCoreAnimationPtr pCoreAnimation(new CalCoreAnimation);
+    boost::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
 
     float duration;
     if (!dataSrc.readFloat(duration)) {

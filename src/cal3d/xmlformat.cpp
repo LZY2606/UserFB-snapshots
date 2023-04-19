@@ -32,7 +32,7 @@ struct InvalidFileFormat {
     operator CalCoreSkeletonPtr() const { return CalCoreSkeletonPtr(); }
     operator CalCoreMaterialPtr() const { return CalCoreMaterialPtr(); }
     operator CalCoreMeshPtr() const { return CalCoreMeshPtr(); }
-    operator CalCoreAnimationPtr() const { return CalCoreAnimationPtr(); }
+    operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
     operator CalCoreMorphAnimationPtr() const { return CalCoreMorphAnimationPtr(); }
 };
 #define InvalidFileFormatTracked() InvalidFileFormat(__FILE__, __LINE__)
@@ -333,7 +333,7 @@ CalCoreMaterialPtr CalLoader::loadXmlCoreMaterial(char* dataSrc) {
     return loadXmlCoreMaterialDoc(doc);
 }
 
-CalCoreAnimationPtr CalLoader::loadXmlCoreAnimation(char* dataSrc) {
+boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimation(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -495,7 +495,7 @@ CalCoreSkeletonPtr CalLoader::loadXmlCoreSkeletonDoc(const rapidxml::xml_documen
     return pCoreSkeleton;
 }
 
-CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_document<>& doc) {
+boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -526,7 +526,7 @@ CalCoreAnimationPtr CalLoader::loadXmlCoreAnimationDoc(const rapidxml::xml_docum
         return InvalidFileFormatTracked();
     }
 
-    CalCoreAnimationPtr pCoreAnimation(new CalCoreAnimation);
+    boost::shared_ptr<CalCoreAnimation> pCoreAnimation(new CalCoreAnimation);
     pCoreAnimation->duration = duration;
 
     for (

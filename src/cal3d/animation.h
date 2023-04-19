@@ -3,13 +3,13 @@
 #include <boost/shared_ptr.hpp>
 #include "cal3d/global.h"
 
-CAL3D_PTR(CalCoreAnimation);
+class CalCoreAnimation;
 
 class CAL3D_API CalAnimation {
 public:
-    CalAnimation(const CalCoreAnimationPtr& pCoreAnimation, float weight, unsigned priority);
+    CalAnimation(const boost::shared_ptr<CalCoreAnimation>& pCoreAnimation, float weight, unsigned priority);
 
-    const CalCoreAnimationPtr coreAnimation;
+    const boost::shared_ptr<CalCoreAnimation> coreAnimation;
 
     float time; // current time
     float rampValue; // 0->1 fade in, 1->0 fade out

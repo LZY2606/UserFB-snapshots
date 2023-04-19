@@ -12,7 +12,7 @@
 #include "cal3d/error.h"
 #include "cal3d/coreanimation.h"
 
-CalAnimation::CalAnimation(const CalCoreAnimationPtr& pCoreAnimation, float weight, unsigned priority)
+CalAnimation::CalAnimation(const boost::shared_ptr<CalCoreAnimation>& pCoreAnimation, float weight, unsigned priority)
     : coreAnimation(pCoreAnimation)
     , time(0.0f)
     , rampValue(1.0f)

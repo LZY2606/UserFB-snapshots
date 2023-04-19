@@ -44,11 +44,11 @@ std::string save(const boost::shared_ptr<T>& t, bool (saveBinary)(std::ostream&,
     }
 }
 
-std::string CalSaver::saveCoreAnimationToBuffer(CalCoreAnimationPtr pCoreAnimation) {
+std::string CalSaver::saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation) {
     return save(pCoreAnimation, &saveCoreAnimation);
 }
 
-std::string CalSaver::saveCoreAnimationXmlToBuffer(CalCoreAnimationPtr pCoreAnimation) {
+std::string CalSaver::saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation) {
     std::ostringstream os;
     if (saveXmlCoreAnimation(os, pCoreAnimation.get())) {
         return os.str();

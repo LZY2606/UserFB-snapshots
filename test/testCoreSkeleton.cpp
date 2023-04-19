@@ -52,7 +52,7 @@ TEST_F(CoreSkeletonFixture, second_root_animations_are_transformed_relative_to_f
     keyframes.push_back(CalCoreKeyframe(1.0f, CalVector(-1, -1, -1), CalQuaternion()));
     CalCoreTrack track(1, keyframes);
 
-    CalCoreAnimationPtr coreAnim(new CalCoreAnimation);
+    boost::shared_ptr<CalCoreAnimation> coreAnim(new CalCoreAnimation);
     coreAnim->tracks.push_back(track);
     
     CalCoreSkeletonPtr cs(new CalCoreSkeleton);
