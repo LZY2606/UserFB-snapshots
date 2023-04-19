@@ -34,8 +34,6 @@ enum CalMorphTargetType {
     CalMorphTargetTypeExclusive
 };
 
-CAL3D_PTR(CalCoreSubmesh);
-
 // NOTE: Influence extraction could probably be done more efficiently with fixed-length
 // arrays, if we're willing to settle on a fixed number of influences.
 class CAL3D_API CalWeightsBoneIdsPair {
@@ -275,5 +273,7 @@ private:
 inline std::ostream& operator<<(std::ostream& os, const CalCoreSubmesh::Influence& influence) {
     return os << "CalCoreSubmesh::Influence(" << influence.boneId << ", " << influence.weight << ", " << influence.lastInfluenceForThisVertex << ")";
 }
+
+CAL3D_PTR(CalCoreSubmesh);
 
 CAL3D_API boost::shared_ptr<CalCoreSubmesh> MakeCube();

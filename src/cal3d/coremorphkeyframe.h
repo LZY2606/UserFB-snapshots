@@ -29,6 +29,8 @@ public:
     }
 };
 
+CAL3D_PTR(CalCoreMorphKeyframe);
+
 inline bool operator<(CalCoreMorphKeyframe lhs, CalCoreMorphKeyframe rhs) {
     return lhs.time < rhs.time;
 }

@@ -36,6 +36,8 @@ private:
     std::vector<CalCoreMorphKeyframe>::iterator getUpperBound(float time);
 };
 
+CAL3D_PTR(CalCoreMorphTrack);
+
 inline bool operator==(const CalCoreMorphTrack& lhs, const CalCoreMorphTrack& rhs) {
     return lhs.morphName == rhs.morphName &&
            lhs.keyframes == rhs.keyframes;

@@ -53,6 +53,8 @@ private:
     KeyframeList::const_iterator getUpperBound(float time) const;
 };
 
+CAL3D_PTR(CalCoreTrack);
+
 inline bool operator==(const CalCoreTrack& lhs, const CalCoreTrack& rhs) {
     return lhs.coreBoneId == rhs.coreBoneId &&
            lhs.keyframes == rhs.keyframes;

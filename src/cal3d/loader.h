@@ -16,17 +16,17 @@
 #include "cal3d/global.h"
 #include "cal3d/datasource.h"
 
-CAL3D_PTR(CalCoreSkeleton);
-CAL3D_PTR(CalCoreBone);
-CAL3D_PTR(CalCoreAnimation);
-CAL3D_PTR(CalCoreMorphAnimation);
-CAL3D_PTR(CalCoreTrack);
-CAL3D_PTR(CalCoreKeyframe);
-CAL3D_PTR(CalCoreMorphTrack);
-CAL3D_PTR(CalCoreMorphKeyframe);
-CAL3D_PTR(CalCoreMesh);
-CAL3D_PTR(CalCoreSubmesh);
-CAL3D_PTR(CalCoreMaterial);
+class CalCoreSkeleton;
+class CalCoreBone;
+class CalCoreAnimation;
+class CalCoreMorphAnimation;
+class CalCoreTrack;
+class CalCoreKeyframe;
+class CalCoreMorphTrack;
+class CalCoreMorphKeyframe;
+class CalCoreMesh;
+class CalCoreSubmesh;
+class CalCoreMaterial;
 class CalVector;
 class CalQuaternion;
 class CalBufferSource;

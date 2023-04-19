@@ -37,6 +37,8 @@ public:
     cal3d::RotateTranslate transform;
 };
 
+CAL3D_PTR(CalCoreKeyframe);
+
 inline bool operator<(const CalCoreKeyframe& lhs, const CalCoreKeyframe& rhs) {
     return lhs.time < rhs.time;
 }
