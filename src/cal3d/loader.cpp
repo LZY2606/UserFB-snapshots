@@ -313,7 +313,7 @@ boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation
     }
 
     for (int trackId = 0; trackId < trackCount; ++trackId) {
-        CalCoreMorphTrackPtr pCoreTrack = loadCoreMorphTrack(dataSrc);
+        boost::shared_ptr<CalCoreMorphTrack> pCoreTrack = loadCoreMorphTrack(dataSrc);
         if (!pCoreTrack) {
             return null;
         }
@@ -1168,8 +1168,8 @@ boost::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-CalCoreMorphTrackPtr CalLoader::loadCoreMorphTrack(CalBufferSource& dataSrc) {
-    const CalCoreMorphTrackPtr null;
+boost::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreMorphTrack> null;
     
     // read the morph name
     std::string morphName;
@@ -1179,7 +1179,7 @@ CalCoreMorphTrackPtr CalLoader::loadCoreMorphTrack(CalBufferSource& dataSrc) {
     }
 
     // allocate a new core morphTrack instance
-    CalCoreMorphTrackPtr pCoreMorphTrack(new CalCoreMorphTrack);
+    boost::shared_ptr<CalCoreMorphTrack> pCoreMorphTrack(new CalCoreMorphTrack);
 
     // link the core morphTrack to the appropriate morph name
     pCoreMorphTrack->morphName = morphName;
