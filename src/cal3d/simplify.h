@@ -30,8 +30,6 @@
 #define VECTOR_REMOVE_VALUE(a, b)   (a.erase(std::find(a.begin(), a.end(), b)))
 #define VECTOR_ADD_UNIQUE(a, b)     do {  if(std::find(a.begin(), a.end(), b)==a.end())  a.push_back(b); } while(0)
 
-CAL3D_PTR(Simplify);
-
 class CAL3D_API Simplify {
 
     struct Triangle;
