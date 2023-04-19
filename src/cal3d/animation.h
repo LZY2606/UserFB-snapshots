@@ -16,3 +16,5 @@ public:
     const float weight;
     const unsigned priority; // 0 is lowest
 };
+
+CAL3D_PTR(CalAnimation);
