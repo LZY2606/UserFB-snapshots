@@ -162,12 +162,10 @@ public:
     };
 
     typedef std::vector<CalCoreMorphTargetPtr> MorphTargetArray;
-    typedef std::vector<boost::shared_ptr<CalCoreSubmesh>> CalCoreSubmeshPtrVector;
     typedef std::vector<Face> VectorFace;
     typedef std::vector<TextureCoordinate> VectorTextureCoordinate;
     typedef cal3d::SSEArray<Vertex> VectorVertex;
     typedef std::vector<Influence> InfluenceVector;
-    typedef std::set<int> VerticesSet;
 
     CalCoreSubmesh(int vertexCount, bool hasTextureCoordinates, int faceCount);
 
