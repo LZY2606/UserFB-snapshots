@@ -14,7 +14,6 @@
 #include <vector>
 
 class CalCoreSubmesh;
-CAL3D_PTR(CalCoreSubmesh);
 
 class CAL3D_API CalNormalUtil {
 public:
