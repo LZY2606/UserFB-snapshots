@@ -15,7 +15,7 @@
 #include "cal3d/global.h"
 #include "cal3d/transform.h"
 
-CAL3D_PTR(CalCoreBone);
+class CalCoreBone;
 class CalCoreSkeleton;
 class CalQuaternion;
 
