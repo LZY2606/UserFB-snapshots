@@ -24,8 +24,8 @@ void CalCoreMesh()
     CalError::setLastError(CalError::INTERNAL, __FILE__, __LINE__, "In CalCoreMesh constructor");
 }
 
-size_t sizeInBytes(const CalCoreSubmeshPtr& submesh) {
-    return sizeof(CalCoreSubmeshPtr) + submesh->sizeInBytes();
+size_t sizeInBytes(const boost::shared_ptr<CalCoreSubmesh>& submesh) {
+    return sizeof(boost::shared_ptr<CalCoreSubmesh>) + submesh->sizeInBytes();
 }
 
 size_t CalCoreMesh::sizeInBytes() const {
@@ -73,8 +73,8 @@ bool CalCoreMesh::addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& mo
             CalError::setLastError(CalError::INTERNAL, __FILE__, __LINE__, buf);
             return false; 
         }
-        CalCoreSubmeshPtr baseMesh = (*iteratorCoreSubmesh);
-        CalCoreSubmeshPtr morphMesh = (*otherIteratorCoreSubmesh);
+        boost::shared_ptr<CalCoreSubmesh> baseMesh = (*iteratorCoreSubmesh);
+        boost::shared_ptr<CalCoreSubmesh> morphMesh = (*otherIteratorCoreSubmesh);
         count1 = baseMesh->getFaceCount();
         count2 = morphMesh->getFaceCount();
         if (count1 != count2) {

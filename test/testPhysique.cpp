@@ -225,8 +225,8 @@ ABSTRACT_TEST(skin_10000_vertices_1_influence_cycle_count) {
 APPLY_SKIN_FIXTURES(skin_10000_vertices_1_influence_cycle_count);
 #endif
 
-static CalCoreSubmeshPtr djinnCoreSubmesh(int N) {
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(N, 0, 0));
+static boost::shared_ptr<CalCoreSubmesh> djinnCoreSubmesh(int N) {
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(N, 0, 0));
     for (int k = 0; k < N; ++k) {
         CalCoreSubmesh::Vertex v;
         v.position = CalPoint4(CalVector(1.0f, 2.0f, 3.0f));
@@ -258,7 +258,7 @@ TEST_F(PhysiqueFixture, morph_targets_performance_test) {
     const int N = 10000;
     const int TrialCount = 10;
 
-    CalCoreSubmeshPtr coreSubmesh(djinnCoreSubmesh(N));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(djinnCoreSubmesh(N));
 
     coreSubmesh->addMorphTarget(djinnMorphTarget(N, "foo1"));
     coreSubmesh->addMorphTarget(djinnMorphTarget(N, "foo2"));
@@ -291,7 +291,7 @@ TEST_F(PhysiqueFixture, bunch_of_unweighted_morph_targets_performance_test) {
     const int M = 30;
     const int TrialCount = 10;
 
-    CalCoreSubmeshPtr coreSubmesh(djinnCoreSubmesh(N));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(djinnCoreSubmesh(N));
 
     for (int i = 0; i < M; ++i) {
         char buf[80];
@@ -328,7 +328,7 @@ TEST_F(PhysiqueFixture, single_morph_target) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(3, 0, 1));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(3, 0, 1));
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));
@@ -380,7 +380,7 @@ TEST_F(PhysiqueFixture, two_morph_targets) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(3, 0, 1));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(3, 0, 1));
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));
@@ -444,7 +444,7 @@ TEST_F(PhysiqueFixture, two_disjoint_morph_targets) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(2, 0, 1));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(2, 0, 1));
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));

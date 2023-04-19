@@ -239,7 +239,7 @@ public:
 
     bool simplifySubmesh(unsigned int tri_count, unsigned int quality);
 
-    void splitSubmeshesToBoneLimit(std::vector<CalCoreSubmeshPtr>& out, unsigned boneLimit) const;
+    void splitSubmeshesToBoneLimit(std::vector<boost::shared_ptr<CalCoreSubmesh>>& out, unsigned boneLimit) const;
     void optimizeVertexCache();
     void renumberIndices();
     void normalizeNormals();
@@ -276,4 +276,4 @@ inline std::ostream& operator<<(std::ostream& os, const CalCoreSubmesh::Influenc
     return os << "CalCoreSubmesh::Influence(" << influence.boneId << ", " << influence.weight << ", " << influence.lastInfluenceForThisVertex << ")";
 }
 
-CAL3D_API CalCoreSubmeshPtr MakeCube();
+CAL3D_API boost::shared_ptr<CalCoreSubmesh> MakeCube();

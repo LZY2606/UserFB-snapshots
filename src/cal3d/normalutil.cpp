@@ -4,7 +4,7 @@
 #include <normal_encoding/normal_encoding.hpp>
 #include <cstring>
 
-std::string CalNormalUtil::encodeMeshNormals(const CalCoreSubmeshPtr& mesh) {
+std::string CalNormalUtil::encodeMeshNormals(const boost::shared_ptr<CalCoreSubmesh>& mesh) {
     const auto& vertices = mesh->getVectorVertex();
     cal3d::SSEArray<CalVector4> normals(vertices.size());
     for (size_t i = 0; i < vertices.size(); ++i) {
@@ -22,7 +22,7 @@ std::string CalNormalUtil::encodeMeshNormals(const CalCoreSubmeshPtr& mesh) {
     return s;
 }
 
-CalCoreSubmeshPtr CalNormalUtil::decodeMeshNormals(const std::string& s) {
+boost::shared_ptr<CalCoreSubmesh> CalNormalUtil::decodeMeshNormals(const std::string& s) {
     std::vector<uint16_t> data;
     size_t count = s.size() / 2;
     for (size_t i = 0 ; i < count; ++i) {
@@ -32,7 +32,7 @@ CalCoreSubmeshPtr CalNormalUtil::decodeMeshNormals(const std::string& s) {
         data.push_back(value);
     }
     auto normals = decode(data);
-    CalCoreSubmeshPtr mesh(new CalCoreSubmesh(normals.size(), 0, 0));
+    boost::shared_ptr<CalCoreSubmesh> mesh(new CalCoreSubmesh(normals.size(), 0, 0));
     for (size_t i = 0; i < normals.size(); ++i) {
         CalCoreSubmesh::Vertex vertex;
         vertex.normal = normals[i];

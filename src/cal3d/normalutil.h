@@ -18,8 +18,8 @@ CAL3D_PTR(CalCoreSubmesh);
 
 class CAL3D_API CalNormalUtil {
 public:
-    static std::string encodeMeshNormals(const CalCoreSubmeshPtr& mesh);
-    static CalCoreSubmeshPtr decodeMeshNormals(const std::string& data);
+    static std::string encodeMeshNormals(const boost::shared_ptr<CalCoreSubmesh>& mesh);
+    static boost::shared_ptr<CalCoreSubmesh> decodeMeshNormals(const std::string& data);
 
     static std::vector<uint16_t> encode(const cal3d::SSEArray<CalVector4>& normals);
     static cal3d::SSEArray<CalVector4> decode(const std::vector<uint16_t>& data);

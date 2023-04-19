@@ -82,7 +82,7 @@ inline bool AreClose(
 }
 
 FIXTURE(CompactMeshWriterFixture) {
-    CalCoreSubmeshPtr makeSubmesh(
+    boost::shared_ptr<CalCoreSubmesh> makeSubmesh(
         const cal3d::SSEArray<CalPoint4>& positions,
         const cal3d::SSEArray<CalVector4>& normals,
         const std::vector<CalColor32>& colors,
@@ -90,7 +90,7 @@ FIXTURE(CompactMeshWriterFixture) {
         const std::vector<CalCoreSubmesh::InfluenceVector>& influenceVectors,
         const std::vector<CalCoreSubmesh::TextureCoordinate>& texCoords
     ) {
-        CalCoreSubmeshPtr submesh(new CalCoreSubmesh(positions.size(), !texCoords.empty(), faces.size()));
+        boost::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(positions.size(), !texCoords.empty(), faces.size()));
         for (auto it = faces.begin(); it != faces.end(); ++it) {
             submesh->addFace(*it);
         }

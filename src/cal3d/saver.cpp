@@ -1151,7 +1151,7 @@ bool CalSaver::saveXmlCoreMesh(std::ostream& os, CalCoreMesh* pCoreMesh) {
     // write all core submeshes
     int submeshId;
     for (submeshId = 0; submeshId < (int)vectorCoreSubmesh.size(); ++submeshId) {
-        const CalCoreSubmeshPtr& pCoreSubmesh = vectorCoreSubmesh[submeshId];
+        const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh = vectorCoreSubmesh[submeshId];
 
         TiXmlElement submesh("SUBMESH");
 

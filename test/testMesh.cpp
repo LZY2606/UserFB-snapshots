@@ -22,7 +22,7 @@ TEST_F(MeshFixture, can_replace_base_mesh_with_morph_target) {
     influences.push_back(influence);
 
     CalCoreMesh mesh;
-    CalCoreSubmeshPtr submesh(new CalCoreSubmesh(1, false, 1));
+    boost::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(1, false, 1));
     submesh->addFace(face);
     submesh->addVertex(vertex, CalColor32(), influences);
 
@@ -71,7 +71,7 @@ TEST_F(MeshFixture, split_mesh_by_bone_limit) {
     CalCoreSubmesh::Vertex v;
     CalColor32 c = 0;
 
-    CalCoreSubmeshPtr submesh(new CalCoreSubmesh(4, false, 2));
+    boost::shared_ptr<CalCoreSubmesh> submesh(new CalCoreSubmesh(4, false, 2));
     submesh->addVertex(v, c, makeInfluences(0));
     submesh->addVertex(v, c, makeInfluences(1));
     submesh->addVertex(v, c, makeInfluences(2));

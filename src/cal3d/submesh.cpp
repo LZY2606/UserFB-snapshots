@@ -38,7 +38,7 @@ void cal3d::MorphTarget::resetState() {
     replacementAttenuation = ReplacementAttenuationNull;
 }
 
-CalSubmesh::CalSubmesh(const CalCoreSubmeshPtr& pCoreSubmesh)
+CalSubmesh::CalSubmesh(const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh)
     : coreSubmesh(pCoreSubmesh)
 {
     assert(pCoreSubmesh);

@@ -241,8 +241,8 @@ void CalCoreSubmesh::replaceMeshWithMorphTarget(const std::string& morphTargetNa
 */
 
  
-CalCoreSubmeshPtr MakeCubeScale(float scale) {
-    CalCoreSubmeshPtr cube(new CalCoreSubmesh(24, true, 12));
+boost::shared_ptr<CalCoreSubmesh> MakeCubeScale(float scale) {
+    boost::shared_ptr<CalCoreSubmesh> cube(new CalCoreSubmesh(24, true, 12));
     
     const CalColor32 black = 0;
     
@@ -471,7 +471,7 @@ CalCoreSubmeshPtr MakeCubeScale(float scale) {
     return cube;
 }
 
-CalCoreSubmeshPtr MakeCube() {
+boost::shared_ptr<CalCoreSubmesh> MakeCube() {
     return MakeCubeScale(1.0f);
 }
 
@@ -632,11 +632,11 @@ static CalCoreSubmesh::InfluenceVector generateInfluenceVector(const InfluenceVe
     return result;
 }
 
-static CalCoreSubmeshPtr newEmptySubmeshWithVertices(const CalCoreSubmesh& self) {
+static boost::shared_ptr<CalCoreSubmesh> newEmptySubmeshWithVertices(const CalCoreSubmesh& self) {
     auto influenceVector = extractInfluenceVector(self.getInfluences());
     assert(influenceVector.size() == self.getVectorVertex().size());
 
-    CalCoreSubmeshPtr newSubmesh(
+    boost::shared_ptr<CalCoreSubmesh> newSubmesh(
         new CalCoreSubmesh(
             self.getVertexCount(),
             !self.getTextureCoordinates().empty(),
@@ -661,7 +661,7 @@ static CalCoreSubmeshPtr newEmptySubmeshWithVertices(const CalCoreSubmesh& self)
 }
 
 void CalCoreSubmesh::splitSubmeshesToBoneLimit(
-    std::vector<CalCoreSubmeshPtr>& out,
+    std::vector<boost::shared_ptr<CalCoreSubmesh>>& out,
     unsigned boneLimit
 ) const {
     if (m_faces.empty()) {

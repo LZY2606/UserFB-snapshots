@@ -129,7 +129,7 @@ static inline bool _ValidateTag(
     T* element,
     char const* requiredTag,
     const boost::shared_ptr<CalCoreMesh>& /*pCoreMesh*/,
-    const CalCoreSubmeshPtr& /*pCoreSubmesh*/,
+    const boost::shared_ptr<CalCoreSubmesh>& /*pCoreSubmesh*/,
     char const* file,
     int line
 ) {
@@ -156,7 +156,7 @@ static inline bool TexCoordFromXml(
     char const* tag,
     CalCoreSubmesh::TextureCoordinate* texCoord,
     const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const CalCoreSubmeshPtr& pCoreSubmesh
+    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     if (!ValidateTag(texcoord, tag, pCoreMesh, pCoreSubmesh)) {
         return false;
@@ -207,7 +207,7 @@ static inline bool CalVectorFromXml(
     char const* tag,
     CalVector* calVec,
     const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const CalCoreSubmeshPtr& pCoreSubmesh
+    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     if (!ValidateTag(pos, tag, pCoreMesh, pCoreSubmesh)) {
         return false;
@@ -225,7 +225,7 @@ static inline bool CalVectorFromXml(
     char const* tag,
     CalVector4* calVec,
     const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const CalCoreSubmeshPtr& pCoreSubmesh
+    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     CalVector v;
     if (CalVectorFromXml(pos, tag, &v, pCoreMesh, pCoreSubmesh)) {
@@ -241,7 +241,7 @@ static inline bool CalVectorFromXml(
     char const* tag,
     CalPoint4* calVec,
     const boost::shared_ptr<CalCoreMesh>& pCoreMesh,
-    const CalCoreSubmeshPtr& pCoreSubmesh
+    const boost::shared_ptr<CalCoreSubmesh>& pCoreSubmesh
 ) {
     CalVector v;
     if (CalVectorFromXml(pos, tag, &v, pCoreMesh, pCoreSubmesh)) {
@@ -740,7 +740,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml
         int textureCoordinateCount = get_int_attribute(submesh, "NUMTEXCOORDS");
         int morphCount = get_int_attribute(submesh, "nummorphs");
 
-        CalCoreSubmeshPtr pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+        boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
         pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
         xml_node* vertex = submesh->first_node();

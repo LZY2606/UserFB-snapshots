@@ -35,10 +35,10 @@ namespace cal3d {
 
 class CAL3D_API CalSubmesh {
 public:
-    const CalCoreSubmeshPtr coreSubmesh;
+    const boost::shared_ptr<CalCoreSubmesh> coreSubmesh;
     std::vector<cal3d::MorphTarget> morphTargets; // index maps to CoreSubMorphTarget in CoreSubmesh
 
-    CalSubmesh(const CalCoreSubmeshPtr& coreSubmesh);
+    CalSubmesh(const boost::shared_ptr<CalCoreSubmesh>& coreSubmesh);
 
     void setMorphTargetWeight(std::string const& morphName, float weight);
     void clearMorphTargetScales();

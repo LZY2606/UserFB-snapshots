@@ -92,7 +92,7 @@ private:
             bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
             bool useAnimationCompression);
     static CalCoreMorphKeyframePtr loadCoreMorphKeyframe(CalBufferSource& dataSrc);
-    static CalCoreSubmeshPtr loadCoreSubmesh(CalBufferSource& dataSrc, int version);
+    static boost::shared_ptr<CalCoreSubmesh> loadCoreSubmesh(CalBufferSource& dataSrc, int version);
     static boost::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
     static boost::shared_ptr<CalCoreMorphTrack> loadCoreMorphTrack(CalBufferSource& dataSrc);
 

@@ -456,7 +456,7 @@ boost::shared_ptr<CalCoreMesh> CalLoader::loadBinaryCoreMesh(CalBufferSource& da
     // load all core submeshes
     for (int submeshId = 0; submeshId < submeshCount; ++submeshId) {
         // load the core submesh
-        CalCoreSubmeshPtr pCoreSubmesh(loadCoreSubmesh(dataSrc, version));
+        boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(loadCoreSubmesh(dataSrc, version));
         if (!pCoreSubmesh) {
             return null;
         }
@@ -922,7 +922,7 @@ std::string convertLatin1toUTF8(const std::string &str) {
 }
 
 
-CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int version) {
+boost::shared_ptr<CalCoreSubmesh> CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int version) {
     bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
     bool hasMorphTargetsInMorphFiles = (version >= cal3d::FIRST_FILE_VERSION_WITH_MORPH_TARGETS_IN_MORPH_FILES);
 
@@ -952,7 +952,7 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
         dataSrc.readInteger(morphCount);
     }
 
-    CalCoreSubmeshPtr pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
+    boost::shared_ptr<CalCoreSubmesh> pCoreSubmesh(new CalCoreSubmesh(vertexCount, textureCoordinateCount ? true : false, faceCount));
     pCoreSubmesh->coreMaterialThreadId = coreMaterialThreadId;
 
     for (int vertexId = 0; vertexId < vertexCount; ++vertexId) {
@@ -994,7 +994,7 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
         // get the number of influences
         int influenceCount;
         if (!dataSrc.readInteger(influenceCount) || (influenceCount < 0)) {
-            return CalCoreSubmeshPtr();
+            return boost::shared_ptr<CalCoreSubmesh>();
         }
 
         std::vector<CalCoreSubmesh::Influence> influences;
@@ -1073,7 +1073,7 @@ CalCoreSubmeshPtr CalLoader::loadCoreSubmesh(CalBufferSource& dataSrc, int versi
 
         if (tmp[0] > 65535 || tmp[1] > 65535 || tmp[2] > 65535) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
-            return CalCoreSubmeshPtr();
+            return boost::shared_ptr<CalCoreSubmesh>();
         }
 
         pCoreSubmesh->addFace(CalCoreSubmesh::Face(tmp[0], tmp[1], tmp[2]));

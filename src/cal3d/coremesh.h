@@ -18,7 +18,7 @@ class CalQuaternion;
 
 class CAL3D_API CalCoreMesh {
 public:
-    typedef std::vector<CalCoreSubmeshPtr> CalCoreSubmeshVector;
+    typedef std::vector<boost::shared_ptr<CalCoreSubmesh>> CalCoreSubmeshVector;
 
     size_t sizeInBytes() const;
     bool addAsMorphTarget(CalCoreMesh* pCoreMesh, std::string const& morphTargetName);

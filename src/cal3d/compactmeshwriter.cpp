@@ -473,7 +473,7 @@ static void s_writeMorphTargets(
     jsonWriter.EndObject();
 }
 
-CalCompactSubmeshData CalCompactMeshWriter::saveCompactCoreSubmesh(const CalCoreSubmeshPtr& submesh, unsigned int influenceLimit, float influenceMargin) {
+CalCompactSubmeshData CalCompactMeshWriter::saveCompactCoreSubmesh(const boost::shared_ptr<CalCoreSubmesh>& submesh, unsigned int influenceLimit, float influenceMargin) {
     BinaryWriter binaryWriter;
     JsonBuffer jsonBuffer;
     JsonWriter jsonWriter(jsonBuffer);

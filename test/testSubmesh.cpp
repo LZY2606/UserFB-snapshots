@@ -113,7 +113,7 @@ TEST_F(SubmeshFixture, duplicate_triangles) {
 }
 
 TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_in_memory_but_absolute_in_file) {
-    CalCoreSubmeshPtr csm(new CalCoreSubmesh(1, 0, 0));
+    boost::shared_ptr<CalCoreSubmesh> csm(new CalCoreSubmesh(1, 0, 0));
     CalCoreSubmesh::Vertex vertex;
     vertex.position = CalVector4(1, 1, 1, 0);
     vertex.normal = CalVector4(-1, -1 -1, 0);
@@ -317,14 +317,14 @@ TEST_F(SubmeshFixture, is_not_static_if_has_morph_targets) {
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getTextureCoordinates_when_there_are_no_texture_coordinates) {
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(0, 1, 0));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(0, 1, 0));
 
     const std::vector<CalCoreSubmesh::TextureCoordinate>& texCoords = coreSubmesh->getTextureCoordinates();
     CHECK_EQUAL(0u, texCoords.size());
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getNormals_when_there_are_no_normals) {
-    CalCoreSubmeshPtr coreSubmesh(new CalCoreSubmesh(0, 0, 0));
+    boost::shared_ptr<CalCoreSubmesh> coreSubmesh(new CalCoreSubmesh(0, 0, 0));
 
     boost::shared_ptr<CalCoreMesh> coreMesh(new CalCoreMesh);
     coreMesh->submeshes.push_back(coreSubmesh);
@@ -382,7 +382,7 @@ TEST_F(SubmeshFixture, face_constructors) {
 }
 
 TEST_F(SubmeshFixture, make_cube) {
-    CalCoreSubmeshPtr submeshPtr = MakeCube();
+    boost::shared_ptr<CalCoreSubmesh> submeshPtr = MakeCube();
     const CalCoreSubmesh::VectorVertex &vertices =  submeshPtr->getVectorVertex();
     CHECK_EQUAL(submeshPtr->getVertexCount(), static_cast<size_t>(24));
     CHECK_EQUAL(CalVector(0,0,1), (vertices[0].position.asCalVector()));
@@ -394,12 +394,12 @@ TEST_F(SubmeshFixture, make_cube) {
 }
 
 TEST_F(SubmeshFixture, make_cube_validate_submesh) {
-    CalCoreSubmeshPtr submeshPtr = MakeCube();
+    boost::shared_ptr<CalCoreSubmesh> submeshPtr = MakeCube();
     CHECK_EQUAL(submeshPtr->validateSubmesh(), true);
 }
 
 TEST_F(SubmeshFixture, validate_submesh_is_failed) {
-    CalCoreSubmeshPtr cube(new CalCoreSubmesh(4, true, 2));
+    boost::shared_ptr<CalCoreSubmesh> cube(new CalCoreSubmesh(4, true, 2));
 
     std::vector<CalCoreSubmesh::Influence> inf(1);
     inf[0].boneId = 0;
