@@ -15,7 +15,7 @@
 #include "cal3d/animation.h"
 #include "cal3d/quaternion.h"
 
-CAL3D_PTR(CalAnimation);
+class CalAnimation;
 class CalSkeleton;
 
 struct BoneTransformAdjustment {
