@@ -182,7 +182,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadCoreAnimation(CalBufferSource
     return tryBothLoaders(inputSrc, &loadBinaryCoreAnimation, &loadXmlCoreAnimation);
 }
 
-CalCoreMorphAnimationPtr CalLoader::loadCoreMorphAnimation(CalBufferSource& inputSrc) {
+boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadCoreMorphAnimation(CalBufferSource& inputSrc) {
     return tryBothLoaders(inputSrc, &loadBinaryCoreMorphAnimation, &loadXmlCoreMorphAnimation);
 }
 
@@ -270,8 +270,8 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadBinaryCoreAnimation(CalBuffer
 
 
 
-CalCoreMorphAnimationPtr CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource& dataSrc) {
-    const CalCoreMorphAnimationPtr null;
+boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource& dataSrc) {
+    const boost::shared_ptr<CalCoreMorphAnimation> null;
 
     char magic[4];
     if (!dataSrc.readBytes(&magic[0], 4) || (memcmp(&magic[0], cal3d::ANIMATEDMORPH_FILE_MAGIC, 4) != 0)) {
@@ -287,7 +287,7 @@ CalCoreMorphAnimationPtr CalLoader::loadBinaryCoreMorphAnimation(CalBufferSource
     }
 
     // allocate a new core animatedMorph instance
-    CalCoreMorphAnimationPtr pCoreMorphAnimation(new CalCoreMorphAnimation);
+    boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation(new CalCoreMorphAnimation);
 
     // get the duration of the core animatedMorph
     float duration;

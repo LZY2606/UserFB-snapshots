@@ -33,7 +33,7 @@ struct InvalidFileFormat {
     operator boost::shared_ptr<CalCoreMaterial>() const { return boost::shared_ptr<CalCoreMaterial>(); }
     operator boost::shared_ptr<CalCoreMesh>() const { return boost::shared_ptr<CalCoreMesh>(); }
     operator boost::shared_ptr<CalCoreAnimation>() const { return boost::shared_ptr<CalCoreAnimation>(); }
-    operator CalCoreMorphAnimationPtr() const { return CalCoreMorphAnimationPtr(); }
+    operator boost::shared_ptr<CalCoreMorphAnimation>() const { return boost::shared_ptr<CalCoreMorphAnimation>(); }
 };
 #define InvalidFileFormatTracked() InvalidFileFormat(__FILE__, __LINE__)
 
@@ -347,7 +347,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimation(char* dataSr
     return loadXmlCoreAnimationDoc(doc);
 }
 
-CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
+boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimation(char* dataSrc) {
     rapidxml::xml_document<> doc;
 
     try {
@@ -633,7 +633,7 @@ boost::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rap
     return pCoreAnimation;
 }
 
-CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<>& doc) {
+boost::shared_ptr<CalCoreMorphAnimation> CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml::xml_document<>& doc) {
     typedef rapidxml::xml_node<> TiXmlNode;
     typedef rapidxml::xml_node<> TiXmlElement;
 
@@ -655,7 +655,7 @@ CalCoreMorphAnimationPtr CalLoader::loadXmlCoreMorphAnimationDoc(const rapidxml:
     }
 
     // allocate a new core animatedMorph instance
-    CalCoreMorphAnimationPtr coreMorphAnimation(new CalCoreMorphAnimation);
+    boost::shared_ptr<CalCoreMorphAnimation> coreMorphAnimation(new CalCoreMorphAnimation);
 
     TiXmlElement* animatedMorph = header->next_sibling();
     if (!animatedMorph || !has_name(animatedMorph, "ANIMATION")) {

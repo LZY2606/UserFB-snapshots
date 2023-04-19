@@ -57,11 +57,11 @@ std::string CalSaver::saveCoreAnimationXmlToBuffer(boost::shared_ptr<CalCoreAnim
     }
 }
 
-std::string CalSaver::saveCoreMorphAnimationToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation) {
+std::string CalSaver::saveCoreMorphAnimationToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
     return save(pCoreMorphAnimation, &saveCoreMorphAnimation);
 }
 
-std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation) {
+std::string CalSaver::saveCoreMorphAnimationXmlToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation) {
     std::ostringstream os;
     if (saveXmlCoreMorphAnimation(os, pCoreMorphAnimation.get())) {
         return os.str();

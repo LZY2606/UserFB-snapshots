@@ -30,7 +30,7 @@ class CalQuaternion;
 class CAL3D_API CalSaver {
 public:
     static std::string saveCoreAnimationToBuffer(boost::shared_ptr<CalCoreAnimation> pCoreAnimation);
-    static std::string saveCoreMorphAnimationToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation);
+    static std::string saveCoreMorphAnimationToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
     static std::string saveCoreMaterialToBuffer(boost::shared_ptr<CalCoreMaterial> pCoreMaterial);
     static std::string saveCoreMeshToBuffer(boost::shared_ptr<CalCoreMesh> pCoreMesh);
     static std::string saveCoreSkeletonToBuffer(boost::shared_ptr<CalCoreSkeleton> pCoreSkeleton);
@@ -43,7 +43,7 @@ public:
     static bool saveCoreMorphAnimation(const std::string& strFilename, CalCoreMorphAnimation* pCoreMorphAnimation);
     static bool saveCoreMorphAnimation(std::ostream& file, CalCoreMorphAnimation* pCoreMorphAnimation);
 
-    static std::string saveCoreMorphAnimationXmlToBuffer(CalCoreMorphAnimationPtr pCoreMorphAnimation);
+    static std::string saveCoreMorphAnimationXmlToBuffer(boost::shared_ptr<CalCoreMorphAnimation> pCoreMorphAnimation);
 
     static bool saveCoreMaterial(const std::string& strFilename, CalCoreMaterial* pCoreMaterial);
     static bool saveCoreMaterial(std::ostream& file, CalCoreMaterial* pCoreMaterial);
