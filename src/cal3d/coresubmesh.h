@@ -23,8 +23,8 @@
 #include "cal3d/bonetransform.h"
 
 // Whitespce change to attempt a recompile of cal3d headers
-CAL3D_PTR(CalCoreMorphTarget);
-CAL3D_PTR(CalCoreSkeleton);
+class CalCoreMorphTarget;
+class CalCoreSkeleton;
 class CalQuaternion;
 
 enum CalMorphTargetType {
