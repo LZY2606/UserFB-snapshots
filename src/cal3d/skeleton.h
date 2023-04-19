@@ -18,7 +18,7 @@
 #include "cal3d/vector.h"
 #include "cal3d/vector4.h"
 
-CAL3D_PTR(CalCoreSkeleton);
+class CalCoreSkeleton;
 
 class CAL3D_API CalSkeleton {
 public:
