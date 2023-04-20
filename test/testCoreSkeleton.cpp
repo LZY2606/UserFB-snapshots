@@ -145,7 +145,7 @@ TEST_F(CoreSkeletonFixture, topologically_sorted_skeletons_can_fixup_mesh_refere
     influences.push_back(CalCoreSubmesh::Influence(0, 0, false));
     influences.push_back(CalCoreSubmesh::Influence(1, 1, true));
 
-    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 1, 1);
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, true, 1);
     csm->addVertex(v, 0, influences);
 
     CalCoreMesh cm;
@@ -178,7 +178,7 @@ TEST_F(CoreSkeletonFixture, fixup_out_of_range_influences_resets_to_zero) {
     std::vector<CalCoreSubmesh::Influence> influences;
     influences.push_back(CalCoreSubmesh::Influence(2, 1, true));
 
-    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 1, 1);
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, true, 1);
     csm->addVertex(v, 0, influences);
 
     CalCoreMesh cm;

@@ -606,7 +606,7 @@ TEST_F(LoaderFixture, CalVectorFromDataSrc) {
 
 
 TEST_F(LoaderFixture, loading_mesh_without_vertex_colors_defaults_to_white) {
-    ISTD::shared_ptr<CalCoreSubmesh> sm = ISTD::make_shared<CalCoreSubmesh>(1, 0, 0);
+    ISTD::shared_ptr<CalCoreSubmesh> sm = ISTD::make_shared<CalCoreSubmesh>(1, false, 0);
     CalCoreSubmesh::Vertex v;
     sm->addVertex(v, CalMakeColor(CalVector4(1, 1, 1, 1)), std::vector<CalCoreSubmesh::Influence>());
 

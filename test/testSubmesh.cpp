@@ -113,7 +113,7 @@ TEST_F(SubmeshFixture, duplicate_triangles) {
 }
 
 TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_in_memory_but_absolute_in_file) {
-    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, 0, 0);
+    ISTD::shared_ptr<CalCoreSubmesh> csm = ISTD::make_shared<CalCoreSubmesh>(1, false, 0);
     CalCoreSubmesh::Vertex vertex;
     vertex.position = CalVector4(1, 1, 1, 0);
     vertex.normal = CalVector4(-1, -1 -1, 0);
@@ -167,12 +167,12 @@ TEST_F(SubmeshFixture, saving_and_loading_submesh_with_morph_stores_differences_
 }
 
 TEST_F(SubmeshFixture, not_static_without_vertices) {
-    CalCoreSubmesh csm(0, 0, 0);
+    CalCoreSubmesh csm(0, false, 0);
     CHECK(!csm.isStatic());
 }
 
 TEST_F(SubmeshFixture, is_static_if_all_vertices_are_influenced_by_same_bone) {
-    CalCoreSubmesh csm(1, 0, 0);
+    CalCoreSubmesh csm(1, false, 0);
 
     CalCoreSubmesh::Vertex v;
     std::vector<CalCoreSubmesh::Influence> inf(1);
@@ -317,14 +317,14 @@ TEST_F(SubmeshFixture, is_not_static_if_has_morph_targets) {
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getTextureCoordinates_when_there_are_no_texture_coordinates) {
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, 1, 0);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, true, 0);
 
     const std::vector<CalCoreSubmesh::TextureCoordinate>& texCoords = coreSubmesh->getTextureCoordinates();
     CHECK_EQUAL(0u, texCoords.size());
 }
 
 TEST_F(SubmeshFixture, CalRenderer_getNormals_when_there_are_no_normals) {
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, 0, 0);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(0, false, 0);
 
     ISTD::shared_ptr<CalCoreMesh> coreMesh = ISTD::make_shared<CalCoreMesh>();
     coreMesh->submeshes.push_back(coreSubmesh);

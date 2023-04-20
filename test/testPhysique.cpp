@@ -226,7 +226,7 @@ APPLY_SKIN_FIXTURES(skin_10000_vertices_1_influence_cycle_count);
 #endif
 
 static ISTD::shared_ptr<CalCoreSubmesh> djinnCoreSubmesh(int N) {
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(N, 0, 0);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(N, false, 0);
     for (int k = 0; k < N; ++k) {
         CalCoreSubmesh::Vertex v;
         v.position = CalPoint4(CalVector(1.0f, 2.0f, 3.0f));
@@ -328,7 +328,7 @@ TEST_F(PhysiqueFixture, single_morph_target) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(3, 0, 1);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(3, false, 1);
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));
@@ -380,7 +380,7 @@ TEST_F(PhysiqueFixture, two_morph_targets) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(3, 0, 1);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(3, false, 1);
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));
@@ -444,7 +444,7 @@ TEST_F(PhysiqueFixture, two_disjoint_morph_targets) {
     inf[0].weight = 1.0f;
     inf[0].lastInfluenceForThisVertex = true;
 
-    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(2, 0, 1);
+    ISTD::shared_ptr<CalCoreSubmesh> coreSubmesh = ISTD::make_shared<CalCoreSubmesh>(2, false, 1);
     CalCoreSubmesh::Vertex v;
 
     v.position = CalPoint4(CalVector(0, 0, 0));
