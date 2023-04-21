@@ -40,7 +40,10 @@ CalSkeleton::CalSkeleton(const ISTD::shared_ptr<CalCoreSkeleton>& coreSkeleton) 
 }
 
 void CalSkeleton::resetPose() {
-    std::for_each(bones.begin(), bones.end(), std::mem_fun_ref(&CalBone::resetPose));
+    size_t count = bones.size();
+    for (size_t i = 0; i < count; ++i) {
+        bones[i].resetPose();
+    }
 }
 
 void CalSkeleton::calculateAbsolutePose() {

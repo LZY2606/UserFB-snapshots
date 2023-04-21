@@ -45,10 +45,10 @@ size_t CalCoreTrack::sizeInBytes() const {
 }
 
 void CalCoreTrack::scale(float factor) {
-    std::for_each(
-        keyframes.begin(),
-        keyframes.end(),
-        std::bind2nd(std::mem_fun_ref(&CalCoreKeyframe::scale), factor));
+    size_t count = keyframes.size();
+    for (size_t i = 0; i < count; ++i) {
+        keyframes[i].scale(factor);
+    }
 }
 
 void CalCoreTrack::optimize() {

@@ -59,7 +59,10 @@ void CalCoreMorphAnimation::removeZeroScaleTracks() {
 }
 
 void CalCoreMorphAnimation::scale(float factor) {
-    std::for_each(tracks.begin(), tracks.end(), std::bind2nd(std::mem_fun_ref(&CalCoreMorphTrack::scale), factor));
+    size_t count = tracks.size();
+    for (size_t i = 0; i < count; ++i) {
+        tracks[i].scale(factor);
+    }
 }
 
 CalCoreMorphTrack* CalCoreMorphAnimation::getCoreTrack(std::string const& name) {

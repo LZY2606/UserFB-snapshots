@@ -78,7 +78,10 @@ float CalCoreMorphTrack::getState(float time) {
 }
 
 void CalCoreMorphTrack::scale(float factor) {
-    std::for_each(keyframes.begin(), keyframes.end(), std::bind2nd(std::mem_fun_ref(&CalCoreMorphKeyframe::scale), factor));
+    size_t count = keyframes.size();
+    for (size_t i = 0; i < count; ++i) {
+        keyframes[i].scale(factor);
+    }
 }
 
 std::vector<CalCoreMorphKeyframe>::iterator CalCoreMorphTrack::getUpperBound(float time) {
