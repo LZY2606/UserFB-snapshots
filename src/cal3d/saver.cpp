@@ -229,7 +229,7 @@ bool CalSaver::saveCoreBone(std::ostream& file, const CalCoreSkeleton* coreSkele
     rq.w = -rq.w;
     CalPlatform::writeQuat(file, rq);
     CalPlatform::writeVector(file, pCoreBone->inverseBindPoseTransform.translation);
-    CalQuaternion iq = pCoreBone->relativeTransform.rotation; 
+    CalQuaternion iq = pCoreBone->inverseBindPoseTransform.rotation; 
     iq.w = -iq.w;
     CalPlatform::writeQuat(file, iq);
 
