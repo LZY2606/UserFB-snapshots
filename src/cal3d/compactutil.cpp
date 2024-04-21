@@ -208,6 +208,17 @@ static int64_t s_divideAndRound(float numerator, float denominator) {
     return std::floor(numerator / denominator + 0.5f);
 }
 
+static float s_clamp(float value, float min, float max) {
+    if (value < min) {
+        value = min;
+    }
+    if (value > max) {
+        value = max;
+    }
+
+    return value;
+}
+
 // The intent of this function is to ensure that two different sets of values
 // quantized to the same precision will quantize identical source values to
 // identical destination values, so that e.g. quantization does not introduce
@@ -245,6 +256,23 @@ CalQuantizedData CalCompactUtil::quantizeConsistent(
     uint64_t qRange = roundedMaximum - roundedMinimum;
     unsigned int bitCount = std::ceil(s_log2(qRange + 1));
 
+    if (bitCount > maxBits) {
+        // if the range is to big to be compressed, then clamp the original values
+        int64_t maxValue = 1;
+        maxValue = maxValue << (maxBits - 2); 
+        float max = static_cast<double>(epsilon) * maxValue;
+        float min = -max;
+        for(size_t i=0; i<data.size(); ++i) {
+            float v = data[i];
+            v = s_clamp(v, min, max);
+            roundedValues[i] = s_divideAndRound(v, epsilon);
+        }
+
+        s_getMinMax(roundedValues, roundedMinimum, roundedMaximum);
+        qRange = roundedMaximum - roundedMinimum;
+        bitCount = std::ceil(s_log2(qRange + 1));
+    }
+    
     if (bitCount > maxBits) {
         throw std::runtime_error("max bits exceeded in consistent quantization");
     }

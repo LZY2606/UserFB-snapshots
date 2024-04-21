@@ -236,16 +236,47 @@ TEST_F(CompactUtilFixture, test_can_quantize_consistent_values_that_fit_in_int) 
 }
 
 TEST_F(CompactUtilFixture, test_throws_error_when_quantizing_consistent_values_that_dont_fit_in_int) {
-    float maxintAsFloat = static_cast<float>(std::numeric_limits<uint32_t>::max());
+    float maxintAsFloat = static_cast<float>(std::numeric_limits<int32_t>::max());
+    float minintAsFloat = static_cast<float>(std::numeric_limits<int32_t>::min());
 
     std::vector<float> data;
     data.push_back(0);
     data.push_back(maxintAsFloat);
 
-    CHECK_THROW(
-        CalCompactUtil::quantizeConsistent(data, 1.0f, 32),
-        std::runtime_error
-    );
+    // IMVU - changed behavior
+    // instead of throwing an exception if data range is too large for the bit size,
+    // we'll instead clamp the values to the maximum allowable values that can still be quantized.
+
+    // CHECK_THROW(
+    //     CalCompactUtil::quantizeConsistent(data, 1.0f, 32),
+    //     std::runtime_error
+    // );
+
+    auto quantizedResult = CalCompactUtil::quantizeConsistent(data, 1.0f, 32);
+    auto unquantizedResult = CalCompactUtil::unquantize(quantizedResult);
+
+    CHECK_CLOSE(unquantizedResult[0], 0, .001);
+    CHECK_CLOSE(unquantizedResult[1], maxintAsFloat, .001);
+
+    data.clear();
+    data.push_back(0);
+    data.push_back(maxintAsFloat * 2);
+
+    quantizedResult = CalCompactUtil::quantizeConsistent(data, 1.0f, 32);
+    unquantizedResult = CalCompactUtil::unquantize(quantizedResult);
+
+    CHECK_CLOSE(unquantizedResult[0], 0, .001);
+    CHECK_CLOSE(unquantizedResult[1], maxintAsFloat / 2.0, .001);
+
+    data.clear();
+    data.push_back(minintAsFloat);
+    data.push_back(maxintAsFloat);
+
+    quantizedResult = CalCompactUtil::quantizeConsistent(data, 1.0f, 32);
+    unquantizedResult = CalCompactUtil::unquantize(quantizedResult);
+
+    CHECK_CLOSE(unquantizedResult[0], minintAsFloat / 2.0, .001);
+    CHECK_CLOSE(unquantizedResult[1], maxintAsFloat / 2.0, .001);
 }
 
 TEST_F(CompactUtilFixture, test_quantize_consistent_can_handle_empty_series) {
