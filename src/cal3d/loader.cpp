@@ -638,9 +638,12 @@ CalLoader::usesAnimationCompression(int version) {
 
 
 ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
-    CalBufferSource& dataSrc, int version,
+    CalBufferSource& dataSrc,
+    int version,
     CalCoreKeyframe* prevCoreKeyframe,
-    bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
+    bool translationRequired,
+    bool highRangeRequired,
+    bool translationIsDynamic,
     bool useAnimationCompression
 ) {
     const ISTD::shared_ptr<CalCoreKeyframe> null;
@@ -648,29 +651,42 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
     float time;
     CalVector t;
     float rx, ry, rz, rw;
+
     if (useAnimationCompression) {
         unsigned int bytesRequired = compressedKeyframeRequiredBytes(prevCoreKeyframe, translationRequired, highRangeRequired, translationIsDynamic);
         assert(bytesRequired < 100);
         unsigned char buf[ 100 ];
+
         if (!dataSrc.readBytes(buf, bytesRequired)) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
             return null;
         }
+
         CalVector vec;
         CalQuaternion quat;
+
         unsigned int bytesRead = readCompressedKeyframe(
             buf,
-            & vec, & quat, & time, prevCoreKeyframe,
-            translationRequired, highRangeRequired, translationIsDynamic);
+            &vec,
+            &quat,
+            &time,
+            prevCoreKeyframe,
+            translationRequired,
+            highRangeRequired,
+            translationIsDynamic
+        );
+
         if (bytesRead != bytesRequired) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
             return null;
         }
+
         t = vec;
         rx = quat.x;
         ry = quat.y;
         rz = quat.z;
         rw = quat.w;
+
         if (version < cal3d::FIRST_FILE_VERSION_WITH_ANIMATION_COMPRESSION6) {
             if (version >= cal3d::FIRST_FILE_VERSION_WITH_ANIMATION_COMPRESSION4) {
                 if (version >= cal3d::FIRST_FILE_VERSION_WITH_ANIMATION_COMPRESSION5) {

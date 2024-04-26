@@ -17,9 +17,9 @@ extern CalVector InvalidTranslation;
 
 class CalCoreKeyframe {
 public:
-    CalCoreKeyframe() {
-        time = 0.0f;
-    }
+    CalCoreKeyframe()
+        : time(0.0f)
+    {}
 
     CalCoreKeyframe(float t, const CalVector& tr, const CalQuaternion& ro)
         : time(t)
