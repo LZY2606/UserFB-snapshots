@@ -637,7 +637,7 @@ CalLoader::usesAnimationCompression(int version) {
 }
 
 
-ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
+std::pair<bool, CalCoreKeyframe> CalLoader::loadCoreKeyframe(
     CalBufferSource& dataSrc,
     int version,
     CalCoreKeyframe* prevCoreKeyframe,
@@ -646,8 +646,6 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
     bool translationIsDynamic,
     bool useAnimationCompression
 ) {
-    const ISTD::shared_ptr<CalCoreKeyframe> null;
-
     float time;
     CalVector t;
     float rx, ry, rz, rw;
@@ -659,7 +657,7 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
 
         if (!dataSrc.readBytes(buf, bytesRequired)) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
-            return null;
+            return std::pair<bool, CalCoreKeyframe>(false, CalCoreKeyframe());
         }
 
         CalVector vec;
@@ -678,7 +676,7 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
 
         if (bytesRead != bytesRequired) {
             CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
-            return null;
+            return std::pair<bool, CalCoreKeyframe>(false, CalCoreKeyframe());
         }
 
         t = vec;
@@ -719,8 +717,7 @@ ISTD::shared_ptr<CalCoreKeyframe> CalLoader::loadCoreKeyframe(
         dataSrc.readFloat(rw);
     }
 
-    ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe = ISTD::make_shared<CalCoreKeyframe>(time, t, CalQuaternion(rx, ry, rz, -rw));
-    return pCoreKeyframe;
+    return std::pair<bool, CalCoreKeyframe>(true, CalCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, -rw)));
 }
 
 
@@ -869,21 +866,14 @@ CalLoader::readCompressedKeyframe(
  *         \li \b 0 if an error happened
  *****************************************************************************/
 
-ISTD::shared_ptr<CalCoreMorphKeyframe> CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
-    const ISTD::shared_ptr<CalCoreMorphKeyframe> null;
-
+CalCoreMorphKeyframe CalLoader::loadCoreMorphKeyframe(CalBufferSource& dataSrc) {
+    CalCoreMorphKeyframe retFrame;
     // get the time of the morphKeyframe
-    float time;
-    dataSrc.readFloat(time);
-
+    dataSrc.readFloat(retFrame.time);
     // get the translation of the bone
-    float weight;
-    dataSrc.readFloat(weight);
+    dataSrc.readFloat(retFrame.weight);
 
-    ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreMorphKeyframe = ISTD::make_shared<CalCoreMorphKeyframe>();
-    pCoreMorphKeyframe->time = time;
-    pCoreMorphKeyframe->weight = weight;
-    return pCoreMorphKeyframe;
+    return retFrame;
 }
 
 // We may need this in other places in the future.
@@ -1142,27 +1132,32 @@ ISTD::shared_ptr<CalCoreTrack> CalLoader::loadCoreTrack(
 
     CalCoreTrack::KeyframeList keyframes;
 
+    keyframes.reserve(keyframeCount);
+
     // load all core keyframes
     bool hasLastKeyframe = false;
     CalCoreKeyframe lastCoreKeyframe;
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
         // load the core keyframe
-        ISTD::shared_ptr<CalCoreKeyframe> pCoreKeyframe = loadCoreKeyframe(
+        std::pair<bool, CalCoreKeyframe> coreKeyframe = loadCoreKeyframe(
             dataSrc,
             version,
             (hasLastKeyframe ? &lastCoreKeyframe : 0),
             translationRequired,
             highRangeRequired,
             translationIsDynamic,
-            useAnimationCompression);
-        if (!pCoreKeyframe) {
+            useAnimationCompression
+        );
+
+        if (coreKeyframe.first == false) {
             return null;
         }
+
         // add the core keyframe to the core track instance
-        CalCoreKeyframe kf = *pCoreKeyframe;
-        lastCoreKeyframe = kf;
+
+        lastCoreKeyframe = coreKeyframe.second;
         hasLastKeyframe = true;
-        keyframes.push_back(kf);
+        keyframes.push_back(coreKeyframe.second);
     }
 
     ISTD::shared_ptr<CalCoreTrack> pCoreTrack = ISTD::make_shared<CalCoreTrack>(coreBoneId, keyframes);
@@ -1207,16 +1202,12 @@ ISTD::shared_ptr<CalCoreMorphTrack> CalLoader::loadCoreMorphTrack(CalBufferSourc
         return null;
     }
 
+    pCoreMorphTrack->keyframes.reserve(keyframeCount);
+
     // load all core keyframes
     for (int keyframeId = 0; keyframeId < keyframeCount; ++keyframeId) {
-        // load the core keyframe
-        ISTD::shared_ptr<CalCoreMorphKeyframe> pCoreKeyframe = loadCoreMorphKeyframe(dataSrc);
-        if (!pCoreKeyframe) {
-            return null;
-        }
-
-        // add the core keyframe to the core morphTrack instance
-        pCoreMorphTrack->keyframes.push_back(*pCoreKeyframe);
+        // load and add the core keyframe to the core morphTrack instance
+        pCoreMorphTrack->keyframes.push_back(loadCoreMorphKeyframe(dataSrc));
     }
 
     return pCoreMorphTrack;

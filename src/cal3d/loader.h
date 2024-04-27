@@ -13,6 +13,7 @@
 #include "cal3d/BoostToStd.h"
 #include <math.h>
 #include <string>
+#include <utility>
 #include "cal3d/global.h"
 #include "cal3d/datasource.h"
 
@@ -87,11 +88,16 @@ private:
     static bool isHeaderWellFormed(const rapidxml::xml_node<char>* node);
 
     static ISTD::shared_ptr<CalCoreBone> loadCoreBones(CalBufferSource& dataSrc, int version);
-    static ISTD::shared_ptr<CalCoreKeyframe> loadCoreKeyframe(CalBufferSource& dataSrc,
-            int version, CalCoreKeyframe* lastCoreKeyframe,
-            bool translationRequired, bool highRangeRequired, bool translationIsDynamic,
-            bool useAnimationCompression);
-    static ISTD::shared_ptr<CalCoreMorphKeyframe> loadCoreMorphKeyframe(CalBufferSource& dataSrc);
+    static std::pair<bool, CalCoreKeyframe> loadCoreKeyframe(
+        CalBufferSource& dataSrc,
+        int version,
+        CalCoreKeyframe* lastCoreKeyframe,
+        bool translationRequired,
+        bool highRangeRequired,
+        bool translationIsDynamic,
+        bool useAnimationCompression
+    );
+    static CalCoreMorphKeyframe loadCoreMorphKeyframe(CalBufferSource& dataSrc);
     static ISTD::shared_ptr<CalCoreSubmesh> loadCoreSubmesh(CalBufferSource& dataSrc, int version);
     static ISTD::shared_ptr<CalCoreTrack> loadCoreTrack(CalBufferSource& dataSrc, int version, bool useAnimationCompresssion);
     static ISTD::shared_ptr<CalCoreMorphTrack> loadCoreMorphTrack(CalBufferSource& dataSrc);
@@ -100,9 +106,14 @@ private:
     static unsigned int compressedKeyframeRequiredBytes(CalCoreKeyframe* lastCoreKeyframe, bool translationRequired, bool highRangeRequired, bool translationIsDynamic);
     static unsigned int readCompressedKeyframe(
         unsigned char* buf,
-        CalVector* vecResult, CalQuaternion* quatResult, float* timeResult,
+        CalVector* vecResult,
+        CalQuaternion* quatResult,
+        float* timeResult,
         CalCoreKeyframe* lastCoreKeyframe,
-        bool translationRequired, bool highRangeRequired, bool translationIsDynamic);
+        bool translationRequired,
+        bool highRangeRequired,
+        bool translationIsDynamic
+    );
 
     CalLoader();
     ~CalLoader();
