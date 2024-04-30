@@ -170,15 +170,23 @@ static inline bool TexCoordFromXml(
     }
 }
 
+// use to test vs2010
+//#undef USE_CAL3D_WITH_CPP_11
 
 static inline void ReadTripleFloat(char const* buffer, float* f1, float* f2, float* f3) {
-    float a = 0.0f;
-    float b = 0.0f;
-    float c = 0.0f;
-    sscanf(buffer, " %f %f %f", &a, &b, &c);
-    *f1 = a;
-    *f2 = b;
-    *f3 = c;
+    *f1 = 0.0f;
+    *f2 = 0.0f;
+    *f3 = 0.0f;
+
+#ifdef USE_CAL3D_WITH_CPP_11
+    // optimization for asset server (but classic client is still on vc2010)
+    const char* str = buffer;
+    *f1 = strtof(str, const_cast<char**>(&str));
+    *f2 = strtof(str, const_cast<char**>(&str));
+    *f3 = strtof(str, const_cast<char**>(&str));
+#else
+    sscanf(buffer, " %f %f %f", f1, f2, f3);
+#endif
 }
 
 static inline void ReadTripleInt(char const* buffer, int* f1, int* f2, int* f3) {
@@ -253,7 +261,6 @@ static inline bool CalVectorFromXml(
     }
 }
 
-
 static size_t ReadFloat(char const* buffer, float* f1) {
     float a = 0.0f;
     std::string buf(buffer);
@@ -266,7 +273,8 @@ static size_t ReadFloat(char const* buffer, float* f1) {
         start = buf.find_first_not_of(" \t\r\n");
         end = buf.find_first_of(" \t\r\n");
     }
-    sscanf(buffer, " %f", &a);
+    
+    sscanf(buffer, " %f", &a);    
     *f1 = a;
     if (end != std::string::npos && originalStart != std::string::npos) {
         end = originalStart+end;
@@ -274,8 +282,65 @@ static size_t ReadFloat(char const* buffer, float* f1) {
     return end;
 }
 
+static const char* NextToken(char const* buffer) {
+    std::string buf(buffer);
+    size_t originalStart = 0;
+    size_t start = buf.find_first_not_of(" \t\r\n");
+    size_t end = buf.find_first_of(" \t\r\n");
+    if (end < start && start != std::string::npos) {
+        originalStart = start;
+        buf = buf.c_str() + start;
+        start = buf.find_first_not_of(" \t\r\n");
+        end = buf.find_first_of(" \t\r\n");
+    }
+    
+    if (end != std::string::npos && originalStart != std::string::npos) {
+        end = originalStart+end;
+    }
+
+    if (end == std::string::npos) {
+        return buffer;
+    } else {
+        return buffer + end;
+    }
+}
+
 
 static inline void ReadQuadFloat(char const* buffer, float* f1, float* f2, float* f3, float* f4) {
+
+#ifdef USE_CAL3D_WITH_CPP_11
+    // optimization for asset server (but classic client is still on vc2010)
+    *f1 = 0.0f;
+    *f2 = 0.0f;
+    *f3 = 0.0f;
+    *f4 = 0.0f;
+
+    const char* str = buffer;
+    const char* prev = str;
+    *f1 = strtof(str, const_cast<char**>(&str));
+    if (str == prev || isinf(*f1)) {
+        str = NextToken(prev);
+    }
+
+    prev = str;
+    *f2 = strtof(str, const_cast<char**>(&str));
+    if (str == prev || isinf(*f2)) {
+        str = NextToken(prev);
+    }
+
+    prev = str;
+    *f3 = strtof(str, const_cast<char**>(&str));
+    if (str == prev || isinf(*f3)) {
+        str = NextToken(prev);
+    }
+
+    prev = str;
+    *f4 = strtof(str, const_cast<char**>(&str));
+    if (str == prev || isinf(*f4)) {
+        str = NextToken(prev);
+    }
+
+#else  
     float a = 0.0f;
     float b = 0.0f;
     float c = 0.0f;
@@ -294,10 +359,12 @@ static inline void ReadQuadFloat(char const* buffer, float* f1, float* f2, float
             }
         }
     }
+
     *f1 = a;
     *f2 = b;
     *f3 = c;
     *f4 = d;
+#endif
 }
 
 ISTD::shared_ptr<CalCoreSkeleton> CalLoader::loadXmlCoreSkeleton(char* dataSrc) {
