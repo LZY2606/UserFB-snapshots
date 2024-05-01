@@ -125,6 +125,10 @@ size_t CalCoreSkeleton::addCoreBone(const ISTD::shared_ptr<CalCoreBone>& coreBon
     return newIndex;
 }
 
+void CalCoreSkeleton::setCoreBone(size_t index, const ISTD::shared_ptr<CalCoreBone>& coreBone) {
+    m_coreBones[index] = coreBone;
+}
+
 int CalCoreSkeleton::getBoneId(const CalCoreBone* coreBone) const {
     for (size_t i = 0; i < coreBones.size(); ++i) {
         if (coreBones[i].get() == coreBone) {

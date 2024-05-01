@@ -25,6 +25,7 @@ public:
     CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>>& bones = std::vector<ISTD::shared_ptr<CalCoreBone>>());
 
     size_t addCoreBone(const ISTD::shared_ptr<CalCoreBone>& coreBone);
+    void setCoreBone(size_t index, const ISTD::shared_ptr<CalCoreBone>& coreBone);
     int getBoneId(const CalCoreBone* coreBone) const;
 
     void scale(float factor);
