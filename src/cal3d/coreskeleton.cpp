@@ -188,3 +188,18 @@ void CalCoreSkeleton::rotate(CalQuaternion &rot) {
     cal3d::RotateTranslate rt(rot, CalVector(0, 0, 0));
     rotateTranslate(rt);
 }
+
+unsigned CalCoreSkeleton::getBoneIdTranslation(unsigned index) {
+    if (index < boneIdTranslation.size()) {
+        return boneIdTranslation[index];
+    }
+
+    return static_cast<signed>(-1);
+}
+
+void CalCoreSkeleton::setBoneIdTranslation(unsigned originalIndex, unsigned newIndex) {
+    if (originalIndex < boneIdTranslation.size()) {
+        boneIdTranslation[originalIndex] = newIndex;
+    }
+}
+

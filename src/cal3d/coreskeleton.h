@@ -42,6 +42,9 @@ public:
 
     std::vector<unsigned> boneIdTranslation; // mapping from exported-to-file ID to the in-memory index
 
+    unsigned getBoneIdTranslation(unsigned index);
+    void setBoneIdTranslation(unsigned originalIndex, unsigned newIndex);
+
     std::vector<int> getChildIds(const CalCoreBone* coreBone) const;
 
     CalVector sceneAmbientColor;
