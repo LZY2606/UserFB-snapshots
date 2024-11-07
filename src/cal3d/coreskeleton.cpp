@@ -14,6 +14,8 @@
 
 #include <queue>
 #include <set>
+#include <map>
+#include <regex>
 #include "cal3d/error.h"
 #include "cal3d/coreskeleton.h"
 #include "cal3d/corebone.h"
@@ -63,15 +65,67 @@ CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>
     for (size_t i = 0; i < bones.size(); ++i) {
         originalIndices[i] = bones[i];
     }
-
     std::vector<ISTD::shared_ptr<CalCoreBone>> invalidParents = findInvalidParents(bones, originalIndices);
     for (size_t i = 0; i < invalidParents.size(); ++i) {
         invalidParents[i]->parentId = -1;
     }
 
     std::queue<ISTD::shared_ptr<CalCoreBone>> q;
+    std::set<std::string> boneNames;
+    std::map<std::string, unsigned> boneDedups;
+    std::regex isSeatNode("(Seat|Url|Pitcher|Catcher|Handle)", std::regex::icase);
+    std::regex processSeatNode("(.*?)(\\d*)(\\..*)?$", std::regex::icase);
+    std::regex isFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(([0-9][0-9]?)|([1-9][0-9]+))$", std::regex::icase);
+    std::regex processFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(\\d+)$", std::regex::icase);
+    std::regex isCameraNode("camera\\.\\d\\d(-Stop)?\\.\\d\\d(-Stop)?(\\.root)?", std::regex::icase);
+    std::regex processCameraNode("camera.\\d+(.*)");
+    int renamedCount = 0;
+    int unrenamedCount = 0;
     for (size_t i = 0; i < bones.size(); ++i) {
-        q.push(bones[i]);
+        if (boneNames.find(bones[i]->name) == boneNames.end()) {
+            boneNames.insert(bones[i]->name);
+            unrenamedCount++;
+            q.push(bones[i]);
+        } else {
+            std::string namePrefix = "";
+            std::string nameSuffix = "";
+            int bigNum = 10000;
+            std::string dedupName = "";
+            std::smatch matchResults;
+            if (regex_search(bones[i]->name, isSeatNode)) {
+                regex_match(bones[i]->name, matchResults, processSeatNode);
+                namePrefix = matchResults[1];
+                nameSuffix = matchResults[3];
+                dedupName = namePrefix+nameSuffix;
+            } else if (regex_search(bones[i]->name, isFurniNode)) {
+                regex_match(bones[i]->name, matchResults, processFurniNode);
+                namePrefix = std::string("furniture.") + matchResults[1].str() + std::string(".");
+            } else if (regex_search(bones[i]->name, isCameraNode)) {
+                regex_match(bones[i]->name, matchResults, processCameraNode);
+                namePrefix = "camera.";
+                nameSuffix = matchResults[1];
+                bigNum = 100;
+            } else {
+                namePrefix = bones[i]->name + "-";
+            }
+            long long dedupNum = bigNum;
+            auto it = boneDedups.find(namePrefix);
+            if (boneDedups.end() == it) {
+                boneDedups.insert(std::pair<std::string, unsigned>(namePrefix, bigNum-1)); // This is deliberately wrong.
+                dedupNum = bigNum-1; // this forces a dupe, because that's what N* is doing - we should see two copies of 9999. yes this is dumb.
+            } else {
+                dedupNum = it->second--;
+            }
+            std::string newName = (namePrefix + std::to_string(dedupNum) + nameSuffix);
+            CalCoreBonePtr newBone(new CalCoreBone(newName, bones[i]->parentId));
+            newBone->lightColor = bones[i]->lightColor;
+            newBone->lightType = bones[i]->lightType;
+            newBone->relativeTransform = bones[i]->relativeTransform;
+            newBone->inverseBindPoseTransform = bones[i]->inverseBindPoseTransform;
+            renamedCount++;
+            originalIndices[i] = newBone;
+            q.push(newBone);
+        }
     }
 
     std::set<ISTD::shared_ptr<CalCoreBone>> added;
