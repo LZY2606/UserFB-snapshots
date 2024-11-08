@@ -68,6 +68,7 @@ CalCoreSkeletonPtr CalCoreSkeleton::deduplicateSkeleton() {
     std::vector<ISTD::shared_ptr<CalCoreBone>> q;
     std::set<std::string> boneNames;
     std::map<std::string, unsigned> boneDedups;
+    q.reserve(bones.size());
     for (size_t i = 0; i < bones.size(); ++i) {
         if (boneNames.find(bones[i]->name) == boneNames.end()) {
             boneNames.insert(bones[i]->name);
