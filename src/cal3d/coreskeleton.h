@@ -37,6 +37,8 @@ public:
         return coreBones;
     }
 
+    ISTD::shared_ptr<CalCoreSkeleton> deduplicateSkeleton();
+
     void rotateTranslate(cal3d::RotateTranslate &rt);
     void rotate(CalQuaternion& rot);
 

@@ -63,30 +63,15 @@ std::regex processFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(\\d+)$", s
 std::regex isCameraNode("camera\\.\\d\\d(-Stop)?\\.\\d\\d(-Stop)?(\\.root)?", std::regex::icase);
 std::regex processCameraNode("camera.\\d+(.*)");
 
-CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>>& bones)
-    : coreBones(m_coreBones)
-{
-    m_coreBones.reserve(bones.size());
-
-    std::map<unsigned, ISTD::shared_ptr<CalCoreBone>> originalIndices;
-    for (size_t i = 0; i < bones.size(); ++i) {
-        originalIndices[i] = bones[i];
-    }
-    std::vector<ISTD::shared_ptr<CalCoreBone>> invalidParents = findInvalidParents(bones, originalIndices);
-    for (size_t i = 0; i < invalidParents.size(); ++i) {
-        invalidParents[i]->parentId = -1;
-    }
-
-    std::queue<ISTD::shared_ptr<CalCoreBone>> q;
+CalCoreSkeletonPtr CalCoreSkeleton::deduplicateSkeleton() {
+    auto bones = m_coreBones;
+    std::vector<ISTD::shared_ptr<CalCoreBone>> q;
     std::set<std::string> boneNames;
     std::map<std::string, unsigned> boneDedups;
-    int renamedCount = 0;
-    int unrenamedCount = 0;
     for (size_t i = 0; i < bones.size(); ++i) {
         if (boneNames.find(bones[i]->name) == boneNames.end()) {
             boneNames.insert(bones[i]->name);
-            unrenamedCount++;
-            q.push(bones[i]);
+            q.push_back(bones[i]);
         } else {
             std::string namePrefix = "";
             std::string nameSuffix = "";
@@ -123,10 +108,31 @@ CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>
             newBone->lightType = bones[i]->lightType;
             newBone->relativeTransform = bones[i]->relativeTransform;
             newBone->inverseBindPoseTransform = bones[i]->inverseBindPoseTransform;
-            renamedCount++;
-            originalIndices[i] = newBone;
-            q.push(newBone);
+            q.push_back(newBone);
         }
+    }
+    CalCoreSkeletonPtr newSkeleton(new CalCoreSkeleton(q));
+    return newSkeleton;
+}
+
+
+CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>>& bones)
+    : coreBones(m_coreBones)
+{
+    m_coreBones.reserve(bones.size());
+
+    std::map<unsigned, ISTD::shared_ptr<CalCoreBone>> originalIndices;
+    for (size_t i = 0; i < bones.size(); ++i) {
+        originalIndices[i] = bones[i];
+    }
+    std::vector<ISTD::shared_ptr<CalCoreBone>> invalidParents = findInvalidParents(bones, originalIndices);
+    for (size_t i = 0; i < invalidParents.size(); ++i) {
+        invalidParents[i]->parentId = -1;
+    }
+
+    std::queue<ISTD::shared_ptr<CalCoreBone>> q;
+    for (size_t i = 0; i < bones.size(); ++i) {
+        q.push(bones[i]);
     }
 
     std::set<ISTD::shared_ptr<CalCoreBone>> added;
