@@ -56,6 +56,13 @@ std::vector<ISTD::shared_ptr<CalCoreBone>> findInvalidParents(
     return knownInvalid;
 }
 
+std::regex isSeatNode("(Seat|Url|Pitcher|Catcher|Handle)", std::regex::icase);
+std::regex processSeatNode("(.*?)(\\d*)(\\..*)?$", std::regex::icase);
+std::regex isFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(([0-9][0-9]?)|([1-9][0-9]+))$", std::regex::icase);
+std::regex processFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(\\d+)$", std::regex::icase);
+std::regex isCameraNode("camera\\.\\d\\d(-Stop)?\\.\\d\\d(-Stop)?(\\.root)?", std::regex::icase);
+std::regex processCameraNode("camera.\\d+(.*)");
+
 CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>>& bones)
     : coreBones(m_coreBones)
 {
@@ -73,12 +80,6 @@ CalCoreSkeleton::CalCoreSkeleton(const std::vector<ISTD::shared_ptr<CalCoreBone>
     std::queue<ISTD::shared_ptr<CalCoreBone>> q;
     std::set<std::string> boneNames;
     std::map<std::string, unsigned> boneDedups;
-    std::regex isSeatNode("(Seat|Url|Pitcher|Catcher|Handle)", std::regex::icase);
-    std::regex processSeatNode("(.*?)(\\d*)(\\..*)?$", std::regex::icase);
-    std::regex isFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(([0-9][0-9]?)|([1-9][0-9]+))$", std::regex::icase);
-    std::regex processFurniNode("furniture\\.(Floor|Wall|Ceiling)[^.]*\\.(\\d+)$", std::regex::icase);
-    std::regex isCameraNode("camera\\.\\d\\d(-Stop)?\\.\\d\\d(-Stop)?(\\.root)?", std::regex::icase);
-    std::regex processCameraNode("camera.\\d+(.*)");
     int renamedCount = 0;
     int unrenamedCount = 0;
     for (size_t i = 0; i < bones.size(); ++i) {
