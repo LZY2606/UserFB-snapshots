@@ -1,4 +1,4 @@
-
+#pragma warning(disable: 4505)
 #include <rapidxml.hpp>
 #include <cmath>
 #include <float.h>
