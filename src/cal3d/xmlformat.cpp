@@ -1,4 +1,3 @@
-#pragma warning(disable: 4505)
 #include <rapidxml.hpp>
 #include <cmath>
 #include <float.h>
@@ -21,7 +20,9 @@
 #include "cal3d/corematerial.h"
 #include "cal3d/buffersource.h"
 #include "cal3d/xmlformat.h"
-
+#ifndef USE_CAL3D_WITH_CPP_11
+#pragma warning(disable: 4505)
+#endif
 struct InvalidFileFormat {
     InvalidFileFormat() {
         CalError::setLastError(CalError::INVALID_FILE_FORMAT, __FILE__, __LINE__);
