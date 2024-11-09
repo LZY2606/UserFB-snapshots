@@ -20,7 +20,7 @@
 #include "cal3d/corematerial.h"
 #include "cal3d/buffersource.h"
 #include "cal3d/xmlformat.h"
-#ifndef USE_CAL3D_WITH_CPP_11
+#if defined(IMVU_WINDOWS)
 #pragma warning(disable: 4505)
 #endif
 struct InvalidFileFormat {
