@@ -65,14 +65,13 @@ std::regex processCameraNode("camera.\\d+(.*)");
 
 CalCoreSkeletonPtr CalCoreSkeleton::deduplicateSkeleton() {
     auto bones = m_coreBones;
-    std::vector<ISTD::shared_ptr<CalCoreBone>> q;
+    CalCoreSkeletonPtr newSkeleton(new CalCoreSkeleton());
     std::set<std::string> boneNames;
     std::map<std::string, unsigned> boneDedups;
-    q.reserve(bones.size());
     for (size_t i = 0; i < bones.size(); ++i) {
         if (boneNames.find(bones[i]->name) == boneNames.end()) {
             boneNames.insert(bones[i]->name);
-            q.push_back(bones[i]);
+            newSkeleton->addCoreBone(bones[i]);
         } else {
             std::string namePrefix = "";
             std::string nameSuffix = "";
@@ -109,10 +108,11 @@ CalCoreSkeletonPtr CalCoreSkeleton::deduplicateSkeleton() {
             newBone->lightType = bones[i]->lightType;
             newBone->relativeTransform = bones[i]->relativeTransform;
             newBone->inverseBindPoseTransform = bones[i]->inverseBindPoseTransform;
-            q.push_back(newBone);
+            newSkeleton->addCoreBone(newBone);
         }
+
+        newSkeleton->setBoneIdTranslation(i, getBoneIdTranslation(i));
     }
-    CalCoreSkeletonPtr newSkeleton(new CalCoreSkeleton(q));
     return newSkeleton;
 }
 
