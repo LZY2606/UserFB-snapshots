@@ -13,6 +13,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include "cal3d/coremorphtrack.h"
 #include "cal3d/error.h"
 #include "cal3d/coremorphkeyframe.h"
@@ -20,6 +21,14 @@
 
 size_t sizeInBytes(CalCoreMorphKeyframe const&) {
     return sizeof(CalCoreMorphKeyframe);
+}
+
+static bool s_isCollinear(const CalCoreMorphKeyframe& a, const CalCoreMorphKeyframe& b, const CalCoreMorphKeyframe& c) {
+    const float EPS = 0.001f;
+
+    float t = (b.time - a.time) / (c.time - a.time);
+    float vb = a.weight + (t * (c.weight - a.weight));
+    return std::fabs(vb - b.weight) < EPS;
 }
 
 CalCoreMorphTrack::CalCoreMorphTrack(){
@@ -84,9 +93,49 @@ void CalCoreMorphTrack::scale(float factor) {
     }
 }
 
+void CalCoreMorphTrack::optimize() {
+    std::vector<CalCoreMorphKeyframe> keysFiltered;
+
+    if (!keyframes.empty()) {
+
+        if (keyframes.size() < 2) {
+            return;
+        } else {
+            // We optimize linear morph animations by removing keys that
+            // add no information to the animation.
+
+            keysFiltered.push_back(keyframes[0]);
+
+            size_t count = keyframes.size();
+            for (size_t i = 1U; i + 1U < count; ++i) {
+                const CalCoreMorphKeyframe& prev = keysFiltered.back();
+                const CalCoreMorphKeyframe& curr = keyframes[i];
+                const CalCoreMorphKeyframe& next = keyframes[i + 1U];
+
+                if (!s_isCollinear(prev, curr, next)) {
+                    keysFiltered.push_back(curr);
+                }
+            }
+
+            // Always keep last key
+            keysFiltered.push_back(keyframes.back());
+        }
+
+        // If there are only 2 equal keys remaining, then we can reduce it to only 1.
+        if (keysFiltered.size() == 2U && keysFiltered[0U].weight == keysFiltered[1U].weight) {
+            keysFiltered.resize(1U);
+        }
+
+        keyframes = keysFiltered;
+    }
+}
+
 std::vector<CalCoreMorphKeyframe>::iterator CalCoreMorphTrack::getUpperBound(float time) {
     return std::upper_bound(
         keyframes.begin(),
         keyframes.end(),
         CalCoreMorphKeyframe(time, 0.0f));
 }
+
+
+

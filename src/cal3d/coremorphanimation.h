@@ -30,6 +30,7 @@ public:
 
     void removeZeroScaleTracks();
     void scale(float factor);
+    void optimize();
 
     size_t sizeInBytes() const;
 };

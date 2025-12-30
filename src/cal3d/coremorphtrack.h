@@ -31,6 +31,7 @@ public:
 
     void addCoreMorphKeyframe(CalCoreMorphKeyframe pCoreKeyframe);
     void scale(float factor);
+    void optimize();
 
 private:
     std::vector<CalCoreMorphKeyframe>::iterator getUpperBound(float time);
