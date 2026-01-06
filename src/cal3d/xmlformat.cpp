@@ -1,4 +1,5 @@
 #include <rapidxml.hpp>
+#include <rapidxml_print.hpp>
 #include <cmath>
 #include <float.h>
 #include "cal3d/BoostToStd.h"
@@ -791,7 +792,17 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
     bool hasVertexColors = (version >= cal3d::FIRST_FILE_VERSION_WITH_VERTEX_COLORS);
 
     xml_node* mesh = header->next_sibling();
-    if (!mesh || !has_name(mesh, "mesh")) {
+    if (!mesh) {
+        // This path is normally reached by a trick used by our creators where they put a
+        // single header on the file (i.e: <HEADER MAGIC="XMF" VERSION="910"/>) and nothing
+        // more with the intent to remove a mesh from the product they are deriving from.
+        // If that is the case, I think we should return an empty mesh rather than an error
+        // to represent better the intent of the creator rathern than an error like it
+        // was before.
+        return ISTD::make_shared<CalCoreMesh>();
+    }
+
+    if (!has_name(mesh, "mesh")) {
         return InvalidFileFormatTracked();
     }
 
