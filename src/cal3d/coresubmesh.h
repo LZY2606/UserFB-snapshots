@@ -241,6 +241,7 @@ public:
     void optimizeVertexCache();
     void renumberIndices();
     void normalizeNormals();
+    void removeMorpTargetsWithEmptyNames();
 
     CalExportedInfluences exportInfluences(unsigned int influenceLimit, float influenceMargin) const;
 

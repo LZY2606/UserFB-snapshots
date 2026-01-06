@@ -830,6 +830,24 @@ void CalCoreSubmesh::normalizeNormals() {
     }
 }
 
+void CalCoreSubmesh::removeMorpTargetsWithEmptyNames() {
+    std::vector<ISTD::shared_ptr<CalCoreMorphTarget>> b;
+
+    size_t count = m_morphTargets.size();
+    b.reserve(count);
+
+    for (size_t j = 0; j < count; ++j) {
+        if (m_morphTargets[j]->name.empty()) {
+            printf("Emtpy morph name\n");
+        } else {
+            printf("Morph name: %s\n", m_morphTargets[j]->name.c_str());
+            b.push_back(m_morphTargets[j]);
+        }
+    }
+
+    std::swap(m_morphTargets, b);
+}
+
 void CalCoreSubmesh::sortBackToFrontByCoverage() {
     if (m_faces.empty()) {
         return;

@@ -28,6 +28,7 @@ public:
     void scale(float factor);
     void fixup(const ISTD::shared_ptr<CalCoreSkeleton>& skeleton);
     void removeEmptySubmeshes();
+    void removeMorpTargetsWithEmptyNames();
     void splitSubmeshesToBoneLimit(unsigned boneLimit);
 
     CalCoreSubmeshVector submeshes;

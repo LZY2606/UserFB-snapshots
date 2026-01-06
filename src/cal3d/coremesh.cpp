@@ -176,6 +176,12 @@ void CalCoreMesh::removeEmptySubmeshes() {
     std::swap(ns, submeshes);
 }
 
+void CalCoreMesh::removeMorpTargetsWithEmptyNames() {
+    for (auto i = submeshes.begin(); i != submeshes.end(); ++i) {
+        (*i)->removeMorpTargetsWithEmptyNames();
+    }
+}
+
 void CalCoreMesh::splitSubmeshesToBoneLimit(unsigned boneLimit) {
     // If every vertex references 4 unique bones then 12 is the limit
     // and we will end up with one triangle per submesh.
