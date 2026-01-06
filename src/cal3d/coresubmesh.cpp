@@ -837,10 +837,7 @@ void CalCoreSubmesh::removeMorpTargetsWithEmptyNames() {
     b.reserve(count);
 
     for (size_t j = 0; j < count; ++j) {
-        if (m_morphTargets[j]->name.empty()) {
-            printf("Emtpy morph name\n");
-        } else {
-            printf("Morph name: %s\n", m_morphTargets[j]->name.c_str());
+        if (!m_morphTargets[j]->name.empty()) {
             b.push_back(m_morphTargets[j]);
         }
     }
