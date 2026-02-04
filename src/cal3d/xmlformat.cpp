@@ -809,7 +809,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
     ISTD::shared_ptr<CalCoreMesh> pCoreMesh = ISTD::make_shared<CalCoreMesh>();
 
     for (xml_node* submesh = mesh->first_node(); submesh; submesh = submesh->next_sibling()) {
-        if (!has_name(submesh, "submesh")) {
+        if (!submesh || !has_name(submesh, "submesh")) {
             continue;
         }
 
@@ -939,7 +939,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
 
         xml_node* morph = face;
         for (int morphId = 0; morphId < morphCount; morphId++) {
-            if (!has_name(morph, "MORPH")) {
+            if (!morph || !has_name(morph, "MORPH")) {
                 return InvalidFileFormatTracked();
             }
 
@@ -1014,7 +1014,7 @@ ISTD::shared_ptr<CalCoreMesh> CalLoader::loadXmlCoreMeshDoc(const rapidxml::xml_
         face = morph;
         // load all faces
         for (int faceId = 0; faceId < faceCount; ++faceId) {
-            if (!has_name(face, "FACE")) {
+            if (!face || !has_name(face, "FACE")) {
                 return InvalidFileFormatTracked();
             }
             int tmp[3];
