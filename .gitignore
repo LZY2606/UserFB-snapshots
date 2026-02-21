@@ -1,0 +1,28 @@
+# Crawler output
+crawl.jsonl
+crawl-*.jsonl
+*.jsonl
+
+# Binaries
+goliath
+/cmd/crawler/goliath
+/cmd/crawler/crawler
+
+# IDE and editor files
+.claude
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
