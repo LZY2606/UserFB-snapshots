@@ -23,21 +23,21 @@ import (
 
 // Config holds all tunable parameters for the crawler.
 type Config struct {
-	Seeds             []string
-	Workers           int
-	MaxDepth          int
-	MaxPages          int64
-	SameDomain        bool          // restrict crawl to seed domains
-	MinDelay          time.Duration // politeness delay between requests to same host
-	Timeout           time.Duration // per-request HTTP timeout
-	MaxBodyMB         int
-	UserAgent         string
-	OutputFile        string
-	RedisAddr         string        // Redis address for distributed mode (e.g., "localhost:6379"). Empty = local mode
-	RedisPass         string        // Redis password
-	RedisDB           int           // Redis database number
-	RedisPrefix       string        // Redis key prefix for this crawl
-	CheckpointFile    string        // Checkpoint file path for local mode
+	Seeds              []string
+	Workers            int
+	MaxDepth           int
+	MaxPages           int64
+	SameDomain         bool          // restrict crawl to seed domains
+	MinDelay           time.Duration // politeness delay between requests to same host
+	Timeout            time.Duration // per-request HTTP timeout
+	MaxBodyMB          int
+	UserAgent          string
+	OutputFile         string
+	RedisAddr          string        // Redis address for distributed mode (e.g., "localhost:6379"). Empty = local mode
+	RedisPass          string        // Redis password
+	RedisDB            int           // Redis database number
+	RedisPrefix        string        // Redis key prefix for this crawl
+	CheckpointFile     string        // Checkpoint file path for local mode
 	CheckpointInterval time.Duration // How often to save checkpoints
 }
 
@@ -47,6 +47,24 @@ type Stats struct {
 	Errors   atomic.Int64
 	Skipped  atomic.Int64
 	Enqueued atomic.Int64
+}
+
+// StatsSnapshot is a point-in-time snapshot of crawl statistics.
+type StatsSnapshot struct {
+	Fetched  int64
+	Errors   int64
+	Skipped  int64
+	Enqueued int64
+}
+
+// Snapshot returns a point-in-time copy of the statistics.
+func (s *Stats) Snapshot() StatsSnapshot {
+	return StatsSnapshot{
+		Fetched:  s.Fetched.Load(),
+		Errors:   s.Errors.Load(),
+		Skipped:  s.Skipped.Load(),
+		Enqueued: s.Enqueued.Load(),
+	}
 }
 
 // Crawler orchestrates the concurrent crawl.
@@ -59,9 +77,9 @@ type Crawler struct {
 	stats    Stats
 	logger   *slog.Logger
 
-	allowedHosts      map[string]struct{} // non-nil when SameDomain=true
-	checkpointCancel  context.CancelFunc  // cancel periodic checkpointing
-	localFrontier     *frontier.Frontier  // reference to local frontier for checkpointing (nil if distributed)
+	allowedHosts     map[string]struct{} // non-nil when SameDomain=true
+	checkpointCancel context.CancelFunc  // cancel periodic checkpointing
+	localFrontier    *frontier.Frontier  // reference to local frontier for checkpointing (nil if distributed)
 }
 
 // New creates a Crawler from cfg. Call Run to start crawling.
@@ -151,7 +169,7 @@ func New(cfg Config, logger *slog.Logger) (*Crawler, error) {
 }
 
 // Run starts the worker pool and blocks until the crawl completes or ctx is done.
-func (c *Crawler) Run(ctx context.Context) Stats {
+func (c *Crawler) Run(ctx context.Context) StatsSnapshot {
 	defer c.writer.Close()
 	defer c.StopCheckpointing()
 
@@ -211,7 +229,7 @@ func (c *Crawler) Run(ctx context.Context) Stats {
 
 	wg.Wait()
 	close(done)
-	return c.stats
+	return c.stats.Snapshot()
 }
 
 // process fetches one URL, parses it, and enqueues discovered links.

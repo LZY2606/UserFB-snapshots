@@ -1,5 +1,7 @@
 # Goliath 🕷️
 
+![goliath spider](./goliath.png)
+
 [![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Test](https://github.com/0xfurai/goliath/workflows/Test/badge.svg)](https://github.com/0xfurai/goliath/actions)
