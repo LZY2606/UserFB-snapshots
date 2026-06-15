@@ -66,8 +66,9 @@ void CalCoreMorphAnimation::scale(float factor) {
 }
 
 void CalCoreMorphAnimation::optimize() {
-    for (CalCoreMorphTrack& track : tracks) {
-        track.optimize();
+    std::vector<CalCoreMorphTrack>::iterator iteratorCoreTrack;
+    for (iteratorCoreTrack = tracks.begin(); iteratorCoreTrack != tracks.end(); ++iteratorCoreTrack) {
+        iteratorCoreTrack->optimize();
     }
 }
 
