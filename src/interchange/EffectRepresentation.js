@@ -101,6 +101,7 @@ function _mapEffectType(vfType) {
     sharpen:    'sharpen',
     glow:       'glow',
     crop:       'crop',
+    chromakey:  'chromaKey',
   };
   return map[String(vfType).toLowerCase()] ?? vfType;
 }

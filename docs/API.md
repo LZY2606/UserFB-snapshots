@@ -20,6 +20,7 @@ Complete API documentation for VideoForge v0.9.0-alpha.1.
    - [FadeEffect](#61-fadeeffect)
    - [Transition](#62-transition)
    - [CropEffect](#63-cropeffect)
+   - [ChromaKeyEffect](#64-chromakeyeffect)
 7. [Exporters](#7-exporters)
    - [Mp4Exporter](#71-mp4exporter)
    - [PremiereXmlExporter](#72-premierexmlexporter)
@@ -601,6 +602,27 @@ clip.addCrop({ left: 300, right: 300, alignment: CROP_ALIGNMENT.LEFT });
 
 // Chain with other effects
 clip.addCrop({ top: 80, alignment: CROP_ALIGNMENT.TOP }).fadeIn(0.5);
+```
+
+---
+
+#### `addChromaKey(options?): Clip`
+
+Append a `ChromaKeyEffect` that removes a solid background colour (green screen, blue screen, etc.), making matching pixels transparent. Chainable.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `color` | `string` | `'#00FF00'` | Background colour to remove |
+| `similarity` | `number` | `0.10` | Colour match tolerance, `0`–`1` |
+| `blend` | `number` | `0.10` | Softness of the key edge, `0`–`1` |
+| `yuv` | `boolean` | `false` | Match colour similarity in YUV space instead of RGB |
+
+```js
+// Remove a standard green screen background
+clip.addChromaKey();
+
+// Remove a blue screen with a wider tolerance
+clip.addChromaKey({ color: '#0000FF', similarity: 0.25, blend: 0.05 });
 ```
 
 ---
@@ -1241,6 +1263,75 @@ await project.export({ type: 'fcpxml',  output: './out.fcpxml' });
 ```
 
 > **Shorthand:** `clip.addCrop({ ... })` is equivalent to `clip.addEffect(new CropEffect({ ... }))`.
+
+---
+
+### 6.4 ChromaKeyEffect
+
+**`import { ChromaKeyEffect } from 'videoforge'`**
+
+Removes a solid background colour (green screen, blue screen, or any other flat backdrop) from a video clip, making matching pixels transparent.
+
+```js
+new ChromaKeyEffect(params?)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `params.color` | `string` | `'#00FF00'` | Background colour to remove (hex or CSS/FFmpeg colour name) |
+| `params.similarity` | `number` | `0.10` | Colour match tolerance, `0`–`1`. Higher values key out a wider range of shades |
+| `params.blend` | `number` | `0.10` | Softness of the key edge, `0`–`1`. Higher values give a smoother transition between opaque and transparent pixels |
+| `params.yuv` | `boolean` | `false` | Match colour similarity in YUV space instead of RGB — often cleaner on compressed source footage |
+
+#### Accessors
+
+All chroma key values are readable and writable via getters/setters; `similarity` and `blend` throw a `RangeError` outside `[0, 1]`:
+
+```js
+const fx = new ChromaKeyEffect({ color: '#00FF00' });
+fx.similarity;          // → 0.10
+fx.similarity = 0.25;   // update at any time
+fx.color = '#0000FF';   // switch to a blue screen
+```
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `enable() / disable()` | Toggle effect; chainable |
+| `setParams(updates)` | Merge parameter updates; chainable |
+| `toJSON()` | Serialize to plain object |
+| `static fromJSON(data)` | Restore a `ChromaKeyEffect` from serialised data |
+
+#### Export behaviour per format
+
+| Format | How chroma key is encoded |
+|--------|----------------------------|
+| **MP4 (FFmpeg)** | `chromakey=color=0xRRGGBB:similarity=S:blend=B:yuv=0\|1` filter applied per clip |
+| **Premiere XML / FCPXML / EDL** | Passed through as a generic effect/filter entry in the clip's effect list (see each exporter's generic effect handling) |
+| **JSON** | Fully serialised in the clip's `effects` array |
+
+> Keyed-out pixels become transparent (an alpha channel is added). For the transparency to survive into the exported MP4, pair the effect with an alpha-capable codec/pixel format via `project.export({ type: 'mp4', pixelFormat: 'yuva420p', videoCodec: 'qtrle' })` (or similar) — the default `libx264`/`yuv420p` combination has no alpha channel and will flatten keyed-out areas to black.
+
+#### Full example
+
+```js
+import { Project, ChromaKeyEffect } from 'videoforge';
+
+const project = new Project({ name: 'Green Screen Demo', fps: 30, width: 1920, height: 1080 });
+const vt = project.addTrack('video');
+
+const clip = vt.addVideo('/footage/greenscreen.mp4', { inPoint: 0, outPoint: 30 });
+clip.addChromaKey({
+  color:      '#00FF00',
+  similarity: 0.15,
+  blend:      0.05,
+});
+
+await project.export({ type: 'mp4', output: './out.mp4' });
+```
+
+> **Shorthand:** `clip.addChromaKey({ ... })` is equivalent to `clip.addEffect(new ChromaKeyEffect({ ... }))`.
 
 ---
 
@@ -2012,6 +2103,7 @@ EFFECT_TYPES.TRANSITION       // 'transition'
 EFFECT_TYPES.COLOR_CORRECTION // 'colorCorrection'
 EFFECT_TYPES.BLUR             // 'blur'
 EFFECT_TYPES.CROP             // 'crop'
+EFFECT_TYPES.CHROMA_KEY       // 'chromaKey'
 EFFECT_TYPES.CUSTOM           // 'custom'
 ```
 

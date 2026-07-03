@@ -11,6 +11,7 @@ import IdGenerator from '../utils/IdGenerator.js';
 import { CLIP_TYPES } from '../utils/Constants.js';
 import FadeEffect from '../effects/FadeEffect.js';
 import CropEffect from '../effects/CropEffect.js';
+import ChromaKeyEffect from '../effects/ChromaKeyEffect.js';
 
 class Clip {
   /**
@@ -228,6 +229,20 @@ class Clip {
    */
   addCrop(options = {}) {
     return this.addEffect(new CropEffect(options));
+  }
+
+  /**
+   * Attach a chroma key effect to this clip, removing a solid background
+   * colour (green screen, blue screen, etc.).
+   * @param {object} [options={}]
+   * @param {string}  [options.color='#00FF00']  - Background colour to remove.
+   * @param {number}  [options.similarity=0.10]  - Colour match tolerance (0–1).
+   * @param {number}  [options.blend=0.10]       - Softness of the key edge (0–1).
+   * @param {boolean} [options.yuv=false]        - Match colour similarity in YUV space.
+   * @returns {Clip} this (chainable)
+   */
+  addChromaKey(options = {}) {
+    return this.addEffect(new ChromaKeyEffect(options));
   }
 
   // ─── Effect chain management ─────────────────────────────────────────────────
