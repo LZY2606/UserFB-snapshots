@@ -38,6 +38,7 @@ export const EFFECT_TYPES = Object.freeze({
   COLOR_CORRECTION: 'colorCorrection',
   BLUR: 'blur',
   CROP: 'crop',
+  CHROMA_KEY: 'chromaKey',
   CUSTOM: 'custom',
 });
 

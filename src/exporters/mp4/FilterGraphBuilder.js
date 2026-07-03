@@ -174,6 +174,16 @@ class FilterGraphBuilder {
       filters.push(`pad=iw+${l}+${r}:ih+${t}+${b}:${px}:${py}:black`);
     }
 
+    // Chroma key (background colour removal)
+    const chromaKey = this._findEffect(clip, 'chromaKey');
+    if (chromaKey) {
+      const color      = _toFfmpegColor(chromaKey.getParam('color') ?? '#00FF00');
+      const similarity = chromaKey.getParam('similarity') ?? 0.10;
+      const blend      = chromaKey.getParam('blend') ?? 0.10;
+      const yuv        = chromaKey.getParam('yuv') ?? false;
+      filters.push(`chromakey=color=${color}:similarity=${similarity}:blend=${blend}:yuv=${yuv ? 1 : 0}`);
+    }
+
     const outputDur = isFinite(srcDur) ? srcDur / speed : null;
 
     const fadeIn = this._findEffect(clip, 'fadeIn');
@@ -233,7 +243,7 @@ class FilterGraphBuilder {
 
   _findEffect(clip, type) {
     if (!Array.isArray(clip.effects)) return null;
-    return clip.effects.find(e => e.type === type) ?? null;
+    return clip.effects.find(e => e.type === type && e.enabled !== false) ?? null;
   }
 }
 
@@ -261,6 +271,17 @@ function _cropPadding(l, r, t, b, alignment) {
     case 'bottomRight': return [cx, cy];
     default:            return [Math.floor(cx / 2), Math.floor(cy / 2)]; // center
   }
+}
+
+/**
+ * Normalise a colour value for use in an FFmpeg filter argument.
+ * FFmpeg accepts named colours (e.g. "green") and "0xRRGGBB" hex — but not the
+ * CSS-style "#RRGGBB" form, so translate a leading "#" to "0x".
+ * @param {string} color
+ * @returns {string}
+ */
+function _toFfmpegColor(color) {
+  return color.startsWith('#') ? `0x${color.slice(1)}` : color;
 }
 
 /**

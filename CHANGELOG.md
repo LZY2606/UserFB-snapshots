@@ -4,6 +4,31 @@ All notable changes to VideoForge are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **ChromaKeyEffect** — New `ChromaKeyEffect` class (`src/effects/ChromaKeyEffect.js`) that
+  removes a solid background colour (green screen, blue screen, or any other flat backdrop)
+  from a clip, with `color`, `similarity`, `blend`, and `yuv` parameters.
+- **`clip.addChromaKey(options)`** — Convenience method on all `Clip` subclasses, equivalent
+  to `clip.addEffect(new ChromaKeyEffect(options))`.
+- **EFFECT_TYPES.CHROMA_KEY** — New `'chromaKey'` entry in the shared `EFFECT_TYPES` constant.
+- **Chroma key export — MP4 (FFmpeg)**: `chromakey=color=…:similarity=…:blend=…:yuv=…` filter
+  applied per clip; hex colours are translated to FFmpeg's `0xRRGGBB` syntax.
+- **Chroma key export — Premiere XML / FCPXML / EDL**: Passed through via each exporter's
+  existing generic effect/filter representation.
+- **Chroma key export — JSON**: Fully serialised via the standard `effects` array; round-tripped
+  with `ChromaKeyEffect.fromJSON()`.
+
+### Fixed
+
+- **FilterGraphBuilder respects `effect.enabled`** — Disabled effects (crop, fadeIn, fadeOut,
+  chromaKey) are now correctly skipped when building the FFmpeg filter graph, instead of
+  always being applied regardless of their enabled state.
+
+---
+
 ## v0.9.1-alpha.1
 
 ### Added

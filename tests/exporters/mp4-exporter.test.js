@@ -167,6 +167,56 @@ describe('FilterGraphBuilder — video clip effects', () => {
     expect(graph.filterComplex).toContain('fade=t=out:');
     expect(graph.filterComplex).toContain(':d=2');
   });
+
+  test('addChromaKey() generates a chromakey filter with default params', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey();
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).toContain('chromakey=color=0x00FF00:similarity=0.1:blend=0.1:yuv=0');
+  });
+
+  test('addChromaKey() honours custom color/similarity/blend/yuv', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey({ color: '#0000FF', similarity: 0.25, blend: 0.05, yuv: true });
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).toContain('chromakey=color=0x0000FF:similarity=0.25:blend=0.05:yuv=1');
+  });
+
+  test('addChromaKey() translates "#RRGGBB" to FFmpeg\'s "0xRRGGBB" colour syntax', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey({ color: '#123ABC' });
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).toContain('color=0x123ABC');
+  });
+
+  test('addChromaKey() passes through named FFmpeg colours unchanged', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey({ color: 'green' });
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).toContain('color=green');
+  });
+
+  test('disabled chroma key effect is not applied', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey().effects[0].disable();
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).not.toContain('chromakey');
+  });
+
+  test('chroma key combines with fadeIn in the same filter chain', () => {
+    const p = new Project({ fps: 30 });
+    const clip = p.addTrack('video').addVideo('/v.mp4', { inPoint: 0, outPoint: 10 });
+    clip.addChromaKey();
+    clip.fadeIn(2);
+    const graph = buildGraph(p);
+    expect(graph.filterComplex).toContain('chromakey=');
+    expect(graph.filterComplex).toContain('fade=t=in');
+  });
 });
 
 describe('FilterGraphBuilder — audio clip effects', () => {
