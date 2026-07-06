@@ -11,6 +11,7 @@
   },
   "files": [
     "src",
+    "tools",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
