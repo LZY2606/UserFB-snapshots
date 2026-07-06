@@ -7,7 +7,8 @@
   "exports": {
     ".": {
       "import": "./src/index.js"
-    }
+    },
+    "./tools/mcp/server.js": "./tools/mcp/server.js"
   },
   "files": [
     "src",
