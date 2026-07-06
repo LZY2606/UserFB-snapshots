@@ -20,7 +20,7 @@
  * Phase tracker
  * ─────────────
  * ✅ Phase 1 — Track & Clip Factory        (8 tools)
- * ✅ Phase 2 — Clip Editing Operations     (8 tools, incl. add_crop_effect, remove_clip_effect)
+ * ✅ Phase 2 — Clip Editing Operations     (9 tools, incl. add_crop_effect, add_chroma_key_effect, remove_clip_effect)
  * ✅ Phase 3 — Media Controls per Type     (5 tools)
  * ✅ Phase 4 — Caption Engine Core         (8 tools)
  * ✅ Phase 5 — Caption Engine Advanced     (11 tools)
@@ -87,8 +87,9 @@ import * as splitClip     from './tools/split_clip.js';
 import * as copyClip      from './tools/copy_clip.js';
 import * as addFade       from './tools/add_fade.js';
 import * as addTransition    from './tools/add_transition.js';
-import * as addCropEffect    from './tools/add_crop_effect.js';
-import * as removeClipEffect from './tools/remove_clip_effect.js';
+import * as addCropEffect      from './tools/add_crop_effect.js';
+import * as addChromaKeyEffect from './tools/add_chroma_key_effect.js';
+import * as removeClipEffect   from './tools/remove_clip_effect.js';
 
 // ── Tools — Phase 3 (Media Controls per Type) ─────────────────────────────────
 
@@ -204,6 +205,7 @@ const ALL_TOOLS = [
   addFade,
   addTransition,
   addCropEffect,
+  addChromaKeyEffect,
   removeClipEffect,
 
   // Phase 3 — Media Controls per Type
@@ -293,4 +295,4 @@ registerResources(server, { inspectionService, exportService });
 const transport = new StdioServerTransport();
 await server.connect(transport);
 
-console.error('[VideoForge MCP] Server running on stdio — 52 tools active');
+console.error('[VideoForge MCP] Server running on stdio — 53 tools active');
