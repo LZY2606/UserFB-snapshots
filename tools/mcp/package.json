@@ -1,0 +1,20 @@
+{
+  "name": "videoforge-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for VideoForge — inspection, validation, automation, and regression testing.",
+  "type": "module",
+  "main": "./server.js",
+  "bin": {
+    "videoforge-mcp": "./server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "videoforge": "file:../../"
+  }
+}
