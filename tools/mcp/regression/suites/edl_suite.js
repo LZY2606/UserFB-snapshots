@@ -60,7 +60,7 @@ export async function edlSuite(engine, {
 
   // ── 3. Export (audio included) ────────────────────────────────────────────────
 
-  const { exportId, content } = exportService.exportEdl(projectId, {
+  const { exportId, content } = await exportService.exportEdl(projectId, {
     title: 'Regression EDL',
     includeAudio: true,
   });
@@ -102,7 +102,7 @@ export async function edlSuite(engine, {
   // ── 7. Audio-excluded variant ─────────────────────────────────────────────────
 
   const { exportId: noAudioId, content: noAudioContent } =
-    exportService.exportEdl(projectId, { includeAudio: false });
+    await exportService.exportEdl(projectId, { includeAudio: false });
 
   const noAudioStats = parser.parseEdl(noAudioContent);
 

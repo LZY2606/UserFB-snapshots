@@ -62,7 +62,7 @@ export async function premiereSuite(engine, {
 
   // ── 3. Export ─────────────────────────────────────────────────────────────────
 
-  const { exportId, content } = exportService.exportPremiere(projectId, {
+  const { exportId, content } = await exportService.exportPremiere(projectId, {
     sequenceName: 'Regression Sequence',
   });
 
