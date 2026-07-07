@@ -1,11 +1,12 @@
 /**
  * @module ExportService
- * Run VideoForge exporters and cache the generated content.
+ * Run VideoForge exporters, cache the generated content, and optionally
+ * write it to disk.
  *
- * Exporters are invoked via their toString() method so no file I/O
- * is required.  Every successful export is stored in StorageService
- * under a deterministic exportId so downstream tools (inspect_export,
- * validate_export) can retrieve it by ID.
+ * Every successful export is stored in StorageService under a deterministic
+ * exportId so downstream tools (inspect_export, validate_export) can
+ * retrieve it by ID. When an outputPath is supplied, the exporter's own
+ * export() method also writes the content to that file.
  */
 
 import { PremiereXmlExporter, FcpxmlExporter, EdlExporter } from 'videoforge';
@@ -29,9 +30,10 @@ export class ExportService {
    * @param {object} [options={}]
    * @param {string}  [options.sequenceName]           Override the sequence name.
    * @param {boolean} [options.includeVfMetadata=true] Embed VideoForge namespace metadata.
-   * @returns {{ exportId: string, content: string, format: 'premiere' }}
+   * @param {string}  [options.outputPath]             If given, also write the XML to this file.
+   * @returns {Promise<{ exportId: string, content: string, format: 'premiere', outputPath: string|null }>}
    */
-  exportPremiere(projectId, options = {}) {
+  async exportPremiere(projectId, options = {}) {
     const project = this._projects.getProject(projectId);
 
     const exporter = new PremiereXmlExporter(project, {
@@ -46,7 +48,9 @@ export class ExportService {
     const exportId = this._makeId(projectId, 'premiere');
     this._storage.storeExport(exportId, { content, format: 'premiere', projectId });
 
-    return { exportId, content, format: 'premiere' };
+    const outputPath = options.outputPath ? await exporter.export(options.outputPath) : null;
+
+    return { exportId, content, format: 'premiere', outputPath };
   }
 
   /**
@@ -57,9 +61,10 @@ export class ExportService {
    * @param {string}  [options.libraryName]
    * @param {string}  [options.eventName]
    * @param {boolean} [options.includeVfMetadata=true]
-   * @returns {{ exportId: string, content: string, format: 'fcpxml' }}
+   * @param {string}  [options.outputPath]  If given, also write the XML to this file.
+   * @returns {Promise<{ exportId: string, content: string, format: 'fcpxml', outputPath: string|null }>}
    */
-  exportFcpxml(projectId, options = {}) {
+  async exportFcpxml(projectId, options = {}) {
     const project = this._projects.getProject(projectId);
 
     const exporter = new FcpxmlExporter(project, {
@@ -75,7 +80,9 @@ export class ExportService {
     const exportId = this._makeId(projectId, 'fcpxml');
     this._storage.storeExport(exportId, { content, format: 'fcpxml', projectId });
 
-    return { exportId, content, format: 'fcpxml' };
+    const outputPath = options.outputPath ? await exporter.export(options.outputPath) : null;
+
+    return { exportId, content, format: 'fcpxml', outputPath };
   }
 
   /**
@@ -85,9 +92,10 @@ export class ExportService {
    * @param {object} [options={}]
    * @param {string}  [options.title]              Override the EDL title.
    * @param {boolean} [options.includeAudio=true]
-   * @returns {{ exportId: string, content: string, format: 'edl' }}
+   * @param {string}  [options.outputPath]  If given, also write the EDL to this file.
+   * @returns {Promise<{ exportId: string, content: string, format: 'edl', outputPath: string|null }>}
    */
-  exportEdl(projectId, options = {}) {
+  async exportEdl(projectId, options = {}) {
     const project = this._projects.getProject(projectId);
 
     const exporter = new EdlExporter(project, {
@@ -101,7 +109,9 @@ export class ExportService {
     const exportId = this._makeId(projectId, 'edl');
     this._storage.storeExport(exportId, { content, format: 'edl', projectId });
 
-    return { exportId, content, format: 'edl' };
+    const outputPath = options.outputPath ? await exporter.export(options.outputPath) : null;
+
+    return { exportId, content, format: 'edl', outputPath };
   }
 
   // ── Retrieval ─────────────────────────────────────────────────────────────────

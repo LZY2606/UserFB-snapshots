@@ -3,7 +3,7 @@
  * Clip-level editing operations: trim, move, split, copy, fade, transition.
  */
 
-import { Transition, TRANSITION_TYPES, EASING, CropEffect, CROP_ALIGNMENT } from 'videoforge';
+import { Transition, TRANSITION_TYPES, EASING, CropEffect, CROP_ALIGNMENT, ChromaKeyEffect } from 'videoforge';
 
 export class ClipEditingService {
   /**
@@ -238,6 +238,37 @@ export class ClipEditingService {
       clipId:       clip.id,
       effectId:     effect.id,
       type:         'crop',
+      params:       effect.params,
+      totalEffects: clip.effects.length,
+    };
+  }
+
+  /**
+   * Add a ChromaKeyEffect to a clip, removing a solid background colour
+   * (green screen, blue screen, or any flat backdrop).
+   * Uses the Clip.addChromaKey() convenience method.
+   *
+   * @param {string} projectId
+   * @param {string} clipId
+   * @param {object} options  { color?, similarity?, blend?, yuv? }
+   */
+  addChromaKey(projectId, clipId, options = {}) {
+    const project = this._projects.getProject(projectId);
+    const { clip } = this._requireClip(project, clipId);
+
+    const chromaKeyOptions = {};
+    if (options.color      !== undefined) chromaKeyOptions.color      = options.color;
+    if (options.similarity !== undefined) chromaKeyOptions.similarity = options.similarity;
+    if (options.blend      !== undefined) chromaKeyOptions.blend      = options.blend;
+    if (options.yuv        !== undefined) chromaKeyOptions.yuv        = options.yuv;
+
+    clip.addChromaKey(chromaKeyOptions);
+
+    const effect = clip.effects[clip.effects.length - 1];
+    return {
+      clipId:       clip.id,
+      effectId:     effect.id,
+      type:         'chromaKey',
       params:       effect.params,
       totalEffects: clip.effects.length,
     };

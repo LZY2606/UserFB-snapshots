@@ -62,7 +62,7 @@ export async function fcpxmlSuite(engine, {
 
   // ── 3. Export ─────────────────────────────────────────────────────────────────
 
-  const { exportId, content } = exportService.exportFcpxml(projectId, {
+  const { exportId, content } = await exportService.exportFcpxml(projectId, {
     libraryName: 'Regression Library',
     eventName:   'Regression Event',
   });
