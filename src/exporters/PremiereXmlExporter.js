@@ -399,9 +399,15 @@ class PremiereXmlExporter extends Exporter {
         b.close(); // filter
       }
 
-      // User-defined effect filters (fade effects handled by _emitOpacityWithFades above)
+      // ChromaKey filter (video only)
+      if (mediaType === 'video' && this._hasChromaKey(clip)) {
+        this._emitChromaKeyFilter(b, clip);
+      }
+
+      // User-defined effect filters — skip types with dedicated emitters above
       for (const effect of (clip.effects ?? [])) {
-        if (effect.type !== 'fadeIn' && effect.type !== 'fadeOut') {
+        if (effect.type !== 'fadeIn' && effect.type !== 'fadeOut'
+            && effect.type !== 'crop' && effect.type !== 'chromaKey') {
           this._emitEffectFilter(b, effect);
         }
       }
@@ -612,6 +618,49 @@ class PremiereXmlExporter extends Exporter {
       case 'bottomRight': return { x:  (crop.l + crop.r) / 2, y:  (crop.t + crop.b) / 2 };
       default:            return { x: 0, y: 0 }; // center — no offset needed
     }
+  }
+
+  // ─── ChromaKey filter ─────────────────────────────────────────────────────────
+
+  _hasChromaKey(clip) {
+    return (clip.effects ?? []).some((e) => e.type === 'chromaKey');
+  }
+
+  /**
+   * Emit Premiere Pro's Ultra Key effect for chroma keying.
+   * Maps VideoForge ChromaKeyEffect params to Premiere's ultrakey effect IDs.
+   */
+  _emitChromaKeyFilter(b, clip) {
+    const fx = (clip.effects ?? []).find((e) => e.type === 'chromaKey');
+    if (!fx) return;
+
+    const color      = fx.getParam('color',      '#00FF00');
+    const similarity = fx.getParam('similarity', 0.10);
+    const blend      = fx.getParam('blend',      0.10);
+
+    b.open('filter');
+      b.open('effect');
+        b.leaf('name',       {}, 'Ultra Key');
+        b.leaf('effectid',   {}, 'ultrakey');
+        b.leaf('effecttype', {}, 'video');
+        b.leaf('mediatype',  {}, 'video');
+        b.open('parameter');
+          b.leaf('parameterid', {}, 'keyColor');
+          b.leaf('name',  {}, 'Key Color');
+          b.leaf('value', {}, escapeText(color));
+        b.close();
+        b.open('parameter');
+          b.leaf('parameterid', {}, 'matteTransparency');
+          b.leaf('name',  {}, 'Transparency');
+          b.leaf('value', {}, String(Math.round(similarity * 100)));
+        b.close();
+        b.open('parameter');
+          b.leaf('parameterid', {}, 'matteSoften');
+          b.leaf('name',  {}, 'Soften');
+          b.leaf('value', {}, String(Math.round(blend * 100)));
+        b.close();
+      b.close();
+    b.close(); // filter
   }
 
   // ─── Generic effect filter ────────────────────────────────────────────────────
