@@ -161,6 +161,13 @@ class PremiereXmlExporter extends Exporter {
         const clip  = clips[i];
         const asset = itr.getAsset(clip.assetId);
         this._emitClipItem(b, clip, asset, itr, i + 1, 'video', emittedFiles);
+        // Transitions are siblings of <clipitem> in the track, not children.
+        // Skip the last clip — no following clip to transition into.
+        if (i < clips.length - 1) {
+          for (const trans of (clip.transitions ?? [])) {
+            this._emitTransitionItem(b, trans, clip, itr);
+          }
+        }
       }
       b.leaf('enabled', {}, 'TRUE');
       b.leaf('locked',  {}, track.locked ? 'TRUE' : 'FALSE');
@@ -293,7 +300,7 @@ class PremiereXmlExporter extends Exporter {
     const outFrame   = this._secToFrames(clip.sourceEnd,     fps);
 
     b.open('clipitem', { id: escapeAttr(`${clip.id}_${mediaType}`) });
-      b.leaf('masterclipid', {}, escapeText(clip.id));
+      b.leaf('masterclipid', {}, escapeText(asset?.id ?? clip.id));
       b.leaf('name',    {}, escapeText(clip.name || (asset?.name ?? clip.id)));
       b.leaf('enabled', {}, 'TRUE');
       b.leaf('start',   {}, String(startFrame));
@@ -397,11 +404,6 @@ class PremiereXmlExporter extends Exporter {
         if (effect.type !== 'fadeIn' && effect.type !== 'fadeOut') {
           this._emitEffectFilter(b, effect);
         }
-      }
-
-      // Transitions
-      for (const trans of (clip.transitions ?? [])) {
-        this._emitTransitionItem(b, trans, clip, itr);
       }
 
       // Motion (position / scale / rotation)
@@ -646,6 +648,7 @@ class PremiereXmlExporter extends Exporter {
     const fps       = itr.fps;
     const durFrames = this._secToFrames(trans.duration, fps);
     const cutFrame  = this._secToFrames(clip.timelineEnd, fps);
+    if (!isFinite(cutFrame)) return;
 
     b.open('transitionitem');
       b.leaf('rate',      {}, String(fps));
