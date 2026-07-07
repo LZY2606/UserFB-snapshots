@@ -138,7 +138,7 @@ class TimelineConverter {
   _convertEffects(clip) {
     if (!Array.isArray(clip.effects)) return [];
     return clip.effects
-      .filter((e) => e && e.type !== 'transition' && e.enabled !== false)
+      .filter((e) => e && e.type !== 'transition')
       .map((e) => EffectRepresentation.fromEffect(e));
   }
 

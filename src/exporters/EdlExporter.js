@@ -115,11 +115,10 @@ class EdlExporter extends Exporter {
         const reelId  = this._reelId(asset, clip);
         const hasTrans = clip.transitions && clip.transitions.length > 0;
 
-        // Dissolve / wipe event
+        // Dissolve event
         if (hasTrans && i > 0) {
-          const trans     = clip.transitions[0];
+          const trans    = clip.transitions[0];
           const durFrames = Math.round(trans.duration * fps);
-          const editType  = _edlEditType(trans.type, durFrames);
           const prevClip  = clips[i - 1];
           const prevAsset = itr.getAsset(prevClip.assetId);
 
@@ -127,7 +126,7 @@ class EdlExporter extends Exporter {
             eventNum++,
             this._reelId(prevAsset, prevClip),
             'V',
-            editType,
+            `D ${String(durFrames).padStart(3, '0')}`,
             this._tc(prevClip.sourceStart,       fps, useDropFrame),
             this._tc(prevClip.sourceEnd,         fps, useDropFrame),
             this._tc(prevClip.timelineStart,     fps, useDropFrame),
@@ -138,7 +137,7 @@ class EdlExporter extends Exporter {
             eventNum,
             reelId,
             'V',
-            editType,
+            `D ${String(durFrames).padStart(3, '0')}`,
             this._tc(clip.sourceStart,   fps, useDropFrame),
             this._tc(clip.sourceEnd,     fps, useDropFrame),
             this._tc(clip.timelineStart, fps, useDropFrame),
@@ -233,7 +232,7 @@ class EdlExporter extends Exporter {
             lines.push(`* VOLUME: ${clip.volume} [not representable in EDL]`);
           }
           if (clip.mute) {
-            lines.push(`* MUTED [mark mute manually in NLE]`);
+            lines.push(`* MUTED [excluded from record out]`);
           }
           if (this.includeComments && clip.pan !== 0) {
             lines.push(`* PAN: ${clip.pan} [not representable in EDL]`);
@@ -320,22 +319,6 @@ class EdlExporter extends Exporter {
     }
     if (clip.assetId) return clip.assetId.slice(0, 32);
     return 'BL'; // Black / missing reel
-  }
-}
-
-// ─── Transition type → CMX3600 edit code ─────────────────────────────────────
-
-function _edlEditType(transType, durFrames) {
-  const dur = String(durFrames).padStart(3, '0');
-  switch (transType) {
-    case 'wipe':
-    case 'wipeLeft':
-    case 'wipeRight':
-    case 'wipeUp':
-    case 'wipeDown':
-      return `W ${dur}`;
-    default:
-      return `D ${dur}`;
   }
 }
 

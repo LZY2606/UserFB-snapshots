@@ -161,13 +161,6 @@ class PremiereXmlExporter extends Exporter {
         const clip  = clips[i];
         const asset = itr.getAsset(clip.assetId);
         this._emitClipItem(b, clip, asset, itr, i + 1, 'video', emittedFiles);
-        // Transitions are siblings of <clipitem> in the track, not children.
-        // Skip the last clip — no following clip to transition into.
-        if (i < clips.length - 1) {
-          for (const trans of (clip.transitions ?? [])) {
-            this._emitTransitionItem(b, trans, clip, itr);
-          }
-        }
       }
       b.leaf('enabled', {}, 'TRUE');
       b.leaf('locked',  {}, track.locked ? 'TRUE' : 'FALSE');
@@ -300,7 +293,7 @@ class PremiereXmlExporter extends Exporter {
     const outFrame   = this._secToFrames(clip.sourceEnd,     fps);
 
     b.open('clipitem', { id: escapeAttr(`${clip.id}_${mediaType}`) });
-      b.leaf('masterclipid', {}, escapeText(asset?.id ?? clip.id));
+      b.leaf('masterclipid', {}, escapeText(clip.id));
       b.leaf('name',    {}, escapeText(clip.name || (asset?.name ?? clip.id)));
       b.leaf('enabled', {}, 'TRUE');
       b.leaf('start',   {}, String(startFrame));
@@ -399,17 +392,16 @@ class PremiereXmlExporter extends Exporter {
         b.close(); // filter
       }
 
-      // ChromaKey filter (video only)
-      if (mediaType === 'video' && this._hasChromaKey(clip)) {
-        this._emitChromaKeyFilter(b, clip);
-      }
-
-      // User-defined effect filters — skip types with dedicated emitters above
+      // User-defined effect filters (fade effects handled by _emitOpacityWithFades above)
       for (const effect of (clip.effects ?? [])) {
-        if (effect.type !== 'fadeIn' && effect.type !== 'fadeOut'
-            && effect.type !== 'crop' && effect.type !== 'chromaKey') {
+        if (effect.type !== 'fadeIn' && effect.type !== 'fadeOut') {
           this._emitEffectFilter(b, effect);
         }
+      }
+
+      // Transitions
+      for (const trans of (clip.transitions ?? [])) {
+        this._emitTransitionItem(b, trans, clip, itr);
       }
 
       // Motion (position / scale / rotation)
@@ -620,54 +612,11 @@ class PremiereXmlExporter extends Exporter {
     }
   }
 
-  // ─── ChromaKey filter ─────────────────────────────────────────────────────────
-
-  _hasChromaKey(clip) {
-    return (clip.effects ?? []).some((e) => e.type === 'chromaKey');
-  }
-
-  /**
-   * Emit Premiere Pro's Ultra Key effect for chroma keying.
-   * Maps VideoForge ChromaKeyEffect params to Premiere's ultrakey effect IDs.
-   */
-  _emitChromaKeyFilter(b, clip) {
-    const fx = (clip.effects ?? []).find((e) => e.type === 'chromaKey');
-    if (!fx) return;
-
-    const color      = fx.getParam('color',      '#00FF00');
-    const similarity = fx.getParam('similarity', 0.10);
-    const blend      = fx.getParam('blend',      0.10);
-
-    b.open('filter');
-      b.open('effect');
-        b.leaf('name',       {}, 'Ultra Key');
-        b.leaf('effectid',   {}, 'ultrakey');
-        b.leaf('effecttype', {}, 'video');
-        b.leaf('mediatype',  {}, 'video');
-        b.open('parameter');
-          b.leaf('parameterid', {}, 'keyColor');
-          b.leaf('name',  {}, 'Key Color');
-          b.leaf('value', {}, escapeText(color));
-        b.close();
-        b.open('parameter');
-          b.leaf('parameterid', {}, 'matteTransparency');
-          b.leaf('name',  {}, 'Transparency');
-          b.leaf('value', {}, String(Math.round(similarity * 100)));
-        b.close();
-        b.open('parameter');
-          b.leaf('parameterid', {}, 'matteSoften');
-          b.leaf('name',  {}, 'Soften');
-          b.leaf('value', {}, String(Math.round(blend * 100)));
-        b.close();
-      b.close();
-    b.close(); // filter
-  }
-
   // ─── Generic effect filter ────────────────────────────────────────────────────
 
   _emitEffectFilter(b, effect) {
+    const effectId    = effect.type || effect.videoForgeType || 'customEffect';
     const effectLabel = effect.type || effect.videoForgeType || 'Effect';
-    const effectId    = _premiereEffectId(effect.type) ?? (effect.type || effect.videoForgeType || 'customEffect');
 
     b.open('filter');
       b.open('effect');
@@ -697,7 +646,6 @@ class PremiereXmlExporter extends Exporter {
     const fps       = itr.fps;
     const durFrames = this._secToFrames(trans.duration, fps);
     const cutFrame  = this._secToFrames(clip.timelineEnd, fps);
-    if (!isFinite(cutFrame)) return;
 
     b.open('transitionitem');
       b.leaf('rate',      {}, String(fps));
@@ -1115,10 +1063,6 @@ function _transitionLabel(type) {
     dissolveIn:    'Fade In',
     dissolveOut:   'Fade Out',
     wipe:          'Wipe',
-    wipeLeft:      'Wipe',
-    wipeRight:     'Wipe',
-    wipeUp:        'Wipe',
-    wipeDown:      'Wipe',
     push:          'Push',
     slide:         'Slide',
     zoom:          'Zoom',
@@ -1135,10 +1079,6 @@ function _transitionEffectId(type) {
     dissolveIn:    'Additive Dissolve',
     dissolveOut:   'Additive Dissolve',
     wipe:          'Wipe',
-    wipeLeft:      'Wipe',
-    wipeRight:     'Wipe',
-    wipeUp:        'Wipe',
-    wipeDown:      'Wipe',
     push:          'Push',
     slide:         'Slide',
     zoom:          'Zoom',
@@ -1147,18 +1087,6 @@ function _transitionEffectId(type) {
     dipToColor:    'Dip to Color',
   };
   return map[type] ?? 'Cross Dissolve';
-}
-
-function _premiereEffectId(type) {
-  const map = {
-    blur:            'gaussianblur',
-    gaussianBlur:    'gaussianblur',
-    colorCorrection: 'lumetricolor',
-    lumetriColor:    'lumetricolor',
-    sharpen:         'sharpen',
-    glow:            'glo_glow',
-  };
-  return map[type] ?? null;
 }
 
 export default PremiereXmlExporter;
