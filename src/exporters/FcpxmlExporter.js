@@ -145,6 +145,36 @@ class FcpxmlExporter extends Exporter {
       uid:  '.../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti',
       type: 'motion',
     });
+
+    // Opacity effect (used for fade-in / fade-out keyframes)
+    b.leaf('effect', {
+      id:   'r_effect_opacity',
+      name: 'Opacity',
+      uid:  'FFBasicOpacity',
+      type: 'video',
+    });
+
+    // Keyer effect (used for chroma key)
+    b.leaf('effect', {
+      id:   'r_effect_keyer',
+      name: 'Keyer',
+      uid:  'FFChromaKeyEffect',
+      type: 'video',
+    });
+
+    // Transition effect resources
+    b.leaf('effect', {
+      id:   'r_trans_dissolve',
+      name: 'Cross Dissolve',
+      uid:  'FFCrossDissolve',
+      type: 'transition',
+    });
+    b.leaf('effect', {
+      id:   'r_trans_wipe',
+      name: 'Wipe',
+      uid:  'FFFadeToColorWipe',
+      type: 'transition',
+    });
   }
 
   _emitAssetResource(b, asset, projectFps) {
@@ -245,6 +275,14 @@ class FcpxmlExporter extends Exporter {
 
       const asset = itr.getAsset(clip.assetId);
       this._emitSpineClip(b, clip, asset, itr, videoTracks, audioTracks, captionTracks, 1);
+
+      // Emit transitions as siblings between spine clips (not inside them)
+      if (clip.transitions?.length > 0 && i < primaryClips.length - 1) {
+        for (const trans of clip.transitions) {
+          this._emitSpineTransition(b, trans, clip, fps);
+        }
+      }
+
       cursor = clip.timelineEnd;
     }
 
@@ -357,9 +395,22 @@ class FcpxmlExporter extends Exporter {
       this._emitCropAdjust(b, primaryClip, itr);
     }
 
-    // Clip-level effects as adjust-* elements (skip crop — handled above)
+    // Fade-in / fade-out → opacity keyframe filter
+    if (this._hasFades(primaryClip)) {
+      this._emitFadeFilters(b, primaryClip, itr);
+    }
+
+    // ChromaKey → Keyer filter
+    if (this._hasChromaKey(primaryClip)) {
+      this._emitChromaKeyFilter(b, primaryClip);
+    }
+
+    // Generic clip effects — skip types with dedicated emitters above
     for (const effect of (primaryClip.effects ?? [])) {
-      if (effect.type !== 'crop') {
+      if (effect.type !== 'crop'
+          && effect.type !== 'fadeIn' && effect.type !== 'fadeOut'
+          && effect.type !== 'dissolveIn' && effect.type !== 'dissolveOut'
+          && effect.type !== 'chromaKey') {
         this._emitClipEffect(b, effect, itr);
       }
     }
@@ -529,6 +580,108 @@ class FcpxmlExporter extends Exporter {
     }
   }
 
+  // ─── Fade filters ─────────────────────────────────────────────────────────────
+
+  _hasFades(clip) {
+    return (clip.effects ?? []).some(
+      (e) => e.type === 'fadeIn' || e.type === 'fadeOut'
+          || e.type === 'dissolveIn' || e.type === 'dissolveOut',
+    );
+  }
+
+  /**
+   * Emit an opacity keyframe filter for fade-in/fade-out effects.
+   * Uses FCP's built-in Opacity effect (r_effect_opacity / FFBasicOpacity).
+   */
+  _emitFadeFilters(b, clip, itr) {
+    const fps        = itr.fps;
+    const clipDur    = clip.timelineDuration;
+    const fadeIn     = (clip.effects ?? []).find((e) => e.type === 'fadeIn'  || e.type === 'dissolveIn');
+    const fadeOut    = (clip.effects ?? []).find((e) => e.type === 'fadeOut' || e.type === 'dissolveOut');
+    const keyframes  = [];
+
+    if (fadeIn) {
+      const dur      = fadeIn.getParam('duration', 1);
+      const fromVal  = (fadeIn.getParam('fromOpacity', 0)) * 100;
+      const toVal    = (fadeIn.getParam('toOpacity',   1)) * 100;
+      keyframes.push({ time: '0s', value: String(Math.round(fromVal)) });
+      keyframes.push({ time: new TimeCode(dur, fps).toFcpRational(), value: String(Math.round(toVal)) });
+    } else {
+      keyframes.push({ time: '0s', value: '100' });
+    }
+
+    if (fadeOut) {
+      const dur      = fadeOut.getParam('duration', 1);
+      const fromVal  = (fadeOut.getParam('fromOpacity', 1)) * 100;
+      const toVal    = (fadeOut.getParam('toOpacity',   0)) * 100;
+      const startSec = clipDur - dur;
+      keyframes.push({ time: new TimeCode(startSec, fps).toFcpRational(), value: String(Math.round(fromVal)) });
+      keyframes.push({ time: new TimeCode(clipDur,  fps).toFcpRational(), value: String(Math.round(toVal)) });
+    } else {
+      keyframes.push({ time: new TimeCode(clipDur, fps).toFcpRational(), value: '100' });
+    }
+
+    b.open('filter-video', { ref: 'r_effect_opacity', name: 'Opacity' });
+      b.open('param', { name: 'Amount', key: '1' });
+        for (const kf of keyframes) {
+          b.leaf('keyframe', { time: kf.time, value: kf.value, interp: 'linear' });
+        }
+      b.close();
+    b.close(); // filter-video
+  }
+
+  // ─── ChromaKey filter ─────────────────────────────────────────────────────────
+
+  _hasChromaKey(clip) {
+    return (clip.effects ?? []).some((e) => e.type === 'chromaKey');
+  }
+
+  /**
+   * Emit FCP's built-in Keyer (FFChromaKeyEffect) for chroma key removal.
+   */
+  _emitChromaKeyFilter(b, clip) {
+    const fx = (clip.effects ?? []).find((e) => e.type === 'chromaKey');
+    if (!fx) return;
+
+    const color      = fx.getParam('color',      '#00FF00');
+    const similarity = fx.getParam('similarity', 0.10);
+    const blend      = fx.getParam('blend',      0.10);
+
+    b.open('filter-video', { ref: 'r_effect_keyer', name: 'Keyer' });
+      b.leaf('param', {
+        name:  'Sample Color',
+        key:   '1',
+        value: escapeAttr(color),
+      });
+      b.leaf('param', {
+        name:  'Strength',
+        key:   '2',
+        value: String(Number((similarity * 100).toFixed(1))),
+      });
+      b.leaf('param', {
+        name:  'Softness',
+        key:   '3',
+        value: String(Number((blend * 100).toFixed(1))),
+      });
+    b.close(); // filter-video
+  }
+
+  // ─── Spine transition ─────────────────────────────────────────────────────────
+
+  /**
+   * Emit an FCPXML <transition> between two spine clips.
+   * The transition is centered on the cut point (clip.timelineEnd).
+   */
+  _emitSpineTransition(b, trans, clip, fps) {
+    const dur    = new TimeCode(trans.duration, fps).toFcpRational();
+    const half   = trans.duration / 2;
+    const offset = new TimeCode(clip.timelineEnd - half, fps).toFcpRational();
+    const ref    = _fcpTransitionRef(trans.type);
+    const name   = _fcpTransitionName(trans.type);
+
+    b.leaf('transition', { ref, name: escapeAttr(name), offset, duration: dur });
+  }
+
   // ─── Clip-level effect ────────────────────────────────────────────────────────
 
   _emitClipEffect(b, effect, itr) {
@@ -594,6 +747,37 @@ class FcpxmlExporter extends Exporter {
     if (!linear || linear <= 0) return 0;
     return Math.round(20 * Math.log10(linear) * 100) / 100;
   }
+}
+
+// ─── Transition helpers ───────────────────────────────────────────────────────
+
+function _fcpTransitionRef(type) {
+  switch (type) {
+    case 'wipe':
+    case 'wipeLeft':
+    case 'wipeRight':
+    case 'wipeUp':
+    case 'wipeDown':
+      return 'r_trans_wipe';
+    default:
+      return 'r_trans_dissolve';
+  }
+}
+
+function _fcpTransitionName(type) {
+  const map = {
+    crossDissolve: 'Cross Dissolve',
+    dissolveIn:    'Cross Dissolve',
+    dissolveOut:   'Cross Dissolve',
+    dipToBlack:    'Cross Dissolve',
+    dipToWhite:    'Cross Dissolve',
+    wipe:          'Wipe',
+    wipeLeft:      'Wipe',
+    wipeRight:     'Wipe',
+    wipeUp:        'Wipe',
+    wipeDown:      'Wipe',
+  };
+  return map[type] ?? 'Cross Dissolve';
 }
 
 // ─── Crop helpers ─────────────────────────────────────────────────────────────

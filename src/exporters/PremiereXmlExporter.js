@@ -666,8 +666,8 @@ class PremiereXmlExporter extends Exporter {
   // ─── Generic effect filter ────────────────────────────────────────────────────
 
   _emitEffectFilter(b, effect) {
-    const effectId    = effect.type || effect.videoForgeType || 'customEffect';
     const effectLabel = effect.type || effect.videoForgeType || 'Effect';
+    const effectId    = _premiereEffectId(effect.type) ?? (effect.type || effect.videoForgeType || 'customEffect');
 
     b.open('filter');
       b.open('effect');
@@ -1115,6 +1115,10 @@ function _transitionLabel(type) {
     dissolveIn:    'Fade In',
     dissolveOut:   'Fade Out',
     wipe:          'Wipe',
+    wipeLeft:      'Wipe',
+    wipeRight:     'Wipe',
+    wipeUp:        'Wipe',
+    wipeDown:      'Wipe',
     push:          'Push',
     slide:         'Slide',
     zoom:          'Zoom',
@@ -1131,6 +1135,10 @@ function _transitionEffectId(type) {
     dissolveIn:    'Additive Dissolve',
     dissolveOut:   'Additive Dissolve',
     wipe:          'Wipe',
+    wipeLeft:      'Wipe',
+    wipeRight:     'Wipe',
+    wipeUp:        'Wipe',
+    wipeDown:      'Wipe',
     push:          'Push',
     slide:         'Slide',
     zoom:          'Zoom',
@@ -1139,6 +1147,18 @@ function _transitionEffectId(type) {
     dipToColor:    'Dip to Color',
   };
   return map[type] ?? 'Cross Dissolve';
+}
+
+function _premiereEffectId(type) {
+  const map = {
+    blur:            'gaussianblur',
+    gaussianBlur:    'gaussianblur',
+    colorCorrection: 'lumetricolor',
+    lumetriColor:    'lumetricolor',
+    sharpen:         'sharpen',
+    glow:            'glo_glow',
+  };
+  return map[type] ?? null;
 }
 
 export default PremiereXmlExporter;

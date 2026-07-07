@@ -93,15 +93,16 @@ class EffectRepresentation {
 /** Map VideoForge effect type to a generic interchange name. */
 function _mapEffectType(vfType) {
   const map = {
-    fade:       'crossDissolve',
-    fadeIn:     'dissolveIn',
-    fadeOut:    'dissolveOut',
-    blur:       'gaussianBlur',
-    colorGrade: 'lumetriColor',
-    sharpen:    'sharpen',
-    glow:       'glow',
-    crop:       'crop',
-    chromakey:  'chromaKey',
+    fade:            'crossDissolve',
+    fadein:          'dissolveIn',
+    fadeout:         'dissolveOut',
+    blur:            'gaussianBlur',
+    colorgrade:      'lumetriColor',
+    colorcorrection: 'lumetriColor',
+    sharpen:         'sharpen',
+    glow:            'glow',
+    crop:            'crop',
+    chromakey:       'chromaKey',
   };
   return map[String(vfType).toLowerCase()] ?? vfType;
 }
