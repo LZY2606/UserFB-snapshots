@@ -450,7 +450,7 @@ static void ed25519_dom_sign(u8 signature[64], const u8 secret_key[64],
 {
 	u8 a[64];  // secret scalar and prefix
 	u8 r[32];  // secret deterministic "random" nonce
-	u8 h[32];  // publically verifiable hash of the message (not wiped)
+	u8 h[32];  // publicly verifiable hash of the message (not wiped)
 	u8 R[32];  // first half of the signature (allows overlapping inputs)
 	const u8 *pk = secret_key + 32;
 
