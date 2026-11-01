@@ -441,8 +441,6 @@ if (work_area == NULL) {
     crypto_wipe(password, sizeof(password));
     free(work_area);
 }
-
-
 .Ed
 .Pp
 This example hashes a password with 4 lanes,
@@ -491,6 +489,114 @@ if (work_area == NULL) {
     }
     crypto_argon2_final(&ctx, hash);  /* Also wipes work_area */
     free(work_area);
+}
+.Ed
+.Pp
+This example shows how one might implement Argon2 using pthreads.
+Because of the dependencies,
+it cannot be included in Monocypher itself.
+.Bd -literal -offset indent
+#include <assert.h>
+#include <errno.h>
+#include <pthread.h>
+
+typedef struct {
+    pthread_t          thread;
+    pthread_barrier_t *barrier;
+    crypto_argon2_ctx *ctx;
+    uint32_t           lane;
+} thread_data;
+
+static void *argon2_lane(void *ptr)
+{
+    thread_data *data      = ptr;
+    uint32_t     lane      = data->lane;
+    uint32_t     nb_passes = data->ctx->config.nb_passes;
+    for (uint32_t pass = 0; pass < nb_passes; pass++) {
+        for (uint32_t slice = 0; slice < 4; slice++) {
+            /* Compute current segment */
+            crypto_argon2_segment(data->ctx, pass, slice, lane);
+
+            /* Wait for other threads to do their own segment */
+            int code = pthread_barrier_wait(data->barrier);
+            assert(code == 0 ||
+                   code == PTHREAD_BARRIER_SERIAL_THREAD);
+        }
+    }
+    return NULL;
+}
+
+/* Argon2, truly parallel.
+ *
+ * May fail allocation or pthreads calls.
+ * Possible return values are:
+ * - 0: success
+ * - 1: failure: malloc()
+ * - 2: failure: pthread_barrier_init()
+ * - 3: failure: pthread_create()
+*/
+int argon2_phtreads(uint8_t *hash, uint32_t hash_size,
+                    crypto_argon2_config config,
+                    crypto_argon2_inputs inputs,
+                    crypto_argon2_extras extras)
+{
+    /* Allocate memory (work area and thread context) */
+    int          error     = 0;
+    size_t       work_size = config.nb_blocks * 1024;
+    size_t       data_size = config.nb_lanes  * sizeof(thread_data);
+    void        *work_area = malloc(work_size);
+    thread_data *lane_data = malloc(data_size);
+    if (work_area == NULL || lane_data == NULL) {
+        error = 1;
+        goto free;
+    }
+
+    /* Init synchronisation barrier */
+    pthread_barrier_t barrier;
+    if (pthread_barrier_init(&barrier, NULL, config.nb_lanes)) {
+        errno = error;
+        error = 2;
+        goto free;
+    }
+
+    /* Init Argon 2 */
+    crypto_argon2_ctx ctx;
+    crypto_argon2_init(&ctx, hash_size, work_area,
+                       config, inputs, extras);
+
+    /* Launch worker threads */
+    for (size_t lane = 0; lane < config.nb_lanes; lane++) {
+        lane_data[lane].barrier = &barrier;
+        lane_data[lane].ctx     = &ctx;
+        lane_data[lane].lane    = lane;
+        if (pthread_create(&lane_data[lane].thread, NULL,
+                           argon2_lane, lane_data + lane)) {
+            /* Could not create thread, stop the others */
+            for (size_t i = 0; i < lane; i++) {
+                assert(!pthread_cancel(lane_data[i].thread));
+            }
+            for (size_t i = 0; i < lane; i++) {
+                assert(!pthread_join(lane_data[i].thread, NULL));
+            }
+            errno = error;
+            error = 3;
+            goto barrier;
+        }
+    }
+
+    /* Wait for worker threads */
+    for (size_t lane = 0; lane < config.nb_lanes; lane++) {
+        assert(!pthread_join(lane_data[lane].thread, NULL));
+    }
+
+    crypto_argon2_final(&ctx, hash);
+
+barrier:
+    pthread_barrier_destroy(&barrier);
+free:
+    free(work_area);
+    free(lane_data);
+    return error;
 }
 .Ed
 .Sh SEE ALSO
