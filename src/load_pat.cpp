@@ -212,7 +212,7 @@ int pat_gmtosmp(int gm)
 
 int pat_smplooped(int smp)
 {
-	if( smp < MAXSMP ) return pat_loops[smp - 1];
+	if( smp > 0 && smp < MAXSMP ) return pat_loops[smp - 1];
 	return 1;
 }
 
