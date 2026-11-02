@@ -757,7 +757,7 @@ BOOL CSoundFile::SaveXM(LPCSTR lpszFileName, UINT nPacking)
 				xmsh.psustain = (BYTE)penv->nPanSustainBegin;
 				xmsh.ploops = (BYTE)penv->nPanLoopStart;
 				xmsh.ploope = (BYTE)penv->nPanLoopEnd;
-				for (UINT j=0; j<96; j++) if (penv->Keyboard[j+12])
+				for (UINT j=0; j<96; j++) if ((penv->Keyboard[j+12]) && (penv->Keyboard[j+12] < MAX_SAMPLES))
 				{
 					UINT k;
 					for (k=0; k<xmih.samples; k++)	if (smptable[k] == penv->Keyboard[j+12]) break;

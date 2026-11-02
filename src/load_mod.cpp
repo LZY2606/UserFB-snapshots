@@ -422,6 +422,7 @@ BOOL CSoundFile::SaveMod(LPCSTR lpszFileName, UINT nPacking)
 			for (UINT j=0; j<128; j++) if (Headers[i]->Keyboard[j])
 			{
 				insmap[i] = Headers[i]->Keyboard[j];
+				if (insmap[i] >= MAX_SAMPLES) insmap[i] = 0;
 				break;
 			}
 		}
