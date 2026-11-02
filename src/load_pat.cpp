@@ -916,7 +916,11 @@ static int pat_envelope_rpos(int rate, int start, int end)
 	t = end - start;
 	if( !t ) return 0;
 	if (t < 0) t = -t;
-	s = (t << r)/ p;
+	// prevent shift by negative (undefined behaviour)
+	if (r >= 0)
+		s = (t << r) / p;
+	else
+		s = (t >> -r) / p;
 	return s;
 }
 
