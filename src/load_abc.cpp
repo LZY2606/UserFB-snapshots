@@ -53,6 +53,7 @@
 #define ABC_ENV_NORANDOMPICK	"MMABC_NO_RANDOM_PICK"
 
 #define ABC_MAX_METER 64
+#define ABC_MAX_REST_BARS 256
 
 // gchords use tracks with vpos 1 thru 7
 // drums use track with vpos 8
@@ -326,10 +327,13 @@ static uint32_t abcticks(uint32_t modticks)
 
 static uint32_t notelen_notediv_to_ticks(int speed, int len, int div)
 {
-	uint32_t u;
+	double u;
 	if (div == 0) return 1;
-	u = (ROWSPERNOTE * RESOLUTION * speed * len * global_tempo_factor) / (div * global_tempo_divider);
-	return u;
+	u = ((double)ROWSPERNOTE * RESOLUTION * speed * len * global_tempo_factor)
+		/ ((double)div * global_tempo_divider);
+	if (u <= 0) return 0;
+	if (u > 4294967295.0) return 0xFFFFFFFFu;
+	return (uint32_t)u;
 }
 
 static void abc_dumptracks(ABCHANDLE *h, const char *p)
@@ -1634,7 +1638,8 @@ static int abc_getexpr(const char *p, int *number)
 		i++;
 	while( p[i] == '+' ) {
 		i += 1 + abc_getexpr(p+i+1, &term);
-		total += term;
+		if ( term > INT_MAX - total ) total = INT_MAX;
+		else total += term;
 		while( isspace(static_cast<unsigned char>(p[i])) )
 			i++;
 	}
@@ -4763,6 +4768,7 @@ BOOL CSoundFile::ReadABC(const uint8_t *lpStream, DWORD dwMemLength)
 									h->tp = abc_check_track(h, h->tp);
 									abc_track_clear_tiednote(h);
 									p += abc_notelen(p, &notelen, &notediv);
+									if ( notelen > ABC_MAX_REST_BARS ) notelen = ABC_MAX_REST_BARS;
 									thistime = notelen_notediv_to_ticks(h->speed, notelen*mnotelen, notediv*mnotediv);
 									if( abcfermata ) {
 										thistime <<= 1;
