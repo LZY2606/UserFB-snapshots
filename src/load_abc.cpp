@@ -54,6 +54,10 @@
 
 #define ABC_MAX_METER 64
 #define ABC_MAX_REST_BARS 256
+// %%MIDI chordname notes are semitone offsets.
+#define ABC_MAX_CHORDNOTE 127
+// repeat endings [n are stored as bits in the 32 bit lpar mask
+#define ABC_MAX_VARIANT 31
 
 // gchords use tracks with vpos 1 thru 7
 // drums use track with vpos 8
@@ -1465,13 +1469,14 @@ static void abc_add_variant_start(ABCHANDLE *h, ABCTRACK *tp, uint32_t tracktime
 	d[cmdflag] = 1;
 	d[command] = cmdvariant;
 	e = abc_new_event(h, tracktime, d);
-	e->lpar = 1<<n;
+	e->lpar = (n >= 1 && n <= ABC_MAX_VARIANT) ? (1u<<n) : 0;
 	abc_add_event(h, tp, e);
 }
 
 static void abc_add_variant_choise(ABCTRACK *tp, int n)
 {
-  tp->tail->lpar |= 1<<n;
+  if (n >= 1 && n <= ABC_MAX_VARIANT)
+    tp->tail->lpar |= 1u<<n;
 }
 
 static void	abc_add_chord(const char *p, ABCHANDLE *h, ABCTRACK *tp, uint32_t tracktime)
@@ -2976,6 +2981,10 @@ static void abc_MIDI_chordname(const char *p)
 			for(; *p && isspace(static_cast<unsigned char>(*p)); p++)
 				;
 			p += abc_getnumber(p, &notes[i]);
+			if (notes[i] > ABC_MAX_CHORDNOTE) {
+				abc_message("Failure: Chord note out of range, %s", name);
+				return;
+			}
 			i = i + 1;
 		}
 		abc_addchordname(name, i, notes);
@@ -4332,6 +4341,7 @@ BOOL CSoundFile::ReadABC(const uint8_t *lpStream, DWORD dwMemLength)
 										else {
 											p++;
 											p += abc_getnumber(p, &notediv);
+											if( notediv > ABC_MAX_VARIANT ) notediv = ABC_MAX_VARIANT;
 											while( notelen < notediv ) {
 												notelen++;
 												abc_add_variant_choise(h->tp, notelen);
@@ -4429,6 +4439,7 @@ BOOL CSoundFile::ReadABC(const uint8_t *lpStream, DWORD dwMemLength)
 										else {
 											p++;
 											p += abc_getnumber(p, &notediv);
+											if( notediv > ABC_MAX_VARIANT ) notediv = ABC_MAX_VARIANT;
 											while( notelen < notediv ) {
 												notelen++;
 												abc_add_variant_choise(h->tp, notelen);
