@@ -52,6 +52,8 @@
 #define ABC_ENV_DUMPTRACKS	"MMABC_DUMPTRACKS"
 #define ABC_ENV_NORANDOMPICK	"MMABC_NO_RANDOM_PICK"
 
+#define ABC_MAX_METER 64
+
 // gchords use tracks with vpos 1 thru 7
 // drums use track with vpos 8
 // voice chords use vpos 0 and vpos from 11 up
@@ -3091,6 +3093,8 @@ static void abc_metric_gchord(ABCHANDLE *h, int mlen, int mdiv)
 			else dest = mlen*4;
 			if (dest >= (int)sizeof(h->gchord))
 				dest = (int)sizeof(h->gchord) - 1;
+			if (dest < 0)
+				dest = 0;
 			h->gchord[dest] = '\0';
 		}
 		break;
@@ -3123,6 +3127,13 @@ static void abc_M_field(const char *p, int *mlen, int *mdiv)
 	}
 	p += abc_getexpr(p,mlen);
 	sscanf(p," / %d", mdiv);
+	// check invalid meter field
+	if ( *mlen < 1 || *mlen > ABC_MAX_METER ||
+		*mdiv < 1 || *mdiv > ABC_MAX_METER ) {
+		// fall back to 4/4.
+		*mlen = 4;
+		*mdiv = 4;
+	}
 }
 
 static int abc_drum_steps(const char *dch)
