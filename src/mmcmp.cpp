@@ -205,6 +205,9 @@ BOOL MMCMP_Unpack(LPCBYTE *ppMemFile, LPDWORD pdwMemLength)
 
 		dwSubPos = dwMemPos + 20;
 		dwMemPos += 20 + blk.sub_blk*8;
+
+		if (blk.pk_size > dwMemLength - dwMemPos)
+			goto err;
 #ifdef MMCMP_LOG
 		Log("block %d: flags=%04X sub_blocks=%d", nBlock, (UINT)blk.flags, (UINT)blk.sub_blk);
 		Log(" pksize=%d unpksize=%d", blk.pk_size, blk.unpk_size);
@@ -218,6 +221,8 @@ BOOL MMCMP_Unpack(LPCBYTE *ppMemFile, LPDWORD pdwMemLength)
 				Log("  Unpacked sub-block %d: offset %d, size=%d\n", i, subblk.unpk_pos, subblk.unpk_size);
 #endif
 				if (!MMCMP_IsDstBlockValid(&subblk, dwFileSize))
+					goto err;
+				if (subblk.unpk_size > dwMemLength - dwMemPos)
 					goto err;
 				memcpy(pBuffer+subblk.unpk_pos, lpMemFile+dwMemPos, subblk.unpk_size);
 				dwMemPos += subblk.unpk_size;
@@ -347,6 +352,7 @@ BOOL MMCMP_Unpack(LPCBYTE *ppMemFile, LPDWORD pdwMemLength)
 				}
 				if (newval < 0x100)
 				{
+					if (newval >= blk.tt_entries) goto err;
 					int n = ptable[newval];
 					if (blk.flags & MMCMP_DELTA)
 					{
