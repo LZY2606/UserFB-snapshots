@@ -142,8 +142,8 @@ typedef struct {
 #define OMEGA	((2.0f * PI * C4)/(float)C4SPD)
 
 /**********************************************************************/
-static BYTE pat_gm_used[MAXSMP];
-static BYTE pat_loops[MAXSMP];
+static BYTE pat_gm_used[MAXSMP + 1];
+static BYTE pat_loops[MAXSMP + 1];
 
 /**********************************************************************/
 
@@ -200,7 +200,7 @@ int pat_smptogm(int smp)
 int pat_gmtosmp(int gm)
 {
 	int smp;
-	for( smp=0; pat_gm_used[smp]; smp++ )
+	for( smp=0; smp < MAXSMP && pat_gm_used[smp]; smp++ )
 		if( pat_gm_used[smp] == gm )
 			return smp+1;
 	if( smp < MAXSMP ) {
