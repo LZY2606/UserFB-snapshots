@@ -1234,6 +1234,7 @@ DWORD ITUnpack8Bit(signed char *pSample, DWORD dwLen, LPBYTE lpMemFile, DWORD dw
 		{
 			wCount = 0x8000;
 		//	wHdr = READ_LE16(pSrc);
+			if (pStop - pSrc < 2) break;
 			pSrc += 2;
 			bLeft = 9;
 			bTemp = bTemp2 = 0;
@@ -1321,6 +1322,7 @@ DWORD ITUnpack16Bit(signed char *pSample, DWORD dwLen, LPBYTE lpMemFile, DWORD d
 		{
 			wCount = 0x4000;
 		//	wHdr = READ_LE16(pSrc);
+			if (pStop - pSrc < 2) break;
 			pSrc += 2;
 			bLeft = 17;
 			wTemp = wTemp2 = 0;

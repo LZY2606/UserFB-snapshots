@@ -1320,10 +1320,12 @@ UINT CSoundFile::ReadSample(MODINSTRUMENT *pIns, UINT nFlags, LPCSTR lpMemFile, 
 		if ((nFlags == (RS_IT2148 | RSF_STEREO)) || (nFlags == (RS_IT2158 | RSF_STEREO)))
 		{
 			DWORD offset = ITUnpack8Bit(pIns->pSample, pIns->nLength, (LPBYTE)lpMemFile, dwMemLength, 2, (nFlags == (RS_IT2158 | RSF_STEREO)));
+			if (offset > dwMemLength) offset = dwMemLength;
 			ITUnpack8Bit(pIns->pSample + 1, pIns->nLength, (LPBYTE)lpMemFile + offset, dwMemLength - offset, 2, (nFlags == (RS_IT2158 | RSF_STEREO)));
 		} else
 		{
 			DWORD offset = ITUnpack16Bit(pIns->pSample, pIns->nLength, (LPBYTE)lpMemFile, dwMemLength, 2, (nFlags == (RS_IT21516 | RSF_STEREO)));
+			if (offset > dwMemLength) offset = dwMemLength;
 			ITUnpack16Bit(pIns->pSample + 2, pIns->nLength, (LPBYTE)lpMemFile + offset, dwMemLength - offset, 2, (nFlags == (RS_IT21516 | RSF_STEREO)));
 		}
 		break;
