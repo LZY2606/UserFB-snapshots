@@ -1176,6 +1176,14 @@ BOOL CSoundFile::ReadPAT(const BYTE *lpStream, DWORD dwMemLength)
 	avoid_reentry = 1;
 	pat_read_patname(h, mmfile);
 	h->samples = pat_read_numsmp(mmfile);
+	// validate n. samples
+	if( h->samples < 1 ) {
+		avoid_reentry = 0;
+		PAT_Cleanup(h);
+		return FALSE;
+	}
+	if( h->samples > MAX_BASECHANNELS )
+		h->samples = MAX_BASECHANNELS;
 	if( strlen(h->patname) )
 		sprintf(buf,"%s canon %d-v (Fr. Jacques)", h->patname, h->samples);
 	else
@@ -1230,7 +1238,7 @@ BOOL CSoundFile::ReadPAT(const BYTE *lpStream, DWORD dwMemLength)
 		pat_setpat_attr(&hw, q);
 		memset(s,0,32);
 		if( hw.wave_name[0] )
-			sprintf(s, "%d:%s", t, hw.wave_name);
+			sprintf(s, "%d:%.7s", t, hw.wave_name);
 		else {
 			if( h->patname[0] )
 				sprintf(s, "%d:%s", t, h->patname);
