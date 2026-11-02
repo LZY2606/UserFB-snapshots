@@ -308,20 +308,22 @@ static long mmftell(MMFILE *mmfile)
 
 static void mmfseek(MMFILE *mmfile, long p, int whence)
 {
-	int newpos = mmfile->pos;
+	long base;
 	switch(whence) {
 		case SEEK_SET:
-			newpos = p;
+			base = 0;
 			break;
 		case SEEK_CUR:
-			newpos += p;
+			base = mmfile->pos;
 			break;
 		case SEEK_END:
-			newpos = mmfile->sz + p;
+			base = mmfile->sz;
 			break;
+		default:
+			return;
 	}
-	if (newpos < mmfile->sz)
-		mmfile->pos = newpos;
+	if (p >= -base && p < mmfile->sz - base)
+		mmfile->pos = (int)(base + p);
 	else {
 		mmfile->error = 1;
 //		printf("WARNING: seeking too far\n");
@@ -330,12 +332,13 @@ static void mmfseek(MMFILE *mmfile, long p, int whence)
 
 static void mmreadUBYTES(BYTE *buf, long sz, MMFILE *mmfile)
 {
-	int sztr = sz;
+	long sztr = sz;
+	if (sz <= 0) return;
 	// do not overread.
-	if (sz > mmfile->sz - mmfile->pos)
+	if (sztr > mmfile->sz - mmfile->pos)
 		sztr = mmfile->sz - mmfile->pos;
 	memcpy(buf, &mmfile->mm[mmfile->pos], sztr);
-	mmfile->pos += sz;
+	mmfile->pos += sztr;
 	// if truncated read, populate the rest of the array with zeros.
 	if (sz > sztr)
 		memset(buf+sztr, 0, sz-sztr);
@@ -343,6 +346,7 @@ static void mmreadUBYTES(BYTE *buf, long sz, MMFILE *mmfile)
 
 static void mmreadSBYTES(char *buf, long sz, MMFILE *mmfile)
 {
+	if (sz <= 0) return;
 	// do not overread.
 	if (sz > mmfile->sz - mmfile->pos)
 		sz = mmfile->sz - mmfile->pos;
