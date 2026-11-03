@@ -2014,6 +2014,13 @@ static void xm_load_mod(xm_context_t* restrict ctx,
 
 			xm_load_mod_effect(slot);
 
+			if(slot->effect_type == EFFECT_SET_SAMPLE_OFFSET) {
+				/* Invalid sample offset commands behave
+				   differently in PT2 */
+				slot->effect_type =
+					EFFECT_MOD_SET_SAMPLE_OFFSET;
+			}
+
 			if(slot->instrument && slot->note == 0) {
 				/* Ghost instruments in PT2 immediately switch
 				   to the new sample */

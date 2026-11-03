@@ -1126,8 +1126,12 @@ static void xm_trigger_note(xm_context_t* ctx, xm_channel_context_t* ch) {
 	/* Handle 9xx: Sample offset here, since it does nothing outside of a
 	   note trigger (ie, called on its own without a note). If we have Mx in
 	   the volume column, it does nothing. */
-	#if HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET)
-	if(ch->current->effect_type == EFFECT_SET_SAMPLE_OFFSET) {
+	#if HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET) || HAS_EFFECT(EFFECT_MOD_SET_SAMPLE_OFFSET)
+	if((HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET)
+	    && ch->current->effect_type == EFFECT_SET_SAMPLE_OFFSET)
+	   ||
+	   (HAS_EFFECT(EFFECT_MOD_SET_SAMPLE_OFFSET)
+	    && ch->current->effect_type == EFFECT_MOD_SET_SAMPLE_OFFSET)) {
 		if(ch->current->effect_param > 0) {
 			ch->sample_offset_param = ch->current->effect_param;
 		}
@@ -1138,6 +1142,12 @@ static void xm_trigger_note(xm_context_t* ctx, xm_channel_context_t* ch) {
 		/* An invalid 9xx will *not* clear ch->sample, and if we have an
 		   instrument trigger, ch->volume and ch->panning will still be
 		   set; this can affect later ghost notes */
+		#if HAS_EFFECT(EFFECT_MOD_SET_SAMPLE_OFFSET)
+		if(ch->current->effect_type == EFFECT_MOD_SET_SAMPLE_OFFSET) {
+			ch->sample_offset_invalid = false;
+		}
+		else
+		#endif
 		ch->sample_offset_invalid = ch->sample_position
 			>= ch->sample->length * SAMPLE_MICROSTEPS;
 		#endif

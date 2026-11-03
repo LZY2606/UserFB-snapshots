@@ -159,7 +159,9 @@ static_assert(HAS_FEATURE(FEATURE_LINEAR_FREQUENCIES)
 #define EFFECT_S3M_ARPEGGIO 0x30 /* Not vanilla XM (uses global memory) */
 #define EFFECT_S3M_TREMOR 0x31 /* Not vanilla XM (uses global memory, also runs
                                   on tick 0) */
-/* 0x32..=0x3F unused */
+#define EFFECT_MOD_SET_SAMPLE_OFFSET 0x33 /* Not vanilla XM (differs when
+                                             invalid) */
+/* 0x34..=0x3F unused */
 #define EFFECT_NOP 0xFF /* Not vanilla XM. Does nothing but still sets global
                            memory. */
 
@@ -740,7 +742,8 @@ struct xm_channel_context_s {
 
 	#define HAS_SAMPLE_OFFSET_INVALID (HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET) \
 	                 && HAS_FEATURE(FEATURE_ACCURATE_SAMPLE_OFFSET_EFFECT))
-	#if HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET)
+	#if HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET) \
+		|| HAS_EFFECT(EFFECT_MOD_SET_SAMPLE_OFFSET)
 	uint8_t sample_offset_param;
 	#endif
 
@@ -887,7 +890,7 @@ struct xm_channel_context_s {
 		+ !HAS_EFFECT(EFFECT_EXTRA_FINE_PORTAMENTO_DOWN) \
 		+ !(HAS_PANNING && HAS_EFFECT(EFFECT_PANNING_SLIDE)) \
 		+ 2*!HAS_LOOPS \
-		+ !HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET) \
+		+ !(HAS_EFFECT(EFFECT_SET_SAMPLE_OFFSET) || HAS_EFFECT(EFFECT_MOD_SET_SAMPLE_OFFSET)) \
 		+ !HAS_SAMPLE_OFFSET_INVALID \
 		+ !HAS_EFFECT(EFFECT_FINE_VOLUME_SLIDE_UP) \
 		+ !HAS_EFFECT(EFFECT_FINE_VOLUME_SLIDE_DOWN) \
