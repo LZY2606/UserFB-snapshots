@@ -362,6 +362,32 @@ xm_context_t* xm_create_context(char* restrict mempool,
 
 static void xm_fixup_common(xm_context_t* ctx) {
 	xm_pattern_slot_t* slot = ctx->pattern_slots;
+
+	/* Remove Fxx commands that immediately get overwritten in the same
+	   row. Because we mangle F00 differently later on, this has actual
+	   implications in a few weird cases like F00 F06 in the same row. */
+	for(uint32_t i = ctx->module.num_rows; i; --i) {
+		bool has_tempo = false, has_bpm = false;
+		xm_pattern_slot_t* row = slot - 1; /* -1 to avoid always writing
+                                                         row[c-1] later */
+
+		for(uint8_t c = NUM_CHANNELS(&ctx->module); c; --c, ++slot) {
+			if(row[c].effect_type == EFFECT_SET_TEMPO) {
+				if(has_tempo) goto blank;
+				has_tempo = true;
+			} else if(row[c].effect_type == EFFECT_SET_BPM) {
+				if(has_bpm) goto blank;
+				has_bpm = true;
+			}
+			continue;
+
+		blank:
+			row[c].effect_type = 0;
+			row[c].effect_param = 0;
+		}
+	}
+
+	slot = ctx->pattern_slots;
 	for(uint32_t i = ctx->module.num_rows * NUM_CHANNELS(&ctx->module);
 	    i; --i, ++slot) {
 		if(slot->effect_type == EFFECT_JUMP_TO_ORDER
