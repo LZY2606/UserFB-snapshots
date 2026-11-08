@@ -29,6 +29,8 @@ You can also call the `jpge::jpeg_encoder class` directly if you need more contr
 
 ## Basic Usage (Decompression)
 
+Note: I suggest new projects use [stb_image_wuffs](https://github.com/richgel999/stb_image_wuffs/) for secure image decompression. jpgd is legacy code.
+
 Include [jpgd.h](https://github.com/orian/jpeg-compressor/blob/master/jpgd.h) and call one of these helper functions in the "jpgd" namespace:
 
 ``` cpp
