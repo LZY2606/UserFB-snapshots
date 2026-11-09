@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## mp4ameta v0.13.0
 
+- Fix shifting of 64 bit chunk offsets (`co64`) when metadata before the media data changes size
+- Reject chunk offsets that would overflow their `stco` or `co64` table instead of truncating them
 - Add label accessors (`----:com.apple.iTunes:LABEL`)
 - Make write_to function generic over a StorageFile trait
 

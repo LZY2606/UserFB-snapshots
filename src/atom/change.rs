@@ -249,13 +249,19 @@ impl ChunkOffsets<'_> {
 }
 
 pub trait ChunkOffsetInt: Sized + Copy + Into<u64> {
-    fn shift(&self, shift: i64) -> Self;
+    fn shift(&self, shift: i64) -> crate::Result<Self>;
     fn write(&self, writer: &mut impl Write) -> crate::Result<()>;
 }
 
 impl ChunkOffsetInt for u32 {
-    fn shift(&self, shift: i64) -> Self {
-        (*self as i64 + shift) as u32
+    fn shift(&self, shift: i64) -> crate::Result<Self> {
+        let offset = (*self as i64) + shift;
+        u32::try_from(offset).map_err(|_| {
+            crate::Error::new(
+                ErrorKind::InvalidSampleTable,
+                "Sample table chunk offset (stco) does not fit into 32 bits after shifting",
+            )
+        })
     }
 
     fn write(&self, writer: &mut impl Write) -> crate::Result<()> {
@@ -264,12 +270,19 @@ impl ChunkOffsetInt for u32 {
     }
 }
 impl ChunkOffsetInt for u64 {
-    fn shift(&self, shift: i64) -> Self {
-        if shift < 0 && *self > u32::MAX as u64 {
-            *self
-        } else {
-            (*self as i64 + shift) as u64
-        }
+    fn shift(&self, shift: i64) -> crate::Result<Self> {
+        let offset = (*self as i64).checked_add(shift).ok_or_else(|| {
+            crate::Error::new(
+                ErrorKind::InvalidSampleTable,
+                "Sample table chunk offset (co64) is out of bounds after shifting",
+            )
+        })?;
+        u64::try_from(offset).map_err(|_| {
+            crate::Error::new(
+                ErrorKind::InvalidSampleTable,
+                "Sample table chunk offset (co64) is out of bounds after shifting",
+            )
+        })
     }
 
     fn write(&self, writer: &mut impl Write) -> crate::Result<()> {
@@ -291,7 +304,7 @@ pub fn write_shifted_offsets<T: ChunkOffsetInt>(
             mdat_shift += change.len_diff();
         }
 
-        o.shift(mdat_shift).write(writer)?;
+        o.shift(mdat_shift)?.write(writer)?;
     }
     Ok(())
 }
@@ -399,3 +412,137 @@ atom_ref!(
     Stco,
     Co64,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bounds(pos: u64, len: u64) -> AtomBounds {
+        head::test_bounds(pos, Size::from(len - Head::NORMAL_SIZE))
+    }
+
+    fn remove(pos: u64, len: u64) -> Change<'static> {
+        Change::Remove(RemoveAtom {
+            bounds: Box::leak(Box::new(bounds(pos, len))),
+            level: 1,
+        })
+    }
+
+    fn insert(pos: u64, content_len: u64) -> Change<'static> {
+        let atom = Box::leak(Box::new(Hdlr {
+            state: State::Insert,
+            data: Cow::Owned(vec![0; content_len as usize]),
+        }));
+        Change::Insert(InsertAtom { pos, atom: AtomRef::Hdlr(atom), level: 1 })
+    }
+
+    fn shifted<T: ChunkOffsetInt + FromU64>(offsets: &[T], changes: &[Change<'_>]) -> Vec<T> {
+        let mut buf = Vec::new();
+        write_shifted_offsets(&mut std::io::Cursor::new(&mut buf), offsets, changes).unwrap();
+        let entry_size = (buf.len() / offsets.len()) as u64;
+        let mut shifted = Vec::with_capacity(offsets.len());
+        let mut reader = std::io::Cursor::new(&buf);
+        for _ in 0..offsets.len() {
+            let offset = if entry_size == 4 {
+                T::from_u64(reader.read_be_u32().unwrap().into())
+            } else {
+                T::from_u64(reader.read_be_u64().unwrap())
+            };
+            shifted.push(offset);
+        }
+        shifted
+    }
+
+    trait FromU64 {
+        fn from_u64(value: u64) -> Self;
+    }
+    impl FromU64 for u32 {
+        fn from_u64(value: u64) -> Self {
+            value as Self
+        }
+    }
+    impl FromU64 for u64 {
+        fn from_u64(value: u64) -> Self {
+            value
+        }
+    }
+
+    #[test]
+    fn shift_is_not_applied_to_chunks_before_the_change() {
+        let changes = [remove(60, 40)];
+
+        assert_eq!(shifted(&[50u32, 150, 250], &changes), [50, 110, 210]);
+        assert_eq!(shifted(&[50u64, 150, 250], &changes), [50, 110, 210]);
+    }
+
+    #[test]
+    fn shift_accumulates_across_multiple_length_changes() {
+        let changes = [
+            remove(60, 40),              // -40
+            insert(200, 17),             // +25 (8 byte atom head plus 17 bytes content)
+            Change::RemoveMdat(400, 15), // -15
+        ];
+
+        let offsets_32 = [50u32, 150, 350, 600];
+        assert_eq!(shifted(&offsets_32, &changes), [50, 110, 335, 570]);
+
+        let offsets_64 = [50u64, 150, 350, 600];
+        assert_eq!(shifted(&offsets_64, &changes), [50, 110, 335, 570]);
+    }
+
+    #[test]
+    fn growing_preceding_data_shifts_offsets_on_both_sides_of_four_gib() {
+        let four_gib = u32::MAX as u64 + 1;
+        let changes = [insert(500, 1017)]; // total atom length of 1025
+        let offsets = [1000u64, four_gib - 10, four_gib, four_gib + 10, four_gib * 2];
+        let expected =
+            [2025, four_gib - 10 + 1025, four_gib + 1025, four_gib + 1035, four_gib * 2 + 1025];
+
+        assert_eq!(shifted(&offsets, &changes), expected);
+    }
+
+    #[test]
+    fn shrinking_preceding_data_shifts_offsets_on_both_sides_of_four_gib() {
+        let four_gib = u32::MAX as u64 + 1;
+        let changes = [remove(500, 1025)]; // removed atom is 1025 bytes long
+        let offsets = [2000u64, four_gib - 10, four_gib, four_gib + 10, four_gib * 2];
+        let expected =
+            [975u64, four_gib - 10 - 1025, four_gib - 1025, four_gib - 1015, four_gib * 2 - 1025];
+
+        assert_eq!(shifted(&offsets, &changes), expected);
+    }
+
+    #[test]
+    fn u32_overflow_and_underflow_are_reported() {
+        let grow = [insert(100, 100)];
+        let offsets = [u32::MAX - 10, u32::MAX];
+        let mut buf = Vec::new();
+        assert!(
+            write_shifted_offsets(&mut std::io::Cursor::new(&mut buf), &offsets, &grow).is_err()
+        );
+
+        let shrink = [remove(0, 100)];
+        let offsets = [50u32];
+        let mut buf = Vec::new();
+        assert!(
+            write_shifted_offsets(&mut std::io::Cursor::new(&mut buf), &offsets, &shrink).is_err()
+        );
+    }
+
+    #[test]
+    fn u64_overflow_and_underflow_are_reported() {
+        let grow = [insert(0, 1)];
+        let offsets = [i64::MAX as u64];
+        let mut buf = Vec::new();
+        assert!(
+            write_shifted_offsets(&mut std::io::Cursor::new(&mut buf), &offsets, &grow).is_err()
+        );
+
+        let shrink = [remove(0, 100)];
+        let offsets = [50u64];
+        let mut buf = Vec::new();
+        assert!(
+            write_shifted_offsets(&mut std::io::Cursor::new(&mut buf), &offsets, &shrink).is_err()
+        );
+    }
+}

@@ -525,3 +525,170 @@ fn write_empty() {
     assert!(tag.is_empty());
     assert_readonly(&tag);
 }
+
+struct ChunkTable {
+    fourcc: [u8; 4],
+    offsets: Vec<u64>,
+}
+
+struct SampleTable {
+    stsz_uniform_size: u32,
+    stsz_sizes: Vec<u32>,
+    stsc: Vec<(u32, u32, u32)>,
+    chunks: Vec<ChunkTable>,
+}
+
+fn parse_sample_tables(data: &[u8]) -> Vec<SampleTable> {
+    fn atoms(mut data: &[u8]) -> impl Iterator<Item = ([u8; 4], &[u8])> {
+        let mut atoms = Vec::new();
+        while data.len() >= 8 {
+            let mut size = u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize;
+            let fourcc = data[4..8].try_into().unwrap();
+            let header = if size == 1 {
+                size = u64::from_be_bytes(data[8..16].try_into().unwrap()) as usize;
+                16
+            } else {
+                8
+            };
+            if size < header || size - header > data.len() {
+                break;
+            }
+            atoms.push((fourcc, &data[header..size]));
+            data = &data[size..];
+        }
+        atoms.into_iter()
+    }
+
+    fn find(content: &[u8], fourcc: [u8; 4]) -> Option<&[u8]> {
+        atoms(content).find(|(f, _)| *f == fourcc).map(|(_, c)| c)
+    }
+
+    let mut tables = Vec::new();
+    for (_, moov) in atoms(data).filter(|(f, _)| *f == *b"moov") {
+        for (_, trak) in atoms(moov).filter(|(f, _)| *f == *b"trak") {
+            let Some(mdia) = find(trak, *b"mdia") else { continue };
+            let Some(minf) = find(mdia, *b"minf") else { continue };
+            let Some(stbl) = find(minf, *b"stbl") else { continue };
+
+            let Some(stsz) = find(stbl, *b"stsz") else { continue };
+            let (stsz_uniform_size, stsz_sizes) = {
+                let uniform = u32::from_be_bytes(stsz[4..8].try_into().unwrap());
+                let count = u32::from_be_bytes(stsz[8..12].try_into().unwrap()) as usize;
+                let sizes = if uniform != 0 {
+                    Vec::new()
+                } else {
+                    (0..count)
+                        .map(|i| {
+                            u32::from_be_bytes(stsz[12 + 4 * i..16 + 4 * i].try_into().unwrap())
+                        })
+                        .collect()
+                };
+                (uniform, sizes)
+            };
+
+            let stsc = match find(stbl, *b"stsc") {
+                Some(content) => {
+                    let count = u32::from_be_bytes(content[4..8].try_into().unwrap()) as usize;
+                    (0..count)
+                        .map(|i| {
+                            let entry = &content[8 + 12 * i..20 + 12 * i];
+                            (
+                                u32::from_be_bytes(entry[0..4].try_into().unwrap()),
+                                u32::from_be_bytes(entry[4..8].try_into().unwrap()),
+                                u32::from_be_bytes(entry[8..12].try_into().unwrap()),
+                            )
+                        })
+                        .collect()
+                }
+                None => Vec::new(),
+            };
+
+            let mut chunks = Vec::new();
+            for (fourcc, content) in atoms(stbl).filter(|(f, _)| *f == *b"stco" || *f == *b"co64") {
+                let count = u32::from_be_bytes(content[4..8].try_into().unwrap()) as usize;
+                let offsets = (0..count)
+                    .map(|i| {
+                        if fourcc == *b"co64" {
+                            u64::from_be_bytes(content[8 + 8 * i..16 + 8 * i].try_into().unwrap())
+                        } else {
+                            u32::from_be_bytes(content[8 + 4 * i..12 + 4 * i].try_into().unwrap())
+                                .into()
+                        }
+                    })
+                    .collect();
+                chunks.push(ChunkTable { fourcc, offsets });
+            }
+
+            tables.push(SampleTable { stsz_uniform_size, stsz_sizes, stsc, chunks });
+        }
+    }
+    tables
+}
+
+fn sample_bytes(data: &[u8], table: &SampleTable) -> Vec<Vec<u8>> {
+    let mut samples = Vec::new();
+    let chunk_count = table.chunks.iter().map(|c| c.offsets.len()).max().unwrap_or(0);
+    let mut samples_per_chunk = vec![0u32; chunk_count];
+    let mut stsc_idx = 0;
+    for (chunk, samples_in_chunk) in samples_per_chunk.iter_mut().enumerate() {
+        while stsc_idx + 1 < table.stsc.len() && table.stsc[stsc_idx + 1].0 as usize <= chunk + 1 {
+            stsc_idx += 1;
+        }
+        *samples_in_chunk = table.stsc[stsc_idx].1;
+    }
+    let mut size_index = 0;
+    for chunks in &table.chunks {
+        for (chunk_index, offset) in chunks.offsets.iter().copied().enumerate() {
+            let sample_count = samples_per_chunk.get(chunk_index).copied().unwrap_or(0) as usize;
+            if table.stsz_uniform_size != 0 {
+                let start = offset as usize;
+                let len = sample_count * table.stsz_uniform_size as usize;
+                samples.push(data[start..start + len].to_vec());
+            } else {
+                let mut cursor = offset as usize;
+                for _ in 0..sample_count {
+                    let size = table.stsz_sizes[size_index] as usize;
+                    samples.push(data[cursor..cursor + size].to_vec());
+                    cursor += size;
+                    size_index += 1;
+                }
+            }
+        }
+    }
+    samples
+}
+
+#[test]
+fn rewrite_keeps_sample_bytes_at_shifted_chunk_offsets() {
+    let target_file =
+        use_sample_file("files/sample-multi-track.3gp", "target/rewrite_keeps_sample_bytes.3gp");
+
+    let before = fs::read(target_file).unwrap();
+    let before_tables = parse_sample_tables(&before);
+    assert!(!before_tables.is_empty());
+    assert!(before_tables.iter().any(|t| t.chunks.iter().any(|c| c.offsets.len() > 1)));
+    let before_samples: Vec<_> = before_tables.iter().map(|t| sample_bytes(&before, t)).collect();
+
+    // grow and shrink the metadata in front of the media data in a single rewrite
+    let mut tag = Tag::read_from_path(target_file).unwrap();
+    tag.set_album("REWRITE CHUNK OFFSET REGRESSION");
+    tag.write_to_path(target_file).unwrap();
+    tag.remove_album();
+    tag.write_to_path(target_file).unwrap();
+
+    let after = fs::read(target_file).unwrap();
+    let after_tables = parse_sample_tables(&after);
+    assert_eq!(before_tables.len(), after_tables.len());
+
+    for (index, (before_table, after_table)) in before_tables.iter().zip(&after_tables).enumerate()
+    {
+        assert_eq!(before_table.chunks.len(), after_table.chunks.len());
+        for (before_chunks, after_chunks) in before_table.chunks.iter().zip(&after_table.chunks) {
+            assert_eq!(before_chunks.fourcc, after_chunks.fourcc);
+            assert_eq!(before_chunks.offsets.len(), after_chunks.offsets.len());
+        }
+
+        let after_samples = sample_bytes(&after, after_table);
+        assert_eq!(before_samples[index], after_samples);
+    }
+}

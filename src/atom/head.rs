@@ -221,3 +221,8 @@ pub fn find_bounds(reader: &mut impl Seek, size: Size) -> crate::Result<AtomBoun
     let pos = reader.stream_position()? - size.head_len();
     Ok(AtomBounds { pos, size })
 }
+
+#[cfg(test)]
+pub fn test_bounds(pos: u64, size: Size) -> AtomBounds {
+    AtomBounds { pos, size }
+}
