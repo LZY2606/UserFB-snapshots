@@ -265,7 +265,11 @@ impl ChunkOffsetInt for u32 {
 }
 impl ChunkOffsetInt for u64 {
     fn shift(&self, shift: i64) -> Self {
-        (*self as i64 + shift) as u64
+        if shift < 0 && *self > u32::MAX as u64 {
+            *self
+        } else {
+            (*self as i64 + shift) as u64
+        }
     }
 
     fn write(&self, writer: &mut impl Write) -> crate::Result<()> {
