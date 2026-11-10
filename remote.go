@@ -805,22 +805,51 @@ func (wd *remoteWD) MinimizeWindow(name string) error {
 	return wd.modifyWindow(name, "POST", "minimize", map[string]string{})
 }
 
+// WindowOperationError describes a window operation (such as MaximizeWindow)
+// that failed, where the subsequent attempt to switch back to the original
+// window also failed. Use errors.As to retrieve it and inspect the two
+// underlying errors.
+type WindowOperationError struct {
+	// OperationErr is the error returned by the window operation itself.
+	OperationErr error
+	// RestoreErr is the error returned while attempting to switch back to
+	// the original window.
+	RestoreErr error
+}
+
+// Error implements the error interface.
+func (e *WindowOperationError) Error() string {
+	return fmt.Sprintf("window operation failed: %v; switching back to the original window also failed: %v", e.OperationErr, e.RestoreErr)
+}
+
+// Unwrap returns the error produced by the window operation itself.
+func (e *WindowOperationError) Unwrap() error {
+	return e.OperationErr
+}
+
 func (wd *remoteWD) modifyWindow(name, verb, command string, params interface{}) error {
-	// The original protocol allowed for maximizing any named window. The W3C
-	// specification only allows the current window be be modified. Emulate the
-	// previous behavior by switching to the target window, maximizing the
-	// current window, and switching back to the original window.
+	// The original protocol allowed for modifying any named window. The W3C
+	// specification only allows the current window to be modified. Emulate the
+	// previous behavior by switching to the target window, performing the
+	// operation on it, and switching back to the original window.
 	var startWindow string
+	switched := false
 	if name != "" && wd.w3cCompatible {
 		var err error
 		startWindow, err = wd.CurrentWindowHandle()
 		if err != nil {
+			// Without knowing the current window, it could not be
+			// restored afterwards. Do not perform the operation at all.
 			return err
 		}
 		if name != startWindow {
 			if err := wd.SwitchWindow(name); err != nil {
+				// Assume the failed switch left the current window
+				// unchanged: neither perform the operation nor attempt
+				// any further switches.
 				return err
 			}
+			switched = true
 		}
 	}
 
@@ -841,18 +870,26 @@ func (wd *remoteWD) modifyWindow(name, verb, command string, params interface{})
 		}
 	}
 
-	if _, err := wd.execute(verb, url, data); err != nil {
-		return err
+	_, operationErr := wd.execute(verb, url, data)
+
+	if !switched {
+		return operationErr
 	}
 
-	// TODO(minusnine): add a test for switching back to the original window.
-	if name != startWindow && wd.w3cCompatible {
-		if err := wd.SwitchWindow(startWindow); err != nil {
-			return err
+	// Switch back to the original window, exactly once, whether or not the
+	// operation succeeded. The operation itself is never repeated for this
+	// purpose.
+	if restoreErr := wd.SwitchWindow(startWindow); restoreErr != nil {
+		if operationErr != nil {
+			return &WindowOperationError{
+				OperationErr: operationErr,
+				RestoreErr:   restoreErr,
+			}
 		}
+		return restoreErr
 	}
 
-	return nil
+	return operationErr
 }
 
 func (wd *remoteWD) ResizeWindow(name string, width, height int) error {

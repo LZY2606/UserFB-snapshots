@@ -310,13 +310,32 @@ type WebDriver interface {
 	SwitchFrame(frame interface{}) error
 	// SwitchWindow switches the context to the specified window.
 	SwitchWindow(name string) error
-	// CloseWindow closes the specified window.
+	// CloseWindow closes the specified window. If the name is empty, the
+	// current window is closed.
+	//
+	// In a W3C-compliant session, naming a window other than the current one
+	// temporarily switches to that window and switches back to the original
+	// window afterwards, exactly once, even if closing the window fails. If
+	// both the operation and the switch back fail, the returned error is a
+	// *WindowOperationError.
 	CloseWindow(name string) error
 	// MaximizeWindow maximizes a window. If the name is empty, the current
 	// window will be maximized.
+	//
+	// In a W3C-compliant session, naming a window other than the current one
+	// temporarily switches to that window and switches back to the original
+	// window afterwards, exactly once, even if maximizing the window fails.
+	// If both the operation and the switch back fail, the returned error is
+	// a *WindowOperationError.
 	MaximizeWindow(name string) error
-	// ResizeWindow changes the dimensions of a window. If the name is empty, the
-	// current window will be maximized.
+	// ResizeWindow changes the dimensions of a window. If the name is empty,
+	// the current window will be resized.
+	//
+	// In a W3C-compliant session, naming a window other than the current one
+	// temporarily switches to that window and switches back to the original
+	// window afterwards, exactly once, even if resizing the window fails. If
+	// both the operation and the switch back fail, the returned error is a
+	// *WindowOperationError.
 	ResizeWindow(name string, width, height int) error
 
 	// Get navigates the browser to the provided URL.
