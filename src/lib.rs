@@ -89,6 +89,8 @@
 pub(crate) mod basic;
 #[macro_use]
 pub mod model;
+#[cfg(feature = "xml")]
+pub mod parallel;
 pub mod parser;
 pub mod writer;
 #[cfg(feature = "xml")]
@@ -526,6 +528,39 @@ impl Vtk {
             #[cfg(not(feature = "xml"))]
             _ => Err(Error::UnknownFileExtension(None)),
         }
+    }
+
+    /// Import a VTK file at the specified path, resolving the pieces of "parallel" XML files
+    /// (`.pvtu`, `.pvtp`, `.pvtr`, `.pvts`, `.pvti`) with the given
+    /// [`PieceResolver`](parallel::PieceResolver).
+    ///
+    /// This is the [`load`](parallel::load) entry point exposed as a method on [`Vtk`]: pieces
+    /// are looked up through `resolver`, validated and merged inline into the returned model in
+    /// declaration order, and a [`LoadReport`](parallel::LoadReport) describing the fate of
+    /// every piece reference is returned alongside it.
+    ///
+    /// For the classic behavior of reading pieces from local files relative to the referring
+    /// file, use [`LocalFileResolver`](parallel::LocalFileResolver) or simply
+    /// [`import`](Vtk::import) combined with
+    /// [`load_all_pieces`](model::Vtk::load_all_pieces).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use vtkio::Vtk;
+    /// use vtkio::parallel::LocalFileResolver;
+    ///
+    /// let resolver = LocalFileResolver::new(".");
+    /// let (vtk, report) = Vtk::import_with_resolver("mesh.pvtu", &resolver)?;
+    /// assert!(report.is_ok());
+    /// # Ok::<(), vtkio::parallel::LoadError>(())
+    /// ```
+    #[cfg(feature = "xml")]
+    pub fn import_with_resolver(
+        file_path: impl AsRef<Path>,
+        resolver: &dyn parallel::PieceResolver,
+    ) -> Result<(Vtk, parallel::LoadReport), parallel::LoadError> {
+        parallel::load(file_path, resolver)
     }
 
     /// Import an XML VTK file in raw form.
