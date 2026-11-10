@@ -1,0 +1,19 @@
+[package]
+name = "acoustic-pulse"
+version = "0.1.0"
+edition = "2021"
+description = "声场脉络：离线扫频脉冲响应可追溯分析服务（SQLite + 本地 fixture，无外部 crate）"
+
+[[bin]]
+name = "acoustic-pulse"
+path = "src/main.rs"
+
+# 故意不声明任何外部依赖：HTTP/JSON/SHA-256/FFT 全部手写，
+# SQLite 通过 FFI 直链系统 libsqlite3，保证 cargo build --locked 离线可用。
+[dependencies]
+
+[dev-dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
