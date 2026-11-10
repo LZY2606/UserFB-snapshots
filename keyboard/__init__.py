@@ -492,19 +492,23 @@ def send(hotkey, do_press=True, do_release=True):
 
     Note: keys are released in the opposite order they were pressed.
     """
+    # Mark the events as synthetic, restoring the previous value on exit so
+    # that nested calls (e.g. inside `play`) don't clear an outer True and a
+    # failed send doesn't leave the flag stuck.
+    was_replaying = _listener.is_replaying
     _listener.is_replaying = True
+    try:
+        parsed = parse_hotkey(hotkey)
+        for step in parsed:
+            if do_press:
+                for scan_codes in step:
+                    _os_keyboard.press(scan_codes[0])
 
-    parsed = parse_hotkey(hotkey)
-    for step in parsed:
-        if do_press:
-            for scan_codes in step:
-                _os_keyboard.press(scan_codes[0])
-
-        if do_release:
-            for scan_codes in reversed(step):
-                _os_keyboard.release(scan_codes[0])
-
-    _listener.is_replaying = False
+            if do_release:
+                for scan_codes in reversed(step):
+                    _os_keyboard.release(scan_codes[0])
+    finally:
+        _listener.is_replaying = was_replaying
 
 # Alias.
 press_and_release = send
@@ -917,17 +921,18 @@ def restore_state(scan_codes):
     Given a list of scan_codes ensures these keys, and only these keys, are
     pressed. Pairs well with `stash_state`, alternative to `restore_modifiers`.
     """
+    was_replaying = _listener.is_replaying
     _listener.is_replaying = True
-
-    with _pressed_events_lock:
-        current = set(_pressed_events)
-    target = set(scan_codes)
-    for scan_code in current - target:
-        _os_keyboard.release(scan_code)
-    for scan_code in target - current:
-        _os_keyboard.press(scan_code)
-
-    _listener.is_replaying = False
+    try:
+        with _pressed_events_lock:
+            current = set(_pressed_events)
+        target = set(scan_codes)
+        for scan_code in current - target:
+            _os_keyboard.release(scan_code)
+        for scan_code in target - current:
+            _os_keyboard.press(scan_code)
+    finally:
+        _listener.is_replaying = was_replaying
 
 def restore_modifiers(scan_codes):
     """
@@ -1167,21 +1172,53 @@ def play(events, speed_factor=1.0):
     intervals. If speed_factor is <= 0 then the actions are replayed as fast
     as the OS allows. Pairs well with `record()`.
 
-    Note: the current keyboard state is cleared at the beginning and restored at
-    the end of the function.
+    Note: the current keyboard state is cleared at the beginning and restored
+    at the end of the function (only the starting modifiers are restored).
+
+    If the replay is interrupted by an exception -- raised by the event
+    iterator, the interval sleep or an underlying send, including
+    KeyboardInterrupt -- the event source is not consumed any further and the
+    remaining events are not replayed. Keys successfully pressed by this
+    replay and not yet released are released, in the reverse order of their
+    first successful press, the starting modifiers are restored and the
+    original exception is re-raised.
     """
     state = stash_state()
 
-    last_time = None
-    for event in events:
-        if speed_factor > 0 and last_time is not None:
-            _time.sleep((event.time - last_time) / speed_factor)
-        last_time = event.time
+    was_replaying = _listener.is_replaying
+    _listener.is_replaying = True
+    # Keys successfully pressed by this replay and not yet released, in order
+    # of first successful press. Tracked explicitly because synthetic events
+    # are not recorded in `_pressed_events`.
+    pressed_keys = []
+    try:
+        last_time = None
+        for event in events:
+            if speed_factor > 0 and last_time is not None:
+                _time.sleep((event.time - last_time) / speed_factor)
+            last_time = event.time
 
-        key = event.scan_code or event.name
-        press(key) if event.event_type == KEY_DOWN else release(key)
-
-    restore_modifiers(state)
+            key = event.scan_code or event.name
+            if event.event_type == KEY_DOWN:
+                press(key)
+                if key not in pressed_keys:
+                    pressed_keys.append(key)
+            else:
+                release(key)
+                if key in pressed_keys:
+                    pressed_keys.remove(key)
+    except BaseException:
+        # Stop consuming the event source. Release the keys this replay is
+        # still holding, restore the starting modifiers and re-raise the
+        # original exception.
+        for key in reversed(pressed_keys):
+            release(key)
+        restore_modifiers(state)
+        raise
+    else:
+        restore_modifiers(state)
+    finally:
+        _listener.is_replaying = was_replaying
 replay = play
 
 _word_listeners = {}
