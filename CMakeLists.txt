@@ -275,7 +275,7 @@ if(BUILD_EXAMPLE_PROGRAMS)
     endif()
     install(TARGETS sio_list_devices DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-    add_executable(sio_microphone example/sio_microphone.c)
+    add_executable(sio_microphone example/sio_microphone.c example/channel_route.c)
     set_target_properties(sio_microphone PROPERTIES
         LINKER_LANGUAGE C
         COMPILE_FLAGS ${EXAMPLE_CFLAGS})

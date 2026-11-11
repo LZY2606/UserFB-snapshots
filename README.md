@@ -248,7 +248,13 @@ For each backend, do the following:
  0. Run `./underflow` and read the testing instructions that it prints.
  0. Run `./sio_microphone` and ensure that it is both recording and playing
     back correctly. If possible use the `--in-device` and `--out-device`
-    parameters to test a USB microphone in raw mode.
+    parameters to test a USB microphone in raw mode. The example routes
+    channels by role: when the input and output devices expose the same
+    channel roles in a different order, the samples are reordered
+    accordingly. This routing and sample moving logic
+    (`example/channel_route.h` / `example/channel_route.c`) can be checked
+    offline, without an audio backend or a sound card, by running
+    `sh test/channel_route/check.sh`.
  0. Run `./backend_disconnect_recover` and read the testing instructions that
     it prints.
  0. Run `./latency` and make sure the printed beeps line up with the beeps that
