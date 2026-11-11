@@ -17,7 +17,8 @@ int main(void) {
  assert(ma_channel_converter_init(&c,NULL,&x)==MA_SUCCESS);
  assert(ma_channel_converter_process_pcm_frames(&x,o,a,1)==MA_SUCCESS);
  assert(ma_channel_converter_process_pcm_frames(&x,p,b,1)==MA_SUCCESS);
- assert(o[0]==2767 && p[0]==30000 && o[1]==0 && p[1]==0);
+ /* Both orderings must now give the full cancellation result; the old per-add-clipping output was 2767. */
+ assert(o[0]==30000 && p[0]==30000 && o[1]==0 && p[1]==0);
  printf("baseline: mix(30000,30000,-30000)=%d reordered=%d; ideal=30000\n",o[0],p[0]);
  ma_channel_converter_uninit(&x,NULL);
 }

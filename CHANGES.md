@@ -1,3 +1,8 @@
+v0.11.27 - Unreleased
+=====================
+* Fixed integer channel mixing in `ma_channel_converter` (u8, s16, s24 and s32). Weighted samples are now accumulated in full for each output sample before a single fixed-point rounding and the final clip, instead of rounding and clipping after every input channel. This makes cancelling contributions net out before clipping and makes the output independent of the input channel ordering when samples and weights are reordered together. The floating point path and the quantized weight calculation are unchanged.
+
+
 v0.11.26 - 2026-10-31
 =====================
 * Fixed a bug where the ends of sounds are cutoff. This affects `ma_sound`.

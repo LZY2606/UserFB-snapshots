@@ -42926,6 +42926,18 @@ Channel Conversion
 #define MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT  12
 #endif
 
+/*
+Scales a fixed-point accumulator back down by 2^MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT. On the
+two's-complement targets miniaudio supports, an arithmetic right shift rounds toward negative
+infinity, which is what we want. This is invoked exactly once per output sample, after every
+weighted input sample has been summed, so the rounding cannot depend on the order of the input
+channels. The caller keeps the accumulator well within ma_int64 range, so no overflow is possible.
+*/
+static MA_INLINE ma_int64 ma_channel_converter_fixed_point_divide(ma_int64 x)
+{
+    return x >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+}
+
 #define MA_PLANE_LEFT      0
 #define MA_PLANE_RIGHT     1
 #define MA_PLANE_FRONT     2
@@ -44392,9 +44404,23 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
     MA_ASSERT(pFramesOut != NULL);
     MA_ASSERT(pFramesIn  != NULL);
 
-    /* This is the more complicated case. Each of the output channels is accumulated with 0 or more input channels. */
+    /*
+    This is the more complicated case. Each of the output channels is accumulated with 0 or more
+    input channels. For the integer formats every output sample is computed in full before it is
+    written: the signed samples are multiplied by their already-quantized fixed-point weights and
+    summed into a 64-bit accumulator, the sum is scaled down with a single round toward negative
+    infinity, and only then is the result clipped to the output format's range. Rounding or clipping
+    per input channel would make the output depend on the ordering of the input channels and would
+    prevent cancelling contributions from netting out before clipping. The accumulators cannot
+    overflow: with at most MA_MAX_CHANNELS channels, weights no larger than 1.0 in magnitude and
+    full-scale integer samples the worst-case sum stays well within the ma_int64 range.
+    */
 
-    /* Clear. */
+    /*
+    Clear the output first. The floating point path accumulates with += in place and relies on this
+    starting from zero; the integer paths overwrite every output sample anyway, so this does not
+    change their results.
+    */
     ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->format, pConverter->channelsOut));
 
     /* Accumulate. */
@@ -44406,13 +44432,14 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
             const ma_uint8* pFramesInU8  = (const ma_uint8*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                        ma_int16 u8_O = ma_pcm_sample_u8_to_s16_no_scale(pFramesOutU8[iFrame*pConverter->channelsOut + iChannelOut]);
-                        ma_int16 u8_I = ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8 [iFrame*pConverter->channelsIn  + iChannelIn ]);
-                        ma_int32 s    = (ma_int32)ma_clamp(u8_O + ((u8_I * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT), -128, 127);
-                        pFramesOutU8[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_u8((ma_int16)s);
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    ma_int64 acc = 0;    /* u8 samples are offset by 128 (see ma_pcm_sample_u8_to_s16_no_scale) while mixed. */
+                    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                        ma_int64 sample = (ma_int64)ma_pcm_sample_u8_to_s16_no_scale(pFramesInU8[iFrame*pConverter->channelsIn + iChannelIn]);
+                        acc += sample * (ma_int64)pConverter->weights.s16[iChannelIn][iChannelOut];
                     }
+
+                    pFramesOutU8[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_u8((ma_int32)ma_channel_converter_fixed_point_divide(acc));
                 }
             }
         } break;
@@ -44423,13 +44450,13 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
             const ma_int16* pFramesInS16  = (const ma_int16*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                        ma_int32 s = pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut];
-                        s += (pFramesInS16[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
-
-                        pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut] = (ma_int16)ma_clamp(s, -32768, 32767);
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    ma_int64 acc = 0;
+                    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                        acc += (ma_int64)pFramesInS16[iFrame*pConverter->channelsIn + iChannelIn] * (ma_int64)pConverter->weights.s16[iChannelIn][iChannelOut];
                     }
+
+                    pFramesOutS16[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s16((ma_int32)ma_channel_converter_fixed_point_divide(acc));
                 }
             }
         } break;
@@ -44440,13 +44467,14 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
             const ma_uint8* pFramesInS24  = (const ma_uint8*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                        ma_int64 s24_O = ma_pcm_sample_s24_to_s32_no_scale(&pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);
-                        ma_int64 s24_I = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24 [(iFrame*pConverter->channelsIn  + iChannelIn )*3]);
-                        ma_int64 s24   = (ma_int32)ma_clamp(s24_O + ((s24_I * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT), -8388608, 8388607);
-                        ma_pcm_sample_s32_to_s24_no_scale(s24, &pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    ma_int64 acc = 0;
+                    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                        ma_int64 sample = ma_pcm_sample_s24_to_s32_no_scale(&pFramesInS24[(iFrame*pConverter->channelsIn + iChannelIn)*3]);
+                        acc += sample * (ma_int64)pConverter->weights.s16[iChannelIn][iChannelOut];
                     }
+
+                    ma_pcm_sample_s32_to_s24_no_scale(ma_clip_s24(ma_channel_converter_fixed_point_divide(acc)), &pFramesOutS24[(iFrame*pConverter->channelsOut + iChannelOut)*3]);
                 }
             }
         } break;
@@ -44457,13 +44485,13 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
             const ma_int32* pFramesInS32  = (const ma_int32*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                    for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                        ma_int64 s = pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut];
-                        s += ((ma_int64)pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
-
-                        pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s32(s);
+                for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                    ma_int64 acc = 0;
+                    for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                        acc += (ma_int64)pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * (ma_int64)pConverter->weights.s16[iChannelIn][iChannelOut];
                     }
+
+                    pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s32(ma_channel_converter_fixed_point_divide(acc));
                 }
             }
         } break;
