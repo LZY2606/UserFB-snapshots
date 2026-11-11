@@ -159,6 +159,7 @@ mod yuv_support;
 mod yuv_to_rgba;
 mod yuv_to_rgba_alpha;
 mod yuv_to_rgba_bilinear;
+mod yuv_to_rgba_bilinear_siting;
 mod yuv_to_yuy2;
 mod yuv_to_yuy2_p16;
 #[cfg(feature = "nightly_f16")]
@@ -170,8 +171,8 @@ mod yuy2_to_yuv;
 mod yuy2_to_yuv_p16;
 
 pub use yuv_support::{
-    Rgb30ByteOrder, YuvBytesPacking, YuvChromaSubsampling, YuvConversionMode, YuvEndianness,
-    YuvRange, YuvStandardMatrix,
+    Rgb30ByteOrder, YuvBytesPacking, YuvChromaSiting, YuvChromaSubsampling, YuvConversionMode,
+    YuvEndianness, YuvRange, YuvStandardMatrix,
 };
 
 pub use yuv_nv_p10_to_rgb::{
@@ -623,6 +624,13 @@ pub use yuv_to_rgba_bilinear::{
     yuv420_to_bgr_bilinear, yuv420_to_bgra_bilinear, yuv420_to_rgb_bilinear,
     yuv420_to_rgba_bilinear, yuv422_to_bgr_bilinear, yuv422_to_bgra_bilinear,
     yuv422_to_rgb_bilinear, yuv422_to_rgba_bilinear,
+};
+
+pub use yuv_to_rgba_bilinear_siting::{
+    yuv420_to_bgr_bilinear_with_siting, yuv420_to_bgra_bilinear_with_siting,
+    yuv420_to_rgb_bilinear_with_siting, yuv420_to_rgba_bilinear_with_siting,
+    yuv422_to_bgr_bilinear_with_siting, yuv422_to_bgra_bilinear_with_siting,
+    yuv422_to_rgb_bilinear_with_siting, yuv422_to_rgba_bilinear_with_siting,
 };
 
 pub use rgb16_to_y_p16::{rgb10_to_y010, rgb12_to_y012, rgba10_to_y010, rgba12_to_y012};

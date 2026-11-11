@@ -429,6 +429,54 @@ impl From<u8> for YuvBytesPacking {
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// Chroma sample siting of a progressive (frame) 8-bit planar YUV image.
+///
+/// Coordinates use luma pixel centers as integer points `(x, y)`.
+///
+/// * For YUV 4:2:0 a chroma sample `(i, j)` sits at `(2i + sx, 2j + sy)`, where
+///   [`YuvChromaSiting::Center`] uses `(sx, sy) = (0.5, 0.5)`,
+///   [`YuvChromaSiting::Left`] uses `(0, 0.5)` and
+///   [`YuvChromaSiting::TopLeft`] uses `(0, 0)`.
+/// * For YUV 4:2:2 a chroma sample `(i, j)` sits at `(2i + sx, j)`, where
+///   [`YuvChromaSiting::Center`] uses `sx = 0.5` and the other two sitings use `sx = 0`.
+///   No vertical interpolation is performed for 4:2:2.
+///
+/// Interlaced fields and 10-bit storage are not covered.
+pub enum YuvChromaSiting {
+    /// Chroma samples are centered between luma samples, offsets `(0.5, 0.5)` for 4:2:0
+    /// and `sx = 0.5` for 4:2:2.
+    Center = 0,
+    /// Chroma samples share the luma column and sit between two luma rows,
+    /// offsets `(0, 0.5)` for 4:2:0 and `sx = 0` for 4:2:2.
+    Left = 1,
+    /// Chroma samples are co-sited with luma samples, offsets `(0, 0)`.
+    TopLeft = 2,
+}
+
+impl YuvChromaSiting {
+    /// Horizontal chroma offset in half-luma-pixel units: `1` means `0.5`, `0` means `0`.
+    #[inline]
+    pub(crate) const fn x_half_offset(self) -> u32 {
+        match self {
+            YuvChromaSiting::Center => 1,
+            YuvChromaSiting::Left | YuvChromaSiting::TopLeft => 0,
+        }
+    }
+
+    /// Vertical chroma offset in half-luma-pixel units: `1` means `0.5`, `0` means `0`.
+    ///
+    /// Only meaningful for YUV 4:2:0, 4:2:2 chroma rows match luma rows exactly.
+    #[inline]
+    pub(crate) const fn y_half_offset(self) -> u32 {
+        match self {
+            YuvChromaSiting::Center | YuvChromaSiting::Left => 1,
+            YuvChromaSiting::TopLeft => 0,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum YuvSourceChannels {
     Rgb = 0,
     Rgba = 1,

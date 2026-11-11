@@ -72,6 +72,45 @@ yuv420_to_rgb(
 .unwrap();
 ```
 
+### Chroma siting for video preview
+
+Frames delivered by a decoder may place their chroma samples differently. The plain
+`*_bilinear` entry points keep their historical behavior; the `*_bilinear_with_siting`
+entry points take an explicit `YuvChromaSiting` (`Center`, `Left` or `TopLeft`) and
+interpolate the chroma planes according to the declared sample positions before running
+the usual 8-bit range/matrix conversion. Pass the siting the decoder reports for the
+frame instead of guessing it from the color matrix:
+
+```rust
+use yuv::{
+    yuv420_to_rgba_bilinear_with_siting, YuvChromaSiting, YuvPlanarImage, YuvRange,
+    YuvStandardMatrix,
+};
+
+// Planes and strides decoded from a progressive 8-bit 4:2:0 video frame, together with
+// the chroma siting advertised by the demuxer/decoder.
+let frame = YuvPlanarImage {
+    y_plane: &y_plane,
+    y_stride,
+    u_plane: &u_plane,
+    u_stride,
+    v_plane: &v_plane,
+    v_stride,
+    width,
+    height,
+};
+
+yuv420_to_rgba_bilinear_with_siting(
+    &frame,
+    &mut rgba,
+    rgba_stride,
+    YuvRange::Limited,
+    YuvStandardMatrix::Bt709,
+    YuvChromaSiting::Left,
+)
+.unwrap();
+```
+
 ## HDR Formats
 
 The following planar formats are used for HDR content, with either **10-bit** or **12-bit** color depth:
