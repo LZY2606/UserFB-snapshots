@@ -19,6 +19,11 @@ expectTypeOf(security).toHaveProperty('rules').toHaveProperty('detect-object-inj
 
 expectTypeOf(security).toHaveProperty('rulesConfig').toHaveProperty('detect-unsafe-regex').toEqualTypeOf<Linter.Severity>();
 
+// The object-injection rule's options are typed.
+expectTypeOf<security.DetectObjectInjectionOptions>().toEqualTypeOf<{
+  allowNullPrototype?: boolean;
+}>();
+
 // Both configs are exposed, each with its own shape.
 expectTypeOf(security).toHaveProperty('configs').toHaveProperty('recommended').toExtend<Linter.Config>();
 expectTypeOf(security).toHaveProperty('configs').toHaveProperty('recommended-legacy').toExtend<Linter.LegacyConfig>();

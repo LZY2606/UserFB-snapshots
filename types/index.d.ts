@@ -25,6 +25,19 @@ declare namespace plugin {
     | 'detect-possible-timing-attacks'
     | 'detect-pseudoRandomBytes'
     | 'detect-unsafe-regex';
+
+  /**
+   * Options accepted by the `security/detect-object-injection` rule.
+   */
+  interface DetectObjectInjectionOptions {
+    /**
+     * When `true`, dynamic property access is allowed only when the receiver
+     * is proven to be an unmodified `Object.create(null)` dictionary.
+     *
+     * Defaults to `false`.
+     */
+    allowNullPrototype?: boolean;
+  }
 }
 
 /**
