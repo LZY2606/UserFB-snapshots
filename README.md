@@ -164,3 +164,39 @@ For example, `mp4tool dump MP4_FILE_NAME` command prints MP4 box tree as follows
     [trun] Size=424 ... (use -a option to show all)
 [mdat] Size=44569 Data=[...] (use -mdat option to expand)
 ```
+
+### Divide a fragmented MP4 into HLS variants
+
+The experimental `alpha divide` command splits an unencrypted fragmented MP4
+(avc1 video, optionally one mp4a audio track) into per-track HLS playlists.
+Tracks are identified by their trackID, so two video tracks never overwrite
+each other regardless of the `trak` or `moof` order in the input. Each output
+`init.mp4` keeps only that track's `trak` and its own `trex`, and the media
+segments are the original `moof`/`mdat` boxes without re-encoding or
+renumbering.
+
+A single video (plus at most one audio track) keeps the legacy `video/` and
+`audio/` directory layout:
+
+```sh
+mp4tool alpha divide INPUT.mp4 OUTPUT_DIR
+# OUTPUT_DIR/
+#   playlist.m3u8
+#   video/init.mp4, 0.mp4, 1.mp4, ..., playlist.m3u8
+#   audio/init.mp4, 0.mp4, 1.mp4, ..., playlist.m3u8
+```
+
+When the input contains multiple video tracks, each video track is written to
+`video_<trackID>/` and listed as a separate variant in the master playlist,
+ordered by ascending trackID. The audio track, when present, is shared by
+every variant. The following example separates two camera angles (trackID 3
+and 9) into two HLS variants:
+
+```sh
+mp4tool alpha divide multi_camera.mp4 hls_out
+# hls_out/
+#   playlist.m3u8
+#   video_3/init.mp4, 0.mp4, 1.mp4, ..., playlist.m3u8
+#   video_9/init.mp4, 0.mp4, 1.mp4, ..., playlist.m3u8
+#   audio/init.mp4, 0.mp4, 1.mp4, ..., playlist.m3u8
+```
