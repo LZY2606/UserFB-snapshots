@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTP Freeze Review</title>
+<style>
+  :root {
+    --bg: #0f141b; --panel: #171e28; --panel2: #1d2632; --line: #2a3645;
+    --text: #d7e0ea; --muted: #8aa0b6; --accent: #5db1ff; --warn: #ffb454;
+    --bad: #ff6b6b; --ok: #67d39b; --amb: #c792ea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  select, button, input { background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  main { padding: 16px 18px; max-width: 1500px; margin: 0 auto; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabs button { border-radius: 6px 6px 0 0; border-bottom: none; }
+  .tabs button.active { background: var(--accent); color: #08121d; font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: var(--accent); }
+  h3 { font-size: 13px; margin: 14px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: var(--panel2); }
+  tr.selected { background: #243140; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .pill.resolved { background: rgba(103,211,155,.15); color: var(--ok); }
+  .pill.ambiguous { background: rgba(199,146,234,.15); color: var(--amb); }
+  .pill.unresolved { background: rgba(255,107,107,.15); color: var(--bad); }
+  .pill.cross_epoch { background: rgba(255,180,84,.15); color: var(--warn); }
+  .pill.kind { background: rgba(93,177,255,.15); color: var(--accent); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .muted { color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .scroll { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  .note { color: var(--warn); font-size: 12px; }
+  .detail { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px; margin-top: 12px; }
+  .kv { display: grid; grid-template-columns: 180px 1fr; gap: 4px 12px; font-size: 12px; }
+  .kv .k { color: var(--muted); }
+  .filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .badge { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 12px; min-width: 130px; }
+  .badge .n { font-size: 20px; font-weight: 700; }
+  .badge .l { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  pre { background: #0b1017; border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px; overflow: auto; font-size: 11px; max-height: 320px; }
+  .hidden { display: none; }
+  .small { font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RTP Freeze Review <span class="muted small">offline capture analysis</span></h1>
+  <label class="small">Capture
+    <select id="captureSelect"></select>
+  </label>
+  <form id="importForm" class="small">
+    <input type="file" id="importFile" accept=".jsonl,application/x-ndjson">
+    <button type="submit">Import JSONL</button>
+  </form>
+  <span id="importMsg" class="small"></span>
+</header>
+
+<main>
+  <nav class="tabs">
+    <button data-tab="overview" class="active">Overview &amp; identity</button>
+    <button data-tab="freezes">Freeze intervals</button>
+    <button data-tab="causality">Feedback causality</button>
+    <button data-tab="packets">Packet browser</button>
+  </nav>
+
+  <section id="tab-overview">
+    <div class="badges" id="badges"></div>
+    <div class="grid2">
+      <div class="panel">
+        <h2>Tracks (MID/RID identity — payload type is ignored)</h2>
+        <div class="scroll"><table id="tracksTable"></table></div>
+      </div>
+      <div class="panel">
+        <h2>Transport epochs (ICE restart boundaries)</h2>
+        <div class="scroll"><table id="epochsTable"></table></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>SSRC generations — hard boundaries never merge across these</h2>
+      <div class="scroll"><table id="gensTable"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-freezes" class="hidden">
+    <div class="panel">
+      <h2>Detected freeze intervals</h2>
+      <p class="muted small">Select a row to jump to the feedback that triggered it, the
+        sender mapping around the gap, and the parts that still cannot be settled.</p>
+      <div class="scroll"><table id="freezesTable"></table></div>
+      <div id="freezeDetail" class="detail hidden"></div>
+    </div>
+  </section>
+
+  <section id="tab-causality" class="hidden">
+    <div class="panel">
+      <h2>Feedback causality</h2>
+      <p class="muted small">Every feedback reference keeps <b>all</b> candidate send events.
+        An SSRC reused across generations or an overlapping TWCC window is never collapsed to
+        one answer using wall-clock time. Cross-epoch and unresolved candidates are shown as-is.</p>
+      <div class="filters">
+        <label>Kind <select id="fbKind">
+          <option value="">all</option><option>nack</option><option>pli</option>
+          <option>fir</option><option>twcc</option><option>receiver_report</option>
+        </select></label>
+        <label>Status <select id="fbStatus">
+          <option value="">all</option><option>resolved</option><option>ambiguous</option>
+          <option>unresolved</option><option>cross_epoch</option>
+        </select></label>
+        <span id="fbCount" class="muted small"></span>
+      </div>
+      <div class="scroll"><table id="fbTable"></table></div>
+      <div id="fbDetail" class="detail hidden"></div>
+    </div>
+  </section>
+
+  <section id="tab-packets" class="hidden">
+    <div class="panel">
+      <h2>Packet browser</h2>
+      <div class="filters">
+        <label>Generation <select id="pktGen"><option value="">all</option></select></label>
+        <span class="muted small">Extended sequence is per-generation; raw sequence wraps mod 65536.</span>
+      </div>
+      <div class="scroll"><table id="packetsTable"></table></div>
+      <div id="rawPacket" class="detail hidden"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = { captureId: null, overview: null, freezes: [], feedback: [], rtp: [],
+  selectedFreeze: -1, selectedFeedback: -1 };
+
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+};
+const hex = (v) => "0x" + (v >>> 0).toString(16).padStart(8, "0");
+const ms = (us) => (us / 1000).toFixed(1) + " ms";
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  document.querySelectorAll("main > section").forEach(s => s.classList.add("hidden"));
+  $("tab-" + btn.dataset.tab).classList.remove("hidden");
+}));
+
+async function loadCaptures() {
+  const caps = await api("/api/captures");
+  const sel = $("captureSelect");
+  sel.innerHTML = caps.map(c => `<option value="${c.id}">#${c.id} ${esc(c.source)}
+    (${c.packet_count} packets)</option>`).join("");
+  if (caps.length) await selectCapture(caps[0].id);
+}
+
+async function selectCapture(id) {
+  state.captureId = id;
+  state.selectedFreeze = state.selectedFeedback = -1;
+  const base = `/api/captures/${id}`;
+  [state.overview, state.freezes, state.feedback, state.rtp] = await Promise.all([
+    api(base + "/overview"), api(base + "/freezes"),
+    api(base + "/feedback?limit=5000"), api(base + "/rtp?limit=10000"),
+  ]);
+  renderOverview(); renderFreezes(); renderFeedback(); renderPackets();
+}
+
+function renderOverview() {
+  const o = state.overview;
+  const fc = o.feedback_counts, sc = o.status_counts;
+  $("badges").innerHTML = [
+    ["Packets", o.capture.packet_count], ["Tracks", o.tracks.length],
+    ["Generations", o.generations.length], ["Freezes", o.freeze_count],
+    ["NACK", fc.nack || 0], ["PLI/FIR", (fc.pli || 0) + (fc.fir || 0)],
+    ["TWCC", fc.twcc || 0], ["Ambiguous", sc.ambiguous || 0],
+    ["Unresolved", sc.unresolved || 0], ["Cross-epoch", sc.cross_epoch || 0],
+  ].map(([l, n]) => `<div class="badge"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+
+  $("tracksTable").innerHTML = `<tr><th>ID</th><th>MID</th><th>RID</th><th>Payload type</th><th>Origin</th></tr>` +
+    o.tracks.map(t => `<tr><td>${t.id}</td><td class="mono">${esc(t.mid) || "—"}</td>
+      <td class="mono">${esc(t.rid) || "—"}</td><td>${t.payload_type}</td>
+      <td class="muted">${t.synthetic ? "synthetic (no ext id)" : "RTP extension"}</td></tr>`).join("");
+
+  $("epochsTable").innerHTML = `<tr><th>Epoch</th><th>Start idx</th><th>End idx</th><th>Reason</th></tr>` +
+    o.transport_epochs.map(e => `<tr><td>${e.id}</td><td>${e.start_index}</td>
+      <td>${e.end_index < 0 ? "open" : e.end_index}</td><td>${esc(e.reason)}</td></tr>`).join("");
+
+  $("gensTable").innerHTML = `<tr><th>Gen</th><th>Track</th><th>SSRC</th><th>Reuse #</th>
+      <th>Payload type</th><th>Idx span</th><th>Opened by</th><th>Closed by</th></tr>` +
+    o.generations.map(g => `<tr><td>${g.id}</td><td>${g.track_id}</td>
+      <td class="mono">${hex(g.ssrc)}</td><td>${g.generation_no}</td><td>${g.payload_type}</td>
+      <td class="mono">${g.start_index}..${g.end_index < 0 ? "open" : g.end_index}</td>
+      <td><span class="pill kind">${esc(g.open_reason)}</span></td>
+      <td>${g.close_reason ? `<span class="pill ${g.close_reason.includes("collision") ? "cross_epoch" : "kind"}">${esc(g.close_reason)}</span>` : '<span class="muted">open</span>'}</td></tr>`).join("");
+
+  $("pktGen").innerHTML = `<option value="">all</option>` +
+    o.generations.map(g => `<option value="${g.id}">gen ${g.id} (${hex(g.ssrc)})</option>`).join("");
+}
+
+function renderFreezes() {
+  $("freezesTable").innerHTML = `<tr><th>#</th><th>Kind</th><th>Track/Gen</th>
+      <th>Start idx</th><th>End idx</th><th>Duration</th><th>Missing ext seq</th>
+      <th>Feedback</th></tr>` + state.freezes.map((f, i) =>
+    `<tr class="clickable ${state.selectedFreeze === i ? "selected" : ""}" data-i="${i}">
+      <td>${f.id}</td><td>${f.kind}</td><td>${f.track_id}/${f.gen_id}</td>
+      <td class="mono">${f.start_index}</td><td class="mono">${f.end_index < 0 ? "open" : f.end_index}</td>
+      <td>${ms(f.duration_us)}</td>
+      <td class="mono">${f.kind === "loss_gap" ? `${f.first_missing_ext}..${f.last_missing_ext} (${f.missing_count})` : "—"}</td>
+      <td>${f.feedback_positions.length}</td></tr>`).join("");
+  $("freezesTable").querySelectorAll("tr[data-i]").forEach(tr =>
+    tr.addEventListener("click", () => selectFreeze(+tr.dataset.i)));
+}
+
+function selectFreeze(i) {
+  state.selectedFreeze = i;
+  renderFreezes();
+  const f = state.freezes[i];
+  const related = f.feedback_positions.map(p => state.feedback[p]).filter(Boolean);
+  const genPkts = state.rtp.filter(p => p.gen_id === f.gen_id);
+  const before = genPkts.filter(p => p.packet_index <= f.start_index).slice(-4);
+  const after = f.end_index >= 0 ? genPkts.filter(p => p.packet_index >= f.end_index).slice(0, 4) : [];
+  const unsettled = related.filter(ev => ev.status !== "resolved");
+
+  const pktRow = p => `<tr><td class="mono">${p.packet_index}</td><td class="mono">${hex(p.ssrc)}</td>
+      <td class="mono">${p.seq}</td><td class="mono">${p.ext_seq}</td>
+      <td class="mono">${p.transport_seq ?? "—"}</td><td>${ms(p.time_us)}</td></tr>`;
+
+  $("freezeDetail").classList.remove("hidden");
+  $("freezeDetail").innerHTML = `
+    <h3>Freeze #${f.id} — ${f.kind} on gen ${f.gen_id}</h3>
+    <div class="kv">
+      <div class="k">Last packet before gap</div><div class="mono">idx ${f.start_index} @ ${ms(f.start_us)}</div>
+      <div class="k">First packet after gap</div><div class="mono">${f.end_index < 0 ? "still open at capture end" : `idx ${f.end_index} @ ${ms(f.end_us)}`}</div>
+      <div class="k">Missing extended seq</div><div class="mono">${f.kind === "loss_gap" ? `${f.first_missing_ext}..${f.last_missing_ext}` : "n/a (encoder silence)"}</div>
+    </div>
+    <h3>Triggering feedback (${related.length}) — click to inspect causality</h3>
+    <table><tr><th>FB#</th><th>Kind</th><th>Status</th><th>Packet idx</th><th>Time</th></tr>
+      ${related.map(ev => `<tr class="jump" data-fb="${ev.position}">
+        <td>${ev.position}</td><td><span class="pill kind">${ev.kind}</span></td>
+        <td><span class="pill ${ev.status}">${ev.status}</span></td>
+        <td class="mono">${ev.packet_index}</td><td>${ms(ev.time_us)}</td></tr>`).join("") ||
+        '<tr><td colspan="5" class="muted">no feedback references this generation in the window</td></tr>'}</table>
+    <h3>Sender mapping around the gap (generation ${f.gen_id})</h3>
+    <div class="grid2">
+      <div><div class="muted small">before</div><table><tr><th>idx</th><th>ssrc</th><th>seq</th>
+        <th>ext</th><th>tseq</th><th>time</th></tr>${before.map(pktRow).join("")}</table></div>
+      <div><div class="muted small">after</div><table><tr><th>idx</th><th>ssrc</th><th>seq</th>
+        <th>ext</th><th>tseq</th><th>time</th></tr>${after.map(pktRow).join("") ||
+          '<tr><td colspan="6" class="muted">no recovery packet in capture</td></tr>'}</table></div>
+    </div>
+    <h3>Still undetermined (${unsettled.length})</h3>
+    <table><tr><th>FB#</th><th>Kind</th><th>Status</th><th>Why</th></tr>
+      ${unsettled.map(ev => `<tr class="jump" data-fb="${ev.position}"><td>${ev.position}</td>
+        <td>${ev.kind}</td><td><span class="pill ${ev.status}">${ev.status}</span></td>
+        <td class="note">${esc(ev.note) || "candidate packet missing / cross-epoch"}</td></tr>`).join("") ||
+        '<tr><td colspan="4" class="muted">every reference in this window resolved to exactly one send event</td></tr>'}</table>`;
+
+  $("freezeDetail").querySelectorAll("tr[data-fb]").forEach(tr =>
+    tr.addEventListener("click", () => jumpToFeedback(+tr.dataset.fb)));
+}
+
+function jumpToFeedback(position) {
+  document.querySelector('.tabs button[data-tab="causality"]').click();
+  $("fbKind").value = ""; $("fbStatus").value = "";
+  renderFeedback();
+  state.selectedFeedback = state.feedback.findIndex(ev => ev.position === position);
+  renderFeedback();
+  showFeedbackDetail(state.feedback[state.selectedFeedback]);
+  setTimeout(() => {
+    const row = document.querySelector(`#fbTable tr[data-pos="${position}"]`);
+    if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 50);
+}
+
+function renderFeedback() {
+  const kind = $("fbKind").value, status = $("fbStatus").value;
+  const rows = state.feedback.filter(ev =>
+    (!kind || ev.kind === kind) && (!status || ev.status === status));
+  $("fbCount").textContent = `${rows.length} of ${state.feedback.length} feedback messages`;
+  $("fbTable").innerHTML = `<tr><th>FB#</th><th>Time</th><th>Kind</th><th>Sender SSRC</th>
+      <th>Media SSRC</th><th>Epoch</th><th>Status</th><th>Candidates</th><th>Note</th></tr>` +
+    rows.map(ev => `<tr class="clickable ${state.selectedFeedback >= 0 &&
+        state.feedback[state.selectedFeedback] === ev ? "selected" : ""}" data-pos="${ev.position}">
+      <td>${ev.position}</td><td>${ms(ev.time_us)}</td>
+      <td><span class="pill kind">${ev.kind}</span></td>
+      <td class="mono">${hex(ev.sender_ssrc)}</td><td class="mono">${hex(ev.media_ssrc)}</td>
+      <td>${ev.epoch_id}</td><td><span class="pill ${ev.status}">${ev.status}</span></td>
+      <td>${ev.candidates.length}</td><td class="note">${esc(ev.note)}</td></tr>`).join("");
+  $("fbTable").querySelectorAll("tr[data-pos]").forEach(tr =>
+    tr.addEventListener("click", () => {
+      state.selectedFeedback = state.feedback.findIndex(ev => ev.position === +tr.dataset.pos);
+      renderFeedback();
+      showFeedbackDetail(state.feedback[state.selectedFeedback]);
+    }));
+}
+
+function showFeedbackDetail(ev) {
+  const rtt = (ev.rtt_us || []).map((r, i) =>
+    `<tr><td>block ${i}</td><td class="mono">${r === 0 ? "—" : (r / 1000).toFixed(1) + " ms"}</td>
+      <td class="note">${esc(ev.rtt_notes[i] || "")}</td></tr>`).join("");
+  $("fbDetail").classList.remove("hidden");
+  $("fbDetail").innerHTML = `
+    <h3>Feedback #${ev.position} — ${ev.kind} <span class="pill ${ev.status}">${ev.status}</span></h3>
+    <div class="kv">
+      <div class="k">RTCP packet index</div><div class="mono">${ev.packet_index} (message ${ev.msg_index})</div>
+      <div class="k">Sender / media SSRC</div><div class="mono">${hex(ev.sender_ssrc)} → ${hex(ev.media_ssrc)}</div>
+      <div class="k">Transport epoch</div><div>${ev.epoch_id}</div>
+      ${ev.nack_seqs.length ? `<div class="k">NACK raw seqs</div><div class="mono">${ev.nack_seqs.join(", ")}</div>` : ""}
+      ${ev.twcc_seqs.length ? `<div class="k">TWCC transport seqs</div><div class="mono">${ev.twcc_seqs.join(", ")}</div>` : ""}
+      ${ev.note ? `<div class="k">Note</div><div class="note">${esc(ev.note)}</div>` : ""}
+    </div>
+    <h3>Candidate send events (${ev.candidates.length}) — all retained, no wall-clock guessing</h3>
+    <table><tr><th>Gen</th><th>Track</th><th>Epoch</th><th>Raw seq</th><th>Ext seq</th>
+      <th>Transport seq</th><th>Sent packet idx</th><th>Cross epoch</th><th>Note</th></tr>
+      ${ev.candidates.map(c => `<tr ${c.packet_index >= 0 ? `class="jump" data-pkt="${c.packet_index}"` : ""}>
+        <td>${c.gen_id}</td><td>${c.track_id}</td><td>${c.epoch_id}</td>
+        <td class="mono">${c.raw_seq || "—"}</td><td class="mono">${c.ext_seq < 0 ? "?" : c.ext_seq}</td>
+        <td class="mono">${c.transport_seq || "—"}</td>
+        <td class="mono">${c.packet_index < 0 ? '<span class="pill unresolved">unresolved</span>' : c.packet_index}</td>
+        <td>${c.cross_epoch ? '<span class="pill cross_epoch">yes</span>' : "no"}</td>
+        <td class="note">${esc(c.note)}</td></tr>`).join("")}</table>
+    ${rtt ? `<h3>RTT candidates</h3><table><tr><th>Report block</th><th>RTT</th><th>Source</th></tr>${rtt}</table>` : ""}`;
+  $("fbDetail").querySelectorAll("tr[data-pkt]").forEach(tr =>
+    tr.addEventListener("click", () => jumpToPacket(+tr.dataset.pkt)));
+}
+
+function jumpToPacket(idx) {
+  document.querySelector('.tabs button[data-tab="packets"]').click();
+  const row = document.querySelector(`#packetsTable tr[data-idx="${idx}"]`);
+  if (row) { row.classList.add("selected"); row.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  showRawPacket(idx);
+}
+
+function renderPackets() {
+  const gen = $("pktGen").value;
+  const rows = state.rtp.filter(p => !gen || p.gen_id === +gen);
+  $("packetsTable").innerHTML = `<tr><th>Original idx</th><th>Time</th><th>SSRC</th><th>PT</th>
+      <th>Seq (raw)</th><th>Ext seq</th><th>MID</th><th>RID</th><th>TWCC seq</th>
+      <th>Track</th><th>Gen</th><th>Epoch</th><th>Mark</th></tr>` +
+    rows.map(p => `<tr class="clickable" data-idx="${p.packet_index}">
+      <td class="mono">${p.packet_index}</td><td>${ms(p.time_us)}</td>
+      <td class="mono">${hex(p.ssrc)}</td><td>${p.payload_type}</td>
+      <td class="mono">${p.seq}</td><td class="mono">${p.ext_seq}</td>
+      <td class="mono">${esc(p.mid) || "—"}</td><td class="mono">${esc(p.rid) || "—"}</td>
+      <td class="mono">${p.transport_seq ?? "—"}</td><td>${p.track_id}</td><td>${p.gen_id}</td>
+      <td>${p.epoch_id}</td><td>${p.marker ? "M" : ""}</td></tr>`).join("");
+  $("packetsTable").querySelectorAll("tr[data-idx]").forEach(tr =>
+    tr.addEventListener("click", () => showRawPacket(+tr.dataset.idx)));
+}
+
+async function showRawPacket(idx) {
+  const raw = await api(`/api/captures/${state.captureId}/packets/${idx}`);
+  $("rawPacket").classList.remove("hidden");
+  $("rawPacket").innerHTML = `<h3>Original record — packet index ${idx} (immutable capture order)</h3>
+    <pre>${esc(JSON.stringify(raw, null, 2))}</pre>`;
+}
+
+$("pktGen").addEventListener("change", renderPackets);
+$("fbKind").addEventListener("change", renderFeedback);
+$("fbStatus").addEventListener("change", renderFeedback);
+$("captureSelect").addEventListener("change", e => selectCapture(+e.target.value));
+$("importForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = $("importFile").files[0];
+  if (!file) return;
+  $("importMsg").textContent = "importing…";
+  try {
+    const r = await fetch("/api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-ndjson", "X-Capture-Name": file.name },
+      body: file,
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const res = await r.json();
+    $("importMsg").textContent = `imported capture #${res.capture_id}`;
+    await loadCaptures();
+    $("captureSelect").value = res.capture_id;
+    await selectCapture(res.capture_id);
+  } catch (err) {
+    $("importMsg").textContent = "import failed: " + err.message;
+  }
+});
+
+loadCaptures().catch(err => { $("importMsg").textContent = "load failed: " + err.message; });
+</script>
+</body>
+</html>
