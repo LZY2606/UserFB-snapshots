@@ -9,17 +9,20 @@ tsconfig.tsbuildinfo
 src/parser/parser.js
 src/preprocessor/preprocessor-parser.js
 
-# Peggy / typescript built files
-ast/
-error.d.ts
-error.js
-index.d.ts
-index.js
-parser/
-preprocessor/
+# Peggy / typescript built files. These are prepublish copies emitted at the
+# repository root (see prepublish.sh), so anchor them to the root. Without the
+# leading slash, "preprocessor/" also matched src/preprocessor/ and hid source
+# files like the rescan tests.
+/ast/
+/error.d.ts
+/error.js
+/index.d.ts
+/index.js
+/parser/
+/preprocessor/
 
 # Typescript builds these?
-vite.config.d.ts
-vite.config.js
-vitest.global-setup.d.ts
-vitest.global-setup.js
+/vite.config.d.ts
+/vite.config.js
+/vitest.global-setup.d.ts
+/vitest.global-setup.js

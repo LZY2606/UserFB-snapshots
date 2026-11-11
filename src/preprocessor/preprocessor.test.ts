@@ -515,21 +515,17 @@ bar()`;
 bar()`);
 });
 
-// The preprocessor does the wrong thing here so I'm commenting out this test
-// for now. The current preprocessor results in bar(bar(1.0)). To achieve the
-// correct result here I likely need to redo the expansion system to use "blue
-// painting" https://en.wikipedia.org/wiki/Painted_blue
-// xtest('nested function macros that reference each other', () => {
-//   const program = `
-// #define foo(x) bar(x)
-// #define bar(x) foo(x)
-// bar(foo(1.0))`;
+test('nested function macros that reference each other', () => {
+  const program = `
+#define foo(x) bar(x)
+#define bar(x) foo(x)
+bar(foo(1.0))`;
 
-//   const ast = parse(program);
-//   preprocessAst(ast);
-//   expect(generate(ast)).toBe(`
-// bar(foo(1.0))`);
-// });
+  const ast = parse(program);
+  preprocessAst(ast);
+  expect(generate(ast)).toBe(`
+bar(foo(1.0))`);
+});
 
 test('multi-pass cross-referencing object macros', () => {
   const program = `

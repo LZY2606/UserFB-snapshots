@@ -16,56 +16,118 @@ export type PreprocessorProgram = {
   wsEnd?: string;
 };
 
-const without = (obj: object, ...keys: string[]) =>
-  Object.entries(obj).reduce(
-    (acc, [key, value]) => ({
-      ...acc,
-      ...(!keys.includes(key) && { [key]: value }),
-    }),
-    {}
-  );
+// ---------------------------------------------------------------------------
+// Macro expansion ("rescan" / paint-it-blue)
+//
+// Expansion is a single rescan loop over a list of preprocessing tokens,
+// modeled on the C preprocessor algorithm instead of doing one full-string
+// find-and-replace pass per macro. Every macro replacement list is tokenized,
+// spliced into the token stream at the invocation site, and rescanned
+// together with the tokens that followed the invocation, so:
+//
+// - An object-like macro that expands to a function-like macro name combines
+//   with the "(" following it, regardless of definition order.
+// - Each token carries a "hidden" set of macro names that are not allowed to
+//   expand it. When a macro is invoked its name is added to the set for the
+//   tokens produced by that invocation only, which makes self and mutual
+//   recursion terminate. The set is scoped to the invocation, so later,
+//   independent invocations of the same macros expand normally.
+// - Long but finite alias chains run to completion; true cycles leave the
+//   recursive macro references in the output as ordinary identifiers.
+// ---------------------------------------------------------------------------
 
-// Scan for the use of a function-like macro, balancing parentheses until
-// encountering a final closing ")" marking the end of the macro use
-const scanFunctionArgs = (
-  src: string
-): { args: string[]; length: number } | null => {
-  let char: string;
-  let parens: number = 0;
-  let args: string[] = [];
-  let arg: string = '';
+type PpToken = {
+  text: string;
+  // Macro names currently ineligible to expand this token ("painted blue").
+  hidden: Set<string>;
+};
 
-  for (let i = 0; i < src.length; i++) {
-    char = src.charAt(i);
+const IDENTIFIER_START = /[A-Za-z_]/;
+const IDENTIFIER_PART = /[A-Za-z_0-9]/;
+const isIdentifierStart = (char: string): boolean =>
+  IDENTIFIER_START.test(char);
+const isIdentifierPart = (char: string): boolean => IDENTIFIER_PART.test(char);
+const isWhitespace = (char: string): boolean => /\s/.test(char);
+const isWhitespaceToken = (token: PpToken): boolean =>
+  token.text.length > 0 && isWhitespace(token.text.charAt(0));
+const isIdentifierToken = (token: PpToken): boolean =>
+  token.text.length > 0 && isIdentifierStart(token.text.charAt(0));
 
-    if (char === '(') {
-      parens++;
-    }
+const unionHidden = (a: Set<string>, b: Set<string>): Set<string> => {
+  if (!b.size) {
+    return a;
+  }
+  const merged = new Set<string>(a);
+  b.forEach((name) => merged.add(name));
+  return merged;
+};
 
-    if (char === ')') {
-      parens--;
-    }
+// Split replacement text into tokens. Whitespace runs are a single token so
+// they are preserved verbatim, and every punctuation character is its own
+// token, which is enough to scan parentheses and commas.
+const tokenize = (src: string, hidden: Set<string>): PpToken[] => {
+  const tokens: PpToken[] = [];
+  let i = 0;
 
-    if (parens === -1) {
-      // In the case of "()", we don't want to add the argument of empty string,
-      // but we do in case of "(,)" and "(asdf)". When we hit the closing paren,
-      // only capture the arg of empty string if there was a previous comma,
-      // which we can infer from there being a previous arg
-      if (arg !== '' || args.length) {
-        args.push(arg);
+  while (i < src.length) {
+    const char = src.charAt(i);
+    if (isWhitespace(char)) {
+      let end = i + 1;
+      while (end < src.length && isWhitespace(src.charAt(end))) {
+        end++;
       }
-      return { args, length: i };
-    }
-
-    if (char === ',' && parens === 0) {
-      args.push(arg);
-      arg = '';
+      tokens.push({ text: src.slice(i, end), hidden });
+      i = end;
+    } else if (isIdentifierStart(char)) {
+      let end = i + 1;
+      while (end < src.length && isIdentifierPart(src.charAt(end))) {
+        end++;
+      }
+      tokens.push({ text: src.slice(i, end), hidden });
+      i = end;
     } else {
-      arg += char;
+      tokens.push({ text: char, hidden });
+      i++;
     }
   }
+  return tokens;
+};
 
-  return null;
+// Token pasting, matching the historical behavior of joining the tokens
+// around " ## " into one token.
+const pasteTokens = (tokens: PpToken[]): PpToken[] => {
+  const pasted: PpToken[] = [];
+  let i = 0;
+
+  while (i < tokens.length) {
+    // The pattern is whitespace, '#', '#', whitespace between two ordinary
+    // tokens, mirroring the old /\s+##\s+/ regular expression.
+    if (
+      isWhitespaceToken(tokens[i]) &&
+      tokens[i + 1]?.text === '#' &&
+      tokens[i + 2]?.text === '#' &&
+      isWhitespaceToken(tokens[i + 3])
+    ) {
+      const left = pasted.pop();
+      const right = tokens[i + 4];
+      if (
+        left &&
+        right &&
+        !isWhitespaceToken(left) &&
+        !isWhitespaceToken(right)
+      ) {
+        pasted.push({
+          text: left.text + right.text,
+          hidden: unionHidden(left.hidden, right.hidden),
+        });
+        i += 5;
+        continue;
+      }
+    }
+    pasted.push(tokens[i]);
+    i++;
+  }
+  return pasted;
 };
 
 // From glsl2s https://github.com/cimaron/glsl2js/blob/4046611ac4f129a9985d74704159c41a402564d0/preprocessor/comments.js
@@ -123,8 +185,6 @@ const preprocessComments = (src: string): string => {
   return out;
 };
 
-const tokenPaste = (str: string): string => str.replace(/\s+##\s+/g, '');
-
 type NodeEvaluator<NodeType> = (
   node: NodeType,
   visit: (node: PreprocessorAstNode) => any
@@ -169,142 +229,211 @@ export type Macros = {
   [name: string]: Macro;
 };
 
-const expandFunctionMacro = (
+// Index of the next non-whitespace token at or after `start`, or -1.
+const nextSignificantToken = (tokens: PpToken[], start: number): number => {
+  for (let i = start; i < tokens.length; i++) {
+    if (!isWhitespaceToken(tokens[i])) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+// Scan the arguments of a function-like macro invocation. `start` is the index
+// just after the opening "(". Parentheses are balanced while scanning, so a
+// comma inside a nested call does not terminate an argument early.
+type ScannedArgs = {
+  args: PpToken[][];
+  closeIndex: number;
+};
+
+const scanFunctionArgs = (
+  tokens: PpToken[],
+  start: number
+): ScannedArgs | null => {
+  let depth = 0;
+  const args: PpToken[][] = [];
+  let current: PpToken[] = [];
+
+  for (let i = start; i < tokens.length; i++) {
+    const { text } = tokens[i];
+
+    if (text === '(') {
+      depth++;
+      current.push(tokens[i]);
+    } else if (text === ')') {
+      if (depth === 0) {
+        // In the case of "()", there is no empty-string argument, but there is
+        // one in "(,)" and "(asdf)". Only capture an empty argument when a
+        // previous comma implies one, which we can infer from a previous arg.
+        if (current.length || args.length) {
+          args.push(current);
+        }
+        return { args, closeIndex: i };
+      }
+      depth--;
+      current.push(tokens[i]);
+    } else if (text === ',' && depth === 0) {
+      args.push(current);
+      current = [];
+    } else {
+      current.push(tokens[i]);
+    }
+  }
+
+  return null;
+};
+
+// Drop leading and trailing whitespace tokens, matching the historical
+// behavior of trimming raw argument strings before substituting them.
+const trimTokens = (tokens: PpToken[]): PpToken[] => {
+  let start = 0;
+  let end = tokens.length;
+  while (start < end && isWhitespaceToken(tokens[start])) {
+    start++;
+  }
+  while (end > start && isWhitespaceToken(tokens[end - 1])) {
+    end--;
+  }
+  return tokens.slice(start, end);
+};
+
+// Rescan a token list, expanding any macros found in it. `hidden` is the set
+// of macro names ineligible for expansion while processing this list (the
+// names of macro invocations currently being expanded).
+const expandTokens = (
+  input: PpToken[],
   macros: Macros,
-  macroName: string,
-  macro: Macro,
-  text: string
-) => {
-  const pattern = `\\b${macroName}\\s*\\(`;
-  const startRegex = new RegExp(pattern, 'm');
+  hidden: Set<string>
+): PpToken[] => {
+  const output: PpToken[] = [];
+  let tokens = input;
+  let i = 0;
 
-  let expanded = '';
-  let current = text;
-  let startMatch;
+  while (i < tokens.length) {
+    const token = tokens[i];
 
-  while ((startMatch = startRegex.exec(current))) {
-    const result = scanFunctionArgs(
-      current.substring(startMatch.index + startMatch[0].length)
-    );
-    if (result === null) {
-      throw new Error(
-        `${current.match(startRegex)} unterminated macro invocation`
+    if (!isIdentifierToken(token)) {
+      output.push(token);
+      i++;
+      continue;
+    }
+
+    // A token's own hidden set comes from the invocation that produced it; the
+    // passed-in hidden set comes from invocations still being rescanned. Both
+    // apply while the token is under consideration.
+    const names = unionHidden(hidden, token.hidden);
+    const macro = macros[token.text];
+    if (!macro || names.has(token.text)) {
+      // Keep an unexpanded identifier painted with every name currently
+      // hidden so the suppression survives later splicing and rescanning.
+      output.push({ text: token.text, hidden: names });
+      i++;
+      continue;
+    }
+
+    if (macro.args) {
+      // A function-like macro name is only a macro invocation when an opening
+      // "(" follows it (ignoring whitespace). Otherwise it stays as-is, e.g.
+      // a function macro name used as a plain identifier.
+      const openParen = nextSignificantToken(tokens, i + 1);
+      if (openParen === -1 || tokens[openParen].text !== '(') {
+        output.push({ text: token.text, hidden: names });
+        i++;
+        continue;
+      }
+
+      const scanned = scanFunctionArgs(tokens, openParen + 1);
+      if (scanned === null) {
+        const invocation = tokens
+          .slice(i, openParen + 1)
+          .map((part) => part.text)
+          .join('');
+        throw new Error(`${invocation} unterminated macro invocation`);
+      }
+
+      const macroArgs = macro.args.filter(
+        (arg) => (arg as PreprocessorLiteralNode).literal !== ','
       );
+      const { args, closeIndex } = scanned;
+
+      if (args.length > macroArgs.length) {
+        throw new Error(`'${token.text}': Too many arguments for macro`);
+      }
+      if (args.length < macroArgs.length) {
+        throw new Error(`'${token.text}': Not enough arguments for macro`);
+      }
+
+      // The self-reference rule: while this invocation's replacement list is
+      // being rescanned, its own name cannot be expanded again.
+      const invocationHidden = new Set(names);
+      invocationHidden.add(token.text);
+
+      // Arguments are fully macro expanded before substitution, using the
+      // outer hide set only. The macro currently being invoked is not hidden
+      // yet, so a nested invocation of the same macro inside an argument still
+      // expands; each argument gets its own expansion, so a hidden name
+      // un-hides for the next argument and everything after the invocation.
+      const argIdentifiers = macroArgs.map(
+        (arg) => (arg as PreprocessorIdentifierNode).identifier
+      );
+      const argReplacements: Record<string, PpToken[]> = {};
+      argIdentifiers.forEach((identifier, index) => {
+        argReplacements[identifier] = expandTokens(
+          trimTokens(args[index]),
+          macros,
+          names
+        );
+      });
+
+      // Substitute arguments into the macro body, then apply token pasting.
+      // Every replacement-list token is painted with this invocation's hidden
+      // set. Argument tokens are additionally painted with this invocation's
+      // name: an argument that could not expand during prescan (for example a
+      // function-like macro name with no "(" next to it) must not gain a "("
+      // from the tokens after the invocation and expand during the rescan.
+      const bodyTokens = tokenize(macro.body || '', invocationHidden);
+      const substituted = bodyTokens.map((bodyToken) =>
+        isIdentifierToken(bodyToken) && bodyToken.text in argReplacements
+          ? argReplacements[bodyToken.text].map((argToken) => ({
+              text: argToken.text,
+              hidden: unionHidden(argToken.hidden, invocationHidden),
+            }))
+          : [bodyToken]
+      );
+      const replacement = pasteTokens(substituted.flat());
+
+      // Splice the replacement list in front of the tokens that followed the
+      // closing ")" and keep rescanning from the start of it. The replacement
+      // rescans together with the source tokens after the invocation, so a
+      // function-like macro name produced by the expansion combines with a
+      // following "(". The invocation's own name is hidden only on the
+      // replacement tokens, so the tokens after the invocation (and the next
+      // independent invocation) are unaffected.
+      tokens = [...replacement, ...tokens.slice(closeIndex + 1)];
+      i = 0;
+    } else {
+      // Object-like macro: splice its replacement list in front of the
+      // remaining tokens and keep scanning, so the replacement rescans
+      // together with whatever followed the macro (for example a "(" that
+      // turns the expanded name into a function macro invocation).
+      const invocationHidden = new Set(names);
+      invocationHidden.add(token.text);
+      const replacement = pasteTokens(
+        tokenize(macro.body || '', invocationHidden)
+      );
+      tokens = [...replacement, ...tokens.slice(i + 1)];
+      i = 0;
     }
-    const macroArgs = (macro.args || []).filter(
-      (arg) => (arg as PreprocessorLiteralNode).literal !== ','
-    );
-    const { args, length: argLength } = result;
-
-    // The total length of the raw text to replace is the macro name in the
-    // text (startMatch), plus the length of the arguments, plus one to
-    // encompass the closing paren that the scan fn skips
-    const matchLength = startMatch[0].length + argLength + 1;
-
-    if (args.length > macroArgs.length) {
-      throw new Error(`'${macroName}': Too many arguments for macro`);
-    }
-    if (args.length < macroArgs.length) {
-      throw new Error(`'${macroName}': Not enough arguments for macro`);
-    }
-
-    // Collect the macro identifiers and build a replacement map from those to
-    // the user defined replacements
-    const argIdentifiers = macroArgs.map(
-      (a) => (a as PreprocessorIdentifierNode).identifier
-    );
-
-    const argKeys = argIdentifiers.reduce<Record<string, string>>(
-      (acc, identifier, index) => ({
-        ...acc,
-        // We are scanning from the outside in - so fn(args) - we need to
-        // recursivey test if args itself has macros to expand. We don't need
-        // to remove the current macroName from macros because we are scanning
-        // outside in, so self-referencing macros won't get into an infinite
-        // loop here
-        [identifier]: expandMacros(args[index].trim(), macros),
-      }),
-      {}
-    );
-
-    const replacedBody = tokenPaste(
-      macro.body.replace(
-        // Replace all instances of macro arguments in the macro definition
-        // (the arg separated by word boundaries) with its user defined
-        // replacement. This one-pass strategy ensures that we won't clobber
-        // previous replacements when the user supplied args have the same names
-        // as the macro arguments
-        new RegExp(
-          '(' + argIdentifiers.map((a) => `\\b${a}\\b`).join(`|`) + ')',
-          'g'
-        ),
-        (match) => (match in argKeys ? argKeys[match] : match)
-      )
-    );
-
-    // Any text expanded is then scanned again for more replacements. The
-    // self-reference rule means that a macro that references itself won't be
-    // expanded again, so remove it from the search. WARNING! There is a known
-    // bug here! See the xtest in preprocessor.test.ts.
-    const expandedReplace = expandMacros(
-      replacedBody,
-      without(macros, macroName)
-    );
-
-    // We want to break this string at where we finished expanding the macro
-    const endOfReplace = startMatch.index + expandedReplace.length;
-
-    // Replace the use of the macro with the expansion
-    const processed = current.replace(
-      current.substring(startMatch.index, startMatch.index + matchLength),
-      expandedReplace
-    );
-
-    // Add text up to the end of the expanded macro to what we've procssed
-    expanded += processed.substring(0, endOfReplace);
-
-    // Only work on the rest of the text, not what we already expanded. This is
-    // to avoid a nested macro #define foo() foo() where we'll try to expand foo
-    // forever. With this strategy, we expand foo() to foo() and move on
-    current = processed.substring(endOfReplace);
   }
 
-  return expanded + current;
+  return output;
 };
 
-const expandObjectMacro = (
-  macros: Macros,
-  macroName: string,
-  macro: Macro,
-  text: string
-) => {
-  const regex = new RegExp(`\\b${macroName}\\b`, 'g');
-  let expanded = text;
-  if (regex.test(text)) {
-    // Macro definitions like
-    //     #define MACRO
-    // Have null for the body. Make it empty string if null to avoid 'null' expanded
-    const replacement = macro.body || '';
-
-    // Recursively scan this macro body for more replacements, ignoring our own
-    // macro to avoid the self-reference rule.
-    const scanned = expandMacros(replacement, without(macros, macroName));
-
-    expanded = tokenPaste(
-      text.replace(new RegExp(`\\b${macroName}\\b`, 'g'), scanned)
-    );
-  }
-  return expanded;
-};
-
-const expandMacros = (text: string, macros: Macros) =>
-  Object.entries(macros).reduce(
-    (result, [macroName, macro]) =>
-      macro.args
-        ? expandFunctionMacro(macros, macroName, macro, result)
-        : expandObjectMacro(macros, macroName, macro, result),
-    text
-  );
+const expandMacros = (text: string, macros: Macros): string =>
+  expandTokens(tokenize(text, new Set<string>()), macros, new Set<string>())
+    .map((token) => token.text)
+    .join('');
 
 const isTruthy = (x: any): boolean => !!x;
 
@@ -512,6 +641,9 @@ const evaluateExpressionString = (expr: string, macros: Macros): any => {
       id in macros ? '1' : '0'
     );
 
+  // Macro expansion in #if / #elif expressions follows the same rescan rules
+  // as macro expansion in the program body. Any identifiers still unexpanded
+  // are treated as zero by the expression evaluator below.
   const expanded = expandMacros(defined, macros);
   return evaluteExpression(expressionParser(expanded.trim()), macros);
 };

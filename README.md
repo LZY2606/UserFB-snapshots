@@ -551,6 +551,34 @@ operator, and `#if` expressions can only operate on integer constants, not other
 types of data. The Shaderfrog GLSL preprocessor can't be used as a C/C++
 preprocessor without modification.
 
+## Macro expansion and rescan rules
+
+Macro expansion is a single rescan pass over a stream of preprocessing tokens,
+following the same model as the C preprocessor (the "painted blue" algorithm),
+rather than one whole-string find-and-replace pass per macro. This has a few
+consequences worth knowing:
+
+- An object-like macro that expands to a function-like macro name combines with
+  the `(` immediately following it, so `#define A B` / `#define B(x) ...` makes
+  `A(1)` a call to `B`. The result does not depend on the order the two macros
+  were defined. Long but finite alias chains keep expanding until they reach a
+  real macro.
+- A macro's replacement list is rescanned together with the tokens after the
+  invocation. Function-like macro names not followed by `(` are left untouched.
+- While a macro is being expanded, its own name is hidden from further
+  expansion for the tokens produced by that invocation. This makes self and
+  mutual recursion terminate: the recursive macro references stay in the output
+  as ordinary identifiers (for example `bar(foo(1.0))` can remain exactly that).
+  Hiding is scoped to the invocation, so a separate, later call to the same
+  macro expands normally.
+- Macro arguments are fully expanded before they are substituted, with
+  parentheses balanced while scanning, so a comma inside a nested call does not
+  end an argument early. Wrong argument counts still throw an error.
+- The same expansion rules apply inside `#if` / `#elif` expressions. The
+  operand of `defined` is never expanded, and any identifier left unexpanded in
+  a conditional evaluates to zero.
+
+
 Parsing, preprocessing, and code generation, are all phases of a compiler. This
 library is technically a source code > source code compiler, also known as a
 "transpiler." The input and output source code are both GLSL.
