@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: 'sunday'
+      time: '02:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 7
+      exclude:
+        - 'puppeteer*'
+        - 'lighthouse'
+    groups:
+      dependencies:
+        dependency-type: production
+        patterns:
+          - '*'
+      dev-dependencies:
+        dependency-type: development
+        patterns:
+          - '*'
+    allow:
+      - dependency-name: 'puppeteer'
+      - dependency-name: 'puppeteer-core'
+      - dependency-type: 'production'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: 'sunday'
+      time: '03:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 7
+    groups:
+      all:
+        patterns:
+          - '*'

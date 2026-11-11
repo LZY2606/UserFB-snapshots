@@ -1,0 +1,107 @@
+/**
+ * @license
+ * Copyright 2022 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { describe, it } from 'node:test';
+import { InMemoryLineWriter } from '../src/InMemoryLineWriter.js';
+import { PuppeteerStringifyExtension } from '../src/PuppeteerStringifyExtension.js';
+import { AssertedEventType, StepType } from '../src/Schema.js';
+
+describe('PuppeteerStringifyExtension', () => {
+  const ext = new PuppeteerStringifyExtension();
+
+  it('should print the correct script for a click step', async (t) => {
+    const step = {
+      type: StepType.Click as const,
+      target: 'main',
+      selectors: ['aria/Test'],
+      offsetX: 1,
+      offsetY: 1,
+    };
+    const flow = { title: 'test', steps: [step] };
+
+    const writer = new InMemoryLineWriter('  ');
+    await ext.stringifyStep(writer, step, flow);
+    t.assert.snapshot(writer.toString());
+  });
+
+  it('should print the correct script for asserted events', async (t) => {
+    const step = {
+      type: StepType.Click as const,
+      target: 'main',
+      selectors: ['aria/Test'],
+      offsetX: 1,
+      offsetY: 1,
+      assertedEvents: [{ type: AssertedEventType.Navigation as const }],
+    };
+    const flow = { title: 'test', steps: [step] };
+
+    const writer = new InMemoryLineWriter('  ');
+    await ext.stringifyStep(writer, step, flow);
+    t.assert.snapshot(writer.toString());
+  });
+
+  it('should print the correct script with a chain selector', async (t) => {
+    const step = {
+      type: StepType.Click as const,
+      target: 'main',
+      selectors: [['aria/Test', 'aria/Test2']],
+      offsetX: 1,
+      offsetY: 1,
+    };
+    const flow = { title: 'test', steps: [step] };
+
+    const writer = new InMemoryLineWriter('  ');
+    await ext.stringifyStep(writer, step, flow);
+    t.assert.snapshot(writer.toString());
+  });
+
+  it('should print the correct script for a change step', async (t) => {
+    const step = {
+      type: StepType.Change as const,
+      target: 'main',
+      selectors: ['aria/Test'],
+      value: 'Hello World',
+    };
+    const flow = { title: 'test', steps: [step] };
+
+    const writer = new InMemoryLineWriter('  ');
+    await ext.stringifyStep(writer, step, flow);
+    t.assert.snapshot(writer.toString());
+  });
+
+  it('should print the correct script for a change step for non-text inputs', async (t) => {
+    const step = {
+      type: StepType.Change as const,
+      target: 'main',
+      selectors: ['aria/Test'],
+      value: '#333333',
+    };
+    const flow = { title: 'test', steps: [step] };
+
+    const writer = new InMemoryLineWriter('  ');
+    await ext.stringifyStep(writer, step, flow);
+    t.assert.snapshot(writer.toString());
+  });
+
+  describe('Firefox', () => {
+    const ext = new PuppeteerStringifyExtension('firefox');
+
+    it('should stringify', async (t) => {
+      const step = {
+        type: StepType.Click as const,
+        target: 'main',
+        selectors: ['aria/Test'],
+        offsetX: 1,
+        offsetY: 1,
+      };
+      const flow = { title: 'test', steps: [step] };
+
+      const writer = new InMemoryLineWriter('  ');
+      await ext.beforeAllSteps(writer, flow);
+      t.assert.snapshot(writer.toString());
+    });
+  });
+});

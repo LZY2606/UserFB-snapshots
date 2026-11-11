@@ -1,0 +1,16 @@
+/node_modules/
+.DS_Store
+*.swp
+*.pyc
+.vscode
+yarn.lock
+lib
+coverage/
+tsconfig.tsbuildinfo
+.tmp
+test/resources/spec.html
+test/build/
+build/
+
+# Local verification build products (draft environment addition).
+.build/

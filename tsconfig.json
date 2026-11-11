@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "lib",
+    "stripInternal": true,
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/cli.ts",
+    "src/CLIUtils.ts",
+    "src/extension-test.ts",
+    "src/Spec.ts"
+  ]
+}

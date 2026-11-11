@@ -1,0 +1,102 @@
+import typescript from '@rollup/plugin-typescript';
+import dts from 'rollup-plugin-dts';
+import packageJson from './package.json' with { type: 'json' };
+
+export default [
+  {
+    input: 'src/main.ts',
+    output: [
+      {
+        file: 'lib/main.js',
+        sourcemap: true,
+        format: 'es',
+      },
+    ],
+    external: Object.keys(packageJson.peerDependencies),
+    plugins: [
+      typescript({
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        declaration: false,
+        declarationMap: false,
+      }),
+    ],
+  },
+  {
+    input: 'src/main.ts',
+    output: [
+      {
+        file: 'lib/main.d.ts',
+        format: 'es',
+      },
+    ],
+    external: [
+      'devtools-protocol',
+      'devtools-protocol/types/protocol-mapping.js',
+    ],
+    plugins: [
+      dts({
+        compilerOptions: { declaration: true },
+      }),
+    ],
+  },
+  {
+    input: 'src/cli.ts',
+    output: {
+      file: 'lib/cli.js',
+      format: 'es',
+      sourcemap: true,
+      banner: '#!/usr/bin/env node',
+    },
+    external: [
+      ...Object.keys({
+        ...packageJson.dependencies,
+        ...packageJson.peerDependencies,
+      }),
+      './main.js',
+      'fs',
+      'path',
+      'url',
+      'process',
+      'node:util',
+    ],
+    plugins: [
+      typescript({
+        tsconfig: 'tsconfig.cli.json',
+        declaration: false,
+        declarationMap: false,
+      }),
+    ],
+  },
+  {
+    input: 'src/extension-test.ts',
+    output: {
+      file: 'lib/extension-test.js',
+      format: 'es',
+      sourcemap: true,
+      banner: '#!/usr/bin/env node',
+    },
+    external: [
+      ...Object.keys({
+        ...packageJson.dependencies,
+        ...packageJson.peerDependencies,
+      }),
+      './main.js',
+      'fs',
+      'path',
+      'url',
+      'process',
+      'node:util',
+      'http',
+      'assert/strict',
+      'child_process',
+    ],
+    plugins: [
+      typescript({
+        tsconfig: 'tsconfig.cli.json',
+        declaration: false,
+        declarationMap: false,
+      }),
+    ],
+  },
+];
