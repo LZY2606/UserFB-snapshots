@@ -3,3 +3,4 @@ test
 *.a
 *.dSYM
 .DS_Store
+tests/out/
