@@ -432,6 +432,48 @@ func (mb *client) ReadFIFOQueue(address uint16) (results []byte, err error) {
 	return
 }
 
+// Request:
+//  Function code         : 1 byte (0x14)
+//  Byte count            : 1 byte
+//  Sub-request           : 7 bytes each
+//    Reference type      : 1 byte (0x06)
+//    File number         : 2 bytes
+//    Record number       : 2 bytes
+//    Record length       : 2 bytes
+// Response:
+//  Function code         : 1 byte (0x14)
+//  Byte count            : 1 byte
+//  Sub-response          : length byte + reference type + register data
+//    Length              : 1 byte (including reference type)
+//    Reference type      : 1 byte (0x06)
+//    Record data         : 2*Length bytes
+func (mb *client) ReadFileRecords(requests []FileRecordRequest) (results [][]uint16, err error) {
+	if err = validateFileRecordRequests(requests); err != nil {
+		return nil, err
+	}
+
+	// Build the request PDU. A single call is a single device request; the
+	// sub-requests are kept exactly as supplied.
+	data := make([]byte, 1+fileRecordSubRequestSize*len(requests))
+	data[0] = byte(fileRecordSubRequestSize * len(requests))
+	for i, request := range requests {
+		offset := 1 + i*fileRecordSubRequestSize
+		data[offset] = fileRecordReferenceType
+		binary.BigEndian.PutUint16(data[offset+1:], request.File)
+		binary.BigEndian.PutUint16(data[offset+3:], request.Record)
+		binary.BigEndian.PutUint16(data[offset+5:], request.Length)
+	}
+	request := ProtocolDataUnit{
+		FunctionCode: FuncCodeReadFileRecord,
+		Data:         data,
+	}
+	response, err := mb.send(&request)
+	if err != nil {
+		return nil, err
+	}
+	return decodeFileRecordResponse(response.Data, requests)
+}
+
 // Helpers
 
 // send sends request and checks possible exception in the response.
@@ -491,4 +533,93 @@ func responseError(response *ProtocolDataUnit) error {
 		mbError.ExceptionCode = response.Data[0]
 	}
 	return mbError
+}
+
+const (
+	fileRecordReferenceType  = 0x06
+	fileRecordSubRequestSize = 7
+	fileRecordLastRecord     = 9999
+	fileRecordMaxLength      = 125
+	fileRecordMaxPDUSize     = 253
+)
+
+// validateFileRecordRequests validates all requests before any device access.
+func validateFileRecordRequests(requests []FileRecordRequest) error {
+	if len(requests) == 0 {
+		return fmt.Errorf("modbus: file record requests must not be empty")
+	}
+	// Request PDU = function code + byte count + 7 bytes per sub-request.
+	requestSize := 2
+	// Response PDU = function code + byte count + for each sub-response a
+	// length byte, a reference type byte and 2 bytes per register.
+	responseSize := 2
+	for i, request := range requests {
+		if request.File == 0 {
+			return fmt.Errorf("modbus: file record request '%d' has invalid file number '%d'", i, request.File)
+		}
+		if request.Record > fileRecordLastRecord {
+			return fmt.Errorf("modbus: file record request '%d' has invalid record number '%d'", i, request.Record)
+		}
+		if request.Length < 1 || request.Length > fileRecordMaxLength {
+			return fmt.Errorf("modbus: file record request '%d' has invalid length '%d'", i, request.Length)
+		}
+		if uint32(request.Record)+uint32(request.Length)-1 > fileRecordLastRecord {
+			return fmt.Errorf("modbus: file record request '%d' ends after the last record '%d'", i, fileRecordLastRecord)
+		}
+		requestSize += fileRecordSubRequestSize
+		responseSize += 2 + 2*int(request.Length)
+	}
+	if requestSize > fileRecordMaxPDUSize {
+		return fmt.Errorf("modbus: file record request pdu size '%d' exceeds maximum '%d'", requestSize, fileRecordMaxPDUSize)
+	}
+	if responseSize > fileRecordMaxPDUSize {
+		return fmt.Errorf("modbus: file record response pdu size '%d' exceeds maximum '%d'", responseSize, fileRecordMaxPDUSize)
+	}
+	return nil
+}
+
+// decodeFileRecordResponse parses the response data and allocates a distinct
+// result slice for every sub-request. It never exposes a partial result.
+func decodeFileRecordResponse(data []byte, requests []FileRecordRequest) ([][]uint16, error) {
+	if len(data) < 1 {
+		return nil, fmt.Errorf("modbus: file record response data is empty")
+	}
+	byteCount := int(data[0])
+	if byteCount != len(data)-1 {
+		return nil, fmt.Errorf("modbus: response data size '%d' does not match count '%d'", len(data)-1, byteCount)
+	}
+	payload := data[1:]
+	results := make([][]uint16, len(requests))
+	offset := 0
+	for i, request := range requests {
+		if offset >= len(payload) {
+			return nil, fmt.Errorf("modbus: file record response is missing sub-response '%d'", i)
+		}
+		length := int(payload[offset])
+		offset++
+		if length < 1 {
+			return nil, fmt.Errorf("modbus: file record response '%d' has invalid length '%d'", i, length)
+		}
+		if offset+length > len(payload) {
+			return nil, fmt.Errorf("modbus: file record response '%d' data size '%d' exceeds remaining data '%d'", i, length, len(payload)-offset)
+		}
+		if payload[offset] != fileRecordReferenceType {
+			return nil, fmt.Errorf("modbus: file record response '%d' has invalid reference type '%d'", i, payload[offset])
+		}
+		// The length includes the reference type byte but excludes its own
+		// length byte: 1 + 2*Length.
+		if length != 1+2*int(request.Length) {
+			return nil, fmt.Errorf("modbus: file record response '%d' data size '%d' does not match requested length '%d'", i, length, request.Length)
+		}
+		recordData := payload[offset+1 : offset+length]
+		results[i] = make([]uint16, request.Length)
+		for j := range results[i] {
+			results[i][j] = binary.BigEndian.Uint16(recordData[j*2:])
+		}
+		offset += length
+	}
+	if offset != len(payload) {
+		return nil, fmt.Errorf("modbus: file record response has '%d' trailing bytes", len(payload)-offset)
+	}
+	return results, nil
 }

@@ -125,16 +125,20 @@ func (mb *rtuSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err
 		return
 	}
 	function := aduRequest[1]
-	functionFail := aduRequest[1] & 0x80
+	functionFail := function | 0x80
 	bytesToRead := calculateResponseLength(aduRequest)
 	time.Sleep(mb.calculateDelay(len(aduRequest) + bytesToRead))
 
 	var n int
 	var n1 int
 	var data [rtuMaxSize]byte
-	//We first read the minimum length and then read either the full package
-	//or the error package, depending on the error status (byte 2 of the response)
-	n, err = io.ReadAtLeast(mb.port, data[:], rtuMinSize)
+	// We first read the minimum length and then read either the full package
+	// or the error package, depending on the error status (byte 2 of the response).
+	// Read the minimum frame first so the function code can be inspected;
+	// then keep reading until the whole expected frame is available. A
+	// serial Read may return a single byte, so the minimum frame length
+	// must not be used as the response length.
+	n, err = io.ReadAtLeast(mb.port, data[:rtuMinSize], rtuMinSize)
 	if err != nil {
 		return
 	}
@@ -204,6 +208,20 @@ func calculateResponseLength(adu []byte) int {
 		length += 6
 	case FuncCodeReadFIFOQueue:
 		// undetermined
+	case FuncCodeReadFileRecord:
+		// Byte count + for each sub-response: length byte, reference type
+		// and register data. The request holds one 7-byte sub-request per
+		// response sub-response.
+		length++
+		if len(adu) < 3 {
+			break
+		}
+		byteCount := int(adu[2])
+		for offset := 3; offset+fileRecordSubRequestSize <= len(adu)-2 &&
+			offset+fileRecordSubRequestSize <= 3+byteCount; offset += fileRecordSubRequestSize {
+			recordLength := int(binary.BigEndian.Uint16(adu[offset+5:]))
+			length += 2 + 2*recordLength
+		}
 	default:
 	}
 	return length

@@ -18,6 +18,7 @@ Bit access:
 *   Read/Write Multiple Registers
 *   Mask Write Register
 *   Read FIFO Queue
+*   Read File Records (function code 0x14)
 
 Supported formats
 -----------------
@@ -37,6 +38,14 @@ results, err := client.ReadInputRegisters(8, 1)
 // Default configuration is 19200, 8, 1, even
 client = modbus.RTUClient("/dev/ttyS0")
 results, err = client.ReadCoils(2, 1)
+
+// File record access (function code 0x14)
+records, err := client.ReadFileRecords([]modbus.FileRecordRequest{
+	{File: 1, Record: 0, Length: 5},
+	{File: 2, Record: 100, Length: 10},
+})
+// records[0] holds 5 registers from file 1, record 0;
+// records[1] holds 10 registers from file 2, record 100.
 ```
 
 Advanced usage:

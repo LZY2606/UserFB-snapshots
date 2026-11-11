@@ -4,6 +4,14 @@
 
 package modbus
 
+// FileRecordRequest identifies a record range in a remote device's file
+// record area.
+type FileRecordRequest struct {
+	File   uint16
+	Record uint16
+	Length uint16
+}
+
 type Client interface {
 	// Bit access
 
@@ -46,4 +54,12 @@ type Client interface {
 	//ReadFIFOQueue reads the contents of a First-In-First-Out (FIFO) queue
 	// of register in a remote device and returns FIFO value register.
 	ReadFIFOQueue(address uint16) (results []byte, err error)
+
+	// File record access
+
+	// ReadFileRecords reads record ranges from a remote device's file
+	// record area. The outer result is ordered like requests and the inner
+	// slice contains the big-endian 16-bit registers read by that
+	// sub-request. Requests are neither sorted, merged nor de-duplicated.
+	ReadFileRecords(requests []FileRecordRequest) (results [][]uint16, err error)
 }

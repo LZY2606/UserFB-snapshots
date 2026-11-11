@@ -29,8 +29,8 @@ func TestFileBaseline(t *testing.T) {
  wire,e:=h.Encode(req); if e!=nil {t.Fatal(e)}; raw,e:=h.Send(wire); if e!=nil {t.Fatal(e)}
  if e=h.Verify(wire,raw);e!=nil {t.Fatal(e)}; p,e:=h.Decode(raw);if e!=nil || !bytes.Equal(p.Data,[]byte{6,5,6,0,10,0,11}) {t.Fatalf("raw file %v %v",p,e)}
  rtu:=&rtuPackager{SlaveId:1}; frame,_:=rtu.Encode(req)
- if n:=calculateResponseLength(frame);n!=4 {t.Fatalf("current RTU file estimate=%d",n)}
+ if n:=calculateResponseLength(frame);n!=11 {t.Fatalf("RTU file estimate=%d",n)}
  if e=<-done;e!=nil {t.Fatal(e)}
  t.Log("BASELINE_DEVICE_REGISTER value=42")
- t.Log("BASELINE_FILE_RAW_TCP records=2 RTU_estimate=4 expected=11")
+ t.Log("BASELINE_FILE_RAW_TCP records=2 RTU_estimate=11 expected=11")
 }

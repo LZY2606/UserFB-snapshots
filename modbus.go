@@ -26,6 +26,9 @@ const (
 	FuncCodeReadWriteMultipleRegisters = 23
 	FuncCodeMaskWriteRegister          = 22
 	FuncCodeReadFIFOQueue              = 24
+
+	// File record access
+	FuncCodeReadFileRecord = 20
 )
 
 const (
