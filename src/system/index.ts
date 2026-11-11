@@ -8,6 +8,30 @@ export class System {
   readonly keyboard = new KeyboardHost(this)
   readonly pointer = new PointerHost(this)
 
+  private dragSessionActive = false
+
+  isDragSessionActive() {
+    return this.dragSessionActive
+  }
+
+  /**
+   * A drag session owns the mouse, the drag data and the event sequence.
+   * Share the same `System` (e.g. through a derived `setup()`) therefore
+   * cannot start a second session concurrently.
+   */
+  beginDragSession() {
+    if (this.dragSessionActive) {
+      throw new Error(
+        'A drag session is already active on this input system.',
+      )
+    }
+    this.dragSessionActive = true
+  }
+
+  endDragSession() {
+    this.dragSessionActive = false
+  }
+
   getUIEventModifiers(): EventModifierInit {
     return {
       altKey: this.keyboard.modifiers.Alt,

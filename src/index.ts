@@ -5,4 +5,8 @@ export {userEvent} from './setup'
 export type {UserEvent} from './setup/setup'
 export type {keyboardKey} from './system/keyboard'
 export type {pointerKey} from './system/pointer'
+export type {
+  DragAndDropOptions,
+  DropEffect,
+} from './pointer/dragAndDrop'
 export {PointerEventsCheckLevel, type Options} from './options'

@@ -140,6 +140,7 @@ export class PointerHost {
     position: PointerPosition,
   ) {
     const device = this.devices.get(keyDef.pointerType)
+
     device.removePressed(keyDef)
 
     this.buttons.up(keyDef)
@@ -178,6 +179,61 @@ export class PointerHost {
 
       this.mouse.up(instance, keyDef, isPrevented)
     }
+  }
+
+  /**
+   * Release a pointer key without synthesizing `click`/`auxclick` on the
+   * common ancestor of the down and up targets.
+   */
+  async releaseWithoutClick(
+    instance: Instance,
+    keyDef: pointerKey,
+    position: PointerPosition,
+  ) {
+    const device = this.devices.get(keyDef.pointerType)
+
+    device.removePressed(keyDef)
+
+    this.buttons.up(keyDef)
+
+    const pointer = this.pointers.get(this.getPointerName(keyDef))
+
+    const isPrevented = pointer.isPrevented
+
+    // TODO: deprecate the following implicit setting of position
+    pointer.position = position
+    if (pointer.pointerType !== 'touch') {
+      this.mouse.position = position
+    }
+
+    if (device.countPressed === 0) {
+      pointer.up(instance, keyDef.button)
+    }
+
+    if (pointer.pointerType === 'touch') {
+      pointer.release(instance)
+    }
+
+    if (pointer.pointerType === 'touch' && !pointer.isMultitouch) {
+      const mousemove = this.mouse.move(instance, position, isPrevented)
+      mousemove?.leave()
+      mousemove?.enter()
+      mousemove?.move()
+
+      this.mouse.down(instance, keyDef, isPrevented)
+    }
+    if (!pointer.isMultitouch) {
+      const mousemove = this.mouse.move(instance, position, isPrevented)
+      mousemove?.leave()
+      mousemove?.enter()
+      mousemove?.move()
+
+      this.mouse.up(instance, keyDef, isPrevented, false)
+    }
+  }
+
+  isMouseButtonPressed() {
+    return this.devices.get('mouse').countPressed > 0
   }
 
   getPointerName(keyDef: pointerKey) {

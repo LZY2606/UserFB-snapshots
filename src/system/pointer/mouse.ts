@@ -148,6 +148,8 @@ export class Mouse {
     keyDef: pointerKey,
     /** Whether `preventDefault()` has been called on the `pointerdown` event */
     isPrevented: boolean,
+    /** Whether a `click`/`auxclick` event should be synthesized */
+    performClick: boolean = true,
   ) {
     const button = this.buttons.up(keyDef)
 
@@ -160,6 +162,10 @@ export class Mouse {
         const mouseUpInit = this.getEventInit('mouseup', keyDef.button)
         instance.dispatchUIEvent(target, 'mouseup', mouseUpInit)
         this.endSelecting()
+      }
+
+      if (!performClick) {
+        return
       }
 
       const clickTarget = getTreeDiff(

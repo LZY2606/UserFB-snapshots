@@ -8,6 +8,7 @@ import {
 
 interface InterfaceMap {
   ClipboardEvent: {type: ClipboardEvent, init: ClipboardEventInit}
+  DragEvent: {type: DragEvent, init: DragEventInit}
   InputEvent: {type: InputEvent, init: InputEventInit}
   MouseEvent: {type: MouseEvent, init: MouseEventInit}
   PointerEvent: {type: PointerEvent, init: PointerEventInit}
@@ -25,6 +26,12 @@ const eventInitializer: {
   >
 } = {
   ClipboardEvent: [initClipboardEvent],
+  DragEvent: [
+    initUIEvent,
+    initUIEventModifiers,
+    initMouseEvent,
+    initDragEvent,
+  ],
   Event: [],
   FocusEvent: [initUIEvent, initFocusEvent],
   InputEvent: [initUIEvent, initInputEvent],
@@ -114,6 +121,12 @@ function initClipboardEvent(
 ) {
   assignProps(event, {
     clipboardData,
+  })
+}
+
+function initDragEvent(event: DragEvent, {dataTransfer}: DragEventInit) {
+  assignProps(event, {
+    dataTransfer,
   })
 }
 

@@ -37,6 +37,34 @@ export const eventMap = {
     EventType: 'MouseEvent',
     defaultInit: {bubbles: true, cancelable: true, composed: true},
   },
+  drag: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  dragend: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: false, composed: true},
+  },
+  dragenter: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  dragleave: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  dragover: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  dragstart: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  drop: {
+    EventType: 'DragEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
   focus: {
     EventType: 'FocusEvent',
     defaultInit: {bubbles: false, cancelable: false, composed: true},
@@ -139,7 +167,7 @@ function getEventClass(type: EventType) {
   return eventMap[type].EventType
 }
 
-const mouseEvents = ['MouseEvent', 'PointerEvent']
+const mouseEvents = ['MouseEvent', 'PointerEvent', 'DragEvent']
 export function isMouseEvent(type: EventType) {
   return mouseEvents.includes(getEventClass(type))
 }

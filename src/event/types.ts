@@ -16,15 +16,17 @@ type SpecificEventInit<E extends Event> = E extends InputEvent
     ? ClipboardEventInit
     : E extends KeyboardEvent
       ? KeyboardEventInit
-      : E extends PointerEvent
-        ? PointerEventInit
-        : E extends MouseEvent
-          ? MouseEventInit
-          : E extends FocusEvent
-            ? FocusEventInit
-            : E extends UIEvent
-              ? UIEventInit
-              : EventInit
+      : E extends DragEvent
+        ? DragEventInit
+        : E extends PointerEvent
+          ? PointerEventInit
+          : E extends MouseEvent
+            ? MouseEventInit
+            : E extends FocusEvent
+              ? FocusEventInit
+              : E extends UIEvent
+                ? UIEventInit
+                : EventInit
 
 export interface PointerCoords {
   x?: number

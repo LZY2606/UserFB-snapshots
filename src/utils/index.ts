@@ -2,6 +2,7 @@ export * from './click/isClickableInput'
 
 export * from './dataTransfer/Blob'
 export * from './dataTransfer/DataTransfer'
+export * from './dataTransfer/DragDataTransfer'
 export * from './dataTransfer/FileList'
 export * from './dataTransfer/Clipboard'
 

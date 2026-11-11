@@ -1,4 +1,8 @@
 import {type Options} from '../options'
+import {
+  type DragAndDropOptions,
+  type DropEffect,
+} from '../pointer/dragAndDrop'
 import {type PointerInput} from '../pointer'
 import {type System} from '../system'
 import {setupDirect, type UserEventApi} from './setup'
@@ -34,6 +38,16 @@ export function deselectOptions(
   options: DirectOptions = {},
 ) {
   return setupDirect(options).api.deselectOptions(select, values)
+}
+
+export function dragAndDrop(
+  source: Element,
+  target: Element,
+  options: DirectOptions & DragAndDropOptions = {},
+): Promise<DropEffect> {
+  const {api} = setupDirect(options, source)
+
+  return api.dragAndDrop(source, target, options)
 }
 
 export function hover(element: Element, options: DirectOptions = {}) {
