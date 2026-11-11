@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const unfluff = require('..');
+const sentence = 'This is the collected article and it has a detailed account of the work with the people in the study. ';
+const html = `<html lang="en"><head><title>Collected study</title></head><body><span class="byline">Reporter A</span><article><p>${sentence.repeat(5)} <a href="/source">the primary source</a> and more details in the report.</p><p>${sentence.repeat(5)}</p></article></body></html>`;
+const eager = unfluff(html);
+assert.equal(eager.links.length, 1);
+assert.deepEqual(eager.author, ['Reporter A']);
+assert.ok(eager.text.includes('primary source'));
+console.log('BASE_UNFLUFF_EAGER_OK');
+const early = unfluff.lazy(html);
+assert.equal(early.links().length, 1);
+const late = unfluff.lazy(html);
+assert.ok(late.text().includes('primary source'));
+assert.equal(late.links().length, 0);
+assert.deepEqual(late.author(), []);
+console.log('BASE_UNFLUFF_ORDER_BUG_REPRODUCED');
