@@ -451,6 +451,15 @@ export const toAdaptationSets = (mpdAttributes, mpdBaseUrls) => (period, index) 
     periodStart: period.attributes.start
   });
 
+  // The presentation-clock end of the Period, resolved from the Period's own
+  // @duration, the next Period's @start or mediaPresentationDuration. Segment
+  // expansion relies on it to close a trailing negative @r repeat group. It is
+  // only present for static MPDs where the boundary is derivable; dynamic MPDs
+  // keep their availability-window based behavior.
+  if (typeof period.attributes.end === 'number') {
+    periodAttributes.periodEnd = period.attributes.end;
+  }
+
   if (typeof period.attributes.duration === 'number') {
     periodAttributes.periodDuration = period.attributes.duration;
   }
@@ -605,6 +614,44 @@ export const inheritAttributes = (mpd, options = {}) => {
 
   const periods = [];
 
+  /**
+   * Resolves the presentation-clock end of a Period for a static MPD.
+   *
+   * The end comes from, in order:
+   *   1. the Period's own @start + @duration,
+   *   2. the next Period's @start when the Period has no @duration,
+   *   3. mediaPresentationDuration for the last Period.
+   *
+   * @param {Object} periodAttributes parsed attributes of the Period, with @start resolved
+   * @param {Object|null} nextPeriodAttributes parsed attributes of the next Period, if any
+   * @return {number|undefined} the Period end in presentation-clock seconds
+   */
+  const getPeriodEnd = (periodAttributes, nextPeriodAttributes) => {
+    // Dynamic MPDs keep their availability-window based rules; the Period end
+    // boundary is only resolved for static MPDs.
+    if (mpdAttributes.type !== 'static' ||
+        typeof periodAttributes.start !== 'number') {
+      return undefined;
+    }
+
+    // (1) the Period's own duration always wins
+    if (typeof periodAttributes.duration === 'number') {
+      return periodAttributes.start + periodAttributes.duration;
+    }
+
+    // (2) a Period without a duration ends where the next one starts
+    if (nextPeriodAttributes && typeof nextPeriodAttributes.start === 'number') {
+      return nextPeriodAttributes.start;
+    }
+
+    // (3) the last Period runs to the end of the Media Presentation
+    if (typeof mpdAttributes.mediaPresentationDuration === 'number') {
+      return mpdAttributes.mediaPresentationDuration;
+    }
+
+    return undefined;
+  };
+
   // Since toAdaptationSets acts on individual periods right now, the simplest approach to
   // adding properties that require looking at prior periods is to parse attributes and add
   // missing ones before toAdaptationSets is called. If more such properties are added, it
@@ -625,6 +672,17 @@ export const inheritAttributes = (mpd, options = {}) => {
       node,
       attributes
     });
+  });
+
+  // Period ends depend on the following Period, so they are resolved once every
+  // Period start is known.
+  periods.forEach((period, index) => {
+    const nextPeriod = periods[index + 1];
+
+    period.attributes.end = getPeriodEnd(
+      period.attributes,
+      nextPeriod ? nextPeriod.attributes : null
+    );
   });
 
   return {

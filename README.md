@@ -17,6 +17,7 @@ mpd parser
 - [Installation](#installation)
 - [Usage](#usage)
   - [Parsed Output](#parsed-output)
+  - [SegmentTimeline Timing](#segmenttimeline-timing)
 - [Including the Parser](#including-the-parser)
   - [`<script>` Tag](#script-tag)
   - [Browserify](#browserify)
@@ -133,6 +134,54 @@ Manifest {
   ]
 }
 ```
+
+### SegmentTimeline Timing
+
+A `SegmentTimeline` describes media segments on the Representation's **media
+clock**, not on the presentation clock used by `Period@start` and
+`mediaPresentationDuration`:
+
+- `S@t` and `S@d` are expressed in `@timescale` units, and a `$Time$`
+  template identifier is substituted with the segment's media time. These
+  values are never converted to presentation seconds inside the segment URL.
+- `presentationTimeOffset` (`@presentationTimeOffset`) only participates in
+  the conversion to the presentation-facing `presentationTime`:
+
+  ```
+  presentationTime = periodStart + (S@t - presentationTimeOffset) / timescale
+  ```
+
+  It does not change the media time origin or the value used in `$Time$`.
+
+For a `static` MPD, a trailing `S` with `r="-1"` is expanded up to the end of
+the Period that contains it. The Period end is taken from, in order:
+
+1. the Period's own `@duration` (`@start + @duration`),
+2. the next Period's `@start` when the Period has no `@duration`,
+3. `mediaPresentationDuration` for the final Period.
+
+The boundary is converted from presentation seconds onto the media clock
+(`presentationTimeOffset + (periodEnd - periodStart) * timescale`) before the
+repeat group is expanded. Only segments whose media start is strictly before
+the Period end are emitted, so no extra resource is produced at the end
+boundary itself. A final segment whose start does not evenly divide the
+remaining duration is still emitted with its full original `S@d`; the parser
+does not rewrite that duration. If the repeat group is followed by another `S`
+with an explicit `@t`, that `@t` terminates the group instead of the Period
+end. These rules apply identically to `SegmentTemplate` and `SegmentList`.
+
+`dynamic` MPDs are unaffected: their availability-window rules continue to
+determine how a trailing `r="-1"` expands.
+
+Manifests that cannot be expanded safely throw a named error rather than
+returning an empty segment list:
+
+- `PERIOD_END_UNSPECIFIED`: a trailing `r="-1"` in a static MPD with no
+  derivable Period end,
+- `SEGMENT_DURATION_INVALID`: an `S@d` that is missing or not positive,
+- `TIMESCALE_INVALID`: a non-positive `@timescale`,
+- `SEGMENT_TIME_UNSAFE_INTEGER`: a time, duration or repeat count that cannot
+  be represented as a safe integer.
 
 ## Including the Parser
 

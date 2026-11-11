@@ -9,6 +9,9 @@ const xml = `<MPD type="static" mediaPresentationDuration="PT12S" xmlns="urn:mpe
 <Representation id="v" bandwidth="1000" width="640" height="360"/></AdaptationSet></Period></MPD>`;
 const result = parse(xml, {manifestUri: 'https://media.invalid/demo.mpd'});
 const segments = result.playlists.flatMap(p => p.segments);
-assert.deepEqual(segments.map(s => s.uri), ['a-100.m4s']);
-assert.equal(segments[0].presentationTime, 0);
-console.log('baseline: 12s/2-period MPD expands only a-100.m4s; expected media needs 6 segments');
+assert.deepEqual(
+  segments.map(s => s.uri),
+  ['a-100.m4s', 'a-120.m4s', 'a-140.m4s', 'b-200.m4s', 'b-220.m4s', 'b-240.m4s']
+);
+assert.deepEqual(segments.map(s => s.presentationTime), [0, 2, 4, 6, 8, 10]);
+console.log('baseline: 12s/2-period MPD expands to six media segments');
