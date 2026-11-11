@@ -1,0 +1,9 @@
+[package]
+name = "goblin-witness"
+version = "0.1.0"
+edition = "2024"
+[dependencies]
+goblin = { path = "..", default-features = false, features = ["std", "pe64"] }
+[[bin]]
+name = "witness"
+path = "witness.rs"
