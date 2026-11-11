@@ -22,6 +22,52 @@ Core components:
 - [![GoDoc](https://godoc.org/github.com/huin/goupnp?status.svg) ssdp](https://godoc.org/github.com/huin/goupnp/ssdp) SSDP client implementation (simple service discovery protocol) - used to discover UPnP services on a network.
 - [![GoDoc](https://godoc.org/github.com/huin/goupnp?status.svg) soap](https://godoc.org/github.com/huin/goupnp/soap) SOAP client implementation (simple object access protocol) - used to communicate with discovered services.
 
+## Event subscriptions (GENA)
+
+`goupnp.EventSubscription` implements one UPnP GENA subscription. Create it
+with a discovered `Service`, the absolute callback URL that the device should
+notify, and a handler that receives state updates. Mount the subscription on
+your callback address first, then call `Start` to send the `SUBSCRIBE`
+request:
+
+```go
+// The device was discovered earlier and svc is its eventing Service.
+callbackURL, err := url.Parse("http://192.168.1.10:8080/upnp/events")
+if err != nil {
+	return err
+}
+
+sub := goupnp.NewEventSubscription(svc, callbackURL, func(changed, snapshot map[string]string) {
+	// changed contains variables from this notification.
+	// snapshot contains all values observed so far.
+	fmt.Printf("changed=%v snapshot=%v\n", changed, snapshot)
+})
+
+// Attach the handler to the callback address BEFORE sending SUBSCRIBE.
+http.Handle("/upnp/events", sub)
+go func() {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Printf("callback server: %v", err)
+	}
+}()
+
+sid, timeout, err := sub.Start(context.Background())
+if err != nil {
+	log.Fatalf("subscribe: %v", err)
+}
+fmt.Printf("subscribed with SID %s (timeout %v)\n", sid, timeout)
+```
+
+`Start` returns the SID and timeout confirmed by the device; a timeout of
+zero means `infinite`. The default subscription request asks for
+`Second-1800`, and `HTTPClientDefault` is used unless an HTTP client is
+supplied with `NewEventSubscriptionWithClient`. This API performs a single
+subscription: it does not renew or automatically reconnect.
+
+A device may deliver its initial `SEQ=0` NOTIFY before the SUBSCRIBE response
+arrives. The handler holds that event internally and invokes your state
+handler only after `Start` has obtained and verified the SID.
+
 ## Regenerating dcps generated source code:
 
 1. Build code generator:
