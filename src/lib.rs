@@ -50,6 +50,7 @@ mod jit;
 #[cfg(not(feature = "std"))]
 mod no_std_error;
 mod stack;
+mod stack_init;
 mod verifier;
 
 /// Reexports all the types needed from the `std`, `core`, and `alloc`
@@ -123,6 +124,59 @@ pub mod lib {
 ///   - Bad formed instruction.
 ///   - Unknown eBPF helper index.
 pub type Verifier = fn(prog: &[u8]) -> Result<(), Error>;
+
+/// Check that every byte the program reads from its stack has been written on
+/// every path leading to the read.
+///
+/// The ordinary format checks run by the default verifier (`verifier::check`,
+/// exposed through the VM constructors) are run first: invalid registers, bad
+/// jumps, unknown opcodes and malformed instructions are therefore still
+/// rejected. A flow-sensitive definite-initialization analysis is then run on
+/// the resulting control-flow graph.
+///
+/// # Scope and limitations
+///
+/// This is a deliberately restricted checker, not a replacement for the Linux
+/// kernel eBPF verifier:
+///
+/// * A single function is modeled, with one 512-byte stack frame whose end is
+///   pointed to by `r10`. Reachable helper calls, local function calls
+///   (`callx`) and atomic memory operations are rejected as unsupported.
+/// * Only stack-derived values (`r10`, register copies, constant
+///   `add`/`sub` adjustments and full eight-byte stack spill/reload) are
+///   tracked precisely. Arithmetic that would destroy the meaning of a stack
+///   pointer, 32-bit truncation of a pointer, or memory accesses mixing stack
+///   and non-stack sources are rejected instead of being silently treated as
+///   ordinary scalars.
+/// * Conditional jumps are not interpreted, so both edges are explored; the
+///   analysis converges on loops, and unreachable instructions do not produce
+///   initialization errors.
+///
+/// The function has the same signature as [`Verifier`], so it can be handed to
+/// [`EbpfVmMbuff::set_verifier`] (and the wrappers on the other VM types) to
+/// reject programs that read uninitialized stack bytes when they are loaded or
+/// replaced. The input slice is never modified.
+///
+/// # Examples
+///
+/// ```
+/// use rbpf::assembler::assemble;
+///
+/// // Writing then reading the same stack slot is accepted.
+/// let good = assemble("stdw [r10-8], 42
+///                      ldxdw r0, [r10-8]
+///                      exit").unwrap();
+/// rbpf::check_stack_initialized(&good).unwrap();
+///
+/// // Reading a stack slot that was never written is rejected.
+/// let bad = assemble("ldxdw r0, [r10-8]
+///                     exit").unwrap();
+/// assert!(rbpf::check_stack_initialized(&bad).is_err());
+/// ```
+pub fn check_stack_initialized(prog: &[u8]) -> Result<(), Error> {
+    verifier::check(prog)?;
+    stack_init::analyze(prog)
+}
 
 /// eBPF helper function.
 pub type Helper = fn(u64, u64, u64, u64, u64) -> u64;

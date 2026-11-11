@@ -196,6 +196,20 @@ verifier also immediately runs it on the loaded program. However, the verifier
 is not run if no program has been loaded (if `None` was passed to the `new()`
 method when creating the VM).
 
+A stricter, ready-to-use verifier is also available as
+`rbpf::check_stack_initialized`. It runs the ordinary format checks first and
+then a static analysis that rejects any program which reads a stack byte that
+has not been written on every path leading to that read. It has the same
+signature as `Verifier`, so it can be passed directly to `set_verifier` to
+reject such programs when they are loaded or replaced. See [Stack
+initialization checking](#stack-initialization-checking) for its scope and
+limitations.
+
+```rust,ignore
+let mut vm = rbpf::EbpfVmNoData::new(Some(prog))?;
+vm.set_verifier(rbpf::check_stack_initialized)?;
+```
+
 ```rust,ignore
 pub type Helper = fn (u64, u64, u64, u64, u64) -> u64;
 
@@ -673,6 +687,44 @@ kernel verifier, which means that it accepts programs that may not be safe. On
 the other hand, you probably do not run this in a kernel here, so it will not
 crash your system. Implementing a verifier similar to the one in the kernel is
 not trivial, and we cannot “copy” it since it is under GPL license.
+
+### Stack initialization checking
+
+`rbpf::check_stack_initialized` is an optional, stricter verifier. The
+interpreter always zeroes the stack before running a program, but a zero stack
+byte is not the same thing as a byte the program deliberately initialized;
+this checker points out reads of stack bytes that were never written.
+
+It first runs the crate's ordinary format checks (invalid registers, bad
+jumps, unknown opcodes, malformed instructions), then performs a
+flow-sensitive definite-initialization analysis. It is a deliberately
+**restricted** checker and does **not** claim to replace the full Linux kernel
+eBPF verifier. Its model is limited to:
+
+* a single function with one 512-byte stack frame whose end is pointed to by
+  `r10` (the second half of an `LD_DW` is not an analysis node);
+* the stack pointer itself: copies through `mov64`, constant `add64`/`sub64`
+  adjustments, and full eight-byte stack spill/reload. Branch joins may yield
+  several candidate offsets, in which case a read must be covered for every
+  candidate and a write only counts for the bytes every candidate covers;
+* the ordinary control-flow edges of conditional and unconditional jumps,
+  including back edges. Conditions are not inferred (both edges are explored),
+  unreachable instructions produce no errors, and the analysis is built on a
+  finite lattice so it converges on loops.
+
+Anything outside this model is rejected explicitly rather than silently
+treated as an ordinary value. In particular, reachable helper calls, local
+function calls, atomic memory operations, arithmetic that would destroy a
+stack pointer's meaning (including 32-bit truncation), and memory accesses
+mixing stack and non-stack sources are not supported. Ordinary scalar
+computation and packet memory accesses that do not involve stack-derived
+values keep following the existing conventions. Errors carry the offending
+instruction index together with the unwritten byte range or the unsupported
+construct, and the input bytecode is never modified.
+
+The default verifier used internally by the VM constructors and the runtime
+behavior are unchanged; this function only takes effect when a caller chooses
+it, for example through `set_verifier`.
 
 ### What about safety then?
 
