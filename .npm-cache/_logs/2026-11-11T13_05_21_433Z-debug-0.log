@@ -1,0 +1,30 @@
+0 verbose cli /opt/homebrew/Cellar/node/26.0.0/bin/node /opt/homebrew/bin/npm
+1 info using npm@11.12.1
+2 info using node@v26.0.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/.npmrc
+5 silly config load:file:/tmp/claude-501/empty-npmrc
+6 silly config load:file:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/etc/npmrc
+7 verbose title npm install typescript@5.7.2
+8 verbose argv "--userconfig" "/tmp/claude-501/empty-npmrc" "--cache" ".npm-cache" "install" "--prefix" ".deps" "--ignore-scripts" "--no-package-lock" "--no-audit" "--no-fund" "typescript@5.7.2"
+9 verbose logfile logs-max:10 dir:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.npm-cache/_logs/2026-11-11T13_05_21_433Z-
+10 verbose logfile /Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.npm-cache/_logs/2026-11-11T13_05_21_433Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4395630592 maxSize:1098907648 maxEntrySize:549453824
+13 silly idealTree buildDeps
+14 silly fetch manifest typescript@5.7.2
+15 silly packumentCache full:https://registry.npmjs.org/typescript cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/typescript 5453ms (cache miss)
+17 silly packumentCache full:https://registry.npmjs.org/typescript set size:undefined disposed:false
+18 silly placeDep ROOT typescript@5.7.2 OK for:  want: 5.7.2
+19 silly reify moves {}
+20 http cache typescript@https://registry.npmjs.org/typescript/-/typescript-5.7.2.tgz 0ms (cache hit)
+21 silly tarball no local data for typescript@https://registry.npmjs.org/typescript/-/typescript-5.7.2.tgz. Extracting by manifest.
+22 http fetch GET 200 https://registry.npmjs.org/typescript/-/typescript-5.7.2.tgz 6561ms (cache miss)
+23 silly ADD node_modules/typescript
+24 verbose cwd /Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo
+25 verbose os Darwin 27.0.0
+26 verbose node v26.0.0
+27 verbose npm  v11.12.1
+28 verbose exit 0
+29 info ok

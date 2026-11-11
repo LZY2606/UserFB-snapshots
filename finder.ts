@@ -82,6 +82,21 @@ export function finder(input: Element, options?: Partial<Options>): string {
   const config = { ...defaults, ...options }
   const rootDocument = findRootDocument(config.root, defaults, input)
 
+  return findUniqueSelector(input, config, rootDocument, startTime)
+}
+
+/**
+ * Finds a unique CSS selector for `input` inside `rootDocument`, applying the
+ * same id/class/tag/attr filtering, search order and positional fallback as
+ * {@link finder}. `rootDocument` scopes every uniqueness check, so a selector
+ * that is only unique with help from outside the root is never accepted.
+ */
+function findUniqueSelector(
+  input: Element,
+  config: Options,
+  rootDocument: Element | Document | ShadowRoot,
+  startTime: Date = new Date(),
+): string {
   let foundPath: Knot[] | undefined
   let count = 0
   for (const candidate of search(input, config, rootDocument)) {
@@ -117,6 +132,220 @@ export function finder(input: Element, options?: Partial<Options>): string {
     return selector(optimized[0])
   }
   return selector(foundPath)
+}
+
+/** A node that can serve as the start (root) of a {@link finderPath} path. */
+export type PathRoot = Document | Element | ShadowRoot
+
+/** Options for {@link finderPath}: {@link Options}, but with a widened root. */
+export type PathOptions = Partial<Omit<Options, 'root'>> & { root?: PathRoot }
+
+/**
+ * Builds a cross shadow DOM path from `options.root` (or the current document
+ * when omitted) to `input`.
+ *
+ * The returned array holds one CSS selector per tree on the way. Every segment
+ * except the last must match exactly one shadow host inside the current root;
+ * replay then descends into that host's open shadow root. The last segment
+ * matches exactly the target inside its own root. No shadow-piercing syntax is
+ * emitted and each segment is scoped to its own root, so elements with the same
+ * selector in different components stay distinguishable.
+ *
+ * The id/class/tag/attribute filtering rules and the positional
+ * (`nth-of-type`/`nth-child`) fallback are the same ones {@link finder} uses,
+ * so a host without a usable name is still located by its position.
+ *
+ * @returns the selector segments from the root to the target; an empty array
+ * when the root itself is the target.
+ * @throws when `input` is not an element reachable from the root (it is
+ * detached, lives in a different tree, or is only reachable through a closed
+ * shadow root).
+ */
+export function finderPath(input: Element, options?: PathOptions): string[] {
+  if (input.nodeType !== Node.ELEMENT_NODE) {
+    throw new Error(`Can't generate CSS selector for non-element node type.`)
+  }
+
+  const defaults: Options = {
+    root: document.body,
+    idName: idName,
+    className: className,
+    tagName: tagName,
+    attr: attr,
+    timeoutMs: 1000,
+    seedMinLength: 3,
+    optimizedMinLength: 2,
+    maxNumberOfPathChecks: Infinity,
+  }
+  const config: Options = { ...defaults, ...options, root: defaults.root }
+  const start: PathRoot = options?.root ?? document
+
+  // Walk the real DOM tree from the target up to the requested root. The walk
+  // follows parentElement inside one tree and, at a shadow boundary, the open
+  // host; slotted light DOM keeps its light-tree parent, so assignedSlot is
+  // never treated as a parent.
+  const segments: { root: PathRoot; target: Element }[] = []
+  let current: Element = input
+  // Bound the loop defensively in case of a pathological node chain.
+  for (let guard = 0; guard < 1_000_000; guard++) {
+    if (current === start) {
+      // Reaching an element start by crossing out of its own shadow root would
+      // produce a path replay cannot follow: an element's querySelectorAll does
+      // not pierce its own shadow root, so its shadowed content is out of reach
+      // from the element itself. Callers must pass the shadow root instead.
+      const innermost = segments[segments.length - 1]
+      if (
+        innermost &&
+        isShadowRoot(innermost.root) &&
+        innermost.root.host === start
+      ) {
+        throw new Error(
+          `Can't build a path: the target lives inside the root element's own shadow root; pass that shadow root as the root.`,
+        )
+      }
+      return buildSegmentSelectors(segments.reverse(), config)
+    }
+
+    const rootNode = current.getRootNode?.()
+    if (!isContainer(rootNode)) {
+      throw new Error(
+        `Can't build a path: the target is not reachable from the given root.`,
+      )
+    }
+
+    // The requested start is the root node of the tree the target lives in
+    // (a document or a shadow root): the segment is scoped directly to it.
+    if (rootNode === start) {
+      segments.push({ root: start, target: current })
+      return buildSegmentSelectors(segments.reverse(), config)
+    }
+
+    // An element start inside the very same tree: walk the light parent chain
+    // and scope the final segment to the start element itself.
+    if (
+      start.nodeType === Node.ELEMENT_NODE &&
+      (start as Element).getRootNode?.() === rootNode &&
+      isAncestor(start as Element, current)
+    ) {
+      segments.push({ root: start, target: current })
+      return buildSegmentSelectors(segments.reverse(), config)
+    }
+
+    if (!isShadowRoot(rootNode)) {
+      // Reached the top of a tree without finding the start: the target is
+      // detached or lives in another tree.
+      throw new Error(
+        `Can't build a path: the target is detached from or outside the given root.`,
+      )
+    }
+
+    const host = rootNode.host
+    if (!host || !host.shadowRoot) {
+      // The only way across this boundary is a closed shadow root.
+      throw new Error(`Can't build a path through a closed shadow root.`)
+    }
+    segments.push({ root: rootNode, target: current })
+    current = host
+  }
+  throw new Error(`Can't build a path: element chain is too deep.`)
+}
+
+/** Checks that `ancestor` is `node` itself or one of its light-tree ancestors. */
+function isAncestor(ancestor: Element, node: Element): boolean {
+  let current: Element | null = node
+  while (current) {
+    if (current === ancestor) {
+      return true
+    }
+    current = current.parentElement
+  }
+  return false
+}
+
+/** Generates and validates one unique selector per collected tree segment. */
+function buildSegmentSelectors(
+  segments: { root: PathRoot; target: Element }[],
+  config: Options,
+): string[] {
+  const selectors: string[] = []
+  // `segments` is already ordered from the start root down to the target.
+  for (const segment of segments) {
+    const css = findUniqueSelector(
+      segment.target,
+      config,
+      segment.root,
+      new Date(),
+    )
+    // findUniqueSelector already proves uniqueness, but re-check explicitly so
+    // a stored segment can never silently match the wrong node on replay.
+    const matches = segment.root.querySelectorAll(css)
+    if (matches.length !== 1 || matches[0] !== segment.target) {
+      throw new Error(
+        `Can't build a unique selector inside this shadow root: ${css}`,
+      )
+    }
+    selectors.push(css)
+  }
+  return selectors
+}
+
+/**
+ * Replays a path produced by {@link finderPath}, starting from `root`.
+ *
+ * Each segment must match exactly one node in the current root. Between
+ * segments the matched host must expose an open shadow root, which becomes the
+ * root for the next segment.
+ *
+ * @returns the resolved element (or `root` itself for an empty path), or `null`
+ * when any segment matches zero or more than one node, is not valid CSS, or an
+ * intermediate host has no open shadow root.
+ */
+export function resolvePath(root: PathRoot, path: string[]): PathRoot | null {
+  let current: PathRoot = root
+  for (let i = 0; i < path.length; i++) {
+    let matches: NodeListOf<Element>
+    try {
+      matches = current.querySelectorAll(path[i])
+    } catch {
+      // Invalid CSS selector.
+      return null
+    }
+    if (matches.length !== 1) {
+      return null
+    }
+    const node = matches[0]
+    if (i === path.length - 1) {
+      return node
+    }
+    const shadow = node.shadowRoot
+    if (!shadow) {
+      return null
+    }
+    current = shadow
+  }
+  // An empty path resolves to the original start.
+  return root
+}
+
+function isContainer(node: unknown): node is PathRoot {
+  if (!node || typeof node !== 'object') {
+    return false
+  }
+  const nodeType = (node as Node).nodeType
+  return (
+    nodeType === Node.DOCUMENT_NODE ||
+    nodeType === Node.ELEMENT_NODE ||
+    nodeType === Node.DOCUMENT_FRAGMENT_NODE
+  )
+}
+
+function isShadowRoot(node: PathRoot): node is ShadowRoot {
+  // Match the codebase's existing constructor-name check so this works without
+  // relying on a global ShadowRoot constructor (e.g. jsdom test globals).
+  return (
+    node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+    (node as ShadowRoot).constructor?.name === 'ShadowRoot'
+  )
 }
 
 function* search(

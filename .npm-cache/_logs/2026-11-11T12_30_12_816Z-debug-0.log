@@ -1,0 +1,1115 @@
+0 verbose cli /opt/homebrew/Cellar/node/26.0.0/bin/node /opt/homebrew/bin/npm
+1 info using npm@11.12.1
+2 info using node@v26.0.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/.npmrc
+5 silly config load:file:/tmp/claude-501/empty-npmrc
+6 silly config load:file:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/etc/npmrc
+7 verbose title npm install jsdom@25.0.1 css.escape@1.5.1
+8 verbose argv "--userconfig" "/tmp/claude-501/empty-npmrc" "--cache" ".npm-cache" "install" "--prefix" ".deps" "--ignore-scripts" "--no-package-lock" "--no-audit" "--no-fund" "jsdom@25.0.1" "css.escape@1.5.1"
+9 verbose logfile logs-max:10 dir:/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.npm-cache/_logs/2026-11-11T12_30_12_816Z-
+10 verbose logfile /Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.npm-cache/_logs/2026-11-11T12_30_12_816Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4395630592 maxSize:1098907648 maxEntrySize:549453824
+13 silly idealTree buildDeps
+14 silly fetch manifest jsdom@25.0.1
+15 silly packumentCache full:https://registry.npmjs.org/jsdom cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/jsdom 151ms (cache miss)
+17 silly packumentCache full:https://registry.npmjs.org/jsdom set size:undefined disposed:false
+18 silly fetch manifest canvas@^2.11.2
+19 silly packumentCache full:https://registry.npmjs.org/canvas cache-miss
+20 http fetch GET 200 https://registry.npmjs.org/canvas 103ms (cache miss)
+21 silly packumentCache full:https://registry.npmjs.org/canvas set size:undefined disposed:false
+22 silly fetch manifest css.escape@1.5.1
+23 silly packumentCache full:https://registry.npmjs.org/css.escape cache-miss
+24 http fetch GET 200 https://registry.npmjs.org/npm 282ms
+25 http fetch GET 200 https://registry.npmjs.org/css.escape 24ms (cache miss)
+26 silly packumentCache full:https://registry.npmjs.org/css.escape set size:undefined disposed:false
+27 silly placeDep ROOT css.escape@1.5.1 OK for:  want: 1.5.1
+28 silly placeDep ROOT jsdom@25.0.1 OK for:  want: 25.0.1
+29 silly fetch manifest ws@^8.18.0
+30 silly packumentCache full:https://registry.npmjs.org/ws cache-miss
+31 silly fetch manifest saxes@^6.0.0
+32 silly packumentCache full:https://registry.npmjs.org/saxes cache-miss
+33 silly fetch manifest nwsapi@^2.2.12
+34 silly packumentCache full:https://registry.npmjs.org/nwsapi cache-miss
+35 silly fetch manifest parse5@^7.1.2
+36 silly packumentCache full:https://registry.npmjs.org/parse5 cache-miss
+37 silly fetch manifest cssstyle@^4.1.0
+38 silly packumentCache full:https://registry.npmjs.org/cssstyle cache-miss
+39 silly fetch manifest data-urls@^5.0.0
+40 silly packumentCache full:https://registry.npmjs.org/data-urls cache-miss
+41 silly fetch manifest form-data@^4.0.0
+42 silly packumentCache full:https://registry.npmjs.org/form-data cache-miss
+43 silly fetch manifest decimal.js@^10.4.3
+44 silly packumentCache full:https://registry.npmjs.org/decimal.js cache-miss
+45 silly fetch manifest whatwg-url@^14.0.0
+46 silly packumentCache full:https://registry.npmjs.org/whatwg-url cache-miss
+47 silly fetch manifest rrweb-cssom@^0.7.1
+48 silly packumentCache full:https://registry.npmjs.org/rrweb-cssom cache-miss
+49 silly fetch manifest symbol-tree@^3.2.4
+50 silly packumentCache full:https://registry.npmjs.org/symbol-tree cache-miss
+51 silly fetch manifest tough-cookie@^5.0.0
+52 silly packumentCache full:https://registry.npmjs.org/tough-cookie cache-miss
+53 silly fetch manifest whatwg-encoding@^3.1.1
+54 silly packumentCache full:https://registry.npmjs.org/whatwg-encoding cache-miss
+55 silly fetch manifest whatwg-mimetype@^4.0.0
+56 silly packumentCache full:https://registry.npmjs.org/whatwg-mimetype cache-miss
+57 silly fetch manifest http-proxy-agent@^7.0.2
+58 silly packumentCache full:https://registry.npmjs.org/http-proxy-agent cache-miss
+59 silly fetch manifest https-proxy-agent@^7.0.5
+60 silly packumentCache full:https://registry.npmjs.org/https-proxy-agent cache-miss
+61 silly fetch manifest w3c-xmlserializer@^5.0.0
+62 silly packumentCache full:https://registry.npmjs.org/w3c-xmlserializer cache-miss
+63 http fetch GET 200 https://registry.npmjs.org/saxes 29ms (cache miss)
+64 silly packumentCache full:https://registry.npmjs.org/saxes set size:undefined disposed:false
+65 silly fetch manifest webidl-conversions@^7.0.0
+66 silly packumentCache full:https://registry.npmjs.org/webidl-conversions cache-miss
+67 http fetch GET 200 https://registry.npmjs.org/ws 54ms (cache miss)
+68 silly packumentCache full:https://registry.npmjs.org/ws set size:undefined disposed:false
+69 silly fetch manifest xml-name-validator@^5.0.0
+70 silly packumentCache full:https://registry.npmjs.org/xml-name-validator cache-miss
+71 http fetch GET 200 https://registry.npmjs.org/rrweb-cssom 69ms (cache miss)
+72 silly packumentCache full:https://registry.npmjs.org/rrweb-cssom set size:undefined disposed:false
+73 silly fetch manifest html-encoding-sniffer@^4.0.0
+74 silly packumentCache full:https://registry.npmjs.org/html-encoding-sniffer cache-miss
+75 http fetch GET 200 https://registry.npmjs.org/whatwg-encoding 73ms (cache miss)
+76 silly packumentCache full:https://registry.npmjs.org/whatwg-encoding set size:undefined disposed:false
+77 silly fetch manifest is-potential-custom-element-name@^1.0.1
+78 silly packumentCache full:https://registry.npmjs.org/is-potential-custom-element-name cache-miss
+79 http fetch GET 200 https://registry.npmjs.org/data-urls 73ms (cache miss)
+80 silly packumentCache full:https://registry.npmjs.org/data-urls set size:undefined disposed:false
+81 http fetch GET 200 https://registry.npmjs.org/whatwg-mimetype 75ms (cache miss)
+82 silly packumentCache full:https://registry.npmjs.org/whatwg-mimetype set size:undefined disposed:false
+83 http fetch GET 200 https://registry.npmjs.org/form-data 80ms (cache miss)
+84 silly packumentCache full:https://registry.npmjs.org/form-data set size:undefined disposed:false
+85 http fetch GET 200 https://registry.npmjs.org/https-proxy-agent 86ms (cache miss)
+86 silly packumentCache full:https://registry.npmjs.org/https-proxy-agent set size:undefined disposed:false
+87 http fetch GET 200 https://registry.npmjs.org/parse5 88ms (cache miss)
+88 silly packumentCache full:https://registry.npmjs.org/parse5 set size:undefined disposed:false
+89 http fetch GET 200 https://registry.npmjs.org/tough-cookie 88ms (cache miss)
+90 silly packumentCache full:https://registry.npmjs.org/tough-cookie set size:undefined disposed:false
+91 http fetch GET 200 https://registry.npmjs.org/symbol-tree 89ms (cache miss)
+92 silly packumentCache full:https://registry.npmjs.org/symbol-tree set size:undefined disposed:false
+93 http fetch GET 200 https://registry.npmjs.org/whatwg-url 93ms (cache miss)
+94 silly packumentCache full:https://registry.npmjs.org/whatwg-url set size:undefined disposed:false
+95 http fetch GET 200 https://registry.npmjs.org/webidl-conversions 67ms (cache miss)
+96 silly packumentCache full:https://registry.npmjs.org/webidl-conversions set size:undefined disposed:false
+97 http fetch GET 200 https://registry.npmjs.org/html-encoding-sniffer 27ms (cache miss)
+98 silly packumentCache full:https://registry.npmjs.org/html-encoding-sniffer set size:undefined disposed:false
+99 http fetch GET 200 https://registry.npmjs.org/nwsapi 98ms (cache miss)
+100 silly packumentCache full:https://registry.npmjs.org/nwsapi set size:undefined disposed:false
+101 http fetch GET 200 https://registry.npmjs.org/http-proxy-agent 98ms (cache miss)
+102 silly packumentCache full:https://registry.npmjs.org/http-proxy-agent set size:undefined disposed:false
+103 http fetch GET 200 https://registry.npmjs.org/xml-name-validator 46ms (cache miss)
+104 silly packumentCache full:https://registry.npmjs.org/xml-name-validator set size:undefined disposed:false
+105 http fetch GET 200 https://registry.npmjs.org/is-potential-custom-element-name 30ms (cache miss)
+106 silly packumentCache full:https://registry.npmjs.org/is-potential-custom-element-name set size:undefined disposed:false
+107 http fetch GET 200 https://registry.npmjs.org/w3c-xmlserializer 299ms (cache miss)
+108 silly packumentCache full:https://registry.npmjs.org/w3c-xmlserializer set size:undefined disposed:false
+109 http fetch GET 200 https://registry.npmjs.org/cssstyle 309ms (cache miss)
+110 silly packumentCache full:https://registry.npmjs.org/cssstyle set size:undefined disposed:false
+111 http fetch GET 200 https://registry.npmjs.org/decimal.js 323ms (cache miss)
+112 silly packumentCache full:https://registry.npmjs.org/decimal.js set size:undefined disposed:false
+113 silly fetch manifest bufferutil@^4.0.1
+114 silly packumentCache full:https://registry.npmjs.org/bufferutil cache-miss
+115 http fetch GET 200 https://registry.npmjs.org/bufferutil 38ms (cache miss)
+116 silly packumentCache full:https://registry.npmjs.org/bufferutil set size:undefined disposed:false
+117 silly fetch manifest utf-8-validate@>=5.0.2
+118 silly packumentCache full:https://registry.npmjs.org/utf-8-validate cache-miss
+119 http fetch GET 200 https://registry.npmjs.org/utf-8-validate 26ms (cache miss)
+120 silly packumentCache full:https://registry.npmjs.org/utf-8-validate set size:undefined disposed:false
+121 silly placeDep ROOT cssstyle@4.6.0 OK for: jsdom@25.0.1 want: ^4.1.0
+122 silly placeDep ROOT data-urls@5.0.0 OK for: jsdom@25.0.1 want: ^5.0.0
+123 silly placeDep ROOT decimal.js@10.6.0 OK for: jsdom@25.0.1 want: ^10.4.3
+124 silly placeDep ROOT form-data@4.0.6 OK for: jsdom@25.0.1 want: ^4.0.0
+125 silly placeDep ROOT html-encoding-sniffer@4.0.0 OK for: jsdom@25.0.1 want: ^4.0.0
+126 silly placeDep ROOT http-proxy-agent@7.0.2 OK for: jsdom@25.0.1 want: ^7.0.2
+127 silly placeDep ROOT https-proxy-agent@7.0.6 OK for: jsdom@25.0.1 want: ^7.0.5
+128 silly placeDep ROOT is-potential-custom-element-name@1.0.1 OK for: jsdom@25.0.1 want: ^1.0.1
+129 silly placeDep ROOT nwsapi@2.2.28 OK for: jsdom@25.0.1 want: ^2.2.12
+130 silly placeDep ROOT parse5@7.3.0 OK for: jsdom@25.0.1 want: ^7.1.2
+131 silly placeDep ROOT rrweb-cssom@0.7.1 OK for: jsdom@25.0.1 want: ^0.7.1
+132 silly placeDep ROOT saxes@6.0.0 OK for: jsdom@25.0.1 want: ^6.0.0
+133 silly placeDep ROOT symbol-tree@3.2.4 OK for: jsdom@25.0.1 want: ^3.2.4
+134 silly placeDep ROOT tough-cookie@5.1.2 OK for: jsdom@25.0.1 want: ^5.0.0
+135 silly placeDep ROOT w3c-xmlserializer@5.0.0 OK for: jsdom@25.0.1 want: ^5.0.0
+136 silly placeDep ROOT webidl-conversions@7.0.0 OK for: jsdom@25.0.1 want: ^7.0.0
+137 silly placeDep ROOT whatwg-encoding@3.1.1 OK for: jsdom@25.0.1 want: ^3.1.1
+138 silly placeDep ROOT whatwg-mimetype@4.0.0 OK for: jsdom@25.0.1 want: ^4.0.0
+139 silly placeDep ROOT whatwg-url@14.2.0 OK for: jsdom@25.0.1 want: ^14.0.0
+140 silly placeDep ROOT ws@8.22.2 OK for: jsdom@25.0.1 want: ^8.18.0
+141 silly placeDep ROOT xml-name-validator@5.0.0 OK for: jsdom@25.0.1 want: ^5.0.0
+142 silly fetch manifest rrweb-cssom@^0.8.0
+143 silly packumentCache full:https://registry.npmjs.org/rrweb-cssom cache-miss
+144 silly fetch manifest @asamuzakjp/css-color@^3.2.0
+145 silly packumentCache full:https://registry.npmjs.org/@asamuzakjp%2fcss-color cache-miss
+146 silly fetch manifest hasown@^2.0.4
+147 silly packumentCache full:https://registry.npmjs.org/hasown cache-miss
+148 silly fetch manifest asynckit@^0.4.0
+149 silly packumentCache full:https://registry.npmjs.org/asynckit cache-miss
+150 silly fetch manifest mime-types@^2.1.35
+151 silly packumentCache full:https://registry.npmjs.org/mime-types cache-miss
+152 silly fetch manifest combined-stream@^1.0.8
+153 silly packumentCache full:https://registry.npmjs.org/combined-stream cache-miss
+154 silly fetch manifest es-set-tostringtag@^2.1.0
+155 silly packumentCache full:https://registry.npmjs.org/es-set-tostringtag cache-miss
+156 silly fetch manifest debug@^4.3.4
+157 silly packumentCache full:https://registry.npmjs.org/debug cache-miss
+158 silly fetch manifest agent-base@^7.1.0
+159 silly packumentCache full:https://registry.npmjs.org/agent-base cache-miss
+160 silly fetch manifest debug@4
+161 silly packumentCache full:https://registry.npmjs.org/debug cache-miss
+162 silly fetch manifest agent-base@^7.1.2
+163 silly packumentCache full:https://registry.npmjs.org/agent-base cache-miss
+164 silly fetch manifest entities@^6.0.0
+165 silly packumentCache full:https://registry.npmjs.org/entities cache-miss
+166 silly fetch manifest xmlchars@^2.2.0
+167 silly packumentCache full:https://registry.npmjs.org/xmlchars cache-miss
+168 silly fetch manifest tldts@^6.1.32
+169 silly packumentCache full:https://registry.npmjs.org/tldts cache-miss
+170 silly fetch manifest iconv-lite@0.6.3
+171 silly packumentCache full:https://registry.npmjs.org/iconv-lite cache-miss
+172 silly fetch manifest tr46@^5.1.0
+173 silly packumentCache full:https://registry.npmjs.org/tr46 cache-miss
+174 http cache https://registry.npmjs.org/rrweb-cssom 6ms (cache hit)
+175 silly packumentCache full:https://registry.npmjs.org/rrweb-cssom set size:10104 disposed:false
+176 http fetch GET 200 https://registry.npmjs.org/hasown 92ms (cache miss)
+177 silly packumentCache full:https://registry.npmjs.org/hasown set size:undefined disposed:false
+178 http fetch GET 200 https://registry.npmjs.org/asynckit 101ms (cache miss)
+179 silly packumentCache full:https://registry.npmjs.org/asynckit set size:undefined disposed:false
+180 http fetch GET 200 https://registry.npmjs.org/combined-stream 103ms (cache miss)
+181 silly packumentCache full:https://registry.npmjs.org/combined-stream set size:undefined disposed:false
+182 http fetch GET 200 https://registry.npmjs.org/agent-base 102ms (cache miss)
+183 silly packumentCache full:https://registry.npmjs.org/agent-base set size:undefined disposed:false
+184 http fetch GET 200 https://registry.npmjs.org/iconv-lite 103ms (cache miss)
+185 silly packumentCache full:https://registry.npmjs.org/iconv-lite set size:undefined disposed:false
+186 http fetch GET 200 https://registry.npmjs.org/es-set-tostringtag 106ms (cache miss)
+187 silly packumentCache full:https://registry.npmjs.org/es-set-tostringtag set size:undefined disposed:false
+188 http fetch GET 200 https://registry.npmjs.org/agent-base 106ms (cache miss)
+189 silly packumentCache full:https://registry.npmjs.org/agent-base set size:undefined disposed:false
+190 http fetch GET 200 https://registry.npmjs.org/debug 107ms (cache miss)
+191 silly packumentCache full:https://registry.npmjs.org/debug set size:undefined disposed:false
+192 http fetch GET 200 https://registry.npmjs.org/tr46 107ms (cache miss)
+193 silly packumentCache full:https://registry.npmjs.org/tr46 set size:undefined disposed:false
+194 http fetch GET 200 https://registry.npmjs.org/entities 114ms (cache miss)
+195 silly packumentCache full:https://registry.npmjs.org/entities set size:undefined disposed:false
+196 http fetch GET 200 https://registry.npmjs.org/debug 116ms (cache miss)
+197 silly packumentCache full:https://registry.npmjs.org/debug set size:undefined disposed:false
+198 http fetch GET 200 https://registry.npmjs.org/@asamuzakjp%2fcss-color 117ms (cache miss)
+199 silly packumentCache full:https://registry.npmjs.org/@asamuzakjp%2fcss-color set size:undefined disposed:false
+200 http fetch GET 200 https://registry.npmjs.org/mime-types 118ms (cache miss)
+201 silly packumentCache full:https://registry.npmjs.org/mime-types set size:undefined disposed:false
+202 http fetch GET 200 https://registry.npmjs.org/xmlchars 120ms (cache miss)
+203 silly packumentCache full:https://registry.npmjs.org/xmlchars set size:undefined disposed:false
+204 http fetch GET 200 https://registry.npmjs.org/tldts 195ms (cache miss)
+205 silly packumentCache full:https://registry.npmjs.org/tldts set size:undefined disposed:false
+206 silly placeDep ROOT @asamuzakjp/css-color@3.2.0 OK for: cssstyle@4.6.0 want: ^3.2.0
+207 silly placeDep node_modules/cssstyle rrweb-cssom@0.8.0 OK for: cssstyle@4.6.0 want: ^0.8.0
+208 silly fetch manifest lru-cache@^10.4.3
+209 silly packumentCache full:https://registry.npmjs.org/lru-cache cache-miss
+210 silly fetch manifest @csstools/css-calc@^2.1.3
+211 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-calc cache-miss
+212 silly fetch manifest @csstools/css-tokenizer@^3.0.3
+213 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-tokenizer cache-miss
+214 silly fetch manifest @csstools/css-color-parser@^3.0.9
+215 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-color-parser cache-miss
+216 silly fetch manifest @csstools/css-parser-algorithms@^3.0.4
+217 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-parser-algorithms cache-miss
+218 http fetch GET 200 https://registry.npmjs.org/@csstools%2fcss-calc 35ms (cache miss)
+219 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-calc set size:undefined disposed:false
+220 http fetch GET 200 https://registry.npmjs.org/@csstools%2fcss-color-parser 39ms (cache miss)
+221 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-color-parser set size:undefined disposed:false
+222 http fetch GET 200 https://registry.npmjs.org/@csstools%2fcss-tokenizer 49ms (cache miss)
+223 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-tokenizer set size:undefined disposed:false
+224 http fetch GET 200 https://registry.npmjs.org/@csstools%2fcss-parser-algorithms 61ms (cache miss)
+225 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcss-parser-algorithms set size:undefined disposed:false
+226 http fetch GET 200 https://registry.npmjs.org/lru-cache 277ms (cache miss)
+227 silly packumentCache full:https://registry.npmjs.org/lru-cache set size:undefined disposed:false
+228 silly placeDep ROOT @csstools/css-calc@2.1.4 OK for: @asamuzakjp/css-color@3.2.0 want: ^2.1.3
+229 silly placeDep ROOT @csstools/css-tokenizer@3.0.4 OK for: @csstools/css-calc@2.1.4 want: ^3.0.4
+230 silly placeDep ROOT @csstools/css-parser-algorithms@3.0.5 OK for: @csstools/css-calc@2.1.4 want: ^3.0.5
+231 silly placeDep ROOT @csstools/css-color-parser@3.1.0 OK for: @asamuzakjp/css-color@3.2.0 want: ^3.0.9
+232 silly placeDep ROOT lru-cache@10.4.3 OK for: @asamuzakjp/css-color@3.2.0 want: ^10.4.3
+233 silly fetch manifest @csstools/color-helpers@^5.1.0
+234 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcolor-helpers cache-miss
+235 http fetch GET 200 https://registry.npmjs.org/@csstools%2fcolor-helpers 124ms (cache miss)
+236 silly packumentCache full:https://registry.npmjs.org/@csstools%2fcolor-helpers set size:undefined disposed:false
+237 silly placeDep ROOT @csstools/color-helpers@5.1.0 OK for: @csstools/css-color-parser@3.1.0 want: ^5.1.0
+238 silly placeDep ROOT asynckit@0.4.0 OK for: form-data@4.0.6 want: ^0.4.0
+239 silly placeDep ROOT combined-stream@1.0.8 OK for: form-data@4.0.6 want: ^1.0.8
+240 silly placeDep ROOT es-set-tostringtag@2.1.0 OK for: form-data@4.0.6 want: ^2.1.0
+241 silly placeDep ROOT hasown@2.0.4 OK for: form-data@4.0.6 want: ^2.0.4
+242 silly placeDep ROOT mime-types@2.1.35 OK for: form-data@4.0.6 want: ^2.1.35
+243 silly fetch manifest delayed-stream@~1.0.0
+244 silly packumentCache full:https://registry.npmjs.org/delayed-stream cache-miss
+245 silly fetch manifest es-errors@^1.3.0
+246 silly packumentCache full:https://registry.npmjs.org/es-errors cache-miss
+247 silly fetch manifest get-intrinsic@^1.2.6
+248 silly packumentCache full:https://registry.npmjs.org/get-intrinsic cache-miss
+249 silly fetch manifest has-tostringtag@^1.0.2
+250 silly packumentCache full:https://registry.npmjs.org/has-tostringtag cache-miss
+251 silly fetch manifest hasown@^2.0.2
+252 silly packumentCache full:https://registry.npmjs.org/hasown cache-miss
+253 silly fetch manifest function-bind@^1.1.2
+254 silly packumentCache full:https://registry.npmjs.org/function-bind cache-miss
+255 silly fetch manifest mime-db@1.52.0
+256 silly packumentCache full:https://registry.npmjs.org/mime-db cache-miss
+257 http cache https://registry.npmjs.org/hasown 2ms (cache hit)
+258 silly packumentCache full:https://registry.npmjs.org/hasown set size:18314 disposed:false
+259 http fetch GET 200 https://registry.npmjs.org/es-errors 26ms (cache miss)
+260 silly packumentCache full:https://registry.npmjs.org/es-errors set size:undefined disposed:false
+261 http fetch GET 200 https://registry.npmjs.org/function-bind 27ms (cache miss)
+262 silly packumentCache full:https://registry.npmjs.org/function-bind set size:undefined disposed:false
+263 http fetch GET 200 https://registry.npmjs.org/has-tostringtag 27ms (cache miss)
+264 silly packumentCache full:https://registry.npmjs.org/has-tostringtag set size:undefined disposed:false
+265 http fetch GET 200 https://registry.npmjs.org/get-intrinsic 30ms (cache miss)
+266 silly packumentCache full:https://registry.npmjs.org/get-intrinsic set size:undefined disposed:false
+267 http fetch GET 200 https://registry.npmjs.org/mime-db 33ms (cache miss)
+268 silly packumentCache full:https://registry.npmjs.org/mime-db set size:undefined disposed:false
+269 http fetch GET 200 https://registry.npmjs.org/delayed-stream 35ms (cache miss)
+270 silly packumentCache full:https://registry.npmjs.org/delayed-stream set size:undefined disposed:false
+271 silly placeDep ROOT delayed-stream@1.0.0 OK for: combined-stream@1.0.8 want: ~1.0.0
+272 silly placeDep ROOT es-errors@1.3.0 OK for: es-set-tostringtag@2.1.0 want: ^1.3.0
+273 silly placeDep ROOT get-intrinsic@1.3.0 OK for: es-set-tostringtag@2.1.0 want: ^1.2.6
+274 silly placeDep ROOT has-tostringtag@1.0.2 OK for: es-set-tostringtag@2.1.0 want: ^1.0.2
+275 silly fetch manifest gopd@^1.2.0
+276 silly packumentCache full:https://registry.npmjs.org/gopd cache-miss
+277 silly fetch manifest get-proto@^1.0.1
+278 silly packumentCache full:https://registry.npmjs.org/get-proto cache-miss
+279 silly fetch manifest has-symbols@^1.1.0
+280 silly packumentCache full:https://registry.npmjs.org/has-symbols cache-miss
+281 silly fetch manifest es-object-atoms@^1.1.1
+282 silly packumentCache full:https://registry.npmjs.org/es-object-atoms cache-miss
+283 silly fetch manifest math-intrinsics@^1.1.0
+284 silly packumentCache full:https://registry.npmjs.org/math-intrinsics cache-miss
+285 silly fetch manifest es-define-property@^1.0.1
+286 silly packumentCache full:https://registry.npmjs.org/es-define-property cache-miss
+287 silly fetch manifest call-bind-apply-helpers@^1.0.2
+288 silly packumentCache full:https://registry.npmjs.org/call-bind-apply-helpers cache-miss
+289 silly fetch manifest has-symbols@^1.0.3
+290 silly packumentCache full:https://registry.npmjs.org/has-symbols cache-miss
+291 http fetch GET 200 https://registry.npmjs.org/has-symbols 22ms (cache miss)
+292 silly packumentCache full:https://registry.npmjs.org/has-symbols set size:undefined disposed:false
+293 http fetch GET 200 https://registry.npmjs.org/gopd 22ms (cache miss)
+294 silly packumentCache full:https://registry.npmjs.org/gopd set size:undefined disposed:false
+295 http fetch GET 200 https://registry.npmjs.org/has-symbols 23ms (cache miss)
+296 silly packumentCache full:https://registry.npmjs.org/has-symbols set size:undefined disposed:false
+297 http fetch GET 200 https://registry.npmjs.org/es-object-atoms 24ms (cache miss)
+298 silly packumentCache full:https://registry.npmjs.org/es-object-atoms set size:undefined disposed:false
+299 http fetch GET 200 https://registry.npmjs.org/math-intrinsics 24ms (cache miss)
+300 silly packumentCache full:https://registry.npmjs.org/math-intrinsics set size:undefined disposed:false
+301 http fetch GET 200 https://registry.npmjs.org/es-define-property 25ms (cache miss)
+302 silly packumentCache full:https://registry.npmjs.org/es-define-property set size:undefined disposed:false
+303 http fetch GET 200 https://registry.npmjs.org/call-bind-apply-helpers 25ms (cache miss)
+304 silly packumentCache full:https://registry.npmjs.org/call-bind-apply-helpers set size:undefined disposed:false
+305 http fetch GET 200 https://registry.npmjs.org/get-proto 31ms (cache miss)
+306 silly packumentCache full:https://registry.npmjs.org/get-proto set size:undefined disposed:false
+307 silly placeDep ROOT call-bind-apply-helpers@1.0.2 OK for: get-intrinsic@1.3.0 want: ^1.0.2
+308 silly placeDep ROOT es-define-property@1.0.1 OK for: get-intrinsic@1.3.0 want: ^1.0.1
+309 silly placeDep ROOT es-object-atoms@1.1.2 OK for: get-intrinsic@1.3.0 want: ^1.1.1
+310 silly placeDep ROOT function-bind@1.1.2 OK for: get-intrinsic@1.3.0 want: ^1.1.2
+311 silly placeDep ROOT get-proto@1.0.1 OK for: get-intrinsic@1.3.0 want: ^1.0.1
+312 silly placeDep ROOT gopd@1.2.0 OK for: get-intrinsic@1.3.0 want: ^1.2.0
+313 silly placeDep ROOT has-symbols@1.1.0 OK for: get-intrinsic@1.3.0 want: ^1.1.0
+314 silly placeDep ROOT math-intrinsics@1.1.0 OK for: get-intrinsic@1.3.0 want: ^1.1.0
+315 silly fetch manifest dunder-proto@^1.0.1
+316 silly packumentCache full:https://registry.npmjs.org/dunder-proto cache-miss
+317 http fetch GET 200 https://registry.npmjs.org/dunder-proto 103ms (cache miss)
+318 silly packumentCache full:https://registry.npmjs.org/dunder-proto set size:undefined disposed:false
+319 silly placeDep ROOT dunder-proto@1.0.1 OK for: get-proto@1.0.1 want: ^1.0.1
+320 silly placeDep ROOT agent-base@7.1.4 OK for: http-proxy-agent@7.0.2 want: ^7.1.0
+321 silly placeDep ROOT debug@4.4.3 OK for: http-proxy-agent@7.0.2 want: ^4.3.4
+322 silly fetch manifest ms@^2.1.3
+323 silly packumentCache full:https://registry.npmjs.org/ms cache-miss
+324 http fetch GET 200 https://registry.npmjs.org/ms 31ms (cache miss)
+325 silly packumentCache full:https://registry.npmjs.org/ms set size:undefined disposed:false
+326 silly placeDep ROOT ms@2.1.3 OK for: debug@4.4.3 want: ^2.1.3
+327 silly placeDep ROOT mime-db@1.52.0 OK for: mime-types@2.1.35 want: 1.52.0
+328 silly placeDep ROOT entities@6.0.1 OK for: parse5@7.3.0 want: ^6.0.0
+329 silly placeDep ROOT xmlchars@2.2.0 OK for: saxes@6.0.0 want: ^2.2.0
+330 silly placeDep ROOT tldts@6.1.86 OK for: tough-cookie@5.1.2 want: ^6.1.32
+331 silly fetch manifest tldts-core@^6.1.86
+332 silly packumentCache full:https://registry.npmjs.org/tldts-core cache-miss
+333 http fetch GET 200 https://registry.npmjs.org/tldts-core 164ms (cache miss)
+334 silly packumentCache full:https://registry.npmjs.org/tldts-core set size:undefined disposed:false
+335 silly placeDep ROOT tldts-core@6.1.86 OK for: tldts@6.1.86 want: ^6.1.86
+336 silly placeDep ROOT iconv-lite@0.6.3 OK for: whatwg-encoding@3.1.1 want: 0.6.3
+337 silly fetch manifest safer-buffer@>= 2.1.2 < 3.0.0
+338 silly packumentCache full:https://registry.npmjs.org/safer-buffer cache-miss
+339 http fetch GET 200 https://registry.npmjs.org/safer-buffer 32ms (cache miss)
+340 silly packumentCache full:https://registry.npmjs.org/safer-buffer set size:undefined disposed:false
+341 silly placeDep ROOT safer-buffer@2.1.2 OK for: iconv-lite@0.6.3 want: >= 2.1.2 < 3.0.0
+342 silly placeDep ROOT tr46@5.1.1 OK for: whatwg-url@14.2.0 want: ^5.1.0
+343 silly fetch manifest punycode@^2.3.1
+344 silly packumentCache full:https://registry.npmjs.org/punycode cache-miss
+345 http fetch GET 200 https://registry.npmjs.org/punycode 103ms (cache miss)
+346 silly packumentCache full:https://registry.npmjs.org/punycode set size:undefined disposed:false
+347 silly placeDep ROOT punycode@2.3.1 OK for: tr46@5.1.1 want: ^2.3.1
+348 silly reify moves {}
+349 http cache tr46@https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz 0ms (cache hit)
+350 http cache punycode@https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz 0ms (cache hit)
+351 http cache xmlchars@https://registry.npmjs.org/xmlchars/-/xmlchars-2.2.0.tgz 0ms (cache hit)
+352 http cache tldts@https://registry.npmjs.org/tldts/-/tldts-6.1.86.tgz 0ms (cache hit)
+353 http cache mime-db@https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz 0ms (cache hit)
+354 http cache entities@https://registry.npmjs.org/entities/-/entities-6.0.1.tgz 0ms (cache hit)
+355 http cache tldts-core@https://registry.npmjs.org/tldts-core/-/tldts-core-6.1.86.tgz 0ms (cache hit)
+356 http cache ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+357 http cache iconv-lite@https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz 0ms (cache hit)
+358 http cache agent-base@https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz 0ms (cache hit)
+359 http cache dunder-proto@https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz 0ms (cache hit)
+360 http cache debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+361 http cache has-symbols@https://registry.npmjs.org/has-symbols/-/has-symbols-1.1.0.tgz 0ms (cache hit)
+362 http cache safer-buffer@https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz 0ms (cache hit)
+363 http cache get-proto@https://registry.npmjs.org/get-proto/-/get-proto-1.0.1.tgz 0ms (cache hit)
+364 http cache function-bind@https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz 0ms (cache hit)
+365 http cache math-intrinsics@https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz 0ms (cache hit)
+366 http cache es-object-atoms@https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.2.tgz 0ms (cache hit)
+367 http cache gopd@https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz 0ms (cache hit)
+368 http cache call-bind-apply-helpers@https://registry.npmjs.org/call-bind-apply-helpers/-/call-bind-apply-helpers-1.0.2.tgz 0ms (cache hit)
+369 http cache es-errors@https://registry.npmjs.org/es-errors/-/es-errors-1.3.0.tgz 0ms (cache hit)
+370 http cache delayed-stream@https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz 0ms (cache hit)
+371 http cache get-intrinsic@https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz 0ms (cache hit)
+372 http cache hasown@https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz 0ms (cache hit)
+373 http cache mime-types@https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz 0ms (cache hit)
+374 http cache has-tostringtag@https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz 0ms (cache hit)
+375 http cache es-set-tostringtag@https://registry.npmjs.org/es-set-tostringtag/-/es-set-tostringtag-2.1.0.tgz 0ms (cache hit)
+376 http cache es-define-property@https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz 0ms (cache hit)
+377 http cache combined-stream@https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz 0ms (cache hit)
+378 http cache asynckit@https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz 0ms (cache hit)
+379 http cache @csstools/color-helpers@https://registry.npmjs.org/@csstools/color-helpers/-/color-helpers-5.1.0.tgz 0ms (cache hit)
+380 http cache lru-cache@https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz 0ms (cache hit)
+381 http cache @csstools/css-tokenizer@https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-3.0.4.tgz 0ms (cache hit)
+382 http cache @asamuzakjp/css-color@https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz 0ms (cache hit)
+383 http cache @csstools/css-color-parser@https://registry.npmjs.org/@csstools/css-color-parser/-/css-color-parser-3.1.0.tgz 0ms (cache hit)
+384 http cache @csstools/css-parser-algorithms@https://registry.npmjs.org/@csstools/css-parser-algorithms/-/css-parser-algorithms-3.0.5.tgz 0ms (cache hit)
+385 http cache ws@https://registry.npmjs.org/ws/-/ws-8.22.2.tgz 0ms (cache hit)
+386 http cache xml-name-validator@https://registry.npmjs.org/xml-name-validator/-/xml-name-validator-5.0.0.tgz 0ms (cache hit)
+387 http cache whatwg-encoding@https://registry.npmjs.org/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz 0ms (cache hit)
+388 http cache webidl-conversions@https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz 0ms (cache hit)
+389 http cache w3c-xmlserializer@https://registry.npmjs.org/w3c-xmlserializer/-/w3c-xmlserializer-5.0.0.tgz 0ms (cache hit)
+390 http cache whatwg-mimetype@https://registry.npmjs.org/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz 0ms (cache hit)
+391 http cache tough-cookie@https://registry.npmjs.org/tough-cookie/-/tough-cookie-5.1.2.tgz 0ms (cache hit)
+392 http cache @csstools/css-calc@https://registry.npmjs.org/@csstools/css-calc/-/css-calc-2.1.4.tgz 0ms (cache hit)
+393 http cache whatwg-url@https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz 0ms (cache hit)
+394 http cache parse5@https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz 0ms (cache hit)
+395 http cache saxes@https://registry.npmjs.org/saxes/-/saxes-6.0.0.tgz 0ms (cache hit)
+396 http cache nwsapi@https://registry.npmjs.org/nwsapi/-/nwsapi-2.2.28.tgz 0ms (cache hit)
+397 http cache symbol-tree@https://registry.npmjs.org/symbol-tree/-/symbol-tree-3.2.4.tgz 0ms (cache hit)
+398 http cache http-proxy-agent@https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz 0ms (cache hit)
+399 http cache rrweb-cssom@https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.7.1.tgz 0ms (cache hit)
+400 http cache html-encoding-sniffer@https://registry.npmjs.org/html-encoding-sniffer/-/html-encoding-sniffer-4.0.0.tgz 0ms (cache hit)
+401 http cache form-data@https://registry.npmjs.org/form-data/-/form-data-4.0.6.tgz 0ms (cache hit)
+402 http cache https-proxy-agent@https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz 0ms (cache hit)
+403 http cache is-potential-custom-element-name@https://registry.npmjs.org/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz 0ms (cache hit)
+404 http cache jsdom@https://registry.npmjs.org/jsdom/-/jsdom-25.0.1.tgz 0ms (cache hit)
+405 http cache decimal.js@https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz 0ms (cache hit)
+406 http cache data-urls@https://registry.npmjs.org/data-urls/-/data-urls-5.0.0.tgz 0ms (cache hit)
+407 http cache cssstyle@https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz 0ms (cache hit)
+408 silly tarball no local data for tr46@https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz. Extracting by manifest.
+409 silly tarball no local data for punycode@https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz. Extracting by manifest.
+410 silly tarball no local data for xmlchars@https://registry.npmjs.org/xmlchars/-/xmlchars-2.2.0.tgz. Extracting by manifest.
+411 silly tarball no local data for tldts@https://registry.npmjs.org/tldts/-/tldts-6.1.86.tgz. Extracting by manifest.
+412 silly tarball no local data for mime-db@https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz. Extracting by manifest.
+413 silly tarball no local data for entities@https://registry.npmjs.org/entities/-/entities-6.0.1.tgz. Extracting by manifest.
+414 silly tarball no local data for tldts-core@https://registry.npmjs.org/tldts-core/-/tldts-core-6.1.86.tgz. Extracting by manifest.
+415 silly tarball no local data for ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz. Extracting by manifest.
+416 silly tarball no local data for iconv-lite@https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz. Extracting by manifest.
+417 silly tarball no local data for agent-base@https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz. Extracting by manifest.
+418 silly tarball no local data for dunder-proto@https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz. Extracting by manifest.
+419 silly tarball no local data for debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz. Extracting by manifest.
+420 silly tarball no local data for has-symbols@https://registry.npmjs.org/has-symbols/-/has-symbols-1.1.0.tgz. Extracting by manifest.
+421 silly tarball no local data for safer-buffer@https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz. Extracting by manifest.
+422 silly tarball no local data for get-proto@https://registry.npmjs.org/get-proto/-/get-proto-1.0.1.tgz. Extracting by manifest.
+423 silly tarball no local data for function-bind@https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz. Extracting by manifest.
+424 silly tarball no local data for math-intrinsics@https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz. Extracting by manifest.
+425 silly tarball no local data for es-object-atoms@https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.2.tgz. Extracting by manifest.
+426 silly tarball no local data for gopd@https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz. Extracting by manifest.
+427 silly tarball no local data for call-bind-apply-helpers@https://registry.npmjs.org/call-bind-apply-helpers/-/call-bind-apply-helpers-1.0.2.tgz. Extracting by manifest.
+428 silly tarball no local data for es-errors@https://registry.npmjs.org/es-errors/-/es-errors-1.3.0.tgz. Extracting by manifest.
+429 silly tarball no local data for delayed-stream@https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz. Extracting by manifest.
+430 silly tarball no local data for get-intrinsic@https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz. Extracting by manifest.
+431 silly tarball no local data for hasown@https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz. Extracting by manifest.
+432 silly tarball no local data for mime-types@https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz. Extracting by manifest.
+433 http cache rrweb-cssom@https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.8.0.tgz 0ms (cache hit)
+434 silly tarball no local data for has-tostringtag@https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz. Extracting by manifest.
+435 silly tarball no local data for es-set-tostringtag@https://registry.npmjs.org/es-set-tostringtag/-/es-set-tostringtag-2.1.0.tgz. Extracting by manifest.
+436 silly tarball no local data for es-define-property@https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz. Extracting by manifest.
+437 http cache css.escape@https://registry.npmjs.org/css.escape/-/css.escape-1.5.1.tgz 0ms (cache hit)
+438 silly tarball no local data for combined-stream@https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz. Extracting by manifest.
+439 silly tarball no local data for asynckit@https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz. Extracting by manifest.
+440 silly tarball no local data for @csstools/color-helpers@https://registry.npmjs.org/@csstools/color-helpers/-/color-helpers-5.1.0.tgz. Extracting by manifest.
+441 silly tarball no local data for lru-cache@https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz. Extracting by manifest.
+442 silly tarball no local data for @csstools/css-tokenizer@https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-3.0.4.tgz. Extracting by manifest.
+443 silly tarball no local data for @asamuzakjp/css-color@https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz. Extracting by manifest.
+444 silly tarball no local data for @csstools/css-color-parser@https://registry.npmjs.org/@csstools/css-color-parser/-/css-color-parser-3.1.0.tgz. Extracting by manifest.
+445 silly tarball no local data for @csstools/css-parser-algorithms@https://registry.npmjs.org/@csstools/css-parser-algorithms/-/css-parser-algorithms-3.0.5.tgz. Extracting by manifest.
+446 silly tarball no local data for ws@https://registry.npmjs.org/ws/-/ws-8.22.2.tgz. Extracting by manifest.
+447 silly tarball no local data for xml-name-validator@https://registry.npmjs.org/xml-name-validator/-/xml-name-validator-5.0.0.tgz. Extracting by manifest.
+448 silly tarball no local data for whatwg-encoding@https://registry.npmjs.org/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz. Extracting by manifest.
+449 silly tarball no local data for webidl-conversions@https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz. Extracting by manifest.
+450 silly tarball no local data for w3c-xmlserializer@https://registry.npmjs.org/w3c-xmlserializer/-/w3c-xmlserializer-5.0.0.tgz. Extracting by manifest.
+451 silly tarball no local data for whatwg-mimetype@https://registry.npmjs.org/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz. Extracting by manifest.
+452 silly tarball no local data for tough-cookie@https://registry.npmjs.org/tough-cookie/-/tough-cookie-5.1.2.tgz. Extracting by manifest.
+453 silly tarball no local data for @csstools/css-calc@https://registry.npmjs.org/@csstools/css-calc/-/css-calc-2.1.4.tgz. Extracting by manifest.
+454 silly tarball no local data for whatwg-url@https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz. Extracting by manifest.
+455 silly tarball no local data for parse5@https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz. Extracting by manifest.
+456 silly tarball no local data for saxes@https://registry.npmjs.org/saxes/-/saxes-6.0.0.tgz. Extracting by manifest.
+457 silly tarball no local data for nwsapi@https://registry.npmjs.org/nwsapi/-/nwsapi-2.2.28.tgz. Extracting by manifest.
+458 silly tarball no local data for symbol-tree@https://registry.npmjs.org/symbol-tree/-/symbol-tree-3.2.4.tgz. Extracting by manifest.
+459 silly tarball no local data for http-proxy-agent@https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz. Extracting by manifest.
+460 silly tarball no local data for rrweb-cssom@https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.7.1.tgz. Extracting by manifest.
+461 silly tarball no local data for html-encoding-sniffer@https://registry.npmjs.org/html-encoding-sniffer/-/html-encoding-sniffer-4.0.0.tgz. Extracting by manifest.
+462 silly tarball no local data for form-data@https://registry.npmjs.org/form-data/-/form-data-4.0.6.tgz. Extracting by manifest.
+463 silly tarball no local data for https-proxy-agent@https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz. Extracting by manifest.
+464 silly tarball no local data for is-potential-custom-element-name@https://registry.npmjs.org/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz. Extracting by manifest.
+465 silly tarball no local data for jsdom@https://registry.npmjs.org/jsdom/-/jsdom-25.0.1.tgz. Extracting by manifest.
+466 silly tarball no local data for decimal.js@https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz. Extracting by manifest.
+467 silly tarball no local data for data-urls@https://registry.npmjs.org/data-urls/-/data-urls-5.0.0.tgz. Extracting by manifest.
+468 silly tarball no local data for cssstyle@https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz. Extracting by manifest.
+469 silly tarball no local data for rrweb-cssom@https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.8.0.tgz. Extracting by manifest.
+470 silly tarball no local data for css.escape@https://registry.npmjs.org/css.escape/-/css.escape-1.5.1.tgz. Extracting by manifest.
+471 http fetch GET 200 https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz 36ms (cache miss)
+472 http fetch GET 200 https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 35ms (cache miss)
+473 http fetch GET 200 https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 36ms (cache miss)
+474 http fetch GET 200 https://registry.npmjs.org/get-proto/-/get-proto-1.0.1.tgz 36ms (cache miss)
+475 http fetch GET 200 https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz 37ms (cache miss)
+476 http fetch GET 200 https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz 40ms (cache miss)
+477 warn tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/iconv-lite.iml'
+478 silly tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/iconv-lite.iml' [Error: EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/iconv-lite.iml'] {
+478 silly tar   errno: -1,
+478 silly tar   code: 'EPERM',
+478 silly tar   syscall: 'open',
+478 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/iconv-lite.iml',
+478 silly tar   entry: Ls {
+478 silly tar     _events: [Object: null prototype] {},
+478 silly tar     _eventsCount: 0,
+478 silly tar     _maxListeners: undefined,
+478 silly tar     writable: false,
+478 silly tar     readable: false,
+478 silly tar     extended: undefined,
+478 silly tar     globalExtended: undefined,
+478 silly tar     header: Ns {
+478 silly tar       cksumValid: true,
+478 silly tar       needPax: false,
+478 silly tar       nullBlock: false,
+478 silly tar       block: undefined,
+478 silly tar       path: 'package/.idea/iconv-lite.iml',
+478 silly tar       mode: 420,
+478 silly tar       uid: undefined,
+478 silly tar       gid: undefined,
+478 silly tar       size: 458,
+478 silly tar       cksum: 5644,
+478 silly tar       linkpath: '',
+478 silly tar       uname: '',
+478 silly tar       gname: '',
+478 silly tar       devmaj: 0,
+478 silly tar       devmin: 0,
+478 silly tar       atime: undefined,
+478 silly tar       ctime: undefined,
+478 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+478 silly tar       charset: undefined,
+478 silly tar       comment: undefined
+478 silly tar     },
+478 silly tar     startBlockSize: 512,
+478 silly tar     blockRemain: 0,
+478 silly tar     remain: 0,
+478 silly tar     type: 'File',
+478 silly tar     meta: false,
+478 silly tar     ignore: false,
+478 silly tar     path: '.idea/iconv-lite.iml',
+478 silly tar     mode: 438,
+478 silly tar     uid: undefined,
+478 silly tar     gid: undefined,
+478 silly tar     uname: '',
+478 silly tar     gname: '',
+478 silly tar     size: 458,
+478 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+478 silly tar     atime: undefined,
+478 silly tar     ctime: undefined,
+478 silly tar     linkpath: undefined,
+478 silly tar     dev: undefined,
+478 silly tar     ino: undefined,
+478 silly tar     nlink: undefined,
+478 silly tar     invalid: false,
+478 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/iconv-lite.iml',
+478 silly tar     unsupported: false,
+478 silly tar     Symbol(shapeMode): false,
+478 silly tar     Symbol(kCapture): false,
+478 silly tar     Symbol(flowing): false,
+478 silly tar     Symbol(paused): true,
+478 silly tar     Symbol(pipes): [ [qt] ],
+478 silly tar     Symbol(buffer): [],
+478 silly tar     Symbol(objectMode): false,
+478 silly tar     Symbol(encoding): null,
+478 silly tar     Symbol(async): false,
+478 silly tar     Symbol(decoder): null,
+478 silly tar     Symbol(EOF): true,
+478 silly tar     Symbol(emittedEnd): true,
+478 silly tar     Symbol(emittingEnd): false,
+478 silly tar     Symbol(closed): false,
+478 silly tar     Symbol(emittedError): null,
+478 silly tar     Symbol(bufferLength): 0,
+478 silly tar     Symbol(destroyed): false,
+478 silly tar     Symbol(signal): undefined,
+478 silly tar     Symbol(aborted): false,
+478 silly tar     Symbol(dataListeners): 0,
+478 silly tar     Symbol(discarded): false
+478 silly tar   },
+478 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+478 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+478 silly tar }
+479 http fetch GET 200 https://registry.npmjs.org/xmlchars/-/xmlchars-2.2.0.tgz 44ms (cache miss)
+480 http fetch GET 200 https://registry.npmjs.org/has-symbols/-/has-symbols-1.1.0.tgz 43ms (cache miss)
+481 http fetch GET 200 https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz 49ms (cache miss)
+482 http fetch GET 200 https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz 50ms (cache miss)
+483 http fetch GET 200 https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz 58ms (cache miss)
+484 http fetch GET 200 https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz 57ms (cache miss)
+485 http fetch GET 200 https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.2.tgz 58ms (cache miss)
+486 http fetch GET 200 https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz 58ms (cache miss)
+487 http fetch GET 200 https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz 58ms (cache miss)
+488 http fetch GET 200 https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz 62ms (cache miss)
+489 http fetch GET 200 https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz 63ms (cache miss)
+490 http fetch GET 200 https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz 64ms (cache miss)
+491 warn tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles'
+492 silly tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles' [Error: ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles'] {
+492 silly tar   errno: -2,
+492 silly tar   code: 'ENOENT',
+492 silly tar   syscall: 'lstat',
+492 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles',
+492 silly tar   entry: Ls {
+492 silly tar     _events: [Object: null prototype] { end: [Function (anonymous)] },
+492 silly tar     _eventsCount: 1,
+492 silly tar     _maxListeners: undefined,
+492 silly tar     writable: false,
+492 silly tar     readable: true,
+492 silly tar     extended: undefined,
+492 silly tar     globalExtended: undefined,
+492 silly tar     header: Ns {
+492 silly tar       cksumValid: true,
+492 silly tar       needPax: false,
+492 silly tar       nullBlock: false,
+492 silly tar       block: undefined,
+492 silly tar       path: 'package/.idea/codeStyles/codeStyleConfig.xml',
+492 silly tar       mode: 420,
+492 silly tar       uid: undefined,
+492 silly tar       gid: undefined,
+492 silly tar       size: 142,
+492 silly tar       cksum: 7280,
+492 silly tar       linkpath: '',
+492 silly tar       uname: '',
+492 silly tar       gname: '',
+492 silly tar       devmaj: 0,
+492 silly tar       devmin: 0,
+492 silly tar       atime: undefined,
+492 silly tar       ctime: undefined,
+492 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+492 silly tar       charset: undefined,
+492 silly tar       comment: undefined
+492 silly tar     },
+492 silly tar     startBlockSize: 512,
+492 silly tar     blockRemain: 0,
+492 silly tar     remain: 0,
+492 silly tar     type: 'File',
+492 silly tar     meta: false,
+492 silly tar     ignore: false,
+492 silly tar     path: '.idea/codeStyles/codeStyleConfig.xml',
+492 silly tar     mode: 438,
+492 silly tar     uid: undefined,
+492 silly tar     gid: undefined,
+492 silly tar     uname: '',
+492 silly tar     gname: '',
+492 silly tar     size: 142,
+492 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+492 silly tar     atime: undefined,
+492 silly tar     ctime: undefined,
+492 silly tar     linkpath: undefined,
+492 silly tar     dev: undefined,
+492 silly tar     ino: undefined,
+492 silly tar     nlink: undefined,
+492 silly tar     invalid: false,
+492 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles/codeStyleConfig.xml',
+492 silly tar     unsupported: false,
+492 silly tar     Symbol(shapeMode): false,
+492 silly tar     Symbol(kCapture): false,
+492 silly tar     Symbol(flowing): false,
+492 silly tar     Symbol(paused): true,
+492 silly tar     Symbol(pipes): [],
+492 silly tar     Symbol(buffer): [
+492 silly tar       <Buffer 3c 63 6f 6d 70 6f 6e 65 6e 74 20 6e 61 6d 65 3d 22 50 72 6f 6a 65 63 74 43 6f 64 65 53 74 79 6c 65 43 6f 6e 66 69 67 75 72 61 74 69 6f 6e 22 3e 0a 20 ... 92 more bytes>
+492 silly tar     ],
+492 silly tar     Symbol(objectMode): false,
+492 silly tar     Symbol(encoding): null,
+492 silly tar     Symbol(async): false,
+492 silly tar     Symbol(decoder): null,
+492 silly tar     Symbol(EOF): true,
+492 silly tar     Symbol(emittedEnd): false,
+492 silly tar     Symbol(emittingEnd): false,
+492 silly tar     Symbol(closed): false,
+492 silly tar     Symbol(emittedError): null,
+492 silly tar     Symbol(bufferLength): 142,
+492 silly tar     Symbol(destroyed): false,
+492 silly tar     Symbol(signal): undefined,
+492 silly tar     Symbol(aborted): false,
+492 silly tar     Symbol(dataListeners): 0,
+492 silly tar     Symbol(discarded): false
+492 silly tar   },
+492 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+492 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+492 silly tar }
+493 warn tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/modules.xml'
+494 silly tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/modules.xml' [Error: EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/modules.xml'] {
+494 silly tar   errno: -1,
+494 silly tar   code: 'EPERM',
+494 silly tar   syscall: 'open',
+494 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/modules.xml',
+494 silly tar   entry: Ls {
+494 silly tar     _events: [Object: null prototype] {},
+494 silly tar     _eventsCount: 0,
+494 silly tar     _maxListeners: undefined,
+494 silly tar     writable: false,
+494 silly tar     readable: false,
+494 silly tar     extended: undefined,
+494 silly tar     globalExtended: undefined,
+494 silly tar     header: Ns {
+494 silly tar       cksumValid: true,
+494 silly tar       needPax: false,
+494 silly tar       nullBlock: false,
+494 silly tar       block: undefined,
+494 silly tar       path: 'package/.idea/modules.xml',
+494 silly tar       mode: 420,
+494 silly tar       uid: undefined,
+494 silly tar       gid: undefined,
+494 silly tar       size: 272,
+494 silly tar       cksum: 5398,
+494 silly tar       linkpath: '',
+494 silly tar       uname: '',
+494 silly tar       gname: '',
+494 silly tar       devmaj: 0,
+494 silly tar       devmin: 0,
+494 silly tar       atime: undefined,
+494 silly tar       ctime: undefined,
+494 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+494 silly tar       charset: undefined,
+494 silly tar       comment: undefined
+494 silly tar     },
+494 silly tar     startBlockSize: 512,
+494 silly tar     blockRemain: 0,
+494 silly tar     remain: 0,
+494 silly tar     type: 'File',
+494 silly tar     meta: false,
+494 silly tar     ignore: false,
+494 silly tar     path: '.idea/modules.xml',
+494 silly tar     mode: 438,
+494 silly tar     uid: undefined,
+494 silly tar     gid: undefined,
+494 silly tar     uname: '',
+494 silly tar     gname: '',
+494 silly tar     size: 272,
+494 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+494 silly tar     atime: undefined,
+494 silly tar     ctime: undefined,
+494 silly tar     linkpath: undefined,
+494 silly tar     dev: undefined,
+494 silly tar     ino: undefined,
+494 silly tar     nlink: undefined,
+494 silly tar     invalid: false,
+494 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/modules.xml',
+494 silly tar     unsupported: false,
+494 silly tar     Symbol(shapeMode): false,
+494 silly tar     Symbol(kCapture): false,
+494 silly tar     Symbol(flowing): false,
+494 silly tar     Symbol(paused): true,
+494 silly tar     Symbol(pipes): [ [qt] ],
+494 silly tar     Symbol(buffer): [],
+494 silly tar     Symbol(objectMode): false,
+494 silly tar     Symbol(encoding): null,
+494 silly tar     Symbol(async): false,
+494 silly tar     Symbol(decoder): null,
+494 silly tar     Symbol(EOF): true,
+494 silly tar     Symbol(emittedEnd): true,
+494 silly tar     Symbol(emittingEnd): false,
+494 silly tar     Symbol(closed): false,
+494 silly tar     Symbol(emittedError): null,
+494 silly tar     Symbol(bufferLength): 0,
+494 silly tar     Symbol(destroyed): false,
+494 silly tar     Symbol(signal): undefined,
+494 silly tar     Symbol(aborted): false,
+494 silly tar     Symbol(dataListeners): 0,
+494 silly tar     Symbol(discarded): false
+494 silly tar   },
+494 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+494 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+494 silly tar }
+495 warn tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/inspectionProfiles'
+496 silly tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/inspectionProfiles' [Error: ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/inspectionProfiles'] {
+496 silly tar   errno: -2,
+496 silly tar   code: 'ENOENT',
+496 silly tar   syscall: 'lstat',
+496 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/inspectionProfiles',
+496 silly tar   entry: Ls {
+496 silly tar     _events: [Object: null prototype] { end: [Function (anonymous)] },
+496 silly tar     _eventsCount: 1,
+496 silly tar     _maxListeners: undefined,
+496 silly tar     writable: false,
+496 silly tar     readable: true,
+496 silly tar     extended: undefined,
+496 silly tar     globalExtended: undefined,
+496 silly tar     header: Ns {
+496 silly tar       cksumValid: true,
+496 silly tar       needPax: false,
+496 silly tar       nullBlock: false,
+496 silly tar       block: undefined,
+496 silly tar       path: 'package/.idea/inspectionProfiles/Project_Default.xml',
+496 silly tar       mode: 420,
+496 silly tar       uid: undefined,
+496 silly tar       gid: undefined,
+496 silly tar       size: 251,
+496 silly tar       cksum: 8142,
+496 silly tar       linkpath: '',
+496 silly tar       uname: '',
+496 silly tar       gname: '',
+496 silly tar       devmaj: 0,
+496 silly tar       devmin: 0,
+496 silly tar       atime: undefined,
+496 silly tar       ctime: undefined,
+496 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+496 silly tar       charset: undefined,
+496 silly tar       comment: undefined
+496 silly tar     },
+496 silly tar     startBlockSize: 512,
+496 silly tar     blockRemain: 0,
+496 silly tar     remain: 0,
+496 silly tar     type: 'File',
+496 silly tar     meta: false,
+496 silly tar     ignore: false,
+496 silly tar     path: '.idea/inspectionProfiles/Project_Default.xml',
+496 silly tar     mode: 438,
+496 silly tar     uid: undefined,
+496 silly tar     gid: undefined,
+496 silly tar     uname: '',
+496 silly tar     gname: '',
+496 silly tar     size: 251,
+496 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+496 silly tar     atime: undefined,
+496 silly tar     ctime: undefined,
+496 silly tar     linkpath: undefined,
+496 silly tar     dev: undefined,
+496 silly tar     ino: undefined,
+496 silly tar     nlink: undefined,
+496 silly tar     invalid: false,
+496 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/inspectionProfiles/Project_Default.xml',
+496 silly tar     unsupported: false,
+496 silly tar     Symbol(shapeMode): false,
+496 silly tar     Symbol(kCapture): false,
+496 silly tar     Symbol(flowing): false,
+496 silly tar     Symbol(paused): true,
+496 silly tar     Symbol(pipes): [],
+496 silly tar     Symbol(buffer): [
+496 silly tar       <Buffer 3c 63 6f 6d 70 6f 6e 65 6e 74 20 6e 61 6d 65 3d 22 49 6e 73 70 65 63 74 69 6f 6e 50 72 6f 6a 65 63 74 50 72 6f 66 69 6c 65 4d 61 6e 61 67 65 72 22 3e ... 201 more bytes>
+496 silly tar     ],
+496 silly tar     Symbol(objectMode): false,
+496 silly tar     Symbol(encoding): null,
+496 silly tar     Symbol(async): false,
+496 silly tar     Symbol(decoder): null,
+496 silly tar     Symbol(EOF): true,
+496 silly tar     Symbol(emittedEnd): false,
+496 silly tar     Symbol(emittingEnd): false,
+496 silly tar     Symbol(closed): false,
+496 silly tar     Symbol(emittedError): null,
+496 silly tar     Symbol(bufferLength): 251,
+496 silly tar     Symbol(destroyed): false,
+496 silly tar     Symbol(signal): undefined,
+496 silly tar     Symbol(aborted): false,
+496 silly tar     Symbol(dataListeners): 0,
+496 silly tar     Symbol(discarded): false
+496 silly tar   },
+496 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+496 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+496 silly tar }
+497 http fetch GET 200 https://registry.npmjs.org/call-bind-apply-helpers/-/call-bind-apply-helpers-1.0.2.tgz 70ms (cache miss)
+498 warn tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles'
+499 silly tar TAR_ENTRY_ERROR ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles' [Error: ENOENT: no such file or directory, lstat '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles'] {
+499 silly tar   errno: -2,
+499 silly tar   code: 'ENOENT',
+499 silly tar   syscall: 'lstat',
+499 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles',
+499 silly tar   entry: Ls {
+499 silly tar     _events: [Object: null prototype] { end: [Function (anonymous)] },
+499 silly tar     _eventsCount: 1,
+499 silly tar     _maxListeners: undefined,
+499 silly tar     writable: false,
+499 silly tar     readable: true,
+499 silly tar     extended: undefined,
+499 silly tar     globalExtended: undefined,
+499 silly tar     header: Ns {
+499 silly tar       cksumValid: true,
+499 silly tar       needPax: false,
+499 silly tar       nullBlock: false,
+499 silly tar       block: undefined,
+499 silly tar       path: 'package/.idea/codeStyles/Project.xml',
+499 silly tar       mode: 420,
+499 silly tar       uid: undefined,
+499 silly tar       gid: undefined,
+499 silly tar       size: 2141,
+499 silly tar       cksum: 6473,
+499 silly tar       linkpath: '',
+499 silly tar       uname: '',
+499 silly tar       gname: '',
+499 silly tar       devmaj: 0,
+499 silly tar       devmin: 0,
+499 silly tar       atime: undefined,
+499 silly tar       ctime: undefined,
+499 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+499 silly tar       charset: undefined,
+499 silly tar       comment: undefined
+499 silly tar     },
+499 silly tar     startBlockSize: 2560,
+499 silly tar     blockRemain: 0,
+499 silly tar     remain: 0,
+499 silly tar     type: 'File',
+499 silly tar     meta: false,
+499 silly tar     ignore: false,
+499 silly tar     path: '.idea/codeStyles/Project.xml',
+499 silly tar     mode: 438,
+499 silly tar     uid: undefined,
+499 silly tar     gid: undefined,
+499 silly tar     uname: '',
+499 silly tar     gname: '',
+499 silly tar     size: 2141,
+499 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+499 silly tar     atime: undefined,
+499 silly tar     ctime: undefined,
+499 silly tar     linkpath: undefined,
+499 silly tar     dev: undefined,
+499 silly tar     ino: undefined,
+499 silly tar     nlink: undefined,
+499 silly tar     invalid: false,
+499 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/codeStyles/Project.xml',
+499 silly tar     unsupported: false,
+499 silly tar     Symbol(shapeMode): false,
+499 silly tar     Symbol(kCapture): false,
+499 silly tar     Symbol(flowing): false,
+499 silly tar     Symbol(paused): true,
+499 silly tar     Symbol(pipes): [],
+499 silly tar     Symbol(buffer): [
+499 silly tar       <Buffer 3c 63 6f 6d 70 6f 6e 65 6e 74 20 6e 61 6d 65 3d 22 50 72 6f 6a 65 63 74 43 6f 64 65 53 74 79 6c 65 43 6f 6e 66 69 67 75 72 61 74 69 6f 6e 22 3e 0a 20 ... 2091 more bytes>
+499 silly tar     ],
+499 silly tar     Symbol(objectMode): false,
+499 silly tar     Symbol(encoding): null,
+499 silly tar     Symbol(async): false,
+499 silly tar     Symbol(decoder): null,
+499 silly tar     Symbol(EOF): true,
+499 silly tar     Symbol(emittedEnd): false,
+499 silly tar     Symbol(emittingEnd): false,
+499 silly tar     Symbol(closed): false,
+499 silly tar     Symbol(emittedError): null,
+499 silly tar     Symbol(bufferLength): 2141,
+499 silly tar     Symbol(destroyed): false,
+499 silly tar     Symbol(signal): undefined,
+499 silly tar     Symbol(aborted): false,
+499 silly tar     Symbol(dataListeners): 0,
+499 silly tar     Symbol(discarded): false
+499 silly tar   },
+499 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+499 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+499 silly tar }
+500 warn tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/vcs.xml'
+501 silly tar TAR_ENTRY_ERROR EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/vcs.xml' [Error: EPERM: operation not permitted, open '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/vcs.xml'] {
+501 silly tar   errno: -1,
+501 silly tar   code: 'EPERM',
+501 silly tar   syscall: 'open',
+501 silly tar   path: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/vcs.xml',
+501 silly tar   entry: Ls {
+501 silly tar     _events: [Object: null prototype] {},
+501 silly tar     _eventsCount: 0,
+501 silly tar     _maxListeners: undefined,
+501 silly tar     writable: false,
+501 silly tar     readable: false,
+501 silly tar     extended: undefined,
+501 silly tar     globalExtended: undefined,
+501 silly tar     header: Ns {
+501 silly tar       cksumValid: true,
+501 silly tar       needPax: false,
+501 silly tar       nullBlock: false,
+501 silly tar       block: undefined,
+501 silly tar       path: 'package/.idea/vcs.xml',
+501 silly tar       mode: 420,
+501 silly tar       uid: undefined,
+501 silly tar       gid: undefined,
+501 silly tar       size: 180,
+501 silly tar       cksum: 4975,
+501 silly tar       linkpath: '',
+501 silly tar       uname: '',
+501 silly tar       gname: '',
+501 silly tar       devmaj: 0,
+501 silly tar       devmin: 0,
+501 silly tar       atime: undefined,
+501 silly tar       ctime: undefined,
+501 silly tar       mtime: 1985-10-26T08:15:00.000Z,
+501 silly tar       charset: undefined,
+501 silly tar       comment: undefined
+501 silly tar     },
+501 silly tar     startBlockSize: 512,
+501 silly tar     blockRemain: 0,
+501 silly tar     remain: 0,
+501 silly tar     type: 'File',
+501 silly tar     meta: false,
+501 silly tar     ignore: false,
+501 silly tar     path: '.idea/vcs.xml',
+501 silly tar     mode: 438,
+501 silly tar     uid: undefined,
+501 silly tar     gid: undefined,
+501 silly tar     uname: '',
+501 silly tar     gname: '',
+501 silly tar     size: 180,
+501 silly tar     mtime: 1985-10-26T08:15:00.000Z,
+501 silly tar     atime: undefined,
+501 silly tar     ctime: undefined,
+501 silly tar     linkpath: undefined,
+501 silly tar     dev: undefined,
+501 silly tar     ino: undefined,
+501 silly tar     nlink: undefined,
+501 silly tar     invalid: false,
+501 silly tar     absolute: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite/.idea/vcs.xml',
+501 silly tar     unsupported: false,
+501 silly tar     Symbol(shapeMode): false,
+501 silly tar     Symbol(kCapture): false,
+501 silly tar     Symbol(flowing): false,
+501 silly tar     Symbol(paused): true,
+501 silly tar     Symbol(pipes): [ [qt] ],
+501 silly tar     Symbol(buffer): [],
+501 silly tar     Symbol(objectMode): false,
+501 silly tar     Symbol(encoding): null,
+501 silly tar     Symbol(async): false,
+501 silly tar     Symbol(decoder): null,
+501 silly tar     Symbol(EOF): true,
+501 silly tar     Symbol(emittedEnd): true,
+501 silly tar     Symbol(emittingEnd): false,
+501 silly tar     Symbol(closed): false,
+501 silly tar     Symbol(emittedError): null,
+501 silly tar     Symbol(bufferLength): 0,
+501 silly tar     Symbol(destroyed): false,
+501 silly tar     Symbol(signal): undefined,
+501 silly tar     Symbol(aborted): false,
+501 silly tar     Symbol(dataListeners): 0,
+501 silly tar     Symbol(discarded): false
+501 silly tar   },
+501 silly tar   cwd: '/Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo/.deps/node_modules/iconv-lite',
+501 silly tar   tarCode: 'TAR_ENTRY_ERROR'
+501 silly tar }
+502 http fetch GET 200 https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz 74ms (cache miss)
+503 http fetch GET 200 https://registry.npmjs.org/es-set-tostringtag/-/es-set-tostringtag-2.1.0.tgz 74ms (cache miss)
+504 http fetch GET 200 https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz 77ms (cache miss)
+505 http fetch GET 200 https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz 80ms (cache miss)
+506 http fetch GET 200 https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz 90ms (cache miss)
+507 http fetch GET 200 https://registry.npmjs.org/tldts-core/-/tldts-core-6.1.86.tgz 93ms (cache miss)
+508 http fetch GET 200 https://registry.npmjs.org/es-errors/-/es-errors-1.3.0.tgz 91ms (cache miss)
+509 http fetch GET 200 https://registry.npmjs.org/entities/-/entities-6.0.1.tgz 96ms (cache miss)
+510 http fetch GET 200 https://registry.npmjs.org/xml-name-validator/-/xml-name-validator-5.0.0.tgz 94ms (cache miss)
+511 http fetch GET 200 https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-3.0.4.tgz 94ms (cache miss)
+512 http fetch GET 200 https://registry.npmjs.org/@csstools/css-parser-algorithms/-/css-parser-algorithms-3.0.5.tgz 95ms (cache miss)
+513 http fetch GET 200 https://registry.npmjs.org/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz 95ms (cache miss)
+514 warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+515 http fetch GET 200 https://registry.npmjs.org/w3c-xmlserializer/-/w3c-xmlserializer-5.0.0.tgz 101ms (cache miss)
+516 http fetch GET 200 https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz 103ms (cache miss)
+517 http fetch GET 200 https://registry.npmjs.org/tldts/-/tldts-6.1.86.tgz 112ms (cache miss)
+518 http fetch GET 200 https://registry.npmjs.org/@csstools/color-helpers/-/color-helpers-5.1.0.tgz 110ms (cache miss)
+519 http fetch GET 200 https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz 123ms (cache miss)
+520 http fetch GET 200 https://registry.npmjs.org/symbol-tree/-/symbol-tree-3.2.4.tgz 123ms (cache miss)
+521 http fetch GET 200 https://registry.npmjs.org/saxes/-/saxes-6.0.0.tgz 123ms (cache miss)
+522 http fetch GET 200 https://registry.npmjs.org/@csstools/css-color-parser/-/css-color-parser-3.1.0.tgz 129ms (cache miss)
+523 http fetch GET 200 https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz 129ms (cache miss)
+524 http fetch GET 200 https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz 135ms (cache miss)
+525 http fetch GET 200 https://registry.npmjs.org/nwsapi/-/nwsapi-2.2.28.tgz 136ms (cache miss)
+526 http fetch GET 200 https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz 138ms (cache miss)
+527 http fetch GET 200 https://registry.npmjs.org/tough-cookie/-/tough-cookie-5.1.2.tgz 140ms (cache miss)
+528 http fetch GET 200 https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.7.1.tgz 142ms (cache miss)
+529 http fetch GET 200 https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz 145ms (cache miss)
+530 http fetch GET 200 https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz 146ms (cache miss)
+531 http fetch GET 200 https://registry.npmjs.org/html-encoding-sniffer/-/html-encoding-sniffer-4.0.0.tgz 149ms (cache miss)
+532 http fetch GET 200 https://registry.npmjs.org/form-data/-/form-data-4.0.6.tgz 153ms (cache miss)
+533 http fetch GET 200 https://registry.npmjs.org/data-urls/-/data-urls-5.0.0.tgz 155ms (cache miss)
+534 http fetch GET 200 https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.8.0.tgz 155ms (cache miss)
+535 http fetch GET 200 https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz 164ms (cache miss)
+536 http fetch GET 200 https://registry.npmjs.org/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz 171ms (cache miss)
+537 http fetch GET 200 https://registry.npmjs.org/css.escape/-/css.escape-1.5.1.tgz 175ms (cache miss)
+538 http fetch GET 200 https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz 187ms (cache miss)
+539 http fetch GET 200 https://registry.npmjs.org/@csstools/css-calc/-/css-calc-2.1.4.tgz 214ms (cache miss)
+540 http fetch GET 200 https://registry.npmjs.org/jsdom/-/jsdom-25.0.1.tgz 236ms (cache miss)
+541 http fetch GET 200 https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz 312ms (cache miss)
+542 http fetch GET 200 https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz 310ms (cache miss)
+543 http fetch GET 200 https://registry.npmjs.org/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz 330ms (cache miss)
+544 http fetch GET 200 https://registry.npmjs.org/ws/-/ws-8.22.2.tgz 339ms (cache miss)
+545 silly ADD node_modules/punycode
+546 silly ADD node_modules/tr46
+547 silly ADD node_modules/safer-buffer
+548 silly ADD node_modules/iconv-lite
+549 silly ADD node_modules/tldts-core
+550 silly ADD node_modules/tldts
+551 silly ADD node_modules/xmlchars
+552 silly ADD node_modules/entities
+553 silly ADD node_modules/mime-db
+554 silly ADD node_modules/ms
+555 silly ADD node_modules/debug
+556 silly ADD node_modules/agent-base
+557 silly ADD node_modules/dunder-proto
+558 silly ADD node_modules/math-intrinsics
+559 silly ADD node_modules/has-symbols
+560 silly ADD node_modules/gopd
+561 silly ADD node_modules/get-proto
+562 silly ADD node_modules/function-bind
+563 silly ADD node_modules/es-object-atoms
+564 silly ADD node_modules/es-define-property
+565 silly ADD node_modules/call-bind-apply-helpers
+566 silly ADD node_modules/has-tostringtag
+567 silly ADD node_modules/get-intrinsic
+568 silly ADD node_modules/es-errors
+569 silly ADD node_modules/delayed-stream
+570 silly ADD node_modules/mime-types
+571 silly ADD node_modules/hasown
+572 silly ADD node_modules/es-set-tostringtag
+573 silly ADD node_modules/combined-stream
+574 silly ADD node_modules/asynckit
+575 silly ADD node_modules/@csstools/color-helpers
+576 silly ADD node_modules/lru-cache
+577 silly ADD node_modules/@csstools/css-color-parser
+578 silly ADD node_modules/@csstools/css-parser-algorithms
+579 silly ADD node_modules/@csstools/css-tokenizer
+580 silly ADD node_modules/@csstools/css-calc
+581 silly ADD node_modules/@asamuzakjp/css-color
+582 silly ADD node_modules/xml-name-validator
+583 silly ADD node_modules/ws
+584 silly ADD node_modules/whatwg-url
+585 silly ADD node_modules/whatwg-mimetype
+586 silly ADD node_modules/whatwg-encoding
+587 silly ADD node_modules/webidl-conversions
+588 silly ADD node_modules/w3c-xmlserializer
+589 silly ADD node_modules/tough-cookie
+590 silly ADD node_modules/symbol-tree
+591 silly ADD node_modules/saxes
+592 silly ADD node_modules/rrweb-cssom
+593 silly ADD node_modules/parse5
+594 silly ADD node_modules/nwsapi
+595 silly ADD node_modules/is-potential-custom-element-name
+596 silly ADD node_modules/https-proxy-agent
+597 silly ADD node_modules/http-proxy-agent
+598 silly ADD node_modules/html-encoding-sniffer
+599 silly ADD node_modules/form-data
+600 silly ADD node_modules/decimal.js
+601 silly ADD node_modules/data-urls
+602 silly ADD node_modules/cssstyle
+603 silly ADD node_modules/cssstyle/node_modules/rrweb-cssom
+604 silly ADD node_modules/jsdom
+605 silly ADD node_modules/css.escape
+606 verbose cwd /Users/lzy/pro/UserFB/workspace/Y1011/attempts/20261111T122513184909Z/repo
+607 verbose os Darwin 27.0.0
+608 verbose node v26.0.0
+609 verbose npm  v11.12.1
+610 notice
+610 notice New major version of npm available! 11.12.1 -> 12.2.2
+610 notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+610 notice To update run: npm install -g npm@12.2.2
+610 notice  { force: true, Symbol(proc-log.meta): true }
+611 verbose exit 0
+612 info ok
