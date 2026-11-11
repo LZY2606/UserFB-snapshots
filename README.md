@@ -43,6 +43,59 @@ You can read more [here](https://pion.ly/blog/pion-opus/)
 ### Running
 See our [examples](examples) for demonstrations of how to use this package.
 
+### Planning a trimmed export
+`PlanTrim` works out which complete, decode-ordered Opus packets a fresh
+48 kHz decoder must be fed to export an audible interval, without decoding
+or re-encoding anything. All times are 48 kHz *per-channel* sample frames:
+the unit is unchanged by the decoder's output rate and by whether a packet
+is mono or stereo.
+
+```go
+// packets are raw Opus packets, without OpusHead/OpusTags, container pages
+// or RTP headers. preSkip and endTrim come from the container, also in
+// 48 kHz per-channel frames.
+plan, err := opus.PlanTrim(packets, preSkip, endTrim, start, end)
+if err != nil {
+    log.Fatal(err)
+}
+
+const channels = 2 // 48 kHz stereo output
+decoder, err := opus.NewDecoderWithOutput(48000, channels)
+if err != nil {
+    log.Fatal(err)
+}
+
+// A 120 ms packet is at most 5760 per-channel frames.
+out := make([]float32, 5760*channels)
+for _, packet := range packets[plan.FirstPacket:plan.EndPacket] {
+    if _, _, err := decoder.DecodeFloat32(packet, out); err != nil {
+        log.Fatal(err)
+    }
+}
+// out holds the decoded selected packets. Skip plan.Discard frames per
+// channel, then keep plan.Keep frames per channel.
+```
+
+To turn per-channel frame counts into indices into an interleaved PCM
+buffer, multiply by the channel count. For stereo interleaved output
+(`[L0, R0, L1, R1, ...]`), frame `f` starts at index `f*2`:
+
+```go
+const channels = 2 // stereo interleaved output
+
+firstInterleavedSample := plan.Discard * channels // first exported frame
+exportLength           := plan.Keep * channels    // exported sample count
+```
+
+In general, for `channels` channels, per-channel frame `f` and channel `c`
+live at interleaved index `f*channels + c`, so the export is the slice
+`decoded[plan.Discard*channels : (plan.Discard+plan.Keep)*channels]`.
+
+`PlanTrim` keeps a fixed 80 ms preroll (3840 frames) before the target
+start when the stream contains that much audio, so the result is not
+promised to be sample-identical to decoding the whole file from the
+beginning.
+
 ### Roadmap
 The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
 
