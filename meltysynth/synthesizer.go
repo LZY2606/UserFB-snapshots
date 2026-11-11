@@ -160,6 +160,12 @@ func (s *Synthesizer) ProcessMidiMessage(channel int32, command int32, data1 int
 		case 0x0B: // Expression Coarse
 			channelInfo.setExpressionCoarse(data2)
 
+		case 0x10: // General Purpose Controller 1
+			channelInfo.setCC16(data2)
+
+		case 0x11: // General Purpose Controller 2
+			channelInfo.setCC17(data2)
+
 		case 0x2B: // Expression Fine
 			channelInfo.setExpressionFine(data2)
 

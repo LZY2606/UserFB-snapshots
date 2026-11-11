@@ -39,9 +39,11 @@ func newSoundFontParameters(r io.Reader) (*soundFontParameters, error) {
 
 	var presetInfos []*presetInfo
 	var presetBag []*zoneInfo
+	var presetModulators []modulator
 	var presetGenerators []generator
 	var instrumentInfos []*instrumentInfo
 	var instrumentBag []*zoneInfo
+	var instrumentModulators []modulator
 	var instrumentGenerators []generator
 	var sampleHeaders []*SampleHeader
 
@@ -66,7 +68,7 @@ func newSoundFontParameters(r io.Reader) (*soundFontParameters, error) {
 		case "pbag":
 			presetBag, err = readZonesFromChunk(r, size)
 		case "pmod":
-			err = discardModulatorData(r, size)
+			presetModulators, err = readModulatorsFromChunk(r, size)
 		case "pgen":
 			presetGenerators, err = readGeneratorsFromChunk(r, size)
 		case "inst":
@@ -74,7 +76,7 @@ func newSoundFontParameters(r io.Reader) (*soundFontParameters, error) {
 		case "ibag":
 			instrumentBag, err = readZonesFromChunk(r, size)
 		case "imod":
-			err = discardModulatorData(r, size)
+			instrumentModulators, err = readModulatorsFromChunk(r, size)
 		case "igen":
 			instrumentGenerators, err = readGeneratorsFromChunk(r, size)
 		case "shdr":
@@ -112,11 +114,22 @@ func newSoundFontParameters(r io.Reader) (*soundFontParameters, error) {
 		return nil, errors.New("the shdr sub-chunk was not found")
 	}
 
+	// All pdta sub-chunks are now available, so the bag indices can be
+	// validated against the actual generator and modulator tables.
+	err = validateZoneInfos(presetBag, int32(len(presetGenerators)), int32(len(presetModulators)))
+	if err != nil {
+		return nil, err
+	}
+	err = validateZoneInfos(instrumentBag, int32(len(instrumentGenerators)), int32(len(instrumentModulators)))
+	if err != nil {
+		return nil, err
+	}
+
 	parameters := new(soundFontParameters)
 
 	parameters.sampleHeaders = sampleHeaders
 
-	instrumentZones, err := createZones(instrumentBag, instrumentGenerators)
+	instrumentZones, err := createZones(instrumentBag, instrumentGenerators, instrumentModulators)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +139,7 @@ func newSoundFontParameters(r io.Reader) (*soundFontParameters, error) {
 		return nil, err
 	}
 
-	presetZones, err := createZones(presetBag, presetGenerators)
+	presetZones, err := createZones(presetBag, presetGenerators, presetModulators)
 	if err != nil {
 		return nil, err
 	}

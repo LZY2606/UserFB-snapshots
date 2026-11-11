@@ -16,6 +16,11 @@ type channel struct {
 	reverbSend byte
 	chorusSend byte
 
+	// Raw 7-bit values of the general-purpose controllers CC16 and CC17,
+	// used by SoundFont modulators. They start at zero.
+	cc16 byte
+	cc17 byte
+
 	rpn            int16
 	pitchBendRange int16
 	coarseTune     int16
@@ -59,6 +64,9 @@ func (ch *channel) reset() {
 	ch.fineTune = 8192
 
 	ch.pitchBend = 0
+
+	ch.cc16 = 0
+	ch.cc17 = 0
 }
 
 func (ch *channel) resetAllControllers() {
@@ -69,6 +77,17 @@ func (ch *channel) resetAllControllers() {
 	ch.rpn = -1
 
 	ch.pitchBend = 0
+
+	ch.cc16 = 0
+	ch.cc17 = 0
+}
+
+func (ch *channel) setCC16(value int32) {
+	ch.cc16 = byte(value)
+}
+
+func (ch *channel) setCC17(value int32) {
+	ch.cc17 = byte(value)
 }
 
 func (ch *channel) setBank(value int32) {

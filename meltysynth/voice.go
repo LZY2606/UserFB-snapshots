@@ -44,6 +44,22 @@ type voice struct {
 
 	noteGain float32
 
+	// Base parameters coming straight from the generators. Every block the
+	// current modulator contribution is recomputed from these and the live
+	// controller values, instead of accumulating deltas on top of them.
+	baseCutoffCents float32
+	basePan         float32
+
+	// Modulators effective on this voice: the preset-layer list followed by
+	// the instrument-layer list. Cross-layer entries with the same target
+	// are added; replacement only happens within a layer.
+	mods          []modulator
+	hasModulators bool
+
+	// Recomputed every block from the current modulator sources.
+	modAttenuationGain float32
+	modPan             float32
+
 	cutoff    float32
 	resonance float32
 
@@ -88,6 +104,36 @@ func (v *voice) start(region regionPair, channel int32, key int32, velocity int3
 	v.channel = channel
 	v.key = key
 	v.velocity = velocity
+
+	// The preset layer and the instrument layer are merged independently at
+	// load time; here the effective contributions of both layers are simply
+	// concatenated and added during evaluation. The slice may be prepared at
+	// the note-on stage, never on the render hot path.
+	presetMods := region.preset.mods
+	instrumentMods := region.instrument.mods
+	combined := make([]modulator, 0, len(presetMods)+len(instrumentMods))
+	combined = append(combined, presetMods...)
+	combined = append(combined, instrumentMods...)
+	anySupported := false
+	for i := range combined {
+		if combined[i].supported {
+			anySupported = true
+			break
+		}
+	}
+	if anySupported {
+		v.mods = combined
+		v.hasModulators = true
+	} else {
+		// Unsupported modulators keep the old behavior: they are ignored and
+		// do not affect the render path at all.
+		v.mods = nil
+		v.hasModulators = false
+	}
+	v.modAttenuationGain = 1
+	v.modPan = 0
+	v.baseCutoffCents = float32(region.getGeneratorValue(gen_InitialFilterCutoffFrequency))
+	v.basePan = region.GetPan()
 
 	if velocity > 0 {
 		// According to the Polyphone's implementation, the initial attenuation should be reduced to 40%.
@@ -167,10 +213,33 @@ func (v *voice) process() bool {
 		return false
 	}
 
-	if v.dynamicCutoff {
-		cents := float32(v.modLfoToCutoff)*v.modLfo.value + float32(v.modEnvToCutoff)*v.modEnv.value
-		factor := calcCentsToMultiplyingFactor(cents)
-		newCutoff := factor * v.cutoff
+	// The modulator contributions are recomputed from scratch every block:
+	// the raw generator values plus the current sources, never accumulated
+	// deltas. The oscillator and envelopes are not restarted.
+	if v.hasModulators {
+		attenuationTenthsDb, panTenthsPct, filterCents := evaluateModulators(v.mods, v)
+
+		// 1 attenuation unit is 0.1 dB; apply it as a linear gain on top of
+		// the existing volume. The velocity curve is not changed.
+		v.modAttenuationGain = calcDecibelsToLinear(-0.1 * attenuationTenthsDb)
+
+		// 1 pan unit is 0.1%, clamped to the endpoints on top of the
+		// existing instrument pan.
+		v.modPan = 0.1 * panTenthsPct
+
+		// 1 filter unit is 1 cent. The resulting cutoff is clamped between
+		// 1500 and 13500 cents before it enters the existing filter chain.
+		totalCents := calcClamp(v.baseCutoffCents+filterCents, 1500, 13500)
+		v.cutoff = calcCentsToHertz(totalCents)
+	}
+
+	if v.dynamicCutoff || v.hasModulators {
+		newCutoff := v.cutoff
+		if v.dynamicCutoff {
+			cents := float32(v.modLfoToCutoff)*v.modLfo.value + float32(v.modEnvToCutoff)*v.modEnv.value
+			factor := calcCentsToMultiplyingFactor(cents)
+			newCutoff = factor * v.cutoff
+		}
 
 		// The cutoff change is limited within x0.5 and x2 to reduce pop noise.
 		lowerLimit := 0.5 * v.smoothedCutoff
@@ -201,8 +270,11 @@ func (v *voice) process() bool {
 		decibels := v.modLfoToVolume * v.modLfo.value
 		mixGain *= calcDecibelsToLinear(decibels)
 	}
+	if v.hasModulators {
+		mixGain *= v.modAttenuationGain
+	}
 
-	angle := float32(math.Pi/200) * (channelInfo.getPan() + v.instrumentPan + 50)
+	angle := float32(math.Pi/200) * (channelInfo.getPan() + v.instrumentPan + v.modPan + 50)
 	switch {
 	case angle <= 0:
 		v.currentMixGainLeft = mixGain

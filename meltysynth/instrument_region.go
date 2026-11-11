@@ -7,10 +7,16 @@ import (
 type InstrumentRegion struct {
 	Sample *SampleHeader
 	gs     [61]int16
+	mods   []modulator
 }
 
 func createInstrumentRegion(inst *Instrument, global *zone, local *zone, samples []*SampleHeader) (*InstrumentRegion, error) {
 	result := new(InstrumentRegion)
+
+	// Local modulators replace global ones with the same identity; all other
+	// global mappings remain in effect. An entry with an amount of zero is
+	// kept on purpose so it can mask the matching global entry.
+	result.mods = mergeModulatorZones(global.modulators, local.modulators)
 
 	result.gs[gen_InitialFilterCutoffFrequency] = 13500
 	result.gs[gen_DelayModulationLfo] = -12000
