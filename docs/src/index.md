@@ -327,7 +327,7 @@ chroma.average(colors, 'lch', [1.5,0.5,1,2.3]);
 
 
 ### chroma.blend
-#### (color1, color2, mode)
+#### (color1, color2, mode, options)
 
 Blends two colors using RGB channel-wise blend functions. Valid blend modes are `normal`, `multiply`, `darken`, `lighten`, `screen`, `overlay`, `burn`, and `dodge`.
 
@@ -343,6 +343,15 @@ chroma.blend('4CBBFC', 'EEEE22', 'multiply');
 chroma.blend('4CBBFC', 'EEEE22', 'darken');
 chroma.blend('4CBBFC', 'EEEE22', 'lighten');
 ```
+
+By default blending happens on the encoded sRGB channels. Pass `options.space = 'srgb-linear'` to decode the channels with the sRGB transfer function, blend in linear-light sRGB, and encode the result exactly once. This keeps floating-point channels precise: `rgb(false)` returns the unrounded values while `rgb()` and `hex()` apply the usual terminal rounding.
+
+```js
+chroma.blend('#808080', '#808080', 'screen').rgb(false); // [191.7490..., 191.7490..., 191.7490...]
+chroma.blend('#808080', '#808080', 'screen', { space: 'srgb-linear' }).rgb(false); // [166.7451..., 166.7451..., 166.7451...]
+```
+
+Linear-light blending only accepts opaque colors. Inputs whose alpha is not exactly `1` throw a `RangeError`; translucent colors keep using the default encoded-sRGB path. An unknown `space` value throws an `Error`. The same `options` argument is accepted by the shortcut methods `chroma.blend.normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`, `dodge`, and `burn`. Omitting `options` or passing `{ space: 'srgb' }` preserves the original behavior.
 
 ### chroma.random
 #### (rng = Math.random)

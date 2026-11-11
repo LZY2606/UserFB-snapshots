@@ -238,7 +238,7 @@ chroma.average(colors, &#39;lch&#39;, [1,1,2,1]);
 chroma.average(colors, &#39;lch&#39;, [1.5,0.5,1,2.3]);
 </code></pre>
 <h3 id="chroma-blend">chroma.blend</h3>
-<h4 id="-color1-color2-mode-">(color1, color2, mode)</h4>
+<h4 id="-color1-color2-mode-options-">(color1, color2, mode, options)</h4>
 <p>Blends two colors using RGB channel-wise blend functions. Valid blend modes are <code>normal</code>, <code>multiply</code>, <code>darken</code>, <code>lighten</code>, <code>screen</code>, <code>overlay</code>, <code>burn</code>, and <code>dodge</code>.</p>
 <p>The second color is composited over the first using their alpha values. Fully transparent colors do not affect the visible result. If both colors are transparent, the result is transparent black. Translucent results include alpha in the default <code>hex()</code> output (eight hexadecimal digits).</p>
 <pre><code class="lang-js">chroma.blend(&#39;blue&#39;, &#39;rgba(255,0,0,0.5)&#39;, &#39;normal&#39;).rgba(); // [128, 0, 128, 1]
@@ -248,6 +248,11 @@ chroma.blend(&#39;rgba(0,0,255,0.5)&#39;, &#39;rgba(255,0,0,0.5)&#39;, &#39;norm
 chroma.blend(&#39;4CBBFC&#39;, &#39;EEEE22&#39;, &#39;darken&#39;);
 chroma.blend(&#39;4CBBFC&#39;, &#39;EEEE22&#39;, &#39;lighten&#39;);
 </code></pre>
+<p>By default blending happens on the encoded sRGB channels. Pass <code>options.space = &#39;srgb-linear&#39;</code> to decode the channels with the sRGB transfer function, blend in linear-light sRGB, and encode the result exactly once. This keeps floating-point channels precise: <code>rgb(false)</code> returns the unrounded values while <code>rgb()</code> and <code>hex()</code> apply the usual terminal rounding.</p>
+<pre><code class="lang-js">chroma.blend(&#39;#808080&#39;, &#39;#808080&#39;, &#39;screen&#39;).rgb(false); // [191.7490..., 191.7490..., 191.7490...]
+chroma.blend(&#39;#808080&#39;, &#39;#808080&#39;, &#39;screen&#39;, { space: &#39;srgb-linear&#39; }).rgb(false); // [166.7451..., 166.7451..., 166.7451...]
+</code></pre>
+<p>Linear-light blending only accepts opaque colors. Inputs whose alpha is not exactly <code>1</code> throw a <code>RangeError</code>; translucent colors keep using the default encoded-sRGB path. An unknown <code>space</code> value throws an <code>Error</code>. The same <code>options</code> argument is accepted by the shortcut methods <code>chroma.blend.normal</code>, <code>multiply</code>, <code>screen</code>, <code>overlay</code>, <code>darken</code>, <code>lighten</code>, <code>dodge</code>, and <code>burn</code>. Omitting <code>options</code> or passing <code>{ space: &#39;srgb&#39; }</code> preserves the original behavior.</p>
 <h3 id="chroma-random">chroma.random</h3>
 <h4 id="-rng-math-random-">(rng = Math.random)</h4>
 <p>Creates a random color by generating a <a href="https://github.com/gka/chroma.js/blob/main/src/generator/random.js#L7-L11">random hexadecimal string</a>. You can also pass a custom random number generator function as first argument.</p>
