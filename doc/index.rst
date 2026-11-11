@@ -312,6 +312,83 @@ The ``podcastparser`` module
 .. automodule:: podcastparser
    :members:
 
+Provenance mode
+===============
+
+A single field can have several sources in a feed (RSS, iTunes, Podcasting
+2.0, Atom). By default *podcastparser* only returns the final value. Pass
+``provenance=True`` to :func:`parse` to additionally get a ``provenance``
+entry in the result, describing every candidate value that was considered:
+
+.. code-block:: python
+
+    parsed = podcastparser.parse(url, stream, provenance=True)
+    for candidate in parsed['provenance']['episodes'][0]['total_time']:
+        print(candidate['namespace'], candidate['element'],
+              candidate['normalizer'], candidate['value'],
+              candidate['rejected_reason'])
+
+With provenance disabled (the default) the returned data is exactly the
+same as before; ``provenance`` is simply not present.
+
+Each candidate is a dict with these keys:
+
+**namespace**
+    The XML namespace URI of the element, independent of the prefix used in
+    the document (renaming a prefix does not change parsing). ``None`` for
+    elements without a namespace.
+
+**element**, **path**
+    The element name as written in the document and the normalized element
+    path used internally (e.g. ``rss/channel/item/itunes:duration``).
+
+**attribute**
+    The attribute name when the candidate comes from an attribute
+    (e.g. ``href``), otherwise ``None``.
+
+**source_line**, **source_column**
+    Position of the element in the source document.
+
+**normalizer**
+    Name of the normalization applied to the raw value
+    (e.g. ``parse_time``, ``urljoin/strip_filter``).
+
+**raw_value**, **value**
+    The value as found in the document and the normalized value that would
+    be written into the result.
+
+**accepted**, **rejected_reason**
+    Whether the candidate made it into the field, and if not, why
+    (blank value, overwrite disabled, value not in allowed set, ...).
+
+The provenance dict has three sections: ``feed`` (candidates per feed-level
+field), ``episodes`` (one candidate mapping per episode, kept aligned with
+the parsed episodes even after sorting or ``max_episodes`` trimming) and
+``extensions`` (unknown namespace elements, split into ``feed`` and
+``episodes``).
+
+Extension handlers
+------------------
+
+Unknown namespaces never touch the standard fields. Their top-level
+elements are recorded under ``provenance['extensions']`` with their
+attributes, text (truncated to ``EXTENSION_TEXT_LIMIT`` characters),
+namespace, position and nesting depth.
+
+Handlers are registered by **namespace URI**, never by prefix, either
+globally:
+
+.. code-block:: python
+
+    podcastparser.register_extension_handler(
+        'http://example.com/extensions', handler)
+
+or per parse with the ``extension_handlers`` argument of :func:`parse`.
+The handler receives an :class:`ExtensionContext` and its return value is
+stored in the extension record. If it raises, only that record is marked
+as rejected with the exception details; parsing and all other candidates
+continue normally.
+
 Unsupported Namespaces
 ======================
 
