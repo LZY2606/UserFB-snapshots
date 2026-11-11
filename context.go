@@ -1,11 +1,14 @@
 package fauxgl
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
 type Face int
@@ -38,23 +41,24 @@ func (info RasterizeInfo) Add(other RasterizeInfo) RasterizeInfo {
 }
 
 type Context struct {
-	Width        int
-	Height       int
-	ColorBuffer  *image.NRGBA
-	DepthBuffer  []float64
-	ClearColor   Color
-	Shader       Shader
-	ReadDepth    bool
-	WriteDepth   bool
-	WriteColor   bool
-	AlphaBlend   bool
-	Wireframe    bool
-	FrontFace    Face
-	Cull         Cull
-	LineWidth    float64
-	DepthBias    float64
-	screenMatrix Matrix
-	locks        []sync.Mutex
+	Width          int
+	Height         int
+	ColorBuffer    *image.NRGBA
+	DepthBuffer    []float64
+	ObjectIDBuffer []uint32
+	ClearColor     Color
+	Shader         Shader
+	ReadDepth      bool
+	WriteDepth     bool
+	WriteColor     bool
+	AlphaBlend     bool
+	Wireframe      bool
+	FrontFace      Face
+	Cull           Cull
+	LineWidth      float64
+	DepthBias      float64
+	screenMatrix   Matrix
+	locks          []sync.Mutex
 }
 
 func NewContext(width, height int) *Context {
@@ -138,18 +142,101 @@ func (dc *Context) ClearDepthBufferWith(value float64) {
 	for i := range dc.DepthBuffer {
 		dc.DepthBuffer[i] = value
 	}
+	// depth ownership is gone too; reset object IDs in lockstep
+	if dc.ObjectIDBuffer != nil {
+		clear(dc.ObjectIDBuffer)
+	}
 }
 
 func (dc *Context) ClearDepthBuffer() {
 	dc.ClearDepthBufferWith(math.MaxFloat64)
 }
 
+// EnableObjectIDs turns on object-ID tracking. It allocates a buffer with
+// one uint32 per pixel, matching the depth buffer, initially all zero.
+// ID 0 is reserved for depth writes that carry no tag. Calling it again
+// after it is already enabled is a no-op and keeps the existing buffer.
+func (dc *Context) EnableObjectIDs() {
+	if dc.ObjectIDBuffer == nil {
+		dc.ObjectIDBuffer = make([]uint32, dc.Width*dc.Height)
+	}
+}
+
+// VisibleObjectPixels returns a snapshot of how many pixels each visible
+// object ID currently owns in the ObjectIDBuffer. ID 0 (untagged) is not
+// included. The returned map is owned by the caller; later drawing does
+// not affect it.
+func (dc *Context) VisibleObjectPixels() map[uint32]uint64 {
+	counts := make(map[uint32]uint64)
+	for _, id := range dc.ObjectIDBuffer {
+		if id != 0 {
+			counts[id]++
+		}
+	}
+	return counts
+}
+
+var (
+	errObjectIDsDisabled = errors.New("fauxgl: DrawMeshID requires object ID tracking (call EnableObjectIDs)")
+	errObjectIDZero      = errors.New("fauxgl: DrawMeshID requires a non-zero object ID")
+	errObjectIDDepth     = errors.New("fauxgl: DrawMeshID requires ReadDepth and WriteDepth")
+	errObjectIDBlend     = errors.New("fauxgl: DrawMeshID requires AlphaBlend to be disabled")
+	errObjectIDWireframe = errors.New("fauxgl: DrawMeshID requires Wireframe to be disabled")
+)
+
+// DrawMeshID draws a mesh like DrawMesh while tagging every pixel whose
+// depth it ends up writing with the given object ID. The ID must be
+// non-zero and object-ID tracking must be enabled. The pass is opaque:
+// ReadDepth and WriteDepth must be true and AlphaBlend and Wireframe must
+// be false; violations are reported before any shader runs. WriteColor
+// may be false for a depth-only pass.
+func (dc *Context) DrawMeshID(mesh *Mesh, id uint32) (RasterizeInfo, error) {
+	if dc.ObjectIDBuffer == nil {
+		return RasterizeInfo{}, errObjectIDsDisabled
+	}
+	if id == 0 {
+		return RasterizeInfo{}, errObjectIDZero
+	}
+	if !dc.ReadDepth || !dc.WriteDepth {
+		return RasterizeInfo{}, errObjectIDDepth
+	}
+	if dc.AlphaBlend {
+		return RasterizeInfo{}, errObjectIDBlend
+	}
+	if dc.Wireframe {
+		return RasterizeInfo{}, errObjectIDWireframe
+	}
+	return dc.drawMesh(mesh, id), nil
+}
+
 func edge(a, b, c Vector) float64 {
 	return (b.X-c.X)*(a.Y-c.Y) - (b.Y-c.Y)*(a.X-c.X)
 }
 
-func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
+// loadDepth reads one depth buffer entry. Rasterization workers read and
+// write the depth buffer concurrently, so all accesses on the raster path
+// go through atomics; the striped locks below still serialize the
+// read-modify-write of a pixel (and its object ID) against other writers.
+func loadDepth(buf []float64, i int) float64 {
+	p := (*uint64)(unsafe.Pointer(&buf[i]))
+	return math.Float64frombits(atomic.LoadUint64(p))
+}
+
+// storeDepth writes one depth buffer entry; see loadDepth.
+func storeDepth(buf []float64, i int, v float64) {
+	p := (*uint64)(unsafe.Pointer(&buf[i]))
+	atomic.StoreUint64(p, math.Float64bits(v))
+}
+
+func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector, id uint32) RasterizeInfo {
 	var info RasterizeInfo
+
+	// degenerate (zero-area) triangles cover no pixels; bail out before
+	// dividing by the area below
+	area := edge(s0, s1, s2)
+	if area == 0 {
+		return info
+	}
 
 	// integer bounding box
 	min := s0.Min(s1.Min(s2)).Floor()
@@ -172,105 +259,122 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 	b20 := s2.X - s0.X
 
 	// reciprocals
-	ra := 1 / edge(s0, s1, s2)
+	ra := 1 / area
 	r0 := 1 / v0.Output.W
 	r1 := 1 / v1.Output.W
 	r2 := 1 / v2.Output.W
-	ra12 := 1 / a12
-	ra20 := 1 / a20
-	ra01 := 1 / a01
 
 	// iterate over all pixels in bounding box
 	for y := y0; y <= y1; y++ {
+		// compute how far to step into the row before a pixel can be
+		// inside the triangle; a horizontal edge (zero x-step) either
+		// rejects the whole row or imposes no constraint
 		var d float64
-		d0 := -w00 * ra12
-		d1 := -w01 * ra20
-		d2 := -w02 * ra01
-		if w00 < 0 && d0 > d {
-			d = d0
+		outside := false
+		if w00 < 0 {
+			if a12 == 0 {
+				outside = true
+			} else if v := -w00 / a12; v > d {
+				d = v
+			}
 		}
-		if w01 < 0 && d1 > d {
-			d = d1
+		if w01 < 0 {
+			if a20 == 0 {
+				outside = true
+			} else if v := -w01 / a20; v > d {
+				d = v
+			}
 		}
-		if w02 < 0 && d2 > d {
-			d = d2
+		if w02 < 0 {
+			if a01 == 0 {
+				outside = true
+			} else if v := -w02 / a01; v > d {
+				d = v
+			}
 		}
-		d = float64(int(d))
-		if d < 0 {
-			// occurs in pathological cases
-			d = 0
+		if d > float64(x1-x0) {
+			// no pixel in this row can be inside
+			outside = true
 		}
-		w0 := w00 + a12*d
-		w1 := w01 + a20*d
-		w2 := w02 + a01*d
-		wasInside := false
-		for x := x0 + int(d); x <= x1; x++ {
-			b0 := w0 * ra
-			b1 := w1 * ra
-			b2 := w2 * ra
-			w0 += a12
-			w1 += a20
-			w2 += a01
-			// check if inside triangle
-			if b0 < 0 || b1 < 0 || b2 < 0 {
-				if wasInside {
-					break
+		if !outside {
+			d = float64(int(d))
+			w0 := w00 + a12*d
+			w1 := w01 + a20*d
+			w2 := w02 + a01*d
+			wasInside := false
+			for x := x0 + int(d); x <= x1; x++ {
+				b0 := w0 * ra
+				b1 := w1 * ra
+				b2 := w2 * ra
+				w0 += a12
+				w1 += a20
+				w2 += a01
+				// check if inside triangle
+				if b0 < 0 || b1 < 0 || b2 < 0 {
+					if wasInside {
+						break
+					}
+					continue
 				}
-				continue
-			}
-			wasInside = true
-			// check depth buffer for early abort
-			i := y*dc.Width + x
-			if i < 0 || i >= len(dc.DepthBuffer) {
-				// TODO: clipping roundoff error; fix
-				// TODO: could also be from fat lines going off screen
-				continue
-			}
-			info.TotalPixels++
-			z := b0*s0.Z + b1*s1.Z + b2*s2.Z
-			bz := z + dc.DepthBias
-			if dc.ReadDepth && bz > dc.DepthBuffer[i] { // safe w/out lock?
-				continue
-			}
-			// perspective-correct interpolation of vertex data
-			b := VectorW{b0 * r0, b1 * r1, b2 * r2, 0}
-			b.W = 1 / (b.X + b.Y + b.Z)
-			v := InterpolateVertexes(v0, v1, v2, b)
-			// invoke fragment shader
-			color := dc.Shader.Fragment(v)
-			if color == Discard {
-				continue
-			}
-			// update buffers atomically
-			lock := &dc.locks[(x+y)&255]
-			lock.Lock()
-			// check depth buffer again
-			if bz <= dc.DepthBuffer[i] || !dc.ReadDepth {
-				info.UpdatedPixels++
-				if dc.WriteDepth {
-					// update depth buffer
-					dc.DepthBuffer[i] = z
+				wasInside = true
+				// check depth buffer for early abort
+				i := y*dc.Width + x
+				if i < 0 || i >= len(dc.DepthBuffer) {
+					// TODO: clipping roundoff error; fix
+					// TODO: could also be from fat lines going off screen
+					continue
 				}
-				if dc.WriteColor {
-					// update color buffer
-					if dc.AlphaBlend && color.A < 1 {
-						sr, sg, sb, sa := color.NRGBA().RGBA()
-						a := (0xffff - sa) * 0x101
-						j := dc.ColorBuffer.PixOffset(x, y)
-						dr := &dc.ColorBuffer.Pix[j+0]
-						dg := &dc.ColorBuffer.Pix[j+1]
-						db := &dc.ColorBuffer.Pix[j+2]
-						da := &dc.ColorBuffer.Pix[j+3]
-						*dr = uint8((uint32(*dr)*a/0xffff + sr) >> 8)
-						*dg = uint8((uint32(*dg)*a/0xffff + sg) >> 8)
-						*db = uint8((uint32(*db)*a/0xffff + sb) >> 8)
-						*da = uint8((uint32(*da)*a/0xffff + sa) >> 8)
-					} else {
-						dc.ColorBuffer.SetNRGBA(x, y, color.NRGBA())
+				info.TotalPixels++
+				z := b0*s0.Z + b1*s1.Z + b2*s2.Z
+				bz := z + dc.DepthBias
+				if dc.ReadDepth && bz > loadDepth(dc.DepthBuffer, i) {
+					continue
+				}
+				// perspective-correct interpolation of vertex data
+				b := VectorW{b0 * r0, b1 * r1, b2 * r2, 0}
+				b.W = 1 / (b.X + b.Y + b.Z)
+				v := InterpolateVertexes(v0, v1, v2, b)
+				// invoke fragment shader
+				color := dc.Shader.Fragment(v)
+				if color == Discard {
+					continue
+				}
+				// update buffers atomically
+				lock := &dc.locks[(x+y)&255]
+				lock.Lock()
+				// check depth buffer again
+				if bz <= loadDepth(dc.DepthBuffer, i) || !dc.ReadDepth {
+					info.UpdatedPixels++
+					if dc.WriteDepth {
+						// update depth buffer
+						storeDepth(dc.DepthBuffer, i, z)
+						// attribute the pixel to the object that owns
+						// this depth write, in the same critical section
+						if dc.ObjectIDBuffer != nil {
+							dc.ObjectIDBuffer[i] = id
+						}
+					}
+					if dc.WriteColor {
+						// update color buffer
+						if dc.AlphaBlend && color.A < 1 {
+							sr, sg, sb, sa := color.NRGBA().RGBA()
+							a := (0xffff - sa) * 0x101
+							j := dc.ColorBuffer.PixOffset(x, y)
+							dr := &dc.ColorBuffer.Pix[j+0]
+							dg := &dc.ColorBuffer.Pix[j+1]
+							db := &dc.ColorBuffer.Pix[j+2]
+							da := &dc.ColorBuffer.Pix[j+3]
+							*dr = uint8((uint32(*dr)*a/0xffff + sr) >> 8)
+							*dg = uint8((uint32(*dg)*a/0xffff + sg) >> 8)
+							*db = uint8((uint32(*db)*a/0xffff + sb) >> 8)
+							*da = uint8((uint32(*da)*a/0xffff + sa) >> 8)
+						} else {
+							dc.ColorBuffer.SetNRGBA(x, y, color.NRGBA())
+						}
 					}
 				}
+				lock.Unlock()
 			}
-			lock.Unlock()
 		}
 		w00 += b12
 		w01 += b20
@@ -280,7 +384,7 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 	return info
 }
 
-func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector) RasterizeInfo {
+func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector, id uint32) RasterizeInfo {
 	n := s1.Sub(s0).Perpendicular().MulScalar(dc.LineWidth / 2)
 	s0 = s0.Add(s0.Sub(s1).Normalize().MulScalar(dc.LineWidth / 2))
 	s1 = s1.Add(s1.Sub(s0).Normalize().MulScalar(dc.LineWidth / 2))
@@ -288,19 +392,19 @@ func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector) RasterizeInfo {
 	s01 := s0.Sub(n)
 	s10 := s1.Add(n)
 	s11 := s1.Sub(n)
-	info1 := dc.rasterize(v1, v0, v0, s11, s01, s00)
-	info2 := dc.rasterize(v1, v1, v0, s10, s11, s00)
+	info1 := dc.rasterize(v1, v0, v0, s11, s01, s00, id)
+	info2 := dc.rasterize(v1, v1, v0, s10, s11, s00, id)
 	return info1.Add(info2)
 }
 
-func (dc *Context) wireframe(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
-	info1 := dc.line(v0, v1, s0, s1)
-	info2 := dc.line(v1, v2, s1, s2)
-	info3 := dc.line(v2, v0, s2, s0)
+func (dc *Context) wireframe(v0, v1, v2 Vertex, s0, s1, s2 Vector, id uint32) RasterizeInfo {
+	info1 := dc.line(v0, v1, s0, s1, id)
+	info2 := dc.line(v1, v2, s1, s2, id)
+	info3 := dc.line(v2, v0, s2, s0, id)
 	return info1.Add(info2).Add(info3)
 }
 
-func (dc *Context) drawClippedLine(v0, v1 Vertex) RasterizeInfo {
+func (dc *Context) drawClippedLine(v0, v1 Vertex, id uint32) RasterizeInfo {
 	// normalized device coordinates
 	ndc0 := v0.Output.DivScalar(v0.Output.W).Vector()
 	ndc1 := v1.Output.DivScalar(v1.Output.W).Vector()
@@ -310,10 +414,10 @@ func (dc *Context) drawClippedLine(v0, v1 Vertex) RasterizeInfo {
 	s1 := dc.screenMatrix.MulPosition(ndc1)
 
 	// rasterize
-	return dc.line(v0, v1, s0, s1)
+	return dc.line(v0, v1, s0, s1, id)
 }
 
-func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
+func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex, id uint32) RasterizeInfo {
 	// normalized device coordinates
 	ndc0 := v0.Output.DivScalar(v0.Output.W).Vector()
 	ndc1 := v1.Output.DivScalar(v1.Output.W).Vector()
@@ -342,13 +446,17 @@ func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
 
 	// rasterize
 	if dc.Wireframe {
-		return dc.wireframe(v0, v1, v2, s0, s1, s2)
+		return dc.wireframe(v0, v1, v2, s0, s1, s2, id)
 	} else {
-		return dc.rasterize(v0, v1, v2, s0, s1, s2)
+		return dc.rasterize(v0, v1, v2, s0, s1, s2, id)
 	}
 }
 
 func (dc *Context) DrawLine(t *Line) RasterizeInfo {
+	return dc.drawLine(t, 0)
+}
+
+func (dc *Context) drawLine(t *Line, id uint32) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -357,17 +465,21 @@ func (dc *Context) DrawLine(t *Line) RasterizeInfo {
 		// clip to viewing volume
 		line := ClipLine(NewLine(v1, v2))
 		if line != nil {
-			return dc.drawClippedLine(line.V1, line.V2)
+			return dc.drawClippedLine(line.V1, line.V2, id)
 		} else {
 			return RasterizeInfo{}
 		}
 	} else {
 		// no need to clip
-		return dc.drawClippedLine(v1, v2)
+		return dc.drawClippedLine(v1, v2, id)
 	}
 }
 
 func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
+	return dc.drawTriangle(t, 0)
+}
+
+func (dc *Context) drawTriangle(t *Triangle, id uint32) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -378,17 +490,21 @@ func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
 		triangles := ClipTriangle(NewTriangle(v1, v2, v3))
 		var result RasterizeInfo
 		for _, t := range triangles {
-			info := dc.drawClippedTriangle(t.V1, t.V2, t.V3)
+			info := dc.drawClippedTriangle(t.V1, t.V2, t.V3, id)
 			result = result.Add(info)
 		}
 		return result
 	} else {
 		// no need to clip
-		return dc.drawClippedTriangle(v1, v2, v3)
+		return dc.drawClippedTriangle(v1, v2, v3, id)
 	}
 }
 
 func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
+	return dc.drawLines(lines, 0)
+}
+
+func (dc *Context) drawLines(lines []*Line, id uint32) RasterizeInfo {
 	wn := runtime.NumCPU()
 	ch := make(chan RasterizeInfo, wn)
 	for wi := 0; wi < wn; wi++ {
@@ -396,7 +512,7 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 			var result RasterizeInfo
 			for i, l := range lines {
 				if i%wn == wi {
-					info := dc.DrawLine(l)
+					info := dc.drawLine(l, id)
 					result = result.Add(info)
 				}
 			}
@@ -411,6 +527,10 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 }
 
 func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
+	return dc.drawTriangles(triangles, 0)
+}
+
+func (dc *Context) drawTriangles(triangles []*Triangle, id uint32) RasterizeInfo {
 	wn := runtime.NumCPU()
 	ch := make(chan RasterizeInfo, wn)
 	for wi := 0; wi < wn; wi++ {
@@ -418,7 +538,7 @@ func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
 			var result RasterizeInfo
 			for i, t := range triangles {
 				if i%wn == wi {
-					info := dc.DrawTriangle(t)
+					info := dc.drawTriangle(t, id)
 					result = result.Add(info)
 				}
 			}
@@ -433,7 +553,11 @@ func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
 }
 
 func (dc *Context) DrawMesh(mesh *Mesh) RasterizeInfo {
-	info1 := dc.DrawTriangles(mesh.Triangles)
-	info2 := dc.DrawLines(mesh.Lines)
+	return dc.drawMesh(mesh, 0)
+}
+
+func (dc *Context) drawMesh(mesh *Mesh, id uint32) RasterizeInfo {
+	info1 := dc.drawTriangles(mesh.Triangles, id)
+	info2 := dc.drawLines(mesh.Lines, id)
 	return info1.Add(info2)
 }

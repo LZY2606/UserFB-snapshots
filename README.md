@@ -114,3 +114,45 @@ func main() {
 ```
 
 ![Teapot](http://i.imgur.com/DaqbkLR.png)
+
+### Object-ID Tracking
+
+For offline assembly previews you often need to know which parts actually
+own depth samples on screen after a frame is drawn. `RasterizeInfo.UpdatedPixels`
+can't tell you - it only counts writes during drawing, so a part that is
+later completely occluded still looks "visible". Object-ID tracking records
+the final owner of each pixel along the real rasterization path instead.
+
+```go
+context := NewContext(width, height)
+context.EnableObjectIDs() // allocates context.ObjectIDBuffer ([]uint32)
+
+// opaque pass: ReadDepth/WriteDepth on, AlphaBlend/Wireframe off
+context.AlphaBlend = false
+
+// draw each part with its own non-zero ID
+if _, err := context.DrawMeshID(chassis, 1); err != nil {
+	panic(err)
+}
+if _, err := context.DrawMeshID(wheels, 2); err != nil {
+	panic(err)
+}
+
+// how many pixels does each part own in the final frame?
+for id, pixels := range context.VisibleObjectPixels() {
+	fmt.Printf("part %d: %d pixels\n", id, pixels)
+}
+```
+
+`ObjectIDBuffer` has one `uint32` per pixel, matching the depth buffer.
+ID 0 means "no tag": regular `DrawMesh` / `DrawTriangle` / `DrawLine` calls
+still work while tracking is enabled and claim pixels as 0. `DrawMeshID`
+requires an opaque pass (`ReadDepth` and `WriteDepth` true, `AlphaBlend`
+and `Wireframe` false) and rejects anything else before any shader runs;
+`WriteColor` may be false for a depth-only pass. The ownership of a pixel
+is updated in the same critical section as the depth write that wins the
+final depth test, after the fragment shader returns (discarded fragments
+attribute nothing). `VisibleObjectPixels` returns a caller-owned snapshot
+of the current counts, excluding ID 0. Clearing the color buffer keeps the
+attribution; clearing the depth buffer resets it to zero.
+
