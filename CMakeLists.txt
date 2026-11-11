@@ -35,4 +35,10 @@ if(BUILD_TESTING)
   target_include_directories(pipeline_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(pipeline_smoke PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
   add_test(NAME pipeline_smoke COMMAND pipeline_smoke)
+
+  # Synthetic clipped-pipeline demo: cross-plane geometry + UV checkerboard, writes clipped_raster.tga
+  add_executable(clipped_raster examples/clipped_raster.cpp our_gl.cpp tgaimage.cpp)
+  target_include_directories(clipped_raster PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(clipped_raster PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+  add_test(NAME clipped_raster COMMAND clipped_raster)
 endif()
