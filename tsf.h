@@ -207,6 +207,7 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 //   pitch_range: range of the pitch wheel in semitones (default 2.0, total +/- 2 semitones)
 //   tuning: tuning of all playing voices in semitones (default 0.0, standard (A440) tuning)
 //   flag_sustain: 0 to end notes that were held sustained and disable holding sustain otherwise enable it
+//   flag_sostenuto: 0 to end notes locked by the sostenuto pedal, otherwise lock the notes whose keys are currently held down
 //   (tsf_set_preset_number and set_bank_preset return 0 if preset does not exist, otherwise 1)
 //   (tsf_channel_set_... return 0 if a new channel needed allocation and that failed, otherwise 1)
 TSFDEF int tsf_channel_set_presetindex(tsf* f, int channel, int preset_index);
@@ -219,6 +220,7 @@ TSFDEF int tsf_channel_set_pitchwheel(tsf* f, int channel, int pitch_wheel);
 TSFDEF int tsf_channel_set_pitchrange(tsf* f, int channel, float pitch_range);
 TSFDEF int tsf_channel_set_tuning(tsf* f, int channel, float tuning);
 TSFDEF int tsf_channel_set_sustain(tsf* f, int channel, int flag_sustain);
+TSFDEF int tsf_channel_set_sostenuto(tsf* f, int channel, int flag_sostenuto);
 
 // Start or stop playing notes on a channel (needs channel preset to be set)
 //   channel: channel number
@@ -450,7 +452,7 @@ struct tsf_preset
 
 struct tsf_voice
 {
-	int playingPreset, playingKey, playingChannel, heldSustain;
+	int playingPreset, playingKey, playingChannel, heldSustain, heldSostenuto;
 	struct tsf_region* region;
 	double pitchInputTimecents, pitchOutputFactor;
 	double sourceSamplePosition;
@@ -463,7 +465,7 @@ struct tsf_voice
 
 struct tsf_channel
 {
-	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1;
+	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1, sostenuto : 1;
 	float panOffset, gainDB, pitchRange, tuning;
 };
 
@@ -1615,7 +1617,7 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		voice->playingPreset = preset_index;
 		voice->playingKey = key;
 		voice->playIndex = voicePlayIndex;
-		voice->heldSustain = 0;
+		voice->heldSustain = voice->heldSostenuto = 0;
 		voice->noteGainDB = f->globalGainDB - region->attenuation - tsf_gainToDecibels(1.0f / vel);
 
 		if (f->channels)
@@ -1783,7 +1785,7 @@ static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
 		c->pitchWheel = c->midiPan = 8192;
 		c->midiVolume = c->midiExpression = 16383;
 		c->midiRPN = 0xFFFF;
-		c->midiData = c->sustain = 0;
+		c->midiData = c->sustain = c->sostenuto = 0;
 		c->panOffset = 0.0f;
 		c->gainDB = 0.0f;
 		c->pitchRange = 2.0f;
@@ -1921,10 +1923,42 @@ TSFDEF int tsf_channel_set_sustain(tsf* f, int channel, int flag_sustain)
 	//Turning on sustain does no action now, just starts note_off behaving differently
 	if (flag_sustain) return 1;
 	//Turning off sustain, actually end voices that got a note_off and were set to heldSustain status
+	//but leave voices that are still locked by the sostenuto pedal
 	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
 	for (; v != vEnd; v++)
-		if (v->playingPreset != -1 && v->playingChannel == channel && v->ampenv.segment < TSF_SEGMENT_RELEASE && v->heldSustain)
+		if (v->playingPreset != -1 && v->playingChannel == channel && v->ampenv.segment < TSF_SEGMENT_RELEASE && v->heldSustain && !v->heldSostenuto)
 			tsf_voice_end(f, v);
+	return 1;
+}
+
+TSFDEF int tsf_channel_set_sostenuto(tsf* f, int channel, int flag_sostenuto)
+{
+	struct tsf_channel *c = tsf_channel_init(f, channel);
+	if (!c) return 0;
+	if (!c->sostenuto == !flag_sostenuto) return 1;
+	c->sostenuto = (unsigned short)(flag_sostenuto != 0);
+	if (flag_sostenuto)
+	{
+		//Turning on sostenuto, lock all voices of this channel whose key is still held down.
+		//Notes that already got a note_off (heldSustain) or that start later are not locked.
+		struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+		for (; v != vEnd; v++)
+			if (v->playingPreset != -1 && v->playingChannel == channel && v->ampenv.segment < TSF_SEGMENT_RELEASE && !v->heldSustain)
+				v->heldSostenuto = 1;
+		return 1;
+	}
+	//Turning off sostenuto, unlock the snapshot. Voices whose key is still down keep playing
+	//normally, voices with a released key are handed over to the sustain pedal or ended.
+	{
+		struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+		for (; v != vEnd; v++)
+			if (v->playingPreset != -1 && v->playingChannel == channel && v->heldSostenuto)
+			{
+				v->heldSostenuto = 0;
+				if (v->heldSustain && !c->sustain && v->ampenv.segment < TSF_SEGMENT_RELEASE)
+					tsf_voice_end(f, v);
+			}
+	}
 	return 1;
 }
 
@@ -1957,8 +1991,9 @@ TSFDEF void tsf_channel_note_off(tsf* f, int channel, int key)
 		//Stop all voices with matching channel, key and the smallest play index which was enumerated above
 		if (v != vMatchFirst && v != vMatchLast &&
 			(v->playIndex != vMatchFirst->playIndex || v->playingPreset == -1 || v->playingChannel != channel || v->playingKey != key || v->ampenv.segment >= TSF_SEGMENT_RELEASE)) continue;
-		//Don't turn off if sustain is active, just mark as held by sustain so we don't forget it
-		if (sustain)
+		//Don't turn off if sustain is active or the voice is locked by the sostenuto pedal,
+		//just mark as held (key released) so we don't forget it
+		if (sustain || v->heldSostenuto)
 			v->heldSustain = 1;
 		else
 			tsf_voice_end(f, v);
@@ -2003,6 +2038,7 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 		case  98 /*NRPN_LSB*/        : c->midiRPN = 0xFFFF; return 1;
 		case  99 /*NRPN_MSB*/        : c->midiRPN = 0xFFFF; return 1;
 		case  64 /*SUSTAIN*/         : tsf_channel_set_sustain(f, channel, (int)(control_value >= 64)); return 1;
+		case  66 /*SOSTENUTO*/       : tsf_channel_set_sostenuto(f, channel, (int)(control_value >= 64)); return 1;
 		case 120 /*ALL_SOUND_OFF*/   : tsf_channel_sounds_off_all(f, channel); return 1;
 		case 123 /*ALL_NOTES_OFF*/   : tsf_channel_note_off_all(f, channel);   return 1;
 		case 121 /*ALL_CTRL_OFF*/    :
@@ -2015,6 +2051,9 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 			tsf_channel_set_pan(f, channel, 0.5f);
 			tsf_channel_set_pitchrange(f, channel, 2.0f);
 			tsf_channel_set_tuning(f, channel, 0);
+			//Lift both pedals, ending held voices whose keys were released
+			tsf_channel_set_sustain(f, channel, 0);
+			tsf_channel_set_sostenuto(f, channel, 0);
 			return 1;
 	}
 	return 1;
