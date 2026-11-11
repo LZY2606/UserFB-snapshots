@@ -11,6 +11,7 @@
 #include "ConvexHull.hpp"
 #include "HalfEdgeMesh.hpp"
 #include "MathUtils.hpp"
+#include "HullExpansion.hpp"
 
 /*
  * Implementation of the 3D QuickHull algorithm by Antti Kuukka
@@ -70,50 +71,20 @@ namespace quickhull {
 		DiagnosticsData m_diagnostics;
 
 		// Temporary variables used during iteration process
-		std::vector<size_t> m_newFaceIndices;
-		std::vector<size_t> m_newHalfEdgeIndices;
-		std::vector< std::unique_ptr<std::vector<size_t>> > m_disabledFacePointVectors;
-		std::vector<size_t> m_visibleFaces;
-		std::vector<size_t> m_horizonEdges;
-		struct FaceData {
-			size_t m_faceIndex;
-			size_t m_enteredFromHalfEdge; // If the face turns out not to be visible,
-			                              // this half edge will be marked as horizon edge
-			FaceData(size_t fi, size_t he) : m_faceIndex(fi),m_enteredFromHalfEdge(he) {}
-		};
-		std::vector<FaceData> m_possiblyVisibleFaces;
+		detail::ExpansionScratch<FloatType> m_expansionScratch;
 		std::deque<size_t> m_faceList;
 
 		// Create a half edge mesh representing the base tetrahedron from which the QuickHull
 		// iteration proceeds. m_extremeValues must be properly set up when this is called.
 		void setupInitialTetrahedron();
 
-		// Given a list of half edges, try to rearrange them so that they form a loop.
-		// Return true on success.
-		bool reorderHorizonEdges(std::vector<size_t>& horizonEdges);
-		
 		// Find indices of extreme values (max x, min x, max y, min y, max z, min z) for the
 		// given point cloud
 		std::array<size_t,6> getExtremeValues();
-		
+
 		// Compute scale of the vertex data.
 		FloatType getScale(const std::array<size_t,6>& extremeValues);
-		
-		// Each face contains a unique pointer to a vector of indices.
-		// However, many - often most - faces do not have any points on the positive
-		// side of them especially at the the end of the iteration. When a face is removed
-		// from the mesh, its associated point vector, if such exists, is moved to the index
-		// vector pool, and when we need to add new faces with points on the positive side to the
-		// mesh, we reuse these vectors. This reduces the amount of std::vectors we have to deal
-		// with, and impact on performance is remarkable.
-		Pool<std::vector<size_t>> m_indexVectorPool;
-		inline std::unique_ptr<std::vector<size_t>> getIndexVectorFromPool();
-		inline void reclaimToIndexVectorPool(std::unique_ptr<std::vector<size_t>>& ptr);
-		
-		// Associates a point with a face if the point resides on the positive side of the plane.
-		// Returns true if the points was on the positive side.
-		inline bool addPointToFace(typename MeshBuilder<FloatType>::Face& f, size_t pointIndex);
-		
+
 		// This will update m_mesh from which we create the ConvexHull object that getConvexHull
 		// function returns
 		void createConvexHalfEdgeMesh();
@@ -170,43 +141,6 @@ namespace quickhull {
 			return m_diagnostics;
 		}
 	};
-	
-	template<typename T>
-	std::unique_ptr<std::vector<size_t>> QuickHull<T>::getIndexVectorFromPool() {
-		auto r = m_indexVectorPool.get();
-		r->clear();
-		return r;
-	}
-	
-	template<typename T>
-	void QuickHull<T>::reclaimToIndexVectorPool(std::unique_ptr<std::vector<size_t>>& ptr) {
-		const size_t oldSize = ptr->size();
-		if ((oldSize+1)*128 < ptr->capacity()) {
-			// Reduce memory usage! Huge vectors are needed at the beginning of iteration when
-			// faces have many points on their positive side. Later on, smaller vectors will
-			// suffice.
-			ptr.reset(nullptr);
-			return;
-		}
-		m_indexVectorPool.reclaim(ptr);
-	}
-
-	template<typename T>
-	bool QuickHull<T>::addPointToFace(typename MeshBuilder<T>::Face& f, size_t pointIndex) {
-		const T D = mathutils::getSignedDistanceToPlane(m_vertexData[ pointIndex ],f.m_P);
-		if (D>0 && D*D > m_epsilonSquared*f.m_P.m_sqrNLength) {
-			if (!f.m_pointsOnPositiveSide) {
-				f.m_pointsOnPositiveSide = std::move(getIndexVectorFromPool());
-			}
-			f.m_pointsOnPositiveSide->push_back( pointIndex );
-			if (D > f.m_mostDistantPointDist) {
-				f.m_mostDistantPointDist = D;
-				f.m_mostDistantPoint = pointIndex;
-			}
-			return true;
-		}
-		return false;
-	}
 
 }
 

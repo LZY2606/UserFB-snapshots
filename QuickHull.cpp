@@ -93,10 +93,8 @@ namespace quickhull {
 
 	template<typename T>
 	void QuickHull<T>::createConvexHalfEdgeMesh() {
-		m_visibleFaces.clear();
-		m_horizonEdges.clear();
-		m_possiblyVisibleFaces.clear();
-		
+		m_expansionScratch.clearPerExpansion();
+
 		// Compute base tetrahedron
 		setupInitialTetrahedron();
 		assert(m_mesh.m_faces.size() == 4);
@@ -112,204 +110,12 @@ namespace quickhull {
 		}
 
 		// Process faces until the face list is empty.
-		size_t iter = 0;
-		while (!m_faceList.empty()) {
-			iter++;
-			if (iter == std::numeric_limits<size_t>::max()) {
-				// Visible face traversal marks visited faces with iteration counter
-				// (to mark that the face has been visited on this iteration) and the max
-				// value represents unvisited faces. At this point we have to reset iteration
-				// counter. This shouldn't be an issue on 64 bit machines.
-				iter = 0;
-			}
-			
-			const size_t topFaceIndex = m_faceList.front();
-			m_faceList.pop_front();
-			
-			auto& tf = m_mesh.m_faces[topFaceIndex];
-			tf.m_inFaceStack = 0;
+		detail::processFaceStack(m_mesh, m_vertexData, m_epsilonSquared,
+		                         m_expansionScratch, m_faceList,
+		                         m_diagnostics.m_failedHorizonEdges);
 
-			assert(!tf.m_pointsOnPositiveSide || tf.m_pointsOnPositiveSide->size()>0);
-			if (!tf.m_pointsOnPositiveSide || tf.isDisabled()) {
-				continue;
-			}
-			
-			// Pick the most distant point to this triangle plane as the point to which we extrude
-			const vec3& activePoint = m_vertexData[tf.m_mostDistantPoint];
-			const size_t activePointIndex = tf.m_mostDistantPoint;
-
-			// Find out the faces that have our active point on their positive side
-			// (these are the "visible faces"). The face on top of the stack of course is
-			// one of them. At the same time, we create a list of horizon edges.
-			m_horizonEdges.clear();
-			m_possiblyVisibleFaces.clear();
-			m_visibleFaces.clear();
-			m_possiblyVisibleFaces.emplace_back(topFaceIndex,std::numeric_limits<size_t>::max());
-			while (m_possiblyVisibleFaces.size()) {
-				const auto faceData = m_possiblyVisibleFaces.back();
-				m_possiblyVisibleFaces.pop_back();
-				auto& pvf = m_mesh.m_faces[faceData.m_faceIndex];
-				assert(!pvf.isDisabled());
-				
-				if (pvf.m_visibilityCheckedOnIteration == iter) {
-					if (pvf.m_isVisibleFaceOnCurrentIteration) {
-						continue;
-					}
-				}
-				else {
-					const Plane<T>& P = pvf.m_P;
-					pvf.m_visibilityCheckedOnIteration = iter;
-					const T d = P.m_N.dotProduct(activePoint)+P.m_D;
-					if (d>0) {
-						pvf.m_isVisibleFaceOnCurrentIteration = 1;
-						pvf.m_horizonEdgesOnCurrentIteration = 0;
-						m_visibleFaces.push_back(faceData.m_faceIndex);
-						for (auto heIndex : m_mesh.getHalfEdgeIndicesOfFace(pvf)) {
-							if (m_mesh.m_halfEdges[heIndex].m_opp != faceData.m_enteredFromHalfEdge) {
-								m_possiblyVisibleFaces.emplace_back( m_mesh.m_halfEdges[m_mesh.m_halfEdges[heIndex].m_opp].m_face,heIndex );
-							}
-						}
-						continue;
-					}
-					assert(faceData.m_faceIndex != topFaceIndex);
-				}
-
-				// The face is not visible. Therefore, the halfedge we entered from
-				// is part of the horizon edge.
-				pvf.m_isVisibleFaceOnCurrentIteration = 0;
-				m_horizonEdges.push_back(faceData.m_enteredFromHalfEdge);
-				
-				// Store which half edge is the horizon edge. The other half edges of the face
-				// will not be part of the final mesh so their data slots can by recycled.
-				const auto halfEdges = m_mesh.getHalfEdgeIndicesOfFace(m_mesh.m_faces[m_mesh.m_halfEdges[faceData.m_enteredFromHalfEdge].m_face]);
-				const std::int8_t ind = (halfEdges[0]==faceData.m_enteredFromHalfEdge) ? 0 : (halfEdges[1]==faceData.m_enteredFromHalfEdge ? 1 : 2);
-				m_mesh.m_faces[m_mesh.m_halfEdges[faceData.m_enteredFromHalfEdge].m_face].m_horizonEdgesOnCurrentIteration |= (1<<ind);
-			}
-			const size_t horizonEdgeCount = m_horizonEdges.size();
-
-			// Order horizon edges so that they form a loop. This may fail due to numerical
-			// inaccuracy in which case we give up trying to solve horizon edge for this point
-			// and accept a minor degeneration in the convex hull.
-			if (!reorderHorizonEdges(m_horizonEdges)) {
-				m_diagnostics.m_failedHorizonEdges++;
-				std::cerr << "Failed to solve horizon edge." << std::endl;
-				auto it = std::find(tf.m_pointsOnPositiveSide->begin(),
-									tf.m_pointsOnPositiveSide->end(),
-									activePointIndex);
-				tf.m_pointsOnPositiveSide->erase(it);
-				if (tf.m_pointsOnPositiveSide->size()==0) {
-					reclaimToIndexVectorPool(tf.m_pointsOnPositiveSide);
-				}
-				continue;
-			}
-
-			// Except for the horizon edges, all half edges of the visible faces can be marked as disabled. Their data slots will be reused.
-			// The faces will be disabled as well, but we need to remember the points that were on the positive side of them - therefore
-			// we save pointers to them.
-			m_newFaceIndices.clear();
-			m_newHalfEdgeIndices.clear();
-			m_disabledFacePointVectors.clear();
-			size_t disableCounter = 0;
-			for (auto faceIndex : m_visibleFaces) {
-				auto& disabledFace = m_mesh.m_faces[faceIndex];
-				auto halfEdges = m_mesh.getHalfEdgeIndicesOfFace(disabledFace);
-				for (size_t j=0;j<3;j++) {
-					if ((disabledFace.m_horizonEdgesOnCurrentIteration & (1<<j)) == 0) {
-						if (disableCounter < horizonEdgeCount*2) {
-							// Use on this iteration
-							m_newHalfEdgeIndices.push_back(halfEdges[j]);
-							disableCounter++;
-						}
-						else {
-							// Mark for reusal on later iteration step
-							m_mesh.disableHalfEdge(halfEdges[j]);
-						}
-					}
-				}
-				// Disable the face, but retain pointer to the points that were on the positive side of it. We need to assign those points
-				// to the new faces we create shortly.
-				auto t = m_mesh.disableFace(faceIndex);
-				if (t) {
-					assert(t->size()); // Because we should not assign point vectors to faces unless needed...
-					m_disabledFacePointVectors.push_back(std::move(t));
-				}
-			}
-			if (disableCounter < horizonEdgeCount*2) {
-				const size_t newHalfEdgesNeeded = horizonEdgeCount*2-disableCounter;
-				for (size_t i=0;i<newHalfEdgesNeeded;i++) {
-					m_newHalfEdgeIndices.push_back(m_mesh.addHalfEdge());
-				}
-			}
-			
-			// Create new faces using the edgeloop
-			for (size_t i = 0; i < horizonEdgeCount; i++) {
-				const size_t AB = m_horizonEdges[i];
-
-				auto horizonEdgeVertexIndices = m_mesh.getVertexIndicesOfHalfEdge(m_mesh.m_halfEdges[AB]);
-				size_t A,B,C;
-				A = horizonEdgeVertexIndices[0];
-				B = horizonEdgeVertexIndices[1];
-				C = activePointIndex;
-
-				const size_t newFaceIndex = m_mesh.addFace();
-				m_newFaceIndices.push_back(newFaceIndex);
-
-				const size_t CA = m_newHalfEdgeIndices[2*i+0];
-				const size_t BC = m_newHalfEdgeIndices[2*i+1];
-
-				m_mesh.m_halfEdges[AB].m_next = BC;
-				m_mesh.m_halfEdges[BC].m_next = CA;
-				m_mesh.m_halfEdges[CA].m_next = AB;
-
-				m_mesh.m_halfEdges[BC].m_face = newFaceIndex;
-				m_mesh.m_halfEdges[CA].m_face = newFaceIndex;
-				m_mesh.m_halfEdges[AB].m_face = newFaceIndex;
-
-				m_mesh.m_halfEdges[CA].m_endVertex = A;
-				m_mesh.m_halfEdges[BC].m_endVertex = C;
-
-				auto& newFace = m_mesh.m_faces[newFaceIndex];
-
-				const Vector3<T> planeNormal = mathutils::getTriangleNormal(m_vertexData[A],m_vertexData[B],activePoint);
-				newFace.m_P = Plane<T>(planeNormal,activePoint);
-				newFace.m_he = AB;
-
-				m_mesh.m_halfEdges[CA].m_opp = m_newHalfEdgeIndices[i>0 ? i*2-1 : 2*horizonEdgeCount-1];
-				m_mesh.m_halfEdges[BC].m_opp = m_newHalfEdgeIndices[((i+1)*2) % (horizonEdgeCount*2)];
-			}
-
-			// Assign points that were on the positive side of the disabled faces to the new faces.
-			for (auto& disabledPoints : m_disabledFacePointVectors) {
-				assert(disabledPoints);
-				for (const auto& point : *(disabledPoints)) {
-					if (point == activePointIndex) {
-						continue;
-					}
-					for (size_t j=0;j<horizonEdgeCount;j++) {
-						if (addPointToFace(m_mesh.m_faces[m_newFaceIndices[j]], point)) {
-							break;
-						}
-					}
-				}
-				// The points are no longer needed: we can move them to the vector pool for reuse.
-				reclaimToIndexVectorPool(disabledPoints);
-			}
-
-			// Increase face stack size if needed
-			for (const auto newFaceIndex : m_newFaceIndices) {
-				auto& newFace = m_mesh.m_faces[newFaceIndex];
-				if (newFace.m_pointsOnPositiveSide) {
-					assert(newFace.m_pointsOnPositiveSide->size()>0);
-					if (!newFace.m_inFaceStack) {
-						m_faceList.push_back(newFaceIndex);
-						newFace.m_inFaceStack = 1;
-					}
-				}
-			}
-		}
-		
 		// Cleanup
-		m_indexVectorPool.clear();
+		m_expansionScratch.indexVectorPool.clear();
 	}
 	
 	/*
@@ -352,28 +158,6 @@ namespace quickhull {
 		return outIndices;
 	}
 
-	template<typename T>
-	bool QuickHull<T>::reorderHorizonEdges(std::vector<size_t>& horizonEdges) {
-		const size_t horizonEdgeCount = horizonEdges.size();
-		for (size_t i=0;i<horizonEdgeCount-1;i++) {
-			const size_t endVertex = m_mesh.m_halfEdges[ horizonEdges[i] ].m_endVertex;
-			bool foundNext = false;
-			for (size_t j=i+1;j<horizonEdgeCount;j++) {
-				const size_t beginVertex = m_mesh.m_halfEdges[ m_mesh.m_halfEdges[horizonEdges[j]].m_opp ].m_endVertex;
-				if (beginVertex == endVertex) {
-					std::swap(horizonEdges[i+1],horizonEdges[j]);
-					foundNext = true;
-					break;
-				}
-			}
-			if (!foundNext) {
-				return false;
-			}
-		}
-		assert(m_mesh.m_halfEdges[ horizonEdges[horizonEdges.size()-1] ].m_endVertex == m_mesh.m_halfEdges[ m_mesh.m_halfEdges[horizonEdges[0]].m_opp ].m_endVertex);
-		return true;
-	}
-	
 	template <typename T>
 	T QuickHull<T>::getScale(const std::array<size_t,6>& extremeValues) {
 		T s = 0;
@@ -497,7 +281,8 @@ namespace quickhull {
 		// Finally we assign a face for each vertex outside the tetrahedron (vertices inside the tetrahedron have no role anymore)
 		for (size_t i=0;i<vCount;i++) {
 			for (auto& face : m_mesh.m_faces) {
-				if (addPointToFace(face, i)) {
+				if (detail::addPointToFace(face, i, m_vertexData, m_epsilonSquared,
+				                           m_expansionScratch)) {
 					break;
 				}
 			}
