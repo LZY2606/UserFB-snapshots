@@ -57,6 +57,46 @@ world.createEntity(new goo.Box(), goo.Material.createMaterial(goo.ShaderLib.simp
 }).addToWorld();
 ```
 
+## Joint attachments
+
+A `JointAttachmentComponent` makes an entity follow a joint of another entity's skeleton
+while keeping its existing place in the scene graph. The target is not required to be a
+direct child of the animated entity. The system runs after the animation pose has been
+applied and before transforms are finalized and render collection happens. It does not
+depend on pose updates, so attachments also follow moved roots or parents while the
+animation is paused.
+
+Register the systems with explicit priorities; the engine's default ordering is left
+untouched. Higher priority values run later.
+
+```js
+var animationSystem = new goo.AnimationSystem();
+animationSystem.priority = -100;             // apply the pose first
+world.setSystem(animationSystem);
+
+var jointAttachmentSystem = new goo.JointAttachmentSystem();
+jointAttachmentSystem.priority = -50;        // after AnimationSystem, before TransformSystem
+world.setSystem(jointAttachmentSystem);
+
+var transformSystem = new goo.TransformSystem();
+transformSystem.priority = 0;
+world.setSystem(transformSystem);
+
+// Minimal hook-up: follow handJointIndex of characterEntity, with an optional offset
+var offset = new goo.Transform();
+offset.rotation.fromAngles(0, Math.PI / 4, 0); // rotated relative to the joint
+offset.update();
+
+equipmentEntity.setComponent(
+    new goo.JointAttachmentComponent(characterEntity, handJointIndex, offset)
+);
+```
+
+The offset is copied when the component is created, so later changes to the original
+`offset` object have no effect; use `jointAttachmentComponent.setOffset()` to update it.
+Replacing `sourceEntity` takes effect on the next frame. Removing the component stops
+driving the target and keeps its last pose.
+
 ## Documentation
 
 * [API Reference](http://code.gooengine.com/latest/docs/)

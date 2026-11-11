@@ -15,6 +15,7 @@ module.exports = {
 	TriggerChannel: require('./clip/TriggerChannel'),
 	TriggerData: require('./clip/TriggerData'),
 	AnimationComponent: require('./components/AnimationComponent'),
+	JointAttachmentComponent: require('./components/JointAttachmentComponent'),
 	AnimationClipHandler: require('./handlers/AnimationClipHandler'),
 	AnimationComponentHandler: require('./handlers/AnimationComponentHandler'),
 	AnimationHandlers: require('./handlers/AnimationHandlers'),
@@ -32,7 +33,8 @@ module.exports = {
 	FrozenTransitionState: require('./state/FrozenTransitionState'),
 	SteadyState: require('./state/SteadyState'),
 	SyncFadeTransitionState: require('./state/SyncFadeTransitionState'),
-	AnimationSystem: require('./systems/AnimationSystem')
+	AnimationSystem: require('./systems/AnimationSystem'),
+	JointAttachmentSystem: require('./systems/JointAttachmentSystem')
 };
 
 if (typeof(window) !== 'undefined') {
