@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-build=$(mktemp -d)
+build=$(mktemp -d "${TMPDIR:-/tmp}/mjs-baseline.XXXXXX")
 trap 'rm -rf "$build"' EXIT
 clang -std=c99 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -I. mjs.c regress/baseline.c -lm -o "$build/base"
 "$build/base"
