@@ -110,6 +110,51 @@ parser.flush();
 Indicates that no more data is expected and will force the parser to parse any
 unparsed data that it may have. Will also trigger [onflush](#onflush).
 
+### Streaming behaviour
+
+The parser is safe to feed in arbitrary chunks; cues, regions and parsing
+errors are delivered through their callbacks as soon as their boundaries are
+known, not only when `flush()` is called:
+
+* A cue is reported via `oncue` as soon as its terminating blank line — or the
+  timing line of the next cue, when cues are not separated by a blank line —
+  has been seen. A timing line that was already consumed is never lost, even
+  if a `parse()` call ends right after it; it is processed as the start of the
+  next cue. Adjacent timing lines simply produce a cue with empty text.
+* Lines may be terminated by LF, CRLF or a lone CR, and the styles may be
+  mixed within one input. A CR ends its line immediately; if the next chunk
+  happens to start with a LF, the two are merged into a single CRLF
+  terminator instead of producing an extra empty line. This applies to the
+  WEBVTT signature, `Region:` metadata headers, NOTE blocks, discarded bad
+  cues and cue text alike. Calling `parse()` with no data does not disturb a
+  parser that is waiting for more input.
+* `flush()` finishes the decoder's stream, so final decoder output (for
+  example a replacement character for a truncated multi-byte UTF-8 sequence)
+  still ends up in the last cue's text. A final cue without a trailing blank
+  line is delivered by `flush()`. Calling `flush()` repeatedly does not
+  re-deliver cues, regions or parsing errors, while `onflush` still fires for
+  every call. A WEBVTT signature without any line terminator keeps reporting
+  a `BadSignature` error at `flush()` time.
+* All streaming state (the pending line, the CR-merge state and the region
+  table) is kept per parser instance, so interleaved parsers do not affect
+  each other.
+
+The streaming, line-ending and end-of-stream behaviour is covered by a
+Node.js test suite that does not need any npm dependencies:
+
+```bash
+$ node --test --test-reporter=tap tests/stream.test.cjs
+$ node tests/mutations.cjs
+$ node sanity/old-fixtures.cjs
+```
+
+`tests/stream.test.cjs` replays the inputs whole, at every possible split
+point and byte by byte (or character by character for
+`WebVTT.StringDecoder`). `tests/mutations.cjs` copies the library and the
+suite into a temporary directory, applies behaviour-degrading edits to the
+copy, and verifies that the suite detects each one. `sanity/old-fixtures.cjs`
+checks the historical JSON fixtures against the public Node entry point.
+
 ### onregion(region)
 
 Callback that is invoked for every region that is correctly parsed. Returns a [VTTRegion](#http://dev.w3.org/html5/webvtt/#dfn-vttregion)
