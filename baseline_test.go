@@ -38,8 +38,11 @@ func TestNamesBaseline(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"alice", "bob"}) {
 		t.Fatalf("got %v", got)
 	}
-	if m := ParseMessage(":srv 366 collector #alpha :End"); m.GetType() != UNSET {
+	if m := ParseMessage(":srv 366 collector #alpha :End"); m.GetType() != END_NAMES {
 		t.Fatalf("end marker unexpectedly typed: %T", m)
 	}
-	t.Log("BASELINE_TWITCH_NAMES_ACCUMULATES_STALE_ALICE END_366_UNTYPED")
+	if _, ok := ParseMessage(":srv 366 collector #alpha :End").(*EndNamesMessage); !ok {
+		t.Fatal("end marker did not parse as EndNamesMessage")
+	}
+	t.Log("BASELINE_TWITCH_NAMES_ACCUMULATES_STALE_ALICE END_366_TYPED")
 }

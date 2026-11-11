@@ -242,9 +242,24 @@ client.TLS = false // enabled by default, will connect to non TLS server of twit
 client.SetupCmd = "LOGIN custom_command_here" // Send a custom command on successful IRC connection, before authentication.
 client.Capabilities = []string{twitch.TagsCapability, twitch.CommandsCapability} // Customize which capabilities are sent
 client.SetJoinRateLimiter(twitch.CreateVerifiedRateLimiter()) // If you have a verified bot or other needs use this to set a custom rate limiter
+client.EnableUserlistSnapshots = true // Collect a channel's userlist between NAMES (353) and end of names (366) and publish it as one complete snapshot
 ```
 
 Option modifications must be done before calling Connect on the client.
+
+#### Userlist Snapshots
+
+By default `Userlist` accumulates every user name ever seen in a NAMES reply, so users that left between two replies never disappear and a half-received reply is already visible. With `client.EnableUserlistSnapshots = true` each NAMES reply is collected per channel and only published as a whole once the end of names (366) arrives, while real-time JOIN/PART messages keep the visible list up to date. `OnNamesComplete` is called after the new list is readable and receives an independent copy of it, which makes it a good place to kick off follow-up collection:
+
+```go
+client.EnableUserlistSnapshots = true
+
+client.OnNamesComplete(func(channel string, users []string) {
+	// The completed snapshot is now readable via client.Userlist(channel).
+	// Start the follow-up sampling pass with the completed list.
+	go runSamplingPass(channel, users)
+})
+```
 
 #### Capabilities
 
@@ -268,6 +283,7 @@ client.OnUserJoinMessage(func(message UserJoinMessage) {})
 client.OnUserPartMessage(func(message UserPartMessage) {})
 client.OnSelfJoinMessage(func(message UserJoinMessage) {})
 client.OnSelfPartMessage(func(message UserPartMessage) {})
+client.OnNamesComplete(func(channel string, userlist []string) {})
 ```
 
 ### Message Types

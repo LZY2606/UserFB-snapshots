@@ -49,6 +49,9 @@ const (
 	CLEARMSG MessageType = 13
 	// GLOBALUSERSTATE On successful login, provides data about the current logged-in user through IRC tags
 	GLOBALUSERSTATE MessageType = 14
+	// END_NAMES (or 366 https://www.alien.net.au/irc/irc2numerics.html#366) is the response sent from the server
+	// after it has sent all NAMES messages (353) for a channel
+	END_NAMES MessageType = 15
 )
 
 type messageTypeDescription struct {
@@ -75,6 +78,7 @@ func init() {
 		"PONG":            {PONG, parsePongMessage},
 		"CLEARMSG":        {CLEARMSG, parseClearMessage},
 		"GLOBALUSERSTATE": {GLOBALUSERSTATE, parseGlobalUserStateMessage},
+		"366":             {END_NAMES, parseEndNamesMessage},
 	}
 }
 
@@ -510,6 +514,21 @@ func parseNamesMessage(message *ircMessage) Message {
 	if len(message.Params) == 4 {
 		parsedMessage.Channel = strings.TrimPrefix(message.Params[2], "#")
 		parsedMessage.Users = strings.Split(message.Params[3], " ")
+	}
+
+	return &parsedMessage
+}
+
+func parseEndNamesMessage(message *ircMessage) Message {
+	parsedMessage := EndNamesMessage{
+		Raw:     message.Raw,
+		Type:    parseMessageType(message.Command),
+		RawType: message.Command,
+	}
+
+	// Format: ":server 366 <nick> <channel> :End of /NAMES list"
+	if len(message.Params) >= 2 {
+		parsedMessage.Channel = strings.TrimPrefix(message.Params[1], "#")
 	}
 
 	return &parsedMessage

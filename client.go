@@ -350,6 +350,22 @@ func (msg *NamesMessage) GetType() MessageType {
 	return msg.Type
 }
 
+// EndNamesMessage describes the message sent after all NamesMessages for a channel have been received
+// See https://www.alien.net.au/irc/irc2numerics.html#366
+type EndNamesMessage struct {
+	Raw     string
+	Type    MessageType
+	RawType string
+
+	// Channel name
+	Channel string
+}
+
+// GetType implements the Message interface, and returns this message's type
+func (msg *EndNamesMessage) GetType() MessageType {
+	return msg.Type
+}
+
 // PingMessage describes an IRC PING message
 type PingMessage struct {
 	Raw     string
@@ -388,6 +404,8 @@ type Client struct {
 	channels                 map[string]bool
 	channelUserlistMutex     *sync.RWMutex
 	channelUserlist          map[string]map[string]bool
+	channelNamesPending      map[string]map[string]bool
+	channelNamesParted       map[string]map[string]bool
 	channelsMtx              *sync.RWMutex
 	latencyMutex             *sync.RWMutex
 	onConnect                func()
@@ -406,6 +424,7 @@ type Client struct {
 	onSelfPartMessage        func(message UserPartMessage)
 	onReconnectMessage       func(message ReconnectMessage)
 	onNamesMessage           func(message NamesMessage)
+	onNamesComplete          func(channel string, userlist []string)
 	onPingMessage            func(message PingMessage)
 	onPongMessage            func(message PongMessage)
 	onUnsetMessage           func(message RawMessage)
@@ -458,6 +477,13 @@ type Client struct {
 	// If this is an empty list or nil, no CAP REQ message is sent at all
 	Capabilities []string
 
+	// EnableUserlistSnapshots makes the client collect a channel's full userlist between the first
+	// NAMES message (353) and the end of names message (366) and publish it as one complete snapshot.
+	// While a snapshot is being collected, Userlist keeps returning the previous complete list, and
+	// real-time JOIN/PART messages are applied to both the visible and the pending list.
+	// The variable may only be modified before calling Connect.
+	EnableUserlistSnapshots bool
+
 	// The ratelimits the client will respect when sending messages
 	joinRateLimiter RateLimiter
 }
@@ -470,6 +496,10 @@ func NewClient(username, oauth string) *Client {
 		TLS:             true,
 		channels:        map[string]bool{},
 		channelUserlist: map[string]map[string]bool{},
+
+		channelNamesPending: map[string]map[string]bool{},
+		channelNamesParted:  map[string]map[string]bool{},
+
 		channelsMtx:     &sync.RWMutex{},
 		latencyMutex:    &sync.RWMutex{},
 		messageReceived: make(chan bool),
@@ -578,6 +608,14 @@ func (c *Client) OnNamesMessage(callback func(message NamesMessage)) {
 	c.onNamesMessage = callback
 }
 
+// OnNamesComplete attaches callback that is called after a complete userlist snapshot for a channel
+// has been received and published. The userlist argument is an independent copy of the channel's
+// userlist and may be modified by the caller. EnableUserlistSnapshots must be true for this callback
+// to be called.
+func (c *Client) OnNamesComplete(callback func(channel string, userlist []string)) {
+	c.onNamesComplete = callback
+}
+
 // OnPingMessage attaches callback to PING message
 func (c *Client) OnPingMessage(callback func(message PingMessage)) {
 	c.onPingMessage = callback
@@ -631,6 +669,8 @@ func (c *Client) Join(channels ...string) {
 		c.channels[channel] = c.connActive.get()
 		c.channelUserlistMutex.Lock()
 		c.channelUserlist[channel] = map[string]bool{}
+		delete(c.channelNamesPending, channel)
+		delete(c.channelNamesParted, channel)
 		c.channelUserlistMutex.Unlock()
 	}
 	c.channelsMtx.Unlock()
@@ -711,6 +751,8 @@ func (c *Client) Depart(channel string) {
 	delete(c.channels, channel)
 	c.channelUserlistMutex.Lock()
 	delete(c.channelUserlist, channel)
+	delete(c.channelNamesPending, channel)
+	delete(c.channelNamesParted, channel)
 	c.channelUserlistMutex.Unlock()
 	c.channelsMtx.Unlock()
 }
@@ -984,6 +1026,9 @@ func (c *Client) startParser() error {
 }
 
 func (c *Client) initialJoins() {
+	// Unfinished userlist snapshots must not be carried over into the next connection
+	c.resetNamesSnapshots()
+
 	// join or rejoin channels on connection
 	channels := []string{}
 	for channel := range c.channels {
@@ -991,6 +1036,15 @@ func (c *Client) initialJoins() {
 		c.channels[channel] = false
 	}
 	c.Join(channels...)
+}
+
+// resetNamesSnapshots drops any unfinished userlist snapshot rounds
+func (c *Client) resetNamesSnapshots() {
+	c.channelUserlistMutex.Lock()
+	defer c.channelUserlistMutex.Unlock()
+
+	c.channelNamesPending = map[string]map[string]bool{}
+	c.channelNamesParted = map[string]map[string]bool{}
 }
 
 func (c *Client) send(line string) {
@@ -1113,6 +1167,10 @@ func (c *Client) handleLine(line string) error {
 		c.handleNamesMessage(*msg)
 		return nil
 
+	case *EndNamesMessage:
+		c.handleEndNamesMessage(*msg)
+		return nil
+
 	case *PingMessage:
 		if c.onPingMessage != nil {
 			c.onPingMessage(*msg)
@@ -1152,15 +1210,39 @@ func (c *Client) handleUserJoinMessage(msg UserJoinMessage) {
 		return
 	}
 
+	if !c.EnableUserlistSnapshots {
+		c.channelUserlistMutex.Lock()
+		defer c.channelUserlistMutex.Unlock()
+
+		if c.channelUserlist[msg.Channel] == nil {
+			c.channelUserlist[msg.Channel] = map[string]bool{}
+		}
+
+		if _, ok := c.channelUserlist[msg.Channel][msg.User]; !ok {
+			c.channelUserlist[msg.Channel][msg.User] = true
+		}
+		return
+	}
+
+	channel := strings.ToLower(msg.Channel)
+	user := normalizeNamesUser(msg.User)
+
 	c.channelUserlistMutex.Lock()
 	defer c.channelUserlistMutex.Unlock()
 
-	if c.channelUserlist[msg.Channel] == nil {
-		c.channelUserlist[msg.Channel] = map[string]bool{}
+	if c.channelUserlist[channel] == nil {
+		c.channelUserlist[channel] = map[string]bool{}
+	}
+	c.channelUserlist[channel][user] = true
+
+	// A user that rejoined is no longer considered parted
+	if parted, ok := c.channelNamesParted[channel]; ok {
+		delete(parted, user)
 	}
 
-	if _, ok := c.channelUserlist[msg.Channel][msg.User]; !ok {
-		c.channelUserlist[msg.Channel][msg.User] = true
+	// Real-time joins are part of the snapshot currently being collected
+	if pending, ok := c.channelNamesPending[channel]; ok {
+		pending[user] = true
 	}
 }
 
@@ -1170,23 +1252,133 @@ func (c *Client) handleUserPartMessage(msg UserPartMessage) {
 		return
 	}
 
+	if !c.EnableUserlistSnapshots {
+		c.channelUserlistMutex.Lock()
+		defer c.channelUserlistMutex.Unlock()
+
+		delete(c.channelUserlist[msg.Channel], msg.User)
+		return
+	}
+
+	channel := strings.ToLower(msg.Channel)
+	user := normalizeNamesUser(msg.User)
+
 	c.channelUserlistMutex.Lock()
 	defer c.channelUserlistMutex.Unlock()
 
-	delete(c.channelUserlist[msg.Channel], msg.User)
+	delete(c.channelUserlist[channel], user)
+
+	// A user that parted must not be resurrected by late NAMES fragments
+	parted, ok := c.channelNamesParted[channel]
+	if !ok {
+		parted = map[string]bool{}
+		c.channelNamesParted[channel] = parted
+	}
+	parted[user] = true
+
+	if pending, ok := c.channelNamesPending[channel]; ok {
+		delete(pending, user)
+	}
 }
 
 func (c *Client) handleNamesMessage(msg NamesMessage) {
+	if !c.EnableUserlistSnapshots {
+		c.channelUserlistMutex.Lock()
+		defer c.channelUserlistMutex.Unlock()
+
+		if c.channelUserlist[msg.Channel] == nil {
+			c.channelUserlist[msg.Channel] = map[string]bool{}
+		}
+
+		for _, user := range msg.Users {
+			c.channelUserlist[msg.Channel][user] = true
+		}
+		return
+	}
+
+	channel := strings.ToLower(msg.Channel)
+
+	c.channelsMtx.RLock()
+	_, joined := c.channels[channel]
+	c.channelsMtx.RUnlock()
+
+	if !joined {
+		// Names for channels we have not joined must not create a userlist
+		return
+	}
+
 	c.channelUserlistMutex.Lock()
 	defer c.channelUserlistMutex.Unlock()
 
-	if c.channelUserlist[msg.Channel] == nil {
-		c.channelUserlist[msg.Channel] = map[string]bool{}
+	pending, ok := c.channelNamesPending[channel]
+	if !ok {
+		// The first NAMES message starts a new collection round
+		pending = map[string]bool{}
+		c.channelNamesPending[channel] = pending
 	}
 
-	for _, user := range msg.Users {
-		c.channelUserlist[msg.Channel][user] = true
+	parted := c.channelNamesParted[channel]
+
+	for _, rawUser := range msg.Users {
+		user := normalizeNamesUser(rawUser)
+		if user == "" {
+			continue
+		}
+		if _, wasParted := parted[user]; wasParted {
+			// A late NAMES fragment must not resurrect a user that just left
+			continue
+		}
+		pending[user] = true
 	}
+}
+
+func (c *Client) handleEndNamesMessage(msg EndNamesMessage) {
+	if !c.EnableUserlistSnapshots {
+		return
+	}
+
+	channel := strings.ToLower(msg.Channel)
+
+	c.channelsMtx.RLock()
+	_, joined := c.channels[channel]
+	c.channelsMtx.RUnlock()
+
+	if !joined {
+		// An end of names for an unknown channel must not create a userlist
+		return
+	}
+
+	c.channelUserlistMutex.Lock()
+
+	pending, ok := c.channelNamesPending[channel]
+	if !ok {
+		// A joined channel that receives an end of names without any NAMES
+		// message completes with an empty userlist
+		pending = map[string]bool{}
+	}
+
+	c.channelUserlist[channel] = pending
+	delete(c.channelNamesPending, channel)
+
+	userlist := make([]string, 0, len(pending))
+	for user := range pending {
+		userlist = append(userlist, user)
+	}
+
+	c.channelUserlistMutex.Unlock()
+
+	if c.onNamesComplete != nil {
+		c.onNamesComplete(channel, userlist)
+	}
+}
+
+// namesUserPrefixes are the membership level markers that may prefix a user name in NAMES replies
+const namesUserPrefixes = "@+%~&"
+
+// normalizeNamesUser strips membership level markers and lowercases a user name
+func normalizeNamesUser(user string) string {
+	user = strings.TrimLeft(user, namesUserPrefixes)
+	return strings.ToLower(user)
 }
 
 func (c *Client) handlePingMessage(msg PingMessage) {
