@@ -1,0 +1,16 @@
+{
+  "name": "svg-mesh-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "bound-points": "1.0.0",
+    "cdt2d": "1.0.0",
+    "clean-pslg": "1.1.2",
+    "normalize-path-scale": "2.0.0",
+    "object-assign": "4.1.1",
+    "parse-svg-path": "0.1.2",
+    "random-float": "1.0.0",
+    "simplify-path": "1.1.0",
+    "svg-path-contours": "2.0.0"
+  }
+}
