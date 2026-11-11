@@ -134,6 +134,55 @@ openInbox(function(err, box) {
 });
 ```
 
+* Peek at the beginning of a body and skip the rest of just that section when
+  it is not worth storing. Calling `destroy()` with no arguments abandons the
+  current body only: the parser discards exactly the remaining bytes of that
+  literal and continues with the rest of the fetch response (other sections,
+  other messages and the tagged completion). The IMAP connection itself stays
+  open:
+
+```javascript
+// using the functions and variables already defined in the first example ...
+
+openInbox(function(err, box) {
+  if (err) throw err;
+  var f = imap.seq.fetch('1:*', { bodies: ['TEXT'] });
+  f.on('message', function(msg, seqno) {
+    msg.on('body', function(stream, info) {
+      var seen = 0, skipped = false;
+      stream.on('readable', function() {
+        // inspect only the first 4 KiB before deciding
+        var chunk = stream.read(4096);
+        if (!chunk || skipped)
+          return;
+        seen += chunk.length;
+        if (seen >= 4096 && chunk.indexOf('X-Auto-Response-Suppress') === -1) {
+          // not an auto-reply we care about: skip the remainder of THIS body.
+          // the parser discards the rest of the literal by itself and moves on
+          skipped = true;
+          stream.destroy();
+        }
+      });
+      stream.on('end', function() {
+        console.log('Message #' + seqno + ' body fully read (' + seen + ' bytes)');
+      });
+      stream.on('close', function() {
+        // emitted for both a natural end and destroy(), exactly once
+      });
+    });
+    msg.once('attributes', function(attrs) {
+      // attributes are still collected even if a body was destroyed
+    });
+  });
+  f.once('error', function(err) {
+    console.log('Fetch error: ' + err);
+  });
+  f.once('end', function() {
+    console.log('Done fetching all messages!');
+  });
+});
+```
+
 * Save raw unread emails since May 20, 2010 to files:
 
 ```javascript
@@ -198,6 +247,7 @@ API
         * **body**(< _ReadableStream_ >stream, < _object_ >info) - Emitted for each requested body. Example `info` properties:
             * **which** - _string_ - The specifier for this body (e.g. 'TEXT', 'HEADER.FIELDS (TO FROM SUBJECT)', etc).
             * **size** - _integer_ - The size of this body in bytes.
+            * Calling `stream.destroy()` with no arguments skips only this body section: the remaining declared bytes of the literal are discarded and response parsing continues with any following sections, messages and the tagged completion, without closing the IMAP connection. A destroyed stream emits `close` (and no `end`); a fully consumed stream keeps emitting `end` then `close` as before.
         * **attributes**(< _object_ >attrs) - Emitted when all message attributes have been collected. Example `attrs` properties:
             * **uid** - _integer_ - A 32-bit ID that uniquely identifies this message within its mailbox.
             * **flags** - _array_ - A list of flags currently set on this message.
