@@ -78,3 +78,10 @@ ogg_page_packets
 ogg_packet_clear
                                                         
 
+;
+ogg_source_stream_new
+ogg_source_stream_free
+ogg_source_stream_reset
+ogg_source_stream_pagein
+ogg_source_stream_packetout
+ogg_source_stream_packetpeek

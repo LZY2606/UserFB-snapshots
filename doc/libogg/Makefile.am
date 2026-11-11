@@ -7,7 +7,7 @@ dist_apidoc_DATA = bitpacking.html datastructures.html decoding.html encoding.ht
 	ogg_page.html ogg_page_bos.html ogg_page_checksum_set.html\
 	ogg_page_continued.html ogg_page_eos.html ogg_page_granulepos.html\
 	ogg_page_packets.html ogg_page_pageno.html ogg_page_serialno.html\
-	ogg_page_version.html ogg_stream_check.html ogg_stream_clear.html ogg_stream_destroy.html\
+	ogg_page_version.html ogg_source_stream.html ogg_stream_check.html ogg_stream_clear.html ogg_stream_destroy.html\
 	ogg_stream_eos.html ogg_stream_flush.html ogg_stream_flush_fill.html ogg_stream_init.html\
 	ogg_stream_iovecin.html ogg_stream_packetin.html ogg_stream_packetout.html\
 	ogg_stream_packetpeek.html ogg_stream_pagein.html\

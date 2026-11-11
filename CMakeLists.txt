@@ -70,11 +70,13 @@ set(OGG_HEADERS
     ${CMAKE_CURRENT_BINARY_DIR}/include/ogg/config_types.h
     include/ogg/ogg.h
     include/ogg/os_types.h
+    include/ogg/source.h
 )
 
 set(OGG_SOURCES
     src/bitwise.c
     src/framing.c
+    src/source.c
     src/crctable.h
 )
 

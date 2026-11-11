@@ -1,0 +1,105 @@
+<html>
+
+<head>
+<title>libogg - data type - ogg_source_stream</title>
+<link rel=stylesheet href="style.css" type="text/css">
+</head>
+
+<body bgcolor=white text=black link="#5555ff" alink="#5555ff" vlink="#5555ff">
+<table border=0 width=100%>
+<tr>
+<td><p class=tiny>libogg documentation</p></td>
+<td align=right><p class=tiny>libogg release 1.3.6 - 20250616</p></td>
+</tr>
+</table>
+
+<h1>ogg_source_stream</h1>
+
+<p><i>declared in "ogg/source.h";</i></p>
+
+<p>The <i>ogg_source_stream</i> is an opaque decode stream that behaves
+like an <a href="ogg_stream_state.html">ogg_stream_state</a>, but
+additionally tracks which byte ranges of the original input each
+decoded packet was assembled from.  It is intended for callers that
+take pages from the sync layer and later need to map a decoded packet
+back to the positions in a recording it came from, without keeping
+the whole recording in memory.</p>
+
+<p>The relevant functions are:</p>
+<dl>
+<dt><b>ogg_source_stream *ogg_source_stream_new(int serialno);</b></dt>
+<dd>Creates a source-tracking decode stream for the given serial
+number.  Returns NULL on allocation failure.</dd>
+
+<dt><b>void ogg_source_stream_free(ogg_source_stream *ss);</b></dt>
+<dd>Destroys the stream and releases all decode and tracking state.</dd>
+
+<dt><b>int ogg_source_stream_reset(ogg_source_stream *ss, int serialno);</b></dt>
+<dd>Resets the stream to its initial state, selects a new serial
+number and releases all buffered packet and tracking state.</dd>
+
+<dt><b>int ogg_source_stream_pagein(ogg_source_stream *ss, ogg_page *og, ogg_int64_t offset);</b></dt>
+<dd>Submits a page, exactly like <a
+href="ogg_stream_pagein.html">ogg_stream_pagein()</a>.  <i>offset</i>
+is the absolute byte position of the page's capture pattern within
+the original input.  A negative offset, or a page whose header+body
+extent would overflow a signed 64 bit offset, is rejected with a
+return value of -1 before any stream state is modified.  Pages with a
+non-matching serial number or a nonzero version are rejected as in
+ogg_stream_pagein() and contribute no source information.</dd>
+
+<dt><b>int ogg_source_stream_packetout(ogg_source_stream *ss, ogg_packet *op, ogg_source_info *info);</b></dt>
+<dt><b>int ogg_source_stream_packetpeek(ogg_source_stream *ss, ogg_packet *op, ogg_source_info *info);</b></dt>
+<dd>Like <a href="ogg_stream_packetout.html">ogg_stream_packetout()</a>
+and <a href="ogg_stream_packetpeek.html">ogg_stream_packetpeek()</a>;
+either <i>op</i> or <i>info</i> may be NULL, and the consumption rules
+of the original functions apply unchanged (in particular,
+packetpeek does not consume a complete packet, but does consume a hole
+marker).  When a packet is returned and <i>info</i> is non-NULL,
+<i>info</i> describes the input ranges the packet payload was
+assembled from.  When the return value is 0 (need more data) or -1
+(hole in the stream), <i>info</i> is cleared to "no source" so stale
+ranges from an earlier packet are never mistaken as current.</dd>
+</dl>
+
+<h3>Source spans</h3>
+
+<pre>
+typedef struct {
+  ogg_int64_t offset;
+  long bytes;
+} ogg_source_span;
+
+typedef struct {
+  const ogg_source_span *spans;
+  size_t count;
+} ogg_source_info;
+</pre>
+
+<p>Each span covers a contiguous range of packet payload bytes in the
+original input; <i>offset</i> uses the same coordinate space as the
+offsets passed to ogg_source_stream_pagein().  Only payload bytes are
+covered: page headers, lacing tables and the payload of dropped
+partial packets never appear.  Spans adjacent within a single page are
+merged; spans are never merged across page boundaries, so a packet
+that spans pages (possibly with pages of other streams interleaved)
+reports one span per contributing page fragment.  Concatenating the
+spans in array order reproduces the returned packet byte for byte.  A
+zero-length packet reports a count of 0.</p>
+
+<p>The spans array is owned by the stream and remains valid only until
+the next call to any ogg_source_stream_* function on the same stream.
+Callers must copy the data if they need it longer, and must not free
+it.</p>
+
+<h3>Holes</h3>
+
+<p>Missing pages, page sequence jumps and continuation pages without a
+pending partial packet are handled exactly as by the plain decode
+stream: the partial data is dropped, a hole is reported (return value
+-1, consuming the hole marker), and packets completed afterwards carry
+only the source ranges of the pages that actually contributed to them
+-- never the ranges of dropped data.</p>
+
+</body>
+</html>
