@@ -27,3 +27,12 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 
 file(GENERATE OUTPUT .gitignore CONTENT "*")
+
+# Public synthetic baseline example, added for the clipped-pipeline work.
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(pipeline_smoke examples/pipeline_smoke.cpp our_gl.cpp tgaimage.cpp)
+  target_include_directories(pipeline_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(pipeline_smoke PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+  add_test(NAME pipeline_smoke COMMAND pipeline_smoke)
+endif()
