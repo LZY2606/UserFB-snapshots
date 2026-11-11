@@ -11,8 +11,10 @@ export type UncompressedIncomingMessage = {
 /**
 Decompress a HTTP response if needed.
 
+Supports `content-encoding` chains (for example, `gzip, br`). Codings are decoded in reverse order of how they were applied. If the chain contains an unknown, malformed, or unsupported coding, the original response is returned as-is, still compressed.
+
 @param response - The HTTP incoming stream with compressed data.
-@returns The decompressed HTTP response stream.
+@returns The decompressed HTTP response stream, or the original response if it cannot be decompressed.
 
 @example
 ```
@@ -24,4 +26,4 @@ http.get('https://sindresorhus.com', response => {
 });
 ```
 */
-export default function decompressResponse(response: IncomingMessage): UncompressedIncomingMessage;
+export default function decompressResponse(response: IncomingMessage): UncompressedIncomingMessage | IncomingMessage;
