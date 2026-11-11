@@ -1,0 +1,13 @@
+--- a/src/core/Joint3D.js
++++ b/src/core/Joint3D.js
+@@ -64,8 +64,8 @@
+ 
+         this.type = type;
+         if( clockwise < 0 ) clockwise *= -1;
+-        this.min = -this.validateAngle( clockwise ) * math.toRad;
+-        this.max = this.validateAngle( anticlockwise ) * math.toRad;
++        this.min = -this.validateAngle( anticlockwise ) * math.toRad;
++        this.max = this.validateAngle( clockwise ) * math.toRad;
+ 
+         this.testAngle();
+ 

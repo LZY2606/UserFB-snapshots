@@ -1,0 +1,19 @@
+--- a/src/core/Structure3D.js
++++ b/src/core/Structure3D.js
+@@ -75,14 +75,14 @@
+                     // We'll then get the basebone constraint UV and multiply it by the rotation matrix of the connected bone 
+                     // to make the basebone constraint UV relative to the direction of bone it's connected to.
+                     //let relativeBaseboneConstraintUV = connectionBoneMatrix.times( c.getBaseboneConstraintUV() ).normalize();
+-                    let relativeBaseboneConstraintUV = chain.getBaseboneConstraintUV().clone().applyM3( this.tmpMtx );
++                    let relativeBaseboneConstraintUV = chain.getBaseboneConstraintUV().clone();
+                             
+                     // Update our basebone relative constraint UV property
+                     chain.setBaseboneRelativeConstraintUV( relativeBaseboneConstraintUV );
+                         
+                     // Update the relative reference constraint UV if we hav a local hinge
+                     if (constraintType === LOCAL_HINGE )
+-                        chain.setBaseboneRelativeReferenceConstraintUV( chain.bones[0].joint.getHingeReferenceAxis().clone().applyM3( this.tmpMtx ) );
++                        chain.setBaseboneRelativeReferenceConstraintUV( chain.bones[0].joint.getHingeReferenceAxis().clone() );
+                         
+                     break;
+ 

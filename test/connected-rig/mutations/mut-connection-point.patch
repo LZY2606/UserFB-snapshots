@@ -1,0 +1,11 @@
+--- a/src/core/Structure3D.js
++++ b/src/core/Structure3D.js
+@@ -48,7 +48,7 @@
+ 
+                 hostBone  = this.chains[ hostChainNumber ].bones[ chain.getConnectedBoneNumber() ];
+ 
+-                chain.setBaseLocation( chain.getBoneConnectionPoint() === START ? hostBone.start : hostBone.end );
++                chain.setBaseLocation( chain.getBoneConnectionPoint() === START ? hostBone.end : hostBone.start );
+ 
+                 // Now that we've clamped the base location of this chain to the start or end point of the bone in the chain we are connected to, it's
+                 // time to deal with any base bone constraints...
