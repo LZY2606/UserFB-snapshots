@@ -1,0 +1,7 @@
+SourceSans3-Regular.ttf and SourceSans-LICENSE.md
+Upstream: https://github.com/adobe-fonts/source-sans
+Commit: 87b37a2daaed80fcb8e8ccb0085c4d72ddade12e
+Paths: TTF/SourceSans3-Regular.ttf, LICENSE.md
+License: SIL Open Font License 1.1
+Font SHA256: 4644c81b86ec9caaa76b634889968ed3c4f4f52f054855933acc7c2b21e53b0f
+Unmodified font supplied only to initialize libass without a system font provider.
