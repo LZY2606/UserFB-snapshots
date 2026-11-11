@@ -577,13 +577,17 @@ struct PBRShaderCPU {
   t_vec3 getNormal() {
     // Retrieve the tangent space matrix
 #ifndef HAS_TANGENTS
-    /*    t_vec3 pos_dx = dFdx(v_Position);
-    t_vec3 pos_dy = dFdy(v_Position);
-    t_vec3 tex_dx = dFdx(t_vec3(v_UV, 0.0));
-    t_vec3 tex_dy = dFdy(t_vec3(v_UV, 0.0));
-    t_vec3 t = (tex_dy.t * pos_dx - tex_dx.t * pos_dy) /
-             (tex_dx.s * tex_dy.t - tex_dy.s * tex_dx.t)*/
-    ;
+    t_mat3 tbn;
+    if (hasTangentFrame) {
+      // Use the orthonormal surface frame computed from the mesh UVs at
+      // the hit point (see Mesh::computeSurfaceFrame). This ties the
+      // normal map orientation to the surface parameterization instead of
+      // the world axes.
+      tbn = v_TBN;
+    } else {
+      // Legacy fallback: derive "a" tangent vector from the geometric
+      // normal only. Beware the normal map orientation is then tied to
+      // the world axes.
 #ifdef HAS_NORMALS
     t_vec3 ng = normalize(v_Normal);
 #else
@@ -604,7 +608,8 @@ struct PBRShaderCPU {
 
     t = normalize(t - ng * dot(ng, t));
     t_vec3 b = normalize(cross(ng, t));
-    t_mat3 tbn = t_mat3(t, b, ng);
+    tbn = t_mat3(t, b, ng);
+    }
 #else  // HAS_TANGENTS
     t_mat3 tbn = v_TBN;
 #endif
@@ -733,6 +738,14 @@ struct PBRShaderCPU {
   t_mat3 v_TBN;
 #else
   t_vec3 v_Normal;
+
+  /// Orthonormal surface frame at the shading point (columns: tangent,
+  /// bitangent, normal), as computed by Mesh::computeSurfaceFrame() from
+  /// the hit triangle's positions and UVs. getNormal() only consults it
+  /// when `hasTangentFrame` is true; otherwise it falls back to the
+  /// legacy arbitrary-tangent heuristic.
+  t_mat3 v_TBN;
+  bool hasTangentFrame = false;
 #endif
 #endif
 };

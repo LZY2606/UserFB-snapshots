@@ -281,6 +281,21 @@ int main() {
         if (mesh.has_uvs())
           uv = mesh.getTextureCoord(isect.prim_id, isect.u, isect.v);
 
+        // Surface frame (tangent/bitangent/normal) at the hit point,
+        // computed from the hit triangle's positions and UVs. This ties
+        // the normal map orientation to the surface parameterization
+        // instead of the world axes. Computed once per camera hit: the
+        // shadow ray below reuses `isect`.
+        const auto surfaceFrame =
+            mesh.computeSurfaceFrame(isect.prim_id, isect.u, isect.v);
+
+        if (surfaceFrame.status == SurfaceFrameStatus::kInvalid) {
+          // Even the geometric normal is degenerate at this hit point:
+          // emit a stable debug color instead of shading.
+          pixel.r = 255;
+          pixel.g = 0;
+          pixel.b = 255;
+        } else
         // 1) shoot ray to point light
         for (const auto& light : lights) {
           nanort::Ray<float> lightRay;
@@ -316,26 +331,22 @@ int main() {
             shader.u_LightColor =
                 glm::vec3(light.color.r, light.color.g, light.color.b);
 
-            // Interpolate the normals
-            glm::vec3 n0{mesh.facevarying_normals[3 * 3 * isect.prim_id + 0],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 1],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 2]};
-            glm::vec3 n1{mesh.facevarying_normals[3 * 3 * isect.prim_id + 3],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 4],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 5]};
-            glm::vec3 n2{mesh.facevarying_normals[3 * 3 * isect.prim_id + 6],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 7],
-                         mesh.facevarying_normals[3 * 3 * isect.prim_id + 8]};
-            auto computedNormal = glm::normalize(
-                (1.0f - isect.u - isect.v) * n0 + isect.u * n1 + isect.v * n2);
-
-            shader.v_Normal = computedNormal;
+            // Hand the surface frame at the hit point to the shader: the
+            // normal map is then sampled in the tangent space of the
+            // triangle's UV parameterization.
+            shader.v_Normal = surfaceFrame.normal;
+            shader.v_TBN = pbr_maths::PBRShaderCPU<float_precision>::t_mat3(
+                surfaceFrame.tangent, surfaceFrame.bitangent,
+                surfaceFrame.normal);
+            shader.hasTangentFrame = true;
             shader.v_UV = uv;
 
-            if (normalMap.pixels) {
+            if (normalMap.pixels && surfaceFrame.useNormalMap()) {
               shader.useNormalMap = true;
               shader.u_NormalSampler = normalMap;
             } else {
+              // No normal map, or no usable UV frame at this hit point:
+              // shade with the interpolated geometric normal only.
               shader.useNormalMap = false;
             }
 
