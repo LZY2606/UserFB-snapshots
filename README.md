@@ -84,6 +84,9 @@ You can ``#include`` ``minimp3.h`` in as many files as you like.
 Also you can use ``MINIMP3_ONLY_MP3`` define to strip MP1/MP2 decoding code.
 MINIMP3_ONLY_SIMD define controls generic (non SSE/NEON) code generation (always enabled on x64/arm64 targets).
 In case you do not want any platform-specific SIMD optimizations, you can define ``MINIMP3_NO_SIMD``.
+Define ``MINIMP3_RUNTIME_DISPATCH`` to keep both the scalar and the SSE2/NEON kernels in the same build and
+choose the compute path per decoder instance at runtime (see [Per-instance backend selection](#per-instance-backend-selection-runtime-dispatch)).
+On x64/arm64 targets this also suppresses the implicit MINIMP3_ONLY_SIMD.
 MINIMP3_NONSTANDARD_BUT_LOGICAL define saves some code bytes, and enforces non-standard but logical behaviour of mono-stereo transition (rare case).
 MINIMP3_FLOAT_OUTPUT makes ``mp3dec_decode_frame()`` output to be float instead of short and additional function mp3dec_f32_to_s16 will be available for float->short conversion if needed.
 
@@ -159,6 +162,75 @@ possible.
 
 High-level mp3dec_ex_seek function supports precise seek to sample (MP3D_SEEK_TO_SAMPLE)
 using index and binary search.
+
+## Per-instance backend selection (runtime dispatch)
+
+By default a build contains either the scalar kernels or the SSE2/NEON kernels and the
+path is fixed at compile time. Define ``MINIMP3_RUNTIME_DISPATCH`` together with
+``MINIMP3_IMPLEMENTATION`` to compile both paths and pick the compute backend for each
+``mp3dec_t`` instance independently. The selection lives inside the decoder structure:
+there is no global or thread-local backend state, so two instances decoding interleaved,
+or driven from two threads (as long as no instance is accessed concurrently), never
+affect each other.
+
+```c
+#define MINIMP3_RUNTIME_DISPATCH
+#define MINIMP3_IMPLEMENTATION
+#include "minimp3.h"
+
+#define MP3DEC_BACKEND_AUTO    0 /* fastest path available on this CPU */
+#define MP3DEC_BACKEND_SCALAR  1 /* generic scalar kernels */
+#define MP3DEC_BACKEND_SIMD    2 /* SSE2/NEON kernels */
+
+int  mp3dec_set_backend(mp3dec_t *dec, int backend); /* 1 on success, 0 if unsupported */
+int  mp3dec_get_backend(mp3dec_t *dec);              /* path actually used next frame  */
+
+/* frame-by-frame comparison of the two numerical paths on one stream */
+mp3dec_init(&dec);
+while (have_frame)
+{
+    mp3dec_set_backend(&dec, MP3DEC_BACKEND_SCALAR);
+    mp3dec_decode_frame(&dec, frame, frame_size, pcm_scalar, &info);
+    /* the switch between frames changes only the kernels: bit reservoir,
+       MDCT overlap and QMF history carry on, so the next frame can be
+       decoded with SIMD on the same instance without re-syncing */
+    mp3dec_set_backend(&dec, MP3DEC_BACKEND_SIMD);
+}
+```
+
+``mp3dec_set_backend`` returns 1 when the request takes effect and 0 when the value is
+illegal or the path is unavailable in this build/CPU; in the failure case the previous
+choice is kept. Availability per build:
+
+| Build | AUTO | SCALAR | SIMD |
+| ----- | ---- | ------ | ---- |
+| default, CPU with SSE2/NEON | yes | no (only when generic code is compiled) | yes |
+| ``MINIMP3_RUNTIME_DISPATCH`` | yes | yes | yes, if the CPU supports it |
+| ``MINIMP3_NO_SIMD`` | yes | yes | no |
+| explicit ``MINIMP3_ONLY_SIMD`` | yes | no (never emulated) | yes |
+
+``MP3DEC_BACKEND_AUTO`` always resolves to the fastest path available on the running CPU.
+``mp3dec_get_backend`` never reports AUTO: it returns the concrete kernel (SCALAR or SIMD)
+that the next decoded frame will run. The standalone ``mp3dec_f32_to_s16`` helper keeps its
+original, instance-free behaviour.
+
+The switch is intended to be made between two ``mp3dec_decode_frame`` calls and only changes
+which kernels run for subsequent frames; it does not reset any decoding state. The bit
+reservoir, MDCT overlap and QMF synthesis history, the sync scan position, ``frame_bytes``,
+channel count and sample rate are all untouched, and no heap allocation is added to the
+decode hot path. Backend lifecycle:
+
+1. **Initialization.** ``mp3dec_init`` (including the calls made by the high-level open and
+   load functions) selects AUTO, i.e. the fastest path the build/CPU provides.
+2. **Internal resets.** When the decoder resynchronizes to a new stream or discards a frame
+   with bad side-info, it clears its own history internally but the user's backend choice is
+   preserved. Only another public ``mp3dec_init`` returns the instance to AUTO.
+3. **Seek.** ``mp3dec_ex_seek`` clears the decode history and the buffered/consumed PCM
+   bookkeeping of the extended decoder, while the backend selected on ``dec.mp3d`` survives.
+   PCM already decoded into ``mp3dec_ex_t``'s buffer and not yet consumed is neither
+   re-decoded nor dropped merely because the backend changed. After
+   ``mp3dec_ex_open``/``mp3dec_ex_open_buf`` the member starts at AUTO and can be configured
+   through ``mp3dec_set_backend(&dec_ex.mp3d, ...)``.
 
 ## Track length detect
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 file=${1:-devcheck/baseline.c}
 test -s "$file"
-build=$(mktemp -d)
+build=$(mktemp -d "${TMPDIR:-/tmp}/minimp3-devcheck.XXXXXX")
 trap 'rm -rf "$build"' EXIT
 cc -std=c99 -O2 -I. "$file" -lm -o "$build/native"
 "$build/native"

@@ -10,6 +10,13 @@
 
 #define MINIMP3_MAX_SAMPLES_PER_FRAME (1152*2)
 
+/* backend selection for mp3dec_set_backend(), available in all builds:
+ * without MINIMP3_RUNTIME_DISPATCH only the path(s) compiled into the build
+ * can be selected. */
+#define MP3DEC_BACKEND_AUTO    0 /* fastest path available on this CPU */
+#define MP3DEC_BACKEND_SCALAR  1 /* generic scalar kernels */
+#define MP3DEC_BACKEND_SIMD    2 /* SSE2/NEON kernels */
+
 typedef struct
 {
     int frame_bytes, frame_offset, channels, hz, layer, bitrate_kbps;
@@ -20,6 +27,7 @@ typedef struct
     float mdct_overlap[2][9*32], qmf_state[15*2*32];
     int reserv, free_format_bytes;
     unsigned char header[4], reserv_buf[511];
+    int backend; /* MP3DEC_BACKEND_* selection, kept out of any global/TLS state */
 } mp3dec_t;
 
 #ifdef __cplusplus
@@ -27,6 +35,11 @@ extern "C" {
 #endif /* __cplusplus */
 
 void mp3dec_init(mp3dec_t *dec);
+/* select compute backend per decoder instance, returns 1 on success, 0 when the
+ * requested backend is not supported by this build/CPU (previous choice kept) */
+int mp3dec_set_backend(mp3dec_t *dec, int backend);
+/* returns the backend actually used for the next decoded frame */
+int mp3dec_get_backend(mp3dec_t *dec);
 #ifndef MINIMP3_FLOAT_OUTPUT
 typedef int16_t mp3d_sample_t;
 #else /* MINIMP3_FLOAT_OUTPUT */
@@ -86,10 +99,39 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
 
 #if !defined(MINIMP3_NO_SIMD)
 
-#if !defined(MINIMP3_ONLY_SIMD) && (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) || defined(_M_ARM64))
-/* x64 always have SSE2, arm64 always have neon, no need for generic code */
+/* remember whether ONLY_SIMD was requested explicitly before the platform
+ * block below can define it implicitly */
+#if defined(MINIMP3_ONLY_SIMD)
+#define MINIMP3_USER_ONLY_SIMD 1
+#endif
+
+#if !defined(MINIMP3_ONLY_SIMD) && !defined(MINIMP3_RUNTIME_DISPATCH) && (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) || defined(_M_ARM64))
+/* x64 always have SSE2, arm64 always have neon, no need for generic code.
+ * MINIMP3_RUNTIME_DISPATCH keeps both paths even on these targets. */
 #define MINIMP3_ONLY_SIMD
 #endif /* SIMD checks... */
+
+/* MINIMP3_RUNTIME_DISPATCH keeps both scalar and SIMD kernels and lets each
+ * decoder instance pick its path through mp3dec_set_backend(). The selection
+ * lives in mp3dec_t, never in a global or thread-local variable. An explicit
+ * MINIMP3_ONLY_SIMD stays a hard restriction and is not lifted here. */
+#if defined(MINIMP3_RUNTIME_DISPATCH) && defined(MINIMP3_ONLY_SIMD) && !defined(MINIMP3_USER_ONLY_SIMD)
+#undef MINIMP3_ONLY_SIMD
+#endif
+/* per-instance predicate used by every compute kernel; plain build keeps the
+ * old have_simd() call sites byte-for-byte, runtime dispatch threads the
+ * decoder instance through. */
+#if defined(MINIMP3_RUNTIME_DISPATCH)
+#define MINIMP3_USE_SIMD(dec) mp3dec_backend_active(dec)
+#else
+#define MINIMP3_USE_SIMD(dec) (have_simd() ? MP3DEC_BACKEND_SIMD : MP3DEC_BACKEND_SCALAR)
+#endif
+/* scalar fallback exists unless the build is SIMD-only */
+#if defined(MINIMP3_ONLY_SIMD)
+#define MINIMP3_HAVE_SCALAR 0
+#else
+#define MINIMP3_HAVE_SCALAR 1
+#endif
 
 #if (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
 #if defined(_MSC_VER)
@@ -189,7 +231,33 @@ static int have_simd()
 #endif /* SIMD checks... */
 #else /* !defined(MINIMP3_NO_SIMD) */
 #define HAVE_SIMD 0
+#define MINIMP3_HAVE_SCALAR 1
+#define MINIMP3_USE_SIMD(dec) MP3DEC_BACKEND_SCALAR
 #endif /* !defined(MINIMP3_NO_SIMD) */
+
+/* resolve the backend actually used by a decoder instance */
+#ifdef MINIMP3_BACKEND_TEST_HOOK
+void minimp3_backend_test_hook(const mp3dec_t *dec, int active_backend);
+#endif
+static int mp3dec_backend_active(const mp3dec_t *dec)
+{
+#if !HAVE_SIMD
+    (void)dec;
+    return MP3DEC_BACKEND_SCALAR;
+#elif defined(MINIMP3_ONLY_SIMD)
+    (void)dec;
+    return MP3DEC_BACKEND_SIMD;
+#elif defined(MINIMP3_RUNTIME_DISPATCH)
+    if (dec->backend == MP3DEC_BACKEND_SCALAR)
+        return MP3DEC_BACKEND_SCALAR;
+    if (dec->backend == MP3DEC_BACKEND_SIMD)
+        return MP3DEC_BACKEND_SIMD;
+    return have_simd() ? MP3DEC_BACKEND_SIMD : MP3DEC_BACKEND_SCALAR; /* AUTO */
+#else
+    (void)dec;
+    return have_simd() ? MP3DEC_BACKEND_SIMD : MP3DEC_BACKEND_SCALAR;
+#endif
+}
 
 #if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__ARM_ARCH_6M__)
 #define HAVE_ARMV6 1
@@ -876,12 +944,13 @@ static void L3_huffman(float *dst, bs_t *bs, const L3_gr_info_t *gr_info, const 
     bs->pos = layer3gr_limit;
 }
 
-static void L3_midside_stereo(float *left, int n)
+static void L3_midside_stereo(float *left, int n, int use_simd)
 {
     int i = 0;
     float *right = left + 576;
+    (void)use_simd;
 #if HAVE_SIMD
-    if (have_simd())
+    if (use_simd)
     {
         for (; i < n - 3; i += 4)
         {
@@ -938,7 +1007,7 @@ static void L3_stereo_top_band(const float *right, const uint8_t *sfb, int nband
     }
 }
 
-static void L3_stereo_process(float *left, const uint8_t *ist_pos, const uint8_t *sfb, const uint8_t *hdr, int max_band[3], int mpeg2_sh)
+static void L3_stereo_process(float *left, const uint8_t *ist_pos, const uint8_t *sfb, const uint8_t *hdr, int max_band[3], int mpeg2_sh, int use_simd)
 {
     static const float g_pan[7*2] = { 0,1,0.21132487f,0.78867513f,0.36602540f,0.63397460f,0.5f,0.5f,0.63397460f,0.36602540f,0.78867513f,0.21132487f,1,0 };
     unsigned i, max_pos = HDR_TEST_MPEG1(hdr) ? 7 : 64;
@@ -966,13 +1035,13 @@ static void L3_stereo_process(float *left, const uint8_t *ist_pos, const uint8_t
             L3_intensity_stereo_band(left, sfb[i], kl*s, kr*s);
         } else if (HDR_TEST_MS_STEREO(hdr))
         {
-            L3_midside_stereo(left, sfb[i]);
+            L3_midside_stereo(left, sfb[i], use_simd);
         }
         left += sfb[i];
     }
 }
 
-static void L3_intensity_stereo(float *left, uint8_t *ist_pos, const L3_gr_info_t *gr, const uint8_t *hdr)
+static void L3_intensity_stereo(float *left, uint8_t *ist_pos, const L3_gr_info_t *gr, const uint8_t *hdr, int use_simd)
 {
     int max_band[3], n_sfb = gr->n_long_sfb + gr->n_short_sfb;
     int i, max_blocks = gr->n_short_sfb ? 3 : 1;
@@ -989,7 +1058,7 @@ static void L3_intensity_stereo(float *left, uint8_t *ist_pos, const L3_gr_info_
         int prev = itop - max_blocks;
         ist_pos[itop] = max_band[i] >= prev ? default_pos : ist_pos[prev];
     }
-    L3_stereo_process(left, ist_pos, gr->sfbtab, hdr, max_band, gr[1].scalefac_compress & 1);
+    L3_stereo_process(left, ist_pos, gr->sfbtab, hdr, max_band, gr[1].scalefac_compress & 1, use_simd);
 }
 
 static void L3_reorder(float *grbuf, float *scratch, const uint8_t *sfb)
@@ -1009,18 +1078,19 @@ static void L3_reorder(float *grbuf, float *scratch, const uint8_t *sfb)
     memcpy(grbuf, scratch, (dst - scratch)*sizeof(float));
 }
 
-static void L3_antialias(float *grbuf, int nbands)
+static void L3_antialias(float *grbuf, int nbands, int use_simd)
 {
     static const float g_aa[2][8] = {
         {0.85749293f,0.88174200f,0.94962865f,0.98331459f,0.99551782f,0.99916056f,0.99989920f,0.99999316f},
         {0.51449576f,0.47173197f,0.31337745f,0.18191320f,0.09457419f,0.04096558f,0.01419856f,0.00369997f}
     };
+    (void)use_simd;
 
     for (; nbands > 0; nbands--, grbuf += 18)
     {
         int i = 0;
 #if HAVE_SIMD
-        if (have_simd()) for (; i < 8; i += 4)
+        if (use_simd) for (; i < 8; i += 4)
         {
             f4 vu = VLD(grbuf + 18 + i);
             f4 vd = VLD(grbuf + 14 - i);
@@ -1084,12 +1154,13 @@ static void L3_dct3_9(float *y)
     y[8] = s4 + s7;
 }
 
-static void L3_imdct36(float *grbuf, float *overlap, const float *window, int nbands)
+static void L3_imdct36(float *grbuf, float *overlap, const float *window, int nbands, int use_simd)
 {
     int i, j;
     static const float g_twid9[18] = {
         0.73727734f,0.79335334f,0.84339145f,0.88701083f,0.92387953f,0.95371695f,0.97629601f,0.99144486f,0.99904822f,0.67559021f,0.60876143f,0.53729961f,0.46174861f,0.38268343f,0.30070580f,0.21643961f,0.13052619f,0.04361938f
     };
+    (void)use_simd;
 
     for (j = 0; j < nbands; j++, grbuf += 18, overlap += 9)
     {
@@ -1114,7 +1185,7 @@ static void L3_imdct36(float *grbuf, float *overlap, const float *window, int nb
         i = 0;
 
 #if HAVE_SIMD
-        if (have_simd()) for (; i < 8; i += 4)
+        if (use_simd) for (; i < 8; i += 4)
         {
             f4 vovl = VLD(overlap + i);
             f4 vc = VLD(co + i);
@@ -1191,7 +1262,7 @@ static void L3_change_sign(float *grbuf)
             grbuf[i] = -grbuf[i];
 }
 
-static void L3_imdct_gr(float *grbuf, float *overlap, unsigned block_type, unsigned n_long_bands)
+static void L3_imdct_gr(float *grbuf, float *overlap, unsigned block_type, unsigned n_long_bands, int use_simd)
 {
     static const float g_mdct_window[2][18] = {
         { 0.99904822f,0.99144486f,0.97629601f,0.95371695f,0.92387953f,0.88701083f,0.84339145f,0.79335334f,0.73727734f,0.04361938f,0.13052619f,0.21643961f,0.30070580f,0.38268343f,0.46174861f,0.53729961f,0.60876143f,0.67559021f },
@@ -1199,14 +1270,14 @@ static void L3_imdct_gr(float *grbuf, float *overlap, unsigned block_type, unsig
     };
     if (n_long_bands)
     {
-        L3_imdct36(grbuf, overlap, g_mdct_window[0], n_long_bands);
+        L3_imdct36(grbuf, overlap, g_mdct_window[0], n_long_bands, use_simd);
         grbuf += 18*n_long_bands;
         overlap += 9*n_long_bands;
     }
     if (block_type == SHORT_BLOCK_TYPE)
         L3_imdct_short(grbuf, overlap, 32 - n_long_bands);
     else
-        L3_imdct36(grbuf, overlap, g_mdct_window[block_type == STOP_BLOCK_TYPE], 32 - n_long_bands);
+        L3_imdct36(grbuf, overlap, g_mdct_window[block_type == STOP_BLOCK_TYPE], 32 - n_long_bands, use_simd);
 }
 
 static void L3_save_reservoir(mp3dec_t *h, mp3dec_scratch_t *s)
@@ -1235,7 +1306,7 @@ static int L3_restore_reservoir(mp3dec_t *h, bs_t *bs, mp3dec_scratch_t *s, int 
     return h->reserv >= main_data_begin;
 }
 
-static void L3_decode(mp3dec_t *h, mp3dec_scratch_t *s, L3_gr_info_t *gr_info, int nch)
+static void L3_decode(mp3dec_t *h, mp3dec_scratch_t *s, L3_gr_info_t *gr_info, int nch, int use_simd)
 {
     int ch;
 
@@ -1248,10 +1319,10 @@ static void L3_decode(mp3dec_t *h, mp3dec_scratch_t *s, L3_gr_info_t *gr_info, i
 
     if (HDR_TEST_I_STEREO(h->header))
     {
-        L3_intensity_stereo(s->grbuf[0], s->ist_pos[1], gr_info, h->header);
+        L3_intensity_stereo(s->grbuf[0], s->ist_pos[1], gr_info, h->header, use_simd);
     } else if (HDR_IS_MS_STEREO(h->header))
     {
-        L3_midside_stereo(s->grbuf[0], 576);
+        L3_midside_stereo(s->grbuf[0], 576, use_simd);
     }
 
     for (ch = 0; ch < nch; ch++, gr_info++)
@@ -1265,20 +1336,21 @@ static void L3_decode(mp3dec_t *h, mp3dec_scratch_t *s, L3_gr_info_t *gr_info, i
             L3_reorder(s->grbuf[ch] + n_long_bands*18, s->syn[0], gr_info->sfbtab + gr_info->n_long_sfb);
         }
 
-        L3_antialias(s->grbuf[ch], aa_bands);
-        L3_imdct_gr(s->grbuf[ch], h->mdct_overlap[ch], gr_info->block_type, n_long_bands);
+        L3_antialias(s->grbuf[ch], aa_bands, use_simd);
+        L3_imdct_gr(s->grbuf[ch], h->mdct_overlap[ch], gr_info->block_type, n_long_bands, use_simd);
         L3_change_sign(s->grbuf[ch]);
     }
 }
 
-static void mp3d_DCT_II(float *grbuf, int n)
+static void mp3d_DCT_II(float *grbuf, int n, int use_simd)
 {
     static const float g_sec[24] = {
         10.19000816f,0.50060302f,0.50241929f,3.40760851f,0.50547093f,0.52249861f,2.05778098f,0.51544732f,0.56694406f,1.48416460f,0.53104258f,0.64682180f,1.16943991f,0.55310392f,0.78815460f,0.97256821f,0.58293498f,1.06067765f,0.83934963f,0.62250412f,1.72244716f,0.74453628f,0.67480832f,5.10114861f
     };
     int i, k = 0;
+    (void)use_simd;
 #if HAVE_SIMD
-    if (have_simd()) for (; k < n; k += 4)
+    if (use_simd) for (; k < n; k += 4)
     {
         f4 t[4][8], *x;
         float *y = grbuf + k;
@@ -1473,7 +1545,7 @@ static void mp3d_synth_pair(mp3d_sample_t *pcm, int nch, const float *z)
     pcm[16*nch] = mp3d_scale_pcm(a);
 }
 
-static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins)
+static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins, int use_simd)
 {
     int i;
     float *xr = xl + 576*(nch - 1);
@@ -1498,6 +1570,7 @@ static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins)
     };
     float *zlin = lins + 15*64;
     const float *w = g_win;
+    (void)use_simd;
 
     zlin[4*15]     = xl[18*16];
     zlin[4*15 + 1] = xr[18*16];
@@ -1515,7 +1588,7 @@ static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins)
     mp3d_synth_pair(dstl + 32*nch, nch, lins + 4*15 + 64);
 
 #if HAVE_SIMD
-    if (have_simd()) for (i = 14; i >= 0; i--)
+    if (use_simd) for (i = 14; i >= 0; i--)
     {
 #define VLOAD(k) f4 w0 = VSET(*w++); f4 w1 = VSET(*w++); f4 vz = VLD(&zlin[4*i - 64*k]); f4 vy = VLD(&zlin[4*i - 64*(15 - k)]);
 #define V0(k) { VLOAD(k) b =         VADD(VMUL(vz, w1), VMUL(vy, w0)) ; a =         VSUB(VMUL(vz, w0), VMUL(vy, w1));  }
@@ -1626,19 +1699,19 @@ static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins)
 #endif /* MINIMP3_ONLY_SIMD */
 }
 
-static void mp3d_synth_granule(float *qmf_state, float *grbuf, int nbands, int nch, mp3d_sample_t *pcm, float *lins)
+static void mp3d_synth_granule(float *qmf_state, float *grbuf, int nbands, int nch, mp3d_sample_t *pcm, float *lins, int use_simd)
 {
     int i;
     for (i = 0; i < nch; i++)
     {
-        mp3d_DCT_II(grbuf + 576*i, nbands);
+        mp3d_DCT_II(grbuf + 576*i, nbands, use_simd);
     }
 
     memcpy(lins, qmf_state, sizeof(float)*15*64);
 
     for (i = 0; i < nbands; i += 2)
     {
-        mp3d_synth(grbuf + i, pcm + 32*nch*i, nch, lins + i*64);
+        mp3d_synth(grbuf + i, pcm + 32*nch*i, nch, lins + i*64, use_simd);
     }
 #ifndef MINIMP3_NONSTANDARD_BUT_LOGICAL
     if (nch == 1)
@@ -1705,9 +1778,48 @@ static int mp3d_find_frame(const uint8_t *mp3, int mp3_bytes, int *free_format_b
     return mp3_bytes;
 }
 
+/* internal resync: drops sync/history state but keeps the user's backend choice */
+static void mp3dec_reset_sync(mp3dec_t *dec)
+{
+    dec->header[0] = 0;
+}
+
 void mp3dec_init(mp3dec_t *dec)
 {
     dec->header[0] = 0;
+    dec->backend = MP3DEC_BACKEND_AUTO;
+}
+
+int mp3dec_set_backend(mp3dec_t *dec, int backend)
+{
+    if (!dec)
+        return 0;
+    switch (backend)
+    {
+        case MP3DEC_BACKEND_AUTO:
+            break;
+        case MP3DEC_BACKEND_SCALAR:
+            if (!MINIMP3_HAVE_SCALAR)
+                return 0;
+            break;
+        case MP3DEC_BACKEND_SIMD:
+#if HAVE_SIMD
+            if (!have_simd())
+                return 0;
+            break;
+#else
+            return 0;
+#endif
+        default:
+            return 0;
+    }
+    dec->backend = backend;
+    return 1;
+}
+
+int mp3dec_get_backend(mp3dec_t *dec)
+{
+    return mp3dec_backend_active(dec);
 }
 
 int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info)
@@ -1716,6 +1828,7 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     const uint8_t *hdr;
     bs_t bs_frame[1];
     mp3dec_scratch_t scratch;
+    int use_simd;
 
     if (mp3_bytes > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, mp3))
     {
@@ -1727,7 +1840,9 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     }
     if (!frame_size)
     {
+        int backend = dec->backend; /* resync must not change the user's backend choice */
         memset(dec, 0, sizeof(mp3dec_t));
+        dec->backend = backend;
         i = mp3d_find_frame(mp3, mp3_bytes, &dec->free_format_bytes, &frame_size);
         if (!frame_size || i + frame_size > mp3_bytes)
         {
@@ -1750,6 +1865,7 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
         return hdr_frame_samples(hdr);
     }
 
+    use_simd = (MINIMP3_USE_SIMD(dec) == MP3DEC_BACKEND_SIMD);
     bs_init(bs_frame, hdr + HDR_SIZE, frame_size - HDR_SIZE);
     if (HDR_IS_CRC(hdr))
     {
@@ -1761,17 +1877,21 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
         int main_data_begin = L3_read_side_info(bs_frame, scratch.gr_info, hdr);
         if (main_data_begin < 0 || bs_frame->pos > bs_frame->limit)
         {
-            mp3dec_init(dec);
+            mp3dec_reset_sync(dec);
             return 0;
         }
         success = L3_restore_reservoir(dec, bs_frame, &scratch, main_data_begin);
         if (success)
         {
+#ifdef MINIMP3_BACKEND_TEST_HOOK
+            /* test instrumentation: the kernels of this frame really run now */
+            minimp3_backend_test_hook(dec, MINIMP3_USE_SIMD(dec));
+#endif
             for (igr = 0; igr < (HDR_TEST_MPEG1(hdr) ? 2 : 1); igr++, pcm += 576*info->channels)
             {
                 memset(scratch.grbuf[0], 0, 576*2*sizeof(float));
-                L3_decode(dec, &scratch, scratch.gr_info + igr*info->channels, info->channels);
-                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, pcm, scratch.syn[0]);
+                L3_decode(dec, &scratch, scratch.gr_info + igr*info->channels, info->channels, use_simd);
+                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, pcm, scratch.syn[0], use_simd);
             }
         }
         L3_save_reservoir(dec, &scratch);
@@ -1784,19 +1904,23 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
         L12_read_scale_info(hdr, bs_frame, sci);
 
         memset(scratch.grbuf[0], 0, 576*2*sizeof(float));
+#ifdef MINIMP3_BACKEND_TEST_HOOK
+        /* test instrumentation: the kernels of this frame really run now */
+        minimp3_backend_test_hook(dec, MINIMP3_USE_SIMD(dec));
+#endif
         for (i = 0, igr = 0; igr < 3; igr++)
         {
             if (12 == (i += L12_dequantize_granule(scratch.grbuf[0] + i, bs_frame, sci, info->layer | 1)))
             {
                 i = 0;
                 L12_apply_scf_384(sci, sci->scf + igr, scratch.grbuf[0]);
-                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, pcm, scratch.syn[0]);
+                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, pcm, scratch.syn[0], use_simd);
                 memset(scratch.grbuf[0], 0, 576*2*sizeof(float));
                 pcm += 384*info->channels;
             }
             if (bs_frame->pos > bs_frame->limit)
             {
-                mp3dec_init(dec);
+                mp3dec_reset_sync(dec);
                 return 0;
             }
         }

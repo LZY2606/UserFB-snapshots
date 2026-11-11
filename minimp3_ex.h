@@ -888,7 +888,7 @@ do_exit:
     dec->input_consumed  = 0;
     dec->input_filled    = 0;
     dec->last_error      = 0;
-    mp3dec_init(&dec->mp3d);
+    mp3dec_reset_sync(&dec->mp3d); /* seek clears decode history, not the backend choice */
     return 0;
 }
 
