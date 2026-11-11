@@ -30,6 +30,16 @@ func Append(bits *Bits, buf []byte) *Bits {
 	return New(append(bits.vec, buf...))
 }
 
+// Clone returns a deep copy of b. Mutating the clone (including reads
+// that advance its position) never affects b.
+func (b *Bits) Clone() *Bits {
+	return &Bits{
+		vec:     append([]byte(nil), b.vec...),
+		bitPos:  b.bitPos,
+		bytePos: b.bytePos,
+	}
+}
+
 func (b *Bits) Bit() int {
 	if len(b.vec) <= b.bytePos {
 		// TODO: Should this return error?
