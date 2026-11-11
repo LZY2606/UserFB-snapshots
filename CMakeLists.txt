@@ -134,3 +134,6 @@ install(FILES
   ${PROJECT_SOURCE_DIR}/LICENSE.md
   ${PROJECT_SOURCE_DIR}/README.md
   DESTINATION "share/doc/ozz-animation/")
+
+# Small headless animation fixtures.
+add_subdirectory(checks)
