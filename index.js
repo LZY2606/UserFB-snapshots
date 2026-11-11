@@ -186,29 +186,101 @@ function computeSubsteps(stops, steps) {
 }
 
 /**
+ * Tell if a stop is a position-only "hint" (no color of its own)
+ * @param {StopInput} stop
+ * @return {boolean}
+ */
+function isColorLess(stop) {
+    return stop.colorLess === true;
+}
+
+/**
+ * Find the colored stops immediately surrounding a position-only stop
+ * @param {StopInput[]} stops
+ * @param {number} index
+ * @return {{left: StopInput, right: StopInput}}
+ */
+function coloredNeighbors(stops, index) {
+    let left = index - 1;
+    while (left >= 0 && isColorLess(stops[left])) {
+        left--;
+    }
+
+    let right = index + 1;
+    while (right < stops.length && isColorLess(stops[right])) {
+        right++;
+    }
+
+    return { left: stops[left], right: stops[right] };
+}
+
+/**
+ * Compute the 50% mid color between the colored neighbors of a hint stop.
+ * The color is always derived from the colored stops and the interpolation
+ * method (and HSV mode) of the current call, it is never stored on the stop.
+ * @param {StopInput[]} stops
+ * @param {number} index
+ * @param {string} space - 'rgb' or 'hsv'
+ * @param {boolean|'long'|'short'} [mode] - HSV interpolation mode
+ * @return {tinycolor}
+ */
+function hintMidColor(stops, index, space, mode) {
+    const { left, right } = coloredNeighbors(stops, index);
+    const interpolate = space === 'hsv' ? interpolateHsv : interpolateRgb;
+    return interpolate(left, right, 2, mode)[1];
+}
+
+/**
+ * Return the stops with transient colors resolved for position-only stops.
+ * The public stops are never mutated: hint colors live on plain copies and
+ * are recomputed from scratch on every call.
+ * @param {StopInput[]} stops
+ * @param {string} space - 'rgb' or 'hsv'
+ * @param {boolean|'long'|'short'} [mode] - HSV interpolation mode
+ * @return {StopInput[]}
+ */
+function resolveStops(stops, space, mode) {
+    return stops.map((stop, i) => {
+        if (!isColorLess(stop)) {
+            return stop;
+        }
+
+        return {
+            color    : hintMidColor(stops, i, space, mode),
+            colorLess: false,
+            pos      : stop.pos
+        };
+    });
+}
+
+/**
  * Compute the color at a specific position
  * @param {StopInput[]} stops
  * @param {number} pos
- * @param {string} method
+ * @param {string} space - 'rgb' or 'hsv'
  * @param {StepValue} max
+ * @param {boolean|'long'|'short'} [mode] - HSV interpolation mode
  * @returns {tinycolor}
  */
-function computeAt(stops, pos, method, max) {
+function computeAt(stops, pos, space, max, mode) {
     if (pos < 0 || pos > 1) {
         throw new Error('Position must be between 0 and 1');
     }
 
+    const method = space === 'hsv' ? 'toHsv' : 'toRgb';
+    const resolved = resolveStops(stops, space, mode);
+
     let start, end;
-    for (let i = 0, l = stops.length; i < l - 1; i++) {
-        if (pos >= stops[i].pos && pos < stops[i + 1].pos) {
-            start = stops[i];
-            end = stops[i + 1];
+    for (let i = 0, l = resolved.length; i < l - 1; i++) {
+        if (pos >= resolved[i].pos && pos < resolved[i + 1].pos) {
+            start = resolved[i];
+            end = resolved[i + 1];
             break;
         }
     }
 
     if (!start) {
-        start = end = stops[stops.length - 1];
+        start = end = resolved[resolved.length - 1];
     }
 
     const step = stepize(start.color[method](), end.color[method](), (end.pos - start.pos) * 100);
@@ -232,23 +304,31 @@ class TinyGradient {
         let p = -1;
         let lastColorLess = false;
         // create tinycolor objects and clean positions
-        this.stops = stops.map((stop, i) => {
-            const hasPosition = stop.pos !== undefined;
+        this.stops = stops.map((input, i) => {
+            const hasPosition = input.pos !== undefined;
             if (havingPositions ^ hasPosition) {
                 throw new Error('Cannot mix positionned and not posionned color stops');
             }
 
             if (hasPosition) {
-                const hasColor = stop.color !== undefined;
+                const hasColor = input.color !== undefined;
                 if (!hasColor && (lastColorLess || i === 0 || i === l - 1)) {
                     throw new Error('Cannot define two consecutive position-only stops');
                 }
                 lastColorLess = !hasColor;
 
-                stop = {
-                    color    : hasColor ? tinycolor(stop.color) : null,
+                // a position-only stop must be strictly between its colored neighbors
+                if (!hasColor && input.pos <= p) {
+                    throw new Error('Position-only stop must be strictly after the previous stop');
+                }
+                else if (!hasColor && i + 1 < l && input.pos >= stops[i + 1].pos) {
+                    throw new Error('Position-only stop must be strictly before the next stop');
+                }
+
+                const stop = {
+                    color    : hasColor ? tinycolor(input.color) : null,
                     colorLess: !hasColor,
-                    pos      : stop.pos
+                    pos      : input.pos
                 };
 
                 if (stop.pos < 0 || stop.pos > 1) {
@@ -258,15 +338,15 @@ class TinyGradient {
                     throw new Error('Color stops positions are not ordered');
                 }
                 p = stop.pos;
+
+                return stop;
             }
             else {
-                stop = {
-                    color: tinycolor(stop.color !== undefined ? stop.color : stop),
+                return {
+                    color: tinycolor(input.color !== undefined ? input.color : input),
                     pos  : i / (l - 1)
                 };
             }
-
-            return stop;
         });
 
         if (this.stops[0].pos !== 0) {
@@ -289,13 +369,18 @@ class TinyGradient {
      * @return {TinyGradient}
      */
     reverse() {
-        let stops = [];
+        const stops = this.stops.map((stop) => {
+            if (isColorLess(stop)) {
+                return {
+                    colorLess: true,
+                    pos      : 1 - stop.pos
+                };
+            }
 
-        this.stops.forEach((stop) => {
-            stops.push({
-                color: stop.color,
+            return {
+                color: stop.color.toRgb(),
                 pos  : 1 - stop.pos
-            });
+            };
         });
 
         return new TinyGradient(stops.reverse());
@@ -332,21 +417,16 @@ class TinyGradient {
      * @return {tinycolor[]}
      */
     rgb(steps) {
-        const substeps = computeSubsteps(this.stops, steps);
+        const stops = resolveStops(this.stops, 'rgb');
+        const substeps = computeSubsteps(stops, steps);
         let gradient = [];
 
-        this.stops.forEach((stop, i) => {
-            if (stop.colorLess) {
-                stop.color = interpolateRgb(this.stops[i - 1], this.stops[i + 1], 2)[1];
-            }
-        });
-
-        for (let i = 0, l = this.stops.length; i < l - 1; i++) {
-            const rgb = interpolateRgb(this.stops[i], this.stops[i + 1], substeps[i]);
+        for (let i = 0, l = stops.length; i < l - 1; i++) {
+            const rgb = interpolateRgb(stops[i], stops[i + 1], substeps[i]);
             gradient.splice(gradient.length, 0, ...rgb);
         }
 
-        gradient.push(this.stops[this.stops.length - 1].color);
+        gradient.push(stops[stops.length - 1].color);
 
         return gradient;
     }
@@ -362,21 +442,16 @@ class TinyGradient {
      * @return {tinycolor[]}
      */
     hsv(steps, mode) {
-        const substeps = computeSubsteps(this.stops, steps);
+        const stops = resolveStops(this.stops, 'hsv', mode);
+        const substeps = computeSubsteps(stops, steps);
         let gradient = [];
 
-        this.stops.forEach((stop, i) => {
-            if (stop.colorLess) {
-                stop.color = interpolateHsv(this.stops[i - 1], this.stops[i + 1], 2, mode)[1];
-            }
-        });
-
-        for (let i = 0, l = this.stops.length; i < l - 1; i++) {
-            const hsv = interpolateHsv(this.stops[i], this.stops[i + 1], substeps[i], mode);
+        for (let i = 0, l = stops.length; i < l - 1; i++) {
+            const hsv = interpolateHsv(stops[i], stops[i + 1], substeps[i], mode);
             gradient.splice(gradient.length, 0, ...hsv);
         }
 
-        gradient.push(this.stops[this.stops.length - 1].color);
+        gradient.push(stops[stops.length - 1].color);
 
         return gradient;
     }
@@ -405,7 +480,7 @@ class TinyGradient {
      * @return {tinycolor}
      */
     rgbAt(pos) {
-        return computeAt(this.stops, pos, 'toRgb', RGBA_MAX);
+        return computeAt(this.stops, pos, 'rgb', RGBA_MAX);
     }
 
     /**
@@ -414,7 +489,7 @@ class TinyGradient {
      * @return {tinycolor}
      */
     hsvAt(pos) {
-        return computeAt(this.stops, pos, 'toHsv', HSVA_MAX);
+        return computeAt(this.stops, pos, 'hsv', HSVA_MAX);
     }
 }
 
