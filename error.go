@@ -60,6 +60,49 @@ var (
 	// before reaching end-of-file. This distinguishes "stream contained only
 	// unrecognizable data" from a clean EOF on an empty or fully-consumed stream.
 	ErrNoRecord = errors.New("gowarc: no WARC record found")
+
+	// ErrMaterializeNotRevisit is returned by [MaterializeRevisit] when the first argument is not a revisit record.
+	ErrMaterializeNotRevisit = errors.New("gowarc: materialize: first argument is not a revisit record")
+
+	// ErrMaterializeUnsupportedType is returned by [MaterializeRevisit] when one of the records has a type or block
+	// type outside the supported scope (cached WARC 1.1 HTTP response records).
+	ErrMaterializeUnsupportedType = errors.New("gowarc: materialize: unsupported record or block type")
+
+	// ErrMaterializeUnsupportedProfile is returned by [MaterializeRevisit] when the revisit record uses any profile
+	// other than the WARC 1.1 identical-payload-digest profile.
+	ErrMaterializeUnsupportedProfile = errors.New("gowarc: materialize: unsupported revisit profile")
+
+	// ErrMaterializeNotCached is returned by [MaterializeRevisit] when one of the input record blocks is not cached,
+	// meaning its content cannot be read repeatedly.
+	ErrMaterializeNotCached = errors.New("gowarc: materialize: record block is not cached")
+
+	// ErrMaterializeSegmented is returned by [MaterializeRevisit] when one of the input records carries WARC
+	// segmentation fields.
+	ErrMaterializeSegmented = errors.New("gowarc: materialize: segmented records are not supported")
+
+	// ErrMaterializeOriginalTruncated is returned by [MaterializeRevisit] when the original record declares a
+	// WARC-Truncated field.
+	ErrMaterializeOriginalTruncated = errors.New("gowarc: materialize: original record is truncated")
+
+	// ErrMaterializeMissingRefersTo is returned by [MaterializeRevisit] when the revisit record has no
+	// WARC-Refers-To field.
+	ErrMaterializeMissingRefersTo = errors.New("gowarc: materialize: revisit record is missing WARC-Refers-To")
+
+	// ErrMaterializeRefersToMismatch is returned by [MaterializeRevisit] when the revisit record's WARC-Refers-To
+	// value does not equal the original record's record id.
+	ErrMaterializeRefersToMismatch = errors.New("gowarc: materialize: WARC-Refers-To does not match original record id")
+
+	// ErrMaterializeTargetUriMismatch is returned by [MaterializeRevisit] when an optional
+	// WARC-Refers-To-Target-URI field does not match the original record's WARC-Target-URI.
+	ErrMaterializeTargetUriMismatch = errors.New("gowarc: materialize: WARC-Refers-To-Target-URI mismatch")
+
+	// ErrMaterializeRefersToDateMismatch is returned by [MaterializeRevisit] when an optional
+	// WARC-Refers-To-Date field does not denote the same point in time as the original record's WARC-Date.
+	ErrMaterializeRefersToDateMismatch = errors.New("gowarc: materialize: WARC-Refers-To-Date mismatch")
+
+	// ErrMaterializePayloadDigestMismatch is returned by [MaterializeRevisit] when the payload digest declared by
+	// the revisit record cannot be verified against the original record's actual payload.
+	ErrMaterializePayloadDigestMismatch = errors.New("gowarc: materialize: payload digest verification failed")
 )
 
 // HeaderFieldError is used for violations of WARC header specification.
