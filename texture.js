@@ -57,6 +57,45 @@ function reshapeTexture(tex, w, h) {
   return tex
 }
 
+//Highest legal mip level for a texture with the given base size
+function maxMipLevel(width, height) {
+  var m = Math.max(width, height)
+  var level = 0
+  while(m > 1) {
+    m >>>= 1
+    level += 1
+  }
+  return level
+}
+
+//Full storage size of a mip level, clamped to 1x1
+function mipLevelSize(width, height, level) {
+  return [Math.max(1, width >>> level), Math.max(1, height >>> level)]
+}
+
+//Validates the mip level and the [x, y] region before any GL call is made.
+//Returns the full [width, height] of the target level.
+function validateMipRegion(tex, mip_level, x_off, y_off, block_w, block_h) {
+  if(!Number.isInteger(mip_level) ||
+     mip_level < 0 ||
+     mip_level > maxMipLevel(tex._shape[0], tex._shape[1])) {
+    throw new Error('gl-texture2d: Invalid mip level')
+  }
+  if(!Number.isInteger(x_off) || !Number.isInteger(y_off) ||
+     x_off < 0 || y_off < 0) {
+    throw new Error('gl-texture2d: Texture offset must be a non-negative integer')
+  }
+  if(!Number.isInteger(block_w) || !Number.isInteger(block_h) ||
+     block_w <= 0 || block_h <= 0) {
+    throw new Error('gl-texture2d: Invalid block dimensions')
+  }
+  var size = mipLevelSize(tex._shape[0], tex._shape[1], mip_level)
+  if(x_off + block_w > size[0] || y_off + block_h > size[1]) {
+    throw new Error('gl-texture2d: Texture dimensions are out of bounds')
+  }
+  return size
+}
+
 function Texture2D(gl, handle, width, height, format, type) {
   this.gl = gl
   this.handle = handle
@@ -282,9 +321,9 @@ proto.generateMipmap = function() {
   this.bind()
   this.gl.generateMipmap(this.gl.TEXTURE_2D)
 
-  //Update mip levels
-  var l = Math.min(this._shape[0], this._shape[1])
-  for(var i=0; l>0; ++i, l>>>=1) {
+  //Update mip levels: every level down to 1x1 now exists
+  var count = maxMipLevel(this._shape[0], this._shape[1]) + 1
+  for(var i=0; i<count; ++i) {
     if(this._mipLevels.indexOf(i) < 0) {
       this._mipLevels.push(i)
     }
@@ -293,34 +332,41 @@ proto.generateMipmap = function() {
 
 proto.setPixels = function(data, x_off, y_off, mip_level) {
   var gl = this.gl
-  this.bind()
   if(Array.isArray(x_off)) {
     mip_level = y_off
-    y_off = x_off[1]|0
-    x_off = x_off[0]|0
-  } else {
-    x_off = x_off || 0
-    y_off = y_off || 0
+    y_off = x_off[1]
+    x_off = x_off[0]
   }
-  mip_level = mip_level || 0
+  if(x_off === undefined || x_off === null) {
+    x_off = 0
+  }
+  if(y_off === undefined || y_off === null) {
+    y_off = 0
+  }
+  if(mip_level === undefined || mip_level === null) {
+    mip_level = 0
+  }
   var directData = acceptTextureDOM(data) ? data : data.raw
   if(directData) {
-    var needsMip = this._mipLevels.indexOf(mip_level) < 0
-    if(needsMip) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.format, this.format, this.type, directData)
+    //Offsets and level are validated before any call that mutates the texture
+    var rawLevelSize = validateMipRegion(this, mip_level, x_off, y_off, data.width, data.height)
+    this.bind()
+    var rawNeedsMip = this._mipLevels.indexOf(mip_level) < 0
+    if(rawNeedsMip) {
+      //First write to this level: allocate its full storage, then place the
+      //block with a subimage. The level is only marked existing on success.
+      gl.texImage2D(gl.TEXTURE_2D, mip_level, this.format, rawLevelSize[0], rawLevelSize[1], 0, this.format, this.type, null)
       this._mipLevels.push(mip_level)
-    } else {
-      gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, this.format, this.type, directData)
     }
+    gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, this.format, this.type, directData)
   } else if(data.shape && data.stride && data.data) {
-    if(data.shape.length < 2 ||
-       x_off + data.shape[1] > this._shape[1]>>>mip_level ||
-       y_off + data.shape[0] > this._shape[0]>>>mip_level ||
-       x_off < 0 ||
-       y_off < 0) {
-      throw new Error('gl-texture2d: Texture dimensions are out of bounds')
+    if(data.shape.length < 2) {
+      throw new Error('gl-texture2d: Invalid ndarray, must be 2d or 3d')
     }
-    texSubImageArray(gl, x_off, y_off, mip_level, this.format, this.type, this._mipLevels, data)
+    //stackgl ndarray convention: shape[0] is width (x), shape[1] is height (y)
+    var arrayLevelSize = validateMipRegion(this, mip_level, x_off, y_off, data.shape[0], data.shape[1])
+    this.bind()
+    texSubImageArray(gl, x_off, y_off, mip_level, arrayLevelSize[0], arrayLevelSize[1], this.format, this.type, this._mipLevels, data)
   } else {
     throw new Error('gl-texture2d: Unsupported data type')
   }
@@ -337,7 +383,7 @@ function isPacked(shape, stride) {
           (stride[1] === shape[0])
 }
 
-function texSubImageArray(gl, x_off, y_off, mip_level, cformat, ctype, mipLevels, array) {
+function texSubImageArray(gl, x_off, y_off, mip_level, level_width, level_height, cformat, ctype, mipLevels, array) {
   var dtype = array.dtype
   var shape = array.shape.slice()
   if(shape.length < 2 || shape.length > 3) {
@@ -390,22 +436,17 @@ function texSubImageArray(gl, x_off, y_off, mip_level, cformat, ctype, mipLevels
   var size = array.size
   var needsMip = mipLevels.indexOf(mip_level) < 0
   if(needsMip) {
+    //Allocate the full storage of this level first; the level only counts as
+    //existing once the allocation succeeds, so a thrown error allows a retry.
+    gl.texImage2D(gl.TEXTURE_2D, mip_level, cformat, level_width, level_height, 0, cformat, ctype, null)
     mipLevels.push(mip_level)
   }
   if(type === ctype && packed) {
     //Array data types are compatible, can directly copy into texture
     if(array.offset === 0 && array.data.length === size) {
-      if(needsMip) {
-        gl.texImage2D(gl.TEXTURE_2D, mip_level, cformat, shape[0], shape[1], 0, cformat, ctype, array.data)
-      } else {
-        gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, array.data)
-      }
+      gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, array.data)
     } else {
-      if(needsMip) {
-        gl.texImage2D(gl.TEXTURE_2D, mip_level, cformat, shape[0], shape[1], 0, cformat, ctype, array.data.subarray(array.offset, array.offset+size))
-      } else {
-        gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, array.data.subarray(array.offset, array.offset+size))
-      }
+      gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, array.data.subarray(array.offset, array.offset+size))
     }
   } else {
     //Need to do type conversion to pack data into buffer
@@ -421,11 +462,7 @@ function texSubImageArray(gl, x_off, y_off, mip_level, cformat, ctype, mipLevels
     } else {
       ops.assign(pack_view, array)
     }
-    if(needsMip) {
-      gl.texImage2D(gl.TEXTURE_2D, mip_level, cformat, shape[0], shape[1], 0, cformat, ctype, pack_buffer.subarray(0, size))
-    } else {
-      gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, pack_buffer.subarray(0, size))
-    }
+    gl.texSubImage2D(gl.TEXTURE_2D, mip_level, x_off, y_off, shape[0], shape[1], cformat, ctype, pack_buffer.subarray(0, size))
     if(ctype === gl.FLOAT) {
       pool.freeFloat32(pack_buffer)
     } else {
