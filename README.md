@@ -128,6 +128,48 @@ const material = new Material({
 renderer.renderPass([ { geometry, material } ]);
 ```
 
+## Cloning Skinned Characters
+
+`Scene#cloneNode` clones a node subtree together with its skeletons and remaps
+the joints, so a skinned character can be duplicated without re-assembling the
+rig in application code.
+
+```shell
+sh baseline/run-node.sh test/clone-skeleton.js
+```
+
+This bundles and runs the headless regression test `test/clone-skeleton.js`.
+It prints `CLONE_SKELETON_OK` when all assertions pass.
+
+Conventions of the clone:
+
++ Skeleton sharing is preserved by object identity of the source `Skeleton`,
+  scoped to a single `cloneNode` call. All cloned meshes that referenced the
+  same source skeleton reference the same new skeleton. Distinct source
+  skeletons are never merged, even if they have the same name.
++ Each clone gets its own skeleton, skin matrix buffers and bounding box data,
+  independent from the source and from any other clone. Each mesh keeps its own
+  copy of its `joints` palette; the palette indices are local to that mesh, not
+  indices into a shared skeleton-wide array.
++ A `Joint#node` or `Skeleton#relativeRootNode` that points into the cloned
+  subtree is remapped to the corresponding new node. A reference to a node
+  outside of the subtree keeps pointing at the original node; it is never
+  re-guessed by name. A `null` `relativeRootNode` stays `null`.
++ The inverse bind pose matrices and the per-joint bounding boxes (including
+  their valid flags) are carried over to the clone. `skeleton.update()` then
+  rebuilds the clone's skin matrices and `boundingBox` from the cloned bones
+  only.
++ `geometry` stays shared between source and clone; `material` is cloned per
+  mesh as before.
+
+The test builds a small procedural rig (two bones, no window or WebGL context
+needed) and covers: two meshes sharing one skeleton with different `joints`
+orders, two same-named but distinct skeletons, in-tree and out-of-tree root
+references, cloning the same subtree twice, a non-identity bind pose, and
+valid/invalid joint bounding boxes. After cloning, only one copy is moved and
+the skin matrix translations and `boundingBox` of every palette are checked
+against the unmoved copy and the source. Plain non-skinned node cloning is
+verified as well.
 
 <!--
 ## Current Features

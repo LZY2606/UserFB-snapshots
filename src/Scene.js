@@ -240,9 +240,20 @@ var Scene = Node.extend(function () {
         }
         buildNodesMap(node, newNode);
 
+        // Skeletons are shared by object identity in the scope of one cloneNode call.
+        // Meshes referencing the same source skeleton will reference the same cloned
+        // skeleton, while different source skeletons never get merged even if they
+        // happen to have the same name.
+        var clonedSkeletonsMap = {};
         newNode.traverse(function (newChild) {
             if (newChild.skeleton) {
-                newChild.skeleton = newChild.skeleton.clone(clonedNodesMap);
+                var sourceSkeleton = newChild.skeleton;
+                var clonedSkeleton = clonedSkeletonsMap[sourceSkeleton.__uid__];
+                if (!clonedSkeleton) {
+                    clonedSkeleton = clonedSkeletonsMap[sourceSkeleton.__uid__]
+                        = sourceSkeleton.clone(clonedNodesMap);
+                }
+                newChild.skeleton = clonedSkeleton;
             }
             if (newChild.material) {
                 newChild.material = newChild.material.clone();

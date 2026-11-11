@@ -257,7 +257,7 @@ var Skeleton = Base.extend(function () {
             for (var i = 0; i < this.joints.length; i++) {
                 var joint = this.joints[i];
                 var bbox = jointsBoundingBoxes[i];
-                if (bbox.__updated) {
+                if (bbox && bbox.__updated) {
                     tmpBoundingBox.copy(bbox);
                     tmpMat4.array = this._skinMatricesSubArrays[i];
                     tmpBoundingBox.applyTransform(tmpMat4);
@@ -362,25 +362,30 @@ var Skeleton = Base.extend(function () {
         var skeleton = new Skeleton();
         skeleton.name = this.name;
 
+        // Remap a node reference to the cloned subtree when the node is part of
+        // it. References to nodes outside of the cloned subtree are kept as is,
+        // they are never guessed by name. null stays null.
+        function remapNode(node) {
+            if (node == null) {
+                return node;
+            }
+            if (clonedNodesMap) {
+                var newNode = clonedNodesMap[node.__uid__];
+                if (newNode) {
+                    return newNode;
+                }
+            }
+            return node;
+        }
+
+        skeleton.relativeRootNode = remapNode(this.relativeRootNode);
+
         for (var i = 0; i < this.joints.length; i++) {
             var newJoint = new Joint();
             var joint = this.joints[i];
             newJoint.name = joint.name;
             newJoint.index = joint.index;
-
-            if (clonedNodesMap) {
-                var newNode = clonedNodesMap[joint.node.__uid__];
-
-                if (!newNode) {
-                    // PENDING
-                    console.warn('Can\'t find node');
-                }
-
-                newJoint.node = newNode || joint.node;
-            }
-            else {
-                newJoint.node = joint.node;
-            }
+            newJoint.node = remapNode(joint.node);
 
             skeleton.joints.push(newJoint);
         }
@@ -397,9 +402,15 @@ var Skeleton = Base.extend(function () {
             skeleton.updateMatricesSubArrays();
         }
 
-        skeleton._jointsBoundingBoxe = (this._jointsBoundingBoxes || []).map(function (bbox) {
-            return bbox.clone();
+        skeleton._jointsBoundingBoxes = (this._jointsBoundingBoxes || []).map(function (bbox) {
+            var newBBox = bbox.clone();
+            newBBox.__updated = bbox.__updated;
+            return newBBox;
         });
+
+        if (this.boundingBox) {
+            skeleton.boundingBox = this.boundingBox.clone();
+        }
 
         skeleton.update();
 
