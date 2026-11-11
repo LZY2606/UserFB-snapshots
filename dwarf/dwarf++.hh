@@ -835,6 +835,12 @@ extern expr_context no_expr_context;
 /**
  * The result of evaluating a DWARF expression or location
  * description.
+ *
+ * A result is either a "plain" value (location_type is address, reg,
+ * literal, implicit, or empty) described by the 'value', 'implicit',
+ * and 'implicit_len' fields, or a "composite" value (location_type is
+ * composite) described by the 'pieces' field.  For composite results,
+ * the plain value fields are not meaningful and must not be read.
  */
 class expr_result
 {
@@ -866,6 +872,98 @@ public:
                  * a value.
                  */
                 empty,
+                /**
+                 * The object is described by a composite location
+                 * description (DWARF4 section 2.6.1.2): a sequence of
+                 * pieces, each with its own location.  The pieces are
+                 * stored in 'pieces' in order of increasing bit
+                 * offset within the object.
+                 */
+                composite,
+        };
+
+        /**
+         * A single piece of a composite location description.  A
+         * piece describes where a contiguous run of bits of the
+         * object comes from: a memory address, a register, a literal
+         * (stack) value, implicit bytes, or nothing (an unavailable
+         * part of the object).
+         */
+        class piece
+        {
+        public:
+                /**
+                 * The kind of location this piece's bits come from.
+                 */
+                enum class source {
+                        /**
+                         * value specifies the address in memory of
+                         * this piece.
+                         */
+                        address,
+                        /**
+                         * value specifies the register holding this
+                         * piece.  This is the location of the piece,
+                         * not the current value of the register.
+                         */
+                        reg,
+                        /**
+                         * The piece has no location.  value is the
+                         * value of the piece.
+                         */
+                        literal,
+                        /**
+                         * The piece has no location.  Its value is
+                         * stored in 'implicit_data'.
+                         */
+                        implicit,
+                        /**
+                         * This part of the object has no location or
+                         * value.
+                         */
+                        empty,
+                };
+
+                /**
+                 * The offset of this piece within the object, in
+                 * bits.
+                 */
+                uint64_t bit_offset;
+
+                /**
+                 * The size of this piece in bits.
+                 */
+                uint64_t bit_size;
+
+                /**
+                 * The kind of location this piece's bits come from.
+                 */
+                source location_type;
+
+                /**
+                 * For address pieces, the address in memory of the
+                 * piece.  For register pieces, the register holding
+                 * the piece.  For literal pieces, the value of the
+                 * piece.
+                 */
+                taddr value;
+
+                /**
+                 * The offset of this piece within its source, in
+                 * bits.  This comes from DW_OP_bit_piece and is 0 for
+                 * DW_OP_piece.
+                 */
+                uint64_t source_bit_offset;
+
+                /**
+                 * For implicit pieces, the piece's value in the
+                 * memory representation of the target machine.
+                 * Unlike the 'implicit' field of expr_result, this
+                 * buffer is owned by the result, so it remains valid
+                 * after the result is copied and after the underlying
+                 * DWARF object is released.
+                 */
+                std::vector<char> implicit_data;
         };
 
         /**
@@ -879,19 +977,28 @@ public:
          * For address location descriptions, the address in memory of
          * the object.  For register location descriptions, the
          * register storing the object.  For literal location
-         * descriptions, the value of the object.
+         * descriptions, the value of the object.  Not meaningful for
+         * composite location descriptions.
          */
         taddr value;
 
         /**
          * For implicit location descriptions, a pointer to a block
          * representing the value in the memory representation of the
-         * target machine.
+         * target machine.  The pointer points directly into the
+         * section data, so the caller must ensure that remains valid
+         * as long as the data is in use.  Not meaningful for
+         * composite location descriptions.
          */
         const char *implicit;
         size_t implicit_len;
 
-        // XXX Composite locations
+        /**
+         * For composite location descriptions, the pieces of the
+         * object, in order of increasing bit offset within the
+         * object.  Empty for all other result types.
+         */
+        std::vector<piece> pieces;
 };
 
 std::string

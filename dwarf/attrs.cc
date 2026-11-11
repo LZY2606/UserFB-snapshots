@@ -77,8 +77,15 @@ static uint64_t _at_udynamic(DW_AT attr, const die &d, expr_context *ctx, int de
                 return v.as_uconstant();
         case value::type::reference:
                 return _at_udynamic(attr, v.as_reference(), ctx, depth + 1);
-        case value::type::exprloc:
-                return v.as_exprloc().evaluate(ctx).value;
+        case value::type::exprloc: {
+                expr_result res = v.as_exprloc().evaluate(ctx);
+                // A composite location has no single numeric value;
+                // reading 'value' would yield garbage.
+                if (res.location_type == expr_result::type::composite)
+                        throw format_error(to_string(attr) +
+                                           " evaluated to a composite location, not a value");
+                return res.value;
+        }
         default:
                 throw format_error(to_string(attr) + " has unexpected type " +
                                    to_string(v.get_type()));

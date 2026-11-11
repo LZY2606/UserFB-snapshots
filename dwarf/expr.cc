@@ -4,6 +4,8 @@
 
 #include "internal.hh"
 
+#include <limits>
+
 using namespace std;
 
 DWARFPP_BEGIN_NAMESPACE
@@ -59,6 +61,12 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
         // create the result directly, rather than using the top of
         // stack.
         expr_result result;
+
+        // 2.6.1.2 Composite location descriptions.  The bit offset
+        // within the object of the next piece.  Once a piece has
+        // been emitted, the expression describes a composite
+        // location rather than a single location.
+        uint64_t composite_bit_offset = 0;
 
         // 2.6.1.1.4 Empty location descriptions
         if (cur.end()) {
@@ -380,6 +388,7 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                         result.implicit_len = cur.uleb128();
                         cur.ensure(result.implicit_len);
                         result.implicit = cur.pos;
+                        cur += result.implicit_len;
                         break;
                 case DW_OP::stack_value:
                         CHECK();
@@ -389,9 +398,84 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
 
                         // 2.6.1.2 Composite location descriptions
                 case DW_OP::piece:
+                        tmp1.u = cur.uleb128();
+                        // The piece size is given in bytes; convert
+                        // it to bits, rejecting sizes that overflow.
+                        if (tmp1.u > numeric_limits<uint64_t>::max() / 8)
+                                throw expr_error("DW_OP_piece size overflows bit count");
+                        tmp1.u *= 8;
+                        tmp2.u = 0;
+                        goto piece_common;
                 case DW_OP::bit_piece:
-                        // XXX
-                        throw runtime_error(to_string(op) + " not implemented");
+                        tmp1.u = cur.uleb128();
+                        tmp2.u = cur.uleb128();
+                piece_common:
+                {
+                        // The piece's source bit range must not wrap
+                        // around.
+                        if (tmp2.u > numeric_limits<uint64_t>::max() - tmp1.u)
+                                throw expr_error("composite piece source bit range overflows");
+                        // The object's bit offset must not wrap
+                        // around either.
+                        if (composite_bit_offset > numeric_limits<uint64_t>::max() - tmp1.u)
+                                throw expr_error("composite location bit offset overflows");
+
+                        expr_result::piece piece;
+                        piece.bit_offset = composite_bit_offset;
+                        piece.bit_size = tmp1.u;
+                        piece.source_bit_offset = tmp2.u;
+                        piece.value = 0;
+                        switch (result.location_type) {
+                        case expr_result::type::address:
+                                if (stack.empty()) {
+                                        // No location description
+                                        // precedes this piece, so
+                                        // this part of the object is
+                                        // unavailable.
+                                        piece.location_type =
+                                                expr_result::piece::source::empty;
+                                        break;
+                                }
+                                piece.location_type =
+                                        expr_result::piece::source::address;
+                                piece.value = stack.back();
+                                break;
+                        case expr_result::type::reg:
+                                // The register is the piece's
+                                // location, not its value.
+                                piece.location_type =
+                                        expr_result::piece::source::reg;
+                                piece.value = result.value;
+                                break;
+                        case expr_result::type::literal:
+                                piece.location_type =
+                                        expr_result::piece::source::literal;
+                                piece.value = result.value;
+                                break;
+                        case expr_result::type::implicit:
+                                // Copy the implicit bytes so the
+                                // result owns them independent of the
+                                // DWARF data.
+                                piece.location_type =
+                                        expr_result::piece::source::implicit;
+                                piece.implicit_data.assign(
+                                        result.implicit,
+                                        result.implicit + result.implicit_len);
+                                break;
+                        case expr_result::type::empty:
+                        case expr_result::type::composite:
+                                throw expr_error("DW_OP_piece in invalid location state");
+                        }
+                        composite_bit_offset += tmp1.u;
+                        result.pieces.push_back(std::move(piece));
+
+                        // The next piece begins a new location
+                        // description: neither the location type nor
+                        // any stack operands carry over.
+                        result.location_type = expr_result::type::address;
+                        stack.clear();
+                        break;
+                }
 
                 case DW_OP::lo_user...DW_OP::hi_user:
                         // XXX We could let the context evaluate this,
@@ -404,6 +488,19 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
 #pragma GCC diagnostic pop
 #undef CHECK
 #undef CHECKN
+        }
+
+        if (!result.pieces.empty()) {
+                // This is a composite location description.  It must
+                // end with a piece operation: a trailing location
+                // description that was never terminated by a piece
+                // operation is an error.
+                if (result.location_type != expr_result::type::address ||
+                    !stack.empty())
+                        throw expr_error("location description follows final DW_OP_piece");
+                result.location_type = expr_result::type::composite;
+                result.value = 0;
+                return result;
         }
 
         if (result.location_type == expr_result::type::address) {
