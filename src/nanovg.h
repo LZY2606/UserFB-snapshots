@@ -135,6 +135,13 @@ struct NVGtextRow {
 };
 typedef struct NVGtextRow NVGtextRow;
 
+struct NVGpositionedGlyph {
+	int fontId;					// Font the glyph index refers to (see nvgCreateFont).
+	unsigned int glyphIndex;	// Glyph index in the specified font, 0 is a valid (.notdef) glyph.
+	float x, y;					// Absolute baseline origin in local canvas coordinates (y points down), fractional values are allowed.
+};
+typedef struct NVGpositionedGlyph NVGpositionedGlyph;
+
 enum NVGimageFlags {
     NVG_IMAGE_GENERATE_MIPMAPS	= 1<<0,     // Generate mipmaps during creation of the image.
 	NVG_IMAGE_REPEATX			= 1<<1,		// Repeat image in X direction.
@@ -614,6 +621,23 @@ void nvgTextBoxBounds(NVGcontext* ctx, float x, float y, float breakRowWidth, co
 // Calculates the glyph x positions of the specified text. If end is specified only the sub-string will be used.
 // Measured values are returned in local coordinate space.
 int nvgTextGlyphPositions(NVGcontext* ctx, float x, float y, const char* string, const char* end, NVGglyphPosition* positions, int maxPositions);
+
+// Draws a sequence of glyphs positioned by an external layout engine.
+// Each item is drawn at its given baseline origin, using the glyph index of the specified font as-is:
+// no cmap lookup, font fallback, kerning, letter spacing or text alignment is applied, and the given
+// origins are used exactly (fractional positions are preserved). The current font size and font blur
+// apply. The glyphs are drawn in array order.
+// Returns 1 on success, 0 on invalid input (negative count, NULL glyphs with count > 0, invalid font
+// id, glyph index out of range, or non-finite position). An empty sequence (count == 0) succeeds.
+int nvgGlyphRun(NVGcontext* ctx, const NVGpositionedGlyph* glyphs, int count);
+
+// Measures a sequence of positioned glyphs. Parameter bounds should be a pointer to float[4],
+// the bounding box [xmin,ymin, xmax,ymax] is the union of the quads that would be submitted by
+// nvgGlyphRun in the same state, in local coordinate space. The canvas transform and scissor are
+// not applied. Measuring does not create glyph bitmaps nor trigger texture uploads.
+// Returns 1 on success, 0 on invalid input (bounds are zeroed in that case). An empty sequence
+// succeeds and returns zero bounds.
+int nvgGlyphRunBounds(NVGcontext* ctx, const NVGpositionedGlyph* glyphs, int count, float bounds[4]);
 
 // Returns the vertical metrics based on the current text style.
 // Measured values are returned in local coordinate space.

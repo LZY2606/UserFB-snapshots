@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <memory.h>
+#include <float.h>
 
 #include "nanovg.h"
 #define FONTSTASH_IMPLEMENTATION
@@ -2393,6 +2394,12 @@ static float nvg__quantize(float a, float d)
 	return ((int)(a / d + 0.5f)) * d;
 }
 
+static int nvg__isfinite(float a)
+{
+	// Rejects NaN and infinities without relying on C99 isfinite().
+	return a >= -FLT_MAX && a <= FLT_MAX;
+}
+
 static float nvg__getFontScale(NVGstate* state)
 {
 	return nvg__minf(nvg__quantize(nvg__getAverageScale(state->xform), 0.01f), 4.0f);
@@ -2537,6 +2544,141 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	nvg__renderText(ctx, verts, nverts);
 
 	return iter.nextx / scale;
+}
+
+static int nvg__glyphRunValid(NVGcontext* ctx, const NVGpositionedGlyph* glyphs, int count)
+{
+	int i, nglyphs;
+
+	if (count < 0) return 0;
+	if (count > 0 && glyphs == NULL) return 0;
+	for (i = 0; i < count; i++) {
+		if (!nvg__isfinite(glyphs[i].x) || !nvg__isfinite(glyphs[i].y)) return 0;
+		nglyphs = fonsGetFontGlyphCount(ctx->fs, glyphs[i].fontId);
+		if (nglyphs < 0) return 0;
+		if (glyphs[i].glyphIndex >= (unsigned int)nglyphs) return 0;
+	}
+	return 1;
+}
+
+int nvgGlyphRun(NVGcontext* ctx, const NVGpositionedGlyph* glyphs, int count)
+{
+	NVGstate* state = nvg__getState(ctx);
+	FONSquad q;
+	NVGvertex* verts;
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+	int cverts = 0;
+	int nverts = 0;
+	int isFlipped = nvg__isTransformFlipped(state->xform);
+	int i;
+
+	if (!nvg__glyphRunValid(ctx, glyphs, count)) return 0;
+	if (count == 0) return 1;
+
+	fonsSetSize(ctx->fs, state->fontSize*scale);
+	fonsSetBlur(ctx->fs, state->fontBlur*scale);
+
+	cverts = count * 6; // each glyph emits at most one quad.
+	verts = nvg__allocTempVerts(ctx, cverts);
+	if (verts == NULL) return 0;
+
+	for (i = 0; i < count; i++) {
+		float c[4*2];
+		int empty = 0;
+
+		if (!fonsGetGlyphQuad(ctx->fs, glyphs[i].fontId, glyphs[i].glyphIndex, FONS_GLYPH_BITMAP_REQUIRED, &q, &empty)) {
+			// Atlas is full, flush pending verts, grow the atlas and try again.
+			if (nverts != 0) {
+				nvg__renderText(ctx, verts, nverts);
+				nverts = 0;
+			}
+			if (!nvg__allocTextAtlas(ctx))
+				break; // no memory :(
+			if (!fonsGetGlyphQuad(ctx->fs, glyphs[i].fontId, glyphs[i].glyphIndex, FONS_GLYPH_BITMAP_REQUIRED, &q, &empty))
+				break; // still can not retrieve glyph?
+		}
+		if (empty)
+			continue; // No ink, no triangles; the given origins are used as-is.
+
+		if (isFlipped) {
+			float tmp;
+
+			tmp = q.y0; q.y0 = q.y1; q.y1 = tmp;
+			tmp = q.t0; q.t0 = q.t1; q.t1 = tmp;
+		}
+		// The quad was built around a zero baseline origin, translate it by the
+		// given origin preserving its fractional part, then transform corners.
+		nvgTransformPoint(&c[0],&c[1], state->xform, q.x0*invscale + glyphs[i].x, q.y0*invscale + glyphs[i].y);
+		nvgTransformPoint(&c[2],&c[3], state->xform, q.x1*invscale + glyphs[i].x, q.y0*invscale + glyphs[i].y);
+		nvgTransformPoint(&c[4],&c[5], state->xform, q.x1*invscale + glyphs[i].x, q.y1*invscale + glyphs[i].y);
+		nvgTransformPoint(&c[6],&c[7], state->xform, q.x0*invscale + glyphs[i].x, q.y1*invscale + glyphs[i].y);
+		// Create triangles
+		nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
+		nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
+		nvg__vset(&verts[nverts], c[2], c[3], q.s1, q.t0); nverts++;
+		nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
+		nvg__vset(&verts[nverts], c[6], c[7], q.s0, q.t1); nverts++;
+		nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
+	}
+
+	// TODO: add back-end bit to do this just once per frame.
+	nvg__flushTextTexture(ctx);
+
+	if (nverts > 0)
+		nvg__renderText(ctx, verts, nverts);
+
+	return 1;
+}
+
+int nvgGlyphRunBounds(NVGcontext* ctx, const NVGpositionedGlyph* glyphs, int count, float bounds[4])
+{
+	NVGstate* state = nvg__getState(ctx);
+	FONSquad q;
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+	float minx = 0, miny = 0, maxx = 0, maxy = 0;
+	int i, n = 0;
+
+	if (bounds == NULL) return 0;
+	bounds[0] = bounds[1] = bounds[2] = bounds[3] = 0.0f;
+
+	if (!nvg__glyphRunValid(ctx, glyphs, count)) return 0;
+	if (count == 0) return 1;
+
+	fonsSetSize(ctx->fs, state->fontSize*scale);
+	fonsSetBlur(ctx->fs, state->fontBlur*scale);
+
+	for (i = 0; i < count; i++) {
+		int empty = 0;
+		float x0, y0, x1, y1;
+
+		// FONS_GLYPH_BITMAP_OPTIONAL: no bitmap is created and no texture upload is triggered.
+		if (!fonsGetGlyphQuad(ctx->fs, glyphs[i].fontId, glyphs[i].glyphIndex, FONS_GLYPH_BITMAP_OPTIONAL, &q, &empty))
+			continue;
+		if (empty)
+			continue;
+
+		x0 = q.x0*invscale + glyphs[i].x;
+		y0 = q.y0*invscale + glyphs[i].y;
+		x1 = q.x1*invscale + glyphs[i].x;
+		y1 = q.y1*invscale + glyphs[i].y;
+		if (n == 0) {
+			minx = x0; miny = y0;
+			maxx = x1; maxy = y1;
+		} else {
+			minx = nvg__minf(minx, x0); miny = nvg__minf(miny, y0);
+			maxx = nvg__maxf(maxx, x1); maxy = nvg__maxf(maxy, y1);
+		}
+		n++;
+	}
+
+	if (n > 0) {
+		bounds[0] = minx; bounds[1] = miny;
+		bounds[2] = maxx; bounds[3] = maxy;
+	}
+
+	return 1;
 }
 
 void nvgTextBox(NVGcontext* ctx, float x, float y, float breakRowWidth, const char* string, const char* end)

@@ -131,6 +131,15 @@ void fonsVertMetrics(FONScontext* s, float* ascender, float* descender, float* l
 int fonsTextIterInit(FONScontext* stash, FONStextIter* iter, float x, float y, const char* str, const char* end, int bitmapOption);
 int fonsTextIterNext(FONScontext* stash, FONStextIter* iter, struct FONSquad* quad);
 
+// Returns the number of glyphs in the specified font, or -1 if the font id is invalid.
+int fonsGetFontGlyphCount(FONScontext* s, int fontId);
+
+// Computes the quad of a raw glyph index (no cmap lookup, no fallback fonts) around a zero
+// baseline origin, using the current size and blur state. Kerning and spacing are not applied.
+// Returns 1 on success, 0 if the font id is invalid or the glyph could not be retrieved
+// (e.g. the atlas is full). If empty is not NULL, it is set to non-zero when the glyph has no ink.
+int fonsGetGlyphQuad(FONScontext* stash, int fontId, unsigned int glyphIndex, int bitmapOption, FONSquad* quad, int* empty);
+
 // Pull texture changes
 const unsigned char* fonsGetTextureData(FONScontext* stash, int* width, int* height);
 int fonsValidateTexture(FONScontext* s, int* dirty);
@@ -344,6 +353,11 @@ int fons__tt_getGlyphIndex(FONSttFontImpl *font, int codepoint)
 	return FT_Get_Char_Index(font->font, codepoint);
 }
 
+int fons__tt_getGlyphCount(FONSttFontImpl *font)
+{
+	return (int)font->font->num_glyphs;
+}
+
 int fons__tt_buildGlyphBitmap(FONSttFontImpl *font, int glyph, float size, float scale,
 							  int *advance, int *lsb, int *x0, int *y0, int *x1, int *y1)
 {
@@ -436,6 +450,11 @@ float fons__tt_getPixelHeightScale(FONSttFontImpl *font, float size)
 int fons__tt_getGlyphIndex(FONSttFontImpl *font, int codepoint)
 {
 	return stbtt_FindGlyphIndex(&font->font, codepoint);
+}
+
+int fons__tt_getGlyphCount(FONSttFontImpl *font)
+{
+	return font->font.numGlyphs;
 }
 
 int fons__tt_buildGlyphBitmap(FONSttFontImpl *font, int glyph, float size, float scale,
@@ -1073,8 +1092,13 @@ static void fons__blur(FONScontext* stash, unsigned char* dst, int w, int h, int
 //	fons__blurcols(dst, w, h, dstStride, alpha);
 }
 
-static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned int codepoint,
-								 short isize, short iblur, int bitmapOption)
+// Glyphs looked up by raw glyph index are cached under a key that can not collide with
+// Unicode codepoints, so a codepoint and a glyph index of the same numeric value get
+// separate cache entries.
+#define FONS_GLYPH_INDEX_KEY 0x80000000u
+
+static FONSglyph* fons__getGlyphInternal(FONScontext* stash, FONSfont* font, unsigned int codepoint,
+								 int glyphIndex, short isize, short iblur, int bitmapOption)
 {
 	int i, g, advance, lsb, x0, y0, x1, y1, gw, gh, gx, gy, x, y;
 	float scale;
@@ -1085,6 +1109,7 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	unsigned char* bdst;
 	unsigned char* dst;
 	FONSfont* renderFont = font;
+	unsigned int key = glyphIndex >= 0 ? (FONS_GLYPH_INDEX_KEY | (unsigned int)glyphIndex) : codepoint;
 
 	if (isize < 2) return NULL;
 	if (iblur > 20) iblur = 20;
@@ -1094,10 +1119,10 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	stash->nscratch = 0;
 
 	// Find code point and size.
-	h = fons__hashint(codepoint) & (FONS_HASH_LUT_SIZE-1);
+	h = fons__hashint(key) & (FONS_HASH_LUT_SIZE-1);
 	i = font->lut[h];
 	while (i != -1) {
-		if (font->glyphs[i].codepoint == codepoint && font->glyphs[i].size == isize && font->glyphs[i].blur == iblur) {
+		if (font->glyphs[i].codepoint == key && font->glyphs[i].size == isize && font->glyphs[i].blur == iblur) {
 			glyph = &font->glyphs[i];
 			if (bitmapOption == FONS_GLYPH_BITMAP_OPTIONAL || (glyph->x0 >= 0 && glyph->y0 >= 0)) {
 			  return glyph;
@@ -1109,20 +1134,25 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	}
 
 	// Create a new glyph or rasterize bitmap data for a cached glyph.
-	g = fons__tt_getGlyphIndex(&font->font, codepoint);
-	// Try to find the glyph in fallback fonts.
-	if (g == 0) {
-		for (i = 0; i < font->nfallbacks; ++i) {
-			FONSfont* fallbackFont = stash->fonts[font->fallbacks[i]];
-			int fallbackIndex = fons__tt_getGlyphIndex(&fallbackFont->font, codepoint);
-			if (fallbackIndex != 0) {
-				g = fallbackIndex;
-				renderFont = fallbackFont;
-				break;
+	if (glyphIndex >= 0) {
+		// Raw glyph index, no cmap lookup and no fallback fonts.
+		g = glyphIndex;
+	} else {
+		g = fons__tt_getGlyphIndex(&font->font, codepoint);
+		// Try to find the glyph in fallback fonts.
+		if (g == 0) {
+			for (i = 0; i < font->nfallbacks; ++i) {
+				FONSfont* fallbackFont = stash->fonts[font->fallbacks[i]];
+				int fallbackIndex = fons__tt_getGlyphIndex(&fallbackFont->font, codepoint);
+				if (fallbackIndex != 0) {
+					g = fallbackIndex;
+					renderFont = fallbackFont;
+					break;
+				}
 			}
+			// It is possible that we did not find a fallback glyph.
+			// In that case the glyph index 'g' is 0, and we'll proceed below and cache empty glyph.
 		}
-		// It is possible that we did not find a fallback glyph.
-		// In that case the glyph index 'g' is 0, and we'll proceed below and cache empty glyph.
 	}
 	scale = fons__tt_getPixelHeightScale(&renderFont->font, size);
 	fons__tt_buildGlyphBitmap(&renderFont->font, g, size, scale, &advance, &lsb, &x0, &y0, &x1, &y1);
@@ -1148,7 +1178,7 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	// Init glyph.
 	if (glyph == NULL) {
 		glyph = fons__allocGlyph(font);
-		glyph->codepoint = codepoint;
+		glyph->codepoint = key;
 		glyph->size = isize;
 		glyph->blur = iblur;
 		glyph->next = 0;
@@ -1210,6 +1240,12 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	return glyph;
 }
 
+static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned int codepoint,
+								 short isize, short iblur, int bitmapOption)
+{
+	return fons__getGlyphInternal(stash, font, codepoint, -1, isize, iblur, bitmapOption);
+}
+
 static void fons__getQuad(FONScontext* stash, FONSfont* font,
 						   int prevGlyphIndex, FONSglyph* glyph,
 						   float scale, float spacing, float* x, float* y, FONSquad* q)
@@ -1260,6 +1296,48 @@ static void fons__getQuad(FONScontext* stash, FONSfont* font,
 	}
 
 	*x += (int)(glyph->xadv / 10.0f + 0.5f);
+}
+
+int fonsGetFontGlyphCount(FONScontext* stash, int fontId)
+{
+	if (stash == NULL) return -1;
+	if (fontId < 0 || fontId >= stash->nfonts) return -1;
+	if (stash->fonts[fontId] == NULL || stash->fonts[fontId]->data == NULL) return -1;
+	return fons__tt_getGlyphCount(&stash->fonts[fontId]->font);
+}
+
+int fonsGetGlyphQuad(FONScontext* stash, int fontId, unsigned int glyphIndex, int bitmapOption, FONSquad* quad, int* empty)
+{
+	FONSstate* state = fons__getState(stash);
+	FONSfont* font;
+	FONSglyph* glyph;
+	float x = 0.0f, y = 0.0f;
+	float scale;
+	short isize, iblur;
+	int pad;
+
+	if (stash == NULL) return 0;
+	if (fontId < 0 || fontId >= stash->nfonts) return 0;
+	font = stash->fonts[fontId];
+	if (font == NULL || font->data == NULL) return 0;
+
+	isize = (short)(state->size*10.0f);
+	iblur = (short)state->blur;
+	if (iblur > 20) iblur = 20;
+
+	glyph = fons__getGlyphInternal(stash, font, 0, (int)glyphIndex, isize, iblur, bitmapOption);
+	if (glyph == NULL) return 0;
+
+	// Quad around a zero baseline origin, no kerning and no spacing.
+	scale = fons__tt_getPixelHeightScale(&font->font, (float)isize/10.0f);
+	fons__getQuad(stash, font, -1, glyph, scale, 0.0f, &x, &y, quad);
+
+	// Report whether the glyph has any ink inside the padding.
+	pad = iblur+2;
+	if (empty != NULL)
+		*empty = (glyph->x1 - glyph->x0 <= pad*2) || (glyph->y1 - glyph->y0 <= pad*2);
+
+	return 1;
 }
 
 static void fons__flush(FONScontext* stash)
