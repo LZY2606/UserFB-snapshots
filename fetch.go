@@ -125,29 +125,46 @@ type Queue struct {
 	closed, cancelled, done chan struct{}
 
 	wg sync.WaitGroup
+
+	// mu serializes command admission (Send) with the close and cancel
+	// transitions, so that a Send that reports success is always observed
+	// by the queue processor, and so that the signal channels are closed
+	// exactly once no matter how many goroutines call Close or Cancel.
+	mu sync.Mutex
 }
 
 // Close closes the Queue so that no more Commands can be sent. It blocks until
 // the Fetcher drains all pending commands. After the call, the Fetcher is stopped.
 // Attempts to enqueue new URLs after Close has been called will always result in
 // a ErrQueueClosed error.
+//
+// Close stops admission of new commands as soon as it starts, but that is
+// distinct from completion: every command accepted before that point is still
+// processed to completion, and every Close call - including concurrent or
+// repeated ones - returns only once those commands, their Handler calls and
+// the per-host queues have all drained. Block and Done report that same
+// completion point.
 func (q *Queue) Close() error {
-	// Make sure it is not already closed, as this is a run-time panic
+	q.mu.Lock()
 	select {
 	case <-q.closed:
-		// Already closed, no-op
+		// Already closed: wait for the same completion barrier as the
+		// first Close call instead of returning early.
+		q.mu.Unlock()
+		<-q.done
 		return nil
 	default:
-		// Close the signal-channel
+		// Stop admission of new commands. A Send that reports success
+		// holds this mutex until its command is handed to the queue, so
+		// no accepted command can be lost from this point on.
 		close(q.closed)
-		// Send a nil Command to make sure the processQueue method sees the close signal.
-		q.ch <- nil
-		// Wait for the Fetcher to drain.
-		q.wg.Wait()
-		// Unblock any callers waiting on q.Block
-		close(q.done)
-		return nil
+		q.mu.Unlock()
 	}
+	// Wait for the Fetcher to drain, then unblock any other goroutine
+	// waiting on Close, Block or Done.
+	q.wg.Wait()
+	close(q.done)
+	return nil
 }
 
 // Block blocks the current goroutine until the Queue is closed and all pending
@@ -163,19 +180,30 @@ func (q *Queue) Done() <-chan struct{} {
 }
 
 // Cancel closes the Queue and drains the pending commands without processing
-// them, allowing for a fast "stop immediately"-ish operation.
+// them, allowing for a fast "stop immediately"-ish operation. Commands that
+// have not reached HttpClient.Do yet are dropped without calling their
+// Handler, while commands already being fetched or handled run to completion.
+// Workers waiting on a crawl delay abort that wait promptly.
+//
+// Cancel may be called while a Close is in progress, upgrading it to a
+// cancellation. All Close and Cancel calls, however many and in whichever
+// order, wait for the same completion barrier before returning.
 func (q *Queue) Cancel() error {
+	q.mu.Lock()
 	select {
 	case <-q.cancelled:
-		// already cancelled, no-op
+		// already cancelled, wait for the same completion barrier
+		q.mu.Unlock()
+		<-q.done
 		return nil
 	default:
 		// mark the queue as cancelled
 		close(q.cancelled)
-		// Close the Queue, that will wait for pending commands to drain
-		// will unblock any callers waiting on q.Block
-		return q.Close()
+		q.mu.Unlock()
 	}
+	// Close the Queue, that will wait for pending commands to drain
+	// will unblock any callers waiting on q.Block
+	return q.Close()
 }
 
 // Send enqueues a Command into the Fetcher. If the Queue has been closed, it
@@ -187,12 +215,18 @@ func (q *Queue) Send(c Command) error {
 	if u := c.URL(); u == nil || u.Host == "" {
 		return ErrEmptyHost
 	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	select {
 	case <-q.closed:
 		return ErrQueueClosed
 	default:
-		q.ch <- c
 	}
+	// The queue processor keeps receiving until the closed signal is set,
+	// and that signal can only be set by a Close call holding this same
+	// mutex, so this send can neither block forever nor silently drop the
+	// command.
+	q.ch <- c
 	return nil
 }
 
@@ -262,75 +296,36 @@ func (f *Fetcher) Debug() <-chan *DebugInfo {
 
 // processQueue runs the queue in its own goroutine.
 func (f *Fetcher) processQueue() {
+	defer f.q.wg.Done()
+
 loop:
-	for v := range f.q.ch {
-		if v == nil {
-			// Special case, when the Queue is closed, a nil command is sent, use this
-			// indicator to check for the closed signal, instead of looking on every loop.
-			select {
-			case <-f.q.closed:
-				// Close signal, exit loop
-				break loop
-			default:
-				// Keep going
-			}
-		}
+	for {
+		// Prioritize receiving pending commands over observing the close
+		// signal, so the queue drains in order.
 		select {
-		case <-f.q.cancelled:
-			// queue got cancelled, drain
+		case v := <-f.q.ch:
+			f.dispatch(v)
 			continue
 		default:
-			// go on
 		}
-
-		// Get the URL to enqueue
-		u := v.URL()
-
-		// Check if a channel is already started for this host
-		f.mu.Lock()
-		in, ok := f.hosts[u.Host]
-		if !ok {
-			// Start a new channel and goroutine for this host.
-
-			var rob *url.URL
-			if !f.DisablePoliteness {
-				// Must send the robots.txt request.
-				rob = u.ResolveReference(robotsTxtParsedPath)
+		select {
+		case v := <-f.q.ch:
+			f.dispatch(v)
+		case <-f.q.closed:
+			// Admission is stopped. A successful Send holds the queue
+			// mutex until its command is handed over, and the closed
+			// signal is only set under that same mutex, so every accepted
+			// command is either already received or buffered in f.q.ch.
+			// Drain whatever remains and exit.
+			for {
+				select {
+				case v := <-f.q.ch:
+					f.dispatch(v)
+				default:
+					break loop
+				}
 			}
-
-			// Create the infinite queue: the in channel to send on, and the out channel
-			// to read from in the host's goroutine, and add to the hosts map
-			var out chan Command
-			in, out = make(chan Command, 1), make(chan Command, 1)
-			f.hosts[u.Host] = in
-			f.mu.Unlock()
-			f.q.wg.Add(1)
-			// Start the infinite queue goroutine for this host
-			go sliceIQ(in, out)
-			// Start the working goroutine for this host
-			go f.processChan(out, u.Host)
-
-			if !f.DisablePoliteness {
-				// Enqueue the robots.txt request first.
-				in <- robotCommand{&Cmd{U: rob, M: "GET"}}
-			}
-		} else {
-			f.mu.Unlock()
 		}
-		// Send the request
-		in <- v
-
-		// Send debug info, but do not block if full
-		f.dbgmu.Lock()
-		if f.debugging {
-			f.mu.Lock()
-			select {
-			case f.dbg <- &DebugInfo{len(f.hosts)}:
-			default:
-			}
-			f.mu.Unlock()
-		}
-		f.dbgmu.Unlock()
 	}
 
 	// Close all host channels now that it is impossible to send on those. Those are the `in`
@@ -343,8 +338,71 @@ loop:
 	}
 	f.hosts = make(map[string]chan Command)
 	f.mu.Unlock()
+}
 
-	f.q.wg.Done()
+// dispatch routes a single command to the worker goroutine dedicated to its
+// host, starting that worker (and its robots.txt fetch, unless politeness is
+// disabled) on first use. Commands that reach dispatch after the queue is
+// cancelled are dropped without calling their Handler.
+func (f *Fetcher) dispatch(v Command) {
+	select {
+	case <-f.q.cancelled:
+		// queue got cancelled, drop the command
+		return
+	default:
+		// go on
+	}
+
+	// Get the URL to enqueue
+	u := v.URL()
+
+	// Check if a channel is already started for this host
+	f.mu.Lock()
+	in, ok := f.hosts[u.Host]
+	if !ok {
+		// Start a new channel and goroutine for this host.
+
+		var rob *url.URL
+		if !f.DisablePoliteness {
+			// Must send the robots.txt request.
+			rob = u.ResolveReference(robotsTxtParsedPath)
+		}
+
+		// Create the infinite queue: the in channel to send on, and the out channel
+		// to read from in the host's goroutine, and add to the hosts map
+		var out chan Command
+		in, out = make(chan Command, 1), make(chan Command, 1)
+		f.hosts[u.Host] = in
+		f.q.wg.Add(1)
+		// Start the infinite queue goroutine for this host
+		go sliceIQ(in, out)
+		// Start the working goroutine for this host
+		go f.processChan(out, u.Host)
+
+		if !f.DisablePoliteness {
+			// Enqueue the robots.txt request first.
+			in <- robotCommand{&Cmd{U: rob, M: "GET"}}
+		}
+	}
+	// Send the request. The send happens while holding f.mu so that it is
+	// atomic with the idle-TTL cleanup in processChan, which removes the
+	// host from the map and closes its channel: a host channel is never
+	// closed while a send on it is pending. The infinite queue always
+	// accepts the value, so this cannot block for long.
+	in <- v
+	f.mu.Unlock()
+
+	// Send debug info, but do not block if full
+	f.dbgmu.Lock()
+	if f.debugging {
+		f.mu.Lock()
+		select {
+		case f.dbg <- &DebugInfo{len(f.hosts)}:
+		default:
+		}
+		f.mu.Unlock()
+	}
+	f.dbgmu.Unlock()
 }
 
 // Goroutine for a host's worker, processing requests for all its URLs.
@@ -358,6 +416,13 @@ func (f *Fetcher) processChan(ch <-chan Command, hostKey string) {
 
 loop:
 	for {
+		// Give the cancellation signal priority over any ready command, so
+		// that a cancelled queue never starts processing a new command.
+		select {
+		case <-f.q.cancelled:
+			break loop
+		default:
+		}
 		select {
 		case <-f.q.cancelled:
 			break loop
@@ -367,9 +432,15 @@ loop:
 				break loop
 			}
 
-			// Wait for the prescribed delay
+			// Wait for the prescribed delay, but abort the wait promptly if
+			// the queue is cancelled. A normal Close still honors the full
+			// politeness delay.
 			if wait != nil {
-				<-wait
+				select {
+				case <-wait:
+				case <-f.q.cancelled:
+					break loop
+				}
 			}
 
 			// was it cancelled during the wait? check again
@@ -414,15 +485,17 @@ loop:
 			f.mu.Lock()
 			inch, ok := f.hosts[hostKey]
 			delete(f.hosts, hostKey)
+			if ok {
+				// Close while holding f.mu, so that the dispatch of a new
+				// command for this host cannot race with the close.
+				close(inch)
+			}
 
 			// Close the queue if AutoClose is set and there are no more hosts.
 			if f.AutoClose && len(f.hosts) == 0 {
 				go f.q.Close()
 			}
 			f.mu.Unlock()
-			if ok {
-				close(inch)
-			}
 			break loop
 		}
 	}

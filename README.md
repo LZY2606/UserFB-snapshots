@@ -155,6 +155,26 @@ reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
 
+### Shutting Down
+
+Stopping a Queue has two distinct phases: stopping admission, and waiting for
+completion. As soon as a first call to `Queue.Close` starts, the Queue stops
+admitting new commands and `Send` returns `ErrQueueClosed`. But `Close`
+returning is about completion: every command accepted before that point is
+still fetched and handled exactly once, and `Close` - like `Block` and the
+`Done` channel - returns only once all in-flight requests, `Handler` calls and
+per-host queues have drained. Any number of goroutines may call `Close`
+concurrently; they all wait for that same completion barrier, and a normal
+`Close` never skips the politeness crawl delays.
+
+`Queue.Cancel` offers a faster stop. It can be called instead of `Close`, or
+while a `Close` is already in progress, in which case it upgrades that close
+to a cancellation: commands that have not reached `HttpClient.Do` yet are
+dropped without calling their `Handler`, workers parked on a crawl delay abort
+the wait promptly, and commands already being fetched or handled run to
+completion. Mixed calls to `Close` and `Cancel`, however many, all wait for
+the same completion barrier before returning.
+
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside
 the scope of this package - all commands sent on the Queue will be fetched.
