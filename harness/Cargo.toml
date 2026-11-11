@@ -1,0 +1,13 @@
+[package]
+name = "gradient-witness"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[dependencies]
+tiny-skia = { path = ".." }
+[[bin]]
+name = "current"
+path = "current.rs"
+[[test]]
+name = "old_radial"
+path = "old.rs"
