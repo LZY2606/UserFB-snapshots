@@ -1,0 +1,368 @@
+{
+  "contract": {
+    "sha256": "8e853c7fb4d19987fd4337b69a03f923f55e052b8e7db0ba428f80e7ddb92574",
+    "bytes": 1204,
+    "tables": {
+      "COLR": {
+        "offset": 188,
+        "length": 515
+      },
+      "CPAL": {
+        "offset": 704,
+        "length": 54
+      },
+      "cmap": {
+        "offset": 760,
+        "length": 40
+      },
+      "glyf": {
+        "offset": 800,
+        "length": 108
+      },
+      "head": {
+        "offset": 908,
+        "length": 54
+      },
+      "hhea": {
+        "offset": 964,
+        "length": 36
+      },
+      "hmtx": {
+        "offset": 1000,
+        "length": 52
+      },
+      "loca": {
+        "offset": 1052,
+        "length": 56
+      },
+      "maxp": {
+        "offset": 1108,
+        "length": 32
+      },
+      "name": {
+        "offset": 1140,
+        "length": 32
+      },
+      "post": {
+        "offset": 1172,
+        "length": 32
+      }
+    },
+    "baseGlyphs": [
+      1,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "palettes": 3,
+    "paletteEntries": 3,
+    "paletteBases": [
+      0,
+      3,
+      6
+    ],
+    "colors": {
+      "red": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "blueHalf": [
+        255,
+        0,
+        0,
+        128
+      ],
+      "green": [
+        0,
+        255,
+        0,
+        255
+      ],
+      "cyan": [
+        255,
+        255,
+        0,
+        255
+      ],
+      "purpleHalf": [
+        128,
+        0,
+        128,
+        128
+      ],
+      "white": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    "gradientPoints": {
+      "p0": [
+        0,
+        0
+      ],
+      "p1": [
+        100,
+        0
+      ],
+      "p2": [
+        50,
+        100
+      ]
+    },
+    "nodes": [
+      {
+        "name": "g4green",
+        "offset": 128,
+        "bytes": 6
+      },
+      {
+        "name": "root1",
+        "offset": 134,
+        "bytes": 6
+      },
+      {
+        "name": "t5",
+        "offset": 140,
+        "bytes": 7
+      },
+      {
+        "name": "root6",
+        "offset": 147,
+        "bytes": 6
+      },
+      {
+        "name": "ab7",
+        "offset": 153,
+        "bytes": 7
+      },
+      {
+        "name": "ba7",
+        "offset": 160,
+        "bytes": 7
+      },
+      {
+        "name": "root7",
+        "offset": 167,
+        "bytes": 6
+      },
+      {
+        "name": "cin9",
+        "offset": 173,
+        "bytes": 8
+      },
+      {
+        "name": "root9",
+        "offset": 181,
+        "bytes": 6
+      },
+      {
+        "name": "root10",
+        "offset": 187,
+        "bytes": 8
+      },
+      {
+        "name": "root11",
+        "offset": 195,
+        "bytes": 6
+      },
+      {
+        "name": "root12",
+        "offset": 201,
+        "bytes": 7
+      },
+      {
+        "name": "green",
+        "offset": 208,
+        "bytes": 5
+      },
+      {
+        "name": "g2grad",
+        "offset": 213,
+        "bytes": 6
+      },
+      {
+        "name": "t5M",
+        "offset": 219,
+        "bytes": 24
+      },
+      {
+        "name": "t6",
+        "offset": 243,
+        "bytes": 7
+      },
+      {
+        "name": "a7",
+        "offset": 250,
+        "bytes": 7
+      },
+      {
+        "name": "ab7M",
+        "offset": 257,
+        "bytes": 24
+      },
+      {
+        "name": "b7",
+        "offset": 281,
+        "bytes": 7
+      },
+      {
+        "name": "ba7M",
+        "offset": 288,
+        "bytes": 24
+      },
+      {
+        "name": "g3grad",
+        "offset": 312,
+        "bytes": 6
+      },
+      {
+        "name": "g3blue",
+        "offset": 318,
+        "bytes": 6
+      },
+      {
+        "name": "g2purple",
+        "offset": 324,
+        "bytes": 6
+      },
+      {
+        "name": "g2red",
+        "offset": 330,
+        "bytes": 6
+      },
+      {
+        "name": "root12M",
+        "offset": 336,
+        "bytes": 24
+      },
+      {
+        "name": "t6M",
+        "offset": 360,
+        "bytes": 24
+      },
+      {
+        "name": "a7M",
+        "offset": 384,
+        "bytes": 24
+      },
+      {
+        "name": "g2grad2",
+        "offset": 408,
+        "bytes": 6
+      },
+      {
+        "name": "b7M",
+        "offset": 414,
+        "bytes": 24
+      },
+      {
+        "name": "grad1",
+        "offset": 438,
+        "bytes": 16
+      },
+      {
+        "name": "blueHalf",
+        "offset": 454,
+        "bytes": 5
+      },
+      {
+        "name": "purpleHalf",
+        "offset": 459,
+        "bytes": 5
+      },
+      {
+        "name": "red",
+        "offset": 464,
+        "bytes": 5
+      },
+      {
+        "name": "grad2",
+        "offset": 469,
+        "bytes": 16
+      },
+      {
+        "name": "line1",
+        "offset": 485,
+        "bytes": 15
+      },
+      {
+        "name": "line2",
+        "offset": 500,
+        "bytes": 15
+      }
+    ]
+  },
+  "errors": {
+    "sha256": "a414054e7839aeed57ba7d0fc1117f173bfbc8eb181faaf0aa66c5a60555933d",
+    "bytes": 668,
+    "tables": {
+      "COLR": {
+        "offset": 188,
+        "length": 99
+      },
+      "CPAL": {
+        "offset": 288,
+        "length": 54
+      },
+      "cmap": {
+        "offset": 344,
+        "length": 40
+      },
+      "glyf": {
+        "offset": 384,
+        "length": 36
+      },
+      "head": {
+        "offset": 420,
+        "length": 54
+      },
+      "hhea": {
+        "offset": 476,
+        "length": 36
+      },
+      "hmtx": {
+        "offset": 512,
+        "length": 28
+      },
+      "loca": {
+        "offset": 540,
+        "length": 32
+      },
+      "maxp": {
+        "offset": 572,
+        "length": 32
+      },
+      "name": {
+        "offset": 604,
+        "length": 30
+      },
+      "post": {
+        "offset": 636,
+        "length": 32
+      }
+    },
+    "baseGlyphs": [
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "badCases": {
+      "selfCycle": 2,
+      "missingRef": 3,
+      "unsupportedFormat": 4,
+      "unsupportedMode": 5
+    },
+    "goodBase": 6
+  }
+}

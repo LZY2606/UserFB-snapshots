@@ -940,6 +940,57 @@ STBTT_DEF void stbtt_Rasterize(stbtt__bitmap *result,        // 1-channel bitmap
 
 //////////////////////////////////////////////////////////////////////////////
 //
+// COLOR GLYPH RENDERING (COLR v1 static paint graphs)
+
+STBTT_DEF int stbtt_MakeGlyphCOLRBitmap(const stbtt_fontinfo *info, unsigned char *rgba, int width, int height, int stride,
+                                        float scale_x, float scale_y, float shift_x, float shift_y,
+                                        int glyph, int palette, const unsigned char foreground[4]);
+// Renders one COLR v1 base glyph into a premultiplied RGBA8 canvas (channel
+// order R,G,B,A). Only static paint graphs are evaluated (PaintColrLayers,
+// PaintSolid, PaintLinearGradient with PAD extension, PaintGlyph,
+// PaintColrGlyph, PaintTransform and PaintComposite with SRC_OVER/SRC_IN),
+// using a CPAL v0 palette. COLR v0 layer lists, radial gradients, variation
+// data, clip boxes, hinting and every other paint format are not supported and
+// cause failure.
+//
+//   info       -- initialized font
+//   rgba       -- output canvas, width*height pixels, `stride` bytes per row
+//                 (bytes beyond width*4 on each row are never touched)
+//   glyph      -- glyph index of a COLR base glyph
+//   palette    -- CPAL palette index
+//   foreground -- four non-premultiplied RGBA bytes used where a color index
+//                 is 0xFFFF
+//   scale/shift-- design coordinates are mapped as X = x*scale_x + shift_x,
+//                 Y = -y*scale_y + shift_y; pixel centers are (x+0.5, y+0.5),
+//                 anything outside the canvas is clipped. scale_x/scale_y
+//                 must be finite and strictly positive, shifts finite.
+//
+// Colors are computed directly on the sRGB-encoded CPAL components: paint and
+// color-stop alpha is multiplied with the color's own alpha, values are
+// premultiplied before interpolation and compositing, and quantized only when
+// stored. On success the whole canvas is first cleared to transparent and the
+// rendered glyph is written; on failure the output buffer is left completely
+// unchanged and 0 is returned. Failure also covers non-color glyphs, unknown
+// palette/glyph indices, missing PaintColrGlyph targets, reference cycles,
+// unsupported paint formats or composite modes and invalid arguments.
+// Temporary memory uses STBTT_malloc/STBTT_free with info->userdata and is
+// released before returning. The grayscale, SDF and packing entry points are
+// unaffected. Returns 1 on success, 0 on failure.
+//
+// Minimal usage (canvas is width*height RGBA8 pixels, stride in bytes):
+//
+//    unsigned char fg[4] = {255, 255, 255, 255};
+//    int stride = width * 4;
+//    if (!stbtt_MakeGlyphCOLRBitmap(&info, rgba, width, height, stride,
+//                                   scale_x, scale_y, shift_x, shift_y,
+//                                   glyph_index, 0 /*palette*/, fg))
+//       ; // glyph has no static COLR v1 painting; keep the previous texture
+//
+// examples/colr_preview.c renders the two palettes of the bundled font into
+// a PPM; tests/colr_v1_contract.c is the pixel-level contract suite.
+
+//////////////////////////////////////////////////////////////////////////////
+//
 // Signed Distance Function (or Field) rendering
 
 STBTT_DEF void stbtt_FreeSDF(unsigned char *bitmap, void *userdata);
@@ -4969,6 +5020,959 @@ STBTT_DEF int stbtt_CompareUTF8toUTF16_bigendian(const char *s1, int len1, const
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+
+//////////////////////////////////////////////////////////////////////////////
+//
+// COLR v1 static paint-graph renderer
+//
+// Scope: CPAL v0 palettes and COLR v1 paint tables with no variation data,
+// no clip list and no variable indices. Paint formats 1, 2, 4, 10, 11, 12 and
+// 32 are evaluated; composite modes SRC_OVER and SRC_IN only; gradients use
+// PAD extension. Everything else makes the whole call fail.
+//
+
+
+typedef struct stbtt__colr_rgba {
+   double r, g, b, a;       // premultiplied sRGB while painting, straight when resolved
+} stbtt__colr_rgba;
+
+typedef struct stbtt__colr_affine {
+   double a, b, c, d, e, f; // x' = a*x + c*y + e, y' = b*x + d*y + f
+} stbtt__colr_affine;
+
+typedef struct stbtt__colr_clip {
+   struct stbtt__colr_clip *next;
+   int x0, y0, x1, y1;      // tight canvas bounds, x1/y1 exclusive
+   int stride;              // coverage row stride (canvas width)
+   unsigned char *cov;      // stride*height coverage bytes over the whole canvas, 0..255
+} stbtt__colr_clip;
+
+typedef struct stbtt__colr_state {
+   stbtt__colr_affine outline; // design -> canvas matrix for glyph contours
+   stbtt__colr_affine paint;   // design -> canvas matrix for color fields
+   stbtt__colr_clip *clip;     // current clip stack (newest first)
+} stbtt__colr_state;
+
+typedef struct stbtt__colr_ctx {
+   const stbtt_fontinfo *info;
+   stbtt_uint8 *font;
+   int fontstart;
+   stbtt_uint8 *colr;
+   int colr_len;
+   stbtt_uint8 *cpal;
+   int cpal_len;
+   int num_palettes;
+   int num_palette_entries;
+   int num_color_records;
+   int color_records_off;
+   int palette_index_off;
+   int palette;
+   stbtt__colr_rgba foreground; // straight color for palette index 0xFFFF
+   int width, height, stride;
+   int base_glyph_list_off; // offset of BaseGlyphList within the COLR table
+   int layer_list_off;      // offset of LayerList within the COLR table (0 if absent)
+   int num_glyphs;
+   int *ref_path;               // base glyph ids on the PaintColrGlyph path
+   int ref_count, ref_cap;
+} stbtt__colr_ctx;
+
+static int stbtt__colr_isfinite(double x)
+{
+   return x == x && x > -1.0e300 && x < 1.0e300;
+}
+
+static stbtt_uint32 stbtt__colr_rd16(const stbtt_uint8 *p) { return ((stbtt_uint32)p[0] << 8) | p[1]; }
+static stbtt_uint32 stbtt__colr_rd24(const stbtt_uint8 *p) { return ((stbtt_uint32)p[0] << 16) | ((stbtt_uint32)p[1] << 8) | p[2]; }
+static stbtt_uint32 stbtt__colr_rd32(const stbtt_uint8 *p)
+{
+   return ((stbtt_uint32)p[0] << 24) | ((stbtt_uint32)p[1] << 16) | ((stbtt_uint32)p[2] << 8) | p[3];
+}
+static stbtt_int32 stbtt__colr_rd_s16(const stbtt_uint8 *p)
+{
+   stbtt_int32 v = (stbtt_int32) stbtt__colr_rd16(p);
+   return v >= 0x8000 ? v - 0x10000 : v;
+}
+static stbtt_int32 stbtt__colr_rd_s32(const stbtt_uint8 *p) { return (stbtt_int32) stbtt__colr_rd32(p); }
+
+static int stbtt__colr_in_table(stbtt__colr_ctx *cx, const stbtt_uint8 *p, int n)
+{
+   return p >= cx->colr && n >= 0 && p + n <= cx->colr + cx->colr_len && p + n >= p;
+}
+
+static int stbtt__colr_in_cpal(stbtt__colr_ctx *cx, const stbtt_uint8 *p, int n)
+{
+   return p >= cx->cpal && n >= 0 && p + n <= cx->cpal + cx->cpal_len && p + n >= p;
+}
+
+// r = outer * inner, both mapping design coordinates towards the canvas
+static stbtt__colr_affine stbtt__colr_affine_mul(const stbtt__colr_affine *o, const stbtt__colr_affine *i)
+{
+   stbtt__colr_affine r;
+   r.a = o->a*i->a + o->c*i->b;
+   r.b = o->b*i->a + o->d*i->b;
+   r.c = o->a*i->c + o->c*i->d;
+   r.d = o->b*i->c + o->d*i->d;
+   r.e = o->a*i->e + o->c*i->f + o->e;
+   r.f = o->b*i->e + o->d*i->f + o->f;
+   return r;
+}
+
+static int stbtt__colr_affine_invert(const stbtt__colr_affine *m, stbtt__colr_affine *inv)
+{
+   double det = m->a*m->d - m->b*m->c;
+   double k;
+   if (!stbtt__colr_isfinite(det) || det == 0.0 || det > 1.0e250 || det < -1.0e250)
+      return 0;
+   k = 1.0 / det;
+   inv->a =  m->d * k;
+   inv->b = -m->b * k;
+   inv->c = -m->c * k;
+   inv->d =  m->a * k;
+   inv->e = (m->c*m->f - m->d*m->e) * k;
+   inv->f = (m->b*m->e - m->a*m->f) * k;
+   return 1;
+}
+
+static void stbtt__colr_apply(const stbtt__colr_affine *m, double x, double y, double *ox, double *oy)
+{
+   *ox = m->a*x + m->c*y + m->e;
+   *oy = m->b*x + m->d*y + m->f;
+}
+
+// resolve a palette index to a straight (non-premultiplied) sRGB color
+static int stbtt__colr_resolve(stbtt__colr_ctx *cx, stbtt_uint16 index, double paint_alpha, stbtt__colr_rgba *out)
+{
+   const stbtt_uint8 *rec, *idxp;
+   stbtt_uint32 rec_index;
+   double a;
+   if (index == 0xFFFF) {
+      *out = cx->foreground;
+   } else {
+      stbtt_uint32 base;
+      if (index >= (stbtt_uint16) cx->num_palette_entries) return 0;
+      idxp = cx->cpal + cx->palette_index_off + 2*cx->palette;
+      if (!stbtt__colr_in_cpal(cx, idxp, 2)) return 0;
+      base = stbtt__colr_rd16(idxp); // per-palette base record index
+      rec_index = base + index;
+      if (rec_index < base || rec_index >= (stbtt_uint32) cx->num_color_records) return 0;
+      rec = cx->cpal + cx->color_records_off + 4*rec_index;
+      if (!stbtt__colr_in_cpal(cx, rec, 4)) return 0;
+      out->b = rec[0] / 255.0; // CPAL records are BGRA
+      out->g = rec[1] / 255.0;
+      out->r = rec[2] / 255.0;
+      a = rec[3] / 255.0;
+      out->a = a;
+   }
+   out->r *= paint_alpha;
+   out->g *= paint_alpha;
+   out->b *= paint_alpha;
+   out->a *= paint_alpha;
+   return 1;
+}
+
+static stbtt__colr_rgba stbtt__colr_premul(const stbtt__colr_rgba *c)
+{
+   stbtt__colr_rgba p;
+   p.r = c->r * c->a;
+   p.g = c->g * c->a;
+   p.b = c->b * c->a;
+   p.a = c->a;
+   return p;
+}
+
+static stbtt__colr_rgba stbtt__colr_lerp(const stbtt__colr_rgba *p0, const stbtt__colr_rgba *p1, double t)
+{
+   stbtt__colr_rgba r;
+   r.r = p0->r + (p1->r - p0->r) * t;
+   r.g = p0->g + (p1->g - p0->g) * t;
+   r.b = p0->b + (p1->b - p0->b) * t;
+   r.a = p0->a + (p1->a - p0->a) * t;
+   return r;
+}
+
+// coverage of the active clip stack at canvas pixel (x,y); 0 if outside
+static double stbtt__colr_clip_coverage(stbtt__colr_state *st, int x, int y, double own)
+{
+   stbtt__colr_clip *cl;
+   double cov = own;
+   for (cl = st->clip; cl; cl = cl->next) {
+      if (!cl->cov) return 0.0; // an empty outline clips its subtree out
+      if (x < cl->x0 || y < cl->y0 || x >= cl->x1 || y >= cl->y1)
+         return 0.0;
+      cov *= cl->cov[((size_t) y * (size_t) cl->stride + (size_t) x)] / 255.0;
+   }
+   return cov;
+}
+
+// SRC_OVER of premultiplied source s onto premultiplied destination d
+static void stbtt__colr_over(stbtt__colr_rgba *d, const stbtt__colr_rgba *s)
+{
+   double ia = 1.0 - s->a;
+   d->r = s->r + d->r * ia;
+   d->g = s->g + d->g * ia;
+   d->b = s->b + d->b * ia;
+   d->a = s->a + d->a * ia;
+}
+
+static double *stbtt__colr_layer_pixel(double *layer, int width, int x, int y)
+{
+   return layer + (((size_t) y * (size_t) width + (size_t) x) * 4);
+}
+
+// rasterize one glyph outline through matrix m into a fresh clip node
+static int stbtt__colr_clip_poly(const stbtt__point *in, int n, stbtt__point *out, int W, int H, int plane);
+static int stbtt__colr_build_clip(stbtt__colr_ctx *cx, int glyph_id, const stbtt__colr_affine *m, stbtt__colr_clip **out)
+{
+   stbtt_vertex *vertices = NULL;
+   stbtt__point *points = NULL, *buf_a = NULL, *buf_b = NULL;
+   int *winding_lengths = NULL, winding_count = 0;
+   stbtt__edge *edges = NULL, *ep;
+   stbtt__colr_clip *clip = NULL;
+   stbtt__bitmap bm;
+   int num_verts, i, j, k, npts, edge_count, edge_cap, minx, miny, maxx, maxy, total_points;
+   double scale_est, flatness;
+   void *ud = cx->info->userdata;
+
+   *out = NULL;
+   if (glyph_id < 0 || glyph_id >= cx->num_glyphs) return 0;
+   num_verts = stbtt_GetGlyphShape(cx->info, glyph_id, &vertices);
+   if (num_verts <= 0 || vertices == NULL) {
+      if (vertices) STBTT_free(vertices, ud);
+      clip = (stbtt__colr_clip *) STBTT_malloc(sizeof(*clip), ud);
+      if (!clip) return 0;
+      clip->next = NULL; clip->x0 = clip->y0 = clip->x1 = clip->y1 = 0; clip->stride = 0; clip->cov = NULL;
+      *out = clip;
+      return 1;
+   }
+
+   scale_est = fabs(m->a);
+   if (fabs(m->b) > scale_est) scale_est = fabs(m->b);
+   if (fabs(m->c) > scale_est) scale_est = fabs(m->c);
+   if (fabs(m->d) > scale_est) scale_est = fabs(m->d);
+   if (!(scale_est > 0.0)) { STBTT_free(vertices, ud); return 0; }
+   flatness = 0.35 / scale_est;
+
+   points = stbtt_FlattenCurves(vertices, num_verts, flatness, &winding_lengths, &winding_count, ud);
+   STBTT_free(vertices, ud);
+   if (!points || winding_count <= 0) {
+      if (points) STBTT_free(points, ud);
+      if (winding_lengths) STBTT_free(winding_lengths, ud);
+      clip = (stbtt__colr_clip *) STBTT_malloc(sizeof(*clip), ud);
+      if (!clip) return 0;
+      clip->next = NULL; clip->x0 = clip->y0 = clip->x1 = clip->y1 = 0; clip->stride = 0; clip->cov = NULL;
+      *out = clip;
+      return 1;
+   }
+
+   // transform flattened design points straight into canvas pixel coordinates
+   total_points = 0;
+   for (i = 0; i < winding_count; ++i) total_points += winding_lengths[i];
+   minx = cx->width; miny = cx->height; maxx = 0; maxy = 0;
+   for (i = 0; i < total_points; ++i) {
+      double x, y;
+      stbtt__colr_apply(m, (double) points[i].x, (double) points[i].y, &x, &y);
+      points[i].x = (float) x;
+      points[i].y = (float) y;
+      if (!stbtt__colr_isfinite(x) || !stbtt__colr_isfinite(y)) goto fail;
+      j = STBTT_ifloor(x); if (j < minx) minx = j;
+      k = STBTT_ifloor(y); if (k < miny) miny = k;
+      j = STBTT_iceil(x);  if (j > maxx) maxx = j;
+      k = STBTT_iceil(y);  if (k > maxy) maxy = k;
+   }
+   if (minx < 0) minx = 0;
+   if (miny < 0) miny = 0;
+   if (maxx > cx->width) maxx = cx->width;
+   if (maxy > cx->height) maxy = cx->height;
+   if (maxx <= minx || maxy <= miny) { // transformed outline misses the canvas
+      STBTT_free(points, ud);
+      STBTT_free(winding_lengths, ud);
+      clip = (stbtt__colr_clip *) STBTT_malloc(sizeof(*clip), ud);
+      if (!clip) return 0;
+      clip->next = NULL; clip->x0 = clip->y0 = clip->x1 = clip->y1 = 0; clip->stride = 0; clip->cov = NULL;
+      *out = clip;
+      return 1;
+   }
+
+   // each of the four rectangle planes can add as many vertices as the
+   // contour already has, so a clipped contour holds at most 16*max_cnt
+   {
+      int max_cnt = 0, clip_cap, edge_total = 0;
+      stbtt__point *in_p, *out_p;
+      for (i = 0; i < winding_count; ++i)
+         if (winding_lengths[i] > max_cnt) max_cnt = winding_lengths[i];
+      if (max_cnt > (int) 0x3fffffff / 16 || total_points > (int) 0x3fffffff / 16) goto fail;
+      clip_cap = max_cnt * 16;
+      edge_total = total_points * 16;
+      edge_cap = edge_total;
+      edges = (stbtt__edge *) STBTT_malloc(sizeof(*edges) * ((size_t) edge_cap + 1), ud);
+      if (!edges) goto fail;
+      clip = (stbtt__colr_clip *) STBTT_malloc(sizeof(*clip), ud);
+      if (!clip) goto fail;
+      if ((size_t) cx->width > (size_t) -1 / (size_t) cx->height) goto fail;
+      clip->cov = (unsigned char *) STBTT_malloc((size_t) cx->width * cx->height, ud);
+      if (!clip->cov) goto fail;
+      STBTT_memset(clip->cov, 0, (size_t) cx->width * cx->height);
+
+      buf_a = (stbtt__point *) STBTT_malloc(sizeof(*buf_a) * clip_cap, ud);
+      buf_b = (stbtt__point *) STBTT_malloc(sizeof(*buf_b) * clip_cap, ud);
+      if (!buf_a || !buf_b) goto fail;
+      ep = edges; edge_count = 0; npts = 0;
+      for (i = 0; i < winding_count; ++i) {
+         int cnt = winding_lengths[i], cn, p;
+         npts += cnt;
+         // clip each contour to the canvas rectangle so no edge extends
+         // past the scanline region the stock rasterizer expects
+         STBTT_memcpy(buf_a, points + npts - cnt, sizeof(*buf_a) * cnt);
+         in_p = buf_a; out_p = buf_b; cn = cnt;
+         for (p = 0; p < 4; ++p) {
+            cn = stbtt__colr_clip_poly(in_p, cn, out_p, cx->width, cx->height, p);
+            { stbtt__point *t = in_p; in_p = out_p; out_p = t; }
+         }
+         // clamp away floating-point error introduced on the clip boundary
+         for (p = 0; p < cn; ++p) {
+            if (in_p[p].x < 0.0f) in_p[p].x = 0.0f;
+            if (in_p[p].x > (float) cx->width) in_p[p].x = (float) cx->width;
+            if (in_p[p].y < 0.0f) in_p[p].y = 0.0f;
+            if (in_p[p].y > (float) cx->height) in_p[p].y = (float) cx->height;
+         }
+         j = cn - 1;
+         for (k = 0; k < cn; j = k++) {
+            int a = k, b = j;
+            if (in_p[j].y == in_p[k].y) continue;
+            ep->invert = 0;
+            if (in_p[j].y < in_p[k].y) { ep->invert = 1; a = j; b = k; }
+            ep->x0 = in_p[a].x; ep->y0 = in_p[a].y;
+            ep->x1 = in_p[b].x; ep->y1 = in_p[b].y;
+            ++ep; ++edge_count;
+         }
+      }
+   }
+
+   STBTT_free(buf_a, ud);
+   STBTT_free(buf_b, ud);
+   buf_a = NULL; buf_b = NULL;
+
+   // rasterize over the whole canvas with zero offsets so the stock scanline
+   // rasterizer sees the same framing as the grayscale entry point
+   bm.pixels = clip->cov;
+   bm.w = cx->width; bm.h = cx->height; bm.stride = cx->width;
+   stbtt__sort_edges(edges, edge_count);
+   stbtt__rasterize_sorted_edges(&bm, edges, edge_count, 1, 0, 0, ud);
+
+   clip->next = NULL;
+   clip->stride = cx->width;
+   clip->x0 = minx; clip->y0 = miny; clip->x1 = maxx; clip->y1 = maxy;
+   *out = clip;
+
+   STBTT_free(edges, ud);
+   STBTT_free(points, ud);
+   STBTT_free(winding_lengths, ud);
+   return 1;
+
+fail:
+   if (buf_a) STBTT_free(buf_a, ud);
+   if (buf_b) STBTT_free(buf_b, ud);
+   if (clip) { if (clip->cov) STBTT_free(clip->cov, ud); STBTT_free(clip, ud); }
+   if (edges) STBTT_free(edges, ud);
+   if (points) STBTT_free(points, ud);
+   if (winding_lengths) STBTT_free(winding_lengths, ud);
+   return 0;
+}
+
+static void stbtt__colr_free_clip(stbtt__colr_ctx *cx, stbtt__colr_clip *clip)
+{
+   if (clip) {
+      if (clip->cov) STBTT_free(clip->cov, cx->info->userdata);
+      STBTT_free(clip, cx->info->userdata);
+   }
+}
+
+// Sutherland-Hodgman clipping of one polygon against a single half-plane.
+// plane is 0=left x>=0, 1=right x<=W, 2=top y>=0, 3=bottom y<=H.
+static int stbtt__colr_clip_poly(const stbtt__point *in, int n, stbtt__point *out, int W, int H, int plane)
+{
+   int i, m = 0;
+   #define STBTT__INSIDE(px,py) (plane==0 ? (px) >= 0.0f : plane==1 ? (px) <= (float) W : plane==2 ? (py) >= 0.0f : (py) <= (float) H)
+   #define STBTT__PLANEVAL(px,py) (plane==0 ? (px) : plane==1 ? (float) W-(px) : plane==2 ? (py) : (float) H-(py))
+   for (i = 0; i < n; ++i) {
+      stbtt__point a = in[(i + n - 1) % n];
+      stbtt__point b = in[i];
+      float va = STBTT__PLANEVAL(a.x, a.y);
+      float vb = STBTT__PLANEVAL(b.x, b.y);
+      int ain = STBTT__INSIDE(a.x, a.y);
+      int bin = STBTT__INSIDE(b.x, b.y);
+      if (bin) {
+         if (!ain) {
+            float t = va / (va - vb);
+            out[m].x = a.x + (b.x - a.x) * t;
+            out[m].y = a.y + (b.y - a.y) * t;
+            ++m;
+         }
+         out[m++] = b;
+      } else if (ain) {
+         float t = va / (va - vb);
+         out[m].x = a.x + (b.x - a.x) * t;
+         out[m].y = a.y + (b.y - a.y) * t;
+         ++m;
+      }
+   }
+   #undef STBTT__INSIDE
+   #undef STBTT__PLANEVAL
+   return m;
+}
+
+typedef struct stbtt__colr_stop {
+   double offset;
+   stbtt__colr_rgba color; // premultiplied
+} stbtt__colr_stop;
+
+typedef struct stbtt__colr_colorline {
+   stbtt__colr_stop *stops;
+   int count;
+} stbtt__colr_colorline;
+
+static void stbtt__colr_free_colorline(stbtt__colr_ctx *cx, stbtt__colr_colorline *cl)
+{
+   if (cl->stops) STBTT_free(cl->stops, cx->info->userdata);
+   cl->stops = NULL;
+   cl->count = 0;
+}
+
+static int stbtt__colr_parse_colorline(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_colorline *cl)
+{
+   stbtt_uint32 extend, count, i;
+   const stbtt_uint8 *sp;
+   void *ud = cx->info->userdata;
+   cl->stops = NULL; cl->count = 0;
+   if (!stbtt__colr_in_table(cx, p, 3)) return 0;
+   extend = p[0];
+   count = stbtt__colr_rd16(p + 1);
+   if (extend != 0) return 0;                 // PAD only (Extend enum: 0 is PAD)
+   if (count < 2 || count > 0x10000) return 0;
+   if (!stbtt__colr_in_table(cx, p, 3 + (int) count * 6)) return 0;
+   cl->stops = (stbtt__colr_stop *) STBTT_malloc(sizeof(*cl->stops) * count, ud);
+   if (!cl->stops) return 0;
+   sp = p + 3;
+   for (i = 0; i < count; ++i) {
+      stbtt_int32 raw_off = stbtt__colr_rd_s16(sp); // F2Dot14, may be negative
+      stbtt_uint16 palette_index = (stbtt_uint16) stbtt__colr_rd16(sp + 2);
+      stbtt_int32 raw_alpha = stbtt__colr_rd_s16(sp + 4);
+      double alpha = raw_alpha / 16384.0;
+      stbtt__colr_rgba straight;
+      if (i > 0 && raw_off <= stbtt__colr_rd_s16(sp - 6)) { // must be strictly increasing
+         stbtt__colr_free_colorline(cx, cl);
+         return 0;
+      }
+      if (!stbtt__colr_isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+         stbtt__colr_free_colorline(cx, cl);
+         return 0;
+      }
+      if (!stbtt__colr_resolve(cx, palette_index, alpha, &straight)) {
+         stbtt__colr_free_colorline(cx, cl);
+         return 0;
+      }
+      cl->stops[i].offset = raw_off / 16384.0; // F2Dot14, not constrained to [0,1]
+      cl->stops[i].color = stbtt__colr_premul(&straight);
+      sp += 6; // ColorStop: u16 offset, u16 palette index, i16 F2Dot14 alpha
+   }
+   cl->count = (int) count;
+   return 1;
+}
+
+static stbtt__colr_rgba stbtt__colr_colorline_sample(const stbtt__colr_colorline *cl, double t)
+{
+   int i;
+   if (t <= cl->stops[0].offset)
+      return cl->stops[0].color;
+   if (t >= cl->stops[cl->count - 1].offset)
+      return cl->stops[cl->count - 1].color;
+   for (i = 1; i < cl->count; ++i) {
+      if (t <= cl->stops[i].offset) {
+         double f = (t - cl->stops[i-1].offset) / (cl->stops[i].offset - cl->stops[i-1].offset);
+         return stbtt__colr_lerp(&cl->stops[i-1].color, &cl->stops[i].color, f);
+      }
+   }
+   return cl->stops[cl->count - 1].color;
+}
+
+static int stbtt__colr_paint(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_state *st, double *layer);
+static stbtt_uint32 stbtt__colr_check_base_list(stbtt__colr_ctx *cx, stbtt_uint32 off, int num_glyphs);
+
+// fill the region of the newest clip with a solid premultiplied color
+static void stbtt__colr_fill_solid(stbtt__colr_ctx *cx, stbtt__colr_state *st, double *layer, const stbtt__colr_rgba *premul)
+{
+   stbtt__colr_clip *clip = st->clip;
+   int x, y;
+   if (!clip || !clip->cov) return;
+   for (y = clip->y0; y < clip->y1; ++y) {
+      for (x = clip->x0; x < clip->x1; ++x) {
+         double cov = stbtt__colr_clip_coverage(st, x, y, clip->cov[y * clip->stride + x] / 255.0);
+         stbtt__colr_rgba s, *d;
+         if (cov <= 0.0) continue;
+         s.r = premul->r * cov; s.g = premul->g * cov; s.b = premul->b * cov; s.a = premul->a * cov;
+         d = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(layer, cx->width, x, y);
+         stbtt__colr_over(d, &s);
+      }
+   }
+}
+
+// fill with a linear gradient; gradient points live in design space and are
+// reached through the paint matrix (which may move the color field only)
+static void stbtt__colr_fill_gradient(stbtt__colr_ctx *cx, stbtt__colr_state *st, double *layer,
+                                      const stbtt__colr_colorline *cl,
+                                      double x0, double y0, double x1, double y1, double x2, double y2)
+{
+   stbtt__colr_clip *clip = st->clip;
+   stbtt__colr_affine inv;
+   double dx = x1 - x0, dy = y1 - y0;
+   double ex = x2 - x0, ey = y2 - y0;
+   double dd = dx*dx + dy*dy;
+   double ee = ex*ex + ey*ey;
+   double de = dx*ex + dy*ey;
+   double denom = dd*ee - de*de;
+   int x, y;
+   if (!clip || !clip->cov) return;
+   if (dd == 0.0) denom = 0.0; // degenerate: first stop fills everything
+   if (dd != 0.0 && !stbtt__colr_affine_invert(&st->paint, &inv)) return;
+   for (y = clip->y0; y < clip->y1; ++y) {
+      for (x = clip->x0; x < clip->x1; ++x) {
+         double cov = stbtt__colr_clip_coverage(st, x, y, clip->cov[y * clip->stride + x] / 255.0);
+         stbtt__colr_rgba s, col, *d;
+         double qx, qy, px, py, vx, vy, t;
+         if (cov <= 0.0) continue;
+         qx = x + 0.5; qy = y + 0.5;
+         if (dd == 0.0) {
+            col = cl->stops[0].color;
+         } else {
+            stbtt__colr_apply(&inv, qx, qy, &px, &py);
+            vx = px - x0; vy = py - y0;
+            if (denom == 0.0)
+               t = (vx*dx + vy*dy) / dd;
+            else
+               t = ((vx*dx + vy*dy) * ee - (vx*ex + vy*ey) * de) / denom;
+            col = stbtt__colr_colorline_sample(cl, t);
+         }
+         s.r = col.r * cov; s.g = col.g * cov; s.b = col.b * cov; s.a = col.a * cov;
+         d = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(layer, cx->width, x, y);
+         stbtt__colr_over(d, &s);
+      }
+   }
+}
+
+static int stbtt__colr_push_path(stbtt__colr_ctx *cx, int glyph_id)
+{
+   void *ud = cx->info->userdata;
+   int i;
+   for (i = 0; i < cx->ref_count; ++i)
+      if (cx->ref_path[i] == glyph_id) return 0; // only the current path is a cycle
+   if (cx->ref_count >= cx->ref_cap) {
+      int new_cap = cx->ref_cap ? cx->ref_cap * 2 : 8;
+      int *np = (int *) STBTT_malloc(sizeof(int) * new_cap, ud);
+      if (!np) return 0;
+      if (cx->ref_path) { STBTT_memcpy(np, cx->ref_path, sizeof(int) * cx->ref_count); STBTT_free(cx->ref_path, ud); }
+      cx->ref_path = np;
+      cx->ref_cap = new_cap;
+   }
+   cx->ref_path[cx->ref_count++] = glyph_id;
+   return 1;
+}
+
+static int stbtt__colr_paint_glyph(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_state *st, double *layer)
+{
+   stbtt_uint32 glyph_id, child_off;
+   stbtt__colr_clip *clip = NULL;
+   stbtt__colr_state child_st;
+   int ok;
+   if (!stbtt__colr_in_table(cx, p, 6)) return 0;
+   child_off = stbtt__colr_rd24(p + 1);
+   glyph_id = stbtt__colr_rd16(p + 4);
+   if (glyph_id >= (stbtt_uint32) cx->num_glyphs) return 0;
+   if (!stbtt__colr_in_table(cx, p + child_off, 1)) return 0;
+   if (!stbtt__colr_build_clip(cx, (int) glyph_id, &st->outline, &clip)) return 0;
+   child_st = *st;
+   clip->next = st->clip;
+   child_st.clip = clip;
+   ok = stbtt__colr_paint(cx, p + child_off, &child_st, layer);
+   stbtt__colr_free_clip(cx, clip);
+   return ok;
+}
+
+static int stbtt__colr_paint_transform(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_state *st, double *layer)
+{
+   stbtt_uint32 child_off, mtx_off, i;
+   const stbtt_uint8 *mp;
+   stbtt__colr_affine t;
+   stbtt__colr_state child_st;
+   if (!stbtt__colr_in_table(cx, p, 9)) return 0;
+   child_off = stbtt__colr_rd24(p + 1);
+   mtx_off = stbtt__colr_rd24(p + 4);
+   if (!stbtt__colr_in_table(cx, p + child_off, 1)) return 0;
+   mp = p + mtx_off;
+   if (!stbtt__colr_in_table(cx, mp, 24)) return 0;
+   // Affine2x3 order: xx, yx, xy, yy, dx, dy
+   t.a = stbtt__colr_rd_s32(mp +  0) / 65536.0;
+   t.b = stbtt__colr_rd_s32(mp +  4) / 65536.0;
+   t.c = stbtt__colr_rd_s32(mp +  8) / 65536.0;
+   t.d = stbtt__colr_rd_s32(mp + 12) / 65536.0;
+   t.e = stbtt__colr_rd_s32(mp + 16) / 65536.0;
+   t.f = stbtt__colr_rd_s32(mp + 20) / 65536.0;
+   for (i = 0; i < 6; ++i)
+      if (!stbtt__colr_isfinite((&t.a)[i])) return 0;
+   child_st = *st;
+   child_st.outline = stbtt__colr_affine_mul(&st->outline, &t);
+   child_st.paint   = stbtt__colr_affine_mul(&st->paint, &t);
+   return stbtt__colr_paint(cx, p + child_off, &child_st, layer);
+}
+
+static int stbtt__colr_paint_composite(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_state *st, double *layer)
+{
+   stbtt_uint32 src_off, backdrop_off, mode;
+   double *src_layer = NULL, *back_layer = NULL, *out_layer = NULL;
+   size_t count;
+   int x, y, ok = 0;
+   void *ud = cx->info->userdata;
+   if (!stbtt__colr_in_table(cx, p, 8)) return 0;
+   src_off = stbtt__colr_rd24(p + 1);
+   mode = p[4];
+   backdrop_off = stbtt__colr_rd24(p + 5);
+   if (mode != 3 && mode != 5) return 0; // SRC_OVER, SRC_IN
+   if (!stbtt__colr_in_table(cx, p + src_off, 1)) return 0;
+   if (!stbtt__colr_in_table(cx, p + backdrop_off, 1)) return 0;
+   if ((size_t) cx->width > (size_t) -1 / 4 / sizeof(double) ||
+       (size_t) cx->height > (size_t) -1 / (4 * sizeof(double) * (size_t) cx->width)) return 0;
+   count = (size_t) cx->width * cx->height * 4;
+   src_layer = (double *) STBTT_malloc(count * sizeof(double), ud);
+   back_layer = (double *) STBTT_malloc(count * sizeof(double), ud);
+   out_layer = (double *) STBTT_malloc(count * sizeof(double), ud);
+   if (!src_layer || !back_layer || !out_layer) goto done;
+   STBTT_memset(src_layer, 0, count * sizeof(double));
+   STBTT_memset(back_layer, 0, count * sizeof(double));
+   STBTT_memset(out_layer, 0, count * sizeof(double));
+
+   // source and backdrop each form results from transparent canvas
+   if (!stbtt__colr_paint(cx, p + src_off, st, src_layer)) goto done;
+   if (!stbtt__colr_paint(cx, p + backdrop_off, st, back_layer)) goto done;
+
+   for (y = 0; y < cx->height; ++y) {
+      for (x = 0; x < cx->width; ++x) {
+         stbtt__colr_rgba *s = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(src_layer, cx->width, x, y);
+         stbtt__colr_rgba *b = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(back_layer, cx->width, x, y);
+         stbtt__colr_rgba *o = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(out_layer, cx->width, x, y);
+         if (mode == 3) { // SRC_OVER
+            *o = *s;
+            stbtt__colr_over(o, b);
+         } else {          // SRC_IN: source kept only where backdrop has alpha
+            o->r = s->r * b->a;
+            o->g = s->g * b->a;
+            o->b = s->b * b->a;
+            o->a = s->a * b->a;
+         }
+      }
+   }
+
+   // the isolated result joins the outer picture with plain SRC_OVER; any
+   // enclosing clip was already applied while the children were painted
+   for (y = 0; y < cx->height; ++y) {
+      for (x = 0; x < cx->width; ++x) {
+         stbtt__colr_rgba *o = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(out_layer, cx->width, x, y);
+         stbtt__colr_rgba *d = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(layer, cx->width, x, y);
+         stbtt__colr_over(d, o);
+      }
+   }
+   ok = 1;
+
+done:
+   if (src_layer) STBTT_free(src_layer, ud);
+   if (back_layer) STBTT_free(back_layer, ud);
+   if (out_layer) STBTT_free(out_layer, ud);
+   return ok;
+}
+
+static int stbtt__colr_paint(stbtt__colr_ctx *cx, const stbtt_uint8 *p, stbtt__colr_state *st, double *layer)
+{
+   stbtt_uint32 format;
+   if (!stbtt__colr_in_table(cx, p, 1)) return 0;
+   format = p[0];
+   switch (format) {
+      case 1: { // PaintColrLayers
+         stbtt_uint32 num_layers, first_layer, i;
+         const stbtt_uint8 *listp, *ent;
+         if (!stbtt__colr_in_table(cx, p, 6)) return 0;
+         num_layers = p[1];
+         first_layer = stbtt__colr_rd32(p + 2);
+         if (!cx->layer_list_off) return 0;
+         listp = cx->colr + cx->layer_list_off;
+         if (!stbtt__colr_in_table(cx, listp, 4)) return 0;
+         if (first_layer > stbtt__colr_rd32(listp)) return 0;
+         if (stbtt__colr_rd32(listp) - first_layer < num_layers) return 0;
+         if (!stbtt__colr_in_table(cx, listp, 4 + 4 * (int)(first_layer + num_layers))) return 0;
+         for (i = 0; i < num_layers; ++i) {
+            stbtt_uint32 po = stbtt__colr_rd32(listp + 4 + 4*(first_layer + i)); // from LayerList base
+            ent = listp + po;
+            if (!stbtt__colr_in_table(cx, ent, 1)) return 0;
+            if (!stbtt__colr_paint(cx, ent, st, layer)) return 0;
+         }
+         return 1;
+      }
+      case 2: { // PaintSolid
+         stbtt_uint16 palette_index;
+         stbtt_int32 raw_alpha;
+         double alpha;
+         stbtt__colr_rgba straight, premul;
+         if (!stbtt__colr_in_table(cx, p, 5)) return 0;
+         palette_index = (stbtt_uint16) stbtt__colr_rd16(p + 1);
+         raw_alpha = stbtt__colr_rd_s16(p + 3);
+         alpha = raw_alpha / 16384.0;
+         if (!stbtt__colr_isfinite(alpha) || alpha < 0.0 || alpha > 1.0) return 0;
+         if (!stbtt__colr_resolve(cx, palette_index, alpha, &straight)) return 0;
+         premul = stbtt__colr_premul(&straight);
+         stbtt__colr_fill_solid(cx, st, layer, &premul);
+         return 1;
+      }
+      case 4: { // PaintLinearGradient
+         stbtt_uint32 line_off;
+         const stbtt_uint8 *linep;
+         stbtt__colr_colorline cl;
+         if (!stbtt__colr_in_table(cx, p, 16)) return 0;
+         line_off = stbtt__colr_rd24(p + 1);
+         linep = p + line_off;
+         if (!stbtt__colr_in_table(cx, linep, 3)) return 0;
+         if (!stbtt__colr_parse_colorline(cx, linep, &cl)) return 0;
+         stbtt__colr_fill_gradient(cx, st, layer, &cl,
+                                   stbtt__colr_rd_s16(p + 4), stbtt__colr_rd_s16(p + 6),
+                                   stbtt__colr_rd_s16(p + 8), stbtt__colr_rd_s16(p + 10),
+                                   stbtt__colr_rd_s16(p + 12), stbtt__colr_rd_s16(p + 14));
+         stbtt__colr_free_colorline(cx, &cl);
+         return 1;
+      }
+      case 10: // PaintGlyph
+         return stbtt__colr_paint_glyph(cx, p, st, layer);
+      case 11: { // PaintColrGlyph
+         stbtt_uint32 glyph_id, count, i;
+         const stbtt_uint8 *base_table, *rec;
+         if (!stbtt__colr_in_table(cx, p, 3)) return 0;
+         glyph_id = stbtt__colr_rd16(p + 1);
+         if (glyph_id >= (stbtt_uint32) cx->num_glyphs) return 0;
+         if (!cx->base_glyph_list_off) return 0;
+         base_table = cx->colr + cx->base_glyph_list_off;
+         count = stbtt__colr_check_base_list(cx, (stbtt_uint32) cx->base_glyph_list_off, cx->num_glyphs);
+         if (!count) return 0;
+         rec = NULL;
+         for (i = 0; i < count; ++i) {
+            const stbtt_uint8 *r = base_table + 4 + 6*i;
+            if (stbtt__colr_rd16(r) == glyph_id) { rec = r; break; }
+         }
+         if (!rec) return 0; // missing PaintColrGlyph reference
+         if (!stbtt__colr_push_path(cx, (int) glyph_id)) return 0;
+         {
+            stbtt_uint32 paint_off = stbtt__colr_rd32(rec + 2);
+            const stbtt_uint8 *rootp = base_table + paint_off;
+            int ok;
+            if (!stbtt__colr_in_table(cx, rootp, 1)) { cx->ref_count--; return 0; }
+            ok = stbtt__colr_paint(cx, rootp, st, layer);
+            cx->ref_count--;
+            return ok;
+         }
+      }
+      case 12: // PaintTransform
+         return stbtt__colr_paint_transform(cx, p, st, layer);
+      case 32: // PaintComposite
+         return stbtt__colr_paint_composite(cx, p, st, layer);
+      default:
+         return 0;
+   }
+}
+
+// validate a candidate BaseGlyphList offset and return the record count, or 0
+static stbtt_uint32 stbtt__colr_check_base_list(stbtt__colr_ctx *cx, stbtt_uint32 off, int num_glyphs)
+{
+   stbtt_uint32 count, i;
+   const stbtt_uint8 *listp;
+   static const unsigned char supported[] = {1, 2, 4, 10, 11, 12, 32};
+   if (off < 4 || (size_t) off + 4 > (size_t) cx->colr_len) return 0;
+   listp = cx->colr + off;
+   count = stbtt__colr_rd32(listp);
+   if (count == 0 || count > 1000000) return 0;
+   if ((size_t) off + 4 + 6 * (size_t) count > (size_t) cx->colr_len) return 0;
+   for (i = 0; i < count; ++i) {
+      const stbtt_uint8 *r = listp + 4 + 6*i;
+      stbtt_uint32 glyph_id = stbtt__colr_rd16(r);
+      stbtt_uint32 paint_off = stbtt__colr_rd32(r + 2);
+      const stbtt_uint8 *paintp;
+      int k, known = 0;
+      if (glyph_id >= (stbtt_uint32) num_glyphs) return 0;
+      if (paint_off == 0 || (size_t) off + paint_off >= (size_t) cx->colr_len) return 0;
+      paintp = listp + paint_off;
+      for (k = 0; k < (int) sizeof(supported); ++k)
+         if (paintp[0] == supported[k]) { known = 1; break; }
+      if (!known) return 0;
+   }
+   return count;
+}
+
+static unsigned char stbtt__colr_quantize(double v)
+{
+   double q = v * 255.0 + 0.5;
+   if (q <= 0.0) return 0;
+   if (q >= 255.0) return 255;
+   return (unsigned char) q;
+}
+
+STBTT_DEF int stbtt_MakeGlyphCOLRBitmap(const stbtt_fontinfo *info, unsigned char *rgba, int width, int height, int stride,
+                                        float scale_x, float scale_y, float shift_x, float shift_y,
+                                        int glyph, int palette, const unsigned char foreground[4])
+{
+   stbtt__colr_ctx cx;
+   stbtt__colr_state root_state;
+   stbtt_uint8 *font;
+   stbtt_uint32 colr_abs, cpal_abs, colr_len, cpal_len, base_off, base_count, layer_list_off;
+   stbtt_uint32 clip_list_off, var_map_off, var_store_off, i, rec_found;
+   const stbtt_uint8 *base_table, *rootp;
+   double *root_layer = NULL;
+   size_t layer_count;
+   int x, y;
+
+   if (!info || !rgba || !foreground) return 0;
+   if (width <= 0 || height <= 0) return 0;
+   if (stride < width * 4) return 0;
+   if (width != 0 && stride / 4 < width) return 0; // multiplication overflow guard
+   if (!stbtt__colr_isfinite((double) scale_x) || scale_x <= 0.0f) return 0;
+   if (!stbtt__colr_isfinite((double) scale_y) || scale_y <= 0.0f) return 0;
+   if (!stbtt__colr_isfinite((double) shift_x) || !stbtt__colr_isfinite((double) shift_y)) return 0;
+   if (glyph < 0 || palette < 0) return 0;
+   if ((size_t) height > (size_t) -1 / (size_t) stride) return 0;
+
+   font = info->data;
+   if (!font) return 0;
+   colr_abs = stbtt__find_table(font, info->fontstart, "COLR");
+   cpal_abs = stbtt__find_table(font, info->fontstart, "CPAL");
+   if (!colr_abs || !cpal_abs) return 0;
+   // find table lengths from the table directory
+   colr_len = 0; cpal_len = 0;
+   {
+      stbtt_int32 num_tables = stbtt__colr_rd16(font + info->fontstart + 4);
+      for (i = 0; i < (stbtt_uint32) num_tables; ++i) {
+         const stbtt_uint8 *r = font + info->fontstart + 12 + 16*i;
+         if (stbtt_tag(r, "COLR")) colr_len = stbtt__colr_rd32(r + 12);
+         if (stbtt_tag(r, "CPAL")) cpal_len = stbtt__colr_rd32(r + 12);
+      }
+   }
+   if (!colr_len || !cpal_len || colr_len < 34 || cpal_len < 12) return 0;
+   if (colr_abs > (stbtt_uint32) 0x7fffffff - colr_len || cpal_abs > (stbtt_uint32) 0x7fffffff - cpal_len) return 0;
+
+   STBTT_memset(&cx, 0, sizeof(cx));
+   cx.info = info;
+   cx.font = font;
+   cx.fontstart = info->fontstart;
+   cx.colr = font + info->fontstart + colr_abs;
+   cx.colr_len = (int) colr_len;
+   cx.cpal = font + info->fontstart + cpal_abs;
+   cx.cpal_len = (int) cpal_len;
+   cx.width = width; cx.height = height; cx.stride = stride;
+   cx.num_glyphs = info->numGlyphs;
+   cx.palette = palette;
+   cx.foreground.r = foreground[0] / 255.0;
+   cx.foreground.g = foreground[1] / 255.0;
+   cx.foreground.b = foreground[2] / 255.0;
+   cx.foreground.a = foreground[3] / 255.0;
+
+   if (stbtt__colr_rd16(cx.colr + 0) != 1) return 0; // COLR v1 only
+   // COLR v1 header offsets (all from the table start):
+   //   +14 BaseGlyphList, +18 LayerList, +22 ClipList,
+   //   +26 VarIndexMap, +30 ItemVariationStore
+   base_off = stbtt__colr_rd32(cx.colr + 14);
+   layer_list_off = stbtt__colr_rd32(cx.colr + 18);
+   clip_list_off = stbtt__colr_rd32(cx.colr + 22);
+   var_map_off = stbtt__colr_rd32(cx.colr + 26);
+   var_store_off = stbtt__colr_rd32(cx.colr + 30);
+   if (clip_list_off || var_map_off || var_store_off) return 0; // out of scope
+   if (!base_off) return 0;
+   if (!stbtt__colr_in_table(&cx, cx.colr + base_off, 4)) return 0;
+   base_count = stbtt__colr_rd32(cx.colr + base_off);
+   if (base_count == 0) return 0;
+   if (!stbtt__colr_in_table(&cx, cx.colr + base_off, 4 + 6 * (int) base_count)) return 0;
+   cx.base_glyph_list_off = (int) base_off;
+   cx.layer_list_off = (int) layer_list_off;
+   if (layer_list_off) {
+      stbtt_uint32 layer_count_rec = stbtt__colr_rd32(cx.colr + layer_list_off);
+      if (!stbtt__colr_in_table(&cx, cx.colr + layer_list_off, 4 + 4 * (int) layer_count_rec)) return 0;
+   }
+
+   if (stbtt__colr_rd16(cx.cpal + 0) != 0) return 0; // CPAL v0 only
+   cx.num_palette_entries = (int) stbtt__colr_rd16(cx.cpal + 2);
+   cx.num_palettes = (int) stbtt__colr_rd16(cx.cpal + 4);
+   cx.num_color_records = (int) stbtt__colr_rd16(cx.cpal + 6);
+   cx.color_records_off = (int) stbtt__colr_rd32(cx.cpal + 8);
+   cx.palette_index_off = 12; // colorRecordIndices directly follows the 12-byte header
+   if (palette >= cx.num_palettes) return 0;
+   if (cx.num_palette_entries <= 0 || cx.num_color_records <= 0 || cx.color_records_off <= 0) return 0;
+   if (!stbtt__colr_in_cpal(&cx, cx.cpal + cx.color_records_off, 4 * cx.num_color_records)) return 0;
+   if (!stbtt__colr_in_cpal(&cx, cx.cpal + cx.palette_index_off, 2 * cx.num_palettes)) return 0;
+
+   if ((stbtt_uint32) glyph >= (stbtt_uint32) cx.num_glyphs) return 0;
+   base_table = cx.colr + base_off;
+   rec_found = 0; rootp = NULL;
+   for (i = 0; i < base_count; ++i) {
+      const stbtt_uint8 *r = base_table + 4 + 6*i;
+      if (stbtt__colr_rd16(r) == (stbtt_uint32) glyph) {
+         stbtt_uint32 paint_off = stbtt__colr_rd32(r + 2);
+         rootp = base_table + paint_off;
+         if (!stbtt__colr_in_table(&cx, rootp, 1)) return 0;
+         rec_found = 1;
+         break;
+      }
+   }
+   if (!rec_found) return 0;
+
+   if ((size_t) width > (size_t) -1 / 4 / sizeof(double) ||
+       (size_t) height > (size_t) -1 / (4 * sizeof(double) * (size_t) width)) return 0;
+   layer_count = (size_t) width * height * 4;
+   root_layer = (double *) STBTT_malloc(layer_count * sizeof(double), info->userdata);
+   if (!root_layer) return 0;
+   STBTT_memset(root_layer, 0, layer_count * sizeof(double));
+
+   root_state.clip = NULL;
+   root_state.outline.a = (double) scale_x; root_state.outline.b = 0.0;
+   root_state.outline.c = 0.0;          root_state.outline.d = -(double) scale_y;
+   root_state.outline.e = (double) shift_x; root_state.outline.f = (double) shift_y;
+   root_state.paint = root_state.outline;
+
+   if (!stbtt__colr_push_path(&cx, glyph)) goto fail;
+   if (!stbtt__colr_paint(&cx, rootp, &root_state, root_layer)) goto fail;
+   cx.ref_count--;
+
+   // success: only now touch the caller's canvas
+   for (y = 0; y < height; ++y) {
+      unsigned char *row = rgba + (size_t) y * stride;
+      STBTT_memset(row, 0, (size_t) width * 4);
+      for (x = 0; x < width; ++x) {
+         stbtt__colr_rgba *s = (stbtt__colr_rgba *) stbtt__colr_layer_pixel(root_layer, width, x, y);
+         unsigned char ar, ag, ab, aa;
+         if (s->a < 0.0) { s->r = s->g = s->b = s->a = 0.0; }
+         if (s->a > 1.0) { s->r /= s->a; s->g /= s->a; s->b /= s->a; s->a = 1.0; }
+         if (s->r < 0.0) s->r = 0.0; if (s->r > s->a) s->r = s->a;
+         if (s->g < 0.0) s->g = 0.0; if (s->g > s->a) s->g = s->a;
+         if (s->b < 0.0) s->b = 0.0; if (s->b > s->a) s->b = s->a;
+         aa = stbtt__colr_quantize(s->a);
+         ar = stbtt__colr_quantize(s->r);
+         ag = stbtt__colr_quantize(s->g);
+         ab = stbtt__colr_quantize(s->b);
+         if (ar > aa) ar = aa;
+         if (ag > aa) ag = aa;
+         if (ab > aa) ab = aa;
+         row[x*4+0] = ar; row[x*4+1] = ag; row[x*4+2] = ab; row[x*4+3] = aa;
+      }
+   }
+
+   STBTT_free(root_layer, info->userdata);
+   if (cx.ref_path) STBTT_free(cx.ref_path, info->userdata);
+   return 1;
+
+fail:
+   STBTT_free(root_layer, info->userdata);
+   if (cx.ref_path) STBTT_free(cx.ref_path, info->userdata);
+   return 0;
+}
 
 #endif // STB_TRUETYPE_IMPLEMENTATION
 
