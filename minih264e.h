@@ -7,6 +7,8 @@
     See <http://creativecommons.org/publicdomain/zero/1.0/>.
 */
 
+#include <stddef.h>     // for size_t used by H264E_run_param_t
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -222,6 +224,30 @@ typedef struct H264E_run_param_tag
 
     // token to pass to NALU callback
     void *nalu_callback_token;
+
+    // Optional per-macroblock QP map (single spatial layer AVC only).
+    // If not NULL, points to a byte map covering the whole frame in
+    // macroblock raster order:
+    //   columns = (width + 15)/16, rows = (height + 15)/16,
+    //   mb_qp_stride = row pitch in bytes, must be >= columns,
+    //   mb_qp_bytes  = map buffer size, must cover the last valid cell,
+    //                  i.e. be >= (rows - 1)*mb_qp_stride + columns.
+    // Each valid cell selects the luma QP for its macroblock:
+    //   0      - use the QP chosen by the built-in rate-control
+    //   10..51 - force this QP for mode decision, quantization and local
+    //            reconstruction (chroma QP is derived as usual); the value
+    //            must lie inside [qp_min; qp_max] as clamped by the encoder,
+    //            otherwise H264E_encode() returns H264E_STATUS_BAD_PARAMETER
+    // Bytes outside the valid grid (row padding) are not inspected.
+    // Macroblocks coded without residual (including skipped ones) carry no
+    // QP in the bitstream and inherit it per H.264 syntax, as usual.
+    // The map is only borrowed until this H264E_encode() call returns and
+    // is never inherited by subsequent frames.
+    // If mb_qp is NULL, the map is disabled and mb_qp_stride/mb_qp_bytes
+    // are ignored.
+    const unsigned char *mb_qp;
+    int mb_qp_stride;
+    size_t mb_qp_bytes;
 
 } H264E_run_param_t;
 
@@ -10518,12 +10544,27 @@ static void mb_deblock(deblock_filter_t *df, int mb_type, int qp_this, int mbx, 
 /**
 *   Macroblock encoding
 */
+static void rc_set_qp(h264e_enc_t *enc, int qp);
+
 static void mb_encode(h264e_enc_t *enc, int enc_type)
 {
     pix_t *top = enc->top_line + 48 + enc->mb.x*32;
     pix_t *left = enc->top_line;
     int avail = enc->mb.avail = mb_avail_flag(enc);
     int base_mode = 0;
+    int qp_forced = 0;
+    int qp_save = enc->rc.qp;
+
+    // Optional per-MB QP override: borrow the caller's map, indexed by
+    // absolute MB coordinates of the whole frame (valid for any slice/thread split)
+    if (enc->run_param.mb_qp)
+    {
+        qp_forced = enc->run_param.mb_qp[(size_t)enc->mb.y*(size_t)enc->run_param.mb_qp_stride + (size_t)enc->mb.x];
+        if (qp_forced)
+        {
+            rc_set_qp(enc, qp_forced);
+        }
+    }
 
     if (enc->frame.cropping_flag && ((enc->mb.x + 1)*16 > enc->param.width || (enc->mb.y + 1)*16 > enc->param.height))
     {
@@ -10605,6 +10646,13 @@ _WRITE_MB:
         }
 #endif
         mb_deblock(&enc->df, enc->mb.type, enc->rc.prev_qp, mbx, mby, &enc->dec, base_mode);
+    }
+
+    if (qp_forced)
+    {
+        // Restore rate-control QP: a forced cell must not accumulate
+        // into the controller's request for the next macroblock
+        rc_set_qp(enc, qp_save);
     }
 }
 
@@ -11448,6 +11496,58 @@ static int check_parameters_align(const H264E_create_param_t *opt, const H264E_i
 }
 
 /**
+*   Validate the optional per-macroblock QP map.
+*   Must be called after qp_min/qp_max normalization, and before any
+*   encoding side-effect (input picture write, NAL output, reference
+*   picture advance), so that a rejected call leaves the encoder state
+*   untouched and a corrected retry behaves as if never failed.
+*/
+static int check_mb_qp_map(const h264e_enc_t *enc, const H264E_run_param_t *opt)
+{
+    const unsigned char *map = opt->mb_qp;
+    if (map)
+    {
+        size_t nmbx = ((size_t)enc->param.width  + 15) >> 4;
+        size_t nmby = ((size_t)enc->param.height + 15) >> 4;
+        size_t stride, x, y;
+        uint64_t need;
+#if H264E_SVC_API
+        if (enc->param.num_layers > 1)
+        {
+            // The map is defined for single spatial layer AVC only:
+            // refuse it instead of silently applying to one of the layers
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+#endif
+        if (opt->mb_qp_stride < 0 || (size_t)opt->mb_qp_stride < nmbx)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+        stride = (size_t)opt->mb_qp_stride;
+        // cover the last valid cell; 64-bit math cannot wrap here
+        need = (uint64_t)(nmby - 1)*stride + nmbx;
+        if ((uint64_t)opt->mb_qp_bytes < need)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+        // inspect valid cells only; row padding may contain anything
+        for (y = 0; y < nmby; y++)
+        {
+            const unsigned char *row = map + y*stride;
+            for (x = 0; x < nmbx; x++)
+            {
+                unsigned qp = row[x];
+                if (qp && (qp < (unsigned)opt->qp_min || qp > (unsigned)opt->qp_max))
+                {
+                    return H264E_STATUS_BAD_PARAMETER;
+                }
+            }
+        }
+    }
+    return H264E_STATUS_SUCCESS;
+}
+
+/**
 *   Top-level encode function
 *   See header file for details.
 */
@@ -11481,21 +11581,6 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
 
     enc->inp = *in;
 
-#if H264E_ENABLE_DENOISE
-    // 1. Run optional denoise filter
-    if (enc->param.temporal_denoise_flag && opt->encode_speed < 2)
-    {
-        int sh = 0;
-        for (i = 0; i < 3; i++)
-        {
-            h264e_denoise_run(in->yuv[i], enc->denoise.yuv[i],  enc->param.width >> sh, enc->param.height >> sh, in->stride[i], enc->denoise.stride[i]);
-            enc->inp.yuv[i] = enc->denoise.yuv[i];
-            enc->inp.stride[i] = enc->denoise.stride[i];
-            sh = 1;
-        }
-    }
-#endif
-
     enc->out_pos = 0;   // reset output bitbuffer position
 
     if (opt)
@@ -11513,6 +11598,32 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         enc->run_param.qp_min = MIN_QP;
     }
+
+    // Validate the optional per-MB QP map up-front: a rejected call must
+    // return before the input picture is written, before any NAL callback
+    // and before reference/rate-control state advances, so that a corrected
+    // retry encodes exactly as if the failed call never happened.
+    error = check_mb_qp_map(enc, opt);
+    if (error)
+    {
+        enc->run_param.mb_qp = NULL;    // don't keep a rejected borrowed pointer
+        return error;
+    }
+
+#if H264E_ENABLE_DENOISE
+    // 1. Run optional denoise filter
+    if (enc->param.temporal_denoise_flag && opt->encode_speed < 2)
+    {
+        int sh = 0;
+        for (i = 0; i < 3; i++)
+        {
+            h264e_denoise_run(in->yuv[i], enc->denoise.yuv[i],  enc->param.width >> sh, enc->param.height >> sh, in->stride[i], enc->denoise.stride[i]);
+            enc->inp.yuv[i] = enc->denoise.yuv[i];
+            enc->inp.stride[i] = enc->denoise.stride[i];
+            sh = 1;
+        }
+    }
+#endif
 
     enc->speed.disable_deblock = (opt->encode_speed == 8 || opt->encode_speed == 10);
 
@@ -11600,12 +11711,14 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         if (!enc->sps.pic_init_qp)
         {
+            enc->run_param.mb_qp = NULL;    // borrowed map is valid for this call only
             return H264E_STATUS_BAD_FRAME_TYPE;
         }
         if (long_term_idx_use > enc->param.max_long_term_reference_frames ||
             long_term_idx_update > enc->param.max_long_term_reference_frames ||
             long_term_idx_use > MAX_LONG_TERM_FRAMES)
         {
+            enc->run_param.mb_qp = NULL;    // borrowed map is valid for this call only
             return H264E_STATUS_BAD_FRAME_TYPE;
         }
     }
@@ -11657,6 +11770,8 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
 
     *sizeof_coded_data = enc->out_pos;
     *coded_data = enc->out;
+    enc->run_param.mb_qp = NULL;    // the QP map was borrowed for this call only,
+                                    // never inherit it into the next frame
     return H264E_STATUS_SUCCESS;
 }
 
