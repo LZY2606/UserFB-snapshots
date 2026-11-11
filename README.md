@@ -84,13 +84,17 @@ if encrypted messages are used in a context where key commitment is expected.
 
 ### Signature malleability
 
-While Ed25519 as originally defined and implemented in `nacl.sign`
-meets the standard notion of unforgeability for a public-key
-signature scheme under chosen-message attacks, it is *malleable*:
-given a signed message, it is possible, without knowing the secret key,
-to create a different signature for the same message that will verify
-under the same public key. This may lead to vulnerabilities if
-signatures are used in a context where malleability is not expected.
+Ed25519 as originally defined and implemented in `nacl.sign` is
+*malleable* if the verifier accepts non-canonical signatures: given a
+signed message, it was possible, without knowing the secret key, to
+create a different signature for the same message (by adding the group
+order L to the scalar S) that would verify under the same public key.
+
+Current versions of TweetNaCl.js reject such variants: verification now
+only accepts signatures with a canonical scalar (0 ≤ S < L) and canonical
+point encodings, so this particular malleability no longer applies. See
+the note in [Signatures](#signatures) for the exact acceptance rules and
+their compatibility impact.
 
 ### Hash length-extension attacks
 
@@ -319,6 +323,27 @@ Signs the message using the secret key and returns a signature.
 
 Verifies the signature for the message and returns `true` if verification
 succeeded or `false` if it failed.
+
+**Verification strictness (compatibility note).** Verification (shared by
+`nacl.sign.detached.verify`, `nacl.sign.open`, and the low-level
+`crypto_sign_open`) only accepts canonical signatures and keys:
+
+* the scalar S (the second half of the signature) must satisfy 0 ≤ S < L,
+  where L is the order of the Ed25519 base point — larger 32-byte
+  encodings (including S + L, which older versions accepted and reduced
+  modulo L) are rejected, not reduced;
+* the y coordinates of R and of the public key A must be canonical
+  (smaller than 2^255-19), the encodings must decode to curve points, and
+  x = 0 is only accepted with a zero sign bit;
+* both R and A must belong to the prime-order subgroup (a full [L]P
+  check, which also excludes all points with a torsion component), and A
+  must not be the identity element.
+
+Signatures and key pairs produced by `nacl.sign` are unaffected. However,
+signatures or public keys produced by other, more permissive
+implementations that rely on non-canonical encodings (e.g. S ≥ L) were
+accepted by previous versions of this library and are now rejected
+(`false` / `null` / -1).
 
 #### Constants
 

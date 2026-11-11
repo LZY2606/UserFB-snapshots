@@ -2002,12 +2002,72 @@ function crypto_sign(sm, m, n, sk) {
   return smlen;
 }
 
+// Returns 0 if the 32-byte little-endian value s is a canonical
+// signature scalar, i.e. 0 <= s < L, otherwise -1. Non-canonical
+// scalars must be rejected, not reduced modulo L, so that a valid
+// signature cannot be turned into a different encoding of an
+// equivalent scalar (e.g. S + L).
+function checkCanonicalScalar(s) {
+  var i, d = 0;
+  for (i = 31; i >= 0; i--) {
+    if (d === 0) {
+      if (s[i] < L[i]) d = -1;
+      else if (s[i] > L[i]) d = 1;
+    }
+  }
+  return (d < 0) ? 0 : -1;
+}
+
+// Returns 0 if p is a canonical point encoding with respect to the
+// field, i.e. the 255-bit little-endian value y (ignoring the top
+// sign bit) satisfies 0 <= y < 2^255-19, otherwise -1.
+function checkCanonicalY(p) {
+  var i, d = 0, a, b;
+  for (i = 31; i >= 0; i--) {
+    a = p[i];
+    if (i === 31) a &= 0x7f;
+    b = (i === 31) ? 0x7f : (i === 0) ? 0xed : 0xff;
+    if (d === 0) {
+      if (a < b) d = -1;
+      else if (a > b) d = 1;
+    }
+  }
+  return (d < 0) ? 0 : -1;
+}
+
+// Returns 0 if p is the canonical encoding of the neutral element
+// (y = 1, x = 0), otherwise -1.
+function checkIdentityEncoding(p) {
+  var i;
+  if (p[0] !== 1) return -1;
+  for (i = 1; i < 32; i++) {
+    if (p[i] !== 0) return -1;
+  }
+  return 0;
+}
+
+// Returns 0 if the point p (extended coordinates) belongs to the
+// prime-order subgroup, i.e. [L]P is the neutral element, otherwise
+// -1. This is a full subgroup check: it rejects every point with a
+// non-trivial torsion component, not just known small-order points.
+function checkSubgroup(p) {
+  var q = [gf(), gf(), gf(), gf()];
+  var t = new Uint8Array(32);
+  scalarmult(q, p, L);
+  pack(t, q);
+  return checkIdentityEncoding(t);
+}
+
 function unpackneg(r, p) {
   var t = gf(), chk = gf(), num = gf(),
       den = gf(), den2 = gf(), den4 = gf(),
       den6 = gf();
 
   set25519(r[2], gf1);
+
+  // Reject encodings whose y coordinate is not canonical (y >= 2^255-19).
+  if (checkCanonicalY(p) !== 0) return -1;
+
   unpack25519(r[1], p);
   S(num, r[1]);
   M(den, num, D);
@@ -2036,6 +2096,9 @@ function unpackneg(r, p) {
 
   if (par25519(r[0]) === (p[31]>>7)) Z(r[0], gf0, r[0]);
 
+  // Reject a non-zero sign bit when x = 0: such an encoding is not canonical.
+  if ((p[31]>>7) !== 0 && neq25519(r[0], gf0) === 0) return -1;
+
   M(r[3], r[0], r[1]);
   return 0;
 }
@@ -2044,11 +2107,25 @@ function crypto_sign_open(m, sm, n, pk) {
   var i;
   var t = new Uint8Array(32), h = new Uint8Array(64);
   var p = [gf(), gf(), gf(), gf()],
-      q = [gf(), gf(), gf(), gf()];
+      q = [gf(), gf(), gf(), gf()],
+      r = [gf(), gf(), gf(), gf()];
 
   if (n < 64) return -1;
 
+  // Reject non-canonical S: only 0 <= S < L is accepted; larger
+  // encodings are invalid here, not reduced modulo L.
+  if (checkCanonicalScalar(sm.subarray(32, 64)) !== 0) return -1;
+
+  // The public key must be a canonical encoding of a point in the
+  // prime-order subgroup, and must not be the neutral element.
   if (unpackneg(q, pk)) return -1;
+  if (checkIdentityEncoding(pk) === 0) return -1;
+  if (checkSubgroup(q) !== 0) return -1;
+
+  // R must be a canonical encoding of a point in the prime-order
+  // subgroup (the neutral element is allowed).
+  if (unpackneg(r, sm.subarray(0, 32))) return -1;
+  if (checkSubgroup(r) !== 0) return -1;
 
   for (i = 0; i < n; i++) m[i] = sm[i];
   for (i = 0; i < 32; i++) m[i+32] = pk[i];
