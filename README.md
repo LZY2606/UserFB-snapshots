@@ -50,6 +50,37 @@ Similar to the FFTs' `.steps()` methods, `DynamicSTFT` has `.analyseSteps()`/`.s
 
 The window shapes/offsets, input/output and synthesis interval must stay the same until the analysis/synthesis is finished.
 
+## Spectral ducker
+
+```cpp
+#include "signalsmith-linear/spectral-ducker.h"
+```
+
+This provides `SpectralDucker<Sample, bool splitComputation=false>`, a frequency-domain sidechain ducker built on `DynamicSTFT`.  It makes room for a narration sidechain in whichever frequency bands it occupies, instead of ducking the whole background signal.
+
+Inputs are planar: two main channels (L/R) plus one mono sidechain; only the two main channels are produced.  The sidechain is analysed but never synthesised or mixed into the output.
+
+```cpp
+signalsmith::linear::SpectralDucker<float> ducker;
+ducker.prepare(48000, 1024, 256);                 // power-of-2 frame >= 32, hop <= frame/4
+ducker.setParameters(0.1, 4.0, 0.01, 0.1);       // threshold, ratio, attack, release (seconds)
+
+const float *input[3] = {left, right, sidechain};
+float *output[2] = {outLeft, outRight};          // main channels may alias the inputs (in-place)
+ducker.process(input, output, frameCount);       // no heap allocation while processing
+ducker.reset();                                  // clears history, gains back to 1, parameters kept
+size_t delay = ducker.latency();                 // frameSize samples
+const std::vector<float> &gains = ducker.gains(); // linear gain per bin of the latest frame
+```
+
+Analysis runs once per hop: sidechain magnitudes are peak-calibrated against the analysis-window sum (DC and Nyquist are handled separately in the packed spectrum), mapped through a threshold/ratio static curve, and smoothed in log-gain space (attack downward, release upward).  The resulting linear gain is applied identically to both main-channel spectra.  Parameter changes between `process()` calls take effect on the next analysis frame without resetting the envelope, and processing is identical regardless of how the host chunks the frames.  With `splitComputation=true`, the underlying STFT work is spread across `analyseStep()`/`synthesiseStep()` calls.
+
+The regression check (independent naive DFT and scalar envelope references, two-tone band selectivity, chunking/in-place/reset behaviour and allocation accounting) is run with:
+
+```
+sh checks/spectral_ducker.sh
+```
+
 ## Expressions
 
 ```cpp
