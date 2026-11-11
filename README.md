@@ -57,6 +57,15 @@ The result object `embeddingLevels` will usually be passed to other functions de
 
 * `paragraphs` is an array of `{start, end, level}` objects, one for each paragraph in the text (paragraphs are separated by explicit breaking characters, not soft line wrapping). The `start` and `end` indices are inclusive, and `level` is the resolved base embedding level of that paragraph.
 
+### Indexing: UTF-16 code units and surrogate pairs
+
+All indices used by this API — `levels` positions, `paragraphs` boundaries, and the `start`/`end` arguments below — are UTF-16 code unit positions, i.e. plain JavaScript string indices. Internally, valid surrogate pairs are treated as single Unicode scalar values:
+
+* `levels.length` always equals the input string's `length`, and the two code units of a valid surrogate pair carry the same level.
+* Reordering never separates a surrogate pair: the two code units always stay adjacent in the output, high surrogate first.
+* A lone (unpaired) surrogate is kept as its own code unit, processed as a default `L`-type character, and is never dropped from the output.
+* A `start`/`end` range that would split a valid surrogate pair (e.g. a line boundary landing between the two halves) throws a `RangeError`.
+
 ### Calculate character reorderings
 
 ```js
@@ -75,7 +84,7 @@ flips.forEach(range => {
 })
 ```
 
-Each "flip" is a range that should be reversed in place; they must all be applied in order.
+Each "flip" is a range of UTF-16 code units that should be reversed in place; they must all be applied in order. Segment boundaries always fall between Unicode scalar values, so when a segment contains a surrogate pair, the pair's two code units must be flipped together as a single unit — never swapped with each other.
 
 Sometimes you don't want to process the whole string at once, but just a particular substring. A common example would be if you've applied line wrapping, in which case you need to process each line individually (in particular this does some special handling for trailing whitespace for each line). For this you can pass the extra `start` and `end` parameters:
 
@@ -90,6 +99,8 @@ yourWrappedLines.forEach(([lineStart, lineEnd]) => {
   // ...process flips for this line
 })
 ```
+
+The per-line trailing-whitespace handling is applied on a local copy of the line's levels, so the `levels` array returned by `getEmbeddingLevels` is never modified and lines may be processed repeatedly and in any order. A line boundary that would split a surrogate pair throws a `RangeError`.
 
 ### Handle right-to-left mirrored characters
 

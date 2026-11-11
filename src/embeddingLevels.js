@@ -1,6 +1,6 @@
 import {
   BN_LIKE_TYPES,
-  getBidiCharType,
+  getBidiCharTypeAt,
   ISOLATE_INIT_TYPES,
   NEUTRAL_ISOLATE_TYPES,
   STRONG_TYPES,
@@ -8,6 +8,7 @@ import {
   TYPES
 } from './charTypes.js'
 import { closingToOpeningBracket, getCanonicalBracket, openingToClosingBracket } from './brackets.js'
+import { isHighSurrogateAt, scalarAt } from './codepoints.js'
 
 // Local type aliases
 const {
@@ -46,18 +47,73 @@ const {
  * in a single Uint8Array plus a list of objects holding each paragraph's start and end indices and resolved
  * base embedding level.
  *
+ * Indices are always UTF-16 code unit positions: `levels.length` equals the string's `length`, and the two
+ * code units of a valid surrogate pair carry the same level (the pair is treated as one Unicode scalar
+ * internally). A lone surrogate keeps its own code unit and is processed as a default L-type character.
+ *
  * @param {string} string - The input string
  * @param {"ltr"|"rtl"|"auto"} [baseDirection] - Use "ltr" or "rtl" to force a base paragraph direction,
  *        otherwise a direction will be chosen automatically from each paragraph's contents.
  * @return {GetEmbeddingLevelsResult}
  */
 export function getEmbeddingLevels (string, baseDirection) {
+  // List of leading code-unit positions of each Unicode scalar value. For a
+  // valid surrogate pair only the high surrogate's position is listed; a lone
+  // surrogate keeps its own single position.
+  const scalarUnits = []
+  for (let i = 0; i < string.length; i++) {
+    scalarUnits.push(i)
+    if (isHighSurrogateAt(string, i)) {
+      i++
+    }
+  }
+
+  const { levels: scalarLevels, paragraphs: scalarParagraphs } =
+    computeScalarEmbeddingLevels(string, baseDirection, scalarUnits)
+
+  // Expand scalar positions back to UTF-16 code units. Both halves of a
+  // surrogate pair receive the scalar's resolved level.
+  const embedLevels = new Uint8Array(string.length)
+  for (let s = 0; s < scalarUnits.length; s++) {
+    const unit = scalarUnits[s]
+    embedLevels[unit] = scalarLevels[s]
+    if (isHighSurrogateAt(string, unit)) {
+      embedLevels[unit + 1] = scalarLevels[s]
+    }
+  }
+
+  // Paragraph boundaries are scalar boundaries, so every paragraph's leading
+  // scalar starts at a code-unit boundary. Its inclusive end in code units is
+  // the end of the trailing scalar (one extra unit when that scalar is a pair).
+  const paragraphs = scalarParagraphs.map(p => ({
+    start: scalarUnits[p.start],
+    end: scalarUnits[p.end] + (isHighSurrogateAt(string, scalarUnits[p.end]) ? 1 : 0),
+    level: p.level
+  }))
+
+  return {
+    levels: embedLevels,
+    paragraphs
+  }
+}
+
+/**
+ * Run the full algorithm with one array slot per Unicode scalar value.
+ * `scalarUnits[s]` gives the leading UTF-16 code unit of scalar `s`.
+ *
+ * @param {string} string
+ * @param {"ltr"|"rtl"|"auto"|undefined} baseDirection
+ * @param {number[]} scalarUnits
+ * @return {{levels: Uint8Array, paragraphs: {start: number, end: number, level: number}[]}}
+ */
+function computeScalarEmbeddingLevels (string, baseDirection, scalarUnits) {
+  const scalarCount = scalarUnits.length
   const MAX_DEPTH = 125
 
-  // Start by mapping all characters to their unicode type, as a bitmask integer
-  const charTypes = new Uint32Array(string.length)
-  for (let i = 0; i < string.length; i++) {
-    charTypes[i] = getBidiCharType(string[i])
+  // Start by mapping all scalar values to their unicode type, as a bitmask integer
+  const charTypes = new Uint32Array(scalarCount)
+  for (let s = 0; s < scalarCount; s++) {
+    charTypes[s] = getBidiCharTypeAt(string, scalarUnits[s])
   }
 
   const charTypeCounts = new Map() //will be cleared at start of each paragraph
@@ -74,18 +130,18 @@ export function getEmbeddingLevels (string, baseDirection) {
     }
   }
 
-  const embedLevels = new Uint8Array(string.length)
+  const embedLevels = new Uint8Array(scalarCount)
   const isolationPairs = new Map() //init->pdi and pdi->init
 
   // === 3.3.1 The Paragraph Level ===
   // 3.3.1 P1: Split the text into paragraphs
   const paragraphs = [] // [{start, end, level}, ...]
   let paragraph = null
-  for (let i = 0; i < string.length; i++) {
+  for (let i = 0; i < scalarCount; i++) {
     if (!paragraph) {
       paragraphs.push(paragraph = {
         start: i,
-        end: string.length - 1,
+        end: scalarCount - 1,
         // 3.3.1 P2-P3: Determine the paragraph level
         level: baseDirection === 'rtl' ? 1 : baseDirection === 'ltr' ? 0 : determineAutoEmbedLevel(i, false)
       })
@@ -477,7 +533,7 @@ export function getEmbeddingLevels (string, baseDirection) {
             // type, as that may have been changed earlier. This doesn't seem to be explicitly
             // called out in the spec, but is required for passage of certain tests.
             if (charTypes[seqIndices[si]] & NEUTRAL_ISOLATE_TYPES) {
-              const char = string[seqIndices[si]]
+              const char = scalarAt(string, scalarUnits[seqIndices[si]])
               let oppositeBracket
               // Opening bracket
               if (openingToClosingBracket(char) !== null) {
@@ -553,7 +609,7 @@ export function getEmbeddingLevels (string, baseDirection) {
             if (useStrongType !== embedDirection) {
               for (let si = openSeqIdx + 1; si < seqIndices.length; si++) {
                 if (!(charTypes[seqIndices[si]] & BN_LIKE_TYPES)) {
-                  if (getBidiCharType(string[seqIndices[si]]) & TYPE_NSM) {
+                  if (getBidiCharTypeAt(string, scalarUnits[seqIndices[si]]) & TYPE_NSM) {
                     charTypes[seqIndices[si]] = useStrongType
                   }
                   break
@@ -563,7 +619,7 @@ export function getEmbeddingLevels (string, baseDirection) {
             if (useStrongType !== embedDirection) {
               for (let si = closeSeqIdx + 1; si < seqIndices.length; si++) {
                 if (!(charTypes[seqIndices[si]] & BN_LIKE_TYPES)) {
-                  if (getBidiCharType(string[seqIndices[si]]) & TYPE_NSM) {
+                  if (getBidiCharTypeAt(string, scalarUnits[seqIndices[si]]) & TYPE_NSM) {
                     charTypes[seqIndices[si]] = useStrongType
                   }
                   break
@@ -635,9 +691,10 @@ export function getEmbeddingLevels (string, baseDirection) {
 
       // 3.4 L1.1-4: Reset the embedding level of segment/paragraph separators, and any sequence of whitespace or
       // isolate formatting characters preceding them or the end of the paragraph, to the paragraph level.
-      // NOTE: this will also need to be applied to each individual line ending after line wrapping occurs.
-      if (i === paragraph.end || getBidiCharType(string[i]) & (TYPE_S | TYPE_B)) {
-        for (let j = i; j >= 0 && (getBidiCharType(string[j]) & TRAILING_TYPES); j--) {
+      // This paragraph-level pass only handles paragraph boundaries; when a line is wrapped, the same L1 rule
+      // must also be applied to that individual line (see reordering.js), without mutating the levels returned here.
+      if (i === paragraph.end || getBidiCharTypeAt(string, scalarUnits[i]) & (TYPE_S | TYPE_B)) {
+        for (let j = i; j >= 0 && (getBidiCharTypeAt(string, scalarUnits[j]) & TRAILING_TYPES); j--) {
           embedLevels[j] = paragraph.level
         }
       }
@@ -653,7 +710,7 @@ export function getEmbeddingLevels (string, baseDirection) {
 
   function determineAutoEmbedLevel (start, isFSI) {
     // 3.3.1 P2 - P3
-    for (let i = start; i < string.length; i++) {
+    for (let i = start; i < scalarCount; i++) {
       const charType = charTypes[i]
       if (charType & (TYPE_R | TYPE_AL)) {
         return 1
@@ -663,7 +720,7 @@ export function getEmbeddingLevels (string, baseDirection) {
       }
       if (charType & ISOLATE_INIT_TYPES) {
         const pdi = indexOfMatchingPDI(i)
-        i = pdi === -1 ? string.length : pdi
+        i = pdi === -1 ? scalarCount : pdi
       }
     }
     return 0
@@ -672,7 +729,7 @@ export function getEmbeddingLevels (string, baseDirection) {
   function indexOfMatchingPDI (isolateStart) {
     // 3.1.2 BD9
     let isolationLevel = 1
-    for (let i = isolateStart + 1; i < string.length; i++) {
+    for (let i = isolateStart + 1; i < scalarCount; i++) {
       const charType = charTypes[i]
       if (charType & TYPE_B) {
         break

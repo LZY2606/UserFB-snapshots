@@ -1,4 +1,5 @@
 import DATA from './data/bidiCharTypes.data.js'
+import { isHighSurrogateAt } from './codepoints.js'
 
 const TYPES = {}
 const TYPES_TO_NAMES = {}
@@ -71,6 +72,26 @@ function getBidiCharType (char) {
 }
 
 /**
+ * Get the bidi character type for the Unicode scalar value at a code-unit
+ * position within a string. A valid surrogate pair is treated as a single
+ * supplementary-plane scalar; a lone surrogate keeps its own code unit value
+ * and therefore falls back to the default L type.
+ *
+ * @param {string} string
+ * @param {number} index - UTF-16 code unit index, pointing at either half of
+ *        a surrogate pair resolves to the type of the whole scalar
+ * @return {number}
+ */
+function getBidiCharTypeAt (string, index) {
+  parseData()
+  const cu = string.charCodeAt(index)
+  if ((cu & 0xFC00) === 0xDC00 && isHighSurrogateAt(string, index - 1)) {
+    index--
+  }
+  return map.get(string.codePointAt(index)) || TYPES.L
+}
+
+/**
  * Get Bidi Character Type Name
  * @param {string} char
  * @returns { "L" | "R" | "EN" | "ES" | "ET" | "AN" | "CS" | "B" | "S" | "WS" | "ON" | "BN" | "NSM" | "AL" | "LRO" | "RLO" | "LRE" | "RLE" | "PDF" | "LRI" | "RLI" | "FSI" | "PDI" }
@@ -81,6 +102,7 @@ function getBidiCharTypeName(char) {
 
 export {
   getBidiCharType,
+  getBidiCharTypeAt,
   getBidiCharTypeName,
   TYPES,
   TYPES_TO_NAMES,

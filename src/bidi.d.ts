@@ -33,19 +33,27 @@ export type BidiCharTypeName =
 /**
  * The resolved embedding levels for a string, as returned by
  * {@link Bidi.getEmbeddingLevels}.
+ *
+ * All indices used by this API are UTF-16 code unit positions. Valid
+ * surrogate pairs are treated internally as single Unicode scalar values, so
+ * the two code units of a pair always share the same level, and reordering
+ * never separates them. A lone (unpaired) surrogate is kept as its own code
+ * unit and processed as a default L-type character.
  */
 export interface EmbeddingLevels {
   /**
    * A `Uint8Array` holding the calculated bidi embedding level for each
-   * character in the string. A character is in a right-to-left scope if its
-   * level is an odd number, and left-to-right if it's even.
+   * UTF-16 code unit in the string (`levels.length === string.length`). A
+   * character is in a right-to-left scope if its level is an odd number, and
+   * left-to-right if it's even. Both code units of a valid surrogate pair
+   * carry the level of their shared Unicode scalar value.
    */
   levels: Uint8Array;
   /**
    * One entry per paragraph in the text (paragraphs are separated by explicit
    * breaking characters, not soft line wrapping). The `start` and `end` indices
-   * are inclusive, and `level` is the resolved base embedding level of that
-   * paragraph.
+   * are inclusive UTF-16 code unit positions, and `level` is the resolved base
+   * embedding level of that paragraph.
    */
   paragraphs: Array<{ start: number; end: number; level: number }>;
 }
@@ -75,12 +83,23 @@ export interface Bidi {
    * precalculated bidi embedding levels, produce a list of `[start, end]`
    * segments whose ordering should be flipped, in sequence.
    *
+   * The per-line trailing-whitespace rule (UAX#9 L1) is applied on a local
+   * copy of the line's levels; the `levels` array in `embeddingLevelsResult`
+   * is never modified, so lines may be processed repeatedly and in any order.
+   *
+   * Segment boundaries always fall between Unicode scalar values: a valid
+   * surrogate pair is never split, and must be flipped as a single unit when
+   * applying the segments.
+   *
    * @param string - The full input string.
    * @param embeddingLevelsResult - The result object from
    *   {@link Bidi.getEmbeddingLevels}.
-   * @param start - First character in a subset of the full string (inclusive).
-   * @param end - Last character in a subset of the full string (inclusive).
+   * @param start - First UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to `0`.
+   * @param end - Last UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to the last code unit.
    * @returns The list of start/end segments that should be flipped, in order.
+   * @throws {RangeError} If `start`/`end` would split a valid surrogate pair.
    */
   getReorderSegments(
     string: string,
@@ -91,13 +110,18 @@ export interface Bidi {
 
   /**
    * Given a string and its resolved embedding levels, return an array of
-   * character indices in their new bidi order.
+   * UTF-16 code unit indices in their new bidi order. The result is a
+   * permutation of every original code unit position; the two code units of
+   * a valid surrogate pair always remain adjacent, high surrogate first.
    *
    * @param string - The full input string.
    * @param embedLevelsResult - The result object from
    *   {@link Bidi.getEmbeddingLevels}.
-   * @param start - First character in a subset of the full string (inclusive).
-   * @param end - Last character in a subset of the full string (inclusive).
+   * @param start - First UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to `0`.
+   * @param end - Last UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to the last code unit.
+   * @throws {RangeError} If `start`/`end` would split a valid surrogate pair.
    */
   getReorderedIndices(
     string: string,
@@ -109,13 +133,17 @@ export interface Bidi {
   /**
    * Given a string and its resolved embedding levels, return a new string with
    * its bidi segments reordered (and right-to-left mirrored characters
-   * swapped).
+   * swapped). The result contains exactly the same UTF-16 code units as the
+   * input, reordered; valid surrogate pairs are never separated.
    *
    * @param string - The full input string.
    * @param embedLevelsResult - The result object from
    *   {@link Bidi.getEmbeddingLevels}.
-   * @param start - First character in a subset of the full string (inclusive).
-   * @param end - Last character in a subset of the full string (inclusive).
+   * @param start - First UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to `0`.
+   * @param end - Last UTF-16 code unit in a subset of the full string
+   *   (inclusive). Defaults to the last code unit.
+   * @throws {RangeError} If `start`/`end` would split a valid surrogate pair.
    */
   getReorderedString(
     string: string,
@@ -149,8 +177,10 @@ export interface Bidi {
    * @param string - The full input string.
    * @param embeddingLevels - The `levels` array from
    *   {@link Bidi.getEmbeddingLevels}.
-   * @param start - First character in a subset of the full string (inclusive).
-   * @param end - Last character in a subset of the full string (inclusive).
+   * @param start - First UTF-16 code unit in a subset of the full string
+   *   (inclusive).
+   * @param end - Last UTF-16 code unit in a subset of the full string
+   *   (inclusive).
    */
   getMirroredCharactersMap(
     string: string,
