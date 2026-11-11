@@ -8,6 +8,9 @@ tiny-skia = { path = ".." }
 [[bin]]
 name = "current"
 path = "current.rs"
+[[bin]]
+name = "radial_contract"
+path = "radial_contract.rs"
 [[test]]
 name = "old_radial"
 path = "old.rs"

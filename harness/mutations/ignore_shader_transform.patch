@@ -1,0 +1,13 @@
+diff --git a/src/shaders/radial_gradient.rs b/src/shaders/radial_gradient.rs
+index 8b256a4..4006f38 100644
+--- a/src/shaders/radial_gradient.rs
++++ b/src/shaders/radial_gradient.rs
+@@ -357,7 +357,7 @@ fn create(
+     }
+ 
+     Some(Shader::RadialGradient(RadialGradient {
+-        base: Gradient::new(stops, mode, transform, gradient_matrix),
++        base: Gradient::new(stops, mode, Transform::identity(), gradient_matrix),
+         gradient_type,
+     }))
+ }

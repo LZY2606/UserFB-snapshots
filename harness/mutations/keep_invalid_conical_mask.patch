@@ -1,0 +1,13 @@
+diff --git a/src/pipeline/highp.rs b/src/pipeline/highp.rs
+index 214e31a..9dfa4d6 100644
+--- a/src/pipeline/highp.rs
++++ b/src/pipeline/highp.rs
+@@ -1088,7 +1088,7 @@ fn mask_2pt_conical_degenerates(p: &mut Pipeline) {
+     let ctx = &mut p.ctx.two_point_conical_gradient;
+ 
+     let t = p.r;
+-    let is_degenerate = t.cmp_le(f32x8::default()) | t.cmp_ne(t);
++    let is_degenerate = f32x8::default().cmp_lt(f32x8::default());
+     p.r = is_degenerate.blend(f32x8::default(), t);
+     ctx.mask = cond_to_mask(!is_degenerate.to_u32x8_bitcast());
+ 

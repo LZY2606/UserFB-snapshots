@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export CARGO_HOME="$PWD/.cargo-home"
-build=$(mktemp -d)
+export TMPDIR="${TMPDIR:-/tmp}"
+build=$(mktemp -d -p "$TMPDIR")
 trap 'rm -rf "$build"' EXIT
 cargo run --locked --manifest-path harness/Cargo.toml --target-dir "$build" --bin current
 mkdir -p harness/tests/images/gradients
