@@ -4,16 +4,29 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
+#include <algorithm>
 
 namespace swr {
 
 class Texture {
 public:
     static constexpr int MAX_ANISOTROPY = 16;
-    
-    Texture(SDL_Surface* baseSurface, int maxAnisotropy = 8) 
-        : m_maxAnisotropy(std::clamp(maxAnisotropy, 1, MAX_ANISOTROPY)) 
+
+    /// Description of the texel-space filtering footprint used for one sample.
+    struct Footprint {
+        float majorLength;   ///< Long axis of the texel-space ellipse, in texels.
+        float minorLength;   ///< Short axis of the texel-space ellipse, in texels.
+        float dirMajorU;     ///< Unit long axis direction, u component (texel space).
+        float dirMajorV;     ///< Unit long axis direction, v component (texel space).
+        float effectiveMinor;///< Short axis width actually filtered, in texels.
+        float lod;           ///< log2(effectiveMinor), clamped to the mip range.
+        int   tapCount;      ///< Number of taps placed along the long axis.
+    };
+
+    Texture(SDL_Surface* baseSurface, int maxAnisotropy = 8)
+        : m_maxAnisotropy(std::clamp(maxAnisotropy, 1, MAX_ANISOTROPY))
     {
         if (!baseSurface) {
             throw std::runtime_error("Null base surface provided to Texture constructor");
@@ -32,13 +45,104 @@ public:
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 
+    int maxAnisotropy() const { return m_maxAnisotropy; }
+
+    /// Compute the texel-space footprint for the given UV derivatives.
+    /** The footprint is built from the ellipse spanned by the two screen-space
+      * derivative vectors, so it depends only on the texel-space ellipse and
+      * not on the choice of screen basis. All lengths are in texels. */
+    Footprint queryFootprint(float u, float v,
+                             float dudx, float dvdx,
+                             float dudy, float dvdy) const
+    {
+        validateInputs(u, v, dudx, dvdx, dudy, dvdy);
+
+        SDL_Surface* baseLevel = m_mipmaps[0];
+        const float texW = static_cast<float>(baseLevel->w);
+        const float texH = static_cast<float>(baseLevel->h);
+
+        // Convert the UV derivatives to texel space. Width and height are
+        // applied separately so non-square textures keep the correct ellipse.
+        double dux = double(dudx) * double(texW);
+        double dvx = double(dvdx) * double(texH);
+        double duy = double(dudy) * double(texW);
+        double dvy = double(dvdy) * double(texH);
+
+        // J * J^T for J = [dux duy] (columns are the screen axis vectors).
+        //                      [dvx dvy]
+        // Its eigenvectors are the ellipse axes in texel space and the square
+        // roots of its eigenvalues are the axis lengths. The Gram matrix is
+        // formed in double so finite inputs cannot overflow into NaN/inf.
+        double A = dux * dux + duy * duy;
+        double B = dvx * dvx + dvy * dvy;
+        double C = dux * dvx + duy * dvy;
+
+        double discriminant = std::sqrt(std::max(0.0, (A - B) * (A - B) + 4.0 * C * C));
+        double lambdaMajor = std::max(0.0, (A + B + discriminant) * 0.5);
+        double lambdaMinor = std::max(0.0, (A + B - discriminant) * 0.5);
+
+        // Texel-space lengths can exceed the float range even when every
+        // input is finite (a derivative of FLT_MAX times the texture width).
+        // Saturate instead of letting them turn into infinity.
+        double majorD = std::sqrt(lambdaMajor);
+        double minorD = std::sqrt(lambdaMinor);
+        const double floatMax = static_cast<double>(std::numeric_limits<float>::max());
+        float majorLength = static_cast<float>(std::min(majorD, floatMax));
+        float minorLength = static_cast<float>(std::min(minorD, floatMax));
+
+        // Long axis unit vector. (lambdaMajor - B, C) is always an
+        // eigenvector of the Gram matrix; it only vanishes for a diagonal
+        // matrix, where the axes align with the texel coordinate axes.
+        float dirU = 1.0f;
+        float dirV = 0.0f;
+        const double eps = 1e-20;
+        double evx = lambdaMajor - B;
+        double evy = C;
+        double evLen = std::sqrt(evx * evx + evy * evy);
+        if (evLen > eps) {
+            dirU = static_cast<float>(evx / evLen);
+            dirV = static_cast<float>(evy / evLen);
+        } else if (A < B) {
+            dirU = 0.0f;
+            dirV = 1.0f;
+        }
+
+        // A zero-length axis still spans one texel for filtering purposes.
+        float majorAxis = std::max(majorLength, 1.0f);
+        float minorAxis = std::max(minorLength, 1.0f);
+
+        // At the anisotropy limit the short axis has to cover enough texels
+        // for the available taps; widening the mip filter is the correct
+        // response, simply sampling fewer times from an overly fine mip is not.
+        float cap = majorAxis / static_cast<float>(m_maxAnisotropy);
+        float effectiveMinor = std::max({minorAxis, 1.0f, cap});
+
+        float lod = std::log2(effectiveMinor);
+        lod = std::clamp(lod, 0.0f, static_cast<float>(m_mipmaps.size() - 1));
+
+        int tapCount = static_cast<int>(std::ceil(majorAxis / effectiveMinor));
+        tapCount = std::clamp(tapCount, 1, m_maxAnisotropy);
+
+        Footprint f;
+        f.majorLength = majorLength;
+        f.minorLength = minorLength;
+        f.dirMajorU = dirU;
+        f.dirMajorV = dirV;
+        f.effectiveMinor = effectiveMinor;
+        f.lod = lod;
+        f.tapCount = tapCount;
+        return f;
+    }
+
     void sample(float u, float v, float dudx, float dvdx, float dudy, float dvdy, Uint32& outColor) const {
+        validateInputs(u, v, dudx, dvdx, dudy, dvdy);
+
         if (m_mipmaps.empty()) {
             outColor = 0;
             return;
         }
 
-        // Safely wrap texture coordinates
+        // Repeat wrap of the texture coordinate.
         u = std::fmod(u, 1.0f);
         v = std::fmod(v, 1.0f);
         if (u < 0) u += 1.0f;
@@ -49,86 +153,69 @@ public:
             outColor = 0;
             return;
         }
-        
-        // Compute ellipse axes
-        float dudx_scaled = dudx * baseLevel->w;
-        float dvdx_scaled = dvdx * baseLevel->h;
-        float dudy_scaled = dudy * baseLevel->w;
-        float dvdy_scaled = dvdy * baseLevel->h;
-        
-        float dx_len = std::sqrt(dudx_scaled * dudx_scaled + dvdx_scaled * dvdx_scaled);
-        float dy_len = std::sqrt(dudy_scaled * dudy_scaled + dvdy_scaled * dvdy_scaled);
-        
-        dx_len = std::max(dx_len, 1e-6f);
-        dy_len = std::max(dy_len, 1e-6f);
 
-        float major_len = std::max(dx_len, dy_len);
-        float minor_len = std::min(dx_len, dy_len);
-        
-        float ratio = std::min(major_len / minor_len, static_cast<float>(m_maxAnisotropy));
-        int num_samples = std::max(1, static_cast<int>(std::ceil(ratio)));
+        Footprint fp = queryFootprint(u, v, dudx, dvdx, dudy, dvdy);
 
-        try {
-            if (num_samples <= 1) {
-                // Use regular trilinear filtering for low anisotropy
-                sampleTrilinear(u, v, major_len, outColor);
-                return;
-            }
-
-            // Determine major axis direction
-            float major_du, major_dv;
-            if (dx_len > dy_len) {
-                major_du = dudx / dx_len;
-                major_dv = dvdx / dx_len;
-            } else {
-                major_du = dudy / dy_len;
-                major_dv = dvdy / dy_len;
-            }
-
-            // Accumulate color components
-            float r = 0, g = 0, b = 0;
-            float step = 1.0f / num_samples;
-            
-            for (int i = 0; i < num_samples; ++i) {
-                float t = (i + 0.5f) * step - 0.5f;
-                float sample_u = u + major_du * major_len * t;
-                float sample_v = v + major_dv * major_len * t;
-                
-                sample_u = std::fmod(sample_u, 1.0f);
-                sample_v = std::fmod(sample_v, 1.0f);
-                if (sample_u < 0) sample_u += 1.0f;
-                if (sample_v < 0) sample_v += 1.0f;
-
-                Uint32 sample_color;
-                sampleTrilinear(sample_u, sample_v, minor_len, sample_color);
-                
-                r += getR(sample_color);
-                g += getG(sample_color);
-                b += getB(sample_color);
-            }
-            
-            r = std::min(255.0f, r / num_samples);
-            g = std::min(255.0f, g / num_samples);
-            b = std::min(255.0f, b / num_samples);
-            
-            outColor = packRGB(static_cast<Uint8>(r), static_cast<Uint8>(g), static_cast<Uint8>(b));
-        } catch (const std::exception& e) {
-            std::cerr << "Exception in sample(): " << e.what() << std::endl;
-            outColor = 0;
+        if (fp.tapCount <= 1) {
+            // Isotropic footprint: regular trilinear filtering.
+            sampleTrilinear(u, v, fp.effectiveMinor, outColor);
+            return;
         }
+
+        // Anisotropic footprint: taps are placed symmetrically and at equal
+        // spacing along the texel-space long axis, inside the footprint.
+        float r = 0.0f, g = 0.0f, b = 0.0f;
+        float step = 1.0f / static_cast<float>(fp.tapCount);
+
+        for (int i = 0; i < fp.tapCount; ++i) {
+            float t = (static_cast<float>(i) + 0.5f) * step - 0.5f;
+            float offset = t * fp.majorLength;
+            float sample_u = u + fp.dirMajorU * offset / static_cast<float>(baseLevel->w);
+            float sample_v = v + fp.dirMajorV * offset / static_cast<float>(baseLevel->h);
+
+            sample_u = std::fmod(sample_u, 1.0f);
+            sample_v = std::fmod(sample_v, 1.0f);
+            if (sample_u < 0) sample_u += 1.0f;
+            if (sample_v < 0) sample_v += 1.0f;
+
+            Uint32 sample_color;
+            sampleTrilinear(sample_u, sample_v, fp.effectiveMinor, sample_color);
+
+            r += static_cast<float>(getR(sample_color));
+            g += static_cast<float>(getG(sample_color));
+            b += static_cast<float>(getB(sample_color));
+        }
+
+        float invTaps = 1.0f / static_cast<float>(fp.tapCount);
+        r = std::min(255.0f, r * invTaps);
+        g = std::min(255.0f, g * invTaps);
+        b = std::min(255.0f, b * invTaps);
+
+        outColor = packRGB(static_cast<Uint8>(r), static_cast<Uint8>(g), static_cast<Uint8>(b));
     }
 
 private:
+    static void validateInputs(float u, float v,
+                               float dudx, float dvdx,
+                               float dudy, float dvdy)
+    {
+        if (!std::isfinite(u) || !std::isfinite(v) ||
+            !std::isfinite(dudx) || !std::isfinite(dvdx) ||
+            !std::isfinite(dudy) || !std::isfinite(dvdy)) {
+            throw std::invalid_argument("Texture::sample received non-finite UV coordinate or derivative");
+        }
+    }
+
     void sampleTrilinear(float u, float v, float rho, Uint32& outColor) const {
         if (m_mipmaps.empty()) {
             outColor = 0;
             return;
         }
 
-        // Calculate mipmap level based on rho (pixel footprint)
+        // Calculate mipmap level based on rho (texel-space filter width)
         float lod = std::log2(std::max(rho, 1e-6f));
         lod = std::clamp(lod, 0.0f, static_cast<float>(m_mipmaps.size() - 1));
-        
+
         int lodBase = static_cast<int>(std::floor(lod));
         int lodNext = std::min(lodBase + 1, static_cast<int>(m_mipmaps.size()) - 1);
         float lodFrac = std::clamp(lod - lodBase, 0.0f, 1.0f);
@@ -144,7 +231,7 @@ private:
     }
 
     void sampleBilinear(int mipLevel, float u, float v, Uint32& outColor) const {
-        if (mipLevel < 0 || mipLevel >= m_mipmaps.size()) {
+        if (mipLevel < 0 || mipLevel >= static_cast<int>(m_mipmaps.size())) {
             outColor = 0;
             return;
         }
@@ -270,7 +357,7 @@ private:
                     Uint32 p00 = srcPixels[(y*2) * prevLevel->w + (x*2)];
                     Uint32 p10 = x*2+1 < prevLevel->w ? srcPixels[(y*2) * prevLevel->w + (x*2+1)] : p00;
                     Uint32 p01 = y*2+1 < prevLevel->h ? srcPixels[(y*2+1) * prevLevel->w + (x*2)] : p00;
-                    Uint32 p11 = (x*2+1 < prevLevel->w && y*2+1 < prevLevel->h) ? 
+                    Uint32 p11 = (x*2+1 < prevLevel->w && y*2+1 < prevLevel->h) ?
                                 srcPixels[(y*2+1) * prevLevel->w + (x*2+1)] : p00;
 
                     Uint8 r = (getR(p00) + getR(p10) + getR(p01) + getR(p11)) >> 2;

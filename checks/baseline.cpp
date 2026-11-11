@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include "src/examples/Texture.h"
 #include "src/renderer/PixelData.h"
@@ -16,6 +17,12 @@ int main() {
     t.sample(.37f,.16f,8.f*q/16,q/16,-8.f*q/16,q/16,b);
     t.sample(.37f,.16f,0,0,0,0,flat);
     assert(a<=0xffffff && b<=0xffffff && flat<=0xffffff);
-    assert(a!=b);
-    std::cout << "baseline basis-dependent RGB: " << (a&255) << " " << (b&255) << "; zero-footprint=" << (flat&255) << "\n";
+    // The two screen bases describe the same texel-space ellipse, so the
+    // sampled colors must agree within one unit per channel.
+    for (int shift = 0; shift <= 16; shift += 8) {
+        int ca = (a >> shift) & 255;
+        int cb = (b >> shift) & 255;
+        assert(std::abs(ca - cb) <= 1);
+    }
+    std::cout << "rotation-invariant RGB: " << (a&255) << " " << (b&255) << "; zero-footprint=" << (flat&255) << "\n";
 }
