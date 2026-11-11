@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z1034/attempts/20261111T041621152370Z/repo/build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1034/attempts/20261111T041621152370Z/repo/build/include/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1034/attempts/20261111T041621152370Z/repo/build/src/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1034/attempts/20261111T041621152370Z/repo/build/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

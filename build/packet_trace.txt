@@ -1,0 +1,62 @@
+seg1-active-erasure: event=PAYLOAD len=40 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d 30 bf c0 a0 90 94 a1 7c 81 87 78 bf c0 ea a2 4d 62 00 83 e9 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SPEECH
+seg1-active-erasure: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg1-active-erasure: event=PAYLOAD len=20 payload=79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 -> OK frames=2 types=SPEECH,SPEECH
+seg2-sid-dtx-erasure: event=PAYLOAD len=32 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d 30 bf c0 a0 90 94 a1 7c 81 87 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg2-sid-dtx-erasure: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg2-sid-dtx-erasure: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg2-sid-dtx-erasure: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg2-sid-dtx-erasure: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg2-sid-dtx-erasure: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg3-recovery: event=PAYLOAD len=2 payload=12 48 -> OK frames=1 types=SID
+seg3-recovery: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg3-recovery: event=PAYLOAD len=10 payload=e0 bf 80 a0 00 fa c2 40 92 7c -> OK frames=1 types=SPEECH
+seg3-recovery: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg3-recovery: event=DTX len=0 payload=null -> REJECTED
+seg4-pure-sid: event=PAYLOAD len=2 payload=6c 92 -> OK frames=1 types=SID
+seg4-pure-sid: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg5-spec-example: event=PAYLOAD len=32 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d 30 bf c0 a0 90 94 a1 7c 81 87 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg5-spec-example: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg5-spec-example: event=PAYLOAD len=10 payload=78 bf c0 ea a2 4d 62 00 83 e9 -> OK frames=1 types=SPEECH
+seg5-spec-example: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg5-spec-example: event=DTX len=0 payload=null -> REJECTED
+seg6-dual-instance: event=PAYLOAD len=20 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d -> OK frames=2 types=SPEECH,SPEECH
+seg6-dual-instance: event=PAYLOAD len=10 payload=e0 bf 80 a0 00 fa c2 40 92 7c -> OK frames=1 types=SPEECH
+seg6-dual-instance: event=PAYLOAD len=2 payload=12 48 -> OK frames=1 types=SID
+seg6-dual-instance: event=PAYLOAD len=10 payload=b0 be 4f 61 30 d5 a9 35 31 2d -> OK frames=1 types=SPEECH
+seg6-dual-instance: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg6-dual-instance: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg6-dual-instance: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg6-dual-instance: event=PAYLOAD len=10 payload=30 bf c0 a0 90 94 a1 7c 81 87 -> OK frames=1 types=SPEECH
+seg6-dual-instance: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg6-dual-instance: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg7-rejections: event=PAYLOAD len=32 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d 30 bf c0 a0 90 94 a1 7c 81 87 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg7-rejections: event=PAYLOAD len=32 payload=e0 bf 80 a0 00 fa c2 40 92 7c b0 be 4f 61 30 d5 a9 35 31 2d 30 bf c0 a0 90 94 a1 7c 81 87 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg7-rejections: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg7-rejections: event=DTX len=0 payload=null -> OK frames=1 types=DTX
+seg7-rejections: event=PAYLOAD len=1 payload=3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=3 payload=3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=5 payload=3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=7 payload=3b 3b 3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=9 payload=3b 3b 3b 3b 3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=11 payload=3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=21 payload=3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=33 payload=3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=0 payload=null -> REJECTED
+seg7-rejections: event=PAYLOAD len=10 payload=null -> REJECTED
+seg7-rejections: event=DTX len=0 payload= -> REJECTED
+seg7-rejections: event=DTX len=2 payload=null -> REJECTED
+seg7-rejections: event=ERASURE len=0 payload= -> REJECTED
+seg7-rejections: event=ERASURE len=2 payload=null -> REJECTED
+seg7-rejections: event=DTX len=0 payload=null -> REJECTED
+seg7-rejections: event=UNKNOWN len=0 payload=null -> REJECTED
+seg7-rejections: event=PAYLOAD len=33 payload=78 bf c0 ea a2 4d 62 00 83 e9 79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 6c 92 3b -> REJECTED
+seg7-rejections: event=PAYLOAD len=32 payload=78 bf c0 ea a2 4d 62 00 83 e9 79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 6c 92 -> REJECTED
+seg7-rejections: event=PAYLOAD len=32 payload=78 bf c0 ea a2 4d 62 00 83 e9 79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 6c 92 -> REJECTED
+seg7-rejections: event=PAYLOAD len=32 payload=78 bf c0 ea a2 4d 62 00 83 e9 79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg7-rejections: event=PAYLOAD len=32 payload=78 bf c0 ea a2 4d 62 00 83 e9 79 70 cf a9 02 81 e1 44 af a6 60 be 28 aa ca 0a 9e 79 af d4 6c 92 -> OK frames=4 types=SPEECH,SPEECH,SPEECH,SID
+seg7-rejections: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg7-rejections: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_COMFORT
+seg7-rejections: event=PAYLOAD len=20 payload=f9 15 b7 47 58 fa 8c 2a 07 d4 20 cb c5 66 f0 0a c8 5f c7 de -> OK frames=2 types=SPEECH,SPEECH
+seg7-rejections: event=PAYLOAD len=20 payload=f9 15 b7 47 58 fa 8c 2a 07 d4 20 cb c5 66 f0 0a c8 5f c7 de -> OK frames=2 types=SPEECH,SPEECH
+seg7-rejections: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH
+seg7-rejections: event=ERASURE len=0 payload=null -> OK frames=1 types=PLC_SPEECH

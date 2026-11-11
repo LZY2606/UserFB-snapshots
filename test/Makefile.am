@@ -7,7 +7,7 @@ testCampaignAll-exec: $(srcdir)/testCampaignAll $(srcdir)/testCampaign
 
 TESTS = testCampaignAll-exec
 
-EXTRA_DIST=testCampaignAll testCampaign
+EXTRA_DIST=testCampaignAll testCampaign run_packet_decoder.sh src/packetDecoderTest.c
 
 CLEANFILES=testCampaignAll-exec testCampaign-exec
 

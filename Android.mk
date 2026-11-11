@@ -18,6 +18,7 @@ LOCAL_SRC_FILES =       src/LP2LSPConversion.c \
                         src/decodeGains.c \
                         src/decodeLSP.c \
                         src/decoder.c \
+                        src/packetDecoder.c \
                         src/encoder.c \
                         src/findOpenLoopPitchDelay.c \
                         src/fixedCodebookSearch.c \

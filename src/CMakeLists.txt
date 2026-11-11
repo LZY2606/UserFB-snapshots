@@ -31,6 +31,7 @@ set(BCG729_SOURCE_FILES
 	decodeGains.c
 	decodeLSP.c
 	decoder.c
+	packetDecoder.c
 	encoder.c
 	findOpenLoopPitchDelay.c
 	fixedCodebookSearch.c

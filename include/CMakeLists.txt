@@ -23,6 +23,7 @@
 set(HEADER_FILES
 	decoder.h
 	encoder.h
+	packetDecoder.h
 )
 
 set(BCG729_HEADER_FILES )

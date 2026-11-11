@@ -1,6 +1,6 @@
 check_PROGRAMS=adaptativeCodebookSearchTest computeAdaptativeCodebookGainTest computeLPTest computeWeightedSpeechTest decodeAdaptativeCodeVectorTest decodeFixedCodeVectorTest decodeGainsTest decodeLSPTest \
        decoderTest encoderTest decoderMultiChannelTest encoderMultiChannelTest findOpenLoopPitchDelayTest fixedCodebookSearchTest g729FixedPointMathTest gainQuantizationTest interpolateqLSPAndConvert2LPTest \
-       LP2LSPConversionTest LPSynthesisFilterTest LSPQuantizationTest postFilterTest postProcessingTest preProcessingTest computeNoiseExcitationTest CNGdecoderTest CNGRFC3389decoderTest encoderVADTest
+       LP2LSPConversionTest LPSynthesisFilterTest LSPQuantizationTest postFilterTest postProcessingTest preProcessingTest computeNoiseExcitationTest CNGdecoderTest CNGRFC3389decoderTest encoderVADTest packetDecoderTest
 util_src= \
 	$(top_srcdir)/test/src/testUtils.c \
 	$(top_srcdir)/test/src/testUtils.h
@@ -33,6 +33,8 @@ postProcessingTest_SOURCES=$(top_srcdir)/test/src/postProcessingTest.c $(util_sr
 preProcessingTest_SOURCES=$(top_srcdir)/test/src/preProcessingTest.c $(util_src)
 computeNoiseExcitationTest_SOURCES=$(top_srcdir)/test/src/computeNoiseExcitationTest.c $(util_src)
 encoderVADTest_SOURCES=$(top_srcdir)/test/src/encoderVADTest.c $(util_src)
+packetDecoderTest_SOURCES=$(top_srcdir)/test/src/packetDecoderTest.c
+packetDecoderTest_LDADD=$(top_builddir)/src/libbcg729.la -lm
 
 LDADD=	$(top_builddir)/src/libbcg729.la 
 AM_CPPFLAGS=-I$(top_srcdir)/include/ -I$(top_srcdir)/src/

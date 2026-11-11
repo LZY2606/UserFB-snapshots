@@ -15,6 +15,7 @@ libbcg729_la_SOURCES=	LP2LSPConversion.c \
 			decodeGains.c \
 			decodeLSP.c \
 			decoder.c \
+			packetDecoder.c \
 			encoder.c \
 			findOpenLoopPitchDelay.c \
 			fixedCodebookSearch.c \
