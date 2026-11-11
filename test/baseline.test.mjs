@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {nearestCube,faceUV} from '../cube.mjs';
+const cube=JSON.parse(readFileSync(new URL('../fixtures/axis.json',import.meta.url),'utf8'));
+const dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const colors=[[1,0,0],[0,1,1],[0,1,0],[1,0,1],[0,0,1],[1,1,0]];
+dirs.forEach((d,i)=>assert.deepEqual(nearestCube(cube,d),colors[i]));
+assert.equal(faceUV([1,1,1]).face,'px');
+assert.throws(()=>faceUV([0,0,0]),RangeError);
+assert.deepEqual(nearestCube(cube,[10,0,0]),colors[0]);
+console.log('BASELINE_OK: six faces, tie, scale, invalid direction');
