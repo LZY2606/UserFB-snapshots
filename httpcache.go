@@ -3,7 +3,6 @@
 //
 // It is only suitable for use as a 'private' cache (i.e. for a web-browser or an API-client
 // and not for a shared proxy).
-//
 package httpcache
 
 import (
@@ -49,10 +48,30 @@ func cacheKey(req *http.Request) string {
 
 // CachedResponse returns the cached http.Response for req if present, and nil
 // otherwise.
+//
+// When the cache holds a VaryVariants catalog entry, the returned response is
+// selected according to req's Vary request headers; nil is returned when no
+// representation matches. Entries written by the default, single-response mode
+// are returned exactly as before.
 func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error) {
 	cachedVal, ok := c.Get(cacheKey(req))
 	if !ok {
 		return
+	}
+
+	if bytes.HasPrefix(cachedVal, varyCatalogMagic) {
+		var catalog *varyCatalog
+		catalog, err = decodeVaryCatalog(cachedVal)
+		if err != nil || catalog == nil || catalog.wildcard {
+			return nil, err
+		}
+		cond := requestVaryCondition(req, catalog.fields)
+		variant := catalog.match(cond)
+		if variant == nil {
+			return nil, nil
+		}
+		b := bytes.NewBuffer(variant.blob)
+		return http.ReadResponse(bufio.NewReader(b), req)
 	}
 
 	b := bytes.NewBuffer(cachedVal)
@@ -103,6 +122,17 @@ type Transport struct {
 	Cache     Cache
 	// If true, responses returned from the cache will be given an extra header, X-From-Cache
 	MarkCachedResponses bool
+	// VaryVariants enables the multi-representation Vary cache for plain GET
+	// requests (no Range, If-None-Match or If-Modified-Since headers). When
+	// enabled, every representation selected by a response's Vary header is
+	// kept under the same cache key instead of the last response replacing the
+	// previous one. The default false keeps the historical single-response
+	// storage, including entries written by older versions of this package.
+	VaryVariants bool
+
+	// varyMu guards varyInflight; it never covers network or body reads.
+	varyMu       sync.Mutex
+	varyInflight map[string]*varyInflight
 }
 
 // NewTransport returns a new Transport with the
@@ -137,6 +167,32 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
+	if t.VaryVariants && t.varyCatalogEnabled(req) {
+		return t.roundTripVaryCatalog(req)
+	}
+	return t.roundTripSingle(req)
+}
+
+// varyCatalogEnabled reports whether req is eligible for the
+// multi-representation Vary cache: plain GETs without Range or conditional
+// request headers. Everything else keeps using the single-response path.
+func (t *Transport) varyCatalogEnabled(req *http.Request) bool {
+	if req.Method != http.MethodGet {
+		return false
+	}
+	if req.Header.Get("Range") != "" {
+		return false
+	}
+	if req.Header.Get("If-None-Match") != "" {
+		return false
+	}
+	if req.Header.Get("If-Modified-Since") != "" {
+		return false
+	}
+	return true
+}
+
+func (t *Transport) roundTripSingle(req *http.Request) (resp *http.Response, err error) {
 	cacheKey := cacheKey(req)
 	cacheable := (req.Method == "GET" || req.Method == "HEAD") && req.Header.Get("range") == ""
 	var cachedResp *http.Response
