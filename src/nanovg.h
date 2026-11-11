@@ -260,6 +260,20 @@ void nvgMiterLimit(NVGcontext* ctx, float limit);
 // Sets the stroke width of the stroke style.
 void nvgStrokeWidth(NVGcontext* ctx, float size);
 
+// A width control point for nvgStrokeProfile(). 't' is the fraction of the
+// sub-path length (0..1) and 'width' is the full stroke width at that point.
+struct NVGwidthStop {
+	float t;
+	float width;
+};
+typedef struct NVGwidthStop NVGwidthStop;
+
+// Strokes the current path with a width that varies along each sub-path.
+// The width is linearly interpolated between adjacent control points.
+// Passing count == 0 is equivalent to nvgStroke(). Returns 0 without
+// drawing if the profile is invalid.
+int nvgStrokeProfile(NVGcontext* ctx, const NVGwidthStop* stops, int count);
+
 // Sets how the end of the line (cap) is drawn,
 // Can be one of: NVG_BUTT (default), NVG_ROUND, NVG_SQUARE.
 void nvgLineCap(NVGcontext* ctx, int cap);

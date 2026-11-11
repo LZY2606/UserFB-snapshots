@@ -1328,7 +1328,7 @@ static void nvg__tesselateBezier(NVGcontext* ctx,
 	nvg__tesselateBezier(ctx, x1234,y1234, x234,y234, x34,y34, x4,y4, level+1, type);
 }
 
-static void nvg__flattenPaths(NVGcontext* ctx)
+static void nvg__flattenPathsImpl(NVGcontext* ctx, int enforceWinding)
 {
 	NVGpathCache* cache = ctx->cache;
 //	NVGstate* state = nvg__getState(ctx);
@@ -1403,7 +1403,7 @@ static void nvg__flattenPaths(NVGcontext* ctx)
 		}
 
 		// Enforce winding.
-		if (path->count > 2) {
+		if (enforceWinding && path->count > 2) {
 			area = nvg__polyArea(pts, path->count);
 			if (path->winding == NVG_CCW && area < 0.0f)
 				nvg__polyReverse(pts, path->count);
@@ -1425,6 +1425,14 @@ static void nvg__flattenPaths(NVGcontext* ctx)
 			p0 = p1++;
 		}
 	}
+}
+
+static void nvg__flattenPaths(NVGcontext* ctx)
+{
+	NVGpathCache* cache = ctx->cache;
+	if (cache->npaths > 0)
+		return;
+	nvg__flattenPathsImpl(ctx, 1);
 }
 
 static int nvg__curveDivs(float r, float arc, float tol)
@@ -2255,11 +2263,11 @@ void nvgFill(NVGcontext* ctx)
 	}
 }
 
-void nvgStroke(NVGcontext* ctx)
+static void nvg__strokeInternal(NVGcontext* ctx, float width)
 {
 	NVGstate* state = nvg__getState(ctx);
 	float scale = nvg__getAverageScale(state->xform);
-	float strokeWidth = nvg__clampf(state->strokeWidth * scale, 0.0f, 200.0f);
+	float strokeWidth = nvg__clampf(width * scale, 0.0f, 200.0f);
 	NVGpaint strokePaint = state->stroke;
 	const NVGpath* path;
 	int i;
@@ -2296,7 +2304,764 @@ void nvgStroke(NVGcontext* ctx)
 	}
 }
 
-// Add fonts
+void nvgStroke(NVGcontext* ctx)
+{
+	NVGstate* state = nvg__getState(ctx);
+	nvg__strokeInternal(ctx, state->strokeWidth);
+}
+
+
+//
+// Variable width strokes
+//
+
+typedef struct NVGprofilePoint {
+	float x, y;
+	float w_in;			// full width entering this point
+	float w_out;		// full width leaving this point
+	float t;
+} NVGprofilePoint;
+
+typedef struct NVGprofilePath {
+	NVGprofilePoint* pts;
+	int npts;
+	int cpts;
+	int closed;
+	int winding;
+	int first;
+	int count;
+} NVGprofilePath;
+
+static float nvg__profileWidthAt(const NVGwidthStop* stops, int count, float t)
+{
+	int i;
+
+	if (t <= stops[0].t)
+		return stops[0].width;
+	for (i = 1; i < count; i++) {
+		if (t <= stops[i].t) {
+			float dt = stops[i].t - stops[i-1].t;
+			if (dt <= 0.0f)
+				return stops[i].width;
+			return stops[i-1].width + (stops[i].width - stops[i-1].width) * ((t - stops[i-1].t) / dt);
+		}
+	}
+	return stops[count-1].width;
+}
+
+static int nvg__profileAppendPoint(NVGprofilePath* pp, float x, float y, float win, float wout, float t)
+{
+	if (pp->npts+1 > pp->cpts) {
+		int cpts = pp->npts+1 + pp->cpts/2;
+		NVGprofilePoint* pts = (NVGprofilePoint*)realloc(pp->pts, sizeof(NVGprofilePoint)*cpts);
+		if (pts == NULL) return 0;
+		pp->pts = pts;
+		pp->cpts = cpts;
+	}
+	pp->pts[pp->npts].x = x;
+	pp->pts[pp->npts].y = y;
+	pp->pts[pp->npts].w_in = win;
+	pp->pts[pp->npts].w_out = wout;
+	pp->pts[pp->npts].t = t;
+	pp->npts++;
+	return 1;
+}
+
+static int nvg__profileBuildPath(NVGprofilePath* pp, const NVGpath* path, const NVGpoint* pts,
+								 const NVGwidthStop* stops, int count, float scale)
+{
+	int n = path->count;
+	int i, k;
+	int closed = path->closed;
+	float total = 0.0f, acc = 0.0f;
+
+	if (n < 2)
+		return 0;
+
+	for (i = 0; i < (closed ? n : n-1); i++)
+		total += pts[i].len;
+
+	if (!(total > 1e-6f))
+		return 0;
+
+	pp->closed = closed;
+	pp->winding = path->winding;
+	pp->first = path->first;
+	pp->count = path->count;
+
+	for (i = 0; i < n; i++) {
+		float t, w, win;
+
+		if (i == 0)
+			t = 0.0f;
+		else if (!closed && i == n-1)
+			t = 1.0f;
+		else
+			t = acc / total;
+
+		w = nvg__profileWidthAt(stops, count, t) * scale;
+		// A closed sub-path shares its first/last location. Keep separate
+		// entering/leaving widths so the closing edge is honored; equal
+		// profile endpoints make this a real, cap-less join.
+		win = (closed && i == 0) ? nvg__profileWidthAt(stops, count, 1.0f) * scale : w;
+
+		if (!nvg__profileAppendPoint(pp, pts[i].x, pts[i].y, win, w, t))
+			return 0;
+
+		if (i < (closed ? n : n-1)) {
+			float len = pts[i].len;
+			float tnext = (i == n-1) ? 1.0f : (acc + len) / total;
+			int nx = (i+1 == n) ? 0 : i+1;
+
+			// A width stop in the middle of a straight segment needs an
+			// explicit vertex, otherwise the width would be interpolated
+			// from the segment's endpoints rather than from the profile.
+			for (k = 1; k < count-1; k++) {
+				float st = stops[k].t;
+				if (st > t && st < tnext) {
+					float u = (len > 1e-12f) ? (st * total - acc) / len : 0.0f;
+					float x = pts[i].x + (pts[nx].x - pts[i].x) * u;
+					float y = pts[i].y + (pts[nx].y - pts[i].y) * u;
+					float sw = nvg__profileWidthAt(stops, count, st) * scale;
+					if (!nvg__profileAppendPoint(pp, x, y, sw, sw, st))
+						return 0;
+				}
+			}
+			acc += len;
+		}
+	}
+
+	return pp->npts > 0;
+}
+
+static void nvg__profileFreePaths(NVGprofilePath* paths, int npaths)
+{
+	int i;
+	for (i = 0; i < npaths; i++)
+		free(paths[i].pts);
+}
+
+static int nvg__profileValid(const NVGwidthStop* stops, int count)
+{
+	int i;
+
+	if (count < 0 || (!stops && count > 0))
+		return 0;
+	if (count == 0)
+		return 1;
+	if (count < 2)
+		return 0;
+
+	for (i = 0; i < count; i++) {
+		if (!isfinite(stops[i].t) || !isfinite(stops[i].width) || !(stops[i].width > 0.0f))
+			return 0;
+	}
+	if (stops[0].t != 0.0f || stops[count-1].t != 1.0f)
+		return 0;
+	for (i = 1; i < count; i++) {
+		if (!(stops[i].t > stops[i-1].t))
+			return 0;
+	}
+	return 1;
+}
+
+static void nvg__profileGeomWidth(float w, float aa, float* geom, float* alpha)
+{
+	// Match nvgStroke's sub-pixel handling locally, using the width at this
+	// point instead of a single width for the whole stroke.
+	if (aa > 0.0f && w < aa) {
+		float a = nvg__clampf(w / aa, 0.0f, 1.0f);
+		*geom = aa;
+		*alpha = a*a;
+	} else {
+		*geom = w;
+		*alpha = 1.0f;
+	}
+}
+
+static float nvg__profileUSpan(float geom, float aa, float wmax)
+{
+	// The backend's stroke coverage is defined over u in [0,1] from one
+	// fringe edge to the other. Keep that convention for every vertex and
+	// express local sub-pixel coverage with the per-vertex v factor.
+	(void)geom; (void)wmax;
+	if (aa <= 0.0f)
+		return 0.5f;
+	return 1.0f;
+}
+
+static int nvg__profileDir(float ax, float ay, float bx, float by, float* dx, float* dy)
+{
+	float vx = bx - ax;
+	float vy = by - ay;
+	float len = nvg__sqrtf(vx*vx + vy*vy);
+	if (!(len > 1e-12f))
+		return 0;
+	*dx = vx / len;
+	*dy = vy / len;
+	return 1;
+}
+
+static int nvg__profileIsect(float ax, float ay, float bx, float by,
+							 float cx, float cy, float dx, float dy,
+							 float* ox, float* oy)
+{
+	float rx = bx - ax, ry = by - ay;
+	float sx = dx - cx, sy = dy - cy;
+	float denom = rx*sy - ry*sx;
+	float lr = nvg__sqrtf(rx*rx + ry*ry);
+	float ls = nvg__sqrtf(sx*sx + sy*sy);
+
+	if (!(lr > 1e-12f) || !(ls > 1e-12f))
+		return 0;
+	if (nvg__absf(denom) <= 1e-6f * lr * ls)
+		return 0;
+
+	{
+		float qx = cx - ax, qy = cy - ay;
+		float u = (qx*sy - qy*sx) / denom;
+		*ox = ax + u*rx;
+		*oy = ay + u*ry;
+	}
+	return 1;
+}
+
+static NVGvertex* nvg__profilePair(NVGvertex* dst,
+								   float xp, float yp, float xm, float ym,
+								   float up, float um, float vp, float vm)
+{
+	nvg__vset(dst, xp, yp, up, vp); dst++;
+	nvg__vset(dst, xm, ym, um, vm); dst++;
+	return dst;
+}
+
+static NVGvertex* nvg__profileJoin(NVGcontext* ctx, NVGvertex* dst,
+								   const NVGprofilePoint* p0,
+								   const NVGprofilePoint* p1,
+								   const NVGprofilePoint* p2,
+								   float aa, float wmax, int lineJoin, float miterLimit)
+{
+	float dinx, diny, doutx, douty;
+	float ninx, niny, noutx, nouty;
+	float gprev, aprev, gin, ain, gout, aout, gnext, anext;
+	float hprev, hin, hout, hnext;
+	float pin0x, pin0y, pin1x, pin1y;
+	float pout0x, pout0y, pout1x, pout1y;
+	float min0x, min0y, min1x, min1y;
+	float mout0x, mout0y, mout1x, mout1y;
+	float mpx, mpy, mmx, mmy;
+	float crs, dot;
+	float h_ref, ratio;
+	int okp, okm;
+	int plusOuter;
+	int outerOk;
+	float so, si;
+	int outerMode = 0;
+	int innerBevel = 0;
+	float up, uin, uout, U;
+	float vavg;
+	float outerInX, outerInY, outerOutX, outerOutY;
+	float innerInX, innerInY, innerOutX, innerOutY;
+	float outerX, outerY, innerX, innerY;
+
+	if (!nvg__profileDir(p0->x, p0->y, p1->x, p1->y, &dinx, &diny)) {
+		if (!nvg__profileDir(p1->x, p1->y, p2->x, p2->y, &doutx, &douty)) {
+			doutx = 1.0f; douty = 0.0f;
+		}
+		dinx = doutx; diny = douty;
+	} else if (!nvg__profileDir(p1->x, p1->y, p2->x, p2->y, &doutx, &douty)) {
+		doutx = dinx; douty = diny;
+	}
+
+	ninx = diny;  niny = -dinx;
+	noutx = douty; nouty = -doutx;
+
+	nvg__profileGeomWidth(p0->w_out, aa, &gprev, &aprev);
+	nvg__profileGeomWidth(p1->w_in, aa, &gin, &ain);
+	nvg__profileGeomWidth(p1->w_out, aa, &gout, &aout);
+	nvg__profileGeomWidth(p2->w_in, aa, &gnext, &anext);
+
+	hprev = gprev*0.5f + aa*0.5f;
+	hin = gin*0.5f + aa*0.5f;
+	hout = gout*0.5f + aa*0.5f;
+	hnext = gnext*0.5f + aa*0.5f;
+
+	up = (aa > 0.0f) ? 0.0f : 0.5f;
+	uin = nvg__profileUSpan(gin, aa, wmax);
+	uout = nvg__profileUSpan(gout, aa, wmax);
+	U = 0.5f*(uin + uout);
+	vavg = 0.5f*(ain + aout);
+
+	pin0x = p0->x + ninx*hprev;  pin0y = p0->y + niny*hprev;
+	pin1x = p1->x + ninx*hin;    pin1y = p1->y + niny*hin;
+	pout0x = p1->x + noutx*hout; pout0y = p1->y + nouty*hout;
+	pout1x = p2->x + noutx*hnext; pout1y = p2->y + nouty*hnext;
+
+	min0x = p0->x - ninx*hprev;  min0y = p0->y - niny*hprev;
+	min1x = p1->x - ninx*hin;    min1y = p1->y - niny*hin;
+	mout0x = p1->x - noutx*hout; mout0y = p1->y - nouty*hout;
+	mout1x = p2->x - noutx*hnext; mout1y = p2->y - nouty*hnext;
+
+	okp = nvg__profileIsect(pin0x, pin0y, pin1x, pin1y, pout0x, pout0y, pout1x, pout1y, &mpx, &mpy);
+	okm = nvg__profileIsect(min0x, min0y, min1x, min1y, mout0x, mout0y, mout1x, mout1y, &mmx, &mmy);
+
+	h_ref = 0.5f*(hin + hout);
+	if (!okp) {
+		mpx = p1->x + noutx*h_ref;
+		mpy = p1->y + nouty*h_ref;
+	}
+	if (!okm) {
+		mmx = p1->x - noutx*h_ref;
+		mmy = p1->y - nouty*h_ref;
+	}
+
+	crs = dinx*douty - diny*doutx;
+	dot = dinx*doutx + diny*douty;
+
+	if (nvg__absf(crs) < 1e-6f && dot > 0.0f) {
+		// Collinear: the adjacent segment sides are the same line, so the
+		// station is just the (possibly trapezoidal) side pair.
+		return nvg__profilePair(dst,
+			p1->x + noutx*hout, p1->y + nouty*hout,
+			p1->x - noutx*hout, p1->y - nouty*hout,
+			up, U, vavg, vavg);
+	}
+
+	plusOuter = (crs > 0.0f);
+	so = plusOuter ? 1.0f : -1.0f;
+	si = -so;
+	outerOk = plusOuter ? okp : okm;
+	outerX = plusOuter ? mpx : mmx;
+	outerY = plusOuter ? mpy : mmy;
+	innerX = plusOuter ? mmx : mpx;
+	innerY = plusOuter ? mmy : mpy;
+
+	ratio = nvg__sqrtf((outerX - p1->x)*(outerX - p1->x) + (outerY - p1->y)*(outerY - p1->y)) /
+			nvg__maxf(h_ref, 1e-6f);
+
+	if (lineJoin == NVG_ROUND)
+		outerMode = 2;
+	else if (lineJoin == NVG_BEVEL)
+		outerMode = 1;
+	else if (lineJoin == NVG_MITER)
+		outerMode = (!outerOk || ratio > miterLimit) ? 1 : 0;
+
+	// The inner side uses the intersection unless the corner is so sharp
+	// that its miter would fold back over the stroke.
+	{
+		float midx = 0.5f*(ninx + noutx);
+		float midy = 0.5f*(niny + nouty);
+		float dmr2 = midx*midx + midy*midy;
+		float lenin = nvg__sqrtf((p1->x - p0->x)*(p1->x - p0->x) + (p1->y - p0->y)*(p1->y - p0->y));
+		float lenout = nvg__sqrtf((p2->x - p1->x)*(p2->x - p1->x) + (p2->y - p1->y)*(p2->y - p1->y));
+		float limit = 1.01f;
+		if (h_ref > 1e-6f)
+			limit = nvg__maxf(1.01f, nvg__minf(lenin, lenout) / h_ref);
+		innerBevel = (dmr2 * limit * limit) < 1.0f;
+	}
+
+	outerInX = p1->x + so*ninx*hin;
+	outerInY = p1->y + so*niny*hin;
+	outerOutX = p1->x + so*noutx*hout;
+	outerOutY = p1->y + so*nouty*hout;
+	innerInX = p1->x + si*ninx*hin;
+	innerInY = p1->y + si*niny*hin;
+	innerOutX = p1->x + si*noutx*hout;
+	innerOutY = p1->y + si*nouty*hout;
+
+	if (outerMode == 2) {
+		float theta = nvg__atan2f(crs, dot);
+		float a0 = nvg__atan2f(so*niny, so*ninx);
+		int ncap = nvg__curveDivs(h_ref, NVG_PI, ctx->tessTol);
+		int n = nvg__clampi((int)ceilf((nvg__absf(theta) / NVG_PI) * ncap), 2, ncap);
+		int k;
+
+		if (n > ncap) n = ncap;
+		for (k = 0; k < n; k++) {
+			float u = (n > 1) ? k/(float)(n-1) : 0.0f;
+			float ang = a0 + u*theta;
+			float rad = hin + (hout - hin)*u;
+			float ox = p1->x + nvg__cosf(ang)*rad;
+			float oy = p1->y + nvg__sinf(ang)*rad;
+			float ix, iy, iu, iv;
+
+			if (innerBevel) {
+				ix = innerInX + (innerOutX - innerInX)*u;
+				iy = innerInY + (innerOutY - innerInY)*u;
+				iu = uin + (uout - uin)*u;
+				iv = ain + (aout - ain)*u;
+			} else {
+				ix = innerX;
+				iy = innerY;
+				iu = U;
+				iv = vavg;
+			}
+			if (plusOuter)
+				dst = nvg__profilePair(dst, ox, oy, ix, iy, up, iu, iv, iv);
+			else
+				dst = nvg__profilePair(dst, ix, iy, ox, oy, up, iu, iv, iv);
+		}
+	} else if (outerMode == 1) {
+		if (innerBevel) {
+			if (plusOuter) {
+				dst = nvg__profilePair(dst, outerInX, outerInY, innerInX, innerInY, up, uin, ain, ain);
+				dst = nvg__profilePair(dst, outerOutX, outerOutY, innerOutX, innerOutY, up, uout, aout, aout);
+			} else {
+				dst = nvg__profilePair(dst, innerInX, innerInY, outerInX, outerInY, up, uin, ain, ain);
+				dst = nvg__profilePair(dst, innerOutX, innerOutY, outerOutX, outerOutY, up, uout, aout, aout);
+			}
+		} else {
+			if (plusOuter) {
+				dst = nvg__profilePair(dst, outerInX, outerInY, innerX, innerY, up, U, ain, vavg);
+				dst = nvg__profilePair(dst, outerOutX, outerOutY, innerX, innerY, up, U, aout, vavg);
+			} else {
+				dst = nvg__profilePair(dst, innerX, innerY, outerInX, outerInY, up, uin, vavg, ain);
+				dst = nvg__profilePair(dst, innerX, innerY, outerOutX, outerOutY, up, uout, vavg, aout);
+			}
+		}
+	} else {
+		if (innerBevel) {
+			if (plusOuter) {
+				dst = nvg__profilePair(dst, outerX, outerY, innerInX, innerInY, up, uin, vavg, ain);
+				dst = nvg__profilePair(dst, outerX, outerY, innerOutX, innerOutY, up, uout, vavg, aout);
+			} else {
+				dst = nvg__profilePair(dst, innerInX, innerInY, outerX, outerY, up, uin, ain, vavg);
+				dst = nvg__profilePair(dst, innerOutX, innerOutY, outerX, outerY, up, uout, aout, vavg);
+			}
+		} else {
+			if (plusOuter)
+				dst = nvg__profilePair(dst, outerX, outerY, innerX, innerY, up, U, vavg, vavg);
+			else
+				dst = nvg__profilePair(dst, innerX, innerY, outerX, outerY, up, U, vavg, vavg);
+		}
+	}
+
+	(void)aprev; (void)anext;
+	return dst;
+}
+
+
+
+static NVGvertex* nvg__profileCapStart(NVGcontext* ctx, NVGvertex* dst,
+									   float x, float y, float dx, float dy,
+									   float nx, float ny, float h,
+									   float alpha, float aa, float uspan, int cap)
+{
+	float uplus = (aa > 0.0f) ? 0.0f : 0.5f;
+	float uminus = (aa > 0.0f) ? uspan : 0.5f;
+
+	if (cap == NVG_ROUND) {
+		int ncap = nvg__curveDivs(h, NVG_PI, ctx->tessTol);
+		int k;
+		float ucenter = (aa > 0.0f) ? uspan*0.5f : 0.5f;
+
+		if (ncap < 2) ncap = 2;
+		for (k = 0; k < ncap; k++) {
+			float a = (ncap > 1) ? k/(float)(ncap-1)*NVG_PI : 0.0f;
+			float ax = nvg__cosf(a)*h;
+			float ay = nvg__sinf(a)*h;
+			float vx = x - nx*ax - dx*ay;
+			float vy = y - ny*ax - dy*ay;
+			float ua = (aa > 0.0f) ? 0.0f : 0.5f;
+			dst = nvg__profilePair(dst, vx, vy, x, y, ua, ucenter, alpha, alpha);
+		}
+		dst = nvg__profilePair(dst, x + nx*h, y + ny*h, x - nx*h, y - ny*h,
+							  uplus, uminus, alpha, alpha);
+		return dst;
+	}
+
+	{
+		float d = (cap == NVG_SQUARE) ? (h - aa) : (-aa*0.5f);
+		float px = x - dx*d;
+		float py = y - dy*d;
+
+		if (aa > 0.0f) {
+			dst = nvg__profilePair(dst,
+				px + nx*h - dx*aa, py + ny*h - dy*aa,
+				px - nx*h - dx*aa, py - ny*h - dy*aa,
+				uplus, uminus, 0.0f, 0.0f);
+			dst = nvg__profilePair(dst,
+				px + nx*h, py + ny*h,
+				px - nx*h, py - ny*h,
+				uplus, uminus, alpha, alpha);
+		} else {
+			dst = nvg__profilePair(dst,
+				px + nx*h, py + ny*h,
+				px - nx*h, py - ny*h,
+				0.5f, 0.5f, 1.0f, 1.0f);
+		}
+	}
+	return dst;
+}
+
+static NVGvertex* nvg__profileCapEnd(NVGcontext* ctx, NVGvertex* dst,
+									 float x, float y, float dx, float dy,
+									 float nx, float ny, float h,
+									 float alpha, float aa, float uspan, int cap)
+{
+	float uplus = (aa > 0.0f) ? 0.0f : 0.5f;
+	float uminus = (aa > 0.0f) ? uspan : 0.5f;
+
+	if (cap == NVG_ROUND) {
+		int ncap = nvg__curveDivs(h, NVG_PI, ctx->tessTol);
+		int k;
+		float ucenter = (aa > 0.0f) ? uspan*0.5f : 0.5f;
+
+		if (ncap < 2) ncap = 2;
+		dst = nvg__profilePair(dst,
+			x + nx*h, y + ny*h,
+			x - nx*h, y - ny*h,
+			uplus, uminus, alpha, alpha);
+		for (k = 0; k < ncap; k++) {
+			float a = (ncap > 1) ? k/(float)(ncap-1)*NVG_PI : 0.0f;
+			float ax = nvg__cosf(a)*h;
+			float ay = nvg__sinf(a)*h;
+			float vx = x - nx*ax + dx*ay;
+			float vy = y - ny*ax + dy*ay;
+			float ua = (aa > 0.0f) ? 0.0f : 0.5f;
+			dst = nvg__profilePair(dst, x, y, vx, vy, ucenter, ua, alpha, alpha);
+		}
+		return dst;
+	}
+
+	{
+		float d = (cap == NVG_SQUARE) ? (h - aa) : (-aa*0.5f);
+		float px = x + dx*d;
+		float py = y + dy*d;
+
+		if (aa > 0.0f) {
+			dst = nvg__profilePair(dst,
+				px + nx*h, py + ny*h,
+				px - nx*h, py - ny*h,
+				uplus, uminus, alpha, alpha);
+			dst = nvg__profilePair(dst,
+				px + nx*h + dx*aa, py + ny*h + dy*aa,
+				px - nx*h + dx*aa, py - ny*h + dy*aa,
+				uplus, uminus, 0.0f, 0.0f);
+		} else {
+			dst = nvg__profilePair(dst,
+				px + nx*h, py + ny*h,
+				px - nx*h, py - ny*h,
+				0.5f, 0.5f, 1.0f, 1.0f);
+		}
+	}
+	return dst;
+}
+
+static int nvg__strokeProfileVariable(NVGcontext* ctx, const NVGwidthStop* stops, int count)
+{
+	NVGstate* state = nvg__getState(ctx);
+	NVGpathCache* saved;
+	NVGpathCache local;
+	NVGprofilePath* probs = NULL;
+	int nprobs = 0, cprobs = 0;
+	NVGprofilePath pp;
+	NVGvertex* verts;
+	NVGvertex* dst;
+	NVGpath* outpaths;
+	NVGpaint strokePaint;
+	float scale = nvg__getAverageScale(state->xform);
+	float aa = (ctx->params.edgeAntiAlias && state->shapeAntiAlias) ? ctx->fringeWidth : 0.0f;
+	float wmax = 0.0f;
+	float wcb;
+	float maxhalf;
+	int ncap;
+	int cverts;
+	int npaths = 0;
+	int i, j;
+
+	// Flatten into a private cache so the real path cache (and its
+	// command-order/winding decisions) is left untouched.
+	saved = ctx->cache;
+	memset(&local, 0, sizeof(local));
+	ctx->cache = &local;
+	nvg__flattenPathsImpl(ctx, 0);
+	ctx->cache = saved;
+
+	for (i = 0; i < local.npaths; i++) {
+		memset(&pp, 0, sizeof(pp));
+		if (nvg__profileBuildPath(&pp, &local.paths[i], &local.points[local.paths[i].first], stops, count, scale)) {
+			if (nprobs+1 > cprobs) {
+				int c = nprobs+1 + cprobs/2;
+				NVGprofilePath* n = (NVGprofilePath*)realloc(probs, sizeof(NVGprofilePath)*c);
+				if (n == NULL) {
+					free(pp.pts);
+					nvg__profileFreePaths(probs, nprobs);
+					free(probs);
+					free(local.points);
+					free(local.paths);
+					return 0;
+				}
+				probs = n;
+				cprobs = c;
+			}
+			probs[nprobs++] = pp;
+		} else {
+			free(pp.pts);
+		}
+	}
+
+	free(local.points);
+	free(local.paths);
+
+	// Geometry width maxima (also used to interpret the fringe coordinates).
+	for (i = 0; i < nprobs; i++) {
+		for (j = 0; j < probs[i].npts; j++) {
+			float g, a;
+			nvg__profileGeomWidth(probs[i].pts[j].w_in, aa, &g, &a);
+			if (g > wmax) wmax = g;
+			nvg__profileGeomWidth(probs[i].pts[j].w_out, aa, &g, &a);
+			if (g > wmax) wmax = g;
+		}
+	}
+
+	wcb = wmax;
+	if (nprobs == 0 || wcb <= 0.0f)
+		wcb = nvg__clampf(state->strokeWidth * scale, 0.0f, 200.0f);
+
+	maxhalf = wmax*0.5f + aa*0.5f;
+	ncap = nvg__curveDivs(maxhalf, NVG_PI, ctx->tessTol);
+	if (ncap < 2) ncap = 2;
+
+	// Vertex capacity upper bound: round joins/caps need ncap pairs.
+	cverts = 0;
+	for (i = 0; i < nprobs; i++) {
+		int vper = nvg__maxi(4, ncap*2);
+		if (probs[i].closed)
+			cverts += probs[i].npts * vper + 2;
+		else {
+			cverts += 2*(ncap*2 + 2);
+			if (probs[i].npts > 2)
+				cverts += (probs[i].npts-2) * vper;
+		}
+	}
+
+	verts = (cverts > 0) ? nvg__allocTempVerts(ctx, cverts) : NULL;
+	if (cverts > 0 && verts == NULL) {
+		nvg__profileFreePaths(probs, nprobs);
+		free(probs);
+		return 0;
+	}
+
+	outpaths = (nprobs > 0) ? (NVGpath*)calloc(nprobs, sizeof(NVGpath)) : NULL;
+	if (nprobs > 0 && outpaths == NULL) {
+		nvg__profileFreePaths(probs, nprobs);
+		free(probs);
+		return 0;
+	}
+
+	dst = verts;
+	for (i = 0; i < nprobs; i++) {
+		NVGprofilePath* pp2 = &probs[i];
+		NVGprofilePoint* pts = pp2->pts;
+		int n = pp2->npts;
+		NVGpath* op = &outpaths[npaths];
+
+		memset(op, 0, sizeof(*op));
+		op->first = pp2->first;
+		op->count = pp2->count;
+		op->closed = (unsigned char)pp2->closed;
+		op->winding = pp2->winding;
+		op->stroke = dst;
+
+		if (!pp2->closed) {
+			float dx, dy, nx, ny, g, a;
+			float h, uspan;
+
+			if (!nvg__profileDir(pts[0].x, pts[0].y, pts[1].x, pts[1].y, &dx, &dy)) {
+				dx = 1.0f; dy = 0.0f;
+			}
+			nx = dy; ny = -dx;
+			nvg__profileGeomWidth(pts[0].w_out, aa, &g, &a);
+			h = g*0.5f + aa*0.5f;
+			uspan = nvg__profileUSpan(g, aa, wmax);
+			dst = nvg__profileCapStart(ctx, dst, pts[0].x, pts[0].y, dx, dy, nx, ny,
+									   h, a, aa, uspan, state->lineCap);
+
+			for (j = 1; j < n-1; j++)
+				dst = nvg__profileJoin(ctx, dst, &pts[j-1], &pts[j], &pts[j+1], aa, wmax, state->lineJoin, state->miterLimit);
+
+			if (!nvg__profileDir(pts[n-2].x, pts[n-2].y, pts[n-1].x, pts[n-1].y, &dx, &dy)) {
+				dx = 1.0f; dy = 0.0f;
+			}
+			nx = dy; ny = -dx;
+			nvg__profileGeomWidth(pts[n-1].w_in, aa, &g, &a);
+			h = g*0.5f + aa*0.5f;
+			uspan = nvg__profileUSpan(g, aa, wmax);
+			dst = nvg__profileCapEnd(ctx, dst, pts[n-1].x, pts[n-1].y, dx, dy, nx, ny,
+									 h, a, aa, uspan, state->lineCap);
+		} else {
+			for (j = 0; j < n; j++) {
+				int p = (j == 0) ? n-1 : j-1;
+				int q = (j+1 == n) ? 0 : j+1;
+				dst = nvg__profileJoin(ctx, dst, &pts[p], &pts[j], &pts[q], aa, wmax, state->lineJoin, state->miterLimit);
+			}
+			// Close the strip against the first pair of the seam join. This
+			// makes the seam a real join with a single set of side vertices,
+			// never two caps.
+			nvg__vset(dst, op->stroke[0].x, op->stroke[0].y, op->stroke[0].u, op->stroke[0].v); dst++;
+			nvg__vset(dst, op->stroke[1].x, op->stroke[1].y, op->stroke[1].u, op->stroke[1].v); dst++;
+		}
+
+		op->nstroke = (int)(dst - op->stroke);
+		if (op->nstroke > 0)
+			npaths++;
+		else
+			dst = op->stroke;
+	}
+
+	strokePaint = state->stroke;
+	// Local widths already carry their own sub-pixel coverage in v; applying
+	// a whole-stroke min-width alpha here would let the widest point fade the
+	// entire profile.
+	strokePaint.innerColor.a *= state->alpha;
+	strokePaint.outerColor.a *= state->alpha;
+
+	ctx->params.renderStroke(ctx->params.userPtr, &strokePaint, state->compositeOperation, &state->scissor,
+							 ctx->fringeWidth, wcb, outpaths, npaths);
+
+	for (i = 0; i < npaths; i++) {
+		if (outpaths[i].nstroke >= 2)
+			ctx->strokeTriCount += outpaths[i].nstroke-2;
+		ctx->drawCallCount++;
+	}
+
+	free(outpaths);
+	nvg__profileFreePaths(probs, nprobs);
+	free(probs);
+	return 1;
+}
+
+int nvgStrokeProfile(NVGcontext* ctx, const NVGwidthStop* stops, int count)
+{
+	int i;
+	int constant = 1;
+
+	if (count < 0)
+		return 0;
+	if (count == 0) {
+		nvgStroke(ctx);
+		return 1;
+	}
+	if (!nvg__profileValid(stops, count))
+		return 0;
+
+	for (i = 1; i < count; i++) {
+		if (stops[i].width != stops[0].width) {
+			constant = 0;
+			break;
+		}
+	}
+
+	if (constant) {
+		// A constant profile is exactly an ordinary stroke at that width.
+		nvg__strokeInternal(ctx, stops[0].width);
+		return 1;
+	}
+
+	return nvg__strokeProfileVariable(ctx, stops, count);
+}
+
 int nvgCreateFont(NVGcontext* ctx, const char* name, const char* filename)
 {
 	return fonsAddFont(ctx->fs, name, filename, 0);
