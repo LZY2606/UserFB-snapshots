@@ -243,6 +243,10 @@ type Browser struct {
 	proxyPass     string
 	conn          *browserConnection
 	CaptchaSolver *CaptchaSolver
+	// laneOwner identifies this Browser and all of its value copies in the
+	// global lane page registry, so shutdown can release every open page
+	// settlement regardless of which Browser value started it.
+	laneOwner uint64
 }
 
 type browserConnection struct {
@@ -253,8 +257,12 @@ type browserConnection struct {
 	closed       bool
 	browser      *rod.Browser
 	laneProfiles map[string]browserprofile.Profile
-	authCancel   context.CancelFunc
-	authStopped  chan struct{}
+	// cdpClient, when set, replaces the Chrome websocket connection. It is the
+	// deterministic transport seam used by protocol-level tests; all navigation
+	// and lane persistence logic above it stays the same production code.
+	cdpClient   rod.CDPClient
+	authCancel  context.CancelFunc
+	authStopped chan struct{}
 	// lastOK is when a CDP call last succeeded; the health ping is skipped while
 	// it is within healthPingSkipWindow.
 	lastOK time.Time
@@ -277,7 +285,7 @@ func NewBrowser(opts BrowserOpts) (*Browser, error) {
 		return nil, fmt.Errorf("invalid proxy URL: %w", err)
 	}
 	opts.ProxyURL = proxyURL
-	b := &Browser{BrowserOpts: opts, conn: &browserConnection{}}
+	b := &Browser{BrowserOpts: opts, conn: &browserConnection{}, laneOwner: nextLaneOwnerID()}
 	if proxy, err := url.Parse(proxyURL); err == nil && proxy.User != nil && (proxy.Scheme == "http" || proxy.Scheme == "https") {
 		b.proxyUser = proxy.User.Username()
 		b.proxyPass, _ = proxy.User.Password()
@@ -290,6 +298,21 @@ func NewBrowser(opts BrowserOpts) (*Browser, error) {
 		logrus.Debug("Captcha solver initialized")
 	}
 	return b, nil
+}
+
+// NewBrowserWithCDPClient builds a Browser whose rod connection is the supplied
+// CDP transport instead of a launched Chromium process. It is the deterministic
+// seam for protocol-level tests: navigation, lane persistence, and page
+// teardown all run the production code, while the transport only answers CDP
+// commands with scripted replies and timing. It never starts Chrome.
+func NewBrowserWithCDPClient(opts BrowserOpts, client rod.CDPClient) *Browser {
+	opts.Check()
+	conn := &browserConnection{cdpClient: client}
+	return &Browser{
+		BrowserOpts: opts,
+		conn:        conn,
+		laneOwner:   nextLaneOwnerID(),
+	}
 }
 
 // launchBrowser also handles recovery, using the same options as the first launch.
@@ -457,7 +480,11 @@ func (b *Browser) IsInitialized() bool {
 func (b *Browser) newRodBrowser() *rod.Browser {
 	// A timeout here permanently expires the shared connection. Apply deadlines
 	// to individual operations instead.
-	return rod.New().NoDefaultDevice().ControlURL(b.conn.addr)
+	browser := rod.New().NoDefaultDevice()
+	if b.conn.cdpClient != nil {
+		return browser.Client(b.conn.cdpClient)
+	}
+	return browser.ControlURL(b.conn.addr)
 }
 
 func (b *Browser) connectBrowser() (*rod.Browser, error) {
@@ -587,7 +614,7 @@ func (b *Browser) ensureConnectedBrowser(ctx context.Context, stale *rod.Browser
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if state.closed || state.addr == "" {
+	if state.closed || (state.addr == "" && state.cdpClient == nil) {
 		return nil, fmt.Errorf("browser is not initialized")
 	}
 	// Reuse the connection unless it is the one the caller saw fail. Concurrent
@@ -608,7 +635,7 @@ func (b *Browser) ensureConnectedBrowser(ctx context.Context, stale *rod.Browser
 		}
 	}
 	connected, err := b.connectBrowser()
-	if err != nil && isBrowserClosedError(err) {
+	if err != nil && isBrowserClosedError(err) && state.cdpClient == nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -1070,40 +1097,6 @@ func applyProfile(page *rod.Page, profile browserprofile.Profile, headless bool)
 	return nil
 }
 
-func (b *Browser) restoreLaneCookies(ctx context.Context, page *rod.Page) error {
-	if b == nil || b.ProxyLaneStore == nil {
-		return nil
-	}
-	laneKey := proxyLaneKeyFromContext(ctx)
-	if laneKey.Empty() {
-		return nil
-	}
-	cookies := b.ProxyLaneStore.Cookies(laneKey)
-	if len(cookies) == 0 {
-		return nil
-	}
-	if err := (proto.NetworkSetCookies{Cookies: cookieParams(cookies)}).Call(page); err != nil {
-		return fmt.Errorf("restore lane cookies: %w", err)
-	}
-	return nil
-}
-
-func (b *Browser) saveLaneCookies(ctx context.Context, page *rod.Page, pageURL string) {
-	if b == nil || b.ProxyLaneStore == nil || page == nil {
-		return
-	}
-	laneKey := proxyLaneKeyFromContext(ctx)
-	if laneKey.Empty() {
-		return
-	}
-	res, err := (proto.NetworkGetCookies{Urls: []string{pageURL}}).Call(page)
-	if err != nil {
-		WithRequest(ctx).WithError(err).Debug("Save lane cookies failed")
-		return
-	}
-	b.ProxyLaneStore.SaveCookies(laneKey, res.Cookies)
-}
-
 type mainDocumentStatusWatcher struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -1346,6 +1339,9 @@ func (b *Browser) Navigate(ctx context.Context, URL string) (*rod.Page, error) {
 	// context first causes Chrome to kill the page target before our Close call,
 	// producing a spurious "target closed" error on the page.Close() that follows.
 	closeOnErr := func() {
+		// The page never reached its normal close entry point, so its lane
+		// snapshot is discarded rather than merged back.
+		releaseLanePage(page)
 		stopNetworkUsageWatcher(page)
 		if cerr := page.Close(); cerr != nil && !isBrowserClosedError(cerr) {
 			WithRequest(ctx).WithError(cerr).Debug("Close page after navigate error failed")
@@ -1358,6 +1354,9 @@ func (b *Browser) Navigate(ctx context.Context, URL string) (*rod.Page, error) {
 	// background watchers attached to it must still stop or they leak goroutines.
 	stopWatchersOnErr := func() {
 		if b.LeavePageOpen {
+			// The failed navigation never hands the page back, so its snapshot
+			// must be discarded even though the tab itself stays open.
+			releaseLanePage(page)
 			stopNetworkUsageWatcher(page)
 		} else {
 			closeOnErr()
@@ -1369,13 +1368,19 @@ func (b *Browser) Navigate(ctx context.Context, URL string) (*rod.Page, error) {
 	WithRequest(ctx).WithFields(logrus.Fields{
 		"lane_id": laneKey,
 	}).Info("Browser profile selected")
+	// Take the page's private lane snapshot before any cookie is written, and
+	// register the target so the eventual close entry point settles exactly
+	// this snapshot. No-lane requests stay fully isolated.
+	b.beginLanePage(ctx, page)
 	if err := applyProfile(page, profile, b.IsHeadless); err != nil {
 		closeOnErr()
 		return nil, fmt.Errorf("apply profile %s (%s) failed: %w", profile.ID, laneKey, err)
 	}
-	if err := b.restoreLaneCookies(ctx, page); err != nil {
-		closeOnErr()
-		return nil, err
+	if registration := laneRegistrationFor(page); registration != nil {
+		if err := restoreLaneSessionCookies(page, registration.session); err != nil {
+			closeOnErr()
+			return nil, err
+		}
 	}
 
 	page = page.Context(ctx)
@@ -1423,7 +1428,9 @@ func (b *Browser) Navigate(ctx context.Context, URL string) (*rod.Page, error) {
 		stopWatchersOnErr()
 		return nil, err
 	}
-	b.saveLaneCookies(ctx, page, URL)
+	// Cookies are deliberately not saved here: the page stays alive for the
+	// engine's in-tab work (form submission, pagination), and the full
+	// context cookie set is merged into the lane once the page is closed.
 	b.markConnectionOK()
 	return page, nil
 }
@@ -1450,6 +1457,9 @@ func (b *Browser) Close() error {
 		return nil
 	}
 	state.closed = true
+	// The browser is going away: any page that never reached its close entry
+	// point loses its right to write cookies back.
+	globalLanePageRegistry.releaseOwner(b.laneOwner)
 	defer func() {
 		if state.authCancel != nil {
 			state.authCancel()
@@ -1507,6 +1517,10 @@ func ClosePageWithTimeout(ctx context.Context, page *rod.Page, timeout time.Dura
 	if page == nil {
 		return nil
 	}
+	// Merge the page's cookie delta while the isolated browser context is
+	// still alive. Each registration settles at most once, so a timeout
+	// copy or another Browser value cannot settle it into a different lane.
+	settleLanePageBounded(ctx, page)
 	stopNetworkUsageWatcher(page)
 	if timeout <= 0 {
 		timeout = time.Second

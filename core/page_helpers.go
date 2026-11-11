@@ -136,6 +136,10 @@ func HasAnySelector(page *rod.Page, selectors []string) bool {
 // is configured to leave pages open for debugging.
 func DeferClosePage(ctx context.Context, page *rod.Page, browser *Browser) func() {
 	return func() {
+		// LeavePageOpen only keeps the tab: the lane snapshot must still be
+		// settled here so later in-tab cookies reach the next collection, and
+		// later manual operations no longer mutate the finished snapshot.
+		settleLanePageBounded(ctx, page)
 		if browser != nil && browser.LeavePageOpen {
 			return
 		}

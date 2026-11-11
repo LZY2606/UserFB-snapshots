@@ -256,6 +256,11 @@ type browserPool struct {
 	base      core.BrowserOpts
 	laneStore *core.LaneStore
 
+	// browserFactory builds the Chrome wrapper for a pool entry. It defaults to
+	// core.NewBrowser; tests replace it with a transport-backed browser so the
+	// real pooling and lane persistence chain runs without launching Chrome.
+	browserFactory func(core.BrowserOpts) (*core.Browser, error)
+
 	maxProcesses int
 	idleTTL      time.Duration
 
@@ -276,13 +281,14 @@ func newBrowserPool(base core.BrowserOpts, defaultLaunchProxyURL string, laneSto
 		maxProcesses = 4
 	}
 	pool := &browserPool{
-		base:         base,
-		laneStore:    laneStore,
-		maxProcesses: maxProcesses,
-		idleTTL:      idleTTL,
-		browsers:     map[string]*pooledBrowser{},
-		stopSweeper:  make(chan struct{}),
-		sweeperDone:  make(chan struct{}),
+		base:           base,
+		laneStore:      laneStore,
+		browserFactory: core.NewBrowser,
+		maxProcesses:   maxProcesses,
+		idleTTL:        idleTTL,
+		browsers:       map[string]*pooledBrowser{},
+		stopSweeper:    make(chan struct{}),
+		sweeperDone:    make(chan struct{}),
 	}
 	if launchURL := strings.TrimSpace(defaultLaunchProxyURL); launchURL != "" {
 		if key := browserPoolKey(launchURL); key != directBrowserKey {
@@ -384,7 +390,11 @@ func (p *browserPool) get(requestProxyURL string) (*core.Browser, error) {
 
 	opts := p.base
 	opts.ProxyURL = launchURL
-	browser, err := core.NewBrowser(opts)
+	factory := p.browserFactory
+	if factory == nil {
+		factory = core.NewBrowser
+	}
+	browser, err := factory(opts)
 	if err != nil {
 		return nil, err
 	}

@@ -247,6 +247,43 @@ Response headers:
 - `X-Proxy-Tag`
 - `X-Proxy-Used`
 
+### Sticky lane cookie persistence
+
+When proxy lanes are enabled, every collection runs in its own isolated
+browser context while sharing one logical session per
+`tenant + engine + proxy session id`. The persistence timing and merge rules
+are:
+
+1. When a page starts on a lane (`Browser.Navigate`), it receives its own
+   deep copy of the lane's cookie set, which is restored into the new
+   isolated context. The page does not publish any cookies while running.
+2. Cookies are only saved when the page finishes using the tab:
+   `DeferClosePage`, `Browser.ClosePage` and `ClosePageWithTimeout` read the
+   **complete** browser-context cookie set (no URL filter, so redirect,
+   other-path and other-domain cookies are never mistaken for deletions)
+   before the context is destroyed. Saving at close time instead of right
+   after navigation means cookies produced by in-tab work, such as Bing's
+   search-box submission and pagination, still reach the next collection.
+3. Only that page's own delta is merged: entries it added, entries whose value
+   or restorable attributes changed, and entries it deleted. Cookies are
+   distinguished by name, domain, path and partition key. Read-only CDP
+   statistics such as `size` are not treated as page edits. Unchanged
+   inherited values therefore never overwrite another page's newer value or
+   revive a cookie another page deleted. When two pages edit the same cookie,
+   the last successful commit wins.
+4. A `DropCookies` (captcha challenge) or a full `SaveCookies` replace bumps
+   the lane generation, so pages already in flight lose their write-back
+   qualification even if their cookie read returns late; an LRU eviction
+   followed by recreation of the same key likewise rejects old instances
+   without keeping permanent tombstones. A late reply never creates a lane,
+   updates a new instance, or displaces another lane.
+5. `LeavePageOpen` keeps the tab for inspection but still settles the session
+   snapshot at `DeferClosePage`; later manual operations are no longer part of
+   the finished snapshot. A canceled request, a failed cookie read, a failed
+   page initialization, or browser shutdown discards the page's edits and
+   releases its registration while the bounded page/context cleanup still
+   runs.
+
 ## Config Reference
 
 Config priority: `CLI flags > OPENSERP_* env vars > config.yaml > defaults` (via Viper).
