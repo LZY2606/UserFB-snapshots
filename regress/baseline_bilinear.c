@@ -11,8 +11,17 @@ int main(void) {
     printf("positive red rows:");
     for(int y=0;y<4;y++){printf(" [");for(int x=0;x<4;x++)printf("%u,",OLIVEC_RED(pos[y*6+x]));printf("]");}
     puts("");
-    for(int i=0;i<24;i++)if(neg[i]!=0x12345678)return 1;
-    for(int y=0;y<4;y++)if(pos[y*6+4]!=0x12345678 || pos[y*6+5]!=0x12345678)return 2;
-    puts("BASELINE: positive stride rendering works; negative dimensions are no-op");
+    // Negative w/h must render the pixel-for-pixel mirror of the positive result.
+    for(int y=0;y<4;y++){
+        for(int x=0;x<4;x++){
+            if(neg[y*6+x]!=pos[(3-y)*6+(3-x)])return 1;
+        }
+    }
+    for(int i=0;i<24;i++){
+        int in_stride_pad=(i%6)>=4;
+        if(in_stride_pad && (pos[i]!=0x12345678 || neg[i]!=0x12345678))return 2;
+    }
+    if(src[2]!=0xdeadbeef || src[5]!=0xdeadbeef)return 3;
+    puts("BASELINE: positive stride rendering works; negative dimensions mirror it");
     return 0;
 }

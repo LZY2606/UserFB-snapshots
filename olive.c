@@ -433,6 +433,12 @@ OLIVECDEF void olivec_triangle3uv_bilinear(Olivec_Canvas oc, int x1, int y1, int
 OLIVECDEF void olivec_text(Olivec_Canvas oc, const char *text, int x, int y, Olivec_Font font, size_t size, uint32_t color);
 OLIVECDEF void olivec_sprite_blend(Olivec_Canvas oc, int x, int y, int w, int h, Olivec_Canvas sprite);
 OLIVECDEF void olivec_sprite_copy(Olivec_Canvas oc, int x, int y, int w, int h, Olivec_Canvas sprite);
+// Scales the sprite with bilinear filtering. The signed w/h follow the same
+// anchor convention as olivec_sprite_copy(): w > 0 covers x .. x+w-1 while
+// w < 0 covers x+w+1 .. x, the zero-th source column maps to the anchor x, and
+// the source sample index advances along the signed direction (same for h and
+// y). Negative w/h therefore mirror the positive result pixel by pixel. w/h of
+// zero, an empty sprite, and a fully clipped rectangle draw nothing.
 OLIVECDEF void olivec_sprite_copy_bilinear(Olivec_Canvas oc, int x, int y, int w, int h, Olivec_Canvas sprite);
 OLIVECDEF uint32_t olivec_pixel_bilinear(Olivec_Canvas sprite, int nx, int ny, int w, int h);
 
@@ -996,18 +1002,35 @@ OLIVECDEF uint32_t olivec_pixel_bilinear(Olivec_Canvas sprite, int nx, int ny, i
 
 OLIVECDEF void olivec_sprite_copy_bilinear(Olivec_Canvas oc, int x, int y, int w, int h, Olivec_Canvas sprite)
 {
-    // TODO: support negative size in olivec_sprite_copy_bilinear()
-    if (w <= 0) return;
-    if (h <= 0) return;
+    if (sprite.width == 0) return;
+    if (sprite.height == 0) return;
 
+    // Negative width/height flips the sprite around the (x, y) anchor, same as
+    // olivec_sprite_copy(). The anchor always maps to the zero-th column/row of
+    // the source, and the source sample index advances along the signed
+    // direction, so a negative width renders the horizontal mirror of the
+    // positive one. Clipping only drops destination pixels: the anchor and the
+    // scaling factors stay tied to the full signed rectangle.
     Olivec_Normalized_Rect nr = {0};
     if (!olivec_normalize_rect(x, y, w, h, oc.width, oc.height, &nr)) return;
 
+    int xa = nr.ox1;
+    if (w < 0) xa = nr.ox2;
+    int ya = nr.oy1;
+    if (h < 0) ya = nr.oy2;
+    int aw = OLIVEC_ABS(int, w);
+    int ah = OLIVEC_ABS(int, h);
     for (int y = nr.y1; y <= nr.y2; ++y) {
         for (int x = nr.x1; x <= nr.x2; ++x) {
-            size_t nx = (x - nr.ox1)*sprite.width;
-            size_t ny = (y - nr.oy1)*sprite.height;
-            OLIVEC_PIXEL(oc, x, y) = olivec_pixel_bilinear(sprite, nx, ny, w, h);
+            // Logical sample position: 0 at the anchor, counting towards the
+            // far end along the signed direction. Multiplication by the sign
+            // keeps it non-negative, and the positive bilinear kernel below is
+            // reused unchanged (its rounding and edge clamping assume w/h > 0).
+            int lx = OLIVEC_SIGN(int, w)*(x - xa);
+            int ly = OLIVEC_SIGN(int, h)*(y - ya);
+            int nx = lx*(int) sprite.width;
+            int ny = ly*(int) sprite.height;
+            OLIVEC_PIXEL(oc, x, y) = olivec_pixel_bilinear(sprite, nx, ny, aw, ah);
         }
     }
 }
