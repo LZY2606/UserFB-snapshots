@@ -4,3 +4,6 @@ js/*
 # Hidden script for development
 scripts/internal/
 .DS_Store
+
+# Local build/module caches
+.build/

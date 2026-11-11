@@ -118,6 +118,12 @@ type Parser struct {
 	// AllowedVideoRegex is a regular expression that matches video URLs that should be
 	// allowed to be included in the article content. If undefined, it will use default filter.
 	AllowedVideoRegex *regexp.Regexp
+	// KeepFootnotes determines whether the standalone footnotes (li with
+	// role="doc-footnote") that are referenced from the extracted article
+	// should be rescued and appended back at the end of the article. When
+	// it's false (the default) the parser behaves exactly as before:
+	// footnotes left outside the extracted content are simply dropped.
+	KeepFootnotes bool
 
 	doc             *html.Node
 	documentURI     *nurl.URL
@@ -128,6 +134,12 @@ type Parser struct {
 	articleLang     string
 	attempts        []parseAttempt
 	flags           flags
+	// footnoteTargets maps an id to every element with that id in the
+	// original document, used only when KeepFootnotes is enabled.
+	footnoteTargets map[string][]*html.Node
+	// footnoteOrder keeps the ids of the footnotes to restore, ordered by
+	// the first reference found inside the extracted article.
+	footnoteOrder []string
 }
 
 // NewParser returns new Parser which set up with default value.

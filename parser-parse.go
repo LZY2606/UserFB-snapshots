@@ -35,6 +35,8 @@ func (ps *Parser) ParseDocument(doc *html.Node, pageURL *nurl.URL) (Article, err
 	ps.articleSiteName = ""
 	ps.documentURI = pageURL
 	ps.attempts = []parseAttempt{}
+	ps.footnoteTargets = nil
+	ps.footnoteOrder = nil
 	ps.flags = flags{
 		stripUnlikelys:     true,
 		useWeightClasses:   true,
@@ -75,17 +77,27 @@ func (ps *Parser) ParseDocument(doc *html.Node, pageURL *nurl.URL) (Article, err
 	var readableNode *html.Node
 
 	if articleContent != nil {
-		ps.postProcessContent(articleContent)
-
 		// If we haven't found an excerpt in the article's metadata,
 		// use the article's first paragraph as the excerpt. This is used
-		// for displaying a preview of the article's content.
+		// for displaying a preview of the article's content. It is
+		// captured before any footnote is restored, so the excerpt
+		// always comes from the main body rather than a footnote.
 		if metadata["excerpt"] == "" {
 			paragraphs := dom.GetElementsByTagName(articleContent, "p")
 			if len(paragraphs) > 0 {
 				metadata["excerpt"] = strings.TrimSpace(dom.TextContent(paragraphs[0]))
 			}
 		}
+
+		// Rescue the standalone footnotes actually referenced by the
+		// extracted article before the generic post-processing, so the
+		// restored notes go through the same cleaning rules, relative
+		// URI conversion and class handling as the main content.
+		if ps.KeepFootnotes {
+			ps.restoreFootnotes(articleContent)
+		}
+
+		ps.postProcessContent(articleContent)
 
 		readableNode = dom.FirstElementChild(articleContent)
 		finalHTMLContent = dom.InnerHTML(articleContent)

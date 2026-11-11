@@ -13,6 +13,7 @@ This package is based from [Readability.js] by [Mozilla] and written line by lin
 - [Status](#status)
 - [Installation](#installation)
 - [Example](#example)
+- [Keeping Footnotes](#keeping-footnotes)
 - [Command Line Usage](#command-line-usage)
 - [Licenses](#licenses)
 
@@ -139,6 +140,53 @@ func main() {
 }
 
 ```
+
+## Keeping Footnotes
+
+By default the parser only keeps the main readable content, so a footnote
+section living outside the article (for example inside a `<footer>`) is
+removed even though the article still links to it, leaving the citation links
+pointing at nothing. Set `KeepFootnotes` on a `Parser` to bring the footnotes
+that are actually referenced back into the article:
+
+```go
+parser := readability.NewParser()
+parser.KeepFootnotes = true
+
+article, err := parser.Parse(input, pageURL)
+// ...or parser.ParseDocument(doc, pageURL)
+```
+
+`KeepFootnotes` defaults to `false`, and `FromReader` / `FromDocument` keep
+using that default, so leaving it untouched produces exactly the same output
+as before. No new fetching entry point is added: the option works through the
+existing `Parse` and `ParseDocument` methods.
+
+What counts as a reference is determined from the *final* extracted body:
+
+- an `<a>` whose `role` attribute is exactly `doc-noteref` (full-value match), or
+- an `<a>` whose `rel` attribute, split on ASCII whitespace and compared
+  case-insensitively, contains the token `footnote`.
+
+Any other in-page navigation link is ignored. The link target may be a bare
+`#fragment`, a relative URL, or an absolute `http(s)` URL whose part before the
+fragment is identical to the page URL; relative URLs are resolved against the
+page URL, never against an HTML `<base>`. The fragment is percent-unescaped
+once (`+` is not treated as a space) and matched case-sensitively against the
+original document's ids. Cross-article addresses, invalid percent-escaping and
+missing targets never trigger a restore; the original link is always left in
+place.
+
+A target is restored only when it is an `<li>` with `role="doc-footnote"`. An
+id shared by two elements is treated as ambiguous and not restored. Notes that
+are already inside the extracted body are not duplicated. Restored notes are
+placed, in order of their first reference (duplicate references count once),
+inside a single `<ol>` appended at the end of the article; only the named
+`<li>` elements are copied, never the surrounding footer, the whole footnote
+list or unreferenced siblings. Links found inside a footnote do not start
+another restore pass, so footnotes referencing each other cannot expand the
+result. Restored notes go through the same cleaning, relative-URI conversion
+and `KeepClasses` handling as the main content.
 
 ## Command Line Usage
 
