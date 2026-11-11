@@ -41,6 +41,42 @@ const DTYPE = {
 
 const dtype = d => DTYPE[d] && d || DTYPE[d + '32'] && (d + '32')
 
+const NATIVE_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+
+// Raw byte sources (Buffer / ArrayBuffer) are decoded through a DataView so the source endianness is honoured.
+// An unspecified endianness falls back to the platform native order. int8/uint8 are single bytes and copied as-is.
+// The result is always freshly allocated, so a destination sharing the source storage cannot disturb the read.
+function decodeRaw(bytes, d, endianness) {
+	let name = DTYPE[d] ? d : 'uint8'
+	let Ctor = DTYPE[name].C
+	let step = Ctor.BYTES_PER_ELEMENT
+	if (bytes.byteLength % step !== 0)
+		throw Error(`Source has ${bytes.byteLength} bytes, not a whole number of ${name} samples (${step} bytes each)`)
+	let n = bytes.byteLength / step
+	let out = new Ctor(n)
+	if (step === 1) {
+		out.set(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes)
+		return out
+	}
+	// A Buffer (or other Uint8Array view) carries byteOffset; a bare ArrayBuffer is its own backing store.
+	let buffer = bytes.buffer || bytes
+	let offset = bytes.byteOffset || 0
+	let le = endianness ? endianness === 'le' : NATIVE_LITTLE_ENDIAN
+	let view = new DataView(buffer, offset, bytes.byteLength)
+	let get = 'get' + name[0].toUpperCase() + name.slice(1)
+	for (let i = 0; i < n; i++) out[i] = view[get](i * step, le)
+	return out
+}
+
+// Encode numeric samples into their physical byte order inside an existing buffer's valid region only.
+function encodeBytes(values, name, endianness, buffer, byteOffset, byteLength) {
+	let step = DTYPE[name].C.BYTES_PER_ELEMENT
+	let view = new DataView(buffer, byteOffset, byteLength)
+	let le = endianness === 'le'
+	let set = 'set' + name[0].toUpperCase() + name.slice(1)
+	for (let i = 0; i < values.length; i++) view[set](i * step, values[i], le)
+}
+
 const CONTAINER = { array: 1, arraybuffer: 1, buffer: 1, audiobuffer: 1 }
 
 const CHANNELS = { mono: 1, stereo: 2, '2.1': 3, quad: 4, '5.1': 6 }
@@ -166,6 +202,11 @@ export default function convert(src, from, to, dst) {
 	let fromR = from.container === 'array' ? { min: -1, max: 1 } : range(from.dtype)
 	let toR = to.container === 'array' ? { min: -1, max: 1 } : range(to.dtype)
 
+	// Raw byte containers (Buffer / ArrayBuffer) must be decoded per from.dtype / from.endianness before anything
+	// else; numeric arrays and TypedArrays are already sample values and their underlying memory is never
+	// reinterpreted (from.endianness is ignored for them). An unspecified source endianness means native order.
+	let isRawBytes = src instanceof ArrayBuffer || (typeof Buffer !== 'undefined' && Buffer.isBuffer(src))
+
 	// Extract source as indexable numeric sequence
 	let samples
 	if (isPlanar(src)) {
@@ -176,12 +217,8 @@ export default function convert(src, from, to, dst) {
 		let nc = src.numberOfChannels, len = src.length
 		samples = new Float32Array(len * nc)
 		for (let c = 0; c < nc; c++) samples.set(src.getChannelData(c), len * c)
-	} else if (src instanceof ArrayBuffer) {
-		samples = new (DTYPE[from.dtype]?.C || Uint8Array)(src)
-	} else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(src)) {
-		samples = new (DTYPE[from.dtype]?.C || Uint8Array)(
-			src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength)
-		)
+	} else if (isRawBytes) {
+		samples = decodeRaw(src, from.dtype, from.endianness)
 	} else {
 		samples = src
 	}
@@ -217,6 +254,29 @@ export default function convert(src, from, to, dst) {
 	let reinterleave = from.interleaved != null && to.interleaved != null && from.interleaved !== to.interleaved
 	let ch = from.channels || 1, seg = Math.floor(len / ch)
 	let Ctor = DTYPE[to.dtype]?.C || Float32Array
+	let step = Ctor.BYTES_PER_ELEMENT
+
+	// Everything below that can fail is checked before any caller-provided destination is modified.
+	// Raw byte input must hold whole channel frames (whole samples were already enforced in decodeRaw);
+	// the destination must hold every output element (typed views) or output byte (ArrayBuffer / Buffer).
+	if (isRawBytes && from.channels && len % from.channels !== 0)
+		throw Error(`Source has ${len} samples, not a whole number of ${from.channels}-channel frames`)
+	if (dst && !Array.isArray(dst)) {
+		let needBytes = len * step
+		let haveBytes = dst instanceof ArrayBuffer ? dst.byteLength : dst.byteLength
+		if (haveBytes < needBytes)
+			throw Error(`Destination holds ${haveBytes} bytes, needs ${needBytes} for ${len} ${to.dtype} samples`)
+	}
+
+	// Numeric source sharing its storage with the destination: snapshot the samples so writing the target can
+	// never corrupt values still being read. Raw byte sources were already decoded into a fresh allocation above.
+	if (dst && isTyped(samples)) {
+		let overlap = (dst instanceof ArrayBuffer && dst === samples.buffer) ||
+			(isTyped(dst) && dst.buffer === samples.buffer &&
+				Math.max(samples.byteOffset, dst.byteOffset) <
+				Math.min(samples.byteOffset + samples.byteLength, dst.byteOffset + dst.byteLength))
+		if (overlap) samples = new samples.constructor(samples)
+	}
 
 	// Conversion: fast copy / range map / reinterleave
 	let out
@@ -251,23 +311,27 @@ export default function convert(src, from, to, dst) {
 		}
 	}
 
-	// Write to caller-provided target
+	// Write to caller-provided target: the same object is always returned and only its valid region is touched.
+	// Endianness is applied as the physical byte encoding of every multi-byte output, even when the source
+	// declared none; reading a big-endian view back natively therefore yields different numbers, not the samples.
+	// AudioBuffer channels are native-order float32: endianness has no physical representation there.
+	let encodeEndian = to.endianness && step > 1 && to.container !== 'audiobuffer'
 	if (dst) {
-		if (Array.isArray(dst)) { for (let i = 0; i < len; i++) dst[i] = out[i]; out = dst }
-		else if (dst instanceof ArrayBuffer) { let tc = new (DTYPE[to.dtype]?.C || Uint8Array)(dst); tc.set(out); out = tc }
-		else { dst.set(out); out = dst }
-	}
-
-	// Endianness swap
-	let info = DTYPE[to.dtype]
-	if (info && info.C.BYTES_PER_ELEMENT > 1 &&
-		from.endianness && to.endianness && from.endianness !== to.endianness &&
-		out.buffer) {
-		let le = to.endianness === 'le'
-		let view = new DataView(out.buffer)
-		let step = info.C.BYTES_PER_ELEMENT
-		let fn = 'set' + to.dtype[0].toUpperCase() + to.dtype.slice(1)
-		for (let i = 0; i < len; i++) view[fn](i * step, out[i], le)
+		if (Array.isArray(dst)) {
+			for (let i = 0; i < len; i++) dst[i] = out[i]
+			out = dst
+		} else if (dst instanceof ArrayBuffer) {
+			let tc = new Ctor(dst, 0, len)
+			tc.set(out)
+			if (encodeEndian) encodeBytes(out, to.dtype, to.endianness, dst, 0, tc.byteLength)
+			out = tc
+		} else {
+			dst.set(out)
+			if (encodeEndian) encodeBytes(out, to.dtype, to.endianness, dst.buffer, dst.byteOffset, len * step)
+			out = dst
+		}
+	} else if (encodeEndian && out.buffer) {
+		encodeBytes(out, to.dtype, to.endianness, out.buffer, out.byteOffset, out.byteLength)
 	}
 
 	// Return requested container type

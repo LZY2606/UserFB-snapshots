@@ -74,6 +74,47 @@ When both `from.sampleRate` and `to.sampleRate` are present and differ, samples 
 
 Object aliases: `type` → `dtype`, `numberOfChannels` → `channels`, `rate` → `sampleRate`.
 
+### Endianness and the two kinds of input
+
+The source argument is interpreted according to its container, not to `from.endianness` alone:
+
+- **Raw byte containers — `Buffer` (Node.js) and `ArrayBuffer`** — hold bytes, not samples. They are decoded first
+  with `from.dtype` and `from.endianness` (`'le'` / `'be'`). If `from.endianness` is omitted the platform's native
+  byte order is assumed. A source whose length is not a whole number of samples (or whole channel frames when
+  `channels` is given) throws before anything is written.
+  ```js
+  // bytes 40 00 c0 00, big-endian int16 → +16384, -16384 → 0.5, -0.5
+  convert(Buffer.from([0x40, 0x00, 0xc0, 0x00]), { dtype: 'int16', endianness: 'be' }, 'float64')
+  // → Float64Array [ 0.5, -0.5 ]
+  ```
+  A `Buffer` view's own `byteOffset`/`byteLength` is honoured — only its visible region is read.
+
+- **Numeric containers — plain `Array`, every `TypedArray`, planar `TypedArray[]`, and `AudioBuffer`** — already hold
+  sample values. They are converted numerically; `from.endianness` never reinterprets their underlying memory, so a
+  big-endian `Int16Array` token changes nothing about how its elements are read.
+
+`int8`/`uint8` are single-byte dtypes: endianness has no effect on them in either direction.
+
+### Output byte order and destinations
+
+`to.endianness` fixes the **physical byte order** of every multi-byte output and applies even when the source
+declares no endianness. A returned `TypedArray` still reads back in native order as numbers, so verify big-endian
+output by inspecting the bytes (e.g. `Buffer.readInt16BE`), not by reading the view's elements:
+
+```js
+let out = convert(new Int16Array([1, -2]), 'int16', { dtype: 'int16', endianness: 'be' })
+Buffer.from(out.buffer).toString('hex')   // '0001fffe' — big-endian on the wire
+```
+
+A plain `Array` result (JS numbers) and an `AudioBuffer` (native-order float32 channels) have no physical byte
+order, so `endianness` is not represented there.
+
+When a `dst` is supplied it is always the object returned, and only its valid region is written: a `subarray`
+destination leaves every byte outside the view untouched, and an `ArrayBuffer` destination is returned as that same
+`ArrayBuffer`. If the source and destination share underlying storage, the result matches what an independent copy
+of the source would produce. An undersized destination, an incomplete raw source, or an incomplete channel frame
+throws before the destination is modified.
+
 ### `parse(fmt)` → descriptor  •  `detect(data)` → descriptor  •  `stringify(descriptor, omit?)` → string
 
 ### `sampleRate` — standard sample rates array

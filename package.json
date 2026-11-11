@@ -7,7 +7,7 @@
   "sideEffects": false,
   "exports": "./index.js",
   "scripts": {
-    "test": "node --test test.js"
+    "test": "node --test test.js endian-regression.test.js"
   },
   "repository": {
     "type": "git",
