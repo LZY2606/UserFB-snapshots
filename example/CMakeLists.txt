@@ -93,3 +93,31 @@ add_custom_target(
     COMMENT "Running rectpack2D-example..."
     VERBATIM
 )
+
+# Headless grayscale atlas demo for the incremental interface.
+# Uses no window, GPU or image decoding library - only the standard library.
+
+add_executable(rectpack2D-grayscale-atlas grayscale_atlas.cpp)
+
+target_link_libraries(
+    rectpack2D-grayscale-atlas
+    PUBLIC
+        rectpack2D::rectpack2D
+)
+
+if(MSVC)
+    target_compile_options(
+        rectpack2D-grayscale-atlas
+        PUBLIC
+            /permissive-
+    )
+else()
+    target_compile_options(
+        rectpack2D-grayscale-atlas
+        PUBLIC
+            -Wall
+            -Werror
+            -Wextra
+            -Wshadow
+    )
+endif()

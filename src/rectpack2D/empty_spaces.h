@@ -52,10 +52,39 @@ namespace rectpack2D {
 					const created_splits& splits,
 					const bool flipping_necessary
 				) -> std::optional<output_rect_type> {
+					/*
+						Remember the rectangle displaced by the swap-and-pop removal,
+						so that a failed insertion can restore the provider to its
+						exact previous state, including traversal order.
+					*/
+
+					const auto removed_space = spaces.get(i);
 					spaces.remove(i);
 
 					for (int s = 0; s < splits.count; ++s) {
 						if (!spaces.add(splits.spaces[s])) {
+							/*
+								The provider (e.g. static_empty_spaces) ran out of room.
+								Drop every split already added, then put the removed space
+								back at its original index. The current AABB is never touched,
+								so a failed insert leaves no observable effect.
+							*/
+
+							for (int added = 0; added < s; ++added) {
+								spaces.remove(spaces.get_count() - 1);
+							}
+
+							spaces.add(removed_space);
+
+							/*
+								The reinserted space landed at the back, while the old
+								last element now sits at index i - swap the two back.
+							*/
+
+							const auto displaced_space = spaces.get(i);
+							spaces.remove(i);
+							spaces.add(displaced_space);
+
 							return std::nullopt;
 						}
 					}

@@ -30,6 +30,7 @@ It was originally developed for the needs of [Hypersomnia](https://github.com/Te
 
 - [Benchmarks](#benchmarks)
 - [Usage](#usage)
+- [Incremental atlas](#incremental-atlas)
 - [Building the example](#building-the-example)
   * [Windows](#windows)
   * [Linux](#linux)
@@ -91,6 +92,119 @@ This is a header-only library.
 Just include the ``src/finders_interface.h`` and you should be good to go.
 
 For an example use, see ``example/main.cpp``.
+
+## Incremental atlas
+
+The one-shot ``find_best_packing`` family reorders rectangles and searches for
+the smallest bin. A renderer that receives UI textures while a frame is already
+in flight needs the opposite: a **fixed-size canvas onto which images are
+appended over time**, where coordinates handed to a draw batch never move.
+
+``src/rectpack2D/incremental_atlas.h`` provides exactly that. It is built
+directly on the insertion/splitting logic of ``empty_spaces`` - it never
+reorders, shrinks or grows anything, and does no global optimization. Deletion,
+expansion, multiple pages and global-optimum packing are intentionally out of
+scope.
+
+```cpp
+#include <rectpack2D/incremental_atlas.h>
+
+using namespace rectpack2D;
+
+// Fixed 1024x1024 canvas. Throws std::invalid_argument outside 1..4096.
+incremental_atlas<> atlas(1024, 1024);
+
+// A static, stack-backed provider can be chosen instead:
+// incremental_atlas<static_empty_spaces<256>> atlas(1024, 1024);
+
+atlas_append_result result = atlas.append({
+    atlas_image_request{ "ui/button", 64, 32, /*padding*/ 1, /*allow_rotation*/ true },
+    atlas_image_request{ "ui/icon",   16, 16, 0, false }
+});
+
+if (!result) {
+    // Nothing from this batch was published; the atlas state is untouched.
+    // result.status is one of OUT_OF_SPACE, DUPLICATE_ID, INVALID_DIMENSIONS.
+}
+
+for (const atlas_entry& entry : result.entries) {
+    // entry.layout.outer / entry.layout.content / entry.layout.rotated
+}
+
+atlas.find_entry("ui/button");              // nullptr if never published
+atlas.get_entries();                        // all entries, insertion order
+atlas.get_used_aabb();                      // extent covered so far
+```
+
+### Batches are atomic
+
+Every ``append`` call either publishes **all** of its images or **none** of
+them. The batch fails (and changes nothing) when:
+
+- an image does not fit in the remaining empty spaces (``OUT_OF_SPACE``),
+- an id duplicates an already published entry or another id in the same batch
+  (``DUPLICATE_ID``),
+- a width/height is outside ``1..4096`` or padding is outside ``0..64``
+  (``INVALID_DIMENSIONS``),
+- the empty-spaces provider's ``add`` returns ``false`` (``OUT_OF_SPACE``) -
+  relevant for ``static_empty_spaces<N>``.
+
+On failure the published entries, the used extent and the empty spaces -
+including their traversal order - are byte-for-byte the same as before the
+call. Retrying the same valid inputs afterwards produces the same result as a
+control instance that never saw the failed call. An empty batch succeeds and
+changes nothing.
+
+Canvas dimensions outside ``1..4096`` throw ``std::invalid_argument`` at
+construction; per-request range violations are reported as a failed append
+instead. A padded image whose outer frame exceeds the canvas is a geometric
+``OUT_OF_SPACE`` failure, not an invalid-argument one. All arithmetic stays
+well within ``int`` range and cannot overflow.
+
+### Frames, padding and rotation
+
+Coordinates are integer pixels in half-open intervals
+``[x, x + w) x [y, y + h)`` with the origin at the top-left corner, growing
+right and down. Each entry reports:
+
+- ``outer``: the occupied frame, sized ``(w + 2p) x (h + 2p)`` for an image of
+  ``w x h`` with padding ``p``;
+- ``content``: the outer frame shrunk by ``p`` on every side, i.e. where the
+  original texels live;
+- ``rotated``: whether the whole outer frame was rotated clockwise by 90
+  degrees. Rotation is chosen per image via ``allow_rotation`` and never
+  affects any other image.
+
+When rotated, the width and height are swapped exactly once; the content frame
+uses the already-swapped dimensions and is not swapped again. Source texel
+``(u, v)`` lands at:
+
+- not rotated: ``(content.x + u, content.y + v)``,
+- rotated:     ``(content.x + h - 1 - v, content.y + u)``, where ``h`` is the
+  original image height.
+
+### Failure rollback of ``empty_spaces::insert``
+
+The lower-level ``empty_spaces::insert`` now also rolls back on failure. When
+a provider such as ``static_empty_spaces<N>`` rejects a split because it is
+full, the removed candidate space is restored at its original index and the
+used-extent AABB is left untouched, so a failed insertion has no observable
+effect. For example, inserting ``3x2`` into an ``8x6`` bin backed by
+``static_empty_spaces<1>`` fails (the two splits do not fit in one slot), and a
+subsequent ``8x6`` insertion still succeeds. Providers that throw exceptions
+are not covered by this guarantee.
+
+### Headless example and tests
+
+``example/grayscale_atlas.cpp`` is a window/GPU/decoder-free demo: it packs
+small integer textures into a grayscale P2 PGM atlas, extends padding from the
+nearest content-edge texel (corners included), leaves unoccupied pixels at
+zero, and demonstrates a failed batch leaving the atlas bytes and the old
+coordinates unchanged. The whole feature set is exercised headlessly by:
+
+```bash
+sh tests/check_incremental_atlas.sh
+```
 
 ## Building the example
 

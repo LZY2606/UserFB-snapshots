@@ -26,7 +26,7 @@ namespace rectpack2D {
 			empty_spaces.clear();
 		}
 
-		const auto& get(const int i) {
+		const auto& get(const int i) const {
 			return empty_spaces[i];
 		}
 	};
@@ -61,7 +61,7 @@ namespace rectpack2D {
 			count_spaces = 0;
 		}
 
-		const auto& get(const int i) {
+		const auto& get(const int i) const {
 			return empty_spaces[i];
 		}
 	};
