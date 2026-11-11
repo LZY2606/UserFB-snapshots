@@ -5,6 +5,16 @@
 Release notes
 =============
 
+.. _release-VERSION:
+
+itemloaders VERSION (unreleased)
+--------------------------------
+
+-   Added :class:`itemloaders.async_loader.AsyncItemLoader`, an explicitly
+    asynchronous Item Loader whose processing methods (``add_value``,
+    ``add_css``, ``load_item``, etc.) are awaitable and accept processors
+    that return awaitables. See :ref:`async-loader`.
+
 .. _release-1.5.0:
 
 itemloaders 1.5.0 (2026-09-29)
