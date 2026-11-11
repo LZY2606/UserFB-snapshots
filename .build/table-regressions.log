@@ -1,0 +1,238 @@
+Baseline: 70 content/structure assertions passed across 9 fixtures and 2 DOM implementations
+TABLE_BASELINE_OK
+---
+Mutation "mark": caption/summary/th explicit signals no longer grant data-table identity
+Modified location: Readability._markDataTables (Readability.js):2311-2333 (36 assertion failures, block deleted)
+  caught: 01-data-table-caption/jsdom/caption table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 01-data-table-caption/jsdom/caption and all four cells survive conditional cleaning -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/jsdom/link cell keeps its anchor and href -> CELL_A anchor must be retained
+  caught: 01-data-table-caption/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/JSDOMParser/caption table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 01-data-table-caption/JSDOMParser/caption and all four cells survive conditional cleaning -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/JSDOMParser/link cell keeps its anchor and href -> CELL_A anchor must be retained
+  caught: 01-data-table-caption/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-caption" in the output
+  caught: 02-data-table-summary/jsdom/summary table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 02-data-table-summary/jsdom/summary attribute and all six cells survive -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/jsdom/link cell keeps its anchor and href -> SUM_A anchor must be retained
+  caught: 02-data-table-summary/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/JSDOMParser/summary table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 02-data-table-summary/JSDOMParser/summary attribute and all six cells survive -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/JSDOMParser/link cell keeps its anchor and href -> SUM_A anchor must be retained
+  caught: 02-data-table-summary/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-summary" in the output
+  caught: 03-data-table-th/jsdom/th-headed table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 03-data-table-th/jsdom/header labels and cell contents survive -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/jsdom/rowspan/colspan merge attributes are preserved -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-th" in the output
+  caught: 03-data-table-th/JSDOMParser/th-headed table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 03-data-table-th/JSDOMParser/header labels and cell contents survive -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/JSDOMParser/rowspan/colspan merge attributes are preserved -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-th" in the output
+  caught: 04-nested-presentation/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 04-nested-presentation/jsdom/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-presentation" in the output
+  caught: 04-nested-presentation/jsdom/inner cells and link survive -> textContent must retain "INNER_A"
+  caught: 04-nested-presentation/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 04-nested-presentation/JSDOMParser/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-presentation" in the output
+  caught: 04-nested-presentation/JSDOMParser/inner cells and link survive -> textContent must retain "INNER_A"
+  caught: 05-nested-datatable0/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 05-nested-datatable0/jsdom/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-datatable0" in the output
+  caught: 05-nested-datatable0/jsdom/inner cells and link survive -> textContent must retain "DT0_A"
+  caught: 05-nested-datatable0/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 05-nested-datatable0/JSDOMParser/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-datatable0" in the output
+  caught: 05-nested-datatable0/JSDOMParser/inner cells and link survive -> textContent must retain "DT0_A"
+TABLE_MARK_CAUGHT
+---
+Mutation "container": conditional div cleanup ignores descendant data tables
+Modified location: Readability._cleanConditionally (Readability.js):2500-2508 (36 assertion failures, block deleted)
+  caught: 01-data-table-caption/jsdom/caption table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 01-data-table-caption/jsdom/caption and all four cells survive conditional cleaning -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/jsdom/link cell keeps its anchor and href -> CELL_A anchor must be retained
+  caught: 01-data-table-caption/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/JSDOMParser/caption table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 01-data-table-caption/JSDOMParser/caption and all four cells survive conditional cleaning -> expected an element with id="data-caption" in the output
+  caught: 01-data-table-caption/JSDOMParser/link cell keeps its anchor and href -> CELL_A anchor must be retained
+  caught: 01-data-table-caption/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-caption" in the output
+  caught: 02-data-table-summary/jsdom/summary table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 02-data-table-summary/jsdom/summary attribute and all six cells survive -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/jsdom/link cell keeps its anchor and href -> SUM_A anchor must be retained
+  caught: 02-data-table-summary/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/JSDOMParser/summary table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 02-data-table-summary/JSDOMParser/summary attribute and all six cells survive -> expected an element with id="data-summary" in the output
+  caught: 02-data-table-summary/JSDOMParser/link cell keeps its anchor and href -> SUM_A anchor must be retained
+  caught: 02-data-table-summary/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-summary" in the output
+  caught: 03-data-table-th/jsdom/th-headed table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 03-data-table-th/jsdom/header labels and cell contents survive -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/jsdom/rowspan/colspan merge attributes are preserved -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/jsdom/negative-weight short wrapper div survives with the table -> expected an element with id="data-th" in the output
+  caught: 03-data-table-th/JSDOMParser/th-headed table is retained as a table -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 03-data-table-th/JSDOMParser/header labels and cell contents survive -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/JSDOMParser/rowspan/colspan merge attributes are preserved -> Cannot read properties of null (reading 'getElementsByTagName')
+  caught: 03-data-table-th/JSDOMParser/negative-weight short wrapper div survives with the table -> expected an element with id="data-th" in the output
+  caught: 04-nested-presentation/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 04-nested-presentation/jsdom/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-presentation" in the output
+  caught: 04-nested-presentation/jsdom/inner cells and link survive -> textContent must retain "INNER_A"
+  caught: 04-nested-presentation/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 04-nested-presentation/JSDOMParser/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-presentation" in the output
+  caught: 04-nested-presentation/JSDOMParser/inner cells and link survive -> textContent must retain "INNER_A"
+  caught: 05-nested-datatable0/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 05-nested-datatable0/jsdom/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-datatable0" in the output
+  caught: 05-nested-datatable0/jsdom/inner cells and link survive -> textContent must retain "DT0_A"
+  caught: 05-nested-datatable0/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+0 !== 1
+
+  caught: 05-nested-datatable0/JSDOMParser/inner table identity does not leak onto the flattened outer table -> expected an element with id="inner-datatable0" in the output
+  caught: 05-nested-datatable0/JSDOMParser/inner cells and link survive -> textContent must retain "DT0_A"
+TABLE_CONTAINER_CAUGHT
+---
+Mutation "unwrap": single-cell layout tables are no longer unwrapped
+Modified location: Readability._prepArticle (Readability.js):872-894 (14 assertion failures, block deleted)
+  caught: 04-nested-presentation/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+2 !== 1
+
+  caught: 04-nested-presentation/jsdom/inner table identity does not leak onto the flattened outer table -> Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'TABLE',
++   'TD',
++   'TR',
++   'TBODY',
++   'TABLE',
+-   'DIV',
+    'ARTICLE'
+  ]
+
+  caught: 04-nested-presentation/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+2 !== 1
+
+  caught: 04-nested-presentation/JSDOMParser/inner table identity does not leak onto the flattened outer table -> Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'TABLE',
++   'TD',
++   'TR',
++   'TABLE',
+-   'DIV',
+    'ARTICLE'
+  ]
+
+  caught: 05-nested-datatable0/jsdom/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+2 !== 1
+
+  caught: 05-nested-datatable0/jsdom/inner table identity does not leak onto the flattened outer table -> Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'TABLE',
++   'TD',
++   'TR',
++   'TBODY',
++   'TABLE',
+-   'DIV',
+    'ARTICLE'
+  ]
+
+  caught: 05-nested-datatable0/JSDOMParser/only the inner data table remains; outer layout table is flattened -> Expected values to be strictly equal:
+
+2 !== 1
+
+  caught: 05-nested-datatable0/JSDOMParser/inner table identity does not leak onto the flattened outer table -> Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'TABLE',
++   'TD',
++   'TR',
++   'TABLE',
+-   'DIV',
+    'ARTICLE'
+  ]
+
+  caught: 06-single-cell-layout/jsdom/single-cell layout table is exported without table markup -> Expected values to be strictly equal:
+
+1 !== 0
+
+  caught: 06-single-cell-layout/jsdom/cell becomes a paragraph directly under the article -> Expected values to be strictly equal:
+
+'TD' !== 'P'
+
+  caught: 06-single-cell-layout/jsdom/prose and inline link survive the unwrap -> Expected values to be strictly equal:
+
+'TD' !== 'P'
+
+  caught: 06-single-cell-layout/JSDOMParser/single-cell layout table is exported without table markup -> Expected values to be strictly equal:
+
+1 !== 0
+
+  caught: 06-single-cell-layout/JSDOMParser/cell becomes a paragraph directly under the article -> Expected values to be strictly equal:
+
+'TD' !== 'P'
+
+  caught: 06-single-cell-layout/JSDOMParser/prose and inline link survive the unwrap -> Expected values to be strictly equal:
+
+'TD' !== 'P'
+
+TABLE_UNWRAP_CAUGHT
+---
+All three localized table regressions were caught by content/structure assertions.
