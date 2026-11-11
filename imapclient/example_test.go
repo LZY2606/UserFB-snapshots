@@ -302,6 +302,28 @@ func ExampleClient_Search() {
 	log.Fatalf("UIDs matching the search criteria: %v", data.AllUIDs())
 }
 
+func ExampleClient_MultiSearch() {
+	var c *imapclient.Client
+
+	// Requires server support for MULTISEARCH (RFC 7377)
+	if !c.Caps().Has(imap.CapMultiSearch) {
+		log.Fatal("MULTISEARCH not supported by the server")
+	}
+
+	// Search multiple mailboxes in a single round-trip, without selecting
+	// any of them first
+	results, err := c.MultiSearch([]string{"INBOX", "Archive"}, &imap.SearchCriteria{
+		Body: []string{"Hello world"},
+	}, nil).Wait()
+	if err != nil {
+		log.Fatalf("MULTISEARCH command failed: %v", err)
+	}
+	for _, res := range results {
+		log.Printf("%v (UIDVALIDITY %v): UIDs matching the search criteria: %v",
+			res.Mailbox, res.UIDValidity, res.SearchData.AllUIDs())
+	}
+}
+
 func ExampleClient_Idle() {
 	options := imapclient.Options{
 		UnilateralDataHandler: &imapclient.UnilateralDataHandler{

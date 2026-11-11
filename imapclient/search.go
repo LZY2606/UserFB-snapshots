@@ -124,17 +124,34 @@ func (c *Client) handleESearch() error {
 	if !c.dec.ExpectSP() {
 		return c.dec.Err()
 	}
-	tag, data, err := readESearchResponse(c.dec)
+	source, data, err := readESearchResponse(c.dec)
 	if err != nil {
 		return err
+	}
+	if source.multi {
+		// RFC 7377 multi-mailbox ESEARCH response: dispatch to the
+		// MULTISEARCH command identified by the correlator tag
+		cmd := c.findPendingCmdFunc(func(anyCmd command) bool {
+			cmd, ok := anyCmd.(*MultiSearchCommand)
+			return ok && cmd.tag == source.tag
+		})
+		if cmd != nil {
+			cmd := cmd.(*MultiSearchCommand)
+			cmd.data = append(cmd.data, &MultiSearchData{
+				Mailbox:     source.mailbox,
+				UIDValidity: source.uidValidity,
+				SearchData:  *data,
+			})
+		}
+		return nil
 	}
 	cmd := c.findPendingCmdFunc(func(anyCmd command) bool {
 		cmd, ok := anyCmd.(*SearchCommand)
 		if !ok {
 			return false
 		}
-		if tag != "" {
-			return cmd.tag == tag
+		if source.tag != "" {
+			return cmd.tag == source.tag
 		} else {
 			return true
 		}
@@ -277,50 +294,98 @@ func flagSearchKey(flag imap.Flag) string {
 	}
 }
 
-func readESearchResponse(dec *imapwire.Decoder) (tag string, data *imap.SearchData, err error) {
+// esearchSource identifies the command and mailbox an ESEARCH response
+// belongs to.
+type esearchSource struct {
+	tag string // correlator tag, empty if the response has no correlator
+
+	// RFC 7377 multi-mailbox correlator fields. multi is true if they are
+	// present.
+	multi       bool
+	mailbox     string
+	uidValidity uint32
+}
+
+func readESearchResponse(dec *imapwire.Decoder) (source *esearchSource, data *imap.SearchData, err error) {
+	source = &esearchSource{}
 	data = &imap.SearchData{}
 	if dec.Special('(') { // search-correlator
 		var correlator string
-		if !dec.ExpectAtom(&correlator) || !dec.ExpectSP() || !dec.ExpectAString(&tag) || !dec.ExpectSpecial(')') {
-			return "", nil, dec.Err()
+		if !dec.ExpectAtom(&correlator) || !dec.ExpectSP() || !dec.ExpectAString(&source.tag) {
+			return nil, nil, dec.Err()
 		}
 		if correlator != "TAG" {
-			return "", nil, fmt.Errorf("in search-correlator: name must be TAG, but got %q", correlator)
+			return nil, nil, fmt.Errorf("in search-correlator: name must be TAG, but got %q", correlator)
+		}
+		if dec.SP() {
+			// RFC 7377: multi-mailbox correlator. The MAILBOX and
+			// UIDVALIDITY fields are both mandatory and must not be
+			// repeated.
+			source.multi = true
+			var name string
+			if !dec.ExpectAtom(&name) || name != "MAILBOX" {
+				return nil, nil, fmt.Errorf("in search-correlator: expected MAILBOX, got %q", name)
+			}
+			if !dec.ExpectSP() || !dec.ExpectMailbox(&source.mailbox) || !dec.ExpectSP() {
+				return nil, nil, dec.Err()
+			}
+			if !dec.ExpectAtom(&name) || name != "UIDVALIDITY" {
+				return nil, nil, fmt.Errorf("in search-correlator: expected UIDVALIDITY, got %q", name)
+			}
+			if !dec.ExpectSP() || !dec.ExpectNumber(&source.uidValidity) {
+				return nil, nil, dec.Err()
+			}
+			if source.uidValidity == 0 {
+				return nil, nil, fmt.Errorf("in search-correlator: UIDVALIDITY must be non-zero")
+			}
+			if dec.SP() {
+				return nil, nil, fmt.Errorf("in search-correlator: unexpected data after UIDVALIDITY")
+			}
+		}
+		if !dec.ExpectSpecial(')') {
+			return nil, nil, dec.Err()
 		}
 	}
 
 	var name string
 	if !dec.SP() {
-		return tag, data, nil
+		if source.multi {
+			return nil, nil, fmt.Errorf("in esearch-response: multi-mailbox response is missing the UID marker")
+		}
+		return source, data, nil
 	} else if !dec.ExpectAtom(&name) {
-		return "", nil, dec.Err()
+		return nil, nil, dec.Err()
 	}
 	isUID := name == "UID"
 
+	if source.multi && !isUID {
+		return nil, nil, fmt.Errorf("in esearch-response: multi-mailbox response is missing the UID marker")
+	}
+
 	if isUID {
 		if !dec.SP() {
-			return tag, data, nil
+			return source, data, nil
 		} else if !dec.ExpectAtom(&name) {
-			return "", nil, dec.Err()
+			return nil, nil, dec.Err()
 		}
 	}
 
 	for {
 		if !dec.ExpectSP() {
-			return "", nil, dec.Err()
+			return nil, nil, dec.Err()
 		}
 
 		switch strings.ToUpper(name) {
 		case "MIN":
 			var num uint32
 			if !dec.ExpectNumber(&num) {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 			data.Min = num
 		case "MAX":
 			var num uint32
 			if !dec.ExpectNumber(&num) {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 			data.Max = num
 		case "ALL":
@@ -329,37 +394,37 @@ func readESearchResponse(dec *imapwire.Decoder) (tag string, data *imap.SearchDa
 				numKind = imapwire.NumKindUID
 			}
 			if !dec.ExpectNumSet(numKind, &data.All) {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 			if data.All.Dynamic() {
-				return "", nil, fmt.Errorf("imapclient: server returned a dynamic ALL number set in SEARCH response")
+				return nil, nil, fmt.Errorf("imapclient: server returned a dynamic ALL number set in SEARCH response")
 			}
 		case "COUNT":
 			var num uint32
 			if !dec.ExpectNumber(&num) {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 			data.Count = num
 		case "MODSEQ":
 			var modSeq uint64
 			if !dec.ExpectModSeq(&modSeq) {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 			data.ModSeq = modSeq
 		default:
 			if !dec.DiscardValue() {
-				return "", nil, dec.Err()
+				return nil, nil, dec.Err()
 			}
 		}
 
 		if !dec.SP() {
 			break
 		} else if !dec.ExpectAtom(&name) {
-			return "", nil, dec.Err()
+			return nil, nil, dec.Err()
 		}
 	}
 
-	return tag, data, nil
+	return source, data, nil
 }
 
 func searchCriteriaIsASCII(criteria *imap.SearchCriteria) bool {
