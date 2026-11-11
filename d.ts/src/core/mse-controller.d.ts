@@ -27,11 +27,23 @@ declare class MSEController {
         video: null;
         audio: null;
     };
+    _requestedMimeTypes: {
+        video: null;
+        audio: null;
+    };
+    _stoppedTracks: {
+        video: boolean;
+        audio: boolean;
+    };
     _sourceBuffers: {
         video: null;
         audio: null;
     };
     _lastInitSegments: {
+        video: null;
+        audio: null;
+    };
+    _effectiveInitSegments: {
         video: null;
         audio: null;
     };
@@ -53,6 +65,7 @@ declare class MSEController {
     getHandle(): any;
     getObjectURL(): string;
     revokeObjectURL(): void;
+    _buildMimeType(initSegment: any): string;
     appendInitSegment(initSegment: any, deferred?: undefined): void;
     appendMediaSegment(mediaSegment: any): void;
     flush(): void;
@@ -61,6 +74,7 @@ declare class MSEController {
     _doCleanupSourceBuffer(): void;
     _updateMediaSourceDuration(): void;
     _doRemoveRanges(): void;
+    _onCodecChangeFailure(type: any, oldMimeType: any, newMimeType: any, error: any): void;
     _doAppendSegments(): void;
     _onSourceOpen(): void;
     _onStartStreaming(): void;

@@ -4,6 +4,7 @@ declare enum MSEEvents {
     UPDATE_END = "update_end",
     BUFFER_FULL = "buffer_full",
     START_STREAMING = "start_streaming",
-    END_STREAMING = "end_streaming"
+    END_STREAMING = "end_streaming",
+    CODEC_CHANGE = "codec_change"
 }
 export default MSEEvents;

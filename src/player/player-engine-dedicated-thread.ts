@@ -42,6 +42,7 @@ import {
 import {
     WorkerMessagePacket,
     WorkerMessagePacketBufferedPositionChanged,
+    WorkerMessagePacketCodecChange,
     WorkerMessagePacketLogcatCallback,
     WorkerMessagePacketMSEEvent,
     WorkerMessagePacketMSEInit,
@@ -425,6 +426,15 @@ class PlayerEngineDedicatedThread implements PlayerEngine {
             case 'logcat_callback': {
                 const packet = message_packet as WorkerMessagePacketLogcatCallback;
                 Log.emitter.emit('log', packet.type, packet.logcat);
+                break;
+            }
+            case 'codec_change': {
+                const packet = message_packet as WorkerMessagePacketCodecChange;
+                this._emitter.emit(PlayerEvents.CODEC_CHANGE, {
+                    type: packet.type,
+                    oldMimeType: packet.oldMimeType,
+                    newMimeType: packet.newMimeType,
+                });
                 break;
             }
             case 'buffered_position_changed': {

@@ -128,6 +128,7 @@ class PlayerEngineMainThread implements PlayerEngine {
         this._mse_controller.on(MSEEvents.ERROR, this._onMSEError.bind(this));
         this._mse_controller.on(MSEEvents.START_STREAMING, this._onMSEStartStreaming.bind(this));
         this._mse_controller.on(MSEEvents.END_STREAMING, this._onMSEEndStreaming.bind(this));
+        this._mse_controller.on(MSEEvents.CODEC_CHANGE, this._onMSECodecChange.bind(this));
 
         this._mse_controller.initialize({
             getCurrentTime: () => this._media_element!.currentTime,
@@ -370,6 +371,10 @@ class PlayerEngineMainThread implements PlayerEngine {
 
     private _onMSEError(info: any): void {
         this._emitter.emit(PlayerEvents.ERROR, ErrorTypes.MEDIA_ERROR, ErrorDetails.MEDIA_MSE_ERROR, info);
+    }
+
+    private _onMSECodecChange(info: any): void {
+        this._emitter.emit(PlayerEvents.CODEC_CHANGE, info);
     }
 
     private _onMSEStartStreaming(): void {

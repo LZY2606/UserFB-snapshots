@@ -427,6 +427,7 @@ declare namespace Mpegts {
         PES_PRIVATE_DATA_DESCRIPTOR: string;
         PES_PRIVATE_DATA_ARRIVED: string;
         STATISTICS_INFO: string;
+        CODEC_CHANGE: string;
     }
 
     interface ErrorTypes {

@@ -44,6 +44,7 @@ import {
     WorkerMessagePacketTransmuxingEventInfo,
     WorkerMessagePacketTransmuxingEventRecommendSeekpoint,
     WorkerMessagePacketBufferedPositionChanged,
+    WorkerMessagePacketCodecChange,
     WorkerMessagePacketLogcatCallback,
 } from './player-engine-worker-msg-def.js';
 
@@ -153,6 +154,7 @@ const PlayerEngineWorker = (self: DedicatedWorkerGlobalScope) => {
         mse_controller.on(MSEEvents.UPDATE_END, onMSEUpdateEnd);
         mse_controller.on(MSEEvents.BUFFER_FULL, onMSEBufferFull);
         mse_controller.on(MSEEvents.ERROR, onMSEError);
+        mse_controller.on(MSEEvents.CODEC_CHANGE, onMSECodecChange);
         mse_controller.initialize({
             getCurrentTime: () => media_element_current_time,
             getReadyState: () => media_element_ready_state,
@@ -322,6 +324,15 @@ const PlayerEngineWorker = (self: DedicatedWorkerGlobalScope) => {
             error_detail: ErrorDetails.MEDIA_MSE_ERROR,
             info: info,
         } as WorkerMessagePacketPlayerEventError);
+    }
+
+    function onMSECodecChange(info: any): void {
+        self.postMessage({
+            msg: 'codec_change',
+            type: info.type,
+            oldMimeType: info.oldMimeType,
+            newMimeType: info.newMimeType,
+        } as WorkerMessagePacketCodecChange);
     }
 
     function emitTransmuxingEventsRecommendSeekpoint(milliseconds: number) {

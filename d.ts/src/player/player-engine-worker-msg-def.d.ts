@@ -1,7 +1,7 @@
 import MSEEvents from '../core/mse-events';
 import PlayerEvents from './player-events';
 import TransmuxingEvents from '../core/transmuxing-events';
-export type WorkerMessageType = 'destroyed' | 'mse_init' | 'mse_event' | 'player_event' | 'transmuxing_event' | 'buffered_position_changed' | 'logcat_callback';
+export type WorkerMessageType = 'destroyed' | 'mse_init' | 'mse_event' | 'player_event' | 'transmuxing_event' | 'buffered_position_changed' | 'codec_change' | 'logcat_callback';
 export type WorkerMessagePacket = {
     msg: WorkerMessageType;
 };
@@ -46,6 +46,12 @@ export type WorkerMessagePacketTransmuxingEventRecommendSeekpoint = WorkerMessag
 export type WorkerMessagePacketBufferedPositionChanged = WorkerMessagePacket & {
     msg: 'buffered_position_changed';
     buffered_position_milliseconds: number;
+};
+export type WorkerMessagePacketCodecChange = WorkerMessagePacket & {
+    msg: 'codec_change';
+    type: string;
+    oldMimeType: string;
+    newMimeType: string;
 };
 export type WorkerMessagePacketLogcatCallback = WorkerMessagePacket & {
     msg: 'logcat_callback';

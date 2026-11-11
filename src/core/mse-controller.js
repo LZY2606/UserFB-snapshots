@@ -22,6 +22,11 @@ import Browser from '../utils/browser';
 import MSEEvents from './mse-events';
 import {IllegalStateException} from '../utils/exception.js';
 
+// Identifiable reason carried by ERROR events emitted when a codec switch fails
+const MSEErrorReason = {
+    CODEC_CHANGE_UNSUPPORTED: 'codec_change_unsupported'
+};
+
 // Media Source Extensions controller
 class MSEController {
 
@@ -62,15 +67,32 @@ class MSEController {
         this._pendingMediaDuration = 0;
 
         this._pendingSourceBufferInit = [];
+        // MIME type currently effective on the SourceBuffer (null until the buffer is created)
         this._mimeTypes = {
             video: null,
             audio: null
+        };
+        // Latest MIME type requested by init segments, even if its codec switch has not
+        // taken effect yet. A mismatch against _mimeTypes means a switch is still queued.
+        this._requestedMimeTypes = {
+            video: null,
+            audio: null
+        };
+        // A track is stopped after an unsupported codec transition, until flush() resets it
+        this._stoppedTracks = {
+            video: false,
+            audio: false
         };
         this._sourceBuffers = {
             video: null,
             audio: null
         };
         this._lastInitSegments = {
+            video: null,
+            audio: null
+        };
+        // The init segment that actually took effect for the current MIME type
+        this._effectiveInitSegments = {
             video: null,
             audio: null
         };
@@ -137,6 +159,7 @@ class MSEController {
                 this._pendingSegments[type] = null;
                 this._pendingRemoveRanges[type] = null;
                 this._lastInitSegments[type] = null;
+                this._effectiveInitSegments[type] = null;
 
                 // remove all sourcebuffers
                 const sb = this._sourceBuffers[type];
@@ -172,6 +195,9 @@ class MSEController {
                 ms.removeEventListener('qualitychange', this.e.onQualityChange);
             }
             this._pendingSourceBufferInit = [];
+            this._requestedMimeTypes = {video: null, audio: null};
+            this._effectiveInitSegments = {video: null, audio: null};
+            this._stoppedTracks = {video: false, audio: false};
             this._isBufferFull = false;
             this._mediaSource = null;
         }
@@ -213,16 +239,7 @@ class MSEController {
         }
     }
 
-    appendInitSegment(initSegment, deferred = undefined) {
-        if (!this._mediaSource || this._mediaSource.readyState !== 'open' || this._mediaSource.streaming === false) {
-            // sourcebuffer creation requires mediaSource.readyState === 'open'
-            // so we defer the sourcebuffer creation, until sourceopen event triggered
-            this._pendingSourceBufferInit.push(initSegment);
-            // make sure that this InitSegment is in the front of pending segments queue
-            this._pendingSegments[initSegment.type].push(initSegment);
-            return;
-        }
-
+    _buildMimeType(initSegment) {
         const is = initSegment;
         let mimeType = `${is.container}`;
         if (is.codec && is.codec.length > 0) {
@@ -231,39 +248,68 @@ class MSEController {
             }
             mimeType += `;codecs=${is.codec}`;
         }
+        return mimeType;
+    }
 
-        let firstInitSegment = false;
+    appendInitSegment(initSegment, deferred = undefined) {
+        if (this._stoppedTracks[initSegment.type]) {
+            // This track is parked after a failed codec transition.
+            // flush() must clear the failure state before new init segments are accepted.
+            return;
+        }
+
+        const is = initSegment;
+        const mimeType = this._buildMimeType(is);
 
         Log.v(this.TAG, 'Received Initialization Segment, mimeType: ' + mimeType);
+        // Keep the latest received init segment for flush() / Safari reappend, but it only
+        // represents an effective type once the corresponding append has actually run.
         this._lastInitSegments[is.type] = is;
+        // Record the requested type separately: an init segment whose changeType() has not
+        // succeeded yet must not become the current effective MIME type.
+        this._requestedMimeTypes[is.type] = mimeType;
+        // The target type travels with the segment, so the queued switch happens in order.
+        // Tagging before deferral keeps the transition intact while sourceopen / startstreaming
+        // are still being waited for.
+        is._mimeType = mimeType;
 
-        if (mimeType !== this._mimeTypes[is.type]) {
-            if (!this._mimeTypes[is.type]) {  // empty, first chance create sourcebuffer
-                firstInitSegment = true;
-                try {
-                    const sb = this._sourceBuffers[is.type] = this._mediaSource.addSourceBuffer(mimeType);
-                    sb.addEventListener('error', this.e.onSourceBufferError);
-                    sb.addEventListener('updateend', this.e.onSourceBufferUpdateEnd);
-                } catch (error) {
-                    Log.e(this.TAG, error.message);
-                    this._emitter.emit(MSEEvents.ERROR, {code: error.code, msg: error.message});
-                    return;
-                }
-            } else {
-                Log.v(this.TAG, `Notice: ${is.type} mimeType changed, origin: ${this._mimeTypes[is.type]}, target: ${mimeType}`);
+        if (!this._mediaSource || this._mediaSource.readyState !== 'open' || this._mediaSource.streaming === false) {
+            // sourcebuffer creation requires mediaSource.readyState === 'open'
+            // so we defer the sourcebuffer creation, until sourceopen event triggered
+            this._pendingSourceBufferInit.push(is);
+            // make sure that this InitSegment is in the front of pending segments queue
+            this._pendingSegments[is.type].push(is);
+            return;
+        }
+
+        if (!this._mimeTypes[is.type]) {
+            // First chance: create the sourcebuffer with the initial MIME type
+            try {
+                const sb = this._sourceBuffers[is.type] = this._mediaSource.addSourceBuffer(mimeType);
+                sb.addEventListener('error', this.e.onSourceBufferError);
+                sb.addEventListener('updateend', this.e.onSourceBufferUpdateEnd);
+            } catch (error) {
+                Log.e(this.TAG, error.message);
+                this._emitter.emit(MSEEvents.ERROR, {code: error.code, msg: error.message});
+                this._requestedMimeTypes[is.type] = null;
+                this._lastInitSegments[is.type] = null;
+                delete is._mimeType;
+                return;
             }
             this._mimeTypes[is.type] = mimeType;
+        } else if (mimeType !== this._mimeTypes[is.type]) {
+            Log.v(this.TAG, `Notice: ${is.type} mimeType changed, origin: ${this._mimeTypes[is.type]}, target: ${mimeType}`);
         }
 
         if (!deferred) {
             // deferred means this InitSegment has been pushed to pendingSegments queue
             this._pendingSegments[is.type].push(is);
         }
-        if (!firstInitSegment) {  // append immediately only if init segment in subsequence
-            if (this._sourceBuffers[is.type] && !this._sourceBuffers[is.type].updating) {
-                this._doAppendSegments();
-            }
+
+        if (this._sourceBuffers[is.type] && !this._sourceBuffers[is.type].updating) {
+            this._doAppendSegments();
         }
+
         if (Browser.name === 'safari' && is.container === 'audio/mpeg' && is.mediaDuration > 0) {
             // 'audio/mpeg' track under Safari may cause MediaElement's duration to be NaN
             // Manually correct MediaSource.duration to make progress bar seekable, and report right duration
@@ -275,6 +321,12 @@ class MSEController {
 
     appendMediaSegment(mediaSegment) {
         const ms = mediaSegment;
+
+        if (this._stoppedTracks[ms.type]) {
+            // Drop media belonging to a track parked by a failed codec transition
+            return;
+        }
+
         this._pendingSegments[ms.type].push(ms);
 
         if (this._config.autoCleanupSourceBuffer && this._needCleanupSourceBuffer()) {
@@ -293,6 +345,12 @@ class MSEController {
             if (!this._sourceBuffers[type]) {
                 continue;
             }
+
+            // A flush reopens a track parked by a failed codec transition and clears the
+            // failure state, so the init segment can be resubmitted afterwards. Retries
+            // still cannot loop: a re-failing transition parks the track again.
+            this._stoppedTracks[type] = false;
+            this._requestedMimeTypes[type] = this._mimeTypes[type];
 
             // abort current buffer append algorithm
             const sb = this._sourceBuffers[type];
@@ -343,9 +401,12 @@ class MSEController {
             // Internal parser's state may be invalid at this time. Re-append last InitSegment to workaround.
             // Related issue: https://bugs.webkit.org/show_bug.cgi?id=159230
             if (Browser.name === 'safari') {
-                const lastInitSegment = this._lastInitSegments[type];
-                if (lastInitSegment) {
-                    this._pendingSegments[type].push(lastInitSegment);
+                // Re-append the init segment that actually took effect. A newly received,
+                // not-yet-switched init segment (its codec never became effective) is not reused.
+                const effectiveInitSegment = this._effectiveInitSegments[type] || this._lastInitSegments[type];
+                if (effectiveInitSegment
+                        && (!this._mimeTypes[type] || this._buildMimeType(effectiveInitSegment) === this._mimeTypes[type])) {
+                    this._pendingSegments[type].push(effectiveInitSegment);
                     if (!sb.updating) {
                         this._doAppendSegments();
                     }
@@ -467,60 +528,120 @@ class MSEController {
         }
     }
 
+    _onCodecChangeFailure(type, oldMimeType, newMimeType, error) {
+        // Park the track: the new type and its following media stay queued but are not
+        // appended, while the other independent track keeps working. The effective MIME
+        // type is deliberately left untouched, so the already buffered data stays valid.
+        this._stoppedTracks[type] = true;
+        Log.e(this.TAG, `Codec change failed for ${type} track, ${oldMimeType} -> ${newMimeType}: ${error.message}`);
+        this._emitter.emit(MSEEvents.ERROR, {
+            reason: MSEErrorReason.CODEC_CHANGE_UNSUPPORTED,
+            code: error.code,
+            msg: error.message,
+            type,
+            oldMimeType,
+            newMimeType
+        });
+    }
+
     _doAppendSegments() {
         const pendingSegments = this._pendingSegments;
 
         for (const type in pendingSegments) {
-            if (!this._sourceBuffers[type] || this._sourceBuffers[type].updating || this._mediaSource.streaming === false) {
+            const sb = this._sourceBuffers[type];
+            if (!sb || sb.updating || this._mediaSource.streaming === false || this._stoppedTracks[type]) {
                 continue;
             }
 
-            if (pendingSegments[type].length > 0) {
-                const segment = pendingSegments[type].shift();
+            if (pendingSegments[type].length === 0) {
+                continue;
+            }
 
-                if (typeof segment.timestampOffset === 'number' && isFinite(segment.timestampOffset)) {
-                    // For MPEG audio stream in MSE, if unbuffered-seeking occurred
-                    // We need explicitly set timestampOffset to the desired point in timeline for mpeg SourceBuffer.
-                    const currentOffset = this._sourceBuffers[type].timestampOffset;
-                    const targetOffset = segment.timestampOffset / 1000;  // in seconds
+            const segment = pendingSegments[type].shift();
 
-                    const delta = Math.abs(currentOffset - targetOffset);
-                    if (delta > 0.1) {  // If time delta > 100ms
-                        Log.v(this.TAG, `Update MPEG audio timestampOffset from ${currentOffset} to ${targetOffset}`);
-                        this._sourceBuffers[type].timestampOffset = targetOffset;
-                    }
-                    delete segment.timestampOffset;
-                }
+            // An init segment whose target MIME is not the effective one yet must switch
+            // the SourceBuffer codec before its data is appended.
+            if (segment._mimeType !== undefined && segment._mimeType !== this._mimeTypes[type]) {
+                const targetMimeType = segment._mimeType;
+                const oldMimeType = this._mimeTypes[type];
 
-                if (!segment.data || segment.data.byteLength === 0) {
-                    // Ignore empty buffer
+                if (typeof sb.changeType !== 'function') {
+                    pendingSegments[type].unshift(segment);
+                    this._onCodecChangeFailure(type, oldMimeType, targetMimeType,
+                        new Error('SourceBuffer.changeType() is not supported by this browser'));
                     continue;
                 }
 
                 try {
-                    this._sourceBuffers[type].appendBuffer(segment.data);
-                    this._isBufferFull = false;
+                    // changeType() is synchronous and requires the SourceBuffer not updating
+                    sb.changeType(targetMimeType);
                 } catch (error) {
-                    this._pendingSegments[type].unshift(segment);
-                    if (error.code === 22) {  // QuotaExceededError
-                        /* Notice that FireFox may not throw QuotaExceededError if SourceBuffer is full
-                         * Currently we can only do lazy-load to avoid SourceBuffer become scattered.
-                         * SourceBuffer eviction policy may be changed in future version of FireFox.
-                         *
-                         * Related issues:
-                         * https://bugzilla.mozilla.org/show_bug.cgi?id=1279885
-                         * https://bugzilla.mozilla.org/show_bug.cgi?id=1280023
-                         */
+                    // Re-queue untouched: later segments (e.g. another codec's init segment)
+                    // must not overtake the init segment whose switch failed
+                    pendingSegments[type].unshift(segment);
+                    this._onCodecChangeFailure(type, oldMimeType, targetMimeType, error);
+                    continue;
+                }
 
-                        // report buffer full, abort network IO
-                        if (!this._isBufferFull) {
-                            this._emitter.emit(MSEEvents.BUFFER_FULL);
-                        }
-                        this._isBufferFull = true;
-                    } else {
-                        Log.e(this.TAG, error.message);
-                        this._emitter.emit(MSEEvents.ERROR, {code: error.code, msg: error.message});
+                this._mimeTypes[type] = targetMimeType;
+                // Notify exactly once per completed switch, before the new init segment append
+                this._emitter.emit(MSEEvents.CODEC_CHANGE, {
+                    type,
+                    oldMimeType,
+                    newMimeType: targetMimeType
+                });
+                // fall through and append this init segment under the new type
+            }
+
+            // An init segment whose MIME is effective becomes the reference init segment
+            // for flush() / Safari reappend. A received-but-not-yet-switched init segment
+            // never reaches this point.
+            if (segment._mimeType !== undefined && segment._mimeType === this._mimeTypes[type]) {
+                this._effectiveInitSegments[type] = segment;
+            }
+
+            if (typeof segment.timestampOffset === 'number' && isFinite(segment.timestampOffset)) {
+                // For MPEG audio stream in MSE, if unbuffered-seeking occurred
+                // We need explicitly set timestampOffset to the desired point in timeline for mpeg SourceBuffer.
+                const currentOffset = sb.timestampOffset;
+                const targetOffset = segment.timestampOffset / 1000;  // in seconds
+
+                const delta = Math.abs(currentOffset - targetOffset);
+                if (delta > 0.1) {  // If time delta > 100ms
+                    Log.v(this.TAG, `Update MPEG audio timestampOffset from ${currentOffset} to ${targetOffset}`);
+                    sb.timestampOffset = targetOffset;
+                }
+                delete segment.timestampOffset;
+            }
+
+            if (!segment.data || segment.data.byteLength === 0) {
+                // Ignore empty buffer
+                continue;
+            }
+
+            try {
+                sb.appendBuffer(segment.data);
+                this._isBufferFull = false;
+            } catch (error) {
+                this._pendingSegments[type].unshift(segment);
+                if (error.code === 22) {  // QuotaExceededError
+                    /* Notice that FireFox may not throw QuotaExceededError if SourceBuffer is full
+                     * Currently we can only do lazy-load to avoid SourceBuffer become scattered.
+                     * SourceBuffer eviction policy may be changed in future version of FireFox.
+                     *
+                     * Related issues:
+                     * https://bugzilla.mozilla.org/show_bug.cgi?id=1279885
+                     * https://bugzilla.mozilla.org/show_bug.cgi?id=1280023
+                     */
+
+                    // report buffer full, abort network IO
+                    if (!this._isBufferFull) {
+                        this._emitter.emit(MSEEvents.BUFFER_FULL);
                     }
+                    this._isBufferFull = true;
+                } else {
+                    Log.e(this.TAG, error.message);
+                    this._emitter.emit(MSEEvents.ERROR, {code: error.code, msg: error.message});
                 }
             }
         }
@@ -546,6 +667,11 @@ class MSEController {
 
     _onStartStreaming() {
         Log.v(this.TAG, 'ManagedMediaSource onStartStreaming');
+        // streaming flipped back to true: continue the same pending append order,
+        // including codec switches waiting at the head of a track queue
+        if (this._hasPendingSegments()) {
+            this._doAppendSegments();
+        }
         this._emitter.emit(MSEEvents.START_STREAMING);
     }
 
