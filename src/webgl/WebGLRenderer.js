@@ -11,6 +11,7 @@ import { WebGLMaterials } from './WebGLMaterials.js';
 import { WebGLVertexArrayBindings } from './WebGLVertexArrayBindings.js';
 import { WebGLQuerySets } from './WebGLQuerySets.js';
 import { WebGLLights } from './WebGLLights.js';
+import { submitMorphTargets } from './WebGLMorphtargets.js';
 import { Vector4 } from '../math/Vector4.js';
 import { Matrix4 } from '../math/Matrix4.js';
 import { Matrix3 } from '../math/Matrix3.js';
@@ -22,9 +23,6 @@ import { TEXTURE_FILTER } from '../const.js';
 const helpVector4 = new Vector4();
 const helpMatrix3 = new Matrix3();
 const helpMatrix4 = new Matrix4();
-
-const influencesList = new WeakMap();
-const morphInfluences = new Float32Array(8);
 
 const _envData = { map: null, diffuse: 1, specular: 1 };
 let _clippingPlanesData = new Float32Array([]);
@@ -694,58 +692,9 @@ class WebGLRenderer extends ThinRenderer {
 	}
 
 	_updateMorphtargets(object, geometry, program) {
-		const objectInfluences = object.morphTargetInfluences;
+		const influences = submitMorphTargets(object, geometry, this._buffers, this.context);
 
-		if (!influencesList.has(geometry)) {
-			influencesList.set(geometry, objectInfluences.slice(0));
-		}
-
-		const morphTargets = geometry.morphAttributes.position;
-		const morphNormals = geometry.morphAttributes.normal;
-
-		// Remove current morphAttributes
-
-		const influences = influencesList.get(geometry);
-
-		for (let i = 0; i < influences.length; i++) {
-			const influence = influences[i];
-
-			if (influence !== 0) {
-				if (morphTargets) geometry.removeAttribute('morphTarget' + i);
-				if (morphNormals) geometry.removeAttribute('morphNormal' + i);
-			}
-		}
-
-		// Collect influences
-
-		for (let i = 0; i < objectInfluences.length; i++) {
-			influences[i] = objectInfluences[i];
-		}
-
-		influences.length = objectInfluences.length;
-
-		// Add morphAttributes
-
-		let count = 0;
-
-		for (let i = 0; i < influences.length; i++) {
-			const influence = influences[i];
-
-			if (influence > 0) {
-				if (morphTargets) geometry.addAttribute('morphTarget' + count, morphTargets[i]);
-				if (morphNormals) geometry.addAttribute('morphNormal' + count, morphNormals[i]);
-
-				morphInfluences[count] = influence;
-
-				count++;
-			}
-		}
-
-		for (; count < 8; count++) {
-			morphInfluences[count] = 0;
-		}
-
-		program.getUniforms().set('morphTargetInfluences', morphInfluences);
+		program.getUniforms().set('morphTargetInfluences', influences);
 	}
 
 	_draw(geometry, material, group, renderInfo) {
