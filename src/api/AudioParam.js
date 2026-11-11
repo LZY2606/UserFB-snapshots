@@ -49,6 +49,11 @@ class AudioParam {
     this._impl.cancelScheduledValues(startTime);
     return this;
   }
+
+  cancelAndHoldAtTime(cancelTime) {
+    this._impl.cancelAndHoldAtTime(cancelTime);
+    return this;
+  }
 }
 
 module.exports = AudioParam;

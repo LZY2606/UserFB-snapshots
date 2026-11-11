@@ -3,6 +3,7 @@
 const AudioNodeInput = require("./core/AudioNodeInput");
 const AudioBus = require("./core/AudioBus");
 const AudioParamDSP = require("./dsp/AudioParam");
+const AudioParamUtils = require("../utils/AudioParamUtils");
 const { defaults } = require("../utils");
 const { toNumber } = require("../utils");
 const { EXPLICIT } = require("../constants/ChannelCountMode");
@@ -360,6 +361,69 @@ class AudioParam {
 
     if (index <= this._currentEventIndex) {
       this._currentEventIndex = index;
+      this._remainSamples = 0;
+    }
+  }
+
+  /**
+   * @param {number} cancelTime
+   */
+  cancelAndHoldAtTime(cancelTime) {
+    cancelTime = +cancelTime;
+
+    if (!isFinite(cancelTime) || cancelTime < 0) {
+      throw new RangeError("cancelAndHoldAtTime: time must be a finite non-negative number");
+    }
+
+    // a time in the past is treated as the current time
+    cancelTime = Math.max(cancelTime, this.context.getCurrentTime());
+
+    const cancelFrame = Math.round(cancelTime * this.sampleRate);
+    const holdTime = cancelFrame / this.sampleRate;
+    const holdValue = AudioParamUtils.computeValueAtTime(this._timeline, holdTime, this._userValue);
+
+    // remove events that start at or after the cancel frame
+    this._timeline = this._timeline.filter(eventItem => eventItem.startFrame < cancelFrame);
+
+    // truncate events that would render beyond the cancel frame, keeping
+    // their original shape up to the cancel frame
+    this._timeline.forEach((eventItem) => {
+      if (cancelFrame < eventItem.endFrame) {
+        const frameRange = eventItem.endFrame - eventItem.startFrame;
+        const cancelRange = cancelFrame - eventItem.startFrame;
+
+        switch (eventItem.type) {
+        case SET_VALUE_AT_TIME:
+          eventItem.endFrame = cancelFrame;
+          break;
+        case LINEAR_RAMP_TO_VALUE_AT_TIME:
+          // the truncated end value lies on the ramp, keeping the slope;
+          // `time` is moved to the hold time to keep the timeline ordered
+          eventItem.endValue = eventItem.startValue + (eventItem.endValue - eventItem.startValue) * (cancelRange / frameRange);
+          eventItem.endFrame = cancelFrame;
+          eventItem.time = holdTime;
+          break;
+        case EXPONENTIAL_RAMP_TO_VALUE_AT_TIME:
+          eventItem.endValue = eventItem.startValue * Math.pow(eventItem.endValue / eventItem.startValue, cancelRange / frameRange);
+          eventItem.endFrame = cancelFrame;
+          eventItem.time = holdTime;
+          break;
+        case SET_TARGET_AT_TIME:
+        case SET_VALUE_CURVE_AT_TIME:
+          // a curve event keeps its original time mapping via `args`;
+          // only its rendering is stopped at the cancel frame
+          eventItem.endFrame = cancelFrame;
+          break;
+        }
+      }
+    });
+
+    // hold the computed value from the cancel frame on
+    this.setValueAtTime(holdValue, holdTime);
+
+    // force the dsp to recompute the in-flight schedule from the mutated timeline
+    if (this._currentEventIndex >= 0) {
+      this._currentEventIndex = Math.min(this._currentEventIndex, this._timeline.length - 1);
       this._remainSamples = 0;
     }
   }

@@ -239,8 +239,13 @@ const AudioParamDSP = {
         case SET_VALUE_CURVE_AT_TIME:
           {
             const curve = eventItem.args[0];
+            // derive the curve time mapping from the original arguments, so
+            // that truncating eventItem.endFrame (cancelAndHoldAtTime) stops
+            // the curve without re-squeezing it
+            const curveStartFrame = Math.round(eventItem.args[1] * sampleRate);
+            const curveEndFrame = Math.round((eventItem.args[1] + eventItem.args[2]) * sampleRate);
 
-            schedParams = { type: SET_VALUE_CURVE_AT_TIME, curve, startFrame, endFrame };
+            schedParams = { type: SET_VALUE_CURVE_AT_TIME, curve, startFrame: curveStartFrame, endFrame: curveEndFrame };
           }
           break;
         }
