@@ -714,4 +714,190 @@ const isFocusable = function (node, options) {
   return isNodeMatchingSelectorFocusable(options, node);
 };
 
-export { tabbable, focusable, isTabbable, isFocusable, getTabIndex };
+/**
+ * Determines whether `ancestor` is an ancestor of, or identical to, `node` in
+ *  the composed tree. The built-in `Node#contains()` does not cross shadow
+ *  boundaries or follow `assignedSlot`, so the composed chain is walked
+ *  manually: slotted nodes move to their slot, shadow content moves to its
+ *  host, and everything else moves to its parent node.
+ * @param {Node} ancestor
+ * @param {Node} node
+ * @returns {boolean}
+ */
+const composedContains = function (ancestor, node) {
+  let current = node;
+  while (current) {
+    if (current === ancestor) {
+      return true;
+    }
+    if (current.assignedSlot) {
+      // cross from slotted light content to its slot
+      current = current.assignedSlot;
+      continue;
+    }
+    const root = getRootNode(current);
+    if (root && root !== current && root.host) {
+      // cross from shadow content to its host
+      current = root.host;
+      continue;
+    }
+    current = current.parentNode;
+  }
+  return false;
+};
+
+/**
+ * Follows pointer hit-testing at (x, y) from the document through every open
+ *  shadow root that reports a hit, returning the deepest node available.
+ *
+ * A document-level hit on a shadow host proves nothing about the nodes inside
+ *  it, so whenever the hit node exposes an open shadow root, the available
+ *  `ShadowRoot#elementFromPoint` is consulted at the same point and the descent
+ *  continues. An undisclosed root (signaled by `getShadowRoot` returning
+ *  `true`) stays a black box: the descent stops at its host and no interior
+ *  candidates are inferred. The browser's own hit result is always trusted, so
+ *  `pointer-events: none` is handled by the browser rather than by us.
+ * @param {Document} doc
+ * @param {GetShadowRoot|boolean} getShadowRoot
+ * @param {number} x
+ * @param {number} y
+ * @returns {Element|null}
+ */
+const hitTestPoint = function (doc, getShadowRoot, x, y) {
+  let hit = doc.elementFromPoint(x, y);
+  // guards against cycles in hit-testing data
+  const seen = [];
+  while (hit && hit.nodeType === 1 && seen.indexOf(hit) === -1) {
+    seen.push(hit);
+    const shadowRoot =
+      hit.shadowRoot ||
+      (typeof getShadowRoot === 'function' ? getShadowRoot(hit) : null);
+    // no root, an undisclosed black-box root (`true`), or a root that cannot
+    //  be hit-tested: the current hit is the deepest node we can verify
+    if (!shadowRoot || shadowRoot === true) {
+      break;
+    }
+    if (typeof shadowRoot.elementFromPoint !== 'function') {
+      break;
+    }
+    const innerHit = shadowRoot.elementFromPoint(x, y);
+    if (!innerHit || innerHit === hit) {
+      break;
+    }
+    hit = innerHit;
+  }
+  return hit;
+};
+
+/**
+ * Computes the center of the positive-area intersection between a client rect
+ *  and the document viewport. The viewport and the rect are treated as
+ *  half-open regions, so touching edges (e.g. a rect ending exactly at the
+ *  viewport width) produce no area. Zero-area intersections and non-finite
+ *  coordinates yield `null`.
+ * @param {DOMRect|Object} rect
+ * @param {number} viewportWidth
+ * @param {number} viewportHeight
+ * @returns {{x: number, y: number}|null}
+ */
+const getRectViewportCenter = function (rect, viewportWidth, viewportHeight) {
+  const left = Math.max(rect.left, 0);
+  const top = Math.max(rect.top, 0);
+  const right = Math.min(rect.right, viewportWidth);
+  const bottom = Math.min(rect.bottom, viewportHeight);
+  if (!(right > left) || !(bottom > top)) {
+    return null;
+  }
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
+  if (!isFinite(x) || !isFinite(y)) {
+    return null;
+  }
+  return { x, y };
+};
+
+/**
+ * Returns the focusable candidates inside `container` that are verifiably
+ *  reachable by a pointer, each paired with a concrete viewport point whose
+ *  hit-testing resolves to the candidate itself or to one of its composed
+ *  descendants (e.g. a nested `<span>`).
+ *
+ * Candidate selection and ordering are exactly those of {@link focusable},
+ *  including the `includeContainer` and `getShadowRoot` options; every node is
+ *  reported at most once. The page is never scrolled, focused, clicked, or
+ *  mutated. No matter how permissive `displayCheck` is, detached nodes and
+ *  nodes without any usable layout rect can never produce coordinates. Only
+ *  the current document's viewport and its open shadow roots are considered:
+ *  iframes are not entered and closed/undisclosed roots are not opened.
+ *
+ * The sampled points come from a deliberately finite set. For each rect
+ *  returned by `node.getClientRects()`, in order, the center of its
+ *  positive-area intersection with the viewport is tried, and the first
+ *  verified point wins. The node's overall `getBoundingClientRect()` (which
+ *  may span several lines) is never used as a fallback, and there is no search
+ *  for an arbitrary unobscured pixel: if every sampled center fails, the node
+ *  is simply not reported.
+ *
+ * This proves pointer reachability only; it adds no opacity threshold and does
+ *  not change the keyboard-focused conventions of `focusable`/`tabbable`.
+ * @param {Element} container
+ * @param {Object} [options]
+ * @returns {Array.<{node: Element, point: {x: number, y: number}}>}
+ */
+const pointerReachable = function (container, options) {
+  options = options || {};
+
+  const doc = container.ownerDocument;
+  const viewportWidth = doc.documentElement.clientWidth;
+  const viewportHeight = doc.documentElement.clientHeight;
+
+  const results = [];
+  const reported = [];
+
+  const candidates = focusable(container, options);
+  for (let i = 0; i < candidates.length; i++) {
+    const node = candidates[i];
+    if (reported.indexOf(node) !== -1) {
+      continue;
+    }
+    // a node from another document (e.g. an iframe) or detached from this one
+    //  has no viewport geometry here, so it can never produce a point
+    if (node.ownerDocument !== doc || !isNodeAttached(node)) {
+      continue;
+    }
+
+    const rects = node.getClientRects();
+    let point = null;
+    for (let j = 0; j < rects.length; j++) {
+      const center = getRectViewportCenter(
+        rects[j],
+        viewportWidth,
+        viewportHeight
+      );
+      if (!center) {
+        continue;
+      }
+      const hit = hitTestPoint(doc, options.getShadowRoot, center.x, center.y);
+      if (hit && composedContains(node, hit)) {
+        point = center;
+        break;
+      }
+    }
+
+    if (point) {
+      reported.push(node);
+      results.push({ node, point });
+    }
+  }
+
+  return results;
+};
+
+export {
+  tabbable,
+  focusable,
+  isTabbable,
+  isFocusable,
+  getTabIndex,
+  pointerReachable,
+};
