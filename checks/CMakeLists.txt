@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.14)
+project(heat_component_witness LANGUAGES CXX)
+add_subdirectory(.. gc)
+add_executable(heat_baseline baseline.cpp)
+target_link_libraries(heat_baseline PRIVATE geometry-central)
