@@ -52,6 +52,42 @@ var buf = &bytes.Buffer{}
 s2.WriteToTTML(buf)
 ```
 
+# Timed TTML and nested spans
+
+TTML can reveal words inside a single paragraph over time by placing
+`begin`/`end`/`dur` on `body`, nested `div`, `p` and nested `span` elements.
+`ReadFromTTML` and `OpenFile` flatten these animations into the regular static
+`Subtitles.Items`, so the TTML, SRT and WebVTT writers work unchanged:
+
+```xml
+<tt xmlns="http://www.w3.org/ns/ttml">
+    <body>
+        <div>
+            <p begin="10s" end="20s">A
+                <span begin="2s" end="8s">B
+                    <span begin="1s" dur="10s">C</span>D
+                </span>E
+            </p>
+        </div>
+    </body>
+</tt>
+```
+
+```go
+// Each text change point becomes a static item:
+// 10s..12s "AE", 12s..13s "ABDE", 13s..18s "ABCDE", 18s..20s "AE".
+s, _ := astisub.OpenFile("/path/to/timed.ttml")
+var buf = &bytes.Buffer{}
+s.WriteToSRT(buf)
+```
+
+Each `p` is split independently at all of its effective text change points.
+Items are emitted in source `<p>` XML order; within one `<p>` the fragments are
+ordered by increasing start time. Overlapping `p` elements therefore remain
+independent events. Adjacent fragments with identical text, line breaks,
+effective formatting and region may be merged. Empty content and content fully
+clipped by an ancestor are not emitted.
+
 # Using the CLI
 
 If **astisub** has been installed properly you can:

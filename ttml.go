@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -38,37 +39,58 @@ var ttmlLanguageMapping = astikit.NewBiMap().
 // TTML Clock Time Frames and Offset Time
 var (
 	ttmlRegexpClockTimeFrames = regexp.MustCompile(`\:[\d]+$`)
-	ttmlRegexpOffsetTime      = regexp.MustCompile(`^(\d+(\.\d+)?)(h|m|s|ms|f|t)$`)
+	ttmlRegexpOffsetTime      = regexp.MustCompile(`^([+-]?\d+(\.\d+)?)(h|m|s|ms|f|t)$`)
 )
 
-type TTMLInBodyDiv struct {
-	XMLName   xml.Name         `xml:"div"`
-	Subtitles []TTMLInSubtitle `xml:"p"`
+// ttmlInElement is the generic, order-preserving representation of a TTML
+// element. Its inner XML is kept raw and parsed recursively so that nested
+// divs and spans, mixed character data and "br" elements keep their source
+// order.
+type ttmlInElement struct {
+	XMLName xml.Name
 
+	Begin *TTMLInDuration `xml:"begin,attr,omitempty"`
+	Dur   *TTMLInDuration `xml:"dur,attr,omitempty"`
+	End   *TTMLInDuration `xml:"end,attr,omitempty"`
+	ID    string          `xml:"id,attr,omitempty"`
+	// Region and Style are inherited down the tree.
 	Region string `xml:"region,attr,omitempty"`
 	Style  string `xml:"style,attr,omitempty"`
-	TTMLInStyleAttributes
-}
-type TTMLInBody struct {
-	XMLName xml.Name        `xml:"body"`
-	Divs    []TTMLInBodyDiv `xml:"div"`
+	// XMLSpace is xml:space.
+	XMLSpace string `xml:"space,attr,omitempty"`
 
-	Region string `xml:"region,attr,omitempty"`
-	Style  string `xml:"style,attr,omitempty"`
+	// Timing features that are deliberately not supported.
+	Repeat        string `xml:"repeat,attr,omitempty"`
+	RepeatCount   string `xml:"repeatCount,attr,omitempty"`
+	RepeatDur     string `xml:"repeatDur,attr,omitempty"`
+	TimeContainer string `xml:"timeContainer,attr,omitempty"`
+
 	TTMLInStyleAttributes
+
+	InnerXML string `xml:",innerxml"`
+
+	// Set manually for character data nodes.
+	IsText bool   `xml:"-"`
+	Text   string `xml:"-"`
 }
 
 // TTMLIn represents an input TTML that must be unmarshaled
 // We split it from the output TTML as we can't add strict namespace without breaking retrocompatibility
 type TTMLIn struct {
-	Framerate int            `xml:"frameRate,attr"`
-	Lang      string         `xml:"lang,attr"`
-	Metadata  TTMLInMetadata `xml:"head>metadata"`
-	Regions   []TTMLInRegion `xml:"head>layout>region"`
-	Styles    []TTMLInStyle  `xml:"head>styling>style"`
-	Body      TTMLInBody     `xml:"body"`
-	Tickrate  int            `xml:"tickRate,attr"`
-	XMLName   xml.Name       `xml:"tt"`
+	Framerate     int            `xml:"frameRate,attr"`
+	Lang          string         `xml:"lang,attr"`
+	Metadata      TTMLInMetadata `xml:"head>metadata"`
+	Regions       []TTMLInRegion `xml:"head>layout>region"`
+	Styles        []TTMLInStyle  `xml:"head>styling>style"`
+	Body          ttmlInElement  `xml:"body"`
+	Tickrate      int            `xml:"tickRate,attr"`
+	TimeBase      string         `xml:"timeBase,attr,omitempty"`
+	TimeContainer string         `xml:"timeContainer,attr,omitempty"`
+	Repeat        string         `xml:"repeat,attr,omitempty"`
+	RepeatCount   string         `xml:"repeatCount,attr,omitempty"`
+	RepeatDur     string         `xml:"repeatDur,attr,omitempty"`
+	XMLSpace      string         `xml:"space,attr,omitempty"`
+	XMLName       xml.Name       `xml:"tt"`
 }
 
 // metadata returns the Metadata of the TTML
@@ -174,103 +196,12 @@ type TTMLInStyle struct {
 	XMLName xml.Name `xml:"style"`
 }
 
-// TTMLInSubtitle represents an input TTML subtitle
-type TTMLInSubtitle struct {
-	Begin *TTMLInDuration `xml:"begin,attr,omitempty"`
-	End   *TTMLInDuration `xml:"end,attr,omitempty"`
-	ID    string          `xml:"id,attr,omitempty"`
-	// We must store inner XML temporarily here since there's no tag to describe both any tag and chardata
-	// Real unmarshal will be done manually afterwards
-	Items  string `xml:",innerxml"`
-	Region string `xml:"region,attr,omitempty"`
-	Style  string `xml:"style,attr,omitempty"`
-	TTMLInStyleAttributes
-}
-
-// TTMLInItems represents input TTML items
-type TTMLInItems []TTMLInItem
-
-// UnmarshalXML implements the XML unmarshaler interface
-func (i *TTMLInItems) UnmarshalXML(d *xml.Decoder, start xml.StartElement) (err error) {
-	// Get next tokens
-	var t xml.Token
-	for {
-		// Get next token
-		if t, err = d.Token(); err != nil {
-			if err == io.EOF {
-				break
-			}
-			err = fmt.Errorf("astisub: getting next token failed: %w", err)
-			return
-		}
-
-		// Start element
-		if se, ok := t.(xml.StartElement); ok {
-			var e = TTMLInItem{}
-			if err = d.DecodeElement(&e, &se); err != nil {
-				err = fmt.Errorf("astisub: decoding xml.StartElement failed: %w", err)
-				return
-			}
-			*i = append(*i, e)
-		} else if b, ok := t.(xml.CharData); ok {
-			if str := string(b); len(strings.TrimSpace(str)) > 0 {
-				*i = append(*i, TTMLInItem{Text: str})
-			}
-		}
-	}
-	return nil
-}
-
-type ttmlXmlTokenReader struct {
-	xmlTokenReader xml.TokenReader
-	holdingToken   xml.Token
-}
-
-// Token implements the TokenReader interface, when it meets the "br" tag, it will hold the token and return a newline
-// instead. This is to work around the fact that the go xml unmarshaler will ignore the "br" tag if it's within a
-// character data field.
-func (r *ttmlXmlTokenReader) Token() (xml.Token, error) {
-	if r.holdingToken != nil {
-		returnToken := r.holdingToken
-		r.holdingToken = nil
-		return returnToken, nil
-	}
-
-	t, err := r.xmlTokenReader.Token()
-	if err != nil {
-		return nil, err
-	}
-
-	if se, ok := t.(xml.StartElement); ok && strings.ToLower(se.Name.Local) == "br" {
-		r.holdingToken = t
-		return xml.CharData("\n"), nil
-	}
-
-	return t, nil
-}
-
-func newTTMLXmlDecoder(s string) *xml.Decoder {
-	return xml.NewTokenDecoder(
-		&ttmlXmlTokenReader{
-			xmlTokenReader: xml.NewDecoder(strings.NewReader("<p>" + s + "</p>")),
-			holdingToken:   nil,
-		},
-	)
-}
-
-// TTMLInItem represents an input TTML item
-type TTMLInItem struct {
-	Style string `xml:"style,attr,omitempty"`
-	Text  string `xml:",chardata"`
-	TTMLInStyleAttributes
-	XMLName xml.Name
-}
-
 // TTMLInDuration represents an input TTML duration
 type TTMLInDuration struct {
 	d                 time.Duration
 	frames, framerate int // Framerate is in frame/s
 	ticks, tickrate   int // Tickrate is in ticks/s
+	raw               string
 }
 
 // UnmarshalText implements the TextUnmarshaler interface
@@ -283,9 +214,10 @@ func (d *TTMLInDuration) UnmarshalText(i []byte) (err error) {
 	d.d = time.Duration(0)
 	d.frames = 0
 	d.ticks = 0
+	d.raw = strings.TrimSpace(string(i))
 
 	// Check offset time
-	text := string(i)
+	text := d.raw
 	if matches := ttmlRegexpOffsetTime.FindStringSubmatch(text); matches != nil {
 		// Parse value
 		var value float64
@@ -325,6 +257,13 @@ func (d *TTMLInDuration) UnmarshalText(i []byte) (err error) {
 		return
 	}
 
+	// Handle a negative clock time. The sign is remembered so that negative
+	// time values can be rejected with a node-aware error later on.
+	negative := strings.HasPrefix(text, "-")
+	if negative {
+		text = strings.TrimPrefix(text, "-")
+	}
+
 	// Extract clock time frames
 	if indexes := ttmlRegexpClockTimeFrames.FindStringIndex(text); indexes != nil {
 		// Parse frames
@@ -339,6 +278,13 @@ func (d *TTMLInDuration) UnmarshalText(i []byte) (err error) {
 	}
 
 	d.d, err = parseDuration(text, ".", 3)
+	if err != nil {
+		return
+	}
+	if negative {
+		d.d = -d.d
+		d.frames = -d.frames
+	}
 	return
 }
 
@@ -352,6 +298,61 @@ func (d TTMLInDuration) duration() (o time.Duration) {
 		o += time.Duration(float64(d.frames) / float64(d.framerate) * float64(time.Second.Nanoseconds()))
 	}
 	return
+}
+
+// ttmlTimingContext carries the document-wide timing configuration.
+type ttmlTimingContext struct {
+	framerate    int
+	tickrate     int
+	timeBase     string
+	nestedTiming bool // timing exists below p (body/div/span)
+}
+
+// ttmlRuntimeNode is a parsed TTML node with its resolved timing and styles.
+type ttmlRuntimeNode struct {
+	Name string
+	ID   string
+	Path string
+
+	IsText bool
+	Text   string
+
+	Elem     *ttmlInElement
+	Parent   *ttmlRuntimeNode
+	Children []*ttmlRuntimeNode
+
+	// RawStart/RawEnd are unclipped times relative to the document. They are
+	// the origin used to resolve children, even when this node is clipped by an
+	// ancestor.
+	RawStart  time.Duration
+	RawEnd    time.Duration
+	HasRawEnd bool
+
+	// Effective times are the intersection of the raw times with every ancestor.
+	EffStart  time.Duration
+	EffEnd    time.Duration
+	HasEffEnd bool
+
+	InlineStyle   *StyleAttributes
+	NamedStyle    *Style // effective named style (inherited through containers)
+	OwnNamedStyle *Style // named style declared by this element itself
+	SpanStyle     *Style // nearest named style declared on a span chain
+	Region        *Region
+
+	SpacePreserve bool
+}
+
+// ttmlLeaf is a piece of text or a line break active over a time interval.
+type ttmlLeaf struct {
+	IsBreak bool
+	Text    string
+
+	Start  time.Duration
+	End    time.Duration
+	HasEnd bool
+
+	InlineStyle *StyleAttributes
+	Style       *Style
 }
 
 // ReadFromTTML parses a .ttml content
@@ -407,124 +408,581 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 		o.Regions[r.ID] = r
 	}
 
-	// Loop through subtitles
-	bodyInlineStyle := ttml.Body.TTMLInStyleAttributes.styleAttributes()
-	for _, div := range ttml.Body.Divs {
-		divInlineStyle := div.TTMLInStyleAttributes.styleAttributes()
+	// Validate the document-wide timing features we support.
+	timeBase := strings.ToLower(strings.TrimSpace(ttml.TimeBase))
+	if timeBase == "" {
+		timeBase = "media"
+	}
+	if timeBase != "media" && timeBase != "smpte" {
+		err = fmt.Errorf("astisub: ttml: tt: unsupported timeBase %q", ttml.TimeBase)
+		return
+	}
+	if err = validateTTMLUnsupportedTiming("tt", ttml.TimeContainer, ttml.Repeat, ttml.RepeatCount, ttml.RepeatDur); err != nil {
+		return
+	}
 
-		// Propagate styles from Body -> Div
-		divInlineStyle.merge(bodyInlineStyle)
-		if div.Region == "" {
-			div.Region = ttml.Body.Region
-		}
-		if div.Style == "" {
-			div.Style = ttml.Body.Style
-		}
-		for _, ts := range div.Subtitles {
-			// Init item
-			ts.Begin.framerate = ttml.Framerate
-			ts.Begin.tickrate = ttml.Tickrate
-			ts.End.framerate = ttml.Framerate
-			ts.End.tickrate = ttml.Tickrate
+	var cfg = &ttmlTimingContext{
+		framerate: ttml.Framerate,
+		tickrate:  ttml.Tickrate,
+		timeBase:  timeBase,
+	}
 
-			itemInlineStyle := ts.TTMLInStyleAttributes.styleAttributes()
+	// Build a virtual root. The body is a parallel time container relative to it.
+	var root = &ttmlRuntimeNode{
+		InlineStyle:   &StyleAttributes{},
+		Name:          "tt",
+		Path:          "tt",
+		SpacePreserve: strings.EqualFold(strings.TrimSpace(ttml.XMLSpace), "preserve"),
+	}
+	if ttml.Body.XMLName.Local == "" && len(ttml.Body.InnerXML) == 0 {
+		return
+	}
 
-			// Propagate styles from Body -> Div -> Item.
-			// If the item has its own Region, Style, or InlineStyle, it overrides the Div's.
-			// This ensures all relevant styles are preserved at the item level,
-			// maintaining compatibility with existing logic that relies on the Subtitles structure.
-			itemInlineStyle.merge(divInlineStyle)
-			if ts.Region == "" {
-				ts.Region = div.Region
-			}
-			if ts.Style == "" {
-				ts.Style = div.Style
-			}
+	var body *ttmlRuntimeNode
+	if body, err = buildTTMLRuntimeNode(&ttml.Body, "tt>body", root, cfg, o, "tt>body"); err != nil {
+		return
+	}
 
-			var s = &Item{
-				EndAt:       ts.End.duration(),
-				InlineStyle: itemInlineStyle,
-				StartAt:     ts.Begin.duration(),
-			}
-
-			// Add region
-			if len(ts.Region) > 0 {
-				if _, ok := o.Regions[ts.Region]; !ok {
-					err = fmt.Errorf("astisub: Region %s requested by subtitle between %s and %s doesn't exist", ts.Region, s.StartAt, s.EndAt)
-					return
-				}
-				s.Region = o.Regions[ts.Region]
-			}
-
-			// Add style
-			if len(ts.Style) > 0 {
-				if _, ok := o.Styles[ts.Style]; !ok {
-					err = fmt.Errorf("astisub: Style %s requested by subtitle between %s and %s doesn't exist", ts.Style, s.StartAt, s.EndAt)
-					return
-				}
-				s.Style = o.Styles[ts.Style]
-			}
-
-			// Remove items identation
-			lines := strings.Split(ts.Items, "\n")
-			for i := 0; i < len(lines); i++ {
-				lines[i] = strings.TrimLeftFunc(lines[i], unicode.IsSpace)
-			}
-
-			// Unmarshal items
-			var items = TTMLInItems{}
-			if err = newTTMLXmlDecoder(strings.Join(lines, "")).Decode(&items); err != nil {
-				err = fmt.Errorf("astisub: unmarshaling items failed: %w", err)
-				return
-			}
-
-			// Loop through texts
-			var l = &Line{}
-			for _, tt := range items {
-				// New line specified with the "br" tag
-				if strings.ToLower(tt.XMLName.Local) == "br" {
-					s.Lines = append(s.Lines, *l)
-					l = &Line{}
-					continue
-				}
-
-				// New line decoded as a line break. This can happen if there's a "br" tag within the text since
-				// since the go xml unmarshaler will unmarshal a "br" tag as a line break if the field has the
-				// chardata xml tag.
-				for idx, li := range strings.Split(tt.Text, "\n") {
-					// New line
-					if idx > 0 {
-						s.Lines = append(s.Lines, *l)
-						l = &Line{}
-					}
-
-					// Init line item
-					var t = LineItem{
-						InlineStyle: tt.TTMLInStyleAttributes.styleAttributes(),
-						Text:        li,
-					}
-
-					// Add style
-					if len(tt.Style) > 0 {
-						if _, ok := o.Styles[tt.Style]; !ok {
-							err = fmt.Errorf("astisub: Style %s requested by item with text %s doesn't exist", tt.Style, tt.Text)
-							return
-						}
-						t.Style = o.Styles[tt.Style]
-					}
-
-					// Append items
-					l.Items = append(l.Items, t)
-				}
-
-			}
-			s.Lines = append(s.Lines, *l)
-
-			// Append subtitle
-			o.Items = append(o.Items, s)
+	// Emit one or more static items for every p in document order.
+	if body != nil {
+		if err = processTTMLContainer(body, o, cfg); err != nil {
+			return
 		}
 	}
 	return
+}
+
+// parseTTMLFragment parses one level of mixed TTML content. Start elements keep
+// their inner XML, so callers can recurse at their own pace; character data is
+// returned as text nodes in source order.
+func parseTTMLFragment(raw string) (out []*ttmlInElement, err error) {
+	d := xml.NewDecoder(strings.NewReader("<astisub-ttml-fragment>" + raw + "</astisub-ttml-fragment>"))
+	var first = true
+	for {
+		var tok xml.Token
+		if tok, err = d.Token(); err != nil {
+			if err == io.EOF {
+				err = nil
+				return
+			}
+			err = fmt.Errorf("astisub: ttml: parsing content failed: %w", err)
+			return
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			// The first start element is our synthetic wrapper.
+			if first {
+				first = false
+				continue
+			}
+			var e ttmlInElement
+			if err = d.DecodeElement(&e, &t); err != nil {
+				err = fmt.Errorf("astisub: ttml: decoding <%s> failed: %w", t.Name.Local, err)
+				return
+			}
+			out = append(out, &e)
+		case xml.CharData:
+			out = append(out, &ttmlInElement{IsText: true, Text: string(t)})
+		}
+	}
+}
+
+// normalizeTTMLInnerXML reproduces the legacy indentation stripping. It is only
+// used when xml:space="preserve" is not in effect.
+func normalizeTTMLInnerXML(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := 0; i < len(lines); i++ {
+		lines[i] = strings.TrimLeftFunc(lines[i], unicode.IsSpace)
+	}
+	return strings.Join(lines, "")
+}
+
+// validateTTMLUnsupportedTiming rejects timing features outside the supported
+// media time base / parallel containers subset.
+func validateTTMLUnsupportedTiming(path, timeContainer, repeat, repeatCount, repeatDur string) error {
+	if v := strings.TrimSpace(timeContainer); v != "" && !strings.EqualFold(v, "par") {
+		return fmt.Errorf("astisub: ttml: %s: unsupported timeContainer %q", path, v)
+	}
+	if strings.TrimSpace(repeat) != "" || strings.TrimSpace(repeatCount) != "" || strings.TrimSpace(repeatDur) != "" {
+		return fmt.Errorf("astisub: ttml: %s: repeat timing is not supported", path)
+	}
+	return nil
+}
+
+// resolveTTMLDuration resolves a raw duration using the document frame/tick
+// rates, rejecting negative values and missing required rates.
+func resolveTTMLDuration(d *TTMLInDuration, path string, cfg *ttmlTimingContext) (time.Duration, error) {
+	if d == nil {
+		return 0, nil
+	}
+	if d.d < 0 || d.frames < 0 || d.ticks < 0 {
+		return 0, fmt.Errorf("astisub: ttml: %s: negative time value %q", path, d.raw)
+	}
+	if d.frames != 0 && cfg.framerate <= 0 {
+		return 0, fmt.Errorf("astisub: ttml: %s: frame-based time %q requires frameRate", path, d.raw)
+	}
+	if d.ticks != 0 && cfg.tickrate <= 0 {
+		return 0, fmt.Errorf("astisub: ttml: %s: tick-based time %q requires tickRate", path, d.raw)
+	}
+	var c = *d
+	c.framerate = cfg.framerate
+	c.tickrate = cfg.tickrate
+	return c.duration(), nil
+}
+
+func ttmlHasTimingAttributes(e *ttmlInElement) bool {
+	return e.Begin != nil || e.End != nil || e.Dur != nil
+}
+
+// buildTTMLRuntimeNode resolves timing and styles for an element and, for p
+// elements, recursively parses the mixed content below it.
+func buildTTMLRuntimeNode(e *ttmlInElement, path string, parent *ttmlRuntimeNode, cfg *ttmlTimingContext, o *Subtitles, pathForChildren string) (n *ttmlRuntimeNode, err error) {
+	// Character data.
+	if e.IsText {
+		if e.Text == "" {
+			return nil, nil
+		}
+		n = &ttmlRuntimeNode{
+			IsText:        true,
+			Text:          e.Text,
+			Parent:        parent,
+			Path:          path,
+			RawStart:      parent.RawStart,
+			RawEnd:        parent.RawEnd,
+			HasRawEnd:     parent.HasRawEnd,
+			EffStart:      parent.EffStart,
+			EffEnd:        parent.EffEnd,
+			HasEffEnd:     parent.HasEffEnd,
+			InlineStyle:   parent.InlineStyle,
+			Region:        parent.Region,
+			SpacePreserve: parent.SpacePreserve,
+		}
+		// Direct text of a p belongs to the item's named style. Text inside a
+		// span keeps the nearest named style declared on the span chain, which
+		// preserves the existing single-reference behaviour.
+		if parent.Name != "" && parent.Name != "p" && parent.Name != "body" && parent.Name != "div" {
+			n.OwnNamedStyle = parent.SpanStyle
+			if n.OwnNamedStyle == nil {
+				n.OwnNamedStyle = parent.OwnNamedStyle
+			}
+		}
+		return
+	}
+
+	n = &ttmlRuntimeNode{
+		Name:   strings.ToLower(e.XMLName.Local),
+		ID:     e.ID,
+		Elem:   e,
+		Parent: parent,
+		Path:   path,
+	}
+
+	// Reject unsupported timing methods with a node-aware error.
+	if err = validateTTMLUnsupportedTiming(path, e.TimeContainer, e.Repeat, e.RepeatCount, e.RepeatDur); err != nil {
+		return nil, err
+	}
+
+	// This implementation is scoped to media time base relative timing. The
+	// legacy p-only absolute timing (used by smpte documents) keeps working.
+	if cfg.timeBase != "media" && n.Name != "p" && ttmlHasTimingAttributes(e) {
+		return nil, fmt.Errorf("astisub: ttml: %s: timing on <%s> requires timeBase \"media\"", path, n.Name)
+	}
+	// Mixed text in documents using the nested timing feature is treated as
+	// xml:space="preserve" so significant spaces between elements survive.
+	if n.Name != "p" && ttmlHasTimingAttributes(e) {
+		cfg.nestedTiming = true
+	}
+
+	// xml:space is inherited and controls whether indentation is stripped.
+	n.SpacePreserve = parent.SpacePreserve
+	if v := strings.TrimSpace(e.XMLSpace); v != "" {
+		n.SpacePreserve = strings.EqualFold(v, "preserve")
+	}
+
+	// Inline style inheritance. The child owns a fresh StyleAttributes so
+	// siblings can never mutate a shared parent style.
+	var own = e.TTMLInStyleAttributes.styleAttributes()
+	own.merge(parent.InlineStyle)
+	n.InlineStyle = own
+
+	// Named styles keep a single reference. Containers inherit a style name;
+	// spans keep their own declared reference for line items.
+	if len(e.Style) > 0 {
+		if n.OwnNamedStyle, err = ttmlLookupStyle(o, e.Style, path); err != nil {
+			return nil, err
+		}
+	}
+	n.NamedStyle = n.OwnNamedStyle
+	if n.NamedStyle == nil {
+		n.NamedStyle = parent.NamedStyle
+	}
+
+	// Track named styles declared on spans separately so that a p's style is
+	// never copied onto line items (which would change legacy output).
+	n.SpanStyle = parent.SpanStyle
+	if n.Name == "span" && n.OwnNamedStyle != nil {
+		n.SpanStyle = n.OwnNamedStyle
+	}
+
+	// Regions are inherited from body/div down to p.
+	n.Region = parent.Region
+	if len(e.Region) > 0 {
+		if n.Region, err = ttmlLookupRegion(o, e.Region, path); err != nil {
+			return nil, err
+		}
+	}
+
+	// Resolve timing. begin is relative to the parent's unclipped start;
+	// end too. dur starts at this node's own start.
+	var begin time.Duration
+	if begin, err = resolveTTMLDuration(e.Begin, path, cfg); err != nil {
+		return nil, err
+	}
+	n.RawStart = parent.RawStart + begin
+
+	if e.End != nil {
+		var end time.Duration
+		if end, err = resolveTTMLDuration(e.End, path, cfg); err != nil {
+			return nil, err
+		}
+		n.RawEnd = parent.RawStart + end
+		n.HasRawEnd = true
+	}
+	if e.Dur != nil {
+		var dur time.Duration
+		if dur, err = resolveTTMLDuration(e.Dur, path, cfg); err != nil {
+			return nil, err
+		}
+		var durEnd = n.RawStart + dur
+		if !n.HasRawEnd || durEnd < n.RawEnd {
+			n.RawEnd = durEnd
+			n.HasRawEnd = true
+		}
+	}
+	if !n.HasRawEnd {
+		n.RawEnd = parent.RawEnd
+		n.HasRawEnd = parent.HasRawEnd
+	}
+	if n.HasRawEnd && n.RawEnd < n.RawStart {
+		return nil, fmt.Errorf("astisub: ttml: %s: inverted interval [%s, %s]", path, n.RawStart, n.RawEnd)
+	}
+
+	// Intersect with the ancestor effective interval. Clipping never changes
+	// the unclipped origin above, which remains the base for children.
+	n.EffStart = n.RawStart
+	if parent.EffStart > n.EffStart {
+		n.EffStart = parent.EffStart
+	}
+	if n.HasRawEnd {
+		n.EffEnd = n.RawEnd
+		n.HasEffEnd = true
+	}
+	if parent.HasEffEnd && (!n.HasEffEnd || parent.EffEnd < n.EffEnd) {
+		n.EffEnd = parent.EffEnd
+		n.HasEffEnd = true
+	}
+
+	// "br" is a leaf. Recurse into everything else.
+	if n.Name == "br" {
+		return n, nil
+	}
+
+	var raw = e.InnerXML
+	if n.Name == "p" && !n.SpacePreserve {
+		raw = normalizeTTMLInnerXML(raw)
+	}
+
+	var fragments []*ttmlInElement
+	if fragments, err = parseTTMLFragment(raw); err != nil {
+		return nil, err
+	}
+	var childIndex = 0
+	for _, fragment := range fragments {
+		if fragment.IsText {
+			var child *ttmlRuntimeNode
+			if child, err = buildTTMLRuntimeNode(fragment, pathForChildren+">text", n, cfg, o, pathForChildren); err != nil {
+				return nil, err
+			}
+			if child != nil {
+				n.Children = append(n.Children, child)
+			}
+			continue
+		}
+		childIndex++
+		var name = strings.ToLower(fragment.XMLName.Local)
+		var childPath = fmt.Sprintf("%s>%s[%d]", pathForChildren, name, childIndex)
+		if fragment.ID != "" {
+			childPath += fmt.Sprintf("[id=%s]", fragment.ID)
+		}
+		var child *ttmlRuntimeNode
+		if child, err = buildTTMLRuntimeNode(fragment, childPath, n, cfg, o, childPath); err != nil {
+			return nil, err
+		}
+		if child != nil {
+			n.Children = append(n.Children, child)
+		}
+	}
+	return n, nil
+}
+
+func ttmlLookupStyle(o *Subtitles, id, path string) (*Style, error) {
+	var s, ok = o.Styles[id]
+	if !ok {
+		return nil, fmt.Errorf("astisub: ttml: %s: style %q doesn't exist", path, id)
+	}
+	return s, nil
+}
+
+func ttmlLookupRegion(o *Subtitles, id, path string) (*Region, error) {
+	var r, ok = o.Regions[id]
+	if !ok {
+		return nil, fmt.Errorf("astisub: ttml: %s: region %q doesn't exist", path, id)
+	}
+	return r, nil
+}
+
+// processTTMLContainer walks body/div containers in document order.
+func processTTMLContainer(n *ttmlRuntimeNode, o *Subtitles, cfg *ttmlTimingContext) error {
+	for _, child := range n.Children {
+		if child.IsText {
+			continue
+		}
+		if child.Name == "p" {
+			if err := processTTMLParagraph(child, o, cfg); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := processTTMLContainer(child, o, cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectTTMLLeaves(n *ttmlRuntimeNode, out *[]ttmlLeaf, keepWhitespace bool) {
+	if n.IsText {
+		var parts = strings.Split(n.Text, "\n")
+		for idx, part := range parts {
+			if idx > 0 {
+				*out = append(*out, ttmlLeaf{
+					IsBreak:     true,
+					Start:       n.EffStart,
+					End:         n.EffEnd,
+					HasEnd:      n.HasEffEnd,
+					InlineStyle: n.InlineStyle,
+				})
+			}
+			if part == "" {
+				continue
+			}
+			if !keepWhitespace && strings.TrimSpace(part) == "" {
+				continue
+			}
+			*out = append(*out, ttmlLeaf{
+				Text:        part,
+				Start:       n.EffStart,
+				End:         n.EffEnd,
+				HasEnd:      n.HasEffEnd,
+				InlineStyle: n.InlineStyle,
+				Style:       n.OwnNamedStyle,
+			})
+		}
+		return
+	}
+	if n.Name == "br" {
+		*out = append(*out, ttmlLeaf{
+			IsBreak:     true,
+			Start:       n.EffStart,
+			End:         n.EffEnd,
+			HasEnd:      n.HasEffEnd,
+			InlineStyle: n.InlineStyle,
+		})
+		return
+	}
+	for _, child := range n.Children {
+		collectTTMLLeaves(child, out, keepWhitespace)
+	}
+}
+
+func cloneTTMLStyleAttributes(s *StyleAttributes) *StyleAttributes {
+	if s == nil {
+		return nil
+	}
+	var c = *s
+	return &c
+}
+
+func ttmlStyleID(s *Style) string {
+	if s == nil {
+		return ""
+	}
+	return s.ID
+}
+
+func ttmlRegionID(r *Region) string {
+	if r == nil {
+		return ""
+	}
+	return r.ID
+}
+
+func ttmlLineItemEqual(a, b LineItem) bool {
+	if a.Text != b.Text || a.StartAt != b.StartAt {
+		return false
+	}
+	if ttmlStyleID(a.Style) != ttmlStyleID(b.Style) {
+		return false
+	}
+	return reflect.DeepEqual(a.InlineStyle, b.InlineStyle)
+}
+
+func ttmlItemContentEqual(a, b *Item) bool {
+	if ttmlRegionID(a.Region) != ttmlRegionID(b.Region) || ttmlStyleID(a.Style) != ttmlStyleID(b.Style) {
+		return false
+	}
+	if !reflect.DeepEqual(a.InlineStyle, b.InlineStyle) {
+		return false
+	}
+	if len(a.Lines) != len(b.Lines) {
+		return false
+	}
+	for idx := range a.Lines {
+		if a.Lines[idx].VoiceName != b.Lines[idx].VoiceName || len(a.Lines[idx].Items) != len(b.Lines[idx].Items) {
+			return false
+		}
+		for j := range a.Lines[idx].Items {
+			if !ttmlLineItemEqual(a.Lines[idx].Items[j], b.Lines[idx].Items[j]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// processTTMLParagraph splits one p into half-open intervals at every effective
+// text change point and emits an item per interval.
+func processTTMLParagraph(p *ttmlRuntimeNode, o *Subtitles, cfg *ttmlTimingContext) error {
+	// Existing non-timed nested documents keep the legacy behaviour of dropping
+	// whitespace-only text nodes. Documents that use nested timing (the newly
+	// supported inputs) treat mixed text as xml:space="preserve".
+	var keepWhitespace = p.SpacePreserve || cfg.nestedTiming
+
+	var leaves []ttmlLeaf
+	collectTTMLLeaves(p, &leaves, keepWhitespace)
+
+	// Determine whether the paragraph actually carries text.
+	var hasText bool
+	for _, leaf := range leaves {
+		if leaf.IsBreak || leaf.Text == "" {
+			continue
+		}
+		if !keepWhitespace && strings.TrimSpace(leaf.Text) == "" {
+			continue
+		}
+		hasText = true
+		break
+	}
+	if !hasText {
+		return nil
+	}
+
+	// Every text-bearing p must end at a finite time after intersection.
+	if !p.HasEffEnd {
+		return fmt.Errorf("astisub: ttml: %s: paragraph containing text has no finite end", p.Path)
+	}
+	if p.EffEnd <= p.EffStart {
+		return nil
+	}
+
+	// Collect every change point, including breaks because a line break
+	// appearing or disappearing changes the rendered lines.
+	var points = []time.Duration{p.EffStart, p.EffEnd}
+	for _, leaf := range leaves {
+		if !leaf.HasEnd || leaf.End <= leaf.Start {
+			continue
+		}
+		var start, end = leaf.Start, leaf.End
+		if start < p.EffStart {
+			start = p.EffStart
+		}
+		if end > p.EffEnd {
+			end = p.EffEnd
+		}
+		if end <= start {
+			continue
+		}
+		points = append(points, start, end)
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i] < points[j] })
+
+	var items []*Item
+	for idx := 0; idx+1 < len(points); idx++ {
+		var start, end = points[idx], points[idx+1]
+		if end <= start {
+			continue
+		}
+
+		var lines []Line
+		var line = Line{}
+		var intervalHasText bool
+		for _, leaf := range leaves {
+			if !leaf.HasEnd {
+				continue
+			}
+			var leafStart, leafEnd = leaf.Start, leaf.End
+			if leafStart < p.EffStart {
+				leafStart = p.EffStart
+			}
+			if leafEnd > p.EffEnd {
+				leafEnd = p.EffEnd
+			}
+			if leafStart > start || leafEnd < end {
+				continue
+			}
+			if leaf.IsBreak {
+				lines = append(lines, line)
+				line = Line{}
+				continue
+			}
+			if leaf.Text == "" {
+				continue
+			}
+			line.Items = append(line.Items, LineItem{
+				InlineStyle: cloneTTMLStyleAttributes(leaf.InlineStyle),
+				Style:       leaf.Style,
+				Text:        leaf.Text,
+			})
+			intervalHasText = true
+		}
+		lines = append(lines, line)
+
+		// Content without any text (for instance a lone br) is not emitted.
+		if !intervalHasText {
+			continue
+		}
+
+		var item = &Item{
+			StartAt:     start,
+			EndAt:       end,
+			InlineStyle: cloneTTMLStyleAttributes(p.InlineStyle),
+			Lines:       lines,
+			Region:      p.Region,
+			Style:       p.NamedStyle,
+		}
+
+		// Merge fragments whose text, line breaks, effective styles and
+		// region are identical.
+		if len(items) > 0 && items[len(items)-1].EndAt == item.StartAt && ttmlItemContentEqual(items[len(items)-1], item) {
+			items[len(items)-1].EndAt = item.EndAt
+			continue
+		}
+		items = append(items, item)
+	}
+
+	o.Items = append(o.Items, items...)
+	return nil
 }
 
 // TTMLOut represents an output TTML that must be marshaled
