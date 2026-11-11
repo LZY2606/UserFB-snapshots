@@ -7,12 +7,16 @@ import {
 } from '../document'
 import {type Instance} from '../setup'
 import {
+  buildGraphemeModel,
   buildTimeValue,
   EditableInputOrTextarea,
+  getGraphemeDeleteSpan,
   getMaxLength,
   getNextCursorPosition,
   isElementType,
+  isGraphemeSegmentationAvailable,
   isValidDateOrTimeValue,
+  supportsGraphemeEditing,
   supportsMaxLength,
 } from '../utils'
 import {getInputRange, setSelection} from './selection'
@@ -78,21 +82,38 @@ function editContenteditable(
   } else if (
     ['deleteContentBackward', 'deleteContentForward'].includes(inputType)
   ) {
-    const nextPosition = getNextCursorPosition(
-      inputRange.startContainer,
-      inputRange.startOffset,
-      inputType === 'deleteContentBackward' ? -1 : 1,
-      inputType,
-    )
-    if (nextPosition) {
-      del = true
-      const delRange = inputRange.cloneRange()
-      if (delRange.comparePoint(nextPosition.node, nextPosition.offset) < 0) {
-        delRange.setStart(nextPosition.node, nextPosition.offset)
-      } else {
-        delRange.setEnd(nextPosition.node, nextPosition.offset)
+    const direction =
+      inputType === 'deleteContentBackward' ? (-1 as const) : (1 as const)
+
+    const model =
+      instance.config.textUnit === 'grapheme'
+        ? buildGraphemeModel(element)
+        : undefined
+
+    if (model) {
+      const deletion = model.deletion(
+        inputRange.startContainer,
+        inputRange.startOffset,
+        direction,
+      )
+
+      if (deletion) {
+        del = true
+        // Edit the text nodes in place. Nodes are never removed or replaced,
+        // so their identity and listeners survive, including empty nodes.
+        for (const edit of deletion.edits) {
+          edit.node.deleteData(edit.start, edit.end - edit.start)
+        }
+        setSelection({
+          focusNode: deletion.start.node,
+          focusOffset: deletion.start.offset,
+        })
       }
-      delRange.deleteContents()
+      // A missing deletion means the caret sits on a run boundary (e.g. a
+      // `br` or nested editing root). The boundary is never crossed, so the
+      // content and selection stay unchanged and no `input` event fires.
+    } else {
+      del = deleteAtCursorPosition(inputRange, direction, inputType)
     }
   }
 
@@ -113,6 +134,36 @@ function editContenteditable(
   if (del || data) {
     instance.dispatchUIEvent(element, 'input', {inputType})
   }
+}
+
+/**
+ * The historical single code-unit deletion for a collapsed contenteditable
+ * caret. Used in the default `codeUnit` mode and as a fallback when the
+ * runtime does not provide `Intl.Segmenter`.
+ */
+function deleteAtCursorPosition(
+  inputRange: Range,
+  direction: -1 | 1,
+  inputType: string,
+): boolean {
+  const nextPosition = getNextCursorPosition(
+    inputRange.startContainer,
+    inputRange.startOffset,
+    direction,
+    inputType,
+  )
+  if (!nextPosition) {
+    return false
+  }
+
+  const delRange = inputRange.cloneRange()
+  if (delRange.comparePoint(nextPosition.node, nextPosition.offset) < 0) {
+    delRange.setStart(nextPosition.node, nextPosition.offset)
+  } else {
+    delRange.setEnd(nextPosition.node, nextPosition.offset)
+  }
+  delRange.deleteContents()
+  return true
 }
 
 function editInputElement(
@@ -137,17 +188,48 @@ function editInputElement(
     }
   }
 
+  let effectiveRange: UISelectionRange = inputRange
+
+  if (
+    instance.config.textUnit === 'grapheme' &&
+    supportsGraphemeEditing(element) &&
+    isGraphemeSegmentationAvailable(element) &&
+    inputRange.startOffset === inputRange.endOffset &&
+    (inputType === 'deleteContentBackward' ||
+      inputType === 'deleteContentForward')
+  ) {
+    const span = getGraphemeDeleteSpan(
+      element,
+      getUIValue(element),
+      inputRange.startOffset,
+      inputType === 'deleteContentBackward' ? -1 : 1,
+    )
+
+    if (!span) {
+      // At the start/end there is no adjacent grapheme: don't change
+      // anything and don't fire an `input` event.
+      return
+    }
+
+    // Widen the collapsed caret to the whole grapheme cluster.
+    effectiveRange = {
+      ...inputRange,
+      startOffset: span.start,
+      endOffset: span.end,
+    }
+  }
+
   const {newValue, newOffset, oldValue} = calculateNewValue(
     dataToInsert,
     element,
-    inputRange,
+    effectiveRange,
     inputType,
   )
 
   if (
     newValue === oldValue &&
-    newOffset === inputRange.startOffset &&
-    newOffset === inputRange.endOffset
+    newOffset === effectiveRange.startOffset &&
+    newOffset === effectiveRange.endOffset
   ) {
     return
   }

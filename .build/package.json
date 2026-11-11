@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "esbuild": "^0.25.5",
+    "jsdom": "^26.1.0",
+    "typescript": "^4.9.3"
+  }
+}

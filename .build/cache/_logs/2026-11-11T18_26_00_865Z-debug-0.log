@@ -1,0 +1,150 @@
+0 verbose cli /opt/homebrew/Cellar/node/26.0.0/bin/node /opt/homebrew/bin/npm
+1 info using npm@11.12.1
+2 info using node@v26.0.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo/.build/.npmrc
+5 silly config load:file:/Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo/.build/empty.npmrc
+6 silly config load:file:/Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo/.build/empty-global.npmrc
+7 verbose title npm install typescript@4.9.3
+8 verbose argv "--userconfig" ".build/empty.npmrc" "--globalconfig" ".build/empty-global.npmrc" "install" "--prefix" ".build" "--cache" ".build/cache" "--ignore-scripts" "--no-package-lock" "--no-audit" "--no-fund" "typescript@4.9.3"
+9 verbose logfile logs-max:10 dir:/Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo/.build/cache/_logs/2026-11-11T18_26_00_865Z-
+10 verbose logfile /Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo/.build/cache/_logs/2026-11-11T18_26_00_865Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4395630592 maxSize:1098907648 maxEntrySize:549453824
+13 silly idealTree buildDeps
+14 silly fetch manifest typescript@4.9.3
+15 silly packumentCache full:https://registry.npmjs.org/typescript cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/typescript 262ms (cache miss)
+17 silly packumentCache full:https://registry.npmjs.org/typescript set size:undefined disposed:false
+18 silly placeDep ROOT typescript@4.9.3 OK for:  want: 4.9.3
+19 silly fetch manifest @esbuild/aix-ppc64@0.25.5
+20 silly packumentCache full:https://registry.npmjs.org/@esbuild%2faix-ppc64 cache-miss
+21 http fetch GET 200 https://registry.npmjs.org/@esbuild%2faix-ppc64 27ms (cache revalidated)
+22 silly packumentCache full:https://registry.npmjs.org/@esbuild%2faix-ppc64 set size:67797 disposed:false
+23 silly fetch manifest @esbuild/android-arm@0.25.5
+24 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm cache-miss
+25 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-arm 27ms (cache revalidated)
+26 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm set size:225217 disposed:false
+27 silly fetch manifest @esbuild/android-arm64@0.25.5
+28 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm64 cache-miss
+29 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-arm64 31ms (cache revalidated)
+30 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm64 set size:204216 disposed:false
+31 silly fetch manifest @esbuild/android-x64@0.25.5
+32 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-x64 cache-miss
+33 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-x64 26ms (cache revalidated)
+34 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-x64 set size:199017 disposed:false
+35 silly fetch manifest @esbuild/darwin-x64@0.25.5
+36 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-x64 cache-miss
+37 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fdarwin-x64 25ms (cache revalidated)
+38 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-x64 set size:199670 disposed:false
+39 silly fetch manifest @esbuild/freebsd-arm64@0.25.5
+40 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 cache-miss
+41 http fetch GET 200 https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 24ms (cache revalidated)
+42 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 set size:202383 disposed:false
+43 silly fetch manifest @esbuild/freebsd-x64@0.25.5
+44 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-x64 cache-miss
+45 http fetch GET 200 https://registry.npmjs.org/@esbuild%2ffreebsd-x64 25ms (cache revalidated)
+46 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-x64 set size:200565 disposed:false
+47 silly fetch manifest @esbuild/linux-arm@0.25.5
+48 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm cache-miss
+49 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-arm 27ms (cache revalidated)
+50 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm set size:198596 disposed:false
+51 silly fetch manifest @esbuild/linux-arm64@0.25.5
+52 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm64 cache-miss
+53 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-arm64 26ms (cache revalidated)
+54 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm64 set size:200773 disposed:false
+55 silly fetch manifest @esbuild/linux-ia32@0.25.5
+56 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ia32 cache-miss
+57 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-ia32 26ms (cache revalidated)
+58 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ia32 set size:199625 disposed:false
+59 silly fetch manifest @esbuild/linux-loong64@0.25.5
+60 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-loong64 cache-miss
+61 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-loong64 123ms (cache revalidated)
+62 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-loong64 set size:255749 disposed:false
+63 silly fetch manifest @esbuild/linux-mips64el@0.25.5
+64 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-mips64el cache-miss
+65 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-mips64el 25ms (cache revalidated)
+66 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-mips64el set size:204633 disposed:false
+67 silly fetch manifest @esbuild/linux-ppc64@0.25.5
+68 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ppc64 cache-miss
+69 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-ppc64 26ms (cache revalidated)
+70 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ppc64 set size:202845 disposed:false
+71 silly fetch manifest @esbuild/linux-riscv64@0.25.5
+72 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-riscv64 cache-miss
+73 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-riscv64 28ms (cache revalidated)
+74 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-riscv64 set size:202512 disposed:false
+75 silly fetch manifest @esbuild/linux-s390x@0.25.5
+76 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-s390x cache-miss
+77 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-s390x 28ms (cache revalidated)
+78 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-s390x set size:202310 disposed:false
+79 silly fetch manifest @esbuild/linux-x64@0.25.5
+80 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-x64 cache-miss
+81 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-x64 36ms (cache revalidated)
+82 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-x64 set size:198942 disposed:false
+83 silly fetch manifest @esbuild/netbsd-arm64@0.25.5
+84 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 cache-miss
+85 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 27ms (cache revalidated)
+86 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 set size:44308 disposed:false
+87 silly fetch manifest @esbuild/netbsd-x64@0.25.5
+88 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-x64 cache-miss
+89 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fnetbsd-x64 29ms (cache revalidated)
+90 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-x64 set size:197314 disposed:false
+91 silly fetch manifest @esbuild/openbsd-arm64@0.25.5
+92 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 cache-miss
+93 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 23ms (cache revalidated)
+94 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 set size:49642 disposed:false
+95 silly fetch manifest @esbuild/openbsd-x64@0.25.5
+96 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-x64 cache-miss
+97 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fopenbsd-x64 27ms (cache revalidated)
+98 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-x64 set size:200576 disposed:false
+99 silly fetch manifest @esbuild/sunos-x64@0.25.5
+100 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fsunos-x64 cache-miss
+101 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fsunos-x64 24ms (cache revalidated)
+102 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fsunos-x64 set size:199187 disposed:false
+103 silly fetch manifest @esbuild/win32-arm64@0.25.5
+104 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-arm64 cache-miss
+105 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-arm64 25ms (cache revalidated)
+106 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-arm64 set size:201005 disposed:false
+107 silly fetch manifest @esbuild/win32-ia32@0.25.5
+108 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-ia32 cache-miss
+109 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-ia32 26ms (cache revalidated)
+110 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-ia32 set size:199854 disposed:false
+111 silly fetch manifest @esbuild/win32-x64@0.25.5
+112 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-x64 cache-miss
+113 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-x64 24ms (cache revalidated)
+114 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-x64 set size:197540 disposed:false
+115 silly placeDep ROOT @esbuild/aix-ppc64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+116 silly placeDep ROOT @esbuild/android-arm@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+117 silly placeDep ROOT @esbuild/android-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+118 silly placeDep ROOT @esbuild/android-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+119 silly placeDep ROOT @esbuild/darwin-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+120 silly placeDep ROOT @esbuild/freebsd-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+121 silly placeDep ROOT @esbuild/freebsd-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+122 silly placeDep ROOT @esbuild/linux-arm@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+123 silly placeDep ROOT @esbuild/linux-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+124 silly placeDep ROOT @esbuild/linux-ia32@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+125 silly placeDep ROOT @esbuild/linux-loong64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+126 silly placeDep ROOT @esbuild/linux-mips64el@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+127 silly placeDep ROOT @esbuild/linux-ppc64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+128 silly placeDep ROOT @esbuild/linux-riscv64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+129 silly placeDep ROOT @esbuild/linux-s390x@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+130 silly placeDep ROOT @esbuild/linux-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+131 silly placeDep ROOT @esbuild/netbsd-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+132 silly placeDep ROOT @esbuild/netbsd-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+133 silly placeDep ROOT @esbuild/openbsd-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+134 silly placeDep ROOT @esbuild/openbsd-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+135 silly placeDep ROOT @esbuild/sunos-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+136 silly placeDep ROOT @esbuild/win32-arm64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+137 silly placeDep ROOT @esbuild/win32-ia32@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+138 silly placeDep ROOT @esbuild/win32-x64@0.25.5 OK for: esbuild@0.25.5 want: 0.25.5
+139 silly reify moves {}
+140 http cache typescript@https://registry.npmjs.org/typescript/-/typescript-4.9.3.tgz 0ms (cache hit)
+141 silly tarball no local data for typescript@https://registry.npmjs.org/typescript/-/typescript-4.9.3.tgz. Extracting by manifest.
+142 http fetch GET 200 https://registry.npmjs.org/typescript/-/typescript-4.9.3.tgz 212ms (cache miss)
+143 silly ADD node_modules/typescript
+144 verbose cwd /Users/lzy/pro/UserFB/workspace/Z1095/attempts/20261111T165322564306Z/repo
+145 verbose os Darwin 27.0.0
+146 verbose node v26.0.0
+147 verbose npm  v11.12.1
+148 verbose exit 0
+149 info ok

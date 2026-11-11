@@ -6,6 +6,7 @@ export * from './dataTransfer/FileList'
 export * from './dataTransfer/Clipboard'
 
 export * from './edit/timeValue'
+export * from './edit/grapheme'
 export * from './edit/isContentEditable'
 export * from './edit/isEditable'
 export * from './edit/maxLength'

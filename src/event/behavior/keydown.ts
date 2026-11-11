@@ -34,13 +34,13 @@ const keydownBehavior: {
     if (isElementType(target, 'input', {type: 'radio'} as const)) {
       return () => walkRadio(instance, target, -1)
     }
-    return () => moveSelection(target, -1)
+    return () => moveSelection(target, -1, instance.config.textUnit)
   },
   ArrowRight: (event, target, instance) => {
     if (isElementType(target, 'input', {type: 'radio'} as const)) {
       return () => walkRadio(instance, target, 1)
     }
-    return () => moveSelection(target, 1)
+    return () => moveSelection(target, 1, instance.config.textUnit)
   },
   ArrowUp: (event, target, instance) => {
     /* istanbul ignore else */

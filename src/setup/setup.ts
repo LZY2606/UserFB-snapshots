@@ -31,6 +31,7 @@ const defaultOptionsDirect: Required<Options> = {
   skipAutoClose: false,
   skipClick: false,
   skipHover: false,
+  textUnit: 'codeUnit',
   writeToClipboard: false,
   advanceTimers: () => Promise.resolve(),
 }

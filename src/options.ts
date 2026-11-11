@@ -15,6 +15,16 @@ export enum PointerEventsCheckLevel {
   Never = 0,
 }
 
+/**
+ * The unit used for navigating and deleting text in editable elements
+ * with `ArrowLeft`, `ArrowRight`, `Backspace` and `Delete`.
+ *
+ * - `codeUnit` operates on single UTF-16 code units, as the library did historically.
+ * - `grapheme` operates on user-perceived characters (extended grapheme clusters)
+ *   as determined by the runtime's `Intl.Segmenter`.
+ */
+export type TextUnit = 'codeUnit' | 'grapheme'
+
 export interface Options {
   /**
    * When using `userEvent.upload`, automatically discard files
@@ -107,6 +117,26 @@ export interface Options {
    * @default false
    */
   skipHover?: boolean
+
+  /**
+   * The unit in which `ArrowLeft`, `ArrowRight`, `Backspace` and `Delete`
+   * navigate and remove text in `input`, `textarea` and contenteditable elements.
+   *
+   * With the default `'codeUnit'` each step moves or deletes a single UTF-16
+   * code unit, which can split surrogate pairs and grapheme clusters.
+   *
+   * With `'grapheme'` the keys operate on extended grapheme clusters as
+   * segmented by the runtime's `Intl.Segmenter` in grapheme mode, so that
+   * emojis, combining marks, flags and similar sequences are treated as a
+   * single user-perceived character. Selection offsets reported by the DOM
+   * stay UTF-16 offsets.
+   *
+   * This does not affect non-collapsed selections, `clear`, `paste` or
+   * special input types like number/date/time.
+   *
+   * @default 'codeUnit'
+   */
+  textUnit?: TextUnit
 
   /**
    * Write selected data to Clipboard API when a `cut` or `copy` is triggered.
