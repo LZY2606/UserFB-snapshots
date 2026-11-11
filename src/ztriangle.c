@@ -26,12 +26,10 @@ static GLfloat edgeFunction(GLfloat ax, GLfloat ay, GLfloat bx, GLfloat by, GLfl
 #define YSTIP (the_y & TGL_POLYGON_STIPPLE_MASK_Y)
 /* NOTES                                                           Divide by 8 to get the byte        Get the actual bit*/
 #define STIPBIT(_a) (zbstipplepattern[(XSTIP(_a) | (YSTIP << TGL_POLYGON_STIPPLE_POW2_WIDTH)) >> 3] & (1 << (XSTIP(_a) & 7)))
-#define STIPTEST(_a) &&(!(zbdostipple && !STIPBIT(_a)))
 
 #else
 
 #define TGL_STIPPLEVARS /* a comment */
-#define STIPTEST(_a)	/* a comment*/
 
 #endif
 
@@ -41,8 +39,100 @@ static GLfloat edgeFunction(GLfloat ax, GLfloat ay, GLfloat bx, GLfloat by, GLfl
 #define NODRAWTEST(c) /* a comment */
 #endif
 
-#define ZCMP(z, zpix, _a, c) (((!zbdt) || (z >= zpix)) STIPTEST(_a) NODRAWTEST(c))
-#define ZCMPSIMP(z, zpix, _a, crabapple) (((!zbdt) || (z >= zpix)) STIPTEST(_a))
+#if TGL_FEATURE_POLYGON_STIPPLE == 1
+#define TGL_STIPPLE_PASS(_a) (!(zbdostipple && !STIPBIT(_a)))
+#else
+#define TGL_STIPPLE_PASS(_a) 1
+#endif
+
+/* stencil state is snapshotted at triangle entry straight from the
+   ZBuffer, so display list replay and each raster fast path observe the
+   state current at execution time rather than anything baked in at
+   compile time */
+#define TGL_STENCILVARS                                                                      \
+	GLint zb_stencil = zb->stencil_test;                                                     \
+	GLenum zb_sfunc = zb->stencil_func;                                                      \
+	GLubyte zb_sref = zb->stencil_ref;                                                       \
+	GLubyte zb_svmask = zb->stencil_value_mask;                                              \
+	GLubyte zb_swmask = zb->stencil_write_mask;                                              \
+	GLenum zb_sop_sfail = zb->stencil_op_sfail;                                              \
+	GLenum zb_sop_dpfail = zb->stencil_op_dpfail;                                            \
+	GLenum zb_sop_dppass = zb->stencil_op_dppass;
+
+static inline GLint tgl_stencil_compare(GLenum func, GLubyte lhs, GLubyte rhs) {
+	switch (func) {
+	case GL_NEVER:
+		return 0;
+	case GL_ALWAYS:
+		return 1;
+	case GL_EQUAL:
+		return lhs == rhs;
+	case GL_NOTEQUAL:
+		return lhs != rhs;
+	case GL_LESS:
+		return lhs < rhs;
+	case GL_LEQUAL:
+		return lhs <= rhs;
+	case GL_GREATER:
+		return lhs > rhs;
+	case GL_GEQUAL:
+	default:
+		return lhs >= rhs;
+	}
+}
+
+/* computes the full 8 bit operation result; INCR/DECR saturate at 0/255 */
+static inline GLubyte tgl_stencil_op_result(GLenum op, GLubyte oldv, GLubyte refv) {
+	switch (op) {
+	case GL_ZERO:
+		return 0;
+	case GL_REPLACE:
+		return refv;
+	case GL_INCR:
+		return (oldv >= 255) ? 255 : (GLubyte)(oldv + 1);
+	case GL_DECR:
+		return (oldv == 0) ? 0 : (GLubyte)(oldv - 1);
+	case GL_INVERT:
+		return (GLubyte)(~oldv);
+	case GL_KEEP:
+	default:
+		return oldv;
+	}
+}
+
+/* merge the operation result back through the write mask; masked bits
+   keep their old value */
+#define TGL_STENCIL_WRITE(ps, opv)                                                           \
+	*(ps) = (GLubyte)((*(ps) & (GLubyte)(~zb_swmask)) | ((GLubyte)(opv) & zb_swmask))
+
+/* Runs the stencil stage for one candidate fragment. The caller has
+   already applied polygon stipple and the TGL_NO_DRAW_COLOR discard, and
+   passes the depth outcome (a disabled depth test counts as pass). The
+   color body only runs when both stencil and depth pass. */
+#define TGL_STENCIL_BLOCK(_a, _depthpass, _colorbody)                                       \
+	do {                                                                                     \
+		if (!zb_stencil) {                                                                   \
+			if (_depthpass) {                                                                \
+				_colorbody                                                                   \
+			}                                                                                \
+		} else {                                                                             \
+			GLubyte* _sp = zb->sbuf + (pz - zb->zbuf) + (_a);                                \
+			GLubyte _sv = *_sp;                                                              \
+			GLubyte _lhs = (GLubyte)(zb_sref & zb_svmask);                                   \
+			GLubyte _rhs = (GLubyte)(_sv & zb_svmask);                                       \
+			if (!tgl_stencil_compare(zb_sfunc, _lhs, _rhs)) {                                \
+				TGL_STENCIL_WRITE(_sp, tgl_stencil_op_result(zb_sop_sfail, _sv, zb_sref));   \
+			} else if (!(_depthpass)) {                                                      \
+				TGL_STENCIL_WRITE(_sp, tgl_stencil_op_result(zb_sop_dpfail, _sv, zb_sref));  \
+			} else {                                                                         \
+				TGL_STENCIL_WRITE(_sp, tgl_stencil_op_result(zb_sop_dppass, _sv, zb_sref));  \
+				{                                                                            \
+					_colorbody                                                               \
+				}                                                                            \
+			}                                                                                \
+		}                                                                                    \
+	} while (0)
+
 
 void ZB_fillTriangleFlat(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
 	GLubyte zbdt = zb->depth_test;
@@ -50,6 +140,7 @@ void ZB_fillTriangleFlat(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuffe
 	GLuint color;
 	TGL_BLEND_VARS
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 
 #undef INTERP_Z
 #undef INTERP_RGB
@@ -64,13 +155,14 @@ void ZB_fillTriangleFlat(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuffe
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, color)) {                                                                                                             \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				TGL_BLEND_FUNC(color, (pp[_a])) /*pp[_a] = color;*/                                                                                            \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 	}
@@ -83,6 +175,7 @@ void ZB_fillTriangleFlatNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1,
 	GLubyte zbdw = zb->depth_write;
 	GLubyte zbdt = zb->depth_test;
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 #undef INTERP_Z
 #undef INTERP_RGB
 #undef INTERP_ST
@@ -94,13 +187,14 @@ void ZB_fillTriangleFlatNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1,
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = color;                                                                                                                                \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 	}
@@ -118,6 +212,7 @@ void ZB_fillTriangleSmooth(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuf
 	GLubyte zbdt = zb->depth_test;
 	TGL_BLEND_VARS
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 
 #define INTERP_Z
 #define INTERP_RGB
@@ -129,14 +224,15 @@ void ZB_fillTriangleSmooth(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuf
 	{}
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				/*pp[_a] = RGB_TO_PIXEL(or1, og1, ob1);*/                                                                                                      \
 				TGL_BLEND_FUNC_RGB(or1, og1, ob1, (pp[_a]));                                                                                                   \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		og1 += dgdx;                                                                                                                                           \
@@ -152,15 +248,15 @@ void ZB_fillTriangleSmooth(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuf
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				/*pp[_a] = RGB_TO_PIXEL(or1, og1, ob1);*/                                                                                                      \
 				TGL_BLEND_FUNC_RGB(or1, og1, ob1, (pp[_a]));                                                                                                   \
-                                                                                                                                                               \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		og1 += dgdx;                                                                                                                                           \
@@ -171,13 +267,14 @@ void ZB_fillTriangleSmooth(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuf
 #endif
 
 #include "ztriangle.h"
-} 
+}
 
 void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
 
 	GLubyte zbdw = zb->depth_write;
 	GLubyte zbdt = zb->depth_test;
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 
 #define INTERP_Z
 #define INTERP_RGB
@@ -191,13 +288,14 @@ void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p
 #if TGL_FEATURE_NO_DRAW_COLOR != 1
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = RGB_TO_PIXEL(or1, og1, ob1);                                                                                                          \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		og1 += dgdx;                                                                                                                                           \
@@ -207,14 +305,15 @@ void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p
 #else
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
 			/*c = RGB_TO_PIXEL(or1, og1, ob1);*/                                                                                                               \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = RGB_TO_PIXEL(or1, og1, ob1);                                                                                                          \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		og1 += dgdx;                                                                                                                                           \
@@ -230,14 +329,14 @@ void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = RGB_TO_PIXEL(or1, og1, ob1);                                                                                                          \
-                                                                                                                                                               \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		og1 += dgdx;                                                                                                                                           \
@@ -248,7 +347,7 @@ void ZB_fillTriangleSmoothNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p
 #endif
 /* End of 16 bit mode stuff*/
 #include "ztriangle.h"
-} 
+}
 
 /*
 
@@ -336,6 +435,7 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 	GLubyte zbdt = zb->depth_test;
 	TGL_BLEND_VARS
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 #define INTERP_Z
 #define INTERP_STZ
 #define INTERP_RGB
@@ -372,14 +472,15 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				/*pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, TEXTURE_SAMPLE(texture, s, t));*/                                                                       \
 				TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, (TEXTURE_SAMPLE(texture, s, t))), (pp[_a]));                                                        \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		s += dsdx;                                                                                                                                             \
@@ -389,14 +490,16 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 #else
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                               \
+		/* polygon stipple and the TGL_NO_DRAW_COLOR texel discard run before the stencil test */                                                               \
+		if (TGL_STIPPLE_PASS(_a) NODRAWTEST(c)) {                                                                                                              \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
-			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));                                                                                      \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		s += dsdx;                                                                                                                                             \
@@ -412,10 +515,11 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 
 void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
 	PIXEL* texture;
-	
+
 	GLubyte zbdw = zb->depth_write;
 	GLubyte zbdt = zb->depth_test;
 	TGL_STIPPLEVARS
+	TGL_STENCILVARS
 #define INTERP_Z
 #define INTERP_STZ
 #define INTERP_RGB
@@ -450,13 +554,14 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 #if TGL_FEATURE_NO_DRAW_COLOR != 1
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		if (TGL_STIPPLE_PASS(_a)) {                                                                                                                            \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			if (ZCMPSIMP(zz, pz[_a], _a, 0)) {                                                                                                                 \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, TEXTURE_SAMPLE(texture, s, t));                                                                           \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		s += dsdx;                                                                                                                                             \
@@ -466,15 +571,17 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 #else
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
-		{                                                                                                                                                      \
+		PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                               \
+		/* polygon stipple and the TGL_NO_DRAW_COLOR texel discard run before the stencil test */                                                               \
+		if (TGL_STIPPLE_PASS(_a) NODRAWTEST(c)) {                                                                                                              \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
-			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
+			GLint dpass = (!zbdt) || (zz >= pz[_a]);                                                                                                           \
+			TGL_STENCIL_BLOCK(_a, dpass, {                                                                                                                     \
 				pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, c);                                                                                                       \
 				/*TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));*/                                                                                  \
 				if (zbdw)                                                                                                                                      \
 					pz[_a] = zz;                                                                                                                               \
-			}                                                                                                                                                  \
+			});                                                                                                                                                \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
 		s += dsdx;                                                                                                                                             \
@@ -487,4 +594,4 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 #include "ztriangle.h"
 }
 
-#endif 
+#endif

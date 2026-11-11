@@ -337,6 +337,16 @@ void glInit(void* zbuffer1) {
 	/* depth test */
 	c->zb->depth_test = 0;
 	c->zb->depth_write = 1;
+	/* 8 bit stencil, disabled by default */
+	c->zb->stencil_test = 0;
+	c->zb->stencil_func = GL_ALWAYS;
+	c->zb->stencil_ref = 0;
+	c->zb->stencil_value_mask = 0xff;
+	c->zb->stencil_write_mask = 0xff;
+	c->zb->stencil_op_sfail = GL_KEEP;
+	c->zb->stencil_op_dpfail = GL_KEEP;
+	c->zb->stencil_op_dppass = GL_KEEP;
+	c->zb->stencil_clear = 0;
 	c->zb->pointsize = 1;
 
 	/* raster position */

@@ -45,6 +45,14 @@ ZBuffer* ZB_open(GLint xsize, GLint ysize, GLint mode,
 	if (zb->zbuf == NULL)
 		goto error;
 
+	/* the stencil buffer is always present, even if the caller supplies
+	   its own color buffer (or none at all) */
+	zb->sbuf = gl_zalloc(zb->xsize * zb->ysize * sizeof(GLubyte));
+	if (zb->sbuf == NULL) {
+		gl_free(zb->zbuf);
+		goto error;
+	}
+
 	if (frame_buffer == NULL) {
 		zb->pbuf = gl_malloc(zb->ysize * zb->linesize);
 		if (zb->pbuf == NULL) {
@@ -70,6 +78,7 @@ void ZB_close(ZBuffer* zb) {
 	if (zb->frame_buffer_allocated)
 		gl_free(zb->pbuf);
 
+	gl_free(zb->sbuf);
 	gl_free(zb->zbuf);
 	gl_free(zb);
 }
@@ -90,6 +99,13 @@ void ZB_resize(ZBuffer* zb, void* frame_buffer, GLint xsize, GLint ysize) {
 	zb->zbuf = gl_malloc(size);
 	if (zb->zbuf == NULL)
 		exit(1);
+
+	/* stencil storage follows the new size and always comes back zeroed */
+	gl_free(zb->sbuf);
+	zb->sbuf = gl_zalloc(zb->xsize * zb->ysize * sizeof(GLubyte));
+	if (zb->sbuf == NULL)
+		exit(1);
+
 	if (zb->frame_buffer_allocated)
 		gl_free(zb->pbuf);
 
@@ -355,12 +371,23 @@ static void memset_l(void* adr, GLint val, GLint count) {
 		*p++ = val;
 }
 
-void ZB_clear(ZBuffer* zb, GLint clear_z, GLint z, GLint clear_color, GLint r, GLint g, GLint b) {
+void ZB_clear(ZBuffer* zb, GLint clear_z, GLint z, GLint clear_color, GLint r, GLint g, GLint b, GLint clear_stencil, GLint s) {
 	GLuint color;
 	GLint y;
 	PIXEL* pp;
 	if (clear_z) {
 		memset_s(zb->zbuf, z, zb->xsize * zb->ysize);
+	}
+	if (clear_stencil) {
+		/* only the low 8 bits of the clear value and of the write mask
+		   participate; masked-out bits keep their stored value */
+		GLubyte clear_val = (GLubyte)(s & 0xff);
+		GLubyte wmask = (GLubyte)(zb->stencil_write_mask & 0xff);
+		GLint npix = zb->xsize * zb->ysize;
+		GLint i;
+		for (i = 0; i < npix; i++) {
+			zb->sbuf[i] = (GLubyte)((zb->sbuf[i] & (GLubyte)(~wmask)) | (clear_val & wmask));
+		}
 	}
 	if (clear_color) {
 		pp = zb->pbuf;

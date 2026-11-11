@@ -872,6 +872,12 @@ void glDeleteLists(GLuint list, GLuint range);
 void glClear(GLint mask);
 void glClearColor(GLfloat r,GLfloat g,GLfloat b,GLfloat a);
 void glClearDepth(GLdouble depth);
+void glClearStencil(GLint s);
+
+/* stencil (8 bit per pixel, filled triangles only) */
+void glStencilFunc(GLenum func, GLint ref, GLuint mask);
+void glStencilMask(GLuint mask);
+void glStencilOp(GLenum fail, GLenum zfail, GLenum zpass);
 
 /* Feedback */
 void glFeedbackBuffer(GLint size, GLenum type, GLfloat* buf);

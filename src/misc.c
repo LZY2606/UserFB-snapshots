@@ -114,6 +114,9 @@ void glopEnableDisable(GLParam* p) {
 	case GL_DEPTH_TEST:
 		c->zb->depth_test = v;
 		break;
+	case GL_STENCIL_TEST:
+		c->zb->stencil_test = v;
+		break;
 	case GL_POLYGON_OFFSET_FILL:
 		if (v)
 			c->offset_states |= TGL_OFFSET_FILL;

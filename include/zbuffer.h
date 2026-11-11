@@ -248,6 +248,7 @@ typedef struct {
     
     
     GLushort *zbuf;
+    GLubyte *sbuf; /* 8 bit per pixel stencil buffer, same indexing as zbuf */
     PIXEL *pbuf;
     PIXEL *current_texture;
     
@@ -272,6 +273,17 @@ typedef struct {
     /* depth */
     GLint depth_test;
     GLint depth_write;
+    /* stencil : 8 bit per pixel, state lives on the ZBuffer so every
+       raster fast path reads the current values instead of snapshots */
+    GLint stencil_test;
+    GLenum stencil_func;
+    GLubyte stencil_ref;        /* reference already clamped to 0..255 */
+    GLubyte stencil_value_mask;
+    GLubyte stencil_write_mask;
+    GLenum stencil_op_sfail;
+    GLenum stencil_op_dpfail;
+    GLenum stencil_op_dppass;
+    GLubyte stencil_clear;
     GLubyte frame_buffer_allocated;
 } ZBuffer;
 
@@ -296,7 +308,8 @@ void ZB_close(ZBuffer *zb);
 
 void ZB_resize(ZBuffer *zb,void *frame_buffer,GLint xsize,GLint ysize);
 void ZB_clear(ZBuffer *zb,GLint clear_z,GLint z,
-	      GLint clear_color,GLint r,GLint g,GLint b);
+	      GLint clear_color,GLint r,GLint g,GLint b,
+	      GLint clear_stencil,GLint s);
 /* linesize is in BYTES */
 void ZB_copyFrameBuffer(ZBuffer *zb,void *buf,GLint linesize);
 

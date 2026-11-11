@@ -373,7 +373,6 @@ void glGetIntegerv(GLint pname, GLint* params) {
 	case GL_PACK_SKIP_PIXELS:
 	case GL_PACK_ROW_LENGTH:
 	case GL_PACK_LSB_FIRST:
-	case GL_STENCIL_TEST:
 	case GL_MAX_PIXEL_MAP_TABLE:
 	case GL_MAX_EVAL_ORDER:
 	case GL_MAX_CLIENT_ATTRIB_STACK_DEPTH:
@@ -389,13 +388,21 @@ void glGetIntegerv(GLint pname, GLint* params) {
 	case GL_MAX_LIST_NESTING:
 		*params = ~(GLuint)0; /* No checking is done, indicate it to the user!*/
 		break;
+	case GL_STENCIL_TEST:
+		*params = (c->zb->stencil_test != 0);
+		break;
 	case GL_STENCIL_FUNC:
-		*params = GL_ALWAYS;
+		*params = c->zb->stencil_func;
+		break;
+	case GL_STENCIL_REF:
+		*params = c->zb->stencil_ref;
 		break;
 	case GL_STENCIL_CLEAR_VALUE:
-		*params = 0;
+		*params = c->zb->stencil_clear;
 		break;
 	case GL_STENCIL_BITS:
+		*params = 8;
+		break;
 	case GL_MAP_STENCIL:
 	case GL_MAP_COLOR:
 	case GL_INDEX_SHIFT:
@@ -409,11 +416,21 @@ void glGetIntegerv(GLint pname, GLint* params) {
 	case GL_FRONT_FACE:
 		*params = c->current_front_face;
 		break;
+	case GL_STENCIL_FAIL:
+		*params = c->zb->stencil_op_sfail;
+		break;
 	case GL_STENCIL_PASS_DEPTH_PASS:
+		*params = c->zb->stencil_op_dppass;
+		break;
 	case GL_STENCIL_PASS_DEPTH_FAIL:
-		*params = GL_KEEP;
+		*params = c->zb->stencil_op_dpfail;
 		break;
 	case GL_STENCIL_VALUE_MASK:
+		*params = c->zb->stencil_value_mask;
+		break;
+	case GL_STENCIL_WRITEMASK:
+		*params = c->zb->stencil_write_mask;
+		break;
 	case GL_INDEX_WRITEMASK:
 		*params = ~0;
 		break;
