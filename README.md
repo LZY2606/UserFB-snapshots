@@ -49,6 +49,38 @@ make
 ./maximilian
 ```
 
+### Hard-sync sawtooth (`maxiSyncOsc`)
+
+`src/libs/maxiSyncOsc.h` provides a native C++ master/slave hard-sync
+sawtooth.  The slave phase is reset at the true master crossing time
+inside each sample interval (not just on sample boundaries), and every
+discontinuity is band-limited with PolyBLEP corrections, including
+resets that coincide with the slave's own wrap.  Minimal use:
+
+```cpp
+#include "maximilian.h"
+#include "libs/maxiSyncOsc.h"
+
+maxiSettings::setup(48000, 2, 64);
+maxiSyncOsc syncOsc; // picks up maxiSettings::sampleRate
+
+// per sample, e.g. in the audio callback:
+double sample = syncOsc.play(750.0, 1973.0); // master Hz, slave Hz
+
+// block form, sample-for-sample identical to repeated play() calls:
+syncOsc.process(masterHzBuffer, slaveHzBuffer, outputBuffer,
+                bufferSize);
+```
+
+A control pair outside the finite range `[0, 0.45 * sampleRate]`
+produces zero for that sample and leaves the state untouched; `masterHz`
+or `slaveHz` may each be `0` (a 0 Hz master lets the slave run free, a
+0 Hz slave still gets reset by the master).  `setSampleRate()` only
+accepts finite positive values, otherwise it throws
+`std::invalid_argument` and keeps the old state; the fixed output
+latency is reported by `latency()` and never changes with frequency.
+See `checks/hardsync.sh` for the regression suite.
+
 ### Web Audio
 
 A transpiled javascript version of the library is included in this repository, for both Script Processor Nodes and AudioWorklets. Try this out at (https://mimicproject.com/guides/maximJS).
