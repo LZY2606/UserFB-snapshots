@@ -1,0 +1,1 @@
+{"name":"replay-download-tools","private":true,"type":"module","dependencies":{"esbuild":"0.25.5","puppeteer-core":"25.15.0"}}
