@@ -1,0 +1,7 @@
+[package]
+name = "glyph-witness"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[dependencies]
+glyph_brush = { path = "../glyph-brush", version = "=0.7.12" }
