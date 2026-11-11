@@ -312,4 +312,106 @@ declare module 'regexp-tree' {
    * Executes a regular expression on a string.
    */
   export function exec(re: string | RegExp, string: string): RegExpExecArray;
+
+  /**
+   * A source range of an AST node, when locations are available.
+   */
+  export interface AmbiguityNodeLocation {
+    source: string;
+    start: AstNodeLocation;
+    end: AstNodeLocation;
+  }
+
+  /**
+   * Identity of an AST node referenced by an ambiguity report: a
+   * stable structural `path` (always present), plus the original
+   * source range `loc` when the AST carries locations.
+   */
+  export interface AmbiguityNodeRef {
+    type: string;
+    path: string;
+    loc: AmbiguityNodeLocation | null;
+  }
+
+  /**
+   * One complete derivation (parse tree) of the witness string.
+   * Every node records the span of the witness it consumes; a
+   * `Disjunction` records which side was chosen, and a `Repetition`
+   * records how many instances were used. Grouping shells are
+   * transparent and do not appear.
+   */
+  export interface AmbiguityDerivation {
+    type: 'Char' | 'Alternative' | 'Disjunction' | 'Repetition';
+    path: string;
+    loc: AmbiguityNodeLocation | null;
+    span: [number, number];
+    /** Present on `Char` nodes. */
+    value?: string;
+    /** Present on `Alternative` nodes. */
+    children?: AmbiguityDerivation[];
+    /** Present on `Disjunction` nodes. */
+    choice?: 'left' | 'right';
+    /** Present on `Disjunction` nodes. */
+    child?: AmbiguityDerivation;
+    /** Present on `Repetition` nodes. */
+    quantifier?: '*' | '+' | '?';
+    /** Present on `Repetition` nodes. */
+    count?: number;
+    /** Present on `Repetition` nodes. */
+    instances?: AmbiguityDerivation[];
+  }
+
+  /**
+   * Result of `fa.analyzeAmbiguity`.
+   *
+   * - `unambiguous`: the analysis proved that every accepted string
+   *   has exactly one derivation (this is a complete verdict, not a
+   *   bounded search).
+   * - `ambiguous`: some string has two genuinely different
+   *   derivations; `witness` is the shortest such string (ties broken
+   *   by character code order) and `derivations` contains two
+   *   distinct complete derivations of it.
+   * - `unsupported`: the expression uses constructs outside the
+   *   analyzed subset; `reason`/`message` explain why and `node`
+   *   locates the offending construct.
+   */
+  export type AmbiguityReport =
+    | { status: 'unambiguous' }
+    | {
+        status: 'ambiguous';
+        witness: string;
+        derivations: AmbiguityDerivation[];
+      }
+    | {
+        status: 'unsupported';
+        reason: string;
+        message: string;
+        node: AmbiguityNodeRef;
+      };
+
+  export interface FiniteAutomaton {
+    /**
+     * Builds an NFA for the passed regexp.
+     */
+    toNFA(regexp: string | RegExp | AstRegExp): unknown;
+    /**
+     * Builds a DFA for the passed regexp.
+     */
+    toDFA(regexp: string | RegExp | AstRegExp): unknown;
+    /**
+     * Returns true if regexp accepts the string.
+     */
+    test(regexp: string | RegExp | AstRegExp, string: string): boolean;
+    /**
+     * Statically analyzes a regexp for ambiguity: whether some string
+     * has two genuinely different derivations (parse trees). Purely
+     * local analysis: it never executes the regexp against input.
+     */
+    analyzeAmbiguity(regexp: string | RegExp | AstRegExp | AstNode): AmbiguityReport;
+  }
+
+  /**
+   * Finite-automaton module (NFA/DFA engine and analyses).
+   */
+  export const fa: FiniteAutomaton;
 }

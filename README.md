@@ -29,6 +29,7 @@ You can get an overview of the tool in [this article](https://medium.com/@Dmitry
 - [Creating RegExp objects](#creating-regexp-objects)
 - [Executing regexes](#executing-regexes)
 - [Using interpreter API](#using-interpreter-api)
+  - [Ambiguity analysis](#ambiguity-analysis)
   - [Printing NFA/DFA tables](#printing-nfadfa-tables)
 - [AST nodes specification](#ast-nodes-specification)
 
@@ -687,6 +688,42 @@ console.log(reDFA.matches('ab')); // true
 console.log(reDFA.matches('')); // true
 console.log(reDFA.matches('c')); // true
 ```
+
+#### Ambiguity analysis
+
+The `fa` module also exposes `analyzeAmbiguity`, a static analysis that answers whether some string can be derived from a regular expression in two genuinely different ways (two different parse trees). This is a useful first signal when auditing expressions for potential regular-expression denial of service: ambiguity means the structure itself allows more than one decomposition of the same input.
+
+The analysis is purely local: it never calls `RegExp.prototype.exec`/`test`, never times long inputs, and an `ambiguous` result is a structural finding, not a confirmed exploitable vulnerability.
+
+```js
+const {fa} = require('regexp-tree');
+
+fa.analyzeAmbiguity('/(a|b)+/');
+// {status: 'unambiguous'}
+
+fa.analyzeAmbiguity('/(a|aa)+/');
+// {
+//   status: 'ambiguous',
+//   witness: 'aa',
+//   derivations: [ ...two distinct derivation trees... ],
+// }
+
+fa.analyzeAmbiguity('/a{2,3}/');
+// {
+//   status: 'unsupported',
+//   reason: 'range-quantifier',
+//   message: 'Bounded {n,m} quantifiers are not supported',
+//   node: {type: 'Repetition', path: 'body', loc: {...}},
+// }
+```
+
+The input may be a regexp string, a `RegExp` object, or an AST (which is only read, never modified). The returned report is always JSON-serializable, and is one of:
+
+- `{status: 'unambiguous'}` — a **complete** verdict: every accepted string provably has exactly one derivation. This is decided on the automaton product construction, not by enumerating strings up to some length.
+- `{status: 'ambiguous', witness, derivations}` — `witness` is the shortest string with two derivations (ties broken by character code order), and `derivations` contains two distinct complete derivation trees for it. Each derivation node records the span of the witness it consumes, each `Disjunction` records the chosen side (`choice: 'left' | 'right'`), and each `Repetition` records its instance `count` along with the per-instance sub-derivations. Grouping shells are transparent and do not appear; epsilon-scheduling differences in the automaton do not count as distinct derivations either.
+- `{status: 'unsupported', reason, message, node}` — the expression uses constructs outside the analyzed subset.
+
+Note the difference between `unambiguous` and `unsupported`: the former is a definitive "no ambiguity exists" answer within the supported subset, while the latter means the analysis does not apply at all (no verdict either way). The supported subset is: flagless expressions over simple ASCII letter/digit chars, concatenation, disjunctions with both branches non-empty, groups (capturing groups are treated as purely structural — capture results are not compared), and the `*`, `+`, `?` quantifiers whose operand cannot match the empty string. Character classes, assertions, backreferences, bounded `{n,m}` quantifiers, other characters, any quantifier with a nullable operand (including `?`), and flags are reported as `unsupported`, with `node` giving the reason's source range (`loc`, when the AST carries locations) or a stable structural `path` (e.g. `body.expressions[0].expression`) otherwise.
 
 #### Printing NFA/DFA tables
 

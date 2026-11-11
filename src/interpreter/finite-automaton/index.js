@@ -10,6 +10,7 @@ const DFA = require('./dfa/dfa');
 
 const nfaFromRegExp = require('./nfa/nfa-from-regexp');
 const builders = require('./nfa/builders');
+const analyzeAmbiguity = require('./ambiguity');
 
 module.exports = {
 
@@ -53,5 +54,25 @@ module.exports = {
    */
   test(regexp, string) {
     return this.toDFA(regexp).matches(string);
+  },
+
+  /**
+   * Statically analyzes a regexp for ambiguity: whether some string
+   * has two genuinely different derivations (parse trees).
+   *
+   * @param string | AST | RegExp:
+   *
+   *   a regular expression in different representations: a string,
+   *   a RegExp object, or an AST.
+   *
+   * @return Object:
+   *
+   *   a JSON-serializable report with `status` of `unambiguous`,
+   *   `ambiguous` (with a shortest witness and two distinct
+   *   derivations), or `unsupported` (with a reason and the source
+   *   range or structural path of the unsupported construct).
+   */
+  analyzeAmbiguity(regexp) {
+    return analyzeAmbiguity(regexp);
   },
 };

@@ -17,7 +17,7 @@ for (const [s,yes] of [['abcb',true],['a',false],['ad',false]]) {
 console.log('REGEXP_GRAPH_BASELINE_OK');
 if(process.argv[2]==='target') {
  assert.ok(require('node:fs').statSync('sanity/ambiguity.test.cjs').size>0);
- const p=spawnSync(process.execPath,['--test','sanity/ambiguity.test.cjs'],{encoding:'utf8'});
+ const p=spawnSync(process.execPath,['--test','--test-reporter=tap','sanity/ambiguity.test.cjs'],{encoding:'utf8'});
  process.stdout.write(p.stdout);process.stderr.write(p.stderr);
  assert.equal(p.status,0);assert.match(p.stdout,/# pass 6\b/);assert.match(p.stdout,/# skipped 0\b/);
  console.log('REGEXP_AMBIGUITY_OK cases=6');

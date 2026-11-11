@@ -16,6 +16,12 @@
   "bin": {
     "regexp-tree": "./bin/regexp-tree"
   },
+  "jest": {
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/sanity/"
+    ]
+  },
   "keywords": [
     "regexp",
     "parser",
