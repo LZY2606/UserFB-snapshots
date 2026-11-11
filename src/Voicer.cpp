@@ -221,4 +221,15 @@ void Voicer :: silence( void )
   }
 }
 
+bool Voicer :: hasTag( long tag ) const
+{
+  for ( unsigned int i=0; i<voices_.size(); i++ ) {
+    // A voice keeps its tag number while in its release tail, but once
+    // sounding reaches zero the note has fully expired and the tag is
+    // no longer considered owned by that voice.
+    if ( voices_[i].tag == tag && voices_[i].sounding != 0 ) return true;
+  }
+  return false;
+}
+
 } // stk namespace

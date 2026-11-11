@@ -102,6 +102,14 @@ class Voicer : public Stk
   //! Send a noteOff message to all existing voices.
   void silence( void );
 
+  //! Return true if a voice currently carries the given note tag.
+  /*!
+    A tag stops being valid as soon as its voice is preempted by a
+    later noteOn (the voice then receives a new tag).  This query does
+    not change voice assignment or preemption order in any way.
+  */
+  bool hasTag( long tag ) const;
+
   //! Return the current number of output channels.
   unsigned int channelsOut( void ) const { return lastFrame_.channels(); };
 
