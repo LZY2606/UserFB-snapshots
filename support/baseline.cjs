@@ -1,0 +1,24 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {Readable} = require('node:stream');
+const {Parser} = require('../lib/Parser');
+const bytes = Buffer.alloc(128 * 1024, 120);
+const chunks = [Buffer.from(`* 1 FETCH (BODY[TEXT] {${bytes.length}}\r\n`)];
+for (let i = 0; i < bytes.length; i += 1024) chunks.push(bytes.subarray(i, i + 1024));
+chunks.push(Buffer.from(' UID 7)\r\nA5 OK done\r\n'));
+const src = new Readable({highWaterMark:1024, read() { this.push(chunks.length ? chunks.shift() : null); }});
+const p = new Parser(src);
+let stream, tagged = false;
+const got = [];
+const done = new Promise(resolve => p.on('tagged', () => {tagged = true; resolve();}));
+p.on('body', s => {stream = s;});
+(async () => {
+ await new Promise(setImmediate);
+ assert.ok(stream);
+ console.log(`IMAP_STARTING_BEHAVIOR buffered=${stream.readableLength} highwater=${stream.readableHighWaterMark} tagged=${tagged}`);
+ const drained = new Promise(resolve => stream.once('end', resolve));
+ stream.on('data', b => got.push(b)); stream.resume();
+ await Promise.all([done, drained]);
+ assert.equal(Buffer.compare(Buffer.concat(got), bytes), 0, 'body content');
+ console.log('IMAP_BASELINE_OK bytes=131072');
+})().catch(e => {console.error(e); process.exitCode = 1;});
