@@ -72,7 +72,7 @@ void ass_free_track(ASS_Track *track)
         return;
 
     if (track->parser_priv) {
-        free(track->parser_priv->read_order_bitmap);
+        free(track->parser_priv->read_order_count);
         free(track->parser_priv->fontname);
         free(track->parser_priv->fontdata);
         free(track->parser_priv);
@@ -158,58 +158,55 @@ void ass_free_style(ASS_Track *track, int sid)
     free(style->FontName);
 }
 
-static int resize_read_order_bitmap(ASS_Track *track, int max_id)
+static int resize_read_order_count(ASS_Track *track, int max_id)
 {
     // Don't allow malicious files to OOM us easily. Also avoids int overflows.
-    if (max_id < 0 || max_id >= 10 * 1024 * 1024 * 8)
+    if (max_id < 0 || max_id >= 10 * 1024 * 1024)
         goto fail;
-    assert(track->parser_priv->read_order_bitmap || !track->parser_priv->read_order_elems);
-    if (max_id >= track->parser_priv->read_order_elems * 32) {
+    assert(track->parser_priv->read_order_count || !track->parser_priv->read_order_elems);
+    if (max_id >= track->parser_priv->read_order_elems) {
         int oldelems = track->parser_priv->read_order_elems;
-        int elems = ((max_id + 31) / 32 + 1) * 2;
+        int elems = (max_id + 1) * 2;
         assert(elems >= oldelems);
         track->parser_priv->read_order_elems = elems;
-        void *new_bitmap =
-            realloc(track->parser_priv->read_order_bitmap, elems * 4);
-        if (!new_bitmap)
+        void *new_count =
+            realloc(track->parser_priv->read_order_count,
+                    elems * sizeof(int));
+        if (!new_count)
             goto fail;
-        track->parser_priv->read_order_bitmap = new_bitmap;
-        memset(track->parser_priv->read_order_bitmap + oldelems, 0,
-               (elems - oldelems) * 4);
+        track->parser_priv->read_order_count = new_count;
+        memset(track->parser_priv->read_order_count + oldelems, 0,
+               (elems - oldelems) * sizeof(int));
     }
     return 0;
 
 fail:
-    free(track->parser_priv->read_order_bitmap);
-    track->parser_priv->read_order_bitmap = NULL;
+    free(track->parser_priv->read_order_count);
+    track->parser_priv->read_order_count = NULL;
     track->parser_priv->read_order_elems = 0;
     return -1;
 }
 
-static int test_and_set_read_order_bit(ASS_Track *track, int id)
-{
-    if (resize_read_order_bitmap(track, id) < 0)
-        return -1;
-    int index = id >> 5;
-    uint32_t bit = 1u << (id & 0x1F);
-    if (track->parser_priv->read_order_bitmap[index] & bit)
-        return 1;
-    track->parser_priv->read_order_bitmap[index] |= bit;
-    return 0;
-}
-
-static inline void clear_read_order_bit(ASS_Track *track, int id)
+static inline void clear_read_order(ASS_Track *track, int id)
 {
     // we previously loaded a packet with an invalid ReadOrder field
     // (or int overflow) and decided to just skip checking for duplicates
     if (id < 0)
         return;
 
-    int index = id >> 5;
-    if (index < track->parser_priv->read_order_elems) {
-        uint32_t mask = ~(1u << (id & 0x1F));
-        track->parser_priv->read_order_bitmap[index] &= mask;
-    }
+    if (id < track->parser_priv->read_order_elems &&
+        track->parser_priv->read_order_count[id] > 0)
+        track->parser_priv->read_order_count[id]--;
+}
+
+// Drop the whole cache, e.g. after a packet with a ReadOrder value the
+// cache cannot represent; the linear scan fallback keeps working and the
+// cache is rebuilt from the surviving events on the next checked packet.
+static inline void reset_read_order_cache(ASS_Track *track)
+{
+    free(track->parser_priv->read_order_count);
+    track->parser_priv->read_order_count = NULL;
+    track->parser_priv->read_order_elems = 0;
 }
 
 static inline void update_prune_ts(ASS_Track *track, const long long ts)
@@ -1277,10 +1274,37 @@ void ass_process_codec_private(ASS_Track *track, const char *data, int size)
     ass_process_force_style(track);
 }
 
+// (Re)build the ReadOrder reference counts from the events currently
+// accepted into the track. Always reflects what is really in the track,
+// regardless of whether duplicate checking is enabled.
+static void rebuild_read_order_cache(ASS_Track *track)
+{
+    reset_read_order_cache(track);
+    // Even an empty track gets a valid cache, so ordinary ReadOrder
+    // values take the cached path after a flush or a full prune.
+    resize_read_order_count(track, 0);
+    for (int i = 0; i < track->n_events; i++) {
+        int id = track->events[i].ReadOrder;
+        if (resize_read_order_count(track, id) < 0)
+            break;
+        // count multiplicities: events accepted while checking was
+        // disabled may legitimately share a ReadOrder
+        track->parser_priv->read_order_count[id]++;
+    }
+}
+
+// Non-mutating duplicate test. The ReadOrder is only occupied after the
+// whole packet has parsed successfully, so a malformed packet can never
+// block a later retry carrying the same ReadOrder.
 static int check_duplicate_event(ASS_Track *track, int ReadOrder)
 {
-    if (track->parser_priv->read_order_bitmap)
-        return test_and_set_read_order_bit(track, ReadOrder) > 0;
+    if (track->parser_priv->read_order_count) {
+        // ids outside the cache (negative or too large) were never recorded
+        if (ReadOrder < 0 || ReadOrder >= track->parser_priv->read_order_elems)
+            return 0;
+        return track->parser_priv->read_order_count[ReadOrder] > 0;
+    }
+    // fallback for negative/overflowing ReadOrder values:
     // ignoring last event, it is the one we are comparing with
     for (int i = 0; i < track->n_events - 1; i++)
         if (track->events[i].ReadOrder == ReadOrder)
@@ -1288,9 +1312,37 @@ static int check_duplicate_event(ASS_Track *track, int ReadOrder)
     return 0;
 }
 
+// Record one use of the event's ReadOrder after a successfully parsed
+// packet. While the linear fallback is active (no cache, because some
+// event has a ReadOrder the cache cannot represent), do not build a
+// partial cache here: it would miss those events and let their duplicate
+// packets through. The fallback stays authoritative until the track is
+// emptied and the next rebuild succeeds.
+static void commit_read_order(ASS_Track *track, int ReadOrder)
+{
+    if (!track->parser_priv->read_order_count)
+        return;
+    if (resize_read_order_count(track, ReadOrder) < 0)
+        return;
+    // several accepted events may legitimately share a ReadOrder while
+    // duplicate checking is disabled
+    track->parser_priv->read_order_count[ReadOrder]++;
+}
+
 void ass_set_check_readorder(ASS_Track *track, int check_readorder)
 {
-    track->parser_priv->check_readorder = check_readorder == 1;
+    check_readorder = check_readorder == 1;
+    if (check_readorder == track->parser_priv->check_readorder)
+        return;
+    track->parser_priv->check_readorder = check_readorder;
+    // When checking is enabled again, make sure the cache reflects the
+    // events accepted while checking was disabled (duplicates of the same
+    // ReadOrder may coexist there). The cache is kept accurate while
+    // checking is disabled as well, so pruning and flushing work the same
+    // in both modes and re-enabling never treats a removed ReadOrder as
+    // still present.
+    if (check_readorder && !track->parser_priv->read_order_count)
+        rebuild_read_order_cache(track);
 }
 
 /**
@@ -1311,17 +1363,20 @@ void ass_process_chunk(ASS_Track *track, const char *data, int size,
     ASS_Event *event;
     int check_readorder = track->parser_priv->check_readorder;
 
-    if (check_readorder && !track->parser_priv->read_order_bitmap) {
-        for (int i = 0; i < track->n_events; i++) {
-            if (test_and_set_read_order_bit(track, track->events[i].ReadOrder) < 0)
-                break;
-        }
-    }
-
     if (!track->event_format) {
         ass_msg(track->library, MSGL_WARN, "Event format header missing");
         goto cleanup;
     }
+
+    // Make the cache reflect the events currently in the track. It is
+    // kept in sync by every accepted packet and by pruning/flushing,
+    // so the rebuild only happens on the first packet or after a
+    // ReadOrder value the cache cannot represent forced the fallback.
+    // This runs before a new event slot is allocated, and no ReadOrder
+    // is occupied before the whole packet parses, so a malformed packet
+    // can never block a later retry of the same id.
+    if (!track->parser_priv->read_order_count)
+        rebuild_read_order_cache(track);
 
     str = malloc(size + 1);
     if (!str)
@@ -1341,6 +1396,7 @@ void ass_process_chunk(ASS_Track *track, const char *data, int size,
     do {
         NEXTVAL(p, token);
         event->ReadOrder = atoi(token);
+
         if (check_readorder && check_duplicate_event(track, event->ReadOrder))
             break;
 
@@ -1352,6 +1408,12 @@ void ass_process_chunk(ASS_Track *track, const char *data, int size,
 
         event->Start = timecode;
         event->Duration = duration;
+
+        // Only fully accepted packets occupy their ReadOrder. The cache
+        // is updated even while checking is disabled, where several events
+        // may share the same ReadOrder.
+        commit_read_order(track, event->ReadOrder);
+
         update_prune_ts(track, event->Start + event->Duration);
         goto cleanup;
 //              dump_events(tid);
@@ -1376,9 +1438,12 @@ void ass_flush_events(ASS_Track *track)
             ass_free_event(track, eid);
         track->n_events = 0;
     }
-    free(track->parser_priv->read_order_bitmap);
-    track->parser_priv->read_order_bitmap = NULL;
-    track->parser_priv->read_order_elems = 0;
+    // All ReadOrder values are free to reuse. The cache is rebuilt from
+    // scratch on the next packet (cheap while the track is empty), so
+    // distinct ReadOrder values of the following batch are still
+    // deduplicated; reset the prune watermark as well.
+    reset_read_order_cache(track);
+    track->parser_priv->prune_next_ts = LLONG_MAX;
 }
 
 void ass_configure_prune(ASS_Track *track, long long delay)
@@ -1391,7 +1456,6 @@ void ass_prune_events(ASS_Track *track, long long deadline)
     if (deadline < track->parser_priv->prune_next_ts)
         return;
 
-    const bool check_readorder = track->parser_priv->check_readorder;
     const int old_n_events = track->n_events;
 
     int n_kept = 0;
@@ -1401,8 +1465,12 @@ void ass_prune_events(ASS_Track *track, long long deadline)
     for (int k = 0; k < old_n_events;) {
         // discardable sequence
         for (; k < old_n_events && events[k].Start + events[k].Duration < deadline; k++) {
-            if (check_readorder)
-                clear_read_order_bit(track, events[k].ReadOrder);
+            // Keep the ReadOrder counts in sync with the surviving events
+            // regardless of whether duplicate checking is enabled: when
+            // several events share a ReadOrder, only the last removal
+            // frees the id for reuse, and re-enabling the check later
+            // must see exactly what is still in the track.
+            clear_read_order(track, events[k].ReadOrder);
             ass_free_event(track, k);
         }
 

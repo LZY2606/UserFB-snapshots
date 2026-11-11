@@ -721,6 +721,12 @@ void ass_process_codec_private(ASS_Track *track, const char *data, int size);
  * functions manipulating the event list like ass_process_data(). If you do
  * anyway, the internal duplicate checking might break. Calling
  * ass_flush_events() is still allowed.
+ *
+ * A chunk that fails to parse (for example because it is truncated) is
+ * discarded entirely and does not occupy its ReadOrder: a later, complete
+ * chunk with the same ReadOrder is still accepted. Duplicate checking only
+ * considers events that were fully accepted and have not been removed by
+ * ass_prune_events() or ass_flush_events() yet.
  * \param track track
  * \param data string to parse
  * \param size length of data
@@ -738,6 +744,14 @@ void ass_process_chunk(ASS_Track *track, const char *data, int size,
  * discard the packet if there was already a packet with the same ReadOrder.
  * Other values are undefined.
  * If this function is not called, the default value is 1.
+ *
+ * While checking is disabled, several accepted events may share the same
+ * ReadOrder. The set of ReadOrder values that are still in use is tracked
+ * independently of the setting and is kept in sync by ass_prune_events() and
+ * ass_flush_events(), so re-enabling the check never rejects a ReadOrder
+ * whose events have all been pruned or flushed, and still rejects any
+ * ReadOrder for which at least one event remains in the track. Toggling the
+ * setting does not by itself remove events or make ReadOrder values reusable.
  */
 void ass_set_check_readorder(ASS_Track *track, int check_readorder);
 
@@ -745,6 +759,13 @@ void ass_set_check_readorder(ASS_Track *track, int check_readorder);
  * \brief Prune events that preceed deadline.
  * \param track track
  * \param deadline cut-off timestamp in milliseconds.
+ *
+ * Removes every event whose Start + Duration is strictly smaller than
+ * deadline (an event ending exactly at deadline is retained), independently
+ * of the duplicate checking setting and without assuming the events are
+ * stored in time order. When several events share a ReadOrder (possible
+ * while duplicate checking is disabled), their ReadOrder becomes reusable
+ * only once the last event with it has been pruned.
 */
 void ass_prune_events(ASS_Track *track, long long deadline);
 
@@ -756,12 +777,20 @@ void ass_prune_events(ASS_Track *track, long long deadline);
  * "now - delay" will be deleted. A delay of 0 prunes aggressively.
  * Negative delays disable automatic pruning.
  * Disabled by default (no removal of events from memory).
+ *
+ * Automatic pruning uses the same rules and ReadOrder bookkeeping as
+ * ass_prune_events(), so duplicate checking after a render behaves exactly
+ * as after a manual prune with the same deadline.
  */
 void ass_configure_prune(ASS_Track *track, long long delay);
 
 /**
  * \brief Flush buffered events.
  * \param track track
+ *
+ * After this call every ReadOrder value is reusable, including values of
+ * events that were flushed; distinct ReadOrder values of packets processed
+ * afterwards are still deduplicated normally.
 */
 void ass_flush_events(ASS_Track *track);
 

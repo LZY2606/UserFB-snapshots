@@ -56,9 +56,13 @@ struct parser_priv {
     size_t fontdata_size;
     size_t fontdata_used;
 
-    // contains bitmap of ReadOrder IDs of all read events
-    uint32_t *read_order_bitmap;
-    int read_order_elems; // size in uint32_t units of read_order_bitmap
+    // Reference counts of ReadOrder values for the events that are
+    // currently accepted into the track (the index is the ReadOrder).
+    // A value of 0 means the id is not used by any surviving event and
+    // may be reused. NULL when no cache has been built yet, or when a
+    // negative/too large ReadOrder forced the linear scan fallback.
+    int *read_order_count;
+    int read_order_elems; // number of entries in read_order_count
     int check_readorder;
 
     // tracks [Script Info] headers set by the script
