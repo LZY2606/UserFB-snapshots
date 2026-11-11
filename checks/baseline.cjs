@@ -1,0 +1,20 @@
+const assert = require('node:assert/strict');
+const { JSDOM } = require('../.build/node_modules/jsdom');
+const userEvent = require('../.build/user-event.cjs').default;
+(async () => {
+  const dom = new JSDOM('<input value="A😀B">');
+  const { document } = dom.window;
+  const input = document.querySelector('input');
+  const user = userEvent.setup({ document, delay: null });
+  input.focus();
+  input.setSelectionRange(3, 3);
+  const events = [];
+  input.addEventListener('beforeinput', e => events.push(e.inputType));
+  input.addEventListener('input', e => events.push(e.inputType));
+  await user.keyboard('{Backspace}');
+  assert.equal(input.value, 'A\ud83dB');
+  assert.equal(input.selectionStart, 2);
+  assert.deepEqual(events, ['deleteContentBackward', 'deleteContentBackward']);
+  console.log('default Backspace removes one UTF-16 unit and leaves high surrogate: PASS');
+  dom.window.close();
+})().catch(error => { console.error(error); process.exitCode = 1; });
