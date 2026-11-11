@@ -129,10 +129,13 @@ Player.prototype.pause = function(ev) {
 	this.paused = true;
 
 	if (this.audio && this.audio.canPlay) {
-		// Seek to the currentTime again - audio may already be enqueued a bit
-		// further, so we have to rewind it.
+		// Save the position the listener actually reached before stop()
+		// clears the enqueued audio time. Otherwise we'd seek to the end of
+		// everything that was decoded, skipping the part that hasn't been
+		// heard yet.
+		var currentTime = this.currentTime;
 		this.audioOut.stop();
-		this.seek(this.currentTime);
+		this.seek(currentTime);
 	}
 
 	if (this.options.onPause) {
@@ -168,6 +171,12 @@ Player.prototype.destroy = function() {
 };
 
 Player.prototype.seek = function(time) {
+	// Audio that was scheduled for the old position must be pulled out
+	// before the decoders move, or it will play after the jump.
+	if (this.audioOut) {
+		this.audioOut.stop();
+	}
+
 	var startOffset = this.audio && this.audio.canPlay
 		? this.audio.startTime
 		: this.video.startTime;

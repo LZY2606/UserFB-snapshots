@@ -89,6 +89,20 @@ A `JSMpeg.Player` instance supports the following methods and properties:
 - `.destroy()` – stops playback, disconnects the source and cleans up WebGL and WebAudio state. The player can not be used afterwards. If the player created the canvas element it is removed from the document.
 
 
+## Audio Output API
+
+The WebAudio output can also be used on its own as `new JSMpeg.AudioOutput.WebAudio(options)`:
+
+- `.play(sampleRate, left, right)` – enqueue the given left/right PCM buffers for playback.
+- `.stop()` – immediately stop and disconnect every source node this output has scheduled and reset `.enqueuedTime` to zero. The next `.play()` starts at the AudioContext's current playable position instead of behind the discarded queue. Calling it repeatedly is safe.
+- `.resetEnqueuedTime()` – perform the same cleanup of scheduled source nodes as `.stop()` and reset `.enqueuedTime`, but leave `.volume` and `.enabled` untouched. This is used when streaming playback has fallen too far behind and has to discard enqueued audio before it can catch up silently.
+- `.enqueuedTime` – read-only number of seconds of audio that are still scheduled for playback.
+- `.enabled` – whether `.play()` schedules any audio at all.
+- `.unlock(callback)` – unlock the AudioContext on devices that require a user gesture.
+
+Both `.stop()` and `.resetEnqueuedTime()` drop any audio that was already scheduled; it can not become audible again after the queue is cleared. Nodes that finish naturally are released as they end.
+
+
 ## Encoding Video/Audio for JSMpeg
 
 JSMpeg only supports playback of MPEG-TS containers with the MPEG1 Video Codec and the MP2 Audio Codec. The Video Decoder does not handle B-Frames correctly (though no modern encoder seems to use these by default anyway) and the width of the video has to be a multiple of 2.

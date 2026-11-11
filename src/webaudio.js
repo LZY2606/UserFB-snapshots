@@ -19,12 +19,52 @@ var WebAudioOut = function(options) {
 	this.volume = 1;
 	this.enabled = true;
 
+	// Keep track of the source nodes that are still alive. Nodes remove
+	// themselves when they finish playing, so this never grows beyond the
+	// audio that can actually still be heard. Older entries are dropped
+	// wholesale whenever this output is stopped or reset.
+	this.activeSources = new Set();
+	this.destroyed = false;
+
 	this.unlocked = !WebAudioOut.NeedsUnlocking();
-	
+
 	Object.defineProperty(this, 'enqueuedTime', {get: this.getEnqueuedTime});
 };
 
+WebAudioOut.prototype.clearSources = function() {
+	var sources = this.activeSources;
+	this.activeSources = new Set();
+
+	sources.forEach(function(source) {
+		// Detach the ended handler first, so an ended event that arrives
+		// late cannot interfere with a newer playback generation.
+		source.onended = null;
+		try {
+			source.stop();
+		} catch (e) {}
+		try {
+			source.disconnect();
+		} catch (e) {}
+	});
+};
+
+WebAudioOut.prototype.setStartTimeToNow = function() {
+	this.startTime = this.context.currentTime;
+	this.wallclockStartTime = JSMpeg.Now();
+};
+
 WebAudioOut.prototype.destroy = function() {
+	if (this.destroyed) {
+		return;
+	}
+	this.destroyed = true;
+	this.unlockCallback = null;
+
+	// Stop everything this output has scheduled and forget its timing before
+	// releasing the shared context.
+	this.clearSources();
+	this.setStartTimeToNow();
+
 	this.gain.disconnect();
 	this.context._connections--;
 
@@ -35,7 +75,7 @@ WebAudioOut.prototype.destroy = function() {
 };
 
 WebAudioOut.prototype.play = function(sampleRate, left, right) {
-	if (!this.enabled) {
+	if (!this.enabled || this.destroyed) {
 		return;
 	}
 
@@ -61,6 +101,15 @@ WebAudioOut.prototype.play = function(sampleRate, left, right) {
 	source.buffer = buffer;
 	source.connect(this.destination);
 
+	// Release this node as soon as it has played out. A late ended event
+	// only removes the node it belongs to; it never touches the timing of
+	// a newer playback generation.
+	var self = this;
+	source.onended = function() {
+		self.activeSources.delete(source);
+	};
+	this.activeSources.add(source);
+
 	var now = this.context.currentTime;
 	var duration = buffer.duration;
 	if (this.startTime < now) {
@@ -74,11 +123,16 @@ WebAudioOut.prototype.play = function(sampleRate, left, right) {
 };
 
 WebAudioOut.prototype.stop = function() {
-	// Meh; there seems to be no simple way to get a list of currently
-	// active source nodes from the Audio Context, and maintaining this
-	// list ourselfs would be a pain, so we just set the gain to 0
-	// to cut off all enqueued audio instantly.
+	if (this.destroyed) {
+		return;
+	}
+
+	// Remove all audio this output scheduled. Just muting the gain would
+	// leave the nodes alive with their timing, so that they'd become
+	// audible again as soon as the gain is restored.
 	this.gain.gain.value = 0;
+	this.clearSources();
+	this.setStartTimeToNow();
 };
 
 WebAudioOut.prototype.getEnqueuedTime = function() {
@@ -88,11 +142,21 @@ WebAudioOut.prototype.getEnqueuedTime = function() {
 };
 
 WebAudioOut.prototype.resetEnqueuedTime = function() {
-	this.startTime = this.context.currentTime;
-	this.wallclockStartTime = JSMpeg.Now();
+	if (this.destroyed) {
+		return;
+	}
+
+	// Discard any audio that is still scheduled and start a fresh timeline
+	// at the current playable position.
+	this.clearSources();
+	this.setStartTimeToNow();
 };
 
 WebAudioOut.prototype.unlock = function(callback) {
+	if (this.destroyed) {
+		return;
+	}
+
 	if (this.unlocked) {
 		if (callback) {
 			callback();
@@ -101,26 +165,41 @@ WebAudioOut.prototype.unlock = function(callback) {
 	}
 
 	this.unlockCallback = callback;
-	
+
 	// Create empty buffer and play it
 	var buffer = this.context.createBuffer(1, 1, 22050);
 	var source = this.context.createBufferSource();
 	source.buffer = buffer;
 	source.connect(this.destination);
+
+	// The probe tone belongs to this output, too: stop() and destroy() must
+	// clean it up like any other scheduled source.
+	var self = this;
+	source.onended = function() {
+		self.activeSources.delete(source);
+	};
+	this.activeSources.add(source);
+
 	source.start(0);
 
 	setTimeout(this.checkIfUnlocked.bind(this, source, 0), 0);
 };
 
 WebAudioOut.prototype.checkIfUnlocked = function(source, attempt) {
+	// A poll that arrives after destroy() must not revive the output or
+	// invoke the user's callback.
+	if (this.destroyed) {
+		return;
+	}
+
 	if (
-		source.playbackState === source.PLAYING_STATE || 
+		source.playbackState === source.PLAYING_STATE ||
 		source.playbackState === source.FINISHED_STATE
 	) {
 		this.unlocked = true;
 		if (this.unlockCallback) {
 			this.unlockCallback();
-			this.unlockCallback = null;	
+			this.unlockCallback = null;
 		}
 	}
 	else if (attempt < 10) {
