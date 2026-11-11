@@ -76,7 +76,8 @@ enum NSVGpaintType {
 	NSVG_PAINT_NONE = 0,
 	NSVG_PAINT_COLOR = 1,
 	NSVG_PAINT_LINEAR_GRADIENT = 2,
-	NSVG_PAINT_RADIAL_GRADIENT = 3
+	NSVG_PAINT_RADIAL_GRADIENT = 3,
+	NSVG_PAINT_PATTERN = 4
 };
 
 enum NSVGspreadType {
@@ -125,11 +126,28 @@ typedef struct NSVGgradient {
 	NSVGgradientStop stops[1];
 } NSVGgradient;
 
+// Tile of a userSpaceOnUse pattern fill. The tile repeats in pattern user
+// space with origin (ox, oy) and period (width, height). 'xform' maps pattern
+// user space to the user space of the referencing shape. 'rects' are the
+// pattern content rectangles in pattern user space, already clipped to one
+// tile and stored in document order.
+typedef struct NSVGpattern {
+	float ox, oy;
+	float width, height;
+	float xform[6];
+	int nrects;
+	struct NSVGpatternRect {
+		float x, y, width, height;
+		unsigned int color;
+	} rects[1];
+} NSVGpattern;
+
 typedef struct NSVGpaint {
 	signed char type;
 	union {
 		unsigned int color;
 		NSVGgradient* gradient;
+		NSVGpattern* pattern;
 	};
 } NSVGpaint;
 
@@ -419,6 +437,24 @@ typedef struct NSVGgradientData
 	struct NSVGgradientData* next;
 } NSVGgradientData;
 
+typedef struct NSVGpatternRectData {
+	float x, y, width, height;
+	unsigned int color;
+} NSVGpatternRectData;
+
+typedef struct NSVGpatternData
+{
+	char id[64];
+	char valid;				// Set to 0 as soon as an unsupported feature is seen.
+	float ox, oy;
+	float width, height;
+	float xform[6];			// patternTransform
+	NSVGpatternRectData* rects;
+	int nrects;
+	int crects;
+	struct NSVGpatternData* next;
+} NSVGpatternData;
+
 typedef struct NSVGattrib
 {
 	char id[64];
@@ -466,6 +502,9 @@ typedef struct NSVGparser
 	NSVGimage* image;
 	NSVGstyleDeclaration* styles;
 	NSVGgradientData* gradients;
+	NSVGpatternData* patterns;
+	NSVGpatternData* curPattern;
+	int patternDepth;
 	NSVGshape* shapesTail;
 	float viewMinx, viewMiny, viewWidth, viewHeight;
 	int alignX, alignY, alignType;
@@ -699,6 +738,8 @@ static void nsvg__deletePaint(NSVGpaint* paint)
 {
 	if (paint->type == NSVG_PAINT_LINEAR_GRADIENT || paint->type == NSVG_PAINT_RADIAL_GRADIENT)
 		free(paint->gradient);
+	else if (paint->type == NSVG_PAINT_PATTERN)
+		free(paint->pattern);
 }
 
 static void nsvg__deleteGradientData(NSVGgradientData* grad)
@@ -712,12 +753,24 @@ static void nsvg__deleteGradientData(NSVGgradientData* grad)
 	}
 }
 
+static void nsvg__deletePatternData(NSVGpatternData* pat)
+{
+	NSVGpatternData* next;
+	while (pat != NULL) {
+		next = pat->next;
+		free(pat->rects);
+		free(pat);
+		pat = next;
+	}
+}
+
 static void nsvg__deleteParser(NSVGparser* p)
 {
 	if (p != NULL) {
 		nsvg__deleteStyles(p->styles);
 		nsvg__deletePaths(p->plist);
 		nsvg__deleteGradientData(p->gradients);
+		nsvg__deletePatternData(p->patterns);
 		nsvgDelete(p->image);
 		free(p->pts);
 		free(p);
@@ -1717,6 +1770,153 @@ static void nsvg__parseTransform(float* xform, const char* str)
 
 		nsvg__xformPremultiply(xform, t);
 	}
+}
+
+static NSVGpatternData* nsvg__findPatternData(NSVGparser* p, const char* id)
+{
+	NSVGpatternData* pat = p->patterns;
+	if (id == NULL || *id == '\0')
+		return NULL;
+	while (pat != NULL) {
+		if (strcmp(pat->id, id) == 0)
+			return pat;
+		pat = pat->next;
+	}
+	return NULL;
+}
+
+// Parse a finite, unit-less decimal number (the only numeric syntax accepted
+// inside patterns). Returns 1 and stores the value on success.
+static int nsvg__parsePatternNumber(const char* str, float* out)
+{
+	char buf[64];
+	const char* end;
+	double val;
+	if (str == NULL)
+		return 0;
+	while (*str && nsvg__isspace(*str)) str++;
+	end = nsvg__parseNumber(str, buf, 64);
+	if (end == str || buf[0] == '\0')
+		return 0;
+	while (*end && nsvg__isspace(*end)) end++;
+	if (*end != '\0')
+		return 0; // trailing unit or garbage is not supported
+	val = nsvg__atof(buf);
+	if (!isfinite(val))
+		return 0;
+	*out = (float)val;
+	return 1;
+}
+
+static void nsvg__parsePattern(NSVGparser* p, const char** attr)
+{
+	NSVGpatternData* pat;
+	int i;
+	int haveWidth = 0, haveHeight = 0;
+	int unitsOK = 0, contentUnitsOK = 1;
+
+	pat = (NSVGpatternData*)malloc(sizeof(NSVGpatternData));
+	if (pat == NULL) return;
+	memset(pat, 0, sizeof(NSVGpatternData));
+	pat->valid = 1;
+	nsvg__xformIdentity(pat->xform);
+
+	for (i = 0; attr[i]; i += 2) {
+		const char* name = attr[i];
+		const char* value = attr[i+1];
+		if (strcmp(name, "id") == 0) {
+			strncpy(pat->id, value, 63);
+			pat->id[63] = '\0';
+		} else if (strcmp(name, "patternUnits") == 0) {
+			unitsOK = strcmp(value, "userSpaceOnUse") == 0;
+		} else if (strcmp(name, "patternContentUnits") == 0) {
+			contentUnitsOK = strcmp(value, "userSpaceOnUse") == 0;
+		} else if (strcmp(name, "patternTransform") == 0) {
+			nsvg__parseTransform(pat->xform, value);
+		} else if (strcmp(name, "x") == 0) {
+			if (!nsvg__parsePatternNumber(value, &pat->ox)) pat->valid = 0;
+		} else if (strcmp(name, "y") == 0) {
+			if (!nsvg__parsePatternNumber(value, &pat->oy)) pat->valid = 0;
+		} else if (strcmp(name, "width") == 0) {
+			haveWidth = nsvg__parsePatternNumber(value, &pat->width);
+			if (!haveWidth) pat->valid = 0;
+		} else if (strcmp(name, "height") == 0) {
+			haveHeight = nsvg__parsePatternNumber(value, &pat->height);
+			if (!haveHeight) pat->valid = 0;
+		} else {
+			// Unknown attributes (viewBox, href, preserveAspectRatio, ...)
+			// mark the pattern as unsupported.
+			pat->valid = 0;
+		}
+	}
+
+	if (!unitsOK || !contentUnitsOK || !haveWidth || !haveHeight ||
+		!(pat->width > 0.0f) || !(pat->height > 0.0f))
+		pat->valid = 0;
+
+	pat->next = p->patterns;
+	p->patterns = pat;
+	p->curPattern = pat;
+	p->patternDepth = 1;
+}
+
+// Record one direct child <rect> of a pattern. Only x/y/width/height/fill are
+// allowed, the rect must be strokeless, opaque, solid colored and unrounded,
+// and carry no transform.
+static void nsvg__parsePatternRect(NSVGparser* p, const char** attr)
+{
+	NSVGpatternData* pat = p->curPattern;
+	NSVGpatternRectData* rect;
+	int i;
+	float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+	int haveFill = 0;
+	unsigned int color = 0;
+
+	if (pat == NULL) return;
+
+	for (i = 0; attr[i]; i += 2) {
+		const char* name = attr[i];
+		const char* value = attr[i+1];
+		if (strcmp(name, "x") == 0) {
+			if (!nsvg__parsePatternNumber(value, &x)) { pat->valid = 0; return; }
+		} else if (strcmp(name, "y") == 0) {
+			if (!nsvg__parsePatternNumber(value, &y)) { pat->valid = 0; return; }
+		} else if (strcmp(name, "width") == 0) {
+			if (!nsvg__parsePatternNumber(value, &w)) { pat->valid = 0; return; }
+		} else if (strcmp(name, "height") == 0) {
+			if (!nsvg__parsePatternNumber(value, &h)) { pat->valid = 0; return; }
+		} else if (strcmp(name, "fill") == 0) {
+			if (strncmp(value, "url(", 4) == 0 || strcmp(value, "none") == 0) {
+				pat->valid = 0;
+				return;
+			}
+			haveFill = 1;
+			color = nsvg__parseColor(value);
+		} else {
+			// stroke, opacity, fill-opacity, rx/ry, transform, style, ...
+			pat->valid = 0;
+			return;
+		}
+	}
+
+	if (!haveFill || !(w > 0.0f) || !(h > 0.0f) || !isfinite(x) || !isfinite(y)) {
+		pat->valid = 0;
+		return;
+	}
+
+	if (pat->nrects+1 > pat->crects) {
+		NSVGpatternRectData* grown;
+		pat->crects = pat->crects ? pat->crects*2 : 4;
+		grown = (NSVGpatternRectData*)realloc(pat->rects, sizeof(NSVGpatternRectData)*pat->crects);
+		if (grown == NULL) { pat->valid = 0; return; }
+		pat->rects = grown;
+	}
+	rect = &pat->rects[pat->nrects++];
+	rect->x = x;
+	rect->y = y;
+	rect->width = w;
+	rect->height = h;
+	rect->color = color | 0xff000000u;
 }
 
 static void nsvg__parseUrl(char* id, const char* str)
@@ -2837,14 +3037,27 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 {
 	NSVGparser* p = (NSVGparser*)ud;
 
+	if (p->curPattern != NULL) {
+		// Anything inside a <pattern> is consumed here; only direct child
+		// <rect> elements are supported pattern content.
+		p->patternDepth++;
+		if (p->patternDepth == 2 && strcmp(el, "rect") == 0)
+			nsvg__parsePatternRect(p, attr);
+		else
+			p->curPattern->valid = 0;
+		return;
+	}
+
 	if (p->defsFlag) {
-		// Skip everything but gradients and styles in defs
+		// Skip everything but gradients, patterns and styles in defs
 		if (strcmp(el, "linearGradient") == 0) {
 			nsvg__parseGradient(p, attr, NSVG_PAINT_LINEAR_GRADIENT);
 		} else if (strcmp(el, "radialGradient") == 0) {
 			nsvg__parseGradient(p, attr, NSVG_PAINT_RADIAL_GRADIENT);
 		} else if (strcmp(el, "stop") == 0) {
 			nsvg__parseGradientStop(p, attr);
+		} else if (strcmp(el, "pattern") == 0) {
+			nsvg__parsePattern(p, attr);
 		} else if (strcmp(el, "style") == 0) {
 			p->styleFlag = 1;
 		}
@@ -2888,6 +3101,8 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 		nsvg__parseGradient(p, attr, NSVG_PAINT_LINEAR_GRADIENT);
 	} else if (strcmp(el, "radialGradient") == 0) {
 		nsvg__parseGradient(p, attr, NSVG_PAINT_RADIAL_GRADIENT);
+	} else if (strcmp(el, "pattern") == 0) {
+		nsvg__parsePattern(p, attr);
 	} else if (strcmp(el, "stop") == 0) {
 		nsvg__parseGradientStop(p, attr);
 	} else if (strcmp(el, "defs") == 0) {
@@ -2902,6 +3117,13 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 static void nsvg__endElement(void* ud, const char* el)
 {
 	NSVGparser* p = (NSVGparser*)ud;
+
+	if (p->curPattern != NULL) {
+		p->patternDepth--;
+		if (p->patternDepth <= 0)
+			p->curPattern = NULL;
+		return;
+	}
 
 	if (strcmp(el, "g") == 0) {
 		nsvg__popAttr(p);
@@ -3049,6 +3271,19 @@ static void nsvg__scaleGradient(NSVGgradient* grad, float tx, float ty, float sx
 	nsvg__xformMultiply (grad->xform, t);
 }
 
+// The viewBox transform is baked into the pattern xform only. Tile origin,
+// period and content rects stay in pre-viewBox pattern space; scaling them as
+// well would apply the viewBox transform twice, since the rasterizer maps
+// device points back through xform before tiling.
+static void nsvg__scalePattern(NSVGpattern* pat, float tx, float ty, float sx, float sy)
+{
+	float t[6];
+	nsvg__xformSetTranslation(t, tx, ty);
+	nsvg__xformMultiply(pat->xform, t);
+	nsvg__xformSetScale(t, sx, sy);
+	nsvg__xformMultiply(pat->xform, t);
+}
+
 static void nsvg__scaleToViewbox(NSVGparser* p, const char* units)
 {
 	NSVGshape* shape;
@@ -3133,10 +3368,96 @@ static void nsvg__scaleToViewbox(NSVGparser* p, const char* units)
 			nsvg__xformInverse(shape->stroke.gradient->xform, t);
 		}
 
+		if (shape->fill.type == NSVG_PAINT_PATTERN)
+			nsvg__scalePattern(shape->fill.pattern, tx,ty, sx,sy);
+
 		shape->strokeWidth *= avgs;
 		shape->strokeDashOffset *= avgs;
 		for (i = 0; i < shape->strokeDashCount; i++)
 			shape->strokeDashArray[i] *= avgs;
+	}
+}
+
+// Resolve a url(#...) fill/stroke reference to a pattern. The content
+// rectangles are clipped to one tile here; tiling itself happens in the
+// rasterizer, in pattern user space, so the origin never depends on the
+// referencing shape's bounds or draw order.
+static NSVGpattern* nsvg__createPattern(NSVGparser* p, const char* id, float* shapeXform)
+{
+	NSVGpatternData* data;
+	NSVGpattern* pat;
+	NSVGpatternRectData* src;
+	int i, n;
+
+	data = nsvg__findPatternData(p, id);
+	if (data == NULL || !data->valid)
+		return NULL;
+	if (!(data->width > 0.0f) || !(data->height > 0.0f))
+		return NULL;
+
+	// patternTransform followed by the referencing shape's user space
+	// transform: device-independent user coordinates = shapeXform * PT.
+	// Test singularity against the column norms so small but legitimate
+	// scales are not mistaken for a degenerate transform.
+	{
+		float t[6];
+		double det, c0, c1;
+		memcpy(t, data->xform, sizeof(float)*6);
+		nsvg__xformMultiply(t, shapeXform);
+		det = (double)t[0] * t[3] - (double)t[2] * t[1];
+		c0 = (double)t[0] * t[0] + (double)t[2] * t[2];
+		c1 = (double)t[1] * t[1] + (double)t[3] * t[3];
+		if (c0 == 0.0 || c1 == 0.0 || det * det < 1e-12 * c0 * c1)
+			return NULL; // singular combined transform
+	}
+
+	pat = (NSVGpattern*)malloc(sizeof(NSVGpattern) +
+			sizeof(struct NSVGpatternRect) * (data->nrects > 0 ? data->nrects-1 : 0));
+	if (pat == NULL)
+		return NULL;
+
+	pat->ox = data->ox;
+	pat->oy = data->oy;
+	pat->width = data->width;
+	pat->height = data->height;
+	memcpy(pat->xform, data->xform, sizeof(float)*6);
+	nsvg__xformMultiply(pat->xform, shapeXform);
+	pat->nrects = 0;
+
+	n = 0;
+	for (i = 0; i < data->nrects; i++) {
+		float cx0, cy0, cx1, cy1;
+		src = &data->rects[i];
+		// Clip each content rect to the tile in pattern user space.
+		cx0 = nsvg__maxf(src->x, data->ox);
+		cy0 = nsvg__maxf(src->y, data->oy);
+		cx1 = nsvg__minf(src->x + src->width, data->ox + data->width);
+		cy1 = nsvg__minf(src->y + src->height, data->oy + data->height);
+		if (!(cx1 > cx0) || !(cy1 > cy0))
+			continue;
+		pat->rects[n].x = cx0;
+		pat->rects[n].y = cy0;
+		pat->rects[n].width = cx1 - cx0;
+		pat->rects[n].height = cy1 - cy0;
+		pat->rects[n].color = src->color;
+		n++;
+	}
+	pat->nrects = n;
+	return pat;
+}
+
+static void nsvg__createPatterns(NSVGparser* p)
+{
+	NSVGshape* shape;
+
+	// Pattern paint is only supported for fills; a pattern stroke reference
+	// stays NSVG_PAINT_UNDEF and degrades to NSVG_PAINT_NONE with the rest.
+	for (shape = p->image->shapes; shape != NULL; shape = shape->next) {
+		if (shape->fill.type == NSVG_PAINT_UNDEF && shape->fillGradient[0] != '\0') {
+			shape->fill.pattern = nsvg__createPattern(p, shape->fillGradient, shape->xform);
+			if (shape->fill.pattern != NULL)
+				shape->fill.type = NSVG_PAINT_PATTERN;
+		}
 	}
 }
 
@@ -3183,7 +3504,8 @@ NSVGimage* nsvgParse(char* input, const char* units, float dpi)
 
 	nsvg__parseXML(input, nsvg__startElement, nsvg__endElement, nsvg__content, p);
 
-	// Create gradients after all definitions have been parsed
+	// Create patterns and gradients after all definitions have been parsed
+	nsvg__createPatterns(p);
 	nsvg__createGradients(p);
 
 	// Scale to viewBox

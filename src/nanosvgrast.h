@@ -118,6 +118,10 @@ typedef struct NSVGcachedPaint {
 	char spread;
 	float xform[6];
 	unsigned int colors[256];
+	// Pattern fill state (recomputed for every shape and every rasterize call).
+	NSVGpattern* pattern;
+	float patInv[6];	// Inverse of pattern->xform, maps user space to pattern space.
+	float opacity;
 } NSVGcachedPaint;
 
 struct NSVGrasterizer
@@ -993,9 +997,121 @@ static inline int nsvg__div255(int x)
     return ((x+1) * 257) >> 16;
 }
 
+// The rasterizer can be built as its own translation unit without the parser
+// implementation, so the nsvg__xform* helpers are not visible here. Pattern
+// transforms are guaranteed invertible at parse time.
+static void nsvg__patternXformInverse(float* inv, const float* t)
+{
+	double det = (double)t[0] * t[3] - (double)t[2] * t[1];
+	double invdet = 1.0 / det;
+	inv[0] = (float)(t[3] * invdet);
+	inv[1] = (float)(-t[1] * invdet);
+	inv[2] = (float)(-t[2] * invdet);
+	inv[3] = (float)(t[0] * invdet);
+	inv[4] = (float)(((double)t[2] * t[5] - (double)t[3] * t[4]) * invdet);
+	inv[5] = (float)(((double)t[1] * t[4] - (double)t[0] * t[5]) * invdet);
+}
+
+static void nsvg__patternXformPoint(float* dx, float* dy, float x, float y, const float* t)
+{
+	*dx = x * t[0] + y * t[2] + t[4];
+	*dy = x * t[1] + y * t[3] + t[5];
+}
+
+// Look up the pattern color at user space point (ux, uy). Returns 0 when the
+// point falls in a tile gap. Tiling is done in pattern user space, so the
+// result depends neither on the device transform nor on draw order.
+static int nsvg__patternColor(NSVGpattern* pat, float* inv, float ux, float uy, unsigned int* out)
+{
+	float px, py, fx, fy, bx, by;
+	int i, j, k;
+
+	nsvg__patternXformPoint(&px, &py, ux, uy, inv);
+
+	// Tile index via floor(): a truncating remainder would give wrong tiles
+	// for points before the pattern origin.
+	fx = (px - pat->ox) / pat->width;
+	fy = (py - pat->oy) / pat->height;
+	if (!isfinite(fx) || !isfinite(fy))
+		return 0;
+	// Bail out before casting a huge floor value to int (undefined behavior)
+	// or multiplying the tile offset into overflow.
+	if (fx > 1e9f || fx < -1e9f || fy > 1e9f || fy < -1e9f)
+		return 0;
+	i = (int)floorf(fx);
+	j = (int)floorf(fy);
+
+	// The stored rects are clipped to the base tile, so an instance in tile
+	// (i,j) is the base rect translated by (i*width, j*height). Content is
+	// painted in document order, so scan rects backwards and let the last
+	// containing one win (later rects may cover earlier ones).
+	bx = (float)i * pat->width;
+	by = (float)j * pat->height;
+	for (k = pat->nrects - 1; k >= 0; k--) {
+		float rx = pat->rects[k].x + bx;
+		float ry = pat->rects[k].y + by;
+		if (px >= rx && px < rx + pat->rects[k].width &&
+			py >= ry && py < ry + pat->rects[k].height) {
+			*out = pat->rects[k].color;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void nsvg__scanlinePattern(unsigned char* dst, int count, unsigned char* cover, int x, int y,
+								  float tx, float ty, float scale, NSVGcachedPaint* cache)
+{
+	NSVGpattern* pat = cache->pattern;
+	float fx = ((float)x - tx) / scale;
+	float fy = ((float)y - ty) / scale;
+	float dx = 1.0f / scale;
+	int i;
+
+	for (i = 0; i < count; i++) {
+		unsigned int c;
+		if (nsvg__patternColor(pat, cache->patInv, fx, fy, &c)) {
+			int cr, cg, cb, ca, a, ia, r, g, b;
+			c = nsvg__applyOpacity(c, cache->opacity);
+			cr = c & 0xff;
+			cg = (c >> 8) & 0xff;
+			cb = (c >> 16) & 0xff;
+			ca = (c >> 24) & 0xff;
+
+			a = nsvg__div255((int)cover[0] * ca);
+			ia = 255 - a;
+			// Premultiply
+			r = nsvg__div255(cr * a);
+			g = nsvg__div255(cg * a);
+			b = nsvg__div255(cb * a);
+
+			// Blend over
+			r += nsvg__div255(ia * (int)dst[0]);
+			g += nsvg__div255(ia * (int)dst[1]);
+			b += nsvg__div255(ia * (int)dst[2]);
+			a += nsvg__div255(ia * (int)dst[3]);
+
+			dst[0] = (unsigned char)r;
+			dst[1] = (unsigned char)g;
+			dst[2] = (unsigned char)b;
+			dst[3] = (unsigned char)a;
+		}
+		// Tile gaps leave the destination untouched.
+
+		cover++;
+		dst += 4;
+		fx += dx;
+	}
+}
+
 static void nsvg__scanlineSolid(unsigned char* dst, int count, unsigned char* cover, int x, int y,
 								float tx, float ty, float scale, NSVGcachedPaint* cache)
 {
+
+	if (cache->type == NSVG_PAINT_PATTERN) {
+		nsvg__scanlinePattern(dst, count, cover, x, y, tx, ty, scale, cache);
+		return;
+	}
 
 	if (cache->type == NSVG_PAINT_COLOR) {
 		int i, cr, cg, cb, ca;
@@ -1275,9 +1391,17 @@ static void nsvg__initPaint(NSVGcachedPaint* cache, NSVGpaint* paint, float opac
 	NSVGgradient* grad;
 
 	cache->type = paint->type;
+	cache->pattern = NULL;
+	cache->opacity = opacity;
 
 	if (paint->type == NSVG_PAINT_COLOR) {
 		cache->colors[0] = nsvg__applyOpacity(paint->color, opacity);
+		return;
+	}
+
+	if (paint->type == NSVG_PAINT_PATTERN) {
+		cache->pattern = paint->pattern;
+		nsvg__patternXformInverse(cache->patInv, paint->pattern->xform);
 		return;
 	}
 

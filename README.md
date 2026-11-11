@@ -32,6 +32,30 @@ The parser library is accompanied with really simpler SVG rasterizer. Currently 
 
 The intended usage for the rasterizer is to for example bake icons of different size into a texture. The rasterizer is not particular fast or accurate, but it's small and packed in one header file.
 
+### Pattern fills
+
+A limited form of SVG `<pattern>` fill is supported, for repeating vector
+patterns such as stripes. The supported scope is intentionally narrow:
+
+- Only patterns declaring `patternUnits="userSpaceOnUse"` are accepted;
+  `patternContentUnits` must be omitted or also be `userSpaceOnUse`.
+- `x`/`y` default to 0, `width`/`height` are required and must be positive,
+  and all numbers are unit-less finite decimals.
+- Pattern content is limited to direct child `<rect>` elements carrying only
+  `x`/`y`/`width`/`height`/`fill`, with no stroke, rounded corners, opacity or
+  transform. They are painted in document order and may overlap or extend
+  beyond a tile; anything outside the tile is clipped before repeating.
+- `patternTransform` accepts the same invertible affine transforms as other
+  SVG transforms. Tiling happens in pattern user space (using `floor()` based
+  wrapping, so negative coordinates tile correctly), then the
+  `patternTransform` and the referencing shape's transform are applied.
+- Not supported, and treated as no fill: `viewBox`, `href` inheritance,
+  nested patterns, pattern strokes, `objectBoundingBox` units, non-rect
+  content, non-positive tile sizes and singular transforms. An unsupported
+  pattern reference resolves to `none` without affecting later shapes, and
+  rectangles inside `<defs>` are never painted on their own.
+- The contract for these rules is exercised by `tests/pattern_contract.c`.
+
 
 ## Example Usage
 
