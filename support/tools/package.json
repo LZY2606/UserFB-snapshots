@@ -1,0 +1,1 @@
+{"name":"user-event-toolchain","version":"1.0.0","private":true,"dependencies":{"@testing-library/dom":"10.4.1","jsdom":"26.1.0","esbuild":"0.25.5"}}
