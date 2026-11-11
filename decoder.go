@@ -42,6 +42,12 @@ type Decoder struct {
 	PCMChunk *riff.Chunk
 	// Metadata for the current file
 	Metadata *Metadata
+
+	// RF64 (EBU Tech 3306) specific state. rf64 is nil for ordinary RIFF files.
+	rf64       *rf64Container
+	rf64Frames uint64
+	dataSeen   bool
+	isRF64     bool // an RF64 header was seen, even if parsing failed
 }
 
 // NewDecoder creates a decoder for the passed wav reader.
@@ -66,12 +72,16 @@ func (d *Decoder) Rewind() error {
 	if err != nil {
 		return fmt.Errorf("failed to seek back to the start %w", err)
 	}
-	// we have to user a new parser since it's read only and can't be seeked
+	// we have to use a new parser since it's read only and can't be seeked
 	d.parser = riff.New(d.r)
 	d.pcmDataAccessed = false
 	d.PCMChunk = nil
 	d.err = nil
 	d.NumChans = 0
+	d.rf64 = nil
+	d.rf64Frames = 0
+	d.dataSeen = false
+	d.isRF64 = false
 	err = d.FwdToPCM()
 	if err != nil {
 		return fmt.Errorf("failed to seek to the PCM data: %w", err)
@@ -91,6 +101,11 @@ func (d *Decoder) SampleBitDepth() int32 {
 func (d *Decoder) PCMLen() int64 {
 	if d == nil {
 		return 0
+	}
+	if d.rf64 != nil && !d.dataSeen && d.rf64.ds64 != nil {
+		// the data chunk has not been located yet, but ds64 already carries
+		// its real 64-bit length
+		return int64(d.rf64.ds64.dataSize)
 	}
 	return int64(d.PCMSize)
 }
@@ -147,6 +162,10 @@ func (d *Decoder) ReadMetadata() {
 	if d.Err() != nil || d.Metadata != nil {
 		return
 	}
+	if d.rf64 != nil {
+		d.readRF64Metadata()
+		return
+	}
 	var (
 		chunk *riff.Chunk
 		err   error
@@ -188,6 +207,90 @@ func (d *Decoder) ReadMetadata() {
 
 }
 
+// readRF64Metadata scans the chunks after data for LIST/INFO, smpl and cue
+// metadata. It works even when PCM reading is in progress: the current read
+// position is restored afterwards so the next PCM read returns the frame
+// right after the previously read one.
+func (d *Decoder) readRF64Metadata() {
+	c := d.rf64
+	// PCM reads go through the chunk's limit reader on the underlying seeker,
+	// so resync the bookkeeping cursor before remembering the position.
+	savedPos, err := c.seek(0, io.SeekCurrent)
+	if err != nil {
+		d.err = err
+		return
+	}
+	alreadyAtData := d.PCMChunk != nil && d.dataSeen
+
+	// If the caller already consumed part of the data chunk, jump over the
+	// remaining PCM and its padding first.
+	if alreadyAtData && c.dataEnd > 0 && c.cursor < c.dataEnd {
+		if err := c.skipBytes(c.dataEnd-c.cursor, "remaining PCM while reading metadata"); err != nil {
+			d.err = err
+			return
+		}
+	}
+
+	for {
+		chunk, err := d.NextChunk()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				d.err = nil
+			}
+			break
+		}
+		switch chunk.ID {
+		case riff.DataFormatID:
+			// data already reached via FwdToPCM or being read; skip a second
+			// encounter defensively (NextChunk itself rejects a second data)
+			if err := d.finishRF64Chunk(chunk); err != nil {
+				d.err = err
+				goto restore
+			}
+		case CIDList:
+			if err = DecodeListChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				goto restore
+			}
+			if err := d.finishRF64Chunk(chunk); err != nil {
+				d.err = err
+				goto restore
+			}
+		case CIDSmpl:
+			if err = DecodeSamplerChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				goto restore
+			}
+			if err := d.finishRF64Chunk(chunk); err != nil {
+				d.err = err
+				goto restore
+			}
+		case CIDCue:
+			if err = DecodeCueChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				goto restore
+			}
+			if err := d.finishRF64Chunk(chunk); err != nil {
+				d.err = err
+				goto restore
+			}
+		default:
+			if err := d.finishRF64Chunk(chunk); err != nil {
+				d.err = err
+				goto restore
+			}
+		}
+	}
+
+restore:
+	// put the underlying reader back exactly where the PCM stream was
+	if alreadyAtData {
+		if _, err := c.seek(savedPos, io.SeekStart); err != nil {
+			d.err = err
+		}
+	}
+}
+
 // FwdToPCM forwards the underlying reader until the start of the PCM chunk.
 // If the PCM chunk was already read, no data will be found (you need to rewind).
 func (d *Decoder) FwdToPCM() error {
@@ -196,7 +299,16 @@ func (d *Decoder) FwdToPCM() error {
 	}
 	d.err = d.readHeaders()
 	if d.err != nil {
+		if d.isRF64 {
+			// structural RF64 errors must surface with their chunk/offset
+			// context instead of looking like a missing PCM chunk.
+			return d.err
+		}
+		// keep the historical RIFF behavior: the error stays on d.Err()
 		return nil
+	}
+	if d.rf64 != nil {
+		return d.fwdToRF64PCM()
 	}
 
 	var chunk *riff.Chunk
@@ -221,6 +333,47 @@ func (d *Decoder) FwdToPCM() error {
 	d.pcmDataAccessed = true
 
 	return nil
+}
+
+// fwdToRF64PCM walks the RF64 chunks up to the data chunk. Unknown chunks
+// are seeked over, never read or buffered, so multi-GiB fillers stay cheap.
+func (d *Decoder) fwdToRF64PCM() error {
+	for {
+		chunk, err := d.NextChunk()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				d.err = ErrPCMChunkNotFound
+				return ErrPCMChunkNotFound
+			}
+			d.err = err
+			return err
+		}
+		if chunk.ID == riff.DataFormatID {
+			d.PCMChunk = chunk
+			d.pcmDataAccessed = true
+			return nil
+		}
+		switch chunk.ID {
+		case CIDList:
+			if err := DecodeListChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				return err
+			}
+		case CIDSmpl:
+			if err := DecodeSamplerChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				return err
+			}
+		case CIDCue:
+			if err := DecodeCueChunk(d, chunk); err != nil && !errors.Is(err, io.EOF) {
+				d.err = err
+				return err
+			}
+		}
+		if err := d.finishRF64Chunk(chunk); err != nil {
+			return err
+		}
+	}
 }
 
 // WasPCMAccessed returns positively if the PCM data was previously accessed.
@@ -359,11 +512,18 @@ func (d *Decoder) Format() *audio.Format {
 	}
 }
 
-// NextChunk returns the next available chunk
+// NextChunk returns the next available chunk.
+// The returned chunk's Size is the actual payload length: word-alignment
+// padding and following chunks are not reachable through its reader.
+// Callers are expected to finish reading a chunk before calling NextChunk.
 func (d *Decoder) NextChunk() (*riff.Chunk, error) {
 	if d.err = d.readHeaders(); d.err != nil {
 		d.err = fmt.Errorf("failed to read header - %v", d.err)
 		return nil, d.err
+	}
+
+	if d.rf64 != nil {
+		return d.nextRF64Chunk()
 	}
 
 	var (
@@ -396,16 +556,126 @@ func (d *Decoder) NextChunk() (*riff.Chunk, error) {
 	return c, d.err
 }
 
-// Duration returns the time duration for the current audio container
+// nextRF64Chunk reads and resolves one RF64 chunk. ds64 table entries are
+// only consumed by chunks carrying the 0xffffffff sentinel.
+func (d *Decoder) nextRF64Chunk() (*riff.Chunk, error) {
+	c := d.rf64
+	if err := c.closeOpen(); err != nil {
+		d.err = err
+		return nil, err
+	}
+	id, payloadLen, hdrPos, err := c.nextChunkHeader()
+	if err != nil {
+		d.err = err
+		return nil, err
+	}
+	switch id {
+	case cidDS64:
+		// the first ds64 was consumed while reading the headers; another one
+		// anywhere else in the container is invalid.
+		d.err = fmt.Errorf("RF64: second ds64 chunk at file offset %d is not allowed", hdrPos)
+		return nil, d.err
+	case riff.DataFormatID:
+		if d.dataSeen {
+			d.err = fmt.Errorf("RF64: second data chunk at file offset %d is not allowed", hdrPos)
+			return nil, d.err
+		}
+		d.dataSeen = true
+		blockAlign := int(d.NumChans) * int(d.BitDepth) / 8
+		frames, ferr := pcmFrameCount(payloadLen, blockAlign)
+		if ferr != nil {
+			d.err = ferr
+			return nil, ferr
+		}
+		if sc := c.ds64.sampleCount; sc != 0 && sc != frames {
+			d.err = fmt.Errorf("RF64: ds64 sample count %d does not match the %d whole PCM frames in data at file offset %d", sc, frames, hdrPos)
+			return nil, d.err
+		}
+		d.rf64Frames = frames
+		d.PCMSize = int(payloadLen)
+		// nextChunkHeader consumed the 8 byte header; cursor marks the payload
+		c.dataEnd = c.cursor + int64(payloadLen) + int64(payloadLen%2)
+	default:
+		// other chunks, including repeated unknown chunks, are handled by the
+		// same machinery and keep consuming only their own table entries.
+	}
+	ch := c.chunk(id, payloadLen)
+	// nextChunkHeader consumed the 8 byte header; cursor marks the payload
+	c.openEnd = c.cursor + int64(payloadLen) + int64(payloadLen%2)
+	return ch, nil
+}
+
+// finishRF64Chunk is called once an RF64 chunk returned by NextChunk is no
+// longer needed; it seeks over any unread payload and the padding byte,
+// rather than reading potentially multi-GiB payloads.
+func (d *Decoder) finishRF64Chunk(ch *riff.Chunk) error {
+	if ch == nil || d.rf64 == nil {
+		return nil
+	}
+	payloadLen := uint64(ch.Size)
+	// chunk reads happen through the limit reader on the underlying seeker,
+	// so resync the bookkeeping cursor before computing the skip distance.
+	if _, err := d.rf64.seek(0, io.SeekCurrent); err != nil {
+		d.err = err
+		return err
+	}
+	if !ch.IsFullyRead() {
+		remaining := int64(payloadLen) - int64(ch.Pos)
+		if err := d.rf64.skipBytes(remaining, "chunk "+string(ch.ID[:])+" remaining payload"); err != nil {
+			d.err = err
+			return err
+		}
+	}
+	if err := d.rf64.skipPadding(payloadLen, "chunk "+string(ch.ID[:])); err != nil {
+		d.err = err
+		return err
+	}
+	d.rf64.openEnd = 0
+	return nil
+}
+
+// Duration returns the time duration for the current audio container.
+// For RF64 files it is derived from whole PCM frames and the sample rate,
+// never estimated from the total container length.
 func (d *Decoder) Duration() (time.Duration, error) {
 	if d == nil || d.parser == nil {
 		return 0, errors.New("can't calculate the duration of a nil pointer")
+	}
+	if d.err = d.readHeaders(); d.err != nil {
+		return 0, d.err
+	}
+	if d.rf64 != nil {
+		if d.SampleRate == 0 {
+			return 0, errors.New("can't calculate the duration without a sample rate")
+		}
+		if !d.dataSeen {
+			// Locate the data chunk (seek-only for unknown chunks) so the
+			// duration is derived from its real payload and the ds64 sample
+			// count is validated against the actual frame count.
+			if err := d.fwdToRF64PCM(); err != nil {
+				return 0, err
+			}
+		}
+		blockAlign := int(d.NumChans) * int(d.BitDepth) / 8
+		frames, err := pcmFrameCount(uint64(d.PCMSize), blockAlign)
+		if err != nil {
+			return 0, err
+		}
+		return durationFromFrames(frames, d.SampleRate)
 	}
 	return d.parser.Duration()
 }
 
 // String implements the Stringer interface.
 func (d *Decoder) String() string {
+	if d == nil {
+		return ""
+	}
+	if d.rf64 != nil {
+		dur, _ := d.Duration()
+		return fmt.Sprintf("Format: %s - %d channels @ %d / %d bits - Duration: %f seconds",
+			string(riff.WavFormatID[:]), d.NumChans, d.SampleRate, d.BitDepth, dur.Seconds())
+	}
 	return d.parser.String()
 }
 
@@ -415,21 +685,36 @@ func (d *Decoder) readHeaders() error {
 		return nil
 	}
 
-	id, size, err := d.parser.IDnSize()
-	if err != nil {
+	var id [4]byte
+	if _, err := io.ReadFull(d.r, id[:]); err != nil {
 		return err
 	}
-	d.parser.ID = id
-	if d.parser.ID != riff.RiffID {
-		return fmt.Errorf("%s - %s", d.parser.ID, riff.ErrFmtNotSupported)
+	switch id {
+	case cidRF64:
+		d.isRF64 = true
+		return d.readRF64Headers(id)
+	case riff.RiffID:
+		return d.readRIFFHeaders(id)
+	default:
+		return fmt.Errorf("%s - %s", string(id[:]), riff.ErrFmtNotSupported)
 	}
-	d.parser.Size = size
+}
+
+// readRIFFHeaders contains the original RIFF-only header parsing.
+func (d *Decoder) readRIFFHeaders(firstID [4]byte) error {
+	var sizeBuf [4]byte
+	if _, err := io.ReadFull(d.r, sizeBuf[:]); err != nil {
+		return err
+	}
+	d.parser.ID = firstID
+	d.parser.Size = binary.LittleEndian.Uint32(sizeBuf[:])
 	if err := binary.Read(d.r, binary.BigEndian, &d.parser.Format); err != nil {
 		return err
 	}
 
 	var chunk *riff.Chunk
 	var rewindBytes int64
+	var err error
 
 	for err == nil {
 		chunk, err = d.parser.NextChunk()
@@ -468,6 +753,120 @@ func (d *Decoder) readHeaders() error {
 	}
 
 	return d.err
+}
+
+// readRF64Headers parses the RF64 container header, its mandatory ds64 chunk
+// and the fmt chunk (which may be preceded by other chunks).
+func (d *Decoder) readRF64Headers(containerID [4]byte) error {
+	c := newRF64Container(d.r)
+	// the 4 container ID bytes were already consumed by readHeaders
+	c.cursor = 4
+	var sizeBuf [4]byte
+	if err := c.readFull(sizeBuf[:], "RF64 size field"); err != nil {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("RF64: truncated container header at file offset 4")
+		}
+		return err
+	}
+	outerSize := binary.LittleEndian.Uint32(sizeBuf[:])
+	var format [4]byte
+	if err := c.readFull(format[:], "WAVE format ID"); err != nil {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("RF64: truncated container header at file offset 8")
+		}
+		return err
+	}
+	if format != riff.WavFormatID {
+		return fmt.Errorf("RF64: %s - %s", string(format[:]), riff.ErrFmtNotSupported)
+	}
+	if err := c.parseDS64(); err != nil {
+		return err
+	}
+	// The 64-bit riffSize replaces the outer field only when it carries the
+	// sentinel; otherwise the ordinary 32-bit outer length is authoritative.
+	if outerSize != rf64LengthSentinel {
+		c.riffSize = uint64(outerSize)
+	}
+	if err := c.measurePhysicalSize(); err != nil {
+		return err
+	}
+
+	d.parser.ID = containerID
+	d.parser.Size = outerSize
+	d.parser.Format = riff.WavFormatID
+
+	var sawDS64 bool
+	for {
+		id, payloadLen, hdrPos, err := c.nextChunkHeader()
+		if err != nil {
+			return err
+		}
+		switch id {
+		case cidDS64:
+			if sawDS64 {
+				return fmt.Errorf("RF64: second ds64 chunk at file offset %d is not allowed", hdrPos)
+			}
+			sawDS64 = true
+			if err := c.drainChunk(id, payloadLen); err != nil {
+				return err
+			}
+		case riff.FmtID:
+			ch := c.chunk(id, payloadLen)
+			if err := ch.DecodeWavHeader(d.parser); err != nil {
+				return fmt.Errorf("RF64: failed decoding fmt chunk at file offset %d: %w", hdrPos, err)
+			}
+			d.NumChans = d.parser.NumChannels
+			d.BitDepth = d.parser.BitsPerSample
+			d.SampleRate = d.parser.SampleRate
+			d.WavAudioFormat = d.parser.WavAudioFormat
+			d.AvgBytesPerSec = d.parser.AvgBytesPerSec
+			if !ch.IsFullyRead() {
+				ch.Drain()
+			}
+			// rewind so the chunk following fmt can be parsed again from the wire
+			if err := c.finishChunk(id, payloadLen); err != nil {
+				return err
+			}
+			// rewind so the chunk following fmt can be parsed again from the wire.
+			// The header scan may have consumed ds64 table entries while
+			// resolving chunks before fmt, so restart substitution from the
+			// beginning of the table.
+			c.ds64.reset()
+			if _, err := c.seek(c.firstChunkPos, io.SeekStart); err != nil {
+				return err
+			}
+			d.rf64 = c
+			return nil
+		case CIDList:
+			ch := c.chunk(id, payloadLen)
+			if err := DecodeListChunk(d, ch); err != nil {
+				return err
+			}
+			if err := c.finishChunk(id, payloadLen); err != nil {
+				return err
+			}
+		case CIDSmpl:
+			ch := c.chunk(id, payloadLen)
+			if err := DecodeSamplerChunk(d, ch); err != nil {
+				return err
+			}
+			if err := c.finishChunk(id, payloadLen); err != nil {
+				return err
+			}
+		case CIDCue:
+			ch := c.chunk(id, payloadLen)
+			if err := DecodeCueChunk(d, ch); err != nil {
+				return err
+			}
+			if err := c.finishChunk(id, payloadLen); err != nil {
+				return err
+			}
+		default:
+			if err := c.drainChunk(id, payloadLen); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func bytesPerSample(bitDepth int) int {

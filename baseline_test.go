@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/go-audio/audio"
 )
@@ -84,8 +85,15 @@ func TestBaseline(t *testing.T) {
 	}
 	rd := NewDecoder(bytes.NewReader(wire))
 	rb, rerr := rd.FullPCMBuffer()
-	if rerr == nil || rb != nil {
-		t.Fatalf("expected current RF64 rejection, got %v %v", rb, rerr)
+	if rerr != nil || rb == nil || !reflect.DeepEqual(rb.Data, want) {
+		t.Fatalf("expected the RF64 fixture to decode two frames, got %v %v", rb, rerr)
 	}
-	t.Logf("RF64_START_REJECTED bytes=%d error=%v", len(wire), rerr)
+	if rd.PCMLen() != 8 {
+		t.Fatalf("RF64 PCMLen %d", rd.PCMLen())
+	}
+	dur, derr := rd.Duration()
+	if derr != nil || dur != 2*time.Second/8000 {
+		t.Fatalf("RF64 duration %s %v", dur, derr)
+	}
+	t.Logf("RF64_DECODED frames=2 samples=%v", rb.Data)
 }
