@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>=^.^=</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div class="info">
+	<p><a href="https://github.com/yomotsu/camera-controls">GitHub repo</a></p>
+	<p>
+		W, A, S, D keys to move<br>
+		arrow keys (left, right, up, down) to rotate
+	</p>
+	<button onclick="cameraControls.normalizeRotations().reset( true )">reset</button>
+</div>
+
+<script async src="https://unpkg.com/es-module-shims@2.6.1/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://unpkg.com/three@0.178.0/build/three.module.js",
+		"three/addons/": "https://unpkg.com/three@0.178.0/examples/jsm/"
+	}
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import * as holdEvent from "https://unpkg.com/hold-event@1.1.2/dist/hold-event.module.js";
+import CameraControls from './dist/camera-controls.module.js';
+CameraControls.install( { THREE: THREE } );
+
+const width = window.innerWidth;
+const height = window.innerHeight;
+const clock = new THREE.Clock();
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera( 60, width / height, 0.01, 100 );
+camera.position.set( 0, 0, 5 );
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize( width, height );
+document.body.appendChild( renderer.domElement );
+
+const cameraControls = new CameraControls( camera, renderer.domElement );
+
+const wKey = new holdEvent.KeyboardKeyHold( 'KeyW', 16.666 );
+const aKey = new holdEvent.KeyboardKeyHold( 'KeyA', 16.666 );
+const sKey = new holdEvent.KeyboardKeyHold( 'KeyS', 16.666 );
+const dKey = new holdEvent.KeyboardKeyHold( 'KeyD', 16.666 );
+aKey.addEventListener(
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.truck( - 0.01 * event.deltaTime, 0, false )
+);
+dKey.addEventListener(
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.truck(   0.01 * event.deltaTime, 0, false )
+);
+wKey.addEventListener(
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.forward(   0.01 * event.deltaTime, false )
+);
+sKey.addEventListener(
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.forward( - 0.01 * event.deltaTime, false )
+);
+
+const leftKey  = new holdEvent.KeyboardKeyHold( 'ArrowLeft',  100 );
+const rightKey = new holdEvent.KeyboardKeyHold( 'ArrowRight', 100 );
+const upKey    = new holdEvent.KeyboardKeyHold( 'ArrowUp',    100 );
+const downKey  = new holdEvent.KeyboardKeyHold( 'ArrowDown',  100 );
+leftKey.addEventListener (
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.rotate( - 0.1 * THREE.MathUtils.DEG2RAD * event.deltaTime, 0, true )
+);
+rightKey.addEventListener(
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.rotate(   0.1 * THREE.MathUtils.DEG2RAD * event.deltaTime, 0, true )
+);
+upKey.addEventListener   (
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.rotate( 0, - 0.05 * THREE.MathUtils.DEG2RAD * event.deltaTime, true )
+);
+downKey.addEventListener (
+	holdEvent.HOLD_EVENT_TYPE.HOLDING,
+	( event ) => cameraControls.rotate( 0,   0.05 * THREE.MathUtils.DEG2RAD * event.deltaTime, true )
+);
+
+const mesh = new THREE.Mesh(
+	new THREE.BoxGeometry( 1, 1, 1 ),
+	new THREE.MeshBasicMaterial( { color: 0xff0000, wireframe: true } )
+);
+scene.add( mesh );
+
+const gridHelper = new THREE.GridHelper( 50, 50 );
+gridHelper.position.y = - 1;
+scene.add( gridHelper );
+
+renderer.render( scene, camera );
+
+( function anim () {
+
+	const delta = clock.getDelta();
+	const elapsed = clock.getElapsedTime();
+	const updated = cameraControls.update( delta );
+
+	// if ( elapsed > 30 ) { return; }
+
+	requestAnimationFrame( anim );
+
+	if ( updated ) {
+
+		renderer.render( scene, camera );
+		console.log( 'rendered' );
+
+	}
+
+} )();
+
+// make variable available to browser console
+globalThis.cameraControls = cameraControls;
+</script>
+
+</body>
+</html>
