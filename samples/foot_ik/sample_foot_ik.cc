@@ -25,8 +25,10 @@
 //                                                                            //
 //----------------------------------------------------------------------------//
 
+#include <cstdio>
 #include <limits>
 
+#include "contact_lock.h"
 #include "framework/application.h"
 #include "framework/imgui.h"
 #include "framework/mesh.h"
@@ -38,6 +40,8 @@
 #include "ozz/animation/runtime/local_to_model_job.h"
 #include "ozz/animation/runtime/sampling_job.h"
 #include "ozz/animation/runtime/skeleton.h"
+#include "ozz/animation/runtime/track.h"
+#include "ozz/base/io/stream.h"
 #include "ozz/base/log.h"
 #include "ozz/base/maths/box.h"
 #include "ozz/base/maths/math_ex.h"
@@ -45,13 +49,15 @@
 #include "ozz/base/maths/simd_quaternion.h"
 #include "ozz/base/maths/soa_transform.h"
 #include "ozz/base/maths/vec_float.h"
+#include "ozz/base/memory/unique_ptr.h"
 #include "ozz/options/options.h"
+
+using ozz::sample::ContactLock;
 
 // Skeleton archive can be specified as an option.
 OZZ_OPTIONS_DECLARE_STRING(skeleton,
                            "Path to the skeleton (ozz archive format).",
                            "media/skeleton.ozz", false)
-
 // Animation archive can be specified as an option.
 OZZ_OPTIONS_DECLARE_STRING(animation,
                            "Path to the animation (ozz archive format).",
@@ -66,6 +72,22 @@ OZZ_OPTIONS_DECLARE_STRING(mesh,
 OZZ_OPTIONS_DECLARE_STRING(floor,
                            "Path to the floor mesh (ozz archive format).",
                            "media/floor.ozz", false)
+
+// Optional contact tracks (ozz float track archives). A value greater than .5
+// means the foot is supporting, any other value means it is swinging. When no
+// track is provided, the sample keeps its original per-frame ground search.
+OZZ_OPTIONS_DECLARE_STRING(left_contact,
+                           "Path to the left foot contact track (optional).",
+                           "", false)
+OZZ_OPTIONS_DECLARE_STRING(right_contact,
+                           "Path to the right foot contact track (optional).",
+                           "", false)
+
+// Optional path to a debug CSV logging contact state, anchors and ankles.
+OZZ_OPTIONS_DECLARE_STRING(contact_csv,
+                           "Writes the contact-lock debug CSV at that path "
+                           "(optional, only used with contact tracks).",
+                           "", false)
 
 const char* kLeftJointNames[] = {"LeftUpLeg", "LeftLeg", "LeftFoot"};
 const char* kRightJointNames[] = {"RightUpLeg", "RightLeg", "RightFoot"};
@@ -96,6 +118,40 @@ static const ozz::math::Float3 kDown(0.f, -1.f, 0.f);
 static const ozz::math::Float3 kCharacterRayHeightOffset(0.f, 10.f, 0.f);
 static const ozz::math::Float3 kFootRayHeightOffset(0.f, .5f, 0.f);
 
+// Computes ankle target position (C), so that the foot is in contact with the
+// floor. Because of floor slope (defined by raycast intersection normal),
+// ankle position cannot be simply be offseted by foot offset. See geogebra
+// diagram for more details: media/doc/samples/foot_ik_ankle.ggb
+static ozz::math::Float3 ComputeAnkleTarget(const LegRayInfo& _ray,
+                                            float _foot_height) {
+  // Computes projection of the ray AI (from start to floor intersection
+  // point) onto floor normal. This gives the length of segment AB.
+  // Note that ray.hit_normal is normalized already.
+  const float ABl = Dot(_ray.start - _ray.hit_point, _ray.hit_normal);
+
+  // Knowing A, AB length and direction, we can compute B position.
+  const ozz::math::Float3 B = _ray.start - _ray.hit_normal * ABl;
+
+  // Computes sebgment IB and its length (IBl)
+  const ozz::math::Float3 IB = B - _ray.hit_point;
+  const float IBl = Length(IB);
+
+  if (IBl <= 0.f) {
+    // If B is at raycast intersection (I), then the corrected ankle
+    // position (world-space) only takes foot height into account.
+    return _ray.hit_point + _ray.hit_normal * _foot_height;
+  }
+
+  // HC length is known (as foot height). So we're using Thales theorem to
+  // find H position.
+  const float IHl = IBl * _foot_height / ABl;
+  const ozz::math::Float3 IH = IB * (IHl / IBl);
+  const ozz::math::Float3 H = _ray.hit_point + IH;
+
+  // C (Corrected ankle) position can now be found.
+  return H + _ray.hit_normal * _foot_height;
+}
+
 class FootIKSampleApplication : public ozz::sample::Application {
  protected:
   // Updates current animation time and foot ik.
@@ -116,24 +172,38 @@ class FootIKSampleApplication : public ozz::sample::Application {
       return false;
     }
 
-    // 4. Computes targetted ankles positions, taking floor steepness and foot
+    // 4. Contact-track layer (optional): fixes supporting feet to the world
+    // anchor captured at their contact rising edge. Without contact tracks,
+    // this is a no-op and the sample behaves exactly as before.
+    if (!UpdateContactLocks()) {
+      return false;
+    }
+
+    // 5. Computes targetted ankles positions, taking floor steepness and foot
     // height in consideration.
     if (!UpdateAnklesTarget()) {
       return false;
     }
 
-    // 5. Offsets the character down, so that the lowest ankle (lowest from its
+    // 6. Offsets the character down, so that the lowest ankle (lowest from its
     // original position) reaches its targetted position. The other leg(s) will
     // be ik-ed.
     if (!UpdatePelvisOffset()) {
       return false;
     }
 
-    // 6. Updates legs and ankles transforms, so they reach thei targetted
+    // 7. Updates legs and ankles transforms, so they reach thei targetted
     // position and orientation.
     if (!UpdateFootIK()) {
       return false;
     }
+
+    WriteContactCsv();
+
+    // Remembers the root of this frame for next update's edge-time root
+    // interpolation.
+    previous_root_translation_ = root_translation_;
+    previous_root_yaw_ = root_yaw_;
 
     return true;
   }
@@ -157,6 +227,27 @@ class FootIKSampleApplication : public ozz::sample::Application {
   bool UpdateBaseAnimation(float _dt) {
     // Updates current animation time.
     controller_.Update(animation_, _dt);
+
+    // Maintains the un-wrapped (un-modded) playback ratio used by the contact
+    // layer, so an update crossing a loop still reports every edge.
+    previous_playback_ratio_ = playback_ratio_;
+    const float advanced =
+        _dt * controller_.playback_speed() / animation_.duration();
+    if (advanced < 0.f) {
+      // Backward playback: past states are not reconstructed. Locks are reset
+      // and the ratio stays synced on the wrapped controller time, so the
+      // contact update range is empty while playing backward.
+      contact_lock_.Reset();
+      playback_ratio_ = controller_.time_ratio();
+      previous_playback_ratio_ = playback_ratio_;
+    } else {
+      playback_ratio_ += advanced;
+      // With looping disabled the controller clamps time in [0,1]: the
+      // un-wrapped ratio must not grow past the animation end either.
+      if (!controller_.loop()) {
+        playback_ratio_ = ozz::math::Clamp(0.f, playback_ratio_, 1.f);
+      }
+    }
 
     // Samples optimized animation at t = animation_time.
     ozz::animation::SamplingJob sampling_job;
@@ -210,45 +301,21 @@ class FootIKSampleApplication : public ozz::sample::Application {
   // diagram for more details: media/doc/samples/foot_ik_ankle.ggb
   bool UpdateAnklesTarget() {
     for (size_t l = 0; l < kLegsCount; ++l) {
+      // A locked leg keeps the anchor captured at its contact rising edge, so
+      // the target must not be recomputed from this frame's raycast. This
+      // applies even if this frame ray misses the ground.
+      if (ContactTracksEnabled() && contact_lock_.locked(LegOf(l))) {
+        ankles_target_ws_[l] = contact_lock_.anchor(LegOf(l)).target;
+        continue;
+      }
+
       const LegRayInfo& ray = rays_info_[l];
       if (!ray.hit) {
         continue;
       }
 
-      // Computes projection of the ray AI (from start to floor intersection
-      // point) onto floor normal. This gives the length of segment AB.
-      // Note that ray.hit_normal is normalized already.
-      const float ABl = Dot(ray.start - ray.hit_point, ray.hit_normal);
-      if (ABl == 0.f) {
-        // Early out if the two are perpandicular.
-        continue;
-      }
-
-      // Knowing A, AB length and direction, we can compute B position.
-      const ozz::math::Float3 B = ray.start - ray.hit_normal * ABl;
-
-      // Computes sebgment IB and its length (IBl)
-      const ozz::math::Float3 IB = B - ray.hit_point;
-      const float IBl = Length(IB);
-
-      if (IBl <= 0.f) {
-        // If B is at raycast intersection (I), then we still need to update
-        // corrected ankle position (world-space) to take into account foot
-        // height.
-        ankles_target_ws_[l] = ray.hit_point + ray.hit_normal * foot_heigh_;
-      } else {
-        // HC length is known (as foot height). So we're using Thales theorem to
-        // find H position.
-        const float IHl = IBl * foot_heigh_ / ABl;
-        const ozz::math::Float3 IH = IB * (IHl / IBl);
-        const ozz::math::Float3 H = ray.hit_point + IH;
-
-        // C (Corrected ankle) position can now be found.
-        const ozz::math::Float3 C = H + ray.hit_normal * foot_heigh_;
-
-        // Override ankle position with result.
-        ankles_target_ws_[l] = C;
-      }
+      // Override ankle position with result.
+      ankles_target_ws_[l] = ComputeAnkleTarget(ray, foot_heigh_);
     }
 
     return true;
@@ -264,8 +331,11 @@ class FootIKSampleApplication : public ozz::sample::Application {
     float max_dot = -std::numeric_limits<float>::max();
     if (pelvis_correction_) {
       for (size_t l = 0; l < kLegsCount; ++l) {
-        const LegRayInfo& ray = rays_info_[l];
-        if (!ray.hit) {
+        const bool locked =
+            ContactTracksEnabled() && contact_lock_.locked(LegOf(l));
+        // An unlocked leg without a ground hit has no target this frame. A
+        // locked leg always has its anchor target.
+        if (!rays_info_[l].hit && !locked) {
           continue;
         }
 
@@ -302,30 +372,39 @@ class FootIKSampleApplication : public ozz::sample::Application {
     // Perform IK
     for (size_t l = 0; l < kLegsCount; ++l) {
       const LegRayInfo& ray = rays_info_[l];
-      if (!ray.hit) {
+      const ContactLock::Leg leg = LegOf(l);
+      const bool locked =
+          ContactTracksEnabled() && contact_lock_.locked(leg);
+
+      // A leg is driven either by its per-frame raycast, or by a contact
+      // anchor. A locked leg keeps being corrected even if the current frame
+      // ray misses the ground (the anchor stays valid for the support phase).
+      if (!ray.hit && !locked) {
         continue;
       }
-      const LegSetup& leg = legs_setup_[l];
+      const LegSetup& leg_setup = legs_setup_[l];
 
       // Updates leg joint chain so ankle reaches its targetted position.
       if (two_bone_ik_ &&
-          !ApplyLegTwoBoneIK(leg, ankles_target_ws_[l], inv_root)) {
+          !ApplyLegTwoBoneIK(leg_setup, ankles_target_ws_[l], inv_root)) {
         return false;
       }
 
       // Updates leg joints model-space transforms.
       // Update will go from hip to ankle. Ankle's siblings might no be updated
       // as local-to-model will stop as soon as ankle joint is reached.
-      ltm_job.from = leg.hip;
-      ltm_job.to = leg.ankle;
+      ltm_job.from = leg_setup.hip;
+      ltm_job.to = leg_setup.ankle;
       if (!ltm_job.Run()) {
         return false;
       }
 
-      // Computes ankle orientation so it's aligned to the floor normal.
-      const ozz::math::Float3 aim_ik_target(ankles_target_ws_[l] +
-                                            ray.hit_normal);
-      if (aim_ik_ && !ApplyAnkleAimIK(leg, aim_ik_target, inv_root)) {
+      // Computes ankle orientation so it's aligned to the floor normal. A
+      // locked leg uses the normal captured at the contact edge.
+      const ozz::math::Float3 normal =
+          locked ? contact_lock_.anchor(leg).normal : ray.hit_normal;
+      const ozz::math::Float3 aim_ik_target(ankles_target_ws_[l] + normal);
+      if (aim_ik_ && !ApplyAnkleAimIK(leg_setup, aim_ik_target, inv_root)) {
         return false;
       }
 
@@ -333,7 +412,7 @@ class FootIKSampleApplication : public ozz::sample::Application {
       // Ankle rotation has already been updated, but its siblings (or it's
       // parent siblings) might are not. So we local-to-model update must
       // be complete starting from hip.
-      ltm_job.from = leg.hip;
+      ltm_job.from = leg_setup.hip;
       ltm_job.to = ozz::animation::Skeleton::kMaxJoints;
       if (!ltm_job.Run()) {
         return false;
@@ -507,6 +586,26 @@ class FootIKSampleApplication : public ozz::sample::Application {
       }
     }
 
+    // Shows the world-space anchors captured by the contact layer. They stay
+    // fixed in the world for the whole support phase, independently of the
+    // character root movement.
+    if (show_contact_anchors_ && ContactTracksEnabled()) {
+      for (int l = 0; l < ContactLock::kLegsCount; ++l) {
+        const ContactLock::Leg leg = LegOf(l);
+        if (!contact_lock_.locked(leg)) {
+          continue;
+        }
+        const ContactLock::Anchor& anchor = contact_lock_.anchor(leg);
+        const ozz::math::Float4x4 transform =
+            ozz::math::Float4x4::Translation(anchor.target);
+        success &= _renderer->DrawAxes(transform * kAxesScale);
+        const ozz::math::Float3 normal[] = {
+            anchor.target, anchor.target + anchor.normal * .5f};
+        success &=
+            _renderer->DrawLines(normal, ozz::sample::kYellow, identity);
+      }
+    }
+
     if (show_root_) {
       const ozz::math::Float4x4 root = GetRootTransform();
       success &= _renderer->DrawAxes(root);
@@ -537,6 +636,12 @@ class FootIKSampleApplication : public ozz::sample::Application {
 
     // Allocates a context that matches animation requirements.
     context_.Resize(num_joints);
+
+    // The contact event callback samples the base animation on its own
+    // scratch buffers so that it never pollutes the current frame posture.
+    scratch_locals_.resize(num_soa_joints);
+    scratch_models_.resize(num_joints);
+    scratch_context_.Resize(num_joints);
 
     // Finds left and right joints.
     if (!SetupLeg(skeleton_, kLeftJointNames, &legs_setup_[kLeft]) ||
@@ -569,7 +674,215 @@ class FootIKSampleApplication : public ozz::sample::Application {
       return false;
     }
 
+    // Optional contact tracks. Loading failures (empty path included) simply
+    // keep the original per-frame ground search for the related foot.
+    has_left_contact_track_ =
+        LoadContactTrack(ContactLock::kLeft, OPTIONS_left_contact,
+                         &left_contact_track_);
+    has_right_contact_track_ =
+        LoadContactTrack(ContactLock::kRight, OPTIONS_right_contact,
+                         &right_contact_track_);
+    if (ContactTracksEnabled()) {
+      contact_lock_.SetTrack(ContactLock::kLeft,
+                             has_left_contact_track_ ? &left_contact_track_
+                                                     : nullptr);
+      contact_lock_.SetTrack(ContactLock::kRight,
+                             has_right_contact_track_ ? &right_contact_track_
+                                                      : nullptr);
+      contact_lock_.set_event_callback(
+          [this](ContactLock::Leg _leg, float _ratio,
+                 ContactLock::EventSnapshot* _snapshot) {
+            return BuildEventSnapshot(_leg, _ratio, _snapshot);
+          });
+      OpenContactCsv();
+    }
+
     return true;
+  }
+
+  // Loads an optional contact track. An empty path is not an error: the foot
+  // simply runs without contact locking. Returns true when a track was loaded.
+  bool LoadContactTrack(ContactLock::Leg _leg, const char* _path,
+                        ozz::animation::FloatTrack* _track) {
+    if (_path == nullptr || _path[0] == '\0') {
+      ozz::log::Out() << (_leg == ContactLock::kLeft ? "Left" : "Right")
+                      << " foot has no contact track, using per-frame ground "
+                         "search."
+                      << std::endl;
+      return false;
+    }
+    if (!ozz::sample::LoadTrack(_path, _track)) {
+      ozz::log::Err() << "Failed to load contact track " << _path
+                      << ", falling back to per-frame ground search."
+                      << std::endl;
+      return false;
+    }
+    return true;
+  }
+
+  bool ContactTracksEnabled() const {
+    return has_left_contact_track_ || has_right_contact_track_;
+  }
+
+  static ContactLock::Leg LegOf(size_t _l) {
+    return static_cast<ContactLock::Leg>(_l);
+  }
+
+  // Evaluates the character root trajectory at an (un-wrapped) event ratio.
+  // The interactive sample does not own an authored root motion track, so the
+  // root transform is interpolated between the previous and current frame
+  // roots across the update range.
+  ozz::math::Float4x4 RootAtEventRatio(float _ratio) const {
+    const float span = playback_ratio_ - previous_playback_ratio_;
+    float alpha = 0.f;
+    if (span != 0.f) {
+      alpha = ozz::math::Clamp(0.f, (_ratio - previous_playback_ratio_) / span,
+                               1.f);
+    }
+    const ozz::math::Float3 translation = ozz::math::Lerp(
+        previous_root_translation_, root_translation_, alpha);
+    const float yaw = ozz::math::Lerp(previous_root_yaw_, root_yaw_, alpha);
+    return ozz::math::Float4x4::Translation(translation) *
+           ozz::math::Float4x4::FromEuler(ozz::math::Float3(yaw, 0.f, 0.f));
+  }
+
+  // ContactLock event callback. Samples the base animation and raycasts the
+  // ground at the exact edge ratio, using dedicated scratch buffers, so the
+  // current frame SamplingJob context and corrected posture are untouched.
+  bool BuildEventSnapshot(ContactLock::Leg _leg, float _ratio,
+                          ContactLock::EventSnapshot* _snapshot) {
+    const float local_ratio = _ratio - std::floor(_ratio);
+
+    ozz::animation::SamplingJob sampling_job;
+    sampling_job.animation = &animation_;
+    sampling_job.context = &scratch_context_;
+    sampling_job.ratio = local_ratio;
+    sampling_job.output = make_span(scratch_locals_);
+    if (!sampling_job.Run()) {
+      return false;
+    }
+
+    ozz::animation::LocalToModelJob ltm_job;
+    ltm_job.skeleton = &skeleton_;
+    ltm_job.input = make_span(scratch_locals_);
+    ltm_job.output = make_span(scratch_models_);
+    if (!ltm_job.Run()) {
+      return false;
+    }
+
+    const LegSetup& leg = legs_setup_[_leg];
+    const ozz::math::Float4x4 root = RootAtEventRatio(_ratio);
+    _snapshot->root = root;
+    _snapshot->ankle_model = scratch_models_[leg.ankle];
+
+    ozz::math::Float3 ankle_ws;
+    ozz::math::Store3PtrU(
+        TransformPoint(root, scratch_models_[leg.ankle].cols[3]),
+        &ankle_ws.x);
+
+    LegRayInfo ray;
+    ray.start = ankle_ws + kFootRayHeightOffset;
+    ray.dir = kDown;
+    ray.hit = ozz::sample::RayIntersectsMeshes(
+        ray.start, ray.dir, make_span(floors_), &ray.hit_point,
+        &ray.hit_normal);
+    if (!ray.hit) {
+      _snapshot->hit = false;
+      return true;  // A miss is a valid "do not lock" result.
+    }
+
+    _snapshot->hit = true;
+    _snapshot->hit_point = ray.hit_point;
+    _snapshot->hit_normal = ray.hit_normal;
+    _snapshot->ankle_target_ws = ComputeAnkleTarget(ray, foot_heigh_);
+    return true;
+  }
+
+  // Drives the optional contact layer over the current update range.
+  bool UpdateContactLocks() {
+    if (!ContactTracksEnabled()) {
+      return true;
+    }
+
+    bool reachable[ContactLock::kLegsCount];
+    for (int l = 0; l < ContactLock::kLegsCount; ++l) {
+      reachable[l] = IsAnchorReachable(LegOf(l));
+    }
+
+    return contact_lock_.Update(previous_playback_ratio_, playback_ratio_,
+                                reachable);
+  }
+
+  // Tests whether the stored anchor still fits inside the leg's reach, from
+  // the current (uncorrected) model-space posture. Only called for locked
+  // legs. Mirrors IKTwoBoneJob's bone-length reachability test.
+  bool IsAnchorReachable(ContactLock::Leg _leg) {
+    if (!contact_lock_.locked(_leg)) {
+      return true;
+    }
+    const LegSetup& leg = legs_setup_[_leg];
+    const ozz::math::Float4x4 root = GetRootTransform();
+    const ozz::math::SimdFloat4 target_ms = TransformPoint(
+        Invert(root),
+        ozz::math::simd_float4::Load3PtrU(
+            &contact_lock_.anchor(_leg).target.x));
+
+    const float hip_ankle = ozz::math::GetX(ozz::math::Length3(
+        models_[leg.ankle].cols[3] - models_[leg.hip].cols[3]));
+    const float hip_target =
+        ozz::math::GetX(ozz::math::Length3(target_ms - models_[leg.hip].cols[3]));
+    return hip_target <= hip_ankle;
+  }
+
+  // Opens the optional debug CSV file and writes its header.
+  void OpenContactCsv() {
+    const char* path = OPTIONS_contact_csv;
+    if (path == nullptr || path[0] == '\0') {
+      return;
+    }
+    contact_csv_ = ozz::make_unique<ozz::io::File>(path, "w");
+    if (!contact_csv_->opened()) {
+      ozz::log::Err() << "Failed to open contact CSV file " << path << "."
+                      << std::endl;
+      contact_csv_.reset();
+      return;
+    }
+    static const char kHeader[] =
+        "ratio,left_contact,left_anchor_x,left_anchor_y,left_anchor_z,"
+        "left_ankle_x,left_ankle_y,left_ankle_z,"
+        "right_contact,right_anchor_x,right_anchor_y,right_anchor_z,"
+        "right_ankle_x,right_ankle_y,right_ankle_z\n";
+    contact_csv_->Write(kHeader, sizeof(kHeader) - 1);
+  }
+
+  // Appends one row describing contact state, anchors and the actual IK'd
+  // ankle positions for the current frame.
+  void WriteContactCsv() {
+    if (!ContactTracksEnabled() || !contact_csv_ ||
+        !contact_csv_->opened()) {
+      return;
+    }
+
+    const ozz::math::Float4x4 root = GetOffsettedRootTransform();
+    char line[512];
+    int offset = std::snprintf(line, sizeof(line), "%.6f", playback_ratio_);
+    for (int l = 0; l < ContactLock::kLegsCount; ++l) {
+      const ContactLock::Leg leg = LegOf(l);
+      const bool locked = contact_lock_.locked(leg);
+      const ozz::math::Float3& anchor = contact_lock_.anchor(leg).target;
+      ozz::math::Float3 ankle;
+      ozz::math::Store3PtrU(
+          TransformPoint(root, models_[legs_setup_[l].ankle].cols[3]),
+          &ankle.x);
+      offset += std::snprintf(
+          line + offset, sizeof(line) - offset,
+          ",%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f", locked ? 1 : 0, anchor.x,
+          anchor.y, anchor.z, ankle.x, ankle.y, ankle.z);
+    }
+    offset += std::snprintf(line + offset, sizeof(line) - offset, "\n");
+    if (offset > 0) {
+      contact_csv_->Write(line, static_cast<size_t>(offset));
+    }
   }
 
   bool SetupLeg(const ozz::animation::Skeleton& _skeleton,
@@ -609,7 +922,13 @@ class FootIKSampleApplication : public ozz::sample::Application {
       static bool open = true;
       ozz::sample::ImGui::OpenClose oc(_im_gui, "Animation control", &open);
       if (open) {
-        controller_.OnGui(animation_, _im_gui);
+        // A manual time jump cannot reconstruct past contact states: reset
+        // the locks and re-sync the un-wrapped playback ratio.
+        if (controller_.OnGui(animation_, _im_gui)) {
+          contact_lock_.Reset();
+          playback_ratio_ = controller_.time_ratio();
+          previous_playback_ratio_ = playback_ratio_;
+        }
       }
     }
 
@@ -667,6 +986,7 @@ class FootIKSampleApplication : public ozz::sample::Application {
         _im_gui->DoCheckBox("Show joints", &show_joints_);
         _im_gui->DoCheckBox("Show raycasts", &show_raycast_);
         _im_gui->DoCheckBox("Show ankle target", &show_ankle_target_);
+        _im_gui->DoCheckBox("Show contact anchors", &show_contact_anchors_);
         _im_gui->DoCheckBox("Show root", &show_root_);
         _im_gui->DoCheckBox("Show offsetted root", &show_offsetted_root_);
       }
@@ -720,6 +1040,36 @@ class FootIKSampleApplication : public ozz::sample::Application {
   // Buffer of model space matrices.
   ozz::vector<ozz::math::Float4x4> models_;
 
+  // Dedicated sampling context and posture buffers used by the contact event
+  // callback, so querying an edge time never pollutes the current frame
+  // SamplingJob context or the already corrected posture.
+  ozz::animation::SamplingJob::Context scratch_context_;
+  ozz::vector<ozz::math::SoaTransform> scratch_locals_;
+  ozz::vector<ozz::math::Float4x4> scratch_models_;
+
+  // Optional contact-track foot planting layer, plus the tracks it reads.
+  // has_*_contact_track_ false means the foot uses its original per-frame
+  // behavior.
+  ContactLock contact_lock_;
+  ozz::animation::FloatTrack left_contact_track_;
+  ozz::animation::FloatTrack right_contact_track_;
+  bool has_left_contact_track_ = false;
+  bool has_right_contact_track_ = false;
+
+  // Un-wrapped playback ratio (not reduced modulo 1) and its previous-frame
+  // value. They define the half-open [from, to) range given to the contact
+  // layer, including updates that cross one or more animation loops.
+  float playback_ratio_ = 0.f;
+  float previous_playback_ratio_ = 0.f;
+
+  // Root transform at the previous frame, used to interpolate the root
+  // trajectory at contact edge times.
+  ozz::math::Float3 previous_root_translation_ = {2.17f, 2.f, -2.06f};
+  float previous_root_yaw_ = -2.f;
+
+  // Optional debug CSV output.
+  ozz::unique_ptr<ozz::io::File> contact_csv_;
+
   // Buffer of skinning matrices, result of the joint multiplication of the
   // inverse rest pose with the model space matrix.
   ozz::vector<ozz::math::Float4x4> skinning_matrices_;
@@ -761,6 +1111,7 @@ class FootIKSampleApplication : public ozz::sample::Application {
   bool show_joints_ = false;
   bool show_raycast_ = false;
   bool show_ankle_target_ = false;
+  bool show_contact_anchors_ = true;
   bool show_root_ = false;
   bool show_offsetted_root_ = false;
 };

@@ -22,6 +22,7 @@ add_custom_command(
 
 add_executable(sample_foot_ik
   sample_foot_ik.cc
+  contact_lock.cc
   "${CMAKE_CURRENT_BINARY_DIR}/README.md"
   "${CMAKE_CURRENT_BINARY_DIR}/media/skeleton.ozz"
   "${CMAKE_CURRENT_BINARY_DIR}/media/animation.ozz"
