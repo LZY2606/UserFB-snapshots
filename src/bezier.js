@@ -15,6 +15,200 @@ const pi = Math.PI;
 // a zero coordinate, which is surprisingly useful
 const ZERO = { x: 0, y: 0, z: 0 };
 
+// ---------------------------------------------------------------------------
+// Arc-length helpers for `lengthAt` / `parameterAtLength`.
+//
+// The derivative of a 2D quadratic or cubic Bezier is a polynomial of degree
+// at most two, and its components only have a handful of roots. Splitting the
+// integration interval at those roots means the (possibly zero) speed has no
+// sign change or cusp inside an interval, which is what makes the adaptive
+// quadrature both accurate and safe around stationary points.
+// ---------------------------------------------------------------------------
+
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function derivativeCoefficients(points) {
+  if (points.length === 3) {
+    // quadratic: B'(t) = (1-t)*d0 + t*d1, so it is linear.
+    const dx0 = 2 * (points[1].x - points[0].x),
+      dy0 = 2 * (points[1].y - points[0].y),
+      dx1 = 2 * (points[2].x - points[1].x),
+      dy1 = 2 * (points[2].y - points[1].y);
+    return {
+      x: [dx0, dx1 - dx0, 0],
+      y: [dy0, dy1 - dy0, 0],
+    };
+  }
+  // cubic: B'(t) is quadratic, built from the three derivative control points.
+  const dx0 = 3 * (points[1].x - points[0].x),
+    dy0 = 3 * (points[1].y - points[0].y),
+    dx1 = 3 * (points[2].x - points[1].x),
+    dy1 = 3 * (points[2].y - points[1].y),
+    dx2 = 3 * (points[3].x - points[2].x),
+    dy2 = 3 * (points[3].y - points[2].y);
+  // coefficients for c0 + c1*t + c2*t^2
+  return {
+    x: [dx0, 2 * (dx1 - dx0), dx0 - 2 * dx1 + dx2],
+    y: [dy0, 2 * (dy1 - dy0), dy0 - 2 * dy1 + dy2],
+  };
+}
+
+function polynomialValue(coefficients, t) {
+  return coefficients[0] + t * (coefficients[1] + t * coefficients[2]);
+}
+
+function derivativeSpeed(coefficients, t) {
+  const dx = polynomialValue(coefficients.x, t);
+  const dy = polynomialValue(coefficients.y, t);
+  return sqrt(dx * dx + dy * dy);
+}
+
+function componentRoots(coefficients) {
+  const a = coefficients[2],
+    b = coefficients[1],
+    c = coefficients[0];
+  if (a === 0) {
+    if (b === 0) return []; // constant (possibly zero) component.
+    return [-c / b];
+  }
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return [];
+  if (discriminant === 0) return [-b / (2 * a)];
+  // Numerically stable quadratic roots.
+  const q = -0.5 * (b + (b < 0 ? -1 : 1) * sqrt(discriminant));
+  return [q / a, c / q];
+}
+
+function arcLengthCuts(coefficients, a, b) {
+  const cuts = [a, b];
+  [coefficients.x, coefficients.y].forEach((component) => {
+    componentRoots(component).forEach((root) => {
+      if (finiteNumber(root) && root > a && root < b) cuts.push(root);
+    });
+  });
+  cuts.sort((u, v) => u - v);
+  // Only drop exact duplicates. Roots that are merely close together still
+  // split the interval, so a stationary point can never end up inside a
+  // segment where the speed is treated as smooth.
+  return cuts.filter(
+    (value, index) => index === 0 || value !== cuts[index - 1]
+  );
+}
+
+// Gauss-Kronrod (15 point, with the embedded 7 point Gauss rule).
+const GK15_X = [
+  0.991455371120812639206854697526329, 0.949107912342758524526189684047851,
+  0.864864423359769072789712788640926, 0.741531185599394439863864773280788,
+  0.586087235467691130294144838258730, 0.405845151377397166906606412076961,
+  0.207784955007898467600689403773245,
+];
+const GK15_W = [
+  0.022935322010529224963732008058970, 0.063092092629978553290700663189204,
+  0.104790010322250183839876322541518, 0.140653259715525918745189590510238,
+  0.169004726639267902826583426598550, 0.190350578064785409913256402421014,
+  0.204432940075298892414161999234649, 0.209482141084727828012999174891714,
+];
+const G7_W = [
+  0.129484966168869693270611432679082, 0.279705391489276667901467771423780,
+  0.381830050505118944950369775488975, 0.417959183673469387755102040816327,
+];
+const ARC_LENGTH_MAX_DEPTH = 50;
+const ARC_LENGTH_EVALUATION_BUDGET = 30000;
+
+function gaussKronrod15(f, a, b, tolerance, depth, budget) {
+  const center = (a + b) / 2,
+    half = (b - a) / 2,
+    fc = f(center);
+  let kronrod = GK15_W[7] * fc,
+    gauss = G7_W[3] * fc;
+  budget.remaining -= 15;
+
+  for (let i = 0; i < 7; i++) {
+    const offset = half * GK15_X[i],
+      f1 = f(center - offset),
+      f2 = f(center + offset);
+    kronrod += GK15_W[i] * (f1 + f2);
+    if (i % 2 === 1) gauss += G7_W[(i - 1) / 2] * (f1 + f2);
+  }
+  kronrod *= half;
+  gauss *= half;
+
+  if (
+    abs(kronrod - gauss) <= tolerance ||
+    depth >= ARC_LENGTH_MAX_DEPTH ||
+    budget.remaining <= 0
+  ) {
+    return kronrod;
+  }
+  const mid = center;
+  return (
+    gaussKronrod15(f, a, mid, tolerance / 2, depth + 1, budget) +
+    gaussKronrod15(f, mid, b, tolerance / 2, depth + 1, budget)
+  );
+}
+
+function arcLengthBetween(coefficients, a, b, tolerance) {
+  if (!(b > a)) return 0;
+  const cuts = arcLengthCuts(coefficients, a, b),
+    segments = cuts.length - 1,
+    segmentTolerance = tolerance / segments;
+  // Kahan summation keeps large-coordinate results from accumulating avoidable
+  // round-off across segments.
+  let sum = 0,
+    correction = 0;
+  const budget = { remaining: ARC_LENGTH_EVALUATION_BUDGET };
+  for (let i = 0; i < segments; i++) {
+    const value = gaussKronrod15(
+      (t) => derivativeSpeed(coefficients, t),
+      cuts[i],
+      cuts[i + 1],
+      segmentTolerance,
+      0,
+      budget
+    );
+    const adjusted = value - correction,
+      next = sum + adjusted;
+    correction = next - sum - adjusted;
+    sum = next;
+  }
+  return sum;
+}
+
+function arcLengthTable(coefficients, tolerance) {
+  const cuts = arcLengthCuts(coefficients, 0, 1),
+    segments = cuts.length - 1,
+    segmentTolerance = tolerance / segments,
+    lengths = [0];
+  let sum = 0,
+    correction = 0;
+  const budget = { remaining: ARC_LENGTH_EVALUATION_BUDGET };
+  for (let i = 0; i < segments; i++) {
+    const value = gaussKronrod15(
+      (t) => derivativeSpeed(coefficients, t),
+      cuts[i],
+      cuts[i + 1],
+      segmentTolerance,
+      0,
+      budget
+    );
+    const adjusted = value - correction,
+      next = sum + adjusted;
+    correction = next - sum - adjusted;
+    sum = next;
+    lengths.push(sum);
+  }
+  return { cuts, lengths };
+}
+
+function hasZeroDerivative(coefficients) {
+  return [coefficients.x, coefficients.y].every(
+    (component) =>
+      component[0] === 0 && component[1] === 0 && component[2] === 0
+  );
+}
+
 /**
  * Bezier curve constructor.
  *
@@ -213,6 +407,127 @@ class Bezier {
 
   length() {
     return utils.length(this.derivative.bind(this));
+  }
+
+  _arcLengthCoefficients() {
+    if (this._3d) {
+      throw new Error("lengthAt/parameterAtLength only support 2D curves");
+    }
+    if (this.ratios) {
+      throw new Error(
+        "lengthAt/parameterAtLength do not support rational curves"
+      );
+    }
+    if (this.order !== 2 && this.order !== 3) {
+      throw new Error(
+        "lengthAt/parameterAtLength only support quadratic and cubic curves"
+      );
+    }
+    for (let i = 0; i < this.points.length; i++) {
+      if (
+        !Number.isFinite(this.points[i].x) ||
+        !Number.isFinite(this.points[i].y)
+      ) {
+        throw new Error(
+          "lengthAt/parameterAtLength require finite control points"
+        );
+      }
+    }
+    return derivativeCoefficients(this.points);
+  }
+
+  /**
+   * Returns the arc length from t=0 to `t`.
+   *
+   * Only 2D quadratic and cubic (non-rational) curves are supported. The
+   * result has an absolute error of at most `tolerance`, measured in curve
+   * coordinates.
+   */
+  lengthAt(t, tolerance = 1e-8) {
+    if (!finiteNumber(t) || t < 0 || t > 1) {
+      throw new RangeError("t must be a finite number in [0,1]");
+    }
+    if (!finiteNumber(tolerance) || tolerance <= 0) {
+      throw new RangeError(
+        "tolerance must be a finite number greater than zero"
+      );
+    }
+    const coefficients = this._arcLengthCoefficients();
+    if (t === 0 || hasZeroDerivative(coefficients)) return 0;
+    // Keep integration comfortably inside the promised absolute error.
+    return arcLengthBetween(coefficients, 0, t, tolerance / 2);
+  }
+
+  /**
+   * Returns the parameter `t` at which the arc length from the start of the
+   * curve equals `distance`.
+   *
+   * Distances past the end of the curve return 1, and a fully degenerate
+   * curve returns 0. The arc length at the returned parameter differs from
+   * `distance` by at most `tolerance`, measured in curve coordinates.
+   */
+  parameterAtLength(distance, tolerance = 1e-8) {
+    if (!finiteNumber(distance) || distance < 0) {
+      throw new RangeError(
+        "distance must be a finite, non-negative number"
+      );
+    }
+    if (!finiteNumber(tolerance) || tolerance <= 0) {
+      throw new RangeError(
+        "tolerance must be a finite number greater than zero"
+      );
+    }
+    const coefficients = this._arcLengthCoefficients();
+    if (hasZeroDerivative(coefficients)) return 0;
+    if (distance === 0) return 0;
+
+    const { cuts, lengths } = arcLengthTable(coefficients, tolerance / 16);
+    const total = lengths[lengths.length - 1];
+    if (distance >= total) return 1;
+
+    // A target that lands on a stationary point (a breakpoint between
+    // monotone pieces) has no meaningful parameter precision beyond the
+    // requested arc-length residual. Returning the breakpoint itself both
+    // satisfies that residual and avoids the ill-conditioned inversion there.
+    for (let i = 1; i < cuts.length - 1; i++) {
+      if (abs(distance - lengths[i]) <= tolerance / 2) return cuts[i];
+    }
+
+    // Find the monotone piece containing the target.
+    let segment = 0;
+    while (segment < cuts.length - 2 && distance > lengths[segment + 1]) {
+      segment++;
+    }
+    const start = cuts[segment],
+      end = cuts[segment + 1],
+      base = lengths[segment],
+      target = distance - base;
+
+    // Bisection on arc length. The loop is capped and also stops as soon as
+    // no representable midpoint remains, so it terminates even at stationary
+    // points. Bisecting all the way to the parameter limit (rather than
+    // stopping as soon as the arc-length bracket is within tolerance) also
+    // gives a parameter-accurate answer where the speed is non-zero.
+    const evaluationTolerance = tolerance / 1024;
+    let lo = start,
+      hi = end;
+
+    for (let i = 0; i < 80; i++) {
+      const mid = (lo + hi) / 2;
+      if (mid === lo || mid === hi) break;
+      const lengthMid = arcLengthBetween(
+        coefficients,
+        start,
+        mid,
+        evaluationTolerance
+      );
+      if (lengthMid < target) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return (lo + hi) / 2;
   }
 
   static getABC(order = 2, S, B, E, t = 0.5) {

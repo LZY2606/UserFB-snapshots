@@ -41,6 +41,24 @@ const Bezier = require("bezier-js");
 const b = new Bezier(...);
 ```
 
+## Arc length at a parameter
+
+For 2D quadratic and cubic (non-rational) curves you can query arc length
+directly instead of working in parameter space:
+
+```
+const b = new Bezier(...);
+
+b.lengthAt(0.5);                 // arc length from t=0 to t=0.5
+b.lengthAt(0.5, 1e-8);           // same, with an explicit tolerance
+b.parameterAtLength(distance);   // t reached after `distance` arc length
+```
+
+Both methods take an optional absolute tolerance (default `1e-8`) measured in
+curve coordinates. `parameterAtLength` returns `1` for distances past the end
+of the curve and `0` for a fully degenerate curve. Invalid parameters throw a
+`RangeError`. Only 2D quadratic/cubic non-rational curves are supported.
+
 ### Node support matrix
 
 | Node Version | Require Supported | Import Supported                    |
