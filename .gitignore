@@ -16,3 +16,5 @@ chromedp.test.exe
 .claude/settings.local.json
 go.work
 go.work.sum
+
+.build/
