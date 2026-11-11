@@ -29,6 +29,13 @@ var (
 	// ErrNotADirectory indicates that the given destination path exists but is
 	// not a directory.
 	ErrNotADirectory = errors.New("destination is not a directory")
+
+	// ErrBadContentRange indicates that a response to a ranged (resume)
+	// request did not carry a single, well-formed byte Content-Range matching
+	// the offset from which the transfer was asked to resume. Appending such
+	// a response to the partially downloaded file would corrupt it, so the
+	// transfer is failed before the destination is opened for writing.
+	ErrBadContentRange = errors.New("grab: invalid or mismatched Content-Range in resume response")
 )
 
 // StatusCodeError indicates that the server response had a status code that

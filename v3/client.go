@@ -87,13 +87,14 @@ func (c *Client) Do(req *Request) *Response {
 	ctx, cancel := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
 	resp := &Response{
-		Request:    req,
-		Start:      time.Now(),
-		Done:       make(chan struct{}),
-		Filename:   req.Filename,
-		ctx:        ctx,
-		cancel:     cancel,
-		bufferSize: req.BufferSize,
+		Request:        req,
+		Start:          time.Now(),
+		Done:           make(chan struct{}),
+		Filename:       req.Filename,
+		ctx:            ctx,
+		cancel:         cancel,
+		bufferSize:     req.BufferSize,
+		headSizeUnsafe: -1,
 	}
 	if resp.bufferSize == 0 {
 		// default to Client.BufferSize
@@ -371,6 +372,7 @@ func (c *Client) headRequest(resp *Response) (stateFunc, error) {
 		return c.getRequest, nil
 	}
 	resp.HTTPResponse = hresp
+	resp.headSizeUnsafe = hresp.ContentLength
 	resp.HTTPResponse.Body.Close()
 
 	if resp.HTTPResponse.StatusCode != http.StatusOK {
@@ -395,8 +397,6 @@ func (c *Client) getRequest(resp *Response) (stateFunc, error) {
 	}
 	resp.HTTPResponse = hresp
 
-	// TODO: check Content-Range
-
 	// check status code
 	if !resp.Request.IgnoreBadStatusCodes {
 		if resp.HTTPResponse.StatusCode < 200 || resp.HTTPResponse.StatusCode > 299 {
@@ -404,6 +404,74 @@ func (c *Client) getRequest(resp *Response) (stateFunc, error) {
 		}
 	}
 
+	// A ranged request was sent because a partial local file was found. The
+	// response must be reconciled with the local offset before the destination
+	// is opened for writing.
+	if resp.Request.HTTPRequest.Header.Get("Range") != "" {
+		return c.reconcileResumeResponse, nil
+	}
+	return c.readResponse, nil
+}
+
+// reconcileResumeResponse validates the response to a ranged (resume) request
+// before anything is written to the destination file.
+//
+// A 206 Partial Content response must carry exactly one well-formed byte
+// Content-Range whose start equals the offset from which the transfer resumed;
+// its total length must agree with the HEAD response and Request.Size, and a
+// known Content-Length must equal the range length. Any violation fails the
+// transfer with ErrBadContentRange while leaving the existing file untouched;
+// the response body is still closed by closeResponse.
+//
+// A 200 OK means the server ignored the Range header and is sending the
+// complete resource: the resume state is discarded and the existing file is
+// overwritten from the start through the normal copy flow.
+func (c *Client) reconcileResumeResponse(resp *Response) (stateFunc, error) {
+	hresp := resp.HTTPResponse
+
+	switch hresp.StatusCode {
+	case http.StatusPartialContent:
+		// Validate below; IgnoreBadStatusCodes does not bypass range checks.
+	case http.StatusOK:
+		return c.resetForFullResponse, nil
+	default:
+		// A non-206, non-200 response cannot satisfy a resume. If bad status
+		// codes are accepted, fall back to a full overwrite only when the
+		// response actually claims to be complete; otherwise fail the range
+		// contract rather than appending an error body to the local file.
+		if !resp.Request.IgnoreBadStatusCodes {
+			return nil, StatusCodeError(hresp.StatusCode)
+		}
+		if len(hresp.Header.Values("Content-Range")) > 0 {
+			return nil, &contentRangeError{fmt.Sprintf(
+				"resume request received status %d with a Content-Range header",
+				hresp.StatusCode)}
+		}
+		return c.resetForFullResponse, nil
+	}
+
+	_, _, total, err := parseSingleByteRange(
+		hresp.Header,
+		resp.bytesResumed,
+		resp.headSizeUnsafe,
+		resp.Request.Size,
+		hresp.ContentLength,
+	)
+	if err != nil {
+		return nil, err
+	}
+	resp.contentRangeTotal = total
+	return c.readResponse, nil
+}
+
+// resetForFullResponse discards the resume state prepared for a ranged request
+// when the server answers with a complete 200 response. The existing local
+// file is truncated and overwritten from zero by the normal copy flow.
+func (c *Client) resetForFullResponse(resp *Response) (stateFunc, error) {
+	resp.DidResume = false
+	resp.bytesResumed = 0
+	resp.contentRangeTotal = 0
+	resp.Request.HTTPRequest.Header.Del("Range")
 	return c.readResponse, nil
 }
 
@@ -413,11 +481,26 @@ func (c *Client) readResponse(resp *Response) (stateFunc, error) {
 	}
 
 	// check expected size
-	resp.sizeUnsafe = resp.HTTPResponse.ContentLength
-	if resp.sizeUnsafe >= 0 {
-		// remote size is known
-		resp.sizeUnsafe += resp.bytesResumed
-		if resp.Request.Size > 0 && resp.Request.Size != resp.sizeUnsafe {
+	contentLength := resp.HTTPResponse.ContentLength
+	if resp.DidResume {
+		// A validated ranged response: Content-Length describes only the
+		// remaining part, so the total size is the resumed prefix plus the
+		// part about to be copied. The Content-Range total was already
+		// checked against Request.Size and the HEAD response in
+		// reconcileResumeResponse.
+		if contentLength >= 0 {
+			resp.sizeUnsafe = resp.bytesResumed + contentLength
+		} else if resp.contentRangeTotal > 0 {
+			resp.sizeUnsafe = resp.contentRangeTotal
+		} else {
+			resp.sizeUnsafe = -1
+		}
+	} else {
+		// a complete response: an initial GET, or a resume the server
+		// answered with 200 and which will overwrite the local file
+		resp.sizeUnsafe = contentLength
+		if resp.sizeUnsafe >= 0 && resp.Request.Size > 0 &&
+			resp.Request.Size != resp.sizeUnsafe {
 			return nil, ErrBadLength
 		}
 	}

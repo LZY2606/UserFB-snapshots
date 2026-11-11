@@ -110,7 +110,11 @@ func TestHandlerAcceptRanges(t *testing.T) {
 			req := MustHTTPNewRequest("GET", url, nil)
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", n/2))
 			resp := MustHTTPDo(req)
+			AssertHTTPResponseStatusCode(t, resp, http.StatusPartialContent)
 			AssertHTTPResponseHeader(t, resp, header, "bytes")
+			AssertHTTPResponseHeader(
+				t, resp, "Content-Range",
+				fmt.Sprintf("bytes %d-%d/%d", n/2, n-1, n))
 			AssertHTTPResponseContentLength(t, resp, int64(n/2))
 		},
 			ContentLength(n),

@@ -69,6 +69,16 @@ type Response struct {
 	// capabilities of the remote server are known.
 	optionsKnown bool
 
+	// headSizeUnsafe is the complete resource length advertised by the server
+	// in response to the HEAD request, or -1 if it was unknown. It is used to
+	// verify the total length carried by a ranged GET response.
+	headSizeUnsafe int64
+
+	// contentRangeTotal is the complete resource length parsed from a
+	// validated 206 Content-Range header, or zero when the current response is
+	// not a validated ranged response.
+	contentRangeTotal int64
+
 	// writer is the file handle used to write the downloaded file to local
 	// storage
 	writer io.Writer

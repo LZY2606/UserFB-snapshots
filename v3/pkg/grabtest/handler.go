@@ -105,8 +105,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Last-Modified", lastMod.Format(http.TimeFormat))
 
-	// set content-length
+	// set content-length and serve a ranged response when the client asked
+	// for one
 	offset := 0
+	ranged := false
 	if h.acceptRanges {
 		if reqRange := r.Header.Get("Range"); reqRange != "" {
 			if _, err := fmt.Sscanf(reqRange, "bytes=%d-", &offset); err != nil {
@@ -117,6 +119,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				httpError(w, http.StatusRequestedRangeNotSatisfiable)
 				return
 			}
+			ranged = true
+			w.Header().Set(
+				"Content-Range",
+				fmt.Sprintf("bytes %d-%d/%d", offset, h.contentLength-1, h.contentLength))
 		}
 	}
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", h.contentLength-offset))
@@ -127,7 +133,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send header and status code
-	w.WriteHeader(h.statusCodeFunc(r))
+	statusCode := h.statusCodeFunc(r)
+	if ranged && statusCode == http.StatusOK {
+		// a successful ranged request is a Partial Content response
+		statusCode = http.StatusPartialContent
+	}
+	w.WriteHeader(statusCode)
 
 	// send body
 	if r.Method == "GET" {
