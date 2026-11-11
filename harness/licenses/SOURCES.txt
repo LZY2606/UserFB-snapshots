@@ -1,0 +1,28 @@
+Font sources used by the unchanged upstream checkout:
+
+Fontstash source commit: b5ddc9741061343740d85d636d782ed3e07cf7be
+Fontstash library: zlib, see LICENSE.txt.
+Embedded stb_truetype v1.16: MIT OR public domain, see src/stb_truetype.h.
+
+The three DroidSerif font binaries exactly match the initial AOSP source below.
+The old embedded Ascender EULA text is retained unchanged; the AOSP distribution
+ships these identical binaries under its Apache-2.0 NOTICE and module marker.
+The Japanese font states Apache-2.0 in its embedded name IDs 13 and 14.
+Baseline uses only the Japanese font, not the Serif fonts.
+
+DroidSerif-Regular.ttf sha256=d3142a1beb9032dd47d24a865402720391b130413fb68227f800dfebe74d905f
+https://android.googlesource.com/platform/frameworks/base/+/54b6cfa9a9e5b861a9930af873580d6dc20f773c/data/fonts/DroidSerif-Regular.ttf
+DroidSerif-Bold.ttf sha256=d874cd4ebd917592e930523abf7d8fd0ec92db58d6adfbecac657c6877d84ff8
+https://android.googlesource.com/platform/frameworks/base/+/54b6cfa9a9e5b861a9930af873580d6dc20f773c/data/fonts/DroidSerif-Bold.ttf
+DroidSerif-Italic.ttf sha256=0dc7580637c605e06e2e5db6bf73755169db8d17d95333ac243d931ef098ea35
+https://android.googlesource.com/platform/frameworks/base/+/54b6cfa9a9e5b861a9930af873580d6dc20f773c/data/fonts/DroidSerif-Italic.ttf
+
+Apache license source:
+https://android.googlesource.com/platform/frameworks/base/+/54b6cfa9a9e5b861a9930af873580d6dc20f773c/data/fonts/NOTICE
+https://android.googlesource.com/platform/frameworks/base/+/54b6cfa9a9e5b861a9930af873580d6dc20f773c/data/fonts/MODULE_LICENSE_APACHE2
+
+example/DroidSansJapanese.ttf sha256=724daad5590faa0ca983fc932bf58d094cae9f6d4cf44b5af89a4863f8f5b000
+Source: https://github.com/memononen/fontstash/blob/b5ddc9741061343740d85d636d782ed3e07cf7be/example/DroidSansJapanese.ttf
+
+harness/ files are new local witness/recorder/dispatcher code, under the repository zlib license.
+No font binaries or runtime implementation were modified.
