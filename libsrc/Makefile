@@ -6,6 +6,7 @@ include ../Makerules
 CCFILES =	TriMesh_bounding.cc \
 		TriMesh_connectivity.cc \
 		TriMesh_curvature.cc \
+		TriMesh_affine.cc \
 		TriMesh_io.cc \
 		TriMesh_grid.cc \
 		TriMesh_normals.cc \

@@ -102,6 +102,15 @@ extern void inflate(TriMesh *mesh, float amount);
 // Transform the mesh by the given matrix
 extern void apply_xform(TriMesh *mesh, const xform &xf);
 
+// Apply a finite, invertible 3D affine transform and transport whatever
+// differential fields already exist: normals, the principal curvature frame
+// (pdir1/pdir2/curv1/curv2), dcurv, and the mixed Voronoi point/corner
+// areas.  Fields that have not been computed are left empty.  Bounding box
+// and sphere, if cached, are recomputed.  Returns false and leaves the mesh
+// unchanged for projection matrices, singular or non-finite transforms, or
+// incomplete/inconsistent cached fields.
+extern bool apply_affine_differential(TriMesh *mesh, const xform &xf);
+
 // Translate the mesh
 extern void trans(TriMesh *mesh, const vec &transvec);
 

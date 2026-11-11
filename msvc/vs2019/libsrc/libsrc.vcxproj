@@ -57,6 +57,7 @@
     <ClCompile Include="..\..\..\libsrc\TriMesh_bounding.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_connectivity.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_curvature.cc" />
+    <ClCompile Include="..\..\..\libsrc\TriMesh_affine.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_grid.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_io.cc" />
     <ClCompile Include="..\..\..\libsrc\TriMesh_normals.cc" />
