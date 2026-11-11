@@ -774,6 +774,91 @@ func (sa *StyleAttributes) merge(parent *StyleAttributes) {
 	}
 }
 
+// mergeTTMLOverrides copies every TTML attribute set on parent onto sa,
+// replacing the existing value. Unlike merge this implements cascade
+// semantics: when several style references apply to the same node, a later
+// reference (or the node's own tts attributes) wins over an earlier one.
+// Only TTML attributes participate; derived WebVTT/STL fields are re-computed
+// by the caller afterwards so no stale derived value can survive an override.
+func (sa *StyleAttributes) mergeTTMLOverrides(parent *StyleAttributes) {
+	if parent == nil || sa == nil {
+		return
+	}
+
+	if parent.TTMLBackgroundColor != nil {
+		sa.TTMLBackgroundColor = parent.TTMLBackgroundColor
+	}
+	if parent.TTMLColor != nil {
+		sa.TTMLColor = parent.TTMLColor
+	}
+	if parent.TTMLDirection != nil {
+		sa.TTMLDirection = parent.TTMLDirection
+	}
+	if parent.TTMLDisplay != nil {
+		sa.TTMLDisplay = parent.TTMLDisplay
+	}
+	if parent.TTMLDisplayAlign != nil {
+		sa.TTMLDisplayAlign = parent.TTMLDisplayAlign
+	}
+	if parent.TTMLExtent != nil {
+		sa.TTMLExtent = parent.TTMLExtent
+	}
+	if parent.TTMLFontFamily != nil {
+		sa.TTMLFontFamily = parent.TTMLFontFamily
+	}
+	if parent.TTMLFontSize != nil {
+		sa.TTMLFontSize = parent.TTMLFontSize
+	}
+	if parent.TTMLFontStyle != nil {
+		sa.TTMLFontStyle = parent.TTMLFontStyle
+	}
+	if parent.TTMLFontWeight != nil {
+		sa.TTMLFontWeight = parent.TTMLFontWeight
+	}
+	if parent.TTMLLineHeight != nil {
+		sa.TTMLLineHeight = parent.TTMLLineHeight
+	}
+	if parent.TTMLOpacity != nil {
+		sa.TTMLOpacity = parent.TTMLOpacity
+	}
+	if parent.TTMLOrigin != nil {
+		sa.TTMLOrigin = parent.TTMLOrigin
+	}
+	if parent.TTMLOverflow != nil {
+		sa.TTMLOverflow = parent.TTMLOverflow
+	}
+	if parent.TTMLPadding != nil {
+		sa.TTMLPadding = parent.TTMLPadding
+	}
+	if parent.TTMLShowBackground != nil {
+		sa.TTMLShowBackground = parent.TTMLShowBackground
+	}
+	if parent.TTMLTextAlign != nil {
+		sa.TTMLTextAlign = parent.TTMLTextAlign
+	}
+	if parent.TTMLTextDecoration != nil {
+		sa.TTMLTextDecoration = parent.TTMLTextDecoration
+	}
+	if parent.TTMLTextOutline != nil {
+		sa.TTMLTextOutline = parent.TTMLTextOutline
+	}
+	if parent.TTMLUnicodeBidi != nil {
+		sa.TTMLUnicodeBidi = parent.TTMLUnicodeBidi
+	}
+	if parent.TTMLVisibility != nil {
+		sa.TTMLVisibility = parent.TTMLVisibility
+	}
+	if parent.TTMLWrapOption != nil {
+		sa.TTMLWrapOption = parent.TTMLWrapOption
+	}
+	if parent.TTMLWritingMode != nil {
+		sa.TTMLWritingMode = parent.TTMLWritingMode
+	}
+	if parent.TTMLZIndex != nil {
+		sa.TTMLZIndex = parent.TTMLZIndex
+	}
+}
+
 // Metadata represents metadata
 // TODO Merge attributes
 type Metadata struct {
@@ -827,6 +912,22 @@ type Style struct {
 	ID          string
 	InlineStyle *StyleAttributes
 	Style       *Style
+
+	// StyleReferences holds the ordered references of a TTML "style" attribute
+	// containing several space-separated IDs. It is nil for single-reference
+	// and non-TTML styles, in which case Style keeps its usual meaning.
+	// Synthetic styles produced while resolving multi-references also carry
+	// the original reference list so it can be written back verbatim.
+	StyleReferences *TTMLStyleReferences
+
+	// ttmlSynthetic marks styles materialized from a multi-reference list
+	// rather than declared in the document's <styling> block. They are never
+	// emitted when writing TTML, keeping write/read cycles stable.
+	ttmlSynthetic bool
+
+	// ttmlRefAttribute is the exact value of the node "style" attribute that
+	// resolved to this synthetic style, so it can be written back verbatim.
+	ttmlRefAttribute string
 }
 
 // Line represents a set of formatted line items
@@ -1037,6 +1138,37 @@ func (s *Subtitles) removeUnusedRegionsAndStyles() {
 			}
 		} else {
 			delete(s.Regions, id)
+		}
+	}
+
+	// A referenced style stays valid only while every style it references is
+	// kept, so propagate usage through multi-reference lists and single
+	// parent links transitively.
+	queue := make([]string, 0, len(usedStyles))
+	for id := range usedStyles {
+		queue = append(queue, id)
+	}
+	mark := func(id string) {
+		if id != "" && !usedStyles[id] {
+			usedStyles[id] = true
+			queue = append(queue, id)
+		}
+	}
+	for len(queue) > 0 {
+		st, ok := s.Styles[queue[0]]
+		queue = queue[1:]
+		if !ok {
+			continue
+		}
+		if st.Style != nil {
+			mark(st.Style.ID)
+		}
+		if st.StyleReferences != nil {
+			for _, ref := range st.StyleReferences.Styles() {
+				if ref != nil {
+					mark(ref.ID)
+				}
+			}
 		}
 	}
 

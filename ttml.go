@@ -369,26 +369,77 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 	// Add metadata
 	o.Metadata = ttml.metadata()
 
-	// Loop through styles
-	var parentStyles = make(map[string]*Style)
+	// Loop through styles. The raw "style" attributes are kept verbatim: a
+	// single reference is still represented through Style.Style, while several
+	// space-separated references go through Style.StyleReferences.
+	var rawStyleRefs = make(map[string][]string)
 	for _, ts := range ttml.Styles {
 		var s = &Style{
 			ID:          ts.ID,
 			InlineStyle: ts.TTMLInStyleAttributes.styleAttributes(),
 		}
 		o.Styles[s.ID] = s
-		if len(ts.Style) > 0 {
-			parentStyles[ts.Style] = s
+		rawStyleRefs[s.ID] = ttmlStyleRefIDs(ts.Style)
+	}
+
+	// Resolve the whole style graph up front. Missing references and cycles
+	// must be reported even when the faulty style is not referenced by any cue,
+	// and diamond sharing resolves each style only once.
+	var resolver = &ttmlStyleResolver{
+		styles:    o.Styles,
+		rawRefs:   rawStyleRefs,
+		effective: make(map[string]*StyleAttributes),
+	}
+	for _, ts := range ttml.Styles {
+		if _, err = resolver.resolve(ts.ID, nil); err != nil {
+			return
 		}
 	}
 
-	// Take care of parent styles
-	for id, s := range parentStyles {
-		if _, ok := o.Styles[id]; !ok {
-			err = fmt.Errorf("astisub: Style %s requested by style %s doesn't exist", id, s.ID)
-			return
+	// Preserve the reference topology on the public Style objects.
+	for _, ts := range ttml.Styles {
+		ids := rawStyleRefs[ts.ID]
+		s := o.Styles[ts.ID]
+		if len(ids) == 1 {
+			s.Style = o.Styles[ids[0]]
+		} else if len(ids) > 1 {
+			refs := newTTMLStyleReferences(ids)
+			refs.link(o.Styles)
+			s.StyleReferences = refs
 		}
-		s.Style = o.Styles[id]
+	}
+
+	// Synthetic styles materializing multi-reference lists are shared between
+	// nodes through this cache and never emitted back to TTML.
+	var mergedStyleCache = make(map[string]*Style)
+
+	// resolveNodeStyle maps a node's raw "style" attribute to the style it
+	// should point at. A single reference resolves to the declared style as
+	// before unless that style itself combines several references, in which
+	// case the composed effective attributes are materialized into a shared
+	// synthetic style; several references resolve the same way directly.
+	resolveNodeStyle := func(raw, owner string) (*Style, error) {
+		ids := ttmlStyleRefIDs(raw)
+		if len(ids) == 0 {
+			return nil, nil
+		}
+		for _, id := range ids {
+			if _, ok := o.Styles[id]; !ok {
+				return nil, fmt.Errorf("astisub: Style %s requested by %s doesn't exist", id, owner)
+			}
+		}
+		if len(ids) == 1 {
+			declared := o.Styles[ids[0]]
+			if declared.StyleReferences == nil {
+				return declared, nil
+			}
+			// The declared style itself combines references: reuse its already
+			// resolved effective attributes, which include its own tts attrs.
+			return ttmlMergedStyle(o.Styles, mergedStyleCache, raw, rawStyleRefs[ids[0]], ids[0], resolver.effective[ids[0]]), nil
+		}
+		effective := resolver.compose(ids, &StyleAttributes{})
+		refAttribute := strings.Join(ids, " ")
+		return ttmlMergedStyle(o.Styles, mergedStyleCache, refAttribute, ids, refAttribute, effective), nil
 	}
 
 	// Loop through regions
@@ -398,11 +449,15 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 			InlineStyle: tr.TTMLInStyleAttributes.styleAttributes(),
 		}
 		if len(tr.Style) > 0 {
-			if _, ok := o.Styles[tr.Style]; !ok {
-				err = fmt.Errorf("astisub: Style %s requested by region %s doesn't exist", tr.Style, r.ID)
+			style, e := resolveNodeStyle(tr.Style, "region "+r.ID)
+			if e != nil {
+				err = e
 				return
 			}
-			r.Style = o.Styles[tr.Style]
+			// The synthetic style of a multi-reference region carries the
+			// composed effective attributes; the region keeps only its own tts
+			// attributes, exactly like the single-reference case.
+			r.Style = style
 		}
 		o.Regions[r.ID] = r
 	}
@@ -458,11 +513,12 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 
 			// Add style
 			if len(ts.Style) > 0 {
-				if _, ok := o.Styles[ts.Style]; !ok {
-					err = fmt.Errorf("astisub: Style %s requested by subtitle between %s and %s doesn't exist", ts.Style, s.StartAt, s.EndAt)
+				style, e := resolveNodeStyle(ts.Style, fmt.Sprintf("subtitle between %s and %s", s.StartAt, s.EndAt))
+				if e != nil {
+					err = e
 					return
 				}
-				s.Style = o.Styles[ts.Style]
+				s.Style = style
 			}
 
 			// Remove items identation
@@ -506,11 +562,12 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 
 					// Add style
 					if len(tt.Style) > 0 {
-						if _, ok := o.Styles[tt.Style]; !ok {
-							err = fmt.Errorf("astisub: Style %s requested by item with text %s doesn't exist", tt.Style, tt.Text)
+						style, e := resolveNodeStyle(tt.Style, "item with text "+tt.Text)
+						if e != nil {
+							err = e
 							return
 						}
-						t.Style = o.Styles[tt.Style]
+						t.Style = style
 					}
 
 					// Append items
@@ -721,14 +778,18 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 			TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(s.Regions[id].InlineStyle),
 		}}
 		if s.Regions[id].Style != nil {
-			ttmlRegion.Style = s.Regions[id].Style.ID
+			ttmlRegion.Style = ttmlStyleRefAttribute(s.Regions[id].Style, s.Regions[id].Style.StyleReferences)
 		}
 		ttml.Regions = append(ttml.Regions, ttmlRegion)
 	}
 
-	// Add styles
+	// Add styles. Synthetic styles only exist to carry composed multi-reference
+	// attributes on nodes; they are not part of the document and are skipped.
 	k = []string{}
 	for _, style := range s.Styles {
+		if style.ttmlSynthetic {
+			continue
+		}
 		k = append(k, style.ID)
 	}
 	sort.Strings(k)
@@ -737,8 +798,8 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 			ID:                     s.Styles[id].ID,
 			TTMLOutStyleAttributes: ttmlOutStyleAttributesFromStyleAttributes(s.Styles[id].InlineStyle),
 		}}
-		if s.Styles[id].Style != nil {
-			ttmlStyle.Style = s.Styles[id].Style.ID
+		if s.Styles[id].Style != nil || s.Styles[id].StyleReferences != nil {
+			ttmlStyle.Style = ttmlStyleRefAttribute(s.Styles[id].Style, s.Styles[id].StyleReferences)
 		}
 		ttml.Styles = append(ttml.Styles, ttmlStyle)
 	}
@@ -759,7 +820,7 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 
 		// Add style
 		if item.Style != nil {
-			ttmlSubtitle.Style = item.Style.ID
+			ttmlSubtitle.Style = ttmlStyleRefAttribute(item.Style, item.Style.StyleReferences)
 		}
 
 		// Add lines
@@ -775,7 +836,7 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 
 				// Add style
 				if lineItem.Style != nil {
-					ttmlItem.Style = lineItem.Style.ID
+					ttmlItem.Style = ttmlStyleRefAttribute(lineItem.Style, lineItem.Style.StyleReferences)
 				}
 
 				// Add ttml item

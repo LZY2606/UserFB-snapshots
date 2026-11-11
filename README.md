@@ -52,6 +52,32 @@ var buf = &bytes.Buffer{}
 s2.WriteToTTML(buf)
 ```
 
+## TTML multi-reference styles
+
+TTML allows a `style` attribute to reference several space-separated styles
+(`style="bold blue"`), and a referenced style may itself reference several
+styles. References are applied in order: a later reference overrides the
+same-named attributes of an earlier one, and the node's own `tts:` attributes
+win last.
+
+- A **single** reference keeps the historical representation: the node's
+  `Style` (on `Style`, `Region`, `Item` and `LineItem`) points at the declared
+  style and, for head styles, the parent is available through `Style.Style`.
+- **Multiple** references are exposed through the extension field
+  `Style.StyleReferences` (`*TTMLStyleReferences`), whose `IDs()` and
+  `Styles()` methods return the ordered references. The node's `Style` then
+  points at a shared *synthetic* style whose `InlineStyle` holds the composed
+  effective attributes (including the derived WebVTT layout fields), so the
+  existing `InlineStyle`/`Style` consumers keep working unchanged. Synthetic
+  styles are deterministic, shared by every node with the same reference
+  list, and never emitted back to TTML.
+- On write, the original reference lists are rendered verbatim as
+  space-separated `style` attributes, so a write/read cycle preserves every
+  node's effective TTML attributes without accumulating new styles. Missing
+  references and reference cycles (a shared diamond ancestor is not a cycle)
+  make `ReadFromTTML`/`OpenFile` fail with an error containing the style ID
+  chain.
+
 # Using the CLI
 
 If **astisub** has been installed properly you can:
