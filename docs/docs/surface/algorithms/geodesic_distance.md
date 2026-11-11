@@ -307,22 +307,56 @@ VertexData<double> distToSource = heatSolver.computeDistance(targetP);
 
     Algorithm options (like `tCoef`) cannot be changed after construction; create a new solver object with the new settings.
 
+#### Disconnected components
+
+The input mesh may contain several topologically disconnected components. Components are determined by edge/vertex
+adjacency, so surfaces that overlap in space but share no vertices or edges are still treated as isolated. The
+high-level `computeDistance()` entry points solve every connected component independently, exactly as if that
+component were extracted into its own mesh and solved with the same `tCoef` / `useRobustLaplacian` options:
+
+- the heat time of each component is `tCoef` times the squared mean edge length *of that component*, so a large
+  component cannot change the heat flow inside a small one;
+- the constant shift that places zero at the source set is evaluated separately within each sourced component;
+- every vertex of a component that contains no source is assigned positive infinity (`+inf`), and no unsourced
+  component ever enters a linear solve, so infinities never reach the factorized systems or poison their caches.
+
+The component operators and factorizations are built once at construction and reused across calls, so a single solver
+can be invoked repeatedly with different source sets (including dropping all sources from a component that previously
+had some). Passing an empty source list throws `std::invalid_argument`.
+
+When `useRobustLaplacian=true` the same rules apply: each component gets its own tufted cover with component-local
+mollification and Delaunay flips, and the cover's internal numbering is never mixed with input vertices or the faces
+used to locate sources.
 
 ??? func "`#!cpp VertexData<double> HeatMethodDistanceSolver::computeDistance(Vertex v)`"
 
-    Compute the distance from a single source vertex.
+    Compute the distance from a single source vertex. Vertices in connected components without a source get positive
+    infinity.
 
 
 ??? func "`#!cpp VertexData<double> HeatMethodDistanceSolver::computeDistance(std::vector<Vertex> verts)`"
 
-    Compute the distance from a set of source vertices.
+    Compute the distance from a set of source vertices. Throws `std::invalid_argument` if the list is empty. Vertices
+    in connected components without a source get positive infinity.
 
 
 ??? func "`#!cpp VertexData<double> HeatMethodDistanceSolver::computeDistance(SurfacePoint p)`"
 
-    Compute the distance from a single source point.
+    Compute the distance from a single source point. Vertices in connected components without a source get positive
+    infinity.
 
 
 ??? func "`#!cpp VertexData<double> HeatMethodDistanceSolver::computeDistance(std::vector<SurfacePoint> points)`"
 
-    Compute the distance from a set of source points.
+    Compute the distance from a set of source points. Throws `std::invalid_argument` if the list is empty. Vertices in
+    connected components without a source get positive infinity.
+
+
+??? func "`#!cpp Vector<double> HeatMethodDistanceSolver::computeDistanceRHS(Vector<double> rhs)`"
+
+    The low-level interface: perform a single heat solve followed by a Poisson solve on the full mesh using the
+    operators factorized at construction, and return the unshifted result. This entry point deliberately does **not**
+    apply any per-component decomposition, source zero-shift, or positive-infinity substitution. Its RHS may contain
+    finite values of either sign. The component-aware behavior and infinite unsourced results of the high-level
+    `computeDistance()` entry points are intentionally absent here.
+

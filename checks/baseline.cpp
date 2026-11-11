@@ -25,6 +25,8 @@ int main(int argc, char**) {
   double delta=std::abs(d[mesh.vertex(2)]-sd[single.vertex(2)]);
   std::cout<<"HEAT_SOURCED_COMPONENT_DELTA="<<delta<<"\n";
   if(argc>1) { if(phantom || delta>1e-8) return 1; return 0; }
-  assert(phantom==4 && delta>1e-5);
-  std::cout<<"GEOMETRYCENTRAL_DISCONNECTED_REPRO_OK\n";
+  // After the component-isolation fix: the unsourced patch gets no finite distances, and the sourced patch matches a
+  // standalone solve exactly.
+  assert(phantom==0 && delta<=1e-8);
+  std::cout<<"GEOMETRYCENTRAL_DISCONNECTED_FIX_OK\n";
 }

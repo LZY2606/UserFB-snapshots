@@ -1,6 +1,10 @@
 # Build directories
 build/
 build_debug/
+.tmp/
+
+# Locally fetched Eigen (see checks/install.sh)
+.deps/
 
 # Editor and OS things
 .DS_Store
