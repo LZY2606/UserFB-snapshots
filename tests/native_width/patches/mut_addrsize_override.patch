@@ -1,0 +1,12 @@
+--- a/bdshemu/bdshemu_x86.c
++++ b/bdshemu/bdshemu_x86.c
+@@ -1031,7 +1031,8 @@ ShemuX86ComputeLinearAddress(
+     switch (Context->Arch.X86.Instruction.AddrMode)
+     {
+     case ND_ADDR_32:
+-        gla &= 0xFFFFFFFF;
++        // MUTATION(native-width): 0x67 must truncate the effective address to
++        // 32 bits before the segment base is added; this variant skips it.
+         break;
+     case ND_ADDR_16:
+         gla &= 0xFFFF;

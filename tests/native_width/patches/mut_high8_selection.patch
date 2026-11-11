@@ -1,0 +1,11 @@
+--- a/bdshemu/bdshemu_x86.c
++++ b/bdshemu/bdshemu_x86.c
+@@ -482,7 +482,7 @@ ShemuX86SetGprValue(
+     ND_BOOL High8
+     )
+ {
+-    if (High8 && Reg >= 4)
++    if (0 && High8 && Reg >= 4)
+     {
+         Reg = Reg - 4;
+     }
