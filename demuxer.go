@@ -57,6 +57,7 @@ func NewDemuxer(ctx context.Context, r io.Reader, opts ...func(*Demuxer)) (d *De
 		streamMap:  newElementaryStreamMap(),
 	}
 	d.packetPool = newPacketPool(d.programMap)
+	d.packetPool.streamMap = d.streamMap
 
 	// Apply options
 	for _, opt := range opts {
@@ -204,6 +205,11 @@ func (dmx *Demuxer) updateData(ds []*DemuxerData) (d *DemuxerData) {
 			if v.PMT != nil {
 				for _, es := range v.PMT.ElementaryStreams {
 					dmx.streamMap.setUnlocked(es.ElementaryPID, v.PMT.ProgramNumber)
+					if es.StreamType == StreamTypeSCTE35 {
+						dmx.streamMap.setSCTE35Unlocked(es.ElementaryPID)
+					} else {
+						dmx.streamMap.unsetSCTE35Unlocked(es.ElementaryPID)
+					}
 				}
 			}
 		}
@@ -216,6 +222,7 @@ func (dmx *Demuxer) Rewind() (n int64, err error) {
 	dmx.dataBuffer = []*DemuxerData{}
 	dmx.packetBuffer = nil
 	dmx.packetPool = newPacketPool(dmx.programMap)
+	dmx.packetPool.streamMap = dmx.streamMap
 	if n, err = rewind(dmx.r); err != nil {
 		err = fmt.Errorf("astits: rewinding reader failed: %w", err)
 		return

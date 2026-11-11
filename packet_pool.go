@@ -8,14 +8,16 @@ import (
 type packetAccumulator struct {
 	pid        uint16
 	programMap *programMap
+	streamMap  *elementaryStreamMap
 	q          []*Packet
 }
 
 // newPacketAccumulator creates a new packet queue for a single PID
-func newPacketAccumulator(pid uint16, programMap *programMap) *packetAccumulator {
+func newPacketAccumulator(pid uint16, programMap *programMap, streamMap *elementaryStreamMap) *packetAccumulator {
 	return &packetAccumulator{
 		pid:        pid,
 		programMap: programMap,
+		streamMap:  streamMap,
 	}
 }
 
@@ -54,7 +56,12 @@ func (b *packetAccumulator) add(p *Packet) (ps []*Packet) {
 	}
 
 	// Check if PSI payload is complete
-	if b.programMap != nil &&
+	if b.streamMap != nil && b.streamMap.isSCTE35Unlocked(b.pid) && isSCTE35Complete(mps) {
+		// SCTE-35 splice info sections are short sections: flush as soon as the
+		// declared bytes are available, without waiting for the next start packet.
+		ps = mps
+		mps = nil
+	} else if b.programMap != nil &&
 		(b.pid == PIDPAT || b.programMap.existsUnlocked(b.pid)) &&
 		isPSIComplete(mps) {
 		ps = mps
@@ -74,6 +81,7 @@ type packetPool struct {
 	b map[uint32]*packetAccumulator // Indexed by PID
 
 	programMap *programMap
+	streamMap  *elementaryStreamMap
 }
 
 // newPacketPool creates a new packet pool with an optional parser and programMap
@@ -101,7 +109,7 @@ func (b *packetPool) addUnlocked(p *Packet) (ps []*Packet) {
 	// Make sure accumulator exists
 	acc, ok := b.b[uint32(p.Header.PID)]
 	if !ok {
-		acc = newPacketAccumulator(p.Header.PID, b.programMap)
+		acc = newPacketAccumulator(p.Header.PID, b.programMap, b.streamMap)
 		b.b[uint32(p.Header.PID)] = acc
 	}
 

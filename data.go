@@ -23,6 +23,7 @@ type DemuxerData struct {
 	PES         *PESData
 	PID         uint16
 	PMT         *PMTData
+	SCTE35      *SCTE35Data
 	SDT         *SDTData
 	TOT         *TOTData
 }
@@ -89,6 +90,13 @@ func parseData(ps []*Packet, prs PacketsParser, pm *programMap, esm *elementaryS
 
 		// Append data
 		ds = psiData.toData(fp, pid)
+	} else if esm.isSCTE35Unlocked(pid) {
+		// Parse SCTE-35 splice info sections. Only PIDs declared with
+		// stream_type 0x86 in the current PMT reach this branch.
+		if ds, err = parseSCTE35Payload(payload.s, pid, fp); err != nil {
+			err = fmt.Errorf("astits: parsing SCTE-35 data failed: %w", err)
+			return
+		}
 	} else if isPESPayload(payload.s) {
 		// Parse PES data
 		var pesData *PESData
