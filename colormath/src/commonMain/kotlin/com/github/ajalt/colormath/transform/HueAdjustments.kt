@@ -43,3 +43,14 @@ private inline fun deltaAdjustment(crossinline adj: (delta: Float) -> Float): Co
             }
         }
     }
+
+/** A stable name for a built-in hue adjustment, used by the conversion trace. */
+internal val ComponentAdjustment.traceName: String
+    get() = when (this) {
+        HueAdjustments.shorter -> "shorter"
+        HueAdjustments.longer -> "longer"
+        HueAdjustments.increasing -> "increasing"
+        HueAdjustments.decreasing -> "decreasing"
+        HueAdjustments.specified -> "specified"
+        else -> "custom"
+    }

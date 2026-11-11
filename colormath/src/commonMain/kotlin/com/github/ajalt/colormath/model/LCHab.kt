@@ -74,7 +74,7 @@ data class LCHab(
     override fun toSRGB(): RGB = toLAB().toSRGB()
     override fun toXYZ(): XYZ = toLAB().toXYZ()
     override fun toLAB(): LAB =
-        fromPolarModel(c, h) { a, b -> LABColorSpace(space.whitePoint)(l, a, b, alpha) }
+        fromPolarModel(c, h, " (LCHab to LAB)") { a, b -> LABColorSpace(space.whitePoint)(l, a, b, alpha) }
 
     override fun toLCHab(): LCHab = this
     override fun toArray(): FloatArray = floatArrayOf(l, c, h, alpha)

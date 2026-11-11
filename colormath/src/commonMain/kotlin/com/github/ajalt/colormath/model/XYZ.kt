@@ -104,7 +104,18 @@ data class XYZ(
     private fun adaptToM(space: XYZColorSpace, m: Matrix, mi: Matrix): XYZ {
         if (space.whitePoint == this.space.whitePoint) return this
         val transform = space.chromaticAdaptationMatrix(this.space.whitePoint.chromaticity, m, mi)
-        return transform.dot(x, y, z) { xx, yy, zz -> space(xx, yy, zz, alpha) }
+        val sourceWhitePoint = this.space.whitePoint
+        return transform.dot(x, y, z) { xx, yy, zz ->
+            space(xx, yy, zz, alpha).also { result ->
+                TraceRecorder.current?.let {
+                    it.record(
+                        "chromatic-adaptation",
+                        "von Kries chromatic adaptation: $sourceWhitePoint -> ${space.whitePoint}",
+                        result,
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -113,8 +124,16 @@ data class XYZ(
     fun toRGB(space: RGBColorSpace): RGB {
         val (x, y, z) = adaptTo(XYZColorSpace(space.whitePoint))
         val f = space.transferFunctions
-        return Matrix(space.matrixFromXyz).dot(x, y, z) { r, g, b ->
-            space(f.oetf(r), f.oetf(g), f.oetf(b), alpha)
+        return Matrix(space.matrixFromXyz).dot(x, y, z) { lr, lg, lb ->
+            TraceRecorder.current?.let {
+                it.record(
+                    "matrix-transform", "XYZ to linear RGB matrix",
+                    space, floatArrayOf(lr, lg, lb, alpha),
+                )
+            }
+            space(f.oetf(lr), f.oetf(lg), f.oetf(lb), alpha).also { result ->
+                TraceRecorder.current?.record("transfer-function", "linear to non-linear RGB OETF", result)
+            }
         }
     }
 
@@ -135,7 +154,9 @@ data class XYZ(
         val a = 500 * (fx - fy)
         val b = 200 * (fy - fz)
 
-        return LABColorSpace(space.whitePoint)(l, a, b, alpha)
+        return LABColorSpace(space.whitePoint)(l, a, b, alpha).also {
+            TraceRecorder.current?.record("model-transform", "XYZ to LAB", it)
+        }
     }
 
     // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_Luv.html
@@ -157,7 +178,9 @@ data class XYZ(
         val u = 13.0 * l * (uPrime - uPrimeReference)
         val v = 13.0 * l * (vPrime - vPrimeReference)
 
-        return LUVColorSpace(space.whitePoint)(l.coerceIn(0.0, 100.0), u, v, alpha)
+        return LUVColorSpace(space.whitePoint)(l.coerceIn(0.0, 100.0), u, v, alpha).also {
+            TraceRecorder.current?.record("model-transform", "XYZ to LUV", it)
+        }
     }
 
     // https://bottosson.github.io/posts/oklab/#converting-from-xyz-to-oklab

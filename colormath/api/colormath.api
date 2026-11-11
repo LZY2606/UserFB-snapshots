@@ -1773,6 +1773,96 @@ public final class com/github/ajalt/colormath/model/xyY {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class com/github/ajalt/colormath/trace/ColorTracer {
+	public static final field INSTANCE Lcom/github/ajalt/colormath/trace/ColorTracer;
+	public final fun clamp (Lcom/github/ajalt/colormath/Color;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+	public final fun convert (Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/ColorSpace;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+}
+
+public final class com/github/ajalt/colormath/trace/ColorTracer$TracedConversion {
+	public fun <init> (Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/trace/ConversionTrace;)V
+	public final fun component1 ()Lcom/github/ajalt/colormath/Color;
+	public final fun component2 ()Lcom/github/ajalt/colormath/trace/ConversionTrace;
+	public final fun copy (Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/trace/ConversionTrace;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+	public static synthetic fun copy$default (Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/trace/ConversionTrace;ILjava/lang/Object;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getColor ()Lcom/github/ajalt/colormath/Color;
+	public final fun getTrace ()Lcom/github/ajalt/colormath/trace/ConversionTrace;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/github/ajalt/colormath/trace/ConversionTrace {
+	public fun <init> (Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/Color;Ljava/util/List;)V
+	public final fun component1 ()Lcom/github/ajalt/colormath/Color;
+	public final fun component2 ()Lcom/github/ajalt/colormath/Color;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/Color;Ljava/util/List;)Lcom/github/ajalt/colormath/trace/ConversionTrace;
+	public static synthetic fun copy$default (Lcom/github/ajalt/colormath/trace/ConversionTrace;Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/Color;Ljava/util/List;ILjava/lang/Object;)Lcom/github/ajalt/colormath/trace/ConversionTrace;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInput ()Lcom/github/ajalt/colormath/Color;
+	public final fun getOutput ()Lcom/github/ajalt/colormath/Color;
+	public final fun getSpaces ()Ljava/util/List;
+	public final fun getSteps ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/github/ajalt/colormath/trace/TraceComponent {
+	public fun <init> (Ljava/lang/String;FLcom/github/ajalt/colormath/trace/TraceComponentState;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()F
+	public final fun component3 ()Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public final fun copy (Ljava/lang/String;FLcom/github/ajalt/colormath/trace/TraceComponentState;)Lcom/github/ajalt/colormath/trace/TraceComponent;
+	public static synthetic fun copy$default (Lcom/github/ajalt/colormath/trace/TraceComponent;Ljava/lang/String;FLcom/github/ajalt/colormath/trace/TraceComponentState;ILjava/lang/Object;)Lcom/github/ajalt/colormath/trace/TraceComponent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getState ()Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public final fun getValue ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/github/ajalt/colormath/trace/TraceComponentState : java/lang/Enum {
+	public static final field DEFINED Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public static final field OUT_OF_RANGE Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public static final field UNDEFINED Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public static final field ZERO Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/github/ajalt/colormath/trace/TraceComponentState;
+	public static fun values ()[Lcom/github/ajalt/colormath/trace/TraceComponentState;
+}
+
+public final class com/github/ajalt/colormath/trace/TraceStep {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/github/ajalt/colormath/ColorSpace;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lcom/github/ajalt/colormath/ColorSpace;
+	public final fun component4 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lcom/github/ajalt/colormath/ColorSpace;Ljava/util/List;)Lcom/github/ajalt/colormath/trace/TraceStep;
+	public static synthetic fun copy$default (Lcom/github/ajalt/colormath/trace/TraceStep;Ljava/lang/String;Ljava/lang/String;Lcom/github/ajalt/colormath/ColorSpace;Ljava/util/List;ILjava/lang/Object;)Lcom/github/ajalt/colormath/trace/TraceStep;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComponentNames ()Ljava/util/List;
+	public final fun getComponents ()Ljava/util/List;
+	public final fun getDetail ()Ljava/lang/String;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getSpace ()Lcom/github/ajalt/colormath/ColorSpace;
+	public final fun getValues ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/github/ajalt/colormath/trace/TracedInterpolator {
+	public static final field INSTANCE Lcom/github/ajalt/colormath/trace/TracedInterpolator;
+	public final fun interpolate (Lcom/github/ajalt/colormath/ColorSpace;Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/Color;Ljava/lang/Number;ZLkotlin/jvm/functions/Function1;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+	public static synthetic fun interpolate$default (Lcom/github/ajalt/colormath/trace/TracedInterpolator;Lcom/github/ajalt/colormath/ColorSpace;Lcom/github/ajalt/colormath/Color;Lcom/github/ajalt/colormath/Color;Ljava/lang/Number;ZLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+	public final fun interpolator (Lcom/github/ajalt/colormath/ColorSpace;Lkotlin/jvm/functions/Function1;)Lcom/github/ajalt/colormath/trace/TracedInterpolatorHandle;
+}
+
+public final class com/github/ajalt/colormath/trace/TracedInterpolatorHandle {
+	public final fun interpolate (Ljava/lang/Number;)Lcom/github/ajalt/colormath/trace/ColorTracer$TracedConversion;
+}
+
 public final class com/github/ajalt/colormath/transform/ChromaticAdapterKt {
 	public static final fun createChromaticAdapter (Lcom/github/ajalt/colormath/model/RGBColorSpace;Lcom/github/ajalt/colormath/Color;)Lcom/github/ajalt/colormath/transform/ChromaticAdapterRGB;
 	public static final fun createChromaticAdapter (Lcom/github/ajalt/colormath/model/RGBColorSpace;Lcom/github/ajalt/colormath/model/xyY;)Lcom/github/ajalt/colormath/transform/ChromaticAdapterRGB;

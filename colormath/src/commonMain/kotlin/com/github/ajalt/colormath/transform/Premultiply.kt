@@ -3,6 +3,7 @@ package com.github.ajalt.colormath.transform
 import com.github.ajalt.colormath.Color
 import com.github.ajalt.colormath.ColorComponentInfo
 import com.github.ajalt.colormath.ColorSpace
+import com.github.ajalt.colormath.internal.TraceRecorder
 
 /**
  * Multiply this color's components by its alpha value.
@@ -19,6 +20,9 @@ internal fun multiplyAlphaInPlace(space: ColorSpace<*>, components: FloatArray) 
     for (i in 0 until components.lastIndex) {
         if (space.components[i].isPolar) continue
         components[i] = components[i] * a
+    }
+    TraceRecorder.current?.let {
+        it.record("alpha-premultiply", "multiply components by alpha=$a", space, components.copyOf())
     }
 }
 
@@ -40,6 +44,9 @@ internal fun divideAlphaInPlace(space: ColorSpace<*>, components: FloatArray) {
     for (i in 0 until components.lastIndex) {
         if (space.components[i].isPolar) continue
         components[i] = components[i] / a
+    }
+    TraceRecorder.current?.let {
+        it.record("alpha-unpremultiply", "divide components by alpha=$a", space, components.copyOf())
     }
 }
 

@@ -245,7 +245,18 @@ data class RGB(
 
     override fun toXYZ(): XYZ {
         val f = space.transferFunctions
-        return Matrix(space.matrixToXyz).dot(f.eotf(r), f.eotf(g), f.eotf(b)) { x, y, z ->
+        val lr = f.eotf(r)
+        val lg = f.eotf(g)
+        val lb = f.eotf(b)
+        TraceRecorder.current?.let {
+            it.record(
+                "transfer-function", "RGB EOTF to linear-light",
+                space, floatArrayOf(lr, lg, lb, alpha),
+            )
+        }
+        return Matrix(space.matrixToXyz).dotTrace(
+            "matrix-transform", "linear RGB to XYZ matrix", lr, lg, lb,
+        ) { x, y, z ->
             XYZColorSpace(space.whitePoint)(x, y, z, alpha)
         }
     }

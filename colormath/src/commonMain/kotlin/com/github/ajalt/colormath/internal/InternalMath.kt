@@ -1,5 +1,6 @@
 package com.github.ajalt.colormath.internal
 
+import com.github.ajalt.colormath.Color
 import kotlin.math.*
 
 internal fun Float.degToRad(): Float = toDouble().degToRad().toFloat()
@@ -27,17 +28,39 @@ internal fun Float.nanToOne(): Float = if (isNaN()) 1f else this
 // https://www.w3.org/TR/css-color-4/#lab-to-lch
 // https://bottosson.github.io/posts/oklab/#the-oklab-color-space
 // https://en.wikipedia.org/wiki/CIELUV#Cylindrical_representation_.28CIELCH.29
-internal inline fun <T> toPolarModel(a: Float, b: Float, block: (c: Float, h: Float) -> T): T {
+internal inline fun <T : Color> toPolarModel(
+    a: Float,
+    b: Float,
+    traceDetail: String = "",
+    block: (c: Float, h: Float) -> T,
+): T {
     val c = sqrt(a * a + b * b)
     val h = if (c > -1e-7 && c < 1e-7) Float.NaN else atan2(b, a).radToDeg()
-    return block(c, h.normalizeDeg())
+    return block(c, h.normalizeDeg()).also { result ->
+        val recorder = TraceRecorder.current
+        if (recorder != null) {
+            recorder.record("polar-transform", "rectangular-to-polar$traceDetail", result)
+        }
+    }
 }
 
-internal inline fun <T> fromPolarModel(c: Float, h: Float, block: (a: Float, b: Float) -> T): T {
+internal inline fun <T : Color> fromPolarModel(
+    c: Float,
+    h: Float,
+    traceDetail: String = "",
+    block: (a: Float, b: Float) -> T,
+): T {
     val hDegrees = if (h.isNaN()) 0f else h.degToRad()
     val a = c * cos(hDegrees)
     val b = c * sin(hDegrees)
-    return block(a, b)
+    return block(a, b).also { result ->
+        val recorder = TraceRecorder.current
+        if (recorder != null) {
+            val detail = "polar-to-rectangular$traceDetail" +
+                    if (h.isNaN()) " (undefined hue treated as 0)" else ""
+            recorder.record("polar-transform", detail, result)
+        }
+    }
 }
 
 /**

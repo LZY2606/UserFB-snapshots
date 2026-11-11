@@ -84,7 +84,7 @@ data class LCHuv(
     override fun toSRGB(): RGB = toLUV().toSRGB()
     override fun toXYZ(): XYZ = toLUV().toXYZ()
     override fun toLUV(): LUV =
-        fromPolarModel(c, h) { u, v -> LUVColorSpace(space.whitePoint)(l, u, v, alpha) }
+        fromPolarModel(c, h, " (LCHuv to LUV)") { u, v -> LUVColorSpace(space.whitePoint)(l, u, v, alpha) }
 
     override fun toLCHuv(): LCHuv = this
     override fun toArray(): FloatArray = floatArrayOf(l, c, h, alpha)

@@ -42,7 +42,7 @@ data class Oklch(
 
     override fun toSRGB(): RGB = toOklab().toSRGB()
     override fun toXYZ(): XYZ = toOklab().toXYZ()
-    override fun toOklab(): Oklab = fromPolarModel(c, h) { a, b -> Oklab(l, a, b, alpha) }
+    override fun toOklab(): Oklab = fromPolarModel(c, h, " (Oklch to Oklab)") { a, b -> Oklab(l, a, b, alpha) }
     override fun toOklch(): Oklch = this
     override fun toArray(): FloatArray = floatArrayOf(l, c, h, alpha)
     override fun clamp(): Oklch = clampTrailingHue(l, c, h, alpha, ::copy)

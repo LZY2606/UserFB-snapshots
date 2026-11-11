@@ -51,7 +51,7 @@ data class JzCzHz(
     }
 
     override fun toXYZ(): XYZ = toJzAzBz().toXYZ()
-    override fun toJzAzBz(): JzAzBz = fromPolarModel(c, h) { a, b -> return JzAzBz(j, a, b, alpha) }
+    override fun toJzAzBz(): JzAzBz = fromPolarModel(c, h, " (JzCzHz to JzAzBz)") { a, b -> return JzAzBz(j, a, b, alpha) }
     override fun toJzCzHz(): JzCzHz = this
     override fun toArray(): FloatArray = floatArrayOf(j, c, h, alpha)
     override fun clamp(): JzCzHz = clamp3(j, c, h, alpha, ::copy)

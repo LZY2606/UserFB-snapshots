@@ -2,6 +2,7 @@
 
 package com.github.ajalt.colormath.internal
 
+import com.github.ajalt.colormath.Color
 import kotlin.jvm.JvmInline
 
 @JvmInline
@@ -82,6 +83,26 @@ internal inline fun <T> Matrix.dot(
 }
 
 internal fun Matrix.dot(v0: Float, v1: Float, v2: Float): Vector = dot(v0, v1, v2, ::Vector)
+
+/**
+ * Same as [dot], but records the resulting color as a [method] step when a trace is active.
+ *
+ * [detail] is only read when tracing is enabled. When tracing is off the only extra work is one
+ * null check; no allocations are made. Prefer constant [detail] strings; build dynamic details
+ * inside a guarded block at the call site instead.
+ */
+internal inline fun <T : Color> Matrix.dotTrace(
+    method: String,
+    detail: String,
+    v0: Float,
+    v1: Float,
+    v2: Float,
+    block: (Float, Float, Float) -> T,
+): T = dot(v0, v1, v2) { r0, r1, r2 ->
+    block(r0, r1, r2).also { result ->
+        TraceRecorder.current?.record(method, detail, result)
+    }
+}
 
 internal fun Matrix.dot(other: Matrix): Matrix {
     fun f(x: Int, y: Int): Float {

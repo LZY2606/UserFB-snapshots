@@ -95,11 +95,13 @@ data class LAB(
         val xr = fx.pow(3).let { if (it > CIE_E) it else (116 * fx - 16) / CIE_K }
 
         val wp = space.whitePoint.chromaticity
-        return xyzSpace(xr * wp.X, yr * wp.Y, zr * wp.Z, alpha)
+        return xyzSpace(xr * wp.X, yr * wp.Y, zr * wp.Z, alpha).also {
+            TraceRecorder.current?.record("model-transform", "LAB to XYZ", it)
+        }
     }
 
     override fun toLCHab(): LCHab =
-        toPolarModel(a, b) { c, h -> LCHabColorSpace(space.whitePoint)(l, c, h, alpha) }
+        toPolarModel(a, b, " (LAB to LCHab)") { c, h -> LCHabColorSpace(space.whitePoint)(l, c, h, alpha) }
 
     override fun toLAB(): LAB = this
 

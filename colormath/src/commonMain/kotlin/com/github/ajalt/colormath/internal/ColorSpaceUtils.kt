@@ -34,8 +34,19 @@ internal inline fun <T : Color> WhitePointColorSpace<T>.adaptToThis(
 ): T {
     return if (((color.space as? WhitePointColorSpace<*>)?.whitePoint
             ?: D65) == whitePoint
-    ) convert(color)
-    else convert(color.toXYZ().adaptTo(XYZColorSpace(whitePoint)))
+    ) {
+        convert(color)
+    } else {
+        val sourceXyz = color.toXYZ()
+        TraceRecorder.current?.let {
+            it.record(
+                "white-point", "convert to XYZ relative to ${sourceXyz.space.whitePoint}", sourceXyz,
+            )
+        }
+        // The adaptation itself is recorded by XYZ.adaptTo, so it is not re-recorded here.
+        val adapted = sourceXyz.adaptTo(XYZColorSpace(whitePoint))
+        convert(adapted)
+    }
 }
 
 private val alphaInfo = ColorComponentInfo("alpha", false, 0f, 1f)
@@ -98,7 +109,9 @@ internal inline fun <T : Color> T.clamp3(
             v2.coerceIn(c2.min, c2.max),
             v3.coerceIn(c3.min, c3.max),
             alpha.coerceIn(0f, 1f)
-        )
+        ).also {
+            TraceRecorder.current?.record("gamut-mapping", "clamp components to reference ranges", it)
+        }
     }
 }
 
@@ -121,7 +134,9 @@ internal inline fun <T : Color> T.clampLeadingHue(
             v2.coerceIn(c2.min, c2.max),
             v3.coerceIn(c3.min, c3.max),
             alpha.coerceIn(0f, 1f)
-        )
+        ).also {
+            TraceRecorder.current?.record("gamut-mapping", "clamp components to reference ranges", it)
+        }
     }
 }
 
@@ -144,6 +159,8 @@ internal inline fun <T : Color> T.clampTrailingHue(
             v2.coerceIn(c2.min, c2.max),
             v3 % 360,
             alpha.coerceIn(0f, 1f)
-        )
+        ).also {
+            TraceRecorder.current?.record("gamut-mapping", "clamp components to reference ranges", it)
+        }
     }
 }

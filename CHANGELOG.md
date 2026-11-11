@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+### Added
+- Added an opt-in conversion trace (`com.github.ajalt.colormath.trace.ColorTracer` and `TracedInterpolator`) that records every stage of a color conversion or interpolation — white point, chromatic adaptation, rectangular/polar transforms, hue interpolation, and alpha premultiplication — including the method used and each intermediate value. Tracing shares the main conversion path (there is no parallel implementation), and when it is disabled the hot path performs no extra allocations.
+- `TraceComponent` distinguishes undefined components (an achromatic hue's `NaN`), exact zeros, and out-of-range components, whose unclamped values are recorded as-is.
+
 ## 3.7.0
 ### Added
 - Added the `CAM16` and `HCT` color models. ([#31](https://github.com/ajalt/colormath/issues/31))

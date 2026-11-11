@@ -74,7 +74,7 @@ data class JzAzBz(val j: Float, val a: Float, val b: Float, override val alpha: 
         )
     }
 
-    override fun toJzCzHz(): JzCzHz = toPolarModel(a, b) { c, h -> JzCzHz(j, c, h, alpha) }
+    override fun toJzCzHz(): JzCzHz = toPolarModel(a, b, " (JzAzBz to JzCzHz)") { c, h -> JzCzHz(j, c, h, alpha) }
     override fun toJzAzBz(): JzAzBz = this
     override fun toArray(): FloatArray = floatArrayOf(j, a, b, alpha)
     override fun clamp(): JzAzBz = clamp3(j, a, b, alpha, ::copy)

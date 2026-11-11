@@ -97,11 +97,13 @@ data class LUV(
         val x = (d - b) / (a - c)
         val z = x * a + b
 
-        return xyzSpace(x, y, z, alpha)
+        return xyzSpace(x, y, z, alpha).also {
+            TraceRecorder.current?.record("model-transform", "LUV to XYZ", it)
+        }
     }
 
     override fun toLCHuv(): LCHuv =
-        toPolarModel(u, v) { c, h -> LCHuvColorSpace(space.whitePoint)(l, c, h, alpha) }
+        toPolarModel(u, v, " (LUV to LCHuv)") { c, h -> LCHuvColorSpace(space.whitePoint)(l, c, h, alpha) }
 
     override fun toLUV(): LUV = this
     override fun toArray(): FloatArray = floatArrayOf(l, u, v, alpha)

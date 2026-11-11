@@ -1,5 +1,6 @@
 package com.github.ajalt.colormath
 
+import com.github.ajalt.colormath.internal.TraceRecorder
 import com.github.ajalt.colormath.model.*
 import com.github.ajalt.colormath.model.LCHuvColorSpaces.LCHuv65
 
@@ -107,7 +108,12 @@ interface Color {
                 }
             }
         }
-        return if (clamped) space.create(values) else this
+        return if (clamped) {
+            space.create(values).also {
+                TraceRecorder.current
+                    ?.record("gamut-mapping", "clamp components to reference ranges", it)
+            }
+        } else this
     }
 
     companion object // enables extensions on the interface

@@ -3,6 +3,7 @@ package com.github.ajalt.colormath.transform
 import com.github.ajalt.colormath.Color
 import com.github.ajalt.colormath.ColorComponentInfo
 import com.github.ajalt.colormath.ColorSpace
+import com.github.ajalt.colormath.internal.TraceRecorder
 import com.github.ajalt.colormath.internal.scaleRange
 import com.github.ajalt.colormath.transform.InterpolationMethod.Point
 
@@ -24,8 +25,22 @@ fun <T : Color> T.interpolate(
     hueAdjustment: ComponentAdjustment = HueAdjustments.shorter,
 ): T = map { components ->
     val l = mult(this, premultiplyAlpha, components)
+    TraceRecorder.current?.let {
+        it.record("interpolation-stop", "stop 0 at t=0", this, l.copyOf())
+    }
     val r = mult(this, premultiplyAlpha, this.convert(other).toArray())
+    TraceRecorder.current?.let {
+        it.record("interpolation-stop", "stop 1 at t=1", this, r.copyOf())
+    }
     fixupHues(this, hueAdjustment, listOf(Stop(l, 0f), Stop(r, 1f)))
+    TraceRecorder.current?.let { recorder ->
+        recorder.record(
+            "hue-adjustment", "hue adjustment: ${hueAdjustment.traceName} (stop 0)", this, l.copyOf(),
+        )
+        recorder.record(
+            "hue-adjustment", "hue adjustment: ${hueAdjustment.traceName} (stop 1)", this, r.copyOf(),
+        )
+    }
     interpolateComponents(l, r, FloatArray(components.size), t.toFloat(), premultiplyAlpha, space)
 }
 
@@ -230,6 +245,9 @@ private class InterpolatorImpl<T : Color>(
             lerpEased(li, tf)
         }
 
+        TraceRecorder.current?.let {
+            it.record("interpolation", "interpolated components at t=$tf", space, out.copyOf())
+        }
         div(space, premultiplyAlpha, out)
         return space.create(out)
     }
@@ -301,7 +319,27 @@ private class InterpolatorBuilderImpl<T : Color>(private val space: ColorSpace<T
         fixupMissingPos()
 
         val out = bakeComponents()
+        TraceRecorder.current?.let { recorder ->
+            out.forEachIndexed { i, stop ->
+                recorder.record(
+                    "interpolation-stop", "stop $i baked at t=${stop.pos}",
+                    space, stop.components.copyOf(),
+                )
+            }
+        }
         applyAdjustments(out)
+        TraceRecorder.current?.let { recorder ->
+            val adjustmentDetail = space.components.mapNotNull { info ->
+                adjustments[info.name.lowercase()]?.let { "${info.name}: ${it.traceName}" }
+            }.joinToString()
+            out.forEachIndexed { i, stop ->
+                recorder.record(
+                    "component-adjustment",
+                    "adjustments ($adjustmentDetail) applied to stop $i",
+                    space, stop.components.copyOf(),
+                )
+            }
+        }
         val lerps = space.components.mapIndexed { i, _ ->
             method.build(out.map { Point(it.pos, it.components[i]) })
         }
@@ -401,6 +439,9 @@ private fun interpolateComponents(
 ): FloatArray {
     for (i in out.indices) {
         out[i] = lerp(l[i], r[i], amount)
+    }
+    TraceRecorder.current?.let {
+        it.record("interpolation", "linear interpolation at t=$amount", space, out.copyOf())
     }
     return div(space, divideAlpha, out)
 }
