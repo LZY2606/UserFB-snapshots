@@ -208,6 +208,8 @@ if(USE_GME_VGM)
                 Vgm_Emu.h
                 Vgm_Emu_Impl.cpp
                 Vgm_Emu_Impl.h
+                Vgm_Stream.cpp
+                Vgm_Stream.h
                 Ym2413_Emu.cpp
                 Ym2413_Emu.h
         )

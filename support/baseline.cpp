@@ -16,7 +16,12 @@ int main(int argc, char** argv) {
         std::puts("VGM_STREAM_GOAL_SMOKE_OK");return 0;
     }
     if(argc!=1) return 5;
-    if(!differences || !warning) return 3;
-    std::printf("VGM_STREAM_UNSUPPORTED_WITNESS differing_samples=%u warning=1\n",differences);
+    // Default run: once DAC stream control is implemented the stream-controlled
+    // file must be sample-identical to the fully expanded one, with no warning.
+    if(differences || warning) {
+        std::fprintf(stderr,"VGM_STREAM_MISMATCH differing_samples=%u warning=%d\n",differences,int(warning));
+        return 3;
+    }
+    std::printf("VGM_STREAM_MATCH_OK differing_samples=0 warning=0\n");
     return 0;
 }

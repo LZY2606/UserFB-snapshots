@@ -25,6 +25,10 @@ Features:
 * Treble/bass and stereo echo for AY/GBS/HES/KSS/NSF/NSFE/SAP/VGM
 * Tempo can be adjusted and individual voices can be muted while playing
 * Can read music data from file, memory, or custom reader function/class
+* VGM 1.71 DAC stream control (commands 0x90-0x95) for the first YM2612,
+  port 0, register 0x2A, uncompressed bank 0, stream IDs 0-254; see
+  doc/vgm-stream-control.md and the VGM specification at
+  https://vgmrips.net/wiki/VGM_Specification
 * Can access track information without having to load into full emulator
 * M3U track listing support for multi-track formats
 * Modular design allows elimination of unneeded emulators/features

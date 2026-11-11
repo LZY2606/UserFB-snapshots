@@ -351,6 +351,10 @@ blargg_err_t Vgm_Emu::load_mem_( byte const* new_data, long new_size )
 	data     = new_data;
 	data_end = new_data + new_size;
 
+	// A newly loaded file starts with no DAC streams, data bank or PCM cursor.
+	stream_ctrl.reset();
+	stream_base_tick = 0;
+
 	// get loop
 	loop_begin = data_end;
 	if ( get_le32( h.loop_offset ) )
@@ -454,10 +458,13 @@ blargg_err_t Vgm_Emu::start_track_( int track )
 
 	dac_disabled = -1;
 	pos          = data + header_size;
-	pcm_data     = pos;
-	pcm_pos      = pos;
 	dac_amp      = -1;
 	vgm_time     = 0;
+
+	// Restarting (also reached by a backwards seek) drops all streams, the
+	// data bank and any phase carried over from the previous playback.
+	stream_ctrl.reset();
+	stream_base_tick = 0;
 	if ( get_le32( header().version ) >= 0x150 )
 	{
 		long data_offset = get_le32( header().data_offset );

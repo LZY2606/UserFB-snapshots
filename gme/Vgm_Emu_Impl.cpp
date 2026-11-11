@@ -36,6 +36,14 @@ enum {
 	cmd_pcm_delay       = 0x80,
 	cmd_pcm_seek        = 0xE0,
 
+	// VGM 1.71 DAC stream control
+	cmd_stream_setup    = 0x90,
+	cmd_stream_data     = 0x91,
+	cmd_stream_freq     = 0x92,
+	cmd_stream_start    = 0x93,
+	cmd_stream_stop     = 0x94,
+	cmd_stream_fast     = 0x95,
+
 	cmd_gg_stereo_2     = 0x3F,
 	cmd_psg_2           = 0x30,
 	cmd_ym2413_2        = 0xA1,
@@ -118,6 +126,41 @@ void Vgm_Emu_Impl::write_pcm( vgm_time_t vgm_time, int amp )
 		dac_amp |= dac_disabled;
 }
 
+// Bounded parameter readers for the stream control commands. On truncation
+// they warn, move the cursor to the end and leave the output untouched, so a
+// short file ends in a controlled way instead of reading past the buffer.
+
+bool Vgm_Emu_Impl::read_cmd_byte( byte const*& p, int& out )
+{
+	if ( p >= data_end )
+	{
+		truncate_stream();
+		return false;
+	}
+	out = *p++;
+	return true;
+}
+
+bool Vgm_Emu_Impl::read_cmd_u32( byte const*& p, uint32_t& out )
+{
+	if ( data_end - p < 4 )
+	{
+		truncate_stream();
+		return false;
+	}
+	out = get_le32( p );
+	p += 4;
+	return true;
+}
+
+void Vgm_Emu_Impl::truncate_stream()
+{
+	pos = data_end;
+	set_warning( "VGM stream: truncated command" );
+	stream_ctrl.stop( Vgm_Stream_Ctrl::invalid_id );
+	set_track_ended();
+}
+
 blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 {
 	vgm_time_t vgm_time = this->vgm_time;
@@ -131,12 +174,27 @@ blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 
 	while ( vgm_time < end_time && pos < data_end )
 	{
+		// Drain every stream value due up to this command's tick before the
+		// command itself runs, so a stream write at tick T always precedes a
+		// file command at the same tick. Multiple streams due together come
+		// out of the controller in ascending stream ID order.
+		int64_t abs_tick = stream_base_tick + vgm_time;
+		if ( stream_ctrl.tick() < abs_tick )
+			stream_ctrl.advance( *this, abs_tick );
+
 		// TODO: be sure there are enough bytes left in stream for particular command
 		// so we don't read past end
 		switch ( *pos++ )
 		{
 		case cmd_end:
 			pos = loop_begin; // if not looped, loop_begin == data_end
+			if ( pos >= data_end )
+			{
+				// No real loop: the command stream ends here, so no stream
+				// may keep emitting past the file's last tick. A genuine VGM
+				// loop instead keeps running on each stream's own phase.
+				stream_ctrl.stop( Vgm_Stream_Ctrl::invalid_id );
+			}
 			break;
 
 		case cmd_delay_735:
@@ -231,30 +289,124 @@ blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 			break;
 
 		case cmd_data_block: {
-			check( *pos == cmd_end );
+			// 67 66 type size(32 LE) data...
+			if ( data_end - pos < 6 )
+			{
+				truncate_stream();
+				break;
+			}
+			check( pos [0] == cmd_end );
 			int type = pos [1];
-			long size = get_le32( pos + 2 );
+			long size = (long) get_le32( pos + 2 );
 			pos += 6;
+			if ( size < 0 || data_end - pos < size )
+			{
+				set_warning( "VGM data block extends past end of file" );
+				pos = data_end;
+				stream_ctrl.stop( Vgm_Stream_Ctrl::invalid_id );
+				set_track_ended();
+				break;
+			}
 			if ( type == pcm_block_type )
-				pcm_data = pos;
+			{
+				// Type-0 blocks concatenate into the bank in first-seen order.
+				// A block revisited by a loop is deduplicated by address.
+				if ( stream_ctrl.add_block( pos, size ) )
+					set_warning( "Out of memory" );
+			}
 			pos += size;
 			break;
 		}
 
-		case cmd_pcm_seek:
-			pcm_pos = pcm_data + pos [3] * 0x1000000L + pos [2] * 0x10000L +
-					pos [1] * 0x100L + pos [0];
+		case cmd_pcm_seek: {
+			if ( data_end - pos < 4 )
+			{
+				truncate_stream();
+				break;
+			}
+			uint32_t off = get_le32( pos );
 			pos += 4;
+			// Legacy seek addresses the same concatenated bank as the streams;
+			// an out-of-bank offset is recorded as a warning by the controller.
+			stream_ctrl.legacy_seek( *this, (long) off );
 			break;
+		}
+
+		// ---- VGM 1.71 DAC stream control ----
+		case cmd_stream_setup: {
+			// 90 id chipType chipTarget regAddr
+			int id, chip, target, reg;
+			if ( !read_cmd_byte( pos, id ) || !read_cmd_byte( pos, chip ) ||
+					!read_cmd_byte( pos, target ) || !read_cmd_byte( pos, reg ) )
+				break;
+			stream_ctrl.setup( *this, id, chip, target, reg );
+			break;
+		}
+
+		case cmd_stream_data: {
+			// 91 id bank step base
+			int id, bank, step, base;
+			if ( !read_cmd_byte( pos, id ) || !read_cmd_byte( pos, bank ) ||
+					!read_cmd_byte( pos, step ) || !read_cmd_byte( pos, base ) )
+				break;
+			stream_ctrl.set_data( *this, id, bank, step, base );
+			break;
+		}
+
+		case cmd_stream_freq: {
+			// 92 id frequency(32 LE)
+			int id;
+			uint32_t freq;
+			if ( !read_cmd_byte( pos, id ) || !read_cmd_u32( pos, freq ) )
+				break;
+			stream_ctrl.set_frequency( *this, id, freq );
+			break;
+		}
+
+		case cmd_stream_start: {
+			// 93 id offset(32) lengthModeByte length(32)
+			int id, mode;
+			uint32_t offset, length;
+			if ( !read_cmd_byte( pos, id ) || !read_cmd_u32( pos, offset ) ||
+					!read_cmd_byte( pos, mode ) || !read_cmd_u32( pos, length ) )
+				break;
+			stream_ctrl.start( *this, id, offset, mode, length, abs_tick );
+			break;
+		}
+
+		case cmd_stream_stop: {
+			// 94 id (0xFF stops all streams)
+			int id;
+			if ( !read_cmd_byte( pos, id ) )
+				break;
+			stream_ctrl.stop( id );
+			break;
+		}
+
+		case cmd_stream_fast: {
+			// 95 id blockId flags
+			int id, block_id, flags;
+			if ( !read_cmd_byte( pos, id ) || !read_cmd_byte( pos, block_id ) ||
+					!read_cmd_byte( pos, flags ) )
+				break;
+			stream_ctrl.fast_start( *this, id, block_id, flags, abs_tick );
+			break;
+		}
 
 		default:
 			int cmd = pos [-1];
 			switch ( cmd & 0xF0 )
 			{
-				case cmd_pcm_delay:
-					write_pcm( vgm_time, *pcm_pos++ );
+				case cmd_pcm_delay: {
+					// Legacy single-byte PCM read, bounds-checked against the
+					// concatenated bank; its cursor is independent of streams.
+					// A failed read is recorded as a warning by the controller.
+					byte value = 0;
+					if ( stream_ctrl.legacy_read( *this, &value ) )
+						write_pcm( vgm_time, value );
 					vgm_time += cmd & 0x0F;
 					break;
+				}
 
 				case cmd_short_delay:
 					vgm_time += (cmd & 0x0F) + 1;
@@ -270,9 +422,26 @@ blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 			}
 		}
 	}
+
+	// If the command stream ran out without a loop point, end the streams as
+	// well: a well-formed file reaches this through 0x66 (handled above), and
+	// a malformed file missing its end event must not leave streams emitting
+	// forever. A genuine loop keeps loop_begin inside the file and is excluded.
+	if ( pos >= data_end && loop_begin >= data_end )
+		stream_ctrl.stop( Vgm_Stream_Ctrl::invalid_id );
+
+	// Drain stream values due inside this frame, i.e. with local tick
+	// strictly smaller than end_time. An explicit register write at a tick
+	// equal to end_time would likewise be deferred to the next frame's local
+	// tick 0 by the loop condition above, so matching that boundary keeps a
+	// stream-controlled file sample-identical to its fully expanded twin.
+	if ( end_time > 0 )
+		stream_ctrl.advance( *this, stream_base_tick + end_time - 1 );
+
 	vgm_time -= end_time;
 	this->pos = pos;
 	this->vgm_time = vgm_time;
+	stream_base_tick += end_time; // next frame's local tick 0 is this instant
 
 	return to_blip_time( end_time );
 }

@@ -9,6 +9,7 @@
 #include "Ym2413_Emu.h"
 #include "Ym2612_Emu.h"
 #include "Sms_Apu.h"
+#include "Vgm_Stream.h"
 
 template<class Emu>
 class Ym_Emu : public Emu {
@@ -52,8 +53,22 @@ protected:
 	blip_time_t run_commands( vgm_time_t );
 	int play_frame( blip_time_t blip_time, int sample_count, sample_t* buf );
 
-	byte const* pcm_data;
-	byte const* pcm_pos;
+	// DAC stream control (VGM 1.71 commands 0x90-0x95). The controller keeps
+	// its own 44100 Hz tick clock, absolute across the whole track; each
+	// command frame maps its local vgm_time onto that clock through
+	// stream_base_tick.
+	Vgm_Stream_Ctrl stream_ctrl;
+	int64_t stream_base_tick;
+	void stream_write_pcm( int64_t abs_tick, int amp )
+	{
+		write_pcm( (vgm_time_t) (abs_tick - stream_base_tick), amp );
+	}
+	// Bounded command readers; on truncation they warn, end the track and
+	// leave pos at data_end. They never form a pointer past data_end.
+	bool read_cmd_byte( byte const*& p, int& out );
+	bool read_cmd_u32( byte const*& p, uint32_t& out );
+	void truncate_stream();
+
 	int dac_amp;
 	int dac_disabled; // -1 if disabled
 	void write_pcm( vgm_time_t, int amp );
@@ -68,6 +83,7 @@ protected:
 	Blip_Synth<blip_med_quality,1> dac_synth;
 
 	friend class Vgm_Emu;
+	friend class Vgm_Stream_Ctrl;
 };
 
 #endif
