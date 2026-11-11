@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {sampleFields} from './sampler.mjs';
+let reads=0;
+const shared={get price(){return ++reads;}};
+const page={left:shared,right:shared};
+const paths=[['left','price'],['right','price']];
+const results=sampleFields(page,paths);
+assert.deepEqual(results.map(x=>x.value),[1,2]);
+const inherited=sampleFields(Object.create({title:'inherited'}),[['title']]);
+assert.equal(inherited[0].value,'inherited');
+console.log(JSON.stringify({reads,values:results.map(x=>x.value),inherited:inherited[0]}));
