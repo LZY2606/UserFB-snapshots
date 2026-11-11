@@ -30,6 +30,8 @@ typedef __int8  int8_t;
 #include <stdint.h>
 #endif
 
+#include <stddef.h>
+
 #ifdef __cplusplus 
 extern "C" {
 #endif
@@ -43,6 +45,20 @@ void *adpcm_create_context (int num_channels, int sample_rate, int lookahead, in
 void adpcm_set_shaping_weight (void *p, double shaping_weight);
 int adpcm_encode_block_ex (void *p, uint8_t *outbuf, size_t *outbufsize, const int16_t *inbuf, int inbufcount, int bps);
 int adpcm_encode_block (void *p, uint8_t *outbuf, size_t *outbufsize, const int16_t *inbuf, int inbufcount);
+
+/* Result returned by adpcm_encode_adaptive(). The sse[] values are the per-channel
+ * sums of squared errors of the actual reconstructed 16-bit PCM (sse[1] is zero
+ * for mono sources).
+ */
+
+typedef struct {
+    int bps;                    // selected code size in bits (2-5)
+    size_t bytes;               // actual size of the encoded block in bytes
+    uint64_t sse[2];            // per-channel sum of squared errors
+} adpcm_adaptive_result;
+
+int adpcm_encode_adaptive (void *ctx, uint8_t *out, size_t capacity, const int16_t *pcm, int frames,
+    unsigned allowed_bps_mask, const uint64_t max_sse[2], adpcm_adaptive_result *result);
 int adpcm_decode_block_ex (int16_t *outbuf, const uint8_t *inbuf, size_t inbufsize, int channels, int bps);
 int adpcm_decode_block (int16_t *outbuf, const uint8_t *inbuf, size_t inbufsize, int channels);
 void adpcm_free_context (void *p);

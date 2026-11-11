@@ -899,6 +899,169 @@ int adpcm_encode_block (void *p, uint8_t *outbuf, size_t *outbufsize, const int1
     return adpcm_encode_block_ex (p, outbuf, outbufsize, inbuf, inbufcount, 4);
 }
 
+/* Encode a block of 16-bit PCM data into ADPCM, adaptively selecting the code size
+ * (bits per sample) from a caller-supplied mask based on per-channel distortion
+ * limits. Every allowed candidate is trial-encoded from exactly the same initial
+ * encoder state (the state of the context at entry), and the actual distortion is
+ * measured by decoding the trial block back to 16-bit PCM and summing the squared
+ * error over exactly the supplied frames (padding samples are not counted).
+ * Candidates whose per-channel error exceeds the corresponding max_sse[] limit (or
+ * whose block would not fit in the supplied capacity) are eliminated; of the rest,
+ * the one with the smallest block is chosen, with ties broken toward the smaller
+ * code size. Only the winning candidate's bytes and encoder state are committed.
+ *
+ * Parameters:
+ *  ctx             the context returned by adpcm_create_context()
+ *  out             destination buffer for the encoded block
+ *  capacity        size of the destination buffer in bytes
+ *  pcm             source PCM samples (interleaved if stereo)
+ *  frames          number of frames (samples per channel), 2 - 4096
+ *  allowed_bps_mask  bit B enables code size B; only bits 2-5 may be set and at
+ *                   least one of them must be set
+ *  max_sse         per-channel distortion limits (the second entry is ignored
+ *                   for mono sources)
+ *  result          receives the selected code size, block size, and errors
+ *
+ * Returns 1 on success. On any failure (invalid parameters, insufficient capacity,
+ * or no candidate within the distortion limits) 0 is returned and the context,
+ * the output buffer, and the result structure are all left completely untouched.
+ */
+
+int adpcm_encode_adaptive (void *ctx, uint8_t *out, size_t capacity, const int16_t *pcm, int frames,
+                           unsigned allowed_bps_mask, const uint64_t max_sse[2], adpcm_adaptive_result *result)
+{
+    struct adpcm_context *pcnxt = (struct adpcm_context *) ctx;
+    struct adpcm_context snapshot, trial;
+    uint64_t best_sse [2] = { 0, 0 };
+    size_t best_bytes = 0, max_block = 0;
+    int best_bps = 0, max_decoded = 0;
+    uint8_t *encbuf = NULL;
+    int16_t *decbuf = NULL;
+    int nch, bps, ch, i;
+
+    if (!pcnxt || !out || !pcm || !max_sse || !result)
+        return 0;
+
+    if (frames < 2 || frames > 4096)
+        return 0;
+
+    if (!allowed_bps_mask || (allowed_bps_mask & ~((1U << 2) | (1U << 3) | (1U << 4) | (1U << 5))))
+        return 0;
+
+    nch = pcnxt->num_channels;
+
+    if (nch < 1 || nch > 2)
+        return 0;
+
+    // determine the temporary buffer sizes required for the largest candidate
+
+    for (bps = 2; bps <= 5; ++bps) {
+        size_t block_size = adpcm_sample_count_to_block_size (frames, nch, bps);
+        int decoded = adpcm_block_size_to_sample_count (block_size, nch, bps);
+
+        if (block_size > max_block)
+            max_block = block_size;
+
+        if (decoded > max_decoded)
+            max_decoded = decoded;
+    }
+
+    encbuf = malloc (max_block);
+    decbuf = malloc (max_decoded * nch * sizeof (int16_t));
+
+    if (!encbuf || !decbuf) {
+        free (encbuf);
+        free (decbuf);
+        return 0;
+    }
+
+    // Take a snapshot of the encoder state. Every trial starts from this exact state
+    // so that no trial can inherit the predictor index, noise-shaping error, or
+    // dynamic-shaping residue of a previous trial. Note that dynamic_shaping_array
+    // is always NULL between blocks (it is allocated and freed entirely inside
+    // adpcm_encode_block_ex()), so this struct copy shares no owned memory with the
+    // original context and the trial copies can simply be discarded.
+
+    snapshot = *pcnxt;
+
+    for (bps = 2; bps <= 5; ++bps) {
+        uint64_t sse [2] = { 0, 0 };
+        size_t outsize = 0;
+        int decoded, feasible;
+
+        if (!(allowed_bps_mask & (1U << bps)))
+            continue;
+
+        if (adpcm_sample_count_to_block_size (frames, nch, bps) > capacity)
+            continue;       // this candidate could never fit in the output buffer
+
+        trial = snapshot;
+
+        // adpcm_encode_block_ex() may leave alignment-padding bytes at the end of
+        // the block unwritten; clear the buffer first so that the trial decode
+        // below never reads uninitialized memory (the padding does not affect the
+        // frames we measure, but let's keep this clean)
+
+        memset (encbuf, 0, max_block);
+
+        if (!adpcm_encode_block_ex (&trial, encbuf, &outsize, pcm, frames, bps))
+            continue;       // can't happen (bps is valid), but be safe
+
+        // Measure the actual distortion by decoding the block we just wrote; this
+        // reflects the saturated predictor values exactly as a decoder would see
+        // them, rather than any error estimate made during the search.
+
+        decoded = adpcm_decode_block_ex (decbuf, encbuf, outsize, nch, bps);
+
+        if (decoded < frames)
+            continue;       // can't happen, but be safe
+
+        for (ch = 0; ch < nch; ++ch)
+            for (i = 0; i < frames; ++i) {
+                int32_t error = (int32_t) decbuf [i * nch + ch] - pcm [i * nch + ch];
+                sse [ch] += (uint64_t) ((int64_t) error * error);
+            }
+
+        feasible = 1;
+
+        for (ch = 0; ch < nch; ++ch)
+            if (sse [ch] > max_sse [ch])
+                feasible = 0;
+
+        // select the feasible candidate with the fewest bytes; because the candidates
+        // are scanned in ascending code-size order, equal byte counts keep the
+        // smaller code size
+
+        if (feasible && (!best_bps || outsize < best_bytes)) {
+            best_bps = bps;
+            best_bytes = outsize;
+            best_sse [0] = sse [0];
+            best_sse [1] = sse [1];
+        }
+    }
+
+    free (encbuf);
+    free (decbuf);
+
+    if (!best_bps)
+        return 0;   // no candidate qualified; context, output, and result untouched
+
+    // Re-encode the winning candidate directly into the caller's context and buffer.
+    // The encoder is fully deterministic, so this reproduces the winning trial
+    // exactly, committing both the encoded bytes and the resulting encoder state
+    // (predictor index, shaping error, and dynamic-shaping residue).
+
+    if (!adpcm_encode_block_ex (pcnxt, out, &best_bytes, pcm, frames, best_bps))
+        return 0;   // can't happen
+
+    result->bps = best_bps;
+    result->bytes = best_bytes;
+    result->sse [0] = best_sse [0];
+    result->sse [1] = (nch > 1) ? best_sse [1] : 0;
+
+    return 1;
+}
+
 /************************************ ADPCM decoder ***********************************/
 
 /* Decode the block of 4-bit ADPCM data into PCM. This requires no context because ADPCM
