@@ -216,6 +216,36 @@ import { Renderer, Geometry, Program, Mesh } from 'ogl';
 }
 ```
 
+## Resource cleanup
+
+WebGL resources live in GPU memory, so simply dropping the JavaScript reference does not free them. `Texture` and `RenderTarget` expose a `remove()` method, mirroring `Program.remove()`, that deletes the underlying GL objects explicitly.
+
+```js
+// Releases the single WebGLTexture owned by this texture
+texture.remove();
+
+// Deletes the framebuffer, every color attachment texture, the optional
+// depthTexture, and any depth/stencil renderbuffers the target created
+renderTarget.remove();
+```
+
+Both methods are idempotent: calling them again performs no GL calls and never recreates a handle. When a `RenderTarget` is removed, each attachment it created is released as well. Attachments removed on their own first are skipped, so nothing is deleted twice; `renderTarget.texture` is only an alias of `renderTarget.textures[0]`. If the removed target is currently bound, the renderer falls back to the default canvas framebuffer and its cached binding is updated; another bound target is left untouched.
+
+A removed resource cannot be reused. Binding or updating a removed texture throws, including when it is referenced by a `Program` sampler or sampler array, and resizing or rendering to a removed `RenderTarget` throws. The object's size fields and attachment references are retained for debugging, but its GL handles stay deleted.
+
+This matters when render targets are recreated repeatedly, for example on resize or when switching post-processing passes:
+
+```js
+let target = new RenderTarget(gl, { width, height });
+
+function resize(nextWidth, nextHeight) {
+    target.remove(); // free the old framebuffer and attachments first
+    target = new RenderTarget(gl, { width: nextWidth, height: nextHeight });
+}
+```
+
+Context loss is not handled, and removed resources are not revivable.
+
 ## Structure
 
 In an attempt to keep things light and modular, the library is split up into three components: **Math**, **Core**, and **Extras**.

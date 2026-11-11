@@ -9,7 +9,10 @@ const gl={canvas:{width:8,height:8},TEXTURE_2D:3553,UNSIGNED_BYTE:5121,RGBA:6408
  DEPTH_STENCIL:34041,DEPTH_STENCIL_ATTACHMENT:33306,TEXTURE0:33984,
  createTexture(){calls.push('texture');return {id:++id};},
  createFramebuffer(){calls.push('framebuffer');return {id:++id};},
- createRenderbuffer(){calls.push('renderbuffer');return {id:++id};}};
+ createRenderbuffer(){calls.push('renderbuffer');return {id:++id};},
+ deleteTexture(){calls.push('deleteTexture');},
+ deleteFramebuffer(){calls.push('deleteFramebuffer');},
+ deleteRenderbuffer(){calls.push('deleteRenderbuffer');}};
 for(const name of ['bindTexture','texParameteri','pixelStorei','texImage2D',
  'framebufferTexture2D','bindRenderbuffer','renderbufferStorage',
  'framebufferRenderbuffer','bindFramebuffer','activeTexture']) gl[name]=()=>{};
@@ -22,7 +25,10 @@ assert.equal(calls.filter(x=>x==='texture').length,2);
 target.setSize(4,2); assert.equal(target.texture.width,4);
 const standalone=new Texture(gl,{width:1,height:1,generateMipmaps:false});
 standalone.update(3);assert.equal(r.state.textureUnits[3],standalone.id);
-assert.equal(typeof standalone.remove,'undefined');
-assert.equal(typeof target.remove,'undefined');
+assert.equal(typeof standalone.remove,'function');
+assert.equal(typeof target.remove,'function');
+const deletes=calls.length;
+standalone.remove();standalone.remove();
+target.remove();target.remove();
 console.log('allocated textures=3 framebuffer=1 renderbuffer=1; resize and unit3 upload passed');
-console.log('current Texture.remove and RenderTarget.remove are absent');
+console.log('Texture.remove and RenderTarget.remove now release GL resources, with repeated calls acting as no-ops ('+deletes+' creation calls, no extra handles since)');

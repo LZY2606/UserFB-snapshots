@@ -42,7 +42,17 @@ export class RenderTarget {
     stencilBuffer: WebGLRenderbuffer;
     depthStencilBuffer: WebGLRenderbuffer;
 
+    /** True once {@link remove} has released the framebuffer and its attachments. */
+    removed: boolean;
+
     constructor(gl: OGLRenderingContext, options?: Partial<RenderTargetOptions>);
 
     setSize(width: number, height: number): void;
+
+    /**
+     * Delete the framebuffer together with the color textures, optional depth
+     * texture, and depth/stencil renderbuffers created by this target. Safe to
+     * call repeatedly; a removed target can no longer be resized or rendered to.
+     */
+    remove(): void;
 }

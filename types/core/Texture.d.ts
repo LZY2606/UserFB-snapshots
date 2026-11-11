@@ -67,6 +67,9 @@ export class Texture {
     length: number;
     texture: WebGLTexture;
 
+    /** True once {@link remove} has released the underlying WebGLTexture. */
+    removed: boolean;
+
     store: {
         image?: ImageRepresentation | null;
     };
@@ -94,4 +97,11 @@ export class Texture {
     bind(): void;
 
     update(textureUnit?: number): void;
+
+    /**
+     * Delete the underlying WebGLTexture and invalidate all renderer caches
+     * referencing it. Safe to call repeatedly; a removed texture can no longer
+     * be bound or updated.
+     */
+    remove(): void;
 }

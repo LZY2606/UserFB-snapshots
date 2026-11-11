@@ -350,6 +350,8 @@ export class Renderer {
     }
 
     render({ scene, camera, target = null, update = true, sort = true, frustumCull = true, clear }) {
+        if (target && target.removed) throw new Error('RenderTarget has been removed and cannot be rendered to.');
+
         if (target === null) {
             // make sure no render target bound so draws to canvas
             this.bindFramebuffer();

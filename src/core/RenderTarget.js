@@ -30,6 +30,9 @@ export class RenderTarget {
         this.stencil = stencil;
         this.buffer = this.gl.createFramebuffer();
         this.target = target;
+
+        // Set to true once remove() has released the framebuffer and its attachments
+        this.removed = false;
         this.gl.renderer.bindFramebuffer(this);
 
         this.textures = [];
@@ -107,6 +110,7 @@ export class RenderTarget {
     }
 
     setSize(width, height) {
+        if (this.removed) throw new Error('RenderTarget has been removed and cannot be resized.');
         if (this.width === width && this.height === height) return;
 
         this.width = width;
@@ -145,5 +149,32 @@ export class RenderTarget {
         }
 
         this.gl.renderer.bindFramebuffer({ target: this.target });
+    }
+
+    remove() {
+        // Repeated calls release nothing a second time
+        if (this.removed) return;
+        this.removed = true;
+
+        // If this target is currently bound, fall back to the default framebuffer
+        // and keep the renderer cache in sync; another bound target is left alone
+        if (this.gl.renderer.state.framebuffer === this.buffer) {
+            this.gl.renderer.bindFramebuffer({ target: this.target });
+        }
+
+        this.gl.deleteFramebuffer(this.buffer);
+
+        // Color textures own their WebGLTextures; `texture` is only an alias of
+        // textures[0], and a texture already removed on its own is skipped here
+        for (const texture of this.textures) {
+            if (!texture.removed) texture.remove();
+        }
+
+        if (this.depthTexture && !this.depthTexture.removed) this.depthTexture.remove();
+
+        // Only the storage actually created by the constructor is present
+        if (this.depthBuffer) this.gl.deleteRenderbuffer(this.depthBuffer);
+        if (this.stencilBuffer) this.gl.deleteRenderbuffer(this.stencilBuffer);
+        if (this.depthStencilBuffer) this.gl.deleteRenderbuffer(this.depthStencilBuffer);
     }
 }

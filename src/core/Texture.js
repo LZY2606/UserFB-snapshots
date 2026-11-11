@@ -1,9 +1,10 @@
-// TODO: delete texture
 // TODO: use texSubImage2D for updates (video or when loaded)
 // TODO: need? encoding = linearEncoding
 // TODO: support non-compressed mipmaps uploads
 
 const emptyPixel = new Uint8Array(4);
+
+const removedError = () => new Error('Texture has been removed and cannot be used again.');
 
 function isPowerOf2(value) {
     return (value & (value - 1)) === 0;
@@ -64,6 +65,9 @@ export class Texture {
             image: null,
         };
 
+        // Set to true once remove() has released the WebGLTexture; the resource can't be reused
+        this.removed = false;
+
         // Alias for state store to avoid redundant calls for global state
         this.glState = this.gl.renderer.state;
 
@@ -77,6 +81,8 @@ export class Texture {
     }
 
     bind() {
+        if (this.removed) throw removedError();
+
         // Already bound to active texture unit
         if (this.glState.textureUnits[this.glState.activeTextureUnit] === this.id) return;
         this.gl.bindTexture(this.target, this.texture);
@@ -84,6 +90,8 @@ export class Texture {
     }
 
     update(textureUnit = 0) {
+        if (this.removed) throw removedError();
+
         const needsUpdate = !(this.image === this.store.image && !this.needsUpdate);
 
         // Make sure that texture is bound to its texture unit
@@ -205,5 +213,20 @@ export class Texture {
             }
         }
         this.store.image = this.image;
+    }
+
+    remove() {
+        // Repeated calls must not issue any further GL deletes
+        if (this.removed) return;
+        this.removed = true;
+
+        this.gl.deleteTexture(this.texture);
+
+        // Drop every texture-unit cache entry referencing this texture, not just
+        // the currently active unit, so a stale binding can't be reused
+        const textureUnits = this.glState.textureUnits;
+        for (let i = 0; i < textureUnits.length; i++) {
+            if (textureUnits[i] === this.id) textureUnits[i] = null;
+        }
     }
 }
