@@ -166,11 +166,26 @@ typedef struct NSVGshape
 	struct NSVGshape* next;		// Pointer to next shape, or NULL if last element.
 } NSVGshape;
 
+// Composition tree used to apply element opacity correctly.
+// Shapes keep their place in the flat shape list; this tree only records the
+// grouping order and the opacity of the containers.  A node with shape != NULL
+// is a leaf that refers to an existing NSVGshape.  A node with shape == NULL is
+// a group whose children are composed first, then blended with its opacity.
+typedef struct NSVGcomposite
+{
+	float opacity;					// Opacity applied once to the composed result (1.0 by default).
+	NSVGshape* shape;				// Shape for a leaf node, NULL for a group node.
+	struct NSVGcomposite* firstChild;
+	struct NSVGcomposite* lastChild;
+	struct NSVGcomposite* next;
+} NSVGcomposite;
+
 typedef struct NSVGimage
 {
 	float width;				// Width of the image.
 	float height;				// Height of the image.
 	NSVGshape* shapes;			// Linked list of shapes in the image.
+	NSVGcomposite* composite;	// Optional composition tree (root group) for opacity handling.
 } NSVGimage;
 
 // Parses SVG file from a file, returns SVG image as paths.
@@ -467,6 +482,9 @@ typedef struct NSVGparser
 	NSVGstyleDeclaration* styles;
 	NSVGgradientData* gradients;
 	NSVGshape* shapesTail;
+	NSVGcomposite* compositeRoot;
+	NSVGcomposite* compStack[NSVG_MAX_ATTR];
+	int compHead;
 	float viewMinx, viewMiny, viewWidth, viewHeight;
 	int alignX, alignY, alignType;
 	float dpi;
@@ -636,6 +654,39 @@ static unsigned char nsvg__encodePaintOrder(enum NSVGpaintOrder a, enum NSVGpain
     return (a & 0x03) | ((b & 0x03) << 2) | ((c & 0x03) << 4);
 }
 
+static NSVGcomposite* nsvg__createCompositeNode(NSVGshape* shape, float opacity)
+{
+	NSVGcomposite* node = (NSVGcomposite*)malloc(sizeof(NSVGcomposite));
+	if (node == NULL)
+		return NULL;
+	memset(node, 0, sizeof(NSVGcomposite));
+	node->shape = shape;
+	node->opacity = opacity;
+	return node;
+}
+
+static void nsvg__appendCompositeChild(NSVGcomposite* parent, NSVGcomposite* child)
+{
+	if (parent == NULL || child == NULL)
+		return;
+	child->next = NULL;
+	if (parent->lastChild != NULL)
+		parent->lastChild->next = child;
+	else
+		parent->firstChild = child;
+	parent->lastChild = child;
+}
+
+static void nsvg__deleteComposite(NSVGcomposite* node)
+{
+	while (node != NULL) {
+		NSVGcomposite* next = node->next;
+		nsvg__deleteComposite(node->firstChild);
+		free(node);
+		node = next;
+	}
+}
+
 static NSVGparser* nsvg__createParser(void)
 {
 	NSVGparser* p;
@@ -665,11 +716,21 @@ static NSVGparser* nsvg__createParser(void)
 	p->attr[0].visible = 1;
     p->attr[0].paintOrder = nsvg__encodePaintOrder(NSVG_PAINT_FILL, NSVG_PAINT_STROKE, NSVG_PAINT_MARKERS);
 
+	// Implicit root group. Everything in the document is composed through it.
+	p->compositeRoot = nsvg__createCompositeNode(NULL, 1.0f);
+	if (p->compositeRoot == NULL) goto error;
+	p->image->composite = p->compositeRoot;
+	p->compStack[0] = p->compositeRoot;
+	p->compHead = 0;
+
 	return p;
 
 error:
 	if (p) {
-		if (p->image) free(p->image);
+		if (p->image) {
+			if (p->image->composite) nsvg__deleteComposite(p->image->composite);
+			free(p->image);
+		}
 		free(p);
 	}
 	return NULL;
@@ -784,6 +845,10 @@ static void nsvg__pushAttr(NSVGparser* p)
 	if (p->attrHead < NSVG_MAX_ATTR-1) {
 		p->attrHead++;
 		memcpy(&p->attr[p->attrHead], &p->attr[p->attrHead-1], sizeof(NSVGattrib));
+		// 'opacity' is an element-level compositing property, not an
+		// inheritable paint property.  Each element starts at full opacity
+		// and its own declaration applies to its composed result only.
+		p->attr[p->attrHead].opacity = 1.0f;
 	}
 }
 
@@ -1053,6 +1118,13 @@ static void nsvg__addShape(NSVGparser* p)
 	else
 		p->shapesTail->next = shape;
 	p->shapesTail = shape;
+
+	// Add the shape as a leaf in the composition tree, preserving document order.
+	{
+		NSVGcomposite* leaf = nsvg__createCompositeNode(shape, shape->opacity);
+		if (leaf != NULL)
+			nsvg__appendCompositeChild(p->compStack[p->compHead], leaf);
+	}
 
 	return;
 
@@ -2852,8 +2924,19 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 	}
 
 	if (strcmp(el, "g") == 0) {
+		NSVGcomposite* group;
 		nsvg__pushAttr(p);
 		nsvg__parseAttribs(p, attr);
+		group = nsvg__createCompositeNode(NULL, nsvg__getAttr(p)->opacity);
+		if (group != NULL) {
+			if (p->compHead < NSVG_MAX_ATTR-1) {
+				nsvg__appendCompositeChild(p->compStack[p->compHead], group);
+				p->compHead++;
+				p->compStack[p->compHead] = group;
+			} else {
+				free(group);
+			}
+		}
 	} else if (strcmp(el, "path") == 0) {
 		if (p->pathFlag)	// Do not allow nested paths.
 			return;
@@ -2894,6 +2977,8 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 		p->defsFlag = 1;
 	} else if (strcmp(el, "svg") == 0) {
 		nsvg__parseSVG(p, attr);
+		if (p->compositeRoot != NULL)
+			p->compositeRoot->opacity = nsvg__getAttr(p)->opacity;
 	} else if (strcmp(el, "style") == 0) {
 		p->styleFlag = 1;
 	}
@@ -2905,6 +2990,8 @@ static void nsvg__endElement(void* ud, const char* el)
 
 	if (strcmp(el, "g") == 0) {
 		nsvg__popAttr(p);
+		if (p->compHead > 0)
+			p->compHead--;
 	} else if (strcmp(el, "path") == 0) {
 		p->pathFlag = 0;
 	} else if (strcmp(el, "defs") == 0) {
@@ -3261,6 +3348,8 @@ void nsvgDelete(NSVGimage* image)
 {
 	NSVGshape *snext, *shape;
 	if (image == NULL) return;
+	nsvg__deleteComposite(image->composite);
+	image->composite = NULL;
 	shape = image->shapes;
 	while (shape != NULL) {
 		snext = shape->next;

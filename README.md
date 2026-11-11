@@ -32,6 +32,25 @@ The parser library is accompanied with really simpler SVG rasterizer. Currently 
 
 The intended usage for the rasterizer is to for example bake icons of different size into a texture. The rasterizer is not particular fast or accurate, but it's small and packed in one header file.
 
+## Opacity
+
+`opacity` is an element-level compositing property. A group's children are first composed in document order with normal source-over blending, then that composed result is faded once and placed at the group's position in the parent. Nested groups repeat this per level. `opacity` is not inherited: a child without its own `opacity` starts at 1. In contrast, `fill-opacity` and `stroke-opacity` apply to their own paint before it is composited (and they are inherited like other paint properties).
+
+``` C
+/* Group opacity: the overlap is blue with alpha ~128, not a darker red/blue mix. */
+image = nsvgParse("<svg width='24' height='16'><g opacity='.5'>"
+                  "<rect x='1' y='1' width='14' height='12' fill='red'/>"
+                  "<rect x='8' y='1' width='14' height='12' fill='blue'/>"
+                  "</g></svg>", "px", 96);
+/* fill-opacity: each inherited paint is faded separately. */
+image = nsvgParse("<svg width='24' height='16'><g fill-opacity='.5'>"
+                  "<rect x='1' y='1' width='14' height='12' fill='red'/>"
+                  "<rect x='8' y='1' width='14' height='12' fill='blue'/>"
+                  "</g></svg>", "px", 96);
+```
+
+Both are rendered through the same `nsvgRasterize` entry point; `image->shapes` still lists every drawable shape in document order.
+
 
 ## Example Usage
 

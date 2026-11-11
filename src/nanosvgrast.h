@@ -148,6 +148,7 @@ struct NSVGrasterizer
 
 	unsigned char* bitmap;
 	int width, height, stride;
+	int bitmapX, bitmapY;		// Device-space origin of the target bitmap.
 };
 
 NSVGrasterizer* nsvgCreateRasterizer(void)
@@ -1203,7 +1204,8 @@ static void nsvg__rasterizeSortedEdges(NSVGrasterizer *r, float tx, float ty, fl
 		if (xmin < 0) xmin = 0;
 		if (xmax > r->width-1) xmax = r->width-1;
 		if (xmin <= xmax) {
-			nsvg__scanlineSolid(&r->bitmap[y * r->stride] + xmin*4, xmax-xmin+1, &r->scanline[xmin], xmin, y, tx,ty, scale, cache);
+			nsvg__scanlineSolid(&r->bitmap[y * r->stride] + xmin*4, xmax-xmin+1, &r->scanline[xmin],
+								xmin + r->bitmapX, y + r->bitmapY, tx,ty, scale, cache);
 		}
 	}
 
@@ -1372,18 +1374,274 @@ static void dumpEdges(NSVGrasterizer* r, const char* name)
 }
 */
 
+typedef struct NSVGrenderTarget
+{
+	unsigned char* bitmap;
+	int x, y;
+	int width, height, stride;
+} NSVGrenderTarget;
+
+static void nsvg__setRenderTarget(NSVGrasterizer* r, const NSVGrenderTarget* t)
+{
+	r->bitmap = t->bitmap;
+	r->bitmapX = t->x;
+	r->bitmapY = t->y;
+	r->width = t->width;
+	r->height = t->height;
+	r->stride = t->stride;
+}
+
+static int nsvg__shapeHasPaint(const NSVGshape* shape, float scale)
+{
+	if (!(shape->flags & NSVG_FLAGS_VISIBLE))
+		return 0;
+	if (shape->fill.type != NSVG_PAINT_NONE)
+		return 1;
+	if (shape->stroke.type != NSVG_PAINT_NONE && shape->strokeWidth * scale > 0.01f)
+		return 1;
+	return 0;
+}
+
+static void nsvg__shapeDeviceBounds(const NSVGshape* shape, float tx, float ty, float scale, float* b)
+{
+	float pad = 1.0f;
+	if (shape->stroke.type != NSVG_PAINT_NONE && shape->strokeWidth * scale > 0.01f) {
+		float hw = shape->strokeWidth * scale * 0.5f;
+		// A miter join can extend up to half the stroke width times miterLimit.
+		if (shape->strokeLineJoin == NSVG_JOIN_MITER && shape->miterLimit > 1.0f)
+			hw *= shape->miterLimit;
+		pad += hw;
+	}
+	b[0] = shape->bounds[0] * scale + tx - pad;
+	b[1] = shape->bounds[1] * scale + ty - pad;
+	b[2] = shape->bounds[2] * scale + tx + pad;
+	b[3] = shape->bounds[3] * scale + ty + pad;
+}
+
+static int nsvg__compositeDeviceBounds(const NSVGcomposite* node, float tx, float ty, float scale, float* b)
+{
+	const NSVGcomposite* c;
+	int found = 0;
+
+	if (node->opacity <= 0.0f)
+		return 0;
+	if (node->shape != NULL) {
+		if (!nsvg__shapeHasPaint(node->shape, scale))
+			return 0;
+		nsvg__shapeDeviceBounds(node->shape, tx, ty, scale, b);
+		return 1;
+	}
+	for (c = node->firstChild; c != NULL; c = c->next) {
+		float cb[4];
+		if (nsvg__compositeDeviceBounds(c, tx, ty, scale, cb)) {
+			if (!found) {
+				b[0] = cb[0]; b[1] = cb[1]; b[2] = cb[2]; b[3] = cb[3];
+				found = 1;
+			} else {
+				b[0] = cb[0] < b[0] ? cb[0] : b[0];
+				b[1] = cb[1] < b[1] ? cb[1] : b[1];
+				b[2] = cb[2] > b[2] ? cb[2] : b[2];
+				b[3] = cb[3] > b[3] ? cb[3] : b[3];
+			}
+		}
+	}
+	return found;
+}
+
+static int nsvg__layerRect(const float* b, const NSVGrenderTarget* tgt, int* ox, int* oy, int* ow, int* oh)
+{
+	int x0 = (int)floorf(b[0]);
+	int y0 = (int)floorf(b[1]);
+	int x1 = (int)ceilf(b[2]);
+	int y1 = (int)ceilf(b[3]);
+
+	if (x0 < tgt->x) x0 = tgt->x;
+	if (y0 < tgt->y) y0 = tgt->y;
+	if (x1 > tgt->x + tgt->width) x1 = tgt->x + tgt->width;
+	if (y1 > tgt->y + tgt->height) y1 = tgt->y + tgt->height;
+	if (x1 <= x0 || y1 <= y0)
+		return 0;
+	*ox = x0; *oy = y0; *ow = x1 - x0; *oh = y1 - y0;
+	return 1;
+}
+
+static void nsvg__applyOpacityPremul(unsigned char* p, int count, float opacity)
+{
+	int iu = (int)(nsvg__clampf(opacity, 0.0f, 1.0f) * 256.0f);
+	int i;
+	for (i = 0; i < count; i++) {
+		// Round to nearest to keep premultiplied color/alpha ratios stable
+		// through repeated nested group fades.
+		p[0] = (unsigned char)((p[0] * iu + 128) >> 8);
+		p[1] = (unsigned char)((p[1] * iu + 128) >> 8);
+		p[2] = (unsigned char)((p[2] * iu + 128) >> 8);
+		p[3] = (unsigned char)((p[3] * iu + 128) >> 8);
+		p += 4;
+	}
+}
+
+// Source-over blend of a premultiplied layer onto a premultiplied target.
+static void nsvg__compositeLayer(const NSVGrenderTarget* tgt, const NSVGrenderTarget* src)
+{
+	int x, y;
+	int dx = src->x - tgt->x;
+	int dy = src->y - tgt->y;
+
+	for (y = 0; y < src->height; y++) {
+		unsigned char* s = &src->bitmap[y * src->stride];
+		unsigned char* d = &tgt->bitmap[(dy + y) * tgt->stride + dx * 4];
+		for (x = 0; x < src->width; x++) {
+			int ia = 255 - s[3];
+			d[0] = (unsigned char)(s[0] + nsvg__div255(ia * (int)d[0]));
+			d[1] = (unsigned char)(s[1] + nsvg__div255(ia * (int)d[1]));
+			d[2] = (unsigned char)(s[2] + nsvg__div255(ia * (int)d[2]));
+			d[3] = (unsigned char)(s[3] + nsvg__div255(ia * (int)d[3]));
+			s += 4;
+			d += 4;
+		}
+	}
+}
+
+static void nsvg__renderShape(NSVGrasterizer* r, NSVGshape* shape, float tx, float ty, float scale)
+{
+	NSVGedge* e = NULL;
+	NSVGcachedPaint cache;
+	int i, j;
+	unsigned char paintOrder;
+
+	for (j = 0; j < 3; j++) {
+		paintOrder = (shape->paintOrder >> (2 * j)) & 0x03;
+
+		if (paintOrder == NSVG_PAINT_FILL && shape->fill.type != NSVG_PAINT_NONE) {
+			nsvg__resetPool(r);
+			r->freelist = NULL;
+			r->nedges = 0;
+
+			nsvg__flattenShape(r, shape, scale);
+
+			// Scale, translate to the target origin, and shift to its local space.
+			for (i = 0; i < r->nedges; i++) {
+				e = &r->edges[i];
+				e->x0 = tx + e->x0 - r->bitmapX;
+				e->y0 = (ty + e->y0) * NSVG__SUBSAMPLES - r->bitmapY * NSVG__SUBSAMPLES;
+				e->x1 = tx + e->x1 - r->bitmapX;
+				e->y1 = (ty + e->y1) * NSVG__SUBSAMPLES - r->bitmapY * NSVG__SUBSAMPLES;
+			}
+
+			if (r->nedges != 0)
+				qsort(r->edges, r->nedges, sizeof(NSVGedge), nsvg__cmpEdge);
+
+			// Element opacity is applied to the composed shape, not to each paint.
+			nsvg__initPaint(&cache, &shape->fill, 1.0f);
+
+			nsvg__rasterizeSortedEdges(r, tx,ty,scale, &cache, shape->fillRule);
+		}
+		if (paintOrder == NSVG_PAINT_STROKE && shape->stroke.type != NSVG_PAINT_NONE && (shape->strokeWidth * scale) > 0.01f) {
+			nsvg__resetPool(r);
+			r->freelist = NULL;
+			r->nedges = 0;
+
+			nsvg__flattenShapeStroke(r, shape, scale);
+
+			for (i = 0; i < r->nedges; i++) {
+				e = &r->edges[i];
+				e->x0 = tx + e->x0 - r->bitmapX;
+				e->y0 = (ty + e->y0) * NSVG__SUBSAMPLES - r->bitmapY * NSVG__SUBSAMPLES;
+				e->x1 = tx + e->x1 - r->bitmapX;
+				e->y1 = (ty + e->y1) * NSVG__SUBSAMPLES - r->bitmapY * NSVG__SUBSAMPLES;
+			}
+
+			if (r->nedges != 0)
+				qsort(r->edges, r->nedges, sizeof(NSVGedge), nsvg__cmpEdge);
+
+			// Element opacity is applied to the composed shape, not to each paint.
+			nsvg__initPaint(&cache, &shape->stroke, 1.0f);
+
+			nsvg__rasterizeSortedEdges(r, tx,ty,scale, &cache, NSVG_FILLRULE_NONZERO);
+		}
+	}
+}
+
+static void nsvg__renderComposite(NSVGrasterizer* r, NSVGcomposite* node,
+								  float tx, float ty, float scale, NSVGrenderTarget* tgt)
+{
+	NSVGcomposite* c;
+	float bounds[4];
+	int lx, ly, lw, lh;
+	NSVGrenderTarget layerTgt;
+	unsigned char* layer;
+
+	nsvg__setRenderTarget(r, tgt);
+
+	if (node->shape != NULL) {
+		NSVGshape* shape = node->shape;
+		float opacity = node->opacity;
+		if (!nsvg__shapeHasPaint(shape, scale) || opacity <= 0.0f)
+			return;
+		if (opacity >= 1.0f) {
+			nsvg__renderShape(r, shape, tx, ty, scale);
+			return;
+		}
+		// Isolate the shape so its opacity is applied once to the combined
+		// fill/stroke result (the paints themselves are composed normally).
+		if (!nsvg__compositeDeviceBounds(node, tx, ty, scale, bounds))
+			return;
+		if (!nsvg__layerRect(bounds, tgt, &lx, &ly, &lw, &lh))
+			return;
+		layer = (unsigned char*)calloc((size_t)lw * (size_t)lh, 4);
+		if (layer == NULL)
+			return;
+		layerTgt.bitmap = layer; layerTgt.x = lx; layerTgt.y = ly;
+		layerTgt.width = lw; layerTgt.height = lh; layerTgt.stride = lw * 4;
+		nsvg__setRenderTarget(r, &layerTgt);
+		nsvg__renderShape(r, shape, tx, ty, scale);
+		nsvg__applyOpacityPremul(layer, lw * lh, opacity);
+		nsvg__compositeLayer(tgt, &layerTgt);
+		free(layer);
+		return;
+	}
+
+	if (node->opacity <= 0.0f)
+		return;
+
+	if (node->opacity >= 1.0f) {
+		// Full opacity: grouping does not change source-over composition.
+		for (c = node->firstChild; c != NULL; c = c->next)
+			nsvg__renderComposite(r, c, tx, ty, scale, tgt);
+		return;
+	}
+
+	// Render the subtree in isolation, then blend the composed result into
+	// the parent once with this group's opacity.
+	if (!nsvg__compositeDeviceBounds(node, tx, ty, scale, bounds))
+		return;
+	if (!nsvg__layerRect(bounds, tgt, &lx, &ly, &lw, &lh))
+		return;
+	layer = (unsigned char*)calloc((size_t)lw * (size_t)lh, 4);
+	if (layer == NULL)
+		return;
+	layerTgt.bitmap = layer; layerTgt.x = lx; layerTgt.y = ly;
+	layerTgt.width = lw; layerTgt.height = lh; layerTgt.stride = lw * 4;
+
+	for (c = node->firstChild; c != NULL; c = c->next)
+		nsvg__renderComposite(r, c, tx, ty, scale, &layerTgt);
+
+	nsvg__applyOpacityPremul(layer, lw * lh, node->opacity);
+	nsvg__compositeLayer(tgt, &layerTgt);
+	free(layer);
+}
+
 void nsvgRasterize(NSVGrasterizer* r,
 				   NSVGimage* image, float tx, float ty, float scale,
 				   unsigned char* dst, int w, int h, int stride)
 {
-	NSVGshape *shape = NULL;
-	NSVGedge *e = NULL;
-	NSVGcachedPaint cache;
+	NSVGrenderTarget tgt;
+	NSVGshape* shape;
 	int i;
-    int j;
-    unsigned char paintOrder;
 
 	r->bitmap = dst;
+	r->bitmapX = 0;
+	r->bitmapY = 0;
 	r->width = w;
 	r->height = h;
 	r->stride = stride;
@@ -1397,75 +1655,33 @@ void nsvgRasterize(NSVGrasterizer* r,
 	for (i = 0; i < h; i++)
 		memset(&dst[i*stride], 0, w*4);
 
-	for (shape = image->shapes; shape != NULL; shape = shape->next) {
-		if (!(shape->flags & NSVG_FLAGS_VISIBLE))
-			continue;
+	tgt.bitmap = dst; tgt.x = 0; tgt.y = 0;
+	tgt.width = w; tgt.height = h; tgt.stride = stride;
 
-        for (j = 0; j < 3; j++) {
-            paintOrder = (shape->paintOrder >> (2 * j)) & 0x03;
-
-            if (paintOrder == NSVG_PAINT_FILL && shape->fill.type != NSVG_PAINT_NONE) {
-                nsvg__resetPool(r);
-                r->freelist = NULL;
-                r->nedges = 0;
-
-                nsvg__flattenShape(r, shape, scale);
-
-                // Scale and translate edges
-                for (i = 0; i < r->nedges; i++) {
-                    e = &r->edges[i];
-                    e->x0 = tx + e->x0;
-                    e->y0 = (ty + e->y0) * NSVG__SUBSAMPLES;
-                    e->x1 = tx + e->x1;
-                    e->y1 = (ty + e->y1) * NSVG__SUBSAMPLES;
-                }
-
-                // Rasterize edges
-                if (r->nedges != 0)
-                    qsort(r->edges, r->nedges, sizeof(NSVGedge), nsvg__cmpEdge);
-
-                // now, traverse the scanlines and find the intersections on each scanline, use non-zero rule
-                nsvg__initPaint(&cache, &shape->fill, shape->opacity);
-
-                nsvg__rasterizeSortedEdges(r, tx,ty,scale, &cache, shape->fillRule);
-            }
-            if (paintOrder == NSVG_PAINT_STROKE && shape->stroke.type != NSVG_PAINT_NONE && (shape->strokeWidth * scale) > 0.01f) {
-                nsvg__resetPool(r);
-                r->freelist = NULL;
-                r->nedges = 0;
-
-                nsvg__flattenShapeStroke(r, shape, scale);
-
-    //			dumpEdges(r, "edge.svg");
-
-                // Scale and translate edges
-                for (i = 0; i < r->nedges; i++) {
-                    e = &r->edges[i];
-                    e->x0 = tx + e->x0;
-                    e->y0 = (ty + e->y0) * NSVG__SUBSAMPLES;
-                    e->x1 = tx + e->x1;
-                    e->y1 = (ty + e->y1) * NSVG__SUBSAMPLES;
-                }
-
-                // Rasterize edges
-                if (r->nedges != 0)
-                    qsort(r->edges, r->nedges, sizeof(NSVGedge), nsvg__cmpEdge);
-
-                // now, traverse the scanlines and find the intersections on each scanline, use non-zero rule
-                nsvg__initPaint(&cache, &shape->stroke, shape->opacity);
-
-                nsvg__rasterizeSortedEdges(r, tx,ty,scale, &cache, NSVG_FILLRULE_NONZERO);
-            }
-        }
+	if (image->composite != NULL) {
+		nsvg__renderComposite(r, image->composite, tx, ty, scale, &tgt);
+	} else {
+		// Images built by hand may not have a composition tree.  Preserve the
+		// flat shape order and still apply each shape's element opacity once.
+		for (shape = image->shapes; shape != NULL; shape = shape->next) {
+			NSVGcomposite leaf;
+			memset(&leaf, 0, sizeof(leaf));
+			leaf.shape = shape;
+			leaf.opacity = shape->opacity;
+			nsvg__renderComposite(r, &leaf, tx, ty, scale, &tgt);
+		}
 	}
 
 	nsvg__unpremultiplyAlpha(dst, w, h, stride);
 
 	r->bitmap = NULL;
+	r->bitmapX = 0;
+	r->bitmapY = 0;
 	r->width = 0;
 	r->height = 0;
 	r->stride = 0;
 }
+
 
 #endif // NANOSVGRAST_IMPLEMENTATION
 
