@@ -37,6 +37,7 @@
 #include "mesh.h"
 #include "dict.h"
 #include "priorityq.h"
+#include "sources.h"
 #include "../Include/tesselator.h"
 
 #ifdef __cplusplus
@@ -61,7 +62,14 @@ struct TESStesselator {
 
 	int processCDT;	/* option to run Constrained Delayney pass. */
 	int reverseContours; /* tessAddContour() will treat CCW contours as CW and vice versa */
-    
+	int boundarySources; /* option to track original edges of boundary contours */
+
+	/*** saved input contours, used only while boundarySources is enabled ***/
+	TESSindex srcContourCount;
+	TESSindex srcContourCapacity;
+	TESSindex *srcContourSizes;	/* point count of each saved contour */
+	TESSreal **srcContourPoints;	/* each entry is 2*size coordinates */
+
 	/*** state needed for the line sweep ***/
 	int	windingRule;	/* rule for determining polygon interior */
 
@@ -78,6 +86,13 @@ struct TESStesselator {
 	int vertexCount;
 	TESSindex *elements;
 	int elementCount;
+
+	/* Output of the TESS_BOUNDARY_SOURCES option; valid only when
+	** boundarySourcesValid is set. */
+	TESSindex *boundarySourceOffsets;
+	TESSboundarySource *boundarySourceRecs;
+	int boundarySourceCount;
+	int boundarySourcesValid;
 
 	TESSalloc alloc;
 

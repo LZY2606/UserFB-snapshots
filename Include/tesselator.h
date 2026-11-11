@@ -122,11 +122,30 @@ enum TessElementType
 // TESS_REVERSE_CONTOURS
 //   If enabled, tessAddContour() will treat CW contours as CCW and vice versa
 //   Disabled by default.
+//
+// TESS_BOUNDARY_SOURCES
+//   If enabled together with TESS_BOUNDARY_CONTOURS output, every directed
+//   edge of every output contour also reports which original contour edges
+//   cover it, and where.  See TESSboundarySource and the
+//   tessGetBoundarySource*() queries below.
+//   The option must be set with tessSetOption() before the first
+//   tessAddContour() call of a run and must not be toggled during the run.
+//   When the tesselator object is reused after a successful run, the option
+//   value is kept and contour numbering restarts from zero.
+//
+//   Only finite contours in the XY plane are accepted with this option:
+//   tessAddContour() must use size 2, or size 3 with z == 0, and
+//   tessTesselate() must be passed an explicit normal of (0,0,1).
+//   Contours are numbered from zero in the order of the tessAddContour()
+//   calls; edge j inside a contour is the edge from input point j to
+//   input point (j+1) % count.
+//   No extra storage is allocated while the option is disabled.
 
 enum TessOption
 {
 	TESS_CONSTRAINED_DELAUNAY_TRIANGULATION,
-	TESS_REVERSE_CONTOURS
+	TESS_REVERSE_CONTOURS,
+	TESS_BOUNDARY_SOURCES
 };
 
 typedef float TESSreal;
@@ -243,6 +262,53 @@ int tessGetElementCount( TESStesselator *tess );
 
 // tessGetElements() - Returns pointer to the first element.
 const TESSindex* tessGetElements( TESStesselator *tess );
+
+// TESSboundarySource describes one original contour edge that covers (part
+// of) a directed output boundary edge.
+//   contour - contour number, assigned from zero in tessAddContour() order.
+//   edge    - edge number inside the contour, the edge from input point
+//             'edge' to input point (edge+1) % contourPointCount.
+//   t0, t1  - parameters along the original edge P(t) = P0 + t*(P1 - P0),
+//             so that P(t0) and P(t1) reconstruct the start and end points
+//             of the covered portion of the output edge.  Both parameters
+//             are in [0,1]; t0 > t1 is allowed when the original edge runs
+//             in the opposite direction of the output edge.
+// Every original edge identity covering the output edge is retained, even
+// when several contours overlap or cancel each other's winding.  Records
+// are sorted by contour and edge, and each source edge appears at most
+// once per output edge.
+typedef struct TESSboundarySource
+{
+	TESSindex contour;
+	TESSindex edge;
+	TESSreal t0;
+	TESSreal t1;
+} TESSboundarySource;
+
+// Boundary source queries, available only for a successful
+// TESS_BOUNDARY_CONTOURS run that was performed with the
+// TESS_BOUNDARY_SOURCES option enabled.  In every other case (option off,
+// other element type, initial state, failed run) the offsets and source
+// pointers are NULL and the count is zero.  A successful run with empty
+// boundary may also return NULL pointers.
+// The returned memory is owned by the tesselator and stays valid until
+// the next tessTesselate() call or until the object is deleted.
+// On reuse after a successful run, contour numbering restarts from zero.
+
+// tessGetBoundarySourceOffsets() - CSR offsets, an array of
+// tessGetVertexCount()+1 entries.  Output vertex k corresponds to the
+// directed boundary edge from vertex k to the next vertex of its output
+// contour (the last vertex wraps back to the first); the sources of that
+// edge are stored in entries offsets[k] .. offsets[k+1]-1.
+// The last offset equals tessGetBoundarySourceCount().
+const TESSindex* tessGetBoundarySourceOffsets( TESStesselator *tess );
+
+// tessGetBoundarySources() - contiguous array of source records, grouped
+// per output edge according to tessGetBoundarySourceOffsets().
+const TESSboundarySource* tessGetBoundarySources( TESStesselator *tess );
+
+// tessGetBoundarySourceCount() - total number of source records.
+int tessGetBoundarySourceCount( TESStesselator *tess );
 
 typedef enum TESSstatus {
   TESS_STATUS_OK,

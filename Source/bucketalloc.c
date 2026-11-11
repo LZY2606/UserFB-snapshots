@@ -100,6 +100,8 @@ struct BucketAlloc* createBucketAlloc( TESSalloc* alloc, const char* name,
 									  unsigned int itemSize, unsigned int bucketSize )
 {
 	BucketAlloc* ba = (BucketAlloc*)alloc->memalloc( alloc->userData, sizeof(BucketAlloc) );
+	if( ba == 0 )
+		return 0;
 
 	ba->alloc = alloc;
 	ba->name = name;

@@ -19,6 +19,8 @@ cc_library(
         "Source/mesh.h",
         "Source/priorityq.c",
         "Source/priorityq.h",
+        "Source/sources.c",
+        "Source/sources.h",
         "Source/sweep.c",
         "Source/sweep.h",
         "Source/tess.c",
@@ -34,6 +36,16 @@ cc_test(
     name = "libtess2_test",
     size = "small",
     srcs = ["Tests/libtess2_test.cc"],
+    deps = [
+        ":libtess2",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "boundary_sources_test",
+    size = "small",
+    srcs = ["Tests/boundary_sources_test.cc"],
     deps = [
         ":libtess2",
         "@googletest//:gtest_main",

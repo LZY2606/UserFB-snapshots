@@ -598,6 +598,49 @@ static TESSalloc defaulAlloc =
 	0,
 };
 
+static void FreeSavedContours( TESStesselator *tess )
+{
+	TESSindex i;
+	if( tess->srcContourPoints != 0 ) {
+		for( i = 0; i < tess->srcContourCount; ++i ) {
+			if( tess->srcContourPoints[i] != 0 ) {
+				tess->alloc.memfree( tess->alloc.userData, tess->srcContourPoints[i] );
+			}
+		}
+		tess->alloc.memfree( tess->alloc.userData, tess->srcContourPoints );
+	}
+	if( tess->srcContourSizes != 0 ) {
+		tess->alloc.memfree( tess->alloc.userData, tess->srcContourSizes );
+	}
+	tess->srcContourPoints = 0;
+	tess->srcContourSizes = 0;
+	tess->srcContourCount = 0;
+	tess->srcContourCapacity = 0;
+}
+
+static void FreeBoundarySourcesOutput( TESStesselator *tess )
+{
+	if( tess->boundarySourceOffsets != 0 ) {
+		tess->alloc.memfree( tess->alloc.userData, tess->boundarySourceOffsets );
+		tess->boundarySourceOffsets = 0;
+	}
+	if( tess->boundarySourceRecs != 0 ) {
+		tess->alloc.memfree( tess->alloc.userData, tess->boundarySourceRecs );
+		tess->boundarySourceRecs = 0;
+	}
+	tess->boundarySourceCount = 0;
+	tess->boundarySourcesValid = 0;
+}
+
+static void DeleteMeshWithSources( TESStesselator *tess, TESSmesh *mesh )
+{
+	if( mesh != NULL && mesh->sourcePool != NULL ) {
+		tessSourceDeletePool( &tess->alloc, mesh->sourcePool );
+		mesh->sourcePool = NULL;
+	}
+	tessMeshDeleteMesh( &tess->alloc, mesh );
+}
+
 TESStesselator* tessNewTess( TESSalloc* alloc )
 {
 	TESStesselator* tess;
@@ -636,9 +679,15 @@ TESStesselator* tessNewTess( TESSalloc* alloc )
 	tess->bmax[1] = 0;
 
 	tess->reverseContours = 0;
-    
+
 	tess->windingRule = TESS_WINDING_ODD;
 	tess->processCDT = 0;
+	tess->boundarySources = 0;
+
+	tess->srcContourCount = 0;
+	tess->srcContourCapacity = 0;
+	tess->srcContourSizes = 0;
+	tess->srcContourPoints = 0;
 
 	if (tess->alloc.regionBucketSize < 16)
 		tess->alloc.regionBucketSize = 16;
@@ -646,9 +695,15 @@ TESStesselator* tessNewTess( TESSalloc* alloc )
 		tess->alloc.regionBucketSize = 4096;
 	tess->regionPool = createBucketAlloc( &tess->alloc, "Regions",
 										 sizeof(ActiveRegion), tess->alloc.regionBucketSize );
+	if( tess->regionPool == NULL ) {
+		tess->alloc.memfree( tess->alloc.userData, tess );
+		return 0;
+	}
 
 	// Initialize to begin polygon.
 	tess->mesh = NULL;
+	tess->dict = NULL;
+	tess->pq = NULL;
 
 	tess->status = TESS_STATUS_OK;
 	tess->vertexIndexCounter = 0;
@@ -658,6 +713,11 @@ TESStesselator* tessNewTess( TESSalloc* alloc )
 	tess->vertexCount = 0;
 	tess->elements = 0;
 	tess->elementCount = 0;
+
+	tess->boundarySourceOffsets = 0;
+	tess->boundarySourceRecs = 0;
+	tess->boundarySourceCount = 0;
+	tess->boundarySourcesValid = 0;
 
 	return tess;
 }
@@ -670,7 +730,7 @@ void tessDeleteTess( TESStesselator *tess )
 	deleteBucketAlloc( tess->regionPool );
 
 	if( tess->mesh != NULL ) {
-		tessMeshDeleteMesh( &alloc, tess->mesh );
+		DeleteMeshWithSources( tess, tess->mesh );
 		tess->mesh = NULL;
 	}
 	if (tess->vertices != NULL) {
@@ -685,6 +745,9 @@ void tessDeleteTess( TESStesselator *tess )
 		alloc.memfree( alloc.userData, tess->elements );
 		tess->elements = 0;
 	}
+
+	FreeSavedContours( tess );
+	FreeBoundarySourcesOutput( tess );
 
 	alloc.memfree( alloc.userData, tess );
 }
@@ -919,9 +982,161 @@ void OutputContours( TESStesselator *tess, TESSmesh *mesh, int vertexSize )
 	}
 }
 
+/* Parameter of point p on the source edge p0 -> p1, clamped to [0,1]. */
+static TESSreal SourceEdgeParam( const TESSreal p0[2], const TESSreal p1[2],
+								 const TESSreal p[2] )
+{
+	TESSreal dx = p1[0] - p0[0];
+	TESSreal dy = p1[1] - p0[1];
+	TESSreal len2 = dx*dx + dy*dy;
+	TESSreal t;
+	if( len2 <= 0 ) return 0;
+	t = ((p[0] - p0[0]) * dx + (p[1] - p0[1]) * dy) / len2;
+	if( t < 0 ) t = 0;
+	if( t > 1 ) t = 1;
+	return t;
+}
+
+/* Builds the CSR boundary source arrays from the final mesh.  The mesh is
+** traversed in the exact same face/edge order as OutputContours(), so
+** offset k belongs to output vertex k and its directed edge. */
+static int BuildBoundarySources( TESStesselator *tess, TESSmesh *mesh )
+{
+	TESSface *f;
+	TESShalfEdge *edge, *start;
+	TESSindex *offsets = 0;
+	TESSboundarySource *sources = 0;
+	TESSindex total = 0, k = 0, si = 0;
+
+	offsets = (TESSindex*)tess->alloc.memalloc( tess->alloc.userData,
+												sizeof(TESSindex) * (tess->vertexCount + 1) );
+	if( offsets == 0 ) {
+		tess->status = TESS_STATUS_OUT_OF_MEMORY;
+		return 0;
+	}
+
+	/* First walk: count records per output edge. */
+	for( f = mesh->fHead.next; f != &mesh->fHead; f = f->next ) {
+		if( !f->inside ) continue;
+		start = edge = f->anEdge;
+		do {
+			TESSsourceRec *rec;
+			TESSindex n = 0;
+			for( rec = edge->srcHead; rec != 0; rec = rec->next ) ++n;
+			offsets[k++] = total;
+			total += n;
+			edge = edge->Lnext;
+		} while( edge != start );
+	}
+	offsets[k] = total;
+
+	if( total > 0 ) {
+		sources = (TESSboundarySource*)tess->alloc.memalloc( tess->alloc.userData,
+															 sizeof(TESSboundarySource) * total );
+		if( sources == 0 ) {
+			tess->alloc.memfree( tess->alloc.userData, offsets );
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return 0;
+		}
+	}
+
+	/* Second walk: evaluate parameters against the saved input contours. */
+	k = 0;
+	for( f = mesh->fHead.next; f != &mesh->fHead; f = f->next ) {
+		if( !f->inside ) continue;
+		start = edge = f->anEdge;
+		do {
+			TESSsourceRec *rec;
+			TESSreal a[2], b[2];
+			a[0] = edge->Org->coords[0];
+			a[1] = edge->Org->coords[1];
+			b[0] = edge->Dst->coords[0];
+			b[1] = edge->Dst->coords[1];
+			for( rec = edge->srcHead; rec != 0; rec = rec->next ) {
+				TESSindex n = tess->srcContourSizes[rec->contour];
+				TESSindex j0 = rec->edge;
+				TESSindex j1 = (j0 + 1) % n;
+				const TESSreal *p0 = &tess->srcContourPoints[rec->contour][2*j0];
+				const TESSreal *p1 = &tess->srcContourPoints[rec->contour][2*j1];
+				sources[si].contour = rec->contour;
+				sources[si].edge = rec->edge;
+				sources[si].t0 = SourceEdgeParam( p0, p1, a );
+				sources[si].t1 = SourceEdgeParam( p0, p1, b );
+				++si;
+			}
+			++k;
+			edge = edge->Lnext;
+		} while( edge != start );
+	}
+
+	if( si != total ) {
+		tess->alloc.memfree( tess->alloc.userData, offsets );
+		if( sources != 0 ) tess->alloc.memfree( tess->alloc.userData, sources );
+		tess->status = TESS_STATUS_OUT_OF_MEMORY;
+		return 0;
+	}
+
+	/* Publish only after the arrays are complete. */
+	tess->boundarySourceOffsets = offsets;
+	tess->boundarySourceRecs = sources;
+	tess->boundarySourceCount = (int)total;
+	tess->boundarySourcesValid = 1;
+	return 1;
+}
+
 int IsValidCoord(TESSreal coord) {
   return coord <= TESS_MAX_VALID_INPUT_VALUE &&
       coord >= TESS_MIN_VALID_INPUT_VALUE;
+}
+
+/* Saves a private copy of a contour's XY coordinates so that boundary
+** source parameters can still be reconstructed after the caller's buffer
+** has been reused or freed. */
+static int SaveContourInput( TESStesselator *tess, const unsigned char *src,
+							 int stride, int numVertices )
+{
+	TESSindex idx = tess->srcContourCount;
+	TESSindex newCap, i;
+	TESSindex *newSizes;
+	TESSreal **newPoints;
+	TESSreal *pts;
+
+	if( idx >= tess->srcContourCapacity ) {
+		newCap = tess->srcContourCapacity == 0 ? 4 : tess->srcContourCapacity * 2;
+		newSizes = (TESSindex*)tess->alloc.memalloc( tess->alloc.userData,
+													 sizeof(TESSindex) * newCap );
+		if( newSizes == 0 ) return 0;
+		newPoints = (TESSreal**)tess->alloc.memalloc( tess->alloc.userData,
+													  sizeof(TESSreal*) * newCap );
+		if( newPoints == 0 ) {
+			tess->alloc.memfree( tess->alloc.userData, newSizes );
+			return 0;
+		}
+		for( i = 0; i < idx; ++i ) {
+			newSizes[i] = tess->srcContourSizes[i];
+			newPoints[i] = tess->srcContourPoints[i];
+		}
+		if( tess->srcContourSizes != 0 )
+			tess->alloc.memfree( tess->alloc.userData, tess->srcContourSizes );
+		if( tess->srcContourPoints != 0 )
+			tess->alloc.memfree( tess->alloc.userData, tess->srcContourPoints );
+		tess->srcContourSizes = newSizes;
+		tess->srcContourPoints = newPoints;
+		tess->srcContourCapacity = newCap;
+	}
+
+	pts = (TESSreal*)tess->alloc.memalloc( tess->alloc.userData,
+										   sizeof(TESSreal) * 2 * (unsigned)numVertices );
+	if( pts == 0 ) return 0;
+	for( i = 0; i < (TESSindex)numVertices; ++i ) {
+		const TESSreal *coords = (const TESSreal*)(src + (unsigned)i * (unsigned)stride);
+		pts[2*i] = coords[0];
+		pts[2*i+1] = coords[1];
+	}
+	tess->srcContourSizes[idx] = (TESSindex)numVertices;
+	tess->srcContourPoints[idx] = pts;
+	tess->srcContourCount = idx + 1;
+	return 1;
 }
 
 void tessAddContour( TESStesselator *tess, int size, const void* vertices,
@@ -930,6 +1145,8 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 	const unsigned char *src = (const unsigned char*)vertices;
 	TESShalfEdge *e;
 	int i;
+	int trackSources = tess->boundarySources;
+	TESSindex contourIndex = 0;
 
 	if ( tess->mesh == NULL )
 	  	tess->mesh = tessMeshNewMesh( &tess->alloc );
@@ -943,6 +1160,21 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 	if ( size > 3 )
 		size = 3;
 
+	if( trackSources ) {
+		if( tess->mesh->sourcePool == NULL ) {
+			tess->mesh->sourcePool = tessSourceNewPool( &tess->alloc );
+			if( tess->mesh->sourcePool == NULL ) {
+				tess->status = TESS_STATUS_OUT_OF_MEMORY;
+				return;
+			}
+		}
+		contourIndex = tess->srcContourCount;
+		if( !SaveContourInput( tess, src, stride, numVertices ) ) {
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return;
+		}
+	}
+
 	e = NULL;
 	for( i = 0; i < numVertices; ++i )
 	{
@@ -951,6 +1183,11 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 		if (!IsValidCoord(coords[0]) ||
 		    !IsValidCoord(coords[1]) ||
 		    (size > 2 && !IsValidCoord(coords[2]))) {
+			tess->status = TESS_STATUS_INVALID_INPUT;
+			return;
+		}
+		if( trackSources && size > 2 && coords[2] != 0 ) {
+			/* Boundary source tracking is restricted to the XY plane. */
 			tess->status = TESS_STATUS_INVALID_INPUT;
 			return;
 		}
@@ -993,6 +1230,17 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 		*/
         e->winding = tess->reverseContours ? -1 : 1;
         e->Sym->winding = tess->reverseContours ? 1 : -1;
+
+		if( trackSources ) {
+			/* e is the half-edge originating at input point i; once the next
+			** point (or the closing point) is attached it represents original
+			** edge i of this contour. */
+			if( !tessSourceSetContourEdge( tess->mesh->sourcePool, e,
+										   contourIndex, (TESSindex)i ) ) {
+				tess->status = TESS_STATUS_OUT_OF_MEMORY;
+				return;
+			}
+		}
 	}
 }
 
@@ -1006,6 +1254,9 @@ void tessSetOption( TESStesselator *tess, int option, int value )
 	case TESS_REVERSE_CONTOURS:
 		tess->reverseContours = value > 0 ? 1 : 0;
 		break;
+	case TESS_BOUNDARY_SOURCES:
+		tess->boundarySources = value > 0 ? 1 : 0;
+		break;
 	}
 }
 
@@ -1015,6 +1266,7 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 {
 	TESSmesh *mesh;
 	int rc = 1;
+	int trackSources = tess->boundarySources;
 
 	if (tess->vertices != NULL) {
 		tess->alloc.memfree( tess->alloc.userData, tess->vertices );
@@ -1028,6 +1280,11 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 		tess->alloc.memfree( tess->alloc.userData, tess->vertexIndices );
 		tess->vertexIndices = 0;
 	}
+	FreeBoundarySourcesOutput( tess );
+
+	/* The previous run's saved contours were already released at the end of
+	** that run (or by the failure handler); the current run's copies stay
+	** alive until its source parameters have been evaluated. */
 
 	tess->vertexIndexCounter = 0;
 
@@ -1036,6 +1293,15 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 		tess->normal[0] = normal[0];
 		tess->normal[1] = normal[1];
 		tess->normal[2] = normal[2];
+	}
+
+	if( trackSources ) {
+		/* Source tracking is only defined for finite XY-plane contours with
+		** an explicit (0,0,1) normal. */
+		if( normal == 0 || normal[0] != 0 || normal[1] != 0 || normal[2] != 1 ) {
+			tess->status = TESS_STATUS_INVALID_INPUT;
+			return 0;
+		}
 	}
 
 	tess->windingRule = windingRule;
@@ -1047,6 +1313,23 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 
 	if (setjmp(tess->env) != 0) {
 		/* come back here if out of memory */
+		TESSalloc *a = &tess->alloc;
+		tess->status = TESS_STATUS_OUT_OF_MEMORY;
+		/* The sweep structures are normally released at the end of
+		** tessComputeInterior(); on a failure they may still be live. */
+		if( tess->pq != NULL ) {
+			pqDeletePriorityQ( a, tess->pq );
+			tess->pq = NULL;
+		}
+		if( tess->dict != NULL ) {
+			dictDeleteDict( a, tess->dict );
+			tess->dict = NULL;
+		}
+		if( tess->mesh != NULL ) {
+			DeleteMeshWithSources( tess, tess->mesh );
+			tess->mesh = NULL;
+		}
+		FreeSavedContours( tess );
 		return 0;
 	}
 
@@ -1089,14 +1372,22 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 
 	if (elementType == TESS_BOUNDARY_CONTOURS) {
 		OutputContours( tess, mesh, vertexSize );     /* output contours */
+		if( tess->status != TESS_STATUS_OK ) longjmp(tess->env,1);
+		if( trackSources ) {
+			if( !BuildBoundarySources( tess, mesh ) ) longjmp(tess->env,1);
+		}
 	}
 	else
 	{
 		OutputPolymesh( tess, mesh, elementType, polySize, vertexSize );     /* output polygons */
 	}
 
-	tessMeshDeleteMesh( &tess->alloc, mesh );
+	DeleteMeshWithSources( tess, mesh );
 	tess->mesh = NULL;
+
+	/* The source parameters have now been evaluated; release the private
+	** input copies so the next run's contour numbering starts at zero. */
+	FreeSavedContours( tess );
 
 	return tess->status == TESS_STATUS_OK;
 }
@@ -1129,5 +1420,23 @@ const int* tessGetElements( TESStesselator *tess )
 TESSstatus tessGetStatus( TESStesselator *tess )
 {
 	return tess->status;
+}
+
+const TESSindex* tessGetBoundarySourceOffsets( TESStesselator *tess )
+{
+	if( !tess->boundarySourcesValid ) return 0;
+	return tess->boundarySourceOffsets;
+}
+
+const TESSboundarySource* tessGetBoundarySources( TESStesselator *tess )
+{
+	if( !tess->boundarySourcesValid ) return 0;
+	return tess->boundarySourceRecs;
+}
+
+int tessGetBoundarySourceCount( TESStesselator *tess )
+{
+	if( !tess->boundarySourcesValid ) return 0;
+	return tess->boundarySourceCount;
 }
 

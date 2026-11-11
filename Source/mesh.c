@@ -35,6 +35,7 @@
 #include "mesh.h"
 #include "geom.h"
 #include "bucketalloc.h"
+#include "sources.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -81,6 +82,7 @@ static TESShalfEdge *MakeEdge( TESSmesh* mesh, TESShalfEdge *eNext )
 	e->winding = 0;
 	e->activeRegion = NULL;
 	e->mark = 0;
+	e->srcHead = NULL;
 
 	eSym->Sym = e;
 	eSym->Onext = eSym;
@@ -90,6 +92,7 @@ static TESShalfEdge *MakeEdge( TESSmesh* mesh, TESShalfEdge *eNext )
 	eSym->winding = 0;
 	eSym->activeRegion = NULL;
 	eSym->mark = 0;
+	eSym->srcHead = NULL;
 
 	return e;
 }
@@ -470,6 +473,9 @@ TESShalfEdge *tessMeshSplitEdge( TESSmesh *mesh, TESShalfEdge *eOrg )
 	eNew->winding = eOrg->winding;	/* copy old winding information */
 	eNew->Sym->winding = eOrg->Sym->winding;
 
+	/* The two resulting pieces are covered by the same original edges. */
+	if( !tessSourceSplit( mesh->sourcePool, eOrg ) ) return NULL;
+
 	return eNew;
 }
 
@@ -609,6 +615,14 @@ TESSmesh *tessMeshNewMesh( TESSalloc* alloc )
 	mesh->vertexBucket = createBucketAlloc( alloc, "Mesh Vertices", sizeof(TESSvertex), alloc->meshVertexBucketSize );
 	mesh->faceBucket = createBucketAlloc( alloc, "Mesh Faces", sizeof(TESSface), alloc->meshFaceBucketSize );
 
+	if( mesh->edgeBucket == NULL || mesh->vertexBucket == NULL || mesh->faceBucket == NULL ) {
+		if( mesh->edgeBucket != NULL ) deleteBucketAlloc( mesh->edgeBucket );
+		if( mesh->vertexBucket != NULL ) deleteBucketAlloc( mesh->vertexBucket );
+		if( mesh->faceBucket != NULL ) deleteBucketAlloc( mesh->faceBucket );
+		alloc->memfree( alloc->userData, mesh );
+		return NULL;
+	}
+
 	v = &mesh->vHead;
 	f = &mesh->fHead;
 	e = &mesh->eHead;
@@ -631,6 +645,7 @@ TESSmesh *tessMeshNewMesh( TESSalloc* alloc )
 	e->Lface = NULL;
 	e->winding = 0;
 	e->activeRegion = NULL;
+	e->srcHead = NULL;
 
 	eSym->next = eSym;
 	eSym->Sym = e;
@@ -640,6 +655,9 @@ TESSmesh *tessMeshNewMesh( TESSalloc* alloc )
 	eSym->Lface = NULL;
 	eSym->winding = 0;
 	eSym->activeRegion = NULL;
+	eSym->srcHead = NULL;
+
+	mesh->sourcePool = NULL;
 
 	return mesh;
 }

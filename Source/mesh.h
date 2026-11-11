@@ -34,11 +34,12 @@
 
 #include "../Include/tesselator.h"
 
-typedef struct TESSmesh TESSmesh; 
+typedef struct TESSmesh TESSmesh;
 typedef struct TESSvertex TESSvertex;
 typedef struct TESSface TESSface;
 typedef struct TESShalfEdge TESShalfEdge;
 typedef struct ActiveRegion ActiveRegion;
+typedef struct TESSsourcePool TESSsourcePool;
 
 /* The mesh structure is similar in spirit, notation, and operations
 * to the "quad-edge" structure (see L. Guibas and J. Stolfi, Primitives
@@ -144,6 +145,10 @@ struct TESShalfEdge {
 	int winding;    /* change in winding number when crossing
 						  from the right face to the left face */
 	int mark; /* Used by the Edge Flip algorithm */
+
+	/* Sorted list of original contour edges covering this half-edge.
+	** NULL unless the TESS_BOUNDARY_SOURCES option is enabled. */
+	struct TESSsourceRec *srcHead;
 };
 
 #define Rface   Sym->Lface
@@ -165,6 +170,10 @@ struct TESSmesh {
 	struct BucketAlloc* edgeBucket;
 	struct BucketAlloc* vertexBucket;
 	struct BucketAlloc* faceBucket;
+
+	/* Pool backing the half-edge srcHead lists, or NULL when boundary
+	** source tracking is disabled. */
+	TESSsourcePool *sourcePool;
 };
 
 /* The mesh operations below have three motivations: completeness,

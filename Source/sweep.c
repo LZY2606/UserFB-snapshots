@@ -40,6 +40,7 @@
 #include "dict.h"
 #include "priorityq.h"
 #include "bucketalloc.h"
+#include "sources.h"
 #include "sweep.h"
 
 #define TRUE 1
@@ -89,6 +90,17 @@ extern void DebugEvent( TESStesselator *tess );
 */
 #define AddWinding(eDst,eSrc)	(eDst->winding += eSrc->winding, \
 	eDst->Sym->winding += eSrc->Sym->winding)
+
+/* When we merge two geometrically coincident edges and delete eDel, union
+** its boundary source records into the surviving edge eKeep so that no
+** original edge identity is lost.  No-op when source tracking is disabled. */
+static void MergeEdgeSources( TESStesselator *tess, TESShalfEdge *eKeep,
+							  TESShalfEdge *eDel )
+{
+	TESSsourcePool *pool = tess->mesh->sourcePool;
+	if( pool == NULL ) return;
+	if( !tessSourceMerge( pool, eKeep, eDel ) ) longjmp(tess->env,1);
+}
 
 static void SweepEvent( TESStesselator *tess, TESSvertex *vEvent );
 static void WalkDirtyRegions( TESStesselator *tess, ActiveRegion *regUp );
@@ -382,6 +394,9 @@ static void AddRightEdges( TESStesselator *tess, ActiveRegion *regUp,
 		if( ! firstTime && CheckForRightSplice( tess, regPrev )) {
 			AddWinding( e, ePrev );
 			DeleteRegion( tess, regPrev );
+			/* ePrev and e are now geometrically coincident; keep both
+			** source identities on the surviving edge. */
+			MergeEdgeSources( tess, e, ePrev );
 			if ( !tessMeshDelete( tess->mesh, ePrev ) ) longjmp(tess->env,1);
 		}
 		firstTime = FALSE;
@@ -799,6 +814,8 @@ static void WalkDirtyRegions( TESStesselator *tess, ActiveRegion *regUp )
 			/* A degenerate loop consisting of only two edges -- delete it. */
 			AddWinding( eLo, eUp );
 			DeleteRegion( tess, regUp );
+			/* The two upper edges coincide with the same orientation. */
+			MergeEdgeSources( tess, eLo, eUp );
 			if ( !tessMeshDelete( tess->mesh, eUp ) ) longjmp(tess->env,1);
 			regUp = RegionAbove( regLo );
 		}
@@ -1273,6 +1290,8 @@ static int RemoveDegenerateFaces( TESStesselator *tess, TESSmesh *mesh )
 		if( e->Lnext->Lnext == e ) {
 			/* A face with only two edges */
 			AddWinding( e->Onext, e );
+			/* The two edges of the degenerate face coincide geometrically. */
+			MergeEdgeSources( tess, e->Onext, e );
 			if ( !tessMeshDelete( tess->mesh, e ) ) return 0;
 		}
 	}
@@ -1329,7 +1348,9 @@ int tessComputeInterior( TESStesselator *tess )
 	tess->event = ((ActiveRegion *) dictKey( dictMin( tess->dict )))->eUp->Org;
 	DebugEvent( tess );
 	DoneEdgeDict( tess );
+	tess->dict = NULL;
 	DonePriorityQ( tess );
+	tess->pq = NULL;
 
 	if ( !RemoveDegenerateFaces( tess, tess->mesh ) ) return 0;
 	tessMeshCheckMesh( tess->mesh );
