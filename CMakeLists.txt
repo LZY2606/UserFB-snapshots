@@ -94,6 +94,9 @@ set ( ly_common_source_files
 
 file ( GLOB_RECURSE	ly_unittest_sources ${ly_tst_dir}/*.cc )
 list ( SORT			ly_unittest_sources )
+# v210_test.cc is a standalone test with its own main(), built and run by
+# verification/check_v210.sh without GoogleTest.
+list ( REMOVE_ITEM ly_unittest_sources ${ly_tst_dir}/v210_test.cc )
 
 include_directories( BEFORE ${ly_inc_dir} )
 

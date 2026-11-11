@@ -44,7 +44,12 @@ def libyuv_sve_srcs(prefix = ""):
     ])
 
 def libyuv_test_srcs(prefix = ""):
-    return native.glob([
-        prefix + "unit_test/*.cc",
-        prefix + "unit_test/*.h",
-    ])
+    return native.glob(
+        [
+            prefix + "unit_test/*.cc",
+            prefix + "unit_test/*.h",
+        ],
+        # v210_test.cc is a standalone test with its own main(), built and run
+        # by verification/check_v210.sh without GoogleTest.
+        exclude = [prefix + "unit_test/v210_test.cc"],
+    )

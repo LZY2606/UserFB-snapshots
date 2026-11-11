@@ -560,6 +560,40 @@ int I210ToP210(const uint16_t* src_y,
                int width,
                int height);
 
+// Convert packed v210 to I210.  The packed plane is uint8_t with a byte
+// stride; the I210 planes are uint16_t with element strides.  Each row holds
+// ceil(width / 6) groups of 16 bytes.  width must be a positive even
+// number.  A negative height flips the frame vertically; 0 and INT_MIN are
+// invalid.
+LIBYUV_API
+int V210ToI210(const uint8_t* src_v210,
+               int src_stride_v210,
+               uint16_t* dst_y,
+               int dst_stride_y,
+               uint16_t* dst_u,
+               int dst_stride_u,
+               uint16_t* dst_v,
+               int dst_stride_v,
+               int width,
+               int height);
+
+// Convert I210 to packed v210.  The packed plane is uint8_t with a byte
+// stride; the I210 planes are uint16_t with element strides.  A complete
+// final group is always written, with unused slots zeroed.  width must be a
+// positive even number.  A negative height flips the frame vertically; 0 and
+// INT_MIN are invalid.
+LIBYUV_API
+int I210ToV210(const uint16_t* src_y,
+               int src_stride_y,
+               const uint16_t* src_u,
+               int src_stride_u,
+               const uint16_t* src_v,
+               int src_stride_v,
+               uint8_t* dst_v210,
+               int dst_stride_v210,
+               int width,
+               int height);
+
 // Convert I410 to P410
 LIBYUV_API
 int I410ToP410(const uint16_t* src_y,

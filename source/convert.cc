@@ -1207,6 +1207,144 @@ int I210ToP210(const uint16_t* src_y,
                     width, height, 1, 0, 10);
 }
 
+// Validate the common v210 frame parameters and compute the derived row
+// sizes.  Returns 0 on success, -1 before any destination is written.
+static int V210Validate(int width,
+                        int height,
+                        int packed_stride,
+                        int y_stride,
+                        int u_stride,
+                        int v_stride,
+                        int* group_count,
+                        int* abs_height) {
+  int64_t groups64;
+  int64_t row_bytes;
+  int halfwidth;
+  int rows;
+  int64_t packed_span;
+  int64_t y_span;
+  int64_t u_span;
+  int64_t v_span;
+  // width must be a positive even number; 0 and INT_MIN heights are invalid.
+  if (width <= 1 || (width & 1) || height == 0 || height == INT_MIN) {
+    return -1;
+  }
+  groups64 = ((int64_t)width + 5) / 6;
+  row_bytes = groups64 * 16;
+  halfwidth = width >> 1;
+  rows = Abs(height);
+  // Positive strides that cover the data of each row.
+  if (packed_stride < row_bytes || y_stride < width ||
+      u_stride < halfwidth || v_stride < halfwidth) {
+    return -1;
+  }
+  // Total plane spans, including the final row, must not overflow.
+  packed_span = (int64_t)(rows - 1) * packed_stride + row_bytes;
+  y_span = (int64_t)(rows - 1) * y_stride + width;
+  u_span = (int64_t)(rows - 1) * u_stride + halfwidth;
+  v_span = (int64_t)(rows - 1) * v_stride + halfwidth;
+  if (groups64 > INT_MAX || packed_span > INT_MAX || y_span > INT_MAX ||
+      u_span > INT_MAX || v_span > INT_MAX) {
+    return -1;
+  }
+  *group_count = (int)groups64;
+  *abs_height = rows;
+  return 0;
+}
+
+// Unpack a packed v210 frame into triplanar I210 without an 8 bit
+// intermediate plane.
+LIBYUV_API
+int V210ToI210(const uint8_t* src_v210,
+               int src_stride_v210,
+               uint16_t* dst_y,
+               int dst_stride_y,
+               uint16_t* dst_u,
+               int dst_stride_u,
+               uint16_t* dst_v,
+               int dst_stride_v,
+               int width,
+               int height) {
+  int groups;
+  int rows;
+  int row;
+  if (!src_v210 || !dst_y || !dst_u || !dst_v ||
+      V210Validate(width, height, src_stride_v210, dst_stride_y,
+                   dst_stride_u, dst_stride_v, &groups, &rows)) {
+    return -1;
+  }
+  // Negative height means invert the image.
+  if (height < 0) {
+    src_v210 = src_v210 + (ptrdiff_t)(rows - 1) * src_stride_v210;
+    src_stride_v210 = -src_stride_v210;
+  }
+  for (row = 0; row < rows; ++row) {
+    int g;
+    for (g = 0; g < groups; ++g) {
+      int remaining = width - g * 6;
+      if (remaining > 6) {
+        remaining = 6;
+      }
+      V210ToI210Row_C(src_v210 + g * 16, dst_y + g * 6, dst_u + g * 3,
+                      dst_v + g * 3, remaining);
+    }
+    src_v210 += src_stride_v210;
+    dst_y += dst_stride_y;
+    dst_u += dst_stride_u;
+    dst_v += dst_stride_v;
+  }
+  return 0;
+}
+
+// Pack a triplanar I210 frame into v210 without an 8 bit intermediate
+// plane.  The complete final group is always written, with unused slots
+// zeroed.
+LIBYUV_API
+int I210ToV210(const uint16_t* src_y,
+               int src_stride_y,
+               const uint16_t* src_u,
+               int src_stride_u,
+               const uint16_t* src_v,
+               int src_stride_v,
+               uint8_t* dst_v210,
+               int dst_stride_v210,
+               int width,
+               int height) {
+  int groups;
+  int rows;
+  int row;
+  if (!src_y || !src_u || !src_v || !dst_v210 ||
+      V210Validate(width, height, dst_stride_v210, src_stride_y,
+                   src_stride_u, src_stride_v, &groups, &rows)) {
+    return -1;
+  }
+  // Negative height means invert the image.
+  if (height < 0) {
+    src_y = src_y + (ptrdiff_t)(rows - 1) * src_stride_y;
+    src_u = src_u + (ptrdiff_t)(rows - 1) * src_stride_u;
+    src_v = src_v + (ptrdiff_t)(rows - 1) * src_stride_v;
+    src_stride_y = -src_stride_y;
+    src_stride_u = -src_stride_u;
+    src_stride_v = -src_stride_v;
+  }
+  for (row = 0; row < rows; ++row) {
+    int g;
+    for (g = 0; g < groups; ++g) {
+      int remaining = width - g * 6;
+      if (remaining > 6) {
+        remaining = 6;
+      }
+      I210ToV210Row_C(src_y + g * 6, src_u + g * 3, src_v + g * 3,
+                      dst_v210 + g * 16, remaining);
+    }
+    src_y += src_stride_y;
+    src_u += src_stride_u;
+    src_v += src_stride_v;
+    dst_v210 += dst_stride_v210;
+  }
+  return 0;
+}
+
 LIBYUV_API
 int I410ToP410(const uint16_t* src_y,
                int src_stride_y,

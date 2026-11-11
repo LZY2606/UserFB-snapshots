@@ -5174,6 +5174,107 @@ void ARGB4444ToUVRow_AVX2(const uint8_t* src_argb4444,
 }
 #endif
 
+// Unpack one v210 group (4 little endian 32 bit words, three 10 bit slots
+// per word) into I210 sample planes.  Layout per group:
+//   word 0: U0 Y0 V0   word 1: Y1 U1 Y2
+//   word 2: V1 Y3 U2   word 3: Y4 V2 Y5
+// width is the number of luma samples remaining in this group, from 1 to 6.
+// Only samples that exist are written: chroma pair 1 needs Y2 (width >= 3)
+// and pair 2 needs Y4 (width >= 5).
+void V210ToI210Row_C(const uint8_t* src_v210,
+                     uint16_t* dst_y,
+                     uint16_t* dst_u,
+                     uint16_t* dst_v,
+                     int width) {
+  uint32_t word0;
+  uint32_t word1;
+  uint32_t word2;
+  uint32_t word3;
+  memcpy(&word0, src_v210, sizeof(word0));
+  memcpy(&word1, src_v210 + 4, sizeof(word1));
+  memcpy(&word2, src_v210 + 8, sizeof(word2));
+  memcpy(&word3, src_v210 + 12, sizeof(word3));
+  // The first chroma pair is shared by Y0 and Y1, so it exists whenever the
+  // group has any luma sample.
+  dst_u[0] = (uint16_t)(word0 & 0x3ffu);
+  dst_y[0] = (uint16_t)((word0 >> 10) & 0x3ffu);
+  dst_v[0] = (uint16_t)((word0 >> 20) & 0x3ffu);
+  if (width <= 1) {
+    return;
+  }
+  dst_y[1] = (uint16_t)(word1 & 0x3ffu);
+  if (width <= 2) {
+    return;
+  }
+  dst_u[1] = (uint16_t)((word1 >> 10) & 0x3ffu);
+  dst_y[2] = (uint16_t)((word1 >> 20) & 0x3ffu);
+  if (width <= 3) {
+    return;
+  }
+  dst_v[1] = (uint16_t)(word2 & 0x3ffu);
+  dst_y[3] = (uint16_t)((word2 >> 10) & 0x3ffu);
+  if (width <= 4) {
+    return;
+  }
+  dst_u[2] = (uint16_t)((word2 >> 20) & 0x3ffu);
+  dst_y[4] = (uint16_t)(word3 & 0x3ffu);
+  dst_v[2] = (uint16_t)((word3 >> 10) & 0x3ffu);
+  if (width <= 5) {
+    return;
+  }
+  dst_y[5] = (uint16_t)((word3 >> 20) & 0x3ffu);
+}
+
+// Pack one I210 group into the v210 word layout.  The 2 high bits of every
+// word are written zero and slots past the end of the row (width < 6) are
+// zeroed.  Only the low 10 bits of each I210 sample are used.
+void I210ToV210Row_C(const uint16_t* src_y,
+                     const uint16_t* src_u,
+                     const uint16_t* src_v,
+                     uint8_t* dst_v210,
+                     int width) {
+  uint32_t u0 = 0;
+  uint32_t y0 = 0;
+  uint32_t v0 = 0;
+  uint32_t y1 = 0;
+  uint32_t u1 = 0;
+  uint32_t y2 = 0;
+  uint32_t v1 = 0;
+  uint32_t y3 = 0;
+  uint32_t u2 = 0;
+  uint32_t y4 = 0;
+  uint32_t v2 = 0;
+  uint32_t y5 = 0;
+  if (width >= 1) {
+    u0 = src_u[0] & 0x3ffu;
+    y0 = src_y[0] & 0x3ffu;
+    v0 = src_v[0] & 0x3ffu;
+  }
+  if (width >= 2) {
+    y1 = src_y[1] & 0x3ffu;
+  }
+  if (width >= 3) {
+    u1 = src_u[1] & 0x3ffu;
+    y2 = src_y[2] & 0x3ffu;
+  }
+  if (width >= 4) {
+    v1 = src_v[1] & 0x3ffu;
+    y3 = src_y[3] & 0x3ffu;
+  }
+  if (width >= 5) {
+    u2 = src_u[2] & 0x3ffu;
+    y4 = src_y[4] & 0x3ffu;
+    v2 = src_v[2] & 0x3ffu;
+  }
+  if (width >= 6) {
+    y5 = src_y[5] & 0x3ffu;
+  }
+  WRITEWORD(dst_v210, u0 | (y0 << 10) | (v0 << 20));
+  WRITEWORD(dst_v210 + 4, y1 | (u1 << 10) | (y2 << 20));
+  WRITEWORD(dst_v210 + 8, v1 | (y3 << 10) | (u2 << 20));
+  WRITEWORD(dst_v210 + 12, y4 | (v2 << 10) | (y5 << 20));
+}
+
 #ifdef __cplusplus
 }  // extern "C"
 }  // namespace libyuv

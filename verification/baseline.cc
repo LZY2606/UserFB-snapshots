@@ -16,8 +16,12 @@ int main() {
     assert(oy[r*12+w]==0x5555);
   }
   unsigned char packed[256]={0},dy[16]={0},du[4]={0},dv[4]={0};
-  int result=ConvertToI420(packed,sizeof(packed),dy,8,du,4,dv,4,
-       0,0,w,h,w,h,kRotate0,FOURCC('v','2','1','0'));
-  assert(result==-1);
-  puts("baseline: padded I210/P210 roundtrip exact; v210 dispatcher returns -1");
+  // A valid v210 frame now converts through the dispatcher.
+  assert(!I210ToV210(y,12,u,8,v,8,packed,128,w,h));
+  assert(!ConvertToI420(packed,sizeof(packed),dy,8,du,4,dv,4,
+       0,0,w,h,w,h,kRotate0,FOURCC('v','2','1','0')));
+  // A sample buffer that cannot cover the full frame is still rejected.
+  assert(ConvertToI420(packed,127,dy,8,du,4,dv,4,
+       0,0,w,h,w,h,kRotate0,FOURCC('v','2','1','0'))==-1);
+  puts("baseline: padded I210/P210 roundtrip exact; v210 dispatch converts and rejects short buffers");
 }

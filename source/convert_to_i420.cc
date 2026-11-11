@@ -702,6 +702,69 @@ int ConvertToI420(const uint8_t* sample,
                      crop_width, inv_crop_height);
       break;
     }
+    case FOURCC_V210: {
+      // Capture card convention: each source row is padded to a multiple of
+      // 128 bytes, one 128 byte block per 48 pixels.  The stride follows the
+      // full source width, never the cropped width.
+      const int src_stride_v210 = 128 * ((src_width + 47) / 48);
+      const int first_group = crop_x / 6;
+      const int last_group = (crop_x + crop_width - 1) / 6;
+      const int group_offset = crop_x - first_group * 6;
+      const int scratch_groups = last_group - first_group + 1;
+      const int scratch_width = scratch_groups * 6;
+      const int64_t src_frame_size =
+          (int64_t)abs_src_height * (int64_t)src_stride_v210;
+      const size_t scratch_y_size =
+          (size_t)scratch_width * (size_t)abs_crop_height;
+      const size_t scratch_uv_size =
+          (size_t)(scratch_width / 2) * (size_t)abs_crop_height;
+      uint16_t* scratch_y;
+      uint16_t* scratch_u;
+      uint16_t* scratch_v;
+      // v210 is 4:2:2, so the source width, crop origin and crop width must
+      // all stay on even pixel boundaries.  The scratch holds uint16_t
+      // samples, so guard both the individual allocations and the combined
+      // byte total (2 * (y elements + 2 * uv elements)) against overflow.
+      if ((src_width & 1) || (crop_x & 1) || (crop_width & 1) ||
+          (int64_t)sample_size < src_frame_size ||
+          scratch_y_size > SIZE_MAX / 2 ||
+          scratch_uv_size > SIZE_MAX / 4 ||
+          scratch_y_size > SIZE_MAX / 2 - scratch_uv_size * 2) {
+        r = -1;
+        break;
+      }
+      // Lossless unpack of the groups covering the crop rectangle into an
+      // I210 scratch.  The crop origin may sit inside the first group, so the
+      // full groups are unpacked and the offset is kept for extraction.
+      scratch_y = (uint16_t*)malloc(scratch_y_size * sizeof(uint16_t));
+      scratch_u = (uint16_t*)malloc(scratch_uv_size * sizeof(uint16_t));
+      scratch_v = (uint16_t*)malloc(scratch_uv_size * sizeof(uint16_t));
+      if (!scratch_y || !scratch_u || !scratch_v) {
+        free(scratch_y);
+        free(scratch_u);
+        free(scratch_v);
+        r = 1;  // Out of memory runtime error.
+        break;
+      }
+      src = sample + (ptrdiff_t)crop_y * src_stride_v210 +
+            first_group * 16;
+      r = V210ToI210(src, src_stride_v210, scratch_y, scratch_width,
+                     scratch_u, scratch_width / 2, scratch_v,
+                     scratch_width / 2, scratch_width, inv_crop_height);
+      if (!r) {
+        // Extract the crop rectangle, including the intra-group offset, and
+        // run the existing 10 bit 4:2:2 to I420 path.
+        r = I210ToI420(scratch_y + group_offset, scratch_width,
+                       scratch_u + group_offset / 2, scratch_width / 2,
+                       scratch_v + group_offset / 2, scratch_width / 2,
+                       dst_y, dst_stride_y, dst_u, dst_stride_u, dst_v,
+                       dst_stride_v, crop_width, abs_crop_height);
+      }
+      free(scratch_y);
+      free(scratch_u);
+      free(scratch_v);
+      break;
+    }
     // Triplanar formats
     case FOURCC_I420:
     case FOURCC_YV12: {

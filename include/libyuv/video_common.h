@@ -53,7 +53,7 @@ extern "C" {
 // Secondary formats are converted in 2 steps.
 // Auxilliary formats call primary converters.
 enum FourCC {
-  // 15 Primary YUV formats: 6 planar, 7 biplanar, 2 packed.
+  // 16 Primary YUV formats: 6 planar, 7 biplanar, 3 packed.
   FOURCC_I420 = FOURCC('I', '4', '2', '0'),
   FOURCC_I422 = FOURCC('I', '4', '2', '2'),
   FOURCC_I444 = FOURCC('I', '4', '4', '4'),
@@ -69,6 +69,7 @@ enum FourCC {
   FOURCC_UYVY = FOURCC('U', 'Y', 'V', 'Y'),
   FOURCC_I010 = FOURCC('I', '0', '1', '0'),  // bt.601 10 bit 420
   FOURCC_I210 = FOURCC('I', '2', '1', '0'),  // bt.601 10 bit 422
+  FOURCC_V210 = FOURCC('v', '2', '1', '0'),  // packed 10 bit 422
 
   // 1 Secondary YUV format: row biplanar.  deprecated.
   FOURCC_M420 = FOURCC('M', '4', '2', '0'),

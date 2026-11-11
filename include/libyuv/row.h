@@ -10461,6 +10461,27 @@ void ARGBToUV444MatrixRow_HVX(const uint8_t* src_argb,
                               int width,
                               const struct ArgbConstants* c);
 
+// Unpack one group of 6 luma and 3 U, 3 V samples from a v210 packed row.
+// The v210 group is 4 little endian 32 bit words holding three 10 bit
+// samples each: U0/Y0/V0, Y1/U1/Y2, V1/Y3/U2, Y4/V2/Y5.  The 2 high bits
+// of each word are ignored.  Only samples that exist for the given width
+// are written, so width may be smaller than 6 for the last group.
+void V210ToI210Row_C(const uint8_t* src_v210,
+                     uint16_t* dst_y,
+                     uint16_t* dst_u,
+                     uint16_t* dst_v,
+                     int width);
+
+// Pack one group of 6 luma and 3 U, 3 V samples from an I210 frame into a
+// v210 packed row.  The 2 high bits of each 32 bit word are written zero
+// and slots without a corresponding sample are zeroed, so a complete group
+// is always written even when width is smaller than 6.
+void I210ToV210Row_C(const uint16_t* src_y,
+                     const uint16_t* src_u,
+                     const uint16_t* src_v,
+                     uint8_t* dst_v210,
+                     int width);
+
 #ifdef __cplusplus
 }  // extern "C"
 }  // namespace libyuv
