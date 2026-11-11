@@ -150,6 +150,7 @@ MidiFile& MidiFile::operator=(const MidiFile& other) {
 		}
 	);
 	m_ticksPerQuarterNote = other.m_ticksPerQuarterNote;
+	m_smpteDivision       = other.m_smpteDivision;
 	m_theTrackState       = other.m_theTrackState;
 	m_theTimeState        = other.m_theTimeState;
 	m_readFileName        = other.m_readFileName;
@@ -170,6 +171,7 @@ MidiFile& MidiFile::operator=(MidiFile&& other) {
 	other.m_events.clear();
 	other.m_events.emplace_back(new MidiEventList);
 	m_ticksPerQuarterNote = other.m_ticksPerQuarterNote;
+	m_smpteDivision       = other.m_smpteDivision;
 	m_theTrackState       = other.m_theTrackState;
 	m_theTimeState        = other.m_theTimeState;
 	m_readFileName        = other.m_readFileName;
@@ -417,12 +419,14 @@ bool MidiFile::readSmf(std::istream& input) {
 					std::cerr << "Using non-standard FPS: " << framespersecond << std::endl;
 		}
 		m_ticksPerQuarterNote = framespersecond * subframes;
+		m_smpteDivision = true;
 
 		// std::cerr << "SMPTE ticks: " << m_ticksPerQuarterNote << " ticks/sec" << std::endl;
 		// std::cerr << "SMPTE frames per second: " << framespersecond << std::endl;
 		// std::cerr << "SMPTE subframes per frame: " << subframes << std::endl;
 	}  else {
 		m_ticksPerQuarterNote = shortdata;
+		m_smpteDivision = false;
 	}
 
 
@@ -2388,6 +2392,19 @@ int MidiFile::getTPQ(void) const {
 
 //////////////////////////////
 //
+// MidiFile::isSmpteDivision -- Returns true if the time division of the
+//     MIDI file header was given in SMPTE format (frames per second and
+//     ticks per frame) rather than as ticks per quarter note (PPQN).
+//
+
+bool MidiFile::isSmpteDivision(void) const {
+	return m_smpteDivision;
+}
+
+
+
+//////////////////////////////
+//
 // MidiFile::getEventCount -- returns the number of events
 //   in a given track.
 //
@@ -2459,6 +2476,7 @@ void MidiFile::mergeTracks(int aTrack1, int aTrack2) {
 
 void MidiFile::setTicksPerQuarterNote(int ticks) {
 	m_ticksPerQuarterNote = ticks;
+	m_smpteDivision = false;
 }
 
 //
@@ -2487,6 +2505,7 @@ void MidiFile::setTPQ(int ticks) {
 
 void MidiFile::setMillisecondTicks(void) {
 	m_ticksPerQuarterNote = 0xE728;
+	m_smpteDivision = true;
 }
 
 

@@ -134,6 +134,7 @@ class MidiFile {
 		int              getTPQ                    (void) const;
 		void             setTicksPerQuarterNote    (int ticks);
 		void             setTPQ                    (int ticks);
+		bool             isSmpteDivision           (void) const;
 
 		// physical-time analysis functions:
 		void             doTimeAnalysis            (void);
@@ -280,6 +281,11 @@ class MidiFile {
 		// that are used as units for the delta times for MIDI events
 		// in MIDI file track data.
 		int m_ticksPerQuarterNote = 120;
+
+		// m_smpteDivision == True if the MIDI file header's time division
+		// was given in SMPTE format (frames per second / ticks per frame)
+		// rather than as ticks per quarter note (PPQN).
+		bool m_smpteDivision = false;
 
 		// m_theTrackState == state variable for whether the tracks
 		// are joined or split.

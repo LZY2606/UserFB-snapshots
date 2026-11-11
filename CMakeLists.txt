@@ -50,6 +50,7 @@ endif()
 set(SRCS
     src/Options.cpp
     src/Binasc.cpp
+    src/MeterMap.cpp
     src/MidiEvent.cpp
     src/MidiEventList.cpp
     src/MidiFile.cpp
@@ -58,6 +59,7 @@ set(SRCS
 
 set(HDRS
     include/Binasc.h
+    include/MeterMap.h
     include/MidiEvent.h
     include/MidiEventList.h
     include/MidiFile.h

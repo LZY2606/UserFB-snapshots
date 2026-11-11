@@ -56,6 +56,15 @@ MIDI files.  The library consists of 6 classes:
         since it is not needed for using the MidiFile class.
 </td></tr>
 
+<tr valign="top"><td>
+	MeterMap
+</td><td>
+	A helper class that maps between absolute MIDI ticks and musical
+	positions (measure / beat / within-beat offset) according to the
+	time-signature meta messages in a MidiFile.  See the MeterMap
+	section below for details.
+</td></tr>
+
 </table>
 
 Here is a schematic of how the classes are used together:
@@ -73,6 +82,83 @@ Documentation is under construction at
 [http://midifile.sapp.org](http://midifile.sapp.org).
 Essential examples for reading and writing MIDI files
 are given below.
+
+
+MeterMap: ticks to measure/beat positions
+-----------------------------------------
+
+The `MeterMap` class (`include/MeterMap.h`, `src/MeterMap.cpp`) converts
+between absolute MIDI ticks and musical positions expressed as
+*measure, beat, position-within-beat*, taking time-signature changes
+into account.  This is useful for placing loop or edit markers on a
+musical grid instead of raw ticks.
+
+```cpp
+#include "MeterMap.h"
+
+smf::MidiFile midifile("input.mid");
+smf::MeterMap map(midifile);            // snapshot of the meter structure
+
+smf::MeterPosition pos = map.tickToPosition(1680);
+// pos.bar == 2, pos.beat == 3, pos.offsetNum == 0, pos.offsetDen == 1
+
+long long tick = map.positionToTick(2, 3);          // -> 1680
+long long tick2 = map.positionToTick(pos);          // equivalent
+```
+
+**Coordinates.**  `smf::MeterPosition` has four `long long` members
+(`long long` is used so that positions far beyond the 32-bit tick range
+can never wrap around):
+
+* `bar` — the measure number, starting from 1.
+* `beat` — the beat number within the measure, starting from 1.  One
+  beat is the note value given by the time-signature *denominator*, so
+  6/8 has six beats per measure.  The metronome click byte of the 0x58
+  meta message is *not* used as the beat length.
+* `offsetNum` / `offsetDen` — the position within the beat as a
+  reduced, non-negative fraction of one beat (`0 <= offsetNum <
+  offsetDen`; a zero offset is always `0/1`).
+
+**Meter model.**  Only PPQN (ticks-per-quarter-note) files are
+supported.  If no time signature is present, 4/4 starting at tick 0
+(measure 1) is assumed.  All 0x58 meta messages on all tracks together
+form the time-signature sequence; delta ticks are accumulated per
+physical track, and joined files are interpreted in their current tick
+state.  Identical time signatures at the same absolute tick are merged
+(the click and 32nds bytes may differ), while a conflicting numerator
+or denominator at the same tick is an error.  A time-signature change
+starts a new measure at its tick: an unfinished old measure is
+truncated, and a change landing exactly on an old measure boundary
+keeps that measure's number.  Re-declaring the active time signature
+has no effect.  Tempo changes do not affect the mapping, and the last
+time signature extends beyond the final event of the file.
+
+**Exactness.**  Beat lengths need not be whole ticks (e.g. TPQ=7 with
+denominator 32 gives 7/8 tick per beat); all arithmetic is exact
+rational arithmetic.  Every position returned by `tickToPosition` maps
+back to the same tick via `positionToTick`.  A `positionToTick` call
+whose coordinates would land on a fractional tick is rejected rather
+than silently rounded, as is a position that does not exist (for
+example a beat beyond the end of a measure truncated by a meter
+change).
+
+**Errors.**  All error conditions throw `smf::MeterMapError` (a
+subclass of `std::runtime_error`): SMPTE time division, non-positive
+TPQ, malformed 0x58 payloads, zero numerator, denominator exponent
+larger than 7, conflicting time signatures at one tick, negative ticks,
+nonexistent or fractional-tick positions, and arithmetic overflow.
+
+**Snapshot semantics.**  `MeterMap` only reads the `MidiFile` it is
+built from — track count, event order, tick state, `seconds`, `seq`
+and note links are all left untouched — and it keeps no references to
+it.  Later modifications of the `MidiFile` do not affect an existing
+`MeterMap`; call `build()` again (or construct a new one) to pick up
+changes.
+
+A verification program covering these behaviors lives in
+`checks/meter_demo.cpp`; run `bash checks/meter_demo.sh` to build and
+run it (it also re-runs the older `checks/baseline.sh`).  It prints
+`METER_MAP_OK` when all assertions pass.
 
 
 Downloading

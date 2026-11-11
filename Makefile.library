@@ -168,6 +168,9 @@ makedirs:
 
 Binasc.o: Binasc.cpp Binasc.h
 
+MeterMap.o: MeterMap.cpp MeterMap.h MidiFile.h MidiEventList.h \
+  MidiEvent.h MidiMessage.h
+
 MidiEvent.o: MidiEvent.cpp MidiEvent.h MidiMessage.h
 
 MidiEventList.o: MidiEventList.cpp MidiEventList.h \
