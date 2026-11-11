@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `TrakBox.PlanMovieSeek` plans the samples a reader must fetch to present a progressive movie at a movie time,
+  applying the edit list and returning an `EmptyMovieSeekPlan` for an empty edit or a `MediaMovieSeekPlan` with the
+  presented sample, the sync sample to decode from, the edit number and the preroll `DataRange` list
+
 ### Fixed
 
 - `DecodeBoxSR` from a `bits.SliceReader` that is not a `bits.FixedSliceReader` reads the fields of the QuickTime and

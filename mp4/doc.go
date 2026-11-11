@@ -144,6 +144,22 @@ such as [LocalFileResolver], from the other files:
 
 [examples/segmenter] segments such files this way.
 
+# Planning a seek in a progressive file
+
+For a progressive file, [TrakBox.PlanMovieSeek] turns a position on the movie
+timeline into a plan that a file reader can use directly, without inspecting the
+sample tables itself. It takes the movie time and the movie timescale of mvhd,
+applies the track edit list (elst), including empty edits and edits that repeat
+the same media fragment, and returns either an [EmptyMovieSeekPlan] for a time
+that presents no media, or a [MediaMovieSeekPlan]. The media plan names the
+presented (target) sample, the sync sample where decoding must start, the edit
+number, and the [DataRange] list of the preroll interval in decode order, with
+the same file offsets that [TrakBox.GetRangesForSampleInterval] provides. The
+method only reads the moov sample tables: it does no I/O, no decoding, and does
+not modify the boxes. Time-base conversions and the half-open composition
+intervals are compared with exact integer arithmetic. [ExampleTrakBox_PlanMovieSeek]
+shows how to read the preroll bytes of the returned plan.
+
 # More efficient I/O using SliceReader and SliceWriter
 
 The use of the interfaces [io.Reader] and [io.Writer] for reading and writing boxes gives a lot of
