@@ -13,6 +13,7 @@ int main(void) {
     send(&f,eia608_from_utf8_2("A","B"));
     send(&f,eia608_control_command(eia608_control_carriage_return,0));
     assert(!strcmp(caption_frame_read_char(&f,3,0,0,0),"A"));
-    assert(!strcmp(caption_frame_read_char(&f,9,0,0,0),"Z"));
-    printf("baseline: AB moved to row3; outside ZZ wrongly moved row10->row9\n");
+    assert(!strcmp(caption_frame_read_char(&f,10,0,0,0),"Z"));
+    assert(!strcmp(caption_frame_read_char(&f,10,1,0,0),"Z"));
+    printf("baseline: AB rolled up to row3; ZZ outside the window stays on row10\n");
 }

@@ -43,7 +43,9 @@ const char* eia608_style_map[] = {
 static inline uint16_t eia608_row_pramble(int row, int chan, int x, int underline)
 {
     row = eia608_reverse_row_map[row & 0x0F];
-    return eia608_parity(0x1040 | (chan ? 0x0800 : 0x0000) | ((row << 7) & 0x0700) | ((row << 5) & 0x0020)) | ((x << 1) & 0x001E) | (underline ? 0x0001 : 0x0000);
+    // every data bit, including the row/column address marker (x bit 4), has
+    // to go in before the parity bits are calculated
+    return eia608_parity(0x1040 | (chan ? 0x0800 : 0x0000) | ((row << 7) & 0x0700) | ((row << 5) & 0x0020) | ((x << 1) & 0x001E) | (x & 0x0010) | (underline ? 0x0001 : 0x0000));
 }
 
 uint16_t eia608_row_column_pramble(int row, int col, int chan, int underline) { return eia608_row_pramble(row, chan, 0x10 | (col / 4), underline); }

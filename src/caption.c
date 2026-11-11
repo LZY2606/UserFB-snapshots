@@ -37,7 +37,7 @@ void caption_frame_state_clear(caption_frame_t* frame)
 {
     frame->write = 0;
     frame->timestamp = -1;
-    frame->state = (caption_frame_state_t){ 0, 0, 0, SCREEN_ROWS - 1, 0, 0 }; // clear global state
+    frame->state = (caption_frame_state_t){ 0, 0, 0, 0, SCREEN_ROWS - 1, 0, 0 }; // clear global state
 }
 
 void caption_frame_init(caption_frame_t* frame)
@@ -105,33 +105,140 @@ const utf8_char_t* caption_frame_read_char(caption_frame_t* frame, int row, int 
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Parsing
-libcaption_stauts_t caption_frame_carriage_return(caption_frame_t* frame)
+// Roll-up window
+// The screen is 15 rows by 32 columns and PAC rows are zero based. RU2/RU3/RU4
+// own a window of 2/3/4 rows; with baseline b the active range is
+// max(0, b - N + 1) .. b. Only that range moves on a carriage return, gets
+// relocated as a block by a new PAC, or changes size when the roll-up mode
+// changes. Every cell outside the window, style included, is left untouched.
+static int rollup_window_rows(caption_frame_t* frame)
 {
-    if (0 > frame->state.row || SCREEN_ROWS <= frame->state.row) {
-        return LIBCAPTION_ERROR;
+    return caption_frame_rollup(frame);
+}
+
+static int rollup_window_top(caption_frame_t* frame)
+{
+    int rows = rollup_window_rows(frame);
+    int top = frame->state.row - rows + 1;
+    return 0 < top ? top : 0;
+}
+
+static void rollup_clear_row(caption_frame_t* frame, int row)
+{
+    caption_frame_cell_t* cell = frame_buffer_cell(frame->write, row, 0);
+
+    if (cell) {
+        memset(cell, 0, sizeof(caption_frame_cell_t) * SCREEN_COLS);
+    }
+}
+
+// First roll-up PAC after paint-on/pop-on: establish an empty window on the
+// PAC baseline. Until that PAC arrives roll-up is just a mode, so already
+// displayed content is never cleared and anything waiting in the
+// non-displayed buffer is never pulled in.
+static void rollup_window_init(caption_frame_t* frame)
+{
+    if (frame->state.rwin || !rollup_window_rows(frame) || !frame->write) {
+        return;
     }
 
-    int r = frame->state.row - (frame->state.rup - 1);
+    for (int r = rollup_window_top(frame); r <= frame->state.row; ++r) {
+        rollup_clear_row(frame, r);
+    }
 
-    if (0 >= r || !caption_frame_rollup(frame)) {
+    frame->state.rwin = 1;
+}
+
+// Change the window row count while keeping the baseline. The lowest
+// min(old rows, new rows) rows stay put; rows leaving a shrinking window are
+// cleared and rows exposed by a growing window start out empty.
+static void rollup_window_resize(caption_frame_t* frame, int old_rows, int new_rows)
+{
+    if (!frame->state.rwin || old_rows == new_rows) {
+        return;
+    }
+
+    int b = frame->state.row;
+    int old_top = b - old_rows + 1;
+    int new_top = b - new_rows + 1;
+    old_top = 0 < old_top ? old_top : 0;
+    new_top = 0 < new_top ? new_top : 0;
+
+    if (new_rows < old_rows) {
+        for (int r = old_top; r < new_top; ++r) {
+            rollup_clear_row(frame, r);
+        }
+    } else {
+        for (int r = new_top; r < old_top; ++r) {
+            rollup_clear_row(frame, r);
+        }
+    }
+}
+
+// Roll-up PAC relocation: move the current window as one block, cells and
+// styles together, by the baseline difference. Rows moved off screen are
+// discarded, cells the old window vacates are cleared, cells the moved block
+// does not cover in the new window stay empty, and everything outside both
+// windows is unchanged.
+static void rollup_window_relocate(caption_frame_t* frame, int new_row)
+{
+    if (!frame->state.rwin || new_row == frame->state.row || !frame->write) {
+        return;
+    }
+
+    int old_top = rollup_window_top(frame);
+    int old_bottom = frame->state.row;
+    int delta = new_row - old_bottom;
+    // snapshot the window, the two ranges may overlap on screen
+    caption_frame_cell_t snapshot[SCREEN_ROWS][SCREEN_COLS];
+    memset(snapshot, 0, sizeof(snapshot));
+
+    for (int r = old_top; r <= old_bottom; ++r) {
+        memcpy(snapshot[r], frame->write->cell[r], sizeof(caption_frame_cell_t) * SCREEN_COLS);
+    }
+
+    for (int r = old_top; r <= old_bottom; ++r) {
+        rollup_clear_row(frame, r);
+    }
+
+    for (int r = old_top; r <= old_bottom; ++r) {
+        int dst = r + delta;
+
+        if (0 <= dst && SCREEN_ROWS > dst) {
+            memcpy(frame->write->cell[dst], snapshot[r], sizeof(caption_frame_cell_t) * SCREEN_COLS);
+        }
+    }
+}
+
+libcaption_stauts_t caption_frame_carriage_return(caption_frame_t* frame)
+{
+    if (0 > frame->state.row || SCREEN_ROWS <= frame->state.row || !rollup_window_rows(frame) || !frame->write) {
         return LIBCAPTION_OK;
     }
 
-    for (; r < SCREEN_ROWS; ++r) {
-        uint8_t* dst = (uint8_t*)frame_buffer_cell(frame->write, r - 1, 0);
-        uint8_t* src = (uint8_t*)frame_buffer_cell(frame->write, r - 0, 0);
-        memcpy(dst, src, sizeof(caption_frame_cell_t) * SCREEN_COLS);
+    rollup_window_init(frame);
+
+    int top = rollup_window_top(frame);
+    int bottom = frame->state.row;
+
+    // roll the visible window up one row; clipping at the top of the screen is
+    // handled by walking the visible rows instead of giving up on the CR
+    for (int r = top; r < bottom; ++r) {
+        memcpy(frame->write->cell[r], frame->write->cell[r + 1], sizeof(caption_frame_cell_t) * SCREEN_COLS);
     }
 
+    rollup_clear_row(frame, bottom);
     frame->state.col = 0;
-    caption_frame_cell_t* cell = frame_buffer_cell(frame->write, SCREEN_ROWS - 1, 0);
-    memset(cell, 0, sizeof(caption_frame_cell_t) * SCREEN_COLS);
     return LIBCAPTION_OK;
 }
 ////////////////////////////////////////////////////////////////////////////////
 libcaption_stauts_t eia608_write_char(caption_frame_t* frame, char* c)
 {
+    // text before the first roll-up PAC opens the empty window on the cursor row
+    if (rollup_window_rows(frame) && frame->write) {
+        rollup_window_init(frame);
+    }
+
     if (0 == c || 0 == c[0] || SCREEN_ROWS <= frame->state.row || 0 > frame->state.row || SCREEN_COLS <= frame->state.col || 0 > frame->state.col) {
         // NO-OP
     } else if (caption_frame_write_char(frame, frame->state.row, frame->state.col, frame->state.sty, frame->state.uln, c)) {
@@ -145,6 +252,8 @@ libcaption_stauts_t caption_frame_end(caption_frame_t* frame)
 {
     memcpy(&frame->front, &frame->back, sizeof(caption_frame_buffer_t));
     caption_frame_buffer_clear(&frame->back); // This is required
+    // the published display replaces everything, any previous window is stale
+    frame->state.rwin = 0;
     return LIBCAPTION_READY;
 }
 
@@ -154,10 +263,25 @@ libcaption_stauts_t caption_frame_decode_preamble(caption_frame_t* frame, uint16
     int row, col, chn, uln;
 
     if (eia608_parse_preamble(cc_data, &row, &col, &sty, &chn, &uln)) {
-        frame->state.row = row;
-        frame->state.col = col;
-        frame->state.sty = sty;
-        frame->state.uln = uln;
+        // In roll-up mode a PAC relocates the whole window; the PAC column and
+        // style stay in effect for whatever is written next.
+        if (rollup_window_rows(frame) && frame->write) {
+            if (frame->state.rwin) {
+                rollup_window_relocate(frame, row);
+            }
+
+            frame->state.row = row;
+            frame->state.col = col;
+            frame->state.sty = sty;
+            frame->state.uln = uln;
+            // the first roll-up PAC opens the empty window on its own baseline
+            rollup_window_init(frame);
+        } else {
+            frame->state.row = row;
+            frame->state.col = col;
+            frame->state.sty = sty;
+            frame->state.uln = uln;
+        }
     }
 
     return LIBCAPTION_OK;
@@ -209,28 +333,33 @@ libcaption_stauts_t caption_frame_decode_control(caption_frame_t* frame, uint16_
     // PAINT ON
     case eia608_control_resume_direct_captioning:
         frame->state.rup = 0;
+        frame->state.rwin = 0;
         frame->write = &frame->front;
         return LIBCAPTION_OK;
 
     case eia608_control_erase_display_memory:
         caption_frame_buffer_clear(&frame->front);
+        frame->state.rwin = 0;
         return LIBCAPTION_READY;
 
     // ROLL-UP
     case eia608_control_roll_up_2:
-        frame->state.rup = 1;
-        frame->write = &frame->front;
-        return LIBCAPTION_OK;
-
     case eia608_control_roll_up_3:
-        frame->state.rup = 2;
+    case eia608_control_roll_up_4: {
+        int new_rows = (eia608_control_roll_up_2 == cmd) ? 2 : (eia608_control_roll_up_3 == cmd) ? 3 : 4;
+        int old_rows = rollup_window_rows(frame);
         frame->write = &frame->front;
-        return LIBCAPTION_OK;
 
-    case eia608_control_roll_up_4:
-        frame->state.rup = 3;
-        frame->write = &frame->front;
+        if (frame->state.rwin && old_rows != new_rows) {
+            // window already established: resize around the same baseline
+            rollup_window_resize(frame, old_rows, new_rows);
+        }
+
+        // otherwise this only selects the mode; the empty window is opened by
+        // the first roll-up PAC (or text/CR arriving at the current row)
+        frame->state.rup = (unsigned)(new_rows - 1);
         return LIBCAPTION_OK;
+    }
 
     case eia608_control_carriage_return:
         return caption_frame_carriage_return(frame);
@@ -244,6 +373,7 @@ libcaption_stauts_t caption_frame_decode_control(caption_frame_t* frame, uint16_
     // POP ON
     case eia608_control_resume_caption_loading:
         frame->state.rup = 0;
+        frame->state.rwin = 0;
         frame->write = &frame->back;
         return LIBCAPTION_OK;
 

@@ -68,6 +68,7 @@ typedef struct {
     unsigned int uln : 1; //< underline
     unsigned int sty : 3; //< style
     unsigned int rup : 2; //< roll-up line count minus 1
+    unsigned int rwin : 1; //< roll-up window has been established on the display buffer
     int8_t row, col;
     uint16_t cc_data;
 } caption_frame_state_t;
