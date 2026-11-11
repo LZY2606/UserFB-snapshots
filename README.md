@@ -119,6 +119,26 @@ Default: `true`
 
 Set to `true` to remux audio and video into a single MP4 segment.
 
+##### splitVideoConfig
+
+Type: `boolean`
+
+Default: `false`
+
+Some sources change video resolution (or other codec parameters) in the middle of a batch of input. By default the transmuxer keeps the earliest SPS/PPS it has seen and writes every GOP in a batch into a single fragment, so a mid-batch configuration change is not represented accurately. Setting `splitVideoConfig` to `true` makes the video pipeline split the output into one media fragment per distinct SPS/PPS configuration instead.
+
+This option only applies to the video track and has the following restrictions:
+
+- It is only supported for video-only streams with [`remux`](#remux) set to `false`. Enabling it together with audio is rejected explicitly with an `error` event; the audio track is never silently dropped.
+- Input must be AVC (H.264) with a single active SPS/PPS pair at any time.
+- A configuration update may only appear at the start of an IDR access unit that begins with an access unit delimiter (AUD).
+- The change is detected from the raw bytes of both the SPS and the PPS, not just the parsed resolution. Repeating the identical parameter set pair is not a change and does not create a new fragment.
+- Access units that introduce a parameter set must carry a complete SPS/PPS pair. Inputs that are missing a complete parameter set, that change a parameter set in the middle of an access unit, or that activate a new configuration on a non-IDR access unit are rejected with an `error` event before any `data` event for that batch is emitted. Calling `reset()` afterwards lets the pipeline continue with legal input.
+
+When the option is enabled, a single outer `flush()` can emit more than one `data` event, in input order. Each event carries its own `initSegment` whose SPS/PPS and track dimensions match the samples in its `data` (moof/mdat). Track information and parameter sets handed to a listener are immutable snapshots, so a later configuration change never rewrites an event that was already emitted. Sequence numbers, `baseMediaDecodeTime` and the timestamps keep their existing meaning and continue across fragments without resetting per configuration; the duration of the last frame of one configuration is derived from the DTS of the access unit that starts the next one.
+
+For every outer `flush()` the events are ordered as all of the resulting `data` events first, followed by exactly one `done` event. An empty `flush()` produces no `data` events and still produces a single `done`. When the option is `false` (the default), the output structure and the more permissive handling of configuration changes are unchanged.
+
 #### CaptionParser
 
 `muxjs.mp4.CaptionParser`
