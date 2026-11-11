@@ -553,6 +553,7 @@ TEMPLATED struct ALIGNED( 64 ) Ray
 		hit.t = t, hit.u = hit.v = 0, hit.prim = 0;
 		if constexpr (!bvh_packed_inst<Index>) hit.inst = 0;
 		mask = rayMask & RAY_MASK_INTERSECT_ALL;
+		time = Float( 0 );
 	}
 	void Normalize()
 	{
@@ -569,6 +570,11 @@ TEMPLATED struct ALIGNED( 64 ) Ray
 	ALIGNED( 16 ) Vec3 O; uint32_t mask = RAY_MASK_INTERSECT_ALL;
 	ALIGNED( 16 ) Vec3 D; Index instIdx = 0;
 	ALIGNED( 16 ) Vec3 rD;
+	// Shutter time in [0, 1], sampled by motion-enabled BLASInstances during a TLAS query. It has
+	// the same precision as the ray and defaults to 0, preserving the static (shutter-open) behavior
+	// and every pre-existing field offset. Placed after rD: in the float layout it fills the
+	// padding slot before the hit record, so the ray size and all earlier offsets are unchanged.
+	Float time = Float( 0 );
 	// a packed 16-byte hit record starts on a 16-byte boundary
 	alignas(bvh_packed_inst<Index> ? 16 : alignof(Intersection<Float, Index>)) Intersection<Float, Index> hit;
 };
@@ -751,6 +757,7 @@ protected:
 	bool orderedNodes = true;		// depth-first: children follow their parents, subtree prims are contiguous. Not after Bonsai.
 	bool bvhOverAabbs = false;	// a BVH over AABBs is useful for e.g. TLAS traversal.
 	bool bvhOverIndices = false;	// a BVH over indices cannot translate primitive index to vertex index.
+	bool containsMotionInstances = false;	// a TLAS: at least one BLASInstance has motionEnabled set.
 public:
 	// read-only queries on the flags.
 	bool isRefittable() const { return refittable; }
@@ -759,6 +766,8 @@ public:
 	bool hasOrderedNodes() const { return orderedNodes; }
 	bool isOverAABBs() const { return bvhOverAabbs; }
 	bool isOverIndices() const { return bvhOverIndices; }
+	// A TLAS built over at least one motion-enabled BLASInstance.
+	bool HasMotionInstances() const { return containsMotionInstances; }
 	bool threadedBuild = true;		// will be disabled for small meshes.
 	// BVH construction flags and settings.
 	BVHBuildSettings settings;		// build settings: presplitting, full-sweep etc.
@@ -848,6 +857,7 @@ TEMPLATED class BVH : public BVHBase<Float, Index>
 public:
 	using Base = BVHBase<Float, Index>;
 	using typename Base::Vec3;
+	using typename Base::Mat4;
 	using typename Base::BinBox;
 	using typename Base::Vertex;
 	using typename Base::Slice;
@@ -879,6 +889,7 @@ protected:
 	using Base::orderedNodes;
 	using Base::bvhOverAabbs;
 	using Base::bvhOverIndices;
+	using Base::containsMotionInstances;
 	using Base::AlignedAlloc;
 	using Base::AlignedFree;
 	using Base::ContextNew;
@@ -1813,6 +1824,10 @@ private:
 	BVH8_CPU& operator=( const BVH8_CPU& ) = default;
 };
 
+// Invert an affine 4x4 matrix (last row (0, 0, 0, 1)); shared by the static instance inversion
+// and the per-ray motion interpolation, which must not write to the shared instance record.
+template <typename Mat4> void tinybvh_invert_affine4( const Mat4& T, Mat4& iT );
+
 // BLASInstance: A TLAS is built over BLAS instances, where a single BLAS can be
 // used with multiple transforms, and multiple BLASses can be combined in a complex
 // scene. The TLAS is built over the world-space AABBs of the BLAS root nodes.
@@ -1829,8 +1844,21 @@ public:
 	Index blasIdx = 0;
 	Vec3 aabbMax = Vec3( -bvh_far<Float> );
 	uint32_t mask = (uint32_t)RAY_MASK_INTERSECT_ALL; // set to intersect with all rays by default
+	// Linear affine motion. Kept at the tail so all pre-existing field offsets (and the record
+	// layout consumed by the GPU OpenCL kernels) are preserved. When motionEnabled is false the
+	// instance is static and only 'transform' is used; 'transformEnd' is ignored. When enabled,
+	// 'transform' is the shutter-open pose and 'transformEnd' the shutter-close pose; the
+	// local-to-world matrix for a ray is the elementwise linear interpolation at ray.time in
+	// [0, 1], i.e. a matrix interpolation rather than a decomposed TRS interpolation.
+	bool motionEnabled = false;
+	Mat4 transformEnd; // defaults to identity; used only while motionEnabled is true
 	void Update( BVHBase<Float, Index>*blas );
 	void InvertTransform();
+	// Local-to-world matrix at shutter time t, and its inverse. The interpolated matrix is
+	// built on the stack per ray: nothing is written to the shared instance record, so queries
+	// at different times may be interleaved without overwriting each other's state.
+	Mat4 MotionTransform( const Float t ) const;
+	Mat4 MotionInvTransform( const Float t ) const;
 };
 
 } // namespace impl
@@ -2354,10 +2382,12 @@ TEMPLATED void BVH<Float, Index>::Build( BLASInstance* instances, const Index in
 	BVH_FATAL_ERROR_IF( instCount == 0, "BVH::Build( BLASInstance*, instCount ), instCount == 0." );
 	SetInput( Slice( nullptr, 0, 0 ), 0 );
 	instList = instances, blasList = blasses, blasCount = bCount;
+	containsMotionInstances = false;
 	BuildFromBounds( instCount, [&]( const Index i, Vec3& bmin, Vec3& bmax )
 	{
 		// if a null pointer is passed, we'll assume the BLASInstances have been updated elsewhere.
 		if (blasList) instList[i].Update( (BVH*)blasList[instList[i].blasIdx] );
+		containsMotionInstances |= instList[i].motionEnabled;
 		bmin = instList[i].aabbMin, bmax = instList[i].aabbMax;
 	} );
 }
@@ -2398,6 +2428,7 @@ TEMPLATED void BVH<Float, Index>::SetInput( const Slice& vertices, const Index* 
 {
 	verts = vertices, vertIdx = (Index*)indices;
 	instList = 0, blasList = 0, blasCount = 0;
+	containsMotionInstances = false; // rebuilding over triangles or static instances leaves no motion state.
 }
 
 // TLAS over BLASses of the same layout. BVH derives from BVHBase without offset, which makes the cast of the array safe.
@@ -4171,14 +4202,18 @@ TEMPLATED PER_OCTANT int32_t BVH<Float, Index>::IntersectTLASOctant( Ray& ray ) 
 				// Check if the ray should intersect this BLAS Instance, otherwise skip it
 				if (!(inst.mask & ray.mask)) continue;
 				const BVHBase<Float, Index>* blas = blasList[inst.blasIdx];
+				// Static instances reuse the cached inverse; a motion instance interpolates its
+				// local-to-world matrix at the ray's shutter time and inverts that on the stack.
+				Mat4 motionInv;
+				const Mat4& invT = inst.motionEnabled ? (motionInv = inst.MotionInvTransform( ray.time )) : inst.invTransform;
 				if constexpr (bvh_traits<Float>::wide_layouts)
 				{
 					if (blas->layout == LAYOUT_BVH4_CPU || blas->layout == LAYOUT_BVH8_SIMD)
 					{
 						const Vec3 O = ray.O, D = ray.D, rD = ray.rD;
 						const Index rayInstIdx = ray.instIdx;
-						ray.O = tinybvh_transform_point( O, inst.invTransform );
-						ray.D = tinybvh_transform_vector( D, inst.invTransform );
+						ray.O = tinybvh_transform_point( O, invT );
+						ray.D = tinybvh_transform_vector( D, invT );
 						ray.rD = tinybvh_rcp( ray.D );
 						ray.instIdx = instIdx << bvh_inst_shift<Index>;
 						cost += tinybvh_blas_intersect( blas, ray );
@@ -4187,11 +4222,12 @@ TEMPLATED PER_OCTANT int32_t BVH<Float, Index>::IntersectTLASOctant( Ray& ray ) 
 					}
 				}
 				// 1. Transform ray with the inverse of the instance transform
-				tmpRay.O = tinybvh_transform_point( ray.O, inst.invTransform );
-				tmpRay.D = tinybvh_transform_vector( ray.D, inst.invTransform );
+				tmpRay.O = tinybvh_transform_point( ray.O, invT );
+				tmpRay.D = tinybvh_transform_vector( ray.D, invT );
 				tmpRay.instIdx = instIdx << bvh_inst_shift<Index>;
 				tmpRay.mask = ray.mask;
 				tmpRay.hit = ray.hit;
+				tmpRay.time = ray.time;
 				tmpRay.rD = tinybvh_rcp( tmpRay.D );
 				// 2. Traverse BLAS with the transformed ray. When all BLASses are of the same
 				// layout this reduces to nearly zero cost for a small set of predictable branches.
@@ -4300,16 +4336,21 @@ TEMPLATED PER_OCTANT bool BVH<Float, Index>::IsOccludedTLASOctant( const Ray& ra
 			{
 				// BLAS traversal
 				const Index instIdx = primIdx[node->leftFirst + i];
-				BLASInstance& inst = instList[instIdx];
+				const BLASInstance& inst = instList[instIdx];
 				// Check if the ray should intersect this BLAS Instance, otherwise skip it
 				if (!(inst.mask & ray.mask)) continue;
 				const BVHBase<Float, Index>* blas = blasList[inst.blasIdx];
+				// Static instances reuse the cached inverse; a motion instance interpolates its
+				// local-to-world matrix at the ray's shutter time and inverts that on the stack.
+				Mat4 motionInv;
+				const Mat4& invT = inst.motionEnabled ? (motionInv = inst.MotionInvTransform( ray.time )) : inst.invTransform;
 				// 1. Transform ray with the inverse of the instance transform
-				tmpRay.O = tinybvh_transform_point( ray.O, inst.invTransform );
-				tmpRay.D = tinybvh_transform_vector( ray.D, inst.invTransform );
+				tmpRay.O = tinybvh_transform_point( ray.O, invT );
+				tmpRay.D = tinybvh_transform_vector( ray.D, invT );
 				tmpRay.instIdx = instIdx << bvh_inst_shift<Index>;
 				tmpRay.mask = ray.mask;
 				tmpRay.hit = ray.hit;
+				tmpRay.time = ray.time;
 				tmpRay.rD = tinybvh_rcp( tmpRay.D );
 				// 2. Traverse BLAS with the transformed ray
 				if (tinybvh_blas_occluded( blas, tmpRay )) return true;
@@ -7628,20 +7669,56 @@ TEMPLATED void BLASInstance<Float, Index>::Update( BVHBase<Float, Index>* blas )
 	// instance transform and calculate the worldspace aabb over those.
 	aabbMin = Vec3( bvh_far<Float> ), aabbMax = Vec3( -bvh_far<Float> );
 	Vec3 bmin = blas->aabbMin, bmax = blas->aabbMax;
-	for (int32_t j = 0; j < 8; j++)
+	if (motionEnabled)
 	{
-		const Vec3 p( j & 1 ? bmax.x : bmin.x, j & 2 ? bmax.y : bmin.y, j & 4 ? bmax.z : bmin.z );
-		const Vec3 t = tinybvh_transform_point( p, transform );
-		aabbMin = tinybvh_min( aabbMin, t ), aabbMax = tinybvh_max( aabbMax, t );
+		// A motion instance must be bounded over the whole shutter interval. The swept box of a
+		// linearly interpolated affine matrix is the union of the endpoint boxes: every entry of
+		// the interpolated matrix is a convex combination of the two endpoint matrices, so every
+		// transformed corner stays inside the box of the two endpoint corner sets.
+		for (int32_t j = 0; j < 8; j++)
+		{
+			const Vec3 p( j & 1 ? bmax.x : bmin.x, j & 2 ? bmax.y : bmin.y, j & 4 ? bmax.z : bmin.z );
+			const Vec3 t0 = tinybvh_transform_point( p, transform );
+			const Vec3 t1 = tinybvh_transform_point( p, transformEnd );
+			aabbMin = tinybvh_min( aabbMin, tinybvh_min( t0, t1 ) );
+			aabbMax = tinybvh_max( aabbMax, tinybvh_max( t0, t1 ) );
+		}
+	}
+	else
+	{
+		for (int32_t j = 0; j < 8; j++)
+		{
+			const Vec3 p( j & 1 ? bmax.x : bmin.x, j & 2 ? bmax.y : bmin.y, j & 4 ? bmax.z : bmin.z );
+			const Vec3 t = tinybvh_transform_point( p, transform );
+			aabbMin = tinybvh_min( aabbMin, t ), aabbMax = tinybvh_max( aabbMax, t );
+		}
 	}
 }
 
-// InvertTransform - calculate the inverse of the matrix stored in 'transform'
-TEMPLATED void BLASInstance<Float, Index>::InvertTransform()
+// Elementwise linear interpolation of two affine matrices. This interpolates the matrix entries
+// directly; it is deliberately not a decomposition into translation/rotation/scale components.
+TEMPLATED typename BLASInstance<Float, Index>::Mat4 BLASInstance<Float, Index>::MotionTransform( const Float t ) const
 {
-	// math from MESA, via http://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
-	const Mat4& T = this->transform; // Mat4 indexes its 16 cells directly.
-	Mat4& iT = this->invTransform;
+	Mat4 r;
+	const Float a = Float( 1 ) - t;
+	for (int i = 0; i < 16; i++) r[i] = a * transform[i] + t * transformEnd[i];
+	return r;
+}
+
+// Inverse of the local-to-world matrix at shutter time t. The matrix is inverted on the stack, so
+// the shared instance record (and in particular its cached invTransform) is never mutated.
+TEMPLATED typename BLASInstance<Float, Index>::Mat4 BLASInstance<Float, Index>::MotionInvTransform( const Float t ) const
+{
+	const Mat4 T = MotionTransform( t );
+	Mat4 iT;
+	tinybvh_invert_affine4( T, iT );
+	return iT;
+}
+
+// Invert an affine 4x4 matrix (last row assumed to be (0, 0, 0, 1)).
+// math from MESA, via http://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
+template <typename Mat4> void tinybvh_invert_affine4( const Mat4& T, Mat4& iT )
+{
 	iT[0] = T[5] * T[10] * T[15] - T[5] * T[11] * T[14] - T[9] * T[6] * T[15] + T[9] * T[7] * T[14] + T[13] * T[6] * T[11] - T[13] * T[7] * T[10];
 	iT[1] = -T[1] * T[10] * T[15] + T[1] * T[11] * T[14] + T[9] * T[2] * T[15] - T[9] * T[3] * T[14] - T[13] * T[2] * T[11] + T[13] * T[3] * T[10];
 	iT[2] = T[1] * T[6] * T[15] - T[1] * T[7] * T[14] - T[5] * T[2] * T[15] + T[5] * T[3] * T[14] + T[13] * T[2] * T[7] - T[13] * T[3] * T[6];
@@ -7658,10 +7735,17 @@ TEMPLATED void BLASInstance<Float, Index>::InvertTransform()
 	iT[13] = T[0] * T[9] * T[14] - T[0] * T[10] * T[13] - T[8] * T[1] * T[14] + T[8] * T[2] * T[13] + T[12] * T[1] * T[10] - T[12] * T[2] * T[9];
 	iT[14] = -T[0] * T[5] * T[14] + T[0] * T[6] * T[13] + T[4] * T[1] * T[14] - T[4] * T[2] * T[13] - T[12] * T[1] * T[6] + T[12] * T[2] * T[5];
 	iT[15] = T[0] * T[5] * T[10] - T[0] * T[6] * T[9] - T[4] * T[1] * T[10] + T[4] * T[2] * T[9] + T[8] * T[1] * T[6] - T[8] * T[2] * T[5];
-	const Float det = T[0] * iT[0] + T[1] * iT[4] + T[2] * iT[8] + T[3] * iT[12];
+	const auto det = T[0] * iT[0] + T[1] * iT[4] + T[2] * iT[8] + T[3] * iT[12];
 	if (det == 0) return; // actually, invert failed. That's bad.
-	const Float invdet = 1.0f / det;
+	const auto invdet = decltype( det )( 1.0 ) / det;
 	for (int i = 0; i < 16; i++) iT[i] *= invdet;
+}
+
+// InvertTransform - calculate the inverse of the matrix stored in 'transform'
+TEMPLATED void BLASInstance<Float, Index>::InvertTransform()
+{
+	// Mat4 indexes its 16 cells directly.
+	tinybvh_invert_affine4( transform, invTransform );
 }
 
 // SA

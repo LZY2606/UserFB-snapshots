@@ -186,6 +186,29 @@ tlas.Intersect( ray );
 
 Changing the transforms and rebuilding the (small) TLAS gives cheap _rigid animation_ as well as instancing.
 
+## Motion-blurred instances
+
+For an offline renderer whose primary and shadow rays carry different shutter times, a `BLASInstance` (and the double-precision `BLASInstanceEx`) can describe _linear affine motion_ while the BLAS triangles stay static. Enable it with `motionEnabled` and supply a second matrix, `transformEnd`. `transform` is then the shutter-_open_ pose and `transformEnd` the shutter-_close_ pose. Each `Ray` (and `RayEx`) carries a `time` member of the same precision as the ray, in `[0, 1]`; it defaults to `0`, so existing constructors and call sites compile unchanged.
+
+For a ray at time `t` the instance uses the elementwise linear interpolation `M(t) = (1 - t) * transform + t * transformEnd` — a direct matrix interpolation, not a decomposed TRS/rotation interpolation. The interpolated matrix is inverted per query on the stack; the shared `invTransform` is never overwritten, so rays at arbitrary times can be interleaved on one built TLAS without per-ray allocation or rebuilding. When `motionEnabled` is `false` the instance is fully static: only `transform` is used and `transformEnd` is ignored.
+
+```cpp
+tinybvh::BLASInstance inst( 0 );          // references BLAS 0
+inst.transform    = openPoseMatrix;       // shutter-open  local-to-world matrix
+inst.transformEnd = closePoseMatrix;      // shutter-close local-to-world matrix
+inst.motionEnabled = true;
+
+tinybvh::BVH tlas;
+tlas.Build( &inst, 1, blasList, 1 );      // instance AABB covers the whole shutter interval
+
+tinybvh::Ray ray( origin, direction );
+ray.time = 0.5f;                          // sample the mid-pose
+tlas.Intersect( ray );                    // t/u/v are reported on the original world ray
+bool shadowed = tlas.IsOccluded( shadowRayWithItsOwnTime );
+```
+
+The TLAS is built once: each instance's world-space AABB is expanded to cover both endpoint poses (and hence every interpolated pose), so a single tree serves the whole interval. Static and motion instances may be mixed, and several motion instances may share one BLAS with independent poses; hit `prim` and instance identity remain correct, and non-unit ray directions, non-uniform scaling and shear still return the parameter `t` of the original world ray. `Intersect` and `IsOccluded` honor the ray's own `time`; `IsOccluded` never modifies the ray, and both keep the existing mask and half-open `[0, hit.t)` distance rules. A TLAS containing motion instances serves `IntersectBundle` / `IsOccludedBundle` through its per-ray traversal (each ray keeps its own time, mask and distance limit), while fully static TLASes keep their vectorized bundle path. Updating an endpoint and calling `Build` again recomputes the swept bounds; rebuilding the same BVH over static instances or plain triangles clears all motion state. See `examples/tiny_bvh_motion_instancing.cpp` and the regression in `tests/tiny_bvh_motion_instance_test.cpp`.
+
 Custom primitives are supported through callbacks: supply the AABBs via a function pointer and point `customIntersect` and `customIsOccluded` at your own intersection code. This works for double-precision BVHs as well, and lets you mix triangles, custom geometry and voxel objects in one scene. Disable with `NO_CUSTOM_GEOMETRY`.
 
 # Maintaining a BVH
