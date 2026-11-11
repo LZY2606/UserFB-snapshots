@@ -106,6 +106,7 @@ where
             whitespace,
             section_index,
             byte_index,
+            ..
         } in &mut self.characters
         {
             progress = true;

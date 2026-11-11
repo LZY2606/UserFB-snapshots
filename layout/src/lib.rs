@@ -67,13 +67,14 @@ mod font;
 mod linebreak;
 mod lines;
 mod section;
+mod soft_hyphen;
 mod words;
 
 /// Re-exported ab_glyph types.
 pub mod ab_glyph {
     pub use ab_glyph::*;
 }
-pub use self::{builtin::*, font::*, linebreak::*, section::*};
+pub use self::{builtin::*, font::*, linebreak::*, section::*, soft_hyphen::*};
 
 use ::ab_glyph::*;
 use std::hash::Hash;

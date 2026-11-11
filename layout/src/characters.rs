@@ -11,8 +11,10 @@ use std::{
 
 /// Single character info
 pub(crate) struct Character<'b, F: Font> {
+    pub character: char,
     pub glyph: Glyph,
     pub scale_font: PxScaleFont<&'b F>,
+    pub scale: PxScale,
     pub font_id: FontId,
     /// Line break proceeding this character.
     pub line_break: Option<LineBreak>,
@@ -137,8 +139,10 @@ where
                 }
 
                 return Some(Character {
+                    character: c,
                     glyph,
                     scale_font,
+                    scale: *scale,
                     font_id: *font_id,
                     line_break,
                     control: c.is_control(),

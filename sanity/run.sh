@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export CARGO_HOME="$PWD/.cargo-home"
-build=$(mktemp -d)
+export CARGO_HOME="${CARGO_HOME:-$PWD/.cargo-home}"
+build=$(mktemp -d "${TMPDIR:-/tmp}/glyph-sanity.XXXXXX")
 trap 'rm -rf "$build"' EXIT
 export CARGO_TARGET_DIR="$build"
 case "${1:-baseline}" in

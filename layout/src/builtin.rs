@@ -1,5 +1,5 @@
 use super::{BuiltInLineBreaker, GlyphPositioner, LineBreaker, SectionGeometry, ToSectionText};
-use crate::{characters::Characters, GlyphChange, SectionGlyph};
+use crate::{characters::Characters, soft_hyphen::SoftHyphenLayout, GlyphChange, SectionGlyph};
 use ab_glyph::*;
 
 /// Built-in [`GlyphPositioner`](trait.GlyphPositioner.html) implementations.
@@ -59,6 +59,20 @@ impl Layout<BuiltInLineBreaker> {
 }
 
 impl<L: LineBreaker> Layout<L> {
+    /// Returns a layout positioner that handles the soft hyphen character
+    /// (`U+00AD`) as an optional, invisible break point.
+    ///
+    /// When the soft hyphen is not selected as a line break it produces no glyph
+    /// and takes no width. When it is selected a `-` is drawn at the end of the
+    /// previous line using the soft hyphen's text run font, scale and extra.
+    ///
+    /// The result implements [`GlyphPositioner`] and can be passed to
+    /// `queue_custom_layout` / `glyphs_custom_layout`.
+    #[inline]
+    pub fn with_soft_hyphens(self) -> SoftHyphenLayout<L> {
+        SoftHyphenLayout::new(self)
+    }
+
     /// Returns an identical `Layout` but with the input `h_align`
     pub fn h_align(self, h_align: HorizontalAlign) -> Self {
         use crate::Layout::*;
