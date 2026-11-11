@@ -194,6 +194,16 @@ Some of these data elements require calculating intermediate representations
 of the html document. Everything is cached so looking up multiple data elements
 and looking them up multiple times should be as fast as possible.
 
+The lazy fields are independent of each other. Metadata fields such as `title`,
+`author`, `tags`, `description` and `keywords` are read from an untouched copy
+of the document, while `text`, `links` and `videos` share a separately cleaned
+copy with a single best-node selection. This means you can read every field in
+any order — including reading `text` before `links` — and each value matches
+what the regular extractor returns for the same input. Repeated reads return the
+cached value, and fields you never request are not computed. The shared content
+pipeline is per lazy object, so different pages and different `language`
+arguments never affect each other.
+
 ### Demo
 
 The easiest way to try out `unfluff` is to just install it:

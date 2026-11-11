@@ -93,7 +93,10 @@ module.exports =
   text: (doc, topNode, lang) ->
     if topNode
       topNode = postCleanup(doc, topNode, lang)
-      formatter(doc, topNode, lang)
+      # Format a copy of the best node. The formatter rewrites links as
+      # plain text and strips short nodes, so running it on the shared
+      # document would destroy data that the links and videos getters need.
+      formatter(doc, topNode.clone(), lang)
     else
       ""
 
@@ -514,7 +517,16 @@ isNodescoreThresholdMet = (doc, node, e) ->
     return true
 
 # Remove any remaining trash nodes (clusters of nodes with little/no content)
+# Cached per target node so repeated content getters (links then text) don't
+# run the sibling prepends and removals a second time.
+cleanedNodes = new WeakSet()
 postCleanup = (doc, targetNode, lang) ->
+  # An empty best-node selection has no underlying DOM node; the cheerio
+  # wrapper itself is a stable object we can use as the key.
+  key = targetNode[0] ? targetNode
+  return targetNode if cleanedNodes.has(key)
+  cleanedNodes.add(key)
+
   node = addSiblings(doc, targetNode, lang)
 
   node.children().each () ->
