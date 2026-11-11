@@ -1181,6 +1181,100 @@ int ebur128_loudness_global_multiple(ebur128_state** sts,
   return ebur128_gated_loudness(sts, size, out);
 }
 
+/* Builds the gating report with the same two-pass algorithm as
+ * ebur128_gated_loudness(), so that integrated_lufs matches
+ * ebur128_loudness_global_multiple() bit for bit. Read-only: the states are
+ * only traversed, never modified. */
+static int
+ebur128_calc_gating_report(ebur128_state** sts, size_t size,
+                           ebur128_gating_report* out) {
+  struct ebur128_dq_entry* it;
+  double gated_loudness = 0.0;
+  double relative_threshold = 0.0;
+  size_t absolute_blocks = 0;
+  size_t gated_blocks = 0;
+  size_t i, j, start_index;
+
+  for (i = 0; i < size; i++) {
+    if (sts[i] && (sts[i]->mode & EBUR128_MODE_I) != EBUR128_MODE_I) {
+      return EBUR128_ERROR_INVALID_MODE;
+    }
+  }
+
+  /* First pass: merge the linear energies of the absolute-gated blocks
+   * across all states before deriving a single relative gate. */
+  for (i = 0; i < size; i++) {
+    if (!sts[i]) {
+      continue;
+    }
+    ebur128_calc_relative_threshold(sts[i], &absolute_blocks,
+                                    &relative_threshold);
+  }
+  if (!absolute_blocks) {
+    out->absolute_blocks = 0;
+    out->gated_blocks = 0;
+    out->relative_threshold_lufs = -70.0;
+    out->integrated_lufs = -HUGE_VAL;
+    return EBUR128_SUCCESS;
+  }
+
+  relative_threshold /= (double) absolute_blocks;
+  relative_threshold *= relative_gate_factor;
+
+  /* Second pass: count the blocks passing the relative gate and accumulate
+   * their energies. Histogram and exact (linked list) states use the same
+   * selection rules as ebur128_gated_loudness(). */
+  if (relative_threshold < histogram_energy_boundaries[0]) {
+    start_index = 0;
+  } else {
+    start_index = find_histogram_index(relative_threshold);
+    if (relative_threshold > histogram_energies[start_index]) {
+      ++start_index;
+    }
+  }
+  for (i = 0; i < size; i++) {
+    if (!sts[i]) {
+      continue;
+    }
+    if (sts[i]->d->use_histogram) {
+      for (j = start_index; j < 1000; ++j) {
+        gated_loudness +=
+            sts[i]->d->block_energy_histogram[j] * histogram_energies[j];
+        gated_blocks += sts[i]->d->block_energy_histogram[j];
+      }
+    } else {
+      STAILQ_FOREACH(it, &sts[i]->d->block_list, entries) {
+        if (it->z >= relative_threshold) {
+          ++gated_blocks;
+          gated_loudness += it->z;
+        }
+      }
+    }
+  }
+
+  out->absolute_blocks = absolute_blocks;
+  out->gated_blocks = gated_blocks;
+  out->relative_threshold_lufs =
+      ebur128_energy_to_loudness(relative_threshold);
+  if (!gated_blocks) {
+    out->integrated_lufs = -HUGE_VAL;
+  } else {
+    gated_loudness /= (double) gated_blocks;
+    out->integrated_lufs = ebur128_energy_to_loudness(gated_loudness);
+  }
+  return EBUR128_SUCCESS;
+}
+
+int ebur128_loudness_report(ebur128_state* st, ebur128_gating_report* out) {
+  return ebur128_calc_gating_report(&st, 1, out);
+}
+
+int ebur128_loudness_report_multiple(ebur128_state** sts,
+                                     size_t size,
+                                     ebur128_gating_report* out) {
+  return ebur128_calc_gating_report(sts, size, out);
+}
+
 static int ebur128_energy_in_interval(ebur128_state* st,
                                       size_t interval_frames,
                                       double* out) {

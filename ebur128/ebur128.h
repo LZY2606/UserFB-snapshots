@@ -228,6 +228,41 @@ int ebur128_add_frames_double(ebur128_state* st,
                               const double* src,
                               size_t frames);
 
+/** \brief Read-only gating statistics of an integrated loudness measurement.
+ *
+ *  Reports how many 400 ms gating blocks survive the absolute and the
+ *  relative gate of the EBU R128 integrated loudness measurement. The
+ *  report is computed from the state(s) without modifying them: no audio
+ *  data is consumed, no filter state is reset, and subsequent calls to
+ *  ebur128_add_frames_*() behave exactly as if the report had never been
+ *  requested.
+ *
+ *  Gating blocks that did not pass the absolute gate of -70 LUFS are not
+ *  stored by the library and therefore cannot be counted. When
+ *  EBUR128_MODE_HISTOGRAM is used, the histogram bin centres and bin
+ *  selection rules of the existing loudness functions apply, so the counts
+ *  reflect the histogram representation rather than exact historical block
+ *  energies.
+ */
+typedef struct {
+  /** Number of 400 ms gating blocks that are still retained in the state(s)
+   *  and have passed the absolute gate of -70 LUFS. Blocks evicted through
+   *  ebur128_set_max_history() are not counted. */
+  size_t absolute_blocks;
+  /** Number of blocks in absolute_blocks that also pass the joint relative
+   *  gate used for this report. */
+  size_t gated_blocks;
+  /** The relative gate in LUFS: mean energy of the absolute-gated blocks
+   *  minus 10 LU. Set to -70.0 when absolute_blocks is 0; otherwise it is
+   *  not clamped to -70 LUFS. */
+  double relative_threshold_lufs;
+  /** Integrated loudness in LUFS, identical to the result of
+   *  ebur128_loudness_global() / ebur128_loudness_global_multiple() on the
+   *  same state(s) at the same time. -HUGE_VAL if the result is negative
+   *  infinity. */
+  double integrated_lufs;
+} ebur128_gating_report;
+
 /** \brief Get global integrated loudness in LUFS.
  *
  *  @param st library state.
@@ -251,6 +286,47 @@ int ebur128_loudness_global(ebur128_state* st, double* out);
 int ebur128_loudness_global_multiple(ebur128_state** sts,
                                      size_t size,
                                      double* out);
+
+/** \brief Get a read-only gating report for one measurement state.
+ *
+ *  The report contains the number of retained 400 ms gating blocks passing
+ *  the absolute gate, how many of them also pass the relative gate, the
+ *  relative threshold in LUFS and the integrated loudness in LUFS.
+ *
+ *  The query does not consume data, does not reset any filter and does not
+ *  change the result of subsequent ebur128_add_frames_*() calls.
+ *
+ *  @param st library state.
+ *  @param out destination of the report. Not modified in case of error.
+ *  @return
+ *    - EBUR128_SUCCESS on success.
+ *    - EBUR128_ERROR_INVALID_MODE if mode "EBUR128_MODE_I" has not been set.
+ */
+int ebur128_loudness_report(ebur128_state* st, ebur128_gating_report* out);
+/** \brief Get a read-only gating report across multiple measurement states.
+ *
+ *  The linear block energies and block counts of all non-NULL states are
+ *  merged before a single relative gate is derived, exactly as
+ *  ebur128_loudness_global_multiple() does. Averaging per-state LUFS values
+ *  or per-state thresholds would give a different, incorrect gate. NULL
+ *  elements are ignored and a state appearing more than once participates
+ *  as many times as it occurs. Exact (linked list) and histogram states may
+ *  be mixed in one query.
+ *
+ *  The query does not consume data, does not reset any filter and does not
+ *  change the result of subsequent ebur128_add_frames_*() calls.
+ *
+ *  @param sts array of library states.
+ *  @param size length of sts
+ *  @param out destination of the report. Not modified in case of error.
+ *  @return
+ *    - EBUR128_SUCCESS on success.
+ *    - EBUR128_ERROR_INVALID_MODE if any non-NULL state lacks
+ *      "EBUR128_MODE_I".
+ */
+int ebur128_loudness_report_multiple(ebur128_state** sts,
+                                     size_t size,
+                                     ebur128_gating_report* out);
 
 /** \brief Get momentary loudness (last 400ms) in LUFS.
  *
