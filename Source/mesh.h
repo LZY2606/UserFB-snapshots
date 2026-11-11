@@ -117,6 +117,7 @@ struct TESSvertex {
 	int pqHandle;   /* to allow deletion from priority queue */
 	TESSindex n;			/* to allow identify unique vertices */
 	TESSindex idx;			/* to allow map result to original verts */
+	TESSreal *attributes;	/* interpolated per-vertex attributes, or NULL */
 };
 
 struct TESSface {

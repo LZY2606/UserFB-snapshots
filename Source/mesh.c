@@ -136,6 +136,13 @@ static void MakeVertex( TESSvertex *newVertex,
 	vNew->anEdge = eOrig;
 	/* leave coords, s, t undefined */
 
+	/* Input vertices locate their attributes through their idx in the
+	* tesselator's copied attribute buffer; generated intersection vertices
+	* (idx == TESS_UNDEF) own a separately allocated block. A freshly split
+	* vertex starts with neither until it becomes an intersection.
+	*/
+	vNew->attributes = NULL;
+
 	/* fix other edges on this vertex loop */
 	e = eOrig;
 	do {

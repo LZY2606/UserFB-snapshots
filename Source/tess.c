@@ -45,6 +45,8 @@
 #define TRUE 1
 #define FALSE 0
 
+static void FreeGeneratedVertexAttributes( TESStesselator *tess );
+
 #define Dot(u,v)	(u[0]*v[0] + u[1]*v[1] + u[2]*v[2])
 
 #if defined(FOR_TRITE_TEST_PROGRAM) || defined(TRUE_PROJECT)
@@ -659,6 +661,12 @@ TESStesselator* tessNewTess( TESSalloc* alloc )
 	tess->elements = 0;
 	tess->elementCount = 0;
 
+	tess->attributeSize = 0;
+	tess->contourAttributes = NULL;
+	tess->contourAttributeCount = 0;
+	tess->contourAttributesCapacity = 0;
+	tess->vertexAttributes = NULL;
+
 	return tess;
 }
 
@@ -668,6 +676,8 @@ void tessDeleteTess( TESStesselator *tess )
 	struct TESSalloc alloc = tess->alloc;
 
 	deleteBucketAlloc( tess->regionPool );
+
+	FreeGeneratedVertexAttributes( tess );
 
 	if( tess->mesh != NULL ) {
 		tessMeshDeleteMesh( &alloc, tess->mesh );
@@ -684,6 +694,14 @@ void tessDeleteTess( TESStesselator *tess )
 	if (tess->elements != NULL) {
 		alloc.memfree( alloc.userData, tess->elements );
 		tess->elements = 0;
+	}
+	if (tess->contourAttributes != NULL) {
+		alloc.memfree( alloc.userData, tess->contourAttributes );
+		tess->contourAttributes = NULL;
+	}
+	if (tess->vertexAttributes != NULL) {
+		alloc.memfree( alloc.userData, tess->vertexAttributes );
+		tess->vertexAttributes = NULL;
 	}
 
 	alloc.memfree( alloc.userData, tess );
@@ -780,6 +798,17 @@ void OutputPolymesh( TESStesselator *tess, TESSmesh *mesh, int elementType, int 
 		return;
 	}
 
+	if (tess->attributeSize > 0 && tess->vertexCount > 0)
+	{
+		tess->vertexAttributes = (TESSreal*)tess->alloc.memalloc( tess->alloc.userData,
+			sizeof(TESSreal) * tess->vertexCount * tess->attributeSize );
+		if (!tess->vertexAttributes)
+		{
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return;
+		}
+	}
+
 	// Output vertices.
 	for ( v = mesh->vHead.next; v != &mesh->vHead; v = v->next )
 	{
@@ -793,6 +822,16 @@ void OutputPolymesh( TESStesselator *tess, TESSmesh *mesh, int elementType, int 
 				vert[2] = v->coords[2];
 			// Store vertex index.
 			tess->vertexIndices[v->n] = v->idx;
+			// Store interpolated attributes in the same vertex order.
+			if ( tess->vertexAttributes != NULL )
+			{
+				const TESSreal *vAttrs = tessVertexAttributes( tess, v );
+				if ( vAttrs != NULL )
+				{
+					for (i = 0; i < tess->attributeSize; ++i)
+						tess->vertexAttributes[v->n*tess->attributeSize + i] = vAttrs[i];
+				}
+			}
 		}
 	}
 
@@ -842,6 +881,7 @@ void OutputContours( TESStesselator *tess, TESSmesh *mesh, int vertexSize )
 	TESSreal *verts = 0;
 	TESSindex *elements = 0;
 	TESSindex *vertInds = 0;
+	TESSreal *outAttrs = 0;
 	int startVert = 0;
 	int vertCount = 0;
 
@@ -887,9 +927,21 @@ void OutputContours( TESStesselator *tess, TESSmesh *mesh, int vertexSize )
 		return;
 	}
 
+	if (tess->attributeSize > 0 && tess->vertexCount > 0)
+	{
+		tess->vertexAttributes = (TESSreal*)tess->alloc.memalloc( tess->alloc.userData,
+			sizeof(TESSreal) * tess->vertexCount * tess->attributeSize );
+		if (!tess->vertexAttributes)
+		{
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return;
+		}
+	}
+
 	verts = tess->vertices;
 	elements = tess->elements;
 	vertInds = tess->vertexIndices;
+	outAttrs = tess->vertexAttributes;
 
 	startVert = 0;
 
@@ -906,6 +958,20 @@ void OutputContours( TESStesselator *tess, TESSmesh *mesh, int vertexSize )
 			if ( vertexSize > 2 )
 				*verts++ = edge->Org->coords[2];
 			*vertInds++ = edge->Org->idx;
+			/* Boundary contours have their own vertex ordering, emit the
+			* attributes alongside the coordinates rather than reusing the
+			* polygon output numbering.
+			*/
+			if ( outAttrs != NULL )
+			{
+				const TESSreal *vAttrs = tessVertexAttributes( tess, edge->Org );
+				if ( vAttrs != NULL )
+				{
+					int i;
+					for (i = 0; i < tess->attributeSize; ++i)
+						*outAttrs++ = vAttrs[i];
+				}
+			}
 			++vertCount;
 			edge = edge->Lnext;
 		}
@@ -924,18 +990,106 @@ int IsValidCoord(TESSreal coord) {
       coord >= TESS_MIN_VALID_INPUT_VALUE;
 }
 
-void tessAddContour( TESStesselator *tess, int size, const void* vertices,
-					int stride, int numVertices )
+/* Frees the attribute blocks owned by generated intersection vertices.
+* Input vertices keep a NULL pointer and resolve their data from the copied
+* contour attribute buffer, which is released separately.
+*/
+static void FreeGeneratedVertexAttributes( TESStesselator *tess )
+{
+	TESSmesh *mesh = tess->mesh;
+	TESSvertex *v, *vHead;
+
+	if ( tess->attributeSize <= 0 || mesh == NULL )
+		return;
+
+	vHead = &mesh->vHead;
+	for ( v = vHead->next; v != vHead; v = v->next )
+	{
+		if ( v->attributes != NULL )
+		{
+			tess->alloc.memfree( tess->alloc.userData, v->attributes );
+			v->attributes = NULL;
+		}
+	}
+}
+
+TESSreal* tessVertexAttributes( TESStesselator *tess, TESSvertex *v )
+{
+	if ( tess->attributeSize <= 0 )
+		return NULL;
+	if ( v->attributes != NULL )
+		return v->attributes;
+	if ( v->idx == TESS_UNDEF || tess->contourAttributes == NULL )
+		return NULL;
+	return &tess->contourAttributes[(size_t)v->idx * tess->attributeSize];
+}
+
+/* Grows the copied input attribute buffer and appends numVertices attribute
+* sets. The attributes are copied here, so the caller's buffer is never
+* retained. On failure sets the status and leaves the previously stored
+* attributes untouched.
+*/
+static int AppendContourAttributes( TESStesselator *tess, const void* attributes,
+									int stride, int numVertices )
+{
+	int attrSize = tess->attributeSize;
+	int needed = tess->contourAttributeCount + numVertices;
+	int newCapacity, i, j;
+	TESSreal *grown;
+	const unsigned char *src = (const unsigned char*)attributes;
+
+	if (needed > tess->contourAttributesCapacity)
+	{
+		newCapacity = tess->contourAttributesCapacity;
+		if (newCapacity == 0)
+			newCapacity = needed > 8 ? needed : 8;
+		while (newCapacity < needed)
+			newCapacity *= 2;
+
+		if (tess->alloc.memrealloc == NULL)
+		{
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return 0;
+		}
+		grown = (TESSreal*)tess->alloc.memrealloc( tess->alloc.userData,
+			tess->contourAttributes,
+			sizeof(TESSreal) * newCapacity * attrSize );
+		if (grown == NULL)
+		{
+			tess->status = TESS_STATUS_OUT_OF_MEMORY;
+			return 0;
+		}
+		tess->contourAttributes = grown;
+		tess->contourAttributesCapacity = newCapacity;
+	}
+
+	for (i = 0; i < numVertices; ++i)
+	{
+		const TESSreal *a = (const TESSreal*)(src + i * stride);
+		TESSreal *dst = &tess->contourAttributes[tess->contourAttributeCount * attrSize];
+		for (j = 0; j < attrSize; ++j)
+			dst[j] = a[j];
+		++tess->contourAttributeCount;
+	}
+	return 1;
+}
+
+static int AddContour( TESStesselator *tess, int size, const void* vertices,
+					   int stride, int numVertices, int attrSize,
+					   const void* attributes, int attributeStride )
 {
 	const unsigned char *src = (const unsigned char*)vertices;
 	TESShalfEdge *e;
+	int newCycle = ( tess->mesh == NULL );
 	int i;
 
-	if ( tess->mesh == NULL )
-	  	tess->mesh = tessMeshNewMesh( &tess->alloc );
- 	if ( tess->mesh == NULL ) {
-		tess->status = TESS_STATUS_OUT_OF_MEMORY;
-		return;
+	if ( !newCycle && tess->attributeSize != attrSize )
+	{
+		/* Mixing the two entry points, or inconsistent attribute sizes
+		* within one tesselation cycle.
+		*/
+		tess->status = TESS_STATUS_INVALID_INPUT;
+		return 0;
 	}
 
 	if ( size < 2 )
@@ -943,27 +1097,60 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 	if ( size > 3 )
 		size = 3;
 
+	/* Validate the whole contour before touching any stored state so that a
+	* rejected contour cannot desynchronize the copied attribute storage from
+	* the mesh vertex indices, nor disturb a previous cycle's output.
+	*/
+	for ( i = 0; i < numVertices; ++i )
+	{
+		const TESSreal* coords = (const TESSreal*)(src + i * stride);
+		if (!IsValidCoord(coords[0]) ||
+		    !IsValidCoord(coords[1]) ||
+		    (size > 2 && !IsValidCoord(coords[2]))) {
+			tess->status = TESS_STATUS_INVALID_INPUT;
+			return 0;
+		}
+	}
+
+	if ( newCycle )
+	{
+		/* A new tesselation cycle begins; attrSize is 0 for the legacy
+		* entry point and 1..4 for tessAddContourWithAttributes(). Any
+		* configuration left over from a previous cycle is reset here, so
+		* the new cycle may use a different attributeSize.
+		*/
+		tess->attributeSize = attrSize;
+		tess->contourAttributeCount = 0;
+	}
+
+	if ( attrSize > 0 &&
+		 !AppendContourAttributes( tess, attributes, attributeStride, numVertices ) )
+	{
+		return 0;
+	}
+
+	if ( tess->mesh == NULL )
+	  	tess->mesh = tessMeshNewMesh( &tess->alloc );
+ 	if ( tess->mesh == NULL ) {
+		tess->status = TESS_STATUS_OUT_OF_MEMORY;
+		return 0;
+	}
+
 	e = NULL;
 	for( i = 0; i < numVertices; ++i )
 	{
 		const TESSreal* coords = (const TESSreal*)src;
 		src += stride;
-		if (!IsValidCoord(coords[0]) ||
-		    !IsValidCoord(coords[1]) ||
-		    (size > 2 && !IsValidCoord(coords[2]))) {
-			tess->status = TESS_STATUS_INVALID_INPUT;
-			return;
-		}
 		if( e == NULL ) {
 			/* Make a self-loop (one vertex, one edge). */
 			e = tessMeshMakeEdge( tess->mesh );
 			if ( e == NULL ) {
 				tess->status = TESS_STATUS_OUT_OF_MEMORY;
-				return;
+				return 0;
 			}
 			if ( !tessMeshSplice( tess->mesh, e, e->Sym ) ) {
 				tess->status = TESS_STATUS_OUT_OF_MEMORY;
-				return;
+				return 0;
 			}
 		} else {
 			/* Create a new vertex and edge which immediately follow e
@@ -971,7 +1158,7 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 			*/
 			if ( tessMeshSplitEdge( tess->mesh, e ) == NULL ) {
 				tess->status = TESS_STATUS_OUT_OF_MEMORY;
-				return;
+				return 0;
 			}
 			e = e->Lnext;
 		}
@@ -985,6 +1172,10 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
 			e->Org->coords[2] = 0;
 		/* Store the insertion number so that the vertex can be later recognized. */
 		e->Org->idx = tess->vertexIndexCounter++;
+		/* Input vertices keep attributes == NULL and resolve their attribute
+		* set from the copied contour buffer through idx; this stays valid
+		* even when that buffer is moved by a later realloc.
+		*/
 
 		/* The winding of an edge says how the winding number changes as we
 		* cross from the edge''s right face to its left face.  We add the
@@ -994,6 +1185,32 @@ void tessAddContour( TESStesselator *tess, int size, const void* vertices,
         e->winding = tess->reverseContours ? -1 : 1;
         e->Sym->winding = tess->reverseContours ? 1 : -1;
 	}
+
+	return 1;
+}
+
+void tessAddContour( TESStesselator *tess, int size, const void* vertices,
+					int stride, int numVertices )
+{
+	(void)AddContour( tess, size, vertices, stride, numVertices, 0, NULL, 0 );
+}
+
+int tessAddContourWithAttributes( TESStesselator *tess, int coordinateSize,
+	const void* coordinates, int coordinateStride, int vertexCount,
+	int attributeSize, const void* attributes, int attributeStride )
+{
+	if ( attributeSize < 1 || attributeSize > 4 )
+	{
+		tess->status = TESS_STATUS_INVALID_INPUT;
+		return 0;
+	}
+	if ( vertexCount > 0 && attributes == NULL )
+	{
+		tess->status = TESS_STATUS_INVALID_INPUT;
+		return 0;
+	}
+	return AddContour( tess, coordinateSize, coordinates, coordinateStride,
+		vertexCount, attributeSize, attributes, attributeStride );
 }
 
 void tessSetOption( TESStesselator *tess, int option, int value )
@@ -1028,6 +1245,10 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 		tess->alloc.memfree( tess->alloc.userData, tess->vertexIndices );
 		tess->vertexIndices = 0;
 	}
+	if (tess->vertexAttributes != NULL) {
+		tess->alloc.memfree( tess->alloc.userData, tess->vertexAttributes );
+		tess->vertexAttributes = NULL;
+	}
 
 	tess->vertexIndexCounter = 0;
 
@@ -1047,6 +1268,7 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 
 	if (setjmp(tess->env) != 0) {
 		/* come back here if out of memory */
+		FreeGeneratedVertexAttributes( tess );
 		return 0;
 	}
 
@@ -1095,8 +1317,23 @@ int tessTesselate( TESStesselator *tess, int windingRule, int elementType,
 		OutputPolymesh( tess, mesh, elementType, polySize, vertexSize );     /* output polygons */
 	}
 
+	FreeGeneratedVertexAttributes( tess );
 	tessMeshDeleteMesh( &tess->alloc, mesh );
 	tess->mesh = NULL;
+
+	if (tess->status == TESS_STATUS_OK) {
+		/* The copied input attributes have been propagated into the output;
+		* drop them. attributeSize is kept so the output getters keep
+		* reporting the component count; it is reset when the next contour
+		* of the following tesselation cycle is added.
+		*/
+		if (tess->contourAttributes != NULL) {
+			tess->alloc.memfree( tess->alloc.userData, tess->contourAttributes );
+			tess->contourAttributes = NULL;
+		}
+		tess->contourAttributeCount = 0;
+		tess->contourAttributesCapacity = 0;
+	}
 
 	return tess->status == TESS_STATUS_OK;
 }
@@ -1119,6 +1356,20 @@ const TESSindex* tessGetVertexIndices( TESStesselator *tess )
 int tessGetElementCount( TESStesselator *tess )
 {
 	return tess->elementCount;
+}
+
+const TESSreal* tessGetVertexAttributes( TESStesselator *tess )
+{
+	return tess->vertexAttributes;
+}
+
+int tessGetVertexAttributeSize( TESStesselator *tess )
+{
+	/* A positive component count is reported only when attribute output
+	* exists; the query is empty (0 + NULL) for the legacy entry point,
+	* before tesselation, or after a failed tesselation.
+	*/
+	return tess->vertexAttributes != NULL ? tess->attributeSize : 0;
 }
 
 const int* tessGetElements( TESStesselator *tess )

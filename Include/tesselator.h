@@ -207,6 +207,38 @@ void tessDeleteTess( TESStesselator *tess );
 //   count - number of vertices in contour.
 void tessAddContour( TESStesselator *tess, int size, const void* pointer, int stride, int count );
 
+// tessAddContourWithAttributes() - Adds a contour to be tesselated, with
+// per-vertex attributes (e.g. color or coverage) that follow the vertices
+// through the tesselation.
+// The coordinate parameters have the same meaning as in tessAddContour().
+// Attributes are 1 to 4 consecutive TESSreal values per vertex. When the
+// tesselation creates new vertices at segment intersections, their attributes
+// are interpolated from the endpoints of the two intersecting segments using
+// the same weights used to compute the intersection coordinates: each of the
+// two segments contributes half of the weight, split between its endpoints by
+// the relative distance to the intersection. Original vertices keep their own
+// attributes. The interpolated attributes are available after tessellation
+// through tessGetVertexAttributes() and correspond one-to-one with the
+// vertices returned by tessGetVertices(), in every output element type.
+// All contours added between two tessTesselate() calls must use the same
+// attributeSize. Mixing tessAddContour() and tessAddContourWithAttributes()
+// within the same tesselation cycle is not supported.
+// Parameters:
+//   tess - pointer to tesselator object.
+//   coordinateSize - number of coordinates per vertex. Must be 2 or 3.
+//   coordinates - pointer to the first coordinate of the first vertex.
+//   coordinateStride - offset in bytes between consecutive coordinate sets.
+//   vertexCount - number of vertices in contour.
+//   attributeSize - number of attribute components per vertex, 1 to 4.
+//   attributes - pointer to the first attribute of the first vertex.
+//   attributeStride - offset in bytes between consecutive attribute sets.
+// Returns:
+//   1 if the contour was added, 0 on failure (use tessGetStatus() to find
+//   out why; the input attributes are copied and never retained by pointer).
+int tessAddContourWithAttributes( TESStesselator *tess, int coordinateSize,
+	const void* coordinates, int coordinateStride, int vertexCount,
+	int attributeSize, const void* attributes, int attributeStride );
+
 // tessSetOption() - Toggles optional tessellation parameters
 // Parameters:
 //  option - one of TessOption
@@ -237,6 +269,20 @@ const TESSreal* tessGetVertices( TESStesselator *tess );
 // Every point added using tessAddContour() will get a new index starting at 0.
 // New vertices generated at the intersections of segments are assigned value TESS_UNDEF.
 const TESSindex* tessGetVertexIndices( TESStesselator *tess );
+
+// tessGetVertexAttributeSize() - Returns the number of TESSreal attribute
+// components per output vertex, i.e. the attributeSize passed to
+// tessAddContourWithAttributes(). Returns 0 if the contours were added with
+// tessAddContour() only.
+int tessGetVertexAttributeSize( TESStesselator *tess );
+
+// tessGetVertexAttributes() - Returns the per-vertex attributes of the
+// tesselated output, tightly packed as tessGetVertexCount() *
+// tessGetVertexAttributeSize() TESSreal values and in the same vertex order
+// as tessGetVertices(). Returns NULL when no attributes were supplied.
+// The pointer is owned by the tesselator and remains valid until the next
+// tessTesselate() or tessDeleteTess() call.
+const TESSreal* tessGetVertexAttributes( TESStesselator *tess );
 
 // tessGetElementCount() - Returns number of elements in the the tesselated output.
 int tessGetElementCount( TESStesselator *tess );

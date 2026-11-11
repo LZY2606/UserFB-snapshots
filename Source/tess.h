@@ -79,10 +79,23 @@ struct TESStesselator {
 	TESSindex *elements;
 	int elementCount;
 
+	/*** per-vertex attributes supplied via tessAddContourWithAttributes() ***/
+	int attributeSize;		/* components per vertex, 1..4, or 0 without attrs */
+	TESSreal *contourAttributes;	/* input attributes, copied at contour add time */
+	int contourAttributeCount;	/* number of vertices worth of data stored */
+	int contourAttributesCapacity;	/* capacity in vertices */
+	TESSreal *vertexAttributes;	/* output attributes, one set per output vertex */
+
 	TESSalloc alloc;
 
 	jmp_buf env;			/* place to jump to when memAllocs fail */
 };
+
+/* Resolves the attribute set of a mesh vertex: generated intersection
+* vertices own their own block, input vertices index into the tesselator's
+* copied contour attribute buffer. Returns NULL without attributes.
+*/
+TESSreal* tessVertexAttributes( TESStesselator *tess, TESSvertex *v );
 
 #ifdef __cplusplus
 };

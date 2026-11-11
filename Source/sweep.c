@@ -408,26 +408,54 @@ static void SpliceMergeVertices( TESStesselator *tess, TESShalfEdge *e1,
 	if ( !tessMeshSplice( tess->mesh, e1, e2 ) ) longjmp(tess->env,1); 
 }
 
-static void VertexWeights( TESSvertex *isect, TESSvertex *org, TESSvertex *dst,
-						  TESSreal *weights )
+static void VertexWeights( TESStesselator *tess, TESSvertex *isect,
+						  TESSvertex *org, TESSvertex *dst,
+						  TESSreal *weights, int attrSize )
 /*
 * Find some weights which describe how the intersection vertex is
 * a linear combination of "org" and "dest".  Each of the two edges
 * which generated "isect" is allocated 50% of the weight; each edge
 * splits the weight between its org and dst according to the
 * relative distance to "isect".
+*
+* When attrSize is positive, the same weights are used to accumulate
+* interpolated attributes onto "isect" (the caller zeroes them first).
 */
 {
 	TESSreal t1 = VertL1dist( org, isect );
 	TESSreal t2 = VertL1dist( dst, isect );
+	int i;
 
 	weights[0] = (TESSreal)0.5 * t2 / (t1 + t2);
 	weights[1] = (TESSreal)0.5 * t1 / (t1 + t2);
 	isect->coords[0] += weights[0]*org->coords[0] + weights[1]*dst->coords[0];
 	isect->coords[1] += weights[0]*org->coords[1] + weights[1]*dst->coords[1];
 	isect->coords[2] += weights[0]*org->coords[2] + weights[1]*dst->coords[2];
+
+	if (attrSize > 0) {
+		const TESSreal *orgAttr = tessVertexAttributes( tess, org );
+		const TESSreal *dstAttr = tessVertexAttributes( tess, dst );
+		for (i = 0; i < attrSize; ++i) {
+			isect->attributes[i] += weights[0]*orgAttr[i] + weights[1]*dstAttr[i];
+		}
+	}
 }
 
+
+static TESSreal *AllocVertexAttributes( TESStesselator *tess, TESSvertex *v )
+/*
+* Intersection vertices own a separately allocated attribute block;
+* original contour vertices keep a NULL block and resolve theirs from the
+* copied contour buffer through their idx. Allocation failure follows the
+* same longjmp convention as the rest of the sweep.
+*/
+{
+	TESSreal *a = (TESSreal*)tess->alloc.memalloc( tess->alloc.userData,
+		sizeof(TESSreal) * tess->attributeSize );
+	if (a == NULL) longjmp(tess->env, 1);
+	v->attributes = a;
+	return a;
+}
 
 static void GetIntersectData( TESStesselator *tess, TESSvertex *isect,
 							 TESSvertex *orgUp, TESSvertex *dstUp,
@@ -439,12 +467,19 @@ static void GetIntersectData( TESStesselator *tess, TESSvertex *isect,
  */
 {
 	TESSreal weights[4];
-	TESS_NOTUSED( tess );
+	int attrSize = tess->attributeSize;
+	int i;
 
 	isect->coords[0] = isect->coords[1] = isect->coords[2] = 0;
 	isect->idx = TESS_UNDEF;
-	VertexWeights( isect, orgUp, dstUp, &weights[0] );
-	VertexWeights( isect, orgLo, dstLo, &weights[2] );
+	if (attrSize > 0) {
+		/* This new intersection vertex owns its own attribute block. */
+		AllocVertexAttributes( tess, isect );
+		for (i = 0; i < attrSize; ++i)
+			isect->attributes[i] = 0;
+	}
+	VertexWeights( tess, isect, orgUp, dstUp, &weights[0], attrSize );
+	VertexWeights( tess, isect, orgLo, dstLo, &weights[2], attrSize );
 }
 
 static int CheckForRightSplice( TESStesselator *tess, ActiveRegion *regUp )
