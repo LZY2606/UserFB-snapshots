@@ -58,9 +58,17 @@ type Parser struct {
 	// accessible via Feed.OriginalFeed(). Off by default: keeping it holds a
 	// second copy of the feed in memory for the lifetime of the result.
 	KeepOriginalFeed bool
-	rp               *rss.Parser
-	ap               *atom.Parser
-	jp               *json.Parser
+	// UseRSS1Sequence makes RSS 1.0 feeds follow the channel's declared item
+	// sequence (channel/items/rdf:Seq/rdf:li) instead of the physical order
+	// of item elements. It is forwarded to the underlying rss.Parser and has
+	// no effect on RSS 2.0, Atom or JSON feeds. The selection happens before
+	// translation, so a custom RSSTranslator and KeepOriginalFeed see the
+	// same ordered items as the universal Feed. See rss.ErrInvalidSequence
+	// for the failure cases.
+	UseRSS1Sequence bool
+	rp              *rss.Parser
+	ap              *atom.Parser
+	jp              *json.Parser
 }
 
 // Auth is a structure allowing to
@@ -246,7 +254,16 @@ func (f *Parser) parseAtomFeed(feed io.Reader) (*Feed, error) {
 }
 
 func (f *Parser) parseRSSFeed(feed io.Reader) (*Feed, error) {
-	rf, err := f.rp.Parse(feed)
+	rp := f.rp
+	if f.UseRSS1Sequence {
+		// Configure on a per-call copy rather than the shared parser: one
+		// gofeed.Parser may parse concurrently, and no per-page state may
+		// linger between feeds.
+		configured := *rp
+		configured.UseRSS1Sequence = true
+		rp = &configured
+	}
+	rf, err := rp.Parse(feed)
 	if err != nil {
 		return nil, err
 	}

@@ -37,3 +37,6 @@ cmd/ftest/ftest
 # Test coverage output
 coverage.out
 coverage.txt
+
+# Local build/test tooling (module cache, go cache, test logs)
+.build/

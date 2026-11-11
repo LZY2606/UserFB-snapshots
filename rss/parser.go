@@ -23,7 +23,15 @@ var nativeNamespaces = []string{
 }
 
 // Parser is a RSS Parser
-type Parser struct{}
+type Parser struct {
+	// UseRSS1Sequence makes an RSS 1.0 parse follow the channel's declared
+	// item sequence (channel/items/rdf:Seq/rdf:li) instead of the physical
+	// order of item elements. The output then contains exactly the named
+	// items, in declaration order; an unresolvable or conflicting declaration
+	// fails the parse with an error wrapping ErrInvalidSequence. It has no
+	// effect on RSS 2.0, and the zero value keeps the historical behavior.
+	UseRSS1Sequence bool
+}
 
 // Parse parses an xml feed into an rss.Feed
 func (rp *Parser) Parse(feed io.Reader) (*Feed, error) {
@@ -50,8 +58,18 @@ func (rp *Parser) parseRoot(p *xpp.Parser) (*Feed, error) {
 	var textinput *TextInput
 	var image *Image
 	items := []*Item{}
+	// aboutIndex maps each raw RSS 1.0 rdf:about value to the root-level
+	// items carrying it. The map is local to this parse: it never outlives
+	// the call, so sharing one Parser across feeds or goroutines cannot leak
+	// references between documents.
+	aboutIndex := map[string][]*Item{}
 
 	ver := rp.parseVersion(p)
+	// The sequence declaration exists only in the RSS 1.0 vocabulary. RSS
+	// 2.0 feeds and other RDF-based versions must keep physical ordering even
+	// when the option is enabled.
+	useSequence := rp.UseRSS1Sequence && ver == "1.0"
+	var sequence *rss1Sequence
 
 	// Some feeds stamp a bogus default namespace on <rss>, which every
 	// unprefixed core element then inherits. Treat the root's own resolved
@@ -71,11 +89,15 @@ func (rp *Parser) parseRoot(p *xpp.Parser) (*Feed, error) {
 		var err error
 		switch name {
 		case "channel":
-			channel, err = rp.parseChannel(p, native)
+			channel, sequence, err = rp.parseChannel(p, native, useSequence)
 		case "item":
 			var item *Item
-			if item, err = rp.parseItem(p, native); err == nil {
+			var about string
+			if item, about, err = rp.parseItem(p, native); err == nil {
 				items = append(items, item)
+				if about != "" {
+					aboutIndex[about] = append(aboutIndex[about], item)
+				}
 			}
 		case "textinput":
 			textinput, err = rp.parseTextInput(p)
@@ -101,7 +123,13 @@ func (rp *Parser) parseRoot(p *xpp.Parser) (*Feed, error) {
 		channel.Items = []*Item{}
 	}
 
-	if len(items) > 0 {
+	if useSequence && sequence != nil {
+		// A declared sequence overrides physical order entirely: only the
+		// named root-level items survive, in declaration order.
+		if err := applyRSS1Sequence(channel, aboutIndex, sequence); err != nil {
+			return nil, err
+		}
+	} else if len(items) > 0 {
 		channel.Items = append(channel.Items, items...)
 	}
 
@@ -117,9 +145,9 @@ func (rp *Parser) parseRoot(p *xpp.Parser) (*Feed, error) {
 	return channel, nil
 }
 
-func (rp *Parser) parseChannel(p *xpp.Parser, native []string) (rss *Feed, err error) {
+func (rp *Parser) parseChannel(p *xpp.Parser, native []string, useSequence bool) (rss *Feed, sequence *rss1Sequence, err error) {
 	if err = p.Expect(xpp.StartTag, "channel"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	rss = &Feed{}
@@ -185,8 +213,30 @@ func (rp *Parser) parseChannel(p *xpp.Parser, native []string) (rss *Feed, err e
 			rss.SkipDays, err = rp.parseSkipDays(p)
 		case "item":
 			var item *Item
-			if item, err = rp.parseItem(p, native); err == nil {
+			if item, _, err = rp.parseItem(p, native); err == nil {
 				rss.Items = append(rss.Items, item)
+			}
+		case "items":
+			if useSequence && strings.TrimSpace(p.Space()) == shared.RSS10Namespace {
+				// An RSS 1.0 channel names its entries through an
+				// RSS-namespace items wrapper holding an RDF Seq. Require
+				// the RSS 1.0 URI (rather than merely "native", which also
+				// covers RDF itself) so an rdf:items or foreign items element
+				// can never act as the declaration. A second declaration
+				// makes the ordering ambiguous, whether the Seqs share a
+				// wrapper or appear in separate ones.
+				parsed, perr := parseRSS1Sequence(p)
+				if perr != nil {
+					err = perr
+				} else if parsed != nil {
+					if sequence != nil {
+						err = fmt.Errorf("%w: channel declares multiple item sequences", ErrInvalidSequence)
+					} else {
+						sequence = parsed
+					}
+				}
+			} else {
+				err = p.Skip()
 			}
 		case "cloud":
 			rss.Cloud, err = rp.parseCloud(p)
@@ -207,11 +257,11 @@ func (rp *Parser) parseChannel(p *xpp.Parser, native []string) (rss *Feed, err e
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err = p.Expect(xpp.EndTag, "channel"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(categories) > 0 {
@@ -234,19 +284,23 @@ func (rp *Parser) parseChannel(p *xpp.Parser, native []string) (rss *Feed, err e
 		}
 	}
 
-	return rss, nil
+	return rss, sequence, nil
 }
 
-func (rp *Parser) parseItem(p *xpp.Parser, native []string) (item *Item, err error) {
+func (rp *Parser) parseItem(p *xpp.Parser, native []string) (item *Item, rdfAbout string, err error) {
 	if err = p.Expect(xpp.StartTag, "item"); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	item = &Item{}
 	// RSS 1.0 identifies items with rdf:about rather than a <guid> child.
+	// The raw value is also the identity the channel's item sequence
+	// references; return it separately because a <guid> child may override
+	// item.GUID while the sequence still keys off rdf:about.
 	if p.Space() == shared.RSS10Namespace {
 		for _, attr := range p.Attrs() {
 			if attr.Name.Space == shared.RDFNamespace && attr.Name.Local == "about" && attr.Value != "" {
+				rdfAbout = attr.Value
 				item.GUID = &GUID{Value: attr.Value}
 				break
 			}
@@ -312,7 +366,7 @@ func (rp *Parser) parseItem(p *xpp.Parser, native []string) (item *Item, err err
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if len(enclosures) > 0 {
@@ -340,10 +394,10 @@ func (rp *Parser) parseItem(p *xpp.Parser, native []string) (item *Item, err err
 	}
 
 	if err = p.Expect(xpp.EndTag, "item"); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return item, nil
+	return item, rdfAbout, nil
 }
 
 // parseItemCustom stores an unrecognized item child in the Custom map,

@@ -221,6 +221,44 @@ feed, _ := fp.ParseString(feedData)
 fmt.Println(feed.Author) // Valentine Wiggin
 ```
 
+#### Following the RSS 1.0 Declared Item Sequence
+
+RSS 1.0 feeds can list their entries through a channel-level
+`items/rdf:Seq/rdf:li` declaration, separately from where the `item`
+elements physically appear in the document. Set `UseRSS1Sequence` to parse
+the entries in that declared order and include exactly the entries it names.
+The option is off by default (physical order is kept), applies only to RSS
+1.0, and has no effect on RSS 2.0, Atom or JSON feeds. An unresolvable
+declaration fails the parse with an error wrapping `rss.ErrInvalidSequence`.
+
+```go
+fp := gofeed.NewParser()
+fp.UseRSS1Sequence = true
+feed, err := fp.ParseURL("http://example.org/rss10.xml")
+if err != nil {
+    if errors.Is(err, rss.ErrInvalidSequence) {
+        // The channel's rdf:Seq references an unknown or duplicated item.
+        log.Fatalf("invalid RSS 1.0 sequence: %v", err)
+    }
+    log.Fatal(err)
+}
+for _, item := range feed.Items {
+    fmt.Println(item.GUID, item.Title)
+}
+```
+
+The same option exists on the native RSS parser, where it reorders the
+`*rss.Feed` before any translator runs:
+
+```go
+rp := &rss.Parser{UseRSS1Sequence: true}
+nativeFeed, err := rp.Parse(strings.NewReader(feedData))
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(nativeFeed.Version, len(nativeFeed.Items))
+```
+
 ## Dependencies
 
 * [goxpp](https://github.com/mmcdole/goxpp) - XML pull parser
