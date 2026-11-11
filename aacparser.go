@@ -94,9 +94,13 @@ type lfe_channel_element struct {
 type data_stream_element struct {
 	Element_instance_tag uint8
 	Data_byte_align_flag bool
-	Count                uint8
-	Esc_count            uint8
-	Data_stream_byte     [][]uint8
+	// Count is the total number of data_stream_byte values. It is uint16 so
+	// that the escaped form (count == 255 followed by esc_count) can represent
+	// the full 255+esc_count range, up to 255+255 = 510, without wrapping. A
+	// raw count below 255 fits unchanged in this wider type.
+	Count            uint16
+	Esc_count        uint8
+	Data_stream_byte [][]uint8
 }
 
 type program_config_element struct {
@@ -138,6 +142,11 @@ type program_config_element struct {
 
 	Comment_field_bytes uint8
 	Comment_field_data  []byte
+
+	// alignPosition is the bit offset of the byte_alignment() call that
+	// precedes comment_field_bytes. It is used by the DSE rewriter to rebuild
+	// the alignment bits when this element moves to a different bit position.
+	alignPosition uint64
 }
 
 type fill_element struct {
@@ -974,6 +983,7 @@ func (adts *ADTS) program_config_element() *program_config_element {
 		e.Valid_cc_element_tag_select[i], _ = adts.reader.ReadBitsAsUInt8(4) // valid_cc_element_tag_select[i]
 	}
 
+	e.alignPosition = adts.reader.BitOffset()
 	adts.reader.ByteAlign()
 	e.Comment_field_bytes, _ = adts.reader.ReadBitsAsUInt8(8)                                  // comment_field_bytes
 	e.Comment_field_data, _ = adts.reader.ReadBitsToByteArray(uint(e.Comment_field_bytes) * 8) // comment_field_data[i]
@@ -1262,16 +1272,17 @@ func (adts *ADTS) data_stream_element() *data_stream_element {
 	e.Element_instance_tag, _ = adts.reader.ReadBitsAsUInt8(4) // element_instance_tag
 
 	e.Data_byte_align_flag, _ = adts.reader.ReadBitAsBool() // data_byte_align_flag
-	e.Count, _ = adts.reader.ReadBitsAsUInt8(8)
-	if e.Count == 255 {
+	rawCount, _ := adts.reader.ReadBitsAsUInt8(8)
+	e.Count = uint16(rawCount)
+	if rawCount == 255 {
 		e.Esc_count, _ = adts.reader.ReadBitsAsUInt8(8)
-		e.Count += e.Esc_count
+		e.Count += uint16(e.Esc_count)
 	}
 	if e.Data_byte_align_flag == true {
 		adts.reader.ByteAlign()
 	}
 	e.Data_stream_byte = make([][]uint8, e.Element_instance_tag+1)
-	e.Data_stream_byte[e.Element_instance_tag] = make([]uint8, e.Count)
+	e.Data_stream_byte[e.Element_instance_tag] = make([]uint8, int(e.Count))
 	for i := range e.Data_stream_byte[e.Element_instance_tag] {
 		e.Data_stream_byte[e.Element_instance_tag][i], _ = adts.reader.ReadBitsAsUInt8(8) // data_stream_byte[element_instance_tag][i]
 	}

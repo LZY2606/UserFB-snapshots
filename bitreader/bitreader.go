@@ -36,16 +36,24 @@ func NewBitReader(input []byte) *BitReader {
 
 // Return the total number of bits left in the stream
 func (p *BitReader) BitsLeft() uint {
-	return ((p.BytesLeft() - 1) * 8) + (uint(p.posInCurrentByte) + 1)
+	bytesLeft := p.BytesLeft()
+	if bytesLeft == 0 {
+		return 0
+	}
+	return ((bytesLeft - 1) * 8) + (uint(p.posInCurrentByte) + 1)
 }
 
 // Return the number of bytes left (even if partially read)
 func (p *BitReader) BytesLeft() uint {
-	bytesLeft := p.length - p.currentByteIndex
-	if bytesLeft < 0 {
+	if p.currentByteIndex >= p.length {
 		return 0
 	}
-	return uint(bytesLeft)
+	return p.length - p.currentByteIndex
+}
+
+// BitOffset returns the number of bits consumed from the start of the stream.
+func (p *BitReader) BitOffset() uint64 {
+	return uint64(p.currentByteIndex)*8 + uint64(7-p.posInCurrentByte)
 }
 
 func (p *BitReader) ReadBitAsBool() (bool, error) {
