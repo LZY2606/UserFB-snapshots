@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict'),{EventEmitter}=require('node:events');
+const scope={Promise,setInterval,clearInterval};
+const load=require('../tests/helpers/load-source.cjs')({self:scope,navigator:{userAgent:'Chrome/120.0.0.0'}});
+const Main=load('player/player-engine-main-thread.ts').default;
+const m=new Main({url:'unused'},{});let info;
+m.on('error',(_type,_detail,value)=>{info=value;});
+const sentinel={code:1,msg:'local-test'};m._onMSEError(sentinel);assert.equal(info,sentinel);m.destroy();
+const Dedicated=load('player/player-engine-dedicated-thread.ts').default;
+const d=Object.create(Dedicated.prototype);d._emitter=new EventEmitter();let forwarded;
+d._emitter.on('metadata_arrived',value=>{forwarded=value;});
+d._onWorkerMessage({data:{msg:'player_event',event:'metadata_arrived',extraData:sentinel}});
+assert.equal(forwarded,sentinel);
+const Worker=load('player/player-engine-worker.ts').default;let handler;
+Worker({addEventListener(name,f){assert.equal(name,'message');handler=f;}});
+handler({data:{cmd:'init',media_data_source:{url:'unused'},config:{}}});
+console.log('BASELINE_MSE_ENGINE_ROUTES_OK');
