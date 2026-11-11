@@ -39,7 +39,36 @@ Stroke.prototype.build = function(points) {
     if (points.length <= 1)
         return complex
 
-    var total = points.length
+    //collapse runs of identical consecutive points into a single
+    //point, keeping the identity (and original index) of the last
+    //sample in each run
+    var pts = [points[0]]
+    var idx = [0]
+    for (var i=1; i<points.length; i++) {
+        var p = points[i]
+        var kept = pts[pts.length-1]
+        if (p[0] === kept[0] && p[1] === kept[1]) {
+            pts[pts.length-1] = p
+            idx[idx.length-1] = i
+        } else {
+            pts.push(p)
+            idx.push(i)
+        }
+    }
+
+    //fewer than two distinct positions, nothing to extrude
+    if (pts.length <= 1)
+        return complex
+
+    var total = pts.length
+
+    //query thickness once for each kept sample that ends a segment;
+    //the start point borrows the first segment's thickness
+    var half = new Array(total)
+    for (var i=1; i<total; i++) {
+        half[i] = this.mapThickness(pts[i], idx[i], points) / 2
+    }
+    half[0] = half[1]
 
     //clear flags
     this._lastFlip = -1
@@ -48,14 +77,34 @@ Stroke.prototype.build = function(points) {
 
     //join each segment
     for (var i=1, count=0; i<total; i++) {
-        var last = points[i-1]
-        var cur = points[i]
-        var next = i<points.length-1 ? points[i+1] : null
-        var thickness = this.mapThickness(cur, i, points)
-        var amt = this._seg(complex, count, last, cur, next, thickness/2)
-        count += amt
+        var last = pts[i-1]
+        var cur = pts[i]
+        var next = i<total-1 ? pts[i+1] : null
+
+        if (next && isReversal(last, cur, next)) {
+            //the next segment backtracks exactly over this one:
+            //end the current stroke at the fold point with a regular
+            //cap, then start a fresh stroke from the fold point
+            count += this._seg(complex, count, last, cur, null, half[i])
+            this._lastFlip = -1
+            this._started = false
+            this._normal = null
+        } else {
+            count += this._seg(complex, count, last, cur, next, half[i])
+        }
     }
     return complex
+}
+
+//are the two non-zero segments meeting at cur exactly opposite?
+function isReversal(last, cur, next) {
+    var ax = cur[0] - last[0]
+    var ay = cur[1] - last[1]
+    var bx = next[0] - cur[0]
+    var by = next[1] - cur[1]
+    var cross = ax * by - ay * bx
+    var dot = ax * bx + ay * by
+    return cross === 0 && dot < 0
 }
 
 Stroke.prototype._seg = function(complex, index, last, cur, next, halfThick) {
