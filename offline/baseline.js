@@ -1,0 +1,17 @@
+'use strict';
+const assert = require('node:assert/strict');
+const Context = require('../src/impl/AudioContext');
+const Source = require('../src/impl/ConstantSourceNode');
+const Gain = require('../src/impl/GainNode');
+const Param = require('../src/api/AudioParam');
+const c = new Context({sampleRate:8000, blockSize:16, numberOfChannels:1});
+const s = new Source(c, {offset:1});
+const g = new Gain(c);
+s.connect(g); g.connect(c.getDestination()); s.start(0);
+const p = new Param(c,g.getGain());
+assert.equal(p.setValueAtTime(0,0).linearRampToValueAtTime(1,64/8000),p);
+c.resume();
+const out = [new Float32Array(96)];
+for(let n=0;n<96;n+=16) c.process(out,n);
+for(let n=0;n<96;n++) assert.ok(Math.abs(out[0][n]-Math.min(n/64,1))<1e-6);
+console.log('BASELINE_OK frames=96 gainRamp=0..1 graph=source-gain-destination');
