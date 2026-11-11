@@ -1,0 +1,11 @@
+--- a/libspeex/nb_celp.c
++++ b/libspeex/nb_celp.c
+@@ -1388,7 +1388,7 @@
+                speex_notify("Invalid mode encountered. The stream is corrupted.");
+                return -2;
+             }
+-            advance -= (SB_SUBMODE_BITS+1);
++            advance -= SB_SUBMODE_BITS;
+             speex_bits_advance(bits, advance);
+ 
+             if (speex_bits_remaining(bits)<5)

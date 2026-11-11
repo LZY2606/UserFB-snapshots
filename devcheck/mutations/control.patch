@@ -1,0 +1,11 @@
+--- a/libspeex/speex_callbacks.c
++++ b/libspeex/speex_callbacks.c
+@@ -62,7 +62,7 @@
+       else if (id<10)
+          adv = 8;
+       else if (id<12)
+-         adv = 16;
++         adv = 15;
+       else if (id<14)
+          adv = 32;
+       else
