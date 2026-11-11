@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -145,6 +144,12 @@ type client struct {
 	ipv4conn *ipv4.PacketConn
 	ipv6conn *ipv6.PacketConn
 	ifaces   []net.Interface
+
+	// querySender optionally overrides the network egress used for initial and
+	// follow-up queries. It exists so tests can observe the questions that are
+	// sent without touching a real multicast socket. When nil, sendQuery is
+	// used.
+	querySender func(*dns.Msg) error
 }
 
 // Client structure constructor
@@ -190,9 +195,12 @@ func (c *client) mainloop(ctx context.Context, params *lookupParams) {
 		go c.recv(ctx, c.ipv6conn, msgCh)
 	}
 
+	// Each invocation keeps its own pending relationships. Split responses are
+	// assembled here, for both Browse (PTR membership first) and Lookup
+	// (explicit instance membership).
+	state := newDiscoveryState(params)
+
 	// Iterate through channels from listeners goroutines
-	var entries, sentEntries map[string]*ServiceEntry
-	sentEntries = make(map[string]*ServiceEntry)
 	for {
 		select {
 		case <-ctx.Done():
@@ -201,107 +209,43 @@ func (c *client) mainloop(ctx context.Context, params *lookupParams) {
 			c.shutdown()
 			return
 		case msg := <-msgCh:
-			entries = make(map[string]*ServiceEntry)
-			sections := append(msg.Answer, msg.Ns...)
-			sections = append(sections, msg.Extra...)
+			entries, queries := state.processMessage(msg)
 
-			for _, answer := range sections {
-				switch rr := answer.(type) {
-				case *dns.PTR:
-					if params.ServiceName() != rr.Hdr.Name {
-						continue
-					}
-					if params.ServiceInstanceName() != "" && params.ServiceInstanceName() != rr.Ptr {
-						continue
-					}
-					if _, ok := entries[rr.Ptr]; !ok {
-						entries[rr.Ptr] = NewServiceEntry(
-							trimDot(strings.Replace(rr.Ptr, rr.Hdr.Name, "", -1)),
-							params.Service,
-							params.Domain)
-					}
-					entries[rr.Ptr].TTL = rr.Hdr.Ttl
-				case *dns.SRV:
-					if params.ServiceInstanceName() != "" && params.ServiceInstanceName() != rr.Hdr.Name {
-						continue
-					} else if !strings.HasSuffix(rr.Hdr.Name, params.ServiceName()) {
-						continue
-					}
-					if _, ok := entries[rr.Hdr.Name]; !ok {
-						entries[rr.Hdr.Name] = NewServiceEntry(
-							trimDot(strings.Replace(rr.Hdr.Name, params.ServiceName(), "", 1)),
-							params.Service,
-							params.Domain)
-					}
-					entries[rr.Hdr.Name].HostName = rr.Target
-					entries[rr.Hdr.Name].Port = int(rr.Port)
-					entries[rr.Hdr.Name].TTL = rr.Hdr.Ttl
-				case *dns.TXT:
-					if params.ServiceInstanceName() != "" && params.ServiceInstanceName() != rr.Hdr.Name {
-						continue
-					} else if !strings.HasSuffix(rr.Hdr.Name, params.ServiceName()) {
-						continue
-					}
-					if _, ok := entries[rr.Hdr.Name]; !ok {
-						entries[rr.Hdr.Name] = NewServiceEntry(
-							trimDot(strings.Replace(rr.Hdr.Name, params.ServiceName(), "", 1)),
-							params.Service,
-							params.Domain)
-					}
-					entries[rr.Hdr.Name].Text = rr.Txt
-					entries[rr.Hdr.Name].TTL = rr.Hdr.Ttl
-				}
-			}
-			// Associate IPs in a second round as other fields should be filled by now.
-			for _, answer := range sections {
-				switch rr := answer.(type) {
-				case *dns.A:
-					for k, e := range entries {
-						if e.HostName == rr.Hdr.Name {
-							entries[k].AddrIPv4 = append(entries[k].AddrIPv4, rr.A)
-						}
-					}
-				case *dns.AAAA:
-					for k, e := range entries {
-						if e.HostName == rr.Hdr.Name {
-							entries[k].AddrIPv6 = append(entries[k].AddrIPv6, rr.AAAA)
-						}
-					}
-				}
-			}
-		}
-
-		if len(entries) > 0 {
-			for k, e := range entries {
-				if e.TTL == 0 {
-					delete(entries, k)
-					delete(sentEntries, k)
-					continue
-				}
-				if _, ok := sentEntries[k]; ok {
-					continue
-				}
-
-				// If this is an DNS-SD query do not throw PTR away.
-				// It is expected to have only PTR for enumeration
-				if params.ServiceRecord.ServiceTypeName() != params.ServiceRecord.ServiceName() {
-					// Require at least one resolved IP address for ServiceEntry
-					// TODO: wait some more time as chances are high both will arrive.
-					if len(e.AddrIPv4) == 0 && len(e.AddrIPv6) == 0 {
-						continue
-					}
-				}
-				// Submit entry to subscriber and cache it.
-				// This is also a point to possibly stop probing actively for a
-				// service entry.
+			// Deliver completed entries first. Follow-up queries are issued
+			// afterwards, outside of any message processing lock, so that
+			// query egress cannot block subscribers from reading results.
+			for _, e := range entries {
 				params.Entries <- e
-				sentEntries[k] = e
+				// A Lookup only stops its periodic probing once a complete
+				// result has actually been published. A lone SRV record does
+				// not satisfy the completeness contract.
 				if !params.isBrowsing {
 					params.disableProbing()
 				}
 			}
+
+			// Follow-up queries are issued asynchronously, outside any message
+			// processing lock. A slow query egress must never hold up reading
+			// or delivering results from subsequent packets.
+			if len(queries) > 0 {
+				batch := queries
+				go func() {
+					for _, q := range batch {
+						_ = c.dispatchQuery(q)
+					}
+				}()
+			}
 		}
 	}
+}
+
+// dispatchQuery sends a query through the configured egress. Initial Browse and
+// Lookup queries as well as follow-up queries all use this path.
+func (c *client) dispatchQuery(msg *dns.Msg) error {
+	if c.querySender != nil {
+		return c.querySender(msg)
+	}
+	return c.sendQuery(msg)
 }
 
 // Shutdown client will close currently open connections and channel implicitly.
@@ -431,7 +375,7 @@ func (c *client) query(params *lookupParams) error {
 		m.SetQuestion(serviceName, dns.TypePTR)
 	}
 	m.RecursionDesired = false
-	if err := c.sendQuery(m); err != nil {
+	if err := c.dispatchQuery(m); err != nil {
 		return err
 	}
 

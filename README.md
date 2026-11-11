@@ -54,6 +54,24 @@ if err != nil {
 ```
 A subtype may added to service name to narrow the set of results. E.g. to browse `_workstation._tcp` with subtype `_windows`, use`_workstation._tcp,_windows`.
 
+### Split mDNS responses
+
+DNS-SD records for one service do not have to arrive in a single packet, and the
+PTR, SRV, TXT and A/AAAA records may appear in the Answer, Ns or Extra section in
+any order. Each Browse or Lookup call keeps its own pending set of records and
+assembles them into a result once all required pieces have been seen. Browse
+establishes membership through a PTR pointing at the requested service; Lookup
+starts from the explicitly requested instance and does not need a PTR. A normal
+service result is published when membership, SRV, a received TXT record (an
+empty TXT array still counts as received) and at least one address for the SRV
+target are available. Service type enumeration (`_services._dns-sd._udp`) is
+allowed to return PTR records on their own.
+
+When records are missing, the resolver follows up: it queries the instance for
+SRV/TXT after discovering a PTR, and queries the SRV target for missing A/AAAA
+address families. Repeated responses do not repeat a query for the same gap,
+and instances that share a target host share that host query.
+
 See https://github.com/grandcat/zeroconf/blob/master/examples/resolv/client.go.
 
 ## Lookup a specific service instance
@@ -93,6 +111,7 @@ See what needs to be done and submit a pull request :)
 
 * [x] Browse / Lookup / Register services
 * [x] Multiple IPv6 / IPv4 addresses support
+* [x] Assemble answers split across several mDNS packets, with follow-up queries for missing records
 * [x] Send multiple probes (exp. back-off) if no service answers (*)
 * [ ] Timestamp entries for TTL checks
 * [ ] Compare new multicasts with already received services
