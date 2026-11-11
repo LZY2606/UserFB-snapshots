@@ -126,7 +126,7 @@ Events and the protocol:
 - [console](https://github.com/chromedp/examples/tree/main/console) reads the console and the uncaught exceptions of a page.
 - [dialogs](https://github.com/chromedp/examples/tree/main/dialogs) answers alert, confirm, prompt and beforeunload dialogs.
 - [popups](https://github.com/chromedp/examples/tree/main/popups) works with popups and several targets, and with browser contexts.
-- [exposefunc](https://github.com/chromedp/examples/tree/main/exposefunc) calls Go functions from the page.
+- [exposefunc](https://github.com/chromedp/examples/tree/main/exposefunc) calls Go functions from the page. Use `ExposeSourceFunc` when the Go func also needs the frame, the execution context and the document URL of each call.
 - [extension](https://github.com/chromedp/examples/tree/main/extension) loads a browser extension, uBlock Origin Lite, from a folder on disk and shows that it blocks the ads of a page.
 - [latlon](https://github.com/chromedp/examples/tree/main/latlon) drives a map and reads the latitude and the longitude from the URL of the page.
 - [rawcall](https://github.com/chromedp/examples/tree/main/rawcall) sends protocol commands that have no action, such as timezone, locale, geolocation and throttling.

@@ -41,16 +41,29 @@ type Target struct {
 	exposed    map[string]struct{}
 	exposedSeq int
 
-	// frameMu protects frames, execContexts, and cur.
+	// frameMu protects frames, execContexts, frameContexts and cur.
 	frameMu sync.RWMutex
 	// frames is the set of encountered frames.
 	frames       map[cdp.FrameID]*Frame
 	execContexts map[cdp.FrameID]runtime.ExecutionContextID
+	// frameContexts is the reverse of execContexts. It gives the frame of
+	// the execution context of a call.
+	frameContexts map[runtime.ExecutionContextID]cdp.FrameID
 	// execUniqueIDs holds the unique id of each execution context in
 	// execContexts, because the destroyed event names a context by it.
 	execUniqueIDs map[cdp.FrameID]string
 	// cur is the current top level frame.
 	cur cdp.FrameID
+
+	// sourceMu protects sourceCalls and sourceBindings. sourceCalls holds
+	// the calls of ExposeSourceFunc, so an event can end the context of
+	// each call that it concerns. sourceBindings routes a BindingCalled
+	// event to its ExposeSourceFunc on the loop that reads the messages.
+	// That loop sees the events in the order of the browser, so the
+	// execution context of a call exists before the call is dispatched.
+	sourceMu       sync.Mutex
+	sourceCalls    *sourceTracker
+	sourceBindings map[string]func(*runtime.EventBindingCalled)
 
 	// logging funcs
 	logf, errf func(string, ...any)
@@ -105,6 +118,8 @@ func (t *Target) ensureFrame() (*Frame, *Node, runtime.ExecutionContextID, bool)
 }
 
 func (t *Target) run(ctx context.Context) {
+	// End every call of an ExposeSourceFunc when the target stops.
+	defer t.endAllSourceContexts()
 	type eventValue struct {
 		method cdproto.MethodType
 		value  any
@@ -281,9 +296,21 @@ func (t *Target) Subscribe(method string) (<-chan jsonv2.Value, func()) {
 // runtimeEvent handles incoming runtime events.
 func (t *Target) runtimeEvent(ev any) {
 	switch ev := ev.(type) {
+	case *runtime.EventBindingCalled:
+		// ExposeSourceFunc dispatches here, on the loop that reads the
+		// messages. The loop handled the event that made the execution
+		// context first, so callSource always sees the context of a call
+		// from a known document.
+		t.sourceMu.Lock()
+		dispatch := t.sourceBindings[ev.Name]
+		t.sourceMu.Unlock()
+		if dispatch != nil {
+			dispatch(ev)
+		}
 	case *runtime.EventExecutionContextCreated:
 		var aux struct {
-			FrameID cdp.FrameID
+			FrameID   cdp.FrameID
+			IsDefault bool
 		}
 		if len(ev.Context.AuxData) == 0 {
 			break
@@ -292,9 +319,13 @@ func (t *Target) runtimeEvent(ev any) {
 			t.errf("could not decode executionContextCreated auxData %q: %v", ev.Context.AuxData, err)
 			break
 		}
-		if aux.FrameID != "" {
+		// Only the default world names a document. An isolated world and a
+		// worker have their own context, and calls from them must not take
+		// the frame of another context.
+		if aux.IsDefault && aux.FrameID != "" {
 			t.frameMu.Lock()
 			t.execContexts[aux.FrameID] = ev.Context.ID
+			t.frameContexts[ev.Context.ID] = aux.FrameID
 			t.execUniqueIDs[aux.FrameID] = ev.Context.UniqueID
 			t.frameMu.Unlock()
 		}
@@ -302,14 +333,22 @@ func (t *Target) runtimeEvent(ev any) {
 		t.frameMu.Lock()
 		for frameID, uniqueID := range t.execUniqueIDs {
 			if uniqueID == ev.ExecutionContextUniqueID {
+				if ctxID, ok := t.execContexts[frameID]; ok {
+					delete(t.frameContexts, ctxID)
+				}
 				delete(t.execContexts, frameID)
 				delete(t.execUniqueIDs, frameID)
+				t.endSourceContextsLocked(frameID, errSourceContextDestroyed)
 			}
 		}
 		t.frameMu.Unlock()
 	case *runtime.EventExecutionContextsCleared:
 		t.frameMu.Lock()
+		for frameID := range t.execContexts {
+			t.endSourceContextsLocked(frameID, errSourceContextDestroyed)
+		}
 		clear(t.execContexts)
+		clear(t.frameContexts)
 		clear(t.execUniqueIDs)
 		t.frameMu.Unlock()
 	}
@@ -372,6 +411,11 @@ func (t *Target) pageEvent(ev any) {
 
 	case *page.EventFrameDetached:
 		id, op = e.FrameID, frameDetached
+		// The frame leaves the target. End each call that the frame made
+		// to an ExposeSourceFunc.
+		t.frameMu.Lock()
+		t.endSourceContextsLocked(e.FrameID, errSourceFrameDetached)
+		t.frameMu.Unlock()
 
 	case *page.EventFrameStartedLoading:
 		id, op = e.FrameID, frameStartedLoading

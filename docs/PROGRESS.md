@@ -9,6 +9,7 @@ in [`decisions/`](decisions/README.md).
 
 These changes are not in a release yet. The first release that has them is v0.23.0. Each one has its own test.
 
+- Added: `ExposeSourceFunc` makes a Go func available to the page like `ExposeFunc`, and gives each call a `CallSource` with the frame id, the default execution context id and the document URL. Each call gets a context that ends when the func returns, when the execution context is destroyed, when the frame is removed, or when the target ends. A late result cannot reach a new document. The decision is in `decisions/2026-11-12-expose-the-source-of-a-page-call.md`.
 - Fixed: the browser routed the detach of a target before a reply or an event that Chrome sent earlier, about half of the time. The command then returned `ErrTargetDetached`, and `Listen` missed the event. The decision is in `decisions/2026-11-05-route-the-detach-after-the-messages.md`.
 - Added: `Detached` returns a channel that closes when the browser detaches the target of the context. The decision is in `decisions/2026-11-05-export-the-detach-of-a-target.md`.
 - Added: the context option `WithListener` adds a func of `Listen` before the first command to the target, so that the func sees the events of the start of the tab. The decision is in `decisions/2026-11-05-listen-from-the-start-of-a-target.md`.

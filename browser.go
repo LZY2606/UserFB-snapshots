@@ -206,6 +206,7 @@ func (b *Browser) newTarget(ctx context.Context, targetID target.ID, sessionID t
 		detached:      make(chan struct{}),
 		frames:        make(map[cdp.FrameID]*Frame),
 		execContexts:  make(map[cdp.FrameID]runtime.ExecutionContextID),
+		frameContexts: make(map[runtime.ExecutionContextID]cdp.FrameID),
 		execUniqueIDs: make(map[cdp.FrameID]string),
 		cur:           cdp.FrameID(targetID),
 

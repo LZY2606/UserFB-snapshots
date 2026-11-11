@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -1063,4 +1064,56 @@ func ExampleVisibleWindow() {
 // protocol types, which are pointers.
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// ExampleExposeSourceFunc shows a Go func that receives the document of each
+// call. The main frame and one iframe send the same record. The func returns
+// the path of the source document, so each promise gets its own document back.
+func ExampleExposeSourceFunc() {
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/child" {
+			io.WriteString(w, `<script>collect({id: 7}).then(function (r) { window.got = r; })</script>`)
+			return
+		}
+		io.WriteString(w, `<iframe src="/child"></iframe>`+
+			`<script>collect({id: 7}).then(function (r) { window.got = r; })</script>`)
+	}))
+	defer ts.Close()
+
+	if err := chromedp.Do(ctx,
+		chromedp.ExposeSourceFunc("collect", func(ctx context.Context, source chromedp.CallSource, r struct {
+			ID int `json:"id"`
+		}) (string, error) {
+			u, err := url.Parse(source.URL)
+			if err != nil {
+				return "", err
+			}
+			return u.Path, nil
+		}),
+		chromedp.Navigate(ts.URL+"/"),
+	); err != nil {
+		log.Fatal(err)
+	}
+
+	// Each promise settles with the path of its own document.
+	top, err := chromedp.Run(ctx, chromedp.Poll[string](`window.got`,
+		chromedp.WithPollingInterval(10*time.Millisecond), chromedp.WithPollingTimeout(10*time.Second)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	frame, err := chromedp.Run(ctx, chromedp.Poll[string](`document.querySelector("iframe").contentWindow.got`,
+		chromedp.WithPollingInterval(10*time.Millisecond), chromedp.WithPollingTimeout(10*time.Second)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(top)
+	fmt.Println(frame)
+
+	// Output:
+	// /
+	// /child
 }

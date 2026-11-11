@@ -895,6 +895,35 @@ if err := chromedp.Do(tabCtx); err != nil {
 
 The rules of `Listen` hold for the func. Give the option more than once to add several funcs. The [contexts](https://github.com/chromedp/examples/tree/main/contexts) example attaches to a tab with two iframes, and shows that a `Listen` call after the attach sees none of these events.
 
+### 31. Call a Go func and know the document of the call
+
+`ExposeSourceFunc` works like `ExposeFunc`. It also gives fn a `CallSource`. The source has the frame id, the default execution context id and the document URL of the call. The target builds these values from its own records. A page script cannot send them or change them.
+
+The URL is the address of the document at load time, and it includes the final address after an HTTP redirect. A later hash change does not change a source that the target already delivered.
+
+Each call gets its own context. The context ends when fn returns, when the browser destroys the execution context of the document, when the browser removes the frame, or when the target closes. A hash change does not end it, and a call in another document keeps running.
+
+This example collects one record from the main frame and from two iframes. It uses the URL of the source to end the record with the right document.
+
+```go
+type record struct {
+	ID int `json:"id"`
+}
+
+err := chromedp.Do(ctx,
+	chromedp.ExposeSourceFunc("collect", func(ctx context.Context, source chromedp.CallSource, r record) (string, error) {
+		// source.URL names the document that sent r. The context ends
+		// when that document or its frame goes away.
+		return source.URL, nil
+	}),
+	chromedp.Navigate(url),
+)
+```
+
+A late result cannot reach a new document. When the execution context of the old document is gone, the target drops the result. This holds even when the new document reuses the number of the old promise. A call from a context that the target does not know never reaches fn.
+
+`ExposeFunc` and `ExposeSourceFunc` share one set of names. A name in use cannot register again, and a failed registration frees its name for a retry.
+
 ## What the new API removes
 
 The new API removes the interface `Action`, the type `ActionFunc`, the type `Tasks`, and the funcs `ListenTarget` and `ListenBrowser`. `Listen` and `ListenBrowser` bring back the ordered listener, with one more result, an error, and see example 28. It also removes the types `QueryAction`, `NavigateAction`, `EvaluateAction`, `CallAction`, `PollAction`, `MouseAction`, `KeyAction` and `EmulateAction`. Each type is now `Action[T]`. It also removes the six lookup options that start with `By`, except `ByFunc`. A selector type replaces each of them. `docs/MIGRATION.md` lists every change, with the old name and the new name.
@@ -981,6 +1010,7 @@ func EmulateViewport(width, height int64, opts ...EmulateViewportOption) Action[
 func Evaluate[T any](expression string, opts ...EvaluateOption) Action[T]
 func EvaluateAsDevTools[T any](expression string, opts ...EvaluateOption) Action[T]
 func ExposeFunc[A, R any](name string, fn func(ctx context.Context, arg A) (R, error)) Action[Void]
+func ExposeSourceFunc[A, R any](name string, fn func(ctx context.Context, source CallSource, arg A) (R, error)) Action[Void]
 func Focus[S Selectable](sel S, opts ...QueryOption) Action[Void]
 func FullScreenshot(quality int) Action[[]byte]
 func Func(f func(ctx context.Context, t *Target) error) Action[Void]
@@ -1063,6 +1093,12 @@ type CSS string
 type CSSAll string
 
 type CallOption = func(params *runtime.CallFunctionOnParams)
+
+type CallSource struct {
+	FrameID cdp.FrameID
+	ExecutionContextID runtime.ExecutionContextID
+	URL string
+}
 
 type ConsoleMessage struct { ... }
 func (m ConsoleMessage) IsException() bool
