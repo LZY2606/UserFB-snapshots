@@ -37,7 +37,7 @@ int main(int argc, char **argv)
 	//distorm_decode(0, rawData, sizeof(rawData), Decode32Bits, &di, 1, &decodedInstructionsCount);
 	for (int i = 0; i < decodedInstructionsCount; i++) {
 		distorm_format(&ci, &decodedInstructions[i], &di);
-		printf("%08I64x (%02d) %-24s %s%s%s\r\n", di.offset, di.size, (char*)di.instructionHex.p, (char*)di.mnemonic.p, di.operands.length != 0 ? " " : "", (char*)di.operands.p);
+		printf("%08llx (%02d) %-24s %s%s%s\r\n", di.offset, di.size, (char*)di.instructionHex.p, (char*)di.mnemonic.p, di.operands.length != 0 ? " " : "", (char*)di.operands.p);
 	}
 
 	return 0;
