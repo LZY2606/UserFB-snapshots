@@ -346,6 +346,7 @@ module.exports = function wrapREGL (args) {
 
     var stats = {
       gpuTime: 0.0,
+      gpuTimeDropped: 0,
       cpuTime: 0.0,
       count: 0
     }

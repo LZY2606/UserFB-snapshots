@@ -1704,6 +1704,14 @@ declare namespace REGL {
      * statistics.
      */
     gpuTime: number;
+    /**
+     * The number of pending GPU timer records for this command that were dropped because
+     * their results became invalid before completing, e.g. due to a GPU disjoint event,
+     * context loss, or `regl.destroy()`. Dropped records contribute nothing to `gpuTime`.
+     * It stays `0` when profiling is disabled or the `EXT_disjoint_timer_query` extension
+     * is unavailable.
+     */
+    gpuTimeDropped: number;
   }
 
   /**

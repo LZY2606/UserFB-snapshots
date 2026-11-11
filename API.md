@@ -873,11 +873,13 @@ The following stats are tracked for each command in the `.stats` property:
 | `count`   | The number of times the command has been called                                                                                                                                                      |
 | `cpuTime` | The cumulative CPU time spent executing the command in milliseconds                                                                                                                                  |
 | `gpuTime` | The cumulative GPU time spent executing the command in milliseconds (requires the [EXT_disjoint_timer_query](https://www.khronos.org/registry/webgl/extensions/EXT_disjoint_timer_query/) extension) |
+| `gpuTimeDropped` | The number of pending GPU timer records dropped because their results became invalid before completing, e.g. after a GPU disjoint event, context loss or `regl.destroy()` (requires the [EXT_disjoint_timer_query](https://www.khronos.org/registry/webgl/extensions/EXT_disjoint_timer_query/) extension) |
 
 **Notes**
 
 -   GPU timer queries update asynchronously.  If you are not using `regl.frame()` to tick your application, then you should periodically call `regl.poll()` each frame to update the timer statistics.
 -   CPU time uses `performance.now` if available, otherwise it falls back to `Date.now`
+-   Dropped timer records are not included in `gpuTime`.  `gpuTimeDropped` counts records, not queries or nanoseconds, and stays `0` when profiling is disabled or the timer extension is unavailable.
 
 **Related WebGL APIs**
 
