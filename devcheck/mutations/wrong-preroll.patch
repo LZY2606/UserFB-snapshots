@@ -1,0 +1,16 @@
+--- a/src/opusenc.c
++++ b/src/opusenc.c
+@@ -720,10 +720,10 @@
+         if (enc->chaining_keyframe) {
+           unsigned char *p;
+           opus_int64 granulepos2=enc->curr_granule - enc->streams->granule_offset - enc->frame_size;
+-          p = oggp_get_packet_buffer(enc->oggp, enc->chaining_keyframe_length);
+-          memcpy(p, enc->chaining_keyframe, enc->chaining_keyframe_length);
++          p = oggp_get_packet_buffer(enc->oggp, nbBytes);
++          memcpy(p, packet_copy, nbBytes);
+           if (enc->packet_callback) enc->packet_callback(enc->packet_callback_data, enc->chaining_keyframe, enc->chaining_keyframe_length, 0);
+-          oggp_commit_packet(enc->oggp, enc->chaining_keyframe_length, granulepos2, 0);
++          oggp_commit_packet(enc->oggp, nbBytes, granulepos2, 0);
+         }
+         end_granule = compute_end_granule(enc, enc->streams);
+         cont = 1;

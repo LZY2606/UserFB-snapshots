@@ -1,0 +1,11 @@
+--- a/src/opusenc.c
++++ b/src/opusenc.c
+@@ -589,7 +589,7 @@
+ 
+ static opus_int64 compute_end_granule(OggOpusEnc *enc, EncStream *stream) {
+   /* Round up when converting the granule pos because the decoder will round down. */
+-  return (stream->end_sample*48000 + enc->rate - 1)/enc->rate + enc->global_granule_offset;
++  return (stream->end_sample*48000)/enc->rate + enc->global_granule_offset;
+ 
+ }
+ 
