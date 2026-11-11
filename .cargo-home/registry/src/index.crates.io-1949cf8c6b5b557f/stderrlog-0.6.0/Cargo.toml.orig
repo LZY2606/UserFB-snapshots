@@ -1,0 +1,41 @@
+[package]
+authors = ["Doug Goldstein <cardoe@cardoe.com>"]
+description = "Logger that logs to stderr based on verbosity specified"
+documentation = "https://docs.rs/stderrlog/"
+homepage = "https://github.com/cardoe/stderrlog-rs"
+keywords = ["log", "loglevel", "logging", "stderr", "stderrlog"]
+categories = ["development-tools::debugging"]
+license = "MIT OR Apache-2.0"
+name = "stderrlog"
+readme = "README.md"
+repository = "https://github.com/cardoe/stderrlog-rs"
+version = "0.6.0"
+edition = "2018"
+# This metadata field is ignored by the actual MSRV, but it is useful for newer
+# Rust versions and crates.io to know the MSRV
+rust-version = "1.48"
+
+[badges]
+appveyor = { repository = "cardoe/stderrlog-rs", branch = "master", service = "github" }
+travis-ci = { repository = "cardoe/stderrlog-rs", branch = "master" }
+is-it-maintained-issue-resolution = { repository = "cardoe/stderrlog-rs" }
+is-it-maintained-open-issues = { repository = "cardoe/stderrlog-rs" }
+maintenance = { status = "passively-maintained" }
+
+[dependencies]
+is-terminal = "0.4.7"
+chrono = { version = "0.4.10", optional = true, default-features = false, features = ["clock", "std", "wasmbind"] }
+log = { version = "0.4.11", features = ["std"] }
+termcolor = "~1.1"
+thread_local = "~1.1"
+
+[dev-dependencies]
+clap = { version = "3", features = ["cargo"] }
+docopt = "1.1"
+serde = { version = "1.0", features = ["derive"] }
+libc = "0.2.18"
+structopt = "0.3.20"
+
+[features]
+default = ["timestamps"]
+timestamps = ["chrono"]

@@ -43,6 +43,9 @@ use core::cmp::Ordering;
 use core::fmt;
 use core::iter::FusedIterator;
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use scroll::ctx::TryFromCtx;
 use scroll::{self, Pread, Pwrite, SizeWith};
 
@@ -198,20 +201,24 @@ impl Iterator for RuntimeFunctionIterator<'_> {
     type Item = error::Result<RuntimeFunction>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.data.is_empty() {
+        // Never read past the slice backing the iterator. `ExceptionData` guarantees that the
+        // slice is bounded by the declared exception directory, so a truncated file simply ends
+        // the iteration instead of slicing into unrelated bytes (or panicking).
+        let Some(entry) = self.data.get(..RUNTIME_FUNCTION_SIZE) else {
+            self.data = &[];
             return None;
-        }
+        };
 
-        Some(match self.data.pread_with(0, scroll::LE) {
+        match entry.pread_with(0, scroll::LE) {
             Ok(func) => {
                 self.data = &self.data[RUNTIME_FUNCTION_SIZE..];
-                Ok(func)
+                Some(Ok(func))
             }
             Err(error) => {
                 self.data = &[];
-                Err(error.into())
+                Some(Err(error.into()))
             }
-        })
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -569,23 +576,54 @@ pub struct UnwindCodeIterator<'a> {
     bytes: &'a [u8],
     offset: usize,
     context: UnwindOpContext,
+    /// Set after a malformed unwind code has been reported once. Subsequent calls to [`next`]
+    /// then return `None`, making the iterator fuse on error instead of repeating it.
+    ///
+    /// [`next`]: Iterator::next
+    failed: bool,
 }
 
 impl Iterator for UnwindCodeIterator<'_> {
     type Item = error::Result<UnwindCode>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.offset >= self.bytes.len() {
+        if self.failed || self.offset >= self.bytes.len() {
             return None;
         }
 
-        Some(self.bytes.gread_with(&mut self.offset, self.context))
+        // Every unwind code starts on a slot boundary. Operations needing extra slots are parsed
+        // out of the slots that follow within the declared unwind code array; bytes beyond it
+        // (alignment padding, handler data or a chained runtime function) are never borrowed.
+        let code_size = UNWIND_CODE_SIZE;
+        if self.bytes.len() - self.offset < code_size {
+            self.failed = true;
+            return Some(Err(error::Error::Malformed(String::from(
+                "unwind code is truncated within the declared unwind code slots",
+            ))));
+        }
+
+        match self.bytes.gread_with(&mut self.offset, self.context) {
+            Ok(code) => Some(Ok(code)),
+            Err(err) => {
+                // A multi-slot operation ran past the slots declared by `count_of_codes`. Report
+                // the error exactly once and stop, even though the partially consumed offset may
+                // still point inside the buffer.
+                self.failed = true;
+                self.offset = self.bytes.len();
+                Some(Err(err))
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let upper = (self.bytes.len() - self.offset) / UNWIND_CODE_SIZE;
-        // the largest codes take up three slots
-        let lower = (upper + 3 - (upper % 3)) / 3;
+        if self.failed {
+            return (0, Some(0));
+        }
+        let remaining = self.bytes.len().saturating_sub(self.offset);
+        let upper = remaining / UNWIND_CODE_SIZE;
+        // The largest codes take up three slots, so this is a valid lower bound on the number of
+        // codes that can still be produced.
+        let lower = upper / 3;
         (lower, Some(upper))
     }
 }
@@ -748,6 +786,7 @@ impl<'a> UnwindInfo<'a> {
                 version: self.version,
                 frame_register: self.frame_register,
             },
+            failed: false,
         }
     }
 
@@ -794,9 +833,12 @@ impl<'a> IntoIterator for &'_ UnwindInfo<'a> {
 
 /// Exception handling and stack unwind information for functions in the image.
 pub struct ExceptionData<'a> {
+    /// The whole image, retained for resolving unwind info RVAs outside of the directory.
     bytes: &'a [u8],
+    /// Exactly the bytes covered by the declared exception directory.
+    directory: &'a [u8],
+    /// File offset corresponding to the start of `directory`.
     offset: usize,
-    size: usize,
     file_alignment: u32,
 }
 
@@ -825,16 +867,14 @@ impl<'a> ExceptionData<'a> {
         file_alignment: u32,
         opts: &options::ParseOptions,
     ) -> error::Result<Self> {
-        let size = directory.size as usize;
-
-        if size % RUNTIME_FUNCTION_SIZE != 0 {
-            return Err(error::Error::from(scroll::Error::BadInput {
-                size,
-                msg: "invalid exception directory table size",
-            }));
-        }
-
-        Self::parse_inner(bytes, directory, sections, file_alignment, opts)
+        Self::parse_inner(
+            bytes,
+            directory,
+            sections,
+            file_alignment,
+            opts,
+            RUNTIME_FUNCTION_SIZE,
+        )
     }
 
     /// Parses ARM64 exception data from the image at the given offset.
@@ -845,16 +885,14 @@ impl<'a> ExceptionData<'a> {
         file_alignment: u32,
         opts: &options::ParseOptions,
     ) -> error::Result<Self> {
-        let size = directory.size as usize;
-
-        if size % size_of::<Arm64RuntimeFunction>() != 0 {
-            return Err(error::Error::from(scroll::Error::BadInput {
-                size,
-                msg: "invalid exception directory table size",
-            }));
-        }
-
-        Self::parse_inner(bytes, directory, sections, file_alignment, opts)
+        Self::parse_inner(
+            bytes,
+            directory,
+            sections,
+            file_alignment,
+            opts,
+            size_of::<Arm64RuntimeFunction>(),
+        )
     }
 
     fn parse_inner(
@@ -863,8 +901,27 @@ impl<'a> ExceptionData<'a> {
         sections: &[section_table::SectionTable],
         file_alignment: u32,
         opts: &options::ParseOptions,
+        entry_size: usize,
     ) -> error::Result<Self> {
         let size = directory.size as usize;
+
+        // An empty directory maps to nothing and must always be usable without touching the file.
+        if size == 0 {
+            return Ok(ExceptionData {
+                bytes,
+                directory: &[],
+                offset: 0,
+                file_alignment,
+            });
+        }
+
+        if size % entry_size != 0 {
+            return Err(error::Error::from(scroll::Error::BadInput {
+                size,
+                msg: "invalid exception directory table size",
+            }));
+        }
+
         let rva = directory.virtual_address as usize;
         let offset = utils::find_offset(rva, sections, file_alignment, opts).ok_or_else(|| {
             error::Error::Malformed(format!("cannot map exception_rva ({:#x}) into offset", rva))
@@ -874,27 +931,40 @@ impl<'a> ExceptionData<'a> {
             return Err(error::Error::from(scroll::Error::BadOffset(offset)));
         }
 
+        // The mapping succeeding for the directory's first byte is not enough: its full declared
+        // extent has to be backed by the image. Compute the end with checked arithmetic so that
+        // overflow produces an error instead of wrapping out of bounds.
+        let end = offset.checked_add(size).ok_or_else(|| {
+            error::Error::Malformed(String::from("exception directory offset and size overflow"))
+        })?;
+        let table = bytes.get(offset..end).ok_or_else(|| {
+            error::Error::Malformed(format!(
+                "exception directory ({:#x} bytes at offset {:#x}) is not fully backed by the image",
+                size, offset
+            ))
+        })?;
+
         Ok(ExceptionData {
             bytes,
+            directory: table,
             offset,
-            size,
             file_alignment,
         })
     }
 
     /// The number of x64 function entries described by this exception data.
     pub fn len(&self) -> usize {
-        self.size / RUNTIME_FUNCTION_SIZE
+        self.directory.len() / RUNTIME_FUNCTION_SIZE
     }
 
     /// The number of ARM64 function entries described by this exception data.
     pub fn len_arm64(&self) -> usize {
-        self.size / size_of::<Arm64RuntimeFunction>()
+        self.directory.len() / size_of::<Arm64RuntimeFunction>()
     }
 
     /// Indicating whether there are functions in this entry.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.directory.is_empty()
     }
 
     /// Iterates all function entries in order of their code offset.
@@ -906,34 +976,64 @@ impl<'a> ExceptionData<'a> {
     /// [`get_unwind_info`]: struct.ExceptionData.html#method.get_unwind_info
     pub fn functions(&self) -> RuntimeFunctionIterator<'a> {
         RuntimeFunctionIterator {
-            data: &self.bytes[self.offset..self.offset + self.size],
+            data: self.directory,
         }
     }
 
     /// Returns the function at the given index.
     pub fn get_function(&self, index: usize) -> error::Result<RuntimeFunction> {
-        self.get_function_by_offset(self.offset + index * RUNTIME_FUNCTION_SIZE)
+        let entry_offset = index
+            .checked_mul(RUNTIME_FUNCTION_SIZE)
+            .ok_or_else(|| error::Error::Malformed(String::from("function index overflow")))?;
+        let entry_end = entry_offset
+            .checked_add(RUNTIME_FUNCTION_SIZE)
+            .ok_or_else(|| error::Error::Malformed(String::from("function index overflow")))?;
+        let entry = self.directory.get(entry_offset..entry_end);
+        entry
+            .ok_or_else(|| {
+                error::Error::Malformed(format!(
+                    "function index {index} is out of bounds for {} exception entries",
+                    self.len()
+                ))
+            })?
+            .pread_with(0, scroll::LE)
+            .map_err(Into::into)
     }
 
     /// Returns an iterator over ARM64 runtime function entries.
     pub fn functions_arm64(&self) -> Arm64RuntimeFunctionIterator<'a> {
         Arm64RuntimeFunctionIterator {
-            data: &self.bytes[self.offset..self.offset + self.size],
+            data: self.directory,
         }
     }
 
     /// Returns an ARM64 runtime function at the given index.
     pub fn get_function_arm64(&self, index: usize) -> error::Result<Arm64RuntimeFunction> {
-        self.get_function_by_offset_arm64(self.offset + index * size_of::<Arm64RuntimeFunction>())
+        let entry_size = size_of::<Arm64RuntimeFunction>();
+        let entry_offset = index
+            .checked_mul(entry_size)
+            .ok_or_else(|| error::Error::Malformed(String::from("function index overflow")))?;
+        let entry_end = entry_offset
+            .checked_add(entry_size)
+            .ok_or_else(|| error::Error::Malformed(String::from("function index overflow")))?;
+        let entry = self.directory.get(entry_offset..entry_end);
+        entry
+            .ok_or_else(|| {
+                error::Error::Malformed(format!(
+                    "function index {index} is out of bounds for {} ARM64 exception entries",
+                    self.len_arm64()
+                ))
+            })?
+            .pread_with(0, scroll::LE)
+            .map_err(Into::into)
     }
 
     /// Performs a binary search to find a function entry covering the given RVA relative to the
     /// image.
     pub fn find_function(&self, rva: u32) -> error::Result<Option<RuntimeFunction>> {
         // NB: Binary search implementation copied from std::slice::binary_search_by and adapted.
-        // Theoretically, there should be nothing that causes parsing runtime functions to fail and
-        // all access to the bytes buffer is guaranteed to be in range. However, since all other
-        // functions also return Results, this is much more ergonomic here.
+        // Every byte access goes through the bounded `directory` slice, so a malformed image can
+        // only produce errors, never out-of-bounds reads.
 
         let mut size = self.len();
         if size == 0 {
@@ -944,14 +1044,14 @@ impl<'a> ExceptionData<'a> {
         while size > 1 {
             let half = size / 2;
             let mid = base + half;
-            let offset = self.offset + mid * RUNTIME_FUNCTION_SIZE;
-            let addr = self.bytes.pread_with::<u32>(offset, scroll::LE)?;
+            let offset = mid * RUNTIME_FUNCTION_SIZE;
+            let addr = self.directory.pread_with::<u32>(offset, scroll::LE)?;
             base = if addr > rva { base } else { mid };
             size -= half;
         }
 
-        let offset = self.offset + base * RUNTIME_FUNCTION_SIZE;
-        let addr = self.bytes.pread_with::<u32>(offset, scroll::LE)?;
+        let offset = base * RUNTIME_FUNCTION_SIZE;
+        let addr = self.directory.pread_with::<u32>(offset, scroll::LE)?;
         let function = match addr.cmp(&rva) {
             Ordering::Less | Ordering::Equal => self.get_function(base)?,
             Ordering::Greater if base == 0 => return Ok(None),
@@ -986,13 +1086,25 @@ impl<'a> ExceptionData<'a> {
     /// Resolves unwind information for the given function entry.
     pub fn get_unwind_info_with_opts(
         &self,
-        mut function: RuntimeFunction,
+        function: RuntimeFunction,
         sections: &[section_table::SectionTable],
         opts: &options::ParseOptions,
     ) -> error::Result<UnwindInfo<'a>> {
+        // A set low bit marks an indirect entry: it points at another RUNTIME_FUNCTION in the
+        // image instead of directly at UNWIND_INFO. Multi-level redirection is valid, but a
+        // reference to a record already visited in this resolution is a cycle and must fail.
+        let mut function = function;
+        let mut visited = Vec::<u32>::new();
         while function.unwind_info_address % 2 != 0 {
-            let rva = (function.unwind_info_address & !1) as usize;
-            function = self.get_function_by_rva_with_opts(rva, sections, opts)?;
+            let target_rva = function.unwind_info_address & !1;
+            if visited.contains(&target_rva) {
+                return Err(error::Error::Malformed(format!(
+                    "indirect runtime function chain contains a cycle at rva {:#x}",
+                    target_rva
+                )));
+            }
+            visited.push(target_rva);
+            function = self.get_function_by_rva_with_opts(target_rva as usize, sections, opts)?;
         }
 
         let rva = function.unwind_info_address as usize;
@@ -1050,23 +1162,33 @@ impl<'a> ExceptionData<'a> {
                 ))
             })?;
 
-        self.get_function_by_offset(offset)
-    }
+        // Indirect references point into the same exception directory (or, for images mapped into
+        // memory, an equivalent table at the same RVA range). Reject anything outside of the
+        // declared directory so a redirection cannot borrow unrelated file contents.
+        if offset < self.offset {
+            return Err(error::Error::Malformed(format!(
+                "indirect runtime function rva {:#x} precedes the exception directory",
+                rva
+            )));
+        }
+        let relative = offset - self.offset;
+        let entry_end = relative.checked_add(RUNTIME_FUNCTION_SIZE).ok_or_else(|| {
+            error::Error::Malformed(format!(
+                "indirect runtime function rva {:#x} overflows the exception directory",
+                rva
+            ))
+        })?;
+        if relative % RUNTIME_FUNCTION_SIZE != 0 || entry_end > self.directory.len() {
+            return Err(error::Error::Malformed(format!(
+                "indirect runtime function rva {:#x} does not point at an entry of the exception \
+                 directory",
+                rva
+            )));
+        }
 
-    #[inline]
-    fn get_function_by_offset(&self, offset: usize) -> error::Result<RuntimeFunction> {
-        debug_assert!((offset - self.offset) % RUNTIME_FUNCTION_SIZE == 0);
-        debug_assert!(offset < self.offset + self.size);
-
-        Ok(self.bytes.pread_with(offset, scroll::LE)?)
-    }
-
-    #[inline]
-    fn get_function_by_offset_arm64(&self, offset: usize) -> error::Result<Arm64RuntimeFunction> {
-        debug_assert!((offset - self.offset) % size_of::<Arm64RuntimeFunction>() == 0);
-        debug_assert!(offset < self.offset + self.size);
-
-        Ok(self.bytes.pread_with(offset, scroll::LE)?)
+        self.directory
+            .pread_with(relative, scroll::LE)
+            .map_err(Into::into)
     }
 }
 
@@ -1075,7 +1197,7 @@ impl fmt::Debug for ExceptionData<'_> {
         f.debug_struct("ExceptionData")
             .field("file_alignment", &self.file_alignment)
             .field("offset", &format_args!("{:#x}", self.offset))
-            .field("size", &format_args!("{:#x}", self.size))
+            .field("size", &format_args!("{:#x}", self.directory.len()))
             .field("len", &self.len())
             .finish()
     }
@@ -1219,20 +1341,24 @@ impl Iterator for Arm64RuntimeFunctionIterator<'_> {
     type Item = error::Result<Arm64RuntimeFunction>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.data.is_empty() {
+        // Like `RuntimeFunctionIterator`, the slice must contain a complete entry before reading
+        // so that a truncated exception directory terminates the iteration cleanly.
+        let entry_size = size_of::<Arm64RuntimeFunction>();
+        let Some(entry) = self.data.get(..entry_size) else {
+            self.data = &[];
             return None;
-        }
+        };
 
-        Some(match self.data.pread_with(0, scroll::LE) {
+        match entry.pread_with(0, scroll::LE) {
             Ok(func) => {
-                self.data = &self.data[size_of::<Arm64RuntimeFunction>()..];
-                Ok(func)
+                self.data = &self.data[entry_size..];
+                Some(Ok(func))
             }
             Err(error) => {
                 self.data = &[];
-                Err(error.into())
+                Some(Err(error.into()))
             }
-        })
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -3103,10 +3229,11 @@ mod tests {
         #[test]
         fn arm64_len_vs_x64_len() {
             // Verify len_arm64 gives different (correct) results from len
+            let bytes = [0u8; 64];
             let ed = ExceptionData {
-                bytes: &[0u8; 64],
+                bytes: &bytes,
+                directory: &bytes[..32],
                 offset: 0,
-                size: 32,
                 file_alignment: 4,
             };
             // 32 / 12 = 2 (x64)
