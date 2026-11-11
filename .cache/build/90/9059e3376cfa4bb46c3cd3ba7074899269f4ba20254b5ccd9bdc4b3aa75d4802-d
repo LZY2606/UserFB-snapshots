@@ -1,0 +1,78 @@
+{
+	"github.com/fogleman/fauxgl": {
+		"assign": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go:336:3",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go:336:3",
+				"message": "self-assignment of v1",
+				"suggested_fixes": [
+					{
+						"message": "Remove self-assignment",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go",
+								"start": 7792,
+								"end": 7796,
+								"new": ""
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go",
+								"start": 7805,
+								"end": 7809,
+								"new": ""
+							}
+						]
+					}
+				]
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go:337:3",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go:337:3",
+				"message": "self-assignment of ndc1",
+				"suggested_fixes": [
+					{
+						"message": "Remove self-assignment",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go",
+								"start": 7820,
+								"end": 7826,
+								"new": ""
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/context.go",
+								"start": 7839,
+								"end": 7845,
+								"new": ""
+							}
+						]
+					}
+				]
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/triangle.go:76:2",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/triangle.go:76:2",
+				"message": "self-assignment of t.V2",
+				"suggested_fixes": [
+					{
+						"message": "Remove self-assignment",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/triangle.go",
+								"start": 1702,
+								"end": 1708,
+								"new": ""
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/triangle.go",
+								"start": 1721,
+								"end": 1727,
+								"new": ""
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

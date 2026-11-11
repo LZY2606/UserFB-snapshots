@@ -55,6 +55,7 @@ type Context struct {
 	DepthBias    float64
 	screenMatrix Matrix
 	locks        []sync.Mutex
+	transparency *transparencyState
 }
 
 func NewContext(width, height int) *Context {
@@ -117,6 +118,7 @@ func (dc *Context) DepthImage() image.Image {
 }
 
 func (dc *Context) ClearColorBufferWith(color Color) {
+	dc.CancelTransparency()
 	c := color.NRGBA()
 	for y := 0; y < dc.Height; y++ {
 		i := dc.ColorBuffer.PixOffset(0, y)
@@ -135,6 +137,7 @@ func (dc *Context) ClearColorBuffer() {
 }
 
 func (dc *Context) ClearDepthBufferWith(value float64) {
+	dc.CancelTransparency()
 	for i := range dc.DepthBuffer {
 		dc.DepthBuffer[i] = value
 	}
@@ -148,7 +151,10 @@ func edge(a, b, c Vector) float64 {
 	return (b.X-c.X)*(a.Y-c.Y) - (b.Y-c.Y)*(a.X-c.X)
 }
 
-func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
+func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector, order uint64) RasterizeInfo {
+	if ts := dc.transparency; ts != nil {
+		return dc.rasterizeTransparency(ts, v0, v1, v2, s0, s1, s2, order)
+	}
 	var info RasterizeInfo
 
 	// integer bounding box
@@ -194,6 +200,11 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 		}
 		if w02 < 0 && d2 > d {
 			d = d2
+		}
+		if math.IsInf(d, 0) || math.IsNaN(d) {
+			// horizontal edges make 1/a12 infinite; ignore the bogus
+			// scanline offset instead of overflowing the pixel index
+			d = 0
 		}
 		d = float64(int(d))
 		if d < 0 {
@@ -280,7 +291,7 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 	return info
 }
 
-func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector) RasterizeInfo {
+func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector, order uint64) RasterizeInfo {
 	n := s1.Sub(s0).Perpendicular().MulScalar(dc.LineWidth / 2)
 	s0 = s0.Add(s0.Sub(s1).Normalize().MulScalar(dc.LineWidth / 2))
 	s1 = s1.Add(s1.Sub(s0).Normalize().MulScalar(dc.LineWidth / 2))
@@ -288,19 +299,19 @@ func (dc *Context) line(v0, v1 Vertex, s0, s1 Vector) RasterizeInfo {
 	s01 := s0.Sub(n)
 	s10 := s1.Add(n)
 	s11 := s1.Sub(n)
-	info1 := dc.rasterize(v1, v0, v0, s11, s01, s00)
-	info2 := dc.rasterize(v1, v1, v0, s10, s11, s00)
+	info1 := dc.rasterize(v1, v0, v0, s11, s01, s00, order)
+	info2 := dc.rasterize(v1, v1, v0, s10, s11, s00, order)
 	return info1.Add(info2)
 }
 
-func (dc *Context) wireframe(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
-	info1 := dc.line(v0, v1, s0, s1)
-	info2 := dc.line(v1, v2, s1, s2)
-	info3 := dc.line(v2, v0, s2, s0)
+func (dc *Context) wireframe(v0, v1, v2 Vertex, s0, s1, s2 Vector, order uint64) RasterizeInfo {
+	info1 := dc.line(v0, v1, s0, s1, order)
+	info2 := dc.line(v1, v2, s1, s2, order)
+	info3 := dc.line(v2, v0, s2, s0, order)
 	return info1.Add(info2).Add(info3)
 }
 
-func (dc *Context) drawClippedLine(v0, v1 Vertex) RasterizeInfo {
+func (dc *Context) drawClippedLine(v0, v1 Vertex, order uint64) RasterizeInfo {
 	// normalized device coordinates
 	ndc0 := v0.Output.DivScalar(v0.Output.W).Vector()
 	ndc1 := v1.Output.DivScalar(v1.Output.W).Vector()
@@ -310,10 +321,10 @@ func (dc *Context) drawClippedLine(v0, v1 Vertex) RasterizeInfo {
 	s1 := dc.screenMatrix.MulPosition(ndc1)
 
 	// rasterize
-	return dc.line(v0, v1, s0, s1)
+	return dc.line(v0, v1, s0, s1, order)
 }
 
-func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
+func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex, order uint64) RasterizeInfo {
 	// normalized device coordinates
 	ndc0 := v0.Output.DivScalar(v0.Output.W).Vector()
 	ndc1 := v1.Output.DivScalar(v1.Output.W).Vector()
@@ -342,13 +353,18 @@ func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
 
 	// rasterize
 	if dc.Wireframe {
-		return dc.wireframe(v0, v1, v2, s0, s1, s2)
+		return dc.wireframe(v0, v1, v2, s0, s1, s2, order)
 	} else {
-		return dc.rasterize(v0, v1, v2, s0, s1, s2)
+		return dc.rasterize(v0, v1, v2, s0, s1, s2, order)
 	}
 }
 
 func (dc *Context) DrawLine(t *Line) RasterizeInfo {
+	order := dc.transparencyOrder(1)
+	return dc.drawLine(t, order)
+}
+
+func (dc *Context) drawLine(t *Line, order uint64) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -357,17 +373,22 @@ func (dc *Context) DrawLine(t *Line) RasterizeInfo {
 		// clip to viewing volume
 		line := ClipLine(NewLine(v1, v2))
 		if line != nil {
-			return dc.drawClippedLine(line.V1, line.V2)
+			return dc.drawClippedLine(line.V1, line.V2, order)
 		} else {
 			return RasterizeInfo{}
 		}
 	} else {
 		// no need to clip
-		return dc.drawClippedLine(v1, v2)
+		return dc.drawClippedLine(v1, v2, order)
 	}
 }
 
 func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
+	order := dc.transparencyOrder(1)
+	return dc.drawTriangle(t, order)
+}
+
+func (dc *Context) drawTriangle(t *Triangle, order uint64) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -378,17 +399,18 @@ func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
 		triangles := ClipTriangle(NewTriangle(v1, v2, v3))
 		var result RasterizeInfo
 		for _, t := range triangles {
-			info := dc.drawClippedTriangle(t.V1, t.V2, t.V3)
+			info := dc.drawClippedTriangle(t.V1, t.V2, t.V3, order)
 			result = result.Add(info)
 		}
 		return result
 	} else {
 		// no need to clip
-		return dc.drawClippedTriangle(v1, v2, v3)
+		return dc.drawClippedTriangle(v1, v2, v3, order)
 	}
 }
 
 func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
+	base := dc.transparencyOrder(uint64(len(lines)))
 	wn := runtime.NumCPU()
 	ch := make(chan RasterizeInfo, wn)
 	for wi := 0; wi < wn; wi++ {
@@ -396,7 +418,7 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 			var result RasterizeInfo
 			for i, l := range lines {
 				if i%wn == wi {
-					info := dc.DrawLine(l)
+					info := dc.drawLine(l, base+uint64(i))
 					result = result.Add(info)
 				}
 			}
@@ -411,6 +433,7 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 }
 
 func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
+	base := dc.transparencyOrder(uint64(len(triangles)))
 	wn := runtime.NumCPU()
 	ch := make(chan RasterizeInfo, wn)
 	for wi := 0; wi < wn; wi++ {
@@ -418,7 +441,7 @@ func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
 			var result RasterizeInfo
 			for i, t := range triangles {
 				if i%wn == wi {
-					info := dc.DrawTriangle(t)
+					info := dc.drawTriangle(t, base+uint64(i))
 					result = result.Add(info)
 				}
 			}

@@ -28,6 +28,7 @@ It doesn't use your graphics card, only your CPU. So it's slow and unsuitable fo
 - anti-aliasing (via supersampling)
 - voxel rendering
 - parallel processing
+- per-pixel order-independent transparency pass
 
 ### Performance
 
@@ -43,6 +44,59 @@ Rendering the Stanford Dragon shown above (871306 triangles) at 1920x1080px take
 
     cd go/src/github.com/fogleman/fauxgl
     go run examples/hello.go
+
+The transparency example renders crossing translucent planes behind an
+opaque box and writes `.cache/transparency.png`:
+
+    go run ./examples/transparency
+
+### Order-Independent Transparency
+
+A single sort of the whole mesh cannot resolve interpenetrating
+translucent faces, because different pixels can have a different
+front-most layer. The optional transparency pass sorts fragments per
+pixel instead:
+
+```go
+context.WriteDepth = false          // required before beginning
+err := context.BeginTransparency()  // also requires ReadDepth=true,
+                                    // WriteColor=true, AlphaBlend=true,
+                                    // Wireframe=false
+if err != nil {
+	panic(err)
+}
+
+// Draw transparent geometry through the regular entry points.
+context.Shader = shader
+context.DrawMesh(mesh)
+
+// Composite the collected fragments per pixel, from far to near.
+if err := context.ResolveTransparency(); err != nil {
+	panic(err)
+}
+```
+
+While the pass is active, `DrawTriangle`, `DrawTriangles`, `DrawLine`,
+`DrawLines` and `DrawMesh` collect fragments instead of touching the
+buffers. The existing opaque depth buffer acts as an occluder and the
+depth buffer is never written. Fragments are sorted per pixel by
+depth (far to near); equal depths are composited in submission order,
+so later primitives cover earlier ones. `DrawMesh` submits its triangles
+before its explicit lines.
+
+Colors are composited in premultiplied float RGBA and converted back to
+straight-alpha NRGBA8 once, at resolve time. Layers with `Discard` or
+zero alpha contribute nothing. `CancelTransparency` discards pending
+fragments without changing the image, and all clear-color and clear-depth
+entry points cancel an active pass before clearing. `ResolveTransparency`
+without an active pass, or `BeginTransparency` with incompatible
+settings, returns an error.
+
+Callers must use these entry points serially, and must not change
+drawing settings (other than `Shader`) or write the buffers directly
+while a pass is active. Parallel drawing inside the library remains
+safe, and the submission order is independent of worker scheduling and
+`GOMAXPROCS`.
 
 ### Go Doc
 

@@ -1,0 +1,114 @@
+{
+	"github.com/fogleman/fauxgl/examples/transparency": {
+		"composites": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:86:42",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:86:69",
+				"message": "github.com/fogleman/fauxgl.Color struct literal uses unkeyed fields",
+				"suggested_fixes": [
+					{
+						"message": "Add field names to struct literal",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2273,
+								"end": 2273,
+								"new": "R: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2278,
+								"end": 2278,
+								"new": "G: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2283,
+								"end": 2283,
+								"new": "B: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2289,
+								"end": 2289,
+								"new": "A: "
+							}
+						]
+					}
+				]
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:88:42",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:88:68",
+				"message": "github.com/fogleman/fauxgl.Color struct literal uses unkeyed fields",
+				"suggested_fixes": [
+					{
+						"message": "Add field names to struct literal",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2362,
+								"end": 2362,
+								"new": "R: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2367,
+								"end": 2367,
+								"new": "G: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2373,
+								"end": 2373,
+								"new": "B: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2378,
+								"end": 2378,
+								"new": "A: "
+							}
+						]
+					}
+				]
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:90:42",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go:90:69",
+				"message": "github.com/fogleman/fauxgl.Color struct literal uses unkeyed fields",
+				"suggested_fixes": [
+					{
+						"message": "Add field names to struct literal",
+						"edits": [
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2452,
+								"end": 2452,
+								"new": "R: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2458,
+								"end": 2458,
+								"new": "G: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2463,
+								"end": 2463,
+								"new": "B: "
+							},
+							{
+								"filename": "/Users/lzy/pro/UserFB/workspace/Z1188/attempts/20261111T091810074609Z/repo/examples/transparency/main.go",
+								"start": 2469,
+								"end": 2469,
+								"new": "A: "
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}
