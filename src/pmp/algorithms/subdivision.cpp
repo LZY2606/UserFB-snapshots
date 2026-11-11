@@ -4,13 +4,127 @@
 #include "pmp/algorithms/subdivision.h"
 #include "pmp/algorithms/differential_geometry.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <numbers>
+#include <vector>
 
 namespace pmp {
+
+namespace {
+
+//! Clamp a crease strength to the [0,1] blending range.
+Scalar clamped_sharpness(Scalar s)
+{
+    return std::clamp(s, Scalar(0), Scalar(1));
+}
+
+//! Check that all semi-sharp crease strengths are finite and non-negative.
+//! \throw InvalidInputException on negative, NaN, or infinite values.
+void check_sharpness(const SurfaceMesh& mesh,
+                     const EdgeProperty<Scalar>& esharp, const char* caller)
+{
+    for (auto e : mesh.edges())
+    {
+        if (!std::isfinite(esharp[e]) || esharp[e] < 0)
+        {
+            auto what = std::string{caller} +
+                        ": e:sharpness values must be finite and "
+                        "non-negative.";
+            throw InvalidInputException(what);
+        }
+    }
+}
+
+//! Compute the sharpness inherited by the two child edges of each current
+//! edge: strengths decrease by one per subdivision step.
+EdgeProperty<Scalar> inherited_sharpness(SurfaceMesh& mesh, const char* name,
+                                         const EdgeProperty<Scalar>& esharp)
+{
+    auto next = mesh.add_edge_property<Scalar>(name);
+    for (auto e : mesh.edges())
+        next[e] = std::max(esharp[e] - Scalar(1), Scalar(0));
+    return next;
+}
+
+//! Blend between the smooth and the sharp (midpoint) position of an edge
+//! point according to the edge sharpness.
+Point semi_sharp_edge_position(const Point& smooth, const Point& sharp,
+                               Scalar strength)
+{
+    const Scalar t = clamped_sharpness(strength);
+    return (Scalar(1) - t) * smooth + t * sharp;
+}
+
+//! Compute the position of an interior vertex under the semi-sharp crease
+//! rule, given its smooth position \p smooth. Blends between the smooth
+//! position, the crease position (6P+N1+N2)/8 through the two strongest
+//! incident creases, and the corner position P for three or more creases.
+Point semi_sharp_vertex_position(const SurfaceMesh& mesh,
+                                 const VertexProperty<Point>& points, Vertex v,
+                                 const EdgeProperty<bool>& efeature,
+                                 const EdgeProperty<Scalar>& esharp,
+                                 const Point& smooth)
+{
+    // gather incident crease strengths and neighbor positions
+    struct Crease
+    {
+        Scalar strength;
+        IndexType neighbor;
+        Point point;
+    };
+    std::vector<Crease> creases;
+    creases.reserve(mesh.valence(v));
+    for (auto h : mesh.halfedges(v))
+    {
+        const auto e = mesh.edge(h);
+        // permanent hard edges count as infinitely sharp
+        const Scalar strength = (efeature && efeature[e])
+                                    ? std::numeric_limits<Scalar>::infinity()
+                                    : esharp[e];
+        const auto neighbor = mesh.to_vertex(h);
+        creases.push_back({strength, neighbor.idx(), points[neighbor]});
+    }
+
+    // strongest first; break ties by neighbor index for determinism
+    std::sort(creases.begin(), creases.end(),
+              [](const Crease& a, const Crease& b) {
+                  return a.strength != b.strength
+                             ? a.strength > b.strength
+                             : a.neighbor < b.neighbor;
+              });
+
+    const Scalar s2 = creases.size() > 1 ? creases[1].strength : Scalar(0);
+    const Scalar s3 = creases.size() > 2 ? creases[2].strength : Scalar(0);
+    const Scalar u2 = clamped_sharpness(s2);
+    const Scalar u3 = clamped_sharpness(s3);
+
+    // less than two creases: stick to the smooth rule
+    if (u2 == Scalar(0))
+        return smooth;
+
+    // crease position through the two strongest creases
+    Point crease = points[v];
+    crease *= 6.0;
+    crease += creases[0].point;
+    crease += creases[1].point;
+    crease *= 0.125;
+
+    return (Scalar(1) - u2) * smooth + (u2 - u3) * crease +
+           u3 * points[v];
+}
+
+} // namespace
 
 void catmull_clark_subdivision(SurfaceMesh& mesh,
                                BoundaryHandling boundary_handling)
 {
+    // validate optional semi-sharp creases before changing anything
+    auto esharp = mesh.get_edge_property<Scalar>("e:sharpness");
+    if (esharp)
+        check_sharpness(mesh, esharp, __func__);
+
     auto points = mesh.vertex_property<Point>("v:point");
     auto vfeature = mesh.get_vertex_property<bool>("v:feature");
     auto efeature = mesh.get_edge_property<bool>("e:feature");
@@ -25,6 +139,11 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
     auto vpoint = mesh.add_vertex_property<Point>("catmull:vpoint");
     auto epoint = mesh.add_edge_property<Point>("catmull:epoint");
     auto fpoint = mesh.add_face_property<Point>("catmull:fpoint");
+
+    // sharpness inherited by the two children of each split edge
+    EdgeProperty<Scalar> esharp_next;
+    if (esharp)
+        esharp_next = inherited_sharpness(mesh, "catmull:esharp_next", esharp);
 
     // compute face vertices
     for (auto f : mesh.faces())
@@ -51,6 +170,16 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
             p += fpoint[mesh.face(e, 0)];
             p += fpoint[mesh.face(e, 1)];
             p *= 0.25f;
+
+            // blend towards the midpoint for semi-sharp creases
+            if (esharp)
+            {
+                const Point sharp =
+                    0.5f *
+                    (points[mesh.vertex(e, 0)] + points[mesh.vertex(e, 1)]);
+                p = semi_sharp_edge_position(p, sharp, esharp[e]);
+            }
+
             epoint[e] = p;
         }
     }
@@ -131,6 +260,11 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
 
             p += ((k - 2.0f) / k) * points[v];
 
+            // blend towards crease/corner positions for semi-sharp creases
+            if (esharp)
+                p = semi_sharp_vertex_position(mesh, points, v, efeature,
+                                               esharp, p);
+
             vpoint[v] = p;
         }
     }
@@ -144,23 +278,33 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
     // split edges
     for (auto e : mesh.edges())
     {
-        // feature edge?
-        if (efeature && efeature[e])
-        {
-            auto h = mesh.insert_vertex(e, epoint[e]);
-            auto v = mesh.to_vertex(h);
-            auto e0 = mesh.edge(h);
-            auto e1 = mesh.edge(mesh.next_halfedge(h));
+        const bool is_feature = efeature && efeature[e];
 
+        // plain edge: nothing to propagate
+        if (!is_feature && !esharp)
+        {
+            mesh.insert_vertex(e, epoint[e]);
+            continue;
+        }
+
+        auto h = mesh.insert_vertex(e, epoint[e]);
+        auto e0 = mesh.edge(h);
+        auto e1 = mesh.edge(mesh.next_halfedge(h));
+
+        // propagate feature marker
+        if (is_feature)
+        {
+            auto v = mesh.to_vertex(h);
             vfeature[v] = true;
             efeature[e0] = true;
             efeature[e1] = true;
         }
 
-        // normal edge
-        else
+        // both children inherit the decayed sharpness of the old edge
+        if (esharp)
         {
-            mesh.insert_vertex(e, epoint[e]);
+            esharp[e0] = esharp_next[e];
+            esharp[e1] = esharp_next[e];
         }
     }
 
@@ -168,15 +312,26 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
     for (auto f : mesh.faces())
     {
         auto h0 = mesh.halfedge(f);
-        mesh.insert_edge(h0, mesh.next_halfedge(mesh.next_halfedge(h0)));
+        auto h_in = mesh.insert_edge(h0, mesh.next_halfedge(mesh.next_halfedge(h0)));
+
+        // edges introduced in the interior of faces are smooth
+        if (esharp)
+            esharp[mesh.edge(h_in)] = Scalar(0);
 
         auto h1 = mesh.next_halfedge(h0);
-        mesh.insert_vertex(mesh.edge(h1), fpoint[f]);
+        auto h_in_v = mesh.insert_vertex(mesh.edge(h1), fpoint[f]);
+        if (esharp)
+        {
+            esharp[mesh.edge(h_in_v)] = Scalar(0);
+            esharp[mesh.edge(mesh.next_halfedge(h_in_v))] = Scalar(0);
+        }
 
         auto h = mesh.next_halfedge(mesh.next_halfedge(mesh.next_halfedge(h1)));
         while (h != h0)
         {
-            mesh.insert_edge(h1, h);
+            auto h_spoke = mesh.insert_edge(h1, h);
+            if (esharp)
+                esharp[mesh.edge(h_spoke)] = Scalar(0);
             h = mesh.next_halfedge(mesh.next_halfedge(mesh.next_halfedge(h1)));
         }
     }
@@ -185,19 +340,26 @@ void catmull_clark_subdivision(SurfaceMesh& mesh,
     mesh.remove_vertex_property(vpoint);
     mesh.remove_edge_property(epoint);
     mesh.remove_face_property(fpoint);
+    if (esharp)
+        mesh.remove_edge_property(esharp_next);
 }
 
 void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
 {
-    auto points = mesh.vertex_property<Point>("v:point");
-    auto vfeature = mesh.get_vertex_property<bool>("v:feature");
-    auto efeature = mesh.get_edge_property<bool>("e:feature");
+    // validate optional semi-sharp creases before changing anything
+    auto esharp = mesh.get_edge_property<Scalar>("e:sharpness");
+    if (esharp)
+        check_sharpness(mesh, esharp, __func__);
 
     if (!mesh.is_triangle_mesh())
     {
         auto what = std::string{__func__} + ": Not a triangle mesh.";
         throw InvalidInputException(what);
     }
+
+    auto points = mesh.vertex_property<Point>("v:point");
+    auto vfeature = mesh.get_vertex_property<bool>("v:feature");
+    auto efeature = mesh.get_edge_property<bool>("e:feature");
 
     // reserve memory
     const size_t nv = mesh.n_vertices();
@@ -208,6 +370,11 @@ void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
     // add properties
     auto vpoint = mesh.add_vertex_property<Point>("loop:vpoint");
     auto epoint = mesh.add_edge_property<Point>("loop:epoint");
+
+    // sharpness inherited by the two children of each split edge
+    EdgeProperty<Scalar> esharp_next;
+    if (esharp)
+        esharp_next = inherited_sharpness(mesh, "loop:esharp_next", esharp);
 
     // compute vertex positions
     for (auto v : mesh.vertices())
@@ -283,7 +450,14 @@ void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
                 (0.625 -
                  pow(0.375 + 0.25 * std::cos(2.0 * std::numbers::pi / k), 2.0));
 
-            vpoint[v] = points[v] * (Scalar)(1.0 - beta) + beta * p;
+            p = points[v] * (Scalar)(1.0 - beta) + beta * p;
+
+            // blend towards crease/corner positions for semi-sharp creases
+            if (esharp)
+                p = semi_sharp_vertex_position(mesh, points, v, efeature,
+                                               esharp, p);
+
+            vpoint[v] = p;
         }
     }
 
@@ -309,6 +483,16 @@ void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
             p += points[mesh.to_vertex(mesh.next_halfedge(h0))];
             p += points[mesh.to_vertex(mesh.next_halfedge(h1))];
             p *= 0.125;
+
+            // blend towards the midpoint for semi-sharp creases
+            if (esharp)
+            {
+                const Point sharp =
+                    (points[mesh.vertex(e, 0)] + points[mesh.vertex(e, 1)]) *
+                    Scalar(0.5);
+                p = semi_sharp_edge_position(p, sharp, esharp[e]);
+            }
+
             epoint[e] = p;
         }
     }
@@ -322,23 +506,33 @@ void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
     // insert new vertices on edges
     for (auto e : mesh.edges())
     {
-        // feature edge?
-        if (efeature && efeature[e])
-        {
-            auto h = mesh.insert_vertex(e, epoint[e]);
-            auto v = mesh.to_vertex(h);
-            auto e0 = mesh.edge(h);
-            auto e1 = mesh.edge(mesh.next_halfedge(h));
+        const bool is_feature = efeature && efeature[e];
 
+        // plain edge: nothing to propagate
+        if (!is_feature && !esharp)
+        {
+            mesh.insert_vertex(e, epoint[e]);
+            continue;
+        }
+
+        auto h = mesh.insert_vertex(e, epoint[e]);
+        auto e0 = mesh.edge(h);
+        auto e1 = mesh.edge(mesh.next_halfedge(h));
+
+        // propagate feature marker
+        if (is_feature)
+        {
+            auto v = mesh.to_vertex(h);
             vfeature[v] = true;
             efeature[e0] = true;
             efeature[e1] = true;
         }
 
-        // normal edge
-        else
+        // both children inherit the decayed sharpness of the old edge
+        if (esharp)
         {
-            mesh.insert_vertex(e, epoint[e]);
+            esharp[e0] = esharp_next[e];
+            esharp[e1] = esharp_next[e];
         }
     }
 
@@ -347,16 +541,26 @@ void loop_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)
     for (auto f : mesh.faces())
     {
         h = mesh.halfedge(f);
-        mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
+        auto h_in0 = mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
         h = mesh.next_halfedge(h);
-        mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
+        auto h_in1 = mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
         h = mesh.next_halfedge(h);
-        mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
+        auto h_in2 = mesh.insert_edge(h, mesh.next_halfedge(mesh.next_halfedge(h)));
+
+        // edges introduced in the interior of faces are smooth
+        if (esharp)
+        {
+            esharp[mesh.edge(h_in0)] = Scalar(0);
+            esharp[mesh.edge(h_in1)] = Scalar(0);
+            esharp[mesh.edge(h_in2)] = Scalar(0);
+        }
     }
 
     // clean-up properties
     mesh.remove_vertex_property(vpoint);
     mesh.remove_edge_property(epoint);
+    if (esharp)
+        mesh.remove_edge_property(esharp_next);
 }
 
 void quad_tri_subdivision(SurfaceMesh& mesh, BoundaryHandling boundary_handling)

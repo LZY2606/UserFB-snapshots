@@ -15,8 +15,17 @@ enum class BoundaryHandling
 
 //! \brief Perform one step of Catmull-Clark subdivision.
 //! \details See \cite catmull_1978_recursively for details.
+//! \details Supports semi-sharp creases through an optional edge property
+//! `e:sharpness` of type Scalar. A value of zero corresponds to a smooth
+//! edge, a value of one or more to a fully sharp edge. Fractional values
+//! blend between the smooth and the sharp limit positions. The sharpness
+//! decreases by one per subdivision step, so that creases become smooth
+//! over time. The two child edges of a split edge inherit the decayed
+//! sharpness, edges introduced in the interior of faces are smooth.
+//! Negative, NaN, or infinite values are rejected.
 //! \param mesh The input mesh, modified in place.
 //! \param boundary_handling Specify to interpolate or preserve boundary edges.
+//! \throw InvalidInputException in case of invalid sharpness values.
 //! \ingroup algorithms
 void catmull_clark_subdivision(
     SurfaceMesh& mesh,
@@ -24,6 +33,14 @@ void catmull_clark_subdivision(
 
 //! \brief Perform one step of Loop subdivision.
 //! \details See \cite loop_1987_smooth for details.
+//! \details Supports semi-sharp creases through an optional edge property
+//! `e:sharpness` of type Scalar. A value of zero corresponds to a smooth
+//! edge, a value of one or more to a fully sharp edge. Fractional values
+//! blend between the smooth and the sharp limit positions. The sharpness
+//! decreases by one per subdivision step, so that creases become smooth
+//! over time. The two child edges of a split edge inherit the decayed
+//! sharpness, edges introduced in the interior of faces are smooth.
+//! Negative, NaN, or infinite values are rejected.
 //! \param mesh The input mesh, modified in place.
 //! \param boundary_handling Specify to interpolate or preserve boundary edges.
 //! \pre Requires a triangle mesh as input.
