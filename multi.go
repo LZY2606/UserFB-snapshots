@@ -135,11 +135,206 @@ func (mb *client) AGWriteMulti(dataItems []S7DataItem, itemsCount int) (err erro
 	return
 }
 
+// validateReadMultiItems checks every caller parameter before any request is
+// sent. An invalid call must not put a single byte on the wire.
+func validateReadMultiItems(dataItems []S7DataItem, itemsCount int) error {
+	if itemsCount < 1 || itemsCount > len(dataItems) {
+		return fmt.Errorf(ErrorText(errCliInvalidParams))
+	}
+	if itemsCount > 20 { //max variable is 20
+		return fmt.Errorf(ErrorText(errCliTooManyItems))
+	}
+	for i := 0; i < itemsCount; i++ {
+		item := dataItems[i]
+		if item.Amount <= 0 {
+			return fmt.Errorf(ErrorText(errCliInvalidParams))
+		}
+		wordSize := dataSizeByte(item.WordLen)
+		if wordSize == 0 {
+			return fmt.Errorf(ErrorText(errCliInvalidWordLen))
+		}
+		if item.WordLen == s7wlbit && item.Amount != 1 {
+			// A bit transfer is limited to one bit and is delivered in one byte.
+			return fmt.Errorf(ErrorText(errCliInvalidParams))
+		}
+		if cap(item.Data) < readItemDataBytes(item.WordLen, item.Amount) {
+			return fmt.Errorf(ErrorText(errCliBufferTooSmall))
+		}
+	}
+	return nil
+}
+
+// readItemDataBytes returns the number of payload bytes a successful read item
+// with the given request WordLen/Amount occupies in the response (padding
+// excluded). Bit reads always use a single output byte holding 0 or 1.
+func readItemDataBytes(wordLen int, amount int) int {
+	if wordLen == s7wlbit {
+		return 1
+	}
+	return dataSizeByte(wordLen) * amount
+}
+
+// expectedTransportSize maps a request WordLen to the transport size the PLC
+// has to use for the matching result item.
+func expectedTransportSize(wordLen int) byte {
+	switch wordLen {
+	case s7wlbit:
+		return tsResBit
+	case s7wlreal:
+		return tsResReal
+	case s7wlcounter, s7wltimer:
+		return tsResOctet
+	default:
+		return tsResByte
+	}
+}
+
+// responseItemBodyBytes converts the declared length of a result item into the
+// number of payload bytes. Byte/integer transports declare bits, octet/real
+// transports declare bytes and bit transports declare bits that occupy whole
+// bytes on the wire.
+func responseItemBodyBytes(transportSize byte, declaredLength int) (int, error) {
+	switch transportSize {
+	case tsResBit:
+		if declaredLength <= 0 {
+			return 0, fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		return (declaredLength + 7) / 8, nil
+	case tsResByte, tsResInt:
+		if declaredLength <= 0 || declaredLength%8 != 0 {
+			return 0, fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		return declaredLength / 8, nil
+	case tsResOctet, tsResReal:
+		if declaredLength <= 0 {
+			return 0, fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		return declaredLength, nil
+	default:
+		return 0, fmt.Errorf(ErrorText(errCliInvalidTransportSize))
+	}
+}
+
+// parsedReadItem is the staged result of one response item. Nothing is copied
+// into the caller's S7DataItem values until the whole frame has been validated.
+type parsedReadItem struct {
+	deviceError bool
+	status      byte
+	body        []byte
+	bodyBytes   int
+}
+
+// parseReadMultiResponse validates the complete multi read response first and
+// only commits the results to dataItems afterwards, so a structurally invalid
+// frame can never leave a partial "successful prefix" behind.
+func parseReadMultiResponse(pdu []byte, dataItems []S7DataItem) error {
+	if len(pdu) < 22 {
+		return fmt.Errorf(ErrorText(errIsoInvalidPDU)) // PDU too Small
+	}
+	// Check Global Operation Result
+	cpuErr := CPUError(uint(binary.BigEndian.Uint16(pdu[17:])))
+	if cpuErr != 0 {
+		return fmt.Errorf(ErrorText(cpuErr))
+	}
+	itemsCount := len(dataItems)
+	if int(pdu[20]) != itemsCount || itemsCount > 20 { //max var
+		return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+	}
+	declaredDataLen := int(binary.BigEndian.Uint16(pdu[15:]))
+	dataEnd := 21 + declaredDataLen // TPKT+COTP (7) + S7 header (14)
+	if len(pdu) < dataEnd {
+		return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+	}
+
+	parsed := make([]parsedReadItem, 0, itemsCount)
+	pos := 21
+	for i := 0; i < itemsCount; i++ {
+		// Every item, successful or not, starts with a 4 byte header.
+		if dataEnd-pos < 4 {
+			return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		status := pdu[pos]
+		transportSize := pdu[pos+1]
+		declaredLength := int(binary.BigEndian.Uint16(pdu[pos+2:]))
+		pos += 4
+
+		if status != 0xFF {
+			// Legal per-item CPU failure: the header carries no body. It is
+			// staged separately and never touches the item's Data.
+			parsed = append(parsed, parsedReadItem{deviceError: true, status: status})
+			continue
+		}
+
+		// Successful item: the transport size has to match the request and the
+		// declared length has to describe exactly the bytes the caller asked for.
+		wantTransport := expectedTransportSize(dataItems[i].WordLen)
+		if transportSize != wantTransport && !(wantTransport == tsResByte && transportSize == tsResInt) {
+			return fmt.Errorf(ErrorText(errCliInvalidTransportSize))
+		}
+		bodyBytes, err := responseItemBodyBytes(transportSize, declaredLength)
+		if err != nil {
+			return err
+		}
+		wantBytes := readItemDataBytes(dataItems[i].WordLen, dataItems[i].Amount)
+		if bodyBytes != wantBytes {
+			return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		if dataEnd-pos < bodyBytes {
+			return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+		}
+		body := pdu[pos : pos+bodyBytes]
+		pos += bodyBytes
+
+		// Odd sized items are followed by one padding byte. Between items the
+		// padding is mandatory; the final item is allowed to omit it.
+		if bodyBytes%2 == 1 && i < itemsCount-1 {
+			if dataEnd-pos < 1 {
+				return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+			}
+			pos++
+		}
+		parsed = append(parsed, parsedReadItem{body: body, bodyBytes: bodyBytes})
+	}
+
+	// A trailing padding byte after the final odd item is optional: consume it
+	// when present so omission and inclusion both work. Anything else left over
+	// is an unassignable byte and invalidates the whole frame.
+	if dataEnd-pos == 1 {
+		last := parsed[itemsCount-1]
+		if !last.deviceError && last.bodyBytes%2 == 1 {
+			pos++
+		}
+	}
+
+	// The declared data section must be consumed exactly, and no extra bytes
+	// may follow it: otherwise item count or declared length do not match the
+	// actual frame.
+	if pos != dataEnd || len(pdu) != dataEnd {
+		return fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
+	}
+
+	// Frame is complete: commit the staged results. Successful items update the
+	// valid Data prefix only and clear stale errors; failed items keep their
+	// previous Data and only refresh their mapped CPU error text.
+	for i, item := range parsed {
+		if item.deviceError {
+			dataItems[i].Error = ErrorText(CPUError(uint(item.status)))
+			continue
+		}
+		dst := dataItems[i].Data
+		if len(dst) < len(item.body) {
+			dst = dst[:cap(dst)]
+		}
+		copy(dst[:len(item.body)], item.body)
+		dataItems[i].Error = ""
+	}
+	return nil
+}
+
 //implement ReadMulti
 func (mb *client) AGReadMulti(dataItems []S7DataItem, itemsCount int) (err error) {
-	// Checks items
-	if itemsCount > 20 { //max variable is 20
-		err = fmt.Errorf(ErrorText(errCliTooManyItems))
+	// Validate parameters first: invalid calls must not send any request.
+	if err = validateReadMultiItems(dataItems, itemsCount); err != nil {
 		return
 	}
 	s7Item := make([]byte, 12)
@@ -192,48 +387,5 @@ func (mb *client) AGReadMulti(dataItems []S7DataItem, itemsCount int) (err error
 	if err != nil {
 		return
 	}
-	// Check ISO Length
-	resLength := len(response.Data)
-	if resLength < 22 {
-		err = fmt.Errorf(ErrorText(errIsoInvalidPDU)) // PDU too Small
-		return
-	}
-	// Check Global Operation Result
-	cpuErr := CPUError(uint(binary.BigEndian.Uint16(response.Data[17:])))
-	if cpuErr != 0 {
-		err = fmt.Errorf(ErrorText(cpuErr))
-		return
-	}
-	// Get true ItemsCount
-	itemsRead := int(response.Data[20])
-	s7ItemRead := make([]byte, 1024)
-	if itemsRead != itemsCount || itemsRead > 20 { //max var
-		err = fmt.Errorf(ErrorText(errCliInvalidPlcAnswer))
-		return
-	}
-	// Get Data
-	offset = 21
-	for i := 0; i < itemsCount; i++ {
-		// Get the Item
-		copy(s7ItemRead[0:resLength-offset], response.Data[offset:resLength])
-		if s7ItemRead[0] == 255 {
-			itemSize := int(binary.BigEndian.Uint16(s7ItemRead[2:]))
-			item1 := s7ItemRead[1]
-			if item1 != tsResOctet && item1 != tsResReal && item1 != tsResBit {
-				itemSize = itemSize >> 3
-			}
-			copy(dataItems[i].Data[0:], s7ItemRead[4:4+itemSize])
-			dataItems[i].Error = ""
-			if itemSize%2 != 0 {
-				itemSize++ // Odd size are rounded
-			}
-			offset = offset + 4 + itemSize
-		} else {
-			dataItems[i].Error = ErrorText(CPUError(uint(s7ItemRead[0])))
-			offset += 4 // Skip the Item header
-		}
-	}
-
-	return
-
+	return parseReadMultiResponse(response.Data, dataItems[:itemsCount])
 }
