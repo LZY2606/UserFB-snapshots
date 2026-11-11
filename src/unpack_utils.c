@@ -19,11 +19,15 @@
 #include "wavpack_local.h"
 
 #ifdef ENABLE_THREADS
-static void unpack_samples_enqueue (WavpackStream *wps, int32_t *outbuf, int offset, uint32_t samcnt, int free_wps);
+static void unpack_samples_enqueue (WavpackStream *wps, int32_t *outbuf, int offset, uint32_t samcnt, int free_wps,
+    const int *map, uint32_t map_count);
 static void worker_threads_finish (WavpackContext *wpc);
 static void worker_threads_create (WavpackContext *wpc);
 static int worker_available (WavpackContext *wpc);
 #endif
+
+static uint32_t unpack_samples_internal (WavpackContext *wpc, int32_t *buffer, uint32_t samples,
+    const int *map, uint32_t map_count);
 
 ///////////////////////////// executable code ////////////////////////////////
 
@@ -91,6 +95,50 @@ static void unpack_samples_interleave (WavpackStream *wps, int32_t *outbuf, int 
     }
 }
 
+// This is the projection counterpart of unpack_samples_interleave(). The stream is fully
+// decoded (so CRCs, correction streams and error handling all run exactly as in the normal
+// path), but only the source channel indices listed in "map" are written to the output,
+// compactly interleaved with map_count values per frame. Indices are zero-based positions in
+// the output of a regular WavpackUnpackSamples() call; they may repeat or be reversed. The
+// decoder temp buffer holds at most two channels times the frame count and never grows with
+// the total number of channels in the file.
+
+void unpack_samples_project (WavpackStream *wps, int32_t *outbuf, int offset, int32_t *tmpbuf,
+    uint32_t samcnt, const int *map, uint32_t map_count)
+{
+    int stream_chans = (wps->wphdr.flags & MONO_FLAG) ? 1 : 2;
+    uint32_t i;
+
+    // A projected store can never render directly into the output: the destination stride
+    // (map_count) differs from the source layout and the regions can overlap, so the stream
+    // is always decoded into the two-channel temp buffer first.
+
+#ifdef ENABLE_DSD
+    if (wps->wphdr.flags & DSD_FLAG)
+        unpack_dsd_samples (wps, tmpbuf, samcnt);
+    else
+#endif
+        unpack_samples (wps, tmpbuf, samcnt);
+
+    // Copy this stream's contributions into their exact map slots. Every (frame, map entry)
+    // slot is owned by exactly one stream, so sequential streams never overwrite each other.
+    // A stream that only carries the second channel of a stereo pair (i.e. offset is odd)
+    // simply skips the map entries that target the missing first channel.
+
+    for (i = 0; i < samcnt; ++i) {
+        uint32_t j;
+
+        for (j = 0; j < map_count; ++j) {
+            int source = map [j];
+
+            if (source < offset || source >= offset + stream_chans)
+                continue;
+
+            outbuf [i * map_count + j] = tmpbuf [i * stream_chans + (source - offset)];
+        }
+    }
+}
+
 // Unpack the specified number of samples from the current file position.
 // Note that "samples" here refers to "complete" samples, which would be
 // 2 longs for stereo files or even more for multichannel files, so the
@@ -104,14 +152,101 @@ static void unpack_samples_interleave (WavpackStream *wps, int32_t *outbuf, int 
 // unpacked is returned, which should be equal to the number requested unless
 // the end of file is encountered or an error occurs. After all samples have
 // been unpacked then 0 will be returned.
+//
+// WavpackUnpackSamplesMapped() is identical, except that each output frame
+// contains only the source channel indices listed in "map" (zero-based
+// positions in the regular interleaved output; entries may repeat or be
+// reversed), compactly interleaved with map_count values per frame. The
+// projection is applied while decoding and never allocates a full-width
+// intermediate PCM buffer. A NULL map selects the regular behavior.
 
 uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t samples)
 {
+    return unpack_samples_internal (wpc, buffer, samples, NULL, 0);
+}
+
+uint32_t WavpackUnpackSamplesMapped (WavpackContext *wpc, int32_t *buffer, uint32_t samples, const int *map, uint32_t map_count)
+{
+    int num_channels;
+    uint32_t i;
+
+    // A zero-length request has no side effects, so it is accepted before any
+    // other validation and neither reads input nor writes output.
+
+    if (!samples)
+        return 0;
+
+    if (!wpc) {
+        return 0;
+    }
+
+    num_channels = wpc->config.num_channels;
+
+    // validate every parameter before touching the input stream or the output buffer
+
+    if (!map) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: map pointer is NULL");
+        return 0;
+    }
+
+    if (!map_count || map_count > (uint32_t) num_channels) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: map_count is out of range");
+        return 0;
+    }
+
+    for (i = 0; i < map_count; ++i)
+        if (map [i] < 0 || map [i] >= num_channels) {
+            strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: map contains an invalid channel index");
+            return 0;
+        }
+
+    // the projection is defined for the 4.x-and-later integer PCM decoder only; reject
+    // everything else up front rather than discovering it halfway through a block set
+
+#ifdef ENABLE_LEGACY
+    if (wpc->stream3) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: legacy pre-4.0 streams are not supported");
+        return 0;
+    }
+#endif
+
+    if (wpc->reduced_channels) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: files opened with OPEN_2CH_MAX are not supported");
+        return 0;
+    }
+
+    if (wpc->config.flags & CONFIG_FLOAT_DATA) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: floating point data is not supported");
+        return 0;
+    }
+
+#ifdef ENABLE_DSD
+    if (wpc->dsd_multiplier || (wpc->streams [0] && (wpc->streams [0]->wphdr.flags & DSD_FLAG))) {
+        strcpy (wpc->error_message, "WavpackUnpackSamplesMapped: DSD data is not supported");
+        return 0;
+    }
+#endif
+
+    return unpack_samples_internal (wpc, buffer, samples, map, map_count);
+}
+
+static uint32_t unpack_samples_internal (WavpackContext *wpc, int32_t *buffer, uint32_t samples,
+    const int *map, uint32_t map_count)
+{
     int num_channels = wpc->config.num_channels, file_done = FALSE;
+    int output_channels = map ? (int) map_count : (wpc->reduced_channels ? wpc->reduced_channels : num_channels);
     uint32_t bcount, samples_unpacked = 0, samples_to_unpack;
     int32_t *bptr = buffer;
 
-    memset (buffer, 0, (wpc->reduced_channels ? wpc->reduced_channels : num_channels) * samples * sizeof (int32_t));
+    wpc->projection_map = map;
+    wpc->projection_count = map_count;
+
+    // The regular entry zeroes the whole requested region up front (as it always has).
+    // A projected call must leave every unreturned slot untouched, so it only writes the
+    // frames it actually delivers; the muted/error branches zero those per chunk instead.
+
+    if (!map)
+        memset (buffer, 0, output_channels * samples * sizeof (int32_t));
 
 #ifdef ENABLE_THREADS
     if (wpc->num_workers && !wpc->workers)
@@ -121,8 +256,12 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
 #endif
 
 #ifdef ENABLE_LEGACY
-    if (wpc->stream3)
-        return unpack_samples3 (wpc, buffer, samples);
+    if (wpc->stream3) {
+        uint32_t got = unpack_samples3 (wpc, buffer, samples);
+        wpc->projection_map = NULL;
+        wpc->projection_count = 0;
+        return got;
+    }
 #endif
 
     while (samples) {
@@ -234,7 +373,7 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
             samples_unpacked += samples_to_unpack;
             samples -= samples_to_unpack;
 
-            samples_to_unpack *= (wpc->reduced_channels ? wpc->reduced_channels : num_channels);
+            samples_to_unpack *= output_channels;
 
             while (samples_to_unpack--)
                 *bptr++ = zvalue;
@@ -343,11 +482,14 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
                 // wait around anyway for all the workers to complete.
 
                 if (worker_available (wpc) && !wps->mute_error && !(wps->wphdr.flags & FINAL_BLOCK))
-                    unpack_samples_enqueue (wps, bptr, offset, samples_to_unpack, FALSE);
+                    unpack_samples_enqueue (wps, bptr, offset, samples_to_unpack, FALSE, map, map_count);
                 else
 #endif
                 {
-                    unpack_samples_interleave (wps, bptr, offset, temp_buffer, samples_to_unpack);
+                    if (map)
+                        unpack_samples_project (wps, bptr, offset, temp_buffer, samples_to_unpack, map, map_count);
+                    else
+                        unpack_samples_interleave (wps, bptr, offset, temp_buffer, samples_to_unpack);
 
                     if (wps->sample_index == GET_BLOCK_INDEX (wps->wphdr) + wps->wphdr.block_samples && wps->mute_error)
                         wpc->crc_errors++;
@@ -376,18 +518,20 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
 
             free (temp_buffer);
 
-            // if we didn't get all the channels we expected, mute the buffer and flag an error
+            // if we didn't get all the channels we expected, mute the output and flag an error
 
             if (offset != num_channels) {
-                if (wps->wphdr.flags & DSD_FLAG) {
-                    int samples_to_zero = samples_to_unpack * num_channels;
-                    int32_t *zptr = bptr;
+                int32_t *zptr = bptr;
+                int samples_to_zero = samples_to_unpack * output_channels;
 
+                // DSD silence is the 0x55 pattern; everything else mutes to zero
+                // (mapped output can never be DSD, so this preserves the legacy behavior)
+
+                if (!map && (wps->wphdr.flags & DSD_FLAG))
                     while (samples_to_zero--)
                         *zptr++ = 0x55;
-                }
                 else
-                    memset (bptr, 0, samples_to_unpack * num_channels * 4);
+                    memset (bptr, 0, samples_to_zero * sizeof (*bptr));
 
                 wpc->crc_errors++;
             }
@@ -399,7 +543,7 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
         // catch the error situation where we have only one channel but run into a stereo block
         // (this avoids overwriting the caller's buffer)
         else if (!(wps->wphdr.flags & MONO_FLAG) && (num_channels == 1 || wpc->reduced_channels == 1)) {
-            memset (bptr, 0, samples_to_unpack * sizeof (*bptr));
+            memset (bptr, 0, samples_to_unpack * output_channels * sizeof (*bptr));
             wps->sample_index += samples_to_unpack;
             wpc->crc_errors++;
         }
@@ -433,9 +577,28 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
                 wps->dsd.ptable = NULL;
 #endif
 
-                unpack_samples_enqueue (wps_copy, bptr, 0, samples_to_unpack, TRUE);
+                unpack_samples_enqueue (wps_copy, bptr, 0, samples_to_unpack, TRUE, map, map_count);
         }
 #endif
+        else if (map) {
+            // single mono/stereo stream with a projection: decode into the two-channel temp
+            // space and then select the requested columns (never into a full-width buffer)
+
+            int32_t *temp_buffer = (int32_t *)malloc (samples_to_unpack * 8);
+
+            if (temp_buffer) {
+                unpack_samples_project (wps, bptr, 0, temp_buffer, samples_to_unpack, map, map_count);
+                free (temp_buffer);
+            }
+            else {
+                memset (bptr, 0, samples_to_unpack * output_channels * sizeof (*bptr));
+                wps->sample_index += samples_to_unpack;
+                wpc->crc_errors++;
+            }
+
+            if (wps->sample_index == GET_BLOCK_INDEX (wps->wphdr) + wps->wphdr.block_samples && wps->mute_error)
+                wpc->crc_errors++;
+        }
         else {
 #ifdef ENABLE_DSD
             if (wps->wphdr.flags & DSD_FLAG)
@@ -453,10 +616,7 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
             break;
         }
 
-        if (wpc->reduced_channels)
-            bptr += samples_to_unpack * wpc->reduced_channels;
-        else
-            bptr += samples_to_unpack * num_channels;
+        bptr += samples_to_unpack * output_channels;
 
         samples_unpacked += samples_to_unpack;
         samples -= samples_to_unpack;
@@ -473,6 +633,11 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
     if (wpc->decimation_context)    // TODO: this could be parallelized too
         decimate_dsd_run (wpc->decimation_context, buffer, samples_unpacked);
 #endif
+
+    // the projection is per-call state and must not survive into the next call or a seek
+
+    wpc->projection_map = NULL;
+    wpc->projection_count = 0;
 
     return samples_unpacked;
 }
@@ -522,7 +687,11 @@ static void *unpack_samples_worker_thread (void *param)
         }
 
         // this is where the work is done
-        unpack_samples_interleave (cxt->wps, cxt->outbuf, cxt->offset, temp_buffer, cxt->samcnt);
+        if (cxt->projection_map)
+            unpack_samples_project (cxt->wps, cxt->outbuf, cxt->offset, temp_buffer,
+                cxt->samcnt, cxt->projection_map, cxt->projection_count);
+        else
+            unpack_samples_interleave (cxt->wps, cxt->outbuf, cxt->offset, temp_buffer, cxt->samcnt);
 
         if (cxt->wps->mute_error) {                 // this is where we pass back decoding errors
             wp_mutex_obtain (*cxt->mutex);
@@ -546,7 +715,8 @@ static void *unpack_samples_worker_thread (void *param)
 // flag indicates that the WavpackStream structure should be freed once the unpack operation is
 // complete because it is a copy of the original created for this operation only.
 
-static void unpack_samples_enqueue (WavpackStream *wps, int32_t *outbuf, int offset, uint32_t samcnt, int free_wps)
+static void unpack_samples_enqueue (WavpackStream *wps, int32_t *outbuf, int offset, uint32_t samcnt, int free_wps,
+    const int *map, uint32_t map_count)
 {
     WavpackContext *wpc = (WavpackContext *) wps->wpc;  // this is safe here because single-threaded
     int i;
@@ -564,6 +734,8 @@ static void unpack_samples_enqueue (WavpackStream *wps, int32_t *outbuf, int off
             wpc->workers [i].offset = offset;
             wpc->workers [i].samcnt = samcnt;
             wpc->workers [i].free_wps = free_wps;
+            wpc->workers [i].projection_map = map;
+            wpc->workers [i].projection_count = map_count;
             wp_condvar_signal (wpc->workers [i].worker_cond);
             wpc->workers_ready--;
             break;

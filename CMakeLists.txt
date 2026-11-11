@@ -306,6 +306,7 @@ set(WAVPACK_EXPORT_SYMBOLS
     WavpackSetFileInformation
     WavpackStoreMD5Sum
     WavpackUnpackSamples
+    WavpackUnpackSamplesMapped
     WavpackUpdateNumSamples
     WavpackVerifySingleBlock
     WavpackWriteTag

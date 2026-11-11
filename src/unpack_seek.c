@@ -45,6 +45,12 @@ int WavpackSeekSample64 (WavpackContext *wpc, int64_t sample)
     int stream_index = 0;
     int32_t *buffer;
 
+    // a seek invalidates any per-call output projection so it cannot leak into
+    // a subsequent decode with a different (or missing) map
+
+    wpc->projection_map = NULL;
+    wpc->projection_count = 0;
+
     if (wpc->total_samples == -1 || sample >= wpc->total_samples ||
         !wpc->reader->can_seek (wpc->wv_in) || (wpc->open_flags & OPEN_STREAMING) ||
         (wpc->wvc_flag && !wpc->reader->can_seek (wpc->wvc_in)))

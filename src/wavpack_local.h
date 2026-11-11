@@ -371,6 +371,11 @@ typedef struct {
     uint32_t samcnt, offset;
     int result, free_wps;
 
+    // when non-NULL the worker performs an output channel projection instead
+    // of the regular interleaved store (see unpack_samples_project())
+    const int *projection_map;
+    uint32_t projection_count;
+
     wp_condvar_t *global_cond, worker_cond;
     wp_mutex_t *mutex;
     wp_thread_t thread;
@@ -404,6 +409,12 @@ struct WavpackContext {
     int num_streams, max_streams, stream_version;
     WavpackStream **streams;
     void *stream3;
+
+    // active output channel projection for WavpackUnpackSamplesMapped(); the map
+    // is owned by the caller but must remain valid for the duration of the call.
+    // projection_map == NULL means the regular interleaved output is produced.
+    const int *projection_map;
+    uint32_t projection_count;
 
     // these items were added in 5.0 to support alternate file types (especially CAF & DSD)
     unsigned char file_format, *channel_reordering, *channel_identities;
@@ -720,6 +731,9 @@ int WavpackGetMode (WavpackContext *wpc);
 int WavpackGetQualifyMode (WavpackContext *wpc);
 int WavpackGetVersion (WavpackContext *wpc);
 uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t samples);
+uint32_t WavpackUnpackSamplesMapped (WavpackContext *wpc, int32_t *buffer, uint32_t samples, const int *map, uint32_t map_count);
+void unpack_samples_project (WavpackStream *wps, int32_t *outbuf, int offset, int32_t *tmpbuf,
+    uint32_t samcnt, const int *map, uint32_t map_count);
 int WavpackSeekSample (WavpackContext *wpc, uint32_t sample);
 int WavpackSeekSample64 (WavpackContext *wpc, int64_t sample);
 int WavpackGetMD5Sum (WavpackContext *wpc, unsigned char data [16]);

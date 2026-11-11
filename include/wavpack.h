@@ -360,6 +360,24 @@ int WavpackGetVersion (WavpackContext *wpc);
 char *WavpackGetFileExtension (WavpackContext *wpc);
 unsigned char WavpackGetFileFormat (WavpackContext *wpc);
 uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t samples);
+
+// Unpack samples while projecting the source channel layout onto a compact,
+// interleaved output. "map" contains map_count zero-based channel indices into
+// the regular WavpackUnpackSamples() output of this file; entries may repeat or
+// appear in any order, and each delivered frame holds exactly map_count int32
+// values (e.g. a six-channel file with map {5, 0, 2, 0} delivers four values
+// per frame). This is a decoder-stage projection: all source substreams are
+// still consumed, including their CRC and correction-stream handling, but no
+// full-width intermediate PCM buffer is allocated.
+//
+// Only 4.x-or-newer integer PCM streams (lossless or hybrid WV/WVC) support
+// mapping; floating point, DSD, legacy 3.x files and instances opened with
+// OPEN_2CH_MAX are rejected up front. On any invalid parameter the function
+// sets a readable error message and returns 0 without reading input,
+// advancing the sample index, or writing output; a zero sample request has no
+// effect. A NULL map is not valid here; use WavpackUnpackSamples() instead.
+
+uint32_t WavpackUnpackSamplesMapped (WavpackContext *wpc, int32_t *buffer, uint32_t samples, const int *map, uint32_t map_count);
 uint32_t WavpackGetNumSamples (WavpackContext *wpc);
 int64_t WavpackGetNumSamples64 (WavpackContext *wpc);
 uint32_t WavpackGetNumSamplesInFrame (WavpackContext *wpc);
