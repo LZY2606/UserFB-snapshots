@@ -11,7 +11,7 @@ const char* plutovg_version_string(void)
     return PLUTOVG_VERSION_STRING;
 }
 
-#define PLUTOVG_DEFAULT_STROKE_STYLE ((plutovg_stroke_style_t){1.f, PLUTOVG_LINE_CAP_BUTT, PLUTOVG_LINE_JOIN_MITER, 10.f})
+#define PLUTOVG_DEFAULT_STROKE_STYLE ((plutovg_stroke_style_t){1.f, PLUTOVG_LINE_CAP_BUTT, PLUTOVG_LINE_JOIN_MITER, 10.f, PLUTOVG_STROKE_TRANSFORM_LEGACY})
 
 static plutovg_state_t* plutovg_state_create(void)
 {
@@ -343,6 +343,16 @@ float plutovg_canvas_get_miter_limit(const plutovg_canvas_t* canvas)
     return canvas->state->stroke.style.miter_limit;
 }
 
+void plutovg_canvas_set_stroke_transform(plutovg_canvas_t* canvas, plutovg_stroke_transform_t stroke_transform)
+{
+    canvas->state->stroke.style.transform = stroke_transform;
+}
+
+plutovg_stroke_transform_t plutovg_canvas_get_stroke_transform(const plutovg_canvas_t* canvas)
+{
+    return canvas->state->stroke.style.transform;
+}
+
 void plutovg_canvas_set_dash(plutovg_canvas_t* canvas, float offset, const float* dashes, int ndashes)
 {
     plutovg_canvas_set_dash_offset(canvas, offset);
@@ -504,13 +514,13 @@ plutovg_path_t* plutovg_canvas_get_path(const plutovg_canvas_t* canvas)
 
 bool plutovg_canvas_fill_contains(plutovg_canvas_t* canvas, float x, float y)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding, false);
     return plutovg_span_buffer_contains(&canvas->fill_spans, x, y);
 }
 
 bool plutovg_canvas_stroke_contains(plutovg_canvas_t* canvas, float x, float y)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO, canvas->state->stroke.style.transform == PLUTOVG_STROKE_TRANSFORM_GEOMETRIC);
     return plutovg_span_buffer_contains(&canvas->fill_spans, x, y);
 }
 
@@ -530,13 +540,13 @@ bool plutovg_canvas_clip_contains(plutovg_canvas_t* canvas, float x, float y)
 
 void plutovg_canvas_fill_extents(plutovg_canvas_t *canvas, plutovg_rect_t* extents)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, NULL, canvas->state->winding, false);
     plutovg_span_buffer_extents(&canvas->fill_spans, extents);
 }
 
 void plutovg_canvas_stroke_extents(plutovg_canvas_t *canvas, plutovg_rect_t* extents)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, NULL, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO, canvas->state->stroke.style.transform == PLUTOVG_STROKE_TRANSFORM_GEOMETRIC);
     plutovg_span_buffer_extents(&canvas->fill_spans, extents);
 }
 
@@ -582,7 +592,7 @@ void plutovg_canvas_paint(plutovg_canvas_t* canvas)
 
 void plutovg_canvas_fill_preserve(plutovg_canvas_t* canvas)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding, false);
     if(canvas->state->clipping) {
         plutovg_span_buffer_intersect(&canvas->clip_spans, &canvas->fill_spans, &canvas->state->clip_spans);
         plutovg_blend(canvas, &canvas->clip_spans);
@@ -593,7 +603,7 @@ void plutovg_canvas_fill_preserve(plutovg_canvas_t* canvas)
 
 void plutovg_canvas_stroke_preserve(plutovg_canvas_t* canvas)
 {
-    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO);
+    plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, &canvas->state->stroke, PLUTOVG_FILL_RULE_NON_ZERO, canvas->state->stroke.style.transform == PLUTOVG_STROKE_TRANSFORM_GEOMETRIC);
     if(canvas->state->clipping) {
         plutovg_span_buffer_intersect(&canvas->clip_spans, &canvas->fill_spans, &canvas->state->clip_spans);
         plutovg_blend(canvas, &canvas->clip_spans);
@@ -605,11 +615,11 @@ void plutovg_canvas_stroke_preserve(plutovg_canvas_t* canvas)
 void plutovg_canvas_clip_preserve(plutovg_canvas_t* canvas)
 {
     if(canvas->state->clipping) {
-        plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding);
+        plutovg_rasterize(&canvas->fill_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding, false);
         plutovg_span_buffer_intersect(&canvas->clip_spans, &canvas->fill_spans, &canvas->state->clip_spans);
         plutovg_span_buffer_copy(&canvas->state->clip_spans, &canvas->clip_spans);
     } else {
-        plutovg_rasterize(&canvas->state->clip_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding);
+        plutovg_rasterize(&canvas->state->clip_spans, canvas->path, &canvas->state->matrix, &canvas->clip_rect, NULL, canvas->state->winding, false);
         canvas->state->clipping = true;
     }
 }

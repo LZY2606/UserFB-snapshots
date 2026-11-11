@@ -1,2 +1,3 @@
 /build
 *.user
+/regress/geometric_stroke.png

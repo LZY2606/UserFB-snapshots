@@ -130,6 +130,7 @@ typedef struct {
     plutovg_line_cap_t cap;
     plutovg_line_join_t join;
     float miter_limit;
+    plutovg_stroke_transform_t transform;
 } plutovg_stroke_style_t;
 
 typedef struct {
@@ -173,7 +174,7 @@ bool plutovg_span_buffer_contains(const plutovg_span_buffer_t* span_buffer, floa
 void plutovg_span_buffer_extents(plutovg_span_buffer_t* span_buffer, plutovg_rect_t* extents);
 void plutovg_span_buffer_intersect(plutovg_span_buffer_t* span_buffer, const plutovg_span_buffer_t* a, const plutovg_span_buffer_t* b);
 
-void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_rect_t* clip_rect, const plutovg_stroke_data_t* stroke_data, plutovg_fill_rule_t winding);
+void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_rect_t* clip_rect, const plutovg_stroke_data_t* stroke_data, plutovg_fill_rule_t winding, bool geometric_stroke);
 void plutovg_blend(plutovg_canvas_t* canvas, const plutovg_span_buffer_t* span_buffer);
 void plutovg_memfill32(unsigned int* dest, int length, unsigned int value);
 

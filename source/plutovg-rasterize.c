@@ -250,12 +250,12 @@ static void ft_outline_end(PVG_FT_Outline* ft)
     }
 }
 
-static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data);
+static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data, bool geometric);
 
-static PVG_FT_Outline* ft_outline_convert(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data)
+static PVG_FT_Outline* ft_outline_convert(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data, bool geometric)
 {
     if(stroke_data) {
-        return ft_outline_convert_stroke(path, matrix, stroke_data);
+        return ft_outline_convert_stroke(path, matrix, stroke_data, geometric);
     }
 
     plutovg_path_iterator_t it;
@@ -287,22 +287,39 @@ static PVG_FT_Outline* ft_outline_convert(const plutovg_path_t* path, const plut
     return outline;
 }
 
-static PVG_FT_Outline* ft_outline_convert_dash(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_dash_t* stroke_dash)
+static PVG_FT_Outline* ft_outline_convert_dash(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_dash_t* stroke_dash, bool geometric)
 {
+    plutovg_matrix_t identity = PLUTOVG_IDENTITY_MATRIX;
+    const plutovg_matrix_t* user_matrix = geometric ? &identity : matrix;
     if(stroke_dash->array.size == 0)
-        return ft_outline_convert(path, matrix, NULL);
+        return ft_outline_convert(path, user_matrix, NULL, geometric);
+    /* In geometric mode the dashes are measured in user space, so the dashed
+       path must be built before the canvas matrix is applied to the stroke. */
     plutovg_path_t* dashed = plutovg_path_clone_dashed(path, stroke_dash->offset, stroke_dash->array.data, stroke_dash->array.size);
-    PVG_FT_Outline* outline = ft_outline_convert(dashed, matrix, NULL);
+    PVG_FT_Outline* outline = ft_outline_convert(dashed, user_matrix, NULL, geometric);
     plutovg_path_destroy(dashed);
     return outline;
 }
 
-static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data)
+static void ft_outline_transform(PVG_FT_Outline* outline, const plutovg_matrix_t* matrix)
+{
+    const double scale = (double)(1 << 6);
+    for(int i = 0; i < outline->n_points; i++) {
+        double x = outline->points[i].x / scale;
+        double y = outline->points[i].y / scale;
+        outline->points[i].x = (PVG_FT_Pos)round((x * matrix->a + y * matrix->c + matrix->e) * scale);
+        outline->points[i].y = (PVG_FT_Pos)round((x * matrix->b + y * matrix->d + matrix->f) * scale);
+    }
+}
+
+static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_stroke_data_t* stroke_data, bool geometric)
 {
     double scale_x = sqrt(matrix->a * matrix->a + matrix->b * matrix->b);
     double scale_y = sqrt(matrix->c * matrix->c + matrix->d * matrix->d);
 
-    double scale = hypot(scale_x, scale_y) / PLUTOVG_SQRT2;
+    /* Geometric strokes are built entirely in user space with an identity
+       matrix and transformed as a whole once the area-bearing stroke exists. */
+    double scale = geometric ? 1.0 : hypot(scale_x, scale_y) / PLUTOVG_SQRT2;
     double width = stroke_data->style.width * scale;
 
     PVG_FT_Fixed ftWidth = (PVG_FT_Fixed)(width * 0.5 * (1 << 6));
@@ -338,7 +355,7 @@ static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, con
     PVG_FT_Stroker_New(&stroker);
     PVG_FT_Stroker_Set(stroker, ftWidth, ftCap, ftJoin, ftMiterLimit);
 
-    PVG_FT_Outline* outline = ft_outline_convert_dash(path, matrix, &stroke_data->dash);
+    PVG_FT_Outline* outline = ft_outline_convert_dash(path, matrix, &stroke_data->dash, geometric);
     PVG_FT_Stroker_ParseOutline(stroker, outline);
 
     PVG_FT_UInt points;
@@ -350,6 +367,9 @@ static PVG_FT_Outline* ft_outline_convert_stroke(const plutovg_path_t* path, con
 
     PVG_FT_Stroker_Done(stroker);
     ft_outline_destroy(outline);
+
+    if(geometric)
+        ft_outline_transform(stroke_outline, matrix);
     return stroke_outline;
 }
 
@@ -359,9 +379,9 @@ static void spans_generation_callback(int count, const PVG_FT_Span* spans, void*
     plutovg_array_append_data(span_buffer->spans, spans, count);
 }
 
-void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_rect_t* clip_rect, const plutovg_stroke_data_t* stroke_data, plutovg_fill_rule_t winding)
+void plutovg_rasterize(plutovg_span_buffer_t* span_buffer, const plutovg_path_t* path, const plutovg_matrix_t* matrix, const plutovg_rect_t* clip_rect, const plutovg_stroke_data_t* stroke_data, plutovg_fill_rule_t winding, bool geometric_stroke)
 {
-    PVG_FT_Outline* outline = ft_outline_convert(path, matrix, stroke_data);
+    PVG_FT_Outline* outline = ft_outline_convert(path, matrix, stroke_data, geometric_stroke);
     if(stroke_data) {
         outline->flags = PVG_FT_OUTLINE_NONE;
     } else {

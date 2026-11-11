@@ -1487,6 +1487,14 @@ typedef enum {
 } plutovg_line_join_t;
 
 /**
+ * @brief Defines how the current transformation matrix affects stroked paths.
+ */
+typedef enum {
+    PLUTOVG_STROKE_TRANSFORM_LEGACY, ///< Stroke width is adjusted by an estimated scale factor of the transformation matrix; the stroke keeps an approximately constant device-space thickness.
+    PLUTOVG_STROKE_TRANSFORM_GEOMETRIC ///< The width, caps, joins, miter limit and dash lengths are defined in user space, and the complete area-bearing stroke is transformed together with the path by the transformation matrix.
+} plutovg_stroke_transform_t;
+
+/**
  * @brief Represents a drawing context.
  */
 typedef struct plutovg_canvas plutovg_canvas_t;
@@ -1894,6 +1902,32 @@ PLUTOVG_API void plutovg_canvas_set_miter_limit(plutovg_canvas_t* canvas, float 
 PLUTOVG_API float plutovg_canvas_get_miter_limit(const plutovg_canvas_t* canvas);
 
 /**
+ * @brief Sets how the current transformation matrix affects stroked paths.
+ *
+ * If not set, the default mode is `PLUTOVG_STROKE_TRANSFORM_LEGACY`, which
+ * preserves the rendering of existing programs. In geometric mode
+ * (`PLUTOVG_STROKE_TRANSFORM_GEOMETRIC`), the stroke width, line caps, line
+ * joins, miter limit and dash lengths are all interpreted in user space, and
+ * the finished area-bearing stroke is transformed together with the path by
+ * the current transformation matrix. The state is saved and restored by
+ * `plutovg_canvas_save()` and `plutovg_canvas_restore()`.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @param stroke_transform The stroke transform mode.
+ */
+PLUTOVG_API void plutovg_canvas_set_stroke_transform(plutovg_canvas_t* canvas, plutovg_stroke_transform_t stroke_transform);
+
+/**
+ * @brief Retrieves the current stroke transform mode.
+ *
+ * If not set, the default mode is `PLUTOVG_STROKE_TRANSFORM_LEGACY`.
+ *
+ * @param canvas A pointer to a `plutovg_canvas_t` object.
+ * @return The current stroke transform mode.
+ */
+PLUTOVG_API plutovg_stroke_transform_t plutovg_canvas_get_stroke_transform(const plutovg_canvas_t* canvas);
+
+/**
  * @brief Sets the dash pattern.
  *
  * If not set, the default dash offset is 0, and the default dash array is `NULL`.
@@ -2245,15 +2279,23 @@ PLUTOVG_API bool plutovg_canvas_fill_contains(plutovg_canvas_t* canvas, float x,
 /**
  * @brief Tests whether a point lies within the current stroke region.
  *
- * Determines whether the point at coordinates `(x, y)` falls within the area
- * that would be stroked by a `plutovg_canvas_stroke()` operation, given the current path,
- * stroke width, joins, caps, miter limit, dash pattern, and transformation state.
+ * Determines whether the point at coordinates `(x, y)` falls within the
+ * rasterized coverage that would be produced by a
+ * `plutovg_canvas_stroke()` operation, given the current path, stroke width,
+ * joins, caps, miter limit, dash pattern, stroke transform mode and
+ * transformation state.
  *
- * @note Clipping and surface dimensions are not considered in this test.
+ * The query uses device coordinates, the same coordinate space as the
+ * surface pixels (that is, the point is mapped through the current
+ * transformation matrix internally). Clipping and surface dimensions are
+ * not considered in this test. The interior of a closed path is not part of
+ * the stroke region and is only a hit when it is actually covered by the
+ * stroke area. This operation neither consumes nor modifies the current
+ * path.
  *
  * @param canvas A pointer to a `plutovg_canvas_t` object.
- * @param x The X coordinate of the point, in user space.
- * @param y The Y coordinate of the point, in user space.
+ * @param x The X coordinate of the point, in device space.
+ * @param y The Y coordinate of the point, in device space.
  * @return `true` if the point is within the stroke region, `false` otherwise.
  */
 PLUTOVG_API bool plutovg_canvas_stroke_contains(plutovg_canvas_t* canvas, float x, float y);
@@ -2291,9 +2333,11 @@ PLUTOVG_API void plutovg_canvas_fill_extents(plutovg_canvas_t* canvas, plutovg_r
 /**
  * @brief Computes the bounding box of the area that would be affected by a stroke operation.
  *
- * Computes an axis-aligned bounding box in user space that encloses the area
- * which would be affected by a stroke operation (`plutovg_canvas_stroke()`) given the current path,
- * stroke width, joins, caps, miter limit, dash pattern, and transformation state.
+ * Computes an axis-aligned bounding box in device coordinates that encloses
+ * the unclipped rasterized coverage which would be affected by a stroke
+ * operation (`plutovg_canvas_stroke()`) given the current path, stroke width,
+ * joins, caps, miter limit, dash pattern, stroke transform mode and
+ * transformation state.
  *
  * @note Clipping and surface dimensions are not considered in this calculation.
  *
