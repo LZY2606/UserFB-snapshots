@@ -1481,8 +1481,12 @@ if(ALSOFT_UPDATE_BUILD_VERSION AND GIT_FOUND AND EXISTS "${OpenAL_SOURCE_DIR}/.g
         file(READ ${GIT_DIR} submodule)
         string(REGEX REPLACE "gitdir: (.*)$" "\\1" GIT_DIR_RELATIVE ${submodule})
         string(STRIP ${GIT_DIR_RELATIVE} GIT_DIR_RELATIVE)
-        get_filename_component(SUBMODULE_DIR ${GIT_DIR} PATH)
-        get_filename_component(GIT_DIR ${SUBMODULE_DIR}/${GIT_DIR_RELATIVE} ABSOLUTE)
+        if(IS_ABSOLUTE "${GIT_DIR_RELATIVE}")
+            set(GIT_DIR "${GIT_DIR_RELATIVE}")
+        else()
+            get_filename_component(SUBMODULE_DIR "${GIT_DIR}" PATH)
+            get_filename_component(GIT_DIR "${SUBMODULE_DIR}/${GIT_DIR_RELATIVE}" ABSOLUTE)
+        endif()
     endif()
 
     # Get the current working branch and its latest abbreviated commit hash
@@ -2338,3 +2342,8 @@ add_custom_target(clang-tidy-check
 if(ALSOFT_TESTS)
 add_subdirectory(tests)
 endif()
+
+# Offline, device-free starting-point witness.
+add_executable(startpoint baseline/witness.cpp)
+target_link_libraries(startpoint PRIVATE OpenAL)
+set_target_properties(startpoint PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
