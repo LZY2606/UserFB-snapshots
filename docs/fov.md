@@ -32,7 +32,9 @@ amount of lens correction removes it. This is the subject of #139 and of
 **3. Rolling shutter.** The sensor does not expose all rows at the same
 instant, so camera motion during readout shears and wobbles the frame
 independently of everything above. `VSTransform` has an unused `rshutter`
-field. Different problem, different fix.
+field. Different problem, different fix; for hosts that already know the
+transforms at the first and last scanline, `vsDoTransformRows()` applies a
+per-row interpolation of them — see [rolling-rows.md](rolling-rows.md).
 
 The three are separable and they superimpose. If correcting distortion did not
 help, cause 2 is the likely culprit — it scales with field of view rather than

@@ -267,6 +267,73 @@ int vsDoTransform(VSTransformData* td, VSTransform t){
     return transformPacked(td, t);
 }
 
+/* Finiteness test on the bit pattern.  isfinite() and NaN self-comparison are
+   both unreliable here: the library is compiled with -ffast-math, whose
+   -ffinite-math-only lets the compiler fold them to "always finite".  The
+   exponent field is integer arithmetic and cannot be optimized away. */
+static int vsDoubleIsFinite(double v){
+  uint64_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  return (bits & 0x7FF0000000000000ULL) != 0x7FF0000000000000ULL;
+}
+
+/* One endpoint of a vsDoTransformRows() call.  The magnitude bounds keep the
+   parameters inside the 16.16 fixed point range of the warp loops (fToFp16
+   would otherwise overflow int32); they are far beyond anything a camera can
+   do, so no legitimate transform is turned away. */
+static int rowsEndpointValid(const VSTransform* t){
+  return vsDoubleIsFinite(t->x) && vsDoubleIsFinite(t->y)
+      && vsDoubleIsFinite(t->alpha) && vsDoubleIsFinite(t->zoom)
+      && vsDoubleIsFinite(t->barrel) && vsDoubleIsFinite(t->rshutter)
+      && fabs(t->x) <= 32767.0 && fabs(t->y) <= 32767.0
+      && t->zoom < 100.0 && t->zoom > -3276800.0
+      && t->barrel == 0.0 && t->rshutter == 0.0 && t->extra == 0;
+}
+
+int vsDoTransformRows(VSTransformData* td, VSTransform top, VSTransform bottom){
+  /* Every rejection happens here, before a single destination byte or the
+     keep-border cache is touched, so a refused call leaves the pipeline
+     exactly as it was and the next legal frame is processed normally. */
+  if(td->conf.lensCorrection != VSLensCorrectOff
+     || !vsDoubleIsFinite(td->conf.fov) || td->conf.fov != 0.0){
+    vs_log_error(td->conf.modName,
+                 "vsDoTransformRows requires lensCorrection=Off and fov=0\n");
+    return VS_ERROR;
+  }
+  if(td->fiSrc.width != td->fiDest.width || td->fiSrc.height != td->fiDest.height
+     || td->fiSrc.pFormat != td->fiDest.pFormat){
+    vs_log_error(td->conf.modName,
+                 "vsDoTransformRows requires equal source/destination frames\n");
+    return VS_ERROR;
+  }
+  switch(td->fiSrc.pFormat){
+   case PF_GRAY8: case PF_YUV420P: case PF_YUV422P: case PF_YUV440P:
+   case PF_YUV444P: case PF_RGB24: case PF_RGBA:
+    break;
+   default:
+    vs_log_error(td->conf.modName,
+                 "vsDoTransformRows: unsupported pixel format %i\n",
+                 (int)td->fiSrc.pFormat);
+    return VS_ERROR;
+  }
+  if(!rowsEndpointValid(&top) || !rowsEndpointValid(&bottom)){
+    vs_log_error(td->conf.modName,
+                 "vsDoTransformRows: invalid transform endpoint "
+                 "(non-finite, zoom>=100, or nonzero barrel/rshutter/extra)\n");
+    return VS_ERROR;
+  }
+  /* Identical endpoints interpolate to the same transform on every row, so
+     the result must be the old entry's -- route to it literally, which also
+     keeps its identity fast path and keeps the outputs byte-identical. */
+  if(top.x == bottom.x && top.y == bottom.y
+     && top.alpha == bottom.alpha && top.zoom == bottom.zoom)
+    return vsDoTransform(td, top);
+  if (td->fiSrc.pFormat < PF_PACKED)
+    return transformPlanarRows(td, top, bottom);
+  else
+    return transformPackedRows(td, top, bottom);
+}
+
 
 int vsTransformFinish(VSTransformData* td){
   if(td->conf.crop == VSKeepBorder){

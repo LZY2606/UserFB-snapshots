@@ -274,6 +274,25 @@ VS_API int vsTransformPrepare(VSTransformData* td, const VSFrame* src, VSFrame* 
 /// does the actual transformation
 VS_API int vsDoTransform(VSTransformData* td, VSTransform t);
 
+/** Rolling-shutter variant of vsDoTransform: instead of one transform for the
+    whole frame, `top` is the transform at the exposure centre of the first
+    destination luma scanline and `bottom` the one at the last.  The transform
+    of every other row is interpolated between them -- x, y and zoom linearly,
+    alpha along the shortest angular arc (endpoints exactly pi apart go the
+    positive way) -- and that row is then resampled with its own transform.
+    Chroma rows are mapped back to their luma exposure position first, so
+    subsampled planes stay consistent with luma.
+
+    Call it between vsTransformPrepare() and vsTransformFinish(), exactly like
+    vsDoTransform(); identical `top` and `bottom` give output byte-identical
+    to vsDoTransform().  Currently restricted to lensCorrection=VSLensCorrectOff,
+    fov=0, equal source/destination dimensions, zero barrel/rshutter/extra in
+    both endpoints, and the GRAY8, YUV420P, YUV422P, YUV440P, YUV444P, RGB24
+    and RGBA pixel formats.  Anything else, non-finite parameters or
+    zoom>=100 are rejected with VS_ERROR before the destination frame or the
+    keep-border cache is touched. */
+VS_API int vsDoTransformRows(VSTransformData* td, VSTransform top, VSTransform bottom);
+
 
 /** call this function to finish the transformation of a frame (transformPacked/transformPlanar)
  */

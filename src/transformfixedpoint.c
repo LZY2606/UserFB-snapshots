@@ -732,6 +732,160 @@ int transformPlanar(VSTransformData* td, VSTransform t)
 }
 
 
+/* The transform acting on the destination row whose exposure fraction is u
+   (0: first luma scanline, 1: last).  x, y and zoom interpolate linearly
+   between the two endpoints; alpha takes the shortest angular arc, with the
+   tie at exactly pi apart resolved to the positive direction.  The
+   interpolation happens on the transform PARAMETERS -- the row is then
+   resampled with the resulting transform, which is something else than
+   blending two already warped images, and something else than warping the
+   whole frame with the average transform. */
+static VSTransform rowsTransformAt(const VSTransform* top,
+                                   const VSTransform* bottom, double u){
+  VSTransform t;
+  double da = fmod(bottom->alpha - top->alpha, 2.0*M_PI);
+  /* map to (-pi, pi]: both +pi and -pi end up at +pi, so exactly opposing
+     angles are always bridged in the positive direction */
+  if (da > M_PI) da -= 2.0*M_PI;
+  else if (da <= -M_PI) da += 2.0*M_PI;
+  /* Written so that u=0 and u=1 reproduce the endpoints exactly, for any
+     values: top + u*(bottom-top) is not guaranteed to round back to bottom
+     at u=1, and the first/last rows are the endpoints by definition. */
+  t.x     = top->x    *(1.0-u) + bottom->x    *u;
+  t.y     = top->y    *(1.0-u) + bottom->y    *u;
+  t.zoom  = top->zoom *(1.0-u) + bottom->zoom *u;
+  t.alpha = top->alpha*(1.0-u) + (top->alpha + da)*u;
+  /* the endpoints were validated to carry no barrel/rshutter/extra, and the
+     warp loops do not read them */
+  t.barrel = 0.0; t.rshutter = 0.0; t.extra = 0;
+  return t;
+}
+
+/* Exposure fraction u of destination row y of a plane subsampled vertically
+   by 2^hsub.  The row's centre maps back to luma exposure position
+   (y+0.5)<<hsub - 0.5, clamped to the luma range, and u is that position
+   normalized to [0,1] over the luma scanlines.  A single-row frame has no
+   interval to interpolate over, so it gets the midpoint. */
+static double rowsExposureU(int lumaHeight, int hsub, int y){
+  double ly = (y + 0.5)*(double)(1 << hsub) - 0.5;
+  if (ly < 0.0) ly = 0.0;
+  if (ly > lumaHeight - 1) ly = lumaHeight - 1;
+  return lumaHeight > 1 ? ly/(lumaHeight - 1) : 0.5;
+}
+
+/**
+ * transformPlanarRows: transformPlanar with a per-row transform, see
+ * vsDoTransformRows().  Only the plain similarity path exists here: the entry
+ * point rejects lens correction and fov != 0, so there is no lens map and no
+ * projection to apply.  The per-row coefficients and the stepped source
+ * coordinates are computed with exactly the arithmetic of transformPlanar's
+ * plain path, so a row whose interpolated transform equals the one
+ * transformPlanar would use comes out bit-identical.
+ */
+int transformPlanarRows(VSTransformData* td, VSTransform top, VSTransform bottom)
+{
+  int plane;
+  const int lumaH = td->fiDest.height;
+  for(plane=0; plane< td->fiSrc.planes; plane++){
+    uint8_t *dat_1 = td->src.data[plane];
+    uint8_t *dat_2 = td->destbuf.data[plane];
+    int wsub = vsGetPlaneWidthSubS(&td->fiSrc,plane);
+    int hsub = vsGetPlaneHeightSubS(&td->fiSrc,plane);
+    int dw = CHROMA_SIZE(td->fiDest.width , wsub);
+    int dh = CHROMA_SIZE(td->fiDest.height, hsub);
+    int sw = CHROMA_SIZE(td->fiSrc.width  , wsub);
+    int sh = CHROMA_SIZE(td->fiSrc.height , hsub);
+    uint8_t black = plane==0 ? 0 : 0x80;
+
+    fp16 c_s_x = iToFp16(sw / 2);
+    fp16 c_s_y = iToFp16(sh / 2);
+    int32_t c_d_x = dw / 2;
+    int32_t c_d_y = dh / 2;
+    /* see transformPlanar: with wsub != hsub the plane's axes are not to the
+       same scale, so the rotation's cross terms are converted between them --
+       the angle is defined in the isotropic luma space, never directly on the
+       subsampled grid */
+    float ax = (float)(1 << wsub), ay = (float)(1 << hsub);
+    int y;
+    /* Rows are independent, exactly as in transformPlanar. */
+#ifdef USE_OMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (y = 0; y < dh; y++) {
+      /* the transform at this row's exposure position */
+      VSTransform t = rowsTransformAt(&top, &bottom,
+                                      rowsExposureU(lumaH, hsub, y));
+      float z     = 1.0-t.zoom/100.0;
+      float zsin  = z*sin(-t.alpha);
+      fp16 zcos_a  = fToFp16(z*cos(-t.alpha)); // scaled cos
+      fp16 zsin_xy = fToFp16(zsin * (ay/ax)); // scaled sin, y_d1 -> x_s
+      fp16 zsin_yx = fToFp16(zsin * (ax/ay)); // scaled sin, x_d1 -> y_s
+      fp16 c_tx    = c_s_x - (fToFp16(t.x) >> wsub);
+      fp16 c_ty    = c_s_y - (fToFp16(t.y) >> hsub);
+      int32_t y_d1 = (y - c_d_y);
+      /* stepped across the row exactly like transformPlanar's plain path:
+         consecutive x_s differ by exactly zcos_a and consecutive y_s by
+         exactly -zsin_yx, with no error accumulation */
+      fp16 dx0 = iToFp16(0 - c_d_x), dy0 = iToFp16(y_d1);
+      fp16 xsInc = (fp16)((( (int64_t)zcos_a *dx0 + (int64_t)zsin_xy*dy0) >> 16)) + c_tx;
+      fp16 ysInc = (fp16)(((-(int64_t)zsin_yx*dx0 + (int64_t)zcos_a *dy0) >> 16)) + c_ty;
+      int32_t x;
+      for (x = 0; x < dw; x++) {
+        fp16 x_s = xsInc;  xsInc += zcos_a;
+        fp16 y_s = ysInc;  ysInc -= zsin_yx;
+        uint8_t *dest = &dat_2[x + y * td->destbuf.linesize[plane]];
+        td->interpolate(dest, x_s, y_s, dat_1,
+                        td->src.linesize[plane], sw, sh,
+                        td->conf.crop ? black : *dest);
+      }
+    }
+  }
+  return VS_OK;
+}
+
+/**
+ * transformPackedRows: transformPacked with a per-row transform, see
+ * vsDoTransformRows().  Packed formats have no subsampling, so every row's
+ * exposure fraction is simply y/(height-1).  Same per-pixel arithmetic as
+ * transformPacked's similarity path.
+ */
+int transformPackedRows(VSTransformData* td, VSTransform top, VSTransform bottom)
+{
+  uint8_t *D_1 = td->src.data[0];
+  uint8_t *D_2 = td->destbuf.data[0];
+  fp16 c_s_x = iToFp16(td->fiSrc.width/2);
+  fp16 c_s_y = iToFp16(td->fiSrc.height/2);
+  int32_t c_d_x = td->fiDest.width/2;
+  int32_t c_d_y = td->fiDest.height/2;
+  int channels = td->fiSrc.bytesPerPixel;
+  const int lumaH = td->fiDest.height;
+  int y;
+#ifdef USE_OMP
+#pragma omp parallel for schedule(static)
+#endif
+  for (y = 0; y < td->fiDest.height; y++) {
+    VSTransform t = rowsTransformAt(&top, &bottom, rowsExposureU(lumaH, 0, y));
+    float z     = 1.0-t.zoom/100.0;
+    fp16 zcos_a = fToFp16(z*cos(-t.alpha)); // scaled cos
+    fp16 zsin_a = fToFp16(z*sin(-t.alpha)); // scaled sin
+    fp16 c_tx   = c_s_x - fToFp16(t.x);
+    fp16 c_ty   = c_s_y - fToFp16(t.y);
+    fp16 dy     = iToFp16(y - c_d_y);
+    int x;
+    for (x = 0; x < td->fiDest.width; x++) {
+      fp16 dx = iToFp16(x - c_d_x);
+      fp16 x_s = (fp16)((((int64_t)zcos_a*dx + (int64_t)zsin_a*dy) >> 16)) + c_tx;
+      fp16 y_s = (fp16)(((-(int64_t)zsin_a*dx + (int64_t)zcos_a*dy) >> 16)) + c_ty;
+      // linesize is in bytes, only the column is scaled by the channel count
+      interpolateNall(&D_2[x * channels + y * td->destbuf.linesize[0]],
+                      x_s, y_s, D_1, td->src.linesize[0],
+                      td->fiSrc.width, td->fiSrc.height,
+                      channels, td->conf.crop);
+    }
+  }
+  return VS_OK;
+}
+
 /*
  * Local variables:
  *   c-file-style: "stroustrup"

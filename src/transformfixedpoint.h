@@ -41,6 +41,16 @@ VS_API int transformPacked(struct _VSTransformData* td, VSTransform t);
 /// does the actual transformation in Planar space
 VS_API int transformPlanar(struct _VSTransformData* td, VSTransform t);
 
+/** Row-interpolated variants (rolling shutter), see vsDoTransformRows():
+    every destination row is warped with the transform interpolated between
+    `top` (first luma scanline) and `bottom` (last) for that row's exposure
+    position.  Callers must have validated the endpoints and the config
+    already; these do the rendering only. */
+VS_API int transformPlanarRows(struct _VSTransformData* td,
+                               VSTransform top, VSTransform bottom);
+VS_API int transformPackedRows(struct _VSTransformData* td,
+                               VSTransform top, VSTransform bottom);
+
 
 /* forward deklarations, please see .c file for documentation*/
 VS_API void interpolateBiLinBorder(uint8_t *rv, fp16 x, fp16 y,
