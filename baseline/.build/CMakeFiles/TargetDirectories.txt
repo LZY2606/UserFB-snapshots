@@ -1,0 +1,17 @@
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/package.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/package_source.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/mysofa-static.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/package.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/package_source.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/X1068/attempts/20261111T152026502570Z/repo/baseline/.build/src/CMakeFiles/install/strip.dir

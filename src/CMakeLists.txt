@@ -38,6 +38,7 @@ set(libsrc
     hdf/gcol.c
     hrtf/check.c
     hrtf/spherical.c
+    hrtf/spherical_interpolate.c
     hrtf/lookup.c
     hrtf/tools.c
     hrtf/kdtree.c

@@ -109,6 +109,60 @@ struct MYSOFA_NEIGHBORHOOD {
   int *index;
 };
 
+/*
+ * Opaque context for spherical-triangle interpolation.  It owns a private
+ * snapshot of the measurement positions, FIR filters and delays taken during
+ * mysofa_spherical_init(); the caller's MYSOFA_HRTF may be modified,
+ * resampled or freed afterwards without affecting later queries.  Queries do
+ * not allocate memory or modify the context, so one context may be queried
+ * concurrently from several threads as long as each thread uses its own
+ * output buffers.
+ */
+struct MYSOFA_SPHERICAL;
+typedef struct MYSOFA_SPHERICAL MYSOFA_SPHERICAL;
+typedef struct MYSOFA_HRTF MYSOFA_HRTF;
+
+/*
+ * Build a spherical-interpolation context from a cartesian HRTF.
+ *
+ * Requirements: SourcePosition must have Type="cartesian" (use
+ * mysofa_tocartesian() first for spherical files), C=3, R=2, M>=4, N>0,
+ * array sizes must match the dimensions, and all coordinates, FIR values and
+ * delays must be finite.  All measurement radii must agree with the radius of
+ * the first measurement to within a relative error of 2e-5, must be non-zero,
+ * and normalized directions must be separated by more than 1e-6.  DataDelay
+ * may contain either R=2 global values or M*R per-measurement values.
+ *
+ * On success a context is returned and *err is MYSOFA_OK.  On failure NULL
+ * is returned and *err is set to a library error code.  The input HRTF is
+ * only read, never modified.
+ */
+MYSOFA_EXPORT MYSOFA_SPHERICAL *mysofa_spherical_init(const MYSOFA_HRTF *hrtf,
+                                                      int *err);
+
+/*
+ * Interpolate one direction.  `direction` is normalized internally; only its
+ * direction matters.  `left` and `right` receive N coefficients each, and
+ * `indices`/`weights` describe the three measurement points used.
+ *
+ * Delays are returned in the same units as the input DataDelay values.  No
+ * propagation distance is added and no extra gain normalization is performed.
+ * A global two-value DataDelay is returned unchanged; a per-measurement delay
+ * is blended with the same barycentric weights as the FIR filters.
+ *
+ * Returns MYSOFA_OK on success.  A zero-length or non-finite direction,
+ * a NULL pointer, or any other invalid argument returns an error code without
+ * writing to the output buffers.
+ */
+MYSOFA_EXPORT int mysofa_spherical_getfilter(const MYSOFA_SPHERICAL *spherical,
+                                            const float direction[3],
+                                            float *left, float *right,
+                                            float delays[2],
+                                            unsigned indices[3],
+                                            float weights[3]);
+
+MYSOFA_EXPORT void mysofa_spherical_free(MYSOFA_SPHERICAL *spherical);
+
 enum {
   MYSOFA_OK = 0,
   MYSOFA_INTERNAL_ERROR = -1,

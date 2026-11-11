@@ -12,15 +12,17 @@ fetch() {
   test "$actual" = "$expected" || { echo "DEPENDENCY_HASH_MISMATCH $name" >&2; exit 1; }
   echo "DEPENDENCY_SHA256_OK $name $actual"
 }
-fetch zlib-1.3.1.tar.gz https://zlib.net/fossils/zlib-1.3.1.tar.gz 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
-fetch CUnit-2.1-3.tar.bz2 https://downloads.sourceforge.net/project/cunit/CUnit/2.1-3/CUnit-2.1-3.tar.bz2 f5b29137f845bb08b77ec60584fdb728b4e58f1023e6f249a464efa49a40f214
+fetch zlib-1.3.1.tar.gz https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+# The sandbox cannot reach SourceForge; use the upstream GitHub mirror of the
+# same 2.1-3 release.
+fetch CUnit-2.1-3.tar.gz https://github.com/jacklicn/CUnit/archive/refs/tags/v2.1-3.tar.gz b9ba84b54b916d81608572985d558b23bdcd7739180852273948de5cdc3a2cca
 if [ ! -f "$deps/prefix/lib/libz.a" ]; then
   tar -xzf "$deps/downloads/zlib-1.3.1.tar.gz" -C "$deps/src"
   cmake -S "$deps/src/zlib-1.3.1" -B "$deps/zlib-build" -DCMAKE_INSTALL_PREFIX="$deps/prefix" -DZLIB_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release
   cmake --build "$deps/zlib-build" --target install -j 4
 fi
 if [ ! -f "$deps/prefix/lib/libcunit.a" ]; then
-  tar -xjf "$deps/downloads/CUnit-2.1-3.tar.bz2" -C "$deps/src"
+  tar -xzf "$deps/downloads/CUnit-2.1-3.tar.gz" -C "$deps/src"
   # Build the genuine framework and Basic frontend, without autoconf/libtool.
   unit="$deps/src/CUnit-2.1-3"
   mkdir -p "$deps/cunit-build" "$deps/prefix/include/CUnit"
