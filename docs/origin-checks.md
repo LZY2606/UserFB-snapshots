@@ -15,6 +15,7 @@ and how users can avoid potential breakage.
 * [How does nosurf check the origin?](#how-does-nosurf-check-the-origin)
     * [1. `Sec-Fetch-Site` header](#1-sec-fetch-site-header)
     * [2. `Origin` or `Referer` headers](#2-origin-or-referer-headers)
+    * [3. Strict origin checking (opt-in)](#3-strict-origin-checking-opt-in)
 * [What do I need to do after upgrading to 1.2.0?](#what-do-i-need-to-do-after-upgrading-to-120)
 * [What are the risks of not upgrading to 1.2.0?](#what-are-the-risks-of-not-upgrading-to-120)
 
@@ -59,6 +60,46 @@ In the unlikely case where `Origin` header does not exist,
 nosurf will perform the same validations documented above on the `Referer` header.
 
 In the very unlikely case that no `Referer` header is present either, the request will be aborted.
+
+### 3. Strict origin checking (opt-in)
+
+Because nosurf may run behind a gateway, reverse proxy, or other middleware,
+an explicit `Origin` header can be the only trustworthy signal about where a
+mutating request came from. Call `SetStrictOriginCheck(true)` to make an
+explicit `Origin` authoritative for non-safe, non-exempt requests.
+
+When strict mode is enabled and an `Origin` header is present:
+
+* There must be exactly one `Origin` field with exactly one value.
+  The value must be a valid HTTP(S) serialized origin: a scheme and host only,
+  optionally surrounded by HTTP OWS (SP or HTAB).
+* `null`, empty values, repeated fields (even with identical values, or with
+  the field name spelled using different casing), userinfo, a path (including a
+  lone `/`), a query, a fragment, a non-HTTP(S) scheme, and comma- or
+  whitespace-separated origins are rejected with `ErrBadOrigin`.
+* A syntactically valid `Origin` must either match the request's own origin or
+  be approved by the function passed to `SetIsAllowedOriginFunc`. Malformed,
+  empty, or duplicated values are rejected before that function is invoked.
+* `Sec-Fetch-Site: same-origin` can not override an explicit `Origin`, and the
+  `Referer` header is not used as a fallback when an `Origin` was present.
+* If no `Origin` header is present at all, the `Sec-Fetch-Site` fast path and
+  the `Referer` fallback described above still apply. Presence is determined by
+  inspecting all header fields, not by treating an empty `Header.Get()` result
+  as absence.
+
+Strict origin checking is disabled by default, so existing behaviour is
+unchanged unless it is explicitly enabled.
+
+Strict mode does not replace CSRF token validation. After the origin check
+passes - whether by a same-origin match or by an allowed cross-origin
+callback - the request must still carry a valid masked CSRF token. Neither
+check is skipped when the other succeeds, and the wrapped application handler
+is not called if either one fails.
+
+Try enabling strict mode if your deployment forwards requests through gateways
+or middleware and you want an explicit `Origin` to take precedence over weaker
+signals. It is defense in depth, not a substitute for token-based CSRF
+protection.
 
 ## What do I need to do after upgrading to 1.2.0?
 

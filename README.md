@@ -30,6 +30,9 @@ an exact URL, a glob, or a regular expression.
 Want to present the hacker with an ASCII middle finger
 instead of the plain old `HTTP 400`? No problem.
 * Uses masked tokens to mitigate the BREACH attack.
+* Offers an optional strict `Origin` checking mode for deployments behind
+gateways or other middleware, where an explicit `Origin` is authoritative over
+`Sec-Fetch-Site` and `Referer`. See [docs/origin-checks.md](docs/origin-checks.md).
 * Has no dependencies outside the Go standard library.
 
 ### Example

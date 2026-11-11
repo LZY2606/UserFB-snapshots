@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 const (
@@ -63,6 +64,10 @@ type CSRFHandler struct {
 
 	isTLS           func(r *http.Request) bool
 	isAllowedOrigin func(r *url.URL) bool
+
+	// strictOriginCheck makes an explicitly supplied Origin header
+	// authoritative for non-safe requests. See SetStrictOriginCheck.
+	strictOriginCheck bool
 }
 
 func defaultFailureHandler(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +199,15 @@ func (h *CSRFHandler) ensureSameOrigin(r *http.Request) error {
 		selfOrigin.Scheme = "https"
 	}
 
+	if h.strictOriginCheck {
+		// Presence must be detected by looking at every header field, not with
+		// Header.Get(): the latter only consults the canonical spelling and
+		// would miss differently-cased or duplicated fields.
+		if values, fields := originHeaderValues(r.Header); fields > 0 {
+			return h.checkStrictOrigin(selfOrigin, values, fields)
+		}
+	}
+
 	secFetchSite := r.Header.Get("Sec-Fetch-Site")
 	if secFetchSite == "same-origin" {
 		return nil
@@ -253,6 +267,95 @@ func (h *CSRFHandler) checkOrigin(selfOrigin *url.URL, r *http.Request) error {
 	return ErrBadOrigin
 }
 
+// originHeaderValues collects the values of every Origin header field,
+// regardless of the casing used for the field name, and reports how many
+// distinct field names were present. http.Header.Get() only consults the
+// canonical spelling, so differently-cased duplicates would otherwise be
+// missed.
+func originHeaderValues(header http.Header) (values []string, fields int) {
+	for name, fieldValues := range header {
+		if strings.EqualFold(name, "Origin") {
+			fields++
+			values = append(values, fieldValues...)
+		}
+	}
+	return values, fields
+}
+
+// checkStrictOrigin validates an explicitly supplied Origin header.
+// An explicit Origin is authoritative in strict mode: it must consist of
+// exactly one valid HTTP(S) serialized origin, and neither the weaker
+// Sec-Fetch-Site signal nor a Referer fallback can override it.
+func (h *CSRFHandler) checkStrictOrigin(selfOrigin *url.URL, values []string, fields int) error {
+	// Reject empty, duplicated, and comma- or whitespace-joined values before
+	// consulting the user-supplied allow function.
+	if fields != 1 || len(values) != 1 {
+		return ErrBadOrigin
+	}
+
+	origin, ok := parseSerializedOrigin(values[0])
+	if !ok {
+		return ErrBadOrigin
+	}
+
+	if sameOrigin(selfOrigin, origin) {
+		return nil
+	}
+
+	if h.isAllowedOrigin != nil && h.isAllowedOrigin(origin) {
+		return nil
+	}
+
+	return ErrBadOrigin
+}
+
+// parseSerializedOrigin parses exactly one HTTP(S) serialized origin, as
+// browsers send it in the Origin header. HTTP OWS (SP and HTAB) is allowed
+// around the value. The value must not contain userinfo, a path (including a
+// lone "/"), a query, a fragment, or multiple origins separated by commas or
+// whitespace.
+func parseSerializedOrigin(value string) (*url.URL, bool) {
+	value = strings.Trim(value, " \t")
+	if value == "" || value == "null" {
+		return nil, false
+	}
+
+	// Commas and whitespace inside the value separate multiple origins.
+	if strings.ContainsAny(value, " \t,") {
+		return nil, false
+	}
+
+	// Inspect the raw value for query and fragment delimiters, because
+	// url.Parse cannot distinguish empty ones (a trailing "?" or "#") from
+	// absent ones.
+	if strings.ContainsAny(value, "?#") {
+		return nil, false
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return nil, false
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, false
+	}
+	if parsed.Opaque != "" || parsed.Host == "" || parsed.User != nil {
+		return nil, false
+	}
+	if parsed.Path != "" || parsed.RawPath != "" {
+		return nil, false
+	}
+	if parsed.RawQuery != "" || parsed.ForceQuery {
+		return nil, false
+	}
+	if parsed.Fragment != "" || parsed.RawFragment != "" {
+		return nil, false
+	}
+
+	return parsed, true
+}
+
 // Generates a new token, sets it on the given request and returns it
 func (h *CSRFHandler) RegenerateToken(w http.ResponseWriter, r *http.Request) string {
 	token := generateToken()
@@ -310,6 +413,39 @@ func (h *CSRFHandler) SetBaseCookie(cookie http.Cookie) {
 //	})
 func (h *CSRFHandler) SetIsTLSFunc(f func(*http.Request) bool) {
 	h.isTLS = f
+}
+
+// SetStrictOriginCheck enables or disables strict origin checking for
+// non-safe requests. It is disabled by default, preserving the existing
+// handling of the Origin, Referer, and Sec-Fetch-Site headers.
+//
+// When enabled, the trust priority is:
+//
+//  1. If the request contains an Origin header, it is authoritative. There
+//     must be exactly one Origin field with exactly one value, and that value
+//     must be a valid HTTP(S) serialized origin: a scheme and host only,
+//     optionally surrounded by HTTP OWS. Empty and "null" values, duplicated
+//     fields (even with identical values), userinfo, paths (including a lone
+//     "/"), queries, fragments, and comma- or whitespace-separated origins are
+//     rejected with ErrBadOrigin before the SetIsAllowedOriginFunc delegate is
+//     invoked. If the origin is syntactically valid, it must either match the
+//     request's own origin or be approved by SetIsAllowedOriginFunc.
+//  2. The Sec-Fetch-Site header can not override an explicit Origin. In
+//     particular, Sec-Fetch-Site: same-origin does not rescue an Origin that is
+//     present, malformed, or not allowed, and the Referer header is not
+//     consulted in that case.
+//  3. If, and only if, no Origin header is present at all, the pre-existing
+//     Sec-Fetch-Site fast path and Referer fallback apply.
+//
+// Strict origin checking does not replace CSRF token verification. Requests
+// that pass the origin check, whether by same-origin match or an allowed
+// cross-origin callback, must still present a valid masked CSRF token.
+//
+// This mode is useful when nosurf runs behind gateways or other middleware
+// that may forward ambiguous origin information. It is not a substitute for
+// token-based CSRF protection.
+func (h *CSRFHandler) SetStrictOriginCheck(enabled bool) {
+	h.strictOriginCheck = enabled
 }
 
 // SetAllowedOrigins defines a function that checks whether the request comes from an allowed origin.
