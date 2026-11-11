@@ -1,3 +1,4 @@
+import {assertNotComposing} from '../composition/guard'
 import {type Instance} from '../setup'
 import {releaseAllKeys} from '../keyboard'
 import {setSelectionRange} from '../event/selection'
@@ -21,6 +22,8 @@ export async function type(
     initialSelectionEnd,
   }: typeOptions = {},
 ): Promise<void> {
+  assertNotComposing(this)
+
   // TODO: properly type guard
   // we use this workaround for now to prevent changing behavior
   if ((element as {disabled?: boolean}).disabled) return

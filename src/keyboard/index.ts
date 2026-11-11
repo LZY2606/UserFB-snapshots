@@ -1,3 +1,4 @@
+import {assertNotComposing} from '../composition/guard'
 import {type Instance} from '../setup'
 import {type keyboardKey} from '../system/keyboard'
 import {wait} from '../utils'
@@ -11,6 +12,8 @@ interface KeyboardAction {
 }
 
 export async function keyboard(this: Instance, text: string): Promise<void> {
+  assertNotComposing(this)
+
   const actions: KeyboardAction[] = parseKeyDef(this.config.keyboardMap, text)
 
   for (let i = 0; i < actions.length; i++) {

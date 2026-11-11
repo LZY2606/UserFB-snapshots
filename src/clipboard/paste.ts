@@ -1,3 +1,4 @@
+import {assertNotComposing} from '../composition/guard'
 import {type Instance} from '../setup'
 import {
   createDataTransfer,
@@ -9,6 +10,8 @@ export async function paste(
   this: Instance,
   clipboardData?: DataTransfer | string,
 ) {
+  assertNotComposing(this)
+
   const doc = this.config.document
   const target = doc.activeElement ?? /* istanbul ignore next */ doc.body
 

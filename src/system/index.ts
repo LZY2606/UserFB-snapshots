@@ -1,3 +1,4 @@
+import {type CompositionSessionImpl} from '../composition/session'
 import {KeyboardHost} from './keyboard'
 import {PointerHost} from './pointer'
 
@@ -7,6 +8,9 @@ import {PointerHost} from './pointer'
 export class System {
   readonly keyboard = new KeyboardHost(this)
   readonly pointer = new PointerHost(this)
+
+  /** @internal The composition session currently holding this System. */
+  compositionSession: CompositionSessionImpl | undefined = undefined
 
   getUIEventModifiers(): EventModifierInit {
     return {

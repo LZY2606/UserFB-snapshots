@@ -1,8 +1,11 @@
+import {assertNotComposing} from '../composition/guard'
 import {copySelection} from '../document'
 import {type Instance} from '../setup'
 import {writeDataTransferToClipboard} from '../utils'
 
 export async function cut(this: Instance) {
+  assertNotComposing(this)
+
   const doc = this.config.document
   const target = doc.activeElement ?? /* istanbul ignore next */ doc.body
 

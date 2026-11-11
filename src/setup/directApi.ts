@@ -1,3 +1,4 @@
+import {type CompositionSession} from '../composition'
 import {type Options} from '../options'
 import {type PointerInput} from '../pointer'
 import {type System} from '../system'
@@ -18,6 +19,13 @@ export function click(element: Element, options: DirectOptions = {}) {
 
 export function copy(options: DirectOptions = {}) {
   return setupDirect(options).api.copy()
+}
+
+export function compositionStart(
+  target: Element,
+  options: DirectOptions = {},
+): Promise<CompositionSession> {
+  return setupDirect(options, target).api.compositionStart(target)
 }
 
 export function cut(options: DirectOptions = {}) {

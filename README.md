@@ -63,6 +63,42 @@ change the state of the checkbox.
 > [The more your tests resemble the way your software is used, the more
 > confidence they can give you.][guiding-principle]
 
+## Composition (IME) input
+
+The keyboard APIs type characters directly. To exercise components that listen
+to composition events, start an explicit composition session on a focused
+editable input, textarea or contenteditable root:
+
+```ts
+import {screen} from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
+const user = userEvent.setup()
+const input = screen.getByRole('textbox') as HTMLInputElement
+
+input.focus()
+input.setSelectionRange(1, 2)
+
+const composition = await user.compositionStart(input)
+
+await composition.update('zhong')
+await composition.update('中')
+await composition.update('中文')
+// `commit` finishes with `insertFromComposition` and `compositionend`.
+// Omitting the text reuses the last accepted candidate.
+await composition.commit()
+
+// Alternatively, `cancel()` restores the original value and selection
+// (including the original markup for contenteditable selections).
+// await composition.cancel()
+```
+
+Each `update` dispatches `compositionupdate`, a cancelable `beforeinput` with
+inputType `insertCompositionText`, and then `input`. If a `beforeinput` listener
+calls `preventDefault()`, the update returns `false` and nothing changes. A
+composition session can be created from `userEvent.setup()`, from a derived
+`setup()` and from the direct `userEvent.compositionStart(target)` API.
+
 ## Issues
 
 Looking to contribute? Look for the [Good First Issue][good-first-issue] label.

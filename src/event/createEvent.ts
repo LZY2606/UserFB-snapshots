@@ -8,6 +8,7 @@ import {
 
 interface InterfaceMap {
   ClipboardEvent: {type: ClipboardEvent, init: ClipboardEventInit}
+  CompositionEvent: {type: CompositionEvent, init: CompositionEventInit}
   InputEvent: {type: InputEvent, init: InputEventInit}
   MouseEvent: {type: MouseEvent, init: MouseEventInit}
   PointerEvent: {type: PointerEvent, init: PointerEventInit}
@@ -25,6 +26,7 @@ const eventInitializer: {
   >
 } = {
   ClipboardEvent: [initClipboardEvent],
+  CompositionEvent: [initUIEvent, initCompositionEvent],
   Event: [],
   FocusEvent: [initUIEvent, initFocusEvent],
   InputEvent: [initUIEvent, initInputEvent],
@@ -114,6 +116,15 @@ function initClipboardEvent(
 ) {
   assignProps(event, {
     clipboardData,
+  })
+}
+
+function initCompositionEvent(
+  event: CompositionEvent,
+  {data}: CompositionEventInit,
+) {
+  assignProps(event, {
+    data,
   })
 }
 

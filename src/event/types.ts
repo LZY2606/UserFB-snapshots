@@ -12,7 +12,9 @@ export interface FixedDocumentEventMap extends DocumentEventMap {
 
 type SpecificEventInit<E extends Event> = E extends InputEvent
   ? InputEventInit
-  : E extends ClipboardEvent
+  : E extends CompositionEvent
+    ? CompositionEventInit
+    : E extends ClipboardEvent
     ? ClipboardEventInit
     : E extends KeyboardEvent
       ? KeyboardEventInit

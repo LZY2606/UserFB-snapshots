@@ -17,6 +17,18 @@ export const eventMap = {
     EventType: 'PointerEvent',
     defaultInit: {bubbles: true, cancelable: true, composed: true},
   },
+  compositionend: {
+    EventType: 'CompositionEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  compositionstart: {
+    EventType: 'CompositionEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
+  compositionupdate: {
+    EventType: 'CompositionEvent',
+    defaultInit: {bubbles: true, cancelable: true, composed: true},
+  },
   contextmenu: {
     EventType: 'PointerEvent',
     defaultInit: {bubbles: true, cancelable: true, composed: true},
