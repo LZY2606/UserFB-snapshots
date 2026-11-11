@@ -1163,6 +1163,83 @@ class dump
     }
 
     //------------------------------------------------------------------------------
+    // Dumps the RELR relocation tables, expanding the RELR encoding and
+    // previewing each location with the given load bias
+    static void
+    relr_tables( std::ostream& out, const elfio& reader, Elf64_Addr load_bias = 0 )
+    {
+        for ( const auto& sec : reader.sections ) { // For all sections
+            if ( SHT_RELR != sec->get_type() ) {    // Look at RELR tables
+                continue;
+            }
+
+            std::ios_base::fmtflags original_flags = out.flags();
+            const int width = ( reader.get_class() == ELFCLASS64 ) ? 16 : 8;
+
+            out << "RELR table (" << sec->get_name() << ")" << std::endl
+                << "[  Nr ] Address" << std::string( width - 4, ' ' )
+                << "Source        Entry  Value" << std::string( width - 3, ' ' )
+                << "Initial" << std::string( width - 3, ' ' ) << "Preview"
+                << std::endl;
+
+            const_relr_section_accessor relr( reader, sec.get() );
+            std::vector<relr_entry>     entries;
+            relr_error                  error;
+            const bool                  decoded = relr.decode( entries, error );
+
+            std::vector<relr_preview> previews;
+            relr.preview_all( entries, load_bias, previews );
+
+            for ( Elf_Xword i = 0; i < entries.size(); ++i ) {
+                const relr_entry&   entry   = entries[i];
+                const relr_preview& preview = previews[i];
+
+                std::ostringstream source;
+                if ( entry.from_bitmap ) {
+                    source << "bitmap bit " << entry.bitmap_bit;
+                }
+                else {
+                    source << "direct";
+                }
+
+                out << "[" << DUMP_DEC_FORMAT( 5 ) << i << "] "
+                    << DUMP_HEX0x_FORMAT( width ) << entry.address << " "
+                    << DUMP_STR_FORMAT( 13 ) << source.str()
+                    << " entry=" << DUMP_DEC_FORMAT( 5 ) << entry.entry_index
+                    << " value=" << DUMP_HEX0x_FORMAT( width )
+                    << entry.entry_value;
+
+                if ( preview.status == relr_preview_status::ok ) {
+                    out << " initial=" << DUMP_HEX0x_FORMAT( width )
+                        << preview.initial_value
+                        << " preview=" << DUMP_HEX0x_FORMAT( width )
+                        << preview.relocated_value
+                        << " section=" << DUMP_DEC_FORMAT( 3 )
+                        << preview.section_index
+                        << " offset=" << DUMP_HEX0x_FORMAT( width )
+                        << preview.section_offset;
+                }
+                else {
+                    out << " preview="
+                        << const_relr_section_accessor::
+                               preview_status_string( preview.status );
+                }
+                out << std::endl;
+            }
+
+            if ( !decoded ) {
+                out << "  Error: "
+                    << const_relr_section_accessor::status_string(
+                           error.status )
+                    << " at entry " << error.entry_index << std::endl;
+            }
+
+            out << std::endl;
+            out.flags( original_flags );
+        }
+    }
+
+    //------------------------------------------------------------------------------
     // Dumps the section data
     static void section_data( std::ostream& out, const section* sec )
     {

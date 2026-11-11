@@ -510,6 +510,7 @@ constexpr Elf_Word SHT_FINI_ARRAY         = 15;
 constexpr Elf_Word SHT_PREINIT_ARRAY      = 16;
 constexpr Elf_Word SHT_GROUP              = 17;
 constexpr Elf_Word SHT_SYMTAB_SHNDX       = 18;
+constexpr Elf_Word SHT_RELR               = 19;
 constexpr Elf_Word SHT_GNU_ATTRIBUTES     = 0x6ffffff5;
 constexpr Elf_Word SHT_GNU_HASH           = 0x6ffffff6;
 constexpr Elf_Word SHT_GNU_LIBLIST        = 0x6ffffff7;
@@ -1407,6 +1408,19 @@ struct Elf64_Rela
     Elf_Xword r_info;
     // Constant addend used to compute the value
     Elf_Sxword r_addend;
+};
+
+// RELR relative relocation entries (SHT_RELR)
+struct Elf32_Relr
+{
+    // Location to apply the relocation action, or a bitmap entry
+    Elf32_Word r_offset;
+};
+
+struct Elf64_Relr
+{
+    // Location to apply the relocation action, or a bitmap entry
+    Elf_Xword r_offset;
 };
 
 #define ELF32_R_SYM( i )     ( ( i ) >> 8 )
