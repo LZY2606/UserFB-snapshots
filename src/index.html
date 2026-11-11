@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kerbdiag — 离线 Kerberos 跨 realm 故障排查</title>
+<style>
+  :root { --bg:#0f1420; --panel:#171e2e; --line:#28324a; --fg:#d8e0f0; --dim:#8894ad;
+          --accent:#6ea8fe; --bad:#ff6b6b; --warn:#ffb454; --ok:#57d9a3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,"PingFang SC","Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { padding:14px 22px; border-bottom:1px solid var(--line); display:flex;
+           align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  .offline { color:var(--ok); font-size:12px; border:1px solid var(--ok);
+             border-radius:10px; padding:1px 8px; }
+  main { padding:18px 22px; display:grid; grid-template-columns: 340px 1fr; gap:16px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:14px; margin-bottom:16px; }
+  .panel h2 { font-size:14px; margin:0 0 10px; color:var(--accent); }
+  button { background:#243049; color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:6px 12px; cursor:pointer; margin:2px 4px 2px 0; }
+  button:hover { border-color:var(--accent); }
+  input, textarea, select { width:100%; background:#0d1322; color:var(--fg);
+           border:1px solid var(--line); border-radius:6px; padding:6px 8px; margin:3px 0 8px; }
+  textarea { min-height:90px; font-family:ui-monospace,monospace; font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);
+           vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover { background:#1d2740; }
+  .tag { display:inline-block; font-size:11px; border-radius:8px; padding:1px 7px;
+         margin:1px 2px; border:1px solid var(--line); }
+  .tag.tgt { color:#b39dff; } .tag.referral_tgt { color:#ffb454; } .tag.service { color:#57d9a3; }
+  .tag.fail { color:var(--bad); border-color:var(--bad); }
+  .kind { font-weight:600; }
+  .kind.replay { color:var(--bad); } .kind.ticket_expired, .kind.renewable_not_renewed { color:var(--warn); }
+  .kind.key_mismatch, .kind.no_matching_key { color:#ff9f7a; }
+  .kind.referral_loop, .kind.trust_path_violation { color:#ff6bd6; }
+  .dim { color:var(--dim); }
+  .mono { font-family:ui-monospace,monospace; font-size:12px; }
+  .ev { border-left:3px solid var(--line); padding:4px 10px; margin:6px 0; background:#121a2c; }
+  .ev code { color:var(--accent); }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 0; }
+  .node { border:1px solid var(--line); border-radius:8px; padding:5px 10px; cursor:pointer;
+          background:#121a2c; }
+  .node.self { border-color:var(--accent); }
+  .arrow { color:var(--dim); }
+  .branch-card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0;
+                 cursor:pointer; }
+  .branch-card.active { border-color:var(--accent); background:#1a2742; }
+  .hash { font-size:11px; color:var(--dim); word-break:break-all; }
+  .cand { display:flex; gap:8px; align-items:baseline; padding:4px 0; border-bottom:1px dashed var(--line); }
+  .rank { color:var(--accent); font-weight:700; }
+  .skew { color:var(--warn); }
+  #detail { display:none; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .toast { position:fixed; bottom:18px; right:18px; background:#243049; border:1px solid var(--accent);
+           border-radius:8px; padding:10px 16px; display:none; max-width:420px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>kerbdiag</h1>
+  <span class="offline">● 离线模式：不连接任何在线服务</span>
+  <span class="dim">SQLite 本地库 · 规则版本不可变 · 采集时间永不回写</span>
+</header>
+
+<main>
+  <div>
+    <div class="panel">
+      <h2>数据</h2>
+      <button onclick="loadSample()">加载内置四组样例</button>
+      <button onclick="doExport()">导出 JSON</button>
+      <textarea id="importBox" placeholder='粘贴导入 JSON（{"records":...,"keys":...,"boots":...}）'></textarea>
+      <button onclick="doImport()">导入（事务，失败整体回滚）</button>
+    </div>
+
+    <div class="panel">
+      <h2>假设分支</h2>
+      <div id="branches"></div>
+      <hr style="border-color:var(--line)">
+      <div class="dim">换一套假设另开分支，旧分支结论与当时的规则版本（hash）都保留。</div>
+      <input id="bName" placeholder="新分支名称，如 skew-900">
+      <input id="bTrust" placeholder="信任路径，逗号分隔，如 A.EXAMPLE,B.EXAMPLE,C.EXAMPLE">
+      <input id="bKeytab" placeholder="keytab，如 lab.keytab">
+      <input id="bSkew" type="number" placeholder="允许时钟偏移（秒），如 300">
+      <button onclick="newBranch()">基于当前分支另开假设分支</button>
+    </div>
+
+    <div class="panel">
+      <h2>密钥代次</h2>
+      <div style="max-height:260px; overflow:auto">
+        <table id="keysTable"><thead><tr>
+          <th>kvno</th><th>主体</th><th>etype</th><th>指纹</th><th>keytab</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>失败事件 → 诊断结论</h2>
+      <table id="failTable"><thead><tr>
+        <th>记录</th><th>分层</th><th>主体</th><th>kvno</th><th>结论（按分支）</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="panel">
+      <h2>全部票据记录</h2>
+      <table id="recTable"><thead><tr>
+        <th>id</th><th>来源</th><th>分层</th><th>realm / principal</th><th>kvno</th>
+        <th>有效期窗口</th><th>authenticator</th><th>状态</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="panel" id="detail">
+      <h2>记录详情</h2>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+let state = null;
+let activeBranch = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  if (!r.ok) throw new Error(text);
+  return text ? JSON.parse(text) : {};
+}
+function toast(msg, bad) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.borderColor = bad ? 'var(--bad)' : 'var(--accent)';
+  t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 4000);
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtTs(t) { return t == null ? '—' : new Date(t*1000).toISOString().replace('T',' ').slice(0,19) + ' UTC'; }
+
+async function refresh() {
+  state = await api('/api/state');
+  if (!activeBranch && state.branches.length) activeBranch = state.branches[state.branches.length-1].id;
+  renderBranches(); renderFailures(); renderRecords(); renderKeys();
+}
+
+function renderBranches() {
+  document.getElementById('branches').innerHTML = state.branches.map(b => `
+    <div class="branch-card ${b.id===activeBranch?'active':''}" onclick="selectBranch(${b.id})">
+      <div><b>${esc(b.name)}</b> <span class="dim">#${b.id}${b.parent_branch_id?' ← 分支 '+b.parent_branch_id:''}</span></div>
+      <div class="dim">规则：${esc(b.ruleset.name)} · skew ${b.ruleset.clock_skew_secs}s · keytab ${esc(b.ruleset.keytab)}</div>
+      <div class="dim">信任路径：${b.ruleset.trust_path.map(esc).join(' → ')}</div>
+      <div class="hash">ruleset ${b.ruleset_id} · sha256 ${esc(b.ruleset.content_hash.slice(0,24))}…</div>
+    </div>`).join('') || '<div class="dim">尚无分支，先加载样例数据。</div>';
+}
+function selectBranch(id) { activeBranch = id; refresh(); }
+
+function diagFor(recId) {
+  return state.diagnoses.filter(d => d.record_id === recId);
+}
+
+function renderFailures() {
+  const failed = state.records.filter(r => r.failed);
+  document.querySelector('#failTable tbody').innerHTML = failed.map(r => {
+    const ds = diagFor(r.id);
+    return `<tr class="clickable" onclick="openRecord(${r.id})">
+      <td class="mono">#${r.id} (nonce ${r.nonce})</td>
+      <td><span class="tag ${r.layer}">${r.layer}</span></td>
+      <td>${esc(r.principal)}<div class="dim">${esc(r.realm)}</div></td>
+      <td>${r.kvno}</td>
+      <td>${ds.map(d => `
+        <div style="margin:3px 0">
+          <span class="kind ${d.kind}">${d.kind}</span>
+          <span class="dim">@分支${d.branch_id} / 规则${d.ruleset_id}</span>
+          <div class="dim">${esc(d.summary)}</div>
+          ${d.clock_skew_candidate_secs != null ? `<div class="skew">时钟偏移候选：${d.clock_skew_candidate_secs}s（不回写采集时间）</div>`:''}
+        </div>`).join('') || '<span class="dim">该分支无结论</span>'}</td>
+      <td><button onclick="event.stopPropagation();openRecord(${r.id})">票据 / 密钥 / 依据</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="dim">没有失败记录</td></tr>';
+}
+
+function renderRecords() {
+  document.querySelector('#recTable tbody').innerHTML = state.records.map(r => `
+    <tr class="clickable" onclick="openRecord(${r.id})">
+      <td class="mono">${r.id}</td><td>${esc(r.source)}</td>
+      <td><span class="tag ${r.layer}">${r.layer}</span></td>
+      <td>${esc(r.principal)}<div class="dim">${esc(r.realm)}</div></td>
+      <td>${r.kvno}<div class="dim">${esc(r.etype.split('-')[0])}</div></td>
+      <td class="mono dim">${fmtTs(r.start_time)}<br>→ ${fmtTs(r.end_time)}</td>
+      <td class="mono dim">${esc((r.authenticator_fp||'—').slice(0,12))}</td>
+      <td>${r.failed ? '<span class="tag fail">FAIL '+(r.error_code??'')+'</span>' : '<span class="dim">ok</span>'}</td>
+    </tr>`).join('');
+}
+
+function renderKeys() {
+  document.querySelector('#keysTable tbody').innerHTML = state.keys.map(k => `
+    <tr><td>${k.kvno}</td><td>${esc(k.principal)}<div class="dim">${esc(k.realm)}</div></td>
+    <td class="dim">${esc(k.etype.split('-')[0])}</td>
+    <td class="mono">${esc(k.fingerprint.slice(0,16))}…</td><td>${esc(k.keytab)}</td></tr>`).join('');
+}
+
+function lineageHtml(d) {
+  const node = (r, self) => `<div class="node ${self?'self':''}" onclick="openRecord(${r.id})">
+    <span class="tag ${r.layer}">${r.layer}</span>
+    #${r.id} ${esc(r.principal)} <span class="dim">kvno ${r.kvno}</span></div>`;
+  const chain = [
+    ...d.ancestors.map(r => node(r,false)),
+    node(d.record, true),
+    ...d.descendants.map(r => node(r,false)),
+  ];
+  return `<h3>Ticket lineage</h3>
+    <div class="chain">${chain.join('<span class="arrow">→</span>')}</div>
+    <div class="dim">沿 parent_id 从 TGT 根回溯；referral TGT 与 service ticket 分层展示，点击节点可跳转。</div>`;
+}
+
+function candidatesHtml(ds) {
+  const cands = ds.flatMap(d => d.candidates.map(c => ({...c, branch:d.branch_id})));
+  if (!cands.length) return '<div class="dim">无候选密钥（该 keytab 下无此主体密钥）。</div>';
+  const seen = new Set();
+  return cands.filter(c => { const k=c.branch+':'+c.key_id; if(seen.has(k))return false; seen.add(k); return true; })
+    .sort((a,b)=>a.branch-b.branch||a.rank-b.rank).map(c => `
+    <div class="cand">
+      <span class="rank">#${c.rank}</span>
+      <span class="mono">kvno ${c.kvno} · ${esc(c.etype.split('-')[0])}</span>
+      <span class="mono dim">${esc(c.fingerprint.slice(0,20))}…</span>
+      <span class="dim">${esc(c.keytab)} @分支${c.branch}</span>
+      <span class="dim">${c.exact?'✓ 精确匹配':''}</span>
+      <span class="dim">${esc(c.reason)}</span>
+    </div>`).join('');
+}
+
+async function openRecord(id) {
+  const d = await api('/api/records/' + id);
+  const r = d.record;
+  document.getElementById('detail').style.display = 'block';
+  document.getElementById('detailBody').innerHTML = `
+    ${lineageHtml(d)}
+    <h3>票据字段</h3>
+    <div class="grid2">
+      <div>
+        <table>
+          <tr><th>realm / principal</th><td>${esc(r.realm)} / ${esc(r.principal)}</td></tr>
+          <tr><th>来源 / 分层</th><td>${esc(r.source)} / ${r.layer}</td></tr>
+          <tr><th>etype / kvno</th><td class="mono">${esc(r.etype)} / ${r.kvno}</td></tr>
+          <tr><th>flags</th><td>${r.flags.map(f=>`<span class="tag">${esc(f)}</span>`).join('')||'—'}</td></tr>
+          <tr><th>nonce</th><td class="mono">${r.nonce}</td></tr>
+          <tr><th>transited</th><td>${r.transited.map(esc).join(' → ')||'—'}</td></tr>
+        </table>
+      </div>
+      <div>
+        <table>
+          <tr><th>auth_time</th><td class="mono">${fmtTs(r.auth_time)}</td></tr>
+          <tr><th>start / end</th><td class="mono">${fmtTs(r.start_time)}<br>${fmtTs(r.end_time)}</td></tr>
+          <tr><th>renew_till</th><td class="mono">${fmtTs(r.renew_till)}</td></tr>
+          <tr><th>客户端观测时间</th><td class="mono">${fmtTs(r.client_observed_time)}</td></tr>
+          <tr><th>authenticator 指纹</th><td class="mono">${esc(r.authenticator_fp||'—')}</td></tr>
+          <tr><th>原始字节引用</th><td class="mono dim">${esc(r.raw_ref)}</td></tr>
+          <tr><th>replay 分区</th><td class="mono">${esc(r.service_instance??'—')} #gen${r.boot_generation??'—'}</td></tr>
+        </table>
+      </div>
+    </div>
+    <h3>候选密钥排序（密钥代次）</h3>${candidatesHtml(d.diagnoses)}
+    <h3>各分支判断依据（绑定规则版本）</h3>
+    ${d.diagnoses.map(di => `
+      <div class="ev">
+        <div><span class="kind ${di.kind}">${di.kind}</span>
+          <span class="dim">分支 ${di.branch_id} · ruleset ${di.ruleset_id}</span>
+          ${di.replay_partition?`<span class="tag">${esc(di.replay_partition)}</span>`:''}
+        </div>
+        <div>${esc(di.summary)}</div>
+        ${di.evidence.map(e=>`<div class="ev"><code>${esc(e.code)}</code> — ${esc(e.detail)}</div>`).join('')}
+        ${di.clock_skew_candidate_secs!=null?`<div class="skew">时钟偏移候选解释：${di.clock_skew_candidate_secs} 秒（采集时间保持原值）</div>`:''}
+      </div>`).join('') || '<div class="dim">该记录暂无诊断结论。</div>'}`;
+  document.getElementById('detail').scrollIntoView({behavior:'smooth'});
+}
+
+async function loadSample() {
+  try { await api('/api/load-sample', {method:'POST'}); activeBranch=null; await refresh(); toast('样例数据已加载，基线分支结论已生成'); }
+  catch(e){ toast(e.message,true); }
+}
+async function doExport() {
+  const data = await api('/api/export');
+  document.getElementById('importBox').value = JSON.stringify(data, null, 2);
+  toast('已导出到文本框，可复制后在另一个空库导入');
+}
+async function doImport() {
+  try {
+    await api('/api/import', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: document.getElementById('importBox').value});
+    await refresh(); toast('导入成功');
+  } catch(e){ toast(e.message, true); }
+}
+async function newBranch() {
+  const cur = state.branches.find(b => b.id === activeBranch);
+  const base = cur ? cur.ruleset : {trust_path:[], keytab:'', clock_skew_secs:300};
+  const body = {
+    name: document.getElementById('bName').value || 'branch-' + Date.now(),
+    parent_branch_id: activeBranch,
+    ruleset: {
+      name: 'ruleset of ' + (document.getElementById('bName').value || 'new-branch'),
+      trust_path: document.getElementById('bTrust').value.split(',').map(s=>s.trim()).filter(Boolean).length
+        ? document.getElementById('bTrust').value.split(',').map(s=>s.trim()) : base.trust_path,
+      keytab: document.getElementById('bKeytab').value || base.keytab,
+      clock_skew_secs: Number(document.getElementById('bSkew').value || base.clock_skew_secs),
+    }
+  };
+  try { const r = await api('/api/branches', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    activeBranch = r.branch_id; await refresh(); toast('新分支已建立并完成推理，旧分支结论保留'); }
+  catch(e){ toast(e.message, true); }
+}
+
+refresh().catch(e => toast('初始化失败：'+e.message, true));
+</script>
+</body>
+</html>
