@@ -104,8 +104,38 @@ Options:
 - `randomization` (default `0`)
   - a positive number, the amount of extra points to randomly add within the bounding box before triangulation
   - higher number can lead to a nicer aesthetic, but slower triangulation
+- `fillRule` (default: unset)
+  - either `'nonzero'` or `'evenodd'`, selecting the SVG [fill rule](https://www.w3.org/TR/SVG/painting.html#FillRuleProperty) used to decide which regions are painted
+  - `'nonzero'` uses the directed winding number of the discrete contours: two same-direction loops keep the shared region filled, while opposite loops cancel out
+  - `'evenodd'` uses the parity of contour crossings, so every second layer is a hole regardless of contour direction
+  - the rule is evaluated on the 2D contours after curve discretization (`scale`) and `simplify`, before PSLG cleanup; the retained triangles never cross a cleaned contour edge
+  - limited to the combination `clean: true`, `interior: true`, `exterior: false`, `infinity: false` (all defaults). Passing any conflicting value, or an unknown rule, throws a `TypeError`
+  - when `fillRule` is omitted the behaviour is unchanged and the other options are forwarded to [cdt2d](https://www.npmjs.com/package/cdt2d) exactly as before
 
 Other options are passed to [cdt2d](https://www.npmjs.com/package/cdt2d), such as `exterior` (default false) and `interior` (default true).
+
+## Checks
+
+The pinned check runtime lives in `checks/runtime`. Install it once, then run:
+
+```sh
+npm install --prefix checks/runtime
+
+# legacy behaviour baseline (also exercises fillRule areas)
+sh checks/baseline.sh
+
+# fill rule test suite: areas, interior sample points, triangle overlap,
+# invalid options and unchanged default output
+NODE_PATH=checks/runtime/node_modules node --test checks/fill_rule.test.cjs
+```
+
+A diagnostic script renders the two fill rules of one path side by side as
+SVG. The picture is only for orientation; the tests decide correctness from
+numbers:
+
+```sh
+NODE_PATH=checks/runtime/node_modules node checks/fill_rule_svg.cjs out.svg "M0 0H10V10H0Z M2 2H8V8H2Z"
+```
 
 ## See Also
 
