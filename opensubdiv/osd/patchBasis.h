@@ -1580,7 +1580,12 @@ OsdEvaluatePatchBasis(
         }
 
         if (OSD_OPTIONAL(wDss && wDst && wDtt)) {
-            OSD_REAL d2Scale = derivSign * d1Scale * d1Scale;
+            //  For triangles rotated by 180 degrees, the mapping from (s,t)
+            //  negates both coordinates, so each first derivative is negated
+            //  but each second derivative is not (the two negations cancel).
+            //  d1Scale already contains the sign, so squaring it yields the
+            //  necessarily positive second-derivative scale.
+            OSD_REAL d2Scale = d1Scale * d1Scale;
 
             for (int i = 0; i < nPoints; ++i) {
                 wDss[i] *= d2Scale;
