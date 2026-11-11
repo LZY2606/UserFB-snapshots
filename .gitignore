@@ -30,3 +30,6 @@ Build/*
 ## Bazel-related
 /bazel-*
 MODULE.bazel.lock
+
+.build/
+.deps/
