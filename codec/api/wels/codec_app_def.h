@@ -169,6 +169,8 @@ typedef enum {
   DECODER_OPTION_IS_REF_PIC,             ///< feedback current frame is ref pic or not
   DECODER_OPTION_NUM_OF_FRAMES_REMAINING_IN_BUFFER,  ///< number of frames remaining in decoder buffer when pictures are required to re-ordered into display-order.
   DECODER_OPTION_NUM_OF_THREADS,         ///< number of decoding threads. The maximum thread count is equal or less than lesser of (cpu core counts and 16).
+  DECODER_OPTION_USER_DATA_UNREGISTERED_ENABLED, ///< set-only, input an int: non-zero enables, zero disables delivery of user data unregistered SEI messages (payload type 5). Default is disabled. Supported for Annex-B AVC input in normal decoding mode only. Changing this option discards pending and currently published messages; the next enabled sequence starts from an empty state.
+  DECODER_OPTION_GET_USER_DATA_UNREGISTERED,     ///< get-only, input the address of an SUserDataUnregisteredInfo. On success it is filled with the messages belonging to the picture actually returned by the latest DecodeFrame2/DecodeFrameNoDelay/FlushFrame call, in bitstream order. All pointers are decoder-owned and expire on the next such call, on Uninitialize, or when the enabled option changes. If that call returned no picture the count is zero.
 } DECODER_OPTION;
 
 /**

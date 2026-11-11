@@ -121,6 +121,7 @@ class CWelsDecoder : public ISVCDecoder {
   int32_t                 m_iCpuCount;
   int32_t                 m_iThreadCount;
   int32_t                 m_iCtxCount;
+  bool                    m_bDecoderThreadsOpen;
   PPicBuff                m_pPicBuff;
   bool                    m_bParamSetsLostFlag;
   bool                    m_bFreezeOutput;
@@ -140,6 +141,13 @@ class CWelsDecoder : public ISVCDecoder {
   SDecoderStatistics      m_sDecoderStatistics;// For real time debugging
   int32_t                 m_iStreamSeqNum;
 
+  // user_data_unregistered SEI support
+  bool                    m_bUserDataUnregisteredEnabled;
+  SSeiUserDataGroup       m_sSeiPendingShared;      // SEI parsed but not yet attached to an AU
+  SSeiUserDataGroup       m_sPublishedUserData;     // messages for the picture returned by the last call
+  unsigned long long      m_ullPublishedUserDataTimestamp;
+  bool                    m_bPublishedUserDataValid; // true when the last call returned a picture
+
  private:
   int32_t InitDecoder (const SDecodingParam* pParam);
   void UninitDecoder (void);
@@ -155,6 +163,12 @@ class CWelsDecoder : public ISVCDecoder {
   void BufferingReadyPicture (PWelsDecoderContext pCtx, unsigned char** ppDst, SBufferInfo* pDstInfo);
   void ReleaseBufferedReadyPictureReorder (PWelsDecoderContext pCtx, unsigned char** ppDst, SBufferInfo* pDstInfo, bool isFlush = false);
   void ReleaseBufferedReadyPictureNoReorder (PWelsDecoderContext pCtx, unsigned char** ppDst, SBufferInfo* pDstInfo);
+
+  // user_data_unregistered SEI helpers
+  void ClearPublishedUserData();
+  void ClearAllUserData();
+  void PublishUserDataFromGroup (SSeiUserDataGroup* pGroup, unsigned long long uiTimestamp);
+  void PublishUserDataFromContext (PWelsDecoderContext pCtx, SBufferInfo* pDstInfo);
 
   void OpenDecoderThreads();
   void CloseDecoderThreads();

@@ -281,6 +281,14 @@ uint8_t* ParseNalHeader (PWelsDecoderContext pCtx, SNalUnitHeader* pNalUnitHeade
     pCurAu        = pCtx->pAccessUnitList;
     uiAvailNalNum = pCurAu->uiAvailUnitsNum;
 
+    // The first VCL NAL of an access unit adopts the user_data_unregistered
+    // SEI messages that preceded it in decoding order.  This is structural:
+    // it never depends on input timestamps.
+    if (pCtx->bUserDataUnregisteredEnabled && !pCtx->pParam->bParseOnly
+        && IS_VCL_NAL_AVC_BASE (pNalUnitHeader->eNalUnitType) && uiAvailNalNum == 1) {
+      SeiUserDataGroupMove (&pCtx->sSeiCurrent, GetSeiPendingGroup (pCtx));
+    }
+
 
     if (pNalUnitHeader->eNalUnitType == NAL_UNIT_CODED_SLICE_EXT) {
       if (iNalSize < NAL_UNIT_HEADER_EXT_SIZE) {
@@ -1676,6 +1684,121 @@ int32_t ParseSei (void* pSei, PBitStringAux pBsAux) { // reserved Sei_Msg type
 
   return ERR_NONE;
 }
+
+/*!
+ *************************************************************************************
+ * \brief   parse user_data_unregistered SEI messages (payload type 5)
+ *
+ * \param   pCtx        decoder context
+ * \param   pRbsp       RBSP bytes with emulation_prevention_three_byte removed
+ * \param   iRbspLen    number of RBSP bytes available, trailing_zero_8bits removed
+ *
+ * \return  ERR_NONE on success, an error code otherwise.  On error the whole
+ *          pending group for the described access unit is discarded and
+ *          dsBitstreamError is reported through pCtx->iErrorCode.
+ *
+ * \note    The SEI syntax is byte aligned.  Each payload is preceded by a
+ *          payloadType and payloadSize, both using the 0xff continuation
+ *          encoding; unknown payload types are skipped by their declared size.
+ *          A valid rbsp_trailing_bits byte (0x80) must terminate the NAL.
+ *************************************************************************************
+ */
+int32_t ParseSeiUserDataUnregistered (PWelsDecoderContext pCtx, const uint8_t* pRbsp, int32_t iRbspLen) {
+  if (pCtx == NULL || !pCtx->bUserDataUnregisteredEnabled)
+    return ERR_NONE;
+
+  PSeiUserDataGroup pPending = GetSeiPendingGroup (pCtx);
+  SSeiUserDataGroup sParsed;
+  sParsed.pMessages = NULL;
+  sParsed.uiCount = 0;
+  sParsed.uiCapacity = 0;
+
+  bool bOk = (pRbsp != NULL) && (iRbspLen > 0);
+  bool bTrailingBitsFound = false;
+  int32_t iOffset = 0;
+
+  while (bOk && iOffset < iRbspLen) {
+    // After a complete payload the only remaining bytes are rbsp_trailing_bits.
+    // Trailing zero bytes were already stripped by ParseNalHeader.
+    if ((iRbspLen - iOffset) == 1 && pRbsp[iOffset] == 0x80) {
+      ++iOffset;
+      bTrailingBitsFound = true;
+      break;
+    }
+
+    uint64_t uiPayloadType = 0;
+    bool bDone = false;
+    while (bOk && !bDone) {
+      if (iOffset >= iRbspLen) {
+        bOk = false;
+        break;
+      }
+      uint8_t uiByte = pRbsp[iOffset++];
+      uiPayloadType += uiByte;
+      if (uiPayloadType > 0xFFFFFFFFull) { // extension overflow
+        bOk = false;
+        break;
+      }
+      bDone = (uiByte != 0xFF);
+    }
+
+    uint64_t uiPayloadSize = 0;
+    bDone = false;
+    while (bOk && !bDone) {
+      if (iOffset >= iRbspLen) {
+        bOk = false;
+        break;
+      }
+      uint8_t uiByte = pRbsp[iOffset++];
+      uiPayloadSize += uiByte;
+      if (uiPayloadSize > 0xFFFFFFFFull) { // extension overflow
+        bOk = false;
+        break;
+      }
+      bDone = (uiByte != 0xFF);
+    }
+
+    if (!bOk)
+      break;
+    if (uiPayloadSize > (uint64_t) (iRbspLen - iOffset)) { // past the end of this NAL
+      bOk = false;
+      break;
+    }
+
+    if (uiPayloadType == 5) {
+      if (uiPayloadSize < 16) { // no room for the 16-byte uuid
+        bOk = false;
+        break;
+      }
+      int32_t iRet = SeiUserDataGroupAppend (&sParsed, pRbsp + iOffset, pRbsp + iOffset + 16,
+                                             (uint32_t) (uiPayloadSize - 16));
+      if (iRet != ERR_NONE) {
+        pCtx->iErrorCode |= (iRet == ERR_INFO_OUT_OF_MEMORY ? dsOutOfMemory : dsBitstreamError);
+        bOk = false;
+        break;
+      }
+    }
+    iOffset += (int32_t) uiPayloadSize;
+  }
+
+  if (bOk && (!bTrailingBitsFound || iOffset != iRbspLen)) {
+    bOk = false; // missing or malformed rbsp_trailing_bits
+  }
+
+  if (bOk) {
+    int32_t iRet = SeiUserDataGroupMerge (pPending, &sParsed);
+    if (iRet == ERR_NONE)
+      return ERR_NONE;
+    pCtx->iErrorCode |= dsOutOfMemory;
+  }
+
+  // Discard partial results and the entire group accumulated for this access unit.
+  SeiUserDataGroupClear (&sParsed);
+  SeiUserDataGroupClear (pPending);
+  pCtx->iErrorCode |= dsBitstreamError;
+  return ERR_INFO_INVALID_PARAM;
+}
+
 /*
  *************************************************************************************
  * \brief   to parse scalinglist message payload

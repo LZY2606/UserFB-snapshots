@@ -60,6 +60,114 @@ extern PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth
 
 extern void FreePicture (PPicture pPic, CMemoryAlign* pMa);
 
+/* user_data_unregistered SEI group ownership helpers.  The data blobs and the
+ * message array are decoder-owned and are moved between groups by swapping
+ * pointers, so the public message pointers stay stable until invalidated. */
+void SeiUserDataGroupClear (SSeiUserDataGroup* pGroup) {
+  if (pGroup == NULL)
+    return;
+  if (pGroup->pMessages != NULL) {
+    for (uint32_t i = 0; i < pGroup->uiCount; ++i) {
+      if (pGroup->pMessages[i].data != NULL)
+        WelsCommon::WelsFree ((void*)pGroup->pMessages[i].data, "sei user data");
+    }
+    WelsCommon::WelsFree (pGroup->pMessages, "sei user data messages");
+  }
+  pGroup->pMessages = NULL;
+  pGroup->uiCount = 0;
+  pGroup->uiCapacity = 0;
+}
+
+void SeiUserDataGroupMove (SSeiUserDataGroup* pDst, SSeiUserDataGroup* pSrc) {
+  if (pDst == NULL || pSrc == NULL || pDst == pSrc)
+    return;
+  SeiUserDataGroupClear (pDst);
+  *pDst = *pSrc;
+  pSrc->pMessages = NULL;
+  pSrc->uiCount = 0;
+  pSrc->uiCapacity = 0;
+}
+
+int32_t SeiUserDataGroupAppend (SSeiUserDataGroup* pGroup, const uint8_t* pUuid, const uint8_t* pData,
+                                uint32_t uiSize) {
+  if (pGroup == NULL || pUuid == NULL)
+    return ERR_INFO_INVALID_PARAM;
+  if (pGroup->uiCount >= pGroup->uiCapacity) {
+    uint32_t uiNewCapacity = pGroup->uiCapacity == 0 ? 4 : pGroup->uiCapacity * 2;
+    if (uiNewCapacity < pGroup->uiCapacity) // overflow
+      return ERR_INFO_OUT_OF_MEMORY;
+    SUserDataUnregisteredMessage* pNewMessages = (SUserDataUnregisteredMessage*)WelsCommon::WelsMallocz (
+          uiNewCapacity * sizeof (SUserDataUnregisteredMessage), "sei user data messages");
+    if (pNewMessages == NULL)
+      return ERR_INFO_OUT_OF_MEMORY;
+    if (pGroup->pMessages != NULL) {
+      memcpy (pNewMessages, pGroup->pMessages, pGroup->uiCount * sizeof (SUserDataUnregisteredMessage));
+      WelsCommon::WelsFree (pGroup->pMessages, "sei user data messages");
+    }
+    pGroup->pMessages = pNewMessages;
+    pGroup->uiCapacity = uiNewCapacity;
+  }
+
+  SUserDataUnregisteredMessage* pMessage = &pGroup->pMessages[pGroup->uiCount];
+  memcpy (pMessage->uuid, pUuid, sizeof (pMessage->uuid));
+  pMessage->data = NULL;
+  pMessage->size = uiSize;
+  if (uiSize != 0) {
+    if (pData == NULL)
+      return ERR_INFO_INVALID_PARAM;
+    uint8_t* pDataCopy = (uint8_t*)WelsCommon::WelsMallocz (uiSize, "sei user data");
+    if (pDataCopy == NULL)
+      return ERR_INFO_OUT_OF_MEMORY;
+    memcpy (pDataCopy, pData, uiSize);
+    pMessage->data = pDataCopy;
+  }
+  ++pGroup->uiCount;
+  return ERR_NONE;
+}
+
+int32_t SeiUserDataGroupMerge (SSeiUserDataGroup* pDst, SSeiUserDataGroup* pSrc) {
+  if (pDst == NULL || pSrc == NULL)
+    return ERR_INFO_INVALID_PARAM;
+  if (pSrc->uiCount == 0) {
+    SeiUserDataGroupClear (pSrc);
+    return ERR_NONE;
+  }
+  uint32_t uiNewCount = pDst->uiCount + pSrc->uiCount;
+  if (uiNewCount < pDst->uiCount) // overflow
+    return ERR_INFO_OUT_OF_MEMORY;
+  if (uiNewCount > pDst->uiCapacity) {
+    uint32_t uiNewCapacity = pDst->uiCapacity == 0 ? 4 : pDst->uiCapacity;
+    while (uiNewCapacity < uiNewCount) {
+      if (uiNewCapacity > 0x7FFFFFFF) {
+        uiNewCapacity = uiNewCount;
+        break;
+      }
+      uiNewCapacity *= 2;
+    }
+    SUserDataUnregisteredMessage* pNewMessages = (SUserDataUnregisteredMessage*)WelsCommon::WelsMallocz (
+          uiNewCapacity * sizeof (SUserDataUnregisteredMessage), "sei user data messages");
+    if (pNewMessages == NULL)
+      return ERR_INFO_OUT_OF_MEMORY;
+    if (pDst->pMessages != NULL) {
+      memcpy (pNewMessages, pDst->pMessages, pDst->uiCount * sizeof (SUserDataUnregisteredMessage));
+      WelsCommon::WelsFree (pDst->pMessages, "sei user data messages");
+    }
+    pDst->pMessages = pNewMessages;
+    pDst->uiCapacity = uiNewCapacity;
+  }
+  // Ownership of the data blobs is transferred together with the structs.
+  memcpy (&pDst->pMessages[pDst->uiCount], pSrc->pMessages,
+          pSrc->uiCount * sizeof (SUserDataUnregisteredMessage));
+  pDst->uiCount = uiNewCount;
+  // Free only the container: the data pointers now belong to pDst.
+  WelsCommon::WelsFree (pSrc->pMessages, "sei user data messages");
+  pSrc->pMessages = NULL;
+  pSrc->uiCount = 0;
+  pSrc->uiCapacity = 0;
+  return ERR_NONE;
+}
+
+
 static int32_t CreatePicBuff (PWelsDecoderContext pCtx, PPicBuff* ppPicBuf, const int32_t kiSize,
                               const int32_t kiPicWidth, const int32_t kiPicHeight) {
 
@@ -312,6 +420,7 @@ void ResetReorderingPictureBuffers (PPictReoderingStatus pPictReoderingStatus, P
     for (int32_t i = 0; i < pictInfoListCount; ++i) {
       pPictInfo[i].iPOC = IMinInt32;
       pPictInfo[i].iPicBuffIdx = -1; //ensure a deterministic invalid sentinel so error-path decoding cannot leave heap garbage
+      SeiUserDataGroupClear (&pPictInfo[i].sUserData);
     }
     pPictInfo->sBufferInfo.iBufferStatus = 0;
 		pPictReoderingStatus->bHasBSlice = false;
@@ -843,6 +952,9 @@ int32_t WelsDecodeBs (PWelsDecoderContext pCtx, const uint8_t* kpBsBuf, const in
           if (pNalPayload) { //parse correct
             if (IS_PARAM_SETS_NALS (pCtx->sCurNalHead.eNalUnitType)) {
               iRet = ParseNonVclNal (pCtx, pNalPayload, iDstIdx - iConsumedBytes, pSrcNal - 3, iSrcIdx + 3);
+            } else if (pCtx->bUserDataUnregisteredEnabled && !pCtx->pParam->bParseOnly
+                       && pCtx->sCurNalHead.eNalUnitType == NAL_UNIT_SEI) {
+              ParseSeiUserDataUnregistered (pCtx, pNalPayload, iDstIdx - iConsumedBytes);
             }
             CheckAndFinishLastPic (pCtx, ppDst, pDstBufInfo);
             if (pCtx->bAuReadyFlag && pCtx->pAccessUnitList->uiAvailUnitsNum != 0) {
@@ -911,6 +1023,9 @@ int32_t WelsDecodeBs (PWelsDecoderContext pCtx, const uint8_t* kpBsBuf, const in
     if (pNalPayload) { //parse correct
       if (IS_PARAM_SETS_NALS (pCtx->sCurNalHead.eNalUnitType)) {
         iRet = ParseNonVclNal (pCtx, pNalPayload, iDstIdx - iConsumedBytes, pSrcNal - 3, iSrcIdx + 3);
+      } else if (pCtx->bUserDataUnregisteredEnabled && !pCtx->pParam->bParseOnly
+                 && pCtx->sCurNalHead.eNalUnitType == NAL_UNIT_SEI) {
+        ParseSeiUserDataUnregistered (pCtx, pNalPayload, iDstIdx - iConsumedBytes);
       }
       if (GetThreadCount (pCtx) <= 1) {
         CheckAndFinishLastPic (pCtx, ppDst, pDstBufInfo);

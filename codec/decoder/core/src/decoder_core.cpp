@@ -47,6 +47,7 @@ namespace WelsDec {
 static inline int32_t DecodeFrameConstruction (PWelsDecoderContext pCtx, uint8_t** ppDst, SBufferInfo* pDstInfo) {
   PDqLayer pCurDq = pCtx->pCurDqLayer;
   PPicture pPic = pCtx->pDec;
+  pCtx->bSeiPictureOutput = false;
 
   const int32_t kiWidth = pCurDq->iMbWidth << 4;
   const int32_t kiHeight = pCurDq->iMbHeight << 4;
@@ -279,6 +280,8 @@ static inline int32_t DecodeFrameConstruction (PWelsDecoderContext pCtx, uint8_t
     }
     UpdateDecStat (pCtx, pDstInfo->iBufferStatus != 0);
   }
+  if (pCtx->bUserDataUnregisteredEnabled)
+    pCtx->bSeiPictureOutput = (pDstInfo->iBufferStatus == 1);
   return ERR_NONE;
 }
 
@@ -1854,6 +1857,11 @@ void ResetCurrentAccessUnit (PWelsDecoderContext pCtx) {
     }
     pCurAu->uiActualUnitsNum = pCurAu->uiAvailUnitsNum = kuiSwapLimit;
   }
+  // If slice NALs of the next access unit were already parsed and retained,
+  // they own the messages that were pending before that AU started.
+  if (pCtx->bUserDataUnregisteredEnabled && pCurAu->uiAvailUnitsNum > 0) {
+    SeiUserDataGroupMove (&pCtx->sSeiCurrent, GetSeiPendingGroup (pCtx));
+  }
 }
 
 /*!
@@ -2381,6 +2389,8 @@ int32_t InitConstructAccessUnit (PWelsDecoderContext pCtx, SBufferInfo* pDstInfo
  */
 int32_t ConstructAccessUnit (PWelsDecoderContext pCtx, uint8_t** ppDst, SBufferInfo* pDstInfo) {
   int32_t iErr = ERR_NONE;
+  if (pCtx->bUserDataUnregisteredEnabled)
+    pCtx->bSeiPictureOutput = false;
   if (GetThreadCount (pCtx) <= 1) {
     iErr = InitConstructAccessUnit (pCtx, pDstInfo);
     if (ERR_NONE != iErr) {
@@ -2394,6 +2404,17 @@ int32_t ConstructAccessUnit (PWelsDecoderContext pCtx, uint8_t** ppDst, SBufferI
   }
 
   iErr = DecodeCurrentAccessUnit (pCtx, ppDst, pDstInfo);
+
+  // The messages follow this AU's picture.  If the picture was discarded
+  // (no output), drop them instead of handing them to a later picture.
+  if (pCtx->bUserDataUnregisteredEnabled) {
+    if (pCtx->bSeiPictureOutput) {
+      SeiUserDataGroupMove (&pCtx->sSeiReady, &pCtx->sSeiCurrent);
+    } else {
+      SeiUserDataGroupClear (&pCtx->sSeiCurrent);
+    }
+    pCtx->bSeiPictureOutput = false;
+  }
 
   WelsDecodeAccessUnitEnd (pCtx);
 

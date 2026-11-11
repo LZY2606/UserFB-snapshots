@@ -204,6 +204,49 @@ typedef struct TagBufferInfo {
   unsigned char* pDst[3];  //point to picture YUV data
 } SBufferInfo;
 
+/**
+* @brief  One user data unregistered SEI message (H.264 SEI payload type 5).
+*
+* The message payload is split into the 16-byte uuid and the remaining
+* application data.  The uuid is never included in data.  data may be NULL
+* when size is zero and its contents are arbitrary binary data.
+*
+* All pointer members are owned by the decoder.  They remain valid until the
+* next call to DecodeFrame2, DecodeFrameNoDelay or FlushFrame, until the
+* decoder is uninitialized, or until DECODER_OPTION_USER_DATA_UNREGISTERED_ENABLED
+* is set.  The application must not free them.  Consecutive GetOption calls
+* that are not separated by one of those operations keep returning the same
+* messages.
+*
+* These messages are only produced for Annex-B AVC input in normal decoding
+* mode (parse-only and encoder interfaces are not extended) and only while
+* DECODER_OPTION_USER_DATA_UNREGISTERED_ENABLED is enabled.
+*/
+typedef struct TagUserDataUnregisteredMessage {
+  unsigned char uuid[16];       ///< 16-byte UUID from the SEI message
+  const unsigned char* data;    ///< application data following the UUID, decoder-owned
+  unsigned int size;            ///< number of bytes in data, may be zero
+} SUserDataUnregisteredMessage;
+
+/**
+* @brief  User data unregistered messages belonging to the picture returned by
+*         the most recent successful output of DecodeFrame2, DecodeFrameNoDelay
+*         or FlushFrame.
+*
+* messages points at count contiguous entries owned by the decoder; the array
+* follows the bitstream order and messages with the same uuid are not merged.
+* The pointer members are invalidated under the same conditions as
+* SUserDataUnregisteredMessage.  timestamp uses the same type as
+* SBufferInfo::uiOutYuvTimeStamp and is the timestamp of the returned picture.
+* When no picture was returned, or when the feature is disabled, count is zero
+* and messages is NULL.
+*/
+typedef struct TagUserDataUnregisteredInfo {
+  unsigned int count;                                  ///< number of messages
+  const SUserDataUnregisteredMessage* messages;        ///< decoder-owned array of count messages
+  unsigned long long timestamp;                        ///< timestamp of the returned picture
+} SUserDataUnregisteredInfo;
+
 
 /**
 * @brief In a GOP, multiple of the key frame number, derived from

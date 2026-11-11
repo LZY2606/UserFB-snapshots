@@ -280,12 +280,25 @@ typedef struct tagSWelsLastDecPicInfo {
   uint32_t          uiDecodingTimeStamp; //represent relative decoding time stamps
 } SWelsLastDecPicInfo, *PWelsLastDecPicInfo;
 
+/*
+ * Owned group of user data unregistered SEI messages.  The group follows its
+ * picture through the access unit, reordering queue and decoder output; it is
+ * moved (never copied) between stages so the public message pointers stay
+ * stable until they are explicitly invalidated.
+ */
+typedef struct TagSeiUserDataGroup {
+  SUserDataUnregisteredMessage* pMessages;
+  uint32_t uiCount;
+  uint32_t uiCapacity;
+} SSeiUserDataGroup, *PSeiUserDataGroup;
+
 typedef struct tagPictInfo {
   SBufferInfo             sBufferInfo;
   int32_t                 iPOC;
   int32_t                 iPicBuffIdx;
   uint32_t                uiDecodingTimeStamp;
   int32_t                 iSeqNum;
+  SSeiUserDataGroup       sUserData;  // user data messages travelling with this picture
 } SPictInfo, *PPictInfo;
 
 typedef struct tagPictReoderingStatus {
@@ -502,6 +515,14 @@ typedef struct TagWelsDecoderContext {
   PPicture pECRefPic[16];
   unsigned long long uiTimeStamp;
   uint32_t    uiDecodingTimeStamp; //represent relative decoding time stamps
+
+// user_data_unregistered SEI (H.264 payload type 5)
+  bool                 bUserDataUnregisteredEnabled; // option state for this context
+  bool                 bSeiPictureOutput;            // DecodeFrameConstruction produced a picture for this AU
+  PSeiUserDataGroup    pSeiPending;   // shared pending group owned by CWelsDecoder, may be NULL
+  SSeiUserDataGroup    sSeiPending;   // per-context fallback when pSeiPending is NULL
+  SSeiUserDataGroup    sSeiCurrent;   // messages attached to the AU being assembled/decoded
+  SSeiUserDataGroup    sSeiReady;     // messages waiting to be attached to the output picture
 // To support scaling list HP
   uint16_t  pDequant_coeff_buffer4x4[6][52][16];
   uint16_t  pDequant_coeff_buffer8x8[6][52][64];
@@ -518,6 +539,17 @@ typedef struct TagWelsDecoderContext {
   PPictInfo               pPictInfoList;
   PPictReoderingStatus    pPictReoderingStatus;
 } SWelsDecoderContext, *PWelsDecoderContext;
+
+// user-data-unregistered SEI group helpers (implemented in decoder.cpp)
+void SeiUserDataGroupClear (SSeiUserDataGroup* pGroup);
+void SeiUserDataGroupMove (SSeiUserDataGroup* pDst, SSeiUserDataGroup* pSrc);
+int32_t SeiUserDataGroupAppend (SSeiUserDataGroup* pGroup, const uint8_t* pUuid, const uint8_t* pData,
+                                uint32_t uiSize);
+int32_t SeiUserDataGroupMerge (SSeiUserDataGroup* pDst, SSeiUserDataGroup* pSrc);
+int32_t ParseSeiUserDataUnregistered (PWelsDecoderContext pCtx, const uint8_t* pRbsp, int32_t iRbspLen);
+static inline PSeiUserDataGroup GetSeiPendingGroup (PWelsDecoderContext pCtx) {
+  return pCtx->pSeiPending != NULL ? pCtx->pSeiPending : &pCtx->sSeiPending;
+}
 
 typedef struct tagSWelsDecThread {
   SWelsDecSemphore* sIsBusy;

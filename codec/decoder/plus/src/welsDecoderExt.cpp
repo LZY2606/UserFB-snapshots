@@ -140,6 +140,7 @@ CWelsDecoder::CWelsDecoder (void)
     m_iCpuCount (1),
     m_iThreadCount (0),
     m_iCtxCount (1),
+    m_bDecoderThreadsOpen (false),
     m_pPicBuff (NULL),
     m_bParamSetsLostFlag (false),
     m_bFreezeOutput (false),
@@ -150,6 +151,15 @@ CWelsDecoder::CWelsDecoder (void)
     m_iStreamSeqNum (0) {
   memset (&m_sReoderingStatus, 0, sizeof (m_sReoderingStatus));
   m_sReoderingStatus.iMinPOC = IMinInt32;
+  m_bUserDataUnregisteredEnabled = false;
+  m_sSeiPendingShared.pMessages = NULL;
+  m_sSeiPendingShared.uiCount = 0;
+  m_sSeiPendingShared.uiCapacity = 0;
+  m_sPublishedUserData.pMessages = NULL;
+  m_sPublishedUserData.uiCount = 0;
+  m_sPublishedUserData.uiCapacity = 0;
+  m_ullPublishedUserDataTimestamp = 0;
+  m_bPublishedUserDataValid = false;
   for (int32_t i = 0; i < 16; ++i) {
     memset (&m_sPictInfoList[i], 0, sizeof (m_sPictInfoList[i]));
     m_sPictInfoList[i].iPOC = IMinInt32;
@@ -244,6 +254,7 @@ CWelsDecoder::~CWelsDecoder() {
   }
   CloseDecoderThreads();
   UninitDecoder();
+  ClearAllUserData();
 
 #ifdef OUTPUT_BIT_STREAM
   if (m_pFBS) {
@@ -286,7 +297,11 @@ long CWelsDecoder::Initialize (const SDecodingParam* pParam) {
 }
 
 long CWelsDecoder::Uninitialize() {
+  // Stop worker threads before their contexts are released; otherwise a
+  // worker that is still finishing an access unit can observe freed contexts.
+  CloseDecoderThreads();
   UninitDecoder();
+  ClearAllUserData();
 
   return ERR_NONE;
 }
@@ -304,6 +319,7 @@ void CWelsDecoder::UninitDecoder (void) {
 
 void CWelsDecoder::OpenDecoderThreads() {
   if (m_iThreadCount >= 1) {
+    m_bDecoderThreadsOpen = true;
     m_uiDecodeTimeStamp = 0;
     CREATE_SEMAPHORE (&m_sIsBusy, m_iThreadCount, m_iThreadCount, NULL);
     WelsMutexInit (&m_csDecoder);
@@ -333,7 +349,8 @@ void CWelsDecoder::OpenDecoderThreads() {
   }
 }
 void CWelsDecoder::CloseDecoderThreads() {
-  if (m_iThreadCount >= 1) {
+  if (m_iThreadCount >= 1 && m_bDecoderThreadsOpen) {
+    m_bDecoderThreadsOpen = false;
     SET_EVENT (&m_sReleaseBufferEvent);
     for (int32_t i = 0; i < m_iThreadCount; i++) { //waiting the completion begun slices
       WAIT_SEMAPHORE (&m_pDecThrCtx[i].sThreadInfo.sIsIdle, WELS_DEC_THREAD_WAIT_INFINITE);
@@ -370,6 +387,9 @@ void CWelsDecoder::UninitDecoderCtx (PWelsDecoderContext& pCtx) {
     }
 
     if (NULL != pCtx) {
+      SeiUserDataGroupClear (&pCtx->sSeiPending);
+      SeiUserDataGroupClear (&pCtx->sSeiCurrent);
+      SeiUserDataGroupClear (&pCtx->sSeiReady);
       WelsFree (pCtx, "m_pDecContext");
 
       pCtx = NULL;
@@ -431,6 +451,12 @@ int32_t CWelsDecoder::InitDecoderCtx (PWelsDecoderContext& pCtx, const SDecoding
   pCtx->pStreamSeqNum = &m_iStreamSeqNum;
   WelsDecoderDefaults (pCtx, &m_pWelsTrace->m_sLogCtx);
   WelsDecoderSpsPpsDefaults (pCtx->sSpsPpsCtx);
+  // user_data_unregistered SEI state is per-decoder; pending messages are
+  // shared by all worker contexts so an SEI-only call is seen by whichever
+  // context later assembles the described access unit.
+  pCtx->bUserDataUnregisteredEnabled = m_bUserDataUnregisteredEnabled;
+  pCtx->pSeiPending = &m_sSeiPendingShared;
+  pCtx->bSeiPictureOutput = false;
   //check param and update decoder context
   pCtx->pParam = (SDecodingParam*)pCtx->pMemAlign->WelsMallocz (sizeof (SDecodingParam),
                  "SDecodingParam");
@@ -446,6 +472,10 @@ int32_t CWelsDecoder::InitDecoderCtx (PWelsDecoderContext& pCtx, const SDecoding
 }
 
 int32_t CWelsDecoder::ResetDecoder (PWelsDecoderContext& pCtx) {
+  // A reset starts from a clean user-data state so messages never survive
+  // across decoder rebuilds.
+  SeiUserDataGroupClear (&m_sSeiPendingShared);
+  ClearPublishedUserData();
   // TBC: need to be modified when context and trace point are null
   if (m_iThreadCount >= 1) {
     ThreadResetDecoder (pCtx);
@@ -467,6 +497,8 @@ int32_t CWelsDecoder::ResetDecoder (PWelsDecoderContext& pCtx) {
 }
 
 int32_t CWelsDecoder::ThreadResetDecoder (PWelsDecoderContext& pCtx) {
+  SeiUserDataGroupClear (&m_sSeiPendingShared);
+  ClearPublishedUserData();
   // TBC: need to be modified when context and trace point are null
   SDecodingParam sPrevParam;
   if (pCtx != NULL && m_pWelsTrace != NULL) {
@@ -508,6 +540,25 @@ long CWelsDecoder::SetOption (DECODER_OPTION eOptID, void* pOption) {
       }
     }
     return cmResultSuccess;
+  }
+  if (eOptID == DECODER_OPTION_USER_DATA_UNREGISTERED_ENABLED) {
+    if (pOption == NULL)
+      return cmInitParaError;
+    const bool bEnable = (* ((int*)pOption)) != 0;
+    // Disabling and re-enabling both start from an empty state; discard
+    // pending messages as well as the currently published set.
+    ClearAllUserData();
+    m_bUserDataUnregisteredEnabled = bEnable;
+    for (int32_t i = 0; i < m_iCtxCount; ++i) {
+      if (m_pDecThrCtx[i].pCtx != NULL)
+        m_pDecThrCtx[i].pCtx->bUserDataUnregisteredEnabled = bEnable;
+    }
+    return cmResultSuccess;
+  }
+  if (eOptID == DECODER_OPTION_GET_USER_DATA_UNREGISTERED) {
+    WelsLog (&m_pWelsTrace->m_sLogCtx, WELS_LOG_WARNING,
+             "CWelsDecoder::SetOption():DECODER_OPTION_GET_USER_DATA_UNREGISTERED: this option is get-only!");
+    return cmInitParaError;
   }
   for (int32_t i = 0; i < m_iCtxCount; ++i) {
     PWelsDecoderContext pDecContext = m_pDecThrCtx[i].pCtx;
@@ -602,6 +653,20 @@ long CWelsDecoder::GetOption (DECODER_OPTION eOptID, void* pOption) {
 
   if (pOption == NULL)
     return cmInitParaError;
+
+  if (DECODER_OPTION_GET_USER_DATA_UNREGISTERED == eOptID) {
+    SUserDataUnregisteredInfo* pInfo = (SUserDataUnregisteredInfo*)pOption;
+    if (m_bUserDataUnregisteredEnabled && m_bPublishedUserDataValid) {
+      pInfo->count = m_sPublishedUserData.uiCount;
+      pInfo->messages = m_sPublishedUserData.uiCount != 0 ? m_sPublishedUserData.pMessages : NULL;
+      pInfo->timestamp = m_ullPublishedUserDataTimestamp;
+    } else {
+      pInfo->count = 0;
+      pInfo->messages = NULL;
+      pInfo->timestamp = 0;
+    }
+    return cmResultSuccess;
+  }
 
   if (DECODER_OPTION_END_OF_STREAM == eOptID) {
     iVal = pDecContext->bEndOfStreamFlag;
@@ -701,11 +766,49 @@ long CWelsDecoder::GetOption (DECODER_OPTION eOptID, void* pOption) {
   return cmInitParaError;
 }
 
+void CWelsDecoder::ClearPublishedUserData() {
+  SeiUserDataGroupClear (&m_sPublishedUserData);
+  m_ullPublishedUserDataTimestamp = 0;
+  m_bPublishedUserDataValid = false;
+}
+
+void CWelsDecoder::ClearAllUserData() {
+  SeiUserDataGroupClear (&m_sSeiPendingShared);
+  ClearPublishedUserData();
+  if (m_pDecThrCtx != NULL) {
+    for (int32_t i = 0; i < m_iCtxCount; ++i) {
+      PWelsDecoderContext pCtx = m_pDecThrCtx[i].pCtx;
+      if (pCtx != NULL) {
+        SeiUserDataGroupClear (&pCtx->sSeiPending);
+        SeiUserDataGroupClear (&pCtx->sSeiCurrent);
+        SeiUserDataGroupClear (&pCtx->sSeiReady);
+      }
+    }
+  }
+  for (int32_t i = 0; i < 16; ++i)
+    SeiUserDataGroupClear (&m_sPictInfoList[i].sUserData);
+}
+
+void CWelsDecoder::PublishUserDataFromGroup (SSeiUserDataGroup* pGroup, unsigned long long uiTimestamp) {
+  SeiUserDataGroupMove (&m_sPublishedUserData, pGroup);
+  m_ullPublishedUserDataTimestamp = uiTimestamp;
+  m_bPublishedUserDataValid = true;
+}
+
+void CWelsDecoder::PublishUserDataFromContext (PWelsDecoderContext pCtx, SBufferInfo* pDstInfo) {
+  if (!m_bUserDataUnregisteredEnabled) {
+    SeiUserDataGroupClear (&pCtx->sSeiReady);
+    return;
+  }
+  PublishUserDataFromGroup (&pCtx->sSeiReady, pDstInfo != NULL ? pDstInfo->uiOutYuvTimeStamp : 0);
+}
+
 DECODING_STATE CWelsDecoder::DecodeFrameNoDelay (const unsigned char* kpSrc,
     const int kiSrcLen,
     unsigned char** ppDst,
     SBufferInfo* pDstInfo) {
   int iRet = dsErrorFree;
+  ClearPublishedUserData();
   if (m_iThreadCount >= 1) {
     SET_EVENT (&m_sReleaseBufferEvent);
     iRet = ThreadDecodeFrameInternal (kpSrc, kiSrcLen, ppDst, pDstInfo);
@@ -940,12 +1043,14 @@ DECODING_STATE CWelsDecoder::DecodeFrame2 (const unsigned char* kpSrc,
     const int kiSrcLen,
     unsigned char** ppDst,
     SBufferInfo* pDstInfo) {
+  ClearPublishedUserData();
   PWelsDecoderContext pDecContext = m_pDecThrCtx[0].pCtx;
   return DecodeFrame2WithCtx (pDecContext, kpSrc, kiSrcLen, ppDst, pDstInfo);
 }
 
 DECODING_STATE CWelsDecoder::FlushFrame (unsigned char** ppDst,
     SBufferInfo* pDstInfo) {
+  ClearPublishedUserData();
   bool bEndOfStreamFlag = true;
   if (m_iThreadCount <= 1) {
     for (int32_t j = 0; j < m_iCtxCount; ++j) {
@@ -1035,6 +1140,10 @@ void CWelsDecoder::BufferingReadyPicture (PWelsDecoderContext pCtx, unsigned cha
   for (int32_t i = 0; i < 16; ++i) {
     if (m_sPictInfoList[i].iPOC == IMinInt32) {
       memcpy (&m_sPictInfoList[i].sBufferInfo, pDstInfo, sizeof (SBufferInfo));
+      if (m_bUserDataUnregisteredEnabled) {
+        SeiUserDataGroupClear (&m_sPictInfoList[i].sUserData);
+        SeiUserDataGroupMove (&m_sPictInfoList[i].sUserData, &pCtx->sSeiReady);
+      }
       m_sPictInfoList[i].iPOC = pCtx->pSliceHeader->iPicOrderCntLsb;
       m_sPictInfoList[i].iSeqNum = pCtx->iSeqNum;
       m_sPictInfoList[i].uiDecodingTimeStamp = pCtx->uiDecodingTimeStamp;
@@ -1111,6 +1220,9 @@ void CWelsDecoder::ReleaseBufferedReadyPictureReorder (PWelsDecoderContext pCtx,
 #endif
 #endif
       memcpy (pDstInfo, &m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].sBufferInfo, sizeof (SBufferInfo));
+      if (m_bUserDataUnregisteredEnabled)
+        PublishUserDataFromGroup (&m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].sUserData,
+                                  pDstInfo->uiOutYuvTimeStamp);
       ppDst[0] = pDstInfo->pDst[0];
       ppDst[1] = pDstInfo->pDst[1];
       ppDst[2] = pDstInfo->pDst[2];
@@ -1167,6 +1279,9 @@ void CWelsDecoder::ReleaseBufferedReadyPictureNoReorder(PWelsDecoderContext pCtx
     m_sReoderingStatus.iLastWrittenPOC = m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].iPOC;
     m_sReoderingStatus.iLastWrittenSeqNum = m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].iSeqNum;
     memcpy(pDstInfo, &m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].sBufferInfo, sizeof(SBufferInfo));
+    if (m_bUserDataUnregisteredEnabled)
+      PublishUserDataFromGroup (&m_sPictInfoList[m_sReoderingStatus.iPictInfoIndex].sUserData,
+                                pDstInfo->uiOutYuvTimeStamp);
     ppDst[0] = pDstInfo->pDst[0];
     ppDst[1] = pDstInfo->pDst[1];
     ppDst[2] = pDstInfo->pDst[2];
@@ -1210,6 +1325,7 @@ DECODING_STATE CWelsDecoder::ReorderPicturesInDisplay(PWelsDecoderContext pDecCo
              pDecContext->uiDecodingTimeStamp);
 #endif
 #endif
+          PublishUserDataFromContext (pDecContext, pDstInfo);
           return iRet;
         }
         BufferingReadyPicture(pDecContext, ppDst, pDstInfo);
@@ -1220,8 +1336,13 @@ DECODING_STATE CWelsDecoder::ReorderPicturesInDisplay(PWelsDecoderContext pDecCo
           ReleaseBufferedReadyPictureReorder (pDecContext, ppDst, pDstInfo);
         }
       }
+      return iRet;
     }
   }
+  // Baseline output or a direct output without an active SPS bypasses the
+  // reordering queue, so publish its messages here.
+  if (pDstInfo->iBufferStatus == 1)
+    PublishUserDataFromContext (pDecContext, pDstInfo);
   return iRet;
 }
 
@@ -1372,6 +1493,12 @@ DECODING_STATE CWelsDecoder::ParseAccessUnit (SWelsDecoderThreadCTX& sThreadCtx)
 
   int32_t iRet = DecodeFrame2WithCtx (sThreadCtx.pCtx, sThreadCtx.kpSrc, sThreadCtx.kiSrcLen, sThreadCtx.ppDst,
                                       &sThreadCtx.sDstInfo);
+  // A call that carried no VCL NAL (for example a standalone prefix SEI or a
+  // parameter-set-only packet) does not form an access unit.  Skipping
+  // WelsDecodeInitAccessUnitStart() here avoids operating on an empty AU.
+  if (GetThreadCount (sThreadCtx.pCtx) > 0 && sThreadCtx.pCtx->pAccessUnitList->uiAvailUnitsNum == 0) {
+    return (DECODING_STATE) iRet;
+  }
 
   int32_t iErr = WelsDecodeInitAccessUnitStart (sThreadCtx.pCtx, &sThreadCtx.sDstInfo);
   if (ERR_NONE != iErr) {
@@ -1445,6 +1572,20 @@ int CWelsDecoder::ThreadDecodeFrameInternal (const unsigned char* kpSrc, const i
     signal = m_pDecThrCtxActive[0]->sThreadInfo.uiThrNum;
   }
 
+  // A standalone non-VCL call can disturb the round-robin order and make the
+  // next decode reuse the context that decoded the previous picture.  That
+  // context would then wait on its own slice-finish event.  Prefer a different
+  // context so the thread-to-thread reference hand-off remains valid.
+  if (m_iThreadCount > 1 && m_pLastDecThrCtx != NULL
+      && m_pLastDecThrCtx == &m_pDecThrCtx[signal]) {
+    for (i = 0; i < m_iThreadCount; ++i) {
+      if (i != signal) {
+        signal = i;
+        break;
+      }
+    }
+  }
+
   WAIT_SEMAPHORE (&m_pDecThrCtx[signal].sThreadInfo.sIsIdle, WELS_DEC_THREAD_WAIT_INFINITE);
 
   for (i = 0; i < m_DecCtxActiveCount; ++i) {
@@ -1459,8 +1600,13 @@ int CWelsDecoder::ThreadDecodeFrameInternal (const unsigned char* kpSrc, const i
     }
   }
 
-  if (m_pLastDecThrCtx != NULL) {
+  if (m_pLastDecThrCtx != NULL && m_pLastDecThrCtx != &m_pDecThrCtx[signal]) {
     m_pDecThrCtx[signal].pCtx->pLastThreadCtx = m_pLastDecThrCtx;
+  } else {
+    // Reusing the context that decoded the previous access unit: waiting on
+    // itself would time out and drop the picture.  Decode sequentially using
+    // this context's own reference state instead.
+    m_pDecThrCtx[signal].pCtx->pLastThreadCtx = NULL;
   }
   m_pDecThrCtx[signal].kpSrc = const_cast<uint8_t*> (kpSrc);
   m_pDecThrCtx[signal].kiSrcLen = kiSrcLen;
@@ -1473,7 +1619,13 @@ int CWelsDecoder::ThreadDecodeFrameInternal (const unsigned char* kpSrc, const i
     return state;
   }
 
-  if (m_iThreadCount > 1 && m_pDecThrCtx[signal].pCtx->pAccessUnitList->uiAvailUnitsNum == 0) {
+  if (m_iThreadCount > 0 && m_pDecThrCtx[signal].pCtx->pAccessUnitList->uiAvailUnitsNum == 0) {
+    // No access unit was formed (standalone SEI, parameter sets only, ...).
+    // Wait for this context to finish and put it back into the active list so
+    // the round-robin bookkeeping stays balanced; otherwise the next calls can
+    // select the same context as its own predecessor.
+    if (m_DecCtxActiveCount < WELS_DEC_MAX_NUM_CPU)
+      m_pDecThrCtxActive[m_DecCtxActiveCount++] = &m_pDecThrCtx[signal];
     RELEASE_SEMAPHORE (&m_pDecThrCtx[signal].sThreadInfo.sIsIdle);
     return state;
   }
