@@ -33,6 +33,11 @@ r8brain-free-src is the same algorithm featured in the free
 [Voxengo](https://www.voxengo.com/?eref=ghr) r8brain sample rate converter
 application.
 
+## Powered By
+
+(This sponsored banner spot is available for interested parties, contact
+aleksey.vaneev@gmail.com or info@voxengo.com for details.)
+
 ## Requirements
 
 C++ compiler and system with the "double" floating-point type (53-bit
