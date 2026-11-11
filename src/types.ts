@@ -115,6 +115,12 @@ export interface FitToOptions {
 	paddingTop   : number;
 }
 
+export interface FitToPointsOptions {
+	// Fraction of the half viewport reserved as padding on every side.
+	// 0 (the default) fills the viewport; values must be in the range [0, 1).
+	ndcPadding: number;
+}
+
 export interface CameraControlsEventMap {
 	update         : { type: 'update' };
 	wake           : { type: 'wake' };

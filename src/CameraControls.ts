@@ -9,6 +9,7 @@ import {
 	MouseButtons,
 	Touches,
 	FitToOptions,
+	FitToPointsOptions,
 	CameraControlsEventMap,
 	isPerspectiveCamera,
 	isOrthographicCamera,
@@ -2069,6 +2070,338 @@ export class CameraControls extends EventDispatcher {
 		promises.push( this.setFocalOffset( 0, 0, 0, enableTransition ) );
 
 		return Promise.all( promises );
+
+	}
+
+	/**
+	 * Fit the viewport to the given world-space points, keeping the viewing direction
+	 * described by the currently planned azimuth and polar angles (no axis snapping,
+	 * unlike `fitToBox`).
+	 *
+	 * The orbit target is moved to the center of the world-axis-aligned bounding box
+	 * of the points. For a perspective camera, the zoom is untouched and the smallest
+	 * feasible orbit radius is chosen within `minDistance`/`maxDistance`. For an
+	 * orthographic camera, the orbit radius is untouched and the largest feasible zoom
+	 * is chosen within `minZoom`/`maxZoom`. Every point is evaluated individually, so
+	 * elongated parts are not shrunk the way a bounding-sphere approximation would.
+	 *
+	 * On success the focal offset is cleared. `camera.up` and the projection type are
+	 * never changed.
+	 *
+	 * e.g.
+	 * ```
+	 * const points = [];
+	 * const vertex = new THREE.Vector3();
+	 * const positionAttribute = mesh.geometry.attributes.position;
+	 * mesh.updateWorldMatrix( true, false );
+	 * for ( let i = 0; i < positionAttribute.count; i ++ ) {
+	 *
+	 * 	vertex.fromBufferAttribute( positionAttribute, i ).applyMatrix4( mesh.matrixWorld );
+	 * 	points.push( vertex.clone() );
+	 *
+	 * }
+	 * await cameraControls.fitToPoints( points, true, { ndcPadding: 0.1 } );
+	 * ```
+	 *
+	 * The returned promise rejects (without touching the camera, the planned end
+	 * values or the event state) when the input is empty or invalid, or when the
+	 * points cannot be accommodated within the distance/zoom and clipping-plane limits.
+	 *
+	 * Only regular perspective/orthographic cameras are supported: no parent transform,
+	 * no view/film offset, and symmetric left/right and top/bottom frustum bounds.
+	 * @param points Read-only world-space points to fit. The vectors are never mutated.
+	 * @param enableTransition Whether to move smoothly or immediately.
+	 * @param options | `<object>` { ndcPadding: number }
+	 * @returns Transition end promise
+	 * @category Methods
+	 */
+	fitToPoints(
+		points: ReadonlyArray<Readonly<_THREE.Vector3>>,
+		enableTransition: boolean = false,
+		{ ndcPadding = 0 }: Partial<FitToPointsOptions> = {},
+	): Promise<void> {
+
+		// ---- input validation ---------------------------------------------------
+
+		if ( ! Array.isArray( points ) || points.length === 0 ) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints requires a non-empty array of Vector3' ) );
+
+		}
+
+		if ( ! Number.isFinite( ndcPadding ) || ndcPadding < 0 || ndcPadding >= 1 ) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints ndcPadding must be a finite number in [0, 1)' ) );
+
+		}
+
+		for ( let i = 0, l = points.length; i < l; i ++ ) {
+
+			const point = points[ i ];
+			if (
+				! point ||
+				! Number.isFinite( point.x ) ||
+				! Number.isFinite( point.y ) ||
+				! Number.isFinite( point.z )
+			) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints points must all have finite coordinates' ) );
+
+			}
+
+		}
+
+		const camera = this._camera;
+
+		if ( camera.parent ) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints does not support a camera with a parent' ) );
+
+		}
+
+		if ( ! isPerspectiveCamera( camera ) && ! isOrthographicCamera( camera ) ) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints requires a PerspectiveCamera or an OrthographicCamera' ) );
+
+		}
+
+		if ( isPerspectiveCamera( camera ) ) {
+
+			// filmOffset / view offset shift the frustum off-axis
+			if ( camera.filmOffset !== 0 || camera.view !== null ) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints does not support film or view offsets' ) );
+
+			}
+
+		} else {
+
+			if (
+				camera.view !== null ||
+				! approxEquals( camera.left, - camera.right ) ||
+				! approxEquals( camera.bottom, - camera.top )
+			) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints requires a symmetric orthographic frustum without a view offset' ) );
+
+			}
+
+		}
+
+		if ( ! Number.isFinite( camera.near ) || ! Number.isFinite( camera.far ) || camera.near <= 0 || camera.far <= camera.near ) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints requires finite, positive near/far clipping planes with near < far' ) );
+
+		}
+
+		// ---- planned viewing direction (end values, never the current quaternion)
+
+		const aabb = _box3A.makeEmpty();
+		for ( let i = 0, l = points.length; i < l; i ++ ) aabb.expandByPoint( points[ i ] as _THREE.Vector3 );
+
+		const center = aabb.getCenter( _v3B );
+
+		// direction from the target toward the camera, built from the planned spherical
+		const cameraBackward = _v3C.setFromSpherical( this._sphericalEnd ).normalize().applyQuaternion( this._yAxisUpSpaceInverse );
+		const cameraRight = _v3A.setFromSphericalCoords(
+			1,
+			PI_HALF,
+			this._sphericalEnd.theta - PI_HALF,
+		).applyQuaternion( this._yAxisUpSpaceInverse );
+		const cameraUp = new THREE.Vector3().crossVectors( cameraBackward, cameraRight ).normalize();
+
+		// View-space coords relative to the target center.
+		// The camera looks along its local -Z, so in-front points carry a negative
+		// camera-space Z and `radius + viewZ` is the point-to-camera distance.
+		let minX =  Infinity;
+		let maxX = - Infinity;
+		let minY =  Infinity;
+		let maxY = - Infinity;
+		let minZ =  Infinity;
+		let maxZ = - Infinity;
+
+		for ( let i = 0, l = points.length; i < l; i ++ ) {
+
+			const dx = points[ i ].x - center.x;
+			const dy = points[ i ].y - center.y;
+			const dz = points[ i ].z - center.z;
+
+			const viewX = dx * cameraRight.x    + dy * cameraRight.y    + dz * cameraRight.z;
+			const viewY = dx * cameraUp.x       + dy * cameraUp.y       + dz * cameraUp.z;
+			const viewZ = - ( dx * cameraBackward.x + dy * cameraBackward.y + dz * cameraBackward.z );
+
+			if ( viewX < minX ) minX = viewX;
+			if ( viewX > maxX ) maxX = viewX;
+			if ( viewY < minY ) minY = viewY;
+			if ( viewY > maxY ) maxY = viewY;
+			if ( viewZ < minZ ) minZ = viewZ;
+			if ( viewZ > maxZ ) maxZ = viewZ;
+
+		}
+
+		const screenHalfX = Math.max( - minX, maxX );
+		const screenHalfY = Math.max( - minY, maxY );
+		// a screen span below this relative tolerance is treated as no span at all,
+		// so float noise along the view axis cannot explode the orthographic zoom
+		const aabbSpan = Math.max(
+			aabb.max.x - aabb.min.x,
+			aabb.max.y - aabb.min.y,
+			aabb.max.z - aabb.min.z,
+			1,
+		);
+		const zeroSpanEpsilon = 1e-12 * aabbSpan;
+		const hasScreenSpanX = screenHalfX > zeroSpanEpsilon;
+		const hasScreenSpanY = screenHalfY > zeroSpanEpsilon;
+		const availableNdc = 1 - ndcPadding;
+		const near = camera.near;
+		const far  = camera.far;
+
+		if ( isPerspectiveCamera( camera ) ) {
+
+			// ---- perspective: keep zoom, solve the smallest feasible radius --------
+
+			// plan with the planned end zoom, so the framing is correct once at rest
+			const effectiveFov = 2 * Math.atan(
+				Math.tan( camera.fov * DEG2RAD * 0.5 ) / this._zoomEnd,
+			);
+			const tanHalfFovY = Math.tan( effectiveFov * 0.5 );
+			const tanHalfFovX = tanHalfFovY * camera.aspect;
+
+			if (
+				! Number.isFinite( effectiveFov ) || effectiveFov <= 0 ||
+				! Number.isFinite( camera.aspect ) || camera.aspect <= 0 ||
+				! Number.isFinite( this.minDistance ) || this.minDistance <= 0 ||
+				! ( this.maxDistance >= this.minDistance )
+			) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints cannot work with the current camera or distance limits' ) );
+
+			}
+
+			const kx = availableNdc * tanHalfFovX;
+			const ky = availableNdc * tanHalfFovY;
+
+			// Every point is tested individually (no bounding-sphere approximation).
+			// Each point gives linear lower/upper bounds on the target-to-camera radius.
+			let lowerRadius = this.minDistance;
+			let upperRadius = this.maxDistance;
+
+			for ( let i = 0, l = points.length; i < l; i ++ ) {
+
+				const dx = points[ i ].x - center.x;
+				const dy = points[ i ].y - center.y;
+				const dz = points[ i ].z - center.z;
+
+				const viewX = dx * cameraRight.x    + dy * cameraRight.y    + dz * cameraRight.z;
+				const viewY = dx * cameraUp.x       + dy * cameraUp.y       + dz * cameraUp.z;
+				const viewZ = - ( dx * cameraBackward.x + dy * cameraBackward.y + dz * cameraBackward.z );
+
+				lowerRadius = Math.max(
+					lowerRadius,
+					Math.abs( viewX ) / kx - viewZ,
+					Math.abs( viewY ) / ky - viewZ,
+					near - viewZ,
+				);
+				upperRadius = Math.min( upperRadius, far - viewZ );
+
+			}
+
+			if ( ! Number.isFinite( lowerRadius ) || lowerRadius <= 0 || lowerRadius > upperRadius ) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints cannot fit the points within the distance and clipping-plane limits' ) );
+
+			}
+
+			const radius = lowerRadius;
+			const promises: Promise<void>[] = [];
+			promises.push( this.moveTo( center.x, center.y, center.z, enableTransition ) );
+			promises.push( this.dollyTo( radius, enableTransition ) );
+			promises.push( this.setFocalOffset( 0, 0, 0, enableTransition ) );
+			return Promise.all( promises ).then( () => undefined );
+
+		}
+
+		// ---- orthographic: keep radius, solve the largest feasible zoom ------------
+
+		const cameraOrthographic = camera;
+		const frustumWidth  = cameraOrthographic.right - cameraOrthographic.left;
+		const frustumHeight = cameraOrthographic.top   - cameraOrthographic.bottom;
+
+		if (
+			! Number.isFinite( frustumWidth ) || frustumWidth <= 0 ||
+			! Number.isFinite( frustumHeight ) || frustumHeight <= 0 ||
+			! Number.isFinite( this.minZoom ) || this.minZoom <= 0 ||
+			! ( this.maxZoom >= this.minZoom )
+		) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints cannot work with the current camera or zoom limits' ) );
+
+		}
+
+		// NDC in orthographic is linear: ndc = 2 * zoom * viewCoord / frustumSize
+		const zoomX = hasScreenSpanX ? availableNdc * frustumWidth  / ( 2 * screenHalfX ) : NaN;
+		const zoomY = hasScreenSpanY ? availableNdc * frustumHeight / ( 2 * screenHalfY ) : NaN;
+
+		const candidateZooms: number[] = [];
+		if ( Number.isFinite( zoomX ) && zoomX > 0 ) candidateZooms.push( zoomX );
+		if ( Number.isFinite( zoomY ) && zoomY > 0 ) candidateZooms.push( zoomY );
+
+		let zoom: number;
+		if ( candidateZooms.length === 0 ) {
+
+			// no screen-space span in either view direction
+			if ( Number.isFinite( this.maxZoom ) ) {
+
+				zoom = this.maxZoom;
+
+			} else {
+
+				zoom = Math.max( this.minZoom, this._zoomEnd );
+
+			}
+
+			if ( ! Number.isFinite( zoom ) || zoom <= 0 ) {
+
+				return Promise.reject( new Error( 'camera-controls: fitToPoints cannot resolve a finite zoom for points without screen-space span' ) );
+
+			}
+
+		} else {
+
+			zoom = Math.min( ...candidateZooms );
+
+		}
+
+		// clipping planes: the orthographic frustum depth is fixed, zoom cannot help.
+		// the depth span of the points has to fit at the retained orbit radius.
+		const radius = this._sphericalEnd.radius;
+		if (
+			! Number.isFinite( radius ) || radius <= 0 ||
+			radius + minZ < near ||
+			radius + maxZ > far
+		) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints cannot fit the points within the clipping-plane limits' ) );
+
+		}
+
+		zoom = clamp( zoom, this.minZoom, this.maxZoom );
+
+		// re-check the NDC square after clamping (a bounded zoom may be too small)
+		if (
+			2 * zoom * screenHalfX / frustumWidth  > availableNdc * ( 1 + 1e-9 ) + 1e-12 ||
+			2 * zoom * screenHalfY / frustumHeight > availableNdc * ( 1 + 1e-9 ) + 1e-12
+		) {
+
+			return Promise.reject( new Error( 'camera-controls: fitToPoints cannot fit the points within the zoom limits' ) );
+
+		}
+
+		const promises: Promise<void>[] = [];
+		promises.push( this.moveTo( center.x, center.y, center.z, enableTransition ) );
+		promises.push( this.zoomTo( zoom, enableTransition ) );
+		promises.push( this.setFocalOffset( 0, 0, 0, enableTransition ) );
+		return Promise.all( promises ).then( () => undefined );
 
 	}
 

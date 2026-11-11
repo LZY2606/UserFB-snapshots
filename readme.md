@@ -497,6 +497,43 @@ Fit the viewport to the sphere or the bounding sphere of the object.
 
 ---
 
+#### `fitToPoints( points, enableTransition, { ndcPadding } )`
+
+Fit the viewport to an array of world-space points **without changing the viewing direction**. Unlike `fitToBox`, this method does not snap the azimuth/polar angles to the nearest axis: it keeps the currently planned angles (including the end angle of a `rotateTo` transition still in progress) and only moves the orbit center and adjusts the framing scale.
+
+The orbit target is set to the center of the points' world-axis-aligned bounding box. Every point is evaluated individually against the frustum, so elongated parts are framed tighter than a bounding-sphere fit would allow.
+
+- Perspective camera: the zoom is kept; the smallest feasible orbit radius is chosen inside `minDistance` / `maxDistance`.
+- Orthographic camera: the orbit radius is kept; the largest feasible zoom is chosen inside `minZoom` / `maxZoom`.
+
+On success the focal offset is cleared. `camera.up` and the projection type are never changed. The returned promise rejects (leaving the camera, the planned end values and the event state untouched) when the array is empty, contains non-finite coordinates, the padding is invalid, the camera has a parent or a view/film offset, the orthographic frustum is asymmetric, or the points cannot be accommodated within the distance/zoom and near/far limits. The input vectors are never mutated.
+
+| Name                    | Type                                                  | Description |
+| ----------------------- | ----------------------------------------------------- | ----------- |
+| `points`                | `ReadonlyArray<THREE.Vector3>`                        | Read-only world-space points to fit. |
+| `enableTransition`      | `boolean`                                             | Whether to move smoothly or immediately |
+| `options`               | `object`                                              | Options |
+| `options.ndcPadding`    | `number`                                              | Fraction of the half viewport reserved as padding on every side. Must be in `[0, 1)`. Default is `0`. |
+
+```js
+// collect the mesh vertices as world-space points and frame them with 10% NDC padding
+const points = [];
+const vertex = new THREE.Vector3();
+const positionAttribute = mesh.geometry.attributes.position;
+mesh.updateWorldMatrix( true, false );
+
+for ( let i = 0; i < positionAttribute.count; i ++ ) {
+
+	vertex.fromBufferAttribute( positionAttribute, i ).applyMatrix4( mesh.matrixWorld );
+	points.push( vertex.clone() );
+
+}
+
+await cameraControls.fitToPoints( points, true, { ndcPadding: 0.1 } );
+```
+
+---
+
 #### `setLookAt( positionX, positionY, positionZ, targetX, targetY, targetZ, enableTransition )`
 
 Look at the `target` from the `position`.
