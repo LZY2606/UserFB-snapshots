@@ -151,6 +151,7 @@
     <ClInclude Include="..\include\cglm\cam.h" />
     <ClInclude Include="..\include\cglm\cglm.h" />
     <ClInclude Include="..\include\cglm\clipspace\ortho_lh_no.h" />
+    <ClInclude Include="..\include\cglm\clipspace\oblique.h" />
     <ClInclude Include="..\include\cglm\clipspace\ortho_lh_zo.h" />
     <ClInclude Include="..\include\cglm\clipspace\ortho_rh_no.h" />
     <ClInclude Include="..\include\cglm\clipspace\ortho_rh_zo.h" />

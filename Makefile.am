@@ -99,7 +99,8 @@ cglm_clipspace_HEADERS = include/cglm/clipspace/persp.h \
                          include/cglm/clipspace/view_rh_no.h \
                          include/cglm/clipspace/view_rh_zo.h \
                          include/cglm/clipspace/project_no.h \
-                         include/cglm/clipspace/project_zo.h
+                         include/cglm/clipspace/project_zo.h \
+                         include/cglm/clipspace/oblique.h
 
 cglm_calldir=$(includedir)/cglm/call
 cglm_call_HEADERS = include/cglm/call/mat4.h \

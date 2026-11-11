@@ -525,6 +525,9 @@
     <ClInclude Include="..\include\cglm\simd\neon\quat.h">
       <Filter>include\cglm\simd\neon</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\cglm\clipspace\oblique.h">
+      <Filter>include\cglm\clipspace</Filter>
+    </ClInclude>
     <ClInclude Include="..\include\cglm\clipspace\ortho_lh_no.h">
       <Filter>include\cglm\clipspace</Filter>
     </ClInclude>

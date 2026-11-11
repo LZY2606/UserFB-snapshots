@@ -68,6 +68,7 @@ test/test_*
 test/.libs/*
 test/tests
 /tests
+!/tests/
 cglm_arm/*
 cglm_test_ios/*
 cglm_test_iosTests/*

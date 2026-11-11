@@ -26,6 +26,7 @@
 #include "mat2x4.h"
 #include "affine.h"
 #include "cam.h"
+#include "clipspace/oblique.h"
 #include "frustum.h"
 #include "quat.h"
 #include "euler.h"
