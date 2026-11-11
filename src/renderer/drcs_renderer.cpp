@@ -17,6 +17,7 @@
  */
 
 #include <cstdint>
+#include "common/drcs_bits.hpp"
 #include "renderer/alphablend.hpp"
 #include "renderer/bitmap.hpp"
 #include "renderer/canvas.hpp"
@@ -27,7 +28,13 @@ namespace aribcaption {
 bool DRCSRenderer::DrawDRCS(const DRCS& drcs, CharStyle style, ColorRGBA color, ColorRGBA stroke_color,
                             int stroke_width, int target_width, int target_height,
                             Bitmap& target_bmp, int target_x, int target_y) {
-    if (drcs.width == 0 || drcs.height == 0 || drcs.pixels.empty()) {
+    if (target_width <= 0 || target_height <= 0) {
+        return false;
+    }
+
+    // Validate the whole definition before touching the target bitmap,
+    // so a failed draw never leaves a partial stroke or glyph behind.
+    if (!DRCSValidateDefinition(drcs)) {
         return false;
     }
 
@@ -62,12 +69,12 @@ Bitmap DRCSRenderer::DRCSToColoredBitmap(const DRCS& drcs, int target_width, int
         for (int x = 0; x < target_width; x++) {
             int drcs_x = static_cast<int>(x_fraction * static_cast<float>(x));
 
-            intptr_t index = (drcs_y * drcs.width + drcs_x) * drcs.depth_bits / 8;
-            intptr_t bit_offset = (drcs_y * drcs.width + drcs_x) * drcs.depth_bits % 8;
-            uint8_t byte = drcs.pixels[index];
-
-            uint8_t value = (byte >> (8 - (bit_offset + drcs.depth_bits))) & (drcs.depth - 1);
-            uint8_t grey = alphablend::Clamp255((uint32_t)255 * value / (drcs.depth - 1));
+            // Samples are packed MSB-first and may span bytes.
+            size_t sample_index = static_cast<size_t>(drcs_y) * static_cast<size_t>(drcs.width) +
+                                  static_cast<size_t>(drcs_x);
+            uint32_t value = DRCSReadSample(drcs, sample_index);
+            uint8_t grey = alphablend::Clamp255(static_cast<uint32_t>(255) * value /
+                                                static_cast<uint32_t>(drcs.depth - 1));
 
             if (grey) {
                 uint8_t alpha = (alphablend::WeightOf(grey) * color.a) >> 8;

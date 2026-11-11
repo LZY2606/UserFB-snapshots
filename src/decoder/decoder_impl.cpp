@@ -22,6 +22,7 @@
 #include "base/logger.hpp"
 #include "base/md5_helper.hpp"
 #include "base/utf_helper.hpp"
+#include "common/drcs_bits.hpp"
 #include "decoder/b24_codesets.hpp"
 #include "decoder/b24_colors.hpp"
 #include "decoder/b24_controlsets.hpp"
@@ -525,9 +526,13 @@ bool DecoderImpl::ParseDataUnit(const uint8_t* data, size_t length) {
         if (data_unit_parameter == 0x20) {
             ParseStatementBody(data + offset + 5, data_unit_size);
         } else if (data_unit_parameter == 0x30) {
-            ParseDRCS(data + offset + 5, data_unit_size, 1);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 1)) {
+                return false;
+            }
         } else if (data_unit_parameter == 0x31) {
-            ParseDRCS(data + offset + 5, data_unit_size, 2);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 2)) {
+                return false;
+            }
         }
 
         offset += 5 + data_unit_size;
@@ -683,21 +688,28 @@ bool DecoderImpl::ParseDRCS(const uint8_t* data, size_t length, size_t byte_coun
             offset += 1;
 
             if (mode == 0b0000 || mode == 0b0001) {
-                uint8_t depth = data[offset] + 2;
+                // The depth field stores depth - 2, so depth ranges over [2, 257].
+                // Keep it in an int: 256 must not wrap to 0 in a narrow integer.
+                int depth = static_cast<int>(data[offset]) + 2;
                 uint8_t width = data[offset + 1];
                 uint8_t height = data[offset + 2];
                 offset += 3;
 
-                uint8_t depth_bits = ([](uint8_t n) -> uint8_t {
-                    uint8_t count = 0;
-                    for (n--; n; n >>= 1) {
-                        count++;
-                    }
-                    return count;
-                })(depth);
-                size_t bitmap_size = (width * height * depth_bits + 7) / 8;
+                if (depth < 2 || depth > 256) {
+                    log_->e("DecoderImpl: Invalid DRCS depth: %d", depth);
+                    return false;
+                }
 
-                if (depth < 2 || offset + bitmap_size > length) {
+                int depth_bits = DRCSDepthBits(depth);
+                size_t sample_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+                size_t bitmap_size = (sample_count * static_cast<size_t>(depth_bits) + 7) / 8;
+
+                if (width == 0 || height == 0) {
+                    log_->e("DecoderImpl: Invalid DRCS size: %dx%d", width, height);
+                    return false;
+                }
+
+                if (offset + bitmap_size > length) {
                     log_->e("DecoderImpl: Data not enough for parsing DRCS");
                     return false;
                 }
@@ -705,10 +717,17 @@ bool DecoderImpl::ParseDRCS(const uint8_t* data, size_t length, size_t byte_coun
                 DRCS drcs;
                 drcs.width = static_cast<int>(width);
                 drcs.height = static_cast<int>(height);
-                drcs.depth = static_cast<int>(depth);
-                drcs.depth_bits = static_cast<int>(depth_bits);
+                drcs.depth = depth;
+                drcs.depth_bits = depth_bits;
                 drcs.pixels.assign(data + offset, data + offset + bitmap_size);
                 offset += bitmap_size;
+
+                // Reject an undrawable definition as a whole. The previous definition
+                // for the same code (if any) is left untouched because we only insert below.
+                if (!DRCSValidateDefinition(drcs)) {
+                    log_->e("DecoderImpl: Invalid DRCS definition, sample value exceeds depth");
+                    return false;
+                }
 
                 drcs.md5 = GetDRCSDigest(drcs, 0);
 

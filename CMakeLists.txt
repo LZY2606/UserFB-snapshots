@@ -184,6 +184,7 @@ add_library(aribcaption
         src/common/caption_capi.cpp
         src/common/context.cpp
         src/common/context_capi.cpp
+        src/common/drcs_bits.hpp
         src/decoder/b24_codesets.cpp
         src/decoder/b24_codesets.hpp
         src/decoder/b24_colors.cpp

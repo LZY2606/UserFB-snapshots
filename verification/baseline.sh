@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-b=$(mktemp -d)
+b=$(mktemp -d "${TMPDIR:-/tmp}/aribcc_baseline.XXXXXX")
 trap 'rm -rf "$b"' EXIT
 cmake -S . -B "$b/build" -DCMAKE_BUILD_TYPE=Release -DARIBCC_BUILD_TESTS=OFF -DARIBCC_USE_EMBEDDED_FREETYPE=OFF
 cmake --build "$b/build" --target aribcaption -j 4
