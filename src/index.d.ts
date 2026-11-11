@@ -149,6 +149,8 @@ export class MeshBVH extends GeometryBVH {
 
 	shiftTriangleOffsets( offset: number ): void;
 
+	refitVertices( vertexIndices: Iterable<number> ): number;
+
 	raycast( ray: Ray, materialOrSide?: Side | Array<Material> | Material, near?: number, far?: number ): Array<Intersection>
 
 	raycastFirst( ray: Ray, materialOrSide?: Side | Array<Material> | Material, near?: number, far?: number ): Intersection | null;

@@ -10,6 +10,7 @@ import { IS_LEAF } from './utils/nodeBufferUtils.js';
 
 import { iterateOverTriangles } from './utils/iterationUtils.generated.js';
 import { refit } from './cast/refit.generated.js';
+import { refitVertices } from './cast/refitVertices.js';
 import { raycast } from './cast/raycast.generated.js';
 import { raycastFirst } from './cast/raycastFirst.generated.js';
 import { intersectsGeometry } from './cast/intersectsGeometry.generated.js';
@@ -264,6 +265,8 @@ export class MeshBVH extends GeometryBVH {
 
 		super( geometry, options );
 
+		this._vertexRefitState = null;
+
 	}
 
 	/**
@@ -505,6 +508,42 @@ export class MeshBVH extends GeometryBVH {
 
 		const refitFunc = this.indirect ? refit_indirect : refit;
 		return refitFunc( this, nodeIndices );
+
+	}
+
+	/**
+	 * Refits only the bounds of the BVH nodes that contain triangles referencing the given
+	 * vertex indices, along with all of their ancestors. This is intended for tools like
+	 * sculpt brushes that know which `position` attribute vertices were modified but not
+	 * which BVH nodes those vertices belong to, and is significantly cheaper than a full
+	 * `refit` when only a small, local region of the mesh changed.
+	 *
+	 * Indices refer to vertices in `geometry.attributes.position`. Every triangle that
+	 * references a given vertex is accounted for, including triangles in other BVH roots
+	 * (material groups) that share the vertex. Triangles outside the geometry draw range
+	 * or in gaps between groups are not part of the BVH and are ignored. Only the BVH
+	 * bounds are updated - the geometry `boundingBox` and `boundingSphere` must still be
+	 * maintained by the caller, as with `refit`.
+	 *
+	 * The first call traverses the whole tree once to build a vertex-to-leaf dependency
+	 * map. Subsequent calls only touch the leaves and ancestors associated with the dirty
+	 * vertices as long as the topology is unchanged. If the geometry index is replaced or
+	 * its `version` changes (with the same vertex and index counts) the dependencies are
+	 * rebuilt and a full refit is performed once before sparse updates resume. Changing
+	 * the vertex count, adding or removing the index, or modifying group ranges or the
+	 * draw range invalidates the BVH and causes an error to be thrown - rebuild the BVH
+	 * in that case. Modifying the index array in place without updating the attribute
+	 * `version` cannot be detected and is not supported.
+	 *
+	 * @param {Iterable<number>} vertexIndices - Indices into `geometry.attributes.position`.
+	 *   The iterable is consumed exactly once. Every index must be a finite, non-negative
+	 *   integer smaller than `position.count`, otherwise a `RangeError` is thrown and the
+	 *   BVH is left unmodified.
+	 * @returns {number} The number of unique leaf nodes that were recomputed.
+	 */
+	refitVertices( vertexIndices ) {
+
+		return refitVertices( this, vertexIndices );
 
 	}
 
