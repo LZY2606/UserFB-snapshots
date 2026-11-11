@@ -20,9 +20,14 @@ static struct {
     int rowlen,skipx,skipy,alignment,saved[4];
     const float *verts,*uv;
     SpyDraw draws[128];
+    /* Failure injection: when >0 the next glGenTextures call simulates a
+       driver failure (id 0) and the counter is decremented. */
+    int fail_create_remaining;
 } spy;
 static void glGenTextures(GLsizei n,GLuint *out) {
-    int i;for(i=0;i<n;i++){GLuint id=++spy.next;assert(id<128);out[i]=id;spy.textures[id].alive=1;spy.creates++;}
+    int i;for(i=0;i<n;i++){
+        if(spy.fail_create_remaining>0){spy.fail_create_remaining--;out[i]=0;spy.creates++;continue;}
+        GLuint id=++spy.next;assert(id<128);out[i]=id;spy.textures[id].alive=1;spy.creates++;}
 }
 static void glDeleteTextures(GLsizei n,const GLuint *ids) {
     int i;for(i=0;i<n;i++){SpyTexture *t=&spy.textures[ids[i]];assert(t->alive);free(t->pixels);memset(t,0,sizeof *t);spy.deletes++;}

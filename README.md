@@ -109,6 +109,96 @@ The size of the internal buffer is defined using `FONS_VERTEX_COUNT` define. The
 #include "fontstash.h"
 ```
 
+## Multi-page glyph atlas
+
+On devices where a single texture is small (for example a hard 64x64 limit) a
+single page atlas starts dropping glyphs once it is full, and resizing or
+clearing it is not an option because the UVs already handed out would break.
+The paged API keeps one stash — the same fonts, sizes and glyph metrics
+cache — and grows the atlas by adding fixed-size texture pages on demand.
+
+Create a paged stash with `fonsCreateInternalPaged()` and a
+`FONSpagedParams`. The four page callbacks are mandatory and
+`fonsCreateInternalPaged` returns `NULL` without calling any of them when the
+parameters are invalid: `width`/`height` must be within 8..4096,
+`maxPages` within 1..64, and every page callback must be non-NULL.
+
+```C
+struct FONSpagedParams {
+	int width, height;          // fixed size shared by every page
+	int maxPages;               // 1..64
+	unsigned char flags;
+	void* userPtr;
+	int  (*renderCreatePage)(void* uptr, int page, int width, int height);
+	void (*renderUpdatePage)(void* uptr, int page, int* rect, const unsigned char* data);
+	void (*renderDrawPage)(void* uptr, int page, const float* verts,
+	                       const float* tcoords, const unsigned int* colors, int nverts);
+	void (*renderDeletePage)(void* uptr, int page);
+	void (*renderDelete)(void* uptr);   // optional, shared backend cleanup
+};
+```
+
+### Page callback lifetime and guarantees
+
+- A successfully created stash always owns page `0`; further pages are
+  numbered consecutively (`0, 1, 2, ...`) and all pages have the same size.
+- `renderCreatePage` returns 1 on success, 0 on failure. A failed page is
+  **not** counted, receives no `renderDeletePage` call and leaves no glyph
+  residency behind, so the same glyph can be retried on a later draw. If the
+  very first page fails, the library still releases everything it acquired
+  and calls the optional `renderDelete` once.
+- New glyphs first try every existing page (oldest first) and only create a
+  new page when none has room. Existing glyphs are never cleared, resized,
+  moved or duplicated: a glyph's page, rectangle and pixels are fixed for its
+  lifetime.
+- When no page can hold a glyph (page limit reached, glyph larger than an
+  empty page, or `renderCreatePage` returned 0), the stash reports
+  `FONS_ATLAS_FULL`, skips that glyph's image but keeps advancing the pen by
+  its font metrics; already cached glyphs later in the string still draw at
+  their correct positions.
+- Each triangle batch belongs to exactly one page, and that page's dirty
+  pixels are uploaded through `renderUpdatePage` before `renderDrawPage`
+  runs. Batches are submitted in input order, not sorted by texture — a
+  `page 0, page 1, page 0` sequence produces callbacks in that exact order,
+  including when the internal vertex buffer fills mid-line.
+- On destruction every successfully created page gets exactly one
+  `renderDeletePage` call (in page order); failed pages get none. Only after
+  all pages have been released is the optional `renderDelete` called once, so
+  a backend can free shared objects there. The `userPtr` itself stays owned by
+  the caller when creation is rejected for invalid parameters.
+
+### Measurement, iteration and queries
+
+- `fonsTextBounds` (and the center/right pre-measurement inside draw and
+  iteration) only reads font metrics: it never rasterizes, occupies an atlas
+  page, or produces page/upload/draw events. The first real draw of a
+  measured string still generates the bitmaps.
+- `FONStextIter` gained an `int page`. It names the texture page of a
+  resident quad, is `0` for a single page stash, and is `-1` with a zeroed
+  quad when the glyph is not resident or has an empty outline (the pen still
+  advances). Iteration never switches draw batches, so concurrent iterators
+  and draws do not disturb each other. Empty outlines keep their advance and
+  submit no triangles.
+- `fonsGetAtlasPageCount`, `fonsGetTextureDataPage(stash,page,w,h)` and
+  `fonsValidateTexturePage(stash,page,dirty)` query per-page state. Dirty
+  rectangles are half open `[x0,y0,x1,y1)` and consumed independently per
+  page; an invalid page creates nothing, consumes no other page's dirt,
+  returns `NULL`/0 and reports zero dimensions.
+- On a paged stash the legacy `fonsGetTextureData`/`fonsValidateTexture`
+  address page 0, `fonsGetAtlasSize` returns the per-page size, and
+  `fonsDrawDebug` draws page 0 only. `fonsExpandAtlas`/`fonsResetAtlas`
+  return 0 without invoking callbacks or changing state; the single page
+  implementations are unchanged.
+
+### OpenGL backend
+
+`glfonsCreatePaged(width, height, maxPages, flags)` (in
+`src/glfontstash.h`) mirrors the interface using the GL2 backend: every page
+owns its own GL texture, updates and draws bind the matching texture, and the
+shared backend object is freed only after all textures are deleted. The
+existing `glfonsCreate`/`glfonsDelete` keep their current behavior. The GL3
+core backend retains its original single page interface.
+
 ## Compiling
 
 In order to compile the demo project, your will need to install [GLFW](http://www.glfw.org/) to compile.

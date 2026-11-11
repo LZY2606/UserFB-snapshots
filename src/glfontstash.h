@@ -19,6 +19,8 @@
 #define GLFONTSTASH_H
 
 FONScontext* glfonsCreate(int width, int height, int flags);
+// Fixed-size multi-page atlas; every page owns its own GL texture.
+FONScontext* glfonsCreatePaged(int width, int height, int maxPages, int flags);
 void glfonsDelete(FONScontext* ctx);
 
 unsigned int glfonsRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
@@ -30,6 +32,11 @@ unsigned int glfonsRGBA(unsigned char r, unsigned char g, unsigned char b, unsig
 struct GLFONScontext {
 	GLuint tex;
 	int width, height;
+	// Paged backend state. 'texes' has one entry per potential page, a
+	// non-zero name means that page was created successfully.
+	int paged;
+	int maxPages;
+	GLuint* texes;
 };
 typedef struct GLFONScontext GLFONScontext;
 
@@ -122,7 +129,7 @@ FONScontext* glfonsCreate(int width, int height, int flags)
 	params.renderCreate = glfons__renderCreate;
 	params.renderResize = glfons__renderResize;
 	params.renderUpdate = glfons__renderUpdate;
-	params.renderDraw = glfons__renderDraw; 
+	params.renderDraw = glfons__renderDraw;
 	params.renderDelete = glfons__renderDelete;
 	params.userPtr = gl;
 
@@ -131,6 +138,126 @@ FONScontext* glfonsCreate(int width, int height, int flags)
 error:
 	if (gl != NULL) free(gl);
 	return NULL;
+}
+
+static int glfonsPaged__renderCreatePage(void* userPtr, int page, int width, int height)
+{
+	GLFONScontext* gl = (GLFONScontext*)userPtr;
+	GLuint tex;
+
+	if (page < 0 || page >= gl->maxPages) return 0;
+	// Defensive: a failed page leaves no name behind, so this slot is empty.
+	if (gl->texes[page] != 0) return 0;
+
+	glGenTextures(1, &tex);
+	if (!tex) return 0;
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, width, height, 0, GL_ALPHA, GL_UNSIGNED_BYTE, 0);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	gl->texes[page] = tex;
+	return 1;
+}
+
+static void glfonsPaged__renderUpdatePage(void* userPtr, int page, int* rect, const unsigned char* data)
+{
+	GLFONScontext* gl = (GLFONScontext*)userPtr;
+	int w = rect[2] - rect[0];
+	int h = rect[3] - rect[1];
+
+	if (page < 0 || page >= gl->maxPages || gl->texes[page] == 0) return;
+	glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+	glBindTexture(GL_TEXTURE_2D, gl->texes[page]);
+	glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, gl->width);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, rect[0]);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, rect[1]);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, rect[0], rect[1], w, h, GL_ALPHA,GL_UNSIGNED_BYTE, data);
+	glPopClientAttrib();
+}
+
+static void glfonsPaged__renderDrawPage(void* userPtr, int page, const float* verts, const float* tcoords, const unsigned int* colors, int nverts)
+{
+	GLFONScontext* gl = (GLFONScontext*)userPtr;
+	if (page < 0 || page >= gl->maxPages || gl->texes[page] == 0) return;
+	glBindTexture(GL_TEXTURE_2D, gl->texes[page]);
+	glEnable(GL_TEXTURE_2D);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glEnableClientState(GL_COLOR_ARRAY);
+
+	glVertexPointer(2, GL_FLOAT, sizeof(float)*2, verts);
+	glTexCoordPointer(2, GL_FLOAT, sizeof(float)*2, tcoords);
+	glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(unsigned int), colors);
+
+	glDrawArrays(GL_TRIANGLES, 0, nverts);
+
+	glDisable(GL_TEXTURE_2D);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
+}
+
+static void glfonsPaged__renderDeletePage(void* userPtr, int page)
+{
+	GLFONScontext* gl = (GLFONScontext*)userPtr;
+	if (page < 0 || page >= gl->maxPages) return;
+	if (gl->texes[page] != 0) {
+		glDeleteTextures(1, &gl->texes[page]);
+		gl->texes[page] = 0;
+	}
+}
+
+static void glfonsPaged__renderDelete(void* userPtr)
+{
+	GLFONScontext* gl = (GLFONScontext*)userPtr;
+	// All page textures have been deleted already; release shared state.
+	free(gl->texes);
+	free(gl);
+}
+
+FONScontext* glfonsCreatePaged(int width, int height, int maxPages, int flags)
+{
+	FONSpagedParams params;
+	GLFONScontext* gl;
+
+	// Mirror the core validation: invalid parameters never invoke a
+	// callback, so the backend struct would otherwise leak.
+	if (width < 8 || width > 4096 || height < 8 || height > 4096 ||
+		maxPages < 1 || maxPages > 64)
+		return NULL;
+
+	gl = (GLFONScontext*)malloc(sizeof(GLFONScontext));
+	if (gl == NULL) return NULL;
+	memset(gl, 0, sizeof(GLFONScontext));
+	gl->paged = 1;
+	gl->maxPages = maxPages;
+	gl->texes = (GLuint*)calloc((size_t)(maxPages > 0 ? maxPages : 1), sizeof(GLuint));
+	if (gl->texes == NULL) {
+		free(gl);
+		return NULL;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.width = width;
+	params.height = height;
+	params.maxPages = maxPages;
+	params.flags = (unsigned char)flags;
+	params.renderCreatePage = glfonsPaged__renderCreatePage;
+	params.renderUpdatePage = glfonsPaged__renderUpdatePage;
+	params.renderDrawPage = glfonsPaged__renderDrawPage;
+	params.renderDeletePage = glfonsPaged__renderDeletePage;
+	params.renderDelete = glfonsPaged__renderDelete;
+	params.userPtr = gl;
+
+	{
+		FONScontext* ctx = fonsCreateInternalPaged(&params);
+		if (ctx == NULL) {
+			// On failure the library has already deleted every created page
+			// texture and invoked renderDelete once, which freed 'gl'.
+			return NULL;
+		}
+		return ctx;
+	}
 }
 
 void glfonsDelete(FONScontext* ctx)
