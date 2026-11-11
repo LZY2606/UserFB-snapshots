@@ -10,8 +10,10 @@ import (
 	"github.com/geziyor/geziyor/middleware"
 	"golang.org/x/time/rate"
 
+	"context"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"net/http/cookiejar"
 	"os"
 	"os/signal"
@@ -32,11 +34,10 @@ type Geziyor struct {
 	wgRequests     sync.WaitGroup
 	wgExporters    sync.WaitGroup
 	semGlobal      chan struct{}
-	semHosts       struct {
-		sync.RWMutex
-		hostSems map[string]chan struct{}
-	}
-	shutdown bool
+	hostSems       *hostSemaphores
+	allowedDomains *middleware.AllowedDomains
+	robotsTxt      *middleware.RobotsTxt
+	shutdown       bool
 }
 
 // NewGeziyor creates new Geziyor with default values.
@@ -57,11 +58,12 @@ func NewGeziyor(opt *Options) *Geziyor {
 		opt.RetryHTTPCodes = client.DefaultRetryHTTPCodes
 	}
 
+	allowedDomains := &middleware.AllowedDomains{AllowedDomains: opt.AllowedDomains}
 	geziyor := &Geziyor{
 		Opt:     opt,
 		Exports: make(chan interface{}, 1),
 		reqMiddlewares: []middleware.RequestProcessor{
-			&middleware.AllowedDomains{AllowedDomains: opt.AllowedDomains},
+			allowedDomains,
 			&middleware.DuplicateRequests{RevisitEnabled: opt.URLRevisitEnabled},
 			&middleware.Headers{UserAgent: opt.UserAgent},
 			middleware.NewDelay(opt.RequestDelayRandomize, opt.RequestDelay),
@@ -70,7 +72,8 @@ func NewGeziyor(opt *Options) *Geziyor {
 			&middleware.ParseHTML{ParseHTMLDisabled: opt.ParseHTMLDisabled},
 			&middleware.LogStats{LogDisabled: opt.LogDisabled},
 		},
-		metrics: metrics.NewMetrics(opt.MetricsType),
+		metrics:        metrics.NewMetrics(opt.MetricsType),
+		allowedDomains: allowedDomains,
 	}
 
 	// Client
@@ -98,7 +101,22 @@ func NewGeziyor(opt *Options) *Geziyor {
 	if !opt.CookiesDisabled {
 		geziyor.Client.Jar, _ = cookiejar.New(nil)
 	}
-	if opt.MaxRedirect != 0 {
+	if opt.Cache == nil {
+		// Plain HTTP downloads follow redirects hop by hop: every hop is
+		// checked against scraping policy before it is sent. MaxRedirect
+		// keeps its meaning, defaulting to the net/http limit of 10.
+		maxRedirect := opt.MaxRedirect
+		if maxRedirect == 0 {
+			maxRedirect = 10
+		}
+		redirectLimit := client.NewRedirectionHandler(maxRedirect)
+		geziyor.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := redirectLimit(req, via); err != nil {
+				return err
+			}
+			return geziyor.checkRedirect(req)
+		}
+	} else if opt.MaxRedirect != 0 {
 		geziyor.Client.CheckRedirect = client.NewRedirectionHandler(opt.MaxRedirect)
 	}
 
@@ -110,10 +128,16 @@ func NewGeziyor(opt *Options) *Geziyor {
 		geziyor.semGlobal = make(chan struct{}, opt.ConcurrentRequests)
 	}
 	if opt.ConcurrentRequestsPerDomain != 0 {
-		geziyor.semHosts = struct {
-			sync.RWMutex
-			hostSems map[string]chan struct{}
-		}{hostSems: make(map[string]chan struct{})}
+		geziyor.hostSems = newHostSemaphores(opt.ConcurrentRequestsPerDomain)
+		if opt.Cache == nil {
+			// Plain HTTP downloads take their host slot when the request is
+			// actually sent and hold it until the response body is closed.
+			// This applies to every redirect hop, keyed by the hop's host.
+			geziyor.Client.Transport = &client.LeaseTransport{
+				Base:    geziyor.Client.Transport,
+				Limiter: geziyor.hostSems,
+			}
+		}
 	}
 
 	// Base Middlewares
@@ -123,6 +147,7 @@ func NewGeziyor(opt *Options) *Geziyor {
 
 	robotsMiddleware := middleware.NewRobotsTxt(geziyor.Client, geziyor.metrics, opt.RobotsTxtDisabled)
 	geziyor.reqMiddlewares = append(geziyor.reqMiddlewares, robotsMiddleware)
+	geziyor.robotsTxt = robotsMiddleware
 
 	// Custom Middlewares
 	geziyor.reqMiddlewares = append(geziyor.reqMiddlewares, opt.RequestMiddlewares...)

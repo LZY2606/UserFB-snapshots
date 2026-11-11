@@ -18,7 +18,7 @@ type RobotsTxt struct {
 	robotsMap      map[string]*robotstxt.RobotsData
 }
 
-func NewRobotsTxt(client *client.Client, metrics *metrics.Metrics, robotsDisabled bool) RequestProcessor {
+func NewRobotsTxt(client *client.Client, metrics *metrics.Metrics, robotsDisabled bool) *RobotsTxt {
 	return &RobotsTxt{
 		metrics:        metrics,
 		robotsDisabled: robotsDisabled,
@@ -28,8 +28,18 @@ func NewRobotsTxt(client *client.Client, metrics *metrics.Metrics, robotsDisable
 }
 
 func (m *RobotsTxt) ProcessRequest(r *client.Request) {
+	if err := m.Allow(r); err != nil {
+		internal.Logger.Println("Forbidden by robots.txt:", r.URL.String())
+		r.Cancel()
+	}
+}
+
+// Allow checks r against the robots.txt rules of its host. Robots.txt is
+// fetched and cached as needed. It returns a *client.RequestDeniedError when
+// r is not permitted by the rules.
+func (m *RobotsTxt) Allow(r *client.Request) error {
 	if m.robotsDisabled {
-		return
+		return nil
 	}
 
 	// TODO: Locking like this improves performance but sometimes it causes duplicate requests to robots.txt
@@ -40,19 +50,22 @@ func (m *RobotsTxt) ProcessRequest(r *client.Request) {
 	if !exists {
 		robotsReq, err := client.NewRequest("GET", r.URL.Scheme+"://"+r.Host+"/robots.txt", nil)
 		if err != nil {
-			return // Don't Do anything
+			return nil // Don't Do anything
 		}
+		// Probing robots.txt must not take the very host slot the page it is
+		// checking may be waiting for.
+		client.MarkProbeRequest(robotsReq)
 
 		m.metrics.RobotsTxtRequestCounter.Add(1)
 		robotsResp, err := m.client.DoRequest(robotsReq)
 		if err != nil {
-			return // Don't Do anything
+			return nil // Don't Do anything
 		}
 		m.metrics.RobotsTxtResponseCounter.With("status", strconv.Itoa(robotsResp.StatusCode)).Add(1)
 
 		robotsData, err = robotstxt.FromStatusAndBytes(robotsResp.StatusCode, robotsResp.Body)
 		if err != nil {
-			return // Don't Do anything
+			return nil // Don't Do anything
 		}
 
 		m.mut.Lock()
@@ -62,7 +75,10 @@ func (m *RobotsTxt) ProcessRequest(r *client.Request) {
 
 	if !robotsData.TestAgent(r.URL.Path, r.UserAgent()) {
 		m.metrics.RobotsTxtForbiddenCounter.With("method", r.Method).Add(1)
-		internal.Logger.Println("Forbidden by robots.txt:", r.URL.String())
-		r.Cancel()
+		return &client.RequestDeniedError{
+			URL:    r.URL.String(),
+			Reason: "forbidden by robots.txt",
+		}
 	}
+	return nil
 }

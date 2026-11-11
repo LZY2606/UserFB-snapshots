@@ -100,6 +100,11 @@ func (c *Client) DoRequest(req *Request) (resp *Response, err error) {
 
 	// Retry on Error
 	if err != nil {
+		// Policy rejections and cancellations are final, not download errors.
+		var denied *RequestDeniedError
+		if errors.As(err, &denied) || errors.Is(err, context.Canceled) {
+			return nil, err
+		}
 		if req.retryCounter < c.opt.RetryTimes {
 			req.retryCounter++
 			internal.Logger.Println("Retrying:", req.URL.String())
