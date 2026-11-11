@@ -25,6 +25,11 @@ export default class GlyphInfo {
     this.shaperInfo = null;
     this.substituted = false;
     this.isMultiplied = false;
+
+    // UTF-16 source ranges of the input string this glyph originates from.
+    // Only populated when layout was requested with source tracking; never
+    // stored on the shared Glyph objects.
+    this.sourceRanges = null;
   }
 
   get id() {
@@ -54,6 +59,16 @@ export default class GlyphInfo {
   }
 
   copy() {
-    return new GlyphInfo(this._font, this.id, this.codePoints, this.features);
+    let glyph = new GlyphInfo(
+      this._font,
+      this.id,
+      this.codePoints,
+      this.features,
+    );
+    if (this.sourceRanges) {
+      glyph.sourceRanges = this.sourceRanges.map((range) => [...range]);
+    }
+
+    return glyph;
   }
 }

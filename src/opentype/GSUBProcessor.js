@@ -1,5 +1,6 @@
 import OTProcessor from './OTProcessor';
 import GlyphInfo from './GlyphInfo';
+import { mergeRangeLists } from '../layout/sourceRanges';
 
 export default class GSUBProcessor extends OTProcessor {
   // Reverse Chaining Contextual Single Substitution is applied right-to-left,
@@ -60,6 +61,13 @@ export default class GSUBProcessor extends OTProcessor {
             glyph.ligatureComponent = i + 1;
             glyph.substituted = true;
             glyph.isMultiplied = true;
+            // One-to-many: every produced glyph inherits the source of the original.
+            if (curGlyph.sourceRanges) {
+              glyph.sourceRanges = curGlyph.sourceRanges.map((range) => [
+                ...range,
+              ]);
+            }
+
             return glyph;
           });
 
@@ -125,6 +133,18 @@ export default class GSUBProcessor extends OTProcessor {
           ligatureGlyph.shaperInfo = curGlyph.shaperInfo;
           ligatureGlyph.isLigated = true;
           ligatureGlyph.substituted = true;
+
+          // Many-to-one: the ligature takes the union of the sources of the
+          // glyphs it consumed. Glyphs skipped by the match (e.g. marks
+          // ignored via IgnoreMarks) are not consumed and keep their own
+          // source ranges.
+          if (curGlyph.sourceRanges) {
+            let consumed = matched.map((index) => this.glyphs[index]);
+            ligatureGlyph.sourceRanges = mergeRangeLists(
+              curGlyph.sourceRanges,
+              ...consumed.map((glyph) => glyph.sourceRanges),
+            );
+          }
 
           // From Harfbuzz:
           // - If it *is* a mark ligature, we don't allocate a new ligature id, and leave

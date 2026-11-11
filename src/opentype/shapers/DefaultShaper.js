@@ -1,5 +1,6 @@
 import { getCombiningClass, isDigit, isMark } from 'unicode-properties';
 import GlyphInfo from '../GlyphInfo';
+import { mergeRangeLists } from '../../layout/sourceRanges';
 
 const VARIATION_FEATURES = ['rvrn'];
 const COMMON_FEATURES = ['ccmp', 'locl', 'rlig', 'mark', 'mkmk'];
@@ -83,7 +84,10 @@ export class DefaultShaper {
 }
 
 // Normalize each base + combining-mark cluster using the font's coverage,
-// reordering its marks like HarfBuzz.
+// reordering its marks like HarfBuzz. Each codepoint carries the source
+// ranges of the glyph it came from (when source tracking is on), so the
+// rebuilt cluster keeps its provenance through decomposition, mark
+// reordering, and composition.
 function composeGlyphs(shaper, font, glyphs) {
   let i = 0;
   while (i < glyphs.length) {
@@ -102,43 +106,66 @@ function composeGlyphs(shaper, font, glyphs) {
       end++;
     }
     let input = [];
-    for (let j = i; j < end; j++) input.push(glyphs[j].codePoints[0]);
+    for (let j = i; j < end; j++) {
+      input.push({
+        codePoint: glyphs[j].codePoints[0],
+        source: glyphs[j].sourceRanges,
+      });
+    }
     let composed = composeCodePoints(shaper, font, input);
     if (
       composed.length !== input.length ||
-      composed.some((cp, index) => cp !== input[index])
+      composed.some((part, index) => part.codePoint !== input[index].codePoint)
     ) {
       // The base's features are global at this stage, so the rebuilt cluster
       // (precomposed base + any leftover marks) inherits them uniformly.
       let features = glyphs[i].features;
-      let replacement = composed.map(
-        (cp) =>
-          new GlyphInfo(font, font.glyphForCodePoint(cp).id, [cp], features),
-      );
+      let replacement = composed.map((part) => {
+        let glyph = new GlyphInfo(
+          font,
+          font.glyphForCodePoint(part.codePoint).id,
+          [part.codePoint],
+          features,
+        );
+        if (part.source != null) {
+          glyph.sourceRanges = part.source;
+        }
+
+        return glyph;
+      });
       glyphs.splice(i, end - i, ...replacement);
     }
     i += composed.length;
   }
 }
 
-function composeCodePoints(shaper, font, codePoints) {
+function composeCodePoints(shaper, font, input) {
   // A supported singleton should retain its glyph, including characters
   // excluded from canonical composition whose NFC spelling is different.
-  if (codePoints.length === 1 && font.hasGlyphForCodePoint(codePoints[0])) {
-    return codePoints;
+  if (input.length === 1 && font.hasGlyphForCodePoint(input[0].codePoint)) {
+    return input;
   }
 
   let hasGlyph = (part) => font.hasGlyphForCodePoint(part.codePoint);
   let decomposed = [];
-  for (let cp of codePoints) {
-    let parts = Array.from(String.fromCodePoint(cp).normalize('NFD'), (c) =>
-      normalizationChar(c.codePointAt(0)),
+  for (let item of input) {
+    let parts = Array.from(
+      String.fromCodePoint(item.codePoint).normalize('NFD'),
+      (c) => {
+        let part = normalizationChar(c.codePointAt(0));
+        part.source = item.source;
+        return part;
+      },
     );
     if (!parts.every(hasGlyph)) {
       // Some fonts only provide a partial composition (e.g. ccedilla but
       // no separate cedilla). Do not introduce missing glyphs by decomposing.
       parts = recompose(font, parts);
-      if (!parts.every(hasGlyph)) parts = [normalizationChar(cp)];
+      if (!parts.every(hasGlyph)) {
+        let part = normalizationChar(item.codePoint);
+        part.source = item.source;
+        parts = [part];
+      }
     }
     decomposed.push(...parts);
   }
@@ -161,7 +188,7 @@ function composeCodePoints(shaper, font, codePoints) {
     }
   }
 
-  return recompose(font, decomposed).map((part) => part.codePoint);
+  return recompose(font, decomposed);
 }
 
 function recompose(font, characters) {
@@ -183,6 +210,13 @@ function recompose(font, characters) {
       );
       if (composite.length === 1 && font.hasGlyphForCodePoint(composite[0])) {
         result[starter].codePoint = composite[0];
+        // The composed glyph comes from both the starter and the mark.
+        if (result[starter].source != null || character.source != null) {
+          result[starter].source = mergeRangeLists(
+            result[starter].source,
+            character.source,
+          );
+        }
         continue;
       }
     }

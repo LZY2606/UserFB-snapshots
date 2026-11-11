@@ -331,16 +331,27 @@ export class TTFFont {
    * @return {Glyph[]}
    */
   glyphsForString(string) {
+    return this._glyphsForString(string, null);
+  }
+
+  // Maps a string to glyphs like glyphsForString. If `ranges` is an array,
+  // it is filled with one [start, end] pair per glyph, giving the half-open
+  // range of UTF-16 code units in the string the glyph was mapped from. A
+  // variation selector is grouped with its base character into a single range.
+  _glyphsForString(string, ranges) {
     let glyphs = [];
     let len = string.length;
     let idx = 0;
     let last = -1;
+    let lastStart = 0;
+    let curStart = 0;
     let state = -1;
 
     while (idx <= len) {
       let code = 0;
       let nextState = 0;
 
+      curStart = idx;
       if (idx < len) {
         // Decode the next codepoint from UTF 16
         code = string.charCodeAt(idx++);
@@ -367,12 +378,19 @@ export class TTFFont {
         glyphs.push(
           this.getGlyph(this._cmapProcessor.lookup(last, code), [last, code]),
         );
+        if (ranges) {
+          ranges.push([lastStart, idx]);
+        }
       } else if (state === 0 && nextState === 0) {
         // Normal codepoint following normal codepoint.
         glyphs.push(this.glyphForCodePoint(last));
+        if (ranges) {
+          ranges.push([lastStart, curStart]);
+        }
       }
 
       last = code;
+      lastStart = curStart;
       state = nextState;
     }
 
@@ -395,6 +413,37 @@ export class TTFFont {
    */
   layout(string, userFeatures, script, language, direction) {
     return this._layoutEngine.layout(
+      string,
+      userFeatures,
+      script,
+      language,
+      direction,
+    );
+  }
+
+  /**
+   * Like `layout`, but additionally tracks which parts of the input string
+   * each output glyph originates from. The returned GlyphRun has a
+   * `sourceRanges` array aligned with `glyphs` and `positions`: for each
+   * output glyph, a list of half-open `[start, end]` ranges (in UTF-16 code
+   * units, as used by JavaScript strings) of the input string that produced
+   * it. The list is sorted by start index, and overlapping or adjacent
+   * ranges are merged.
+   *
+   * Only plain cmap mapping and OpenType shaping for the `latn` and `arab`
+   * scripts are supported. Passing a glyph array, a string with lone
+   * surrogates, an AAT (morx) font, or any other script throws an error
+   * instead of returning an incomplete mapping.
+   *
+   * @param {string} string
+   * @param {string[]} [userFeatures]
+   * @param {string} [script]
+   * @param {string} [language]
+   * @param {string} [direction]
+   * @return {GlyphRun}
+   */
+  layoutWithSource(string, userFeatures, script, language, direction) {
+    return this._layoutEngine.layoutWithSource(
       string,
       userFeatures,
       script,

@@ -30,6 +30,72 @@ export default class LayoutEngine {
       features = [];
     }
 
+    return this._layout(string, features, script, language, direction, false);
+  }
+
+  // Like layout, but also records which UTF-16 code unit ranges of the input
+  // string each output glyph comes from, exposed as glyphRun.sourceRanges.
+  // Only plain cmap mapping and OpenType latn/arab shaping are supported;
+  // anything else throws rather than returning an incomplete mapping.
+  layoutWithSource(string, features, script, language, direction) {
+    // Make the features parameter optional
+    if (typeof features === 'string') {
+      direction = language;
+      language = script;
+      script = features;
+      features = [];
+    }
+
+    if (typeof string !== 'string') {
+      throw new Error(
+        'layoutWithSource requires a string; glyph arrays are not supported',
+      );
+    }
+
+    // Reject lone surrogates, which have no well-defined source range.
+    for (let i = 0; i < string.length; i++) {
+      let code = string.charCodeAt(i);
+      if (0xd800 <= code && code <= 0xdbff) {
+        let next = string.charCodeAt(i + 1);
+        if (!(0xdc00 <= next && next <= 0xdfff)) {
+          throw new Error(
+            'layoutWithSource does not support strings with lone surrogates',
+          );
+        }
+
+        i++;
+      } else if (0xdc00 <= code && code <= 0xdfff) {
+        throw new Error(
+          'layoutWithSource does not support strings with lone surrogates',
+        );
+      }
+    }
+
+    if (this.font.morx) {
+      throw new Error('layoutWithSource does not support AAT (morx) fonts');
+    }
+
+    let resolvedScript = script;
+    if (resolvedScript == null && string.length > 0) {
+      resolvedScript = Script.forString(string);
+    }
+
+    if (
+      string.length > 0 &&
+      resolvedScript !== 'latn' &&
+      resolvedScript !== 'arab'
+    ) {
+      throw new Error(
+        `layoutWithSource does not support script '${resolvedScript}'; only 'latn' and 'arab' are supported`,
+      );
+    }
+
+    return this._layout(string, features, script, language, direction, true);
+  }
+
+  _layout(string, features, script, language, direction, trackSource) {
+    let ranges = null;
+
     // Map string to glyphs if needed
     if (typeof string === 'string') {
       // Attempt to detect the script from the string if not provided.
@@ -37,7 +103,9 @@ export default class LayoutEngine {
         script = Script.forString(string);
       }
 
-      var glyphs = this.font.glyphsForString(string);
+      var glyphs = trackSource
+        ? this.font._glyphsForString(string, (ranges = []))
+        : this.font.glyphsForString(string);
     } else {
       // Attempt to detect the script from the glyph code points if not provided.
       if (script == null) {
@@ -57,7 +125,16 @@ export default class LayoutEngine {
     // Return early if there are no glyphs
     if (glyphs.length === 0) {
       glyphRun.positions = [];
+      if (trackSource) {
+        glyphRun.sourceRanges = [];
+      }
+
       return glyphRun;
+    }
+
+    if (trackSource) {
+      // Each glyph starts out with a single source range from the cmap mapping.
+      glyphRun.sourceRanges = ranges.map((range) => [range]);
     }
 
     // Setup the advanced layout engine
@@ -70,6 +147,14 @@ export default class LayoutEngine {
     this.position(glyphRun);
 
     this.hideDefaultIgnorables(glyphRun.glyphs, glyphRun.positions);
+
+    // Collect the final source ranges from the layout engine, which keeps
+    // them on its per-run GlyphInfo objects (never on shared Glyph objects).
+    if (trackSource && this.engine && this.engine.glyphInfos) {
+      glyphRun.sourceRanges = this.engine.glyphInfos.map(
+        (glyphInfo) => glyphInfo.sourceRanges,
+      );
+    }
 
     // Let the layout engine clean up any state it might have
     if (this.engine && this.engine.cleanup) {
@@ -117,6 +202,9 @@ export default class LayoutEngine {
     if (!this.engine && glyphRun.direction === 'rtl') {
       glyphRun.glyphs.reverse();
       glyphRun.positions.reverse();
+      if (glyphRun.sourceRanges) {
+        glyphRun.sourceRanges.reverse();
+      }
     }
 
     // if kerning is not supported by GPOS, do kerning with the TrueType/AAT kern table

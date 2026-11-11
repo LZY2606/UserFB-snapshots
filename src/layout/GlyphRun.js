@@ -4,6 +4,11 @@ import * as Script from '../layout/Script';
 /**
  * Represents a run of Glyph and GlyphPosition objects.
  * Returned by the font layout method.
+ *
+ * When returned by font.layoutWithSource, the run additionally has a
+ * `sourceRanges` property: an array parallel to `glyphs` and `positions`,
+ * where each entry is a sorted, coalesced list of half-open [start, end]
+ * ranges (in UTF-16 code units) of the input string the glyph came from.
  */
 export default class GlyphRun {
   constructor(glyphs, features, script, language, direction) {

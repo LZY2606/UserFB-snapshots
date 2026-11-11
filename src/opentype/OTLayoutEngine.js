@@ -25,9 +25,16 @@ export default class OTLayoutEngine {
   setup(glyphRun) {
     // Map glyphs to GlyphInfo objects so data can be passed between
     // GSUB and GPOS without mutating the real (shared) Glyph objects.
-    this.glyphInfos = glyphRun.glyphs.map(
-      (glyph) => new GlyphInfo(this.font, glyph.id, [...glyph.codePoints]),
-    );
+    // Source ranges, when requested, travel on the GlyphInfo objects for
+    // the same reason.
+    this.glyphInfos = glyphRun.glyphs.map((glyph, index) => {
+      let glyphInfo = new GlyphInfo(this.font, glyph.id, [...glyph.codePoints]);
+      if (glyphRun.sourceRanges) {
+        glyphInfo.sourceRanges = glyphRun.sourceRanges[index];
+      }
+
+      return glyphInfo;
+    });
 
     // Select a script based on what is available in GSUB/GPOS.
     let script = null;
@@ -108,6 +115,7 @@ export default class OTLayoutEngine {
     if (glyphRun.direction === 'rtl') {
       glyphRun.glyphs.reverse();
       glyphRun.positions.reverse();
+      this.glyphInfos.reverse();
     }
 
     return this.GPOSProcessor && this.GPOSProcessor.features;
