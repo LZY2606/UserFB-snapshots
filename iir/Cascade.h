@@ -127,7 +127,38 @@ namespace Iir {
                 for (auto &state: m_states)
                         state.reset();
         }
-        
+
+        /**
+         * Sets the delay lines of the whole chain to the steady state
+         * corresponding to a constant input of the value \param input,
+         * assuming the chain has seen this input since the infinite past.
+         * The equilibrium output of every stage is propagated as the
+         * constant input of the next one. Returns the equilibrium output
+         * of the last stage which the next filter(input) call will produce.
+         * Throws std::invalid_argument if the input, a coefficient or an
+         * intermediate equilibrium is not finite or if a stage has
+         * 1 + a1 + a2 == 0. On failure the delay lines of all stages
+         * (and the coefficients) are left untouched.
+         **/
+        double resetToConstant (const double input)
+        {
+                double stageInput[MaxStages];
+                double out = input;
+                // 1st pass: validate all stages and propagate the
+                // equilibrium outputs on a scratch state so that a
+                // failure in a later stage cannot modify the chain.
+                StateType scratch;
+                for (int i = 0; i < MaxStages; i++) {
+                        stageInput[i] = out;
+                        out = scratch.resetToConstant(out, m_stages[i]);
+                }
+                // 2nd pass: cannot throw anymore because the very same
+                // calculations have succeeded above.
+                for (int i = 0; i < MaxStages; i++)
+                        out = m_states[i].resetToConstant(stageInput[i], m_stages[i]);
+                return out;
+        }
+
         public:
         /**
          * Sets the coefficients of the whole chain of

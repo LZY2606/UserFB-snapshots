@@ -106,6 +106,19 @@ namespace Iir {
 		return state.filter(s, *this);
 	}
 
+	/**
+	 * Sets the State provided as an argument to the steady state of a
+	 * constant input signal and returns the equilibrium output.
+	 * \param s The constant input value the filter is assumed to have seen forever.
+	 * \param state The delay lines (instance of a state from State.h)
+	 * \return The equilibrium output the next filter(s, state) call will produce.
+	 **/
+	template <class StateType>
+	inline double resetToConstant(double s, StateType& state) const
+	{
+		return state.resetToConstant(s, *this);
+	}
+
 	public:
 	/**
 	 * Sets all coefficients

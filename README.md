@@ -165,6 +165,34 @@ y = f.filter(x);
 This is then repeated for every incoming sample in a
 loop or event handler.
 
+### Initialising the filter state: `reset` and `resetToConstant`
+`reset()` clears all delay lines to zero. If a signal segment starts
+with a DC offset the filter output then has to settle first, for
+example a lowpass output slowly climbs from zero to the DC level.
+
+`resetToConstant(input)` instead presets the delay lines directly to
+the analytic steady state for a constant input, assuming the filter
+has seen the value `input` since the infinite past. It returns the
+equilibrium output, so the very first `filter(input)` call afterwards
+already produces the settled value without feeding any warm-up
+samples:
+```
+const double dcOffset = 2.0;
+const double equilibrium = f.resetToConstant(dcOffset);
+// f.filter(dcOffset) now returns equilibrium right away
+```
+It is available for `Custom::SOSCascade` (and the other cascades),
+all RBJ filters and the state classes `DirectFormI`, `DirectFormII`
+and `TransposedDirectFormII` via `state.resetToConstant(input, biquad)`.
+In a cascade the equilibrium output of every stage is propagated as
+the constant input of the next one. The calculation uses the
+coefficients as currently set and throws `std::invalid_argument` if
+the input or a coefficient is not finite, if `1 + a1 + a2` is zero or
+if the equilibrium cannot be represented by finite doubles; on
+failure the delay lines and coefficients are left untouched.
+Afterwards the filter responds to changing input exactly as usual —
+only the initial state differs from a `reset()`.
+
 
 ### Error handling
 Invalid values provided to `setup()` will throw

@@ -74,6 +74,14 @@ namespace RBJ {
 		void reset() {
 			state.reset();
 		}
+		/// Sets the delay lines to the steady state of a constant
+		/// input signal of the value \param input and returns the
+		/// equilibrium output which the next filter(input) call
+		/// will produce. Throws std::invalid_argument if the
+		/// equilibrium cannot be represented by finite doubles.
+		double resetToConstant(double input) {
+			return state.resetToConstant(input, *this);
+		}
 		/// gets the delay lines (=state) of the filter
 		const DirectFormI& getState() {
 			return state;

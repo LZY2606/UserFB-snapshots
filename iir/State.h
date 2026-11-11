@@ -44,6 +44,33 @@
 namespace Iir {
 
 /**
+ * Helper for the resetToConstant() methods of the state topologies.
+ * Validates the constant input and the coefficients of a biquad
+ * section and calculates the DC numerator (b0+b1+b2) and denominator
+ * (1+a1+a2) from the coefficients as they are actually stored in the
+ * Biquad (i.e. normalised by a0). Throws std::invalid_argument if the
+ * input or any coefficient is not finite or if the denominator is
+ * exactly zero. A tiny but non-zero denominator is accepted.
+ **/
+	inline void constantStateParams (const double input, const Biquad& s,
+					 double& num, double& den)
+	{
+		if (!std::isfinite(input))
+			throw_invalid_argument("resetToConstant: input is not finite.");
+		if (!std::isfinite(s.m_a0) ||
+		    !std::isfinite(s.m_a1) ||
+		    !std::isfinite(s.m_a2) ||
+		    !std::isfinite(s.m_b0) ||
+		    !std::isfinite(s.m_b1) ||
+		    !std::isfinite(s.m_b2))
+			throw_invalid_argument("resetToConstant: coefficient is not finite.");
+		num = s.m_b0 + s.m_b1 + s.m_b2;
+		den = 1.0 + s.m_a1 + s.m_a2;
+		if (den == 0.0)
+			throw_invalid_argument("resetToConstant: 1 + a1 + a2 is zero.");
+	}
+
+/**
  * State for applying a second order section to a sample using Direct Form I
  *
  * Difference equation:
@@ -63,7 +90,30 @@ namespace Iir {
 		m_y1 = 0;
 		m_y2 = 0;
 	}
-	
+
+	/**
+	 * Sets the delay lines to the steady state corresponding to a
+	 * constant input of the value \param input, assuming the section
+	 * has seen this input since the infinite past. Returns the
+	 * equilibrium output which the next filter(input) call will
+	 * produce. Throws std::invalid_argument if the equilibrium
+	 * cannot be represented by finite doubles. On failure the delay
+	 * lines are left untouched.
+	 **/
+	double resetToConstant (const double input, const Biquad& s)
+	{
+		double num, den;
+		constantStateParams (input, s, num, den);
+		const double out = input * num / den;
+		if (!std::isfinite(out))
+			throw_invalid_argument("resetToConstant: equilibrium is not finite.");
+		m_x1 = input;
+		m_x2 = input;
+		m_y1 = out;
+		m_y2 = out;
+		return out;
+	}
+
 	inline double filter(const double in,
 			     const Biquad& s)
 	{
@@ -105,7 +155,29 @@ namespace Iir {
 		m_v1 = 0.0;
 		m_v2 = 0.0;
 	}
-	
+
+	/**
+	 * Sets the delay lines to the steady state corresponding to a
+	 * constant input of the value \param input, assuming the section
+	 * has seen this input since the infinite past. Returns the
+	 * equilibrium output which the next filter(input) call will
+	 * produce. Throws std::invalid_argument if the equilibrium
+	 * cannot be represented by finite doubles. On failure the delay
+	 * lines are left untouched.
+	 **/
+	double resetToConstant (const double input, const Biquad& s)
+	{
+		double num, den;
+		constantStateParams (input, s, num, den);
+		const double v = input / den;
+		const double out = num * v;
+		if (!std::isfinite(v) || !std::isfinite(out))
+			throw_invalid_argument("resetToConstant: equilibrium is not finite.");
+		m_v1 = v;
+		m_v2 = v;
+		return out;
+	}
+
 	inline double filter(const double in,
 			     const Biquad& s)
 	{
@@ -138,7 +210,32 @@ namespace Iir {
 		m_s2 = 0.0;
 		m_s2_1 = 0.0;
 	}
-	
+
+	/**
+	 * Sets the delay lines to the steady state corresponding to a
+	 * constant input of the value \param input, assuming the section
+	 * has seen this input since the infinite past. Returns the
+	 * equilibrium output which the next filter(input) call will
+	 * produce. Throws std::invalid_argument if the equilibrium
+	 * cannot be represented by finite doubles. On failure the delay
+	 * lines are left untouched.
+	 **/
+	double resetToConstant (const double input, const Biquad& s)
+	{
+		double num, den;
+		constantStateParams (input, s, num, den);
+		const double out = input * num / den;
+		const double s1 = out - s.m_b0*input;
+		const double s2 = s.m_b2*input - s.m_a2*out;
+		if (!std::isfinite(out) || !std::isfinite(s1) || !std::isfinite(s2))
+			throw_invalid_argument("resetToConstant: equilibrium is not finite.");
+		m_s1 = s1;
+		m_s1_1 = s1;
+		m_s2 = s2;
+		m_s2_1 = s2;
+		return out;
+	}
+
 	inline double filter(const double in,
 			     const Biquad& s)
 	{
