@@ -8,6 +8,8 @@ import (
 	"log"
 
 	"github.com/mewkiz/flac"
+	"github.com/mewkiz/flac/frame"
+	"github.com/mewkiz/flac/meta"
 )
 
 func ExampleParseFile() {
@@ -118,4 +120,76 @@ func ExampleOpen() {
 	//     sample 2: 152
 	//
 	// decoded audio md5sum valid: true
+}
+
+func ExampleEncoder_EnableAutoCompression() {
+	// Two strongly correlated channels (here: identical ramps) compress far
+	// better as inter-channel decorrelated subframes than as verbatim PCM.
+	const n = 256
+	pcm := make([]int32, n)
+	for i := range pcm {
+		pcm[i] = int32(i*17 - 2000)
+	}
+	input := &frame.Frame{
+		Header: frame.Header{
+			HasFixedBlockSize: true,
+			BlockSize:         n,
+			SampleRate:        48000,
+			Channels:          frame.ChannelsLR,
+			BitsPerSample:     16,
+		},
+	}
+	for c := 0; c < 2; c++ {
+		input.Subframes = append(input.Subframes, &frame.Subframe{
+			SubHeader: frame.SubHeader{Pred: frame.PredVerbatim},
+			NSamples:  n,
+			Samples:   append([]int32(nil), pcm...),
+		})
+	}
+
+	buf := new(bytes.Buffer)
+	info := &meta.StreamInfo{
+		BlockSizeMin: n, BlockSizeMax: n,
+		SampleRate: 48000, NChannels: 2, BitsPerSample: 16,
+	}
+	enc, err := flac.NewEncoder(buf, info)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Automatic compression is disabled by default; opt in per encoder.
+	enc.EnableAutoCompression(true)
+	if err := enc.WriteFrame(input); err != nil {
+		log.Fatal(err)
+	}
+	if err := enc.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Decode the file back and verify the original PCM is preserved.
+	stream, err := flac.Parse(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	got, err := stream.ParseNext()
+	if err != nil {
+		log.Fatal(err)
+	}
+	roundtrip := true
+	for _, subframe := range got.Subframes {
+		for i, s := range subframe.Samples {
+			if s != pcm[i] {
+				roundtrip = false
+			}
+		}
+	}
+	fmt.Println("roundtrip ok:", roundtrip)
+	// The encoder selected an inter-channel representation instead of plain
+	// left/right, and the caller's frame was left untouched.
+	fmt.Println("decorrelated:", got.Channels != frame.ChannelsLR)
+	fmt.Println("input unchanged:", input.Channels == frame.ChannelsLR &&
+		input.Subframes[0].Pred == frame.PredVerbatim)
+	// Output:
+	// roundtrip ok: true
+	// decorrelated: true
+	// input unchanged: true
 }

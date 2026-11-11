@@ -35,6 +35,18 @@ func (enc *Encoder) WriteFrame(f *frame.Frame) error {
 		return errutil.Newf("channel count mismatch; expected %d, got %d", nchannels, f.Channels.Count())
 	}
 
+	// Automatic compression only engages with verbatim, zero-wasted-bit frames
+	// inside the supported input range. Validation runs before the frame header
+	// is written, so an out-of-range frame leaves no partial output behind.
+	var plan *autoPlan
+	var err error
+	if enc.autoCompression && autoEligible(f) {
+		plan, err = analyzeAutoFrame(f)
+		if err != nil {
+			return errutil.Err(err)
+		}
+	}
+
 	// Create a new CRC-16 hash writer which adds the data from all write
 	// operations to a running hash.
 	h := crc16.NewIBM()
@@ -57,17 +69,32 @@ func (enc *Encoder) WriteFrame(f *frame.Frame) error {
 	}
 	// TODO: track number of bytes written to hw, to update values of
 	// frameSizeMin and frameSizeMax.
-	// Add unencoded audio samples to running MD5 hash.
+	// Add unencoded audio samples to running MD5 hash. The hash always covers
+	// the original interleaved PCM, never mid/side or residuals.
 	f.Hash(enc.md5sum)
-	if err := enc.encodeFrameHeader(hw, f.Header); err != nil {
+	header := f.Header
+	if plan != nil {
+		// The frame header still declares the original audio bit depth; only
+		// the channel assignment changes for inter-channel decorrelation.
+		header.Channels = plan.channels
+	}
+	if err := enc.encodeFrameHeader(hw, header); err != nil {
 		return errutil.Err(err)
 	}
 
 	// Encode subframes.
 	bw := bitio.NewWriter(hw)
-	for _, subframe := range f.Subframes {
-		if err := encodeSubframe(bw, f.Header, subframe); err != nil {
-			return errutil.Err(err)
+	if plan != nil {
+		for i := range plan.subs {
+			if err := encodeAutoSubframe(bw, &plan.subs[i]); err != nil {
+				return errutil.Err(err)
+			}
+		}
+	} else {
+		for _, subframe := range f.Subframes {
+			if err := encodeSubframe(bw, f.Header, subframe); err != nil {
+				return errutil.Err(err)
+			}
 		}
 	}
 

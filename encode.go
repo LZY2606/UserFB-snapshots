@@ -29,6 +29,38 @@ type Encoder struct {
 	// Current frame number if block size is fixed, and the first sample number
 	// of the current frame otherwise.
 	curNum uint64
+	// autoCompression reports whether WriteFrame should select the channel
+	// representation, prediction method and Rice partition layout of eligible
+	// verbatim frames automatically. Disabled by default.
+	autoCompression bool
+}
+
+// EnableAutoCompression enables or disables automatic compression of audio
+// frames. It is disabled by default, in which case WriteFrame is byte
+// compatible with the original verbatim encoder.
+//
+// When enabled, WriteFrame analyzes each frame before writing it and selects
+// the smallest representation it can produce. Automatic analysis only applies
+// to frames whose subframes are all verbatim with no wasted bits; frames in
+// which any subframe explicitly selects another prediction method are encoded
+// through the original path untouched.
+//
+// The automatic search is limited to one or two channels of 8, 16 or 24-bit
+// signed PCM, with BlockSize matching each subframe's NSamples and Samples
+// length. Mono frames analyze their own samples. Stereo frames compare the
+// independent, left/side, side/right and mid/side representations; each
+// subframe is then stored as constant, verbatim, or fixed prediction of order
+// 0 through 4 with Rice1 residuals and partition orders 0 through 8. Rice2,
+// escape codes, LPC prediction and wasted-bit search are not used.
+//
+// The caller's PCM samples, channel assignment and prediction metadata are not
+// modified. The StreamInfo sample and channel counts and the MD5 checksum
+// describe the original interleaved PCM, never the inter-channel or residual
+// representation. Eligible frames whose samples exceed their declared bit
+// depth or which fall outside the supported input range make WriteFrame return
+// an error before anything is written.
+func (enc *Encoder) EnableAutoCompression(enable bool) {
+	enc.autoCompression = enable
 }
 
 // NewEncoder returns a new FLAC encoder for the given metadata StreamInfo block

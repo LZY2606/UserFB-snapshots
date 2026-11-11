@@ -20,6 +20,43 @@ Documentation provided by GoDoc.
 [flac/frame]: http://pkg.go.dev/github.com/mewkiz/flac/frame
 [flac/meta]: http://pkg.go.dev/github.com/mewkiz/flac/meta
 
+## Encoding with automatic compression
+
+`Encoder` writes frames verbatim by default, preserving the original byte-level
+behavior. An encoder can opt into per-frame automatic compression with
+`EnableAutoCompression(true)`:
+
+```go
+enc, err := flac.NewEncoder(w, info)
+if err != nil {
+    log.Fatal(err)
+}
+enc.EnableAutoCompression(true)
+```
+
+Automatic compression is disabled by default and only engages with frames
+whose subframes are all verbatim with no wasted bits; frames that explicitly
+select another prediction method keep using the original write path. The
+supported input range is one or two channels of 8, 16 or 24-bit signed PCM,
+with the frame block size matching each subframe's `NSamples` and `Samples`
+length. Mono frames analyze their own samples. Stereo frames compare the
+independent (L,R), left/side, side/right and mid/side representations, and each
+candidate subframe is stored as constant, verbatim, or fixed prediction of
+order 0 through 4 with Rice1 residuals and partition orders 0 through 8 (Rice
+parameter k in 0 through 14). Rice2, escape codes, LPC prediction and
+wasted-bit search are not used.
+
+Candidates are ranked by the total effective bit count of the two subframes,
+including subframe headers, warm-up samples, residual method and partition
+fields and every partition parameter, so constant blocks and high-entropy
+short blocks participate in the selection instead of being forced through
+fixed prediction. Side channels use a container one bit wider than the
+declared audio bit depth; the frame header still declares the original bit
+depth, and the StreamInfo sample/channel counts and MD5 checksum describe the
+original interleaved PCM. The caller's PCM, channel assignment and prediction
+metadata are never modified. See `ExampleEncoder_EnableAutoCompression` for a
+runnable example.
+
 ## Changes
 
 * Version 1.0.8 (2023-04-09)
