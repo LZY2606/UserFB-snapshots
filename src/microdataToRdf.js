@@ -74,6 +74,20 @@ function microdataToRdf (html, config) {
   const triples = /** @type {Triple[]} */([]);
 
   /**
+   * Records the vocabulary contexts in which each item has already emitted
+   * its triples. A shared element (one carrying several itemprop tokens, or
+   * pulled in through several itemrefs) is visited more than once, but its
+   * fields must only be generated once per vocabulary: reprocessing it under
+   * the same vocabulary would duplicate every property and rdf:type, while
+   * skipping it under a newly inherited vocabulary would lose the predicates
+   * that belong to that vocabulary. Keyed on the DOM element itself, so two
+   * independent items with identical contents are never merged. Created per
+   * parse, so separate toJson calls never share this state.
+   * @type {Map<import('./microdataDom').Item, Set<string | null>>}
+   */
+  const visitedVocabs = new Map();
+
+  /**
    * @param {string} name
    * @param {Context} ctx
    * @returns {string[]}
@@ -112,6 +126,8 @@ function microdataToRdf (html, config) {
     const subject = ctx.memory.get(item) || dom.getItemId(item) || generateBlankNode();
     ctx.memory.set(item, subject);
 
+    // Ancestor cycles are evaluated before the shared-item guard so a genuine
+    // cycle is never mistaken for an already visited shared item.
     if (ctx.ancestors.indexOf(item) >= 0) {
       if (config.strict) {
         throw new Error('Cyclic structure');
@@ -119,6 +135,22 @@ function microdataToRdf (html, config) {
         return subject;
       }
     }
+
+    // A shared element (multiple itemprop tokens, or referenced through
+    // several itemrefs) is reached more than once. Only skip it when it has
+    // already emitted its body under the vocabulary inherited here: a
+    // typeless shared item reached from different vocabularies still has to
+    // emit its predicates once per vocabulary.
+    const inheritedVocab = ctx.currentVocab;
+    let visitedVocabSet = visitedVocabs.get(item);
+    if (!visitedVocabSet) {
+      visitedVocabSet = new Set();
+      visitedVocabs.set(item, visitedVocabSet);
+    }
+    if (visitedVocabSet.has(inheritedVocab)) {
+      return subject;
+    }
+    visitedVocabSet.add(inheritedVocab);
 
     const itemTypes = dom.getItemType(item);
     for (const itemType of itemTypes) {

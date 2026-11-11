@@ -93,4 +93,79 @@ describe('itemref', () => {
       }]
     });
   });
+
+  test('shares one item across several itemprop tokens without duplicating its fields', () => {
+    const html =
+      '<div itemscope itemtype="https://schema.org/Product">' +
+      '  <div itemscope itemprop="seller brand" itemtype="https://schema.org/Organization">' +
+      '    <span itemprop="name">ACME</span>' +
+      '  </div>' +
+      '</div>';
+    for (const strict of [true, false]) {
+      const product = parser.toJson(html, { strict }).items[0];
+      const seller = product.properties.seller[0];
+      // both properties point at the very same entry
+      expect(seller).toBe(product.properties.brand[0]);
+      // the single <span> is counted once, the type is emitted once
+      expect(seller.properties.name).toEqual(['ACME']);
+      expect(seller.type).toEqual(['https://schema.org/Organization']);
+    }
+  });
+
+  test('keeps real repeated values while sharing a referenced item', () => {
+    const html =
+      '<div itemscope itemtype="https://schema.org/Product">' +
+      '  <div itemscope itemprop="seller brand" itemtype="https://schema.org/Organization">' +
+      '    <span itemprop="name">ACME</span><span itemprop="name">ACME</span>' +
+      '  </div>' +
+      '</div>';
+    const seller = parser.toJson(html, { strict: true }).items[0].properties.seller[0];
+    expect(seller.properties.name).toEqual(['ACME', 'ACME']);
+  });
+
+  test('inherits each parent vocabulary once on a shared typeless item', () => {
+    const html =
+      '<div itemscope itemtype="https://a.test/Owner" itemref="shared"></div>' +
+      '<div itemscope itemtype="https://b.test/Owner" itemref="shared"></div>' +
+      '<span id="shared" itemscope itemprop="node"><span itemprop="name">N</span></span>';
+    const items = parser.toJson(html, { strict: true }).items;
+    expect(items.length).toBe(2);
+    const first = items[0].properties.node[0];
+    const second = items[1].properties.node[0];
+    // one shared entry, but a predicate for every inherited vocabulary
+    expect(first).toBe(second);
+    expect(first.properties).toEqual({
+      'https://a.test/name': ['N'],
+      'https://b.test/name': ['N']
+    });
+  });
+
+  test('does not merge two independent items that happen to have identical content', () => {
+    const html =
+      '<div itemscope itemtype="https://schema.org/Product">' +
+      '  <div itemscope itemprop="seller" itemtype="https://schema.org/Organization">' +
+      '    <span itemprop="name">ACME</span>' +
+      '  </div>' +
+      '  <div itemscope itemprop="brand" itemtype="https://schema.org/Organization">' +
+      '    <span itemprop="name">ACME</span>' +
+      '  </div>' +
+      '</div>';
+    const product = parser.toJson(html, { strict: true }).items[0];
+    const seller = product.properties.seller[0];
+    const brand = product.properties.brand[0];
+    // distinct itemscope elements stay distinct entries even if equal
+    expect(seller).not.toBe(brand);
+    expect(seller.properties.name).toEqual(['ACME']);
+    expect(brand.properties.name).toEqual(['ACME']);
+    expect(seller.type).toEqual(['https://schema.org/Organization']);
+    expect(brand.type).toEqual(['https://schema.org/Organization']);
+  });
+
+  test('still throws on an ancestral itemref cycle in strict mode', () => {
+    const html =
+      '<main itemscope itemtype="https://schema.org/Thing" itemref="a"></main>' +
+      '<div id="a" itemscope itemprop="next" itemref="b"><span itemprop="name">A</span></div>' +
+      '<div id="b" itemscope itemprop="next" itemref="a"></div>';
+    expect(() => parser.toJson(html, { strict: true })).toThrow(/Cyclic structure/);
+  });
 });
