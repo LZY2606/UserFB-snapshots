@@ -78,12 +78,13 @@ import (
 //
 // The zero value of Builder is usable.
 type Builder struct {
-	ub         urlBuilder
-	rb         requestBuilder
-	cl         *http.Client
-	rt         http.RoundTripper
-	validators []ResponseHandler
-	handler    ResponseHandler
+	ub               urlBuilder
+	rb               requestBuilder
+	cl               *http.Client
+	rt               http.RoundTripper
+	validators       []ResponseHandler
+	handler          ResponseHandler
+	sensitiveHeaders []string
 }
 
 // BaseURL sets the base URL that other URL methods modify.
@@ -209,6 +210,7 @@ func (rb *Builder) Clone() *Builder {
 	rb2.ub = *rb.ub.Clone()
 	rb2.rb = *rb.rb.Clone()
 	rb2.validators = slices.Clip(rb2.validators)
+	rb2.sensitiveHeaders = slices.Clip(rb2.sensitiveHeaders)
 	return &rb2
 }
 
@@ -244,10 +246,24 @@ func (rb *Builder) Request(ctx context.Context) (req *http.Request, err error) {
 // Do calls the underlying http.Client and validates and handles any resulting response. The response body is closed after all validators and the handler run.
 func (rb *Builder) Do(req *http.Request) (err error) {
 	cl := cmp.Or(rb.cl, http.DefaultClient)
-	if rb.rt != nil {
+	if rb.rt != nil || len(rb.sensitiveHeaders) > 0 {
 		cl2 := *cl
-		cl2.Transport = rb.rt
 		cl = &cl2
+	}
+	if rb.rt != nil {
+		cl.Transport = rb.rt
+	}
+	if len(rb.sensitiveHeaders) > 0 {
+		o, err := originOf(req.URL)
+		if err != nil {
+			return joinerrs(ErrTransport, err)
+		}
+		sr := &sensitiveRedirect{
+			names:  rb.sensitiveHeaders,
+			origin: o,
+			next:   cl.CheckRedirect,
+		}
+		cl.CheckRedirect = sr.checkRedirect
 	}
 	validators := rb.validators
 	if len(validators) == 0 {

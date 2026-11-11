@@ -219,6 +219,24 @@ if err != nil { /* ... */ }
 fmt.Println(u.String()) // https://dev1.example.com/get?a=1&b=3&c=4
 ```
 
+### Keep sensitive headers on their origin during redirects
+
+```go
+// X-Service-Token is sent to service.internal and any same-origin
+// redirect, but is stripped if the redirect chain crosses to another
+// origin, and stays stripped for the rest of the chain.
+err := requests.
+	URL("https://service.internal/api").
+	Header("X-Service-Token", token).
+	SensitiveHeaders("X-Service-Token").
+	ToJSON(&v).
+	Fetch(ctx)
+```
+
+An origin is the scheme, host, and effective port (80 for HTTP, 443 for HTTPS),
+compared case-insensitively for schemes and DNS hosts and by address value for IP literals.
+See the godoc for [Builder.SensitiveHeaders](https://pkg.go.dev/github.com/carlmjohnson/requests#Builder.SensitiveHeaders) for the exact rules.
+
 ### Record and replay responses
 
 ```go
