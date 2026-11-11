@@ -18,6 +18,36 @@ export const chromaFormatValues = {
   3: 'YUV444'
 }
 
+/* H.264 Table E-1: sample aspect ratios for aspect_ratio_idc 1..16.
+ * 0 means unspecified, 255 means EXTENDED_SAR carried in the bitstream. */
+const standardSarTable = {
+  1: [1, 1],
+  2: [12, 11],
+  3: [10, 11],
+  4: [16, 11],
+  5: [40, 33],
+  6: [24, 11],
+  7: [20, 11],
+  8: [32, 11],
+  9: [80, 33],
+  10: [18, 11],
+  11: [15, 11],
+  12: [64, 33],
+  13: [160, 99],
+  14: [4, 3],
+  15: [3, 2],
+  16: [2, 1]
+}
+
+function gcd (a, b) {
+  while (b !== 0) {
+    const t = a % b
+    a = b
+    b = t
+  }
+  return a
+}
+
 export class Slice {
   constructor (slice, avcc, options) {
     /* we won't parse out much of this, so use subarray */
@@ -106,11 +136,10 @@ export class SPS {
 
     if (!this.has_no_chroma_format_idc) {
       this.chroma_format_idc = bitstream.ue_v()
-      if (this.bit_depth_luma_minus8 > 3)
+      if (this.chroma_format_idc > 3)
         throw new Error('SPS error: chroma_format_idc must be 3 or less')
       if (this.chroma_format_idc === 3) { /* 3 = YUV444 */
         this.separate_colour_plane_flag = bitstream.u_1()
-        this.chromaArrayType = this.separate_colour_plane_flag ? 0 : this.chroma_format_idc
       }
       this.bit_depth_luma_minus8 = bitstream.ue_v()
       if (this.bit_depth_luma_minus8 > 6)
@@ -146,7 +175,12 @@ export class SPS {
           }
         }
       }
+    } else {
+      /* Baseline, Main and Extended profiles carry no chroma_format_idc;
+       * the spec implies 4:2:0 for them. */
+      this.chroma_format_idc = 1
     }
+    this.chromaArrayType = this.separate_colour_plane_flag ? 0 : this.chroma_format_idc
 
     this.log2_max_frame_num_minus4 = bitstream.ue_v()
     if (this.log2_max_frame_num_minus4 > 12)
@@ -186,14 +220,16 @@ export class SPS {
     this.max_num_ref_frames = bitstream.ue_v()
     this.gaps_in_frame_num_value_allowed_flag = bitstream.u_1()
     this.pic_width_in_mbs_minus_1 = bitstream.ue_v()
-    this.picWidth = (this.pic_width_in_mbs_minus_1 + 1) << 4
+    this.picWidth = (this.pic_width_in_mbs_minus_1 + 1) * 16
     this.pic_height_in_map_units_minus_1 = bitstream.ue_v()
     this.frame_mbs_only_flag = bitstream.u_1()
     this.interlaced = !this.frame_mbs_only_flag
     if (this.frame_mbs_only_flag === 0) { /* 1 if frames rather than fields (no interlacing) */
       this.mb_adaptive_frame_field_flag = bitstream.u_1()
     }
-    this.picHeight = ((2 - this.frame_mbs_only_flag) * (this.pic_height_in_map_units_minus_1 + 1)) << 4
+    this.picHeight = (2 - this.frame_mbs_only_flag) * (this.pic_height_in_map_units_minus_1 + 1) * 16
+    if (!Number.isSafeInteger(this.picWidth) || !Number.isSafeInteger(this.picHeight))
+      throw new RangeError('SPS error: picture dimensions are not safe integers')
 
     this.direct_8x8_inference_flag = bitstream.u_1()
     this.frame_cropping_flag = bitstream.u_1()
@@ -202,12 +238,24 @@ export class SPS {
       this.frame_cropping_rect_right_offset = bitstream.ue_v()
       this.frame_cropping_rect_top_offset = bitstream.ue_v()
       this.frame_cropping_rect_bottom_offset = bitstream.ue_v()
-      this.cropRect = {
-        x: this.frame_cropping_rect_left_offset,
-        y: this.frame_cropping_rect_top_offset,
-        width: this.picWidth - (this.frame_cropping_rect_left_offset + this.frame_cropping_rect_right_offset),
-        height: this.picHeight - (this.frame_cropping_rect_top_offset + this.frame_cropping_rect_bottom_offset)
-      }
+      /* The cropping offsets are counted in units derived from the chroma
+       * sampling and interlacing; convert them to luma pixels here.
+       * (H.264 7.4.2.1.1: SubWidthC/SubHeightC by ChromaArrayType.) */
+      const subWidthC = [1, 2, 2, 1][this.chromaArrayType]
+      const subHeightC = [1, 2, 1, 1][this.chromaArrayType]
+      const cropUnitX = subWidthC
+      const cropUnitY = subHeightC * (2 - this.frame_mbs_only_flag)
+      const x = this.frame_cropping_rect_left_offset * cropUnitX
+      const y = this.frame_cropping_rect_top_offset * cropUnitY
+      const width = this.picWidth -
+        (this.frame_cropping_rect_left_offset + this.frame_cropping_rect_right_offset) * cropUnitX
+      const height = this.picHeight -
+        (this.frame_cropping_rect_top_offset + this.frame_cropping_rect_bottom_offset) * cropUnitY
+      if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) ||
+          !Number.isSafeInteger(width) || !Number.isSafeInteger(height) ||
+          x < 0 || y < 0 || width <= 0 || height <= 0)
+        throw new RangeError('SPS error: frame_cropping_rect yields an invalid display rectangle')
+      this.cropRect = { x, y, width, height }
     } else {
       this.cropRect = {
         x: 0,
@@ -221,9 +269,17 @@ export class SPS {
       this.aspect_ratio_info_present_flag = bitstream.u_1()
       if (this.aspect_ratio_info_present_flag) {
         this.aspect_ratio_idc = bitstream.u_8()
-        if (this.aspect_ratio_idc) {
+        if (this.aspect_ratio_idc === 255) { /* EXTENDED_SAR: read from the bitstream */
           this.sar_width = bitstream.u(16)
           this.sar_height = bitstream.u(16)
+          if (this.sar_width === 0 || this.sar_height === 0)
+            throw new RangeError('SPS error: extended sar_width and sar_height must be nonzero')
+        } else if (this.aspect_ratio_idc >= 1 && this.aspect_ratio_idc <= 16) {
+          const sar = standardSarTable[this.aspect_ratio_idc]
+          this.sar_width = sar[0]
+          this.sar_height = sar[1]
+        } else if (this.aspect_ratio_idc !== 0) { /* 0 means unspecified */
+          throw new RangeError('SPS error: reserved aspect_ratio_idc: ' + this.aspect_ratio_idc)
         }
       }
 
@@ -256,6 +312,15 @@ export class SPS {
         }
       }
       this.nal_hrd_parameters_present_flag = bitstream.u_1()
+    }
+    if (typeof this.sar_width === 'number' && typeof this.sar_height === 'number') {
+      /* display aspect ratio: cropped size scaled by the sample aspect ratio */
+      const num = this.cropRect.width * this.sar_width
+      const den = this.cropRect.height * this.sar_height
+      if (!Number.isSafeInteger(num) || !Number.isSafeInteger(den))
+        throw new RangeError('SPS error: display aspect ratio is not representable as safe integers')
+      const g = gcd(num, den)
+      this.displayAspectRatio = { num: num / g, den: den / g }
     }
     this.success = true
   }
@@ -1030,9 +1095,10 @@ export class AvcC {
     this.profileIndication = sps.profile_idc
     this.profileCompatibility = sps.profile_compatibility
     this.avcLevelIndication = sps.level_idc
-    if (sps.cropRect) this.cropRect = sps.cropRect
-    if (sps.picWidth) this.picWidth = sps.picWidth
-    if (sps.picHeight) this.picHeight = sps.picHeight
+    this.cropRect = sps.cropRect
+    this.picWidth = sps.picWidth
+    this.picHeight = sps.picHeight
+    this.displayAspectRatio = sps.displayAspectRatio
     if (sps.framesPerSecond) this.framesPerSecond = sps.framesPerSecond
     return sps
   }
