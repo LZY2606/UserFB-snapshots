@@ -221,6 +221,57 @@ fmt.Println(q.Hero.Height)
 // 0
 ```
 
+### Incremental Queries
+
+Some servers return a query in several pieces: a first part with the initial
+data, followed by parts that fill in details and extend lists. Use
+`QueryIncremental` for those responses. It sends a single POST (derived from
+your query type, just like `Query`) and calls `onPart` once per fully applied
+part, while the response is still streaming. An ordinary `application/json`
+response is delivered through the same entry point with a single callback; a
+`multipart/mixed` response is applied part by part.
+
+```Go
+var q struct {
+	Catalog struct {
+		Card struct {
+			Name graphql.String
+		}
+		Entries []struct {
+			ID graphql.ID
+		}
+	}
+}
+
+err := client.QueryIncremental(context.Background(), &q, nil, func(part graphql.IncrementalResult) error {
+	// q already contains every part delivered so far.
+	fmt.Printf("hasNext=%v entries=%d\n", part.HasNext, len(q.Catalog.Entries))
+
+	// GraphQL business errors do not stop delivery; inspect them per part.
+	for _, e := range part.Errors {
+		fmt.Printf("error at %v: %s\n", e.Path, e.Message)
+	}
+	return nil // Returning an error aborts the stream and is returned as-is.
+})
+if err != nil {
+	// A non-nil error here is a transport/protocol/callback failure, or the
+	// aggregate of all GraphQL business errors once the stream finished.
+}
+```
+
+A few guarantees are worth knowing when retaining pointers from earlier parts:
+
+- `data` is merged recursively: unmentioned fields stay, and an explicit `null`
+  clears the field.
+- `items` can only append at the current list length; overwrites and holes are
+  rejected.
+- Existing non-nil pointer fields and pointer slice elements are updated in
+  place, never rebuilt, unless a `null` cleared them first.
+- All incremental items in one part commit atomically. If any item is invalid,
+  the whole part is rolled back, `onPart` is not called for it, and previously
+  delivered data is untouched.
+- The response body is always closed, and no retry or second request is issued.
+
 ### Mutations
 
 Mutations often require information that you can only find out by performing a query first. Let's suppose you've already done that.

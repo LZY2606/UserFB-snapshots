@@ -45,30 +45,10 @@ func (c *Client) Mutate(ctx context.Context, m any, variables map[string]any) er
 
 // do executes a single GraphQL operation.
 func (c *Client) do(ctx context.Context, op operationType, v any, variables map[string]any) error {
-	var query string
-	switch op {
-	case queryOperation:
-		query = constructQuery(v, variables)
-	case mutationOperation:
-		query = constructMutation(v, variables)
-	}
-	in := struct {
-		Query     string         `json:"query"`
-		Variables map[string]any `json:"variables,omitempty"`
-	}{
-		Query:     query,
-		Variables: variables,
-	}
-	var buf bytes.Buffer
-	err := json.NewEncoder(&buf).Encode(in)
+	req, err := c.newRequest(ctx, op, v, variables)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -99,6 +79,36 @@ func (c *Client) do(ctx context.Context, op operationType, v any, variables map[
 		return out.Errors
 	}
 	return nil
+}
+
+// newRequest builds the single POST request for a GraphQL operation,
+// deriving the query text from v exactly like Query and Mutate do.
+func (c *Client) newRequest(ctx context.Context, op operationType, v any, variables map[string]any) (*http.Request, error) {
+	var query string
+	switch op {
+	case queryOperation:
+		query = constructQuery(v, variables)
+	case mutationOperation:
+		query = constructMutation(v, variables)
+	}
+	in := struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables,omitempty"`
+	}{
+		Query:     query,
+		Variables: variables,
+	}
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(in)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
 }
 
 // errors represents the "errors" array in a response from a GraphQL server.
