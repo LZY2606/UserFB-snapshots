@@ -3,7 +3,6 @@
 //
 // It is only suitable for use as a 'private' cache (i.e. for a web-browser or an API-client
 // and not for a shared proxy).
-//
 package httpcache
 
 import (
@@ -11,7 +10,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -103,6 +101,103 @@ type Transport struct {
 	Cache     Cache
 	// If true, responses returned from the cache will be given an extra header, X-From-Cache
 	MarkCachedResponses bool
+
+	// coordMu protects coords. It is never held while the downstream
+	// RoundTripper is called or while response bodies are read or closed.
+	coordMu sync.Mutex
+	// coords holds one entry per cache key that currently has at least one
+	// in-flight GET/HEAD request. Entries are created on demand and removed
+	// once the last in-flight request (including its response Body) is done.
+	coords map[string]*keyCoord
+}
+
+// keyCoord coordinates update attempts for a single cache key.
+//
+// generation is the state version of the key. Every successful Set or Delete
+// bumps it, even when the stored bytes are identical to the previous value.
+// An update attempt is allowed to commit only while the generation it
+// observed before sending its request is still current.
+type keyCoord struct {
+	generation uint64
+	inFlight   int
+}
+
+// updateAttempt represents one downstream request as an attempt to update the
+// cache key based on the state observed immediately before the request left.
+type updateAttempt struct {
+	t    *Transport
+	key  string
+	kc   *keyCoord
+	seen uint64
+
+	releaseOnce sync.Once
+}
+
+// begin registers an in-flight attempt for key and captures the generation
+// observed before the request is sent.
+func (t *Transport) begin(key string) *updateAttempt {
+	t.coordMu.Lock()
+	defer t.coordMu.Unlock()
+	if t.coords == nil {
+		t.coords = map[string]*keyCoord{}
+	}
+	kc, ok := t.coords[key]
+	if !ok {
+		kc = &keyCoord{}
+		t.coords[key] = kc
+	}
+	kc.inFlight++
+	return &updateAttempt{t: t, key: key, kc: kc, seen: kc.generation}
+}
+
+// release marks the attempt finished and reclaims the coordinator entry when
+// no in-flight attempts remain for the key.
+func (a *updateAttempt) release() {
+	a.releaseOnce.Do(func() {
+		a.t.coordMu.Lock()
+		defer a.t.coordMu.Unlock()
+		if kc, ok := a.t.coords[a.key]; ok && kc == a.kc {
+			kc.inFlight--
+			if kc.inFlight == 0 {
+				delete(a.t.coords, a.key)
+			}
+		}
+	})
+}
+
+// current reports whether the state observed at departure is still the
+// current state of the key.
+func (a *updateAttempt) current() bool {
+	a.t.coordMu.Lock()
+	defer a.t.coordMu.Unlock()
+	return a.kc.generation == a.seen
+}
+
+// trySet stores responseBytes only when the observed state is still current,
+// atomically advancing the generation. It returns whether the commit won.
+func (a *updateAttempt) trySet(responseBytes []byte) bool {
+	a.t.coordMu.Lock()
+	defer a.t.coordMu.Unlock()
+	if a.kc.generation != a.seen {
+		return false
+	}
+	a.t.Cache.Set(a.key, responseBytes)
+	a.kc.generation++
+	return true
+}
+
+// tryDelete removes the key only when the observed state is still current,
+// atomically advancing the generation. Deleting a missing key still creates
+// a new state.
+func (a *updateAttempt) tryDelete() bool {
+	a.t.coordMu.Lock()
+	defer a.t.coordMu.Unlock()
+	if a.kc.generation != a.seen {
+		return false
+	}
+	a.t.Cache.Delete(a.key)
+	a.kc.generation++
+	return true
 }
 
 // NewTransport returns a new Transport with the
@@ -128,6 +223,39 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 	return true
 }
 
+// hasCallerConditional reports whether the caller supplied its own
+// If-None-Match or If-Modified-Since header. Header names are matched
+// case-insensitively; a present field, even with an empty value, counts.
+func hasCallerConditional(h http.Header) bool {
+	for name := range h {
+		switch http.CanonicalHeaderKey(name) {
+		case "If-None-Match", "If-Modified-Since":
+			return true
+		}
+	}
+	return false
+}
+
+// withAutoValidators returns a clone of req carrying validators taken from
+// cachedResp, or nil if there is nothing to add. The original request and its
+// header maps are never modified.
+func withAutoValidators(req *http.Request, cachedResp *http.Response) *http.Request {
+	var req2 *http.Request
+	etag := cachedResp.Header.Get("etag")
+	if etag != "" && req.Header.Get("etag") == "" {
+		req2 = cloneRequest(req)
+		req2.Header.Set("if-none-match", etag)
+	}
+	lastModified := cachedResp.Header.Get("last-modified")
+	if lastModified != "" && req.Header.Get("last-modified") == "" {
+		if req2 == nil {
+			req2 = cloneRequest(req)
+		}
+		req2.Header.Set("if-modified-since", lastModified)
+	}
+	return req2
+}
+
 // RoundTrip takes a Request and returns a Response
 //
 // If there is a fresh Response already in cache, then it will be returned without connecting to
@@ -136,121 +264,217 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 // If there is a stale Response, then any validators it contains will be set on the new request
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
+//
+// If the request itself carries If-None-Match or If-Modified-Since, those
+// conditions belong to the caller: they are forwarded untouched, a fresh
+// cache entry is never served instead, and a 304 from the origin is returned
+// to the caller verbatim instead of being merged with a cached entity.
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	cacheKey := cacheKey(req)
 	cacheable := (req.Method == "GET" || req.Method == "HEAD") && req.Header.Get("range") == ""
-	var cachedResp *http.Response
-	if cacheable {
-		cachedResp, err = CachedResponse(t.Cache, req)
-	} else {
-		// Need to invalidate an existing value
+	if !cacheable {
+		// Need to invalidate an existing value; non-cacheable methods take no
+		// part in per-key update coordination.
 		t.Cache.Delete(cacheKey)
+		return t.downstream().RoundTrip(req)
 	}
 
-	transport := t.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
+	attempt := t.begin(cacheKey)
 
-	if cacheable && cachedResp != nil && err == nil {
+	cachedResp, cacheErr := CachedResponse(t.Cache, req)
+	callerConditional := hasCallerConditional(req.Header)
+
+	downstreamReq := req
+	autoRevalidate := false
+	if cachedResp != nil && cacheErr == nil {
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XFromCache, "1")
 		}
-
-		if varyMatches(cachedResp, req) {
-			// Can only use cached value if the new request doesn't Vary significantly
-			freshness := getFreshness(cachedResp.Header, req.Header)
-			if freshness == fresh {
+		// Caller-supplied conditions are never answered from the cache and
+		// never augmented with cached validators.
+		if !callerConditional && varyMatches(cachedResp, req) {
+			switch getFreshness(cachedResp.Header, req.Header) {
+			case fresh:
+				attempt.release()
 				return cachedResp, nil
-			}
-
-			if freshness == stale {
-				var req2 *http.Request
-				// Add validators if caller hasn't already done so
-				etag := cachedResp.Header.Get("etag")
-				if etag != "" && req.Header.Get("etag") == "" {
-					req2 = cloneRequest(req)
-					req2.Header.Set("if-none-match", etag)
-				}
-				lastModified := cachedResp.Header.Get("last-modified")
-				if lastModified != "" && req.Header.Get("last-modified") == "" {
-					if req2 == nil {
-						req2 = cloneRequest(req)
-					}
-					req2.Header.Set("if-modified-since", lastModified)
-				}
-				if req2 != nil {
-					req = req2
+			case stale:
+				if req2 := withAutoValidators(req, cachedResp); req2 != nil {
+					downstreamReq = req2
+					autoRevalidate = true
 				}
 			}
 		}
+	} else if _, ok := parseCacheControl(req.Header)["only-if-cached"]; ok {
+		// No cached value available and the caller forbids a network request.
+		attempt.release()
+		return newGatewayTimeoutResponse(req), nil
+	}
 
-		resp, err = transport.RoundTrip(req)
-		if err == nil && req.Method == "GET" && resp.StatusCode == http.StatusNotModified {
-			// Replace the 304 response with the one from cache, but update with some new headers
-			endToEndHeaders := getEndToEndHeaders(resp.Header)
-			for _, header := range endToEndHeaders {
-				cachedResp.Header[header] = resp.Header[header]
-			}
-			resp = cachedResp
-		} else if (err != nil || (cachedResp != nil && resp.StatusCode >= 500)) &&
-			req.Method == "GET" && canStaleOnError(cachedResp.Header, req.Header) {
-			// In case of transport failure and stale-if-error activated, returns cached content
-			// when available
+	resp, err = t.downstream().RoundTrip(downstreamReq)
+	if err != nil {
+		// Explicit caller conditions, like any request without a usable
+		// snapshot, surface the network error verbatim: no stale-if-error
+		// fallback, no cache deletion.
+		if cachedResp != nil && cacheErr == nil && !callerConditional &&
+			req.Method == "GET" && canStaleOnError(cachedResp.Header, req.Header) &&
+			attempt.current() {
+			attempt.release()
 			return cachedResp, nil
-		} else {
-			if err != nil || resp.StatusCode != http.StatusOK {
-				t.Cache.Delete(cacheKey)
-			}
-			if err != nil {
-				return nil, err
-			}
 		}
-	} else {
-		reqCacheControl := parseCacheControl(req.Header)
-		if _, ok := reqCacheControl["only-if-cached"]; ok {
-			resp = newGatewayTimeoutResponse(req)
-		} else {
-			resp, err = transport.RoundTrip(req)
-			if err != nil {
-				return nil, err
-			}
+		attempt.release()
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusNotModified {
+		// A 304 may be synthesized into the cached 200 only when this
+		// Transport itself generated conditional headers from that exact
+		// snapshot. Caller conditions, Vary mismatches, no-cache requests and
+		// requests without validators receive the 304 verbatim.
+		if autoRevalidate && req.Method == "GET" {
+			return t.mergedResponse(req, cachedResp, resp, attempt)
+		}
+		if !callerConditional {
+			// Preserve the previous invalidation behavior for a 304 the
+			// Transport cannot merge (an auto-revalidated HEAD, or a GET sent
+			// without generated validators): the stale entry is dropped. The
+			// delete still obeys the state rule. A caller-conditional 304
+			// never touches the cache.
+			attempt.tryDelete()
+		}
+		return t.passthrough(resp, attempt)
+	}
+
+	if resp.StatusCode >= 500 && cachedResp != nil && cacheErr == nil &&
+		!callerConditional && req.Method == "GET" &&
+		canStaleOnError(cachedResp.Header, req.Header) && attempt.current() {
+		// stale-if-error: serve the snapshot taken at departure. The fallback
+		// never writes the cache, and a snapshot that has since been replaced
+		// or invalidated is not used.
+		closeResponseBody(resp)
+		attempt.release()
+		return cachedResp, nil
+	}
+
+	if !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+		// no-store on the request or response: invalidate at header time. A
+		// successful delete is a new state even if the key was absent, so an
+		// older in-flight response can no longer resurrect it.
+		attempt.tryDelete()
+		return t.passthrough(resp, attempt)
+	}
+
+	if callerConditional && resp.StatusCode != http.StatusOK {
+		// A caller's own conditional request only updates the cache through a
+		// full 200. Its 304 is handled above; 4xx/5xx answers go back
+		// verbatim without writing, deleting or refreshing anything.
+		return t.passthrough(resp, attempt)
+	}
+
+	// Every storable response (of any status code) becomes a candidate that
+	// commits at EOF under the state rule, preserving the previous behavior of
+	// caching e.g. 404 responses.
+	return t.storeResponse(req, resp, attempt)
+}
+
+// downstream returns the RoundTripper used for actual network requests.
+func (t *Transport) downstream() http.RoundTripper {
+	if t.Transport != nil {
+		return t.Transport
+	}
+	return http.DefaultTransport
+}
+
+// passthrough returns resp to the caller without caching side effects,
+// releasing the coordination attempt once the body is closed (or immediately
+// when there is no body).
+func (t *Transport) passthrough(resp *http.Response, attempt *updateAttempt) (*http.Response, error) {
+	if resp.Body == nil {
+		attempt.release()
+		return resp, nil
+	}
+	resp.Body = &releaseReadCloser{rc: resp.Body, attempt: attempt}
+	return resp, nil
+}
+
+// mergedResponse combines an auto-revalidation 304 with the cached snapshot
+// and turns the snapshot into a cache candidate subject to the same EOF and
+// state rules as a normal 200. The downstream 304 body is closed.
+func (t *Transport) mergedResponse(req *http.Request, cachedResp, upstream *http.Response, attempt *updateAttempt) (*http.Response, error) {
+	for _, header := range getEndToEndHeaders(upstream.Header) {
+		// Copy the values so later caller mutations cannot reach the
+		// downstream response and vice versa.
+		cachedResp.Header[header] = append([]string(nil), upstream.Header[header]...)
+	}
+	closeResponseBody(upstream)
+	return t.candidateResponse(req, cachedResp, attempt)
+}
+
+// storeResponse arranges for a cacheable response to be committed only after
+// its body has been read to EOF and only while the departure state is still
+// current.
+func (t *Transport) storeResponse(req *http.Request, resp *http.Response, attempt *updateAttempt) (*http.Response, error) {
+	meta := snapshotResponseMeta(resp)
+	for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
+		varyKey = http.CanonicalHeaderKey(varyKey)
+		reqValue := req.Header.Get(varyKey)
+		if reqValue != "" {
+			meta.Header.Set("X-Varied-"+varyKey, reqValue)
 		}
 	}
 
-	if cacheable && canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
-		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
-			varyKey = http.CanonicalHeaderKey(varyKey)
-			fakeHeader := "X-Varied-" + varyKey
-			reqValue := req.Header.Get(varyKey)
-			if reqValue != "" {
-				resp.Header.Set(fakeHeader, reqValue)
-			}
+	// HEAD responses (and bodyless responses) carry no entity to drain, so
+	// the same state-guarded commit happens immediately.
+	if req.Method == "HEAD" || resp.Body == nil {
+		meta.Body = nil
+		if respBytes, err := httputil.DumpResponse(meta, true); err == nil {
+			attempt.trySet(respBytes)
 		}
-		switch req.Method {
-		case "GET":
-			// Delay caching until EOF is reached.
-			resp.Body = &cachingReadCloser{
-				R: resp.Body,
-				OnEOF: func(r io.Reader) {
-					resp := *resp
-					resp.Body = ioutil.NopCloser(r)
-					respBytes, err := httputil.DumpResponse(&resp, true)
-					if err == nil {
-						t.Cache.Set(cacheKey, respBytes)
-					}
-				},
-			}
-		default:
-			respBytes, err := httputil.DumpResponse(resp, true)
-			if err == nil {
-				t.Cache.Set(cacheKey, respBytes)
-			}
-		}
-	} else {
-		t.Cache.Delete(cacheKey)
+		return t.passthrough(resp, attempt)
+	}
+
+	resp.Body = &candidateReadCloser{
+		rc:      resp.Body,
+		attempt: attempt,
+		meta:    meta,
+		ctxDone: req.Context().Done(),
 	}
 	return resp, nil
+}
+
+// candidateResponse wraps an already materialized response (currently the
+// cached snapshot merged with a revalidation 304) as a cache candidate.
+func (t *Transport) candidateResponse(req *http.Request, resp *http.Response, attempt *updateAttempt) (*http.Response, error) {
+	meta := snapshotResponseMeta(resp)
+	if resp.Body == nil {
+		meta.Body = nil
+		if respBytes, err := httputil.DumpResponse(meta, true); err == nil {
+			attempt.trySet(respBytes)
+		}
+		return t.passthrough(resp, attempt)
+	}
+	resp.Body = &candidateReadCloser{
+		rc:      resp.Body,
+		attempt: attempt,
+		meta:    meta,
+		ctxDone: req.Context().Done(),
+	}
+	return resp, nil
+}
+
+// snapshotResponseMeta makes an independent shallow copy of resp and a deep
+// copy of its header map so that header mutations by the caller after
+// RoundTrip returns cannot flow into cached metadata.
+func snapshotResponseMeta(resp *http.Response) *http.Response {
+	meta := new(http.Response)
+	*meta = *resp
+	meta.Header = resp.Header.Clone()
+	return meta
+}
+
+func closeResponseBody(resp *http.Response) {
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
 }
 
 // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
@@ -500,8 +724,8 @@ func parseCacheControl(headers http.Header) cacheControl {
 // with whitespace trimmed) for header name in headers. According to
 // Section 4.2 of the HTTP/1.1 spec
 // (http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.2),
-// values from multiple occurrences of a header should be concatenated, if
-// the header's value is a comma-separated list.
+// values from multiple occurrences of a header should be concatenated, if the
+// header's value is a comma-separated list.
 func headerAllCommaSepValues(headers http.Header, name string) []string {
 	var vals []string
 	for _, val := range headers[http.CanonicalHeaderKey(name)] {
@@ -514,33 +738,114 @@ func headerAllCommaSepValues(headers http.Header, name string) []string {
 	return vals
 }
 
-// cachingReadCloser is a wrapper around ReadCloser R that calls OnEOF
-// handler with a full copy of the content read from R when EOF is
-// reached.
-type cachingReadCloser struct {
+// candidateReadCloser wraps a cacheable response body. It buffers what the
+// caller reads and attempts exactly one cache commit when EOF is reached. The
+// commit wins only if the key state observed at departure is still current.
+// Closing early, reading a non-EOF error or having the request context
+// cancelled all forfeit the commit.
+type candidateReadCloser struct {
 	// Underlying ReadCloser.
-	R io.ReadCloser
-	// OnEOF is called with a copy of the content of R when EOF is reached.
-	OnEOF func(io.Reader)
+	rc io.ReadCloser
+	// attempt whose state rule guards the commit.
+	attempt *updateAttempt
+	// meta is the independent response metadata captured before the response
+	// was handed to the caller.
+	meta *http.Response
+	// ctxDone, when non-nil, is the cancellation channel of the originating
+	// request; a cancelled request never commits.
+	ctxDone <-chan struct{}
 
-	buf bytes.Buffer // buf stores a copy of the content of R.
+	mu     sync.Mutex
+	buf    bytes.Buffer // buf stores a copy of the content read from rc.
+	closed bool
+	done   bool // a terminal outcome (commit or forfeiture) has been recorded
 }
 
-// Read reads the next len(p) bytes from R or until R is drained. The
-// return value n is the number of bytes read. If R has no data to
-// return, err is io.EOF and OnEOF is called with a full copy of what
-// has been read so far.
-func (r *cachingReadCloser) Read(p []byte) (n int, err error) {
-	n, err = r.R.Read(p)
-	r.buf.Write(p[:n])
-	if err == io.EOF {
-		r.OnEOF(bytes.NewReader(r.buf.Bytes()))
+// Read reads the next len(p) bytes from the underlying body. On EOF the
+// buffered response is committed once, subject to the state rule; any other
+// error, or a request whose context is already cancelled, forfeits the commit
+// without touching the cache.
+func (c *candidateReadCloser) Read(p []byte) (n int, err error) {
+	n, err = c.rc.Read(p)
+	if n > 0 {
+		c.buf.Write(p[:n])
+	}
+	if err != nil {
+		c.mu.Lock()
+		if !c.done {
+			c.done = true
+			if err == io.EOF && c.contextAlive() {
+				c.commitLocked()
+			}
+		}
+		c.mu.Unlock()
 	}
 	return n, err
 }
 
-func (r *cachingReadCloser) Close() error {
-	return r.R.Close()
+// contextAlive reports that the originating request context has not been
+// cancelled. Caller must hold c.mu (the read itself is non-blocking).
+func (c *candidateReadCloser) contextAlive() bool {
+	if c.ctxDone == nil {
+		return true
+	}
+	select {
+	case <-c.ctxDone:
+		return false
+	default:
+		return true
+	}
+}
+
+// commitLocked serializes the buffered candidate and tries to commit it.
+// Called with c.mu held, exactly once.
+func (c *candidateReadCloser) commitLocked() {
+	meta := c.meta
+	meta.Body = io.NopCloser(bytes.NewReader(c.buf.Bytes()))
+	meta.ContentLength = int64(c.buf.Len())
+	respBytes, dumpErr := httputil.DumpResponse(meta, true)
+	if dumpErr != nil {
+		return
+	}
+	c.attempt.trySet(respBytes)
+}
+
+// Close closes the underlying body. Closing before EOF forfeits any later
+// cache commit, so an earlier, slower reader can never restore an entry that
+// has since been updated or deleted. Close is safe to call repeatedly; only
+// the first call records the outcome or releases the coordination attempt.
+func (c *candidateReadCloser) Close() error {
+	c.mu.Lock()
+	alreadyClosed := c.closed
+	if !c.closed {
+		c.closed = true
+		// Any still-pending commit is now impossible.
+		c.done = true
+	}
+	c.mu.Unlock()
+	err := c.rc.Close()
+	if !alreadyClosed {
+		c.attempt.release()
+	}
+	return err
+}
+
+// releaseReadCloser wraps a body that is returned to the caller without
+// caching it, so the coordination attempt ends when the caller closes it.
+type releaseReadCloser struct {
+	rc      io.ReadCloser
+	attempt *updateAttempt
+	once    sync.Once
+}
+
+func (r *releaseReadCloser) Read(p []byte) (int, error) {
+	return r.rc.Read(p)
+}
+
+func (r *releaseReadCloser) Close() error {
+	err := r.rc.Close()
+	r.once.Do(r.attempt.release)
+	return err
 }
 
 // NewMemoryCacheTransport returns a new Transport using the in-memory cache implementation

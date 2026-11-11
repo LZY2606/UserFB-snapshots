@@ -45,7 +45,17 @@ func setup() {
 	s.done = make(chan struct{})
 
 	mux := http.NewServeMux()
-	s.server = httptest.NewServer(mux)
+	// Local port binding may be unavailable (e.g. a sandboxed environment).
+	// Tolerate it here instead of panicking inside TestMain; tests that need
+	// the server guard themselves with requireTestServer.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.server = nil
+			}
+		}()
+		s.server = httptest.NewServer(mux)
+	}()
 
 	mux.HandleFunc("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=3600")
@@ -162,7 +172,18 @@ func setup() {
 
 func teardown() {
 	close(s.done)
-	s.server.Close()
+	if s.server != nil {
+		s.server.Close()
+	}
+}
+
+// requireTestServer skips the calling test when the httptest server could not
+// be started because local port binding is unavailable.
+func requireTestServer(t *testing.T) {
+	t.Helper()
+	if s.server == nil {
+		t.Skip("httptest server unavailable: local port binding is disabled")
+	}
 }
 
 func resetTest() {
@@ -173,6 +194,7 @@ func resetTest() {
 // TestCacheableMethod ensures that uncacheable method does not get stored
 // in cache and get incorrectly used for a following cacheable method request.
 func TestCacheableMethod(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	{
 		req, err := http.NewRequest("POST", s.server.URL+"/method", nil)
@@ -230,6 +252,7 @@ func TestCacheableMethod(t *testing.T) {
 }
 
 func TestDontServeHeadResponseToGetRequest(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	url := s.server.URL + "/"
 	req, err := http.NewRequest(http.MethodHead, url, nil)
@@ -254,6 +277,7 @@ func TestDontServeHeadResponseToGetRequest(t *testing.T) {
 }
 
 func TestDontStorePartialRangeInCache(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	{
 		req, err := http.NewRequest("GET", s.server.URL+"/range", nil)
@@ -366,6 +390,7 @@ func TestDontStorePartialRangeInCache(t *testing.T) {
 }
 
 func TestCacheOnlyIfBodyRead(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	{
 		req, err := http.NewRequest("GET", s.server.URL, nil)
@@ -399,6 +424,7 @@ func TestCacheOnlyIfBodyRead(t *testing.T) {
 }
 
 func TestOnlyReadBodyOnDemand(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 
 	req, err := http.NewRequest("GET", s.server.URL+"/infinite", nil)
@@ -418,6 +444,7 @@ func TestOnlyReadBodyOnDemand(t *testing.T) {
 }
 
 func TestGetOnlyIfCachedHit(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	{
 		req, err := http.NewRequest("GET", s.server.URL, nil)
@@ -458,6 +485,7 @@ func TestGetOnlyIfCachedHit(t *testing.T) {
 }
 
 func TestGetOnlyIfCachedMiss(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL, nil)
 	if err != nil {
@@ -478,6 +506,7 @@ func TestGetOnlyIfCachedMiss(t *testing.T) {
 }
 
 func TestGetNoStoreRequest(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL, nil)
 	if err != nil {
@@ -507,6 +536,7 @@ func TestGetNoStoreRequest(t *testing.T) {
 }
 
 func TestGetNoStoreResponse(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/nostore", nil)
 	if err != nil {
@@ -535,6 +565,7 @@ func TestGetNoStoreResponse(t *testing.T) {
 }
 
 func TestGetWithEtag(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/etag", nil)
 	if err != nil {
@@ -575,6 +606,7 @@ func TestGetWithEtag(t *testing.T) {
 }
 
 func TestGetWithLastModified(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/lastmodified", nil)
 	if err != nil {
@@ -607,6 +639,7 @@ func TestGetWithLastModified(t *testing.T) {
 }
 
 func TestGetWithVary(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/varyaccept", nil)
 	if err != nil {
@@ -662,6 +695,7 @@ func TestGetWithVary(t *testing.T) {
 }
 
 func TestGetWithDoubleVary(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/doublevary", nil)
 	if err != nil {
@@ -718,6 +752,7 @@ func TestGetWithDoubleVary(t *testing.T) {
 }
 
 func TestGetWith2VaryHeaders(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	// Tests that multiple Vary headers' comma-separated lists are
 	// merged. See https://github.com/gregjones/httpcache/issues/27.
@@ -817,6 +852,7 @@ func TestGetWith2VaryHeaders(t *testing.T) {
 }
 
 func TestGetVaryUnused(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/varyunused", nil)
 	if err != nil {
@@ -850,6 +886,7 @@ func TestGetVaryUnused(t *testing.T) {
 }
 
 func TestUpdateFields(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/updatefields", nil)
 	if err != nil {
@@ -888,6 +925,7 @@ func TestUpdateFields(t *testing.T) {
 // Previously, after validating a cached response, its StatusCode
 // was incorrectly being replaced.
 func TestCachedErrorsKeepStatus(t *testing.T) {
+	requireTestServer(t)
 	resetTest()
 	req, err := http.NewRequest("GET", s.server.URL+"/cachederror", nil)
 	if err != nil {
@@ -1455,6 +1493,7 @@ func TestClientTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping timeout test in short mode") // Because it takes at least 3 seconds to run.
 	}
+	requireTestServer(t)
 	resetTest()
 	client := &http.Client{
 		Transport: NewMemoryCacheTransport(),
