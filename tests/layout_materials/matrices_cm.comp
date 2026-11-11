@@ -1,0 +1,17 @@
+#version 450
+// Layout contract material: opposite-majority non-square matrices plus an
+// unrelated sampler and a plain scalar block. Compiled to matrices_cm.spv
+// with: glslc -std=450 matrices_cm.comp -o matrices_cm.spv
+layout(local_size_x=1) in;
+layout(set=0,binding=0,std140,column_major) uniform UCol {
+    mat2x3 cm23; // columns=2 rows=3, col-major, MatrixStride=16
+    mat3x2 cm32; // columns=3 rows=2, col-major, MatrixStride=16
+} uc;
+layout(set=0,binding=1,std430,row_major) buffer BRow {
+    mat2x3 rm23; // columns=2 rows=3, row-major, MatrixStride=8
+} br;
+layout(set=0,binding=2) uniform sampler2D tex; // non-block resource, must stay untouched
+layout(set=0,binding=3,std430) buffer SinkA { float sink; } oa;
+void main() {
+  oa.sink = uc.cm23[1][2] + uc.cm32[2][1] + br.rm23[0][1] + texture(tex, vec2(0.0)).x;
+}

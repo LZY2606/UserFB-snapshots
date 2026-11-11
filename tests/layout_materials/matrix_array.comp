@@ -1,0 +1,17 @@
+#version 450
+// Layout contract material: arrays of matrices (both majorities) and an array
+// of structs. Compiled to matrix_array.spv with:
+// glslc -std=450 matrix_array.comp -o matrix_array.spv
+struct P { float f; vec3 v; };
+layout(local_size_x=1) in;
+layout(set=1,binding=0,std140,row_major) uniform UA {
+    mat2x3 rma[2]; // row-major, ArrayStride=48, MatrixStride=16
+} ua;
+layout(set=1,binding=1,std430,column_major) buffer BA {
+    mat3x2 cma[3]; // col-major, ArrayStride=24, MatrixStride=8
+    P ps[2];       // std430 struct array, ArrayStride=32
+} ba;
+layout(set=1,binding=2,std430) buffer SinkB { float s; } sk;
+void main() {
+  sk.s = ua.rma[1][0][1] + ba.cma[2][1][0] + ba.ps[1].v.y + ba.ps[0].f;
+}

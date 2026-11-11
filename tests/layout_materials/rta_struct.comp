@@ -1,0 +1,14 @@
+#version 450
+// Layout contract material: std430 runtime array of structs with a fixed
+// prefix. Compiled to rta_struct.spv with:
+// glslc -std=450 rta_struct.comp -o rta_struct.spv
+struct Cell { vec3 v; float w; };
+layout(local_size_x=1) in;
+layout(set=3,binding=0,std430) buffer RTA {
+    float head;    // offset 0
+    Cell  cells[]; // runtime tail starting at offset 16, ArrayStride=16
+} r;
+layout(set=3,binding=1,std430) buffer SinkD { float s; } sk;
+void main() {
+  sk.s = r.head + r.cells[2].w + r.cells[0].v.x;
+}

@@ -1,0 +1,36 @@
+{
+  "normal": {
+    "result": "PASS",
+    "cases": 7,
+    "assertions": 1792
+  },
+  "mutations": [
+  {
+    "id": "matrix-major",
+    "exit_code": 1,
+    "fixture": "checks/layout.spv",
+    "first_difference_location": "tests/layout_contract.cpp:308",
+    "assertion": "fixture=checks/layout.spv rm fixed size 48",
+    "cases_executed": 1,
+    "assertions_executed": 15
+  },
+  {
+    "id": "nested-offset",
+    "exit_code": 1,
+    "fixture": "tests/layout_materials/nested.spv",
+    "first_difference_location": "tests/layout_contract.cpp:493",
+    "assertion": "fixture=tests/layout_materials/nested.spv inner.a absolute 48",
+    "cases_executed": 4,
+    "assertions_executed": 175
+  },
+  {
+    "id": "bytecode-remap",
+    "exit_code": 1,
+    "fixture": "tests/layout_materials/matrices_cm.spv#relocation:copy",
+    "first_difference_location": "tests/layout_contract.cpp:643",
+    "assertion": "fixture=tests/layout_materials/matrices_cm.spv#relocation:copy copy: bytecode id 18 at words (set=150, binding=146) has (0,0) want (5,7)",
+    "cases_executed": 6,
+    "assertions_executed": 762
+  }
+  ]
+}

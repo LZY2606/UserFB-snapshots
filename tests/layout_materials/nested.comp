@@ -1,0 +1,28 @@
+#version 450
+// Layout contract material: nested struct behind an explicit non-zero offset,
+// an explicit legal gap, and a vec3 immediately followed by a scalar.
+// Compiled to nested.spv with: glslc -std=450 nested.comp -o nested.spv
+#extension GL_ARB_enhanced_layouts : enable
+layout(local_size_x=1) in;
+struct Inner {
+    float a;
+    vec3  b;
+    float c;
+};
+layout(set=2,binding=0,std140) uniform UN {
+    float x;                          // offset 0
+    layout(offset=48) Inner inner;    // explicit gap 44..47, nested at 48
+    layout(offset=96) float y;        // explicit gap 92..95
+    vec3  q;                          // offset 112
+    float z;                          // offset 124, packed directly after vec3
+} un;
+layout(set=2,binding=1,std430) buffer BN {
+    Inner ins[2];                     // ArrayStride=32
+    layout(offset=80) float tail;     // explicit legal gap
+    vec3  v3;                         // offset 96
+    float after;                      // offset 108, scalar right after vec3
+} bn;
+layout(set=2,binding=2,std430) buffer SinkC { float s; } sk;
+void main() {
+  sk.s = un.inner.c + un.z + bn.ins[1].a + bn.after + bn.v3.z + bn.tail + un.y + un.inner.a;
+}
