@@ -5,7 +5,11 @@ const { unlock } = require('../..');
 
 function unlockAll() {
     const locks = getLocks();
-    const promises = Object.keys(locks).map((file) => unlock(file, { realpath: false }));
+    const promises = Object.values(locks).map((lock) => unlock(lock.file, {
+        realpath: false,
+        lockfilePath: lock.lockfilePath,
+        fs: lock.options.fs,
+    }));
 
     return Promise.all(promises);
 }

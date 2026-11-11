@@ -79,7 +79,7 @@ Available options:
 - `realpath`: Resolve symlinks using realpath, defaults to `true` (note that if `true`, the `file` must exist previously)
 - `fs`: A custom fs to use, defaults to `graceful-fs`
 - `onCompromised`: Called if the lock gets compromised, defaults to a function that simply throws the error which will probably cause the process to die
-- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`
+- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`. Each distinct effective path is an independent lock namespace, see [Custom lock namespaces](#custom-lock-namespaces-lockfilepath)
 
 
 ```js
@@ -113,7 +113,7 @@ Available options:
 
 - `realpath`: Resolve symlinks using realpath, defaults to `true` (note that if `true`, the `file` must exist previously)
 - `fs`: A custom fs to use, defaults to `graceful-fs`
-- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`
+- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`. Each distinct effective path is an independent lock namespace, see [Custom lock namespaces](#custom-lock-namespaces-lockfilepath)
 
 
 ```js
@@ -137,7 +137,7 @@ Available options:
 - `stale`: Duration in milliseconds in which the lock is considered stale, defaults to `10000` (minimum value is `5000`)
 - `realpath`: Resolve symlinks using realpath, defaults to `true` (note that if `true`, the `file` must exist previously)
 - `fs`: A custom fs to use, defaults to `graceful-fs`
-- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`
+- `lockfilePath`: Custom lockfile path. e.g.: If you want to lock a directory and create the lock file inside it, you can pass `file` as `<dir path>` and `options.lockfilePath` as `<dir path>/dir.lock`. Each distinct effective path is an independent lock namespace, see [Custom lock namespaces](#custom-lock-namespaces-lockfilepath)
 
 
 ```js
@@ -163,6 +163,67 @@ Throws on error.
 
 Sync version of `.check()`.
 Returns a boolean or throws on error.
+
+
+### Custom lock namespaces (`lockfilePath`)
+
+By default the lock directory sits next to the target file at `<file>.lock`.
+Passing `lockfilePath` selects a different lock directory, which acts as an
+independent lock **namespace** for that target.
+
+A lock is identified by two pieces of information:
+
+- The canonical target path (resolved with the existing `realpath` rules).
+- The effective `lockfilePath`, lexically resolved to an absolute path at
+  acquisition time. If `lockfilePath` is not given, it defaults to `<file>.lock`.
+
+Two different effective lockfile paths on the same target are therefore
+completely independent: each one can be held, checked, unlocked and released on
+its own, and releasing one never cancels the heartbeat nor changes the released
+state of the other. In contrast, two acquisitions that end up with the same
+effective lockfile path still arbitrate through the same atomic `mkdir`, even if
+the target paths (or their textual forms) differ — for example an absolute and a
+relative path that resolve to the same directory. Physical exclusivity, the
+usual `ELOCKED` error and stale takeover behavior are unchanged.
+
+```js
+const releaseA = await lockfile.lock(file, { lockfilePath: '/locks/a.lock' });
+const releaseB = await lockfile.lock(file, { lockfilePath: '/locks/b.lock' });
+
+await releaseA(); // releases only the '/locks/a.lock' lease; B keeps renewing
+```
+
+A relative `lockfilePath` is resolved against the current working directory when
+the lock is acquired and stored as an absolute path, so changing `process.cwd()`
+afterwards cannot make a later release touch the wrong directory. This is only a
+lexical guarantee combined with the target's realpath; it does not protect
+against a writer that can manipulate the file system directly.
+
+`unlock(file, options)` only affects the namespace selected by
+`options.lockfilePath`. With no `lockfilePath` it addresses the default
+`<file>.lock` namespace only; it never falls back to an arbitrary custom
+namespace. The same rules apply to the synchronous APIs.
+
+
+### Release identity
+
+The `release` function returned by `.lock()` releases exactly the lease it was
+created for. Calling it twice rejects the second call with `ERELEASED`, and if
+the same namespace was acquired again in the meantime, an old `release` closure
+cannot release that newer lease — it still fails with `ERELEASED`. Each lease
+also keeps its own `fs` and options for its heartbeat and cleanup, rather than
+borrowing them from another active lease.
+
+Heartbeat (`stat`/`utimes`) callbacks that are still in flight when a lease is
+released are discarded: they never update, invalidate or delete the newer lease,
+never schedule another heartbeat, and a released lease never invokes
+`onCompromised`. A lease that is lost because another process took over a stale
+lock directory still reports `ECOMPROMISED` exactly once, without touching the
+new owner.
+
+On a normal process exit, every lock namespace still held by this process is
+cleaned up independently; already released leases are not resurrected, and
+directories that are not owned by a lease are left alone.
 
 
 ## Graceful exit
