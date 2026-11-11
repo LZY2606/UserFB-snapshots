@@ -13,6 +13,13 @@
 
 == stb_truetype
 
+- compound 'glyf' assembly: point-matching and XY-offset components can be
+  mixed; point numbers count stored on/off-curve glyph points, not generated
+  vertex commands; linear transforms compose in design space and
+  SCALED/UNSCALED_COMPONENT_OFFSET are honored; exact intermediate
+  coordinates are truncated only at the public vertex boundary; failures
+  return 0 with a NULL result instead of a partial glyph.
+
 == stb_include
 
 == stb_herringbone_wang_tile

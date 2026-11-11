@@ -1,0 +1,7 @@
+PASS raw_points
+PASS nested_affine
+PASS unsigned_indices
+PASS offset_modes
+PASS render_equivalence
+PASS failure_cleanup
+COMPOUND_ATTACHMENT_OK cases=6

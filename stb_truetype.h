@@ -853,6 +853,47 @@ STBTT_DEF int stbtt_GetGlyphShape(const stbtt_fontinfo *info, int glyph_index, s
 // draws a line from previous endpoint to its x,y; a curveto
 // draws a quadratic bezier from previous endpoint to
 // its x,y, using cx,cy as the bezier control point.
+//
+// COMPOUND GLYPHS
+//
+// 'glyf' compound glyphs are assembled inside stbtt_GetGlyphShape; the caller
+// never sees a partially-expanded glyph. Components are processed in record
+// order and appended to the parent outline in that order.
+//
+// Point-matching components (ARGS_ARE_XY_VALUES clear) use the point numbers
+// stored in the glyph data. A point number counts every actual stored outline
+// point, including off-curve control points, across all contours of the glyph.
+// It does NOT count implied on-curve midpoints between two consecutive
+// off-curve points, the generated move/line/curve commands, or the repeated
+// closing endpoint. Parent point numbers continue after all actual points of
+// the components appended so far; child point numbers index the child's fully
+// expanded outline, even when the child is itself compound. The component's
+// linear transform is applied to the child first, then the child point is
+// translated onto the parent point. That alignment translation is in parent
+// design space and is not scaled a second time.
+//
+// XY-offset components (ARGS_ARE_XY_VALUES set) support uniform scale,
+// independent X/Y scale, and full 2-by-2 transforms. If
+// SCALED_COMPONENT_OFFSET is set and UNSCALED_COMPONENT_OFFSET is clear, the
+// offset is transformed by the linear part of the component transform;
+// otherwise (neither bit or both bits set) it is used unscaled. Nested
+// components compose their matrices in the natural outer(inner(p)) order,
+// including non-commutative shears.
+//
+// Intermediate coordinates stay in exact design space (no intermediate
+// integer rounding). When the public integer stbtt_vertex array is emitted,
+// final point and control coordinates are truncated toward zero, and implied
+// midpoints are computed first in exact coordinates and then truncated.
+// Ordinary simple (non-compound) glyphs keep stb_truetype's original integer
+// behavior.
+//
+// This path handles static, unhinted real outline points only. Phantom
+// points, USE_MY_METRICS, variable-font deltas, and hinting are not applied.
+// If a point-matching component has no parent point available, or a parent or
+// child point number is out of range, or a temporary allocation fails,
+// stbtt_GetGlyphShape returns 0 and sets *vertices to NULL; no earlier
+// components are returned as a partial result. All temporary allocations go
+// through STBTT_malloc/STBTT_free and info->userdata.
 
 STBTT_DEF void stbtt_FreeShape(const stbtt_fontinfo *info, stbtt_vertex *vertices);
 // frees the data allocated above
@@ -1671,6 +1712,423 @@ static int stbtt__close_shape(stbtt_vertex *vertices, int num_vertices, int was_
    return num_vertices;
 }
 
+// Compound-glyph expansion keeps the actual outline points of each component
+// (including off-curve points) in exact design coordinates until the final
+// public stbtt_vertex array is emitted.  Implied on-curve midpoints and closing
+// vertices are *not* numbered points; they are derived when vertices are
+// emitted.  Keeping a separate point list is necessary because point-matching
+// components reference the on/off points stored in 'glyf', not the command
+// indices of the generated stbtt_vertex stream.
+typedef struct
+{
+   double x, y;
+   stbtt_uint8 on_curve;
+} stbtt__outline_point;
+
+typedef struct
+{
+   stbtt__outline_point *points;
+   int num_points;
+   int point_capacity;
+   int *contour_ends;      // inclusive index of the last point in each contour
+   int num_contours;
+   int contour_capacity;
+} stbtt__outline;
+
+static void stbtt__outline_free(stbtt__outline *o, void *userdata)
+{
+   if (o->points) STBTT_free(o->points, userdata);
+   if (o->contour_ends) STBTT_free(o->contour_ends, userdata);
+   o->points = 0;
+   o->contour_ends = 0;
+   o->num_points = o->point_capacity = 0;
+   o->num_contours = o->contour_capacity = 0;
+}
+
+static int stbtt__outline_reserve_points(stbtt__outline *o, int need, void *userdata)
+{
+   stbtt__outline_point *np;
+   int cap, bytes;
+   if (need <= o->point_capacity) return 1;
+   cap = o->point_capacity ? o->point_capacity : 16;
+   while (cap < need) {
+      if (cap > 0x3fffffff) { cap = need; break; }
+      cap *= 2;
+   }
+   if ((unsigned) cap > 0xffffffffu / (unsigned) sizeof(np[0])) return 0;
+   bytes = cap * (int) sizeof(np[0]);
+   np = (stbtt__outline_point *) STBTT_malloc(bytes, userdata);
+   if (!np) return 0;
+   if (o->points && o->num_points)
+      STBTT_memcpy(np, o->points, o->num_points * (int) sizeof(np[0]));
+   if (o->points) STBTT_free(o->points, userdata);
+   o->points = np;
+   o->point_capacity = cap;
+   return 1;
+}
+
+static int stbtt__outline_reserve_contours(stbtt__outline *o, int need, void *userdata)
+{
+   int *ne;
+   int cap, bytes;
+   if (need <= o->contour_capacity) return 1;
+   cap = o->contour_capacity ? o->contour_capacity : 4;
+   while (cap < need) {
+      if (cap > 0x3fffffff) { cap = need; break; }
+      cap *= 2;
+   }
+   if ((unsigned) cap > 0xffffffffu / (unsigned) sizeof(ne[0])) return 0;
+   bytes = cap * (int) sizeof(ne[0]);
+   ne = (int *) STBTT_malloc(bytes, userdata);
+   if (!ne) return 0;
+   if (o->contour_ends && o->num_contours)
+      STBTT_memcpy(ne, o->contour_ends, o->num_contours * (int) sizeof(ne[0]));
+   if (o->contour_ends) STBTT_free(o->contour_ends, userdata);
+   o->contour_ends = ne;
+   o->contour_capacity = cap;
+   return 1;
+}
+
+// Parse a simple glyph into design-space points.  The point list is exactly
+// the point sequence stored in 'glyf'; no implied midpoints or closing points
+// are added, so a component can address them with the font's point numbers.
+static int stbtt__GetGlyphSimpleOutline(const stbtt_fontinfo *info, int g, stbtt__outline *o)
+{
+   stbtt_uint8 *data = info->data;
+   stbtt_int16 numberOfContours = ttSHORT(data + g);
+   stbtt_uint8 *endPtsOfContours = data + g + 10;
+   stbtt_uint8 *points;
+   int ins, i, n, x, y, prev;
+   stbtt_uint8 flags, flagcount;
+
+   if (numberOfContours <= 0) return 1;
+
+   ins = ttUSHORT(data + g + 10 + numberOfContours * 2);
+   points = data + g + 10 + numberOfContours * 2 + 2 + ins;
+   n = 1 + ttUSHORT(endPtsOfContours + numberOfContours * 2 - 2);
+
+   if (n <= 0) return 0;
+   if (!stbtt__outline_reserve_points(o, n, info->userdata)) return 0;
+
+   // Decode flags.  For now the raw flag byte is kept in on_curve; it is
+   // normalized to bit 0 after the deltas have been read.
+   flagcount = 0;
+   for (i = 0; i < n; ++i) {
+      if (flagcount == 0) {
+         flags = *points++;
+         if (flags & 8)
+            flagcount = *points++;
+      } else {
+         --flagcount;
+      }
+      o->points[i].on_curve = flags;
+   }
+
+   x = 0;
+   for (i = 0; i < n; ++i) {
+      flags = o->points[i].on_curve;
+      if (flags & 2) {
+         int dx = *points++;
+         x += (flags & 16) ? dx : -dx;
+      } else if (!(flags & 16)) {
+         x += (stbtt_int16) (points[0] * 256 + points[1]);
+         points += 2;
+      }
+      o->points[i].x = (double) x;
+   }
+
+   y = 0;
+   for (i = 0; i < n; ++i) {
+      flags = o->points[i].on_curve;
+      if (flags & 4) {
+         int dy = *points++;
+         y += (flags & 32) ? dy : -dy;
+      } else if (!(flags & 32)) {
+         y += (stbtt_int16) (points[0] * 256 + points[1]);
+         points += 2;
+      }
+      o->points[i].y = (double) y;
+   }
+
+   for (i = 0; i < n; ++i)
+      o->points[i].on_curve = (stbtt_uint8) (o->points[i].on_curve & 1);
+
+   if (!stbtt__outline_reserve_contours(o, numberOfContours, info->userdata))
+      return 0;
+
+   prev = -1;
+   for (i = 0; i < numberOfContours; ++i) {
+      int end = ttUSHORT(endPtsOfContours + i * 2);
+      if (end <= prev || end >= n) return 0;
+      o->contour_ends[i] = end;
+      prev = end;
+   }
+
+   o->num_points = n;
+   o->num_contours = numberOfContours;
+   return 1;
+}
+
+static int stbtt__GetGlyphOutlineInternal(const stbtt_fontinfo *info, int glyph_index, int depth, stbtt__outline *o);
+
+static int stbtt__GetGlyphCompoundOutline(const stbtt_fontinfo *info, int g, int depth, stbtt__outline *o)
+{
+   stbtt_uint8 *comp = info->data + g + 10;
+   int more = 1;
+
+   while (more) {
+      stbtt_uint16 flags, gidx;
+      int arg1, arg2, i, base;
+      double m0 = 1.0, m1 = 0.0, m2 = 0.0, m3 = 1.0, tx, ty;
+      stbtt__outline child;
+
+      flags = ttUSHORT(comp); comp += 2;
+      gidx  = ttUSHORT(comp); comp += 2;
+
+      // In point-matching mode the two arguments are unsigned point numbers.
+      // In XY mode they remain signed offsets.
+      if (flags & 1) { // ARG_1_AND_2_ARE_WORDS
+         if (flags & 2) { // ARGS_ARE_XY_VALUES
+            arg1 = ttSHORT(comp);
+            arg2 = ttSHORT(comp + 2);
+         } else {
+            arg1 = ttUSHORT(comp);
+            arg2 = ttUSHORT(comp + 2);
+         }
+         comp += 4;
+      } else {
+         if (flags & 2) {
+            arg1 = ttCHAR(comp);
+            arg2 = ttCHAR(comp + 1);
+         } else {
+            arg1 = ttBYTE(comp);
+            arg2 = ttBYTE(comp + 1);
+         }
+         comp += 2;
+      }
+
+      // Linear part of the component transform.  In OpenType layout
+      // x' = m0*x + m2*y, y' = m1*x + m3*y.
+      if (flags & (1 << 3)) { // WE_HAVE_A_SCALE
+         m0 = m3 = ttSHORT(comp) / 16384.0; comp += 2;
+      } else if (flags & (1 << 6)) { // WE_HAVE_AN_X_AND_Y_SCALE
+         m0 = ttSHORT(comp) / 16384.0; comp += 2;
+         m3 = ttSHORT(comp) / 16384.0; comp += 2;
+      } else if (flags & (1 << 7)) { // WE_HAVE_A_TWO_BY_TWO
+         m0 = ttSHORT(comp) / 16384.0; comp += 2;
+         m1 = ttSHORT(comp) / 16384.0; comp += 2;
+         m2 = ttSHORT(comp) / 16384.0; comp += 2;
+         m3 = ttSHORT(comp) / 16384.0; comp += 2;
+      }
+
+      child.points = 0;
+      child.num_points = 0;
+      child.point_capacity = 0;
+      child.contour_ends = 0;
+      child.num_contours = 0;
+      child.contour_capacity = 0;
+
+      if (!stbtt__GetGlyphOutlineInternal(info, gidx, depth + 1, &child)) {
+         stbtt__outline_free(&child, info->userdata);
+         return 0;
+      }
+
+      // First bring the child (which may itself be compound, and is already
+      // fully expanded) into the parent's design space.
+      for (i = 0; i < child.num_points; ++i) {
+         double px = child.points[i].x, py = child.points[i].y;
+         child.points[i].x = m0 * px + m2 * py;
+         child.points[i].y = m1 * px + m3 * py;
+      }
+
+      if (flags & 2) { // XY offset
+         tx = (double) arg1;
+         ty = (double) arg2;
+         // SCALED_COMPONENT_OFFSET scales the offset by the linear part of
+         // the component transform.  If neither bit is set, or both are set,
+         // the offset is unscaled.
+         if ((flags & 0x0800) && !(flags & 0x1000)) {
+            double ox = m0 * tx + m2 * ty;
+            double oy = m1 * tx + m3 * ty;
+            tx = ox;
+            ty = oy;
+         }
+      } else { // point matching
+         if (o->num_points == 0) {
+            stbtt__outline_free(&child, info->userdata);
+            return 0;
+         }
+         if (arg1 < 0 || arg1 >= o->num_points) {
+            stbtt__outline_free(&child, info->userdata);
+            return 0;
+         }
+         if (arg2 < 0 || arg2 >= child.num_points) {
+            stbtt__outline_free(&child, info->userdata);
+            return 0;
+         }
+         // Align the already-transformed child point with the parent point.
+         // This translation is in parent design space and must not be scaled
+         // by the component transform again.
+         tx = o->points[arg1].x - child.points[arg2].x;
+         ty = o->points[arg1].y - child.points[arg2].y;
+      }
+
+      for (i = 0; i < child.num_points; ++i) {
+         child.points[i].x += tx;
+         child.points[i].y += ty;
+      }
+
+      base = o->num_points;
+      if (child.num_points > 0) {
+         if (!stbtt__outline_reserve_points(o, o->num_points + child.num_points, info->userdata)) {
+            stbtt__outline_free(&child, info->userdata);
+            return 0;
+         }
+         STBTT_memcpy(o->points + o->num_points, child.points,
+                      child.num_points * (int) sizeof(child.points[0]));
+         o->num_points += child.num_points;
+      }
+      if (child.num_contours > 0) {
+         if (!stbtt__outline_reserve_contours(o, o->num_contours + child.num_contours, info->userdata)) {
+            stbtt__outline_free(&child, info->userdata);
+            return 0;
+         }
+         for (i = 0; i < child.num_contours; ++i)
+            o->contour_ends[o->num_contours + i] = child.contour_ends[i] + base;
+         o->num_contours += child.num_contours;
+      }
+
+      stbtt__outline_free(&child, info->userdata);
+      more = flags & (1 << 5); // MORE_COMPONENTS
+   }
+   return 1;
+}
+
+static int stbtt__GetGlyphOutlineInternal(const stbtt_fontinfo *info, int glyph_index, int depth, stbtt__outline *o)
+{
+   int g;
+   stbtt_int16 numberOfContours;
+
+   if (depth > 64) return 0;
+
+   g = stbtt__GetGlyfOffset(info, glyph_index);
+   if (g < 0) return 1; // empty glyph contributes no points
+
+   numberOfContours = ttSHORT(info->data + g);
+   if (numberOfContours > 0)
+      return stbtt__GetGlyphSimpleOutline(info, g, o);
+   if (numberOfContours < 0)
+      return stbtt__GetGlyphCompoundOutline(info, g, depth, o);
+   return 1; // zero contours
+}
+
+// Emit public vertices from exact design-space outline points.  All rounding
+// happens here: coordinates and control points are truncated toward zero, and
+// implied midpoints are computed in exact coordinates before truncation.
+static void stbtt__setvertex_float(stbtt_vertex *v, stbtt_uint8 type, double x, double y, double cx, double cy)
+{
+   v->type = type;
+   v->x = (stbtt_vertex_type) x;
+   v->y = (stbtt_vertex_type) y;
+   v->cx = (stbtt_vertex_type) cx;
+   v->cy = (stbtt_vertex_type) cy;
+}
+
+static int stbtt__GetGlyphOutlineVertices(const stbtt__outline *o, void *userdata, stbtt_vertex **pvertices)
+{
+   stbtt_vertex *vertices;
+   int num_vertices = 0;
+   int max_vertices = o->num_points + 2 * o->num_contours;
+   int c, start = 0;
+
+   *pvertices = 0;
+   if (o->num_points == 0 || o->num_contours == 0) return 0;
+   if (max_vertices <= 0) return 0;
+   if ((unsigned) max_vertices > 0xffffffffu / (unsigned) sizeof(vertices[0])) return 0;
+
+   vertices = (stbtt_vertex *) STBTT_malloc(max_vertices * (int) sizeof(vertices[0]), userdata);
+   if (!vertices) return 0;
+
+   for (c = 0; c < o->num_contours; ++c) {
+      int s = start;
+      int e = o->contour_ends[c];
+      int i, first_process, start_off, was_off;
+      double sx = 0, sy = 0, scx = 0, scy = 0, cx = 0, cy = 0;
+
+      if (e < s) { start = e + 1; continue; }
+
+      if (e == s) {
+         stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vmove,
+                                o->points[s].x, o->points[s].y, 0, 0);
+         if (o->points[s].on_curve)
+            stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vline,
+                                   o->points[s].x, o->points[s].y, 0, 0);
+         start = e + 1;
+         continue;
+      }
+
+      start_off = !o->points[s].on_curve;
+      if (start_off) {
+         scx = o->points[s].x;
+         scy = o->points[s].y;
+         if (!o->points[s + 1].on_curve) {
+            // Two consecutive off-curve points: start at their exact midpoint.
+            sx = (o->points[s].x + o->points[s + 1].x) * 0.5f;
+            sy = (o->points[s].y + o->points[s + 1].y) * 0.5f;
+            first_process = s + 1;
+         } else {
+            sx = o->points[s + 1].x;
+            sy = o->points[s + 1].y;
+            first_process = s + 2;
+         }
+      } else {
+         sx = o->points[s].x;
+         sy = o->points[s].y;
+         first_process = s + 1;
+      }
+
+      stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vmove, sx, sy, 0, 0);
+      was_off = 0;
+
+      for (i = first_process; i <= e; ++i) {
+         if (!o->points[i].on_curve) {
+            if (was_off)
+               stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vcurve,
+                                      (cx + o->points[i].x) * 0.5f,
+                                      (cy + o->points[i].y) * 0.5f, cx, cy);
+            cx = o->points[i].x;
+            cy = o->points[i].y;
+            was_off = 1;
+         } else {
+            if (was_off)
+               stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vcurve,
+                                      o->points[i].x, o->points[i].y, cx, cy);
+            else
+               stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vline,
+                                      o->points[i].x, o->points[i].y, 0, 0);
+            was_off = 0;
+         }
+      }
+
+      if (start_off) {
+         if (was_off)
+            stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vcurve,
+                                   (cx + scx) * 0.5f, (cy + scy) * 0.5f, cx, cy);
+         stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vcurve, sx, sy, scx, scy);
+      } else {
+         if (was_off)
+            stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vcurve, sx, sy, cx, cy);
+         else
+            stbtt__setvertex_float(&vertices[num_vertices++], STBTT_vline, sx, sy, 0, 0);
+      }
+
+      start = e + 1;
+   }
+
+   *pvertices = vertices;
+   return num_vertices;
+}
+
 static int stbtt__GetGlyphShapeTT(const stbtt_fontinfo *info, int glyph_index, stbtt_vertex **pvertices)
 {
    stbtt_int16 numberOfContours;
@@ -1810,82 +2268,23 @@ static int stbtt__GetGlyphShapeTT(const stbtt_fontinfo *info, int glyph_index, s
       }
       num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx,sy,scx,scy,cx,cy);
    } else if (numberOfContours < 0) {
-      // Compound shapes.
-      int more = 1;
-      stbtt_uint8 *comp = data + g + 10;
-      num_vertices = 0;
-      vertices = 0;
-      while (more) {
-         stbtt_uint16 flags, gidx;
-         int comp_num_verts = 0, i;
-         stbtt_vertex *comp_verts = 0, *tmp = 0;
-         float mtx[6] = {1,0,0,1,0,0}, m, n;
+      // Compound shapes.  Assemble the complete expanded outline before
+      // converting it to public vertices, so a failure never returns a
+      // partially-assembled glyph.
+      stbtt__outline outline;
+      outline.points = 0;
+      outline.num_points = 0;
+      outline.point_capacity = 0;
+      outline.contour_ends = 0;
+      outline.num_contours = 0;
+      outline.contour_capacity = 0;
 
-         flags = ttSHORT(comp); comp+=2;
-         gidx = ttSHORT(comp); comp+=2;
-
-         if (flags & 2) { // XY values
-            if (flags & 1) { // shorts
-               mtx[4] = ttSHORT(comp); comp+=2;
-               mtx[5] = ttSHORT(comp); comp+=2;
-            } else {
-               mtx[4] = ttCHAR(comp); comp+=1;
-               mtx[5] = ttCHAR(comp); comp+=1;
-            }
-         }
-         else {
-            // @TODO handle matching point
-            STBTT_assert(0);
-         }
-         if (flags & (1<<3)) { // WE_HAVE_A_SCALE
-            mtx[0] = mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
-            mtx[1] = mtx[2] = 0;
-         } else if (flags & (1<<6)) { // WE_HAVE_AN_X_AND_YSCALE
-            mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
-            mtx[1] = mtx[2] = 0;
-            mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
-         } else if (flags & (1<<7)) { // WE_HAVE_A_TWO_BY_TWO
-            mtx[0] = ttSHORT(comp)/16384.0f; comp+=2;
-            mtx[1] = ttSHORT(comp)/16384.0f; comp+=2;
-            mtx[2] = ttSHORT(comp)/16384.0f; comp+=2;
-            mtx[3] = ttSHORT(comp)/16384.0f; comp+=2;
-         }
-
-         // Find transformation scales.
-         m = (float) STBTT_sqrt(mtx[0]*mtx[0] + mtx[1]*mtx[1]);
-         n = (float) STBTT_sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3]);
-
-         // Get indexed glyph.
-         comp_num_verts = stbtt_GetGlyphShape(info, gidx, &comp_verts);
-         if (comp_num_verts > 0) {
-            // Transform vertices.
-            for (i = 0; i < comp_num_verts; ++i) {
-               stbtt_vertex* v = &comp_verts[i];
-               stbtt_vertex_type x,y;
-               x=v->x; y=v->y;
-               v->x = (stbtt_vertex_type)(m * (mtx[0]*x + mtx[2]*y + mtx[4]));
-               v->y = (stbtt_vertex_type)(n * (mtx[1]*x + mtx[3]*y + mtx[5]));
-               x=v->cx; y=v->cy;
-               v->cx = (stbtt_vertex_type)(m * (mtx[0]*x + mtx[2]*y + mtx[4]));
-               v->cy = (stbtt_vertex_type)(n * (mtx[1]*x + mtx[3]*y + mtx[5]));
-            }
-            // Append vertices.
-            tmp = (stbtt_vertex*)STBTT_malloc((num_vertices+comp_num_verts)*sizeof(stbtt_vertex), info->userdata);
-            if (!tmp) {
-               if (vertices) STBTT_free(vertices, info->userdata);
-               if (comp_verts) STBTT_free(comp_verts, info->userdata);
-               return 0;
-            }
-            if (num_vertices > 0 && vertices) STBTT_memcpy(tmp, vertices, num_vertices*sizeof(stbtt_vertex));
-            STBTT_memcpy(tmp+num_vertices, comp_verts, comp_num_verts*sizeof(stbtt_vertex));
-            if (vertices) STBTT_free(vertices, info->userdata);
-            vertices = tmp;
-            STBTT_free(comp_verts, info->userdata);
-            num_vertices += comp_num_verts;
-         }
-         // More components ?
-         more = flags & (1<<5);
+      if (!stbtt__GetGlyphCompoundOutline(info, g, 0, &outline)) {
+         stbtt__outline_free(&outline, info->userdata);
+         return 0;
       }
+      num_vertices = stbtt__GetGlyphOutlineVertices(&outline, info->userdata, &vertices);
+      stbtt__outline_free(&outline, info->userdata);
    } else {
       // numberOfCounters == 0, do nothing
    }
