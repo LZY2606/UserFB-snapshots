@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/huin/goupnp/httpu"
 )
 
 const (
@@ -51,6 +54,10 @@ type HTTPUClientCtx interface {
 // implementation waits an additional 100ms for responses to arrive), 2 is a
 // reasonable value for this. numSends is the number of requests to send - 3 is
 // a reasonable value for this.
+//
+// Responses received before an error occurred are filtered and returned
+// together with the error, so a partially successful search still yields its
+// results.
 func SSDPRawSearchCtx(
 	ctx context.Context,
 	httpu HTTPUClient,
@@ -64,10 +71,14 @@ func SSDPRawSearchCtx(
 	}
 
 	allResponses, err := httpu.Do(req, time.Duration(maxWaitSeconds)*time.Second+100*time.Millisecond, numSends)
+	// Keep any responses that were received alongside the error: a partially
+	// successful search (e.g. one failing interface among several) still
+	// yields usable results.
+	responses, procErr := processSSDPResponses(searchTarget, allResponses)
 	if err != nil {
-		return nil, err
+		return responses, err
 	}
-	return processSSDPResponses(searchTarget, allResponses)
+	return responses, procErr
 }
 
 // RawSearch performs a fairly raw SSDP search request, and returns the
@@ -79,6 +90,10 @@ func SSDPRawSearchCtx(
 // The provided context should have a deadline, since the SSDP protocol
 // requires the max wait time be included in search requests. If the context
 // has no deadline, then a default deadline of 3 seconds will be applied.
+//
+// Responses received before an error occurred are filtered and returned
+// together with the error, so a partially successful search still yields its
+// results.
 func RawSearch(
 	ctx context.Context,
 	httpu HTTPUClientCtx,
@@ -105,10 +120,14 @@ func RawSearch(
 	}
 
 	allResponses, err := httpu.DoWithContext(req, numSends)
+	// Keep any responses that were received alongside the error: a partially
+	// successful search (e.g. one failing interface among several) still
+	// yields usable results.
+	responses, procErr := processSSDPResponses(searchTarget, allResponses)
 	if err != nil {
-		return nil, err
+		return responses, err
 	}
-	return processSSDPResponses(searchTarget, allResponses)
+	return responses, procErr
 }
 
 // prepareRequest checks the provided parameters and constructs a SSDP search
@@ -157,7 +176,19 @@ func processSSDPResponses(
 			// No usable location in search response - discard.
 			continue
 		}
-		id := loc.String() + "\x00" + usn
+		// The same device may be discovered through several local addresses;
+		// keep one response per (local address, location, USN) combination.
+		localAddr := response.Header.Get(httpu.LocalAddressHeader)
+		if localAddr != "" {
+			ip := net.ParseIP(localAddr)
+			if ip == nil {
+				// A non-empty but invalid local address marks a bad
+				// response - discard.
+				continue
+			}
+			localAddr = ip.String()
+		}
+		id := localAddr + "\x00" + loc.String() + "\x00" + usn
 		if _, alreadySeen := seenIDs[id]; !alreadySeen {
 			seenIDs[id] = true
 			responses = append(responses, response)

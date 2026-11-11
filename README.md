@@ -45,6 +45,32 @@ project](https://github.com/huin/goupnp/issues/new). If it just works, then
 please report at least minimal working functionality as an issue, and
 optionally contribute the metadata upstream.
 
+## Handling partial discovery results
+
+On hosts with multiple network interfaces, discovery can partially succeed:
+one interface may fail while others still return devices. In that case
+`DiscoverDevicesCtx` (and `DiscoverDevicesWithClientCtx`) returns the devices
+it did find together with a non-nil error - a non-nil error does not mean the
+results are empty. Handle both sides:
+
+```go
+devices, err := goupnp.DiscoverDevicesCtx(ctx, ssdp.UPNPRootDevice)
+if err != nil {
+    // Discovery is incomplete (e.g. one interface is down). The results
+    // below are still valid, just possibly missing some devices.
+    log.Printf("discovery incomplete: %v", err)
+}
+for _, device := range devices {
+    if device.Err != nil {
+        // This device was discovered (via device.Location/device.LocalAddr)
+        // but its description could not be fetched.
+        log.Printf("skipping %s at %s: %v", device.USN, device.Location, device.Err)
+        continue
+    }
+    use(device.Root)
+}
+```
+
 ## Migrating due to Breaking Changes
 
 - \#40 introduced a breaking change to handling non-utf8 encodings, but removes a heavy

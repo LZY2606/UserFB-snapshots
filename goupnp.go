@@ -79,6 +79,11 @@ type MaybeRootDevice struct {
 // "urn:schemas-upnp-org:service:...". A single error is returned for errors
 // while attempting to send the query. An error or RootDevice is returned for
 // each discovered RootDevice.
+//
+// Discovery is performed over all multicast-capable IPv4 interfaces. If some
+// of them fail, the results discovered through the remaining interfaces are
+// still returned, together with the discovery error - so a non-nil error does
+// not mean the results are empty.
 func DiscoverDevicesCtx(ctx context.Context, searchTarget string) ([]MaybeRootDevice, error) {
 	hc, hcCleanup, err := httpuClient()
 	if err != nil {
@@ -86,12 +91,31 @@ func DiscoverDevicesCtx(ctx context.Context, searchTarget string) ([]MaybeRootDe
 	}
 	defer hcCleanup()
 
+	return DiscoverDevicesWithClientCtx(ctx, searchTarget, hc, 3)
+}
+
+// DiscoverDevicesWithClientCtx is like DiscoverDevicesCtx, but performs the
+// SSDP search with the given HTTPU client instead of the default
+// all-interfaces client. numSends is the number of search requests to send -
+// 3 is a reasonable value for this.
+//
+// Partial discovery results are kept: if the search returns both responses
+// and an error (e.g. one network interface failed while another succeeded),
+// the discovered devices are still probed and returned, together with the
+// discovery-level error. A failure to fetch an individual device's
+// description is recorded in that device's Err field, and neither masks the
+// discovery error nor prevents probing the remaining devices. If the parent
+// context is canceled, no further description fetches are started and the
+// devices not yet probed carry the context error in their Err field.
+func DiscoverDevicesWithClientCtx(
+	ctx context.Context,
+	searchTarget string,
+	client httpu.ClientInterfaceCtx,
+	numSends int,
+) ([]MaybeRootDevice, error) {
 	searchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	responses, err := ssdp.RawSearch(searchCtx, hc, string(searchTarget), 3)
-	if err != nil {
-		return nil, err
-	}
+	responses, err := ssdp.RawSearch(searchCtx, client, searchTarget, numSends)
 
 	results := make([]MaybeRootDevice, len(responses))
 	for i, response := range responses {
@@ -103,17 +127,23 @@ func DiscoverDevicesCtx(ctx context.Context, searchTarget string) ([]MaybeRootDe
 			continue
 		}
 		maybe.Location = loc
+		if addr := response.Header.Get(httpu.LocalAddressHeader); len(addr) > 0 {
+			maybe.LocalAddr = net.ParseIP(addr)
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The parent context is done: do not start another description
+			// fetch, but do not silently drop the discovered device either.
+			maybe.Err = ctxErr
+			continue
+		}
 		if root, err := DeviceByURLCtx(ctx, loc); err != nil {
 			maybe.Err = err
 		} else {
 			maybe.Root = root
 		}
-		if i := response.Header.Get(httpu.LocalAddressHeader); len(i) > 0 {
-			maybe.LocalAddr = net.ParseIP(i)
-		}
 	}
 
-	return results, nil
+	return results, err
 }
 
 // DiscoverDevices is the legacy version of DiscoverDevicesCtx, but uses
