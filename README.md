@@ -73,19 +73,41 @@ var parsedManifest = parser.manifest;
 ```
 ### Constructor Options
 
-The constructor optinally takes an options object with two properties. These are needed when using `#EXT-X-DEFINE` for variable replacement.
+The constructor optinally takes an options object. `uri` and `mainDefinitions` are needed when using `#EXT-X-DEFINE` for variable replacement, and `previousManifest` enables delta playlist updates.
 
 ```js
 var parser = new m3u8Parser.Parser({
   uri: 'https://exmaple.com/video.m3u8?param_a=34&param_b=abc',
   mainDefinitions: {
     param_c: 'def'
-  }
+  },
+  previousManifest: lastParsedManifest
 });
 ```
 
 * `options.uri` _string_ The URL from which the playlist was fetched. If the request was redirected this should be the final URL. This is required if using `QUERYSTRING` rules with `#EXT-X-DEFINE`.
 * `options.mainDefinitions` _object_ An object of definitions from the main playlist. This is required if using `IMPORT` rules with `#EXT-X-DEFINE`.
+* `options.previousManifest` _object_ The manifest object returned by the last successful parse of the same rendition (i.e. the previous `parser.manifest`). The parser never makes requests or discovers URLs itself; the caller is responsible for storing the previous result and passing it in. It is only used when the current text is a media playlist that contains an `#EXT-X-SKIP` tag. See [Delta playlist updates](#delta-playlist-updates-ext-x-skip). Without it, or without `#EXT-X-SKIP`, parsing behaves exactly as before and the current text is treated as a complete update.
+
+### Delta playlist updates (EXT-X-SKIP)
+
+Low-latency HLS servers can omit the oldest segments from a media playlist response and describe them with an `#EXT-X-SKIP:SKIPPED-SEGMENTS=K` tag. When `previousManifest` is supplied, those segments are restored so `manifest.segments` is the full playable window instead of only the segments listed in the response.
+
+Given the current `#EXT-X-MEDIA-SEQUENCE` `M` and `SKIPPED-SEGMENTS` `K`:
+
+* the merged `segments` array starts at sequence `M`. Its first `K` entries are the segments numbered `M` through `M+K-1` taken from `previousManifest`, looked up **by sequence number** (never by array position or URI, since different sequences can reference different byte ranges of the same resource). The segments listed in the current text follow them.
+* `KEY` and `MAP` inheritance is resumed from the last restored segment and then updated by the declarations actually present in the current text. An explicit `#EXT-X-KEY:METHOD=NONE` clears encryption for everything after it and is not undone by a key carried on a restored segment; a new `#EXT-X-MAP` only affects segments after it.
+* `discontinuityStarts` is regenerated against the merged array, with restored discontinuities continuing to count up and discontinuities declared in the current text counting after them. The same rules apply to playlists carrying `#EXT-X-ENDLIST`.
+* `preloadSegment` always reflects the current response only: its own `parts` and `preloadHints` are kept, parts and hints from the previous snapshot are never stacked on, and it inherits the `KEY`/`MAP`/timeline state in effect at the end of the current text. The preload hint is never used to fill an omitted full segment. `renditionReports` and other manifest-level fields likewise come from the current response.
+* everything copied from `previousManifest` is deep cloned, so the previous snapshot is never mutated and later changes to either object cannot affect the other.
+
+The merge fails with an `error` event instead of returning a partially merged window when:
+
+* the previous snapshot is a master playlist rather than a media playlist,
+* `SKIPPED-SEGMENTS` is not a non-negative safe integer, or
+* any of the required sequence numbers (`M` through `M+K-1`) is no longer present in the previous snapshot's window.
+
+On failure `manifest.segments` is emptied and no `preloadSegment` is exposed, so an error listener can treat the response as unusable.
 
 ### Parsed Output
 
@@ -129,6 +151,22 @@ Manifest {
   targetDuration: number,
   totalDuration: number,
   discontinuityStarts: [number],
+  skip: {
+    skippedSegments: number,
+    recentlyRemovedDateranges: [string]
+  },
+  partInf: {},
+  partTargetDuration: number,
+  serverControl: {},
+  renditionReports: [ {} ],
+  preloadSegment: {
+    parts: [ {} ],
+    preloadHints: [ {} ],
+    uri: string,
+    timeline: number,
+    key: {},
+    map: {}
+  },
   segments: [
     {
       title: string,
@@ -142,6 +180,17 @@ Manifest {
       discontinuity: number,
       uri: string,
       timeline: number,
+      parts: [
+        {
+          uri: string,
+          duration: number,
+          independent: boolean,
+          byterange: {
+            length: number,
+            offset: number
+          }
+        }
+      ],
       key: {
         method: string,
         uri: string,
@@ -162,6 +211,9 @@ Manifest {
   ]
 }
 ```
+
+* `skip` is present when the playlist contains an `#EXT-X-SKIP` tag. With `previousManifest` supplied, the omitted segments are merged back into `segments`; see [Delta playlist updates](#delta-playlist-updates-ext-x-skip).
+* `preloadSegment` holds the partial delivery hints (`#EXT-X-PART` entries in `parts` and `#EXT-X-PRELOAD-HINT` entries in `preloadHints`) that precede the next complete segment. It has no `uri` until that segment is delivered.
 
 ## Supported Tags
 

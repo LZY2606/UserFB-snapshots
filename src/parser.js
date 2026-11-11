@@ -20,6 +20,30 @@ const camelCaseKeys = function(attributes) {
   return result;
 };
 
+// deep clone a parsed manifest value. plain objects, arrays, Dates and typed
+// arrays (the Uint32Array used for EXT-X-KEY IVs) are copied so delta updates
+// never share mutable references with the previous manifest snapshot.
+const cloneDeep = function(value) {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(cloneDeep);
+  }
+  if (ArrayBuffer.isView(value) && typeof value.slice === 'function') {
+    return value.slice();
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  const clone = {};
+
+  Object.keys(value).forEach((key) => {
+    clone[key] = cloneDeep(value[key]);
+  });
+  return clone;
+};
+
 // set SERVER-CONTROL hold back based upon targetDuration and partTargetDuration
 // we need this helper because defaults are based upon targetDuration and
 // partTargetDuration being set, but they may not be if SERVER-CONTROL appears before
@@ -91,6 +115,10 @@ const setHoldBack = function(manifest) {
  * @param {Object} [opts] Options for the constructor, needed for substitutions
  * @param {string} [opts.uri] URL to check for query params
  * @param {Object} [opts.mainDefinitions] Definitions on main playlist that can be imported
+ * @param {Object} [opts.previousManifest] the last successfully parsed manifest for the
+ *                 same rendition, used to fill in segments omitted by an EXT-X-SKIP
+ *                 delta update. Only media playlists containing EXT-X-SKIP are merged;
+ *                 other inputs keep the original parsing behavior.
  * @extends Stream
  */
 export default class Parser extends Stream {
@@ -102,6 +130,9 @@ export default class Parser extends Stream {
     this.mainDefinitions = opts.mainDefinitions || {};
     this.params = new URL(opts.uri, 'https://a.com').searchParams;
     this.lastProgramDateTime = null;
+    // snapshot of the previous rendition manifest for EXT-X-SKIP delta updates
+    this.previousManifest = opts.previousManifest || null;
+    this.mergeError_ = null;
 
     /* eslint-disable consistent-this */
     const self = this;
@@ -142,10 +173,21 @@ export default class Parser extends Stream {
     let lastPartByterangeEnd = 0;
     const dateRangeTags = {};
 
+    // keep track of whether an EXT-X-KEY:METHOD=NONE declaration applies to
+    // each parsed segment, so delta merging cannot revive a cleared key
+    this.keyClearedSegments_ = [];
+    let keyIsCleared = false;
+
     this.on('end', () => {
       // only add preloadSegment if we don't yet have a uri for it.
       // and we actually have parts/preloadHints
+      this.parseEndState_ = {
+        key: key || null,
+        keyCleared: keyIsCleared,
+        map: currentMap || null
+      };
       if (currentUri.uri || (!currentUri.parts && !currentUri.preloadHints)) {
+        this.mergeSkippedSegments_();
         return;
       }
       if (!currentUri.map && currentMap) {
@@ -161,6 +203,7 @@ export default class Parser extends Stream {
       }
 
       this.manifest.preloadSegment = currentUri;
+      this.mergeSkippedSegments_();
     });
 
     // update the manifest with the m3u8 entry from the parse stream
@@ -273,6 +316,7 @@ export default class Parser extends Stream {
               // clear the active encryption key
               if (entry.attributes.METHOD === 'NONE') {
                 key = null;
+                keyIsCleared = true;
                 return;
               }
               if (!entry.attributes.URI) {
@@ -366,6 +410,7 @@ export default class Parser extends Stream {
               if (typeof entry.attributes.IV !== 'undefined') {
                 key.iv = entry.attributes.IV;
               }
+              keyIsCleared = false;
             },
             'media-sequence'() {
               if (!isFinite(entry.number)) {
@@ -870,6 +915,7 @@ export default class Parser extends Stream {
         uri() {
           currentUri.uri = entry.uri;
           uris.push(currentUri);
+          this.keyClearedSegments_.push(keyIsCleared);
 
           // if no explicit duration was declared, use the target duration
           if (this.manifest.targetDuration && !('duration' in currentUri)) {
@@ -941,6 +987,177 @@ export default class Parser extends Stream {
   }
 
   /**
+   * Merge segments omitted by an EXT-X-SKIP tag back into the manifest using
+   * the previous rendition snapshot. Only runs for media playlists that carry
+   * EXT-X-SKIP and were constructed with a previousManifest option.
+   *
+   * Given current MEDIA-SEQUENCE M and SKIPPED-SEGMENTS K, the merged window
+   * starts at M: its first K segments are deep clones of the previous
+   * manifest's segments M through M+K-1 and the remaining segments are the
+   * ones listed in the current text. Inherited KEY/MAP/timeline state is taken
+   * from the last restored segment and then updated by declarations in the
+   * current text, and discontinuityStarts is regenerated against the merged
+   * array. The previous snapshot is never mutated and no references into it
+   * are retained.
+   *
+   * @private
+   */
+  mergeSkippedSegments_() {
+    const manifest = this.manifest;
+    const skip = manifest.skip;
+
+    // reset on every parse so a failed delta on a reused parser instance does
+    // not poison a later, successful parse
+    this.mergeError_ = null;
+
+    // only media playlists with an explicit EXT-X-SKIP are delta updates
+    if (!skip || !this.previousManifest) {
+      return;
+    }
+
+    const fail = (message) => {
+      this.mergeError_ = message;
+      this.trigger('error', {message});
+    };
+
+    const K = skip.skippedSegments;
+    const M = manifest.mediaSequence;
+
+    // a master playlist has no media segments to restore from
+    if (this.previousManifest.playlists || this.previousManifest.mediaGroups) {
+      fail('EXT-X-SKIP: previousManifest must be a media playlist, not a master playlist');
+      return;
+    }
+    if (typeof K !== 'number' || !Number.isSafeInteger(K) || K < 0) {
+      fail(`EXT-X-SKIP: invalid SKIPPED-SEGMENTS value ${K}`);
+      return;
+    }
+    if (typeof M !== 'number' || !Number.isFinite(M)) {
+      fail(`EXT-X-SKIP: invalid MEDIA-SEQUENCE value ${M}`);
+      return;
+    }
+
+    const prev = this.previousManifest;
+    const prevBase = prev.mediaSequence || 0;
+    const prevSegments = prev.segments || [];
+    const currentSegments = manifest.segments || [];
+
+    if (K > 0) {
+      const startIndex = M - prevBase;
+
+      if (startIndex < 0 || startIndex + K > prevSegments.length) {
+        fail(
+          `EXT-X-SKIP: previous manifest is missing segments ${M} through ${M + K - 1}`
+        );
+        return;
+      }
+    }
+
+    // deep clone everything taken from the snapshot so neither side can
+    // mutate the other through shared key/map/part objects
+    const restored = [];
+
+    for (let i = 0; i < K; i++) {
+      restored.push(cloneDeep(prevSegments[(M - prevBase) + i]));
+    }
+
+    const parsed = currentSegments.map(cloneDeep);
+    const merged = restored.concat(parsed);
+
+    if (K > 0) {
+      const anchor = restored[K - 1];
+      // KEY/MAP inheritance resumes from the last restored segment, then any
+      // KEY/MAP/METHOD=NONE declarations in the current text apply again
+      let currentKey = anchor.key || null;
+      let currentMap = anchor.map || null;
+
+      parsed.forEach((segment, i) => {
+        if (this.keyClearedSegments_[i]) {
+          currentKey = null;
+        } else if (segment.key) {
+          currentKey = segment.key;
+        }
+        if (currentKey) {
+          segment.key = currentKey;
+        } else {
+          delete segment.key;
+        }
+
+        // a MAP declared in the current text only affects segments after it
+        if (segment.map) {
+          currentMap = segment.map;
+        } else if (currentMap) {
+          segment.map = currentMap;
+        }
+      });
+
+      // the preload segment is temporary content before the next full
+      // segment. it inherits the state in effect at the end of the current
+      // text, falling back to the state carried through the restored
+      // segments, but parts from the previous snapshot are never folded in
+      if (manifest.preloadSegment) {
+        const preload = manifest.preloadSegment;
+        const endState = this.parseEndState_ || {};
+
+        if (!preload.map) {
+          preload.map = endState.map || currentMap || null;
+          if (!preload.map) {
+            delete preload.map;
+          }
+        }
+        if (endState.keyCleared) {
+          // an explicit METHOD=NONE at the end of the text cannot be undone
+          // by a key carried on a restored segment
+          delete preload.key;
+        } else if (!preload.key) {
+          preload.key = endState.key || currentKey || null;
+          if (!preload.key) {
+            delete preload.key;
+          }
+        }
+      }
+    }
+
+    // DISCONTINUITY-SEQUENCE counts discontinuities before the window start.
+    // restored segments keep the timeline they had in the snapshot, then
+    // discontinuities declared in the current text continue counting from the
+    // last restored segment. with nothing restored (K=0) the walk starts at
+    // the playlist's own DISCONTINUITY-SEQUENCE.
+    const baseTimeline = typeof manifest.discontinuitySequence === 'number' ?
+      manifest.discontinuitySequence :
+      0;
+    let timeline;
+    let walkStart;
+
+    if (K > 0 && typeof restored[K - 1].timeline === 'number') {
+      timeline = restored[K - 1].timeline;
+      walkStart = K;
+    } else {
+      timeline = baseTimeline;
+      walkStart = 0;
+    }
+
+    for (let i = walkStart; i < merged.length; i++) {
+      if (merged[i].discontinuity) {
+        timeline += 1;
+      }
+      merged[i].timeline = timeline;
+    }
+    manifest.discontinuityStarts = merged.reduce((starts, segment, i) => {
+      if (segment.discontinuity) {
+        starts.push(i);
+      }
+      return starts;
+    }, []);
+
+    if (manifest.preloadSegment) {
+      manifest.preloadSegment.timeline = timeline;
+    }
+
+    manifest.segments = merged;
+  }
+
+  /**
    * Parse the input string and update the manifest object.
    *
    * @param {string} chunk a potentially incomplete portion of the manifest
@@ -965,6 +1182,13 @@ export default class Parser extends Stream {
 
     this.lastProgramDateTime = null;
     this.trigger('end');
+    if (this.mergeError_) {
+      // a failed delta merge must not surface a half-merged, seemingly
+      // complete playlist
+      this.manifest.segments = [];
+      delete this.manifest.preloadSegment;
+      this.manifest.discontinuityStarts = [];
+    }
   }
   /**
    * Add an additional parser for non-standard tags
