@@ -31,6 +31,7 @@ option(FG_BUILD_TEST "Build unit tests" ON)
 
 add_library(FrameGraph
   "include/fg/TypeTraits.hpp"
+  "include/fg/Subresource.hpp"
   "include/fg/FrameGraphResource.hpp"
   "include/fg/FrameGraph.hpp"
   "include/fg/FrameGraph.inl"

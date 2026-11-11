@@ -15,6 +15,7 @@ This is a renderer agnostic implementation of **FrameGraph**, inspired by the **
     - [Basic](#basic)
     - [Blackboard](#blackboard)
     - [Automatic resource bindings and barriers](#automatic-resource-bindings-and-barriers)
+    - [Subresources: mip chains and partial coverage](#subresources-mip-chains-and-partial-coverage)
     - [Visualization](#visualization)
       - [Custom writer](#custom-writer)
       - [Visualization tool](#visualization-tool)
@@ -240,6 +241,80 @@ fg.addCallbackPass<Data>(
     renderFullScreenPostProcess(rc);
   });
 ```
+
+### Subresources: mip chains and partial coverage
+
+Different passes often work on different mip levels, array layers or
+aspects of the *same* texture. A `SubresourceDomain` describes what a
+resource owns; a `SubresourceRange` describes what one access touches.
+All intervals are half-open boxes `[first, first + count)`.
+
+```cpp
+// A texture with 4 mips, 6 array layers and two aspects (color + depth).
+constexpr uint32_t kColor = 0x1;
+constexpr uint32_t kDepth = 0x2;
+const SubresourceDomain domain{/*mipCount=*/4, /*layerCount=*/6,
+                               kColor | kDepth};
+
+struct Data {
+  FrameGraphResource texture;
+};
+
+fg.addCallbackPass<Data>(
+  "GenerateMip0",
+  [&](FrameGraph::Builder &builder, Data &data) {
+    // create() takes an optional domain; without one the resource is
+    // treated as a single complete unit. The domain is independent of
+    // T::Desc, so backend descriptors do not have to change.
+    data.texture = builder.create<FrameGraphTexture>("SceneColor", {}, domain);
+
+    // Only mip 0 (all layers, color aspect) is defined here.
+    const SubresourceRange mip0{/*firstMip=*/0, /*mipCount=*/1,
+                                /*firstLayer=*/0, /*layerCount=*/6, kColor};
+    data.texture = builder.writeRange(data.texture, mip0);
+  },
+  [=](const Data &data, FrameGraphPassResources &resources, void *) {
+    // ... render into mip 0 ...
+  });
+```
+
+`writeRange` is an **overwriting** write: the supplied range is provided by
+the current pass while every other range keeps inheriting its source from
+the previous version, and there is **no implicit read**. It returns a new
+valid handle and invalidates the previous one, exactly like `write`. To
+read-modify-write, declare the read explicitly first:
+
+```cpp
+fg.addCallbackPass<Data>(
+  "BlurMip1",
+  [&](FrameGraph::Builder &builder, Data &data) {
+    const SubresourceRange mip1{1, 1, 0, 6, kColor};
+    const auto input = builder.readRange(previous.texture, mip1); // explicit read
+    data.texture = builder.writeRange(input, mip1);                // overwrite
+  },
+  [=](const Data &data, FrameGraphPassResources &resources, void *) {
+    // ...
+  });
+```
+
+During `compile()` the graph tracks the actually consumed boxes:
+
+- a read spanning several partial covers keeps **every** producer that
+  still contributes, while a producer whose output is fully overwritten is
+  culled;
+- a pass writing several regions still executes **once**, and multiple
+  readers sharing a region keep their common upstream alive;
+- one logical resource stays a single `T` object - versions never allocate
+  separate textures;
+- reading an uninitialized region of a transient resource throws a
+  `FrameGraphRangeError` naming the pass, resource and missing range
+  (imported resources are fully defined from the start);
+- out-of-bounds, empty or aspect-illegal declarations are rejected with
+  `std::invalid_argument` at declaration time, without running callbacks.
+
+The plain `read`/`write` calls keep their original whole-resource
+semantics (a `write` outside the creating pass still implicitly reads the
+old full version).
 
 ### Visualization
 

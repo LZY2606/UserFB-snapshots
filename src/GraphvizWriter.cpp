@@ -312,7 +312,7 @@ void Writer::operator()(const PassNode &node,
 
   auto &edge =
     graph.edges.emplace_back(Graph::Edge{std::move(key), colors.edge.write});
-  for (const auto [id, _] : node.each(PassNode::Write{})) {
+  for (const auto &[id, _, __] : node.each(PassNode::Write{})) {
     edge.vertices.emplace_back(makeKey(resourceNodes[id]));
   }
 }

@@ -3,6 +3,7 @@
 #include "fg/GraphNode.hpp"
 #include "fg/PassEntry.hpp"
 #include "fg/FrameGraphResource.hpp"
+#include "fg/Subresource.hpp"
 #include <memory>
 #include <vector>
 
@@ -19,6 +20,7 @@ public:
   struct AccessDeclaration {
     FrameGraphResource id;
     uint32_t flags;
+    SubresourceRange range; // Half-open box of the accessed subresources.
 
 #if __cplusplus >= 202002L
     bool operator==(const AccessDeclaration &) const = default;
@@ -29,8 +31,8 @@ public:
   [[nodiscard]] bool reads(FrameGraphResource id) const;
   [[nodiscard]] bool writes(FrameGraphResource id) const;
 
-  [[nodiscard]] auto hasSideEffect() const { return m_hasSideEffect; }
-  [[nodiscard]] auto canExecute() const {
+  [[nodiscard]] bool hasSideEffect() const { return m_hasSideEffect; }
+  [[nodiscard]] bool canExecute() const {
     return getRefCount() > 0 || hasSideEffect();
   }
 
@@ -45,9 +47,10 @@ private:
   PassNode(const std::string_view name, uint32_t nodeId,
            std::unique_ptr<FrameGraphPassConcept> &&);
 
-  FrameGraphResource _read(FrameGraphResource id, uint32_t flags);
-  [[nodiscard]] FrameGraphResource _write(FrameGraphResource id,
-                                          uint32_t flags);
+  FrameGraphResource _read(FrameGraphResource id, uint32_t flags,
+                           const SubresourceRange &);
+  [[nodiscard]] FrameGraphResource _write(FrameGraphResource id, uint32_t flags,
+                                          const SubresourceRange &);
 
 private:
   std::unique_ptr<FrameGraphPassConcept> m_exec;
@@ -62,6 +65,11 @@ private:
 #if __cplusplus < 202002L
 inline bool operator==(const PassNode::AccessDeclaration &lhs,
                        const PassNode::AccessDeclaration &rhs) {
-  return lhs.id == rhs.id && lhs.flags == rhs.flags;
+  return lhs.id == rhs.id && lhs.flags == rhs.flags &&
+         lhs.range.getFirstMip() == rhs.range.getFirstMip() &&
+         lhs.range.getMipCount() == rhs.range.getMipCount() &&
+         lhs.range.getFirstLayer() == rhs.range.getFirstLayer() &&
+         lhs.range.getLayerCount() == rhs.range.getLayerCount() &&
+         lhs.range.getAspectMask() == rhs.range.getAspectMask();
 }
 #endif

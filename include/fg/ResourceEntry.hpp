@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fg/TypeTraits.hpp"
+#include "fg/Subresource.hpp"
 #include <memory>
 
 // Wrapper around a virtual resource.
@@ -33,6 +34,7 @@ public:
 
   [[nodiscard]] auto getId() const { return m_id; }
   [[nodiscard]] auto getVersion() const { return m_version; }
+  [[nodiscard]] const auto &getDomain() const { return m_domain; }
   [[nodiscard]] auto isImported() const { return m_type == Type::Imported; }
   [[nodiscard]] auto isTransient() const { return m_type == Type::Transient; }
 
@@ -42,7 +44,8 @@ public:
 
 private:
   template <typename T>
-  ResourceEntry(const Type, uint32_t id, const typename T::Desc &, T &&);
+  ResourceEntry(const Type, uint32_t id, const typename T::Desc &, T &&,
+                const SubresourceDomain &);
 
   // http://www.cplusplus.com/articles/oz18T05o/
   // https://www.modernescpp.com/index.php/c-core-guidelines-type-erasure-with-templates
@@ -93,10 +96,8 @@ private:
   const Type m_type;
   const uint32_t m_id;
   uint32_t m_version; // Incremented on each (unique) write declaration.
+  const SubresourceDomain m_domain;
   std::unique_ptr<Concept> m_concept;
-
-  PassNode *m_producer{nullptr};
-  PassNode *m_last{nullptr};
 };
 
 #include "ResourceEntry.inl"

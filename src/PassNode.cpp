@@ -53,14 +53,16 @@ PassNode::PassNode(const std::string_view name, uint32_t nodeId,
   m_writes.reserve(10);
 }
 
-FrameGraphResource PassNode::_read(FrameGraphResource id, uint32_t flags) {
+FrameGraphResource PassNode::_read(FrameGraphResource id, uint32_t flags,
+                                   const SubresourceRange &range) {
   assert(!creates(id) && !writes(id));
-  return contains(m_reads, {id, flags})
+  return contains(m_reads, {id, flags, range})
            ? id
-           : m_reads.emplace_back(AccessDeclaration{id, flags}).id;
+           : m_reads.emplace_back(AccessDeclaration{id, flags, range}).id;
 }
-FrameGraphResource PassNode::_write(FrameGraphResource id, uint32_t flags) {
-  return contains(m_writes, {id, flags})
+FrameGraphResource PassNode::_write(FrameGraphResource id, uint32_t flags,
+                                    const SubresourceRange &range) {
+  return contains(m_writes, {id, flags, range})
            ? id
-           : m_writes.emplace_back(AccessDeclaration{id, flags}).id;
+           : m_writes.emplace_back(AccessDeclaration{id, flags, range}).id;
 }

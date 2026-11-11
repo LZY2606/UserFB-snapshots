@@ -27,8 +27,9 @@ inline const typename T::Desc &ResourceEntry::getDescriptor() const {
 
 template <typename T>
 inline ResourceEntry::ResourceEntry(const Type type, uint32_t id,
-                                    const typename T::Desc &desc, T &&obj)
-    : m_type{type}, m_id{id}, m_version{kInitialVersion},
+                                    const typename T::Desc &desc, T &&obj,
+                                    const SubresourceDomain &domain)
+    : m_type{type}, m_id{id}, m_version{kInitialVersion}, m_domain{domain},
       m_concept{std::make_unique<Model<T>>(desc, std::forward<T>(obj))} {}
 
 template <typename T> inline auto *ResourceEntry::_getModel() const {

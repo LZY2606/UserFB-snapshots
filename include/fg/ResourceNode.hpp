@@ -28,5 +28,4 @@ private:
   const uint32_t m_version;
 
   PassNode *m_producer{nullptr};
-  PassNode *m_last{nullptr};
 };

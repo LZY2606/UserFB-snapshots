@@ -29,11 +29,11 @@ FrameGraph::getDescriptor(FrameGraphResource id) const {
 }
 
 template <_VIRTUALIZABLE_CONCEPT_IMPL(T)>
-inline FrameGraphResource FrameGraph::import(const std::string_view name,
-                                             const typename T::Desc &desc,
-                                             T &&resource) {
+inline FrameGraphResource FrameGraph::import(
+  const std::string_view name, const typename T::Desc &desc, T &&resource,
+  const SubresourceDomain &domain) {
   return _create<T>(ResourceEntry::Type::Imported, name, desc,
-                    std::forward<T>(resource));
+                    std::forward<T>(resource), domain);
 }
 
 template <typename Writer>
@@ -55,11 +55,13 @@ inline std::ostream &FrameGraph::debugOutput(std::ostream &os,
 
 template <_VIRTUALIZABLE_CONCEPT_IMPL(T)>
 inline FrameGraphResource
-FrameGraph::_create(const ResourceEntry::Type type, const std::string_view name,
-                    const typename T::Desc &desc, T &&resource) {
+FrameGraph::_create(const ResourceEntry::Type type,
+                    const std::string_view name, const typename T::Desc &desc,
+                    T &&resource, const SubresourceDomain &domain) {
+  validateDomain(domain);
   const auto resourceId = static_cast<uint32_t>(m_resourceRegistry.size());
   m_resourceRegistry.emplace_back(
-    ResourceEntry{type, resourceId, desc, std::forward<T>(resource)});
+    ResourceEntry{type, resourceId, desc, std::forward<T>(resource), domain});
   return _createResourceNode(name, resourceId).getId();
 }
 
@@ -68,11 +70,11 @@ FrameGraph::_create(const ResourceEntry::Type type, const std::string_view name,
 //
 
 template <_VIRTUALIZABLE_CONCEPT_IMPL(T)>
-inline FrameGraphResource
-FrameGraph::Builder::create(const std::string_view name,
-                            const typename T::Desc &desc) {
-  const auto id =
-    m_frameGraph._create<T>(ResourceEntry::Type::Transient, name, desc, T{});
+inline FrameGraphResource FrameGraph::Builder::create(
+  const std::string_view name, const typename T::Desc &desc,
+  const SubresourceDomain &domain) {
+  const auto id = m_frameGraph._create<T>(ResourceEntry::Type::Transient, name,
+                                          desc, T{}, domain);
   return m_passNode.m_creates.emplace_back(id);
 }
 

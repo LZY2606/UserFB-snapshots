@@ -3,6 +3,7 @@
 #include "fg/PassNode.hpp"
 #include "fg/ResourceNode.hpp"
 #include "fg/ResourceEntry.hpp"
+#include "fg/Subresource.hpp"
 
 class FrameGraph {
   friend class FrameGraphPassResources;
@@ -31,18 +32,36 @@ public:
     Builder &operator=(Builder &&) noexcept = delete;
 
     template <_VIRTUALIZABLE_CONCEPT(T)>
-    /** Declares the creation of a resource. */
-    [[nodiscard]] FrameGraphResource create(const std::string_view name,
-                                            const typename T::Desc &);
-    /** Declares read operation. */
+    /**
+     * Declares the creation of a (not yet initialized) transient resource.
+     * @param domain Subresource layout; omitted -> one complete unit.
+     */
+    [[nodiscard]] FrameGraphResource
+    create(const std::string_view name, const typename T::Desc &,
+           const SubresourceDomain &domain = {});
+    /** Declares read operation over the whole current version. */
     FrameGraphResource read(FrameGraphResource id,
                             uint32_t flags = kFlagsIgnored);
     /**
-     * Declares write operation.
+     * Declares write operation over the whole current version.
      * @remark Writing to imported resource counts as side-effect.
      */
     [[nodiscard]] FrameGraphResource write(FrameGraphResource id,
                                            uint32_t flags = kFlagsIgnored);
+
+    /** Declares a read of a subresource range (half-open box). */
+    FrameGraphResource readRange(FrameGraphResource id,
+                                 const SubresourceRange &range,
+                                 uint32_t flags = kFlagsIgnored);
+    /**
+     * Declares an overwriting write of a subresource range.
+     * The written range is provided by this pass; every other range keeps
+     * inheriting its source from the previous version (no implicit read).
+     * @return New valid handle; the previous one becomes obsolete.
+     */
+    [[nodiscard]] FrameGraphResource
+    writeRange(FrameGraphResource id, const SubresourceRange &range,
+               uint32_t flags = kFlagsIgnored);
 
     /** Ensures that this pass is not culled during the compilation phase. */
     Builder &setSideEffect() {
@@ -77,9 +96,10 @@ public:
   getDescriptor(FrameGraphResource id) const;
 
   template <_VIRTUALIZABLE_CONCEPT(T)>
-  /** Imports the given resource T into FrameGraph. */
-  [[nodiscard]] FrameGraphResource import(const std::string_view name,
-                                          const typename T::Desc &, T &&);
+  /** Imports the given resource T into FrameGraph (all regions defined). */
+  [[nodiscard]] FrameGraphResource
+  import(const std::string_view name, const typename T::Desc &, T &&,
+         const SubresourceDomain &domain = {});
 
   /** @return True if the given resource is valid for read/write operation. */
   [[nodiscard]] bool isValid(FrameGraphResource id) const;
@@ -100,13 +120,19 @@ private:
   template <_VIRTUALIZABLE_CONCEPT(T)>
   [[nodiscard]] FrameGraphResource _create(const ResourceEntry::Type,
                                            const std::string_view name,
-                                           const typename T::Desc &, T &&);
+                                           const typename T::Desc &, T &&,
+                                           const SubresourceDomain &);
 
   [[nodiscard]] ResourceNode &
   _createResourceNode(const std::string_view name, uint32_t resourceId,
                       uint32_t version = ResourceEntry::kInitialVersion);
   /** Increments ResourceEntry version and produces a renamed handle. */
   [[nodiscard]] FrameGraphResource _clone(FrameGraphResource id);
+
+  // Validates a range against the resource domain and resolves the
+  // "all aspects" sentinel. Throws std::invalid_argument on bad input.
+  [[nodiscard]] SubresourceRange
+  _normalizeRange(FrameGraphResource id, const SubresourceRange &) const;
 
   [[nodiscard]] const ResourceNode &
   _getResourceNode(FrameGraphResource id) const;
@@ -132,6 +158,11 @@ private:
   std::vector<PassNode> m_passNodes;
   std::vector<ResourceNode> m_resourceNodes;
   std::vector<ResourceEntry> m_resourceRegistry;
+
+  // Lifetime anchors computed during compile(), indexed by resource id.
+  // Null entries mean "never allocated" (transient) or "imported".
+  std::vector<PassNode *> m_createAt;
+  std::vector<PassNode *> m_destroyAt;
 };
 
 class FrameGraphPassResources {
