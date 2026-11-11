@@ -252,6 +252,14 @@ export class VariationProcessor {
             transformedPoints = [...points];
         }
 
+        // For simple (non-composite) gvar glyphs, the unrounded delta contributions
+        // of all tuples are accumulated per point and rounded only once at the end.
+        // Each tuple is always interpolated against the original, unmodified outline,
+        // so the result does not depend on the order in which tuples are stored.
+        const isSimpleGvar = flavor === 'gvar' && !(args.glyph && args.glyph.isComposite);
+        const accumulatedDeltasX = isSimpleGvar ? new Array(points.length).fill(0) : null;
+        const accumulatedDeltasY = isSimpleGvar ? new Array(points.length).fill(0) : null;
+
         for(let h = 0; h < headers.length; h++) {
             const header = headers[h];
             let factor = 1;
@@ -313,52 +321,58 @@ export class VariationProcessor {
                 for (let i = 0; i < transformedPoints.length; i++) {
                     const point = transformedPoints[i];
                     if(flavor === 'gvar') {
-                        transformedPoints[i] = {
-                            x: Math.round(point.x + header.deltas[i] * factor),
-                            y: Math.round(point.y + header.deltasY[i] * factor),
-                            onCurve: point.onCurve,
-                            lastPointOfContour: point.lastPointOfContour
-                        };
+                        accumulatedDeltasX[i] += header.deltas[i] * factor;
+                        accumulatedDeltasY[i] += header.deltasY[i] * factor;
                     } else if (flavor === 'cvar') {
                         transformedPoints[i] = Math.round(point + header.deltas[i] * factor);
                     }
                 }
             } else {
-                let interpolatedPoints;
                 if(flavor === 'gvar') {
-                    interpolatedPoints = transformedPoints.map(copyPoint);
-                } else if (flavor === 'cvar') {
-                    interpolatedPoints = transformedPoints;
-                }
-                const deltaMap = Array(points.length).fill(false);
-                for (let i = 0; i < tuplePoints.length; i++) {
-                    let pointIndex = tuplePoints[i];
-                    if (pointIndex < points.length) {
-                        let point = interpolatedPoints[pointIndex];
-                        if(flavor === 'gvar') {
+                    // Apply this tuple's deltas to a fresh copy of the original
+                    // outline and infer the remaining points from the original
+                    // coordinates, so tuples don't influence each other.
+                    const interpolatedPoints = points.map(copyPoint);
+                    const deltaMap = Array(points.length).fill(false);
+                    for (let i = 0; i < tuplePoints.length; i++) {
+                        let pointIndex = tuplePoints[i];
+                        if (pointIndex < points.length) {
                             deltaMap[pointIndex] = true;
-                            point.x += header.deltas[i] * factor;
-                            point.y += header.deltasY[i] * factor;
-                        } else if (flavor === 'cvar') {
-                            transformedPoints[pointIndex] = Math.round(point + header.deltas[i] * factor);
+                            interpolatedPoints[pointIndex].x += header.deltas[i] * factor;
+                            interpolatedPoints[pointIndex].y += header.deltasY[i] * factor;
                         }
                     }
-                }
 
-                if(flavor === 'gvar') {
-                    this.interpolatePoints(interpolatedPoints, transformedPoints, deltaMap);
-    
+                    this.interpolatePoints(interpolatedPoints, points, deltaMap);
+
                     for (let i = 0; i < points.length; i++) {
-                        let deltaX = interpolatedPoints[i].x - transformedPoints[i].x;
-                        let deltaY = interpolatedPoints[i].y - transformedPoints[i].y;
-    
-                        transformedPoints[i].x = Math.round(transformedPoints[i].x + deltaX);
-                        transformedPoints[i].y = Math.round(transformedPoints[i].y + deltaY);
+                        accumulatedDeltasX[i] += interpolatedPoints[i].x - points[i].x;
+                        accumulatedDeltasY[i] += interpolatedPoints[i].y - points[i].y;
+                    }
+                } else if (flavor === 'cvar') {
+                    for (let i = 0; i < tuplePoints.length; i++) {
+                        let pointIndex = tuplePoints[i];
+                        if (pointIndex < points.length) {
+                            transformedPoints[pointIndex] = Math.round(transformedPoints[pointIndex] + header.deltas[i] * factor);
+                        }
                     }
                 }
             }
         }
-        
+
+        if (isSimpleGvar) {
+            // Round each final coordinate exactly once, after all tuple
+            // contributions have been summed.
+            for (let i = 0; i < points.length; i++) {
+                transformedPoints[i] = {
+                    x: Math.round(points[i].x + accumulatedDeltasX[i]),
+                    y: Math.round(points[i].y + accumulatedDeltasY[i]),
+                    onCurve: points[i].onCurve,
+                    lastPointOfContour: points[i].lastPointOfContour
+                };
+            }
+        }
+
         return transformedPoints;
     }
 
