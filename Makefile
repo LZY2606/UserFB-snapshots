@@ -8,8 +8,12 @@ BUILD=build/$(config)
 LIBRARY_SOURCES=$(wildcard src/*.cpp)
 LIBRARY_OBJECTS=$(LIBRARY_SOURCES:%=$(BUILD)/%.o)
 
-DEMO_SOURCES=$(wildcard demo/*.c demo/*.cpp)
+DEMO_SOURCES=$(filter-out demo/group_regression.cpp,$(wildcard demo/*.c demo/*.cpp))
 DEMO_OBJECTS=$(DEMO_SOURCES:%=$(BUILD)/%.o)
+
+# standalone group simplification regression program (has its own main and is not part of meshoptdemo)
+GROUP_REGRESSION_SOURCES=demo/group_regression.cpp
+GROUP_REGRESSION_OBJECTS=$(GROUP_REGRESSION_SOURCES:%=$(BUILD)/%.o)
 
 GLTFPACK_SOURCES=$(wildcard gltf/*.cpp)
 GLTFPACK_OBJECTS=$(GLTFPACK_SOURCES:%=$(BUILD)/%.o)
@@ -18,6 +22,7 @@ OBJECTS=$(LIBRARY_OBJECTS) $(DEMO_OBJECTS) $(GLTFPACK_OBJECTS)
 
 LIBRARY=$(BUILD)/libmeshoptimizer.a
 DEMO=$(BUILD)/meshoptdemo
+GROUP_REGRESSION=$(BUILD)/group_regression
 
 CFLAGS=-g -Wall -Wextra -std=c89
 CXXFLAGS=-g -Wall -Wextra -Wshadow -Wno-missing-field-initializers -std=c++11
@@ -207,6 +212,11 @@ js/meshopt_decoder.cjs: js/meshopt_decoder.mjs
 $(DEMO): $(DEMO_OBJECTS) $(LIBRARY)
 	$(CXX) $^ $(LDFLAGS) -o $@
 
+$(GROUP_REGRESSION): $(GROUP_REGRESSION_OBJECTS) $(LIBRARY)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+group_regression: $(GROUP_REGRESSION)
+
 vcachetuner: tools/vcachetuner.cpp $(LIBRARY)
 	$(CXX) $^ -fopenmp $(CXXFLAGS) $(LDFLAGS) -o $@
 
@@ -257,4 +267,4 @@ $(BUILD)/%.c.o: %.c
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean format js
+.PHONY: all clean format js group_regression

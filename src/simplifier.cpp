@@ -529,6 +529,191 @@ static void classifyVertices(unsigned char* result, unsigned int* loop, unsigned
 				result[i] = Kind_Locked;
 }
 
+// set of welded geometric edges that separate different face groups
+// entries are keyed by welded position indices (see buildPositionRemap), so attribute seam wedges map to the same constraint edges
+struct GroupBoundarySet
+{
+	struct BoundaryEdge
+	{
+		unsigned int v0;
+		unsigned int v1;
+	};
+
+	unsigned int* table;
+	size_t table_size;
+	BoundaryEdge* edges;
+	size_t edge_count;
+
+	bool contains(unsigned int r0, unsigned int r1) const
+	{
+		if (r0 == r1)
+			return false;
+
+		unsigned int k0 = r0 < r1 ? r0 : r1;
+		unsigned int k1 = r0 < r1 ? r1 : r0;
+
+		size_t hashmod = table_size - 1;
+		size_t bucket = ((k0 * 73856093) ^ (k1 * 19349663)) & hashmod;
+
+		for (size_t probe = 0; probe <= hashmod; ++probe)
+		{
+			unsigned int item = table[bucket];
+
+			if (item == ~0u)
+				return false;
+
+			if (edges[item].v0 == k0 && edges[item].v1 == k1)
+				return true;
+
+			// hash collision, quadratic probing
+			bucket = (bucket + probe + 1) & hashmod;
+		}
+
+		return false;
+	}
+};
+
+// builds the persistent set of group boundary edges and marks every vertex (including position-equivalent wedges) incident to one
+static void buildGroupBoundaries(GroupBoundarySet& boundary, unsigned char* vertex_boundary, const unsigned int* indices, size_t index_count, const unsigned int* face_groups, size_t vertex_count, const unsigned int* remap, meshopt_Allocator& allocator)
+{
+	size_t table_size = hashBuckets2(index_count);
+
+	struct ScratchEdge
+	{
+		unsigned int v0;
+		unsigned int v1;
+		unsigned int group;
+	};
+
+	// single persistent block: boundary hash table followed by deduplicated boundary edges (index_count is an upper bound)
+	size_t boundary_size = table_size * sizeof(unsigned int) + index_count * sizeof(GroupBoundarySet::BoundaryEdge);
+	char* boundary_block = allocator.allocate<char>(boundary_size ? boundary_size : 1);
+	boundary.table = reinterpret_cast<unsigned int*>(boundary_block);
+	boundary.table_size = table_size;
+	memset(boundary.table, -1, table_size * sizeof(unsigned int));
+	boundary.edges = reinterpret_cast<GroupBoundarySet::BoundaryEdge*>(boundary_block + table_size * sizeof(unsigned int));
+	boundary.edge_count = 0;
+
+	// single scratch block: hash table followed by per-edge group records
+	size_t scratch_size = table_size * sizeof(unsigned int) + index_count * sizeof(ScratchEdge);
+	char* scratch_block = allocator.allocate<char>(scratch_size ? scratch_size : 1);
+	unsigned int* scratch_table = reinterpret_cast<unsigned int*>(scratch_block);
+	ScratchEdge* scratch = reinterpret_cast<ScratchEdge*>(scratch_block + table_size * sizeof(unsigned int));
+	memset(scratch_table, -1, table_size * sizeof(unsigned int));
+	size_t scratch_count = 0;
+
+	memset(vertex_boundary, 0, vertex_count);
+
+	for (size_t i = 0; i < index_count; i += 3)
+	{
+		static const int next[3] = {1, 2, 0};
+		unsigned int group = face_groups[i / 3];
+
+		for (int e = 0; e < 3; ++e)
+		{
+			unsigned int r0 = remap[indices[i + e]];
+			unsigned int r1 = remap[indices[i + next[e]]];
+
+			// degenerate edges don't define a boundary
+			if (r0 == r1)
+				continue;
+
+			unsigned int k0 = r0 < r1 ? r0 : r1;
+			unsigned int k1 = r0 < r1 ? r1 : r0;
+
+			size_t hashmod = table_size - 1;
+			size_t bucket = ((k0 * 73856093) ^ (k1 * 19349663)) & hashmod;
+
+			for (size_t probe = 0; probe <= hashmod; ++probe)
+			{
+				unsigned int item = scratch_table[bucket];
+
+				if (item == ~0u)
+				{
+					scratch_table[bucket] = unsigned(scratch_count);
+					scratch[scratch_count++] = {k0, k1, group};
+					break;
+				}
+
+				ScratchEdge& edge = scratch[item];
+
+				if (edge.v0 == k0 && edge.v1 == k1)
+				{
+					if (edge.group != group)
+					{
+						// edge is shared by triangles of different groups: mark its endpoints and remember the edge once
+						vertex_boundary[k0] = 1;
+						vertex_boundary[k1] = 1;
+
+						if (!boundary.contains(k0, k1))
+						{
+							size_t boundary_bucket = ((k0 * 73856093) ^ (k1 * 19349663)) & hashmod;
+
+							for (size_t boundary_probe = 0; boundary_probe <= hashmod; ++boundary_probe)
+							{
+								if (boundary.table[boundary_bucket] == ~0u)
+								{
+									boundary.table[boundary_bucket] = unsigned(boundary.edge_count);
+									boundary.edges[boundary.edge_count++] = {k0, k1};
+									break;
+								}
+
+								boundary_bucket = (boundary_bucket + boundary_probe + 1) & hashmod;
+							}
+						}
+					}
+
+					break;
+				}
+
+				// hash collision, quadratic probing
+				bucket = (bucket + probe + 1) & hashmod;
+			}
+		}
+	}
+
+	// scratch block was allocated last and is the first to be released; the boundary block stays alive for the whole simplification
+	allocator.deallocate(scratch_block);
+
+	// propagate the mark from primary vertices to every wedge with the identical position
+	for (size_t i = 0; i < vertex_count; ++i)
+		if (vertex_boundary[remap[i]])
+			vertex_boundary[i] = 1;
+}
+
+// returns true if collapsing i0 onto i1 would remove a triangle adjacent to a group boundary edge
+static bool hasGroupBoundaryTriangle(const EdgeAdjacency& adjacency, unsigned int i0, unsigned int i1, const unsigned int* remap, const unsigned int* wedge, const GroupBoundarySet& boundary)
+{
+	unsigned int r1 = remap[i1];
+	unsigned int v = i0;
+
+	do
+	{
+		unsigned int count = adjacency.offsets[v + 1] - adjacency.offsets[v];
+		const EdgeAdjacency::Edge* edges = adjacency.data + adjacency.offsets[v];
+
+		for (size_t i = 0; i < count; ++i)
+		{
+			unsigned int a = remap[edges[i].next];
+			unsigned int b = remap[edges[i].prev];
+
+			// only triangles containing the collapse edge are removed by the collapse; skip already degenerate triangles
+			if (a == b || (a != r1 && b != r1))
+				continue;
+
+			unsigned int rv = remap[v];
+
+			// the triangle (rv, a, b) disappears; none of its edges may be a group boundary edge
+			if (boundary.contains(rv, a) || boundary.contains(rv, b) || boundary.contains(a, b))
+				return true;
+		}
+
+		v = wedge[v];
+	} while (v != i0);
+
+	return false;
+}
+
 struct Vector3
 {
 	float x, y, z;
@@ -1829,7 +2014,7 @@ static void solveAttributes(Vector3* vertex_positions, float* vertex_attributes,
 	}
 }
 
-static size_t remapIndexBuffer(unsigned int* indices, size_t index_count, const unsigned int* collapse_remap, const unsigned int* remap)
+static size_t remapIndexBuffer(unsigned int* indices, size_t index_count, const unsigned int* collapse_remap, const unsigned int* remap, unsigned int* face_groups)
 {
 	size_t write = 0;
 
@@ -1856,6 +2041,12 @@ static size_t remapIndexBuffer(unsigned int* indices, size_t index_count, const 
 			indices[write + 0] = v0;
 			indices[write + 1] = v1;
 			indices[write + 2] = v2;
+
+			// face groups are compacted together with indices; the group label follows the surviving triangle
+			// note: face_groups may alias indices' group array, in which case the write head never passes the read head
+			if (face_groups)
+				face_groups[write / 3] = face_groups[i / 3];
+
 			write += 3;
 		}
 	}
@@ -2337,7 +2528,7 @@ enum
 	meshopt_SimplifyInternalDebug = 1 << 30
 };
 
-size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes_data, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
+size_t meshopt_simplifyEdge(unsigned int* destination, unsigned int* destination_groups, const unsigned int* indices, const unsigned int* face_groups, size_t index_count, const float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes_data, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
 {
 	using namespace meshopt;
 
@@ -2352,11 +2543,24 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	for (size_t i = 0; i < attribute_count; ++i)
 		assert(attribute_weights[i] >= 0);
 
+	// group simplification only supports the options that don't require extra boundary-aware handling
+	if (face_groups)
+		assert((options & ~(meshopt_SimplifySparse | meshopt_SimplifyErrorAbsolute | meshopt_SimplifyLockBorder | meshopt_SimplifyPermissive)) == 0);
+
 	meshopt_Allocator allocator;
 
 	unsigned int* result = destination;
 	if (result != indices)
 		memcpy(result, indices, index_count * sizeof(unsigned int));
+
+	// face groups use the same aliasing rules as indices: destination may alias the input, and both arrays can be compacted in place at the same time
+	unsigned int* result_groups = NULL;
+	if (face_groups)
+	{
+		result_groups = destination_groups;
+		if (result_groups != face_groups)
+			memcpy(result_groups, face_groups, (index_count / 3) * sizeof(unsigned int));
+	}
 
 	// build an index remap and update indices/vertex_count to minimize the subsequent work
 	// note: as a consequence, errors will be computed relative to the subset extent
@@ -2375,11 +2579,44 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	unsigned int* wedge = allocator.allocate<unsigned int>(vertex_count);
 	buildPositionRemap(remap, wedge, vertex_positions_data, vertex_count, vertex_positions_stride, sparse_remap, allocator);
 
+	// when face groups are provided, lock every vertex (including all position-equivalent wedges) on a boundary between different groups
+	// the lock is merged with the caller-provided vertex_lock, which continues to apply as usual
+	const unsigned char* effective_lock = vertex_lock;
+	unsigned char* group_lock = NULL;
+	GroupBoundarySet group_boundary = {};
+
+	if (face_groups)
+	{
+		// single block holds both the merged lock array and the transient boundary marks
+		group_lock = allocator.allocate<unsigned char>(vertex_count * 2);
+		unsigned char* vertex_boundary = group_lock + vertex_count;
+
+		if (vertex_lock)
+		{
+			for (size_t i = 0; i < vertex_count; ++i)
+			{
+				unsigned int ri = sparse_remap ? sparse_remap[i] : unsigned(i);
+				group_lock[i] = vertex_lock[ri];
+			}
+		}
+		else
+		{
+			memset(group_lock, 0, vertex_count);
+		}
+
+		buildGroupBoundaries(group_boundary, vertex_boundary, result, index_count, result_groups, vertex_count, remap, allocator);
+
+		for (size_t i = 0; i < vertex_count; ++i)
+			group_lock[i] |= (unsigned char)(vertex_boundary[i] ? meshopt_SimplifyVertex_Lock : 0);
+
+		effective_lock = group_lock;
+	}
+
 	// classify vertices; vertex kind determines collapse rules, see kCanCollapse
 	unsigned char* vertex_kind = allocator.allocate<unsigned char>(vertex_count);
 	unsigned int* loop = allocator.allocate<unsigned int>(vertex_count);
 	unsigned int* loopback = allocator.allocate<unsigned int>(vertex_count);
-	classifyVertices(vertex_kind, loop, loopback, vertex_count, adjacency, remap, wedge, vertex_lock, sparse_remap, options);
+	classifyVertices(vertex_kind, loop, loopback, vertex_count, adjacency, remap, wedge, effective_lock, sparse_remap, options);
 
 #if TRACE
 	size_t unique_positions = 0;
@@ -2439,7 +2676,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 	}
 
 	fillFaceQuadrics(vertex_quadrics, volume_gradients, result, index_count, vertex_positions, remap);
-	fillVertexQuadrics(vertex_quadrics, vertex_positions, vertex_count, remap, vertex_lock, sparse_remap, options);
+	fillVertexQuadrics(vertex_quadrics, vertex_positions, vertex_count, remap, effective_lock, sparse_remap, options);
 	fillEdgeQuadrics(vertex_quadrics, result, index_count, vertex_positions, remap, vertex_kind, loop, loopback);
 
 	if (options & meshopt_SimplifyPreserveFolds)
@@ -2507,6 +2744,26 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 
 		rankEdgeCollapses(edge_collapses, edge_collapse_count, vertex_positions, vertex_attributes, vertex_quadrics, attribute_quadrics, attribute_gradients, attribute_count, remap, wedge, vertex_kind, loop, loopback, (options & meshopt_SimplifyErrorClamped) != 0);
 
+		if (face_groups)
+		{
+			// reject collapses that would remove a triangle adjacent to a group boundary; this keeps every boundary edge incident to the same triangles throughout simplification
+			size_t filtered = 0;
+
+			for (size_t i = 0; i < edge_collapse_count; ++i)
+			{
+				const Collapse& c = edge_collapses[i];
+
+				if (!hasGroupBoundaryTriangle(adjacency, c.v0, c.v1, remap, wedge, group_boundary))
+					edge_collapses[filtered++] = c;
+			}
+
+			edge_collapse_count = filtered;
+
+			// no edges can be collapsed any more due to group boundary restrictions
+			if (edge_collapse_count == 0)
+				break;
+		}
+
 		sortEdgeCollapses(collapse_order, edge_collapses, edge_collapse_count);
 
 		size_t triangle_collapse_goal = (result_count - target_index_count) / 3;
@@ -2533,7 +2790,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 		remapEdgeLoops(loop, vertex_count, collapse_remap);
 		remapEdgeLoops(loopback, vertex_count, collapse_remap);
 
-		result_count = remapIndexBuffer(result, result_count, collapse_remap, remap);
+		result_count = remapIndexBuffer(result, result_count, collapse_remap, remap, result_groups);
 
 		if ((options & meshopt_SimplifyPrune) && result_count > target_index_count && component_nexterror <= vertex_error)
 			result_count = pruneComponents(result, result_count, components, component_errors, component_count, vertex_error, component_nexterror);
@@ -2594,7 +2851,7 @@ size_t meshopt_simplifyEdge(unsigned int* destination, const unsigned int* indic
 		if (attribute_count)
 			solveAttributes(vertex_positions, vertex_attributes, vertex_count, attribute_quadrics, attribute_gradients, attribute_count, remap, wedge, vertex_kind, vertex_update);
 
-		finalizeVertices(const_cast<float*>(vertex_positions_data), vertex_positions_stride, const_cast<float*>(vertex_attributes_data), vertex_attributes_stride, attribute_weights, attribute_count, vertex_count, vertex_positions, vertex_attributes, sparse_remap, attribute_remap, vertex_scale, vertex_offset, vertex_kind, vertex_update, vertex_lock);
+		finalizeVertices(const_cast<float*>(vertex_positions_data), vertex_positions_stride, const_cast<float*>(vertex_attributes_data), vertex_attributes_stride, attribute_weights, attribute_count, vertex_count, vertex_positions, vertex_attributes, sparse_remap, attribute_remap, vertex_scale, vertex_offset, vertex_kind, vertex_update, effective_lock);
 	}
 
 	// if debug visualization data is requested, fill it instead of index data; for simplicity, this doesn't work with sparsity
@@ -2628,19 +2885,26 @@ size_t meshopt_simplify(unsigned int* destination, const unsigned int* indices, 
 {
 	assert((options & meshopt_SimplifyInternalSolve) == 0); // use meshopt_simplifyWithUpdate instead
 
-	return meshopt_simplifyEdge(destination, indices, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, NULL, 0, NULL, 0, NULL, target_index_count, target_error, options, out_result_error);
+	return meshopt_simplifyEdge(destination, NULL, indices, NULL, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, NULL, 0, NULL, 0, NULL, target_index_count, target_error, options, out_result_error);
 }
 
 size_t meshopt_simplifyWithAttributes(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes_data, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
 {
 	assert((options & meshopt_SimplifyInternalSolve) == 0); // use meshopt_simplifyWithUpdate instead
 
-	return meshopt_simplifyEdge(destination, indices, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, vertex_attributes_data, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, out_result_error);
+	return meshopt_simplifyEdge(destination, NULL, indices, NULL, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, vertex_attributes_data, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, out_result_error);
+}
+
+size_t meshopt_simplifyWithGroups(unsigned int* destination, unsigned int* destination_groups, const unsigned int* indices, const unsigned int* face_groups, size_t index_count, const float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes_data, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
+{
+	assert((options & meshopt_SimplifyInternalSolve) == 0);
+
+	return meshopt_simplifyEdge(destination, destination_groups, indices, face_groups, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, vertex_attributes_data, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, out_result_error);
 }
 
 size_t meshopt_simplifyWithUpdate(unsigned int* indices, size_t index_count, float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, float* vertex_attributes_data, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
 {
-	return meshopt_simplifyEdge(indices, indices, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, vertex_attributes_data, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options | meshopt_SimplifyInternalSolve, out_result_error);
+	return meshopt_simplifyEdge(indices, NULL, indices, NULL, index_count, vertex_positions_data, vertex_count, vertex_positions_stride, vertex_attributes_data, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options | meshopt_SimplifyInternalSolve, out_result_error);
 }
 
 size_t meshopt_simplifySloppy(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions_data, size_t vertex_count, size_t vertex_positions_stride, const unsigned char* vertex_lock, size_t target_index_count, float target_error, float* out_result_error)

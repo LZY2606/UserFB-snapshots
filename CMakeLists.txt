@@ -124,6 +124,10 @@ if(MESHOPT_BUILD_DEMO)
     set_target_properties(demo PROPERTIES CXX_STANDARD 11)
     set_target_properties(demo PROPERTIES OUTPUT_NAME meshoptdemo)
     target_link_libraries(demo meshoptimizer)
+
+    add_executable(group_regression demo/group_regression.cpp)
+    set_target_properties(group_regression PROPERTIES CXX_STANDARD 11)
+    target_link_libraries(group_regression meshoptimizer)
 endif()
 
 if(MESHOPT_BUILD_GLTFPACK)

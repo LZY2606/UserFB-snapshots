@@ -541,6 +541,34 @@ MESHOPTIMIZER_API size_t meshopt_simplify(unsigned int* destination, const unsig
 MESHOPTIMIZER_API size_t meshopt_simplifyWithAttributes(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* result_error);
 
 /**
+ * Mesh simplifier with face groups
+ * Reduces the number of triangles in the mesh while preserving the boundaries between face groups, attempting to preserve mesh appearance as much as possible.
+ * Similar to meshopt_simplifyWithAttributes, but each input triangle carries an arbitrary unsigned integer group label, and the output preserves per-triangle labels.
+ * The algorithm tries to preserve mesh topology and can stop short of the target goal based on topology constraints or target error.
+ * Returns the number of indices after simplification, with destination containing new index data and destination_groups containing one group label per output triangle.
+ *
+ * Group labels are treated as opaque tags; they are not converted to attributes and do not participate in the error metric.
+ * Each output triangle inherits the label of the input triangle it was derived from, including through degenerate triangle removal and multiple collapse passes.
+ *
+ * Edges shared by triangles of different groups are group boundaries; adjacency is determined by identical vertex positions, so attribute seams don't split a geometric boundary.
+ * All vertices sharing a position with a boundary edge endpoint are locked and stay in place; the caller-provided vertex_lock continues to apply as well.
+ * Open borders and edges inside a group are simplified using the regular rules. Note that the input is expected to be an oriented manifold triangle surface, with open boundaries, disconnected shells and attribute seams allowed.
+ *
+ * destination must contain enough space for the target index buffer, worst case is index_count elements (*not* target_index_count)!
+ * destination_groups must contain enough space for index_count/3 elements; only the first result_count/3 entries are written.
+ * destination may alias indices and destination_groups may alias face_groups, including at the same time, in which case both arrays are compacted in place.
+ * face_groups must contain index_count/3 labels; any unsigned integer values are valid, including 0 and UINT_MAX.
+ * vertex_positions should have float3 position in the first 12 bytes of each vertex; positions and attributes always reference the original vertex buffer and are not updated.
+ * vertex_attributes can be NULL, in which case vertex_attributes_stride, attribute_weights and attribute_count must be empty/0, matching meshopt_simplifyWithAttributes.
+ * vertex_lock can be NULL; when it's not NULL, it should have a value for each vertex composed of meshopt_SimplifyVertex_* flags.
+ * Only meshopt_SimplifySparse, meshopt_SimplifyErrorAbsolute, meshopt_SimplifyLockBorder and meshopt_SimplifyPermissive options and their combinations are supported.
+ * target_error represents the error relative to mesh extents that can be tolerated, e.g. 0.01 = 1% deformation (unless absolute error option is used).
+ * result_error can be NULL; when it's not NULL, it will contain the resulting (relative/absolute) error after simplification.
+ * When all input triangles use the same group, the result indices and result_error match meshopt_simplifyWithAttributes invoked with the same parameters.
+ */
+MESHOPTIMIZER_API size_t meshopt_simplifyWithGroups(unsigned int* destination, unsigned int* destination_groups, const unsigned int* indices, const unsigned int* face_groups, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* result_error);
+
+/**
  * Mesh simplifier with position/attribute update
  * Reduces the number of triangles in the mesh, attempting to preserve mesh appearance as much as possible.
  * Similar to meshopt_simplifyWithAttributes, but destructively updates positions and attribute values for optimal appearance.
@@ -1136,6 +1164,8 @@ inline size_t meshopt_simplify(T* destination, const T* indices, size_t index_co
 template <typename T>
 inline size_t meshopt_simplifyWithAttributes(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
 template <typename T>
+inline size_t meshopt_simplifyWithGroups(T* destination, unsigned int* destination_groups, const T* indices, const unsigned int* face_groups, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
+template <typename T>
 inline size_t meshopt_simplifyWithUpdate(T* indices, size_t index_count, float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = NULL);
 template <typename T>
 inline size_t meshopt_simplifySloppy(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, float* result_error = NULL);
@@ -1540,6 +1570,16 @@ inline size_t meshopt_simplifyWithAttributes(T* destination, const T* indices, s
 	meshopt_IndexAdapter<T> out(destination, NULL, index_count);
 
 	return meshopt_simplifyWithAttributes(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, result_error);
+}
+
+template <typename T>
+inline size_t meshopt_simplifyWithGroups(T* destination, unsigned int* destination_groups, const T* indices, const unsigned int* face_groups, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, const float* vertex_attributes, size_t vertex_attributes_stride, const float* attribute_weights, size_t attribute_count, const unsigned char* vertex_lock, size_t target_index_count, float target_error, unsigned int options, float* result_error)
+{
+	meshopt_IndexAdapter<T> in(NULL, indices, index_count);
+	meshopt_IndexAdapter<T> out(destination, NULL, index_count);
+
+	// face groups are always unsigned int and are not adapted; they can alias the input and are compacted in place by the implementation
+	return meshopt_simplifyWithGroups(out.data, destination_groups, in.data, face_groups, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, attribute_count, vertex_lock, target_index_count, target_error, options, result_error);
 }
 
 template <typename T>
