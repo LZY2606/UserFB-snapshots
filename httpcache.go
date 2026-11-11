@@ -152,6 +152,14 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		transport = http.DefaultTransport
 	}
 
+	// A request that already carries conditional headers is the caller's own
+	// conditional GET/HEAD. It is forwarded verbatim: the cache neither answers
+	// it from a stored response nor attaches its own validators to it, and the
+	// downstream response is handed back to the caller unchanged.
+	if cacheable && callerConditional(req) {
+		return t.roundTripCallerConditional(req, transport, cacheKey)
+	}
+
 	if cacheable && cachedResp != nil && err == nil {
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XFromCache, "1")
@@ -218,6 +226,47 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		}
 	}
 
+	t.storeResponse(req, resp, cacheable, cacheKey)
+	return resp, nil
+}
+
+// callerConditional reports whether req carries its own conditional
+// validators. The check is made on the request as it entered RoundTrip, so
+// only the caller's own If-None-Match/If-Modified-Since headers count;
+// validators the Transport adds itself never do.
+func callerConditional(req *http.Request) bool {
+	return req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != ""
+}
+
+// roundTripCallerConditional handles GET/HEAD requests whose caller supplied
+// its own conditional headers. The request is sent downstream untouched and
+// no cached response is used to fulfil it: a 304 is returned to the caller
+// unchanged (with an empty body) rather than being merged with the cached
+// entity, and transport errors or 5xx responses are never replaced by stale
+// cached content. A fresh 200 still goes through the normal store rules,
+// while a 304 leaves the existing cache entry in place.
+func (t *Transport) roundTripCallerConditional(req *http.Request, transport http.RoundTripper, cacheKey string) (*http.Response, error) {
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		// The caller owns this conditional request: report the actual failure
+		// instead of falling back to stale-if-error content.
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// A 304 (or any other non-200) is the caller's answer to interpret. It
+		// must not be stored on its own and must not touch the existing entry.
+		return resp, nil
+	}
+
+	t.storeResponse(req, resp, true, cacheKey)
+	return resp, nil
+}
+
+// storeResponse applies the normal caching rules to resp: when it can be
+// stored, it is cached once its body has been fully consumed (for GET),
+// otherwise the cache entry for cacheKey is removed.
+func (t *Transport) storeResponse(req *http.Request, resp *http.Response, cacheable bool, cacheKey string) {
 	if cacheable && canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
 		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
 			varyKey = http.CanonicalHeaderKey(varyKey)
@@ -250,7 +299,6 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	} else {
 		t.Cache.Delete(cacheKey)
 	}
-	return resp, nil
 }
 
 // ErrNoDateHeader indicates that the HTTP headers contained no Date header.

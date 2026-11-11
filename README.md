@@ -23,6 +23,34 @@ Cache Backends
 
 If you implement any other backend and wish it to be linked here, please send a PR editing this file.
 
+Caller-supplied conditional requests
+------------------------------------
+
+The `Transport` distinguishes two kinds of conditional GET/HEAD requests:
+
+1. **Caller-owned conditional requests.** If the request handed to `RoundTrip`
+   already contains an `If-None-Match` or `If-Modified-Since` header, the
+   condition belongs to the caller. The request is forwarded downstream
+   untouched: no cached response is returned directly (whether fresh or
+   stale), no validators from the cache are added or substituted, and the
+   original `Request` and its header slices are not modified. A `304 Not
+   Modified` response is passed back to the caller exactly as received, with
+   an empty body and no `X-From-Cache` header. **Interpreting that 304 is the
+   caller's responsibility** — the cache does not know whether the caller's
+   validator matches the stored entity, so it cannot merge the cached body
+   into the answer. The existing cache entry is left unchanged and the 304 is
+   not stored on its own. A new `200` response still follows the normal store
+   rules (it replaces the old entry once its body is fully consumed, and
+   `no-store` remains honored), while transport errors and `5xx` responses are
+   returned as-is even when `stale-if-error` would otherwise apply.
+
+2. **Transport-generated revalidation.** Requests without conditional headers
+   keep the automatic behavior: when a stale cached entry exists, the
+   `Transport` attaches the cached validators itself. If the origin answers
+   `304`, the `Transport` merges it with the cached entity and returns a
+   `200` (marked with `X-From-Cache` when enabled), refreshing the
+   end-to-end response headers.
+
 License
 -------
 
