@@ -8,6 +8,19 @@ public interface KsoupTokenizerCallbacks {
 
     public fun onAttribData(start: Int, endIndex: Int) {}
 
+    /**
+     * Decoded entity inside an attribute value.
+     *
+     * [start]/[endIndex] (absolute offsets covering the full entity,
+     * including the leading `&` and trailing `;`) are reported in addition to
+     * the decoded code point. The legacy [onAttribEntity] without spans is
+     * invoked by the default implementation.
+     */
+    public fun onAttribEntity(codepoint: Int, start: Int, endIndex: Int) {
+        onAttribEntity(codepoint)
+    }
+
+    /** Legacy entity callback without source spans; overridden by [onAttribEntity] overloads. */
     public fun onAttribEntity(codepoint: Int) {}
 
     public fun onAttribEnd(quote: KsoupHtmlParser.QuoteType, endIndex: Int) {}
@@ -33,6 +46,15 @@ public interface KsoupTokenizerCallbacks {
     public fun onSelfClosingTag(endIndex: Int) {}
 
     public fun onText(start: Int, endIndex: Int) {}
+
+    /**
+     * Decoded entity in text. [start]/[endIndex] are absolute offsets covering
+     * the full entity. The default implementation falls back to the legacy
+     * [onTextEntity] overload, which only received the end offset.
+     */
+    public fun onTextEntity(codepoint: Int, start: Int, endIndex: Int) {
+        onTextEntity(codepoint, endIndex)
+    }
 
     public fun onTextEntity(codepoint: Int, endIndex: Int) {}
 

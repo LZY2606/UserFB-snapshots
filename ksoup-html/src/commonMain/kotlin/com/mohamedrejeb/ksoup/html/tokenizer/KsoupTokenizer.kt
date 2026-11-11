@@ -1,6 +1,8 @@
 package com.mohamedrejeb.ksoup.html.tokenizer
 
 import com.mohamedrejeb.ksoup.entities.KsoupEntities
+import com.mohamedrejeb.ksoup.html.checkpoint.KsoupCheckpointException
+import com.mohamedrejeb.ksoup.html.checkpoint.KsoupSafePoint
 import com.mohamedrejeb.ksoup.html.parser.KsoupHtmlOptions
 import com.mohamedrejeb.ksoup.html.parser.KsoupHtmlParser
 
@@ -40,6 +42,56 @@ internal class KsoupTokenizer(
     /** The offset of the current buffer. */
     private var offset = 0
 
+    /**
+     * Invoked whenever the tokenizer reaches a [KsoupSafePoint]. Opt-in:
+     * `null` (the default) keeps the tokenizer allocation-free.
+     *
+     * The callback receives the safe point and the absolute character offset
+     * just past the last consumed character.
+     */
+    internal var safePointListener: ((KsoupSafePoint, Int) -> Unit)? = null
+
+    private var lastSafePointOffset = -1
+    private var documentStartEmitted = false
+    /**
+     * Boundary recorded by the most recent safe point. When a listener pauses
+     * the tokenizer, the parse loop jumps [index] here before returning, so no
+     * character past the safe point gets consumed ahead of the pause.
+     */
+    private var pauseBoundary = -1
+    private var pausedAtBoundary = false
+    private var finished = false
+
+    private fun emitSafePoint(safePoint: KsoupSafePoint, absoluteIndex: Int = this.index) {
+        this.pauseBoundary = absoluteIndex
+        // Document start/end are structural markers and must always be
+        // observable even when they share an offset with the previous token
+        // boundary (e.g. DOCUMENT_END right after the final closing tag).
+        val alwaysEmit = safePoint == KsoupSafePoint.DOCUMENT_START ||
+            safePoint == KsoupSafePoint.DOCUMENT_END
+        if (alwaysEmit || absoluteIndex != this.lastSafePointOffset) {
+            this.lastSafePointOffset = absoluteIndex
+            this.safePointListener?.invoke(safePoint, absoluteIndex)
+            // A listener may pause the tokenizer. When it does, pin the parse
+            // front to this boundary so no further character is consumed until
+            // resume() re-enters the loop.
+            this.pausedAtBoundary = !this.running
+        }
+    }
+
+    /**
+     * A checkpoint is only valid on a token boundary in the plain [State.Text]
+     * state. This guarantees no entity, comment, CDATA, raw-text element or
+     * half-open tag is in progress.
+     */
+    internal fun isAtSafePoint(): Boolean = this.state == State.Text
+
+    /** Name of the current tokenizer state, used in checkpoint error messages. */
+    internal val currentStateName: String get() = this.state.name
+
+    /** Absolute char offset the parse loop has reached ([index] is already absolute). */
+    internal val absoluteIndex: Int get() = this.index
+
     @OptIn(ExperimentalUnsignedTypes::class)
     fun reset() {
         this.state = State.Text
@@ -50,24 +102,73 @@ internal class KsoupTokenizer(
         this.currentSequence = null
         this.running = true
         this.offset = 0
+        this.isSpecial = false
+        this.sequenceIndex = 0
+        this.entityStart = 0
+        this.lastSafePointOffset = -1
+        this.documentStartEmitted = false
+        this.pauseBoundary = -1
+        this.pausedAtBoundary = false
+        this.finished = false
     }
 
     fun write(chunk: String) {
-        this.offset += this.buffer.length
-        this.buffer = chunk
+        if (!this.documentStartEmitted) {
+            this.documentStartEmitted = true
+            this.emitSafePoint(KsoupSafePoint.DOCUMENT_START, this.index)
+        }
+
+        // Retain every character still referenced by an in-flight construct
+        // (an entity, a tag, a comment, ...). At a text boundary nothing is in
+        // flight and the consumed prefix can be dropped. This is what allows
+        // entities and tags to span chunk boundaries: absolute indices stay
+        // valid because only the buffer base ([offset]) moves.
+        val retainFrom = this.retainFromAbsolute()
+        if (retainFrom > this.offset) {
+            this.buffer = this.buffer.substring(retainFrom - this.offset)
+            this.offset = retainFrom
+        }
+        this.buffer += chunk
         this.parse()
+        // Only report a text boundary when the whole chunk was actually
+        // consumed; when paused at an earlier safe point the parse front is
+        // somewhere inside the buffer and no new boundary exists yet.
+        if (this.state == State.Text && this.index >= this.offset + this.buffer.length) {
+            this.emitSafePoint(KsoupSafePoint.TEXT_BOUNDARY, this.index)
+        }
+    }
+
+    /**
+     * Lowest absolute index that must remain in [buffer] for the current
+     * construct to keep working. On a plain text boundary that is simply the
+     * parse front; inside a token it can be the tag/entity start.
+     */
+    private fun retainFromAbsolute(): Int {
+        if (this.state == State.Text) return this.index
+        var lowest = minOf(this.index, this.sectionStart.coerceAtLeast(this.offset))
+        if (this.state == State.InEntity) {
+            lowest = minOf(lowest, this.entityStart)
+        }
+        return lowest.coerceAtLeast(this.offset)
     }
 
     fun end() {
-        if (this.running) this.finish()
+        // Guard against double finalization: a resume() after an end()-induced
+        // pause must not run finish() (and re-emit onEnd) a second time.
+        if (this.running && !this.finished) {
+            this.finished = true
+            this.finish()
+        }
     }
 
     fun pause() {
         this.running = false
+        this.pausedAtBoundary = false
     }
 
     fun resume() {
         this.running = true
+        this.pausedAtBoundary = false
         if (this.index < this.buffer.length + this.offset) {
             this.parse()
         }
@@ -218,8 +319,10 @@ internal class KsoupTokenizer(
             if (++sequenceIndex == currentSequence.size) {
                 if (currentSequence == Sequences.CdataEnd) {
                     callbacks.onCData(sectionStart, index, 2)
+                    emitSafePoint(KsoupSafePoint.AFTER_CDATA, index + 1)
                 } else {
                     callbacks.onComment(sectionStart, index, 2)
+                    emitSafePoint(KsoupSafePoint.AFTER_COMMENT, index + 1)
                 }
 
                 sequenceIndex = 0
@@ -330,6 +433,7 @@ internal class KsoupTokenizer(
         if (c == CharCodes.Gt.code || this.fastForwardTo(CharCodes.Gt.code)) {
             this.state = State.Text
             this.sectionStart = this.index + 1
+            this.emitSafePoint(KsoupSafePoint.AFTER_CLOSE_TAG, this.index + 1)
         }
     }
 
@@ -337,10 +441,13 @@ internal class KsoupTokenizer(
         if (c == CharCodes.Gt.code) {
             this.callbacks.onOpenTagEnd(this.index)
             if (this.isSpecial) {
+                // Raw-text elements (script/style/title/textarea): no safe point
+                // until the matching end tag has been fully consumed.
                 this.state = State.InSpecialTag
                 this.sequenceIndex = 0
             } else {
                 this.state = State.Text
+                this.emitSafePoint(KsoupSafePoint.AFTER_OPEN_TAG, this.index + 1)
             }
             this.sectionStart = this.index + 1
         } else if (c == CharCodes.Slash.code) {
@@ -357,6 +464,7 @@ internal class KsoupTokenizer(
             this.state = State.Text
             this.sectionStart = this.index + 1
             this.isSpecial = false // Reset special state, in case of self-closing special tags
+            this.emitSafePoint(KsoupSafePoint.AFTER_SELF_CLOSING_TAG, this.index + 1)
         } else if (!isWhitespace(c)) {
             this.state = State.BeforeAttributeName
             this.stateBeforeAttributeName(c)
@@ -455,6 +563,7 @@ internal class KsoupTokenizer(
             this.callbacks.onDeclaration(this.sectionStart, this.index)
             this.state = State.Text
             this.sectionStart = this.index + 1
+            this.emitSafePoint(KsoupSafePoint.AFTER_DECLARATION, this.index + 1)
         }
     }
 
@@ -463,6 +572,7 @@ internal class KsoupTokenizer(
             this.callbacks.onProcessingInstruction(this.sectionStart, this.index)
             this.state = State.Text
             this.sectionStart = this.index + 1
+            this.emitSafePoint(KsoupSafePoint.AFTER_PROCESSING_INSTRUCTION, this.index + 1)
         }
     }
 
@@ -487,6 +597,7 @@ internal class KsoupTokenizer(
                     callbacks.onComment(sectionStart, index - currentSequence.size + 1, 3)
                     sectionStart = -1
                     state = State.Text
+                    emitSafePoint(KsoupSafePoint.AFTER_COMMENT, index + 1)
                 }
             } else if (c != currentSequence[sequenceIndex].toInt()) {
                 state = State.InTagName
@@ -580,7 +691,15 @@ internal class KsoupTokenizer(
     }
 
     private fun shouldContinue(): Boolean {
-        return this.index < this.buffer.length + this.offset && this.running
+        if (!this.running) {
+            if (this.pausedAtBoundary && this.pauseBoundary in 0..this.index) {
+                // Re-anchor the parse front at the safe point boundary; the
+                // loop will resume exactly there after resume().
+                this.index = this.pauseBoundary
+            }
+            return false
+        }
+        return this.index < this.buffer.length + this.offset
     }
 
     /**
@@ -660,6 +779,7 @@ internal class KsoupTokenizer(
         this.handleTrailingData()
 
         this.callbacks.onEnd()
+        this.emitSafePoint(KsoupSafePoint.DOCUMENT_END, this.index)
     }
 
     /** Handle any trailing data. */
@@ -710,7 +830,7 @@ internal class KsoupTokenizer(
             this.sectionStart = this.entityStart + consumed
             this.index = this.sectionStart - 1
 
-            this.callbacks.onAttribEntity(cp)
+            this.callbacks.onAttribEntity(cp, this.entityStart, this.sectionStart)
         } else {
             if (this.sectionStart < this.entityStart) {
                 this.callbacks.onText(this.sectionStart, this.entityStart)
@@ -718,9 +838,75 @@ internal class KsoupTokenizer(
             this.sectionStart = this.entityStart + consumed
             this.index = this.sectionStart - 1
 
-            this.callbacks.onTextEntity(cp, this.sectionStart)
+            this.callbacks.onTextEntity(cp, this.entityStart, this.sectionStart)
         }
     }
+
+    // region Checkpoint snapshot / restore
+
+    /**
+     * Plain, serializable view of everything the tokenizer needs to continue
+     * after a process boundary. Only captured on a [isAtSafePoint], so the
+     * state is always a plain text boundary: no partial entity, tag, comment,
+     * CDATA or raw-text element is in progress.
+     *
+     * [boundary] is the absolute char offset of the first unconsumed
+     * character. On restore, internal indices continue at [boundary], so the
+     * resumed tokenizer emits the same absolute offsets as an uninterrupted
+     * parse, even though it is fed only the suffix.
+     */
+    internal class Snapshot(
+        val stateName: String,
+        val baseStateName: String,
+        val boundary: Int,
+    )
+
+    @OptIn(ExperimentalUnsignedTypes::class)
+    internal fun snapshot(boundary: Int, allowTerminal: Boolean = false): Snapshot {
+        if (!allowTerminal && !this.isAtSafePoint()) {
+            throw KsoupCheckpointException(
+                "No safe tokenizer state for a checkpoint (current state: ${this.state}). " +
+                    "Checkpoints are only allowed on plain text boundaries."
+            )
+        }
+        return Snapshot(
+            stateName = this.state.name,
+            baseStateName = this.baseState.name,
+            boundary = boundary,
+        )
+    }
+
+    @OptIn(ExperimentalUnsignedTypes::class)
+    internal fun restore(snapshot: Snapshot) {
+        val state = State.valueOf(snapshot.stateName)
+        if (state != State.Text) {
+            throw KsoupCheckpointException(
+                "Refusing to restore a tokenizer in non-text state ${snapshot.stateName}; " +
+                    "only text-boundary checkpoints are supported"
+            )
+        }
+        this.state = state
+        this.baseState = State.valueOf(snapshot.baseStateName)
+        // Continue the absolute index space at the checkpoint boundary. The
+        // first suffix write keeps this offset, so buffer[index - offset]
+        // resolves to the first suffix character.
+        this.offset = snapshot.boundary
+        this.index = snapshot.boundary
+        this.sectionStart = snapshot.boundary
+        this.buffer = ""
+        this.entityStart = snapshot.boundary
+        this.isSpecial = false
+        this.sequenceIndex = 0
+        this.currentSequence = null
+        this.running = true
+        this.lastSafePointOffset = snapshot.boundary
+        this.documentStartEmitted = true
+        this.pausedAtBoundary = false
+        this.pauseBoundary = snapshot.boundary
+        this.finished = false
+    }
+
+    // endregion
 
     internal enum class CharCodes(val code: Int) {
         Tab(0x9), // "\t"

@@ -15,6 +15,7 @@ Ksoup is a lightweight Kotlin Multiplatform library for parsing HTML, extracting
 - Parse HTML from String
 - Extract HTML tags, attributes, and text
 - Encode and decode HTML entities
+- Checkpoint/resume a streaming parse across processes, with absolute token and node spans (see [CHECKPOINT.md](./ksoup-html/CHECKPOINT.md))
 - Lightweight and does not depend on any other library
 - Kotlin Multiplatform support
 - Fast and efficient
