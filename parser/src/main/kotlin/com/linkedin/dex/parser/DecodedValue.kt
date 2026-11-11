@@ -1,5 +1,6 @@
 package com.linkedin.dex.parser
 
+import com.linkedin.dex.parser.ParseUtils.checkedGet
 import com.linkedin.dex.spec.DexFile
 import com.linkedin.dex.spec.EncodedAnnotation
 import com.linkedin.dex.spec.EncodedArray
@@ -32,7 +33,7 @@ sealed class DecodedValue {
 
     companion object {
         private fun readStringInPosition(dexFile: DexFile, position: Int): String {
-            dexFile.byteBuffer.position(position)
+            ParseUtils.checkedPosition(dexFile.byteBuffer, position, "string data")
             // read past unused size item
             Leb128.readUnsignedLeb128(dexFile.byteBuffer)
             return ParseUtils.parseStringBytes(dexFile.byteBuffer)
@@ -51,19 +52,19 @@ sealed class DecodedValue {
                 is EncodedValue.EncodedFloat -> return DecodedFloat(encodedValue.value)
                 is EncodedValue.EncodedDouble -> return DecodedDouble(encodedValue.value)
                 is EncodedValue.EncodedString -> {
-                    val position = dexFile.stringIds[encodedValue.value].stringDataOff
+                    val position = dexFile.stringIds.checkedGet(encodedValue.value, "string_ids").stringDataOff
                     return DecodedString(readStringInPosition(dexFile, position))
                 }
                 is EncodedValue.EncodedType -> {
-                    val index = dexFile.typeIds[encodedValue.value].descriptorIdx
-                    val position = dexFile.stringIds[index].stringDataOff
+                    val index = dexFile.typeIds.checkedGet(encodedValue.value, "type_ids").descriptorIdx
+                    val position = dexFile.stringIds.checkedGet(index, "string_ids").stringDataOff
                     return DecodedType(readStringInPosition(dexFile, position))
                 }
                 is EncodedValue.EncodedBoolean -> return DecodedBoolean(encodedValue.value)
                 is EncodedValue.EncodedNull -> return DecodedNull
                 is EncodedValue.EncodedEnum -> {
-                    val index = dexFile.fieldIds[encodedValue.value].nameIdx
-                    val position = dexFile.stringIds[index].stringDataOff
+                    val index = dexFile.fieldIds.checkedGet(encodedValue.value, "field_ids").nameIdx
+                    val position = dexFile.stringIds.checkedGet(index, "string_ids").stringDataOff
                     return DecodedEnum(readStringInPosition(dexFile, position))
                 }
                 is EncodedValue.EncodedArrayValue -> return DecodedArrayValue(encodedValue.value.values.map { create(dexFile, it) }.toTypedArray())

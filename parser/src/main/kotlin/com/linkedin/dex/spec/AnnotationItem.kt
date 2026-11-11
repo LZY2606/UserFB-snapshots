@@ -4,6 +4,7 @@
  */
 package com.linkedin.dex.spec
 
+import com.linkedin.dex.parser.ParseUtils
 import java.nio.ByteBuffer
 
 data class AnnotationItem(
@@ -12,7 +13,10 @@ data class AnnotationItem(
 ) {
     companion object {
         fun create(byteBuffer: ByteBuffer, offset: Int): AnnotationItem {
-            byteBuffer.position(offset)
+            ParseUtils.checkedPosition(byteBuffer, offset, "annotation")
+            if (!byteBuffer.hasRemaining()) {
+                throw DexException("truncated annotation at offset " + offset)
+            }
 
             return AnnotationItem(
                     visibility = byteBuffer.get(),

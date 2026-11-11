@@ -4,6 +4,7 @@
  */
 package com.linkedin.dex.spec
 
+import com.linkedin.dex.parser.ParseUtils
 import java.nio.ByteBuffer
 
 data class ClassDataItem(
@@ -18,12 +19,18 @@ data class ClassDataItem(
 ) {
     companion object {
         fun create(byteBuffer: ByteBuffer, offset: Int): ClassDataItem {
-            byteBuffer.position(offset)
+            ParseUtils.checkedPosition(byteBuffer, offset, "class data")
 
             val staticFieldsSize = Leb128.readUnsignedLeb128(byteBuffer)
             val instanceFieldsSize = Leb128.readUnsignedLeb128(byteBuffer)
             val directMethodsSize = Leb128.readUnsignedLeb128(byteBuffer)
             val virtualMethodsSize = Leb128.readUnsignedLeb128(byteBuffer)
+            // each encoded_field needs at least 2 bytes and each encoded_method at least 3 bytes,
+            // so any declared size larger than that cannot fit in the remaining bytes
+            checkDeclaredSize("static fields", staticFieldsSize, byteBuffer, 2)
+            checkDeclaredSize("instance fields", instanceFieldsSize, byteBuffer, 2)
+            checkDeclaredSize("direct methods", directMethodsSize, byteBuffer, 3)
+            checkDeclaredSize("virtual methods", virtualMethodsSize, byteBuffer, 3)
             val staticFields = Array(staticFieldsSize, { EncodedField(byteBuffer) })
             val instanceFields = Array(instanceFieldsSize, { EncodedField(byteBuffer) })
             val directMethods = Array(directMethodsSize, { EncodedMethod(byteBuffer) })

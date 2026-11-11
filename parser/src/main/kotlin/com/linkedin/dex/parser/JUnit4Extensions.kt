@@ -4,6 +4,7 @@
  */
 package com.linkedin.dex.parser
 
+import com.linkedin.dex.parser.ParseUtils.checkedGet
 import com.linkedin.dex.spec.ACC_ABSTRACT
 import com.linkedin.dex.spec.ACC_INTERFACE
 import com.linkedin.dex.spec.AnnotationsDirectoryItem
@@ -84,7 +85,7 @@ private fun DexFile.findMethodIds(): (ClassDefItem, AnnotationsDirectoryItem?) -
         val annotatedIds = directory?.methodAnnotations?.map { it.methodIdx } ?: emptyList()
         this.findMethodIdxs(classDefItem).filter {
             annotatedIds.contains(it)
-        }.map { methodIds[it] }
+        }.map { methodIds.checkedGet(it, "method_ids") }
     }
 }
 
@@ -94,7 +95,11 @@ private fun DexFile.getClassName(classDefItem: ClassDefItem): String {
 
 private fun DexFile.getSuperclassName(classDefItem: ClassDefItem): String {
     val superClassIdx = classDefItem.superclassIdx
-    val typeId = typeIds[superClassIdx]
+    // From the docs: superclass_idx is NO_INDEX if the class has no superclass (i.e. it is java.lang.Object)
+    if (superClassIdx == DexFile.NO_INDEX) {
+        return ""
+    }
+    val typeId = typeIds.checkedGet(superClassIdx, "type_ids")
 
     return ParseUtils.parseDescriptor(byteBuffer, typeId, stringIds)
 }

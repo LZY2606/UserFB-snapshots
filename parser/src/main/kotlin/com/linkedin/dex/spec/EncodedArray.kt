@@ -13,6 +13,8 @@ data class EncodedArray(
     companion object {
         fun create(byteBuffer: ByteBuffer): EncodedArray {
             val size = Leb128.readUnsignedLeb128(byteBuffer)
+            // each encoded value needs at least 1 byte, so a larger declared size cannot fit
+            checkDeclaredSize("encoded array", size, byteBuffer, 1)
             val values = Array(size, { EncodedValue.create(byteBuffer) })
             return EncodedArray(size, values)
         }

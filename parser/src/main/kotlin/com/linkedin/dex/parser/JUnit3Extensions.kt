@@ -4,6 +4,7 @@
  */
 package com.linkedin.dex.parser
 
+import com.linkedin.dex.parser.ParseUtils.checkedGet
 import com.linkedin.dex.spec.ClassDataItem
 import com.linkedin.dex.spec.ClassDefItem
 import com.linkedin.dex.spec.DexFile
@@ -69,7 +70,7 @@ private fun DexFile.findJUnit3Tests(descriptors: MutableSet<String>): List<TestM
 }
 
 fun DexFile.findMethodIds(classDefItem: ClassDefItem): MutableList<MethodIdItem> {
-    return findMethodIdxs(classDefItem).map { this.methodIds[it] }.toMutableList()
+    return findMethodIdxs(classDefItem).map { this.methodIds.checkedGet(it, "method_ids") }.toMutableList()
 }
 
 // From the docs:
@@ -81,7 +82,7 @@ private fun DexFile.findClassesWithSuperClass(targetDescriptors: MutableSet<Stri
     classDefs.forEach { classDefItem ->
         if (hasDirectSuperClass(classDefItem, targetDescriptors)) {
             matchingClasses.add(classDefItem)
-            targetDescriptors.add(ParseUtils.parseDescriptor(byteBuffer, typeIds[classDefItem.classIdx], stringIds))
+            targetDescriptors.add(ParseUtils.parseDescriptor(byteBuffer, typeIds.checkedGet(classDefItem.classIdx, "type_ids"), stringIds))
         }
     }
     return matchingClasses
@@ -92,7 +93,7 @@ private fun DexFile.hasDirectSuperClass(classDefItem: ClassDefItem, targetDescri
         return false
     }
 
-    val superType = typeIds[classDefItem.superclassIdx]
+    val superType = typeIds.checkedGet(classDefItem.superclassIdx, "type_ids")
     val superDescriptor = ParseUtils.parseDescriptor(byteBuffer, superType, stringIds)
     return targetDescriptors.contains(superDescriptor)
 }

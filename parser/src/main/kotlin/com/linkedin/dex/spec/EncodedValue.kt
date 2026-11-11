@@ -44,6 +44,9 @@ sealed class EncodedValue {
         val VALUE_BOOLEAN: Byte = 0x1f
 
         fun create(byteBuffer: ByteBuffer): EncodedValue {
+            if (!byteBuffer.hasRemaining()) {
+                throw DexException("truncated encoded value: no bytes remaining")
+            }
             val argAndType = byteBuffer.get().toUnsigned8BitInt()
 
             // first three bits are the optional valueArg
@@ -52,7 +55,12 @@ sealed class EncodedValue {
             val valueType = (argAndType and 0x1F).toByte()
 
             when (valueType) {
-                VALUE_BYTE -> return EncodedByte(byteBuffer.get())
+                VALUE_BYTE -> {
+                    if (!byteBuffer.hasRemaining()) {
+                        throw DexException("truncated encoded value of type " + VALUE_BYTE)
+                    }
+                    return EncodedByte(byteBuffer.get())
+                }
                 VALUE_SHORT -> return EncodedShort(getPaddedBuffer(byteBuffer, sizeOf(valueArg), 2).short)
                 VALUE_CHAR -> return EncodedChar(getPaddedBuffer(byteBuffer, sizeOf(valueArg), 2).char)
                 VALUE_INT -> return EncodedInt(getPaddedBuffer(byteBuffer, sizeOf(valueArg), 4).int)
@@ -85,6 +93,13 @@ sealed class EncodedValue {
         // ByteBuffer makes parsing bytes nice since it handles endianness and other small issues, so we can just create
         // a buffer and fill in the extra bits not specified in the file to fill the appropriate size for the type
         private fun getPaddedBuffer(byteBuffer: ByteBuffer, size: Int, fullSize: Int): ByteBuffer {
+            if (size > fullSize) {
+                throw DexException("invalid encoded value size: " + size + " exceeds type size " + fullSize)
+            }
+            if (byteBuffer.remaining() < size) {
+                throw DexException("truncated encoded value: expected " + size + " more bytes, only " +
+                        byteBuffer.remaining() + " remaining")
+            }
             val buffer = ByteBuffer.allocate(fullSize)
             buffer.order(ByteOrder.LITTLE_ENDIAN)
             var i = 0
@@ -105,6 +120,13 @@ sealed class EncodedValue {
         // For float and double values, the value is padded to the right, so we need to build the buffer in the
         // opposite order
         private fun getPaddedBufferToTheRight(byteBuffer: ByteBuffer, size: Int, fullSize: Int): ByteBuffer {
+            if (size > fullSize) {
+                throw DexException("invalid encoded value size: " + size + " exceeds type size " + fullSize)
+            }
+            if (byteBuffer.remaining() < size) {
+                throw DexException("truncated encoded value: expected " + size + " more bytes, only " +
+                        byteBuffer.remaining() + " remaining")
+            }
             val buffer = ByteBuffer.allocate(fullSize)
             buffer.order(ByteOrder.LITTLE_ENDIAN)
 

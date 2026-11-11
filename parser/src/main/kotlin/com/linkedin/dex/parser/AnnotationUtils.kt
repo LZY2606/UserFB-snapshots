@@ -4,6 +4,7 @@
  */
 package com.linkedin.dex.parser
 
+import com.linkedin.dex.parser.ParseUtils.checkedGet
 import com.linkedin.dex.spec.AnnotationItem
 import com.linkedin.dex.spec.AnnotationSetItem
 import com.linkedin.dex.spec.AnnotationsDirectoryItem
@@ -51,7 +52,7 @@ fun DexFile.getClassAnnotationValues(directory: AnnotationsDirectoryItem?): List
  */
 fun DexFile.getMethodAnnotationValues(methodId: MethodIdItem, annotationsDirectory: AnnotationsDirectoryItem?): List<TestAnnotation> {
     val methodAnnotations = annotationsDirectory?.methodAnnotations ?: emptyArray<MethodAnnotation>()
-    val annotationSets = methodAnnotations.filter { methodIds[it.methodIdx] == methodId }
+    val annotationSets = methodAnnotations.filter { methodIds.checkedGet(it.methodIdx, "method_ids") == methodId }
             .map { (_, annotationsOff) ->
                 AnnotationSetItem.create(byteBuffer, annotationsOff)
             }
@@ -63,7 +64,7 @@ fun DexFile.getMethodAnnotationValues(methodId: MethodIdItem, annotationsDirecto
 
 fun DexFile.getTestAnnotation(annotationItem: AnnotationItem): TestAnnotation {
     val name = formatDescriptor(ParseUtils.parseDescriptor(byteBuffer,
-            typeIds[annotationItem.encodedAnnotation.typeIdx], stringIds))
+            typeIds.checkedGet(annotationItem.encodedAnnotation.typeIdx, "type_ids"), stringIds))
     val encodedAnnotationValues = annotationItem.encodedAnnotation.elements
     val values = mutableMapOf<String, DecodedValue>()
     for (encodedAnnotationValue in encodedAnnotationValues) {
