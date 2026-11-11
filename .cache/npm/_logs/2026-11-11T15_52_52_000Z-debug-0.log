@@ -1,0 +1,1517 @@
+0 verbose cli /opt/homebrew/Cellar/node/26.0.0/bin/node /opt/homebrew/bin/npm
+1 info using npm@11.12.1
+2 info using node@v26.0.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/.npmrc
+5 silly config load:file:/Users/lzy/.npmrc
+6 verbose config error loading user config Error: EPERM: operation not permitted, open '/Users/lzy/.npmrc'
+6 verbose config     at async open (node:internal/fs/promises:1281:25)
+6 verbose config     at async readFile (node:internal/fs/promises:1929:14)
+6 verbose config     at async #loadFile (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js:646:5)
+6 verbose config     at async Config.load (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js:260:5)
+6 verbose config     at async #load (/opt/homebrew/lib/node_modules/npm/lib/npm.js:95:5)
+6 verbose config     at async Npm.load (/opt/homebrew/lib/node_modules/npm/lib/npm.js:77:14)
+6 verbose config     at async module.exports (/opt/homebrew/lib/node_modules/npm/lib/cli/entry.js:36:37) {
+6 verbose config   errno: -1,
+6 verbose config   code: 'EPERM',
+6 verbose config   syscall: 'open',
+6 verbose config   path: '/Users/lzy/.npmrc'
+6 verbose config }
+7 silly config load:file:/opt/homebrew/etc/npmrc
+8 verbose title npm ci
+9 verbose argv "ci" "--ignore-scripts" "--no-audit" "--no-fund" "--cache" ".cache/npm"
+10 verbose logfile logs-max:10 dir:/Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/.cache/npm/_logs/2026-11-11T15_52_52_000Z-
+11 verbose logfile /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/.cache/npm/_logs/2026-11-11T15_52_52_000Z-debug-0.log
+12 silly logfile done cleaning log files
+13 silly packumentCache heap:4395630592 maxSize:1098907648 maxEntrySize:549453824
+14 silly packumentCache heap:4395630592 maxSize:1098907648 maxEntrySize:549453824
+15 silly idealTree buildDeps
+16 silly reify moves {}
+17 http cache yocto-queue@https://registry.npmmirror.com/yocto-queue/-/yocto-queue-0.1.0.tgz 0ms (cache hit)
+18 http cache yargs@https://registry.npmmirror.com/yargs/-/yargs-18.0.0.tgz 0ms (cache hit)
+19 http cache yargs-parser@https://registry.npmmirror.com/yargs-parser/-/yargs-parser-21.1.1.tgz 0ms (cache hit)
+20 http cache yallist@https://registry.npmmirror.com/yallist/-/yallist-5.0.0.tgz 0ms (cache hit)
+21 http cache y18n@https://registry.npmmirror.com/y18n/-/y18n-5.0.8.tgz 0ms (cache hit)
+22 http cache wrap-ansi@https://registry.npmmirror.com/wrap-ansi/-/wrap-ansi-9.0.2.tgz 0ms (cache hit)
+23 http cache write-file-atomic@https://registry.npmmirror.com/write-file-atomic/-/write-file-atomic-7.0.1.tgz 0ms (cache hit)
+24 http cache word-wrap@https://registry.npmmirror.com/word-wrap/-/word-wrap-1.2.5.tgz 0ms (cache hit)
+25 http cache which@https://registry.npmmirror.com/which/-/which-2.0.2.tgz 0ms (cache hit)
+26 http cache whatwg-url@https://registry.npmmirror.com/whatwg-url/-/whatwg-url-5.0.0.tgz 0ms (cache hit)
+27 http cache whatwg-mimetype@https://registry.npmmirror.com/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz 0ms (cache hit)
+28 http cache whatwg-encoding@https://registry.npmmirror.com/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz 0ms (cache hit)
+29 http cache well-known-symbols@https://registry.npmmirror.com/well-known-symbols/-/well-known-symbols-2.0.0.tgz 0ms (cache hit)
+30 http cache webidl-conversions@https://registry.npmmirror.com/webidl-conversions/-/webidl-conversions-3.0.1.tgz 0ms (cache hit)
+31 http cache v8-to-istanbul@https://registry.npmmirror.com/v8-to-istanbul/-/v8-to-istanbul-9.3.0.tgz 0ms (cache hit)
+32 http cache uri-js@https://registry.npmmirror.com/uri-js/-/uri-js-4.4.1.tgz 0ms (cache hit)
+33 http cache unicorn-magic@https://registry.npmmirror.com/unicorn-magic/-/unicorn-magic-0.4.0.tgz 0ms (cache hit)
+34 http cache undici-types@https://registry.npmmirror.com/undici-types/-/undici-types-7.16.0.tgz 0ms (cache hit)
+35 http cache undici@https://registry.npmmirror.com/undici/-/undici-7.27.1.tgz 0ms (cache hit)
+36 http cache typescript-eslint@https://registry.npmmirror.com/typescript-eslint/-/typescript-eslint-8.60.1.tgz 0ms (cache hit)
+37 http cache ufo@https://registry.npmmirror.com/ufo/-/ufo-1.6.4.tgz 0ms (cache hit)
+38 http cache uint8array-extras@https://registry.npmmirror.com/uint8array-extras/-/uint8array-extras-1.5.0.tgz 0ms (cache hit)
+39 http cache typescript@https://registry.npmmirror.com/typescript/-/typescript-6.0.3.tgz 0ms (cache hit)
+40 http cache type-detect@https://registry.npmmirror.com/type-detect/-/type-detect-4.0.8.tgz 0ms (cache hit)
+41 http cache type-check@https://registry.npmmirror.com/type-check/-/type-check-0.4.0.tgz 0ms (cache hit)
+42 http cache type-fest@https://registry.npmmirror.com/type-fest/-/type-fest-5.7.0.tgz 0ms (cache hit)
+43 http cache tslog@https://registry.npmmirror.com/tslog/-/tslog-4.10.2.tgz 0ms (cache hit)
+44 http cache tsx@https://registry.npmmirror.com/tsx/-/tsx-4.22.4.tgz 0ms (cache hit)
+45 http cache ts-interface-checker@https://registry.npmmirror.com/ts-interface-checker/-/ts-interface-checker-0.1.13.tgz 0ms (cache hit)
+46 http cache tr46@https://registry.npmmirror.com/tr46/-/tr46-0.0.3.tgz 0ms (cache hit)
+47 http cache ts-api-utils@https://registry.npmmirror.com/ts-api-utils/-/ts-api-utils-2.5.0.tgz 0ms (cache hit)
+48 http cache tree-kill@https://registry.npmmirror.com/tree-kill/-/tree-kill-1.2.2.tgz 0ms (cache hit)
+49 http cache tough-cookie@https://registry.npmmirror.com/tough-cookie/-/tough-cookie-6.0.1.tgz 0ms (cache hit)
+50 http cache tsup@https://registry.npmmirror.com/tsup/-/tsup-8.5.1.tgz 0ms (cache hit)
+51 http cache to-regex-range@https://registry.npmmirror.com/to-regex-range/-/to-regex-range-5.0.1.tgz 0ms (cache hit)
+52 http cache tldts-core@https://registry.npmmirror.com/tldts-core/-/tldts-core-7.4.2.tgz 0ms (cache hit)
+53 http cache tldts@https://registry.npmmirror.com/tldts/-/tldts-7.4.2.tgz 0ms (cache hit)
+54 http cache thenify-all@https://registry.npmmirror.com/thenify-all/-/thenify-all-1.6.0.tgz 0ms (cache hit)
+55 http cache tinyglobby@https://registry.npmmirror.com/tinyglobby/-/tinyglobby-0.2.17.tgz 0ms (cache hit)
+56 http cache time-zone@https://registry.npmmirror.com/time-zone/-/time-zone-1.0.0.tgz 0ms (cache hit)
+57 http cache tinyexec@https://registry.npmmirror.com/tinyexec/-/tinyexec-0.3.2.tgz 0ms (cache hit)
+58 http cache test-exclude@https://registry.npmmirror.com/test-exclude/-/test-exclude-8.0.0.tgz 0ms (cache hit)
+59 http cache tar@https://registry.npmmirror.com/tar/-/tar-7.5.16.tgz 0ms (cache hit)
+60 http cache temp-dir@https://registry.npmmirror.com/temp-dir/-/temp-dir-3.0.0.tgz 0ms (cache hit)
+61 http cache tagged-tag@https://registry.npmmirror.com/tagged-tag/-/tagged-tag-1.0.0.tgz 0ms (cache hit)
+62 http cache supertap@https://registry.npmmirror.com/supertap/-/supertap-3.0.1.tgz 0ms (cache hit)
+63 http cache supports-color@https://registry.npmmirror.com/supports-color/-/supports-color-7.2.0.tgz 0ms (cache hit)
+64 http cache sucrase@https://registry.npmmirror.com/sucrase/-/sucrase-3.35.1.tgz 0ms (cache hit)
+65 http cache strip-ansi@https://registry.npmmirror.com/strip-ansi/-/strip-ansi-7.2.0.tgz 0ms (cache hit)
+66 http cache thenify@https://registry.npmmirror.com/thenify/-/thenify-3.3.1.tgz 0ms (cache hit)
+67 http cache strict-event-emitter@https://registry.npmmirror.com/strict-event-emitter/-/strict-event-emitter-0.5.1.tgz 0ms (cache hit)
+68 http cache string-width@https://registry.npmmirror.com/string-width/-/string-width-8.2.1.tgz 0ms (cache hit)
+69 http cache stack-utils@https://registry.npmmirror.com/stack-utils/-/stack-utils-2.0.6.tgz 0ms (cache hit)
+70 http cache sprintf-js@https://registry.npmmirror.com/sprintf-js/-/sprintf-js-1.0.3.tgz 0ms (cache hit)
+71 http cache slice-ansi@https://registry.npmmirror.com/slice-ansi/-/slice-ansi-9.0.0.tgz 0ms (cache hit)
+72 http cache sinon@https://registry.npmmirror.com/sinon/-/sinon-22.0.0.tgz 0ms (cache hit)
+73 http cache source-map@https://registry.npmmirror.com/source-map/-/source-map-0.7.6.tgz 0ms (cache hit)
+74 http cache signal-exit@https://registry.npmmirror.com/signal-exit/-/signal-exit-4.1.0.tgz 0ms (cache hit)
+75 http cache shebang-regex@https://registry.npmmirror.com/shebang-regex/-/shebang-regex-3.0.0.tgz 0ms (cache hit)
+76 http cache slash@https://registry.npmmirror.com/slash/-/slash-5.1.0.tgz 0ms (cache hit)
+77 http cache semver@https://registry.npmmirror.com/semver/-/semver-7.8.1.tgz 0ms (cache hit)
+78 http cache shebang-command@https://registry.npmmirror.com/shebang-command/-/shebang-command-2.0.0.tgz 0ms (cache hit)
+79 http cache seenreq@https://registry.npmmirror.com/seenreq/-/seenreq-3.0.0.tgz 0ms (cache hit)
+80 http cache rollup@https://registry.npmmirror.com/rollup/-/rollup-4.61.1.tgz 0ms (cache hit)
+81 http cache safer-buffer@https://registry.npmmirror.com/safer-buffer/-/safer-buffer-2.1.2.tgz 0ms (cache hit)
+82 http cache run-parallel@https://registry.npmmirror.com/run-parallel/-/run-parallel-1.2.0.tgz 0ms (cache hit)
+83 http cache reusify@https://registry.npmmirror.com/reusify/-/reusify-1.1.0.tgz 0ms (cache hit)
+84 http cache serialize-error@https://registry.npmmirror.com/serialize-error/-/serialize-error-7.0.1.tgz 0ms (cache hit)
+85 http cache responselike@https://registry.npmmirror.com/responselike/-/responselike-4.0.2.tgz 0ms (cache hit)
+86 http cache resolve-from@https://registry.npmmirror.com/resolve-from/-/resolve-from-5.0.0.tgz 0ms (cache hit)
+87 http cache resolve-cwd@https://registry.npmmirror.com/resolve-cwd/-/resolve-cwd-3.0.0.tgz 0ms (cache hit)
+88 http cache require-directory@https://registry.npmmirror.com/require-directory/-/require-directory-2.1.1.tgz 0ms (cache hit)
+89 http cache quick-lru@https://registry.npmmirror.com/quick-lru/-/quick-lru-5.1.1.tgz 0ms (cache hit)
+90 http cache readdirp@https://registry.npmmirror.com/readdirp/-/readdirp-4.1.2.tgz 0ms (cache hit)
+91 http cache queue-microtask@https://registry.npmmirror.com/queue-microtask/-/queue-microtask-1.2.3.tgz 0ms (cache hit)
+92 http cache punycode@https://registry.npmmirror.com/punycode/-/punycode-2.3.1.tgz 0ms (cache hit)
+93 http cache propagate@https://registry.npmmirror.com/propagate/-/propagate-2.0.1.tgz 0ms (cache hit)
+94 http cache resolve-alpn@https://registry.npmmirror.com/resolve-alpn/-/resolve-alpn-1.2.1.tgz 0ms (cache hit)
+95 http cache prelude-ls@https://registry.npmmirror.com/prelude-ls/-/prelude-ls-1.2.1.tgz 0ms (cache hit)
+96 http cache postcss-load-config@https://registry.npmmirror.com/postcss-load-config/-/postcss-load-config-6.0.1.tgz 0ms (cache hit)
+97 http cache pretty-ms@https://registry.npmmirror.com/pretty-ms/-/pretty-ms-9.3.0.tgz 0ms (cache hit)
+98 http cache pkg-types@https://registry.npmmirror.com/pkg-types/-/pkg-types-1.3.1.tgz 0ms (cache hit)
+99 http cache pirates@https://registry.npmmirror.com/pirates/-/pirates-4.0.7.tgz 0ms (cache hit)
+100 http cache plur@https://registry.npmmirror.com/plur/-/plur-6.0.0.tgz 0ms (cache hit)
+101 http cache pathe@https://registry.npmmirror.com/pathe/-/pathe-2.0.3.tgz 0ms (cache hit)
+102 http cache path-scurry@https://registry.npmmirror.com/path-scurry/-/path-scurry-2.0.2.tgz 0ms (cache hit)
+103 http cache picocolors@https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz 0ms (cache hit)
+104 http cache picomatch@https://registry.npmmirror.com/picomatch/-/picomatch-4.0.4.tgz 0ms (cache hit)
+105 http cache path-exists@https://registry.npmmirror.com/path-exists/-/path-exists-4.0.0.tgz 0ms (cache hit)
+106 http cache parse5-parser-stream@https://registry.npmmirror.com/parse5-parser-stream/-/parse5-parser-stream-7.1.2.tgz 0ms (cache hit)
+107 http cache parse5-htmlparser2-tree-adapter@https://registry.npmmirror.com/parse5-htmlparser2-tree-adapter/-/parse5-htmlparser2-tree-adapter-7.1.0.tgz 0ms (cache hit)
+108 http cache path-key@https://registry.npmmirror.com/path-key/-/path-key-3.1.1.tgz 0ms (cache hit)
+109 http cache parse5@https://registry.npmmirror.com/parse5/-/parse5-7.3.0.tgz 0ms (cache hit)
+110 http cache parse-ms@https://registry.npmmirror.com/parse-ms/-/parse-ms-4.0.0.tgz 0ms (cache hit)
+111 http cache p-map@https://registry.npmmirror.com/p-map/-/p-map-7.0.4.tgz 0ms (cache hit)
+112 http cache package-config@https://registry.npmmirror.com/package-config/-/package-config-5.0.0.tgz 0ms (cache hit)
+113 http cache p-locate@https://registry.npmmirror.com/p-locate/-/p-locate-5.0.0.tgz 0ms (cache hit)
+114 http cache p-limit@https://registry.npmmirror.com/p-limit/-/p-limit-3.1.0.tgz 0ms (cache hit)
+115 http cache outvariant@https://registry.npmmirror.com/outvariant/-/outvariant-1.4.3.tgz 0ms (cache hit)
+116 http cache optionator@https://registry.npmmirror.com/optionator/-/optionator-0.9.4.tgz 0ms (cache hit)
+117 http cache object-assign@https://registry.npmmirror.com/object-assign/-/object-assign-4.1.1.tgz 0ms (cache hit)
+118 http cache normalize-url@https://registry.npmmirror.com/normalize-url/-/normalize-url-8.1.1.tgz 0ms (cache hit)
+119 http cache nth-check@https://registry.npmmirror.com/nth-check/-/nth-check-2.1.1.tgz 0ms (cache hit)
+120 http cache node-url-utils@https://registry.npmmirror.com/node-url-utils/-/node-url-utils-0.4.0.tgz 0ms (cache hit)
+121 http cache nopt@https://registry.npmmirror.com/nopt/-/nopt-8.1.0.tgz 0ms (cache hit)
+122 http cache node-gyp-build@https://registry.npmmirror.com/node-gyp-build/-/node-gyp-build-4.8.4.tgz 0ms (cache hit)
+123 http cache node-fetch@https://registry.npmmirror.com/node-fetch/-/node-fetch-2.7.0.tgz 0ms (cache hit)
+124 http cache nock@https://registry.npmmirror.com/nock/-/nock-14.0.15.tgz 0ms (cache hit)
+125 http cache natural-compare@https://registry.npmmirror.com/natural-compare/-/natural-compare-1.4.0.tgz 0ms (cache hit)
+126 http cache ms@https://registry.npmmirror.com/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+127 http cache mlly@https://registry.npmmirror.com/mlly/-/mlly-1.8.2.tgz 0ms (cache hit)
+128 http cache minizlib@https://registry.npmmirror.com/minizlib/-/minizlib-3.1.0.tgz 0ms (cache hit)
+129 http cache minipass@https://registry.npmmirror.com/minipass/-/minipass-7.1.3.tgz 0ms (cache hit)
+130 http cache mz@https://registry.npmmirror.com/mz/-/mz-2.7.0.tgz 0ms (cache hit)
+131 http cache mimic-response@https://registry.npmmirror.com/mimic-response/-/mimic-response-4.0.0.tgz 0ms (cache hit)
+132 http cache minimatch@https://registry.npmmirror.com/minimatch/-/minimatch-10.2.5.tgz 0ms (cache hit)
+133 http cache mimic-function@https://registry.npmmirror.com/mimic-function/-/mimic-function-5.0.1.tgz 0ms (cache hit)
+134 http cache micromatch@https://registry.npmmirror.com/micromatch/-/micromatch-4.0.8.tgz 0ms (cache hit)
+135 http cache memoize@https://registry.npmmirror.com/memoize/-/memoize-11.0.0.tgz 0ms (cache hit)
+136 http cache merge2@https://registry.npmmirror.com/merge2/-/merge2-1.4.1.tgz 0ms (cache hit)
+137 http cache md5-hex@https://registry.npmmirror.com/md5-hex/-/md5-hex-3.0.1.tgz 0ms (cache hit)
+138 http cache matcher@https://registry.npmmirror.com/matcher/-/matcher-6.0.0.tgz 0ms (cache hit)
+139 http cache make-dir@https://registry.npmmirror.com/make-dir/-/make-dir-4.0.0.tgz 0ms (cache hit)
+140 http cache magic-string@https://registry.npmmirror.com/magic-string/-/magic-string-0.30.21.tgz 0ms (cache hit)
+141 http cache lru-cache@https://registry.npmmirror.com/lru-cache/-/lru-cache-11.5.1.tgz 0ms (cache hit)
+142 http cache lodash@https://registry.npmmirror.com/lodash/-/lodash-4.18.1.tgz 0ms (cache hit)
+143 http cache locate-path@https://registry.npmmirror.com/locate-path/-/locate-path-6.0.0.tgz 0ms (cache hit)
+144 http cache load-tsconfig@https://registry.npmmirror.com/load-tsconfig/-/load-tsconfig-0.2.5.tgz 0ms (cache hit)
+145 http cache lines-and-columns@https://registry.npmmirror.com/lines-and-columns/-/lines-and-columns-1.2.4.tgz 0ms (cache hit)
+146 http cache lowercase-keys@https://registry.npmmirror.com/lowercase-keys/-/lowercase-keys-4.0.1.tgz 0ms (cache hit)
+147 http cache load-json-file@https://registry.npmmirror.com/load-json-file/-/load-json-file-7.0.1.tgz 0ms (cache hit)
+148 http cache lilconfig@https://registry.npmmirror.com/lilconfig/-/lilconfig-3.1.3.tgz 0ms (cache hit)
+149 http cache levn@https://registry.npmmirror.com/levn/-/levn-0.4.1.tgz 0ms (cache hit)
+150 http cache keyv@https://registry.npmmirror.com/keyv/-/keyv-4.5.4.tgz 0ms (cache hit)
+151 http cache json-stringify-safe@https://registry.npmmirror.com/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz 0ms (cache hit)
+152 http cache json-schema-traverse@https://registry.npmmirror.com/json-schema-traverse/-/json-schema-traverse-0.4.1.tgz 0ms (cache hit)
+153 http cache json-buffer@https://registry.npmmirror.com/json-buffer/-/json-buffer-3.0.1.tgz 0ms (cache hit)
+154 http cache js-yaml@https://registry.npmmirror.com/js-yaml/-/js-yaml-3.14.2.tgz 0ms (cache hit)
+155 http cache js-string-escape@https://registry.npmmirror.com/js-string-escape/-/js-string-escape-1.0.1.tgz 0ms (cache hit)
+156 http cache istanbul-reports@https://registry.npmmirror.com/istanbul-reports/-/istanbul-reports-3.2.0.tgz 0ms (cache hit)
+157 http cache joycon@https://registry.npmmirror.com/joycon/-/joycon-3.1.1.tgz 0ms (cache hit)
+158 http cache istanbul-lib-report@https://registry.npmmirror.com/istanbul-lib-report/-/istanbul-lib-report-3.0.1.tgz 0ms (cache hit)
+159 http cache istanbul-lib-coverage@https://registry.npmmirror.com/istanbul-lib-coverage/-/istanbul-lib-coverage-3.2.2.tgz 0ms (cache hit)
+160 http cache isexe@https://registry.npmmirror.com/isexe/-/isexe-2.0.0.tgz 0ms (cache hit)
+161 http cache is-unicode-supported@https://registry.npmmirror.com/is-unicode-supported/-/is-unicode-supported-2.1.0.tgz 0ms (cache hit)
+162 http cache is-promise@https://registry.npmmirror.com/is-promise/-/is-promise-4.0.0.tgz 0ms (cache hit)
+163 http cache json-stable-stringify-without-jsonify@https://registry.npmmirror.com/json-stable-stringify-without-jsonify/-/json-stable-stringify-without-jsonify-1.0.1.tgz 0ms (cache hit)
+164 http cache is-plain-object@https://registry.npmmirror.com/is-plain-object/-/is-plain-object-5.0.0.tgz 0ms (cache hit)
+165 http cache is-path-inside@https://registry.npmmirror.com/is-path-inside/-/is-path-inside-4.0.0.tgz 0ms (cache hit)
+166 http cache is-stream@https://registry.npmmirror.com/is-stream/-/is-stream-4.0.1.tgz 0ms (cache hit)
+167 http cache is-number@https://registry.npmmirror.com/is-number/-/is-number-7.0.0.tgz 0ms (cache hit)
+168 http cache is-node-process@https://registry.npmmirror.com/is-node-process/-/is-node-process-1.2.0.tgz 0ms (cache hit)
+169 http cache is-glob@https://registry.npmmirror.com/is-glob/-/is-glob-4.0.3.tgz 0ms (cache hit)
+170 http cache is-fullwidth-code-point@https://registry.npmmirror.com/is-fullwidth-code-point/-/is-fullwidth-code-point-5.1.0.tgz 0ms (cache hit)
+171 http cache is-extglob@https://registry.npmmirror.com/is-extglob/-/is-extglob-2.1.1.tgz 0ms (cache hit)
+172 http cache irregular-plurals@https://registry.npmmirror.com/irregular-plurals/-/irregular-plurals-4.2.0.tgz 0ms (cache hit)
+173 http cache indent-string@https://registry.npmmirror.com/indent-string/-/indent-string-5.0.0.tgz 0ms (cache hit)
+174 http cache ignore-by-default@https://registry.npmmirror.com/ignore-by-default/-/ignore-by-default-2.1.0.tgz 0ms (cache hit)
+175 http cache iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.7.2.tgz 0ms (cache hit)
+176 http cache ignore@https://registry.npmmirror.com/ignore/-/ignore-5.3.2.tgz 0ms (cache hit)
+177 http cache https-proxy-agent@https://registry.npmmirror.com/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz 0ms (cache hit)
+178 http cache http2-wrapper@https://registry.npmmirror.com/http2-wrapper/-/http2-wrapper-2.2.1.tgz 0ms (cache hit)
+179 http cache http-cache-semantics@https://registry.npmmirror.com/http-cache-semantics/-/http-cache-semantics-4.2.0.tgz 0ms (cache hit)
+180 http cache htmlparser2@https://registry.npmmirror.com/htmlparser2/-/htmlparser2-10.1.0.tgz 0ms (cache hit)
+181 http cache html-escaper@https://registry.npmmirror.com/html-escaper/-/html-escaper-2.0.2.tgz 0ms (cache hit)
+182 http cache hpagent@https://registry.npmmirror.com/hpagent/-/hpagent-1.2.0.tgz 0ms (cache hit)
+183 http cache has-flag@https://registry.npmmirror.com/has-flag/-/has-flag-4.0.0.tgz 0ms (cache hit)
+184 http cache got@https://registry.npmmirror.com/got/-/got-15.0.5.tgz 0ms (cache hit)
+185 http cache imurmurhash@https://registry.npmmirror.com/imurmurhash/-/imurmurhash-0.1.4.tgz 0ms (cache hit)
+186 http cache globby@https://registry.npmmirror.com/globby/-/globby-16.2.0.tgz 0ms (cache hit)
+187 http cache graceful-fs@https://registry.npmmirror.com/graceful-fs/-/graceful-fs-4.2.11.tgz 0ms (cache hit)
+188 http cache globals@https://registry.npmmirror.com/globals/-/globals-17.6.0.tgz 0ms (cache hit)
+189 http cache glob-parent@https://registry.npmmirror.com/glob-parent/-/glob-parent-6.0.2.tgz 0ms (cache hit)
+190 http cache glob@https://registry.npmmirror.com/glob/-/glob-13.0.6.tgz 0ms (cache hit)
+191 http cache get-stream@https://registry.npmmirror.com/get-stream/-/get-stream-9.0.1.tgz 0ms (cache hit)
+192 http cache get-east-asian-width@https://registry.npmmirror.com/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz 0ms (cache hit)
+193 http cache get-caller-file@https://registry.npmmirror.com/get-caller-file/-/get-caller-file-2.0.5.tgz 0ms (cache hit)
+194 http cache fsevents@https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz 0ms (cache hit)
+195 http cache flatted@https://registry.npmmirror.com/flatted/-/flatted-3.4.2.tgz 0ms (cache hit)
+196 http cache flat-cache@https://registry.npmmirror.com/flat-cache/-/flat-cache-4.0.1.tgz 0ms (cache hit)
+197 http cache fix-dts-default-cjs-exports@https://registry.npmmirror.com/fix-dts-default-cjs-exports/-/fix-dts-default-cjs-exports-1.0.1.tgz 0ms (cache hit)
+198 http cache find-up-simple@https://registry.npmmirror.com/find-up-simple/-/find-up-simple-1.0.1.tgz 0ms (cache hit)
+199 http cache foreground-child@https://registry.npmmirror.com/foreground-child/-/foreground-child-3.3.1.tgz 0ms (cache hit)
+200 http cache find-up@https://registry.npmmirror.com/find-up/-/find-up-5.0.0.tgz 0ms (cache hit)
+201 http cache fill-range@https://registry.npmmirror.com/fill-range/-/fill-range-7.1.1.tgz 0ms (cache hit)
+202 http cache file-entry-cache@https://registry.npmmirror.com/file-entry-cache/-/file-entry-cache-8.0.0.tgz 0ms (cache hit)
+203 http cache file-uri-to-path@https://registry.npmmirror.com/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz 0ms (cache hit)
+204 http cache figures@https://registry.npmmirror.com/figures/-/figures-6.1.0.tgz 0ms (cache hit)
+205 http cache fdir@https://registry.npmmirror.com/fdir/-/fdir-6.5.0.tgz 0ms (cache hit)
+206 http cache fastq@https://registry.npmmirror.com/fastq/-/fastq-1.20.1.tgz 0ms (cache hit)
+207 http cache fast-levenshtein@https://registry.npmmirror.com/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz 0ms (cache hit)
+208 http cache fast-json-stable-stringify@https://registry.npmmirror.com/fast-json-stable-stringify/-/fast-json-stable-stringify-2.1.0.tgz 0ms (cache hit)
+209 http cache fast-glob@https://registry.npmmirror.com/fast-glob/-/fast-glob-3.3.3.tgz 0ms (cache hit)
+210 http cache fast-diff@https://registry.npmmirror.com/fast-diff/-/fast-diff-1.3.0.tgz 0ms (cache hit)
+211 http cache esutils@https://registry.npmmirror.com/esutils/-/esutils-2.0.3.tgz 0ms (cache hit)
+212 http cache fast-deep-equal@https://registry.npmmirror.com/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz 0ms (cache hit)
+213 http cache estree-walker@https://registry.npmmirror.com/estree-walker/-/estree-walker-2.0.2.tgz 0ms (cache hit)
+214 http cache estraverse@https://registry.npmmirror.com/estraverse/-/estraverse-5.3.0.tgz 0ms (cache hit)
+215 http cache esrecurse@https://registry.npmmirror.com/esrecurse/-/esrecurse-4.3.0.tgz 0ms (cache hit)
+216 http cache esprima@https://registry.npmmirror.com/esprima/-/esprima-4.0.1.tgz 0ms (cache hit)
+217 http cache espree@https://registry.npmmirror.com/espree/-/espree-11.2.0.tgz 0ms (cache hit)
+218 http cache eslint-scope@https://registry.npmmirror.com/eslint-scope/-/eslint-scope-9.1.2.tgz 0ms (cache hit)
+219 http cache eslint-visitor-keys@https://registry.npmmirror.com/eslint-visitor-keys/-/eslint-visitor-keys-5.0.1.tgz 0ms (cache hit)
+220 http cache eslint@https://registry.npmmirror.com/eslint/-/eslint-10.4.1.tgz 0ms (cache hit)
+221 http cache esquery@https://registry.npmmirror.com/esquery/-/esquery-1.7.0.tgz 0ms (cache hit)
+222 http cache escalade@https://registry.npmmirror.com/escalade/-/escalade-3.2.0.tgz 0ms (cache hit)
+223 http cache escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-4.0.0.tgz 0ms (cache hit)
+224 http cache esbuild@https://registry.npmmirror.com/esbuild/-/esbuild-0.28.1.tgz 0ms (cache hit)
+225 http cache encoding-sniffer@https://registry.npmmirror.com/encoding-sniffer/-/encoding-sniffer-0.2.1.tgz 0ms (cache hit)
+226 http cache emittery@https://registry.npmmirror.com/emittery/-/emittery-2.0.0.tgz 0ms (cache hit)
+227 http cache domutils@https://registry.npmmirror.com/domutils/-/domutils-3.2.2.tgz 0ms (cache hit)
+228 http cache domhandler@https://registry.npmmirror.com/domhandler/-/domhandler-5.0.3.tgz 0ms (cache hit)
+229 http cache domelementtype@https://registry.npmmirror.com/domelementtype/-/domelementtype-2.3.0.tgz 0ms (cache hit)
+230 http cache emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-8.0.0.tgz 0ms (cache hit)
+231 http cache dom-serializer@https://registry.npmmirror.com/dom-serializer/-/dom-serializer-2.0.0.tgz 0ms (cache hit)
+232 http cache entities@https://registry.npmmirror.com/entities/-/entities-4.5.0.tgz 0ms (cache hit)
+233 http cache diff@https://registry.npmmirror.com/diff/-/diff-9.0.0.tgz 0ms (cache hit)
+234 http cache detect-libc@https://registry.npmmirror.com/detect-libc/-/detect-libc-2.1.2.tgz 0ms (cache hit)
+235 http cache deep-is@https://registry.npmmirror.com/deep-is/-/deep-is-0.1.4.tgz 0ms (cache hit)
+236 http cache date-time@https://registry.npmmirror.com/date-time/-/date-time-3.1.0.tgz 0ms (cache hit)
+237 http cache decompress-response@https://registry.npmmirror.com/decompress-response/-/decompress-response-10.0.0.tgz 0ms (cache hit)
+238 http cache debug@https://registry.npmmirror.com/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+239 http cache currently-unhandled@https://registry.npmmirror.com/currently-unhandled/-/currently-unhandled-0.4.1.tgz 0ms (cache hit)
+240 http cache css-what@https://registry.npmmirror.com/css-what/-/css-what-6.2.2.tgz 0ms (cache hit)
+241 http cache css-select@https://registry.npmmirror.com/css-select/-/css-select-5.2.2.tgz 0ms (cache hit)
+242 http cache convert-to-spaces@https://registry.npmmirror.com/convert-to-spaces/-/convert-to-spaces-2.0.1.tgz 0ms (cache hit)
+243 http cache cross-spawn@https://registry.npmmirror.com/cross-spawn/-/cross-spawn-7.0.6.tgz 0ms (cache hit)
+244 http cache consola@https://registry.npmmirror.com/consola/-/consola-3.4.2.tgz 0ms (cache hit)
+245 http cache convert-source-map@https://registry.npmmirror.com/convert-source-map/-/convert-source-map-2.0.0.tgz 0ms (cache hit)
+246 http cache confbox@https://registry.npmmirror.com/confbox/-/confbox-0.1.8.tgz 0ms (cache hit)
+247 http cache concordance@https://registry.npmmirror.com/concordance/-/concordance-5.0.4.tgz 0ms (cache hit)
+248 http cache common-path-prefix@https://registry.npmmirror.com/common-path-prefix/-/common-path-prefix-3.0.0.tgz 0ms (cache hit)
+249 http cache commander@https://registry.npmmirror.com/commander/-/commander-4.1.1.tgz 0ms (cache hit)
+250 http cache color-convert@https://registry.npmmirror.com/color-convert/-/color-convert-2.0.1.tgz 0ms (cache hit)
+251 http cache color-name@https://registry.npmmirror.com/color-name/-/color-name-1.1.4.tgz 0ms (cache hit)
+252 http cache code-excerpt@https://registry.npmmirror.com/code-excerpt/-/code-excerpt-4.0.0.tgz 0ms (cache hit)
+253 http cache ci-parallel-vars@https://registry.npmmirror.com/ci-parallel-vars/-/ci-parallel-vars-1.0.1.tgz 0ms (cache hit)
+254 http cache ci-info@https://registry.npmmirror.com/ci-info/-/ci-info-4.4.0.tgz 0ms (cache hit)
+255 http cache cliui@https://registry.npmmirror.com/cliui/-/cliui-9.0.1.tgz 0ms (cache hit)
+256 http cache cli-truncate@https://registry.npmmirror.com/cli-truncate/-/cli-truncate-6.0.0.tgz 0ms (cache hit)
+257 http cache chunkd@https://registry.npmmirror.com/chunkd/-/chunkd-2.0.1.tgz 0ms (cache hit)
+258 http cache cheerio-select@https://registry.npmmirror.com/cheerio-select/-/cheerio-select-2.1.0.tgz 0ms (cache hit)
+259 http cache chokidar@https://registry.npmmirror.com/chokidar/-/chokidar-4.0.3.tgz 0ms (cache hit)
+260 http cache chownr@https://registry.npmmirror.com/chownr/-/chownr-3.0.0.tgz 0ms (cache hit)
+261 http cache chunk-data@https://registry.npmmirror.com/chunk-data/-/chunk-data-0.1.0.tgz 0ms (cache hit)
+262 http cache cheerio@https://registry.npmmirror.com/cheerio/-/cheerio-1.2.0.tgz 0ms (cache hit)
+263 http cache chalk@https://registry.npmmirror.com/chalk/-/chalk-5.6.2.tgz 0ms (cache hit)
+264 http cache cbor2@https://registry.npmmirror.com/cbor2/-/cbor2-2.3.0.tgz 0ms (cache hit)
+265 http cache callsites@https://registry.npmmirror.com/callsites/-/callsites-4.2.0.tgz 0ms (cache hit)
+266 http cache cacheable-request@https://registry.npmmirror.com/cacheable-request/-/cacheable-request-13.0.19.tgz 0ms (cache hit)
+267 http cache cac@https://registry.npmmirror.com/cac/-/cac-6.7.14.tgz 0ms (cache hit)
+268 http cache cacheable-lookup@https://registry.npmmirror.com/cacheable-lookup/-/cacheable-lookup-7.0.0.tgz 0ms (cache hit)
+269 http cache byte-counter@https://registry.npmmirror.com/byte-counter/-/byte-counter-0.1.0.tgz 0ms (cache hit)
+270 http cache bundle-require@https://registry.npmmirror.com/bundle-require/-/bundle-require-5.1.0.tgz 0ms (cache hit)
+271 http cache c8@https://registry.npmmirror.com/c8/-/c8-11.0.0.tgz 0ms (cache hit)
+272 http cache brace-expansion@https://registry.npmmirror.com/brace-expansion/-/brace-expansion-5.0.6.tgz 0ms (cache hit)
+273 http cache braces@https://registry.npmmirror.com/braces/-/braces-3.0.3.tgz 0ms (cache hit)
+274 http cache boolbase@https://registry.npmmirror.com/boolbase/-/boolbase-1.0.0.tgz 0ms (cache hit)
+275 http cache blueimp-md5@https://registry.npmmirror.com/blueimp-md5/-/blueimp-md5-2.19.0.tgz 0ms (cache hit)
+276 http cache async-sema@https://registry.npmmirror.com/async-sema/-/async-sema-3.1.1.tgz 0ms (cache hit)
+277 http cache ava@https://registry.npmmirror.com/ava/-/ava-8.0.1.tgz 0ms (cache hit)
+278 http cache balanced-match@https://registry.npmmirror.com/balanced-match/-/balanced-match-4.0.4.tgz 0ms (cache hit)
+279 http cache arrify@https://registry.npmmirror.com/arrify/-/arrify-3.0.0.tgz 0ms (cache hit)
+280 http cache bindings@https://registry.npmmirror.com/bindings/-/bindings-1.5.0.tgz 0ms (cache hit)
+281 http cache arrgv@https://registry.npmmirror.com/arrgv/-/arrgv-1.0.2.tgz 0ms (cache hit)
+282 http cache array-find-index@https://registry.npmmirror.com/array-find-index/-/array-find-index-1.0.2.tgz 0ms (cache hit)
+283 http cache argparse@https://registry.npmmirror.com/argparse/-/argparse-1.0.10.tgz 0ms (cache hit)
+284 http cache ansi-styles@https://registry.npmmirror.com/ansi-styles/-/ansi-styles-6.2.3.tgz 0ms (cache hit)
+285 http cache agent-base@https://registry.npmmirror.com/agent-base/-/agent-base-7.1.4.tgz 0ms (cache hit)
+286 http cache acorn-walk@https://registry.npmmirror.com/acorn-walk/-/acorn-walk-8.3.5.tgz 0ms (cache hit)
+287 http cache ajv@https://registry.npmmirror.com/ajv/-/ajv-6.15.0.tgz 0ms (cache hit)
+288 http cache any-promise@https://registry.npmmirror.com/any-promise/-/any-promise-1.3.0.tgz 0ms (cache hit)
+289 http cache ansi-regex@https://registry.npmmirror.com/ansi-regex/-/ansi-regex-6.2.2.tgz 0ms (cache hit)
+290 http cache abbrev@https://registry.npmmirror.com/abbrev/-/abbrev-3.0.1.tgz 0ms (cache hit)
+291 http cache acorn-jsx@https://registry.npmmirror.com/acorn-jsx/-/acorn-jsx-5.3.2.tgz 0ms (cache hit)
+292 http cache acorn-import-attributes@https://registry.npmmirror.com/acorn-import-attributes/-/acorn-import-attributes-1.9.5.tgz 0ms (cache hit)
+293 http cache @vercel/nft@https://registry.npmmirror.com/@vercel/nft/-/nft-1.10.2.tgz 0ms (cache hit)
+294 http cache acorn@https://registry.npmmirror.com/acorn/-/acorn-8.16.0.tgz 0ms (cache hit)
+295 http cache @typescript-eslint/utils@https://registry.npmmirror.com/@typescript-eslint/utils/-/utils-8.60.1.tgz 0ms (cache hit)
+296 http cache @typescript-eslint/visitor-keys@https://registry.npmmirror.com/@typescript-eslint/visitor-keys/-/visitor-keys-8.60.1.tgz 0ms (cache hit)
+297 http cache @typescript-eslint/type-utils@https://registry.npmmirror.com/@typescript-eslint/type-utils/-/type-utils-8.60.1.tgz 0ms (cache hit)
+298 http cache @typescript-eslint/typescript-estree@https://registry.npmmirror.com/@typescript-eslint/typescript-estree/-/typescript-estree-8.60.1.tgz 0ms (cache hit)
+299 http cache @typescript-eslint/types@https://registry.npmmirror.com/@typescript-eslint/types/-/types-8.60.1.tgz 0ms (cache hit)
+300 http cache @typescript-eslint/scope-manager@https://registry.npmmirror.com/@typescript-eslint/scope-manager/-/scope-manager-8.60.1.tgz 0ms (cache hit)
+301 http cache @typescript-eslint/tsconfig-utils@https://registry.npmmirror.com/@typescript-eslint/tsconfig-utils/-/tsconfig-utils-8.60.1.tgz 0ms (cache hit)
+302 http cache @typescript-eslint/project-service@https://registry.npmmirror.com/@typescript-eslint/project-service/-/project-service-8.60.1.tgz 0ms (cache hit)
+303 http cache @types/node@https://registry.npmmirror.com/@types/node/-/node-24.12.4.tgz 0ms (cache hit)
+304 http cache @types/json-schema@https://registry.npmmirror.com/@types/json-schema/-/json-schema-7.0.15.tgz 0ms (cache hit)
+305 http cache @typescript-eslint/eslint-plugin@https://registry.npmmirror.com/@typescript-eslint/eslint-plugin/-/eslint-plugin-8.60.1.tgz 0ms (cache hit)
+306 http cache @typescript-eslint/parser@https://registry.npmmirror.com/@typescript-eslint/parser/-/parser-8.60.1.tgz 0ms (cache hit)
+307 http cache @types/istanbul-lib-coverage@https://registry.npmmirror.com/@types/istanbul-lib-coverage/-/istanbul-lib-coverage-2.0.6.tgz 0ms (cache hit)
+308 http cache @types/http-cache-semantics@https://registry.npmmirror.com/@types/http-cache-semantics/-/http-cache-semantics-4.2.0.tgz 0ms (cache hit)
+309 http cache @types/estree@https://registry.npmmirror.com/@types/estree/-/estree-1.0.9.tgz 0ms (cache hit)
+310 http cache @types/esrecurse@https://registry.npmmirror.com/@types/esrecurse/-/esrecurse-4.3.1.tgz 0ms (cache hit)
+311 http cache @sinonjs/fake-timers@https://registry.npmmirror.com/@sinonjs/fake-timers/-/fake-timers-15.4.0.tgz 0ms (cache hit)
+312 http cache @sinonjs/commons@https://registry.npmmirror.com/@sinonjs/commons/-/commons-3.0.1.tgz 0ms (cache hit)
+313 http cache @sindresorhus/merge-streams@https://registry.npmmirror.com/@sindresorhus/merge-streams/-/merge-streams-4.0.0.tgz 0ms (cache hit)
+314 http cache @sindresorhus/is@https://registry.npmmirror.com/@sindresorhus/is/-/is-8.1.0.tgz 0ms (cache hit)
+315 http cache @sinonjs/samsam@https://registry.npmmirror.com/@sinonjs/samsam/-/samsam-10.0.2.tgz 0ms (cache hit)
+316 http cache @rollup/rollup-darwin-arm64@https://registry.npmmirror.com/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.61.1.tgz 0ms (cache hit)
+317 http cache @sec-ant/readable-stream@https://registry.npmmirror.com/@sec-ant/readable-stream/-/readable-stream-0.4.1.tgz 0ms (cache hit)
+318 http cache @rollup/pluginutils@https://registry.npmmirror.com/@rollup/pluginutils/-/pluginutils-5.4.0.tgz 0ms (cache hit)
+319 http cache @open-draft/until@https://registry.npmmirror.com/@open-draft/until/-/until-2.1.0.tgz 0ms (cache hit)
+320 http cache @open-draft/logger@https://registry.npmmirror.com/@open-draft/logger/-/logger-0.3.0.tgz 0ms (cache hit)
+321 http cache @open-draft/deferred-promise@https://registry.npmmirror.com/@open-draft/deferred-promise/-/deferred-promise-2.2.0.tgz 0ms (cache hit)
+322 http cache @nodelib/fs.walk@https://registry.npmmirror.com/@nodelib/fs.walk/-/fs.walk-1.2.8.tgz 0ms (cache hit)
+323 http cache @nodelib/fs.stat@https://registry.npmmirror.com/@nodelib/fs.stat/-/fs.stat-2.0.5.tgz 0ms (cache hit)
+324 http cache @nodelib/fs.scandir@https://registry.npmmirror.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz 0ms (cache hit)
+325 http cache @mapbox/node-pre-gyp@https://registry.npmmirror.com/@mapbox/node-pre-gyp/-/node-pre-gyp-2.0.3.tgz 0ms (cache hit)
+326 http cache @mswjs/interceptors@https://registry.npmmirror.com/@mswjs/interceptors/-/interceptors-0.41.9.tgz 0ms (cache hit)
+327 http cache @keyv/serialize@https://registry.npmmirror.com/@keyv/serialize/-/serialize-1.1.1.tgz 0ms (cache hit)
+328 http cache @jridgewell/trace-mapping@https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz 0ms (cache hit)
+329 http cache @jridgewell/sourcemap-codec@https://registry.npmmirror.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz 0ms (cache hit)
+330 http cache @isaacs/fs-minipass@https://registry.npmmirror.com/@isaacs/fs-minipass/-/fs-minipass-4.0.1.tgz 0ms (cache hit)
+331 http cache @jridgewell/gen-mapping@https://registry.npmmirror.com/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz 0ms (cache hit)
+332 http cache @istanbuljs/schema@https://registry.npmmirror.com/@istanbuljs/schema/-/schema-0.1.6.tgz 0ms (cache hit)
+333 http cache @humanwhocodes/retry@https://registry.npmmirror.com/@humanwhocodes/retry/-/retry-0.4.3.tgz 0ms (cache hit)
+334 http cache @humanwhocodes/module-importer@https://registry.npmmirror.com/@humanwhocodes/module-importer/-/module-importer-1.0.1.tgz 0ms (cache hit)
+335 http cache @humanfs/types@https://registry.npmmirror.com/@humanfs/types/-/types-0.15.0.tgz 0ms (cache hit)
+336 http cache @humanfs/node@https://registry.npmmirror.com/@humanfs/node/-/node-0.16.8.tgz 0ms (cache hit)
+337 http cache @jridgewell/resolve-uri@https://registry.npmmirror.com/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz 0ms (cache hit)
+338 http cache @humanfs/core@https://registry.npmmirror.com/@humanfs/core/-/core-0.19.2.tgz 0ms (cache hit)
+339 http cache @eslint/object-schema@https://registry.npmmirror.com/@eslint/object-schema/-/object-schema-3.0.5.tgz 0ms (cache hit)
+340 http cache @eslint/js@https://registry.npmmirror.com/@eslint/js/-/js-10.0.1.tgz 0ms (cache hit)
+341 http cache @eslint/core@https://registry.npmmirror.com/@eslint/core/-/core-1.2.1.tgz 0ms (cache hit)
+342 http cache @eslint/config-array@https://registry.npmmirror.com/@eslint/config-array/-/config-array-0.23.5.tgz 0ms (cache hit)
+343 http cache @eslint/config-helpers@https://registry.npmmirror.com/@eslint/config-helpers/-/config-helpers-0.6.0.tgz 0ms (cache hit)
+344 http cache @eslint/plugin-kit@https://registry.npmmirror.com/@eslint/plugin-kit/-/plugin-kit-0.7.2.tgz 0ms (cache hit)
+345 http cache @eslint-community/eslint-utils@https://registry.npmmirror.com/@eslint-community/eslint-utils/-/eslint-utils-4.9.1.tgz 0ms (cache hit)
+346 http cache @esbuild/darwin-arm64@https://registry.npmmirror.com/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz 0ms (cache hit)
+347 http cache @eslint-community/regexpp@https://registry.npmmirror.com/@eslint-community/regexpp/-/regexpp-4.12.2.tgz 0ms (cache hit)
+348 http cache @cto.af/wtf8@https://registry.npmmirror.com/@cto.af/wtf8/-/wtf8-0.0.5.tgz 0ms (cache hit)
+349 http cache yargs-parser@https://registry.npmmirror.com/yargs-parser/-/yargs-parser-22.0.0.tgz 0ms (cache hit)
+350 http cache @bcoe/v8-coverage@https://registry.npmmirror.com/@bcoe/v8-coverage/-/v8-coverage-1.0.2.tgz 0ms (cache hit)
+351 http cache string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz 0ms (cache hit)
+352 http cache string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz 0ms (cache hit)
+353 http cache emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz 0ms (cache hit)
+354 http cache iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.6.3.tgz 0ms (cache hit)
+355 http cache emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz 0ms (cache hit)
+356 http cache escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-2.0.0.tgz 0ms (cache hit)
+357 http cache entities@https://registry.npmmirror.com/entities/-/entities-6.0.1.tgz 0ms (cache hit)
+358 http cache lowercase-keys@https://registry.npmmirror.com/lowercase-keys/-/lowercase-keys-3.0.0.tgz 0ms (cache hit)
+359 http cache picomatch@https://registry.npmmirror.com/picomatch/-/picomatch-2.3.2.tgz 0ms (cache hit)
+360 http cache type-fest@https://registry.npmmirror.com/type-fest/-/type-fest-0.13.1.tgz 0ms (cache hit)
+361 http cache entities@https://registry.npmmirror.com/entities/-/entities-7.0.1.tgz 0ms (cache hit)
+362 http cache escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-5.0.0.tgz 0ms (cache hit)
+363 http cache keyv@https://registry.npmmirror.com/keyv/-/keyv-5.6.0.tgz 0ms (cache hit)
+364 http cache iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.6.3.tgz 0ms (cache hit)
+365 http cache glob-parent@https://registry.npmmirror.com/glob-parent/-/glob-parent-5.1.2.tgz 0ms (cache hit)
+366 http cache string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz 0ms (cache hit)
+367 http cache ignore@https://registry.npmmirror.com/ignore/-/ignore-7.0.5.tgz 0ms (cache hit)
+368 http cache emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz 0ms (cache hit)
+369 http cache wrap-ansi@https://registry.npmmirror.com/wrap-ansi/-/wrap-ansi-7.0.0.tgz 0ms (cache hit)
+370 http cache yargs@https://registry.npmmirror.com/yargs/-/yargs-17.7.2.tgz 0ms (cache hit)
+371 http cache keyv@https://registry.npmmirror.com/keyv/-/keyv-5.6.0.tgz 0ms (cache hit)
+372 http cache strip-ansi@https://registry.npmmirror.com/strip-ansi/-/strip-ansi-6.0.1.tgz 0ms (cache hit)
+373 http cache cliui@https://registry.npmmirror.com/cliui/-/cliui-8.0.1.tgz 0ms (cache hit)
+374 http cache is-fullwidth-code-point@https://registry.npmmirror.com/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz 0ms (cache hit)
+375 http cache ansi-styles@https://registry.npmmirror.com/ansi-styles/-/ansi-styles-4.3.0.tgz 0ms (cache hit)
+376 http cache ansi-regex@https://registry.npmmirror.com/ansi-regex/-/ansi-regex-5.0.1.tgz 0ms (cache hit)
+377 http cache string-width@https://registry.npmmirror.com/string-width/-/string-width-4.2.3.tgz 0ms (cache hit)
+378 silly tarball no local data for yocto-queue@https://registry.npmmirror.com/yocto-queue/-/yocto-queue-0.1.0.tgz. Extracting by manifest.
+379 silly tarball no local data for yargs@https://registry.npmmirror.com/yargs/-/yargs-18.0.0.tgz. Extracting by manifest.
+380 silly tarball no local data for yargs-parser@https://registry.npmmirror.com/yargs-parser/-/yargs-parser-21.1.1.tgz. Extracting by manifest.
+381 silly tarball no local data for yallist@https://registry.npmmirror.com/yallist/-/yallist-5.0.0.tgz. Extracting by manifest.
+382 silly tarball no local data for y18n@https://registry.npmmirror.com/y18n/-/y18n-5.0.8.tgz. Extracting by manifest.
+383 silly tarball no local data for wrap-ansi@https://registry.npmmirror.com/wrap-ansi/-/wrap-ansi-9.0.2.tgz. Extracting by manifest.
+384 http cache ignore@https://registry.npmmirror.com/ignore/-/ignore-7.0.5.tgz 0ms (cache hit)
+385 silly tarball no local data for write-file-atomic@https://registry.npmmirror.com/write-file-atomic/-/write-file-atomic-7.0.1.tgz. Extracting by manifest.
+386 silly tarball no local data for word-wrap@https://registry.npmmirror.com/word-wrap/-/word-wrap-1.2.5.tgz. Extracting by manifest.
+387 silly tarball no local data for which@https://registry.npmmirror.com/which/-/which-2.0.2.tgz. Extracting by manifest.
+388 silly tarball no local data for whatwg-url@https://registry.npmmirror.com/whatwg-url/-/whatwg-url-5.0.0.tgz. Extracting by manifest.
+389 silly tarball no local data for whatwg-mimetype@https://registry.npmmirror.com/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz. Extracting by manifest.
+390 silly tarball no local data for whatwg-encoding@https://registry.npmmirror.com/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz. Extracting by manifest.
+391 silly tarball no local data for well-known-symbols@https://registry.npmmirror.com/well-known-symbols/-/well-known-symbols-2.0.0.tgz. Extracting by manifest.
+392 silly tarball no local data for webidl-conversions@https://registry.npmmirror.com/webidl-conversions/-/webidl-conversions-3.0.1.tgz. Extracting by manifest.
+393 silly tarball no local data for v8-to-istanbul@https://registry.npmmirror.com/v8-to-istanbul/-/v8-to-istanbul-9.3.0.tgz. Extracting by manifest.
+394 silly tarball no local data for uri-js@https://registry.npmmirror.com/uri-js/-/uri-js-4.4.1.tgz. Extracting by manifest.
+395 silly tarball no local data for unicorn-magic@https://registry.npmmirror.com/unicorn-magic/-/unicorn-magic-0.4.0.tgz. Extracting by manifest.
+396 silly tarball no local data for undici-types@https://registry.npmmirror.com/undici-types/-/undici-types-7.16.0.tgz. Extracting by manifest.
+397 silly tarball no local data for undici@https://registry.npmmirror.com/undici/-/undici-7.27.1.tgz. Extracting by manifest.
+398 http cache type-detect@https://registry.npmmirror.com/type-detect/-/type-detect-4.1.0.tgz 0ms (cache hit)
+399 silly tarball no local data for typescript-eslint@https://registry.npmmirror.com/typescript-eslint/-/typescript-eslint-8.60.1.tgz. Extracting by manifest.
+400 silly tarball no local data for ufo@https://registry.npmmirror.com/ufo/-/ufo-1.6.4.tgz. Extracting by manifest.
+401 silly tarball no local data for uint8array-extras@https://registry.npmmirror.com/uint8array-extras/-/uint8array-extras-1.5.0.tgz. Extracting by manifest.
+402 http cache eslint-visitor-keys@https://registry.npmmirror.com/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz 0ms (cache hit)
+403 silly tarball no local data for typescript@https://registry.npmmirror.com/typescript/-/typescript-6.0.3.tgz. Extracting by manifest.
+404 silly tarball no local data for type-detect@https://registry.npmmirror.com/type-detect/-/type-detect-4.0.8.tgz. Extracting by manifest.
+405 silly tarball no local data for type-check@https://registry.npmmirror.com/type-check/-/type-check-0.4.0.tgz. Extracting by manifest.
+406 silly tarball no local data for type-fest@https://registry.npmmirror.com/type-fest/-/type-fest-5.7.0.tgz. Extracting by manifest.
+407 silly tarball no local data for tslog@https://registry.npmmirror.com/tslog/-/tslog-4.10.2.tgz. Extracting by manifest.
+408 silly tarball no local data for tsx@https://registry.npmmirror.com/tsx/-/tsx-4.22.4.tgz. Extracting by manifest.
+409 silly tarball no local data for ts-interface-checker@https://registry.npmmirror.com/ts-interface-checker/-/ts-interface-checker-0.1.13.tgz. Extracting by manifest.
+410 silly tarball no local data for tr46@https://registry.npmmirror.com/tr46/-/tr46-0.0.3.tgz. Extracting by manifest.
+411 silly tarball no local data for ts-api-utils@https://registry.npmmirror.com/ts-api-utils/-/ts-api-utils-2.5.0.tgz. Extracting by manifest.
+412 silly tarball no local data for tree-kill@https://registry.npmmirror.com/tree-kill/-/tree-kill-1.2.2.tgz. Extracting by manifest.
+413 silly tarball no local data for tough-cookie@https://registry.npmmirror.com/tough-cookie/-/tough-cookie-6.0.1.tgz. Extracting by manifest.
+414 silly tarball no local data for tsup@https://registry.npmmirror.com/tsup/-/tsup-8.5.1.tgz. Extracting by manifest.
+415 silly tarball no local data for to-regex-range@https://registry.npmmirror.com/to-regex-range/-/to-regex-range-5.0.1.tgz. Extracting by manifest.
+416 silly tarball no local data for tldts-core@https://registry.npmmirror.com/tldts-core/-/tldts-core-7.4.2.tgz. Extracting by manifest.
+417 silly tarball no local data for tldts@https://registry.npmmirror.com/tldts/-/tldts-7.4.2.tgz. Extracting by manifest.
+418 silly tarball no local data for thenify-all@https://registry.npmmirror.com/thenify-all/-/thenify-all-1.6.0.tgz. Extracting by manifest.
+419 silly tarball no local data for tinyglobby@https://registry.npmmirror.com/tinyglobby/-/tinyglobby-0.2.17.tgz. Extracting by manifest.
+420 silly tarball no local data for time-zone@https://registry.npmmirror.com/time-zone/-/time-zone-1.0.0.tgz. Extracting by manifest.
+421 silly tarball no local data for tinyexec@https://registry.npmmirror.com/tinyexec/-/tinyexec-0.3.2.tgz. Extracting by manifest.
+422 silly tarball no local data for test-exclude@https://registry.npmmirror.com/test-exclude/-/test-exclude-8.0.0.tgz. Extracting by manifest.
+423 silly tarball no local data for tar@https://registry.npmmirror.com/tar/-/tar-7.5.16.tgz. Extracting by manifest.
+424 silly tarball no local data for temp-dir@https://registry.npmmirror.com/temp-dir/-/temp-dir-3.0.0.tgz. Extracting by manifest.
+425 silly tarball no local data for tagged-tag@https://registry.npmmirror.com/tagged-tag/-/tagged-tag-1.0.0.tgz. Extracting by manifest.
+426 silly tarball no local data for supertap@https://registry.npmmirror.com/supertap/-/supertap-3.0.1.tgz. Extracting by manifest.
+427 silly tarball no local data for supports-color@https://registry.npmmirror.com/supports-color/-/supports-color-7.2.0.tgz. Extracting by manifest.
+428 silly tarball no local data for sucrase@https://registry.npmmirror.com/sucrase/-/sucrase-3.35.1.tgz. Extracting by manifest.
+429 silly tarball no local data for strip-ansi@https://registry.npmmirror.com/strip-ansi/-/strip-ansi-7.2.0.tgz. Extracting by manifest.
+430 silly tarball no local data for thenify@https://registry.npmmirror.com/thenify/-/thenify-3.3.1.tgz. Extracting by manifest.
+431 silly tarball no local data for strict-event-emitter@https://registry.npmmirror.com/strict-event-emitter/-/strict-event-emitter-0.5.1.tgz. Extracting by manifest.
+432 silly tarball no local data for string-width@https://registry.npmmirror.com/string-width/-/string-width-8.2.1.tgz. Extracting by manifest.
+433 silly tarball no local data for stack-utils@https://registry.npmmirror.com/stack-utils/-/stack-utils-2.0.6.tgz. Extracting by manifest.
+434 silly tarball no local data for sprintf-js@https://registry.npmmirror.com/sprintf-js/-/sprintf-js-1.0.3.tgz. Extracting by manifest.
+435 silly tarball no local data for slice-ansi@https://registry.npmmirror.com/slice-ansi/-/slice-ansi-9.0.0.tgz. Extracting by manifest.
+436 silly tarball no local data for sinon@https://registry.npmmirror.com/sinon/-/sinon-22.0.0.tgz. Extracting by manifest.
+437 silly tarball no local data for source-map@https://registry.npmmirror.com/source-map/-/source-map-0.7.6.tgz. Extracting by manifest.
+438 silly tarball no local data for signal-exit@https://registry.npmmirror.com/signal-exit/-/signal-exit-4.1.0.tgz. Extracting by manifest.
+439 silly tarball no local data for shebang-regex@https://registry.npmmirror.com/shebang-regex/-/shebang-regex-3.0.0.tgz. Extracting by manifest.
+440 silly tarball no local data for slash@https://registry.npmmirror.com/slash/-/slash-5.1.0.tgz. Extracting by manifest.
+441 silly tarball no local data for semver@https://registry.npmmirror.com/semver/-/semver-7.8.1.tgz. Extracting by manifest.
+442 silly tarball no local data for shebang-command@https://registry.npmmirror.com/shebang-command/-/shebang-command-2.0.0.tgz. Extracting by manifest.
+443 silly tarball no local data for seenreq@https://registry.npmmirror.com/seenreq/-/seenreq-3.0.0.tgz. Extracting by manifest.
+444 silly tarball no local data for rollup@https://registry.npmmirror.com/rollup/-/rollup-4.61.1.tgz. Extracting by manifest.
+445 silly tarball no local data for safer-buffer@https://registry.npmmirror.com/safer-buffer/-/safer-buffer-2.1.2.tgz. Extracting by manifest.
+446 silly tarball no local data for run-parallel@https://registry.npmmirror.com/run-parallel/-/run-parallel-1.2.0.tgz. Extracting by manifest.
+447 silly tarball no local data for reusify@https://registry.npmmirror.com/reusify/-/reusify-1.1.0.tgz. Extracting by manifest.
+448 silly tarball no local data for serialize-error@https://registry.npmmirror.com/serialize-error/-/serialize-error-7.0.1.tgz. Extracting by manifest.
+449 silly tarball no local data for responselike@https://registry.npmmirror.com/responselike/-/responselike-4.0.2.tgz. Extracting by manifest.
+450 silly tarball no local data for resolve-from@https://registry.npmmirror.com/resolve-from/-/resolve-from-5.0.0.tgz. Extracting by manifest.
+451 silly tarball no local data for resolve-cwd@https://registry.npmmirror.com/resolve-cwd/-/resolve-cwd-3.0.0.tgz. Extracting by manifest.
+452 silly tarball no local data for require-directory@https://registry.npmmirror.com/require-directory/-/require-directory-2.1.1.tgz. Extracting by manifest.
+453 silly tarball no local data for quick-lru@https://registry.npmmirror.com/quick-lru/-/quick-lru-5.1.1.tgz. Extracting by manifest.
+454 silly tarball no local data for readdirp@https://registry.npmmirror.com/readdirp/-/readdirp-4.1.2.tgz. Extracting by manifest.
+455 silly tarball no local data for queue-microtask@https://registry.npmmirror.com/queue-microtask/-/queue-microtask-1.2.3.tgz. Extracting by manifest.
+456 silly tarball no local data for punycode@https://registry.npmmirror.com/punycode/-/punycode-2.3.1.tgz. Extracting by manifest.
+457 silly tarball no local data for propagate@https://registry.npmmirror.com/propagate/-/propagate-2.0.1.tgz. Extracting by manifest.
+458 silly tarball no local data for resolve-alpn@https://registry.npmmirror.com/resolve-alpn/-/resolve-alpn-1.2.1.tgz. Extracting by manifest.
+459 silly tarball no local data for prelude-ls@https://registry.npmmirror.com/prelude-ls/-/prelude-ls-1.2.1.tgz. Extracting by manifest.
+460 silly tarball no local data for postcss-load-config@https://registry.npmmirror.com/postcss-load-config/-/postcss-load-config-6.0.1.tgz. Extracting by manifest.
+461 silly tarball no local data for pretty-ms@https://registry.npmmirror.com/pretty-ms/-/pretty-ms-9.3.0.tgz. Extracting by manifest.
+462 silly tarball no local data for pkg-types@https://registry.npmmirror.com/pkg-types/-/pkg-types-1.3.1.tgz. Extracting by manifest.
+463 silly tarball no local data for pirates@https://registry.npmmirror.com/pirates/-/pirates-4.0.7.tgz. Extracting by manifest.
+464 silly tarball no local data for plur@https://registry.npmmirror.com/plur/-/plur-6.0.0.tgz. Extracting by manifest.
+465 silly tarball no local data for pathe@https://registry.npmmirror.com/pathe/-/pathe-2.0.3.tgz. Extracting by manifest.
+466 silly tarball no local data for path-scurry@https://registry.npmmirror.com/path-scurry/-/path-scurry-2.0.2.tgz. Extracting by manifest.
+467 silly tarball no local data for picocolors@https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz. Extracting by manifest.
+468 silly tarball no local data for picomatch@https://registry.npmmirror.com/picomatch/-/picomatch-4.0.4.tgz. Extracting by manifest.
+469 silly tarball no local data for path-exists@https://registry.npmmirror.com/path-exists/-/path-exists-4.0.0.tgz. Extracting by manifest.
+470 silly tarball no local data for parse5-parser-stream@https://registry.npmmirror.com/parse5-parser-stream/-/parse5-parser-stream-7.1.2.tgz. Extracting by manifest.
+471 silly tarball no local data for parse5-htmlparser2-tree-adapter@https://registry.npmmirror.com/parse5-htmlparser2-tree-adapter/-/parse5-htmlparser2-tree-adapter-7.1.0.tgz. Extracting by manifest.
+472 silly tarball no local data for path-key@https://registry.npmmirror.com/path-key/-/path-key-3.1.1.tgz. Extracting by manifest.
+473 silly tarball no local data for parse5@https://registry.npmmirror.com/parse5/-/parse5-7.3.0.tgz. Extracting by manifest.
+474 silly tarball no local data for parse-ms@https://registry.npmmirror.com/parse-ms/-/parse-ms-4.0.0.tgz. Extracting by manifest.
+475 silly tarball no local data for p-map@https://registry.npmmirror.com/p-map/-/p-map-7.0.4.tgz. Extracting by manifest.
+476 silly tarball no local data for package-config@https://registry.npmmirror.com/package-config/-/package-config-5.0.0.tgz. Extracting by manifest.
+477 silly tarball no local data for p-locate@https://registry.npmmirror.com/p-locate/-/p-locate-5.0.0.tgz. Extracting by manifest.
+478 silly tarball no local data for p-limit@https://registry.npmmirror.com/p-limit/-/p-limit-3.1.0.tgz. Extracting by manifest.
+479 silly tarball no local data for outvariant@https://registry.npmmirror.com/outvariant/-/outvariant-1.4.3.tgz. Extracting by manifest.
+480 silly tarball no local data for optionator@https://registry.npmmirror.com/optionator/-/optionator-0.9.4.tgz. Extracting by manifest.
+481 silly tarball no local data for object-assign@https://registry.npmmirror.com/object-assign/-/object-assign-4.1.1.tgz. Extracting by manifest.
+482 silly tarball no local data for normalize-url@https://registry.npmmirror.com/normalize-url/-/normalize-url-8.1.1.tgz. Extracting by manifest.
+483 silly tarball no local data for nth-check@https://registry.npmmirror.com/nth-check/-/nth-check-2.1.1.tgz. Extracting by manifest.
+484 silly tarball no local data for node-url-utils@https://registry.npmmirror.com/node-url-utils/-/node-url-utils-0.4.0.tgz. Extracting by manifest.
+485 silly tarball no local data for nopt@https://registry.npmmirror.com/nopt/-/nopt-8.1.0.tgz. Extracting by manifest.
+486 silly tarball no local data for node-gyp-build@https://registry.npmmirror.com/node-gyp-build/-/node-gyp-build-4.8.4.tgz. Extracting by manifest.
+487 silly tarball no local data for node-fetch@https://registry.npmmirror.com/node-fetch/-/node-fetch-2.7.0.tgz. Extracting by manifest.
+488 silly tarball no local data for nock@https://registry.npmmirror.com/nock/-/nock-14.0.15.tgz. Extracting by manifest.
+489 silly tarball no local data for natural-compare@https://registry.npmmirror.com/natural-compare/-/natural-compare-1.4.0.tgz. Extracting by manifest.
+490 silly tarball no local data for ms@https://registry.npmmirror.com/ms/-/ms-2.1.3.tgz. Extracting by manifest.
+491 silly tarball no local data for mlly@https://registry.npmmirror.com/mlly/-/mlly-1.8.2.tgz. Extracting by manifest.
+492 silly tarball no local data for minizlib@https://registry.npmmirror.com/minizlib/-/minizlib-3.1.0.tgz. Extracting by manifest.
+493 silly tarball no local data for minipass@https://registry.npmmirror.com/minipass/-/minipass-7.1.3.tgz. Extracting by manifest.
+494 silly tarball no local data for mz@https://registry.npmmirror.com/mz/-/mz-2.7.0.tgz. Extracting by manifest.
+495 silly tarball no local data for mimic-response@https://registry.npmmirror.com/mimic-response/-/mimic-response-4.0.0.tgz. Extracting by manifest.
+496 silly tarball no local data for minimatch@https://registry.npmmirror.com/minimatch/-/minimatch-10.2.5.tgz. Extracting by manifest.
+497 silly tarball no local data for mimic-function@https://registry.npmmirror.com/mimic-function/-/mimic-function-5.0.1.tgz. Extracting by manifest.
+498 silly tarball no local data for micromatch@https://registry.npmmirror.com/micromatch/-/micromatch-4.0.8.tgz. Extracting by manifest.
+499 silly tarball no local data for memoize@https://registry.npmmirror.com/memoize/-/memoize-11.0.0.tgz. Extracting by manifest.
+500 silly tarball no local data for merge2@https://registry.npmmirror.com/merge2/-/merge2-1.4.1.tgz. Extracting by manifest.
+501 silly tarball no local data for md5-hex@https://registry.npmmirror.com/md5-hex/-/md5-hex-3.0.1.tgz. Extracting by manifest.
+502 silly tarball no local data for matcher@https://registry.npmmirror.com/matcher/-/matcher-6.0.0.tgz. Extracting by manifest.
+503 silly tarball no local data for make-dir@https://registry.npmmirror.com/make-dir/-/make-dir-4.0.0.tgz. Extracting by manifest.
+504 silly tarball no local data for magic-string@https://registry.npmmirror.com/magic-string/-/magic-string-0.30.21.tgz. Extracting by manifest.
+505 silly tarball no local data for lru-cache@https://registry.npmmirror.com/lru-cache/-/lru-cache-11.5.1.tgz. Extracting by manifest.
+506 silly tarball no local data for lodash@https://registry.npmmirror.com/lodash/-/lodash-4.18.1.tgz. Extracting by manifest.
+507 silly tarball no local data for locate-path@https://registry.npmmirror.com/locate-path/-/locate-path-6.0.0.tgz. Extracting by manifest.
+508 silly tarball no local data for load-tsconfig@https://registry.npmmirror.com/load-tsconfig/-/load-tsconfig-0.2.5.tgz. Extracting by manifest.
+509 silly tarball no local data for lines-and-columns@https://registry.npmmirror.com/lines-and-columns/-/lines-and-columns-1.2.4.tgz. Extracting by manifest.
+510 silly tarball no local data for lowercase-keys@https://registry.npmmirror.com/lowercase-keys/-/lowercase-keys-4.0.1.tgz. Extracting by manifest.
+511 silly tarball no local data for load-json-file@https://registry.npmmirror.com/load-json-file/-/load-json-file-7.0.1.tgz. Extracting by manifest.
+512 silly tarball no local data for lilconfig@https://registry.npmmirror.com/lilconfig/-/lilconfig-3.1.3.tgz. Extracting by manifest.
+513 silly tarball no local data for levn@https://registry.npmmirror.com/levn/-/levn-0.4.1.tgz. Extracting by manifest.
+514 silly tarball no local data for keyv@https://registry.npmmirror.com/keyv/-/keyv-4.5.4.tgz. Extracting by manifest.
+515 silly tarball no local data for json-stringify-safe@https://registry.npmmirror.com/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz. Extracting by manifest.
+516 silly tarball no local data for json-schema-traverse@https://registry.npmmirror.com/json-schema-traverse/-/json-schema-traverse-0.4.1.tgz. Extracting by manifest.
+517 silly tarball no local data for json-buffer@https://registry.npmmirror.com/json-buffer/-/json-buffer-3.0.1.tgz. Extracting by manifest.
+518 silly tarball no local data for js-yaml@https://registry.npmmirror.com/js-yaml/-/js-yaml-3.14.2.tgz. Extracting by manifest.
+519 silly tarball no local data for js-string-escape@https://registry.npmmirror.com/js-string-escape/-/js-string-escape-1.0.1.tgz. Extracting by manifest.
+520 silly tarball no local data for istanbul-reports@https://registry.npmmirror.com/istanbul-reports/-/istanbul-reports-3.2.0.tgz. Extracting by manifest.
+521 silly tarball no local data for joycon@https://registry.npmmirror.com/joycon/-/joycon-3.1.1.tgz. Extracting by manifest.
+522 silly tarball no local data for istanbul-lib-report@https://registry.npmmirror.com/istanbul-lib-report/-/istanbul-lib-report-3.0.1.tgz. Extracting by manifest.
+523 silly tarball no local data for istanbul-lib-coverage@https://registry.npmmirror.com/istanbul-lib-coverage/-/istanbul-lib-coverage-3.2.2.tgz. Extracting by manifest.
+524 silly tarball no local data for isexe@https://registry.npmmirror.com/isexe/-/isexe-2.0.0.tgz. Extracting by manifest.
+525 silly tarball no local data for is-unicode-supported@https://registry.npmmirror.com/is-unicode-supported/-/is-unicode-supported-2.1.0.tgz. Extracting by manifest.
+526 silly tarball no local data for is-promise@https://registry.npmmirror.com/is-promise/-/is-promise-4.0.0.tgz. Extracting by manifest.
+527 silly tarball no local data for json-stable-stringify-without-jsonify@https://registry.npmmirror.com/json-stable-stringify-without-jsonify/-/json-stable-stringify-without-jsonify-1.0.1.tgz. Extracting by manifest.
+528 silly tarball no local data for is-plain-object@https://registry.npmmirror.com/is-plain-object/-/is-plain-object-5.0.0.tgz. Extracting by manifest.
+529 silly tarball no local data for is-path-inside@https://registry.npmmirror.com/is-path-inside/-/is-path-inside-4.0.0.tgz. Extracting by manifest.
+530 silly tarball no local data for is-stream@https://registry.npmmirror.com/is-stream/-/is-stream-4.0.1.tgz. Extracting by manifest.
+531 silly tarball no local data for is-number@https://registry.npmmirror.com/is-number/-/is-number-7.0.0.tgz. Extracting by manifest.
+532 silly tarball no local data for is-node-process@https://registry.npmmirror.com/is-node-process/-/is-node-process-1.2.0.tgz. Extracting by manifest.
+533 silly tarball no local data for is-glob@https://registry.npmmirror.com/is-glob/-/is-glob-4.0.3.tgz. Extracting by manifest.
+534 silly tarball no local data for is-fullwidth-code-point@https://registry.npmmirror.com/is-fullwidth-code-point/-/is-fullwidth-code-point-5.1.0.tgz. Extracting by manifest.
+535 silly tarball no local data for is-extglob@https://registry.npmmirror.com/is-extglob/-/is-extglob-2.1.1.tgz. Extracting by manifest.
+536 silly tarball no local data for irregular-plurals@https://registry.npmmirror.com/irregular-plurals/-/irregular-plurals-4.2.0.tgz. Extracting by manifest.
+537 silly tarball no local data for indent-string@https://registry.npmmirror.com/indent-string/-/indent-string-5.0.0.tgz. Extracting by manifest.
+538 silly tarball no local data for ignore-by-default@https://registry.npmmirror.com/ignore-by-default/-/ignore-by-default-2.1.0.tgz. Extracting by manifest.
+539 silly tarball no local data for iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.7.2.tgz. Extracting by manifest.
+540 silly tarball no local data for ignore@https://registry.npmmirror.com/ignore/-/ignore-5.3.2.tgz. Extracting by manifest.
+541 silly tarball no local data for https-proxy-agent@https://registry.npmmirror.com/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz. Extracting by manifest.
+542 silly tarball no local data for http2-wrapper@https://registry.npmmirror.com/http2-wrapper/-/http2-wrapper-2.2.1.tgz. Extracting by manifest.
+543 silly tarball no local data for http-cache-semantics@https://registry.npmmirror.com/http-cache-semantics/-/http-cache-semantics-4.2.0.tgz. Extracting by manifest.
+544 silly tarball no local data for htmlparser2@https://registry.npmmirror.com/htmlparser2/-/htmlparser2-10.1.0.tgz. Extracting by manifest.
+545 silly tarball no local data for html-escaper@https://registry.npmmirror.com/html-escaper/-/html-escaper-2.0.2.tgz. Extracting by manifest.
+546 silly tarball no local data for hpagent@https://registry.npmmirror.com/hpagent/-/hpagent-1.2.0.tgz. Extracting by manifest.
+547 silly tarball no local data for has-flag@https://registry.npmmirror.com/has-flag/-/has-flag-4.0.0.tgz. Extracting by manifest.
+548 silly tarball no local data for got@https://registry.npmmirror.com/got/-/got-15.0.5.tgz. Extracting by manifest.
+549 silly tarball no local data for imurmurhash@https://registry.npmmirror.com/imurmurhash/-/imurmurhash-0.1.4.tgz. Extracting by manifest.
+550 silly tarball no local data for globby@https://registry.npmmirror.com/globby/-/globby-16.2.0.tgz. Extracting by manifest.
+551 silly tarball no local data for graceful-fs@https://registry.npmmirror.com/graceful-fs/-/graceful-fs-4.2.11.tgz. Extracting by manifest.
+552 silly tarball no local data for globals@https://registry.npmmirror.com/globals/-/globals-17.6.0.tgz. Extracting by manifest.
+553 silly tarball no local data for glob-parent@https://registry.npmmirror.com/glob-parent/-/glob-parent-6.0.2.tgz. Extracting by manifest.
+554 silly tarball no local data for glob@https://registry.npmmirror.com/glob/-/glob-13.0.6.tgz. Extracting by manifest.
+555 silly tarball no local data for get-stream@https://registry.npmmirror.com/get-stream/-/get-stream-9.0.1.tgz. Extracting by manifest.
+556 silly tarball no local data for get-east-asian-width@https://registry.npmmirror.com/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz. Extracting by manifest.
+557 silly tarball no local data for get-caller-file@https://registry.npmmirror.com/get-caller-file/-/get-caller-file-2.0.5.tgz. Extracting by manifest.
+558 silly tarball no local data for fsevents@https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz. Extracting by manifest.
+559 silly tarball no local data for flatted@https://registry.npmmirror.com/flatted/-/flatted-3.4.2.tgz. Extracting by manifest.
+560 silly tarball no local data for flat-cache@https://registry.npmmirror.com/flat-cache/-/flat-cache-4.0.1.tgz. Extracting by manifest.
+561 silly tarball no local data for fix-dts-default-cjs-exports@https://registry.npmmirror.com/fix-dts-default-cjs-exports/-/fix-dts-default-cjs-exports-1.0.1.tgz. Extracting by manifest.
+562 silly tarball no local data for find-up-simple@https://registry.npmmirror.com/find-up-simple/-/find-up-simple-1.0.1.tgz. Extracting by manifest.
+563 silly tarball no local data for foreground-child@https://registry.npmmirror.com/foreground-child/-/foreground-child-3.3.1.tgz. Extracting by manifest.
+564 silly tarball no local data for find-up@https://registry.npmmirror.com/find-up/-/find-up-5.0.0.tgz. Extracting by manifest.
+565 silly tarball no local data for fill-range@https://registry.npmmirror.com/fill-range/-/fill-range-7.1.1.tgz. Extracting by manifest.
+566 silly tarball no local data for file-entry-cache@https://registry.npmmirror.com/file-entry-cache/-/file-entry-cache-8.0.0.tgz. Extracting by manifest.
+567 silly tarball no local data for file-uri-to-path@https://registry.npmmirror.com/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz. Extracting by manifest.
+568 silly tarball no local data for figures@https://registry.npmmirror.com/figures/-/figures-6.1.0.tgz. Extracting by manifest.
+569 silly tarball no local data for fdir@https://registry.npmmirror.com/fdir/-/fdir-6.5.0.tgz. Extracting by manifest.
+570 silly tarball no local data for fastq@https://registry.npmmirror.com/fastq/-/fastq-1.20.1.tgz. Extracting by manifest.
+571 silly tarball no local data for fast-levenshtein@https://registry.npmmirror.com/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz. Extracting by manifest.
+572 silly tarball no local data for fast-json-stable-stringify@https://registry.npmmirror.com/fast-json-stable-stringify/-/fast-json-stable-stringify-2.1.0.tgz. Extracting by manifest.
+573 silly tarball no local data for fast-glob@https://registry.npmmirror.com/fast-glob/-/fast-glob-3.3.3.tgz. Extracting by manifest.
+574 silly tarball no local data for fast-diff@https://registry.npmmirror.com/fast-diff/-/fast-diff-1.3.0.tgz. Extracting by manifest.
+575 silly tarball no local data for esutils@https://registry.npmmirror.com/esutils/-/esutils-2.0.3.tgz. Extracting by manifest.
+576 silly tarball no local data for fast-deep-equal@https://registry.npmmirror.com/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz. Extracting by manifest.
+577 silly tarball no local data for estree-walker@https://registry.npmmirror.com/estree-walker/-/estree-walker-2.0.2.tgz. Extracting by manifest.
+578 silly tarball no local data for estraverse@https://registry.npmmirror.com/estraverse/-/estraverse-5.3.0.tgz. Extracting by manifest.
+579 silly tarball no local data for esrecurse@https://registry.npmmirror.com/esrecurse/-/esrecurse-4.3.0.tgz. Extracting by manifest.
+580 silly tarball no local data for esprima@https://registry.npmmirror.com/esprima/-/esprima-4.0.1.tgz. Extracting by manifest.
+581 silly tarball no local data for espree@https://registry.npmmirror.com/espree/-/espree-11.2.0.tgz. Extracting by manifest.
+582 silly tarball no local data for eslint-scope@https://registry.npmmirror.com/eslint-scope/-/eslint-scope-9.1.2.tgz. Extracting by manifest.
+583 silly tarball no local data for eslint-visitor-keys@https://registry.npmmirror.com/eslint-visitor-keys/-/eslint-visitor-keys-5.0.1.tgz. Extracting by manifest.
+584 silly tarball no local data for eslint@https://registry.npmmirror.com/eslint/-/eslint-10.4.1.tgz. Extracting by manifest.
+585 silly tarball no local data for esquery@https://registry.npmmirror.com/esquery/-/esquery-1.7.0.tgz. Extracting by manifest.
+586 silly tarball no local data for escalade@https://registry.npmmirror.com/escalade/-/escalade-3.2.0.tgz. Extracting by manifest.
+587 silly tarball no local data for escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-4.0.0.tgz. Extracting by manifest.
+588 silly tarball no local data for esbuild@https://registry.npmmirror.com/esbuild/-/esbuild-0.28.1.tgz. Extracting by manifest.
+589 silly tarball no local data for encoding-sniffer@https://registry.npmmirror.com/encoding-sniffer/-/encoding-sniffer-0.2.1.tgz. Extracting by manifest.
+590 silly tarball no local data for emittery@https://registry.npmmirror.com/emittery/-/emittery-2.0.0.tgz. Extracting by manifest.
+591 silly tarball no local data for domutils@https://registry.npmmirror.com/domutils/-/domutils-3.2.2.tgz. Extracting by manifest.
+592 silly tarball no local data for domhandler@https://registry.npmmirror.com/domhandler/-/domhandler-5.0.3.tgz. Extracting by manifest.
+593 silly tarball no local data for domelementtype@https://registry.npmmirror.com/domelementtype/-/domelementtype-2.3.0.tgz. Extracting by manifest.
+594 silly tarball no local data for emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-8.0.0.tgz. Extracting by manifest.
+595 silly tarball no local data for dom-serializer@https://registry.npmmirror.com/dom-serializer/-/dom-serializer-2.0.0.tgz. Extracting by manifest.
+596 silly tarball no local data for entities@https://registry.npmmirror.com/entities/-/entities-4.5.0.tgz. Extracting by manifest.
+597 silly tarball no local data for diff@https://registry.npmmirror.com/diff/-/diff-9.0.0.tgz. Extracting by manifest.
+598 silly tarball no local data for detect-libc@https://registry.npmmirror.com/detect-libc/-/detect-libc-2.1.2.tgz. Extracting by manifest.
+599 silly tarball no local data for deep-is@https://registry.npmmirror.com/deep-is/-/deep-is-0.1.4.tgz. Extracting by manifest.
+600 silly tarball no local data for date-time@https://registry.npmmirror.com/date-time/-/date-time-3.1.0.tgz. Extracting by manifest.
+601 silly tarball no local data for decompress-response@https://registry.npmmirror.com/decompress-response/-/decompress-response-10.0.0.tgz. Extracting by manifest.
+602 silly tarball no local data for debug@https://registry.npmmirror.com/debug/-/debug-4.4.3.tgz. Extracting by manifest.
+603 silly tarball no local data for currently-unhandled@https://registry.npmmirror.com/currently-unhandled/-/currently-unhandled-0.4.1.tgz. Extracting by manifest.
+604 silly tarball no local data for css-what@https://registry.npmmirror.com/css-what/-/css-what-6.2.2.tgz. Extracting by manifest.
+605 silly tarball no local data for css-select@https://registry.npmmirror.com/css-select/-/css-select-5.2.2.tgz. Extracting by manifest.
+606 silly tarball no local data for convert-to-spaces@https://registry.npmmirror.com/convert-to-spaces/-/convert-to-spaces-2.0.1.tgz. Extracting by manifest.
+607 silly tarball no local data for cross-spawn@https://registry.npmmirror.com/cross-spawn/-/cross-spawn-7.0.6.tgz. Extracting by manifest.
+608 silly tarball no local data for consola@https://registry.npmmirror.com/consola/-/consola-3.4.2.tgz. Extracting by manifest.
+609 silly tarball no local data for convert-source-map@https://registry.npmmirror.com/convert-source-map/-/convert-source-map-2.0.0.tgz. Extracting by manifest.
+610 silly tarball no local data for confbox@https://registry.npmmirror.com/confbox/-/confbox-0.1.8.tgz. Extracting by manifest.
+611 silly tarball no local data for concordance@https://registry.npmmirror.com/concordance/-/concordance-5.0.4.tgz. Extracting by manifest.
+612 silly tarball no local data for common-path-prefix@https://registry.npmmirror.com/common-path-prefix/-/common-path-prefix-3.0.0.tgz. Extracting by manifest.
+613 silly tarball no local data for commander@https://registry.npmmirror.com/commander/-/commander-4.1.1.tgz. Extracting by manifest.
+614 silly tarball no local data for color-convert@https://registry.npmmirror.com/color-convert/-/color-convert-2.0.1.tgz. Extracting by manifest.
+615 silly tarball no local data for color-name@https://registry.npmmirror.com/color-name/-/color-name-1.1.4.tgz. Extracting by manifest.
+616 silly tarball no local data for code-excerpt@https://registry.npmmirror.com/code-excerpt/-/code-excerpt-4.0.0.tgz. Extracting by manifest.
+617 silly tarball no local data for ci-parallel-vars@https://registry.npmmirror.com/ci-parallel-vars/-/ci-parallel-vars-1.0.1.tgz. Extracting by manifest.
+618 silly tarball no local data for ci-info@https://registry.npmmirror.com/ci-info/-/ci-info-4.4.0.tgz. Extracting by manifest.
+619 silly tarball no local data for cliui@https://registry.npmmirror.com/cliui/-/cliui-9.0.1.tgz. Extracting by manifest.
+620 silly tarball no local data for cli-truncate@https://registry.npmmirror.com/cli-truncate/-/cli-truncate-6.0.0.tgz. Extracting by manifest.
+621 silly tarball no local data for chunkd@https://registry.npmmirror.com/chunkd/-/chunkd-2.0.1.tgz. Extracting by manifest.
+622 silly tarball no local data for cheerio-select@https://registry.npmmirror.com/cheerio-select/-/cheerio-select-2.1.0.tgz. Extracting by manifest.
+623 silly tarball no local data for chokidar@https://registry.npmmirror.com/chokidar/-/chokidar-4.0.3.tgz. Extracting by manifest.
+624 silly tarball no local data for chownr@https://registry.npmmirror.com/chownr/-/chownr-3.0.0.tgz. Extracting by manifest.
+625 silly tarball no local data for chunk-data@https://registry.npmmirror.com/chunk-data/-/chunk-data-0.1.0.tgz. Extracting by manifest.
+626 silly tarball no local data for cheerio@https://registry.npmmirror.com/cheerio/-/cheerio-1.2.0.tgz. Extracting by manifest.
+627 silly tarball no local data for chalk@https://registry.npmmirror.com/chalk/-/chalk-5.6.2.tgz. Extracting by manifest.
+628 silly tarball no local data for cbor2@https://registry.npmmirror.com/cbor2/-/cbor2-2.3.0.tgz. Extracting by manifest.
+629 silly tarball no local data for callsites@https://registry.npmmirror.com/callsites/-/callsites-4.2.0.tgz. Extracting by manifest.
+630 silly tarball no local data for cacheable-request@https://registry.npmmirror.com/cacheable-request/-/cacheable-request-13.0.19.tgz. Extracting by manifest.
+631 silly tarball no local data for cac@https://registry.npmmirror.com/cac/-/cac-6.7.14.tgz. Extracting by manifest.
+632 silly tarball no local data for cacheable-lookup@https://registry.npmmirror.com/cacheable-lookup/-/cacheable-lookup-7.0.0.tgz. Extracting by manifest.
+633 silly tarball no local data for byte-counter@https://registry.npmmirror.com/byte-counter/-/byte-counter-0.1.0.tgz. Extracting by manifest.
+634 silly tarball no local data for bundle-require@https://registry.npmmirror.com/bundle-require/-/bundle-require-5.1.0.tgz. Extracting by manifest.
+635 silly tarball no local data for c8@https://registry.npmmirror.com/c8/-/c8-11.0.0.tgz. Extracting by manifest.
+636 silly tarball no local data for brace-expansion@https://registry.npmmirror.com/brace-expansion/-/brace-expansion-5.0.6.tgz. Extracting by manifest.
+637 silly tarball no local data for braces@https://registry.npmmirror.com/braces/-/braces-3.0.3.tgz. Extracting by manifest.
+638 silly tarball no local data for boolbase@https://registry.npmmirror.com/boolbase/-/boolbase-1.0.0.tgz. Extracting by manifest.
+639 silly tarball no local data for blueimp-md5@https://registry.npmmirror.com/blueimp-md5/-/blueimp-md5-2.19.0.tgz. Extracting by manifest.
+640 silly tarball no local data for async-sema@https://registry.npmmirror.com/async-sema/-/async-sema-3.1.1.tgz. Extracting by manifest.
+641 silly tarball no local data for ava@https://registry.npmmirror.com/ava/-/ava-8.0.1.tgz. Extracting by manifest.
+642 silly tarball no local data for balanced-match@https://registry.npmmirror.com/balanced-match/-/balanced-match-4.0.4.tgz. Extracting by manifest.
+643 silly tarball no local data for arrify@https://registry.npmmirror.com/arrify/-/arrify-3.0.0.tgz. Extracting by manifest.
+644 silly tarball no local data for bindings@https://registry.npmmirror.com/bindings/-/bindings-1.5.0.tgz. Extracting by manifest.
+645 silly tarball no local data for arrgv@https://registry.npmmirror.com/arrgv/-/arrgv-1.0.2.tgz. Extracting by manifest.
+646 silly tarball no local data for array-find-index@https://registry.npmmirror.com/array-find-index/-/array-find-index-1.0.2.tgz. Extracting by manifest.
+647 silly tarball no local data for argparse@https://registry.npmmirror.com/argparse/-/argparse-1.0.10.tgz. Extracting by manifest.
+648 silly tarball no local data for ansi-styles@https://registry.npmmirror.com/ansi-styles/-/ansi-styles-6.2.3.tgz. Extracting by manifest.
+649 silly tarball no local data for agent-base@https://registry.npmmirror.com/agent-base/-/agent-base-7.1.4.tgz. Extracting by manifest.
+650 silly tarball no local data for acorn-walk@https://registry.npmmirror.com/acorn-walk/-/acorn-walk-8.3.5.tgz. Extracting by manifest.
+651 silly tarball no local data for ajv@https://registry.npmmirror.com/ajv/-/ajv-6.15.0.tgz. Extracting by manifest.
+652 silly tarball no local data for any-promise@https://registry.npmmirror.com/any-promise/-/any-promise-1.3.0.tgz. Extracting by manifest.
+653 silly tarball no local data for ansi-regex@https://registry.npmmirror.com/ansi-regex/-/ansi-regex-6.2.2.tgz. Extracting by manifest.
+654 silly tarball no local data for abbrev@https://registry.npmmirror.com/abbrev/-/abbrev-3.0.1.tgz. Extracting by manifest.
+655 silly tarball no local data for acorn-jsx@https://registry.npmmirror.com/acorn-jsx/-/acorn-jsx-5.3.2.tgz. Extracting by manifest.
+656 silly tarball no local data for acorn-import-attributes@https://registry.npmmirror.com/acorn-import-attributes/-/acorn-import-attributes-1.9.5.tgz. Extracting by manifest.
+657 silly tarball no local data for @vercel/nft@https://registry.npmmirror.com/@vercel/nft/-/nft-1.10.2.tgz. Extracting by manifest.
+658 silly tarball no local data for acorn@https://registry.npmmirror.com/acorn/-/acorn-8.16.0.tgz. Extracting by manifest.
+659 silly tarball no local data for @typescript-eslint/utils@https://registry.npmmirror.com/@typescript-eslint/utils/-/utils-8.60.1.tgz. Extracting by manifest.
+660 silly tarball no local data for @typescript-eslint/visitor-keys@https://registry.npmmirror.com/@typescript-eslint/visitor-keys/-/visitor-keys-8.60.1.tgz. Extracting by manifest.
+661 silly tarball no local data for @typescript-eslint/type-utils@https://registry.npmmirror.com/@typescript-eslint/type-utils/-/type-utils-8.60.1.tgz. Extracting by manifest.
+662 silly tarball no local data for @typescript-eslint/typescript-estree@https://registry.npmmirror.com/@typescript-eslint/typescript-estree/-/typescript-estree-8.60.1.tgz. Extracting by manifest.
+663 silly tarball no local data for @typescript-eslint/types@https://registry.npmmirror.com/@typescript-eslint/types/-/types-8.60.1.tgz. Extracting by manifest.
+664 silly tarball no local data for @typescript-eslint/scope-manager@https://registry.npmmirror.com/@typescript-eslint/scope-manager/-/scope-manager-8.60.1.tgz. Extracting by manifest.
+665 silly tarball no local data for @typescript-eslint/tsconfig-utils@https://registry.npmmirror.com/@typescript-eslint/tsconfig-utils/-/tsconfig-utils-8.60.1.tgz. Extracting by manifest.
+666 silly tarball no local data for @typescript-eslint/project-service@https://registry.npmmirror.com/@typescript-eslint/project-service/-/project-service-8.60.1.tgz. Extracting by manifest.
+667 silly tarball no local data for @types/node@https://registry.npmmirror.com/@types/node/-/node-24.12.4.tgz. Extracting by manifest.
+668 silly tarball no local data for @types/json-schema@https://registry.npmmirror.com/@types/json-schema/-/json-schema-7.0.15.tgz. Extracting by manifest.
+669 silly tarball no local data for @typescript-eslint/eslint-plugin@https://registry.npmmirror.com/@typescript-eslint/eslint-plugin/-/eslint-plugin-8.60.1.tgz. Extracting by manifest.
+670 silly tarball no local data for @typescript-eslint/parser@https://registry.npmmirror.com/@typescript-eslint/parser/-/parser-8.60.1.tgz. Extracting by manifest.
+671 silly tarball no local data for @types/istanbul-lib-coverage@https://registry.npmmirror.com/@types/istanbul-lib-coverage/-/istanbul-lib-coverage-2.0.6.tgz. Extracting by manifest.
+672 silly tarball no local data for @types/http-cache-semantics@https://registry.npmmirror.com/@types/http-cache-semantics/-/http-cache-semantics-4.2.0.tgz. Extracting by manifest.
+673 silly tarball no local data for @types/estree@https://registry.npmmirror.com/@types/estree/-/estree-1.0.9.tgz. Extracting by manifest.
+674 silly tarball no local data for @types/esrecurse@https://registry.npmmirror.com/@types/esrecurse/-/esrecurse-4.3.1.tgz. Extracting by manifest.
+675 silly tarball no local data for @sinonjs/fake-timers@https://registry.npmmirror.com/@sinonjs/fake-timers/-/fake-timers-15.4.0.tgz. Extracting by manifest.
+676 silly tarball no local data for @sinonjs/commons@https://registry.npmmirror.com/@sinonjs/commons/-/commons-3.0.1.tgz. Extracting by manifest.
+677 silly tarball no local data for @sindresorhus/merge-streams@https://registry.npmmirror.com/@sindresorhus/merge-streams/-/merge-streams-4.0.0.tgz. Extracting by manifest.
+678 silly tarball no local data for @sindresorhus/is@https://registry.npmmirror.com/@sindresorhus/is/-/is-8.1.0.tgz. Extracting by manifest.
+679 silly tarball no local data for @sinonjs/samsam@https://registry.npmmirror.com/@sinonjs/samsam/-/samsam-10.0.2.tgz. Extracting by manifest.
+680 silly tarball no local data for @rollup/rollup-darwin-arm64@https://registry.npmmirror.com/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.61.1.tgz. Extracting by manifest.
+681 silly tarball no local data for @sec-ant/readable-stream@https://registry.npmmirror.com/@sec-ant/readable-stream/-/readable-stream-0.4.1.tgz. Extracting by manifest.
+682 silly tarball no local data for @rollup/pluginutils@https://registry.npmmirror.com/@rollup/pluginutils/-/pluginutils-5.4.0.tgz. Extracting by manifest.
+683 silly tarball no local data for @open-draft/until@https://registry.npmmirror.com/@open-draft/until/-/until-2.1.0.tgz. Extracting by manifest.
+684 silly tarball no local data for @open-draft/logger@https://registry.npmmirror.com/@open-draft/logger/-/logger-0.3.0.tgz. Extracting by manifest.
+685 silly tarball no local data for @open-draft/deferred-promise@https://registry.npmmirror.com/@open-draft/deferred-promise/-/deferred-promise-2.2.0.tgz. Extracting by manifest.
+686 silly tarball no local data for @nodelib/fs.walk@https://registry.npmmirror.com/@nodelib/fs.walk/-/fs.walk-1.2.8.tgz. Extracting by manifest.
+687 silly tarball no local data for @nodelib/fs.stat@https://registry.npmmirror.com/@nodelib/fs.stat/-/fs.stat-2.0.5.tgz. Extracting by manifest.
+688 silly tarball no local data for @nodelib/fs.scandir@https://registry.npmmirror.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz. Extracting by manifest.
+689 silly tarball no local data for @mapbox/node-pre-gyp@https://registry.npmmirror.com/@mapbox/node-pre-gyp/-/node-pre-gyp-2.0.3.tgz. Extracting by manifest.
+690 silly tarball no local data for @mswjs/interceptors@https://registry.npmmirror.com/@mswjs/interceptors/-/interceptors-0.41.9.tgz. Extracting by manifest.
+691 silly tarball no local data for @keyv/serialize@https://registry.npmmirror.com/@keyv/serialize/-/serialize-1.1.1.tgz. Extracting by manifest.
+692 silly tarball no local data for @jridgewell/trace-mapping@https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz. Extracting by manifest.
+693 silly tarball no local data for @jridgewell/sourcemap-codec@https://registry.npmmirror.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz. Extracting by manifest.
+694 silly tarball no local data for @isaacs/fs-minipass@https://registry.npmmirror.com/@isaacs/fs-minipass/-/fs-minipass-4.0.1.tgz. Extracting by manifest.
+695 silly tarball no local data for @jridgewell/gen-mapping@https://registry.npmmirror.com/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz. Extracting by manifest.
+696 silly tarball no local data for @istanbuljs/schema@https://registry.npmmirror.com/@istanbuljs/schema/-/schema-0.1.6.tgz. Extracting by manifest.
+697 silly tarball no local data for @humanwhocodes/retry@https://registry.npmmirror.com/@humanwhocodes/retry/-/retry-0.4.3.tgz. Extracting by manifest.
+698 silly tarball no local data for @humanwhocodes/module-importer@https://registry.npmmirror.com/@humanwhocodes/module-importer/-/module-importer-1.0.1.tgz. Extracting by manifest.
+699 silly tarball no local data for @humanfs/types@https://registry.npmmirror.com/@humanfs/types/-/types-0.15.0.tgz. Extracting by manifest.
+700 silly tarball no local data for @humanfs/node@https://registry.npmmirror.com/@humanfs/node/-/node-0.16.8.tgz. Extracting by manifest.
+701 silly tarball no local data for @jridgewell/resolve-uri@https://registry.npmmirror.com/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz. Extracting by manifest.
+702 silly tarball no local data for @humanfs/core@https://registry.npmmirror.com/@humanfs/core/-/core-0.19.2.tgz. Extracting by manifest.
+703 silly tarball no local data for @eslint/object-schema@https://registry.npmmirror.com/@eslint/object-schema/-/object-schema-3.0.5.tgz. Extracting by manifest.
+704 silly tarball no local data for @eslint/js@https://registry.npmmirror.com/@eslint/js/-/js-10.0.1.tgz. Extracting by manifest.
+705 silly tarball no local data for @eslint/core@https://registry.npmmirror.com/@eslint/core/-/core-1.2.1.tgz. Extracting by manifest.
+706 silly tarball no local data for @eslint/config-array@https://registry.npmmirror.com/@eslint/config-array/-/config-array-0.23.5.tgz. Extracting by manifest.
+707 silly tarball no local data for @eslint/config-helpers@https://registry.npmmirror.com/@eslint/config-helpers/-/config-helpers-0.6.0.tgz. Extracting by manifest.
+708 silly tarball no local data for @eslint/plugin-kit@https://registry.npmmirror.com/@eslint/plugin-kit/-/plugin-kit-0.7.2.tgz. Extracting by manifest.
+709 silly tarball no local data for @eslint-community/eslint-utils@https://registry.npmmirror.com/@eslint-community/eslint-utils/-/eslint-utils-4.9.1.tgz. Extracting by manifest.
+710 silly tarball no local data for @esbuild/darwin-arm64@https://registry.npmmirror.com/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz. Extracting by manifest.
+711 silly tarball no local data for @eslint-community/regexpp@https://registry.npmmirror.com/@eslint-community/regexpp/-/regexpp-4.12.2.tgz. Extracting by manifest.
+712 silly tarball no local data for @cto.af/wtf8@https://registry.npmmirror.com/@cto.af/wtf8/-/wtf8-0.0.5.tgz. Extracting by manifest.
+713 silly tarball no local data for yargs-parser@https://registry.npmmirror.com/yargs-parser/-/yargs-parser-22.0.0.tgz. Extracting by manifest.
+714 silly tarball no local data for @bcoe/v8-coverage@https://registry.npmmirror.com/@bcoe/v8-coverage/-/v8-coverage-1.0.2.tgz. Extracting by manifest.
+715 silly tarball no local data for string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz. Extracting by manifest.
+716 silly tarball no local data for string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz. Extracting by manifest.
+717 silly tarball no local data for emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz. Extracting by manifest.
+718 silly tarball no local data for iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.6.3.tgz. Extracting by manifest.
+719 silly tarball no local data for emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz. Extracting by manifest.
+720 silly tarball no local data for escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-2.0.0.tgz. Extracting by manifest.
+721 silly tarball no local data for entities@https://registry.npmmirror.com/entities/-/entities-6.0.1.tgz. Extracting by manifest.
+722 silly tarball no local data for lowercase-keys@https://registry.npmmirror.com/lowercase-keys/-/lowercase-keys-3.0.0.tgz. Extracting by manifest.
+723 silly tarball no local data for picomatch@https://registry.npmmirror.com/picomatch/-/picomatch-2.3.2.tgz. Extracting by manifest.
+724 silly tarball no local data for type-fest@https://registry.npmmirror.com/type-fest/-/type-fest-0.13.1.tgz. Extracting by manifest.
+725 silly tarball no local data for entities@https://registry.npmmirror.com/entities/-/entities-7.0.1.tgz. Extracting by manifest.
+726 silly tarball no local data for escape-string-regexp@https://registry.npmmirror.com/escape-string-regexp/-/escape-string-regexp-5.0.0.tgz. Extracting by manifest.
+727 silly tarball no local data for keyv@https://registry.npmmirror.com/keyv/-/keyv-5.6.0.tgz. Extracting by manifest.
+728 silly tarball no local data for iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.6.3.tgz. Extracting by manifest.
+729 silly tarball no local data for glob-parent@https://registry.npmmirror.com/glob-parent/-/glob-parent-5.1.2.tgz. Extracting by manifest.
+730 silly tarball no local data for string-width@https://registry.npmmirror.com/string-width/-/string-width-7.2.0.tgz. Extracting by manifest.
+731 silly tarball no local data for ignore@https://registry.npmmirror.com/ignore/-/ignore-7.0.5.tgz. Extracting by manifest.
+732 silly tarball no local data for emoji-regex@https://registry.npmmirror.com/emoji-regex/-/emoji-regex-10.6.0.tgz. Extracting by manifest.
+733 silly tarball no local data for wrap-ansi@https://registry.npmmirror.com/wrap-ansi/-/wrap-ansi-7.0.0.tgz. Extracting by manifest.
+734 silly tarball no local data for yargs@https://registry.npmmirror.com/yargs/-/yargs-17.7.2.tgz. Extracting by manifest.
+735 silly tarball no local data for keyv@https://registry.npmmirror.com/keyv/-/keyv-5.6.0.tgz. Extracting by manifest.
+736 silly tarball no local data for strip-ansi@https://registry.npmmirror.com/strip-ansi/-/strip-ansi-6.0.1.tgz. Extracting by manifest.
+737 silly tarball no local data for cliui@https://registry.npmmirror.com/cliui/-/cliui-8.0.1.tgz. Extracting by manifest.
+738 silly tarball no local data for is-fullwidth-code-point@https://registry.npmmirror.com/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz. Extracting by manifest.
+739 silly tarball no local data for ansi-styles@https://registry.npmmirror.com/ansi-styles/-/ansi-styles-4.3.0.tgz. Extracting by manifest.
+740 silly tarball no local data for ansi-regex@https://registry.npmmirror.com/ansi-regex/-/ansi-regex-5.0.1.tgz. Extracting by manifest.
+741 silly tarball no local data for string-width@https://registry.npmmirror.com/string-width/-/string-width-4.2.3.tgz. Extracting by manifest.
+742 silly tarball no local data for ignore@https://registry.npmmirror.com/ignore/-/ignore-7.0.5.tgz. Extracting by manifest.
+743 silly tarball no local data for type-detect@https://registry.npmmirror.com/type-detect/-/type-detect-4.1.0.tgz. Extracting by manifest.
+744 silly tarball no local data for eslint-visitor-keys@https://registry.npmmirror.com/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz. Extracting by manifest.
+745 http fetch GET 200 https://registry.npmjs.org/npm 216ms
+746 http fetch GET 403 https://cdn.npmmirror.com/packages/write-file-atomic/7.0.1/write-file-atomic-7.0.1.tgz 1013ms (cache skip)
+747 http fetch GET 403 https://cdn.npmmirror.com/packages/which/2.0.2/which-2.0.2.tgz 1018ms (cache skip)
+748 http fetch GET 403 https://cdn.npmmirror.com/packages/yallist/5.0.0/yallist-5.0.0.tgz 1020ms (cache skip)
+749 http fetch GET 403 https://cdn.npmmirror.com/packages/whatwg-url/5.0.0/whatwg-url-5.0.0.tgz 1028ms (cache skip)
+750 http fetch GET 403 https://cdn.npmmirror.com/packages/yargs-parser/21.1.1/yargs-parser-21.1.1.tgz 1033ms (cache skip)
+751 http fetch GET 403 https://cdn.npmmirror.com/packages/y18n/5.0.8/y18n-5.0.8.tgz 1044ms (cache skip)
+752 http fetch GET 403 https://cdn.npmmirror.com/packages/yocto-queue/0.1.0/yocto-queue-0.1.0.tgz 1046ms (cache skip)
+753 http fetch GET 403 https://cdn.npmmirror.com/packages/word-wrap/1.2.5/word-wrap-1.2.5.tgz 1047ms (cache skip)
+754 http fetch GET 403 https://cdn.npmmirror.com/packages/v8-to-istanbul/9.3.0/v8-to-istanbul-9.3.0.tgz 1058ms (cache skip)
+755 http fetch GET 403 https://cdn.npmmirror.com/packages/yargs/18.0.0/yargs-18.0.0.tgz 1061ms (cache skip)
+756 http fetch GET 403 https://cdn.npmmirror.com/packages/whatwg-mimetype/4.0.0/whatwg-mimetype-4.0.0.tgz 1061ms (cache skip)
+757 http fetch GET 403 https://cdn.npmmirror.com/packages/webidl-conversions/3.0.1/webidl-conversions-3.0.1.tgz 1075ms (cache skip)
+758 http fetch GET 403 https://cdn.npmmirror.com/packages/undici/7.27.1/undici-7.27.1.tgz 1219ms (cache skip)
+759 http fetch GET 403 https://cdn.npmmirror.com/packages/ufo/1.6.4/ufo-1.6.4.tgz 1232ms (cache skip)
+760 http fetch GET 403 https://cdn.npmmirror.com/packages/undici-types/7.16.0/undici-types-7.16.0.tgz 1235ms (cache skip)
+761 http fetch GET 403 https://cdn.npmmirror.com/packages/uint8array-extras/1.5.0/uint8array-extras-1.5.0.tgz 1313ms (cache skip)
+762 http fetch GET 403 https://cdn.npmmirror.com/packages/tslog/4.10.2/tslog-4.10.2.tgz 1314ms (cache skip)
+763 http fetch GET 403 https://cdn.npmmirror.com/packages/tr46/0.0.3/tr46-0.0.3.tgz 1413ms (cache skip)
+764 http fetch GET 403 https://cdn.npmmirror.com/packages/tsx/4.22.4/tsx-4.22.4.tgz 1515ms (cache skip)
+765 http fetch GET 403 https://cdn.npmmirror.com/packages/ts-interface-checker/0.1.13/ts-interface-checker-0.1.13.tgz 1516ms (cache skip)
+766 http fetch GET 403 https://cdn.npmmirror.com/packages/whatwg-encoding/3.1.1/whatwg-encoding-3.1.1.tgz 1517ms (cache skip)
+767 http fetch GET 403 https://cdn.npmmirror.com/packages/tree-kill/1.2.2/tree-kill-1.2.2.tgz 1516ms (cache skip)
+768 http fetch GET 403 https://cdn.npmmirror.com/packages/ts-api-utils/2.5.0/ts-api-utils-2.5.0.tgz 1517ms (cache skip)
+769 http fetch GET 403 https://cdn.npmmirror.com/packages/tough-cookie/6.0.1/tough-cookie-6.0.1.tgz 1587ms (cache skip)
+770 http fetch GET 403 https://cdn.npmmirror.com/packages/type-fest/5.7.0/type-fest-5.7.0.tgz 1631ms (cache skip)
+771 http fetch GET 403 https://cdn.npmmirror.com/packages/thenify-all/1.6.0/thenify-all-1.6.0.tgz 1694ms (cache skip)
+772 http fetch GET 403 https://cdn.npmmirror.com/packages/well-known-symbols/2.0.0/well-known-symbols-2.0.0.tgz 1724ms (cache skip)
+773 http fetch GET 403 https://cdn.npmmirror.com/packages/tldts/7.4.2/tldts-7.4.2.tgz 1729ms (cache skip)
+774 http fetch GET 403 https://cdn.npmmirror.com/packages/tsup/8.5.1/tsup-8.5.1.tgz 1733ms (cache skip)
+775 http fetch GET 403 https://cdn.npmmirror.com/packages/tinyglobby/0.2.17/tinyglobby-0.2.17.tgz 1835ms (cache skip)
+776 http fetch GET 403 https://cdn.npmmirror.com/packages/time-zone/1.0.0/time-zone-1.0.0.tgz 1836ms (cache skip)
+777 http fetch GET 403 https://cdn.npmmirror.com/packages/typescript-eslint/8.60.1/typescript-eslint-8.60.1.tgz 1842ms (cache skip)
+778 http fetch GET 403 https://cdn.npmmirror.com/packages/typescript/6.0.3/typescript-6.0.3.tgz 1853ms (cache skip)
+779 http fetch GET 403 https://cdn.npmmirror.com/packages/tinyexec/0.3.2/tinyexec-0.3.2.tgz 1892ms (cache skip)
+780 http fetch GET 403 https://cdn.npmmirror.com/packages/tar/7.5.16/tar-7.5.16.tgz 1930ms (cache skip)
+781 http fetch GET 403 https://cdn.npmmirror.com/packages/test-exclude/8.0.0/test-exclude-8.0.0.tgz 1952ms (cache skip)
+782 http fetch GET 403 https://cdn.npmmirror.com/packages/unicorn-magic/0.4.0/unicorn-magic-0.4.0.tgz 2034ms (cache skip)
+783 http fetch GET 403 https://cdn.npmmirror.com/packages/tagged-tag/1.0.0/tagged-tag-1.0.0.tgz 2033ms (cache skip)
+784 http fetch GET 403 https://cdn.npmmirror.com/packages/supports-color/7.2.0/supports-color-7.2.0.tgz 2078ms (cache skip)
+785 http fetch GET 403 https://cdn.npmmirror.com/packages/strip-ansi/7.2.0/strip-ansi-7.2.0.tgz 2096ms (cache skip)
+786 http fetch GET 403 https://cdn.npmmirror.com/packages/thenify/3.3.1/thenify-3.3.1.tgz 2147ms (cache skip)
+787 http fetch GET 403 https://cdn.npmmirror.com/packages/tldts-core/7.4.2/tldts-core-7.4.2.tgz 2168ms (cache skip)
+788 http fetch GET 403 https://cdn.npmmirror.com/packages/string-width/8.2.1/string-width-8.2.1.tgz 2243ms (cache skip)
+789 http fetch GET 403 https://cdn.npmmirror.com/packages/stack-utils/2.0.6/stack-utils-2.0.6.tgz 2252ms (cache skip)
+790 http fetch GET 403 https://cdn.npmmirror.com/packages/slice-ansi/9.0.0/slice-ansi-9.0.0.tgz 2362ms (cache skip)
+791 http fetch GET 403 https://cdn.npmmirror.com/packages/uri-js/4.4.1/uri-js-4.4.1.tgz 2368ms (cache skip)
+792 http fetch GET 403 https://cdn.npmmirror.com/packages/temp-dir/3.0.0/temp-dir-3.0.0.tgz 2366ms (cache skip)
+793 http fetch GET 403 https://cdn.npmmirror.com/packages/sinon/22.0.0/sinon-22.0.0.tgz 2364ms (cache skip)
+794 http fetch GET 403 https://cdn.npmmirror.com/packages/signal-exit/4.1.0/signal-exit-4.1.0.tgz 2430ms (cache skip)
+795 http fetch GET 403 https://cdn.npmmirror.com/packages/shebang-regex/3.0.0/shebang-regex-3.0.0.tgz 2441ms (cache skip)
+796 http fetch GET 403 https://cdn.npmmirror.com/packages/shebang-command/2.0.0/shebang-command-2.0.0.tgz 2560ms (cache skip)
+797 http fetch GET 403 https://cdn.npmmirror.com/packages/seenreq/3.0.0/seenreq-3.0.0.tgz 2561ms (cache skip)
+798 http fetch GET 403 https://cdn.npmmirror.com/packages/semver/7.8.1/semver-7.8.1.tgz 2562ms (cache skip)
+799 http fetch GET 403 https://cdn.npmmirror.com/packages/slash/5.1.0/slash-5.1.0.tgz 2577ms (cache skip)
+800 http fetch GET 403 https://cdn.npmmirror.com/packages/safer-buffer/2.1.2/safer-buffer-2.1.2.tgz 2641ms (cache skip)
+801 http fetch GET 403 https://cdn.npmmirror.com/packages/rollup/4.61.1/rollup-4.61.1.tgz 2646ms (cache skip)
+802 http fetch GET 403 https://cdn.npmmirror.com/packages/supertap/3.0.1/supertap-3.0.1.tgz 2650ms (cache skip)
+803 http fetch GET 403 https://cdn.npmmirror.com/packages/sprintf-js/1.0.3/sprintf-js-1.0.3.tgz 2651ms (cache skip)
+804 http fetch GET 403 https://cdn.npmmirror.com/packages/run-parallel/1.2.0/run-parallel-1.2.0.tgz 2772ms (cache skip)
+805 http fetch GET 403 https://cdn.npmmirror.com/packages/reusify/1.1.0/reusify-1.1.0.tgz 2775ms (cache skip)
+806 http fetch GET 403 https://cdn.npmmirror.com/packages/strict-event-emitter/0.5.1/strict-event-emitter-0.5.1.tgz 2891ms (cache skip)
+807 http fetch GET 403 https://cdn.npmmirror.com/packages/to-regex-range/5.0.1/to-regex-range-5.0.1.tgz 2894ms (cache skip)
+808 http fetch GET 403 https://cdn.npmmirror.com/packages/require-directory/2.1.1/require-directory-2.1.1.tgz 2890ms (cache skip)
+809 http fetch GET 403 https://cdn.npmmirror.com/packages/quick-lru/5.1.1/quick-lru-5.1.1.tgz 2890ms (cache skip)
+810 http fetch GET 403 https://cdn.npmmirror.com/packages/type-check/0.4.0/type-check-0.4.0.tgz 2897ms (cache skip)
+811 http fetch GET 403 https://cdn.npmmirror.com/packages/source-map/0.7.6/source-map-0.7.6.tgz 2959ms (cache skip)
+812 http fetch GET 403 https://cdn.npmmirror.com/packages/readdirp/4.1.2/readdirp-4.1.2.tgz 2961ms (cache skip)
+813 http fetch GET 403 https://cdn.npmmirror.com/packages/queue-microtask/1.2.3/queue-microtask-1.2.3.tgz 2980ms (cache skip)
+814 http fetch GET 403 https://cdn.npmmirror.com/packages/type-detect/4.0.8/type-detect-4.0.8.tgz 3091ms (cache skip)
+815 http fetch GET 403 https://cdn.npmmirror.com/packages/punycode/2.3.1/punycode-2.3.1.tgz 3086ms (cache skip)
+816 http fetch GET 403 https://cdn.npmmirror.com/packages/prelude-ls/1.2.1/prelude-ls-1.2.1.tgz 3087ms (cache skip)
+817 http fetch GET 403 https://cdn.npmmirror.com/packages/resolve-alpn/1.2.1/resolve-alpn-1.2.1.tgz 3103ms (cache skip)
+818 http fetch GET 403 https://cdn.npmmirror.com/packages/propagate/2.0.1/propagate-2.0.1.tgz 3105ms (cache skip)
+819 http fetch GET 403 https://cdn.npmmirror.com/packages/pkg-types/1.3.1/pkg-types-1.3.1.tgz 3164ms (cache skip)
+820 http fetch GET 403 https://cdn.npmmirror.com/packages/pretty-ms/9.3.0/pretty-ms-9.3.0.tgz 3168ms (cache skip)
+821 http fetch GET 403 https://cdn.npmmirror.com/packages/responselike/4.0.2/responselike-4.0.2.tgz 3204ms (cache skip)
+822 http fetch GET 403 https://cdn.npmmirror.com/packages/pirates/4.0.7/pirates-4.0.7.tgz 3211ms (cache skip)
+823 http fetch GET 403 https://cdn.npmmirror.com/packages/path-scurry/2.0.2/path-scurry-2.0.2.tgz 3291ms (cache skip)
+824 http fetch GET 403 https://cdn.npmmirror.com/packages/plur/6.0.0/plur-6.0.0.tgz 3295ms (cache skip)
+825 http fetch GET 403 https://cdn.npmmirror.com/packages/pathe/2.0.3/pathe-2.0.3.tgz 3301ms (cache skip)
+826 http fetch GET 403 https://cdn.npmmirror.com/packages/picocolors/1.1.1/picocolors-1.1.1.tgz 3308ms (cache skip)
+827 http fetch GET 403 https://cdn.npmmirror.com/packages/picomatch/4.0.4/picomatch-4.0.4.tgz 3318ms (cache skip)
+828 http fetch GET 403 https://cdn.npmmirror.com/packages/resolve-from/5.0.0/resolve-from-5.0.0.tgz 3330ms (cache skip)
+829 http fetch GET 403 https://cdn.npmmirror.com/packages/parse5-parser-stream/7.1.2/parse5-parser-stream-7.1.2.tgz 3408ms (cache skip)
+830 http fetch GET 403 https://cdn.npmmirror.com/packages/sucrase/3.35.1/sucrase-3.35.1.tgz 3413ms (cache skip)
+831 http fetch GET 403 https://cdn.npmmirror.com/packages/path-exists/4.0.0/path-exists-4.0.0.tgz 3409ms (cache skip)
+832 http fetch GET 403 https://cdn.npmmirror.com/packages/resolve-cwd/3.0.0/resolve-cwd-3.0.0.tgz 3411ms (cache skip)
+833 http fetch GET 403 https://cdn.npmmirror.com/packages/path-key/3.1.1/path-key-3.1.1.tgz 3446ms (cache skip)
+834 http fetch GET 403 https://cdn.npmmirror.com/packages/p-locate/5.0.0/p-locate-5.0.0.tgz 3492ms (cache skip)
+835 http fetch GET 403 https://cdn.npmmirror.com/packages/wrap-ansi/9.0.2/wrap-ansi-9.0.2.tgz 3518ms (cache skip)
+836 http fetch GET 403 https://cdn.npmmirror.com/packages/p-map/7.0.4/p-map-7.0.4.tgz 3519ms (cache skip)
+837 http fetch GET 403 https://cdn.npmmirror.com/packages/parse-ms/4.0.0/parse-ms-4.0.0.tgz 3522ms (cache skip)
+838 http fetch GET 403 https://cdn.npmmirror.com/packages/package-config/5.0.0/package-config-5.0.0.tgz 3598ms (cache skip)
+839 http fetch GET 403 https://cdn.npmmirror.com/packages/optionator/0.9.4/optionator-0.9.4.tgz 3607ms (cache skip)
+840 http fetch GET 403 https://cdn.npmmirror.com/packages/p-limit/3.1.0/p-limit-3.1.0.tgz 3616ms (cache skip)
+841 http fetch GET 403 https://cdn.npmmirror.com/packages/object-assign/4.1.1/object-assign-4.1.1.tgz 3616ms (cache skip)
+842 http fetch GET 403 https://cdn.npmmirror.com/packages/normalize-url/8.1.1/normalize-url-8.1.1.tgz 3622ms (cache skip)
+843 http fetch GET 403 https://cdn.npmmirror.com/packages/outvariant/1.4.3/outvariant-1.4.3.tgz 3632ms (cache skip)
+844 http fetch GET 403 https://cdn.npmmirror.com/packages/nth-check/2.1.1/nth-check-2.1.1.tgz 3659ms (cache skip)
+845 http fetch GET 403 https://cdn.npmmirror.com/packages/node-gyp-build/4.8.4/node-gyp-build-4.8.4.tgz 3695ms (cache skip)
+846 http fetch GET 403 https://cdn.npmmirror.com/packages/node-url-utils/0.4.0/node-url-utils-0.4.0.tgz 3713ms (cache skip)
+847 http fetch GET 403 https://cdn.npmmirror.com/packages/postcss-load-config/6.0.1/postcss-load-config-6.0.1.tgz 3774ms (cache skip)
+848 http fetch GET 403 https://cdn.npmmirror.com/packages/node-fetch/2.7.0/node-fetch-2.7.0.tgz 3783ms (cache skip)
+849 http fetch GET 403 https://cdn.npmmirror.com/packages/mlly/1.8.2/mlly-1.8.2.tgz 3788ms (cache skip)
+850 http fetch GET 403 https://cdn.npmmirror.com/packages/mz/2.7.0/mz-2.7.0.tgz 3924ms (cache skip)
+851 http fetch GET 403 https://cdn.npmmirror.com/packages/minizlib/3.1.0/minizlib-3.1.0.tgz 3925ms (cache skip)
+852 http fetch GET 403 https://cdn.npmmirror.com/packages/mimic-function/5.0.1/mimic-function-5.0.1.tgz 3978ms (cache skip)
+853 http fetch GET 403 https://cdn.npmmirror.com/packages/merge2/1.4.1/merge2-1.4.1.tgz 4121ms (cache skip)
+854 http fetch GET 403 https://cdn.npmmirror.com/packages/nopt/8.1.0/nopt-8.1.0.tgz 4134ms (cache skip)
+855 http fetch GET 403 https://cdn.npmmirror.com/packages/mimic-response/4.0.0/mimic-response-4.0.0.tgz 4148ms (cache skip)
+856 http fetch GET 403 https://cdn.npmmirror.com/packages/memoize/11.0.0/memoize-11.0.0.tgz 4152ms (cache skip)
+857 http fetch GET 403 https://cdn.npmmirror.com/packages/minimatch/10.2.5/minimatch-10.2.5.tgz 4192ms (cache skip)
+858 http fetch GET 403 https://cdn.npmmirror.com/packages/matcher/6.0.0/matcher-6.0.0.tgz 4201ms (cache skip)
+859 http fetch GET 403 https://cdn.npmmirror.com/packages/natural-compare/1.4.0/natural-compare-1.4.0.tgz 4236ms (cache skip)
+860 http fetch GET 403 https://cdn.npmmirror.com/packages/magic-string/0.30.21/magic-string-0.30.21.tgz 4306ms (cache skip)
+861 http fetch GET 403 https://cdn.npmmirror.com/packages/make-dir/4.0.0/make-dir-4.0.0.tgz 4334ms (cache skip)
+862 http fetch GET 403 https://cdn.npmmirror.com/packages/lru-cache/11.5.1/lru-cache-11.5.1.tgz 4368ms (cache skip)
+863 http fetch GET 403 https://cdn.npmmirror.com/packages/load-tsconfig/0.2.5/load-tsconfig-0.2.5.tgz 4448ms (cache skip)
+864 http fetch GET 403 https://cdn.npmmirror.com/packages/lodash/4.18.1/lodash-4.18.1.tgz 4450ms (cache skip)
+865 http fetch GET 403 https://cdn.npmmirror.com/packages/locate-path/6.0.0/locate-path-6.0.0.tgz 4449ms (cache skip)
+866 http fetch GET 403 https://cdn.npmmirror.com/packages/micromatch/4.0.8/micromatch-4.0.8.tgz 4453ms (cache skip)
+867 http fetch GET 403 https://cdn.npmmirror.com/packages/lines-and-columns/1.2.4/lines-and-columns-1.2.4.tgz 4454ms (cache skip)
+868 http fetch GET 403 https://cdn.npmmirror.com/packages/load-json-file/7.0.1/load-json-file-7.0.1.tgz 4533ms (cache skip)
+869 http fetch GET 403 https://cdn.npmmirror.com/packages/lilconfig/3.1.3/lilconfig-3.1.3.tgz 4566ms (cache skip)
+870 http fetch GET 403 https://cdn.npmmirror.com/packages/json-schema-traverse/0.4.1/json-schema-traverse-0.4.1.tgz 4641ms (cache skip)
+871 http fetch GET 403 https://cdn.npmmirror.com/packages/json-stringify-safe/5.0.1/json-stringify-safe-5.0.1.tgz 4660ms (cache skip)
+872 http fetch GET 403 https://cdn.npmmirror.com/packages/json-buffer/3.0.1/json-buffer-3.0.1.tgz 4665ms (cache skip)
+873 http fetch GET 403 https://cdn.npmmirror.com/packages/levn/0.4.1/levn-0.4.1.tgz 4666ms (cache skip)
+874 http fetch GET 403 https://cdn.npmmirror.com/packages/keyv/4.5.4/keyv-4.5.4.tgz 4667ms (cache skip)
+875 http fetch GET 403 https://cdn.npmmirror.com/packages/minipass/7.1.3/minipass-7.1.3.tgz 4752ms (cache skip)
+876 http fetch GET 403 https://cdn.npmmirror.com/packages/js-string-escape/1.0.1/js-string-escape-1.0.1.tgz 4822ms (cache skip)
+877 http fetch GET 403 https://cdn.npmmirror.com/packages/istanbul-reports/3.2.0/istanbul-reports-3.2.0.tgz 4861ms (cache skip)
+878 http fetch GET 403 https://cdn.npmmirror.com/packages/istanbul-lib-report/3.0.1/istanbul-lib-report-3.0.1.tgz 4867ms (cache skip)
+879 http fetch GET 403 https://cdn.npmmirror.com/packages/isexe/2.0.0/isexe-2.0.0.tgz 4872ms (cache skip)
+880 http fetch GET 403 https://cdn.npmmirror.com/packages/joycon/3.1.1/joycon-3.1.1.tgz 4888ms (cache skip)
+881 http fetch GET 403 https://cdn.npmmirror.com/packages/istanbul-lib-coverage/3.2.2/istanbul-lib-coverage-3.2.2.tgz 4889ms (cache skip)
+882 http fetch GET 403 https://cdn.npmmirror.com/packages/is-unicode-supported/2.1.0/is-unicode-supported-2.1.0.tgz 4970ms (cache skip)
+883 http fetch GET 403 https://cdn.npmmirror.com/packages/lowercase-keys/4.0.1/lowercase-keys-4.0.1.tgz 4972ms (cache skip)
+884 http fetch GET 403 https://cdn.npmmirror.com/packages/is-promise/4.0.0/is-promise-4.0.0.tgz 5046ms (cache skip)
+885 http fetch GET 403 https://cdn.npmmirror.com/packages/is-plain-object/5.0.0/is-plain-object-5.0.0.tgz 5051ms (cache skip)
+886 http fetch GET 403 https://cdn.npmmirror.com/packages/json-stable-stringify-without-jsonify/1.0.1/json-stable-stringify-without-jsonify-1.0.1.tgz 5059ms (cache skip)
+887 http fetch GET 403 https://cdn.npmmirror.com/packages/is-number/7.0.0/is-number-7.0.0.tgz 5174ms (cache skip)
+888 http fetch GET 403 https://cdn.npmmirror.com/packages/is-path-inside/4.0.0/is-path-inside-4.0.0.tgz 5177ms (cache skip)
+889 http fetch GET 403 https://cdn.npmmirror.com/packages/parse5/7.3.0/parse5-7.3.0.tgz 5185ms (cache skip)
+890 http fetch GET 403 https://cdn.npmmirror.com/packages/nock/14.0.15/nock-14.0.15.tgz 5221ms (cache skip)
+891 http fetch GET 403 https://cdn.npmmirror.com/packages/is-extglob/2.1.1/is-extglob-2.1.1.tgz 5228ms (cache skip)
+892 http fetch GET 403 https://cdn.npmmirror.com/packages/parse5-htmlparser2-tree-adapter/7.1.0/parse5-htmlparser2-tree-adapter-7.1.0.tgz 5259ms (cache skip)
+893 http fetch GET 403 https://cdn.npmmirror.com/packages/js-yaml/3.14.2/js-yaml-3.14.2.tgz 5259ms (cache skip)
+894 http fetch GET 403 https://cdn.npmmirror.com/packages/ms/2.1.3/ms-2.1.3.tgz 5297ms (cache skip)
+895 http fetch GET 403 https://cdn.npmmirror.com/packages/is-fullwidth-code-point/5.1.0/is-fullwidth-code-point-5.1.0.tgz 5304ms (cache skip)
+896 http fetch GET 403 https://cdn.npmmirror.com/packages/ignore-by-default/2.1.0/ignore-by-default-2.1.0.tgz 5379ms (cache skip)
+897 http fetch GET 403 https://cdn.npmmirror.com/packages/indent-string/5.0.0/indent-string-5.0.0.tgz 5382ms (cache skip)
+898 http fetch GET 403 https://cdn.npmmirror.com/packages/iconv-lite/0.7.2/iconv-lite-0.7.2.tgz 5390ms (cache skip)
+899 http fetch GET 403 https://cdn.npmmirror.com/packages/https-proxy-agent/7.0.6/https-proxy-agent-7.0.6.tgz 5488ms (cache skip)
+900 http fetch GET 403 https://cdn.npmmirror.com/packages/html-escaper/2.0.2/html-escaper-2.0.2.tgz 5491ms (cache skip)
+901 http fetch GET 403 https://cdn.npmmirror.com/packages/htmlparser2/10.1.0/htmlparser2-10.1.0.tgz 5510ms (cache skip)
+902 http fetch GET 403 https://cdn.npmmirror.com/packages/http2-wrapper/2.2.1/http2-wrapper-2.2.1.tgz 5517ms (cache skip)
+903 http fetch GET 403 https://cdn.npmmirror.com/packages/has-flag/4.0.0/has-flag-4.0.0.tgz 5554ms (cache skip)
+904 http fetch GET 403 https://cdn.npmmirror.com/packages/got/15.0.5/got-15.0.5.tgz 5598ms (cache skip)
+905 http fetch GET 403 https://cdn.npmmirror.com/packages/globby/16.2.0/globby-16.2.0.tgz 5687ms (cache skip)
+906 http fetch GET 403 https://cdn.npmmirror.com/packages/is-node-process/1.2.0/is-node-process-1.2.0.tgz 5690ms (cache skip)
+907 http fetch GET 403 https://cdn.npmmirror.com/packages/globals/17.6.0/globals-17.6.0.tgz 5703ms (cache skip)
+908 http fetch GET 403 https://cdn.npmmirror.com/packages/imurmurhash/0.1.4/imurmurhash-0.1.4.tgz 5709ms (cache skip)
+909 http fetch GET 403 https://cdn.npmmirror.com/packages/is-stream/4.0.1/is-stream-4.0.1.tgz 5764ms (cache skip)
+910 http fetch GET 403 https://cdn.npmmirror.com/packages/glob-parent/6.0.2/glob-parent-6.0.2.tgz 5779ms (cache skip)
+911 http fetch GET 403 https://cdn.npmmirror.com/packages/irregular-plurals/4.2.0/irregular-plurals-4.2.0.tgz 5787ms (cache skip)
+912 http fetch GET 403 https://cdn.npmmirror.com/packages/is-glob/4.0.3/is-glob-4.0.3.tgz 5812ms (cache skip)
+913 http fetch GET 403 https://cdn.npmmirror.com/packages/ignore/5.3.2/ignore-5.3.2.tgz 5860ms (cache skip)
+914 http fetch GET 403 https://cdn.npmmirror.com/packages/get-east-asian-width/1.6.0/get-east-asian-width-1.6.0.tgz 5902ms (cache skip)
+915 http fetch GET 403 https://cdn.npmmirror.com/packages/get-stream/9.0.1/get-stream-9.0.1.tgz 5905ms (cache skip)
+916 http fetch GET 403 https://cdn.npmmirror.com/packages/fsevents/2.3.3/fsevents-2.3.3.tgz 5913ms (cache skip)
+917 verbose reify failed optional dependency /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/fsevents
+918 silly reify mark deleted [
+918 silly reify   '/Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/fsevents'
+918 silly reify ]
+919 http fetch GET 403 https://cdn.npmmirror.com/packages/get-caller-file/2.0.5/get-caller-file-2.0.5.tgz 5925ms (cache skip)
+920 http fetch GET 403 https://cdn.npmmirror.com/packages/flat-cache/4.0.1/flat-cache-4.0.1.tgz 6014ms (cache skip)
+921 http fetch GET 403 https://cdn.npmmirror.com/packages/flatted/3.4.2/flatted-3.4.2.tgz 6015ms (cache skip)
+922 http fetch GET 403 https://cdn.npmmirror.com/packages/fix-dts-default-cjs-exports/1.0.1/fix-dts-default-cjs-exports-1.0.1.tgz 6015ms (cache skip)
+923 http fetch GET 403 https://cdn.npmmirror.com/packages/find-up-simple/1.0.1/find-up-simple-1.0.1.tgz 6050ms (cache skip)
+924 http fetch GET 403 https://cdn.npmmirror.com/packages/foreground-child/3.3.1/foreground-child-3.3.1.tgz 6070ms (cache skip)
+925 http fetch GET 403 https://cdn.npmmirror.com/packages/find-up/5.0.0/find-up-5.0.0.tgz 6121ms (cache skip)
+926 http fetch GET 403 https://cdn.npmmirror.com/packages/hpagent/1.2.0/hpagent-1.2.0.tgz 6127ms (cache skip)
+927 http fetch GET 403 https://cdn.npmmirror.com/packages/fill-range/7.1.1/fill-range-7.1.1.tgz 6132ms (cache skip)
+928 http fetch GET 403 https://cdn.npmmirror.com/packages/file-uri-to-path/1.0.0/file-uri-to-path-1.0.0.tgz 6214ms (cache skip)
+929 http fetch GET 403 https://cdn.npmmirror.com/packages/fastq/1.20.1/fastq-1.20.1.tgz 6215ms (cache skip)
+930 http fetch GET 403 https://cdn.npmmirror.com/packages/graceful-fs/4.2.11/graceful-fs-4.2.11.tgz 6217ms (cache skip)
+931 http fetch GET 403 https://cdn.npmmirror.com/packages/figures/6.1.0/figures-6.1.0.tgz 6216ms (cache skip)
+932 http fetch GET 403 https://cdn.npmmirror.com/packages/fast-levenshtein/2.0.6/fast-levenshtein-2.0.6.tgz 6234ms (cache skip)
+933 http fetch GET 403 https://cdn.npmmirror.com/packages/fast-glob/3.3.3/fast-glob-3.3.3.tgz 6290ms (cache skip)
+934 http fetch GET 403 https://cdn.npmmirror.com/packages/esutils/2.0.3/esutils-2.0.3.tgz 6322ms (cache skip)
+935 http fetch GET 403 https://cdn.npmmirror.com/packages/fast-diff/1.3.0/fast-diff-1.3.0.tgz 6356ms (cache skip)
+936 http fetch GET 403 https://cdn.npmmirror.com/packages/fast-deep-equal/3.1.3/fast-deep-equal-3.1.3.tgz 6383ms (cache skip)
+937 http fetch GET 403 https://cdn.npmmirror.com/packages/esrecurse/4.3.0/esrecurse-4.3.0.tgz 6427ms (cache skip)
+938 http fetch GET 403 https://cdn.npmmirror.com/packages/esprima/4.0.1/esprima-4.0.1.tgz 6445ms (cache skip)
+939 http fetch GET 403 https://cdn.npmmirror.com/packages/serialize-error/7.0.1/serialize-error-7.0.1.tgz 6555ms (cache skip)
+940 http fetch GET 403 https://cdn.npmmirror.com/packages/espree/11.2.0/espree-11.2.0.tgz 6539ms (cache skip)
+941 http fetch GET 403 https://cdn.npmmirror.com/packages/eslint-scope/9.1.2/eslint-scope-9.1.2.tgz 6543ms (cache skip)
+942 http fetch GET 403 https://cdn.npmmirror.com/packages/file-entry-cache/8.0.0/file-entry-cache-8.0.0.tgz 6562ms (cache skip)
+943 http fetch GET 403 https://cdn.npmmirror.com/packages/eslint/10.4.1/eslint-10.4.1.tgz 6573ms (cache skip)
+944 http fetch GET 403 https://cdn.npmmirror.com/packages/eslint-visitor-keys/5.0.1/eslint-visitor-keys-5.0.1.tgz 6622ms (cache skip)
+945 http fetch GET 403 https://cdn.npmmirror.com/packages/md5-hex/3.0.1/md5-hex-3.0.1.tgz 6638ms (cache skip)
+946 http fetch GET 403 https://cdn.npmmirror.com/packages/escalade/3.2.0/escalade-3.2.0.tgz 6635ms (cache skip)
+947 http fetch GET 403 https://cdn.npmmirror.com/packages/esquery/1.7.0/esquery-1.7.0.tgz 6642ms (cache skip)
+948 http fetch GET 403 https://cdn.npmmirror.com/packages/fast-json-stable-stringify/2.1.0/fast-json-stable-stringify-2.1.0.tgz 6734ms (cache skip)
+949 http fetch GET 403 https://cdn.npmmirror.com/packages/encoding-sniffer/0.2.1/encoding-sniffer-0.2.1.tgz 6734ms (cache skip)
+950 http fetch GET 403 https://cdn.npmmirror.com/packages/esbuild/0.28.1/esbuild-0.28.1.tgz 6755ms (cache skip)
+951 http fetch GET 403 https://cdn.npmmirror.com/packages/domutils/3.2.2/domutils-3.2.2.tgz 6759ms (cache skip)
+952 http fetch GET 403 https://cdn.npmmirror.com/packages/escape-string-regexp/4.0.0/escape-string-regexp-4.0.0.tgz 6772ms (cache skip)
+953 http fetch GET 403 https://cdn.npmmirror.com/packages/emittery/2.0.0/emittery-2.0.0.tgz 6780ms (cache skip)
+954 http fetch GET 403 https://cdn.npmmirror.com/packages/domhandler/5.0.3/domhandler-5.0.3.tgz 6832ms (cache skip)
+955 http fetch GET 403 https://cdn.npmmirror.com/packages/estraverse/5.3.0/estraverse-5.3.0.tgz 6855ms (cache skip)
+956 http fetch GET 403 https://cdn.npmmirror.com/packages/dom-serializer/2.0.0/dom-serializer-2.0.0.tgz 6854ms (cache skip)
+957 http fetch GET 403 https://cdn.npmmirror.com/packages/emoji-regex/8.0.0/emoji-regex-8.0.0.tgz 6865ms (cache skip)
+958 http fetch GET 403 https://cdn.npmmirror.com/packages/estree-walker/2.0.2/estree-walker-2.0.2.tgz 6901ms (cache skip)
+959 http fetch GET 403 https://cdn.npmmirror.com/packages/date-time/3.1.0/date-time-3.1.0.tgz 6963ms (cache skip)
+960 http fetch GET 403 https://cdn.npmmirror.com/packages/detect-libc/2.1.2/detect-libc-2.1.2.tgz 6964ms (cache skip)
+961 http fetch GET 403 https://cdn.npmmirror.com/packages/deep-is/0.1.4/deep-is-0.1.4.tgz 6970ms (cache skip)
+962 http fetch GET 403 https://cdn.npmmirror.com/packages/diff/9.0.0/diff-9.0.0.tgz 6971ms (cache skip)
+963 http fetch GET 403 https://cdn.npmmirror.com/packages/fdir/6.5.0/fdir-6.5.0.tgz 7063ms (cache skip)
+964 http fetch GET 403 https://cdn.npmmirror.com/packages/debug/4.4.3/debug-4.4.3.tgz 7059ms (cache skip)
+965 http fetch GET 403 https://cdn.npmmirror.com/packages/currently-unhandled/0.4.1/currently-unhandled-0.4.1.tgz 7060ms (cache skip)
+966 http fetch GET 403 https://cdn.npmmirror.com/packages/css-select/5.2.2/css-select-5.2.2.tgz 7083ms (cache skip)
+967 http fetch GET 403 https://cdn.npmmirror.com/packages/convert-source-map/2.0.0/convert-source-map-2.0.0.tgz 7256ms (cache skip)
+968 http fetch GET 403 https://cdn.npmmirror.com/packages/cross-spawn/7.0.6/cross-spawn-7.0.6.tgz 7256ms (cache skip)
+969 http fetch GET 403 https://cdn.npmmirror.com/packages/consola/3.4.2/consola-3.4.2.tgz 7257ms (cache skip)
+970 http fetch GET 403 https://cdn.npmmirror.com/packages/domelementtype/2.3.0/domelementtype-2.3.0.tgz 7259ms (cache skip)
+971 http fetch GET 403 https://cdn.npmmirror.com/packages/glob/13.0.6/glob-13.0.6.tgz 7297ms (cache skip)
+972 http fetch GET 403 https://cdn.npmmirror.com/packages/entities/4.5.0/entities-4.5.0.tgz 7377ms (cache skip)
+973 http fetch GET 403 https://cdn.npmmirror.com/packages/decompress-response/10.0.0/decompress-response-10.0.0.tgz 7423ms (cache skip)
+974 http fetch GET 403 https://cdn.npmmirror.com/packages/ci-info/4.4.0/ci-info-4.4.0.tgz 7428ms (cache skip)
+975 http fetch GET 403 https://cdn.npmmirror.com/packages/color-name/1.1.4/color-name-1.1.4.tgz 7461ms (cache skip)
+976 http fetch GET 403 https://cdn.npmmirror.com/packages/ci-parallel-vars/1.0.1/ci-parallel-vars-1.0.1.tgz 7487ms (cache skip)
+977 http fetch GET 403 https://cdn.npmmirror.com/packages/cliui/9.0.1/cliui-9.0.1.tgz 7496ms (cache skip)
+978 http fetch GET 403 https://cdn.npmmirror.com/packages/convert-to-spaces/2.0.1/convert-to-spaces-2.0.1.tgz 7501ms (cache skip)
+979 http fetch GET 403 https://cdn.npmmirror.com/packages/css-what/6.2.2/css-what-6.2.2.tgz 7582ms (cache skip)
+980 http fetch GET 403 https://cdn.npmmirror.com/packages/cli-truncate/6.0.0/cli-truncate-6.0.0.tgz 7598ms (cache skip)
+981 http fetch GET 403 https://cdn.npmmirror.com/packages/chokidar/4.0.3/chokidar-4.0.3.tgz 7631ms (cache skip)
+982 http fetch GET 403 https://cdn.npmmirror.com/packages/chunkd/2.0.1/chunkd-2.0.1.tgz 7660ms (cache skip)
+983 http fetch GET 403 https://cdn.npmmirror.com/packages/color-convert/2.0.1/color-convert-2.0.1.tgz 7662ms (cache skip)
+984 http fetch GET 403 https://cdn.npmmirror.com/packages/chownr/3.0.0/chownr-3.0.0.tgz 7687ms (cache skip)
+985 http fetch GET 403 https://cdn.npmmirror.com/packages/chunk-data/0.1.0/chunk-data-0.1.0.tgz 7773ms (cache skip)
+986 http fetch GET 403 https://cdn.npmmirror.com/packages/cbor2/2.3.0/cbor2-2.3.0.tgz 7829ms (cache skip)
+987 http fetch GET 403 https://cdn.npmmirror.com/packages/cacheable-request/13.0.19/cacheable-request-13.0.19.tgz 7849ms (cache skip)
+988 http fetch GET 403 https://cdn.npmmirror.com/packages/cacheable-lookup/7.0.0/cacheable-lookup-7.0.0.tgz 7905ms (cache skip)
+989 http fetch GET 403 https://cdn.npmmirror.com/packages/byte-counter/0.1.0/byte-counter-0.1.0.tgz 8015ms (cache skip)
+990 http fetch GET 403 https://cdn.npmmirror.com/packages/code-excerpt/4.0.0/code-excerpt-4.0.0.tgz 8022ms (cache skip)
+991 http fetch GET 403 https://cdn.npmmirror.com/packages/bundle-require/5.1.0/bundle-require-5.1.0.tgz 8102ms (cache skip)
+992 http fetch GET 403 https://cdn.npmmirror.com/packages/c8/11.0.0/c8-11.0.0.tgz 8103ms (cache skip)
+993 http fetch GET 403 https://cdn.npmmirror.com/packages/cheerio-select/2.1.0/cheerio-select-2.1.0.tgz 8105ms (cache skip)
+994 http fetch GET 403 https://cdn.npmmirror.com/packages/chalk/5.6.2/chalk-5.6.2.tgz 8136ms (cache skip)
+995 http fetch GET 403 https://cdn.npmmirror.com/packages/boolbase/1.0.0/boolbase-1.0.0.tgz 8215ms (cache skip)
+996 http fetch GET 403 https://cdn.npmmirror.com/packages/braces/3.0.3/braces-3.0.3.tgz 8297ms (cache skip)
+997 http fetch GET 403 https://cdn.npmmirror.com/packages/balanced-match/4.0.4/balanced-match-4.0.4.tgz 8303ms (cache skip)
+998 http fetch GET 403 https://cdn.npmmirror.com/packages/async-sema/3.1.1/async-sema-3.1.1.tgz 8305ms (cache skip)
+999 http fetch GET 403 https://cdn.npmmirror.com/packages/blueimp-md5/2.19.0/blueimp-md5-2.19.0.tgz 8335ms (cache skip)
+1000 http fetch GET 403 https://cdn.npmmirror.com/packages/callsites/4.2.0/callsites-4.2.0.tgz 8338ms (cache skip)
+1001 http fetch GET 403 https://cdn.npmmirror.com/packages/common-path-prefix/3.0.0/common-path-prefix-3.0.0.tgz 8393ms (cache skip)
+1002 http fetch GET 403 https://cdn.npmmirror.com/packages/arrify/3.0.0/arrify-3.0.0.tgz 8416ms (cache skip)
+1003 http fetch GET 403 https://cdn.npmmirror.com/packages/array-find-index/1.0.2/array-find-index-1.0.2.tgz 8503ms (cache skip)
+1004 http fetch GET 403 https://cdn.npmmirror.com/packages/bindings/1.5.0/bindings-1.5.0.tgz 8521ms (cache skip)
+1005 http fetch GET 403 https://cdn.npmmirror.com/packages/agent-base/7.1.4/agent-base-7.1.4.tgz 8627ms (cache skip)
+1006 http fetch GET 403 https://cdn.npmmirror.com/packages/acorn-walk/8.3.5/acorn-walk-8.3.5.tgz 8628ms (cache skip)
+1007 http fetch GET 403 https://cdn.npmmirror.com/packages/brace-expansion/5.0.6/brace-expansion-5.0.6.tgz 8636ms (cache skip)
+1008 http fetch GET 403 https://cdn.npmmirror.com/packages/ajv/6.15.0/ajv-6.15.0.tgz 8721ms (cache skip)
+1009 http fetch GET 403 https://cdn.npmmirror.com/packages/any-promise/1.3.0/any-promise-1.3.0.tgz 8735ms (cache skip)
+1010 http fetch GET 403 https://cdn.npmmirror.com/packages/ava/8.0.1/ava-8.0.1.tgz 8821ms (cache skip)
+1011 http fetch GET 403 https://cdn.npmmirror.com/packages/concordance/5.0.4/concordance-5.0.4.tgz 8825ms (cache skip)
+1012 http fetch GET 403 https://cdn.npmmirror.com/packages/ansi-regex/6.2.2/ansi-regex-6.2.2.tgz 8821ms (cache skip)
+1013 http fetch GET 403 https://cdn.npmmirror.com/packages/abbrev/3.0.1/abbrev-3.0.1.tgz 8846ms (cache skip)
+1014 http fetch GET 403 https://cdn.npmmirror.com/packages/acorn-jsx/5.3.2/acorn-jsx-5.3.2.tgz 8847ms (cache skip)
+1015 http fetch GET 403 https://cdn.npmmirror.com/packages/acorn-import-attributes/1.9.5/acorn-import-attributes-1.9.5.tgz 8956ms (cache skip)
+1016 http fetch GET 403 https://cdn.npmmirror.com/packages/arrgv/1.0.2/arrgv-1.0.2.tgz 8966ms (cache skip)
+1017 http fetch GET 403 https://cdn.npmmirror.com/packages/acorn/8.16.0/acorn-8.16.0.tgz 9017ms (cache skip)
+1018 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/typescript-estree/8.60.1/typescript-estree-8.60.1.tgz 9057ms (cache skip)
+1019 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/type-utils/8.60.1/type-utils-8.60.1.tgz 9151ms (cache skip)
+1020 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/types/8.60.1/types-8.60.1.tgz 9162ms (cache skip)
+1021 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/scope-manager/8.60.1/scope-manager-8.60.1.tgz 9191ms (cache skip)
+1022 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/tsconfig-utils/8.60.1/tsconfig-utils-8.60.1.tgz 9347ms (cache skip)
+1023 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/node/24.12.4/node-24.12.4.tgz 9348ms (cache skip)
+1024 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/json-schema/7.0.15/json-schema-7.0.15.tgz 9374ms (cache skip)
+1025 http fetch GET 403 https://cdn.npmmirror.com/packages/cheerio/1.2.0/cheerio-1.2.0.tgz 9453ms (cache skip)
+1026 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/visitor-keys/8.60.1/visitor-keys-8.60.1.tgz 9502ms (cache skip)
+1027 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/parser/8.60.1/parser-8.60.1.tgz 9558ms (cache skip)
+1028 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/http-cache-semantics/4.2.0/http-cache-semantics-4.2.0.tgz 9567ms (cache skip)
+1029 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/istanbul-lib-coverage/2.0.6/istanbul-lib-coverage-2.0.6.tgz 9572ms (cache skip)
+1030 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/estree/1.0.9/estree-1.0.9.tgz 9672ms (cache skip)
+1031 http fetch GET 403 https://cdn.npmmirror.com/packages/cac/6.7.14/cac-6.7.14.tgz 9694ms (cache skip)
+1032 http fetch GET 403 https://cdn.npmmirror.com/packages/%40types/esrecurse/4.3.1/esrecurse-4.3.1.tgz 9698ms (cache skip)
+1033 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/utils/8.60.1/utils-8.60.1.tgz 9724ms (cache skip)
+1034 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sinonjs/fake-timers/15.4.0/fake-timers-15.4.0.tgz 9751ms (cache skip)
+1035 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sinonjs/commons/3.0.1/commons-3.0.1.tgz 9755ms (cache skip)
+1036 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/eslint-plugin/8.60.1/eslint-plugin-8.60.1.tgz 9792ms (cache skip)
+1037 http fetch GET 403 https://cdn.npmmirror.com/packages/%40vercel/nft/1.10.2/nft-1.10.2.tgz 9866ms (cache skip)
+1038 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sindresorhus/is/8.1.0/is-8.1.0.tgz 9872ms (cache skip)
+1039 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sinonjs/samsam/10.0.2/samsam-10.0.2.tgz 9921ms (cache skip)
+1040 http fetch GET 403 https://cdn.npmmirror.com/packages/%40rollup/rollup-darwin-arm64/4.61.1/rollup-darwin-arm64-4.61.1.tgz 9926ms (cache skip)
+1041 verbose reify failed optional dependency /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/@rollup/rollup-darwin-arm64
+1042 silly reify mark deleted [
+1042 silly reify   '/Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/@rollup/rollup-darwin-arm64'
+1042 silly reify ]
+1043 http fetch GET 403 https://cdn.npmmirror.com/packages/%40open-draft/until/2.1.0/until-2.1.0.tgz 9933ms (cache skip)
+1044 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sec-ant/readable-stream/0.4.1/readable-stream-0.4.1.tgz 9937ms (cache skip)
+1045 http fetch GET 403 https://cdn.npmmirror.com/packages/%40rollup/pluginutils/5.4.0/pluginutils-5.4.0.tgz 9947ms (cache skip)
+1046 http fetch GET 403 https://cdn.npmmirror.com/packages/confbox/0.1.8/confbox-0.1.8.tgz 9994ms (cache skip)
+1047 http fetch GET 403 https://cdn.npmmirror.com/packages/%40open-draft/logger/0.3.0/logger-0.3.0.tgz 10043ms (cache skip)
+1048 http fetch GET 403 https://cdn.npmmirror.com/packages/%40nodelib/fs.walk/1.2.8/fs.walk-1.2.8.tgz 10102ms (cache skip)
+1049 http fetch GET 403 https://cdn.npmmirror.com/packages/%40nodelib/fs.stat/2.0.5/fs.stat-2.0.5.tgz 10114ms (cache skip)
+1050 http fetch GET 403 https://cdn.npmmirror.com/packages/%40nodelib/fs.scandir/2.1.5/fs.scandir-2.1.5.tgz 10200ms (cache skip)
+1051 http fetch GET 403 https://cdn.npmmirror.com/packages/%40mswjs/interceptors/0.41.9/interceptors-0.41.9.tgz 10200ms (cache skip)
+1052 http fetch GET 403 https://cdn.npmmirror.com/packages/%40keyv/serialize/1.1.1/serialize-1.1.1.tgz 10200ms (cache skip)
+1053 http fetch GET 403 https://cdn.npmmirror.com/packages/%40typescript-eslint/project-service/8.60.1/project-service-8.60.1.tgz 10205ms (cache skip)
+1054 http fetch GET 403 https://cdn.npmmirror.com/packages/%40mapbox/node-pre-gyp/2.0.3/node-pre-gyp-2.0.3.tgz 10203ms (cache skip)
+1055 http fetch GET 403 https://cdn.npmmirror.com/packages/%40sindresorhus/merge-streams/4.0.0/merge-streams-4.0.0.tgz 10208ms (cache skip)
+1056 http fetch GET 403 https://cdn.npmmirror.com/packages/%40jridgewell/trace-mapping/0.3.31/trace-mapping-0.3.31.tgz 10222ms (cache skip)
+1057 http fetch GET 403 https://cdn.npmmirror.com/packages/%40jridgewell/sourcemap-codec/1.5.5/sourcemap-codec-1.5.5.tgz 10222ms (cache skip)
+1058 http fetch GET 403 https://cdn.npmmirror.com/packages/%40jridgewell/gen-mapping/0.3.13/gen-mapping-0.3.13.tgz 10315ms (cache skip)
+1059 http fetch GET 403 https://cdn.npmmirror.com/packages/%40isaacs/fs-minipass/4.0.1/fs-minipass-4.0.1.tgz 10389ms (cache skip)
+1060 http fetch GET 403 https://cdn.npmmirror.com/packages/%40jridgewell/resolve-uri/3.1.2/resolve-uri-3.1.2.tgz 10389ms (cache skip)
+1061 http fetch GET 403 https://cdn.npmmirror.com/packages/%40humanwhocodes/retry/0.4.3/retry-0.4.3.tgz 10399ms (cache skip)
+1062 http fetch GET 403 https://cdn.npmmirror.com/packages/%40istanbuljs/schema/0.1.6/schema-0.1.6.tgz 10405ms (cache skip)
+1063 http fetch GET 403 https://cdn.npmmirror.com/packages/%40humanfs/types/0.15.0/types-0.15.0.tgz 10409ms (cache skip)
+1064 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/object-schema/3.0.5/object-schema-3.0.5.tgz 10414ms (cache skip)
+1065 http fetch GET 403 https://cdn.npmmirror.com/packages/%40humanfs/core/0.19.2/core-0.19.2.tgz 10419ms (cache skip)
+1066 http fetch GET 403 https://cdn.npmmirror.com/packages/%40open-draft/deferred-promise/2.2.0/deferred-promise-2.2.0.tgz 10522ms (cache skip)
+1067 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/js/10.0.1/js-10.0.1.tgz 10561ms (cache skip)
+1068 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/config-helpers/0.6.0/config-helpers-0.6.0.tgz 10573ms (cache skip)
+1069 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/core/1.2.1/core-1.2.1.tgz 10587ms (cache skip)
+1070 http fetch GET 403 https://cdn.npmmirror.com/packages/%40esbuild/darwin-arm64/0.28.1/darwin-arm64-0.28.1.tgz 10590ms (cache skip)
+1071 verbose reify failed optional dependency /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/@esbuild/darwin-arm64
+1072 silly reify mark deleted [
+1072 silly reify   '/Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/node_modules/@esbuild/darwin-arm64'
+1072 silly reify ]
+1073 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint-community/regexpp/4.12.2/regexpp-4.12.2.tgz 10637ms (cache skip)
+1074 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint-community/eslint-utils/4.9.1/eslint-utils-4.9.1.tgz 10639ms (cache skip)
+1075 http fetch GET 403 https://cdn.npmmirror.com/packages/http-cache-semantics/4.2.0/http-cache-semantics-4.2.0.tgz 10734ms (cache skip)
+1076 http fetch GET 403 https://cdn.npmmirror.com/packages/%40bcoe/v8-coverage/1.0.2/v8-coverage-1.0.2.tgz 10768ms (cache skip)
+1077 http fetch GET 403 https://cdn.npmmirror.com/packages/string-width/7.2.0/string-width-7.2.0.tgz 10774ms (cache skip)
+1078 http fetch GET 403 https://cdn.npmmirror.com/packages/%40humanwhocodes/module-importer/1.0.1/module-importer-1.0.1.tgz 10807ms (cache skip)
+1079 http fetch GET 403 https://cdn.npmmirror.com/packages/commander/4.1.1/commander-4.1.1.tgz 10920ms (cache skip)
+1080 http fetch GET 403 https://cdn.npmmirror.com/packages/emoji-regex/10.6.0/emoji-regex-10.6.0.tgz 10927ms (cache skip)
+1081 http fetch GET 403 https://cdn.npmmirror.com/packages/iconv-lite/0.6.3/iconv-lite-0.6.3.tgz 10929ms (cache skip)
+1082 http fetch GET 403 https://cdn.npmmirror.com/packages/string-width/7.2.0/string-width-7.2.0.tgz 10941ms (cache skip)
+1083 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/config-array/0.23.5/config-array-0.23.5.tgz 10959ms (cache skip)
+1084 http fetch GET 403 https://cdn.npmmirror.com/packages/entities/6.0.1/entities-6.0.1.tgz 10988ms (cache skip)
+1085 http fetch GET 403 https://cdn.npmmirror.com/packages/lowercase-keys/3.0.0/lowercase-keys-3.0.0.tgz 11001ms (cache skip)
+1086 http fetch GET 403 https://cdn.npmmirror.com/packages/%40eslint/plugin-kit/0.7.2/plugin-kit-0.7.2.tgz 11105ms (cache skip)
+1087 http fetch GET 403 https://cdn.npmmirror.com/packages/entities/7.0.1/entities-7.0.1.tgz 11125ms (cache skip)
+1088 http fetch GET 403 https://cdn.npmmirror.com/packages/emoji-regex/10.6.0/emoji-regex-10.6.0.tgz 11135ms (cache skip)
+1089 http fetch GET 403 https://cdn.npmmirror.com/packages/keyv/5.6.0/keyv-5.6.0.tgz 11151ms (cache skip)
+1090 http fetch GET 403 https://cdn.npmmirror.com/packages/type-fest/0.13.1/type-fest-0.13.1.tgz 11153ms (cache skip)
+1091 http fetch GET 403 https://cdn.npmmirror.com/packages/escape-string-regexp/5.0.0/escape-string-regexp-5.0.0.tgz 11157ms (cache skip)
+1092 http fetch GET 403 https://cdn.npmmirror.com/packages/%40cto.af/wtf8/0.0.5/wtf8-0.0.5.tgz 11244ms (cache skip)
+1093 http fetch GET 403 https://cdn.npmmirror.com/packages/iconv-lite/0.6.3/iconv-lite-0.6.3.tgz 11243ms (cache skip)
+1094 http fetch GET 403 https://cdn.npmmirror.com/packages/glob-parent/5.1.2/glob-parent-5.1.2.tgz 11243ms (cache skip)
+1095 http fetch GET 403 https://cdn.npmmirror.com/packages/string-width/7.2.0/string-width-7.2.0.tgz 11283ms (cache skip)
+1096 http fetch GET 403 https://cdn.npmmirror.com/packages/ignore/7.0.5/ignore-7.0.5.tgz 11316ms (cache skip)
+1097 http fetch GET 403 https://cdn.npmmirror.com/packages/wrap-ansi/7.0.0/wrap-ansi-7.0.0.tgz 11325ms (cache skip)
+1098 http fetch GET 403 https://cdn.npmmirror.com/packages/keyv/5.6.0/keyv-5.6.0.tgz 11349ms (cache skip)
+1099 http fetch GET 403 https://cdn.npmmirror.com/packages/emoji-regex/10.6.0/emoji-regex-10.6.0.tgz 11352ms (cache skip)
+1100 http fetch GET 403 https://cdn.npmmirror.com/packages/yargs/17.7.2/yargs-17.7.2.tgz 11435ms (cache skip)
+1101 http fetch GET 403 https://cdn.npmmirror.com/packages/yargs-parser/22.0.0/yargs-parser-22.0.0.tgz 11438ms (cache skip)
+1102 http fetch GET 403 https://cdn.npmmirror.com/packages/escape-string-regexp/2.0.0/escape-string-regexp-2.0.0.tgz 11442ms (cache skip)
+1103 http fetch GET 403 https://cdn.npmmirror.com/packages/strip-ansi/6.0.1/strip-ansi-6.0.1.tgz 11450ms (cache skip)
+1104 http fetch GET 403 https://cdn.npmmirror.com/packages/is-fullwidth-code-point/3.0.0/is-fullwidth-code-point-3.0.0.tgz 11473ms (cache skip)
+1105 http fetch GET 403 https://cdn.npmmirror.com/packages/string-width/4.2.3/string-width-4.2.3.tgz 11524ms (cache skip)
+1106 http fetch GET 403 https://cdn.npmmirror.com/packages/ignore/7.0.5/ignore-7.0.5.tgz 11537ms (cache skip)
+1107 http fetch GET 403 https://cdn.npmmirror.com/packages/ansi-styles/4.3.0/ansi-styles-4.3.0.tgz 11547ms (cache skip)
+1108 http fetch GET 403 https://cdn.npmmirror.com/packages/picomatch/2.3.2/picomatch-2.3.2.tgz 11549ms (cache skip)
+1109 http fetch GET 403 https://cdn.npmmirror.com/packages/ansi-regex/5.0.1/ansi-regex-5.0.1.tgz 11548ms (cache skip)
+1110 http fetch GET 403 https://cdn.npmmirror.com/packages/type-detect/4.1.0/type-detect-4.1.0.tgz 11575ms (cache skip)
+1111 http fetch GET 403 https://cdn.npmmirror.com/packages/eslint-visitor-keys/3.4.3/eslint-visitor-keys-3.4.3.tgz 11602ms (cache skip)
+1112 http fetch GET 403 https://cdn.npmmirror.com/packages/argparse/1.0.10/argparse-1.0.10.tgz 11634ms (cache skip)
+1113 http fetch GET 403 https://cdn.npmmirror.com/packages/ansi-styles/6.2.3/ansi-styles-6.2.3.tgz 11985ms (cache skip)
+1114 http fetch GET 403 https://cdn.npmmirror.com/packages/%40humanfs/node/0.16.8/node-0.16.8.tgz 12024ms (cache skip)
+1115 http fetch GET 403 https://cdn.npmmirror.com/packages/cliui/8.0.1/cliui-8.0.1.tgz 12201ms (cache skip)
+1116 verbose stack HttpErrorGeneral: 403 Forbidden - GET https://cdn.npmmirror.com/packages/yocto-queue/0.1.0/yocto-queue-0.1.0.tgz
+1116 verbose stack     at /opt/homebrew/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/check-response.js:103:15
+1116 verbose stack     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+1117 verbose statusCode 403
+1118 verbose pkgid yocto-queue@https://registry.npmmirror.com/yocto-queue/-/yocto-queue-0.1.0.tgz
+1119 error code E403
+1120 error 403 403 Forbidden - GET https://cdn.npmmirror.com/packages/yocto-queue/0.1.0/yocto-queue-0.1.0.tgz
+1121 error 403 In most cases, you or one of your dependencies are requesting a package version that is forbidden by your security policy, or on a server you do not have access to.
+1122 silly unfinished npm timer reify 1794412372263
+1123 silly unfinished npm timer reify:unpack 1794412372289
+1124 silly unfinished npm timer reifyNode:node_modules/yocto-queue 1794412372289
+1125 silly unfinished npm timer reifyNode:node_modules/yargs-parser 1794412372289
+1126 silly unfinished npm timer reifyNode:node_modules/yargs 1794412372289
+1127 silly unfinished npm timer reifyNode:node_modules/yargs/node_modules/yargs-parser 1794412372289
+1128 silly unfinished npm timer reifyNode:node_modules/yargs/node_modules/string-width 1794412372289
+1129 silly unfinished npm timer reifyNode:node_modules/yargs/node_modules/emoji-regex 1794412372289
+1130 silly unfinished npm timer reifyNode:node_modules/yallist 1794412372289
+1131 silly unfinished npm timer reifyNode:node_modules/y18n 1794412372289
+1132 silly unfinished npm timer reifyNode:node_modules/write-file-atomic 1794412372289
+1133 silly unfinished npm timer reifyNode:node_modules/wrap-ansi 1794412372289
+1134 silly unfinished npm timer reifyNode:node_modules/wrap-ansi/node_modules/string-width 1794412372289
+1135 silly unfinished npm timer reifyNode:node_modules/wrap-ansi/node_modules/emoji-regex 1794412372289
+1136 silly unfinished npm timer reifyNode:node_modules/word-wrap 1794412372289
+1137 silly unfinished npm timer reifyNode:node_modules/which 1794412372289
+1138 silly unfinished npm timer reifyNode:node_modules/whatwg-url 1794412372289
+1139 silly unfinished npm timer reifyNode:node_modules/whatwg-mimetype 1794412372289
+1140 silly unfinished npm timer reifyNode:node_modules/whatwg-encoding 1794412372289
+1141 silly unfinished npm timer reifyNode:node_modules/whatwg-encoding/node_modules/iconv-lite 1794412372289
+1142 silly unfinished npm timer reifyNode:node_modules/well-known-symbols 1794412372289
+1143 silly unfinished npm timer reifyNode:node_modules/webidl-conversions 1794412372289
+1144 silly unfinished npm timer reifyNode:node_modules/v8-to-istanbul 1794412372289
+1145 silly unfinished npm timer reifyNode:node_modules/uri-js 1794412372289
+1146 silly unfinished npm timer reifyNode:node_modules/unicorn-magic 1794412372289
+1147 silly unfinished npm timer reifyNode:node_modules/undici-types 1794412372289
+1148 silly unfinished npm timer reifyNode:node_modules/undici 1794412372289
+1149 silly unfinished npm timer reifyNode:node_modules/uint8array-extras 1794412372289
+1150 silly unfinished npm timer reifyNode:node_modules/ufo 1794412372289
+1151 silly unfinished npm timer reifyNode:node_modules/typescript-eslint 1794412372289
+1152 silly unfinished npm timer reifyNode:node_modules/typescript 1794412372289
+1153 silly unfinished npm timer reifyNode:node_modules/type-fest 1794412372289
+1154 silly unfinished npm timer reifyNode:node_modules/type-detect 1794412372289
+1155 silly unfinished npm timer reifyNode:node_modules/type-check 1794412372289
+1156 silly unfinished npm timer reifyNode:node_modules/tsx 1794412372289
+1157 silly unfinished npm timer reifyNode:node_modules/tsup 1794412372289
+1158 silly unfinished npm timer reifyNode:node_modules/tslog 1794412372289
+1159 silly unfinished npm timer reifyNode:node_modules/ts-interface-checker 1794412372289
+1160 silly unfinished npm timer reifyNode:node_modules/ts-api-utils 1794412372289
+1161 silly unfinished npm timer reifyNode:node_modules/tree-kill 1794412372289
+1162 silly unfinished npm timer reifyNode:node_modules/tr46 1794412372289
+1163 silly unfinished npm timer reifyNode:node_modules/tough-cookie 1794412372289
+1164 silly unfinished npm timer reifyNode:node_modules/to-regex-range 1794412372289
+1165 silly unfinished npm timer reifyNode:node_modules/tldts-core 1794412372289
+1166 silly unfinished npm timer reifyNode:node_modules/tldts 1794412372289
+1167 silly unfinished npm timer reifyNode:node_modules/tinyglobby 1794412372289
+1168 silly unfinished npm timer reifyNode:node_modules/tinyexec 1794412372289
+1169 silly unfinished npm timer reifyNode:node_modules/time-zone 1794412372289
+1170 silly unfinished npm timer reifyNode:node_modules/thenify-all 1794412372289
+1171 silly unfinished npm timer reifyNode:node_modules/thenify 1794412372289
+1172 silly unfinished npm timer reifyNode:node_modules/test-exclude 1794412372289
+1173 silly unfinished npm timer reifyNode:node_modules/temp-dir 1794412372289
+1174 silly unfinished npm timer reifyNode:node_modules/tar 1794412372289
+1175 silly unfinished npm timer reifyNode:node_modules/tagged-tag 1794412372289
+1176 silly unfinished npm timer reifyNode:node_modules/supports-color 1794412372289
+1177 silly unfinished npm timer reifyNode:node_modules/supertap 1794412372289
+1178 silly unfinished npm timer reifyNode:node_modules/sucrase 1794412372289
+1179 silly unfinished npm timer reifyNode:node_modules/strip-ansi 1794412372289
+1180 silly unfinished npm timer reifyNode:node_modules/string-width 1794412372289
+1181 silly unfinished npm timer reifyNode:node_modules/strict-event-emitter 1794412372289
+1182 silly unfinished npm timer reifyNode:node_modules/stack-utils 1794412372289
+1183 silly unfinished npm timer reifyNode:node_modules/stack-utils/node_modules/escape-string-regexp 1794412372289
+1184 silly unfinished npm timer reifyNode:node_modules/sprintf-js 1794412372289
+1185 silly unfinished npm timer reifyNode:node_modules/source-map 1794412372289
+1186 silly unfinished npm timer reifyNode:node_modules/slice-ansi 1794412372289
+1187 silly unfinished npm timer reifyNode:node_modules/slash 1794412372289
+1188 silly unfinished npm timer reifyNode:node_modules/sinon 1794412372289
+1189 silly unfinished npm timer reifyNode:node_modules/signal-exit 1794412372289
+1190 silly unfinished npm timer reifyNode:node_modules/shebang-regex 1794412372289
+1191 silly unfinished npm timer reifyNode:node_modules/shebang-command 1794412372289
+1192 silly unfinished npm timer reifyNode:node_modules/serialize-error 1794412372289
+1193 silly unfinished npm timer reifyNode:node_modules/serialize-error/node_modules/type-fest 1794412372289
+1194 silly unfinished npm timer reifyNode:node_modules/semver 1794412372289
+1195 silly unfinished npm timer reifyNode:node_modules/seenreq 1794412372289
+1196 silly unfinished npm timer reifyNode:node_modules/safer-buffer 1794412372289
+1197 silly unfinished npm timer reifyNode:node_modules/run-parallel 1794412372289
+1198 silly unfinished npm timer reifyNode:node_modules/rollup 1794412372289
+1199 silly unfinished npm timer reifyNode:node_modules/reusify 1794412372289
+1200 silly unfinished npm timer reifyNode:node_modules/responselike 1794412372289
+1201 silly unfinished npm timer reifyNode:node_modules/responselike/node_modules/lowercase-keys 1794412372289
+1202 silly unfinished npm timer reifyNode:node_modules/resolve-from 1794412372289
+1203 silly unfinished npm timer reifyNode:node_modules/resolve-cwd 1794412372289
+1204 silly unfinished npm timer reifyNode:node_modules/resolve-alpn 1794412372289
+1205 silly unfinished npm timer reifyNode:node_modules/require-directory 1794412372289
+1206 silly unfinished npm timer reifyNode:node_modules/readdirp 1794412372289
+1207 silly unfinished npm timer reifyNode:node_modules/quick-lru 1794412372289
+1208 silly unfinished npm timer reifyNode:node_modules/queue-microtask 1794412372289
+1209 silly unfinished npm timer reifyNode:node_modules/punycode 1794412372289
+1210 silly unfinished npm timer reifyNode:node_modules/propagate 1794412372289
+1211 silly unfinished npm timer reifyNode:node_modules/pretty-ms 1794412372289
+1212 silly unfinished npm timer reifyNode:node_modules/prelude-ls 1794412372289
+1213 silly unfinished npm timer reifyNode:node_modules/postcss-load-config 1794412372289
+1214 silly unfinished npm timer reifyNode:node_modules/plur 1794412372289
+1215 silly unfinished npm timer reifyNode:node_modules/pkg-types 1794412372289
+1216 silly unfinished npm timer reifyNode:node_modules/pirates 1794412372289
+1217 silly unfinished npm timer reifyNode:node_modules/picomatch 1794412372289
+1218 silly unfinished npm timer reifyNode:node_modules/picocolors 1794412372289
+1219 silly unfinished npm timer reifyNode:node_modules/pathe 1794412372289
+1220 silly unfinished npm timer reifyNode:node_modules/path-scurry 1794412372289
+1221 silly unfinished npm timer reifyNode:node_modules/path-key 1794412372289
+1222 silly unfinished npm timer reifyNode:node_modules/path-exists 1794412372289
+1223 silly unfinished npm timer reifyNode:node_modules/parse5-parser-stream 1794412372289
+1224 silly unfinished npm timer reifyNode:node_modules/parse5-htmlparser2-tree-adapter 1794412372289
+1225 silly unfinished npm timer reifyNode:node_modules/parse5 1794412372289
+1226 silly unfinished npm timer reifyNode:node_modules/parse5/node_modules/entities 1794412372289
+1227 silly unfinished npm timer reifyNode:node_modules/parse-ms 1794412372289
+1228 silly unfinished npm timer reifyNode:node_modules/package-config 1794412372289
+1229 silly unfinished npm timer reifyNode:node_modules/p-map 1794412372289
+1230 silly unfinished npm timer reifyNode:node_modules/p-locate 1794412372289
+1231 silly unfinished npm timer reifyNode:node_modules/p-limit 1794412372289
+1232 silly unfinished npm timer reifyNode:node_modules/outvariant 1794412372289
+1233 silly unfinished npm timer reifyNode:node_modules/optionator 1794412372289
+1234 silly unfinished npm timer reifyNode:node_modules/object-assign 1794412372289
+1235 silly unfinished npm timer reifyNode:node_modules/nth-check 1794412372289
+1236 silly unfinished npm timer reifyNode:node_modules/normalize-url 1794412372289
+1237 silly unfinished npm timer reifyNode:node_modules/nopt 1794412372289
+1238 silly unfinished npm timer reifyNode:node_modules/node-url-utils 1794412372289
+1239 silly unfinished npm timer reifyNode:node_modules/node-gyp-build 1794412372289
+1240 silly unfinished npm timer reifyNode:node_modules/node-fetch 1794412372289
+1241 silly unfinished npm timer reifyNode:node_modules/nock 1794412372289
+1242 silly unfinished npm timer reifyNode:node_modules/natural-compare 1794412372289
+1243 silly unfinished npm timer reifyNode:node_modules/mz 1794412372289
+1244 silly unfinished npm timer reifyNode:node_modules/ms 1794412372289
+1245 silly unfinished npm timer reifyNode:node_modules/mlly 1794412372289
+1246 silly unfinished npm timer reifyNode:node_modules/minizlib 1794412372289
+1247 silly unfinished npm timer reifyNode:node_modules/minipass 1794412372289
+1248 silly unfinished npm timer reifyNode:node_modules/minimatch 1794412372289
+1249 silly unfinished npm timer reifyNode:node_modules/mimic-response 1794412372289
+1250 silly unfinished npm timer reifyNode:node_modules/mimic-function 1794412372289
+1251 silly unfinished npm timer reifyNode:node_modules/micromatch 1794412372289
+1252 silly unfinished npm timer reifyNode:node_modules/micromatch/node_modules/picomatch 1794412372289
+1253 silly unfinished npm timer reifyNode:node_modules/merge2 1794412372289
+1254 silly unfinished npm timer reifyNode:node_modules/memoize 1794412372289
+1255 silly unfinished npm timer reifyNode:node_modules/md5-hex 1794412372289
+1256 silly unfinished npm timer reifyNode:node_modules/matcher 1794412372289
+1257 silly unfinished npm timer reifyNode:node_modules/matcher/node_modules/escape-string-regexp 1794412372289
+1258 silly unfinished npm timer reifyNode:node_modules/make-dir 1794412372289
+1259 silly unfinished npm timer reifyNode:node_modules/magic-string 1794412372289
+1260 silly unfinished npm timer reifyNode:node_modules/lru-cache 1794412372289
+1261 silly unfinished npm timer reifyNode:node_modules/lowercase-keys 1794412372289
+1262 silly unfinished npm timer reifyNode:node_modules/lodash 1794412372289
+1263 silly unfinished npm timer reifyNode:node_modules/locate-path 1794412372289
+1264 silly unfinished npm timer reifyNode:node_modules/load-tsconfig 1794412372289
+1265 silly unfinished npm timer reifyNode:node_modules/load-json-file 1794412372289
+1266 silly unfinished npm timer reifyNode:node_modules/lines-and-columns 1794412372289
+1267 silly unfinished npm timer reifyNode:node_modules/lilconfig 1794412372289
+1268 silly unfinished npm timer reifyNode:node_modules/levn 1794412372289
+1269 silly unfinished npm timer reifyNode:node_modules/keyv 1794412372289
+1270 silly unfinished npm timer reifyNode:node_modules/json-stringify-safe 1794412372289
+1271 silly unfinished npm timer reifyNode:node_modules/json-stable-stringify-without-jsonify 1794412372289
+1272 silly unfinished npm timer reifyNode:node_modules/json-schema-traverse 1794412372289
+1273 silly unfinished npm timer reifyNode:node_modules/json-buffer 1794412372289
+1274 silly unfinished npm timer reifyNode:node_modules/js-yaml 1794412372289
+1275 silly unfinished npm timer reifyNode:node_modules/js-string-escape 1794412372289
+1276 silly unfinished npm timer reifyNode:node_modules/joycon 1794412372289
+1277 silly unfinished npm timer reifyNode:node_modules/istanbul-reports 1794412372289
+1278 silly unfinished npm timer reifyNode:node_modules/istanbul-lib-report 1794412372289
+1279 silly unfinished npm timer reifyNode:node_modules/istanbul-lib-coverage 1794412372289
+1280 silly unfinished npm timer reifyNode:node_modules/isexe 1794412372289
+1281 silly unfinished npm timer reifyNode:node_modules/is-unicode-supported 1794412372289
+1282 silly unfinished npm timer reifyNode:node_modules/is-stream 1794412372289
+1283 silly unfinished npm timer reifyNode:node_modules/is-promise 1794412372289
+1284 silly unfinished npm timer reifyNode:node_modules/is-plain-object 1794412372289
+1285 silly unfinished npm timer reifyNode:node_modules/is-path-inside 1794412372289
+1286 silly unfinished npm timer reifyNode:node_modules/is-number 1794412372289
+1287 silly unfinished npm timer reifyNode:node_modules/is-node-process 1794412372289
+1288 silly unfinished npm timer reifyNode:node_modules/is-glob 1794412372289
+1289 silly unfinished npm timer reifyNode:node_modules/is-fullwidth-code-point 1794412372289
+1290 silly unfinished npm timer reifyNode:node_modules/is-extglob 1794412372289
+1291 silly unfinished npm timer reifyNode:node_modules/irregular-plurals 1794412372289
+1292 silly unfinished npm timer reifyNode:node_modules/indent-string 1794412372289
+1293 silly unfinished npm timer reifyNode:node_modules/imurmurhash 1794412372289
+1294 silly unfinished npm timer reifyNode:node_modules/ignore-by-default 1794412372289
+1295 silly unfinished npm timer reifyNode:node_modules/ignore 1794412372289
+1296 silly unfinished npm timer reifyNode:node_modules/iconv-lite 1794412372289
+1297 silly unfinished npm timer reifyNode:node_modules/https-proxy-agent 1794412372289
+1298 silly unfinished npm timer reifyNode:node_modules/http2-wrapper 1794412372289
+1299 silly unfinished npm timer reifyNode:node_modules/http-cache-semantics 1794412372289
+1300 silly unfinished npm timer reifyNode:node_modules/htmlparser2 1794412372289
+1301 silly unfinished npm timer reifyNode:node_modules/htmlparser2/node_modules/entities 1794412372289
+1302 silly unfinished npm timer reifyNode:node_modules/html-escaper 1794412372289
+1303 silly unfinished npm timer reifyNode:node_modules/hpagent 1794412372289
+1304 silly unfinished npm timer reifyNode:node_modules/has-flag 1794412372289
+1305 silly unfinished npm timer reifyNode:node_modules/graceful-fs 1794412372289
+1306 silly unfinished npm timer reifyNode:node_modules/got 1794412372289
+1307 silly unfinished npm timer reifyNode:node_modules/got/node_modules/keyv 1794412372289
+1308 silly unfinished npm timer reifyNode:node_modules/globby 1794412372289
+1309 silly unfinished npm timer reifyNode:node_modules/globby/node_modules/ignore 1794412372289
+1310 silly unfinished npm timer reifyNode:node_modules/globals 1794412372289
+1311 silly unfinished npm timer reifyNode:node_modules/glob-parent 1794412372289
+1312 silly unfinished npm timer reifyNode:node_modules/glob 1794412372289
+1313 silly unfinished npm timer reifyNode:node_modules/get-stream 1794412372289
+1314 silly unfinished npm timer reifyNode:node_modules/get-east-asian-width 1794412372289
+1315 silly unfinished npm timer reifyNode:node_modules/get-caller-file 1794412372289
+1316 silly unfinished npm timer reifyNode:node_modules/foreground-child 1794412372289
+1317 silly unfinished npm timer reifyNode:node_modules/flatted 1794412372289
+1318 silly unfinished npm timer reifyNode:node_modules/flat-cache 1794412372289
+1319 silly unfinished npm timer reifyNode:node_modules/fix-dts-default-cjs-exports 1794412372289
+1320 silly unfinished npm timer reifyNode:node_modules/find-up-simple 1794412372289
+1321 silly unfinished npm timer reifyNode:node_modules/find-up 1794412372289
+1322 silly unfinished npm timer reifyNode:node_modules/fill-range 1794412372289
+1323 silly unfinished npm timer reifyNode:node_modules/file-uri-to-path 1794412372289
+1324 silly unfinished npm timer reifyNode:node_modules/file-entry-cache 1794412372289
+1325 silly unfinished npm timer reifyNode:node_modules/figures 1794412372289
+1326 silly unfinished npm timer reifyNode:node_modules/fdir 1794412372289
+1327 silly unfinished npm timer reifyNode:node_modules/fastq 1794412372289
+1328 silly unfinished npm timer reifyNode:node_modules/fast-levenshtein 1794412372289
+1329 silly unfinished npm timer reifyNode:node_modules/fast-json-stable-stringify 1794412372289
+1330 silly unfinished npm timer reifyNode:node_modules/fast-glob 1794412372289
+1331 silly unfinished npm timer reifyNode:node_modules/fast-glob/node_modules/glob-parent 1794412372289
+1332 silly unfinished npm timer reifyNode:node_modules/fast-diff 1794412372289
+1333 silly unfinished npm timer reifyNode:node_modules/fast-deep-equal 1794412372289
+1334 silly unfinished npm timer reifyNode:node_modules/esutils 1794412372289
+1335 silly unfinished npm timer reifyNode:node_modules/estree-walker 1794412372289
+1336 silly unfinished npm timer reifyNode:node_modules/estraverse 1794412372289
+1337 silly unfinished npm timer reifyNode:node_modules/esrecurse 1794412372289
+1338 silly unfinished npm timer reifyNode:node_modules/esquery 1794412372289
+1339 silly unfinished npm timer reifyNode:node_modules/esprima 1794412372289
+1340 silly unfinished npm timer reifyNode:node_modules/espree 1794412372289
+1341 silly unfinished npm timer reifyNode:node_modules/eslint-visitor-keys 1794412372289
+1342 silly unfinished npm timer reifyNode:node_modules/eslint-scope 1794412372289
+1343 silly unfinished npm timer reifyNode:node_modules/eslint 1794412372289
+1344 silly unfinished npm timer reifyNode:node_modules/escape-string-regexp 1794412372289
+1345 silly unfinished npm timer reifyNode:node_modules/escalade 1794412372289
+1346 silly unfinished npm timer reifyNode:node_modules/esbuild 1794412372289
+1347 silly unfinished npm timer reifyNode:node_modules/entities 1794412372289
+1348 silly unfinished npm timer reifyNode:node_modules/encoding-sniffer 1794412372289
+1349 silly unfinished npm timer reifyNode:node_modules/encoding-sniffer/node_modules/iconv-lite 1794412372289
+1350 silly unfinished npm timer reifyNode:node_modules/emoji-regex 1794412372289
+1351 silly unfinished npm timer reifyNode:node_modules/emittery 1794412372289
+1352 silly unfinished npm timer reifyNode:node_modules/domutils 1794412372289
+1353 silly unfinished npm timer reifyNode:node_modules/domhandler 1794412372289
+1354 silly unfinished npm timer reifyNode:node_modules/domelementtype 1794412372289
+1355 silly unfinished npm timer reifyNode:node_modules/dom-serializer 1794412372289
+1356 silly unfinished npm timer reifyNode:node_modules/diff 1794412372289
+1357 silly unfinished npm timer reifyNode:node_modules/detect-libc 1794412372289
+1358 silly unfinished npm timer reifyNode:node_modules/deep-is 1794412372289
+1359 silly unfinished npm timer reifyNode:node_modules/decompress-response 1794412372289
+1360 silly unfinished npm timer reifyNode:node_modules/debug 1794412372289
+1361 silly unfinished npm timer reifyNode:node_modules/date-time 1794412372289
+1362 silly unfinished npm timer reifyNode:node_modules/currently-unhandled 1794412372289
+1363 silly unfinished npm timer reifyNode:node_modules/css-what 1794412372289
+1364 silly unfinished npm timer reifyNode:node_modules/css-select 1794412372289
+1365 silly unfinished npm timer reifyNode:node_modules/cross-spawn 1794412372289
+1366 silly unfinished npm timer reifyNode:node_modules/convert-to-spaces 1794412372289
+1367 silly unfinished npm timer reifyNode:node_modules/convert-source-map 1794412372289
+1368 silly unfinished npm timer reifyNode:node_modules/consola 1794412372289
+1369 silly unfinished npm timer reifyNode:node_modules/confbox 1794412372289
+1370 silly unfinished npm timer reifyNode:node_modules/concordance 1794412372289
+1371 silly unfinished npm timer reifyNode:node_modules/common-path-prefix 1794412372289
+1372 silly unfinished npm timer reifyNode:node_modules/commander 1794412372289
+1373 silly unfinished npm timer reifyNode:node_modules/color-name 1794412372289
+1374 silly unfinished npm timer reifyNode:node_modules/color-convert 1794412372289
+1375 silly unfinished npm timer reifyNode:node_modules/code-excerpt 1794412372289
+1376 silly unfinished npm timer reifyNode:node_modules/cliui 1794412372289
+1377 silly unfinished npm timer reifyNode:node_modules/cliui/node_modules/string-width 1794412372289
+1378 silly unfinished npm timer reifyNode:node_modules/cliui/node_modules/emoji-regex 1794412372289
+1379 silly unfinished npm timer reifyNode:node_modules/cli-truncate 1794412372289
+1380 silly unfinished npm timer reifyNode:node_modules/ci-parallel-vars 1794412372289
+1381 silly unfinished npm timer reifyNode:node_modules/ci-info 1794412372289
+1382 silly unfinished npm timer reifyNode:node_modules/chunkd 1794412372289
+1383 silly unfinished npm timer reifyNode:node_modules/chunk-data 1794412372289
+1384 silly unfinished npm timer reifyNode:node_modules/chownr 1794412372289
+1385 silly unfinished npm timer reifyNode:node_modules/chokidar 1794412372289
+1386 silly unfinished npm timer reifyNode:node_modules/cheerio-select 1794412372289
+1387 silly unfinished npm timer reifyNode:node_modules/cheerio 1794412372289
+1388 silly unfinished npm timer reifyNode:node_modules/chalk 1794412372289
+1389 silly unfinished npm timer reifyNode:node_modules/cbor2 1794412372289
+1390 silly unfinished npm timer reifyNode:node_modules/callsites 1794412372289
+1391 silly unfinished npm timer reifyNode:node_modules/cacheable-request 1794412372289
+1392 silly unfinished npm timer reifyNode:node_modules/cacheable-request/node_modules/keyv 1794412372289
+1393 silly unfinished npm timer reifyNode:node_modules/cacheable-lookup 1794412372289
+1394 silly unfinished npm timer reifyNode:node_modules/cac 1794412372289
+1395 silly unfinished npm timer reifyNode:node_modules/c8 1794412372289
+1396 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/yargs 1794412372289
+1397 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/wrap-ansi 1794412372289
+1398 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/strip-ansi 1794412372289
+1399 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/string-width 1794412372289
+1400 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/is-fullwidth-code-point 1794412372289
+1401 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/cliui 1794412372289
+1402 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/ansi-styles 1794412372289
+1403 silly unfinished npm timer reifyNode:node_modules/c8/node_modules/ansi-regex 1794412372289
+1404 silly unfinished npm timer reifyNode:node_modules/byte-counter 1794412372289
+1405 silly unfinished npm timer reifyNode:node_modules/bundle-require 1794412372289
+1406 silly unfinished npm timer reifyNode:node_modules/braces 1794412372289
+1407 silly unfinished npm timer reifyNode:node_modules/brace-expansion 1794412372289
+1408 silly unfinished npm timer reifyNode:node_modules/boolbase 1794412372289
+1409 silly unfinished npm timer reifyNode:node_modules/blueimp-md5 1794412372289
+1410 silly unfinished npm timer reifyNode:node_modules/bindings 1794412372289
+1411 silly unfinished npm timer reifyNode:node_modules/balanced-match 1794412372289
+1412 silly unfinished npm timer reifyNode:node_modules/ava 1794412372289
+1413 silly unfinished npm timer reifyNode:node_modules/async-sema 1794412372289
+1414 silly unfinished npm timer reifyNode:node_modules/arrify 1794412372289
+1415 silly unfinished npm timer reifyNode:node_modules/arrgv 1794412372289
+1416 silly unfinished npm timer reifyNode:node_modules/array-find-index 1794412372289
+1417 silly unfinished npm timer reifyNode:node_modules/argparse 1794412372289
+1418 silly unfinished npm timer reifyNode:node_modules/any-promise 1794412372289
+1419 silly unfinished npm timer reifyNode:node_modules/ansi-styles 1794412372289
+1420 silly unfinished npm timer reifyNode:node_modules/ansi-regex 1794412372289
+1421 silly unfinished npm timer reifyNode:node_modules/ajv 1794412372289
+1422 silly unfinished npm timer reifyNode:node_modules/agent-base 1794412372289
+1423 silly unfinished npm timer reifyNode:node_modules/acorn-walk 1794412372289
+1424 silly unfinished npm timer reifyNode:node_modules/acorn-jsx 1794412372289
+1425 silly unfinished npm timer reifyNode:node_modules/acorn-import-attributes 1794412372289
+1426 silly unfinished npm timer reifyNode:node_modules/acorn 1794412372289
+1427 silly unfinished npm timer reifyNode:node_modules/abbrev 1794412372289
+1428 silly unfinished npm timer reifyNode:node_modules/@vercel/nft 1794412372289
+1429 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/visitor-keys 1794412372289
+1430 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/utils 1794412372289
+1431 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/typescript-estree 1794412372289
+1432 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/types 1794412372289
+1433 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/type-utils 1794412372289
+1434 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/tsconfig-utils 1794412372289
+1435 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/scope-manager 1794412372289
+1436 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/project-service 1794412372289
+1437 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/parser 1794412372289
+1438 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/eslint-plugin 1794412372289
+1439 silly unfinished npm timer reifyNode:node_modules/@typescript-eslint/eslint-plugin/node_modules/ignore 1794412372289
+1440 silly unfinished npm timer reifyNode:node_modules/@types/node 1794412372289
+1441 silly unfinished npm timer reifyNode:node_modules/@types/json-schema 1794412372289
+1442 silly unfinished npm timer reifyNode:node_modules/@types/istanbul-lib-coverage 1794412372289
+1443 silly unfinished npm timer reifyNode:node_modules/@types/http-cache-semantics 1794412372289
+1444 silly unfinished npm timer reifyNode:node_modules/@types/estree 1794412372290
+1445 silly unfinished npm timer reifyNode:node_modules/@types/esrecurse 1794412372290
+1446 silly unfinished npm timer reifyNode:node_modules/@sinonjs/samsam 1794412372290
+1447 silly unfinished npm timer reifyNode:node_modules/@sinonjs/samsam/node_modules/type-detect 1794412372290
+1448 silly unfinished npm timer reifyNode:node_modules/@sinonjs/fake-timers 1794412372290
+1449 silly unfinished npm timer reifyNode:node_modules/@sinonjs/commons 1794412372290
+1450 silly unfinished npm timer reifyNode:node_modules/@sindresorhus/merge-streams 1794412372290
+1451 silly unfinished npm timer reifyNode:node_modules/@sindresorhus/is 1794412372290
+1452 silly unfinished npm timer reifyNode:node_modules/@sec-ant/readable-stream 1794412372290
+1453 silly unfinished npm timer reifyNode:node_modules/@rollup/pluginutils 1794412372290
+1454 silly unfinished npm timer reifyNode:node_modules/@open-draft/until 1794412372290
+1455 silly unfinished npm timer reifyNode:node_modules/@open-draft/logger 1794412372290
+1456 silly unfinished npm timer reifyNode:node_modules/@open-draft/deferred-promise 1794412372290
+1457 silly unfinished npm timer reifyNode:node_modules/@nodelib/fs.walk 1794412372290
+1458 silly unfinished npm timer reifyNode:node_modules/@nodelib/fs.stat 1794412372290
+1459 silly unfinished npm timer reifyNode:node_modules/@nodelib/fs.scandir 1794412372290
+1460 silly unfinished npm timer reifyNode:node_modules/@mswjs/interceptors 1794412372290
+1461 silly unfinished npm timer reifyNode:node_modules/@mapbox/node-pre-gyp 1794412372290
+1462 silly unfinished npm timer reifyNode:node_modules/@keyv/serialize 1794412372290
+1463 silly unfinished npm timer reifyNode:node_modules/@jridgewell/trace-mapping 1794412372290
+1464 silly unfinished npm timer reifyNode:node_modules/@jridgewell/sourcemap-codec 1794412372290
+1465 silly unfinished npm timer reifyNode:node_modules/@jridgewell/resolve-uri 1794412372290
+1466 silly unfinished npm timer reifyNode:node_modules/@jridgewell/gen-mapping 1794412372290
+1467 silly unfinished npm timer reifyNode:node_modules/@istanbuljs/schema 1794412372290
+1468 silly unfinished npm timer reifyNode:node_modules/@isaacs/fs-minipass 1794412372290
+1469 silly unfinished npm timer reifyNode:node_modules/@humanwhocodes/retry 1794412372290
+1470 silly unfinished npm timer reifyNode:node_modules/@humanwhocodes/module-importer 1794412372290
+1471 silly unfinished npm timer reifyNode:node_modules/@humanfs/types 1794412372290
+1472 silly unfinished npm timer reifyNode:node_modules/@humanfs/node 1794412372290
+1473 silly unfinished npm timer reifyNode:node_modules/@humanfs/core 1794412372290
+1474 silly unfinished npm timer reifyNode:node_modules/@eslint/plugin-kit 1794412372290
+1475 silly unfinished npm timer reifyNode:node_modules/@eslint/object-schema 1794412372290
+1476 silly unfinished npm timer reifyNode:node_modules/@eslint/js 1794412372290
+1477 silly unfinished npm timer reifyNode:node_modules/@eslint/core 1794412372290
+1478 silly unfinished npm timer reifyNode:node_modules/@eslint/config-helpers 1794412372290
+1479 silly unfinished npm timer reifyNode:node_modules/@eslint/config-array 1794412372290
+1480 silly unfinished npm timer reifyNode:node_modules/@eslint-community/regexpp 1794412372290
+1481 silly unfinished npm timer reifyNode:node_modules/@eslint-community/eslint-utils 1794412372290
+1482 silly unfinished npm timer reifyNode:node_modules/@eslint-community/eslint-utils/node_modules/eslint-visitor-keys 1794412372290
+1483 silly unfinished npm timer reifyNode:node_modules/@cto.af/wtf8 1794412372290
+1484 silly unfinished npm timer reifyNode:node_modules/@bcoe/v8-coverage 1794412372290
+1485 verbose cwd /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo
+1486 verbose os Darwin 27.0.0
+1487 verbose node v26.0.0
+1488 verbose npm  v11.12.1
+1489 notice
+1489 notice New major version of npm available! 11.12.1 -> 12.2.2
+1489 notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+1489 notice To update run: npm install -g npm@12.2.2
+1489 notice  { force: true, Symbol(proc-log.meta): true }
+1490 verbose exit 1
+1491 verbose code 1
+1492 error A complete log of this run can be found in: /Users/lzy/pro/UserFB/workspace/Z1277/attempts/20261111T154859592159Z/repo/.cache/npm/_logs/2026-11-11T15_52_52_000Z-debug-0.log
