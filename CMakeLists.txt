@@ -189,6 +189,7 @@ option(ENABLE_DECODER "Enable Decoder" ON)
 option(ENABLE_ENCODER "Enable Encoder" OFF)
 option(ENABLE_SHERLOCK265 "Build sherlock265 visual inspection tool" OFF)
 option(ENABLE_INTERNAL_DEVELOPMENT_TOOLS "Build internal development tools (not for end users)" OFF)
+option(ENABLE_TESTS "Build the regression tests (uses internal symbols, runs via ctest)" OFF)
 option(WITH_FUZZERS "Build the fuzzers" OFF)
 set(FUZZING_SANITIZER_OPTIONS "-fsanitize=address,shift,integer" "-fno-sanitize=unsigned-shift-base" "-fno-sanitize-recover=shift,integer" CACHE STRING "Sanitizer flags for fuzzing builds")
 
@@ -219,7 +220,7 @@ option(FORCE_FULL_VISIBILITY
   OFF)
 
 set(_de265_internal_consumers OFF)
-if(ENABLE_ENCODER OR ENABLE_INTERNAL_DEVELOPMENT_TOOLS)
+if(ENABLE_ENCODER OR ENABLE_INTERNAL_DEVELOPMENT_TOOLS OR ENABLE_TESTS)
   set(_de265_internal_consumers ON)
 endif()
 
@@ -261,6 +262,11 @@ if (ENABLE_INTERNAL_DEVELOPMENT_TOOLS)
 endif()
 if (WITH_FUZZERS)
   add_subdirectory (fuzzing)
+endif()
+
+if (ENABLE_TESTS)
+  enable_testing()
+  add_subdirectory (tests)
 endif()
 
 add_custom_target(dist

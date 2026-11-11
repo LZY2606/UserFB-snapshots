@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-b=$(mktemp -d)
+b=$(mktemp -d "${TMPDIR:-/tmp}/baseline.XXXXXX")
 trap 'rm -rf "$b"' EXIT
 cmake -S . -B "$b/build" -DCMAKE_BUILD_TYPE=Release -DENABLE_SDL=OFF -DENABLE_SIMD=OFF -DBUILD_SHARED_LIBS=OFF
 cmake --build "$b/build" -j 4
