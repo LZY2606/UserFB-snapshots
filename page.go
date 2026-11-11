@@ -252,6 +252,11 @@ func (p *Page) HTML() (string, error) {
 // RunScript runs the JavaScript provided in the body. Any keys present in
 // the arguments map will be available as variables in the body.
 // Values provided in arguments are converted into javascript objects.
+// Values may be JSON scalars, nil, []interface{}, map[string]interface{},
+// or *api.Element values (nested to any depth). Elements must belong to
+// this page's session and are sent to the browser as element references;
+// a nil *api.Element is sent as null. All arguments are validated before
+// the script runs, and the provided containers are never modified.
 // If the body returns a value, it will be unmarshalled into the result argument.
 // Simple example:
 //    var number int

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -52,7 +53,12 @@ func (s *Session) GetElement(selector Selector) (*Element, error) {
 		return nil, err
 	}
 
-	return &Element{result.ID(), s}, nil
+	id, err := result.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve element: %s", err)
+	}
+
+	return &Element{id, s}, nil
 }
 
 func (s *Session) GetElements(selector Selector) ([]*Element, error) {
@@ -63,8 +69,12 @@ func (s *Session) GetElements(selector Selector) ([]*Element, error) {
 	}
 
 	elements := []*Element{}
-	for _, result := range results {
-		elements = append(elements, &Element{result.ID(), s})
+	for i, result := range results {
+		id, err := result.ID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve element %d: %s", i, err)
+		}
+		elements = append(elements, &Element{id, s})
 	}
 
 	return elements, nil
@@ -77,7 +87,12 @@ func (s *Session) GetActiveElement() (*Element, error) {
 		return nil, err
 	}
 
-	return &Element{result.ID(), s}, nil
+	id, err := result.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve element: %s", err)
+	}
+
+	return &Element{id, s}, nil
 }
 
 func (s *Session) GetWindow() (*Window, error) {
@@ -220,13 +235,18 @@ func (s *Session) MoveTo(region *Element, offset Offset) error {
 	return s.Send("POST", "moveto", request, nil)
 }
 
+// Frame switches to the frame identified by the provided element. A nil
+// element switches back to the root frame. The element must belong to this
+// session and have a non-empty ID; it is sent as a dual-key (legacy and W3C)
+// element reference.
 func (s *Session) Frame(frame *Element) error {
 	var elementID interface{}
 
 	if frame != nil {
-		elementID = struct {
-			Element string `json:"ELEMENT"`
-		}{frame.ID}
+		if err := s.checkElement(frame); err != nil {
+			return fmt.Errorf("invalid frame element: %s", err)
+		}
+		elementID = elementReference(frame.ID)
 	}
 
 	request := struct {
@@ -240,15 +260,27 @@ func (s *Session) FrameParent() error {
 	return s.Send("POST", "frame/parent", nil, nil)
 }
 
+// Execute runs the provided script body with the provided arguments and
+// unmarshals the returned value into result. Arguments may contain JSON
+// scalars, nil, []interface{}, map[string]interface{}, and *Element values,
+// nested to any depth. Elements must belong to this session and have a
+// non-empty ID; they are sent as dual-key (legacy and W3C) element
+// references. A nil *Element is sent as null. All arguments are validated
+// before the script is sent, and the provided containers are never modified.
 func (s *Session) Execute(body string, arguments []interface{}, result interface{}) error {
 	if arguments == nil {
 		arguments = []interface{}{}
 	}
 
+	encoded, err := s.encodeScriptArguments(arguments)
+	if err != nil {
+		return err
+	}
+
 	request := struct {
 		Script string        `json:"script"`
 		Args   []interface{} `json:"args"`
-	}{body, arguments}
+	}{body, encoded}
 
 	if err := s.Send("POST", "execute", request, result); err != nil {
 		return err

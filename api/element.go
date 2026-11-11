@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 )
@@ -11,11 +12,25 @@ type elementResult struct {
 	W3CElement string `json:"element-6066-11e4-a52e-4f735466cecf"`
 }
 
-func (er elementResult) ID() string {
-	if er.Element != "" {
-		return er.Element
+// ID returns the element ID from a lookup response. Both the legacy ELEMENT
+// key and the W3C key are accepted. If both keys are present, they must be
+// non-empty and identical. An empty or missing ID is never returned, so a
+// failed lookup can never produce a usable empty handle. Valid IDs are
+// returned exactly as provided.
+func (er elementResult) ID() (string, error) {
+	switch {
+	case er.Element != "" && er.W3CElement != "":
+		if er.Element != er.W3CElement {
+			return "", fmt.Errorf("conflicting element IDs %q and %q", er.Element, er.W3CElement)
+		}
+		return er.Element, nil
+	case er.Element != "":
+		return er.Element, nil
+	case er.W3CElement != "":
+		return er.W3CElement, nil
+	default:
+		return "", errors.New("no element ID provided")
 	}
-	return er.W3CElement
 }
 
 type Element struct {
@@ -38,7 +53,12 @@ func (e *Element) GetElement(selector Selector) (*Element, error) {
 		return nil, err
 	}
 
-	return &Element{result.ID(), e.Session}, nil
+	id, err := result.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve element: %s", err)
+	}
+
+	return &Element{id, e.Session}, nil
 }
 
 func (e *Element) GetElements(selector Selector) ([]*Element, error) {
@@ -49,8 +69,12 @@ func (e *Element) GetElements(selector Selector) ([]*Element, error) {
 	}
 
 	elements := []*Element{}
-	for _, result := range results {
-		elements = append(elements, &Element{result.ID(), e.Session})
+	for i, result := range results {
+		id, err := result.ID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve element %d: %s", i, err)
+		}
+		elements = append(elements, &Element{id, e.Session})
 	}
 
 	return elements, nil

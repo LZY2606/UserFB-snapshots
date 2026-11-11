@@ -471,10 +471,18 @@ var _ = Describe("Session", func() {
 
 	Describe("#Frame", func() {
 		It("should successfully send a POST to the frame endpoint", func() {
-			Expect(session.Frame(&Element{ID: "some-id"})).To(Succeed())
+			Expect(session.Frame(&Element{ID: "some-id", Session: session})).To(Succeed())
 			Expect(bus.SendCall.Method).To(Equal("POST"))
 			Expect(bus.SendCall.Endpoint).To(Equal("frame"))
-			Expect(bus.SendCall.BodyJSON).To(MatchJSON(`{"id": {"ELEMENT": "some-id"}}`))
+			Expect(bus.SendCall.BodyJSON).To(MatchJSON(`{"id": {"ELEMENT": "some-id", "element-6066-11e4-a52e-4f735466cecf": "some-id"}}`))
+		})
+
+		Context("when the provided frame belongs to a different session", func() {
+			It("should return an error without sending a request", func() {
+				otherSession := &Session{bus}
+				err := session.Frame(&Element{ID: "some-id", Session: otherSession})
+				Expect(err).To(MatchError("invalid frame element: element belongs to a different session"))
+			})
 		})
 
 		Context("When the provided frame in nil", func() {
