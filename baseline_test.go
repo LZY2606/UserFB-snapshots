@@ -13,14 +13,26 @@ func TestBaseline(t *testing.T){
  fmt.Println("BASELINE_OK fragmented-av1-roundtrip")
 }
 
-// Current wire-level defect witness; not a target implementation.
+// Regression witness: three metadata OBUs with temporal_id 0, 1 and 2 must
+// never be aggregated into a packet that mixes different layers.
 func TestBaselineLayerMix(t *testing.T) {
  input:=[]byte{0x2e,0x00,1,0x11,0x2e,0x20,1,0x22,0x2e,0x40,1,0x33}
  var p codecs.AV1Payloader
  packets:=p.Payload(100,input)
- want:=[]byte{0x20,3,0x2c,0x20,0x22,0x2c,0x40,0x33}
- if len(packets)!=2 || !bytes.Equal(packets[1],want){t.Fatalf("current layer witness changed: %x",packets)}
- fmt.Printf("CURRENT_LAYER_MIX packet=%x temporal_ids=1,2\n",packets[1])
+ want:=[][]byte{
+  {0x10,0x2c,0x00,0x11},
+  {0x10,0x2c,0x20,0x22},
+  {0x10,0x2c,0x40,0x33},
+ }
+ if len(packets)!=len(want){t.Fatalf("layer separation changed: %x",packets)}
+ for i:=range want{if !bytes.Equal(packets[i],want[i]){t.Fatalf("layer separation changed: packet[%d]=%x want=%x",i,packets[i],want[i])}}
+ // Each packet carries exactly one element (W=1), so the extension byte
+ // at offset 2 is that packet's only layer. No packet mixes layers.
+ for i,packet:=range packets{
+  if w:=(packet[0]&0b00110000)>>4;w!=1{t.Fatalf("packet[%d] W=%d, expected a single OBU element",i,w)}
+  if got:=packet[2]>>5;got!=byte(i){t.Fatalf("packet[%d] temporal_id=%d, expected %d",i,got,i)}
+ }
+ fmt.Printf("LAYER_SEPARATION packet0=%x packet1=%x packet2=%x temporal_ids=0,1,2\n",packets[0],packets[1],packets[2])
  var d codecs.AV1Depacketizer
  out,err:=d.Unmarshal([]byte{0,0})
  if err!=nil || len(out)!=0 {t.Fatalf("zero W=0 element contract: %x %v",out,err)}

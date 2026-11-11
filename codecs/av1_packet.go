@@ -113,7 +113,10 @@ func (p *AV1Payloader) Payload(mtu uint16, payload []byte) (payloads [][]byte) {
 
 			if needNewPacket {
 				newSequence = false
-				currentPacketOBUHeader = nil
+				// The OBU that triggered this new packet starts the next
+				// aggregation group, so it carries that packet's layer
+				// identity. Keep its extension instead of dropping it.
+				currentPacketOBUHeader = obuHeader.ExtensionHeader
 			}
 		}
 
