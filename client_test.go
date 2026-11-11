@@ -166,7 +166,7 @@ func startServer2(t *testing.T, onConnect func(net.Conn), onMessage func(string)
 		stopped: make(chan struct{}),
 	}
 
-	cert, err := tls.LoadX509KeyPair("test_resources/server.crt", "test_resources/server.key")
+	cert, err := ephemeralTLSForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func startServer2(t *testing.T, onConnect func(net.Conn), onMessage func(string)
 func startServerMultiConns(t *testing.T, numConns int, onConnect func(net.Conn), onMessage func(string)) string {
 	host := "127.0.0.1:" + strconv.Itoa(newPort())
 
-	cert, err := tls.LoadX509KeyPair("test_resources/server.crt", "test_resources/server.key")
+	cert, err := ephemeralTLSForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
