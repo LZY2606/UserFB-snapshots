@@ -10,6 +10,7 @@ import {
 	pEvent,
 	pEventMultiple,
 	pEventIterator,
+	type BackpressureOptions,
 	type CancelablePromise,
 	type TypedEventEmitter,
 } from './index.js';
@@ -115,6 +116,37 @@ void pEventIterator(new NodeEmitter(), 'finish', {
 	filter: ([_, string]: [number, string]) => string === '🦄',
 });
 
+// Backpressure is iterator-only and keeps the element type.
+const backpressure: BackpressureOptions = {
+	highWaterMark: 3,
+	lowWaterMark: 1,
+	pause: () => undefined,
+	resume: () => undefined,
+};
+
+expectTypeOf(pEventIterator(new NodeEmitter(), 'finish', {backpressure})).toBe<AsyncIterableIterator<number>>();
+expectTypeOf(pEventIterator(new NodeEmitter(), 'finish', {multiArgs: true, backpressure})).toBe<AsyncIterableIterator<[number, string]>>();
+
+// Every backpressure field is required, and the hooks take no arguments.
+expectError(pEventIterator(new NodeEmitter(), 'finish', {
+	backpressure: {
+		lowWaterMark: 1,
+		pause: () => undefined,
+		resume: () => undefined,
+	},
+}));
+expectError(pEventIterator(new NodeEmitter(), 'finish', {
+	backpressure: {
+		highWaterMark: 3,
+		lowWaterMark: 1,
+		pause: () => undefined,
+		resume: (_extra: number) => undefined,
+	},
+}));
+// `backpressure` does not exist on the promise-returning entry points.
+expectError(pEvent(new NodeEmitter(), 'finish', {backpressure}));
+expectError(pEventMultiple(new NodeEmitter(), 'hello', {count: 1, backpressure}));
+
 async function getOpenReadStream(file: string): Promise<NodeJS.ReadableStream> {
 	const stream = fs.createReadStream(file) as NodeJS.ReadableStream;
 	await pEvent(stream, 'open');
@@ -151,6 +183,11 @@ expectTypeOf(pEventMultiple(typedEmitter, 'message', {count: 3, multiArgs: true}
 expectTypeOf(pEventIterator(typedEmitter, 'data')).toBe<AsyncIterableIterator<Uint8Array>>();
 expectTypeOf(pEventIterator(typedEmitter, 'message', {multiArgs: true})).toBe<AsyncIterableIterator<[string, number]>>();
 expectTypeOf(pEventIterator(typedEmitter, 'data', value => value.length > 0)).toBe<AsyncIterableIterator<Uint8Array>>();
+expectTypeOf(pEventIterator(typedEmitter, 'data', {
+	backpressure,
+	filter: value => value.length > 0,
+})).toBe<AsyncIterableIterator<Uint8Array>>();
+expectTypeOf(pEventIterator(typedEmitter, 'data', {multiArgs: true, backpressure})).toBe<AsyncIterableIterator<[Uint8Array]>>();
 
 // TypedEventEmitter with symbol keys
 const symbolEvent = Symbol('myEvent');

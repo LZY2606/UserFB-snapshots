@@ -112,6 +112,35 @@ export type MultiArgumentsOptions<EmittedType extends unknown[]> = {
 	readonly multiArgs: true;
 } & Options<EmittedType>;
 
+/**
+Backpressure settings for {@link pEventIterator}. Use them with a source that can be paused and resumed, for example a device that keeps pushing readings while an asynchronous `filter` validates them.
+
+A reading occupies a slot from the moment the event handler admits it, while it is queued for or awaiting `filter`, and while a value that passed is waiting to be delivered. The slot is released when `filter` drops the reading or when the value is handed to a `.next()` read. The payload of a resolution event never occupies a slot.
+
+`pause()` is called synchronously the first time the number of occupied slots reaches `highWaterMark`. While paused, `resume()` is called once when the number falls to `lowWaterMark` or below. The water marks are notification thresholds only: a source that ignores `pause()` keeps working, no data is dropped, and no overflow error is thrown. Both callbacks may re-enter the iterator, for example by emitting more events, and must not throw.
+*/
+export type BackpressureOptions = {
+	/**
+	The number of occupied slots that pauses the source. Must be a safe integer greater than `lowWaterMark`.
+	*/
+	readonly highWaterMark: number;
+
+	/**
+	The source is resumed once the number of occupied slots falls to this number or below. Must be a safe integer satisfying `0 <= lowWaterMark < highWaterMark`.
+	*/
+	readonly lowWaterMark: number;
+
+	/**
+	Called synchronously when the high water mark is reached. The pause state is already in effect when this runs, so re-entrant events cannot trigger a second pause.
+	*/
+	readonly pause: () => void;
+
+	/**
+	Called once when the low water mark is reached while paused, and once more when the iterator ends while it still holds a pause. Listeners have already been removed by the time the ending call runs.
+	*/
+	readonly resume: () => void;
+};
+
 export type MultipleOptions<EmittedType extends unknown | unknown[]> = {
 	/**
 	The number of times the event needs to be emitted before the promise resolves.
@@ -178,6 +207,11 @@ export type IteratorOptions<EmittedType extends unknown | unknown[]> = {
 	@default []
 	*/
 	readonly resolutionEvents?: ReadonlyArray<string | symbol>;
+
+	/**
+	Pause and resume notifications for a source that can be throttled. Readings that are still queued for `filter`, awaiting it, or accepted but not yet handed to a `.next()` read all count towards the water marks, so a slow asynchronous validation pauses the source before a queue builds up. When omitted, the iterator behaves exactly as without this option and never calls any pause hooks.
+	*/
+	readonly backpressure?: BackpressureOptions;
 } & Omit<Options<EmittedType>, 'timeout'>; // The iterator has no promise to time out, so `timeout` would be silently ignored.
 
 export type IteratorMultiArgumentsOptions<EmittedType extends unknown[]> = {

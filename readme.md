@@ -263,6 +263,51 @@ Events that will end the iterator.
 
 The payload of the event is the `value` of the first `{done: true}` result, the same way a generator returns a value. It comes after all buffered events, later reads get `undefined`, and it is left out when `filter` drops it or the iteration ended in another way first, for example with `.return()`. A `for await` loop ignores this value, so read it with `.next()` if you need it.
 
+##### backpressure
+
+Type: `object`
+
+Pause and resume notifications for a source that can be throttled, such as a device that keeps pushing readings while an asynchronous `filter` validates them. When this option is omitted, the iterator keeps its original behavior and never calls any pause hooks.
+
+The object has these properties:
+
+- `highWaterMark` *(required, `number`)* - A safe integer. `pause()` is called synchronously the first time the number of readings in flight reaches this number.
+- `lowWaterMark` *(required, `number`)* - A safe integer satisfying `0 <= lowWaterMark < highWaterMark`. While paused, `resume()` is called once when the number of readings in flight falls to this number or below.
+- `pause` *(required, `Function`)* - Called without arguments when the high water mark is reached.
+- `resume` *(required, `Function`)* - Called without arguments when the low water mark is reached while paused. It is also called once, after the listeners are removed, if the iterator ends while it still holds a pause.
+
+Invalid options throw a `TypeError` before any listener is attached.
+
+A reading counts as in flight from the moment the event handler accepts it: while it is queued for `filter`, while `filter` is awaiting it, and once it has passed, while it waits to be handed to a `.next()` read. The slot is released when `filter` drops the reading or when the value is delivered. A reading handed to a pending `.next()` keeps its slot until that read is consumed, so an unfinished filter cannot be covered by a waiting read. The payload of a resolution event does not count.
+
+The water marks are notification thresholds only. If the source ignores `pause()` and keeps emitting, every reading is still buffered and delivered, and no overflow error is thrown. Both callbacks may re-enter the iterator, for example by emitting more events from inside `pause()`, and they are expected not to throw.
+
+```js
+import {EventEmitter} from 'node:events';
+import {pEventIterator} from 'p-event';
+
+const emitter = new EventEmitter();
+
+const iterator = pEventIterator(emitter, 'data', {
+	filter: async value => validateReading(value),
+	resolutionEvents: ['end'],
+	backpressure: {
+		highWaterMark: 3,
+		lowWaterMark: 1,
+		pause() {
+			emitter.emit('suspend');
+		},
+		resume() {
+			emitter.emit('resume');
+		},
+	},
+});
+
+for await (const reading of iterator) {
+	console.log(reading);
+}
+```
+
 ### TypedEventEmitter
 
 A TypeScript helper type for getting typed event inference with `pEvent`. Cast your emitter to `TypedEventEmitter<EventMap>` to get the resolved type inferred from your event map.

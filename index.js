@@ -6,6 +6,26 @@ const normalizeOptions = options => typeof options === 'function' ? {filter: opt
 // A `count` or `limit`: a whole number of zero or more, or `Infinity`.
 const isCount = value => value === Infinity || (Number.isSafeInteger(value) && value >= 0);
 
+// Backpressure thresholds count readings that have been admitted but not yet settled, so both have to be safe integers with room between them, and both hooks have to be callable. Checked before any listener is attached, so a bad option can never leave a listener behind or pause the source.
+const validateBackpressure = backpressure => {
+	if (!backpressure) {
+		return;
+	}
+
+	const {highWaterMark, lowWaterMark, pause, resume} = backpressure;
+
+	if (!Number.isSafeInteger(highWaterMark)
+		|| !Number.isSafeInteger(lowWaterMark)
+		|| !(lowWaterMark >= 0)
+		|| !(lowWaterMark < highWaterMark)) {
+		throw new TypeError('The `backpressure` option needs safe integers satisfying `0 <= lowWaterMark < highWaterMark`');
+	}
+
+	if (typeof pause !== 'function' || typeof resume !== 'function') {
+		throw new TypeError('The `backpressure` option needs `pause` and `resume` functions');
+	}
+};
+
 // The removal method has to come from the same family as the one used to add, otherwise the listener is never detached.
 const listenerMethodPairs = [
 	['addEventListener', 'removeEventListener'],
@@ -253,6 +273,9 @@ export function pEventIterator(emitter, event, options) {
 		throw new TypeError('The `limit` option should be a non-negative integer or Infinity');
 	}
 
+	// Validated before the abort check and before any listener is attached, the same way the other option errors never leave anything listening.
+	validateBackpressure(options.backpressure);
+
 	options.signal?.throwIfAborted();
 
 	const {addListener, removeListener} = normalizeEmitter(emitter);
@@ -268,9 +291,40 @@ export function pEventIterator(emitter, event, options) {
 	const valueQueue = [];
 	let eventCount = 0;
 
+	// Backpressure, when configured. `inFlight` counts every reading admitted by the value handler but not yet settled: readings still queued for `filter`, readings awaiting their filter, readings that passed and are waiting for a read, and readings handed to a pending read but not yet consumed. A reading leaves the count when its filter drops it or when its read is consumed. The resolution event's payload never takes a slot. The water marks only raise notifications: a source that keeps emitting is never cut off and nothing is ever dropped.
+	const {backpressure} = options;
+	let inFlight = 0;
+	let isPaused = false;
+	let isSettling = false;
+
+	// A notification only fires while the iteration is alive, and the state is updated first, so a hook that re-enters the iterator (emitting more data, ending the iteration, or calling `return()`) sees the state already in effect and can never trigger a duplicate notification or suspend an iteration that has ended.
+	const maybePause = () => {
+		if (!backpressure || isDone || isSettling || isPaused || inFlight < backpressure.highWaterMark) {
+			return;
+		}
+
+		isPaused = true;
+		backpressure.pause();
+	};
+
+	const maybeResume = () => {
+		if (!backpressure || isDone || isSettling || !isPaused || inFlight > backpressure.lowWaterMark) {
+			return;
+		}
+
+		isPaused = false;
+		backpressure.resume();
+	};
+
 	const cancel = finalValue => {
 		isDone = true;
 		detachListeners(listening);
+
+		// A pause this iterator asked for has to be released exactly once, and only after the listeners are gone. Re-entrant hooks then find a finished iterator, and a filter verdict that arrives afterwards settles readings without raising another notification.
+		if (isPaused) {
+			isPaused = false;
+			backpressure.resume();
+		}
 
 		// The first read that reports the iteration as done carries the payload of the resolution event, the same way a generator's first `{done: true}` result carries its return value. Published versions handed it over like this, and the async iterator protocol allows it, so `next()` callers can still read a final payload such as an exit code. Every read after that one gets `undefined`, as the protocol requires. Without a pending read, the payload waits in `resolutionValue` for the next one.
 		resolutionValue = finalValue;
@@ -285,6 +339,9 @@ export function pEventIterator(emitter, event, options) {
 			return;
 		}
 
+		// The iteration is settling, so no water-mark notification can be raised by the verdicts still draining through the filter queue.
+		isSettling = true;
+
 		if (nextQueue.length > 0) {
 			nextQueue.shift().reject(reason);
 		} else {
@@ -298,7 +355,19 @@ export function pEventIterator(emitter, event, options) {
 
 	const acceptValue = value => {
 		if (nextQueue.length > 0) {
-			nextQueue.shift().resolve({done: false, value});
+			const {resolve} = nextQueue.shift();
+
+			if (backpressure) {
+				// The reading keeps its slot until this read is actually consumed, so a filter that finishes while reads are pending cannot cover it. The release runs in a microtask, which is when the consumer's `await` resumes.
+				// eslint-disable-next-line unicorn/prefer-promise-try -- `Promise.try` is unavailable on the earliest supported Node 22 versions.
+				resolve(Promise.resolve().then(() => {
+					inFlight--;
+					maybeResume();
+					return {done: false, value};
+				}));
+			} else {
+				resolve({done: false, value});
+			}
 		} else {
 			valueQueue.push(value);
 		}
@@ -314,15 +383,28 @@ export function pEventIterator(emitter, event, options) {
 		const isLastEvent = eventCount === limit;
 		const value = options.multiArgs ? arguments_ : arguments_[0];
 
+		// The reading occupies a slot as soon as it is admitted, before its filter has run, so a slow validation pauses the source instead of a growing queue.
+		if (backpressure) {
+			inFlight++;
+			maybePause();
+		}
+
 		const onVerdict = isAccepted => {
 			if (isAccepted) {
 				acceptValue(value);
+			} else if (backpressure) {
+				// A dropped reading frees its own slot; an accepted one keeps it until the value is read.
+				inFlight--;
+				maybeResume();
 			}
 
 			// A rejected value still counts towards the limit, so the iterator ends either way.
-			if (isLastEvent) {
-				cancel();
+			if (!isLastEvent) {
+				return;
 			}
+
+			isSettling = true;
+			cancel();
 		};
 
 		if (filter) {
@@ -339,6 +421,8 @@ export function pEventIterator(emitter, event, options) {
 	const resolveHandler = (...arguments_) => {
 		const value = options.multiArgs ? arguments_ : arguments_[0];
 		isResolving = true;
+		// From here on the iteration is ending, so readings still draining cannot raise another water-mark notification, and a pause is released in `cancel()`.
+		isSettling = true;
 
 		// The event ends the iteration, so its payload is never yielded as a value. It queues behind the value filters, even without a filter, so that a value which was already received still gets in. The event ends the iteration either way: the verdict only decides whether its payload is handed over as the final value, which is how published versions behaved, and a failure in the filter rejects the iteration.
 		queueFilter(value, isAccepted => {
@@ -373,9 +457,17 @@ export function pEventIterator(emitter, event, options) {
 		async next() {
 			if (valueQueue.length > 0) {
 				// A value that was already received is always handed over, so the iteration is never reported done while one is still buffered.
+				const value = valueQueue.shift();
+
+				// The value only leaves the backpressure count when it is actually handed to a read.
+				if (backpressure) {
+					inFlight--;
+					maybeResume();
+				}
+
 				return {
 					done: false,
-					value: valueQueue.shift(),
+					value,
 				};
 			}
 
@@ -401,6 +493,8 @@ export function pEventIterator(emitter, event, options) {
 			});
 		},
 		async return(value) {
+			// No verdict that is still draining may raise a water-mark notification, and a pause the iterator holds is released inside `cancel()`.
+			isSettling = true;
 			// Without a final value, `cancel()` also drops the payload of a resolution event that was not read yet.
 			cancel();
 
