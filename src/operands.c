@@ -231,7 +231,7 @@ static void operands_extract_sib(_DInst* di,
  */
 static int operands_extract_modrm(_CodeInfo* ci, _PrefixState* ps, _DInst* di,
                                   _DecodeType effAdrSz, unsigned int mod, unsigned int rm,
-                                  _iflags instFlags, _Operand* op)
+                                  _iflags instFlags, _Operand* op, _FieldTracker* ft)
 {
 	unsigned char sib = 0, base = 0;
 
@@ -258,6 +258,8 @@ static int operands_extract_modrm(_CodeInfo* ci, _PrefixState* ps, _DInst* di,
 				op->type = O_SMEM;
 				op->index = R_RIP;
 				di->flags |= FLAG_RIP_RELATIVE;
+				/* Record the exact displacement bytes consumed, before any following immediate. */
+				field_tracker_record(ft, ci->code, FIELD_KIND_RIP, 4);
 			}
 
 			prefixes_use_segment(INST_PRE_DS, ps, ci->dt, di);
@@ -365,7 +367,7 @@ static int operands_extract_modrm(_CodeInfo* ci, _PrefixState* ps, _DInst* di,
 int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
                      _iflags instFlags, _OpType type,
                      unsigned int modrm, _PrefixState* ps, _DecodeType effOpSz,
-                     _DecodeType effAdrSz, _Operand* op)
+                     _DecodeType effAdrSz, _Operand* op, _FieldTracker* ft)
 {
 	int ret = 0;
 	unsigned int mod, reg, rm;
@@ -449,7 +451,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 			default: return FALSE;
 		}
 		rm = modrm & 7;
-		ret = operands_extract_modrm(ci, ps, di, effAdrSz, mod, rm, instFlags, op);
+		ret = operands_extract_modrm(ci, ps, di, effAdrSz, mod, rm, instFlags, op, ft);
 		op->size = (uint16_t)size;
 		if ((op->type == O_SMEM) || (op->type == O_MEM)) {
 			di->usedRegistersMask |= _REGISTERTORCLASS[op->index];
@@ -555,7 +557,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 			}
 			/* Fill size of memory dereference for operand. */
 			rm = modrm & 7;
-			ret = operands_extract_modrm(ci, ps, di, effAdrSz, mod, rm, instFlags, op);
+			ret = operands_extract_modrm(ci, ps, di, effAdrSz, mod, rm, instFlags, op, ft);
 			op->size = (uint16_t)size;
 			if ((op->type == O_SMEM) || (op->type == O_MEM)) {
 				di->usedRegistersMask |= _REGISTERTORCLASS[op->index];
@@ -1046,6 +1048,7 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 			if (type == OT_RELCB) {
 				operands_set_ts(op, O_PC, 8);
 				if (!read_stream_safe_sint8(ci, &di->imm.sqword)) return FALSE;
+				field_tracker_record(ft, ci->code, FIELD_KIND_PC, 1);
 			} else { /* OT_RELC_FULL */
 
 				/* Yep, operand size prefix affects relc also.  */
@@ -1053,9 +1056,11 @@ int operands_extract(_CodeInfo* ci, _DInst* di, _InstInfo* ii,
 				if (effOpSz == Decode16Bits) {
 					operands_set_ts(op, O_PC, 16);
 					if (!read_stream_safe_sint16(ci, &di->imm.sqword)) return FALSE;
+					field_tracker_record(ft, ci->code, FIELD_KIND_PC, 2);
 				} else { /* Decode32Bits or Decode64Bits = for now they are the same */
 					operands_set_ts(op, O_PC, 32);
 					if (!read_stream_safe_sint32(ci, &di->imm.sqword)) return FALSE;
+					field_tracker_record(ft, ci->code, FIELD_KIND_PC, 4);
 				}
 			}
 

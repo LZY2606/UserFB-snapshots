@@ -21,6 +21,25 @@ This library is licensed under the BSD license. See the file COPYING.
 
 /* Instruction Prefixes - Opcode - ModR/M - SIB - Displacement - Immediate */
 
+void field_tracker_reset(_FieldTracker* ft, const uint8_t* startCode)
+{
+	if (ft == NULL) return;
+	ft->start = startCode;
+	ft->count = 0;
+}
+
+void field_tracker_record(_FieldTracker* ft, const uint8_t* pastField,
+                          unsigned int kind, unsigned int width)
+{
+	if (ft == NULL) return;
+	if (ft->count < MAX_FIELD_SPANS) {
+		unsigned int i = ft->count++;
+		ft->kind[i] = (uint8_t)kind;
+		ft->width[i] = (uint8_t)width;
+		ft->offset[i] = (uint8_t)(pastField - ft->start - width);
+	}
+}
+
 static _DecodeType decode_get_effective_addr_size(_DecodeType dt, _iflags decodedPrefixes)
 {
 	/*
@@ -85,7 +104,7 @@ static _DecodeType decode_get_effective_op_size(_DecodeType dt, _iflags decodedP
 
 /* If DECRES_SUCCESS is returned, CI is in sync, otherwise it loses sync. */
 /* Important note: CI is keeping track only for code and codeLen, in case of a failure caller has to restart on their own. */
-static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, const uint8_t* startCode, _DInst* di)
+static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, const uint8_t* startCode, _DInst* di, _FieldTracker* ft)
 {
 	/* Holds the info about the current found instruction. */
 	_InstInfo* ii;
@@ -149,6 +168,7 @@ static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, const uint8_t*
 	 /* if (ii && (dt == Decode16Bits) && (instFlags & INST_32BITS) && (~instFlags & INST_16BITS)) ii = NULL; */
 
 	memset(di, 0, sizeof(_DInst));
+	field_tracker_reset(ft, startCode);
 
 	if (instFlags & INST_MODRM_REQUIRED) {
 		/* If the ModRM byte is not part of the opcode, skip the last byte code, so code points now to ModRM. */
@@ -184,18 +204,18 @@ static _DecodeResult decode_inst(_CodeInfo* ci, _PrefixState* ps, const uint8_t*
 			/* Some instructions enforce that reg=000, so validate that. (Specifically EXTRQ). */
 			if ((instFlags & INST_FORCE_REG0) && (((modrm >> 3) & 7) != 0)) goto _Undecodable;
 		}
-		if (!operands_extract(ci, di, ii, instFlags, (_OpType)isi->d, modrm, ps, effOpSz, effAdrSz, op++)) goto _Undecodable;
+		if (!operands_extract(ci, di, ii, instFlags, (_OpType)isi->d, modrm, ps, effOpSz, effAdrSz, op++, ft)) goto _Undecodable;
 
 		if (isi->s != OT_NONE) {
-			if (!operands_extract(ci, di, ii, instFlags, (_OpType)isi->s, modrm, ps, effOpSz, effAdrSz, op++)) goto _Undecodable;
+			if (!operands_extract(ci, di, ii, instFlags, (_OpType)isi->s, modrm, ps, effOpSz, effAdrSz, op++, ft)) goto _Undecodable;
 			opsNo++;
 			/* Use third operand, only if the flags says this InstInfo requires it. */
 			if (instFlags & INST_USE_OP3) {
-				if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op3, modrm, ps, effOpSz, effAdrSz, op++)) goto _Undecodable;
+				if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op3, modrm, ps, effOpSz, effAdrSz, op++, ft)) goto _Undecodable;
 				opsNo++;
 				/* Support for a fourth operand is added for (e.g:) INSERTQ instruction. */
 				if (instFlags & INST_USE_OP4) {
-					if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op4, modrm, ps, effOpSz, effAdrSz, op++)) goto _Undecodable;
+					if (!operands_extract(ci, di, ii, instFlags, (_OpType)((_InstInfoEx*)ii)->op4, modrm, ps, effOpSz, effAdrSz, op++, ft)) goto _Undecodable;
 					opsNo++;
 				}
 			}
@@ -430,7 +450,9 @@ _Undecodable: /* If the instruction couldn't be decoded for some reason, fail. *
  *                  This is in order to save memory allocation for conversion between the new and the old structures.
  *                  It really means we can do the conversion in-place now.
  */
-_DecodeResult decode_internal(_CodeInfo* _ci, int supportOldIntr, _DInst result[], unsigned int maxResultCount, unsigned int* usedInstructionsCount)
+_DecodeResult decode_internal_tracked(_CodeInfo* _ci, int supportOldIntr, _DInst result[],
+                                      unsigned int maxResultCount, unsigned int* usedInstructionsCount,
+                                      _FieldTracker* trackers)
 {
 	_CodeInfo ci = *_ci; /* A working copy, we don't touch user's _ci except OUT params. */
 	_PrefixState ps;
@@ -485,6 +507,14 @@ _DecodeResult decode_internal(_CodeInfo* _ci, int supportOldIntr, _DInst result[
 
 		if (ps.count) memset(&ps, 0, sizeof(ps));
 
+		/* Tracker slot matching the result slot about to be filled. */
+		_FieldTracker* ft = NULL;
+		if (trackers != NULL) {
+			unsigned int slot = (unsigned int)(((size_t)pdi - (size_t)result) / (size_t)diStructSize);
+			ft = &trackers[slot];
+			memset(ft, 0, sizeof(_FieldTracker));
+		}
+
 		/**** INSTRUCTION DECODING NEXT: ****/
 
 		/* Make sure we didn't run out of output entries. */
@@ -493,7 +523,7 @@ _DecodeResult decode_internal(_CodeInfo* _ci, int supportOldIntr, _DInst result[
 			break;
 		}
 
-		ret = decode_inst(&ci, &ps, code, pdi);
+		ret = decode_inst(&ci, &ps, code, pdi, ft);
 		/* decode_inst keeps track (only if successful!) for code and codeLen but ignores codeOffset, fix it here. */
 		ci.codeOffset += pdi->size;
 
@@ -571,4 +601,9 @@ _DecodeResult decode_internal(_CodeInfo* _ci, int supportOldIntr, _DInst result[
 	_ci->nextOffset = ci.codeOffset;
 
 	return ret;
+}
+
+_DecodeResult decode_internal(_CodeInfo* _ci, int supportOldIntr, _DInst result[], unsigned int maxResultCount, unsigned int* usedInstructionsCount)
+{
+	return decode_internal_tracked(_ci, supportOldIntr, result, maxResultCount, usedInstructionsCount, NULL);
 }

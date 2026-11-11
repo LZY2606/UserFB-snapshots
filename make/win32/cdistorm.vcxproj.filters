@@ -14,6 +14,9 @@
     <ClCompile Include="..\..\src\decoder.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\relocate.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\distorm.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -71,6 +74,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\relocate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
