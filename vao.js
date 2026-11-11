@@ -13,14 +13,18 @@ function createVAO(gl, attributes, elements, elementsType) {
   var ext = gl.createVertexArray
     ? new ExtensionShim(gl)
     : gl.getExtension('OES_vertex_array_object')
-  var vao
+  var vao = ext
+    ? createVAONative(gl, ext)
+    : createVAOEmulated(gl)
 
-  if(ext) {
-    vao = createVAONative(gl, ext)
-  } else {
-    vao = createVAOEmulated(gl)
+  try {
+    vao.update(attributes, elements, elementsType)
+  } catch(err) {
+    // Validation failed before any state was applied: release the unused
+    // native handle instead of leaking it.
+    vao.dispose()
+    throw err
   }
-  vao.update(attributes, elements, elementsType)
   return vao
 }
 

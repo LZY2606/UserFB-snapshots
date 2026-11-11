@@ -16,12 +16,15 @@ function backend(native) {
 for(const native of [false,true]) {
  const gl=backend(native), descriptor={buffer:{bind(){}},size:2,offset:0};
  const vao=create(gl,[descriptor]); descriptor.offset=8; vao.bind();
- assert.equal(gl.state().offset,native?0:8);
+ // Both backends must keep the snapshot taken at create/update time.
+ assert.equal(gl.state().offset,0);
  console.log(`${native?'native':'emulated'} offset after caller edit=${gl.state().offset}`);
  if(native) {
   const before=gl.state(); const b=create(gl,[{buffer:{bind(){}},size:2}]);
   vao.bind(); b.update([{buffer:{bind(){}},size:2,offset:4}]);
-  assert.notEqual(gl.state(),before);
-  console.log('native updating inactive B unbinds active A');
+  // Updating inactive B must leave the active A VAO (and its pointers) bound.
+  assert.equal(gl.state(),before);
+  assert.equal(gl.state().offset,0);
+  console.log('native updating inactive B keeps active A bound');
  }
 }
