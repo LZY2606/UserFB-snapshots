@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {existsSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+for(const p of ['test/wire-text.test.mjs','test/run-wire-text.mjs'])assert.ok(existsSync(p),`Add ${p}`);
+const base=spawnSync(process.execPath,['--test','--test-reporter=tap','test/wire-text.test.mjs'],{encoding:'utf8'});
+process.stdout.write(base.stdout);process.stderr.write(base.stderr);
+assert.equal(base.status,0);assert.match(base.stdout,/^# tests [1-9][0-9]*$/m);
+assert.match(base.stdout,/^# pass [1-9][0-9]*$/m);assert.match(base.stdout,/^# skipped 0$/m);
+assert.match(base.stdout,/^ok [0-9]+ - wire acquisition contract$/m);
+const runner=spawnSync(process.execPath,['test/run-wire-text.mjs'],{encoding:'utf8'});
+process.stdout.write(runner.stdout);process.stderr.write(runner.stderr);assert.equal(runner.status,0);
+for(const marker of ['WIRE_TEXT_BASE_OK','WIRE_CHARSET_CAUGHT','WIRE_BYTES_CAUGHT','WIRE_BINARY_CAUGHT'])assert.ok(runner.stdout.includes(marker),marker);
