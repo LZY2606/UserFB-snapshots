@@ -54,3 +54,24 @@ func main() {
 		fmt.Printf("Unable to open file [%s] due to [%s]\n", filename, err.Error())
 }
 ```
+
+## Retiming a fragment
+The `retime` package shifts every media, clock and cue timestamp in a finite,
+in-order TS fragment so it can be spliced onto an existing playback timeline.
+Call `retime.Shift` with the PIDs that carry PES, PCR and SCTE-35 data and the
+delta in 90 kHz units. Packet count, order, continuity counters, payload
+boundaries and every non-time byte are preserved, and the input packets are
+never modified:
+```go
+shifted, err := retime.Shift(packets, retime.Config{
+    PESPIDs:  []int{videoPID, audioPID}, // rewrite PES PTS/DTS
+    PCRPIDs:  []int{pcrPID},             // rewrite adaptation field PCR/OPCR
+    CuePIDs:  []int{cuePID},             // rewrite SCTE-35 pts_adjustment + CRC
+    Delta90k: 90000,                     // shift all clocks by one second
+})
+if err != nil {
+    // err names the packet index and PID of the malformed selected stream
+    return err
+}
+```
+
