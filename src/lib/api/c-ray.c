@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 
 #include <v.h>
 
@@ -22,6 +23,7 @@
 #include <common/cr_string.h>
 #include <common/hashtable.h>
 #include <common/json_loader.h>
+#include <common/logging.h>
 #include <common/node_parse.h>
 #include <common/platform/signal.h>
 #include <accelerators/bvh.h>
@@ -403,6 +405,8 @@ struct camera default_camera = {
 	.FOV = 80.0f,
 	.focus_distance = 0.0f,
 	.fstops = 0.0f,
+	.focus_tilt_x = 0.0f,
+	.focus_tilt_y = 0.0f,
 	.width = 800,
 	.height = 600,
 	.look_at = { 0.0f, 0.0f, 1.0f },
@@ -480,6 +484,20 @@ bool cr_camera_set_num_pref(struct cr_scene *ext, cr_camera c, enum cr_camera_pa
 			cam->is_blender = true;
 			return true;
 		}
+		case cr_camera_focus_tilt_x: {
+			// Range and imaging-validity are enforced in cr_camera_update(),
+			// here we only refuse non-finite values so NaN/Inf can't sneak in.
+			const float value = (float)num;
+			if (!isfinite(value)) return false;
+			cam->focus_tilt_x = value;
+			return true;
+		}
+		case cr_camera_focus_tilt_y: {
+			const float value = (float)num;
+			if (!isfinite(value)) return false;
+			cam->focus_tilt_y = value;
+			return true;
+		}
 	}
 
 	cam_update_pose(cam, &cam->orientation, &cam->position);
@@ -531,6 +549,12 @@ double cr_camera_get_num_pref(struct cr_scene *ext, cr_camera c, enum cr_camera_
 		case cr_camera_blender_coord: {
 			return cam->is_blender ? 1.0 : 0.0;
 		}
+		case cr_camera_focus_tilt_x: {
+			return cam->focus_tilt_x;
+		}
+		case cr_camera_focus_tilt_y: {
+			return cam->focus_tilt_y;
+		}
 	}
 	return 0.0;
 }
@@ -542,14 +566,26 @@ bool cr_camera_update(struct cr_scene *ext, cr_camera c) {
 	struct camera *cam = &scene->cameras[c];
 	cam_update_pose(cam, &cam->orientation, &cam->position);
 	cam_recompute_optics(cam);
+	if (!cam_validate_focus(cam)) {
+		logr(warning,
+			 "Camera %lld focus configuration is invalid (tilt=[%.3f, %.3f] deg, focus_distance=%.3f), refusing update.\n",
+			 (long long)c, cam->focus_tilt_x, cam->focus_tilt_y, cam->focus_distance);
+		return false;
+	}
 	return true;
 }
 
 bool cr_camera_remove(struct cr_scene *s, cr_camera c) {
-	//TODO
-	(void)s;
-	(void)c;
-	return false;
+	if (c < 0 || !s) return false;
+	struct world *scene = (struct world *)s;
+	size_t count = v_arr_len(scene->cameras);
+	if ((size_t)c > count - 1) return false;
+	// Cameras have no owned allocations, so a memmove of the trailing
+	// elements followed by shrinking the count is sufficient.
+	struct camera *cameras = scene->cameras;
+	memmove(&cameras[c], &cameras[c + 1], (count - (size_t)c - 1) * sizeof(*cameras));
+	v__arr_head(scene->cameras)->n--;
+	return true;
 }
 
 // --

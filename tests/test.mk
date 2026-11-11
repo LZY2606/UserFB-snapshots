@@ -1,7 +1,9 @@
 BINDIR_test=tests
 BIN_test=$(BINDIR_test)/testrunner
 OBJDIR_test=tests/obj
-SRCS_test=$(shell find tests/ -name '*.c')
+# focus_tilt_regression.c is a standalone program with its own main(), built
+# and driven by tests/check_focus_tilt.sh, so keep it out of the testrunner.
+SRCS_test=$(shell find tests/ -name '*.c' -not -name 'focus_tilt_regression.c')
 
 # You can specify a suite by running 'make test suite=vector', for instance
 

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <c-ray/c-ray.h>
+
 struct cr_renderer;
 struct cJSON;
 

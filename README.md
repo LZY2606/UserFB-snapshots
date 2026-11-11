@@ -37,7 +37,7 @@ An incomplete list of features:
 - A performant BVH accelerator (by @madmann92)
 - A simple unidirectional Monte Carlo integrator with global illumination
 - Real-time render preview and state reporting using a callback mechanism
-- Simple thin-lens camera approximation with depth of field
+- Simple thin-lens camera approximation with depth of field, including an optional tilted focus plane (`focusTilt`)
 - Multithreading
 - Object instancing
 - HDR environment maps for realistic lighting
@@ -118,6 +118,29 @@ Windows:
 All the .json files in `input/` are test scenes provided with c-ray, assets for those scenes are (mostly) bundled with the repository as well.
 
 If you make a cool scene and have Python3 installed, you can bundle up the scene into a portable .zip file using the `scripts/bundle.py` script.
+
+## Tilted focus plane
+
+The thin-lens camera normally focuses on the plane perpendicular to the camera forward direction at `focalDistance`. A scene camera can instead tilt that plane by adding an optional `focusTilt: [tx, ty]` pair, in degrees:
+
+```json
+"camera": {
+    "FOV": 40.0,
+    "focalDistance": 6.0,
+    "fstops": 2.0,
+    "focusTilt": [15.0, -10.0]
+}
+```
+
+The focus plane passes through `forward * focalDistance` and its normal is `normalize(forward + tan(tx) * right + tan(ty) * up)`, expressed in the camera's own right/up/forward basis (before the composite transform). Each pixel ray is intersected with this plane, and the aperture (lens) sample for that pixel is aimed at the same intersection point, so every lens position converges there. With the aperture at zero the tilt has no effect: pinhole rays and the sampler sequence are unchanged.
+
+Both angles must be finite and strictly within ±80°. Tilt also requires a positive, finite `focalDistance`, and the plane must stay in front of every image ray including jitter at the sensor corners; configurations that would make a corner ray parallel to or face away from the plane are rejected at camera update / JSON load time rather than at render time. Omitting `focusTilt` is equivalent to `[0, 0]` and reproduces the original camera exactly, including the number of sampler dimensions drawn.
+
+The same two angles are available through the C API as `cr_camera_focus_tilt_x` / `cr_camera_focus_tilt_y` (appended to the end of `enum cr_camera_param`, so existing numeric values are unchanged), and they round-trip through `serialize_renderer` / `deserialize_renderer`.
+
+A small demo scene with a tilted checkerboard lying on the focus plane and one object on each side of it lives in `scripts/scenes/focus_tilt/`. Run `sh scripts/scenes/focus_tilt/run.sh` to render it headless and write the measured focus-plane error to `scripts/scenes/focus_tilt/focus_tilt_error.txt`. The headless C regression covering ray equality, plane convergence, both coordinate conventions, camera transforms, all three samplers, validation edges, JSON loading and the serializer round-trip is `sh tests/check_focus_tilt.sh`.
+
+This change only extends how the camera focuses its rays. It does not add motion to scene objects and it does not change any materials, the aperture shape, pixel jitter, FOV or path bounces.
 
 ## Credits
 

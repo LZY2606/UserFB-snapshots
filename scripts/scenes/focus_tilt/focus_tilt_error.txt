@@ -1,0 +1,4 @@
+FOCUS_TILT demo tilt=[15,-10] deg focalDistance=6 fstops=2 aperture=0.0128915
+  focus plane normal = (0.255145, -0.167901, 0.952213)
+  max focus convergence error (lens vs pinhole) = 1.0925712e-06
+  max focus plane residual                      = 7.2051722e-07

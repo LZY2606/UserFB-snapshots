@@ -276,6 +276,8 @@ class _cam_param(IntEnum):
 	res_x = 10
 	res_y = 11
 	blender_coord = 12
+	focus_tilt_x = 13
+	focus_tilt_y = 14
 
 def _cam_get_num(scene_ptr, cam_idx, param):
 	return _lib.camera_get_num_pref(scene_ptr, cam_idx, param)

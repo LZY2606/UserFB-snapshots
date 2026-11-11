@@ -170,9 +170,12 @@ static struct vector parse_location(const cJSON *transforms) {
 	return (struct vector){ 0 };
 }
 
-static void parse_camera(struct cr_scene *s, const cJSON *data) {
-	if (!cJSON_IsObject(data)) return;
+static bool parse_camera(struct cr_scene *s, const cJSON *data) {
+	if (!cJSON_IsObject(data)) return false;
 	cr_camera cam = cr_camera_new(s);
+	// cr_camera_new() appends to the camera array; on failure roll that back
+	// so an invalid scene file doesn't leave a half-configured camera behind.
+	#define fail_camera() do { cr_camera_remove(s, cam); return false; } while (0)
 
 	const cJSON *FOV = cJSON_GetObjectItem(data, "FOV");
 	if (cJSON_IsNumber(FOV) && FOV->valuedouble >= 0.0 && FOV->valuedouble < 180.0)
@@ -198,6 +201,20 @@ static void parse_camera(struct cr_scene *s, const cJSON *data) {
 	if (cJSON_IsNumber(time) && time->valuedouble >= 0.0)
 		cr_camera_set_num_pref(s, cam, cr_camera_time, time->valuedouble);
 
+	// Optional focus plane tilt, [tilt_x, tilt_y] in degrees. Missing means
+	// [0, 0], i.e. the historical planar focus at focalDistance.
+	const cJSON *focus_tilt = cJSON_GetObjectItem(data, "focusTilt");
+	if (focus_tilt) {
+		if (!cJSON_IsArray(focus_tilt) || cJSON_GetArraySize(focus_tilt) != 2 ||
+			!cJSON_IsNumber(cJSON_GetArrayItem(focus_tilt, 0)) ||
+			!cJSON_IsNumber(cJSON_GetArrayItem(focus_tilt, 1)) ||
+			!cr_camera_set_num_pref(s, cam, cr_camera_focus_tilt_x, cJSON_GetArrayItem(focus_tilt, 0)->valuedouble) ||
+			!cr_camera_set_num_pref(s, cam, cr_camera_focus_tilt_y, cJSON_GetArrayItem(focus_tilt, 1)->valuedouble)) {
+			logr(warning, "Invalid camera \"focusTilt\", expected [tx, ty] finite degrees.\n");
+			fail_camera();
+		}
+	}
+
 	const cJSON *transforms = cJSON_GetObjectItem(data, "transforms");
 
 	struct vector location = parse_location(transforms);
@@ -210,21 +227,28 @@ static void parse_camera(struct cr_scene *s, const cJSON *data) {
 	cr_camera_set_num_pref(s, cam, cr_camera_pose_pitch, (double)pose.pitch);
 	cr_camera_set_num_pref(s, cam, cr_camera_pose_yaw,   (double)pose.yaw);
 
-	cr_camera_update(s, cam);
+	if (!cr_camera_update(s, cam)) {
+		logr(warning, "Camera %lld failed validation, dropping it.\n", (long long)cam);
+		fail_camera();
+	}
+	#undef fail_camera
+	return true;
 }
 
-static void parse_cameras(struct cr_scene *scene, const cJSON *data) {
-	if (!data || !scene) return;
+static bool parse_cameras(struct cr_scene *scene, const cJSON *data) {
+	// No camera block is not a parse failure here; the caller's empty-camera
+	// check reports it with the historical warning.
+	if (!data || !scene) return true;
 
 	if (cJSON_IsObject(data)) {
-		parse_camera(scene, data);
-		return;
+		return parse_camera(scene, data);
 	}
 	ASSERT(cJSON_IsArray(data));
 	cJSON *camera = NULL;
 	cJSON_ArrayForEach(camera, data) {
-		parse_camera(scene, camera);
+		if (!parse_camera(scene, camera)) return false;
 	}
+	return true;
 }
 
 struct transform parse_composite_transform(const cJSON *transforms) {
@@ -498,7 +522,9 @@ static void parseScene(struct cr_renderer *r, const cJSON *data) {
 int parse_json(struct cr_renderer *r, struct cJSON *json) {
 	struct cr_scene *scene = cr_renderer_scene_get(r);
 	parse_prefs(r, cJSON_GetObjectItem(json, "renderer"));
-	parse_cameras(scene, cJSON_GetObjectItem(json, "camera"));
+	if (!parse_cameras(scene, cJSON_GetObjectItem(json, "camera"))) {
+		return -1;
+	}
 	if (!cr_scene_totals(scene).cameras) {
 		logr(warning, "No cameras specified, nothing to render.\n");
 		return -1;

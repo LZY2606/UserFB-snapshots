@@ -420,6 +420,8 @@ static cJSON *serialize_camera(const struct camera in) {
 	cJSON_AddNumberToObject(out, "width", in.width);
 	cJSON_AddNumberToObject(out, "height", in.height);
 	cJSON_AddNumberToObject(out, "is_blender", in.is_blender ? 1 : 0);
+	cJSON_AddNumberToObject(out, "focus_tilt_x", in.focus_tilt_x);
+	cJSON_AddNumberToObject(out, "focus_tilt_y", in.focus_tilt_y);
 	return out;
 }
 
@@ -445,6 +447,12 @@ static struct camera deserialize_camera(const cJSON *in) {
 	out.width = cJSON_GetNumberValue(cJSON_GetObjectItem(in, "width"));
 	out.height = cJSON_GetNumberValue(cJSON_GetObjectItem(in, "height"));
 	out.is_blender = cJSON_GetNumberValue(cJSON_GetObjectItem(in, "is_blender"));
+
+	// Default to zero for payloads produced before focus tilt existed.
+	const cJSON *tilt_x = cJSON_GetObjectItem(in, "focus_tilt_x");
+	const cJSON *tilt_y = cJSON_GetObjectItem(in, "focus_tilt_y");
+	out.focus_tilt_x = cJSON_IsNumber(tilt_x) ? cJSON_GetNumberValue(tilt_x) : 0.0f;
+	out.focus_tilt_y = cJSON_IsNumber(tilt_y) ? cJSON_GetNumberValue(tilt_y) : 0.0f;
 
 	return out;
 }
