@@ -72,6 +72,27 @@ if err != nil {
 fmt.Println("track num:", len(info.Tracks))
 ```
 
+For fragmented MP4 files, [ProbeFragmentSamples](https://pkg.go.dev/github.com/abema/go-mp4#ProbeFragmentSamples) builds a per-sample index (file offset, size, DTS/PTS, duration and sample flags in raw track ticks), so a reader can fetch each sample directly.
+
+```go
+// index every sample of a fragmented MP4 and read one sample's bytes
+samples, err := mp4.ProbeFragmentSamples(file)
+if err != nil {
+   :
+}
+for _, s := range samples {
+	fmt.Printf("track=%d dts=%d pts=%d offset=%d size=%d\n",
+		s.TrackID, s.DTS, s.PTS, s.Offset, s.Size)
+}
+
+// read the bytes of a single sample
+s := samples[0]
+buf := make([]byte, s.Size)
+if _, err := file.ReadAt(buf, int64(s.Offset)); err != nil {
+   :
+}
+```
+
 ### Writing
 
 Writer helps you write a box tree.
