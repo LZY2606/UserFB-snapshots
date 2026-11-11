@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { isAbsolute } from 'node:path';
+
 import {
   AssertedEvent,
   BaseStep,
@@ -13,6 +15,7 @@ import {
   CloseStep,
   CustomStep,
   DoubleClickStep,
+  DownloadEvent,
   EmulateNetworkConditionsStep,
   FrameSelector,
   HoverStep,
@@ -232,7 +235,54 @@ function parseAssertedEvent(event: unknown): AssertedEvent {
       title: parseOptionalString(event, 'title'),
     };
   }
+  if (event.type === AssertedEventType.Download) {
+    if (!hasProperty(event, 'url')) {
+      throw new Error('Download asserted event is missing `url`');
+    }
+    const url = parseString(event, 'url');
+    if (!url) {
+      throw new Error('Download asserted event `url` must be a non-empty string');
+    }
+    return {
+      type: AssertedEventType.Download,
+      url,
+    } satisfies DownloadEvent;
+  }
   throw new Error('Unknown assertedEvent type');
+}
+
+function validateStepAssertedEvents(step: Step): void {
+  const events = step.assertedEvents;
+  if (!events) {
+    return;
+  }
+  const downloads = events.filter(
+    (event): event is DownloadEvent =>
+      event.type === AssertedEventType.Download
+  );
+  if (!downloads.length) {
+    return;
+  }
+  if (downloads.length > 1) {
+    throw new Error(
+      'A step can assert at most one download event'
+    );
+  }
+  if (
+    events.some((event) => event.type === AssertedEventType.Navigation)
+  ) {
+    throw new Error(
+      'Download asserted events cannot be combined with navigation events'
+    );
+  }
+  if (
+    step.type !== StepType.Click &&
+    step.type !== StepType.DoubleClick
+  ) {
+    throw new Error(
+      `Download asserted events are only supported on ${StepType.Click} and ${StepType.DoubleClick} steps`
+    );
+  }
 }
 
 function parseAssertedEvents(events: unknown): AssertedEvent[] | undefined {
@@ -540,7 +590,9 @@ function parseSteps(steps: unknown): Step[] {
     throw new Error('Recording `steps` is not an array');
   }
   for (const [idx, step] of steps.entries()) {
-    result.push(parseStep(step, idx));
+    const parsed = parseStep(step, idx);
+    validateStepAssertedEvents(parsed);
+    result.push(parsed);
   }
   return result;
 }
@@ -581,6 +633,33 @@ export function parse(data: unknown): UserFlow {
   ) {
     throw new Error(timeoutErrorMessage);
   }
+  let downloadPath: string | undefined;
+  if (hasProperty(data, 'downloadPath')) {
+    downloadPath = parseString(data, 'downloadPath');
+    if (!downloadPath) {
+      throw new Error(
+        'Recording `downloadPath` must be a non-empty absolute path'
+      );
+    }
+    if (!isAbsolute(downloadPath)) {
+      throw new Error(
+        'Recording `downloadPath` must be an absolute path'
+      );
+    }
+  }
+  const steps = parseSteps(data.steps);
+  if (
+    !downloadPath &&
+    steps.some((step) =>
+      step.assertedEvents?.some(
+        (event) => event.type === AssertedEventType.Download
+      )
+    )
+  ) {
+    throw new Error(
+      'Recording with download asserted events must set an absolute `downloadPath`'
+    );
+  }
   return cleanUndefined({
     title: data.title,
     timeout:
@@ -591,7 +670,8 @@ export function parse(data: unknown): UserFlow {
       hasProperty(data, 'selectorAttribute') && isString(data.selectorAttribute)
         ? data.selectorAttribute
         : undefined,
-    steps: parseSteps(data.steps),
+    downloadPath,
+    steps,
   });
 }
 

@@ -25,6 +25,7 @@ export { RunnerExtension } from './RunnerExtension.js';
 export { createRunner, Runner } from './Runner.js';
 export { PuppeteerRunnerExtension } from './PuppeteerRunnerExtension.js';
 export { PuppeteerRunnerOwningBrowserExtension } from './PuppeteerRunnerExtension.js';
+export type { CompletedDownload } from './DownloadManager.js';
 export { PuppeteerStringifyExtension } from './PuppeteerStringifyExtension.js';
 export { PuppeteerReplayStringifyExtension } from './PuppeteerReplayStringifyExtension.js';
 export { LighthouseStringifyExtension } from './lighthouse/LighthouseStringifyExtension.js';

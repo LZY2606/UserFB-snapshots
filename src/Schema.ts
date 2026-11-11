@@ -38,6 +38,7 @@ export enum StepType {
 
 export enum AssertedEventType {
   Navigation = 'navigation',
+  Download = 'download',
 }
 
 export interface NavigationEvent {
@@ -46,7 +47,24 @@ export interface NavigationEvent {
   title?: Pattern;
 }
 
-export type AssertedEvent = NavigationEvent;
+/**
+ * Asserts that the click or doubleClick that owns this event triggers a
+ * browser download. Replay waits for the download with the matching resource
+ * `url` (exact match, not a pattern) initiated from the same CDP frame as the
+ * action, and only continues once the downloaded file is readable inside the
+ * flow's `downloadPath`.
+ */
+export interface DownloadEvent {
+  type: AssertedEventType.Download;
+  /**
+   * The exact resource URL reported by
+   * `Browser.downloadWillBegin`. It is matched literally and is never treated
+   * as a pattern or as the clicked element's `href`.
+   */
+  url: string;
+}
+
+export type AssertedEvent = NavigationEvent | DownloadEvent;
 
 export interface BaseStep {
   type: StepType;
@@ -297,6 +315,16 @@ export interface UserFlow {
    * selector `[data-testid=value]` for the element `<div data-testid=value>`.
    */
   selectorAttribute?: string;
+  /**
+   * Absolute path to a directory dedicated to downloads performed by this
+   * user flow. When set, Chrome is instructed via CDP to name every download
+   * after its GUID and place it inside this directory. The directory is
+   * created if it does not exist.
+   *
+   * Required for any step that asserts a
+   * {@link DownloadEvent | download event}.
+   */
+  downloadPath?: string;
   steps: Step[];
 }
 

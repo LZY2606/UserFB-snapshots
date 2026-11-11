@@ -6,9 +6,19 @@
 import type { Browser, ElementHandle, Frame, Page } from 'puppeteer';
 import type { CdpFrame as InternalFrame } from 'puppeteer-core/internal/cdp/Frame.js';
 import type { CdpPage as InternalPage } from 'puppeteer-core/internal/cdp/Page.js';
+import { DownloadManager, getDownloadDeclaration } from './DownloadManager.js';
+import type { CompletedDownload } from './DownloadManager.js';
 import { RunnerExtension } from './RunnerExtension.js';
 import { AssertedEventType, StepType } from './Schema.js';
-import type { Selector, Step, UserFlow, WaitForElementStep } from './Schema.js';
+import type {
+  ClickStep,
+  DoubleClickStep,
+  DownloadEvent,
+  Selector,
+  Step,
+  UserFlow,
+  WaitForElementStep,
+} from './Schema.js';
 import {
   assertAllStepTypesAreHandled,
   mouseButtonMap,
@@ -31,12 +41,46 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
   protected browser: Browser;
   protected page: Page;
   protected timeout: number;
+  readonly #downloadManager = new DownloadManager();
+  #completedDownloads: CompletedDownload[] = [];
+
+  /**
+   * Downloads settled during the current (or most recent) run, in completion
+   * order. The list is cleared at the start of every run and survives later
+   * step failures, so files published by earlier successful steps remain
+   * available.
+   */
+  get completedDownloads(): readonly CompletedDownload[] {
+    return this.#completedDownloads;
+  }
 
   constructor(browser: Browser, page: Page, opts?: { timeout?: number }) {
     super();
     this.browser = browser;
     this.page = page;
     this.timeout = opts?.timeout || 5000;
+  }
+
+  /**
+   * @internal
+   */
+  override async beforeAllSteps(flow?: UserFlow): Promise<void> {
+    this.#completedDownloads = [];
+    if (flow?.downloadPath) {
+      await this.#downloadManager.start(flow.downloadPath, this.page);
+    }
+  }
+
+  /**
+   * @internal
+   */
+  override async afterAllSteps(): Promise<void> {
+    if (this.#downloadManager.isActive) {
+      const error = await this.#downloadManager.finish();
+      if (error) {
+        throw error;
+      }
+    }
   }
 
   async #ensureAutomationEmulatation(pageOrFrame: Page | Frame) {
@@ -75,8 +119,57 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
       page,
       targetPageOrFrame,
       localFrame,
-      timeout
+      timeout,
+      flow
     );
+  }
+
+  /**
+   * Executes a click/doubleClick that is expected to trigger a download and
+   * only resolves once both the locator action and the settled download file
+   * have completed.
+   */
+  async #runDownloadClick(
+    locatorRace: InternalPage['locatorRace'],
+    localFrame: Frame,
+    step: ClickStep | DoubleClickStep,
+    downloadEvent: DownloadEvent,
+    timeout: number,
+    count: 1 | 2
+  ): Promise<void> {
+    const completed = await this.#downloadManager.runActionWithDownload({
+      frame: localFrame,
+      event: downloadEvent,
+      timeout,
+      action: (onAction, signal) => {
+        const race = locatorRace(
+          step.selectors.map((selector) => {
+            return (localFrame as unknown as InternalFrame).locator(
+              selectorToPElementSelector(selector)
+            );
+          })
+        )
+          .setTimeout(timeout)
+          .on('action', () => onAction());
+        const offset = { x: step.offsetX, y: step.offsetY };
+        if (count === 2) {
+          return race.click({
+            signal,
+            count: 2,
+            button: step.button && mouseButtonMap.get(step.button),
+            delay: step.duration,
+            offset,
+          });
+        }
+        return race.click({
+          signal,
+          button: step.button && mouseButtonMap.get(step.button),
+          delay: step.duration,
+          offset,
+        });
+      },
+    });
+    this.#completedDownloads.push(completed);
   }
 
   /**
@@ -87,8 +180,13 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
     mainPage: Page,
     targetPageOrFrame: Page | Frame,
     localFrame: Frame,
-    timeout: number
+    timeout: number,
+    flow?: UserFlow
   ): Promise<void> {
+    // Validates programmatic callers the same way `parse` validates
+    // recordings, and rejects single step runs that lack the flow-level
+    // download resource management.
+    const downloadEvent = getDownloadDeclaration(step, flow);
     let assertedEventsPromise = null;
     const startWaitingForEvents = () => {
       assertedEventsPromise = waitForEvents(localFrame, step, timeout);
@@ -97,6 +195,17 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
 
     switch (step.type) {
       case StepType.DoubleClick:
+        if (downloadEvent) {
+          await this.#runDownloadClick(
+            locatorRace,
+            localFrame,
+            step,
+            downloadEvent,
+            timeout,
+            /* count= */ 2
+          );
+          break;
+        }
         await locatorRace(
           step.selectors.map((selector) => {
             return (localFrame as unknown as InternalFrame).locator(
@@ -117,6 +226,17 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
           });
         break;
       case StepType.Click:
+        if (downloadEvent) {
+          await this.#runDownloadClick(
+            locatorRace,
+            localFrame,
+            step,
+            downloadEvent,
+            timeout,
+            /* count= */ 1
+          );
+          break;
+        }
         await locatorRace(
           step.selectors.map((selector) => {
             return (localFrame as unknown as InternalFrame).locator(
@@ -271,7 +391,13 @@ export class PuppeteerRunnerExtension extends RunnerExtension {
 
 export class PuppeteerRunnerOwningBrowserExtension extends PuppeteerRunnerExtension {
   override async afterAllSteps() {
-    await this.browser.close();
+    try {
+      await super.afterAllSteps();
+    } finally {
+      // The browser created by the runner itself is always closed, even
+      // when download teardown or a step failed.
+      await this.browser.close();
+    }
   }
 }
 

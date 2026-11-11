@@ -1,0 +1,31 @@
+{
+  "title": "Export the monthly report",
+  "steps": [
+    {
+      "type": "navigate",
+      "url": "https://reports.example/"
+    },
+    {
+      "type": "click",
+      "selectors": ["#open-export"],
+      "offsetX": 1,
+      "offsetY": 1
+    },
+    {
+      "type": "click",
+      "selectors": ["#export-csv"],
+      "offsetX": 1,
+      "offsetY": 1,
+      "assertedEvents": [
+        {
+          "type": "download",
+          "url": "https://reports.example/export.csv"
+        }
+      ]
+    },
+    {
+      "type": "waitForExpression",
+      "expression": "window.reportConsumed = true"
+    }
+  ]
+}

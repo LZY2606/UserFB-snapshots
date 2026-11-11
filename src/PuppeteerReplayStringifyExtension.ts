@@ -6,6 +6,7 @@
 
 import type { LineWriter } from './LineWriter.js';
 import type { Step } from './Schema.js';
+import { AssertedEventType } from './Schema.js';
 import { StringifyExtension } from './StringifyExtension.js';
 import { formatJSONAsJS } from './JSONUtils.js';
 
@@ -42,6 +43,15 @@ export class PuppeteerReplayStringifyExtension extends StringifyExtension {
   }
 
   override async stringifyStep(out: LineWriter, step: Step) {
+    if (
+      step.assertedEvents?.some(
+        (event) => event.type === AssertedEventType.Download
+      )
+    ) {
+      throw new Error(
+        'Download asserted events cannot be stringified as single steps; use the full Puppeteer stringify() flow instead'
+      );
+    }
     out.appendLine(
       `await runner.runStep(${formatJSONAsJS(step, out.getIndent())});`
     );

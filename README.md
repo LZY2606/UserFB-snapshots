@@ -114,6 +114,101 @@ const runner = await createRunner(recording);
 await runner.run();
 ```
 
+### Wait for a download before continuing (report export)
+
+Clicking an "Export" button only means the browser accepted the click; the
+file may still be downloading. Instead of inserting a fixed delay, declare a
+`download` asserted event on the `click` (or `doubleClick`) step and set an
+absolute `downloadPath` on the flow. Replay then:
+
+- instructs Chrome over the browser-level CDP session
+  (`Browser.setDownloadBehavior` with `allowAndName` and `eventsEnabled`) to
+  save every download of the page's browser context into `downloadPath` under
+  its GUID;
+- correlates the step with the first `Browser.downloadWillBegin` whose CDP
+  frame id is the frame the action ran in and whose resource URL matches the
+  declared URL exactly (no wildcards, not the button's `href`);
+- waits for both the click and the claimed download to finish, and only
+  continues once `downloadPath/GUID` is a readable regular file;
+- publishes the result, in completion order, on the extension's read-only
+  `completedDownloads` list (`{guid, url, suggestedFilename, path}`). The list
+  is cleared at the start of each run and keeps records from earlier
+  successful steps even if a later step fails.
+
+The same rules apply to scripts produced by `stringify()`, which expose a
+`completedDownloads` array of their own. Downloads require Chrome and the full
+flow; single-step `runStep`/`stringifyStep` and Firefox reject the
+configuration explicitly. A flow without `downloadPath` keeps its previous
+behavior.
+
+```js
+import { createRunner, parse, PuppeteerRunnerExtension } from '@puppeteer/replay';
+import puppeteer from 'puppeteer';
+
+const browser = await puppeteer.launch({ headless: true });
+const page = await browser.newPage();
+
+// An absolute directory dedicated to this flow; it is created if needed.
+const downloadPath = '/tmp/replay-report-downloads';
+
+const recording = parse({
+  title: 'Export the monthly report',
+  downloadPath,
+  steps: [
+    {
+      type: 'navigate',
+      url: 'https://reports.example/',
+    },
+    {
+      type: 'click',
+      selectors: ['#open-export'],
+      offsetX: 1,
+      offsetY: 1,
+    },
+    {
+      type: 'click',
+      selectors: ['#export-csv'],
+      offsetX: 1,
+      offsetY: 1,
+      assertedEvents: [
+        {
+          type: 'download',
+          // Exact resource URL from Browser.downloadWillBegin.
+          url: 'https://reports.example/export.csv',
+        },
+      ],
+    },
+    // This step does not run until the exported file is on disk and readable.
+    {
+      type: 'waitForExpression',
+      expression: 'window.reportConsumed = true',
+    },
+  ],
+});
+
+const extension = new PuppeteerRunnerExtension(browser, page);
+const runner = await createRunner(recording, extension);
+await runner.run();
+
+// [{guid, url, suggestedFilename, path}] — the path is safe to hand to
+// downstream steps.
+console.log(extension.completedDownloads);
+
+// Direct replay does not own the browser: close it yourself.
+await browser.close();
+```
+
+The exported standalone script implements the identical correlation and
+settlement rules without importing private Replay helpers:
+
+```js
+import { stringify } from '@puppeteer/replay';
+
+console.log(await stringify(recording));
+// The generated script creates and closes its own browser (also on failure)
+// and exposes the settled files through its `completedDownloads` array.
+```
+
 ## 2. Customize replay
 
 The library offers a way to customize how a recording is run. You can extend

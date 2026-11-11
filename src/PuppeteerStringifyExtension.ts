@@ -10,6 +10,7 @@ import type {
   ClickStep,
   CloseStep,
   DoubleClickStep,
+  DownloadEvent,
   EmulateNetworkConditionsStep,
   HoverStep,
   KeyDownStep,
@@ -36,6 +37,17 @@ import { formatJSONAsJS } from './JSONUtils.js';
 
 type TargetBrowser = 'chrome' | 'firefox';
 
+function getDownloadEvent(step: Step): DownloadEvent | undefined {
+  return step.assertedEvents?.find(
+    (event): event is DownloadEvent =>
+      event.type === AssertedEventType.Download
+  );
+}
+
+function flowHasDownload(flow: UserFlow): boolean {
+  return flow.steps.some((step) => getDownloadEvent(step) !== undefined);
+}
+
 export class PuppeteerStringifyExtension extends StringifyExtension {
   #shouldAppendWaitForElementHelper = false;
   #targetBrowser: TargetBrowser;
@@ -47,10 +59,23 @@ export class PuppeteerStringifyExtension extends StringifyExtension {
 
   override async beforeAllSteps(out: LineWriter, flow: UserFlow) {
     out.appendLine(
-      "import { Locator, launch } from 'puppeteer'; // v25.0.0 or later"
+      flow.downloadPath
+        ? "import { Locator, launch, CDPSessionEvent } from 'puppeteer'; // v25.0.0 or later"
+        : "import { Locator, launch } from 'puppeteer'; // v25.0.0 or later"
     );
+    if (flow.downloadPath) {
+      out.appendLine(
+        "import { mkdir, stat, access } from 'node:fs/promises';"
+      );
+      out.appendLine("import { join } from 'node:path';");
+    }
     out.appendLine('');
     if (this.#targetBrowser === 'firefox') {
+      if (flow.downloadPath || flowHasDownload(flow)) {
+        throw new Error(
+          'Download handoff is only supported in Chrome; Firefox exports cannot use downloadPath or download asserted events'
+        );
+      }
       out.appendLine(`const browser = await launch({browser: 'firefox'});`);
     } else {
       out.appendLine('const browser = await launch();');
@@ -58,14 +83,52 @@ export class PuppeteerStringifyExtension extends StringifyExtension {
     out.appendLine('const page = await browser.newPage();');
     out.appendLine(`const timeout = ${flow.timeout || defaultTimeout};`);
     out.appendLine('page.setDefaultTimeout(timeout);');
+    if (flow.downloadPath) {
+      out.appendLine(`const downloadPath = ${formatJSONAsJS(
+        flow.downloadPath,
+        out.getIndent()
+      )};`);
+      out.appendLine('const completedDownloads = [];');
+      out.appendLine(
+        'const downloadSession = await startDownloadSession(browser, page, downloadPath);'
+      );
+      out.appendLine('try {').startBlock();
+    }
     out.appendLine('');
     this.#shouldAppendWaitForElementHelper = false;
   }
 
   override async afterAllSteps(out: LineWriter, flow: UserFlow) {
+    if (flow.downloadPath) {
+      // A main failure wins; a cleanup-only failure still surfaces, and
+      // the self-created browser is closed on every path.
+      out.endBlock().appendLine('} catch (error) {').startBlock();
+      out.appendLine('try {').startBlock();
+      out.appendLine('await finishDownloadSession(downloadSession);');
+      out.endBlock().appendLine('} catch {').startBlock();
+      out.appendLine(
+        '// Cleanup failure must not overwrite the main failure.'
+      );
+      out.endBlock().appendLine('}');
+      out.appendLine('await browser.close();');
+      out.appendLine('throw error;');
+      out.endBlock().appendLine('}');
+      out.appendLine('try {').startBlock();
+      out.appendLine('await finishDownloadSession(downloadSession);');
+      out.endBlock().appendLine('} finally {').startBlock();
+      out.appendLine('await browser.close();');
+      out.endBlock().appendLine('}');
+    } else {
+      out.appendLine('');
+      out.appendLine('await browser.close();');
+    }
     out.appendLine('');
-    out.appendLine('await browser.close();');
-    out.appendLine('');
+    if (flow.downloadPath) {
+      for (const line of downloadHelper.split('\n')) {
+        out.appendLine(line);
+      }
+      out.appendLine('');
+    }
     if (this.#shouldAppendWaitForElementHelper) {
       for (const line of waitForElementHelper.split('\n')) {
         out.appendLine(line);
@@ -73,7 +136,52 @@ export class PuppeteerStringifyExtension extends StringifyExtension {
     }
   }
 
-  override async stringifyStep(out: LineWriter, step: Step, flow: UserFlow) {
+  override async stringifyStep(out: LineWriter, step: Step, flow?: UserFlow) {
+    const downloadEvents =
+      step.assertedEvents?.filter(
+        (event): event is DownloadEvent =>
+          event.type === AssertedEventType.Download
+      ) ?? [];
+    if (downloadEvents.length > 1) {
+      throw new Error('A step can assert at most one download event');
+    }
+    const downloadEvent = downloadEvents[0];
+    if (downloadEvent) {
+      if (!flow) {
+        throw new Error(
+          'Download asserted events require the full flow resource management and cannot be stringified as a single step; use stringify()'
+        );
+      }
+      if (this.#targetBrowser === 'firefox') {
+        throw new Error(
+          'Download asserted events are not supported in Firefox exports'
+        );
+      }
+      if (
+        step.type !== StepType.Click &&
+        step.type !== StepType.DoubleClick
+      ) {
+        throw new Error(
+          `Download asserted events are only supported on ${StepType.Click} and ${StepType.DoubleClick} steps`
+        );
+      }
+      if (
+        step.assertedEvents?.some(
+          (event) => event.type === AssertedEventType.Navigation
+        )
+      ) {
+        throw new Error(
+          'Download asserted events cannot be combined with navigation events'
+        );
+      }
+      if (!flow.downloadPath) {
+        throw new Error(
+          'Flow with a download asserted event must define an absolute `downloadPath`'
+        );
+      }
+      this.#appendDownloadStep(out, step, downloadEvent);
+      return;
+    }
     out.appendLine('{').startBlock();
     if (step.timeout !== undefined) {
       out.appendLine(`const timeout = ${step.timeout};`);
@@ -107,6 +215,79 @@ export class PuppeteerStringifyExtension extends StringifyExtension {
       out.appendLine('await Promise.all(promises);');
     }
 
+    out.endBlock().appendLine('}');
+  }
+
+  #appendDownloadStep(
+    out: LineWriter,
+    step: ClickStep | DoubleClickStep,
+    event: DownloadEvent
+  ): void {
+    out.appendLine('{').startBlock();
+    if (step.timeout !== undefined) {
+      out.appendLine(`const timeout = ${step.timeout};`);
+    }
+    this.#appendContext(out, step);
+    const frameExpression = step.frame ? 'frame' : 'targetPage.mainFrame()';
+    out.appendLine('const downloadResult = await waitForDownload({')
+      .startBlock();
+    out.appendLine('session: downloadSession.session,');
+    out.appendLine('downloadPath,');
+    out.appendLine(`frameId: ${frameExpression}._id,`);
+    out.appendLine(
+      `url: ${formatJSONAsJS(event.url, out.getIndent())},`
+    );
+    out.appendLine('timeout,');
+    out.appendLine('action: async (onAction, signal) => {').startBlock();
+    out.appendLine('return await Locator.race([').startBlock();
+    out.appendLine(
+      step.selectors
+        .map((s) => {
+          return `${
+            step.frame ? 'frame' : 'targetPage'
+          }.locator(${formatJSONAsJS(
+            selectorToPElementSelector(s),
+            out.getIndent()
+          )})`;
+        })
+        .join(',\n')
+    );
+    out.endBlock().appendLine('])');
+    out.startBlock().appendLine('.setTimeout(timeout)');
+    out.appendLine(`.on('action', () => onAction())`);
+    if (step.type === StepType.DoubleClick) {
+      out.appendLine('.click({').startBlock();
+      out.appendLine('signal,');
+      out.appendLine('count: 2,');
+      if (step.duration) {
+        out.appendLine(`delay: ${step.duration},`);
+      }
+      if (step.button) {
+        out.appendLine(
+          `button: '${mouseButtonMap.get(step.button)}',`
+        );
+      }
+    } else {
+      out.appendLine('.click({').startBlock();
+      out.appendLine('signal,');
+      if (step.duration) {
+        out.appendLine(`delay: ${step.duration},`);
+      }
+      if (step.button) {
+        out.appendLine(
+          `button: '${mouseButtonMap.get(step.button)}',`
+        );
+      }
+    }
+    out.appendLine('offset: {');
+    out.appendLine(`  x: ${step.offsetX},`);
+    out.appendLine(`  y: ${step.offsetY},`);
+    out.appendLine('},');
+    out.endBlock().appendLine('});');
+    out.endBlock();
+    out.endBlock().appendLine('},');
+    out.endBlock().appendLine('});');
+    out.appendLine('completedDownloads.push(downloadResult);');
     out.endBlock().appendLine('}');
   }
 
@@ -341,6 +522,235 @@ export class PuppeteerStringifyExtension extends StringifyExtension {
 }
 
 const defaultTimeout = 5000;
+
+/**
+ * Self-contained runtime emitted into exported scripts. It intentionally
+ * does not import any private Replay helper; the correlation and settlement
+ * rules here must stay identical to the ones implemented by
+ * `DownloadManager` for direct replay.
+ */
+const downloadHelper = `async function startDownloadSession(browser, page, downloadPath) {
+  await mkdir(downloadPath, { recursive: true });
+  const session = await browser.target().createCDPSession();
+  const contextId = page.browserContext().id;
+  await session.send('Browser.setDownloadBehavior', {
+    behavior: 'allowAndName',
+    downloadPath,
+    eventsEnabled: true,
+    ...(contextId !== undefined
+      ? { browserContextId: contextId }
+      : {}),
+  });
+  return { session, contextId };
+}
+
+async function finishDownloadSession(downloadSession) {
+  const { session, contextId } = downloadSession;
+  try {
+    await session.send('Browser.setDownloadBehavior', {
+      behavior: 'default',
+      eventsEnabled: false,
+      ...(contextId !== undefined
+        ? { browserContextId: contextId }
+        : {}),
+    });
+  } finally {
+    await session.detach();
+  }
+}
+
+async function waitForDownload({
+  session,
+  downloadPath,
+  frameId,
+  url,
+  timeout,
+  action,
+}) {
+  const abortController = new AbortController();
+  let settled = false;
+  let actionStarted = false;
+  let actionSettled = false;
+  let claimedGuid = null;
+  let beginEvent = null;
+  let downloadSettled = false;
+  let completedDownload = null;
+  let cancelSent = false;
+  let browserCanceled = false;
+  let timeoutId;
+  let resolveDone;
+  let rejectDone;
+  const done = new Promise((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+
+  const removeListeners = () => {
+    session.off('Browser.downloadWillBegin', onWillBegin);
+    session.off('Browser.downloadProgress', onProgress);
+    session.off(CDPSessionEvent.Disconnected, onDisconnected);
+  };
+
+  const fail = error => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    removeListeners();
+    clearTimeout(timeoutId);
+    if (!actionSettled) {
+      abortController.abort();
+    }
+    if (claimedGuid && !cancelSent && !browserCanceled) {
+      cancelSent = true;
+      session
+        .send('Browser.cancelDownload', { guid: claimedGuid })
+        .catch(() => {});
+    }
+    rejectDone(error);
+  };
+
+  const onDisconnected = () =>
+    fail(
+      new Error(
+        'Browser CDP session disconnected before the download settled'
+      )
+    );
+
+  const onWillBegin = event => {
+    if (settled || !actionStarted || claimedGuid !== null) {
+      return;
+    }
+    if (event.frameId !== frameId || event.url !== url) {
+      return;
+    }
+    claimedGuid = event.guid;
+    beginEvent = event;
+  };
+
+  const settleCompletedDownload = async () => {
+    if (!claimedGuid || !beginEvent || downloadSettled) {
+      return;
+    }
+    downloadSettled = true;
+    const filePath = join(downloadPath, claimedGuid);
+    let stats;
+    try {
+      stats = await stat(filePath);
+    } catch (error) {
+      fail(
+        new Error(\`Settled download is not readable at \${filePath}\`, {
+          cause: error,
+        })
+      );
+      return;
+    }
+    if (!stats.isFile()) {
+      fail(
+        new Error(\`Download path \${filePath} is not a regular file\`)
+      );
+      return;
+    }
+    try {
+      await access(filePath);
+    } catch (error) {
+      fail(
+        new Error(\`Settled download is not readable at \${filePath}\`, {
+          cause: error,
+        })
+      );
+      return;
+    }
+    completedDownload = {
+      guid: claimedGuid,
+      url: beginEvent.url,
+      suggestedFilename: beginEvent.suggestedFilename,
+      path: filePath,
+    };
+    maybeResolve();
+  };
+
+  const onProgress = event => {
+    if (settled || !claimedGuid || event.guid !== claimedGuid) {
+      return;
+    }
+    if (event.state === 'canceled') {
+      // The browser already finished the download as canceled; it is not
+      // pending and must not be canceled again.
+      browserCanceled = true;
+      fail(
+        new Error(
+          \`Download \${claimedGuid} was canceled by the browser\`
+        )
+      );
+      return;
+    }
+    if (event.state === 'completed') {
+      void settleCompletedDownload();
+    }
+  };
+
+  const maybeResolve = () => {
+    if (
+      settled ||
+      !actionSettled ||
+      !downloadSettled ||
+      !completedDownload
+    ) {
+      return;
+    }
+    settled = true;
+    resolveDone(completedDownload);
+  };
+
+  session.on('Browser.downloadWillBegin', onWillBegin);
+  session.on('Browser.downloadProgress', onProgress);
+  session.on(CDPSessionEvent.Disconnected, onDisconnected);
+  // One total budget for action + download, starting before the action.
+  timeoutId = setTimeout(
+    () =>
+      fail(
+        new Error(
+          \`Timed out after \${timeout} ms waiting for download \${url}\`
+        )
+      ),
+    timeout
+  );
+
+  let actionPromise;
+  try {
+    actionPromise = action(
+      () => {
+        actionStarted = true;
+      },
+      abortController.signal
+    );
+  } catch (error) {
+    actionPromise = Promise.reject(error);
+  }
+  actionPromise.then(
+    () => {
+      actionSettled = true;
+      maybeResolve();
+    },
+    error => {
+      actionSettled = true;
+      fail(
+        error instanceof Error
+          ? error
+          : new Error('Locator action failed', { cause: error })
+      );
+    }
+  );
+
+  try {
+    return await done;
+  } finally {
+    removeListeners();
+    clearTimeout(timeoutId);
+    await actionPromise.catch(() => {});
+  }
+}`;
 
 const waitForElementHelper = `async function waitForElement(step, frame, timeout) {
   const {

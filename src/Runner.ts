@@ -69,23 +69,40 @@ export class Runner {
 
     this.#aborted = false;
 
-    await this.#extension.beforeAllSteps?.(flow);
+    let mainError: unknown;
+    try {
+      await this.#extension.beforeAllSteps?.(flow);
 
-    if (this.#aborted) {
-      return false;
-    }
-
-    for (const step of flow.steps) {
-      if (this.#aborted) {
-        await this.#extension.afterAllSteps?.(flow);
-        return false;
+      for (const step of flow.steps) {
+        if (this.#aborted) {
+          break;
+        }
+        await _runStepWithHooks(this.#extension, step, flow);
       }
-      await _runStepWithHooks(this.#extension, step, flow);
+    } catch (error) {
+      // Remember the first failure (including a partially failed
+      // beforeAllSteps); cleanup must not overwrite it.
+      mainError = error;
     }
 
-    await this.#extension.afterAllSteps?.(flow);
+    // afterAllSteps runs exactly once for every run, no matter how the run
+    // ended.
+    let cleanupError: unknown;
+    try {
+      await this.#extension.afterAllSteps?.(flow);
+    } catch (error) {
+      cleanupError = error;
+    }
 
-    return true;
+    if (mainError) {
+      throw mainError;
+    }
+    if (cleanupError) {
+      // When cleanup is the only failure it still has to be visible.
+      throw cleanupError;
+    }
+
+    return !this.#aborted;
   }
 }
 
