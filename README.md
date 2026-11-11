@@ -56,6 +56,7 @@ scrape(options).then((result) => {});
 * [prettifyUrls](#prettifyurls) - prettify urls
 * [ignoreErrors](#ignoreerrors) - whether to ignore errors on resource downloading
 * [urlFilter](#urlfilter) - skip some urls
+* [modules](#modules) - archive javascript module graphs
 * [filenameGenerator](#filenamegenerator) - generate filename for downloaded resource
 * [requestConcurrency](#requestconcurrency) - set maximum concurrent requests
 * [plugins](#plugins) - plugins, allow to customize filenames, request options, response handling, saving to storage, etc.
@@ -174,6 +175,32 @@ scrape({
   directory: '/path/to/save'
 });
 ```
+
+#### modules
+Boolean, if `true` scraper treats external and inline `<script type="module">` in html files as entries of a javascript module graph and archives it: static `import`, `export ... from` and dynamic `import()` with a string literal argument are followed recursively, and the specifiers are rewritten to relative paths between the saved files. Only http(s) javascript modules are collected, scraped code is never executed, and `import()` calls computed at runtime are left untouched. Defaults to `false`.
+
+An inline [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/importmap) (`imports` and `scopes`, exact and `/`-prefixed keys) placed before the module scripts is respected when resolving specifiers. Since the import map belongs to the document, two pages that map the same bare specifier to different implementations get their own rewritten copies of shared modules:
+
+```javascript
+// page-a.html: <script type="importmap">{"imports": {"app": "/impl-a.js"}}</script>
+//                <script type="module" src="/shared.js"></script>
+// page-b.html: <script type="importmap">{"imports": {"app": "/impl-b.js"}}</script>
+//                <script type="module" src="/shared.js"></script>
+// /shared.js:  import {value} from 'app'; export const result = value;
+scrape({
+  urls: [
+    {url: 'http://example.com/page-a.html', filename: 'page-a.html'},
+    {url: 'http://example.com/page-b.html', filename: 'page-b.html'}
+  ],
+  directory: '/path/to/save',
+  modules: true
+});
+// /shared.js is downloaded once, but saved twice:
+// js/shared.js   -> import {value} from "./impl-a.js"; ... (referenced from page-a.html)
+// js/shared_1.js -> import {value} from "./impl-b.js"; ... (referenced from page-b.html)
+```
+
+Specifiers blocked by a `null` import map entry, bare specifiers that can not be resolved (they are never requested over http), modules rejected by [urlFilter](#urlfilter) and imports with attributes (like json/css modules) are reported as errors instead of producing a silently broken archive.
 
 #### filenameGenerator
 String (name of the bundled filenameGenerator). Filename generator determines path in file system where the resource will be saved.
