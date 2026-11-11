@@ -1,0 +1,6 @@
+#version 450
+layout(local_size_x=1) in;
+struct Record { vec3 v; float w; };
+layout(set=1,binding=2,std140,row_major) uniform UBO { mat2x3 rm; Record items[2]; } u;
+layout(set=2,binding=3,std430) buffer Out { float head; vec4 values[]; } dst;
+void main() { dst.head=u.rm[1][2]+u.items[1].w; dst.values[0]=vec4(u.items[0].v, dst.head); }
