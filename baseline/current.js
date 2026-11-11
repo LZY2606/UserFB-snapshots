@@ -1,0 +1,28 @@
+'use strict';
+const assert = require('node:assert/strict');
+const Entity = require('../src/goo/entities/Entity');
+const TC = require('../src/goo/entities/components/TransformComponent');
+const Joint = require('../src/goo/animationpack/Joint');
+const Skeleton = require('../src/goo/animationpack/Skeleton');
+const Pose = require('../src/goo/animationpack/SkeletonPose');
+const AC = require('../src/goo/animationpack/components/AnimationComponent');
+const Action = require('../src/goo/fsmpack/statemachine/actions/CopyJointTransformAction');
+function entity(name) { const e=new Entity(null,name); e.setComponent(new TC()); return e; }
+const j0=new Joint('root'), j1=new Joint('hand'); j1._index=1; j1._parentIndex=0;
+j1._inverseBindPose.translation.setDirect(0,-2,0); j1._inverseBindPose.update();
+const pose=new Pose(new Skeleton('rig',[j0,j1]));
+pose._localTransforms[1].translation.setDirect(0,3,0);
+pose._localTransforms[1].update(); pose.updateTransforms();
+assert.equal(pose._globalTransforms[1].matrix.data[13],3);
+assert.equal(pose._matrixPalette[1].data[13],1);
+const actor=entity('actor'); actor.setComponent(new AC(pose)); actor.setTranslation(10,0,0);
+const direct=entity('direct'), pivot=entity('pivot'), nested=entity('nested');
+actor.attachChild(direct); actor.attachChild(pivot); pivot.setTranslation(5,0,0); pivot.attachChild(nested);
+const action=new Action('copy',{jointIndex:1});
+action.update({getOwnerEntity:()=>direct});
+assert.equal(direct.transformComponent.sync().worldTransform.translation.x,10);
+assert.equal(direct.transformComponent.sync().worldTransform.translation.y,3);
+action.update({getOwnerEntity:()=>nested});
+assert.equal(nested.transformComponent.sync().worldTransform.translation.x,15);
+assert.equal(nested.transformComponent.sync().worldTransform.translation.y,0);
+console.log('GOO_CURRENT_OK jointGlobalY=3 paletteY=1 directY=3 nestedX=15 nestedY=0');
