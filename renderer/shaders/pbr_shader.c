@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../core/api.h"
@@ -73,7 +74,7 @@ static vec4_t common_vertex_shader(pbr_attribs_t *attribs,
     vec3_t input_normal = attribs->normal;
     vec3_t world_normal = mat3_mul_vec3(normal_matrix, input_normal);
 
-    if (uniforms->normal_map) {
+    if (uniforms->normal_map || uniforms->detail_normal_map) {
         mat3_t tangent_matrix = mat3_from_mat4(model_matrix);
         vec3_t input_tangent = vec3_from_vec4(attribs->tangent);
         vec3_t world_tangent = mat3_mul_vec3(tangent_matrix, input_tangent);
@@ -221,24 +222,99 @@ static material_t get_pbrs_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
     return material;
 }
 
+/*
+ * decodes a linear data texel into a tangent-space normal. only non-zero
+ * normals with a non-negative z component are considered valid; a zero-length
+ * (or otherwise unusable) sample falls back to the flat normal (0, 0, 1), so
+ * the normalization below can never divide by zero or produce a NaN
+ */
+static vec3_t decode_normal(vec4_t sample) {
+    vec3_t tangent_normal = vec3_new(sample.x * 2 - 1,
+                                     sample.y * 2 - 1,
+                                     sample.z * 2 - 1);
+    if (vec3_length(tangent_normal) > 0 && tangent_normal.z >= 0) {
+        return vec3_normalize(tangent_normal);
+    }
+    return vec3_new(0, 0, 1);
+}
+
+/*
+ * scales the xy components of a tangent-space normal by the detail strength
+ * while leaving z untouched, then renormalizes. a zero strength leaves
+ * (0, 0, 1), i.e. a flat normal
+ */
+static vec3_t scale_normal_xy(vec3_t normal, float strength) {
+    vec3_t scaled = vec3_new(normal.x * strength,
+                             normal.y * strength,
+                             normal.z);
+    if (vec3_length(scaled) > 0) {
+        return vec3_normalize(scaled);
+    }
+    return vec3_new(0, 0, 1);
+}
+
+/*
+ * reoriented normal mapping: builds the shortest rotation taking the flat
+ * normal (0, 0, 1) onto the base normal and applies it to the detail normal,
+ * so the detail undulations bend along the base surface instead of being
+ * blended in world space or merged by plain addition. the rotation matrix is
+ * the Rodrigues form (see "Bump Mapping Unparametrized Surfaces on the GPU");
+ * decoded normals always have z >= 0, so 1 + z can never vanish.
+ */
+static vec3_t reorient_normal(vec3_t base, vec3_t detail) {
+    float k = 1 / (1 + base.z);
+    vec3_t col0 = vec3_new(base.z + base.y * base.y * k,
+                           -base.x * base.y * k,
+                           -base.x);
+    vec3_t col1 = vec3_new(-base.x * base.y * k,
+                           base.z + base.x * base.x * k,
+                           -base.y);
+    vec3_t col2 = vec3_new(base.x, base.y, base.z);
+    mat3_t rotation = mat3_from_cols(col0, col1, col2);
+    vec3_t tangent_normal = mat3_mul_vec3(rotation, detail);
+    if (vec3_length(tangent_normal) > 0) {
+        return vec3_normalize(tangent_normal);
+    }
+    return vec3_new(0, 0, 1);
+}
+
 static vec3_t get_normal_dir(pbr_varyings_t *varyings,
                              pbr_uniforms_t *uniforms,
                              int backface) {
-    vec3_t normal_dir;
+    vec3_t base_normal = vec3_new(0, 0, 1);
+    vec3_t detail_normal = vec3_new(0, 0, 1);
+    vec3_t tangent_normal, world_normal, normal_dir;
+    mat3_t tbn_matrix;
+
     if (uniforms->normal_map) {
         vec4_t sample = texture_sample(uniforms->normal_map,
                                        varyings->texcoord);
-        vec3_t tangent_normal = vec3_new(sample.x * 2 - 1,
-                                         sample.y * 2 - 1,
-                                         sample.z * 2 - 1);
-        mat3_t tbn_matrix = mat3_from_cols(varyings->world_tangent,
-                                           varyings->world_bitangent,
-                                           varyings->world_normal);
-        vec3_t world_normal = mat3_mul_vec3(tbn_matrix, tangent_normal);
-        normal_dir = vec3_normalize(world_normal);
-    } else {
-        normal_dir = vec3_normalize(varyings->world_normal);
+        base_normal = decode_normal(sample);
     }
+
+    if (uniforms->detail_normal_map) {
+        vec2_t detail_texcoord = vec2_new(
+            varyings->texcoord.x * uniforms->detail_normal_tiling.x
+                + uniforms->detail_normal_offset.x,
+            varyings->texcoord.y * uniforms->detail_normal_tiling.y
+                + uniforms->detail_normal_offset.y);
+        vec4_t sample = texture_sample(uniforms->detail_normal_map,
+                                       detail_texcoord);
+        detail_normal = decode_normal(sample);
+        detail_normal = scale_normal_xy(detail_normal,
+                                        uniforms->detail_normal_strength);
+    }
+
+    /* combine the two layers in tangent space, before the TBN transform */
+    tangent_normal = reorient_normal(base_normal, detail_normal);
+
+    tbn_matrix = mat3_from_cols(varyings->world_tangent,
+                                varyings->world_bitangent,
+                                varyings->world_normal);
+    world_normal = mat3_mul_vec3(tbn_matrix, tangent_normal);
+    normal_dir = vec3_normalize(world_normal);
+
+    /* backfacing flips the fully composited normal, never a single layer */
     return backface ? vec3_negate(normal_dir) : normal_dir;
 }
 
@@ -583,6 +659,7 @@ static void release_model(model_t *model) {
     cache_release_texture(uniforms->specular_map);
     cache_release_texture(uniforms->glossiness_map);
     cache_release_texture(uniforms->normal_map);
+    cache_release_texture(uniforms->detail_normal_map);
     cache_release_texture(uniforms->occlusion_map);
     cache_release_texture(uniforms->emission_map);
     cache_release_ibldata(uniforms->ibldata);
@@ -680,4 +757,34 @@ model_t *pbrs_create_model(const char *mesh, mat4_t transform,
     uniforms->layer_view = -1;
 
     return model;
+}
+
+int pbr_set_detail_normal(model_t *model, const char *path, float strength,
+                          vec2_t tiling, vec2_t offset) {
+    pbr_uniforms_t *uniforms;
+    texture_t *detail_map = NULL;
+
+    if (!isfinite(strength) || strength < 0) {
+        fprintf(stderr, "pbr_set_detail_normal: strength must be finite and "
+                        "non-negative, got %g\n", strength);
+        return 0;
+    }
+    if (!isfinite(tiling.x) || !isfinite(tiling.y) ||
+        !isfinite(offset.x) || !isfinite(offset.y)) {
+        fprintf(stderr, "pbr_set_detail_normal: tiling and offset must be "
+                        "finite\n");
+        return 0;
+    }
+
+    if (path != NULL && path[0] != '\0') {
+        detail_map = acquire_data_texture(path);
+    }
+
+    uniforms = (pbr_uniforms_t*)program_get_uniforms(model->program);
+    cache_release_texture(uniforms->detail_normal_map);
+    uniforms->detail_normal_map = detail_map;
+    uniforms->detail_normal_strength = strength;
+    uniforms->detail_normal_tiling = tiling;
+    uniforms->detail_normal_offset = offset;
+    return 1;
 }

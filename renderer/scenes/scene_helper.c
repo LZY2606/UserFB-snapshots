@@ -37,6 +37,11 @@ typedef struct {
     char metalness_map[LINE_SIZE];
     char roughness_map[LINE_SIZE];
     char normal_map[LINE_SIZE];
+    int has_detail_normal;
+    char detail_normal_map[LINE_SIZE];
+    float detail_normal_strength;
+    vec2_t detail_normal_tiling;
+    vec2_t detail_normal_offset;
     char occlusion_map[LINE_SIZE];
     char emission_map[LINE_SIZE];
     char double_sided[LINE_SIZE];
@@ -53,6 +58,11 @@ typedef struct {
     char specular_map[LINE_SIZE];
     char glossiness_map[LINE_SIZE];
     char normal_map[LINE_SIZE];
+    int has_detail_normal;
+    char detail_normal_map[LINE_SIZE];
+    float detail_normal_strength;
+    vec2_t detail_normal_tiling;
+    vec2_t detail_normal_offset;
     char occlusion_map[LINE_SIZE];
     char emission_map[LINE_SIZE];
     char double_sided[LINE_SIZE];
@@ -93,6 +103,47 @@ static int wrap_knob(const char *knob) {
         assert(equals_to(knob, "off"));
         return 0;
     }
+}
+
+/*
+ * reads the optional detail-normal block that may sit between normal_map and
+ * occlusion_map. first_header is the label already consumed after normal_map;
+ * when the block is present it must be complete (all four lines), otherwise
+ * the label must be the occlusion_map line of a legacy material
+ */
+static void read_optional_detail_normal(FILE *file, const char *first_header,
+                                        int *has_detail_normal,
+                                        char *detail_normal_map,
+                                        float *detail_normal_strength,
+                                        vec2_t *detail_normal_tiling,
+                                        vec2_t *detail_normal_offset,
+                                        char *occlusion_map) {
+    int items;
+
+    *has_detail_normal = 0;
+    if (equals_to(first_header, "detail_normal_map:")) {
+        *has_detail_normal = 1;
+        items = fscanf(file, " %s", detail_normal_map);
+        assert(items == 1);
+        items = fscanf(file, " detail_normal_strength: %f",
+                       detail_normal_strength);
+        assert(items == 1);
+        items = fscanf(file, " detail_normal_tiling: %f %f",
+                       &detail_normal_tiling->x,
+                       &detail_normal_tiling->y);
+        assert(items == 2);
+        items = fscanf(file, " detail_normal_offset: %f %f",
+                       &detail_normal_offset->x,
+                       &detail_normal_offset->y);
+        assert(items == 2);
+        items = fscanf(file, " occlusion_map: %s", occlusion_map);
+        assert(items == 1);
+    } else {
+        assert(equals_to(first_header, "occlusion_map:"));
+        items = fscanf(file, " %s", occlusion_map);
+        assert(items == 1);
+    }
+    UNUSED_VAR(items);
 }
 
 static scene_light_t read_light(FILE *file) {
@@ -172,6 +223,7 @@ static scene_blinn_t *read_blinn_materials(FILE *file) {
 
 static scene_pbrm_t read_pbrm_material(FILE *file) {
     scene_pbrm_t material;
+    char header[LINE_SIZE];
     int items;
 
     items = fscanf(file, " material %d:", &material.index);
@@ -194,8 +246,15 @@ static scene_pbrm_t read_pbrm_material(FILE *file) {
     assert(items == 1);
     items = fscanf(file, " normal_map: %s", material.normal_map);
     assert(items == 1);
-    items = fscanf(file, " occlusion_map: %s", material.occlusion_map);
+    items = fscanf(file, " %s", header);
     assert(items == 1);
+    read_optional_detail_normal(file, header,
+                                &material.has_detail_normal,
+                                material.detail_normal_map,
+                                &material.detail_normal_strength,
+                                &material.detail_normal_tiling,
+                                &material.detail_normal_offset,
+                                material.occlusion_map);
     items = fscanf(file, " emission_map: %s", material.emission_map);
     assert(items == 1);
     items = fscanf(file, " double_sided: %s", material.double_sided);
@@ -228,6 +287,7 @@ static scene_pbrm_t *read_pbrm_materials(FILE *file) {
 
 static scene_pbrs_t read_pbrs_material(FILE *file) {
     scene_pbrs_t material;
+    char header[LINE_SIZE];
     int items;
 
     items = fscanf(file, " material %d:", &material.index);
@@ -253,8 +313,15 @@ static scene_pbrs_t read_pbrs_material(FILE *file) {
     assert(items == 1);
     items = fscanf(file, " normal_map: %s", material.normal_map);
     assert(items == 1);
-    items = fscanf(file, " occlusion_map: %s", material.occlusion_map);
+    items = fscanf(file, " %s", header);
     assert(items == 1);
+    read_optional_detail_normal(file, header,
+                                &material.has_detail_normal,
+                                material.detail_normal_map,
+                                &material.detail_normal_strength,
+                                &material.detail_normal_tiling,
+                                &material.detail_normal_offset,
+                                material.occlusion_map);
     items = fscanf(file, " emission_map: %s", material.emission_map);
     assert(items == 1);
     items = fscanf(file, " double_sided: %s", material.double_sided);
@@ -508,6 +575,16 @@ static scene_t *create_pbrm_scene(scene_light_t *scene_light,
 
         model = pbrm_create_model(mesh, transform, skeleton, attached,
                                   &material, env_name);
+        if (scene_material.has_detail_normal) {
+            const char *detail_path = wrap_path(
+                scene_material.detail_normal_map);
+            int ok = pbr_set_detail_normal(
+                model, detail_path,
+                scene_material.detail_normal_strength,
+                scene_material.detail_normal_tiling,
+                scene_material.detail_normal_offset);
+            assert(ok);
+        }
         darray_push(models, model);
     }
 
@@ -566,6 +643,16 @@ static scene_t *create_pbrs_scene(scene_light_t *scene_light,
 
         model = pbrs_create_model(mesh, transform, skeleton, attached,
                                   &material, env_name);
+        if (scene_material.has_detail_normal) {
+            const char *detail_path = wrap_path(
+                scene_material.detail_normal_map);
+            int ok = pbr_set_detail_normal(
+                model, detail_path,
+                scene_material.detail_normal_strength,
+                scene_material.detail_normal_tiling,
+                scene_material.detail_normal_offset);
+            assert(ok);
+        }
         darray_push(models, model);
     }
 

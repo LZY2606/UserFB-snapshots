@@ -64,6 +64,10 @@ typedef struct {
     texture_t *glossiness_map;
     /* additional maps */
     texture_t *normal_map;
+    texture_t *detail_normal_map;
+    float detail_normal_strength;
+    vec2_t detail_normal_tiling;
+    vec2_t detail_normal_offset;
     texture_t *occlusion_map;
     texture_t *emission_map;
     /* environment maps */
@@ -123,5 +127,14 @@ model_t *pbrm_create_model(const char *mesh, mat4_t transform,
 model_t *pbrs_create_model(const char *mesh, mat4_t transform,
                            const char *skeleton, int attached,
                            pbrs_material_t *material, const char *env_name);
+
+/*
+ * configures the tiled detail normal layer after model creation; pass a NULL
+ * (or empty) path to disable the layer. returns 1 when the configuration was
+ * accepted and 0 when an argument was rejected, in which case the previous
+ * configuration is left untouched
+ */
+int pbr_set_detail_normal(model_t *model, const char *path, float strength,
+                          vec2_t tiling, vec2_t offset);
 
 #endif
