@@ -58,3 +58,51 @@ test('queue error and duplicate are terminal admission outcomes',()=>{
   fail();c.crawl();assert.equal(events.at(-1),'complete');
  }
 });
+test('new admission during a delayed countItems cannot certify completion',()=>{
+ const {c,events}=fixture();let releaseCount;
+ const countItems=c.queue.countItems,getLength=c.queue.getLength;
+ const staleLength=c.queue.length;
+ c.queue.countItems=function(_cmp,done){
+  const count=this.filter(i=>i.fetched).length;
+  releaseCount=()=>done(null,count);
+ };
+ c.queue.getLength=done=>done(null,staleLength);
+ c.crawl();assert.equal(typeof releaseCount,'function');
+ c.queueURL('http://example.test/late');
+ releaseCount();
+ assert.deepEqual(events,['add:/late']);
+ c.queue.countItems=countItems;c.queue.getLength=getLength;
+ settle(c);assert.deepEqual(events,['add:/late','complete']);
+});
+test('a registered wait still prevents complete',()=>{
+ const {c,events}=fixture();
+ const releaseWait=c.wait();
+ c.crawl();assert.deepEqual(events,[]);
+ releaseWait();
+ c.crawl();assert.deepEqual(events,['complete']);
+});
+test('loopback crawl delivers discovered child page before complete',(t,done)=>{
+ const http=require('http');
+ const server=http.createServer((req,res)=>{
+  if(req.url==='/'){
+   res.writeHead(200,{'content-type':'text/html'});
+   res.end('<html><body><a href="/child">child</a></body></html>');
+  }else if(req.url==='/child'){
+   res.writeHead(200,{'content-type':'text/html'});
+   res.end('<html><body>child</body></html>');
+  }else{
+   res.writeHead(404);res.end();
+  }
+ });
+ server.listen(0,'127.0.0.1',()=>{
+  const c=new Crawler('http://127.0.0.1:'+server.address().port+'/');
+  c.respectRobotsTxt=false;c.interval=10;
+  const fetched=[];
+  c.on('fetchcomplete',i=>fetched.push(i.path));
+  c.on('complete',()=>{
+   assert.deepEqual(fetched.slice().sort(),['/','/child']);
+   server.close();done();
+  });
+  c.start();
+ });
+});
