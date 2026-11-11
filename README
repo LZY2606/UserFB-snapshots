@@ -133,3 +133,99 @@ o-----------------------------------------------------------------------------o
 
 
 o-----------------------------------------------------------------------------o
+| 8 Model-space animation compression                                         |
+o-----------------------------------------------------------------------------o
+
+  The legacy CalCoreTrack::compress() judges a keyframe against a local
+  translation distance and a local rotation angle.  That can discard a
+  sub-degree swing on a bone near the root while the end of a long bone chain
+  ends up displaced by a whole model unit.
+
+  CalCoreAnimation::compressModelSpace() offers an optional entry point that
+  instead controls whole-character deformation.  It leaves the original
+  CalCoreTrack::compress(), optimize() and the file formats untouched.
+
+  Error units
+  -----------
+  The error budget (maxPositionError) and the reported maxError are Euclidean
+  distances in model-space position units - the same units as the skeleton's
+  bone translations and the bind-pose probe points (typically meters or
+  whatever unit the asset was authored in).  They are not angles and are not
+  split per bone: one budget applies to the whole character.  A limit of 0 is
+  legal; exactly redundant keyframes (identical poses, or a quaternion and its
+  negation describing the same orientation) can still be removed.
+
+  Discrete sampling range
+  ------------------------
+  The guarantee is deliberately defined only over a fixed discrete set of
+  times, never over every continuous instant.  The set is computed once, up
+  front, and never shrinks as keyframes are deleted:
+
+    0, the animation duration, every keyframe time of every original track,
+    the midpoint of each pair of consecutive times in that sorted, de-duplicated
+    list, and any extra sample times supplied by the caller (also required to
+    lie in [0, duration]).
+
+  At every such time each probe point is skinned with linear-blend skinning,
+  using the evaluated CalSkeleton bone transforms (model transform times the
+  bone's inverse bind pose transform), exactly as CalPhysique skins a vertex.
+  The error is the largest distance between a probe skinned from the original
+  animation and the same probe skinned from a candidate animation.  A probe
+  holds a bind-pose point plus boneId/weight pairs; weights must be
+  non-negative and sum to 1.  Bones without a track keep their bind pose; an
+  empty track still contributes an identity local transform, and the two are
+  not treated as equivalent.
+
+  Only interior keyframes of existing tracks can be deleted.  Each non-empty
+  track keeps its first and last key, its surviving key times and the original
+  key values; no keys are inserted and no interpolator is changed.  Each round
+  deletes the single interior key whose removal yields the smallest global
+  error while the global error stays within budget (ties broken by bone id,
+  then key time), and re-validates the complete candidate afterwards, so
+  deletions that are legal separately but illegal together are rejected.
+
+  Example
+  -------
+
+    #include <cal3d/coreanimation.h>
+    #include <cal3d/modelspacecompression.h>
+
+    // skeleton is an already-fixuped CalCoreSkeleton; clip is the animation.
+    cal3d::ModelSpaceProbe handProbe;
+    handProbe.point = CalVector(0.1f, -0.2f, 0.05f); // bind-pose position
+    handProbe.boneIds.push_back(wristBoneId);       // single-bone probe
+    handProbe.weights.push_back(1.0f);
+
+    cal3d::ModelSpaceProbe shoulderProbe;
+    shoulderProbe.point = CalVector(0, 0, 0);       // multi-bone probe
+    shoulderProbe.boneIds.push_back(upperArmBoneId);
+    shoulderProbe.boneIds.push_back(clavicleBoneId);
+    shoulderProbe.weights.push_back(0.7f);
+    shoulderProbe.weights.push_back(0.3f);
+
+    std::vector<cal3d::ModelSpaceProbe> probes;
+    probes.push_back(handProbe);
+    probes.push_back(shoulderProbe);
+
+    std::vector<float> extraTimes;
+    extraTimes.push_back(0.33f); // force this instant into the sample set
+
+    // Keep every skinned probe within 0.5 model-space position units.
+    cal3d::ModelSpaceCompressionResult result =
+        clip->compressModelSpace(skeleton, probes, extraTimes, 0.5);
+
+    // result.animation is an independent CalCoreAnimation; the inputs are
+    // unmodified.  result.report describes what was removed and measured:
+    //   removedKeyframes      - number of interior keys deleted
+    //   maxError              - largest skinned-point distance observed
+    //   maxErrorTime          - sample time of that worst distance
+    //   maxErrorProbeIndex    - probe index of that worst distance
+
+  Invalid input (duplicate track bone ids, non-strictly-increasing or
+  out-of-range key times, unknown bones, non-finite numbers, weights that are
+  negative, non-finite or do not sum to 1, or a negative error limit) throws
+  std::runtime_error before any result is produced, leaving all inputs
+  unchanged.
+
+
+o-----------------------------------------------------------------------------o
