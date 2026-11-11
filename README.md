@@ -303,6 +303,15 @@ function safeAttrValue(tag, name, value) {
 }
 ```
 
+The value returned by `safeAttrValue` (including a custom implementation) is
+escaped for the configured output quote. In single-quoted mode, a `'` in the
+value — whether it was literal or produced by decoding `&#39;`, `&#x27;`, or
+`&apos;` — is written as `&#39;` so it cannot close the attribute and turn the
+rest of the value into new attributes. HTML entities are decoded once only, so
+`&amp;#39;` remains text rather than becoming an apostrophe. Raw HTML returned
+by `onTag`, `onTagAttr`, or `onIgnoreTagAttr` is still treated as trusted and
+is not re-escaped.
+
 ### Customize output attribute value syntax for HTML
 
 By specifying a `singleQuotedAttributeValue`. Use `true` for `'`. Otherwise default `"` will be used
@@ -316,6 +325,17 @@ var options = {
 // would become:
 // <a href='#'>Hello</a>
 ```
+
+In single-quoted mode, apostrophes in attribute values are encoded as `&#39;`:
+
+```html
+<a title="ok' onmouseover='alert(1)">x</a>
+```
+becomes
+```html
+<a title='ok&#39; onmouseover=&#39;alert(1)'>x</a>
+```
+No `onmouseover` attribute is created; the whole text remains the `title` value.
 
 ### Customize CSS filter
 

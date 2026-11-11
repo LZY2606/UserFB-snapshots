@@ -287,6 +287,38 @@ function safeAttrValue(tag, name, value) {
 }
 ```
 
+`safeAttrValue`（包括自定义实现）返回的属性值会按照当前输出所使用的引号进行转义。
+在单引号模式下，属性值中的 `'`（无论是字面字符，还是由 `&#39;`、`&#x27;`、`&apos;`
+解码得到的）都会输出为 `&#39;`，因此它不能提前闭合属性并把后面的内容变成新属性。
+HTML 实体只会解码一次，所以 `&amp;#39;` 会保持为文本而不会变成单引号。
+`onTag`、`onTagAttr`、`onIgnoreTagAttr` 返回的原始 HTML 仍然按“钩子可信”处理，
+不会再次转义。
+
+### 自定义输出的属性值引号
+
+通过 `singleQuotedAttributeValue` 设置。值为 `true` 时使用 `'`，否则默认使用 `"`。
+
+```javascript
+var options = {
+  singleQuotedAttributeValue: true,
+};
+// 使用以上配置时，以下 HTML：
+// <a href="#">Hello</a>
+// 会变成：
+// <a href='#'>Hello</a>
+```
+
+单引号模式下，属性值中的单引号会编码为 `&#39;`：
+
+```html
+<a title="ok' onmouseover='alert(1)">x</a>
+```
+会变成
+```html
+<a title='ok&#39; onmouseover=&#39;alert(1)'>x</a>
+```
+不会生成 `onmouseover` 属性；整段文本仍然属于 `title` 的值。
+
 ### 自定义 CSS 过滤器
 
 如果配置中允许了标签的 `style` 属性，则它的值会通过[cssfilter](https://github.com/leizongmin/js-css-filter) 模块处理。

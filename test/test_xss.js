@@ -444,6 +444,181 @@ describe("test XSS", function() {
     );
   })
 
+  describe("single-quoted attribute value boundary", function() {
+    var single = { singleQuotedAttributeValue: true };
+
+    it("does not let an apostrophe in the value create attributes", function() {
+      var expected = "<a title='ok&#39; onmouseover=&#39;alert(1)'>x</a>";
+      // literal apostrophe
+      assert.equal(
+        xss('<a title="ok\' onmouseover=\'alert(1)">x</a>', single),
+        expected
+      );
+      // decimal and hexadecimal apostrophe entities
+      assert.equal(
+        xss('<a title="ok&#39; onmouseover=&#39;alert(1)">x</a>', single),
+        expected
+      );
+      assert.equal(
+        xss('<a title="ok&#x27; onmouseover=&#x27;alert(1)">x</a>', single),
+        expected
+      );
+      // named apostrophe entity
+      assert.equal(
+        xss('<a title="ok&apos; onmouseover=&apos;alert(1)">x</a>', single),
+        expected
+      );
+      // source uses single quotes, entity expansion must not split it
+      assert.equal(
+        xss("<a title='ok&#39; onmouseover=&#39;alert(1)'>x</a>", single),
+        expected
+      );
+      // unquoted source value
+      assert.equal(
+        xss("<a title=ok&#39;onmouseover=&#39;alert(1)>x</a>", single),
+        "<a title='ok&#39;onmouseover=&#39;alert(1)'>x</a>"
+      );
+    });
+
+    it("decodes entities exactly once and keeps other quote forms intact", function() {
+      // &amp;#39; is an escaped entity: it must stay text, not become a quote
+      assert.equal(
+        xss('<a title="ok&amp;#39; onmouseover=&#39;alert(1)">x</a>', single),
+        "<a title='ok&amp;#39; onmouseover=&#39;alert(1)'>x</a>"
+      );
+      // already supported double quote entity
+      assert.equal(
+        xss('<a title="ok&quot; onmouseover=&quot;alert(1)">x</a>', single),
+        "<a title='ok&quot; onmouseover=&quot;alert(1)'>x</a>"
+      );
+      // decimal and hexadecimal double quote entities
+      assert.equal(
+        xss('<a title="ok&#34; onmouseover=&#34;alert(1)">x</a>', single),
+        "<a title='ok&quot; onmouseover=&quot;alert(1)'>x</a>"
+      );
+      assert.equal(
+        xss('<a title="ok&#x22; onmouseover=&#x22;alert(1)">x</a>', single),
+        "<a title='ok&quot; onmouseover=&quot;alert(1)'>x</a>"
+      );
+      // non-quote text, including Chinese, is preserved
+      assert.equal(xss('<a title="中文">x</a>', single), "<a title='中文'>x</a>");
+      // literal replacement-template text must not be expanded
+      assert.equal(
+        xss("<a title=\"$& $' `\">x</a>", single),
+        "<a title='$& $&#39; `'>x</a>"
+      );
+    });
+
+    it("keeps the default double-quoted output unchanged", function() {
+      assert.equal(
+        xss('<a title="ok\' onmouseover=\'alert(1)">x</a>'),
+        '<a title="ok\' onmouseover=\'alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&#39; onmouseover=&#39;alert(1)">x</a>'),
+        '<a title="ok\' onmouseover=\'alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&#x27; onmouseover=&#x27;alert(1)">x</a>'),
+        '<a title="ok\' onmouseover=\'alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&apos; onmouseover=&apos;alert(1)">x</a>'),
+        '<a title="ok\' onmouseover=\'alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&quot; onmouseover=&quot;alert(1)">x</a>'),
+        '<a title="ok&quot; onmouseover=&quot;alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&#34; onmouseover=&#34;alert(1)">x</a>'),
+        '<a title="ok&quot; onmouseover=&quot;alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&#x22; onmouseover=&#x22;alert(1)">x</a>'),
+        '<a title="ok&quot; onmouseover=&quot;alert(1)">x</a>'
+      );
+      assert.equal(
+        xss('<a title="ok&amp;#39; onmouseover=&#39;alert(1)">x</a>'),
+        '<a title="ok&amp;#39; onmouseover=\'alert(1)">x</a>'
+      );
+      assert.equal(
+        xss("<a title=\"$& $' `\">x</a>"),
+        "<a title=\"$& $' `\">x</a>"
+      );
+    });
+
+    it("constrains custom safeAttrValue results to the active quote", function() {
+      assert.equal(
+        xss('<a title="x">link</a>', {
+          singleQuotedAttributeValue: true,
+          safeAttrValue: function() {
+            return "ok' onmouseover='alert(1)";
+          }
+        }),
+        "<a title='ok&#39; onmouseover=&#39;alert(1)'>link</a>"
+      );
+      assert.equal(
+        xss('<a title="x">link</a>', {
+          safeAttrValue: function() {
+            return 'ok" onmouseover="alert(1)';
+          }
+        }),
+        '<a title="ok&quot; onmouseover=&quot;alert(1)">link</a>'
+      );
+    });
+
+    it("still treats raw HTML returned by hooks as trusted", function() {
+      assert.equal(
+        xss('<a title="x">link</a>', {
+          singleQuotedAttributeValue: true,
+          onTagAttr: function(tag, name) {
+            if (name === "title") {
+              return "title='hook' onmouseover='trusted'";
+            }
+          }
+        }),
+        "<a title='hook' onmouseover='trusted'>link</a>"
+      );
+      assert.equal(
+        xss('<a data-x="1">link</a>', {
+          singleQuotedAttributeValue: true,
+          onIgnoreTagAttr: function(tag, name) {
+            if (name === "data-x") {
+              return "data-x='hook' onmouseover='trusted'";
+            }
+          }
+        }),
+        "<a data-x='hook' onmouseover='trusted'>link</a>"
+      );
+      assert.equal(
+        xss('<a title="x">link</a>', {
+          singleQuotedAttributeValue: true,
+          onTag: function(tag, html, options) {
+            if (tag === "a" && !options.isClosing) {
+              return "<a title='hook' onmouseover='trusted'>";
+            }
+          }
+        }),
+        "<a title='hook' onmouseover='trusted'>link</a>"
+      );
+    });
+
+    it("keeps protocol filtering and stripIgnoreTag working", function() {
+      assert.equal(
+        xss('<a href="javascript:alert(1)" title="ok">link</a>', single),
+        "<a href title='ok'>link</a>"
+      );
+      assert.equal(
+        xss('<x>yy</x><a title="xx">link</a>', {
+          singleQuotedAttributeValue: true,
+          stripIgnoreTag: true
+        }),
+        "yy<a title='xx'>link</a>"
+      );
+    });
+  })
+
   it("no options mutated", function() {
     var options = {};
 
