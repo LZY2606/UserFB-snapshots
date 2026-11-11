@@ -7,6 +7,7 @@
 //
 
 #include "TableLookupOsc.h"
+#include "FixedValue.h"
 
 namespace Tonic {
   
@@ -22,7 +23,12 @@ namespace Tonic {
       phase_(0.0)
     {
       modFrames_.resize(kSynthesisBlockSize, 1);
+      phaseOffsetFrames_.resize(kSynthesisBlockSize, 1);
       lookupTable_ = SampleTable(kSynthesisBlockSize,1);
+
+      // Default offset is zero, so an oscillator without a phaseOffset input
+      // keeps its original phase progression and numerical output.
+      phaseOffsetGenerator_ = FixedValue(0.0f);
     }
     
     void TableLookupOsc_::reset(){

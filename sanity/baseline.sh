@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-build=$(mktemp -d)
+build=$(mktemp -d 2>/dev/null || { d="${TMPDIR:-/tmp}/baseline_$$"; mkdir -p "$d"; printf '%s' "$d"; })
 trap 'rm -rf "$build"' EXIT
 extra=()
 if [[ $(uname -s) == Darwin ]]; then extra=(-framework Accelerate); fi

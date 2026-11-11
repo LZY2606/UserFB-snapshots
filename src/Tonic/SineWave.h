@@ -24,6 +24,9 @@ namespace Tonic {
     
     TONIC_MAKE_GEN_SETTERS(SineWave, freq, setFrequency)
 
+    //! Per-sample phase offset in cycles. Accepts float, ControlGenerator or Generator.
+    TONIC_MAKE_GEN_SETTERS(SineWave, phaseOffset, setPhaseOffset)
+
   };
 }
 
