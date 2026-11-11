@@ -51,6 +51,7 @@ The `options` argument supports the following properties:
 - `videoBufferSize` – when streaming, size in bytes for the video decode buffer. Default 512*1024 (512kb). You may have to increase this for very high bitrates.
 - `audioBufferSize` – when streaming, size in bytes for the audio decode buffer. Default 128*1024 (128kb). You may have to increase this for very high bitrates.
 - `onVideoDecode(decoder, time)` – A callback that is called after each decoded and rendered video frame
+- `onVideoMotion(decoder, info)` – A callback that publishes the per-macroblock motion-vector grid after each reconstructed I/P picture. See [Motion vector grid](#motion-vector-grid) below. JavaScript decoder only (`disableWebAssembly: true`).
 - `onAudioDecode(decoder, time)` – A callback that is called after each decoded audio frame
 - `onPlay(player)` – A callback that is called whenever playback starts
 - `onPause(player)` – A callback that is called whenever playback paused (e.g. when .pause() is called or the source has ended)
@@ -87,6 +88,39 @@ A `JSMpeg.Player` instance supports the following methods and properties:
 - `.currentTime` – get or set the current playback position in seconds
 - `.paused` – read only, wether playback is paused
 - `.destroy()` – stops playback, disconnects the source and cleans up WebGL and WebAudio state. The player can not be used afterwards. If the player created the canvas element it is removed from the document.
+
+
+## Motion vector grid
+
+The optional `onVideoMotion(decoder, info)` callback exposes exactly which displacement each macroblock was predicted with. It is only implemented in the JavaScript video decoder, so the player has to be created with `disableWebAssembly: true`:
+
+```javascript
+var player = new JSMpeg.Player('video.ts', {
+	disableWebAssembly: true,
+	onVideoMotion: function(decoder, info) {
+		// inspect info.vectors / info.kinds
+	}
+});
+```
+
+Passing `onVideoMotion` while the WebAssembly decoder would be selected throws an explicit error telling you to use the JavaScript path; the option is never silently ignored and no alternative binary is downloaded. When the option is omitted, the decoders behave exactly as before.
+
+The callback fires once per reconstructed I/P picture, after the picture has been rebuilt but before the reference planes are rotated, and it also fires when no renderer is connected. `info` contains:
+
+- `frameIndex` – zero-based, continuous numbering that counts only fully reconstructed I/P pictures. The B and D pictures this decoder skips produce no callback and do not occupy an index.
+- `pictureType` – `'I'` or `'P'`.
+- `width`, `height` – the visible picture dimensions.
+- `mbWidth`, `mbHeight` – the macroblock grid dimensions. Edge macroblocks that are fully coded but only partly visible are included; the grid is never trimmed to the visible width/height.
+- `vectors` – an `Int16Array`, laid out in macroblock row order, with two entries (`dx`, `dy`) per macroblock.
+- `kinds` – a `Uint8Array` with one entry per macroblock:
+  - `0` – not covered by any slice of this picture,
+  - `1` – intra coded (vector `(0, 0)`),
+  - `2` – explicitly coded inter macroblock,
+  - `3` – skipped macroblock, filled in by a `macroblock_address_increment` jump (vector `(0, 0)`).
+
+Vector units are **half luminance pixels** uniformly. A positive `dx`/`dy` means the prediction samples from the right / below in the reference picture, so a purely integer displacement shows up as an even value. These are the final vectors handed to motion compensation — differential accumulation, `f_code` wraparound and the `full_pel_forward` doubling already applied — not the raw VLC code words and not the integer-pel shift used internally for integer sampling. Inter macroblocks in P pictures that carry no forward motion report `(0, 0)` rather than inheriting the previous macroblock's vector.
+
+Each `info` and its arrays are independent copies: keeping a snapshot and mutating its arrays has no effect on the decoder's internal prediction or on any later snapshot.
 
 
 ## Encoding Video/Audio for JSMpeg

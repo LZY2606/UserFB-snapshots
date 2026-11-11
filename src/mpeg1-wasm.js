@@ -3,6 +3,18 @@ JSMpeg.Decoder.MPEG1VideoWASM = (function(){ "use strict";
 var MPEG1WASM = function(options) {
 	JSMpeg.Decoder.Base.call(this, options);
 
+	if (options.onVideoMotion) {
+		// The motion-vector grid is only instrumented in the JavaScript
+		// decoder. Fail loudly instead of silently dropping the callback and
+		// don't attempt to load another binary for it.
+		throw new Error(
+			'JSMpeg: onVideoMotion is only supported with ' +
+			'options.disableWebAssembly = true, which makes the Player use ' +
+			'the JavaScript MPEG1 video decoder. The WebAssembly decoder ' +
+			'does not expose per-macroblock motion vectors.'
+		);
+	}
+
 	this.onDecodeCallback = options.onVideoDecode;
 	this.module = options.wasmModule;
 

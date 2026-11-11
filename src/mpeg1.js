@@ -7,6 +7,7 @@ var MPEG1 = function(options) {
 	JSMpeg.Decoder.Base.call(this, options);
 
 	this.onDecodeCallback = options.onVideoDecode;
+	this.onMotionCallback = options.onVideoMotion || null;
 
 	var bufferSize = options.videoBufferSize || 512*1024;
 	var bufferMode = options.streaming
@@ -21,6 +22,12 @@ var MPEG1 = function(options) {
 
 	this.currentFrame = 0;
 	this.decodeFirstFrame = options.decodeFirstFrame !== false;
+
+	if (this.onMotionCallback) {
+		// Counts only fully reconstructed I/P pictures for the lifetime of
+		// this decoder, independent of sequence-header resolution changes.
+		this.motionFrameIndex = 0;
+	}
 };
 
 MPEG1.prototype = Object.create(JSMpeg.Decoder.Base.prototype);
@@ -150,6 +157,14 @@ MPEG1.prototype.initBuffers = function() {
 
 	this.forwardCb = new Uint8ClampedArray(this.codedSize >> 2);
 	this.forwardCb32 = new Uint32Array(this.forwardCb.buffer);
+
+	if (this.onMotionCallback) {
+		// Per-macroblock motion grid, filled along the actual decode path.
+		// Reallocated here so a resolution change can never hand out stale
+		// snapshots from the previous size.
+		this.motionVectors = new Int16Array(this.mbSize * 2);
+		this.motionKinds = new Uint8Array(this.mbSize);
+	}
 };
 
 
@@ -181,6 +196,14 @@ MPEG1.prototype.decodePicture = function(skipOutput) {
 	// Skip B and D frames or unknown coding type
 	if (this.pictureType <= 0 || this.pictureType >= MPEG1.PICTURE_TYPE.B) {
 		return;
+	}
+
+	// Fresh grid for this picture: 0 means "not covered by any slice" until
+	// the macroblock layer marks each decoded or skipped block.
+	var trackingMotion = !!this.onMotionCallback;
+	if (trackingMotion) {
+		JSMpeg.Fill(this.motionVectors, 0);
+		JSMpeg.Fill(this.motionKinds, 0);
 	}
 
 	// full_pel_forward, forward_f_code
@@ -215,6 +238,24 @@ MPEG1.prototype.decodePicture = function(skipOutput) {
 	// Invoke decode callbacks
 	if (this.destination) {
 		this.destination.render(this.currentY, this.currentCr, this.currentCb, true);
+	}
+
+	// Publish the motion grid while the reconstructed picture is still in
+	// currentY and the reference planes have not been rotated yet. Each
+	// snapshot owns freshly copied arrays, so callers may keep and mutate
+	// them without touching the decoder's internal state.
+	if (trackingMotion) {
+		this.motionFrameIndex++;
+		this.onMotionCallback(this, {
+			frameIndex: this.motionFrameIndex - 1,
+			pictureType: this.pictureType === MPEG1.PICTURE_TYPE.INTRA ? 'I' : 'P',
+			width: this.width,
+			height: this.height,
+			mbWidth: this.mbWidth,
+			mbHeight: this.mbHeight,
+			vectors: new Int16Array(this.motionVectors),
+			kinds: new Uint8Array(this.motionKinds)
+		});
 	}
 
 	// If this is a reference picutre then rotate the prediction pointers
@@ -291,6 +332,18 @@ MPEG1.prototype.motionFwV = 0;
 MPEG1.prototype.motionFwHPrev = 0;
 MPEG1.prototype.motionFwVPrev = 0;
 
+// kind: 1 = intra, 2 = explicitly coded inter, 3 = skipped via
+// macroblock_address_increment. Only called when onVideoMotion is set.
+MPEG1.prototype.recordMotionMacroblock = function(kind) {
+	if (!this.onMotionCallback) {
+		return;
+	}
+	var index = this.macroblockAddress * 2;
+	this.motionKinds[this.macroblockAddress] = kind;
+	this.motionVectors[index] = this.motionFwH;
+	this.motionVectors[index + 1] = this.motionFwV;
+};
+
 MPEG1.prototype.decodeMacroblock = function() {
 	// Decode macroblock_address_increment
 	var
@@ -342,6 +395,10 @@ MPEG1.prototype.decodeMacroblock = function() {
 				this.motionFwH, this.motionFwV,
 				this.forwardY, this.forwardCr, this.forwardCb
 			);
+			// Filled in by an address increment, not an explicit macroblock
+			// header. The skip path above already zeroed the P-picture motion
+			// predictors, so the recorded vector stays (0, 0).
+			this.recordMotionMacroblock(3);
 			increment--;
 		}
 		this.macroblockAddress++;
@@ -364,6 +421,7 @@ MPEG1.prototype.decodeMacroblock = function() {
 		// Intra-coded macroblocks reset motion vectors
 		this.motionFwH = this.motionFwHPrev = 0;
 		this.motionFwV = this.motionFwVPrev = 0;
+		this.recordMotionMacroblock(1);
 	}
 	else {
 		// Non-intra macroblocks reset DC predictors
@@ -376,6 +434,11 @@ MPEG1.prototype.decodeMacroblock = function() {
 			this.motionFwH, this.motionFwV,
 			this.forwardY, this.forwardCr, this.forwardCb
 		);
+		// Explicitly coded inter macroblock. motionFwH/motionFwV are the
+		// final values handed to copyMacroblock(): accumulated differences,
+		// f_code wraparound and full_pel conversion already applied, and
+		// reset to zero when no forward motion was coded.
+		this.recordMotionMacroblock(2);
 	}
 
 	// Decode blocks
