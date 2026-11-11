@@ -1,5 +1,6 @@
 //#region IMPORTS
-import { Animator, Clip, Retarget }                         from './animation/index';
+import { Animator, Clip, Retarget, PoseLayers }              from './animation/index';
+import type { PoseLayer, PoseLayerMask, PoseLayerMode }      from './animation/index';
 
 import { Armature, Bone, Pose, SkinMTX, SkinDQ, SkinDQT, SkinRTS }   from './armature/index';
 import type { ISkin, TTextureInfo }                         from './armature/index';
@@ -23,7 +24,7 @@ import {
 
 //#region EXPORTS
 export {
-    Animator, Clip, Retarget,
+    Animator, Clip, Retarget, PoseLayers,
     Armature, Bone, Pose, SkinMTX, SkinDQ, SkinDQT, SkinRTS,
     BoneSpring,
     Maths, Transform, DualQuatUtil, Mat4Util, QuatUtil, Vec3Util, Vec4Util,
@@ -35,5 +36,6 @@ export {
 export type{
     ISkin, TTextureInfo,
     ISpringType,
+    PoseLayer, PoseLayerMask, PoseLayerMode,
 };
 //#endregion
