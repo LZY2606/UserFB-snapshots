@@ -9,8 +9,15 @@ var GLError                = require("./lib/GLError")
 
 //Shader object
 function Shader(gl) {
-  this.gl         = gl
-  this.gl.lastAttribCount = 0  // fixme where else should we store info, safe but not nice on the gl object
+  this.gl = gl
+
+  //Context-wide record of which generic vertex attribute slots are
+  //currently enabled, and which shader last enabled each one.  Creating
+  //a shader must not disturb this state, so it is initialised once.
+  if(!gl._enabledAttribs) {
+    gl._enabledAttribs = new Set()
+    gl._attribOwner    = new Map()
+  }
 
   //Default initialize these to null
   this._vref      =
@@ -21,7 +28,11 @@ function Shader(gl) {
   this.program    =
   this.attributes =
   this.uniforms   =
-  this.types      = null
+  this.types      =
+  this._attribLocations =
+  this._attribMode      =
+  this._attribConst     =
+  this._attribSubmit    = null
 }
 
 var proto = Shader.prototype
@@ -31,36 +42,70 @@ proto.bind = function() {
     this._relink()
   }
 
-  // ensuring that we have the right number of enabled vertex attributes
-  var i
-  var newAttribCount = this.gl.getProgramParameter(this.program, this.gl.ACTIVE_ATTRIBUTES) // more robust approach
-  //var newAttribCount = Object.keys(this.attributes).length // avoids the probably immaterial introspection slowdown
-  var oldAttribCount = this.gl.lastAttribCount
-  if(newAttribCount > oldAttribCount) {
-    for(i = oldAttribCount; i < newAttribCount; i++) {
-      this.gl.enableVertexAttribArray(i)
-    }
-  } else if(oldAttribCount > newAttribCount) {
-    for(i = newAttribCount; i < oldAttribCount; i++) {
-      this.gl.disableVertexAttribArray(i)
+  var gl        = this.gl
+  var enabled   = gl._enabledAttribs
+  var owner     = gl._attribOwner
+  var locations = this._attribLocations
+  var mode      = this._attribMode
+
+  //Drive the enabled slot set from this shader's real locations
+  //instead of guessing a contiguous range from ACTIVE_ATTRIBUTES.
+  for(var i=0; i<locations.length; ++i) {
+    var location = locations[i]
+    if(mode[i]) {
+      //Array mode: make sure the slot is enabled.
+      if(!enabled.has(location)) {
+        gl.enableVertexAttribArray(location)
+        enabled.add(location)
+      }
+      owner.set(location, this)
+    } else {
+      //Constant mode: the slot stays disabled while this shader is bound.
+      if(enabled.has(location)) {
+        gl.disableVertexAttribArray(location)
+        enabled.delete(location)
+      }
+      owner.delete(location)
     }
   }
 
-  this.gl.lastAttribCount = newAttribCount
+  //Release slots left enabled by the previously bound shader that this
+  //shader does not use at all.
+  enabled.forEach(function(location) {
+    if(locations.indexOf(location) < 0) {
+      gl.disableVertexAttribArray(location)
+      enabled.delete(location)
+      owner.delete(location)
+    }
+  })
 
   this.gl.useProgram(this.program)
+
+  //Constant vertex attributes are global GL state rather than program
+  //state, so each shader re-submits its own constants on every bind.
+  for(i=0; i<locations.length; ++i) {
+    if(!mode[i] && typeof this._attribSubmit[i] === 'function') {
+      this._attribSubmit[i]()
+    }
+  }
 }
 
 proto.dispose = function() {
+  var gl        = this.gl
+  var locations = this._attribLocations || []
 
-  // disabling vertex attributes so new shader starts with zero
-  // and it's also useful if all shaders are disposed but the
-  // gl context is reused for subsequent replotting
-  var oldAttribCount = this.gl.lastAttribCount
-  for (var i = 0; i < oldAttribCount; i++) {
-    this.gl.disableVertexAttribArray(i)
+  //Only shut down slots owned by this shader.  Another shader may still
+  //be drawing through the same generic attribute location.
+  for(var i=0; i<locations.length; ++i) {
+    var location = locations[i]
+    if(gl._attribOwner.get(location) === this) {
+      if(gl._enabledAttribs.has(location)) {
+        gl.disableVertexAttribArray(location)
+        gl._enabledAttribs.delete(location)
+      }
+      gl._attribOwner.delete(location)
+    }
   }
-  this.gl.lastAttribCount = 0
 
   if(this._fref) {
     this._fref.dispose()
@@ -75,7 +120,11 @@ proto.dispose = function() {
   this.program    =
   this._relink    =
   this._fref      =
-  this._vref      = null
+  this._vref      =
+  this._attribLocations =
+  this._attribMode      =
+  this._attribConst     =
+  this._attribSubmit    = null
 }
 
 function compareAttributes(a, b) {
@@ -228,6 +277,9 @@ proto.update = function(
   }
 
   //Generate attribute wrappers
+  //The real, possibly non-contiguous GL locations of every slot; the
+  //attribute wrappers track per-slot array/constant state alongside it.
+  wrapper._attribLocations = attributeLocations
   wrapper.attributes = createAttributeWrapper(
       gl
     , wrapper
