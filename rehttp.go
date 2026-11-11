@@ -28,11 +28,24 @@
 // of the Transport should use at least RetryMaxRetries and some other
 // retry condition(s), combined using RetryAll.
 //
-// By default, the Transport will buffer the request's body in order to
-// be able to retry the request, as a request attempt will consume and
-// close the existing body. Sometimes this is not desirable, so it can
+// By default, the Transport will buffer the request's body in memory in
+// order to be able to retry the request, as a request attempt will consume
+// and close the existing body. Sometimes this is not desirable, so it can
 // be prevented by setting PreventRetryWithBody to true on the Transport.
 // Doing so will disable retries when a request has a non-nil body.
+//
+// If the request provides a GetBody replay function (as requests created
+// via the standard library do whenever their body can be rewound), the
+// Transport prefers it over buffering: the original Body is sent on the
+// first attempt without being read ahead, and GetBody is called only once
+// a retry has actually been decided, after the retry delay has elapsed and
+// while the parent request is still valid. Each retry gets a fresh stream
+// from the factory on a shallow clone of the original request, so the
+// original request's Body, Header and GetBody are never replaced, and a
+// stream still in use by the underlying RoundTripper is never rewound.
+// Requests without a GetBody keep the legacy in-memory buffering
+// behavior. Either way, the RetryFn remains the sole decision point for
+// whether a request is retried.
 //
 // This package requires Go version 1.6+, since it uses the new
 // http.Request.Cancel field in order to cancel requests. It doesn't
@@ -53,6 +66,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
@@ -76,6 +90,10 @@ var PRNG = rand.New(rand.NewSource(time.Now().UnixNano()))
 type temporaryer interface {
 	Temporary() bool
 }
+
+// errNilGetBody is returned when a request's GetBody function succeeds
+// but yields a nil body, which cannot be sent as a replay stream.
+var errNilGetBody = errors.New("rehttp: GetBody returned a nil body with no error")
 
 // Attempt holds the data describing a RoundTrip attempt.
 type Attempt struct {
@@ -293,9 +311,11 @@ type Transport struct {
 
 	// PreventRetryWithBody prevents retrying if the request has a body. Since
 	// the body is consumed on a request attempt, in order to retry a request
-	// with a body, the body has to be buffered in memory. Setting this
-	// to true avoids this buffering: the retry logic is bypassed if the body
-	// is non-nil.
+	// with a body, the body has to be replayed - either by buffering it in
+	// memory or, when the request provides a GetBody function, by asking it
+	// for a fresh stream. Setting this to true avoids both: the retry logic
+	// is bypassed if the body is non-nil, GetBody is never called and the
+	// request is sent exactly once.
 	PreventRetryWithBody bool
 
 	// PerAttemptTimeout can be optionally set to add per-attempt timeouts.
@@ -329,7 +349,8 @@ type Transport struct {
 // adds retry logic as per its configuration.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var attempt int
-	preventRetry := req.Body != nil && req.Body != http.NoBody && t.PreventRetryWithBody
+	hasBody := req.Body != nil && req.Body != http.NoBody
+	preventRetry := hasBody && t.PreventRetryWithBody
 
 	// used as a baseline to set fresh timeouts per-attempt if needed
 	ctx := getRequestContext(req)
@@ -338,9 +359,16 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// for < go1.7.
 	done := contextForRequest(req)
 
-	// buffer the body if needed
+	// When the request carries a GetBody replay factory, use it instead
+	// of buffering: the original Body is streamed lazily on the first
+	// attempt, and the factory is only invoked once a retry is actually
+	// required. Without a factory, fall back to buffering the body in
+	// memory (the legacy behavior).
+	useGetBody := hasBody && req.GetBody != nil && !preventRetry
+
+	// buffer the body if there is no replay factory to use
 	var br *bytes.Reader
-	if req.Body != nil && req.Body != http.NoBody && !preventRetry {
+	if hasBody && !preventRetry && !useGetBody {
 		var buf bytes.Buffer
 		if _, err := io.Copy(&buf, req.Body); err != nil {
 			// cannot even try the first attempt, body has been consumed
@@ -353,11 +381,20 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body = ioutil.NopCloser(br)
 	}
 
+	// curReq is the request handed to the underlying RoundTripper for
+	// the current attempt. The original request is never modified: on
+	// the GetBody path, curReq starts as the request itself (so its
+	// original Body is sent untouched) and each replay is a shallow
+	// clone with only the fresh Body swapped in.
+	curReq := req
 	for {
 		var cancel context.CancelFunc = func() {} // empty unless a timeout is set
-		reqWithTimeout := req
+		reqWithTimeout := curReq
 		if t.PerAttemptTimeout != 0 {
-			reqWithTimeout, cancel = getPerAttemptTimeoutInfo(ctx, req, t.PerAttemptTimeout)
+			// Each attempt gets its own timeout derived from the
+			// original parent context, never from a previous attempt's
+			// (already cancelled) per-attempt context.
+			reqWithTimeout, cancel = getPerAttemptTimeoutInfo(ctx, curReq, t.PerAttemptTimeout)
 		}
 		res, err := t.RoundTripper.RoundTrip(reqWithTimeout)
 		if preventRetry {
@@ -400,6 +437,34 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		case <-req.Cancel:
 			// request canceled by caller (pre-1.7), don't retry
 			return nil, errors.New("net/http: request canceled")
+		}
+
+		if useGetBody {
+			// The delay has elapsed and the parent request is still
+			// valid, so now - and only now - ask the factory for the
+			// replay stream. The stream given to the previous attempt
+			// is not touched: the underlying RoundTripper owns it and
+			// may still be draining or closing it asynchronously, and
+			// rewinding a shared cursor would corrupt this attempt.
+			body, gerr := req.GetBody()
+			if gerr != nil {
+				return nil, fmt.Errorf("rehttp: GetBody failed: %w", gerr)
+			}
+			if body == nil {
+				// Never send an empty request in place of a retry.
+				return nil, errNilGetBody
+			}
+			// Shallow clone preserves Header, ContentLength, GetBody,
+			// Cancel and the original parent context (including the
+			// unexported context field); only the Body is replaced
+			// with the fresh stream. The original request's Body,
+			// Header and GetBody are left untouched. A struct copy is
+			// used instead of http.Request.Clone so that pre-1.13 Go
+			// versions remain supported.
+			nextReq := new(http.Request)
+			*nextReq = *req
+			nextReq.Body = body
+			curReq = nextReq
 		}
 	}
 }
