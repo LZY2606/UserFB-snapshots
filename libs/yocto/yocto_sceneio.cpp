@@ -3021,6 +3021,22 @@ NLOHMANN_JSON_SERIALIZE_ENUM(
                        {material_type::gltfpbr, "gltfpbr"},
                    })
 
+// Validate anisotropy parameters of a material loaded from JSON, rejecting
+// out-of-range or non-finite values before they can reach shading.
+static bool validate_material_anisotropy(
+    const material_data& material, const string& name, string& error) {
+  if (!isfinite(material.anisotropy) || material.anisotropy < -1 ||
+      material.anisotropy > 1) {
+    error = "invalid anisotropy in material " + name;
+    return false;
+  }
+  if (!isfinite(material.anisotropy_rotation)) {
+    error = "invalid anisotropy_rotation in material " + name;
+    return false;
+  }
+  return true;
+}
+
 // Load a scene in the builtin JSON format.
 static bool load_json_scene_version40(const string& filename,
     const json_value& json, scene_data& scene, string& error, bool noparallel) {
@@ -3193,12 +3209,15 @@ static bool load_json_scene_version40(const string& filename,
         get_opt(element, "trdepth", material.trdepth);
         get_opt(element, "scattering", material.scattering);
         get_opt(element, "scanisotropy", material.scanisotropy);
+        get_opt(element, "anisotropy", material.anisotropy);
+        get_opt(element, "anisotropy_rotation", material.anisotropy_rotation);
         get_opt(element, "opacity", material.opacity);
         get_tex(element, "emission_tex", material.emission_tex);
         get_tex(element, "color_tex", material.color_tex);
         get_tex(element, "roughness_tex", material.roughness_tex);
         get_tex(element, "scattering_tex", material.scattering_tex);
         get_tex(element, "normal_tex", material.normal_tex);
+        if (!validate_material_anisotropy(material, key, error)) return false;
       }
     }
     if (json.contains("instances")) {
@@ -3463,6 +3482,8 @@ static bool load_json_scene_version41(const string& filename, json_value& json,
         get_opt(element, "trdepth", material.trdepth);
         get_opt(element, "scattering", material.scattering);
         get_opt(element, "scanisotropy", material.scanisotropy);
+        get_opt(element, "anisotropy", material.anisotropy);
+        get_opt(element, "anisotropy_rotation", material.anisotropy_rotation);
         get_opt(element, "opacity", material.opacity);
         get_ref(element, "emission_tex", material.emission_tex, texture_map);
         get_ref(element, "color_tex", material.color_tex, texture_map);
@@ -3470,6 +3491,7 @@ static bool load_json_scene_version41(const string& filename, json_value& json,
         get_ref(
             element, "scattering_tex", material.scattering_tex, texture_map);
         get_ref(element, "normal_tex", material.normal_tex, texture_map);
+        if (!validate_material_anisotropy(material, key, error)) return false;
       }
     }
     if (json.contains("shapes")) {
@@ -3709,12 +3731,15 @@ static bool load_json_scene(
         get_opt(element, "trdepth", material.trdepth);
         get_opt(element, "scattering", material.scattering);
         get_opt(element, "scanisotropy", material.scanisotropy);
+        get_opt(element, "anisotropy", material.anisotropy);
+        get_opt(element, "anisotropy_rotation", material.anisotropy_rotation);
         get_opt(element, "opacity", material.opacity);
         get_opt(element, "emission_tex", material.emission_tex);
         get_opt(element, "color_tex", material.color_tex);
         get_opt(element, "roughness_tex", material.roughness_tex);
         get_opt(element, "scattering_tex", material.scattering_tex);
         get_opt(element, "normal_tex", material.normal_tex);
+        if (!validate_material_anisotropy(material, name, error)) return false;
       }
     }
     if (json.contains("shapes")) {
@@ -3973,6 +3998,9 @@ static bool save_json_scene(const string& filename, const scene_data& scene,
       set_val(element, "scattering", material.scattering, default_.scattering);
       set_val(element, "scanisotropy", material.scanisotropy,
           default_.scanisotropy);
+      set_val(element, "anisotropy", material.anisotropy, default_.anisotropy);
+      set_val(element, "anisotropy_rotation", material.anisotropy_rotation,
+          default_.anisotropy_rotation);
       set_val(element, "opacity", material.opacity, default_.opacity);
       set_val(element, "emission_tex", material.emission_tex,
           default_.emission_tex);

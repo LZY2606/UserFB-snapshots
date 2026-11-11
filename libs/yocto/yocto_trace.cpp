@@ -152,6 +152,15 @@ namespace yocto {
   return eval_texcoord(scene, scene.instances[intersection.instance],
       intersection.element, intersection.uv);
 }
+// Evaluates the anisotropy tangent direction at a shading point.
+[[maybe_unused]] static vec3f eval_shading_tangent(const scene_data& scene,
+    const scene_intersection& intersection, const vec3f& normal,
+    const material_point& material) {
+  if (material.type != material_type::reflective || material.anisotropy == 0)
+    return {0, 0, 0};
+  return eval_shading_tangent(scene, scene.instances[intersection.instance],
+      intersection.element, normal, material.anisotropy_rotation);
+}
 [[maybe_unused]] static material_point eval_material(
     const scene_data& scene, const scene_intersection& intersection) {
   return eval_material(scene, scene.instances[intersection.instance],
@@ -170,7 +179,7 @@ static vec3f eval_emission(const material_point& material, const vec3f& normal,
 
 // Evaluates/sample the BRDF scaled by the cosine of the incoming direction.
 static vec3f eval_bsdfcos(const material_point& material, const vec3f& normal,
-    const vec3f& outgoing, const vec3f& incoming) {
+    const vec3f& tangent, const vec3f& outgoing, const vec3f& incoming) {
   if (material.roughness == 0) return {0, 0, 0};
 
   if (material.type == material_type::matte) {
@@ -179,6 +188,12 @@ static vec3f eval_bsdfcos(const material_point& material, const vec3f& normal,
     return eval_glossy(material.color, material.ior, material.roughness, normal,
         outgoing, incoming);
   } else if (material.type == material_type::reflective) {
+    if (material.anisotropy != 0) {
+      auto roughness2 = anisotropic_roughness(
+          material.roughness, material.anisotropy);
+      return eval_reflective(material.color, roughness2.x, roughness2.y, normal,
+          tangent, outgoing, incoming);
+    }
     return eval_reflective(
         material.color, material.roughness, normal, outgoing, incoming);
   } else if (material.type == material_type::transparent) {
@@ -219,7 +234,7 @@ static vec3f eval_delta(const material_point& material, const vec3f& normal,
 
 // Picks a direction based on the BRDF
 static vec3f sample_bsdfcos(const material_point& material, const vec3f& normal,
-    const vec3f& outgoing, float rnl, const vec2f& rn) {
+    const vec3f& tangent, const vec3f& outgoing, float rnl, const vec2f& rn) {
   if (material.roughness == 0) return {0, 0, 0};
 
   if (material.type == material_type::matte) {
@@ -228,6 +243,12 @@ static vec3f sample_bsdfcos(const material_point& material, const vec3f& normal,
     return sample_glossy(material.color, material.ior, material.roughness,
         normal, outgoing, rnl, rn);
   } else if (material.type == material_type::reflective) {
+    if (material.anisotropy != 0) {
+      auto roughness2 = anisotropic_roughness(
+          material.roughness, material.anisotropy);
+      return sample_reflective(material.color, roughness2.x, roughness2.y,
+          normal, tangent, outgoing, rn);
+    }
     return sample_reflective(
         material.color, material.roughness, normal, outgoing, rn);
   } else if (material.type == material_type::transparent) {
@@ -268,7 +289,8 @@ static vec3f sample_delta(const material_point& material, const vec3f& normal,
 
 // Compute the weight for sampling the BRDF
 static float sample_bsdfcos_pdf(const material_point& material,
-    const vec3f& normal, const vec3f& outgoing, const vec3f& incoming) {
+    const vec3f& normal, const vec3f& tangent, const vec3f& outgoing,
+    const vec3f& incoming) {
   if (material.roughness == 0) return 0;
 
   if (material.type == material_type::matte) {
@@ -277,6 +299,12 @@ static float sample_bsdfcos_pdf(const material_point& material,
     return sample_glossy_pdf(material.color, material.ior, material.roughness,
         normal, outgoing, incoming);
   } else if (material.type == material_type::reflective) {
+    if (material.anisotropy != 0) {
+      auto roughness2 = anisotropic_roughness(
+          material.roughness, material.anisotropy);
+      return sample_reflective_pdf(material.color, roughness2.x, roughness2.y,
+          normal, tangent, outgoing, incoming);
+    }
     return sample_reflective_pdf(
         material.color, material.roughness, normal, outgoing, incoming);
   } else if (material.type == material_type::transparent) {
@@ -494,6 +522,8 @@ static trace_result trace_path(const scene_data& scene, const trace_bvh& bvh,
       auto position = eval_shading_position(scene, intersection, outgoing);
       auto normal   = eval_shading_normal(scene, intersection, outgoing);
       auto material = eval_material(scene, intersection);
+      auto tangent  = eval_shading_tangent(
+          scene, intersection, normal, material);
 
       // correct roughness
       if (params.nocaustics) {
@@ -524,15 +554,16 @@ static trace_result trace_path(const scene_data& scene, const trace_bvh& bvh,
       if (!is_delta(material)) {
         if (rand1f(rng) < 0.5f) {
           incoming = sample_bsdfcos(
-              material, normal, outgoing, rand1f(rng), rand2f(rng));
+              material, normal, tangent, outgoing, rand1f(rng), rand2f(rng));
         } else {
           incoming = sample_lights(
               scene, lights, position, rand1f(rng), rand1f(rng), rand2f(rng));
         }
         if (incoming == vec3f{0, 0, 0}) break;
         weight *=
-            eval_bsdfcos(material, normal, outgoing, incoming) /
-            (0.5f * sample_bsdfcos_pdf(material, normal, outgoing, incoming) +
+            eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+            (0.5f * sample_bsdfcos_pdf(
+                 material, normal, tangent, outgoing, incoming) +
                 0.5f *
                     sample_lights_pdf(scene, bvh, lights, position, incoming));
       } else {
@@ -641,6 +672,8 @@ static trace_result trace_pathdirect(const scene_data& scene,
       auto position = eval_shading_position(scene, intersection, outgoing);
       auto normal   = eval_shading_normal(scene, intersection, outgoing);
       auto material = eval_material(scene, intersection);
+      auto tangent  = eval_shading_tangent(
+          scene, intersection, normal, material);
 
       // correct roughness
       if (params.nocaustics) {
@@ -672,7 +705,8 @@ static trace_result trace_pathdirect(const scene_data& scene,
         auto incoming = sample_lights(
             scene, lights, position, rand1f(rng), rand1f(rng), rand2f(rng));
         auto pdf = sample_lights_pdf(scene, bvh, lights, position, incoming);
-        auto bsdfcos = eval_bsdfcos(material, normal, outgoing, incoming);
+        auto bsdfcos = eval_bsdfcos(
+            material, normal, tangent, outgoing, incoming);
         if (bsdfcos != vec3f{0, 0, 0} && pdf > 0) {
           auto intersection = intersect_scene(bvh, scene, {position, incoming});
           auto emission =
@@ -697,15 +731,16 @@ static trace_result trace_pathdirect(const scene_data& scene,
       if (!is_delta(material)) {
         if (rand1f(rng) < 0.5f) {
           incoming = sample_bsdfcos(
-              material, normal, outgoing, rand1f(rng), rand2f(rng));
+              material, normal, tangent, outgoing, rand1f(rng), rand2f(rng));
         } else {
           incoming = sample_lights(
               scene, lights, position, rand1f(rng), rand1f(rng), rand2f(rng));
         }
         if (incoming == vec3f{0, 0, 0}) break;
         weight *=
-            eval_bsdfcos(material, normal, outgoing, incoming) /
-            (0.5f * sample_bsdfcos_pdf(material, normal, outgoing, incoming) +
+            eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+            (0.5f * sample_bsdfcos_pdf(
+                 material, normal, tangent, outgoing, incoming) +
                 0.5f *
                     sample_lights_pdf(scene, bvh, lights, position, incoming));
       } else {
@@ -820,6 +855,8 @@ static trace_result trace_pathmis(const scene_data& scene, const trace_bvh& bvh,
       auto position = eval_shading_position(scene, intersection, outgoing);
       auto normal   = eval_shading_normal(scene, intersection, outgoing);
       auto material = eval_material(scene, intersection);
+      auto tangent  = eval_shading_tangent(
+          scene, intersection, normal, material);
 
       // correct roughness
       if (params.nocaustics) {
@@ -854,14 +891,15 @@ static trace_result trace_pathmis(const scene_data& scene, const trace_bvh& bvh,
         for (auto sample_light : {true, false}) {
           incoming = sample_light ? sample_lights(scene, lights, position,
                                         rand1f(rng), rand1f(rng), rand2f(rng))
-                                  : sample_bsdfcos(material, normal, outgoing,
-                                        rand1f(rng), rand2f(rng));
+                                  : sample_bsdfcos(material, normal, tangent,
+                                        outgoing, rand1f(rng), rand2f(rng));
           if (incoming == vec3f{0, 0, 0}) break;
-          auto bsdfcos   = eval_bsdfcos(material, normal, outgoing, incoming);
+          auto bsdfcos   = eval_bsdfcos(
+              material, normal, tangent, outgoing, incoming);
           auto light_pdf = sample_lights_pdf(
               scene, bvh, lights, position, incoming);
           auto bsdf_pdf = sample_bsdfcos_pdf(
-              material, normal, outgoing, incoming);
+              material, normal, tangent, outgoing, incoming);
           auto mis_weight = sample_light
                                 ? mis_heuristic(light_pdf, bsdf_pdf) / light_pdf
                                 : mis_heuristic(bsdf_pdf, light_pdf) / bsdf_pdf;
@@ -887,8 +925,9 @@ static trace_result trace_pathmis(const scene_data& scene, const trace_bvh& bvh,
         }
 
         // indirect
-        weight *= eval_bsdfcos(material, normal, outgoing, incoming) /
-                  sample_bsdfcos_pdf(material, normal, outgoing, incoming);
+        weight *= eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+                  sample_bsdfcos_pdf(
+                      material, normal, tangent, outgoing, incoming);
         next_emission = false;
       } else {
         incoming = sample_delta(material, normal, outgoing, rand1f(rng));
@@ -978,6 +1017,7 @@ static trace_result trace_pathtest(const scene_data& scene,
     auto position = eval_shading_position(scene, intersection, outgoing);
     auto normal   = eval_shading_normal(scene, intersection, outgoing);
     auto material = eval_material(scene, intersection);
+    auto tangent  = eval_shading_tangent(scene, intersection, normal, material);
     material.type = material_type::matte;
 
     // set hit variables
@@ -995,15 +1035,16 @@ static trace_result trace_pathtest(const scene_data& scene,
     if (!is_delta(material)) {
       if (rand1f(rng) < 0.5f) {
         incoming = sample_bsdfcos(
-            material, normal, outgoing, rand1f(rng), rand2f(rng));
+            material, normal, tangent, outgoing, rand1f(rng), rand2f(rng));
       } else {
         incoming = sample_lights(
             scene, lights, position, rand1f(rng), rand1f(rng), rand2f(rng));
       }
       if (incoming == vec3f{0, 0, 0}) break;
       weight *=
-          eval_bsdfcos(material, normal, outgoing, incoming) /
-          (0.5f * sample_bsdfcos_pdf(material, normal, outgoing, incoming) +
+          eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+          (0.5f * sample_bsdfcos_pdf(
+               material, normal, tangent, outgoing, incoming) +
               0.5f * sample_lights_pdf(scene, bvh, lights, position, incoming));
     } else {
       incoming = sample_delta(material, normal, outgoing, rand1f(rng));
@@ -1056,6 +1097,7 @@ static trace_result trace_naive(const scene_data& scene, const trace_bvh& bvh,
     auto position = eval_shading_position(scene, intersection, outgoing);
     auto normal   = eval_shading_normal(scene, intersection, outgoing);
     auto material = eval_material(scene, intersection);
+    auto tangent  = eval_shading_tangent(scene, intersection, normal, material);
 
     // handle opacity
     if (material.opacity < 1 && rand1f(rng) >= material.opacity) {
@@ -1079,10 +1121,11 @@ static trace_result trace_naive(const scene_data& scene, const trace_bvh& bvh,
     auto incoming = vec3f{0, 0, 0};
     if (material.roughness != 0) {
       incoming = sample_bsdfcos(
-          material, normal, outgoing, rand1f(rng), rand2f(rng));
+          material, normal, tangent, outgoing, rand1f(rng), rand2f(rng));
       if (incoming == vec3f{0, 0, 0}) break;
-      weight *= eval_bsdfcos(material, normal, outgoing, incoming) /
-                sample_bsdfcos_pdf(material, normal, outgoing, incoming);
+      weight *= eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+                sample_bsdfcos_pdf(
+                    material, normal, tangent, outgoing, incoming);
     } else {
       incoming = sample_delta(material, normal, outgoing, rand1f(rng));
       if (incoming == vec3f{0, 0, 0}) break;
@@ -1135,6 +1178,7 @@ static trace_result trace_eyelight(const scene_data& scene,
     auto position = eval_shading_position(scene, intersection, outgoing);
     auto normal   = eval_shading_normal(scene, intersection, outgoing);
     auto material = eval_material(scene, intersection);
+    auto tangent  = eval_shading_tangent(scene, intersection, normal, material);
 
     // handle opacity
     if (material.opacity < 1 && rand1f(rng) >= material.opacity) {
@@ -1157,7 +1201,7 @@ static trace_result trace_eyelight(const scene_data& scene,
 
     // brdf * light
     radiance += weight * pif *
-                eval_bsdfcos(material, normal, outgoing, incoming);
+                eval_bsdfcos(material, normal, tangent, outgoing, incoming);
 
     // continue path
     if (!is_delta(material)) break;
@@ -1204,6 +1248,7 @@ static trace_result trace_diagram(const scene_data& scene, const trace_bvh& bvh,
     auto position = eval_shading_position(scene, intersection, outgoing);
     auto normal   = eval_shading_normal(scene, intersection, outgoing);
     auto material = eval_material(scene, intersection);
+    auto tangent  = eval_shading_tangent(scene, intersection, normal, material);
 
     // handle opacity
     if (material.opacity < 1 && rand1f(rng) >= material.opacity) {
@@ -1226,7 +1271,7 @@ static trace_result trace_diagram(const scene_data& scene, const trace_bvh& bvh,
 
     // brdf * light
     radiance += weight * pif *
-                eval_bsdfcos(material, normal, outgoing, incoming);
+                eval_bsdfcos(material, normal, tangent, outgoing, incoming);
 
     // continue path
     if (!is_delta(material)) break;
@@ -1281,6 +1326,8 @@ static trace_result trace_furnace(const scene_data& scene, const trace_bvh& bvh,
     auto  position = eval_position(scene, instance, element, uv);
     auto  normal = eval_shading_normal(scene, instance, element, uv, outgoing);
     auto  material = eval_material(scene, instance, element, uv);
+    auto  tangent  = eval_shading_tangent(
+           scene, instance, element, normal, material.anisotropy_rotation);
 
     // handle opacity
     if (material.opacity < 1 && rand1f(rng) >= material.opacity) {
@@ -1304,10 +1351,11 @@ static trace_result trace_furnace(const scene_data& scene, const trace_bvh& bvh,
     auto incoming = vec3f{0, 0, 0};
     if (material.roughness != 0) {
       incoming = sample_bsdfcos(
-          material, normal, outgoing, rand1f(rng), rand2f(rng));
+          material, normal, tangent, outgoing, rand1f(rng), rand2f(rng));
       if (incoming == vec3f{0, 0, 0}) break;
-      weight *= eval_bsdfcos(material, normal, outgoing, incoming) /
-                sample_bsdfcos_pdf(material, normal, outgoing, incoming);
+      weight *= eval_bsdfcos(material, normal, tangent, outgoing, incoming) /
+                sample_bsdfcos_pdf(
+                    material, normal, tangent, outgoing, incoming);
     } else {
       incoming = sample_delta(material, normal, outgoing, rand1f(rng));
       if (incoming == vec3f{0, 0, 0}) break;

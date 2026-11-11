@@ -235,6 +235,10 @@ material_point eval_material(const scene_data& scene,
     point.density = {0, 0, 0};
   }
 
+  // anisotropy
+  point.anisotropy          = material.anisotropy;
+  point.anisotropy_rotation = material.anisotropy_rotation;
+
   // fix roughness
   if (point.type == material_type::matte ||
       point.type == material_type::gltfpbr ||
@@ -504,6 +508,33 @@ vec3f eval_shading_normal(const scene_data& scene,
   }
 }
 
+// Eval shading tangent
+vec3f eval_shading_tangent(const scene_data& scene,
+    const instance_data& instance, int element, const vec3f& normal,
+    float rotation) {
+  auto& shape = scene.shapes[instance.shape];
+  // start from the texture u direction when available
+  auto tangent = vec3f{0, 0, 0};
+  if (!shape.triangles.empty() || !shape.quads.empty()) {
+    auto [tu, tv] = eval_element_tangents(scene, instance, element);
+    tangent       = tu;
+  }
+  // orthogonalize against the final shading normal
+  tangent -= normal * dot(normal, tangent);
+  if (length(tangent) > 1e-6f) {
+    tangent = normalize(tangent);
+  } else {
+    // fallback to a stable local basis for missing or degenerate tangents
+    tangent = basis_fromz(normal).x;
+  }
+  // rotate around the shading normal
+  if (rotation != 0) {
+    auto bitangent = cross(normal, tangent);
+    tangent = tangent * cos(rotation) + bitangent * sin(rotation);
+  }
+  return tangent;
+}
+
 // Eval color
 vec4f eval_color(const scene_data& scene, const instance_data& instance,
     int element, const vec2f& uv) {
@@ -565,6 +596,10 @@ material_point eval_material(const scene_data& scene,
   } else {
     point.density = {0, 0, 0};
   }
+
+  // anisotropy
+  point.anisotropy          = material.anisotropy;
+  point.anisotropy_rotation = material.anisotropy_rotation;
 
   // fix roughness
   if (point.type == material_type::matte ||
@@ -948,6 +983,21 @@ vector<string> scene_validation(const scene_data& scene, bool notextures) {
       }
     }
   };
+  auto check_anisotropy = [&errs](const scene_data& scene) {
+    for (auto idx : range(scene.materials.size())) {
+      auto& material = scene.materials[idx];
+      auto  name     = idx < scene.material_names.size()
+                           ? scene.material_names[idx]
+                           : std::to_string(idx);
+      if (!isfinite(material.anisotropy) || material.anisotropy < -1 ||
+          material.anisotropy > 1) {
+        errs.push_back("invalid anisotropy in material " + name);
+      }
+      if (!isfinite(material.anisotropy_rotation)) {
+        errs.push_back("invalid anisotropy_rotation in material " + name);
+      }
+    }
+  };
 
   check_names(scene.camera_names, "camera");
   check_names(scene.shape_names, "shape");
@@ -956,6 +1006,7 @@ vector<string> scene_validation(const scene_data& scene, bool notextures) {
   check_names(scene.texture_names, "texture");
   check_names(scene.environment_names, "environment");
   if (!notextures) check_empty_textures(scene);
+  check_anisotropy(scene);
 
   return errs;
 }

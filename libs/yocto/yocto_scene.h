@@ -131,6 +131,9 @@ struct material_data {
   float         scanisotropy = 0;
   float         trdepth      = 0.01f;
   float         opacity      = 1;
+  // anisotropy for reflective metals, with rotation in radians
+  float anisotropy          = 0;
+  float anisotropy_rotation = 0;
 
   // textures
   int emission_tex   = invalidid;
@@ -267,6 +270,8 @@ struct material_point {
   vec3f         scattering   = {0, 0, 0};
   float         scanisotropy = 0;
   float         trdepth      = 0.01f;
+  float anisotropy          = 0;
+  float anisotropy_rotation = 0;
 };
 
 // Eval material to obtain emission, brdf and opacity.
@@ -309,6 +314,11 @@ vec3f eval_shading_position(const scene_data& scene,
 vec3f eval_shading_normal(const scene_data& scene,
     const instance_data& instance, int element, const vec2f& uv,
     const vec3f& outgoing);
+// Evaluates the anisotropy tangent direction at a shading point, orthogonal
+// to the final shading normal and rotated by the given angle in radians.
+vec3f eval_shading_tangent(const scene_data& scene,
+    const instance_data& instance, int element, const vec3f& normal,
+    float rotation);
 vec4f eval_color(const scene_data& scene, const instance_data& instance,
     int element, const vec2f& uv);
 

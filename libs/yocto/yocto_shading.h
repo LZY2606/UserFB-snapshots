@@ -120,6 +120,27 @@ inline vec3f sample_microfacet(float roughness, const vec3f& normal,
 inline float sample_microfacet_pdf(float roughness, const vec3f& normal,
     const vec3f& halfway, const vec3f& outgoing, bool ggx = true);
 
+// Computes the anisotropic microfacet widths along the tangent and bitangent
+// directions from the microsurface width and anisotropy in [-1,1].
+inline vec2f anisotropic_roughness(float roughness, float anisotropy);
+
+// Evaluates the anisotropic GGX microfacet distribution.
+inline float microfacet_distribution_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway);
+// Evaluates the anisotropic GGX microfacet shadowing.
+inline float microfacet_shadowing_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway, const vec3f& outgoing, const vec3f& incoming);
+
+// Samples an anisotropic GGX microfacet distribution.
+inline vec3f sample_microfacet_anisotropic(float roughness_x, float roughness_y,
+    const vec3f& normal, const vec3f& tangent, const vec2f& rn);
+// Pdf for anisotropic GGX microfacet distribution sampling.
+inline float sample_microfacet_pdf_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway);
+
 // Microfacet energy compensation (E(cos(w)))
 inline float microfacet_cosintegral(
     float roughness, const vec3f& normal, const vec3f& outgoing);
@@ -156,6 +177,20 @@ inline vec3f sample_reflective(const vec3f& color, float roughness,
 // Pdf for metal BRDF lobe sampling.
 inline float sample_reflective_pdf(const vec3f& color, float roughness,
     const vec3f& normal, const vec3f& outgoing, const vec3f& incoming);
+
+// Evaluates an anisotropic metal BRDF lobe, with microfacet widths along the
+// tangent and bitangent directions.
+inline vec3f eval_reflective(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec3f& incoming);
+// Sample an anisotropic metal BRDF lobe.
+inline vec3f sample_reflective(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec2f& rn);
+// Pdf for anisotropic metal BRDF lobe sampling.
+inline float sample_reflective_pdf(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec3f& incoming);
 
 // Evaluate a delta metal BRDF lobe.
 inline vec3f eval_reflective(const vec3f& color, const vec3f& normal,
@@ -528,6 +563,87 @@ inline float sample_microfacet_pdf(float roughness, const vec3f& normal,
          max(0.0f, dot(halfway, outgoing)) / abs(dot(normal, outgoing));
 }
 
+// Computes the anisotropic microfacet widths along the tangent and bitangent
+// directions from the microsurface width and anisotropy in [-1,1].
+inline vec2f anisotropic_roughness(float roughness, float anisotropy) {
+  auto aspect      = sqrt(1 - 0.9f * abs(anisotropy));
+  auto roughness_x = roughness / aspect;
+  auto roughness_y = roughness * aspect;
+  if (anisotropy < 0) {
+    auto swapped = roughness_x;
+    roughness_x  = roughness_y;
+    roughness_y  = swapped;
+  }
+  return {max(roughness_x, 1e-4f), max(roughness_y, 1e-4f)};
+}
+
+// Evaluates the anisotropic GGX microfacet distribution.
+inline float microfacet_distribution_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway) {
+  // https://jcgt.org/published/0003/02/03/
+  auto cosine = dot(normal, halfway);
+  if (cosine <= 0) return 0;
+  auto bitangent = cross(normal, tangent);
+  auto cosphi    = dot(tangent, halfway);
+  auto sinphi    = dot(bitangent, halfway);
+  auto projected = cosphi * cosphi / (roughness_x * roughness_x) +
+                   sinphi * sinphi / (roughness_y * roughness_y) +
+                   cosine * cosine;
+  return 1 / (pif * roughness_x * roughness_y * projected * projected);
+}
+
+// Evaluate the anisotropic GGX microfacet shadowing1
+inline float microfacet_shadowing1_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway, const vec3f& direction) {
+  // https://jcgt.org/published/0003/02/03/
+  auto cosine  = dot(normal, direction);
+  auto cosineh = dot(halfway, direction);
+  if (cosine * cosineh <= 0) return 0;
+  auto bitangent = cross(normal, tangent);
+  auto cosphi    = roughness_x * dot(tangent, direction);
+  auto sinphi    = roughness_y * dot(bitangent, direction);
+  return 2 * abs(cosine) /
+         (abs(cosine) +
+             sqrt(cosine * cosine + cosphi * cosphi + sinphi * sinphi));
+}
+
+// Evaluate the anisotropic GGX microfacet shadowing
+inline float microfacet_shadowing_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway, const vec3f& outgoing, const vec3f& incoming) {
+  return microfacet_shadowing1_anisotropic(
+             roughness_x, roughness_y, normal, tangent, halfway, outgoing) *
+         microfacet_shadowing1_anisotropic(
+             roughness_x, roughness_y, normal, tangent, halfway, incoming);
+}
+
+// Samples an anisotropic GGX microfacet distribution.
+inline vec3f sample_microfacet_anisotropic(float roughness_x, float roughness_y,
+    const vec3f& normal, const vec3f& tangent, const vec2f& rn) {
+  // sample the isotropic distribution with unit width and stretch it along
+  // the tangent frame
+  auto bitangent = cross(normal, tangent);
+  auto phi       = 2 * pif * rn.x;
+  auto theta     = atan(sqrt(rn.y / (1 - rn.y)));
+  auto local     = vec3f{cos(phi) * sin(theta), sin(phi) * sin(theta),
+      cos(theta)};
+  return normalize(roughness_x * local.x * tangent +
+                   roughness_y * local.y * bitangent + local.z * normal);
+}
+
+// Pdf for anisotropic GGX microfacet distribution sampling.
+inline float sample_microfacet_pdf_anisotropic(float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& halfway) {
+  auto cosine = dot(normal, halfway);
+  if (cosine < 0) return 0;
+  return microfacet_distribution_anisotropic(
+             roughness_x, roughness_y, normal, tangent, halfway) *
+         cosine;
+}
+
 // Microfacet energy compensation (E(cos(w)))
 inline float microfacet_cosintegral(
     float roughness, const vec3f& normal, const vec3f& outgoing) {
@@ -647,6 +763,48 @@ inline float sample_reflective_pdf(const vec3f& color, float roughness,
   auto up_normal = dot(normal, outgoing) <= 0 ? -normal : normal;
   auto halfway   = normalize(outgoing + incoming);
   return sample_microfacet_pdf(roughness, up_normal, halfway) /
+         (4 * abs(dot(outgoing, halfway)));
+}
+
+// Evaluate an anisotropic metal BRDF lobe.
+inline vec3f eval_reflective(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec3f& incoming) {
+  if (dot(normal, incoming) * dot(normal, outgoing) <= 0) return {0, 0, 0};
+  auto up_normal = dot(normal, outgoing) <= 0 ? -normal : normal;
+  auto halfway   = normalize(incoming + outgoing);
+  auto F         = fresnel_conductor(
+              reflectivity_to_eta(color), {0, 0, 0}, halfway, incoming);
+  auto D = microfacet_distribution_anisotropic(
+      roughness_x, roughness_y, up_normal, tangent, halfway);
+  auto G = microfacet_shadowing_anisotropic(
+      roughness_x, roughness_y, up_normal, tangent, halfway, outgoing,
+      incoming);
+  return F * D * G / (4 * dot(up_normal, outgoing) * dot(up_normal, incoming)) *
+         abs(dot(up_normal, incoming));
+}
+
+// Sample an anisotropic metal BRDF lobe.
+inline vec3f sample_reflective(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec2f& rn) {
+  auto up_normal = dot(normal, outgoing) <= 0 ? -normal : normal;
+  auto halfway   = sample_microfacet_anisotropic(
+        roughness_x, roughness_y, up_normal, tangent, rn);
+  auto incoming = reflect(outgoing, halfway);
+  if (!same_hemisphere(up_normal, outgoing, incoming)) return {0, 0, 0};
+  return incoming;
+}
+
+// Pdf for anisotropic metal BRDF lobe sampling.
+inline float sample_reflective_pdf(const vec3f& color, float roughness_x,
+    float roughness_y, const vec3f& normal, const vec3f& tangent,
+    const vec3f& outgoing, const vec3f& incoming) {
+  if (dot(normal, incoming) * dot(normal, outgoing) <= 0) return 0;
+  auto up_normal = dot(normal, outgoing) <= 0 ? -normal : normal;
+  auto halfway   = normalize(outgoing + incoming);
+  return sample_microfacet_pdf_anisotropic(
+             roughness_x, roughness_y, up_normal, tangent, halfway) /
          (4 * abs(dot(outgoing, halfway)));
 }
 
