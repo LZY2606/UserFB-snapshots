@@ -1,0 +1,12 @@
+import {openSync} from '../dist/node/index.js';
+import assert from 'node:assert/strict';
+const f=openSync('test/data/lookup-continuation.ttf');
+const r=f.layout('aa');
+assert.deepEqual(r.glyphs.map(g=>g.id),[2,1,2,1]);
+assert.deepEqual(r.positions.map(p=>p.xAdvance),[500,500,500,500]);
+assert.equal(r.advanceWidth,2000);
+assert.equal(r.sourceRanges,undefined);
+const a=openSync('test/data/amiri/amiri-regular.ttf');
+const arab=a.layout('١٢٣','arab','ARA ','rtl');
+assert.deepEqual(arab.glyphs.map(g=>g.id),[448,447,446]);
+console.log('baseline GSUB aa => 2,1,2,1 width=2000; RTL => 448,447,446; no sourceRanges');
