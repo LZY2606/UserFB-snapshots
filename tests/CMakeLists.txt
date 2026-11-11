@@ -16,8 +16,23 @@ target_link_libraries(OpenAL_Tests PRIVATE
 )
 
 target_sources(OpenAL_Tests PRIVATE
-example.t.cpp
+	example.t.cpp
 )
+
+# Offline high-order B-Format regression: loopback float PCM checked against
+# an independent double-precision spherical-harmonic reference.
+add_executable(ambi_contract
+	ambi_contract.cpp
+	ambi_reference.cpp
+	ambi_reference.hpp
+)
+target_link_libraries(ambi_contract PRIVATE OpenAL)
+target_include_directories(ambi_contract PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(ambi_contract PROPERTIES
+	CXX_STANDARD 20
+	CXX_STANDARD_REQUIRED YES
+)
+add_test(NAME ambi_contract COMMAND ambi_contract)
 
 # This needs to come last
 include(GoogleTest)

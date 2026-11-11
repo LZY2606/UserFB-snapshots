@@ -763,9 +763,9 @@ struct RotatorCoeffs : std::array<RotatorCoeffValues, CalcRotatorSize(MaxAmbiOrd
         auto coeffs = this->begin();
         for(auto const l : std::views::iota(2, int{MaxAmbiOrder+1}))
         {
-            for(auto const n : std::views::iota(-l, l+1))
+            for(auto const m : std::views::iota(-l, l+1))
             {
-                for(auto const m : std::views::iota(-l, l+1))
+                for(auto const n : std::views::iota(-l, l+1))
                 {
                     /* compute u,v,w terms of Eq.8.1 (Table I)
                      *
@@ -784,21 +784,19 @@ struct RotatorCoeffs : std::array<RotatorCoeffValues, CalcRotatorSize(MaxAmbiOrd
                     auto const denom = gsl::narrow_cast<double>((ce::abs(n) == l) ?
                           (2*l) * (2*l - 1) : (l*l - n*n));
 
-                    if(m == 0)
-                    {
-                        coeffs->u = gsl::narrow_cast<float>(ce::sqrt(l * l / denom));
-                        coeffs->v = gsl::narrow_cast<float>(ce::sqrt((l-1) * l / denom) * -1.0);
-                        coeffs->w = 0.0f;
-                    }
-                    else
-                    {
-                        const auto abs_m = ce::abs(m);
-                        coeffs->u = gsl::narrow_cast<float>(ce::sqrt((l*l - m*m) / denom));
-                        coeffs->v = gsl::narrow_cast<float>(ce::sqrt((l+abs_m-1) * (l+abs_m)
-                            / denom) * 0.5);
-                        coeffs->w = gsl::narrow_cast<float>(ce::sqrt((l-abs_m-1) * (l-abs_m)
-                            / denom) * -0.5);
-                    }
+                    // Exact Table I coefficients of Ivanic & Ruedenberg. The
+                    // m == 0 case is expressed by the general (1+d)/(1-2d)
+                    // factors rather than a separately folded value.
+                    auto const d_m0 = (m == 0);
+                    auto const abs_m = ce::abs(m);
+                    coeffs->u = gsl::narrow_cast<float>(ce::sqrt(
+                        (l*l - m*m) / denom));
+                    coeffs->v = gsl::narrow_cast<float>(
+                        ce::sqrt((1.0 + (d_m0?1.0:0.0)) * (l+abs_m-1) * (l+abs_m)
+                            / denom) * (1.0 - 2.0*(d_m0?1.0:0.0)) * 0.5);
+                    coeffs->w = gsl::narrow_cast<float>(
+                        ce::sqrt((l-abs_m-1) * (l-abs_m) / denom)
+                        * (1.0 - (d_m0?1.0:0.0)) * -0.5);
                     ++coeffs;
                 }
             }
@@ -815,17 +813,23 @@ namespace rotator {
         std::size_t const last_base, AmbiRotateMatrix const &R) noexcept -> float
     {
         auto const ip2 = as_unsigned(i+2);
-        auto const ri1 =  R[ 1+2][ip2];
-        auto const rim1 = R[-1+2][ip2];
-        auto const ri0 =  R[ 0+2][ip2];
+        // The first-band element is indexed by row i+2 and a fixed column,
+        // matching R_1(i+2, .) in the adapted recursion.
+        auto const ri1 =  R[ip2][ 1+2];
+        auto const rim1 = R[ip2][-1+2];
+        auto const ri0 =  R[ip2][ 0+2];
 
+        // The row of the previous band is selected by a and the column by n,
+        // matching R_lm1(a+l, b+l) in the recursion this is adapted from.
         auto const lm1 = as_unsigned(l-1);
-        auto const x = last_base + lm1 + as_unsigned(a);
+        auto const row = last_base + lm1 + as_unsigned(a);
         if(n == -l)
-            return ri1*R[last_base][x] + rim1*R[last_base + lm1*2][x];
+            return ri1*R[row][last_base]
+                + rim1*R[row][last_base + lm1*2];
         if(n == l)
-            return ri1*R[last_base + lm1*2][x] - rim1*R[last_base][x];
-        return ri0*R[last_base + lm1 + as_unsigned(n)][x];
+            return ri1*R[row][last_base + lm1*2]
+                - rim1*R[row][last_base];
+        return ri0*R[row][last_base + lm1 + as_unsigned(n)];
     }
 
     [[nodiscard]] constexpr
@@ -839,6 +843,12 @@ namespace rotator {
         AmbiRotateMatrix const &R) noexcept -> float
     {
         using namespace std::numbers;
+        if(m == 0)
+        {
+            auto const p0 = P( 1, l,  1, n, last_base, R);
+            auto const p1 = P(-1, l, -1, n, last_base, R);
+            return p0 + p1;
+        }
         if(m > 0)
         {
             auto const d = (m == 1);
@@ -886,10 +896,10 @@ void AmbiRotator(AmbiRotateMatrix &matrix, int const order) noexcept NONBLOCKING
     for(auto const l : std::views::iota(2_z, order+1))
     {
         auto y = base_idx;
-        for(auto const n : std::views::iota(-l, l+1))
+        for(auto const m : std::views::iota(-l, l+1))
         {
             auto x = base_idx;
-            for(const auto m : std::views::iota(-l, l+1))
+            for(const auto n : std::views::iota(-l, l+1))
             {
                 auto r = 0.0f;
 
