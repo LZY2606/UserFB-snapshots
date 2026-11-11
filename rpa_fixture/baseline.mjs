@@ -1,0 +1,11 @@
+import {JSDOM} from 'jsdom';
+import {readFile} from 'node:fs/promises';
+const dom=new JSDOM('<a id="open" href="#a">one</a><a id="covered" href="#b">two</a><div id="overlay"></div>');
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,Element:dom.window.Element,getComputedStyle:dom.window.getComputedStyle});
+for(const n of document.querySelectorAll('a'))n.getClientRects=()=>[{left:20,top:20,right:120,bottom:50,width:100,height:30}];
+document.elementFromPoint=()=>document.getElementById('overlay');
+const src=await readFile(new URL('../src/index.js',import.meta.url),'utf8');
+const api=await import('data:text/javascript;base64,'+Buffer.from(src).toString('base64'));
+const ids=api.focusable(document.body).map(n=>n.id);
+if(JSON.stringify(ids)!=='["open","covered"]')throw Error('normal focusability failed');
+console.log(JSON.stringify({focusable:ids,fixtureHit:document.elementFromPoint(70,35).id,pointerReachable:typeof api.pointerReachable,layout:'explicit deterministic fixture; not real browser geometry'}));
