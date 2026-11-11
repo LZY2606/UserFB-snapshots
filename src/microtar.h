@@ -27,7 +27,8 @@ enum {
   MTAR_ESEEKFAIL    = -5,
   MTAR_EBADCHKSUM   = -6,
   MTAR_ENULLRECORD  = -7,
-  MTAR_ENOTFOUND    = -8
+  MTAR_ENOTFOUND    = -8,
+  MTAR_EBADHEADER   = -9
 };
 
 enum {

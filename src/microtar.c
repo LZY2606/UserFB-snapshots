@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
+#include <limits.h>
 
 #include "microtar.h"
 
@@ -87,29 +88,111 @@ static int write_null_bytes(mtar_t *tar, int n) {
 }
 
 
+/* Parse an octal number strictly within a fixed-width field. Leading
+ * spaces are allowed; the digits may be followed by space or NUL padding.
+ * Fields with no digits, bad digits (8/9), signs, trailing garbage or a
+ * value that does not fit an unsigned are rejected */
+static int parse_octal(const char *s, unsigned width, unsigned *out) {
+  unsigned i = 0;
+  unsigned value = 0;
+  int digits = 0;
+  while (i < width && s[i] == ' ') {
+    i++;
+  }
+  while (i < width && s[i] >= '0' && s[i] <= '7') {
+    unsigned d = (unsigned) (s[i] - '0');
+    if (value > (UINT_MAX - d) / 8u) {
+      return MTAR_EBADHEADER;
+    }
+    value = value * 8u + d;
+    digits = 1;
+    i++;
+  }
+  if (!digits) {
+    return MTAR_EBADHEADER;
+  }
+  while (i < width) {
+    if (s[i] != ' ' && s[i] != '\0') {
+      return MTAR_EBADHEADER;
+    }
+    i++;
+  }
+  *out = value;
+  return MTAR_ESUCCESS;
+}
+
+
+/* Write `value` as octal digits (zero-padded to `pad` digits) into a
+ * fixed-width field, leaving room for a NUL terminator. Fails if the
+ * value cannot be represented in the field */
+static int format_octal(char *out, unsigned width, unsigned value,
+                        unsigned pad) {
+  char tmp[12]; /* enough for the 11 octal digits of a 32-bit unsigned */
+  unsigned n = 0;
+  unsigned i;
+  do {
+    tmp[n++] = (char) ('0' + (value & 7u));
+    value >>= 3;
+  } while (value != 0);
+  while (n < pad) {
+    tmp[n++] = '0';
+  }
+  if (n >= width) {
+    return MTAR_EBADHEADER;
+  }
+  for (i = 0; i < n; i++) {
+    out[i] = tmp[n - 1 - i];
+  }
+  out[n] = '\0';
+  return MTAR_ESUCCESS;
+}
+
+
 static int raw_to_header(mtar_header_t *h, const mtar_raw_header_t *rh) {
   unsigned chksum1, chksum2;
+  const unsigned char *p = (const unsigned char*) rh;
+  unsigned i;
 
-  /* If the checksum starts with a null byte we assume the record is NULL */
-  if (*rh->checksum == '\0') {
+  /* Only a record of all zero bytes marks the end of the archive. A
+   * non-zero record may not pose as one, even if its checksum field
+   * happens to start with a null byte */
+  for (i = 0; i < sizeof(*rh); i++) {
+    if (p[i] != 0) {
+      break;
+    }
+  }
+  if (i == sizeof(*rh)) {
     return MTAR_ENULLRECORD;
   }
 
-  /* Build and compare checksum */
+  /* Parse and verify the checksum before trusting any other field. Every
+   * scan of untrusted data is bounded to its own fixed-width field */
+  if (parse_octal(rh->checksum, sizeof(rh->checksum), &chksum2)) {
+    return MTAR_EBADCHKSUM;
+  }
   chksum1 = checksum(rh);
-  sscanf(rh->checksum, "%o", &chksum2);
   if (chksum1 != chksum2) {
     return MTAR_EBADCHKSUM;
   }
 
   /* Load raw header into header */
-  sscanf(rh->mode, "%o", &h->mode);
-  sscanf(rh->owner, "%o", &h->owner);
-  sscanf(rh->size, "%o", &h->size);
-  sscanf(rh->mtime, "%o", &h->mtime);
+  if (parse_octal(rh->mode, sizeof(rh->mode), &h->mode) ||
+      parse_octal(rh->owner, sizeof(rh->owner), &h->owner) ||
+      parse_octal(rh->size, sizeof(rh->size), &h->size) ||
+      parse_octal(rh->mtime, sizeof(rh->mtime), &h->mtime)) {
+    return MTAR_EBADHEADER;
+  }
   h->type = rh->type;
-  strcpy(h->name, rh->name);
-  strcpy(h->linkname, rh->linkname);
+
+  /* name and linkname are handed to callers as C strings, so each must be
+   * NUL-terminated within its own field; never truncate and never scan
+   * into the next field for a terminator */
+  if (!memchr(rh->name, '\0', sizeof(rh->name)) ||
+      !memchr(rh->linkname, '\0', sizeof(rh->linkname))) {
+    return MTAR_EBADHEADER;
+  }
+  memcpy(h->name, rh->name, sizeof(h->name));
+  memcpy(h->linkname, rh->linkname, sizeof(h->linkname));
 
   return MTAR_ESUCCESS;
 }
@@ -117,20 +200,32 @@ static int raw_to_header(mtar_header_t *h, const mtar_raw_header_t *rh) {
 
 static int header_to_raw(mtar_raw_header_t *rh, const mtar_header_t *h) {
   unsigned chksum;
+  unsigned n;
 
-  /* Load header into raw header */
+  /* Names must be NUL-terminated within the fixed-width fields; never
+   * truncate them silently */
+  if (!memchr(h->name, '\0', sizeof(h->name)) ||
+      !memchr(h->linkname, '\0', sizeof(h->linkname))) {
+    return MTAR_EBADHEADER;
+  }
+
+  /* Load header into raw header, refusing values the fields cannot hold */
   memset(rh, 0, sizeof(*rh));
-  sprintf(rh->mode, "%o", h->mode);
-  sprintf(rh->owner, "%o", h->owner);
-  sprintf(rh->size, "%o", h->size);
-  sprintf(rh->mtime, "%o", h->mtime);
+  if (format_octal(rh->mode, sizeof(rh->mode), h->mode, 0) ||
+      format_octal(rh->owner, sizeof(rh->owner), h->owner, 0) ||
+      format_octal(rh->size, sizeof(rh->size), h->size, 0) ||
+      format_octal(rh->mtime, sizeof(rh->mtime), h->mtime, 0)) {
+    return MTAR_EBADHEADER;
+  }
   rh->type = h->type ? h->type : MTAR_TREG;
-  strcpy(rh->name, h->name);
-  strcpy(rh->linkname, h->linkname);
+  n = (unsigned) strlen(h->name) + 1;
+  memcpy(rh->name, h->name, n);
+  n = (unsigned) strlen(h->linkname) + 1;
+  memcpy(rh->linkname, h->linkname, n);
 
   /* Calculate and write checksum */
   chksum = checksum(rh);
-  sprintf(rh->checksum, "%06o", chksum);
+  format_octal(rh->checksum, 7, chksum, 6);
   rh->checksum[7] = ' ';
 
   return MTAR_ESUCCESS;
@@ -148,6 +243,7 @@ const char* mtar_strerror(int err) {
     case MTAR_EBADCHKSUM   : return "bad checksum";
     case MTAR_ENULLRECORD  : return "null record";
     case MTAR_ENOTFOUND    : return "file not found";
+    case MTAR_EBADHEADER   : return "bad header";
   }
   return "unknown error";
 }
@@ -322,8 +418,13 @@ int mtar_read_data(mtar_t *tar, void *ptr, unsigned size) {
 
 int mtar_write_header(mtar_t *tar, const mtar_header_t *h) {
   mtar_raw_header_t rh;
-  /* Build raw header and write */
-  header_to_raw(&rh, h);
+  int err;
+  /* Build raw header; nothing is written if the header is not
+   * representable */
+  err = header_to_raw(&rh, h);
+  if (err) {
+    return err;
+  }
   tar->remaining_data = h->size;
   return twrite(tar, &rh, sizeof(rh));
 }
@@ -331,9 +432,15 @@ int mtar_write_header(mtar_t *tar, const mtar_header_t *h) {
 
 int mtar_write_file_header(mtar_t *tar, const char *name, unsigned size) {
   mtar_header_t h;
+  unsigned n;
+  /* Reject names that do not fit the fixed-width field */
+  n = (unsigned) strlen(name) + 1;
+  if (n > sizeof(h.name)) {
+    return MTAR_EBADHEADER;
+  }
   /* Build header */
   memset(&h, 0, sizeof(h));
-  strcpy(h.name, name);
+  memcpy(h.name, name, n);
   h.size = size;
   h.type = MTAR_TREG;
   h.mode = 0664;
@@ -344,9 +451,15 @@ int mtar_write_file_header(mtar_t *tar, const char *name, unsigned size) {
 
 int mtar_write_dir_header(mtar_t *tar, const char *name) {
   mtar_header_t h;
+  unsigned n;
+  /* Reject names that do not fit the fixed-width field */
+  n = (unsigned) strlen(name) + 1;
+  if (n > sizeof(h.name)) {
+    return MTAR_EBADHEADER;
+  }
   /* Build header */
   memset(&h, 0, sizeof(h));
-  strcpy(h.name, name);
+  memcpy(h.name, name, n);
   h.type = MTAR_TDIR;
   h.mode = 0775;
   /* Write header */
