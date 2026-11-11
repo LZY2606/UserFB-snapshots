@@ -1,0 +1,15 @@
+./colly.go
+./context.go
+./htmlelement.go
+./http_backend.go
+./http_trace.go
+./request.go
+./response.go
+./unmarshal.go
+./xmlelement.go
+./baseline_test.go
+./colly_test.go
+./context_test.go
+./http_trace_test.go
+./robots_discovery_test.go
+./unmarshal_test.go

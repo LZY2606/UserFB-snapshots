@@ -25,6 +25,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -121,7 +122,7 @@ type Collector struct {
 
 	store                    storage.Storage
 	debugger                 debug.Debugger
-	robotsMap                map[string]*robotstxt.RobotsData
+	robots                   *robotsState
 	htmlCallbacks            []*htmlCallbackContainer
 	xmlCallbacks             []*xmlCallbackContainer
 	requestCallbacks         []RequestCallback
@@ -134,6 +135,25 @@ type Collector struct {
 	backend                  *httpBackend
 	wg                       *sync.WaitGroup
 	lock                     *sync.RWMutex
+}
+
+// robotsState holds the robots.txt rule cache together with the
+// in-flight robots.txt discoveries. It is shared between a Collector
+// and its clones so concurrent collectors discover each origin's
+// robots.txt only once and reuse the parsed rules.
+type robotsState struct {
+	mu       sync.Mutex
+	cache    map[string]*robotstxt.RobotsData
+	inflight map[string]*robotsDiscovery
+}
+
+// robotsDiscovery represents a single in-flight robots.txt fetch.
+// Calls with the same discovery key wait on done and share the
+// outcome; failures are not cached so a later call may retry.
+type robotsDiscovery struct {
+	done  chan struct{}
+	robot *robotstxt.RobotsData
+	err   error
 }
 
 // RequestCallback is a type alias for OnRequest callback functions
@@ -480,7 +500,10 @@ func (c *Collector) Init() {
 	c.backend.Client.CheckRedirect = c.checkRedirectFunc()
 	c.wg = &sync.WaitGroup{}
 	c.lock = &sync.RWMutex{}
-	c.robotsMap = make(map[string]*robotstxt.RobotsData)
+	c.robots = &robotsState{
+		cache:    make(map[string]*robotstxt.RobotsData),
+		inflight: make(map[string]*robotsDiscovery),
+	}
 	c.IgnoreRobotsTxt = true
 	c.ID = atomic.AddUint32(&collectorCounter, 1)
 	c.TraceHTTP = false
@@ -823,52 +846,115 @@ func (c *Collector) isDomainAllowed(domain string) bool {
 }
 
 func (c *Collector) checkRobots(u *url.URL) error {
-	c.lock.RLock()
-	robot, ok := c.robotsMap[u.Host]
-	c.lock.RUnlock()
+	hdr := c.robotsRequestHeaders()
+	key := robotsDiscoveryKey(u, hdr.Get("User-Agent"))
 
-	if !ok {
-		// no robots file cached
-
-		// Prepare request,
-		req, err := http.NewRequest("GET", u.Scheme+"://"+u.Host+"/robots.txt", nil)
-		if err != nil {
-			return err
+	rs := c.robots
+	rs.mu.Lock()
+	if robot, ok := rs.cache[key]; ok {
+		rs.mu.Unlock()
+		return checkRobotsAllowed(robot, c.UserAgent, u)
+	}
+	if d, ok := rs.inflight[key]; ok {
+		// Another call is already discovering robots.txt for this origin
+		// and User-Agent; wait for it and share its outcome.
+		rs.mu.Unlock()
+		<-d.done
+		if d.err != nil {
+			return d.err
 		}
-		hdr := http.Header{}
-		if c.Headers != nil {
-			for k, v := range *c.Headers {
-				for _, value := range v {
-					hdr.Add(k, value)
-				}
+		return checkRobotsAllowed(d.robot, c.UserAgent, u)
+	}
+	d := &robotsDiscovery{done: make(chan struct{})}
+	rs.inflight[key] = d
+	rs.mu.Unlock()
+
+	// Fetch without holding the lock so discoveries of other origins
+	// are not blocked by a slow site.
+	d.robot, d.err = c.fetchRobots(u, hdr)
+
+	rs.mu.Lock()
+	if d.err == nil {
+		rs.cache[key] = d.robot
+	}
+	delete(rs.inflight, key)
+	close(d.done)
+	rs.mu.Unlock()
+
+	if d.err != nil {
+		return d.err
+	}
+	return checkRobotsAllowed(d.robot, c.UserAgent, u)
+}
+
+// robotsDiscoveryKey identifies one robots.txt discovery. Discoveries
+// are shared only within the same origin (lowercase scheme, lowercase
+// hostname and effective port, with default ports for http and https)
+// and the same User-Agent sent on the robots.txt request, since the
+// response may vary per User-Agent.
+func robotsDiscoveryKey(u *url.URL, userAgent string) string {
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	origin := scheme + "://" + host
+	if port != "" {
+		origin = scheme + "://" + net.JoinHostPort(host, port)
+	}
+	return origin + "\x00" + userAgent
+}
+
+// robotsRequestHeaders builds the headers sent on the robots.txt
+// request: the Collector's Headers if set, with User-Agent falling
+// back to the Collector's UserAgent.
+func (c *Collector) robotsRequestHeaders() http.Header {
+	hdr := http.Header{}
+	if c.Headers != nil {
+		for k, v := range *c.Headers {
+			for _, value := range v {
+				hdr.Add(k, value)
 			}
 		}
-		if _, ok := hdr["User-Agent"]; !ok {
-			hdr.Set("User-Agent", c.UserAgent)
-		}
-		req.Header = hdr
-		// The Go HTTP API ignores "Host" in the headers, preferring the client
-		// to use the Host field on Request.
-		if hostHeader := hdr.Get("Host"); hostHeader != "" {
-			req.Host = hostHeader
-		}
+	}
+	if _, ok := hdr["User-Agent"]; !ok {
+		hdr.Set("User-Agent", c.UserAgent)
+	}
+	return hdr
+}
 
-		resp, err := c.backend.Client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		robot, err = robotstxt.FromResponse(resp)
-		if err != nil {
-			return err
-		}
-		c.lock.Lock()
-		c.robotsMap[u.Host] = robot
-		c.lock.Unlock()
+func (c *Collector) fetchRobots(u *url.URL, hdr http.Header) (*robotstxt.RobotsData, error) {
+	req, err := http.NewRequest("GET", u.Scheme+"://"+u.Host+"/robots.txt", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header = hdr
+	// The Go HTTP API ignores "Host" in the headers, preferring the client
+	// to use the Host field on Request.
+	if hostHeader := hdr.Get("Host"); hostHeader != "" {
+		req.Host = hostHeader
 	}
 
-	uaGroup := robot.FindGroup(c.UserAgent)
+	resp, err := c.backend.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return robotstxt.FromResponse(resp)
+}
+
+// checkRobotsAllowed tests u against the rules of the group matching
+// the collector's own UserAgent. The decision is never cached, so
+// collectors sharing one RobotsData may still get different outcomes.
+func checkRobotsAllowed(robot *robotstxt.RobotsData, userAgent string, u *url.URL) error {
+	uaGroup := robot.FindGroup(userAgent)
 	if uaGroup == nil {
 		return nil
 	}
@@ -1341,7 +1427,10 @@ func (c *Collector) Cookies(URL string) []*http.Cookie {
 
 // Clone creates an exact copy of a Collector without callbacks.
 // HTTP backend, robots.txt cache and cookie jar are shared
-// between collectors.
+// between collectors. In-flight robots.txt discovery is shared as
+// well: concurrent requests for the same origin and User-Agent
+// trigger a single robots.txt fetch whose outcome is reused by all
+// waiting collectors.
 func (c *Collector) Clone() *Collector {
 	return &Collector{
 		AllowedDomains:         c.AllowedDomains,
@@ -1374,7 +1463,7 @@ func (c *Collector) Clone() *Collector {
 		lock:                   c.lock,
 		requestCallbacks:       make([]RequestCallback, 0, 8),
 		responseCallbacks:      make([]ResponseCallback, 0, 8),
-		robotsMap:              c.robotsMap,
+		robots:                 c.robots,
 		wg:                     &sync.WaitGroup{},
 	}
 }
