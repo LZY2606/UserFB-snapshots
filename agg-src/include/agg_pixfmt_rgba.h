@@ -527,7 +527,7 @@ namespace agg
             double s1a = 1 - s.a;
             d.r = s.r * d.a + d.r * s1a;
             d.g = s.g * d.a + d.g * s1a;
-            d.b = s.b * d.a + d.g * s1a;
+            d.b = s.b * d.a + d.b * s1a;
             set(p, d);
         }
     };
