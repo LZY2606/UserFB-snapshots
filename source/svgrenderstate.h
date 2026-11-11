@@ -10,21 +10,28 @@ enum class SVGRenderMode {
     Clipping
 };
 
+class SVGMarkerElement;
+class SVGClipPathElement;
+class SVGMaskElement;
+class SVGFilterElement;
+
 class SVGBlendInfo {
 public:
     explicit SVGBlendInfo(const SVGElement* element);
     SVGBlendInfo(const SVGClipPathElement* clipper, const SVGMaskElement* masker, float opacity)
-        : m_clipper(clipper), m_masker(masker), m_opacity(opacity)
+        : m_clipper(clipper), m_masker(masker), m_filter(nullptr), m_opacity(opacity)
     {}
 
     bool requiresCompositing(SVGRenderMode mode) const;
     const SVGClipPathElement* clipper() const { return m_clipper; }
     const SVGMaskElement* masker() const { return m_masker; }
+    const SVGFilterElement* filterer() const { return m_filter; }
     float opacity() const { return m_opacity; }
 
 private:
     const SVGClipPathElement* m_clipper;
     const SVGMaskElement* m_masker;
+    const SVGFilterElement* m_filter;
     const float m_opacity;
 };
 

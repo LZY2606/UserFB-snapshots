@@ -24,6 +24,7 @@ set(lunasvg_sources
     source/lunasvg.cpp
     source/graphics.cpp
     source/svgelement.cpp
+    source/svgfilter.cpp
     source/svggeometryelement.cpp
     source/svglayoutstate.cpp
     source/svgpaintelement.cpp
@@ -37,6 +38,7 @@ set(lunasvg_headers
     include/lunasvg.h
     source/graphics.h
     source/svgelement.h
+    source/svgfilter.h
     source/svggeometryelement.h
     source/svglayoutstate.h
     source/svgpaintelement.h

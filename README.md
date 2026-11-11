@@ -268,6 +268,55 @@ $ svg2png input.svg 512x512
 $ svg2png input.svg 512x512 0xff00ffff
 ```
 
+## SVG Filter Support
+
+Elements and groups can carry a local `filter="url(#id)"` reference (also
+accepted through inline `style` and CSS stylesheets). Filters run on
+premultiplied sRGB RGBA buffers; `color-interpolation-filters` is fixed to
+`sRGB` and `linearRGB` is not implemented. The supported primitives, in
+document order, are:
+
+- `feGaussianBlur` — one or two `stdDeviation` values (one value applies to
+  both axes; zero disables blur on that axis). The kernel is a normalized
+  discrete Gaussian sampled at pixel centers with radius
+  `ceil(3 * stdDeviation)`, zero-extended beyond the source without edge
+  renormalization.
+- `feOffset` — `dx`/`dy` defaulting to zero; fractional offsets are sampled
+  bilinearly.
+- `feComposite` — `operator="over"` (default) and `operator="in"`, where
+  `in` multiplies the first input by the second input's alpha.
+
+Inputs accept `SourceGraphic` and `SourceAlpha`; omitted `in`/`in2` default to
+`SourceGraphic` for the first primitive and the previous primitive output
+afterwards. Named `result` outputs can be referenced multiple times, and
+overwriting a name only takes effect after the current primitive's inputs
+have been resolved. Unknown or forward references read as transparent black,
+and the last primitive's output is the filter result. An empty filter returns
+`SourceGraphic` clipped to the filter region; a missing filter reference
+draws the element unfiltered.
+
+`filterUnits` (default `objectBoundingBox`, with the `-0.1/-0.1/1.2/1.2`
+default region) and `primitiveUnits` (default `userSpaceOnUse`) are both
+supported. The element's transform scales the standard deviations and offset
+and rotates the two blur axes; translations, rotations and positive
+non-uniform scales with orthogonal columns are supported. Filters are applied
+before `clip-path`, `mask` and `opacity`, and nested filters see the child's
+filtered result in the parent's `SourceGraphic`.
+
+A small demo renders the source, a two-branch composite and a nested filter
+into one PNG:
+
+```bash
+filter_demo output.png
+```
+
+The numeric filter contract tests and the end-to-end check (build, contract,
+demo, legacy rendering and the `svg2png` example) can be run with:
+
+```bash
+bash checks/check-filter.sh
+```
+
 ## Projects Using LunaSVG
 
 - [OpenSiv3D](https://github.com/Siv3D/OpenSiv3D)

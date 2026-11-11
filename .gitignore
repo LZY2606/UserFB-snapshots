@@ -1,4 +1,5 @@
 /build
+/build-filter
 /subprojects/*
 !/subprojects/*.wrap
 *.user

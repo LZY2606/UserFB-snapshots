@@ -15,6 +15,7 @@ lunasvg_sources = [
     'source/lunasvg.cpp',
     'source/graphics.cpp',
     'source/svgelement.cpp',
+    'source/svgfilter.cpp',
     'source/svggeometryelement.cpp',
     'source/svgpaintelement.cpp',
     'source/svgparser.cpp',

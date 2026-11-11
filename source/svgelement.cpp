@@ -1,4 +1,5 @@
 #include "svgelement.h"
+#include "svgfilter.h"
 #include "svgpaintelement.h"
 #include "svggeometryelement.h"
 #include "svgtextelement.h"
@@ -21,6 +22,10 @@ ElementID elementid(std::string_view name)
         {"clipPath", ElementID::ClipPath},
         {"defs", ElementID::Defs},
         {"ellipse", ElementID::Ellipse},
+        {"feComposite", ElementID::FeComposite},
+        {"feGaussianBlur", ElementID::FeGaussianBlur},
+        {"feOffset", ElementID::FeOffset},
+        {"filter", ElementID::Filter},
         {"g", ElementID::G},
         {"image", ElementID::Image},
         {"line", ElementID::Line},
@@ -87,6 +92,14 @@ std::unique_ptr<SVGElement> SVGElement::create(Document* document, ElementID id)
         return std::make_unique<SVGLineElement>(document);
     case ElementID::Defs:
         return std::make_unique<SVGDefsElement>(document);
+    case ElementID::Filter:
+        return std::make_unique<SVGFilterElement>(document);
+    case ElementID::FeGaussianBlur:
+        return std::make_unique<SVGFeGaussianBlurElement>(document);
+    case ElementID::FeOffset:
+        return std::make_unique<SVGFeOffsetElement>(document);
+    case ElementID::FeComposite:
+        return std::make_unique<SVGFeCompositeElement>(document);
     case ElementID::Polygon:
     case ElementID::Polyline:
         return std::make_unique<SVGPolyElement>(document, id);
@@ -314,6 +327,26 @@ Rect SVGElement::strokeBoundingBox() const
     return strokeBoundingBox;
 }
 
+// Accumulates the filter regions of every filtered descendant, transformed
+// into the subtree root's local coordinate space, so ancestor offscreens can
+// cover content expanded by descendant filters.
+static void collectFilterBounds(const SVGElement* element, const Transform& accumulated, Rect& bounds)
+{
+    for(const auto& child : element->children()) {
+        const auto* childElement = toSVGElement(child);
+        if(childElement == nullptr || childElement->isHiddenElement())
+            continue;
+        auto childTransform = accumulated * childElement->localTransform();
+        if(const auto* filter = childElement->filterer()) {
+            auto region = filter->localRegionRect(childElement);
+            if(region.isValid())
+                bounds.unite(childTransform.mapRect(region));
+        }
+
+        collectFilterBounds(childElement, childTransform, bounds);
+    }
+}
+
 Rect SVGElement::paintBoundingBox() const
 {
     if(m_paintBoundingBox.isValid())
@@ -323,6 +356,15 @@ Rect SVGElement::paintBoundingBox() const
     assert(m_paintBoundingBox.isValid());
     if(m_clipper) m_paintBoundingBox.intersect(m_clipper->clipBoundingBox(this));
     if(m_masker) m_paintBoundingBox.intersect(m_masker->maskBoundingBox(this));
+    if(m_filter) {
+        auto filterBoundingBox = m_filter->localRegionRect(this);
+        if(filterBoundingBox.isValid())
+            m_paintBoundingBox.unite(localTransform().mapRect(filterBoundingBox));
+    }
+
+    // Descendant filters can paint outside their own geometry, so the parent
+    // offscreen must be large enough to hold their expanded output too.
+    collectFilterBounds(this, Transform::Identity, m_paintBoundingBox);
     return m_paintBoundingBox;
 }
 
@@ -347,6 +389,14 @@ SVGMaskElement* SVGElement::getMasker(std::string_view id) const
     auto element = rootElement()->getElementById(id);
     if(element && element->id() == ElementID::Mask)
         return static_cast<SVGMaskElement*>(element);
+    return nullptr;
+}
+
+SVGFilterElement* SVGElement::getFilterer(std::string_view id) const
+{
+    auto element = rootElement()->getElementById(id);
+    if(element && element->id() == ElementID::Filter)
+        return static_cast<SVGFilterElement*>(element);
     return nullptr;
 }
 
@@ -454,6 +504,7 @@ void SVGElement::layoutElement(const SVGLayoutState& state)
     m_paintBoundingBox = Rect::Invalid;
     m_clipper = getClipper(state.clip_path());
     m_masker = getMasker(state.mask());
+    m_filter = state.filter().empty() ? nullptr : getFilterer(state.filter());
     m_opacity = state.opacity();
 
     m_font_size = state.font_size();
@@ -502,6 +553,7 @@ bool SVGElement::isHiddenElement() const
     case ElementID::Marker:
     case ElementID::ClipPath:
     case ElementID::Mask:
+    case ElementID::Filter:
     case ElementID::LinearGradient:
     case ElementID::RadialGradient:
     case ElementID::Pattern:

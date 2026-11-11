@@ -9,6 +9,15 @@ namespace lunasvg {
 
 enum class PropertyID : uint8_t {
     Unknown = 0,
+    Color_Interpolation_Filters,
+    Composite_Operator,
+    Filter,
+    FilterUnits,
+    In,
+    In2,
+    PrimitiveUnits,
+    Result,
+    Std_Deviation,
     Alignment_Baseline,
     Baseline_Shift,
     Class,
