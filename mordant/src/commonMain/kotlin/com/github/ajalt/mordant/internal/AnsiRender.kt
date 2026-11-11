@@ -87,7 +87,7 @@ internal fun downsample(style: TextStyle, level: AnsiLevel, hyperlinks: Boolean)
 }
 
 
-private fun makeTag(old: TextStyle, new: TextStyle): String {
+internal fun makeTag(old: TextStyle, new: TextStyle): String {
     if (old == new) return ""
     val codes = mutableListOf<Int>()
     if (old.color != new.color) codes += new.color.toAnsi(fgColorSelector, fgColorReset, 0)

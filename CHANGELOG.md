@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+### Added
+- Animations now snapshot each rendered frame and diff it against the previous one, writing only
+  the cells, rows and styles that changed instead of redrawing the whole block. Grapheme clusters
+  (combining marks, emoji ZWJ sequences, flags) are never split, and terminal resize, capability
+  changes and output interleaved between frames safely fall back to a full redraw. A diff is only
+  used when it is fewer bytes than a full redraw.
+
 ## 3.1.0
 ### Added
 - Mouse events on POSIX systems now use the SGR protocol when the terminal supports it, which fixes coordinates in windows larger than 223 cells and adds horizontal wheel and extra button reporting. [(#289)](https://github.com/ajalt/mordant/issues/289)

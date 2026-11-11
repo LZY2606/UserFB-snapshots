@@ -11,12 +11,26 @@ import com.github.ajalt.mordant.test.visibleCrLf
 import com.github.ajalt.mordant.widgets.progress.*
 import io.kotest.matchers.shouldBe
 import kotlin.js.JsName
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TestTimeSource
 
 class BaseProgressAnimationTest : RenderingTest() {
+    // These assertions pin exact full-redraw byte streams; frame diffing is covered by the virtual
+    // screen tests in the jvmTest source set.
+    @BeforeTest
+    fun forceFullRedraw() {
+        com.github.ajalt.mordant.animation.Animation.TestHooks.forceFullRedraw = true
+    }
+
+    @AfterTest
+    fun resetDiffing() {
+        com.github.ajalt.mordant.animation.Animation.TestHooks.forceFullRedraw = false
+    }
+
     private val now = TestTimeSource()
     private val vt = TerminalRecorder(width = 54)
     private val t = Terminal(

@@ -1,12 +1,12 @@
 package com.github.ajalt.mordant.animation
 
 import com.github.ajalt.mordant.internal.CR_IMPLIES_LF
+import com.github.ajalt.mordant.internal.CSI
 import com.github.ajalt.mordant.internal.MppAtomicRef
 import com.github.ajalt.mordant.internal.update
 import com.github.ajalt.mordant.rendering.*
 import com.github.ajalt.mordant.terminal.PrintRequest
 import com.github.ajalt.mordant.terminal.Terminal
-import com.github.ajalt.mordant.terminal.TerminalInfo
 import com.github.ajalt.mordant.terminal.TerminalInterceptor
 import com.github.ajalt.mordant.widgets.EmptyWidget
 import com.github.ajalt.mordant.widgets.Text
@@ -16,12 +16,21 @@ import com.github.ajalt.mordant.widgets.progress.progressBarLayout
  * An Animation renders a widget to the screen each time [update] is called, clearing the render
  * from the previous call.
  *
- * If you [print][Terminal.print] anything in between calls to [update], the rendered widget will be
- * cleared, before the print, then rendered again below it.
+ * On ordinary interactive terminals, each frame is compared to the previous one as *rendered
+ * screen state* — grapheme clusters with their downsampled styles, after measure/render and
+ * column-width wrapping — and only the cells, rows and styles that changed are written. If an
+ * incremental update cannot be done safely (after a resize, after output interleaved from another
+ * source, after the terminal capabilities change, while another animation is on screen, or when
+ * the diff would not be smaller than a full redraw), the whole frame is redrawn instead.
+ *
+ * If you [print][Terminal.print] anything in between calls to [update], the rendered widget will
+ * be cleared before the print, then rendered again below it. Interleaved output invalidates the
+ * frame snapshot, so the next [update] always does a full redraw.
  *
  * Note that [Animation] doesn't render the widget automatically: you need to call [update] yourself
- * when your data changes. If your terminal is not [interactive][TerminalInfo.interactive], the
- * animation will not render anything.
+ * when your data changes. If your terminal is not [interactive][TerminalInfo], the animation will
+ * not render anything, no diffing is performed, and the output behaves like a sequence of plain
+ * prints.
  *
  * You can create instances of Animations with [animation], [textAnimation], animate a
  * [progressBarLayout], or by creating a subclass.
@@ -32,13 +41,40 @@ import com.github.ajalt.mordant.widgets.progress.progressBarLayout
 abstract class Animation<T>(
     val terminal: Terminal,
 ) : StoppableAnimation {
+    /**
+     * Test-only constructor that allows frame diffing to be disabled so that full-redraw behavior
+     * can be compared against incremental behavior. Not part of the public API.
+     */
+    internal constructor(terminal: Terminal, frameDiffingEnabled: Boolean) : this(terminal) {
+        this.frameDiffingEnabled = frameDiffingEnabled
+    }
+
+    private var frameDiffingEnabled: Boolean = true
+
+    /**
+     * Test seam that disables frame diffing globally for animations whose own
+     * [frameDiffingEnabled] flag is on. Production code never touches it. It lets legacy tests
+     * that assert exact full-redraw byte streams keep their expectations while the new virtual
+     * screen tests cover the default diffing behavior. Not part of the public API.
+     */
+    internal object TestHooks {
+        var forceFullRedraw: Boolean = false
+    }
+
     private data class State(
         /** The length of each line of the last rendered widget */
         val size: List<Int>? = null,
-        /** The length of each line of the previous rendered widget */
+        /** The length of each line of the previously rendered widget */
         val lastSize: List<Int>? = null,
         val lastTerminalSize: Size? = null,
+        /** The ANSI bytes of the frame currently on screen */
         val text: String? = null,
+        /** The rendered screen snapshot of the frame currently on screen, or null if invalidated */
+        val snapshot: FrameSnapshot? = null,
+        /** Bumped whenever the snapshot can no longer be trusted (interleaved output, stop, ...) */
+        val generation: Int = 0,
+        /** True while [update] is writing a diff directly, so the interceptor passes it through */
+        val writingDiff: Boolean = false,
         val interceptorInstalled: Boolean = false,
         val firstDraw: Boolean = true,
     )
@@ -46,12 +82,22 @@ abstract class Animation<T>(
     private val state = MppAtomicRef(State())
 
     private val interceptor: TerminalInterceptor = TerminalInterceptor { req ->
+        // A diff written directly by update() passes through the chain untouched.
+        if (state.value.writingDiff) return@TerminalInterceptor req
+
         val terminalSize = Size(terminal.size.width, terminal.size.height)
+        // Our own full-redraw tick prints an empty widget; anything else is external output or a
+        // sibling animation that changes the screen behind our back.
+        val ownTick = req.text.isEmpty() && !req.trailingLinebreak
         val (st, _) = state.update {
             copy(
                 firstDraw = false,
                 lastSize = size,
                 lastTerminalSize = terminalSize,
+                // External output invalidates the snapshot and advances the generation. Our own
+                // tick leaves the frame on screen untouched, so the snapshot stays valid.
+                snapshot = if (ownTick) snapshot else null,
+                generation = if (ownTick) generation else generation + 1,
             )
         }
         val animationText = st.text ?: return@TerminalInterceptor req
@@ -121,6 +167,9 @@ abstract class Animation<T>(
                 interceptorInstalled = false,
                 firstDraw = true,
                 text = null,
+                snapshot = null,
+                writingDiff = false,
+                generation = generation + 1,
                 size = if (clearSize) null else size,
             )
         }
@@ -135,26 +184,113 @@ abstract class Animation<T>(
     /**
      * Update the data for this animation.
      *
-     * This will cause the existing animation frame to be cleared and the new frame rendered in its
-     * place.
+     * The new data is rendered and compared against the frame currently on screen. When the
+     * terminal supports the needed cursor sequences and the previous snapshot is still valid, only
+     * the changed cells and rows are written; otherwise the whole frame is redrawn.
      */
     fun update(data: T) {
         if (terminal.terminalInterface.shouldAutoUpdateSize()) terminal.updateSize()
 
-        val rendered = renderData(data).render(terminal)
-        val (old, _) = state.update {
+        val rendered: Lines
+        val fullText: String
+        try {
+            rendered = renderData(data).render(terminal)
+            fullText = terminal.render(rendered)
+        } catch (e: Throwable) {
+            // Nothing is written until the diff is fully computed, so the frame on screen is
+            // untouched. Invalidate the snapshot, reset any style the terminal might hold, and
+            // rethrow so the caller (including a coroutine cancellation) can handle the failure.
+            invalidateAfterFailure()
+            throw e
+        }
+
+        val terminalSize = Size(terminal.size.width, terminal.size.height)
+        val info = terminal.terminalInfo
+        val old = state.value
+        val identity = FrameIdentity(
+            generation = old.generation,
+            width = terminalSize.width,
+            ansiLevel = info.ansiLevel,
+            hyperlinks = info.ansiHyperLinks,
+            supportsAnsiCursor = info.supportsAnsiCursor,
+            interactive = info.outputInteractive,
+            crImpliesLf = CR_IMPLIES_LF,
+        )
+        val newSnapshot = rendered.toFrameSnapshot(identity)
+        val resized = old.lastTerminalSize != null &&
+                (terminalSize.width != old.lastTerminalSize.width ||
+                        terminalSize.height != old.lastTerminalSize.height)
+        // A sibling animation shares the interceptor chain and relies on full-frame reflow.
+        val siblingActive = old.interceptorInstalled && terminal.interceptorCount() > 1
+
+        val diff = if (frameDiffingEnabled && !TestHooks.forceFullRedraw &&
+            old.snapshot != null && !old.firstDraw &&
+            !resized && !siblingActive && old.snapshot.identity == identity
+        ) {
+            FrameDiffer.diff(old.snapshot, newSnapshot, fullText)
+        } else null
+
+        state.update {
             copy(
                 size = rendered.lines.map { it.lineWidth },
                 lastSize = size,
+                lastTerminalSize = terminalSize,
                 interceptorInstalled = true,
-                text = terminal.render(rendered)
+                firstDraw = false,
+                text = fullText,
+                snapshot = newSnapshot,
+                writingDiff = false,
             )
         }
-        if (!old.interceptorInstalled && terminal.terminalInfo.outputInteractive) {
+
+        if (!old.interceptorInstalled && info.outputInteractive) {
             terminal.addInterceptor(interceptor)
         }
-        // Print an empty widget to trigger our interceptor, which will add the rendered text
-        terminal.print(EmptyWidget)
+        try {
+            when {
+                diff == null -> {
+                    // Full redraw: print an empty widget to trigger our interceptor, which prepends
+                    // the cursor moves and appends the full frame text.
+                    terminal.print(EmptyWidget)
+                }
+
+                diff.isEmpty() -> {
+                    // The visible frame did not change; nothing to write.
+                }
+
+                else -> {
+                    // Incremental update. Flag the write so the interceptor passes it through, then
+                    // restore the flag in finally so an exception can't leave it stuck.
+                    state.update { copy(writingDiff = true) }
+                    terminal.rawPrint(diff)
+                }
+            }
+        } catch (e: Throwable) {
+            // The write may have reached the terminal partially, so the snapshot can no longer be
+            // trusted. Invalidate it and reset the style, then rethrow.
+            invalidateAfterFailure()
+            throw e
+        } finally {
+            state.update { copy(writingDiff = false) }
+        }
+    }
+
+    /**
+     * Mark the on-screen snapshot invalid so the next [update] redraws fully, and emit an SGR reset
+     * directly (bypassing the interceptor) so the terminal is not left holding a partial style.
+     */
+    private fun invalidateAfterFailure() {
+        state.update {
+            copy(snapshot = null, writingDiff = false, generation = generation + 1)
+        }
+        if (terminal.terminalInfo.outputInteractive) {
+            state.update { copy(writingDiff = true) }
+            try {
+                runCatching { terminal.rawPrint("${CSI}0m") }
+            } finally {
+                state.update { copy(writingDiff = false) }
+            }
+        }
     }
 
     private fun getCursorMoves(

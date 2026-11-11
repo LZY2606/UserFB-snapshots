@@ -52,3 +52,17 @@ internal fun codepointToString(codePoint: Int): String {
         }
     }
 }
+
+/** The number of bytes [string] occupies when UTF-8 encoded. */
+internal fun utf8ByteLength(string: String): Int {
+    var count = 0
+    for (cp in codepointSequence(string)) {
+        count += when {
+            cp <= 0x7F -> 1
+            cp <= 0x7FF -> 2
+            cp <= 0xFFFF -> 3
+            else -> 4
+        }
+    }
+    return count
+}

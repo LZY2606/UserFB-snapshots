@@ -49,11 +49,19 @@ class CoroutinesAnimatorTest {
         vt.output() shouldBe ""
 
         advanceTimeBy(0.4.seconds)
-        vt.normalizedOutput() shouldBe "        0/10a        5/10b"
+        // Frame diffing may write only the changed cell rather than the whole line, so assert on
+        // the visible content rather than exact bytes. Replaying either form yields the same screen.
+        vt.normalizedOutput().run {
+            shouldContain("0/10a")
+            shouldContain("5/10b")
+        }
 
         vt.clearOutput()
         advanceTimeBy(0.5.seconds)
-        vt.normalizedOutput() shouldBe "        5/10a        5/10b"
+        vt.normalizedOutput().run {
+            shouldContain("5/10a")
+            shouldContain("5/10b")
+        }
 
         advanceTimeBy(10.seconds)
 

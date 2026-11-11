@@ -10,6 +10,7 @@ extra_css = ["css/extra.css"]
 
 nav = [
   { "Getting Started" = "guide.md" },
+  { "Frame Diffing" = "animation_diff.md" },
   { "Progress Bars" = "progress.md" },
   { "Keyboard and Mouse Input" = "input.md" },
   { "API Reference" = "api/index.html" },

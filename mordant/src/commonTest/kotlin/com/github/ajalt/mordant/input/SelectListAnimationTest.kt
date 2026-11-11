@@ -9,9 +9,23 @@ import com.github.ajalt.mordant.widgets.SelectList
 import com.github.ajalt.mordant.widgets.Text
 import io.kotest.matchers.shouldBe
 import kotlin.js.JsName
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 class SelectListAnimationTest {
+    // These assertions pin exact full-redraw byte streams; frame diffing is covered by the virtual
+    // screen tests in the jvmTest source set.
+    @BeforeTest
+    fun forceFullRedraw() {
+        com.github.ajalt.mordant.animation.Animation.TestHooks.forceFullRedraw = true
+    }
+
+    @AfterTest
+    fun resetDiffing() {
+        com.github.ajalt.mordant.animation.Animation.TestHooks.forceFullRedraw = false
+    }
+
     private val rec = TerminalRecorder(
         width = 24, ansiLevel = AnsiLevel.NONE, inputInteractive = true, outputInteractive = true
     )

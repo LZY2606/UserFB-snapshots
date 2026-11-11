@@ -439,6 +439,10 @@ bars](progress.md).
     If you have an `animation<Unit>` or `textAnimation<Unit>`, you can refresh them automatically with
     [animateOnThread] or [animateOnCoroutine].
 
+Each animation frame is diffed against the previous one so that only the cells, rows and styles
+that changed are written to the terminal. See the [frame diffing](animation_diff.md) guide for the
+algorithm, the conditions that force a full redraw, and state-restoration guarantees.
+
 ## Prompting for input
 
 You can ask the user to enter text and wait for a response with [Terminal.prompt]:

@@ -265,6 +265,9 @@ class Terminal private constructor(
 
     internal fun hasInterceptors(): Boolean = interceptors.value.isNotEmpty()
 
+    /** The number of currently installed [TerminalInterceptor]s. */
+    internal fun interceptorCount(): Int = interceptors.value.size
+
     private fun rawPrintln(message: String, stderr: Boolean) {
         sendPrintRequest(PrintRequest(message, true, stderr))
     }

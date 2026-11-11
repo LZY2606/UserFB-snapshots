@@ -6,9 +6,23 @@ import com.github.ajalt.mordant.test.normalizedOutput
 import com.github.ajalt.mordant.test.visibleCrLf
 import io.kotest.matchers.shouldBe
 import kotlin.js.JsName
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 class AnimationTest {
+    // These assertions pin the exact full-redraw byte stream, so disable frame diffing for them.
+    // The incremental behavior is covered by the virtual screen tests in the jvmTest source set.
+    @BeforeTest
+    fun forceFullRedraw() {
+        Animation.TestHooks.forceFullRedraw = true
+    }
+
+    @AfterTest
+    fun resetDiffing() {
+        Animation.TestHooks.forceFullRedraw = false
+    }
+
     private val rec = TerminalRecorder(width = 24)
     private val t = Terminal(terminalInterface = rec)
 

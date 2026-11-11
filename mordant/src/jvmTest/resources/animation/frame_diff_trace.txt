@@ -1,0 +1,22 @@
+# Mordant frame-diff replay fixture
+# Replay each TRACE line (after unescaping) onto a 40-column virtual screen.
+# ESC is written as '␛', CR as '␍', LF as '␊'. A TRACE line may be empty (no bytes written).
+# The sequence shows: full first frame, an in-place cell diff, an unchanged frame, a row
+# insertion (CSI 1 L), and a row deletion (CSI 1 M). CJK, combining-mark and emoji ZWJ cluster
+# atomicity is covered separately by FrameDifferUnitTest and FrameDiffTest.
+STEP 0
+TRACE aaaaabbbbbcccccdddddeeeee00000
+SCREEN aaaaabbbbbcccccdddddeeeee00000
+STEP 1
+TRACE ␍␍␛[29C1␍␛[30C
+SCREEN aaaaabbbbbcccccdddddeeeee00001
+STEP 2
+TRACE
+SCREEN aaaaabbbbbcccccdddddeeeee00001
+STEP 3
+TRACE ␍␍␛[1B␛[1L␍second line␍␛[11C
+SCREEN aaaaabbbbbcccccdddddeeeee00001
+SCREEN second line
+STEP 4
+TRACE ␍␛[1A␍␛[1B␛[1M␍␛[1A␛[30C
+SCREEN aaaaabbbbbcccccdddddeeeee00001
