@@ -24,6 +24,17 @@ class MediaNode extends SourceNode {
         this._mediaElementCache = mediaElementCache;
         this._playbackRate = 1.0;
         this._playbackRateUpdated = true;
+        // A sorted list of playback-rate change points ("knots") on the context
+        // timeline. Each entry is {time, mediaPosition, rate} and means: from
+        // timeline time `time` onwards the source was at `mediaPosition` and
+        // advances at `rate` units of media per unit of timeline time. The
+        // first entry is created when the node is sequenced, using the rate
+        // current at that moment.
+        this._playbackRateTimeline = [];
+        // Whether the stop time was set explicitly via stop()/stopAt(). An
+        // explicit stop time always wins over the one inferred from the media
+        // duration and the recorded playback rates.
+        this._stopTimeExplicit = false;
         this._attributes = Object.assign({ volume: 1.0 }, attributes);
         this._loopElement = false;
         this._isElementPlaying = false;
@@ -32,9 +43,68 @@ class MediaNode extends SourceNode {
         }
     }
 
+    /**
+     * Set the local playback rate of this node: how much media time is consumed
+     * per unit of timeline time. The rate applied to the underlying element is
+     * the product of this rate and the VideoContext's playbackRate.
+     *
+     * The change is recorded at the node's current timeline position. Media
+     * positions accumulated under previous rates are preserved, and seeking
+     * back into an earlier region of the timeline still uses the rates that
+     * were recorded there. Setting a new rate after seeking backwards replaces
+     * any changes recorded at or after the current position, while earlier
+     * history is kept. Setting a rate before the node is sequenced establishes
+     * the initial rate for the whole segment. Only finite numbers greater than
+     * 0 are accepted; anything else throws a RangeError and leaves the previous
+     * rate and recorded history untouched.
+     *
+     * @param {number} playbackRate - the local playback rate, 1.0 by default.
+     *
+     * @example
+     * //A 10 second clip starting at timeline time 10, with sourceOffset 1.
+     * var videoNode = ctx.video("video.mp4", 1);
+     * videoNode.startAt(10);
+     * videoNode.playbackRate = 2;
+     * ctx.currentTime = 12; //the element sits at media time 5
+     * videoNode.playbackRate = 0.5; //the frame doesn't jump
+     * ctx.currentTime = 14; //media time 6
+     * ctx.currentTime = 11; //seeking back lands on media time 3
+     * videoNode.playbackRate = 1; //replaces the change recorded at 12
+     * ctx.currentTime = 14; //media time 6 again
+     */
     set playbackRate(playbackRate) {
+        if (
+            typeof playbackRate !== "number" ||
+            isNaN(playbackRate) ||
+            !isFinite(playbackRate) ||
+            playbackRate <= 0
+        ) {
+            throw new RangeError("playbackRate must be a finite number greater than 0");
+        }
+        if (!isNaN(this._startTime) && !this._usesLegacyPlaybackRatePath()) {
+            //Record the rate change at the node's current timeline position.
+            this._ensurePlaybackRateTimeline();
+            let changeTime = Math.max(this._currentTime, this._startTime);
+            let mediaPosition = this._mediaTimeAt(changeTime);
+            //Discard changes recorded at or after this position; earlier
+            //history is preserved. Repeated sets at the same time replace each
+            //other, so the last one wins.
+            while (
+                this._playbackRateTimeline.length > 0 &&
+                this._playbackRateTimeline[this._playbackRateTimeline.length - 1].time >=
+                    changeTime
+            ) {
+                this._playbackRateTimeline.pop();
+            }
+            this._playbackRateTimeline.push({
+                time: changeTime,
+                mediaPosition: mediaPosition,
+                rate: playbackRate
+            });
+        }
         this._playbackRate = playbackRate;
         this._playbackRateUpdated = true;
+        this._updateAutomaticStopTime();
     }
 
     set stretchPaused(stretchPaused) {
@@ -56,6 +126,85 @@ class MediaNode extends SourceNode {
 
     get playbackRate() {
         return this._playbackRate;
+    }
+
+    /**
+     * Looping, stretched-paused and infinite-duration media keep the legacy
+     * time mapping (media time advances 1:1 with the timeline) and don't get a
+     * local playback-rate history.
+     */
+    _usesLegacyPlaybackRatePath() {
+        if (this._loopElement) return true;
+        if (this._stretchPaused) return true;
+        if (this._element !== undefined) {
+            let duration = this._element.duration;
+            if (typeof duration === "number" && !isNaN(duration) && !isFinite(duration))
+                return true;
+        }
+        return false;
+    }
+
+    _ensurePlaybackRateTimeline() {
+        if (this._playbackRateTimeline.length === 0 && !isNaN(this._startTime)) {
+            this._playbackRateTimeline.push({
+                time: this._startTime,
+                mediaPosition: this._sourceOffset,
+                rate: this._playbackRate
+            });
+        }
+    }
+
+    /**
+     * Map a time on the context timeline to a position within the source
+     * media, taking the source offset and all recorded playback-rate changes
+     * into account.
+     */
+    _mediaTimeAt(time) {
+        if (isNaN(this._startTime) || time <= this._startTime) return this._sourceOffset;
+        if (this._usesLegacyPlaybackRatePath()) {
+            return this._sourceOffset + (time - this._startTime);
+        }
+        this._ensurePlaybackRateTimeline();
+        let activeKnot = this._playbackRateTimeline[0];
+        for (let knot of this._playbackRateTimeline) {
+            if (knot.time > time) break;
+            activeKnot = knot;
+        }
+        return activeKnot.mediaPosition + (time - activeKnot.time) * activeKnot.rate;
+    }
+
+    /**
+     * The inverse of _mediaTimeAt: the timeline time at which the given source
+     * media position is reached, derived from the recorded playback rates.
+     */
+    _timelineTimeForMediaPosition(mediaPosition) {
+        this._ensurePlaybackRateTimeline();
+        for (let i = this._playbackRateTimeline.length - 1; i >= 0; i--) {
+            let knot = this._playbackRateTimeline[i];
+            if (mediaPosition >= knot.mediaPosition) {
+                return knot.time + (mediaPosition - knot.mediaPosition) / knot.rate;
+            }
+        }
+        return this._startTime;
+    }
+
+    /**
+     * Infer the stop time from the remaining media length and the recorded
+     * playback rates. Never overrides an explicit stop()/stopAt() time, and
+     * not applicable to media on the legacy path.
+     */
+    _updateAutomaticStopTime() {
+        if (this._stopTimeExplicit) return;
+        if (isNaN(this._startTime)) return;
+        if (this._usesLegacyPlaybackRatePath()) return;
+        if (this._element === undefined) return;
+        let duration = this._element.duration;
+        if (typeof duration !== "number" || isNaN(duration) || !isFinite(duration)) return;
+        let stopTime = this._timelineTimeForMediaPosition(duration);
+        if (stopTime !== this._stopTime) {
+            this._stopTime = stopTime;
+            this._triggerCallbacks("durationchange", this.duration);
+        }
     }
 
     get elementURL() {
@@ -113,10 +262,9 @@ class MediaNode extends SourceNode {
                 this._element[key] = this._attributes[key];
             }
 
-            let currentTimeOffset = 0;
-            if (this._currentTime > this._startTime)
-                currentTimeOffset = this._currentTime - this._startTime;
-            this._element.currentTime = this._sourceOffset + currentTimeOffset;
+            //Map the timeline position through the recorded playback rates.
+            //Before the segment starts this stays at the source offset.
+            this._element.currentTime = this._mediaTimeAt(this._currentTime);
             this._element.onerror = () => {
                 if (this._element === undefined) return;
                 console.debug("Error with element", this._element);
@@ -173,12 +321,9 @@ class MediaNode extends SourceNode {
                 // Check if the duration has changed. Update if necessary.
                 // this could potentially go in the normal update loop but I don't want to change
                 // too many things at once
-                if (this._loopElement === false) {
-                    if (this._stopTime === Infinity || this._stopTime == undefined) {
-                        this._stopTime = this._startTime + this._element.duration;
-                        this._triggerCallbacks("durationchange", this.duration);
-                    }
-                }
+                // The stop time is inferred from the remaining media length and
+                // the recorded playback rates, unless it was set explicitly.
+                this._updateAutomaticStopTime();
 
                 // signal to user that this node has "loaded"
                 if (this._ready !== true) {
@@ -221,8 +366,9 @@ class MediaNode extends SourceNode {
         super._seek(time);
         if (this.state === SOURCENODESTATE.playing || this.state === SOURCENODESTATE.paused) {
             if (this._element === undefined) this._load();
-            let relativeTime = this._currentTime - this._startTime + this._sourceOffset;
-            this._element.currentTime = relativeTime;
+            //Use the same timeline-to-media mapping as _triggerLoad so seeks
+            //and (re)loads always land on the same source position.
+            this._element.currentTime = this._mediaTimeAt(this._currentTime);
             this._ready = false;
         }
         if (
@@ -277,8 +423,26 @@ class MediaNode extends SourceNode {
         }
     }
 
+    stop(time) {
+        let result = super.stop(time);
+        //An explicit stop time always wins over the inferred one; loading
+        //metadata or later playback-rate changes must not override it.
+        if (result) this._stopTimeExplicit = true;
+        return result;
+    }
+
+    stopAt(time) {
+        let result = super.stopAt(time);
+        if (result) this._stopTimeExplicit = true;
+        return result;
+    }
+
     clearTimelineState() {
         super.clearTimelineState();
+        //Discard the recorded playback-rate changes; the mapping is rebuilt
+        //from the node's current rate when the node is re-sequenced.
+        this._playbackRateTimeline = [];
+        this._stopTimeExplicit = false;
         if (this._element !== undefined) {
             this._element.pause();
             this._isElementPlaying = false;

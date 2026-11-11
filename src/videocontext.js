@@ -11,8 +11,9 @@ import {
     generateRandomId
 } from "./utils.js";
 import NODES from "./SourceNodes/nodes.js";
-import VideoNode, { VIDEOTYPE } from "./SourceNodes/videonode.js";
+import VideoNode from "./SourceNodes/videonode.js";
 import AudioNode from "./SourceNodes/audionode.js";
+import MediaNode from "./SourceNodes/medianode.js";
 import ImageNode from "./SourceNodes/imagenode.js";
 import CanvasNode from "./SourceNodes/canvasnode.js";
 import { SOURCENODESTATE } from "./SourceNodes/sourcenode.js";
@@ -351,7 +352,18 @@ export default class VideoContext {
 
     /**
      * Set the playback rate of the VideoContext instance.
-     * This will alter the playback speed of all media elements played through the VideoContext.
+     * This controls how fast the internal timeline advances relative to wall
+     * clock time, and applies to all media played through the VideoContext.
+     *
+     * This is one of two independent rate layers. The context playbackRate
+     * scales the whole timeline; a media node's own playbackRate scales how
+     * much source media that node consumes per unit of timeline time. The rate
+     * applied to each underlying media element is the product of the two.
+     * Changing the context rate does not rescale a node's position within its
+     * source media nor the length of its segment on the timeline.
+     *
+     * Only finite numbers greater than 0 are accepted; anything else throws a
+     * RangeError and leaves the previous rate in place.
      *
      * @param {number} rate - this is the playback rate.
      *
@@ -364,13 +376,29 @@ export default class VideoContext {
      * videoNode.connect(ctx.destination);
      * ctx.playbackRate = 2;
      * ctx.play(); // Double playback rate means this will finish playing in 5 seconds.
+     *
+     * @example
+     * //The two rate layers combine. A node with a local playbackRate of 2 in
+     * //a context running at 3 plays its element at 6x.
+     * var ctx = new VideoContext(canvasElement);
+     * var videoNode = ctx.video("video.mp4", 1);
+     * videoNode.startAt(10);
+     * videoNode.playbackRate = 2;
+     * ctx.playbackRate = 3; //the element now plays at 6x
+     * //The local rate can be adjusted continuously, even while playing.
+     * ctx.currentTime = 12; //the element sits at media time 5
+     * videoNode.playbackRate = 0.5; //the frame doesn't jump
+     * ctx.currentTime = 14; //media time 6
+     * ctx.currentTime = 11; //seeking back lands on media time 3
+     * videoNode.playbackRate = 1; //replaces the change recorded at 12
+     * ctx.currentTime = 14; //media time 6 again
      */
     set playbackRate(rate) {
-        if (rate <= 0) {
-            throw new RangeError("playbackRate must be greater than 0");
+        if (typeof rate !== "number" || isNaN(rate) || !isFinite(rate) || rate <= 0) {
+            throw new RangeError("playbackRate must be a finite number greater than 0");
         }
         for (let node of this._sourceNodes) {
-            if (node.constructor.name === VIDEOTYPE) {
+            if (node instanceof MediaNode) {
                 node._globalPlaybackRate = rate;
                 node._playbackRateUpdated = true;
             }

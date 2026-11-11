@@ -24,6 +24,7 @@ The design is heavily inspired by the Web Audio API, so it should feel familiar 
   - [EffectNode](#effectnode)
   - [TransitionNode](#transitionnode)
   - [CompositingNode](#compositingnode)
+- [Playback Rate](#playback-rate)
 - [Writing Custom Effect Definitions](#writing-custom-effect-definitions)
 - [Advanced Examples](#advanced-examples)
 - [Development](#development)
@@ -483,6 +484,39 @@ combineEffect.connect(ctx.destination);
 //start playback.
 ctx.play();
 ```
+
+## Playback Rate
+
+There are two independent playback-rate layers:
+
+- `VideoContext.playbackRate` controls how fast the whole timeline advances relative to wall-clock time.
+- A media node's `playbackRate` (on `VideoNode`, `AudioNode` and their subclasses) controls how much source media that node consumes per unit of timeline time.
+
+The rate applied to the underlying media element is the product of the two. Changing the context rate does not rescale a node's position within its source media, nor the length of its segment on the timeline.
+
+Both layers only accept finite numbers greater than `0`. Any other value throws a `RangeError` and leaves the previous rate, and its recorded positions, unchanged.
+
+A node's local rate can be changed continuously, while playing or paused. The change is recorded at the node's current timeline position: media accumulated under the previous rate is preserved, later playback uses the new rate, and seeking back into an earlier region uses the rates recorded there. Setting a rate after seeking backwards replaces the changes recorded at or after the current position while keeping earlier history. Rate changes recorded at the same position replace each other, so the last one wins. A rate set before the node is sequenced becomes the initial rate for the whole segment.
+
+```JavaScript
+var ctx = new VideoContext(canvasElement);
+
+//A 10 second clip starting at timeline time 10, with sourceOffset 1.
+var videoNode = ctx.video("video.mp4", 1);
+videoNode.startAt(10);
+videoNode.playbackRate = 2;
+
+ctx.playbackRate = 3; //the element now plays at 6x (3 * 2)
+
+ctx.currentTime = 12;         //the element sits at media time 5
+videoNode.playbackRate = 0.5; //the frame doesn't jump
+ctx.currentTime = 14;         //media time 6
+ctx.currentTime = 11;         //seeking back lands on media time 3
+videoNode.playbackRate = 1;   //replaces the change recorded at 12
+ctx.currentTime = 14;         //media time 6 again
+```
+
+When a media node has no explicit stop time, its end on the timeline is derived from the remaining source media and the recorded playback rates. Calling `stop()` or `stopAt()` sets an explicit stop time, which always wins and is never overridden by loading metadata or later rate changes.
 
 ## Writing Custom Effect Definitions
 
