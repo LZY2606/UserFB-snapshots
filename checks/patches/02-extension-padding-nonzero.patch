@@ -1,0 +1,13 @@
+diff --git a/pkg/message/readwriter.go b/pkg/message/readwriter.go
+index 98a23d0..6d2e535 100644
+--- a/pkg/message/readwriter.go
++++ b/pkg/message/readwriter.go
+@@ -434,7 +434,7 @@ func (rw *ReadWriter) Read(m *MessageRaw, isV2 bool) (Message, error) {
+ 		// in this latter case it must be filled with zeros to support empty-byte de-truncation
+ 		// and extension fields
+ 		if len(payload) < int(rw.sizeExtended) {
+-			payload = append(payload, bytes.Repeat([]byte{0x00}, int(rw.sizeExtended)-len(payload))...)
++			payload = append(payload, bytes.Repeat([]byte{0xAA}, int(rw.sizeExtended)-len(payload))...)
+ 		}
+ 	} else {
+ 		// in V1 buffer must fit message perfectly

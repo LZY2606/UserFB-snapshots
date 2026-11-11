@@ -1,0 +1,13 @@
+diff --git a/channel.go b/channel.go
+index bb457c7..0b7e373 100644
+--- a/channel.go
++++ b/channel.go
+@@ -211,7 +211,7 @@ func (ch *Channel) runReader() error {
+ 
+ 			n := ch.frameReadWriter.BufByteReader.Buffered()
+ 			skipped += n
+-			ch.frameReadWriter.BufByteReader.Discard(n) //nolint:errcheck
++			// MUTATION(datagram-buffer-retained): leftover datagram bytes are not discarded.
+ 
+ 			if skipped > 0 {
+ 				ch.node.pushEvent(&EventParseError{fmt.Errorf("skipped %d bytes", skipped), ch})

@@ -1,0 +1,16 @@
+diff --git a/pkg/frame/reader.go b/pkg/frame/reader.go
+index 266936d..b88bbcc 100644
+--- a/pkg/frame/reader.go
++++ b/pkg/frame/reader.go
+@@ -129,10 +129,7 @@ func (r *Reader) Read() (Frame, error) {
+ 	// decode message if in dialect and validate checksum
+ 	if r.DialectRW != nil {
+ 		if mp := r.DialectRW.GetMessage(f.GetMessage().GetID()); mp != nil {
+-			if sum := f.GenerateChecksum(mp.CRCExtra()); sum != f.GetChecksum() {
+-				return nil, newError("wrong checksum, expected %.4x, got %.4x, message id is %d",
+-					sum, f.GetChecksum(), f.GetMessage().GetID())
+-			}
++			// MUTATION(crc-check-skipped): checksum validation of known messages is skipped.
+ 
+ 			_, isV2 := f.(*V2Frame)
+ 			rawMessage := f.GetMessage().(*message.MessageRaw)
