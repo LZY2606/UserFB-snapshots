@@ -1,0 +1,2 @@
+/usr/bin/ar qc ../libgoogletest.a "CMakeFiles/googletest.dir/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/external/googletest-1.18.0/googletest/src/gtest-all.cc.o" "CMakeFiles/googletest.dir/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/external/googletest-1.18.0/googletest/src/gtest_main.cc.o"
+/usr/bin/ranlib ../libgoogletest.a

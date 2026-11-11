@@ -9,6 +9,7 @@
 #include <memory>
 #include <limits>
 #include <numbers>
+#include <vector>
 
 #include "pmp/algorithms/curvature.h"
 #include "pmp/algorithms/normals.h"
@@ -24,7 +25,8 @@ class TriangleKdTree
 {
 public:
     TriangleKdTree(std::shared_ptr<const SurfaceMesh> mesh,
-                   unsigned int max_faces = 10, unsigned int max_depth = 30);
+                   unsigned int max_faces = 10, unsigned int max_depth = 30,
+                   bool smallest_face_on_tie = false);
 
     ~TriangleKdTree() { delete root_; }
 
@@ -66,10 +68,13 @@ private:
 
     Node* root_;
     std::vector<std::array<Point, 3>> face_points_;
+    bool smallest_face_on_tie_;
 };
 
 TriangleKdTree::TriangleKdTree(std::shared_ptr<const SurfaceMesh> mesh,
-                               unsigned int max_faces, unsigned int max_depth)
+                               unsigned int max_faces, unsigned int max_depth,
+                               bool smallest_face_on_tie)
+    : root_(nullptr), smallest_face_on_tie_(smallest_face_on_tie)
 {
     // init
     root_ = new Node();
@@ -203,6 +208,7 @@ TriangleKdTree::NearestNeighbor TriangleKdTree::nearest(const Point& p) const
 {
     NearestNeighbor data;
     data.dist = std::numeric_limits<Scalar>::max();
+    data.face = Face();
     nearest_recurse(root_, p, data);
     return data;
 }
@@ -218,7 +224,8 @@ void TriangleKdTree::nearest_recurse(Node* node, const Point& point,
             Point n;
             const auto& pos = face_points_[f.idx()];
             auto d = dist_point_triangle(point, pos[0], pos[1], pos[2], n);
-            if (d < data.dist)
+            if (d < data.dist ||
+                (smallest_face_on_tie_ && d == data.dist && f < data.face))
             {
                 data.dist = d;
                 data.face = f;
@@ -247,19 +254,51 @@ void TriangleKdTree::nearest_recurse(Node* node, const Point& point,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Texture-aware remeshing
+// ---------------------------------------------------------------------------
+
+// Two corner UVs differing by more than this threshold mark the shared edge
+// as a texture seam.
+constexpr Scalar tex_seam_eps = Scalar(1e-6);
+
 class Remeshing
 {
 public:
     Remeshing(SurfaceMesh& mesh);
 
     void uniform_remeshing(Scalar edge_length, unsigned int iterations = 10,
-                           bool use_projection = true);
+                           bool use_projection = true,
+                           bool preserve_texture = false);
 
     void adaptive_remeshing(Scalar min_edge_length, Scalar max_edge_length,
                             Scalar approx_error, unsigned int iterations = 10,
-                            bool use_projection = true);
+                            bool use_projection = true,
+                            bool preserve_texture = false);
 
 private:
+    // one reference patch per texture chart
+    struct ChartReference
+    {
+        std::shared_ptr<SurfaceMesh> mesh;
+        std::unique_ptr<TriangleKdTree> tree;
+        // flat arrays parallel to the chart mesh's faces
+        std::vector<std::array<Point, 3>> points;
+        std::vector<std::array<TexCoord, 3>> uvs;
+        std::vector<std::pair<Point, Point>> boundary_segments;
+    };
+
+    // texture bookkeeping
+    void init_texture_charts();
+    void recompute_vertex_charts(Vertex v);
+    void texture_split(Vertex vnew, Vertex va, Vertex vb);
+    bool is_texture_seam(Edge e) const;
+    void texture_split(Edge e, Vertex vnew);
+    void texture_collapse(Vertex survivor);
+    void project_onto_polylines(Vertex v);
+    void build_chart_references();
+    void transfer_texture_coordinates();
+
     void preprocessing();
     void postprocessing();
 
@@ -310,6 +349,15 @@ private:
     VertexProperty<Point> refpoints_;
     VertexProperty<Point> refnormals_;
     VertexProperty<Scalar> refsizing_;
+
+    // texture preservation state (all temporary, removed in postprocessing)
+    bool preserve_texture_{false};
+    HalfedgeProperty<TexCoord> tex_;
+    FaceProperty<int> fchart_;
+    EdgeProperty<bool> eseam_;
+    VertexProperty<bool> vseam_;
+    VertexProperty<std::vector<int>> vcharts_;
+    std::vector<ChartReference> charts_;
 };
 
 Remeshing::Remeshing(SurfaceMesh& mesh)
@@ -327,12 +375,296 @@ Remeshing::Remeshing(SurfaceMesh& mesh)
     has_feature_edges_ = mesh_.has_edge_property("e:feature");
 }
 
+bool Remeshing::is_texture_seam(Edge e) const
+{
+    if (mesh_.is_boundary(e))
+        return true;
+
+    // a halfedge's corner is the vertex it points to, so compare the two
+    // corners at each endpoint of the shared edge separately
+    const Halfedge h0 = mesh_.halfedge(e, 0);
+    const Halfedge h1 = mesh_.halfedge(e, 1);
+    const TexCoord& t0a = tex_[h0];
+    const TexCoord& t1a = tex_[mesh_.prev_halfedge(h1)];
+    const TexCoord& t0b = tex_[h1];
+    const TexCoord& t1b = tex_[mesh_.prev_halfedge(h0)];
+    auto differs = [](const TexCoord& a, const TexCoord& b) {
+        return std::abs(a[0] - b[0]) > tex_seam_eps ||
+               std::abs(a[1] - b[1]) > tex_seam_eps;
+    };
+    return differs(t0a, t1a) || differs(t0b, t1b);
+}
+
+void Remeshing::init_texture_charts()
+{
+    eseam_ = mesh_.add_edge_property<bool>("e:texseam", false);
+    fchart_ = mesh_.add_face_property<int>("f:texchart", -1);
+    vseam_ = mesh_.add_vertex_property<bool>("v:texseam", false);
+    vcharts_ = mesh_.add_vertex_property<std::vector<int>>("v:texcharts");
+
+    for (auto e : mesh_.edges())
+        eseam_[e] = is_texture_seam(e);
+
+    // flood-fill faces across non-seam interior edges
+    int n_charts = 0;
+    std::vector<Face> stack;
+    for (auto seed : mesh_.faces())
+    {
+        if (fchart_[seed] != -1)
+            continue;
+        const int chart = n_charts++;
+        fchart_[seed] = chart;
+        stack.clear();
+        stack.push_back(seed);
+        while (!stack.empty())
+        {
+            const Face f = stack.back();
+            stack.pop_back();
+            for (auto h : mesh_.halfedges(f))
+            {
+                const Face nf = mesh_.face(mesh_.opposite_halfedge(h));
+                if (!nf.is_valid() || fchart_[nf] != -1)
+                    continue;
+                if (eseam_[mesh_.edge(h)])
+                    continue;
+                fchart_[nf] = chart;
+                stack.push_back(nf);
+            }
+        }
+    }
+
+    for (auto v : mesh_.vertices())
+    {
+        recompute_vertex_charts(v);
+        bool on_seam = mesh_.is_boundary(v);
+        if (!on_seam)
+        {
+            for (auto h : mesh_.halfedges(v))
+            {
+                if (eseam_[mesh_.edge(h)])
+                {
+                    on_seam = true;
+                    break;
+                }
+            }
+        }
+        vseam_[v] = on_seam;
+    }
+
+    charts_.resize(n_charts);
+}
+
+void Remeshing::recompute_vertex_charts(Vertex v)
+{
+    auto& list = vcharts_[v];
+    list.clear();
+    for (auto f : mesh_.faces(v))
+    {
+        const int c = fchart_[f];
+        if (std::find(list.begin(), list.end(), c) == list.end())
+            list.push_back(c);
+    }
+}
+
+void Remeshing::texture_split(Vertex vnew, Vertex va, Vertex vb)
+{
+    // va, vb are the endpoints of the edge captured before the split.
+    // Face charts are the primary invariant. A new face inherits the chart
+    // of the face it was split from: across each radial edge (the edge from
+    // vnew to the opposite triangle vertex, which is neither va nor vb) it
+    // is adjacent to the surviving sibling of its original face. This works
+    // for interior splits (two new faces) and boundary splits (one new face),
+    // and for both seam and non-seam edges.
+    for (auto f : mesh_.faces(vnew))
+    {
+        if (fchart_[f] != -1)
+            continue;
+        for (auto h : mesh_.halfedges(f))
+        {
+            const Edge eh = mesh_.edge(h);
+            // radial edge: incident to vnew, its other endpoint is neither of
+            // the original split endpoints. the face across it is the
+            // surviving parent face carrying the same chart.
+            const Vertex u = mesh_.vertex(eh, 0);
+            const Vertex w = mesh_.vertex(eh, 1);
+            const bool radial =
+                (u == vnew || w == vnew) && u != va && u != vb && w != va &&
+                w != vb;
+            if (!radial)
+                continue;
+            const Face nf = mesh_.face(mesh_.opposite_halfedge(h));
+            if (nf.is_valid() && fchart_[nf] != -1)
+            {
+                fchart_[f] = fchart_[nf];
+                break;
+            }
+        }
+        if (fchart_[f] == -1)
+        {
+            // boundary split fallback: take the chart of the single assigned
+            // non-boundary neighbor (the surviving parent face)
+            for (auto h : mesh_.halfedges(f))
+            {
+                const Face nf = mesh_.face(mesh_.opposite_halfedge(h));
+                if (nf.is_valid() && fchart_[nf] != -1)
+                {
+                    fchart_[f] = fchart_[nf];
+                    break;
+                }
+            }
+        }
+        assert(fchart_[f] != -1);
+    }
+
+    // seam status is fully determined by the charts of the incident faces;
+    // boundary edges always separate a chart from the outside
+    for (auto en : mesh_.edges(vnew))
+    {
+        if (mesh_.is_boundary(en))
+        {
+            eseam_[en] = true;
+            continue;
+        }
+        const Face fa = mesh_.face(mesh_.halfedge(en, 0));
+        const Face fb = mesh_.face(mesh_.halfedge(en, 1));
+        eseam_[en] = fchart_[fa] != fchart_[fb];
+    }
+
+    vseam_[vnew] = false;
+    for (auto en : mesh_.edges(vnew))
+    {
+        if (eseam_[en])
+        {
+            vseam_[vnew] = true;
+            break;
+        }
+    }
+
+    recompute_vertex_charts(vnew);
+}
+
+void Remeshing::texture_collapse(Vertex survivor)
+{
+    // the surviving vertex inherits all charts still incident to it
+    recompute_vertex_charts(survivor);
+    vseam_[survivor] = false;
+    for (auto h : mesh_.halfedges(survivor))
+    {
+        if (mesh_.is_boundary(mesh_.edge(h)) || eseam_[mesh_.edge(h)])
+        {
+            vseam_[survivor] = true;
+            break;
+        }
+    }
+}
+
+void Remeshing::build_chart_references()
+{
+    auto reftex = refmesh_->get_halfedge_property<TexCoord>("h:tex");
+    auto refchart = refmesh_->get_face_property<int>("f:texchart");
+
+    for (int c = 0; c < static_cast<int>(charts_.size()); ++c)
+    {
+        auto& cr = charts_[c];
+        cr.mesh = std::make_shared<SurfaceMesh>();
+        auto& cm = *cr.mesh;
+
+        std::vector<Vertex> vmap(refmesh_->vertices_size(), Vertex());
+
+        for (auto f : refmesh_->faces())
+        {
+            if (refchart[f] != c)
+                continue;
+
+            std::array<Vertex, 3> fv{};
+            std::array<TexCoord, 3> fuv{};
+            int k = 0;
+            for (auto h : refmesh_->halfedges(f))
+            {
+                const Vertex rv = refmesh_->to_vertex(h);
+                if (!vmap[rv.idx()].is_valid())
+                    vmap[rv.idx()] = cm.add_vertex(refpoints_[rv]);
+                fv[k] = vmap[rv.idx()];
+                fuv[k] = reftex[h];
+                ++k;
+            }
+
+            cm.add_triangle(fv[0], fv[1], fv[2]);
+            cr.points.push_back({cm.position(fv[0]), cm.position(fv[1]),
+                                 cm.position(fv[2])});
+            cr.uvs.push_back({fuv[0], fuv[1], fuv[2]});
+        }
+
+        cr.tree = std::make_unique<TriangleKdTree>(cr.mesh, 0, 30, true);
+
+        // cache the original boundary polylines of this chart
+        for (auto e : cm.edges())
+        {
+            if (cm.is_boundary(e))
+            {
+                cr.boundary_segments.emplace_back(
+                    cm.position(cm.vertex(e, 0)), cm.position(cm.vertex(e, 1)));
+            }
+        }
+    }
+}
+
+void Remeshing::project_onto_polylines(Vertex v)
+{
+    Scalar best_dist = std::numeric_limits<Scalar>::max();
+    Point best_point = points_[v];
+    bool found = false;
+
+    for (int c : vcharts_[v])
+    {
+        for (const auto& seg : charts_[c].boundary_segments)
+        {
+            Point nearest;
+            const Scalar d = dist_point_line_segment(points_[v], seg.first,
+                                                      seg.second, nearest);
+            if (d < best_dist)
+            {
+                best_dist = d;
+                best_point = nearest;
+                found = true;
+            }
+        }
+    }
+
+    if (found)
+        points_[v] = best_point;
+}
+
+void Remeshing::transfer_texture_coordinates()
+{
+    for (auto f : mesh_.faces())
+    {
+        const int chart = fchart_[f];
+        const auto& cr = charts_[chart];
+
+        for (auto h : mesh_.halfedges(f))
+        {
+            const Point& p = points_[mesh_.to_vertex(h)];
+            const auto nn = cr.tree->nearest(p);
+            const auto& tri = cr.points[nn.face.idx()];
+            const Point b = barycentric_coordinates(nn.nearest, tri[0],
+                                                     tri[1], tri[2]);
+            const auto& fuv = cr.uvs[nn.face.idx()];
+            tex_[h] = fuv[0] * b[0] + fuv[1] * b[1] + fuv[2] * b[2];
+        }
+    }
+}
+
 void Remeshing::uniform_remeshing(Scalar edge_length, unsigned int iterations,
-                                  bool use_projection)
+                                  bool use_projection, bool preserve_texture)
 {
     uniform_ = true;
     use_projection_ = use_projection;
     target_edge_length_ = edge_length;
+    preserve_texture_ =
+        preserve_texture && mesh_.has_halfedge_property("h:tex");
+    if (preserve_texture_)
+        tex_ = mesh_.get_halfedge_property<TexCoord>("h:tex");
 
     preprocessing();
 
@@ -356,13 +688,18 @@ void Remeshing::uniform_remeshing(Scalar edge_length, unsigned int iterations,
 
 void Remeshing::adaptive_remeshing(Scalar min_edge_length,
                                    Scalar max_edge_length, Scalar approx_error,
-                                   unsigned int iterations, bool use_projection)
+                                   unsigned int iterations, bool use_projection,
+                                   bool preserve_texture)
 {
     uniform_ = false;
     min_edge_length_ = min_edge_length;
     max_edge_length_ = max_edge_length;
     approx_error_ = approx_error;
     use_projection_ = use_projection;
+    preserve_texture_ =
+        preserve_texture && mesh_.has_halfedge_property("h:tex");
+    if (preserve_texture_)
+        tex_ = mesh_.get_halfedge_property<TexCoord>("h:tex");
 
     preprocessing();
 
@@ -393,6 +730,19 @@ void Remeshing::preprocessing()
     elocked_ = mesh_.add_edge_property<bool>("e:locked", false);
     vsizing_ = mesh_.add_vertex_property<Scalar>("v:sizing");
 
+    // texture charts and seam constraints
+    if (preserve_texture_)
+    {
+        init_texture_charts();
+
+        // every original seam and boundary vertex keeps its position
+        for (auto v : mesh_.vertices())
+        {
+            if (vseam_[v])
+                vlocked_[v] = true;
+        }
+    }
+
     // lock unselected vertices if some vertices are selected
     auto vselected = mesh_.get_vertex_property<bool>("v:selected");
     if (vselected)
@@ -411,13 +761,14 @@ void Remeshing::preprocessing()
         {
             for (auto v : mesh_.vertices())
             {
-                vlocked_[v] = !vselected[v];
+                vlocked_[v] = vlocked_[v] || !vselected[v];
             }
 
             // lock an edge if one of its vertices is locked
             for (auto e : mesh_.edges())
             {
-                elocked_[e] = (vlocked_[mesh_.vertex(e, 0)] ||
+                elocked_[e] = elocked_[e] ||
+                              (vlocked_[mesh_.vertex(e, 0)] ||
                                vlocked_[mesh_.vertex(e, 1)]);
             }
         }
@@ -477,7 +828,8 @@ void Remeshing::preprocessing()
                 curvatures[v] = curv / sum_weights;
         }
 
-        // use vsizing_ to store/smooth curvatures to avoid another vertex property
+        // use vsizing_ to store/smooth curvatures to avoid another vertex
+        // property
 
         // curvature values for feature vertices and boundary vertices
         // are not meaningful. mark them as negative values.
@@ -539,7 +891,7 @@ void Remeshing::preprocessing()
                 h = e * 3.0 / std::numbers::sqrt3;
             }
 
-            // clamp to min. and max. edge length
+            // clamp to min. and max edge length
             if (h < min_edge_length_)
                 h = min_edge_length_;
             else if (h > max_edge_length_)
@@ -550,29 +902,45 @@ void Remeshing::preprocessing()
         }
     }
 
-    if (use_projection_)
+    // snapshot the original surface, including h:tex and the chart ids
+    if (use_projection_ || preserve_texture_)
     {
-        // build reference mesh
         refmesh_ = std::make_shared<SurfaceMesh>();
-        refmesh_->assign(mesh_);
+        *refmesh_ = mesh_;
         vertex_normals(*refmesh_);
         refpoints_ = refmesh_->vertex_property<Point>("v:point");
         refnormals_ = refmesh_->vertex_property<Point>("v:normal");
 
-        // copy sizing field from mesh_
-        refsizing_ = refmesh_->add_vertex_property<Scalar>("v:sizing");
+        // copy sizing field from mesh_ (the deep copy above already
+        // contains the property)
+        refsizing_ = refmesh_->vertex_property<Scalar>("v:sizing");
         for (auto v : refmesh_->vertices())
         {
             refsizing_[v] = vsizing_[v];
         }
 
-        // build kd-tree
+        // global kd-tree for the plain projection path
         kd_tree_ = std::make_unique<TriangleKdTree>(refmesh_, 0);
+
+        if (preserve_texture_)
+            build_chart_references();
     }
 }
 
 void Remeshing::postprocessing()
 {
+    // recompute every corner UV from the closest point on the closest
+    // original triangle of its own texture chart
+    if (preserve_texture_)
+    {
+        transfer_texture_coordinates();
+
+        mesh_.remove_face_property(fchart_);
+        mesh_.remove_edge_property(eseam_);
+        mesh_.remove_vertex_property(vseam_);
+        mesh_.remove_vertex_property(vcharts_);
+    }
+
     // remove properties
     mesh_.remove_vertex_property(vlocked_);
     mesh_.remove_edge_property(elocked_);
@@ -592,6 +960,30 @@ void Remeshing::project_to_reference(Vertex v)
 {
     if (!use_projection_)
     {
+        return;
+    }
+
+    // texture mode: never leave the chart(s) this vertex belongs to
+    if (preserve_texture_)
+    {
+        if (vseam_[v])
+        {
+            // seam/boundary vertices are constrained to their polylines
+            project_onto_polylines(v);
+            return;
+        }
+
+        if (vcharts_[v].size() != 1)
+        {
+            // a vertex touching several charts is a seam vertex and is
+            // handled through the polyline constraints above
+            return;
+        }
+        const int chart = vcharts_[v].front();
+        const auto& cr = charts_[chart];
+        const auto nn = cr.tree->nearest(points_[v]);
+        points_[v] = nn.nearest;
+        vnormal_[v] = vertex_normal(mesh_, v);
         return;
     }
 
@@ -675,7 +1067,23 @@ void Remeshing::split_long_edges()
                     efeature_[enew] = true;
                     vfeature_[vnew] = true;
                 }
-                else
+
+                if (preserve_texture_)
+                {
+                    texture_split(vnew, v0, v1);
+
+                    if (vseam_[vnew])
+                    {
+                        // keep subdivided seam/boundary segments on the
+                        // original polyline
+                        project_onto_polylines(vnew);
+                    }
+                    else
+                    {
+                        project_to_reference(vnew);
+                    }
+                }
+                else if (!is_feature)
                 {
                     project_to_reference(vnew);
                 }
@@ -744,13 +1152,15 @@ void Remeshing::collapse_short_edges()
                         if (!efeature_[e])
                             continue;
 
-                        // the other two edges removed by collapse must not be features
+                        // the other two edges removed by collapse must not be
+                        // features
                         h0 = mesh_.prev_halfedge(h01);
                         h1 = mesh_.next_halfedge(h10);
                         if (efeature_[mesh_.edge(h0)] ||
                             efeature_[mesh_.edge(h1)])
                             hcol01 = false;
-                        // the other two edges removed by collapse must not be features
+                        // the other two edges removed by collapse must not be
+                        // features
                         h0 = mesh_.prev_halfedge(h10);
                         h1 = mesh_.next_halfedge(h01);
                         if (efeature_[mesh_.edge(h0)] ||
@@ -762,6 +1172,15 @@ void Remeshing::collapse_short_edges()
                     else if (f1)
                         hcol10 = false;
 
+                    // texture rules: seam edges never collapse, and neither
+                    // does any edge touching a seam vertex, so that the
+                    // preserved polyline can neither be crossed nor bent.
+                    if (preserve_texture_ &&
+                        (eseam_[e] || vseam_[v0] || vseam_[v1]))
+                    {
+                        continue;
+                    }
+
                     // topological rules
                     const bool collapse_ok = mesh_.is_collapse_ok(h01);
 
@@ -770,7 +1189,8 @@ void Remeshing::collapse_short_edges()
                     if (hcol10)
                         hcol10 = collapse_ok;
 
-                    // both collapses possible: collapse into vertex w/ higher valence
+                    // both collapses possible: collapse into vertex w/ higher
+                    // valence
                     if (hcol01 && hcol10)
                     {
                         if (mesh_.valence(v0) < mesh_.valence(v1))
@@ -795,6 +1215,8 @@ void Remeshing::collapse_short_edges()
                         if (hcol10)
                         {
                             mesh_.collapse(h10);
+                            if (preserve_texture_)
+                                texture_collapse(v0);
                             ok = false;
                         }
                     }
@@ -815,6 +1237,8 @@ void Remeshing::collapse_short_edges()
                         if (hcol01)
                         {
                             mesh_.collapse(h01);
+                            if (preserve_texture_)
+                                texture_collapse(v1);
                             ok = false;
                         }
                     }
@@ -851,6 +1275,14 @@ void Remeshing::flip_edges()
         {
             if (!elocked_[e] && !efeature_[e])
             {
+                // texture mode: flips must neither touch a seam nor connect
+                // two different charts
+                if (preserve_texture_ &&
+                    (eseam_[e] ||
+                     fchart_[mesh_.face(mesh_.halfedge(e, 0))] !=
+                         fchart_[mesh_.face(mesh_.halfedge(e, 1))]))
+                    continue;
+
                 h = mesh_.halfedge(e, 0);
                 v0 = mesh_.to_vertex(h);
                 v2 = mesh_.to_vertex(mesh_.next_halfedge(h));
@@ -1019,6 +1451,25 @@ void Remeshing::tangential_smoothing(unsigned int iterations)
             }
         }
 
+        // texture mode: pull interior vertices back onto their own chart and
+        // keep non-locked seam vertices on the original boundary polylines
+        if (preserve_texture_)
+        {
+            for (auto v : mesh_.vertices())
+            {
+                if (vlocked_[v])
+                    continue;
+                if (vseam_[v])
+                {
+                    project_onto_polylines(v);
+                }
+                else if (use_projection_ && !mesh_.is_boundary(v))
+                {
+                    project_to_reference(v);
+                }
+            }
+        }
+
         // update normal vectors (if not done so through projection)
         vertex_normals(mesh_);
     }
@@ -1032,6 +1483,17 @@ void Remeshing::tangential_smoothing(unsigned int iterations)
             {
                 project_to_reference(v);
             }
+        }
+    }
+
+    // seam vertices created by edge splits stay on the original polylines
+    // even when projection is disabled
+    if (preserve_texture_)
+    {
+        for (auto v : mesh_.vertices())
+        {
+            if (!vlocked_[v] && vseam_[v])
+                project_onto_polylines(v);
         }
     }
 
@@ -1051,6 +1513,13 @@ void Remeshing::remove_caps()
     {
         if (!elocked_[e] && mesh_.is_flip_ok(e))
         {
+            // texture mode: do not flip across chart boundaries
+            if (preserve_texture_ &&
+                (eseam_[e] ||
+                 fchart_[mesh_.face(mesh_.halfedge(e, 0))] !=
+                     fchart_[mesh_.face(mesh_.halfedge(e, 1))]))
+                continue;
+
             h = mesh_.halfedge(e, 0);
             a = points_[mesh_.to_vertex(h)];
 
@@ -1165,7 +1634,8 @@ Point Remeshing::weighted_centroid(Vertex v)
             area = 1.0;
 
         const double w =
-            area / pow((vsizing_[v1] + vsizing_[v2] + vsizing_[v3]) / 3.0, 2.0);
+            area / pow((vsizing_[v1] + vsizing_[v2] + vsizing_[v3]) / 3.0,
+                       2.0);
 
         p += w * b;
         ww += w;
@@ -1178,18 +1648,21 @@ Point Remeshing::weighted_centroid(Vertex v)
 } // namespace
 
 void uniform_remeshing(SurfaceMesh& mesh, Scalar edge_length,
-                       unsigned int iterations, bool use_projection)
+                       unsigned int iterations, bool use_projection,
+                       bool preserve_texture)
 {
-    Remeshing(mesh).uniform_remeshing(edge_length, iterations, use_projection);
+    Remeshing(mesh).uniform_remeshing(edge_length, iterations, use_projection,
+                                      preserve_texture);
 }
 
 void adaptive_remeshing(SurfaceMesh& mesh, Scalar min_edge_length,
                         Scalar max_edge_length, Scalar approx_error,
-                        unsigned int iterations, bool use_projection)
+                        unsigned int iterations, bool use_projection,
+                        bool preserve_texture)
 {
     Remeshing(mesh).adaptive_remeshing(min_edge_length, max_edge_length,
-                                       approx_error, iterations,
-                                       use_projection);
+                                       approx_error, iterations, use_projection,
+                                       preserve_texture);
 }
 
 } // namespace pmp

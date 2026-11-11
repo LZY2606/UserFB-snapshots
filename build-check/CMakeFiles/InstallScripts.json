@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/external/predicates/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/src/pmp/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/tests/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

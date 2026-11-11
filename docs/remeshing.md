@@ -52,6 +52,22 @@ Both uniform and adaptive remeshing functions preserve feature edges present in 
 
 The remeshing can be applied restricted to a subset of the mesh. Use the `v:selected` boolean property to choose the vertices to which the remeshing will be applied.
 
+## Preserving Texture Coordinates
+
+Both remeshing functions accept an optional final parameter `preserve_texture`. If it is set to `true` and the mesh stores a halfedge property named `h:tex` of type TexCoord, the texture mapping is preserved throughout the remeshing. With `preserve_texture` set to `false`, or when the property is absent, behavior is identical to the non-textured algorithm.
+
+Faces are grouped into *texture charts*: two faces belong to the same chart when they are connected through interior edges whose two corner UVs (the UV stored on each halfedge at the vertex it points to) agree within \(10^{-6}\). An edge whose corner UVs differ is a texture seam, and mesh boundaries also separate charts. Chart membership is carried through every edge split, collapse, valence flip, tangential smoothing step and the final garbage collection. Faces from different charts are never merged, and no face can ever span a seam.
+
+Charts are remeshed individually but with the full edge split, collapse, flip and smoothing machinery — neither vertices are locked wholesale nor are flips or smoothing disabled. The geometry of seams is handled conservatively:
+
+- the positions of all original seam and boundary vertices are preserved;
+- seam and boundary polylines may be subdivided (long seams follow the same edge-length rules as the interior), but the output edges cover the same polyline without crossing a corner, drifting off the line, or opening cracks;
+- at a seam junction one geometric vertex keeps several distinct corner UVs, since texture coordinates remain a halfedge property.
+
+UVs are always recomputed from the original surface snapshot taken at the start of the call. For every output corner, the closest point on the closest original triangle *of the corner's own chart* is found (ties go to the smallest original face index), and the three original corner UVs of that triangle are interpolated with the corresponding barycentric coordinates. A global nearest-face search over the whole mesh is therefore never used, so nearby shells, folded regions or overlapping UVs cannot pull corners into another chart. When back-projection is enabled (`use_projection=true`), geometry projection is restricted to the vertex's chart in the same way; seam and boundary vertices are projected onto their original polylines instead. With `use_projection=false` no geometric projection is added, but corner UVs are still transferred with the chart-local nearest-point rule.
+
+The existing `v:feature`, `e:feature` and `v:selected` constraints remain in force. Texture preservation never turns a previously false feature flag permanently true, and all temporary bookkeeping properties are removed when the call returns.
+
 ## Troubleshooting
 
 - Our implementation is not perfect. If you spot a problem, please file an [issue](https://github.com/pmp-library/pmp-library/issues).

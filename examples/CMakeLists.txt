@@ -13,6 +13,9 @@ target_link_libraries(barycenter pmp)
 add_executable(properties properties.cpp)
 target_link_libraries(properties pmp)
 
+add_executable(texture_remeshing texture_remeshing.cpp)
+target_link_libraries(texture_remeshing pmp)
+
 add_executable(eigen eigen.cpp)
 target_link_libraries(eigen pmp)
 
@@ -22,7 +25,8 @@ add_custom_target(
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   COMMENT "")
 
-add_dependencies(examples basics io iterators barycenter properties)
+add_dependencies(examples basics io iterators barycenter properties
+                 texture_remeshing)
 
 # Function to build Emscripten examples with optional preload files
 function(add_emscripten_example NAME SOURCE_FILES)

@@ -1,0 +1,5 @@
+if(EXISTS "/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/tests/gtest_runner[1]_tests.cmake")
+  include("/Users/lzy/pro/UserFB/workspace/Z1271/attempts/20261111T143122811912Z/repo/build-check/pmp-build/tests/gtest_runner[1]_tests.cmake")
+else()
+  add_test(gtest_runner_NOT_BUILT gtest_runner_NOT_BUILT)
+endif()
