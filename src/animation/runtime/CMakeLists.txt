@@ -6,6 +6,7 @@ add_library(ozz_animation
   blending_job.cc
   ik_aim_job.cc
   ik_two_bone_job.cc
+  inertialization_job.cc
   local_to_model_job.cc
   motion_blending_job.cc
   sampling_job.cc
@@ -25,6 +26,7 @@ target_sources(ozz_animation PUBLIC
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/blending_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/ik_aim_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/ik_two_bone_job.h
+    ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/inertialization_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/local_to_model_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/motion_blending_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/sampling_job.h
