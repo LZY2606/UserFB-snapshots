@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import * as bidi from '../src/index.js';
+const text='a אב  ג';
+const levels=bidi.getEmbeddingLevels(text,'ltr');
+const before=[...levels.levels];
+const order=bidi.getReorderedIndices(text,levels,2,5);
+assert.deepEqual(before,[0,0,1,1,1,1,1]);
+assert.deepEqual(order,[0,1,5,4,3,2,6]);
+assert.deepEqual([...levels.levels],before);
+const rlo='\u202e😀A\u202c';
+const visual=bidi.getReorderedString(rlo,bidi.getEmbeddingLevels(rlo,'ltr'));
+assert.equal(visual,'\u202eA\ude00\ud83d\u202c');
+const ph=bidi.getEmbeddingLevels('𐤀A','ltr');
+assert.deepEqual([...ph.levels],[0,0,0]);
+assert.equal(bidi.getBidiCharTypeName('𐤀'),'R');
+console.log('baseline line[2,5]='+JSON.stringify(order));
+console.log('baseline RLO code units='+JSON.stringify(Array.from({length:visual.length},(_,i)=>visual.charCodeAt(i).toString(16))));
+console.log('baseline Phoenician levels=0,0,0 while scalar type=R');
