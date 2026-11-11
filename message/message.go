@@ -175,9 +175,27 @@ func (m *CommandMessage) TypeID() TypeID {
 }
 
 // AggregateMessage (22)
+//
+// An aggregate message packs multiple FLV tags (audio, video and AMF0 data)
+// into a single RTMP message. Members are delivered to the same handlers as
+// their standalone counterparts.
 type AggregateMessage struct {
+	Messages []*AggregateMessageEntry
 }
 
 func (m *AggregateMessage) TypeID() TypeID {
 	return TypeIDAggregateMessage
+}
+
+// AggregateMessageEntry A member of an AggregateMessage.
+type AggregateMessageEntry struct {
+	// Timestamp is a raw timestamp of the FLV tag in the aggregate body.
+	// The timestamp of the first tag is anchored to the timestamp of the
+	// outer RTMP message, and timestamps of subsequent tags are delivered
+	// as offsets (uint32) from the first tag.
+	Timestamp uint32
+
+	// Message is a *AudioMessage, *VideoMessage or *DataMessage(AMF0).
+	// Each member owns its payload independently after decoding.
+	Message Message
 }

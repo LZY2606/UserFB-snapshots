@@ -182,5 +182,5 @@ func (enc *Encoder) encodeCommandMessage(m *CommandMessage) error {
 }
 
 func (enc *Encoder) encodeAggregateMessage(m *AggregateMessage) error {
-	return fmt.Errorf("Not implemented: AggregateMessage")
+	return encodeAggregateMessageBody(enc.w, m)
 }

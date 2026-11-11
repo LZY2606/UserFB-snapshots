@@ -224,7 +224,14 @@ func (dec *Decoder) decodeCommandMessageAMF0(msg *Message) error {
 }
 
 func (dec *Decoder) decodeAggregateMessage(msg *Message) error {
-	return fmt.Errorf("Not implemented: AggregateMessage")
+	var m AggregateMessage
+	if err := decodeAggregateMessageBody(dec.r, &m); err != nil {
+		return err
+	}
+
+	*msg = &m
+
+	return nil
 }
 
 func (dec *Decoder) decodeDataMessage(msg *Message, f func(r io.Reader) (AMFDecoder, EncodingType)) error {
