@@ -15,8 +15,10 @@ sf_snd sf_snd_new(int size, int rate, bool clear){
 		return NULL;
 	snd->size = size;
 	snd->rate = rate;
-	snd->samples = sf_malloc(sizeof(sf_sample_st) * size);
-	if (snd->samples == NULL){
+	// a zero-length sound needs no sample storage; malloc(0) is allowed to return NULL, which
+	// would otherwise look like an allocation failure
+	snd->samples = size > 0 ? sf_malloc(sizeof(sf_sample_st) * size) : NULL;
+	if (size > 0 && snd->samples == NULL){
 		sf_free(snd);
 		return NULL;
 	}

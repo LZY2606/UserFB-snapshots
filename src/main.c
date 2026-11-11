@@ -138,20 +138,29 @@ static inline int biquad(sf_snd input_snd, sf_biquad_state_st *state, const char
 }
 
 static inline int compressor(sf_snd input_snd, sf_compressor_state_st *state, const char *output){
-	sf_snd output_snd = sf_snd_new(input_snd->size, input_snd->rate, true);
+	// the compressor delays every frame by its predelay ring buffer (sf_compressor_latency), so a
+	// non-empty input writes input size plus that many drained tail frames; an empty input stays
+	// empty because a stream that never processed a frame has no tail
+	int latency = sf_compressor_latency(state);
+	int outsize = input_snd->size > 0 ? input_snd->size + latency : 0;
+	sf_snd output_snd = sf_snd_new(outsize, input_snd->rate, true);
 	if (output_snd == NULL){
 		sf_snd_free(input_snd);
 		fprintf(stderr, "Error: Failed to apply filter\n");
 		return 1;
 	}
 
-	// process the compressor in one sweep
-	sf_compressor_process(state, input_snd->size, input_snd->samples, output_snd->samples);
-
-	// note that the compressor does not output one sample per input sample, because the compressor
-	// works in subchunks of 32 samples (this is defined via SF_COMPRESSOR_SPU in compressor.c)
-	//
-	// that means the output size will be floor(input_size / 32) * 32
+	if (input_snd->size > 0){
+		// process the compressor in one sweep, then pull the delayed tail out of the ring buffer
+		sf_compressor_process(state, input_snd->size, input_snd->samples, output_snd->samples);
+		int tail = sf_compressor_drain(state, latency, output_snd->samples + input_snd->size);
+		if (tail != latency){
+			sf_snd_free(input_snd);
+			sf_snd_free(output_snd);
+			fprintf(stderr, "Error: Failed to drain compressor tail\n");
+			return 1;
+		}
+	}
 
 	bool res = sf_wavsave(output_snd, output);
 	sf_snd_free(input_snd);

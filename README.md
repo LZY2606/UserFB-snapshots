@@ -42,6 +42,46 @@ Filters
 * [Low Shelf](http://www.audiorecording.me/what-is-a-low-shelf-and-high-shelf-filter-in-parametric-equalization.html) (Frequency, Q, Gain)
 * [High Shelf](http://www.audiorecording.me/what-is-a-low-shelf-and-high-shelf-filter-in-parametric-equalization.html) (Frequency, Q, Gain)
 
+Compressor Usage
+----------------
+
+The compressor is a streaming, stateful filter. Initialize an `sf_compressor_state_st` once with
+`sf_defaultcomp`, `sf_simplecomp`, or `sf_advancecomp`, then feed it frames with
+`sf_compressor_process`.
+
+`sf_compressor_process` accepts any non-negative number of frames per call — 1, 17, 33, or a full
+block alike. There is no alignment requirement on the chunk size. From initialization onwards,
+every `SF_COMPRESSOR_SPU` (32) consecutive frames form one control period whose envelope
+parameters stay fixed; call boundaries never restart a period, so feeding one stream in different
+chunk sizes produces bit-identical output. A size of zero is legal (the pointers may be `NULL`)
+and advances no state, and `input` may alias `output`. No memory is allocated while processing.
+
+The compressor delays its output by `sf_compressor_latency()` frames (the predelay ring buffer's
+`delaybufsize - 1`). Once the input stream ends, pull those frames back out with
+`sf_compressor_drain`, which is equivalent to feeding that many zero frames into
+`sf_compressor_process`:
+
+```c
+sf_compressor_state_st comp;
+sf_simplecomp(&comp, 48000, 5, -24, 30, 12, 0.003f, 0.250f);
+
+// process the stream one callback at a time, whatever size the callback delivers
+for (each input chunk)
+    sf_compressor_process(&comp, chunk_size, input, output);
+
+// emit the delayed tail, split across calls if the output capacity is small
+int latency = sf_compressor_latency(&comp);
+int emitted = 0;
+while (emitted < latency)
+    emitted += sf_compressor_drain(&comp, latency - emitted, tail + emitted);
+```
+
+A capacity of zero writes nothing and does not end the stream, so it is safe to poll. The first
+call with a positive capacity finalizes the instance: afterwards `sf_compressor_process` leaves
+the output and state untouched until one of the initialization functions is called again to start
+a new stream. A stream that never processed a frame has no tail, and repeated calls after the tail
+is exhausted return zero. No extra silence is emitted to align control periods.
+
 Implementation
 --------------
 
