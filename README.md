@@ -145,6 +145,7 @@ Creates a wrapped framebuffer object
     + `options.color`  The number of color buffers to create (default `1`)
     + `options.depth` If fbo has a depth buffer (default: `true`)
     + `options.stencil` If fbo has a stencil buffer (default: `false`)
+    + `options.drawBuffers` An array of booleans, one per color attachment, selecting which attachments are written to.  Must have exactly `options.color` entries. (default: all enabled)
 
 ## Methods
 
@@ -158,6 +159,9 @@ gl.bindFramebuffer(gl.FRAMEBUFFER, null)
 
 ### `fbo.dispose()`
 Destroys the framebuffer object and releases all associated resources
+
+### `fbo.setDrawBuffers(mask)`
+Selects which color attachments are written to.  `mask` is an array of booleans with one entry per color attachment; disabled entries are routed to `gl.NONE` without compacting the remaining slots.  Only affects writing, the attachments themselves are not reallocated.  Throws if the mask is malformed or exceeds the context's draw buffer limit, in which case the previous mask is kept.
 
 ## Properties
 
@@ -180,6 +184,9 @@ An array containing [`gl-texture2d`](https://github.com/stackgl/gl-texture2d) ob
 
 ### `fbo.depth`
 The depth/stencil component of the FBO.  Stored as a [`gl-texture2d`](https://github.com/stackgl/gl-texture2d).  If not present, is `null`.
+
+### `fbo.drawBuffers`
+A read-only array of booleans with the current per-attachment write mask.  Returns a copy; use `fbo.setDrawBuffers()` to change it.
 
 Credits
 =======

@@ -4,11 +4,22 @@ var createTexture = require('gl-texture2d')
 
 module.exports = createFBO
 
-var colorAttachmentArrays = null
-var FRAMEBUFFER_UNSUPPORTED
-var FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-var FRAMEBUFFER_INCOMPLETE_DIMENSIONS
-var FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
+//Per-context state, never shared between WebGL contexts
+var contextStateCache = new WeakMap()
+
+function getContextState(gl) {
+  var state = contextStateCache.get(gl)
+  if(!state) {
+    state = {
+      FRAMEBUFFER_UNSUPPORTED: gl.FRAMEBUFFER_UNSUPPORTED,
+      FRAMEBUFFER_INCOMPLETE_ATTACHMENT: gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT,
+      FRAMEBUFFER_INCOMPLETE_DIMENSIONS: gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS,
+      FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
+    }
+    contextStateCache.set(gl, state)
+  }
+  return state
+}
 
 function saveFBOState(gl) {
   var fbo = gl.getParameter(gl.FRAMEBUFFER_BINDING)
@@ -23,31 +34,74 @@ function restoreFBOState(gl, data) {
   gl.bindTexture(gl.TEXTURE_2D, data[2])
 }
 
-function lazyInitColorAttachments(gl, ext) {
-  var maxColorAttachments = gl.getParameter(ext.MAX_COLOR_ATTACHMENTS_WEBGL)
-  colorAttachmentArrays = new Array(maxColorAttachments + 1)
-  for(var i=0; i<=maxColorAttachments; ++i) {
-    var x = new Array(maxColorAttachments)
-    for(var j=0; j<i; ++j) {
-      x[j] = gl.COLOR_ATTACHMENT0 + j
+//Validate a draw buffers mask, returns a private copy
+function validateDrawBuffersMask(mask, numColors) {
+  if(!Array.isArray(mask)) {
+    throw new Error('gl-fbo: drawBuffers must be an array of booleans')
+  }
+  if(mask.length !== numColors) {
+    throw new Error('gl-fbo: drawBuffers length must equal number of color attachments')
+  }
+  var result = new Array(numColors)
+  for(var i=0; i<numColors; ++i) {
+    if(typeof mask[i] !== 'boolean') {
+      throw new Error('gl-fbo: drawBuffers entries must be booleans')
     }
-    for(var j=i; j<maxColorAttachments; ++j) {
-      x[j] = gl.NONE
+    result[i] = mask[i]
+  }
+  return result
+}
+
+//Build the routing array submitted to drawBuffersWEBGL.  Output slots map
+//one-to-one onto attachments, holes stay NONE, trailing disabled slots are
+//trimmed and a fully disabled mask collapses to [NONE]
+function drawBuffersRouting(gl, mask) {
+  var last = -1
+  for(var i=0; i<mask.length; ++i) {
+    if(mask[i]) {
+      last = i
     }
-    colorAttachmentArrays[i] = x
+  }
+  var numSlots = Math.max(last + 1, 1)
+  var routing = new Array(numSlots)
+  for(var i=0; i<numSlots; ++i) {
+    routing[i] = mask[i] ? (gl.COLOR_ATTACHMENT0 + i) : gl.NONE
+  }
+  return routing
+}
+
+//Check a mask against the context capabilities.  Throws before any
+//allocation or GL state change if the configuration is not expressible
+function checkDrawBuffersSupport(gl, ext, numColors, mask) {
+  var needsExt = numColors !== 1
+  for(var i=0; i<numColors; ++i) {
+    if(!mask[i]) {
+      needsExt = true
+    }
+  }
+  if(!ext) {
+    if(needsExt) {
+      throw new Error('gl-fbo: Draw buffer configuration requires WEBGL_draw_buffers')
+    }
+    return
+  }
+  var maxDrawBuffers = gl.getParameter(ext.MAX_DRAW_BUFFERS_WEBGL)
+  var numSlots = drawBuffersRouting(gl, mask).length
+  if(numSlots > maxDrawBuffers) {
+    throw new Error('gl-fbo: Context does not support ' + numSlots + ' draw buffers')
   }
 }
 
 //Throw an appropriate error
-function throwFBOError(status) {
+function throwFBOError(status, state) {
   switch(status){
-    case FRAMEBUFFER_UNSUPPORTED:
+    case state.FRAMEBUFFER_UNSUPPORTED:
       throw new Error('gl-fbo: Framebuffer unsupported')
-    case FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+    case state.FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
       throw new Error('gl-fbo: Framebuffer incomplete attachment')
-    case FRAMEBUFFER_INCOMPLETE_DIMENSIONS:
+    case state.FRAMEBUFFER_INCOMPLETE_DIMENSIONS:
       throw new Error('gl-fbo: Framebuffer incomplete dimensions')
-    case FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+    case state.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
       throw new Error('gl-fbo: Framebuffer incomplete missing attachment')
     default:
       throw new Error('gl-fbo: Framebuffer failed for unspecified reason')
@@ -103,10 +157,10 @@ function rebuildFBO(fbo) {
   if(numColors === 0) {
     fbo._color_rb = initRenderBuffer(gl, width, height, gl.RGBA4, gl.COLOR_ATTACHMENT0)
     if(ext) {
-      ext.drawBuffersWEBGL(colorAttachmentArrays[0])
+      ext.drawBuffersWEBGL([gl.NONE])
     }
-  } else if(numColors > 1) {
-    ext.drawBuffersWEBGL(colorAttachmentArrays[numColors])
+  } else if(ext && (numColors > 1 || !fbo._drawBuffers[0])) {
+    ext.drawBuffersWEBGL(drawBuffersRouting(gl, fbo._drawBuffers))
   }
 
   //Allocate depth/stencil buffers
@@ -164,20 +218,23 @@ function rebuildFBO(fbo) {
     restoreFBOState(gl, state)
 
     //Throw the frame buffer error
-    throwFBOError(status)
+    throwFBOError(status, getContextState(gl))
   }
 
   //Everything ok, let's get on with life
   restoreFBOState(gl, state)
 }
 
-function Framebuffer(gl, width, height, colorType, numColors, useDepth, useStencil, ext) {
+function Framebuffer(gl, width, height, colorType, numColors, useDepth, useStencil, ext, drawBuffersMask) {
 
   //Handle and set properties
   this.gl = gl
   this._shape = [width|0, height|0]
   this._destroyed = false
   this._ext = ext
+
+  //Per-target draw buffer write mask (private copy)
+  this._drawBuffers = drawBuffersMask
 
   //Allocate buffers
   this.color = new Array(numColors)
@@ -278,7 +335,7 @@ function reshapeFBO(fbo, w, h) {
   if(status !== gl.FRAMEBUFFER_COMPLETE) {
     fbo.dispose()
     restoreFBOState(gl, state)
-    throwFBOError(status)
+    throwFBOError(status, getContextState(gl))
   }
 
   //Restore framebuffer state
@@ -336,6 +393,12 @@ Object.defineProperties(proto, {
       return h
     },
     enumerable: false
+  },
+  'drawBuffers': {
+    get: function() {
+      return this._drawBuffers.slice()
+    },
+    enumerable: false
   }
 })
 
@@ -346,6 +409,28 @@ proto.bind = function() {
   var gl = this.gl
   gl.bindFramebuffer(gl.FRAMEBUFFER, this.handle)
   gl.viewport(0, 0, this._shape[0], this._shape[1])
+}
+
+proto.setDrawBuffers = function(mask) {
+  if(this._destroyed) {
+    throw new Error('gl-fbo: Can\'t set draw buffers of destroyed FBO')
+  }
+  var gl = this.gl
+  var ext = this._ext
+  var numColors = this.color.length
+
+  //Validate before touching any GL state, so a failure keeps the old mask
+  var validated = validateDrawBuffersMask(mask, numColors)
+  checkDrawBuffersSupport(gl, ext, numColors, validated)
+
+  //Submit the routing to this FBO only, restoring the previous binding
+  if(ext && (numColors !== 1 || !validated[0])) {
+    var prevFBO = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.handle)
+    ext.drawBuffersWEBGL(drawBuffersRouting(gl, validated))
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prevFBO)
+  }
+  this._drawBuffers = validated
 }
 
 proto.dispose = function() {
@@ -376,19 +461,7 @@ proto.dispose = function() {
 
 function createFBO(gl, width, height, options) {
 
-  //Update frame buffer error code values
-  if(!FRAMEBUFFER_UNSUPPORTED) {
-    FRAMEBUFFER_UNSUPPORTED = gl.FRAMEBUFFER_UNSUPPORTED
-    FRAMEBUFFER_INCOMPLETE_ATTACHMENT = gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-    FRAMEBUFFER_INCOMPLETE_DIMENSIONS = gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS
-    FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT = gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
-  }
-
-  //Lazily initialize color attachment arrays
   var WEBGL_draw_buffers = gl.getExtension('WEBGL_draw_buffers')
-  if(!colorAttachmentArrays && WEBGL_draw_buffers) {
-    lazyInitColorAttachments(gl, WEBGL_draw_buffers)
-  }
 
   //Special case: Can accept an array as argument
   if(Array.isArray(width)) {
@@ -424,8 +497,23 @@ function createFBO(gl, width, height, options) {
       } else if(numColors > gl.getParameter(WEBGL_draw_buffers.MAX_COLOR_ATTACHMENTS_WEBGL)) {
         throw new Error('gl-fbo: Context does not support ' + numColors + ' draw buffers')
       }
+    } else if(numColors === 0 && !WEBGL_draw_buffers) {
+      //Disabling the only draw buffer requires the extension
+      throw new Error('gl-fbo: Zero color attachments requires WEBGL_draw_buffers')
     }
   }
+
+  //Validate the draw buffer write mask before any allocation
+  var drawBuffersMask
+  if('drawBuffers' in options) {
+    drawBuffersMask = validateDrawBuffersMask(options.drawBuffers, numColors)
+  } else {
+    drawBuffersMask = new Array(numColors)
+    for(var i=0; i<numColors; ++i) {
+      drawBuffersMask[i] = true
+    }
+  }
+  checkDrawBuffersSupport(gl, WEBGL_draw_buffers, numColors, drawBuffersMask)
 
   //Determine whether to use floating point textures
   var colorType = gl.UNSIGNED_BYTE
@@ -461,5 +549,6 @@ function createFBO(gl, width, height, options) {
     numColors,
     useDepth,
     useStencil,
-    WEBGL_draw_buffers)
+    WEBGL_draw_buffers,
+    drawBuffersMask)
 }
