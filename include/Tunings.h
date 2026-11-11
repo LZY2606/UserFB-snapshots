@@ -135,6 +135,40 @@ struct NotationMapping
 };
 
 /**
+ * The NoteRange struct describes an ASCL NOTE_RANGE_BY_INDEX or
+ * NOTE_RANGE_BY_FREQUENCY directive and the playable range it resolved to.
+ *
+ * The logical position of a note is its octave times the scale count plus its
+ * index within the scale, where index 0 is the implied 1/1 and index i refers
+ * to tone i-1 of the scale. When a range directive is present, the lowest
+ * playable note is placed on MIDI note 0 and the following notes occupy
+ * consecutive keys in the logical order of the scale, so numKeys MIDI notes
+ * starting at 0 are mapped.
+ */
+struct NoteRange
+{
+    enum Kind
+    {
+        kNone,        // no range directive was given
+        kByIndex,     // NOTE_RANGE_BY_INDEX
+        kByFrequency  // NOTE_RANGE_BY_FREQUENCY
+    } kind{kNone};
+
+    bool hasUpperBound{false}; // did the directive name an explicit upper bound?
+
+    // The directive arguments as written in the file
+    int minOctave{0}, minIndex{0}, maxOctave{0}, maxIndex{0};
+    double minFreq{0.0}, maxFreq{0.0};
+
+    // The resolved playable range. startPosition is the logical position of the
+    // lowest playable note (placed on MIDI note 0) and endPosition the logical
+    // position of the highest one, inclusive.
+    int startPosition{0};
+    int endPosition{0};
+    int numKeys{0};
+};
+
+/**
  * The AbletonScale class represents Ableton's ASCL extension to the SCL file.
  *
  * @see https://help.ableton.com/hc/en-us/articles/10998372840220-ASCL-Specification
@@ -147,6 +181,7 @@ struct AbletonScale
     double referencePitchFreq;
     KeyboardMapping keyboardMapping;
     NotationMapping notationMapping;
+    NoteRange noteRange;
     std::string source;
     std::string link;
 
@@ -165,6 +200,14 @@ struct AbletonScale
     int scalePositionForFrequency(double freq);
     double frequencyForScalePosition(int scalePosition);
     double centsForScalePosition(int scalePosition);
+
+    // The ratio of the scale degree at the given index: the implied 1/1 for
+    // index 0 and tone index-1 otherwise.
+    double ratioForScaleIndex(int index);
+    // The frequency of the note at a logical position (octave * count + index),
+    // determined by the reference pitch: fRef * P^(octave - refOctave) *
+    // ratio(index) / ratio(refIndex), where P is the period (the last tone).
+    double frequencyForLogicalPosition(int logicalPosition);
 };
 
 /**
@@ -366,6 +409,13 @@ class Tuning
     std::array<double, N> ptable, lptable;
     std::array<int, N> scalepositiontable;
     bool allowTuningCenterOnUnmapped{false};
+
+    // When the tuning comes from an ASCL note range directive, only the MIDI
+    // notes in [rangeLow, rangeHigh] are playable; the frequency tables still
+    // extrapolate outside of it for modulation purposes.
+    bool rangeLimited{false};
+    int rangeLow{0};
+    int rangeHigh{127};
 };
 
 } // namespace Tunings

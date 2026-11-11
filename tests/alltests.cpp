@@ -1395,17 +1395,60 @@ TEST_CASE("Loading Ableton scales")
         REQUIRE(s2.notationMapping.names[3] == "E1/2♭-a-");
     }
 
-    SECTION("ASCL compared with Ableton-generated KBM")
+    SECTION("ASCL note ranges map the lowest playable note to MIDI 0")
     {
-        std::string files[3] = {"maqamat", "31-edo", "liwung-tbn"};
-        for (std::string file : files)
+        // These files carry NOTE_RANGE_BY_INDEX directives, so instead of the
+        // full-keyboard mapping Ableton's KBM export produces, the playable
+        // range is mapped onto consecutive keys starting at MIDI note 0.
         {
-            auto s = Tunings::readASCLFile(testFile(file + ".ascl"));
-            auto k = Tunings::readKBMFile(testFile(file + ".kbm"));
-            REQUIRE(s.keyboardMapping.count == k.count);
-            REQUIRE(s.keyboardMapping.tuningFrequency == k.tuningFrequency);
-            REQUIRE(s.keyboardMapping.middleNote == k.middleNote);
-            REQUIRE(s.keyboardMapping.tuningConstantNote == k.tuningConstantNote);
+            auto s = Tunings::readASCLFile(testFile("liwung-tbn.ascl"));
+            REQUIRE(s.noteRange.kind == Tunings::NoteRange::kByIndex);
+            REQUIRE_FALSE(s.noteRange.hasUpperBound);
+            REQUIRE(s.noteRange.minOctave == -9);
+            REQUIRE(s.noteRange.minIndex == 0);
+            // 128 keys and the 21000 Hz ceiling bound the open ended range
+            REQUIRE(s.noteRange.numKeys == 92);
+            REQUIRE(s.keyboardMapping.count == 5);
+            REQUIRE(s.keyboardMapping.middleNote == 0);
+            REQUIRE(s.keyboardMapping.tuningConstantNote == 0);
+            REQUIRE(s.keyboardMapping.tuningFrequency == Approx(295.029 / 4096.0));
+
+            Tunings::Tuning t(s);
+            REQUIRE(t.frequencyForMidiNote(0) == Approx(295.029 / 4096.0));
+            // the reference pitch (octave 3, index 0) still lands where it should
+            REQUIRE(t.frequencyForMidiNote(60) == Approx(295.029));
+            REQUIRE(t.isMidiNoteMapped(91));
+            REQUIRE_FALSE(t.isMidiNoteMapped(92));
+            REQUIRE(t.scalePositionForMidiNote(92) == -1);
+        }
+        {
+            auto s = Tunings::readASCLFile(testFile("31-edo.ascl"));
+            REQUIRE(s.noteRange.kind == Tunings::NoteRange::kByIndex);
+            REQUIRE(s.noteRange.hasUpperBound);
+            REQUIRE(s.noteRange.numKeys == 128);
+            REQUIRE(s.keyboardMapping.count == 31);
+            REQUIRE(s.keyboardMapping.middleNote == -16);
+            REQUIRE(s.keyboardMapping.tuningConstantNote == 0);
+            REQUIRE(s.keyboardMapping.tuningFrequency ==
+                    Approx(440.0 * 0.25 * pow(2.0, -7.0 / 31.0)));
+
+            Tunings::Tuning t(s);
+            REQUIRE(t.frequencyForMidiNote(69) == Approx(440.0));
+            REQUIRE(t.isMidiNoteMapped(127));
+        }
+        {
+            auto s = Tunings::readASCLFile(testFile("maqamat.ascl"));
+            REQUIRE(s.noteRange.kind == Tunings::NoteRange::kByIndex);
+            REQUIRE(s.noteRange.numKeys == 128);
+            REQUIRE(s.keyboardMapping.count == 16);
+            REQUIRE(s.keyboardMapping.middleNote == -4);
+            REQUIRE(s.keyboardMapping.tuningConstantNote == 0);
+            REQUIRE(s.keyboardMapping.tuningFrequency ==
+                    Approx(261.6256 / 16.0 * pow(2.0, 300.0 / 1200.0)));
+
+            Tunings::Tuning t(s);
+            REQUIRE(t.frequencyForMidiNote(60) == Approx(261.6256));
+            REQUIRE(t.isMidiNoteMapped(127));
         }
     }
 
@@ -1444,7 +1487,12 @@ TEST_CASE("Loading Ableton scales")
 
         auto s2 = Tunings::readASCLFile(testFile("rast6.ascl"));
         Tunings::Tuning t2(s2);
-        REQUIRE(t2.midiNoteForNoteName("C", 4) == 60);
+        // rast6 carries NOTE_RANGE_BY_INDEX 0 0 6 7, so the playable range
+        // starts at MIDI note 0 and the C of the reference octave 4 lands 4
+        // periods of 20 notes up
+        REQUIRE(s2.noteRange.kind == Tunings::NoteRange::kByIndex);
+        REQUIRE(t2.midiNoteForNoteName("C", 4) == 80);
+        REQUIRE(t2.frequencyForMidiNote(80) == Approx(261.6256));
     }
 
     SECTION("Tuning read without ASCL")

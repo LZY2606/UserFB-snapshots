@@ -598,6 +598,22 @@ inline Tuning::Tuning(const KeyboardMapping &k) : Tuning(evenTemperament12NoteSc
 inline Tuning::Tuning(const AbletonScale &as) : Tuning(as.scale, as.keyboardMapping)
 {
     this->notationMapping = as.notationMapping;
+    if (as.noteRange.kind != NoteRange::kNone)
+    {
+        // The ASCL range directives place the lowest playable note on MIDI note
+        // 0 and map numKeys consecutive keys from there. The keyboard mapping
+        // built from the range extrapolates the scale across the whole table,
+        // so only the mapped-ness of the notes outside the range is lifted.
+        rangeLimited = true;
+        rangeLow = 0;
+        rangeHigh = as.noteRange.numKeys - 1;
+        for (int i = 0; i < N; ++i)
+        {
+            auto mn = i - 256;
+            if (mn < rangeLow || mn > rangeHigh)
+                scalepositiontable[i] = -1;
+        }
+    }
 }
 
 inline Tuning::Tuning(const Scale &s_, const KeyboardMapping &k_, bool allowTuningCenterOnUnmapped_)
@@ -1041,10 +1057,19 @@ inline int Tuning::midiNoteForNoteName(std::string noteName, int octave) const
     }
     int scalePosition = positive_mod(static_cast<int>(it - notationMapping.names.begin() + 1),
                                      notationMapping.count);
-    return std::min(
-        std::max(0, scalePosition + keyboardMapping.middleNote +
-                        keyboardMapping.octaveDegrees * (octave - keyboardMapping.tuningOctave)),
-        N - 1);
+    auto mn = scalePosition + keyboardMapping.middleNote +
+              keyboardMapping.octaveDegrees * (octave - keyboardMapping.tuningOctave);
+    if (rangeLimited)
+    {
+        if (mn < rangeLow || mn > rangeHigh)
+        {
+            std::string s = "Note name '" + noteName + "' at octave " + std::to_string(octave) +
+                            " is outside the playable range of the tuning.";
+            throw TuningError(s);
+        }
+        return mn;
+    }
+    return std::min(std::max(0, mn), N - 1);
 }
 
 inline std::string Tuning::noteNameForScalePosition(int scalePosition) const
@@ -1062,6 +1087,11 @@ inline Tuning Tuning::withSkippedNotesInterpolated() const
     Tuning res = *this;
     for (int i = 1; i < N - 1; ++i)
     {
+        // Notes left unmapped by an ASCL note range keep their extrapolated
+        // frequencies and stay unmapped; only skipped keys inside the playable
+        // range are interpolated.
+        if (rangeLimited && (i - 256 < rangeLow || i - 256 > rangeHigh))
+            continue;
         if (scalepositiontable[i] < 0)
         {
             int nxt = i + 1;
@@ -1142,6 +1172,59 @@ inline KeyboardMapping startScaleOnAndTuneNoteTo(int scaleStart, int midiNote, d
     return parseKBMData(oss.str());
 }
 
+namespace ascl_detail
+{
+inline std::vector<std::string> tokens(const std::string &s)
+{
+    std::vector<std::string> res;
+    std::istringstream iss(s);
+    iss.imbue(std::locale("C"));
+    std::string tok;
+    while (iss >> tok)
+        res.push_back(tok);
+    return res;
+}
+
+// Strict whole-token integer parse, so "12abc" is an error rather than 12.
+inline bool parseInteger(const std::string &tok, long long &value)
+{
+    if (tok.empty())
+        return false;
+    size_t pos = (tok[0] == '-' || tok[0] == '+') ? 1 : 0;
+    if (pos == tok.size())
+        return false;
+    for (size_t i = pos; i < tok.size(); ++i)
+        if (!std::isdigit(static_cast<unsigned char>(tok[i])))
+            return false;
+    try
+    {
+        value = std::stoll(tok);
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return true;
+}
+
+// Strict whole-token floating point parse, locale independent.
+inline bool parseFloat(const std::string &tok, double &value)
+{
+    static const std::regex floatRe("[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?");
+    if (!std::regex_match(tok, floatRe))
+        return false;
+    try
+    {
+        value = std::stod(tok);
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return std::isfinite(value);
+}
+} // namespace ascl_detail
+
 inline AbletonScale readASCLStream(std::istream &inf)
 {
     AbletonScale as;
@@ -1166,8 +1249,89 @@ inline AbletonScale readASCLStream(std::istream &inf)
     std::iota(as.keyboardMapping.keys.begin(), as.keyboardMapping.keys.end(), 0);
 
     // Parse the scale comments to detect @ABL extensions
+    bool referencePitchSeen = false;
+
+    // Resolve a parsed note range directive: cap the playable range at 128
+    // keys, an explicit upper bound and the frequency ceiling, then rebuild
+    // the keyboard mapping so the lowest playable note lands on MIDI note 0
+    // and the following notes occupy consecutive keys in logical scale order.
+    auto applyNoteRange = [&](int startPosition, std::optional<int> explicitEndPosition,
+                              double frequencyCeiling)
+    {
+        auto count = as.scale.count;
+        if (as.referencePitchIndex < 0 || as.referencePitchIndex >= count)
+        {
+            throw TuningError("Unable to apply a note range: the reference pitch index " +
+                              std::to_string(as.referencePitchIndex) +
+                              " is outside the scale of " + std::to_string(count) + " notes.");
+        }
+        if (!(as.referencePitchFreq > 0))
+        {
+            throw TuningError(
+                "Unable to apply a note range: the reference pitch frequency must be positive.");
+        }
+
+        auto startFrequency = as.frequencyForLogicalPosition(startPosition);
+        // Inclusive bounds, with a hair of tolerance so a period like 3/1
+        // round-tripping through log2 and pow does not fall off the edge.
+        auto ceiling = frequencyCeiling * (1.0 + 1e-9);
+        if (!(startFrequency <= ceiling))
+        {
+            throw TuningError("The note range selects no playable notes.");
+        }
+
+        int endLimit = startPosition + 127; // map at most 128 keys
+        if (explicitEndPosition.has_value())
+            endLimit = std::min(endLimit, *explicitEndPosition);
+
+        // Walk upwards from the start; whichever boundary is met first - the
+        // explicit upper bound, the 128 key limit or the frequency ceiling -
+        // is where the playable range ends.
+        int endPosition = startPosition;
+        while (endPosition < endLimit && as.frequencyForLogicalPosition(endPosition + 1) <= ceiling)
+        {
+            ++endPosition;
+        }
+
+        as.noteRange.startPosition = startPosition;
+        as.noteRange.endPosition = endPosition;
+        as.noteRange.numKeys = endPosition - startPosition + 1;
+
+        int startOctave = startPosition / count;
+        int startIndex = startPosition % count;
+        if (startIndex < 0)
+        {
+            startIndex += count;
+            startOctave -= 1;
+        }
+
+        // Anchor the mapping on the first playable note with the frequency the
+        // reference pitch implies for it, so every absolute frequency is still
+        // determined by the reference even if the reference itself falls
+        // outside the playable range.
+        as.keyboardMapping.count = count;
+        as.keyboardMapping.firstMidi = 0;
+        as.keyboardMapping.lastMidi = 127;
+        as.keyboardMapping.middleNote = -startIndex;
+        as.keyboardMapping.tuningConstantNote = 0;
+        as.keyboardMapping.tuningFrequency = startFrequency;
+        as.keyboardMapping.tuningPitch = startFrequency / MIDI_0_FREQ;
+        as.keyboardMapping.tuningOctave = startOctave;
+        as.keyboardMapping.octaveDegrees = count;
+        as.keyboardMapping.keys = std::vector<int>(count);
+        std::iota(as.keyboardMapping.keys.begin(), as.keyboardMapping.keys.end(), 0);
+    };
+
     for (const auto &comment : as.scale.comments)
     {
+        std::smatch bareRange;
+        if (std::regex_match(comment, bareRange,
+                             std::regex("!\\s+@ABL\\s+(NOTE_RANGE_BY_INDEX|NOTE_RANGE_BY_"
+                                        "FREQUENCY)\\s*$")))
+        {
+            throw TuningError("Invalid " + bareRange[1].str() +
+                              " entry: missing arguments");
+        }
         std::smatch command;
         if (!std::regex_match(comment, command, std::regex("!\\s+@ABL\\s+(.*?)\\s+(.*?)$")))
             continue;
@@ -1209,6 +1373,13 @@ inline AbletonScale readASCLStream(std::istream &inf)
             if (std::regex_match(rp, reference_pitch,
                                  std::regex("\\s*(\\d+)\\s*(\\d+)\\s*([\\d.]+)\\s*$")))
             {
+                if (as.noteRange.kind != NoteRange::kNone)
+                {
+                    throw TuningError("Invalid REFERENCE_PITCH entry '" + rp +
+                                      "': a reference pitch must precede the note range "
+                                      "directive it tunes");
+                }
+                referencePitchSeen = true;
                 // The regex only promises digits, not that they fit in an int, so a
                 // long enough run of them makes stoi throw std::out_of_range. That
                 // would leave this function by a route callers don't expect, since
@@ -1240,11 +1411,178 @@ inline AbletonScale readASCLStream(std::istream &inf)
         }
         else if (command[1] == "NOTE_RANGE_BY_FREQUENCY")
         {
-            // TODO
+            if (as.noteRange.kind != NoteRange::kNone)
+            {
+                throw TuningError(
+                    "Multiple ASCL note range directives. Only one of NOTE_RANGE_BY_INDEX "
+                    "or NOTE_RANGE_BY_FREQUENCY may appear in a file.");
+            }
+            std::string rawText = command[2];
+            auto toks = ascl_detail::tokens(rawText);
+            auto badEntry = [&rawText]()
+            {
+                return TuningError("Invalid NOTE_RANGE_BY_FREQUENCY entry '" + rawText +
+                                   "': expected minFreq [maxFreq]");
+            };
+            if (toks.empty() || toks.size() > 2)
+                throw badEntry();
+
+            double lo{0}, hi{0};
+            if (!ascl_detail::parseFloat(toks[0], lo))
+                throw badEntry();
+            if (lo < 4.0 || lo > 21000.0)
+            {
+                throw TuningError("Invalid NOTE_RANGE_BY_FREQUENCY entry '" + rawText +
+                                  "': the minimum frequency must be between 4 and 21000 Hz");
+            }
+            bool hasHi = toks.size() == 2;
+            if (hasHi)
+            {
+                if (!ascl_detail::parseFloat(toks[1], hi))
+                    throw badEntry();
+                if (hi < 4.0 || hi > 21000.0)
+                {
+                    throw TuningError("Invalid NOTE_RANGE_BY_FREQUENCY entry '" + rawText +
+                                      "': the maximum frequency must be between 4 and 21000 Hz");
+                }
+                if (hi < lo)
+                {
+                    throw TuningError("Invalid NOTE_RANGE_BY_FREQUENCY entry '" + rawText +
+                                      "': the maximum frequency is below the minimum");
+                }
+            }
+
+            // Mapping frequencies to logical positions requires the scale to
+            // strictly ascend within one period; anything else is rejected
+            // rather than resolved by a lucky search.
+            double previous = 1.0; // the implied 1/1 at index 0
+            for (const auto &t : as.scale.tones)
+            {
+                if (!(t.floatValue > previous))
+                {
+                    throw TuningError(
+                        "NOTE_RANGE_BY_FREQUENCY requires a scale which strictly ascends "
+                        "within one period, but tone '" +
+                        t.stringRep + "' does not");
+                }
+                previous = t.floatValue;
+            }
+
+            if (as.referencePitchIndex < 0 || as.referencePitchIndex >= as.scale.count)
+            {
+                throw TuningError(
+                    "Unable to apply a note range: the reference pitch index " +
+                    std::to_string(as.referencePitchIndex) + " is outside the scale of " +
+                    std::to_string(as.scale.count) + " notes.");
+            }
+            if (!(as.referencePitchFreq > 0))
+            {
+                throw TuningError("Unable to apply a note range: the reference pitch "
+                                  "frequency must be positive.");
+            }
+
+            as.noteRange.kind = NoteRange::kByFrequency;
+            as.noteRange.hasUpperBound = hasHi;
+            as.noteRange.minFreq = lo;
+            as.noteRange.maxFreq = hasHi ? hi : 0.0;
+
+            // The first logical position whose frequency is not below lo. The
+            // octave guess from the period lands within a few positions, and
+            // the two walks settle on the exact boundary. The bound is
+            // inclusive, again with a hair of tolerance for the log2/pow
+            // round trip.
+            auto count = as.scale.count;
+            double period = as.ratioForScaleIndex(count); // the last tone, > 1 per the check
+            double refRatio = as.ratioForScaleIndex(as.referencePitchIndex);
+            double loBound = lo * (1.0 - 1e-9);
+            long long startGuess =
+                ((long long)as.referencePitchOctave +
+                 (long long)std::floor(std::log(lo * refRatio / as.referencePitchFreq) /
+                                       std::log(period))) *
+                count;
+            if (startGuess < std::numeric_limits<int>::min() ||
+                startGuess > std::numeric_limits<int>::max())
+            {
+                throw TuningError("Invalid NOTE_RANGE_BY_FREQUENCY entry '" + rawText +
+                                  "': the range starts beyond the supported scale span");
+            }
+            int startPosition = (int)startGuess;
+            while (as.frequencyForLogicalPosition(startPosition) >= loBound)
+                --startPosition;
+            while (as.frequencyForLogicalPosition(startPosition) < loBound)
+                ++startPosition;
+
+            applyNoteRange(startPosition, std::nullopt, hasHi ? hi : 21000.0);
         }
         else if (command[1] == "NOTE_RANGE_BY_INDEX")
         {
-            // TODO
+            if (as.noteRange.kind != NoteRange::kNone)
+            {
+                throw TuningError(
+                    "Multiple ASCL note range directives. Only one of NOTE_RANGE_BY_INDEX "
+                    "or NOTE_RANGE_BY_FREQUENCY may appear in a file.");
+            }
+            if (!referencePitchSeen)
+            {
+                throw TuningError(
+                    "NOTE_RANGE_BY_INDEX requires a REFERENCE_PITCH directive before it");
+            }
+            std::string rawText = command[2];
+            auto toks = ascl_detail::tokens(rawText);
+            auto badEntry = [&rawText]()
+            {
+                return TuningError("Invalid NOTE_RANGE_BY_INDEX entry '" + rawText +
+                                   "': expected minOctave minIndex [maxOctave maxIndex]");
+            };
+            // Two arguments name just the lower bound, four name both; anything
+            // else is missing arguments, half an upper bound or extra arguments.
+            if (toks.size() != 2 && toks.size() != 4)
+                throw badEntry();
+
+            long long vals[4];
+            for (size_t i = 0; i < toks.size(); ++i)
+                if (!ascl_detail::parseInteger(toks[i], vals[i]))
+                    throw badEntry();
+
+            auto count = as.scale.count;
+            for (size_t i = 0; i < toks.size(); i += 2)
+            {
+                if (vals[i] < -99 || vals[i] > 99)
+                {
+                    throw TuningError("Invalid NOTE_RANGE_BY_INDEX entry '" + rawText +
+                                      "': the octave must be between -99 and 99");
+                }
+                if (vals[i + 1] < 0 || vals[i + 1] >= count)
+                {
+                    throw TuningError("Invalid NOTE_RANGE_BY_INDEX entry '" + rawText +
+                                      "': the index must be between 0 and " +
+                                      std::to_string(count - 1));
+                }
+            }
+
+            int minPosition = (int)vals[0] * count + (int)vals[1];
+            std::optional<int> maxPosition;
+            if (toks.size() == 4)
+            {
+                maxPosition = (int)vals[2] * count + (int)vals[3];
+                if (*maxPosition < minPosition)
+                {
+                    throw TuningError("Invalid NOTE_RANGE_BY_INDEX entry '" + rawText +
+                                      "': the upper bound is below the lower bound");
+                }
+            }
+
+            as.noteRange.kind = NoteRange::kByIndex;
+            as.noteRange.hasUpperBound = maxPosition.has_value();
+            as.noteRange.minOctave = (int)vals[0];
+            as.noteRange.minIndex = (int)vals[1];
+            if (maxPosition.has_value())
+            {
+                as.noteRange.maxOctave = (int)vals[2];
+                as.noteRange.maxIndex = (int)vals[3];
+            }
+
+            applyNoteRange(minPosition, maxPosition, 21000.0);
         }
         else if (command[1] == "SOURCE")
         {
@@ -1335,6 +1673,31 @@ inline double AbletonScale::centsForScalePosition(int scalePosition)
     auto n = scale.tones.size();
     auto t = scale.tones[positive_mod(scalePosition, static_cast<unsigned>(n))];
     return t.cents + floor(1.0 * scalePosition / n) * scale.tones.back().cents;
+}
+
+inline double AbletonScale::ratioForScaleIndex(int index)
+{
+    if (index == 0)
+        return 1.0; // the implied 1/1 at the root of the scale
+    // Tone::floatValue is log2 of the ratio plus one
+    return std::pow(2.0, scale.tones[index - 1].floatValue - 1.0);
+}
+
+inline double AbletonScale::frequencyForLogicalPosition(int logicalPosition)
+{
+    auto count = scale.count;
+    auto octave = logicalPosition / count;
+    auto index = logicalPosition % count;
+    if (index < 0)
+    {
+        index += count;
+        octave -= 1;
+    }
+    // The last tone is the period P, which is not necessarily 2.
+    auto period = ratioForScaleIndex(count);
+    auto octaveDifference = (long long)octave - referencePitchOctave;
+    return referencePitchFreq * std::pow(period, (double)octaveDifference) *
+           ratioForScaleIndex(index) / ratioForScaleIndex(referencePitchIndex);
 }
 
 inline AbletonScale readASCLFile(std::string fname)
