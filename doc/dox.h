@@ -667,6 +667,43 @@ Normally textures used by assets are stored in separate files, however,
 there are file formats embedding their textures directly into the model file.
 Such textures are loaded into an aiTexture structure.
 
+@section weld_vertices Vertex welding and the approximate representative rule
+
+The #aiProcess_JoinIdenticalVertices post-processing step welds duplicate
+vertices within each mesh. Two vertices belong to the same identity when their
+positions, normals, tangents, bitangents, texture coordinates and vertex colours
+match within a distance tolerance of @c 1e-5 (per attribute), and when their
+remaining vertex identity data matches exactly:
+
+ - The <b>bone influence signature</b> must be identical: per bone slot, the
+   set of non-zero weights has to match exactly. Zero weights are equivalent to
+   the vertex not being influenced by that bone, the order of weights does not
+   matter, and weight sums are never normalized. Bone slots are the identity;
+   two bones with the same name but different offset matrices are distinct.
+ - Every attached #aiAnimMesh (morph target) must agree exactly, component by
+   component, in every array it actually stores (positions, normals, tangents,
+   bitangents, texture coordinates, colours). An absent array means the target
+   inherits the base mesh data, so absence does not prevent welding. Only the
+   current base pose is not enough: all targets are part of the identity.
+
+The approximate comparison is deliberately <b>not transitive</b>. With A close
+to B, B close to C, but A not close to C, welding all three would accumulate
+error. The process therefore uses a representative rule: vertices are scanned
+in their original order, and a vertex may only join the earliest already
+retained original vertex for which every condition holds. If none matches, the
+vertex becomes a new representative itself. Representatives keep their original
+attributes; nothing is averaged or repositioned, and face corner order is
+preserved.
+
+This matters for characters: skinning is linear in the weights, so two
+vertices with different bone signatures deform differently and must never share
+an output vertex. Welding is safe for character vertices when their bone
+weights and all morph-target data are identical - for example duplicated
+vertices along a seam that is split only for rendering or UV reasons, where all
+copies have the same skeleton influence. Welding is <i>not</i> safe when the
+copies have different weights, when the weights differ only in total, or when
+a morph target moves them differently.
+
 In previous versions, the path from the query for `AI_MATKEY_TEXTURE(textureType, index)` would be
 `*<index>` where `<index>` is the index of the texture in aiScene::mTextures. Now this call will
 return a file path for embedded textures in FBX files. To test if it is an embedded texture use

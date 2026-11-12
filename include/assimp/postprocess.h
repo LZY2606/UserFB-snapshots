@@ -94,6 +94,15 @@ enum aiPostProcessSteps
      * time. <b>If this flag is not specified</b>, no vertices are referenced by
      * more than one face and <b>no index buffer is required</b> for rendering.
      * Unless the importer (like ply) had to split vertices. Then you need one regardless.
+     *
+     * Position, normal, tangent, bitangent, texture coordinate and vertex
+     * colour streams are compared with a small distance tolerance (1e-5).
+     * Bone weights and all #aiAnimMesh morph target streams are part of the
+     * vertex identity and must match exactly. Because the approximate
+     * comparison is not transitive, a vertex is only welded into the earliest
+     * already retained original vertex that matches every condition, and the
+     * representative keeps its original attributes unchanged. See
+     * @ref weld_vertices for details.
      */
     aiProcess_JoinIdenticalVertices = 0x2,
 
