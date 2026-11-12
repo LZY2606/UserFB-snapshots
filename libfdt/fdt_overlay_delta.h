@@ -1,0 +1,137 @@
+/* SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause) */
+#ifndef FDT_OVERLAY_DELTA_H
+#define FDT_OVERLAY_DELTA_H
+/*
+ * libfdt - Flat Device Tree manipulation
+ *	Generate a device tree overlay (DTBO) describing the difference
+ *	between two complete device tree blobs.
+ */
+
+#include <libfdt_env.h>
+#include <fdt.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * struct fdt_delta_ref - location of one phandle reference in a tree
+ * @path: absolute path of the node holding the property, e.g. "/soc/uart"
+ * @property: name of the property holding the reference, e.g. "clocks"
+ * @cell: offset of the reference within the property value, in 4-byte
+ *	cells (cell 0 covers bytes 0..3, cell 1 bytes 4..7, ...)
+ *
+ * fdt_overlay_delta() does not attempt to understand device tree
+ * bindings: it cannot know which properties (such as "clocks" or
+ * "gpios") contain phandle references.  Only the locations explicitly
+ * listed with this structure are interpreted as references; every
+ * other 4-byte unit is always treated as plain bytes, even if its
+ * value happens to equal some phandle.  Each listed location is
+ * described separately for the base tree and for the desired tree,
+ * because the two trees may number their phandles differently.
+ */
+struct fdt_delta_ref {
+	const char *path;
+	const char *property;
+	uint32_t cell;
+};
+
+/**
+ * fdt_overlay_delta - generate an overlay turning one DTB into another
+ * @base: read-only pointer to the base device tree blob
+ * @desired: read-only pointer to the desired device tree blob
+ * @base_refs: array of reference locations in @base (may be NULL if
+ *	@num_base_refs is 0)
+ * @num_base_refs: number of entries in @base_refs
+ * @desired_refs: array of reference locations in @desired (may be NULL
+ *	if @num_desired_refs is 0)
+ * @num_desired_refs: number of entries in @desired_refs
+ * @buf: caller-provided output buffer for the generated overlay
+ *	(may be NULL when @bufsize is 0)
+ * @bufsize: size of @buf in bytes
+ * @errpath: optional buffer receiving the absolute node path (sometimes
+ *	with a ":property" suffix) related to a failure; may be NULL
+ * @errpath_size: size of @errpath in bytes
+ *
+ * fdt_overlay_delta() compares the read-only trees @base and @desired
+ * and generates a device tree overlay which, when applied to @base
+ * with fdt_overlay_apply(), produces a tree equivalent to @desired.
+ *
+ * Supported differences:
+ *   - added nodes (matched by full absolute path)
+ *   - added properties
+ *   - overridden properties
+ *
+ * Deletions are not supported: if a node or property present in @base
+ * is missing from @desired, the call fails and reports the offending
+ * location in @errpath.  Property order and child node order do not
+ * affect the comparison.  The phandle numbers of pre-existing nodes
+ * may be renumbered freely in @desired; node identity is determined
+ * by path, so pure renumbering produces no output, and the overlay
+ * never overwrites the phandle of a pre-existing node.
+ *
+ * References listed in @base_refs / @desired_refs are compared by the
+ * absolute path of the node they point to, so renumbering alone never
+ * creates spurious overrides.  In the generated overlay, references
+ * to nodes that already exist in @base are emitted as external fixups
+ * (/__fixups__) using a label from the base tree's /__symbols__ node
+ * (the lexicographically smallest label if a node has several); if no
+ * label exists the call fails and reports the source property and the
+ * target path.  References to added nodes are emitted as local
+ * phandles with /__local_fixups__, including references between added
+ * nodes in any direction.  Local phandle numbers and fragment order
+ * are derived from sorted absolute paths, so the output does not
+ * depend on the phandle numbering or node ordering of the input
+ * trees.  Zero-length properties are preserved.
+ *
+ * The memory reserve map of @base is kept as is (an overlay cannot
+ * change it); if the reserve map of @desired differs, the call fails.
+ * The /__symbols__ nodes of both trees are treated as label metadata,
+ * not as ordinary device nodes.  New labels introduced by @desired
+ * are emitted into the overlay's /__symbols__ pointing at the
+ * corresponding overlay paths, so that a subsequent overlay can
+ * reference them after the merge.  A label that exists in both trees
+ * but points to different nodes is rejected.
+ *
+ * If @base and @desired are identical (modulo phandle renumbering),
+ * a valid empty overlay is generated.
+ *
+ * The input trees, the reference arrays and the output buffer must
+ * not overlap in memory.
+ *
+ * returns:
+ *	the number of bytes needed for the generated overlay (>= 0).
+ *	If this is less than or equal to @bufsize, @buf contains the
+ *	overlay, ready for fdt_overlay_apply().  If it is greater
+ *	than @bufsize, @buf was left unmodified; the call can be
+ *	retried with a larger buffer.  The generated bytes are
+ *	identical for any sufficiently large buffer.
+ *	-FDT_ERR_NOSPACE (negative), internal allocation failed
+ *	-FDT_ERR_BADVALUE, mismatched reserve maps, an annotation out
+ *		of range, overlapping buffers, or a label conflict
+ *	-FDT_ERR_BADPATH, a reference path is malformed or not found
+ *	-FDT_ERR_NOTFOUND, an annotated property or a needed symbol
+ *		is missing, or @desired deletes a node or property
+ *	-FDT_ERR_BADPHANDLE, an annotated value is not a valid,
+ *		unique phandle in its tree
+ *	-FDT_ERR_EXISTS, the same location is annotated twice
+ *	-FDT_ERR_BADMAGIC / -FDT_ERR_TRUNCATED / other negative
+ *		FDT_ERR_* codes, malformed input trees
+ *
+ *	On any negative return @buf is left unmodified and, when
+ *	@errpath is non-NULL and @errpath_size is non-zero, @errpath
+ *	contains a NUL-terminated string describing the location
+ *	related to the error (or an empty string if none applies).
+ */
+int fdt_overlay_delta(const void *base, const void *desired,
+		      const struct fdt_delta_ref *base_refs, int num_base_refs,
+		      const struct fdt_delta_ref *desired_refs,
+		      int num_desired_refs,
+		      void *buf, size_t bufsize,
+		      char *errpath, size_t errpath_size);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* FDT_OVERLAY_DELTA_H */
