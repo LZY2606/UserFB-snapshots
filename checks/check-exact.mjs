@@ -1,0 +1,10 @@
+import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+const r=spawnSync(process.execPath,['--test','--test-reporter=tap',"test/exact-subclip.test.mjs"],{encoding:'utf8'});
+process.stdout.write(r.stdout||''); process.stderr.write(r.stderr||'');
+assert.equal(r.status,0,'test process failed');
+for(const name of ["exact-curves", "smooth-context", "quaternion-discrete", "mixer-roundtrip", "invalid-and-ownership"]) assert.ok((r.stdout||'').includes('ok ') && (r.stdout||'').split('\n').some(l=>/^ok [0-9]+ - /.test(l)&&l.endsWith(name)),`missing passed case: ${name}`);
+assert.match(r.stdout,/^# tests [1-9][0-9]*$/m);
+assert.match(r.stdout,/^# fail 0$/m); assert.match(r.stdout,/^# skipped 0$/m);
+assert.match(r.stdout,/^# todo 0$/m);
+console.log('TARGET_SUITE_OK');
