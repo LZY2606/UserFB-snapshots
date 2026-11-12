@@ -25,15 +25,11 @@
 #include <tchar.h>
 #endif
 
-typedef unsigned int IUINT32;
+#include "mini3d.h"
 
 //=====================================================================
 // 数学库：此部分应该不用详解，熟悉 D3D 矩阵变换即可
 //=====================================================================
-typedef struct { float m[4][4]; } matrix_t;
-typedef struct { float x, y, z, w; } vector_t;
-typedef vector_t point_t;
-
 int CMID(int x, int min, int max) { return (x < min)? min : ((x > max)? max : x); }
 
 // 计算插值：t 为 [0, 1] 之间的数值
@@ -247,14 +243,6 @@ void matrix_set_perspective(matrix_t *m, float fovy, float aspect, float zn, flo
 //=====================================================================
 // 坐标变换
 //=====================================================================
-typedef struct { 
-	matrix_t world;         // 世界坐标变换
-	matrix_t view;          // 摄影机坐标变换
-	matrix_t projection;    // 投影变换
-	matrix_t transform;     // transform = world * view * projection
-	float w, h;             // 屏幕大小
-}	transform_t;
-
 
 // 矩阵更新，计算 transform = world * view * projection
 void transform_update(transform_t *ts) {
@@ -305,14 +293,6 @@ void transform_homogenize(const transform_t *ts, vector_t *y, const vector_t *x)
 //=====================================================================
 // 几何计算：顶点、扫描线、边缘、矩形、步长计算
 //=====================================================================
-typedef struct { float r, g, b; } color_t;
-typedef struct { float u, v; } texcoord_t;
-typedef struct { point_t pos; texcoord_t tc; color_t color; float rhw; } vertex_t;
-
-typedef struct { vertex_t v, v1, v2; } edge_t;
-typedef struct { float top, bottom; edge_t left, right; } trapezoid_t;
-typedef struct { vertex_t v, step; int x, y, w; } scanline_t;
-
 
 void vertex_rhw_init(vertex_t *v) {
 	float rhw = 1.0f / v->pos.w;
@@ -322,6 +302,9 @@ void vertex_rhw_init(vertex_t *v) {
 	v->color.r *= rhw;
 	v->color.g *= rhw;
 	v->color.b *= rhw;
+	v->world.x *= rhw;
+	v->world.y *= rhw;
+	v->world.z *= rhw;
 }
 
 void vertex_interp(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float t) {
@@ -331,6 +314,9 @@ void vertex_interp(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float t)
 	y->color.r = interp(x1->color.r, x2->color.r, t);
 	y->color.g = interp(x1->color.g, x2->color.g, t);
 	y->color.b = interp(x1->color.b, x2->color.b, t);
+	y->world.x = interp(x1->world.x, x2->world.x, t);
+	y->world.y = interp(x1->world.y, x2->world.y, t);
+	y->world.z = interp(x1->world.z, x2->world.z, t);
 	y->rhw = interp(x1->rhw, x2->rhw, t);
 }
 
@@ -345,6 +331,9 @@ void vertex_division(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float 
 	y->color.r = (x2->color.r - x1->color.r) * inv;
 	y->color.g = (x2->color.g - x1->color.g) * inv;
 	y->color.b = (x2->color.b - x1->color.b) * inv;
+	y->world.x = (x2->world.x - x1->world.x) * inv;
+	y->world.y = (x2->world.y - x1->world.y) * inv;
+	y->world.z = (x2->world.z - x1->world.z) * inv;
 	y->rhw = (x2->rhw - x1->rhw) * inv;
 }
 
@@ -359,6 +348,9 @@ void vertex_add(vertex_t *y, const vertex_t *x) {
 	y->color.r += x->color.r;
 	y->color.g += x->color.g;
 	y->color.b += x->color.b;
+	y->world.x += x->world.x;
+	y->world.y += x->world.y;
+	y->world.z += x->world.z;
 }
 
 // 根据三角形生成 0-2 个梯形，并且返回合法梯形的数量
@@ -451,25 +443,6 @@ void trapezoid_init_scan_line(const trapezoid_t *trap, scanline_t *scanline, int
 //=====================================================================
 // 渲染设备
 //=====================================================================
-typedef struct {
-	transform_t transform;      // 坐标变换器
-	int width;                  // 窗口宽度
-	int height;                 // 窗口高度
-	IUINT32 **framebuffer;      // 像素缓存：framebuffer[y] 代表第 y行
-	float **zbuffer;            // 深度缓存：zbuffer[y] 为第 y行指针
-	IUINT32 **texture;          // 纹理：同样是每行索引
-	int tex_width;              // 纹理宽度
-	int tex_height;             // 纹理高度
-	float max_u;                // 纹理最大宽度：tex_width - 1
-	float max_v;                // 纹理最大高度：tex_height - 1
-	int render_state;           // 渲染状态
-	IUINT32 background;         // 背景颜色
-	IUINT32 foreground;         // 线框颜色
-}	device_t;
-
-#define RENDER_STATE_WIREFRAME      1		// 渲染线框
-#define RENDER_STATE_TEXTURE        2		// 渲染纹理
-#define RENDER_STATE_COLOR          4		// 渲染颜色
 
 // 设备初始化，fb为外部帧缓存，非 NULL 将引用外部帧缓存（每行 4字节对齐）
 void device_init(device_t *device, int width, int height, void *fb) {
@@ -502,6 +475,10 @@ void device_init(device_t *device, int width, int height, void *fb) {
 	device->height = height;
 	device->background = 0xc0c0c0;
 	device->foreground = 0;
+	device->shadow_state = 0;
+	device->shadow_fn = NULL;
+	device->shadow_ctx = NULL;
+	device->shadow_ambient = 0.0f;
 	transform_init(&device->transform, width, height);
 	device->render_state = RENDER_STATE_WIREFRAME;
 }
@@ -623,13 +600,29 @@ void device_draw_scanline(device_t *device, scanline_t *scanline) {
 	for (; w > 0; x++, w--) {
 		if (x >= 0 && x < width) {
 			float rhw = scanline->v.rhw;
-			if (rhw >= zbuffer[x]) {	
+			if (rhw >= zbuffer[x]) {
 				float w = 1.0f / rhw;
+				float smod = 1.0f;
 				zbuffer[x] = rhw;
+				if (device->shadow_state && device->shadow_fn) {
+					// 透视校正恢复世界坐标，以正视深度选择级联
+					const matrix_t *view = &device->transform.view;
+					point_t wp;
+					float view_z, vis, amb;
+					wp.x = scanline->v.world.x * w;
+					wp.y = scanline->v.world.y * w;
+					wp.z = scanline->v.world.z * w;
+					wp.w = 1.0f;
+					view_z = wp.x * view->m[0][2] + wp.y * view->m[1][2] +
+						wp.z * view->m[2][2] + view->m[3][2];
+					vis = device->shadow_fn(device->shadow_ctx, &wp, view_z);
+					amb = device->shadow_ambient;
+					smod = amb + (1.0f - amb) * vis;
+				}
 				if (render_state & RENDER_STATE_COLOR) {
-					float r = scanline->v.color.r * w;
-					float g = scanline->v.color.g * w;
-					float b = scanline->v.color.b * w;
+					float r = scanline->v.color.r * w * smod;
+					float g = scanline->v.color.g * w * smod;
+					float b = scanline->v.color.b * w * smod;
 					int R = (int)(r * 255.0f);
 					int G = (int)(g * 255.0f);
 					int B = (int)(b * 255.0f);
@@ -642,6 +635,12 @@ void device_draw_scanline(device_t *device, scanline_t *scanline) {
 					float u = scanline->v.tc.u * w;
 					float v = scanline->v.tc.v * w;
 					IUINT32 cc = device_texture_read(device, u, v);
+					if (smod < 1.0f) {	// 量化后的纹素只调制一次
+						int R = (int)(((cc >> 16) & 0xff) * smod);
+						int G = (int)(((cc >> 8) & 0xff) * smod);
+						int B = (int)((cc & 0xff) * smod);
+						cc = (IUINT32)((R << 16) | (G << 8) | B);
+					}
 					framebuffer[x] = cc;
 				}
 			}
@@ -695,13 +694,18 @@ void device_draw_primitive(device_t *device, const vertex_t *v1,
 		trapezoid_t traps[2];
 		int n;
 
-		t1.pos = p1; 
+		t1.pos = p1;
 		t2.pos = p2;
 		t3.pos = p3;
 		t1.pos.w = c1.w;
 		t2.pos.w = c2.w;
 		t3.pos.w = c3.w;
-		
+
+		// 记录世界坐标（随 rhw 一起做透视校正插值），供阴影取样
+		matrix_apply(&t1.world, &v1->pos, &device->transform.world);
+		matrix_apply(&t2.world, &v2->pos, &device->transform.world);
+		matrix_apply(&t3.world, &v3->pos, &device->transform.world);
+
 		vertex_rhw_init(&t1);	// 初始化 w
 		vertex_rhw_init(&t2);	// 初始化 w
 		vertex_rhw_init(&t3);	// 初始化 w
