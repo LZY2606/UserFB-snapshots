@@ -21,6 +21,12 @@ type CommonInformationEntry struct {
 
 	// eh_frame pointer encoding
 	ptrEncAddr ptrEnc
+
+	// addrSize is the size, in bytes, of an address for the FDEs associated
+	// with this CIE. For version 4 CIEs it is read from the address_size
+	// field of the CIE itself, for earlier versions it is the ptrSize
+	// argument passed to Parse.
+	addrSize int
 }
 
 // FrameDescriptionEntry represents a Frame Descriptor Entry in the

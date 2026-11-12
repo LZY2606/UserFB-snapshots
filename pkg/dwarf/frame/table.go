@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/go-delve/delve/pkg/dwarf"
 	"github.com/go-delve/delve/pkg/dwarf/leb128"
 )
 
@@ -147,11 +148,12 @@ var fnlookup = map[byte]instruction{
 	DW_CFA_GNU_args_size:      argssize,
 }
 
-func executeCIEInstructions(cie *CommonInformationEntry) *FrameContext {
+func executeCIEInstructions(cie *CommonInformationEntry, order binary.ByteOrder) *FrameContext {
 	initialInstructions := make([]byte, len(cie.InitialInstructions))
 	copy(initialInstructions, cie.InitialInstructions)
 	frame := &FrameContext{
 		cie:             cie,
+		order:           order,
 		Regs:            make(map[uint64]DWRule),
 		RetAddrReg:      cie.ReturnAddressRegister,
 		initialRegs:     make(map[uint64]DWRule),
@@ -167,8 +169,7 @@ func executeCIEInstructions(cie *CommonInformationEntry) *FrameContext {
 
 // Unwind the stack to find the return address register.
 func executeDwarfProgramUntilPC(fde *FrameDescriptionEntry, pc uint64) *FrameContext {
-	frame := executeCIEInstructions(fde.CIE)
-	frame.order = fde.order
+	frame := executeCIEInstructions(fde.CIE, fde.order)
 	frame.loc = fde.Begin()
 	frame.address = pc
 	frame.ExecuteUntilPC(fde.Instructions)
@@ -312,10 +313,21 @@ func restore(frame *FrameContext) {
 }
 
 func setloc(frame *FrameContext) {
-	var loc uint64
-	binary.Read(frame.buf, frame.order, &loc)
+	addrSize := 8
+	var staticBase uint64
+	if frame.cie != nil {
+		if frame.cie.addrSize > 0 {
+			addrSize = frame.cie.addrSize
+		}
+		staticBase = frame.cie.staticBase
+	}
+	loc, err := dwarf.ReadUintRaw(frame.buf, frame.order, addrSize)
+	if err != nil {
+		frame.err = err
+		return
+	}
 
-	frame.loc = loc + frame.cie.staticBase
+	frame.loc = loc + staticBase
 }
 
 func offsetextended(frame *FrameContext) {
