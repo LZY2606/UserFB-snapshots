@@ -1129,6 +1129,9 @@ FilterXSS.prototype.process = function (html) {
             // call `safeAttrValue()`
             value = safeAttrValue(tag, name, value, cssFilter);
             if (value) {
+              if (attributeWrapSign === "'") {
+                value = value.replace(/'/g, function () { return "&#39;"; });
+              }
               return name + '=' + attributeWrapSign + value + attributeWrapSign;
             } else {
               return name;
