@@ -5,6 +5,7 @@
 #include <functional>
 #include <queue>
 #include <stdexcept>
+#include <utility>
 
 #include "marisa/grimoire/algorithm/sort.h"
 #include "marisa/grimoire/trie/header.h"
@@ -12,6 +13,78 @@
 #include "marisa/grimoire/trie/state.h"
 
 namespace marisa::grimoire::trie {
+
+namespace {
+
+// Incremental strict UTF-8 decoder used while walking dictionary bytes.
+// A codepoint may be split across node, link and tail boundaries, so the
+// decoder state travels with the search path instead of being reset at each
+// segment. An invalid sequence poisons only its own branch.
+class FuzzyDecoder {
+ public:
+  enum Result {
+    PENDING,   // More bytes are needed to complete the current codepoint.
+    COMPLETE,  // A codepoint was completed and stored to `cp`.
+    INVALID    // The bytes fed so far are not valid UTF-8.
+  };
+
+  Result feed(uint8_t byte, char32_t *cp) {
+    if (need_ == 0) {
+      if (byte < 0x80) {
+        *cp = byte;
+        return COMPLETE;
+      }
+      if (byte < 0xC2) {  // Stray continuation byte or overlong starter.
+        return INVALID;
+      }
+      if (byte < 0xE0) {
+        cp_ = byte & 0x1F;
+        need_ = 1;
+        min_cp_ = 0x80;
+        return PENDING;
+      }
+      if (byte < 0xF0) {
+        cp_ = byte & 0x0F;
+        need_ = 2;
+        min_cp_ = 0x800;
+        return PENDING;
+      }
+      if (byte < 0xF5) {
+        cp_ = byte & 0x07;
+        need_ = 3;
+        min_cp_ = 0x10000;
+        return PENDING;
+      }
+      return INVALID;
+    }
+    if ((byte & 0xC0) != 0x80) {
+      return INVALID;
+    }
+    cp_ = (cp_ << 6) | (byte & 0x3F);
+    if (--need_ != 0) {
+      return PENDING;
+    }
+    // Reject overlong forms, UTF-16 surrogates and values above U+10FFFF.
+    if ((cp_ < min_cp_) || ((cp_ & 0xFFFFF800) == 0xD800) ||
+        (cp_ > 0x10FFFF)) {
+      return INVALID;
+    }
+    *cp = cp_;
+    return COMPLETE;
+  }
+
+  // True when no partial codepoint is pending.
+  bool complete() const {
+    return need_ == 0;
+  }
+
+ private:
+  uint32_t cp_ = 0;
+  uint32_t min_cp_ = 0;
+  unsigned need_ = 0;
+};
+
+}  // namespace
 
 LoudsTrie::LoudsTrie() = default;
 
@@ -863,6 +936,163 @@ std::size_t LoudsTrie::update_link_id(std::size_t link_id,
                                       std::size_t node_id) const {
   return (link_id == MARISA_INVALID_LINK_ID) ? link_flags_.rank1(node_id)
                                              : (link_id + 1);
+}
+
+struct LoudsTrie::FuzzyPath {
+  // Levenshtein DP row: row[i] is the distance between the dictionary
+  // prefix consumed so far and the first i codepoints of the query.
+  std::vector<unsigned> row;
+  FuzzyDecoder decoder;
+};
+
+struct LoudsTrie::FuzzyContext {
+  const std::vector<char32_t> *query = nullptr;
+  unsigned max_edits = 0;
+  std::vector<FuzzyMatch> *results = nullptr;
+  FuzzyStats *stats = nullptr;
+  // Raw bytes of the current path, shared along the depth-first walk.
+  std::string key_bytes;
+};
+
+std::vector<FuzzyMatch> LoudsTrie::fuzzy_search(
+    const std::vector<char32_t> &query, unsigned max_edits,
+    FuzzyStats *stats) const {
+  if (stats != nullptr) {
+    stats->visited_nodes = 0;
+    stats->decoded_codepoints = 0;
+  }
+
+  std::vector<FuzzyMatch> results;
+  FuzzyContext ctx;
+  ctx.query = &query;
+  ctx.max_edits = max_edits;
+  ctx.results = &results;
+  ctx.stats = stats;
+
+  FuzzyPath path;
+  path.row.resize(query.size() + 1);
+  for (std::size_t i = 0; i <= query.size(); ++i) {
+    path.row[i] = static_cast<unsigned>(i);
+  }
+  fuzzy_dfs(ctx, std::move(path), 0);
+
+  // The physical traversal order depends on the node order, so the result
+  // is sorted explicitly: by distance, then by unsigned byte order.
+  std::sort(results.begin(), results.end(),
+            [](const FuzzyMatch &lhs, const FuzzyMatch &rhs) {
+              if (lhs.distance != rhs.distance) {
+                return lhs.distance < rhs.distance;
+              }
+              return lhs.key < rhs.key;
+            });
+  return results;
+}
+
+void LoudsTrie::fuzzy_dfs(FuzzyContext &ctx, FuzzyPath path,
+                          std::size_t node_id) const {
+  if (ctx.stats != nullptr) {
+    ++ctx.stats->visited_nodes;
+  }
+
+  if (terminal_flags_[node_id] && path.decoder.complete() &&
+      (path.row.back() <= ctx.max_edits)) {
+    FuzzyMatch match;
+    match.id = terminal_flags_.rank1(node_id);
+    match.key = ctx.key_bytes;
+    match.distance = path.row.back();
+    ctx.results->push_back(std::move(match));
+  }
+
+  // The minimum of the row is a lower bound on the distance between any
+  // extension of the current prefix and the query: once it exceeds
+  // max_edits, no descendant can match and the subtree is pruned.
+  if (*std::min_element(path.row.begin(), path.row.end()) > ctx.max_edits) {
+    return;
+  }
+
+  std::size_t louds_pos = louds_.select0(node_id) + 1;
+  std::size_t child = louds_pos - node_id - 1;
+  while (louds_[louds_pos]) {
+    const std::size_t key_size = ctx.key_bytes.size();
+    FuzzyPath child_path = path;
+    const bool alive =
+        link_flags_[child]
+            ? fuzzy_feed_link(ctx, child_path, get_link(child))
+            : fuzzy_feed_byte(ctx, child_path, bases_[child]);
+    if (alive) {
+      fuzzy_dfs(ctx, std::move(child_path), child);
+    }
+    ctx.key_bytes.resize(key_size);
+    ++louds_pos;
+    ++child;
+  }
+}
+
+bool LoudsTrie::fuzzy_feed_byte(FuzzyContext &ctx, FuzzyPath &path,
+                                uint8_t byte) const {
+  ctx.key_bytes.push_back(static_cast<char>(byte));
+  char32_t cp = 0;
+  switch (path.decoder.feed(byte, &cp)) {
+    case FuzzyDecoder::INVALID: {
+      // The bytes on this branch are not valid UTF-8, so none of its keys
+      // can appear in the result. Stop expanding the branch.
+      return false;
+    }
+    case FuzzyDecoder::PENDING: {
+      return true;
+    }
+    case FuzzyDecoder::COMPLETE: {
+      break;
+    }
+  }
+  if (ctx.stats != nullptr) {
+    ++ctx.stats->decoded_codepoints;
+  }
+  const std::vector<char32_t> &query = *ctx.query;
+  std::vector<unsigned> next(query.size() + 1);
+  next[0] = path.row[0] + 1;
+  for (std::size_t i = 1; i <= query.size(); ++i) {
+    const unsigned cost = (query[i - 1] == cp) ? 0U : 1U;
+    next[i] = std::min(std::min(path.row[i] + 1, next[i - 1] + 1),
+                       path.row[i - 1] + cost);
+  }
+  path.row.swap(next);
+  return *std::min_element(path.row.begin(), path.row.end()) <= ctx.max_edits;
+}
+
+bool LoudsTrie::fuzzy_feed_link(FuzzyContext &ctx, FuzzyPath &path,
+                                std::size_t link) const {
+  if (next_trie_ != nullptr) {
+    return next_trie_->fuzzy_feed_node(ctx, path, link);
+  }
+  bool alive = true;
+  tail_.scan(link, [this, &ctx, &path, &alive](char byte) {
+    alive = fuzzy_feed_byte(ctx, path, static_cast<uint8_t>(byte));
+    return alive;
+  });
+  return alive;
+}
+
+bool LoudsTrie::fuzzy_feed_node(FuzzyContext &ctx, FuzzyPath &path,
+                                std::size_t node_id) const {
+  assert(node_id != 0);
+
+  // A link of the previous trie points at a node of this trie. Walking from
+  // that node up to the root yields the linked bytes in forward order, the
+  // same order used by match_().
+  for (;;) {
+    if (link_flags_[node_id]) {
+      if (!fuzzy_feed_link(ctx, path, get_link(node_id))) {
+        return false;
+      }
+    } else if (!fuzzy_feed_byte(ctx, path, bases_[node_id])) {
+      return false;
+    }
+    if (node_id <= num_l1_nodes_) {
+      return true;
+    }
+    node_id = louds_.select1(node_id) - node_id - 1;
+  }
 }
 
 }  // namespace marisa::grimoire::trie

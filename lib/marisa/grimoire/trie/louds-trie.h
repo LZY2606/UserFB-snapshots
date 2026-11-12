@@ -2,8 +2,11 @@
 #define MARISA_GRIMOIRE_TRIE_LOUDS_TRIE_H_
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "marisa/agent.h"
+#include "marisa/fuzzy.h"
 #include "marisa/grimoire/trie/cache.h"
 #include "marisa/grimoire/trie/config.h"
 #include "marisa/grimoire/trie/key.h"
@@ -31,6 +34,12 @@ class LoudsTrie {
   void reverse_lookup(Agent &agent) const;
   bool common_prefix_search(Agent &agent) const;
   bool predictive_search(Agent &agent) const;
+
+  // Implementation of Trie::fuzzy_search(). `query` holds the query as
+  // decoded Unicode codepoints.
+  std::vector<FuzzyMatch> fuzzy_search(const std::vector<char32_t> &query,
+                                       unsigned max_edits,
+                                       FuzzyStats *stats) const;
 
   std::size_t num_tries() const {
     return config_.num_tries();
@@ -122,6 +131,19 @@ class LoudsTrie {
 
   inline std::size_t update_link_id(std::size_t link_id,
                                     std::size_t node_id) const;
+
+  // Fuzzy search helpers. The context and the per-path state are defined in
+  // the .cc file so that no temporary state is shared between calls.
+  struct FuzzyContext;
+  struct FuzzyPath;
+
+  void fuzzy_dfs(FuzzyContext &ctx, FuzzyPath path, std::size_t node_id) const;
+  bool fuzzy_feed_byte(FuzzyContext &ctx, FuzzyPath &path,
+                       uint8_t byte) const;
+  bool fuzzy_feed_link(FuzzyContext &ctx, FuzzyPath &path,
+                       std::size_t link) const;
+  bool fuzzy_feed_node(FuzzyContext &ctx, FuzzyPath &path,
+                       std::size_t node_id) const;
 };
 
 }  // namespace marisa::grimoire::trie

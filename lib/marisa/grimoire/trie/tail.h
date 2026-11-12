@@ -26,6 +26,27 @@ class Tail {
   bool match(Agent &agent, std::size_t offset) const;
   bool prefix_match(Agent &agent, std::size_t offset) const;
 
+  // Calls `func` with each byte of the entry stored at `offset`, in order.
+  // Stops early when `func` returns false. Embedded '\0' bytes of
+  // MARISA_BINARY_TAIL entries are passed through like any other byte.
+  template <typename Func>
+  void scan(std::size_t offset, Func func) const {
+    assert(!buf_.empty());
+    if (end_flags_.empty()) {
+      for (const char *ptr = &buf_[offset]; *ptr != '\0'; ++ptr) {
+        if (!func(*ptr)) {
+          return;
+        }
+      }
+    } else {
+      do {
+        if (!func(buf_[offset])) {
+          return;
+        }
+      } while (!end_flags_[offset++]);
+    }
+  }
+
   const char &operator[](std::size_t offset) const {
     assert(offset < buf_.size());
     return buf_[offset];

@@ -2,12 +2,64 @@
 
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include "marisa/grimoire/trie.h"
 #include "marisa/iostream.h"
 #include "marisa/stdio.h"
 
 namespace marisa {
+
+namespace {
+
+// Decodes `query` as strict UTF-8 into codepoints. Overlong forms, UTF-16
+// surrogates, values above U+10FFFF and truncated sequences are rejected
+// with std::invalid_argument. Embedded '\0' bytes decode to U+0000.
+std::vector<char32_t> decode_fuzzy_query(std::string_view query) {
+  std::vector<char32_t> cps;
+  std::size_t i = 0;
+  while (i < query.size()) {
+    const uint8_t lead = static_cast<uint8_t>(query[i]);
+    char32_t cp;
+    std::size_t extra;
+    char32_t min_cp;
+    if (lead < 0x80) {
+      cp = lead;
+      extra = 0;
+      min_cp = 0;
+    } else if (lead < 0xC2) {
+      MARISA_THROW(std::invalid_argument, "query is not valid UTF-8");
+    } else if (lead < 0xE0) {
+      cp = lead & 0x1F;
+      extra = 1;
+      min_cp = 0x80;
+    } else if (lead < 0xF0) {
+      cp = lead & 0x0F;
+      extra = 2;
+      min_cp = 0x800;
+    } else if (lead < 0xF5) {
+      cp = lead & 0x07;
+      extra = 3;
+      min_cp = 0x10000;
+    } else {
+      MARISA_THROW(std::invalid_argument, "query is not valid UTF-8");
+    }
+    MARISA_THROW_IF(query.size() - i - 1 < extra, std::invalid_argument);
+    for (std::size_t j = 1; j <= extra; ++j) {
+      const uint8_t cont = static_cast<uint8_t>(query[i + j]);
+      MARISA_THROW_IF((cont & 0xC0) != 0x80, std::invalid_argument);
+      cp = (cp << 6) | (cont & 0x3F);
+    }
+    MARISA_THROW_IF((cp < min_cp) || ((cp & 0xFFFFF800) == 0xD800) ||
+                        (cp > 0x10FFFF),
+                    std::invalid_argument);
+    cps.push_back(cp);
+    i += extra + 1;
+  }
+  return cps;
+}
+
+}  // namespace
 
 Trie::Trie() = default;
 
@@ -116,6 +168,18 @@ bool Trie::predictive_search(Agent &agent) const {
     agent.init_state();
   }
   return trie_->predictive_search(agent);
+}
+
+std::vector<FuzzyMatch> Trie::fuzzy_search(std::string_view query,
+                                           unsigned max_edits,
+                                           FuzzyStats *stats) const {
+  if (stats != nullptr) {
+    stats->visited_nodes = 0;
+    stats->decoded_codepoints = 0;
+  }
+  MARISA_THROW_IF(trie_ == nullptr, std::logic_error);
+  MARISA_THROW_IF(max_edits > 2, std::out_of_range);
+  return trie_->fuzzy_search(decode_fuzzy_query(query), max_edits, stats);
 }
 
 std::size_t Trie::num_tries() const {

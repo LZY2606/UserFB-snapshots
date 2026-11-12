@@ -146,6 +146,7 @@ set(MARISA_HEADERS
   include/marisa.h
   include/marisa/agent.h
   include/marisa/base.h
+  include/marisa/fuzzy.h
   include/marisa/iostream.h
   include/marisa/key.h
   include/marisa/keyset.h

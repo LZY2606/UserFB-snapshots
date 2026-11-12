@@ -2,8 +2,12 @@
 #define MARISA_TRIE_H_
 
 #include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "marisa/agent.h"   // IWYU pragma: export
+#include "marisa/fuzzy.h"   // IWYU pragma: export
 #include "marisa/keyset.h"  // IWYU pragma: export
 
 namespace marisa {
@@ -41,6 +45,14 @@ class Trie {
   void reverse_lookup(Agent &agent) const;
   bool common_prefix_search(Agent &agent) const;
   bool predictive_search(Agent &agent) const;
+
+  // Finds all keys whose Unicode scalar Levenshtein distance to `query` is
+  // not greater than `max_edits` (0, 1 or 2). `query` must be valid UTF-8.
+  // Keys that are not valid UTF-8 never appear in the result. The result is
+  // ordered by distance and then by the unsigned byte order of the keys.
+  std::vector<FuzzyMatch> fuzzy_search(std::string_view query,
+                                       unsigned max_edits,
+                                       FuzzyStats *stats = nullptr) const;
 
   std::size_t num_tries() const;
   std::size_t num_keys() const;
