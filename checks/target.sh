@@ -7,4 +7,7 @@ gc=-Wl,--gc-sections
 if [ "$(uname -s)" = Darwin ]; then gc=-Wl,-dead_strip; fi
 c++ -std=c++11 -O1 -ffunction-sections -fdata-sections -Wno-deprecated-register -Wno-deprecated-declarations -DPBRT_PROBES_NONE -Isrc -Isrc/core "$gc" checks/target_main.cpp checks/target_tests.cpp src/core/geometry.cpp src/core/transform.cpp src/core/quaternion.cpp src/core/rng.cpp src/core/volume.cpp src/volumes/volumegrid.cpp checks/diagnostics.cpp -o "$b/target"
 "$b/target"
+c++ -std=c++11 -O1 -ffunction-sections -fdata-sections -Wno-deprecated-register -Wno-deprecated-declarations -DPBRT_PROBES_NONE -Isrc -Isrc/core "$gc" examples/grid_transmittance_ppm.cpp src/core/geometry.cpp src/core/transform.cpp src/core/quaternion.cpp src/core/rng.cpp src/core/volume.cpp src/volumes/volumegrid.cpp checks/diagnostics.cpp -o "$b/gridppm"
+"$b/gridppm" "$b/grid_transmittance.ppm"
+head -c 2 "$b/grid_transmittance.ppm" | grep -q P6
 bash checks/baseline.sh
