@@ -13,6 +13,7 @@ import { VariationManager } from './variation.mjs';
 import HintingTrueType from './hintingtt.mjs';
 import Bidi from './bidi.mjs';
 import { applyPaintType } from './tables/cff.mjs';
+import { planStretch, buildStretchPath } from './mathstretch.mjs';
 
 function createDefaultNamesInfo(options) {
     return {
@@ -485,6 +486,53 @@ Font.prototype.getPaths = function(text, x, y, fontSize, options) {
 Font.prototype.getAdvanceWidth = function(text, fontSize, options) {
     options = Object.assign({}, this.defaultRenderOptions, options);
     return this.forEachGlyph(text, 0, 0, fontSize, options, function() {});
+};
+
+/**
+ * Lay out a stretchable math glyph (e.g. brackets, arrows) using the MATH
+ * table's MathVariants data, without distorting any outline.
+ * @param  {number} glyphIndex - the glyph to stretch.
+ * @param  {string} direction - 'horizontal' or 'vertical'.
+ * @param  {number} targetAdvance - desired length in positive font units.
+ * @return {Object|null} a plan `{kind, advance, italicsCorrection, parts}`
+ *         where parts are `{glyphIndex, offset}` ordered along the growth
+ *         direction, or null when the font has no MATH support for this
+ *         glyph/direction. Throws RangeError on invalid arguments or when
+ *         no variant/assembly can reach the target.
+ */
+Font.prototype.getStretchGlyph = function(glyphIndex, direction, targetAdvance) {
+    const plan = planStretch(this, glyphIndex, direction, targetAdvance);
+    if (!plan) {
+        return null;
+    }
+    // Return fresh arrays/objects so callers mutating a previous plan can
+    // never influence later lookups or the parsed table data.
+    return {
+        kind: plan.kind,
+        advance: plan.advance,
+        italicsCorrection: plan.italicsCorrection,
+        parts: plan.parts.map(part => ({ glyphIndex: part.glyphIndex, offset: part.offset }))
+    };
+};
+
+/**
+ * Render the same stretch plan as getStretchGlyph() as a single Path,
+ * reusing Glyph.getPath() for every component outline.
+ * @param  {number} glyphIndex - the glyph to stretch.
+ * @param  {string} direction - 'horizontal' or 'vertical'.
+ * @param  {number} targetAdvance - desired length in positive font units.
+ * @param  {number} [x=0] - screen x of the plan origin.
+ * @param  {number} [y=0] - screen y of the plan origin (baseline).
+ * @param  {number} [fontSize=72] - pixel size used to scale font units.
+ * @return {opentype.Path|null} the assembled path, or null when the glyph
+ *         has no stretch support in this direction.
+ */
+Font.prototype.getStretchPath = function(glyphIndex, direction, targetAdvance, x, y, fontSize) {
+    const plan = planStretch(this, glyphIndex, direction, targetAdvance);
+    if (!plan) {
+        return null;
+    }
+    return buildStretchPath(this, plan, direction, x, y, fontSize);
 };
 
 /**

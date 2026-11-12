@@ -37,6 +37,7 @@ import post from './tables/post.mjs';
 import meta from './tables/meta.mjs';
 import gasp from './tables/gasp.mjs';
 import svg from './tables/svg.mjs';
+import math from './tables/math.mjs';
 import { PaletteManager } from './palettes.mjs';
 /**
  * The opentype library.
@@ -264,6 +265,10 @@ function parseBuffer(buffer, opt={}) {
                 table = uncompressTable(data, tableEntry);
                 font.tables.maxp = maxp.parse(table.data, table.offset);
                 font.numGlyphs = font.tables.maxp.numGlyphs;
+                break;
+            case 'MATH':
+                table = uncompressTable(data, tableEntry);
+                font.tables.math = math.parse(table.data, table.offset, tableEntry.length);
                 break;
             case 'name':
                 nameTableEntry = tableEntry;

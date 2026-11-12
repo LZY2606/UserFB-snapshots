@@ -21,6 +21,7 @@ See [https://opentype.js.org/](https://opentype.js.org/) for a live demo.
 * Support for TrueType font hinting.
 * Support arabic text rendering (See issue #364 & PR #359 #361)
 * Support for emojis and other SVG or COLR/CPAL color glyphs
+* Support for math stretch glyphs via the `MATH` table's stretch variants and glyph assemblies.
 * A low memory mode is available as an option (see #329)
 * Runs in the browser and Node.js.
 
@@ -258,6 +259,35 @@ bounding box than its advance width.
 This corresponds to `canvas2dContext.measureText(text).width`
 * `fontSize`: Size of the text in pixels (default: `72`).
 * `options`: _{GlyphRenderOptions}_, see `Font.getPath()`
+
+#### `Font.getStretchGlyph(glyphIndex, direction, targetAdvance)`
+Lay out a stretchable math glyph (e.g. tall brackets or long arrows) from the font's `MATH` table, in font design units, without ever scaling an outline non-uniformly.
+* `glyphIndex`: the glyph to stretch.
+* `direction`: `"horizontal"` or `"vertical"`.
+* `targetAdvance`: the desired length as a positive, finite number of font units.
+
+Returns `null` when the font has no `MATH` table or the glyph has no construction in that direction. Invalid arguments, or a target that no variant/assembly can reach, throw a `RangeError`. On success it returns:
+
+```js
+{
+    kind: 'variant' | 'assembly',
+    advance: 1230,            // resulting length in font units
+    italicsCorrection: 0,     // signed design value; always 0 for a variant
+    parts: [                  // ordered along the growth direction, offsets from 0
+        { glyphIndex: 12, offset: 0 },
+        { glyphIndex: 13, offset: 80 }
+    ]
+}
+```
+
+The smallest declared variant whose advance reaches the target is chosen (records need not be sorted; ties break on the smaller glyph index). Only when no variant is large enough is the `GlyphAssembly` used: every extender is repeated one common count `r`, seams overlap within `minConnectorOverlap` and the smaller adjacent connector length, and the overlap is reduced from one shared water level so the result reaches the target exactly whenever that is geometrically possible.
+
+#### `Font.getStretchPath(glyphIndex, direction, targetAdvance, x, y, fontSize)`
+Render the same plan as `Font.getStretchGlyph()` as a single `Path`, reusing `Glyph.getPath()` for every component outline.
+* `x`, `y`: screen position of the plan origin, with `y` on the baseline (defaults `0`, `0`).
+* `fontSize`: pixel size used to scale font units (default `72`).
+
+Horizontal offsets grow to the right; vertical offsets grow upward in font coordinates and are flipped to downward screen offsets exactly like `Glyph.getPath()`. The italics correction is reported by the plan but never moves parts. Returns `null` when the glyph is unsupported. Only unhinted monochrome outlines are rendered; neither the component glyphs nor `font.tables.math` are modified.
 
 #### The `Font.palettes` object (`PaletteManager`)
 
