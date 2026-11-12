@@ -429,6 +429,15 @@ void MP4D_printf_info(const MP4D_demux_t *mp4);
 *   of callback function application may use any other file output API (for
 *   example C++ streams, or Win32 file functions)
 *
+*   enable_fragmentation values:
+*       0 - default mode: one big mdat, patched afterwards
+*       1 - streaming fragmentation mode: one 'moof' + 'mdat' per sample
+*       2 - batch fragmentation mode: samples are collected in submission order
+*           until MP4E_flush_fragment() (or MP4E_close() for the final batch)
+*           turns the batch into a single 'moof' + 'mdat' pair. Interleaved
+*           audio/video order is preserved; consecutive samples of one track
+*           form one 'trun'.
+*
 *   return multiplexor handle on success; NULL on failure
 */
 MP4E_mux_t *MP4E_open(int sequential_mode_flag, int enable_fragmentation, void *token,
@@ -455,6 +464,16 @@ int MP4E_add_track(MP4E_mux_t *mux, const MP4E_track_t *track_data);
 *       MP4E_put_sample(mux, 0, data, data_bytes, duration, MP4E_SAMPLE_DEFAULT);
 */
 int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_bytes, int duration, int kind);
+
+/**
+*   Finish the current batch of samples and write it as one 'moof' + 'mdat' pair.
+*   Only valid when the multiplexer was opened with enable_fragmentation == 2.
+*   Samples submitted after this call start a new batch. An empty batch writes
+*   no boxes and does not advance the fragment sequence number.
+*
+*   return error code MP4E_STATUS_*
+*/
+int MP4E_flush_fragment(MP4E_mux_t *mux);
 
 /**
 *   Finalize MP4 file, de-allocated memory, and closes MP4 multiplexer.
@@ -697,6 +716,29 @@ typedef struct {
     int capacity;
 } minimp4_vector_t;
 
+/*
+    Sample queued for the current batch in enable_fragmentation == 2 mode.
+    'data_offset' is the offset of the sample payload inside mux->frag_data;
+    the payloads there are ordered by MP4E_put_sample() call order.
+*/
+typedef struct
+{
+    uint64_t data_offset;
+    uint32_t size;          // accumulated size (continuation slices extend it)
+    uint32_t duration;      // effective duration (0 replaced by track default)
+    uint32_t flags;         // trun sample_flags, keeping key/non-key identity
+} batch_sample_t;
+
+/*
+    A run of consecutive submissions for one track (in batch order). A run is
+    interrupted whenever another track is submitted in between.
+*/
+typedef struct
+{
+    int first_sample;       // index into track_t.batch_samples
+    int sample_count;
+} batch_run_t;
+
 typedef struct
 {
     MP4E_track_t info;
@@ -706,6 +748,10 @@ typedef struct
     minimp4_vector_t vsps;  // or dsi for audio
     minimp4_vector_t vpps;  // not used for audio
     minimp4_vector_t vvps;  // used for HEVC
+
+    minimp4_vector_t batch_samples; // batch_sample_t, current batch only
+    minimp4_vector_t batch_runs;    // batch_run_t, current batch only
+    uint64_t frag_decode_time;      // decode time of this track's next fragment
 
 } track_t;
 
@@ -721,6 +767,14 @@ typedef struct MP4E_mux_tag
     int sequential_mode_flag;
     int enable_fragmentation; // flag, indicating streaming-friendly 'fragmentation' mode
     int fragments_count;      // # of fragments in 'fragmentation' mode
+
+    // Batch fragmentation mode (enable_fragmentation == 2)
+    minimp4_vector_t frag_data;   // payload bytes of the pending batch, in submission order
+    minimp4_vector_t frag_order;  // int track numbers, first-appearance order
+    int frag_sample_count;        // samples (not slices) queued in pending batch
+    int frag_last_track;          // track of the last submitted sample, -1 if none
+    int frag_moov_written;        // 'moov' has been emitted for this file
+    int frag_write_error;         // a write callback failed; no more output allowed
 
 } MP4E_mux_t;
 
@@ -846,6 +900,12 @@ MP4E_mux_t *MP4E_open(int sequential_mode_flag, int enable_fragmentation, void *
     mux->token = token;
     mux->text_comment = NULL;
     mux->write_pos = sizeof(box_ftyp);
+    minimp4_vector_init(&mux->frag_data, 0);
+    minimp4_vector_init(&mux->frag_order, 0);
+    mux->frag_sample_count = 0;
+    mux->frag_last_track = -1;
+    mux->frag_moov_written = 0;
+    mux->frag_write_error = 0;
 
     if (!mux->sequential_mode_flag)
     {   // Write filler, which would be updated later
@@ -881,6 +941,9 @@ int MP4E_add_track(MP4E_mux_t *mux, const MP4E_track_t *track_data)
     minimp4_vector_init(&tr->vsps, 0);
     minimp4_vector_init(&tr->vpps, 0);
     minimp4_vector_init(&tr->pending_sample, 0);
+    minimp4_vector_init(&tr->batch_samples, 0);
+    minimp4_vector_init(&tr->batch_runs, 0);
+    tr->frag_decode_time = 0;
     return ntr;
 }
 
@@ -1117,14 +1180,328 @@ static int mp4e_write_mdat_box(MP4E_mux_t *mux, uint32_t size)
     return MP4E_STATUS_OK;
 }
 
-/**
-*   Add new sample to specified track
+/*
+    Write the 'moof' + 'mdat' pair for the pending batch.
+    The strict 'moof' size (which depends on the number of tracks and runs) is
+    computed first; each 'trun' data_offset is patched afterwards from it.
 */
+typedef struct
+{
+    unsigned char *data_offset_ptr;
+    uint64_t payload_offset;
+} batch_offset_patch_t;
+
+static void mp4e_batch_reset(MP4E_mux_t *mux)
+{
+    int i, ntracks = mux->tracks.bytes / sizeof(track_t);
+    for (i = 0; i < ntracks; i++)
+    {
+        track_t *tr = ((track_t*)mux->tracks.data) + i;
+        tr->batch_samples.bytes = 0;
+        tr->batch_runs.bytes = 0;
+    }
+    mux->frag_data.bytes = 0;
+    mux->frag_order.bytes = 0;
+    mux->frag_sample_count = 0;
+    mux->frag_last_track = -1;
+}
+
+static int mp4e_batch_write(MP4E_mux_t *mux, const void *data, size_t bytes)
+{
+    if (mux->write_callback(mux->write_pos, data, bytes, mux->token))
+    {
+        mux->frag_write_error = 1;
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    }
+    mux->write_pos += (int64_t)bytes;
+    return MP4E_STATUS_OK;
+}
+
+int MP4E_flush_fragment(MP4E_mux_t *mux)
+{
+    uint64_t moof_size = 24; // 'moof'(8) + 'mfhd'(16)
+    uint64_t moof_bytes, payload_bytes, mdat_size, duration_sum;
+    int norder, i, k, err, total_runs = 0;
+    unsigned char mdat_header[8];
+    batch_offset_patch_t *patch = NULL;
+    unsigned char *base = NULL, *p;
+    unsigned char *stack_base[8];
+    unsigned char **stack = stack_base;
+
+    if (!mux || mux->enable_fragmentation != 2)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (mux->frag_write_error)
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    if (!mux->frag_sample_count)
+        return MP4E_STATUS_OK; // empty batch: no boxes, no sequence number
+
+    /* First pass: compute the exact 'moof' size and count the runs. */
+    norder = mux->frag_order.bytes / (int)sizeof(int);
+    for (i = 0; i < norder; i++)
+    {
+        track_t *tr = ((track_t*)mux->tracks.data) + ((int*)mux->frag_order.data)[i];
+        int nruns = tr->batch_runs.bytes / (int)sizeof(batch_run_t);
+        moof_size += 8 + 16 + 20; // 'traf' + 'tfhd' + 'tfdt'
+        for (k = 0; k < nruns; k++)
+        {
+            const batch_run_t *run = ((const batch_run_t*)tr->batch_runs.data) + k;
+            moof_size += 20 + 12 * (uint64_t)run->sample_count;
+        }
+        total_runs += nruns;
+    }
+    payload_bytes = (uint64_t)mux->frag_data.bytes;
+    mdat_size = payload_bytes + 8;
+    if (moof_size > 0xffffffffu || mdat_size > 0xffffffffu)
+        return MP4E_STATUS_BAD_ARGUMENTS; // box size field can not represent it
+
+    if (total_runs > 0)
+    {
+        patch = (batch_offset_patch_t*)malloc((size_t)total_runs * sizeof(batch_offset_patch_t));
+        if (!patch)
+            return MP4E_STATUS_NO_MEMORY;
+    }
+    base = (unsigned char*)malloc((size_t)moof_size);
+    if (!base)
+    {
+        free(patch);
+        return MP4E_STATUS_NO_MEMORY;
+    }
+
+    if (!mux->frag_moov_written)
+    {
+        err = mp4e_flush_index(mux); // 'moov' is written once, before the 1st non-empty batch
+        if (err)
+        {
+            if (err != MP4E_STATUS_NO_MEMORY)
+                mux->frag_write_error = 1;
+            free(patch);
+            free(base);
+            return err;
+        }
+        mux->frag_moov_written = 1;
+    }
+
+    p = base;
+    {
+    int pidx = 0;
+    ATOM(BOX_moof)
+        ATOM_FULL(BOX_mfhd, 0)
+            WRITE_4(mux->fragments_count + 1); // sequence number starts from 1
+        END_ATOM
+        for (i = 0; i < norder; i++)
+        {
+            int track_num = ((int*)mux->frag_order.data)[i];
+            track_t *tr = ((track_t*)mux->tracks.data) + track_num;
+            int nruns = tr->batch_runs.bytes / (int)sizeof(batch_run_t);
+            ATOM(BOX_traf)
+                ATOM_FULL(BOX_tfhd, 0x020000) // default-base-is-moof
+                    WRITE_4(track_num + 1);   // track_ID
+                END_ATOM
+                ATOM_FULL(BOX_tfdt, 0x01000000) // version 1
+                    WRITE_4(tr->frag_decode_time >> 32);
+                    WRITE_4(tr->frag_decode_time & 0xffffffff);
+                END_ATOM
+                for (k = 0; k < nruns; k++)
+                {
+                    const batch_run_t *run = ((const batch_run_t*)tr->batch_runs.data) + k;
+                    const batch_sample_t *samples = (const batch_sample_t*)tr->batch_samples.data;
+                    int j;
+                    ATOM_FULL(BOX_trun, 0x001 | 0x100 | 0x200 | 0x400) // offset+duration+size+flags
+                        WRITE_4(run->sample_count);
+                        patch[pidx].data_offset_ptr = p; p += 4; // save ptr to data_offset
+                        patch[pidx].payload_offset = samples[run->first_sample].data_offset;
+                        pidx++;
+                        for (j = 0; j < run->sample_count; j++)
+                        {
+                            WRITE_4(samples[run->first_sample + j].duration);
+                            WRITE_4(samples[run->first_sample + j].size);
+                            WRITE_4(samples[run->first_sample + j].flags);
+                        }
+                    END_ATOM
+                }
+            END_ATOM
+        }
+    END_ATOM
+    }
+    moof_bytes = (uint64_t)(p - base);
+    if (moof_bytes > 0xffffffffu)
+    {
+        free(patch);
+        free(base);
+        return MP4E_STATUS_BAD_ARGUMENTS; // box size field can not represent it
+    }
+    if (moof_bytes + 8 + payload_bytes > 0xffffffffu)
+    {
+        free(patch);
+        free(base);
+        return MP4E_STATUS_BAD_ARGUMENTS; // trun data_offset can not represent it
+    }
+
+    /* Patch data_offset fields now that the final 'moof' size is known. */
+    {
+        int idx = 0;
+        for (i = 0; i < norder; i++)
+        {
+            int track_num = ((int*)mux->frag_order.data)[i];
+            track_t *tr = ((track_t*)mux->tracks.data) + track_num;
+            int nruns = tr->batch_runs.bytes / (int)sizeof(batch_run_t);
+            for (k = 0; k < nruns; k++)
+            {
+                uint64_t offset = moof_bytes + 8 + patch[idx].payload_offset;
+                WR4(patch[idx].data_offset_ptr, (uint32_t)offset);
+                idx++;
+            }
+        }
+    }
+
+    err = mp4e_batch_write(mux, base, (size_t)moof_bytes);
+    if (!err)
+    {
+        unsigned char *saved_p = p;
+        size_t hdr_bytes;
+        p = mdat_header;
+        WRITE_4((unsigned)mdat_size);
+        WRITE_4(BOX_mdat);
+        hdr_bytes = (size_t)(p - mdat_header);
+        p = saved_p;
+        err = mp4e_batch_write(mux, mdat_header, hdr_bytes);
+    }
+    if (!err && payload_bytes)
+        err = mp4e_batch_write(mux, mux->frag_data.data, (size_t)payload_bytes);
+    free(patch);
+    free(base);
+    if (err)
+    {
+        // The writer is broken: drop the batch, refuse to emit any later fragment.
+        mp4e_batch_reset(mux);
+        return err;
+    }
+
+    /* A successful batch advances each participating track's clock by the
+       real (defaulted) duration of its own samples, and nothing else. */
+    for (i = 0; i < norder; i++)
+    {
+        int track_num = ((int*)mux->frag_order.data)[i];
+        track_t *tr = ((track_t*)mux->tracks.data) + track_num;
+        int nsamples = tr->batch_samples.bytes / (int)sizeof(batch_sample_t);
+        const batch_sample_t *samples = (const batch_sample_t*)tr->batch_samples.data;
+        duration_sum = 0;
+        for (k = 0; k < nsamples; k++)
+            duration_sum += samples[k].duration;
+        tr->frag_decode_time += duration_sum;
+    }
+    mux->fragments_count++;
+    mp4e_batch_reset(mux);
+    return MP4E_STATUS_OK;
+}
+
+/**
+*   Make sure vector can accept 'bytes' more bytes without failing later.
+*   Only grows the buffer, does not change the logical content.
+*/
+static int frag_ensure_space(minimp4_vector_t *v, int bytes)
+{
+    if (bytes <= 0)
+        return 1;
+    if (v->capacity - v->bytes >= bytes)
+        return 1;
+    return minimp4_vector_grow(v, bytes);
+}
+
 int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_bytes, int duration, int kind)
 {
     track_t *tr;
     if (!mux || !data)
         return MP4E_STATUS_BAD_ARGUMENTS;
+    if (mux->enable_fragmentation == 2)
+    {
+        int ntracks = mux->tracks.bytes / sizeof(track_t);
+        unsigned sample_flags;
+        uint64_t sample_offset;
+        batch_sample_t *bs;
+        batch_run_t *run;
+        int i, known_track, new_run, nruns;
+
+        if (track_num < 0 || track_num >= ntracks)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (data_bytes < 0 || duration < 0)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (mux->frag_write_error)
+            return MP4E_STATUS_FILE_WRITE_ERROR;
+        tr = ((track_t*)mux->tracks.data) + track_num;
+
+        if (kind == MP4E_SAMPLE_CONTINUATION)
+        {
+            /* A continuation may only extend the most recently submitted
+               sample, and that sample must belong to the pending batch. */
+            if (mux->frag_last_track != track_num)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            if (tr->batch_samples.bytes < (int)sizeof(batch_sample_t))
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            bs = ((batch_sample_t*)tr->batch_samples.data) +
+                (tr->batch_samples.bytes / sizeof(batch_sample_t)) - 1;
+            if ((uint64_t)bs->size + (uint64_t)data_bytes > 0xffffffffu)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            if ((uint64_t)mux->frag_data.bytes + (uint64_t)data_bytes > 0xfffffff7u)
+                return MP4E_STATUS_BAD_ARGUMENTS; // mdat size field can not represent it
+            if (!frag_ensure_space(&mux->frag_data, data_bytes))
+                return MP4E_STATUS_NO_MEMORY;
+            if (data_bytes)
+                minimp4_vector_put(&mux->frag_data, data, data_bytes);
+            bs->size += (uint32_t)data_bytes; // duration counted once already
+            return MP4E_STATUS_OK;
+        }
+
+        /* Pre-allocate everything the new sample needs, so a failed
+           allocation leaves the pending batch untouched. */
+        known_track = 0;
+        for (i = 0; i < mux->frag_order.bytes / (int)sizeof(int); i++)
+        {
+            if (((int*)mux->frag_order.data)[i] == track_num)
+            {
+                known_track = 1;
+                break;
+            }
+        }
+        nruns = tr->batch_runs.bytes / sizeof(batch_run_t);
+        new_run = !nruns || mux->frag_last_track != track_num;
+        if ((uint64_t)data_bytes > 0xffffffffu)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (!frag_ensure_space(&tr->batch_samples, sizeof(batch_sample_t)) ||
+            (new_run && !frag_ensure_space(&tr->batch_runs, sizeof(batch_run_t))) ||
+            !frag_ensure_space(&mux->frag_data, data_bytes) ||
+            (!known_track && !frag_ensure_space(&mux->frag_order, sizeof(int))))
+            return MP4E_STATUS_NO_MEMORY;
+
+        sample_offset = mux->frag_data.bytes;
+        if (data_bytes)
+            minimp4_vector_put(&mux->frag_data, data, data_bytes);
+
+        sample_flags = (kind == MP4E_SAMPLE_RANDOM_ACCESS) ? 0x02000000 : 0x01010000;
+        bs = (batch_sample_t*)minimp4_vector_alloc_tail(&tr->batch_samples, sizeof(batch_sample_t));
+        bs->data_offset = sample_offset;
+        bs->size = (uint32_t)data_bytes;
+        bs->duration = duration ? (uint32_t)duration : (uint32_t)tr->info.default_duration;
+        bs->flags = sample_flags;
+
+        if (new_run)
+        {
+            run = (batch_run_t*)minimp4_vector_alloc_tail(&tr->batch_runs, sizeof(batch_run_t));
+            run->first_sample = tr->batch_samples.bytes / sizeof(batch_sample_t) - 1;
+            run->sample_count = 1;
+        } else {
+            run = ((batch_run_t*)tr->batch_runs.data) + nruns - 1;
+            run->sample_count++;
+        }
+
+        if (!known_track)
+            *(int*)minimp4_vector_alloc_tail(&mux->frag_order, sizeof(int)) = track_num;
+
+        mux->frag_sample_count++;
+        mux->frag_last_track = track_num;
+        return MP4E_STATUS_OK;
+    }
+
     tr = ((track_t*)mux->tracks.data) + track_num;
 
     if (mux->enable_fragmentation)
@@ -1802,8 +2179,15 @@ int MP4E_close(MP4E_mux_t *mux)
     unsigned ntr, ntracks;
     if (!mux)
         return MP4E_STATUS_BAD_ARGUMENTS;
-    if (!mux->enable_fragmentation)
+    if (mux->enable_fragmentation == 2)
+    {
+        // Commit the last non-empty batch; an empty one is a no-op.
+        // If writing already failed, this reports the error without output.
+        err = MP4E_flush_fragment(mux);
+    } else if (!mux->enable_fragmentation)
+    {
         err = mp4e_flush_index(mux);
+    }
     if (mux->text_comment)
         free(mux->text_comment);
     ntracks = mux->tracks.bytes / sizeof(track_t);
@@ -1812,10 +2196,15 @@ int MP4E_close(MP4E_mux_t *mux)
         track_t *tr = ((track_t*)mux->tracks.data) + ntr;
         minimp4_vector_reset(&tr->vsps);
         minimp4_vector_reset(&tr->vpps);
+        minimp4_vector_reset(&tr->vvps);
         minimp4_vector_reset(&tr->smpl);
         minimp4_vector_reset(&tr->pending_sample);
+        minimp4_vector_reset(&tr->batch_samples);
+        minimp4_vector_reset(&tr->batch_runs);
     }
     minimp4_vector_reset(&mux->tracks);
+    minimp4_vector_reset(&mux->frag_data);
+    minimp4_vector_reset(&mux->frag_order);
     free(mux);
     return err;
 }
