@@ -180,3 +180,50 @@ func ExampleEncryptWriter() {
 		return
 	}
 }
+
+func ExampleDecryptVerified() {
+	// the master key used to derive encryption keys
+	// this key must be kept secret
+	masterkey, err := hex.DecodeString("000102030405060708090A0B0C0D0E0FF0E0D0C0B0A090807060504030201000") // use your own key here
+	if err != nil {
+		fmt.Printf("Cannot decode hex key: %v", err) // add error handling
+		return
+	}
+
+	// the nonce used to derive the encryption key
+	nonce, err := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001") // use your generated nonce here
+	if err != nil {
+		fmt.Printf("Cannot decode hex nonce: %v", err) // add error handling
+		return
+	}
+
+	// derive the encryption key from the master key and the nonce
+	var key [32]byte
+	kdf := hkdf.New(sha256.New, masterkey, nonce, nil)
+	if _, err = io.ReadFull(kdf, key[:]); err != nil {
+		fmt.Printf("Failed to derive encryption key: %v", err) // add error handling
+		return
+	}
+
+	// DecryptVerified publishes the plaintext only after the complete object
+	// has been authenticated. It needs a caller-owned temporary store that
+	// may contain plaintext until the caller removes it.
+	scratch, err := os.CreateTemp("", "sio-verified-*")
+	if err != nil {
+		fmt.Printf("Failed to create scratch file: %v", err) // add error handling
+		return
+	}
+	defer os.Remove(scratch.Name())
+	defer scratch.Close()
+
+	input := os.Stdin   // customize for your needs - the encrypted object
+	output := os.Stdout // customize for your needs - the decrypted output
+	if _, err = DecryptVerified(output, input, scratch, Config{Key: key[:]}); err != nil {
+		if _, ok := err.(Error); ok {
+			fmt.Printf("Malformed encrypted object: %v", err) // add error handling - nothing was published
+			return
+		}
+		fmt.Printf("Failed to decrypt object: %v", err) // add error handling
+		return
+	}
+}
