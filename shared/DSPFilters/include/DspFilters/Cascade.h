@@ -164,6 +164,16 @@ public:
         state->reset();
     }
 
+    // Forward the history matched modulation flag to every section.
+    // Member is only instantiated for StateTypes that support the flag
+    // (HistoryMatchedState), so plain cascade states are unaffected.
+    void setHistoryMatched (bool enabled)
+    {
+      StateType* state = m_states;
+      for (int i = MaxStages; --i >= 0; ++state)
+        state->setHistoryMatched (enabled);
+    }
+
   private:
     StateType m_states[MaxStages];
   };

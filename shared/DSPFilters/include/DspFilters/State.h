@@ -40,6 +40,8 @@ THE SOFTWARE.
 #include "DspFilters/Biquad.h"
 
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace Dsp {
 
@@ -91,6 +93,19 @@ public:
     return static_cast<Sample> (out);
   }
 
+  // History matched modulation support.
+  // Direct Form I keeps the canonical section input/output history directly,
+  // so adopting the history is a plain assignment of the four delay values.
+  void loadHistoryMatched (double x1, double x2,
+                           double y1, double y2,
+                           const BiquadBase& /*s*/)
+  {
+    m_x1 = x1;
+    m_x2 = x2;
+    m_y1 = y1;
+    m_y2 = y2;
+  }
+
 protected:
   double m_x2; // x[n-2]
   double m_y2; // y[n-2]
@@ -135,6 +150,29 @@ public:
     m_v1 = w;
 
     return static_cast<Sample> (out);
+  }
+
+  // History matched modulation support.
+  // The canonical (input/output) history does not live in the Direct Form II
+  // delays, so the internal v1/v2 are reconstructed by inverting the
+  // observability transform that maps the delays onto the canonical history.
+  // The transform is well conditioned for the supported filter designs.
+  void loadHistoryMatched (double x1, double x2,
+                           double y1, double y2,
+                           const BiquadBase& s)
+  {
+    // Observable quantities derived from the canonical difference equation.
+    const double o1 = s.m_b1*x1 - s.m_a1*y1
+                    + s.m_b2*x2 - s.m_a2*y2;
+    const double o2 = s.m_b2*x1 - s.m_a2*y1;
+
+    const double c1 = s.m_b1 - s.m_b0*s.m_a1;
+    const double c2 = s.m_b2 - s.m_b0*s.m_a2;
+    const double d2 = s.m_b2*s.m_a1 - s.m_a2*s.m_b1;
+    const double det = c1*d2 - c2*c2;
+
+    m_v1 = (o1*d2 - c2*o2) / det;
+    m_v2 = (c1*o2 - c2*o1) / det;
   }
 
 private:
@@ -244,11 +282,182 @@ public:
     return static_cast<Sample> (out);
   }
 
+  // History matched modulation support.
+  // The two stored delays are directly observable from the canonical section
+  // input/output history, so they can be seeded without solving a system.
+  void loadHistoryMatched (double x1, double x2,
+                           double y1, double y2,
+                           const BiquadBase& s)
+  {
+    m_s1_1 = s.m_b1*x1 - s.m_a1*y1
+           + s.m_b2*x2 - s.m_a2*y2;
+    m_s2_1 = s.m_b2*x1 - s.m_a2*y1;
+  }
+
 private:
   double m_s1;
   double m_s1_1;
   double m_s2;
   double m_s2_1;
+};
+
+//------------------------------------------------------------------------------
+
+/*
+ * Compile-time marker for which realizations support history matched
+ * modulation. A state is matchable when it provides loadHistoryMatched(), so
+ * the three supported forms (and subclasses such as instrumented test states)
+ * qualify. Any other state type still compiles and runs through the normal
+ * (legacy) path, but enabling the mode for it is rejected.
+ */
+template <class StateType>
+struct IsHistoryMatchable
+{
+  template <class U>
+  static auto test (int)
+    -> decltype (std::declval<U> ().loadHistoryMatched (
+                   std::declval<double> (), std::declval<double> (),
+                   std::declval<double> (), std::declval<double> (),
+                   std::declval<const BiquadBase&> ()),
+                 void (), std::true_type ());
+
+  template <class>
+  static std::false_type test (...);
+
+  static const bool value = decltype (test<StateType> (0))::value;
+};
+
+template <bool Matched>
+struct HistoryMatchedDispatchTag
+{
+};
+
+/*
+ * HistoryMatchedState
+ *
+ * Wraps any of the supported section state types (DirectFormI, DirectFormII,
+ * TransposedDirectFormII) so that time-varying coefficients always act on the
+ * true canonical history of the section: its last two inputs and last two
+ * outputs, evaluated with the section's own direct difference equation.
+ *
+ * The wrapped StateType still computes every output through its own
+ * process1(). Before each output its internal delays are re-seeded from the
+ * shared canonical history for the coefficients currently in force, so simply
+ * carrying the previous coefficient system's delay variables into the new
+ * system never happens. When history matched modulation is disabled the
+ * wrapper is a pass-through and behaves exactly like the wrapped StateType.
+ *
+ * Storage is fixed size; there are no heap allocations on the audio path.
+ */
+template <class StateType>
+class HistoryMatchedState
+{
+public:
+  HistoryMatchedState ()
+    : m_x1 (0)
+    , m_x2 (0)
+    , m_y1 (0)
+    , m_y2 (0)
+    , m_enabled (false)
+  {
+    // m_state is default-constructed already reset; reset() again to keep the
+    // same initialization contract as the wrapped state types.
+    m_state.reset ();
+  }
+
+  void reset ()
+  {
+    m_state.reset ();
+    m_x1 = 0;
+    m_x2 = 0;
+    m_y1 = 0;
+    m_y2 = 0;
+    // The enabled flag is deliberately preserved: reset() clears audio
+    // history only, not the selected modulation mode.
+  }
+
+  // Turn history matched modulation on/off. This only changes how the wrapped
+  // state's delays are adopted; the canonical history itself is preserved.
+  void setHistoryMatched (bool enabled)
+  {
+    if (enabled && !IsHistoryMatchable<StateType>::value)
+      throw std::logic_error (
+        "history matched modulation is not supported for this state type");
+    m_enabled = enabled;
+  }
+
+  bool isHistoryMatched () const
+  {
+    return m_enabled;
+  }
+
+  template <typename Sample>
+  inline Sample process1 (const Sample in,
+                          const BiquadBase& s,
+                          const double vsa)
+  {
+    return process1Matched (in, s, vsa,
+            HistoryMatchedDispatchTag<IsHistoryMatchable<StateType>::value> ());
+  }
+
+private:
+  // Supported realization: re-seed internal delays from canonical history, then
+  // let the selected state form produce the output itself.
+  template <typename Sample>
+  inline Sample process1Matched (const Sample in,
+                                 const BiquadBase& s,
+                                 const double vsa,
+                                 HistoryMatchedDispatchTag<true>)
+  {
+    if (m_enabled)
+    {
+      // Adopt the canonical history into this realization using the
+      // coefficients currently in force, then let the selected state form
+      // produce the output through its own difference equation.
+      //
+      // The anti-denormal term is deliberately NOT handed to the realization:
+      // the three forms inject it at different nodes (output for DFI/TDFII,
+      // internal state for DFII), which would make the modulated output depend
+      // on the chosen realization. Since the internal delays are re-seeded from
+      // canonical history before every sample, the term is instead applied once
+      // at the canonical output so every realization follows the same equation.
+      m_state.loadHistoryMatched (m_x1, m_x2, m_y1, m_y2, s);
+      Sample out = m_state.process1 (in, s, 0.0);
+      out = static_cast<Sample> (out + static_cast<Sample> (vsa));
+
+      // Accumulate the canonical section input/output history every sample,
+      // including samples where the coefficients do not change.
+      m_x2 = m_x1;
+      m_x1 = in;
+      m_y2 = m_y1;
+      m_y1 = out;
+      return out;
+    }
+
+    return m_state.process1 (in, s, vsa);
+  }
+
+  // Unsupported realization: the history matched body is never instantiated,
+  // so a state without loadHistoryMatched() still compiles. It always runs the
+  // normal pass-through; enabling the mode is rejected in setHistoryMatched().
+  template <typename Sample>
+  inline Sample process1Matched (const Sample in,
+                                 const BiquadBase& s,
+                                 const double vsa,
+                                 HistoryMatchedDispatchTag<false>)
+  {
+    return m_state.process1 (in, s, vsa);
+  }
+
+private:
+  StateType m_state;
+
+  double m_x1; // section x[n-1]
+  double m_x2; // section x[n-2]
+  double m_y1; // section y[n-1]
+  double m_y2; // section y[n-2]
+
+  bool m_enabled;
 };
 
 //------------------------------------------------------------------------------
@@ -271,6 +480,14 @@ public:
   {
     for (int i = 0; i < Channels; ++i)
       m_state[i].reset();
+  }
+
+  // Forward the history matched modulation flag to every channel. Only
+  // instantiated for state types that provide setHistoryMatched().
+  void setHistoryMatched (bool enabled)
+  {
+    for (int i = 0; i < Channels; ++i)
+      m_state[i].setHistoryMatched (enabled);
   }
 
   StateType& operator[] (int index)

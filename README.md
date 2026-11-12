@@ -97,3 +97,70 @@ Source code is provided under the
 [MIT License](http://www.opensource.org/licenses/mit-license.php)<br>
 The [Juce Library](http://www.rawmaterialsoftware.com) is licensed
 separately, from [Raw Material Software](http://rawmaterialsoftware.com).
+
+### History matched modulation
+
+When filter parameters are automated (for example a cutoff sweep), the
+smoothed filter updates its coefficients once per sample. With constant
+parameters the Direct Form I, Direct Form II and Transposed Direct Form II
+realizations sound identical, but during a sweep they can differ: each form
+keeps its internal delay variables in a different representation, and simply
+carrying the previous coefficient system's delays into the new system is not
+equivalent across forms.
+
+`SmoothedFilterDesign` offers an optional **history matched modulation** mode
+that makes parameter automation mean the same thing regardless of the chosen
+state realization. The mode is off by default and the legacy behavior and
+output are unchanged.
+
+```cpp
+Dsp::SmoothedFilterDesign<Dsp::RBJ::Design::LowPass, 2, Dsp::DirectFormII> f (128);
+f.setParams (params);                         // first set takes effect immediately
+f.enableHistoryMatchedModulation (true);     // opt in before processing audio
+f.process (numSamples, arrayOfChannels);
+```
+
+How it works:
+
+- Coefficients are still advanced one sample at a time through the existing
+  transition parameter machinery. For a transition of N samples the first
+  processed sample sits at 1/N of the ramp and the last at exactly the target.
+- Every second order section applies the coefficients in force at that sample
+  to the section's *real* last two inputs and last two outputs — its direct
+  difference equation. The previous coefficient system's internal delays are
+  never reused as the new system's state; the selected realization's delays are
+  re-seeded from the canonical section history before each output. The chosen
+  `StateType` still computes every sample through its own `process1()`.
+- Each channel and each cascade section keeps independent history, and a
+  later section receives the previous section's actual output within the same
+  sample. History keeps accumulating while the coefficients are constant, when
+  a sweep finishes and processing returns to ordinary block processing, and
+  across later sweeps.
+- Parameters are placed from an absolute ramp fraction, so the trajectory is
+  identical for any block size (whole buffer versus 1/7/113-sample chunks).
+  Zero-length `process()` calls do not advance anything, and retargeting a
+  sweep mid-way continues from the position actually reached.
+
+Interface contract:
+
+- `enableHistoryMatchedModulation(bool enabled)` may only be called before any
+  non-empty input has been processed, or immediately after `reset()`. Calling
+  it at any other time throws `std::logic_error`. Enabling the mode for a state
+  type without a history-matched transform also throws `std::logic_error`.
+- `reset()` clears the audio history but keeps the selected mode. With the
+  mode enabled it also cancels any unfinished transition and settles at the
+  parameters currently in use. With the mode disabled the existing reset
+  behavior is preserved.
+- No heap allocation occurs in `setParams()` or `process()`; per-section
+  history is fixed size, and per-sample work grows only with channel and
+  section count.
+
+Supported in this mode: `RBJ::Design::LowPass`, `RBJ::Design::HighPass`, and
+the fixed fourth-order `Butterworth::Design::LowPass<4>`, using
+`DirectFormI`, `DirectFormII`, or `TransposedDirectFormII`, with one or two
+channels and `float` or `double`. The conformance test
+(`checks/history_modulation.cpp`, run by `checks/history_modulation.sh`)
+compares all design/state combinations against an independent double
+precision reference; see `checks/history_modulation_sweep_example.cpp` for a
+parameter automation example.
+
