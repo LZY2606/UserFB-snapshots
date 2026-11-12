@@ -18,6 +18,10 @@
 #include "chdconfig.h"
 #include "macros.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /***************************************************************************
     CONSTANTS
 ***************************************************************************/
@@ -66,6 +70,36 @@ enum
 int ecc_verify(const uint8_t *sector);
 void ecc_generate(uint8_t *sector);
 void ecc_clear(uint8_t *sector);
+
+/* result of cdrom_repair_sector() */
+enum
+{
+	CD_REPAIR_UNCHANGED = 0,    /* sector already passed every check; nothing touched */
+	CD_REPAIR_CORRECTED,        /* exactly one byte was corrected; see corrected_offset */
+	CD_REPAIR_UNCORRECTABLE,    /* no unique single-byte fix exists; sector left untouched */
+	CD_REPAIR_SKIPPED           /* kind carries no repairable EDC/ECC; sector left untouched */
+};
+
+/* Attempt to repair a single damaged byte in a raw 2352-byte sector.
+ *
+ * `kind` is one of the CD_TRACK_* constants above. Only CD_TRACK_MODE1_RAW
+ * and CD_TRACK_MODE2_FORM1 carry repairable EDC + P/Q ECC; every other kind
+ * (audio, form 2, cooked modes, ...) returns CD_REPAIR_SKIPPED with the
+ * sector byte-for-byte unchanged, no matter what its contents look like.
+ *
+ * A damaged byte is located from the P/Q syndromes and the error delta is
+ * solved for arithmetically - no trial-and-error over offsets or values -
+ * and the candidate is accepted only if the whole sector then passes every
+ * check (EDC, P/Q ECC, and for Mode 2 Form 1 the duplicated subheader with
+ * the Form 2 bit clear). Any single byte in offsets 16..2351 (user data,
+ * EDC, reserved area, P or Q parity) can be repaired, with a delta of any
+ * number of bits. The sync pattern, address and mode bytes (0..15) are
+ * outside the repairable range. If no unique single-byte fix exists the
+ * sector is returned unmodified and the result is CD_REPAIR_UNCORRECTABLE.
+ *
+ * `corrected_offset` may be NULL; when non-NULL it receives the 0-based
+ * offset of the modified byte on CD_REPAIR_CORRECTED and -1 otherwise. */
+int cdrom_repair_sector(uint8_t *sector, int kind, int *corrected_offset);
 #endif
 
 chd_error cd_codec_decompress(
@@ -113,5 +147,9 @@ static CHDR_INLINE uint32_t lba_to_msf_alt(int lba)
 
 	return ret;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  /* __CDROM_H__ */

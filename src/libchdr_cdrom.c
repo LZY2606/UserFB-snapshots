@@ -524,6 +524,290 @@ void ecc_clear(uint8_t *sector)
 	memset(&sector[ECC_Q_OFFSET], 0, 2 * ECC_Q_NUM_BYTES);
 }
 
+/***************************************************************************
+    SINGLE-BYTE SECTOR REPAIR
+***************************************************************************/
+
+/** @brief  Offsets, in sector bytes, of the areas each mode's EDC covers. */
+#define MODE1_EDC_OFFSET    0
+#define MODE1_EDC_NUM_BYTES 2064
+#define MODE1_EDC_LOCATION  2064
+#define MODE2_EDC_OFFSET    16
+#define MODE2_EDC_NUM_BYTES (2072 - MODE2_EDC_OFFSET)
+#define MODE2_EDC_LOCATION  2072
+
+/** @brief  The submode byte's Form 2 bit in a Mode 2 subheader. */
+#define MODE2_SUBMODE_FORM2 0x20
+
+/**
+ * @brief   cd_edc_compute - the sector EDC: a reflected CRC with polynomial
+ *          0xd8018001, initial value 0, stored little-endian
+ *
+ * @param   data    The bytes the EDC covers.
+ * @param   length  Number of bytes.
+ *
+ * @return  The EDC value.
+ */
+
+static uint32_t cd_edc_compute(const uint8_t *data, uint32_t length)
+{
+	uint32_t crc = 0;
+	uint32_t i;
+	int bit;
+
+	for (i = 0; i < length; i++)
+	{
+		crc ^= data[i];
+		for (bit = 0; bit < 8; bit++)
+			crc = (crc >> 1) ^ ((crc & 1) ? 0xd8018001u : 0);
+	}
+	return crc;
+}
+
+/**
+ * @fn  static uint32_t cd_get_le32(const uint8_t *ptr)
+ *
+ * @brief   Reads a little-endian 32-bit value.
+ */
+
+static uint32_t cd_get_le32(const uint8_t *ptr)
+{
+	return (uint32_t)ptr[0] | ((uint32_t)ptr[1] << 8) | ((uint32_t)ptr[2] << 16) | ((uint32_t)ptr[3] << 24);
+}
+
+/**
+ * @fn  static int cd_sector_valid(const uint8_t *sector, int mode2)
+ *
+ * @brief   cd_sector_valid - full on-disc validity of a raw sector: sync
+ *          pattern, mode byte, EDC, P/Q ECC and, for Mode 2 Form 1, the
+ *          duplicated subheader with the Form 2 bit clear
+ *
+ * @param   sector  The sector.
+ * @param   mode2   Nonzero for Mode 2 Form 1 layout.
+ *
+ * @return  true if every check passes.
+ */
+
+static int cd_sector_valid(const uint8_t *sector, int mode2)
+{
+	if (memcmp(sector, s_cd_sync_header, SYNC_NUM_BYTES) != 0)
+		return 0;
+	if (sector[MODE_OFFSET] != (mode2 ? 2 : 1))
+		return 0;
+	if (mode2)
+	{
+		/* both copies of the subheader must agree, and a Form 1 sector
+		 * has the Form 2 bit in the submode byte clear */
+		if (memcmp(&sector[16], &sector[20], 4) != 0)
+			return 0;
+		if ((sector[18] & MODE2_SUBMODE_FORM2) != 0)
+			return 0;
+		if (cd_edc_compute(&sector[MODE2_EDC_OFFSET], MODE2_EDC_NUM_BYTES) != cd_get_le32(&sector[MODE2_EDC_LOCATION]))
+			return 0;
+	}
+	else
+	{
+		if (cd_edc_compute(&sector[MODE1_EDC_OFFSET], MODE1_EDC_NUM_BYTES) != cd_get_le32(&sector[MODE1_EDC_LOCATION]))
+			return 0;
+	}
+	return ecc_verify(sector);
+}
+
+/**
+ * @fn  static uint8_t ecc_xtime_pow(uint8_t x, int m)
+ *
+ * @brief   ecc_xtime_pow - multiply by 2^m in the ecc GF(2^8)
+ */
+
+static uint8_t ecc_xtime_pow(uint8_t x, int m)
+{
+	while (m-- > 0)
+		x = ecc_xtime(x);
+	return x;
+}
+
+/**
+ * @fn  int cdrom_repair_sector(uint8_t *sector, int kind, int *corrected_offset)
+ *
+ * @brief   cdrom_repair_sector - locate a single damaged byte from the P/Q
+ *          syndromes, solve for its delta, and accept the fix only if the
+ *          whole sector then validates; see cdrom.h for the contract
+ */
+
+int cdrom_repair_sector(uint8_t *sector, int kind, int *corrected_offset)
+{
+	uint8_t work[CD_MAX_SECTOR_DATA];
+	int cand_off[4];
+	uint8_t cand_delta[4];
+	int ncand = 0;
+	int mode2;
+	int row, comp;
+	int pcount = 0, qcount = 0, prow = 0, qrow = 0;
+	uint8_t ps1 = 0, ps2 = 0, qs1 = 0, qs2 = 0;
+	int fixed = -1;
+	uint8_t fixed_delta = 0;
+
+	if (corrected_offset != NULL)
+		*corrected_offset = -1;
+
+	if (sector == NULL)
+		return CD_REPAIR_UNCORRECTABLE;
+
+	switch (kind)
+	{
+		case CD_TRACK_MODE1_RAW:    mode2 = 0; break;
+		case CD_TRACK_MODE2_FORM1:  mode2 = 1; break;
+		default:                    return CD_REPAIR_SKIPPED;
+	}
+
+	/* the sync pattern, address and mode bytes (0..15) are outside the
+	 * repairable range; damage there cannot be fixed from the EDC/ECC */
+	if (memcmp(sector, s_cd_sync_header, SYNC_NUM_BYTES) != 0)
+		return CD_REPAIR_UNCORRECTABLE;
+	if (sector[MODE_OFFSET] != (mode2 ? 2 : 1))
+		return CD_REPAIR_UNCORRECTABLE;
+
+	/* P and Q syndromes: computed parity XOR stored parity, per row. A
+	 * single-byte error shows up in at most one P row and at most one Q
+	 * row: every data byte is covered by exactly one row of each, a stored
+	 * P parity byte is covered by one Q row on top of its own row check,
+	 * and a stored Q parity byte by nothing but its own row check. */
+	for (row = 0; row < ECC_P_NUM_BYTES; row++)
+	{
+		uint8_t v1, v2;
+		ecc_compute_bytes(sector, poffsets[row], ECC_P_COMP, &v1, &v2);
+		v1 ^= sector[ECC_P_OFFSET + row];
+		v2 ^= sector[ECC_P_OFFSET + ECC_P_NUM_BYTES + row];
+		if (v1 != 0 || v2 != 0)
+		{
+			pcount++;
+			prow = row;
+			ps1 = v1;
+			ps2 = v2;
+		}
+	}
+	for (row = 0; row < ECC_Q_NUM_BYTES; row++)
+	{
+		uint8_t v1, v2;
+		ecc_compute_bytes(sector, qoffsets[row], ECC_Q_COMP, &v1, &v2);
+		v1 ^= sector[ECC_Q_OFFSET + row];
+		v2 ^= sector[ECC_Q_OFFSET + ECC_Q_NUM_BYTES + row];
+		if (v1 != 0 || v2 != 0)
+		{
+			qcount++;
+			qrow = row;
+			qs1 = v1;
+			qs2 = v2;
+		}
+	}
+
+	if (pcount == 0 && qcount == 0)
+	{
+		/* nothing the ECC can see: either the sector is good as-is, or the
+		 * damage is somewhere the ECC does not cover */
+		return cd_sector_valid(sector, mode2) ? CD_REPAIR_UNCHANGED : CD_REPAIR_UNCORRECTABLE;
+	}
+
+	/* more than one nonzero row of either kind cannot be a single-byte
+	 * error; a lone P row cannot either, because every byte behind it is
+	 * also covered by a Q row */
+	if (pcount > 1 || qcount > 1 || qcount == 0)
+		return CD_REPAIR_UNCORRECTABLE;
+
+	if (pcount == 1)
+	{
+		/* qcount == 1 as well. Hypothesis 1: a data byte (sector offsets
+		 * 12..2075) is wrong. It sits in P row prow and Q row qrow, and the
+		 * two rows intersect in exactly one offset. For a delta d at row
+		 * position k the syndrome is s1 = B(2^(n-k+1)*d ^ d), s2 = d ^ s1,
+		 * so d = s1 ^ s2 and the position must reproduce s1. */
+		for (comp = 0; comp < ECC_P_COMP; comp++)
+		{
+			const uint16_t x = poffsets[prow][comp];
+			const uint8_t d = (uint8_t)(ps1 ^ ps2);
+			int qcomp;
+
+			/* data offsets 0..3 (sector bytes 12..15) are not repairable */
+			if (x < 4)
+				continue;
+			for (qcomp = 0; qcomp < ECC_Q_COMP; qcomp++)
+				if (qoffsets[qrow][qcomp] == x)
+					break;
+			if (qcomp == ECC_Q_COMP)
+				continue;
+			if (d != 0 &&
+				ps1 == (uint8_t)ecchigh[ecc_xtime_pow(d, ECC_P_COMP - comp + 1) ^ d] &&
+				ps2 == (uint8_t)(d ^ ps1) &&
+				qs1 == (uint8_t)ecchigh[ecc_xtime_pow(d, ECC_Q_COMP - qcomp + 1) ^ d] &&
+				qs2 == (uint8_t)(d ^ qs1))
+			{
+				cand_off[ncand] = SYNC_OFFSET + SYNC_NUM_BYTES + x;
+				cand_delta[ncand] = d;
+				ncand++;
+			}
+		}
+
+		/* Hypothesis 2: a stored P parity byte is wrong. Its own row check
+		 * then fails in exactly one component, and the Q row covering it
+		 * must agree with the same delta. */
+		if ((ps1 == 0) != (ps2 == 0))
+		{
+			const uint8_t d = (ps1 != 0) ? ps1 : ps2;
+			const uint16_t x = (uint16_t)(ECC_P_OFFSET - (SYNC_OFFSET + SYNC_NUM_BYTES)
+										+ ((ps1 != 0) ? prow : ECC_P_NUM_BYTES + prow));
+			int qcomp;
+
+			for (qcomp = 0; qcomp < ECC_Q_COMP; qcomp++)
+				if (qoffsets[qrow][qcomp] == x)
+					break;
+			if (qcomp < ECC_Q_COMP &&
+				qs1 == (uint8_t)ecchigh[ecc_xtime_pow(d, ECC_Q_COMP - qcomp + 1) ^ d] &&
+				qs2 == (uint8_t)(d ^ qs1))
+			{
+				cand_off[ncand] = SYNC_OFFSET + SYNC_NUM_BYTES + x;
+				cand_delta[ncand] = d;
+				ncand++;
+			}
+		}
+	}
+	else
+	{
+		/* pcount == 0, qcount == 1: only a stored Q parity byte can do
+		 * this, and its syndrome is the delta directly */
+		if ((qs1 == 0) != (qs2 == 0))
+		{
+			cand_off[ncand] = ECC_Q_OFFSET + ((qs1 != 0) ? qrow : ECC_Q_NUM_BYTES + qrow);
+			cand_delta[ncand] = (qs1 != 0) ? qs1 : qs2;
+			ncand++;
+		}
+	}
+
+	/* try each candidate on a private copy and keep it only if the whole
+	 * sector then validates; hand a fix back only when exactly one does */
+	for (comp = 0; comp < ncand; comp++)
+	{
+		if (cand_off[comp] < 16 || cand_off[comp] >= CD_MAX_SECTOR_DATA)
+			continue;
+		memcpy(work, sector, CD_MAX_SECTOR_DATA);
+		work[cand_off[comp]] ^= cand_delta[comp];
+		if (cd_sector_valid(work, mode2))
+		{
+			if (fixed >= 0)
+				return CD_REPAIR_UNCORRECTABLE;  /* not unique */
+			fixed = cand_off[comp];
+			fixed_delta = cand_delta[comp];
+		}
+	}
+
+	if (fixed < 0)
+		return CD_REPAIR_UNCORRECTABLE;
+
+	sector[fixed] ^= fixed_delta;
+	if (corrected_offset != NULL)
+		*corrected_offset = fixed;
+	return CD_REPAIR_CORRECTED;
+}
+
 #endif /* WANT_RAW_DATA_SECTOR */
 
 /* Handles decompression for CDZL, CDLZ, CDZS, and co. */

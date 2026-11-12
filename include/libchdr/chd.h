@@ -484,6 +484,32 @@ CHD_EXPORT chd_error chd_read_header(const char *filename, chd_header *header);
  * change the LZMA or FLAC cases above, which apply to every build. */
 CHD_EXPORT chd_error chd_read(chd_file *chd, uint32_t hunknum, void *buffer);
 
+/* Read one hunk of a CD image and attempt single-byte repair of each raw
+ * sector against its EDC and P/Q ECC.
+ *
+ * Only images with unitbytes == 2448 (2352 bytes of sector + 96 bytes of
+ * subchannel per frame) and a hunk size that is an exact multiple of 2448
+ * are accepted; `count` must equal the number of 2448-byte frame slots in a
+ * hunk (hunkbytes / 2448), `kinds` the CD_TRACK_* kind of each slot. All
+ * parameters are validated before anything is read.
+ *
+ * The hunk itself is fetched exactly as chd_read() fetches it, and any
+ * decompression, CRC or I/O error from that path is returned unchanged -
+ * no integrity check is bypassed. On success the first 2352 bytes of each
+ * slot are passed to cdrom_repair_sector() with the slot's kind, and
+ * `statuses[slot]` receives the CD_REPAIR_* result (see cdrom.h). The
+ * 96-byte subchannel area of every slot is never modified. A slot that
+ * cannot be repaired is delivered with its original bytes and its own
+ * status without affecting the other slots.
+ *
+ * Repairs live only in the caller's buffer: nothing is written back to the
+ * image or into any internal cache, so a later plain chd_read() of the same
+ * hunk still returns the original (damaged) bytes.
+ *
+ * When the library is built with WANT_RAW_DATA_SECTOR == 0 this always
+ * returns CHDERR_NOT_SUPPORTED. */
+CHD_EXPORT chd_error chd_read_cd_repaired(chd_file *chd, uint32_t hunknum, void *buffer, const uint8_t *kinds, uint32_t count, int *statuses);
+
 
 
 /* ----- metadata management ----- */

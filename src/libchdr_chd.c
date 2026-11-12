@@ -2694,6 +2694,51 @@ CHD_EXPORT chd_error chd_read(chd_file *chd, uint32_t hunknum, void *buffer)
 	return hunk_read_into_memory(chd, hunknum, (uint8_t *)buffer);
 }
 
+/*-------------------------------------------------
+    chd_read_cd_repaired - read a single hunk of a
+    CD image and attempt single-byte repair of each
+    raw sector it holds
+-------------------------------------------------*/
+
+CHD_EXPORT chd_error chd_read_cd_repaired(chd_file *chd, uint32_t hunknum, void *buffer, const uint8_t *kinds, uint32_t count, int *statuses)
+{
+#if WANT_RAW_DATA_SECTOR
+	uint32_t slot, slots;
+	chd_error err;
+
+	/* punt if NULL or invalid */
+	if (chd == NULL || chd->cookie != COOKIE_VALUE)
+		return CHDERR_INVALID_PARAMETER;
+	if (buffer == NULL || kinds == NULL || statuses == NULL)
+		return CHDERR_INVALID_PARAMETER;
+
+	/* CD frame layout only: one 2448-byte unit (2352 sector + 96 subcode)
+	 * per slot, and the caller's kind/status arrays must cover every slot */
+	if (chd->header.unitbytes != CD_FRAME_SIZE || (chd->header.hunkbytes % CD_FRAME_SIZE) != 0)
+		return CHDERR_INVALID_PARAMETER;
+	slots = chd->header.hunkbytes / CD_FRAME_SIZE;
+	if (count != slots)
+		return CHDERR_INVALID_PARAMETER;
+
+	/* read the hunk exactly as chd_read() would; decompression, CRC and
+	 * I/O errors (including an out-of-range hunk) are returned unchanged */
+	err = hunk_read_into_memory(chd, hunknum, (uint8_t *)buffer);
+	if (err != CHDERR_NONE)
+		return err;
+
+	/* repair each sector in the caller's buffer only: the image and every
+	 * internal cache keep the original bytes, and the 96-byte subchannel
+	 * area of each slot is never touched */
+	for (slot = 0; slot < slots; slot++)
+		statuses[slot] = cdrom_repair_sector((uint8_t *)buffer + (size_t)slot * CD_FRAME_SIZE, kinds[slot], NULL);
+
+	return CHDERR_NONE;
+#else
+	(void)chd; (void)hunknum; (void)buffer; (void)kinds; (void)count; (void)statuses;
+	return CHDERR_NOT_SUPPORTED;
+#endif
+}
+
 /***************************************************************************
     METADATA MANAGEMENT
 ***************************************************************************/
