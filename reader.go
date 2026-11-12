@@ -30,6 +30,10 @@ type Reader struct {
 	dbfNumRecords   int32
 	dbfHeaderLength int16
 	dbfRecordLength int16
+
+	fpt     *os.File
+	memo    *memoFile
+	memoErr error
 }
 
 type readSeekCloser interface {
@@ -90,6 +94,9 @@ func (r *Reader) Close() error {
 		r.err = r.shp.Close()
 		if r.dbf != nil {
 			r.dbf.Close()
+		}
+		if r.fpt != nil {
+			r.fpt.Close()
 		}
 	}
 	return r.err
@@ -201,12 +208,24 @@ func (r *Reader) openDbf() (err error) {
 	}
 
 	// read header
+	var version [1]byte
+	if _, err = r.dbf.Read(version[:]); err != nil {
+		return
+	}
 	r.dbf.Seek(4, io.SeekStart)
 	binary.Read(r.dbf, binary.LittleEndian, &r.dbfNumRecords)
 	binary.Read(r.dbf, binary.LittleEndian, &r.dbfHeaderLength)
 	binary.Read(r.dbf, binary.LittleEndian, &r.dbfRecordLength)
 
 	r.dbf.Seek(20, io.SeekCurrent) // skip padding
+	if version[0] == dbfVersionVisualFoxPro {
+		// Visual FoxPro tables store an extended header (e.g. a backlink
+		// area) between the field descriptors and the first record, so the
+		// number of fields cannot be derived from the header length. Read
+		// descriptors until the standalone 0x0D terminator instead.
+		r.dbfFields, err = readFieldDescriptors(r.dbf)
+		return
+	}
 	numFields := int(math.Floor(float64(r.dbfHeaderLength-33) / 32.0))
 	r.dbfFields = make([]Field, numFields)
 	binary.Read(r.dbf, binary.LittleEndian, &r.dbfFields)
@@ -246,4 +265,61 @@ func (r *Reader) ReadAttribute(row int, field int) string {
 	buf := make([]byte, r.dbfFields[field].Size)
 	r.dbf.Read(buf)
 	return strings.Trim(string(buf[:]), " ")
+}
+
+// openMemo opens the FPT memo sidecar file that shares the basename of the
+// Shapefile. It is opened lazily on the first memo request; a missing or
+// unreadable FPT file does not affect geometry or plain attribute reads.
+func (r *Reader) openMemo() error {
+	if r.memo != nil {
+		return nil
+	}
+	if r.memoErr != nil {
+		return r.memoErr
+	}
+	name := r.filename + ".fpt"
+	f, err := os.Open(name)
+	if err != nil {
+		r.memoErr = fmt.Errorf("cannot open memo file %s: %w", name, ErrMemoUnavailable)
+		return r.memoErr
+	}
+	st, err := f.Stat()
+	if err == nil {
+		r.memo, err = newMemoFile(f, st.Size())
+	}
+	if err != nil {
+		f.Close()
+		r.memoErr = err
+		return r.memoErr
+	}
+	r.fpt = f
+	return nil
+}
+
+// ReadMemo returns the memo value of the M field at row for field in the
+// DBF table. Both values start at 0 and row counts physical rows, including
+// ones flagged as deleted. The memo content is read from the FPT file that
+// shares the basename of the Shapefile. A failed ReadMemo does not change
+// the position of the geometry or DBF readers.
+func (r *Reader) ReadMemo(row int, field int) (MemoValue, error) {
+	if err := r.openDbf(); err != nil {
+		return MemoValue{}, err
+	}
+	off, err := memoFieldOffset(r.dbfFields, field)
+	if err != nil {
+		return MemoValue{}, err
+	}
+	if err := r.openMemo(); err != nil {
+		return MemoValue{}, err
+	}
+	seekTo := int64(r.dbfHeaderLength) + int64(row)*int64(r.dbfRecordLength) + off
+	if _, err := r.dbf.Seek(seekTo, io.SeekStart); err != nil {
+		return MemoValue{}, err
+	}
+	var ptr [4]byte
+	if _, err := io.ReadFull(r.dbf, ptr[:]); err != nil {
+		return MemoValue{}, fmt.Errorf("cannot read memo pointer of row %d, field %d: %w",
+			row, field, ErrMemoPointer)
+	}
+	return r.memo.read(binary.LittleEndian.Uint32(ptr[:]))
 }

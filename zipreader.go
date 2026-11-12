@@ -2,6 +2,7 @@ package shp
 
 import (
 	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"path"
@@ -17,13 +18,66 @@ type ZipReader struct {
 // openFromZIP is convenience function for opening the file called name that is
 // compressed in z for reading.
 func openFromZIP(z *zip.ReadCloser, name string) (io.ReadCloser, error) {
+	f := findInZIP(z, name)
+	if f == nil {
+		return nil, fmt.Errorf("No such file in archive: %s", name)
+	}
+	return f.Open()
+}
+
+// findInZIP returns the ZIP entry called name, or nil if there is none.
+func findInZIP(z *zip.ReadCloser, name string) *zip.File {
 	for _, f := range z.File {
 		if f.Name == name {
-			return f.Open()
-
+			return f
 		}
 	}
-	return nil, fmt.Errorf("No such file in archive: %s", name)
+	return nil
+}
+
+// zipFpt adapts a single compressed FPT entry of a ZIP archive to
+// io.ReaderAt. The entry is decompressed into memory on first use; the rest
+// of the archive is left untouched and nothing is written to disk.
+type zipFpt struct {
+	f    *zip.File
+	done bool
+	data *bytes.Reader
+	err  error
+}
+
+func (z *zipFpt) ReadAt(p []byte, off int64) (int, error) {
+	if !z.done {
+		z.done = true
+		rc, err := z.f.Open()
+		if err != nil {
+			z.err = err
+		} else {
+			var buf []byte
+			buf, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				z.err = err
+			} else {
+				z.data = bytes.NewReader(buf)
+			}
+		}
+	}
+	if z.err != nil {
+		return 0, z.err
+	}
+	return z.data.ReadAt(p, off)
+}
+
+// memoSourceFromZIP returns a lazily materialized ReaderAt for the FPT
+// entry that belongs to the shapefile group with the given prefix (full
+// directory and basename inside the archive), or nil if the archive does
+// not contain that entry.
+func memoSourceFromZIP(z *zip.ReadCloser, prefix string) (io.ReaderAt, int64) {
+	f := findInZIP(z, prefix+".fpt")
+	if f == nil {
+		return nil, 0
+	}
+	return &zipFpt{f: f}, int64(f.UncompressedSize64)
 }
 
 // OpenZip opens a ZIP file that contains a single shapefile.
@@ -50,7 +104,8 @@ func OpenZip(zipFilePath string) (*ZipReader, error) {
 	withoutExt := strings.TrimSuffix(shapeFiles[0].Name, ".shp")
 	// dbf is optional, so no error checking here
 	dbf, _ := openFromZIP(zr.z, withoutExt+".dbf")
-	zr.sr = SequentialReaderFromExt(shp, dbf)
+	fpt, fptSize := memoSourceFromZIP(zr.z, withoutExt)
+	zr.sr = SequentialReaderFromExtWithMemo(shp, dbf, fpt, fptSize)
 	return zr, nil
 }
 
@@ -101,7 +156,8 @@ func OpenShapeFromZip(zipFilePath string, name string) (*ZipReader, error) {
 	// dbf is optional, so no error checking here
 	prefix := strings.TrimSuffix(name, path.Ext(name))
 	dbf, _ := openFromZIP(zr.z, prefix+".dbf")
-	zr.sr = SequentialReaderFromExt(shp, dbf)
+	fpt, fptSize := memoSourceFromZIP(zr.z, prefix)
+	zr.sr = SequentialReaderFromExtWithMemo(shp, dbf, fpt, fptSize)
 	return zr, nil
 }
 
@@ -148,4 +204,17 @@ func (zr *ZipReader) Fields() []Field {
 // Err returns the last non-EOF error that was encountered by this ZipReader.
 func (zr *ZipReader) Err() error {
 	return zr.sr.Err()
+}
+
+// Memo returns the memo value of the n-th field of the physical row that
+// was read by the most recent successful call to Next. The memo content is
+// read from the FPT entry that shares the directory and basename of the
+// selected .shp entry inside the archive. A missing FPT entry does not
+// affect geometry or plain attribute reads; only Memo fails then.
+func (zr *ZipReader) Memo(field int) (MemoValue, error) {
+	if m, ok := zr.sr.(SequentialReaderWithMemo); ok {
+		return m.Memo(field)
+	}
+	return MemoValue{}, fmt.Errorf("the underlying reader has no memo support: %w",
+		ErrMemoUnavailable)
 }

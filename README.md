@@ -47,6 +47,47 @@ for shape.Next() {
 }
 ```
 
+#### Reading memo (M) fields from Visual FoxPro DBF/FPT files
+
+Visual FoxPro tables (DBF version byte `0x30`) store long texts of `M`
+fields in a sidecar FPT file. go-shp reads them explicitly; the plain
+`Attribute`/`ReadAttribute` accessors never decode memo fields. For
+shapefiles on disk the FPT file is located by basename (`points.fpt` for
+`points.shp`); a missing FPT file only makes memo reads fail, geometry and
+plain attributes keep working.
+
+```go
+shape, err := shp.Open("points.shp")
+if err != nil { log.Fatal(err) }
+defer shape.Close()
+
+for shape.Next() {
+	n, _ := shape.Shape()
+	memo, err := shape.ReadMemo(n, 1) // row n, field 1
+	if err != nil { log.Fatal(err) }
+	if memo.Present {
+		fmt.Printf("kind=%d text=%s\n", memo.Kind, memo.Data)
+	}
+}
+```
+
+The same works for archives through `ZipReader.Memo(field)` (the FPT entry
+must sit next to the selected `.shp` entry) and for custom streams through
+`SequentialReaderFromExtWithMemo`:
+
+```go
+sr := shp.SequentialReaderFromExtWithMemo(shpRC, dbfRC, fptReaderAt, fptSize)
+defer sr.Close()
+for sr.Next() {
+	memo, err := sr.Memo(1) // memo of the row just read
+	// ...
+}
+```
+
+Each memo read returns a `MemoValue` with `Present` (false for a zero block
+pointer), `Kind` (`MemoKindBinary` or `MemoKindText`) and the raw `Data`
+bytes, which are never trimmed and never shared between calls.
+
 #### Creating a shapefile
 
 ```go

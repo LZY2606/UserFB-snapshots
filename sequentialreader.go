@@ -36,6 +36,17 @@ type SequentialReader interface {
 	Err() error
 }
 
+// SequentialReaderWithMemo extends SequentialReader with read-only access
+// to memo (M) fields stored in an FPT sidecar file.
+type SequentialReaderWithMemo interface {
+	SequentialReader
+
+	// Memo returns the memo value of the n-th field of the physical row
+	// that was read by the most recent successful call to Next. A failed
+	// Memo call does not affect subsequent reads.
+	Memo(field int) (MemoValue, error)
+}
+
 // Attributes returns all attributes of the shape that sr was last advanced to.
 func Attributes(sr SequentialReader) []string {
 	if sr.Err() != nil {
@@ -71,6 +82,11 @@ type seqReader struct {
 	dbfHeaderLength int16
 	dbfRecordLength int16
 	dbfRow          []byte
+
+	fpt     io.ReaderAt
+	fptSize int64
+	memo    *memoFile
+	memoErr error
 }
 
 // Read and parse headers in the Shapefile. This will fill out GeometryType,
@@ -102,11 +118,42 @@ func (sr *seqReader) readHeaders() {
 	if sr.dbf == nil {
 		return
 	}
-	io.CopyN(ioutil.Discard, er, 4)
+	var version [1]byte
+	er.Read(version[:])
+	io.CopyN(ioutil.Discard, er, 3)
 	binary.Read(er, binary.LittleEndian, &sr.dbfNumRecords)
 	binary.Read(er, binary.LittleEndian, &sr.dbfHeaderLength)
 	binary.Read(er, binary.LittleEndian, &sr.dbfRecordLength)
 	io.CopyN(ioutil.Discard, er, 20) // skip padding
+	if er.e != nil {
+		sr.err = fmt.Errorf("Error when reading DBF header: %v", er.e)
+		return
+	}
+	if version[0] == dbfVersionVisualFoxPro {
+		// Visual FoxPro tables store an extended header (e.g. a backlink
+		// area) between the field descriptors and the first record, so the
+		// number of fields cannot be derived from the header length. Read
+		// descriptors until the standalone 0x0D terminator instead.
+		fields, err := readFieldDescriptors(er)
+		if err != nil {
+			sr.err = fmt.Errorf("Error when reading DBF field descriptors: %v", err)
+			return
+		}
+		sr.dbfFields = fields
+		// skip the extension bytes between the terminator and the first
+		// record; they must not be mistaken for field descriptors or row
+		// data
+		consumed := int64(32) + int64(32)*int64(len(fields)) + 1
+		if skip := int64(sr.dbfHeaderLength) - consumed; skip > 0 {
+			io.CopyN(ioutil.Discard, er, skip)
+		}
+		if er.e != nil {
+			sr.err = fmt.Errorf("Error when reading DBF header: %v", er.e)
+			return
+		}
+		sr.dbfRow = make([]byte, sr.dbfRecordLength)
+		return
+	}
 	numFields := int(math.Floor(float64(sr.dbfHeaderLength-33) / 32.0))
 	sr.dbfFields = make([]Field, numFields)
 	binary.Read(er, binary.LittleEndian, &sr.dbfFields)
@@ -202,6 +249,36 @@ func (sr *seqReader) Attribute(n int) string {
 	return strings.Trim(s, " ")
 }
 
+// Memo implements a method of interface SequentialReaderWithMemo for
+// seqReader. It reads the memo value of the given field from the physical
+// row that the most recent successful Next call read. Memo errors are
+// returned to the caller but do not change the reader state, so iteration
+// can continue afterwards.
+func (sr *seqReader) Memo(field int) (MemoValue, error) {
+	off, err := memoFieldOffset(sr.dbfFields, field)
+	if err != nil {
+		return MemoValue{}, err
+	}
+	if sr.fpt == nil {
+		return MemoValue{}, fmt.Errorf("no FPT memo source was provided: %w", ErrMemoUnavailable)
+	}
+	if sr.memo == nil {
+		if sr.memoErr != nil {
+			return MemoValue{}, sr.memoErr
+		}
+		sr.memo, sr.memoErr = newMemoFile(sr.fpt, sr.fptSize)
+		if sr.memoErr != nil {
+			return MemoValue{}, sr.memoErr
+		}
+	}
+	if off+4 > int64(len(sr.dbfRow)) {
+		return MemoValue{}, fmt.Errorf("memo pointer of field %d exceeds the record: %w",
+			field, ErrMemoPointer)
+	}
+	block := binary.LittleEndian.Uint32(sr.dbfRow[off : off+4])
+	return sr.memo.read(block)
+}
+
 // Err returns the first non-EOF error that was encountered.
 func (sr *seqReader) Err() error {
 	if sr.err == io.EOF {
@@ -230,6 +307,19 @@ func (sr *seqReader) Fields() []Field {
 // as a source of shapes whose attributes can be retrieved from dbf.
 func SequentialReaderFromExt(shp, dbf io.ReadCloser) SequentialReader {
 	sr := &seqReader{shp: shp, dbf: dbf}
+	sr.readHeaders()
+	return sr
+}
+
+// SequentialReaderFromExtWithMemo returns a new SequentialReaderWithMemo
+// that interprets shp as a source of shapes whose attributes can be
+// retrieved from dbf and whose memo (M) fields refer to blocks in the FPT
+// file fpt of fptSize bytes. The fpt ReaderAt remains owned by the caller
+// and is not closed by the returned reader; it may be nil, in which case
+// memo reads fail with ErrMemoUnavailable while geometry and plain
+// attribute reads keep working.
+func SequentialReaderFromExtWithMemo(shp, dbf io.ReadCloser, fpt io.ReaderAt, fptSize int64) SequentialReaderWithMemo {
+	sr := &seqReader{shp: shp, dbf: dbf, fpt: fpt, fptSize: fptSize}
 	sr.readHeaders()
 	return sr
 }
