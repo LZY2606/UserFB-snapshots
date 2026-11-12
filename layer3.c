@@ -298,6 +298,43 @@ unsigned char const sfb_8000_mixed[] = {
                2,  2,  2,  2,  2,  2,  2,  2,  2, 26, 26, 26
 };
 
+/*
+ * Optional 8000 Hz MPEG-2.5 mixed-block layout selected by
+ * MAD_OPTION_MIXED8K_4SUBBANDS:
+ *
+ *   frequency lines 0..71  -> long block part
+ *       six long scalefactor bands, each 12 lines wide
+ *       (subbands 0-3, i.e. 4 * 18 lines)
+ *   frequency lines 72..575 -> short block part
+ *       the pure short-block sfb_8000_short boundaries, starting
+ *       at short band 3; each band stores windows 0, 1, 2 in turn
+ *
+ *   line:       0          36          72                         575
+ *               |   long (sfb 0..5, width 12)   | short (sfb 3..12) |
+ *   subband:    | sb0 | sb1 | sb2 | sb3 |       sb4 | ... | sb31      |
+ *               |<------- 72 lines, 4 long subbands ------->|
+ *               scalefac idx 0..5 (long) | 6..38 (w0,w1,w2 triples)
+ *
+ *   Note the long scalefactor bands (12 lines) do not line up with the
+ *   18-line subbands; only the 72-line long/short boundary does.
+ *
+ * The trailing short bands that are not transmitted keep a zero
+ * scalefactor, exactly as for a pure short block.
+ */
+static
+unsigned char const sfb_8000_mixed4[] = {
+  /* long */  12, 12, 12, 12, 12, 12,
+  /* short: pure short-block bands 3..12, each stored windows 0,1,2 */
+  /* b3 */  12, 12, 12,
+  /* b4 */  16, 16, 16,
+  /* b5 */  20, 20, 20,
+  /* b6 */  24, 24, 24,
+  /* b7 */  28, 28, 28,
+  /* b8 */  36, 36, 36,
+  /* b9..b11 */  2,  2,  2,  2,  2,  2,  2,  2,  2,
+  /* b12 */ 26, 26, 26
+};
+
 static
 struct {
   unsigned char const *l;
@@ -314,6 +351,48 @@ struct {
   { sfb_11025_long, sfb_11025_short, sfb_11025_mixed },
   {  sfb_8000_long,  sfb_8000_short,  sfb_8000_mixed }
 };
+
+/*
+ * NAME:	III_mixed4_active()
+ * DESCRIPTION:	whether the optional four-long-subband layout applies to
+ *		this channel: an 8 kHz MPEG-2.5 mixed short block decoded
+ *		with MAD_OPTION_MIXED8K_4SUBBANDS set
+ */
+static
+int III_mixed4_active(struct mad_frame const *frame,
+		      struct channel const *channel)
+{
+  return (frame->options & MAD_OPTION_MIXED8K_4SUBBANDS) &&
+         (frame->header.flags & MAD_FLAG_MPEG_2_5_EXT) &&
+         frame->header.samplerate == 8000 &&
+         channel->block_type == 2 &&
+         (channel->flags & mixed_block_flag) != 0;
+}
+
+/*
+ * NAME:	III_mixed_longlines()
+ * DESCRIPTION:	number of leading frequency lines interpreted as long
+ *		blocks: 72 (four subbands) for the optional 8 kHz layout,
+ *		otherwise the historical 36 (two subbands)
+ */
+static
+unsigned int III_mixed_longlines(struct mad_frame const *frame,
+				 struct channel const *channel)
+{
+  return III_mixed4_active(frame, channel) ? 72 : 36;
+}
+
+# if defined(MAD_MIXED8K_TEST)
+/*
+ * Read-only test observation points.  This header and the global object
+ * below exist only in the test build (support/build.sh target passes
+ * -DMAD_MIXED8K_TEST); the normal library build contains no reference to
+ * them, allocates no extra memory and performs no callbacks.
+ */
+#  include "tests/mixed8k_obs.h"
+
+struct mad_mixed8k_obs mad_mixed8k_obs;
+# endif
 
 /*
  * scalefactor band preemphasis (used only when preflag is set)
@@ -599,7 +678,8 @@ static
 unsigned int III_scalefactors_lsf(struct mad_bitptr *ptr,
 				  struct channel *channel,
 				  struct channel *gr1ch, int mode_extension,
-				  unsigned int bits_left, unsigned int *part2_length)
+				  unsigned int bits_left, unsigned int *part2_length,
+				  struct mad_frame const *frame)
 {
   struct mad_bitptr start;
   unsigned int scalefac_compress, index, slen[4], part, n, i;
@@ -610,6 +690,12 @@ unsigned int III_scalefactors_lsf(struct mad_bitptr *ptr,
   scalefac_compress = channel->scalefac_compress;
   index = (channel->block_type == 2) ?
     ((channel->flags & mixed_block_flag) ? 2 : 1) : 0;
+
+  /* with the optional 8 kHz four-subband layout the transmitted
+     scalefactors follow the long-block counts, even though the
+     granule is a mixed short block */
+  if (III_mixed4_active(frame, channel))
+    index = 0;
 
   if (!((mode_extension & I_STEREO) && gr1ch)) {
     if (scalefac_compress < 400) {
@@ -845,7 +931,8 @@ unsigned int III_scalefactors(struct mad_bitptr *ptr, struct channel *channel,
  */
 static
 void III_exponents(struct channel const *channel,
-		   unsigned char const *sfbwidth, signed int exponents[39])
+		   unsigned char const *sfbwidth, signed int exponents[39],
+		   struct mad_frame const *frame)
 {
   signed int gain;
   unsigned int scalefac_multiplier, sfbi;
@@ -854,7 +941,7 @@ void III_exponents(struct channel const *channel,
   scalefac_multiplier = (channel->flags & scalefac_scale) ? 2 : 1;
 
   if (channel->block_type == 2) {
-    unsigned int l;
+    unsigned int l, longlines;
     signed int gain0, gain1, gain2;
 
     sfbi = l = 0;
@@ -864,9 +951,12 @@ void III_exponents(struct channel const *channel,
 
       premask = (channel->flags & preflag) ? ~0 : 0;
 
-      /* long block subbands 0-1 */
+      /* long block subbands: two subbands (36 lines) historically,
+	 four subbands (72 lines) for the optional 8 kHz layout */
 
-      while (l < 36) {
+      longlines = III_mixed_longlines(frame, channel);
+
+      while (l < longlines) {
 	exponents[sfbi] = gain -
 	  (signed int) ((channel->scalefac[sfbi] + (pretab[sfbi] & premask)) <<
 			scalefac_multiplier);
@@ -875,7 +965,9 @@ void III_exponents(struct channel const *channel,
       }
     }
 
-    /* this is probably wrong for 8000 Hz short/mixed blocks */
+    /* the remaining bands are short: every window keeps its own
+       subblock_gain, including the first short band after the long
+       part (line 72 for the 8 kHz four-subband layout) */
 
     gain0 = gain - 8 * (signed int) channel->subblock_gain[0];
     gain1 = gain - 8 * (signed int) channel->subblock_gain[1];
@@ -968,7 +1060,8 @@ static
 enum mad_error III_huffdecode(struct mad_bitptr *ptr, mad_fixed_t xr[576],
 			      struct channel *channel,
 			      unsigned char const *sfbwidth,
-			      signed int part3_length)
+			      signed int part3_length,
+			      struct mad_frame const *frame)
 {
   signed int exponents[39], exp;
   signed int const *expptr;
@@ -980,7 +1073,7 @@ enum mad_error III_huffdecode(struct mad_bitptr *ptr, mad_fixed_t xr[576],
 
   bits_left = part3_length;
 
-  III_exponents(channel, sfbwidth, exponents);
+  III_exponents(channel, sfbwidth, exponents, frame);
 
   peek = *ptr;
   mad_bit_skip(ptr, bits_left);
@@ -1342,19 +1435,21 @@ enum mad_error III_huffdecode(struct mad_bitptr *ptr, mad_fixed_t xr[576],
  */
 static
 void III_reorder(mad_fixed_t xr[576], struct channel const *channel,
-		 unsigned char const sfbwidth[39])
+		 unsigned char const sfbwidth[39],
+		 struct mad_frame const *frame)
 {
   mad_fixed_t tmp[32][3][6];
   unsigned int sb, l, f, w, sbw[3], sw[3];
 
-  /* this is probably wrong for 8000 Hz mixed blocks */
+  /* mixed blocks keep their long subbands in frequency order; the
+     short part reordering starts at the first short subband */
 
   sb = 0;
   if (channel->flags & mixed_block_flag) {
-    sb = 2;
+    sb = III_mixed_longlines(frame, channel) / 18;
 
     l = 0;
-    while (l < 36)
+    while (l < 18 * sb)
       l += *sfbwidth++;
   }
 
@@ -1391,7 +1486,8 @@ static
 enum mad_error III_stereo(mad_fixed_t xr[2][576],
 			  struct granule const *granule,
 			  struct mad_header *header,
-			  unsigned char const *sfbwidth)
+			  unsigned char const *sfbwidth,
+			  struct mad_frame const *frame)
 {
   short modes[39];
   unsigned int sfbi, l, n, i;
@@ -1424,7 +1520,9 @@ enum mad_error III_stereo(mad_fixed_t xr[2][576],
       sfbi = l = 0;
 
       if (right_ch->flags & mixed_block_flag) {
-	while (l < 36) {
+	unsigned int longlines = III_mixed_longlines(frame, right_ch);
+
+	while (l < longlines) {
 	  n = sfbwidth[sfbi++];
 
 	  for (i = 0; i < n; ++i) {
@@ -2451,14 +2549,18 @@ enum mad_error III_decode(struct mad_bitptr *ptr, struct mad_frame *frame,
 
       sfbwidth[ch] = sfbwidth_table[sfreqi].l;
       if (channel->block_type == 2) {
-	sfbwidth[ch] = (channel->flags & mixed_block_flag) ?
-	  sfbwidth_table[sfreqi].m : sfbwidth_table[sfreqi].s;
+	if (III_mixed4_active(frame, channel))
+	  sfbwidth[ch] = sfb_8000_mixed4;
+	else
+	  sfbwidth[ch] = (channel->flags & mixed_block_flag) ?
+	    sfbwidth_table[sfreqi].m : sfbwidth_table[sfreqi].s;
       }
 
       if (header->flags & MAD_FLAG_LSF_EXT) {
 	error = III_scalefactors_lsf(ptr, channel,
 					    ch == 0 ? 0 : &si->gr[1].ch[1],
-					    header->mode_extension, bits_left, &part2_length);
+					    header->mode_extension, bits_left,
+					    &part2_length, frame);
       }
       else {
 	error = III_scalefactors(ptr, channel, &si->gr[0].ch[ch],
@@ -2476,7 +2578,8 @@ enum mad_error III_decode(struct mad_bitptr *ptr, struct mad_frame *frame,
       if (part3_length > bits_left)
         return MAD_ERROR_BADPART3LEN;
 
-      error = III_huffdecode(ptr, xr[ch], channel, sfbwidth[ch], part3_length);
+      error = III_huffdecode(ptr, xr[ch], channel, sfbwidth[ch],
+			     part3_length, frame);
       if (error)
 	return error;
       bits_left -= part3_length;
@@ -2485,52 +2588,91 @@ enum mad_error III_decode(struct mad_bitptr *ptr, struct mad_frame *frame,
     /* joint stereo processing */
 
     if (header->mode == MAD_MODE_JOINT_STEREO && header->mode_extension) {
-      error = III_stereo(xr, granule, header, sfbwidth[0]);
+      error = III_stereo(xr, granule, header, sfbwidth[0], frame);
       if (error)
 	return error;
     }
+
+# if defined(MAD_MIXED8K_TEST)
+    mad_mixed8k_obs.active = 1;
+    mad_mixed8k_obs.nch = nch;
+    mad_mixed8k_obs.samplerate = header->samplerate;
+    mad_mixed8k_obs.mpeg25 = !!(header->flags & MAD_FLAG_MPEG_2_5_EXT);
+    for (ch = 0; ch < nch; ++ch) {
+      struct channel const *c0 = &granule->ch[ch];
+      mad_mixed8k_obs.block_type[ch] = c0->block_type;
+      mad_mixed8k_obs.mixed[ch] = !!(c0->flags & mixed_block_flag);
+      mad_mixed8k_obs.longlines[ch] = III_mixed_longlines(frame, c0);
+      mad_mixed8k_obs.global_gain[ch] = c0->global_gain;
+      mad_mixed8k_obs.scalefac_compress[ch] = c0->scalefac_compress;
+      mad_mixed8k_obs.flags[ch] = c0->flags;
+      memcpy(mad_mixed8k_obs.scalefac[ch], c0->scalefac, 39);
+      memcpy(mad_mixed8k_obs.subblock_gain[ch], c0->subblock_gain, 3);
+      memcpy(mad_mixed8k_obs.xr_requant[ch], xr[ch], 576 * sizeof(mad_fixed_t));
+    }
+# endif
 
     /* reordering, alias reduction, IMDCT, overlap-add, frequency inversion */
 
     for (ch = 0; ch < nch; ++ch) {
       struct channel const *channel = &granule->ch[ch];
       mad_fixed_t (*sample)[32] = &frame->sbsample[ch][18 * gr];
-      unsigned int sb, l, i, sblimit;
+      unsigned int sb, l, i, sblimit, longsb, longlines, scanfloor;
       mad_fixed_t output[36];
 
+      longlines = 0;
+
       if (channel->block_type == 2) {
-	III_reorder(xr[ch], channel, sfbwidth[ch]);
+	III_reorder(xr[ch], channel, sfbwidth[ch], frame);
+
+	if (channel->flags & mixed_block_flag) {
+	  longlines = III_mixed_longlines(frame, channel);
 
 # if !defined(OPT_STRICT)
-	/*
-	 * According to ISO/IEC 11172-3, "Alias reduction is not applied for
-	 * granules with block_type == 2 (short block)." However, other
-	 * sources suggest alias reduction should indeed be performed on the
-	 * lower two subbands of mixed blocks. Most other implementations do
-	 * this, so by default we will too.
-	 */
-	if (channel->flags & mixed_block_flag)
-	  III_aliasreduce(xr[ch], 36);
+	  /*
+	   * According to ISO/IEC 11172-3, "Alias reduction is not applied for
+	   * granules with block_type == 2 (short block)." However, other
+	   * sources suggest alias reduction should indeed be performed on the
+	   * long subbands of mixed blocks. Most other implementations do
+	   * this, so by default we will too. Every long-long subband boundary
+	   * is covered; the long/short boundary gets no extra butterfly.
+	   */
+	  III_aliasreduce(xr[ch], longlines);
 # endif
+	}
       }
       else
 	III_aliasreduce(xr[ch], 576);
 
+# if defined(MAD_MIXED8K_TEST)
+      memcpy(mad_mixed8k_obs.xr_reorder[ch], xr[ch],
+	     576 * sizeof(mad_fixed_t));
+# endif
+
+      longsb = longlines / 18;
+
       l = 0;
 
-      /* subbands 0-1 */
+      /* leading subbands: the first two for pure blocks, or all long
+	 subbands of a mixed block (two historically, four with the
+	 optional 8 kHz layout) */
 
       if (channel->block_type != 2 || (channel->flags & mixed_block_flag)) {
-	unsigned int block_type;
+	unsigned int block_type, first_longsb;
 
 	block_type = channel->block_type;
 	if (channel->flags & mixed_block_flag)
 	  block_type = 0;
 
+	first_longsb = (channel->flags & mixed_block_flag) ? longsb : 2;
+
 	/* long blocks */
-	for (sb = 0; sb < 2; ++sb, l += 18) {
+	for (sb = 0; sb < first_longsb; ++sb, l += 18) {
 	  III_imdct_l(&xr[ch][l], output, block_type);
 	  III_overlap(output, (*frame->overlap)[ch][sb], sample, sb);
+
+	  if (sb & 1)
+	    III_freqinver(sample, sb);
 	}
       }
       else {
@@ -2538,15 +2680,19 @@ enum mad_error III_decode(struct mad_bitptr *ptr, struct mad_frame *frame,
 	for (sb = 0; sb < 2; ++sb, l += 18) {
 	  III_imdct_s(&xr[ch][l], output);
 	  III_overlap(output, (*frame->overlap)[ch][sb], sample, sb);
+
+	  if (sb & 1)
+	    III_freqinver(sample, sb);
 	}
       }
 
-      III_freqinver(sample, 1);
+      /* (nonzero) remaining subbands; mixed blocks already produced all
+	 of their long subbands above */
 
-      /* (nonzero) subbands 2-31 */
+      scanfloor = (channel->flags & mixed_block_flag) ? 18 * longsb : 36;
 
       i = 576;
-      while (i > 36 && xr[ch][i - 1] == 0)
+      while (i > scanfloor && xr[ch][i - 1] == 0)
 	--i;
 
       sblimit = 32 - (576 - i) / 18;
@@ -2562,8 +2708,11 @@ enum mad_error III_decode(struct mad_bitptr *ptr, struct mad_frame *frame,
 	}
       }
       else {
-	/* short blocks */
-	for (sb = 2; sb < sblimit; ++sb, l += 18) {
+	/* short blocks: pure blocks continue at subband 2, mixed blocks
+	   at the first short subband (2 historically, 4 for the optional
+	   8 kHz four-subband layout) */
+	for (sb = (channel->flags & mixed_block_flag) ? longsb : 2;
+	     sb < sblimit; ++sb, l += 18) {
 	  III_imdct_s(&xr[ch][l], output);
 	  III_overlap(output, (*frame->overlap)[ch][sb], sample, sb);
 

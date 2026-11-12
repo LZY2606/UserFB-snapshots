@@ -126,6 +126,39 @@ Audio Quality
   analytic examination of the output (such as compliance testing); you may
   therefore wish to use rounding in this case instead.
 
+8 kHz MPEG-2.5 Mixed Blocks
+
+  For an 8 kHz MPEG-2.5 Layer III granule whose mixed_block_flag is set and
+  whose block_type is 2, the historical libmad interpretation keeps only the
+  first two subbands (frequency lines 0-35) as long blocks and treats the
+  remainder as short blocks.  This behaviour is unchanged by default so that
+  existing applications keep bit-identical output.
+
+  MAD_OPTION_MIXED8K_4SUBBANDS (set with mad_stream_options()) selects an
+  alternative four-long-subband convention:
+
+    - frequency lines 0-71 are long blocks: six long scalefactor bands,
+      each 12 lines wide, spanning subbands 0-3;
+    - from frequency line 72, the pure short-block scalefactor band
+      boundaries of this sample rate apply, starting at short band 3, with
+      each band stored window-by-window (0, 1, 2); short bands that are not
+      transmitted retain a zero scalefactor.
+
+  Under this convention the four long subbands use long-block scalefactors,
+  requantization, anti-alias reduction, long-window IMDCT and overlap-add,
+  and never receive a short-window subblock_gain.  The short part keeps its
+  independent window identity; no anti-alias butterfly is added at the
+  long/short boundary.  Joint stereo (MS and intensity, including their
+  combination) follows the resulting band layout, preserving the existing
+  processing order.
+
+  The option is read per frame from the stream options immediately before
+  each full frame decode, so it may be switched at any frame boundary; the
+  change only affects how subsequent frames are interpreted and never clears
+  the overlap or synthesis filter history.  It has no effect on other sample
+  rates or on pure long and pure short blocks, and it does not alter the
+  decoded header's channel mode, sample rate or frame consumption.
+
 Portability Issues
 
   GCC is preferred to compile the code, but other compilers may also work.

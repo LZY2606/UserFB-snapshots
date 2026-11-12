@@ -83,7 +83,12 @@ struct mad_stream {
 
 enum {
   MAD_OPTION_IGNORECRC      = 0x0001,	/* ignore CRC errors */
-  MAD_OPTION_HALFSAMPLERATE = 0x0002	/* generate PCM at 1/2 sample rate */
+  MAD_OPTION_HALFSAMPLERATE = 0x0002,	/* generate PCM at 1/2 sample rate */
+  MAD_OPTION_MIXED8K_4SUBBANDS = 0x0004,
+  	/* 8 kHz MPEG-2.5 mixed blocks: treat the first four subbands
+	   (frequency lines 0-71, six long scalefactor bands of width 12)
+	   as long blocks; without this option the historical two-subband
+	   layout is kept so existing applications are bit-for-bit unchanged */
 # if 0  /* not yet implemented */
   MAD_OPTION_LEFTCHANNEL    = 0x0010,	/* decode left channel only */
   MAD_OPTION_RIGHTCHANNEL   = 0x0020,	/* decode right channel only */
