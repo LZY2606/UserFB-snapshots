@@ -404,215 +404,81 @@ type gstate struct {
 
 // Content returns the page's content.
 func (p Page) Content() Content {
-	strm := p.V.Key("Contents")
-	var enc TextEncoding = &nopEncoder{}
+	i := newInterpreter(p)
+	i.interpret(p.V.Key("Contents"))
+	return Content{i.text, i.rect}
+}
 
-	var g = gstate{
-		Th:  1,
-		CTM: ident,
+// A LogicalRun is a run of logical text collected from a page.
+//
+// Text is the logical text content of the run. For text enclosed in a
+// marked content range carrying an ActualText property, Text is the
+// decoded replacement string (which may be empty, suppressing the
+// enclosed text); otherwise Text is the drawn glyph text.
+//
+// Glyphs records the original drawing records (as reported by
+// Page.Content) covered by the run, in drawing order. For a replacement
+// run these are the glyphs the ActualText string replaces; for an
+// ordinary run it is the single glyph the run reproduces.
+type LogicalRun struct {
+	Text   string // logical (possibly replaced) text
+	Glyphs []Text // original drawn glyphs covered by this run
+}
+
+// LogicalText returns the page's logical text content as a sequence of
+// runs, in the order the text drawing operators appear in the content
+// stream. It is intended for document collection and cleaning pipelines
+// that cannot always read fields directly from the drawn glyphs.
+//
+// Unlike Content, LogicalText understands marked content: text enclosed
+// in a marked content range (BDC ... EMC) carrying an ActualText
+// property is reported as the decoded replacement string instead of the
+// drawn glyphs, and Form XObjects referenced by the Do operator are
+// executed so that text nested inside them is collected too. Glyph
+// positions always come from the real text drawing operators (Tj, TJ,
+// ', "); the replacement text never influences the text matrix.
+//
+// LogicalText does not infer reading order and does not lay out the page.
+//
+// A typical consumer extracts logical fields together with the positions
+// of the original glyphs:
+//
+//	runs, err := page.LogicalText()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	for _, run := range runs {
+//		fmt.Printf("field %q drawn as %d glyph(s)\n", run.Text, len(run.Glyphs))
+//		for _, g := range run.Glyphs {
+//			fmt.Printf("  glyph %q at (%g, %g) in %s %gpt\n",
+//				g.S, g.X, g.Y, g.Font, g.FontSize)
+//		}
+//	}
+//
+// If the page content is malformed — recursive Form XObjects, mismatched
+// BMC/BDC/EMC markers, missing or ill-typed property dictionaries,
+// invalid ActualText strings, or broken Form streams — LogicalText
+// returns a non-nil error describing the operator and call location, and
+// no partial result.
+func (p Page) LogicalText() (runs []LogicalRun, err error) {
+	i := newInterpreter(p)
+	i.logical = true
+	defer func() {
+		if r := recover(); r != nil {
+			runs = nil
+			err = fmt.Errorf("pdf: LogicalText: %v", r)
+		}
+	}()
+	i.interpret(p.V.Key("Contents"))
+	if len(i.marks) > 0 {
+		var tags []string
+		for _, m := range i.marks {
+			tags = append(tags, "/"+m.tag)
+		}
+		return nil, fmt.Errorf("pdf: LogicalText: %s: unclosed marked content %s",
+			i.ctx, strings.Join(tags, " "))
 	}
-
-	var text []Text
-	showText := func(s string) {
-		n := 0
-		for _, ch := range enc.Decode(s) {
-			Trm := matrix{{g.Tfs * g.Th, 0, 0}, {0, g.Tfs, 0}, {0, g.Trise, 1}}.mul(g.Tm).mul(g.CTM)
-			w0 := g.Tf.Width(int(s[n]))
-			n++
-			if ch != ' ' {
-				f := g.Tf.BaseFont()
-				if i := strings.Index(f, "+"); i >= 0 {
-					f = f[i+1:]
-				}
-				text = append(text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], w0 / 1000 * Trm[0][0], string(ch)})
-			}
-			tx := w0/1000*g.Tfs + g.Tc
-			if ch == ' ' {
-				tx += g.Tw
-			}
-			tx *= g.Th
-			g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
-		}
-	}
-
-	var rect []Rect
-	var gstack []gstate
-	Interpret(strm, func(stk *Stack, op string) {
-		n := stk.Len()
-		args := make([]Value, n)
-		for i := n - 1; i >= 0; i-- {
-			args[i] = stk.Pop()
-		}
-		switch op {
-		default:
-			//fmt.Println(op, args)
-			return
-
-		case "cm": // update g.CTM
-			if len(args) != 6 {
-				panic("bad g.Tm")
-			}
-			var m matrix
-			for i := 0; i < 6; i++ {
-				m[i/2][i%2] = args[i].Float64()
-			}
-			m[2][2] = 1
-			g.CTM = m.mul(g.CTM)
-
-		case "gs": // set parameters from graphics state resource
-			gs := p.Resources().Key("ExtGState").Key(args[0].Name())
-			font := gs.Key("Font")
-			if font.Kind() == Array && font.Len() == 2 {
-				//fmt.Println("FONT", font)
-			}
-
-		case "f": // fill
-		case "g": // setgray
-		case "l": // lineto
-		case "m": // moveto
-
-		case "cs": // set colorspace non-stroking
-		case "scn": // set color non-stroking
-
-		case "re": // append rectangle to path
-			if len(args) != 4 {
-				panic("bad re")
-			}
-			x, y, w, h := args[0].Float64(), args[1].Float64(), args[2].Float64(), args[3].Float64()
-			rect = append(rect, Rect{Point{x, y}, Point{x + w, y + h}})
-
-		case "q": // save graphics state
-			gstack = append(gstack, g)
-
-		case "Q": // restore graphics state
-			n := len(gstack) - 1
-			g = gstack[n]
-			gstack = gstack[:n]
-
-		case "BT": // begin text (reset text matrix and line matrix)
-			g.Tm = ident
-			g.Tlm = g.Tm
-
-		case "ET": // end text
-
-		case "T*": // move to start of next line
-			x := matrix{{1, 0, 0}, {0, 1, 0}, {0, -g.Tl, 1}}
-			g.Tlm = x.mul(g.Tlm)
-			g.Tm = g.Tlm
-
-		case "Tc": // set character spacing
-			if len(args) != 1 {
-				panic("bad g.Tc")
-			}
-			g.Tc = args[0].Float64()
-
-		case "TD": // move text position and set leading
-			if len(args) != 2 {
-				panic("bad Td")
-			}
-			g.Tl = -args[1].Float64()
-			fallthrough
-		case "Td": // move text position
-			if len(args) != 2 {
-				panic("bad Td")
-			}
-			tx := args[0].Float64()
-			ty := args[1].Float64()
-			x := matrix{{1, 0, 0}, {0, 1, 0}, {tx, ty, 1}}
-			g.Tlm = x.mul(g.Tlm)
-			g.Tm = g.Tlm
-
-		case "Tf": // set text font and size
-			if len(args) != 2 {
-				panic("bad TL")
-			}
-			f := args[0].Name()
-			g.Tf = p.Font(f)
-			enc = g.Tf.Encoder()
-			if enc == nil {
-				println("no cmap for", f)
-				enc = &nopEncoder{}
-			}
-			g.Tfs = args[1].Float64()
-
-		case "\"": // set spacing, move to next line, and show text
-			if len(args) != 3 {
-				panic("bad \" operator")
-			}
-			g.Tw = args[0].Float64()
-			g.Tc = args[1].Float64()
-			args = args[2:]
-			fallthrough
-		case "'": // move to next line and show text
-			if len(args) != 1 {
-				panic("bad ' operator")
-			}
-			x := matrix{{1, 0, 0}, {0, 1, 0}, {0, -g.Tl, 1}}
-			g.Tlm = x.mul(g.Tlm)
-			g.Tm = g.Tlm
-			fallthrough
-		case "Tj": // show text
-			if len(args) != 1 {
-				panic("bad Tj operator")
-			}
-			showText(args[0].RawString())
-
-		case "TJ": // show text, allowing individual glyph positioning
-			v := args[0]
-			for i := 0; i < v.Len(); i++ {
-				x := v.Index(i)
-				if x.Kind() == String {
-					showText(x.RawString())
-				} else {
-					tx := -x.Float64() / 1000 * g.Tfs * g.Th
-					g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
-				}
-			}
-
-		case "TL": // set text leading
-			if len(args) != 1 {
-				panic("bad TL")
-			}
-			g.Tl = args[0].Float64()
-
-		case "Tm": // set text matrix and line matrix
-			if len(args) != 6 {
-				panic("bad g.Tm")
-			}
-			var m matrix
-			for i := 0; i < 6; i++ {
-				m[i/2][i%2] = args[i].Float64()
-			}
-			m[2][2] = 1
-			g.Tm = m
-			g.Tlm = m
-
-		case "Tr": // set text rendering mode
-			if len(args) != 1 {
-				panic("bad Tr")
-			}
-			g.Tmode = int(args[0].Int64())
-
-		case "Ts": // set text rise
-			if len(args) != 1 {
-				panic("bad Ts")
-			}
-			g.Trise = args[0].Float64()
-
-		case "Tw": // set word spacing
-			if len(args) != 1 {
-				panic("bad g.Tw")
-			}
-			g.Tw = args[0].Float64()
-
-		case "Tz": // set horizontal text scaling
-			if len(args) != 1 {
-				panic("bad Tz")
-			}
-			g.Th = args[0].Float64() / 100
-		}
-	})
-	return Content{text, rect}
+	return i.runs, nil
 }
 
 // TextVertical implements sort.Interface for sorting
