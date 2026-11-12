@@ -1525,6 +1525,442 @@ static void hash_cleanup(Hash* hash) {
   lodepng_free(hash->chainz);
 }
 
+/*Test-only work counters for the LZ77 matcher. Every direct input byte equality
+test and every candidate match evaluation goes through these, including the
+ones performed while building or querying the suffix index or falling back to
+the hash chain; moving a counting loop into a helper without its increments is
+not allowed.*/
+#ifdef LODEPNG_LZ77_TEST
+unsigned long long lodepng_lz77test_byte_comparisons = 0;
+unsigned long long lodepng_lz77test_candidate_checks = 0;
+#define LZ77TEST_COUNT_BYTE() (++lodepng_lz77test_byte_comparisons)
+#define LZ77TEST_COUNT_CANDIDATE() (++lodepng_lz77test_candidate_checks)
+#else
+#define LZ77TEST_COUNT_BYTE() ((void)0)
+#define LZ77TEST_COUNT_CANDIDATE() ((void)0)
+#endif
+
+/*
+Suffix-array based match index, used to accelerate the LZ77 longest-match
+search without changing its result. It is built once per deflate run over the
+whole input: reading the full input to build the structure does not make any
+future position part of the dictionary, because every query only accepts
+candidate positions strictly before the current one and inside the sliding
+window, and matches are capped at the current deflate block's dataend.
+
+Memory is linear in the input length plus the window size:
+  sa, rank, lcp, tmp, cnt                 : 5 int arrays of input length
+  boundary flags, boundary hash values    : 1 char + 1 int array of input length
+  boundary bucket links/heads             : 1 int array of input length + 65536
+  LCP range-minimum tree                  : <= 2 int arrays of input length
+  position rank min/max tree              : <= 2 int arrays of input length
+No pairwise LCP table is built and nothing is kept between compress runs.
+*/
+typedef struct LZ77Index {
+  const unsigned char* in; /*full input, read-only*/
+  size_t base;             /*global position of local index 0*/
+  size_t size;             /*number of indexed bytes*/
+
+  int* sa;       /*suffix array: sa[r] = local position of the r-th suffix*/
+  int* rank;     /*inverse suffix array: rank[p] = rank of local position p*/
+  int* lcp;      /*Kasai LCP: lcp[r] = LCP(sa[r-1], sa[r]), lcp[0] = 0*/
+  int* tmp;      /*scratch for suffix-array construction*/
+  int* cnt;      /*counting-sort scratch*/
+
+  int* rmq;      /*iterative segment tree of lcp minima*/
+  size_t rmqpow; /*smallest power of two >= size*/
+
+  int* rmin;     /*segment tree over positions: minimum rank in range*/
+  int* rmax;     /*segment tree over positions: maximum rank in range*/
+  size_t rpow;
+
+  unsigned char* boundary; /*1 at the last two positions of each deflate block*/
+  int* bhash;              /*stored (possibly tail-formula) hash there, else -1*/
+  int* bnext;              /*newest->oldest link inside one boundary hash bucket*/
+  int* bhead;              /*boundary hash bucket heads, HASH_NUM_VALUES entries*/
+} LZ77Index;
+
+static void lz77_index_cleanup(LZ77Index* ix) {
+  lodepng_free(ix->sa);
+  lodepng_free(ix->rank);
+  lodepng_free(ix->lcp);
+  lodepng_free(ix->tmp);
+  lodepng_free(ix->cnt);
+  lodepng_free(ix->rmq);
+  lodepng_free(ix->rmin);
+  lodepng_free(ix->rmax);
+  lodepng_free(ix->boundary);
+  lodepng_free(ix->bhash);
+  lodepng_free(ix->bnext);
+  lodepng_free(ix->bhead);
+  ix->sa = ix->rank = ix->lcp = ix->tmp = ix->cnt = 0;
+  ix->rmq = ix->rmin = ix->rmax = 0;
+  ix->boundary = 0;
+  ix->bhash = ix->bnext = ix->bhead = 0;
+  ix->size = 0;
+}
+
+/*blockends[0..nblocks-1] are the global exclusive ends of the deflate blocks*/
+static unsigned getHash(const unsigned char* data, size_t size, size_t pos);
+static unsigned lz77_index_build(LZ77Index* ix, const unsigned char* in,
+                                 size_t start, size_t end,
+                                 const size_t* blockends, size_t nblocks) {
+  size_t n = end - start;
+  size_t i, k, p, pow2;
+  int h, classes;
+
+  ix->in = in;
+  ix->base = start;
+  ix->size = n;
+  ix->sa = ix->rank = ix->lcp = ix->tmp = ix->cnt = 0;
+  ix->rmq = ix->rmin = ix->rmax = 0;
+  ix->boundary = 0;
+  ix->bhash = ix->bnext = ix->bhead = 0;
+  ix->rmqpow = ix->rpow = 1;
+
+  if(n == 0) return 0;
+
+  ix->sa = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->rank = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->lcp = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->tmp = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->cnt = (int*)lodepng_malloc(sizeof(int) * (n > 256 ? n + 2 : 258));
+  ix->boundary = (unsigned char*)lodepng_malloc(n);
+  ix->bhash = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->bnext = (int*)lodepng_malloc(sizeof(int) * n);
+  ix->bhead = (int*)lodepng_malloc(sizeof(int) * HASH_NUM_VALUES);
+  if(!ix->sa || !ix->rank || !ix->lcp || !ix->tmp || !ix->cnt ||
+     !ix->boundary || !ix->bhash || !ix->bnext || !ix->bhead) {
+    lz77_index_cleanup(ix);
+    return 83; /*alloc fail*/
+  }
+
+  /*boundary positions: the last two bytes of every block, whose stored hash
+  uses lodepng's special tail formula and therefore can only collide with the
+  same formula*/
+  for(i = 0; i < n; ++i) { ix->boundary[i] = 0; ix->bhash[i] = -1; ix->bnext[i] = -1; }
+  for(i = 0; i < nblocks; ++i) {
+    size_t be = blockends[i];
+    if(be >= start + 2 && be <= end) {
+      ix->boundary[be - 2 - start] = 1;
+      ix->bhash[be - 2 - start] = (int)getHash(in, be, be - 2);
+    }
+    if(be >= start + 1 && be <= end) {
+      ix->boundary[be - 1 - start] = 1;
+      ix->bhash[be - 1 - start] = (int)getHash(in, be, be - 1);
+    }
+  }
+
+  /*doubling suffix array (O(n log n)), counting sort on integer classes so
+  the construction stays plain C with linear extra space*/
+  for(i = 0; i < n; ++i) ix->rank[i] = in[start + i];
+  for(i = 0; i < 256; ++i) ix->cnt[i] = 0;
+  for(i = 0; i < n; ++i) ++ix->cnt[ix->rank[i]];
+  for(i = 1; i < 256; ++i) ix->cnt[i] += ix->cnt[i - 1];
+  for(i = n; i-- > 0;) ix->sa[--ix->cnt[ix->rank[i]]] = (int)i;
+
+  for(k = 1; k < n; k <<= 1) {
+    /*order by second key: positions without a second half sort first*/
+    p = 0;
+    for(i = n - k; i < n; ++i) ix->tmp[p++] = (int)i;
+    for(i = 0; i < n; ++i) if((size_t)ix->sa[i] >= k) ix->tmp[p++] = ix->sa[i] - (int)k;
+
+    classes = ix->rank[ix->sa[n - 1]] + 1;
+    for(i = 0; i < (size_t)classes; ++i) ix->cnt[i] = 0;
+    for(i = 0; i < n; ++i) ++ix->cnt[ix->rank[ix->tmp[i]]];
+    for(i = 1; i < (size_t)classes; ++i) ix->cnt[i] += ix->cnt[i - 1];
+    for(i = n; i-- > 0;) ix->sa[--ix->cnt[ix->rank[ix->tmp[i]]]] = ix->tmp[i];
+
+    ix->tmp[ix->sa[0]] = 0;
+    for(i = 1; i < n; ++i) {
+      int a = ix->sa[i - 1], b = ix->sa[i];
+      int a2 = (size_t)a + k < n ? ix->rank[a + k] : -1;
+      int b2 = (size_t)b + k < n ? ix->rank[b + k] : -1;
+      ix->tmp[b] = ix->tmp[a] + ((ix->rank[a] != ix->rank[b] || a2 != b2) ? 1 : 0);
+    }
+    {
+      int* swap = ix->rank;
+      ix->rank = ix->tmp;
+      ix->tmp = swap;
+    }
+    if((size_t)(ix->rank[ix->sa[n - 1]] + 1) == n) break;
+  }
+
+  /*Kasai linear-time LCP array*/
+  h = 0;
+  for(i = 0; i < n; ++i) {
+    int r = ix->rank[i];
+    size_t j;
+    if(r == 0) { h = 0; continue; }
+    j = ix->sa[r - 1];
+    while(i + (size_t)h < n && j + (size_t)h < n) {
+      LZ77TEST_COUNT_BYTE();
+      if(in[start + i + h] != in[start + j + h]) break;
+      ++h;
+    }
+    ix->lcp[r] = h;
+    if(h) --h;
+  }
+
+  /*LCP range-minimum tree for O(log n) LCP between arbitrary positions*/
+  pow2 = 1;
+  while(pow2 < n) pow2 <<= 1;
+  ix->rmqpow = pow2;
+  ix->rmq = (int*)lodepng_malloc(sizeof(int) * 2 * pow2);
+  if(!ix->rmq) { lz77_index_cleanup(ix); return 83; }
+  for(i = 0; i < 2 * pow2; ++i) ix->rmq[i] = 1 << 30;
+  for(i = 0; i < n; ++i) ix->rmq[pow2 + i] = ix->lcp[i];
+  for(i = pow2; i-- > 1;) ix->rmq[i] = ix->rmq[2 * i] < ix->rmq[2 * i + 1]
+                                        ? ix->rmq[2 * i] : ix->rmq[2 * i + 1];
+
+  /*position-keyed rank min/max tree: rightmost position in a position range
+  whose suffix rank lies in a given SA interval, in O(log n). Boundary leaves
+  are neutralized here; they are handled through bhead/bnext instead.*/
+  pow2 = 1;
+  while(pow2 < n) pow2 <<= 1;
+  ix->rpow = pow2;
+  ix->rmin = (int*)lodepng_malloc(sizeof(int) * 2 * pow2);
+  ix->rmax = (int*)lodepng_malloc(sizeof(int) * 2 * pow2);
+  if(!ix->rmin || !ix->rmax) { lz77_index_cleanup(ix); return 83; }
+  for(i = 0; i < 2 * pow2; ++i) { ix->rmin[i] = 1 << 30; ix->rmax[i] = -1; }
+  for(i = 0; i < n; ++i) {
+    if(ix->boundary[i]) { ix->rmin[pow2 + i] = 1 << 30; ix->rmax[pow2 + i] = -1; }
+    else { ix->rmin[pow2 + i] = ix->rmax[pow2 + i] = ix->rank[i]; }
+  }
+  for(i = pow2; i-- > 1;) {
+    ix->rmin[i] = ix->rmin[2 * i] < ix->rmin[2 * i + 1]
+                ? ix->rmin[2 * i] : ix->rmin[2 * i + 1];
+    ix->rmax[i] = ix->rmax[2 * i] > ix->rmax[2 * i + 1]
+                ? ix->rmax[2 * i] : ix->rmax[2 * i + 1];
+  }
+
+  /*boundary-only hash buckets, linked from newest to oldest*/
+  for(i = 0; i < HASH_NUM_VALUES; ++i) ix->bhead[i] = -1;
+  for(i = 0; i < n; ++i) {
+    unsigned b;
+    if(!ix->boundary[i] || ix->bhash[i] < 0) continue;
+    b = (unsigned)ix->bhash[i];
+    ix->bnext[i] = ix->bhead[b];
+    ix->bhead[b] = (int)i;
+  }
+
+  return 0;
+}
+
+/*minimum of lcp[l..r] (l <= r)*/
+static int lz77_rmq(const LZ77Index* ix, size_t l, size_t r) {
+  size_t pow2 = ix->rmqpow;
+  int v = 1 << 30;
+  for(l += pow2, r += pow2; l <= r; l >>= 1, r >>= 1) {
+    if(l & 1u) { if(ix->rmq[l] < v) v = ix->rmq[l]; ++l; }
+    if(!(r & 1u)) { if(ix->rmq[r] < v) v = ix->rmq[r]; --r; }
+  }
+  return v;
+}
+
+/*LCP of the suffixes at two local positions*/
+static int lz77_lcp_positions(const LZ77Index* ix, size_t a, size_t b) {
+  size_t ra = (size_t)ix->rank[a], rb = (size_t)ix->rank[b];
+  if(ra == rb) return (int)(ix->size - a);
+  if(ra > rb) { size_t t = ra; ra = rb; rb = t; }
+  return lz77_rmq(ix, ra + 1, rb);
+}
+
+/*maximal SA interval [*L,*R] containing rank rp where every suffix shares at
+least k bytes with suffix rp; binary searched over LCP RMQ in O(log n) each*/
+static void lz77_interval_k(const LZ77Index* ix, size_t rp, unsigned k,
+                             size_t* L, size_t* R) {
+  size_t n = ix->size;
+  size_t lo, hi, mid;
+
+  lo = 0; hi = rp;
+  while(lo < hi) {
+    mid = (lo + hi) >> 1;
+    if(lz77_rmq(ix, mid + 1, rp) >= (int)k) hi = mid;
+    else lo = mid + 1;
+  }
+  *L = lo;
+
+  lo = rp; hi = n - 1;
+  while(lo < hi) {
+    mid = (lo + hi + 1) >> 1;
+    if(lz77_rmq(ix, rp + 1, mid) >= (int)k) lo = mid;
+    else hi = mid - 1;
+  }
+  *R = lo;
+}
+
+/*rightmost local position in [plo,phi] whose rank is in [L,R], or -1.
+Prunes whole subtrees through the rank min/max tree, so empty ranges cost
+O(log n) instead of a scan.*/
+static int lz77_rightmost_rank_rec(const LZ77Index* ix, size_t node,
+                                   size_t nl, size_t nr, size_t plo, size_t phi,
+                                   size_t L, size_t R) {
+  size_t mid;
+  int got;
+  if(nr < plo || phi < nl) return -1;
+  if(ix->rmax[node] < (int)L || ix->rmin[node] > (int)R) return -1;
+  if(nl == nr) return (int)nl;
+  mid = (nl + nr) >> 1;
+  got = lz77_rightmost_rank_rec(ix, 2 * node + 1, mid + 1, nr, plo, phi, L, R);
+  if(got >= 0) return got;
+  return lz77_rightmost_rank_rec(ix, 2 * node, nl, mid, plo, phi, L, R);
+}
+
+static int lz77_rightmost_rank(const LZ77Index* ix, size_t plo, size_t phi,
+                               size_t L, size_t R) {
+  return lz77_rightmost_rank_rec(ix, 1, 0, ix->rpow - 1, plo, phi, L, R);
+}
+
+/*content-based 3-byte hash, identical to getHash away from block tails*/
+static unsigned lz77_content_hash3(const unsigned char* in, size_t pos) {
+  unsigned result = (unsigned)in[pos]
+                  ^ ((unsigned)in[pos + 1] << 4u)
+                  ^ ((unsigned)in[pos + 2] << 8u);
+  return result & HASH_BIT_MASK;
+}
+
+typedef struct LZ77Pick {
+  int pos;     /*local candidate position, -1 if none*/
+  unsigned len;
+} LZ77Pick;
+
+/*non-boundary candidates found through suffix-array intervals*/
+static void lz77_sa_walk(const LZ77Index* ix, size_t pos, size_t dataend,
+                         unsigned windowsize, unsigned nicematch,
+                         unsigned maxchainlength,
+                         LZ77Pick* nice, LZ77Pick* best) {
+  size_t lp = pos - ix->base;
+  size_t rp = (size_t)ix->rank[lp];
+  size_t low = pos + 1 >= windowsize ? pos + 1 - windowsize : 0;
+  size_t cap, k;
+  unsigned examined = 0;
+
+  if(low < ix->base) low = ix->base;
+  cap = dataend - pos;
+  if(cap > MAX_SUPPORTED_DEFLATE_LENGTH) cap = MAX_SUPPORTED_DEFLATE_LENGTH;
+
+  nice->pos = -1; nice->len = 0;
+  best->pos = -1; best->len = 0;
+
+  if(lp == 0) return; /*no position precedes the first indexed byte*/
+
+  k = 3;
+  while(k <= MAX_SUPPORTED_DEFLATE_LENGTH) {
+    size_t L, R;
+    int q;
+    int lc;
+    unsigned cur;
+    lz77_interval_k(ix, rp, (unsigned)k, &L, &R);
+    q = lz77_rightmost_rank(ix, low - ix->base, lp - 1, L, R);
+    if(q < 0) break;
+    LZ77TEST_COUNT_CANDIDATE();
+    ++examined;
+    lc = lz77_lcp_positions(ix, lp, (size_t)q);
+    if(lc > (int)cap) lc = (int)cap;
+    /*No input bytes are dereferenced here: the match length comes from the
+    precomputed LCP range-minimum index. Direct input byte equality tests for
+    this path were already counted once during Kasai LCP construction, so no
+    per-query byte comparison is added.*/
+    cur = (unsigned)lc;
+    if(cur > best->len) { best->len = cur; best->pos = q; }
+    if(cur >= nicematch) { nice->pos = q; nice->len = cur; return; }
+    if(examined >= maxchainlength) break;
+    if(cur >= MAX_SUPPORTED_DEFLATE_LENGTH || cur >= cap) break;
+    k = cur + 1;
+  }
+}
+
+/*boundary candidates: block-tail positions only match when their stored
+tail-formula hash equals the current content hash*/
+static void lz77_boundary_walk(const LZ77Index* ix, size_t pos, size_t dataend,
+                               unsigned windowsize, unsigned nicematch,
+                               unsigned maxchainlength,
+                               LZ77Pick* nice, LZ77Pick* best) {
+  size_t lp = pos - ix->base;
+  size_t low, cap, node;
+  unsigned hv, examined = 0;
+  const unsigned char* foreptr;
+  const unsigned char* backptr;
+  const unsigned char* lastptr;
+
+  nice->pos = -1; nice->len = 0;
+  best->pos = -1; best->len = 0;
+
+  /*the last two positions of a block run the plain hash chain themselves*/
+  if(lp + 2 >= dataend - ix->base) return;
+
+  hv = lz77_content_hash3(ix->in, pos);
+  low = pos + 1 >= windowsize ? pos + 1 - windowsize : 0;
+  if(low < ix->base) low = ix->base;
+  cap = dataend - pos;
+  if(cap > MAX_SUPPORTED_DEFLATE_LENGTH) cap = MAX_SUPPORTED_DEFLATE_LENGTH;
+  lastptr = &ix->in[dataend < pos + MAX_SUPPORTED_DEFLATE_LENGTH
+                    ? dataend : pos + MAX_SUPPORTED_DEFLATE_LENGTH];
+
+  node = (size_t)ix->bhead[hv];
+  while(node != (size_t)-1) {
+    size_t qglobal = ix->base + node;
+    node = (size_t)ix->bnext[node];
+    if(qglobal >= pos) continue; /*boundary node of a later block, not history yet*/
+    if(qglobal < low) break;    /*bucket is newest->oldest, rest left the window*/
+    LZ77TEST_COUNT_CANDIDATE();
+    ++examined;
+    if(examined > maxchainlength) break;
+    foreptr = &ix->in[pos];
+    backptr = &ix->in[qglobal];
+    while(foreptr != lastptr) {
+      LZ77TEST_COUNT_BYTE();
+      if(*backptr != *foreptr) break;
+      ++backptr;
+      ++foreptr;
+    }
+    {
+      unsigned cur = (unsigned)(foreptr - &ix->in[pos]);
+      if(cur > cap) cur = (unsigned)cap;
+      if(cur > best->len) { best->len = cur; best->pos = (int)(qglobal - ix->base); }
+      if(cur >= nicematch) { nice->pos = (int)(qglobal - ix->base); nice->len = cur; return; }
+    }
+  }
+}
+
+/*indexed longest match. The two candidate sets are disjoint; with
+maxchainlength == windowsize every in-window chain node is examined, so the
+order-independent rule reproduces the chain exactly: smallest-distance
+nicematch qualifier wins, otherwise greatest LCP with smallest-distance
+tie.*/
+static void lz77_index_search(const LZ77Index* ix, size_t pos, size_t dataend,
+                              unsigned windowsize, unsigned nicematch,
+                              unsigned maxchainlength,
+                              unsigned* length, unsigned* offset) {
+  LZ77Pick n1, b1, n2, b2;
+  int win;
+  unsigned winlen;
+
+  lz77_sa_walk(ix, pos, dataend, windowsize, nicematch, maxchainlength, &n1, &b1);
+  lz77_boundary_walk(ix, pos, dataend, windowsize, nicematch, maxchainlength, &n2, &b2);
+
+  if(n1.pos >= 0 || n2.pos >= 0) {
+    win = n1.pos > n2.pos ? n1.pos : n2.pos; /*newest = smallest distance*/
+    winlen = (win == n2.pos) ? n2.len : n1.len;
+  } else if(b1.len > b2.len) {
+    win = b1.pos; winlen = b1.len;
+  } else if(b2.len > b1.len) {
+    win = b2.pos; winlen = b2.len;
+  } else {
+    win = b1.pos > b2.pos ? b1.pos : b2.pos;
+    winlen = b1.len;
+  }
+
+  if(win >= 0) {
+    *length = winlen;
+    *offset = (unsigned)(pos - (ix->base + (size_t)win));
+  } else {
+    *length = 0;
+    *offset = 0;
+  }
+}
+
 
 
 static unsigned getHash(const unsigned char* data, size_t size, size_t pos) {
@@ -1575,8 +2011,14 @@ It uses a hash table technique to let it encode faster. When doing LZ77 encoding
 sliding window (of windowsize) is used, and all past bytes in that window can be used as
 the "dictionary". A brute force search through all possible distances would be slow, and
 this hash technique is one out of several ways to speed this up.
+
+For large windows, a suffix-array index (LZ77Index) replaces the hash-chain traversal on
+the common non-zero path. It enumerates the same in-window candidates in the same
+longest-match/nicematch/tie-breaking order, so the produced length/distance pairs are
+identical. Long zero runs, block-tail positions and small windows keep the exact chain
+code below.
 */
-static unsigned encodeLZ77(uivector* out, Hash* hash,
+static unsigned encodeLZ77(uivector* out, Hash* hash, LZ77Index* ix,
                            const unsigned char* in, size_t inpos, size_t insize, unsigned windowsize,
                            unsigned minmatch, unsigned nicematch, unsigned lazymatching) {
   size_t pos;
@@ -1622,6 +2064,12 @@ static unsigned encodeLZ77(uivector* out, Hash* hash,
     length = 0;
     offset = 0;
 
+    if(ix != 0 && windowsize >= 8192 && numzeros < 3 && !ix->boundary[pos - ix->base]) {
+      /*indexed search: identical decision to the chain, far fewer byte comparisons
+      and candidate evaluations on repetitive data*/
+      lz77_index_search(ix, pos, insize, windowsize, nicematch,
+                        maxchainlength, &length, &offset);
+    } else {
     hashpos = hash->chain[wpos];
 
     lastptr = &in[insize < pos + MAX_SUPPORTED_DEFLATE_LENGTH ? insize : pos + MAX_SUPPORTED_DEFLATE_LENGTH];
@@ -1629,6 +2077,7 @@ static unsigned encodeLZ77(uivector* out, Hash* hash,
     /*search for the longest string*/
     prev_offset = 0;
     for(;;) {
+      LZ77TEST_COUNT_CANDIDATE();
       if(chainlength++ >= maxchainlength) break;
       current_offset = (unsigned)(hashpos <= wpos ? wpos - hashpos : wpos - hashpos + windowsize);
 
@@ -1647,7 +2096,9 @@ static unsigned encodeLZ77(uivector* out, Hash* hash,
           foreptr += skip;
         }
 
-        while(foreptr != lastptr && *backptr == *foreptr) /*maximum supported length by deflate is max length*/ {
+        while(foreptr != lastptr) /*maximum supported length by deflate is max length*/ {
+          LZ77TEST_COUNT_BYTE();
+          if(*backptr != *foreptr) break;
           ++backptr;
           ++foreptr;
         }
@@ -1672,6 +2123,7 @@ static unsigned encodeLZ77(uivector* out, Hash* hash,
         /*outdated hash value, happens if particular value was not encountered in whole last window*/
         if(hash->val[hashpos] != (int)hashval) break;
       }
+    }
     }
 
     if(lazymatching) {
@@ -1790,7 +2242,7 @@ static void writeLZ77data(LodePNGBitWriter* writer, const uivector* lz77_encoded
 }
 
 /*Deflate for a block of type "dynamic", that is, with freely, optimally, created huffman trees*/
-static unsigned deflateDynamic(LodePNGBitWriter* writer, Hash* hash,
+static unsigned deflateDynamic(LodePNGBitWriter* writer, Hash* hash, LZ77Index* ix,
                                const unsigned char* data, size_t datapos, size_t dataend,
                                const LodePNGCompressSettings* settings, unsigned final) {
   unsigned error = 0;
@@ -1851,7 +2303,7 @@ static unsigned deflateDynamic(LodePNGBitWriter* writer, Hash* hash,
     lodepng_memset(frequencies_cl, 0, NUM_CODE_LENGTH_CODES * sizeof(*frequencies_cl));
 
     if(settings->use_lz77) {
-      error = encodeLZ77(&lz77_encoded, hash, data, datapos, dataend, settings->windowsize,
+      error = encodeLZ77(&lz77_encoded, hash, ix, data, datapos, dataend, settings->windowsize,
                          settings->minmatch, settings->nicematch, settings->lazymatching);
       if(error) break;
     } else {
@@ -2012,7 +2464,7 @@ static unsigned deflateDynamic(LodePNGBitWriter* writer, Hash* hash,
   return error;
 }
 
-static unsigned deflateFixed(LodePNGBitWriter* writer, Hash* hash,
+static unsigned deflateFixed(LodePNGBitWriter* writer, Hash* hash, LZ77Index* ix,
                              const unsigned char* data,
                              size_t datapos, size_t dataend,
                              const LodePNGCompressSettings* settings, unsigned final) {
@@ -2037,7 +2489,7 @@ static unsigned deflateFixed(LodePNGBitWriter* writer, Hash* hash,
     if(settings->use_lz77) /*LZ77 encoded*/ {
       uivector lz77_encoded;
       uivector_init(&lz77_encoded);
-      error = encodeLZ77(&lz77_encoded, hash, data, datapos, dataend, settings->windowsize,
+      error = encodeLZ77(&lz77_encoded, hash, ix, data, datapos, dataend, settings->windowsize,
                          settings->minmatch, settings->nicematch, settings->lazymatching);
       if(!error) writeLZ77data(writer, &lz77_encoded, &tree_ll, &tree_d);
       uivector_cleanup(&lz77_encoded);
@@ -2063,6 +2515,9 @@ static unsigned lodepng_deflatev(ucvector* out, const unsigned char* in, size_t 
   size_t i, blocksize, numdeflateblocks;
   Hash hash;
   LodePNGBitWriter writer;
+  LZ77Index ix;
+  LZ77Index* ixp = 0;
+  size_t* blockends = 0;
 
   LodePNGBitWriter_init(&writer, out);
 
@@ -2081,6 +2536,28 @@ static unsigned lodepng_deflatev(ucvector* out, const unsigned char* in, size_t 
 
   error = hash_init(&hash, settings->windowsize);
 
+  /*Build the suffix index once over the whole input. It is only used for the
+  large-window LZ77 path; small windows, no-LZ77 and no-compression keep the
+  original code. The index reads the whole input for construction but its
+  queries only return past, in-window positions of the current block. The
+  suffix array stores positions in ints, so beyond INT_MAX it falls back to
+  the hash chain, which has no such limit here.*/
+  if(!error && settings->use_lz77 && settings->windowsize >= 8192 &&
+     insize > 0 && insize <= (size_t)2147483647) {
+    blockends = (size_t*)lodepng_malloc(sizeof(size_t) * numdeflateblocks);
+    if(!blockends) error = 83;
+    if(!error) {
+      for(i = 0; i != numdeflateblocks; ++i) {
+        size_t end = (i + 1) * blocksize;
+        blockends[i] = end > insize ? insize : end;
+      }
+      error = lz77_index_build(&ix, in, 0, insize, blockends, numdeflateblocks);
+      if(!error) ixp = &ix;
+      lodepng_free(blockends);
+      blockends = 0;
+    }
+  }
+
   if(!error) {
     for(i = 0; i != numdeflateblocks && !error; ++i) {
       unsigned final = (i == numdeflateblocks - 1);
@@ -2088,11 +2565,12 @@ static unsigned lodepng_deflatev(ucvector* out, const unsigned char* in, size_t 
       size_t end = start + blocksize;
       if(end > insize) end = insize;
 
-      if(settings->btype == 1) error = deflateFixed(&writer, &hash, in, start, end, settings, final);
-      else if(settings->btype == 2) error = deflateDynamic(&writer, &hash, in, start, end, settings, final);
+      if(settings->btype == 1) error = deflateFixed(&writer, &hash, ixp, in, start, end, settings, final);
+      else if(settings->btype == 2) error = deflateDynamic(&writer, &hash, ixp, in, start, end, settings, final);
     }
   }
 
+  if(ixp) lz77_index_cleanup(ixp);
   hash_cleanup(&hash);
 
   return error;
