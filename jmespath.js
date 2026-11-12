@@ -182,6 +182,8 @@
   var TOK_LBRACKET = "Lbracket";
   var TOK_LPAREN= "Lparen";
   var TOK_LITERAL= "Literal";
+  var TOK_ASSIGN = "Assign";
+  var TOK_VARIABLE = "Variable";
 
   // The "&", "[", "<", ">" tokens
   // are not in basicToken because
@@ -303,6 +305,9 @@
                   } else {
                       tokens.push({type: TOK_PIPE, value: "|", start: start});
                   }
+              } else if (stream[this._current] === "$") {
+                  token = this._consumeVariable(stream);
+                  tokens.push(token);
               } else {
                   var error = new Error("Unknown character:" + stream[this._current]);
                   error.name = "LexerError";
@@ -319,6 +324,22 @@
               this._current++;
           }
           return stream.slice(start, this._current);
+      },
+
+      _consumeVariable: function(stream) {
+          var start = this._current;
+          this._current++;
+          while (this._current < stream.length && isAlphaNum(stream[this._current])) {
+              this._current++;
+          }
+          if (this._current === start + 1) {
+              var error = new Error("Unknown character:" + stream[start]);
+              error.name = "LexerError";
+              throw error;
+          }
+          return {type: TOK_VARIABLE,
+                  value: stream.slice(start + 1, this._current),
+                  start: start};
       },
 
       _consumeQuotedIdentifier: function(stream) {
@@ -415,6 +436,7 @@
                   this._current++;
                   return {type: TOK_EQ, value: "==", start: start};
               }
+              return {type: TOK_ASSIGN, value: "=", start: start};
           }
       },
 
@@ -499,6 +521,8 @@
       bindingPower[TOK_LBRACE] = 50;
       bindingPower[TOK_LBRACKET] = 55;
       bindingPower[TOK_LPAREN] = 60;
+      bindingPower[TOK_ASSIGN] = 0;
+      bindingPower[TOK_VARIABLE] = 0;
 
   function Parser() {
   }
@@ -558,7 +582,17 @@
           case TOK_LITERAL:
             return {type: "Literal", value: token.value};
           case TOK_UNQUOTEDIDENTIFIER:
+            // "let" is only a keyword when it starts a binding structure,
+            // i.e. when it is followed by a "$name" variable.  Anywhere
+            // else it remains an ordinary field name, so data with a
+            // "let" or "in" field keeps querying as before.
+            if (token.value === "let" &&
+                this._lookahead(0) === TOK_VARIABLE) {
+                return this._parseLet();
+            }
             return {type: "Field", name: token.value};
+          case TOK_VARIABLE:
+            return {type: "Variable", name: token.value};
           case TOK_QUOTEDIDENTIFIER:
             var node = {type: "Field", name: token.value};
             if (this._lookahead(0) === TOK_LPAREN) {
@@ -853,17 +887,105 @@
           }
         }
         return {type: "MultiSelectHash", children: pairs};
+      },
+
+      // let $name = <expr>, $other = <expr> in <expr>
+      //
+      // The "let" identifier has already been consumed.  Each binding's
+      // right-hand side and the body are parsed as ordinary expressions,
+      // so any position that accepts an expression can host a let form.
+      // The body runs up to the current expression boundary (a closing
+      // bracket, brace, paren, comma or the end of the expression).
+      _parseLet: function() {
+          var bindings = [];
+          var namesSeen = {};
+          var variableToken, name, value, inToken;
+          for (;;) {
+              variableToken = this._lookaheadToken(0);
+              if (variableToken.type !== TOK_VARIABLE) {
+                  this._errorToken(variableToken);
+              }
+              name = variableToken.value;
+              this._advance();
+              this._match(TOK_ASSIGN);
+              // A missing right-hand side leaves the parser at one of the
+              // expression-boundary tokens, which expression(0) rejects
+              // with a ParserError via _errorToken.
+              value = this.expression(0);
+              if (namesSeen[name] === true) {
+                  var dupError = new Error(
+                      "Duplicate variable declaration in let expression: $" +
+                      name);
+                  dupError.name = "ParserError";
+                  throw dupError;
+              }
+              namesSeen[name] = true;
+              bindings.push({name: name, value: value});
+              if (this._lookahead(0) === TOK_COMMA) {
+                  this._advance();
+                  continue;
+              }
+              break;
+          }
+          inToken = this._lookaheadToken(0);
+          if (inToken.type !== TOK_UNQUOTEDIDENTIFIER ||
+              inToken.value !== "in") {
+              var error = new Error(
+                  'Expected "in" to terminate let bindings, got: ' +
+                  inToken.type);
+              error.name = "ParserError";
+              throw error;
+          }
+          this._advance();
+          var body = this.expression(0);
+          return {type: "LetExpression",
+                  bindings: bindings,
+                  children: [body]};
       }
   };
 
 
   function TreeInterpreter(runtime) {
     this.runtime = runtime;
+    // The active lexical environment, a chain of binding frames or
+    // null when no let expression is in scope.  It is only kept on the
+    // interpreter instance; it is never attached to the shared AST.
+    this._env = null;
   }
 
   TreeInterpreter.prototype = {
       search: function(node, value) {
           return this.visit(node, value);
+      },
+
+      // Resolve a "$name" reference against the lexical environment.
+      // A null binding is a legitimate value and must not be confused
+      // with an undeclared variable.
+      _lookupVariable: function(name) {
+          var env = this._env;
+          while (env !== null) {
+              if (Object.prototype.hasOwnProperty.call(env.bindings, name)) {
+                  return env.bindings[name];
+              }
+              env = env.parent;
+          }
+          var error = new Error("Undefined variable: $" + name);
+          error.name = "UndefinedVariable";
+          throw error;
+      },
+
+      // Run an expression reference against the environment it captured
+      // at its creation point.  The current node still comes from the
+      // caller (e.g. the element map/sort_by is processing), while the
+      // variables come from the capture site.
+      visitExpref: function(expref, value) {
+          var savedEnv = this._env;
+          try {
+              this._env = expref.env;
+              return this.visit(expref.ast, value);
+          } finally {
+              this._env = savedEnv;
+          }
       },
 
       visit: function(node, value) {
@@ -1017,6 +1139,28 @@
               return merged;
             case "Identity":
               return value;
+            case "Variable":
+              return this._lookupVariable(node.name);
+            case "LetExpression":
+              // Each binding is evaluated exactly once, left to right,
+              // against the current node on entry.  A later right-hand
+              // side can reference earlier bindings of the same group.
+              var savedEnv = this._env;
+              var childEnv = {bindings: Object.create(null),
+                              parent: savedEnv};
+              this._env = childEnv;
+              try {
+                  for (var b = 0; b < node.bindings.length; b++) {
+                      childEnv.bindings[node.bindings[b].name] =
+                          this.visit(node.bindings[b].value, value);
+                  }
+                  return this.visit(node.children[0], value);
+              } finally {
+                  // Bindings are visible only inside the body; whether it
+                  // returns or throws, sibling expressions and later
+                  // searches never see this frame.
+                  this._env = savedEnv;
+              }
             case "MultiSelectList":
               if (value === null) {
                 return null;
@@ -1067,11 +1211,14 @@
               }
               return this.runtime.callFunction(node.name, resolvedArgs);
             case "ExpressionReference":
-              var refNode = node.children[0];
-              // Tag the node with a specific attribute so the type
-              // checker verify the type.
-              refNode.jmespathType = TOK_EXPREF;
-              return refNode;
+              // The reference is a per-evaluation closure: it carries the
+              // AST node together with the lexical environment active at
+              // its creation point.  The wrapper holds the jmespathType
+              // marker so the runtime type checker still recognizes it as
+              // an expression, while the shared AST stays untouched.
+              return {jmespathType: TOK_EXPREF,
+                      ast: node.children[0],
+                      env: this._env};
             default:
               throw new Error("Unknown node type: " + node.type);
           }
@@ -1388,7 +1535,7 @@
       var exprefNode = resolvedArgs[0];
       var elements = resolvedArgs[1];
       for (var i = 0; i < elements.length; i++) {
-          mapped.push(interpreter.visit(exprefNode, elements[i]));
+          mapped.push(interpreter.visitExpref(exprefNode, elements[i]));
       }
       return mapped;
     },
@@ -1545,7 +1692,7 @@
         var interpreter = this._interpreter;
         var exprefNode = resolvedArgs[1];
         var requiredType = this._getTypeName(
-            interpreter.visit(exprefNode, sortedArray[0]));
+            interpreter.visitExpref(exprefNode, sortedArray[0]));
         if ([TYPE_NUMBER, TYPE_STRING].indexOf(requiredType) < 0) {
             throw new Error("TypeError");
         }
@@ -1562,8 +1709,8 @@
           decorated.push([i, sortedArray[i]]);
         }
         decorated.sort(function(a, b) {
-          var exprA = interpreter.visit(exprefNode, a[1]);
-          var exprB = interpreter.visit(exprefNode, b[1]);
+          var exprA = interpreter.visitExpref(exprefNode, a[1]);
+          var exprB = interpreter.visitExpref(exprefNode, b[1]);
           if (that._getTypeName(exprA) !== requiredType) {
               throw new Error(
                   "TypeError: expected " + requiredType + ", received " +
@@ -1629,7 +1776,7 @@
       var that = this;
       var interpreter = this._interpreter;
       var keyFunc = function(x) {
-        var current = interpreter.visit(exprefNode, x);
+        var current = interpreter.visitExpref(exprefNode, x);
         if (allowedTypes.indexOf(that._getTypeName(current)) < 0) {
           var msg = "TypeError: expected one of " + allowedTypes +
                     ", received " + that._getTypeName(current);
