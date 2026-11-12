@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {Font,Glyph,Path,parse} from '../src/opentype.mjs';
+const p=new Path();p.moveTo(0,0);p.lineTo(400,0);p.lineTo(200,700);p.close();
+const empty=new Glyph({name:'.notdef',advanceWidth:500,path:new Path()});
+const a=new Glyph({name:'A',unicode:65,advanceWidth:600,path:p});
+const f=new Font({familyName:'OfflineShape',styleName:'Regular',unitsPerEm:1000,ascender:800,descender:-200,glyphs:[empty,a]});
+const raw=f.toArrayBuffer();const restored=parse(raw);
+const path=restored.charToGlyph('A').getPath(10,20,100,{},restored);
+assert.equal(restored.charToGlyph('A').index,1);assert(path.commands.length>=3);
+const bounds=path.getBoundingBox();assert.equal(bounds.x1,10);assert.equal(bounds.y1,-50);assert.equal(bounds.x2,50);
+console.log('BASE_OPENTYPE sfnt-roundtrip=PASS glyph=1 bounds=10,-50,50');
