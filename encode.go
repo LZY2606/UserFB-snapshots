@@ -157,6 +157,12 @@ type Writer struct {
 	// obuf is a buffer for the outgoing (compressed) bytes.
 	obuf []byte
 
+	// best selects the size-optimal block encoder (EncodeBest) for framed
+	// chunks instead of the default speed-oriented Encode. It is set by
+	// NewBestWriter and preserved by Reset; the other constructors leave it
+	// false, and Reset never changes the encoding mode.
+	best bool
+
 	// wroteStreamHeader is whether we have written the stream header.
 	wroteStreamHeader bool
 }
@@ -230,7 +236,17 @@ func (w *Writer) write(p []byte) (nRet int, errRet error) {
 
 		// Compress the buffer, discarding the result if the improvement
 		// isn't at least 12.5%.
-		compressed := Encode(w.obuf[obufHeaderLen:], uncompressed)
+		var compressed []byte
+		if w.best {
+			c, err := EncodeBest(w.obuf[obufHeaderLen:], uncompressed)
+			if err != nil {
+				w.err = err
+				return nRet, err
+			}
+			compressed = c
+		} else {
+			compressed = Encode(w.obuf[obufHeaderLen:], uncompressed)
+		}
 		chunkType := uint8(chunkTypeCompressedData)
 		chunkLen := 4 + len(compressed)
 		obufEnd := obufHeaderLen + len(compressed)
