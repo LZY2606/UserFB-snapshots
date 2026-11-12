@@ -382,6 +382,13 @@ type WebDriver interface {
 	// triggering any events as if they were performed by a regular action.
 	ReleaseActions() error
 
+	// PerformActionTimeline compiles the given action timeline into a single
+	// W3C Actions request and executes it on the current session. The
+	// timeline is not consumed and actions previously stored with
+	// StoreKeyActions or StorePointerActions are left untouched. Legacy
+	// (non-W3C) protocol sessions are not supported.
+	PerformActionTimeline(t *ActionTimeline) error
+
 	// SendModifier sends the modifier key to the active element. The modifier
 	// can be one of ShiftKey, ControlKey, AltKey, MetaKey.
 	//

@@ -126,7 +126,7 @@ func Example() {
 	// selenium.MousePointer is used to identify the type of the pointer.
 	// The stored action chain will move the pointer and click on the code
 	// editor text box on the page.
-	selenium.StorePointerActions("mouse1",
+	wd.StorePointerActions("mouse1",
 		selenium.MousePointer,
 		// using selenium.FromViewport as the move origin
 		// which calculates the offset from 0,0.
@@ -143,7 +143,7 @@ func Example() {
 	// "keyboard1" is used as a unique virtual device identifier
 	// for this and future actions.
 	// The stored action chain will send keyboard inputs to the browser.
-	selenium.StoreKeyActions("keyboard1",
+	wd.StoreKeyActions("keyboard1",
 		selenium.KeyDownAction(selenium.ControlKey),
 		selenium.KeyPauseAction(50),
 		selenium.KeyDownAction("a"),
@@ -170,4 +170,54 @@ func Example() {
 		panic(err)
 	}
 
+}
+
+// This example shows how to perform a two-finger pinch gesture on a map
+// canvas while the Shift key is held down, using an action timeline.
+//
+// If you want to actually run this example, start a WebDriver server on
+// port 4444 and serve a page with a <canvas id="map"> element.
+func ExampleWebDriver_PerformActionTimeline() {
+	// Connect to the WebDriver instance running locally.
+	caps := selenium.Capabilities{"browserName": "chrome"}
+	wd, err := selenium.NewRemote(caps, "http://localhost:4444/wd/hub")
+	if err != nil {
+		panic(err) // panic is used only as an example and is not otherwise recommended.
+	}
+	defer wd.Quit()
+
+	// Get a reference to the map canvas the gesture is performed on.
+	canvas, err := wd.FindElement(selenium.ByCSSSelector, "#map")
+	if err != nil {
+		panic(err)
+	}
+
+	tl := selenium.NewActionTimeline()
+
+	// Hold Shift for the whole gesture.
+	kbd := tl.AddKeyboard("kbd")
+	kbd.KeyDown(0, selenium.ShiftKey)
+	kbd.KeyUp(1200*time.Millisecond, selenium.ShiftKey)
+
+	// Two touch contacts start next to each other at the center of the map
+	// and move apart, zooming in. Positions are given relative to the
+	// canvas rectangle: (0.5, 0.5) is the center of the canvas.
+	finger1 := tl.AddPointer("finger-1", selenium.TouchPointer)
+	finger1.Move(0, selenium.ElementPoint(canvas, 0.45, 0.5))
+	finger1.Down(0, selenium.LeftButton)
+	finger1.Move(time.Second, selenium.ElementPoint(canvas, 0.2, 0.5))
+	finger1.Up(time.Second, selenium.LeftButton)
+
+	finger2 := tl.AddPointer("finger-2", selenium.TouchPointer)
+	finger2.Move(0, selenium.ElementPoint(canvas, 0.55, 0.5))
+	finger2.Down(0, selenium.LeftButton)
+	finger2.Move(time.Second, selenium.ElementPoint(canvas, 0.8, 0.5))
+	finger2.Up(time.Second, selenium.LeftButton)
+
+	// Compile the timeline into a single W3C Actions request and execute
+	// it. The canvas rectangle is read once, right before the actions are
+	// sent.
+	if err := wd.PerformActionTimeline(tl); err != nil {
+		panic(err)
+	}
 }
