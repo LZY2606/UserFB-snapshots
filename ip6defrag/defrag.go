@@ -29,7 +29,11 @@ const fragmentUnit = 8
 // IPv6Defragmenter is a struct which embedded a map of all fragment/packet.
 type IPv6Defragmenter struct {
 	container map[ipv6Key]*fragmentList
-	lock      *sync.Mutex
+	// rawContainer holds the groups fed through DefragIPv6Bytes. It is
+	// separate from container so the two entry points cannot share a
+	// half-assembled packet.
+	rawContainer map[ipv6Key]*rawState
+	lock         *sync.Mutex
 }
 
 // ipv6Key identifies a packet under reassembly. RFC 8200 section 4.5:
@@ -49,6 +53,9 @@ type fragment struct {
 	payload    []byte
 	more       bool
 	nextheader layers.IPProtocol
+	// raw is set only by the byte-oriented DefragIPv6Bytes entry point and
+	// keeps the parsed capture this range came from.
+	raw *rawParsed
 }
 
 // fragmentList holds the fragments of one packet, sorted by offset
@@ -76,8 +83,9 @@ const (
 // NewIPv6Defragmenter returns a new IPv6Defragmenter with an initialized map.
 func NewIPv6Defragmenter() *IPv6Defragmenter {
 	return &IPv6Defragmenter{
-		container: make(map[ipv6Key]*fragmentList),
-		lock:      &sync.Mutex{},
+		container:    make(map[ipv6Key]*fragmentList),
+		rawContainer: make(map[ipv6Key]*rawState),
+		lock:         &sync.Mutex{},
 	}
 }
 
@@ -260,7 +268,8 @@ func (f *fragmentList) build() *layers.IPv6 {
 
 // DiscardOlderThan forgets all packets whose first fragment arrived
 // before time t. It returns the number of FragmentList aka number of
-// fragment packets it has discarded.
+// fragment packets it has discarded. Both entry points age from their own
+// first fragment, so both containers are swept.
 func (d *IPv6Defragmenter) DiscardOlderThan(t time.Time) int {
 	var n int
 	d.lock.Lock()
@@ -269,6 +278,12 @@ func (d *IPv6Defragmenter) DiscardOlderThan(t time.Time) int {
 		if v.time.Before(t) {
 			n = n + 1
 			delete(d.container, k)
+		}
+	}
+	for k, v := range d.rawContainer {
+		if v.time.Before(t) {
+			n = n + 1
+			delete(d.rawContainer, k)
 		}
 	}
 	return n
