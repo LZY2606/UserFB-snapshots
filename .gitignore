@@ -21,3 +21,6 @@ vendor/
 # venv for pre-commits
 .venv/
 venv/
+
+# Local Go build/module cache
+.cache/
