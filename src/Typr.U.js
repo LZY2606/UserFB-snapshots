@@ -50,7 +50,100 @@ Typr["U"] = function() {
 			shape.push({"g":gid, "cl":i, "dx":0, "dy":0, "ax":ax, "ay":0});
 			x+=ax;
 		}
+		if(prm["gpos"]!==false) _gposApply(font, shape, prm);
 		return shape;
+	}
+
+	// Applies a limited subset of OpenType GPOS mark positioning (mark-to-base, mark-to-mark)
+	// to a left-to-right shape.  Only the "dx"/"dy" of the shape entries are written.
+	function _gposApply(font, shape, prm) {
+		var GPOS = font["GPOS"];  if(GPOS==null) return;
+
+		// script / language selection
+		var scr = GPOS.scripts[prm["script"]||"latn"];  if(scr==null) scr = GPOS.scripts["DFLT"];
+		if(scr==null) return;
+		var lang = null, lng = prm["language"];
+		if(lng!=null) lang = scr.langs[lng];
+		if(lang==null) lang = scr.dflt;
+		if(lang==null) return;
+
+		// features: the required one plus "mark" and "mkmk"
+		var find = [];
+		if(lang.req!=-1) find.push(lang.req);
+		for(var i=0; i<lang.feats.length; i++) {
+			var fi = lang.feats[i], ft = GPOS.features[fi];
+			if(ft && (ft.tag=="mark" || ft.tag=="mkmk")) find.push(fi);
+		}
+		var used = {}, lids = [];
+		for(var i=0; i<find.length; i++) {
+			var ft = GPOS.features[find[i]];  if(ft==null) continue;
+			for(var j=0; j<ft.lookups.length; j++) {
+				var li = ft.lookups[j];
+				if(used[li]==null) {  used[li]=1;  lids.push(li);  }
+			}
+		}
+		lids.sort(function(a,b){return a-b;});	// LookupList order
+
+		var GDEF = font["GDEF"];
+		var gcls = function(g) {  return (GDEF && GDEF[g]!=null) ? GDEF[g] : 0;  };
+
+		var n = shape.length, penX = [], penY = [], px = 0, py = 0;
+		for(var i=0; i<n; i++) {  penX.push(px);  penY.push(py);  px += shape[i].ax;  py += shape[i].ay;  }
+		var att = [];	// per glyph: [parentIndex, parentAnchorX, parentAnchorY, childAnchorX, childAnchorY]
+
+		for(var li=0; li<lids.length; li++) {
+			var lk = GPOS.lookups[lids[li]];  if(lk==null) continue;
+			var fl = lk.flag;
+			if((fl&0x10)!=0 || (fl&0xff00)!=0) continue;	// mark filtering set / mark attachment type: not supported
+			var igB=(fl&2)!=0, igL=(fl&4)!=0, igM=(fl&8)!=0;
+			var ign = function(g) {  var c=gcls(g);  return (c==1&&igB)||(c==2&&igL)||(c==3&&igM);  };
+
+			for(var gi=0; gi<n; gi++) {
+				var gid = shape[gi].g;
+				if(ign(gid)) continue;
+				for(var si=0; si<lk.sub.length; si++) {
+					var sb = lk.sub[si];  if(sb==null) continue;
+					var done = false;
+					if(sb.kind==4) {	// mark to base
+						var ci = sb.markCov.map[gid];  if(ci==null) continue;
+						var bj = -1;
+						for(var j=gi-1; j>=0; j--) {
+							var g2 = shape[j].g;  if(ign(g2)) continue;
+							if(gcls(g2)==3) continue;	// marks are never bases
+							bj = j;  break;
+						}
+						if(bj==-1) continue;
+						var bi = sb.baseCov.map[shape[bj].g];  if(bi==null) continue;
+						var mr = sb.marks[ci], ca = mr.anc;  if(ca==null || ca.bad) continue;
+						var ba = sb.bases[bi][mr.cls];       if(ba==null || ba.bad) continue;
+						att[gi] = [bj, ba.x, ba.y, ca.x, ca.y];  done = true;
+					}
+					else if(sb.kind==6) {	// mark to mark
+						var ci = sb.m1Cov.map[gid];  if(ci==null) continue;
+						var mj = -1;
+						for(var j=gi-1; j>=0; j--) {
+							var g2 = shape[j].g;  if(ign(g2)) continue;
+							mj = j;  break;
+						}
+						if(mj==-1) continue;
+						if(gcls(shape[mj].g)!=3) continue;	// only the nearest mark, never across a non-mark
+						var mi = sb.m2Cov.map[shape[mj].g];  if(mi==null) continue;
+						var mr = sb.marks1[ci], ca = mr.anc;  if(ca==null || ca.bad) continue;
+						var ma = sb.marks2[mi][mr.cls];       if(ma==null || ma.bad) continue;
+						att[gi] = [mj, ma.x, ma.y, ca.x, ca.y];  done = true;
+					}
+					if(done) break;	// one match per lookup and glyph
+				}
+			}
+		}
+
+		// resolve attachments into dx/dy; parents always precede children, so a single pass is enough
+		for(var i=0; i<n; i++) {
+			var a = att[i];  if(a==null) continue;
+			var p = a[0];
+			shape[i].dx = (penX[p]+shape[p].dx+a[1]) - (penX[i]+a[3]);
+			shape[i].dy = (penY[p]+shape[p].dy+a[2]) - (penY[i]+a[4]);
+		}
 	}
 	
 	function shapeToPath(font,shape,prm) {

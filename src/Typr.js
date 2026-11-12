@@ -21,6 +21,9 @@ Typr["parse"] = function(buff)
 			"loca":T.loca,
 			"kern":T.kern,
 			"glyf":T.glyf,
+
+			"GDEF":T.GDEF,
+			"GPOS":T.GPOS,
 			
 			"CFF ":T.CFF,
 			/*
@@ -1614,6 +1617,196 @@ Typr["T"].GSUB = {
 		}
 		//console.log(fmap);
 		return fmap;
+	}
+};
+
+Typr["T"].GDEF = {
+	parseTab : function(data, offset, length, font)
+	{
+		var bin = Typr["B"], GPOS = Typr["T"].GPOS;
+		var nG = font["maxp"]["numGlyphs"], cls = [];
+		for(var i=0; i<nG; i++) cls.push(0);
+		// major/minor version at +0/+2, glyphClassDefOffset at +4
+		var gcdO = bin.readUshort(data, offset+4);
+		if(gcdO!=0) {
+			var cd = GPOS._readClassDef(data, offset+gcdO);
+			for(var g in cd) if(g<nG) cls[g]=cd[g];
+		}
+		return cls;	// glyph classes: 1 base, 2 ligature, 3 mark, 4 component, 0 unknown
+	}
+};
+
+Typr["T"].GPOS = {
+	parseTab : function(data, offset, length, font)
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		var obj = {scripts:{}, features:[], lookups:[]};
+
+		var slO = rU(data, offset+4), flO = rU(data, offset+6), llO = rU(data, offset+8);
+
+		// ScriptList
+		var o = offset+slO, cnt = rU(data,o);
+		for(var i=0; i<cnt; i++) {
+			var tag = bin.readASCII(data, o+2+i*6, 4);
+			obj.scripts[tag] = GPOS._readScript(data, o + rU(data, o+2+i*6+4));
+		}
+		// FeatureList
+		o = offset+flO;  cnt = rU(data,o);
+		var fts = [];
+		for(var i=0; i<cnt; i++) fts.push([bin.readASCII(data, o+2+i*6, 4), o + rU(data, o+2+i*6+4)]);
+		for(var i=0; i<cnt; i++) {
+			var fo = fts[i][1], lcnt = rU(data, fo+2), lups = [];
+			for(var j=0; j<lcnt; j++) lups.push(rU(data, fo+4+j*2));
+			obj.features.push({tag:fts[i][0], lookups:lups});
+		}
+		// LookupList
+		o = offset+llO;  cnt = rU(data,o);
+		for(var i=0; i<cnt; i++) obj.lookups.push(GPOS._readLookup(data, o + rU(data, o+2+i*2)));
+		return obj;
+	},
+
+	_readScript : function(data, o)
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		var scr = {dflt:null, langs:{}};
+		var dO = rU(data,o), cnt = rU(data,o+2);
+		if(dO!=0) scr.dflt = GPOS._readLangSys(data, o+dO);
+		for(var i=0; i<cnt; i++) {
+			var tag = bin.readASCII(data, o+4+i*6, 4);
+			scr.langs[tag] = GPOS._readLangSys(data, o + rU(data, o+4+i*6+4));
+		}
+		return scr;
+	},
+
+	_readLangSys : function(data, o)
+	{
+		var rU = Typr["B"].readUshort;
+		var req = rU(data, o+2);  if(req==0xffff) req=-1;
+		var cnt = rU(data, o+4), feats = [];
+		for(var i=0; i<cnt; i++) feats.push(rU(data, o+6+i*2));
+		return {req:req, feats:feats};
+	},
+
+	_readLookup : function(data, o)
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		var type = rU(data,o), flag = rU(data,o+2), cnt = rU(data,o+4);
+		var subs = [];
+		for(var i=0; i<cnt; i++) subs.push(GPOS._readSubtable(data, o + rU(data, o+6+i*2), type));
+		return {type:type, flag:flag, sub:subs};
+	},
+
+	_readSubtable : function(data, o, type)
+	{
+		var bin = Typr["B"], GPOS = Typr["T"].GPOS;
+		if(type==4) return GPOS._readMarkBase(data, o);
+		if(type==6) return GPOS._readMarkMark(data, o);
+		if(type==9) {	// ExtensionPos, format 1
+			if(bin.readUshort(data,o)!=1) return null;
+			var et = bin.readUshort(data, o+2);
+			if(et==9) return null;	// no nested extensions
+			return GPOS._readSubtable(data, o + bin.readUint(data, o+4), et);
+		}
+		return null;	// unsupported lookup type: skip it, keep the rest
+	},
+
+	_readMarkBase : function(data, o)	// MarkBasePos, format 1
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		if(rU(data,o)!=1) return null;
+		var classCnt = rU(data, o+6);
+		var markCov = GPOS._readCoverage(data, o + rU(data, o+2));
+		var baseCov = GPOS._readCoverage(data, o + rU(data, o+4));
+		var marks = GPOS._readMarkArray(data, o + rU(data, o+8));
+		// BaseArray
+		var ba = o + rU(data, o+10), bcnt = rU(data, ba), bases = [];
+		for(var i=0; i<bcnt; i++) {
+			var rec = [];
+			for(var c=0; c<classCnt; c++) {
+				var ao = rU(data, ba+2+(i*classCnt+c)*2);
+				rec.push(ao==0 ? null : GPOS._readAnchor(data, ba+ao));
+			}
+			bases.push(rec);
+		}
+		return {kind:4, markCov:markCov, baseCov:baseCov, marks:marks, bases:bases};
+	},
+
+	_readMarkMark : function(data, o)	// MarkMarkPos, format 1
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		if(rU(data,o)!=1) return null;
+		var classCnt = rU(data, o+6);
+		var m1Cov = GPOS._readCoverage(data, o + rU(data, o+2));
+		var m2Cov = GPOS._readCoverage(data, o + rU(data, o+4));
+		var marks1 = GPOS._readMarkArray(data, o + rU(data, o+8));
+		// Mark2Array
+		var ma = o + rU(data, o+10), mcnt = rU(data, ma), marks2 = [];
+		for(var i=0; i<mcnt; i++) {
+			var rec = [];
+			for(var c=0; c<classCnt; c++) {
+				var ao = rU(data, ma+2+(i*classCnt+c)*2);
+				rec.push(ao==0 ? null : GPOS._readAnchor(data, ma+ao));
+			}
+			marks2.push(rec);
+		}
+		return {kind:6, m1Cov:m1Cov, m2Cov:m2Cov, marks1:marks1, marks2:marks2};
+	},
+
+	_readMarkArray : function(data, o)
+	{
+		var bin = Typr["B"], rU = bin.readUshort, GPOS = Typr["T"].GPOS;
+		var cnt = rU(data,o), marks = [];
+		for(var i=0; i<cnt; i++) {
+			var ao = rU(data, o+2+i*4+2);
+			marks.push({cls:rU(data, o+2+i*4), anc: ao==0 ? null : GPOS._readAnchor(data, o+ao)});
+		}
+		return marks;
+	},
+
+	_readAnchor : function(data, o)
+	{
+		var bin = Typr["B"];
+		var fmt = bin.readUshort(data, o);
+		if(fmt==1) return {x:bin.readShort(data, o+2), y:bin.readShort(data, o+4)};
+		return {bad:fmt};	// unsupported anchor format
+	},
+
+	_readCoverage : function(data, o)
+	{
+		var bin = Typr["B"], rU = bin.readUshort;
+		var fmt = rU(data,o), ids = [];
+		if(fmt==1) {
+			var cnt = rU(data,o+2);
+			for(var i=0; i<cnt; i++) ids.push(rU(data, o+4+i*2));
+		}
+		else if(fmt==2) {
+			var cnt = rU(data,o+2);
+			for(var i=0; i<cnt; i++) {
+				var s = rU(data, o+4+i*6), e = rU(data, o+4+i*6+2);
+				for(var g=s; g<=e; g++) ids.push(g);
+			}
+		}
+		var map = {};
+		for(var i=0; i<ids.length; i++) map[ids[i]]=i;
+		return {ids:ids, map:map};
+	},
+
+	_readClassDef : function(data, o)
+	{
+		var bin = Typr["B"], rU = bin.readUshort, out = {};
+		var fmt = rU(data,o);
+		if(fmt==1) {
+			var s = rU(data,o+2), cnt = rU(data,o+4);
+			for(var i=0; i<cnt; i++) out[s+i] = rU(data, o+6+i*2);
+		}
+		else if(fmt==2) {
+			var cnt = rU(data,o+2);
+			for(var i=0; i<cnt; i++) {
+				var s = rU(data, o+4+i*6), e = rU(data, o+4+i*6+2), c = rU(data, o+4+i*6+4);
+				for(var g=s; g<=e; g++) out[g]=c;
+			}
+		}
+		return out;
 	}
 };
 

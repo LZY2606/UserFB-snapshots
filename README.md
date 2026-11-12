@@ -42,10 +42,23 @@ console.log(fonts[0]);
 
 * `font`: font object
 * `str`: standard JS string
-* `prm`: parameters object: "ltr":left-to-right, "fts": features, "axs": axes (array of values, a value for each axis)
+* `prm`: parameters object: "ltr":left-to-right, "fts": features, "axs": axes (array of values, a value for each axis), "script": OpenType script tag (default "latn"), "language": OpenType language system tag (default: the script's default LangSys), "gpos": set to `false` to disable GPOS mark positioning
 * returns a shape: a geometric description of a string. The output is an array of elements. Each element has these parameters `g`: Glyph index, `cl`: Cluster index , `ax, ay`: Advancement of a glyph, `dx, dy`: an offset from a pen, at which the glyph should be drawn.
 
 The shape can have a different length, than the input string (because of ligatures, etc). The cluster index says, which part of string the glyph represents.
+
+#### GPOS mark positioning
+
+Without loading HarfBuzz, `Typr.U.shape()` applies a limited, well-defined subset of OpenType GPOS positioning, so that `Typr.U.shapeToPath()` returns outlines with combining marks already in place. The boundaries of this subset are:
+
+* left-to-right horizontal text only; no GSUB, no bidirectional reordering; cmap mapping is unchanged
+* script selection: `prm.script` (default "latn"), falling back to "DFLT"; language selection: `prm.language`, falling back to the script's default LangSys; if neither is found, no GPOS is applied
+* only the `mark` and `mkmk` features plus the LangSys' required feature are applied; a lookup referenced by several features runs once, in LookupList order
+* supported lookups: MarkToBase (type 4, format 1), MarkToMark (type 6, format 1), and Extension (type 9) wrapping them; anything else is skipped without affecting later lookups
+* only anchor format 1 is supported; a null anchor means "no attachment of this class"
+* GDEF glyph classes distinguish bases from marks; lookup flags IgnoreBaseGlyphs / IgnoreLigatures / IgnoreMarks are honored; lookups using a mark filtering set or a mark attachment type are skipped entirely
+* attachments are resolved against the true pen positions (advances and `kern` pairs included); a mark attaches to the nearest preceding base, a mark-to-mark attachment never crosses a non-mark; a later valid attachment replaces an earlier one and child marks follow their parent's final position
+* `prm.gpos === false` turns this step off; `g`, `cl`, `ax`, `ay` and kerning are never modified, only `dx`/`dy` are written
 
 #### `Typr.U.glyphToPath(font, gid, ignoreColor, axs)`
 
