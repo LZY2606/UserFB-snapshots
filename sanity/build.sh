@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cmake -S . -B "$1" -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON -DLEXBOR_BUILD_TESTS=OFF -DLEXBOR_BUILD_EXAMPLES=OFF -DLEXBOR_BUILD_BENCHMARKS=OFF -DLEXBOR_BUILD_UTILS=OFF
+cmake --build "$1" --target lexbor_static -j 4
