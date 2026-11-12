@@ -1838,16 +1838,20 @@ If the task at hand is to select a subset of document nodes that match some crit
 [[xpath_value_type]][[xpath_type_number]][[xpath_type_string]][[xpath_type_boolean]][[xpath_type_node_set]][[xpath_type_none]]
 Each XPath expression can have one of the following types: boolean, number, string or node set. Boolean type corresponds to `bool` type, number type corresponds to `double` type, string type corresponds to either `std::string` or `std::wstring`, depending on whether <<dom.unicode,wide character interface is enabled>>, and node set corresponds to <<xpath_node_set,xpath_node_set>> type. There is an enumeration, `xpath_value_type`, which can take the values `xpath_type_boolean`, `xpath_type_number`, `xpath_type_string` or `xpath_type_node_set`, accordingly.
 
-[[xpath_node]][[xpath_node::node]][[xpath_node::attribute]][[xpath_node::parent]]
-Because an XPath node can be either a node or an attribute, there is a special type, `xpath_node`, which is a discriminated union of these types. A value of this type contains two node handles, one of `xml_node` type, and another one of `xml_attribute` type; at most one of them can be non-null. The accessors to get these handles are available:
+[[xpath_node]][[xpath_node::node]][[xpath_node::attribute]][[xpath_node::parent]][[xpath_node::is_namespace]][[xpath_node::namespace_prefix]][[xpath_node::namespace_value]]
+Because an XPath node can be either a node or an attribute, there is a special type, `xpath_node`, which is a discriminated union of these types. A value of this type contains two node handles, one of `xml_node` type, and another one of `xml_attribute` type; at most one of them can be non-null. In namespace-aware mode, an XPath node can also represent a namespace node (see <<xpath.namespace_axis>>). The accessors to get these handles are available:
 
 [source]
 ----
 xml_node xpath_node::node() const;
 xml_attribute xpath_node::attribute() const;
+
+bool xpath_node::is_namespace() const;
+const char_t* xpath_node::namespace_prefix() const;
+const char_t* xpath_node::namespace_value() const;
 ----
 
-XPath nodes can be null, in which case both accessors return null handles.
+XPath nodes can be null, in which case `node` and `attribute` return null handles. For namespace nodes, `node()` and `attribute()` are null handles, `is_namespace()` returns `true`, and the prefix/value accessors return the binding; for other nodes, `is_namespace()` returns `false` and the prefix/value accessors return empty strings. Namespace nodes are not created by the public constructors; they are returned from evaluations that use the `namespace::` axis.
 
 Note that as per XPath specification, each XPath node has a parent, which can be retrieved via this function:
 
@@ -1856,7 +1860,7 @@ Note that as per XPath specification, each XPath node has a parent, which can be
 xml_node xpath_node::parent() const;
 ----
 
-`parent` function returns the node's parent if the XPath node corresponds to `xml_node` handle (equivalent to `node().parent()`), or the node to which the attribute belongs to, if the XPath node corresponds to `xml_attribute` handle. For null nodes, `parent` returns null handle.
+`parent` function returns the node's parent if the XPath node corresponds to `xml_node` handle (equivalent to `node().parent()`), or the node to which the attribute belongs to, if the XPath node corresponds to `xml_attribute` handle, or the owning element for namespace nodes. For null nodes, `parent` returns null handle.
 
 [[xpath_node::unspecified_bool_type]][[xpath_node::comparison]]
 Like node and attribute handles, XPath node handles can be implicitly cast to boolean-like object to check if it is a null node, and also can be compared for equality with each other.
@@ -1978,7 +1982,7 @@ You can create a query object with the constructor that takes XPath expression a
 
 [source]
 ----
-explicit xpath_query::xpath_query(const char_t* query, xpath_variable_set* variables = 0);
+explicit xpath_query::xpath_query(const char_t* query, xpath_variable_set* variables = 0, xpath_namespace_set* namespaces = 0);
 ----
 
 [[xpath_query::return_type]]
@@ -2081,6 +2085,61 @@ bool xpath_variable_set::set(const char_t* name, const xpath_node_set& value);
 ----
 
 The variable values are copied to the internal variable storage, so you can modify or destroy them after the functions return.
+
+[[xpath_namespace_set]]
+==== Namespace-aware name matching
+
+By default, name tests in XPath expressions are compared literally against the qualified names stored in the document. This means that `/r/a:item` only matches elements literally named `a:item`, regardless of the namespace declarations in the document; documents that use different prefixes for the same namespace require `local-name()`/`namespace-uri()` workarounds.
+
+You can opt into namespace-aware name matching by passing a namespace set to the `xpath_query` constructor; the same optional argument can be left out to preserve the literal comparison behavior:
+
+[source]
+----
+explicit xpath_query::xpath_query(const char_t* query, xpath_variable_set* variables = 0, xpath_namespace_set* namespaces = 0);
+----
+
+Namespace sets correspond to the `xpath_namespace_set` type and map prefixes used in the expression to namespace URIs. Note that the prefix in the expression is independent from the prefixes used in the document; `//u:item` with `u` bound to `urn:one` matches any element with expanded name `{urn:one}item`, whether it is written as `a:item`, `b:item` or with a default namespace.
+
+[[xpath_namespace_set::set]]
+You can add a binding with the following function:
+
+[source]
+----
+bool xpath_namespace_set::set(const char_t* prefix, const char_t* uri);
+----
+
+The function returns `false` and leaves any existing binding unchanged if `prefix` or `uri` is empty, if `prefix` is `xmlns` or `uri` is the XMLNS namespace URI, if `prefix` is `xml` but `uri` is not the standard XML namespace URI, or if `uri` is the XML namespace URI under any other prefix. The `xml` prefix always has the implicit standard binding, so it does not have to be declared in the document with `xml:lang` and similar attributes.
+
+In namespace-aware mode:
+
+* Prefixed name tests (`p:name`) and namespace wildcards (`p:*`) match by expanded name (URI and local name).
+* Name tests without a prefix only match elements and attributes with no namespace; the default namespace declared in the document does not affect unprefixed attribute names.
+* Ancestor declarations, declarations on the same element, local shadowing and `xmlns=''` clearing are all taken into account while resolving a prefix.
+* An expression that uses a prefix not present in the namespace set fails to compile with an <<xpath_parse_result,xpath_parse_result>> that has the error message and the offset of the offending token.
+* The namespace axis becomes available (see <<xpath.namespace_axis>>).
+
+The bindings that are used by the expression are copied during query compilation; modifying or destroying the namespace set afterwards does not affect compiled queries. Expression compilation resolves the bindings eagerly, so the same compiled query can be evaluated against multiple documents that use different prefixes.
+
+If namespace-aware mode is not used, the behavior of name tests and of the `namespace::` axis is unchanged.
+
+[[xpath.namespace_axis]]
+==== Namespace axis
+
+In namespace-aware mode the `namespace::` axis returns the effective in-scope namespace bindings of an element. `namespace::*` and `namespace::node()` return all bindings; `namespace::p` selects the binding whose prefix is literally `p`. Name tests that contain a colon are rejected at compile time on this axis.
+
+Each result is an independent XPath namespace node:
+
+* `is_namespace()` returns `true`; `node()` and `attribute()` return null handles.
+* `namespace_prefix()` returns the prefix (empty for the default binding) and `namespace_value()` returns the URI.
+* `parent()` returns the element that owns the binding.
+* `name()` and `local-name()` return the prefix; `namespace-uri()` returns an empty string; `string()` returns the binding URI.
+* The node identity is the owning element together with the prefix. Two elements that inherit the same declaration produce distinct nodes, while a node selected twice from the same element is the same node.
+
+Bindings from the nearest declaration shadow ancestor declarations; an empty default declaration (`xmlns=''`) produces no default namespace node; the implicit `xml` binding is always present and namespace declarations (`xmlns`/`xmlns:p`) themselves do not become ordinary attributes.
+
+When namespace nodes appear in results together with elements, they are ordered after the owning element and by prefix, before the attributes of that element, in document order. Namespace nodes returned to the caller remain valid as long as the owning DOM elements and the corresponding namespace declarations are not removed or renamed; they do not rely on the memory of the compiled query.
+
+In legacy mode (no namespace set passed to the constructor), the `namespace::` axis keeps returning an empty node set.
 
 [[xpath_variable]]
 If setting variables by name is not efficient enough, or if you have to inspect variable information or get variable values, you can use variable handles. A variable corresponds to the `xpath_variable` type, and a variable handle is simply a pointer to `xpath_variable`.
@@ -2194,8 +2253,8 @@ Because of the differences in document object models, performance considerations
 
 * Consecutive text nodes sharing the same parent are not merged, i.e. in `<node>text1 <![CDATA[data]]> text2</node>` node should have one text node child, but instead has three.
 * Since the document type declaration is not used for parsing, `id()` function always returns an empty node set.
-* Namespace nodes are not supported (affects `namespace::` axis).
-* Name tests are performed on QNames in XML document instead of expanded names; for `<foo xmlns:ns1='uri' xmlns:ns2='uri'><ns1:child/><ns2:child/></foo>`, query `foo/ns1:*` will return only the first child, not both of them. Compliant XPath implementations can return both nodes if the user provides appropriate namespace declarations.
+* Namespace nodes are not supported (affects `namespace::` axis) unless the query is compiled in namespace-aware mode (see <<xpath_namespace_set>>).
+* Name tests are performed on QNames in XML document instead of expanded names unless the query is compiled in namespace-aware mode; for `<foo xmlns:ns1='uri' xmlns:ns2='uri'><ns1:child/><ns2:child/></foo>`, query `foo/ns1:*` will return only the first child, not both of them. In namespace-aware mode, expanded names are matched and both children are returned.
 * String functions consider a character to be either a single `char` value or a single `wchar_t` value, depending on the library configuration; this means that some string functions are not fully Unicode-aware. This affects `substring()`, `string-length()` and `translate()` functions.
 
 [[changes]]
@@ -2218,6 +2277,7 @@ Anniversary release (pugixml turns 20 this year!). Changes:
     . Loading a document from an empty buffer no longer performs memory allocations
 
 * XPath improvements:
+    . Namespace-aware name matching can be enabled by passing an `xpath_namespace_set` to the `xpath_query` constructor; prefixed name tests then match expanded names, and the `namespace::` axis returns effective in-scope bindings
     . Improve performance of queries that evaluate or compare attribute values, like `@attr > 5`
     . Improve performance of queries that select nodes and attributes by name
 
@@ -3235,7 +3295,7 @@ const unsigned int +++<a href="#parse_wnorm_attribute">parse_wnorm_attribute</a>
     const char* +++<a href="#xpath_parse_result::description">description</a>+++() const;
 
 +++<span class="tok-k">class</span> <a href="#xpath_query">xpath_query</a>+++
-    explicit +++<a href="#xpath_query::ctor">xpath_query</a>+++(const char_t* query, xpath_variable_set* variables = 0);
+    explicit +++<a href="#xpath_query::ctor">xpath_query</a>+++(const char_t* query, xpath_variable_set* variables = 0, xpath_namespace_set* namespaces = 0);
 
     bool +++<a href="#xpath_query::evaluate_boolean">evaluate_boolean</a>+++(const xpath_node& n) const;
     double +++<a href="#xpath_query::evaluate_number">evaluate_number</a>+++(const xpath_node& n) const;
@@ -3261,6 +3321,11 @@ const unsigned int +++<a href="#parse_wnorm_attribute">parse_wnorm_attribute</a>
 
     xml_node +++<a href="#xpath_node::node">node</a>+++() const;
     xml_attribute +++<a href="#xpath_node::attribute">attribute</a>+++() const;
+
+    bool +++<a href="#xpath_node::is_namespace">is_namespace</a>+++() const;
+    const char_t* +++<a href="#xpath_node::namespace_prefix">namespace_prefix</a>+++() const;
+    const char_t* +++<a href="#xpath_node::namespace_value">namespace_value</a>+++() const;
+
     xml_node +++<a href="#xpath_node::parent">parent</a>+++() const;
 
     operator +++<a href="#xpath_node::unspecified_bool_type">unspecified_bool_type</a>+++() const;
@@ -3309,6 +3374,9 @@ const unsigned int +++<a href="#parse_wnorm_attribute">parse_wnorm_attribute</a>
 
     xpath_variable* +++<a href="#xpath_variable_set::get">get</a>+++(const char_t* name);
     const xpath_variable* +++<a href="#xpath_variable_set::get">get</a>+++(const char_t* name) const;
+
++++<span class="tok-k">class</span> <a href="#xpath_namespace_set">xpath_namespace_set</a>+++
+    bool +++<a href="#xpath_namespace_set::set">set</a>+++(const char_t* prefix, const char_t* uri);
 ----
 
 [[apiref.functions]]

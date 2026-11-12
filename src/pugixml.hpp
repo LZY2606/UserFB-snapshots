@@ -328,6 +328,7 @@ namespace pugi
 	class xpath_node_set;
 	class xpath_query;
 	class xpath_variable_set;
+	class xpath_namespace_set;
 	#endif
 
 	// Range-based for loop support
@@ -1310,6 +1311,40 @@ namespace pugi
 		const xpath_variable* get(const char_t* name) const;
 	};
 
+	// A set of prefix-to-namespace-URI bindings used by namespace-aware XPath compilation
+	class PUGIXML_CLASS xpath_namespace_set
+	{
+	private:
+		void* _data[32];
+
+		void _assign(const xpath_namespace_set& rhs);
+		void _swap(xpath_namespace_set& rhs);
+		static void _destroy(void* binding);
+
+	public:
+		// Default constructor/destructor
+		xpath_namespace_set();
+		~xpath_namespace_set();
+
+		// Copy constructor/assignment operator
+		xpath_namespace_set(const xpath_namespace_set& rhs);
+		xpath_namespace_set& operator=(const xpath_namespace_set& rhs);
+
+	#ifdef PUGIXML_HAS_MOVE
+		// Move semantics support
+		xpath_namespace_set(xpath_namespace_set&& rhs) PUGIXML_NOEXCEPT;
+		xpath_namespace_set& operator=(xpath_namespace_set&& rhs) PUGIXML_NOEXCEPT;
+	#endif
+
+		// Bind a prefix used in XPath expressions to a namespace URI.
+		// Returns false and keeps the existing binding if the prefix/URI is empty or the binding uses a reserved prefix/URI.
+		bool set(const char_t* prefix, const char_t* uri);
+
+		// Internal: find the URI for a prefix (null if the prefix is not bound); the implicit xml binding is always present
+		const char_t* _find(const char_t* prefix) const;
+		const char_t* _find(const char_t* prefix, size_t length) const;
+	};
+
 	// A compiled XPath query object
 	class PUGIXML_CLASS xpath_query
 	{
@@ -1326,7 +1361,8 @@ namespace pugi
 	public:
 		// Construct a compiled object from XPath expression.
 		// If PUGIXML_NO_EXCEPTIONS is not defined, throws xpath_exception on compilation errors.
-		explicit xpath_query(const char_t* query, xpath_variable_set* variables = PUGIXML_NULL);
+		// Passing a non-null namespace set enables namespace-aware name matching; the used bindings are copied during compilation.
+		explicit xpath_query(const char_t* query, xpath_variable_set* variables = PUGIXML_NULL, xpath_namespace_set* namespaces = PUGIXML_NULL);
 
 		// Constructor
 		xpath_query();
@@ -1419,6 +1455,10 @@ namespace pugi
 		xml_node _node;
 		xml_attribute _attribute;
 
+		// non-null prefix/value pair means this is a namespace node owned by _node
+		const char_t* _namespace_prefix;
+		const char_t* _namespace_value;
+
 		typedef void (*unspecified_bool_type)(xpath_node***);
 
 	public:
@@ -1429,11 +1469,21 @@ namespace pugi
 		xpath_node(const xml_node& node);
 		xpath_node(const xml_attribute& attribute, const xml_node& parent);
 
-		// Get node/attribute, if any
+		// Internal: construct a namespace node with the specified owning element and binding
+		static xpath_node _make_namespace(const xml_node& node, const char_t* prefix, const char_t* value);
+
+		// Get node/attribute, if any (both are empty for namespace nodes)
 		xml_node node() const;
 		xml_attribute attribute() const;
 
-		// Get parent of contained node/attribute
+		// Check if the node is a namespace node
+		bool is_namespace() const;
+
+		// Get namespace node prefix/value; empty strings for non-namespace nodes
+		const char_t* namespace_prefix() const;
+		const char_t* namespace_value() const;
+
+		// Get parent of contained node/attribute; for namespace nodes, the owning element
 		xml_node parent() const;
 
 		// Safe bool conversion operator

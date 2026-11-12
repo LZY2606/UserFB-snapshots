@@ -290,6 +290,16 @@ PUGI_IMPL_NS_BEGIN
 		return lhs[count] == 0;
 	}
 
+	// Compare the first count characters of lhs and rhs without requiring lhs to terminate there
+	PUGI_IMPL_FN bool strequalrange_n(const char_t* lhs, const char_t* rhs, size_t count)
+	{
+		for (size_t i = 0; i < count; ++i)
+			if (lhs[i] != rhs[i])
+				return false;
+
+		return true;
+	}
+
 	// Get length of wide string, even if CRT lacks wide character support
 	PUGI_IMPL_FN size_t strlength_wide(const wchar_t* s)
 	{
@@ -8667,6 +8677,9 @@ PUGI_IMPL_NS_BEGIN
 
 	PUGI_IMPL_FN xpath_string string_value(const xpath_node& na, xpath_allocator* alloc)
 	{
+		if (na.is_namespace())
+			return xpath_string::from_const(na.namespace_value());
+
 		if (na.attribute())
 			return xpath_string::from_const(na.attribute().value());
 		else
@@ -8796,10 +8809,65 @@ PUGI_IMPL_NS_BEGIN
 		return NULL;
 	}
 
+	// Sort namespace nodes of a given owner by prefix (returns true if lhs is before rhs)
+	PUGI_IMPL_FN bool namespace_prefix_is_before(const char_t* lhs, const char_t* rhs)
+	{
+		const char_t* l = lhs;
+		const char_t* r = rhs;
+
+		while (*l && *r && *l == *r)
+		{
+			l++;
+			r++;
+		}
+
+		return *l < *r;
+	}
+
+	struct namespace_prefix_less
+	{
+		bool operator()(const xpath_node& lhs, const xpath_node& rhs) const
+		{
+			return namespace_prefix_is_before(lhs.namespace_prefix(), rhs.namespace_prefix());
+		}
+	};
+
 	struct document_order_comparator
 	{
 		bool operator()(const xpath_node& lhs, const xpath_node& rhs) const
 		{
+			if (lhs.is_namespace() || rhs.is_namespace())
+			{
+				// anchor: the owning element for namespace nodes, the node itself for elements, the parent for attributes
+				xml_node ln = lhs.is_namespace() ? lhs.parent() : (lhs.attribute() ? lhs.parent() : lhs.node());
+				xml_node rn = rhs.is_namespace() ? rhs.parent() : (rhs.attribute() ? rhs.parent() : rhs.node());
+
+				if (ln != rn)
+				{
+					if (!ln || !rn) return ln.internal_object() < rn.internal_object();
+					return node_is_before(ln.internal_object(), rn.internal_object());
+				}
+
+				// same anchor: element, then namespace nodes, then attributes
+				int lr = lhs.is_namespace() ? 1 : (lhs.attribute() ? 2 : 0);
+				int rr = rhs.is_namespace() ? 1 : (rhs.attribute() ? 2 : 0);
+
+				if (lr != rr) return lr < rr;
+
+				if (lr == 1) return namespace_prefix_is_before(lhs.namespace_prefix(), rhs.namespace_prefix());
+
+				if (lr == 2)
+				{
+					for (xml_attribute a = lhs.attribute(); a; a = a.next_attribute())
+						if (a == rhs.attribute())
+							return true;
+
+					return false;
+				}
+
+				return false;
+			}
+
 			// optimized document order based check
 			const void* lo = document_buffer_order(lhs);
 			const void* ro = document_buffer_order(rhs);
@@ -9129,11 +9197,15 @@ PUGI_IMPL_NS_BEGIN
 
 	PUGI_IMPL_FN const char_t* qualified_name(const xpath_node& node)
 	{
+		if (node.is_namespace()) return node.namespace_prefix();
+
 		return node.attribute() ? node.attribute().name() : node.node().name();
 	}
 
 	PUGI_IMPL_FN const char_t* local_name(const xpath_node& node)
 	{
+		if (node.is_namespace()) return node.namespace_prefix();
+
 		const char_t* name = qualified_name(node);
 		const char_t* p = find_char(name, ':');
 
@@ -9162,6 +9234,98 @@ PUGI_IMPL_NS_BEGIN
 			return prefix ? name[5] == ':' && strequalrange(name + 6, prefix, prefix_length) : name[5] == 0;
 		}
 	};
+
+	// Well-known namespace URIs used by the namespace-aware XPath mode
+	static const char_t* const xpath_xml_namespace_prefix = PUGIXML_TEXT("xml");
+	static const char_t* const xpath_xml_namespace_uri = PUGIXML_TEXT("http://www.w3.org/XML/1998/namespace");
+	static const char_t* const xpath_xmlns_namespace_uri = PUGIXML_TEXT("http://www.w3.org/2000/xmlns/");
+
+	// sentinel URI for prefixed names whose prefix has no in-scope declaration; never equal to a real binding
+	static const char_t* const xpath_unresolved_namespace_uri = PUGIXML_TEXT("\x01unresolved");
+
+	// Find an in-scope declaration of the specified prefix; returns the declaration value or NULL if none
+	PUGI_IMPL_FN const char_t* find_namespace_binding(xml_node_struct* node, const char_t* prefix, size_t prefix_length)
+	{
+		for (xml_node_struct* cur = node; cur; cur = cur->parent)
+		{
+			for (xml_attribute_struct* a = cur->first_attribute; a; a = a->next_attribute)
+			{
+				if (!a->name) continue;
+
+				if (a->name[0] == 'x' && a->name[1] == 'm' && a->name[2] == 'l' && a->name[3] == 'n' && a->name[4] == 's' && a->name[5] == ':' && strequalrange(a->name + 6, prefix, prefix_length) && a->name[6 + prefix_length] == 0)
+					return a->value ? a->value : PUGIXML_TEXT("");
+			}
+		}
+
+		return NULL;
+	}
+
+	// Find the in-scope default namespace declaration; returns value (possibly empty) or NULL if none
+	PUGI_IMPL_FN const char_t* find_default_namespace_binding(xml_node_struct* node)
+	{
+		for (xml_node_struct* cur = node; cur; cur = cur->parent)
+		{
+			for (xml_attribute_struct* a = cur->first_attribute; a; a = a->next_attribute)
+			{
+				if (!a->name) continue;
+
+				if (a->name[0] == 'x' && a->name[1] == 'm' && a->name[2] == 'l' && a->name[3] == 'n' && a->name[4] == 's' && a->name[5] == 0)
+					return a->value ? a->value : PUGIXML_TEXT("");
+			}
+		}
+
+		return NULL;
+	}
+
+	// Resolve the namespace URI of an element name using in-scope declarations
+	PUGI_IMPL_FN const char_t* element_namespace_uri(xml_node_struct* node)
+	{
+		const char_t* name = node->name ? node->name : PUGIXML_TEXT("");
+		const char_t* colon = find_char(name, ':');
+
+		if (colon)
+		{
+			size_t prefix_length = static_cast<size_t>(colon - name);
+
+			if (prefix_length == 3 && strequalrange_n(name, PUGIXML_TEXT("xml"), 3))
+				return xpath_xml_namespace_uri;
+
+			const char_t* binding = find_namespace_binding(node, name, prefix_length);
+
+			// an unresolved prefix is not the same as no namespace
+			return binding ? binding : xpath_unresolved_namespace_uri;
+		}
+
+		const char_t* binding = find_default_namespace_binding(node);
+
+		return binding ? binding : PUGIXML_TEXT("");
+	}
+
+	// Resolve the namespace URI of an attribute name using in-scope declarations; unprefixed attributes have no namespace
+	PUGI_IMPL_FN const char_t* attribute_namespace_uri(xml_attribute_struct* attr, xml_node_struct* parent)
+	{
+		const char_t* name = attr->name ? attr->name : PUGIXML_TEXT("");
+		const char_t* colon = find_char(name, ':');
+
+		if (!colon) return PUGIXML_TEXT("");
+
+		size_t prefix_length = static_cast<size_t>(colon - name);
+
+		if (prefix_length == 3 && strequalrange_n(name, PUGIXML_TEXT("xml"), 3))
+			return xpath_xml_namespace_uri;
+
+		const char_t* binding = find_namespace_binding(parent, name, prefix_length);
+
+		// an unresolved prefix is not the same as no namespace
+		return binding ? binding : xpath_unresolved_namespace_uri;
+	}
+
+	PUGI_IMPL_FN const char_t* local_name_part(const char_t* name)
+	{
+		const char_t* colon = find_char(name, ':');
+
+		return colon ? colon + 1 : name;
+	}
 
 	PUGI_IMPL_FN const char_t* namespace_uri(xml_node node)
 	{
@@ -9204,8 +9368,11 @@ PUGI_IMPL_NS_BEGIN
 
 	PUGI_IMPL_FN const char_t* namespace_uri(const xpath_node& node)
 	{
+		if (node.is_namespace()) return PUGIXML_TEXT("");
+
 		return node.attribute() ? namespace_uri(node.attribute(), node.parent()) : namespace_uri(node.node());
 	}
+
 
 	PUGI_IMPL_FN char_t* normalize_space(char_t* buffer)
 	{
@@ -9368,6 +9535,82 @@ PUGI_IMPL_NS_BEGIN
 		xpath_node_set value;
 		char_t name[1];
 	};
+
+	// A single prefix-to-URI binding owned by xpath_namespace_set
+	struct xpath_namespace_binding
+	{
+		xpath_namespace_binding* next;
+		char_t* prefix;
+		char_t* uri;
+	};
+
+	PUGI_IMPL_FN char_t* duplicate_string(const char_t* str, size_t length)
+	{
+		char_t* result = static_cast<char_t*>(xml_memory::allocate((length + 1) * sizeof(char_t)));
+		if (!result) return NULL;
+
+		memcpy(result, str, length * sizeof(char_t));
+		result[length] = 0;
+
+		return result;
+	}
+
+	PUGI_IMPL_FN void delete_string(char_t* str)
+	{
+		if (str) xml_memory::deallocate(str);
+	}
+
+	PUGI_IMPL_FN xpath_namespace_binding* new_xpath_namespace_binding(const char_t* prefix, size_t prefix_length, const char_t* uri)
+	{
+		void* memory = xml_memory::allocate(sizeof(xpath_namespace_binding));
+		if (!memory) return NULL;
+
+		xpath_namespace_binding* result = static_cast<xpath_namespace_binding*>(memory);
+		result->next = NULL;
+		result->prefix = duplicate_string(prefix, prefix_length);
+		result->uri = NULL;
+
+		if (!result->prefix)
+		{
+			xml_memory::deallocate(result);
+			return NULL;
+		}
+
+		result->uri = duplicate_string(uri, strlength(uri));
+		if (!result->uri)
+		{
+			delete_string(result->prefix);
+			xml_memory::deallocate(result);
+			return NULL;
+		}
+
+		return result;
+	}
+
+	PUGI_IMPL_FN void delete_xpath_namespace_binding(xpath_namespace_binding* binding)
+	{
+		delete_string(binding->prefix);
+		delete_string(binding->uri);
+		xml_memory::deallocate(binding);
+	}
+
+	PUGI_IMPL_FN PUGI_IMPL_UNSIGNED_OVERFLOW unsigned int hash_string_range(const char_t* str, size_t length)
+	{
+		unsigned int result = 0;
+
+		for (size_t i = 0; i < length; ++i)
+		{
+			result += static_cast<unsigned int>(str[i]);
+			result += result << 10;
+			result ^= result >> 6;
+		}
+
+		result += result << 3;
+		result ^= result >> 11;
+		result += result << 15;
+
+		return result;
+	}
 
 	PUGI_IMPL_FN PUGI_IMPL_UNSIGNED_OVERFLOW unsigned int hash_string(const char_t* str)
 	{
@@ -9669,12 +9912,47 @@ PUGI_IMPL_NS_BEGIN
 				const void** hash_data = static_cast<const void**>(alloc->allocate(hash_size * sizeof(void*)));
 				if (!hash_data) return;
 
+				// namespace nodes need the owning element in addition to the prefix; allocate the side table only when present
+				bool has_namespace_nodes = false;
+
+				for (xpath_node* it = _begin; it != _end; ++it)
+					if (it->is_namespace())
+					{
+						has_namespace_nodes = true;
+						break;
+					}
+
+				xpath_node* namespace_nodes = has_namespace_nodes ? static_cast<xpath_node*>(alloc->allocate(size_ * sizeof(xpath_node))) : NULL;
+				if (has_namespace_nodes && !namespace_nodes) return;
+
 				memset(hash_data, 0, hash_size * sizeof(void*));
 
 				xpath_node* write = _begin;
+				size_t namespace_count = 0;
 
 				for (xpath_node* it = _begin; it != _end; ++it)
 				{
+					if (it->is_namespace())
+					{
+						// identity is owner + prefix
+						bool duplicate = false;
+
+						for (size_t i = 0; i < namespace_count; ++i)
+							if (namespace_nodes[i].parent() == it->parent() && strequal(namespace_nodes[i].namespace_prefix(), it->namespace_prefix()))
+							{
+								duplicate = true;
+								break;
+							}
+
+						if (!duplicate)
+						{
+							namespace_nodes[namespace_count++] = *it;
+							*write++ = *it;
+						}
+
+						continue;
+					}
+
 					const void* attr = it->attribute().internal_object();
 					const void* node = it->node().internal_object();
 					const void* key = attr ? attr : node;
@@ -9723,6 +10001,93 @@ PUGI_IMPL_NS_BEGIN
 		// push
 		*_end++ = node;
 	}
+
+	// Collect the effective in-scope namespace bindings of an element in prefix order.
+	// The implicit xml binding is always present; an empty default declaration produces no node.
+	PUGI_IMPL_FN void collect_namespace_bindings(xml_node_struct* element, xpath_allocator* alloc, xpath_node_set_raw& ns, const char_t* prefix_filter = NULL)
+	{
+		// gather prefix/URI pairs from the nearest declaration for each prefix
+		// note: the number of distinct prefixes is bounded by the number of declarations on the element chain
+		for (xml_node_struct* cur = element; cur; cur = cur->parent)
+		{
+			for (xml_attribute_struct* a = cur->first_attribute; a; a = a->next_attribute)
+			{
+				if (!a->name) continue;
+
+				if (!(a->name[0] == 'x' && a->name[1] == 'm' && a->name[2] == 'l' && a->name[3] == 'n' && a->name[4] == 's')) continue;
+				if (a->name[5] != ':' && a->name[5] != 0) continue;
+
+				bool is_default = (a->name[5] == 0);
+				const char_t* prefix_text = is_default ? PUGIXML_TEXT("") : a->name + 6;
+				size_t prefix_length = is_default ? 0 : strlength(prefix_text);
+
+				// xmlns bindings never produce namespace nodes
+				if (prefix_length == 5 && strequalrange(prefix_text, PUGIXML_TEXT("xmlns"), 5)) continue;
+
+				// when a specific prefix is requested, skip all other declarations
+				if (prefix_filter && !(prefix_length == strlength(prefix_filter) && strequalrange(prefix_text, prefix_filter, prefix_length))) continue;
+
+				// the implicit xml binding is handled separately
+				if (prefix_length == 3 && strequalrange_n(prefix_text, PUGIXML_TEXT("xml"), 3)) continue;
+
+				// skip shadowed declarations: a nearer declaration with the same prefix wins
+				bool shadowed = false;
+
+				for (xml_node_struct* near = element; near != cur && !shadowed; near = near->parent)
+					for (xml_attribute_struct* b = near->first_attribute; b && !shadowed; b = b->next_attribute)
+					{
+						if (!b->name) continue;
+
+						if (!(b->name[0] == 'x' && b->name[1] == 'm' && b->name[2] == 'l' && b->name[3] == 'n' && b->name[4] == 's')) continue;
+
+						if (is_default)
+						{
+							if (b->name[5] == 0) shadowed = true;
+						}
+						else if (b->name[5] == ':' && strequalrange(b->name + 6, prefix_text, prefix_length) && b->name[6 + prefix_length] == 0)
+							shadowed = true;
+					}
+
+				if (shadowed) continue;
+
+				// find the declaration that is actually in scope for this prefix
+				const char_t* value = PUGIXML_TEXT("");
+				bool found = false;
+
+				for (xml_node_struct* from = element; from && !found; from = from->parent)
+					for (xml_attribute_struct* c = from->first_attribute; c && !found; c = c->next_attribute)
+					{
+						if (!c->name) continue;
+
+						if (!(c->name[0] == 'x' && c->name[1] == 'm' && c->name[2] == 'l' && c->name[3] == 'n' && c->name[4] == 's')) continue;
+
+						if (is_default)
+						{
+							if (c->name[5] == 0)
+							{
+								value = c->value ? c->value : PUGIXML_TEXT("");
+								found = true;
+							}
+						}
+						else if (c->name[5] == ':' && strequalrange(c->name + 6, prefix_text, prefix_length) && c->name[6 + prefix_length] == 0)
+						{
+							value = c->value ? c->value : PUGIXML_TEXT("");
+							found = true;
+						}
+					}
+
+				// an empty default declaration clears the default namespace: no node
+				if (is_default && (!value || !*value)) continue;
+
+				ns.push_back(xpath_node::_make_namespace(xml_node(element), prefix_text, value), alloc);
+			}
+		}
+
+		// implicit xml binding (always present, unless a different prefix was requested)
+		if (!prefix_filter || strequal(prefix_filter, xpath_xml_namespace_prefix))
+			ns.push_back(xpath_node::_make_namespace(xml_node(element), xpath_xml_namespace_prefix, xpath_xml_namespace_uri), alloc);
+	}
+
 PUGI_IMPL_NS_END
 
 PUGI_IMPL_NS_BEGIN
@@ -10226,6 +10591,10 @@ PUGI_IMPL_NS_BEGIN
 		xpath_ast_node* _right;
 		xpath_ast_node* _next;
 
+		// namespace-aware mode marker and resolved namespace URI for name tests (NULL in legacy mode)
+		bool _ns_mode;
+		const char_t* _ns;
+
 		union
 		{
 			// value for ast_string_constant
@@ -10532,6 +10901,39 @@ PUGI_IMPL_NS_BEGIN
 
 			const char_t* name = a->name ? a->name + 0 : PUGIXML_TEXT("");
 
+			if (_ns_mode)
+			{
+				// namespace-aware mode: match by expanded name, skip namespace declarations
+				if (!is_xpath_attribute(name))
+					return false;
+
+				// node test name matching is handled at a higher level
+				if (_test == nodetest_type_node || _test == nodetest_all)
+				{
+					ns.push_back(xpath_node(xml_attribute(a), xml_node(parent)), alloc);
+					return true;
+				}
+
+				if (_test == nodetest_name)
+				{
+					if (strequal(impl::attribute_namespace_uri(a, parent), _ns) && strequal(local_name_part(name), _data.nodetest))
+					{
+						ns.push_back(xpath_node(xml_attribute(a), xml_node(parent)), alloc);
+						return true;
+					}
+				}
+				else if (_test == nodetest_all_in_namespace)
+				{
+					if (strequal(impl::attribute_namespace_uri(a, parent), _ns))
+					{
+						ns.push_back(xpath_node(xml_attribute(a), xml_node(parent)), alloc);
+						return true;
+					}
+				}
+
+				return false;
+			}
+
 			switch (_test)
 			{
 			// nodetest_name is handled at a higher level
@@ -10564,6 +10966,44 @@ PUGI_IMPL_NS_BEGIN
 			assert(n);
 
 			xml_node_type type = PUGI_IMPL_NODETYPE(n);
+
+			if (_ns_mode)
+			{
+				// namespace-aware mode: name tests match expanded names, type tests keep their principal node type
+				switch (_test)
+				{
+				case nodetest_name:
+					if (type == node_element && n->name && strequal(impl::element_namespace_uri(n), _ns) && strequal(local_name_part(n->name), _data.nodetest))
+					{
+						ns.push_back(xml_node(n), alloc);
+						return true;
+					}
+					break;
+
+				case nodetest_all:
+					if (type == node_element)
+					{
+						ns.push_back(xml_node(n), alloc);
+						return true;
+					}
+					break;
+
+				case nodetest_all_in_namespace:
+					if (type == node_element && n->name && strequal(impl::element_namespace_uri(n), _ns))
+					{
+						ns.push_back(xml_node(n), alloc);
+						return true;
+					}
+					break;
+
+				default:
+					// type tests (comment/text/pi/node) fall through to legacy handling below
+					break;
+				}
+
+				if (_test == nodetest_name || _test == nodetest_all || _test == nodetest_all_in_namespace)
+					return false;
+			}
 
 			switch (_test)
 			{
@@ -10638,11 +11078,36 @@ PUGI_IMPL_NS_BEGIN
 		{
 			const axis_t axis = T::axis;
 
+			if (axis == axis_namespace)
+			{
+				// the namespace axis principal node type is element; other node types have no bindings
+				if (PUGI_IMPL_NODETYPE(n) != node_element)
+					return;
+
+				size_t start = ns.size();
+
+				if (_test == nodetest_type_node)
+				{
+					collect_namespace_bindings(n, alloc, ns);
+				}
+				else if (_test == nodetest_name)
+				{
+					// select a single in-scope prefix by its literal name; xml is always in scope
+					collect_namespace_bindings(n, alloc, ns, _data.nodetest);
+				}
+
+				// the effective bindings of a single element are ordered by prefix
+				if (ns.size() - start > 1)
+					insertion_sort(ns.begin() + start, ns.begin() + ns.size(), namespace_prefix_less());
+
+				return;
+			}
+
 			switch (axis)
 			{
 			case axis_attribute:
 			{
-				if (_test == nodetest_name)
+				if (_test == nodetest_name && !_ns_mode)
 				{
 					for (xml_attribute_struct* a = n->first_attribute; a; a = a->next_attribute)
 						if (a->name && strequal(a->name, _data.nodetest) && is_xpath_attribute(a->name))
@@ -10663,7 +11128,7 @@ PUGI_IMPL_NS_BEGIN
 
 			case axis_child:
 			{
-				if (_test == nodetest_name)
+				if (_test == nodetest_name && !_ns_mode)
 				{
 					for (xml_node_struct* c = n->first_child; c; c = c->next_sibling)
 						if (c->name && strequal(c->name, _data.nodetest) && PUGI_IMPL_NODETYPE(c) == node_element)
@@ -10855,6 +11320,12 @@ PUGI_IMPL_NS_BEGIN
 		{
 			const axis_t axis = T::axis;
 
+			if (axis == axis_namespace)
+			{
+				// the namespace axis is empty from an attribute; bindings belong to the owning element
+				return;
+			}
+
 			switch (axis)
 			{
 			case axis_ancestor:
@@ -10941,6 +11412,38 @@ PUGI_IMPL_NS_BEGIN
 				step_fill(ns, xn.node().internal_object(), alloc, once, v);
 			else if (axis_has_attributes && xn.attribute() && xn.parent())
 				step_fill(ns, xn.attribute().internal_object(), xn.parent().internal_object(), alloc, once, v);
+			else if (xn.is_namespace() && xn.parent())
+			{
+				// namespace nodes continue through the owning element for parent/self/ancestor queries
+				if (axis == axis_self)
+				{
+					if (_test == nodetest_type_node)
+						ns.push_back(xn, alloc);
+					// principal node type for self is element, so name/all tests don't match namespace nodes
+				}
+				else if (axis == axis_parent)
+				{
+					step_push(ns, xn.parent().internal_object(), alloc);
+				}
+				else if (axis == axis_ancestor || axis == axis_ancestor_or_self)
+				{
+					if (axis == axis_ancestor_or_self && _test == nodetest_type_node)
+					{
+						ns.push_back(xn, alloc);
+						if (once) return;
+					}
+
+					xml_node_struct* cur = xn.parent().internal_object();
+
+					while (cur)
+					{
+						if (step_push(ns, cur, alloc) & once)
+							return;
+
+						cur = cur->parent;
+					}
+				}
+			}
 		}
 
 		template <class T> xpath_node_set_raw step_do(const xpath_context& c, const xpath_stack& stack, nodeset_eval_t eval, T v)
@@ -10950,7 +11453,7 @@ PUGI_IMPL_NS_BEGIN
 			const xpath_node_set::type_t axis_type = axis_reverse ? xpath_node_set::type_sorted_reverse : xpath_node_set::type_sorted;
 
 			bool once =
-				(axis == axis_attribute && _test == nodetest_name) ||
+				(axis == axis_attribute && _test == nodetest_name && !_ns_mode) ||
 				(!_right && eval_once(axis_type, eval)) ||
 			    // coverity[mixed_enums]
 				(_right && !_right->_next && _right->_test == predicate_constant_one);
@@ -10992,40 +11495,40 @@ PUGI_IMPL_NS_BEGIN
 
 	public:
 		xpath_ast_node(ast_type_t type, xpath_value_type rettype_, const char_t* value):
-			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 			assert(type == ast_string_constant);
 			_data.string = value;
 		}
 
 		xpath_ast_node(ast_type_t type, xpath_value_type rettype_, double value):
-			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 			assert(type == ast_number_constant);
 			_data.number = value;
 		}
 
 		xpath_ast_node(ast_type_t type, xpath_value_type rettype_, xpath_variable* value):
-			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(NULL), _right(NULL), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 			assert(type == ast_variable);
 			_data.variable = value;
 		}
 
 		xpath_ast_node(ast_type_t type, xpath_value_type rettype_, xpath_ast_node* left = NULL, xpath_ast_node* right = NULL):
-			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(left), _right(right), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(static_cast<char>(rettype_)), _axis(0), _test(0), _left(left), _right(right), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 		}
 
 		xpath_ast_node(ast_type_t type, xpath_ast_node* left, axis_t axis, nodetest_t test, const char_t* contents):
-			_type(static_cast<char>(type)), _rettype(xpath_type_node_set), _axis(static_cast<char>(axis)), _test(static_cast<char>(test)), _left(left), _right(NULL), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(xpath_type_node_set), _axis(static_cast<char>(axis)), _test(static_cast<char>(test)), _left(left), _right(NULL), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 			assert(type == ast_step);
 			_data.nodetest = contents;
 		}
 
 		xpath_ast_node(ast_type_t type, xpath_ast_node* left, xpath_ast_node* right, predicate_t test):
-			_type(static_cast<char>(type)), _rettype(xpath_type_node_set), _axis(0), _test(static_cast<char>(test)), _left(left), _right(right), _next(NULL)
+			_type(static_cast<char>(type)), _rettype(xpath_type_node_set), _axis(0), _test(static_cast<char>(test)), _left(left), _right(right), _next(NULL), _ns_mode(false), _ns(NULL)
 		{
 			assert(type == ast_filter || type == ast_predicate);
 		}
@@ -11038,6 +11541,23 @@ PUGI_IMPL_NS_BEGIN
 		void set_right(xpath_ast_node* value)
 		{
 			_right = value;
+		}
+
+		// namespace-aware mode setup (used by the parser)
+		void set_namespace_mode(const char_t* ns)
+		{
+			_ns_mode = true;
+			_ns = ns;
+		}
+
+		void set_test_override(nodetest_t test)
+		{
+			_test = static_cast<char>(test);
+		}
+
+		void set_nodetest_override(const char_t* test)
+		{
+			_data.nodetest = test;
 		}
 
 		bool eval_boolean(const xpath_context& c, const xpath_stack& stack)
@@ -11686,8 +12206,10 @@ PUGI_IMPL_NS_BEGIN
 					return step_do(c, stack, eval, axis_to_type<axis_following_sibling>());
 
 				case axis_namespace:
-					// namespaced axis is not supported
-					return xpath_node_set_raw();
+					// namespace axis requires namespace-aware mode
+					if (!_ns_mode) return xpath_node_set_raw();
+
+					return step_do(c, stack, eval, axis_to_type<axis_namespace>());
 
 				case axis_parent:
 					return step_do(c, stack, eval, axis_to_type<axis_parent>());
@@ -11831,7 +12353,7 @@ PUGI_IMPL_NS_BEGIN
 
 			// Use optimized path for simple attribute selection (@attr)
 			// coverity[mixed_enums]
-			if (_type == ast_step && _axis == axis_attribute && _test == nodetest_name && !_left && !_right && is_xpath_attribute(_data.nodetest))
+			if (_type == ast_step && _axis == axis_attribute && _test == nodetest_name && !_left && !_right && !_ns_mode && is_xpath_attribute(_data.nodetest))
 			{
 				_type = ast_opt_select_attribute;
 			}
@@ -11913,6 +12435,7 @@ PUGI_IMPL_NS_BEGIN
 
 		const char_t* _query;
 		xpath_variable_set* _variables;
+		xpath_namespace_set* _namespaces;
 
 		xpath_parse_result* _result;
 
@@ -12517,6 +13040,71 @@ PUGI_IMPL_NS_BEGIN
 			xpath_ast_node* n = alloc_node(ast_step, set, axis, nt_type, nt_name_copy);
 			if (!n) return NULL;
 
+			// namespace-aware mode: resolve prefixes and reject unknown ones at compile time
+			if (_namespaces)
+			{
+				n->set_namespace_mode(NULL);
+
+				if (axis == axis_namespace)
+				{
+					// the namespace axis only supports node() and prefix name tests
+					if (nt_type == nodetest_all)
+						nt_type = nodetest_type_node;
+
+					if (nt_type == nodetest_name && find_char(nt_name_copy, ':'))
+						return error("Invalid namespace node test");
+
+					if (nt_type != nodetest_name && nt_type != nodetest_type_node)
+						return error("Invalid namespace node test");
+
+					n->set_test_override(nt_type);
+				}
+				else if (nt_type == nodetest_name || nt_type == nodetest_all_in_namespace)
+				{
+					const char_t* colon = find_char(nt_name_copy, ':');
+
+					if (colon)
+					{
+						size_t prefix_length = static_cast<size_t>(colon - nt_name_copy);
+						size_t name_length = impl::strlength(nt_name_copy);
+
+						// the xmlns prefix is not a valid name test prefix
+						if (prefix_length == 5 && impl::strequalrange(nt_name_copy, PUGIXML_TEXT("xmlns"), 5))
+							return error("Unknown namespace prefix");
+
+						const char_t* ns_uri = _namespaces->_find(nt_name_copy, prefix_length);
+						if (!ns_uri) return error("Unknown namespace prefix");
+
+						// copy the binding into the query arena so the compiled query outlives the namespace set
+						size_t uri_length = impl::strlength(ns_uri);
+						char_t* ns_copy = static_cast<char_t*>(_alloc->allocate((uri_length + 1) * sizeof(char_t)));
+						if (!ns_copy) return error_oom();
+
+						memcpy(ns_copy, ns_uri, (uri_length + 1) * sizeof(char_t));
+
+						n->set_namespace_mode(ns_copy);
+
+						// keep only the local part for matching (p:* keeps an empty local part)
+						char_t* local = static_cast<char_t*>(_alloc->allocate((name_length - prefix_length) * sizeof(char_t)));
+						if (!local) return error_oom();
+
+						memcpy(local, nt_name_copy + prefix_length + 1, (name_length - prefix_length - 1) * sizeof(char_t));
+						local[name_length - prefix_length - 1] = 0;
+						n->set_nodetest_override(local);
+					}
+					else
+					{
+						// unprefixed element/attribute name tests only match nodes with no namespace (empty URI)
+						n->set_namespace_mode(PUGIXML_TEXT(""));
+					}
+				}
+				else
+				{
+					// type tests still participate in namespace-aware mode
+					n->set_namespace_mode(NULL);
+				}
+			}
+
 			size_t old_depth = _depth;
 
 			xpath_ast_node* last = NULL;
@@ -12827,7 +13415,7 @@ PUGI_IMPL_NS_BEGIN
 			return n;
 		}
 
-		xpath_parser(const char_t* query, xpath_variable_set* variables, xpath_allocator* alloc, xpath_parse_result* result): _alloc(alloc), _lexer(query), _query(query), _variables(variables), _result(result), _depth(0)
+		xpath_parser(const char_t* query, xpath_variable_set* variables, xpath_namespace_set* namespaces, xpath_allocator* alloc, xpath_parse_result* result): _alloc(alloc), _lexer(query), _query(query), _variables(variables), _namespaces(namespaces), _result(result), _depth(0)
 		{
 		}
 
@@ -12845,9 +13433,9 @@ PUGI_IMPL_NS_BEGIN
 			return n;
 		}
 
-		static xpath_ast_node* parse(const char_t* query, xpath_variable_set* variables, xpath_allocator* alloc, xpath_parse_result* result)
+		static xpath_ast_node* parse(const char_t* query, xpath_variable_set* variables, xpath_namespace_set* namespaces, xpath_allocator* alloc, xpath_parse_result* result)
 		{
-			xpath_parser parser(query, variables, alloc, result);
+			xpath_parser parser(query, variables, namespaces, alloc, result);
 
 			return parser.parse();
 		}
@@ -12923,21 +13511,30 @@ namespace pugi
 	}
 #endif
 
-	PUGI_IMPL_FN xpath_node::xpath_node()
+	PUGI_IMPL_FN xpath_node::xpath_node(): _namespace_prefix(NULL), _namespace_value(NULL)
 	{
 	}
 
-	PUGI_IMPL_FN xpath_node::xpath_node(const xml_node& node_): _node(node_)
+	PUGI_IMPL_FN xpath_node::xpath_node(const xml_node& node_): _node(node_), _namespace_prefix(NULL), _namespace_value(NULL)
 	{
 	}
 
-	PUGI_IMPL_FN xpath_node::xpath_node(const xml_attribute& attribute_, const xml_node& parent_): _node(attribute_ ? parent_ : xml_node()), _attribute(attribute_)
+	PUGI_IMPL_FN xpath_node::xpath_node(const xml_attribute& attribute_, const xml_node& parent_): _node(attribute_ ? parent_ : xml_node()), _attribute(attribute_), _namespace_prefix(NULL), _namespace_value(NULL)
 	{
+	}
+
+	PUGI_IMPL_FN xpath_node xpath_node::_make_namespace(const xml_node& node_, const char_t* prefix_, const char_t* value_)
+	{
+		xpath_node result;
+		result._node = node_;
+		result._namespace_prefix = prefix_;
+		result._namespace_value = value_;
+		return result;
 	}
 
 	PUGI_IMPL_FN xml_node xpath_node::node() const
 	{
-		return _attribute ? xml_node() : _node;
+		return (_attribute || is_namespace()) ? xml_node() : _node;
 	}
 
 	PUGI_IMPL_FN xml_attribute xpath_node::attribute() const
@@ -12945,8 +13542,24 @@ namespace pugi
 		return _attribute;
 	}
 
+	PUGI_IMPL_FN bool xpath_node::is_namespace() const
+	{
+		return _namespace_prefix != NULL;
+	}
+
+	PUGI_IMPL_FN const char_t* xpath_node::namespace_prefix() const
+	{
+		return _namespace_prefix ? _namespace_prefix : PUGIXML_TEXT("");
+	}
+
+	PUGI_IMPL_FN const char_t* xpath_node::namespace_value() const
+	{
+		return _namespace_value ? _namespace_value : PUGIXML_TEXT("");
+	}
+
 	PUGI_IMPL_FN xml_node xpath_node::parent() const
 	{
+		if (is_namespace()) return _node;
 		return _attribute ? _node : _node.parent();
 	}
 
@@ -12966,12 +13579,15 @@ namespace pugi
 
 	PUGI_IMPL_FN bool xpath_node::operator==(const xpath_node& n) const
 	{
+		if (is_namespace() || n.is_namespace())
+			return is_namespace() && n.is_namespace() && _node == n._node && impl::strequal(_namespace_prefix, n._namespace_prefix);
+
 		return _node == n._node && _attribute == n._attribute;
 	}
 
 	PUGI_IMPL_FN bool xpath_node::operator!=(const xpath_node& n) const
 	{
-		return _node != n._node || _attribute != n._attribute;
+		return !(*this == n);
 	}
 
 #ifdef __BORLANDC__
@@ -13424,7 +14040,168 @@ namespace pugi
 		return _find(name);
 	}
 
-	PUGI_IMPL_FN xpath_query::xpath_query(const char_t* query, xpath_variable_set* variables): _impl(NULL)
+	PUGI_IMPL_FN xpath_namespace_set::xpath_namespace_set()
+	{
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+			_data[i] = NULL;
+	}
+
+	PUGI_IMPL_FN xpath_namespace_set::~xpath_namespace_set()
+	{
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+			_destroy(_data[i]);
+	}
+
+	PUGI_IMPL_FN xpath_namespace_set::xpath_namespace_set(const xpath_namespace_set& rhs)
+	{
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+			_data[i] = NULL;
+
+		_assign(rhs);
+	}
+
+	PUGI_IMPL_FN xpath_namespace_set& xpath_namespace_set::operator=(const xpath_namespace_set& rhs)
+	{
+		if (this == &rhs) return *this;
+
+		_assign(rhs);
+
+		return *this;
+	}
+
+#ifdef PUGIXML_HAS_MOVE
+	PUGI_IMPL_FN xpath_namespace_set::xpath_namespace_set(xpath_namespace_set&& rhs) PUGIXML_NOEXCEPT
+	{
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+		{
+			_data[i] = rhs._data[i];
+			rhs._data[i] = NULL;
+		}
+	}
+
+	PUGI_IMPL_FN xpath_namespace_set& xpath_namespace_set::operator=(xpath_namespace_set&& rhs) PUGIXML_NOEXCEPT
+	{
+		if (this == &rhs) return *this;
+
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+		{
+			_destroy(_data[i]);
+
+			_data[i] = rhs._data[i];
+			rhs._data[i] = NULL;
+		}
+
+		return *this;
+	}
+#endif
+
+	PUGI_IMPL_FN void xpath_namespace_set::_assign(const xpath_namespace_set& rhs)
+	{
+		xpath_namespace_set temp;
+
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+			if (rhs._data[i]) // bindings are allocated individually; clone all chains
+			{
+				for (impl::xpath_namespace_binding* it = static_cast<impl::xpath_namespace_binding*>(rhs._data[i]); it; it = it->next)
+				{
+					impl::xpath_namespace_binding* copy = impl::new_xpath_namespace_binding(it->prefix, impl::strlength(it->prefix), it->uri);
+					if (!copy) return;
+
+					copy->next = static_cast<impl::xpath_namespace_binding*>(temp._data[i]);
+					temp._data[i] = copy;
+				}
+			}
+
+		_swap(temp);
+	}
+
+	PUGI_IMPL_FN void xpath_namespace_set::_swap(xpath_namespace_set& rhs)
+	{
+		for (size_t i = 0; i < sizeof(_data) / sizeof(_data[0]); ++i)
+		{
+			void* chain = _data[i];
+
+			_data[i] = rhs._data[i];
+			rhs._data[i] = chain;
+		}
+	}
+
+	PUGI_IMPL_FN void xpath_namespace_set::_destroy(void* binding_)
+	{
+		impl::xpath_namespace_binding* binding = static_cast<impl::xpath_namespace_binding*>(binding_);
+
+		while (binding)
+		{
+			impl::xpath_namespace_binding* next = binding->next;
+
+			impl::delete_xpath_namespace_binding(binding);
+
+			binding = next;
+		}
+	}
+
+	PUGI_IMPL_FN bool xpath_namespace_set::set(const char_t* prefix, const char_t* uri)
+	{
+		// prefix and URI have to be non-empty
+		if (!prefix || !uri || !*prefix || !*uri) return false;
+
+		// xmlns is reserved as a namespace prefix and as a namespace name
+		if (impl::strequal(prefix, PUGIXML_TEXT("xmlns")) || impl::strequal(uri, impl::xpath_xmlns_namespace_uri)) return false;
+
+		// the xml prefix has the fixed standard binding, and the XML namespace must not be bound to anything else
+		if (impl::strequal(prefix, impl::xpath_xml_namespace_prefix))
+		{
+			if (!impl::strequal(uri, impl::xpath_xml_namespace_uri)) return false;
+		}
+		else if (impl::strequal(uri, impl::xpath_xml_namespace_uri)) return false;
+
+		size_t hash_size = sizeof(_data) / sizeof(_data[0]);
+		size_t hash = impl::hash_string(prefix) % hash_size;
+
+		// update an existing binding in place
+		for (impl::xpath_namespace_binding* it = static_cast<impl::xpath_namespace_binding*>(_data[hash]); it; it = it->next)
+			if (impl::strequal(it->prefix, prefix))
+			{
+				char_t* copy = impl::duplicate_string(uri, impl::strlength(uri));
+				if (!copy) return false;
+
+				impl::delete_string(it->uri);
+				it->uri = copy;
+
+				return true;
+			}
+
+		impl::xpath_namespace_binding* binding = impl::new_xpath_namespace_binding(prefix, impl::strlength(prefix), uri);
+		if (!binding) return false;
+
+		binding->next = static_cast<impl::xpath_namespace_binding*>(_data[hash]);
+		_data[hash] = binding;
+
+		return true;
+	}
+
+	PUGI_IMPL_FN const char_t* xpath_namespace_set::_find(const char_t* prefix) const
+	{
+		return _find(prefix, impl::strlength(prefix));
+	}
+
+	PUGI_IMPL_FN const char_t* xpath_namespace_set::_find(const char_t* prefix, size_t length) const
+	{
+		// the xml prefix is always bound to the standard URI
+		if (length == 3 && impl::strequalrange_n(prefix, impl::xpath_xml_namespace_prefix, 3))
+			return impl::xpath_xml_namespace_uri;
+
+		size_t hash_size = sizeof(_data) / sizeof(_data[0]);
+		size_t hash = impl::hash_string_range(prefix, length) % hash_size;
+
+		for (impl::xpath_namespace_binding* it = static_cast<impl::xpath_namespace_binding*>(_data[hash]); it; it = it->next)
+			if (impl::strlength(it->prefix) == length && impl::strequalrange(it->prefix, prefix, length))
+				return it->uri;
+
+		return NULL;
+	}
+
+	PUGI_IMPL_FN xpath_query::xpath_query(const char_t* query, xpath_variable_set* variables, xpath_namespace_set* namespaces): _impl(NULL)
 	{
 		impl::xpath_query_impl* qimpl = impl::xpath_query_impl::create();
 
@@ -13441,7 +14218,7 @@ namespace pugi
 			using impl::auto_deleter; // MSVC7 workaround
 			auto_deleter<impl::xpath_query_impl> impl(qimpl, impl::xpath_query_impl::destroy);
 
-			qimpl->root = impl::xpath_parser::parse(query, variables, &qimpl->alloc, &_result);
+			qimpl->root = impl::xpath_parser::parse(query, variables, namespaces, &qimpl->alloc, &_result);
 
 			if (qimpl->root)
 			{
