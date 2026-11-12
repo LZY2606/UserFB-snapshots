@@ -126,6 +126,60 @@ It describes
 
 Sample numbers in the APIs start at 1, as in the ISOBMFF standard.
 
+### Common Encryption and in-fragment key rotation
+
+The `mp4` package decrypts fragmented MP4 with the `cenc` (AES-CTR) and `cbcs` (AES-CBC)
+schemes through `DecryptFragmentWithKeys` and `DecryptSegmentWithKeys`. Each traf first takes
+default encryption parameters from the track's `tenc` box, and a `seig` sample group
+(`sbgp`/`sgpd` with `grouping_type = seig`) can then override the KID, protection flag, IV rule
+and CBCS crypt/skip pattern of individual samples. The `sbgp` sample counts run continuously
+over all `trun` boxes of a traf, and in-fragment description indices start at 65537. A
+`cenc` fragment may mix 8-byte and 16-byte per-sample IVs; clear samples stay untouched and
+consume no IV, and `cbcs` supports per-sample IVs as well as constant IVs.
+
+The keys are passed as a map from the 32-character lowercase hex KID (no dashes) to the
+16-byte AES key. With `strictKIDMode` set, every protected sample must have a key in the map;
+otherwise a missing KID falls back to the single legacy key. All samples of a fragment are
+validated before any media byte is changed, so a failed call leaves the fragment, its boxes
+and the key map untouched and can be retried on the same object after the missing key is added.
+
+```go
+// initFile is the (possibly separate) init segment, mediaFile the encrypted media segment.
+initDecoded, err := mp4.DecodeFile(initFile)
+if err != nil {
+    log.Fatal(err)
+}
+decryptInfo, err := mp4.DecryptInit(initDecoded.Init) // also removes the sinf boxes
+if err != nil {
+    log.Fatal(err)
+}
+mediaDecoded, err := mp4.DecodeFile(mediaFile)
+if err != nil {
+    log.Fatal(err)
+}
+// Needed when the init segment is read separately and a senc box was left deferred.
+for _, seg := range mediaDecoded.Segments {
+    if err := seg.ParseSenc(initDecoded.Init); err != nil {
+        log.Fatal(err)
+    }
+}
+keysByKID := map[string][]byte{
+    "11112222333344445555666677778888": keyA, // lowercase hex KID without dashes
+    "aaaabbbbccccddddeeeeffff00001111": keyB, // a KID used by a traf seig group
+}
+for _, seg := range mediaDecoded.Segments {
+    if err := mp4.DecryptSegmentWithKeys(seg, decryptInfo, nil, keysByKID, true); err != nil {
+        log.Fatal(err) // the segment is unchanged; add the missing key and retry
+    }
+}
+```
+
+The supported scope is one fragment's own boxes: `sbgp` version 0 and `sgpd` version 1,
+in-fragment `seig` descriptions only, inline `senc`/`saiz`/`saio` auxiliary information, and
+subsample encryption where every sample of the flagged `senc` box is protected. Track-level
+group descriptions, external auxiliary information and other box versions are reported as
+errors rather than guessed at.
+
 ### Packages
 
 The packages in the mp4ff module are

@@ -203,7 +203,10 @@ func (f *Fragment) ParseSenc(init *InitSegment) error {
 		trackID := traf.Tfhd.TrackID
 		sinf := init.Moov.GetSinf(trackID)
 		if sinf != nil && sinf.Schi != nil && sinf.Schi.Tenc != nil {
-			defaultIVSize = sinf.Schi.Tenc.DefaultPerSampleIVSize
+			tenc := sinf.Schi.Tenc
+			if tenc.DefaultIsProtected != 0 {
+				defaultIVSize = tenc.DefaultPerSampleIVSize
+			}
 		}
 		err := traf.ParseReadSenc(defaultIVSize, f.Moof.StartPos)
 		if err != nil {

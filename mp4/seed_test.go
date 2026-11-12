@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/hex"
-	"strings"
 	"testing"
 
 	"github.com/Eyevinn/mp4ff/mp4"
@@ -132,29 +131,39 @@ func TestSeed(t *testing.T) {
 		for i := range plain {
 			equal = equal && bytes.Equal(samples[i].Data, plain[i])
 		}
-		if !rotated {
-			if !equal {
+		if !equal {
+			if !rotated {
 				t.Fatal("default KID does not recover AAC access units")
 			}
+			t.Fatal("rotated KID does not recover AAC access units")
+		}
+		if !rotated {
 			t.Log("DEFAULT_KID_AAC_BASELINE_OK samples=2")
-		} else if !equal {
-			t.Log("ROTATED_KID_MISMATCH_WITNESS samples=2 decrypt_returned_nil=true")
 		} else {
 			t.Log("ROTATED_KID_RECOVERED samples=2")
 		}
 	}
-	f, di, _, keys := testRotationFixture(t, true, true)
+	// The same rotation split into two sbgp runs, whose counts run continuously
+	// over the traf, must also decrypt to the original AAC access units.
+	f, di, plain, keys := testRotationFixture(t, true, true)
 	decoded, err := testWireDecode(t, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mp4.DecryptFragmentWithKeys(decoded, di, nil, keys, true)
-	if err != nil {
-		if !strings.Contains(err.Error(), "sbgp entries = 2") {
-			t.Fatal(err)
-		}
-		t.Log("MULTI_GROUP_PARSE_WITNESS sbgp_entries=2 rejected=true")
-	} else {
-		t.Log("MULTI_GROUP_PARSE_ACCEPTED")
+	if err = mp4.DecryptFragmentWithKeys(decoded, di, nil, keys, true); err != nil {
+		t.Fatalf("multi-group sbgp must be accepted: %v", err)
 	}
+	samples, err := decoded.GetFullSamples(di.TrackInfos[0].Trex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != len(plain) {
+		t.Fatalf("got %d samples, want %d", len(samples), len(plain))
+	}
+	for i := range plain {
+		if !bytes.Equal(samples[i].Data, plain[i]) {
+			t.Fatalf("sample %d of split-group fragment does not match plaintext", i)
+		}
+	}
+	t.Log("MULTI_GROUP_SBGP_ACCEPTED samples=2")
 }

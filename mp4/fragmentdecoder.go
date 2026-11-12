@@ -171,7 +171,7 @@ func (d *FragmentDecoder) parseSenc(moof *MoofBox) error {
 			}
 			sinf := d.Moov.GetSinf(trackID)
 			if sinf != nil && sinf.Schi != nil && sinf.Schi.Tenc != nil {
-				defaultIVSize = sinf.Schi.Tenc.DefaultPerSampleIVSize
+				defaultIVSize = tencDefaultIVSize(sinf.Schi.Tenc)
 			}
 		}
 		if err := traf.ParseReadSenc(defaultIVSize, moof.StartPos); err != nil && d.Moov != nil {

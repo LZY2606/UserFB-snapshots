@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- In-fragment Common Encryption key rotation for fragmented MP4: each traf resolves the KID,
+  protection flag, IV rule and CBCS crypt/skip pattern of every sample from the track `tenc`
+  defaults and the traf `seig` sample group (`sbgp` version 0, `sgpd` version 1). The sbgp
+  counts run continuously over all truns, in-fragment description indices start at 65537, and
+  other sample group types coexisting in the traf are left untouched
+- Per-sample `senc` consumption along the effective encryption parameters: `cenc` accepts
+  interleaved 8-byte and 16-byte IVs (8-byte IVs are zero-padded into the 16-byte CTR counter),
+  `cbcs` accepts per-sample 16-byte IVs or 16-byte constant IVs with per-description patterns,
+  and clear samples consume no IV and stay unchanged
+- `saiz` and `saio` boundary checks, including an explicit error for non-inline auxiliary
+  information, and version/structure checks that reject unsupported sbgp/sgpd versions,
+  duplicate seig boxes, zero runs, out-of-range descriptions, truncated or surplus auxiliary
+  bytes and subsample ranges that reach outside a sample
+- A README section and Go example showing `DecryptFragmentWithKeys` /
+  `DecryptSegmentWithKeys` with a KID key dictionary and the supported rotation scope
+
+### Changed
+
+- `DecryptFragmentWithKeys` now validates every traf of a fragment (sample groups, auxiliary
+  information, required keys) before touching media data or the box tree. A failed call leaves
+  the mdat, boxes, offsets, deferred senc state, `DecryptInfo` and key dictionary unchanged, so
+  the same fragment can be retried after supplying the missing key. Fragment-level atomicity is
+  retained inside `DecryptSegmentWithKeys`, whose already-completed fragments are not rolled back
+- On successful decryption, the seig sample groups are removed together with the encryption
+  auxiliary boxes, while other sample group types remain
+
 ## [0.62.1] - 2026-11-10
 
 ### Changed

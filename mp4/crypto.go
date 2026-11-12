@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"maps"
 	"slices"
@@ -1369,93 +1368,80 @@ func DecryptFragment(frag *Fragment, di DecryptInfo, key []byte) error {
 	return DecryptFragmentWithKeys(frag, di, key, nil, false)
 }
 
-func getTrackKIDHex(ti DecryptTrackInfo) (string, error) {
-	if ti.Sinf == nil || ti.Sinf.Schi == nil || ti.Sinf.Schi.Tenc == nil {
-		return "", fmt.Errorf("missing tenc for trackID=%d", ti.TrackID)
-	}
-	kid := ti.Sinf.Schi.Tenc.DefaultKID
-	if len(kid) != 16 {
-		return "", fmt.Errorf("bad kid length %d for trackID=%d", len(kid), ti.TrackID)
-	}
-	return hex.EncodeToString(kid), nil
-}
-
-func getTrackKey(ti DecryptTrackInfo, key []byte, keysByKID map[string][]byte, strictKIDMode bool) ([]byte, error) {
-	if len(keysByKID) == 0 {
-		return key, nil
-	}
-	kidHex, err := getTrackKIDHex(ti)
-	if err != nil {
-		return nil, err
-	}
-	mappedKey, ok := keysByKID[kidHex]
-	if !ok {
-		if strictKIDMode {
-			return nil, fmt.Errorf("requested key was not found for kid=%s", kidHex)
-		}
-		return key, nil
-	}
-	return mappedKey, nil
-}
-
 // DecryptFragmentWithKeys decrypts a fragment in place using either a legacy key
 // or keys selected by KID. KID values are expected as 32-char lowercase hex without dashes.
-// If strictKIDMode is true, encrypted tracks must have a matching key in keysByKID.
-func DecryptFragmentWithKeys(frag *Fragment, di DecryptInfo, key []byte, keysByKID map[string][]byte, strictKIDMode bool) error {
+// If strictKIDMode is true, every protected sample must have a matching key in keysByKID.
+//
+// Per-sample encryption parameters come from the track's tenc defaults and any
+// seig (CencSampleEncryptionInformation) sample group inside each traf, so the
+// KID, IV rule and CBCS pattern can change from sample to sample. All samples of
+// the fragment are checked - groups, auxiliary information and required keys -
+// before any media byte or box tree is changed, and a failed call leaves the
+// fragment and the inputs unchanged so that it can be retried on the same object.
+func DecryptFragmentWithKeys(frag *Fragment, di DecryptInfo, key []byte, keysByKID map[string][]byte, strictKIDMode bool) (err error) {
 	moof := frag.Moof
-	var nrBytesRemoved uint64 = 0
+	// Phase 1: resolve and check every traf without touching media or boxes.
+	plans := make([]*trafDecryptPlan, 0, len(moof.Trafs))
+	defer func() {
+		if err != nil {
+			// A deferred or heuristic senc parse is the only box state that
+			// plan building changes, and it is fully reversible.
+			restoreSencParsing(plans)
+		}
+	}()
 	for _, traf := range moof.Trafs {
 		ti := di.findTrackInfo(traf.Tfhd.TrackID)
-		if ti.Sinf != nil {
-			if ti.Sinf.Schm == nil {
-				return fmt.Errorf("missing schm for trackID=%d", ti.TrackID)
+		hasSenc, _ := traf.ContainsSencBox()
+		if ti.Sinf == nil {
+			if hasSenc {
+				return fmt.Errorf("no decrypt info for trackID=%d which has senc box", traf.Tfhd.TrackID)
 			}
-			schemeType := ti.Sinf.Schm.SchemeType
-			if schemeType != "cenc" && schemeType != "cbcs" {
-				return fmt.Errorf("scheme type %s not supported", schemeType)
-			}
-			if ti.Sinf.Schi == nil || ti.Sinf.Schi.Tenc == nil {
-				return fmt.Errorf("missing tenc for trackID=%d", ti.TrackID)
-			}
-			tenc := ti.Sinf.Schi.Tenc
-			hasSenc, isParsed := traf.ContainsSencBox()
-			if !hasSenc {
-				// A missing senc is fine for full-sample encryption with a
-				// constant IV (no sample auxiliary information); CMAF
-				// (ISO/IEC 23000-19 Section 8.2.2.1) recommends omitting
-				// senc, saiz, and saio in that case.
-				if tenc.DefaultPerSampleIVSize != 0 || len(tenc.DefaultConstantIV) == 0 {
-					return fmt.Errorf("no senc box in traf")
-				}
-			}
-			if hasSenc && !isParsed {
-				err := traf.ParseReadSenc(tenc.DefaultPerSampleIVSize, moof.StartPos)
-				if err != nil {
-					return fmt.Errorf("parseReadSenc: %w", err)
-				}
-			}
-			trackKey, err := getTrackKey(ti, key, keysByKID, strictKIDMode)
-			if err != nil {
-				return err
-			}
-			samples, err := frag.GetFullSamples(ti.Trex)
-			if err != nil {
-				return err
-			}
-			var senc *SencBox
-			switch {
-			case traf.Senc != nil:
-				senc = traf.Senc
-			case traf.UUIDSenc != nil:
-				senc = traf.UUIDSenc.Senc
-			}
-
-			err = decryptSamplesInPlace(schemeType, samples, trackKey, tenc, senc)
-			if err != nil {
-				return err
-			}
-			nrBytesRemoved += traf.RemoveEncryptionBoxes()
+			continue // clear track
 		}
+		if ti.Sinf.Schm == nil {
+			return fmt.Errorf("missing schm for trackID=%d", ti.TrackID)
+		}
+		schemeType := ti.Sinf.Schm.SchemeType
+		if schemeType != "cenc" && schemeType != "cbcs" {
+			return fmt.Errorf("scheme type %s not supported", schemeType)
+		}
+		if ti.Sinf.Schi == nil || ti.Sinf.Schi.Tenc == nil {
+			return fmt.Errorf("missing tenc for trackID=%d", ti.TrackID)
+		}
+		plan, perr := buildTrafDecryptPlan(frag, traf, ti, schemeType, key, keysByKID, strictKIDMode)
+		// Append even on error: a partial plan carries the snapshots needed to
+		// restore a senc box that parsing already changed.
+		plans = append(plans, plan)
+		if perr != nil {
+			return perr
+		}
+	}
+
+	// Phase 2: snapshot the media payload. Every sample data slice is a view
+	// into it, so one copy is enough to roll any partial decryption back.
+	var payloadBackup []byte
+	if frag.Mdat != nil {
+		if frag.Mdat.IsLazy() {
+			return fmt.Errorf("cannot decrypt fragment with lazily read mdat data")
+		}
+		payloadBackup = bytes.Clone(frag.Mdat.Payload())
+	}
+
+	// Phase 3: all checks have passed, decrypt the samples of every traf.
+	for _, plan := range plans {
+		if cerr := applyTrafPlan(plan); cerr != nil {
+			if frag.Mdat != nil {
+				restoreMdatPayload(frag.Mdat, payloadBackup)
+			}
+			return cerr
+		}
+	}
+
+	// Phase 4: remove the encryption auxiliary boxes and seig groups, and
+	// shift the trun/mdat offsets by the bytes removed.
+	var nrBytesRemoved uint64 = 0
+	for _, plan := range plans {
+		nrBytesRemoved += plan.traf.RemoveEncryptionBoxes()
 	}
 	_, psshBytesRemoved := moof.RemovePsshs()
 	nrBytesRemoved += psshBytesRemoved
@@ -1468,62 +1454,6 @@ func DecryptFragmentWithKeys(frag *Fragment, di DecryptInfo, key []byte, keysByK
 		frag.Mdat.StartPos -= nrBytesRemoved
 	}
 
-	return nil
-}
-
-// decryptSample - decrypt samples inplace
-func decryptSamplesInPlace(schemeType string, samples []FullSample, key []byte, tenc *TencBox, senc *SencBox) error {
-
-	// TODO. Interpret saio and saiz to get to the right place
-	// Saio tells where the IV starts relative to moof start
-	// It typically ends up inside senc (16 bytes after start)
-
-	iv := make([]byte, 16)
-	if tenc.DefaultConstantIV != nil {
-		copy(iv, tenc.DefaultConstantIV)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return err
-	}
-
-	// Subsample information must cover exactly the samples to decrypt. Using
-	// it for the wrong sample would decrypt the wrong byte ranges, and a senc
-	// with fewer entries than samples used to panic.
-	if senc != nil && len(senc.SubSamples) != 0 && len(senc.SubSamples) != len(samples) {
-		return fmt.Errorf("senc has subsample information for %d samples, but %d samples to decrypt",
-			len(senc.SubSamples), len(samples))
-	}
-
-	for i := range samples {
-		if senc != nil && len(senc.IVs) == len(samples) {
-			if len(senc.IVs[i]) < 16 {
-				for i := 0; i < 16; i++ {
-					iv[i] = 0
-				}
-			}
-			copy(iv, senc.IVs[i])
-		}
-		if len(iv) == 0 {
-			return fmt.Errorf("iv has length 0")
-		}
-
-		var subSamplePatterns []SubSamplePattern
-		if senc != nil && len(senc.SubSamples) != 0 {
-			subSamplePatterns = senc.SubSamples[i]
-		}
-		switch schemeType {
-		case "cenc":
-			if err := cryptSampleCencBlock(block, samples[i].Data, iv, subSamplePatterns); err != nil {
-				return err
-			}
-		case "cbcs":
-			err := cryptSampleCbcs(dirDec, samples[i].Data, block, iv, subSamplePatterns, tenc)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

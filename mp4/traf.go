@@ -112,7 +112,11 @@ func (t *TrafBox) needsSencParsing() bool {
 	return false
 }
 
-// ParseReadSenc makes a second round to parse a senc box previously read
+// ParseReadSenc makes a second round to parse a senc box previously read.
+// When the traf carries a seig sample group, each sample gets its effective
+// per-sample IV size from the tenc default or its seig description, so 8-byte
+// and 16-byte IVs can be interleaved. Without a seig group, defaultIVSize is
+// used for every sample and a size of 0 triggers the saiz-based heuristic.
 func (t *TrafBox) ParseReadSenc(defaultIVSize byte, moofStartPos uint64) error {
 	if t.Senc == nil && t.UUIDSenc == nil {
 		return fmt.Errorf("no senc box or uuid senc box")
@@ -127,35 +131,42 @@ func (t *TrafBox) ParseReadSenc(defaultIVSize byte, moofStartPos uint64) error {
 		// saio should be present, but we try without it, if it doesn't exist or has no offset
 		posFromSaio := t.Saio.Offset[0] + int64(moofStartPos)
 		if uint64(posFromSaio) != senc.StartPos+16 {
-			//TODO. Re-enable
-			return fmt.Errorf("offset from saio (%d) relative moof start differs from senc data start %d", posFromSaio, senc.StartPos+16)
-			//fmt.Printf("offset from saio (%d) and moof differs from senc data start %d\n", posFromSaio, senc.StartPos+16)
-
+			return fmt.Errorf("offset from saio (%d) relative moof start differs from senc data start %d",
+				posFromSaio, senc.StartPos+16)
 		}
 	}
-	perSampleIVSize := defaultIVSize
-	sbgp, sgpd := t.Sbgp, t.Sgpd
-	if sbgp != nil && sbgp.GroupingType == "seig" && sgpd != nil && sgpd.GroupingType == "seig" {
-		nrSbgpEntries := len(sbgp.SampleCounts)
-		if nrSbgpEntries != 1 {
-			return fmt.Errorf("sbgp entries = %d, only 1 supported for now", nrSbgpEntries)
-		}
-		sgpdEntryNr := sbgp.GroupDescriptionIndices[0]
-		if sgpdEntryNr != sbgpInsideOffset+1 {
-			return fmt.Errorf("sgpd entry number must be first inside = 65536 + 1")
-		}
-		if len(sgpd.SampleGroupEntries) == 0 {
-			return fmt.Errorf("sgpd has no seig entry")
-		}
-		sgpdEntry := sgpd.SampleGroupEntries[sgpdEntryNr-sbgpInsideOffset-1]
-		seigEntry := sgpdEntry.(*SeigSampleGroupEntry)
-		perSampleIVSize = seigEntry.PerSampleIVSize
-	}
-	err := senc.ParseReadBox(perSampleIVSize, t.Saiz)
+	nrSamples := trafSampleCount(t)
+	runs, hasSeig, err := resolveSeigRuns(t, nrSamples)
 	if err != nil {
 		return err
 	}
-	return nil
+	if !hasSeig {
+		// Uniform per-sample IV size from tenc, or a saiz-based heuristic.
+		return senc.ParseReadBox(defaultIVSize, t.Saiz)
+	}
+	// With a seig group, the default samples keep defaultIVSize. If the init
+	// segment no longer carries a tenc (DecryptInit removes the sinf boxes) and
+	// the group does not cover every sample, the IV width of those samples is
+	// not knowable here. Stay deferred rather than guessing a uniform width:
+	// DecryptFragmentWithKeys re-parses with the authoritative tenc afterwards.
+	if defaultIVSize == 0 && !seigRunsCoverAll(runs, nrSamples) {
+		return nil
+	}
+	ivSizes, err := seigIVSizes(t, defaultIVSize)
+	if err != nil {
+		return err
+	}
+	return senc.ParseReadBoxPerSample(ivSizes)
+}
+
+// seigRunsCoverAll reports whether the seig runs leave no sample on the tenc
+// defaults, in which case every per-sample IV size comes from an seig entry.
+func seigRunsCoverAll(runs []seigRun, nrSamples int) bool {
+	covered := 0
+	for _, run := range runs {
+		covered += run.endSample - run.startSample
+	}
+	return covered == nrSamples
 }
 
 // AddChild - add child box

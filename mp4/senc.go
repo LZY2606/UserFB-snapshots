@@ -41,6 +41,11 @@ type SencBox struct {
 	// by Fragment.Reset brings them along for the next fragment.
 	ivStore  []byte
 	sspStore []SubSamplePattern
+	// perSampleIVSizes holds the authoritative IV size of every sample after a
+	// per-sample parse, where seig groups allow 8-byte and 16-byte IVs to be
+	// interleaved. It is nil for boxes with one uniform IV size, including
+	// every box built with AddSample or parsed with ParseReadBox.
+	perSampleIVSizes []byte
 }
 
 // CreateSencBox - create an empty SencBox
@@ -190,6 +195,7 @@ func (s *SencBox) ParseReadBox(perSampleIVSize byte, saiz *SaizBox) error {
 	// Reset parsed state for re-parsing
 	s.IVs = nil
 	s.SubSamples = nil
+	s.perSampleIVSizes = nil
 	s.readButNotParsed = true
 	s.isParsedByGuess = false
 
@@ -357,9 +363,12 @@ func (s *SencBox) Size() uint64 {
 
 func (s *SencBox) calcSize() uint64 {
 	totalSize := uint64(boxHeaderSize + 8)
-	perSampleIVSize := uint64(s.GetPerSampleIVSize())
 	for i := uint32(0); i < s.SampleCount; i++ {
-		totalSize += perSampleIVSize
+		if s.perSampleIVSizes != nil {
+			totalSize += uint64(s.perSampleIVSizes[i])
+		} else {
+			totalSize += uint64(s.GetPerSampleIVSize())
+		}
 		if s.Flags&UseSubSampleEncryption != 0 {
 			totalSize += 2
 			if i < uint32(len(s.SubSamples)) {
@@ -404,15 +413,26 @@ func (s *SencBox) EncodeSWNoHdr(sw bits.SliceWriter) error {
 		return sw.AccError()
 	}
 	perSampleIVSize := s.GetPerSampleIVSize()
-	if perSampleIVSize > 0 && len(s.IVs) != int(s.SampleCount) {
-		return fmt.Errorf("senc: %d IVs do not match sample count %d", len(s.IVs), s.SampleCount)
+	if s.perSampleIVSizes == nil {
+		if perSampleIVSize > 0 && len(s.IVs) != int(s.SampleCount) {
+			return fmt.Errorf("senc: %d IVs do not match sample count %d", len(s.IVs), s.SampleCount)
+		}
 	}
 	if s.Flags&UseSubSampleEncryption != 0 && len(s.SubSamples) != int(s.SampleCount) {
 		return fmt.Errorf("senc: subsample encryption flag set but %d of %d samples have subsample entries",
 			len(s.SubSamples), s.SampleCount)
 	}
+	ivIdx := 0
 	for i := 0; i < int(s.SampleCount); i++ {
-		if perSampleIVSize > 0 {
+		if s.perSampleIVSizes != nil {
+			if ivSize := s.perSampleIVSizes[i]; ivSize > 0 {
+				if ivIdx >= len(s.IVs) || len(s.IVs[ivIdx]) != int(ivSize) {
+					return fmt.Errorf("senc: missing %d-byte IV for sample %d", ivSize, i+1)
+				}
+				sw.WriteBytes(s.IVs[ivIdx])
+				ivIdx++
+			}
+		} else if perSampleIVSize > 0 {
 			sw.WriteBytes(s.IVs[i])
 		}
 		if s.Flags&UseSubSampleEncryption != 0 {
@@ -440,13 +460,26 @@ func (s *SencBox) Info(w io.Writer, specificBoxLevels, indent, indentStep string
 		}
 	}
 	perSampleIVSize := s.GetPerSampleIVSize()
-	bd.write(" - perSampleIVSize: %d", perSampleIVSize)
+	mixedIVSizes := s.perSampleIVSizes != nil
+	if mixedIVSizes {
+		bd.write(" - perSampleIVSize: mixed (per sample)")
+	} else {
+		bd.write(" - perSampleIVSize: %d", perSampleIVSize)
+	}
 	level := getInfoLevel(s, specificBoxLevels)
-	if level > 0 && (perSampleIVSize > 0 || s.Flags&UseSubSampleEncryption != 0) {
+	if level > 0 && (perSampleIVSize > 0 || mixedIVSizes || s.Flags&UseSubSampleEncryption != 0) {
 		for i := 0; i < int(s.SampleCount); i++ {
 			line := fmt.Sprintf(" - sample[%d]:", i+1)
-			if perSampleIVSize > 0 {
-				line += fmt.Sprintf(" iv=%s", hex.EncodeToString(s.IVs[i]))
+			ivSize := perSampleIVSize
+			if mixedIVSizes {
+				ivSize = int(s.perSampleIVSizes[i])
+			}
+			if ivSize > 0 {
+				iv, err := s.sampleIV(i)
+				if err != nil {
+					return err
+				}
+				line += fmt.Sprintf(" iv=%s", hex.EncodeToString(iv))
 			}
 			bd.write(line)
 			if s.Flags&UseSubSampleEncryption != 0 {
