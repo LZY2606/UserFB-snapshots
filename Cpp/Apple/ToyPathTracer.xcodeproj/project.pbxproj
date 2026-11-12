@@ -29,6 +29,8 @@
 		2BE32DD2205BFC31003C05B4 /* TaskScheduler_c.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2BE32DCE205BFC31003C05B4 /* TaskScheduler_c.cpp */; };
 		2BE32DD3205BFC31003C05B4 /* TaskScheduler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2BE32DD0205BFC31003C05B4 /* TaskScheduler.cpp */; };
 		2BFC4E1620614A7B0007766C /* Maths.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2BFC4E1420614A7B0007766C /* Maths.cpp */; };
+		AB12CD340000000000000003 /* SphereBvh.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD340000000000000001 /* SphereBvh.cpp */; };
+		AB12CD340000000000000004 /* SphereBvh.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD340000000000000001 /* SphereBvh.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +67,8 @@
 		2BE32DD1205BFC31003C05B4 /* TaskScheduler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TaskScheduler.h; sourceTree = "<group>"; };
 		2BFC4E1420614A7B0007766C /* Maths.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Maths.cpp; path = ../Source/Maths.cpp; sourceTree = "<group>"; };
 		2BFC4E1520614A7B0007766C /* Maths.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Maths.h; path = ../Source/Maths.h; sourceTree = "<group>"; };
+		AB12CD340000000000000001 /* SphereBvh.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SphereBvh.cpp; path = ../Source/SphereBvh.cpp; sourceTree = "<group>"; };
+		AB12CD340000000000000002 /* SphereBvh.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SphereBvh.h; path = ../Source/SphereBvh.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +98,8 @@
 				2BFC4E1420614A7B0007766C /* Maths.cpp */,
 				2BFC4E1520614A7B0007766C /* Maths.h */,
 				2B8065FE207CDB540043116F /* MathSimd.h */,
+				AB12CD340000000000000001 /* SphereBvh.cpp */,
+				AB12CD340000000000000002 /* SphereBvh.h */,
 				2BE32DC7205BEDA6003C05B4 /* Test.cpp */,
 				2BE32DC8205BEDA6003C05B4 /* Test.h */,
 			);
@@ -291,6 +297,7 @@
 				2B2B5ABE20BE77F500040BFE /* TaskScheduler_c.cpp in Sources */,
 				2B2B5ABB20BE742A00040BFE /* Shaders.metal in Sources */,
 				2B2B5ABC20BE77ED00040BFE /* Maths.cpp in Sources */,
+				AB12CD340000000000000003 /* SphereBvh.cpp in Sources */,
 				2B2B5ABD20BE77F000040BFE /* Test.cpp in Sources */,
 				2B2B5ABA20BE742700040BFE /* Renderer.mm in Sources */,
 				2B2B5AB620BE72FE00040BFE /* main.m in Sources */,
@@ -312,6 +319,7 @@
 				2B2D97B320519C7100520EC1 /* AppDelegate.m in Sources */,
 				2BE32DD2205BFC31003C05B4 /* TaskScheduler_c.cpp in Sources */,
 				2BFC4E1620614A7B0007766C /* Maths.cpp in Sources */,
+				AB12CD340000000000000004 /* SphereBvh.cpp in Sources */,
 				2BE32DCA205BEDA6003C05B4 /* Test.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

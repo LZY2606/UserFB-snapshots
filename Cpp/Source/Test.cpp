@@ -1,7 +1,9 @@
 #include "Config.h"
 #include "Test.h"
 #include "Maths.h"
+#include "SphereBvh.h"
 #include <algorithm>
+#include <vector>
 #if CPU_CAN_DO_THREADS
 #include "enkiTS/TaskScheduler_c.h"
 #endif
@@ -10,7 +12,7 @@
 // 46 spheres (2 emissive) when enabled; 9 spheres (1 emissive) when disabled
 #define DO_BIG_SCENE 1
 
-static Sphere s_Spheres[] =
+static Sphere s_BuiltinSpheres[] =
 {
     {float3(0,-100.5,-1), 100},
     {float3(2,0,-1), 0.5f},
@@ -29,21 +31,9 @@ static Sphere s_Spheres[] =
     {float3(1.5f,1.5f,-2), 0.3f},
 #endif // #if DO_BIG_SCENE
 };
-const int kSphereCount = sizeof(s_Spheres) / sizeof(s_Spheres[0]);
+const int kSphereCount = sizeof(s_BuiltinSpheres) / sizeof(s_BuiltinSpheres[0]);
 
-static SpheresSoA s_SpheresSoA(kSphereCount);
-
-struct Material
-{
-    enum Type { Lambert, Metal, Dielectric };
-    Type type;
-    float3pack albedo;
-    float3pack emissive;
-    float roughness;
-    float ri;
-};
-
-static Material s_SphereMats[kSphereCount] =
+static Material s_BuiltinMats[kSphereCount] =
 {
     { Material::Lambert, float3(0.8f, 0.8f, 0.8f), float3(0,0,0), 0, 0, },
     { Material::Lambert, float3(0.8f, 0.4f, 0.4f), float3(0,0,0), 0, 0, },
@@ -63,24 +53,208 @@ static Material s_SphereMats[kSphereCount] =
 #endif
 };
 
-static int s_EmissiveSpheres[kSphereCount];
-static int s_EmissiveSphereCount;
+// Active CPU scene. Owned here; SetCpuScene/RefitCpuScene copy into it.
+static std::vector<Sphere> s_SceneSpheres;
+static std::vector<Material> s_SceneMats;
+static std::vector<int> s_EmissiveSpheres;
+static bool s_UseBuiltinScene = true;
+static bool s_SceneReady = false;
 
+static SphereBvh s_Bvh;
+// Exhaustive reference path, for small scenes. Built lazily whenever the
+// reference path is enabled (its SoA is never needed while the BVH is active).
+static SpheresSoA* s_ReferenceSoA = 0;
+static bool s_ReferenceDirty = true;
+static bool s_UseAcceleration = true;
 static Camera s_Cam;
 
-const float kMinT = 0.001f;
-const float kMaxT = 1.0e7f;
-const int kMaxDepth = 10;
+// Trace statistics for the last DrawTest. Aggregated once per frame, after all
+// worker threads have finished; while tracing, each thread accumulates into
+// its own local counters.
+static CpuTraceStats s_LastStats = {0, 0, 0};
 
-
-bool HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
+static void RebuildReferenceSoA()
 {
-    outID = HitSpheres(r, s_SpheresSoA, tMin, tMax, outHit);
+    delete s_ReferenceSoA;
+    s_ReferenceSoA = new SpheresSoA((int)s_SceneSpheres.size());
+    for (size_t i = 0; i < s_SceneSpheres.size(); ++i)
+    {
+        const Sphere& s = s_SceneSpheres[i];
+        s_ReferenceSoA->centerX[i] = s.center.x;
+        s_ReferenceSoA->centerY[i] = s.center.y;
+        s_ReferenceSoA->centerZ[i] = s.center.z;
+        s_ReferenceSoA->sqRadius[i] = s.radius * s.radius;
+        s_ReferenceSoA->invRadius[i] = s.invRadius;
+    }
+    s_ReferenceDirty = false;
+}
+
+static void MarkReferenceDirty()
+{
+    s_ReferenceDirty = true;
+}
+
+static const SpheresSoA& GetReferenceSoA()
+{
+    if (s_ReferenceDirty || !s_ReferenceSoA)
+        RebuildReferenceSoA();
+    return *s_ReferenceSoA;
+}
+
+static void RefreshEmissives()
+{
+    s_EmissiveSpheres.clear();
+    for (int i = 0; i < (int)s_SceneMats.size(); ++i)
+    {
+        const Material& smat = s_SceneMats[i];
+        if (smat.emissive.x > 0 || smat.emissive.y > 0 || smat.emissive.z > 0)
+            s_EmissiveSpheres.push_back(i);
+    }
+}
+
+static void UpdateDerivedData()
+{
+    for (size_t i = 0; i < s_SceneSpheres.size(); ++i)
+        s_SceneSpheres[i].UpdateDerivedData();
+}
+
+static void ResetSceneToBuiltin()
+{
+    s_SceneSpheres.assign(s_BuiltinSpheres, s_BuiltinSpheres + kSphereCount);
+    s_SceneMats.assign(s_BuiltinMats, s_BuiltinMats + kSphereCount);
+    s_UseBuiltinScene = true;
+    s_SceneReady = true;
+    RefreshEmissives();
+    UpdateDerivedData();
+    MarkReferenceDirty();
+    s_Bvh.Build(s_SceneSpheres.data(), (int)s_SceneSpheres.size());
+}
+
+static void EnsureScene()
+{
+    if (!s_SceneReady)
+        ResetSceneToBuiltin();
+}
+
+void SetCpuScene(const Sphere* spheres, const Material* materials, int count)
+{
+    if (count <= 0 || spheres == 0 || materials == 0)
+    {
+        ClearCpuScene();
+        return;
+    }
+    s_SceneSpheres.assign(spheres, spheres + count);
+    s_SceneMats.assign(materials, materials + count);
+    s_UseBuiltinScene = false;
+    s_SceneReady = true;
+    RefreshEmissives();
+    UpdateDerivedData();
+    MarkReferenceDirty();
+    s_Bvh.Build(s_SceneSpheres.data(), count);
+}
+
+void ClearCpuScene()
+{
+    s_SceneSpheres.clear();
+    s_SceneMats.clear();
+    s_EmissiveSpheres.clear();
+    s_UseBuiltinScene = false;
+    s_SceneReady = true;
+    s_Bvh.Clear();
+    MarkReferenceDirty();
+}
+
+void ResetCpuScene()
+{
+    ResetSceneToBuiltin();
+}
+
+bool RefitCpuScene(const Sphere* spheres, int count)
+{
+    EnsureScene();
+    if (count != (int)s_SceneSpheres.size() || spheres == 0)
+        return false;
+    s_SceneSpheres.assign(spheres, spheres + count);
+    UpdateDerivedData();
+    MarkReferenceDirty();
+    // Same primitive count: only sphere data and node bounds change; the
+    // topology is preserved.
+    s_Bvh.Refit(s_SceneSpheres.data(), count);
+    return true;
+}
+
+void SetCpuAccelerationEnabled(bool enabled)
+{
+    s_UseAcceleration = enabled;
+}
+
+bool GetCpuAccelerationEnabled()
+{
+    return s_UseAcceleration;
+}
+
+bool HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID, CpuHitStats* outStats)
+{
+    EnsureScene();
+    SphereBvh::QueryStats stats;
+    if (outStats)
+    {
+        outStats->nodeVisits = 0;
+        outStats->sphereTests = 0;
+    }
+    if (!s_UseAcceleration)
+    {
+        // Exhaustive reference over the same scene. This replaces the
+        // accelerated query; it is never run after one.
+        const SpheresSoA& ref = GetReferenceSoA();
+        outID = HitSpheres(r, ref, tMin, tMax, outHit);
+        if (outStats)
+            outStats->sphereTests = ref.count;
+        return outID != -1;
+    }
+    outID = s_Bvh.ClosestHit(r, tMin, tMax, outHit, outStats ? &stats : 0);
+    if (outStats)
+    {
+        outStats->nodeVisits = stats.nodesVisited;
+        outStats->sphereTests = stats.sphereTests;
+    }
     return outID != -1;
 }
 
+bool OccludedWorld(const Ray& r, float tMin, float tMax, CpuHitStats* outStats)
+{
+    EnsureScene();
+    SphereBvh::QueryStats stats;
+    if (outStats)
+    {
+        outStats->nodeVisits = 0;
+        outStats->sphereTests = 0;
+    }
+    if (!s_UseAcceleration)
+    {
+        const SpheresSoA& ref = GetReferenceSoA();
+        Hit h;
+        int id = HitSpheres(r, ref, tMin, tMax, h);
+        if (outStats)
+            outStats->sphereTests = ref.count;
+        return id != -1;
+    }
+    bool hit = s_Bvh.Occluded(r, tMin, tMax, outStats ? &stats : 0);
+    if (outStats)
+    {
+        outStats->nodeVisits = stats.nodesVisited;
+        outStats->sphereTests = stats.sphereTests;
+    }
+    return hit;
+}
 
-static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state)
+void GetCpuTraceStats(CpuTraceStats& outStats)
+{
+    outStats = s_LastStats;
+}
+
+
+static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, CpuTraceStats& stats, uint32_t& state)
 {
     outLightE = float3(0,0,0);
     if (mat.type == Material::Lambert)
@@ -93,13 +267,13 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
 
         // sample lights
 #if DO_LIGHT_SAMPLING
-        for (int j = 0; j < s_EmissiveSphereCount; ++j)
+        for (int j = 0; j < (int)s_EmissiveSpheres.size(); ++j)
         {
             int i = s_EmissiveSpheres[j];
-            const Material& smat = s_SphereMats[i];
+            const Material& smat = s_SceneMats[i];
             if (&mat == &smat)
                 continue; // skip self
-            const Sphere& s = s_Spheres[i];
+            const Sphere& s = s_SceneSpheres[i];
 
             // create a random direction towards sphere
             // coord system for sampling: sw, su, sv
@@ -119,8 +293,9 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
             // shoot shadow ray
             Hit lightHit;
             int hitID;
+            CpuHitStats hitStats;
             ++inoutRayCount;
-            if (HitWorld(Ray(rec.pos, l), kMinT, kMaxT, lightHit, hitID) && hitID == i)
+            if (HitWorld(Ray(rec.pos, l), kMinT, kMaxT, lightHit, hitID, &hitStats) && hitID == i)
             {
                 float omega = 2 * kPI * (1-cosAMax);
 
@@ -130,6 +305,8 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
                 float3 smatEmissive = smat.emissive.toFloat3();
                 outLightE += (matAlbedo * smatEmissive) * (std::max(0.0f, dot(l, nl)) * omega / kPI);
             }
+            stats.nodeVisits += hitStats.nodeVisits;
+            stats.sphereTests += hitStats.sphereTests;
         }
 #endif
         return true;
@@ -192,19 +369,22 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
     return true;
 }
 
-static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state, bool doMaterialE = true)
+static float3 Trace(const Ray& r, int depth, int& inoutRayCount, CpuTraceStats& stats, uint32_t& state, bool doMaterialE = true)
 {
     Hit rec;
     int id = 0;
+    CpuHitStats hitStats;
     ++inoutRayCount;
-    if (HitWorld(r, kMinT, kMaxT, rec, id))
+    if (HitWorld(r, kMinT, kMaxT, rec, id, &hitStats))
     {
+        stats.nodeVisits += hitStats.nodeVisits;
+        stats.sphereTests += hitStats.sphereTests;
         Ray scattered;
         float3 attenuation;
         float3 lightE;
-        const Material& mat = s_SphereMats[id];
+        const Material& mat = s_SceneMats[id];
         float3 matE = mat.emissive.toFloat3();
-        if (depth < kMaxDepth && Scatter(mat, r, rec, attenuation, scattered, lightE, inoutRayCount, state))
+        if (depth < kMaxDepth && Scatter(mat, r, rec, attenuation, scattered, lightE, inoutRayCount, stats, state))
         {
 #if DO_LIGHT_SAMPLING
             if (!doMaterialE) matE = float3(0,0,0); // don't add material emission if told so
@@ -213,7 +393,7 @@ static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state
             // emission
             doMaterialE = (mat.type != Material::Lambert);
 #endif
-            return matE + lightE + attenuation * Trace(scattered, depth+1, inoutRayCount, state, doMaterialE);
+            return matE + lightE + attenuation * Trace(scattered, depth+1, inoutRayCount, stats, state, doMaterialE);
         }
         else
         {
@@ -222,6 +402,8 @@ static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state
     }
     else
     {
+        stats.nodeVisits += hitStats.nodeVisits;
+        stats.sphereTests += hitStats.sphereTests;
         // sky
 #if DO_MITSUBA_COMPARE
         return float3(0.15f,0.21f,0.3f); // easier compare with Mitsuba's constant environment light
@@ -239,16 +421,24 @@ static enkiTaskScheduler* g_TS;
 
 void InitializeTest()
 {
+    EnsureScene();
     #if CPU_CAN_DO_THREADS
-    g_TS = enkiNewTaskScheduler();
-    enkiInitTaskScheduler(g_TS);
+    if (!g_TS)
+    {
+        g_TS = enkiNewTaskScheduler();
+        enkiInitTaskScheduler(g_TS);
+    }
     #endif
 }
 
 void ShutdownTest()
 {
     #if CPU_CAN_DO_THREADS
-    enkiDeleteTaskScheduler(g_TS);
+    if (g_TS)
+    {
+        enkiDeleteTaskScheduler(g_TS);
+        g_TS = 0;
+    }
     #endif
 }
 
@@ -259,7 +449,10 @@ struct JobData
     int screenWidth, screenHeight;
     float* backbuffer;
     Camera* cam;
-    std::atomic<int> rayCount;
+    // One slot per enki task thread (threadnum). Slots are merged after the
+    // task set completes, so worker threads never share a counter.
+    CpuTraceStats* threadStats;
+    int threadStatsCount;
     unsigned testFlags;
 };
 
@@ -274,7 +467,7 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
         lerpFac *= DO_ANIMATE_SMOOTHING;
     if (!(data.testFlags & kFlagProgressive))
         lerpFac = 0;
-    int rayCount = 0;
+    CpuTraceStats stats = {0, 0, 0};
     for (uint32_t y = start; y < end; ++y)
     {
         uint32_t state = (y * 9781 + data.frameCount * 6271) | 1;
@@ -286,7 +479,9 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
                 float u = float(x + RandomFloat01(state)) * invWidth;
                 float v = float(y + RandomFloat01(state)) * invHeight;
                 Ray r = data.cam->GetRay(u, v, state);
-                col += Trace(r, 0, rayCount, state);
+                int rayCount = 0;
+                col += Trace(r, 0, rayCount, stats, state);
+                stats.rayCount += rayCount;
             }
             col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
 
@@ -296,16 +491,35 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
             backbuffer += 4;
         }
     }
-    data.rayCount += rayCount;
+    // Write only this thread's own slot. enki guarantees a running task thread
+    // reports threadnum < GetNumTaskThreads(); any non-task thread (e.g. a
+    // caller that also runs part of the range) gets the extra slot, so no two
+    // threads ever write the same slot. No shared counter is touched.
+    uint32_t slot = threadnum;
+    if (slot >= (uint32_t)data.threadStatsCount - 1)
+        slot = (uint32_t)data.threadStatsCount - 1;
+    data.threadStats[slot].rayCount += stats.rayCount;
+    data.threadStats[slot].nodeVisits += stats.nodeVisits;
+    data.threadStats[slot].sphereTests += stats.sphereTests;
 }
 
 void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight, unsigned testFlags)
 {
-    if (testFlags & kFlagAnimate)
+    EnsureScene();
+
+    if ((testFlags & kFlagAnimate) && s_UseBuiltinScene)
     {
-        s_Spheres[1].center.y = cosf(time) + 1.0f;
-        s_Spheres[8].center.z = sinf(time) * 0.3f;
+        // Animation applies to the built-in scene only; an externally supplied
+        // scene is left untouched.
+        s_SceneSpheres[1].center.y = cosf(time) + 1.0f;
+        s_SceneSpheres[8].center.z = sinf(time) * 0.3f;
+        UpdateDerivedData();
+        MarkReferenceDirty();
+        // Move the existing tree's bounds/data along with the spheres;
+        // topology is left alone.
+        s_Bvh.Refit(s_SceneSpheres.data(), (int)s_SceneSpheres.size());
     }
+
     float3 lookfrom(0, 2, 3);
     float3 lookat(0, 0, 0);
     float distToFocus = 3;
@@ -318,31 +532,20 @@ void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight, u
     aperture *= 0.2f;
 #endif
 
-    s_EmissiveSphereCount = 0;
-    for (int i = 0; i < kSphereCount; ++i)
-    {
-        Sphere& s = s_Spheres[i];
-        s.UpdateDerivedData();
-        s_SpheresSoA.centerX[i] = s.center.x;
-        s_SpheresSoA.centerY[i] = s.center.y;
-        s_SpheresSoA.centerZ[i] = s.center.z;
-        s_SpheresSoA.sqRadius[i] = s.radius * s.radius;
-        s_SpheresSoA.invRadius[i] = s.invRadius;
-
-        // Remember IDs of emissive spheres (light sources)
-        const Material& smat = s_SphereMats[i];
-        if (smat.emissive.x > 0 || smat.emissive.y > 0 || smat.emissive.z > 0)
-        {
-            s_EmissiveSpheres[s_EmissiveSphereCount] = i;
-            s_EmissiveSphereCount++;
-        }
-    }
+    RefreshEmissives();
 
     s_Cam = Camera(lookfrom, lookat, float3(0, 1, 0), 60, float(screenWidth) / float(screenHeight), aperture, distToFocus);
 }
 
 void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, float* backbuffer, int& outRayCount, unsigned testFlags)
 {
+    EnsureScene();
+    #if CPU_CAN_DO_THREADS
+    // Safe to call without an explicit InitializeTest.
+    if (!g_TS)
+        InitializeTest();
+    #endif
+
     JobData args;
     args.time = time;
     args.frameCount = frameCount;
@@ -351,7 +554,40 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
     args.testFlags = testFlags;
-    args.rayCount = 0;
+
+    // Task threads that can run one of these jobs, plus one slot for any
+    // other thread that executes the range (including a caller thread with
+    // ENKI_NO_THREAD_NUM). Each slot is written by exactly one thread.
+    int maxThreads = 1;
+    #if CPU_CAN_DO_THREADS
+    maxThreads = (int)enkiGetNumTaskThreads(g_TS);
+    if (maxThreads < 1)
+        maxThreads = 1;
+    #endif
+    maxThreads += 1; // dedicated slot for non-task threads
+    CpuTraceStats threadStats[64];
+    static CpuTraceStats* heapStats = 0;
+    static int heapStatsCount = 0;
+    CpuTraceStats* slots = threadStats;
+    const int kInline = (int)(sizeof(threadStats) / sizeof(threadStats[0]));
+    if (maxThreads > kInline)
+    {
+        if (heapStatsCount < maxThreads)
+        {
+            delete[] heapStats;
+            heapStats = new CpuTraceStats[maxThreads];
+            heapStatsCount = maxThreads;
+        }
+        slots = heapStats;
+    }
+    for (int i = 0; i < maxThreads; ++i)
+    {
+        slots[i].rayCount = 0;
+        slots[i].nodeVisits = 0;
+        slots[i].sphereTests = 0;
+    }
+    args.threadStats = slots;
+    args.threadStatsCount = maxThreads;
 
     #if CPU_CAN_DO_THREADS
     enkiTaskSet* task = enkiCreateTaskSet(g_TS, TraceRowJob);
@@ -363,12 +599,21 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     TraceRowJob(0, screenHeight, 0, &args);
     #endif
 
-    outRayCount = args.rayCount;
+    CpuTraceStats total = {0, 0, 0};
+    for (int i = 0; i < maxThreads; ++i)
+    {
+        total.rayCount += slots[i].rayCount;
+        total.nodeVisits += slots[i].nodeVisits;
+        total.sphereTests += slots[i].sphereTests;
+    }
+    outRayCount = (int)total.rayCount;
+    s_LastStats = total;
 }
 
 void GetObjectCount(int& outCount, int& outObjectSize, int& outMaterialSize, int& outCamSize)
 {
-    outCount = kSphereCount;
+    EnsureScene();
+    outCount = (int)s_SceneSpheres.size();
     outObjectSize = sizeof(Sphere);
     outMaterialSize = sizeof(Material);
     outCamSize = sizeof(Camera);
@@ -376,9 +621,10 @@ void GetObjectCount(int& outCount, int& outObjectSize, int& outMaterialSize, int
 
 void GetSceneDesc(void* outObjects, void* outMaterials, void* outCam, void* outEmissives, int* outEmissiveCount)
 {
-    memcpy(outObjects, s_Spheres, kSphereCount * sizeof(s_Spheres[0]));
-    memcpy(outMaterials, s_SphereMats, kSphereCount * sizeof(s_SphereMats[0]));
+    EnsureScene();
+    memcpy(outObjects, s_SceneSpheres.data(), s_SceneSpheres.size() * sizeof(s_SceneSpheres[0]));
+    memcpy(outMaterials, s_SceneMats.data(), s_SceneMats.size() * sizeof(s_SceneMats[0]));
     memcpy(outCam, &s_Cam, sizeof(s_Cam));
-    memcpy(outEmissives, s_EmissiveSpheres, s_EmissiveSphereCount * sizeof(s_EmissiveSpheres[0]));
-    *outEmissiveCount = s_EmissiveSphereCount;
+    memcpy(outEmissives, s_EmissiveSpheres.data(), s_EmissiveSpheres.size() * sizeof(s_EmissiveSpheres[0]));
+    *outEmissiveCount = (int)s_EmissiveSpheres.size();
 }

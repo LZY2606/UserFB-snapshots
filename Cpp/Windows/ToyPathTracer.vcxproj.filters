@@ -14,6 +14,9 @@
     <ClCompile Include="..\Source\Maths.cpp">
       <Filter>Source</Filter>
     </ClCompile>
+    <ClCompile Include="..\Source\SphereBvh.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source">
@@ -46,6 +49,9 @@
       <Filter>Source</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\MathSimd.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Source\SphereBvh.h">
       <Filter>Source</Filter>
     </ClInclude>
   </ItemGroup>
