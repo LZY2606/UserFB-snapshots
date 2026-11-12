@@ -62,8 +62,9 @@ You can also read the raw bytes of audio data, which could be useful if dr_wav d
     size_t bytesRead = drwav_read_raw(&wav, bytesToRead, pRawDataBuffer);
     ```
 
-dr_wav can also be used to output WAV files. This does not currently support compressed formats. To use this, look at `drwav_init_write()`,
-`drwav_init_file_write()`, etc. Use `drwav_write_pcm_frames()` to write samples, or `drwav_write_raw()` to write raw data in the "data" chunk.
+dr_wav can also be used to output WAV files. To use this, look at `drwav_init_write()`, `drwav_init_file_write()`, etc. Use `drwav_write_pcm_frames()` to
+write samples, or `drwav_write_raw()` to write raw data in the "data" chunk. Writing Microsoft ADPCM is supported through the dedicated
+`drwav_init_msadpcm_write()` entry point (see below); all other compressed formats are read-only.
 
     ```c
     drwav_data_format format;
@@ -79,7 +80,83 @@ dr_wav can also be used to output WAV files. This does not currently support com
     drwav_uint64 framesWritten = drwav_write_pcm_frames(pWav, frameCount, pSamples);
     ```
 
-Note that writing to AIFF or RIFX is not supported.
+Microsoft ADPCM output uses a separate entry point because the bytes-per-frame is derived from the block alignment rather than from a
+bits-per-sample value. The writer takes interleaved signed 16-bit PCM and emits a RIFF, little-endian WAV file with the standard 7 coefficient
+pairs. Mono and stereo are supported.
+
+    ```c
+    drwav wav;
+    drwav_msadpcm_config config;
+    config.channels   = 2;
+    config.sampleRate = 44100;
+    config.blockAlign = 512;    // Must be > 7*channels; (blockAlign - 7*channels)*2/channels must be a whole number of frames.
+
+    if (!drwav_init_msadpcm_write(&wav, &config, onWrite, onSeek, pUserData, NULL)) {
+        // Invalid configuration or allocation failure. Nothing has been written.
+    }
+
+    // Feed PCM in any chunk sizes, including one frame at a time. This may span any number of blocks.
+    drwav_write_msadpcm_pcm_frames(&wav, frameCount, pSamples);
+
+    // Finalizes the last partial block and patches the "fact", "data" and "RIFF" sizes. Returns non-success if any
+    // output operation failed.
+    drwav_uninit(&wav);
+    ```
+
+A streaming example using callbacks, where the recording is fed to the writer as it is captured rather than buffered in full:
+
+    ```c
+    typedef struct
+    {
+        FILE* pFile;
+    } recorder;
+
+    size_t on_write(void* pUserData, const void* pData, size_t bytesToWrite)
+    {
+        return fwrite(pData, 1, bytesToWrite, ((recorder*)pUserData)->pFile);
+    }
+
+    drwav_bool32 on_seek(void* pUserData, int offset, drwav_seek_origin origin)
+    {
+        int whence = (origin == DRWAV_SEEK_SET) ? SEEK_SET : (origin == DRWAV_SEEK_CUR) ? SEEK_CUR : SEEK_END;
+        return fseek(((recorder*)pUserData)->pFile, offset, whence) == 0;
+    }
+
+    void record_in_chunks(const char* outputPath)
+    {
+        recorder rec;
+        drwav wav;
+        drwav_msadpcm_config config;
+        drwav_int16 chunk[4096];    // Interleaved PCM captured by the audio backend.
+        int chunkFrameCount;
+
+        rec.pFile = fopen(outputPath, "wb");
+        if (rec.pFile == NULL) {
+            return;
+        }
+
+        config.channels   = 2;
+        config.sampleRate = 44100;
+        config.blockAlign = 512;
+
+        if (!drwav_init_msadpcm_write(&wav, &config, on_write, on_seek, &rec, NULL)) {
+            fclose(rec.pFile);
+            return;
+        }
+
+        while ((chunkFrameCount = capture_next_chunk(chunk, sizeof(chunk))) > 0) {
+            if (drwav_write_msadpcm_pcm_frames(&wav, (drwav_uint64)chunkFrameCount, chunk) != (drwav_uint64)chunkFrameCount) {
+                break;  // The writer is now in a failed state; drwav_uninit() will report it.
+            }
+        }
+
+        drwav_uninit(&wav);
+        fclose(rec.pFile);
+    }
+    ```
+
+Note that writing to AIFF or RIFX is not supported. ADPCM output is RIFF only; IMA ADPCM, RF64 and sequential (no-seek) writes are also not
+supported for ADPCM output.
 
 dr_wav has support for decoding from a number of different encapsulation formats. See below for details.
 
@@ -121,6 +198,8 @@ Supported Encodings
 - A-law and u-law
 - Microsoft ADPCM
 - IMA ADPCM (DVI, format code 0x11)
+
+Microsoft ADPCM can be both read and written (mono or stereo, RIFF only). IMA ADPCM is read-only.
 
 8-bit PCM encodings are always assumed to be unsigned. Signed 8-bit encoding can only be read with `drwav_read_raw()`.
 
@@ -485,6 +564,24 @@ typedef struct
     drwav_uint32 sampleRate;
     drwav_uint32 bitsPerSample;
 } drwav_data_format;
+
+/*
+Configuration for a Microsoft ADPCM writer initialized with drwav_init_msadpcm_write().
+
+channels    The number of channels. Must be 1 (mono) or 2 (stereo).
+sampleRate  The sample rate of the PCM data. Must be greater than 0 and no greater than DRWAV_MAX_SAMPLE_RATE.
+blockAlign  The size of each encoded block in bytes. Must be greater than 7 * channels and must result in a
+            whole number of PCM frames per block. The number of PCM frames per block is calculated as
+                2 + (blockAlign - 7 * channels) * 2 / channels.
+            Note that the resulting value must fit in a 16-bit field because it is stored in the "fmt" chunk
+            as samplesPerBlock.
+*/
+typedef struct
+{
+    drwav_uint32 channels;
+    drwav_uint32 sampleRate;
+    drwav_uint16 blockAlign;
+} drwav_msadpcm_config;
 
 typedef enum
 {
@@ -945,6 +1042,19 @@ typedef struct
         drwav_int32  prevFrames[2][2]; /* The previous 2 samples for each channel (2 channels at most). */
     } msadpcm;
 
+    /* Microsoft ADPCM specific data for writing. */
+    struct
+    {
+        drwav_bool32 isActive;              /* Set to true for objects initialized with drwav_init_msadpcm_write(). Never set for any other writer. */
+        drwav_bool32 failed;                /* Once set, no more audio blocks are written and drwav_uninit() returns an error. */
+        drwav_msadpcm_config config;        /* Validated copy of the caller's configuration. */
+        drwav_uint32 framesPerBlock;        /* Derived from blockAlign and channels. */
+        drwav_uint32 pendingFrameCount;     /* Number of PCM frames currently buffered in pPCMBuffer. Always less than framesPerBlock. */
+        drwav_uint64 totalPCMFramesWritten; /* Number of real input PCM frames (not including any padding). */
+        drwav_int16* pPCMBuffer;            /* Buffer for at most a single block of interleaved PCM frames. */
+        drwav_uint8* pBlockBuffer;          /* Buffer for a single encoded block. */
+    } msadpcmWrite;
+
     /* IMA ADPCM specific data. */
     struct
     {
@@ -1021,6 +1131,54 @@ DRWAV_API drwav_bool32 drwav_init_write(drwav* pWav, const drwav_data_format* pF
 DRWAV_API drwav_bool32 drwav_init_write_sequential(drwav* pWav, const drwav_data_format* pFormat, drwav_uint64 totalSampleCount, drwav_write_proc onWrite, void* pUserData, const drwav_allocation_callbacks* pAllocationCallbacks);
 DRWAV_API drwav_bool32 drwav_init_write_sequential_pcm_frames(drwav* pWav, const drwav_data_format* pFormat, drwav_uint64 totalPCMFrameCount, drwav_write_proc onWrite, void* pUserData, const drwav_allocation_callbacks* pAllocationCallbacks);
 DRWAV_API drwav_bool32 drwav_init_write_with_metadata(drwav* pWav, const drwav_data_format* pFormat, drwav_write_proc onWrite, drwav_seek_proc onSeek, void* pUserData, const drwav_allocation_callbacks* pAllocationCallbacks, drwav_metadata* pMetadata, drwav_uint32 metadataCount);
+
+/*
+Initializes a pre-allocated drwav object for writing Microsoft ADPCM encoded audio.
+
+This is a separate entry point to the regular writer because the regular writer intentionally rejects compressed
+formats. Output is always a RIFF, little-endian WAV file with a "fact" chunk. The "fmt" chunk contains the
+standard Microsoft ADPCM metadata (7 coefficient pairs). IMA ADPCM, RF64 and sequential (no-seek) writes are not
+supported by this entry point.
+
+pConfig              [in] The ADPCM configuration. See drwav_msadpcm_config. Everything is validated up front,
+                          before any output is emitted. If any field is invalid the function fails and nothing is
+                          written.
+onWrite              [in] The function to call when data needs to be written. Required.
+onSeek               [in] The function to call when the write position needs to move. Required, because dr_wav needs
+                          to go back and patch the "fact", "data" and "RIFF" sizes at the end.
+pUserData            [in, optional] A pointer to application defined data that will be passed to onWrite and onSeek.
+pAllocationCallbacks [in, optional] Allocation callbacks.
+
+Returns true if successful; false otherwise. On failure no output has been written.
+
+PCM data is submitted with drwav_write_msadpcm_pcm_frames(). Close the writer with drwav_uninit(), which returns
+a non-success result if any output operation failed (including any that happened during the final size patching).
+
+The number of PCM frames per block is calculated from the block alignment and validated to be a whole number. The
+writer buffers at most a single block of PCM data internally; a partial trailing block is padded by repeating the
+last real input frame. The "fact" chunk records the number of real PCM frames, so decoders will not return the
+padding as part of the audio.
+
+See also: drwav_init_write(), drwav_uninit()
+*/
+DRWAV_API drwav_bool32 drwav_init_msadpcm_write(drwav* pWav, const drwav_msadpcm_config* pConfig, drwav_write_proc onWrite, drwav_seek_proc onSeek, void* pUserData, const drwav_allocation_callbacks* pAllocationCallbacks);
+
+/*
+Writes signed 16-bit interleaved PCM frames to a Microsoft ADPCM writer.
+
+pWav            [in] The writer, initialized with drwav_init_msadpcm_write().
+framesToWrite   [in] The number of PCM frames to write.
+pData           [in] Interleaved, native-endian, signed 16-bit PCM samples.
+
+Returns the number of PCM frames accepted. Returning less than framesToWrite indicates an error; the writer is
+left in a failed state, no further audio blocks will be written, and drwav_uninit() will return a non-success
+result.
+
+The writer accepts any number of frames at a time (including 1) and may span multiple blocks. Block boundaries
+depend only on the configured block alignment, so the same PCM data produces a byte-identical file regardless of
+how it is split up across calls.
+*/
+DRWAV_API drwav_uint64 drwav_write_msadpcm_pcm_frames(drwav* pWav, drwav_uint64 framesToWrite, const drwav_int16* pData);
 
 /*
 Utility function to determine the target size of the entire data to be written (including all headers and chunks).
@@ -3130,8 +3288,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser*
 
 
 DRWAV_PRIVATE drwav_uint32 drwav_get_bytes_per_pcm_frame(drwav* pWav)
-{
-    drwav_uint32 bytesPerFrame;
+{    drwav_uint32 bytesPerFrame;
 
     /*
     The bytes per frame is a bit ambiguous. It can be either be based on the bits per sample, or the block align. The way I'm doing it here
@@ -5861,7 +6018,6 @@ DRWAV_PRIVATE drwav_uint32 drwav_write_padding(drwav* pWav)
         drwav_uint64 paddingData = 0;
         drwav__write(pWav, &paddingData, paddingSize);  /* Byte order does not matter for this. */
     }
-
     return paddingSize;
 }
 
@@ -5915,12 +6071,28 @@ DRWAV_PRIVATE void drwav_write_chunk_sizes(drwav* pWav)
     }
 }
 
+/* Forward declaration. The Microsoft ADPCM finalizer is defined further down. */
+DRWAV_PRIVATE drwav_result drwav__msadpcm_write_finalize(drwav* pWav);
+
 DRWAV_API drwav_result drwav_uninit(drwav* pWav)
 {
     drwav_result result = DRWAV_SUCCESS;
 
     if (pWav == NULL) {
         return DRWAV_INVALID_ARGS;
+    }
+
+    /* Microsoft ADPCM writers have their own finalization path. Regular writers must never enter it. */
+    if (pWav->msadpcmWrite.isActive) {
+        result = drwav__msadpcm_write_finalize(pWav);
+
+#ifndef DR_WAV_NO_STDIO
+        if (pWav->onWrite == drwav__on_write_stdio) {
+            fclose((FILE*)pWav->pUserData);
+        }
+#endif
+
+        return result;
     }
 
     if (pWav->onWrite != NULL) {
@@ -6338,6 +6510,10 @@ DRWAV_API drwav_uint64 drwav_write_pcm_frames_le(drwav* pWav, drwav_uint64 frame
         return 0;
     }
 
+    if (pWav->msadpcmWrite.isActive) {
+        return 0;   /* Microsoft ADPCM writers accept PCM via drwav_write_msadpcm_pcm_frames() only. */
+    }
+
     bytesToWrite = ((framesToWrite * pWav->channels * pWav->bitsPerSample) / 8);
     if (bytesToWrite > DRWAV_SIZE_MAX) {
         return 0;
@@ -6375,6 +6551,10 @@ DRWAV_API drwav_uint64 drwav_write_pcm_frames_be(drwav* pWav, drwav_uint64 frame
 
     if (pWav == NULL || framesToWrite == 0 || pData == NULL) {
         return 0;
+    }
+
+    if (pWav->msadpcmWrite.isActive) {
+        return 0;   /* Microsoft ADPCM writers accept PCM via drwav_write_msadpcm_pcm_frames() only. */
     }
 
     bytesToWrite = ((framesToWrite * pWav->channels * pWav->bitsPerSample) / 8);
@@ -6427,11 +6607,589 @@ DRWAV_API drwav_uint64 drwav_write_pcm_frames_be(drwav* pWav, drwav_uint64 frame
 
 DRWAV_API drwav_uint64 drwav_write_pcm_frames(drwav* pWav, drwav_uint64 framesToWrite, const void* pData)
 {
+    if (pWav != NULL && pWav->msadpcmWrite.isActive) {
+        return 0;   /* Microsoft ADPCM writers accept PCM via drwav_write_msadpcm_pcm_frames() instead. */
+    }
+
     if (drwav__is_little_endian()) {
         return drwav_write_pcm_frames_le(pWav, framesToWrite, pData);
     } else {
         return drwav_write_pcm_frames_be(pWav, framesToWrite, pData);
     }
+}
+
+
+/************************************************************************************************************************************************************
+Microsoft ADPCM encoder.
+
+The encoder below is intentionally isolated from the regular writer. The regular writer rejects compressed formats. Objects that come through this path are
+tagged with msadpcmWrite.isActive and take a different finalization path in drwav_uninit().
+************************************************************************************************************************************************************/
+
+static const drwav_int32 drwav__msadpcm_coeff1Table[7] = { 256, 512, 0, 192, 240, 460,  392 };
+static const drwav_int32 drwav__msadpcm_coeff2Table[7] = { 0,  -256, 0, 64,  0,  -208, -232 };
+
+static const drwav_int32 drwav__msadpcm_adaptationTable[16] = {
+    230, 230, 230, 230, 307, 409, 512, 614,
+    768, 614, 512, 409, 307, 230, 230, 230
+};
+
+/*
+Divides by 256 rounding towards negative infinity. This intentionally does not rely on the implementation-defined behavior of a
+right shift on a negative value so that the encoder produces identical output on every compiler.
+*/
+DRWAV_PRIVATE drwav_int64 drwav__msadpcm_floor_div_256(drwav_int64 x)
+{
+    drwav_int64 q = x / 256;
+    drwav_int64 r = x % 256;
+
+    if (r < 0) {
+        q -= 1;     /* C truncates towards zero, so move down one to get a floor for negative values. */
+    }
+
+    return q;
+}
+
+/* Quantizes a difference to a 4-bit signed nibble. Rounds to the nearest integer, with exact halves rounded away from zero. */
+DRWAV_PRIVATE drwav_int32 drwav__msadpcm_quantize(drwav_int64 difference, drwav_int32 delta)
+{
+    drwav_int64 q;
+    drwav_int64 r;
+
+    q = difference / delta;
+    r = difference % delta;
+
+    if (r != 0) {
+        drwav_int64 absR = (r < 0) ? -r : r;
+        if (absR * 2 >= (drwav_int64)delta) {
+            if (difference > 0) {
+                q += 1;
+            } else {
+                q -= 1;
+            }
+        }
+    }
+
+    if (q < -8) {
+        q = -8;
+    }
+    if (q > 7) {
+        q = 7;
+    }
+
+    return (drwav_int32)q;
+}
+
+DRWAV_PRIVATE drwav_int32 drwav__msadpcm_update_delta(drwav_int32 delta, drwav_int32 nibble)
+{
+    drwav_int64 newDelta = ((drwav_int64)drwav__msadpcm_adaptationTable[(drwav_uint32)nibble & 0x0F] * delta) / 256;
+
+    if (newDelta < 16) {
+        newDelta = 16;
+    }
+    if (newDelta > 0x7FFFFFFF) {
+        newDelta = 0x7FFFFFFF;
+    }
+
+    return (drwav_int32)newDelta;
+}
+
+/*
+Encodes a single sample and advances the encoder history. The history is advanced with the reconstructed value, never the input value. The
+reconstruction is left in *pPrev1 on return.
+*/
+DRWAV_PRIVATE drwav_int32 drwav__msadpcm_encode_sample(drwav_int32 sample, drwav_int32 coeff1, drwav_int32 coeff2, drwav_int32* pPrev0, drwav_int32* pPrev1, drwav_int32* pDelta)
+{
+    drwav_int64 prediction;
+    drwav_int32 nibble;
+    drwav_int64 reconstructed;
+
+    prediction = drwav__msadpcm_floor_div_256((drwav_int64)(*pPrev1) * coeff1 + (drwav_int64)(*pPrev0) * coeff2);
+
+    nibble = drwav__msadpcm_quantize((drwav_int64)sample - prediction, *pDelta);
+
+    reconstructed = prediction + (drwav_int64)nibble * (*pDelta);
+    if (reconstructed < -32768) {
+        reconstructed = -32768;
+    }
+    if (reconstructed > 32767) {
+        reconstructed = 32767;
+    }
+
+    *pDelta = drwav__msadpcm_update_delta(*pDelta, nibble);
+    *pPrev0 = *pPrev1;
+    *pPrev1 = (drwav_int32)reconstructed;
+
+    return nibble;
+}
+
+DRWAV_PRIVATE drwav_int32 drwav__msadpcm_initial_delta(drwav_int32 sample0, drwav_int32 sample1)
+{
+    drwav_int32 difference = sample1 - sample0;
+
+    if (difference < 0) {
+        difference = -difference;
+    }
+
+    if (difference < 16) {
+        difference = 16;
+    }
+    if (difference > 32767) {
+        difference = 32767;
+    }
+
+    return difference;
+}
+
+/*
+Chooses the best of the seven standard predictors for one channel by trial-encoding the block. Only the real input range contributes to the error
+so that the padded tail cannot dominate the choice. Ties are broken by choosing the lowest predictor index.
+*/
+DRWAV_PRIVATE drwav_int32 drwav__msadpcm_select_predictor(const drwav_int16* pPCMBuffer, drwav_uint32 channels, drwav_uint32 channelIndex, drwav_uint32 realFrameCount, drwav_uint32 framesPerBlock, drwav_int32 sample0, drwav_int32 sample1, drwav_int32 initialDelta)
+{
+    drwav_int32 bestPredictor = 0;
+    drwav_int64 bestError = 0;
+    drwav_uint32 iPredictor;
+
+    for (iPredictor = 0; iPredictor < 7; iPredictor += 1) {
+        drwav_int32 prev0 = sample0;
+        drwav_int32 prev1 = sample1;
+        drwav_int32 delta = initialDelta;
+        drwav_int64 error = 0;
+        drwav_uint32 iFrame;
+
+        for (iFrame = 2; iFrame < framesPerBlock; iFrame += 1) {
+            drwav_int32 sample = (drwav_int32)pPCMBuffer[iFrame*channels + channelIndex];
+            drwav_int32 nibble;
+
+            nibble = drwav__msadpcm_encode_sample(sample, drwav__msadpcm_coeff1Table[iPredictor], drwav__msadpcm_coeff2Table[iPredictor], &prev0, &prev1, &delta);
+
+            (void)nibble;
+
+            if (iFrame < realFrameCount) {
+                drwav_int64 difference = (drwav_int64)prev1 - sample;
+                error += difference * difference;
+            }
+        }
+
+        if (iPredictor == 0 || error < bestError) {
+            bestError = error;
+            bestPredictor = (drwav_int32)iPredictor;
+        }
+    }
+
+    return bestPredictor;
+}
+
+DRWAV_PRIVATE void drwav__msadpcm_set_u16le(drwav_uint8* pDst, drwav_uint16 value)
+{
+    pDst[0] = (drwav_uint8)(value & 0xFF);
+    pDst[1] = (drwav_uint8)((value >> 8) & 0xFF);
+}
+
+DRWAV_PRIVATE void drwav__msadpcm_set_u32le(drwav_uint8* pDst, drwav_uint32 value)
+{
+    pDst[0] = (drwav_uint8)((value >>  0) & 0xFF);
+    pDst[1] = (drwav_uint8)((value >>  8) & 0xFF);
+    pDst[2] = (drwav_uint8)((value >> 16) & 0xFF);
+    pDst[3] = (drwav_uint8)((value >> 24) & 0xFF);
+}
+
+DRWAV_PRIVATE drwav_bool32 drwav__msadpcm_write_bytes(drwav* pWav, const void* pData, size_t dataSize)
+{
+    if (pWav->msadpcmWrite.failed) {
+        return DRWAV_FALSE;
+    }
+
+    if (dataSize == 0) {
+        return DRWAV_TRUE;
+    }
+
+    if (pWav->onWrite(pWav->pUserData, pData, dataSize) != dataSize) {
+        pWav->msadpcmWrite.failed = DRWAV_TRUE;    /* Short write. The block is not considered committed. */
+        return DRWAV_FALSE;
+    }
+
+    return DRWAV_TRUE;
+}
+
+DRWAV_PRIVATE drwav_bool32 drwav__msadpcm_seek(drwav* pWav, int offset)
+{
+    if (pWav->msadpcmWrite.failed) {
+        return DRWAV_FALSE;
+    }
+
+    if (pWav->onSeek(pWav->pUserData, offset, DRWAV_SEEK_SET) == DRWAV_FALSE) {
+        pWav->msadpcmWrite.failed = DRWAV_TRUE;
+        return DRWAV_FALSE;
+    }
+
+    return DRWAV_TRUE;
+}
+
+/*
+Encodes and writes the currently buffered block. The caller must have at least one pending frame. The block is padded to a full block by
+repeating the last real input frame. Only a fully written block is accounted for.
+*/
+DRWAV_PRIVATE drwav_bool32 drwav__msadpcm_write_pending_block(drwav* pWav)
+{
+    drwav_uint32 channels;
+    drwav_uint32 framesPerBlock;
+    drwav_uint32 realFrameCount;
+    drwav_int16* pPCMBuffer;
+    drwav_uint8* pBlock;
+    drwav_int32 sample0[2];
+    drwav_int32 sample1[2];
+    drwav_int32 initialDelta[2];
+    drwav_int32 predictor[2];
+    drwav_uint32 iChannel;
+    drwav_uint32 iFrame;
+    drwav_uint32 blockPos;
+
+    channels       = pWav->msadpcmWrite.config.channels;
+    framesPerBlock = pWav->msadpcmWrite.framesPerBlock;
+    realFrameCount = pWav->msadpcmWrite.pendingFrameCount;
+    pPCMBuffer     = pWav->msadpcmWrite.pPCMBuffer;
+    pBlock         = pWav->msadpcmWrite.pBlockBuffer;
+
+    if (realFrameCount == 0) {
+        return DRWAV_TRUE;  /* Nothing to do. */
+    }
+
+    /* Pad the tail by repeating the last real input frame. */
+    for (iFrame = realFrameCount; iFrame < framesPerBlock; iFrame += 1) {
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            pPCMBuffer[iFrame*channels + iChannel] = pPCMBuffer[(realFrameCount-1)*channels + iChannel];
+        }
+    }
+
+    for (iChannel = 0; iChannel < channels; iChannel += 1) {
+        sample0[iChannel]      = (drwav_int32)pPCMBuffer[0*channels + iChannel];
+        sample1[iChannel]      = (drwav_int32)pPCMBuffer[1*channels + iChannel];
+        initialDelta[iChannel] = drwav__msadpcm_initial_delta(sample0[iChannel], sample1[iChannel]);
+        predictor[iChannel]    = drwav__msadpcm_select_predictor(pPCMBuffer, channels, iChannel, realFrameCount, framesPerBlock, sample0[iChannel], sample1[iChannel], initialDelta[iChannel]);
+    }
+
+    /* Block header. */
+    if (channels == 1) {
+        pBlock[0] = (drwav_uint8)predictor[0];
+        drwav__msadpcm_set_u16le(pBlock + 1, (drwav_uint16)initialDelta[0]);
+        drwav__msadpcm_set_u16le(pBlock + 3, (drwav_uint16)sample1[0]);
+        drwav__msadpcm_set_u16le(pBlock + 5, (drwav_uint16)sample0[0]);
+        blockPos = 7;
+    } else {
+        pBlock[0] = (drwav_uint8)predictor[0];
+        pBlock[1] = (drwav_uint8)predictor[1];
+        drwav__msadpcm_set_u16le(pBlock + 2,  (drwav_uint16)initialDelta[0]);
+        drwav__msadpcm_set_u16le(pBlock + 4,  (drwav_uint16)initialDelta[1]);
+        drwav__msadpcm_set_u16le(pBlock + 6,  (drwav_uint16)sample1[0]);
+        drwav__msadpcm_set_u16le(pBlock + 8,  (drwav_uint16)sample1[1]);
+        drwav__msadpcm_set_u16le(pBlock + 10, (drwav_uint16)sample0[0]);
+        drwav__msadpcm_set_u16le(pBlock + 12, (drwav_uint16)sample0[1]);
+        blockPos = 14;
+    }
+
+    /* Encoded nibbles. High nibble comes first. For stereo, the high nibble is the left channel and each byte carries one frame. */
+    {
+        drwav_int32 prev0[2];
+        drwav_int32 prev1[2];
+        drwav_int32 delta[2];
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            prev0[iChannel] = sample0[iChannel];
+            prev1[iChannel] = sample1[iChannel];
+            delta[iChannel] = initialDelta[iChannel];
+        }
+
+        iFrame = 2;
+        if (channels == 1) {
+            while (iFrame < framesPerBlock) {
+                drwav_int32 nibble0 = drwav__msadpcm_encode_sample((drwav_int32)pPCMBuffer[(iFrame+0)*channels + 0], drwav__msadpcm_coeff1Table[predictor[0]], drwav__msadpcm_coeff2Table[predictor[0]], &prev0[0], &prev1[0], &delta[0]);
+                drwav_int32 nibble1 = drwav__msadpcm_encode_sample((drwav_int32)pPCMBuffer[(iFrame+1)*channels + 0], drwav__msadpcm_coeff1Table[predictor[0]], drwav__msadpcm_coeff2Table[predictor[0]], &prev0[0], &prev1[0], &delta[0]);
+
+                pBlock[blockPos] = (drwav_uint8)((((drwav_uint32)nibble0 & 0x0F) << 4) | ((drwav_uint32)nibble1 & 0x0F));
+                blockPos += 1;
+                iFrame += 2;
+            }
+        } else {
+            while (iFrame < framesPerBlock) {
+                drwav_int32 nibble0 = drwav__msadpcm_encode_sample((drwav_int32)pPCMBuffer[iFrame*channels + 0], drwav__msadpcm_coeff1Table[predictor[0]], drwav__msadpcm_coeff2Table[predictor[0]], &prev0[0], &prev1[0], &delta[0]);
+                drwav_int32 nibble1 = drwav__msadpcm_encode_sample((drwav_int32)pPCMBuffer[iFrame*channels + 1], drwav__msadpcm_coeff1Table[predictor[1]], drwav__msadpcm_coeff2Table[predictor[1]], &prev0[1], &prev1[1], &delta[1]);
+
+                pBlock[blockPos] = (drwav_uint8)((((drwav_uint32)nibble0 & 0x0F) << 4) | ((drwav_uint32)nibble1 & 0x0F));
+                blockPos += 1;
+                iFrame += 1;
+            }
+        }
+    }
+
+    if (blockPos != (drwav_uint32)pWav->fmt.blockAlign) {
+        pWav->msadpcmWrite.failed = DRWAV_TRUE;    /* Internal error. Should never happen with a validated configuration. */
+        return DRWAV_FALSE;
+    }
+
+    if (!drwav__msadpcm_write_bytes(pWav, pBlock, (size_t)pWav->fmt.blockAlign)) {
+        return DRWAV_FALSE;
+    }
+
+    pWav->dataChunkDataSize += (drwav_uint64)pWav->fmt.blockAlign;
+    pWav->msadpcmWrite.totalPCMFramesWritten += (drwav_uint64)realFrameCount;
+    pWav->msadpcmWrite.pendingFrameCount = 0;
+
+    return DRWAV_TRUE;
+}
+
+DRWAV_API drwav_bool32 drwav_init_msadpcm_write(drwav* pWav, const drwav_msadpcm_config* pConfig, drwav_write_proc onWrite, drwav_seek_proc onSeek, void* pUserData, const drwav_allocation_callbacks* pAllocationCallbacks)
+{
+    drwav_msadpcm_config config;
+    drwav_uint32 framesPerBlock;
+    drwav_uint32 blockAlignMinusHeaders;
+    drwav_uint64 avgBytesPerSec;
+    drwav_uint8 header[90];
+    size_t headerPos;
+    drwav_uint32 iCoefficient;
+
+    /* Validate everything before a single byte of output is produced. */
+    if (pWav == NULL || pConfig == NULL || onWrite == NULL || onSeek == NULL) {
+        return DRWAV_FALSE;
+    }
+
+    if (pConfig->channels != 1 && pConfig->channels != 2) {
+        return DRWAV_FALSE;     /* Only mono and stereo are supported. */
+    }
+
+    if (pConfig->sampleRate == 0 || pConfig->sampleRate > DRWAV_MAX_SAMPLE_RATE) {
+        return DRWAV_FALSE;
+    }
+
+    if (pConfig->blockAlign <= 7 * pConfig->channels) {
+        return DRWAV_FALSE;     /* Must be big enough for the block header and at least one nibble byte. */
+    }
+
+    blockAlignMinusHeaders = pConfig->blockAlign - 7 * pConfig->channels;
+    if ((blockAlignMinusHeaders * 2) % pConfig->channels != 0) {
+        return DRWAV_FALSE;     /* The number of PCM frames per block must be a whole number. */
+    }
+
+    framesPerBlock = 2 + (blockAlignMinusHeaders * 2) / pConfig->channels;
+    if (framesPerBlock < 2 || framesPerBlock > 0xFFFF) {
+        return DRWAV_FALSE;     /* samplesPerBlock is a 16-bit field in the "fmt" chunk, and at least two samples are stored. */
+    }
+
+    avgBytesPerSec = ((drwav_uint64)pConfig->sampleRate * pConfig->blockAlign) / framesPerBlock;
+    if (avgBytesPerSec > 0xFFFFFFFF) {
+        return DRWAV_FALSE;     /* Cannot be represented in the "fmt" chunk. */
+    }
+
+    config = *pConfig;
+
+    DRWAV_ZERO_OBJECT(pWav);
+    pWav->onWrite   = onWrite;
+    pWav->onSeek    = onSeek;
+    pWav->pUserData = pUserData;
+    pWav->allocationCallbacks = drwav_copy_allocation_callbacks_or_defaults(pAllocationCallbacks);
+
+    if (pWav->allocationCallbacks.onFree == NULL || (pWav->allocationCallbacks.onMalloc == NULL && pWav->allocationCallbacks.onRealloc == NULL)) {
+        return DRWAV_FALSE;     /* Invalid allocation callbacks. */
+    }
+
+    pWav->container            = drwav_container_riff;
+    pWav->channels             = (drwav_uint16)config.channels;
+    pWav->sampleRate           = config.sampleRate;
+    pWav->bitsPerSample        = 4;
+    pWav->translatedFormatTag  = DR_WAVE_FORMAT_ADPCM;
+    pWav->isSequentialWrite    = DRWAV_FALSE;
+    pWav->dataChunkDataPos     = 90;    /* "RIFF"/"WAVE"/"fmt "/"fact"/"data" headers. */
+
+    pWav->fmt.formatTag      = DR_WAVE_FORMAT_ADPCM;
+    pWav->fmt.channels       = (drwav_uint16)config.channels;
+    pWav->fmt.sampleRate     = config.sampleRate;
+    pWav->fmt.avgBytesPerSec = (drwav_uint32)avgBytesPerSec;
+    pWav->fmt.blockAlign     = config.blockAlign;
+    pWav->fmt.bitsPerSample  = 4;
+    pWav->fmt.extendedSize   = 32;      /* 2 (samplesPerBlock) + 2 (numCoef) + 7*4 (coef pairs). */
+
+    pWav->msadpcmWrite.isActive              = DRWAV_TRUE;
+    pWav->msadpcmWrite.failed                = DRWAV_FALSE;
+    pWav->msadpcmWrite.config                = config;
+    pWav->msadpcmWrite.framesPerBlock        = framesPerBlock;
+    pWav->msadpcmWrite.pendingFrameCount     = 0;
+    pWav->msadpcmWrite.totalPCMFramesWritten = 0;
+    pWav->msadpcmWrite.pPCMBuffer            = NULL;
+    pWav->msadpcmWrite.pBlockBuffer          = NULL;
+
+    /* Buffer at most a single block of PCM data and a single encoded block. */
+    pWav->msadpcmWrite.pPCMBuffer = (drwav_int16*)drwav__malloc_from_callbacks((size_t)framesPerBlock * config.channels * sizeof(drwav_int16), &pWav->allocationCallbacks);
+    if (pWav->msadpcmWrite.pPCMBuffer == NULL) {
+        pWav->msadpcmWrite.isActive = DRWAV_FALSE;
+        return DRWAV_FALSE;
+    }
+
+    pWav->msadpcmWrite.pBlockBuffer = (drwav_uint8*)drwav__malloc_from_callbacks((size_t)config.blockAlign, &pWav->allocationCallbacks);
+    if (pWav->msadpcmWrite.pBlockBuffer == NULL) {
+        drwav__free_from_callbacks(pWav->msadpcmWrite.pPCMBuffer, &pWav->allocationCallbacks);
+        pWav->msadpcmWrite.pPCMBuffer = NULL;
+        pWav->msadpcmWrite.isActive = DRWAV_FALSE;
+        return DRWAV_FALSE;
+    }
+
+    /* Build and write the header. Sizes and the fact count are patched in drwav_uninit(). */
+    headerPos = 0;
+    DRWAV_COPY_MEMORY(header + headerPos, "RIFF", 4); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, 0); headerPos += 4;    /* RIFF chunk size (patched at the end). */
+    DRWAV_COPY_MEMORY(header + headerPos, "WAVE", 4); headerPos += 4;
+
+    DRWAV_COPY_MEMORY(header + headerPos, "fmt ", 4); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, 50); headerPos += 4;   /* 16 + 2 (cbSize) + 32. */
+
+    drwav__msadpcm_set_u16le(header + headerPos, DR_WAVE_FORMAT_ADPCM); headerPos += 2;
+    drwav__msadpcm_set_u16le(header + headerPos, (drwav_uint16)config.channels); headerPos += 2;
+    drwav__msadpcm_set_u32le(header + headerPos, config.sampleRate); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, (drwav_uint32)avgBytesPerSec); headerPos += 4;
+    drwav__msadpcm_set_u16le(header + headerPos, config.blockAlign); headerPos += 2;
+    drwav__msadpcm_set_u16le(header + headerPos, 4); headerPos += 2;
+    drwav__msadpcm_set_u16le(header + headerPos, 32); headerPos += 2;   /* cbSize. */
+    drwav__msadpcm_set_u16le(header + headerPos, (drwav_uint16)framesPerBlock); headerPos += 2;
+    drwav__msadpcm_set_u16le(header + headerPos, 7); headerPos += 2;    /* Number of coefficient pairs. */
+    for (iCoefficient = 0; iCoefficient < 7; iCoefficient += 1) {
+        drwav__msadpcm_set_u16le(header + headerPos, (drwav_uint16)drwav__msadpcm_coeff1Table[iCoefficient]); headerPos += 2;
+        drwav__msadpcm_set_u16le(header + headerPos, (drwav_uint16)drwav__msadpcm_coeff2Table[iCoefficient]); headerPos += 2;
+    }
+
+    DRWAV_COPY_MEMORY(header + headerPos, "fact", 4); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, 4); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, 0); headerPos += 4;    /* Real PCM frame count (patched at the end). */
+
+    DRWAV_COPY_MEMORY(header + headerPos, "data", 4); headerPos += 4;
+    drwav__msadpcm_set_u32le(header + headerPos, 0); headerPos += 4;    /* Data chunk size (patched at the end). */
+
+    DRWAV_ASSERT(headerPos == 90);
+    DRWAV_ASSERT(pWav->dataChunkDataPos == headerPos);
+
+    if (!drwav__msadpcm_write_bytes(pWav, header, headerPos)) {
+        drwav__free_from_callbacks(pWav->msadpcmWrite.pBlockBuffer, &pWav->allocationCallbacks);
+        drwav__free_from_callbacks(pWav->msadpcmWrite.pPCMBuffer, &pWav->allocationCallbacks);
+        pWav->msadpcmWrite.pBlockBuffer = NULL;
+        pWav->msadpcmWrite.pPCMBuffer   = NULL;
+        pWav->msadpcmWrite.isActive     = DRWAV_FALSE;
+        return DRWAV_FALSE;
+    }
+
+    return DRWAV_TRUE;
+}
+
+DRWAV_API drwav_uint64 drwav_write_msadpcm_pcm_frames(drwav* pWav, drwav_uint64 framesToWrite, const drwav_int16* pData)
+{
+    drwav_uint64 framesAccepted = 0;
+    drwav_uint32 channels;
+
+    if (pWav == NULL || pWav->msadpcmWrite.isActive == DRWAV_FALSE) {
+        return 0;
+    }
+
+    if (framesToWrite == 0 || pData == NULL) {
+        return 0;
+    }
+
+    if (pWav->msadpcmWrite.failed) {
+        return 0;
+    }
+
+    channels = pWav->msadpcmWrite.config.channels;
+
+    while (framesAccepted < framesToWrite) {
+        drwav_uint64 framesToCopy = (drwav_uint64)(pWav->msadpcmWrite.framesPerBlock - pWav->msadpcmWrite.pendingFrameCount);
+        if (framesToCopy > (framesToWrite - framesAccepted)) {
+            framesToCopy = framesToWrite - framesAccepted;
+        }
+
+        DRWAV_COPY_MEMORY(
+            pWav->msadpcmWrite.pPCMBuffer + (size_t)pWav->msadpcmWrite.pendingFrameCount * channels,
+            pData + (size_t)framesAccepted * channels,
+            (size_t)framesToCopy * channels * sizeof(drwav_int16)
+        );
+
+        pWav->msadpcmWrite.pendingFrameCount += (drwav_uint32)framesToCopy;
+        framesAccepted += framesToCopy;
+
+        if (pWav->msadpcmWrite.pendingFrameCount == pWav->msadpcmWrite.framesPerBlock) {
+            if (!drwav__msadpcm_write_pending_block(pWav)) {
+                framesAccepted -= framesToCopy;    /* The frames in this block were not committed. */
+                break;
+            }
+        }
+    }
+
+    return framesAccepted;
+}
+
+DRWAV_PRIVATE drwav_result drwav__msadpcm_write_finalize(drwav* pWav)
+{
+    drwav_result result = DRWAV_SUCCESS;
+    drwav_bool32 ok = DRWAV_TRUE;
+    drwav_uint64 dataSize;
+    drwav_uint32 paddingSize;
+    drwav_uint64 factCount;
+
+    if (pWav->msadpcmWrite.failed) {
+        ok = DRWAV_FALSE;
+    }
+
+    /* Flush the final partial block. Zero frames means no audio block at all. */
+    if (ok && pWav->msadpcmWrite.pendingFrameCount > 0) {
+        if (!drwav__msadpcm_write_pending_block(pWav)) {
+            ok = DRWAV_FALSE;
+        }
+    }
+
+    dataSize    = pWav->dataChunkDataSize;
+    paddingSize = drwav_calculate_padding_size(pWav->container, dataSize);
+    factCount   = pWav->msadpcmWrite.totalPCMFramesWritten;
+
+    /* The data size and fact count are stored as 32-bit values in RIFF. */
+    if (dataSize > 0xFFFFFFFF || factCount > 0xFFFFFFFF) {
+        ok = DRWAV_FALSE;
+    }
+
+    if (ok && paddingSize > 0) {
+        drwav_uint8 padding = 0;
+        if (!drwav__msadpcm_write_bytes(pWav, &padding, 1)) {
+            ok = DRWAV_FALSE;
+        }
+    }
+
+    if (ok) {
+        drwav_uint32 factCount32  = (drwav_uint32)factCount;
+        drwav_uint32 dataSize32   = (drwav_uint32)dataSize;
+        drwav_uint32 riffSize32   = (drwav_uint32)(82 + dataSize + paddingSize);  /* File size minus the RIFF header. */
+
+        if (!drwav__msadpcm_seek(pWav, 78) || !drwav__msadpcm_write_bytes(pWav, &factCount32, 4)) {
+            ok = DRWAV_FALSE;
+        }
+        if (ok && (!drwav__msadpcm_seek(pWav, 86) || !drwav__msadpcm_write_bytes(pWav, &dataSize32, 4))) {
+            ok = DRWAV_FALSE;
+        }
+        if (ok && (!drwav__msadpcm_seek(pWav, 4) || !drwav__msadpcm_write_bytes(pWav, &riffSize32, 4))) {
+            ok = DRWAV_FALSE;
+        }
+    }
+
+    if (!ok) {
+        pWav->msadpcmWrite.failed = DRWAV_TRUE;
+    }
+
+    /* Always release the encoder buffers, whether or not writing succeeded. */
+    drwav__free_from_callbacks(pWav->msadpcmWrite.pBlockBuffer, &pWav->allocationCallbacks);
+    drwav__free_from_callbacks(pWav->msadpcmWrite.pPCMBuffer,   &pWav->allocationCallbacks);
+    pWav->msadpcmWrite.pBlockBuffer = NULL;
+    pWav->msadpcmWrite.pPCMBuffer   = NULL;
+    pWav->msadpcmWrite.isActive     = DRWAV_FALSE;
+
+    if (!ok) {
+        result = DRWAV_ERROR;
+    }
+
+    return result;
 }
 
 
