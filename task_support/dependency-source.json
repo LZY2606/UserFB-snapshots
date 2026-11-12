@@ -1,0 +1,9 @@
+{
+  "catch2": {
+    "version": "3.12.0",
+    "source": "existing upstream Tests/Contrib/catch2/catch_amalgamated.{hpp,cpp}",
+    "license_source": "https://github.com/catchorg/Catch2/blob/88abf9bf325c798c33f54f6b9220ef885b267f4f/LICENSE.txt",
+    "license_sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+  },
+  "harness": "Added starting-point witness and test execution gate; no weighted path implementation or target tests included."
+}
