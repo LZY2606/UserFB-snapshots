@@ -142,3 +142,54 @@ Users: 30 users included
 Storage: 15 GB of storage
 Details: (No link available)
 ```
+
+## Relative selectors: `:has()` and `:haschild()`
+
+The argument of `:has()` (and `:haschild()`) is a comma-separated list of
+relative selectors. Each branch is evaluated starting from the element the
+pseudo-class is tested on — the anchor — and the anchor is only in charge of
+the branch's first step:
+
+- a branch with no leading combinator takes a **descendant** first step
+  (`:haschild()` instead defaults to a **child** first step);
+- `>` takes a **child** first step;
+- `+` takes the **adjacent element sibling** first step;
+- `~` takes a **subsequent element sibling** first step.
+
+Whitespace text nodes and comments are not element siblings, so they do not
+occupy a `+` or `~` position. The anchor itself and its ancestors can never
+be the targets of the descendant or child first step.
+
+After the first step, the rest of the branch is an ordinary selector chain.
+Only the first step is constrained to the anchor's subtree: `+` and `~` can
+reach the anchor's siblings, and later combinators may follow descendants,
+children or siblings from there.
+
+```go
+// Matches articles that contain a .flag somewhere underneath them.
+// The implicit first step is a descendant search.
+`article:has(.flag)`
+
+// Matches only when an h2 is a direct child of the article, and a .flag is
+// its descendant. An h2 nested deeper does not satisfy the child step.
+`article:has(> h2 .flag)`
+
+// The adjacent sibling may live outside the article's subtree; the trailing
+// descendant combinator then searches inside that sibling.
+`article:has(+ aside .flag)`
+
+// A two-step chain after the anchored child step: the direct h2 must be
+// immediately followed by a paragraph that contains a link.
+`article:has(> h2 + p a)`
+
+// :haschild() keeps its implicit child first step, but supports the same
+// complex chains after it.
+`article:haschild(h2 + p a)`
+```
+
+A selector matches when any comma branch succeeds; an element matched by
+several branches is still returned only once. The usual compound conditions,
+`:not()`, `:is()` and the positional pseudo-classes can be used anywhere in
+the chain, and the compiled selector always evaluates against the tree as it
+currently stands, so the same compiled object can be reused across documents
+and after the document's sibling order changes.

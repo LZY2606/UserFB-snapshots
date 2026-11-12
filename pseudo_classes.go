@@ -61,25 +61,64 @@ func (s relativePseudoClassSelector) Match(n *html.Node) bool {
 	}
 }
 
-// relativeMatch reports whether n matches a relative selector with the given
-// combinator, i.e. whether walking from n via combinator finds a node matching sel.
+// relativeStep is one compound of a flattened relative selector chain.
+// combinator is the combinator preceding compound, or 0 for the first
+// compound, whose combinator is supplied by the :has()/:haschild() anchor.
+type relativeStep struct {
+	combinator byte
+	compound   Sel
+}
+
+// flattenRelativeSelector turns the right-leaning combinedSelector tree
+// produced by the parser into a left-to-right list of compounds and the
+// combinators that join them.
+func flattenRelativeSelector(sel Sel) []relativeStep {
+	var steps []relativeStep
+	var walk func(Sel)
+	walk = func(s Sel) {
+		if c, ok := s.(combinedSelector); ok {
+			walk(c.first)
+			steps = append(steps, relativeStep{combinator: c.combinator, compound: c.second})
+			return
+		}
+		steps = append(steps, relativeStep{compound: s})
+	}
+	walk(sel)
+	return steps
+}
+
+// relativeMatch reports whether the relative selector sel matches when its
+// first step leaves the anchor n through combinator. Only that first step is
+// anchored to n: once it has been taken, the rest of the chain is evaluated
+// normally and may reach the anchor's siblings (or further) through '+' and
+// '~'. The implicit combinator (0) has already been resolved by the caller:
+// descendant for :has(), child for :haschild().
 func relativeMatch(n *html.Node, combinator byte, sel Sel) bool {
-	sg := SelectorGroup{sel}
+	steps := flattenRelativeSelector(sel)
+	e := &relativeEval{steps: steps, memo: map[relativeChainState]bool{}}
+	first := steps[0].compound
 	switch combinator {
 	case ' ':
-		return hasDescendantMatch(n, sg)
+		// Descendant first step: search n's subtree. The anchor itself and
+		// its ancestors are never candidates.
+		return e.descendantFirst(n, first)
 	case '>':
-		return hasChildMatch(n, sg)
-	case '+':
-		for c := n.NextSibling; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode {
-				return sg.Match(c)
+		// Child first step: only n's own element children are candidates.
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && first.Match(c) && e.chain(c, 1) {
+				return true
 			}
 		}
 		return false
+	case '+':
+		// Adjacent sibling first step: the first element sibling following n.
+		// Text nodes and comments do not occupy an element-sibling position.
+		c := nextElementSibling(n)
+		return c != nil && first.Match(c) && e.chain(c, 1)
 	case '~':
+		// Subsequent-sibling first step.
 		for c := n.NextSibling; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode && sg.Match(c) {
+			if c.Type == html.ElementNode && first.Match(c) && e.chain(c, 1) {
 				return true
 			}
 		}
@@ -89,26 +128,99 @@ func relativeMatch(n *html.Node, combinator byte, sel Sel) bool {
 	}
 }
 
-// hasChildMatch returns whether n has any child that matches a.
-func hasChildMatch(n *html.Node, a SelectorGroup) bool {
+// relativeChainState identifies one point of a forward chain evaluation:
+// node reached with steps[idx:] still to walk.
+type relativeChainState struct {
+	node *html.Node
+	idx  int
+}
+
+// relativeEval runs the forward walk of a flattened relative chain, memoized
+// per (node, chain position) so that long descendant chains stay linear in
+// the tree size instead of re-exploring the same subtree for every branch.
+type relativeEval struct {
+	steps []relativeStep
+	memo  map[relativeChainState]bool
+}
+
+// descendantFirst implements the anchored descendant (or child) first step:
+// it searches n's element subtree for a node matching first, from which the
+// rest of the chain matches.
+func (e *relativeEval) descendantFirst(n *html.Node, first Matcher) bool {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if a.Match(c) {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		if first.Match(c) && e.chain(c, 1) {
+			return true
+		}
+		if e.descendantFirst(c, first) {
 			return true
 		}
 	}
 	return false
 }
 
-// hasDescendantMatch performs a depth-first search of n's descendants,
-// testing whether any of them match a. It returns true as soon as a match is
-// found, or false if no match is found.
-func hasDescendantMatch(n *html.Node, a SelectorGroup) bool {
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if a.Match(c) || (c.Type == html.ElementNode && hasDescendantMatch(c, a)) {
-			return true
+// chain reports whether steps[idx:] can be walked from n. Unlike the anchored
+// first step, these combinators are unrestricted: '+' and '~' may leave the
+// anchor's subtree.
+func (e *relativeEval) chain(n *html.Node, idx int) bool {
+	if idx == len(e.steps) {
+		return true
+	}
+	key := relativeChainState{n, idx}
+	if result, seen := e.memo[key]; seen {
+		return result
+	}
+	step := e.steps[idx]
+	result := false
+	switch step.combinator {
+	case ' ':
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type != html.ElementNode {
+				continue
+			}
+			if step.compound.Match(c) && e.chain(c, idx+1) {
+				result = true
+				break
+			}
+			// The descendant combinator also allows skipping this level.
+			if e.chain(c, idx) {
+				result = true
+				break
+			}
+		}
+	case '>':
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && step.compound.Match(c) && e.chain(c, idx+1) {
+				result = true
+				break
+			}
+		}
+	case '+':
+		c := nextElementSibling(n)
+		result = c != nil && step.compound.Match(c) && e.chain(c, idx+1)
+	case '~':
+		for c := n.NextSibling; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && step.compound.Match(c) && e.chain(c, idx+1) {
+				result = true
+				break
+			}
 		}
 	}
-	return false
+	e.memo[key] = result
+	return result
+}
+
+// nextElementSibling returns the first element node following n, skipping
+// text and comment nodes, or nil if there is none.
+func nextElementSibling(n *html.Node) *html.Node {
+	for c := n.NextSibling; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode {
+			return c
+		}
+	}
+	return nil
 }
 
 // Specificity returns the specificity of the most specific selectors
