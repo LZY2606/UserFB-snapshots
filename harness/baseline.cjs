@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const jp=require('../jmespath');
+const data={threshold:2,rows:[{id:'a',n:1},{id:'b',n:3}]};
+assert.deepEqual(jp.search(data,'rows[?n > `2`].id'),['b']);
+assert.deepEqual(jp.search(data,'map(&id, rows)'),['a','b']);
+let count=0;
+global.describe=(_n,f)=>f();global.it=(_n,f)=>{f();count++;};
+require('../test/jmespath');require('../test/compliance');
+assert.ok(count>500);console.log('LEGACY_CASES='+count);
+console.log('JMESPATH_BASELINE_OK');
