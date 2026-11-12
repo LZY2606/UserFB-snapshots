@@ -38,6 +38,34 @@ $ build/test_shapes
 $ build/test_octasphere
 ```
 
+## sweeping an elliptical hose
+
+`par_shapes_create_sweep` lays an elliptical tube along an arbitrary spatial
+polyline.  Pass the flattened center points, one 2-tuple of positive
+semi-axes per point, the number of circumference segments, whether the
+polyline is closed, and a seed direction for the first cross section:
+
+```c
+float centers[3][3] = {
+    {0, 0, 0}, {2, 0, 0}, {2, 2, 1}
+};
+float semiaxes[3][2] = {
+    {0.5f, 0.3f}, {0.45f, 0.28f}, {0.4f, 0.25f}
+};
+float seed[3] = {0, 1, 0};
+par_shapes_mesh* hose = par_shapes_create_sweep(
+    &centers[0][0], 3, &semiaxes[0][0], 24, /*closed=*/false, seed);
+```
+
+Cross sections are oriented by parallel transport: the seed is projected onto
+the first normal plane, and each following frame uses the shortest rotation
+between consecutive tangents, so straight runs keep a fixed world-space
+frame.  For closed loops the residual twist is distributed over the whole
+arc length instead of being applied at the closing edge.  The resulting mesh
+contains points, triangles, smooth area-weighted normals and arc-length based
+texture coordinates, and can be fed straight into the transform, weld and
+merge helpers.  Release it with `par_shapes_free_mesh`.
+
 ## code formatting
 
 This library's code style is strictly enforced to be vertically dense (no consecutive newlines) and 100 columns or less.

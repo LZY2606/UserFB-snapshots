@@ -93,6 +93,54 @@ par_shapes_mesh* par_shapes_create_trefoil_knot(int slices, int stacks,
 par_shapes_mesh* par_shapes_create_hemisphere(int slices, int stacks);
 par_shapes_mesh* par_shapes_create_plane(int slices, int stacks);
 
+// Sweep an elliptical hose along a spatial polyline.  The centers array is a
+// flattened list of "npoints" 3-tuples, and semiaxes is a flattened list of
+// "npoints" 2-tuples holding the two positive semi-axis lengths (the major
+// axis first, the minor axis second) used by the cross section at each point.
+// "slices" is the number of segments around the circumference, and "closed"
+// says whether the polyline loops back onto itself; closed input does not
+// repeat the first point.  "initial_direction" is a 3D vector that seeds the
+// major-axis orientation at the first ring; it only needs a nonzero component
+// perpendicular to the first tangent.  Open sweeps have no end caps.  The
+// returned mesh is owned by the caller and released with par_shapes_free_mesh.
+//
+// Discrete frame conventions:
+//   - Tangents at the two end points of an open path follow the adjacent
+//     segment.  At every other point the tangent is the normalized sum of the
+//     two incident unit segment vectors.  Closed paths treat every point as
+//     an interior point with cyclic neighbors.  Opposite incident directions
+//     leave the tangent undefined, so the call fails.
+//   - The initial direction is projected onto the plane normal to the first
+//     tangent and normalized to obtain the first major axis.  Each following
+//     major axis is found by applying the shortest rotation that takes the
+//     previous tangent to the current one, so straight runs keep a fixed
+//     world-space frame and the long axis stays continuous through corners.
+//   - The minor axis is the tangent crossed with the major axis.
+//   - On a closed path the transported frame comes back with a residual twist,
+//     measured as the principal signed angle in the range (-pi, pi] (an exact
+//     half turn stays positive).  The twist is removed gradually, rotating
+//     each ring around its tangent in proportion to cumulative arc length,
+//     which includes the closing segment rather than dumping the correction
+//     onto a single edge.
+//
+// Mesh layout: vertices are ordered ring by ring, and within each ring by
+// circumference angle.  Every ring keeps a duplicated angular endpoint, and a
+// closed sweep duplicates the first ring at the end with identical positions
+// and normals.  Texture coordinates store the arc-length fraction (0 to 1)
+// first and the angular fraction second.  Normals are accumulated area
+// weighted from the final discrete triangles and shared across both periodic
+// seams; they are not simple radial vectors.
+//
+// Returns null when any coordinate is non-finite, a semi-axis is not positive,
+// consecutive points coincide, an interior tangent is undefined, the initial
+// direction cannot be projected onto the first normal plane, slices is less
+// than 3, there are too few points (closed paths need at least three), or the
+// vertex count overflows the integer arithmetic or PAR_SHAPES_T capacity.
+// Failed calls perform no allocation that survives and never modify input.
+par_shapes_mesh* par_shapes_create_sweep(float const* centers, int npoints,
+    float const* semiaxes, int slices, bool closed,
+    float const* initial_direction);
+
 // Create a parametric surface from a callback function that consumes a 2D
 // point in [0,1] and produces a 3D point.
 typedef void (*par_shapes_fn)(float const*, float*, void*);
@@ -237,6 +285,10 @@ static void par_shapes__cylinder(float const* uv, float* xyz, void*);
 static void par_shapes__cone(float const* uv, float* xyz, void*);
 static void par_shapes__torus(float const* uv, float* xyz, void*);
 static void par_shapes__trefoil(float const* uv, float* xyz, void*);
+static void par_shapes__add_scaled3(float* result, float const* a, float s);
+static int par_shapes__finite3(float const* v);
+static int par_shapes__rotate_vector3(float* result, float const* v,
+    float const* from, float const* to);
 
 struct osn_context;
 static int par__simplex_noise(int64_t seed, struct osn_context** ctx);
@@ -497,6 +549,351 @@ par_shapes_mesh* par_shapes_create_parametric(par_shapes_fn fn,
     }
 
     par_shapes__compute_welded_normals(mesh);
+    return mesh;
+}
+
+static void par_shapes__add_scaled3(float* result, float const* a, float s)
+{
+    result[0] += a[0] * s;
+    result[1] += a[1] * s;
+    result[2] += a[2] * s;
+}
+
+static int par_shapes__isfinitef(float x)
+{
+    // NaN fails the self comparison; infinities produce NaN when scaled by 0.
+    return x == x && x * 0.0f == 0.0f;
+}
+
+static int par_shapes__finite3(float const* v)
+{
+    return par_shapes__isfinitef(v[0]) && par_shapes__isfinitef(v[1])
+        && par_shapes__isfinitef(v[2]);
+}
+
+// Rotate unit vector v around the given unit axis by ang radians (Rodrigues).
+static void par_shapes__rotate_around3(float* result, float const* v,
+    float const* axis, float ang)
+{
+    float s = sinf(ang);
+    float c = cosf(ang);
+    float k = 1.0f - c;
+    float x = axis[0], y = axis[1], z = axis[2];
+    result[0] = v[0] * (c + x * x * k) + v[1] * (x * y * k - z * s)
+        + v[2] * (x * z * k + y * s);
+    result[1] = v[0] * (y * x * k + z * s) + v[1] * (c + y * y * k)
+        + v[2] * (y * z * k - x * s);
+    result[2] = v[0] * (z * x * k - y * s) + v[1] * (z * y * k + x * s)
+        + v[2] * (c + z * z * k);
+}
+
+// Apply the shortest rotation that takes unit vector "from" to unit vector
+// "to".  Returns 0 when the two are exact opposites, since the rotation axis
+// is undefined there.
+static int par_shapes__rotate_vector3(float* result, float const* v,
+    float const* from, float const* to)
+{
+    float axis[3];
+    par_shapes__cross3(axis, from, to);
+    float axislen2 = par_shapes__dot3(axis, axis);
+    float d = par_shapes__dot3(from, to);
+    if (axislen2 > 1e-20f) {
+        par_shapes__scale3(axis, 1.0f / sqrtf(axislen2));
+        float ang = atan2f(sqrtf(axislen2), d);
+        par_shapes__rotate_around3(result, v, axis, ang);
+        return 1;
+    }
+    if (d > 0.0f) {
+        par_shapes__copy3(result, v);
+        return 1;
+    }
+    return 0;
+}
+
+par_shapes_mesh* par_shapes_create_sweep(float const* centers, int npoints,
+    float const* semiaxes, int slices, bool closed,
+    float const* initial_direction)
+{
+    if (!centers || !semiaxes || !initial_direction) {
+        return 0;
+    }
+    if (slices < 3 || npoints < 2 || (closed && npoints < 3)) {
+        return 0;
+    }
+    if (slices > INT32_MAX - 2 || npoints > INT32_MAX / 8) {
+        return 0;
+    }
+
+    int nseg = closed ? npoints : npoints - 1;
+    int nring = npoints + (closed ? 1 : 0);
+    int ringverts = slices + 1;
+
+    // Check every product that feeds an allocation or an index buffer.  This
+    // runs before any array is touched, so absurdly large counts fail safely.
+    int64_t nverts64 = (int64_t) nring * ringverts;
+    int64_t ntriangles64 = 2 * (int64_t) nseg * slices;
+    PAR_SHAPES_T index_cap = (PAR_SHAPES_T)(-1);
+    if (nverts64 > INT32_MAX || 3 * nverts64 > INT32_MAX
+        || 2 * nverts64 > INT32_MAX || ntriangles64 > INT32_MAX / 3
+        || nverts64 > (int64_t) index_cap) {
+        return 0;
+    }
+    int nverts = (int) nverts64;
+    int ntriangles = (int) ntriangles64;
+
+    // Validate every input value before allocating anything.
+    for (int i = 0; i < npoints; i++) {
+        float const* c = centers + 3 * i;
+        float const* axes = semiaxes + 2 * i;
+        if (!par_shapes__finite3(c) || !par_shapes__isfinitef(axes[0])
+            || !par_shapes__isfinitef(axes[1]) || !(axes[0] > 0.0f)
+            || !(axes[1] > 0.0f)) {
+            return 0;
+        }
+    }
+    if (!par_shapes__finite3(initial_direction)) {
+        return 0;
+    }
+
+    // One scratch block holds segment lengths, cumulative arc length,
+    // tangents and major axes, so every failure path has a single free.
+    int scratch_count = nseg + (npoints + 1) + 6 * npoints;
+    float* scratch = PAR_CALLOC(float, scratch_count);
+    if (!scratch) {
+        return 0;
+    }
+    float* seglen = scratch;
+    float* cum = seglen + nseg;
+    float* tangents = cum + npoints + 1;
+    float* major = tangents + 3 * npoints;
+
+    float total = 0.0f;
+    for (int s = 0; s < nseg; s++) {
+        int j = (s + 1) % npoints;
+        float d[3];
+        d[0] = centers[3 * j] - centers[3 * s];
+        d[1] = centers[3 * j + 1] - centers[3 * s + 1];
+        d[2] = centers[3 * j + 2] - centers[3 * s + 2];
+        float len = sqrtf(par_shapes__dot3(d, d));
+        if (!(len > 0.0f)) {
+            PAR_FREE(scratch);
+            return 0;
+        }
+        seglen[s] = len;
+        total += len;
+    }
+    if (!(total > 0.0f) || !par_shapes__isfinitef(total)) {
+        PAR_FREE(scratch);
+        return 0;
+    }
+    cum[0] = 0.0f;
+    for (int s = 0; s < nseg; s++) {
+        cum[s + 1] = cum[s] + seglen[s];
+    }
+
+    // Tangents: adjacent segment at the open ends, the normalized sum of the
+    // two incident unit segments everywhere else (cyclic when closed).
+    for (int i = 0; i < npoints; i++) {
+        int segids[2];
+        int nids;
+        if (!closed && i == 0) {
+            segids[0] = 0;
+            nids = 1;
+        } else if (!closed && i == npoints - 1) {
+            segids[0] = nseg - 1;
+            nids = 1;
+        } else {
+            segids[0] = closed ? (i + npoints - 1) % npoints : i - 1;
+            segids[1] = i;
+            nids = 2;
+        }
+        float sum[3] = {0, 0, 0};
+        for (int q = 0; q < nids; q++) {
+            int s = segids[q];
+            int a = s;
+            int b = (s + 1) % npoints;
+            float inv = 1.0f / seglen[s];
+            float dir[3];
+            dir[0] = (centers[3 * b] - centers[3 * a]) * inv;
+            dir[1] = (centers[3 * b + 1] - centers[3 * a + 1]) * inv;
+            dir[2] = (centers[3 * b + 2] - centers[3 * a + 2]) * inv;
+            par_shapes__add3(sum, dir);
+        }
+        if (par_shapes__dot3(sum, sum) <= 1e-12f) {
+            PAR_FREE(scratch);
+            return 0;
+        }
+        par_shapes__normalize3(sum);
+        tangents[3 * i] = sum[0];
+        tangents[3 * i + 1] = sum[1];
+        tangents[3 * i + 2] = sum[2];
+    }
+
+    // Seed the major axis by projecting onto the first normal plane.
+    float const* t0 = tangents;
+    float seed[3];
+    par_shapes__copy3(seed, initial_direction);
+    float proj = par_shapes__dot3(seed, t0);
+    seed[0] -= t0[0] * proj;
+    seed[1] -= t0[1] * proj;
+    seed[2] -= t0[2] * proj;
+    float seedlen2 = par_shapes__dot3(seed, seed);
+    if (!(seedlen2 > 0.0f) || !par_shapes__isfinitef(seedlen2)) {
+        PAR_FREE(scratch);
+        return 0;
+    }
+    par_shapes__normalize3(seed);
+    major[0] = seed[0];
+    major[1] = seed[1];
+    major[2] = seed[2];
+
+    // Parallel transport with the shortest rotation between tangents.
+    for (int i = 1; i < npoints; i++) {
+        if (!par_shapes__rotate_vector3(major + 3 * i, major + 3 * (i - 1),
+                tangents + 3 * (i - 1), tangents + 3 * i)) {
+            PAR_FREE(scratch);
+            return 0;
+        }
+        par_shapes__normalize3(major + 3 * i);
+    }
+
+    if (closed) {
+        // Measure the residual twist across the closing edge, taking the
+        // principal value so an exact half turn resolves to positive pi.
+        float transported[3];
+        if (!par_shapes__rotate_vector3(transported, major + 3 * (npoints - 1),
+                tangents + 3 * (npoints - 1), tangents)) {
+            PAR_FREE(scratch);
+            return 0;
+        }
+        float axis[3];
+        par_shapes__cross3(axis, transported, major);
+        float signed_s = par_shapes__dot3(axis, tangents);
+        float signed_c = par_shapes__dot3(transported, major);
+        float twist = atan2f(signed_s, signed_c);
+        // Principal value with an exact half turn resolved to positive pi.
+        if (signed_s == 0.0f && signed_c < 0.0f) {
+            twist = (float) PAR_PI;
+        }
+
+        // Spread the correction over cumulative arc length, closing edge
+        // included, so the duplicate end ring matches the first ring.
+        for (int i = 0; i < npoints; i++) {
+            float ang = twist * cum[i] / total;
+            float rotated[3];
+            par_shapes__rotate_around3(rotated, major + 3 * i,
+                tangents + 3 * i, ang);
+            par_shapes__copy3(major + 3 * i, rotated);
+        }
+    }
+
+    par_shapes_mesh* mesh = PAR_CALLOC(par_shapes_mesh, 1);
+    if (!mesh) {
+        PAR_FREE(scratch);
+        return 0;
+    }
+    mesh->npoints = nverts;
+    mesh->ntriangles = ntriangles;
+    mesh->points = PAR_MALLOC(float, 3 * nverts);
+    mesh->normals = PAR_CALLOC(float, 3 * nverts);
+    mesh->tcoords = PAR_MALLOC(float, 2 * nverts);
+    mesh->triangles = PAR_MALLOC(PAR_SHAPES_T, 3 * ntriangles);
+    if (!mesh->points || !mesh->normals || !mesh->tcoords
+        || !mesh->triangles) {
+        par_shapes_free_mesh(mesh);
+        PAR_FREE(scratch);
+        return 0;
+    }
+
+    // Rings first, circumference second; each ring keeps its angular seam.
+    for (int r = 0; r < nring; r++) {
+        int pi = closed ? r % npoints : r;
+        float const* center = centers + 3 * pi;
+        float const* tangent = tangents + 3 * pi;
+        float const* majax = major + 3 * pi;
+        float minax[3];
+        par_shapes__cross3(minax, tangent, majax);
+        float major_len = semiaxes[2 * pi];
+        float minor_len = semiaxes[2 * pi + 1];
+        float upath = closed && r == npoints ? 1.0f : cum[r] / total;
+        for (int k = 0; k <= slices; k++) {
+            float theta = 2.0f * (float) PAR_PI * k / slices;
+            int vert = r * ringverts + k;
+            float* p = mesh->points + 3 * vert;
+            par_shapes__copy3(p, center);
+            par_shapes__add_scaled3(p, majax, major_len * cosf(theta));
+            par_shapes__add_scaled3(p, minax, minor_len * sinf(theta));
+            float* uv = mesh->tcoords + 2 * vert;
+            uv[0] = upath;
+            uv[1] = (float) k / slices;
+        }
+    }
+
+    // Fixed diagonal per quad, wound so the geometric normal points outward.
+    PAR_SHAPES_T* face = mesh->triangles;
+    for (int r = 0; r < nseg; r++) {
+        int base0 = r * ringverts;
+        int base1 = (r + 1) * ringverts;
+        for (int k = 0; k < slices; k++) {
+            *face++ = (PAR_SHAPES_T)(base0 + k);
+            *face++ = (PAR_SHAPES_T)(base1 + k + 1);
+            *face++ = (PAR_SHAPES_T)(base1 + k);
+            *face++ = (PAR_SHAPES_T)(base0 + k);
+            *face++ = (PAR_SHAPES_T)(base0 + k + 1);
+            *face++ = (PAR_SHAPES_T)(base1 + k + 1);
+        }
+    }
+
+    // Area-weighted normals accumulated from the final discrete triangles.
+    float* normals = mesh->normals;
+    for (int f = 0; f < ntriangles; f++) {
+        PAR_SHAPES_T const* tri = mesh->triangles + 3 * f;
+        float const* pa = mesh->points + 3 * tri[0];
+        float const* pb = mesh->points + 3 * tri[1];
+        float const* pc = mesh->points + 3 * tri[2];
+        float e1[3], e2[3], cp[3];
+        e1[0] = pb[0] - pa[0];
+        e1[1] = pb[1] - pa[1];
+        e1[2] = pb[2] - pa[2];
+        e2[0] = pc[0] - pa[0];
+        e2[1] = pc[1] - pa[1];
+        e2[2] = pc[2] - pa[2];
+        par_shapes__cross3(cp, e1, e2);
+        par_shapes__add3(normals + 3 * tri[0], cp);
+        par_shapes__add3(normals + 3 * tri[1], cp);
+        par_shapes__add3(normals + 3 * tri[2], cp);
+    }
+
+    // Share accumulations across the angular seam of every ring.
+    for (int r = 0; r < nring; r++) {
+        float* seam = normals + 3 * (r * ringverts + slices);
+        float* start = normals + 3 * r * ringverts;
+        start[0] += seam[0];
+        start[1] += seam[1];
+        start[2] += seam[2];
+        seam[0] = start[0];
+        seam[1] = start[1];
+        seam[2] = start[2];
+    }
+
+    // Share accumulations across the closure seam, then normalize all.
+    if (closed) {
+        for (int k = 0; k <= slices; k++) {
+            float* first = normals + 3 * k;
+            float* last = normals + 3 * (npoints * ringverts + k);
+            first[0] += last[0];
+            first[1] += last[1];
+            first[2] += last[2];
+            last[0] = first[0];
+            last[1] = first[1];
+            last[2] = first[2];
+        }
+    }
+    for (int i = 0; i < nverts; i++) {
+        par_shapes__normalize3(normals + 3 * i);
+    }
+
+    PAR_FREE(scratch);
     return mesh;
 }
 
