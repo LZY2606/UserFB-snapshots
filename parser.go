@@ -40,6 +40,7 @@ type lineInfo struct {
 	vs string         // String value of the key
 	vf float64        // Float value of the key
 	vr *regexp.Regexp // Regexp value of the key
+	vp string         // Original path text as received (after parse-stage normalization)
 }
 
 func newParser(tokens []string) *parser {
@@ -93,9 +94,9 @@ func (p *parser) parseAll() (groups map[string]*Group, host string, sitemaps []s
 					isEmptyGroup = false
 					var r *rule
 					if li.vr != nil {
-						r = &rule{"", false, li.vr}
+						r = &rule{path: "", allow: false, pattern: li.vr, raw: li.vp}
 					} else {
-						r = &rule{li.vs, false, nil}
+						r = &rule{path: li.vs, allow: false, raw: li.vp}
 					}
 					parseGroupMap(groups, agents, func(g *Group) { g.rules = append(g.rules, r) })
 				}
@@ -108,9 +109,9 @@ func (p *parser) parseAll() (groups map[string]*Group, host string, sitemaps []s
 					isEmptyGroup = false
 					var r *rule
 					if li.vr != nil {
-						r = &rule{"", true, li.vr}
+						r = &rule{path: "", allow: true, pattern: li.vr, raw: li.vp}
 					} else {
-						r = &rule{li.vs, true, nil}
+						r = &rule{path: li.vs, allow: true, raw: li.vp}
 					}
 					parseGroupMap(groups, agents, func(g *Group) { g.rules = append(g.rules, r) })
 				}
@@ -173,6 +174,10 @@ func (p *parser) parseLine() (li *lineInfo, err error) {
 				t2 = "/" + t2
 			}
 			t2 = strings.TrimRightFunc(t2, isAsterisk)
+			// Keep the original (normalized) rule text so that compiled
+			// matchers can apply their own wildcard/escaping semantics
+			// without reverse-engineering the regexp form.
+			raw := t2
 			// From google's spec:
 			// Google, Bing, Yahoo, and Ask support a limited form of
 			// "wildcards" for path values. These are:
@@ -187,11 +192,11 @@ func (p *parser) parseLine() (li *lineInfo, err error) {
 				if r, e := regexp.Compile(t2); e != nil {
 					return nil, e
 				} else {
-					return &lineInfo{t: t, k: t1, vr: r}, nil
+					return &lineInfo{t: t, k: t1, vr: r, vp: raw}, nil
 				}
 			} else {
 				// Simple string path
-				return &lineInfo{t: t, k: t1, vs: t2}, nil
+				return &lineInfo{t: t, k: t1, vs: t2, vp: raw}, nil
 			}
 		}
 		return &lineInfo{t: lIgnore}, nil

@@ -39,6 +39,10 @@ type rule struct {
 	path    string
 	allow   bool
 	pattern *regexp.Regexp
+	// raw is the rule text as received at parse time (after parse-stage
+	// normalization: leading "/" fixup and trailing "*" trimming), before
+	// any regexp translation. Compiled matchers work from this text.
+	raw string
 }
 
 type ParseError struct {
