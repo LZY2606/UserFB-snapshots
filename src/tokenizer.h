@@ -60,6 +60,16 @@ typedef struct GumboInternalToken {
   GumboTokenType type;
   GumboSourcePosition position;
   GumboStringPiece original_text;
+  // When this character token was produced by a character reference, these
+  // record the span of the whole reference in the original input (the '&'
+  // through the terminating ';', or its unterminated equivalent).  Both the
+  // first scalar and, for two-codepoint references, the buffered second
+  // scalar point at this same span.  Zero length for ordinary characters, in
+  // which case original_text is used instead.  Only populated when
+  // GumboOptions.track_text_sources is on, but the fields always exist so that
+  // the struct layout is independent of that option.
+  const char* _source_start;
+  size_t _source_length;
   union {
     GumboTokenDocType doc_type;
     GumboTokenStartTag start_tag;

@@ -26,6 +26,7 @@
 #include "gumbo.h"
 #include "insertion_mode.h"
 #include "parser.h"
+#include "text_source.h"
 #include "tokenizer.h"
 #include "tokenizer_states.h"
 #include "utf8.h"
@@ -60,7 +61,7 @@ static void* malloc_wrapper(void* unused, size_t size) { return malloc(size); }
 static void free_wrapper(void* unused, void* ptr) { free(ptr); }
 
 const GumboOptions kGumboDefaultOptions = {&malloc_wrapper, &free_wrapper, NULL,
-    8, false, -1, GUMBO_TAG_LAST, GUMBO_NAMESPACE_HTML};
+    8, false, -1, GUMBO_TAG_LAST, GUMBO_NAMESPACE_HTML, false};
 
 static const GumboStringPiece kDoctypeHtml = GUMBO_STRING("html");
 static const GumboStringPiece kPublicIdHtml4_0 =
@@ -387,6 +388,19 @@ typedef struct GumboInternalParserState {
   // The accumulated text node buffer state.
   TextNodeBufferState _text_node;
 
+  // Source-tracking state for the characters currently accumulated in
+  // _text_node.  Parallel to its decoded buffer; empty unless
+  // options.track_text_sources is set.
+  GumboTextSourceLog _text_source_log;
+
+  // Per-output registry that keeps the source log of each flushed text node.
+  // Lazily created on first flush and mirrored onto GumboOutput._text_sources.
+  GumboTextSourceRegistry* _text_source_registry;
+
+  // Base pointer of the parse input, used to turn source pointers into
+  // offsets.  Only meaningful while source tracking is enabled.
+  const char* _text_source_input;
+
   // The current token.
   GumboToken* _current_token;
 
@@ -468,6 +482,7 @@ static GumboNode* new_document_node(GumboParser* parser) {
 static void output_init(GumboParser* parser) {
   GumboOutput* output = gumbo_parser_allocate(parser, sizeof(GumboOutput));
   output->root = NULL;
+  output->_text_sources = NULL;
   output->document = new_document_node(parser);
   parser->_output = output;
   gumbo_init_errors(parser);
@@ -483,6 +498,9 @@ static void parser_state_init(GumboParser* parser) {
   parser_state->_foster_parent_insertions = false;
   parser_state->_text_node._type = GUMBO_NODE_WHITESPACE;
   gumbo_string_buffer_init(parser, &parser_state->_text_node._buffer);
+  gumbo_text_source_log_init(parser, &parser_state->_text_source_log);
+  parser_state->_text_source_registry = NULL;
+  parser_state->_text_source_input = NULL;
   gumbo_vector_init(parser, 10, &parser_state->_open_elements);
   gumbo_vector_init(parser, 5, &parser_state->_active_formatting_elements);
   gumbo_vector_init(parser, 5, &parser_state->_template_insertion_modes);
@@ -504,6 +522,9 @@ static void parser_state_destroy(GumboParser* parser) {
   gumbo_vector_destroy(parser, &state->_open_elements);
   gumbo_vector_destroy(parser, &state->_template_insertion_modes);
   gumbo_string_buffer_destroy(parser, &state->_text_node._buffer);
+  // Any still-buffered source entries are dropped; the per-node registry (if
+  // any) lives on in GumboOutput and is freed by gumbo_destroy_output.
+  gumbo_text_source_log_destroy(parser, &state->_text_source_log);
   gumbo_parser_deallocate(parser, state);
 }
 
@@ -909,8 +930,24 @@ static void maybe_flush_text_node_buffer(GumboParser* parser) {
     // The DOM does not allow Document nodes to have Text children, so per the
     // spec, they are dropped on the floor.
     destroy_node(parser, text_node);
+    if (gumbo_text_source_tracking_enabled(parser)) {
+      gumbo_text_source_log_destroy(
+          parser, &parser->_parser_state->_text_source_log);
+    }
   } else {
     insert_node(parser, text_node, location);
+    if (gumbo_text_source_tracking_enabled(parser)) {
+      GumboTextSourceRegistry* registry =
+          parser->_parser_state->_text_source_registry;
+      if (!registry) {
+        registry =
+            gumbo_text_source_registry_create(parser->_options);
+        parser->_parser_state->_text_source_registry = registry;
+        parser->_output->_text_sources = registry;
+      }
+      gumbo_text_source_registry_store(registry, text_node,
+          &parser->_parser_state->_text_source_log, parser->_options);
+    }
   }
 
   gumbo_string_buffer_clear(parser, &buffer_state->_buffer);
@@ -1112,6 +1149,47 @@ static GumboNode* insert_foreign_element(
   return element;
 }
 
+// Translates one appended character token into a source-map entry.  Uses the
+// token's own original span (and the reference span recorded for character
+// references), so the mapping follows the exact character stream that built
+// the tree rather than re-deriving positions from the HTML.
+static void record_text_source(GumboParser* parser, const GumboToken* token,
+    size_t text_offset, size_t text_length) {
+  if (!gumbo_text_source_tracking_enabled(parser) ||
+      token->original_text.data == NULL) {
+    return;
+  }
+  const char* input_start = parser->_parser_state->_text_source_input;
+  size_t source_start;
+  size_t source_end;
+  if (token->_source_length != 0) {
+    // Character reference: every decoded scalar cites the whole reference.
+    source_start = (size_t)(token->_source_start - input_start);
+    source_end = source_start + token->_source_length;
+  } else {
+    source_start = (size_t)(token->original_text.data - input_start);
+    source_end = source_start + token->original_text.length;
+    if (token->v.character == '\n') {
+      if (token->original_text.length == 0) {
+        // A lone carriage return: the emitted token carries no bytes but its
+        // start pointer is the CR itself.
+        source_end = source_start + 1;
+      } else if (source_start > 0 &&
+                 input_start[source_start - 1] == '\r') {
+        // CRLF normalized to one line feed: the newline covers both bytes.
+        --source_start;
+      }
+    }
+  }
+  GumboTextSourceEntry entry;
+  entry.source_start = source_start;
+  entry.source_end = source_end;
+  entry.text_offset = text_offset;
+  entry.text_length = text_length;
+  gumbo_text_source_log_add(
+      parser, &parser->_parser_state->_text_source_log, &entry);
+}
+
 static void insert_text_token(GumboParser* parser, GumboToken* token) {
   assert(token->type == GUMBO_TOKEN_WHITESPACE ||
          token->type == GUMBO_TOKEN_CHARACTER ||
@@ -1122,8 +1200,11 @@ static void insert_text_token(GumboParser* parser, GumboToken* token) {
     buffer_state->_start_original_text = token->original_text.data;
     buffer_state->_start_position = token->position;
   }
+  size_t text_offset = buffer_state->_buffer.length;
   gumbo_string_buffer_append_codepoint(
       parser, token->v.character, &buffer_state->_buffer);
+  record_text_source(parser, token, text_offset,
+      buffer_state->_buffer.length - text_offset);
   if (token->type == GUMBO_TOKEN_CHARACTER) {
     buffer_state->_type = GUMBO_NODE_TEXT;
   } else if (token->type == GUMBO_TOKEN_CDATA) {
@@ -4079,6 +4160,15 @@ GumboOutput* gumbo_parse_with_options(
   output_init(&parser);
   gumbo_tokenizer_state_init(&parser, buffer, length);
   parser_state_init(&parser);
+  parser._parser_state->_text_source_input = buffer;
+  if (options->track_text_sources) {
+    // Create the registry up front so that gumbo_text_index_build can tell a
+    // tracked-but-textless document apart from a parse that never tracked.
+    GumboTextSourceRegistry* registry =
+        gumbo_text_source_registry_create(options);
+    parser._parser_state->_text_source_registry = registry;
+    parser._output->_text_sources = registry;
+  }
 
   if (options->fragment_context != GUMBO_TAG_LAST) {
     fragment_parser_init(
@@ -4188,5 +4278,8 @@ void gumbo_destroy_output(const GumboOptions* options, GumboOutput* output) {
     gumbo_error_destroy(&parser, output->errors.data[i]);
   }
   gumbo_vector_destroy(&parser, &output->errors);
+  gumbo_text_source_registry_destroy(options,
+      (GumboTextSourceRegistry*) output->_text_sources);
+  output->_text_sources = NULL;
   gumbo_parser_deallocate(&parser, output);
 }

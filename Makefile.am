@@ -67,13 +67,17 @@ libgumbo_la_SOURCES = \
 				src/tokenizer.c \
 				src/tokenizer.h \
 				src/tokenizer_states.h \
+				src/text_anchor.c \
+				src/text_anchor.h \
+				src/text_source.c \
+				src/text_source.h \
 				src/utf8.c \
 				src/utf8.h \
 				src/util.c \
 				src/util.h \
 				src/vector.c \
 				src/vector.h
-include_HEADERS = src/gumbo.h src/tag_enum.h
+include_HEADERS = src/gumbo.h src/tag_enum.h src/text_anchor.h
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = gumbo.pc
@@ -105,7 +109,7 @@ gumbo_test_DEPENDENCIES += check-local
 gumbo_test_LDADD += gtest/lib/libgtest.la gtest/lib/libgtest_main.la
 endif
 
-noinst_PROGRAMS = clean_text find_links get_title positions_of_class benchmark serialize prettyprint
+noinst_PROGRAMS = clean_text find_links get_title positions_of_class benchmark serialize prettyprint text_anchor_example
 LDADD = libgumbo.la
 AM_CPPFLAGS = -I"$(srcdir)/src"
 
@@ -116,3 +120,4 @@ positions_of_class_SOURCES = examples/positions_of_class.cc
 benchmark_SOURCES = benchmarks/benchmark.cc
 serialize_SOURCES = examples/serialize.cc
 prettyprint_SOURCES = examples/prettyprint.cc
+text_anchor_example_SOURCES = examples/text_anchor_example.c

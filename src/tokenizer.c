@@ -154,6 +154,13 @@ typedef struct GumboInternalTokenizerState {
   // the document.
   int _buffered_emit_char;
 
+  // Source span of the character reference that produced
+  // _buffered_emit_char, when that buffered character is the second scalar
+  // of a two-codepoint reference.  Empty (_buffered_emit_source_length == 0)
+  // at all other times.  Only populated while source tracking is enabled.
+  const char* _buffered_emit_source_start;
+  size_t _buffered_emit_source_length;
+
   // A temporary buffer to accumulate characters, as described by the "temporary
   // buffer" phrase in the tokenizer spec.  We use this in a somewhat unorthodox
   // way: we record the specific character to go into the buffer, which may
@@ -444,6 +451,8 @@ static void finish_token(GumboParser* parser, GumboToken* token) {
 
   token->position = tokenizer->_token_start_pos;
   token->original_text.data = tokenizer->_token_start;
+  token->_source_start = NULL;
+  token->_source_length = 0;
   reset_token_start_point(tokenizer);
   token->original_text.length =
       tokenizer->_token_start - token->original_text.data;
@@ -591,8 +600,23 @@ static StateResult emit_char_ref(GumboParser* parser,
     // consume_char_ref ends with the iterator pointing at the next character,
     // so we need to be sure not advance it again before reading the next token.
     tokenizer->_reconsume_current_input = true;
+    // The iterator mark was placed on the '&' by consume_char_ref; the current
+    // pointer sits just past the reference.  Both emitted scalars (if any)
+    // therefore cite the whole reference.
+    const char* ref_start = tokenizer->_input._mark;
+    const char* ref_end =
+        utf8iterator_get_char_pointer(&tokenizer->_input);
     emit_char(parser, char_ref.first, output);
     tokenizer->_buffered_emit_char = char_ref.second;
+    if (parser->_options->track_text_sources) {
+      output->_source_start = ref_start;
+      output->_source_length = (size_t)(ref_end - ref_start);
+      if (char_ref.second != kGumboNoChar) {
+        tokenizer->_buffered_emit_source_start = ref_start;
+        tokenizer->_buffered_emit_source_length =
+            (size_t)(ref_end - ref_start);
+      }
+    }
   } else {
     emit_char(parser, '&', output);
   }
@@ -854,6 +878,8 @@ void gumbo_tokenizer_state_init(
   tokenizer->_tag_state._last_start_tag = GUMBO_TAG_LAST;
 
   tokenizer->_buffered_emit_char = kGumboNoChar;
+  tokenizer->_buffered_emit_source_start = NULL;
+  tokenizer->_buffered_emit_source_length = 0;
   gumbo_string_buffer_init(parser, &tokenizer->_temporary_buffer);
   tokenizer->_temporary_buffer_emit = NULL;
 
@@ -2833,7 +2859,16 @@ bool gumbo_lex(GumboParser* parser, GumboToken* output) {
     // _reconsume_current_input back to false to make sure the *next* character
     // isn't consumed twice.
     tokenizer->_reconsume_current_input = false;
+    if (parser->_options->track_text_sources &&
+        tokenizer->_buffered_emit_source_length != 0) {
+      // Second scalar of a two-codepoint reference: cite the whole reference,
+      // even though this token's original_text is empty.
+      output->_source_start = tokenizer->_buffered_emit_source_start;
+      output->_source_length = tokenizer->_buffered_emit_source_length;
+    }
     tokenizer->_buffered_emit_char = kGumboNoChar;
+    tokenizer->_buffered_emit_source_start = NULL;
+    tokenizer->_buffered_emit_source_length = 0;
     return true;
   }
 

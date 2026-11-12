@@ -361,6 +361,7 @@ class Options(ctypes.Structure):
       ('max_errors', ctypes.c_int),
       ('fragment_context', Tag),
       ('fragment_namespace', Namespace),
+      ('track_text_sources', ctypes.c_bool),
       ]
 
 
@@ -370,6 +371,9 @@ class Output(ctypes.Structure):
       ('root', _Ptr(Node)),
       # TODO(jdtang): Error type.
       ('errors', Vector),
+      # Opaque pointer to the internal text-source registry; NULL unless the
+      # C Options.track_text_sources flag was set.  Not exposed to callers.
+      ('_text_sources', ctypes.c_void_p),
       ]
 
 @contextlib.contextmanager

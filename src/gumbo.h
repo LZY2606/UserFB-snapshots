@@ -616,6 +616,18 @@ typedef struct GumboInternalOptions {
    * Default: GUMBO_NAMESPACE_HTML
    */
   GumboNamespaceEnum fragment_namespace;
+
+  /**
+   * Whether to retain, for every text node, a per-character map from the
+   * decoded DOM text back to the half-open byte spans of the original input
+   * that produced each scalar.  This is opt-in and defaults to false; when
+   * false, no per-character source state is allocated and parsing behaves
+   * exactly as before.  When true, the map is attached to the GumboOutput and
+   * can be consumed by gumbo_text_index_build() (see text_anchor.h).  The
+   * original input buffer must remain alive for as long as the output does.
+   * Default: false.
+   */
+  bool track_text_sources;
 } GumboOptions;
 
 /** Default options struct; use this with gumbo_parse_with_options. */
@@ -643,6 +655,11 @@ typedef struct GumboInternalOutput {
    * reported so we can work out something appropriate for your use-case.
    */
   GumboVector /* GumboError */ errors;
+
+  // Internal, do not rely on directly.  Opaque pointer to the per-text-node
+  // source registry populated only when options.track_text_sources is true;
+  // NULL otherwise.  Owned by the output and released in gumbo_destroy_output.
+  void* _text_sources;
 } GumboOutput;
 
 /**
