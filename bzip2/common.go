@@ -16,6 +16,7 @@ package bzip2
 import (
 	"fmt"
 	"hash/crc32"
+	"math/bits"
 
 	"github.com/dsnet/compress/internal"
 	"github.com/dsnet/compress/internal/errors"
@@ -109,4 +110,73 @@ func (c *crc) update(buf []byte) {
 		buf = buf[n:]
 	}
 	c.val = internal.ReverseUint32(cval)
+}
+
+// linOp is a linear map over GF(2)^32 stored as the images of the 32 unit
+// basis vectors: applying it to s XORs op[i] for every set bit i of s.
+type linOp [32]uint32
+
+func linApply(op linOp, s uint32) (r uint32) {
+	for s != 0 {
+		i := bits.TrailingZeros32(s)
+		r ^= op[i]
+		s &= s - 1
+	}
+	return r
+}
+
+// crcByteOp is the linear part A of one reflected CRC-32 byte transition:
+// A(s) = (s >> 8) xor IEEETable[s & 0xff].
+var crcByteOp = func() (op linOp) {
+	for i := 8; i < 32; i++ {
+		op[i] = uint32(1) << uint(i-8)
+	}
+	for i := 0; i < 8; i++ {
+		op[i] = crc32.IEEETable[1<<uint(i)]
+	}
+	return op
+}()
+
+// crcPowOp[k] is A^(2^k), the byte transition raised to a power of two. It
+// depends only on the fixed CRC polynomial, never on the data, so every run
+// CRC update reuses these precomputed operators.
+var crcPowOp = func() (pow [63]linOp) {
+	pow[0] = crcByteOp
+	for k := 1; k < len(pow); k++ {
+		for i := range pow[k] {
+			pow[k][i] = linApply(pow[k-1], pow[k-1][i])
+		}
+	}
+	return pow
+}()
+
+// updateRun advances the CRC-32 as if n copies of byte b had been appended,
+// without ever materializing those bytes. The raw CRC recurrence is affine
+// over GF(2), T(t) = A(t) xor D(b); this package chains crc32.Update calls,
+// whose running state is the complement of the raw state, so the same linear
+// operator A is used behind complement wrappers. Repeated application is
+// evaluated by binary exponentiation in O(log n) operator applications, so a
+// long RLE1 run costs no more work than a short one. The number of doubling
+// levels is returned for use by the package-internal test hooks.
+func (c *crc) updateRun(b byte, n int64) int {
+	if n <= 0 {
+		return 0
+	}
+	t := ^internal.ReverseUint32(c.val)
+	curD := crc32.IEEETable[internal.ReverseLUT[b]]
+	steps := 0
+	for k := 0; n > 0; k++ {
+		if n&1 != 0 {
+			t = linApply(crcPowOp[k], t) ^ curD
+		}
+		n >>= 1
+		if n > 0 {
+			// T^(2m)(s) = A^m(T^m(s)); the constant term doubles as
+			// D_(2m) = A^m(D_m) xor D_m.
+			curD = linApply(crcPowOp[k], curD) ^ curD
+			steps++
+		}
+	}
+	c.val = internal.ReverseUint32(^t)
+	return steps
 }
