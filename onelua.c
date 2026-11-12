@@ -76,6 +76,7 @@
 #include "lopcodes.c"
 #include "lmem.c"
 #include "lundump.c"
+#include "lverify.c"
 #include "ldump.c"
 #include "lstate.c"
 #include "lgc.c"

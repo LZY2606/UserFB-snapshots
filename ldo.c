@@ -30,6 +30,7 @@
 #include "ltable.h"
 #include "ltm.h"
 #include "lundump.h"
+#include "lverify.h"
 #include "lvm.h"
 #include "lzio.h"
 
@@ -1003,6 +1004,8 @@ static void f_parser (lua_State *L, void *ud) {
   if (c == LUA_SIGNATURE[0]) {
     checkmode(L, p->mode, "binary");
     cl = luaU_undump(L, p->z, p->name);
+    if (p->mode != NULL && strchr(p->mode, 'v') != NULL)
+      luaU_verify(L, cl->p, cl->nupvalues);  /* read-only structure check */
   }
   else {
     checkmode(L, p->mode, "text");

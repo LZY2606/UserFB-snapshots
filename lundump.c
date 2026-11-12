@@ -22,6 +22,7 @@
 #include "lobject.h"
 #include "lstring.h"
 #include "lundump.h"
+#include "lverify.h"
 #include "lzio.h"
 
 
