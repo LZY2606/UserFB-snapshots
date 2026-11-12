@@ -49,6 +49,29 @@ void KISS_FFT_API kiss_fftri(kiss_fftr_cfg cfg,const kiss_fft_cpx *freqdata,kiss
  Fixed-point builds scale internally and use a different convention.
 */
 
+/*
+ * kiss_fftr_work_size(cfg)
+ *
+ * Bytes of caller supplied workspace needed by kiss_fftr_work /
+ * kiss_fftri_work for this plan.  Returns 0 for a NULL cfg.
+ */
+size_t KISS_FFT_API kiss_fftr_work_size(kiss_fftr_cfg cfg);
+
+/*
+ * kiss_fftr_work / kiss_fftri_work
+ *
+ * Same transforms as kiss_fftr / kiss_fftri, but all temporary storage
+ * (including the buffer the classic entry points keep inside the plan)
+ * comes from the caller supplied 'work' area of 'bytes' bytes (at least
+ * kiss_fftr_work_size(cfg)).  No heap memory is allocated or freed and
+ * the plan is not modified.  The usual in-place forms are supported:
+ * timedata and freqdata may share one buffer of nfft+2 scalars.
+ *
+ * Return 0 on success, -1 on invalid arguments or insufficient workspace.
+ */
+int KISS_FFT_API kiss_fftr_work(kiss_fftr_cfg cfg,const kiss_fft_scalar *timedata,kiss_fft_cpx *freqdata,void *work,size_t bytes);
+int KISS_FFT_API kiss_fftri_work(kiss_fftr_cfg cfg,const kiss_fft_cpx *freqdata,kiss_fft_scalar *timedata,void *work,size_t bytes);
+
 #define kiss_fftr_free KISS_FFT_FREE
 
 #ifdef __cplusplus

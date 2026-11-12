@@ -16,9 +16,31 @@ extern "C" {
 #endif
 
 typedef struct kiss_fftnd_state * kiss_fftnd_cfg;
-    
+
 kiss_fftnd_cfg KISS_FFT_API kiss_fftnd_alloc(const int *dims,int ndims,int inverse_fft,void*mem,size_t*lenmem);
 void KISS_FFT_API kiss_fftnd(kiss_fftnd_cfg  cfg,const kiss_fft_cpx *fin,kiss_fft_cpx *fout);
+
+/*
+ * kiss_fftnd_work_size(cfg)
+ *
+ * Bytes of caller supplied workspace needed by kiss_fftnd_work for this
+ * plan.  Returns 0 for a NULL cfg.
+ */
+size_t KISS_FFT_API kiss_fftnd_work_size(kiss_fftnd_cfg cfg);
+
+/*
+ * kiss_fftnd_work(cfg,fin,fout,work,bytes)
+ *
+ * Same transform as kiss_fftnd (same dimension order and per-dimension
+ * strides), but all temporary storage (including the buffer the classic
+ * entry point keeps inside the plan) comes from the caller supplied
+ * 'work' area of 'bytes' bytes (at least kiss_fftnd_work_size(cfg)).
+ * No heap memory is allocated or freed and the plan is not modified.
+ * The full in-place form fin==fout is supported.
+ *
+ * Returns 0 on success, -1 on invalid arguments or insufficient workspace.
+ */
+int KISS_FFT_API kiss_fftnd_work(kiss_fftnd_cfg cfg,const kiss_fft_cpx *fin,kiss_fft_cpx *fout,void *work,size_t bytes);
 
 #ifdef __cplusplus
 }

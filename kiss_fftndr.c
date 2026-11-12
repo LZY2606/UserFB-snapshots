@@ -22,7 +22,7 @@ struct kiss_fftndr_state
 static size_t prod(const int *dims, int ndims)
 {
     size_t x=1;
-    while (ndims--) 
+    while (ndims--)
         x *= *dims++;
     return x;
 }
@@ -33,16 +33,37 @@ kiss_fftndr_cfg kiss_fftndr_alloc(const int *dims,int ndims,int inverse_fft,void
 
     kiss_fftndr_cfg st = NULL;
     size_t nr=0 , nd=0,ntmp=0;
-    int dimReal = dims[ndims-1];
-    size_t dimOther = prod(dims,ndims-1);
+    int dimReal;
+    size_t dimOther;
     size_t memneeded;
     char * ptr = NULL;
     int k,check;
 
+    if (!dims || ndims < 1) {
+        if (lenmem)
+            *lenmem = 0;
+        return NULL;
+    }
+    for (k=0;k<ndims;++k) {
+        if (dims[k] <= 0) {
+            if (lenmem)
+                *lenmem = 0;
+            return NULL;
+        }
+    }
+    dimReal = dims[ndims-1];
+    dimOther = prod(dims,ndims-1);
+
     (void)kiss_fftr_alloc(dimReal,inverse_fft,NULL,&nr);
-    (void)kiss_fftnd_alloc(dims,ndims-1,inverse_fft,NULL,&nd);
+    if (ndims > 1)
+        (void)kiss_fftnd_alloc(dims,ndims-1,inverse_fft,NULL,&nd);
+    if (nr == 0 || (ndims > 1 && nd == 0)) {
+        if (lenmem)
+            *lenmem = 0;
+        return NULL;
+    }
     ntmp =
-        MAX( 2*dimOther , dimReal+2) * sizeof(kiss_fft_scalar)  // freq buffer for one pass
+        MAX( 2*dimOther , (size_t)dimReal+2) * sizeof(kiss_fft_scalar)  // freq buffer for one pass
         + dimOther*(size_t)(dimReal+2) * sizeof(kiss_fft_scalar);  // large enough to hold entire input in case of in-place
 
     memneeded = KISS_FFT_ALIGN_SIZE_UP(sizeof( struct kiss_fftndr_state )) + KISS_FFT_ALIGN_SIZE_UP(nr) + KISS_FFT_ALIGN_SIZE_UP(nd) + KISS_FFT_ALIGN_SIZE_UP(ntmp);
@@ -59,28 +80,56 @@ kiss_fftndr_cfg kiss_fftndr_alloc(const int *dims,int ndims,int inverse_fft,void
     }
 
     if (lenmem==NULL) {
-        ptr = (char*) malloc(memneeded);
+        ptr = (char*) KISS_FFT_MALLOC(memneeded);
     }else{
         if (*lenmem >= memneeded)
             ptr = (char *)mem;
-        *lenmem = memneeded; 
+        *lenmem = memneeded;
     }
     if (ptr==NULL)
         return NULL;
-    
+
     st = (kiss_fftndr_cfg) ptr;
     memset( st , 0 , memneeded);
     ptr += KISS_FFT_ALIGN_SIZE_UP(sizeof(struct kiss_fftndr_state));
-    
+
     st->dimReal = dimReal;
     st->dimOther = dimOther;
     st->cfg_r = kiss_fftr_alloc( dimReal,inverse_fft,ptr,&nr);
     ptr += KISS_FFT_ALIGN_SIZE_UP(nr);
-    st->cfg_nd = kiss_fftnd_alloc(dims,ndims-1,inverse_fft, ptr,&nd);
-    ptr += KISS_FFT_ALIGN_SIZE_UP(nd);
+    if (st->cfg_r == NULL) {
+        if (lenmem==NULL)
+            KISS_FFT_FREE(st);
+        if (lenmem)
+            *lenmem = 0;
+        return NULL;
+    }
+    if (ndims > 1) {
+        st->cfg_nd = kiss_fftnd_alloc(dims,ndims-1,inverse_fft, ptr,&nd);
+        ptr += KISS_FFT_ALIGN_SIZE_UP(nd);
+        if (st->cfg_nd == NULL) {
+            if (lenmem==NULL)
+                KISS_FFT_FREE(st);
+            if (lenmem)
+                *lenmem = 0;
+            return NULL;
+        }
+    } else {
+        st->cfg_nd = NULL; /* a single dimension needs no complex nd stage */
+    }
     st->tmpbuf = ptr;
 
     return st;
+}
+
+/* run the complex nd stage, or a plain copy when there is only one
+   dimension (the nd transform of a size-1 extent is the identity) */
+static void nd_stage(kiss_fftndr_cfg st,const kiss_fft_cpx *fin,kiss_fft_cpx *fout)
+{
+    if (st->cfg_nd)
+        kiss_fftnd(st->cfg_nd, fin, fout);
+    else
+        memcpy(fout, fin, sizeof(kiss_fft_cpx) * st->dimOther);
 }
 
 void kiss_fftndr(kiss_fftndr_cfg st,const kiss_fft_scalar *timedata,kiss_fft_cpx *freqdata)
@@ -90,7 +139,7 @@ void kiss_fftndr(kiss_fftndr_cfg st,const kiss_fft_scalar *timedata,kiss_fft_cpx
     size_t dimOther = st->dimOther;
     int nrbins = dimReal/2+1;
 
-    kiss_fft_cpx * tmp1 = (kiss_fft_cpx*)st->tmpbuf; 
+    kiss_fft_cpx * tmp1 = (kiss_fft_cpx*)st->tmpbuf;
     kiss_fft_cpx * tmp2 = tmp1 + MAX(nrbins,dimOther);
 
     // timedata is N0 x N1 x ... x Nk real
@@ -103,8 +152,8 @@ void kiss_fftndr(kiss_fftndr_cfg st,const kiss_fft_scalar *timedata,kiss_fft_cpx
     }
 
     for (k2=0;k2<nrbins;++k2) {
-        kiss_fftnd(st->cfg_nd, tmp2+k2*dimOther, tmp1);  // tmp1 now holds dimOther complex points
-        for (k1=0;k1<dimOther;++k1) 
+        nd_stage(st, tmp2+k2*dimOther, tmp1);  // tmp1 now holds dimOther complex points
+        for (k1=0;k1<dimOther;++k1)
             freqdata[ k1*(nrbins) + k2] = tmp1[k1];
     }
 }
@@ -115,13 +164,13 @@ void kiss_fftndri(kiss_fftndr_cfg st,const kiss_fft_cpx *freqdata,kiss_fft_scala
     int dimReal = st->dimReal;
     int dimOther = st->dimOther;
     int nrbins = dimReal/2+1;
-    kiss_fft_cpx * tmp1 = (kiss_fft_cpx*)st->tmpbuf; 
+    kiss_fft_cpx * tmp1 = (kiss_fft_cpx*)st->tmpbuf;
     kiss_fft_cpx * tmp2 = tmp1 + MAX(nrbins,dimOther);
 
     for (k2=0;k2<nrbins;++k2) {
-        for (k1=0;k1<dimOther;++k1) 
+        for (k1=0;k1<dimOther;++k1)
             tmp1[k1] = freqdata[ k1*(nrbins) + k2 ];
-        kiss_fftnd(st->cfg_nd, tmp1, tmp2+k2*dimOther);
+        nd_stage(st, tmp1, tmp2+k2*dimOther);
     }
 
     for (k1=0;k1<dimOther;++k1) {

@@ -161,6 +161,31 @@ void KISS_FFT_API kiss_fft(kiss_fft_cfg cfg,const kiss_fft_cpx *fin,kiss_fft_cpx
  * */
 void KISS_FFT_API kiss_fft_stride(kiss_fft_cfg cfg,const kiss_fft_cpx *fin,kiss_fft_cpx *fout,int fin_stride);
 
+/*
+ * kiss_fft_work_size(cfg)
+ *
+ * Returns the number of bytes of caller supplied workspace needed to run
+ * this plan through kiss_fft_stride_work (worst case, including an
+ * in-place fin==fout call).  Returns 0 for a NULL cfg.
+ * The workspace only needs malloc alignment and may be reused by other
+ * plans once the previous call has returned.
+ */
+size_t KISS_FFT_API kiss_fft_work_size(kiss_fft_cfg cfg);
+
+/*
+ * kiss_fft_stride_work(cfg,fin,fout,fin_stride,work,bytes)
+ *
+ * Same transform as kiss_fft_stride, but all temporary storage comes from
+ * the caller supplied buffer 'work' of 'bytes' bytes (at least
+ * kiss_fft_work_size(cfg)).  No heap memory is allocated or freed, and the
+ * plan is not modified, so one plan may be used reentrantly with distinct
+ * workspaces.  fin==fout is supported for fin_stride==1.
+ *
+ * Returns 0 on success, -1 on invalid arguments or insufficient workspace
+ * (outputs and plans are left unchanged in that case).
+ */
+int KISS_FFT_API kiss_fft_stride_work(kiss_fft_cfg cfg,const kiss_fft_cpx *fin,kiss_fft_cpx *fout,int fin_stride,void *work,size_t bytes);
+
 /* If kiss_fft_alloc allocated a buffer, it is one contiguous 
    buffer and can be simply free()d when no longer needed*/
 #define kiss_fft_free KISS_FFT_FREE
@@ -176,6 +201,24 @@ void KISS_FFT_API kiss_fft_cleanup(void);
  * Returns the smallest integer k, such that k>=n and k has only "fast" factors (2,3,5)
  */
 int KISS_FFT_API kiss_fft_next_fast_size(int n);
+
+/*
+ * Diagnostic hook (mainly for tests): counts the generic mixed-radix
+ * butterfly work actually executed since the last reset.  Lengths with a
+ * prime factor >= 17 are handled by the Bluestein convolution
+ * path and must not show up here; only radix-7/11/13 style stages of the
+ * classic path increment these counters.
+ *   generic_calls     - number of kf_bfly_generic invocations
+ *   generic_radix_sum - sum of the radix p over those invocations
+ *   generic_madds     - complex multiply-adds done by those invocations
+ */
+typedef struct {
+    unsigned long long generic_calls;
+    unsigned long long generic_radix_sum;
+    unsigned long long generic_madds;
+} kiss_fft_op_count;
+void KISS_FFT_API kiss_fft_op_count_reset(void);
+void KISS_FFT_API kiss_fft_op_count_get(kiss_fft_op_count *out);
 
 /* for real ffts, we need an even size */
 #define kiss_fftr_next_fast_size_real(n) \

@@ -1,0 +1,8 @@
+[ERROR] kiss_fftr.c:33 Real FFT optimization must be even.
+Real FFT optimization must be even.
+Real FFT optimization must be even.
+GROUP numeric assertions=80
+GROUP planning assertions=39
+GROUP workspace assertions=72
+GROUP consumers assertions=16
+PRIME_TESTS_COMPLETE assertions=207

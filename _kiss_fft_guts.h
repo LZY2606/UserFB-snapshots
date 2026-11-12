@@ -24,12 +24,36 @@
  4*4*4*2
  */
 
+/* Bluestein convolution fast path: only for the floating point C builds.
+   Fixed point and SIMD builds keep the original generic butterfly path. */
+#if !defined(FIXED_POINT) && !defined(USE_SIMD)
+#define KISS_FFT_BLUESTEIN 1
+#endif
+
 struct kiss_fft_state{
     int nfft;
     int inverse;
     int factors[2*MAXFACTORS];
+    int max_radix;      /* largest radix handled by kf_bfly_generic (0 if none) */
+#ifdef KISS_FFT_BLUESTEIN
+    int bluestein;      /* nonzero: this plan runs the Bluestein convolution */
+    int conv_n;         /* convolution length M >= 2*nfft-1, 2/3/5-smooth */
+    kiss_fft_cpx *chirp;/* nfft chirp factors, inside the plan block */
+    kiss_fft_cpx *bfft; /* conv_n kernel spectrum, prescaled by 1/conv_n */
+    kiss_fft_cfg sub_fwd; /* embedded length-conv_n forward plan */
+    kiss_fft_cfg sub_inv; /* embedded length-conv_n inverse plan */
+#endif
     kiss_fft_cpx twiddles[1];
 };
+
+/* internal, shared with the real and multi-dimensional wrappers:
+   execute a plan with a caller supplied work area.
+   work must hold kf_work_size_out(st) bytes when fin != fout, or
+   kiss_fft_work_size(st) bytes when fin == fout.  work may be NULL
+   when the required size is 0. */
+void kf_fft_exec(kiss_fft_cfg st,const kiss_fft_cpx *fin,kiss_fft_cpx *fout,int in_stride,kiss_fft_cpx *work);
+/* internal: bytes of work area needed for an out-of-place execution */
+size_t kf_work_size_out(kiss_fft_cfg st);
 
 /*
   Explanation of macros dealing with complex math:
