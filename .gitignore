@@ -4,3 +4,4 @@ target
 .DS_Store
 
 fixtures/symbol_server/*
+.cargo-home/
