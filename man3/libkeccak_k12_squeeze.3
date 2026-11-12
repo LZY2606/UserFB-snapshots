@@ -1,0 +1,42 @@
+.TH LIBKECCAK_K12_SQUEEZE 3 LIBKECCAK
+.SH NAME
+libkeccak_k12_squeeze - read bytes from the KT128 XOF stream
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+int libkeccak_k12_squeeze(struct libkeccak_k12 *\fIctx\fP, void *\fIout\fP, size_t \fIlength\fP);
+.fi
+.PP
+Link with
+.IR -lkeccak .
+.SH DESCRIPTION
+The
+.BR libkeccak_k12_squeeze ()
+function writes
+.I length
+bytes from the single KT128 extendable-output stream to
+.IR out .
+Repeated calls concatenate into one continuous stream rather than
+restarting it: for example, successive reads of 1, 167, 1, 168 bytes and
+then the remainder give the same bytes as one read of the total. A
+zero-length read succeeds and does not advance the stream, and a NULL
+.I out
+pointer is accepted only when
+.I length
+is zero.
+.SH RETURN VALUES
+The function returns 0 on success and -1 on error. It fails if
+.I ctx
+is NULL or if it is called before
+.BR libkeccak_k12_final (3)
+has succeeded, or if
+.I out
+is NULL with a non-zero
+.IR length .
+On failure no bytes are written to
+.I out
+and the stream position is unchanged.
+.SH SEE ALSO
+.BR libkeccak_k12_final (3),
+.BR libkeccak_k12 (7)

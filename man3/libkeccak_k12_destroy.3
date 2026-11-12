@@ -1,0 +1,20 @@
+.TH LIBKECCAK_K12_DESTROY 3 LIBKECCAK
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+void libkeccak_k12_destroy(struct libkeccak_k12 *\fIctx\fP);
+.fi
+.PP
+Link with
+.IR -lkeccak .
+.SH NAME
+libkeccak_k12_destroy - release a KT128 context
+.SH DESCRIPTION
+The
+.BR libkeccak_k12_destroy ()
+function frees the context and every buffer it owns. Passing NULL is
+allowed and performs no action.
+.SH SEE ALSO
+.BR libkeccak_k12_create (3),
+.BR libkeccak_k12 (7)

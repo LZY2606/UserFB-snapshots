@@ -11,5 +11,36 @@ RATIONALE
 	Keccak won the SHA-3 competition. We need a library for it,
 	and let it be bit-oriented.
 
+KT128 (KANGAROOTWELVE)
+	libkeccak also provides a byte-oriented, streaming KT128
+	(RFC 9861, 128-bit security) through the opaque
+	struct libkeccak_k12 declared in libkeccak/k12.h.
+
+	The call order is:
+
+		libkeccak_k12_create   allocate a context
+		libkeccak_k12_update   message chunks, any number, in order
+		libkeccak_k12_final    customisation string; ends the input
+		libkeccak_k12_squeeze  XOF bytes, any number, concatenating
+		libkeccak_k12_destroy  release the context (NULL is safe)
+
+	update/final/squeeze return 0 on success and -1 on error. Chunk
+	boundaries do not affect the result, zero-length updates and reads
+	are allowed, NUL bytes are ordinary data, and caller buffers are
+	only borrowed for the call. final succeeds once; squeeze before it
+	fails without writing. The tree decision is made over the message,
+	the customisation string and the encoding of its length together,
+	so an empty customisation string still contributes its one-byte
+	encoding. The permutation is Keccak-p[1600,12], the last twelve
+	rounds of Keccak-f[1600]; the SHA-3/SHAKE interfaces keep all 24.
+
+	Space is bounded and independent of input length: the whole
+	context and every buffer it uses occupy one fixed allocation of
+	about 9 KiB and never exceed 32 KiB. The message, the
+	customisation string and the piece chaining values are never
+	stored in full, and update/final/squeeze perform no
+	input-length-dependent allocation. See libkeccak_k12(7) and the
+	program in example/.
+
 SEE ALSO
 	sha3sum, libblake(7), libsha2(7), libsha1(7), libhashsum(7)

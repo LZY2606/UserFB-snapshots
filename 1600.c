@@ -26,15 +26,19 @@ static const uint64_t rc64[] = {
 
 /**
  * 64-bit word version of `libkeccak_f_round`
- * 
- * @param  state  The hashing state
- * @param  rc     The round contant for this round
+ *
+ * This works directly on the 25 64-bit lanes (the library stores lane
+ * `i` of the Keccak state at the transposed index `(i % 5) * 5 + i / 5`),
+ * so it can be shared by the regular state machine and by byte-oriented
+ * users such as KT128 that keep their own lane array.
+ *
+ * @param  A   The 25 state lanes, in library storage order
+ * @param  rc  The round contant for this round
  */
 LIBKECCAK_GCC_ONLY(__attribute__((__nonnull__, __nothrow__, __hot__)))
 static void
-libkeccak_f_round64(register struct libkeccak_state *state, register uint64_t rc)
+libkeccak_f_round64_lanes(register uint64_t *restrict A, register uint64_t rc)
 {
-	uint64_t *restrict A = state->S.w64;
 	uint64_t B[25], C[5], da, db, dc, dd, de;
 
 	/* θ step (step 1 of 3). */
@@ -65,6 +69,23 @@ libkeccak_f_round64(register struct libkeccak_state *state, register uint64_t rc
 
 	/* ι step. */
 	A[0] ^= rc;
+}
+
+
+/**
+ * 64-bit word version of `libkeccak_f_round`
+ *
+ * Thin state-wrapper around `libkeccak_f_round64_lanes`; the SHA-3/SHAKE
+ * state machine keeps its 24-round behaviour through this entry point.
+ *
+ * @param  state  The hashing state
+ * @param  rc     The round contant for this round
+ */
+LIBKECCAK_GCC_ONLY(__attribute__((__nonnull__, __nothrow__, __hot__)))
+static inline void
+libkeccak_f_round64(register struct libkeccak_state *state, register uint64_t rc)
+{
+	libkeccak_f_round64_lanes(state->S.w64, rc);
 }
 
 

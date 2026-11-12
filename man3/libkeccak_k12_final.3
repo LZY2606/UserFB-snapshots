@@ -1,0 +1,45 @@
+.TH LIBKECCAK_K12_FINAL 3 LIBKECCAK
+.SH NAME
+libkeccak_k12_final - absorb the customisation string and finish KT128 input
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+int libkeccak_k12_final(struct libkeccak_k12 *\fIctx\fP, const void *\fIcustom\fP, size_t \fIlength\fP);
+.fi
+.PP
+Link with
+.IR -lkeccak .
+.SH DESCRIPTION
+The
+.BR libkeccak_k12_final ()
+function absorbs the
+.I length
+customisation bytes from
+.IR custom ,
+followed by the encoding of their length, and ends the input. Whether the
+input is hashed as a single piece or as a tree is determined from the
+combined length of the message, the customisation string and that length
+encoding, so an empty customisation string still contributes its
+one-byte encoding. A NULL
+.I custom
+pointer is accepted only when
+.I length
+is zero. The buffer is only borrowed for the call.
+.PP
+On success the context leaves the input-accepting phase: further update
+and final calls fail and only
+.BR libkeccak_k12_squeeze (3)
+is accepted. If the call fails the context is unchanged and may be
+retried.
+.SH RETURN VALUES
+The function returns 0 on success and -1 on error, including when
+.I ctx
+is NULL, when final has already succeeded, or when
+.I custom
+is NULL with a non-zero
+.IR length .
+.SH SEE ALSO
+.BR libkeccak_k12_update (3),
+.BR libkeccak_k12_squeeze (3),
+.BR libkeccak_k12 (7)

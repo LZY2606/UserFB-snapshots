@@ -1,0 +1,41 @@
+.TH LIBKECCAK_K12_UPDATE 3 LIBKECCAK
+.SH NAME
+libkeccak_k12_update - absorb the next message chunk into a KT128 context
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+int libkeccak_k12_update(struct libkeccak_k12 *\fIctx\fP, const void *\fIdata\fP, size_t \fIlength\fP);
+.fi
+.PP
+Link with
+.IR -lkeccak .
+.SH DESCRIPTION
+The
+.BR libkeccak_k12_update ()
+function absorbs
+.I length
+message bytes from
+.IR data .
+It may be called any number of times before
+.BR libkeccak_k12_final (3);
+how the message is split across calls does not change the result.
+Zero-length updates are permitted, and NUL bytes are ordinary data.
+The buffer is only borrowed for the duration of the call and may be
+reused or overwritten once it returns. A NULL
+.I data
+pointer is accepted only when
+.I length
+is zero.
+.SH RETURN VALUES
+The function returns 0 on success and -1 on error. It fails if
+.I ctx
+is NULL, if the context has already been finalised, or if
+.I data
+is NULL with a non-zero
+.IR length .
+A failed call does not alter the context.
+.SH SEE ALSO
+.BR libkeccak_k12_create (3),
+.BR libkeccak_k12_final (3),
+.BR libkeccak_k12 (7)

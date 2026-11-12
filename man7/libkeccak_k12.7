@@ -1,0 +1,77 @@
+.TH LIBKECCAK_K12 7 LIBKECCAK
+.SH NAME
+libkeccak_k12 - streaming byte-oriented KT128 (KangarooTwelve) XOF
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+struct libkeccak_k12 *libkeccak_k12_create(void);
+int libkeccak_k12_update(struct libkeccak_k12 *\fIctx\fP, const void *\fIdata\fP, size_t \fIlength\fP);
+int libkeccak_k12_final(struct libkeccak_k12 *\fIctx\fP, const void *\fIcustom\fP, size_t \fIlength\fP);
+int libkeccak_k12_squeeze(struct libkeccak_k12 *\fIctx\fP, void *\fIout\fP, size_t \fIlength\fP);
+void libkeccak_k12_destroy(struct libkeccak_k12 *\fIctx\fP);
+.fi
+.SH DESCRIPTION
+.BR libkeccak_k12
+implements KT128, the 128-bit-security KangarooTwelve extendable-output
+function of RFC 9861, as a byte-oriented streaming interface for
+fingerprinting inputs that are too large to assemble before hashing.
+It uses the TurboSHAKE128 rate of 168 bytes and the Keccak-p[1600,12]
+permutation, i.e. the last twelve rounds of Keccak-f[1600]. The existing
+SHA-3/SHAKE interfaces keep their full 24-round behaviour.
+.PP
+The input is the logical string
+.IR "S = M || C || E(length(C))" ,
+where M is the message, C the customisation string and E the
+length encoding. The tree-vs-single-piece decision is made over the whole
+of S, not over the message alone: an empty customisation string still
+contributes its one-byte encoding E(0). If S fits in one 8192-byte piece
+the output is TurboSHAKE128 with domain byte 0x07; otherwise each later
+piece is hashed to a 32-byte chaining value with domain byte 0x0b and the
+assembled root is hashed with domain byte 0x06.
+.SH CALL SEQUENCE
+The functions are used in this order:
+.IP 1. 4
+.BR libkeccak_k12_create ()
+allocates a context in the input-accepting phase.
+.IP 2. 4
+.BR libkeccak_k12_update ()
+is called zero or more times, in order, with message chunks. Chunk
+boundaries do not affect the result; zero-length updates are allowed and
+NUL bytes are ordinary data.
+.IP 3. 4
+.BR libkeccak_k12_final ()
+is called exactly once with the customisation string; it consumes that
+string and its length encoding and ends the input. It may fail, in which
+case the context stays in the input-accepting phase and final may be
+retried. On success update and further final calls fail.
+.IP 4. 4
+.BR libkeccak_k12_squeeze ()
+is then called any number of times. The reads concatenate into one XOF
+stream: reading 1, 167, 1, 168 and then the remainder yields the same
+bytes as reading the total at once. A zero-length read succeeds and
+advances nothing. Squeeze before final fails and does not write the
+output buffer.
+.IP 5. 4
+.BR libkeccak_k12_destroy ()
+releases the context; destroying NULL is safe.
+.PP
+Calls in an illegal phase return -1 without changing the result of later
+legal calls. Caller buffers are only borrowed for the duration of a call
+and may be reused or overwritten afterwards. Independent contexts share
+no mutable state and may be interleaved.
+.SH SPACE
+The whole context, including every working buffer, occupies a single
+fixed-size allocation of about 9 KiB and never exceeds 32 KiB, regardless
+of input length. The message, the customisation string and the piece
+chaining values are never retained in full: each chaining value is folded
+into the root sponge as soon as its 8192-byte piece is complete. No
+update, final or squeeze call allocates memory that depends on the input
+length.
+.SH SEE ALSO
+.BR libkeccak_k12_create (3),
+.BR libkeccak_k12_destroy (3),
+.BR libkeccak_k12_update (3),
+.BR libkeccak_k12_final (3),
+.BR libkeccak_k12_squeeze (3),
+.BR libkeccak (7)

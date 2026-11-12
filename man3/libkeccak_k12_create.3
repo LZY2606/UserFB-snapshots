@@ -1,0 +1,30 @@
+.TH LIBKECCAK_K12_CREATE 3 LIBKECCAK
+.SH NAME
+libkeccak_k12_create - allocate a streaming KT128 context
+.SH SYNOPSIS
+.nf
+#include <libkeccak/k12.h>
+
+struct libkeccak_k12 *libkeccak_k12_create(void);
+.fi
+.PP
+Link with
+.IR -lkeccak .
+.SH DESCRIPTION
+The
+.BR libkeccak_k12_create ()
+function allocates and zero-initialises a new KT128 context ready to
+accept message bytes through
+.BR libkeccak_k12_update (3).
+The context holds all of its working storage in one bounded allocation;
+see
+.BR libkeccak_k12 (7).
+.SH RETURN VALUES
+A newly allocated context is returned on success. On allocation failure
+NULL is returned and
+.I errno
+is set by the underlying allocator.
+.SH SEE ALSO
+.BR libkeccak_k12_destroy (3),
+.BR libkeccak_k12_update (3),
+.BR libkeccak_k12 (7)

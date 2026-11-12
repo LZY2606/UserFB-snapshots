@@ -20,6 +20,8 @@ LIB_VERSION = $(LIB_MAJOR).$(LIB_MINOR)
 OBJ =\
 	digest.o\
 	libkeccak_cshake_initialise.o\
+	libkeccak_keccakp1600.o\
+	libkeccak_k12.o\
 	libkeccak_state_destroy.o\
 	libkeccak_state_fast_destroy.o\
 	libkeccak_state_initialise.o\
@@ -74,6 +76,8 @@ HDR =\
 
 SUBHDR =\
 	libkeccak/keccak.h\
+	libkeccak/keccakp1600.h\
+	libkeccak/k12.h\
 	libkeccak/sha3.h\
 	libkeccak/rawshake.h\
 	libkeccak/shake.h\
@@ -141,16 +145,23 @@ MAN3 =\
 	man3/libkeccak_update.3\
 	man3/libkeccak_zerocopy_chunksize.3\
 	man3/libkeccak_zerocopy_digest.3\
-	man3/libkeccak_zerocopy_update.3
+	man3/libkeccak_zerocopy_update.3\
+	man3/libkeccak_k12_create.3\
+	man3/libkeccak_k12_destroy.3\
+	man3/libkeccak_k12_update.3\
+	man3/libkeccak_k12_final.3\
+	man3/libkeccak_k12_squeeze.3
 
 MAN7 =\
-	man7/libkeccak.7
+	man7/libkeccak.7\
+	man7/libkeccak_k12.7
 
 
 all: libkeccak.a libkeccak.$(LIBEXT) test benchmark
 
 $(OBJ): $(HDR)
 digest.o: 1600.c 800.c 400.c 200.c
+libkeccak_keccakp1600.o: 1600.c
 
 .c.o:
 	$(CC) -fPIC -c -o $@ $< $(CFLAGS) $(CPPFLAGS)
