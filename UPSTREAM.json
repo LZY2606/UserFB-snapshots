@@ -1,0 +1,961 @@
+{
+  "scope": "Unmodified nanoarrow C core, C++ headers and all common/hpp upstream tests; original top-level CMake/config and licensing; fixed googletest C++ header/source closure for original array_test.cc. Optional IPC, device, integration/testing extension and language bindings are outside this export/build scope.",
+  "excluded_paths_not_read": [
+    ".env",
+    "dev/release/.env.example"
+  ],
+  "exclusion_reason": "Root .env and dev/release/.env.example belong to container/release orchestration, not the selected C core or original array tests; no contents were read, copied, renamed or encoded. Other non-core trees were excluded by source allowlist.",
+  "googletest_archive_sha256": "8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7",
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "CHANGELOG.md",
+      "git_blob_sha1": "8c8ee09f236584dadde54d895bb1c6f251803852",
+      "sha256": "1c71cc1399461044a0a8e47924913c9c1f41ce6be682c66604a307c267a832a1",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "CMakeLists.txt",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "CMakeLists.txt",
+      "git_blob_sha1": "919da6b46a8b67eb510e9a654ef06a513e6cf00f",
+      "sha256": "878d8eb7f453be11e9dbcbd3098824ff872db6324940208b9201693cd287230d",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "LICENSE.txt",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "LICENSE.txt",
+      "git_blob_sha1": "63c2af7a0340412c2fd205e56a0fd3c9c32700c0",
+      "sha256": "abdc436530c715318d843424f4f9b7b817f80f592678526942c2070ace3cba71",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "NOTICE.txt",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "NOTICE.txt",
+      "git_blob_sha1": "c2dc54c03f6a573f35dad4d764ca9a1d255ef0bf",
+      "sha256": "09026abb630fd06cb418815d48535cd46cb102fe6fc307debb586fa2ac49482e",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "README.md",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "README.md",
+      "git_blob_sha1": "ce4a1c9db287db63b9c2cf65b67f15ee9cbf0eb6",
+      "sha256": "f8674cd852fccab1d20791983431fc0481b445053b6e8ddc99bd5d73f6ceb8bf",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "cmake/config.cmake.in",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "cmake/config.cmake.in",
+      "git_blob_sha1": "e1af6abb58cfda6e7acc75b4d15eea9463266e90",
+      "sha256": "8fe1d04adcd7fa8f1a5621ce853935cca6a75a3c21a9ceafe779a3333cd50283",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/array.c",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/array.c",
+      "git_blob_sha1": "fa657f82aa177bc15857d648f7400c73ce6ac64a",
+      "sha256": "1f30ac39cb44b0506aaf6f8a9802ded91a91923931256956cba8cca86f9291ba",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/array_stream.c",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/array_stream.c",
+      "git_blob_sha1": "886ea7372f6139ddf56462d2e43a6d3e08ea4c29",
+      "sha256": "7527859fdf0fc2f454474823890d20d001b027d53f6f57ef7d63eae481c0b749",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/array_stream_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/array_stream_test.cc",
+      "git_blob_sha1": "25870b416f1b9360633679af580978132fdd6aef",
+      "sha256": "d6be43912a355c5e8f2e69f1ef79279e86f4db02b356d9b246c36f537521acf4",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/array_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/array_test.cc",
+      "git_blob_sha1": "90b561397c4f35f8445a94e655a4113967dd39cd",
+      "sha256": "8baad008be35089661d48a8d355d33cab8b9606bdb4353343240f95e18cf6979",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/buffer_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/buffer_test.cc",
+      "git_blob_sha1": "51c0964e5689f392f185de00f701421fdf5319bb",
+      "sha256": "c47ff68570439c0f70e1aa4ea87897e9655a4289bce7df7033ee001cd8db2e01",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/inline_array.h",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/inline_array.h",
+      "git_blob_sha1": "7153a3355e577f7e8aa95f871b89e15afcbb468b",
+      "sha256": "3212be8e03d431b215f50190f6ac5c795ac98453d6b5bf02cea3a1ca1c40d7d6",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/inline_buffer.h",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/inline_buffer.h",
+      "git_blob_sha1": "b99aa5d71ed20fc95f2d49f2964f96d79364c36c",
+      "sha256": "f8df09689368bb44c83247719d3b8cd0f68327123b86c83d2c1deb7717d88284",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/inline_types.h",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/inline_types.h",
+      "git_blob_sha1": "5737d6012a0ba3d31c157fd27750eaefbe7abb9b",
+      "sha256": "0354b2d7a838b5bf33865580932628ca3b005cf68d88cf62283664ac59dfb732",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/schema.c",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/schema.c",
+      "git_blob_sha1": "3f6120cebff3543ce701e67a2ffa75d88c07cbf4",
+      "sha256": "3bc2500dacc3010bb9a2c74c6eaf209d0cd2108510ea7a3b47517eaf789961cd",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/schema_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/schema_test.cc",
+      "git_blob_sha1": "873d1ca057523e3eacbaf457957e6c2e735025b4",
+      "sha256": "0be749dc7e268755fc7d0c68034a7109dae1d8d8d6fc454a62567288529dd82c",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/utils.c",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/utils.c",
+      "git_blob_sha1": "f0726bab00b7b49e7b25bd6c41cde5f1124264e2",
+      "sha256": "f795ade725fc7c49618c7ff31ea9bcd3d4a7b312bc558bb54e8526f1a58398fe",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/common/utils_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/common/utils_test.cc",
+      "git_blob_sha1": "5303f1f5b721d920d84483ea2cbc48cd2c5f52cd",
+      "sha256": "4a7d541f30320640be4650a6a215d255e9a2012e2f5ec0bd49026fb015c95fdf",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/array_stream.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/array_stream.hpp",
+      "git_blob_sha1": "eb3989256d4fcbb735104ef4d616d4501a07c2bf",
+      "sha256": "8448918225a6927f23603df0358c415851c54a99aaa41ac0cb0f13093b6e18cc",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/array_stream_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/array_stream_test.cc",
+      "git_blob_sha1": "5e1788271956f0a0dbae0f026fcbf4583e4fc007",
+      "sha256": "5bbec0cdc4795665dfa24590f2757b48317c2a28d4baeaaa655497f205772b79",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/buffer.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/buffer.hpp",
+      "git_blob_sha1": "b42ec0d0c99b939b78b28f30e0091ab3626dd046",
+      "sha256": "a12fca7c418d66cf5d9c6faf30415a78ca81ce9abe462919c0bc4a859998d2cd",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/buffer_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/buffer_test.cc",
+      "git_blob_sha1": "19e5bedf068ead27c520ab65127566338df7b49d",
+      "sha256": "1ed4921adf9b539bfe861084ed44ff1487577d1da5f72c0b2a15ce51cb5c0eaa",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/exception.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/exception.hpp",
+      "git_blob_sha1": "4f89299e1020dc87c04aa093178a17cf5c41bbd1",
+      "sha256": "97b93158b3ef5a38ec5d2694ec4fdf2468868466c9f3c3bcfe41db1bd409ac91",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/exception_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/exception_test.cc",
+      "git_blob_sha1": "388afede7d3d7da02627a032e0dc51f2850689b9",
+      "sha256": "aa7e92b13a3a1cfd4509ada8b5e5690c2d95257421f7922b86aea95b5c3f4c59",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/operators.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/operators.hpp",
+      "git_blob_sha1": "23b854bf020ada9f6e0b1597a5bd1c4e61456bf2",
+      "sha256": "a70fbf5e9b3a4cef1551f769e888e347d67f12489713ecb8d9fa0923df18f051",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/unique.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/unique.hpp",
+      "git_blob_sha1": "a67f4fcdd617506447c8f9bbfba3e68e1cbe2728",
+      "sha256": "7d7836ffad64eef8db90a8b5ad06342ec3b2861e1405fc3a2cc46516416685e3",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/unique_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/unique_test.cc",
+      "git_blob_sha1": "d9d25cacf8b5b509d38e546d7a3e559e3c9d083b",
+      "sha256": "8c2917c791f574c5ab531134574a6bb0a66dd9506eb0e779b2bea4c00fb7cd01",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/view.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/view.hpp",
+      "git_blob_sha1": "342fb1e23a5ff773c60145704d03f33852430cdd",
+      "sha256": "d1b3bf17d3b4a3d554be4a6c3f2759915b2f296e3d05eead34b01849dc490b80",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/hpp/view_test.cc",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/hpp/view_test.cc",
+      "git_blob_sha1": "b942331334b1062d5184a21ea9257b7181948018",
+      "sha256": "ce095820855eafc4d9a17bbce82de9b5959ccd3d3338b596089e3bc809d7c6da",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/nanoarrow.h",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/nanoarrow.h",
+      "git_blob_sha1": "d31d67a81eb321b2b40b3678be93690a5f7e8e67",
+      "sha256": "262d6341ff9541d54c2b6456a1814642f0d525b45dcc92960710d874286a25b0",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/nanoarrow.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/nanoarrow.hpp",
+      "git_blob_sha1": "855e1eabacd520c3866c388f82587d2837766e65",
+      "sha256": "6e1d602af79aa76c7ac958bcb66f3f244f18a2979e4a947e3838e25b56e5883e",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/nanoarrow_config.h.in",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/nanoarrow_config.h.in",
+      "git_blob_sha1": "695a986c294a76228862efcd959f5dfcc59f80aa",
+      "sha256": "ec8d5d65982ccd8d37ae04e677a4b9a0a02f09e41be24a84e0d1c46efbbb0a82",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "src/nanoarrow/nanoarrow_gtest_util.hpp",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "src/nanoarrow/nanoarrow_gtest_util.hpp",
+      "git_blob_sha1": "16f9b2c9bd7b4b44a6eaa008a2d481494c24286e",
+      "sha256": "3a8f0b14e1fa59af17946d241958b416f4f90555f0a6933c1b254f73c81dc331",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "thirdparty/googletest/CMakeLists.txt",
+      "origin_repo": "https://github.com/apache/arrow-nanoarrow",
+      "commit": "807a001093615dfaba238a69d2ede79d69999141",
+      "source_path": "thirdparty/googletest/CMakeLists.txt",
+      "git_blob_sha1": "91e066717683f98b57297578fe98d236951f4beb",
+      "sha256": "781f49740aeb45768675ffb2740cf3fddc750c3e3af6058f08627b85963debc5",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/LICENSE",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "LICENSE",
+      "git_blob_sha1": "1941a11f8ce94389160b458927a29ba217542818",
+      "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/README.md",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "README.md",
+      "git_blob_sha1": "443e02069581045300837342518183aa8354d23d",
+      "sha256": "89e9b403ee71f6adb5b67a01b9021a99e64380f024073fe39ab7ec7483c073c8",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-actions.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-actions.h",
+      "git_blob_sha1": "bd9ba73ee6341eba38fbb45b56b395eda9a362c6",
+      "sha256": "ba67150de5d135f1523787df5c43b56882c8505d80058d8e1ed975dbe380317b",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-cardinalities.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-cardinalities.h",
+      "git_blob_sha1": "533e604f326c052da2765ce282222b06fa832861",
+      "sha256": "a565787f3e15f81e1873d1ff9d97888ab1e37466165258cfffd6d4bafc086214",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-function-mocker.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-function-mocker.h",
+      "git_blob_sha1": "1a1f126e492fbdd30e6a3981b79b560554713908",
+      "sha256": "84a14b251a9257f24553e150075232668b7ff9b52076bda397e8b4035fce3036",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-matchers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-matchers.h",
+      "git_blob_sha1": "0f67713776a6621abd501945d2bd127326451078",
+      "sha256": "25d165842439b11a6cdeebc18427964fffde97c69270708f33eb4c1774b3c4e4",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-more-actions.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-more-actions.h",
+      "git_blob_sha1": "40300766f0846dc095cb103a892a6ecddc680d89",
+      "sha256": "38ce5dd7d723f088bd07e08fe64cb251d69a1347d7627bf9650ecac41aff1969",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-more-matchers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-more-matchers.h",
+      "git_blob_sha1": "54ea68be969d6845208a407f3725f2fb0b00e212",
+      "sha256": "b5dfa602f4f05a92000fffe06236cbbadb20bda8e1a4e55b1cddf27ba586232f",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-nice-strict.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-nice-strict.h",
+      "git_blob_sha1": "056d471417e3dc1ebaa7b17dbc68d4be7e603ff4",
+      "sha256": "75324d2f796da7d611fb5d1da610c905f53e74247b02982ca63f5dcb91f4c33c",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock-spec-builders.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock-spec-builders.h",
+      "git_blob_sha1": "78ca15d05e0f41e74e1ea5b8e943075ec1a2a930",
+      "sha256": "443dc5c5db218483514abcdbdb61c6d40cec81645d3d842fe23a1e7d6eeb8d8d",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/gmock.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/gmock.h",
+      "git_blob_sha1": "568c8c71d78578ffab629c3634fea890c5accfd6",
+      "sha256": "a4cce830e85ce888f41b098e1b32fda744b21adc97f7abb1eea2e072a261fbdf",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/custom/README.md",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/custom/README.md",
+      "git_blob_sha1": "9c4874fd0cb31e89682088eb1a91cc7a43857bee",
+      "sha256": "1ecdc0c1b9a6b4ce7a9411dfb50c3b8aced2aa03d42e67ee0377a7a201d5ff64",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/custom/gmock-generated-actions.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/custom/gmock-generated-actions.h",
+      "git_blob_sha1": "bbcad31c76efa9a05a9acb4032f73f6fd656b42e",
+      "sha256": "8efd16064b3e19d98726a15f8bc40daa593576e4a190b2e8b95a6fee7242c36f",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/custom/gmock-matchers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/custom/gmock-matchers.h",
+      "git_blob_sha1": "bb7dcbaa4cb20035c897d55ba5e58f8c5d4c9cb3",
+      "sha256": "b6d245e95f0649a85aa7e29457f437da4c2f1fbadb0402cfc40f680159de510f",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/custom/gmock-port.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/custom/gmock-port.h",
+      "git_blob_sha1": "f055f7506b82ec481b295881a2c3f7f1b0a685e4",
+      "sha256": "ee2cc87202e75759cfd98a5d657c69ee864e492a2c63584586938da81ab84995",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/gmock-internal-utils.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/gmock-internal-utils.h",
+      "git_blob_sha1": "ead6d7c805e97ce6d0c595e4fb7260e2c8c1a61f",
+      "sha256": "01ff320294320a50e834268aeaee161c15d6a9a92a0143033e3ccd494209765e",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/gmock-port.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/gmock-port.h",
+      "git_blob_sha1": "55ddfb6c6a3bda91296305dae26baeba1fa8f48a",
+      "sha256": "36c98608b21019c3ef995a6be05d620c7f8e7ee593347f123a166aa0a375e9cf",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/include/gmock/internal/gmock-pp.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/include/gmock/internal/gmock-pp.h",
+      "git_blob_sha1": "94d61c09c87036dca0afc42e623ce3e15745d5cd",
+      "sha256": "5fcdad1707b172f8000d9f419f41d44318558600b00916785516eae49843bb4f",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock-all.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock-all.cc",
+      "git_blob_sha1": "e43c9b7b4c15b3c6451bbe9bac97f08376e8db65",
+      "sha256": "166fc3f915d7abcb66f2b1d5cb31c13237838d3464d4de3015dcac00b9d354cd",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock-cardinalities.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock-cardinalities.cc",
+      "git_blob_sha1": "92cde3484abf6bb52d1527cf8b1d4fa45ea2f4d7",
+      "sha256": "3affa4115b7467dbe92c286399953cb39f6374d63ad7cbaa294983fa2f19a80e",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock-internal-utils.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock-internal-utils.cc",
+      "git_blob_sha1": "5c2ce0d57eb69c9d478c47c82087a056302864cc",
+      "sha256": "890d63bfa3d040d6afc27d9077de59cef817a7528a600210861b55ad1a0f255c",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock-matchers.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock-matchers.cc",
+      "git_blob_sha1": "07bba4f0103d173513b92eeadc6ec77d8c0d828d",
+      "sha256": "5e621fa29f665d297049379c38bdf743a3f300435bb0badeb3f85325c8d3e488",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock-spec-builders.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock-spec-builders.cc",
+      "git_blob_sha1": "de89471635867b5e1c37802e684dfaf4210a1883",
+      "sha256": "428a1027d820bf47f803e5d89f88802b8886f28a48142fb7ccd178cfe1e95250",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock.cc",
+      "git_blob_sha1": "b5e714da7d3c21f997da80a65b3f95f150e18d6a",
+      "sha256": "1376daf6387eac94b5afaf2dfbf2e3aac098b5f97985f3f5660ab3f7d4948452",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googlemock/src/gmock_main.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googlemock/src/gmock_main.cc",
+      "git_blob_sha1": "6b5541271bfe3eb9d2f53155f2c5979d100fa745",
+      "sha256": "6c6f3fe5baaf769d384503793c3f44a59e1796bafe58f1eb37012944eb75bc18",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-assertion-result.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-assertion-result.h",
+      "git_blob_sha1": "56fe128f2a5aa707a2a49582fcd1313b296d31fb",
+      "sha256": "d6562e22c316e831bfbc2cde3b158f06380a22e7e1c6c1e180689abee5c5b972",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-death-test.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-death-test.h",
+      "git_blob_sha1": "08fef8c7d34645b44779389577f12acd795010b2",
+      "sha256": "8decbb86ebbfa142fd78a83cfbeb4c5e73e98179058ce70fcc279935c497429a",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-matchers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-matchers.h",
+      "git_blob_sha1": "eae210e99ddae4d0a3c81fbfeda48bac397fd2a5",
+      "sha256": "d637dd188944433c62d96a062f9b1adab851574c537d7021270c7a52a2759a90",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-message.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-message.h",
+      "git_blob_sha1": "59b805e4e4622ca21fb4a111e3bacd21c83f8aa3",
+      "sha256": "f1c7bd4e0c02240e884deed25a2e0bfd04e5e0c3fd778a3b126cbb64531f65a7",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-param-test.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-param-test.h",
+      "git_blob_sha1": "49a47ead03b79eed9639d1587c82c5d5fd7fd43a",
+      "sha256": "1adb46e17e47fc2f40dc5b8e9acec4f01efa389a19bbea25d32aea28b94e32e6",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-printers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-printers.h",
+      "git_blob_sha1": "d1766e640f280b2bfa9ebe8147c91962b3ce3216",
+      "sha256": "f3396ea55d577ee04f15a2b14b14b76edb8a84d385c831defd88cff8535bc273",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-spi.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-spi.h",
+      "git_blob_sha1": "c0613b6959560be931c52f5d0fd8f9bdf927dcbd",
+      "sha256": "fc0bbebaeb211b81a2ec3df388e5e5f25a7c22e90186839854d2e5b26ce226e6",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-test-part.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-test-part.h",
+      "git_blob_sha1": "41c8a9a0d0e31fad50cb6b11adcf514f8261c544",
+      "sha256": "2279b9bfd08aff7c0f764a2716bde0d3a61dc12573687a2cff91256b17681bf0",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest-typed-test.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest-typed-test.h",
+      "git_blob_sha1": "72de536bceec8e1da0da92cc1f7bd72216d2c67e",
+      "sha256": "d56313830bf30d6271d7c1f8ca57dc52d95a10b97e4ace6efa0f085ae519303a",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest.h",
+      "git_blob_sha1": "de7d528fc687bb6d7ef7a9b75b1724b849676cd9",
+      "sha256": "93da03ddf6d5b9bdf40ae4ded9939067c9ed0b6de93f787f7e8d187609b6b02d",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest_pred_impl.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest_pred_impl.h",
+      "git_blob_sha1": "47a24aa687af6ebfed8423bee7802192e73d97ac",
+      "sha256": "85e850e735a42ebb5f9a01a018708c1c0b9b7d83c94b14b7d5d29512c00b6ffd",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/gtest_prod.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/gtest_prod.h",
+      "git_blob_sha1": "1f37dc31c347228e21f2474e1dbf0aed6b988189",
+      "sha256": "3c6301ef533db8686e474dd5a0de4d98a31cbb630e2273f712472d1be25aa261",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/custom/README.md",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/custom/README.md",
+      "git_blob_sha1": "cb49e2c754c250ed975e371551267b938ebcdfa1",
+      "sha256": "608ec5ac574a6e64e4fc2f4bce2cfc7ff753a04d6822d6ff96e43fff51c6ccc1",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/custom/gtest-port.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/custom/gtest-port.h",
+      "git_blob_sha1": "db02881c0c899a74f07985980afa2e6e98c68875",
+      "sha256": "5e06747c9e8b86e9d841fabd61c2f045b2bb1133716f127be4a963ced1c44e01",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/custom/gtest-printers.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/custom/gtest-printers.h",
+      "git_blob_sha1": "b9495d83783bcde050f5fdc177036aa4880b3fd9",
+      "sha256": "b95afda2426e8c4f09c11d3296d522fb336b248c0da7e078388db4bb072c2166",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/custom/gtest.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/custom/gtest.h",
+      "git_blob_sha1": "afaaf17ba28e3beb790a12638cffec8dba5698ea",
+      "sha256": "21d20a1c64ea38c20c4b12337c261a1a18989d2a30710a83dfb5cd9a3bb3c55e",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-death-test-internal.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-death-test-internal.h",
+      "git_blob_sha1": "8e9c988b98ce8bc8facce85478b96c0f5b9fe51c",
+      "sha256": "a70d1174ef668639c7af21764442f8e487b0fc70c237a70f90e3161a8e8262d6",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-filepath.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-filepath.h",
+      "git_blob_sha1": "5189c81dabfa6687f362e6bcafc2662e3dec3196",
+      "sha256": "544ce95d2e1e4b7ae17ee170f482aaa09e17d0056999c4ce7e7a6097c3a755cf",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-internal.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-internal.h",
+      "git_blob_sha1": "a04a9201c616de5dc0853a1d33b63a798cad686e",
+      "sha256": "a33806c8e6ca5eb6f839b8e015bdf8eae848641035f9499834f9d402b823d5fe",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-param-util.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-param-util.h",
+      "git_blob_sha1": "6a81c37fa6afc5931e4d0b8c0c8a48e133f4e1d6",
+      "sha256": "effa1b3e6a3554aae8fc82fbe88c1c3215f723bb3e2e444bf424f688c476a030",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-port-arch.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-port-arch.h",
+      "git_blob_sha1": "3162f2b1cbd229d3e92418ff89f8718db57b75c1",
+      "sha256": "37f6d5c70322ee5f4f84fafcb4e8e2f4bbf08a5afc64a6636cf6a9f45d442198",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-port.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-port.h",
+      "git_blob_sha1": "b887e24edcd05e948a36d54d4e970d7f7f07a2d3",
+      "sha256": "c22ef5c860dabc3e74225f3a54c2d7224375ad2dd2af619d3f8cbe7e917fc754",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-string.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-string.h",
+      "git_blob_sha1": "7c05b58339f681ef1584b81568e0c6f4bfbab870",
+      "sha256": "0cc08c746bceb2b101c61ffbc905c598eb62fee3c262c4585c21b10d8a3e6508",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/include/gtest/internal/gtest-type-util.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/include/gtest/internal/gtest-type-util.h",
+      "git_blob_sha1": "f94cf614ade746bb16d9cbca197f83626871c0da",
+      "sha256": "c1cf53463579025a7b25466e9680a778d74beff52d8a64b6e83fcb6dd99e4bb7",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-all.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-all.cc",
+      "git_blob_sha1": "2a70ed88c7841a58f0bd54e6e8cc5c14f47dce48",
+      "sha256": "972d3016860f9aa6452e078cf77406290fb7003b66fd6c0744a030bd1c323606",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-assertion-result.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-assertion-result.cc",
+      "git_blob_sha1": "39989216741a5c1f7593786afe8d87b51d53b01e",
+      "sha256": "dbd2235676dcc0ef6409108a4041e05442fc6895735a5561d71151e6a14296bb",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-death-test.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-death-test.cc",
+      "git_blob_sha1": "0eb6e38b2a96643b26d1f9de8dc8498feed9631d",
+      "sha256": "4a0a2dad0efbb61c4f7686ccd326e19d6e5633c98202f6878fa2d18c52f3329a",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-filepath.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-filepath.cc",
+      "git_blob_sha1": "513e947f5703ea363bdddb4bfffcdc7ddf1aaf43",
+      "sha256": "8eec3fa2a0e6617106a8d9bfedf3209b0a8cad02e2a17e76196807290e940f8c",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-internal-inl.h",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-internal-inl.h",
+      "git_blob_sha1": "5b7fcbd065091cc4eb32f9cdb03b6c861b8c2542",
+      "sha256": "fce60f191b52108b5851f6aec51a6f14001e1a79fd302d48c8fdbb842f8fef1a",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-matchers.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-matchers.cc",
+      "git_blob_sha1": "7e3bcc0cff3806c1151357ab1f31da2a0b5b9dbc",
+      "sha256": "e4ce9edf33493625353cc147a14caac14fdba7390d76166d101fa2fe9d16bbda",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-port.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-port.cc",
+      "git_blob_sha1": "2aaf2bcc26c1e640f75ef1beabee9eb88db02d73",
+      "sha256": "6e6c0346e833a254e52544728b40fd0cced0b36431e9eed8f5e477e6f5fe1a23",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-printers.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-printers.cc",
+      "git_blob_sha1": "e3acecba8e4dec902013e0356bd97773b06328aa",
+      "sha256": "bd14e45b5cb8df8be5944a0aaeb3739c533737a183ae4ed6627f5613eea1f6c9",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-test-part.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-test-part.cc",
+      "git_blob_sha1": "6f8ddd7c485c2f9dbd890199ab5ec8ddae72bedc",
+      "sha256": "b268314cbc718b485ff3e45fdeb5a1496bb8d87dadd5e824c558bf3b03e2dbf9",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest-typed-test.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest-typed-test.cc",
+      "git_blob_sha1": "b251c09deb80c704f9b34a8a951c15646be2e5ef",
+      "sha256": "b92e70b2d7ee3b86328162cbda269a28de4ce67f0e8d9beec5ec2c73a93ba006",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest.cc",
+      "git_blob_sha1": "30a5cc3f83a7e0af7a1da254d455d3dcdfce7a10",
+      "sha256": "53470c00499b943b4f5c3e7b581ffda9c76f828f485f33e17471aa08e8b296ac",
+      "mode": "100644",
+      "modified": false
+    },
+    {
+      "path": "vendor/googletest/googletest/src/gtest_main.cc",
+      "origin_repo": "https://github.com/google/googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "source_path": "googletest/src/gtest_main.cc",
+      "git_blob_sha1": "8141caf4ca0864f7135767d714a1dfe203f8be73",
+      "sha256": "3836c1ce7c4829c44a30f368d888ae3bed218437d61d102c50c0db4afca33b3f",
+      "mode": "100644",
+      "modified": false
+    }
+  ]
+}
