@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-b=$(mktemp -d)
+b=$(mktemp -d "${TMPDIR:-/tmp}/openjp2-target.XXXXXX")
 trap 'rm -rf "$b"' EXIT
 test -s tests/dwt_contract.c
 source verification/build.sh
