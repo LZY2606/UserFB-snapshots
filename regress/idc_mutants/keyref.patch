@@ -1,0 +1,11 @@
+--- a/xmlschemas.c
++++ b/xmlschemas.c
+@@ -23477,7 +23477,7 @@
+ 		    }
+ 		}
+ 
+-		if (res == 0) {
++		if (0) { /* MUTANT keyref: orphan keyrefs go unreported */
+ 		    xmlChar *str = NULL, *strB = NULL;
+ 		    xmlSchemaKeyrefErr(vctxt,
+ 			XML_SCHEMAV_CVC_IDC, refNode,

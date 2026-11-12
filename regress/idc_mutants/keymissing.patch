@@ -1,0 +1,11 @@
+--- a/xmlschemas.c
++++ b/xmlschemas.c
+@@ -22506,7 +22506,7 @@
+ 			/*
+ 			* All fields of a "key" IDC must resolve.
+ 			*/
+-			goto selector_key_error;
++			goto selector_leave; /* MUTANT keymissing: key tolerates missing fields like unique */
+ 		    }
+ 		    goto selector_leave;
+ 		}

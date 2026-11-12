@@ -1,0 +1,11 @@
+--- a/xmlschemas.c
++++ b/xmlschemas.c
+@@ -22574,7 +22574,7 @@
+ 			break;
+ 		    }
+ 		}
+-		if (e) {
++		if (0) { /* MUTANT dupkey: duplicate key-sequences go unreported */
+ 		    xmlChar *str = NULL, *strB = NULL;
+ 		    /*
+ 		    * TODO: Try to report the key-sequence.
