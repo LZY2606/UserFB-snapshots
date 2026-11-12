@@ -85,3 +85,4 @@ shine-*.tar.gz
 *.o
 *.mp3
 node_modules
+.build/

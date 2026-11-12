@@ -6,7 +6,7 @@ for f in tests/reservoir.c examples/reservoir.c; do
 done
 bash devcheck/run_baseline.sh
 bash devcheck/legacy_cli.sh
-d=$(mktemp -d)
+d=$(mktemp -d "${TMPDIR:-/tmp}/reservoir.XXXXXX")
 trap 'rm -rf "$d"' EXIT
 "${CC:-cc}" -std=c99 -O2 -fsigned-char -Isrc/lib -Idevcheck src/lib/*.c tests/reservoir.c -lm -o "$d/reservoir"
 "$d/reservoir" | tee "$d/report"

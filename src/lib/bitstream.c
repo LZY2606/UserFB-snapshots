@@ -74,3 +74,20 @@ void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
 int shine_get_bits_count(bitstream_t *bs) {
   return bs->data_position * 8 + 32 - bs->cache_bits;
 }
+
+void shine_bitstream_byte_flush(bitstream_t *bs) {
+  int bits = 32 - bs->cache_bits;
+
+  while (bits > 0) {
+    if (bs->data_position + 1 >= bs->data_size) {
+      bs->data = (unsigned char *)realloc(bs->data,
+                                          bs->data_size + (bs->data_size / 2));
+      bs->data_size += (bs->data_size / 2);
+    }
+    bs->data[bs->data_position++] = (unsigned char)(bs->cache >> 24);
+    bs->cache <<= 8;
+    bits -= 8;
+  }
+  bs->cache = 0;
+  bs->cache_bits = 32;
+}

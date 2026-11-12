@@ -6,6 +6,7 @@
 #include "l3loop.h"
 #include "l3mdct.h"
 #include "l3subband.h"
+#include "reservoir.h"
 #include "tables.h"
 #include "types.h"
 
@@ -147,6 +148,40 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   return config;
 }
 
+/* Compute default encoding values, enabling the cross-frame bit
+ * reservoir with a main-data reach of max_bytes bytes. */
+shine_global_config *shine_initialise_reservoir(shine_config_t *pub_config,
+                                                int max_bytes) {
+  shine_global_config *config;
+  int samplerate_index, limit;
+
+  if (max_bytes < 0)
+    return NULL;
+
+  samplerate_index = shine_find_samplerate_index(pub_config->wave.samplerate);
+  if (samplerate_index < 0)
+    return NULL;
+
+  /* main_data_begin is 9 bits for MPEG-I, 8 bits for MPEG-II/2.5. */
+  limit = (shine_mpeg_version(samplerate_index) == MPEG_I) ? 511 : 255;
+  if (max_bytes > limit)
+    return NULL;
+
+  if (!max_bytes)
+    return shine_initialise(pub_config);
+
+  config = shine_initialise(pub_config);
+  if (!config)
+    return NULL;
+
+  if (shine_resv_init(config, max_bytes) < 0) {
+    shine_close(config);
+    return NULL;
+  }
+
+  return config;
+}
+
 static unsigned char *shine_encode_buffer_internal(shine_global_config *config,
                                                    int *written, int stride) {
   if (config->mpeg.frac_slots_per_frame) {
@@ -168,11 +203,18 @@ static unsigned char *shine_encode_buffer_internal(shine_global_config *config,
   shine_iteration_loop(config);
 
   /* write the frame to the bitstream */
+  config->resv_out = 0;
   shine_format_bitstream(config);
 
   /* Return data. */
-  *written = config->bs.data_position;
-  config->bs.data_position = 0;
+  if (config->ResvMax) {
+    /* Reservoir mode: only the physical frames whose main-data bytes
+     * have all been produced are returned, possibly none. */
+    *written = config->resv_out;
+  } else {
+    *written = config->bs.data_position;
+    config->bs.data_position = 0;
+  }
 
   return config->bs.data;
 }
@@ -196,13 +238,22 @@ unsigned char *shine_encode_buffer_interleaved(shine_global_config *config,
 }
 
 unsigned char *shine_flush(shine_global_config *config, int *written) {
-  *written = config->bs.data_position;
-  config->bs.data_position = 0;
+  if (config->ResvMax) {
+    /* Reservoir mode: pad the main-data stream tail and deliver every
+     * physical frame still queued. No silent frame is added. */
+    config->resv_out = 0;
+    shine_resv_flush_frames(config);
+    *written = config->resv_out;
+  } else {
+    *written = config->bs.data_position;
+    config->bs.data_position = 0;
+  }
 
   return config->bs.data;
 }
 
 void shine_close(shine_global_config *config) {
+  shine_resv_close(config);
   shine_close_bit_stream(&config->bs);
   free(config);
 }

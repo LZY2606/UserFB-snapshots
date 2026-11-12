@@ -25,5 +25,8 @@ void shine_open_bit_stream(bitstream_t *bs, const int size);
 void shine_close_bit_stream(bitstream_t *bs);
 void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N);
 int shine_get_bits_count(bitstream_t *bs);
+/* Append the whole bytes held in the cache to the data buffer and reset
+ * the cache. The number of cached bits must be a multiple of 8. */
+void shine_bitstream_byte_flush(bitstream_t *bs);
 
 #endif

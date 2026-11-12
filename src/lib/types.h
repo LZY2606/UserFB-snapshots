@@ -172,6 +172,27 @@ typedef struct shine_global_flags {
   int32_t mdct_freq[MAX_CHANNELS][MAX_GRANULES][GRANULE_SIZE];
   int ResvSize;
   int ResvMax;
+  /* Cross-frame bit reservoir streaming state. Only used when
+   * ResvMax > 0, i.e. through shine_initialise_reservoir() with a
+   * positive max_bytes. All of it is per-instance. */
+  int resv_slots_left;   /* granule/channel pairs still to code this frame */
+  int resv_frame_begin;  /* main_data_begin of the frame being coded (bytes) */
+  bitstream_t mbs;       /* scratch bitstream: one frame's main data */
+  bitstream_t hbs;       /* scratch bitstream: one emitted frame's header */
+  shine_side_info_t *resv_queue; /* ring of coded, not yet emitted frames */
+  int *resv_qbegin;      /* main_data_begin per queued frame (bytes) */
+  int *resv_qcap;        /* main-data capacity per queued frame (bytes) */
+  int *resv_qpad;        /* padding bit per queued frame */
+  long long *resv_qcum;  /* main-data capacity before each queued frame */
+  int resv_qsize;        /* ring capacity (in frames) */
+  int resv_qhead;        /* oldest queued frame */
+  int resv_qcount;       /* number of queued frames */
+  unsigned char *resv_pending; /* main-data stream bytes not yet emitted */
+  int resv_pending_size;       /* allocated size of resv_pending */
+  long long resv_pending_base; /* stream offset of resv_pending[0] */
+  long long resv_stream_filled;   /* main-data bytes appended so far */
+  long long resv_stream_capacity; /* main-data capacity of frames coded so far */
+  int resv_out;          /* bytes assembled into bs.data by the current call */
   l3loop_t l3loop;
   mdct_t mdct;
   subband_t subband;

@@ -114,6 +114,44 @@ Encoding "bla.wav" to "bla.mp3"
 Finished in 00:00:14 (24.2x realtime)
 ```
 
+Bit reservoir
+-------------
+
+By default (`shine_initialise`, CBR) every frame is encoded on its own
+and `main_data_begin` is always zero. `shine_initialise_reservoir`
+enables the cross-frame bit reservoir so that main-data capacity left
+unused by quiet frames can be spent by later, more complex frames:
+
+```c
+/* Allow main data to point up to 511 bytes back (the MPEG-I maximum;
+ * 255 for MPEG-II/2.5 samplerates). Returns NULL for negative or
+ * out-of-range values. */
+s = shine_initialise_reservoir(&config, 511);
+```
+
+Things to know when the reservoir is enabled:
+
+* **Output delay**: physical frames are only delivered once every byte
+  of their main-data area has been produced, so `shine_encode_buffer*`
+  may return zero bytes. The backlog is bounded: after any call, the
+  undelivered frames hold at most `max_bytes` plus one frame of
+  main-data capacity. `shine_flush` (call it once, after the last
+  encode call) pads the tail of the main-data stream and delivers the
+  remaining frames without adding any silent frame; calling it again
+  returns zero bytes.
+* **Buffer validity**: as with the classic API, the returned pointer is
+  owned by the library and is only valid until the next library call —
+  copy the bytes out before encoding or flushing again.
+* **Compatibility**: `shine_initialise` is unchanged, and
+  `shine_initialise_reservoir(&config, 0)` produces byte-identical
+  output to it. Physical frame sizes still follow the CBR rules
+  (version, bitrate, samplerate and padding); only the placement of
+  main data across frames changes. Planar and interleaved feeds of the
+  same PCM produce identical streams.
+
+See `examples/reservoir.c` for a complete program and
+`tests/reservoir.c` for the exact stream invariants.
+
 Limitations
 -----------
 

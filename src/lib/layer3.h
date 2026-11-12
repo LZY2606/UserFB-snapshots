@@ -109,6 +109,23 @@ int shine_check_config(int freq, int bitr);
  * the encoder. */
 shine_t shine_initialise(shine_config_t *config);
 
+/* Same as `shine_initialise`, but enables the cross-frame bit reservoir:
+ * main data of complex frames may point up to `max_bytes` bytes back into
+ * the main-data area of previous frames, so capacity left unused by quiet
+ * frames can be spent by later ones.
+ *
+ * `max_bytes` must be 0 (identical to `shine_initialise`), or between 1
+ * and 511 for MPEG-I samplerates (44100, 48000, 32000) and between 1 and
+ * 255 for MPEG-II/2.5 samplerates. Negative or out-of-range values, and
+ * unsupported samplerate/bitrate configurations, return NULL.
+ *
+ * With a positive `max_bytes`, `shine_encode_buffer*` may return zero
+ * bytes while encoded frames wait for their main data to be completed by
+ * later frames; the backlog is bounded by `max_bytes` plus one frame.
+ * `shine_flush` delivers the remaining frames and must be called after
+ * the last encode call. */
+shine_t shine_initialise_reservoir(shine_config_t *config, int max_bytes);
+
 /* Maximun possible value for the function below. */
 #define SHINE_MAX_SAMPLES 1152
 

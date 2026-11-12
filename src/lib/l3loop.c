@@ -101,6 +101,12 @@ void shine_iteration_loop(shine_global_config *config) {
   int ch, gr, i;
   int *ix;
 
+  /* Per-frame reservoir bookkeeping. The reservoir is byte aligned at
+   * frame boundaries, so this is the main_data_begin value (in bytes)
+   * of the frame being coded. */
+  config->resv_frame_begin = config->ResvSize >> 3;
+  config->side_info.resvDrain = 0;
+
   for (ch = config->wave.channels; ch--;) {
     for (gr = 0; gr < config->mpeg.granules_per_frame; gr++) {
       /* setup pointers */
@@ -127,6 +133,8 @@ void shine_iteration_loop(shine_global_config *config) {
         calc_scfsi(&l3_xmin, ch, gr, config);
 
       /* calculation of number of available bit( per granule ) */
+      config->resv_slots_left =
+          (ch + 1) * config->mpeg.granules_per_frame - gr;
       max_bits = shine_max_reservoir_bits(&config->pe[ch][gr], config);
 
       /* reset of iteration variables */

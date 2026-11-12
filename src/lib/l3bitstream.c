@@ -6,6 +6,7 @@
 #include "l3loop.h"
 #include "l3mdct.h"
 #include "layer3.h"
+#include "reservoir.h"
 #include "tables.h"
 #include "types.h"
 
@@ -14,9 +15,9 @@ static void shine_huffman_coder_count1(bitstream_t *bs,
                                        const struct huffcodetab *h, int v,
                                        int w, int x, int y);
 
-static void encodeSideInfo(shine_global_config *config);
-static void encodeMainData(shine_global_config *config);
-static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi);
+static void encodeMainData(shine_global_config *config, bitstream_t *bs);
+static void Huffmancodebits(shine_global_config *config, bitstream_t *bs,
+                            int *ix, gr_info *gi);
 
 /*
   shine_format_bitstream()
@@ -28,6 +29,32 @@ static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi);
   inserted at the proper locations to maintain framing. (See Figure A.7
   in the IS).
 */
+
+/* Legacy mode: header, side information and main data are written
+ * straight into the output bitstream, one frame after the other. */
+static void formatFrame(shine_global_config *config) {
+  shine_encode_side_info(config, &config->side_info, 0, &config->bs);
+  encodeMainData(config, &config->bs);
+}
+
+/* Reservoir mode: serialize this frame's main data into the scratch
+ * bitstream, hand it over to the reservoir streamer which appends it to
+ * the pending main-data stream and assembles every physical frame whose
+ * bytes have all been produced. */
+static void formatReservoirFrame(shine_global_config *config) {
+  int cap = (config->mpeg.bits_per_frame - config->sideinfo_len) >> 3;
+
+  config->mbs.data_position = 0;
+  config->mbs.cache = 0;
+  config->mbs.cache_bits = 32;
+
+  encodeMainData(config, &config->mbs);
+  if (config->side_info.resvDrain)
+    shine_putbits(&config->mbs, 0, config->side_info.resvDrain);
+  shine_bitstream_byte_flush(&config->mbs);
+
+  shine_resv_store_frame(config, cap);
+}
 
 void shine_format_bitstream(shine_global_config *config) {
   int gr, ch, i;
@@ -42,11 +69,13 @@ void shine_format_bitstream(shine_global_config *config) {
       }
     }
 
-  encodeSideInfo(config);
-  encodeMainData(config);
+  if (config->ResvMax)
+    formatReservoirFrame(config);
+  else
+    formatFrame(config);
 }
 
-static void encodeMainData(shine_global_config *config) {
+static void encodeMainData(shine_global_config *config, bitstream_t *bs) {
   int gr, ch, sfb;
   shine_side_info_t si = config->side_info;
 
@@ -59,89 +88,90 @@ static void encodeMainData(shine_global_config *config) {
 
       if (gr == 0 || si.scfsi[ch][0] == 0)
         for (sfb = 0; sfb < 6; sfb++)
-          shine_putbits(&config->bs, config->scalefactor.l[gr][ch][sfb], slen1);
+          shine_putbits(bs, config->scalefactor.l[gr][ch][sfb], slen1);
       if (gr == 0 || si.scfsi[ch][1] == 0)
         for (sfb = 6; sfb < 11; sfb++)
-          shine_putbits(&config->bs, config->scalefactor.l[gr][ch][sfb], slen1);
+          shine_putbits(bs, config->scalefactor.l[gr][ch][sfb], slen1);
       if (gr == 0 || si.scfsi[ch][2] == 0)
         for (sfb = 11; sfb < 16; sfb++)
-          shine_putbits(&config->bs, config->scalefactor.l[gr][ch][sfb], slen2);
+          shine_putbits(bs, config->scalefactor.l[gr][ch][sfb], slen2);
       if (gr == 0 || si.scfsi[ch][3] == 0)
         for (sfb = 16; sfb < 21; sfb++)
-          shine_putbits(&config->bs, config->scalefactor.l[gr][ch][sfb], slen2);
+          shine_putbits(bs, config->scalefactor.l[gr][ch][sfb], slen2);
 
-      Huffmancodebits(config, ix, gi);
+      Huffmancodebits(config, bs, ix, gi);
     }
   }
 }
 
-static void encodeSideInfo(shine_global_config *config) {
+void shine_encode_side_info(shine_global_config *config, shine_side_info_t *si,
+                            unsigned main_data_begin, bitstream_t *bs) {
   int gr, ch, scfsi_band, region;
-  shine_side_info_t si = config->side_info;
 
-  shine_putbits(&config->bs, 0x7ff, 11);
-  shine_putbits(&config->bs, config->mpeg.version, 2);
-  shine_putbits(&config->bs, config->mpeg.layer, 2);
-  shine_putbits(&config->bs, !config->mpeg.crc, 1);
-  shine_putbits(&config->bs, config->mpeg.bitrate_index, 4);
-  shine_putbits(&config->bs, config->mpeg.samplerate_index % 3, 2);
-  shine_putbits(&config->bs, config->mpeg.padding, 1);
-  shine_putbits(&config->bs, config->mpeg.ext, 1);
-  shine_putbits(&config->bs, config->mpeg.mode, 2);
-  shine_putbits(&config->bs, config->mpeg.mode_ext, 2);
-  shine_putbits(&config->bs, config->mpeg.copyright, 1);
-  shine_putbits(&config->bs, config->mpeg.original, 1);
-  shine_putbits(&config->bs, config->mpeg.emph, 2);
+  shine_putbits(bs, 0x7ff, 11);
+  shine_putbits(bs, config->mpeg.version, 2);
+  shine_putbits(bs, config->mpeg.layer, 2);
+  shine_putbits(bs, !config->mpeg.crc, 1);
+  shine_putbits(bs, config->mpeg.bitrate_index, 4);
+  shine_putbits(bs, config->mpeg.samplerate_index % 3, 2);
+  shine_putbits(bs, config->mpeg.padding, 1);
+  shine_putbits(bs, config->mpeg.ext, 1);
+  shine_putbits(bs, config->mpeg.mode, 2);
+  shine_putbits(bs, config->mpeg.mode_ext, 2);
+  shine_putbits(bs, config->mpeg.copyright, 1);
+  shine_putbits(bs, config->mpeg.original, 1);
+  shine_putbits(bs, config->mpeg.emph, 2);
 
   if (config->mpeg.version == MPEG_I) {
-    shine_putbits(&config->bs, 0, 9);
+    shine_putbits(bs, main_data_begin, 9);
     if (config->wave.channels == 2)
-      shine_putbits(&config->bs, si.private_bits, 3);
+      shine_putbits(bs, si->private_bits, 3);
     else
-      shine_putbits(&config->bs, si.private_bits, 5);
+      shine_putbits(bs, si->private_bits, 5);
   } else {
-    shine_putbits(&config->bs, 0, 8);
+    shine_putbits(bs, main_data_begin, 8);
     if (config->wave.channels == 2)
-      shine_putbits(&config->bs, si.private_bits, 2);
+      shine_putbits(bs, si->private_bits, 2);
     else
-      shine_putbits(&config->bs, si.private_bits, 1);
+      shine_putbits(bs, si->private_bits, 1);
   }
 
   if (config->mpeg.version == MPEG_I)
     for (ch = 0; ch < config->wave.channels; ch++) {
       for (scfsi_band = 0; scfsi_band < 4; scfsi_band++)
-        shine_putbits(&config->bs, si.scfsi[ch][scfsi_band], 1);
+        shine_putbits(bs, si->scfsi[ch][scfsi_band], 1);
     }
 
   for (gr = 0; gr < config->mpeg.granules_per_frame; gr++)
     for (ch = 0; ch < config->wave.channels; ch++) {
-      gr_info *gi = &(si.gr[gr].ch[ch].tt);
+      gr_info *gi = &(si->gr[gr].ch[ch].tt);
 
-      shine_putbits(&config->bs, gi->part2_3_length, 12);
-      shine_putbits(&config->bs, gi->big_values, 9);
-      shine_putbits(&config->bs, gi->global_gain, 8);
+      shine_putbits(bs, gi->part2_3_length, 12);
+      shine_putbits(bs, gi->big_values, 9);
+      shine_putbits(bs, gi->global_gain, 8);
       if (config->mpeg.version == MPEG_I)
-        shine_putbits(&config->bs, gi->scalefac_compress, 4);
+        shine_putbits(bs, gi->scalefac_compress, 4);
       else
-        shine_putbits(&config->bs, gi->scalefac_compress, 9);
-      shine_putbits(&config->bs, 0, 1);
+        shine_putbits(bs, gi->scalefac_compress, 9);
+      shine_putbits(bs, 0, 1);
 
       for (region = 0; region < 3; region++)
-        shine_putbits(&config->bs, gi->table_select[region], 5);
+        shine_putbits(bs, gi->table_select[region], 5);
 
-      shine_putbits(&config->bs, gi->region0_count, 4);
-      shine_putbits(&config->bs, gi->region1_count, 3);
+      shine_putbits(bs, gi->region0_count, 4);
+      shine_putbits(bs, gi->region1_count, 3);
 
       if (config->mpeg.version == MPEG_I)
-        shine_putbits(&config->bs, gi->preflag, 1);
-      shine_putbits(&config->bs, gi->scalefac_scale, 1);
-      shine_putbits(&config->bs, gi->count1table_select, 1);
+        shine_putbits(bs, gi->preflag, 1);
+      shine_putbits(bs, gi->scalefac_scale, 1);
+      shine_putbits(bs, gi->count1table_select, 1);
     }
 }
 
 /* Note the discussion of huffmancodebits() on pages 28 and 29 of the IS, as
   well as the definitions of the side information on pages 26 and 27. */
-static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi) {
+static void Huffmancodebits(shine_global_config *config, bitstream_t *bs,
+                            int *ix, gr_info *gi) {
   const int *scalefac =
       &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
   unsigned scalefac_index;
@@ -151,7 +181,7 @@ static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi) {
   const struct huffcodetab *h;
   int bits;
 
-  bits = shine_get_bits_count(&config->bs);
+  bits = shine_get_bits_count(bs);
 
   /* 1: Write the bigvalues */
   bigvalues = gi->big_values << 1;
@@ -169,7 +199,7 @@ static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi) {
     if (tableindex) {
       x = ix[i];
       y = ix[i + 1];
-      shine_HuffmanCode(&config->bs, tableindex, x, y);
+      shine_HuffmanCode(bs, tableindex, x, y);
     }
   }
 
@@ -181,10 +211,10 @@ static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi) {
     w = ix[i + 1];
     x = ix[i + 2];
     y = ix[i + 3];
-    shine_huffman_coder_count1(&config->bs, h, v, w, x, y);
+    shine_huffman_coder_count1(bs, h, v, w, x, y);
   }
 
-  bits = shine_get_bits_count(&config->bs) - bits;
+  bits = shine_get_bits_count(bs) - bits;
   bits = gi->part2_3_length - gi->part2_length - bits;
   if (bits) {
     int stuffingWords = bits / 32;
@@ -192,9 +222,9 @@ static void Huffmancodebits(shine_global_config *config, int *ix, gr_info *gi) {
 
     /* Due to the nature of the Huffman code tables, we will pad with ones */
     while (stuffingWords--)
-      shine_putbits(&config->bs, ~0, 32);
+      shine_putbits(bs, ~0, 32);
     if (remainingBits)
-      shine_putbits(&config->bs, (1UL << remainingBits) - 1, remainingBits);
+      shine_putbits(bs, (1UL << remainingBits) - 1, remainingBits);
   }
 }
 
