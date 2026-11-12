@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import PostalMime from '../src/postal-mime.ts';
+let pulls=0, index=0, first=-1;
+const enc=new TextEncoder();
+const parts=['Subject: local\r\nContent-Type: text/plain; charset=utf-8\r\n','\r\nCollect ','OK'];
+const stream=new ReadableStream({pull(c){pulls++;if(index<parts.length)c.enqueue(enc.encode(parts[index++]));else c.close();}},{highWaterMark:0});
+const parser=new PostalMime();
+const process=parser.processLine.bind(parser);
+parser.processLine=async(...args)=>{if(first<0)first=pulls;return process(...args);};
+const email=await parser.parse(stream);
+assert.equal(email.subject,'local');assert.equal(email.text,'Collect OK\n');assert.deepEqual(email.attachments,[]);
+console.log(`firstLineAtPull=${first} totalPulls=${pulls}`);
+console.log('BASELINE_STREAM_PARSE_OK subject=local text=Collect_OK');
