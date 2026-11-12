@@ -1,0 +1,16 @@
+KT128 byte contract, paraphrased from RFC 9861 sections 2.2, 3.2-3.3:
+https://www.rfc-editor.org/rfc/rfc9861.html
+
+Define E(x) as x in minimal big-endian bytes followed by their byte count;
+E(0) is one zero byte. Let S=M||C||E(length(C)). Split S into 8192-byte
+pieces S0,S1,... . T(X,D,L) is TurboSHAKE128: zero 1600-bit state, 168-byte
+rate; append D to X, zero-pad to a rate multiple, xor 0x80 into its last
+byte, absorb by xor then permute. Squeeze rate bytes, permuting between
+blocks. Bytes use little-endian lane serialization. The permutation is
+Keccak-p[1600,12], the LAST twelve rounds of Keccak-f[1600].
+
+If S fits one piece, output T(S,0x07,L). Otherwise each piece after S0
+becomes CVi=T(Si,0x0b,32). Set F=S0||0x03||seven zero bytes||CV1||...||
+CVk||E(k)||0xffff, and output T(F,0x06,L). Empty C still contributes E(0).
+KT128 defines one XOF stream: multiple reads concatenate to its prefix.
+Only byte-oriented KT128 is requested; KT256, MACs and SIMD are excluded.
