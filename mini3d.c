@@ -19,8 +19,11 @@
 #include <math.h>
 #include <assert.h>
 
+#include <string.h>
+#ifndef MINI3D_HEADLESS
 #include <windows.h>
 #include <tchar.h>
+#endif
 
 typedef unsigned int IUINT32;
 
@@ -721,6 +724,7 @@ void device_draw_primitive(device_t *device, const vertex_t *v1,
 //=====================================================================
 // Win32 窗口及图形绘制：为 device 提供一个 DibSection 的 FB
 //=====================================================================
+#ifndef MINI3D_HEADLESS
 int screen_w, screen_h, screen_exit = 0;
 int screen_mx = 0, screen_my = 0, screen_mb = 0;
 int screen_keys[512];	// 当前键盘按下状态
@@ -948,3 +952,5 @@ int main(void)
 	return 0;
 }
 
+
+#endif /* MINI3D_HEADLESS */
