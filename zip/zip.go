@@ -21,6 +21,7 @@
 // It also:
 // - skips symbolic link entries
 // - skips special file types silently (fifos, device nodes, char devices, etc.)
+// - drops the Unix owner identity stored in extra field records when DropUserIdentity is enabled
 //
 // All these features are enabled by default and can be turned off one-by-one via the SetSecurityMode
 // method of the Reader/ReadCloser.
@@ -135,11 +136,19 @@ const (
 	// By default, this is activated only on Windows builds. If you are extracting to a Windows
 	// filesystem on a non-Windows platform, you should activate this feature explicitly.
 	SkipWindowsShortFilenames SecurityMode = 32
+	// DropUserIdentity removes the Unix owner identity hidden in the extra field records
+	// (tags 0x000d, 0x5855, 0x7855, 0x7875 and 0x756e), including duplicate records of these
+	// tags. Every other, complete extra record is preserved byte for byte and in order. A
+	// malformed extra field (truncated trailing header or a declared length overrunning the
+	// field) is cleared entirely while the option is enabled. File names, comments and other
+	// extensions are not inspected, and FileHeader.Modified is never changed.
+	// This feature is not enabled by default.
+	DropUserIdentity SecurityMode = 64
 )
 
 // MaximumSecurityMode enables all security features. Apps that care about file contents only
 // and nothing unix specific (e.g. file modes or special devices) should use this mode.
-const MaximumSecurityMode = SanitizeFilenames | PreventSymlinkTraversal | SanitizeFileMode | SkipSpecialFiles | PreventCaseInsensitiveSymlinkTraversal | SkipWindowsShortFilenames
+const MaximumSecurityMode = SanitizeFilenames | PreventSymlinkTraversal | SanitizeFileMode | SkipSpecialFiles | PreventCaseInsensitiveSymlinkTraversal | SkipWindowsShortFilenames | DropUserIdentity
 
 func isSpecialFile(f zip.File) bool {
 	amode := f.Mode()
@@ -208,6 +217,12 @@ func applyMagic(files []*zip.File, securityMode SecurityMode) []*zip.File {
 				amode = amode &^ fs.FileMode(m)
 			}
 			f.SetMode(amode)
+		}
+
+		if securityMode&DropUserIdentity != 0 {
+			// Project the extra field without Unix owner identity records. The result does not
+			// share backing storage with the original extra, leaving the archived bytes intact.
+			f.Extra = dropIdentityExtra(f.Extra)
 		}
 
 		re = append(re, &f)

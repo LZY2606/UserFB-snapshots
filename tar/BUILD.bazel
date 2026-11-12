@@ -26,7 +26,10 @@ alias(
 go_test(
     name = "tar_test",
     size = "small",
-    srcs = ["tar_test.go"],
+    srcs = [
+        "tar_identity_test.go",
+        "tar_test.go",
+    ],
     embed = [":tar"],
     embedsrcs = glob(["*.tar"]),
     deps = [

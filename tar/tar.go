@@ -22,6 +22,7 @@
 // - skips special file types silently (fifos, device nodes, char devices, etc.)
 // - strips extended file system attributes
 // - skips files that would need to be extracted through a symbolic link
+// - drops owner identity (UID/GID, user/group names and their PAX records) when DropUserIdentity is enabled
 //
 // Features turned on by default:
 // - SanitizeFilenames
@@ -164,6 +165,11 @@ type SecurityMode int
 
 var allowListedPaxKeys = []string{"ctime", "mtime", "atime"}
 
+// identityPaxKeys are the PAX records carrying the owner identity. They have to be removed in
+// addition to the structured Header fields, otherwise archive/tar restores the old values from
+// them when the header is rewritten.
+var identityPaxKeys = []string{"uid", "gid", "uname", "gname"}
+
 const (
 	// SkipSpecialFiles security mode skips special files (e.g. block devices or fifos)
 	SkipSpecialFiles SecurityMode = 1
@@ -191,11 +197,20 @@ const (
 	// By default, this is activated only on Windows builds. If you are extracting to a Windows
 	// filesystem on a non-Windows platform, you should activate this feature explicitly.
 	SkipWindowsShortFilenames SecurityMode = 128
+	// DropUserIdentity will remove the owner identity of each entry: Header.Uid and
+	// Header.Gid are reset to zero, Header.Uname and Header.Gname are emptied, and the
+	// "uid", "gid", "uname" and "gname" records are removed from Header.PAXRecords.
+	// Cleaning the structured fields alone is not enough, as the values would be brought
+	// back from the PAX records when the header is rewritten.
+	// All other PAX records, timestamps, regular permission bits, link targets and file
+	// contents are left untouched, and the DropXattrs filtering rules keep applying.
+	// This feature is not enabled by default.
+	DropUserIdentity SecurityMode = 256
 )
 
 // MaximumSecurityMode enables all features for maximum security.
 // Recommended for integrations that need file contents only (and nothing unix specific).
-const MaximumSecurityMode = SkipSpecialFiles | SanitizeFileMode | SanitizeFilenames | PreventSymlinkTraversal | DropXattrs | PreventCaseInsensitiveSymlinkTraversal | SkipWindowsShortFilenames
+const MaximumSecurityMode = SkipSpecialFiles | SanitizeFileMode | SanitizeFilenames | PreventSymlinkTraversal | DropXattrs | PreventCaseInsensitiveSymlinkTraversal | SkipWindowsShortFilenames | DropUserIdentity
 
 var (
 	// ErrHeader invalid tar header
@@ -335,6 +350,18 @@ func (tr *Reader) Next() (*tar.Header, error) {
 			// Dropping extended attributes, if present
 			h.Xattrs = nil
 			h.PAXRecords = leaveKeys(h.PAXRecords, allowListedPaxKeys...)
+		}
+
+		if tr.securityMode&DropUserIdentity != 0 {
+			// Dropping the owner identity. The PAX records have to go as well, otherwise
+			// the old values would re-enter the structured fields when the header is rewritten.
+			h.Uid = 0
+			h.Gid = 0
+			h.Uname = ""
+			h.Gname = ""
+			for _, key := range identityPaxKeys {
+				delete(h.PAXRecords, key)
+			}
 		}
 
 		return h, err
