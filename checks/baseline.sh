@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-b=$(mktemp -d)
+b=$(mktemp -d -p "${TMPDIR:-/tmp}")
 trap 'rm -rf "$b"' EXIT
 cc -std=c99 -O2 -I. checks/baseline.c -lm -o "$b/baseline"
 javac -d "$b" Sonic.java checks/Baseline.java

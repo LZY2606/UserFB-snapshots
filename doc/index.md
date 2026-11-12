@@ -171,3 +171,40 @@ There are some more functions as a convenience for the user, like
 sonicGetSpeed.  Other sound data formats are supported: signed char and float.
 If float, the sound data should be between -1.0 and 1.0.  Internally, all sound
 data is converted to 16-bit integers for processing.
+
+## Multi-channel analysis and buffering
+
+All channels of a stream share a single pitch-period decision and therefore a
+single set of overlap splice points; the channels are never time-stretched
+independently and re-joined.  What changed is how that shared decision is
+scored.  For every candidate period, each channel's first and next
+`period` samples are compared on its own using absolute differences, and the
+per-channel differences are summed before dividing by the period.  Ties keep
+the shorter period.  Channels are never added together into one waveform
+first: a phase-inverted pair would otherwise cancel to silence and the
+estimator would lock onto a half-period artifact.  Rectifying and mixing, or
+listening to only the first or loudest channel, are deliberately avoided,
+because every channel, including quiet ones, is allowed to influence the
+decision.
+
+The down-sampling used by the fast (`quality = 0`) path follows the same rule:
+time averaging happens only within a single channel, producing one
+interleaved down-sampled value per channel per frame, and candidate scores
+still combine all channels.  At `quality = 1` the full-rate input is scored
+directly.  All candidate arithmetic uses 64-bit accumulation so that samples
+near the 16-bit limits cannot overflow before the values are widened, and the
+reported differences are normalized per sample so the continuous-speech
+heuristics (`prevPeriod`, `prevMinDiff`, `preferNewPeriod`) behave the same
+way regardless of channel count.  Consequences of this design are that
+duplicating a signal into in-phase channels, flipping the polarity of any
+channel, permuting channels, or adding an all-zero channel all leave the
+period sequence unchanged; a fully silent window still selects a legal
+period without dividing by zero, and a silent channel in one window cannot
+poison the voiced windows that follow.
+
+The analysis scratch space is bounded: the down-sample buffer holds one
+window of `numChannels`-interleaved values and is reused for every window,
+rather than being recomputed per candidate or grown to hold the whole
+recording.  Changing the sample rate or channel count (or creating, flushing
+and reusing a stream) reallocates every buffer for the new layout and resets
+the period history, so no stale geometry or previous-material state survives.

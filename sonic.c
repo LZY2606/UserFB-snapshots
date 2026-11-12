@@ -188,6 +188,9 @@ struct sonicStreamStruct {
   short* inputBuffer;
   short* outputBuffer;
   short* pitchBuffer;
+  /* Per-channel down-sampled analysis window, laid out as interleaved frames
+     with numChannels values per frame.  Channels are kept separate here so
+     that phase-inverted channels cannot cancel each other. */
   short* downSampleBuffer;
   void* userData;
   float speed;
@@ -396,8 +399,10 @@ static int allocateStreamBuffers(sonicStream stream, int sampleRate,
     return 0;
   }
   int downSampleBufferSize = maxRequired;
-  stream->downSampleBuffer =
-      (short*)sonicCalloc(downSampleBufferSize, sizeof(short));
+  /* One value per down-sampled frame per channel, kept separate so opposite
+     polarities never cancel. */
+  stream->downSampleBuffer = (short*)sonicCalloc(
+      downSampleBufferSize, sizeof(short) * numChannels);
   if (stream->downSampleBuffer == NULL) {
     sonicDestroyStream(stream);
     return 0;
@@ -411,6 +416,7 @@ static int allocateStreamBuffers(sonicStream stream, int sampleRate,
   stream->maxPeriod = maxPeriod;
   stream->maxRequired = maxRequired;
   stream->prevPeriod = 0;
+  stream->prevMinDiff = 0;
   return 1;
 }
 
@@ -722,50 +728,64 @@ int sonicSamplesAvailable(sonicStream stream) {
   return stream->numOutputSamples;
 }
 
-/* If skip is greater than one, average skip samples together and write them to
-   the down-sample buffer.  If numChannels is greater than one, mix the channels
-   together as we down sample. */
+/* If skip is greater than one, average skip samples together per channel and
+   write them to the down-sample buffer.  Channels are averaged independently:
+   mixing them first would let phase-inverted channels cancel each other and
+   corrupt the pitch estimate.  The destination holds numChannels interleaved
+   values per down-sampled frame. */
 static void downSampleInput(sonicStream stream, short* samples, int skip) {
   int numSamples = stream->maxRequired / skip;
-  int samplesPerValue = stream->numChannels * skip;
-  int i, j;
+  int numChannels = stream->numChannels;
+  int i, c, j;
   int value;
   short* downSamples = stream->downSampleBuffer;
 
   for (i = 0; i < numSamples; i++) {
-    value = 0;
-    for (j = 0; j < samplesPerValue; j++) {
-      value += *samples++;
+    for (c = 0; c < numChannels; c++) {
+      value = 0;
+      for (j = 0; j < skip; j++) {
+        value += samples[(i * skip + j) * numChannels + c];
+      }
+      value /= skip;
+      *downSamples++ = (short)value;
     }
-    value /= samplesPerValue;
-    *downSamples++ = value;
   }
 }
 
+/* Sum the absolute differences between the first period samples and the next
+   period samples, evaluated independently in every channel.  All accumulation
+   happens in 64-bit math so that near full-scale 16-bit samples cannot
+   overflow before the values are widened. */
+static long long findPeriodDiff(short* samples, int numChannels, int period) {
+  long long diff = 0;
+  int i, c;
+
+  for (c = 0; c < numChannels; c++) {
+    short* s = samples + c;
+    short* p = samples + period * numChannels + c;
+    for (i = 0; i < period; i++) {
+      diff += (long long)abs((int)(*s) - (int)(*p));
+      s += numChannels;
+      p += numChannels;
+    }
+  }
+  return diff;
+}
+
 /* Find the best frequency match in the range, and given a sample skip multiple.
-   For now, just find the pitch of the first channel. */
-static int findPitchPeriodInRange(short* samples, int minPeriod, int maxPeriod,
-                                  int* retMinDiff, int* retMaxDiff) {
+   Every channel contributes its own AMDF difference: the candidate score is the
+   sum over all channels of the absolute differences, divided by the period.  On
+   an equal score the shorter period wins.  Returning the normalized per-sample
+   minimum and maximum differences keeps the continuous-speech heuristics in
+   prevPeriodBetter independent of the channel count. */
+static int findPitchPeriodInRange(short* samples, int numChannels, int minPeriod,
+                                  int maxPeriod, int* retMinDiff,
+                                  int* retMaxDiff) {
   int period, bestPeriod = 0, worstPeriod = 255;
-  short* s;
-  short* p;
-  short sVal, pVal;
-  unsigned long diff, minDiff = 1, maxDiff = 0;
-  int i;
+  long long diff, minDiff = 1, maxDiff = 0;
 
   for (period = minPeriod; period <= maxPeriod; period++) {
-    diff = 0;
-    s = samples;
-    p = samples + period;
-    for (i = 0; i < period; i++) {
-      sVal = *s++;
-      pVal = *p++;
-      diff += sVal >= pVal ? (unsigned short)(sVal - pVal)
-                           : (unsigned short)(pVal - sVal);
-    }
-    /* Note that the highest number of samples we add into diff will be less
-       than 256, since we skip samples.  Thus, diff is a 24 bit number, and
-       we can safely multiply by numSamples without overflow */
+    diff = findPeriodDiff(samples, numChannels, period);
     if (bestPeriod == 0 || diff * bestPeriod < minDiff * period) {
       minDiff = diff;
       bestPeriod = period;
@@ -775,8 +795,8 @@ static int findPitchPeriodInRange(short* samples, int minPeriod, int maxPeriod,
       worstPeriod = period;
     }
   }
-  *retMinDiff = minDiff / bestPeriod;
-  *retMaxDiff = maxDiff / worstPeriod;
+  *retMinDiff = (int)(minDiff / (long long)bestPeriod);
+  *retMaxDiff = (int)(maxDiff / (long long)worstPeriod);
   return bestPeriod;
 }
 
@@ -809,41 +829,40 @@ static int prevPeriodBetter(sonicStream stream, int minDiff, int maxDiff,
    multiple ways to get a good answer.  This version uses Average Magnitude
    Difference Function (AMDF).  To improve speed, we down sample by an integer
    factor get in the 11KHz range, and then do it again with a narrower
-   frequency range without down sampling */
+   frequency range without down sampling.  At quality 1 the full-rate input is
+   scored directly.  Every channel is scored independently and the scores are
+   summed, so a single period decision is shared by all of them without any
+   channel ever cancelling another. */
 static int findPitchPeriod(sonicStream stream, short* samples,
                            int preferNewPeriod) {
   int minPeriod = stream->minPeriod;
   int maxPeriod = stream->maxPeriod;
+  int numChannels = stream->numChannels;
   int minDiff, maxDiff, retPeriod;
   int skip = computeSkip(stream, stream->sampleRate);
   int period;
 
-  if (stream->numChannels == 1 && skip == 1) {
-    period = findPitchPeriodInRange(samples, minPeriod, maxPeriod, &minDiff,
-                                    &maxDiff);
+  if (skip == 1) {
+    period = findPitchPeriodInRange(samples, numChannels, minPeriod, maxPeriod,
+                                    &minDiff, &maxDiff);
   } else {
     downSampleInput(stream, samples, skip);
-    period = findPitchPeriodInRange(stream->downSampleBuffer, minPeriod / skip,
-                                    maxPeriod / skip, &minDiff, &maxDiff);
-    if (skip != 1) {
-      period *= skip;
-      minPeriod = period - (skip << 2);
-      maxPeriod = period + (skip << 2);
-      if (minPeriod < stream->minPeriod) {
-        minPeriod = stream->minPeriod;
-      }
-      if (maxPeriod > stream->maxPeriod) {
-        maxPeriod = stream->maxPeriod;
-      }
-      if (stream->numChannels == 1) {
-        period = findPitchPeriodInRange(samples, minPeriod, maxPeriod, &minDiff,
-                                        &maxDiff);
-      } else {
-        downSampleInput(stream, samples, 1);
-        period = findPitchPeriodInRange(stream->downSampleBuffer, minPeriod,
-                                        maxPeriod, &minDiff, &maxDiff);
-      }
+    period = findPitchPeriodInRange(stream->downSampleBuffer, numChannels,
+                                    minPeriod / skip, maxPeriod / skip, &minDiff,
+                                    &maxDiff);
+    period *= skip;
+    minPeriod = period - (skip << 2);
+    maxPeriod = period + (skip << 2);
+    if (minPeriod < stream->minPeriod) {
+      minPeriod = stream->minPeriod;
     }
+    if (maxPeriod > stream->maxPeriod) {
+      maxPeriod = stream->maxPeriod;
+    }
+    /* Refine around the coarse estimate at the original sample rate.  Only the
+       time averaging inside each channel happened on the down-sampled copy. */
+    period = findPitchPeriodInRange(samples, numChannels, minPeriod, maxPeriod,
+                                    &minDiff, &maxDiff);
   }
   if (prevPeriodBetter(stream, minDiff, maxDiff, preferNewPeriod)) {
     retPeriod = stream->prevPeriod;

@@ -74,6 +74,9 @@ public class Sonic {
     private short inputBuffer[];
     private short outputBuffer[];
     private short pitchBuffer[];
+    // Per-channel down-sampled analysis window, laid out as interleaved frames
+    // with numChannels values per frame.  Channels are kept separate so that
+    // phase-inverted channels cannot cancel each other.
     private short downSampleBuffer[];
     private float speed;
     private float volume;
@@ -242,12 +245,17 @@ public class Sonic {
         outputBuffer = new short[maxRequired*numChannels];
         pitchBufferSize = maxRequired;
         pitchBuffer = new short[maxRequired*numChannels];
-        downSampleBuffer = new short[maxRequired];
+        // One value per down-sampled frame per channel, kept separate so
+        // opposite polarities never cancel.
+        downSampleBuffer = new short[maxRequired*numChannels];
         this.sampleRate = sampleRate;
         this.numChannels = numChannels;
         oldRatePosition = 0;
         newRatePosition = 0;
         prevPeriod = 0;
+        prevMinDiff = 0;
+        minDiff = 0;
+        maxDiff = 0;
     }
 
     // Create a sonic stream.
@@ -539,31 +547,62 @@ public class Sonic {
         return numOutputSamples;
     }
 
-    // If skip is greater than one, average skip samples together and write them to
-    // the down-sample buffer.  If numChannels is greater than one, mix the channels
-    // together as we down sample.
+    // If skip is greater than one, average skip samples together per channel and
+    // write them to the down-sample buffer.  Channels are averaged independently:
+    // mixing them first would let phase-inverted channels cancel each other and
+    // corrupt the pitch estimate.  The destination holds numChannels interleaved
+    // values per down-sampled frame.
     private void downSampleInput(
         short samples[],
         int position,
         int skip)
     {
         int numSamples = maxRequired/skip;
-        int samplesPerValue = numChannels*skip;
-        int value;
+        int start = position*numChannels;
+        int xDown = 0;
 
-        position *= numChannels;
         for(int i = 0; i < numSamples; i++) {
-            value = 0;
-            for(int j = 0; j < samplesPerValue; j++) {
-                value += samples[position + i*samplesPerValue + j];
+            for(int c = 0; c < numChannels; c++) {
+                int value = 0;
+                for(int j = 0; j < skip; j++) {
+                    value += samples[start + (i*skip + j)*numChannels + c];
+                }
+                downSampleBuffer[xDown++] = (short)(value/skip);
             }
-            value /= samplesPerValue;
-            downSampleBuffer[i] = (short)value;
         }
     }
 
+    // Sum the absolute differences between the first period samples and the next
+    // period samples, evaluated independently in every channel.  All accumulation
+    // happens in 64-bit math so that near full-scale 16-bit samples cannot
+    // overflow before the values are widened.
+    private long findPeriodDiff(
+        short samples[],
+        int position,
+        int period)
+    {
+        long diff = 0;
+
+        for(int c = 0; c < numChannels; c++) {
+            int s = position + c;
+            int p = position + period*numChannels + c;
+            for(int i = 0; i < period; i++) {
+                int sVal = samples[s];
+                int pVal = samples[p];
+                diff += sVal >= pVal? sVal - pVal : pVal - sVal;
+                s += numChannels;
+                p += numChannels;
+            }
+        }
+        return diff;
+    }
+
     // Find the best frequency match in the range, and given a sample skip multiple.
-    // For now, just find the pitch of the first channel.
+    // Every channel contributes its own AMDF difference: the candidate score is the
+    // sum over all channels of the absolute differences, divided by the period.  On
+    // an equal score the shorter period wins.  The normalized per-sample minimum and
+    // maximum differences keep the continuous-speech heuristics independent of the
+    // channel count.
     private int findPitchPeriodInRange(
         short samples[],
         int position,
@@ -571,19 +610,11 @@ public class Sonic {
         int maxPeriod)
     {
         int bestPeriod = 0, worstPeriod = 255;
-        int minDiff = 1, maxDiff = 0;
+        long minDiff = 1, maxDiff = 0;
 
         position *= numChannels;
         for(int period = minPeriod; period <= maxPeriod; period++) {
-            int diff = 0;
-            for(int i = 0; i < period; i++) {
-                short sVal = samples[position + i];
-                short pVal = samples[position + period + i];
-                diff += sVal >= pVal? sVal - pVal : pVal - sVal;
-            }
-            /* Note that the highest number of samples we add into diff will be less
-               than 256, since we skip samples.  Thus, diff is a 24 bit number, and
-               we can safely multiply by numSamples without overflow */
+            long diff = findPeriodDiff(samples, position, period);
             if(diff*bestPeriod < minDiff*period) {
                 minDiff = diff;
                 bestPeriod = period;
@@ -593,8 +624,8 @@ public class Sonic {
                 worstPeriod = period;
             }
         }
-        this.minDiff = minDiff/bestPeriod;
-        this.maxDiff = maxDiff/worstPeriod;
+        this.minDiff = (int)(minDiff/bestPeriod);
+        this.maxDiff = (int)(maxDiff/worstPeriod);
 
         return bestPeriod;
     }
@@ -629,7 +660,10 @@ public class Sonic {
     // Find the pitch period.  This is a critical step, and we may have to try
     // multiple ways to get a good answer.  This version uses AMDF.  To improve
     // speed, we down sample by an integer factor get in the 11KHz range, and then
-    // do it again with a narrower frequency range without down sampling
+    // do it again with a narrower frequency range without down sampling.  At
+    // quality 1 the full-rate input is scored directly.  Every channel is scored
+    // independently and the scores are summed, so a single period decision is
+    // shared by all of them without any channel ever cancelling another.
     private int findPitchPeriod(
         short samples[],
         int position,
@@ -641,29 +675,25 @@ public class Sonic {
         if(sampleRate > SONIC_AMDF_FREQ && quality == 0) {
             skip = sampleRate/SONIC_AMDF_FREQ;
         }
-        if(numChannels == 1 && skip == 1) {
+        if(skip == 1) {
             period = findPitchPeriodInRange(samples, position, minPeriod, maxPeriod);
         } else {
             downSampleInput(samples, position, skip);
             period = findPitchPeriodInRange(downSampleBuffer, 0, minPeriod/skip,
                 maxPeriod/skip);
-            if(skip != 1) {
-                period *= skip;
-                int minP = period - (skip << 2);
-                int maxP = period + (skip << 2);
-                if(minP < minPeriod) {
-                    minP = minPeriod;
-                }
-                if(maxP > maxPeriod) {
-                    maxP = maxPeriod;
-                }
-                if(numChannels == 1) {
-                    period = findPitchPeriodInRange(samples, position, minP, maxP);
-                } else {
-                    downSampleInput(samples, position, 1);
-                    period = findPitchPeriodInRange(downSampleBuffer, 0, minP, maxP);
-                }
+            period *= skip;
+            int minP = period - (skip << 2);
+            int maxP = period + (skip << 2);
+            if(minP < minPeriod) {
+                minP = minPeriod;
             }
+            if(maxP > maxPeriod) {
+                maxP = maxPeriod;
+            }
+            // Refine around the coarse estimate at the original sample rate.
+            // Only the time averaging inside each channel happened on the
+            // down-sampled copy.
+            period = findPitchPeriodInRange(samples, position, minP, maxP);
         }
         if(prevPeriodBetter(minDiff, maxDiff, preferNewPeriod)) {
             retPeriod = prevPeriod;
