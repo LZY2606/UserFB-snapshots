@@ -67,6 +67,7 @@ void FileRead :: close( void )
   channels_ = 0;
   dataType_ = 0;
   fileRate_ = 0.0;
+  wavLoops_.clear();
 }
 
 bool FileRead :: isOpen( void )
@@ -176,6 +177,16 @@ bool FileRead :: getRawInfo( const char *fileName, unsigned int nChannels, StkFo
 
 bool FileRead :: getWavInfo( const char *fileName )
 {
+  wavLoops_.clear();
+
+  // Locate an optional 'smpl' chunk.  Chunk order is not fixed, so
+  // remember its position wherever it shows up and parse it after the
+  // data chunk has given us the real frame count.  Only the chunk
+  // position and declared size are needed here; the audio data offset
+  // computed below is left untouched by this scan.
+  long smplOffset = -1;
+  SINT32 smplChunkSize = 0;
+
   // Find "format" chunk ... it must come before the "data" chunk.
   char id[4];
   SINT32 chunkSize;
@@ -185,6 +196,11 @@ bool FileRead :: getWavInfo( const char *fileName )
 #ifndef __LITTLE_ENDIAN__
     swap32((unsigned char *)&chunkSize);
 #endif
+    if ( !strncmp(id, "smpl", 4) ) {
+      smplOffset = ftell( fd_ );
+      smplChunkSize = chunkSize;
+    }
+    chunkSize += chunkSize % 2; // chunk sizes must be even
     if ( fseek(fd_, chunkSize, SEEK_CUR) == -1 ) goto error;
     if ( fread(&id, 4, 1, fd_) != 1 ) goto error;
   }
@@ -273,6 +289,10 @@ bool FileRead :: getWavInfo( const char *fileName )
 #ifndef __LITTLE_ENDIAN__
     swap32((unsigned char *)&chunkSize);
 #endif
+    if ( !strncmp(id, "smpl", 4) && smplOffset == -1 ) {
+      smplOffset = ftell( fd_ );
+      smplChunkSize = chunkSize;
+    }
     chunkSize += chunkSize % 2; // chunk sizes must be even
     if ( fseek(fd_, chunkSize, SEEK_CUR) == -1 ) goto error;
     if ( fread(&id, 4, 1, fd_) != 1 ) goto error;
@@ -284,8 +304,7 @@ bool FileRead :: getWavInfo( const char *fileName )
 #ifndef __LITTLE_ENDIAN__
   swap32((unsigned char *)&bytes);
 #endif
-  fileSize_ = bytes / temp / channels_;  // sample frames
-  fileSize_ *= 8;  // sample frames
+  fileSize_ = bytes / ( temp / 8 ) / channels_;  // sample frames
 
   dataOffset_ = ftell(fd_);
   byteswap_ = false;
@@ -293,12 +312,118 @@ bool FileRead :: getWavInfo( const char *fileName )
   byteswap_ = true;
 #endif
 
+  // An 'smpl' chunk may also trail the audio data.  Walk whatever
+  // follows the (pad-aligned) data payload without touching the PCM
+  // offset recorded above.
+  if ( smplOffset == -1 ) {
+    long dataEnd = dataOffset_ + bytes + ( bytes % 2 );
+    if ( fseek( fd_, dataEnd, SEEK_SET ) == -1 ) goto error;
+    while ( fread( &id, 4, 1, fd_ ) == 1 ) {
+      // Trailing metadata is optional: a truncated tail simply means
+      // there is no usable 'smpl' chunk, not that the audio is invalid.
+      if ( fread( &chunkSize, 4, 1, fd_ ) != 1 ) break;
+#ifndef __LITTLE_ENDIAN__
+      swap32((unsigned char *)&chunkSize);
+#endif
+      if ( !strncmp(id, "smpl", 4) ) {
+        smplOffset = ftell( fd_ );
+        smplChunkSize = chunkSize;     // true size, before any padding
+        break;
+      }
+      if ( fseek( fd_, chunkSize + ( chunkSize % 2 ), SEEK_CUR ) == -1 )
+        break;
+    }
+  }
+
+  // Parse an 'smpl' chunk found either before or after the data chunk,
+  // then return the file pointer to the audio data so read() offsets
+  // are unaffected by the metadata scan.  Odd-sized chunks carry one
+  // padding byte, which was accounted for above and inside the parser.
+  if ( smplOffset != -1 ) {
+    if ( fseek( fd_, smplOffset, SEEK_SET ) == -1 ) goto error;
+    if ( getWavSmplInfo( smplChunkSize ) == false ) return false;
+    if ( fseek( fd_, dataOffset_, SEEK_SET ) == -1 ) goto error;
+  }
+
   wavFile_ = true;
   return true;
 
  error:
   oStream_ << "FileRead: error reading WAV file (" << fileName << ").";
   return false;
+}
+
+bool FileRead :: getWavSmplInfo( SINT32 chunkSize )
+{
+  // The file pointer is at the first byte of the 'smpl' chunk data.
+  // A 'smpl' chunk holds nine 32-bit header fields, then cSampleLoops
+  // sampler-loop records of 24 bytes each, then cbSamplerData bytes of
+  // manufacturer-specific data.
+  if ( chunkSize < 36 ) {
+    oStream_ << "FileRead: WAV 'smpl' chunk is truncated.";
+    return false;
+  }
+
+  SINT32 header[9];
+  if ( fread( header, 4, 9, fd_ ) != 9 ) {
+    oStream_ << "FileRead: WAV 'smpl' chunk is truncated.";
+    return false;
+  }
+#ifndef __LITTLE_ENDIAN__
+  for ( int i=0; i<9; i++ ) swap32( (unsigned char *) &header[i] );
+#endif
+  unsigned long nLoops = (unsigned long) (UINT32) header[7];
+  unsigned long samplerData = (unsigned long) (UINT32) header[8];
+
+  // The declared loop count and trailing data size must exactly account
+  // for the chunk length, otherwise the records cannot be trusted.
+  long long required = (long long) 36 + (long long) nLoops * 24
+                       + (long long) samplerData;
+  if ( required != (long long) chunkSize ) {
+    oStream_ << "FileRead: WAV 'smpl' chunk loop count conflicts with chunk size.";
+    return false;
+  }
+
+  std::vector<WavLoop> loops;
+  loops.reserve( nLoops );
+  for ( unsigned long i=0; i<nLoops; i++ ) {
+    SINT32 record[6];
+    if ( fread( record, 4, 6, fd_ ) != 6 ) {
+      oStream_ << "FileRead: WAV 'smpl' chunk is truncated.";
+      return false;
+    }
+#ifndef __LITTLE_ENDIAN__
+    for ( int j=0; j<6; j++ ) swap32( (unsigned char *) &record[j] );
+#endif
+
+    WavLoop loop;
+    loop.identifier = (unsigned long) (UINT32) record[0];
+    loop.type       = (unsigned long) (UINT32) record[1];
+    loop.start      = (unsigned long) (UINT32) record[2];
+    loop.end        = (unsigned long) (UINT32) record[3];
+    loop.fraction   = (StkFloat) (UINT32) record[4] / 4294967296.0;
+    loop.playCount  = (unsigned long) (UINT32) record[5];
+
+    if ( loop.start > loop.end ) {
+      oStream_ << "FileRead: WAV 'smpl' loop has start greater than end.";
+      return false;
+    }
+    if ( loop.end >= fileSize_ ) {
+      oStream_ << "FileRead: WAV 'smpl' loop end points beyond the audio data.";
+      return false;
+    }
+    loops.push_back( loop );
+  }
+
+  // Skip the manufacturer-specific data (any odd-chunk padding byte is
+  // accounted for by the chunk scan that invoked this parser).
+  if ( samplerData && fseek( fd_, (long) samplerData, SEEK_CUR ) == -1 ) {
+    oStream_ << "FileRead: WAV 'smpl' chunk is truncated.";
+    return false;
+  }
+
+  wavLoops_.swap( loops );
+  return true;
 }
 
 bool FileRead :: getSndInfo( const char *fileName )

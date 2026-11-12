@@ -2,6 +2,7 @@
 #define STK_FILEREAD_H
 
 #include "Stk.h"
+#include <vector>
 
 namespace stk {
 
@@ -24,6 +25,12 @@ namespace stk {
     64-bit) data types are supported.  Compressed
     data types are not supported.
 
+    WAV files may carry a 'smpl' chunk with sampler
+    loop points.  The wavLoops() function returns a
+    copy of any loop records found there.  Parsing
+    the 'smpl' chunk never changes the audio data
+    offset used by read().
+
     STK RAW files have no header and are assumed to
     contain a monophonic stream of 16-bit signed
     integers in big-endian byte order at a sample
@@ -41,6 +48,25 @@ namespace stk {
 class FileRead : public Stk
 {
 public:
+
+  //! One sampler loop record from a WAV 'smpl' chunk.
+  /*!
+    The fields mirror the entries of the sample loop table of the
+    'smpl' chunk.  The \e start and \e end points are expressed in
+    sample frames and the frame at \e end is included in the loop.
+    A \e type of 0 is a forward (uni-directional) loop and 1 is an
+    alternating (ping-pong) loop; other values are valid records but
+    name loop types not currently supported by FileLoop.
+  */
+  struct WavLoop {
+    unsigned long identifier;
+    unsigned long type;
+    unsigned long start;
+    unsigned long end;
+    StkFloat fraction;
+    unsigned long playCount;
+  };
+
   //! Default constructor.
   FileRead( void );
 
@@ -90,6 +116,21 @@ public:
   */
   StkFloat fileRate( void ) const { return fileRate_; };
 
+  //! Return the sampler loop records found in a WAV 'smpl' chunk.
+  /*!
+    The returned vector is a self-contained copy owned by the
+    caller; it is empty when no 'smpl' chunk is present or when the
+    open file is not a WAV file.  Records of loop \e types other
+    than 0 (forward) or 1 (alternating) are returned as found: they
+    are valid metadata but cannot be activated by FileLoop.  The
+    records are cleared whenever a new file is opened or close() is
+    called.  An StkError is thrown while opening if the 'smpl'
+    chunk is truncated, declares a loop count inconsistent with its
+    size, contains a loop with \e start > \e end, or names frames
+    beyond the actual file length.
+  */
+  std::vector<WavLoop> wavLoops( void ) const { return wavLoops_; };
+
   //! Read sample frames from the file into an StkFrames object.
   /*!
     The number of sample frames to read will be determined from the
@@ -114,6 +155,9 @@ protected:
   // Get WAV file header information.
   bool getWavInfo( const char *fileName );
 
+  // Parse the WAV 'smpl' chunk (chunkSize bytes follow the chunk id).
+  bool getWavSmplInfo( SINT32 chunkSize );
+
   // Get SND (AU) file header information.
   bool getSndInfo( const char *fileName );
 
@@ -134,6 +178,7 @@ protected:
   unsigned int channels_;
   StkFormat dataType_;
   StkFloat fileRate_;
+  std::vector<WavLoop> wavLoops_;
 };
 
 } // stk namespace
