@@ -24,6 +24,8 @@ endfunction(add_example name)
 
 add_example(CubeOfSpheres CubeOfSpheres.cpp)
 
+add_example(PacketPPM PacketPPM.cpp)
+
 add_example(ObjFile
   ObjFile.cpp
   tiny_obj_loader.h

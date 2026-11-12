@@ -14,6 +14,7 @@ headers := include/FastBVH.h \
            include/FastBVH/Config.h \
            include/FastBVH/Intersection.h \
            include/FastBVH/Iterable.h \
+           include/FastBVH/PacketTraverser.h \
            include/FastBVH/Ray.h \
            include/FastBVH/Traverser.h \
            include/FastBVH/Vector3.h
@@ -24,7 +25,8 @@ example_headers := examples/Log.h \
                    examples/tiny_obj_loader.h
 
 examples := examples/CubeOfSpheres \
-            examples/ObjFile
+            examples/ObjFile \
+            examples/PacketPPM
 
 .PHONY: all
 all: simple-target
