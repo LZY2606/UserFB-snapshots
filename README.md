@@ -9,3 +9,6 @@ We have forked the debug/ folder from the standard library, to take direct contr
 
 ## Read more about the project here:
 https://www.symbolcrash.com/2019/02/23/introducing-symbol-crash/
+
+## AMD64 offline unwind
+- `debug/pe`: `File.UnwindAMD64` reconstructs one previous stack frame of an AMD64 PE32+ image from a crash snapshot, using the exception directory's `RUNTIME_FUNCTION`/`UNWIND_INFO` metadata. It is read-only, never executes machine code or language handlers, and documents the supported opcodes and error cases in [`docs/amd64-unwind.md`](docs/amd64-unwind.md).
