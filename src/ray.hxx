@@ -52,16 +52,21 @@ struct Ray
 
 struct Isect
 {
-    Isect()
+    Isect():
+        hasShadingNormal(false)
     {}
 
-    Isect(float aMaxDist):dist(aMaxDist)
+    Isect(float aMaxDist):
+        dist(aMaxDist),
+        hasShadingNormal(false)
     {}
 
     float dist;    //!< Distance to closest intersection (serves as ray.tmax)
     int   matID;   //!< ID of intersected material
     int   lightID; //!< ID of intersected light (if < 0, then none)
-    Vec3f normal;  //!< Normal at the intersection
+    Vec3f normal;  //!< Geometric normal at the intersection (from winding)
+    Vec3f shadingNormal;   //!< Unit shading normal (equals normal when not valid)
+    bool  hasShadingNormal;//!< True when shadingNormal holds an interpolated normal
 };
 
 #endif //__RAY_HXX__

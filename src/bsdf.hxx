@@ -98,16 +98,43 @@ public:
         const Scene &aScene)
     {
         mMaterialID = -1;
-        mFrame.SetFromZ(aIsect.normal);
+
+        const Material &mat = aScene.GetMaterial(aIsect.matID);
+
+        // The local frame is built from the shading normal, but only for
+        // materials without any mirror or refractive component. Purely
+        // specular, glass, and mixed delta materials keep using the
+        // geometric normal so that the delta (medium) algorithms and their
+        // PDF conventions are left untouched.
+        mGeometricNormal  = aIsect.normal;
+        mUseShadingNormal = false;
+
+        const bool deltaFree =
+            (mat.mMirrorReflectance.Max() == 0.f) && (mat.mIOR < 0.f);
+
+        if(deltaFree && aIsect.hasShadingNormal)
+        {
+            mUseShadingNormal = true;
+            mFrame.SetFromZ(aIsect.shadingNormal);
+        }
+        else
+        {
+            mFrame.SetFromZ(aIsect.normal);
+        }
+
         mLocalDirFix = mFrame.ToLocal(-aRay.dir);
 
-        // reject rays that are too parallel with tangent plane
-        if(std::abs(mLocalDirFix.z) < EPS_COSINE)
+        // Geometric cosine of the fixed (incoming) direction. Area/solid-angle
+        // conversions and all MIS quantities keep using the geometric normal.
+        mCosThetaFixGeo = Dot(-aRay.dir, mGeometricNormal);
+
+        // reject rays that are too parallel with either tangent plane
+        if(std::abs(mLocalDirFix.z) < EPS_COSINE ||
+           std::abs(mCosThetaFixGeo) < EPS_COSINE)
         {
             return;
         }
 
-        const Material &mat = aScene.GetMaterial(aIsect.matID);
         GetComponentProbabilities(mat, mProbabilities);
 
         mIsDelta = (mProbabilities.diffProb == 0) && (mProbabilities.phongProb == 0);
@@ -133,21 +160,36 @@ public:
         float       *oReversePdfW = NULL) const
     {
         Vec3f result(0);
+        oCosThetaGen = 0;
 
         if(oDirectPdfW)  *oDirectPdfW = 0;
         if(oReversePdfW) *oReversePdfW = 0;
 
         const Vec3f localDirGen = mFrame.ToLocal(aWorldDirGen);
 
+        // support of the original BSDF along the shading normal
         if(localDirGen.z * mLocalDirFix.z < 0)
             return result;
 
-        oCosThetaGen = std::abs(localDirGen.z);
+        // geometric side: wf and wg must stay on the same side of the
+        // true surface, so a smoothed normal cannot reflect energy
+        // through the geometric back face
+        if(!GeometricSideAccept(aWorldDirGen))
+            return result;
+
+        // Projected cosine always follows the geometric normal: area and
+        // solid-angle measures are defined by the true surface.
+        oCosThetaGen = std::abs(Dot(aWorldDirGen, mGeometricNormal));
 
         const Material &mat = aScene.GetMaterial(mMaterialID);
 
         result += EvaluateDiffuse(mat, localDirGen, oDirectPdfW, oReversePdfW);
         result += EvaluatePhong(mat, localDirGen, oDirectPdfW, oReversePdfW);
+
+        // fs above is the raw value of the distribution built on ns; rescale
+        // it to the projected measure of the geometric surface. The solid
+        // angle PDFs are left untouched.
+        result *= ProjectedMeasureCorrection(aWorldDirGen, localDirGen);
 
         return result;
     }
@@ -165,7 +207,12 @@ public:
     {
         const Vec3f localDirGen = mFrame.ToLocal(aWorldDirGen);
 
+        // PDF vanishes together with Evaluate: shading support and the
+        // geometric side must both accept the direction.
         if(localDirGen.z * mLocalDirFix.z < 0)
+            return 0;
+
+        if(!GeometricSideAccept(aWorldDirGen))
             return 0;
 
         const Material &mat = aScene.GetMaterial(mMaterialID);
@@ -248,11 +295,35 @@ public:
                 return Vec3f(0);
         }
 
-        oCosThetaGen   = std::abs(localDirGen.z);
-        if(oCosThetaGen < EPS_COSINE)
-            return Vec3f(0.f);
-
         oWorldDirGen = mFrame.ToWorld(localDirGen);
+
+        // A smoothed normal must never reflect through the geometric back
+        // face: such a sample is terminated, never resampled, and the
+        // remaining PDF is not renormalized.
+        if(!GeometricSideAccept(oWorldDirGen))
+        {
+            oPdfW        = 0.f;
+            oCosThetaGen = 0.f;
+            return Vec3f(0.f);
+        }
+
+        const float cosThetaGenGeo =
+            std::abs(Dot(oWorldDirGen, mGeometricNormal));
+
+        // Return a safe zero instead of clamping a tiny cosine, which would
+        // otherwise create arbitrarily large energy in the 1/pdf weight.
+        if(std::abs(localDirGen.z) < EPS_COSINE ||
+           cosThetaGenGeo < EPS_COSINE)
+        {
+            oPdfW        = 0.f;
+            oCosThetaGen = 0.f;
+            return Vec3f(0.f);
+        }
+
+        // Projected cosine follows the geometric normal; the solid angle
+        // PDF in oPdfW stays the one sampled along the shading normal.
+        oCosThetaGen = cosThetaGenGeo;
+        result *= ProjectedMeasureCorrection(oWorldDirGen, localDirGen);
         return result;
     }
 
@@ -260,8 +331,51 @@ public:
     bool  IsValid() const           { return mMaterialID >= 0;             }
     bool  IsDelta() const           { return mIsDelta;                     }
     float ContinuationProb() const  { return mContinuationProb;            }
-    float CosThetaFix() const       { return mLocalDirFix.z;               }
+    // Geometric cosine of the fixed direction: area/solid-angle conversions
+    // and all MIS quantities are defined on the true surface.
+    float CosThetaFix() const       { return mCosThetaFixGeo;              }
     Vec3f WorldDirFix() const       { return mFrame.ToWorld(mLocalDirFix); }
+
+private:
+
+    // True when aWorldDirGen lies on the same geometric side as the fixed
+    // direction and is not too parallel to the geometric tangent plane.
+    // For ordinary geometry (ns == ng) the original support test suffices.
+    bool GeometricSideAccept(const Vec3f &aWorldDirGen) const
+    {
+        if(!mUseShadingNormal)
+            return true;
+
+        const float cosGenGeo = Dot(aWorldDirGen, mGeometricNormal);
+
+        return (cosGenGeo * mCosThetaFixGeo > 0.f) &&
+               (std::abs(cosGenGeo) >= EPS_COSINE);
+    }
+
+    // Rescales the raw BSDF value fs (a distribution built on ns) from the
+    // shading projected measure onto the projected measure of the geometric
+    // surface. The radiometric conventions are:
+    //   camera sub-path: fs * |wg.ns| / |wg.ng|
+    //   light  sub-path: fs * |wf.ns| / |wf.ng|
+    // wg is the generated (outgoing) direction, wf the fixed one. Solid
+    // angle PDFs are never multiplied by this correction.
+    float ProjectedMeasureCorrection(
+        const Vec3f &aWorldDirGen,
+        const Vec3f &aLocalDirGen) const
+    {
+        if(!mUseShadingNormal)
+            return 1.f;
+
+        if(FixIsLight)
+        {
+            // wf cosines: against ns (local frame) and against ng (geometry)
+            return std::abs(mLocalDirFix.z) / std::abs(mCosThetaFixGeo);
+        }
+
+        // wg cosines: against ns (local frame) and against ng (geometry)
+        return std::abs(aLocalDirGen.z) /
+               std::abs(Dot(aWorldDirGen, mGeometricNormal));
+    }
 
 private:
 
@@ -567,12 +681,16 @@ private:
 
 private:
     int   mMaterialID;       //!< Id of scene material, < 0 ~ invalid
-    Frame mFrame;            //!< Local frame of reference
+    Frame mFrame;            //!< Local frame of reference (shading normal z)
     Vec3f mLocalDirFix;      //!< Incoming (fixed) direction, in local
     bool  mIsDelta;          //!< True when material is purely specular
     ComponentProbabilities mProbabilities; //!< Sampling probabilities
     float mContinuationProb; //!< Russian roulette probability
     float mReflectCoeff;     //!< Fresnel reflection coefficient (for glass)
+
+    Vec3f mGeometricNormal;  //!< Unit geometric normal ng (from winding)
+    bool  mUseShadingNormal; //!< Frame/correction use an interpolated ns
+    float mCosThetaFixGeo;   //!< Cosine of fixed direction against ng
 };
 
 #endif //__BSDF_HXX__

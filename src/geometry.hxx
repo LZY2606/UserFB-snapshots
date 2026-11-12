@@ -107,7 +107,7 @@ class Triangle : public AbstractGeometry
 {
 public:
 
-    Triangle(){}
+    Triangle():mHasVertexNormals(false){}
 
     Triangle(
         const Vec3f &p0,
@@ -120,6 +120,27 @@ public:
         p[2] = p2;
         matID = aMatID;
         mNormal = Normalize(Cross(p[1] - p[0], p[2] - p[0]));
+        mHasVertexNormals = false;
+    }
+
+    Triangle(
+        const Vec3f &p0,
+        const Vec3f &p1,
+        const Vec3f &p2,
+        const Vec3f &n0,
+        const Vec3f &n1,
+        const Vec3f &n2,
+        int         aMatID)
+    {
+        p[0] = p0;
+        p[1] = p1;
+        p[2] = p2;
+        n[0] = n0;
+        n[1] = n1;
+        n[2] = n2;
+        matID = aMatID;
+        mNormal = Normalize(Cross(p[1] - p[0], p[2] - p[0]));
+        mHasVertexNormals = true;
     }
 
     virtual bool Intersect(
@@ -148,6 +169,7 @@ public:
                 oResult.normal = mNormal;
                 oResult.matID  = matID;
                 oResult.dist   = distance;
+                FillShadingNormal(aRay, distance, oResult);
                 return true;
             }
         }
@@ -172,8 +194,64 @@ public:
 public:
 
     Vec3f p[3];
+    Vec3f n[3];
     int   matID;
     Vec3f mNormal;
+    bool  mHasVertexNormals;
+
+private:
+
+    // Computes the shading normal from barycentrically interpolated vertex
+    // normals. Falls back to the geometric normal (flagged invalid) when
+    // there are no vertex normals, the interpolated vector degenerates,
+    // or it is not finite. Every hit (re)writes both shading fields, so a
+    // reused Isect never carries stale data from a previous surface.
+    void FillShadingNormal(
+        const Ray   &aRay,
+        const float aDistance,
+        Isect       &oResult) const
+    {
+        oResult.shadingNormal    = mNormal;
+        oResult.hasShadingNormal = false;
+
+        if(!mHasVertexNormals)
+            return;
+
+        const Vec3f hit  = aRay.org + aRay.dir * aDistance;
+        const Vec3f v0v1 = p[1] - p[0];
+        const Vec3f v0v2 = p[2] - p[0];
+        const Vec3f v0h  = hit  - p[0];
+
+        const float d00 = Dot(v0v1, v0v1);
+        const float d01 = Dot(v0v1, v0v2);
+        const float d11 = Dot(v0v2, v0v2);
+        const float d20 = Dot(v0h,  v0v1);
+        const float d21 = Dot(v0h,  v0v2);
+
+        const float denom = d00 * d11 - d01 * d01;
+        if(denom == 0.f)
+            return;
+
+        const float b1 = (d11 * d20 - d01 * d21) / denom;
+        const float b2 = (d00 * d21 - d01 * d20) / denom;
+        const float b0 = 1.f - b1 - b2;
+
+        const Vec3f interpolated = n[0] * b0 + n[1] * b1 + n[2] * b2;
+        const float lenSqr = interpolated.LenSqr();
+
+        // degenerate (near-zero) or non-finite interpolation: keep geometric
+        if(!(lenSqr > 1e-12f) || !std::isfinite(lenSqr))
+            return;
+
+        Vec3f shading = interpolated / std::sqrt(lenSqr);
+
+        // align with the geometric normal
+        if(Dot(shading, mNormal) < 0.f)
+            shading = -shading;
+
+        oResult.shadingNormal    = shading;
+        oResult.hasShadingNormal = true;
+    }
 };
 
 class Sphere : public AbstractGeometry
@@ -233,6 +311,8 @@ public:
         oResult.dist   = resT;
         oResult.matID  = matID;
         oResult.normal = Normalize(transformedOrigin + Vec3f(resT) * aRay.dir);
+        oResult.shadingNormal    = oResult.normal;
+        oResult.hasShadingNormal = false;
         return true;
     }
 
