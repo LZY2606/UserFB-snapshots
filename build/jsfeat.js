@@ -4,6 +4,7 @@
 
 // namespace ?
 var jsfeat = jsfeat || { REVISION: 'ALPHA' };
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  */
@@ -168,6 +169,81 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
             }
         }
 
+        // Builds an image pyramid where every level carries a U8C1 validity mask.
+        // validity is nonzero for usable pixels. Level 0 is a verbatim copy of
+        // both inputs; higher levels use the regular pyrdown for the image while
+        // a destination pixel is valid only if all four of its 2x2 source
+        // pixels were valid. The trailing odd rows/columns follow pyrdown's
+        // width/height right-shift rule.
+        pyramid_t.prototype.build_masked = function(input, validity) {
+            var levels = this.levels|0;
+            if(levels <= 0) {
+                return;
+            }
+
+            var w = input.cols|0, h = input.rows|0;
+
+            // level 0 image: deep copy so later changes to input do not leak
+            var img0 = this.data[0];
+            if(!img0) {
+                img0 = this.data[0] = new matrix_t(w, h, U8_t | C1_t);
+            } else {
+                img0.resize(w, h, 1);
+            }
+            var src = input.data, dst = img0.data;
+            var j = (w*h)|0;
+            while(--j >= 0) {
+                dst[j] = src[j];
+            }
+
+            // level 0 mask: verbatim copy
+            this.validity = this.validity || new Array(levels);
+            var val0 = this.validity[0];
+            if(!val0) {
+                val0 = this.validity[0] = new matrix_t(w, h, U8_t | C1_t);
+            } else {
+                val0.resize(w, h, 1);
+            }
+            var vmask = validity.data, vdst = val0.data;
+            j = (w*h)|0;
+            while(--j >= 0) {
+                vdst[j] = vmask[j];
+            }
+
+            // higher levels
+            for(var i = 1; i < levels; ++i) {
+                var a = this.data[i-1], b = this.data[i];
+                var aw = a.cols|0, ah = a.rows|0;
+                var bw = aw >> 1, bh = ah >> 1;
+
+                if(!b) {
+                    b = this.data[i] = new matrix_t(bw, bh, U8_t | C1_t);
+                }
+                // regular pyrdown for the image, exactly as the unmasked build
+                this.pyrdown(a, b);
+
+                var vp = this.validity[i-1];
+                var vb = this.validity[i];
+                if(!vb) {
+                    vb = this.validity[i] = new matrix_t(bw, bh, U8_t | C1_t);
+                } else {
+                    vb.resize(bw, bh, 1);
+                }
+
+                var vip = vp.data, vout = vb.data;
+                var y = 0, x = 0, drow = 0, srow = 0;
+                for(y = 0; y < bh; ++y) {
+                    srow = (y << 1)*aw;
+                    drow = y*bw;
+                    for(x = 0; x < bw; ++x) {
+                        var s = srow + (x << 1);
+                        vout[drow + x] = (vip[s] && vip[s+1] &&
+                                          vip[s+aw] && vip[s+aw+1]) ? 255 : 0;
+                    }
+                }
+            }
+        }
+
         return pyramid_t;
     })();
 
@@ -236,6 +312,7 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
     global.keypoint_t = keypoint_t;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  */
@@ -315,6 +392,7 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
     cache.allocate(30, 640*4);
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  */
@@ -729,6 +807,7 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
     global.math = math;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -1652,666 +1731,6 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
 })(jsfeat);
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
- *
- */
-
-(function(global) {
-    "use strict";
-    //
-
-    var motion_model = (function() {
-
-    	var sqr = function(x) {
-    		return x*x;
-    	}
-
-    	// does isotropic normalization
-    	var iso_normalize_points = function(from, to, T0, T1, count) {
-			var i=0;
-		    var cx0=0.0, cy0=0.0, d0=0.0, s0=0.0;
-		    var cx1=0.0, cy1=0.0, d1=0.0, s1=0.0;
-		    var dx=0.0,dy=0.0;
-
-		    for (; i < count; ++i) {
-		        cx0 += from[i].x;
-		        cy0 += from[i].y;
-		        cx1 += to[i].x;
-		        cy1 += to[i].y;
-		    }
-
-		    cx0 /= count; cy0 /= count;
-		    cx1 /= count; cy1 /= count;
-
-		    for (i = 0; i < count; ++i) {
-		        dx = from[i].x - cx0;
-		        dy = from[i].y - cy0;
-		        d0 += Math.sqrt(dx*dx + dy*dy);
-		        dx = to[i].x - cx1;
-		        dy = to[i].y - cy1;
-		        d1 += Math.sqrt(dx*dx + dy*dy);
-		    }
-
-		    d0 /= count; d1 /= count;
-
-		    s0 = Math.SQRT2 / d0; s1 = Math.SQRT2 / d1;
-
-		    T0[0] = T0[4] = s0;
-		    T0[2] = -cx0*s0;
-		    T0[5] = -cy0*s0;
-		    T0[1] = T0[3] = T0[6] = T0[7] = 0.0;
-		    T0[8] = 1.0;
-
-		    T1[0] = T1[4] = s1;
-		    T1[2] = -cx1*s1;
-		    T1[5] = -cy1*s1;
-		    T1[1] = T1[3] = T1[6] = T1[7] = 0.0;
-		    T1[8] = 1.0;
-		}
-
-		var have_collinear_points = function(points, count) {
-		    var j=0,k=0,i=(count-1)|0;
-		    var dx1=0.0,dy1=0.0,dx2=0.0,dy2=0.0;
-
-		    // check that the i-th selected point does not belong
-		    // to a line connecting some previously selected points
-		    for(; j < i; ++j) {
-		        dx1 = points[j].x - points[i].x;
-		        dy1 = points[j].y - points[i].y;
-		        for(k = 0; k < j; ++k) {
-		            dx2 = points[k].x - points[i].x;
-		            dy2 = points[k].y - points[i].y;
-		            if( Math.abs(dx2*dy1 - dy2*dx1) <= jsfeat.EPSILON*(Math.abs(dx1) + Math.abs(dy1) + Math.abs(dx2) + Math.abs(dy2)))
-		                return true;
-		        }
-		    }
-		    return false;
-		}
-
-		var T0 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
-    	var T1 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
-    	var AtA = new jsfeat.matrix_t(6, 6, jsfeat.F32_t|jsfeat.C1_t);
-    	var AtB = new jsfeat.matrix_t(6, 1, jsfeat.F32_t|jsfeat.C1_t);
-    	
-    	var affine2d = (function () {
-
-	        function affine2d() {
-	        	// empty constructor
-	        }
-
-	        affine2d.prototype.run = function(from, to, model, count) {
-	        	var i=0,j=0;
-	        	var dt=model.type|jsfeat.C1_t;
-	        	var md=model.data, t0d=T0.data, t1d=T1.data;
-	        	var pt0,pt1,px=0.0,py=0.0;
-
-	            iso_normalize_points(from, to, t0d, t1d, count);
-
-	            var a_buff = jsfeat.cache.get_buffer((2*count*6)<<3);
-                var b_buff = jsfeat.cache.get_buffer((2*count)<<3);
-
-                var a_mt = new jsfeat.matrix_t(6, 2*count, dt, a_buff.data);
-                var b_mt = new jsfeat.matrix_t(1, 2*count, dt, b_buff.data);
-                var ad=a_mt.data, bd=b_mt.data;
-
-			    for (; i < count; ++i) {
-			    	pt0 = from[i];
-			        pt1 = to[i];
-
-			        px = t0d[0]*pt0.x + t0d[1]*pt0.y + t0d[2];
-			        py = t0d[3]*pt0.x + t0d[4]*pt0.y + t0d[5];
-
-			        j = i*2*6;
-			        ad[j]=px, ad[j+1]=py, ad[j+2]=1.0, ad[j+3]=0.0, ad[j+4]=0.0, ad[j+5]=0.0;
-
-			        j += 6;
-			        ad[j]=0.0, ad[j+1]=0.0, ad[j+2]=0.0, ad[j+3]=px, ad[j+4]=py, ad[j+5]=1.0;
-
-			        bd[i<<1] = t1d[0]*pt1.x + t1d[1]*pt1.y + t1d[2];
-			        bd[(i<<1)+1] = t1d[3]*pt1.x + t1d[4]*pt1.y + t1d[5];
-			    }
-
-			    jsfeat.matmath.multiply_AtA(AtA, a_mt);
-			    jsfeat.matmath.multiply_AtB(AtB, a_mt, b_mt);
-
-			    jsfeat.linalg.lu_solve(AtA, AtB);
-
-			    md[0] = AtB.data[0], md[1]=AtB.data[1], md[2]=AtB.data[2];
-			    md[3] = AtB.data[3], md[4]=AtB.data[4], md[5]=AtB.data[5];
-			    md[6] = 0.0, md[7] = 0.0, md[8] = 1.0; // fill last row
-
-			    // denormalize
-			    jsfeat.matmath.invert_3x3(T1, T1);
-			    jsfeat.matmath.multiply_3x3(model, T1, model);
-			    jsfeat.matmath.multiply_3x3(model, model, T0);
-
-			    // free buffer
-			    jsfeat.cache.put_buffer(a_buff);
-			    jsfeat.cache.put_buffer(b_buff);
-
-			    return 1;
-	        }
-
-	        affine2d.prototype.error = function(from, to, model, err, count) {
-	        	var i=0;
-	        	var pt0,pt1;
-	        	var m=model.data;
-
-			    for (; i < count; ++i) {
-			        pt0 = from[i];
-			        pt1 = to[i];
-
-			        err[i] = sqr(pt1.x - m[0]*pt0.x - m[1]*pt0.y - m[2]) +
-			                 sqr(pt1.y - m[3]*pt0.x - m[4]*pt0.y - m[5]);
-			    }
-	        }
-
-	        affine2d.prototype.check_subset = function(from, to, count) {
-	            return true; // all good
-	        }
-
-	        return affine2d;
-	    })();
-
-	    var mLtL = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
-	    var Evec = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
-
-	    var homography2d = (function () {
-
-	        function homography2d() {
-	        	// empty constructor
-	        	//this.T0 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
-	        	//this.T1 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
-	        	//this.mLtL = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
-	        	//this.Evec = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
-	        }
-
-	        homography2d.prototype.run = function(from, to, model, count) {
-	        	var i=0,j=0;
-	        	var md=model.data, t0d=T0.data, t1d=T1.data;
-	        	var LtL=mLtL.data, evd=Evec.data;
-	        	var x=0.0,y=0.0,X=0.0,Y=0.0;
-
-			    // norm
-				var smx=0.0, smy=0.0, cmx=0.0, cmy=0.0, sMx=0.0, sMy=0.0, cMx=0.0, cMy=0.0;
-
-				for(; i < count; ++i) {
-				    cmx += to[i].x;
-				    cmy += to[i].y;
-				    cMx += from[i].x;
-				    cMy += from[i].y;
-				}
-
-			    cmx /= count; cmy /= count;
-			    cMx /= count; cMy /= count;
-
-			    for(i = 0; i < count; ++i)
-			    {
-				    smx += Math.abs(to[i].x - cmx);
-				    smy += Math.abs(to[i].y - cmy);
-				    sMx += Math.abs(from[i].x - cMx);
-				    sMy += Math.abs(from[i].y - cMy);
-				}
-
-			    if( Math.abs(smx) < jsfeat.EPSILON 
-			    	|| Math.abs(smy) < jsfeat.EPSILON 
-			    	|| Math.abs(sMx) < jsfeat.EPSILON 
-			    	|| Math.abs(sMy) < jsfeat.EPSILON ) return 0;
-
-			    smx = count/smx; smy = count/smy;
-			    sMx = count/sMx; sMy = count/sMy;
-
-			    t0d[0] = sMx; 	t0d[1] = 0; 	t0d[2] = -cMx*sMx; 
-			    t0d[3] = 0; 	t0d[4] = sMy; 	t0d[5] = -cMy*sMy; 
-			    t0d[6] = 0; 	t0d[7] = 0; 	t0d[8] = 1;
-
-				t1d[0] = 1.0/smx; 	t1d[1] = 0; 		t1d[2] = cmx;
-				t1d[3] = 0; 		t1d[4] = 1.0/smy; 	t1d[5] = cmy;
-				t1d[6] = 0; 		t1d[7] = 0; 		t1d[8] = 1;
-				//
-
-				// construct system
-				i = 81;
-				while(--i >= 0) {
-					LtL[i] = 0.0;
-				}
-				for(i = 0; i < count; ++i) {
-					x = (to[i].x - cmx) * smx;
-					y = (to[i].y - cmy) * smy;
-					X = (from[i].x - cMx) * sMx;
-					Y = (from[i].y - cMy) * sMy;
-
-					LtL[0] += X*X;
-					LtL[1] += X*Y;
-					LtL[2] += X;
-
-					LtL[6] += X*-x*X;
-					LtL[7] += X*-x*Y;
-					LtL[8] += X*-x;
-					LtL[10] += Y*Y;
-					LtL[11] += Y;
-
-					LtL[15] += Y*-x*X;
-					LtL[16] += Y*-x*Y;
-					LtL[17] += Y*-x;
-					LtL[20] += 1.0;
-
-					LtL[24] += -x*X;
-					LtL[25] += -x*Y;
-					LtL[26] += -x;
-					LtL[30] += X*X;
-					LtL[31] += X*Y;
-					LtL[32] += X;
-					LtL[33] += X*-y*X;
-					LtL[34] += X*-y*Y;
-					LtL[35] += X*-y;
-					LtL[40] += Y*Y;
-					LtL[41] += Y;
-					LtL[42] += Y*-y*X;
-					LtL[43] += Y*-y*Y;
-					LtL[44] += Y*-y;
-					LtL[50] += 1.0;
-					LtL[51] += -y*X;
-					LtL[52] += -y*Y;
-					LtL[53] += -y;
-					LtL[60] += -x*X*-x*X + -y*X*-y*X;
-					LtL[61] += -x*X*-x*Y + -y*X*-y*Y;
-					LtL[62] += -x*X*-x + -y*X*-y;
-					LtL[70] += -x*Y*-x*Y + -y*Y*-y*Y;
-					LtL[71] += -x*Y*-x + -y*Y*-y;
-					LtL[80] += -x*-x + -y*-y;
-				}
-				//
-
-				// symmetry
-			    for(i = 0; i < 9; ++i) {
-			        for(j = 0; j < i; ++j)
-			            LtL[i*9+j] = LtL[j*9+i];
-			    }
-
-				jsfeat.linalg.eigenVV(mLtL, Evec);
-
-				md[0]=evd[72], md[1]=evd[73], md[2]=evd[74];
-			    md[3]=evd[75], md[4]=evd[76], md[5]=evd[77];
-			    md[6]=evd[78], md[7]=evd[79], md[8]=evd[80];
-
-				// denormalize
-			    jsfeat.matmath.multiply_3x3(model, T1, model);
-			    jsfeat.matmath.multiply_3x3(model, model, T0);
-
-			    // set bottom right to 1.0
-			    x = 1.0/md[8];
-			    md[0] *= x; md[1] *= x; md[2] *= x;
-			    md[3] *= x; md[4] *= x; md[5] *= x;
-			    md[6] *= x; md[7] *= x; md[8] = 1.0;
-
-			    return 1;
-	        }
-
-	        homography2d.prototype.error = function(from, to, model, err, count) {
-	        	var i=0;
-	        	var pt0,pt1,ww=0.0,dx=0.0,dy=0.0;
-	        	var m=model.data;
-
-			    for (; i < count; ++i) {
-			        pt0 = from[i];
-			        pt1 = to[i];
-
-			        ww = 1.0/(m[6]*pt0.x + m[7]*pt0.y + 1.0);
-			        dx = (m[0]*pt0.x + m[1]*pt0.y + m[2])*ww - pt1.x;
-			        dy = (m[3]*pt0.x + m[4]*pt0.y + m[5])*ww - pt1.y;
-			        err[i] = (dx*dx + dy*dy);
-			    }
-	        }
-
-	        homography2d.prototype.check_subset = function(from, to, count) {
-	        	// seems to reject good subsets actually
-	        	//if( have_collinear_points(from, count) || have_collinear_points(to, count) ) {
-        			//return false;
-        		//}
-        		if( count == 4 ) {
-			        var negative = 0;
-
-			        var fp0=from[0],fp1=from[1],fp2=from[2],fp3=from[3];
-			        var tp0=to[0],tp1=to[1],tp2=to[2],tp3=to[3];
-
-			        // set1
-			        var A11=fp0.x, A12=fp0.y, A13=1.0;
-			        var A21=fp1.x, A22=fp1.y, A23=1.0;
-			        var A31=fp2.x, A32=fp2.y, A33=1.0;
-
-			        var B11=tp0.x, B12=tp0.y, B13=1.0;
-			        var B21=tp1.x, B22=tp1.y, B23=1.0;
-			        var B31=tp2.x, B32=tp2.y, B33=1.0;
-
-			        var detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
-					var detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
-
-					if(detA*detB < 0) negative++;
-
-					// set2
-					A11=fp1.x, A12=fp1.y;
-			        A21=fp2.x, A22=fp2.y;
-			        A31=fp3.x, A32=fp3.y;
-
-			        B11=tp1.x, B12=tp1.y;
-			        B21=tp2.x, B22=tp2.y;
-			        B31=tp3.x, B32=tp3.y;
-
-			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
-					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
-
-					if(detA*detB < 0) negative++;
-
-					// set3
-					A11=fp0.x, A12=fp0.y;
-			        A21=fp2.x, A22=fp2.y;
-			        A31=fp3.x, A32=fp3.y;
-
-			        B11=tp0.x, B12=tp0.y;
-			        B21=tp2.x, B22=tp2.y;
-			        B31=tp3.x, B32=tp3.y;
-
-			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
-					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
-
-					if(detA*detB < 0) negative++;
-
-					// set4
-					A11=fp0.x, A12=fp0.y;
-			        A21=fp1.x, A22=fp1.y;
-			        A31=fp3.x, A32=fp3.y;
-
-			        B11=tp0.x, B12=tp0.y;
-			        B21=tp1.x, B22=tp1.y;
-			        B31=tp3.x, B32=tp3.y;
-
-			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
-					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
-
-					if(detA*detB < 0) negative++;
-
-			        if(negative != 0 && negative != 4) {
-			        	return false;
-			        }
-			    }
-	            return true; // all good
-	        }
-
-	        return homography2d;
-	    })();
-
-	    return {
-
-    		affine2d:affine2d,
-    		homography2d:homography2d
-
-    	};
-
-    })();
-
-    var ransac_params_t = (function () {
-        function ransac_params_t(size, thresh, eps, prob) {
-            if (typeof size === "undefined") { size=0; }
-            if (typeof thresh === "undefined") { thresh=0.5; }
-            if (typeof eps === "undefined") { eps=0.5; }
-            if (typeof prob === "undefined") { prob=0.99; }
-
-            this.size = size;
-            this.thresh = thresh;
-            this.eps = eps;
-            this.prob = prob;
-        };
-        ransac_params_t.prototype.update_iters = function(_eps, max_iters) {
-	        var num = Math.log(1 - this.prob);
-	        var denom = Math.log(1 - Math.pow(1 - _eps, this.size));
-	        return (denom >= 0 || -num >= max_iters*(-denom) ? max_iters : Math.round(num/denom))|0;
-        };
-        return ransac_params_t;
-    })();
-
-    var motion_estimator = (function() {
-
-    	var get_subset = function(kernel, from, to, need_cnt, max_cnt, from_sub, to_sub) {
-    		var max_try = 1000;
-    		var indices = [];
-		    var i=0, j=0, ssiter=0, idx_i=0, ok=false;
-		    for(; ssiter < max_try; ++ssiter)  {
-		        i = 0;
-		        for (; i < need_cnt && ssiter < max_try;) {
-		            ok = false;
-		            idx_i = 0;
-		            while (!ok) {
-		                ok = true;
-		                idx_i = indices[i] = Math.floor(Math.random() * max_cnt)|0;
-		                for (j = 0; j < i; ++j) {
-		                    if (idx_i == indices[j])
-		                    { ok = false; break; }
-		                }
-		            }
-		            from_sub[i] = from[idx_i];
-		            to_sub[i] = to[idx_i];
-		            if( !kernel.check_subset( from_sub, to_sub, i+1 ) ) {
-		                ssiter++;
-		                continue;
-		            }
-		            ++i;
-		        }
-		        break;
-		    }
-
-		    return (i == need_cnt && ssiter < max_try);
-    	}
-
-    	var find_inliers = function(kernel, model, from, to, count, thresh, err, mask) {
-    		var numinliers = 0, i=0, f=0;
-    		var t = thresh*thresh;
-
-    		kernel.error(from, to, model, err, count);
-
-		    for(; i < count; ++i) {
-		        f = err[i] <= t;
-		        mask[i] = f;
-		        numinliers += f;
-		    }
-		    return numinliers;
-    	}
-
-    	return {
-
-    		ransac: function(params, kernel, from, to, count, model, mask, max_iters) {
-    			if (typeof max_iters === "undefined") { max_iters=1000; }
-
-    			if(count < params.size) return false;
-
-    			var model_points = params.size;
-			    var niters = max_iters, iter=0;
-			    var result = false;
-
-			    var subset0 = [];
-			    var subset1 = [];
-			    var found = false;
-
-			    var mc=model.cols,mr=model.rows;
-                var dt = model.type | jsfeat.C1_t;
-
-			    var m_buff = jsfeat.cache.get_buffer((mc*mr)<<3);
-			    var ms_buff = jsfeat.cache.get_buffer(count);
-			    var err_buff = jsfeat.cache.get_buffer(count<<2);
-			    var M = new jsfeat.matrix_t(mc, mr, dt, m_buff.data);
-			    var curr_mask = new jsfeat.matrix_t(count, 1, jsfeat.U8C1_t, ms_buff.data);
-
-			    var inliers_max = -1, numinliers=0;
-			    var nmodels = 0;
-
-			    var err = err_buff.f32;
-
-			    // special case
-			    if(count == model_points) {
-			        if(kernel.run(from, to, M, count) <= 0) {
-			        	jsfeat.cache.put_buffer(m_buff);
-			        	jsfeat.cache.put_buffer(ms_buff);
-			        	jsfeat.cache.put_buffer(err_buff);
-			        	return false;
-			        }
-
-			        M.copy_to(model);
-			        if(mask) {
-			        	while(--count >= 0) {
-			        		mask.data[count] = 1;
-			        	}
-			        }
-			        jsfeat.cache.put_buffer(m_buff);
-			        jsfeat.cache.put_buffer(ms_buff);
-			        jsfeat.cache.put_buffer(err_buff);
-			        return true;
-			    }
-
-			    for (; iter < niters; ++iter) {
-			        // generate subset
-			        found = get_subset(kernel, from, to, model_points, count, subset0, subset1);
-			        if(!found) {
-			            if(iter == 0) {
-			            	jsfeat.cache.put_buffer(m_buff);
-			            	jsfeat.cache.put_buffer(ms_buff);
-			            	jsfeat.cache.put_buffer(err_buff);
-			                return false;
-			            }
-			            break;
-			        }
-
-			        nmodels = kernel.run( subset0, subset1, M, model_points );
-			        if(nmodels <= 0)
-			            continue;
-
-			        // TODO handle multimodel output
-
-			        numinliers = find_inliers(kernel, M, from, to, count, params.thresh, err, curr_mask.data);
-
-			        if( numinliers > Math.max(inliers_max, model_points-1) ) {
-			            M.copy_to(model);
-			            inliers_max = numinliers;
-			            if(mask) curr_mask.copy_to(mask);
-			            niters = params.update_iters((count - numinliers)/count, niters);
-			            result = true;
-			        }
-			    }
-
-			    jsfeat.cache.put_buffer(m_buff);
-			    jsfeat.cache.put_buffer(ms_buff);
-			    jsfeat.cache.put_buffer(err_buff);
-
-			    return result;
-    		},
-
-    		lmeds: function(params, kernel, from, to, count, model, mask, max_iters) {
-    			if (typeof max_iters === "undefined") { max_iters=1000; }
-
-    			if(count < params.size) return false;
-
-    			var model_points = params.size;
-			    var niters = max_iters, iter=0;
-			    var result = false;
-
-			    var subset0 = [];
-			    var subset1 = [];
-			    var found = false;
-
-			    var mc=model.cols,mr=model.rows;
-                var dt = model.type | jsfeat.C1_t;
-
-			    var m_buff = jsfeat.cache.get_buffer((mc*mr)<<3);
-			    var ms_buff = jsfeat.cache.get_buffer(count);
-			    var err_buff = jsfeat.cache.get_buffer(count<<2);
-			    var M = new jsfeat.matrix_t(mc, mr, dt, m_buff.data);
-			    var curr_mask = new jsfeat.matrix_t(count, 1, jsfeat.U8_t|jsfeat.C1_t, ms_buff.data);
-
-			    var numinliers=0;
-			    var nmodels = 0;
-
-			    var err = err_buff.f32;
-			    var min_median = 1000000000.0, sigma=0.0, median=0.0;
-
-			    params.eps = 0.45;
-			    niters = params.update_iters(params.eps, niters);
-
-			    // special case
-			    if(count == model_points) {
-			        if(kernel.run(from, to, M, count) <= 0) {
-			        	jsfeat.cache.put_buffer(m_buff);
-			        	jsfeat.cache.put_buffer(ms_buff);
-			        	jsfeat.cache.put_buffer(err_buff);
-			        	return false;
-			        }
-
-			        M.copy_to(model);
-			        if(mask) {
-			        	while(--count >= 0) {
-			        		mask.data[count] = 1;
-			        	}
-			        }
-			        jsfeat.cache.put_buffer(m_buff);
-			        jsfeat.cache.put_buffer(ms_buff);
-			        jsfeat.cache.put_buffer(err_buff);
-			        return true;
-			    }
-
-			    for (; iter < niters; ++iter) {
-			        // generate subset
-			        found = get_subset(kernel, from, to, model_points, count, subset0, subset1);
-			        if(!found) {
-			            if(iter == 0) {
-			            	jsfeat.cache.put_buffer(m_buff);
-			            	jsfeat.cache.put_buffer(ms_buff);
-			            	jsfeat.cache.put_buffer(err_buff);
-			                return false;
-			            }
-			            break;
-			        }
-
-			        nmodels = kernel.run( subset0, subset1, M, model_points );
-			        if(nmodels <= 0)
-			            continue;
-
-			        // TODO handle multimodel output
-
-			        kernel.error(from, to, M, err, count);
-			        median = jsfeat.math.median(err, 0, count-1);
-
-			        if(median < min_median) {
-			            min_median = median;
-			            M.copy_to(model);
-			            result = true;
-			        }
-			    }
-
-			    if(result) {
-			        sigma = 2.5*1.4826*(1 + 5.0/(count - model_points))*Math.sqrt(min_median);
-			        sigma = Math.max(sigma, 0.001);
-
-			        numinliers = find_inliers(kernel, model, from, to, count, sigma, err, curr_mask.data);
-			        if(mask) curr_mask.copy_to(mask);
-			        
-			        result = numinliers >= model_points;
-			    }
-
-			    jsfeat.cache.put_buffer(m_buff);
-			    jsfeat.cache.put_buffer(ms_buff);
-			    jsfeat.cache.put_buffer(err_buff);
-
-			    return result;
-    		}
-
-    	};
-
-    })();
-
-    global.ransac_params_t = ransac_params_t;
-    global.motion_model = motion_model;
-    global.motion_estimator = motion_estimator;
-
-})(jsfeat);
-/**
- * @author Eugene Zatepyakin / http://inspirit.ru/
  */
 
 (function(global) {
@@ -2940,12 +2359,12 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
                 var height = img.rows;
                 var step = width;
 
-                min_theta = 0.0;
-                max_theta = Math.PI;
+                var min_theta = 0.0;
+                var max_theta = Math.PI;
 
-                numangle = Math.round((max_theta - min_theta) / theta_res);
-                numrho = Math.round(((width + height) * 2 + 1) / rho_res);
-                irho = 1.0 / rho_res;
+                var numangle = Math.round((max_theta - min_theta) / theta_res);
+                var numrho = Math.round(((width + height) * 2 + 1) / rho_res);
+                var irho = 1.0 / rho_res;
 
                 var accum = new Int32Array((numangle+2) * (numrho+2)); //typed arrays are initialized to 0
                 var tabSin = new Float32Array(numangle);
@@ -2975,7 +2394,7 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
 
                 // stage 2. find local maximums
                 //TODO: Consider making a vector class that uses typed arrays
-                _sort_buf = new Array();
+                var _sort_buf = new Array();
                 for(var r = 0; r < numrho; r++ ) {
                     for(var n = 0; n < numangle; n++ ) {
                         var base = (n+1) * (numrho+2) + r+1;
@@ -2993,9 +2412,9 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
                 });
 
                 // stage 4. store the first min(total,linesMax) lines to the output buffer
-                linesMax = Math.min(numangle*numrho, _sort_buf.length);
-                scale = 1.0 / (numrho+2);
-                lines = new Array();
+                var linesMax = Math.min(numangle*numrho, _sort_buf.length);
+                var scale = 1.0 / (numrho+2);
+                var lines = new Array();
                 for( var i = 0; i < linesMax; i++ ) {
                     var idx = _sort_buf[i];
                     var n = Math.floor(idx*scale) - 1;
@@ -3564,6 +2983,7 @@ var jsfeat = jsfeat || { REVISION: 'ALPHA' };
     global.imgproc = imgproc;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -3818,6 +3238,7 @@ The references are:
     fast_corners.set_threshold(20); // set default
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -3918,6 +3339,7 @@ The references are:
     global.yape06 = yape06;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -4692,6 +4114,7 @@ The references are:
     global.orb = orb;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -4706,6 +4129,136 @@ The references are:
         // short link to shar deriv
         var scharr_deriv = jsfeat.imgproc.scharr_derivatives;
 
+        // Scharr kernels above sum to 32, so divide to obtain a per-pixel
+        // derivative that is consistent with the gray-level residual units.
+        var SCHARR_SCALE = 1.0/32.0;
+
+        // Solves a 4x4 symmetric system H*x = rhs with column equilibration
+        // and partial pivoting. Returns false when the system is singular or
+        // otherwise not solvable in a numerically meaningful way.
+        var solve4 = function(Hx, rhs, x) {
+            var c0 = Math.sqrt(Hx[0]*Hx[0] + Hx[4]*Hx[4] + Hx[8]*Hx[8] + Hx[12]*Hx[12]);
+            var c1 = Math.sqrt(Hx[1]*Hx[1] + Hx[5]*Hx[5] + Hx[9]*Hx[9] + Hx[13]*Hx[13]);
+            var c2 = Math.sqrt(Hx[2]*Hx[2] + Hx[6]*Hx[6] + Hx[10]*Hx[10] + Hx[14]*Hx[14]);
+            var c3 = Math.sqrt(Hx[3]*Hx[3] + Hx[7]*Hx[7] + Hx[11]*Hx[11] + Hx[15]*Hx[15]);
+            var cmax = Math.max(c0, c1, c2, c3);
+            if(!(cmax > 0.0) || !isFinite(cmax)) {
+                return false;
+            }
+            var tiny = 1e-12*cmax;
+            if(c0 < tiny || c1 < tiny || c2 < tiny || c3 < tiny) {
+                return false;
+            }
+
+            // A = S*H*S with S = diag(1/c), b = S*rhs
+            var A = new Float64Array(16);
+            var b = new Float64Array(4);
+            var inv = [1.0/c0, 1.0/c1, 1.0/c2, 1.0/c3];
+            var i=0, j=0, k=0;
+            for(i = 0; i < 4; ++i) {
+                b[i] = rhs[i]*inv[i];
+                for(j = 0; j < 4; ++j) {
+                    A[i*4+j] = Hx[i*4+j]*inv[i]*inv[j];
+                }
+            }
+
+            var amax = 0.0;
+            for(i = 0; i < 16; ++i) {
+                var av = Math.abs(A[i]);
+                if(av > amax) amax = av;
+            }
+            if(!(amax > 0.0) || !isFinite(amax)) {
+                return false;
+            }
+
+            // gaussian elimination with partial pivoting
+            for(k = 0; k < 4; ++k) {
+                var piv = k, pivval = Math.abs(A[k*4+k]);
+                for(i = k+1; i < 4; ++i) {
+                    var cand = Math.abs(A[i*4+k]);
+                    if(cand > pivval) { piv = i; pivval = cand; }
+                }
+                if(!(pivval > 1e-10*amax) || !isFinite(pivval)) {
+                    return false;
+                }
+                if(piv != k) {
+                    for(j = k; j < 4; ++j) {
+                        var t = A[k*4+j]; A[k*4+j] = A[piv*4+j]; A[piv*4+j] = t;
+                    }
+                    var tb = b[k]; b[k] = b[piv]; b[piv] = tb;
+                }
+                var pv = A[k*4+k];
+                for(i = k+1; i < 4; ++i) {
+                    var f = A[i*4+k]/pv;
+                    if(f === 0.0) continue;
+                    A[i*4+k] = 0.0;
+                    for(j = k+1; j < 4; ++j) {
+                        A[i*4+j] -= f*A[k*4+j];
+                    }
+                    b[i] -= f*b[k];
+                }
+            }
+
+            // back substitution
+            for(i = 3; i >= 0; --i) {
+                var sum = b[i];
+                for(j = i+1; j < 4; ++j) {
+                    sum -= A[i*4+j]*x[j];
+                }
+                var diag = A[i*4+i];
+                if(!isFinite(diag) || diag === 0.0) {
+                    return false;
+                }
+                x[i] = sum/diag;
+            }
+
+            // undo column scaling, x = y/c
+            for(i = 0; i < 4; ++i) {
+                x[i] *= inv[i];
+                if(!isFinite(x[i])) return false;
+            }
+            return true;
+        };
+
+        // Bilinearly samples a single-channel (U8 image or Float32 derivative)
+        // array at integer base (ix,iy) with fractions (fx,fy). The caller
+        // must have established that the 2x2 support is usable.
+        var sample_bilinear = function(arr, w, ix, iy, fx, fy) {
+            var s = iy*w + ix;
+            var a = arr[s], b = arr[s+1];
+            var c = arr[s+w], d = arr[s+w+1];
+            var top = a + (b-a)*fx;
+            var bot = c + (d-c)*fx;
+            return top + (bot-top)*fy;
+        };
+
+        // Fills scaled Scharr derivatives for pixels whose full 3x3 support
+        // is inside the image and valid. Pixels without valid support leave
+        // vd at 0 and are never sampled.
+        var grad_field = function(img, valid, w, h, gx, gy, vd) {
+            for(var y = 1; y < h-1; ++y) {
+                var row = y*w;
+                for(var x = 1; x < w-1; ++x) {
+                    var q = row + x;
+                    if(valid !== null) {
+                        var p0 = (y-1)*w + x, p1 = (y+1)*w + x;
+                        if(!(valid[p0-1] && valid[p0] && valid[p0+1] &&
+                             valid[ q-1] && valid[ q] && valid[ q+1] &&
+                             valid[p1-1] && valid[p1] && valid[p1+1])) {
+                            continue;
+                        }
+                    }
+                    var s0 = (y-1)*w, s1 = row, s2 = (y+1)*w;
+                    gx[q] = (3.0*(img[s2+x+1] - img[s2+x-1]) +
+                             10.0*(img[s1+x+1] - img[s1+x-1]) +
+                             3.0*(img[s0+x+1] - img[s0+x-1]))*SCHARR_SCALE;
+                    gy[q] = (3.0*(img[s2+x+1] - img[s0+x+1]) +
+                             10.0*(img[s2+x] - img[s0+x]) +
+                             3.0*(img[s2+x-1] - img[s0+x-1]))*SCHARR_SCALE;
+                    vd[q] = 1;
+                }
+            }
+        };
         return {
             track: function(prev_pyr, curr_pyr, prev_xy, curr_xy, count, win_size, max_iter, status, eps, min_eigen_threshold) {
                 if (typeof max_iter === "undefined") { max_iter = 30; }
@@ -4931,6 +4484,295 @@ The references are:
                 jsfeat.cache.put_buffer(iwin_node);
                 jsfeat.cache.put_buffer(deriv_iwin_node);
                 jsfeat.cache.put_buffer(deriv_lev_node);
+            },
+
+            // Jointly estimates translation and a local affine intensity
+            // change (curr ~= gain*prev + bias) on masked pyramids produced
+            // by pyramid_t.build_masked(). Points are warm-started at their
+            // input coordinates with gain=1, bias=0 and refined coarse-to-fine.
+            // Only samples whose entire bilinear (and derivative) support is
+            // inside the image and marked valid contribute to the normal
+            // equations; excluded values never enter the solve.
+            track_photometric: function(prev_pyr, curr_pyr, prev_xy, curr_xy, count, win_size, gains, biases, status, options) {
+                if (typeof options === "undefined") { options = {}; }
+                var max_iter = (options.max_iter === undefined) ? 40 : options.max_iter;
+                var eps = (options.eps === undefined) ? 0.001 : options.eps;
+                var min_valid_ratio = (options.min_valid_ratio === undefined) ? 0.6 : options.min_valid_ratio;
+                var max_rms = (options.max_rms === undefined) ? 3 : options.max_rms;
+
+                // Reject non-finite options with clear failure semantics
+                // rather than letting NaN poison every normal equation.
+                if(!isFinite(max_iter) || !isFinite(eps) || !isFinite(min_valid_ratio) || !isFinite(max_rms)) {
+                    return;
+                }
+
+                count = count|0;
+                if(count <= 0) {
+                    return;
+                }
+
+                var half_win = (win_size-1)*0.5;
+                var win_area = (win_size*win_size)|0;
+                var levels = Math.min(prev_pyr.levels, curr_pyr.levels)|0;
+                if(levels <= 0) {
+                    return;
+                }
+
+                var eps2 = eps*eps;
+
+                // Snapshot the source coordinates. They define the starting
+                // guess (gain=1, bias=0) and are what a failed point is
+                // restored to. Only the first 2*count entries are ours.
+                var orig = new Float64Array(count << 1);
+                var p=0, i=0;
+                for(p = 0; p < count; ++p) {
+                    i = p << 1;
+                    orig[i] = prev_xy[i];
+                    orig[i+1] = prev_xy[i+1];
+                }
+
+                // Per-point state carried across levels. Brightness parameters
+                // are deliberately not rescaled when the resolution doubles.
+                var px = new Float64Array(count);
+                var py = new Float64Array(count);
+                var pgain = new Float64Array(count);
+                var pbias = new Float64Array(count);
+                var ok = new Uint8Array(count);
+                var H = new Float64Array(16);
+                var rhs = new Float64Array(4);
+                var delta = new Float64Array(4);
+
+                var max_level = levels - 1;
+                for(p = 0; p < count; ++p) {
+                    i = p << 1;
+                    var sc0 = 1.0/(1 << max_level);
+                    // Start every point at the matching original coordinate:
+                    // the target estimate is the source position, gain=1,
+                    // bias=0, whatever values the caller put in curr_xy.
+                    px[p] = orig[i]*sc0;
+                    py[p] = orig[i+1]*sc0;
+                    pgain[p] = 1.0;
+                    pbias[p] = 0.0;
+                    ok[p] = 1;
+                }
+
+                for(var level = max_level; level >= 0; --level) {
+                    var lev_sc = 1.0/(1 << level);
+                    var prev_m = prev_pyr.data[level];
+                    var curr_m = curr_pyr.data[level];
+                    var pw = prev_m.cols|0, ph = prev_m.rows|0;
+                    var cw = curr_m.cols|0, ch = curr_m.rows|0;
+                    var prev_img = prev_m.data, curr_img = curr_m.data;
+
+                    var pv_node = (prev_pyr.validity && prev_pyr.validity[level]) ? prev_pyr.validity[level].data : null;
+                    var cv_node = (curr_pyr.validity && curr_pyr.validity[level]) ? curr_pyr.validity[level].data : null;
+
+                    // The warp Jacobian only needs the current frame's
+                    // derivatives (forward-additive LK). Compute them (Scharr,
+                    // /32) only where the full 3x3 support is inside the image
+                    // and valid; any other pixel is never sampled.
+                    var cgx = new Float32Array(cw*ch);
+                    var cgy = new Float32Array(cw*ch);
+                    var cvd = new Uint8Array(cw*ch);
+                    grad_field(curr_img, cv_node, cw, ch, cgx, cgy, cvd);
+
+                    for(p = 0; p < count; ++p) {
+                        if(!ok[p]) {
+                            continue;
+                        }
+                        i = p << 1;
+
+                        // source window stays fixed at the previous location
+                        var sx = orig[i]*lev_sc;
+                        var sy = orig[i+1]*lev_sc;
+                        // target starts from the carried estimate
+                        var tx = px[p];
+                        var ty = py[p];
+                        var g = pgain[p];
+                        var b = pbias[p];
+
+                        var failed = 0;
+
+                        for(var iter = 0; iter < max_iter; ++iter) {
+                            H.fill(0);
+                            rhs.fill(0);
+                            var n = 0;
+
+                            for(var wy = 0; wy < win_size; ++wy) {
+                                var oy = wy - half_win;
+                                for(var wx = 0; wx < win_size; ++wx) {
+                                    var ox = wx - half_win;
+
+                                    var spx = sx + ox, spy = sy + oy;
+                                    var ipx = Math.floor(spx), ipy = Math.floor(spy);
+                                    var fpx = spx - ipx, fpy = spy - ipy;
+                                    if(ipx < 0 || ipy < 0 || ipx+1 >= pw || ipy+1 >= ph) continue;
+                                    if(pv_node !== null) {
+                                        var q = ipy*pw + ipx;
+                                        if(!pv_node[q] || !pv_node[q+1] ||
+                                           !pv_node[q+pw] || !pv_node[q+pw+1]) continue;
+                                    }
+                                    var ip = sample_bilinear(prev_img, pw, ipx, ipy, fpx, fpy);
+
+                                    var tpx = tx + ox, tpy = ty + oy;
+                                    var itx = Math.floor(tpx), ity = Math.floor(tpy);
+                                    var ftx = tpx - itx, fty = tpy - ity;
+                                    if(itx < 0 || ity < 0 || itx+1 >= cw || ity+1 >= ch) continue;
+                                    if(cv_node !== null) {
+                                        var qc = ity*cw + itx;
+                                        if(!cv_node[qc] || !cv_node[qc+1] ||
+                                           !cv_node[qc+cw] || !cv_node[qc+cw+1]) continue;
+                                    }
+                                    var qd = ity*cw + itx;
+                                    if(!cvd[qd] || !cvd[qd+1] || !cvd[qd+cw] || !cvd[qd+cw+1]) continue;
+
+                                    var ic = sample_bilinear(curr_img, cw, itx, ity, ftx, fty);
+                                    var igx = sample_bilinear(cgx, cw, itx, ity, ftx, fty);
+                                    var igy = sample_bilinear(cgy, cw, itx, ity, ftx, fty);
+
+                                    var r = ic - (g*ip + b);
+
+                                    H[0] += igx*igx;
+                                    H[1] += igx*igy;
+                                    H[2] -= igx*ip;
+                                    H[3] -= igx;
+                                    H[5] += igy*igy;
+                                    H[6] -= igy*ip;
+                                    H[7] -= igy;
+                                    H[10] += ip*ip;
+                                    H[11] += ip;
+                                    H[15] += 1.0;
+
+                                    rhs[0] -= igx*r;
+                                    rhs[1] -= igy*r;
+                                    rhs[2] += ip*r;
+                                    rhs[3] += r;
+
+                                    ++n;
+                                }
+                            }
+
+                            // too few usable samples for a meaningful solve
+                            var ratio = n/(win_area|0);
+                            if(n === 0 || ratio < min_valid_ratio) {
+                                if(level === 0) failed = 1;
+                                break;
+                            }
+
+                            // mirror symmetric entries
+                            H[4] = H[1]; H[8] = H[2]; H[9] = H[6];
+                            H[12] = H[3]; H[13] = H[7]; H[14] = H[11];
+
+                            if(!solve4(H, rhs, delta)) {
+                                if(level === 0) failed = 1;
+                                break;
+                            }
+
+                            var dx = delta[0], dy = delta[1], dg = delta[2], db = delta[3];
+                            if(!isFinite(dx) || !isFinite(dy) || !isFinite(dg) || !isFinite(db)) {
+                                if(level === 0) failed = 1;
+                                break;
+                            }
+
+                            tx += dx; ty += dy; g += dg; b += db;
+                            if(!isFinite(tx) || !isFinite(ty) || !isFinite(g) || !isFinite(b)) {
+                                if(level === 0) failed = 1;
+                                break;
+                            }
+
+                            if(dx*dx + dy*dy <= eps2) {
+                                break;
+                            }
+                        }
+
+                        if(failed) {
+                            ok[p] = 0;
+                            continue;
+                        }
+
+                        if(level === 0) {
+                            // Final decision is made at full resolution using
+                            // the achieved estimate: enough support and a
+                            // residual RMS in gray levels.
+                            var sum_r2 = 0.0, fn = 0;
+                            for(var fy2 = 0; fy2 < win_size; ++fy2) {
+                                var oy2 = fy2 - half_win;
+                                for(var fx2 = 0; fx2 < win_size; ++fx2) {
+                                    var ox2 = fx2 - half_win;
+                                    var spx2 = sx + ox2, spy2 = sy + oy2;
+                                    var ipx2 = Math.floor(spx2), ipy2 = Math.floor(spy2);
+                                    var fpx2 = spx2 - ipx2, fpy2 = spy2 - ipy2;
+                                    if(ipx2 < 0 || ipy2 < 0 || ipx2+1 >= pw || ipy2+1 >= ph) continue;
+                                    if(pv_node !== null) {
+                                        var q2 = ipy2*pw + ipx2;
+                                        if(!pv_node[q2] || !pv_node[q2+1] ||
+                                           !pv_node[q2+pw] || !pv_node[q2+pw+1]) continue;
+                                    }
+                                    var ip2 = sample_bilinear(prev_img, pw, ipx2, ipy2, fpx2, fpy2);
+
+                                    var tpx2 = tx + ox2, tpy2 = ty + oy2;
+                                    var itx2 = Math.floor(tpx2), ity2 = Math.floor(tpy2);
+                                    var ftx2 = tpx2 - itx2, fty2 = tpy2 - ity2;
+                                    if(itx2 < 0 || ity2 < 0 || itx2+1 >= cw || ity2+1 >= ch) continue;
+                                    if(cv_node !== null) {
+                                        var qc2 = ity2*cw + itx2;
+                                        if(!cv_node[qc2] || !cv_node[qc2+1] ||
+                                           !cv_node[qc2+cw] || !cv_node[qc2+cw+1]) continue;
+                                    }
+                                    // derivative support is not needed for the
+                                    // residual, only for the Jacobian
+                                    var ic2 = sample_bilinear(curr_img, cw, itx2, ity2, ftx2, fty2);
+
+                                    var r2 = ic2 - (g*ip2 + b);
+                                    sum_r2 += r2*r2;
+                                    ++fn;
+                                }
+                            }
+
+                            if(fn === 0 || (fn/(win_area|0)) < min_valid_ratio) {
+                                ok[p] = 0;
+                                continue;
+                            }
+                            var rms = Math.sqrt(sum_r2/fn);
+                            if(!isFinite(rms) || rms > max_rms) {
+                                ok[p] = 0;
+                                continue;
+                            }
+                            if(!isFinite(tx) || !isFinite(ty) || !isFinite(g) || !isFinite(b)) {
+                                ok[p] = 0;
+                                continue;
+                            }
+
+                            // success: write original-resolution outputs
+                            i = p << 1;
+                            curr_xy[i] = tx;
+                            curr_xy[i+1] = ty;
+                            gains[p] = g;
+                            biases[p] = b;
+                            status[p] = 1;
+                            px[p] = tx; py[p] = ty;
+                        } else {
+                            // carry to the next finer level
+                            px[p] = tx*2.0;
+                            py[p] = ty*2.0;
+                            pgain[p] = g;
+                            pbias[p] = b;
+                        }
+                    } // points
+                } // levels
+
+                // Any point not marked ok keeps its original coordinates and
+                // the identity intensity mapping.
+                for(p = 0; p < count; ++p) {
+                    if(!ok[p]) {
+                        i = p << 1;
+                        curr_xy[i] = orig[i];
+                        curr_xy[i+1] = orig[i+1];
+                        gains[p] = 1.0;
+                        biases[p] = 0.0;
+                        status[p] = 0;
+                    }
+                }
             }
         };
     })();
@@ -4938,6 +4780,668 @@ The references are:
     global.optical_flow_lk = optical_flow_lk;
 
 })(jsfeat);
+
+/**
+ * @author Eugene Zatepyakin / http://inspirit.ru/
+ *
+ */
+
+(function(global) {
+    "use strict";
+    //
+
+    var motion_model = (function() {
+
+    	var sqr = function(x) {
+    		return x*x;
+    	}
+
+    	// does isotropic normalization
+    	var iso_normalize_points = function(from, to, T0, T1, count) {
+			var i=0;
+		    var cx0=0.0, cy0=0.0, d0=0.0, s0=0.0;
+		    var cx1=0.0, cy1=0.0, d1=0.0, s1=0.0;
+		    var dx=0.0,dy=0.0;
+
+		    for (; i < count; ++i) {
+		        cx0 += from[i].x;
+		        cy0 += from[i].y;
+		        cx1 += to[i].x;
+		        cy1 += to[i].y;
+		    }
+
+		    cx0 /= count; cy0 /= count;
+		    cx1 /= count; cy1 /= count;
+
+		    for (i = 0; i < count; ++i) {
+		        dx = from[i].x - cx0;
+		        dy = from[i].y - cy0;
+		        d0 += Math.sqrt(dx*dx + dy*dy);
+		        dx = to[i].x - cx1;
+		        dy = to[i].y - cy1;
+		        d1 += Math.sqrt(dx*dx + dy*dy);
+		    }
+
+		    d0 /= count; d1 /= count;
+
+		    s0 = Math.SQRT2 / d0; s1 = Math.SQRT2 / d1;
+
+		    T0[0] = T0[4] = s0;
+		    T0[2] = -cx0*s0;
+		    T0[5] = -cy0*s0;
+		    T0[1] = T0[3] = T0[6] = T0[7] = 0.0;
+		    T0[8] = 1.0;
+
+		    T1[0] = T1[4] = s1;
+		    T1[2] = -cx1*s1;
+		    T1[5] = -cy1*s1;
+		    T1[1] = T1[3] = T1[6] = T1[7] = 0.0;
+		    T1[8] = 1.0;
+		}
+
+		var have_collinear_points = function(points, count) {
+		    var j=0,k=0,i=(count-1)|0;
+		    var dx1=0.0,dy1=0.0,dx2=0.0,dy2=0.0;
+
+		    // check that the i-th selected point does not belong
+		    // to a line connecting some previously selected points
+		    for(; j < i; ++j) {
+		        dx1 = points[j].x - points[i].x;
+		        dy1 = points[j].y - points[i].y;
+		        for(k = 0; k < j; ++k) {
+		            dx2 = points[k].x - points[i].x;
+		            dy2 = points[k].y - points[i].y;
+		            if( Math.abs(dx2*dy1 - dy2*dx1) <= jsfeat.EPSILON*(Math.abs(dx1) + Math.abs(dy1) + Math.abs(dx2) + Math.abs(dy2)))
+		                return true;
+		        }
+		    }
+		    return false;
+		}
+
+		var T0 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
+    	var T1 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
+    	var AtA = new jsfeat.matrix_t(6, 6, jsfeat.F32_t|jsfeat.C1_t);
+    	var AtB = new jsfeat.matrix_t(6, 1, jsfeat.F32_t|jsfeat.C1_t);
+    	
+    	var affine2d = (function () {
+
+	        function affine2d() {
+	        	// empty constructor
+	        }
+
+	        affine2d.prototype.run = function(from, to, model, count) {
+	        	var i=0,j=0;
+	        	var dt=model.type|jsfeat.C1_t;
+	        	var md=model.data, t0d=T0.data, t1d=T1.data;
+	        	var pt0,pt1,px=0.0,py=0.0;
+
+	            iso_normalize_points(from, to, t0d, t1d, count);
+
+	            var a_buff = jsfeat.cache.get_buffer((2*count*6)<<3);
+                var b_buff = jsfeat.cache.get_buffer((2*count)<<3);
+
+                var a_mt = new jsfeat.matrix_t(6, 2*count, dt, a_buff.data);
+                var b_mt = new jsfeat.matrix_t(1, 2*count, dt, b_buff.data);
+                var ad=a_mt.data, bd=b_mt.data;
+
+			    for (; i < count; ++i) {
+			    	pt0 = from[i];
+			        pt1 = to[i];
+
+			        px = t0d[0]*pt0.x + t0d[1]*pt0.y + t0d[2];
+			        py = t0d[3]*pt0.x + t0d[4]*pt0.y + t0d[5];
+
+			        j = i*2*6;
+			        ad[j]=px, ad[j+1]=py, ad[j+2]=1.0, ad[j+3]=0.0, ad[j+4]=0.0, ad[j+5]=0.0;
+
+			        j += 6;
+			        ad[j]=0.0, ad[j+1]=0.0, ad[j+2]=0.0, ad[j+3]=px, ad[j+4]=py, ad[j+5]=1.0;
+
+			        bd[i<<1] = t1d[0]*pt1.x + t1d[1]*pt1.y + t1d[2];
+			        bd[(i<<1)+1] = t1d[3]*pt1.x + t1d[4]*pt1.y + t1d[5];
+			    }
+
+			    jsfeat.matmath.multiply_AtA(AtA, a_mt);
+			    jsfeat.matmath.multiply_AtB(AtB, a_mt, b_mt);
+
+			    jsfeat.linalg.lu_solve(AtA, AtB);
+
+			    md[0] = AtB.data[0], md[1]=AtB.data[1], md[2]=AtB.data[2];
+			    md[3] = AtB.data[3], md[4]=AtB.data[4], md[5]=AtB.data[5];
+			    md[6] = 0.0, md[7] = 0.0, md[8] = 1.0; // fill last row
+
+			    // denormalize
+			    jsfeat.matmath.invert_3x3(T1, T1);
+			    jsfeat.matmath.multiply_3x3(model, T1, model);
+			    jsfeat.matmath.multiply_3x3(model, model, T0);
+
+			    // free buffer
+			    jsfeat.cache.put_buffer(a_buff);
+			    jsfeat.cache.put_buffer(b_buff);
+
+			    return 1;
+	        }
+
+	        affine2d.prototype.error = function(from, to, model, err, count) {
+	        	var i=0;
+	        	var pt0,pt1;
+	        	var m=model.data;
+
+			    for (; i < count; ++i) {
+			        pt0 = from[i];
+			        pt1 = to[i];
+
+			        err[i] = sqr(pt1.x - m[0]*pt0.x - m[1]*pt0.y - m[2]) +
+			                 sqr(pt1.y - m[3]*pt0.x - m[4]*pt0.y - m[5]);
+			    }
+	        }
+
+	        affine2d.prototype.check_subset = function(from, to, count) {
+	            return true; // all good
+	        }
+
+	        return affine2d;
+	    })();
+
+	    var mLtL = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
+	    var Evec = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
+
+	    var homography2d = (function () {
+
+	        function homography2d() {
+	        	// empty constructor
+	        	//this.T0 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
+	        	//this.T1 = new jsfeat.matrix_t(3, 3, jsfeat.F32_t|jsfeat.C1_t);
+	        	//this.mLtL = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
+	        	//this.Evec = new jsfeat.matrix_t(9, 9, jsfeat.F32_t|jsfeat.C1_t);
+	        }
+
+	        homography2d.prototype.run = function(from, to, model, count) {
+	        	var i=0,j=0;
+	        	var md=model.data, t0d=T0.data, t1d=T1.data;
+	        	var LtL=mLtL.data, evd=Evec.data;
+	        	var x=0.0,y=0.0,X=0.0,Y=0.0;
+
+			    // norm
+				var smx=0.0, smy=0.0, cmx=0.0, cmy=0.0, sMx=0.0, sMy=0.0, cMx=0.0, cMy=0.0;
+
+				for(; i < count; ++i) {
+				    cmx += to[i].x;
+				    cmy += to[i].y;
+				    cMx += from[i].x;
+				    cMy += from[i].y;
+				}
+
+			    cmx /= count; cmy /= count;
+			    cMx /= count; cMy /= count;
+
+			    for(i = 0; i < count; ++i)
+			    {
+				    smx += Math.abs(to[i].x - cmx);
+				    smy += Math.abs(to[i].y - cmy);
+				    sMx += Math.abs(from[i].x - cMx);
+				    sMy += Math.abs(from[i].y - cMy);
+				}
+
+			    if( Math.abs(smx) < jsfeat.EPSILON 
+			    	|| Math.abs(smy) < jsfeat.EPSILON 
+			    	|| Math.abs(sMx) < jsfeat.EPSILON 
+			    	|| Math.abs(sMy) < jsfeat.EPSILON ) return 0;
+
+			    smx = count/smx; smy = count/smy;
+			    sMx = count/sMx; sMy = count/sMy;
+
+			    t0d[0] = sMx; 	t0d[1] = 0; 	t0d[2] = -cMx*sMx; 
+			    t0d[3] = 0; 	t0d[4] = sMy; 	t0d[5] = -cMy*sMy; 
+			    t0d[6] = 0; 	t0d[7] = 0; 	t0d[8] = 1;
+
+				t1d[0] = 1.0/smx; 	t1d[1] = 0; 		t1d[2] = cmx;
+				t1d[3] = 0; 		t1d[4] = 1.0/smy; 	t1d[5] = cmy;
+				t1d[6] = 0; 		t1d[7] = 0; 		t1d[8] = 1;
+				//
+
+				// construct system
+				i = 81;
+				while(--i >= 0) {
+					LtL[i] = 0.0;
+				}
+				for(i = 0; i < count; ++i) {
+					x = (to[i].x - cmx) * smx;
+					y = (to[i].y - cmy) * smy;
+					X = (from[i].x - cMx) * sMx;
+					Y = (from[i].y - cMy) * sMy;
+
+					LtL[0] += X*X;
+					LtL[1] += X*Y;
+					LtL[2] += X;
+
+					LtL[6] += X*-x*X;
+					LtL[7] += X*-x*Y;
+					LtL[8] += X*-x;
+					LtL[10] += Y*Y;
+					LtL[11] += Y;
+
+					LtL[15] += Y*-x*X;
+					LtL[16] += Y*-x*Y;
+					LtL[17] += Y*-x;
+					LtL[20] += 1.0;
+
+					LtL[24] += -x*X;
+					LtL[25] += -x*Y;
+					LtL[26] += -x;
+					LtL[30] += X*X;
+					LtL[31] += X*Y;
+					LtL[32] += X;
+					LtL[33] += X*-y*X;
+					LtL[34] += X*-y*Y;
+					LtL[35] += X*-y;
+					LtL[40] += Y*Y;
+					LtL[41] += Y;
+					LtL[42] += Y*-y*X;
+					LtL[43] += Y*-y*Y;
+					LtL[44] += Y*-y;
+					LtL[50] += 1.0;
+					LtL[51] += -y*X;
+					LtL[52] += -y*Y;
+					LtL[53] += -y;
+					LtL[60] += -x*X*-x*X + -y*X*-y*X;
+					LtL[61] += -x*X*-x*Y + -y*X*-y*Y;
+					LtL[62] += -x*X*-x + -y*X*-y;
+					LtL[70] += -x*Y*-x*Y + -y*Y*-y*Y;
+					LtL[71] += -x*Y*-x + -y*Y*-y;
+					LtL[80] += -x*-x + -y*-y;
+				}
+				//
+
+				// symmetry
+			    for(i = 0; i < 9; ++i) {
+			        for(j = 0; j < i; ++j)
+			            LtL[i*9+j] = LtL[j*9+i];
+			    }
+
+				jsfeat.linalg.eigenVV(mLtL, Evec);
+
+				md[0]=evd[72], md[1]=evd[73], md[2]=evd[74];
+			    md[3]=evd[75], md[4]=evd[76], md[5]=evd[77];
+			    md[6]=evd[78], md[7]=evd[79], md[8]=evd[80];
+
+				// denormalize
+			    jsfeat.matmath.multiply_3x3(model, T1, model);
+			    jsfeat.matmath.multiply_3x3(model, model, T0);
+
+			    // set bottom right to 1.0
+			    x = 1.0/md[8];
+			    md[0] *= x; md[1] *= x; md[2] *= x;
+			    md[3] *= x; md[4] *= x; md[5] *= x;
+			    md[6] *= x; md[7] *= x; md[8] = 1.0;
+
+			    return 1;
+	        }
+
+	        homography2d.prototype.error = function(from, to, model, err, count) {
+	        	var i=0;
+	        	var pt0,pt1,ww=0.0,dx=0.0,dy=0.0;
+	        	var m=model.data;
+
+			    for (; i < count; ++i) {
+			        pt0 = from[i];
+			        pt1 = to[i];
+
+			        ww = 1.0/(m[6]*pt0.x + m[7]*pt0.y + 1.0);
+			        dx = (m[0]*pt0.x + m[1]*pt0.y + m[2])*ww - pt1.x;
+			        dy = (m[3]*pt0.x + m[4]*pt0.y + m[5])*ww - pt1.y;
+			        err[i] = (dx*dx + dy*dy);
+			    }
+	        }
+
+	        homography2d.prototype.check_subset = function(from, to, count) {
+	        	// seems to reject good subsets actually
+	        	//if( have_collinear_points(from, count) || have_collinear_points(to, count) ) {
+        			//return false;
+        		//}
+        		if( count == 4 ) {
+			        var negative = 0;
+
+			        var fp0=from[0],fp1=from[1],fp2=from[2],fp3=from[3];
+			        var tp0=to[0],tp1=to[1],tp2=to[2],tp3=to[3];
+
+			        // set1
+			        var A11=fp0.x, A12=fp0.y, A13=1.0;
+			        var A21=fp1.x, A22=fp1.y, A23=1.0;
+			        var A31=fp2.x, A32=fp2.y, A33=1.0;
+
+			        var B11=tp0.x, B12=tp0.y, B13=1.0;
+			        var B21=tp1.x, B22=tp1.y, B23=1.0;
+			        var B31=tp2.x, B32=tp2.y, B33=1.0;
+
+			        var detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
+					var detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
+
+					if(detA*detB < 0) negative++;
+
+					// set2
+					A11=fp1.x, A12=fp1.y;
+			        A21=fp2.x, A22=fp2.y;
+			        A31=fp3.x, A32=fp3.y;
+
+			        B11=tp1.x, B12=tp1.y;
+			        B21=tp2.x, B22=tp2.y;
+			        B31=tp3.x, B32=tp3.y;
+
+			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
+					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
+
+					if(detA*detB < 0) negative++;
+
+					// set3
+					A11=fp0.x, A12=fp0.y;
+			        A21=fp2.x, A22=fp2.y;
+			        A31=fp3.x, A32=fp3.y;
+
+			        B11=tp0.x, B12=tp0.y;
+			        B21=tp2.x, B22=tp2.y;
+			        B31=tp3.x, B32=tp3.y;
+
+			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
+					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
+
+					if(detA*detB < 0) negative++;
+
+					// set4
+					A11=fp0.x, A12=fp0.y;
+			        A21=fp1.x, A22=fp1.y;
+			        A31=fp3.x, A32=fp3.y;
+
+			        B11=tp0.x, B12=tp0.y;
+			        B21=tp1.x, B22=tp1.y;
+			        B31=tp3.x, B32=tp3.y;
+
+			        detA = jsfeat.matmath.determinant_3x3(A11,A12,A13, A21,A22,A23, A31,A32,A33);
+					detB = jsfeat.matmath.determinant_3x3(B11,B12,B13, B21,B22,B23, B31,B32,B33);
+
+					if(detA*detB < 0) negative++;
+
+			        if(negative != 0 && negative != 4) {
+			        	return false;
+			        }
+			    }
+	            return true; // all good
+	        }
+
+	        return homography2d;
+	    })();
+
+	    return {
+
+    		affine2d:affine2d,
+    		homography2d:homography2d
+
+    	};
+
+    })();
+
+    var ransac_params_t = (function () {
+        function ransac_params_t(size, thresh, eps, prob) {
+            if (typeof size === "undefined") { size=0; }
+            if (typeof thresh === "undefined") { thresh=0.5; }
+            if (typeof eps === "undefined") { eps=0.5; }
+            if (typeof prob === "undefined") { prob=0.99; }
+
+            this.size = size;
+            this.thresh = thresh;
+            this.eps = eps;
+            this.prob = prob;
+        };
+        ransac_params_t.prototype.update_iters = function(_eps, max_iters) {
+	        var num = Math.log(1 - this.prob);
+	        var denom = Math.log(1 - Math.pow(1 - _eps, this.size));
+	        return (denom >= 0 || -num >= max_iters*(-denom) ? max_iters : Math.round(num/denom))|0;
+        };
+        return ransac_params_t;
+    })();
+
+    var motion_estimator = (function() {
+
+    	var get_subset = function(kernel, from, to, need_cnt, max_cnt, from_sub, to_sub) {
+    		var max_try = 1000;
+    		var indices = [];
+		    var i=0, j=0, ssiter=0, idx_i=0, ok=false;
+		    for(; ssiter < max_try; ++ssiter)  {
+		        i = 0;
+		        for (; i < need_cnt && ssiter < max_try;) {
+		            ok = false;
+		            idx_i = 0;
+		            while (!ok) {
+		                ok = true;
+		                idx_i = indices[i] = Math.floor(Math.random() * max_cnt)|0;
+		                for (j = 0; j < i; ++j) {
+		                    if (idx_i == indices[j])
+		                    { ok = false; break; }
+		                }
+		            }
+		            from_sub[i] = from[idx_i];
+		            to_sub[i] = to[idx_i];
+		            if( !kernel.check_subset( from_sub, to_sub, i+1 ) ) {
+		                ssiter++;
+		                continue;
+		            }
+		            ++i;
+		        }
+		        break;
+		    }
+
+		    return (i == need_cnt && ssiter < max_try);
+    	}
+
+    	var find_inliers = function(kernel, model, from, to, count, thresh, err, mask) {
+    		var numinliers = 0, i=0, f=0;
+    		var t = thresh*thresh;
+
+    		kernel.error(from, to, model, err, count);
+
+		    for(; i < count; ++i) {
+		        f = err[i] <= t;
+		        mask[i] = f;
+		        numinliers += f;
+		    }
+		    return numinliers;
+    	}
+
+    	return {
+
+    		ransac: function(params, kernel, from, to, count, model, mask, max_iters) {
+    			if (typeof max_iters === "undefined") { max_iters=1000; }
+
+    			if(count < params.size) return false;
+
+    			var model_points = params.size;
+			    var niters = max_iters, iter=0;
+			    var result = false;
+
+			    var subset0 = [];
+			    var subset1 = [];
+			    var found = false;
+
+			    var mc=model.cols,mr=model.rows;
+                var dt = model.type | jsfeat.C1_t;
+
+			    var m_buff = jsfeat.cache.get_buffer((mc*mr)<<3);
+			    var ms_buff = jsfeat.cache.get_buffer(count);
+			    var err_buff = jsfeat.cache.get_buffer(count<<2);
+			    var M = new jsfeat.matrix_t(mc, mr, dt, m_buff.data);
+			    var curr_mask = new jsfeat.matrix_t(count, 1, jsfeat.U8C1_t, ms_buff.data);
+
+			    var inliers_max = -1, numinliers=0;
+			    var nmodels = 0;
+
+			    var err = err_buff.f32;
+
+			    // special case
+			    if(count == model_points) {
+			        if(kernel.run(from, to, M, count) <= 0) {
+			        	jsfeat.cache.put_buffer(m_buff);
+			        	jsfeat.cache.put_buffer(ms_buff);
+			        	jsfeat.cache.put_buffer(err_buff);
+			        	return false;
+			        }
+
+			        M.copy_to(model);
+			        if(mask) {
+			        	while(--count >= 0) {
+			        		mask.data[count] = 1;
+			        	}
+			        }
+			        jsfeat.cache.put_buffer(m_buff);
+			        jsfeat.cache.put_buffer(ms_buff);
+			        jsfeat.cache.put_buffer(err_buff);
+			        return true;
+			    }
+
+			    for (; iter < niters; ++iter) {
+			        // generate subset
+			        found = get_subset(kernel, from, to, model_points, count, subset0, subset1);
+			        if(!found) {
+			            if(iter == 0) {
+			            	jsfeat.cache.put_buffer(m_buff);
+			            	jsfeat.cache.put_buffer(ms_buff);
+			            	jsfeat.cache.put_buffer(err_buff);
+			                return false;
+			            }
+			            break;
+			        }
+
+			        nmodels = kernel.run( subset0, subset1, M, model_points );
+			        if(nmodels <= 0)
+			            continue;
+
+			        // TODO handle multimodel output
+
+			        numinliers = find_inliers(kernel, M, from, to, count, params.thresh, err, curr_mask.data);
+
+			        if( numinliers > Math.max(inliers_max, model_points-1) ) {
+			            M.copy_to(model);
+			            inliers_max = numinliers;
+			            if(mask) curr_mask.copy_to(mask);
+			            niters = params.update_iters((count - numinliers)/count, niters);
+			            result = true;
+			        }
+			    }
+
+			    jsfeat.cache.put_buffer(m_buff);
+			    jsfeat.cache.put_buffer(ms_buff);
+			    jsfeat.cache.put_buffer(err_buff);
+
+			    return result;
+    		},
+
+    		lmeds: function(params, kernel, from, to, count, model, mask, max_iters) {
+    			if (typeof max_iters === "undefined") { max_iters=1000; }
+
+    			if(count < params.size) return false;
+
+    			var model_points = params.size;
+			    var niters = max_iters, iter=0;
+			    var result = false;
+
+			    var subset0 = [];
+			    var subset1 = [];
+			    var found = false;
+
+			    var mc=model.cols,mr=model.rows;
+                var dt = model.type | jsfeat.C1_t;
+
+			    var m_buff = jsfeat.cache.get_buffer((mc*mr)<<3);
+			    var ms_buff = jsfeat.cache.get_buffer(count);
+			    var err_buff = jsfeat.cache.get_buffer(count<<2);
+			    var M = new jsfeat.matrix_t(mc, mr, dt, m_buff.data);
+			    var curr_mask = new jsfeat.matrix_t(count, 1, jsfeat.U8_t|jsfeat.C1_t, ms_buff.data);
+
+			    var numinliers=0;
+			    var nmodels = 0;
+
+			    var err = err_buff.f32;
+			    var min_median = 1000000000.0, sigma=0.0, median=0.0;
+
+			    params.eps = 0.45;
+			    niters = params.update_iters(params.eps, niters);
+
+			    // special case
+			    if(count == model_points) {
+			        if(kernel.run(from, to, M, count) <= 0) {
+			        	jsfeat.cache.put_buffer(m_buff);
+			        	jsfeat.cache.put_buffer(ms_buff);
+			        	jsfeat.cache.put_buffer(err_buff);
+			        	return false;
+			        }
+
+			        M.copy_to(model);
+			        if(mask) {
+			        	while(--count >= 0) {
+			        		mask.data[count] = 1;
+			        	}
+			        }
+			        jsfeat.cache.put_buffer(m_buff);
+			        jsfeat.cache.put_buffer(ms_buff);
+			        jsfeat.cache.put_buffer(err_buff);
+			        return true;
+			    }
+
+			    for (; iter < niters; ++iter) {
+			        // generate subset
+			        found = get_subset(kernel, from, to, model_points, count, subset0, subset1);
+			        if(!found) {
+			            if(iter == 0) {
+			            	jsfeat.cache.put_buffer(m_buff);
+			            	jsfeat.cache.put_buffer(ms_buff);
+			            	jsfeat.cache.put_buffer(err_buff);
+			                return false;
+			            }
+			            break;
+			        }
+
+			        nmodels = kernel.run( subset0, subset1, M, model_points );
+			        if(nmodels <= 0)
+			            continue;
+
+			        // TODO handle multimodel output
+
+			        kernel.error(from, to, M, err, count);
+			        median = jsfeat.math.median(err, 0, count-1);
+
+			        if(median < min_median) {
+			            min_median = median;
+			            M.copy_to(model);
+			            result = true;
+			        }
+			    }
+
+			    if(result) {
+			        sigma = 2.5*1.4826*(1 + 5.0/(count - model_points))*Math.sqrt(min_median);
+			        sigma = Math.max(sigma, 0.001);
+
+			        numinliers = find_inliers(kernel, model, from, to, count, sigma, err, curr_mask.data);
+			        if(mask) curr_mask.copy_to(mask);
+			        
+			        result = numinliers >= model_points;
+			    }
+
+			    jsfeat.cache.put_buffer(m_buff);
+			    jsfeat.cache.put_buffer(ms_buff);
+			    jsfeat.cache.put_buffer(err_buff);
+
+			    return result;
+    		}
+
+    	};
+
+    })();
+
+    global.ransac_params_t = ransac_params_t;
+    global.motion_model = motion_model;
+    global.motion_estimator = motion_estimator;
+
+})(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  *
@@ -5228,6 +5732,7 @@ The references are:
     global.haar = haar;
 
 })(jsfeat);
+
 /**
  * BBF: Brightness Binary Feature
  *
@@ -5622,6 +6127,7 @@ The references are:
     global.bbf = bbf;
 
 })(jsfeat);
+
 /**
  * @author Eugene Zatepyakin / http://inspirit.ru/
  */

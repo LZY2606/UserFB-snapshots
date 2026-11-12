@@ -162,6 +162,81 @@
             }
         }
 
+        // Builds an image pyramid where every level carries a U8C1 validity mask.
+        // validity is nonzero for usable pixels. Level 0 is a verbatim copy of
+        // both inputs; higher levels use the regular pyrdown for the image while
+        // a destination pixel is valid only if all four of its 2x2 source
+        // pixels were valid. The trailing odd rows/columns follow pyrdown's
+        // width/height right-shift rule.
+        pyramid_t.prototype.build_masked = function(input, validity) {
+            var levels = this.levels|0;
+            if(levels <= 0) {
+                return;
+            }
+
+            var w = input.cols|0, h = input.rows|0;
+
+            // level 0 image: deep copy so later changes to input do not leak
+            var img0 = this.data[0];
+            if(!img0) {
+                img0 = this.data[0] = new matrix_t(w, h, U8_t | C1_t);
+            } else {
+                img0.resize(w, h, 1);
+            }
+            var src = input.data, dst = img0.data;
+            var j = (w*h)|0;
+            while(--j >= 0) {
+                dst[j] = src[j];
+            }
+
+            // level 0 mask: verbatim copy
+            this.validity = this.validity || new Array(levels);
+            var val0 = this.validity[0];
+            if(!val0) {
+                val0 = this.validity[0] = new matrix_t(w, h, U8_t | C1_t);
+            } else {
+                val0.resize(w, h, 1);
+            }
+            var vmask = validity.data, vdst = val0.data;
+            j = (w*h)|0;
+            while(--j >= 0) {
+                vdst[j] = vmask[j];
+            }
+
+            // higher levels
+            for(var i = 1; i < levels; ++i) {
+                var a = this.data[i-1], b = this.data[i];
+                var aw = a.cols|0, ah = a.rows|0;
+                var bw = aw >> 1, bh = ah >> 1;
+
+                if(!b) {
+                    b = this.data[i] = new matrix_t(bw, bh, U8_t | C1_t);
+                }
+                // regular pyrdown for the image, exactly as the unmasked build
+                this.pyrdown(a, b);
+
+                var vp = this.validity[i-1];
+                var vb = this.validity[i];
+                if(!vb) {
+                    vb = this.validity[i] = new matrix_t(bw, bh, U8_t | C1_t);
+                } else {
+                    vb.resize(bw, bh, 1);
+                }
+
+                var vip = vp.data, vout = vb.data;
+                var y = 0, x = 0, drow = 0, srow = 0;
+                for(y = 0; y < bh; ++y) {
+                    srow = (y << 1)*aw;
+                    drow = y*bw;
+                    for(x = 0; x < bw; ++x) {
+                        var s = srow + (x << 1);
+                        vout[drow + x] = (vip[s] && vip[s+1] &&
+                                          vip[s+aw] && vip[s+aw+1]) ? 255 : 0;
+                    }
+                }
+            }
+        }
+
         return pyramid_t;
     })();
 
