@@ -82,6 +82,7 @@ export { QuaternionKeyframeTrack } from './animation/tracks/QuaternionKeyframeTr
 export { NumberKeyframeTrack } from './animation/tracks/NumberKeyframeTrack.js';
 export { ColorKeyframeTrack } from './animation/tracks/ColorKeyframeTrack.js';
 export { BooleanKeyframeTrack } from './animation/tracks/BooleanKeyframeTrack.js';
+export { CubicSegmentKeyframeTrack } from './animation/tracks/CubicSegmentKeyframeTrack.js';
 export { PropertyMixer } from './animation/PropertyMixer.js';
 export { PropertyBinding } from './animation/PropertyBinding.js';
 export { KeyframeTrack } from './animation/KeyframeTrack.js';
@@ -113,6 +114,7 @@ export { LinearInterpolant } from './math/interpolants/LinearInterpolant.js';
 export { DiscreteInterpolant } from './math/interpolants/DiscreteInterpolant.js';
 export { CubicInterpolant } from './math/interpolants/CubicInterpolant.js';
 export { BezierInterpolant } from './math/interpolants/BezierInterpolant.js';
+export { PiecewiseCubicInterpolant } from './math/interpolants/PiecewiseCubicInterpolant.js';
 export { Interpolant } from './math/Interpolant.js';
 export { Triangle } from './math/Triangle.js';
 export { MathUtils } from './math/MathUtils.js';

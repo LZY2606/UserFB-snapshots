@@ -293,6 +293,71 @@
 							<dt class="tag-returns"><strong>Returns:</strong> The new sub clip.</dt>
 						</dl>
 					</div>
+					<h3 class="name name-method" id=".subclipExact" translate="no">.<a href="#.subclipExact">subclipExact</a><span class="signature">( sourceClip : <span class="param-type"><a href="AnimationClip.html">AnimationClip</a></span>, name : <span class="param-type">string</span>, startTime : <span class="param-type">number</span>, endTime : <span class="param-type">number</span> )</span><span class="type-signature"> : <a href="AnimationClip.html">AnimationClip</a></span> </h3>
+					<div class="method">
+						<div class="description">
+							<p>Creates a new, self-contained clip that reproduces the segment of the source clip between the given times exactly, at every point in time.</p>
+							<p>Unlike <a href="#.subclip">.subclip</a>, this method never drops the curve that crosses a cut boundary. The new clip starts at local time <code>0</code>, has a duration of exactly <code>endTime - startTime</code>, and samples identically to the source tracks over the whole closed interval <code>[ startTime, endTime ]</code>. Smooth and Bezier curves are split analytically instead of being resampled, and tracks without keyframes inside the interval are retained as constant tracks. The returned clip owns all of its data, so it can be cloned, serialized with <code>AnimationClip.toJSON()</code> and played back through an <code>AnimationMixer</code> without referencing the source.</p>
+							<p><code>startTime</code> and <code>endTime</code> must be finite numbers satisfying <code>0 &lt;= startTime &lt; endTime &lt;= sourceClip.duration</code>.</p>
+						</div>
+						<table class="params">
+							<tbody>
+								<tr>
+									<td class="name">
+										<strong translate="no">sourceClip</strong>
+									</td>
+									<td class="description last">
+										<p>The clip to cut.</p>
+									</td>
+								</tr>
+								<tr>
+									<td class="name">
+										<strong translate="no">name</strong>
+									</td>
+									<td class="description last">
+										<p>The name of the clip.</p>
+									</td>
+								</tr>
+								<tr>
+									<td class="name">
+										<strong translate="no">startTime</strong>
+									</td>
+									<td class="description last">
+										<p>The start time in seconds, inclusive.</p>
+									</td>
+								</tr>
+								<tr>
+									<td class="name">
+										<strong translate="no">endTime</strong>
+									</td>
+									<td class="description last">
+										<p>The end time in seconds, inclusive.</p>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<dl class="details">
+							<dt class="tag-returns"><strong>Returns:</strong> The new sub clip.</dt>
+						</dl>
+						<pre><code class="language-js">// split a long action into independent clips of `segmentSeconds` each
+const segmentSeconds = 2;
+const clips = [];
+
+for ( let startTime = 0; startTime &lt; sourceClip.duration; startTime += segmentSeconds ) {
+
+	const endTime = Math.min( startTime + segmentSeconds, sourceClip.duration );
+
+	if ( startTime &lt; endTime ) {
+
+		clips.push(
+			AnimationUtils.subclipExact( sourceClip, `${ sourceClip.name }_${ startTime }`, startTime, endTime )
+		);
+
+	}
+
+}
+						</code></pre>
+					</div>
 				<h2 class="subsection-title">Source</h2>
 				<p>
 					<a href="https://github.com/mrdoob/three.js/blob/master/src/animation/AnimationUtils.js" translate="no" target="_blank" rel="noopener">src/animation/AnimationUtils.js</a>

@@ -142,6 +142,52 @@ Default is `30`.
 
 **Returns:** The new sub clip.
 
+### .subclipExact( sourceClip : AnimationClip, name : string, startTime : number, endTime : number ) : AnimationClip
+
+Creates a new, self-contained clip that reproduces the segment of the source clip between the given times exactly, at every point in time.
+
+Unlike [.subclip](#.subclip), this method never drops the curve that crosses a cut boundary. The new clip starts at local time `0`, has a duration of exactly `endTime - startTime`, and samples identically to the source tracks over the whole closed interval `[ startTime, endTime ]`. Smooth and Bezier curves are split analytically instead of being resampled, and tracks without keyframes inside the interval are retained as constant tracks. The returned clip owns all of its data, so it can be cloned, serialized with `AnimationClip.toJSON()` and played back through an `AnimationMixer` without referencing the source.
+
+`startTime` and `endTime` must be finite numbers satisfying `0 <= startTime < endTime <= sourceClip.duration`.
+
+**sourceClip**
+
+The clip to cut.
+
+**name**
+
+The name of the clip.
+
+**startTime**
+
+The start time in seconds, inclusive.
+
+**endTime**
+
+The end time in seconds, inclusive.
+
+**Returns:** The new sub clip.
+
+```js
+// split a long action into independent clips of `segmentSeconds` each
+const segmentSeconds = 2;
+const clips = [];
+
+for ( let startTime = 0; startTime < sourceClip.duration; startTime += segmentSeconds ) {
+
+	const endTime = Math.min( startTime + segmentSeconds, sourceClip.duration );
+
+	if ( startTime < endTime ) {
+
+		clips.push(
+			AnimationUtils.subclipExact( sourceClip, `${ sourceClip.name }_${ startTime }`, startTime, endTime )
+		);
+
+	}
+
+}
+```
+
 ## Source
 
 [src/animation/AnimationUtils.js](https://github.com/mrdoob/three.js/blob/master/src/animation/AnimationUtils.js)

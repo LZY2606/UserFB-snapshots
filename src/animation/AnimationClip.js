@@ -6,8 +6,13 @@ import { NumberKeyframeTrack } from './tracks/NumberKeyframeTrack.js';
 import { QuaternionKeyframeTrack } from './tracks/QuaternionKeyframeTrack.js';
 import { StringKeyframeTrack } from './tracks/StringKeyframeTrack.js';
 import { VectorKeyframeTrack } from './tracks/VectorKeyframeTrack.js';
+import { CubicSegmentKeyframeTrack } from './tracks/CubicSegmentKeyframeTrack.js';
+import { subclipExact } from './subclipExact.js';
+import { registerSubclipExact } from './AnimationUtils.js';
 import { generateUUID } from '../math/MathUtils.js';
 import { NormalAnimationBlendMode } from '../constants.js';
+
+registerSubclipExact( subclipExact );
 
 /**
  * A reusable set of keyframe tracks which represent an animation.
@@ -444,6 +449,10 @@ function getTrackTypeForValueTypeName( typeName ) {
 		case 'string':
 
 			return StringKeyframeTrack;
+
+		case 'cubicsegments':
+
+			return CubicSegmentKeyframeTrack;
 
 	}
 

@@ -2,6 +2,31 @@ import { Quaternion } from '../math/Quaternion.js';
 import { AdditiveAnimationBlendMode } from '../constants.js';
 import { isTypedArray } from '../utils.js';
 
+// The exact sub-clip implementation needs the concrete track and clip
+// classes, which themselves depend on this module. To keep the module graph
+// acyclic, the implementation registers itself here (from
+// ./subclipExact.js, pulled in by AnimationClip) instead of being imported
+// statically.
+let subclipExactImpl = null;
+
+function registerSubclipExact( implementation ) {
+
+	subclipExactImpl = implementation;
+
+}
+
+function subclipExact( sourceClip, name, startTime, endTime ) {
+
+	if ( subclipExactImpl === null ) {
+
+		throw new Error( 'THREE.AnimationUtils.subclipExact: import AnimationClip before using subclipExact' );
+
+	}
+
+	return subclipExactImpl( sourceClip, name, startTime, endTime );
+
+}
+
 /**
  * Converts an array to a specific type.
  *
@@ -496,6 +521,31 @@ class AnimationUtils {
 	}
 
 	/**
+	 * Creates a new, self-contained clip that reproduces the segment of the
+	 * source clip between the given times exactly.
+	 *
+	 * In contrast to {@link AnimationUtils.subclip}, the cut never drops the
+	 * curve crossing a boundary: the new clip starts at local time zero, has a
+	 * duration of exactly `endTime - startTime`, and samples identically to
+	 * the source tracks at every time in the closed interval
+	 * `[ startTime, endTime ]`. Smooth and Bezier curves are split
+	 * analytically rather than resampled, and tracks without keyframes inside
+	 * the interval are retained as constant tracks.
+	 *
+	 * @static
+	 * @param {AnimationClip} sourceClip - The clip to cut.
+	 * @param {string} name - The name of the clip.
+	 * @param {number} startTime - The start time in seconds, inclusive.
+	 * @param {number} endTime - The end time in seconds, inclusive.
+	 * @return {AnimationClip} The new sub clip.
+	 */
+	static subclipExact( sourceClip, name, startTime, endTime ) {
+
+		return subclipExact( sourceClip, name, startTime, endTime );
+
+	}
+
+	/**
 	 * Converts the keyframes of the given animation clip to an additive format.
 	 *
 	 * @static
@@ -521,6 +571,8 @@ export {
 	sortedArray,
 	flattenJSON,
 	subclip,
+	subclipExact,
+	registerSubclipExact,
 	makeClipAdditive,
 	AnimationUtils
 };
