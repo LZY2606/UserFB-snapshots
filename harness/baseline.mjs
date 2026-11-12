@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import Store from '../src/N3Store.js';
+import F from '../src/N3DataFactory.js';
+const p=F.namedNode('urn:p'), g=F.namedNode('urn:source:a');
+const a=F.quad(F.blankNode('old'),p,F.literal('value','en'),g);
+const b=F.quad(F.blankNode('new'),p,F.literal('value','en'),g);
+const left=new Store([a,a]),right=new Store([b]);
+assert.equal(left.size,1);
+assert.equal(left.countQuads(null,p,null,g),1);
+assert.equal(left.difference(right).size,1);
+assert.equal(right.difference(left).size,1);
+assert.equal(left.equals(right),false);
+assert(left.getQuads(null,p,null,g)[0].equals(a));
+assert.equal(left.match(null,p,null,g).size,1);
+console.log('BASELINE RDF-store duplicate-set named-graph label-difference OK');
