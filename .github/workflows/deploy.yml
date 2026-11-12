@@ -1,0 +1,48 @@
+name: "Deploy"
+
+on:
+  workflow_dispatch:
+  
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    env:
+      MATIO_VERSION: "1.6.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update --fix-missing
+          sudo apt-get install -y gh texlive
+      - name: Check draft GH release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${MATIO_VERSION}"
+          exists=$(gh release view "$tag" --json isDraft --jq '.isDraft' || echo "error")
+          if [ "$exists" != "true" ]; then
+            echo "No draft release exists for tag $tag. Canceling deploy."
+            exit 1
+          fi
+      - name: Configure
+        run: |
+          ./autogen.sh
+          ./configure --enable-shared --enable-mat73 --enable-extended-sparse --with-pic --with-hdf5=${GITHUB_WORKSPACE}/hdf5-1.14.6/hdf5 CFLAGS="-O3" CPPFLAGS="-DNDEBUG"
+      - name: Build documentation
+        run: make -C documentation pdf html MAKEINFOFLAGS=--no-split
+      - name: Build distribution
+        run: |
+          make dist-gzip
+          make dist-zip
+      - name: Deploy to GH Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${MATIO_VERSION}"
+          gh release upload "$tag" ./documentation/matio_user_guide.html ./documentation/matio_user_guide.pdf ./matio-${MATIO_VERSION}.tar.gz ./matio-${MATIO_VERSION}.zip --clobber

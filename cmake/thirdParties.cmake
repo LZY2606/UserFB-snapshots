@@ -1,0 +1,195 @@
+if(MATIO_USE_CONAN AND (MATIO_WITH_HDF5 OR MATIO_WITH_ZLIB))
+    conan_add_remote(NAME conan-center URL https://center.conan.io VERIFY_SSL False)
+endif()
+
+if(MATIO_USE_CONAN)
+    message(DEPRECATION
+        "MATIO_USE_CONAN for Conan 1.X is deprecated. "
+        "Please update your build configuration to Conan 2.X to avoid using this option."
+    )
+endif()
+
+if(MATIO_WITH_HDF5)
+    if(NOT DEFINED HDF5_USE_STATIC_LIBRARIES)
+        if(MATIO_SHARED)
+            set(HDF5_USE_STATIC_LIBRARIES FALSE)
+        else()
+            set(HDF5_USE_STATIC_LIBRARIES TRUE)
+        endif()
+    endif()
+
+    if(MATIO_USE_CONAN)
+        set(MATIO_CONAN_REQUIRES "hdf5/[>=1.8 <1.15]" "zlib/[>=1.2.3]")
+        if(MATIO_ENABLE_CPPCHECK)
+            list(APPEND MATIO_CONAN_REQUIRES "cppcheck/[>=2.16.0]")
+        endif()
+        if(HDF5_USE_STATIC_LIBRARIES)
+            conan_cmake_run(
+                REQUIRES ${MATIO_CONAN_REQUIRES}
+                BASIC_SETUP CMAKE_TARGETS
+                OPTIONS hdf5:shared=False zlib:shared=False
+                BUILD missing
+            )
+        else()
+            conan_cmake_run(
+                REQUIRES ${MATIO_CONAN_REQUIRES}
+                BASIC_SETUP CMAKE_TARGETS
+                OPTIONS hdf5:shared=True zlib:shared=True
+                BUILD missing
+            )
+        endif()
+        set(HDF5_FOUND TRUE)
+    else()
+        find_package(HDF5)
+        if(HDF5_FOUND)
+            set(HDF_MIN_VER 1.8)
+            if(HDF5_VERSION VERSION_LESS ${HDF_MIN_VER})
+                message(FATAL_ERROR
+                    "Could NOT find HDF5: Found unsuitable version ${HDF5_VERSION}, "
+                    "but required is at least ${HDF_MIN_VER} (found ${HDF5_LIBRARIES})."
+                )
+            endif()
+        endif()
+    endif()
+endif()
+
+if(HDF5_FOUND)
+    set(HAVE_HDF5 1)
+    if(MATIO_USE_CONAN AND TARGET CONAN_PKG::hdf5)
+        # target from Conan
+        set(MATIO_HDF5_LINK_LIBRARIES CONAN_PKG::hdf5)
+    elseif(HDF5_USE_STATIC_LIBRARIES AND TARGET hdf5::hdf5-static)
+        # static target from hdf5 1.10 or 1.12 config
+        set(MATIO_HDF5_LINK_LIBRARIES hdf5::hdf5-static)
+    elseif(NOT HDF5_USE_STATIC_LIBRARIES AND TARGET hdf5::hdf5-shared)
+        # shared target from hdf5 1.10 or 1.12 config
+        set(MATIO_HDF5_LINK_LIBRARIES hdf5::hdf5-shared)
+    elseif(TARGET hdf5)
+        # target from hdf5 1.8 config
+        set(MATIO_HDF5_LINK_LIBRARIES hdf5)
+    elseif(TARGET HDF5::HDF5)
+        # target defined in CMake FindHDF5 (since 3.19)
+        set(MATIO_HDF5_LINK_LIBRARIES HDF5::HDF5)
+    else()
+        # results from CMake FindHDF5
+        set(MATIO_HDF5_LINK_LIBRARIES ${HDF5_LIBRARIES})
+        set(MATIO_HDF5_INCLUDE_DIRECTORIES ${HDF5_INCLUDE_DIRS})
+    endif()
+    if(NOT HDF5_USE_STATIC_LIBRARIES)
+        set(MATIO_HDF5_COMPILE_DEFINITIONS "H5_BUILT_AS_DYNAMIC_LIB")
+    endif()
+endif()
+
+if(NOT HAVE_HDF5 AND MATIO_MAT73)
+    message(FATAL_ERROR "MAT73 requires HDF5")
+endif()
+
+# Create the zlib target
+macro(MATIO_CREATE_ZLIB target)
+    set(MATIO_ZLIB_LINK_LIBRARIES ${target})
+    set(ZLIB_FOUND TRUE)
+endmacro()
+
+# Try zlib-ng first if requested (as alternative to regular zlib)
+if(MATIO_USE_ZLIB_NG AND MATIO_WITH_ZLIB)
+    include(FetchContent)
+
+    # Try zlib-ng via its own CMake config file first.
+    # zlib-ng must be in zlib compatibility mode (ZLIB_COMPAT) for matio,
+    # which uses standard zlib types (z_streamp, inflate, etc.)
+    find_package(zlib-ng QUIET CONFIG)
+    if(zlib-ng_FOUND)
+        if(NOT MATIO_SHARED)
+            # Static build: prefer static zlib-ng libraries
+            if(TARGET ZLIB::zlibstatic)
+                MATIO_CREATE_ZLIB("ZLIB::zlibstatic")
+            elseif(TARGET zlib-ng::zlibstatic AND TARGET zlibstatic)
+                MATIO_CREATE_ZLIB(zlibstatic)
+            elseif(TARGET ZLIB::ZLIB)
+                MATIO_CREATE_ZLIB("ZLIB::ZLIB")
+            elseif(TARGET zlib-ng::zlib AND TARGET zlib)
+                MATIO_CREATE_ZLIB(zlib)
+            else()
+                message(FATAL_ERROR
+                    "zlib-ng found but not built with zlib compatibility. "
+                    "Set MATIO_USE_ZLIB_NG=OFF or rebuild zlib-ng with -DZLIB_COMPAT=ON."
+                )
+            endif()
+        else()
+            # Shared build: prefer shared zlib-ng libraries
+            if(TARGET ZLIB::ZLIB)
+                MATIO_CREATE_ZLIB("ZLIB::ZLIB")
+            elseif(TARGET zlib-ng::zlib AND TARGET zlib)
+                MATIO_CREATE_ZLIB(zlib)
+            elseif(TARGET ZLIB::zlibstatic)
+                MATIO_CREATE_ZLIB("ZLIB::zlibstatic")
+            elseif(TARGET zlib-ng::zlibstatic AND TARGET zlibstatic)
+                MATIO_CREATE_ZLIB(zlibstatic)
+            else()
+                message(FATAL_ERROR
+                    "zlib-ng found but not built with zlib compatibility. "
+                    "Set MATIO_USE_ZLIB_NG=OFF or rebuild zlib-ng with -DZLIB_COMPAT=ON."
+                )
+            endif()
+        endif()
+    else()
+        # Fallback: fetch and build zlib-ng from source (always in compat mode)
+        message(STATUS "zlib-ng not found on system, fetching from GitHub")
+        FetchContent_Declare(zlib-ng
+            GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
+            GIT_TAG        2.3.3
+            GIT_SHALLOW    TRUE
+            EXCLUDE_FROM_ALL
+        )
+        set(ZLIB_COMPAT ON)
+        set(BUILD_TESTING OFF)
+        FetchContent_MakeAvailable(zlib-ng)
+
+        if(NOT MATIO_SHARED AND TARGET zlib-ng-static)
+            MATIO_CREATE_ZLIB(zlib-ng-static)
+            if(MATIO_INSTALL)
+                install(TARGETS zlib-ng-static)
+            endif()
+        elseif(MATIO_SHARED AND TARGET zlib-ng)
+            MATIO_CREATE_ZLIB(zlib-ng)
+            if(MATIO_INSTALL)
+                install(TARGETS zlib-ng)
+            endif()
+        else()
+            message(FATAL_ERROR "Failed to build zlib-ng in compat mode")
+        endif()
+    endif()
+endif()
+
+if(MATIO_WITH_ZLIB AND NOT MATIO_USE_ZLIB_NG)
+    if(MATIO_USE_CONAN AND NOT MATIO_WITH_HDF5)
+        conan_cmake_run(REQUIRES "zlib/[>=1.2.3]" BASIC_SETUP CMAKE_TARGETS OPTIONS BUILD missing)
+    endif()
+
+    if(MATIO_USE_CONAN AND TARGET CONAN_PKG::zlib)
+        MATIO_CREATE_ZLIB(CONAN_PKG::zlib)
+    elseif(NOT HDF5_USE_STATIC_LIBRARIES AND TARGET hdf5::zlib-shared)
+        MATIO_CREATE_ZLIB(hdf5::zlib-shared)
+    elseif(NOT HDF5_USE_STATIC_LIBRARIES AND TARGET zlib-shared)
+        MATIO_CREATE_ZLIB(zlib-shared)
+    elseif(TARGET hdf5::zlib-static)
+        MATIO_CREATE_ZLIB(hdf5::zlib-static)
+    elseif(TARGET zlib-static)
+        MATIO_CREATE_ZLIB(zlib-static)
+    elseif(TARGET ZLIB::ZLIBSTATIC)
+        MATIO_CREATE_ZLIB(ZLIB::ZLIBSTATIC)
+    elseif(TARGET zlib)
+        MATIO_CREATE_ZLIB(zlib)
+    elseif(TARGET ZLIB::ZLIB)
+        MATIO_CREATE_ZLIB(ZLIB::ZLIB)
+    else()
+        find_package(ZLIB 1.2.3)
+        if(ZLIB_FOUND)
+            MATIO_CREATE_ZLIB(ZLIB::ZLIB)
+        endif()
+    endif()
+endif()
+
+if(MATIO_WITH_ZLIB AND ZLIB_FOUND)
+    set(HAVE_ZLIB 1)
+endif()

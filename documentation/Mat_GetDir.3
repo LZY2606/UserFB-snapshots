@@ -1,0 +1,33 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd April 24, 2024
+.Dt MAT_GETDIR 3
+.Os
+.Sh NAME
+.Nm Mat_GetDir
+.Nd Returns a list of the variable names of a MATLAB MAT file given a MAT file
+structure
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft char * const *
+.Fo Mat_GetDir
+.Fa "mat_t *matfp"
+.Fa "size_t *n"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_GetDir
+function returns a list of the variable names of a MATLAB MAT file given the
+MAT file structure.
+The output argument
+.Fa n
+holds the number of variables of the MATLAB MAT file.
+.Sh RETURN VALUES
+The function returns a read-only list of the variable names of a MATLAB MAT
+file.
+
+

@@ -1,0 +1,47 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2011-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd September 12, 2019
+.Dt MAT_OPEN 3
+.Os
+.Sh NAME
+.Nm Mat_Open
+.Nd Opens a MATLAB MAT file.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft mat_t
+.Fo Mat_Open
+.Fa "const char *matname"
+.Fa "int mode"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_Open
+function opens a MATLAB MAT file for read only or read-write access.
+.Sh EXAMPLES
+.Bd -literal
+#include <stdlib.h>
+#include <stdio.h>
+#include "matio.h"
+
+int main(int argc, char **argv)
+{
+    mat_t *matfp;
+
+    matfp = Mat_Open(argv[1], MAT_ACC_RDONLY);
+    if ( NULL == matfp ) {
+        fprintf(stderr, "Error opening MAT file %s\n", argv[1]);
+        return EXIT_FAILURE;
+    }
+
+    Mat_Close(matfp);
+    return EXIT_SUCCESS;
+}
+
+.Ed
+.Sh SEE ALSO
+.Xr Mat_CreateVer 3 ,
+.Xr Mat_Close 3

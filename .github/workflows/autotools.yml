@@ -1,0 +1,91 @@
+name: "Autotools build"
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - linux-gcc
+          - linux-gcc-fortran
+          - macos-clang
+        include:
+          - toolchain: linux-gcc
+            os: ubuntu-latest
+            compiler: gcc
+          - toolchain: linux-gcc-fortran
+            os: ubuntu-latest
+            compiler: gcc
+          - toolchain: macos-clang
+            os: macos-latest
+            compiler: clang
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_ENV_HINTS: 1
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
+        run: |
+          if [ "${{ matrix.toolchain }}" == "macos-clang" ]; then
+            brew install automake autoconf libtool
+          elif [ "${{ matrix.toolchain }}" == "linux-gcc" ]; then
+            pip install --user cpp-coveralls
+          fi
+          if [ "${{ matrix.toolchain }}" == "linux-gcc-fortran" ]; then
+            sudo apt-get install -y gfortran
+          fi
+      - name: Install hdf5
+        timeout-minutes: 5
+        run: |
+          wget --no-check-certificate -nv https://github.com/HDFGroup/hdf5/releases/download/2.2.0/hdf5-2.2.0.tar.gz
+          tar -xzf hdf5-2.2.0.tar.gz
+          cd hdf5-2.2.0
+          cmake -S . -B build -DHDF5_BUILD_EXAMPLES=OFF -DBUILD_LZ4_LIBRARY_SOURCE=OFF -DHDF5_BUILD_HL_LIB=OFF -DHDF5_BUILD_TOOLS=OFF -DHDF5_ENABLE_DEPRECATED_SYMBOLS=OFF -DHDF5_ENABLE_PREADWRITE=OFF -DHDF5_ENABLE_NONSTANDARD_FEATURES=OFF -DHDF5_DEFAULT_API_VERSION=v200 -DBUILD_TESTING=OFF -DHDF5_ENABLE_ALL_WARNINGS=OFF -DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF -DHDF5_ENABLE_ZLIB_SUPPORT=ON -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/hdf5
+          cmake --build build -- -j8
+          cmake --build build --target install
+      - name: Configure
+        run: |
+          ./autogen.sh
+          FORTRAN_FLAG=""
+          if [ "${{ matrix.toolchain }}" == "linux-gcc-fortran" ]; then
+            FORTRAN_FLAG="--enable-fortran"
+          fi
+          ./configure --quiet --enable-shared --enable-coverage --enable-debug --enable-mat73 --enable-extended-sparse --with-pic --with-hdf5=${GITHUB_WORKSPACE}/hdf5 $FORTRAN_FLAG
+      - name: Build with ${{ matrix.compiler }}
+        run: make -j8
+      - name: Test
+        run: |
+          if [ "${{ matrix.toolchain }}" == "macos-clang" ]; then
+            export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/hdf5/lib:$DYLD_LIBRARY_PATH"
+          else
+            export LD_LIBRARY_PATH=${GITHUB_WORKSPACE}/hdf5/lib:$LD_LIBRARY_PATH
+          fi
+          make check
+      - name: Analyse coverage
+        if: matrix.toolchain == 'linux-gcc' && github.event_name != 'pull_request'
+        env:
+          COVERALLS_SERVICE_NAME: ${{ secrets.COVERALLS_SERVICE }}
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
+        run: |
+          # secrets are not available in step-level if:, so gate on the token here
+          if [ -z "${COVERALLS_REPO_TOKEN}" ]; then
+            echo "COVERALLS_TOKEN not set, skipping coverage upload"
+            exit 0
+          fi
+          coveralls -e coverity_model.c -e getopt -e test/datasets -e test/matlab -e test/results -e ossfuzz -e share -e hdf5 -e visual_studio -e snprintf --gcov-options '\-lp'

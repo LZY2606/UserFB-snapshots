@@ -1,0 +1,346 @@
+name: "CMake build"
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.toolchain }} (MATIO_EXTENDED_SPARSE=${{ matrix.extended-sparse }}, MATIO_MCOS=${{ matrix.mcos }}, MATIO_MAT73=${{ matrix.mat73 }}, MATIO_WITH_ZLIB=${{ matrix.with-zlib }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - linux-gcc
+          - macos-clang
+          - windows-msvc
+          - windows-mingw
+        configuration:
+          - Release
+        python-version:
+          - 3.13
+        extended-sparse:
+          - ON
+          - OFF
+        mcos:
+          - ON
+          - OFF
+        mat73:
+          - ON
+          - OFF
+        with-zlib:
+          - ON
+          - OFF
+        include:
+          - toolchain: linux-gcc
+            os: ubuntu-latest
+            compiler: gcc
+          - toolchain: macos-clang
+            os: macos-latest
+            compiler: clang
+          - toolchain: windows-msvc
+            os: windows-2022
+            compiler: msvc
+          - toolchain: windows-mingw
+            os: windows-latest
+            compiler: mingw
+        exclude:
+          - toolchain: windows-mingw
+            mat73: ON
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Setup python environment
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install python packages
+        run: |
+          if [ "${{ matrix.toolchain }}" == "macos-clang" ]; then
+            echo "/Users/runner/Library/Python/${{ matrix.python-version }}/bin" >> $GITHUB_PATH
+          fi
+          pip install --disable-pip-version-check --user "conan>=2.16.1,<3"
+      - name: Install cppcheck
+        if: matrix.toolchain == 'linux-gcc'
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: Cache conan folder
+        uses: actions/cache@v6
+        with:
+          path: ~/.conan2
+          key: ${{ runner.os }}-conan2-${{ hashFiles('conanfile.txt', 'conanfile.py', 'conan.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-conan2-
+      - name: Configure (${{ matrix.configuration }})
+        run: |
+          if [ "${{ matrix.toolchain }}" == "macos-clang" ]; then
+            echo "/Users/runner/Library/Python/${{ matrix.python-version }}/bin" >> $GITHUB_PATH
+          fi
+          if [ "${{ matrix.toolchain }}" == "windows-msvc" ]; then
+            cmake -S . -B build -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider -DCONAN_HOST_PROFILE="default;auto-cmake;${{ github.workspace }}/.ci/conan_static_profile_windows-msvc.cmake" -DMATIO_SHARED=OFF -DMATIO_EXTENDED_SPARSE=${{ matrix.extended-sparse }} -DMATIO_MCOS=${{ matrix.mcos }} -DMATIO_MAT73=${{ matrix.mat73 }} -DMATIO_WITH_ZLIB=${{ matrix.with-zlib }}
+          elif [ "${{ matrix.toolchain }}" == "windows-mingw" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.configuration }} -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider -DCONAN_HOST_PROFILE="default;auto-cmake;${{ github.workspace }}/.ci/conan_static_profile_windows-mingw.cmake" -DMATIO_SHARED=OFF -DMATIO_EXTENDED_SPARSE=${{ matrix.extended-sparse }} -DMATIO_MCOS=${{ matrix.mcos }} -DMATIO_MAT73=${{ matrix.mat73 }} -DMATIO_WITH_ZLIB=${{ matrix.with-zlib }} -DMATIO_WITH_HDF5=${{ matrix.mat73 }} -G "MinGW Makefiles"
+          elif [ "${{ matrix.toolchain }}" == "linux-gcc" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.configuration }} -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider -DCONAN_HOST_PROFILE="default;auto-cmake;${{ github.workspace }}/.ci/conan_static_profile_linux-gcc.cmake" -DMATIO_SHARED=OFF -DMATIO_ENABLE_CPPCHECK=ON -DMATIO_EXTENDED_SPARSE=${{ matrix.extended-sparse }} -DMATIO_MCOS=${{ matrix.mcos }} -DMATIO_MAT73=${{ matrix.mat73 }} -DMATIO_WITH_ZLIB=${{ matrix.with-zlib }}
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.configuration }} -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider -DCONAN_HOST_PROFILE="default;auto-cmake;${{ github.workspace }}/.ci/conan_static_profile_${{ matrix.toolchain }}.cmake" -DMATIO_SHARED=OFF -DMATIO_EXTENDED_SPARSE=${{ matrix.extended-sparse }} -DMATIO_MCOS=${{ matrix.mcos }} -DMATIO_MAT73=${{ matrix.mat73 }} -DMATIO_WITH_ZLIB=${{ matrix.with-zlib }}
+          fi
+      - name: Build with ${{ matrix.compiler }}
+        run: |
+          if [ "${{ matrix.toolchain }}" == "windows-msvc" ]; then
+            cmake --build build --config ${{ matrix.configuration }}
+          else
+            cmake --build build -- -j8
+          fi
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --build-config ${{ matrix.configuration }} --parallel 8
+
+  # Reproduces https://github.com/tbeu/matio/issues/326: building matio as a
+  # subproject of a CMake project that also checks vasprintf with
+  # CMAKE_REQUIRED_DEFINITIONS=-D_GNU_SOURCE (as json-c does) poisons the shared
+  # CMake cache with HAVE_VASPRINTF=1, so matio compiles snprintf/snprintf.c
+  # with HAVE_VASPRINTF=1 but without _GNU_SOURCE and fails with
+  # "implicit declaration of function 'vasprintf'". This job is expected to
+  # fail until the issue is fixed.
+  build-windows-mingw-vasprintf:
+    name: windows-mingw (issue #326 vasprintf)
+    runs-on: windows-latest
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Configure
+        run: cmake -S .ci/reproduce_issue326 -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DMATIO_WITH_ZLIB=OFF -DMATIO_WITH_HDF5=OFF -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF -DMATIO_MCOS=OFF -DMATIO_EXTENDED_SPARSE=OFF -DMATIO_BUILD_TESTING=OFF
+      - name: Build with gcc
+        run: cmake --build build --target matio -- -j8
+
+  build-windows-arm:
+    name: windows-arm-msvc
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Setup python environment
+        uses: actions/setup-python@v7
+        with:
+          python-version: 3.13
+      - name: Configure
+        run: cmake -S . -B build -A ARM64 -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF -DMATIO_WITH_ZLIB=OFF
+      - name: Build with msvc
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --build-config Release --parallel 8
+
+  build-openbsd:
+    name: openbsd-clang
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Test with clang
+        uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          prepare: |
+            set -e
+            pkg_add cmake
+          run: |
+            set -e
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF
+            cmake --build build -- -j8
+            ctest --no-tests=error --test-dir build --build-config Release --parallel 8
+
+  build-solaris:
+    name: solaris-gcc
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Test with gcc
+        uses: vmactions/solaris-vm@v1
+        with:
+          release: 11.4
+          usesh: true
+          copyback: false
+          prepare: |
+            set -e
+            pkg install cmake gcc
+          run: |
+            set -e
+            mkdir build
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF
+            cmake --build build -- -j8
+            ctest --no-tests=error --test-dir build --build-config Release --parallel 8
+
+  build-zlib-ng:
+    name: linux-gcc (zlib-ng)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Setup python environment
+        uses: actions/setup-python@v7
+        with:
+          python-version: 3.13
+      - name: Install python packages
+        run: pip install --disable-pip-version-check --user "conan>=2.16.1,<3"
+      - name: Configure with zlib-ng (zlib compat mode)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider -DCONAN_HOST_PROFILE="default;auto-cmake;${{ github.workspace }}/.ci/conan_static_profile_linux-gcc.cmake" -DMATIO_SHARED=OFF -DMATIO_USE_ZLIB_NG=ON -DMATIO_MAT73=OFF -DMATIO_WITH_ZLIB=ON -DMATIO_EXTENDED_SPARSE=ON -DMATIO_MCOS=ON
+      - name: Build with gcc
+        run: cmake --build build -- -j8
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --build-config Release --parallel 8
+
+  build-cygwin:
+    name: windows-cygwin
+    runs-on: windows-latest
+    steps:
+      - name: Set git to use LF
+        run: git config --global core.autocrlf input
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Setup cygwin
+        uses: cygwin/cygwin-install-action@master
+        with:
+          packages: >-
+            cmake
+            gcc-core
+            gcc-g++
+            hdf5
+            libaec-devel
+            libhdf5-devel
+            make
+            ninja
+            python
+            zlib-devel
+      - name: Configure
+        run: |
+          export PATH=/usr/bin:$PATH
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+        shell: C:\cygwin\bin\bash.exe -eo pipefail -o igncr '{0}'
+      - name: Build with gcc
+        run: |
+          export PATH=/usr/bin:$PATH
+          cmake --build build -- -j8
+        shell: C:\cygwin\bin\bash.exe -eo pipefail -o igncr '{0}'
+      - name: Test
+        run: |
+          export PATH=/usr/bin:$PATH
+          ctest --no-tests=error --test-dir build --build-config Release
+        shell: C:\cygwin\bin\bash.exe -eo pipefail -o igncr '{0}'
+
+  build-borland:
+    name: windows-borland
+    runs-on: windows-latest
+    # BCC55 is a 32-bit, C89-era compiler without stdint.h or C99 format support;
+    # the source contains the required portability shims so all tests pass.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Install Borland C++ Compiler 5.5
+        shell: pwsh
+        run: |
+          $bccSha = "11ce5576871352a0414fc68332eee1cd1b1d9554"
+          $bccHash = "8BC5293BACD4FB219D5A30153BCB6B4DE6BC2D42FDE6D1DEE2FE57669F69E7E0"
+          $bccArchive = Join-Path $env:RUNNER_TEMP "bcc55.zip"
+          $bccDir = Join-Path $env:RUNNER_TEMP "bcc55"
+          Invoke-WebRequest -Uri "https://github.com/tbeu/bcc55/archive/$bccSha.zip" -OutFile $bccArchive
+          if ( (Get-FileHash -LiteralPath $bccArchive -Algorithm SHA256).Hash -ne $bccHash ) {
+            throw "BCC55 archive checksum mismatch"
+          }
+          Expand-Archive -Path $bccArchive -DestinationPath $bccDir -Force
+          # Use a short folder name: the SHA-named folder makes the Borland
+          # linker's cfg paths exceed its 127-character line limit.
+          $bccRoot = Join-Path $bccDir "bcc55-$bccSha"
+          Rename-Item -LiteralPath $bccRoot -NewName "bcc55"
+          $bccRoot = Join-Path $bccDir "bcc55"
+          $bccBin = Join-Path $bccRoot "Bin"
+          # Point the BCC55 configuration files at the extracted toolchain instead
+          # of the hardcoded D:\devel\bcc55 paths from the source repository.
+          @"
+          -I"$bccRoot\Include"
+          -L"$bccRoot\Lib;$bccRoot\Lib\PSDK"
+          -lj"$bccRoot\Lib;$bccRoot\Lib\PSDK"
+          "@ | Set-Content -Path (Join-Path $bccBin "bcc32.cfg") -Encoding ascii
+          @"
+          -L"$bccRoot\Lib;$bccRoot\Lib\PSDK"
+          "@ | Set-Content -Path (Join-Path $bccBin "ILINK32.CFG") -Encoding ascii
+          "BCC55_ROOT=$bccRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "INCLUDE=$bccRoot\Include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LIB=$bccRoot\Lib;$bccRoot\Lib\PSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $bccBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G "Borland Makefiles" -DCMAKE_BUILD_TYPE=Release -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF -DMATIO_WITH_ZLIB=OFF -DMATIO_WITH_HDF5=OFF -DMATIO_EXTENDED_SPARSE=ON -DMATIO_MCOS=ON -DCMAKE_C_FLAGS=-w-8004
+      - name: Build with borland
+        run: cmake --build build
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --build-config Release --parallel 8
+
+  build-borland-embarcadero:
+    name: windows-borland-embarcadero
+    runs-on: windows-latest
+    # Embarcadero C++ 7.30 (BCC102) is the clang-enhanced 32-bit compiler that
+    # ships as the free command-line tool.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - name: Install Embarcadero C++ Compiler 7.30 (BCC102)
+        shell: pwsh
+        run: |
+          $bccHash = "5AFFBE1D75BB64CDE94FAE1A525A968FCA623CEA4CB5B7B6B37EA40F0895CFF0"
+          $bccArchive = Join-Path $env:RUNNER_TEMP "BCC102.zip"
+          $bccDir = Join-Path $env:RUNNER_TEMP "bcc102"
+          Invoke-WebRequest -Uri "https://altd.embarcadero.com/download/bcppbuilder/BCC102.zip" -OutFile $bccArchive
+          if ( (Get-FileHash -LiteralPath $bccArchive -Algorithm SHA256).Hash -ne $bccHash ) {
+            throw "BCC102 archive checksum mismatch"
+          }
+          Expand-Archive -Path $bccArchive -DestinationPath $bccDir -Force
+          $bccRoot = Join-Path $bccDir "BCC102"
+          $bccBin = Join-Path $bccRoot "bin"
+          "BCC102_ROOT=$bccRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $bccBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G "Borland Makefiles" -DCMAKE_C_COMPILER=bcc32c -DCMAKE_CXX_COMPILER=bcc32c -DCMAKE_BUILD_TYPE=Release -DMATIO_SHARED=OFF -DMATIO_MAT73=OFF -DMATIO_WITH_ZLIB=ON -DMATIO_USE_ZLIB_NG=ON -DMATIO_WITH_HDF5=OFF -DMATIO_EXTENDED_SPARSE=ON -DMATIO_MCOS=ON
+      - name: Build with Embarcadero C++
+        run: cmake --build build
+      - name: Test
+        run: ctest --no-tests=error --test-dir build --build-config Release --parallel 8

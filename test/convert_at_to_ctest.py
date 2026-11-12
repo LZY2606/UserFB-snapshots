@@ -1,0 +1,300 @@
+# Convert autotest files to CTest format
+#
+# Copyright (c) 2015-2026, The matio contributors
+# Copyright (c) 2011-2014, Christopher C. Hulbert
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-2-Clause
+
+import glob
+import hashlib
+import json
+import os
+import re
+import sys
+
+condition_mapping = {
+    'test $EXTENDED_SPARSE -ne 1': 'MATIO_EXTENDED_SPARSE',
+    'test $COMPRESSION_ZLIB -ne 1': 'HAVE_ZLIB',
+    'test $MAT73 -ne 1': 'MAT73 AND HAVE_HDF5',
+    'test $MCOS -ne 1': 'MATIO_MCOS',
+    'test $HAVE_INT64 -eq 0': 'HAVE_INT64',
+    'test $HAVE_UINT64 -eq 0': 'HAVE_UINT64',
+    '! grep -q "#define SIZEOF_VOID_P 4" $abs_top_builddir/src/matioConfig.h': 'CMAKE_SIZEOF_VOID_P EQUAL 4',
+    '! grep -q "#define SIZEOF_VOID_P 8" $abs_top_builddir/src/matioConfig.h': 'CMAKE_SIZEOF_VOID_P EQUAL 8',
+    'test -z "$MATLABEXE"': 'MATIO_MATLAB',
+}
+
+command_mapping = {
+    '$srcdir/': '${PROJECT_SOURCE_DIR}/test/',
+    '$builddir/test_mat': '$<TARGET_FILE:test_mat>',
+    '$builddir/../tools/matdump': '$<TARGET_FILE:matdump>',
+}
+
+
+def convert_autotest_to_ctest(autotest_file, cmake_output_file):
+    base_name = os.path.splitext(os.path.basename(autotest_file))[0]
+
+    with open(autotest_file, 'r') as atf, open(cmake_output_file, 'w') as cmakef:
+        cmakef.write('# Auto-generated CMake/CTest tests\n')
+
+        setup_re = re.compile(r'AT_SETUP\(\[([^\]]+)\]\)')
+        skip_if_re = re.compile(r'AT_SKIP_IF\(\[([^\]]+)\]\)')
+        check_re = re.compile(r'AT_CHECK\(\[([^\]]+)\]')
+        check_copy_re = re.compile(r'AT_CHECK\(\[cp (.*?) expout')
+        check_diff_re = re.compile(r'\s*(.*?)\],\[0\],\[expout\],\[\]\)')
+        check_matlab_cp_re = re.compile(r'AT_CHECK\(\[cp \$srcdir/matlab/(\S+\.m) \.')
+        check_matlab_cmd_re = re.compile(r'\$MATLABEXE -nosplash -nojvm -r "([^"]+)"')
+        cleanup_re = re.compile(r'AT_CLEANUP')
+        keyword_re = re.compile(r'AT_KEYWORDS\(\[([^\]]+)\]\)')
+
+        skip_conditions = []
+        test_keywords = []
+        counter = 1
+        check_copy_match = None
+        check_diff_match = None
+        check_matlab_cp_match = None
+        check_matlab_cmd_match = None
+
+        for line in atf:
+            setup_match = setup_re.search(line)
+            skip_if_match = skip_if_re.search(line)
+            check_match = check_re.search(line)
+            if check_copy_match is None:
+                check_copy_match = check_copy_re.search(line)
+            if check_diff_match is None:
+                check_diff_match = check_diff_re.search(line)
+            if check_matlab_cp_match is None:
+                check_matlab_cp_match = check_matlab_cp_re.search(line)
+            if check_matlab_cp_match is not None and check_matlab_cmd_match is None:
+                check_matlab_cmd_match = check_matlab_cmd_re.search(line)
+            cleanup_match = cleanup_re.search(line)
+            keyword_match = keyword_re.search(line)
+
+            if setup_match:
+                test_name = f'{base_name}_{re.sub(r"[ ()]", "_", setup_match.group(1))}'.lower()
+                cmakef.write(f'\n# {setup_match.group(1)}\n')
+                skip_conditions = ['True']
+                test_keywords = [base_name]
+                test_keywords.extend(base_name.split('_'))
+                counter = 1
+                check_copy_match = None
+                check_diff_match = None
+                check_matlab_cp_match = None
+                check_matlab_cmd_match = None
+                mat_file_name = None
+
+            elif keyword_match:
+                keywords = keyword_match.group(1).strip().split()
+                test_keywords.extend(keywords)
+
+            elif skip_if_match:
+                condition = skip_if_match.group(1).strip()
+
+                if condition in condition_mapping:
+                    mapped_condition = condition_mapping[condition]
+                    skip_conditions.append(mapped_condition)
+                else:
+                    skip_conditions.append(condition)
+
+            elif check_match:
+                command = check_match.group(1)
+                for original, replacement in command_mapping.items():
+                    command = command.replace(original, replacement)
+
+                if skip_conditions:
+                    if len(skip_conditions) > 1:
+                        skip_conditions = skip_conditions[1:]
+                    combined_conditions = ' AND '.join(skip_conditions)
+                    cmakef.write(f'if({combined_conditions})\n')
+                    skip_conditions = []
+
+                if 'delete' not in test_keywords and command.startswith('$<TARGET_FILE:'):
+                    mat_file_name = f'test_{test_name}_{counter}.mat'
+                    command += f' -o {mat_file_name}'
+
+                cmakef.write(f'    add_test(NAME {test_name}_{counter}\n')
+                cmakef.write(f'        COMMAND {command}\n')
+                cmakef.write('        WORKING_DIRECTORY ${MATIO_TESTING_DIR})\n')
+                cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES FIXTURES_REQUIRED TEMPDIR)\n')
+
+                if test_keywords:
+                    keyword_str = ';'.join(sorted(list(set(test_keywords))))
+                    cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES LABELS "{keyword_str}")\n')
+
+                if counter > 1:
+                    depends_str = f'{test_name}_{counter - 1}'
+                    cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES DEPENDS {depends_str})\n')
+
+                counter += 1
+
+            elif check_copy_match and check_diff_match:
+                command = check_diff_match.group(1)
+                for original, replacement in command_mapping.items():
+                    command = command.replace(original, replacement)
+
+                if 'delete' not in test_keywords and counter > 1 and mat_file_name is not None and command.startswith('$<TARGET_FILE:'):
+                    command_items = command.split(' ')
+                    command_items = [item if not item.startswith('test_') or not item.endswith('.mat') else mat_file_name for item in command_items]
+                    command = ' '.join(command_items)
+
+                output_name = f'{test_name}_{counter}_output.txt'
+                if command.startswith('$<TARGET_FILE:'):
+                    command += f' -o {output_name}'
+
+                if skip_conditions:
+                    if len(skip_conditions) > 1:
+                        skip_conditions = skip_conditions[1:]
+                    combined_conditions = ' AND '.join(skip_conditions)
+                    cmakef.write(f'if({combined_conditions})\n')
+                    skip_conditions = []
+
+                cmakef.write(f'    add_test(NAME {test_name}_{counter}\n')
+                cmakef.write(f'        COMMAND {command}\n')
+                cmakef.write('        WORKING_DIRECTORY ${MATIO_TESTING_DIR})\n')
+                cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES FIXTURES_REQUIRED TEMPDIR)\n')
+
+                if test_keywords:
+                    keyword_str = ';'.join(sorted(list(set(test_keywords))))
+                    cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES LABELS "{keyword_str}")\n')
+
+                if counter > 1:
+                    depends_str = f'{test_name}_{counter - 1}'
+                    cmakef.write(f'    set_tests_properties({test_name}_{counter} PROPERTIES DEPENDS {depends_str})\n')
+
+                expected_name = check_copy_match.group(1).replace('$srcdir/', '${PROJECT_SOURCE_DIR}/test/')
+                command = f'${{CMAKE_COMMAND}} -E compare_files --ignore-eol {expected_name} {output_name}'
+                cmakef.write(f'    add_test(NAME {test_name}_{counter + 1}\n')
+                cmakef.write(f'        COMMAND {command}\n')
+                cmakef.write('        WORKING_DIRECTORY ${MATIO_TESTING_DIR})\n')
+                cmakef.write(f'    set_tests_properties({test_name}_{counter + 1} PROPERTIES FIXTURES_REQUIRED TEMPDIR)\n')
+
+                if test_keywords:
+                    keyword_str = ';'.join(sorted(list(set(test_keywords))))
+                    cmakef.write(f'    set_tests_properties({test_name}_{counter + 1} PROPERTIES LABELS "diff;{keyword_str}")\n')
+
+                depends_str = f'{test_name}_{counter}'
+                cmakef.write(f'    set_tests_properties({test_name}_{counter + 1} PROPERTIES DEPENDS {depends_str})\n')
+
+                check_copy_match = None
+                check_diff_match = None
+                counter += 2
+
+            elif check_matlab_cp_match and check_matlab_cmd_match:
+                matlab_m_file = check_matlab_cp_match.group(1)
+                matlab_cmd = check_matlab_cmd_match.group(1)
+
+                # Parse type and script from MATLAB command
+                if ';' in matlab_cmd:
+                    parts = matlab_cmd.split(';', 1)
+                    type_match = re.match(r"type='(\w+)'", parts[0])
+                    matlab_type = type_match.group(1) if type_match else ''
+                    matlab_script = parts[1]
+                else:
+                    matlab_type = ''
+                    matlab_script = matlab_cmd
+
+                mat_file_remote = matlab_m_file.replace('.m', '.mat')
+                m_file_path = f'${{PROJECT_SOURCE_DIR}}/test/matlab/{matlab_m_file}'
+
+                if skip_conditions:
+                    if len(skip_conditions) > 1:
+                        skip_conditions = skip_conditions[1:]
+                    combined_conditions = ' AND '.join(skip_conditions)
+                    cmakef.write(f'    if({combined_conditions})\n')
+                    skip_conditions = []
+
+                cmd_parts = ['${CMAKE_COMMAND}']
+                if mat_file_name:
+                    cmd_parts.append(f'-DMAT_FILE={mat_file_name}')
+                cmd_parts.append(f'-DMAT_FILE_REMOTE={mat_file_remote}')
+                cmd_parts.append(f'-DM_FILE={m_file_path}')
+                cmd_parts.append(f'-DMATLAB_SCRIPT={matlab_script}')
+                if matlab_type:
+                    cmd_parts.append(f'-DMATLAB_TYPE={matlab_type}')
+                cmd_parts.append('-DMATIO_MATLAB_EXE=${MATIO_MATLAB_EXE}')
+                cmd_parts.append('-DMATIO_MATLAB_SSH_KEY=${MATIO_MATLAB_SSH_KEY}')
+                cmd_parts.append('-DMATIO_MATLAB_SSH_HOST=${MATIO_MATLAB_SSH_HOST}')
+                cmd_parts.append('-DMATIO_MATLAB_SSH_DIR=${MATIO_MATLAB_SSH_DIR}')
+                cmd_parts.append('-P ${PROJECT_SOURCE_DIR}/cmake/run_matlab_test.cmake')
+                command = ' '.join(cmd_parts)
+
+                cmakef.write(f'        add_test(NAME {test_name}_{counter}\n')
+                cmakef.write(f'            COMMAND {command}\n')
+                cmakef.write('            WORKING_DIRECTORY ${MATIO_TESTING_DIR})\n')
+                cmakef.write(f'        set_tests_properties({test_name}_{counter} PROPERTIES FIXTURES_REQUIRED "TEMPDIR;MATLAB_VER")\n')
+
+                matlab_keywords = sorted(list(set(test_keywords + ['matlab'])))
+                keyword_str = ';'.join(matlab_keywords)
+                cmakef.write(f'        set_tests_properties({test_name}_{counter} PROPERTIES LABELS "{keyword_str}")\n')
+
+                if counter > 1:
+                    depends_str = f'{test_name}_{counter - 1}'
+                    cmakef.write(f'        set_tests_properties({test_name}_{counter} PROPERTIES DEPENDS {depends_str})\n')
+
+                cmakef.write(f'        set_tests_properties({test_name}_{counter} PROPERTIES TIMEOUT 120)\n')
+                cmakef.write(f'        set_tests_properties({test_name}_{counter} PROPERTIES RESOURCE_LOCK MATLAB_SESSION)\n')
+                cmakef.write('    endif()\n')
+
+                check_matlab_cp_match = None
+                check_matlab_cmd_match = None
+                counter += 1
+
+            elif cleanup_match:
+                if counter > 1:
+                    cmakef.write('endif()\n')
+
+
+def get_file_hash(file_path, algorithm='sha256'):
+    hash_obj = hashlib.new(algorithm)
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_obj.update(chunk)
+    return hash_obj.hexdigest()
+
+
+def generate_ctest_files(file_list, output_dir, global_force, hash_dict):
+    os.makedirs(output_dir, exist_ok=True)
+
+    for autotest_file in file_list:
+        base_name = os.path.splitext(os.path.basename(autotest_file))[0]
+        cmake_output_file = os.path.join(output_dir, f'{base_name}.cmake')
+        hash = get_file_hash(autotest_file)
+        force = hash != hash_dict.get(base_name, '')
+        hash_dict[base_name] = hash
+        if not force and not global_force and os.path.isfile(cmake_output_file):
+            continue
+        convert_autotest_to_ctest(autotest_file, cmake_output_file)
+
+
+if __name__ == '__main__':
+    hash = get_file_hash(__file__)
+    output_dir = sys.argv[1]
+    hash_json_file = os.path.join(output_dir, 'generator.json')
+    try:
+        with open(hash_json_file, 'r') as json_file:
+            hash_dict = json.load(json_file)
+    except OSError:
+        hash_dict = {}
+
+    force = hash != hash_dict.get('generator', '')
+    hash_dict['generator'] = hash
+    hash_dict.pop('sha256', None)
+    file_list = glob.glob(os.path.join('tests', '*.at'))
+    generate_ctest_files(file_list, output_dir, force, hash_dict)
+
+    # Remove outdated/orphaned test files (e.g. after an .at source was
+    # renamed or deleted) so stale tests are no longer picked up by CTest.
+    generated_bases = {os.path.splitext(os.path.basename(f))[0] for f in file_list}
+    for stale in glob.glob(os.path.join(output_dir, '*.cmake')):
+        base = os.path.splitext(os.path.basename(stale))[0]
+        if base not in generated_bases:
+            try:
+                os.remove(stale)
+                hash_dict.pop(base, None)
+            except OSError as exc:
+                sys.stderr.write(
+                    'Warning: could not remove outdated test file {}: {}\n'.format(stale, exc))
+
+    with open(hash_json_file, 'w') as json_file:
+        json.dump(hash_dict, json_file)
