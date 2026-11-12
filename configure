@@ -664,6 +664,8 @@ LIBTOOL
 OBJDUMP
 DLLTOOL
 AS
+ARCH_AARCH64_FALSE
+ARCH_AARCH64_TRUE
 ARCH_ARM_FALSE
 ARCH_ARM_TRUE
 ARCH_OPT_CFLAGS
@@ -4799,6 +4801,7 @@ $as_echo "$ac_cv_try_cflags_ok" >&6; }
     fi
 
         arm_conditional=false
+    aarch64_conditional=false
     case "$host" in
     i?86-* | k?-* | x86_64-* | amd64-*)
 
@@ -4963,11 +4966,46 @@ $as_echo "$ac_cv_try_cflags_ok" >&6; }
 $as_echo "#define ARCH_ALPHA /**/" >>confdefs.h
 ;;
     arm*)
+	arch_arm=yes
+;;
+    esac
+
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether the compiler targets AArch64" >&5
+$as_echo_n "checking whether the compiler targets AArch64... " >&6; }
+    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+#if !defined(__aarch64__)
+#error not aarch64
+#endif
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  have_aarch64=yes
+else
+  have_aarch64=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_aarch64" >&5
+$as_echo "$have_aarch64" >&6; }
+    if test x"$have_aarch64" = x"yes"; then
+	aarch64_conditional=:
+
+$as_echo "#define ARCH_AARCH64 /**/" >>confdefs.h
+
+	arch_arm=no
+    fi
+    if test x"$arch_arm" = x"yes"; then
 	arm_conditional=:
 
 $as_echo "#define ARCH_ARM /**/" >>confdefs.h
-;;
-    esac
+
+    fi
 elif test x"$CC" = x"tendracc"; then
         TENDRA=yes
     OPT_CFLAGS="-Xp -Yansi -f`pwd`/include/tendra.h -DELIDE_CODE"
@@ -5017,6 +5055,14 @@ fi
 else
   ARCH_ARM_TRUE='#'
   ARCH_ARM_FALSE=
+fi
+
+ if ${aarch64_conditional}; then
+  ARCH_AARCH64_TRUE=
+  ARCH_AARCH64_FALSE='#'
+else
+  ARCH_AARCH64_TRUE='#'
+  ARCH_AARCH64_FALSE=
 fi
 
 
@@ -14776,6 +14822,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCCAS_TRUE}" && test -z "${am__fastdepCCAS_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCCAS\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${ARCH_AARCH64_TRUE}" && test -z "${ARCH_AARCH64_FALSE}"; then
+  as_fn_error $? "conditional \"ARCH_AARCH64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ARCH_ARM_TRUE}" && test -z "${ARCH_ARM_FALSE}"; then

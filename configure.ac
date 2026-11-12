@@ -26,6 +26,9 @@ AC_CHECK_HEADERS([sys/time.h time.h sys/timeb.h io.h])
 dnl CC-specific flags
 AC_SUBST([OPT_CFLAGS])
 AC_SUBST([ARCH_OPT_CFLAGS])
+arm_conditional=false
+aarch64_conditional=false
+arch_arm=no
 if test x"$CC" = x"checkergcc"; then
     enable_sdl=no
 elif test x"$GCC" = x"yes"; then
@@ -59,7 +62,6 @@ elif test x"$GCC" = x"yes"; then
     AC_TRY_CFLAGS([$TRY_CFLAGS $CFLAGS],[OPT_CFLAGS="$TRY_CFLAGS"])
 
     dnl arch-specific flags
-    arm_conditional=false
     case "$host" in
     i?86-* | k?-* | x86_64-* | amd64-*)
 	AC_DEFINE([ARCH_X86],,[x86 architecture])
@@ -102,9 +104,32 @@ elif test x"$GCC" = x"yes"; then
     alpha*)
 	AC_DEFINE([ARCH_ALPHA],,[alpha architecture]);;
     arm*)
-	arm_conditional=:
-	AC_DEFINE([ARCH_ARM],,[ARM architecture]);;
+	arch_arm=yes;;
     esac
+
+    dnl AArch64 detection cannot rely on the host triplet alone: some
+    dnl config.guess revisions report arm-apple-darwin on Apple silicon,
+    dnl and cross builds use arbitrary triplets.  Probe what the compiler
+    dnl actually targets instead.  __aarch64__ is defined by every AArch64
+    dnl compiler we support, including Apple clang, GCC and LLVM.  The
+    dnl probe also overrides an "arm" host match, because a 32-bit ARM
+    dnl triplet may describe an AArch64 compiler.
+    AC_MSG_CHECKING([whether the compiler targets AArch64])
+    AC_TRY_COMPILE([],
+	[#if !defined(__aarch64__)
+	#error not aarch64
+	#endif],
+	[have_aarch64=yes], [have_aarch64=no])
+    AC_MSG_RESULT([$have_aarch64])
+    if test x"$have_aarch64" = x"yes"; then
+	aarch64_conditional=:
+	AC_DEFINE([ARCH_AARCH64],,[AArch64 architecture with Advanced SIMD])
+	arch_arm=no
+    fi
+    if test x"$arch_arm" = x"yes"; then
+	arm_conditional=:
+	AC_DEFINE([ARCH_ARM],,[ARM architecture])
+    fi
 elif test x"$CC" = x"tendracc"; then
     dnl TenDRA portability checking compiler
     TENDRA=yes
@@ -124,6 +149,7 @@ else
 fi
 
 AM_CONDITIONAL(ARCH_ARM, ${arm_conditional})
+AM_CONDITIONAL(ARCH_AARCH64, ${aarch64_conditional})
 
 dnl Checks for libtool - this must be done after we set cflags
 AC_LIBTOOL_WIN32_DLL

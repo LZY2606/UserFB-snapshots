@@ -168,9 +168,66 @@ uint32_t mpeg2_accel(uint32_t accel)
         Returns selected acceleration list.  If the requested acceleration
         is not available, the function will auto-detect the best available
         accelerations and return that instead.
-        
+
                 - Cannot be undone!  This should maybe be a part of
                   the mpeg2 structure somehow?
+
+
+AArch64 NEON acceleration
+-------------------------
+
+On AArch64 the library has a hand-written Advanced SIMD (NEON) back end
+for both the inverse DCT and motion compensation.  The code lives in
+libmpeg2/idct_neon.c and libmpeg2/motion_comp_neon.c; it is compiled only
+when ARCH_AARCH64 is defined (configure detects this by asking the
+compiler whether __aarch64__ is set, so cross builds and Apple silicon -
+where config.guess may still say "arm-apple-darwin" - are handled).
+
+Capability bit:
+
+        MPEG2_ACCEL_ARM_AARCH64_NEON        (value 1, in mpeg2.h)
+
+Selection:
+
+        mpeg2_init() calls mpeg2_accel(MPEG2_ACCEL_DETECT).  On AArch64
+        Advanced SIMD is part of the base architecture (there is no
+        runtime CPU feature to probe), so an MPEG2_ACCEL_DETECT request
+        turns MPEG2_ACCEL_ARM_AARCH64_NEON on and the NEON kernels become
+        the active ones.  This is the default: an application that never
+        calls mpeg2_accel() gets the NEON back end.
+
+        mpeg2_accel(0), called before the first mpeg2_init(), selects
+        nothing and therefore keeps the portable C kernels; that is the
+        supported way to force the C path at run time.  The usual
+        single-shot rule applies: the first mpeg2_accel()/mpeg2_init()
+        call fixes the choice for the life of the process, and later calls
+        both ignore their argument and return the selection already made.
+        There is no per-decoder switching.
+
+        mpeg2_accel(MPEG2_ACCEL_ARM_AARCH64_NEON) can also be requested
+        explicitly; it has the same effect as the automatic default.
+
+Both back ends are required to be bit-exact against the portable C code,
+and tests/aarch64_contract.c enforces that.  Two details matter:
+
+        1. The C IDCT rotates the zig-zag scan tables (mpeg2_scan_norm and
+           mpeg2_scan_alt) during initialisation, because its kernels read
+           the coefficient block in a permuted layout.  The NEON kernels
+           read the same permuted layout, and mpeg2_idct_init() keeps
+           applying that rotation for both back ends.  Do not "clean this
+           up" into natural row/column order without changing the slice
+           parser and both IDCTs together.
+
+        2. The NEON reconstruction follows the C integer pipeline
+           operation for operation (the same butterflies, the same
+           ">> 8 then * 181" rounding, the same >>12 / >>17 shifts, the
+           same int16 narrowing and the same DC-only shortcuts).  Motion
+           compensation keeps avg4 as a single four-term sum; splitting it
+           into two avg2 calls double-rounds and is not bit-exact.
+
+On every other architecture the existing behaviour is unchanged and the
+NEON files compile to nothing.
+
 
 
 const mpeg2_info_t * mpeg2_info(mpeg2dec_t * handle)

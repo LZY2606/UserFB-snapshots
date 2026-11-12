@@ -251,9 +251,25 @@ static inline uint32_t arch_accel (uint32_t accel)
 }
 #endif /* ARCH_ALPHA */
 
+#ifdef ARCH_AARCH64
+static inline uint32_t arch_accel (uint32_t accel)
+{
+    /*
+     * Advanced SIMD is part of the AArch64 base architecture: every
+     * AArch64 core has it, so there is nothing to probe at runtime.  The
+     * default MPEG2_ACCEL_DETECT request simply turns NEON on.  Passing 0
+     * still leaves it off, which is how mpeg2_accel(0) forces the C path.
+     */
+    if (accel & MPEG2_ACCEL_DETECT)
+	accel |= MPEG2_ACCEL_ARM_AARCH64_NEON;
+    return accel;
+}
+#endif
+
 uint32_t mpeg2_detect_accel (uint32_t accel)
 {
-#if defined (ARCH_X86) || defined (ARCH_X86_64) || defined (ARCH_PPC) || defined (ARCH_ALPHA) || defined (ARCH_SPARC)
+#if defined (ARCH_X86) || defined (ARCH_X86_64) || defined (ARCH_PPC) || \
+    defined (ARCH_ALPHA) || defined (ARCH_SPARC) || defined (ARCH_AARCH64)
     accel = arch_accel (accel);
 #endif
     return accel;

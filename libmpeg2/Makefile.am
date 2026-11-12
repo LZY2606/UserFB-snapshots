@@ -16,6 +16,9 @@ libmpeg2arch_la_SOURCES = motion_comp_mmx.c idct_mmx.c \
 if ARCH_ARM
 libmpeg2arch_la_SOURCES += motion_comp_arm_s.S
 endif
+if ARCH_AARCH64
+libmpeg2arch_la_SOURCES += motion_comp_neon.c idct_neon.c
+endif
 libmpeg2arch_la_CFLAGS = $(OPT_CFLAGS) $(ARCH_OPT_CFLAGS) $(LIBMPEG2_CFLAGS)
 
 pkgconfigdir = $(libdir)/pkgconfig

@@ -160,8 +160,8 @@ static inline void idct_col (int16_t * const block)
     block[8*7] = (a0 - b0) >> 17;
 }
 
-static void mpeg2_idct_copy_c (int16_t * block, uint8_t * dest,
-			       const int stride)
+void mpeg2_idct_copy_c (int16_t * block, uint8_t * dest,
+			const int stride)
 {
     int i;
 
@@ -187,8 +187,8 @@ static void mpeg2_idct_copy_c (int16_t * block, uint8_t * dest,
     } while (--i);
 }
 
-static void mpeg2_idct_add_c (const int last, int16_t * block,
-			      uint8_t * dest, const int stride)
+void mpeg2_idct_add_c (const int last, int16_t * block,
+			 uint8_t * dest, const int stride)
 {
     int i;
 
@@ -275,10 +275,20 @@ void mpeg2_idct_init (uint32_t accel)
     {
 	int i, j;
 
-	mpeg2_idct_copy = mpeg2_idct_copy_c;
-	mpeg2_idct_add = mpeg2_idct_add_c;
+#ifdef ARCH_AARCH64
+	if (accel & MPEG2_ACCEL_ARM_AARCH64_NEON) {
+	    mpeg2_idct_copy = mpeg2_idct_copy_neon;
+	    mpeg2_idct_add = mpeg2_idct_add_neon;
+	} else
+#endif
+	{
+	    mpeg2_idct_copy = mpeg2_idct_copy_c;
+	    mpeg2_idct_add = mpeg2_idct_add_c;
+	}
 	for (i = -3840; i < 3840 + 256; i++)
 	    CLIP(i) = (i < 0) ? 0 : ((i > 255) ? 255 : i);
+	/* The C and NEON kernels consume the same permuted coefficient
+	   layout, so this table rotation is kept for both. */
 	for (i = 0; i < 64; i++) {
 	    j = mpeg2_scan_norm[i];
 	    mpeg2_scan_norm[i] = ((j & 0x36) >> 1) | ((j & 0x09) << 2);

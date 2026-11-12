@@ -9,6 +9,9 @@
 /* alpha architecture */
 #undef ARCH_ALPHA
 
+/* AArch64 architecture with Advanced SIMD */
+#undef ARCH_AARCH64
+
 /* ARM architecture */
 #undef ARCH_ARM
 

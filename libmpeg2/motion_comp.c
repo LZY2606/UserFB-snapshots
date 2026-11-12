@@ -62,6 +62,11 @@ void mpeg2_mc_init (uint32_t accel)
 	mpeg2_mc = mpeg2_mc_arm;
     } else
 #endif
+#ifdef ARCH_AARCH64
+    if (accel & MPEG2_ACCEL_ARM_AARCH64_NEON) {
+	mpeg2_mc = mpeg2_mc_neon;
+    } else
+#endif
 	mpeg2_mc = mpeg2_mc_c;
 }
 

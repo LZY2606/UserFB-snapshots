@@ -263,6 +263,13 @@ extern void mpeg2_idct_init (uint32_t accel);
 extern uint8_t mpeg2_scan_norm[64];
 extern uint8_t mpeg2_scan_alt[64];
 
+/* The portable kernels, exposed so the AArch64 contract test can compare
+   the NEON kernels against them directly (the public function pointers
+   may already point at an accelerated back end). */
+void mpeg2_idct_copy_c (int16_t * block, uint8_t * dest, int stride);
+void mpeg2_idct_add_c (int last, int16_t * block,
+		       uint8_t * dest, int stride);
+
 /* idct_mmx.c */
 void mpeg2_idct_copy_sse2 (int16_t * block, uint8_t * dest, int stride);
 void mpeg2_idct_add_sse2 (int last, int16_t * block,
@@ -290,8 +297,39 @@ void mpeg2_idct_add_alpha (int last, int16_t * block,
 			   uint8_t * dest, int stride);
 void mpeg2_idct_alpha_init (void);
 
+/* idct_neon.c */
+#ifdef ARCH_AARCH64
+void mpeg2_idct_copy_neon (int16_t * block, uint8_t * dest, int stride);
+void mpeg2_idct_add_neon (int last, int16_t * block,
+			  uint8_t * dest, int stride);
+extern unsigned long mpeg2_neon_idct_calls[2];
+#endif
+
 /* motion_comp.c */
 void mpeg2_mc_init (uint32_t accel);
+
+/* motion_comp_neon.c */
+#ifdef ARCH_AARCH64
+#define MC_NEON_DECL(x)							\
+void MC_put_o_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_x_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_y_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_xy_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_o_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_x_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_y_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_put_xy_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_o_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_x_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_y_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_xy_16_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_o_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_x_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_y_8_##x (uint8_t *, const uint8_t *, int, int);		\
+void MC_avg_xy_8_##x (uint8_t *, const uint8_t *, int, int)
+MC_NEON_DECL (neon);
+extern unsigned long mpeg2_neon_mc_calls;
+#endif
 
 typedef struct {
     mpeg2_mc_fct * put [8];
@@ -313,5 +351,8 @@ extern mpeg2_mc_t mpeg2_mc_altivec;
 extern mpeg2_mc_t mpeg2_mc_alpha;
 extern mpeg2_mc_t mpeg2_mc_vis;
 extern mpeg2_mc_t mpeg2_mc_arm;
+#ifdef ARCH_AARCH64
+extern mpeg2_mc_t mpeg2_mc_neon;
+#endif
 
 #endif /* LIBMPEG2_MPEG2_INTERNAL_H */
