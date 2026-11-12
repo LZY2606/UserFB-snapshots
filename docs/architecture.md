@@ -80,6 +80,15 @@ actual value passed to the sink is the sanitizer result, possibly wrapped by SSA
 conversions or interface changes. A sanitizer nested inside a larger expression
 is recorded as rejected unless the whole sink value is covered.
 
+Guarded (fallible) sanitizers, declared with a model's `result`/`error_result`
+pair, add a use-site control-flow condition: the cleaned result is trusted only
+when the nil edge of a check on the *same* call's error result dominates the
+sink use. The proof follows static call identity, SSA value aliases, local
+loads through reaching stores, and Phi merges per incoming edge; anything else
+(unresolved dispatch, out-of-bounds or non-error slots, reassigned errors,
+loop-carried values, cross-function conditions) stays unproven and keeps the
+ordinary finding and evidence.
+
 ## Diagnostics
 
 `CheckDetailed` returns `Diagnostics`. Each `Diagnostic` contains the legacy

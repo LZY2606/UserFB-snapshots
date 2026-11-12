@@ -70,6 +70,10 @@ func WithExtraSinks(sinkTypes ...string) Option {
 // WithSanitizers adds value-specific sanitizer calls. A sanitizer only suppresses
 // taint when the value passed to the sink is the sanitizer result, possibly
 // wrapped by SSA conversions or interface changes.
+//
+// These sanitizers are unconditional. For a fallible sanitizer whose result is
+// trustworthy only after its error result is checked for nil, declare a
+// [SanitizerModel] with Result and ErrorResult and pass it with [WithModels].
 func WithSanitizers(functions ...string) Option {
 	return func(cfg *checkConfig) {
 		cfg.sanitizers = append(cfg.sanitizers, functions...)
@@ -125,6 +129,12 @@ type sinkRule struct {
 type sanitizerRule struct {
 	id        string
 	matchCall func(*ssa.CallCommon) bool
+	// A guarded sanitizer trusts resultIndex only at a use that control-flow
+	// proves errorIndex was nil for the same call. Unguarded rules leave all
+	// three fields at their zero values.
+	guarded     bool
+	resultIndex int
+	errorIndex  int
 }
 
 type propagatorRule struct {
@@ -139,14 +149,19 @@ type propagatorRule struct {
 }
 
 type ruleRegistry struct {
-	matchPackages   map[*types.Package]struct{}
-	sources         Sources
-	sinks           Sinks
-	sourceRules     []sourceRule
-	sinkRules       []sinkRule
-	sanitizers      []sanitizerRule
-	propagators     []propagatorRule
-	maxSummaryDepth int
+	matchPackages     map[*types.Package]struct{}
+	sources           Sources
+	sinks             Sinks
+	sourceRules       []sourceRule
+	sinkRules         []sinkRule
+	sanitizers        []sanitizerRule
+	guardedSanitizers []sanitizerRule
+	propagators       []propagatorRule
+	maxSummaryDepth   int
+	// guardProofCache memoizes per-rule-registry edge-dominance proofs so
+	// repeated analyses over the same graph stay stable and cheap. It is
+	// created lazily and is not shared between registries.
+	guardProofCache map[guardEdgeKey]bool
 }
 
 func newRuleRegistry(sources Sources, sinks Sinks, cfg checkConfig) *ruleRegistry {
@@ -164,7 +179,10 @@ func newRuleRegistry(sources Sources, sinks Sinks, cfg checkConfig) *ruleRegistr
 	// selection the string sets cannot express, so they are compiled into
 	// rules directly below.
 	sanitizers := slices.Clone(cfg.sanitizers)
-	var fieldSources []sourceRule
+	var (
+		fieldSources      []sourceRule
+		guardedSanitizers []sanitizerRule
+	)
 	for _, m := range cfg.models {
 		for _, s := range m.Sources {
 			switch {
@@ -177,7 +195,18 @@ func newRuleRegistry(sources Sources, sinks Sinks, cfg checkConfig) *ruleRegistr
 			}
 		}
 		for _, s := range m.Sanitizers {
-			sanitizers = append(sanitizers, s.Func)
+			// Invalid pairs are rejected by model validation, but a Model can
+			// also be constructed programmatically. Fail closed without
+			// panicking: a lone index or equal/negative pair compiles to an
+			// always-unproven guarded rule instead of a nil dereference.
+			switch {
+			case s.Result != nil && s.ErrorResult != nil && *s.Result >= 0 && *s.ErrorResult >= 0 && *s.Result != *s.ErrorResult:
+				guardedSanitizers = append(guardedSanitizers, guardedSanitizerRule(s.Func, *s.Result, *s.ErrorResult))
+			case s.guarded():
+				guardedSanitizers = append(guardedSanitizers, guardedSanitizerRule(s.Func, -1, -1))
+			default:
+				sanitizers = append(sanitizers, s.Func)
+			}
 		}
 	}
 
@@ -187,10 +216,11 @@ func newRuleRegistry(sources Sources, sinks Sinks, cfg checkConfig) *ruleRegistr
 	}
 
 	registry := &ruleRegistry{
-		matchPackages:   cfg.matchPackages,
-		sources:         Sources(mergedSources),
-		sinks:           Sinks(mergedSinks),
-		maxSummaryDepth: maxSummaryDepth,
+		matchPackages:     cfg.matchPackages,
+		sources:           Sources(mergedSources),
+		sinks:             Sinks(mergedSinks),
+		guardedSanitizers: guardedSanitizers,
+		maxSummaryDepth:   maxSummaryDepth,
 	}
 	// Iterate maps in deterministic order so the resulting rule slices have a
 	// stable order. Downstream traversal records the first rule that matches
@@ -640,6 +670,21 @@ func callHasExplicitReceiverArg(common *ssa.CallCommon) bool {
 func exactSanitizerRule(id string) sanitizerRule {
 	return sanitizerRule{
 		id: id,
+		matchCall: func(call *ssa.CallCommon) bool {
+			return callString(call) == id
+		},
+	}
+}
+
+// guardedSanitizerRule compiles a guarded (fallible) sanitizer model: its
+// resultIndex is trusted only when the same call's errorIndex result was proven
+// nil at the use site.
+func guardedSanitizerRule(id string, resultIndex, errorIndex int) sanitizerRule {
+	return sanitizerRule{
+		id:          id,
+		guarded:     true,
+		resultIndex: resultIndex,
+		errorIndex:  errorIndex,
 		matchCall: func(call *ssa.CallCommon) bool {
 			return callString(call) == id
 		},

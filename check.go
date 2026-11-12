@@ -299,6 +299,9 @@ func checkPathDetailed(path callgraphutil.Path, rules *ruleRegistry, sink sinkRu
 	// into the operation.
 	sargs := sinkArgsForEdge(sink, last)
 	ctx := newTaintContextFromRegistry(rules)
+	// The use site for guarded-sanitizer proofs is the sink call's block: the
+	// proof must dominate the place the sanitized value is consumed.
+	use := last.Site.Block()
 	for _, sarg := range sargs {
 		arg := sarg.value
 		argTrace := &traceRecorder{}
@@ -307,6 +310,20 @@ func checkPathDetailed(path callgraphutil.Path, rules *ruleRegistry, sink sinkRu
 				Kind:    EvidenceSanitizerApplied,
 				Message: "sink argument is sanitizer result",
 				Rule:    sanitizer.id,
+				Value:   arg,
+				Edge:    last,
+			})
+			continue
+		}
+		guardedRule, guardedStat := sanitizerRule{}, guardNone
+		if sarg.field == "" {
+			guardedRule, guardedStat = rules.guardedSanitizerAt(arg, use, nil)
+		}
+		if guardedStat == guardProven {
+			argTrace.add(Evidence{
+				Kind:    EvidenceSanitizerApplied,
+				Message: "guarded sanitizer result proven by a dominating nil error check",
+				Rule:    guardedRule.id,
 				Value:   arg,
 				Edge:    last,
 			})
@@ -335,7 +352,18 @@ func checkPathDetailed(path callgraphutil.Path, rules *ruleRegistry, sink sinkRu
 			if _, sanitized := rules.sanitizerForValue(tv); sanitized {
 				continue
 			}
-			if _, ok := rules.expressionContainsSanitizer(arg); !ok {
+			if guardedStat != guardNone {
+				// The value may be a guarded sanitizer result but the use is
+				// not guarded by a proof, so the finding stays and evidence
+				// records why the sanitizer did not cover it.
+				argTrace.add(Evidence{
+					Kind:    EvidenceSanitizerRejected,
+					Message: "guarded sanitizer result lacks a dominating nil error check",
+					Rule:    guardedRule.id,
+					Value:   arg,
+					Edge:    last,
+				})
+			} else if _, ok := rules.expressionContainsSanitizer(arg); !ok {
 				argTrace.add(Evidence{
 					Kind:    EvidenceSanitizerRejected,
 					Message: "no configured sanitizer matched sink argument",

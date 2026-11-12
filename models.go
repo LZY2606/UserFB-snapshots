@@ -85,12 +85,35 @@ type SinkModel struct {
 
 // SanitizerModel marks a call that neutralizes taint: when a sink argument is
 // the result of this call, the flow is considered safe.
+//
+// By default the sanitizer is unconditional: every result of the call is
+// treated as clean. A sanitizer that can fail can instead be declared
+// guarded, by naming the cleaned result and the error result with Result and
+// ErrorResult. The cleaned result then only counts as sanitized at a use that
+// is control-flow dominated by a proof that the paired error result was nil
+// (see [SanitizerModel.Result]). Both indices are zero-based result positions,
+// must be provided together, must be non-negative, and must differ.
 type SanitizerModel struct {
 	// Func is the fully-qualified sanitizing function or method, e.g.
 	// "html.EscapeString".
 	Func string `yaml:"func"`
+	// Result is the zero-based index of the returned value that carries the
+	// sanitized data. It is only meaningful together with ErrorResult; when
+	// both are set the sanitizer is guarded.
+	Result *int `yaml:"result,omitempty"`
+	// ErrorResult is the zero-based index of the returned error value whose
+	// nil-ness proves the guarded sanitizer succeeded. Setting it makes the
+	// sanitizer guarded, so Result is trusted only at uses reached after the
+	// same call's error result is known to be nil.
+	ErrorResult *int `yaml:"error_result,omitempty"`
 	// Kind is an optional, informational label.
 	Kind string `yaml:"kind,omitempty"`
+}
+
+// guarded reports whether the model declares a guarded sanitizer. A model with
+// neither index set is unconditional.
+func (s SanitizerModel) guarded() bool {
+	return s.Result != nil || s.ErrorResult != nil
 }
 
 // SummaryModel describes taint flow through a call without analyzing its body
@@ -469,6 +492,20 @@ func (m Model) validate() error {
 	for i, s := range m.Sanitizers {
 		if s.Func == "" {
 			return fmt.Errorf("taint: model %q sanitizer #%d is missing 'func'", m.Package, i)
+		}
+		if s.Result == nil && s.ErrorResult == nil {
+			continue
+		}
+		if s.Result == nil || s.ErrorResult == nil {
+			return fmt.Errorf("taint: model %q sanitizer %q must set both 'result' and 'error_result'", m.Package, s.Func)
+		}
+		if *s.Result < 0 || *s.ErrorResult < 0 {
+			return fmt.Errorf("taint: model %q sanitizer %q has a negative result index (result=%d, error_result=%d)",
+				m.Package, s.Func, *s.Result, *s.ErrorResult)
+		}
+		if *s.Result == *s.ErrorResult {
+			return fmt.Errorf("taint: model %q sanitizer %q uses the same index for 'result' and 'error_result' (%d)",
+				m.Package, s.Func, *s.Result)
 		}
 	}
 	for i, s := range m.Summaries {

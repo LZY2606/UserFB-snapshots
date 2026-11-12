@@ -27,7 +27,10 @@ sources:
     field: Body                                  # is tainted, not req.Method
 
 sanitizers:
-  - func: "github.com/acme/safe.Escape"          # neutralizes taint
+  - func: "github.com/acme/safe.Escape"          # neutralizes taint (unconditional)
+  - func: "github.com/acme/safe.TryEscape"       # fallible: cleaned result 0...
+    result: 0                                    # ...only trusted when the same
+    error_result: 1                              # call's error (result 1) is nil
 
 summaries:
   - func: "github.com/acme/util.Concat"          # taint flows from arguments...
@@ -167,6 +170,83 @@ a field written only inside a helper through a passed pointer), the check falls
 back to the whole value, so it never reports *less* than the same sink without a
 field would. The field name is matched against the struct's declared fields.
 
+### Guarded (fallible) sanitizers
+
+Some library calls only clean a value when they succeed, reporting failure
+through a second `error` result. Listing such a function as an unconditional
+sanitizer would hide callers that forgot to check the error; not listing it
+would keep flagging callers that do check. Declare the *pair* of results
+instead:
+
+```yaml
+sanitizers:
+  - func: "github.com/acme/safe.Escape"   # func(s) (string, error)
+    result: 0                             # the cleaned value
+    error_result: 1                       # the error that proves success
+```
+
+Both indices are **zero-based result positions**, must be provided together,
+must be non-negative, and must differ. A model whose sanitizer sets only
+`func` (or a `WithSanitizers` entry) stays unconditional, exactly as before.
+
+The guarded meaning is use-site specific: the `result` value counts as
+sanitized only at a use that is control-flow dominated by a check proving the
+*same call's* `error_result` is nil. All of these are clean:
+
+```go
+v, err := safe.Escape(source())
+if err != nil {
+    return
+}
+sink(v)                       // clean: the rejecting branch exits
+
+v, err = safe.Escape(source())
+if err == nil {
+    sink(v)                   // clean: the nil edge reaches the sink
+}
+
+v, err = safe.Escape(source())
+if err == nil {
+} else {
+    return
+}
+sink(v)                       // clean: only the success path survives
+```
+
+These still report, because no dominating proof covers the use:
+
+```go
+v, _ := safe.Escape(source())
+sink(v)                       // no check at all
+
+v, err := safe.Escape(source())
+if err != nil {
+    sink(v)                   // used on the error path
+}
+
+v, err := safe.Escape(source())
+sink(v)                       // used before the check
+if err != nil {
+    return
+}
+```
+
+Call identity is tracked per SSA call value: two `Escape` calls returning
+values and errors are never cross-paired, even with identical arguments, and
+`err` reassigned from another source cannot vouch for an older result. Phis
+join per incoming edge, so a value is trusted only when *every* path reaching
+the use proves its own call; a branch that bypasses the check, substitutes the
+raw source, or carries a value from an earlier loop iteration keeps reporting.
+
+Supported precisely: static calls, SSA value aliases (conversions, interface
+changes, local loads through reaching stores), and Phi merges within one
+function. Deliberately conservative and not modeled: cross-function condition
+propagation, closures sharing written state, and concurrent scheduling. Out-of-
+bounds indices, a non-`error` error slot, an unresolvable call (for example an
+interface dispatch with no static callee), and an unchecked or reassigned
+error all count as unproven, so the finding stays with its ordinary source,
+sink, and evidence — the sanitizer never globally suppresses the function.
+
 ## Using models
 
 ### From the library
@@ -291,6 +371,12 @@ stays clean.
   field store is future work.
 - Import-aware gating in the CLIs keys on the model's `package`, so it should
   match the imported path.
+- Guarded sanitizers prove their error is nil only within one function: static
+  calls, SSA value aliases, local loads, and Phi merges. Cross-function
+  condition propagation, closures sharing written state, and concurrent
+  scheduling fall back to conservative reporting. Loop-carried values are never
+  proven, and a proof must dominate the use rather than merely appear
+  somewhere earlier in the function.
 
 These are deliberate first-phase scoping; see
 [design/models-as-data.md](design/models-as-data.md) for the direction.

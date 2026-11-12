@@ -1342,7 +1342,14 @@ func writeModelsSummary(bt *bufio.Writer, models []taint.Model) {
 			bt.WriteString(line + "\n")
 		}
 		for _, s := range m.Sanitizers {
-			bt.WriteString("  " + styleSubtle.Render("sanit") + "  " + s.Func + "\n")
+			line := "  " + styleSubtle.Render("sanit") + "  " + s.Func
+			if s.Result != nil && s.ErrorResult != nil {
+				line += styleFaint.Render(fmt.Sprintf(" result=%d error_result=%d", *s.Result, *s.ErrorResult))
+			}
+			if s.Kind != "" {
+				line += styleFaint.Render(" kind=" + s.Kind)
+			}
+			bt.WriteString(line + "\n")
 		}
 		for _, s := range m.Summaries {
 			from := "all"
