@@ -62,6 +62,10 @@ typedef struct glContext
 	GLboolean scissor_test;
 	GLboolean cube_map_seamless; // GL_TEXTURE_CUBE_MAP_SEAMLESS; LINEAR cube filter only
 
+	// pglConservativeRaster: filled triangles rasterize any pixel whose
+	// [x,x+1]x[y,y+1] square they overlap with positive area.
+	GLboolean conservative_raster;
+
 #ifndef PGL_DISABLE_COLOR_MASK
 	GLboolean color_writemask[GL_MAX_DRAW_BUFFERS][4];
 	pix_t color_mask_pix[GL_MAX_DRAW_BUFFERS];

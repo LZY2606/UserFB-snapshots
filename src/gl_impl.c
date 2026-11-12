@@ -234,6 +234,7 @@ PGLDEF GLboolean init_glContext(glContext* context, pix_t** back, GLsizei w, GLs
 	c->poly_offset_fill = GL_FALSE;
 	c->scissor_test = GL_FALSE;
 	c->cube_map_seamless = GL_FALSE;
+	c->conservative_raster = GL_FALSE;
 
 #ifndef PGL_NO_STENCIL
 	c->clear_stencil = 0;

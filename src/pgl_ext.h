@@ -25,6 +25,17 @@ typedef struct pgl_copy_data
 
 PGLDEF void pglClearScreen(void);
 
+// Conservative rasterization for filled triangles (off by default, per-context).
+// A pixel generates a fragment whenever the clipped, projected triangle
+// overlaps its [x,x+1]x[y,y+1] square with positive area, even if no pixel
+// center is covered.  gl_FragCoord.xy and all smooth/noperspective varyings
+// are sampled at the centroid of the overlap; gl_FragCoord.z and the default
+// gl_FragDepth are the minimum window depth over the whole overlap (this mode
+// is meant for nearest-coverage recording).  Flat varyings still come from
+// the original primitive's provoking vertex.  Points, lines and polygon
+// wireframe/point modes are unaffected.
+PGLDEF void pglConservativeRaster(GLboolean enabled);
+
 //This isn't possible in regular OpenGL, changing the interpolation of vs output of
 //an existing shader.  You'd have to switch between 2 almost identical shaders.
 PGLDEF void pglSetInterp(GLsizei n, GLenum* interpolation);

@@ -17,6 +17,11 @@ PGLDEF void pglClearScreen(void)
 	memset(c->back_buffer.buf, 255, c->back_buffer.w * c->back_buffer.h * sizeof(pix_t));
 }
 
+PGLDEF void pglConservativeRaster(GLboolean enabled)
+{
+	c->conservative_raster = enabled ? GL_TRUE : GL_FALSE;
+}
+
 PGLDEF void pglSetInterp(GLsizei n, GLenum* interpolation)
 {
 	c->programs.a[c->cur_program].vs_output_size = n;

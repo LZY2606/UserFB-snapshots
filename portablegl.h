@@ -4041,6 +4041,10 @@ typedef struct glContext
 	GLboolean scissor_test;
 	GLboolean cube_map_seamless; // GL_TEXTURE_CUBE_MAP_SEAMLESS; LINEAR cube filter only
 
+	// pglConservativeRaster: filled triangles rasterize any pixel whose
+	// [x,x+1]x[y,y+1] square they overlap with positive area.
+	GLboolean conservative_raster;
+
 #ifndef PGL_DISABLE_COLOR_MASK
 	GLboolean color_writemask[GL_MAX_DRAW_BUFFERS][4];
 	pix_t color_mask_pix[GL_MAX_DRAW_BUFFERS];
@@ -4604,6 +4608,17 @@ typedef struct pgl_copy_data
 } pgl_copy_data;
 
 PGLDEF void pglClearScreen(void);
+
+// Conservative rasterization for filled triangles (off by default, per-context).
+// A pixel generates a fragment whenever the clipped, projected triangle
+// overlaps its [x,x+1]x[y,y+1] square with positive area, even if no pixel
+// center is covered.  gl_FragCoord.xy and all smooth/noperspective varyings
+// are sampled at the centroid of the overlap; gl_FragCoord.z and the default
+// gl_FragDepth are the minimum window depth over the whole overlap (this mode
+// is meant for nearest-coverage recording).  Flat varyings still come from
+// the original primitive's provoking vertex.  Points, lines and polygon
+// wireframe/point modes are unaffected.
+PGLDEF void pglConservativeRaster(GLboolean enabled);
 
 //This isn't possible in regular OpenGL, changing the interpolation of vs output of
 //an existing shader.  You'd have to switch between 2 almost identical shaders.
@@ -7486,6 +7501,7 @@ static void draw_triangle_clip(glVertex* v0, glVertex* v1, glVertex* v2,
 static void draw_triangle_point(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
 static void draw_triangle_line(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
 static void draw_triangle_fill(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
+static void draw_triangle_conservative(glVertex* v0, glVertex* v1, glVertex* v2, unsigned int provoke);
 
 static void pgl_assemble_lines(GLenum mode, GLsizei count);
 static void pgl_assemble_tris(GLenum mode, GLsizei count);
@@ -8386,6 +8402,26 @@ static void pgl_assemble_tris(GLenum mode, GLsizei count)
 			kind = pgl_tri_class(v0, v1, v2);
 			if (kind < 0)
 				continue;
+			if (c->conservative_raster &&
+			    v0->clip_space.w > 0.0f && v1->clip_space.w > 0.0f && v2->clip_space.w > 0.0f) {
+				// Whole-primitive conservative fill: one fragment per
+				// covered pixel no matter how clipping would fan the
+				// triangle out.  Point/line polygon modes and w <= 0
+				// vertices fall through to the normal paths.
+				int front = is_front_facing(v0, v1, v2);
+				if (!pgl_face_culled(front) &&
+				    (front ? c->draw_triangle_front : c->draw_triangle_back) == draw_triangle_fill) {
+					// Flush buffered prims so draw order is preserved.
+					if (n_out) {
+						pgl_raster_tris(recs, n_out);
+						n_out = 0;
+						c->clip_arena.count = 0;
+					}
+					c->builtins.gl_FrontFacing = front ? GL_TRUE : GL_FALSE;
+					draw_triangle_conservative(v0, v1, v2, provoke);
+					continue;
+				}
+			}
 			if (kind == 0) {
 				// One clipped triangle needs 64 output slots. Raster first if
 				// they are not free, then append into this same buffer.
@@ -9645,6 +9681,289 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 						draw_fragment(&builtins, ix, iy, fragdepth_or_discard);
 					}
 				}
+			}
+		}
+	}
+}
+
+
+/* Conservative rasterization (pglConservativeRaster), filled triangles only.
+ *
+ * The triangle is clipped against the near/far planes in homogeneous clip
+ * space (z = ±w) as usual, projected through the regular viewport mapping,
+ * then intersected in window space with the raster rect (viewport ∩ scissor
+ * ∩ framebuffer) and with each pixel square [x,x+1]×[y,y+1].  A pixel gets
+ * exactly one fragment per primitive when that overlap has positive area;
+ * touching along an edge or a point does not count.  Because the whole
+ * original primitive is handled at once, a triangle that clipping would
+ * split into a fan still shades each pixel only once, with the centroid and
+ * minimum depth taken over the entire overlap.
+ *
+ * Two different geometric quantities per fragment, don't mix them up:
+ *  - gl_FragCoord.xy and every smooth/noperspective varying are sampled at
+ *    the area centroid of the overlap polygon.
+ *  - gl_FragCoord.z and the default gl_FragDepth are the minimum window
+ *    depth over the whole overlap (this mode records nearest coverage).
+ *    Depth is affine across the projected triangle, so the minimum over
+ *    the convex overlap sits at one of its vertices; it is NOT
+ *    perspective-correct interpolated a second time.
+ * Flat varyings come from the original primitive's provoking vertex, never
+ * from a vertex introduced by clipping.
+ *
+ * Window coordinates are kept in double precision and never snapped to the
+ * 1/256 subpixel grid, so a non-degenerate sliver thinner than a subpixel
+ * is not rounded away.  Scope: finite vertices with w > 0, default
+ * glDepthRange [0,1], GL_DEPTH_CLAMP off.
+ */
+
+// 3-gon + 2 z planes + 4 rect planes + 4 pixel planes = 13 max
+#define PGL_CONS_MAX_VERTS 16
+
+// Overlaps at or below this area are edge/point touches, not coverage.
+#define PGL_CONS_MIN_AREA 1e-12
+
+// Sutherland-Hodgman against one axis-aligned half-plane, in place.
+// sign > 0 keeps coord <= bound, sign < 0 keeps coord >= bound.
+static int pgl_cons_clip_half(double* px, double* py, int n, int axis, double bound, int sign)
+{
+	double ox[PGL_CONS_MAX_VERTS];
+	double oy[PGL_CONS_MAX_VERTS];
+	int m = 0;
+	for (int i = 0; i < n; ++i) {
+		int j = (i + 1) % n;
+		double ai = axis ? py[i] : px[i];
+		double bi = axis ? py[j] : px[j];
+		double da = (bound - ai) * sign;  // >= 0 is inside
+		double db = (bound - bi) * sign;
+		if (da >= 0.0) {
+			ox[m] = px[i];
+			oy[m] = py[i];
+			++m;
+			if (db < 0.0) {
+				double t = da / (da - db);
+				ox[m] = px[i] + t * (px[j] - px[i]);
+				oy[m] = py[i] + t * (py[j] - py[i]);
+				++m;
+			}
+		} else if (db >= 0.0) {
+			double t = da / (da - db);
+			ox[m] = px[i] + t * (px[j] - px[i]);
+			oy[m] = py[i] + t * (py[j] - py[i]);
+			++m;
+		}
+	}
+	for (int i = 0; i < m; ++i) {
+		px[i] = ox[i];
+		py[i] = oy[i];
+	}
+	return m;
+}
+
+// Homogeneous clip against z >= -w (far_plane == 0) or z <= w.
+static int pgl_cons_clip_z(vec4* v, int n, int far_plane)
+{
+	vec4 out[8];
+	int m = 0;
+	for (int i = 0; i < n; ++i) {
+		int j = (i + 1) % n;
+		double da = far_plane ? (double)v[i].w - v[i].z : (double)v[i].z + v[i].w;
+		double db = far_plane ? (double)v[j].w - v[j].z : (double)v[j].z + v[j].w;
+		if (da >= 0.0) {
+			out[m++] = v[i];
+			if (db < 0.0) {
+				double t = da / (da - db);
+				out[m].x = (float)(v[i].x + t * (v[j].x - v[i].x));
+				out[m].y = (float)(v[i].y + t * (v[j].y - v[i].y));
+				out[m].z = (float)(v[i].z + t * (v[j].z - v[i].z));
+				out[m].w = (float)(v[i].w + t * (v[j].w - v[i].w));
+				++m;
+			}
+		} else if (db >= 0.0) {
+			double t = da / (da - db);
+			out[m].x = (float)(v[i].x + t * (v[j].x - v[i].x));
+			out[m].y = (float)(v[i].y + t * (v[j].y - v[i].y));
+			out[m].z = (float)(v[i].z + t * (v[j].z - v[i].z));
+			out[m].w = (float)(v[i].w + t * (v[j].w - v[i].w));
+			++m;
+		}
+	}
+	for (int i = 0; i < m; ++i)
+		v[i] = out[i];
+	return m;
+}
+
+static void draw_triangle_conservative(glVertex* v0, glVertex* v1, glVertex* v2, unsigned int provoke)
+{
+	vec4 p0 = v0->screen_space;
+	vec4 p1 = v1->screen_space;
+	vec4 p2 = v2->screen_space;
+
+	vec3 hp0 = v4_to_v3h(p0);
+	vec3 hp1 = v4_to_v3h(p1);
+	vec3 hp2 = v4_to_v3h(p2);
+
+	pgl_setup_tri_mip_grad(v0, v1, v2, hp0, hp1, hp2);
+
+	float poly_offset = 0;
+	if (c->poly_offset_fill) {
+		poly_offset = calc_poly_offset(hp0, hp1, hp2);
+	}
+
+	// Screen-space barycentric denominator from the unsnapped projected
+	// triangle.  Only an exactly degenerate projection has no interior
+	// and hence no conservative coverage.
+	double x0 = hp0.x, y0 = hp0.y;
+	double x1 = hp1.x, y1 = hp1.y;
+	double x2 = hp2.x, y2 = hp2.y;
+	double den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+	if (den == 0.0)
+		return;
+
+	// Near/far clip in homogeneous space, same planes as the normal path.
+	vec4 cpoly[8];
+	cpoly[0] = v0->clip_space;
+	cpoly[1] = v1->clip_space;
+	cpoly[2] = v2->clip_space;
+	int n = 3;
+	n = pgl_cons_clip_z(cpoly, n, 0);
+	n = pgl_cons_clip_z(cpoly, n, 1);
+	if (n < 3)
+		return;
+
+	// Project with the regular viewport matrix.
+	double px[PGL_CONS_MAX_VERTS];
+	double py[PGL_CONS_MAX_VERTS];
+	for (int i = 0; i < n; ++i) {
+		vec4 s = mult_m4_v4(c->vp_mat, cpoly[i]);
+		px[i] = (double)s.x / s.w;
+		py[i] = (double)s.y / s.w;
+	}
+
+	// Viewport ∩ scissor ∩ framebuffer, same rect as draw_triangle_fill.
+	int r_left, r_bottom, r_right, r_top;
+	if (!pgl_viewport_raster_rect(&r_left, &r_bottom, &r_right, &r_top))
+		return;
+	n = pgl_cons_clip_half(px, py, n, 0, r_left, -1);
+	n = pgl_cons_clip_half(px, py, n, 0, r_right, 1);
+	n = pgl_cons_clip_half(px, py, n, 1, r_bottom, -1);
+	n = pgl_cons_clip_half(px, py, n, 1, r_top, 1);
+	if (n < 3)
+		return;
+
+	double minx = px[0], maxx = px[0], miny = py[0], maxy = py[0];
+	for (int i = 1; i < n; ++i) {
+		minx = MIN(minx, px[i]);
+		maxx = MAX(maxx, px[i]);
+		miny = MIN(miny, py[i]);
+		maxy = MAX(maxy, py[i]);
+	}
+
+	// Pixel squares [ix,ix+1]x[iy,iy+1] that can overlap the polygon.
+	int ix0 = MAX((int)floor(minx), r_left);
+	int ix1 = MIN((int)ceil(maxx), r_right);
+	int iy0 = MAX((int)floor(miny), r_bottom);
+	int iy1 = MIN((int)ceil(maxy), r_top);
+
+	float fs_input[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	float perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS*3];
+	float* vs_output = &c->vs_output.output_buf[0];
+
+	for (int i=0; i<c->vs_output.size; ++i) {
+		perspective[i] = v0->vs_out[i]/p0.w;
+		perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS + i] = v1->vs_out[i]/p1.w;
+		perspective[2*GL_MAX_VERTEX_OUTPUT_COMPONENTS + i] = v2->vs_out[i]/p2.w;
+	}
+	float inv_w0 = 1/p0.w;
+	float inv_w1 = 1/p1.w;
+	float inv_w2 = 1/p2.w;
+
+	int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
+	Shader_Builtins builtins;
+
+	for (int iy = iy0; iy < iy1; ++iy) {
+		for (int ix = ix0; ix < ix1; ++ix) {
+			double qx[PGL_CONS_MAX_VERTS];
+			double qy[PGL_CONS_MAX_VERTS];
+			memcpy(qx, px, n * sizeof(double));
+			memcpy(qy, py, n * sizeof(double));
+			int m = pgl_cons_clip_half(qx, qy, n, 0, ix, -1);
+			m = pgl_cons_clip_half(qx, qy, m, 0, ix + 1.0, 1);
+			m = pgl_cons_clip_half(qx, qy, m, 1, iy, -1);
+			m = pgl_cons_clip_half(qx, qy, m, 1, iy + 1.0, 1);
+			if (m < 3)
+				continue;
+
+			// Signed double area and first moments of the overlap.
+			double a2 = 0, momx = 0, momy = 0;
+			for (int i = 0; i < m; ++i) {
+				int j = (i + 1) % m;
+				double cross = qx[i]*qy[j] - qx[j]*qy[i];
+				a2 += cross;
+				momx += (qx[i] + qx[j]) * cross;
+				momy += (qy[i] + qy[j]) * cross;
+			}
+			// Edge/point contact only: no positive-area overlap, no fragment.
+			if (fabs(a2) * 0.5 <= PGL_CONS_MIN_AREA)
+				continue;
+
+			double cx = momx / (3.0 * a2);
+			double cy = momy / (3.0 * a2);
+
+			// Minimum window (NDC) depth over the overlap: depth is
+			// screen-affine, so check the overlap's vertices only.
+			double zmin = 0;
+			for (int i = 0; i < m; ++i) {
+				double va = ((y1 - y2)*(qx[i] - x2) + (x2 - x1)*(qy[i] - y2)) / den;
+				double vb = ((y2 - y0)*(qx[i] - x2) + (x0 - x2)*(qy[i] - y2)) / den;
+				double vc = 1.0 - va - vb;
+				double vz = va*hp0.z + vb*hp1.z + vc*hp2.z;
+				if (!i || vz < zmin)
+					zmin = vz;
+			}
+			zmin += poly_offset;
+			float z = rsw_mapf((float)zmin, -1.0f, 1.0f, c->depth_range_near, c->depth_range_far);
+
+			// early testing if shader doesn't use fragdepth or discard
+			if (!fragdepth_or_discard && !fragment_processing(ix, iy, z)) {
+				continue;
+			}
+
+			// Barycentrics of the centroid wrt the original projected
+			// triangle; valid over the whole clipped overlap.
+			double da = ((y1 - y2)*(cx - x2) + (x2 - x1)*(cy - y2)) / den;
+			double db = ((y2 - y0)*(cx - x2) + (x0 - x2)*(cy - y2)) / den;
+			float alpha = (float)da;
+			float beta  = (float)db;
+			float gamma = (float)(1.0 - da - db);
+			float tmp, tmp2;
+
+			tmp2 = alpha*inv_w0 + beta*inv_w1 + gamma*inv_w2;
+
+			for (int i=0; i<c->vs_output.size; ++i) {
+				if (c->vs_output.interpolation[i] == PGL_SMOOTH) {
+					tmp = alpha*perspective[i] + beta*perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS + i] + gamma*perspective[2*GL_MAX_VERTEX_OUTPUT_COMPONENTS + i];
+
+					fs_input[i] = tmp/tmp2;
+
+				} else if (c->vs_output.interpolation[i] == PGL_NOPERSPECTIVE) {
+					fs_input[i] = alpha * v0->vs_out[i] + beta * v1->vs_out[i] + gamma * v2->vs_out[i];
+				} else { // == PGL_FLAT
+					fs_input[i] = vs_output[provoke*c->vs_output.size + i];
+				}
+			}
+
+			// gl_FragCoord.xy is the overlap centroid, not the pixel center
+			SET_V4(builtins.gl_FragCoord, (float)cx, (float)cy, z, tmp2);
+			builtins.discard = GL_FALSE;
+			builtins.gl_FragDepth = z;
+
+			builtins.gl_InstanceID = c->builtins.gl_InstanceID;
+			builtins.gl_FrontFacing = c->builtins.gl_FrontFacing;
+
+			c->programs.a[c->cur_program].fragment_shader(fs_input, &builtins, c->programs.a[c->cur_program].uniform);
+			if (!builtins.discard) {
+
+				draw_fragment(&builtins, ix, iy, fragdepth_or_discard);
 			}
 		}
 	}
@@ -12174,6 +12493,7 @@ PGLDEF GLboolean init_glContext(glContext* context, pix_t** back, GLsizei w, GLs
 	c->poly_offset_fill = GL_FALSE;
 	c->scissor_test = GL_FALSE;
 	c->cube_map_seamless = GL_FALSE;
+	c->conservative_raster = GL_FALSE;
 
 #ifndef PGL_NO_STENCIL
 	c->clear_stencil = 0;
@@ -17268,6 +17588,11 @@ PGLDEF ivec3 textureSize(GLuint tex, GLint lod)
 PGLDEF void pglClearScreen(void)
 {
 	memset(c->back_buffer.buf, 255, c->back_buffer.w * c->back_buffer.h * sizeof(pix_t));
+}
+
+PGLDEF void pglConservativeRaster(GLboolean enabled)
+{
+	c->conservative_raster = enabled ? GL_TRUE : GL_FALSE;
 }
 
 PGLDEF void pglSetInterp(GLsizei n, GLenum* interpolation)

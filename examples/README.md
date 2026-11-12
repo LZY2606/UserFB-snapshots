@@ -57,6 +57,17 @@ makes its way over here from demos as I polish them up.
 | [ex1_std_shaders.c](original/ex1_std_shaders.c) | <img src="original/ex1.png" alt="ex1_std_shaders" width="80"> | 0.100.0 | [Robert Winkler](https://github.com/rswinkle) |
 | [ex2_std_shaders.c](original/ex2_std_shaders.c) | <img src="original/ex2.png" alt="ex2_std_shaders" width="80"> | 0.100.0 | [Robert Winkler](https://github.com/rswinkle) |
 
+[conservative_raster.c](original/conservative_raster.c) is a standalone, windowless
+demo of `pglConservativeRaster()` that needs no SDL.  It renders a sub-pixel-wide
+sliver triangle with the normal and the conservative rasterizer side by side into
+a PPM image, and its header comment explains the difference between the two
+geometric quantities a conservative fragment carries: `gl_FragCoord.xy` and the
+smooth/noperspective varyings are sampled at the centroid of the triangle's
+overlap with the pixel square, while `gl_FragCoord.z` (and the default
+`gl_FragDepth`) is the minimum window depth over the whole overlap.  Build it
+directly, e.g. `cc -O2 -I. examples/original/conservative_raster.c` from the
+repo root.
+
 ### Classic Ports
 
 Ports of classic OpenGL programs/demos
