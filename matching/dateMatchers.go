@@ -3,7 +3,6 @@ package matching
 import (
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/nbutton23/zxcvbn-go/entropy"
 	"github.com/nbutton23/zxcvbn-go/match"
@@ -52,6 +51,7 @@ func dateSepMatcher(password string) []match.Match {
 	var matches []match.Match
 	for _, dateMatch := range dateMatches {
 		match := match.Match{
+			Pattern:        "date",
 			I:              dateMatch.I,
 			J:              dateMatch.J,
 			Entropy:        entropy.DateEntropy(dateMatch),
@@ -64,29 +64,33 @@ func dateSepMatcher(password string) []match.Match {
 
 	return matches
 }
+
 func dateSepMatchHelper(password string) []match.DateMatch {
-
 	var matches []match.DateMatch
+	slicer := newRuneSlicer(password)
 
-	for _, v := range dateRxYearSuffix.FindAllString(password, len(password)) {
-		splitV := dateRxYearSuffix.FindAllStringSubmatch(v, len(v))
-		i := strings.Index(password, v)
-		j := i + len(v)
-		day, _ := strconv.ParseInt(splitV[0][4], 10, 16)
-		month, _ := strconv.ParseInt(splitV[0][2], 10, 16)
-		year, _ := strconv.ParseInt(splitV[0][6], 10, 16)
-		match := match.DateMatch{Day: day, Month: month, Year: year, Separator: splitV[0][5], I: i, J: j, Token: password[i:j]}
+	// Submatch indices (not text search) give the real position of every
+	// occurrence, so a date that appears twice keeps two distinct locations.
+	// Byte offsets are converted to inclusive rune coordinates.
+	for _, loc := range dateRxYearSuffix.FindAllStringSubmatchIndex(password, -1) {
+		group := func(g int) string { return password[loc[2*g]:loc[2*g+1]] }
+		day, _ := strconv.ParseInt(group(4), 10, 16)
+		month, _ := strconv.ParseInt(group(2), 10, 16)
+		year, _ := strconv.ParseInt(group(6), 10, 16)
+		i := slicer.runeIndex(loc[0])
+		j := slicer.runeIndex(loc[1]) - 1
+		match := match.DateMatch{Day: day, Month: month, Year: year, Separator: group(5), I: i, J: j, Token: slicer.slice(password, i, j)}
 		matches = append(matches, match)
 	}
 
-	for _, v := range dateRxYearPrefix.FindAllString(password, len(password)) {
-		splitV := dateRxYearPrefix.FindAllStringSubmatch(v, len(v))
-		i := strings.Index(password, v)
-		j := i + len(v)
-		day, _ := strconv.ParseInt(splitV[0][4], 10, 16)
-		month, _ := strconv.ParseInt(splitV[0][6], 10, 16)
-		year, _ := strconv.ParseInt(splitV[0][2], 10, 16)
-		match := match.DateMatch{Day: day, Month: month, Year: year, Separator: splitV[0][5], I: i, J: j, Token: password[i:j]}
+	for _, loc := range dateRxYearPrefix.FindAllStringSubmatchIndex(password, -1) {
+		group := func(g int) string { return password[loc[2*g]:loc[2*g+1]] }
+		day, _ := strconv.ParseInt(group(4), 10, 16)
+		month, _ := strconv.ParseInt(group(6), 10, 16)
+		year, _ := strconv.ParseInt(group(2), 10, 16)
+		i := slicer.runeIndex(loc[0])
+		j := slicer.runeIndex(loc[1]) - 1
+		match := match.DateMatch{Day: day, Month: month, Year: year, Separator: group(5), I: i, J: j, Token: slicer.slice(password, i, j)}
 		matches = append(matches, match)
 	}
 
@@ -123,6 +127,7 @@ func dateWithoutSepMatch(password string) []match.Match {
 	var matches []match.Match
 	for _, dateMatch := range dateMatches {
 		match := match.Match{
+			Pattern:        "date",
 			I:              dateMatch.I,
 			J:              dateMatch.J,
 			Entropy:        entropy.DateEntropy(dateMatch),
@@ -138,9 +143,11 @@ func dateWithoutSepMatch(password string) []match.Match {
 
 //TODO Has issues with 6 digit dates
 func dateWithoutSepMatchHelper(password string) (matches []match.DateMatch) {
-	for _, v := range dateWithOutSepMatch.FindAllString(password, len(password)) {
-		i := strings.Index(password, v)
-		j := i + len(v)
+	slicer := newRuneSlicer(password)
+	for _, loc := range dateWithOutSepMatch.FindAllStringIndex(password, -1) {
+		v := password[loc[0]:loc[1]]
+		i := slicer.runeIndex(loc[0])
+		j := slicer.runeIndex(loc[1]) - 1
 		length := len(v)
 		lastIndex := length - 1
 		var candidatesRoundOne []dateMatchCandidate
@@ -190,7 +197,7 @@ func dateWithoutSepMatchHelper(password string) (matches []match.DateMatch) {
 			}
 
 			if ok, _, _, _ := checkDate(intDay, intMonth, intYear); ok {
-				matches = append(matches, match.DateMatch{Token: password, Pattern: "date", Day: intDay, Month: intMonth, Year: intYear, I: i, J: j})
+				matches = append(matches, match.DateMatch{Token: slicer.slice(password, i, j), Pattern: "date", Day: intDay, Month: intMonth, Year: intYear, I: i, J: j})
 			}
 
 		}

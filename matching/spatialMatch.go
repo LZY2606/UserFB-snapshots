@@ -25,23 +25,24 @@ func spatialMatch(password string) (matches []match.Match) {
 }
 
 func spatialMatchHelper(password string, graph adjacency.Graph) (matches []match.Match) {
+	slicer := newRuneSlicer(password)
 
-	for i := 0; i < len(password)-1; {
+	for i := 0; i < slicer.len()-1; {
 		j := i + 1
 		lastDirection := -99 //an int that it should never be!
 		turns := 0
 		shiftedCount := 0
 
 		for {
-			prevChar := password[j-1]
+			prevChar := slicer.runes[j-1]
 			found := false
 			foundDirection := -1
 			curDirection := -1
 			//My graphs seem to be wrong. . . and where the hell is qwerty
 			adjacents := graph.Graph[string(prevChar)]
 			//Consider growing pattern by one character if j hasn't gone over the edge
-			if j < len(password) {
-				curChar := password[j]
+			if j < slicer.len() {
+				curChar := slicer.runes[j]
 				for _, adj := range adjacents {
 					curDirection++
 
@@ -73,7 +74,7 @@ func spatialMatchHelper(password string, graph adjacency.Graph) (matches []match
 				//otherwise push the pattern discovered so far, if any...
 				//don't consider length 1 or 2 chains.
 				if j-i > 2 {
-					matchSpc := match.Match{Pattern: "spatial", I: i, J: j - 1, Token: password[i:j], DictionaryName: graph.Name}
+					matchSpc := match.Match{Pattern: "spatial", I: i, J: j - 1, Token: slicer.slice(password, i, j-1), DictionaryName: graph.Name}
 					matchSpc.Entropy = entropy.SpatialEntropy(matchSpc, turns, shiftedCount)
 					matches = append(matches, matchSpc)
 				}

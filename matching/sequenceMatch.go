@@ -16,16 +16,18 @@ func FilterSequenceMatcher(m match.Matcher) bool {
 
 func sequenceMatch(password string) []match.Match {
 	var matches []match.Match
-	for i := 0; i < len(password); {
+	slicer := newRuneSlicer(password)
+
+	for i := 0; i < slicer.len(); {
 		j := i + 1
 		var seq string
 		var seqName string
 		seqDirection := 0
 		for seqCandidateName, seqCandidate := range sequences {
-			iN := strings.Index(seqCandidate, string(password[i]))
+			iN := strings.Index(seqCandidate, string(slicer.runes[i]))
 			var jN int
-			if j < len(password) {
-				jN = strings.Index(seqCandidate, string(password[j]))
+			if j < slicer.len() {
+				jN = strings.Index(seqCandidate, string(slicer.runes[j]))
 			} else {
 				jN = -1
 			}
@@ -45,18 +47,18 @@ func sequenceMatch(password string) []match.Match {
 		if seq != "" {
 			for {
 				var prevN, curN int
-				if j < len(password) {
-					prevChar, curChar := password[j-1], password[j]
+				if j < slicer.len() {
+					prevChar, curChar := slicer.runes[j-1], slicer.runes[j]
 					prevN, curN = strings.Index(seq, string(prevChar)), strings.Index(seq, string(curChar))
 				}
 
-				if j == len(password) || curN-prevN != seqDirection {
+				if j == slicer.len() || curN-prevN != seqDirection {
 					if j-i > 2 {
 						matchSequence := match.Match{
 							Pattern:        "sequence",
 							I:              i,
 							J:              j - 1,
-							Token:          password[i:j],
+							Token:          slicer.slice(password, i, j-1),
 							DictionaryName: seqName,
 						}
 

@@ -2,6 +2,7 @@ package scoring
 
 import (
 	"fmt"
+
 	"github.com/nbutton23/zxcvbn-go/entropy"
 	"github.com/nbutton23/zxcvbn-go/match"
 	"github.com/nbutton23/zxcvbn-go/utils/math"
@@ -35,13 +36,22 @@ MinimumEntropyMatchSequence returns the minimum entropy
 
     Takes a list of overlapping matches, returns the non-overlapping sublist with
     minimum entropy. O(nm) dp alg for length-n password with m candidate matches.
+
+Coordinates are zero-based, inclusive Unicode rune indices, matching the
+convention used by the matchers. The dynamic program advances one rune at a
+time and brute-force gaps are sliced from the original password with rune
+coordinates, so concatenating the tokens of the returned sequence always
+reproduces the password exactly.
 */
 func MinimumEntropyMatchSequence(password string, matches []match.Match) MinEntropyMatch {
 	bruteforceCardinality := float64(entropy.CalcBruteForceCardinality(password))
-	upToK := make([]float64, len(password))
-	backPointers := make([]match.Match, len(password))
+	passwordRunes := []rune(password)
+	passwordLen := len(passwordRunes)
 
-	for k := 0; k < len(password); k++ {
+	upToK := make([]float64, passwordLen)
+	backPointers := make([]match.Match, passwordLen)
+
+	for k := 0; k < passwordLen; k++ {
 		upToK[k] = get(upToK, k-1) + math.Log2(bruteforceCardinality)
 
 		for _, match := range matches {
@@ -64,9 +74,7 @@ func MinimumEntropyMatchSequence(password string, matches []match.Match) MinEntr
 
 	//walk backwards and decode the best sequence
 	var matchSequence []match.Match
-	passwordLen := len(password)
-	passwordLen--
-	for k := passwordLen; k >= 0; {
+	for k := passwordLen - 1; k >= 0; {
 		match := backPointers[k]
 		if match.Pattern != "" {
 			matchSequence = append(matchSequence, match)
@@ -83,8 +91,8 @@ func MinimumEntropyMatchSequence(password string, matches []match.Match) MinEntr
 		return match.Match{Pattern: "bruteforce",
 			I:       i,
 			J:       j,
-			Token:   password[i : j+1],
-			Entropy: math.Log2(math.Pow(bruteforceCardinality, float64(j-i)))}
+			Token:   string(passwordRunes[i : j+1]),
+			Entropy: math.Log2(math.Pow(bruteforceCardinality, float64(j-i+1)))}
 
 	}
 
@@ -99,14 +107,14 @@ func MinimumEntropyMatchSequence(password string, matches []match.Match) MinEntr
 		matchSequenceCopy = append(matchSequenceCopy, match)
 	}
 
-	if k < len(password) {
-		matchSequenceCopy = append(matchSequenceCopy, makeBruteForceMatch(k, len(password)-1))
+	if passwordLen > 0 && k < passwordLen {
+		matchSequenceCopy = append(matchSequenceCopy, makeBruteForceMatch(k, passwordLen-1))
 	}
 	var minEntropy float64
-	if len(password) == 0 {
+	if passwordLen == 0 {
 		minEntropy = float64(0)
 	} else {
-		minEntropy = upToK[len(password)-1]
+		minEntropy = upToK[passwordLen-1]
 	}
 
 	crackTime := roundToXDigits(entropyToCrackTime(minEntropy), 3)

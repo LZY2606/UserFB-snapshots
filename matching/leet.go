@@ -17,18 +17,32 @@ func FilterL33tMatcher(m match.Matcher) bool {
 
 func l33tMatch(password string) []match.Match {
 	permutations := getPermutations(password)
+	slicer := newRuneSlicer(password)
 
 	var matches []match.Match
 
 	for _, permutation := range permutations {
-		for _, mather := range dictionaryMatchers {
-			matches = append(matches, mather.MatchingFunc(permutation)...)
+		// Leet substitutions replace one rune by another, so a permutation
+		// keeps the password's rune length and its rune coordinates line up
+		// with the original input. Skip anything that does not.
+		permRunes := []rune(permutation)
+		if len(permRunes) != slicer.len() {
+			continue
 		}
-	}
-
-	for _, match := range matches {
-		match.Entropy += entropy.ExtraLeetEntropy(match, password)
-		match.DictionaryName = match.DictionaryName + "_3117"
+		for _, mather := range dictionaryMatchers {
+			// The permutation is a derived lookup view; matches carry rune
+			// coordinates that are valid for the original password as well.
+			derivedMatches := mather.MatchingFunc(permutation)
+			for i := range derivedMatches {
+				derived := derivedMatches[i]
+				substitutedToken := string(permRunes[derived.I : derived.J+1])
+				originalToken := slicer.slice(password, derived.I, derived.J)
+				derived.Entropy += entropy.ExtraLeetEntropy(originalToken, substitutedToken)
+				derived.Token = originalToken
+				derived.DictionaryName = derived.DictionaryName + "_3117"
+				matches = append(matches, derived)
+			}
+		}
 	}
 
 	return matches

@@ -50,6 +50,33 @@ form, like name and email. That way a password that includes the user's
 personal info can be heavily penalized. This list is also good for
 site-specific vocabulary.
 
+------------------------------------------------------------------------
+Unicode coordinates and compatibility scope
+------------------------------------------------------------------------
+
+All match coordinates (the I and J fields of Match and DateMatch, the
+candidates returned by Omnimatch, and the sequence returned by
+scoring.MinimumEntropyMatchSequence) are zero-based, inclusive Unicode
+rune indices into the original password. This also applies when the
+scoring package is called directly.
+
+- Tokens are always slices of the untouched original input. The input is
+  never NFC/NFKC-normalized, case-folded, or grapheme-merged: combining
+  marks and zero-width joiners each occupy their own rune position.
+- Lowercased dictionary views and leet permutations are internal lookup
+  views only; matches they produce are mapped back to original substrings
+  using the same rune coordinates.
+- The minimum-entropy dynamic program advances one rune at a time, and
+  brute-force gaps are priced and sliced per rune. Concatenating the
+  tokens of the returned MatchSequence in order reconstructs the password
+  exactly, with no overlap and no loss.
+- Empirical entropy formulas that use a character length count runes, not
+  UTF-8 bytes.
+- Inputs are expected to be valid UTF-8. The character classes, word
+  frequencies, keyboard graphs, leet enumeration rules, date recognition
+  rules and score thresholds are unchanged; no new dictionaries or search
+  strategies have been added.
+
 Bug reports and pull requests welcome!
 
 ------------------------------------------------------------------------

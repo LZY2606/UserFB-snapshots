@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -95,7 +96,8 @@ func SpatialEntropy(match match.Match, turns int, shiftCount int) float64 {
 
 	possibilities := float64(0)
 
-	length := float64(len(match.Token))
+	//Empirical formulas count characters, so use rune length rather than bytes.
+	length := float64(utf8.RuneCountInString(match.Token))
 
 	//TODO: Should this be <= or just < ?
 	//Estimate the number of possible patterns w/ length L or less with t turns or less
@@ -128,7 +130,7 @@ func SpatialEntropy(match match.Match, turns int, shiftCount int) float64 {
 // RepeatEntropy calculates the entropy for repeating entropy
 func RepeatEntropy(match match.Match) float64 {
 	cardinality := CalcBruteForceCardinality(match.Token)
-	entropy := math.Log2(cardinality * float64(len(match.Token)))
+	entropy := math.Log2(cardinality * float64(utf8.RuneCountInString(match.Token)))
 
 	return entropy
 }
@@ -156,14 +158,14 @@ func CalcBruteForceCardinality(password string) float64 {
 
 // SequenceEntropy calculates the entropy for sequences such as 4567 or cdef
 func SequenceEntropy(match match.Match, dictionaryLength int, ascending bool) float64 {
-	firstChar := match.Token[0]
+	firstChar, _ := utf8.DecodeRuneInString(match.Token)
 	baseEntropy := float64(0)
-	if string(firstChar) == "a" || string(firstChar) == "1" {
+	if firstChar == 'a' || firstChar == '1' {
 		baseEntropy = float64(0)
 	} else {
 		baseEntropy = math.Log2(float64(dictionaryLength))
 		//TODO: should this be just the first or any char?
-		if unicode.IsUpper(rune(firstChar)) {
+		if unicode.IsUpper(firstChar) {
 			baseEntropy++
 		}
 	}
@@ -171,16 +173,19 @@ func SequenceEntropy(match match.Match, dictionaryLength int, ascending bool) fl
 	if !ascending {
 		baseEntropy++
 	}
-	return baseEntropy + math.Log2(float64(len(match.Token)))
+	return baseEntropy + math.Log2(float64(utf8.RuneCountInString(match.Token)))
 }
 
-// ExtraLeetEntropy calulates the added entropy provied by l33t substitustions
-func ExtraLeetEntropy(match match.Match, password string) float64 {
+// ExtraLeetEntropy calulates the added entropy provied by l33t substitustions.
+// originalToken is the match slice from the untouched password and
+// substitutedToken the same slice from the leet-derived lookup view; both
+// share rune coordinates and are compared rune by rune.
+func ExtraLeetEntropy(originalToken, substitutedToken string) float64 {
 	var subsitutions float64
 	var unsub float64
-	subPassword := password[match.I:match.J]
-	for index, char := range subPassword {
-		if string(char) != string(match.Token[index]) {
+	originalRunes := []rune(originalToken)
+	for index, char := range substitutedToken {
+		if index >= len(originalRunes) || char != originalRunes[index] {
 			subsitutions++
 		} else {
 			//TODO: Make this only true for 1337 chars that are not subs?
