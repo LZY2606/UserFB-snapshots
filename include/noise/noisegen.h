@@ -25,6 +25,7 @@
 
 #include <math.h>
 #include "basictypes.h"
+#include "sample3.h"
 
 namespace noise
 {
@@ -77,6 +78,35 @@ namespace noise
   double GradientCoherentNoise3D (double x, double y, double z, int seed = 0,
     NoiseQuality noiseQuality = QUALITY_STD);
 
+  /// Generates a gradient-coherent-noise value and its spatial gradient from
+  /// the coordinates of a three-dimensional input value.
+  ///
+  /// @param x The @a x coordinate of the input value.
+  /// @param y The @a y coordinate of the input value.
+  /// @param z The @a z coordinate of the input value.
+  /// @param seed The random number seed.
+  /// @param noiseQuality The quality of the coherent-noise.
+  /// @param dx Receives the partial derivative of the return value with
+  /// respect to @a x.
+  /// @param dy Receives the partial derivative of the return value with
+  /// respect to @a y.
+  /// @param dz Receives the partial derivative of the return value with
+  /// respect to @a z.
+  /// @param differentiable Receives @a true if the gradient is valid at the
+  /// input value, or @a false if the input value lies on a lattice point
+  /// where the QUALITY_FAST derivative is discontinuous.
+  ///
+  /// @returns The generated gradient-coherent-noise value.  This value is
+  /// identical to the value returned by GradientCoherentNoise3D() for the
+  /// same parameters.
+  ///
+  /// The gradient is calculated analytically from the same eight lattice
+  /// values that generate the noise value; it is not estimated with finite
+  /// differences.
+  double GradientCoherentNoise3D (double x, double y, double z, int seed,
+    NoiseQuality noiseQuality, double& dx, double& dy, double& dz,
+    bool& differentiable);
+
   /// Generates a gradient-noise value from the coordinates of a
   /// three-dimensional input value and the integer coordinates of a
   /// nearby three-dimensional value.
@@ -120,6 +150,29 @@ namespace noise
   /// to it.
   double GradientNoise3D (double fx, double fy, double fz, int ix, int iy,
     int iz, int seed = 0);
+
+  /// Generates a gradient-noise value and its gradient from the coordinates
+  /// of a three-dimensional input value and the integer coordinates of a
+  /// nearby three-dimensional value.
+  ///
+  /// @param fx The floating-point @a x coordinate of the input value.
+  /// @param fy The floating-point @a y coordinate of the input value.
+  /// @param fz The floating-point @a z coordinate of the input value.
+  /// @param ix The integer @a x coordinate of a nearby value.
+  /// @param iy The integer @a y coordinate of a nearby value.
+  /// @param iz The integer @a z coordinate of a nearby value.
+  /// @param seed The random number seed.
+  /// @param gx Receives the partial derivative of the return value with
+  /// respect to @a fx.
+  /// @param gy Receives the partial derivative of the return value with
+  /// respect to @a fy.
+  /// @param gz Receives the partial derivative of the return value with
+  /// respect to @a fz.
+  ///
+  /// @returns The generated gradient-noise value.  This value is identical
+  /// to the value returned by GradientNoise3D() for the same parameters.
+  double GradientNoise3DWithDerivative (double fx, double fy, double fz,
+    int ix, int iy, int iz, int seed, double& gx, double& gy, double& gz);
 
   /// Generates an integer-noise value from the coordinates of a
   /// three-dimensional input value.

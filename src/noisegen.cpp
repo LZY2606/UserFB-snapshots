@@ -111,8 +111,153 @@ double noise::GradientCoherentNoise3D (double x, double y, double z, int seed,
   return LinearInterp (iy0, iy1, zs);
 }
 
+double noise::GradientCoherentNoise3D (double x, double y, double z, int seed,
+  NoiseQuality noiseQuality, double& dx, double& dy, double& dz,
+  bool& differentiable)
+{
+  // Create a unit-length cube aligned along an integer boundary.  This cube
+  // surrounds the input point.
+  int x0 = (x > 0.0? (int)x: (int)x - 1);
+  int x1 = x0 + 1;
+  int y0 = (y > 0.0? (int)y: (int)y - 1);
+  int y1 = y0 + 1;
+  int z0 = (z > 0.0? (int)z: (int)z - 1);
+  int z1 = z0 + 1;
+
+  // Map the difference between the coordinates of the input value and the
+  // coordinates of the cube's outer-lower-left vertex onto an S-curve, and
+  // calculate the derivative of that mapping.
+  double ax = x - (double)x0;
+  double ay = y - (double)y0;
+  double az = z - (double)z0;
+  double xs = 0, ys = 0, zs = 0;
+  double dxs = 0, dys = 0, dzs = 0;
+  bool curveDifferentiable = true;
+  switch (noiseQuality) {
+    case QUALITY_FAST:
+      // The linear interpolant has a discontinuous derivative at every
+      // integer lattice coordinate.  The offset is zero at the left face of
+      // the cell and one at the right face; negative integers land on the
+      // right face because of how the cell is chosen above.
+      xs = ax;
+      ys = ay;
+      zs = az;
+      dxs = 1.0;
+      dys = 1.0;
+      dzs = 1.0;
+      if (ax == 0.0 || ax == 1.0 || ay == 0.0 || ay == 1.0
+        || az == 0.0 || az == 1.0) {
+        curveDifferentiable = false;
+      }
+      break;
+    case QUALITY_STD:
+      xs = SCurve3 (ax);
+      ys = SCurve3 (ay);
+      zs = SCurve3 (az);
+      dxs = SCurve3Derivative (ax);
+      dys = SCurve3Derivative (ay);
+      dzs = SCurve3Derivative (az);
+      break;
+    case QUALITY_BEST:
+      xs = SCurve5 (ax);
+      ys = SCurve5 (ay);
+      zs = SCurve5 (az);
+      dxs = SCurve5Derivative (ax);
+      dys = SCurve5Derivative (ay);
+      dzs = SCurve5Derivative (az);
+      break;
+  }
+
+  // Calculate the noise values and the gradient vectors at each vertex of
+  // the cube.  The gradient vector contribution at a vertex is constant over
+  // the trilinear cell, so it can be collected while the eight values are
+  // generated.
+  double n000, n100, n010, n110, n001, n101, n011, n111;
+  double gx000, gy000, gz000, gx100, gy100, gz100;
+  double gx010, gy010, gz010, gx110, gy110, gz110;
+  double gx001, gy001, gz001, gx101, gy101, gz101;
+  double gx011, gy011, gz011, gx111, gy111, gz111;
+
+  n000 = GradientNoise3DWithDerivative (x, y, z, x0, y0, z0, seed,
+    gx000, gy000, gz000);
+  n100 = GradientNoise3DWithDerivative (x, y, z, x1, y0, z0, seed,
+    gx100, gy100, gz100);
+  n010 = GradientNoise3DWithDerivative (x, y, z, x0, y1, z0, seed,
+    gx010, gy010, gz010);
+  n110 = GradientNoise3DWithDerivative (x, y, z, x1, y1, z0, seed,
+    gx110, gy110, gz110);
+  n001 = GradientNoise3DWithDerivative (x, y, z, x0, y0, z1, seed,
+    gx001, gy001, gz001);
+  n101 = GradientNoise3DWithDerivative (x, y, z, x1, y0, z1, seed,
+    gx101, gy101, gz101);
+  n011 = GradientNoise3DWithDerivative (x, y, z, x0, y1, z1, seed,
+    gx011, gy011, gz011);
+  n111 = GradientNoise3DWithDerivative (x, y, z, x1, y1, z1, seed,
+    gx111, gy111, gz111);
+
+  // The gradient of the trilinear interpolant with respect to the input
+  // point is the trilinear interpolation of the eight vertex gradients.  The
+  // distance vectors between the input point and the vertices change when
+  // the input point moves, but their derivatives are just the gradient
+  // vectors themselves.
+  double wx0 = 1.0 - xs, wx1 = xs;
+  double wy0 = 1.0 - ys, wy1 = ys;
+  double wz0 = 1.0 - zs, wz1 = zs;
+  double gx = wz0 * (wy0 * (wx0 * gx000 + wx1 * gx100)
+                   + wy1 * (wx0 * gx010 + wx1 * gx110))
+            + wz1 * (wy0 * (wx0 * gx001 + wx1 * gx101)
+                   + wy1 * (wx0 * gx011 + wx1 * gx111));
+  double gy = wz0 * (wy0 * (wx0 * gy000 + wx1 * gy100)
+                   + wy1 * (wx0 * gy010 + wx1 * gy110))
+            + wz1 * (wy0 * (wx0 * gy001 + wx1 * gy101)
+                   + wy1 * (wx0 * gy011 + wx1 * gy111));
+  double gz = wz0 * (wy0 * (wx0 * gz000 + wx1 * gz100)
+                   + wy1 * (wx0 * gz010 + wx1 * gz110))
+            + wz1 * (wy0 * (wx0 * gz001 + wx1 * gz101)
+                   + wy1 * (wx0 * gz011 + wx1 * gz111));
+
+  // The derivative of the trilinear interpolant with respect to each
+  // coordinate has two parts: the change of the interpolation weights,
+  // scaled by the derivative of the S-curve, and the change of the vertex
+  // values themselves, whose slope is the interpolated vertex gradient.
+  double d0, d1;
+  d0  = (1.0 - ys) * (n100 - n000) + ys * (n110 - n010);
+  d1  = (1.0 - ys) * (n101 - n001) + ys * (n111 - n011);
+  dx  = dxs * ((1.0 - zs) * d0 + zs * d1) + gx;
+
+  d0  = (1.0 - xs) * (n010 - n000) + xs * (n110 - n100);
+  d1  = (1.0 - xs) * (n011 - n001) + xs * (n111 - n101);
+  dy  = dys * ((1.0 - zs) * d0 + zs * d1) + gy;
+
+  d0  = (1.0 - xs) * (n001 - n000) + xs * (n101 - n100);
+  d1  = (1.0 - xs) * (n011 - n010) + xs * (n111 - n110);
+  dz  = dzs * ((1.0 - ys) * d0 + ys * d1) + gz;
+
+  differentiable = curveDifferentiable;
+
+  // Assemble the value with the same interpolation sequence used by
+  // GradientCoherentNoise3D() so that both entry points return identical
+  // results at the same point.
+  double ix0, ix1, iy0, iy1;
+  ix0 = LinearInterp (n000, n100, xs);
+  ix1 = LinearInterp (n010, n110, xs);
+  iy0 = LinearInterp (ix0, ix1, ys);
+  ix0 = LinearInterp (n001, n101, xs);
+  ix1 = LinearInterp (n011, n111, xs);
+  iy1 = LinearInterp (ix0, ix1, ys);
+  return LinearInterp (iy0, iy1, zs);
+}
+
 double noise::GradientNoise3D (double fx, double fy, double fz, int ix,
   int iy, int iz, int seed)
+{
+  double gx, gy, gz;
+  return GradientNoise3DWithDerivative (fx, fy, fz, ix, iy, iz, seed,
+    gx, gy, gz);
+}
+
+double noise::GradientNoise3DWithDerivative (double fx, double fy, double fz,
+  int ix, int iy, int iz, int seed, double& gx, double& gy, double& gz)
 {
   // Randomly generate a gradient vector given the integer coordinates of the
   // input value.  This implementation generates a random number and uses it
@@ -139,6 +284,9 @@ double noise::GradientNoise3D (double fx, double fy, double fz, int ix,
   // Now compute the dot product of the gradient vector with the distance
   // vector.  The resulting value is gradient noise.  Apply a scaling value
   // so that this noise value ranges from -1.0 to 1.0.
+  gx = xvGradient * 2.12;
+  gy = yvGradient * 2.12;
+  gz = zvGradient * 2.12;
   return ((xvGradient * xvPoint)
     + (yvGradient * yvPoint)
     + (zvGradient * zvPoint)) * 2.12;

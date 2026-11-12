@@ -89,6 +89,8 @@ namespace noise
 
         virtual double GetValue (double x, double y, double z) const;
 
+        virtual Sample3 GetSample (double x, double y, double z) const;
+
         /// Returns the scaling factor applied to the @a x coordinate of the
         /// input value.
         ///

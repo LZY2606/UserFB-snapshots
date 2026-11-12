@@ -101,6 +101,96 @@ void Select::SetBounds (double lowerBound, double upperBound)
   SetEdgeFalloff (m_edgeFalloff);
 }
 
+noise::Sample3 Select::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+  assert (m_pSourceModule[1] != NULL);
+  assert (m_pSourceModule[2] != NULL);
+
+  // Sample the control module once.  Its value is identical to the value
+  // GetValue() would return at this point, so it can also drive the branch
+  // selection.
+  Sample3 control = m_pSourceModule[2]->GetSample (x, y, z);
+  double controlValue = control.value;
+
+  if (m_edgeFalloff > 0.0) {
+    // Decide whether the control value lies inside one of the two smooth
+    // transition bands, and calculate the interpolation weight if it does.
+    bool inLowerTransition = false;
+    double lowerCurve = 0.0;
+    double upperCurve = 0.0;
+
+    if (controlValue < (m_lowerBound - m_edgeFalloff)) {
+      return m_pSourceModule[0]->GetSample (x, y, z);
+    } else if (controlValue < (m_lowerBound + m_edgeFalloff)) {
+      lowerCurve = m_lowerBound - m_edgeFalloff;
+      upperCurve = m_lowerBound + m_edgeFalloff;
+      inLowerTransition = true;
+    } else if (controlValue < (m_upperBound - m_edgeFalloff)) {
+      return m_pSourceModule[1]->GetSample (x, y, z);
+    } else if (controlValue < (m_upperBound + m_edgeFalloff)) {
+      lowerCurve = m_upperBound - m_edgeFalloff;
+      upperCurve = m_upperBound + m_edgeFalloff;
+    } else {
+      return m_pSourceModule[0]->GetSample (x, y, z);
+    }
+
+    // Both source branches and the control module influence the result in
+    // the transition band, so all three are evaluated.  A branch that has no
+    // gradient of its own makes the blend not differentiable.
+    double t = (controlValue - lowerCurve) / (upperCurve - lowerCurve);
+    double alpha = SCurve3 (t);
+    double alphaDerivative = SCurve3Derivative (t) / (upperCurve - lowerCurve);
+
+    Sample3 sample0 = m_pSourceModule[0]->GetSample (x, y, z);
+    Sample3 sample1 = m_pSourceModule[1]->GetSample (x, y, z);
+
+    // The lower transition blends from source 0 to source 1; the upper
+    // transition blends from source 1 to source 0.
+    double valueFrom, valueTo, delta;
+    double dxFrom, dyFrom, dzFrom, dxTo, dyTo, dzTo;
+    if (inLowerTransition) {
+      valueFrom = sample0.value;
+      valueTo = sample1.value;
+      dxFrom = sample0.dx; dyFrom = sample0.dy; dzFrom = sample0.dz;
+      dxTo = sample1.dx; dyTo = sample1.dy; dzTo = sample1.dz;
+    } else {
+      valueFrom = sample1.value;
+      valueTo = sample0.value;
+      dxFrom = sample1.dx; dyFrom = sample1.dy; dzFrom = sample1.dz;
+      dxTo = sample0.dx; dyTo = sample0.dy; dzTo = sample0.dz;
+    }
+    delta = valueTo - valueFrom;
+
+    double value = LinearInterp (valueFrom, valueTo, alpha);
+    if (!sample0.differentiable || !sample1.differentiable
+      || !control.differentiable) {
+      return Sample3::NotDifferentiable (value);
+    }
+
+    double dx = (1.0 - alpha) * dxFrom + alpha * dxTo
+              + delta * alphaDerivative * control.dx;
+    double dy = (1.0 - alpha) * dyFrom + alpha * dyTo
+              + delta * alphaDerivative * control.dy;
+    double dz = (1.0 - alpha) * dzFrom + alpha * dzTo
+              + delta * alphaDerivative * control.dz;
+    return Sample3 (value, dx, dy, dz, true);
+  }
+
+  // There is no transition band.  Only the selected source module is
+  // evaluated, so an unused branch cannot affect the result.  The selection
+  // is a step function of the control value, so it is not differentiable
+  // when the control value lies exactly on a selection boundary.
+  if (controlValue < m_lowerBound || controlValue > m_upperBound) {
+    return m_pSourceModule[0]->GetSample (x, y, z);
+  }
+  Sample3 sample = m_pSourceModule[1]->GetSample (x, y, z);
+  if (controlValue == m_lowerBound || controlValue == m_upperBound) {
+    return Sample3::NotDifferentiable (sample.value);
+  }
+  return sample;
+}
+
 void Select::SetEdgeFalloff (double edgeFalloff)
 {
   // Make sure that the edge falloff curves do not overlap.

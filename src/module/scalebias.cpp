@@ -37,3 +37,16 @@ double ScaleBias::GetValue (double x, double y, double z) const
 
   return m_pSourceModule[0]->GetValue (x, y, z) * m_scale + m_bias;
 }
+
+noise::Sample3 ScaleBias::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+
+  Sample3 sample = m_pSourceModule[0]->GetSample (x, y, z);
+  double value = sample.value * m_scale + m_bias;
+  if (!sample.differentiable) {
+    return Sample3::NotDifferentiable (value);
+  }
+  return Sample3 (value, sample.dx * m_scale, sample.dy * m_scale,
+    sample.dz * m_scale, true);
+}

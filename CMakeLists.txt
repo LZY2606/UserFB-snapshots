@@ -19,6 +19,7 @@ set(
     ${INC_DIR}/noise/misc.h
     ${INC_DIR}/noise/noise.h
     ${INC_DIR}/noise/noisegen.h
+    ${INC_DIR}/noise/sample3.h
     ${INC_DIR}/noise/vectortable.h
     ${INC_DIR}/noise/model/cylinder.h
     ${INC_DIR}/noise/model/line.h

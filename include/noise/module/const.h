@@ -83,6 +83,11 @@ namespace noise
           return m_constValue;
         }
 
+        virtual Sample3 GetSample (double x, double y, double z) const
+        {
+          return Sample3::Constant (m_constValue);
+        }
+
         /// Sets the constant output value for this noise module.
         ///
         /// @param constValue The constant output value for this noise module.

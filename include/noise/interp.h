@@ -84,6 +84,16 @@ namespace noise
     return (a * a * (3.0 - 2.0 * a));
   }
 
+  /// Returns the derivative of a cubic S-curve.
+  ///
+  /// @param a The value that was mapped onto a cubic S-curve.
+  ///
+  /// @returns The derivative of the mapped value with respect to @a a.
+  inline double SCurve3Derivative (double a)
+  {
+    return (6.0 * a) - (6.0 * a * a);
+  }
+
   /// Maps a value onto a quintic S-curve.
   ///
   /// @param a The value to map onto a quintic S-curve.
@@ -103,6 +113,19 @@ namespace noise
     double a4 = a3 * a;
     double a5 = a4 * a;
     return (6.0 * a5) - (15.0 * a4) + (10.0 * a3);
+  }
+
+  /// Returns the derivative of a quintic S-curve.
+  ///
+  /// @param a The value that was mapped onto a quintic S-curve.
+  ///
+  /// @returns The derivative of the mapped value with respect to @a a.
+  inline double SCurve5Derivative (double a)
+  {
+    double a2 = a * a;
+    double a3 = a2 * a;
+    double a4 = a3 * a;
+    return (30.0 * a4) - (60.0 * a3) + (30.0 * a2);
   }
 
   // @}

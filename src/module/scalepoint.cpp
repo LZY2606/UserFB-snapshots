@@ -39,3 +39,17 @@ double ScalePoint::GetValue (double x, double y, double z) const
   return m_pSourceModule[0]->GetValue (x * m_xScale, y * m_yScale,
     z * m_zScale);
 }
+
+noise::Sample3 ScalePoint::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+
+  Sample3 sample = m_pSourceModule[0]->GetSample (x * m_xScale,
+    y * m_yScale, z * m_zScale);
+
+  return Sample3 (sample.value,
+    sample.dx * m_xScale,
+    sample.dy * m_yScale,
+    sample.dz * m_zScale,
+    sample.differentiable);
+}

@@ -79,10 +79,13 @@ namespace noise
 
         virtual double GetValue (double x, double y, double z) const;
 
+        virtual Sample3 GetSample (double x, double y, double z) const;
+
         virtual void SetSourceModule (int index, const Module& sourceModule)
         {
           Module::SetSourceModule (index, sourceModule);
           m_isCached = false;
+          m_isSampleCached = false;
         }
 
       protected:
@@ -93,6 +96,14 @@ namespace noise
         /// Determines if a cached output value is stored in this noise
         /// module.
         mutable double m_isCached;
+
+        /// The cached full sample at the cached input value.
+        mutable Sample3 m_cachedSample;
+
+        /// Determines if a cached full sample is stored in this noise
+        /// module.  When set, m_cachedValue holds the same value as
+        /// m_cachedSample.value.
+        mutable bool m_isSampleCached;
 
         /// @a x coordinate of the cached input value.
         mutable double m_xCache;

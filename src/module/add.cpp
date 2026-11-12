@@ -37,3 +37,22 @@ double Add::GetValue (double x, double y, double z) const
   return m_pSourceModule[0]->GetValue (x, y, z)
        + m_pSourceModule[1]->GetValue (x, y, z);
 }
+
+noise::Sample3 Add::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+  assert (m_pSourceModule[1] != NULL);
+
+  Sample3 sample0 = m_pSourceModule[0]->GetSample (x, y, z);
+  Sample3 sample1 = m_pSourceModule[1]->GetSample (x, y, z);
+
+  double value = sample0.value + sample1.value;
+  if (!sample0.differentiable || !sample1.differentiable) {
+    return Sample3::NotDifferentiable (value);
+  }
+  return Sample3 (value,
+    sample0.dx + sample1.dx,
+    sample0.dy + sample1.dy,
+    sample0.dz + sample1.dz,
+    true);
+}

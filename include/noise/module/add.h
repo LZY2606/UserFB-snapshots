@@ -62,6 +62,8 @@ namespace noise
 
         virtual double GetValue (double x, double y, double z) const;
 
+        virtual Sample3 GetSample (double x, double y, double z) const;
+
     };
 
     /// @}

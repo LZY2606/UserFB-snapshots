@@ -170,6 +170,8 @@ namespace noise
 
         virtual double GetValue (double x, double y, double z) const;
 
+        virtual Sample3 GetSample (double x, double y, double z) const;
+
         /// Sets the lower and upper bounds of the selection range.
         ///
         /// @param lowerBound The lower bound.

@@ -70,5 +70,6 @@
 #include "module/module.h"
 #include "model/model.h"
 #include "misc.h"
+#include "sample3.h"
 
 #endif

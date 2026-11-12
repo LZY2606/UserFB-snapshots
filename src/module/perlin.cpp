@@ -70,3 +70,59 @@ double Perlin::GetValue (double x, double y, double z) const
 
   return value;
 }
+
+noise::Sample3 Perlin::GetSample (double x, double y, double z) const
+{
+  double value = 0.0;
+  double dx = 0.0;
+  double dy = 0.0;
+  double dz = 0.0;
+  double curPersistence = 1.0;
+  double nX, nY, nZ;
+  int seed;
+  bool differentiable = true;
+
+  // The frequency scaling applied to the input coordinates for the current
+  // octave.  The coordinates stay well inside the range where MakeInt32Range
+  // leaves them unchanged, so this is also the derivative of the noise
+  // argument with respect to the input coordinate.
+  double frequency = m_frequency;
+
+  x *= m_frequency;
+  y *= m_frequency;
+  z *= m_frequency;
+
+  for (int curOctave = 0; curOctave < m_octaveCount; curOctave++) {
+
+    nX = MakeInt32Range (x);
+    nY = MakeInt32Range (y);
+    nZ = MakeInt32Range (z);
+
+    // Get the coherent-noise value and its gradient from the input value.
+    seed = (m_seed + curOctave) & 0xffffffff;
+    double gx, gy, gz;
+    bool octaveDifferentiable;
+    double signal = GradientCoherentNoise3D (nX, nY, nZ, seed,
+      m_noiseQuality, gx, gy, gz, octaveDifferentiable);
+    value += signal * curPersistence;
+
+    if (!octaveDifferentiable) {
+      differentiable = false;
+    }
+    dx += gx * curPersistence * frequency;
+    dy += gy * curPersistence * frequency;
+    dz += gz * curPersistence * frequency;
+
+    // Prepare the next octave.
+    x *= m_lacunarity;
+    y *= m_lacunarity;
+    z *= m_lacunarity;
+    curPersistence *= m_persistence;
+    frequency *= m_lacunarity;
+  }
+
+  if (!differentiable) {
+    return Sample3::NotDifferentiable (value);
+  }
+  return Sample3 (value, dx, dy, dz, true);
+}

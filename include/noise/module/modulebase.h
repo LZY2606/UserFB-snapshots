@@ -29,6 +29,7 @@
 #include "../basictypes.h"
 #include "../exception.h"
 #include "../noisegen.h"
+#include "../sample3.h"
 
 namespace noise
 {
@@ -294,6 +295,34 @@ namespace noise
         /// To determine the number of source modules required by this noise
         /// module, call the GetSourceModuleCount() method.
         virtual double GetValue (double x, double y, double z) const = 0;
+
+        /// Generates the output value and the spatial gradient given the
+        /// coordinates of the specified input value.
+        ///
+        /// @param x The @a x coordinate of the input value.
+        /// @param y The @a y coordinate of the input value.
+        /// @param z The @a z coordinate of the input value.
+        ///
+        /// @returns A noise::Sample3 containing the output value and its
+        /// partial derivatives with respect to @a x, @a y, and @a z.
+        ///
+        /// The partial derivatives are taken with respect to the coordinates
+        /// that are passed to this method, even if the noise module
+        /// internally transforms those coordinates before evaluating its
+        /// source modules.
+        ///
+        /// The default implementation calls GetValue() and reports a zero
+        /// gradient with Sample3::differentiable set to @a false.  Noise
+        /// modules that can calculate their gradient analytically should
+        /// override this method.  This keeps existing noise modules that
+        /// only override GetValue() source-compatible.
+        ///
+        /// @pre All source modules required by this noise module have been
+        /// passed to the SetSourceModule() method.
+        virtual Sample3 GetSample (double x, double y, double z) const
+        {
+          return Sample3::NotDifferentiable (GetValue (x, y, z));
+        }
 
         /// Connects a source module to this noise module.
         ///

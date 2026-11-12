@@ -80,6 +80,61 @@ double Turbulence::GetValue (double x, double y, double z) const
   return m_pSourceModule[0]->GetValue (xDistort, yDistort, zDistort);
 }
 
+noise::Sample3 Turbulence::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+
+  // Apply the same offsets used by GetValue().
+  double x0, y0, z0;
+  double x1, y1, z1;
+  double x2, y2, z2;
+  x0 = x + (12414.0 / 65536.0);
+  y0 = y + (65124.0 / 65536.0);
+  z0 = z + (31337.0 / 65536.0);
+  x1 = x + (26519.0 / 65536.0);
+  y1 = y + (18128.0 / 65536.0);
+  z1 = z + (60493.0 / 65536.0);
+  x2 = x + (53820.0 / 65536.0);
+  y2 = y + (11213.0 / 65536.0);
+  z2 = z + (44845.0 / 65536.0);
+
+  // The three displacement modules are ordinary Perlin noise modules; obtain
+  // their values and gradients in one pass.  Each offset is an absolute
+  // coordinate, so a displacement along one axis changes the sampling point
+  // along all three axes.
+  Sample3 distortX = m_xDistortModule.GetSample (x0, y0, z0);
+  Sample3 distortY = m_yDistortModule.GetSample (x1, y1, z1);
+  Sample3 distortZ = m_zDistortModule.GetSample (x2, y2, z2);
+
+  double xDistort = x + (distortX.value * m_power);
+  double yDistort = y + (distortY.value * m_power);
+  double zDistort = z + (distortZ.value * m_power);
+
+  Sample3 sample = m_pSourceModule[0]->GetSample (xDistort, yDistort,
+    zDistort);
+
+  double value = sample.value;
+  if (!sample.differentiable || !distortX.differentiable
+    || !distortY.differentiable || !distortZ.differentiable) {
+    return Sample3::NotDifferentiable (value);
+  }
+
+  // The chain rule for the coordinate displacement.  The source gradient is
+  // with respect to the displaced coordinates; each perturbed coordinate
+  // depends on all three input coordinates.
+  double dx = sample.dx * (1.0 + distortX.dx * m_power)
+            + sample.dy * (distortY.dx * m_power)
+            + sample.dz * (distortZ.dx * m_power);
+  double dy = sample.dx * (distortX.dy * m_power)
+            + sample.dy * (1.0 + distortY.dy * m_power)
+            + sample.dz * (distortZ.dy * m_power);
+  double dz = sample.dx * (distortX.dz * m_power)
+            + sample.dy * (distortY.dz * m_power)
+            + sample.dz * (1.0 + distortZ.dz * m_power);
+
+  return Sample3 (value, dx, dy, dz, true);
+}
+
 void Turbulence::SetSeed (int seed)
 {
   // Set the seed of each noise::module::Perlin noise modules.  To prevent any

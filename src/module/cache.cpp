@@ -26,7 +26,8 @@ using namespace noise::module;
 
 Cache::Cache ():
   Module (GetSourceModuleCount ()),
-  m_isCached (false)
+  m_isCached (false),
+  m_isSampleCached (false)
 {
 }
 
@@ -34,12 +35,46 @@ double Cache::GetValue (double x, double y, double z) const
 {
   assert (m_pSourceModule[0] != NULL);
 
-  if (!(m_isCached && x == m_xCache && y == m_yCache && z == m_zCache)) {
-    m_cachedValue = m_pSourceModule[0]->GetValue (x, y, z);
-    m_xCache = x;
-    m_yCache = y;
-    m_zCache = z;
+  if (m_isCached && x == m_xCache && y == m_yCache && z == m_zCache) {
+    return m_cachedValue;
   }
+
+  // The cached sample, if any, holds the same value as GetValue() would
+  // return, so it can satisfy this request without evaluating the source
+  // module again.
+  if (m_isSampleCached && x == m_xCache && y == m_yCache
+    && z == m_zCache) {
+    m_cachedValue = m_cachedSample.value;
+    m_isCached = true;
+    return m_cachedValue;
+  }
+
+  m_cachedValue = m_pSourceModule[0]->GetValue (x, y, z);
+  m_xCache = x;
+  m_yCache = y;
+  m_zCache = z;
   m_isCached = true;
+  m_isSampleCached = false;
   return m_cachedValue;
+}
+
+noise::Sample3 Cache::GetSample (double x, double y, double z) const
+{
+  assert (m_pSourceModule[0] != NULL);
+
+  if (m_isSampleCached && x == m_xCache && y == m_yCache
+    && z == m_zCache) {
+    return m_cachedSample;
+  }
+
+  // A cached scalar value does not carry a gradient, so the source module
+  // has to be sampled in full.
+  m_cachedSample = m_pSourceModule[0]->GetSample (x, y, z);
+  m_cachedValue = m_cachedSample.value;
+  m_xCache = x;
+  m_yCache = y;
+  m_zCache = z;
+  m_isCached = true;
+  m_isSampleCached = true;
+  return m_cachedSample;
 }
