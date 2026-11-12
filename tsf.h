@@ -160,6 +160,8 @@ TSFDEF void tsf_set_volume(tsf* f, float global_gain);
 // Set the maximum number of voices to play simultaneously
 // Depending on the soundfond, one note can cause many new voices to be started,
 // so don't keep this number too low or otherwise sounds may not play.
+// A note-on whose matching regions do not all fit into the remaining voices
+// fails with 0 without changing any state instead of playing only some layers.
 //   max_voices: maximum number to pre-allocate and set the limit to
 //   (tsf_set_max_voices returns 0 if allocation failed, otherwise 1)
 TSFDEF int tsf_set_max_voices(tsf* f, int max_voices);
@@ -170,8 +172,22 @@ TSFDEF int tsf_set_max_voices(tsf* f, int max_voices);
 //   vel: velocity as a float between 0.0 (equal to note off) and 1.0 (full)
 //   bank: instrument bank number (alternative to preset_index)
 //   preset_number: preset number (alternative to preset_index)
-//   (tsf_note_on returns 0 if the allocation of a new voice failed, otherwise 1)
-//   (tsf_bank_note_on returns 0 if preset does not exist or allocation failed, otherwise 1)
+//   (tsf_note_on returns 0 if not enough voices are available for all matching
+//    regions - either because growing the voice buffer failed or because the
+//    limit set with tsf_set_max_voices is reached - in which case no state is
+//    changed at all, otherwise it starts every matching region as one atomic
+//    group sharing a single play index and returns 1)
+//   (tsf_bank_note_on returns 0 if preset does not exist or voices could not
+//    be provided for the whole group, otherwise 1)
+//
+// Regions that share a non-zero exclusive class (region group) cut off
+// previously started sounds of the same class within the same scope; the
+// layers started by a single note-on never cut each other, regardless of the
+// order in which the regions are enumerated. On instances with channels set
+// up, the mutual exclusion scope is (channel, preset, non-zero group), so the
+// same preset playing on another channel is unaffected. On instances without
+// channels, the scope is (preset, non-zero group) as before. Cut off sounds
+// end with the usual quick release which the sustain pedal cannot revert.
 TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel);
 TSFDEF int tsf_bank_note_on(tsf* f, int bank, int preset_number, int key, float vel);
 
@@ -1550,73 +1566,126 @@ TSFDEF int tsf_set_max_voices(tsf* f, int max_voices)
 	return 1;
 }
 
+// Returns TSF_TRUE if the playing voice v belongs to a previously started sound
+// that a note-on of preset_index would cut off through a shared exclusive class
+// (region group) with one of the matched regions. On instances with channels set
+// up, the mutual exclusion scope is (channel, preset, non-zero group); on plain
+// instances without channels it is (preset, non-zero group) as before.
+static TSF_BOOL tsf_note_on_cuts_voice(tsf* f, int preset_index, struct tsf_region* region, struct tsf_region* regionEnd, int key, short midiVelocity, struct tsf_voice* v)
+{
+	struct tsf_region* r;
+	if (v->playingPreset != preset_index || !v->region->group) return TSF_FALSE;
+	if (f->channels && v->playingChannel != f->channels->activeChannel) return TSF_FALSE;
+	for (r = region; r != regionEnd; r++)
+		if (r->group == v->region->group && key >= r->lokey && key <= r->hikey && midiVelocity >= r->lovel && midiVelocity <= r->hivel)
+			return TSF_TRUE;
+	return TSF_FALSE;
+}
+
 TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 {
 	short midiVelocity = (short)(vel * 127);
 	unsigned int voicePlayIndex;
-	struct tsf_region *region, *regionEnd;
+	struct tsf_region *region, *regionEnd, *r;
+	struct tsf_voice *v, *vEnd;
+	int matchedRegionNum, freeSlots, releaseSlots, cutSlots, deficit, i;
 
 	if (preset_index < 0 || preset_index >= f->presetNum) return 1;
 	if (vel <= 0.0f) { tsf_note_off(f, preset_index, key); return 1; }
 
-	// Play all matching regions.
-	voicePlayIndex = f->voicePlayIndex++;
-	for (region = f->presets[preset_index].regions, regionEnd = region + f->presets[preset_index].regionNum; region != regionEnd; region++)
+	region = f->presets[preset_index].regions;
+	regionEnd = region + f->presets[preset_index].regionNum;
+
+	// All matching regions are played as one atomic action: first determine which
+	// regions match, then make sure every one of them can get a voice before any
+	// old sound is cut off or any new layer is started.
+	matchedRegionNum = 0;
+	for (r = region; r != regionEnd; r++)
+		if (key >= r->lokey && key <= r->hikey && midiVelocity >= r->lovel && midiVelocity <= r->hivel)
+			matchedRegionNum++;
+	if (!matchedRegionNum) return 1;
+
+	// Count the slots that could take a layer, in the order they are considered:
+	// free slots, slots already in their release phase, and slots of previously
+	// started sounds that this note-on would cut off through a shared exclusive
+	// class (and which would therefore be reusable if this note-on succeeds).
+	freeSlots = releaseSlots = cutSlots = 0;
+	for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
 	{
-		struct tsf_voice *voice, *v, *vEnd; TSF_BOOL doLoop; float lowpassFilterQDB, lowpassFc;
-		if (key < region->lokey || key > region->hikey || midiVelocity < region->lovel || midiVelocity > region->hivel) continue;
+		if (v->playingPreset == -1) freeSlots++;
+		else if (v->ampenv.segment == TSF_SEGMENT_RELEASE) releaseSlots++;
+		else if (tsf_note_on_cuts_voice(f, preset_index, region, regionEnd, key, midiVelocity, v)) cutSlots++;
+	}
 
-		voice = TSF_NULL, v = f->voices, vEnd = v + f->voiceNum;
-		if (region->group)
+	deficit = matchedRegionNum - freeSlots - releaseSlots - cutSlots;
+	if (deficit > 0)
+	{
+		if (f->maxVoiceNum)
 		{
-			for (; v != vEnd; v++)
-				if (v->playingPreset == preset_index && v->region->group == region->group) tsf_voice_endquick(f, v);
-				else if (v->playingPreset == -1 && !voice) voice = v;
+			// Voices have been pre-allocated and limited to a maximum and the
+			// whole group does not fit, so fail without changing any state.
+			return 0;
 		}
-		else for (; v != vEnd; v++) if (v->playingPreset == -1) { voice = v; break; }
+		else
+		{
+			// Allocate more voices so we don't need to kill one off. Only commit
+			// the grown buffer once the allocation has fully succeeded, otherwise
+			// fail without having touched the voices, the voice count or the
+			// play index of the existing sounds.
+			int newVoiceNum = f->voiceNum + ((deficit + 3) & ~3);
+			struct tsf_voice* newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, newVoiceNum * sizeof(struct tsf_voice));
+			if (!newVoices) return 0;
+			for (i = f->voiceNum; i < newVoiceNum; i++)
+				newVoices[i].playingPreset = -1;
+			f->voices = newVoices;
+			f->voiceNum = newVoiceNum;
+		}
+	}
 
+	// Every layer is guaranteed a slot now, so the group can start as a whole
+	// and shares a single play index (one note-off releases the whole group).
+	voicePlayIndex = f->voicePlayIndex++;
+	for (r = region; r != regionEnd; r++)
+	{
+		struct tsf_voice *voice = TSF_NULL; TSF_BOOL doLoop; float lowpassFilterQDB, lowpassFc;
+		if (key < r->lokey || key > r->hikey || midiVelocity < r->lovel || midiVelocity > r->hivel) continue;
+
+		// Pick a slot in the order counted above. A layer started by this same
+		// note-on is never a candidate for a later layer of the group.
+		for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
+			if (v->playingPreset == -1) { voice = v; break; }
 		if (!voice)
 		{
-			if (f->maxVoiceNum)
+			// Try to take over a voice in its release envelope, looking for the one furthest into its release
+			int bestKillReleaseSamplePos = -999999999;
+			for (v = f->voices; v != vEnd; v++)
 			{
-				// Voices have been pre-allocated and limited to a maximum, try to kill a voice off in its release envelope
-				int bestKillReleaseSamplePos = -999999999;
-				for (v = f->voices; v != vEnd; v++)
+				if (v->playingPreset != -1 && v->ampenv.segment == TSF_SEGMENT_RELEASE)
 				{
-					if (v->ampenv.segment == TSF_SEGMENT_RELEASE)
+					int releaseSamplesDone = tsf_voice_envelope_release_samples(&v->ampenv, f->outSampleRate) - v->ampenv.samplesUntilNextSegment;
+					if (releaseSamplesDone > bestKillReleaseSamplePos)
 					{
-						// We're looking for the voice furthest into its release
-						int releaseSamplesDone = tsf_voice_envelope_release_samples(&v->ampenv, f->outSampleRate) - v->ampenv.samplesUntilNextSegment;
-						if (releaseSamplesDone > bestKillReleaseSamplePos)
-						{
-							bestKillReleaseSamplePos = releaseSamplesDone;
-							voice = v;
-						}
+						bestKillReleaseSamplePos = releaseSamplesDone;
+						voice = v;
 					}
 				}
-				if (!voice)
-					continue;
-				tsf_voice_kill(voice);
-			}
-			else
-			{
-				// Allocate more voices so we don't need to kill one off.
-				struct tsf_voice* newVoices;
-				f->voiceNum += 4;
-				newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, f->voiceNum * sizeof(struct tsf_voice));
-				if (!newVoices) return 0;
-				f->voices = newVoices;
-				voice = &f->voices[f->voiceNum - 4];
-				voice[1].playingPreset = voice[2].playingPreset = voice[3].playingPreset = -1;
 			}
 		}
+		if (!voice)
+		{
+			// Take over a slot of a previously started sound that this note-on cuts off anyway
+			for (v = f->voices; v != vEnd; v++)
+				if (v->playingPreset != -1 && v->playIndex != voicePlayIndex && tsf_note_on_cuts_voice(f, preset_index, region, regionEnd, key, midiVelocity, v)) { voice = v; break; }
+		}
+		if (!voice) continue; // cannot happen after the admission check above
+		if (voice->playingPreset != -1) tsf_voice_kill(voice);
 
-		voice->region = region;
+		voice->region = r;
 		voice->playingPreset = preset_index;
 		voice->playingKey = key;
 		voice->playIndex = voicePlayIndex;
 		voice->heldSustain = 0;
-		voice->noteGainDB = f->globalGainDB - region->attenuation - tsf_gainToDecibels(1.0f / vel);
+		voice->noteGainDB = f->globalGainDB - r->attenuation - tsf_gainToDecibels(1.0f / vel);
 
 		if (f->channels)
 		{
@@ -1626,34 +1695,44 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		{
 			tsf_voice_calcpitchratio(voice, 0, f->outSampleRate);
 			// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
-			voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
-			voice->panFactorRight = TSF_SQRTF(0.5f + region->pan);
+			voice->panFactorLeft  = TSF_SQRTF(0.5f - r->pan);
+			voice->panFactorRight = TSF_SQRTF(0.5f + r->pan);
 		}
 
 		// Offset/end.
-		voice->sourceSamplePosition = region->offset;
+		voice->sourceSamplePosition = r->offset;
 
 		// Loop.
-		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
-		voice->loopStart = (doLoop ? region->loop_start : 0);
-		voice->loopEnd = (doLoop ? region->loop_end : 0);
+		doLoop = (r->loop_mode != TSF_LOOPMODE_NONE && r->loop_start < r->loop_end);
+		voice->loopStart = (doLoop ? r->loop_start : 0);
+		voice->loopEnd = (doLoop ? r->loop_end : 0);
 
 		// Setup envelopes.
-		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
-		tsf_voice_envelope_setup(&voice->modenv, &region->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
+		tsf_voice_envelope_setup(&voice->ampenv, &r->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
+		tsf_voice_envelope_setup(&voice->modenv, &r->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
 
 		// Setup lowpass filter.
-		lowpassFc = (region->initialFilterFc <= 13500 ? tsf_cents2Hertz((float)region->initialFilterFc) / f->outSampleRate : 1.0f);
-		lowpassFilterQDB = region->initialFilterQ / 10.0f;
+		lowpassFc = (r->initialFilterFc <= 13500 ? tsf_cents2Hertz((float)r->initialFilterFc) / f->outSampleRate : 1.0f);
+		lowpassFilterQDB = r->initialFilterQ / 10.0f;
 		voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
 		voice->lowpass.z1 = voice->lowpass.z2 = 0;
 		voice->lowpass.active = (lowpassFc < 0.499f);
 		if (voice->lowpass.active) tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
 
 		// Setup LFO filters.
-		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
-		tsf_voice_lfo_setup(&voice->viblfo, region->delayVibLFO, region->freqVibLFO, f->outSampleRate);
+		tsf_voice_lfo_setup(&voice->modlfo, r->delayModLFO, r->freqModLFO, f->outSampleRate);
+		tsf_voice_lfo_setup(&voice->viblfo, r->delayVibLFO, r->freqVibLFO, f->outSampleRate);
 	}
+
+	// Cut off the remaining previously started sounds that share an exclusive
+	// class with one of the matched regions. Layers of this note-on itself are
+	// never cut, no matter in which order the regions were enumerated. The cut
+	// uses the usual quick release, which the sustain pedal cannot turn back
+	// into a normal release.
+	for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
+		if (v->playingPreset != -1 && v->playIndex != voicePlayIndex && tsf_note_on_cuts_voice(f, preset_index, region, regionEnd, key, midiVelocity, v))
+			tsf_voice_endquick(f, v);
+
 	return 1;
 }
 
