@@ -164,6 +164,7 @@ srtp_err_status_t srtp_rdbx_init(srtp_rdbx_t *rdbx, size_t ws)
     }
 
     srtp_index_init(&rdbx->index);
+    rdbx->replay_floor = 0;
 
     return srtp_err_status_ok;
 }
@@ -179,6 +180,108 @@ srtp_err_status_t srtp_rdbx_dealloc(srtp_rdbx_t *rdbx)
 }
 
 /*
+ * srtp_rdbx_raise_floor advances the conservative replay floor to the
+ * oldest index covered by the current bitmask.  It is called whenever the
+ * mask shifts or is reset, so indices that leave the window (or were
+ * never represented because the window shrank) stay rejected even if a
+ * later update enlarges the window.  No floor is recorded while the
+ * window still reaches index zero, since nothing has been forgotten yet.
+ */
+static void srtp_rdbx_raise_floor(srtp_rdbx_t *rdbx)
+{
+    size_t window_size = bitvector_get_length(&rdbx->bitmask);
+
+    if (rdbx->index + 1 >= window_size) {
+        srtp_xtd_seq_num_t window_start =
+            rdbx->index - ((srtp_xtd_seq_num_t)window_size - 1);
+        if (window_start > rdbx->replay_floor) {
+            rdbx->replay_floor = window_start;
+        }
+    }
+}
+
+/*
+ * srtp_rdbx_copy_state transfers the full replay state between two
+ * initialized rdbx instances that may use different window sizes.  A set
+ * bit for packet index x keeps representing x regardless of window size;
+ * bits that fall outside the destination window are dropped (they have
+ * already been forgotten by definition) while the replay floor keeps them
+ * from ever being accepted again.
+ */
+srtp_err_status_t srtp_rdbx_copy_state(srtp_rdbx_t *dst,
+                                       const srtp_rdbx_t *src)
+{
+    size_t src_len = bitvector_get_length(&src->bitmask);
+    size_t dst_len = bitvector_get_length(&dst->bitmask);
+    ssize_t shift = (ssize_t)dst_len - (ssize_t)src_len;
+
+    bitvector_set_to_zero(&dst->bitmask);
+    dst->index = src->index;
+    dst->replay_floor = src->replay_floor;
+
+    for (size_t i = 0; i < src_len; i++) {
+        if (bitvector_get_bit(&src->bitmask, i)) {
+            ssize_t dst_pos = (ssize_t)i + shift;
+            if (dst_pos >= 0 && (size_t)dst_pos < dst_len) {
+                bitvector_set_bit(&dst->bitmask, (size_t)dst_pos);
+            }
+        }
+    }
+
+    /*
+     * A smaller destination window forgets everything below its first
+     * index; raise the floor to that boundary so that a later resize to a
+     * larger window cannot reopen those indices.  A larger window reaches
+     * further back but the existing floor already covers every index that
+     * was forgotten before, so the floor only ever ratchets upwards.
+     */
+    if (dst->index + 1 >= dst_len) {
+        srtp_xtd_seq_num_t dst_window_start =
+            dst->index - ((srtp_xtd_seq_num_t)dst_len - 1);
+        if (dst_window_start > dst->replay_floor) {
+            dst->replay_floor = dst_window_start;
+        }
+    }
+
+    return srtp_err_status_ok;
+}
+
+/*
+ * srtp_rdbx_resize changes the replay window size in place.  The existing
+ * state is moved through a fresh rdbx so that index, bitmask and replay
+ * floor all survive the operation (see srtp_rdbx_copy_state).
+ */
+srtp_err_status_t srtp_rdbx_resize(srtp_rdbx_t *rdbx, size_t ws)
+{
+    srtp_rdbx_t resized;
+    srtp_err_status_t status;
+
+    if (ws == 0) {
+        return srtp_err_status_bad_param;
+    }
+
+    if (ws == bitvector_get_length(&rdbx->bitmask)) {
+        return srtp_err_status_ok;
+    }
+
+    status = srtp_rdbx_init(&resized, ws);
+    if (status) {
+        return status;
+    }
+
+    status = srtp_rdbx_copy_state(&resized, rdbx);
+    if (status) {
+        srtp_rdbx_dealloc(&resized);
+        return status;
+    }
+
+    srtp_rdbx_dealloc(rdbx);
+    *rdbx = resized;
+
+    return srtp_err_status_ok;
+}
+
+/*
  * srtp_rdbx_set_roc(rdbx, roc) initializes the srtp_rdbx_t at the location rdbx
  * to have the rollover counter value roc.  If that value is less than
  * the current rollover counter value, then the function returns
@@ -187,12 +290,18 @@ srtp_err_status_t srtp_rdbx_dealloc(srtp_rdbx_t *rdbx)
  */
 srtp_err_status_t srtp_rdbx_set_roc(srtp_rdbx_t *rdbx, uint32_t roc)
 {
-    bitvector_set_to_zero(&rdbx->bitmask);
-
     /* make sure that we're not moving backwards */
     if (roc < (rdbx->index >> 16)) {
         return srtp_err_status_replay_old;
     }
+
+    /*
+     * clearing the bitmask forgets every index represented by the current
+     * window; record that boundary (against the old index) before moving
+     * so a later window resize cannot resurrect those packets
+     */
+    srtp_rdbx_raise_floor(rdbx);
+    bitvector_set_to_zero(&rdbx->bitmask);
 
     rdbx->index &= 0xffff;                /* retain lowest 16 bits */
     rdbx->index |= ((uint64_t)roc) << 16; /* set ROC */
@@ -226,6 +335,8 @@ size_t srtp_rdbx_get_window_size(const srtp_rdbx_t *rdbx)
  */
 srtp_err_status_t srtp_rdbx_check(const srtp_rdbx_t *rdbx, ssize_t delta)
 {
+    srtp_xtd_seq_num_t candidate;
+
     if (delta > 0) { /* if delta is positive, it's good */
         return srtp_err_status_ok;
     } else if ((int)(bitvector_get_length(&rdbx->bitmask) - 1) + delta < 0) {
@@ -237,6 +348,17 @@ srtp_err_status_t srtp_rdbx_check(const srtp_rdbx_t *rdbx, ssize_t delta)
         /* delta is within the window, so check the bitmask */
         return srtp_err_status_replay_fail;
     }
+
+    /*
+     * the index looks like an unmarked hole of the current window, but it
+     * may have been forgotten by an earlier (smaller) window or an ROC
+     * reset.  The conservative floor keeps such indices closed forever.
+     */
+    candidate = rdbx->index - (srtp_xtd_seq_num_t)(-delta);
+    if (candidate < rdbx->replay_floor) {
+        return srtp_err_status_replay_old;
+    }
+
     /* otherwise, the index is okay */
 
     return srtp_err_status_ok;
@@ -258,6 +380,8 @@ srtp_err_status_t srtp_rdbx_add_index(srtp_rdbx_t *rdbx, ssize_t delta)
         bitvector_left_shift(&rdbx->bitmask, delta);
         bitvector_set_bit(&rdbx->bitmask,
                           bitvector_get_length(&rdbx->bitmask) - 1);
+        /* indices that just left the window must never be accepted again */
+        srtp_rdbx_raise_floor(rdbx);
     } else {
         /* delta is in window */
         bitvector_set_bit(&rdbx->bitmask,
@@ -328,6 +452,12 @@ srtp_err_status_t srtp_rdbx_set_roc_seq(srtp_rdbx_t *rdbx,
     if (roc < (rdbx->index >> 16)) {
         return srtp_err_status_replay_old;
     }
+
+    /*
+     * the bitmask is about to be cleared, so every index represented by
+     * the old window is forgotten; keep it closed through the replay floor
+     */
+    srtp_rdbx_raise_floor(rdbx);
 
     rdbx->index = seq;
     rdbx->index |= ((uint64_t)roc) << 16; /* set ROC */

@@ -20,7 +20,14 @@ int main(void){
  OK(srtp_stream_update(rx,p));m=sizeof(out);
  int after=srtp_unprotect(rx,(uint8_t*)wire,n,(uint8_t*)out,&m);
  printf("UPDATE_DUPLICATE before=%d after=%d\n",before,after);
- if(after!=srtp_err_status_ok)return 4;
+ /*
+  * The policy update must preserve the RTP replay state: an already
+  * authenticated packet is still a replay afterwards, exactly as it was
+  * before the update.  This used to assert the buggy acceptance (status
+  * srtp_err_status_ok); it now pins the corrected behavior.
+  */
+ if(before!=srtp_err_status_replay_fail)return 3;
+ if(after!=srtp_err_status_replay_fail)return 4;
  OK(srtp_dealloc(tx));OK(srtp_dealloc(rx));srtp_policy_destroy(p);OK(srtp_shutdown());
- puts("SRTP_BASELINE_REPRODUCED");return 0;
+ puts("SRTP_REPLAY_UPDATE_FIXED");return 0;
 }

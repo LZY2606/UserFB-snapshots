@@ -827,6 +827,84 @@ static srtp_err_status_t srtp_stream_clone(
 }
 
 /*
+ * srtp_stream_rtp_state_t captures the complete RTP replay protection
+ * state of a stream: the extended packet index (ROC plus sequence
+ * number), the received-index bitmask, the conservative replay floor
+ * stored inside the rdbx, the stream direction and the pending ROC.
+ *
+ * A policy update rebuilds streams from scratch.  Saving and restoring
+ * this state around the rebuild keeps already-authenticated packets from
+ * becoming acceptable again, and keeps not-yet-received holes inside the
+ * window from being silently closed.  Keeping the whole rdbx (rather than
+ * only the ROC or the highest index) also means that two SSRCs never share
+ * replay state: each stream owns its own snapshot.
+ */
+typedef struct srtp_stream_rtp_state_t {
+    srtp_rdbx_t rtp_rdbx;
+    direction_t direction;
+    uint32_t pending_roc;
+} srtp_stream_rtp_state_t;
+
+static srtp_err_status_t srtp_stream_save_rtp_state(
+    srtp_stream_t stream,
+    srtp_stream_rtp_state_t *state)
+{
+    srtp_err_status_t status;
+
+    status = srtp_rdbx_init(&state->rtp_rdbx,
+                            srtp_rdbx_get_window_size(&stream->rtp_rdbx));
+    if (status) {
+        return status;
+    }
+
+    status = srtp_rdbx_copy_state(&state->rtp_rdbx, &stream->rtp_rdbx);
+    if (status) {
+        srtp_rdbx_dealloc(&state->rtp_rdbx);
+        return status;
+    }
+
+    state->direction = stream->direction;
+    state->pending_roc = stream->pending_roc;
+
+    return srtp_err_status_ok;
+}
+
+static void srtp_stream_release_rtp_state(srtp_stream_rtp_state_t *state)
+{
+    srtp_rdbx_dealloc(&state->rtp_rdbx);
+}
+
+static srtp_err_status_t srtp_stream_restore_rtp_state(
+    srtp_stream_t stream,
+    srtp_stream_rtp_state_t *state)
+{
+    srtp_err_status_t status;
+
+    /*
+     * Resize the saved rdbx to the window of the rebuilt stream and take
+     * ownership of it.  The replay floor travels with the state, so
+     * indices forgotten by a smaller earlier window stay closed even when
+     * the new window is larger.
+     */
+    status = srtp_rdbx_resize(
+        &state->rtp_rdbx, srtp_rdbx_get_window_size(&stream->rtp_rdbx));
+    if (status) {
+        return status;
+    }
+
+    srtp_rdbx_dealloc(&stream->rtp_rdbx);
+    stream->rtp_rdbx = state->rtp_rdbx;
+    stream->direction = state->direction;
+    stream->pending_roc = state->pending_roc;
+
+    /* ownership of the bitvector moved to the stream; neutralize the copy */
+    state->rtp_rdbx.bitmask.word = NULL;
+    state->rtp_rdbx.bitmask.length = 0;
+
+    return srtp_err_status_ok;
+}
+
+/*
  * key derivation functions, internal to libSRTP
  *
  * srtp_kdf_t is a key derivation context
@@ -3638,7 +3716,7 @@ static bool update_template_stream_cb(srtp_stream_t stream, void *raw_data)
         (struct update_template_stream_data *)raw_data;
     srtp_t session = data->session;
     uint32_t ssrc = stream->ssrc;
-    srtp_xtd_seq_num_t old_index;
+    srtp_stream_rtp_state_t old_rtp_state;
     srtp_rdb_t old_rtcp_rdb;
 
     /* old / non-template streams are copied unchanged */
@@ -3653,19 +3731,29 @@ static bool update_template_stream_cb(srtp_stream_t stream, void *raw_data)
         return true;
     }
 
-    /* save old extended seq */
-    old_index = stream->rtp_rdbx.index;
+    /*
+     * save the complete RTP replay state (extended index, received
+     * bitmask, replay floor, direction and pending ROC); only the ROC or
+     * the highest index would lose the received marks and let replayed
+     * packets through again
+     */
+    data->status = srtp_stream_save_rtp_state(stream, &old_rtp_state);
+    if (data->status) {
+        return false;
+    }
     old_rtcp_rdb = stream->rtcp_rdb;
 
     /* remove stream */
     data->status = srtp_stream_remove(session, ntohl(ssrc));
     if (data->status) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return false;
     }
 
     /* allocate and initialize a new stream */
     data->status = srtp_stream_clone(data->new_stream_template, ssrc, &stream);
     if (data->status) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return false;
     }
 
@@ -3673,11 +3761,16 @@ static bool update_template_stream_cb(srtp_stream_t stream, void *raw_data)
     data->status = srtp_insert_or_dealloc_stream(data->new_stream_list, stream,
                                                  data->new_stream_template);
     if (data->status) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return false;
     }
 
-    /* restore old extended seq */
-    stream->rtp_rdbx.index = old_index;
+    /* restore the full RTP replay state and the untouched SRTCP state */
+    data->status = srtp_stream_restore_rtp_state(stream, &old_rtp_state);
+    srtp_stream_release_rtp_state(&old_rtp_state);
+    if (data->status) {
+        return false;
+    }
     stream->rtcp_rdb = old_rtcp_rdb;
 
     return true;
@@ -3794,9 +3887,8 @@ static srtp_err_status_t stream_update(srtp_t session,
                                        const srtp_policy_t policy)
 {
     srtp_err_status_t status;
-    srtp_xtd_seq_num_t old_index;
+    srtp_stream_rtp_state_t old_rtp_state;
     srtp_rdb_t old_rtcp_rdb;
-    direction_t old_direction;
     srtp_stream_t stream;
 
     stream = srtp_get_stream(session, htonl(policy->ssrc.value));
@@ -3809,30 +3901,43 @@ static srtp_err_status_t stream_update(srtp_t session,
         return status;
     }
 
-    /* save old extendard seq */
-    old_index = stream->rtp_rdbx.index;
+    /*
+     * save the complete RTP replay state (extended packet index, received
+     * bitmask, replay floor, direction and pending ROC) before rebuilding
+     * the stream; the SRTCP replay database keeps its existing behavior
+     * and is carried over verbatim
+     */
+    status = srtp_stream_save_rtp_state(stream, &old_rtp_state);
+    if (status) {
+        return status;
+    }
     old_rtcp_rdb = stream->rtcp_rdb;
-    old_direction = stream->direction;
 
     status = srtp_stream_remove(session, policy->ssrc.value);
     if (status) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return status;
     }
 
     status = srtp_stream_add(session, policy);
     if (status) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return status;
     }
 
     stream = srtp_get_stream(session, htonl(policy->ssrc.value));
     if (stream == NULL) {
+        srtp_stream_release_rtp_state(&old_rtp_state);
         return srtp_err_status_fail;
     }
 
-    /* restore old extended seq */
-    stream->rtp_rdbx.index = old_index;
+    /* restore the full RTP replay state and the untouched SRTCP state */
+    status = srtp_stream_restore_rtp_state(stream, &old_rtp_state);
+    srtp_stream_release_rtp_state(&old_rtp_state);
+    if (status) {
+        return status;
+    }
     stream->rtcp_rdb = old_rtcp_rdb;
-    stream->direction = old_direction;
 
     return srtp_err_status_ok;
 }

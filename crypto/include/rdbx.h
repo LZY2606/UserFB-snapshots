@@ -80,10 +80,18 @@ typedef uint64_t srtp_xtd_seq_num_t;
 /*
  * An srtp_rdbx_t is a replay database with extended range; it uses an
  * xtd_seq_num_t and a bitmask of recently received indices.
+ *
+ * In addition to the sliding bitmask, rdbx keeps a conservative lower
+ * bound (replay_floor) on every packet index that could ever be accepted.
+ * The bitmask forgets indices whenever the window slides forward or is
+ * shrunk by a policy update; replay_floor remembers the oldest index that
+ * was deliberately forgotten, so that later enlarging the window cannot
+ * reopen indices that were already out of an earlier, smaller window.
  */
 typedef struct {
     srtp_xtd_seq_num_t index;
     bitvector_t bitmask;
+    srtp_xtd_seq_num_t replay_floor;
 } srtp_rdbx_t;
 
 /*
@@ -100,6 +108,33 @@ srtp_err_status_t srtp_rdbx_init(srtp_rdbx_t *rdbx, size_t ws);
  * frees memory associated with the rdbx
  */
 srtp_err_status_t srtp_rdbx_dealloc(srtp_rdbx_t *rdbx);
+
+/*
+ * srtp_rdbx_resize(rdbx_ptr, ws)
+ *
+ * changes the replay window size of an initialized rdbx to ws while
+ * preserving the highest received packet index, the set of received
+ * indices that still falls inside the new window, and the conservative
+ * replay floor.  Shrinking the window only forgets indices (raising the
+ * floor as needed); growing it never reopens an index that was outside
+ * an earlier window.  The bitmask is never padded with marks for
+ * indices that were never received.
+ */
+srtp_err_status_t srtp_rdbx_resize(srtp_rdbx_t *rdbx, size_t ws);
+
+/*
+ * srtp_rdbx_copy_state(dst, src)
+ *
+ * transfers the complete replay protection state of src into dst
+ * (highest extended packet index, the whole received-index bitmask
+ * truncated to dst's window size, and the conservative replay floor).
+ * dst must already be initialized, typically with a new window size.
+ * It is used when a stream is rebuilt by a policy update so that a
+ * rekey or window resize cannot turn already-authenticated packets into
+ * acceptable "new" packets again.
+ */
+srtp_err_status_t srtp_rdbx_copy_state(srtp_rdbx_t *dst,
+                                       const srtp_rdbx_t *src);
 
 /*
  * srtp_rdbx_estimate_index(rdbx, guess, s)
