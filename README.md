@@ -64,6 +64,7 @@ s := secure.New(secure.Options{
     AllowedHosts: []string{"ssl.example.com"}, // AllowedHosts is a list of fully qualified domain names that are allowed. Default is empty list, which allows any and all host names.
     AllowedHostsAreRegex: false,  // AllowedHostsAreRegex determines, if the provided AllowedHosts slice contains valid regular expressions. Default is false.
     AllowRequestFunc: nil, // AllowRequestFunc is a custom function type that allows you to determine if the request should proceed or not based on your own custom logic. Default is nil.
+    NonceSource: nil, // NonceSource is a custom function that generates the CSP nonce used to replace `$NONCE`. It is only called when a policy contains `$NONCE` and the request context has no non-empty nonce. Default is nil, which keeps the built-in random generator.
     HostsProxyHeaders: []string{"X-Forwarded-Hosts"}, // HostsProxyHeaders is a set of header keys that may hold a proxied hostname value for the request.
     SSLRedirect: true, // If SSLRedirect is set to true, then only allow HTTPS requests. Default is false.
     SSLTemporaryRedirect: false, // If SSLTemporaryRedirect is true, then a 307 will be used while redirecting. Default is false (301).
@@ -79,7 +80,7 @@ s := secure.New(secure.Options{
     ContentTypeNosniff: true, // If ContentTypeNosniff is true, adds the X-Content-Type-Options header with the value `nosniff`. Default is false.
     BrowserXssFilter: true, // If BrowserXssFilter is true, adds the X-XSS-Protection header with the value `1; mode=block`. Default is false.
     CustomBrowserXssValue: "1; report=https://example.com/xss-report", // CustomBrowserXssValue allows the X-XSS-Protection header value to be set with a custom value. This overrides the BrowserXssFilter option. Default is "".
-    ContentSecurityPolicy: "default-src 'self'", // ContentSecurityPolicy allows the Content-Security-Policy header value to be set with a custom value. Default is "". Passing a template string will replace `$NONCE` with a dynamic nonce value of 16 bytes for each request which can be later retrieved using the Nonce function.
+    ContentSecurityPolicy: "default-src 'self'", // ContentSecurityPolicy allows the Content-Security-Policy header value to be set with a custom value. Default is "". Passing a template string will replace `$NONCE` with a dynamic nonce value of 16 bytes for each request which can be later retrieved using the CSPNonce function. Chained Secure middlewares (e.g. an enforcing layer and a report-only layer) reuse the same nonce within a request.
     ReferrerPolicy: "same-origin", // ReferrerPolicy allows the Referrer-Policy header with the value to be set with a custom value. Default is "".
     FeaturePolicy: "vibrate 'none';", // Deprecated: this header has been renamed to PermissionsPolicy. FeaturePolicy allows the Feature-Policy header with the value to be set with a custom value. Default is "".
     PermissionsPolicy: "fullscreen=(), geolocation=()", // PermissionsPolicy allows the Permissions-Policy header with the value to be set with a custom value. Default is "".
@@ -105,6 +106,7 @@ l := secure.New(secure.Options{
     AllowedHosts: []string,
     AllowedHostsAreRegex: false,
     AllowRequestFunc: nil,
+    NonceSource: nil,
     HostsProxyHeaders: []string,
     SSLRedirect: false,
     SSLTemporaryRedirect: false,
@@ -145,6 +147,30 @@ Call `secure.SetBadRequestHandler` to set your own custom handler.
 
 ### Allow Request Function
 Secure allows you to set a custom function (`func(r *http.Request) bool`) for the `AllowRequestFunc` option. You can use this function as a custom filter to allow the request to continue or simply reject it. This can be handy if you need to do any dynamic filtering on any of the request properties. It should be noted that this function will be called on every request, so be sure to make your checks quick and not relying on time consuming external calls (or you will be slowing down all requests). See above on how to set a custom handler for the rejected requests.
+
+### CSP nonces and the `NonceSource` option
+When a `ContentSecurityPolicy` or `ContentSecurityPolicyReportOnly` value contains the `$NONCE` placeholder, every occurrence is replaced with a per-request nonce which handlers can read with `secure.CSPNonce(r.Context())`.
+
+The nonce is stored in the request context, so when several Secure middlewares are chained (for example one writing `Content-Security-Policy` and another writing `Content-Security-Policy-Report-Only`) they all reuse the nonce created by the first layer instead of generating different ones. Independent requests still get independent nonces, and the original request object passed to the middleware is never modified.
+
+If you need to control nonce generation yourself — for example to back it with a security hardware module or to produce deterministic values in tests — set the `NonceSource` option:
+
+~~~ go
+s := secure.New(secure.Options{
+    ContentSecurityPolicy: "script-src $NONCE",
+    NonceSource: func(r *http.Request) (string, error) {
+        return myHardwareOrDeterministicNonce(r)
+    },
+})
+~~~
+
+Rules for `NonceSource`:
+- It defaults to `nil`, in which case the built-in 16-byte random generator (`crypto/rand`) is used; the global `crypto/rand.Reader` never has to be replaced.
+- It is only called when a policy contains `$NONCE` and the request context does not already carry a non-empty nonce. Policies without `$NONCE` never trigger it.
+- A non-empty nonce placed in the context via `secure.WithCSPNonce` always wins and is inherited verbatim by every later layer; `WithCSPNonce` remains a trusted-caller API and its values are not validated. An empty context nonce is treated as missing, so the generator still runs.
+- A generated nonce must be non-empty and contain only ASCII letters, digits and `+`, `/`, `_`, `-`, `=`. Empty values, control characters and anything outside that set make the middleware return an error wrapping `secure.ErrInvalidNonce`; the rejected value is never included in the error message.
+- A non-nil error returned by the function is wrapped (not flattened), so `errors.Is` still matches the original error.
+- On failure the `Handler` family ends the request through the bad-request handler without calling the next handler and without writing the expanded CSP headers, while `Process`, `ProcessAndReturnNonce` (returning an empty nonce) and `ProcessNoModifyRequest` return the error to the caller.
 
 ### Redirecting HTTP to HTTPS
 If you want to redirect all HTTP requests to HTTPS, you can use the following example.

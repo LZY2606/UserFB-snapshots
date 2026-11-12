@@ -80,7 +80,7 @@ type Options struct {
 	ContentSecurityPolicyReportOnly string
 	// CustomBrowserXssValue allows the X-XSS-Protection header value to be set with a custom value. This overrides the BrowserXssFilter option. Default is "".
 	CustomBrowserXssValue string //nolint:stylecheck,revive
-	// Passing a template string will replace `$NONCE` with a dynamic nonce value of 16 bytes for each request which can be later retrieved using the Nonce function.
+	// Passing a template string will replace `$NONCE` with a dynamic nonce value for each request which can be later retrieved using the CSPNonce function. The default generator produces a 16-byte base64 value; a custom value can be supplied via NonceSource.
 	// Eg: script-src $NONCE -> script-src 'nonce-a2ZobGFoZg=='
 	// CustomFrameOptionsValue allows the X-Frame-Options header value to be set with a custom value. This overrides the FrameDeny option. Default is "".
 	CustomFrameOptionsValue string
@@ -114,6 +114,10 @@ type Options struct {
 	AllowedHostsAreRegex bool
 	// AllowRequestFunc is a custom function that allows you to determine if the request should proceed or not based on your own custom logic. Default is nil.
 	AllowRequestFunc AllowRequestFunc `json:"-" toml:"-" yaml:"-"`
+	// NonceSource is a custom function that generates the CSP nonce used to replace `$NONCE` placeholders in the ContentSecurityPolicy and ContentSecurityPolicyReportOnly values. Default is nil.
+	// It is only called when a policy contains `$NONCE` and the request context does not already carry a non-empty nonce (see WithCSPNonce), so chained Secure middlewares share a single nonce per request.
+	// If nil, the built-in random generator is used. The returned nonce must be non-empty and only contain ASCII letters, digits and '+', '/', '_', '-', '=', otherwise an error wrapping ErrInvalidNonce is returned.
+	NonceSource func(*http.Request) (string, error) `json:"-" toml:"-" yaml:"-"`
 	// HostsProxyHeaders is a set of header keys that may hold a proxied hostname value for the request.
 	HostsProxyHeaders []string
 	// SSLHostFunc is a function pointer, the return value of the function is the host name that has same functionality as `SSHost`. Default is nil.
@@ -297,9 +301,18 @@ func (s *Secure) ProcessNoModifyRequest(w http.ResponseWriter, r *http.Request) 
 
 // processRequest runs the actual checks on the request and returns an error if the middleware chain should stop.
 func (s *Secure) processRequest(w http.ResponseWriter, r *http.Request) (http.Header, *http.Request, error) {
-	// Setup nonce if required.
-	if s.opt.nonceEnabled {
-		r = withCSPNonce(r, cspRandNonce())
+	// Setup nonce if required. A nonce already present in the request context
+	// (e.g. set via WithCSPNonce or by an earlier Secure middleware in the
+	// chain) is inherited as-is, so every layer and the final handler share it.
+	if s.opt.nonceEnabled && CSPNonce(r.Context()) == "" {
+		nonce, err := s.cspNonce(r)
+		if err != nil {
+			s.badRequestHandler.ServeHTTP(w, r)
+
+			return nil, nil, err
+		}
+
+		r = withCSPNonce(r, nonce)
 	}
 
 	// Resolve the host for the request, using proxy headers if present.
@@ -494,6 +507,25 @@ func (s *Secure) processRequest(w http.ResponseWriter, r *http.Request) (http.He
 	}
 
 	return responseHeader, r, nil
+}
+
+// cspNonce generates the nonce for a request, using the custom NonceSource
+// when one is configured and falling back to the built-in random generator.
+func (s *Secure) cspNonce(r *http.Request) (string, error) {
+	if s.opt.NonceSource == nil {
+		return cspRandNonce(), nil
+	}
+
+	nonce, err := s.opt.NonceSource(r)
+	if err != nil {
+		return "", fmt.Errorf("secure: csp nonce source failed: %w", err)
+	}
+
+	if !isValidNonce(nonce) {
+		return "", fmt.Errorf("secure: csp nonce source returned an invalid nonce: %w", ErrInvalidNonce)
+	}
+
+	return nonce, nil
 }
 
 // isSSL determine if we are on HTTPS.
