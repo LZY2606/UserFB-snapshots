@@ -22,6 +22,7 @@
     - [Call Syntax](#call-syntax)
     - [Priority Order](#priority-order)
     - [More Examples](#more-examples)
+- [Parse report](#parse-report)
 - [Examples](#examples)
 - [Dependencies](#dependencies)
 
@@ -382,6 +383,65 @@ Automatic implicit type conversion, Output result string convert to int, int64, 
 - []int32
 - []int64
 - []string
+
+
+
+## Parse report
+
+The ordinary `Parse*` methods stop at the first field error. Report mode
+(`ParseReport` / `ParseSelectionReport`) instead keeps going and reports every
+problem, dropping only the affected record.
+
+- Struct elements of `[]T` and `[]*T` are record boundaries. When one field of
+  a record fails, the rest of that record's diagnostics are still collected,
+  the record is excluded from the output, and later records continue in their
+  original DOM order.
+- A bad element of a nested list only removes that element; the parent record
+  survives with its remaining children. Plain nested `struct` / `*struct` are
+  not boundaries: their field failures belong to the nearest enclosing record.
+- A failure on a root-level (non-list) field returns an `error` and commits
+  nothing into the target struct.
+- Each `ReportIssue` carries the Go field path (e.g.
+  `Groups[1].Items[2].Price`, always indexed by original DOM order), the raw
+  tag, a category (`missing`, `conversion`, `func`, `config`) and an error that
+  remains unwrappable via `errors.Unwrap` / `errors.Is`.
+- `pagserRequired:"true"` makes a field required: a selector that matches no
+  node reports `missing` and skips the handler. A node with empty text still
+  counts as matched. Optional missing fields keep the usual zero value.
+- Numeric conversion is strictly checked against the target bit width, so a
+  value that would overflow `int8`, `uint16`, etc. is reported as `conversion`
+  instead of being silently truncated.
+- Configuration problems (unexported tagged fields, illegal handler
+  signatures, unsupported target shapes) are returned before any handler runs;
+  reflection panics are never converted into record issues.
+
+```golang
+type Part struct {
+    Name  string `pagser:".name"`
+    Price int    `pagser:".price"`
+    Sku   string `pagserRequired:"true" pagser:".sku->text()"`
+}
+
+type Catalog struct {
+    Parts []Part `pagser:".part"`
+}
+
+var catalog Catalog
+report, err := p.ParseReport(&catalog, html)
+if err != nil {
+    // The root record itself failed; nothing was committed.
+    log.Fatal(err)
+}
+for _, part := range catalog.Parts {
+    log.Printf("valid record: %+v", part)
+}
+for _, issue := range report.Issues {
+    log.Printf("%s [%s] %q: %v", issue.FieldPath, issue.Category, issue.Tag, errors.Unwrap(issue))
+}
+```
+
+See the runnable example:
+<https://github.com/foolin/pagser/tree/master/_examples/report>
 
 
 
