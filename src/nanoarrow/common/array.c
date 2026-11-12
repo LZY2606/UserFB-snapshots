@@ -639,6 +639,680 @@ ArrowErrorCode ArrowArrayAppendStorageFromArrayView(struct ArrowArray* dst,
   return ArrowArrayAppendStorageFromArrayViewRange(dst, src, 0, src->length, error);
 }
 
+// Planning state for ArrowArrayAppendUnifiedDictionary(). A plan mirrors the
+// schema/ArrayView/ArrowArray triplet for one (possibly nested) field. The
+// plan is built and populated entirely before any element is appended so
+// that validation errors leave the destination unmodified.
+struct ArrowUnifiedDictionaryPlan {
+  const struct ArrowArrayView* src;
+  struct ArrowArray* dst;
+  enum ArrowType storage_type;
+  int is_dictionary;
+  // For dictionary-encoded nodes: index_map[v] is the unified index for
+  // source dictionary value v (-1 if v is not referenced by the selection).
+  // new_values lists source dictionary indices whose values must be appended
+  // to the destination dictionary, in first-encountered order.
+  int64_t* index_map;
+  int64_t* new_values;
+  int64_t n_new;
+  struct ArrowUnifiedDictionaryPlan** children;
+  int64_t n_children;
+};
+
+static void ArrowUnifiedDictionaryPlanReset(
+    struct ArrowUnifiedDictionaryPlan* plan) {
+  if (plan == NULL) {
+    return;
+  }
+
+  ArrowFree(plan->index_map);
+  ArrowFree(plan->new_values);
+  if (plan->children != NULL) {
+    for (int64_t i = 0; i < plan->n_children; i++) {
+      ArrowUnifiedDictionaryPlanReset(plan->children[i]);
+      ArrowFree(plan->children[i]);
+    }
+    ArrowFree(plan->children);
+  }
+}
+
+static int64_t ArrowUnifiedDictionaryMaxIndex(enum ArrowType index_type) {
+  switch (index_type) {
+    case NANOARROW_TYPE_INT8:
+      return INT8_MAX;
+    case NANOARROW_TYPE_INT16:
+      return INT16_MAX;
+    case NANOARROW_TYPE_INT32:
+      return INT32_MAX;
+    case NANOARROW_TYPE_INT64:
+      return INT64_MAX;
+    default:
+      return -1;
+  }
+}
+
+// Read dictionary value i from a destination dictionary (string or binary)
+// that is still being built. Returns 1 if the value is null.
+static int ArrowUnifiedDictionaryDstValue(struct ArrowArray* dict, int64_t i,
+                                          struct ArrowStringView* out) {
+  struct ArrowBitmap* validity = ArrowArrayValidityBitmap(dict);
+  if (validity->buffer.data != NULL && !ArrowBitGet(validity->buffer.data, i)) {
+    return 1;
+  }
+
+  const int32_t* offsets =
+      (const int32_t*)ArrowArrayBuffer(dict, 1)->data;
+  const char* data = (const char*)ArrowArrayBuffer(dict, 2)->data;
+  out->data = data + offsets[i];
+  out->size_bytes = (int64_t)offsets[i + 1] - offsets[i];
+  return 0;
+}
+
+static int ArrowUnifiedDictionarySrcValue(const struct ArrowArrayView* dict,
+                                          int64_t i, struct ArrowStringView* out) {
+  if (ArrowArrayViewIsNull(dict, i)) {
+    return 1;
+  }
+
+  *out = ArrowArrayViewGetStringUnsafe(dict, i);
+  return 0;
+}
+
+static int ArrowUnifiedDictionaryValueEqual(const struct ArrowStringView* a,
+                                            const struct ArrowStringView* b) {
+  return a->size_bytes == b->size_bytes &&
+         (a->size_bytes == 0 || memcmp(a->data, b->data, a->size_bytes) == 0);
+}
+
+// Validate that schema matches the storage of both dst and src for this node
+// and all descendants, and that every node is a supported type. Allocates
+// (but does not populate) dictionary mapping state. Does not modify dst.
+static ArrowErrorCode ArrowUnifiedDictionaryPlanInit(
+    struct ArrowUnifiedDictionaryPlan* plan, struct ArrowArray* dst,
+    const struct ArrowArrayView* src, const struct ArrowSchema* schema,
+    struct ArrowError* error) {
+  memset(plan, 0, sizeof(struct ArrowUnifiedDictionaryPlan));
+  plan->src = src;
+  plan->dst = dst;
+
+  if (!ArrowArrayIsInternal(dst)) {
+    ArrowErrorSet(error, "Expected destination to be an internal ArrowArray");
+    return EINVAL;
+  }
+
+  if (dst->offset != 0) {
+    ArrowErrorSet(error,
+                  "Expected destination offset to be zero but found %" PRId64,
+                  dst->offset);
+    return EINVAL;
+  }
+
+  if (schema == NULL || schema->release == NULL) {
+    ArrowErrorSet(error, "Expected non-released schema");
+    return EINVAL;
+  }
+
+  struct ArrowSchemaView schema_view;
+  NANOARROW_RETURN_NOT_OK(ArrowSchemaViewInit(&schema_view, schema, error));
+
+  struct ArrowArrayPrivateData* dst_data =
+      (struct ArrowArrayPrivateData*)dst->private_data;
+  plan->storage_type = dst_data->storage_type;
+  plan->is_dictionary = schema->dictionary != NULL;
+
+  if (src->storage_type != schema_view.storage_type ||
+      dst_data->storage_type != schema_view.storage_type) {
+    ArrowErrorSet(error,
+                  "Expected schema storage type %s to match source storage type %s "
+                  "and destination storage type %s",
+                  ArrowTypeString(schema_view.storage_type),
+                  ArrowTypeString(src->storage_type),
+                  ArrowTypeString(dst_data->storage_type));
+    return EINVAL;
+  }
+
+  if ((src->dictionary == NULL) != !plan->is_dictionary ||
+      (dst->dictionary == NULL) != !plan->is_dictionary) {
+    ArrowErrorSet(error,
+                  "Expected schema, source, and destination to agree on the "
+                  "presence of a dictionary");
+    return EINVAL;
+  }
+
+  if (src->n_children != schema->n_children ||
+      dst->n_children != schema->n_children) {
+    ArrowErrorSet(error,
+                  "Expected schema, source, and destination to have the same "
+                  "number of children but found %" PRId64 ", %" PRId64 ", and %" PRId64,
+                  schema->n_children, src->n_children, dst->n_children);
+    return EINVAL;
+  }
+
+  if (schema_view.storage_type == NANOARROW_TYPE_FIXED_SIZE_LIST &&
+      (src->layout.child_size_elements != schema_view.layout.child_size_elements ||
+       dst_data->layout.child_size_elements != schema_view.layout.child_size_elements)) {
+    ArrowErrorSet(error,
+                  "Expected schema, source, and destination fixed-size list child "
+                  "sizes to match but found %" PRId64 ", %" PRId64 ", and %" PRId64,
+                  schema_view.layout.child_size_elements,
+                  src->layout.child_size_elements,
+                  dst_data->layout.child_size_elements);
+    return EINVAL;
+  }
+
+  if (plan->is_dictionary) {
+    if (!ArrowArrayIsInternal(dst->dictionary)) {
+      ArrowErrorSet(error,
+                    "Expected destination dictionary to be an internal ArrowArray");
+      return EINVAL;
+    }
+
+    if (schema->flags & ARROW_FLAG_DICTIONARY_ORDERED) {
+      ArrowErrorSet(error, "Ordered dictionaries are not supported");
+      return ENOTSUP;
+    }
+
+    if (ArrowUnifiedDictionaryMaxIndex(schema_view.storage_type) == -1) {
+      ArrowErrorSet(error,
+                    "Dictionary index type %s is not supported; expected a signed "
+                    "8/16/32/64-bit integer",
+                    ArrowTypeString(schema_view.storage_type));
+      return ENOTSUP;
+    }
+
+    struct ArrowSchemaView dictionary_view;
+    NANOARROW_RETURN_NOT_OK(
+        ArrowSchemaViewInit(&dictionary_view, schema->dictionary, error));
+    if (dictionary_view.type != NANOARROW_TYPE_STRING &&
+        dictionary_view.type != NANOARROW_TYPE_BINARY) {
+      ArrowErrorSet(error,
+                    "Dictionary value type %s is not supported; expected string or "
+                    "binary",
+                    ArrowTypeString(dictionary_view.type));
+      return ENOTSUP;
+    }
+
+    struct ArrowArrayPrivateData* dst_dictionary_data =
+        (struct ArrowArrayPrivateData*)dst->dictionary->private_data;
+    if (src->dictionary->storage_type != dictionary_view.storage_type ||
+        dst_dictionary_data->storage_type != dictionary_view.storage_type) {
+      ArrowErrorSet(error,
+                    "Expected dictionary value storage types to match the schema");
+      return EINVAL;
+    }
+
+    int64_t n = src->dictionary->length;
+    if (n > 0) {
+      plan->index_map = (int64_t*)ArrowMalloc(n * sizeof(int64_t));
+      plan->new_values = (int64_t*)ArrowMalloc(n * sizeof(int64_t));
+      if (plan->index_map == NULL || plan->new_values == NULL) {
+        return ENOMEM;
+      }
+      for (int64_t i = 0; i < n; i++) {
+        plan->index_map[i] = -1;
+      }
+    }
+
+    return NANOARROW_OK;
+  }
+
+  switch (schema_view.type) {
+    case NANOARROW_TYPE_STRUCT:
+    case NANOARROW_TYPE_LIST:
+    case NANOARROW_TYPE_LARGE_LIST:
+    case NANOARROW_TYPE_FIXED_SIZE_LIST:
+      plan->n_children = schema->n_children;
+      if (plan->n_children > 0) {
+        plan->children = (struct ArrowUnifiedDictionaryPlan**)ArrowMalloc(
+            plan->n_children * sizeof(struct ArrowUnifiedDictionaryPlan*));
+        if (plan->children == NULL) {
+          return ENOMEM;
+        }
+        for (int64_t i = 0; i < plan->n_children; i++) {
+          plan->children[i] = NULL;
+        }
+        for (int64_t i = 0; i < plan->n_children; i++) {
+          plan->children[i] = (struct ArrowUnifiedDictionaryPlan*)ArrowMalloc(
+              sizeof(struct ArrowUnifiedDictionaryPlan));
+          if (plan->children[i] == NULL) {
+            return ENOMEM;
+          }
+          NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryPlanInit(
+              plan->children[i], dst->children[i], src->children[i],
+              schema->children[i], error));
+        }
+      }
+      return NANOARROW_OK;
+
+    case NANOARROW_TYPE_BOOL:
+    case NANOARROW_TYPE_INT8:
+    case NANOARROW_TYPE_INT16:
+    case NANOARROW_TYPE_INT32:
+    case NANOARROW_TYPE_INT64:
+    case NANOARROW_TYPE_UINT8:
+    case NANOARROW_TYPE_UINT16:
+    case NANOARROW_TYPE_UINT32:
+    case NANOARROW_TYPE_UINT64:
+    case NANOARROW_TYPE_FLOAT:
+    case NANOARROW_TYPE_DOUBLE:
+    case NANOARROW_TYPE_STRING:
+    case NANOARROW_TYPE_BINARY:
+      return NANOARROW_OK;
+
+    default:
+      ArrowErrorSet(error, "Unifying dictionaries is not supported for type %s",
+                    ArrowTypeString(schema_view.type));
+      return ENOTSUP;
+  }
+}
+
+// Walk the selected elements of src, validating structural ranges and
+// dictionary indices and recording the unified index for every referenced
+// source dictionary value. Does not modify dst.
+static ArrowErrorCode ArrowUnifiedDictionaryCollect(
+    struct ArrowUnifiedDictionaryPlan* plan, int64_t offset, int64_t length,
+    struct ArrowError* error) {
+  const struct ArrowArrayView* src = plan->src;
+  if (src->offset < 0 || src->length < 0 || src->offset > INT64_MAX - src->length) {
+    ArrowErrorSet(error,
+                  "Expected source offset and length to describe a valid int64 "
+                  "range but found %" PRId64 " and %" PRId64,
+                  src->offset, src->length);
+    return EINVAL;
+  }
+
+  if (offset < 0 || length < 0 || offset > src->length ||
+      length > src->length - offset) {
+    ArrowErrorSet(error,
+                  "Expected selected range [%" PRId64 ", %" PRId64
+                  ") to fit within source length %" PRId64,
+                  offset, offset + length, src->length);
+    return EINVAL;
+  }
+
+  if (length == 0) {
+    return NANOARROW_OK;
+  }
+
+  struct ArrowArrayView slice = *src;
+  slice.offset += offset;
+  slice.length = length;
+
+  if (plan->is_dictionary) {
+    const struct ArrowArrayView* src_dict = src->dictionary;
+    struct ArrowArray* dst_dict = plan->dst->dictionary;
+    for (int64_t j = 0; j < length; j++) {
+      if (ArrowArrayViewIsNull(&slice, j)) {
+        continue;
+      }
+
+      int64_t v = ArrowArrayViewGetIntUnsafe(&slice, j);
+      if (v < 0 || v >= src_dict->length) {
+        ArrowErrorSet(error,
+                      "Expected dictionary index to be in [0, %" PRId64
+                      ") but found %" PRId64,
+                      src_dict->length, v);
+        return EINVAL;
+      }
+
+      if (plan->index_map[v] != -1) {
+        continue;
+      }
+
+      struct ArrowStringView value;
+      int value_is_null = ArrowUnifiedDictionarySrcValue(src_dict, v, &value);
+
+      // Reuse the smallest existing destination index with equal content
+      int64_t mapped = -1;
+      for (int64_t i = 0; i < dst_dict->length; i++) {
+        struct ArrowStringView dst_value;
+        int dst_value_is_null = ArrowUnifiedDictionaryDstValue(dst_dict, i, &dst_value);
+        if (dst_value_is_null != value_is_null) {
+          continue;
+        }
+        if (value_is_null ||
+            ArrowUnifiedDictionaryValueEqual(&value, &dst_value)) {
+          mapped = i;
+          break;
+        }
+      }
+
+      // Values already queued for append in this call are not yet in the
+      // destination dictionary; compare them against the source dictionary
+      if (mapped == -1) {
+        for (int64_t k = 0; k < plan->n_new; k++) {
+          struct ArrowStringView queued_value;
+          int queued_is_null =
+              ArrowUnifiedDictionarySrcValue(src_dict, plan->new_values[k],
+                                             &queued_value);
+          if (queued_is_null == value_is_null &&
+              (value_is_null ||
+               ArrowUnifiedDictionaryValueEqual(&value, &queued_value))) {
+            mapped = dst_dict->length + k;
+            break;
+          }
+        }
+      }
+
+      if (mapped == -1) {
+        mapped = dst_dict->length + plan->n_new;
+        plan->new_values[plan->n_new++] = v;
+      }
+
+      plan->index_map[v] = mapped;
+    }
+    return NANOARROW_OK;
+  }
+
+  switch (plan->storage_type) {
+    case NANOARROW_TYPE_STRUCT:
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          continue;
+        }
+        for (int64_t child_i = 0; child_i < plan->n_children; child_i++) {
+          NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryCollect(
+              plan->children[child_i], slice.offset + j, 1, error));
+        }
+      }
+      return NANOARROW_OK;
+
+    case NANOARROW_TYPE_LIST:
+    case NANOARROW_TYPE_LARGE_LIST:
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          continue;
+        }
+        int64_t logical_i = slice.offset + j;
+        int64_t child_offset = ArrowArrayViewListChildOffset(&slice, logical_i);
+        int64_t child_length =
+            ArrowArrayViewListChildOffset(&slice, logical_i + 1) - child_offset;
+        NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryCollect(
+            plan->children[0], child_offset, child_length, error));
+      }
+      return NANOARROW_OK;
+
+    case NANOARROW_TYPE_FIXED_SIZE_LIST: {
+      int64_t child_size = slice.layout.child_size_elements;
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          continue;
+        }
+        int64_t logical_i = slice.offset + j;
+        if (child_size > 0 && logical_i > INT64_MAX / child_size) {
+          ArrowErrorSet(error,
+                        "Expected fixed-size list child offset to fit in int64");
+          return EINVAL;
+        }
+        NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryCollect(
+            plan->children[0], logical_i * child_size, child_size, error));
+      }
+      return NANOARROW_OK;
+    }
+
+    default:
+      // Non-dictionary leaf: nothing to collect
+      return NANOARROW_OK;
+  }
+}
+
+// Verify that every unified index assigned during collection fits in the
+// destination index type.
+static ArrowErrorCode ArrowUnifiedDictionaryCheckCapacity(
+    struct ArrowUnifiedDictionaryPlan* plan, struct ArrowError* error) {
+  if (plan->is_dictionary) {
+    int64_t max_index = ArrowUnifiedDictionaryMaxIndex(plan->storage_type);
+    int64_t max_mapped = -1;
+    for (int64_t v = 0; v < plan->src->dictionary->length; v++) {
+      if (plan->index_map[v] > max_mapped) {
+        max_mapped = plan->index_map[v];
+      }
+    }
+
+    if (max_mapped > max_index) {
+      ArrowErrorSet(error,
+                    "Expected unified dictionary index %" PRId64
+                    " to fit in %s dictionary indices (maximum %" PRId64
+                    "); destination dictionary has %" PRId64
+                    " value(s) and unification requires %" PRId64 " more",
+                    max_mapped, ArrowTypeString(plan->storage_type), max_index,
+                    plan->dst->dictionary->length, plan->n_new);
+      return EOVERFLOW;
+    }
+  }
+
+  for (int64_t i = 0; i < plan->n_children; i++) {
+    NANOARROW_RETURN_NOT_OK(
+        ArrowUnifiedDictionaryCheckCapacity(plan->children[i], error));
+  }
+
+  return NANOARROW_OK;
+}
+
+// Append newly encountered dictionary values to destination dictionaries.
+static ArrowErrorCode ArrowUnifiedDictionaryAppendNewValues(
+    struct ArrowUnifiedDictionaryPlan* plan, struct ArrowError* error) {
+  if (plan->is_dictionary) {
+    const struct ArrowArrayView* src_dict = plan->src->dictionary;
+    for (int64_t k = 0; k < plan->n_new; k++) {
+      int64_t v = plan->new_values[k];
+      if (ArrowArrayViewIsNull(src_dict, v)) {
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+            ArrowArrayAppendNull(plan->dst->dictionary, 1), error);
+      } else {
+        struct ArrowStringView value = ArrowArrayViewGetStringUnsafe(src_dict, v);
+        struct ArrowBufferView buffer_view;
+        buffer_view.data.data = value.data;
+        buffer_view.size_bytes = value.size_bytes;
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+            ArrowArrayAppendBytes(plan->dst->dictionary, buffer_view), error);
+      }
+    }
+  }
+
+  for (int64_t i = 0; i < plan->n_children; i++) {
+    NANOARROW_RETURN_NOT_OK(
+        ArrowUnifiedDictionaryAppendNewValues(plan->children[i], error));
+  }
+
+  return NANOARROW_OK;
+}
+
+// Append n null elements to the subtree rooted at plan without introducing
+// dictionary values. Unlike ArrowArrayAppendNull(), struct and fixed-size
+// list children receive null (not empty) elements so that no dictionary
+// index is fabricated.
+static ArrowErrorCode ArrowUnifiedDictionaryAppendNullSubtree(
+    struct ArrowUnifiedDictionaryPlan* plan, int64_t n, struct ArrowError* error) {
+  if (n == 0) {
+    return NANOARROW_OK;
+  }
+
+  struct ArrowArray* dst = plan->dst;
+  switch (plan->storage_type) {
+    case NANOARROW_TYPE_STRUCT:
+    case NANOARROW_TYPE_FIXED_SIZE_LIST: {
+      struct ArrowBitmap* validity = ArrowArrayValidityBitmap(dst);
+      if (validity->buffer.data == NULL && dst->length > 0) {
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+            ArrowBitmapAppend(validity, 1, dst->length), error);
+      }
+      NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowBitmapAppend(validity, 0, n), error);
+      dst->length += n;
+      dst->null_count += n;
+      if (plan->storage_type == NANOARROW_TYPE_STRUCT) {
+        for (int64_t i = 0; i < plan->n_children; i++) {
+          NANOARROW_RETURN_NOT_OK(
+              ArrowUnifiedDictionaryAppendNullSubtree(plan->children[i], n, error));
+        }
+      } else {
+        int64_t child_size = plan->src->layout.child_size_elements;
+        if (child_size > 0 && n > INT64_MAX / child_size) {
+          ArrowErrorSet(error,
+                        "Expected fixed-size list null append size to fit in int64");
+          return EOVERFLOW;
+        }
+        NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryAppendNullSubtree(
+            plan->children[0], n * child_size, error));
+      }
+      return NANOARROW_OK;
+    }
+    default:
+      break;
+  }
+
+  NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayAppendNull(dst, n), error);
+  return NANOARROW_OK;
+}
+
+static ArrowErrorCode ArrowUnifiedDictionaryAppendLeaf(
+    struct ArrowArray* dst, const struct ArrowArrayView* src, int64_t i,
+    struct ArrowError* error) {
+  if (ArrowArrayViewIsNull(src, i)) {
+    NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayAppendNull(dst, 1), error);
+    return NANOARROW_OK;
+  }
+
+  switch (src->storage_type) {
+    case NANOARROW_TYPE_BOOL:
+    case NANOARROW_TYPE_INT8:
+    case NANOARROW_TYPE_INT16:
+    case NANOARROW_TYPE_INT32:
+    case NANOARROW_TYPE_INT64:
+      NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+          ArrowArrayAppendInt(dst, ArrowArrayViewGetIntUnsafe(src, i)), error);
+      return NANOARROW_OK;
+    case NANOARROW_TYPE_UINT8:
+    case NANOARROW_TYPE_UINT16:
+    case NANOARROW_TYPE_UINT32:
+    case NANOARROW_TYPE_UINT64:
+      NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+          ArrowArrayAppendUInt(dst, ArrowArrayViewGetUIntUnsafe(src, i)), error);
+      return NANOARROW_OK;
+    case NANOARROW_TYPE_FLOAT:
+    case NANOARROW_TYPE_DOUBLE:
+      NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+          ArrowArrayAppendDouble(dst, ArrowArrayViewGetDoubleUnsafe(src, i)), error);
+      return NANOARROW_OK;
+    case NANOARROW_TYPE_STRING:
+    case NANOARROW_TYPE_BINARY:
+      NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+          ArrowArrayAppendBytes(dst, ArrowArrayViewGetBytesUnsafe(src, i)), error);
+      return NANOARROW_OK;
+    default:
+      ArrowErrorSet(error, "Unifying dictionaries is not supported for type %s",
+                    ArrowTypeString(src->storage_type));
+      return ENOTSUP;
+  }
+}
+
+// Append the selected elements. Ranges and indices were validated during
+// collection, so this pass can only fail on allocation error.
+static ArrowErrorCode ArrowUnifiedDictionaryAppendRange(
+    struct ArrowUnifiedDictionaryPlan* plan, int64_t offset, int64_t length,
+    struct ArrowError* error) {
+  struct ArrowArrayView slice = *plan->src;
+  slice.offset += offset;
+  slice.length = length;
+  struct ArrowArray* dst = plan->dst;
+
+  if (plan->is_dictionary) {
+    for (int64_t j = 0; j < length; j++) {
+      if (ArrowArrayViewIsNull(&slice, j)) {
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayAppendNull(dst, 1), error);
+      } else {
+        int64_t v = ArrowArrayViewGetIntUnsafe(&slice, j);
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(
+            ArrowArrayAppendInt(dst, plan->index_map[v]), error);
+      }
+    }
+    return NANOARROW_OK;
+  }
+
+  switch (plan->storage_type) {
+    case NANOARROW_TYPE_STRUCT:
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          NANOARROW_RETURN_NOT_OK(
+              ArrowUnifiedDictionaryAppendNullSubtree(plan, 1, error));
+          continue;
+        }
+        for (int64_t child_i = 0; child_i < plan->n_children; child_i++) {
+          NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryAppendRange(
+              plan->children[child_i], slice.offset + j, 1, error));
+        }
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayFinishElement(dst), error);
+      }
+      return NANOARROW_OK;
+
+    case NANOARROW_TYPE_LIST:
+    case NANOARROW_TYPE_LARGE_LIST:
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayAppendNull(dst, 1), error);
+          continue;
+        }
+        int64_t logical_i = slice.offset + j;
+        int64_t child_offset = ArrowArrayViewListChildOffset(&slice, logical_i);
+        int64_t child_length =
+            ArrowArrayViewListChildOffset(&slice, logical_i + 1) - child_offset;
+        NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryAppendRange(
+            plan->children[0], child_offset, child_length, error));
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayFinishElement(dst), error);
+      }
+      return NANOARROW_OK;
+
+    case NANOARROW_TYPE_FIXED_SIZE_LIST: {
+      int64_t child_size = slice.layout.child_size_elements;
+      for (int64_t j = 0; j < length; j++) {
+        if (ArrowArrayViewIsNull(&slice, j)) {
+          NANOARROW_RETURN_NOT_OK(
+              ArrowUnifiedDictionaryAppendNullSubtree(plan, 1, error));
+          continue;
+        }
+        NANOARROW_RETURN_NOT_OK(ArrowUnifiedDictionaryAppendRange(
+            plan->children[0], (slice.offset + j) * child_size, child_size, error));
+        NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayFinishElement(dst), error);
+      }
+      return NANOARROW_OK;
+    }
+
+    default:
+      for (int64_t j = 0; j < length; j++) {
+        NANOARROW_RETURN_NOT_OK(
+            ArrowUnifiedDictionaryAppendLeaf(dst, &slice, j, error));
+      }
+      return NANOARROW_OK;
+  }
+}
+
+ArrowErrorCode ArrowArrayAppendUnifiedDictionary(
+    struct ArrowArray* dst, const struct ArrowArrayView* src,
+    const struct ArrowSchema* schema, struct ArrowError* error) {
+  struct ArrowUnifiedDictionaryPlan plan;
+  ArrowErrorCode result = ArrowUnifiedDictionaryPlanInit(&plan, dst, src, schema, error);
+  if (result != NANOARROW_OK) {
+    ArrowUnifiedDictionaryPlanReset(&plan);
+    return result;
+  }
+
+  // Validate structure, indices, and remapped index capacity before
+  // modifying the destination in any way.
+  result = ArrowUnifiedDictionaryCollect(&plan, 0, src->length, error);
+  if (result == NANOARROW_OK) {
+    result = ArrowUnifiedDictionaryCheckCapacity(&plan, error);
+  }
+  if (result == NANOARROW_OK) {
+    result = ArrowUnifiedDictionaryAppendNewValues(&plan, error);
+  }
+  if (result == NANOARROW_OK) {
+    result = ArrowUnifiedDictionaryAppendRange(&plan, 0, src->length, error);
+  }
+
+  ArrowUnifiedDictionaryPlanReset(&plan);
+  return result;
+}
+
 static ArrowErrorCode ArrowArraySetStorageType(struct ArrowArray* array,
                                                enum ArrowType storage_type) {
   switch (storage_type) {

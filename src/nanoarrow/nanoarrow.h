@@ -124,6 +124,8 @@
 #define ArrowArrayReserve NANOARROW_SYMBOL(NANOARROW_NAMESPACE, ArrowArrayReserve)
 #define ArrowArrayAppendStorageFromArrayView \
   NANOARROW_SYMBOL(NANOARROW_NAMESPACE, ArrowArrayAppendStorageFromArrayView)
+#define ArrowArrayAppendUnifiedDictionary \
+  NANOARROW_SYMBOL(NANOARROW_NAMESPACE, ArrowArrayAppendUnifiedDictionary)
 #define ArrowArrayFinishBuilding \
   NANOARROW_SYMBOL(NANOARROW_NAMESPACE, ArrowArrayFinishBuilding)
 #define ArrowArrayFinishBuildingDefault \
@@ -1049,6 +1051,49 @@ NANOARROW_DLL ArrowErrorCode ArrowArrayReserve(struct ArrowArray* array,
 NANOARROW_DLL ArrowErrorCode ArrowArrayAppendStorageFromArrayView(
     struct ArrowArray* array, const struct ArrowArrayView* array_view,
     struct ArrowError* error);
+
+/// \brief Append from an ArrowArrayView to an ArrowArray, unifying dictionaries
+///
+/// Appends each logical element of array_view to array like
+/// ArrowArrayAppendStorageFromArrayView(), except that dictionary-encoded
+/// fields are re-encoded by value: for each dictionary-encoded field, the
+/// dictionary values referenced by the selected elements of array_view are
+/// looked up by content in the dictionary of array. Values already present
+/// reuse the smallest existing index; values not yet present are appended to
+/// the dictionary of array in first-encountered order. Existing dictionary
+/// values and their indices in array are never reordered. Each
+/// dictionary-encoded field has its own independent index space.
+///
+/// array must be an internal ArrowArray with offset zero that has been
+/// prepared using ArrowArrayStartAppending(). array_view must not reference
+/// storage owned by array or its children. schema describes the logical
+/// structure shared by both and is checked against the storage type, number
+/// of children, and fixed-size list width of both arrays; struct fields are
+/// matched by position.
+///
+/// Supported nesting types are struct, list, large_list, and fixed-size
+/// list. Supported non-dictionary leaf types are bool, signed and unsigned
+/// 8/16/32/64-bit integers, float, double, string, and binary. Dictionary
+/// indices must be signed 8/16/32/64-bit integers and dictionary values must
+/// be string or binary. Ordered dictionaries and all other types return
+/// ENOTSUP.
+///
+/// Only dictionary values reachable from the selected elements of array_view
+/// (after applying its offset, list offsets, and validity bitmaps) are
+/// unified into the dictionary of array; null parent slots do not introduce
+/// dictionary values. A null dictionary value is unified like any other
+/// dictionary value and is distinct from a null index slot.
+///
+/// All indices, structural ranges, and remapped index capacity are validated
+/// before anything is appended: negative or out-of-range indices and
+/// structural mismatches return EINVAL, and a remapped index that does not
+/// fit in the index type of array returns EOVERFLOW. If validation fails,
+/// array (including its children and dictionaries) is left unmodified. This
+/// guarantee does not extend to allocation failure, which follows the
+/// existing conventions of the library.
+NANOARROW_DLL ArrowErrorCode ArrowArrayAppendUnifiedDictionary(
+    struct ArrowArray* array, const struct ArrowArrayView* array_view,
+    const struct ArrowSchema* schema, struct ArrowError* error);
 
 /// \brief Append a null value to an array
 static inline ArrowErrorCode ArrowArrayAppendNull(struct ArrowArray* array, int64_t n);

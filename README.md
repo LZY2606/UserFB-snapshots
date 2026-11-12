@@ -114,6 +114,69 @@ The [nanoarrow GitHub repository](https://github.com/apache/arrow-nanoarrow) add
 provides a number of [examples](https://github.com/apache/arrow-nanoarrow/tree/main/examples)
 covering how to use nanoarrow in a variety of build configurations.
 
+## Appending batches with independently encoded dictionaries
+
+`ArrowArrayAppendStorageFromArrayView()` appends the storage of an
+`ArrowArrayView` to an array under construction, but it copies dictionary
+indices as-is: when two batches encode the same strings with different
+dictionaries (e.g., shards that each encode a low-cardinality column
+independently), the caller is responsible for keeping the dictionaries
+consistent. For that case the C library provides:
+
+```c
+ArrowErrorCode ArrowArrayAppendUnifiedDictionary(
+    struct ArrowArray* dst, const struct ArrowArrayView* src,
+    const struct ArrowSchema* schema, struct ArrowError* error);
+```
+
+It appends the logical elements of `src` to `dst` like the storage-append
+entry point, except that dictionary-encoded fields are re-encoded by value:
+dictionary values referenced by the selected elements are looked up by
+content in the dictionary of `dst`. Values already present reuse the smallest
+existing index; new values are appended to the dictionary of `dst` in
+first-encountered order. Existing dictionary entries in `dst` are never
+reordered, and each dictionary-encoded field has its own independent index
+space. Only values reachable from the selected elements (after applying the
+source offset, list offsets, and validity bitmaps) are unified; a null
+dictionary value is unified like any other value and is distinct from a null
+index slot.
+
+Usage requirements and supported types:
+
+- `dst` must be an internal `ArrowArray` with offset zero that has been
+  prepared with `ArrowArrayStartAppending()`; `src` must not share buffers
+  with `dst` or its children.
+- `schema` describes the logical structure shared by both sides (struct
+  fields are matched by position) and is checked against the storage type,
+  number of children, and fixed-size list width of both arrays.
+- Nesting types: struct, list, large_list, and fixed-size list. Leaf types:
+  bool, signed/unsigned 8/16/32/64-bit integers, float, double, string, and
+  binary. Dictionary indices must be signed 8/16/32/64-bit integers and
+  dictionary values must be string or binary. Ordered dictionaries and any
+  other type return `ENOTSUP`.
+- All indices, structural ranges, and remapped index capacity are validated
+  before anything is appended. Negative or out-of-range indices and
+  structural mismatches return `EINVAL`; a remapped index that does not fit
+  the destination index type returns `EOVERFLOW`. On such failures `dst`
+  (including children and dictionaries) is left unmodified; allocation
+  failure follows the existing conventions of the library.
+
+```c
+struct ArrowSchema schema;   // e.g., struct<device: dictionary(int8, utf8)>
+struct ArrowArray batch;     // a finished source batch
+struct ArrowArray merged;    // initialized from schema, appending started
+struct ArrowArrayView view;
+struct ArrowError error;
+
+ArrowArrayViewInitFromSchema(&view, &schema, &error);
+ArrowArrayViewSetArray(&view, &batch, &error);
+if (ArrowArrayAppendUnifiedDictionary(&merged, &view, &schema, &error) !=
+    NANOARROW_OK) {
+  // inspect error
+}
+ArrowArrayViewReset(&view);
+```
+
 ## Development
 
 ### Building with CMake
