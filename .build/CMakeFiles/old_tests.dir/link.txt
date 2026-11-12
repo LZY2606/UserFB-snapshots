@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/old_tests.dir/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/fairing_test.cpp.o CMakeFiles/old_tests.dir/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/helpers.cpp.o -o old_tests  libpmp_contract.a libgtest_contract.a

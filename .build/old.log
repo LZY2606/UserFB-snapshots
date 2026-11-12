@@ -1,0 +1,14 @@
+Running main() from /Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/external/googletest-1.18.0/googletest/src/gtest_main.cc
+Note: Google Test filter = FairingTest.*
+[==========] Running 2 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 2 tests from FairingTest
+[ RUN      ] FairingTest.fairing
+[       OK ] FairingTest.fairing (0 ms)
+[ RUN      ] FairingTest.fairing_selected
+[       OK ] FairingTest.fairing_selected (0 ms)
+[----------] 2 tests from FairingTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 2 tests from 1 test suite ran. (0 ms total)
+[  PASSED  ] 2 tests.

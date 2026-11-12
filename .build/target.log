@@ -1,0 +1,22 @@
+Running main() from /Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/external/googletest-1.18.0/googletest/src/gtest_main.cc
+Note: Google Test filter = ArapTest.rigid_motion:ArapTest.bending_energy:ArapTest.handle_reuse:ArapTest.disconnected:ArapTest.sparse_handles:ArapTest.rejection
+[==========] Running 6 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 6 tests from ArapTest
+[ RUN      ] ArapTest.rigid_motion
+[       OK ] ArapTest.rigid_motion (25 ms)
+[ RUN      ] ArapTest.bending_energy
+[       OK ] ArapTest.bending_energy (0 ms)
+[ RUN      ] ArapTest.handle_reuse
+[       OK ] ArapTest.handle_reuse (1 ms)
+[ RUN      ] ArapTest.disconnected
+[       OK ] ArapTest.disconnected (0 ms)
+[ RUN      ] ArapTest.sparse_handles
+[       OK ] ArapTest.sparse_handles (0 ms)
+[ RUN      ] ArapTest.rejection
+[       OK ] ArapTest.rejection (0 ms)
+[----------] 6 tests from ArapTest (28 ms total)
+
+[----------] Global test environment tear-down
+[==========] 6 tests from 1 test suite ran. (28 ms total)
+[  PASSED  ] 6 tests.

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="6" failures="0" disabled="0" errors="0" time="0.028" timestamp="2026-11-13T01:32:14.408" name="AllTests">
+  <testsuite name="ArapTest" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0.028" timestamp="2026-11-13T01:32:14.408">
+    <testcase name="rigid_motion" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="306" status="run" result="completed" time="0.025" timestamp="2026-11-13T01:32:14.408" classname="ArapTest" />
+    <testcase name="bending_energy" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="380" status="run" result="completed" time="0." timestamp="2026-11-13T01:32:14.433" classname="ArapTest" />
+    <testcase name="handle_reuse" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="507" status="run" result="completed" time="0.001" timestamp="2026-11-13T01:32:14.434" classname="ArapTest" />
+    <testcase name="disconnected" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="602" status="run" result="completed" time="0." timestamp="2026-11-13T01:32:14.436" classname="ArapTest" />
+    <testcase name="sparse_handles" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="739" status="run" result="completed" time="0." timestamp="2026-11-13T01:32:14.436" classname="ArapTest" />
+    <testcase name="rejection" file="/Users/lzy/pro/UserFB/workspace/Z1402/attempts/20261112T133457050369Z/repo/tests/arap_test.cpp" line="851" status="run" result="completed" time="0." timestamp="2026-11-13T01:32:14.436" classname="ArapTest" />
+  </testsuite>
+</testsuites>

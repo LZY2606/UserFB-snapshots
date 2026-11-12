@@ -47,6 +47,50 @@ int main()
 }
 ```
 
+## As-rigid-as-possible deformation
+
+`pmp::ArapDeformation` (in `pmp/algorithms/arap.h`) implements the
+local/global ARAP surface deformation of Sorkine and Alexa. Handles are
+hard position constraints and every local rotation is restricted to
+proper 3D rotations (determinant +1). The minimized energy is
+
+```
+E(x,R) = sum_i sum_{j neighbor of i} w_ij *
+         || (x_i - x_j) - R_i (p_i - p_j) ||^2
+```
+
+where `p` are the coordinates recorded as the rest pose when the
+`ArapDeformation` is constructed. The edge weight `w_ij` is half the sum
+of the cotangents opposite to the edge in its incident triangles
+(boundary edges use one side), clamped to non-negative values. The
+weights are computed once from the rest pose and never recomputed.
+
+```cpp
+#include <pmp/algorithms/arap.h>
+
+pmp::ArapDeformation arap(mesh); // stores the current coordinates as rest pose
+
+pmp::ArapHandle handle{vertex, target_position};
+arap.set_handles({handle});      // replaces the whole handle set
+
+// energies at the starting state and after each global update
+std::vector<double> energies = arap.deform(10);
+
+// the same object supports repeated drags; the rest pose never changes,
+// and an unchanged free vertex set reuses the sparse factorization
+arap.set_handles({handle, another_handle});
+energies = arap.deform(10);
+size_t factorizations = arap.factorization_count();
+```
+
+Only finite coordinates, oriented 2-manifold triangle meshes with
+non-zero area faces are accepted; invalid input raises
+`pmp::InvalidInputException`, while a failed factorization or solve
+raises `pmp::SolverException` without writing partial coordinates.
+After constructing an `ArapDeformation`, the caller must not change the
+mesh topology and must leave all coordinate edits to the object, which
+is intended to be short-lived and must not outlive the mesh.
+
 ## Read the Docs
 
 The [user guide](https://www.pmp-library.org/guide.html) contains all you need to get started using PMP, including a [tutorial](https://www.pmp-library.org/tutorial.html) covering mesh processing basics.
