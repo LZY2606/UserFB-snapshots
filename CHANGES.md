@@ -2,6 +2,7 @@ Release version 0.17.0
 ----------------------
 
 * Library
+  - [animation] Implements `ozz::animation::SparseSamplingJob`, a joint-subset sampler that only locates and decompresses the SoA groups containing requested joints, instead of walking the whole interleaved key stream. Per-track indexes are rebuilt once from the untouched compressed animation in `SparseSamplingJob::Context::Prepare` (a linear scan with linear memory allocation); `Run` performs no heap allocation and exposes real per-run workload counters through `SparseSamplingJob::Stats`. The animation file format, `SamplingJob` and the regular playback path are unchanged. It targets crowd and partial-body sampling where only a small fraction of a large skeleton is needed; full-posture sampling should keep using `SamplingJob`.
   - [animation] Prevents introducing NaNs in two-bone IK computation, which was causing instability when softening target position.
   - [animation] Implements skeleton model-space rest pose computation utility.
   - [offline] Implements model-space raw track sampling utility.

@@ -9,6 +9,7 @@ add_library(ozz_animation
   local_to_model_job.cc
   motion_blending_job.cc
   sampling_job.cc
+  sparse_sampling_job.cc
   skeleton.cc
   skeleton_utils.cc
   track.cc
@@ -28,6 +29,7 @@ target_sources(ozz_animation PUBLIC
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/local_to_model_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/motion_blending_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/sampling_job.h
+    ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/sparse_sampling_job.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/skeleton.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/skeleton_utils.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/runtime/track.h

@@ -9,5 +9,5 @@ offline=$(find "$build" -name libozz_animation_offline.a -type f -print -quit)
 runtime=$(find "$build" -name libozz_animation.a -type f -print -quit)
 base=$(find "$build" -name libozz_base.a -type f -print -quit)
 test -n "$offline" && test -n "$runtime" && test -n "$base"
-c++ -std=c++17 -DOZZ_BUILD_SIMD_REF -O1 -Iinclude -Isrc "$entry" "$offline" "$runtime" "$base" -o "$build/run"
+c++ -std=c++17 -DOZZ_BUILD_SIMD_REF -O1 -I. -Iinclude -Isrc "$entry" "$offline" "$runtime" "$base" -o "$build/run"
 "$build/run"
