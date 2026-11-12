@@ -273,8 +273,16 @@ func (c *RetryClient) Client() *BaseClient {
 // SetClient sets the new BaseClient.
 // Call Retry() and Resubscribe() to process queued messages and subscriptions.
 // The BaseClient must be unconnected when it is passed to the RetryClient.
+// Receiver-side session state (pending QoS 2 deliveries) is handed over from
+// the previous BaseClient so an in-flight handshake can complete on the new
+// connection.
 func (c *RetryClient) SetClient(ctx context.Context, cli *BaseClient) {
 	c.mu.Lock()
+	oldCli := c.cli
+	if oldCli != nil {
+		// Continue the same MQTT session on the replacement client.
+		cli.TransferInboundSession(oldCli)
+	}
 	c.cli = cli
 	c.chConnectErr = make(chan error, 1)
 	if c.chConnSwitch != nil {

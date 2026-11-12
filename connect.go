@@ -113,6 +113,11 @@ func (c *BaseClient) Connect(ctx context.Context, clientID string, opts ...Conne
 			return false, wrapError(err, "applying options")
 		}
 	}
+	// Publish the requested session type before serve starts so the CONNACK
+	// verdict is made with the value of this connection, never a stale one.
+	c.mu.Lock()
+	c.cleanSession = o.CleanSession
+	c.mu.Unlock()
 	c.init()
 	c.muConnecting.Lock()
 	defer c.muConnecting.Unlock()

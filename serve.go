@@ -44,7 +44,7 @@ func readPacket(r io.Reader) (packetType, byte, []byte, error) {
 
 func (c *BaseClient) serve() error {
 	r := c.Transport
-	subBuffer := make(map[uint16]*Message)
+	session := c.inboundSession()
 	for {
 		pktType, pktFlag, contents, err := readPacket(r)
 		if err != nil {
@@ -58,6 +58,15 @@ func (c *BaseClient) serve() error {
 			if err != nil {
 				// Client must close connection if packet is invalid.
 				return err
+			}
+			// Decide the fate of receiver-side state here, synchronously,
+			// because the broker may send the next packet (e.g. PUBREL) in
+			// the same read. A clean start drops pending QoS 2 messages
+			// before any later packet can observe them. A rejected
+			// CONNACK never clears state handed over to this client.
+			if connAck.Code == ConnectionAccepted &&
+				(c.cleanSession || !connAck.SessionPresent) {
+				session.reset()
 			}
 			select {
 			case c.sig.ConnAck() <- connAck:
@@ -89,11 +98,18 @@ func (c *BaseClient) serve() error {
 					return wrapError(err, "sending PUBACK")
 				}
 			case QoS2:
+				// Keep the full message before acknowledging it so the
+				// handshake survives a transport loss. A retransmission
+				// with matching content only re-sends PUBREC; a conflicting
+				// retransmission closes the connection without touching the
+				// original record.
+				if err := session.store(publish.Message); err != nil {
+					return err
+				}
 				pktPubRec := (&pktPubRec{ID: publish.Message.ID}).Pack()
 				if err := c.write(pktPubRec); err != nil {
 					return wrapError(err, "sending PUBREC")
 				}
-				subBuffer[publish.Message.ID] = publish.Message
 			}
 		case packetPubAck:
 			pubAck, err := (&pktPubAck{}).Parse(pktFlag, contents)
@@ -122,7 +138,11 @@ func (c *BaseClient) serve() error {
 			if err != nil {
 				return err
 			}
-			if msg, ok := subBuffer[pubRel.ID]; ok {
+			// The first PUBREL of a handshake removes the stored message
+			// and delivers it to the handler exactly once. Duplicate or
+			// unknown PUBRELs find nothing pending but are still answered
+			// with PUBCOMP so the broker can finish its side of the flow.
+			if msg := session.take(pubRel.ID); msg != nil {
 				// Ownership of the message is now transferred to the receiver.
 				c.mu.RLock()
 				handler := c.handler
@@ -130,12 +150,11 @@ func (c *BaseClient) serve() error {
 				if handler != nil {
 					handler.Serve(msg)
 				}
-				delete(subBuffer, pubRel.ID)
+			}
 
-				pktPubComp := (&pktPubComp{ID: pubRel.ID}).Pack()
-				if err := c.write(pktPubComp); err != nil {
-					return wrapError(err, "sending PUBCOMP")
-				}
+			pktPubComp := (&pktPubComp{ID: pubRel.ID}).Pack()
+			if err := c.write(pktPubComp); err != nil {
+				return wrapError(err, "sending PUBCOMP")
 			}
 		case packetPubComp:
 			pubComp, err := (&pktPubComp{}).Parse(pktFlag, contents)

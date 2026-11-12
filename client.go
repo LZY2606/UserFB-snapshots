@@ -38,6 +38,8 @@ type BaseClient struct {
 
 	handler      Handler
 	sig          *signaller
+	inbound      *InboundSession
+	cleanSession bool
 	mu           sync.RWMutex
 	connState    ConnState
 	err          error
@@ -94,6 +96,46 @@ func (c *BaseClient) Handle(handler Handler) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.handler = handler
+}
+
+// inboundSession returns the session owning receiver-side QoS 2 state,
+// creating a new one on first use. Each BaseClient gets its own session
+// unless one is explicitly shared via TransferInboundSession.
+func (c *BaseClient) inboundSession() *InboundSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.inbound == nil {
+		c.inbound = &InboundSession{}
+	}
+	return c.inbound
+}
+
+// InboundSession returns the receiver-side MQTT session state used by the
+// client. A new empty session is created if none has been assigned yet.
+//
+// The returned value owns the QoS 2 handshakes started by the broker and is
+// the object to hand over to another BaseClient with
+// TransferInboundSession when the same MQTT session is continued on a new
+// connection. Independent logical clients must not share it.
+func (c *BaseClient) InboundSession() *InboundSession {
+	return c.inboundSession()
+}
+
+// TransferInboundSession hands the receiver-side session state of src over
+// to c. Pending QoS 2 messages (PUBLISH already answered with PUBREC but
+// not yet released by PUBREL) are then continued on c, even if c uses a
+// different transport.
+//
+// Call it before Connect on the client that takes over the session and
+// connect with CleanSession(false). The caller is responsible for stopping
+// the serving loop of src before reusing the session; the two clients must
+// not process packets concurrently. If src has no session state, c keeps
+// its own session.
+func (c *BaseClient) TransferInboundSession(src *BaseClient) {
+	session := src.InboundSession()
+	c.mu.Lock()
+	c.inbound = session
+	c.mu.Unlock()
 }
 
 func (c *BaseClient) write(b []byte) error {

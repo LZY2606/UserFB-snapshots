@@ -162,6 +162,15 @@ func TestServe_UncorrespondingResponse(t *testing.T) {
 				if _, err := ca.Write(c); err != nil {
 					t.Errorf("Unexpected error: '%v'", err)
 				}
+				if name == "PubRel" {
+					// Unknown PUBREL must still be answered with PUBCOMP.
+					b := make([]byte, 4)
+					if _, err := io.ReadFull(ca, b); err != nil {
+						t.Errorf("Unexpected error: '%v'", err)
+					} else if !bytes.Equal(b, []byte{0x70, 0x02, 0xFF, 0xFF}) {
+						t.Errorf("Expected PUBCOMP packet: [0x70 0x02 0xff 0xff], got: %v", b)
+					}
+				}
 				ca.Close()
 			}()
 			if err := cli.serve(); err != io.EOF {
