@@ -1,8 +1,10 @@
 #include <algorithm>
 #include "our_gl.h"
+#include "ambient_occlusion.h"
 
 mat<4,4> ModelView, Viewport, Perspective; // "OpenGL" state matrices
 std::vector<double> zbuffer;               // depth buffer
+IGBufferSink *g_gbuffer_sink = nullptr;    // geometry capture hook, disabled by default
 
 void lookat(const vec3 eye, const vec3 center, const vec3 up) {
     vec3 n = normalized(eye-center);
@@ -42,9 +44,14 @@ void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffe
             if (bc_screen.x<0 || bc_screen.y<0 || bc_screen.z<0) continue; // negative barycentric coordinate => the pixel is outside the triangle
             double z = bc_screen * vec3{ ndc[0].z, ndc[1].z, ndc[2].z };   // linear interpolation of the depth
             if (z <= zbuffer[x+y*framebuffer.width()]) continue;   // discard fragments that are too deep w.r.t the z-buffer
-            auto [discard, color] = shader.fragment(bc_clip);
+            auto [discard, color] = shader.fragment_at(bc_clip, x, y);
             if (discard) continue;                                 // fragment shader can discard current fragment
             zbuffer[x+y*framebuffer.width()] = z;                  // update the z-buffer
+            if (g_gbuffer_sink) {                                  // record the geometry of the visible surface
+                vec3 view_pos, view_nrm;
+                if (shader.geometry(bc_clip, view_pos, view_nrm))
+                    g_gbuffer_sink->record(x, y, view_pos, view_nrm);
+            }
             framebuffer.set(x, y, color);                          // update the framebuffer
         }
     }
