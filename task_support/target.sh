@@ -1,230 +1,152 @@
-/*
-** © 2009-2015 by Kornel Lesiński.
-** © 1989, 1991 by Jef Poskanzer.
-** © 1997, 2000, 2002 by Greg Roelofs; based on an idea by Stefan Schneider.
-**
-** See COPYRIGHT file for license.
-*/
+#!/bin/bash
+#
+# Fixed build/test/mutation wrapper for the libimagequant C-implementation
+# regression suite.
+#
+#   bash task_support/target.sh                # four new groups + 8-pixel baseline
+#   bash task_support/target.sh --mutations    # above, plus two source mutations
+#
+# The wrapper performs every build itself. A mutation counts as detected only
+# when the *same* test cases fail through an executed Case::check content
+# assertion on a successfully compiled binary. Compile errors, crashes
+# (termination by signal), an empty registry and runs that execute no
+# assertions are explicitly rejected as detection.
+set -euo pipefail
+cd "$(dirname "$0")/.."
 
-#include "libimagequant.h"
-#include "pam.h"
-#include "nearest.h"
-#include "mempool.h"
-#include <stdlib.h>
+ROOT="$PWD"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/liqtarget.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
 
-typedef struct vp_sort_tmp {
-    float distance_squared;
-    unsigned int idx;
-} vp_sort_tmp;
+TEST_GROUPS=(metric search layout reuse)
+CSRC="libimagequant blur mediancut mempool nearest pam kmeans"
+CFLAGS="-std=c99 -O1 -DUSE_SSE=0"
+CXXFLAGS="-std=c++17 -O1"
 
-typedef struct vp_search_tmp {
-    float distance;
-    float distance_squared;
-    unsigned int idx;
-    int exclude;
-} vp_search_tmp;
-
-struct leaf {
-    f_pixel color;
-    unsigned int idx;
-};
-
-typedef struct vp_node {
-    struct vp_node *near, *far;
-    f_pixel vantage_point;
-    float radius, radius_squared;
-    struct leaf *rest;
-    unsigned short idx;
-    unsigned short restcount;
-} vp_node;
-
-struct nearest_map {
-    vp_node *root;
-    const colormap_item *palette;
-    float nearest_other_color_dist[256];
-    mempoolptr mempool;
-};
-
-static void vp_search_node(const vp_node *node, const f_pixel *const needle, vp_search_tmp *const best_candidate);
-
-static int vp_compare_distance(const void *ap, const void *bp) {
-    float a = ((const vp_sort_tmp*)ap)->distance_squared;
-    float b = ((const vp_sort_tmp*)bp)->distance_squared;
-    return a > b ? 1 : -1;
+# Build the C objects from a given source tree, then link the registry runner
+# (task_support/main.cpp + task_tests/target.cpp) against them.
+build_variant () { # $1 = label, $2 = source directory
+    local label="$1"
+    local srcdir="$2"
+    local obj="$WORK/${label}_obj"
+    mkdir -p "$obj"
+    for f in $CSRC; do
+        cc $CFLAGS -I"$srcdir" -c "$srcdir/$f.c" -o "$obj/$f.o"
+    done
+    c++ $CXXFLAGS -I"$srcdir" -Itask_support -Itask_tests \
+        task_support/main.cpp task_tests/target.cpp "$obj"/*.o \
+        -o "$WORK/${label}_runner" -lm
 }
 
-static void vp_sort_indexes_by_distance(const f_pixel vantage_point, vp_sort_tmp indexes[], int num_indexes, const colormap_item items[]) {
-    for(int i=0; i < num_indexes; i++) {
-        indexes[i].distance_squared = colordifference(vantage_point, items[indexes[i].idx].acolor);
-    }
-    qsort(indexes, num_indexes, sizeof(indexes[0]), vp_compare_distance);
+# Normal source: every group must complete and execute real assertions.
+expect_pass () { # $1 = runner, $2 = group
+    local out rc n
+    set +e
+    out="$("$1" "$2" 2>&1)"
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        echo "$out" >&2
+        echo "FATAL: group '$2' failed on unmodified source" >&2
+        return 1
+    fi
+    echo "$out"
+    echo "$out" | grep -q "GROUP $2 .* COMPLETE"
+    n="$(echo "$out" | sed -n 's/.*assertions=\([0-9][0-9]*\).*/\1/p' | awk '{s+=$1} END{print s+0}')"
+    if [ "$n" -le 0 ]; then
+        echo "FATAL: group '$2' executed no assertions" >&2
+        return 1
+    fi
 }
 
-/*
- * Usually it should pick farthest point, but picking most popular point seems to make search quicker anyway
- */
-static int vp_find_best_vantage_point_index(vp_sort_tmp indexes[], int num_indexes, const colormap_item items[]) {
-    int best = 0;
-    float best_popularity = items[indexes[0].idx].popularity;
-    for(int i = 1; i < num_indexes; i++) {
-        if (items[indexes[i].idx].popularity > best_popularity) {
-            best_popularity = items[indexes[i].idx].popularity;
-            best = i;
-        }
-    }
-    return best;
+# Mutated source: the group must fail via a Case::check content assertion.
+expect_detected () { # $1 = runner, $2 = group
+    local out rc
+    set +e
+    out="$("$1" "$2" 2>&1)"
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+        echo "$out" >&2
+        echo "FATAL: mutation NOT detected by group '$2' (suite still passed)" >&2
+        return 1
+    fi
+    if [ "$rc" -ge 128 ]; then
+        echo "$out" >&2
+        echo "FATAL: group '$2' terminated by signal (rc=$rc); a crash is not detection" >&2
+        return 1
+    fi
+    if echo "$out" | grep -Eq "zero matching tests|zero assertions"; then
+        echo "$out" >&2
+        echo "FATAL: group '$2' failed without executing its assertions" >&2
+        return 1
+    fi
+    if ! echo "$out" | grep -q "^FAIL $2:"; then
+        echo "$out" >&2
+        echo "FATAL: group '$2' did not fail through a content assertion (rc=$rc)" >&2
+        return 1
+    fi
+    echo "  detected by $2: $(echo "$out" | grep "^FAIL $2:" | head -1)"
 }
 
-static vp_node *vp_create_node(mempoolptr *m, vp_sort_tmp indexes[], int num_indexes, const colormap_item items[]) {
-    if (num_indexes <= 0) {
-        return NULL;
-    }
-
-    vp_node *node = mempool_alloc(m, sizeof(node[0]), 0);
-
-    if (num_indexes == 1) {
-        *node = (vp_node){
-            .vantage_point = items[indexes[0].idx].acolor,
-            .idx = indexes[0].idx,
-            .radius = MAX_DIFF,
-            .radius_squared = MAX_DIFF,
-        };
-        return node;
-    }
-
-    const int ref = vp_find_best_vantage_point_index(indexes, num_indexes, items);
-    const int ref_idx = indexes[ref].idx;
-
-    // Removes the `ref_idx` item from remaining items, because it's included in the current node
-    num_indexes -= 1;
-    indexes[ref] = indexes[num_indexes];
-
-    vp_sort_indexes_by_distance(items[ref_idx].acolor, indexes, num_indexes, items);
-
-    // Remaining items are split by the median distance
-    const int half_idx = num_indexes/2;
-
-    *node = (vp_node){
-        .vantage_point = items[ref_idx].acolor,
-        .idx = ref_idx,
-        .radius = sqrtf(indexes[half_idx].distance_squared),
-        .radius_squared = indexes[half_idx].distance_squared,
-    };
-    if (num_indexes < 7) {
-        node->rest = mempool_alloc(m, sizeof(node->rest[0]) * num_indexes, 0);
-        node->restcount = num_indexes;
-        for(int i=0; i < num_indexes; i++) {
-            node->rest[i].idx = indexes[i].idx;
-            node->rest[i].color = items[indexes[i].idx].acolor;
-        }
-    } else {
-        node->near = vp_create_node(m, indexes, half_idx, items);
-        node->far = vp_create_node(m, &indexes[half_idx], num_indexes - half_idx, items);
-    }
-
-    return node;
+copy_sources () { # $1 = destination directory
+    mkdir -p "$1"
+    cp "$ROOT"/*.c "$ROOT"/*.h "$1"/
 }
 
-LIQ_PRIVATE struct nearest_map *nearest_init(const colormap *map) {
-    mempoolptr m = NULL;
-    struct nearest_map *handle = mempool_create(&m, sizeof(handle[0]), sizeof(handle[0]) + sizeof(vp_node)*map->colors+16, map->malloc, map->free);
-
-    LIQ_ARRAY(vp_sort_tmp, indexes, map->colors);
-
-    for(unsigned int i=0; i < map->colors; i++) {
-        indexes[i].idx = i;
-    }
-
-    vp_node *root = vp_create_node(&m, indexes, map->colors, map->palette);
-    *handle = (struct nearest_map){
-        .root = root,
-        .palette = map->palette,
-        .mempool = m,
-    };
-
-    for(unsigned int i=0; i < map->colors; i++) {
-        vp_search_tmp best = {
-            .distance = MAX_DIFF,
-            .distance_squared = MAX_DIFF,
-            .exclude = i,
-        };
-        vp_search_node(root, &map->palette[i].acolor, &best);
-        handle->nearest_other_color_dist[i] = best.distance * best.distance / 4.0; // half of squared distance
-    }
-
-    return handle;
+apply_mutation () { # $1 = mutated source directory, $2 = mutation name
+    local srcdir="$1" name="$2"
+    case "$name" in
+        no_red_premultiply)
+            # Drop premultiplication of the red channel in rgba_to_f (pam.h).
+            grep -q '\.r = gamma_lut\[px\.r\]\*a,' "$srcdir/pam.h" \
+                || { echo "FATAL: red-premultiply anchor not found in pam.h" >&2; exit 1; }
+            perl -0pi -e 's/\.r = gamma_lut\[px\.r\]\*a,/.r = gamma_lut[px.r],/' "$srcdir/pam.h"
+            grep -q '\.r = gamma_lut\[px\.r\],' "$srcdir/pam.h" \
+                || { echo "FATAL: red-premultiply mutation did not apply" >&2; exit 1; }
+            ;;
+        no_vp_far_branch)
+            # Remove one far-side search branch of the VP-tree (nearest.c).
+            grep -q 'if (node->far && distance >= node->radius - best_candidate->distance) {' "$srcdir/nearest.c" \
+                || { echo "FATAL: VP-tree far-branch anchor not found in nearest.c" >&2; exit 1; }
+            perl -0pi -e 's/if \(node->far && distance >= node->radius - best_candidate->distance\) \{/if (0 \&\& node->far \&\& distance >= node->radius - best_candidate->distance) {/' "$srcdir/nearest.c"
+            grep -q 'if (0 && node->far && distance >= node->radius - best_candidate->distance) {' "$srcdir/nearest.c" \
+                || { echo "FATAL: VP-tree far-branch mutation did not apply" >&2; exit 1; }
+            ;;
+        *)
+            echo "FATAL: unknown mutation '$name'" >&2; exit 1 ;;
+    esac
 }
 
-static void vp_search_node(const vp_node *node, const f_pixel *const needle, vp_search_tmp *const best_candidate) {
-    do {
-        const float distance_squared = colordifference(node->vantage_point, *needle);
-        const float distance = sqrtf(distance_squared);
+echo "== Building unmodified library and test runner =="
+build_variant normal "$ROOT"
+NORMAL_RUNNER="$WORK/normal_runner"
 
-        if (distance_squared < best_candidate->distance_squared && best_candidate->exclude != node->idx) {
-            best_candidate->distance = distance;
-            best_candidate->distance_squared = distance_squared;
-            best_candidate->idx = node->idx;
-        }
+echo "== Stage 1: four new regression groups (unmodified source) =="
+for g in "${TEST_GROUPS[@]}"; do
+    expect_pass "$NORMAL_RUNNER" "$g"
+done
 
-        if (node->restcount) {
-            for(int i=0; i < node->restcount; i++) {
-                const float distance_squared = colordifference(node->rest[i].color, *needle);
-                if (distance_squared < best_candidate->distance_squared && best_candidate->exclude != node->rest[i].idx) {
-                    best_candidate->distance = sqrtf(distance_squared);
-                    best_candidate->distance_squared = distance_squared;
-                    best_candidate->idx = node->rest[i].idx;
-                }
-            }
-            return;
-        }
+echo "== Stage 2: existing eight-pixel basic quantization baseline =="
+bash task_support/baseline.sh
 
-        // Recurse towards most likely candidate first to narrow best candidate's distance as soon as possible
-        if (distance_squared < node->radius_squared) {
-            if (node->near) {
-                vp_search_node(node->near, needle, best_candidate);
-            }
-            // The best node (final answer) may be just ouside the radius, but not farther than
-            // the best distance we know so far. The vp_search_node above should have narrowed
-            // best_candidate->distance, so this path is rarely taken.
-            if (0 && node->far && distance >= node->radius - best_candidate->distance) {
-                node = node->far; // Fast tail recursion
-            } else {
-                return;
-            }
-        } else {
-            if (node->far) {
-                vp_search_node(node->far, needle, best_candidate);
-            }
-            if (node->near && distance <= node->radius + best_candidate->distance) {
-                node = node->near; // Fast tail recursion
-            } else {
-                return;
-            }
-        }
-    } while(true);
-}
+if [ "${1:-}" != "--mutations" ]; then
+    echo "== All non-mutation stages completed successfully =="
+    exit 0
+fi
 
-LIQ_PRIVATE unsigned int nearest_search(const struct nearest_map *handle, const f_pixel *px, const int likely_colormap_index, float *diff) {
-    const float guess_diff = colordifference(handle->palette[likely_colormap_index].acolor, *px);
-    if (guess_diff < handle->nearest_other_color_dist[likely_colormap_index]) {
-        if (diff) *diff = guess_diff;
-        return likely_colormap_index;
-    }
+echo "== Stage 3: source mutations, each in an isolated temporary copy =="
+for name in no_red_premultiply no_vp_far_branch; do
+    echo "-- mutation: $name"
+    srcdir="$WORK/mut_${name}"
+    copy_sources "$srcdir"
+    apply_mutation "$srcdir" "$name"
+    # A successful build is required: a compile error must not count as detection.
+    build_variant "mut_${name}" "$srcdir"
+    runner="$WORK/mut_${name}_runner"
+    for g in "${TEST_GROUPS[@]}"; do
+        expect_detected "$runner" "$g"
+    done
+done
 
-    vp_search_tmp best_candidate = {
-        .distance = sqrtf(guess_diff),
-        .distance_squared = guess_diff,
-        .idx = likely_colormap_index,
-        .exclude = -1,
-    };
-    vp_search_node(handle->root, px, &best_candidate);
-    if (diff) {
-        *diff = best_candidate.distance * best_candidate.distance;
-    }
-    return best_candidate.idx;
-}
-
-LIQ_PRIVATE void nearest_free(struct nearest_map *centroids)
-{
-    mempool_destroy(centroids->mempool);
-}
+echo "== Both mutations were rejected by content assertions in every group =="

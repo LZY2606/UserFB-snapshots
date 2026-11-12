@@ -685,6 +685,130 @@ You must not increase number of maximum threads after `liq_image` has been creat
 
 Callback of `liq_image_create_custom()` may be called from different threads at the same time.
 
+## Content regression tests for transparent images
+
+`task_tests/target.cpp` plus the fixed wrapper `task_support/target.sh` form a
+content regression over the actual C pipeline: RGBA input, the internal
+premultiplied color distance, and the palette indices written by remapping.
+They do not compare two library entry points against each other, and they do
+not reuse any result from `pam.h` or `nearest.c`. The reference is recomputed
+independently in `double` from the bytes exposed by the public API.
+
+Run everything with:
+
+```
+bash task_support/target.sh              # four new groups + 8-pixel baseline
+bash task_support/target.sh --mutations  # plus two source-level mutations
+```
+
+The four groups are registered through `register_task_tests(Registry&)`:
+
+* **metric** — a semi-transparent color whose candidate ordering reverses
+  between a black and a white backdrop; fully transparent colors with different
+  RGB; near-zero and full alpha; and distinct input/output gamma pairs.
+* **search** — sixteen asymmetric fixed colors and a non-uniform image so the
+  VP-tree builds internal nodes; every pixel is enumerated independently over
+  every palette entry, and adjacent-pixel hints cover both the correct-hint and
+  the wrong-hint paths.
+* **layout** — the same image fed as a contiguous array, as row pointers with
+  inter-row sentinel bytes, and through a custom row callback, all through the
+  real quantize/remap path.
+* **reuse** — one `liq_result` interleaved across two images of different size
+  and alpha distribution, checked against independently created objects.
+
+### The reference distance and its scope
+
+For a byte color `c` and alpha `a`, each channel is transformed with the gamma
+passed to the library interface (not the piecewise sRGB curve) and
+premultiplied:
+
+```
+alpha = a / 255
+chan  = pow(c / 255, 0.5499 / gamma) * (a / 255)
+```
+
+Input bytes use the input gamma; palette bytes returned by `liq_get_palette()`
+use the output gamma. For two such colors, each RGB channel contributes the
+larger of its squared difference when composited on black and on white, and
+the three channels are summed:
+
+```
+on_black = x - y
+on_white = on_black + (y.alpha - x.alpha)
+channel  = max(on_black^2, on_white^2)
+distance = channel_r + channel_g + channel_b
+```
+
+This is a reference for **premultiplied, gamma-encoded RGBA with alpha**, i.e.
+exactly the color space the remapper searches in. Its scope is the nearest-color
+decision used to pick a palette index; it is not a general perceptual
+difference (it has no hue/chroma model and no spatial or structural term), and
+it is not a metric over unassociated straight-alpha RGB.
+
+Why the two tempting alternatives are *not* the same reference:
+
+* **Plain RGB nearest neighbor ignores alpha.** Two colors with identical RGB
+  but different alpha collapse to distance zero, and two fully transparent
+  colors are indistinguishable only by accident. Premultiplication makes the
+  alpha a first-class part of every channel, so the same RGB at alpha 16 and
+  alpha 255 are correctly far apart. The `metric` group asserts both cases.
+* **Averaging the black- and white-background errors instead of taking the
+  per-channel maximum models a different assumption.** The library asks for the
+  worst of the two backgrounds a semi-transparent pixel may be composited onto,
+  channel by channel. The average can rank two candidates in the opposite order
+  and pick a color that is badly wrong on one backdrop. `metric` contains a
+  fixed triple (needle `(120,120,120,128)`, candidates `(20,20,20,16)` and
+  `(220,220,220,48)`) where black prefers one candidate, white prefers the
+  other, the max rule and the average rule disagree, and the library follows the
+  max rule.
+
+With dithering disabled and an all-fixed palette, every emitted index must be at
+an exhaustive-optimal distance: chosen distance ≤ exhaustive minimum + 1e-5.
+Ties compare distances rather than internal ordering. All palettes used for
+this premise are fully fixed (`liq_histogram_quantize`), so K-means cannot move
+any center; a movable center would invalidate the reference and is itself
+asserted against.
+
+### Mutations and artifacts
+
+With `--mutations`, the wrapper copies the sources to a temporary directory and
+applies one change at a time, then rebuilds: removing red-channel
+premultiplication in `rgba_to_f` (`pam.h`), and disabling one far-side VP-tree
+search branch (`nearest.c`). A mutation counts as caught only when the same
+cases fail through an executed `Case::check` assertion on a binary that
+compiled and ran — a compile error, a signal/crash, an empty registry, or a run
+with no assertions is rejected as detection. On unmodified source every group
+must pass and run the eight-pixel baseline as well.
+
+Why each change is rejected, independently:
+
+* **Removing red premultiplication (`.r = gamma_lut[px.r]` instead of
+  `gamma_lut[px.r]*a`).** The internal red component no longer equals the
+  documented premultiplied transform that the `double` reference computes. The
+  all-fixed palette can no longer round-trip to the requested fixed bytes, so
+  the "palette entry is one of the fixed colors" assertion fails, and remapped
+  semi-transparent pixels land on entries whose correctly-computed distance
+  exceeds the exhaustive minimum (the reuse group reports a concrete gap around
+  `7.5e-2`, far above the `1e-5` tolerance).
+* **Disabling the far-side VP-tree branch (`if (0 && node->far && …)`).**
+  `nearest_search` can now prune the subtree that holds the true nearest color
+  and return a suboptimal index. The reference enumerates every palette entry
+  independently, so the chosen index shows an actual distance above the
+  exhaustive minimum; observed gaps reach roughly `0.31`, again well beyond the
+  tolerance. This is caught without reading any distance stored in the tree.
+
+The explicit input that reproduces both failures (the 9×7 fixed-seed image, its
+sixteen fixed colors, the RNG seeds, and the black/white reversal triple) is
+written to `artifacts/target_replay.txt`, so the failure is not identified by a
+random seed alone.
+
+Reproducible material and a failure example live in `artifacts/`:
+`target_replay.txt` records the exact fixed-seed input and the reversal triple,
+and `target_zoom_black.ppm` / `target_zoom_white.ppm` are enlarged PPM images of
+the semi-transparent pixels composited on black and white. No PNG decoder, GUI,
+Python, or network dependency is involved; the tests are C/C++ plus the standard
+library.
+
 ## Acknowledgements
 
 Thanks to Irfan Skiljan for helping test the first version of the library.

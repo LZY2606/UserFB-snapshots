@@ -25,3 +25,4 @@ msvc-dist/.gitignore
 quantized_example.png
 example
 lodepng.?
+artifacts/
