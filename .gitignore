@@ -53,3 +53,5 @@ results/
 /taint
 /taint-eval
 /vuln
+.go/
+.build/
