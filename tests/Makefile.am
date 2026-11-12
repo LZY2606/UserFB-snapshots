@@ -1,6 +1,8 @@
 dist_check_SCRIPTS = test.pl
 dist_check_DATA = testcase-44100.wav testcase-22050.wav testcase-float32.wav
 
+EXTRA_DIST = vbr_full_range.c
+
 TESTS = $(dist_check_SCRIPTS)
 LOG_COMPILER = $(PERL)
 AM_LOG_FLAGS = -Mstrict -w

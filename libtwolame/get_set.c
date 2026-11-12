@@ -358,6 +358,21 @@ int twolame_get_VBR_max_bitrate_kbps(twolame_options * glopts)
     return (glopts->vbr_max_bitrate);
 }
 
+int twolame_set_VBR_full_range(twolame_options * glopts, int full_range)
+{
+    if (full_range != 0 && full_range != 1) {
+        fprintf(stderr, "invalid full-range VBR state %i\n", full_range);
+        return (-1);
+    }
+    glopts->vbr_full_range = full_range;
+    return (0);
+}
+
+int twolame_get_VBR_full_range(twolame_options * glopts)
+{
+    return (glopts->vbr_full_range);
+}
+
 int twolame_set_num_ancillary_bits(twolame_options * glopts, int num)
 {
     if (num < 0)

@@ -815,6 +815,34 @@ TL_API int twolame_set_VBR_max_bitrate_kbps(twolame_options * glopts, int bitrat
 TL_API int twolame_get_VBR_max_bitrate_kbps(twolame_options * glopts);
 
 
+/** Enable/Disable full-range VBR mode.
+ *
+ *  When enabled (together with VBR mode) each frame is allowed to use
+ *  any legal MPEG-1 two-channel bitrate between the configured bitrate
+ *  (lower bound) and the VBR max bitrate (upper bound), switching bit
+ *  allocation tables and stereo mode per frame as required.
+ *
+ *  Full-range VBR only supports MPEG-1, 2 channels, VBR mode and
+ *  stereo or joint stereo mode; any other combination is rejected
+ *  by twolame_init_params().
+ *
+ *  Default: FALSE
+ *
+ *  \param glopts          pointer to twolame options pointer
+ *  \param full_range      full-range VBR state (0/1)
+ *  \return                0 if successful, non-zero on failure
+ */
+TL_API int twolame_set_VBR_full_range(twolame_options * glopts, int full_range);
+
+
+/** Get the full-range VBR state.
+ *
+ *  \param glopts          pointer to twolame options pointer
+ *  \return                state of full-range VBR (TRUE/FALSE)
+ */
+TL_API int twolame_get_VBR_full_range(twolame_options * glopts);
+
+
 /** Enable/Disable the quick mode for psycho model calculation.
  *
  *  Default: FALSE

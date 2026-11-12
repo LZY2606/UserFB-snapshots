@@ -66,6 +66,33 @@ Standard automake process:
     make install
 
 
+FULL-RANGE VBR
+--------------
+
+By default VBR keeps every frame inside the bitrate range covered by a
+single MPEG-1 bit-allocation table, and joint stereo is forced back to
+plain stereo.  Full-range VBR lifts that restriction: each frame picks
+the lowest legal MPEG-1 two-channel bitrate (32/48/56/80 kbps excluded)
+that meets the VBR quality target, using whatever allocation table and
+stereo mode (stereo, or joint stereo with a 16/12/8/4 subband boundary)
+that frame needs.  The configured bitrate acts as the lower bound and
+the VBR max bitrate as the upper bound.  It requires MPEG-1, 2 channels,
+VBR mode and stereo or joint stereo mode, and is off by default:
+
+    twolame_options *opts = twolame_init();
+    twolame_set_num_channels(opts, 2);
+    twolame_set_in_samplerate(opts, 44100);
+    twolame_set_out_samplerate(opts, 44100);
+    twolame_set_mode(opts, TWOLAME_JOINT_STEREO);
+    twolame_set_VBR(opts, 1);
+    twolame_set_VBR_full_range(opts, 1);        /* enable full-range VBR */
+    twolame_set_bitrate(opts, 64);              /* lower bound (kbps) */
+    twolame_set_VBR_max_bitrate_kbps(opts, 384);/* upper bound (kbps) */
+    if (twolame_init_params(opts) != 0) {
+        /* handle error */
+    }
+
+
 
 REFERENCE PAPERS
 ----------------

@@ -79,6 +79,8 @@ twolame_options *twolame_init(void)
     newoptions->freeformat = FALSE;
     newoptions->vbrlevel = 5.0;
     newoptions->athlevel = 0.0;
+    newoptions->vbr_full_range = FALSE;
+    newoptions->vbr_full_sblimit = 0;
 
     newoptions->quickmode = FALSE;
     newoptions->quickcount = 10;
@@ -338,6 +340,37 @@ int twolame_init_params(twolame_options * glopts)
         }
     }
 
+    /* Full-range VBR only supports a specific combination of settings */
+    if (glopts->vbr_full_range) {
+        if (!glopts->vbr) {
+            fprintf(stderr, "twolame_init_params(): full-range VBR requires VBR mode.\n");
+            return -1;
+        }
+        if (glopts->version != TWOLAME_MPEG1) {
+            fprintf(stderr, "twolame_init_params(): full-range VBR only supports MPEG-1.\n");
+            return -1;
+        }
+        if (glopts->samplerate_out != 32000 && glopts->samplerate_out != 44100
+                && glopts->samplerate_out != 48000) {
+            fprintf(stderr,
+                    "twolame_init_params(): full-range VBR only supports 32/44.1/48 kHz.\n");
+            return -1;
+        }
+        if (glopts->num_channels_in != 2) {
+            fprintf(stderr, "twolame_init_params(): full-range VBR requires 2 channels.\n");
+            return -1;
+        }
+        if (glopts->mode != TWOLAME_STEREO && glopts->mode != TWOLAME_JOINT_STEREO) {
+            fprintf(stderr,
+                    "twolame_init_params(): full-range VBR requires stereo or joint stereo mode.\n");
+            return -1;
+        }
+        if (glopts->freeformat) {
+            fprintf(stderr, "twolame_init_params(): full-range VBR cannot be used with freeformat.\n");
+            return -1;
+        }
+    }
+
     /*
      * MFC Feb 2003: in VBR mode, joint
      * stereo doesn't make any sense at
@@ -345,7 +378,7 @@ int twolame_init_params(twolame_options * glopts)
      * subbands according to
      * bits_for_nonoise in vbr mode
      */
-    if (glopts->vbr && glopts->mode == TWOLAME_JOINT_STEREO) {
+    if (glopts->vbr && !glopts->vbr_full_range && glopts->mode == TWOLAME_JOINT_STEREO) {
         fprintf(stderr, "Warning: Can't do Joint Stereo with VBR, switching to normal stereo.\n");
 
         // force stereo mode
@@ -375,7 +408,11 @@ int twolame_init_params(twolame_options * glopts)
         return -1;
     }
     // initialise bitrate allocation
-    if (twolame_init_bit_allocation(glopts) < 0) {
+    if (glopts->vbr_full_range) {
+        if (twolame_vbr_full_range_init(glopts) < 0) {
+            return -1;
+        }
+    } else if (twolame_init_bit_allocation(glopts) < 0) {
         return -1;
     }
     // Select table number and sblimit
@@ -543,6 +580,16 @@ static int encode_frame(twolame_options * glopts, bit_stream * bs)
                                                   &(*glopts->sb_sample)[ch][gr][bl][0]);
     }
 
+    if (glopts->vbr_full_range) {
+        /* The candidates for this frame may use allocation tables with very
+           different sblimits. Run the analysis, scalefactor and psy stages
+           wide enough to feed every candidate, so that no candidate ever
+           reads stale data left behind by a narrower previous frame. The
+           winning candidate's own sblimit is restored before writing. */
+        glopts->sblimit = glopts->vbr_full_sblimit;
+        glopts->jsbound = glopts->sblimit;
+    }
+
     twolame_scalefactor_calc(*glopts->sb_sample, glopts->scalar, nch, glopts->sblimit);
     twolame_find_sf_max(glopts, glopts->scalar, glopts->max_sc);
     if (glopts->mode == TWOLAME_JOINT_STEREO) {
@@ -599,7 +646,10 @@ static int encode_frame(twolame_options * glopts, bit_stream * bs)
 
 
     twolame_sf_transmission_pattern(glopts, glopts->scalar, glopts->scfsi);
-    twolame_main_bit_allocation(glopts, glopts->smr, glopts->scfsi, glopts->bit_alloc, &adb);
+    if (glopts->vbr_full_range)
+        twolame_vbr_full_range_pick(glopts, glopts->smr, glopts->scfsi, glopts->bit_alloc, &adb);
+    else
+        twolame_main_bit_allocation(glopts, glopts->smr, glopts->scfsi, glopts->bit_alloc, &adb);
 
     twolame_write_header(glopts, bs);
 

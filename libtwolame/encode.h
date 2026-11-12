@@ -71,6 +71,12 @@ int twolame_bits_for_nonoise(twolame_options * glopts, FLOAT SMR[2][SBLIMIT],
 
 int twolame_init_bit_allocation(twolame_options * glopts);
 
+int twolame_vbr_full_range_init(twolame_options * glopts);
+
+int twolame_vbr_full_range_pick(twolame_options * glopts, FLOAT SMR[2][SBLIMIT],
+                                unsigned int scfsi[2][SBLIMIT],
+                                unsigned int bit_alloc[2][SBLIMIT], int *adb);
+
 void twolame_main_bit_allocation(twolame_options * glopts, FLOAT SMR[2][SBLIMIT],
                                  unsigned int scfsi[2][SBLIMIT],
                                  unsigned int bit_alloc[2][SBLIMIT], int *adb);

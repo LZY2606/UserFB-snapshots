@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #include "twolame.h"
@@ -797,6 +798,65 @@ int twolame_bits_for_nonoise(twolame_options * glopts,
 }
 
 
+/************************************************************************
+*
+* Full-range VBR (Layer II, MPEG-1, 2 channels only)
+*
+* Instead of keeping VBR inside the bitrate range covered by a single
+* bit-allocation table, each frame may pick any legal MPEG-1 two-channel
+* bitrate (32/48/56/80 kbps excluded) between the configured bitrate
+* (lower bound) and the VBR max bitrate (upper bound). Every candidate
+* bitrate uses its own allocation table/sblimit (chosen with the normal
+* MPEG-1 table selection rules) and its real, unpadded frame length.
+*
+************************************************************************/
+
+/* Is this bitrate a legal full-range candidate? (MPEG-1, 2 channels) */
+static int full_range_legal_bitrate(int bitrate)
+{
+    switch (bitrate) {
+    case 64:
+    case 96:
+    case 112:
+    case 128:
+    case 160:
+    case 192:
+    case 224:
+    case 256:
+    case 320:
+    case 384:
+        return 1;
+    }
+    /* 32/48/56/80 kbps are not legal for MPEG-1 two-channel encoding */
+    return 0;
+}
+
+/* The MPEG-1 allocation table selection rules (as in twolame_encode_init)
+   for a two-channel stream at the given total bitrate */
+static int full_range_tablenum(int bitrate, int samplerate)
+{
+    int br_per_ch = bitrate / 2;
+    int sfrq = samplerate / 1000;
+
+    if ((sfrq == 48 && br_per_ch >= 56)
+            || (br_per_ch >= 56 && br_per_ch <= 80))
+        return 0;
+    else if (sfrq != 48 && br_per_ch >= 96)
+        return 1;
+    else if (sfrq != 32 && br_per_ch <= 48)
+        return 2;
+    else
+        return 3;
+}
+
+/* The real (no padding) frame capacity in bits for this bitrate */
+static int full_range_frame_bits(twolame_options * glopts, int bitrate)
+{
+    FLOAT average = (1152.0 / ((FLOAT) glopts->samplerate_out / 1000.0))
+                    * ((FLOAT) bitrate / 8.0);
+    return ((int) average) * 8;
+}
+
 /* must be called before calling main_bit_allocation */
 int twolame_init_bit_allocation(twolame_options * glopts)
 {
@@ -869,6 +929,187 @@ int twolame_init_bit_allocation(twolame_options * glopts)
             (int) (1152.0 / (glopts->samplerate_out / 1000.0) * (FLOAT) twolame_index_bitrate((int)glopts->version, brindex));
     }
 
+    return 0;
+}
+
+
+/************************************************************************
+*
+* twolame_vbr_full_range_init
+*
+* PURPOSE:Works out which bitrate indices are legal full-range VBR
+* candidates for this stream. The configured bitrate is the lower
+* bound, the VBR max bitrate (or 384 kbps when unset) is the upper
+* bound. Only legal MPEG-1 two-channel bitrates are considered.
+* Fails when the [lower, upper] interval contains no candidate.
+*
+************************************************************************/
+int twolame_vbr_full_range_init(twolame_options * glopts)
+{
+    int lower = glopts->bitrate;
+    int upper = (glopts->vbr_max_bitrate > 0) ? glopts->vbr_max_bitrate : 384;
+    int brindex;
+    int found = 0;
+
+    glopts->lower_index = 0;
+    glopts->upper_index = 0;
+    glopts->vbr_full_sblimit = 0;
+
+    for (brindex = 1; brindex < 15; brindex++) {
+        int bitrate = twolame_index_bitrate((int) TWOLAME_MPEG1, brindex);
+        int tablenum, sblimit;
+
+        if (!full_range_legal_bitrate(bitrate))
+            continue;
+        if (bitrate < lower || bitrate > upper)
+            continue;
+
+        if (!found) {
+            glopts->lower_index = brindex;
+            found = 1;
+        }
+        glopts->upper_index = brindex;
+
+        /* remember the widest sblimit any candidate table can need, so the
+           per-frame analysis always covers every candidate of this stream */
+        tablenum = full_range_tablenum(bitrate, glopts->samplerate_out);
+        sblimit = table_sblimit[tablenum];
+        if (sblimit > glopts->vbr_full_sblimit)
+            glopts->vbr_full_sblimit = sblimit;
+
+        glopts->bitrateindextobits[brindex] = full_range_frame_bits(glopts, bitrate);
+    }
+
+    if (!found) {
+        fprintf(stderr,
+                "twolame_init_params(): no legal MPEG-1 2ch bitrate in [%d,%d] kbps for full-range VBR\n",
+                lower, upper);
+        return -1;
+    }
+
+    /* start from the lowest candidate; each frame re-selects its own bitrate */
+    glopts->bitrate = twolame_index_bitrate((int) TWOLAME_MPEG1, glopts->lower_index);
+    glopts->header.bitrate_index = glopts->lower_index;
+
+    return 0;
+}
+
+
+/************************************************************************
+*
+* twolame_vbr_full_range_pick
+*
+* PURPOSE:Chooses the bitrate, stereo mode and bit allocation for one
+* frame in full-range VBR mode.
+*
+* SEMANTICS:
+* Candidate bitrates are tried from the lowest upwards. For each
+* candidate the frame capacity is the real unpadded frame length minus
+* the reserved ancillary bits. Under the candidate's own allocation
+* table the bits needed to reach the VBR level are worked out exactly
+* (header, CRC, bit allocation, scfsi, scalefactors and samples); a
+* candidate that needs exactly the available bits also fits. Normal
+* stereo is always tried first; when joint stereo was requested the
+* joint subband boundaries 16, 12, 8 and 4 are tried next (a boundary
+* is never allowed past the candidate table's sblimit). The first
+* fitting combination wins, so the lowest usable bitrate is selected.
+*
+* When nothing fits, the frame is encoded at the highest candidate
+* bitrate in normal stereo with the classic bounded bit allocation,
+* without pretending the quality target was reached.
+*
+* Returns 0 when a fitting candidate was found, 1 on fallback.
+*
+************************************************************************/
+int twolame_vbr_full_range_pick(twolame_options * glopts, FLOAT SMR[2][SBLIMIT],
+                                unsigned int scfsi[2][SBLIMIT],
+                                unsigned int bit_alloc[2][SBLIMIT], int *adb)
+{
+    frame_header *header = &glopts->header;
+    unsigned int trial_alloc[2][SBLIMIT];
+    int brindex, m_ext;
+    int chosen_avail = 0, chosen_req = 0;
+
+    for (brindex = glopts->lower_index; brindex <= glopts->upper_index; brindex++) {
+        int bitrate = twolame_index_bitrate((int) TWOLAME_MPEG1, brindex);
+        int avail, req;
+
+        if (!full_range_legal_bitrate(bitrate))
+            continue;
+
+        /* each candidate uses its own table and sblimit */
+        glopts->tablenum = full_range_tablenum(bitrate, glopts->samplerate_out);
+        glopts->sblimit = table_sblimit[glopts->tablenum];
+
+        /* CRC and the reserved ancillary bits are part of this frame's budget */
+        avail = full_range_frame_bits(glopts, bitrate) - glopts->num_ancillary_bits;
+        if (avail < 0)
+            continue;
+
+        /* normal stereo comes first */
+        glopts->jsbound = glopts->sblimit;
+        req = twolame_bits_for_nonoise(glopts, SMR, scfsi, glopts->vbrlevel, trial_alloc);
+        if (req <= avail) {
+            header->mode = TWOLAME_STEREO;
+            header->mode_ext = 0;
+            chosen_avail = avail;
+            chosen_req = req;
+            goto found;
+        }
+
+        /* then the joint stereo subband boundaries, widest first */
+        if (glopts->mode == TWOLAME_JOINT_STEREO) {
+            for (m_ext = 3; m_ext >= 0; m_ext--) {
+                int jsbound = get_js_bound(m_ext);
+                if (jsbound > glopts->sblimit)
+                    continue;   /* the boundary must not pass the sblimit */
+                glopts->jsbound = jsbound;
+                req = twolame_bits_for_nonoise(glopts, SMR, scfsi, glopts->vbrlevel, trial_alloc);
+                if (req <= avail) {
+                    header->mode = TWOLAME_JOINT_STEREO;
+                    header->mode_ext = m_ext;
+                    chosen_avail = avail;
+                    chosen_req = req;
+                    goto found;
+                }
+            }
+        }
+    }
+
+    /* Nothing fits: use the highest candidate bitrate in normal stereo with
+       the classic bounded allocation, so the frame is never over-written and
+       the quality target is honestly reported as not met. */
+    brindex = glopts->upper_index;
+    glopts->bitrate = twolame_index_bitrate((int) TWOLAME_MPEG1, brindex);
+    header->bitrate_index = brindex;
+    header->mode = TWOLAME_STEREO;
+    header->mode_ext = 0;
+    glopts->tablenum = full_range_tablenum(glopts->bitrate, glopts->samplerate_out);
+    glopts->sblimit = table_sblimit[glopts->tablenum];
+    glopts->jsbound = glopts->sblimit;
+    *adb = full_range_frame_bits(glopts, glopts->bitrate) - glopts->num_ancillary_bits;
+    twolame_a_bit_allocation(glopts, SMR, scfsi, bit_alloc, adb);
+    glopts->vbrstats[brindex]++;
+    return 1;
+
+found:
+    glopts->bitrate = twolame_index_bitrate((int) TWOLAME_MPEG1, brindex);
+    header->bitrate_index = brindex;
+    memcpy(bit_alloc, trial_alloc, sizeof(trial_alloc));
+    {
+        int sb, ch;
+        /* above the joint stereo boundary the allocation is shared: the
+           writer expects both channels to carry the same value there */
+        if (header->mode == TWOLAME_JOINT_STEREO)
+            for (sb = glopts->jsbound; sb < glopts->sblimit; sb++)
+                bit_alloc[1][sb] = bit_alloc[0][sb];
+        /* keep everything above the sblimit zeroed, like the other allocators */
+        for (ch = 0; ch < 2; ch++)
+            for (sb = glopts->sblimit; sb < SBLIMIT; sb++)
+                bit_alloc[ch][sb] = 0;
+    }
+    *adb = chosen_avail - chosen_req;
+    glopts->vbrstats[brindex]++;
     return 0;
 }
 

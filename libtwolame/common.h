@@ -290,6 +290,8 @@ struct twolame_options_struct {
     // depending on mode
     int vbr_max_bitrate;
     FLOAT vbrlevel;             // Set VBR quality. [0.0] (sensible range -10.0 -> 10.0)
+    int vbr_full_range;         // allow VBR to roam the full MPEG-1 2ch bitrate range [FALSE]
+    int vbr_full_sblimit;       // widest sblimit needed by any full-range candidate table
 
     // Miscellaneous Options That Nobody Ever Uses
     TWOLAME_Emphasis emphasis;  // [n]one, 5(50/15 microseconds), c(ccitt j.17)
