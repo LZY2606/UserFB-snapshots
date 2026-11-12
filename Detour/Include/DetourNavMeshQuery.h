@@ -192,6 +192,47 @@ public:
 					  const dtQueryFilter* filter,
 					  dtPolyRef* path, int* pathCount, const int maxPath) const;
 
+	/// Finds a path from the start polygon to the end polygon, minimizing a
+	/// combination of travelled distance and turning sharpness.
+	///
+	/// The trajectory that is scored is the polyline made of the start position,
+	/// the mid points of the portals crossed by the corridor (in order) and the
+	/// end position -- not the funnel-string polyline returned by
+	/// findStraightPath().
+	///
+	/// The cost has two terms:
+	/// - Distance: the 3D Euclidean length of each polyline segment, multiplied
+	///   by the area cost of the polygon that segment lies in.
+	/// - Turning: @p turnWeight multiplied by the square, in radians, of the
+	///   angle between consecutive non-zero XZ directions. A turn is scored at
+	///   the start heading, at every polyline segment with a non-zero XZ
+	///   projection, and at the end heading. Zero-length or vertical-only
+	///   segments establish no new heading (their distance still counts). If
+	///   no intermediate segment has a non-zero XZ direction, a single angle
+	///   between the two headings is scored.
+	///
+	/// Corridors may revisit polygons. Only ground polygons are traversable;
+	/// off-mesh connections are never used.
+	///  @param[in]		startRef		The reference id of the start polygon.
+	///  @param[in]		endRef			The reference id of the end polygon.
+	///  @param[in]		startPos		A position within the start polygon. [(x, y, z)]
+	///  @param[in]		endPos			A position within the end polygon. [(x, y, z)]
+	///  @param[in]		filter			The polygon filter to apply to the query.
+	///  @param[out]	path			An ordered list of polygon references representing the path. (Start to end.)
+	///  @param[out]	pathCount		The number of polygons returned in the @p path array.
+	///  @param[in]		maxPath			The maximum number of polygons the @p path array can hold. [Limit: >= 1]
+	///  @param[in]		startHeading	Non-zero finite travel direction at the start, projected on the XZ plane. [(x, y, z)]
+	///  @param[in]		endHeading		Non-zero finite travel direction at the end, projected on the XZ plane. [(x, y, z)]
+	///  @param[in]		turnWeight		Non-negative weight of the squared-angle turning term.
+	///  @param[out]	totalCost		The cost of the complete optimal corridor, even if @p path is too short to hold it.
+	/// @returns The status flags for the query.
+	dtStatus findPathTurnCost(dtPolyRef startRef, dtPolyRef endRef,
+							  const float* startPos, const float* endPos,
+							  const dtQueryFilter* filter,
+							  dtPolyRef* path, int* pathCount, const int maxPath,
+							  const float* startHeading, const float* endHeading,
+							  const float turnWeight, float* totalCost) const;
+
 	/// Finds the straight path from the start to the end position within the polygon corridor.
 	///  @param[in]		startPos			Path start position. [(x, y, z)]
 	///  @param[in]		endPos				Path end position. [(x, y, z)]

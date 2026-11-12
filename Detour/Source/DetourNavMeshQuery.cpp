@@ -1205,6 +1205,444 @@ dtStatus dtNavMeshQuery::getPathToNode(dtNode* endNode, dtPolyRef* path, int* pa
 }
 
 
+//////////////////////////////////////////////////////////////////////////////////////////
+// Turn-cost pathfinding.
+//
+// The scored trajectory is the polyline made of the start position, the mid
+// point of every portal the corridor crosses, and the end position. A heading
+// is an XZ-plane direction (the Y component is ignored); a segment with a zero
+// XZ projection establishes no heading.
+//
+// Because the turning term couples each traversal with the previous heading,
+// reaching a polygon through different portals leaves different necessary
+// state: a more expensive prefix can still win globally thanks to a smaller
+// turn at the next portal. The search therefore keeps one labelled state per
+// (polygon, entry heading) pair instead of a single best history per polygon.
+// Labels are settled in non-decreasing total cost, so the first label settled
+// on the end polygon -- whose key already includes the end-heading turn -- is
+// a global optimum.
+
+static const float DT_TURN_TWO_PI = 6.28318530717958647692f;
+
+static float dtTurnWrapPi(float a)
+{
+	while (a > 3.14159265358979323846f)
+		a -= DT_TURN_TWO_PI;
+	while (a < -3.14159265358979323846f)
+		a += DT_TURN_TWO_PI;
+	return a;
+}
+
+struct dtTurnLabel
+{
+	dtPolyRef poly;		///< Polygon the label ends in.
+	float pos[3];		///< Position where the polygon was entered (start pos or portal mid point).
+	float angle;		///< Last established XZ heading, in radians.
+	float g;			///< Accumulated cost of this prefix.
+	int parent;			///< Index of the parent label, -1 for the start label.
+	bool hasAngle;		///< Whether a heading has been established yet.
+	bool closed;		///< Settled label.
+	bool finished;		///< True for labels whose key includes the end-heading turn.
+};
+
+struct dtTurnHeapItem
+{
+	float key;
+	int label;
+};
+
+// Binary min-heap of label keys. Labels are never re-keyed: improving a state
+// creates a new label and the stale heap entry is skipped when popped.
+class dtTurnHeap
+{
+public:
+	dtTurnHeap() : m_items(0), m_size(0), m_cap(0) {}
+	~dtTurnHeap() { dtFree(m_items); }
+
+	bool reserve(const int cap)
+	{
+		dtTurnHeapItem* items = (dtTurnHeapItem*)dtAlloc(sizeof(dtTurnHeapItem)*cap, DT_ALLOC_TEMP);
+		if (!items)
+			return false;
+		dtFree(m_items);
+		m_items = items;
+		m_cap = cap;
+		m_size = 0;
+		return true;
+	}
+
+	void clear() { m_size = 0; }
+	bool empty() const { return m_size == 0; }
+	int capacity() const { return m_cap; }
+
+	void push(const float key, const int label)
+	{
+		int i = m_size++;
+		while (i > 0)
+		{
+			const int parent = (i-1)/2;
+			if (m_items[parent].key <= key)
+				break;
+			m_items[i] = m_items[parent];
+			i = parent;
+		}
+		m_items[i].key = key;
+		m_items[i].label = label;
+	}
+
+	int pop()
+	{
+		const int result = m_items[0].label;
+		const dtTurnHeapItem last = m_items[--m_size];
+		int i = 0;
+		for (;;)
+		{
+			int child = i*2+1;
+			if (child >= m_size)
+				break;
+			if (child+1 < m_size && m_items[child+1].key < m_items[child].key)
+				++child;
+			if (m_items[child].key >= last.key)
+				break;
+			m_items[i] = m_items[child];
+			i = child;
+		}
+		if (m_size > 0)
+			m_items[i] = last;
+		return result;
+	}
+
+private:
+	dtTurnHeapItem* m_items;
+	int m_size;
+	int m_cap;
+};
+
+// Appends the turning term, if any, for a segment and updates the heading.
+// A zero-length or vertical-only segment keeps the previous heading. The
+// heading sequence starts with startHeading, so the first segment with an XZ
+// direction already scores a turn against startHeading.
+static float dtTurnSegment(const float* d, const float turnWeight,
+						   const float startAngle,
+						   bool& hasAngle, float& angle)
+{
+	float turnCost = 0.0f;
+	if (d[0] != 0.0f || d[2] != 0.0f)
+	{
+		const float newAngle = dtMathAtan2f(d[2], d[0]);
+		const float prevAngle = hasAngle ? angle : startAngle;
+		const float diff = dtTurnWrapPi(newAngle - prevAngle);
+		turnCost = turnWeight * dtSqr(diff);
+		hasAngle = true;
+		angle = newAngle;
+	}
+	return turnCost;
+}
+
+dtStatus dtNavMeshQuery::findPathTurnCost(dtPolyRef startRef, dtPolyRef endRef,
+										  const float* startPos, const float* endPos,
+										  const dtQueryFilter* filter,
+										  dtPolyRef* path, int* pathCount, const int maxPath,
+										  const float* startHeading, const float* endHeading,
+										  const float turnWeight, float* totalCost) const
+{
+	dtAssert(m_nav);
+
+	if (!pathCount || !totalCost)
+		return DT_FAILURE | DT_INVALID_PARAM;
+
+	*pathCount = 0;
+	*totalCost = 0.0f;
+
+	// Validate input.
+	if (!m_nav->isValidPolyRef(startRef) || !m_nav->isValidPolyRef(endRef) ||
+		!startPos || !dtVisfinite(startPos) ||
+		!endPos || !dtVisfinite(endPos) ||
+		!filter || !path || maxPath <= 0 ||
+		!startHeading || !dtVisfinite(startHeading) ||
+		!endHeading || !dtVisfinite(endHeading) ||
+		!(turnWeight >= 0.0f) || !dtMathIsfinite(turnWeight))
+	{
+		return DT_FAILURE | DT_INVALID_PARAM;
+	}
+
+	// Headings must carry a non-zero direction in the XZ plane.
+	if (!(startHeading[0]*startHeading[0] + startHeading[2]*startHeading[2] > 0.0f) ||
+		!(endHeading[0]*endHeading[0] + endHeading[2]*endHeading[2] > 0.0f))
+	{
+		return DT_FAILURE | DT_INVALID_PARAM;
+	}
+
+	// All configured area costs must be finite and strictly positive.
+	for (int i = 0; i < DT_MAX_AREAS; ++i)
+	{
+		const float areaCost = filter->getAreaCost(i);
+		if (!dtMathIsfinite(areaCost) || !(areaCost > 0.0f))
+			return DT_FAILURE | DT_INVALID_PARAM;
+	}
+
+	const dtMeshTile* startTile = 0;
+	const dtPoly* startPoly = 0;
+	m_nav->getTileAndPolyByRefUnsafe(startRef, &startTile, &startPoly);
+	const dtMeshTile* endTile = 0;
+	const dtPoly* endPoly = 0;
+	m_nav->getTileAndPolyByRefUnsafe(endRef, &endTile, &endPoly);
+
+	// Only ground polygons are traversable, and the usual filter still applies.
+	if (startPoly->getType() != DT_POLYTYPE_GROUND ||
+		endPoly->getType() != DT_POLYTYPE_GROUND ||
+		!filter->passFilter(startRef, startTile, startPoly) ||
+		!filter->passFilter(endRef, endTile, endPoly))
+	{
+		return DT_FAILURE | DT_INVALID_PARAM;
+	}
+
+	const float startAngle = dtMathAtan2f(startHeading[2], startHeading[0]);
+	const float endAngle = dtMathAtan2f(endHeading[2], endHeading[0]);
+
+	// Growable label storage. Every pushed heap item corresponds to one label,
+	// so both arrays always share the same capacity.
+	int labelCap = 64;
+	int labelCount = 0;
+	dtTurnLabel* labels = (dtTurnLabel*)dtAlloc(sizeof(dtTurnLabel)*labelCap, DT_ALLOC_TEMP);
+	dtTurnHeap heap;
+	if (!labels || !heap.reserve(labelCap))
+	{
+		dtFree(labels);
+		return DT_FAILURE | DT_OUT_OF_MEMORY;
+	}
+
+	dtStatus status = DT_SUCCESS;
+	const dtTurnLabel* solution = 0;
+
+	// Adds a label unless an existing label with the same state is already no
+	// more expensive. The state identity is the polygon, the entry position
+	// (one fixed mid point per incoming portal, so two labels through the
+	// same portal share it bit-for-bit), the current XZ heading (when one has
+	// been established) and whether the end-heading turn has been applied.
+	// Settled (closed) labels stay in the table as dominance records, which is
+	// what keeps the search terminating when corridors revisit polygons.
+	// Returns false on allocation failure.
+	auto addLabel = [&](const dtPolyRef poly, const float* pos, const bool hasAngle,
+						const float angle, const float g, const int parent,
+						const bool finished, int& outIndex) -> bool
+	{
+		for (int i = 0; i < labelCount; ++i)
+		{
+			if (labels[i].poly != poly ||
+				labels[i].hasAngle != hasAngle ||
+				labels[i].finished != finished ||
+				labels[i].pos[0] != pos[0] ||
+				labels[i].pos[1] != pos[1] ||
+				labels[i].pos[2] != pos[2])
+				continue;
+			if (hasAngle && labels[i].angle != angle)
+				continue;
+			// Same state. Label-setting order guarantees a settled label's
+			// cost is already minimal; either way the new one cannot win.
+			if (labels[i].g <= g)
+			{
+				outIndex = i;
+				return true;
+			}
+			if (labels[i].closed)
+			{
+				outIndex = i;
+				return true;
+			}
+			// The new label dominates the old open one; retire it.
+			labels[i].closed = true;
+		}
+
+		if (labelCount >= labelCap)
+		{
+			const int newCap = labelCap*2;
+			dtTurnLabel* newLabels = (dtTurnLabel*)dtAlloc(sizeof(dtTurnLabel)*newCap, DT_ALLOC_TEMP);
+			if (!newLabels)
+				return false;
+			for (int i = 0; i < labelCount; ++i)
+				newLabels[i] = labels[i];
+			dtFree(labels);
+			labels = newLabels;
+			if (!heap.reserve(newCap))
+				return false;
+			// reserve() clears the heap; its contents are rebuilt below.
+			for (int i = 0; i < labelCount; ++i)
+			{
+				if (!labels[i].closed)
+					heap.push(labels[i].g, i);
+			}
+			labelCap = newCap;
+		}
+
+		outIndex = labelCount++;
+		dtTurnLabel& label = labels[outIndex];
+		label.poly = poly;
+		dtVcopy(label.pos, pos);
+		label.angle = angle;
+		label.hasAngle = hasAngle;
+		label.g = g;
+		label.parent = parent;
+		label.closed = false;
+		label.finished = finished;
+		heap.push(g, outIndex);
+		return true;
+	};
+
+	// Start label: no heading established yet, zero cost, not finished.
+	{
+		int startIndex = -1;
+		if (!addLabel(startRef, startPos, false, startAngle, 0.0f, -1, false, startIndex))
+		{
+			dtFree(labels);
+			return DT_FAILURE | DT_OUT_OF_MEMORY;
+		}
+	}
+
+	// Staying inside the start polygon is itself a candidate corridor, also
+	// when the start and end polygons coincide.
+	if (startRef == endRef)
+	{
+		float d[3];
+		dtVsub(d, endPos, startPos);
+		bool hasAngle = false;
+		float angle = startAngle;
+		float g = dtVlen(d) * filter->getAreaCost(startPoly->getArea());
+		g += dtTurnSegment(d, turnWeight, startAngle, hasAngle, angle);
+		const float diff = dtTurnWrapPi(endAngle - (hasAngle ? angle : startAngle));
+		g += turnWeight * dtSqr(diff);
+
+		int directIndex = -1;
+		// A one-polygon corridor has no parent label so it reconstructs to a
+		// single polygon reference.
+		if (!addLabel(endRef, endPos, hasAngle, angle, g, -1, true, directIndex))
+		{
+			dtFree(labels);
+			return DT_FAILURE | DT_OUT_OF_MEMORY;
+		}
+	}
+
+	while (!heap.empty())
+	{
+		const int idx = heap.pop();
+		dtTurnLabel* label = &labels[idx];
+		if (label->closed)
+			continue;
+		label->closed = true;
+
+		// Finished labels already include the end-heading turn, so the first
+		// one settled on the end polygon is a global optimum.
+		if (label->finished && label->poly == endRef)
+		{
+			solution = label;
+			break;
+		}
+
+		const dtMeshTile* tile = 0;
+		const dtPoly* poly = 0;
+		m_nav->getTileAndPolyByRefUnsafe(label->poly, &tile, &poly);
+
+		for (unsigned int i = poly->firstLink; i != DT_NULL_LINK; i = tile->links[i].next)
+		{
+			const dtPolyRef neiRef = tile->links[i].ref;
+			if (!neiRef)
+				continue;
+
+			const dtMeshTile* neiTile = 0;
+			const dtPoly* neiPoly = 0;
+			m_nav->getTileAndPolyByRefUnsafe(neiRef, &neiTile, &neiPoly);
+
+			// Off-mesh connections are not traversable.
+			if (neiPoly->getType() != DT_POLYTYPE_GROUND)
+				continue;
+			if (!filter->passFilter(neiRef, neiTile, neiPoly))
+				continue;
+
+			// The portal mid point honours clipped cross-tile link intervals.
+			float mid[3];
+			if (dtStatusFailed(getEdgeMidPoint(label->poly, neiRef, mid)))
+				continue;
+
+			// Segment inside the current polygon, up to the portal mid point.
+			float d[3];
+			dtVsub(d, mid, label->pos);
+			bool hasAngle = label->hasAngle;
+			float angle = label->angle;
+			float g = label->g + dtVlen(d) * filter->getAreaCost(poly->getArea());
+			g += dtTurnSegment(d, turnWeight, startAngle, hasAngle, angle);
+
+			if (neiRef == endRef)
+			{
+				// Final segment inside the end polygon.
+				float de[3];
+				dtVsub(de, endPos, mid);
+				g += dtVlen(de) * filter->getAreaCost(neiPoly->getArea());
+				g += dtTurnSegment(de, turnWeight, startAngle, hasAngle, angle);
+
+				// Turn into the requested end heading.
+				const float prevAngle = hasAngle ? angle : startAngle;
+				const float diff = dtTurnWrapPi(endAngle - prevAngle);
+				g += turnWeight * dtSqr(diff);
+			}
+
+			int newIndex = -1;
+			if (!addLabel(neiRef, mid, hasAngle, angle, g, idx, neiRef == endRef, newIndex))
+			{
+				dtFree(labels);
+				return DT_FAILURE | DT_OUT_OF_MEMORY;
+			}
+		}
+	}
+
+	if (!solution)
+	{
+		// No corridor reaches the end polygon.
+		dtFree(labels);
+		return DT_FAILURE;
+	}
+
+	// Reconstruct the polygon corridor from the solution's parent chain.
+	int cur = (int)(solution - labels);
+	int solutionLength = 0;
+	for (int i = cur; ; i = labels[i].parent)
+	{
+		++solutionLength;
+		if (labels[i].parent < 0)
+			break;
+	}
+
+	if (solutionLength > maxPath)
+	{
+		// Keep the prefix starting at the start polygon: walk to the
+		// (solutionLength - maxPath)-th ancestor.
+		for (int skip = solutionLength - maxPath; skip > 0; --skip)
+			cur = labels[cur].parent;
+		status |= DT_BUFFER_TOO_SMALL;
+	}
+
+	int writeCount = 0;
+	for (;;)
+	{
+		path[writeCount++] = labels[cur].poly;
+		if (labels[cur].parent < 0)
+			break;
+		cur = labels[cur].parent;
+	}
+	// The walk produced the corridor end-to-start; reverse it in place.
+	for (int i = 0; i < writeCount/2; ++i)
+	{
+		const dtPolyRef tmp = path[i];
+		path[i] = path[writeCount-1-i];
+		path[writeCount-1-i] = tmp;
+	}
+	*pathCount = writeCount;
+	*totalCost = solution->g;
+
+	dtFree(labels);
+	return status;
+}
+
+
 /// @par
 ///
 /// @warning Calling any non-slice methods before calling finalizeSlicedFindPath() 
