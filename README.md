@@ -100,6 +100,24 @@ target_link_libraries(your_target_name PRIVATE pe-parse::pe-parse)
 
 You can see a full example in the [examples/peaddrconv](examples/peaddrconv) folder.
 
+## Authenticode image-hash planning
+
+For offline file-integrity work, `pe-parse/authenticode.h` describes exactly
+which on-disk bytes enter the Authenticode image hash, without any
+cryptographic dependency and without loading or executing the image.
+
+* `BuildAuthenticodePlan()` produces a self-contained plan: the ordered hash
+  spans (file offset, length, stage and originating section index), the
+  excluded `CheckSum` and Certificate Table directory ranges, and the parsed
+  `WIN_CERTIFICATE` entries. The plan outlives its `parsed_pe`.
+* `FeedAuthenticodePlan()` verifies the plan against the same-length source
+  and then streams each span's bytes to a caller-supplied callback,
+  preserving the ordered overlaps that section gaps can produce. Signature
+  trust verification stays with the caller.
+
+See [examples/authenticode_plan](examples/authenticode_plan) for a short
+usage example and the supported layout limitations.
+
 ## Authors
 
 pe-parse was designed and implemented by Andrew Ruef (andrew@trailofbits.com), with significant
