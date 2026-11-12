@@ -32,6 +32,7 @@ extern "C" {
 #define H264E_STATUS_BAD_LUMA_STRIDE        7
 #define H264E_STATUS_BAD_CHROMA_ALIGN       8
 #define H264E_STATUS_BAD_CHROMA_STRIDE      9
+#define H264E_STATUS_NAL_TOO_SMALL          10
 
 /**
 *   Frame type definitions
@@ -223,6 +224,22 @@ typedef struct H264E_run_param_tag
     // token to pass to NALU callback
     void *nalu_callback_token;
 
+    // Hard limit on the final size of every produced NAL unit, in bytes.
+    // The limit counts the NAL header byte, emulation-prevention (0x03)
+    // bytes and RBSP trailing bits; Annex-B start codes are not counted.
+    // SPS, PPS and every VCL slice NAL must all fit within the limit.
+    //   0:         hard limit disabled, desired_nalu_bytes keeps its
+    //              historical soft-threshold behaviour
+    //   [64;65535]: hard limit enabled; desired_nalu_bytes is ignored and
+    //              new slices are started at macroblock boundaries so that
+    //              no NAL exceeds this size. If a single macroblock cannot
+    //              fit even as its own slice, H264E_encode() fails with
+    //              H264E_STATUS_NAL_TOO_SMALL and delivers nothing.
+    //              Only single-layer AVC with a single thread is supported;
+    //              combining a positive limit with SVC or multi-threading
+    //              returns H264E_STATUS_BAD_PARAMETER.
+    // Any other value: H264E_STATUS_BAD_PARAMETER.
+    int max_nalu_bytes;
 } H264E_run_param_t;
 
 /**
@@ -750,6 +767,62 @@ typedef struct H264E_persist_tag
     int sizeof_scaratch;
 #endif
     H264E_run_param_t run_param;    // Copy of run-time parameters
+
+    // Hard NAL size limit state (used when run_param.max_nalu_bytes > 0).
+    // The strategy is single-pass with at most one trial encoding per
+    // macroblock: a boundary MB is encoded into the current NAL, the exact
+    // final NAL size is measured (including the pending skip run, stop bit
+    // and escape bytes) and, if it overflows, the trial is rolled back, the
+    // current NAL is finalized and the MB is encoded again as the first MB
+    // of a brand-new slice with proper slice-border contexts.
+    struct
+    {
+        int active;                 // Hard-limit mode active for this frame
+        int limit;                  // Active limit, bytes
+        int mb_in_nal;              // MBs already committed to current NAL
+
+        // NAL units produced during the frame; callbacks are replayed only
+        // after the whole frame succeeds. Dimension: nmb + 4 entries.
+        struct nal_rec { unsigned off; int len; } *nals;
+        int nnals;
+
+        // Frame-level state, restored if the frame is rejected
+        unsigned out_pos_frame;
+        unsigned char *dec_base[3];
+        int dec_stride[3];
+        int frame_num;
+        int next_idr_pic_id;
+        int recent_ref_idx;
+        int short_term_used;
+        uint8_t lt_used[MAX_LONG_TERM_FRAMES];
+        unsigned char *ref_ptrs[3];
+        unsigned char *lt_ptrs[MAX_LONG_TERM_FRAMES][3];
+        struct
+        {
+            int qp, vbv_bits, qp_smooth, dqp_smooth, max_dqp;
+            int bit_budget, prev_qp, prev_err, stable_count;
+        } rc;
+        point_t mv_clusters[2];
+        uint8_t *pic_backup;        // whole input/decoded picture, w*h*3/2
+
+        // Single-macroblock trial snapshot (one rollback depth)
+        bs_t bs_save;
+        unsigned out_pos_save;
+        uint8_t *sv_nnz;            // size nmbx*8 + 8
+        point_t *sv_mv;             // size nmbx*4 + 8
+        int32_t *sv_i4;             // size nmbx*4 + 4
+        uint8_t *sv_top;            // size nmbx*32 + 48
+        uint8_t *sv_pic;            // decoded MB window incl. deblock border
+        int sv_pic_rect[12];        // xs,ys,w,h per plane (3 planes)
+        uint8_t *sv_dfqp, *sv_dfnz; // nmbx each
+        int8_t  *sv_dfmb;           // nmbx
+        point_t dfmv_save[5*5 - 1]; // deblock motion-vector matrix
+        uint32_t nzflag_save;
+        point_t clusters_save[2];
+        point_t skip_pred_save;
+        int prev_qp_save;
+        int skip_run_save;
+    } strict;
 
     // Consecutive IDR's must have different idr_pic_id,
     // unless there are some P between them
@@ -8810,7 +8883,14 @@ static void nal_end(h264e_enc_t *enc)
         // insert escape bytes
         bs_bytes = nal_put_esc(nal, nal + cnt_esc, bs_bytes);
     }
-    if (enc->run_param.nalu_callback)
+    if (enc->strict.active)
+    {
+        // Hard-limit mode: defer every callback until the whole frame is
+        // known to be good, so a later NAL_TOO_SMALL delivers nothing.
+        enc->strict.nals[enc->strict.nnals].off = enc->out_pos;
+        enc->strict.nals[enc->strict.nnals].len = bs_bytes;
+        enc->strict.nnals++;
+    } else if (enc->run_param.nalu_callback)
     {
         // Call application-supplied callback
         enc->run_param.nalu_callback(nal, bs_bytes, enc->run_param.nalu_callback_token);
@@ -11002,6 +11082,18 @@ static int enc_alloc(h264e_enc_t *enc, const H264E_create_param_t *par, unsigned
         ALLOC(enc->inp.yuv[0], ((nmbx)*(nmby)*384)); /* input buffer for base laeyr */
     }
 #endif
+    /* Hard NAL size limit working areas (no per-frame malloc) */
+    ALLOC(enc->strict.nals, (nmbx*nmby + 4)*sizeof(enc->strict.nals[0]));
+    ALLOC(enc->strict.pic_backup, nmbx*nmby*384);
+    ALLOC(enc->strict.sv_nnz, nmbx*8 + 8);
+    ALLOC(enc->strict.sv_mv, (nmbx*4 + 8)*sizeof(point_t));
+    ALLOC(enc->strict.sv_i4, (nmbx*4 + 4)*sizeof(int32_t));
+    ALLOC(enc->strict.sv_top, nmbx*32 + 48);
+    /* Worst-case MB window incl. deblock border: 24x24 luma + 2*12x12 */
+    ALLOC(enc->strict.sv_pic, 24*24 + 2*12*12);
+    ALLOC(enc->strict.sv_dfqp, nmbx);
+    ALLOC(enc->strict.sv_dfnz, nmbx);
+    ALLOC(enc->strict.sv_dfmb, nmbx);
     return (int)((p - p0) + 15) & ~15u;
 }
 
@@ -11271,6 +11363,355 @@ static void encode_slice_thread_simple(void *arg)
 }
 #endif
 
+/************************************************************************/
+/*      Hard NAL size limit (strict NAL) mode                           */
+/************************************************************************/
+
+/**
+*   Save the decoded-pixel window a macroblock encode can touch, including
+*   the 4 (luma) / 2 (chroma) pixel deblocking border on the left and top.
+*/
+static void strict_pic_save(h264e_enc_t *enc)
+{
+    int p, k, border;
+    uint8_t *dst = enc->strict.sv_pic;
+    int *rect = enc->strict.sv_pic_rect;
+    for (p = 0; p < 3; p++)
+    {
+        int mbpix = p ? 8 : 16;
+        int plane_w = enc->frame.nmbx*mbpix;
+        int plane_h = enc->frame.nmby*mbpix;
+        int stride = enc->dec.stride[p];
+        int x0 = enc->mb.x*mbpix, y0 = enc->mb.y*mbpix;
+        border = p ? 2 : 4;
+        // Deblocking can touch up to 3 (luma) / 1..2 (chroma) pixels past
+        // every MB edge, so keep a border on all four sides.
+        int xs = x0 > border ? x0 - border : 0;
+        int ys = y0 > border ? y0 - border : 0;
+        int xe = x0 + mbpix + border;
+        int ye = y0 + mbpix + border;
+        int w, h;
+        uint8_t *src;
+        if (xe > plane_w) xe = plane_w;
+        if (ye > plane_h) ye = plane_h;
+        w = xe - xs;
+        h = ye - ys;
+        // enc->dec.yuv[p] already points at the current MB, so address the
+        // window relative to that pointer, not via absolute coordinates.
+        src = enc->dec.yuv[p] + (ys - y0)*stride + (xs - x0);
+        rect[0] = xs - x0; rect[1] = ys - y0; rect[2] = w; rect[3] = h;
+        rect += 4;
+        for (k = 0; k < h; k++)
+        {
+            memcpy(dst, src, w);
+            dst += w;
+            src += stride;
+        }
+    }
+}
+
+static void strict_pic_restore(h264e_enc_t *enc)
+{
+    int p, k;
+    uint8_t *src = enc->strict.sv_pic;
+    int *rect = enc->strict.sv_pic_rect;
+    for (p = 0; p < 3; p++)
+    {
+        int stride = enc->dec.stride[p];
+        int rx = rect[0], ry = rect[1], w = rect[2], h = rect[3];
+        uint8_t *dst = enc->dec.yuv[p] + ry*stride + rx;
+        rect += 4;
+        for (k = 0; k < h; k++)
+        {
+            memcpy(dst, src, w);
+            dst += stride;
+            src += w;
+        }
+    }
+}
+
+/**
+*   Snapshot every encoder context a single mb_encode() can modify.
+*/
+static void strict_mb_snapshot(h264e_enc_t *enc)
+{
+    enc->strict.bs_save = enc->bs[0];
+    enc->strict.out_pos_save = enc->out_pos;
+    memcpy(enc->strict.sv_nnz, enc->nnz, enc->frame.nmbx*8 + 8);
+    memcpy(enc->strict.sv_mv, enc->mv_pred, (enc->frame.nmbx*4 + 8)*sizeof(point_t));
+    memcpy(enc->strict.sv_i4, enc->i4x4mode, (enc->frame.nmbx*4 + 4)*sizeof(int32_t));
+    memcpy(enc->strict.sv_top, enc->top_line, enc->frame.nmbx*32 + 48);
+    enc->strict.sv_dfqp[enc->mb.x] = enc->df.df_qp[enc->mb.x];
+    enc->strict.sv_dfmb[enc->mb.x] = enc->df.mb_type[enc->mb.x];
+    enc->strict.sv_dfnz[enc->mb.x] = enc->df.df_nzflag[enc->mb.x];
+    enc->strict.nzflag_save = enc->df.nzflag;
+    memcpy(enc->strict.dfmv_save, enc->df.df_mv, sizeof(enc->df.df_mv));
+    enc->strict.clusters_save[0] = enc->mv_clusters[0];
+    enc->strict.clusters_save[1] = enc->mv_clusters[1];
+    enc->strict.skip_pred_save = enc->mb.mv_skip_pred;
+    enc->strict.prev_qp_save = enc->rc.prev_qp;
+    enc->strict.skip_run_save = enc->mb.skip_run;
+    strict_pic_save(enc);
+}
+
+static void strict_mb_rollback(h264e_enc_t *enc)
+{
+    enc->bs[0] = enc->strict.bs_save;
+    enc->out_pos = enc->strict.out_pos_save;
+    memcpy(enc->nnz, enc->strict.sv_nnz, enc->frame.nmbx*8 + 8);
+    memcpy(enc->mv_pred, enc->strict.sv_mv, (enc->frame.nmbx*4 + 8)*sizeof(point_t));
+    memcpy(enc->i4x4mode, enc->strict.sv_i4, (enc->frame.nmbx*4 + 4)*sizeof(int32_t));
+    memcpy(enc->top_line, enc->strict.sv_top, enc->frame.nmbx*32 + 48);
+    enc->df.df_qp[enc->mb.x] = enc->strict.sv_dfqp[enc->mb.x];
+    enc->df.mb_type[enc->mb.x] = enc->strict.sv_dfmb[enc->mb.x];
+    enc->df.df_nzflag[enc->mb.x] = enc->strict.sv_dfnz[enc->mb.x];
+    enc->df.nzflag = enc->strict.nzflag_save;
+    memcpy(enc->df.df_mv, enc->strict.dfmv_save, sizeof(enc->df.df_mv));
+    enc->mv_clusters[0] = enc->strict.clusters_save[0];
+    enc->mv_clusters[1] = enc->strict.clusters_save[1];
+    enc->mb.mv_skip_pred = enc->strict.skip_pred_save;
+    enc->rc.prev_qp = enc->strict.prev_qp_save;
+    enc->mb.skip_run = enc->strict.skip_run_save;
+    strict_pic_restore(enc);
+}
+
+/**
+*   Exact final NAL size (NAL header + RBSP + emulation prevention +
+*   trailing bits, no Annex-B start code) if the current NAL was ended
+*   right after the just-encoded macroblock, including any pending
+*   mb_skip_run. The bitstream state is restored afterwards.
+*/
+static int strict_nal_size_if_end(h264e_enc_t *enc)
+{
+    bs_t saved = enc->bs[0];
+    int bs_bytes, cnt_esc;
+    if (enc->mb.skip_run)
+    {
+        UE(enc->mb.skip_run);
+    }
+    U1(1); // stop bit
+    bs_bytes = h264e_bs_byte_align(enc->bs) >> 3;
+    h264e_bs_flush(enc->bs);
+    cnt_esc = nal_count_esc((unsigned char*)enc->bs->origin, bs_bytes);
+    enc->bs[0] = saved;
+    return bs_bytes + cnt_esc;
+}
+
+/**
+*   Frame entry: save all state that must survive a rejected frame.
+*/
+static void strict_frame_begin(h264e_enc_t *enc)
+{
+    int p, k;
+    enc->strict.active = 1;
+    enc->strict.nnals = 0;
+    enc->strict.mb_in_nal = 0;
+    enc->strict.out_pos_frame = enc->out_pos;
+    enc->strict.frame_num = enc->frame.num;
+    enc->strict.next_idr_pic_id = enc->next_idr_pic_id;
+    enc->strict.recent_ref_idx = enc->most_recent_ref_frame_idx;
+    enc->strict.short_term_used = enc->short_term_used;
+    memcpy(enc->strict.lt_used, enc->lt_used, sizeof(enc->lt_used));
+    for (p = 0; p < 3; p++)
+    {
+        int li;
+        enc->strict.ref_ptrs[p] = enc->ref.yuv[p];
+        enc->strict.dec_base[p] = enc->dec.yuv[p];
+        enc->strict.dec_stride[p] = enc->dec.stride[p];
+        for (li = 0; li < MAX_LONG_TERM_FRAMES; li++)
+        {
+            enc->strict.lt_ptrs[li][p] = enc->lt_yuv[li][p];
+        }
+    }
+    enc->strict.rc.qp = enc->rc.qp;
+    enc->strict.rc.vbv_bits = enc->rc.vbv_bits;
+    enc->strict.rc.qp_smooth = enc->rc.qp_smooth;
+    enc->strict.rc.dqp_smooth = enc->rc.dqp_smooth;
+    enc->strict.rc.max_dqp = enc->rc.max_dqp;
+    enc->strict.rc.bit_budget = enc->rc.bit_budget;
+    enc->strict.rc.prev_qp = enc->rc.prev_qp;
+    enc->strict.rc.prev_err = enc->rc.prev_err;
+    enc->strict.rc.stable_count = enc->rc.stable_count;
+    enc->strict.mv_clusters[0] = enc->mv_clusters[0];
+    enc->strict.mv_clusters[1] = enc->mv_clusters[1];
+
+    /* Back up the whole input/decoded picture so a rejected frame leaves
+       the caller's image untouched (dec aliases input unless const). */
+    {
+        uint8_t *dst = enc->strict.pic_backup;
+        for (p = 0, k = 16; p < 3; p++, k = 8)
+        {
+            int w = enc->frame.nmbx*k, h = enc->frame.nmby*k;
+            int row;
+            for (row = 0; row < h; row++)
+            {
+                memcpy(dst, enc->dec.yuv[p], w);
+                dst += w;
+                enc->dec.yuv[p] += enc->dec.stride[p];
+            }
+        }
+        for (p = 0; p < 3; p++)
+        {
+            enc->dec.yuv[p] = enc->strict.dec_base[p];
+        }
+    }
+}
+
+static void strict_frame_restore(h264e_enc_t *enc)
+{
+    int p, k;
+    enc->out_pos = enc->strict.out_pos_frame;
+    enc->frame.num = enc->strict.frame_num;
+    enc->next_idr_pic_id = (uint8_t)enc->strict.next_idr_pic_id;
+    enc->most_recent_ref_frame_idx = enc->strict.recent_ref_idx;
+    enc->short_term_used = enc->strict.short_term_used;
+    memcpy(enc->lt_used, enc->strict.lt_used, sizeof(enc->lt_used));
+    enc->rc.qp = enc->strict.rc.qp;
+    enc->rc.vbv_bits = enc->strict.rc.vbv_bits;
+    enc->rc.qp_smooth = enc->strict.rc.qp_smooth;
+    enc->rc.dqp_smooth = enc->strict.rc.dqp_smooth;
+    enc->rc.max_dqp = enc->strict.rc.max_dqp;
+    enc->rc.bit_budget = enc->strict.rc.bit_budget;
+    enc->rc.prev_qp = enc->strict.rc.prev_qp;
+    enc->rc.prev_err = enc->strict.rc.prev_err;
+    enc->rc.stable_count = enc->rc.stable_count;
+    enc->mv_clusters[0] = enc->strict.mv_clusters[0];
+    enc->mv_clusters[1] = enc->strict.mv_clusters[1];
+    for (p = 0; p < 3; p++)
+    {
+        int li;
+        enc->ref.yuv[p] = enc->strict.ref_ptrs[p];
+        enc->dec.yuv[p] = enc->strict.dec_base[p];
+        enc->dec.stride[p] = enc->strict.dec_stride[p];
+        for (li = 0; li < MAX_LONG_TERM_FRAMES; li++)
+        {
+            enc->lt_yuv[li][p] = enc->strict.lt_ptrs[li][p];
+        }
+    }
+    /* Restore the caller's input/decoded picture pixels. */
+    {
+        uint8_t *src = enc->strict.pic_backup;
+        for (p = 0, k = 16; p < 3; p++, k = 8)
+        {
+            int w = enc->frame.nmbx*k, h = enc->frame.nmby*k;
+            int row;
+            for (row = 0; row < h; row++)
+            {
+                memcpy(enc->dec.yuv[p], src, w);
+                src += w;
+                enc->dec.yuv[p] += enc->dec.stride[p];
+            }
+        }
+        for (p = 0; p < 3; p++)
+        {
+            enc->dec.yuv[p] = enc->strict.dec_base[p];
+        }
+    }
+    enc->strict.active = 0;
+}
+
+/**
+*   Whole frame succeeded: replay NAL callbacks in stream order. Every NAL
+*   still resides at its recorded place in enc->out and is never rewritten.
+*/
+static void strict_frame_commit(h264e_enc_t *enc)
+{
+    if (enc->run_param.nalu_callback)
+    {
+        int i;
+        for (i = 0; i < enc->strict.nnals; i++)
+        {
+            unsigned off = (unsigned)enc->strict.nals[i].off;
+            enc->run_param.nalu_callback(enc->out + off, enc->strict.nals[i].len,
+                enc->run_param.nalu_callback_token);
+        }
+    }
+    enc->strict.active = 0;
+}
+
+/**
+*   Encode a whole frame under the hard NAL size limit, using a single pass
+*   with at most one trial encoding per macroblock. Returns
+*   H264E_STATUS_NAL_TOO_SMALL if any macroblock cannot fit its own slice.
+*/
+static int encode_slice_strict(h264e_enc_t *enc, int frame_type, int long_term_idx_use,
+    int long_term_idx_update, int pps_id, int enc_type)
+{
+    int i, k;
+    int limit = enc->strict.limit;
+
+    encode_slice_header(enc, frame_type, long_term_idx_use, long_term_idx_update, pps_id, enc_type);
+
+    do
+    {   // encode row
+        do
+        {   // encode macroblock
+            strict_mb_snapshot(enc);
+            mb_encode(enc, enc_type);
+
+            if (strict_nal_size_if_end(enc) > limit)
+            {
+                if (enc->strict.mb_in_nal == 0)
+                {
+                    // A single macroblock, alone in its own slice, does not
+                    // fit: reject the whole frame.
+                    return H264E_STATUS_NAL_TOO_SMALL;
+                }
+
+                // Discard the trial macroblock, close the current NAL and
+                // re-encode the MB as the first MB of a new slice.
+                strict_mb_rollback(enc);
+                if (enc->mb.skip_run)
+                {
+                    UE(enc->mb.skip_run);
+                }
+                nal_end(enc);
+                encode_slice_header(enc, frame_type, long_term_idx_use, long_term_idx_update, pps_id, enc_type);
+                enc->strict.mb_in_nal = 0;
+
+                mb_encode(enc, enc_type);
+                if (strict_nal_size_if_end(enc) > limit)
+                {
+                    return H264E_STATUS_NAL_TOO_SMALL;
+                }
+            }
+
+            enc->dec.yuv[0] += 16;
+            enc->dec.yuv[1] += 8;
+            enc->dec.yuv[2] += 8;
+
+            enc->mb.num++;  // before rc_mb_end
+            enc->strict.mb_in_nal++;
+            if (enc->param.fine_rate_control_flag)
+            {
+                rc_mb_end(enc);
+            }
+        } while (++enc->mb.x < enc->frame.nmbx);
+
+        for (i = 0, k = 16; i < 3; i++, k = 8)
+        {
+            enc->dec.yuv[i] += k*(enc->dec.stride[i] - enc->frame.nmbx);
+        }
+
+        // start new row
+        enc->mb.x = 0;
+        *((uint32_t*)(enc->nnz)) = *((uint32_t*)(enc->nnz + 4)) = 0x01010101 * NNZ_NA;
+        enc->i4x4mode[0] = -1;
+
+    } while (++enc->mb.y < enc->frame.nmby);
+
+    if (enc->mb.skip_run)
+    {
+        UE(enc->mb.skip_run);
+    }
+    nal_end(enc);
+    for (i = 0, k = 16; i < 3; i++, k = 8)
+    {
+        enc->dec.yuv[i] -= k*enc->dec.stride[i]*enc->frame.nmby;
+    }
+    return H264E_STATUS_SUCCESS;
+}
+
 static int H264E_encode_one(H264E_persist_t *enc, const H264E_run_param_t *opt,
     int long_term_idx_use, int is_refers_to_long_term, int long_term_idx_update,
     int frame_type, int pps_id, int enc_type)
@@ -11299,6 +11740,11 @@ static int H264E_encode_one(H264E_persist_t *enc, const H264E_run_param_t *opt,
         enc->mb.skip_run = enc->frame.nmb;
         UE(enc->mb.skip_run);
         nal_end(enc);
+        if (enc->strict.active &&
+            enc->strict.nals[enc->strict.nnals - 1].len > enc->strict.limit)
+        {
+            return H264E_STATUS_NAL_TOO_SMALL;
+        }
         for (i = 0, k = 16; i < 3; i++, k = 8)
         {
             pix_copy_pic(enc->dec.yuv[i], enc->dec.stride[i], enc->ref.yuv[i], enc->ref.stride[i], enc->frame.nmbx*k, enc->frame.nmby*k);
@@ -11370,7 +11816,18 @@ static int H264E_encode_one(H264E_persist_t *enc, const H264E_run_param_t *opt,
         } else
 #endif
         {
-            encode_slice(enc, frame_type, long_term_idx_use, long_term_idx_update, pps_id, enc_type);
+            if (enc->strict.active)
+            {
+                int strict_ret = encode_slice_strict(enc, frame_type, long_term_idx_use,
+                    long_term_idx_update, pps_id, enc_type);
+                if (strict_ret != H264E_STATUS_SUCCESS)
+                {
+                    return strict_ret;
+                }
+            } else
+            {
+                encode_slice(enc, frame_type, long_term_idx_use, long_term_idx_update, pps_id, enc_type);
+            }
         }
     }
 
@@ -11466,6 +11923,28 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         return error;
     }
+
+    // Validate the hard NAL size limit before any output or image work.
+    if (opt && opt->max_nalu_bytes != 0)
+    {
+        if (opt->max_nalu_bytes < 64 || opt->max_nalu_bytes > 65535)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+#if H264E_SVC_API
+        if (enc->param.num_layers > 1)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+#endif
+#if H264E_MAX_THREADS
+        if (enc->param.max_threads > 1)
+        {
+            return H264E_STATUS_BAD_PARAMETER;
+        }
+#endif
+    }
+
     (void)i;
     i = enc_alloc_scratch(enc, &enc->param, (unsigned char*)scratch);
 #if H264E_SVC_API
@@ -11520,6 +11999,14 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         // if input frame can be re-used as a scratch, set reconstructed frame to the input
         enc->dec = *in;
+    }
+
+    // Activate the hard NAL size limit before any NAL is produced, and save
+    // every piece of state that a rejected frame must restore.
+    if (enc->run_param.max_nalu_bytes > 0)
+    {
+        enc->strict.limit = enc->run_param.max_nalu_bytes;
+        strict_frame_begin(enc);
     }
 
     // Set default frame type
@@ -11600,13 +12087,35 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         if (!enc->sps.pic_init_qp)
         {
+            if (enc->strict.active)
+            {
+                strict_frame_restore(enc);
+            }
             return H264E_STATUS_BAD_FRAME_TYPE;
         }
         if (long_term_idx_use > enc->param.max_long_term_reference_frames ||
             long_term_idx_update > enc->param.max_long_term_reference_frames ||
             long_term_idx_use > MAX_LONG_TERM_FRAMES)
         {
+            if (enc->strict.active)
+            {
+                strict_frame_restore(enc);
+            }
             return H264E_STATUS_BAD_FRAME_TYPE;
+        }
+    }
+
+    if (enc->strict.active)
+    {
+        // SPS/PPS (and any other NAL already emitted) must obey the limit.
+        int ni;
+        for (ni = 0; ni < enc->strict.nnals; ni++)
+        {
+            if (enc->strict.nals[ni].len > enc->strict.limit)
+            {
+                strict_frame_restore(enc);
+                return H264E_STATUS_NAL_TOO_SMALL;
+            }
         }
     }
 
@@ -11615,6 +12124,7 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
     {
         H264E_persist_t *enc_base = enc->enc_next;
         int sh = 0;
+        int layer_ret;
 
         enc_base->run_param = enc->run_param;
         enc_base->run_param.desired_frame_bytes = enc->run_param.desired_frame_bytes >> 2;
@@ -11631,8 +12141,16 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
         enc_base->out = enc->out + enc->out_pos;
         enc_base->out_pos = 0;
 
-        H264E_encode_one(enc_base, &enc_base->run_param, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
+        layer_ret = H264E_encode_one(enc_base, &enc_base->run_param, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
             frame_type, enc->param.sps_id*4 + 0, 0);
+        if (layer_ret)
+        {
+            if (enc->strict.active)
+            {
+                strict_frame_restore(enc);
+            }
+            return layer_ret;
+        }
 
         enc->out_pos += enc_base->out_pos;
 
@@ -11646,13 +12164,49 @@ int H264E_encode(H264E_persist_t *enc, H264E_scratch_t *scratch, const H264E_run
         }
 
         memset(enc->df.df_nzflag, 0, enc->frame.nmbx);
-        H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
+        layer_ret = H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
             frame_type, enc->param.sps_id*4 + 1, 20);
+        if (layer_ret)
+        {
+            if (enc->strict.active)
+            {
+                strict_frame_restore(enc);
+            }
+            return layer_ret;
+        }
     } else
 #endif // H264E_SVC_API
     {
-        H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
+        int layer_ret = H264E_encode_one(enc, opt, long_term_idx_use, is_refers_to_long_term, long_term_idx_update,
             frame_type, enc->param.sps_id*4 + 0, 0);
+        if (layer_ret)
+        {
+            if (enc->strict.active)
+            {
+                strict_frame_restore(enc);
+            }
+            *coded_data = 0;
+            *sizeof_coded_data = 0;
+            return layer_ret;
+        }
+    }
+
+    if (enc->strict.active)
+    {
+        /* Final guard: every recorded NAL (slices plus any filler or other
+           NAL produced during the frame) must obey the hard limit. */
+        int ni;
+        for (ni = 0; ni < enc->strict.nnals; ni++)
+        {
+            if (enc->strict.nals[ni].len > enc->strict.limit)
+            {
+                strict_frame_restore(enc);
+                *coded_data = 0;
+                *sizeof_coded_data = 0;
+                return H264E_STATUS_NAL_TOO_SMALL;
+            }
+        }
+        strict_frame_commit(enc);
     }
 
     *sizeof_coded_data = enc->out_pos;
