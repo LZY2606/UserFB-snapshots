@@ -19,6 +19,8 @@
 
 #include "dds_defs.h"
 
+#include "bc5_normal_optimizer.h"
+
 namespace rdo_bc
 {
 
@@ -81,8 +83,15 @@ namespace rdo_bc
 #endif
 						
 			m_status_output = false;
-			
+
 			m_rdo_max_threads = 128;
+
+			// Sample-position driven BC5 normal map optimization.
+			// Disabled by default; when enabled the legacy ERT RDO path is not allowed.
+			m_bc5_filtered_normals = false;
+			m_bc5_normal_repeat = false;
+			m_bc5_normal_sweeps = 4;
+			m_bc5_normal_samples.clear();
 		}
 
 		int m_bc7_uber_level;
@@ -127,8 +136,18 @@ namespace rdo_bc
 
 		bool m_use_bc7e;
 		bool m_status_output;
-		
+
 		uint32_t m_rdo_max_threads;
+
+		// When m_bc5_filtered_normals is enabled, BC5 blocks are optimized against
+		// the caller's actual GPU sample positions (filtered RG, rebuilt Z) through
+		// the shared bc5_normal optimizer core, instead of the per-block HQ encoder.
+		// Only valid with DXGI_FORMAT_BC5_UNORM, m_rdo_lambda == 0, and a non-empty
+		// legal sample list.
+		bool m_bc5_filtered_normals;
+		bool m_bc5_normal_repeat;
+		unsigned m_bc5_normal_sweeps;
+		std::vector<bc5_normal::Sample> m_bc5_normal_samples;
 	};
 
 	class rdo_bc_encoder

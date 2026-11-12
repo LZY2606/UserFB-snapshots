@@ -4,6 +4,8 @@
 #define RGBCX_IMPLEMENTATION
 #include "rgbcx.h"
 
+#include <cmath>
+
 #define DECODE_BC4_TO_GRAYSCALE (0)
 
 #ifdef _MSC_VER
@@ -11,6 +13,21 @@
 #endif
 
 using namespace utils;
+
+// The fixed baseline build script compiles this file without
+// bc5_normal_optimizer.cpp. Supply a weak fallback so such legacy/default-off
+// builds still link; whenever the real optimizer is compiled in (the CMake
+// target list and the task wrapper), its strong definition overrides this one.
+#if defined(__GNUC__) || defined(__clang__)
+namespace bc5_normal
+{
+	__attribute__((weak)) bool optimize(const std::vector<utils::image_u8>&,
+		const std::vector<Sample>&, const Options&, Result&)
+	{
+		return false;
+	}
+}
+#endif
 
 namespace rdo_bc
 {
@@ -240,6 +257,29 @@ namespace rdo_bc
 		if (!m_packed_image8.size() && !m_packed_image16.size())
 			return false;
 
+		if (m_params.m_bc5_filtered_normals)
+		{
+			// The filtered-normal path has its own optimizer and cannot be
+			// combined with the legacy entropy reduction transform.
+			if (m_params.m_dxgi_format != DXGI_FORMAT_BC5_UNORM)
+				return false;
+			if (m_params.m_rdo_lambda != 0.0f)
+				return false;
+			if (m_params.m_bc5_normal_sweeps < 1 || m_params.m_bc5_normal_sweeps > 64)
+				return false;
+			if (m_params.m_bc5_normal_samples.empty())
+				return false;
+
+			for (size_t i = 0; i < m_params.m_bc5_normal_samples.size(); i++)
+			{
+				const bc5_normal::Sample& s = m_params.m_bc5_normal_samples[i];
+				if (!std::isfinite(s.u) || !std::isfinite(s.v) || !std::isfinite(s.lod) || !std::isfinite(s.weight))
+					return false;
+				if (!(s.weight > 0.0))
+					return false;
+			}
+		}
+
 		if (!init_encoder_params())
 			return false;
 
@@ -458,6 +498,14 @@ namespace rdo_bc
 			temp.swap(m_source_image);
 		}
 
+		if (m_params.m_bc5_filtered_normals)
+		{
+			// Channel selection acts on the logical source image, before the
+			// 4x4 padding: padding must never become a sample coordinate.
+			assert((m_params.m_bc45_channel0 | m_params.m_bc45_channel1) <= 3);
+			m_source_image.swizzle(m_params.m_bc45_channel0, m_params.m_bc45_channel1, 2, 3);
+		}
+
 		m_source_image.crop_dup_borders((m_source_image.width() + 3) & ~3, (m_source_image.height() + 3) & ~3);
 
 		m_blocks_x = m_source_image.width() / 4;
@@ -494,6 +542,53 @@ namespace rdo_bc
 		
 	bool rdo_bc_encoder::encode_texture()
 	{
+		if (m_params.m_bc5_filtered_normals)
+		{
+			// Sample-position driven BC5 normal optimization, single mip level.
+			// The start point is the fixed default encode_bc5_hq output,
+			// independent of m_bc345_search_rad/m_use_hq_bc345.
+			rgbcx::init();
+
+			for (uint32_t by = 0; by < m_blocks_y; by++)
+			{
+				for (uint32_t bx = 0; bx < m_blocks_x; bx++)
+				{
+					color_quad_u8 pixels[16];
+					m_source_image.get_block(bx, by, 4, 4, pixels);
+					rgbcx::encode_bc5_hq(&m_packed_image16[bx + by * m_blocks_x], &pixels[0].m_c[0]);
+				}
+			}
+
+			// Snapshot the pre-optimization HQ bytes.
+			m_prerdo_packed_image16 = m_packed_image16;
+
+			// Hand the optimizer the logical (unpadded) image: y_flip and the
+			// channel swizzle have already been applied, and padding must not
+			// enter sample coordinates.
+			image_u8 logical;
+			logical.init(m_orig_width, m_orig_height);
+			for (uint32_t y = 0; y < m_orig_height; y++)
+				for (uint32_t x = 0; x < m_orig_width; x++)
+					logical(x, y) = m_source_image(x, y);
+
+			std::vector<image_u8> levels;
+			levels.push_back(logical);
+
+			bc5_normal::Options bc5_options;
+			bc5_options.repeat = m_params.m_bc5_normal_repeat;
+			bc5_options.max_sweeps = m_params.m_bc5_normal_sweeps;
+
+			bc5_normal::Result bc5_result;
+			if (!bc5_normal::optimize(levels, m_params.m_bc5_normal_samples, bc5_options, bc5_result))
+				return false;
+
+			if (bc5_result.blocks.size() != 1 || bc5_result.blocks[0].size() != m_total_blocks * sizeof(block16))
+				return false;
+
+			memcpy(&m_packed_image16[0], bc5_result.blocks[0].data(), bc5_result.blocks[0].size());
+			return true;
+		}
+
 		clock_t start_t = clock();
 
 		uint32_t bc7_mode_hist[8];
@@ -660,6 +755,14 @@ namespace rdo_bc
 
 	bool rdo_bc_encoder::postprocess_rdo()
 	{
+		if (m_params.m_bc5_filtered_normals)
+		{
+			// The filtered-normal path produces both the pre-optimization HQ
+			// snapshot and the final blocks itself; the legacy R/G ERT must not
+			// rewrite the result.
+			return true;
+		}
+
 		m_prerdo_packed_image8 = m_packed_image8;
 		m_prerdo_packed_image16 = m_packed_image16;
 

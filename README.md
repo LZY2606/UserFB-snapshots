@@ -163,3 +163,78 @@ For BC7 encoding: bc7enc.cpp/.h
 
 For BC7 decoding: bc7decomp.cpp/.h
 
+### Sample-position driven BC5 normal map optimization
+
+The legacy BC5 encoders (`rgbcx::encode_bc5_hq`) minimize the per-block XY
+squared error. A GPU never reads one block at a time, though: it bilinearly
+filters the reconstructed R and G channels first (sampling across 4x4 block
+borders and, with mipmapping, across two mip levels), rebuilds Z from the
+filtered R/G, and only then renormalizes the normal. Per-block error reports
+therefore do not match what appears on screen near block borders and mip
+transitions. `bc5_normal_optimizer.h/.cpp` optimizes the BC5 bytes against the
+caller's *actual* filtered sample positions, jointly across a whole mip chain.
+
+The optimizer never generates mips itself: you pass the already-generated
+RGBA8 mip levels (only R/G are read, the inputs are not modified), and the
+samples you want optimized for. Each `Sample(u, v, lod, weight)` follows the
+GPU texel-center convention: `x = u * width - 0.5`, `y = v * height - 0.5`,
+with bilinear filtering over the four neighboring texels and linear blending
+between the two mip levels surrounding `lod`. `weight` scales that sample's
+contribution to the total angular loss
+`weight * max(0, 1 - dot(n_source, n_compressed))`.
+
+```cpp
+#include "bc5_normal_optimizer.h"
+
+// levels[0] is the full-resolution RGBA8 image; each later level is the
+// caller-generated mip (floor(prev/2), minimum 1x1, no levels after 1x1).
+std::vector<utils::image_u8> levels;
+levels.push_back(base_image);
+levels.push_back(mip_half);
+levels.push_back(mip_quarter);
+
+// Positions representative of the actual GPU workload: textured geometry,
+// LOD selection, etc. Coordinates are normalized UVs plus a (fractional) LOD.
+std::vector<bc5_normal::Sample> samples;
+samples.push_back(bc5_normal::Sample(0.37, 0.61, 0.0,  1.0)); // block-border area, mip 0
+samples.push_back(bc5_normal::Sample(0.81, 0.22, 1.5,  0.5)); // trilinear between mip 1 and 2
+samples.push_back(bc5_normal::Sample(0.13, 0.91, 2.0,  1.0)); // mip transition
+
+bc5_normal::Options options;
+options.repeat     = false; // wrap UVs at seams instead of clamping
+options.max_sweeps = 4;     // hard cap, range 1..64
+
+bc5_normal::Result result;
+if (!bc5_normal::optimize(levels, samples, options, result))
+{
+    // Invalid descriptions (empty levels/samples, non-finite values,
+    // non-positive weights, illegal mip sizes, ...) fail without touching
+    // the result object.
+}
+// result.blocks[level] is row-major standard BC5_UNORM bytes, 16 bytes per
+// block including edge blocks; result.initial_error/final_error are the
+// weighted angular loss before and after the discrete optimization.
+```
+
+Two different stopping conditions are reported:
+
+* `sweeps == max_sweeps` with `converged == false` is an *early stop*: the
+  sweep budget ran out while moves were still being accepted. The result is
+  valid and no worse than the starting point, but another sweep might improve
+  it further.
+* `converged == true` means a complete sweep (all selector coordinates, then
+  all endpoint coordinates) accepted no move at all, so every allowed
+  single-coordinate change is already unable to strictly lower the sampled
+  error. `sweeps` then counts the sweeps actually completed, which may be less
+  than `max_sweeps`.
+
+This mode cannot be combined with the legacy RDO entropy reduction. Enable it
+through `rdo_bc_params::m_bc5_filtered_normals`, which requires
+`DXGI_FORMAT_BC5_UNORM`, `m_rdo_lambda == 0`, and a non-empty legal sample
+list. The old ERT post-process rewrites blocks against a per-block byte
+entropy model and has no knowledge of sample footprints; running it after the
+sample-driven optimizer would undo the cross-block/cross-mip decisions and
+break the optimizer's cache/stream consistency. With the flag left at its
+default of false, all existing HQ and RDO outputs remain byte-for-byte
+unchanged.
+

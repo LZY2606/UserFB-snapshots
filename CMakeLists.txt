@@ -88,6 +88,8 @@ set (BC7ENC_SRC_LIST ${COMMON_SRC_LIST}
 	ert.h
 	rdo_bc_encoder.cpp
 	rdo_bc_encoder.h
+	bc5_normal_optimizer.cpp
+	bc5_normal_optimizer.h
 	bc7e.ispc
 	)
 
