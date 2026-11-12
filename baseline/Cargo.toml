@@ -1,0 +1,10 @@
+[package]
+name = "symphonia-vbri-regression"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[dependencies]
+symphonia-bundle-mp3 = { path = "../symphonia-bundle-mp3", version = "=0.6.1", default-features = false }
+symphonia-core = { path = "../symphonia-core", version = "=0.6.1" }
+
+log = "0.4"
