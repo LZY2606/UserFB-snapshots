@@ -374,6 +374,128 @@ static ASMJIT_INLINE_NODEBUG bool operator<(const JitAllocatorBlock& a, const Ji
 static ASMJIT_INLINE_NODEBUG bool operator<(const JitAllocatorBlock& a, const uint8_t* b) noexcept { return a.rx_ptr() + a.block_size() <= b; }
 static ASMJIT_INLINE_NODEBUG bool operator<(const uint8_t* a, const JitAllocatorBlock& b) noexcept { return a < b.rx_ptr(); }
 
+// Returns an opaque, per-process-unique identifier of the calling thread. The value is only compared for equality,
+// it is never interpreted nor converted to an OS handle.
+static uint64_t JitAllocator_current_thread_id() noexcept {
+#if defined(_WIN32)
+  return uint64_t(GetCurrentThreadId());
+#elif !defined(__EMSCRIPTEN__)
+  return uint64_t((uintptr_t)pthread_self());
+#else
+  return 0;
+#endif
+}
+
+// JitAllocator - Allocation Registry
+// ==================================
+
+// Identity record of a single live allocation. One record exists per live allocation only - records are removed on
+// release, reset, and re-identifying shrink, so the registry never accumulates history. Span handles copy the
+// record's identity and generation, which makes every stale copy detectable even when the same address is reused.
+class JitAllocationRecord {
+public:
+  //! Next record in the hash bucket chain.
+  JitAllocationRecord* _hash_next = nullptr;
+  //! Block that contains the allocation.
+  JitAllocatorBlock* _block = nullptr;
+  //! Start address of the allocation (read-execute view).
+  void* _rx = nullptr;
+  //! Allocation identity, unique within the owning allocator.
+  uint64_t _identity = 0;
+  //! Allocation generation, bumped when the allocation changes identity (shrunk capacity).
+  uint64_t _generation = 0;
+  //! Precalculated hash-code of `_rx`.
+  uint32_t _hash_code = 0;
+  //! First granularity unit of the allocation within `_block`.
+  uint32_t _area_start = 0;
+  //! Current allocation size in granularity units.
+  uint32_t _area_size = 0;
+};
+
+static constexpr uint32_t JitAllocatorRegistryMinCapacity = 4;
+
+static ASMJIT_INLINE_NODEBUG uint32_t JitAllocator_hash_rx(const void* rx) noexcept {
+  // Allocations are always aligned to at least 64 bytes, so discard the always-zero low bits.
+  uint64_t v = uint64_t(reinterpret_cast<uintptr_t>(rx)) >> 6;
+  v ^= v >> 33;
+  v *= 0xff51afd7ed558ccdULL;
+  v ^= v >> 33;
+  return uint32_t(v);
+}
+
+// Finds the area index at which the allocation containing `area_index` starts. `area_index` must reference a used
+// area unit.
+//
+// The start cannot be derived from stop bits alone, because a shrink may leave a free hole (with no stop bit at its
+// end) immediately before another allocation. It is therefore the maximum of:
+//
+//   - the first unit of the contiguous used run containing `area_index`, and
+//   - one unit after the nearest preceding stop bit (which delimits allocations, including the initial padding).
+static uint32_t JitAllocator_allocation_start(const JitAllocatorBlock* block, uint32_t area_index) noexcept {
+  constexpr uint32_t kBitWordSizeInBits = axl::bit_size_of<axl::BitWord>;
+  const axl::BitWord* used_vector = block->_used_bit_vector;
+  const axl::BitWord* stop_vector = block->_stop_bit_vector;
+
+  // First unit of the contiguous set run that contains `area_index`.
+  uint32_t used_run_start = 0;
+  {
+    uint32_t i = area_index;
+    for (;;) {
+      uint32_t word_index = i / kBitWordSizeInBits;
+      uint32_t word_base = word_index * kBitWordSizeInBits;
+      axl::BitWord range_mask = (i - word_base + 1u >= kBitWordSizeInBits)
+        ? ~axl::BitWord(0)
+        : (axl::BitWord(1) << (i - word_base + 1u)) - axl::BitWord(1);
+      axl::BitWord word = used_vector[word_index] & range_mask;
+
+      axl::BitWord zero_bits = (~word) & range_mask;
+      if (zero_bits) {
+        uint32_t highest_zero = uint32_t(sizeof(axl::BitWord) == 8
+          ? 63u - axl::clz_64(uint64_t(zero_bits))
+          : 31u - axl::clz_32(uint32_t(zero_bits)));
+        used_run_start = word_base + highest_zero + 1u;
+        break;
+      }
+
+      if (word_base == 0) {
+        used_run_start = 0;
+        break;
+      }
+      i = word_base - 1u;
+    }
+  }
+
+  // One unit after the nearest stop bit preceding `area_index`; zero when there is none.
+  uint32_t after_previous_stop = 0;
+  if (area_index != 0) {
+    uint32_t i = area_index;
+    for (;;) {
+      uint32_t word_index = (i - 1u) / kBitWordSizeInBits;
+      uint32_t word_base = word_index * kBitWordSizeInBits;
+      axl::BitWord word = stop_vector[word_index];
+
+      uint32_t bits_in_word = i - word_base;
+      if (bits_in_word < kBitWordSizeInBits) {
+        word &= (axl::BitWord(1) << bits_in_word) - axl::BitWord(1);
+      }
+      if (word) {
+        uint32_t highest_bit = uint32_t(sizeof(axl::BitWord) == 8
+          ? 63u - axl::clz_64(uint64_t(word))
+          : 31u - axl::clz_32(uint32_t(word)));
+        after_previous_stop = word_base + highest_bit + 1u;
+        break;
+      }
+
+      if (word_base == 0) {
+        break;
+      }
+      i = word_base;
+    }
+  }
+
+  return axl::max(used_run_start, after_previous_stop);
+}
+
 // JitAllocator - PrivateImpl
 // ==========================
 
@@ -384,6 +506,10 @@ public:
 
   //! Lock for thread safety.
   mutable Lock lock;
+  //! Number of times the lock is held (reentrancy support for write callbacks).
+  uint32_t lock_depth = 0;
+  //! Thread that currently holds the lock, or zero when it is free.
+  uint64_t lock_owner_thread = 0;
   //! System page size (also a minimum block size).
   uint32_t page_size;
   //! Number of active allocations.
@@ -402,6 +528,23 @@ public:
   //! Number of allocator pools.
   size_t pool_count;
 
+  //! Hash table buckets of live allocation records (points to `_alloc_embedded` while empty/small).
+  JitAllocationRecord** alloc_table;
+  //! Embedded single-bucket storage, so an allocator needs no heap allocation for the registry itself.
+  JitAllocationRecord* alloc_embedded[1];
+  //! Number of hash table buckets.
+  uint32_t alloc_capacity;
+  //! Number of records in the hash table.
+  uint32_t alloc_record_count;
+  //! Monotonic identity counter, never reused within the allocator's lifetime.
+  uint64_t next_identity;
+  //! Monotonic generation counter, bumped on every invalidating event.
+  uint64_t generation;
+  //! Nesting depth of write protections (write callbacks may reenter the allocator).
+  uint32_t write_scope_depth;
+  //! Thread that owns the active write protection, or zero when there is none.
+  uint64_t write_scope_owner_thread;
+
   //! \}
 
   ASMJIT_INLINE JitAllocatorPrivateImpl(JitAllocatorPool* pools, size_t pool_count) noexcept
@@ -412,8 +555,206 @@ public:
       address_range_count(0),
       address_range_requested(false),
       pools(pools),
-      pool_count(pool_count) {}
+      pool_count(pool_count),
+      alloc_table(alloc_embedded),
+      alloc_embedded{nullptr},
+      alloc_capacity(1),
+      alloc_record_count(0),
+      next_identity(1),
+      generation(0),
+      write_scope_depth(0),
+      write_scope_owner_thread(0) {}
   ASMJIT_INLINE ~JitAllocatorPrivateImpl() noexcept {}
+
+  //! Enters a write protection region. Returns true when the caller is the outermost one and must actually switch
+  //! the pages to writable; a nested call on the same thread returns false and must not touch page permissions.
+  ASMJIT_INLINE bool begin_write_protection() noexcept {
+    uint64_t thread_id = JitAllocator_current_thread_id();
+    if (write_scope_depth == 0 || write_scope_owner_thread != thread_id) {
+      write_scope_owner_thread = thread_id;
+      write_scope_depth = 1;
+      return true;
+    }
+    write_scope_depth++;
+    return false;
+  }
+
+  //! Leaves a write protection region; only the outermost caller restores execute permissions.
+  ASMJIT_INLINE void end_write_protection() noexcept {
+    write_scope_depth--;
+    if (write_scope_depth == 0) {
+      write_scope_owner_thread = 0;
+    }
+  }
+
+  //! \name Allocation registry
+  //! \{
+
+  ASMJIT_INLINE void registry_init() noexcept {
+    alloc_table = alloc_embedded;
+    alloc_embedded[0] = nullptr;
+    alloc_capacity = 1;
+    alloc_record_count = 0;
+  }
+
+  ASMJIT_INLINE JitAllocationRecord* registry_find(void* rx) const noexcept {
+    uint32_t hash_code = JitAllocator_hash_rx(rx);
+    JitAllocationRecord* record = alloc_table[hash_code & (alloc_capacity - 1u)];
+
+    while (record && record->_rx != rx) {
+      record = record->_hash_next;
+    }
+    return record;
+  }
+
+  ASMJIT_INLINE void registry_insert(JitAllocationRecord* record) noexcept {
+    if (alloc_record_count >= alloc_capacity) {
+      registry_grow();
+    }
+
+    uint32_t index = record->_hash_code & (alloc_capacity - 1u);
+    record->_hash_next = alloc_table[index];
+    alloc_table[index] = record;
+    alloc_record_count++;
+  }
+
+  ASMJIT_INLINE void registry_remove(JitAllocationRecord* record) noexcept {
+    uint32_t index = record->_hash_code & (alloc_capacity - 1u);
+    JitAllocationRecord** p = &alloc_table[index];
+
+    while (*p != record) {
+      p = &(*p)->_hash_next;
+    }
+    *p = record->_hash_next;
+    record->_hash_next = nullptr;
+    alloc_record_count--;
+  }
+
+  void registry_grow() noexcept {
+    uint32_t new_capacity = axl::max(alloc_capacity * 2u, JitAllocatorRegistryMinCapacity);
+    size_t byte_size = size_t(new_capacity) * sizeof(JitAllocationRecord*);
+    JitAllocationRecord** new_table = static_cast<JitAllocationRecord**>(axl::mem_alloc(byte_size));
+
+    if (ASMJIT_UNLIKELY(!new_table)) {
+      return; // Keep using the old table; chaining remains correct.
+    }
+
+    memset(new_table, 0, byte_size);
+    uint32_t new_mask = new_capacity - 1u;
+
+    for (uint32_t i = 0; i < alloc_capacity; i++) {
+      JitAllocationRecord* record = alloc_table[i];
+      while (record) {
+        JitAllocationRecord* next = record->_hash_next;
+        uint32_t index = record->_hash_code & new_mask;
+        record->_hash_next = new_table[index];
+        new_table[index] = record;
+        record = next;
+      }
+    }
+
+    if (alloc_table != alloc_embedded) {
+      axl::mem_free(alloc_table);
+    }
+    alloc_table = new_table;
+    alloc_capacity = new_capacity;
+  }
+
+  //! Frees every record and restores the registry to its initial state.
+  void registry_reset() noexcept {
+    for (uint32_t i = 0; i < alloc_capacity; i++) {
+      JitAllocationRecord* record = alloc_table[i];
+      while (record) {
+        JitAllocationRecord* next = record->_hash_next;
+        axl::mem_free(record);
+        record = next;
+      }
+    }
+
+    if (alloc_table != alloc_embedded) {
+      axl::mem_free(alloc_table);
+    }
+    registry_init();
+  }
+
+  //! \}
+};
+
+// Recursive counterpart of `LockGuard` for `JitAllocatorPrivateImpl::lock`.
+//
+// Write callbacks are allowed to call back into the same allocator (alloc/query/write/shrink of other
+// allocations), so the allocator lock must be reacquirable by the thread that already holds it. Cross-thread
+// contention is still handled by the underlying non-recursive lock.
+class JitAllocatorLock {
+public:
+  ASMJIT_NONCOPYABLE(JitAllocatorLock)
+
+  JitAllocatorPrivateImpl* _impl;
+  bool _acquired;
+
+  ASMJIT_INLINE explicit JitAllocatorLock(JitAllocatorPrivateImpl* impl) noexcept
+    : _impl(impl),
+      _acquired(false) {
+    uint64_t thread_id = JitAllocator_current_thread_id();
+
+    if (impl->lock_depth == 0 || impl->lock_owner_thread != thread_id) {
+      impl->lock.lock();
+      impl->lock_owner_thread = thread_id;
+      _acquired = true;
+    }
+    impl->lock_depth++;
+  }
+
+  ASMJIT_INLINE ~JitAllocatorLock() noexcept {
+    _impl->lock_depth--;
+    if (_acquired) {
+      _impl->lock_owner_thread = 0;
+      _impl->lock.unlock();
+    }
+  }
+};
+
+// Write protection with per-thread nesting.
+//
+// A write callback can reenter the allocator to write, shrink, release, or allocate another allocation. On MAP_JIT
+// platforms page permissions are process/thread global, so only the outermost region may toggle them; nested regions
+// just bump a counter and let the outermost region restore permissions and flush the instruction cache once at the
+// end.
+class JitAllocatorWriteScopeGuard {
+public:
+  ASMJIT_NONCOPYABLE(JitAllocatorWriteScopeGuard)
+
+  JitAllocatorPrivateImpl* _impl;
+  void* _rx;
+  size_t _size;
+  VirtMem::CachePolicy _policy;
+  bool _outer;
+
+  ASMJIT_INLINE JitAllocatorWriteScopeGuard(
+    JitAllocatorPrivateImpl* impl,
+    void* rx,
+    size_t size,
+    VirtMem::CachePolicy policy) noexcept
+    : _impl(impl),
+      _rx(rx),
+      _size(size),
+      _policy(policy),
+      _outer(impl->begin_write_protection()) {
+
+    if (_outer) {
+      VirtMem::protect_jit_memory(VirtMem::ProtectJitAccess::kReadWrite);
+    }
+  }
+
+  ASMJIT_INLINE ~JitAllocatorWriteScopeGuard() noexcept {
+    if (_outer) {
+      VirtMem::protect_jit_memory(VirtMem::ProtectJitAccess::kReadExecute);
+      if (_policy != VirtMem::CachePolicy::kNeverFlush) {
+        VirtMem::flush_instruction_cache(_rx, _size);
+      }
+    }
+    _impl->end_write_protection();
+  }
 };
 
 static const JitAllocator::Impl JitAllocatorImpl_none {};
@@ -722,9 +1063,10 @@ static Error JitAllocator_new_block(JitAllocatorPrivateImpl* impl, JitAllocatorB
     return make_error(Error::kOutOfMemory);
   }
 
-  // Fill the allocated virtual memory if secure mode is enabled.
+  // Fill the allocated virtual memory if secure mode is enabled. The nesting-aware guard keeps a write callback
+  // (which may trigger a new block through reentrant alloc()) from flipping the JIT pages back to RX prematurely.
   if (axl::test(impl->options, JitAllocatorOptions::kFillUnusedMemory)) {
-    VirtMem::ProtectJitReadWriteScope scope(virt_mem.rw, block_size);
+    JitAllocatorWriteScopeGuard scope(impl, virt_mem.rw, block_size, VirtMem::CachePolicy::kNeverFlush);
     JitAllocator_fill_pattern(virt_mem.rw, impl->fill_pattern, block_size);
   }
 
@@ -813,6 +1155,88 @@ static void JitAllocatorImpl_wipe_out_block(JitAllocatorPrivateImpl* impl, JitAl
   block->clear_block();
 }
 
+// JitAllocator - Reentrant Lock & Span Helpers
+// ============================================
+
+// Fills `out` with a Span that references the allocation described by `record`. Must be called with the allocator
+// lock held (the data read from the record/block must not change concurrently).
+static void JitAllocator_populate_span(
+  JitAllocator* self,
+  JitAllocationRecord* record,
+  JitAllocator::Span& out) noexcept {
+
+  JitAllocatorBlock* block = record->_block;
+  JitAllocatorPool* pool = block->pool();
+  size_t byte_offset = pool->byte_size_from_area_size(record->_area_start);
+
+  out._rx = record->_rx;
+  out._rw = block->rw_ptr() + byte_offset;
+  out._size = pool->byte_size_from_area_size(record->_area_size);
+  out._block = static_cast<void*>(block);
+  out._flags = JitAllocator::Span::Flags::kNone;
+  out._reserved = 0;
+  out._allocator = self;
+  out._identity = record->_identity;
+  out._generation = record->_generation;
+}
+
+// Validates a Span against the live allocations of `self`. Returns the matching record, or null if the span is
+// default-constructed, belongs to another allocator, or is stale (its allocation was released, reset, or got a new
+// identity through shrinking). Must be called with the allocator lock held.
+static JitAllocationRecord* JitAllocator_validate_span(
+  const JitAllocator* self,
+  const JitAllocatorPrivateImpl* impl,
+  const JitAllocator::Span& span) noexcept {
+
+  if (!span._rx || span._allocator != self) {
+    return nullptr;
+  }
+
+  JitAllocationRecord* record = impl->registry_find(span._rx);
+  if (!record || record->_identity != span._identity || record->_generation != span._generation) {
+    return nullptr;
+  }
+  return record;
+}
+
+// Releases the allocation described by `record` and frees the record itself. Shared by the raw-pointer and the
+// Span-based release overloads. Must be called with the allocator lock held.
+static void JitAllocatorImpl_release_record(JitAllocatorPrivateImpl* impl, JitAllocationRecord* record) noexcept {
+  JitAllocatorBlock* block = record->_block;
+  JitAllocatorPool* pool = block->pool();
+
+  uint32_t area_index = record->_area_start;
+  uint32_t area_size = record->_area_size;
+  uint32_t area_end = area_index + area_size;
+
+  impl->allocation_count--;
+  block->mark_released_area(area_index, area_end);
+
+  impl->registry_remove(record);
+  impl->generation++;
+  axl::mem_free(record);
+
+  // Fill the released memory if the secure mode is enabled.
+  if (axl::test(impl->options, JitAllocatorOptions::kFillUnusedMemory)) {
+    uint8_t* span_ptr = block->rw_ptr() + area_index * pool->granularity;
+    size_t span_size = area_size * pool->granularity;
+
+    JitAllocatorWriteScopeGuard scope(impl, span_ptr, span_size, VirtMem::CachePolicy::kDefault);
+    JitAllocator_fill_pattern(span_ptr, impl->fill_pattern, span_size);
+  }
+
+  // Release the whole block if it became empty.
+  if (block->is_empty()) {
+    if (pool->empty_block_count || axl::test(impl->options, JitAllocatorOptions::kImmediateRelease)) {
+      JitAllocatorImpl_remove_block(impl, block);
+      JitAllocatorImpl_delete_block(impl, block);
+    }
+    else {
+      pool->empty_block_count++;
+    }
+  }
+}
+
 // JitAllocator - Construction & Destruction
 // =========================================
 
@@ -828,8 +1252,10 @@ JitAllocator::~JitAllocator() noexcept {
     return;
   }
 
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
   reset(ResetPolicy::kHard);
-  JitAllocator_destroy_impl(static_cast<JitAllocatorPrivateImpl*>(_impl));
+  impl->registry_reset();
+  JitAllocator_destroy_impl(impl);
 }
 
 // JitAllocator - Reset
@@ -841,6 +1267,13 @@ void JitAllocator::reset(ResetPolicy reset_policy) noexcept {
   }
 
   JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
+
+  // Every allocation loses its identity, which invalidates all outstanding Spans.
+  impl->generation++;
+  impl->allocation_count = 0;
+  impl->registry_reset();
+
   impl->tree.reset();
   size_t pool_count = impl->pool_count;
 
@@ -866,6 +1299,10 @@ void JitAllocator::reset(ResetPolicy reset_policy) noexcept {
       if (block_to_keep) {
         block_to_keep->_list_nodes[0] = nullptr;
         block_to_keep->_list_nodes[1] = nullptr;
+        // The block is reinserted into a freshly reset RB-tree, so its tree node state must be cleared as well;
+        // otherwise a node that happened to be red or have children would fail the tree's insertion invariants.
+        block_to_keep->_tree_nodes[0] = 0;
+        block_to_keep->_tree_nodes[1] = 0;
         JitAllocatorImpl_wipe_out_block(impl, block_to_keep);
         JitAllocatorImpl_insert_block(impl, block_to_keep);
         pool.empty_block_count = 1;
@@ -883,7 +1320,7 @@ JitAllocator::Statistics JitAllocator::statistics() const noexcept {
 
   if (ASMJIT_LIKELY(_impl != &JitAllocatorImpl_none)) {
     JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
-    LockGuard guard(impl->lock);
+    JitAllocatorLock guard(impl);
 
     size_t pool_count = impl->pool_count;
     for (size_t pool_id = 0; pool_id < pool_count; pool_id++) {
@@ -919,7 +1356,13 @@ Error JitAllocator::alloc(Out<Span> out, size_t size) noexcept {
                       size == 0u      ? Error::kInvalidArgument : Error::kTooLarge);
   }
 
-  LockGuard guard(impl->lock);
+  JitAllocatorLock guard(impl);
+
+  JitAllocationRecord* record = axl::mem_alloc<JitAllocationRecord>(sizeof(JitAllocationRecord));
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kOutOfMemory);
+  }
+
   JitAllocatorPool* pool = &impl->pools[JitAllocator_size_to_pool_id(impl, size)];
 
   uint32_t area_index = no_index;
@@ -993,10 +1436,15 @@ Error JitAllocator::alloc(Out<Span> out, size_t size) noexcept {
   if (area_index == no_index) {
     size_t block_size = JitAllocator_calculate_ideal_block_size(impl, pool, size);
     if (ASMJIT_UNLIKELY(!block_size)) {
+      axl::mem_free(record);
       return make_error(Error::kOutOfMemory);
     }
 
-    ASMJIT_PROPAGATE(JitAllocator_new_block(impl, &block, pool, block_size));
+    Error block_err = JitAllocator_new_block(impl, &block, pool, block_size);
+    if (ASMJIT_UNLIKELY(block_err != Error::kOk)) {
+      axl::mem_free(record);
+      return block_err;
+    }
     area_index = block->initial_area_start();
 
     JitAllocatorImpl_insert_block(impl, block);
@@ -1012,15 +1460,22 @@ Error JitAllocator::alloc(Out<Span> out, size_t size) noexcept {
   impl->allocation_count++;
   block->mark_allocated_area(area_index, area_index + area_size);
 
-  // Return a span referencing the allocated memory.
+  // Register the new allocation identity before publishing the span.
   size_t offset = pool->byte_size_from_area_size(area_index);
   ASMJIT_ASSERT(offset <= block->block_size() - size);
 
-  out->_rx = block->rx_ptr() + offset;
-  out->_rw = block->rw_ptr() + offset;
-  out->_size = size;
-  out->_block = static_cast<void*>(block);
+  void* rx = block->rx_ptr() + offset;
+  record->_hash_next = nullptr;
+  record->_block = block;
+  record->_rx = rx;
+  record->_identity = impl->next_identity++;
+  record->_generation = impl->generation;
+  record->_hash_code = JitAllocator_hash_rx(rx);
+  record->_area_start = area_index;
+  record->_area_size = area_size;
+  impl->registry_insert(record);
 
+  JitAllocator_populate_span(this, record, out.value());
   return Error::kOk;
 }
 
@@ -1032,71 +1487,50 @@ Error JitAllocator::release(void* rx) noexcept {
   }
 
   JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
-  LockGuard guard(impl->lock);
+  JitAllocatorLock guard(impl);
 
-  JitAllocatorBlock* block = impl->tree.get(static_cast<uint8_t*>(rx));
-  if (ASMJIT_UNLIKELY(!block)) {
-    return make_error(Error::kInvalidState);
+  // Only the exact start address of a live allocation has a registry record. Interior addresses, holes, padding,
+  // and addresses past the last allocation are therefore rejected without touching the bit-vectors or counters.
+  JitAllocationRecord* record = impl->registry_find(rx);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidArgument);
   }
 
-  // Offset relative to the start of the block.
-  JitAllocatorPool* pool = block->pool();
-  size_t offset = (size_t)((uint8_t*)rx - block->rx_ptr());
-
-  // The first bit representing the allocated area and its size.
-  uint32_t area_index = uint32_t(offset >> pool->granularity_log2);
-  uint32_t area_end = uint32_t(axl::bit_vector_index_of(block->_stop_bit_vector, area_index, true)) + 1;
-  uint32_t area_size = area_end - area_index;
-
-  impl->allocation_count--;
-  block->mark_released_area(area_index, area_end);
-
-  // Fill the released memory if the secure mode is enabled.
-  if (axl::test(impl->options, JitAllocatorOptions::kFillUnusedMemory)) {
-    uint8_t* span_ptr = block->rw_ptr() + area_index * pool->granularity;
-    size_t span_size = area_size * pool->granularity;
-
-    VirtMem::ProtectJitReadWriteScope scope(span_ptr, span_size);
-    JitAllocator_fill_pattern(span_ptr, impl->fill_pattern, span_size);
-  }
-
-  // Release the whole block if it became empty.
-  if (block->is_empty()) {
-    if (pool->empty_block_count || axl::test(impl->options, JitAllocatorOptions::kImmediateRelease)) {
-      JitAllocatorImpl_remove_block(impl, block);
-      JitAllocatorImpl_delete_block(impl, block);
-    }
-    else {
-      pool->empty_block_count++;
-    }
-  }
-
+  JitAllocatorImpl_release_record(impl, record);
   return Error::kOk;
 }
 
-static Error JitAllocatorImpl_shrink(JitAllocatorPrivateImpl* impl, JitAllocator::Span& span, size_t new_size, bool already_under_write_scope) noexcept {
-  JitAllocatorBlock* block = static_cast<JitAllocatorBlock*>(span._block);
-  if (ASMJIT_UNLIKELY(!block)) {
-    return make_error(Error::kInvalidArgument);
+Error JitAllocator::release(Span& span) noexcept {
+  if (_impl == &JitAllocatorImpl_none) {
+    return make_error(Error::kNotInitialized);
   }
 
-  LockGuard guard(impl->lock);
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
 
-  // Offset relative to the start of the block.
+  JitAllocationRecord* record = JitAllocator_validate_span(this, impl, span);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidState);
+  }
+
+  JitAllocatorImpl_release_record(impl, record);
+  span = Span{};
+  return Error::kOk;
+}
+
+// Applies a validated shrink while the allocator lock is held. `span` must reference `record`'s current identity.
+static Error JitAllocatorImpl_shrink(
+  JitAllocator* self,
+  JitAllocatorPrivateImpl* impl,
+  JitAllocationRecord* record,
+  JitAllocator::Span& span,
+  size_t new_size) noexcept {
+
+  JitAllocatorBlock* block = record->_block;
   JitAllocatorPool* pool = block->pool();
-  size_t offset = (size_t)((uint8_t*)span.rx() - block->rx_ptr());
 
-  // The first bit representing the allocated area and its size.
-  uint32_t area_start = uint32_t(offset >> pool->granularity_log2);
-
-  // Don't trust `span.size()` - if it has been already truncated we would be off...
-  bool is_used = axl::bit_vector_get_bit(block->_used_bit_vector, area_start);
-  if (ASMJIT_UNLIKELY(!is_used)) {
-    return make_error(Error::kInvalidArgument);
-  }
-
-  uint32_t area_end = uint32_t(axl::bit_vector_index_of(block->_stop_bit_vector, area_start, true)) + 1;
-  uint32_t area_prev_size = area_end - area_start;
+  uint32_t area_start = record->_area_start;
+  uint32_t area_prev_size = record->_area_size;
   uint32_t span_prev_size = area_prev_size * pool->granularity;
   uint32_t area_shrunk_size = pool->area_size_from_byte_size(new_size);
 
@@ -1106,41 +1540,53 @@ static Error JitAllocatorImpl_shrink(JitAllocatorPrivateImpl* impl, JitAllocator
 
   uint32_t area_diff = area_prev_size - area_shrunk_size;
   if (area_diff) {
-    block->mark_shrunk_area(area_start + area_shrunk_size, area_end);
-    span._size = pool->byte_size_from_area_size(area_shrunk_size);
-  }
+    block->mark_shrunk_area(area_start + area_shrunk_size, area_start + area_prev_size);
 
-  // Fill released memory if the secure mode is enabled.
-  if (new_size < span_prev_size && axl::test(impl->options, JitAllocatorOptions::kFillUnusedMemory)) {
-    uint8_t* span_ptr = block->rw_ptr() + (area_start + area_shrunk_size) * pool->granularity;
-    size_t span_size = area_diff * pool->granularity;
+    // Fill released memory if the secure mode is enabled. When called from within a write callback this nests into
+    // the active write protection instead of toggling page permissions back and forth.
+    if (new_size < span_prev_size && axl::test(impl->options, JitAllocatorOptions::kFillUnusedMemory)) {
+      uint8_t* span_ptr = block->rw_ptr() + (area_start + area_shrunk_size) * pool->granularity;
+      size_t span_size = area_diff * pool->granularity;
 
-    if (!already_under_write_scope) {
-      VirtMem::ProtectJitReadWriteScope scope(span_ptr, span_size, VirtMem::CachePolicy::kNeverFlush);
+      JitAllocatorWriteScopeGuard scope(impl, span_ptr, span_size, VirtMem::CachePolicy::kNeverFlush);
       JitAllocator_fill_pattern(span_ptr, impl->fill_pattern, span_size);
     }
-    else {
-      JitAllocator_fill_pattern(span_ptr, impl->fill_pattern, span_size);
-    }
+
+    // The capacity changed: rotate the identity so every Span copy made before the shrink becomes stale.
+    impl->generation++;
+    record->_generation = impl->generation;
+    record->_area_size = area_shrunk_size;
   }
 
+  // Always republish the authoritative (granularity-rounded) state. This also rounds a size that was truncated
+  // inside a write callback without changing the allocation's area, in which case the identity is preserved.
+  JitAllocator_populate_span(self, record, span);
   return Error::kOk;
 }
 
 Error JitAllocator::shrink(Span& span, size_t new_size) noexcept {
-  bool not_initialized = _impl == &JitAllocatorImpl_none;
-
-  if (ASMJIT_UNLIKELY(axl::bool_or(not_initialized, !span.rx()))) {
-    return make_error(not_initialized ? Error::kNotInitialized : Error::kInvalidArgument);
+  if (_impl == &JitAllocatorImpl_none) {
+    return make_error(Error::kNotInitialized);
   }
 
+  if (ASMJIT_UNLIKELY(!span.rx())) {
+    return make_error(Error::kInvalidArgument);
+  }
+
+  // Shrinking to zero is a release, handled by the Span-based release so that staleness is enforced.
   if (ASMJIT_UNLIKELY(new_size == 0)) {
-    Error err = release(span.rx());
-    span = Span{};
-    return err;
+    return release(span);
   }
 
-  return JitAllocatorImpl_shrink(static_cast<JitAllocatorPrivateImpl*>(_impl), span, new_size, false);
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
+
+  JitAllocationRecord* record = JitAllocator_validate_span(this, impl, span);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidState);
+  }
+
+  return JitAllocatorImpl_shrink(this, impl, record, span, new_size);
 }
 
 Error JitAllocator::query(Out<Span> out, void* rx) const noexcept {
@@ -1151,10 +1597,10 @@ Error JitAllocator::query(Out<Span> out, void* rx) const noexcept {
   }
 
   JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
 
-  LockGuard guard(impl->lock);
+  // Block lookup is logarithmic in the number of managed blocks, never a scan of live allocations.
   JitAllocatorBlock* block = impl->tree.get(static_cast<uint8_t*>(rx));
-
   if (ASMJIT_UNLIKELY(!block)) {
     return make_error(Error::kInvalidArgument);
   }
@@ -1162,25 +1608,37 @@ Error JitAllocator::query(Out<Span> out, void* rx) const noexcept {
   // Offset relative to the start of the block.
   JitAllocatorPool* pool = block->pool();
   size_t offset = (size_t)((uint8_t*)rx - block->rx_ptr());
+  uint32_t area_index = uint32_t(offset >> pool->granularity_log2);
 
-  // The first bit representing the allocated area and its size.
-  uint32_t area_start = uint32_t(offset >> pool->granularity_log2);
-
-  bool is_used = axl::bit_vector_get_bit(block->_used_bit_vector, area_start);
-  if (ASMJIT_UNLIKELY(!is_used)) {
+  // Holes, released areas, and block initial padding are not marked as allocated.
+  if (ASMJIT_UNLIKELY(!axl::bit_vector_get_bit(block->_used_bit_vector, area_index))) {
     return make_error(Error::kInvalidArgument);
   }
 
+  // Normalize an interior address to the start of the whole allocation (one unit after the previous stop bit).
+  uint32_t area_start = JitAllocator_allocation_start(block, area_index);
   uint32_t area_end = uint32_t(axl::bit_vector_index_of(block->_stop_bit_vector, area_start, true)) + 1;
-  size_t byte_offset = pool->byte_size_from_area_size(area_start);
-  size_t byte_size = pool->byte_size_from_area_size(area_end - area_start);
 
-  out->_rx = static_cast<uint8_t*>(block->_mapping.rx) + byte_offset;
-  out->_rw = static_cast<uint8_t*>(block->_mapping.rw) + byte_offset;
-  out->_size = byte_size;
-  out->_block = static_cast<void*>(block);
+  void* allocation_rx = block->rx_ptr() + pool->byte_size_from_area_size(area_start);
+  JitAllocationRecord* record = impl->registry_find(allocation_rx);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidArgument);
+  }
 
+  ASMJIT_ASSERT(record->_area_start == area_start);
+  ASMJIT_ASSERT(record->_area_size == area_end - area_start);
+  JitAllocator_populate_span(const_cast<JitAllocator*>(this), record, out.value());
   return Error::kOk;
+}
+
+bool JitAllocator::Span::is_valid() const noexcept {
+  if (!_allocator || _allocator->_impl == &JitAllocatorImpl_none) {
+    return false;
+  }
+
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_allocator->_impl);
+  JitAllocatorLock guard(impl);
+  return JitAllocator_validate_span(_allocator, impl, *this) != nullptr;
 }
 
 // JitAllocator - Write
@@ -1196,45 +1654,77 @@ static ASMJIT_INLINE VirtMem::CachePolicy JitAllocator_default_policy_for_span(c
 }
 
 Error JitAllocator::write(Span& span, size_t offset, const void* src, size_t size, VirtMem::CachePolicy policy) noexcept {
-  if (ASMJIT_UNLIKELY(span._block == nullptr || offset > span.size() || span.size() - offset < size)) {
-    return make_error(Error::kInvalidArgument);
+  if (_impl == &JitAllocatorImpl_none) {
+    return make_error(Error::kNotInitialized);
   }
 
-  if (ASMJIT_UNLIKELY(size == 0)) {
-    return Error::kOk;
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
+
+  // Validate before changing any page protection, bit-vector, or statistic. A zero-length write still requires a
+  // live, owned span - a stale copy must never be reported as a successful write.
+  JitAllocationRecord* record = JitAllocator_validate_span(this, impl, span);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidState);
+  }
+
+  if (ASMJIT_UNLIKELY(offset > span.size() || span.size() - offset < size)) {
+    return make_error(Error::kInvalidArgument);
   }
 
   if (policy == VirtMem::CachePolicy::kDefault) {
     policy = JitAllocator_default_policy_for_span(span);
   }
 
-  VirtMem::ProtectJitReadWriteScope write_scope(span.rx(), span.size(), policy);
+  if (size == 0) {
+    return Error::kOk;
+  }
+
+  JitAllocatorWriteScopeGuard write_scope(impl, span.rx(), span.size(), policy);
   memcpy(static_cast<uint8_t*>(span.rw()) + offset, src, size);
   return Error::kOk;
 }
 
 Error JitAllocator::write(Span& span, WriteFunc write_fn, void* user_data, VirtMem::CachePolicy policy) noexcept {
-  if (ASMJIT_UNLIKELY(span._block == nullptr) || span.size() == 0) {
-    return make_error(Error::kInvalidArgument);
+  if (_impl == &JitAllocatorImpl_none) {
+    return make_error(Error::kNotInitialized);
   }
 
-  size_t size = span.size();
-  if (ASMJIT_UNLIKELY(size == 0)) {
-    return Error::kOk;
+  JitAllocatorPrivateImpl* impl = static_cast<JitAllocatorPrivateImpl*>(_impl);
+  JitAllocatorLock guard(impl);
+
+  // Reject stale or foreign spans (and empty spans) before entering the writable region or invoking the callback.
+  JitAllocationRecord* record = JitAllocator_validate_span(this, impl, span);
+  if (ASMJIT_UNLIKELY(!record)) {
+    return make_error(Error::kInvalidState);
+  }
+
+  if (ASMJIT_UNLIKELY(span.size() == 0)) {
+    return make_error(Error::kInvalidArgument);
   }
 
   if (policy == VirtMem::CachePolicy::kDefault) {
     policy = JitAllocator_default_policy_for_span(span);
   }
 
-  VirtMem::ProtectJitReadWriteScope write_scope(span.rx(), span.size(), policy);
-  ASMJIT_PROPAGATE(write_fn(span, user_data));
+  size_t size_before = span.size();
+  JitAllocatorWriteScopeGuard write_scope(impl, span.rx(), span.size(), policy);
 
-  // Check whether span.truncate() has been called.
-  if (span.size() != size) {
-    // OK, this is a bit awkward... However, shrink wants the original span and new_size, so we have to swap.
-    axl::swap(span._size, size);
-    return JitAllocatorImpl_shrink(static_cast<JitAllocatorPrivateImpl*>(_impl), span, size, true);
+  Error callback_err = write_fn(span, user_data);
+  if (ASMJIT_UNLIKELY(callback_err != Error::kOk)) {
+    return callback_err;
+  }
+
+  // If the callback truncated the span (via Span::shrink()), commit the new capacity while the writable region is
+  // still active. The re-validation only guards against a callback that broke the documented no-release/no-reset
+  // contract.
+  if (span.size() != size_before) {
+    size_t new_size = span.size();
+    record = JitAllocator_validate_span(this, impl, span);
+    if (ASMJIT_UNLIKELY(!record)) {
+      return make_error(Error::kInvalidState);
+    }
+    return JitAllocatorImpl_shrink(this, impl, record, span, new_size);
   }
 
   return Error::kOk;

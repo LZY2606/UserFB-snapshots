@@ -275,6 +275,43 @@ namespace asmjit {
 //!
 //! \section api_changes API Changes
 //!
+//! ### Changes committed at 2026-11-13
+//!
+//! Core changes:
+//!
+//!   - Reworked allocation identity management of `JitAllocator` and its `JitAllocator::Span`:
+//!
+//!     - `JitAllocator::query()` now normalizes any byte address of a live allocation to the whole allocation - the
+//!       returned Span always starts at the allocation's start address (never at an interior address) and reports
+//!       its full granularity-rounded capacity. Addresses in holes, released areas, block initial padding, or past
+//!       the end of an allocation fail and produce an empty Span. The lookup stays logarithmic and never scans all
+//!       live allocations.
+//!
+//!     - A Span now carries a private allocation identity (allocator, identity, and generation). Spans returned by
+//!       `alloc()` and `query()` for the same allocation are interchangeable copies; ordinary writes through one
+//!       copy do not invalidate the others. A Span becomes stale after `release()`, `reset()` (soft or hard), or a
+//!       `shrink()` that changes the granularity-rounded capacity. Stale Spans, and Spans created by a different
+//!       `JitAllocator`, are rejected by every Span-based API (`write()`, `shrink()`, `WriteScope`, and the new
+//!       `release(Span&)`) before any byte is copied, any callback is invoked, any page protection is changed, and
+//!       before bit-vectors or statistics are touched - including zero-length writes. If a freed address is
+//!       reallocated, old Spans keep failing instead of addressing the new allocation, preventing use-after-free
+//!       writes into executable memory.
+//!
+//!     - Added `JitAllocator::release(Span&)`, which validates ownership and liveness and clears the released Span.
+//!       The raw-pointer `release(void*)` only accepts the exact start address of a live allocation; an interior
+//!       address (even a granularity-aligned one) can no longer release a tail segment. Because a raw pointer
+//!       cannot be distinguished after address reuse, that overload still relies on the caller to pass a pointer
+//!       belonging to a current allocation; only Span-based APIs provide staleness checks.
+//!
+//!     - A `shrink()` that does not change the granularity-rounded size preserves the identity and all existing
+//!       copies. A capacity-changing shrink returns the updated Span and invalidates older copies; call
+//!       `query()` to obtain fresh ones.
+//!
+//!     - Write callbacks may reenter the same allocator (alloc/query/write/shrink of other allocations) without
+//!       deadlocking, but must not release or reset the allocation being written. The private metadata changes the
+//!       layout of `JitAllocator::Span`; there is no binary-compatibility requirement for this change, and the
+//!       public function signatures are otherwise unchanged.
+//!
 //! ### Changes committed at 2026-10-16
 //!
 //! Core changes:

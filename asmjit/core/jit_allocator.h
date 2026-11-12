@@ -278,6 +278,28 @@ public:
   //! A memory reference returned by \ref JitAllocator::alloc().
   //!
   //! Span contains everything needed to actually write new code to the memory chunk it references.
+  //!
+  //! ### Span identity and staleness
+  //!
+  //! Every successful `alloc()` creates one allocation identity, which is shared by every Span returned for it
+  //! (including Spans populated by `query()`). A Span is a lightweight copyable handle, so copying it or writing
+  //! through one copy never invalidates the other copies. A Span becomes stale, and is then rejected by every
+  //! Span-based API of the allocator (`write()`, `shrink()`, and `WriteScope`), when the allocation it references
+  //! has been:
+  //!
+  //!   - released through `release(const Span&)`,
+  //!   - invalidated by `reset()` (either soft or hard),
+  //!   - shrunk to a smaller granularity-rounded size (use the Span returned by `shrink()` or call `query()` again
+  //!     to obtain a valid replacement).
+  //!
+  //! If the same address is later reused by a new allocation, stale Spans keep failing - they can never be
+  //! repurposed to address the new allocation, which would otherwise be a use-after-free write into executable
+  //! memory that now belongs to someone else. A Span created by one `JitAllocator` is also rejected by any other
+  //! `JitAllocator`.
+  //!
+  //! The raw-pointer based `release(void*)` API cannot distinguish stale and fresh pointers that happen to have
+  //! the same address after reuse; callers of that API must themselves guarantee the pointer still belongs to a
+  //! live allocation. Only Span-based APIs provide the staleness checks described above.
   class Span {
   public:
     //! \name Constants
@@ -321,6 +343,24 @@ public:
     uint32_t _reserved = 0;
 
     //! \}
+    //!
+    //! \name Identity (private)
+    //!
+    //! The following members implement allocation identity and staleness checks. They are private to AsmJit and
+    //! must never be inspected or modified outside of `JitAllocator`. They don't affect the public function
+    //! signatures, but the class layout and ABI are not stable across this change.
+    //! \{
+
+    //! Allocator that created the referenced allocation (null in a default-constructed Span).
+    JitAllocator* _allocator = nullptr;
+
+    //! Allocation identity within `_allocator`. The identifier is only meaningful while the allocation is live.
+    uint64_t _identity = 0;
+
+    //! Allocation generation captured when this Span was populated.
+    uint64_t _generation = 0;
+
+    //! \}
 
     //! \name Accessors
     //! \{
@@ -360,11 +400,20 @@ public:
     [[nodiscard]]
     ASMJIT_INLINE_NODEBUG Flags flags() const noexcept { return _flags; }
 
+    //! Tests whether this span references a live allocation of the allocator it was created by.
+    //!
+    //! A default-constructed Span, or a Span whose allocation has been released, reset, or re-identifying-shrunk,
+    //! is considered stale. Stale Spans are rejected by every Span-based API of \ref JitAllocator.
+    [[nodiscard]]
+    ASMJIT_API bool is_valid() const noexcept;
+
     //! Shrinks this span to `new_size`.
     //!
-    //! \note This is the only function that is able to change the size of a span, and it's only use case is to
-    //! shrink the span size during \ref JitAllocator::write(). When the writer detects that the span size shrunk,
-    //! it will automatically shrink the memory used by the span, and propagate the new aligned size to the caller.
+    //! \note This only updates the locally visible size of the Span during a write callback; it never changes the
+    //! allocation by itself. When called inside a \ref JitAllocator::write() callback the allocator detects the
+    //! truncated size and calls `shrink()` on the allocation. If the granularity-rounded size changes, the Span
+    //! passed to the callback is updated in place and every previously made copy becomes stale - call
+    //! \ref JitAllocator::query() to obtain fresh copies. See the class documentation about Span identity.
     ASMJIT_INLINE_NODEBUG void shrink(size_t new_size) noexcept { _size = axl::min(_size, new_size); }
 
     //! Returns whether \ref rw() returns a non-null pointer.
@@ -372,9 +421,16 @@ public:
     ASMJIT_INLINE_NODEBUG bool is_directly_writable() const noexcept { return _rw != nullptr; }
 
     //! \}
+
+  private:
+    friend class JitAllocator;
   };
 
   //! Allocates a new memory span of the requested `size`.
+  //!
+  //! The returned Span establishes a new allocation identity; all copies of it and Spans later obtained through
+  //! `query()` refer to the same identity until the allocation is released, reset, or shrunk to a different
+  //! granularity-rounded size. See \ref Span for the staleness rules.
   //!
   //! \remarks This function is thread-safe.
   [[nodiscard]]
@@ -382,17 +438,46 @@ public:
 
   //! Releases a memory block returned by `alloc()`.
   //!
+  //! Only the exact start address of a live allocation is accepted; an interior address, even when it happens to
+  //! be granularity aligned, is rejected and changes nothing. This raw-pointer overload cannot tell a stale pointer
+  //! apart from a fresh one when the same address has been reused - the caller must guarantee the pointer belongs
+  //! to a currently live allocation. Use `release(Span&)` to get staleness checking instead.
+  //!
   //! \remarks This function is thread-safe.
   ASMJIT_API Error release(void* rx) noexcept;
 
-  //! Frees extra memory allocated with `rx` by shrinking it to the given `new_size`.
+  //! Releases the allocation referenced by `span`.
+  //!
+  //! This Span-based overload verifies that `span` was created by this allocator and still references a live
+  //! allocation. Stale Spans (after release, reset, or a re-identifying shrink), Spans of another allocator, and
+  //! interior-address Spans are rejected without touching the allocation, its bit-vectors, or its statistics. On
+  //! success `span` is reset to a default-constructed state and every other copy of it becomes stale.
+  //!
+  //! \remarks This function is thread-safe.
+  ASMJIT_API Error release(Span& span) noexcept;
+
+  //! Frees extra memory allocated with `span` by shrinking it to the given `new_size`.
+  //!
+  //! Stale Spans and Spans created by another allocator are rejected before any memory protection is changed. If
+  //! the granularity-rounded size does not change, the allocation keeps its identity and all existing copies stay
+  //! valid. Otherwise the allocation gets a new identity: the passed Span is updated to reference it and every
+  //! previously made copy becomes stale - call `query()` to get fresh copies.
   //!
   //! \remarks This function is thread-safe.
   ASMJIT_API Error shrink(Span& span, size_t new_size) noexcept;
 
-  //! Queries information about an allocated memory block that contains the given `rx`, and writes it to `out`.
+  //! Queries the live allocation that contains the given `rx`, and writes it to `out`.
   //!
-  //! If the pointer is matched, the function returns `Error::kOk` and fills `out` with the corresponding span.
+  //! Any byte address of a live allocation, including interior addresses, resolves to the whole allocation: the
+  //! returned Span starts at the allocation's start address (never at the queried interior address), includes the
+  //! matching read-write address (which differs from the read-execute one when dual mapping is used), and reports
+  //! the current granularity-rounded capacity. If two allocations are adjacent, the boundary address belongs to
+  //! the second allocation. Addresses in holes, released areas, block initial padding, or past the end of an
+  //! allocation fail the query and leave `out` as a default-constructed empty Span.
+  //!
+  //! The lookup is logarithmic in the number of managed blocks (a tree search followed by bit-vector inspection),
+  //! it never iterates over all live allocations. The returned Span shares the identity of the allocation it
+  //! references.
   //!
   //! \remarks This function is thread-safe.
   [[nodiscard]]
@@ -409,6 +494,10 @@ public:
   //!
   //! This function reads `src` and writes to `span` at `offset` the number of bytes a specified by `size`.
   //!
+  //! The span is validated (allocator ownership and liveness, see \ref Span) before any page protection is
+  //! changed. A stale or foreign span is rejected without copying any byte and without touching bit-vectors or
+  //! statistics; this also applies to a zero-length write, which still requires a valid span.
+  //!
   //! Use `policy` argument to specify an instruction cache flush behavior.
   ASMJIT_API Error write(
     Span& span,
@@ -419,6 +508,15 @@ public:
 
   //! Makes the memory pointed out by `span` writable and calls the provided callback function `write_fn`
   //! with `user_data` to perform the write operation.
+  //!
+  //! The span is validated (allocator ownership and liveness, see \ref Span) before any page protection is
+  //! changed. A stale or foreign span is rejected without calling `write_fn` and without touching bit-vectors or
+  //! statistics.
+  //!
+  //! The callback may call `alloc()`, `query()`, `write()`, or `shrink()` on other allocations of the same
+  //! allocator - such reentrant calls are supported and won't deadlock. It must not release or reset the
+  //! allocation it is currently writing (neither through `release()` nor `reset()` nor a zero-sized `shrink()`);
+  //! doing so is unsupported and results in undefined behavior.
   //!
   //! Use `policy` argument to specify an instruction cache flush behavior.
   ASMJIT_API Error write(
