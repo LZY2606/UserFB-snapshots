@@ -40,6 +40,7 @@
 #include "core/save-fl32.h"
 #include "core/shape-description.h"
 #include "core/export-svg.h"
+#include "core/ShapeDistanceIndex.h"
 
 namespace msdfgen {
 
