@@ -56,3 +56,28 @@ func ExampleUserSettings_ConfigFinder() {
 	})
 	u.Get("example.com", "Host")
 }
+
+func ExampleConfig_Resolve() {
+	config := `
+Host prod-*
+    User deploy
+    IdentityFile ~/.ssh/prod_key
+
+Match host = *.corp
+    IdentityFile ~/.ssh/corp_key
+`
+
+	cfg, _ := ssh_config.DecodeExtended(strings.NewReader(config))
+	res := cfg.Resolve(ssh_config.ResolveContext{
+		OriginalHost:  "prod-web",
+		Host:          "prod-web",
+		CanonicalHost: "web.corp",
+		RemoteUser:    "deploy",
+		LocalUser:     "kevin",
+	})
+	fmt.Println(res.Get("User"))
+	fmt.Println(res.GetAll("IdentityFile"))
+	// Output:
+	// deploy
+	// [~/.ssh/prod_key ~/.ssh/corp_key]
+}

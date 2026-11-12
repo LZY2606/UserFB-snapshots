@@ -308,15 +308,24 @@ func (u *UserSettings) doLoadConfigs() {
 }
 
 func parseFile(filename string) (*Config, error) {
-	return parseWithDepth(filename, 0)
+	return parseWithDepth(filename, 0, false)
 }
 
-func parseWithDepth(filename string, depth uint8) (*Config, error) {
+func parseWithDepth(filename string, depth uint8, extended bool) (*Config, error) {
 	b, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	return decodeBytes(b, isSystem(filename), depth)
+	return decodeBytes(b, isSystem(filename), depth, extended)
+}
+
+// DecodeExtendedFile reads the file at filename into a Config using the
+// extended syntax accepted by DecodeExtended. Unlike the package-level Get and
+// GetAll helpers it does not consult $HOME/.ssh or /etc/ssh; the file is only
+// read when it is passed to this function or named by an Include directive in
+// another extended config.
+func DecodeExtendedFile(filename string) (*Config, error) {
+	return parseWithDepth(filename, 0, true)
 }
 
 func isSystem(filename string) bool {
@@ -331,16 +340,37 @@ func Decode(r io.Reader) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return decodeBytes(b, false, 0)
+	return decodeBytes(b, false, 0, false)
 }
 
 // DecodeBytes reads b into a Config, or returns an error if r could not be
 // parsed as an SSH config file.
 func DecodeBytes(b []byte) (*Config, error) {
-	return decodeBytes(b, false, 0)
+	return decodeBytes(b, false, 0, false)
 }
 
-func decodeBytes(b []byte, system bool, depth uint8) (c *Config, err error) {
+// DecodeExtended reads r into a Config using the extended Match syntax. The
+// returned Config supports Resolve, which evaluates it against a ResolveContext
+// without running ssh, executing Match Exec commands, performing DNS lookups, or
+// reading local account information.
+//
+// Decode and DecodeBytes retain their original behavior: configuration that
+// only makes sense with the extension (Match User, Match Final, and so on) is
+// still rejected by those entry points.
+func DecodeExtended(r io.Reader) (*Config, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	return decodeBytes(b, false, 0, true)
+}
+
+// DecodeExtendedBytes is the []byte form of DecodeExtended.
+func DecodeExtendedBytes(b []byte) (*Config, error) {
+	return decodeBytes(b, false, 0, true)
+}
+
+func decodeBytes(b []byte, system bool, depth uint8, extended bool) (c *Config, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -354,7 +384,7 @@ func decodeBytes(b []byte, system bool, depth uint8) (c *Config, err error) {
 		}
 	}()
 
-	c = parseSSH(lexSSH(b), system, depth)
+	c = parseSSH(lexSSH(b), system, depth, extended)
 	return c, err
 }
 
@@ -365,6 +395,8 @@ type Config struct {
 	Hosts    []*Host
 	depth    uint8
 	position Position
+	// extended records whether the file was parsed with DecodeExtended.
+	extended bool
 }
 
 // Get finds the first value in the configuration that matches the alias and
@@ -540,8 +572,16 @@ type Host struct {
 	// isMatch is true if this block was created by a Match directive.
 	isMatch bool
 	// matchKeyword stores the original text after "Match" (e.g. "Host" or
-	// "all") so we can round-trip correctly.
+	// "all") so we can round-trip correctly. It is used by the original parser.
 	matchKeyword string
+	// extendedMatch is true when this block was created by the extended parser.
+	// Such blocks are evaluated by matchCriteria during Resolve.
+	extendedMatch bool
+	// matchText preserves the original text following "Match" for extended
+	// blocks, so comments and the extended condition syntax round-trip.
+	matchText string
+	// matchCriteria holds the parsed AND conditions for an extended Match.
+	matchCriteria []matchCriterion
 }
 
 // Matches returns true if the Host matches for the given alias. For
@@ -580,13 +620,19 @@ func (h *Host) String() string {
 			} else {
 				buf.WriteString(" ")
 			}
-			buf.WriteString(h.matchKeyword)
-			if !strings.EqualFold(h.matchKeyword, "all") {
-				buf.WriteString(" ")
-				for i, pat := range h.Patterns {
-					buf.WriteString(pat.String())
-					if i < len(h.Patterns)-1 {
-						buf.WriteString(" ")
+			if h.extendedMatch {
+				// matchText holds the original text after "Match", including
+				// the extended condition syntax.
+				buf.WriteString(h.matchText)
+			} else {
+				buf.WriteString(h.matchKeyword)
+				if !strings.EqualFold(h.matchKeyword, "all") {
+					buf.WriteString(" ")
+					for i, pat := range h.Patterns {
+						buf.WriteString(pat.String())
+						if i < len(h.Patterns)-1 {
+							buf.WriteString(" ")
+						}
 					}
 				}
 			}
@@ -719,6 +765,9 @@ type Include struct {
 	position     Position
 	depth        uint8
 	hasEquals    bool
+	// extended records whether this Include was created by the extended parser.
+	// Extended Include directives parse their files with the extended syntax too.
+	extended bool
 }
 
 const maxRecurseDepth = 5
@@ -748,6 +797,12 @@ func removeDups(arr []string) []string {
 // Any error encountered while parsing nested configuration files will be
 // returned.
 func NewInclude(directives []string, hasEquals bool, pos Position, comment string, system bool, depth uint8) (*Include, error) {
+	return NewIncludeExtended(directives, hasEquals, pos, comment, system, depth, false)
+}
+
+// NewIncludeExtended is like NewInclude, but when extended is true the
+// included files are parsed with the extended syntax used by DecodeExtended.
+func NewIncludeExtended(directives []string, hasEquals bool, pos Position, comment string, system bool, depth uint8, extended bool) (*Include, error) {
 	if depth > maxRecurseDepth {
 		return nil, ErrDepthExceeded
 	}
@@ -759,6 +814,7 @@ func NewInclude(directives []string, hasEquals bool, pos Position, comment strin
 		leadingSpace: pos.Col - 1,
 		depth:        depth,
 		hasEquals:    hasEquals,
+		extended:     extended,
 	}
 	// no need for inc.mu.Lock() since nothing else can access this inc
 	matches := make([]string, 0)
@@ -782,7 +838,7 @@ func NewInclude(directives []string, hasEquals bool, pos Position, comment strin
 	matches = removeDups(matches)
 	inc.matches = matches
 	for i := range matches {
-		config, err := parseWithDepth(matches[i], depth)
+		config, err := parseWithDepth(matches[i], depth, extended)
 		if err != nil {
 			return nil, err
 		}

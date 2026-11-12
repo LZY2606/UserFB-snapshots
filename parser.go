@@ -14,8 +14,9 @@ type sshParser struct {
 	seenTableKeys []string
 	// /etc/ssh parser or local parser - used to find the default for relative
 	// filepaths in the Include directive
-	system bool
-	depth  uint8
+	system   bool
+	depth    uint8
+	extended bool
 }
 
 type sshParserStateFn func() sshParserStateFn
@@ -95,6 +96,7 @@ func (p *sshParser) parseKV() sshParserStateFn {
 		hasEquals = true
 		val = p.getToken()
 	}
+	keyLower := strings.ToLower(key.val)
 	comment := ""
 	tok := p.peek()
 	if tok == nil {
@@ -103,11 +105,22 @@ func (p *sshParser) parseKV() sshParserStateFn {
 	if tok.typ == tokenComment && tok.Position.Line == val.Position.Line {
 		tok = p.getToken()
 		comment = tok.val
+		if keyLower == "match" && p.extended {
+			// The lexer splits a comment off the Match value at "#". Fold it
+			// back into the raw Match text so the extended parser can keep the
+			// comment attached (and the file round-trips byte-for-byte). The
+			// extended parser stops the condition list at "#".
+			val.val += "#" + comment
+			comment = ""
+		}
 	}
-	if strings.ToLower(key.val) == "match" {
+	if keyLower == "match" {
+		if p.extended {
+			return p.parseExtendedMatch(val, hasEquals, comment)
+		}
 		return p.parseMatch(val, hasEquals, comment)
 	}
-	if strings.ToLower(key.val) == "host" {
+	if keyLower == "host" {
 		strPatterns := strings.Split(val.val, " ")
 		patterns := make([]*Pattern, 0)
 		for i := range strPatterns {
@@ -135,8 +148,8 @@ func (p *sshParser) parseKV() sshParserStateFn {
 		return p.parseStart
 	}
 	lastHost := p.config.Hosts[len(p.config.Hosts)-1]
-	if strings.ToLower(key.val) == "include" {
-		inc, err := NewInclude(strings.Split(val.val, " "), hasEquals, key.Position, comment, p.system, p.depth+1)
+	if keyLower == "include" {
+		inc, err := NewIncludeExtended(strings.Split(val.val, " "), hasEquals, key.Position, comment, p.system, p.depth+1, p.extended)
 		if err == ErrDepthExceeded {
 			p.raiseError(val, err)
 			return nil
@@ -247,7 +260,7 @@ func (p *sshParser) parseComment() sshParserStateFn {
 	return p.parseStart
 }
 
-func parseSSH(flow chan token, system bool, depth uint8) *Config {
+func parseSSH(flow chan token, system bool, depth uint8, extended bool) *Config {
 	// Ensure we consume tokens to completion even if parser exits early
 	defer func() {
 		for range flow {
@@ -256,6 +269,7 @@ func parseSSH(flow chan token, system bool, depth uint8) *Config {
 
 	result := newConfig()
 	result.position = Position{1, 1}
+	result.extended = extended
 	parser := &sshParser{
 		flow:          flow,
 		config:        result,
@@ -264,6 +278,7 @@ func parseSSH(flow chan token, system bool, depth uint8) *Config {
 		seenTableKeys: make([]string, 0),
 		system:        system,
 		depth:         depth,
+		extended:      extended,
 	}
 	parser.run()
 	return result
