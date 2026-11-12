@@ -1,0 +1,616 @@
+{
+  "main_commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+  "resolved_submodule": {
+    "path": "speedy",
+    "repo": "google/speedy",
+    "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+    "license": "Apache-2.0",
+    "gitlink_exported_as": "complete ordinary directory, .gitmodules retained as provenance"
+  },
+  "files": [
+    {
+      "path": ".gitignore",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "1b2081acd3026c48cbd9bb2b185038c986b4c6af",
+      "sha256": "cbbc0c2b22594ec1a8a63410f0bb1c54fdf8392badca897e184018433b5fe770"
+    },
+    {
+      "path": ".gitmodules",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "60221c46b85de4bdfaa5ce414eebeca91db5f993",
+      "sha256": "799f3fdfb59a8492d8a6bdc93729a0f3d29b3889c5000276b2917c3c1dfdae51"
+    },
+    {
+      "path": "LICENSE",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "Main.java",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "437857f56d688fa6c078a27cd6b19835f3b8e0a8",
+      "sha256": "71b97f99b1dcbed418dea13ad4565ce5339dde779d5964001beaf0417075f22e"
+    },
+    {
+      "path": "Makefile",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "9ca698dd7631dee274b181529e2a294f71589b04",
+      "sha256": "f72b611fb1d167e44f985a567ed591b63ef393b1417f82f0ae3c82605945856f"
+    },
+    {
+      "path": "README",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "243bdc9389bd1a3cda598c20f2156596022e7caf",
+      "sha256": "904c5602397c70b97f89f44472cb1b774254b0ce5216c36b52f84dc0c93bdd8e"
+    },
+    {
+      "path": "Sonic.java",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "3a2594009f45f9c432ab83bfb674cffb8f2f9d87",
+      "sha256": "c23fb313fafa9cdab4c9aa291bfdc2426f33a42d0e19e3e8d1cfd3f85258d7df"
+    },
+    {
+      "path": "TODO",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "bacb3e59fa622479e64472824938d0e18af794f3",
+      "sha256": "b5dd40f8d0a27032d896c34b56ca5fead5f79ac8e7125b2266eb55ce56a976e3"
+    },
+    {
+      "path": "debian/changelog",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "5a503fafcb02a2d707c77c6fd5467d81f6a1c9dc",
+      "sha256": "a3e94c84f99122c795b18f90921b3ecc839b845855f810a8153442b30c74acf1"
+    },
+    {
+      "path": "debian/changelog.vinux",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "3cade9464837735ff38b422f70bd6f71c0090e4a",
+      "sha256": "1ad795dfce7386b68f3838fa6767ca4373eec9ebeda112657bf8b6eaf7049f8f"
+    },
+    {
+      "path": "debian/compat",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "7f8f011eb73d6043d2e6db9d2c101195ae2801f2",
+      "sha256": "10159baf262b43a92d95db59dae1f72c645127301661e0a3ce4e38b295a97c58"
+    },
+    {
+      "path": "debian/control",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "f756ce7c60d066850d05ee5bc737540457127b8f",
+      "sha256": "39588fbd0c7d103801698090f5adc61168d0a3a1aad4cee7ec3b57cb72ff765c"
+    },
+    {
+      "path": "debian/copyright",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "34c45a3be94d72a3127618ba614d02cf4a1bdd36",
+      "sha256": "026566d332f98046db3d774f08b1f7f0a77c29ac838e4fc1508cd88a7ad8cd26"
+    },
+    {
+      "path": "debian/libsonic-dev.install",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "db77dac9035bf041349791e28569a61c9a38c569",
+      "sha256": "5074c9a13818d39e59e97ac37b330d5ce1bf90da47f0f583b4f1e92a79bc0ab1"
+    },
+    {
+      "path": "debian/libsonic0.install",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "f4b109d81539355f4922a1f7e118bbe186e2d0c6",
+      "sha256": "af1df7745480c27ce89f213551433892ce20dbc2d1bdf6a9de9ccb3a8b9f4d5e"
+    },
+    {
+      "path": "debian/libsonic0.symbols",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "9cc25f557687ce8981774beea72e29e838f7d8b8",
+      "sha256": "8f57796f13ad1b9f37fae9d6111947b90b4cb6bc7b0945a80bc29b5eff983f8b"
+    },
+    {
+      "path": "debian/rules",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "121a8eb918998b730425fd75379c2d56a40cdfd3",
+      "sha256": "81f4f6ec31511b7bf27218acdee108923bd2d01a94fa921b3cb182adeb754450"
+    },
+    {
+      "path": "debian/sonic.install",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "b2af45d10683224aaba2a813d5cbd637130d7cff",
+      "sha256": "d7d2e1dc56bec6808cd473bffee3184e60e79fdc92395d224b64c3a484a6be37"
+    },
+    {
+      "path": "debian/sonic.manpages",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "fa28de4f73d7f855ea859c940b11fc45f24be8a9",
+      "sha256": "9f058a4e803e1877066c35452e56f871752d05a247a64854391199342621aaf8"
+    },
+    {
+      "path": "debian/source/format",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "163aaf8d82b6c54f23c45f32895dbdfdcc27b047",
+      "sha256": "1be7080d72e6b566df3e236ce2c55efdfbbb8fa1c972d825e5b672ff8773be1a"
+    },
+    {
+      "path": "debian/watch",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "8de16b2fa62b43eb4890ee161db76b9817574625",
+      "sha256": "ad24a726df06b5a63446a2b0f7338f17e248f7e5f9f33126033dfa741c7d2d5c"
+    },
+    {
+      "path": "doc/index.md",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "855abe06d654287f4f819917572b92bb17d86485",
+      "sha256": "09b3b9e91a355a541f4a85a232bd07d6b45eecbf8c48911006f4ce08aeed399c"
+    },
+    {
+      "path": "doc/post",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "e8fed851131f6d6f12db8fd3c8f61177cfeabdff",
+      "sha256": "ff146ef940885ca7ea76133bb083495e35a6d40ca8e1f1a814a2c5bded034904"
+    },
+    {
+      "path": "doc/sonic.odt",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "5411f4d74d0857091c8a6e9c15f3d8f9430073f5",
+      "sha256": "16f8b84ef0a454c5ac591f2344841c884594595496158b78e3163ef54e6ae473"
+    },
+    {
+      "path": "genwave.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "f927586d8d2ef4b7c10fca0c554a74b880eca3fd",
+      "sha256": "ff92d02905b24c3f748776daf1c7c6cd28fd74ff9508d336cacab95716abaf2f"
+    },
+    {
+      "path": "main.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "cc6371df6099b03358a0040d245929ce5d7af3a0",
+      "sha256": "d9d98736a39748ed5858d563fe48491cc18e70858ad9c39cb2777904536d75ef"
+    },
+    {
+      "path": "main_experimental.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "022ebe1961b67b3fff50dc9ee1864e4ef4221df6",
+      "sha256": "3612485bdd9c6d8eff3deda84423b0220bd1a34971ee19f1e870e3957ff26fec"
+    },
+    {
+      "path": "main_lite.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "b8c972c2bd1edaa3c175737b8c7f884c43fdc1da",
+      "sha256": "7e655558143a7fcc658a76cbff49ea7dd1b52827181ffb913021ca35e37b29d1"
+    },
+    {
+      "path": "mkorig",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "6535635f1977c99b8d4fa51d2511afe36e774213",
+      "sha256": "2e5681bebab9679e000f874cb203ee216f4b9438f8c8c4a684f3e866f7f6c5ba"
+    },
+    {
+      "path": "samples/README",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "a9c630a1176582e4c35275e53e75887145a598ec",
+      "sha256": "66c1ad3c5debf94cac305274c09a88898a2fe0d142d1a34cffaba66eda0173ac"
+    },
+    {
+      "path": "samples/espeak_s450.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "4239477d13fb2191a4705689cb5086f340000b57",
+      "sha256": "7f4fc665f367241a19788fa347ddcd511b83a4703c20cabbba2f8400df7edf83"
+    },
+    {
+      "path": "samples/espeak_sonic.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "cffdb960e85d6eae6226aa66ca174d998d774243",
+      "sha256": "80df0f22e8db56d2a2fdbee76c1c8ae25e0cf49062c1fecd6e301e6752e5cac3"
+    },
+    {
+      "path": "samples/sonic.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "bc5510949e2e3a1fca51749bfeb15a70fc128d7f",
+      "sha256": "3cb6e963f618add3a00bee5014dad783b8535ada24e3bd6b29ecdc4b1952e597"
+    },
+    {
+      "path": "samples/soundstretch.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "e0226d56e0c6cd71247d8c940eea2f36e2ae0682",
+      "sha256": "fbd3152bc53ad2b487598ab61f5727c24fafd374afce684dcff5cc9399078dc0"
+    },
+    {
+      "path": "samples/stereo_test.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "6dfc809a6334a6a8d0f6b61700cea4ce024f230d",
+      "sha256": "20f759c1ab1d043f50fd197d29f573cae8ce48d871ae72563d50c6f248dd3212"
+    },
+    {
+      "path": "samples/talking.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "1df692e8c9b8169ae2cab733f09612b0c743cd28",
+      "sha256": "26c3ceacfb31a7300824a3841904f077856bdba41dafba0310c603cabb86d07f"
+    },
+    {
+      "path": "samples/talking_2x.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "e20f71f580517d2c02a65a027becb3c6da23063d",
+      "sha256": "3e8407922e38e24dafaf123bd24a729557d229bae053a75dfcfdd6cf6b3f2d23"
+    },
+    {
+      "path": "samples/test1.txt",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "4287ec763ce01e0f48fe6d8d83a096b943dab1b5",
+      "sha256": "e4b54fbc542e5fd4264e0f934cef7935e737e2621195318be291247e13c2631c"
+    },
+    {
+      "path": "samples/twosineperiods.wav",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "c71dffffaa397b303056ea7a2872751361805377",
+      "sha256": "da0f4e054fb1e3b661bb5696c3bd7ddc2e0c9e1c6bb90b9739b78912fb881f82"
+    },
+    {
+      "path": "sonic.1",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "c407873544a7df09a199372a55b667f4a616c994",
+      "sha256": "9cd8b01f0e1772f531d355a9befe37223048c18886035ab7b29f3355bb23dbf7"
+    },
+    {
+      "path": "sonic.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "f0390e55aa9683eb7b406dfaf77986460138d20f",
+      "sha256": "4a21d8086f844e3e68cb4f85961623a69d35da8ca93cf6ea704ccd125e64eaf5"
+    },
+    {
+      "path": "sonic.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "a8b5fb5f1f0ce22a14b49ad2654644f67609f7bc",
+      "sha256": "a2fc087b68c25141e2fb7ab56e71b111bee79cf311fcc850d492eb574c0eeffe"
+    },
+    {
+      "path": "sonic_experimental.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "c908c89a9d13cc83cfd4a33144bd68ede28b0815",
+      "sha256": "2a25e1026b52e35dbd40601f70daf3b2c914bda825657e85234393c6372df2b1"
+    },
+    {
+      "path": "sonic_experimental.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "bdb302c479a1f1b9b45106d9586d4ddb767e1736",
+      "sha256": "08d0c046dd47232efb30b5494c3466b3393bac384b2f7390658f885c2e1f1fb4"
+    },
+    {
+      "path": "sonic_lite.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "a3397b4435aad4a6919b29d6261986ff9aa503a6",
+      "sha256": "ee01319989dca8658ed6e14481f2075cc0367360c013f4e4652e2c548fcae1c2"
+    },
+    {
+      "path": "sonic_lite.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "09319c40ddd357a57625e8e4ebd658d3c8087b7c",
+      "sha256": "86386883a902f5297a5d0fa73e8fac512ac3a2fb406a4490ccdead8541cffd97"
+    },
+    {
+      "path": "spectrogram.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "e24a898e01a3b24226531139776b96f687b9a199",
+      "sha256": "7d1c13a7ca689eb57708e27af03bfeaf1dfb161bca2c766f30cb0599a6cec3eb"
+    },
+    {
+      "path": "tests/BUILD",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "1399556508ddf16d22023bce978e4a669f18607f",
+      "sha256": "db1b2fcd53eed2001b43009fc99f78c59a4d6b846089f7688136135405665e5e"
+    },
+    {
+      "path": "tests/Makefile",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "959719059058b1dc5842bbb79995c7e49b3876d3",
+      "sha256": "9ee02f42fb5af59fda7ca029994494a1f0dc1292cb856c23cdcbd4047690ebe9"
+    },
+    {
+      "path": "tests/fuzz_main.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "d1a6a7f641ddd26e77f45fca125a1028efdd0fb3",
+      "sha256": "064d63c3360a618420459c80dd7c3b84d7e4a62404185a0502cf9994f003ccc8"
+    },
+    {
+      "path": "tests/genwave.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "035b6e063df2a26b3291b045eff9643be5135cdf",
+      "sha256": "5da1ed28cb778458e44292ef92d4f6ad875422608429362b6473cbc4c77b6262"
+    },
+    {
+      "path": "tests/genwave.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "7109b180124b635bac81fd7b3906b23826cb17b5",
+      "sha256": "0f296a13a4eaac394972e5b372820488edf6defdbd917f45d7415d2a8b74025e"
+    },
+    {
+      "path": "tests/genwave_main.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "2fb5b847590892e54b3bdb6f9f0b1d813d54e118",
+      "sha256": "8dc5a3b7c84256202b65e07ef6843e26b678e8d16e064cc87a1af68bc58d91c9"
+    },
+    {
+      "path": "tests/input_clamping_test.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "f9fb1b7cbc51c10f37e4415a7d509bb249944dcd",
+      "sha256": "471ac8135bd0f419e902bacb0765a7d87f68302a0f631fe813772b8d5c11402d"
+    },
+    {
+      "path": "tests/runtests.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "3ab7ea61b5b914237b076a586b416156a1888d67",
+      "sha256": "79b73c5b4b38f6a9c0972727ff2e19a02148831f4a42dc38d2da2a09d40df9a1"
+    },
+    {
+      "path": "tests/sonic_api_test.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "8b6e183e911209c0c3dc334faac8610ecaa07514",
+      "sha256": "6ac50e4cdd65c6e905be2fa2db3f43881d9a4eab0f990913698e966d51620a47"
+    },
+    {
+      "path": "tests/sonic_unit_test.cc",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "70e9c7855410679e721b948d7439fb18fed6457e",
+      "sha256": "3cffe816c5b23d1cba2682260106e2ae159e49c863d976a3a09d70ab19c4582b"
+    },
+    {
+      "path": "tests/tests.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "2395352a63a884189e41c951d8e38a545c632c5f",
+      "sha256": "f1122e91ec32868117a71c90e3f0ff26f8c6cbb069af0620768d3548f9c7f76f"
+    },
+    {
+      "path": "wave.c",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "94827795ce8c5e737dc3e7ce2aea2cf03badf03e",
+      "sha256": "0c74adea6a9af197864c37e01dd6e954853d61ae1a2ca30550ba1bdeeedf15a1"
+    },
+    {
+      "path": "wave.h",
+      "repo": "waywardgeek/sonic",
+      "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+      "blob": "d2de54785857187478dff101ab89816daf8ddf42",
+      "sha256": "cc3170499c797bcf4dac73c1cb66cc38de33d25f254867874d812c8c8dc9392e"
+    },
+    {
+      "path": "speedy/CONTRIBUTING",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "bd60725918088cd99274d61ed2d4c79c3a362f5c",
+      "sha256": "1744ebb776cf2875de3d3bfacf55f246ae976f126beeabe5c0e33b3ae23fbf89"
+    },
+    {
+      "path": "speedy/LICENSE",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "speedy/Makefile",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "ccf28211e386418018d2f3bb09df396ace6fedf0",
+      "sha256": "a1f62cf777377cb937b25eb64563910c3cc8a2c6ba0a6ec6d0c77c27b9fe5551"
+    },
+    {
+      "path": "speedy/README.md",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "9379274c2f1dcb11e9b1943821888a7769dad454",
+      "sha256": "9daf36f763750d4d935a6dcab280a9bc6428e056d5e804f6dca378f06195143a"
+    },
+    {
+      "path": "speedy/SpeedyTestFeaturePlot.png",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "11c540ff35a68c31978d50de99de7e431099bbdf",
+      "sha256": "efb285e448340e1525e157df45a450fd5e27834ae5e75c50d69501c22e9c6340"
+    },
+    {
+      "path": "speedy/dynamic_time_warping.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "f8dbbe306336c64a378886ad839ef6b90de3cb4c",
+      "sha256": "70281dcc5f4f78eb95300e93a9966016643c9b191e383061d867fe1408e3e815"
+    },
+    {
+      "path": "speedy/dynamic_time_warping.h",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "a85340df35d96ebd6cdf798fbd60c662cddd2e4d",
+      "sha256": "b09134851fa16fb44d606de00051f505917115c38d7f307c6dd9a86460796f29"
+    },
+    {
+      "path": "speedy/dynamic_time_warping_test.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "c3bc798a3f625980547adf83a8e25b5c31e4b86f",
+      "sha256": "30c66e014ff0ffc1121c846c2d1eef532e815d3d2b22087fce00d7074f8b704a"
+    },
+    {
+      "path": "speedy/g3doc/SpeedyComprehension.png",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "73a9dfc14c02f77f456459e05b2d334088489ae6",
+      "sha256": "c605dd28fb160df7015d92f0fa3de7459dd8c7cb70b73645bad369d0d2537438"
+    },
+    {
+      "path": "speedy/g3doc/SpeedyFlowchart.png",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "61480983a880cfcdabd826d63c084781a4c6f3c5",
+      "sha256": "f8e874b30642e2a8abf739266777a1be934c688b1465e758a6b4a3b51537f53e"
+    },
+    {
+      "path": "speedy/g3doc/SpeedyInternalCalculations.png",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "792a3a73350ac4b14a0bde55f5ebc007d375b751",
+      "sha256": "529f728a4fd8a2d823212a34d16740c96fa3d3299222faf45fd0a1ba7128f7a4"
+    },
+    {
+      "path": "speedy/g3doc/SpeedySpeedControl.png",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "613b907fc585d26307e17e15a2f5ce821f0fd33e",
+      "sha256": "044d136de7c7c0fe486e2f4ab6b2afbf754ce60be3a068e3ff66f7017f893096"
+    },
+    {
+      "path": "speedy/kiss_fft_test.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "9aac59a5572ac27b6e3c72128c660ef55c1ad68a",
+      "sha256": "d32184e145728b507adf2ae41c25eec8fed5178da79fdc3214982cc7353695c3"
+    },
+    {
+      "path": "speedy/sonic2.h",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "4b8e3baa0e27ef0e81b03118410414d7e6961f89",
+      "sha256": "ed941d2665193f6e2902383106e21b5f2d7f3cfb57d20be4bad6a5f1dec6f2f1"
+    },
+    {
+      "path": "speedy/sonic_classic_test.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "2632d49a4f3b7a3240a7ef2c1d0e1101963f14e5",
+      "sha256": "2d7555015507782fab5e0bf328980b208b532a122cd6549f19aa13e15b8d89a0"
+    },
+    {
+      "path": "speedy/sonic_test.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "54a53a87bd6a9378ad0f4d1cf3568ceda206517f",
+      "sha256": "62079147396c4c3dc3ea33b1977485a086481fafca8109b3ec972d8bf1615761"
+    },
+    {
+      "path": "speedy/soniclib.c",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "66cd3a243cd6c08dc38b050cfb8a1f9df1ee1018",
+      "sha256": "a5cf46bb20bf2e222d58652b5fb769ef444a931ec25a77fc1470430c63fb607a"
+    },
+    {
+      "path": "speedy/speedy.c",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "59ac8b5b14e312c4de0f0526a3053b9a8d0a5426",
+      "sha256": "afc0e8f2e724319c337d350ac4cb361ab9be985b5119482cf2a992cfe20b423a"
+    },
+    {
+      "path": "speedy/speedy.h",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "19553ddebbddc3cc9a3d70b8e9c3be6fd46b0dcf",
+      "sha256": "08777f5e7ba4df479017eb29e67567f80cb527f478945df62d9bd969bd44ad2d"
+    },
+    {
+      "path": "speedy/speedy_test.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "fe03093a61a34ff5a34dc6cdc6df344791f50ca0",
+      "sha256": "8b967f1584c8e9daa695948507280d0a9cf0c4933aae87b7d0b66d8f1ce14780"
+    },
+    {
+      "path": "speedy/speedy_wave.cc",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "722611e90f9710aee8bd96b36e4a45c8332fff1b",
+      "sha256": "d6333253b74f4be282823cfceb40367a8bf5cda36387871d720567f1e648b767"
+    },
+    {
+      "path": "speedy/test_data/capture_1_00x.wav",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "32ec457613c74f527024639b79235d240ed37a30",
+      "sha256": "cec08d183cca2304d51ec3bb942f4727b1a4f00d197c85c5aed9da31c5b9d384"
+    },
+    {
+      "path": "speedy/test_data/tapestry.wav",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "2e41165ff87bfbf79f528ede7b9546d301e36904",
+      "sha256": "af38412dff36f4d629efe4d265bc506bf023882528752b71a8dbb0faf31e10c7"
+    },
+    {
+      "path": "speedy/test_data/tapestry22050.wav",
+      "repo": "google/speedy",
+      "commit": "3297f59e426af2af8cf4511693d3fc0c22eab060",
+      "blob": "d7a1f54d4ec8a97a72ca5b91a575ffad7d61de55",
+      "sha256": "5a95a02b92e438c789ee0bbc61797c5df7bbd4c556c9b0bbbbfa0cf5ecfca9ee"
+    },
+    {
+      "path": "checks/Baseline.java",
+      "origin": "author baseline witness only",
+      "sha256": "8b6638a4ede0315077d7d8edc0705885e4de83c427a5050c59a2100a6cf299ea"
+    },
+    {
+      "path": "checks/baseline.c",
+      "origin": "author baseline witness only",
+      "sha256": "73339ddf0545a9f2e9f1310717def717856b443052176e12b5da16060e4962df"
+    },
+    {
+      "path": "checks/baseline.sh",
+      "origin": "author baseline witness only",
+      "sha256": "abc7516261d2450990cce5e2a5402ffe2499404ccc9a683d39d390cd50b5770c"
+    }
+  ],
+  "modifications": "Only checks/ baseline witnesses added; all upstream tracked blobs exported unchanged"
+}
