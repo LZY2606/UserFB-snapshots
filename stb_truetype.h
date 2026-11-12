@@ -755,6 +755,62 @@ STBTT_DEF int stbtt_FindGlyphIndex(const stbtt_fontinfo *info, int unicode_codep
 
 //////////////////////////////////////////////////////////////////////////////
 //
+// GSUB 1.0 SUBSTITUTION SUBSET
+//
+// stbtt_ApplyGSUB() runs a small, self-contained GSUB 1.0 executor over a
+// glyph sequence that the caller has already mapped through the cmap in
+// logical order. It only performs glyph substitution; it does not do Unicode
+// segmentation, bidi reordering, GPOS positioning, or script-specific
+// reordering. The substituted sequence can then be fed to the existing
+// glyph metrics, bitmap and SDF functions.
+//
+// Supported subset:
+//    GSUB version 1.0 tables; GDEF 1.0 GlyphClassDef formats 1 and 2
+//    (a missing GDEF, missing class definition, or an unsupported GDEF
+//    version leaves every glyph in class 0).
+//    Lookup types 1 (SingleSubst, formats 1 and 2), 2 (MultipleSubst,
+//    format 1), 4 (LigatureSubst, format 1), 6 (ChainContextSubst,
+//    format 3) and 7 (ExtensionSubst, format 1) whose extension lookup is
+//    one of the preceding types. Coverage tables formats 1 and 2.
+//    Lookup flags RightToLeft (accepted, scan direction unchanged),
+//    IgnoreBaseGlyphs, IgnoreLigatures and IgnoreMarks, each independent.
+//
+// Explicit limitations:
+//    Other GSUB/GDEF versions, lookup types, subtable formats and flag
+//    bits (including UseMarkFilteringSet) are not supported. An unsupported
+//    construct in a *selected* lookup makes the call fail explicitly;
+//    unsupported constructs in lookups that were not selected are ignored
+//    and do not reject the font.
+//    MultipleSubst always produces at least one glyph; zero-length
+//    deletion sequences are rejected. Nested lookup depth is limited to
+//    32 levels.
+//    No HarfBuzz/FreeType/system fonts are involved, and no global state or
+//    owned allocations are kept in stbtt_fontinfo; scratch memory uses
+//    STBTT_malloc/STBTT_free with info->userdata and is released before
+//    the call returns.
+//
+// script/language/feature tags are four-byte values packed big-endian,
+// e.g. 'latn' == 0x6c61746e. language==0 selects the script's default
+// LangSys. The required feature of the selected LangSys is always enabled;
+// every other LangSys feature is enabled only when its tag also appears in
+// the caller's features[] array (duplicate tags execute once). The merged
+// lookup indices run in LookupList order, each over the whole current
+// sequence, never in the order of the features[] argument.
+//
+// On success returns 1 and rewrites glyphs[0..*glyph_count) (slots at or
+// beyond the new count are left untouched; *glyph_count is updated). On
+// failure returns 0 and the whole caller buffer, including *glyph_count,
+// is left exactly as passed in. A font without a GSUB table succeeds and
+// leaves the input unchanged.
+
+STBTT_DEF int stbtt_ApplyGSUB(const stbtt_fontinfo *info, int data_size,
+                              unsigned int script, unsigned int language,
+                              const unsigned int *features, int feature_count,
+                              unsigned short *glyphs, int *glyph_count, int capacity);
+
+
+//////////////////////////////////////////////////////////////////////////////
+//
 // CHARACTER PROPERTIES
 //
 
@@ -5170,6 +5226,878 @@ static int stbtt_FindMatchingFont_internal(unsigned char *font_collection, char 
          return off;
    }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+//
+// GSUB 1.0 substitution subset -- see the stbtt_ApplyGSUB() documentation
+// in the interface section for the supported/unsupported construct list.
+// Everything here is self contained, frees all scratch memory before the
+// call returns, and keeps no state in stbtt_fontinfo.
+//
+
+#define STBTT_GSUB_MAX_DEPTH 32
+#define STBTT_GSUB_TAG_DFLT  0x44464c54u
+
+typedef struct
+{
+   const stbtt_fontinfo *info;
+   stbtt_uint8  *data;              // whole sfnt buffer
+   int           data_size;
+   stbtt_uint8  *lookup_list;       // GSUB LookupList base
+   int           lookup_count;
+   stbtt_uint8  *gdef_classdef;     // NULL => every glyph is class 0
+   int           error;
+} stbtt__gsub_ctx;
+
+typedef struct
+{
+   stbtt_uint16 *glyphs;
+   int count, cap;
+} stbtt__gsub_seq;
+
+// Resolve base+off and require n readable bytes inside the whole buffer.
+// Every offset fed to the GSUB executor goes through here.
+static stbtt_uint8 *stbtt__gsub_ptr(stbtt__gsub_ctx *c, stbtt_uint8 *base, int off, int n)
+{
+   long long base_pos, end_pos;
+   if (c->error || base < c->data || base > c->data + c->data_size || off < 0 || n < 0) {
+      c->error = 1; return NULL;
+   }
+   base_pos = (long long)(base - c->data) + off;
+   end_pos = base_pos + n;
+   if (base_pos < 0 || base_pos > c->data_size || end_pos > c->data_size) {
+      c->error = 1; return NULL;
+   }
+   return base + off;
+}
+
+static int stbtt__gsub_rd16(stbtt__gsub_ctx *c, stbtt_uint8 *base, int off, stbtt_uint16 *out)
+{
+   stbtt_uint8 *p = stbtt__gsub_ptr(c, base, off, 2);
+   if (!p) return 0;
+   *out = ttUSHORT(p);
+   return 1;
+}
+
+static int stbtt__gsub_rd32(stbtt__gsub_ctx *c, stbtt_uint8 *base, int off, stbtt_uint32 *out)
+{
+   stbtt_uint8 *p = stbtt__gsub_ptr(c, base, off, 4);
+   if (!p) return 0;
+   *out = ttULONG(p);
+   return 1;
+}
+
+// Coverage tables, formats 1 and 2. Returns 1 when glyph is covered.
+static int stbtt__gsub_coverage_index(stbtt__gsub_ctx *c, stbtt_uint8 *coverage, int glyph);
+
+static int stbtt__gsub_covered(stbtt__gsub_ctx *c, stbtt_uint8 *coverage, int glyph)
+{
+   return stbtt__gsub_coverage_index(c, coverage, glyph) >= 0;
+}
+
+// Coverage tables, formats 1 and 2. Returns the coverage index, or -1 when
+// the glyph is not covered. An unsupported format sets the error flag.
+static int stbtt__gsub_coverage_index(stbtt__gsub_ctx *c, stbtt_uint8 *coverage, int glyph)
+{
+   stbtt_uint16 fmt, count;
+   stbtt_uint8 *p;
+   int i;
+   if (!stbtt__gsub_rd16(c, coverage, 0, &fmt)) return -1;
+   if (!stbtt__gsub_rd16(c, coverage, 2, &count)) return -1;
+   if (fmt == 1) {
+      p = stbtt__gsub_ptr(c, coverage, 4, 2 * (int)count);
+      if (!p) return -1;
+      for (i=0; i < (int)count; ++i)
+         if (ttUSHORT(p + 2*i) == (stbtt_uint16) glyph) return i;
+      return -1;
+   }
+   if (fmt == 2) {
+      int acc = 0;
+      p = stbtt__gsub_ptr(c, coverage, 4, 6 * (int)count);
+      if (!p) return -1;
+      for (i=0; i < (int)count; ++i) {
+         int start = ttUSHORT(p + 6*i);
+         int end   = ttUSHORT(p + 6*i + 2);
+         if (glyph >= start && glyph <= end)
+            return acc + (glyph - start);
+         acc += (end - start) + 1;
+      }
+      return -1;
+   }
+   c->error = 1; // unsupported coverage format in a selected lookup
+   return -1;
+}
+
+// GDEF 1.0 GlyphClassDef, formats 1 and 2. A missing definition is class 0.
+static int stbtt__gsub_glyph_class(stbtt__gsub_ctx *c, int glyph)
+{
+   stbtt_uint16 fmt, count;
+   stbtt_uint8 *p;
+   int i;
+   if (!c->gdef_classdef) return 0;
+   if (!stbtt__gsub_rd16(c, c->gdef_classdef, 0, &fmt)) return 0;
+   if (!stbtt__gsub_rd16(c, c->gdef_classdef, 2, &count)) return 0;
+   if (fmt == 1) {
+      // ClassDefFormat1: format, startGlyphID, glyphCount, classValueArray
+      stbtt_uint16 start, glyph_count;
+      if (!stbtt__gsub_rd16(c, c->gdef_classdef, 2, &start)) return 0;
+      if (!stbtt__gsub_rd16(c, c->gdef_classdef, 4, &glyph_count)) return 0;
+      p = stbtt__gsub_ptr(c, c->gdef_classdef, 6, 2 * (int)glyph_count);
+      if (!p) return 0;
+      if (glyph >= start && glyph < (int)start + (int)glyph_count)
+         return ttUSHORT(p + 2*(glyph - start));
+      return 0;
+   }
+   if (fmt == 2) {
+      p = stbtt__gsub_ptr(c, c->gdef_classdef, 4, 6 * (int)count);
+      if (!p) return 0;
+      for (i=0; i < (int)count; ++i) {
+         int start = ttUSHORT(p + 6*i);
+         int end   = ttUSHORT(p + 6*i + 2);
+         if (glyph >= start && glyph <= end)
+            return ttUSHORT(p + 6*i + 4);
+      }
+      return 0;
+   }
+   c->error = 1; // unsupported class definition format in a selected lookup
+   return 0;
+}
+
+static int stbtt__gsub_ignored(stbtt__gsub_ctx *c, stbtt_uint16 lookup_flags, int glyph)
+{
+   int cls;
+   // LookupFlag: 0x0002 IgnoreBaseGlyphs, 0x0004 IgnoreLigatures,
+   // 0x0008 IgnoreMarks. GDEF classes are 1 base, 2 ligature, 3 mark.
+   if (!(lookup_flags & 0x000e)) return 0;
+   cls = stbtt__gsub_glyph_class(c, glyph);
+   if (c->error) return 1;
+   if ((lookup_flags & 0x0002) && cls == 1) return 1;
+   if ((lookup_flags & 0x0004) && cls == 2) return 1;
+   if ((lookup_flags & 0x0008) && cls == 3) return 1;
+   return 0;
+}
+
+static int stbtt__gsub_check_glyph(stbtt__gsub_ctx *c, int glyph)
+{
+   if (glyph < 0 || glyph >= c->info->numGlyphs) { c->error = 1; return 0; }
+   return 1;
+}
+
+static int stbtt__gsub_ensure(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int need)
+{
+   stbtt_uint16 *nb;
+   int ncap, i;
+   if (need <= s->cap) return 1;
+   ncap = s->cap ? s->cap : 8;
+   while (ncap < need) {
+      if (ncap > 0x3fffffff) { c->error = 1; return 0; }
+      ncap *= 2;
+   }
+   nb = (stbtt_uint16 *) STBTT_malloc((size_t)ncap * sizeof(stbtt_uint16), c->info->userdata);
+   if (!nb) { c->error = 1; return 0; }
+   for (i=0; i < s->count; ++i) nb[i] = s->glyphs[i];
+   STBTT_free(s->glyphs, c->info->userdata); // the working buffer is always heap owned
+   s->glyphs = nb;
+   s->cap = ncap;
+   return 1;
+}
+
+// Splice replacement [at, at+remove_n) <- ins[0..ins_n).
+static void stbtt__gsub_splice(stbtt__gsub_seq *s, int at, int remove_n,
+                               const stbtt_uint16 *ins, int ins_n)
+{
+   int tail = s->count - at - remove_n;
+   int i;
+   if (ins_n != remove_n && tail > 0)
+      memmove(s->glyphs + at + ins_n, s->glyphs + at + remove_n,
+              (size_t)tail * sizeof(stbtt_uint16));
+   for (i=0; i < ins_n; ++i) s->glyphs[at+i] = ins[i];
+   s->count += ins_n - remove_n;
+}
+
+static int stbtt__gsub_get_lookup(stbtt__gsub_ctx *c, int index, stbtt_uint8 **out)
+{
+   stbtt_uint16 off;
+   if (index < 0 || index >= c->lookup_count) { c->error = 1; return 0; }
+   if (!stbtt__gsub_rd16(c, c->lookup_list, 2 + 2*index, &off)) return 0;
+   *out = stbtt__gsub_ptr(c, c->lookup_list, off, 6);
+   return *out != NULL;
+}
+
+// Validate a lookup header and hand back its type, flags and subtable array.
+static int stbtt__gsub_lookup_header(stbtt__gsub_ctx *c, stbtt_uint8 *lookup,
+                                     stbtt_uint16 *type, stbtt_uint16 *flags,
+                                     stbtt_uint16 *subcount, stbtt_uint8 **suboffsets)
+{
+   stbtt_uint16 t, f, n;
+   stbtt_uint8 *p;
+   if (!stbtt__gsub_rd16(c, lookup, 0, &t)) return 0;
+   if (!stbtt__gsub_rd16(c, lookup, 2, &f)) return 0;
+   if (!stbtt__gsub_rd16(c, lookup, 4, &n)) return 0;
+   // Supported flags are RightToLeft (0x0001, accepted but does not change
+   // scan direction), IgnoreBaseGlyphs (0x0002), IgnoreLigatures (0x0004)
+   // and IgnoreMarks (0x0008). Every other bit, notably
+   // UseMarkFilteringSet (0x0010) and the mark attachment/filtering index,
+   // is unsupported in this subset.
+   if (f & (stbtt_uint16)~0x000fu) { c->error = 1; return 0; }
+   p = stbtt__gsub_ptr(c, lookup, 6, 2 * (int)n);
+   if (!p) return 0;
+   *type = t; *flags = f; *subcount = n; *suboffsets = p;
+   return 1;
+}
+
+// Resolve one subtable, following ExtensionSubst format 1. The extension
+// offset is relative to the extension subtable itself, never to GSUB.
+// Returns the concrete table and the wrapped lookup type.
+static int stbtt__gsub_resolve_subtable(stbtt__gsub_ctx *c, stbtt_uint8 *lookup,
+                                        int sub_index, stbtt_uint8 **table, stbtt_uint16 *type)
+{
+   stbtt_uint16 sub_off, fmt, ext_type;
+   stbtt_uint32 ext_off;
+   stbtt_uint8 *ext, *p;
+   if (!stbtt__gsub_rd16(c, lookup, 6 + 2*sub_index, &sub_off)) return 0;
+   ext = stbtt__gsub_ptr(c, lookup, sub_off, 8);
+   if (!ext) return 0;
+   fmt = ttUSHORT(ext);
+   if (fmt != 1) { c->error = 1; return 0; }
+   ext_type = ttUSHORT(ext + 2);
+   // Extensions may only wrap concrete substitution types we implement,
+   // never another extension.
+   if (ext_type != 1 && ext_type != 2 && ext_type != 4 && ext_type != 6) {
+      c->error = 1; return 0;
+   }
+   ext_off = ttULONG(ext + 4);
+   p = stbtt__gsub_ptr(c, ext, (int)ext_off, 2);
+   if (!p) return 0;
+   *table = p;
+   *type = ext_type;
+   return 1;
+}
+
+static int stbtt__gsub_lookup_apply(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                    stbtt_uint8 *lookup, int depth, int limit,
+                                    int *matched, int *consumed);
+
+// SingleSubst, formats 1 and 2.
+static int stbtt__gsub_apply_single(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                    stbtt_uint8 *table, int *matched, int *consumed)
+{
+   stbtt_uint16 fmt, cov_off, out_glyph;
+   stbtt_uint8 *cov;
+   int ci;
+   if (!stbtt__gsub_rd16(c, table, 0, &fmt)) return 0;
+   if (!stbtt__gsub_rd16(c, table, 2, &cov_off)) return 0;
+   cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+   if (!cov) return 0;
+   ci = stbtt__gsub_coverage_index(c, cov, s->glyphs[pos]);
+   if (c->error) return 0;
+   if (ci < 0) { *matched = 0; return 1; }
+   if (fmt == 1) {
+      stbtt_int16 delta;
+      stbtt_uint8 *dp = stbtt__gsub_ptr(c, table, 4, 2);
+      if (!dp) return 0;
+      delta = ttSHORT(dp);
+      out_glyph = (stbtt_uint16)((int)s->glyphs[pos] + delta);
+   } else if (fmt == 2) {
+      stbtt_uint16 glyph_count;
+      stbtt_uint8 *arr;
+      if (!stbtt__gsub_rd16(c, table, 4, &glyph_count)) return 0;
+      if (ci >= (int)glyph_count) { c->error = 1; return 0; }
+      arr = stbtt__gsub_ptr(c, table, 6, 2 * (int)glyph_count);
+      if (!arr) return 0;
+      out_glyph = ttUSHORT(arr + 2*ci);
+   } else {
+      c->error = 1; return 0;
+   }
+   if (!stbtt__gsub_check_glyph(c, out_glyph)) return 0;
+   s->glyphs[pos] = out_glyph;
+   *matched = 1; *consumed = 1;
+   return 1;
+}
+
+// MultipleSubst, format 1. Always produces at least one glyph.
+static int stbtt__gsub_apply_multiple(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                      stbtt_uint8 *table, int *matched, int *consumed)
+{
+   stbtt_uint16 fmt, cov_off, seq_count, seq_off, glyph_count;
+   stbtt_uint8 *cov, *seq_off_arr, *seq, *arr;
+   stbtt_uint16 *tmp;
+   int ci, i;
+   if (!stbtt__gsub_rd16(c, table, 0, &fmt)) return 0;
+   if (fmt != 1) { c->error = 1; return 0; }
+   if (!stbtt__gsub_rd16(c, table, 2, &cov_off)) return 0;
+   if (!stbtt__gsub_rd16(c, table, 4, &seq_count)) return 0;
+   cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+   if (!cov) return 0;
+   seq_off_arr = stbtt__gsub_ptr(c, table, 6, 2 * (int)seq_count);
+   if (!seq_off_arr) return 0;
+   ci = stbtt__gsub_coverage_index(c, cov, s->glyphs[pos]);
+   if (c->error) return 0;
+   if (ci < 0) { *matched = 0; return 1; }
+   if (ci >= (int)seq_count) { c->error = 1; return 0; }
+   seq_off = ttUSHORT(seq_off_arr + 2*ci);
+   seq = stbtt__gsub_ptr(c, table, seq_off, 2);
+   if (!seq) return 0;
+   glyph_count = ttUSHORT(seq);
+   if (glyph_count < 1) { c->error = 1; return 0; } // no zero-length deletions
+   arr = stbtt__gsub_ptr(c, seq, 2, 2 * (int)glyph_count);
+   if (!arr) return 0;
+   // Heap storage: a Multiple sequence can be up to 65535 glyphs and this
+   // function may be reached through nested contexts, so no big stack array.
+   tmp = (stbtt_uint16 *) STBTT_malloc((size_t)glyph_count * sizeof(stbtt_uint16),
+                                       c->info->userdata);
+   if (!tmp) { c->error = 1; return 0; }
+   for (i=0; i < (int)glyph_count; ++i) {
+      stbtt_uint16 g = ttUSHORT(arr + 2*i);
+      if (!stbtt__gsub_check_glyph(c, g)) { STBTT_free(tmp, c->info->userdata); return 0; }
+      tmp[i] = g;
+   }
+   if (!stbtt__gsub_ensure(c, s, s->count - 1 + (int)glyph_count)) {
+      STBTT_free(tmp, c->info->userdata); return 0;
+   }
+   stbtt__gsub_splice(s, pos, 1, tmp, (int)glyph_count);
+   STBTT_free(tmp, c->info->userdata);
+   *matched = 1; *consumed = (int)glyph_count;
+   return 1;
+}
+
+// LigatureSubst, format 1. Candidates are tried in font order, first match
+// wins. Glyphs skipped by the lookup flags stay in the sequence and are
+// neither matched nor consumed. Matching never crosses 'limit'.
+static int stbtt__gsub_apply_ligature(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                      stbtt_uint8 *table, stbtt_uint16 lflags, int limit,
+                                      int *matched, int *consumed)
+{
+   stbtt_uint16 cov_off, set_count, set_off, lig_count, lig_glyph, comp_count;
+   stbtt_uint8 *cov, *set_off_arr, *lig_set, *lig_off_arr, *lig, *comp_arr;
+   int ci, li;
+   if (!stbtt__gsub_rd16(c, table, 2, &cov_off)) return 0;
+   if (!stbtt__gsub_rd16(c, table, 4, &set_count)) return 0;
+   cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+   if (!cov) return 0;
+   set_off_arr = stbtt__gsub_ptr(c, table, 6, 2 * (int)set_count);
+   if (!set_off_arr) return 0;
+   ci = stbtt__gsub_coverage_index(c, cov, s->glyphs[pos]);
+   if (c->error) return 0;
+   if (ci < 0 || ci >= (int)set_count) { *matched = 0; return 1; }
+   set_off = ttUSHORT(set_off_arr + 2*ci);
+   lig_set = stbtt__gsub_ptr(c, table, set_off, 2);
+   if (!lig_set) return 0;
+   lig_count = ttUSHORT(lig_set);
+   lig_off_arr = stbtt__gsub_ptr(c, lig_set, 2, 2 * (int)lig_count);
+   if (!lig_off_arr) return 0;
+   for (li=0; li < (int)lig_count; ++li) {
+      stbtt_uint16 lig_off = ttUSHORT(lig_off_arr + 2*li);
+      int cursor, k, ok = 1;
+      lig = stbtt__gsub_ptr(c, lig_set, lig_off, 4);
+      if (!lig) return 0;
+      lig_glyph = ttUSHORT(lig);       // Ligature: ligGlyph, compCount, ...
+      comp_count = ttUSHORT(lig + 2);
+      if (comp_count < 2) { c->error = 1; return 0; }
+      comp_arr = stbtt__gsub_ptr(c, lig, 4, 2 * ((int)comp_count - 1));
+      if (!comp_arr) return 0;
+      if (!stbtt__gsub_check_glyph(c, lig_glyph)) return 0;
+      cursor = pos + 1;
+      for (k=0; k < (int)comp_count - 1; ++k) {
+         stbtt_uint16 want = ttUSHORT(comp_arr + 2*k);
+         while (cursor < limit && stbtt__gsub_ignored(c, lflags, s->glyphs[cursor]))
+            ++cursor;
+         if (cursor >= limit || s->glyphs[cursor] != want) { ok = 0; break; }
+         ++cursor;
+      }
+      if (!ok) continue;
+      if (c->error) return 0;
+      // The join covers the live component positions only; glyphs skipped by
+      // the lookup flags stay in the sequence and must not be swallowed.
+      {
+         int *live = (int *) STBTT_malloc((size_t)comp_count * sizeof(int), c->info->userdata);
+         if (!live) { c->error = 1; return 0; }
+         live[0] = pos;
+         cursor = pos + 1;
+         for (k=0; k < (int)comp_count - 1; ++k) {
+            while (cursor < limit && stbtt__gsub_ignored(c, lflags, s->glyphs[cursor]))
+               ++cursor;
+            live[k+1] = cursor;
+            ++cursor;
+         }
+         s->glyphs[live[0]] = lig_glyph;
+         for (k=(int)comp_count - 1; k >= 1; --k) { // remove back-to-front
+            int at = live[k];
+            memmove(s->glyphs + at, s->glyphs + at + 1,
+                    (size_t)(s->count - at - 1) * sizeof(stbtt_uint16));
+            --s->count;
+         }
+         STBTT_free(live, c->info->userdata);
+      }
+      *matched = 1; *consumed = 1;
+      return 1;
+   }
+   *matched = 0;
+   return 1;
+}
+
+// Map a context sequenceIndex to a live position, counting only glyphs the
+// outer lookup does not ignore, inside the current input range.
+static int stbtt__gsub_sequence_target(stbtt__gsub_ctx *c, stbtt__gsub_seq *s,
+                                       int pos, stbtt_uint16 lflags, int sequence_index,
+                                       int limit)
+{
+   int cursor = pos, seen = 0;
+   while (cursor < limit) {
+      if (!stbtt__gsub_ignored(c, lflags, s->glyphs[cursor])) {
+         if (seen == sequence_index) return cursor;
+         ++seen;
+      }
+      ++cursor;
+   }
+   c->error = 1;
+   return -1;
+}
+
+// ChainContextSubst, format 3.
+static int stbtt__gsub_apply_chain(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                   stbtt_uint8 *table, stbtt_uint16 lflags, int depth,
+                                   int outer_limit, int *matched, int *consumed)
+{
+   stbtt_uint16 fmt, bc, ic, lc, rec_count;
+   stbtt_uint8 *p, *cov;
+   int off, k, cursor, input_end, prev_count;
+   typedef struct { stbtt_uint16 seq, lookup; } stbtt__gsub_rec;
+   stbtt__gsub_rec *recs;
+   if (!stbtt__gsub_rd16(c, table, 0, &fmt)) return 0;
+   if (fmt != 3) { c->error = 1; return 0; }
+   if (!stbtt__gsub_rd16(c, table, 2, &bc)) return 0;
+   p = stbtt__gsub_ptr(c, table, 4, 2 * (int)bc);
+   if (!p) return 0;
+   for (k=0; k < (int)bc; ++k) { // validate backtrack coverages
+      if (!stbtt__gsub_ptr(c, table, ttUSHORT(p + 2*k), 2)) return 0;
+   }
+   off = 4 + 2*(int)bc;
+   if (!stbtt__gsub_rd16(c, table, off, &ic)) return 0;
+   if (ic < 1) { c->error = 1; return 0; }
+   p = stbtt__gsub_ptr(c, table, off + 2, 2 * (int)ic);
+   if (!p) return 0;
+   for (k=0; k < (int)ic; ++k) { // validate input coverages
+      if (!stbtt__gsub_ptr(c, table, ttUSHORT(p + 2*k), 2)) return 0;
+   }
+   off += 2 + 2*(int)ic;
+   if (!stbtt__gsub_rd16(c, table, off, &lc)) return 0;
+   p = stbtt__gsub_ptr(c, table, off + 2, 2 * (int)lc);
+   if (!p) return 0;
+   for (k=0; k < (int)lc; ++k) { // validate lookahead coverages
+      if (!stbtt__gsub_ptr(c, table, ttUSHORT(p + 2*k), 2)) return 0;
+   }
+   off += 2 + 2*(int)lc;
+   if (!stbtt__gsub_rd16(c, table, off, &rec_count)) return 0;
+   p = stbtt__gsub_ptr(c, table, off + 2, 4 * (int)rec_count);
+   if (!p) return 0;
+
+   // ---- outer context match on the current sequence ----
+   // input coverage 0 must cover the glyph at pos.
+   {
+      stbtt_uint16 cov_off;
+      if (!stbtt__gsub_rd16(c, table, 4 + 2*(int)bc + 2, &cov_off)) return 0;
+      cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+      if (!cov) return 0;
+   }
+   if (!stbtt__gsub_covered(c, cov, s->glyphs[pos])) {
+      if (c->error) return 0;
+      *matched = 0; return 1;
+   }
+   cursor = pos + 1;
+   for (k=1; k < (int)ic; ++k) {
+      stbtt_uint16 cov_off;
+      while (cursor < outer_limit && stbtt__gsub_ignored(c, lflags, s->glyphs[cursor]))
+         ++cursor;
+      cov_off = ttUSHORT(stbtt__gsub_ptr(c, table, 4 + 2*(int)bc + 2 + 2*k, 2));
+      if (c->error) return 0;
+      cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+      if (!cov) return 0;
+      if (!stbtt__gsub_covered(c, cov, s->glyphs[cursor])) {
+         if (c->error) return 0;
+         *matched = 0; return 1;
+      }
+      ++cursor;
+   }
+   input_end = cursor;
+   // backtrack: table order starts nearest the input, walk backwards.
+   cursor = pos - 1;
+   for (k=0; k < (int)bc; ++k) {
+      stbtt_uint16 cov_off;
+      while (cursor >= 0 && stbtt__gsub_ignored(c, lflags, s->glyphs[cursor]))
+         --cursor;
+      cov_off = ttUSHORT(stbtt__gsub_ptr(c, table, 4 + 2*k, 2));
+      if (c->error) return 0;
+      cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+      if (!cov) return 0;
+      if (!stbtt__gsub_covered(c, cov, s->glyphs[cursor])) {
+         if (c->error) return 0;
+         *matched = 0; return 1;
+      }
+      --cursor;
+   }
+   // lookahead: from input_end forwards.
+   cursor = input_end;
+   for (k=0; k < (int)lc; ++k) {
+      stbtt_uint16 cov_off;
+      while (cursor < outer_limit && stbtt__gsub_ignored(c, lflags, s->glyphs[cursor]))
+         ++cursor;
+      cov_off = ttUSHORT(stbtt__gsub_ptr(c, table,
+                                          4 + 2*(int)bc + 2 + 2*(int)ic + 2 + 2*k, 2));
+      if (c->error) return 0;
+      cov = stbtt__gsub_ptr(c, table, cov_off, 2);
+      if (!cov) return 0;
+      if (!stbtt__gsub_covered(c, cov, s->glyphs[cursor])) {
+         if (c->error) return 0;
+         *matched = 0; return 1;
+      }
+      ++cursor;
+   }
+
+   // ---- records: validate, then execute strictly in table order ----
+   recs = (stbtt__gsub_rec *) STBTT_malloc((size_t)(rec_count ? rec_count : 1)
+                                           * sizeof(stbtt__gsub_rec), c->info->userdata);
+   if (!recs) { c->error = 1; return 0; }
+   for (k=0; k < (int)rec_count; ++k) {
+      stbtt_uint16 si = ttUSHORT(p + 4*k);
+      stbtt_uint16 li = ttUSHORT(p + 4*k + 2);
+      if (si >= ic || li >= (stbtt_uint16)c->lookup_count) {
+         c->error = 1; STBTT_free(recs, c->info->userdata); return 0;
+      }
+      recs[k].seq = si;
+      recs[k].lookup = li;
+   }
+
+   // ---- execute records strictly in table order ----
+   // Each record maps its sequenceIndex onto the live sequence again, so a
+   // previous expansion/contraction is observed through sequence_target and
+   // the moving input_end boundary rather than a cached absolute index.
+   for (k=0; k < (int)rec_count; ++k) {
+      stbtt_uint8 *nested;
+      int target, inner_matched = 0, inner_consumed = 0;
+      if (depth + 1 > STBTT_GSUB_MAX_DEPTH) { c->error = 1; break; }
+      prev_count = s->count;
+      target = stbtt__gsub_sequence_target(c, s, pos, lflags, recs[k].seq, input_end);
+      if (c->error) break;
+      if (!stbtt__gsub_get_lookup(c, recs[k].lookup, &nested)) break;
+      {
+         // The nested lookup applies its own flags, never the outer filter.
+         stbtt_uint16 nt, nf, nsc;
+         stbtt_uint8 *nso;
+         if (!stbtt__gsub_lookup_header(c, nested, &nt, &nf, &nsc, &nso)) break;
+         if (stbtt__gsub_ignored(c, nf, s->glyphs[target])) {
+            if (c->error) break;
+            continue; // filtered out by the nested lookup itself: no-op
+         }
+      }
+      // Each nested lookup tries one position only.
+      if (!stbtt__gsub_lookup_apply(c, s, target, nested, depth + 1, input_end,
+                                    &inner_matched, &inner_consumed))
+         break;
+      input_end += s->count - prev_count; // boundary moves with the edit
+   }
+   STBTT_free(recs, c->info->userdata);
+   if (c->error) return 0;
+   *matched = 1;
+   *consumed = input_end - pos;
+   return 1;
+}
+
+static int stbtt__gsub_lookup_apply(stbtt__gsub_ctx *c, stbtt__gsub_seq *s, int pos,
+                                    stbtt_uint8 *lookup, int depth, int limit,
+                                    int *matched, int *consumed)
+{
+   stbtt_uint16 type, flags, subcount;
+   stbtt_uint8 *suboffsets;
+   int i;
+   if (!stbtt__gsub_lookup_header(c, lookup, &type, &flags, &subcount, &suboffsets))
+      return 0;
+   for (i=0; i < (int)subcount; ++i) {
+      stbtt_uint8 *table;
+      stbtt_uint16 concrete = type;
+      if (type == 7) {
+         if (!stbtt__gsub_resolve_subtable(c, lookup, i, &table, &concrete)) return 0;
+      } else {
+         stbtt_uint16 sub_off = ttUSHORT(suboffsets + 2*i);
+         table = stbtt__gsub_ptr(c, lookup, sub_off, 2);
+         if (!table) return 0;
+      }
+      *matched = 0;
+      if (concrete == 1) {
+         if (!stbtt__gsub_apply_single(c, s, pos, table, matched, consumed)) return 0;
+      } else if (concrete == 2) {
+         if (!stbtt__gsub_apply_multiple(c, s, pos, table, matched, consumed)) return 0;
+      } else if (concrete == 4) {
+         if (!stbtt__gsub_apply_ligature(c, s, pos, table, flags, limit, matched, consumed)) return 0;
+      } else if (concrete == 6) {
+         if (!stbtt__gsub_apply_chain(c, s, pos, table, flags, depth, limit, matched, consumed)) return 0;
+      } else {
+         c->error = 1; // unsupported lookup type in a selected lookup
+         return 0;
+      }
+      if (*matched) return 1; // first matching subtable wins at this position
+   }
+   *matched = 0;
+   return 1;
+}
+
+// One selected lookup sweeps the whole current sequence once. Selected
+// lookup indices are already in LookupList order by the time this is called.
+static int stbtt__gsub_run_lookup(stbtt__gsub_ctx *c, stbtt__gsub_seq *s,
+                                  int lookup_index, int depth)
+{
+   stbtt_uint8 *lookup, *suboffsets;
+   stbtt_uint16 type, flags, subcount;
+   int pos;
+   if (!stbtt__gsub_get_lookup(c, lookup_index, &lookup)) return 0;
+   if (!stbtt__gsub_lookup_header(c, lookup, &type, &flags, &subcount, &suboffsets))
+      return 0;
+   pos = 0;
+   while (pos < s->count) {
+      int matched = 0, consumed = 0;
+      if (stbtt__gsub_ignored(c, flags, s->glyphs[pos])) { ++pos; continue; }
+      if (depth > STBTT_GSUB_MAX_DEPTH) { c->error = 1; return 0; }
+      if (!stbtt__gsub_lookup_apply(c, s, pos, lookup, depth, s->count,
+                                    &matched, &consumed))
+         return 0;
+      if (matched)
+         pos += consumed; // resume after the rewritten input; produced
+      else                // glyphs are never revisited, lookahead not skipped
+         ++pos;
+   }
+   return 1;
+}
+
+// Find a table through the sfnt directory for info->fontstart, with full
+// bounds checking. A zero-length or absent table yields *out = NULL.
+static int stbtt__gsub_find_table(stbtt__gsub_ctx *c, const char tag[4],
+                                  stbtt_uint8 **out, int *out_len)
+{
+   stbtt_uint16 num_tables;
+   stbtt_uint8 *dir;
+   int i;
+   *out = NULL;
+   if (out_len) *out_len = 0;
+   if (!stbtt__gsub_rd16(c, c->data, c->info->fontstart + 4, &num_tables)) return 0;
+   dir = stbtt__gsub_ptr(c, c->data, c->info->fontstart + 12, 16 * (int)num_tables);
+   if (!dir) return 0;
+   for (i=0; i < (int)num_tables; ++i) {
+      stbtt_uint8 *rec = dir + 16*i;
+      stbtt_uint32 off, len;
+      if (!stbtt_tag(rec, tag)) continue;
+      off = ttULONG(rec + 8);
+      len = ttULONG(rec + 12);
+      if (len == 0) return 1; // empty table: treat as absent
+      if ((long long)off < c->info->fontstart ||
+          (long long)off + (long long)len > c->data_size) {
+         c->error = 1; return 0;
+      }
+      *out = c->data + off;
+      if (out_len) *out_len = (int)len;
+      return 1;
+   }
+   return 1;
+}
+
+STBTT_DEF int stbtt_ApplyGSUB(const stbtt_fontinfo *info, int data_size,
+                              unsigned int script, unsigned int language,
+                              const unsigned int *features, int feature_count,
+                              unsigned short *glyphs, int *glyph_count, int capacity)
+{
+   stbtt__gsub_ctx c;
+   stbtt__gsub_seq seq;
+   stbtt_uint8 *table = NULL, *gdef = NULL;
+   stbtt_uint16 sl_off, fl_off, ll_off;
+   stbtt_uint16 script_count, feature_count_tab, lookup_count16;
+   stbtt_uint16 default_lang_off, lang_count, req_index, lang_feature_count;
+   stbtt_uint16 script_off = 0, lang_off = 0;
+   stbtt_uint8 *script_list, *script_table, *lang_sys, *feature_list, *recs;
+   stbtt_uint16 *enabled_features = NULL, *lookup_runs = NULL;
+   int enabled_count = 0, lookup_run_count = 0;
+   int i, j, found, result = 0;
+
+   // ---- argument validation; the caller buffer is never touched ----
+   if (!info || !info->data || !glyph_count) return 0;
+   if (data_size <= 0 || feature_count < 0 || capacity < 0) return 0;
+   if (*glyph_count < 0 || *glyph_count > capacity) return 0;
+   if (feature_count > 0 && !features) return 0;
+   if (*glyph_count > 0 && !glyphs) return 0;
+   if (info->fontstart < 0 || info->fontstart + 12 > data_size) return 0;
+
+   if (*glyph_count == 0) return 1; // empty input: nothing to substitute
+
+   STBTT_memset(&c, 0, sizeof(c));
+   STBTT_memset(&seq, 0, sizeof(seq));
+   c.info = info;
+   c.data = info->data;
+   c.data_size = data_size;
+
+   // The working sequence is always a private heap copy so that a failure
+   // discovered after some substitutions never leaks a partial result into
+   // the caller's buffer; it is published only after the whole plan succeeds.
+   {
+      stbtt_uint16 *work = (stbtt_uint16 *) STBTT_malloc((size_t)(*glyph_count)
+                                                         * sizeof(stbtt_uint16), info->userdata);
+      if (!work) { c.error = 1; goto done; }
+      for (i=0; i < *glyph_count; ++i) work[i] = glyphs[i];
+      seq.glyphs = work;
+      seq.count = *glyph_count;
+      seq.cap = *glyph_count;
+   }
+
+   // ---- locate GSUB through the sfnt directory ----
+   if (!stbtt__gsub_find_table(&c, "GSUB", &table, NULL)) goto done;
+   if (!table) { result = 1; goto done; } // no GSUB: success, input preserved
+   {
+      stbtt_uint32 version;
+      if (!stbtt__gsub_rd32(&c, table, 0, &version)) goto done;
+      if (version != 0x00010000u) { result = 1; goto done; } // other versions unsupported
+   }
+
+   // ---- optional GDEF 1.0 GlyphClassDef; missing => everything class 0 ----
+   if (!stbtt__gsub_find_table(&c, "GDEF", &gdef, NULL)) goto done;
+   if (gdef) {
+      stbtt_uint32 gversion;
+      stbtt_uint16 cd_off;
+      if (stbtt__gsub_rd32(&c, gdef, 0, &gversion) && gversion == 0x00010000u &&
+          stbtt__gsub_rd16(&c, gdef, 4, &cd_off) && cd_off != 0) {
+         c.gdef_classdef = stbtt__gsub_ptr(&c, gdef, cd_off, 2);
+         if (c.error) goto done;
+      } else if (c.error) {
+         goto done;
+      }
+   }
+
+   // ---- GSUB header: ScriptList / FeatureList / LookupList ----
+   if (!stbtt__gsub_rd16(&c, table, 4, &sl_off) ||
+       !stbtt__gsub_rd16(&c, table, 6, &fl_off) ||
+       !stbtt__gsub_rd16(&c, table, 8, &ll_off)) goto done;
+   script_list  = stbtt__gsub_ptr(&c, table, sl_off, 2);
+   feature_list = stbtt__gsub_ptr(&c, table, fl_off, 2);
+   c.lookup_list = stbtt__gsub_ptr(&c, table, ll_off, 2);
+   if (!script_list || !feature_list || !c.lookup_list) goto done;
+   if (!stbtt__gsub_rd16(&c, c.lookup_list, 0, &lookup_count16)) goto done;
+   c.lookup_count = lookup_count16;
+
+   // ---- pick Script: requested tag, then DFLT ----
+   if (!stbtt__gsub_rd16(&c, script_list, 0, &script_count)) goto done;
+   recs = stbtt__gsub_ptr(&c, script_list, 2, 6 * (int)script_count);
+   if (!recs) goto done;
+   found = 0;
+   for (i=0; i < (int)script_count; ++i) {
+      if (ttULONG(recs + 6*i) == script) {
+         script_off = ttUSHORT(recs + 6*i + 4); found = 1; break;
+      }
+   }
+   if (!found) {
+      for (i=0; i < (int)script_count; ++i) {
+         if (ttULONG(recs + 6*i) == STBTT_GSUB_TAG_DFLT) {
+            script_off = ttUSHORT(recs + 6*i + 4); found = 1; break;
+         }
+      }
+   }
+   if (!found) { result = 1; goto done; } // no applicable script: keep input
+   script_table = stbtt__gsub_ptr(&c, script_list, script_off, 4);
+   if (!script_table) goto done;
+
+   // ---- pick LangSys: requested tag, then the script default ----
+   if (!stbtt__gsub_rd16(&c, script_table, 0, &default_lang_off)) goto done;
+   if (!stbtt__gsub_rd16(&c, script_table, 2, &lang_count)) goto done;
+   recs = stbtt__gsub_ptr(&c, script_table, 4, 6 * (int)lang_count);
+   if (!recs) goto done;
+   lang_off = 0;
+   if (language != 0) {
+      for (i=0; i < (int)lang_count; ++i) {
+         if (ttULONG(recs + 6*i) == language) {
+            lang_off = ttUSHORT(recs + 6*i + 4); break;
+         }
+      }
+   }
+   if (lang_off == 0) lang_off = default_lang_off;
+   if (lang_off == 0) { result = 1; goto done; } // no usable language: keep input
+   lang_sys = stbtt__gsub_ptr(&c, script_table, lang_off, 6);
+   if (!lang_sys) goto done;
+   req_index = ttUSHORT(lang_sys + 2);
+   lang_feature_count = ttUSHORT(lang_sys + 4);
+   {
+      stbtt_uint8 *idx_arr = stbtt__gsub_ptr(&c, lang_sys, 6, 2 * (int)lang_feature_count);
+      if (!idx_arr) goto done;
+   }
+
+   // ---- enumerate features; decide which LangSys features are enabled ----
+   if (!stbtt__gsub_rd16(&c, feature_list, 0, &feature_count_tab)) goto done;
+   recs = stbtt__gsub_ptr(&c, feature_list, 2, 6 * (int)feature_count_tab);
+   if (!recs) goto done;
+   enabled_features = (stbtt_uint16 *) STBTT_malloc((size_t)(feature_count_tab ? feature_count_tab : 1)
+                                                    * sizeof(stbtt_uint16), info->userdata);
+   if (!enabled_features) { c.error = 1; goto done; }
+   if (req_index != 0xffff) { // required feature always enabled
+      if (req_index >= feature_count_tab) { c.error = 1; goto done; }
+      enabled_features[enabled_count++] = req_index;
+   }
+   for (i=0; i < (int)lang_feature_count; ++i) {
+      stbtt_uint16 fi = ttUSHORT(lang_sys + 6 + 2*i);
+      stbtt_uint32 ftag;
+      int k, dup;
+      if (fi >= feature_count_tab) { c.error = 1; goto done; }
+      ftag = ttULONG(recs + 6*fi);
+      for (j=0; j < feature_count; ++j)
+         if (features[j] == ftag) break;
+      if (j == feature_count) continue; // LangSys feature not requested by caller
+      dup = 0;
+      for (k=0; k < enabled_count; ++k)
+         if (enabled_features[k] == fi) { dup = 1; break; }
+      if (!dup) enabled_features[enabled_count++] = fi;
+   }
+
+   // ---- merge lookup indices of enabled features, dedup, LookupList order ----
+   lookup_runs = (stbtt_uint16 *) STBTT_malloc((size_t)(c.lookup_count ? c.lookup_count : 1)
+                                               * sizeof(stbtt_uint16), info->userdata);
+   if (!lookup_runs) { c.error = 1; goto done; }
+   for (i=0; i < enabled_count; ++i) {
+      stbtt_uint16 fi = enabled_features[i];
+      stbtt_uint16 f_off = ttUSHORT(recs + 6*fi + 4);
+      stbtt_uint8 *ftab, *li_arr;
+      stbtt_uint16 li_count;
+      ftab = stbtt__gsub_ptr(&c, feature_list, f_off, 4);
+      if (!ftab) goto done;
+      li_count = ttUSHORT(ftab + 2);
+      li_arr = stbtt__gsub_ptr(&c, ftab, 4, 2 * (int)li_count);
+      if (!li_arr) goto done;
+      for (j=0; j < (int)li_count; ++j) {
+         stbtt_uint16 li = ttUSHORT(li_arr + 2*j);
+         int k, dup = 0;
+         if (li >= (stbtt_uint16)c.lookup_count) { c.error = 1; goto done; }
+         for (k=0; k < lookup_run_count; ++k)
+            if (lookup_runs[k] == li) { dup = 1; break; }
+         if (!dup) lookup_runs[lookup_run_count++] = li;
+      }
+   }
+   for (i=1; i < lookup_run_count; ++i) { // ascending index order
+      stbtt_uint16 key = lookup_runs[i];
+      for (j=i; j > 0 && lookup_runs[j-1] > key; --j) lookup_runs[j] = lookup_runs[j-1];
+      lookup_runs[j] = key;
+   }
+
+   // ---- run the plan on the private working sequence ----
+   for (i=0; i < lookup_run_count; ++i) {
+      if (!stbtt__gsub_run_lookup(&c, &seq, lookup_runs[i], 0)) goto done;
+   }
+   if (c.error) goto done;
+   if (seq.count > capacity) { c.error = 1; goto done; } // cannot publish
+   // Publish: only the prefix is rewritten; slots at/after the new count
+   // are left exactly as the caller passed them in.
+   for (i=0; i < seq.count; ++i) glyphs[i] = seq.glyphs[i];
+   *glyph_count = seq.count;
+   result = 1;
+
+done:
+   if (seq.glyphs && seq.glyphs != glyphs) STBTT_free(seq.glyphs, info->userdata);
+   if (enabled_features) STBTT_free(enabled_features, info->userdata);
+   if (lookup_runs) STBTT_free(lookup_runs, info->userdata);
+   return result;
+}
+
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push

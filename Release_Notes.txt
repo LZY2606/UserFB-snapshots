@@ -1,3 +1,12 @@
+2026-11-13
+
+==== stb_truetype.h
+
+- new stbtt_ApplyGSUB(): self-contained GSUB 1.0 substitution subset
+  (Single 1/2, Multiple 1, Ligature 1, ChainContext 3, Extension 1) with
+  GDEF 1.0 GlyphClassDef filtering; see the header documentation for the
+  supported/unsupported construct list and limitations
+
 2026-11-09
 
 ==== stb_image_resize2.h
