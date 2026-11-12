@@ -509,31 +509,36 @@ func (fm fieldMap) hexDecode(key string) error {
 	return nil
 }
 
+// execveArgs enriches the execve arguments carried by a single EXECVE
+// record. The kernel may split a long execve event across multiple EXECVE
+// records, so a single record is not required to contain argc or the
+// complete a0..aN-1 argument set. This enriches the arguments the record
+// actually carries; completeness of the argv is validated at the event
+// level (see aucoalesce).
 func (fm fieldMap) execveArgs() error {
-	argc, err := fm.find("argc")
-	if err != nil {
-		return err
-	}
-
-	count, err := strconv.ParseUint(argc.value, 10, 32)
-	if err != nil {
-		return fmt.Errorf("failed to convert argc='%v' to number: %w", argc, err)
-	}
-
-	for i := 0; i < int(count); i++ {
-		key := "a" + strconv.Itoa(i)
-
-		arg, err := fm.find(key)
-		if err != nil {
-			return fmt.Errorf("failed to find arg %v", key)
+	for key, f := range fm {
+		if !isExecveArgKey(key) {
+			continue
 		}
-
-		if ascii, err := hexToString(arg.orig); err == nil {
+		if ascii, err := hexToString(f.orig); err == nil {
 			fm.setFieldValue(key, ascii)
 		}
 	}
-
 	return nil
+}
+
+// isExecveArgKey returns true if key names an execve argument value
+// (a0, a1, ...). Fragment (aN[K]) and length (aN_len) keys are excluded.
+func isExecveArgKey(key string) bool {
+	if len(key) < 2 || key[0] != 'a' {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseSELinuxContext parses a SELinux security context of the form

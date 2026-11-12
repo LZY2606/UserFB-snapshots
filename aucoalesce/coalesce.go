@@ -22,6 +22,7 @@ package aucoalesce
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -166,18 +167,25 @@ type Object struct {
 	Secondary string `json:"secondary,omitempty" yaml:"secondary,omitempty"`
 }
 
-// CoalesceMessages combines the given messages into a single event. It assumes
-// that all the messages in the slice have the same timestamp and sequence
-// number. An error is returned is msgs is empty or nil or only contains and EOE
+// CoalesceMessages combines the given messages into a single event. All the
+// messages in the slice must belong to the same audit event (identical
+// timestamp and sequence number); an error is returned if they do not, so
+// that records from different events are never merged into one argv. An
+// error is also returned if msgs is empty or nil or only contains an EOE
 // (end-of-event) message.
 func CoalesceMessages(msgs []*auparse.AuditMessage) (*Event, error) {
 	msgs = filterEOE(msgs)
 
+	if len(msgs) == 0 {
+		return nil, errors.New("messages is empty")
+	}
+	if err := validateEventMembership(msgs); err != nil {
+		return nil, err
+	}
+
 	var event *Event
 	var err error
 	switch len(msgs) {
-	case 0:
-		return nil, errors.New("messages is empty")
 	case 1:
 		event, err = normalizeSimple(msgs[0])
 	default:
@@ -190,6 +198,26 @@ func CoalesceMessages(msgs []*auparse.AuditMessage) (*Event, error) {
 	}
 
 	return event, err
+}
+
+// validateEventMembership ensures that all messages belong to the same
+// audit event by verifying that they share the same sequence number and
+// timestamp.
+func validateEventMembership(msgs []*auparse.AuditMessage) error {
+	first := msgs[0]
+	for i, msg := range msgs[1:] {
+		if msg.Sequence != first.Sequence {
+			return fmt.Errorf("messages do not belong to the same event: "+
+				"sequence number of message %d (%d) does not match %d",
+				i+1, msg.Sequence, first.Sequence)
+		}
+		if !msg.Timestamp.Equal(first.Timestamp) {
+			return fmt.Errorf("messages do not belong to the same event: "+
+				"timestamp of message %d (%v) does not match %v",
+				i+1, msg.Timestamp, first.Timestamp)
+		}
+	}
+	return nil
 }
 
 // filterEOE returns a slice (backed by the given msgs slice) that does not
@@ -225,6 +253,7 @@ func normalizeCompound(msgs []*auparse.AuditMessage) (*Event, error) {
 
 	event := newEvent(special, syscall)
 
+	var execves []*auparse.AuditMessage
 	for _, msg := range msgs {
 		switch msg.RecordType {
 		case auparse.AUDIT_SYSCALL:
@@ -234,10 +263,16 @@ func normalizeCompound(msgs []*auparse.AuditMessage) (*Event, error) {
 		case auparse.AUDIT_SOCKADDR:
 			addSockaddrRecord(msg, event)
 		case auparse.AUDIT_EXECVE:
-			addExecveRecord(msg, event)
+			// The argv is reassembled from all EXECVE records of the
+			// event after the loop.
+			execves = append(execves, msg)
 		default:
 			addFieldsToEventData(msg, event)
 		}
+	}
+
+	if len(execves) > 0 {
+		addExecveRecords(execves, event)
 	}
 
 	return event, nil
@@ -264,6 +299,11 @@ func newEvent(msg, syscall *auparse.AuditMessage) *Event {
 		event.Warnings = append(event.Warnings, err)
 		return event
 	}
+
+	// Work on a copy so that consuming fields does not mutate the cached
+	// parse result and repeated calls with the same messages observe the
+	// same data.
+	data = maps.Clone(data)
 
 	if result, found := data["result"]; found {
 		event.Result = result
@@ -391,47 +431,6 @@ func addProcess(event *Event) {
 	delete(event.Data, "exe")
 	event.Process.CWD = event.Data["cwd"]
 	delete(event.Data, "cwd")
-}
-
-func addExecveRecord(execve *auparse.AuditMessage, event *Event) {
-	data, err := execve.Data()
-	if err != nil {
-		event.Warnings = append(event.Warnings, fmt.Errorf(
-			"failed to parse EXECVE message: %w", err))
-		return
-	}
-
-	argc, found := data["argc"]
-	if !found {
-		event.Warnings = append(event.Warnings,
-			errors.New("argc key not found in EXECVE message"))
-		return
-	}
-	event.Data["argc"] = argc
-
-	count, err := strconv.ParseUint(argc, 10, 32)
-	if err != nil {
-		event.Warnings = append(event.Warnings, fmt.Errorf(
-			"failed to convert argc='%v' to number: %w", argc, err))
-		return
-	}
-
-	var args []string
-	for i := 0; i < int(count); i++ {
-		key := "a" + strconv.Itoa(i)
-
-		arg, found := data[key]
-		if !found {
-			event.Warnings = append(event.Warnings, fmt.Errorf(
-				"failed to find arg %v", key))
-			return
-		}
-
-		delete(data, key)
-		args = append(args, arg)
-	}
-
-	event.Process.Args = args
 }
 
 func addFieldsToEventData(msg *auparse.AuditMessage, event *Event) {
