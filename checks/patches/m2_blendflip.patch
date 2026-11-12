@@ -1,0 +1,20 @@
+--- a/ufbx.c
++++ b/ufbx.c
+@@ -31974,7 +31974,7 @@
+ 		}
+ 
+ 		if (skin_vertex.dq_weight < 1.0f) {
+-			ufbxi_add_weighted_mat(&mat, &cluster->geometry_to_world, (1.0f-skin_vertex.dq_weight) * weight.weight);
++			ufbxi_add_weighted_mat(&mat, &cluster->geometry_to_world, skin_vertex.dq_weight * weight.weight); // MUTANT: DQ/LBS blend flipped
+ 		}
+ 	}
+ 
+@@ -32016,7 +32016,7 @@
+ 		dqt.translation.z = rcp_len2x2 * (- qe.w*q0.z - qe.x*q0.y + qe.y*q0.x + qe.z*q0.w);
+ 		ufbx_matrix dqm = ufbx_transform_to_matrix(&dqt);
+ 		if (skin_vertex.dq_weight < 1.0f) {
+-			ufbxi_add_weighted_mat(&mat, &dqm, skin_vertex.dq_weight);
++			ufbxi_add_weighted_mat(&mat, &dqm, 1.0f - skin_vertex.dq_weight); // MUTANT: DQ/LBS blend flipped
+ 		} else {
+ 			mat = dqm;
+ 		}

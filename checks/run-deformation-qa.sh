@@ -2,7 +2,7 @@
 set -eu
 test -s checks/deformation_reference.cpp
 test -s checks/check-deformation-mutants.sh
-b=$(mktemp -d)
+b=$(mktemp -d "${TMPDIR:-/tmp}/ufbx_deform_qa.XXXXXX")
 trap 'rm -rf "$b"' EXIT
 cc -std=c99 -O2 -I. -c ufbx.c -o "$b/ufbx.o"
 c++ -std=c++11 -O2 -I. checks/deformation_reference.cpp "$b/ufbx.o" -lm -o "$b/test"
@@ -12,4 +12,4 @@ for mark in UFBX_DQ_REFERENCE_OK UFBX_BLEND_SKIN_ORDER_OK UFBX_DEFORMED_NORMALS_
  grep -Fx "$mark" "$b/out" >/dev/null
 done
 test -s "$b/deformation.obj"
-sh checks/check-deformation-mutants.sh
+sh checks/check-deformation-mutants.sh "$b"

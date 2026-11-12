@@ -1,0 +1,24 @@
+--- a/ufbx.c
++++ b/ufbx.c
+@@ -25119,9 +25119,7 @@
+ 		if (!cached_position) {
+ 			memcpy(result_pos, mesh->vertices.data, num_vertices * sizeof(ufbx_vec3));
+ 
+-			ufbxi_for_ptr_list(ufbx_blend_deformer, p_blend, mesh->blend_deformers) {
+-				ufbx_add_blend_vertex_offsets(*p_blend, result_pos, num_vertices, 1.0f);
+-			}
++			// MUTANT: blend offsets were moved below the skinning loop (wrong order)
+ 
+ 			// TODO: What should we do about multiple skins??
+ 			if (mesh->skin_deformers.count > 0) {
+@@ -25133,6 +25131,10 @@
+ 				}
+ 
+ 				mesh->skinned_is_local = false;
++			}
++
++			ufbxi_for_ptr_list(ufbx_blend_deformer, p_blend, mesh->blend_deformers) {
++				ufbx_add_blend_vertex_offsets(*p_blend, result_pos, num_vertices, 1.0f); // MUTANT: blend applied after skinning
+ 			}
+ 		}
+ 

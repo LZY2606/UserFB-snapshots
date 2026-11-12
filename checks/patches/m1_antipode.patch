@@ -1,0 +1,16 @@
+--- a/ufbx.c
++++ b/ufbx.c
+@@ -31959,12 +31959,7 @@
+ 			ufbx_quat vq0 = t.rotation;
+ 			if (i == 0) first_q0 = vq0;
+ 
+-			if (ufbx_quat_dot(first_q0, vq0) < 0.0f) {
+-				vq0.x = -vq0.x;
+-				vq0.y = -vq0.y;
+-				vq0.z = -vq0.z;
+-				vq0.w = -vq0.w;
+-			}
++			// MUTANT: antipodal quaternion sign correction removed
+ 
+ 			ufbx_quat vqt = { 0.5f * t.translation.x, 0.5f * t.translation.y, 0.5f * t.translation.z };
+ 			ufbx_quat vqe = ufbxi_mul_quat(vqt, vq0);

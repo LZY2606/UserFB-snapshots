@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-b=$(mktemp -d)
+b=$(mktemp -d "${TMPDIR:-/tmp}/ufbx_baseline.XXXXXX")
 trap 'rm -rf "$b"' EXIT
 cc -std=c99 -O2 -I. -c ufbx.c -o "$b/ufbx.o"
 cc -std=c99 -O2 -I. checks/baseline.c "$b/ufbx.o" -lm -o "$b/base"
