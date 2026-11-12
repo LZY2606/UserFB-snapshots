@@ -1,0 +1,15 @@
+==== HISTORY CONTRACT DIFFERENCE ====
+seed=1398 case=0 suite-tag=branch-test
+PLAN kind=branch-test wrapped=0 expect_match=1 winner=backref
+DECLS [id=1 name=p group=1 history=1] [id=2 name=f group=2 history=1]
+INSTANCES
+  inst=0 decl=p(1) range=(0,2) parent=-1 COMMITTED snap-before{p=(-1,-1) f=(-1,-1)}
+  inst=1 decl=p(1) range=(2,4) parent=-1 RETRACTED snap-before{p=(0,2) f=(-1,-1)}
+RETRACTED(1): 1
+HISTORY(2 nodes): [0 g=0 (0,4) par=-1 depth=0] [1 g=1 (0,2) par=0 depth=1]
+first difference: reg[1] beg actual=-1 model=0
+pattern: \A(?@<p>a(?:\g<p>)*b)(?:\g<p>X|\k<p>|(?@<f>ab))\z
+input(4): abab
+rerun: target --suite <suite> --case 0 --seed 1398
+======================================
+FAILED_OR_EMPTY suite=branch seed=1398 case=0 assertions=-1

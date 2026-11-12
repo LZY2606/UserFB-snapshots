@@ -1,0 +1,13 @@
+mutation evidence: /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB
+patch:             /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/logs/mutation.patch
+build logs:        /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/logs/normal.configure.log /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/logs/normal.build.log
+build logs:        /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/logs/variant.configure.log /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/logs/variant.build.log
+exit normal-witness             0  first-diff: 
+exit normal-contract-all        0  first-diff: 
+exit normal-match-control       0  first-diff: 
+exit normal-test-syntax         0  first-diff: 
+exit variant-witness            0  first-diff: 
+exit variant-model-suite        0  first-diff: 
+exit variant-match-control      0  first-diff: 
+exit variant-branch-rejected    1  first-diff: reg[1] beg actual=-1 model=0
+exit variant-repeat-rejected    1  first-diff: reg[1] beg actual=-1 model=0

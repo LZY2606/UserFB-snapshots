@@ -1,0 +1,38 @@
+--- /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/normal/src/regexec.c	2026-11-12 16:31:32
++++ /Users/lzy/pro/UserFB/workspace/Z1398/attempts/20261112T073130510280Z/repo/.history-mutation.98bkuB/variant/src/regexec.c	2026-11-12 19:46:03
+@@ -2308,7 +2308,7 @@
+       if ((stk->type & STK_MASK_POP_USED) != 0)  break;\
+       else if (stk->type == STK_MEM_START) {\
+         mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+-        mem_end_stk[stk->zid]   = stk->u.mem.prev_end;\
++        mem_end_stk[stk->zid].i = INVALID_STACK_INDEX; /*MUT*/\
+       }\
+     }\
+     break;\
+@@ -2320,7 +2320,7 @@
+       else if ((stk->type & STK_MASK_POP_HANDLED) != 0) {\
+         if (stk->type == STK_MEM_START) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+-          mem_end_stk[stk->zid]   = stk->u.mem.prev_end;\
++          mem_end_stk[stk->zid].i = INVALID_STACK_INDEX; /*MUT*/\
+         }\
+         else if (stk->type == STK_MEM_END) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+@@ -2347,7 +2347,7 @@
+       else {\
+         if (stk->type == STK_MEM_START) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+-          mem_end_stk[stk->zid]   = stk->u.mem.prev_end;\
++          mem_end_stk[stk->zid].i = INVALID_STACK_INDEX; /*MUT*/\
+         }\
+         else if (stk->type == STK_MEM_END) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+@@ -2372,7 +2372,7 @@
+       else {\
+         if (stk->type == STK_MEM_START) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\
+-          mem_end_stk[stk->zid]   = stk->u.mem.prev_end;\
++          mem_end_stk[stk->zid].i = INVALID_STACK_INDEX; /*MUT*/\
+         }\
+         else if (stk->type == STK_MEM_END) {\
+           mem_start_stk[stk->zid] = stk->u.mem.prev_start;\

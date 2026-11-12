@@ -1,0 +1,6 @@
+control direct-backref-leaf      str=abab     match=yes
+control direct-backref-nested    str=aabbaabb match=yes
+control real-fallback-branch     str=aabbab   match=yes
+control rejected-but-matched     str=abab     match=yes
+control real-fallback-repeat     str=abab     match=yes
+MATCH_CONTROL_OK

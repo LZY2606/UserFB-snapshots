@@ -1,0 +1,2 @@
+PASS model cases=32 assertions=9517
+ONIG_RESTORATION_CONTRACT_OK suites=1 assertions=9517

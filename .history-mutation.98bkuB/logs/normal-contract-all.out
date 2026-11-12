@@ -1,0 +1,5 @@
+PASS model cases=32 assertions=9517
+PASS branch cases=32 assertions=5158
+PASS repeat cases=32 assertions=6200
+PASS projection cases=32 assertions=11304
+ONIG_RESTORATION_CONTRACT_OK suites=4 assertions=32179
