@@ -6,6 +6,7 @@ type Scene struct {
 	Color        Color
 	Texture      Texture
 	TextureAngle float64
+	Environment  *EnvironmentMap
 	Shapes       []Shape
 	Lights       []Shape
 	tree         *Tree

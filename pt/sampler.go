@@ -33,11 +33,11 @@ type Sampler interface {
 }
 
 func NewSampler(firstHitSamples, maxBounces int) *DefaultSampler {
-	return &DefaultSampler{firstHitSamples, maxBounces, true, true, LightModeRandom, SpecularModeNaive}
+	return &DefaultSampler{firstHitSamples, maxBounces, true, true, LightModeRandom, SpecularModeNaive, false}
 }
 
 func NewDirectSampler() *DefaultSampler {
-	return &DefaultSampler{1, 0, true, false, LightModeAll, SpecularModeAll}
+	return &DefaultSampler{1, 0, true, false, LightModeAll, SpecularModeAll, false}
 }
 
 type DefaultSampler struct {
@@ -47,6 +47,7 @@ type DefaultSampler struct {
 	SoftShadows     bool
 	LightMode       LightMode
 	SpecularMode    SpecularMode
+	EnvironmentMIS  bool
 }
 
 func (s *DefaultSampler) Sample(scene *Scene, ray Ray, rnd *rand.Rand) Color {
@@ -61,6 +62,10 @@ func (s *DefaultSampler) sample(scene *Scene, ray Ray, emission bool, samples, d
 	if !hit.Ok() {
 		return s.sampleEnvironment(scene, ray)
 	}
+	return s.shade(scene, ray, hit, emission, samples, depth, rnd)
+}
+
+func (s *DefaultSampler) shade(scene *Scene, ray Ray, hit Hit, emission bool, samples, depth int, rnd *rand.Rand) Color {
 	info := hit.Info(ray)
 	material := info.Material
 	result := Black
@@ -96,11 +101,17 @@ func (s *DefaultSampler) sample(scene *Scene, ray Ray, emission bool, samples, d
 				}
 				if p > 0 && !reflected {
 					// diffuse
-					indirect := s.sample(scene, newRay, reflected, 1, depth+1, rnd)
+					var indirect, envDirect Color
+					if s.EnvironmentMIS && s.DirectLighting && scene.Environment != nil {
+						envDirect, indirect = s.sampleEnvironmentMIS(scene, info, newRay, depth, rnd)
+					} else {
+						indirect = s.sample(scene, newRay, reflected, 1, depth+1, rnd)
+					}
 					direct := Black
 					if s.DirectLighting {
 						direct = s.sampleLights(scene, info.Ray, rnd)
 					}
+					direct = direct.Add(envDirect)
 					result = result.Add(material.Color.Mul(direct.Add(indirect)).MulScalar(p))
 				}
 			}
@@ -110,6 +121,9 @@ func (s *DefaultSampler) sample(scene *Scene, ray Ray, emission bool, samples, d
 }
 
 func (s *DefaultSampler) sampleEnvironment(scene *Scene, ray Ray) Color {
+	if scene.Environment != nil {
+		return scene.Environment.Evaluate(ray.Direction, scene.TextureAngle)
+	}
 	if scene.Texture != nil {
 		d := ray.Direction
 		u := math.Atan2(d.Z, d.X) + scene.TextureAngle
@@ -119,6 +133,52 @@ func (s *DefaultSampler) sampleEnvironment(scene *Scene, ray Ray) Color {
 		return scene.Texture.Sample(u, v)
 	}
 	return scene.Color
+}
+
+// sampleEnvironmentMIS combines one environment-map direction sample with
+// the cosine-weighted bounce ray using the power heuristic (exponent 2).
+// The cosine strategy keeps its conditional density max(N.d,0)/pi. When
+// the bounce would exceed the depth limit only the environment strategy
+// remains and it gets weight 1.
+func (s *DefaultSampler) sampleEnvironmentMIS(scene *Scene, info HitInfo, bounceRay Ray, depth int, rnd *rand.Rand) (direct, indirect Color) {
+	env := scene.Environment
+	normal := info.Ray.Direction
+	paired := depth+1 <= s.MaxBounces
+	// cosine-weighted bounce strategy
+	if paired {
+		hit := scene.Intersect(bounceRay)
+		if !hit.Ok() {
+			// the bounce escaped to the environment: apply the
+			// complementary MIS weight for this direction
+			d := bounceRay.Direction
+			pCos := math.Max(d.Dot(normal), 0) / math.Pi
+			pEnv := env.PDF(d, scene.TextureAngle)
+			w := pCos * pCos / (pCos*pCos + pEnv*pEnv)
+			indirect = s.sampleEnvironment(scene, bounceRay).MulScalar(w)
+		} else {
+			// the bounce hit another object: its lighting is
+			// estimated recursively and must not be darkened by
+			// the environment MIS weights
+			indirect = s.shade(scene, bounceRay, hit, false, 1, depth+1, rnd)
+		}
+	}
+	// environment direction sampling strategy
+	d, radiance, pEnv := env.Sample(rnd, scene.TextureAngle)
+	cos := d.Dot(normal)
+	if cos > 0 && radiance.MaxComponent() > 0 {
+		shadowRay := Ray{info.Ray.Origin, d}
+		if shadowHit := scene.Intersect(shadowRay); !shadowHit.Ok() {
+			w := 1.0
+			if paired {
+				pCos := cos / math.Pi
+				w = pEnv * pEnv / (pEnv*pEnv + pCos*pCos)
+			}
+			// Lambert BRDF (albedo/pi) times cosine; the albedo is
+			// applied by the caller with the material color
+			direct = radiance.MulScalar(cos * w / (math.Pi * pEnv))
+		}
+	}
+	return direct, indirect
 }
 
 func (s *DefaultSampler) sampleLights(scene *Scene, n Ray, rnd *rand.Rand) Color {

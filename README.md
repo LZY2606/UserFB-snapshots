@@ -97,6 +97,46 @@ Here are some of the options that are utilized to achieve this improvement:
 
 Combining these features results in cleaner, faster renders. The specific parameters that should be used depend greatly on the scene being rendered.
 
+### Environment Map Importance Sampling
+
+Scenes lit by a small bright region of the sky (e.g. the sun in an HDRI) converge slowly when diffuse bounces have to randomly hit that region. An `EnvironmentMap` provides importance sampling of an equirectangular sky radiance map, and `DefaultSampler.EnvironmentMIS` combines environment direction sampling with the usual cosine-weighted bounces using multiple importance sampling (power heuristic).
+
+```go
+// pixels: linear RGB radiance, row-major, first row at the north pole;
+// each texel is treated as constant (no interpolation)
+env, err := pt.NewEnvironmentMap(width, height, pixels)
+if err != nil {
+    // non-positive/overflowing dimensions, wrong pixel count,
+    // or negative/non-finite components
+}
+
+scene := pt.Scene{}
+scene.Environment = env        // nil falls back to Scene.Texture / Scene.Color
+scene.TextureAngle = angle     // optional rotation about the +Y axis (radians)
+
+sampler := pt.NewSampler(4, 4)
+sampler.EnvironmentMIS = true  // off by default; requires DirectLighting=true
+```
+
+For a unit direction `d`, texel coordinates are
+
+```
+u = fract((atan2(d.Z, d.X) + angle + pi) / (2*pi))
+v = acos(clamp(d.Y, -1, 1)) / pi
+```
+
+so `+Y` is the north pole (`v = 0`, first pixel row). The map provides:
+
+- `Evaluate(direction, angle) Color` - radiance of the texel containing the direction
+- `PDF(direction, angle) float64` - solid-angle probability density of the direction
+- `Sample(rnd, angle) (direction, radiance, pdf)` - draw a direction proportional to texel luminance (`.2126R+.7152G+.0722B`) times true spherical area, uniform in solid angle within the texel
+
+All PDFs are per unit solid angle, and `PDF` always agrees with the value returned by `Sample`. An all-black map falls back to a uniform spherical distribution. A single map is immutable after construction and can be shared by concurrent scenes using different rotation angles.
+
+When `EnvironmentMIS` is enabled (and `DirectLighting` is true), every executed non-transparent diffuse branch additionally samples one environment direction with a real visibility test, and the two strategies (environment direction and cosine bounce) are combined with the power heuristic. Finite lights still use the existing direct-lighting path. With `EnvironmentMIS` off or no `Environment` set, rendering is bit-identical to before.
+
+See `examples/environment/main.go` for a complete example that renders to `.cache/environment.ppm`.
+
 ### Links
 
 Here are some resources that I have found useful.

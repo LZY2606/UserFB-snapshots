@@ -1,0 +1,139 @@
+{"Time":"2026-11-12T15:25:48.18981+09:00","Action":"start","Package":"github.com/fogleman/pt/pt"}
+{"Time":"2026-11-12T15:25:48.441816+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution"}
+{"Time":"2026-11-12T15:25:48.441893+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution","Output":"=== RUN   TestEnvironmentDistribution\n"}
+{"Time":"2026-11-12T15:25:48.441909+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RejectsBadInput"}
+{"Time":"2026-11-12T15:25:48.441917+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RejectsBadInput","Output":"=== RUN   TestEnvironmentDistribution/RejectsBadInput\n"}
+{"Time":"2026-11-12T15:25:48.441929+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RejectsBadInput","Output":"--- PASS: TestEnvironmentDistribution/RejectsBadInput (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.441937+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RejectsBadInput","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.441943+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/Normalization"}
+{"Time":"2026-11-12T15:25:48.441947+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/Normalization","Output":"=== RUN   TestEnvironmentDistribution/Normalization\n"}
+{"Time":"2026-11-12T15:25:48.443801+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/Normalization","Output":"--- PASS: TestEnvironmentDistribution/Normalization (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.443818+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/Normalization","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.443828+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/CellFrequencies"}
+{"Time":"2026-11-12T15:25:48.443833+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/CellFrequencies","Output":"=== RUN   TestEnvironmentDistribution/CellFrequencies\n"}
+{"Time":"2026-11-12T15:25:48.524117+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/CellFrequencies","Output":"--- PASS: TestEnvironmentDistribution/CellFrequencies (0.08s)\n"}
+{"Time":"2026-11-12T15:25:48.524142+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/CellFrequencies","Elapsed":0.08}
+{"Time":"2026-11-12T15:25:48.524152+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/WithinCellUniform"}
+{"Time":"2026-11-12T15:25:48.524161+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/WithinCellUniform","Output":"=== RUN   TestEnvironmentDistribution/WithinCellUniform\n"}
+{"Time":"2026-11-12T15:25:48.528404+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/WithinCellUniform","Output":"--- PASS: TestEnvironmentDistribution/WithinCellUniform (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.528416+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/WithinCellUniform","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.528421+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ForwardBackwardPDF"}
+{"Time":"2026-11-12T15:25:48.528425+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ForwardBackwardPDF","Output":"=== RUN   TestEnvironmentDistribution/ForwardBackwardPDF\n"}
+{"Time":"2026-11-12T15:25:48.538356+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ForwardBackwardPDF","Output":"--- PASS: TestEnvironmentDistribution/ForwardBackwardPDF (0.01s)\n"}
+{"Time":"2026-11-12T15:25:48.538367+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ForwardBackwardPDF","Elapsed":0.01}
+{"Time":"2026-11-12T15:25:48.538385+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RotationAndSeam"}
+{"Time":"2026-11-12T15:25:48.538388+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RotationAndSeam","Output":"=== RUN   TestEnvironmentDistribution/RotationAndSeam\n"}
+{"Time":"2026-11-12T15:25:48.538393+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RotationAndSeam","Output":"--- PASS: TestEnvironmentDistribution/RotationAndSeam (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.538395+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/RotationAndSeam","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.538398+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/AllBlack"}
+{"Time":"2026-11-12T15:25:48.5384+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/AllBlack","Output":"=== RUN   TestEnvironmentDistribution/AllBlack\n"}
+{"Time":"2026-11-12T15:25:48.538614+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/AllBlack","Output":"--- PASS: TestEnvironmentDistribution/AllBlack (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.538619+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/AllBlack","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.538621+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/SingleTexel"}
+{"Time":"2026-11-12T15:25:48.538624+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/SingleTexel","Output":"=== RUN   TestEnvironmentDistribution/SingleTexel\n"}
+{"Time":"2026-11-12T15:25:48.538707+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/SingleTexel","Output":"--- PASS: TestEnvironmentDistribution/SingleTexel (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.53871+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/SingleTexel","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.538713+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/PolarTexels"}
+{"Time":"2026-11-12T15:25:48.538715+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/PolarTexels","Output":"=== RUN   TestEnvironmentDistribution/PolarTexels\n"}
+{"Time":"2026-11-12T15:25:48.53914+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/PolarTexels","Output":"--- PASS: TestEnvironmentDistribution/PolarTexels (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.539144+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/PolarTexels","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.539147+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/InputSnapshot"}
+{"Time":"2026-11-12T15:25:48.539149+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/InputSnapshot","Output":"=== RUN   TestEnvironmentDistribution/InputSnapshot\n"}
+{"Time":"2026-11-12T15:25:48.539151+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/InputSnapshot","Output":"--- PASS: TestEnvironmentDistribution/InputSnapshot (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.539153+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/InputSnapshot","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.539166+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ExtremeDynamicRange"}
+{"Time":"2026-11-12T15:25:48.539168+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ExtremeDynamicRange","Output":"=== RUN   TestEnvironmentDistribution/ExtremeDynamicRange\n"}
+{"Time":"2026-11-12T15:25:48.540202+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ExtremeDynamicRange","Output":"--- PASS: TestEnvironmentDistribution/ExtremeDynamicRange (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.540206+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/ExtremeDynamicRange","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.540209+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/QueriesConsumeNoRandomness"}
+{"Time":"2026-11-12T15:25:48.540211+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/QueriesConsumeNoRandomness","Output":"=== RUN   TestEnvironmentDistribution/QueriesConsumeNoRandomness\n"}
+{"Time":"2026-11-12T15:25:48.540242+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/QueriesConsumeNoRandomness","Output":"--- PASS: TestEnvironmentDistribution/QueriesConsumeNoRandomness (0.00s)\n"}
+{"Time":"2026-11-12T15:25:48.540246+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution/QueriesConsumeNoRandomness","Elapsed":0}
+{"Time":"2026-11-12T15:25:48.540248+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution","Output":"--- PASS: TestEnvironmentDistribution (0.10s)\n"}
+{"Time":"2026-11-12T15:25:48.540251+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentDistribution","Elapsed":0.1}
+{"Time":"2026-11-12T15:25:48.540258+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS"}
+{"Time":"2026-11-12T15:25:48.540261+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS","Output":"=== RUN   TestEnvironmentMIS\n"}
+{"Time":"2026-11-12T15:25:48.540263+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/ConstantSky"}
+{"Time":"2026-11-12T15:25:48.540265+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/ConstantSky","Output":"=== RUN   TestEnvironmentMIS/ConstantSky\n"}
+{"Time":"2026-11-12T15:25:48.540268+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/ConstantSky","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:25:49.349451+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/ConstantSky","Output":"--- PASS: TestEnvironmentMIS/ConstantSky (0.81s)\n"}
+{"Time":"2026-11-12T15:25:49.349469+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/ConstantSky","Elapsed":0.81}
+{"Time":"2026-11-12T15:25:49.349473+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/SingleBrightCell"}
+{"Time":"2026-11-12T15:25:49.349476+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/SingleBrightCell","Output":"=== RUN   TestEnvironmentMIS/SingleBrightCell\n"}
+{"Time":"2026-11-12T15:25:49.34948+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/SingleBrightCell","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:04.017501+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/SingleBrightCell","Output":"--- PASS: TestEnvironmentMIS/SingleBrightCell (14.67s)\n"}
+{"Time":"2026-11-12T15:26:04.017547+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/SingleBrightCell","Elapsed":14.67}
+{"Time":"2026-11-12T15:26:04.017555+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction"}
+{"Time":"2026-11-12T15:26:04.017561+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction","Output":"=== RUN   TestEnvironmentMIS/VarianceReduction\n"}
+{"Time":"2026-11-12T15:26:04.017578+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:05.979726+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction","Output":"    environment_target_test.go:634: variance reduction: 770024.4x (on=1.11e-13 off=8.56e-08)\n"}
+{"Time":"2026-11-12T15:26:05.979747+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction","Output":"--- PASS: TestEnvironmentMIS/VarianceReduction (1.96s)\n"}
+{"Time":"2026-11-12T15:26:05.979752+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/VarianceReduction","Elapsed":1.96}
+{"Time":"2026-11-12T15:26:05.979757+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder"}
+{"Time":"2026-11-12T15:26:05.97976+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder","Output":"=== RUN   TestEnvironmentMIS/Occluder\n"}
+{"Time":"2026-11-12T15:26:05.979769+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:06.141113+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:06.94754+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder","Output":"--- PASS: TestEnvironmentMIS/Occluder (0.97s)\n"}
+{"Time":"2026-11-12T15:26:06.947562+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS/Occluder","Elapsed":0.97}
+{"Time":"2026-11-12T15:26:06.947568+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS","Output":"--- PASS: TestEnvironmentMIS (18.41s)\n"}
+{"Time":"2026-11-12T15:26:06.947571+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentMIS","Elapsed":18.41}
+{"Time":"2026-11-12T15:26:06.947574+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches"}
+{"Time":"2026-11-12T15:26:06.947576+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches","Output":"=== RUN   TestEnvironmentBranches\n"}
+{"Time":"2026-11-12T15:26:06.94758+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces"}
+{"Time":"2026-11-12T15:26:06.947583+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces","Output":"=== RUN   TestEnvironmentBranches/TwoDiffuseBounces\n"}
+{"Time":"2026-11-12T15:26:06.947585+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:07.789978+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:08.584723+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces","Output":"--- PASS: TestEnvironmentBranches/TwoDiffuseBounces (1.64s)\n"}
+{"Time":"2026-11-12T15:26:08.584743+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/TwoDiffuseBounces","Elapsed":1.64}
+{"Time":"2026-11-12T15:26:08.584754+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularEscapeUnweighted"}
+{"Time":"2026-11-12T15:26:08.584758+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularEscapeUnweighted","Output":"=== RUN   TestEnvironmentBranches/SpecularEscapeUnweighted\n"}
+{"Time":"2026-11-12T15:26:08.58477+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularEscapeUnweighted","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:08.584781+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularEscapeUnweighted","Output":"--- PASS: TestEnvironmentBranches/SpecularEscapeUnweighted (0.00s)\n"}
+{"Time":"2026-11-12T15:26:08.584783+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularEscapeUnweighted","Elapsed":0}
+{"Time":"2026-11-12T15:26:08.584786+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted"}
+{"Time":"2026-11-12T15:26:08.584788+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted","Output":"=== RUN   TestEnvironmentBranches/RefractionEscapeUnweighted\n"}
+{"Time":"2026-11-12T15:26:08.584791+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:08.599564+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:08.614442+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted","Output":"--- PASS: TestEnvironmentBranches/RefractionEscapeUnweighted (0.03s)\n"}
+{"Time":"2026-11-12T15:26:08.614458+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/RefractionEscapeUnweighted","Elapsed":0.03}
+{"Time":"2026-11-12T15:26:08.614463+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit"}
+{"Time":"2026-11-12T15:26:08.61447+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit","Output":"=== RUN   TestEnvironmentBranches/DepthLimit\n"}
+{"Time":"2026-11-12T15:26:08.614474+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:09.398798+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:10.183939+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit","Output":"--- PASS: TestEnvironmentBranches/DepthLimit (1.57s)\n"}
+{"Time":"2026-11-12T15:26:10.183963+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/DepthLimit","Elapsed":1.57}
+{"Time":"2026-11-12T15:26:10.183968+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes"}
+{"Time":"2026-11-12T15:26:10.183972+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Output":"=== RUN   TestEnvironmentBranches/SpecularModes\n"}
+{"Time":"2026-11-12T15:26:10.183976+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:10.596112+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:11.007015+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:11.415376+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Output":"--- PASS: TestEnvironmentBranches/SpecularModes (1.23s)\n"}
+{"Time":"2026-11-12T15:26:11.415407+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/SpecularModes","Elapsed":1.23}
+{"Time":"2026-11-12T15:26:11.415421+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap"}
+{"Time":"2026-11-12T15:26:11.415425+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap","Output":"=== RUN   TestEnvironmentBranches/ConcurrentScenesSharedMap\n"}
+{"Time":"2026-11-12T15:26:11.415429+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:11.415433+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.008608+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap","Output":"--- PASS: TestEnvironmentBranches/ConcurrentScenesSharedMap (0.59s)\n"}
+{"Time":"2026-11-12T15:26:12.008628+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/ConcurrentScenesSharedMap","Elapsed":0.59}
+{"Time":"2026-11-12T15:26:12.008633+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CameraSkyUnweighted"}
+{"Time":"2026-11-12T15:26:12.008637+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CameraSkyUnweighted","Output":"=== RUN   TestEnvironmentBranches/CameraSkyUnweighted\n"}
+{"Time":"2026-11-12T15:26:12.008642+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CameraSkyUnweighted","Output":"Building k-d tree (0 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.008645+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CameraSkyUnweighted","Output":"--- PASS: TestEnvironmentBranches/CameraSkyUnweighted (0.00s)\n"}
+{"Time":"2026-11-12T15:26:12.008648+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CameraSkyUnweighted","Elapsed":0}
+{"Time":"2026-11-12T15:26:12.00865+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment"}
+{"Time":"2026-11-12T15:26:12.008653+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment","Output":"=== RUN   TestEnvironmentBranches/CompatibilityNoEnvironment\n"}
+{"Time":"2026-11-12T15:26:12.008655+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.012496+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.016314+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment","Output":"--- PASS: TestEnvironmentBranches/CompatibilityNoEnvironment (0.01s)\n"}
+{"Time":"2026-11-12T15:26:12.016324+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityNoEnvironment","Elapsed":0.01}
+{"Time":"2026-11-12T15:26:12.016328+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff"}
+{"Time":"2026-11-12T15:26:12.016337+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff","Output":"=== RUN   TestEnvironmentBranches/CompatibilityDirectLightingOff\n"}
+{"Time":"2026-11-12T15:26:12.016346+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.053552+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-12T15:26:12.090432+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff","Output":"--- PASS: TestEnvironmentBranches/CompatibilityDirectLightingOff (0.07s)\n"}
+{"Time":"2026-11-12T15:26:12.09045+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches/CompatibilityDirectLightingOff","Elapsed":0.07}
+{"Time":"2026-11-12T15:26:12.090455+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches","Output":"--- PASS: TestEnvironmentBranches (5.14s)\n"}
+{"Time":"2026-11-12T15:26:12.090459+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestEnvironmentBranches","Elapsed":5.14}
+{"Time":"2026-11-12T15:26:12.090462+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Output":"PASS\n"}
+{"Time":"2026-11-12T15:26:12.09116+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Output":"ok  \tgithub.com/fogleman/pt/pt\t23.901s\n"}
+{"Time":"2026-11-12T15:26:12.091172+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Elapsed":23.901}
