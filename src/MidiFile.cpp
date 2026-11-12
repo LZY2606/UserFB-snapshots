@@ -16,11 +16,13 @@
 #include "Binasc.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -150,6 +152,9 @@ MidiFile& MidiFile::operator=(const MidiFile& other) {
 		}
 	);
 	m_ticksPerQuarterNote = other.m_ticksPerQuarterNote;
+	m_smpteQ              = other.m_smpteQ;
+	m_smpteFpsCode        = other.m_smpteFpsCode;
+	m_smpteTicksPerFrame  = other.m_smpteTicksPerFrame;
 	m_theTrackState       = other.m_theTrackState;
 	m_theTimeState        = other.m_theTimeState;
 	m_readFileName        = other.m_readFileName;
@@ -170,6 +175,9 @@ MidiFile& MidiFile::operator=(MidiFile&& other) {
 	other.m_events.clear();
 	other.m_events.emplace_back(new MidiEventList);
 	m_ticksPerQuarterNote = other.m_ticksPerQuarterNote;
+	m_smpteQ              = other.m_smpteQ;
+	m_smpteFpsCode        = other.m_smpteFpsCode;
+	m_smpteTicksPerFrame  = other.m_smpteTicksPerFrame;
 	m_theTrackState       = other.m_theTrackState;
 	m_theTimeState        = other.m_theTimeState;
 	m_readFileName        = other.m_readFileName;
@@ -402,27 +410,49 @@ bool MidiFile::readSmf(std::istream& input) {
 		m_events[z]->clear();
 	}
 
-	// Header parameter #3: Ticks per quarter note
+	// Header parameter #3: division word (ticks per quarter note or
+	// SMPTE time-code setting).
 	shortdata = readLittleEndian2Bytes(input);
 	if (shortdata >= 0x8000) {
-		int framespersecond = 255 - ((shortdata >> 8) & 0x00ff) + 1;
-		int subframes       = shortdata & 0x00ff;
-		switch (framespersecond) {
-			case 25:  framespersecond = 25; break;
-			case 24:  framespersecond = 24; break;
-			case 29:  framespersecond = 29; break;  // really 29.97 for color television
-			case 30:  framespersecond = 30; break;
-			default:
-					std::cerr << "Warning: unknown FPS: " << framespersecond << std::endl;
-					std::cerr << "Using non-standard FPS: " << framespersecond << std::endl;
-		}
-		m_ticksPerQuarterNote = framespersecond * subframes;
+		// SMPTE division: high byte is a negative frame-rate code stored as
+		// an 8-bit two's-complement value, low byte is ticks per frame.
+		int rawfpsbyte      = (shortdata >> 8) & 0x00ff;
+		int negativefpscode = (rawfpsbyte >= 0x80) ? rawfpsbyte - 256 : rawfpsbyte;
+		int ticksperframe   = shortdata & 0x00ff;
 
-		// std::cerr << "SMPTE ticks: " << m_ticksPerQuarterNote << " ticks/sec" << std::endl;
-		// std::cerr << "SMPTE frames per second: " << framespersecond << std::endl;
-		// std::cerr << "SMPTE subframes per frame: " << subframes << std::endl;
+		switch (negativefpscode) {
+			case -24:
+			case -25:
+			case -29:   // 30000/1001 frames per second, not an integer 29 fps
+			case -30:
+				break;
+			default:
+				std::cerr << "Error: unsupported SMPTE frame-rate code: "
+				     << negativefpscode
+				     << " (only -24, -25, -29 and -30 are allowed)."
+				     << std::endl;
+				m_rwstatus = false; return m_rwstatus;
+		}
+		if (ticksperframe < 1 || ticksperframe > 255) {
+			std::cerr << "Error: invalid SMPTE ticks-per-frame value: "
+			     << ticksperframe << " (must be between 1 and 255)."
+			     << std::endl;
+			m_rwstatus = false; return m_rwstatus;
+		}
+
+		storeSmpteDivision(negativefpscode, ticksperframe);
+		m_timemapvalid = 0;
 	}  else {
+		if (shortdata == 0) {
+			std::cerr << "Error: invalid MIDI division: ticks-per-quarter-note"
+			     << " must not be zero." << std::endl;
+			m_rwstatus = false; return m_rwstatus;
+		}
+		m_smpteQ = false;
+		m_smpteFpsCode = 0;
+		m_smpteTicksPerFrame = 0;
 		m_ticksPerQuarterNote = shortdata;
+		m_timemapvalid = 0;
 	}
 
 
@@ -597,8 +627,13 @@ bool MidiFile::write(std::ostream& out) {
 	shortdata = static_cast<ushort>(getNumTracks());
 	writeBigEndianUShort(out, shortdata);
 
-	// 5. Write out the number of ticks per quarternote (ignoring SMPTE for now).
-	shortdata = static_cast<ushort>(getTicksPerQuarterNote());
+	// 5. Write out the division word from the MIDI header.  In PPQN mode
+	//    this is the ticks-per-quarter-note value; in SMPTE mode the high
+	//    bit is set and the two bytes are the frame-rate code and the
+	//    ticks-per-frame value.  getRawDivision() preserves the exact
+	//    16-bit value instead of collapsing a SMPTE division into a
+	//    positive tick count.
+	shortdata = static_cast<ushort>(getRawDivision());
 	writeBigEndianUShort(out, shortdata);
 
 	// 6. Now write each track.
@@ -1464,9 +1499,34 @@ double MidiFile::getFileDurationInSeconds(void) {
 	}
 	const MidiFile& mf = *this;
 	double output = 0.0;
-	for (int i=0; i<mf.getTrackCount(); i++) {
-		if (mf[i].back().seconds > output) {
-			output = mf[i].back().seconds;
+	if (m_smpteQ) {
+		// In SMPTE mode every non-negative tick maps directly to a
+		// physical time, so the duration follows from the largest event
+		// tick (tempo messages cannot influence SMPTE physical time).
+		double secondsPerTick = smpteSecondsPerTick();
+		if (secondsPerTick <= 0.0) {
+			if (revertToDelta) {
+				deltaTicks();
+			}
+			return -1.0;
+		}
+		for (int i=0; i<mf.getTrackCount(); i++) {
+			if (mf[i].size() == 0) {
+				continue;
+			}
+			double duration = (double)mf[i].back().tick * secondsPerTick;
+			if (duration > output) {
+				output = duration;
+			}
+		}
+	} else {
+		for (int i=0; i<mf.getTrackCount(); i++) {
+			if (mf[i].size() == 0) {
+				continue;
+			}
+			if (mf[i].back().seconds > output) {
+				output = mf[i].back().seconds;
+			}
 		}
 	}
 	if (revertToDelta) {
@@ -1485,7 +1545,9 @@ double MidiFile::getFileDurationInSeconds(void) {
 //
 // MidiFile::doTimeAnalysis -- Identify the real-time position of
 //    all events by monitoring the tempo in relations to the tick
-//    times in the file.
+//    times in the file.  In SMPTE mode physical time is derived
+//    directly from the frame-rate/ticks-per-frame division, and
+//    tempo meta messages do not affect it.
 //
 
 void MidiFile::doTimeAnalysis(void) {
@@ -1497,20 +1559,58 @@ void MidiFile::doTimeAnalysis(void) {
 //////////////////////////////
 //
 // MidiFile::getTimeInSeconds -- return the time in seconds for
-//     the current message.
+//     the current message.  The track/index overload always uses the
+//     event's absolute tick position: in delta tick mode the preceding
+//     deltas of the track are summed instead of mistaking this event's
+//     own delta value for an absolute tick.
 //
 
 double MidiFile::getTimeInSeconds(int aTrack, int anIndex) {
-	return getTimeInSeconds(getEvent(aTrack, anIndex).tick);
+	if (aTrack < 0 || aTrack >= getTrackCount()) {
+		return -1.0;
+	}
+	if (anIndex < 0 || anIndex >= getEventCount(aTrack)) {
+		return -1.0;
+	}
+	int absolutetick;
+	if (isAbsoluteTicks()) {
+		absolutetick = getEvent(aTrack, anIndex).tick;
+	} else {
+		absolutetick = 0;
+		for (int j=0; j<=anIndex; j++) {
+			absolutetick += getEvent(aTrack, j).tick;
+		}
+	}
+	return getTimeInSeconds(absolutetick);
 }
 
 
 double MidiFile::getTimeInSeconds(int tickvalue) {
+	if (tickvalue < 0) {
+		return -1.0;
+	}
+
+	if (m_smpteQ) {
+		// SMPTE physical time is a pure linear function of the absolute
+		// tick, so any non-negative tick converts directly, including
+		// ticks beyond the last stored event.  No time map or tempo
+		// message is involved.
+		double secondsPerTick = smpteSecondsPerTick();
+		if (secondsPerTick <= 0.0) {
+			return -1.0;
+		}
+		return (double)tickvalue * secondsPerTick;
+	}
+
 	if (m_timemapvalid == 0) {
 		buildTimeMap();
 		if (m_timemapvalid == 0) {
 			return -1.0;    // something went wrong
 		}
+	}
+	if (m_timemap.empty()) {
+		// No events to anchor a tick-to-second mapping.
+		return -1.0;
 	}
 
 	_TickTime key;
@@ -1540,14 +1640,35 @@ double MidiFile::getTimeInSeconds(int tickvalue) {
 // MidiFile::getAbsoluteTickTime -- return the tick value represented
 //    by the input time in seconds.  If there is not tick entry at
 //    the given time in seconds, then interpolate between two values.
+//    The returned tick is a floating-point value and is not rounded
+//    early.  Negative or non-finite queries return -1.  In SMPTE
+//    mode every non-negative time converts directly (ticks are a
+//    linear, tempo-independent time scale), even beyond the last
+//    stored event.
 //
 
 double MidiFile::getAbsoluteTickTime(double starttime) {
+	if (starttime < 0.0 || !std::isfinite(starttime)) {
+		return -1.0;
+	}
+
+	if (m_smpteQ) {
+		double secondsPerTick = smpteSecondsPerTick();
+		if (secondsPerTick <= 0.0) {
+			return -1.0;
+		}
+		return starttime / secondsPerTick;
+	}
+
 	if (m_timemapvalid == 0) {
 		buildTimeMap();
 		if (m_timemapvalid == 0) {
 			return -1.0;    // something went wrong
 		}
+	}
+	if (m_timemap.empty()) {
+		// No events to anchor a second-to-tick mapping.
+		return -1.0;
 	}
 
 	_TickTime key;
@@ -2332,6 +2453,10 @@ void MidiFile::clear(void) {
 	m_timemap.clear();
 	m_theTrackState = TRACK_STATE_SPLIT;
 	m_theTimeState = TIME_STATE_ABSOLUTE;
+	m_smpteQ = false;
+	m_smpteFpsCode = 0;
+	m_smpteTicksPerFrame = 0;
+	m_ticksPerQuarterNote = 120;
 }
 
 
@@ -2362,17 +2487,15 @@ const MidiEvent& MidiFile::getEvent(int aTrack, int anIndex) const {
 //
 // MidiFile::getTicksPerQuarterNote -- returns the number of
 //   time units that are supposed to occur during a quarternote.
+//   In SMPTE mode there is no real quarter note, so the returned
+//   value is a compatibility convenience equal to the absolute
+//   frame-rate code multiplied by the ticks per frame (for example
+//   1000 for -25/40).  Use getRawDivision() for the actual header
+//   word, and never feed this value into physical-time calculations
+//   when the raw division has its high (SMPTE) bit set.
 //
 
 int MidiFile::getTicksPerQuarterNote(void) const {
-	if (m_ticksPerQuarterNote == 0xE728) {
-		// this is a special case which is the SMPTE time code
-		// setting for 25 frames a second with 40 subframes
-		// which means one tick per millisecond.  When SMPTE is
-		// being used, there is no real concept of the quarter note,
-		// so presume 60 bpm as a simplification here.
-		// return 1000;
-	}
 	return m_ticksPerQuarterNote;
 }
 
@@ -2382,6 +2505,132 @@ int MidiFile::getTicksPerQuarterNote(void) const {
 
 int MidiFile::getTPQ(void) const {
 	return getTicksPerQuarterNote();
+}
+
+
+
+//////////////////////////////
+//
+// MidiFile::getRawDivision -- Return the 16-bit division word exactly
+//   as it is stored in the MThd chunk.  In PPQN mode the high bit is
+//   clear and the value ranges from 1 to 0x7FFF.  In SMPTE mode the
+//   high bit is set: the high byte holds the (negative) frame-rate
+//   code as an unsigned two's-complement byte, and the low byte holds
+//   the ticks-per-frame count.
+//
+
+unsigned MidiFile::getRawDivision(void) const {
+	if (!m_smpteQ) {
+		return static_cast<unsigned>(m_ticksPerQuarterNote) & 0x7FFF;
+	}
+	unsigned fpsbyte = static_cast<unsigned>(m_smpteFpsCode) & 0x00FF;
+	return (fpsbyte << 8) | (static_cast<unsigned>(m_smpteTicksPerFrame) & 0x00FF);
+}
+
+
+
+//////////////////////////////
+//
+// MidiFile::storeSmpteDivision -- Internal helper which installs a
+//   already-validated SMPTE division.
+//
+
+void MidiFile::storeSmpteDivision(int negativeFpsCode, int ticksPerFrame) {
+	m_smpteQ             = true;
+	m_smpteFpsCode       = negativeFpsCode;
+	m_smpteTicksPerFrame = ticksPerFrame;
+	// Compatibility value: a positive tick count, as previously returned
+	// by getTicksPerQuarterNote() for SMPTE files.
+	m_ticksPerQuarterNote = -negativeFpsCode * ticksPerFrame;
+}
+
+
+
+//////////////////////////////
+//
+// MidiFile::setSmpteDivision -- Switch the file into SMPTE time-code
+//   mode.  negativeFpsCode must be one of -24, -25, -29 or -30 (the
+//   -29 code means the 30000/1001 frame rate), and ticksPerFrame must
+//   be between 1 and 255.  Invalid arguments throw std::invalid_argument
+//   and leave the current time base untouched.  A successful switch
+//   invalidates any previous physical-time analysis.
+//
+
+void MidiFile::setSmpteDivision(int negativeFpsCode, int ticksPerFrame) {
+	switch (negativeFpsCode) {
+		case -24:
+		case -25:
+		case -29:
+		case -30:
+			break;
+		default:
+			throw std::invalid_argument(
+				"setSmpteDivision: frame-rate code must be one of"
+				" -24, -25, -29 or -30");
+	}
+	if (ticksPerFrame < 1 || ticksPerFrame > 255) {
+		throw std::invalid_argument(
+			"setSmpteDivision: ticks per frame must be between 1 and 255");
+	}
+	storeSmpteDivision(negativeFpsCode, ticksPerFrame);
+	invalidateTimeAnalysis();
+}
+
+
+
+//////////////////////////////
+//
+// MidiFile::invalidateTimeAnalysis -- Drop the cached tick-to-second
+//   time map and mark every stored event's seconds as stale.  Called
+//   whenever the division/tempo interpretation changes so that old
+//   physical-time results can never be reused.
+//
+
+void MidiFile::invalidateTimeAnalysis(void) {
+	m_timemapvalid = 0;
+	m_timemap.clear();
+	int trackcount = getTrackCount();
+	for (int i=0; i<trackcount; i++) {
+		for (int j=0; j<(int)m_events[i]->size(); j++) {
+			(*m_events[i])[j].seconds = 0.0;
+		}
+	}
+}
+
+
+
+//////////////////////////////
+//
+// MidiFile::smpteSecondsPerTick -- Physical duration of one tick when
+//   the division is SMPTE.  The 30000/1001 frame rate is kept as a
+//   rational ratio until the final double division so frame times are
+//   never accumulated from an already-rounded per-frame duration.
+//
+
+double MidiFile::smpteSecondsPerTick(void) const {
+	// frames per second * ticks per frame == ticks per second
+	double ticksPerSecond;
+	switch (m_smpteFpsCode) {
+		case -24:
+			ticksPerSecond = 24.0 * m_smpteTicksPerFrame;
+			break;
+		case -25:
+			ticksPerSecond = 25.0 * m_smpteTicksPerFrame;
+			break;
+		case -29:
+			// 29.97... fps (30000/1001); keep the rational frame rate.
+			ticksPerSecond = (30000.0 * m_smpteTicksPerFrame) / 1001.0;
+			break;
+		case -30:
+			ticksPerSecond = 30.0 * m_smpteTicksPerFrame;
+			break;
+		default:
+			return -1.0;
+	}
+	if (ticksPerSecond <= 0.0) {
+		return -1.0;
+	}
+	return 1.0 / ticksPerSecond;
 }
 
 
@@ -2458,7 +2707,18 @@ void MidiFile::mergeTracks(int aTrack1, int aTrack2) {
 //
 
 void MidiFile::setTicksPerQuarterNote(int ticks) {
+	if (ticks < 1 || ticks > 0x7FFF) {
+		throw std::invalid_argument(
+			"setTicksPerQuarterNote: ticks per quarter note must be"
+			" between 1 and 32767");
+	}
+	// Switching to a legal PPQN value leaves SMPTE mode and makes any
+	// physical-time analysis done under the old time base stale.
+	m_smpteQ = false;
+	m_smpteFpsCode = 0;
+	m_smpteTicksPerFrame = 0;
 	m_ticksPerQuarterNote = ticks;
+	invalidateTimeAnalysis();
 }
 
 //
@@ -2472,21 +2732,17 @@ void MidiFile::setTPQ(int ticks) {
 
 //////////////////////////////
 //
-// MidiFile::setMillisecondTicks -- set the ticks per quarter note
-//   value to milliseconds.  The format for this specification is
-//   highest 8-bits: SMPTE Frame rate (as a negative 2's compliment value).
-//   lowest 8-bits: divisions per frame (as a positive number).
-//   for millisecond resolution, the SMPTE value is -25, and the
-//   frame rate is 40 frame per division.  In hexadecimal, these
-//   values are: -25 = 1110,0111 = 0xE7 and 40 = 0010,1000 = 0x28
-//   So setting the ticks per quarter note value to 0xE728 will cause
-//   delta times in the MIDI file to represent milliseconds.  Calling
-//   this function will not change any exiting timestamps, it will
-//   only change the meaning of the timestamps.
+// MidiFile::setMillisecondTicks -- switch the division to SMPTE
+//   -25 frames per second with 40 ticks per frame.  In that mode one
+//   tick lasts exactly one millisecond (1000 ticks per second), and
+//   this is a real time-base change: getTimeInSeconds() and friends
+//   interpret ticks as milliseconds, not merely a write-time label.
+//   Calling this function will not change any existing timestamps,
+//   it will only change the meaning of the timestamps.
 //
 
 void MidiFile::setMillisecondTicks(void) {
-	m_ticksPerQuarterNote = 0xE728;
+	setSmpteDivision(-25, 40);
 }
 
 
@@ -2606,11 +2862,14 @@ double MidiFile::linearTickInterpolationAtSecond(double seconds) {
 			return -1.0;    // something went wrong
 		}
 	}
+	if (m_timemap.empty()) {
+		return -1.0;
+	}
 
 	int i;
 	double lasttime = m_timemap[m_timemap.size()-1].seconds;
 	// give an error value of -1 if time is out of range of data.
-	if (seconds < 0.0) {
+	if (seconds < 0.0 || !std::isfinite(seconds)) {
 		return -1.0;
 	}
 	if (seconds > m_timemap[m_timemap.size()-1].seconds) {
@@ -2674,11 +2933,14 @@ double MidiFile::linearSecondInterpolationAtTick(int ticktime) {
 			return -1.0;    // something went wrong
 		}
 	}
+	if (m_timemap.empty()) {
+		return -1.0;
+	}
 
 	int i;
 	double lasttick = m_timemap[m_timemap.size()-1].tick;
 	// give an error value of -1 if time is out of range of data.
-	if (ticktime < 0.0) {
+	if (ticktime < 0) {
 		return -1;
 	}
 	if (ticktime > m_timemap.back().tick) {
@@ -2739,12 +3001,13 @@ double MidiFile::linearSecondInterpolationAtTick(int ticktime) {
 //      found in a MIDI file, and their corresponding time values in
 //      seconds, taking into consideration tempo change messages.  If no
 //      tempo messages are given (or until they are given, then the
-//      tempo is set to 120 beats per minute).  If SMPTE time code is
-//      used, then ticks are actually time values.  So don't build
-//      a time map for SMPTE ticks, and just calculate the time in
-//      seconds from the tick value (1000 ticks per second SMPTE
-//      is the only mode tested (25 frames per second and 40 subframes
-//      per frame).
+//      tempo is set to 120 beats per minute).  In SMPTE mode ticks are
+//      themselves physical time units: each event's seconds value is
+//      computed directly from its absolute tick with the frame-rate /
+//      ticks-per-frame division (the 30000/1001 rate keeping its
+//      rational scale until the final double), no tempo map is built
+//      and tempo meta messages, although retained as events, do not
+//      influence physical time.
 //
 
 void MidiFile::buildTimeMap(void) {
@@ -2764,6 +3027,40 @@ void MidiFile::buildTimeMap(void) {
 	m_timemap.clear();
 
 	_TickTime value;
+
+	if (m_smpteQ) {
+		// SMPTE: physical time is a linear function of the absolute tick.
+		// Compute one seconds-per-tick factor from the (possibly rational)
+		// frame rate and apply it per event without accumulating rounded
+		// frame durations.  Tempo messages are deliberately ignored.
+		double secondsPerTick = smpteSecondsPerTick();
+		if (secondsPerTick <= 0.0) {
+			m_timemapvalid = 0;
+			if (timestate == TIME_STATE_DELTA) {
+				deltaTicks();
+			}
+			if (trackstate == TRACK_STATE_SPLIT) {
+				splitTracks();
+			}
+			return;
+		}
+		for (int i=0; i<getNumEvents(0); i++) {
+			int curtick = getEvent(0, i).tick;
+			getEvent(0, i).seconds = (double)curtick * secondsPerTick;
+		}
+		// reset the states of the tracks or time values if necessary:
+		if (timestate == TIME_STATE_DELTA) {
+			deltaTicks();
+		}
+		if (trackstate == TRACK_STATE_SPLIT) {
+			splitTracks();
+		}
+		// The direct SMPTE conversions in getTimeInSeconds()/
+		// getAbsoluteTickTime() do not need the tick map, but the flag
+		// records that the analysis has been performed.
+		m_timemapvalid = 1;
+		return;
+	}
 
 	int lasttick = 0;
 	int tickinit = 0;

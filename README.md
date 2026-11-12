@@ -234,6 +234,15 @@ in hex bytes.  The second track starts with a MIDI note-on message `90 48 40`
 (in hex) which will start playing MIDI note 72 (C pitch one octave above
 middle C) with a medium loudness (40 hex = 64 in decimal notation).
 
+Note that the TPQ value is only a true ticks-per-quarter-note count when the
+header division is in PPQN (metric) format.  When the high bit of the division
+word is set the file uses SMPTE time code instead; see the
+[SMPTE time-code divisions](#smpte-time-code-divisions) section below.  In
+that mode `getTPQ()`/`getTicksPerQuarterNote()` still return a positive
+compatibility number, but it is neither a real quarter-note count nor an
+exact sample rate, and it must not be substituted for the raw division in
+physical-time calculations.
+
 <pre>
 TPQ: 120
 TRACKS: 3
@@ -1596,6 +1605,124 @@ is also calculated based on the desired duration of a cycle.
 For example, try the options `-a 3 -b 4 -c 200 -d 1 -o 3x4.mid`, which will play
 a 3-against-4 pattern for 200 cycles with each cycle lasting 1 second.  Or here
 is 11-against-13 for 100 cycles: `-a 11 -b 13 -c 100 -d 5 -o 11x13.mid`.
+
+
+SMPTE time-code divisions
+-------------------------
+
+The 16-bit division word in the MIDI file header (bytes 12-13 of the `MThd`
+chunk) has two formats.  When its high bit is clear it holds the
+ticks-per-quarter-note (PPQN) value used by all of the tempo-map examples
+above.  When its high bit is set it holds an SMPTE time-code division: the
+high byte is a negative frame-rate code and the low byte is the number of
+ticks per frame.  Only these frame-rate codes are accepted: `-24`, `-25`,
+`-29` and `-30` (the `-29` code means 30000/1001, i.e. 29.97... frames per
+second, not an integer 29), with 1 to 255 ticks per frame.
+
+In SMPTE mode ticks are themselves physical time units, so `doTimeAnalysis()`,
+`getTimeInSeconds()`, `getAbsoluteTickTime()` and
+`getFileDurationInSeconds()` convert ticks directly from the frame rate and
+ignore tempo meta messages.  Tempo messages are still stored and written back
+as ordinary events; they simply never influence SMPTE physical time.  Any
+non-negative tick can be converted, including ticks beyond the last event,
+and the reverse lookup returns a floating-point tick that is not rounded
+early.  The 30000/1001 ratio is kept rational until the final double, so long
+event lists do not accumulate a rounded per-frame duration.
+
+`getRawDivision()` returns the exact 16-bit value that is (or will be) written
+into the header, while `getTPQ()` keeps its historical positive return value
+in SMPTE mode: the absolute frame-rate code multiplied by the ticks per frame
+(for example 1000 for `-25/40`).  Treat that number as a compatibility
+convenience only &mdash; it does not represent a real quarter note and it is
+not an exact sample rate &mdash; and never use it in place of the raw
+division when computing physical time.
+
+Use `setSmpteDivision()` to enter SMPTE mode, `setMillisecondTicks()` as a
+shorthand for the millisecond resolution `-25/40` division, and
+`setTPQ()`/`setTicksPerQuarterNote()` to switch back to PPQN.  Every
+successful time-base switch invalidates previously computed time analysis, so
+the next query is recomputed under the new division.  Illegal setter
+arguments throw `std::invalid_argument` and leave the current time base and
+any valid query results unchanged; a corrupt division encountered while
+reading is reported through the existing `read()`/`status()` failure return.
+
+```cpp
+#include "MidiFile.h"
+#include <iostream>
+#include <sstream>
+
+using namespace std;
+using namespace smf;
+
+int main() {
+   // Hand-built SMF bytes: MThd with the SMPTE division -25/40 (0xe728),
+   // one MTrk containing a note-on at tick 0 and a note-off at tick 1000.
+   // append(ptr, n) is required because the chunks contain NUL bytes.
+   string bytes;
+   bytes += "MThd";
+   bytes.append("\x00\x00\x00\x06", 4);     // header length
+   bytes.append("\x00\x00", 2);             // format 0
+   bytes.append("\x00\x01", 2);             // one track
+   bytes.append("\xe7\x28", 2);             // division: -25 fps, 40 ticks/frame
+   bytes += "MTrk";
+   bytes.append("\x00\x00\x00\x0d", 4);     // track length (13 bytes)
+   bytes.append("\x00\x90\x3c\x5a", 4);     // delta 0, note-on  60
+   bytes.append("\x87\x68\x80\x3c\x00", 5); // delta 1000, note-off 60
+   bytes.append("\x00\xff\x2f\x00", 4);     // end of track
+
+   MidiFile midifile;
+   istringstream input(bytes);
+   if (!midifile.read(input) || !midifile.status()) {
+      cerr << "Could not read MIDI file" << endl;
+      return 1;
+   }
+
+   midifile.doTimeAnalysis();
+
+   cout << hex << "raw division = 0x" << midifile.getRawDivision() << dec
+        << " (expected 0xe728)" << endl;
+   cout << "compat TPQ   = " << midifile.getTPQ()
+        << " (1000, but not a real quarter note)" << endl;
+   // 1000 ticks at 25 fps * 40 ticks/frame == exactly one second.
+   cout << "1000 ticks  = " << midifile.getTimeInSeconds(1000)
+        << " second" << endl;
+   cout << "1.0 second  = " << midifile.getAbsoluteTickTime(1.0)
+        << " ticks" << endl;
+
+   // Enter SMPTE mode programmatically; milliseconds are -25/40.
+   MidiFile millisecondFile;
+   millisecondFile.setMillisecondTicks();
+   cout << hex << "millisecond division = 0x"
+        << millisecondFile.getRawDivision() << dec << endl;
+
+   // The 30000/1001 frame rate stays rational to the final double:
+   // 30000 ticks at -29/100 cover 10.01 seconds.
+   MidiFile dropFrame;
+   dropFrame.setSmpteDivision(-29, 100);
+   cout << "30000 ticks at -29/100 = "
+        << dropFrame.getTimeInSeconds(30000) << " seconds" << endl;
+
+   // A legal PPQN value leaves SMPTE mode and discards the old analysis.
+   dropFrame.setTPQ(480);
+   cout << "back in PPQN mode, division = "
+        << dropFrame.getRawDivision() << endl;
+   return 0;
+}
+```
+
+The program prints:
+
+<pre>
+raw division = 0xe728 (expected 0xe728)
+compat TPQ   = 1000 (1000, but not a real quarter note)
+1000 ticks  = 1 second
+1.0 second  = 1000 ticks
+millisecond division = 0xe728
+30000 ticks at -29/100 = 10.01 seconds
+back in PPQN mode, division = 480
+</pre>
+
+
 
 
 

@@ -18,6 +18,7 @@
 
 #include <fstream>
 #include <istream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -134,6 +135,18 @@ class MidiFile {
 		int              getTPQ                    (void) const;
 		void             setTicksPerQuarterNote    (int ticks);
 		void             setTPQ                    (int ticks);
+
+		// division-word / SMPTE time-code related functions:
+		// getRawDivision() returns the 16-bit division value exactly as it
+		// appears in (or should be written to) the MThd chunk.  In SMPTE
+		// mode the high bit is set; in PPQN mode the value is 1..0x7FFF.
+		unsigned         getRawDivision            (void) const;
+		// negativeFpsCode must be one of -24, -25, -29 or -30 (the -29 code
+		// means the 30000/1001 frame rate), and ticksPerFrame must be 1..255.
+		// Invalid arguments throw std::invalid_argument without changing the
+		// current time base.
+		void             setSmpteDivision          (int negativeFpsCode,
+		                                            int ticksPerFrame);
 
 		// physical-time analysis functions:
 		void             doTimeAnalysis            (void);
@@ -278,8 +291,22 @@ class MidiFile {
 		// m_ticksPerQuarterNote == A value for the MIDI file header
 		// which represents the number of ticks in a quarter note
 		// that are used as units for the delta times for MIDI events
-		// in MIDI file track data.
+		// in MIDI file track data.  In SMPTE mode this is not a real
+		// quarter-note count: see m_smpteQ and getTPQ().
 		int m_ticksPerQuarterNote = 120;
+
+		// m_smpteQ == True when the header division is in SMPTE time-code
+		// format (high bit of the 16-bit division word set).
+		bool m_smpteQ = false;
+
+		// m_smpteFpsCode == The negative frame-rate code stored in the high
+		// byte of the division word: one of -24, -25, -29 or -30.  The -29
+		// code represents the 30000/1001 (29.97...) frame rate.
+		int m_smpteFpsCode = 0;
+
+		// m_smpteTicksPerFrame == Ticks per frame stored in the low byte of
+		// the division word (1..255).
+		int m_smpteTicksPerFrame = 0;
 
 		// m_theTrackState == state variable for whether the tracks
 		// are joined or split.
@@ -322,6 +349,16 @@ class MidiFile {
 		void        buildTimeMap                    (void);
 		double      linearTickInterpolationAtSecond (double seconds);
 		double      linearSecondInterpolationAtTick (int ticktime);
+		// Drop any cached physical-time analysis (called whenever the time
+		// base changes so stale seconds/timemap data can never survive a
+		// switch between PPQN and SMPTE divisions).
+		void        invalidateTimeAnalysis          (void);
+		// Store a validated SMPTE division; callers validate the arguments.
+		void        storeSmpteDivision              (int negativeFpsCode,
+		                                             int ticksPerFrame);
+		// Seconds covered by one tick in SMPTE mode.  The 30000/1001 frame
+		// rate keeps its rational scale factors until the final double.
+		double      smpteSecondsPerTick             (void) const;
 		std::string base64Encode                    (const std::string &input);
 		std::string base64Decode                    (const std::string &input);
 
