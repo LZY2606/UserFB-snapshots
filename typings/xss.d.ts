@@ -21,6 +21,7 @@ declare module "xss" {
         whiteList?: IWhiteList;
         onTag?: OnTagHandler;
         onTagAttr?: OnTagAttrHandler;
+        transformAttr?: TransformAttrHandler;
         onIgnoreTag?: OnTagHandler;
         onIgnoreTagAttr?: OnTagAttrHandler;
         safeAttrValue?: SafeAttrValueHandler;
@@ -121,6 +122,18 @@ declare module "xss" {
         isWhiteAttr: boolean
       ) => string | void;
 
+      /**
+       * `transformAttr` only changes an attribute value; its result still goes
+       * through `safeAttrValue` and attribute serialization. Return `undefined`
+       * to keep the parsed value, a string to replace it, or `null` to remove
+       * the whole attribute. Any other return type throws `TypeError`.
+       */
+      type TransformAttrHandler = (
+        tag: string,
+        name: string,
+        value: string
+      ) => string | null | void;
+
       type SafeAttrValueHandler = (
         tag: string,
         name: string,
@@ -142,6 +155,8 @@ declare module "xss" {
   export type OnTagHandler = XSS.OnTagHandler;
 
   export type OnTagAttrHandler = XSS.OnTagAttrHandler;
+
+  export type TransformAttrHandler = XSS.TransformAttrHandler;
 
   export type SafeAttrValueHandler = XSS.SafeAttrValueHandler;
 

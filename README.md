@@ -234,6 +234,60 @@ function onTag(tag, html, options) {
 }
 ```
 
+### Transform the value of an attribute
+
+`onTagAttr` must return the complete attribute HTML, so even a small change to
+a value means the callback takes responsibility for URL checking and quote
+serialization. `transformAttr` is the narrow alternative: it only changes a
+value and always leaves the result to the library's normal filtering.
+
+```javascript
+function transformAttr(tag, name, value) {
+  // tag and name are lowercased tag and attribute names
+  // value is the value produced by the existing attribute parser
+  // Return undefined to keep the input value
+  // Return a string to replace it
+  // Return null to remove the whole attribute
+  // Any other type throws a TypeError
+}
+```
+
+The callback is invoked once for each input attribute only when the tag is in
+the whitelist, the attribute is in the tag's whitelist, and `onTagAttr` did not
+return the raw attribute HTML. Its string result is passed through
+`safeAttrValue` (the default one, or a `safeAttrValue` you explicitly
+configure) and then through normal attribute serialization, so it cannot
+rename an attribute, bypass the whitelist, or turn a `javascript:` URL into
+HTML. An empty string is not a deletion: the attribute is still emitted without
+a value.
+
+The trust boundary differs between the two callbacks:
+
+- `onTagAttr`: returning a string means "this is trusted attribute HTML". The
+  string is inserted as-is; the caller is responsible for escaping, and
+  `transformAttr` and `safeAttrValue` are not run for that attribute.
+- `transformAttr`: the return value is an untrusted attribute value. It is
+  escaped and scheme-checked by the library.
+
+Exceptions thrown by `transformAttr` propagate unchanged. When it is not
+configured, filtering works exactly as before. In `filterXSSWithResult`, a
+`null` result is recorded in `removed` as an `attr` record whose `value` is the
+value before the callback ran.
+
+```javascript
+// Rewrite image URLs to a fixed asset prefix
+var html = xss('<img src="/logo.png" title="logo">', {
+  whiteList: { img: ["src", "title"] },
+  transformAttr: function (tag, name, value) {
+    if (tag === "img" && name === "src") {
+      return "https://cdn.example.com" + value;
+    }
+    if (name === "title") return null;
+    return undefined;
+  },
+});
+```
+
 ### Customize the handler function for attributes of matched tags
 
 By specifying the handler function with `onTagAttr`:

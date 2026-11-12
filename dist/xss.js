@@ -521,6 +521,31 @@ function filterXSSWithResult(html, options) {
   // Save any hooks the user may have already provided
   var originalOnIgnoreTag = opts.onIgnoreTag;
   var originalOnIgnoreTagAttr = opts.onIgnoreTagAttr;
+  var originalTransformAttr =
+    Object.prototype.hasOwnProperty.call(opts, "transformAttr") &&
+    typeof opts.transformAttr === "function"
+      ? opts.transformAttr
+      : undefined;
+
+  // Override transformAttr to record attributes removed with `null`.
+  // The user callback still runs; only its `null` result is recorded.
+  // Install the wrapper only when the caller actually supplied a callback,
+  // so processing without one stays exactly as before.
+  if (originalTransformAttr) {
+    opts.transformAttr = function (tag, name, value) {
+      var result = originalTransformAttr(tag, name, value);
+      if (result === null) {
+        // Record the value before the callback, as the existing attr record does.
+        removed.push({
+          type: "attr",
+          tag: tag,
+          attr: name,
+          value: value,
+        });
+      }
+      return result;
+    };
+  }
 
   // Override onIgnoreTag to record removed tags
   opts.onIgnoreTag = function (tag, tagHtml, tagOptions) {
@@ -1011,7 +1036,7 @@ function ownProvided(options, key) {
  *
  * @param {Object} options
  *        whiteList (or allowList), onTag, onTagAttr, onIgnoreTag,
- *        onIgnoreTagAttr, safeAttrValue, escapeHtml
+ *        onIgnoreTagAttr, transformAttr, safeAttrValue, escapeHtml
  *        stripIgnoreTagBody, allowCommentTag, stripBlankChar
  *        css{whiteList, onAttr, onIgnoreAttr} `css=false` means don't use `cssfilter`
  */
@@ -1044,6 +1069,11 @@ function FilterXSS(options) {
   options.onIgnoreTagAttr = ownFunction(options, 'onIgnoreTagAttr', DEFAULT.onIgnoreTagAttr);
   options.safeAttrValue = ownFunction(options, 'safeAttrValue', DEFAULT.safeAttrValue);
   options.escapeHtml = ownFunction(options, 'escapeHtml', DEFAULT.escapeHtml);
+  // `transformAttr` is optional. Only an own function is accepted, so an
+  // inherited or polluted Object.prototype value is never executed.
+  // Unlike the other hooks there is no default: when unset the processing
+  // chain stays exactly as it was.
+  this.transformAttr = ownFunction(options, 'transformAttr', undefined);
   this.options = options;
 
   if (Object.prototype.hasOwnProperty.call(options, 'css') && options.css === false) {
@@ -1075,6 +1105,7 @@ FilterXSS.prototype.process = function (html) {
   var onIgnoreTagAttr = options.onIgnoreTagAttr;
   var safeAttrValue = options.safeAttrValue;
   var escapeHtml = options.escapeHtml;
+  var transformAttr = me.transformAttr;
   var attributeWrapSign = me.attributeWrapSign;
   var cssFilter = me.cssFilter;
 
@@ -1126,6 +1157,28 @@ FilterXSS.prototype.process = function (html) {
           if (!isNull(ret)) return ret;
 
           if (isWhiteAttr) {
+            // `onTagAttr` may have returned the trusted HTML for the whole
+            // attribute; that shortcut keeps its original meaning and must
+            // not also run `transformAttr` or `safeAttrValue`.
+            if (transformAttr) {
+              // `transformAttr` only changes the value. `tag` and `name`
+              // are already lowercased by the parsers and still go through
+              // the same whitelist and `safeAttrValue` checks below.
+              var transformed = transformAttr(tag, name, value);
+              // `undefined` keeps the parsed value; any other type except
+              // `null` and a string is a programming error and must not be
+              // accepted through an implicit `toString()`.
+              if (typeof transformed === "string") {
+                value = transformed;
+              } else if (transformed === null) {
+                return;
+              } else if (transformed !== undefined) {
+                throw new TypeError(
+                  "transformAttr must return a string, null or undefined"
+                );
+              }
+            }
+
             // call `safeAttrValue()`
             value = safeAttrValue(tag, name, value, cssFilter);
             if (value) {

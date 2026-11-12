@@ -237,6 +237,44 @@ function onTagAttr(tag, name, value, isWhiteAttr) {
 }
 ```
 
+### 只修改属性值
+
+`onTagAttr` 必须返回整段属性 HTML，因此哪怕只想修改一个属性值，回调也要自己负责 URL 检查和引号拼接。`transformAttr` 是范围更窄的选择：它只修改属性值，结果仍然交给库原有的安全过滤。
+
+```javascript
+function transformAttr(tag, name, value) {
+  // tag 和 name 是已经转成小写的标签名和属性名
+  // value 是现有属性解析器交出来的值
+  // 返回 undefined：保留输入值
+  // 返回字符串：替换成该值
+  // 返回 null：删除整个属性
+  // 返回其他类型：抛出 TypeError
+}
+```
+
+只有同时满足以下条件时，每个输入属性才会调用一次该回调：标签在白名单内、属性在该标签的白名单内，并且 `onTagAttr` 没有返回原始属性 HTML。返回的字符串会先经过 `safeAttrValue`（默认的，或者你显式配置的），再进入属性序列化，所以它不能改写属性名、不能越过白名单，也不能借它把 `javascript:` 地址当作 HTML 片段输出。空字符串不等于删除：属性仍会按现有规则输出，只是没有值。
+
+两种回调的信任边界不同：
+
+- `onTagAttr`：返回字符串表示“这是可信的属性 HTML”。该字符串会原样插入，转义责任归调用方，并且该属性不会再触发 `transformAttr` 和 `safeAttrValue`。
+- `transformAttr`：返回值是未信任的属性值，由库负责转义和协议检查。
+
+`transformAttr` 抛出的异常会原样向外传递。没有配置该回调时，过滤行为完全不变。在 `filterXSSWithResult` 中，返回 `null` 造成的删除会以 `attr` 记录写入 `removed`，其 `value` 是进入回调之前的属性值。
+
+```javascript
+// 把图片地址改到固定的资源前缀，并删除 title
+var html = xss('<img src="/logo.png" title="logo">', {
+  whiteList: { img: ["src", "title"] },
+  transformAttr: function (tag, name, value) {
+    if (tag === "img" && name === "src") {
+      return "https://cdn.example.com" + value;
+    }
+    if (name === "title") return null;
+    return undefined;
+  },
+});
+```
+
 ### 自定义匹配到不在白名单上的标签时的处理方法
 
 通过 `onIgnoreTag` 来指定相应的处理函数。以下是详细说明：
