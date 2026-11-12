@@ -138,6 +138,38 @@ Running this example gives the following output (from my printer):
 * `examples/example3.go` demonstrates `SNMPv3`
 * `examples/trapserver.go` demonstrates writing an SNMP v2c trap server
 
+# Receiving SNMPv3 Informs as the authoritative engine
+
+By default a `TrapListener` collects notifications without enforcing the
+SNMPv3 authoritative-engine rules. Calling
+`TrapListener.SetAuthoritativeEngine(engineID, engineBoots)` before
+`Listen` opts the listener into authoritative engine mode for SNMPv3
+Inform reception:
+
+* Engine discovery requests are answered with a
+  `usmStatsUnknownEngineIDs` Report carrying the local engine ID, even
+  when a `SnmpV3SecurityParametersTable` is configured.
+* Authenticated messages for the local engine ID are checked for
+  timeliness (RFC3414: matching boots, engine time within ±150 seconds)
+  after the digest verifies and before the body is decrypted; stale
+  reportable messages get an authNoPriv `usmStatsNotInTimeWindows`
+  Report.
+* Verified Informs are delivered to `OnNewTrap` once and confirmed with
+  a GetResponse at the same security level, using the local engine clock
+  and a freshly allocated salt for every encrypted response (RFC3826).
+* The engine clock starts at zero seconds when `Listen` begins and
+  advances only with elapsed time. Persisting boots across restarts is
+  the caller's responsibility: pass an increased `engineBoots` value on
+  every restart. gosnmp does not store it on disk.
+
+Scope and limits: the mode is UDP-only (TCP listeners are unchanged),
+covers SNMPv3 USM only, and handles discovery, time-sync probes and
+Informs for the local engine ID — it is not a Get/Set proxy. Traps from
+remote authoritative engines are still collected as before, while
+Informs addressed to a remote engine are dropped. Without
+`SetAuthoritativeEngine` the listener behaves exactly as before. See
+`ExampleTrapListener_SetAuthoritativeEngine` for a full setup.
+
 # MIB Parser
 
 I don't have any plans to write a mib parser. Others have suggested

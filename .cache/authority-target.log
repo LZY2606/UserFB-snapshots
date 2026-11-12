@@ -1,0 +1,76 @@
+=== RUN   TestInformAuthorityDiscovery
+=== RUN   TestInformAuthorityDiscovery/discovery_sync_inform_flow
+    inform_authority_test.go:268: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityDiscovery/invalid_discovery_shapes
+    inform_authority_test.go:341: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityDiscovery/config_validation
+    inform_authority_test.go:371: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityDiscovery/mode_disabled_keeps_legacy_behavior
+    inform_authority_test.go:382: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityDiscovery/remote_engine
+    inform_authority_test.go:394: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+--- FAIL: TestInformAuthorityDiscovery (0.01s)
+    --- FAIL: TestInformAuthorityDiscovery/discovery_sync_inform_flow (0.01s)
+    --- FAIL: TestInformAuthorityDiscovery/invalid_discovery_shapes (0.00s)
+    --- FAIL: TestInformAuthorityDiscovery/config_validation (0.00s)
+    --- FAIL: TestInformAuthorityDiscovery/mode_disabled_keeps_legacy_behavior (0.00s)
+    --- FAIL: TestInformAuthorityDiscovery/remote_engine (0.00s)
+=== RUN   TestInformAuthorityTimeliness
+=== RUN   TestInformAuthorityTimeliness/window_edges
+    inform_authority_test.go:423: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/boots_mismatch
+    inform_authority_test.go:446: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/bad_digest
+    inform_authority_test.go:463: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/unknown_user
+    inform_authority_test.go:482: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/corrupted_body
+    inform_authority_test.go:498: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/duplicate_inform_redelivered
+    inform_authority_test.go:515: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/engine_time_wrap
+    inform_authority_test.go:533: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityTimeliness/boots_saturation
+    inform_authority_test.go:553: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+--- FAIL: TestInformAuthorityTimeliness (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/window_edges (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/boots_mismatch (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/bad_digest (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/unknown_user (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/corrupted_body (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/duplicate_inform_redelivered (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/engine_time_wrap (0.00s)
+    --- FAIL: TestInformAuthorityTimeliness/boots_saturation (0.00s)
+=== RUN   TestInformAuthorityPrivacy
+=== RUN   TestInformAuthorityPrivacy/authpriv_response
+    inform_authority_test.go:583: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityPrivacy/salt_uniqueness
+    inform_authority_test.go:603: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityPrivacy/rotated_credentials
+    inform_authority_test.go:648: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityPrivacy/table_swap_during_callback
+    inform_authority_test.go:687: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityPrivacy/callback_packet_untouched
+    inform_authority_test.go:709: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+=== RUN   TestInformAuthorityPrivacy/listeners_isolated
+    inform_authority_test.go:738: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+--- FAIL: TestInformAuthorityPrivacy (0.01s)
+    --- FAIL: TestInformAuthorityPrivacy/authpriv_response (0.00s)
+    --- FAIL: TestInformAuthorityPrivacy/salt_uniqueness (0.00s)
+    --- FAIL: TestInformAuthorityPrivacy/rotated_credentials (0.01s)
+    --- FAIL: TestInformAuthorityPrivacy/table_swap_during_callback (0.00s)
+    --- FAIL: TestInformAuthorityPrivacy/callback_packet_untouched (0.00s)
+    --- FAIL: TestInformAuthorityPrivacy/listeners_isolated (0.00s)
+=== RUN   TestUnmarshalTrap
+--- PASS: TestUnmarshalTrap (0.02s)
+=== RUN   TestUnmarshalTrapWithMultipleUsers
+--- PASS: TestUnmarshalTrapWithMultipleUsers (0.02s)
+=== RUN   TestSendInformBasic
+    trap_test.go:960: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+--- FAIL: TestSendInformBasic (0.00s)
+=== RUN   TestSendV3EngineIdDiscovery
+    trap_test.go:1701: error in listen: listen udp 127.0.0.1:0: bind: operation not permitted
+--- FAIL: TestSendV3EngineIdDiscovery (0.00s)
+FAIL
+exit status 1
+FAIL	github.com/gosnmp/gosnmp	0.314s

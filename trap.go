@@ -139,6 +139,15 @@ type TrapListener struct {
 	// Total number of packets received referencing an unknown snmpEngineID
 	usmStatsUnknownEngineIDsCount uint32
 
+	// Total number of authenticated packets received outside the
+	// authoritative engine's time window (authoritative engine mode only).
+	usmStatsNotInTimeWindowsCount uint32
+
+	// authoritative holds the optional authoritative engine state for
+	// receiving SNMPv3 Informs as the authoritative engine (UDP only).
+	authoritativeMu sync.Mutex
+	authoritative   *authoritativeEngine
+
 	finish int32 // Atomic flag; set to 1 when closing connection
 
 	buffSize uint // SNMP message buffer size
@@ -253,6 +262,10 @@ func (t *TrapListener) listenUDP(addr string) error {
 	}
 	t.listenCloser = t.conn
 
+	// Authoritative engine mode is a UDP-only capability: the local clock
+	// and the response salt generators start when listening begins.
+	t.startAuthoritativeEngine()
+
 	defer t.conn.Close()
 
 	// Mark that we are listening now.
@@ -277,6 +290,9 @@ func (t *TrapListener) listenUDP(addr string) error {
 			}
 
 			msg := buf[:rlen]
+			if t.handleAuthoritative(msg, remote) {
+				continue
+			}
 			trap, err := t.Params.UnmarshalTrap(msg, false)
 			if err != nil {
 				t.Params.Logger.Printf("TrapListener: error in UnmarshalTrap %s", err)
