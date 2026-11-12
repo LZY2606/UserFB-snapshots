@@ -36,6 +36,7 @@ target_sources(Detour PRIVATE
     Source/DetourNavMeshBuilder.cpp
     Source/DetourNavMeshQuery.cpp
     Source/DetourNode.cpp
+    Source/DetourWeightedPath.cpp
 )
 
 install(TARGETS Detour

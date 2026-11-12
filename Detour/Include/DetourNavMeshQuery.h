@@ -21,6 +21,8 @@
 
 #include "DetourNavMesh.h"
 #include "DetourStatus.h"
+#include "DetourWeightedPath.h"
+#include "DetourCommon.h"
 
 
 // Define DT_VIRTUAL_QUERYFILTER if you wish to derive a custom filter from dtQueryFilter.
@@ -119,7 +121,28 @@ public:
 
 };
 
-/// Provides information about raycast hit
+#ifndef DT_VIRTUAL_QUERYFILTER
+// Default non-virtual implementations. They live in the header so every
+// translation unit (including additional Detour source files) can inline
+// them; the DT_VIRTUAL_QUERYFILTER build keeps its out-of-line versions in
+// DetourNavMeshQuery.cpp.
+inline bool dtQueryFilter::passFilter(const dtPolyRef /*ref*/,
+									  const dtMeshTile* /*tile*/,
+									  const dtPoly* poly) const
+{
+	return (poly->flags & m_includeFlags) != 0 && (poly->flags & m_excludeFlags) == 0;
+}
+
+inline float dtQueryFilter::getCost(const float* pa, const float* pb,
+									const dtPolyRef /*prevRef*/, const dtMeshTile* /*prevTile*/, const dtPoly* /*prevPoly*/,
+									const dtPolyRef /*curRef*/, const dtMeshTile* /*curTile*/, const dtPoly* curPoly,
+									const dtPolyRef /*nextRef*/, const dtMeshTile* /*nextTile*/, const dtPoly* /*nextPoly*/) const
+{
+	return dtVdist(pa, pb) * m_areaCost[curPoly->getArea()];
+}
+#endif
+
+/// Provides information about pathfinding hit
 /// filled by dtNavMeshQuery::raycast
 /// @ingroup detour
 struct dtRaycastHit
@@ -208,6 +231,41 @@ public:
 							  const dtPolyRef* path, const int pathSize,
 							  float* straightPath, unsigned char* straightPathFlags, dtPolyRef* straightPathRefs,
 							  int* straightPathCount, const int maxStraightPath, const int options = 0) const;
+
+	/// Continuously straightens a fixed polygon corridor while honoring the
+	/// per-polygon area costs of the filter.
+	///
+	/// The corridor is given as an ordered list of connected ground polygons
+	/// (as produced by #findPath); it is not searched again. Instead of pinning
+	/// each portal crossing to its midpoint, the crossing point is allowed to
+	/// move freely along the clipped portal segment and is optimized so that
+	/// more of the travel stays inside cheap polygons.
+	///
+	/// The objective is U = sum_i w_i * |p_{i+1} - p_i|, where w_i is
+	/// filter->getAreaCost() of the area of path[i] and the distance is the
+	/// full 3D segment length. The custom dtQueryFilter::getCost() is not used.
+	///
+	/// The result always contains pathSize+1 points (start, one point per
+	/// portal, end) and pathSize dual vectors. The dual vectors certify a
+	/// lower bound D on the global minimum; see dtWeightedPathResult.
+	/// #DT_SUCCESS is returned only when upperCost - lowerCost does not exceed
+	/// @p absoluteTolerance. If the iteration budget is exhausted first,
+	/// #DT_IN_PROGRESS is returned together with complete feasible points and
+	/// vectors and the true bounds.
+	///  @param[in]		startPos			Path start position, used as-is. [(x, y, z)]
+	///  @param[in]		endPos				Path end position, used as-is. [(x, y, z)]
+	///  @param[in]		path				An array of connected ground polygon references.
+	///  @param[in]		pathSize			The number of polygons in the @p path array.
+	///  @param[in]		filter				The polygon filter providing area costs.
+	///  @param[in]		absoluteTolerance	Convergence threshold on upperCost-lowerCost. [Limit: > 0, finite]
+	///  @param[in]		maxIterations		Upper bound on the number of solver iterations. [Limit: >= 0]
+	///  @param[out]	result				Caller-provided result buffers.
+	/// @returns The status flags for the query.
+	dtStatus findWeightedPath(const float* startPos, const float* endPos,
+							  const dtPolyRef* path, int pathSize,
+							  const dtQueryFilter* filter,
+							  double absoluteTolerance, int maxIterations,
+							  dtWeightedPathResult* result) const;
 
 	///@}
 	/// @name Sliced Pathfinding Functions

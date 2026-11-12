@@ -24,6 +24,18 @@
 #include "DetourAlloc.h"
 
 
+dtStatus dtPathCorridor::findWeightedPath(const dtNavMeshQuery* navquery, const dtQueryFilter* filter,
+										  double absoluteTolerance, int maxIterations,
+										  dtWeightedPathResult* result) const
+{
+	if (!navquery)
+		return DT_FAILURE | DT_INVALID_PARAM;
+	// Uses the current position, target and corridor verbatim; the corridor
+	// path itself is never modified and no old solution is reused.
+	return navquery->findWeightedPath(m_pos, m_target, m_path, m_npath, filter,
+									  absoluteTolerance, maxIterations, result);
+}
+
 int dtMergeCorridorStartMoved(dtPolyRef* path, const int npath, const int maxPath,
 							  const dtPolyRef* visited, const int nvisited)
 {

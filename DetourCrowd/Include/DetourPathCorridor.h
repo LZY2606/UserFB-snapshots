@@ -58,6 +58,20 @@ public:
 	int findCorners(float* cornerVerts, unsigned char* cornerFlags,
 					dtPolyRef* cornerPolys, const int maxCorners,
 					dtNavMeshQuery* navquery, const dtQueryFilter* filter);
+
+	/// Continuously straightens the current corridor while honoring the
+	/// filter's per-area costs, via dtNavMeshQuery::findWeightedPath().
+	/// Uses the current m_pos, m_target and m_path verbatim; the corridor's
+	/// own path is not modified and no old crossing solution is cached.
+	///  @param[in]		navquery			The query object used for the optimization.
+	///  @param[in]		filter				The filter to apply to the operation.
+	///  @param[in]		absoluteTolerance	Convergence threshold on the cost gap. [Limit: > 0, finite]
+	///  @param[in]		maxIterations		Upper bound on solver iterations. [Limit: >= 0]
+	///  @param[out]	result				Caller-provided result buffers.
+	/// @returns The status flags returned by the query.
+	dtStatus findWeightedPath(const dtNavMeshQuery* navquery, const dtQueryFilter* filter,
+							  double absoluteTolerance, int maxIterations,
+							  dtWeightedPathResult* result) const;
 	
 	/// Attempts to optimize the path if the specified point is visible from the current position.
 	///  @param[in]		next					The point to search toward. [(x, y, z])
