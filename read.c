@@ -71,6 +71,12 @@
 /* Initial size of our nested reply stack and how much we grow it when needd */
 #define REDIS_READER_STACK_SIZE 9
 
+/* Sentinel values for redisReadTask.elements marking a streamed value whose
+ * length is not known in advance (RESP3 "$?", "*?", "%?", "~?"). */
+#define STREAM_STATE_NONE   (-1) /* fixed-length value, normal processing */
+#define STREAM_STATE_BLOB   (-2) /* inside "$?" chunk framing */
+#define STREAM_STATE_AGG    (-3) /* inside "*?", "%?" or "~?" */
+
 static void __redisReaderSetError(redisReader *r, int type, const char *str) {
     size_t len;
 
@@ -78,6 +84,12 @@ static void __redisReaderSetError(redisReader *r, int type, const char *str) {
         r->fn->freeObject(r->reply);
         r->reply = NULL;
     }
+
+    /* Drop any half-assembled streamed blob; it is not attached to a reply
+     * object yet, so nobody else would free it. */
+    sdsfree(r->streamBlob);
+    r->streamBlob = NULL;
+    r->streamChunk = -1;
 
     /* Clear input buffer on errors. */
     sdsfree(r->buf);
@@ -274,17 +286,140 @@ static void moveToNextTask(redisReader *r) {
                prv->type == REDIS_REPLY_ATTR ||
                prv->type == REDIS_REPLY_SET ||
                prv->type == REDIS_REPLY_PUSH);
+
+        /* A streamed aggregate of unknown length is closed explicitly by
+         * its own "." marker instead of running off a fixed count. */
+        if (prv->elements == STREAM_STATE_AGG) {
+            cur->type = -1;
+            cur->elements = STREAM_STATE_NONE;
+            cur->idx++;
+            return;
+        }
+
         if (cur->idx == prv->elements-1) {
             r->ridx--;
         } else {
             /* Reset the type because the next item can be anything */
             assert(cur->idx < prv->elements);
             cur->type = -1;
-            cur->elements = -1;
+            cur->elements = STREAM_STATE_NONE;
             cur->idx++;
             return;
         }
     }
+}
+
+/* Ensure the streamed aggregate owning the current child task has room for
+ * at least (child->idx + 1) slots before the next child object is built.
+ * Returns REDIS_OK when no growth is needed, REDIS_ERR after recording an
+ * error otherwise. */
+static int ensureStreamSlot(redisReader *r) {
+    redisReadTask *child = r->task[r->ridx];
+    redisReadTask *parent;
+    size_t slots;
+
+    /* Only children of a streamed aggregate need dynamic growth. */
+    if (child->parent == NULL ||
+        child->parent->elements != STREAM_STATE_AGG)
+        return REDIS_OK;
+
+    /* The fn == NULL sentinel mode consumes the structure but never builds
+     * objects, so it has no slots to grow and no pointers to chase. */
+    if (r->fn == NULL)
+        return REDIS_OK;
+
+    parent = child->parent;
+    if (child->idx < 0)
+        return REDIS_OK;
+
+    /* size_t arithmetic cannot wrap past the idx we already reached. */
+    slots = (size_t)child->idx + 1;
+
+    /* maxelements counts key/value pairs for maps, plain children otherwise. */
+    if (r->maxelements > 0) {
+        long long count = (parent->type == REDIS_REPLY_MAP)
+                              ? (long long)(slots / 2)
+                              : (long long)slots;
+        if (count > r->maxelements) {
+            __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                "Multi-bulk length out of range");
+            return REDIS_ERR;
+        }
+    }
+
+    if (r->streamFn == NULL || r->streamFn->growAggregate == NULL) {
+        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+            "Streamed aggregate requires grow callbacks that are not configured");
+        return REDIS_ERR;
+    }
+
+    if (r->streamFn->growAggregate(parent,slots) != REDIS_OK) {
+        __redisReaderSetErrorOOM(r);
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+/* A "." marker closes the innermost streamed aggregate. The marker is read
+ * at the child task level, so the aggregate to close is its parent. The
+ * exact final slot count is reported through growAggregate() once. */
+static int closeStreamAggregate(redisReader *r) {
+    redisReadTask *child = r->task[r->ridx];
+    redisReadTask *agg;
+    size_t slots;
+    long long count;
+
+    if (child->parent == NULL) {
+        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+            "Stream end marker at the top level");
+        return REDIS_ERR;
+    }
+
+    agg = child->parent;
+    if (agg->elements != STREAM_STATE_AGG) {
+        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+            "Stream end marker inside a fixed-length aggregate");
+        return REDIS_ERR;
+    }
+
+    /* Number of child slots actually consumed (maps: key+value pairs). */
+    slots = (size_t)child->idx;
+
+    if ((agg->type == REDIS_REPLY_MAP) && (slots % 2) != 0) {
+        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+            "Streamed map ended with an odd number of elements");
+        return REDIS_ERR;
+    }
+
+    /* maxelements counts key/value pairs for maps, plain children otherwise. */
+    count = (agg->type == REDIS_REPLY_MAP) ? (long long)(slots / 2)
+                                           : (long long)slots;
+    if (r->maxelements > 0 && count > r->maxelements) {
+        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+            "Multi-bulk length out of range");
+        return REDIS_ERR;
+    }
+
+    /* Sentinel mode holds no object to grow. */
+    if (r->fn != NULL) {
+        if (r->streamFn == NULL || r->streamFn->growAggregate == NULL) {
+            __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                "Streamed aggregate requires grow callbacks that are not configured");
+            return REDIS_ERR;
+        }
+
+        if (r->streamFn->growAggregate(agg,slots) != REDIS_OK) {
+            __redisReaderSetErrorOOM(r);
+            return REDIS_ERR;
+        }
+    }
+
+    /* Turn the aggregate back into an ordinary completed one so popping it
+     * advances its own (possibly streamed) parent exactly once. */
+    agg->elements = (long long)slots;
+    r->ridx--; /* move from the child task onto the aggregate task */
+    moveToNextTask(r);
+    return REDIS_OK;
 }
 
 static int processLineItem(redisReader *r) {
@@ -452,6 +587,134 @@ static int processLineItem(redisReader *r) {
     return REDIS_ERR;
 }
 
+/* Drive a streamed blob string ("$?") whose framing is:
+ *   "$?\r\n" then repeated ";N\r\n" <N payload bytes> "\r\n",
+ * terminated by ";0\r\n" with no payload or trailing terminator.
+ * The payloads may contain NULs or protocol-looking bytes; they are all
+ * concatenated into a single STRING object created exactly once at the end. */
+static int processStreamBulkItem(redisReader *r) {
+    redisReadTask *cur = r->task[r->ridx];
+    sds blob = r->streamBlob;
+    char *p, *s;
+    int linelen;
+    long long chunklen;
+    size_t need;
+
+    assert(cur->type == REDIS_REPLY_STRING &&
+           cur->elements == STREAM_STATE_BLOB);
+
+    for (;;) {
+        if (r->streamChunk < 0) {
+            /* Expect a chunk header line ";N\r\n". */
+            p = r->buf + r->pos;
+            s = seekNewline(p, r->len - r->pos);
+            if (s == NULL)
+                return REDIS_ERR; /* wait for more data */
+
+            linelen = (int)(s - p);
+            if (linelen < 1 || p[0] != ';') {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Bad streamed blob chunk header");
+                return REDIS_ERR;
+            }
+            if (string2ll(p + 1, (size_t)linelen - 1, &chunklen) == REDIS_ERR) {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Bad streamed blob chunk length");
+                return REDIS_ERR;
+            }
+            if (chunklen < 0) {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Streamed blob chunk length out of range");
+                return REDIS_ERR;
+            }
+            /* Guard every addition below against size_t wraparound. */
+            if ((LLONG_MAX > SIZE_MAX && chunklen > (long long)SIZE_MAX) ||
+                sdslen(blob) > SIZE_MAX - 2 ||
+                (size_t)chunklen > SIZE_MAX - sdslen(blob) - 2) {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Streamed blob length out of range");
+                return REDIS_ERR;
+            }
+
+            r->pos += (size_t)linelen + 2; /* consume ";N\r\n" */
+
+            if (chunklen == 0) {
+                /* Terminator: build the single resulting string. */
+                void *obj;
+                if (r->fn && r->fn->createString)
+                    obj = r->fn->createString(cur, blob, sdslen(blob));
+                else
+                    obj = (void*)(uintptr_t)cur->type;
+
+                r->streamBlob = NULL;
+                r->streamChunk = -1;
+                sdsfree(blob);
+
+                if (obj == NULL) {
+                    __redisReaderSetErrorOOM(r);
+                    return REDIS_ERR;
+                }
+
+                if (r->ridx == 0) r->reply = obj;
+                cur->elements = STREAM_STATE_NONE;
+                moveToNextTask(r);
+                return REDIS_OK;
+            }
+
+            /* Payload plus its trailing CRLF. */
+            need = (size_t)chunklen + 2;
+            if (r->len - r->pos < need) {
+                /* Keep the header's length and retry once payload arrives. */
+                r->streamChunk = chunklen;
+                return REDIS_ERR;
+            }
+
+            if (r->buf[r->pos + chunklen] != '\r' ||
+                r->buf[r->pos + chunklen + 1] != '\n') {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Bad streamed blob chunk terminator");
+                return REDIS_ERR;
+            }
+
+            /* Copy the N payload bytes (NUL-safe), skip payload + CRLF. */
+            {
+                sds next = sdscatlen(blob, r->buf + r->pos, (size_t)chunklen);
+                if (next == NULL) {
+                    __redisReaderSetErrorOOM(r);
+                    return REDIS_ERR;
+                }
+                r->streamBlob = blob = next;
+            }
+            r->pos += need;
+            /* stay in header-reading mode for the next iteration */
+        } else {
+            /* Resume a chunk whose header was already consumed. */
+            need = (size_t)r->streamChunk + 2;
+            if (r->len - r->pos < need)
+                return REDIS_ERR;
+
+            if (r->buf[r->pos + r->streamChunk] != '\r' ||
+                r->buf[r->pos + r->streamChunk + 1] != '\n') {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Bad streamed blob chunk terminator");
+                return REDIS_ERR;
+            }
+
+            {
+                sds next = sdscatlen(blob, r->buf + r->pos,
+                                     (size_t)r->streamChunk);
+                if (next == NULL) {
+                    __redisReaderSetErrorOOM(r);
+                    return REDIS_ERR;
+                }
+                r->streamBlob = blob = next;
+            }
+            r->pos += need;
+            r->streamChunk = -1;
+        }
+    }
+}
+
 static int processBulkItem(redisReader *r) {
     redisReadTask *cur = r->task[r->ridx];
     void *obj = NULL;
@@ -460,11 +723,32 @@ static int processBulkItem(redisReader *r) {
     unsigned long bytelen;
     int success = 0;
 
+    /* Already inside a streamed blob string: keep driving its chunk state
+     * machine instead of reading a fixed bulk length. */
+    if (cur->elements == STREAM_STATE_BLOB)
+        return processStreamBulkItem(r);
+
     p = r->buf+r->pos;
     s = seekNewline(p,r->len-r->pos);
     if (s != NULL) {
         p = r->buf+r->pos;
         bytelen = s-(r->buf+r->pos)+2; /* include \r\n */
+
+        if (cur->type == REDIS_REPLY_STRING && bytelen == 3 && p[0] == '?') {
+            /* RESP3 streamed blob string of unknown length ("$?"). Switch
+             * tasks to the chunk parser and let it run on this same buffer. */
+            r->pos += bytelen; /* consume "?\r\n" */
+            if (r->streamBlob == NULL) {
+                r->streamBlob = sdsempty();
+                if (r->streamBlob == NULL) {
+                    __redisReaderSetErrorOOM(r);
+                    return REDIS_ERR;
+                }
+            }
+            r->streamChunk = -1;
+            cur->elements = STREAM_STATE_BLOB;
+            return processStreamBulkItem(r);
+        }
 
         if (string2ll(p, bytelen - 2, &len) == REDIS_ERR) {
             __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
@@ -569,6 +853,55 @@ static int processAggregateItem(redisReader *r) {
     }
 
     if ((p = readLine(r,&len)) != NULL) {
+        if (len == 1 && p[0] == '?') {
+            /* RESP3 streamed aggregate of unknown length. Only arrays, maps
+             * and sets may use the streamed form (not ATTR/PUSH). */
+            if (cur->type != REDIS_REPLY_ARRAY &&
+                cur->type != REDIS_REPLY_MAP &&
+                cur->type != REDIS_REPLY_SET) {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Streamed length is only valid for array, map and set");
+                return REDIS_ERR;
+            }
+
+            /* Sentinel (fn == NULL) consumers need no object growth; every
+             * other consumer must provide grow callbacks. Fixed-length values
+             * remain usable without them. */
+            if (r->fn != NULL &&
+                (r->streamFn == NULL || r->streamFn->growAggregate == NULL)) {
+                __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                    "Streamed aggregate requires grow callbacks that are not configured");
+                return REDIS_ERR;
+            }
+
+            root = (r->ridx == 0);
+
+            /* The container object is created once, with zero slots; slots
+             * are added on demand through growAggregate(). */
+            if (r->fn && r->fn->createArray)
+                obj = r->fn->createArray(cur,0);
+            else
+                obj = (void*)(uintptr_t)cur->type;
+
+            if (obj == NULL) {
+                __redisReaderSetErrorOOM(r);
+                return REDIS_ERR;
+            }
+
+            cur->elements = STREAM_STATE_AGG;
+            cur->obj = obj;
+            r->ridx++;
+            r->task[r->ridx]->type = -1;
+            r->task[r->ridx]->elements = STREAM_STATE_NONE;
+            r->task[r->ridx]->idx = 0;
+            r->task[r->ridx]->obj = NULL;
+            r->task[r->ridx]->parent = cur;
+            r->task[r->ridx]->privdata = r->privdata;
+
+            if (root) r->reply = obj;
+            return REDIS_OK;
+        }
+
         if (string2ll(p, len, &elements) == REDIS_ERR) {
             __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
                     "Bad multi-bulk length");
@@ -655,6 +988,21 @@ static int processItem(redisReader *r) {
     /* check if we need to read type */
     if (cur->type < 0) {
         if ((p = readBytes(r,1)) != NULL) {
+            /* The standalone "." marker closes a streamed aggregate and is
+             * only legal where the next element of one would begin. It is
+             * not a new reply type. */
+            if (p[0] == '.') {
+                char *eol = readBytes(r,2); /* consume the marker's CRLF */
+                if (eol == NULL) {
+                    r->pos--; /* give back '.' until the whole marker arrives */
+                    return REDIS_ERR;
+                }
+                if (eol[0] != '\r' || eol[1] != '\n') {
+                    __redisReaderSetErrorProtocolByte(r,'.');
+                    return REDIS_ERR;
+                }
+                return closeStreamAggregate(r);
+            }
             switch (p[0]) {
             case '-':
                 cur->type = REDIS_REPLY_ERROR;
@@ -706,6 +1054,12 @@ static int processItem(redisReader *r) {
             /* could not consume 1 byte */
             return REDIS_ERR;
         }
+
+        /* A new child object is about to be built. If its parent is a
+         * streamed aggregate, make sure its slot (and the parent object /
+         * privdata) is ready before any create* callback runs. */
+        if (ensureStreamSlot(r) != REDIS_OK)
+            return REDIS_ERR;
     }
 
     /* process typed item */
@@ -755,15 +1109,25 @@ redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn) {
     }
 
     r->fn = fn;
+    r->streamFn = NULL;
     r->maxbuf = REDIS_READER_MAX_BUF;
     r->maxelements = REDIS_READER_MAX_ARRAY_ELEMENTS;
     r->maxdepth = REDIS_READER_MAX_REPLY_DEPTH;
     r->ridx = -1;
+    r->streamBlob = NULL;
+    r->streamChunk = -1;
 
     return r;
 oom:
     redisReaderFree(r);
     return NULL;
+}
+
+void redisReaderSetStreamCallbacks(redisReader *r,
+                                   const redisReplyStreamCallbacks *cb) {
+    if (r == NULL)
+        return;
+    r->streamFn = cb;
 }
 
 void redisReaderFree(redisReader *r) {
@@ -772,6 +1136,8 @@ void redisReaderFree(redisReader *r) {
 
     if (r->reply != NULL && r->fn && r->fn->freeObject)
         r->fn->freeObject(r->reply);
+
+    sdsfree(r->streamBlob);
 
     if (r->task) {
         /* We know r->task[i] is allocated if i < r->tasks */

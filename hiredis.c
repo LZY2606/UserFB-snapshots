@@ -76,6 +76,59 @@ static redisReplyObjectFunctions defaultFunctions = {
     freeReplyObject
 };
 
+/* Grow a streamed aggregate's element vector. While the stream is open the
+ * reply's "elements" field holds the allocated capacity (unfilled slots stay
+ * NULL); the final callback reports the exact consumed count, at which point
+ * the vector is trimmed and "elements" becomes the real count again. */
+static int growReplyAggregate(const redisReadTask *task, size_t slots) {
+    redisReply *r = task->obj;
+    size_t capacity = r->elements;
+    redisReply **vec;
+    size_t oldcap;
+
+    if (slots <= capacity) {
+        /* Final notification of the exact size: shrink to fit and expose it. */
+        if (slots != capacity) {
+            vec = hi_realloc(r->element, slots * sizeof(redisReply*));
+            if (vec == NULL)
+                return REDIS_ERR;
+            r->element = vec;
+            r->elements = slots;
+        }
+        return REDIS_OK;
+    }
+
+    oldcap = capacity;
+    if (capacity == 0)
+        capacity = 4;
+    while (capacity < slots) {
+        if (capacity > SIZE_MAX / 2) {
+            capacity = slots;
+            break;
+        }
+        capacity *= 2;
+    }
+
+    if (capacity > SIZE_MAX / sizeof(redisReply*))
+        return REDIS_ERR;
+
+    vec = hi_realloc(r->element, capacity * sizeof(redisReply*));
+    if (vec == NULL)
+        return REDIS_ERR;
+
+    /* Zero the freshly added slots so an unfilled one is NULL. That keeps
+     * freeReplyObject() safe if the reader errors before the stream closes,
+     * when "elements" still reports the capacity. */
+    memset(vec + oldcap, 0, (capacity - oldcap) * sizeof(redisReply*));
+    r->element = vec;
+    r->elements = capacity;
+    return REDIS_OK;
+}
+
+static redisReplyStreamCallbacks defaultStreamFunctions = {
+    growReplyAggregate
+};
+
 /* Create a reply object */
 static redisReply *createReplyObject(int type) {
     redisReply *r = hi_calloc(1,sizeof(*r));
@@ -705,7 +758,10 @@ void __redisSetError(redisContext *c, int type, const char *str) {
 }
 
 redisReader *redisReaderCreate(void) {
-    return redisReaderCreateWithFunctions(&defaultFunctions);
+    redisReader *reader = redisReaderCreateWithFunctions(&defaultFunctions);
+    if (reader != NULL)
+        redisReaderSetStreamCallbacks(reader,&defaultStreamFunctions);
+    return reader;
 }
 
 static void redisPushAutoFree(void *privdata, void *reply) {

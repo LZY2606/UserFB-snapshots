@@ -95,6 +95,20 @@ typedef struct redisReplyObjectFunctions {
     void (*freeObject)(void*);
 } redisReplyObjectFunctions;
 
+/* Callbacks used for RESP3 streamed values of unknown length
+ * ("$?", "*?", "%?", "~?"). The fixed-length object callbacks above keep
+ * their layout and signatures; this is a separate, optional table.
+ *
+ * growAggregate() is invoked on the parent aggregate's task before each
+ * child object is constructed and must ensure the parent object (held in
+ * task->obj) has room for at least (idx+1) slots. It is called again when
+ * the streamed container closes, this time reporting the exact final slot
+ * count; for maps "slots" counts key/value entries, i.e. twice the number
+ * of pairs. Returning REDIS_ERR is treated like an out-of-memory error. */
+typedef struct redisReplyStreamCallbacks {
+    int (*growAggregate)(const redisReadTask *task, size_t slots);
+} redisReplyStreamCallbacks;
+
 typedef struct redisReader {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
@@ -112,9 +126,16 @@ typedef struct redisReader {
     void *reply; /* Temporary reply pointer */
 
     redisReplyObjectFunctions *fn;
+    const redisReplyStreamCallbacks *streamFn;
     void *privdata;
 
     int maxdepth; /* Max nested aggregate reply depth */
+
+    /* Parse state for an in-progress streamed blob string ("$?"). The
+     * accumulation buffer is an sds managed internally by read.c; only one
+     * blob can be active at a time because blob strings have no children. */
+    void *streamBlob; /* sds holding the concatenated chunk payloads */
+    long long streamChunk; /* chunk bytes left, or -1 when reading the header */
 } redisReader;
 
 /* Public API for the protocol parser. */
@@ -122,6 +143,14 @@ redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn);
 void redisReaderFree(redisReader *r);
 int redisReaderFeed(redisReader *r, const char *buf, size_t len);
 int redisReaderGetReply(redisReader *r, void **reply);
+
+/* Install the callbacks used for streamed RESP3 values of unknown length.
+ * A reader from redisReaderCreate() starts with the built-in redisReply
+ * growth callbacks pre-installed. Passing NULL removes them: streamed
+ * aggregates then raise a protocol error (fixed-length parsing is
+ * unaffected). The fn == NULL sentinel mode never needs these callbacks. */
+void redisReaderSetStreamCallbacks(redisReader *r,
+                                   const redisReplyStreamCallbacks *cb);
 
 #define redisReaderSetPrivdata(_r, _p) (int)(((redisReader*)(_r))->privdata = (_p))
 #define redisReaderGetObject(_r) (((redisReader*)(_r))->reply)
