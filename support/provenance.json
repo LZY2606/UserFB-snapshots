@@ -1,0 +1,26 @@
+{
+  "commit": "4fb298ec1af0686211dc2def73f4f41c2ce19ce5",
+  "files": [
+    {
+      "source": "dev-tools/tests.h",
+      "delivered": "support/upstream/tests.h",
+      "sha256": "1f02cebdbd004ff7eb4d24258923b4eeb729a39f27d8ba44b7d89c8a330bc1ee",
+      "license": "GPL-3.0-or-later",
+      "modification": "none"
+    },
+    {
+      "source": "dev-tools/test-cabac.cc",
+      "delivered": "support/upstream/test-cabac.cc",
+      "sha256": "48771db6f129bb76611c721666056b3ee87e765deb42f3ca1b06ae187b73ab79",
+      "license": "GPL-3.0-or-later",
+      "modification": "none"
+    },
+    {
+      "source": "testdata/girlshy.h265",
+      "delivered": "support/fixtures/girlshy.h265",
+      "sha256": "4206863bfaf684e3483a24c9c00b8e3c3f68148d4e320505f0a87345fbb7502d",
+      "license": "upstream repository test fixture; retained byte-for-byte",
+      "modification": "none"
+    }
+  ]
+}
