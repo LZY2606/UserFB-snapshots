@@ -1,0 +1,5 @@
+./memory.go
+./tcpassembly.go
+./tcpcheck.go
+./tcpassembly_test.go
+./tcpcheck_test.go

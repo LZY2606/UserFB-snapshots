@@ -421,6 +421,7 @@ type halfconnection struct {
 	created, lastSeen time.Time
 	stream            Stream
 	closed            bool
+	hist              *overlapHistory // bounded suffix of delivered bytes; nil when overlap detection is off
 	// for stats
 	queuedBytes    int
 	queuedPackets  int
@@ -460,7 +461,7 @@ type connection struct {
 	mu       sync.Mutex
 }
 
-func (c *connection) reset(k key, s Stream, ts time.Time) {
+func (c *connection) reset(k key, s Stream, ts time.Time, overlapHistoryBytes int) {
 	c.key = k
 	c.removed = false
 	base := halfconnection{
@@ -473,6 +474,9 @@ func (c *connection) reset(k key, s Stream, ts time.Time) {
 	}
 	c.c2s, c.s2c = base, base
 	c.c2s.dir, c.s2c.dir = TCPDirClientToServer, TCPDirServerToClient
+	// Each direction keeps its own independent history.
+	c.c2s.hist = newOverlapHistory(overlapHistoryBytes)
+	c.s2c.hist = newOverlapHistory(overlapHistoryBytes)
 }
 
 // halves returns the half-connections of c oriented for k, which must be
@@ -1036,6 +1040,9 @@ func (a *Assembler) handleBytes(bytes []byte, seq Sequence, half *halfconnection
 	a.cacheLP.ac = ac
 
 	if action.queue {
+		// Compare with the queue and the delivered history before any
+		// overlap handling overwrites queued bytes.
+		a.detectOverlaps(half, ac)
 		a.checkOverlap(half, true, ac)
 		if (a.MaxBufferedPagesPerConnection > 0 && half.pages >= a.MaxBufferedPagesPerConnection) ||
 			(a.MaxBufferedPagesTotal > 0 && int(a.pc.used.Load()) >= a.MaxBufferedPagesTotal) {
@@ -1047,6 +1054,10 @@ func (a *Assembler) handleBytes(bytes []byte, seq Sequence, half *halfconnection
 		}
 		a.dump("handleBytes after queue", half)
 	} else {
+		// A contiguous segment may overlap delivered bytes (its prefix is
+		// about to be trimmed) and queued pages (checkOverlap may overwrite
+		// them): inspect both before either mutation.
+		a.detectOverlaps(half, ac)
 		a.cacheLP.bytes, a.cacheLP.seq = a.overlapExisting(half, seq, seq.Add(len(bytes)), a.cacheLP.bytes)
 		a.checkOverlap(half, false, ac)
 		if len(a.cacheLP.bytes) != 0 || end || start {
@@ -1194,6 +1205,11 @@ func (a *Assembler) sendToConnection(conn *connection, half *halfconnection, ac 
 		log.Printf("sendToConnection\n")
 	}
 	end, nextSeq := a.buildSG(half)
+	// Record the delivered bytes before the Stream gets the ScatterGather:
+	// the receiver may mutate the Fetch memory, and the history must keep the
+	// bytes that were actually delivered. Saved bytes re-sent through
+	// KeepFrom sit in the SG prefix and are skipped here.
+	a.recordDelivered(half)
 	half.stream.ReassembledSG(&a.cacheSG, ac)
 	a.cleanSG(half, ac)
 	if end {
@@ -1305,6 +1321,10 @@ func (a *Assembler) closeHalfConnection(conn *connection, half *halfconnection) 
 		half.pages -= p.release(a.pc)
 	}
 	half.saved = nil
+
+	// The half is done: release its bounded history as well.
+	half.hist.release()
+	half.hist = nil
 
 	if conn.s2c.closed && conn.c2s.closed {
 		if half.stream.ReassemblyComplete(nil) { //FIXME: which context to pass ?

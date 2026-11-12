@@ -98,6 +98,7 @@ type StreamPool struct {
 	all                [][]connection
 	nextAlloc          int
 	newConnectionCount int64
+	options            StreamPoolOptions
 }
 
 const initialAllocSize = 1024
@@ -141,18 +142,32 @@ func (p *StreamPool) remove(conn *connection) {
 	// and an Assembler still waiting for its lock must see it is gone.
 	conn.removed = true
 	for _, half := range []*halfconnection{&conn.c2s, &conn.s2c} {
+		// Drop any retained overlap evidence before the object is reused.
+		half.hist.release()
 		half.stream, half.saved, half.first, half.last = nil, nil, nil, nil
 	}
 }
 
 // NewStreamPool creates a new connection pool.  Streams will
 // be created as necessary using the passed-in StreamFactory.
+//
+// It is equivalent to NewStreamPoolWithOptions with the zero
+// StreamPoolOptions: overlap detection is disabled.
 func NewStreamPool(factory StreamFactory) *StreamPool {
+	return NewStreamPoolWithOptions(factory, StreamPoolOptions{})
+}
+
+// NewStreamPoolWithOptions creates a new connection pool with the given
+// options.  All Assemblers sharing the pool share both its connections and,
+// when options.OverlapHistoryBytes is positive, the per-direction overlap
+// history attached to those connections.
+func NewStreamPoolWithOptions(factory StreamFactory, options StreamPoolOptions) *StreamPool {
 	return &StreamPool{
 		conns:     make(map[key]*connection, initialAllocSize),
 		free:      make([]*connection, 0, initialAllocSize),
 		factory:   factory,
 		nextAlloc: initialAllocSize,
+		options:   options,
 	}
 }
 
@@ -181,7 +196,7 @@ func (p *StreamPool) newConnection(k key, s Stream, ts time.Time) (c *connection
 	// An Assembler that looked c up before it was removed may still hold its
 	// lock.  It never waits for p.mu once c is removed, so this can't deadlock.
 	c.mu.Lock()
-	c.reset(k, s, ts)
+	c.reset(k, s, ts, p.options.OverlapHistoryBytes)
 	c.mu.Unlock()
 	return c, &c.c2s, &c.s2c
 }
