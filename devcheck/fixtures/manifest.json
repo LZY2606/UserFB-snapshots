@@ -1,0 +1,79 @@
+{
+  "tool": "xz (XZ Utils) 5.8.4",
+  "input_generator": "prepare-fixtures.py; deterministic byte ramp with benign x86-like branch byte patterns, never executed",
+  "raw_size": 1537,
+  "files": [
+    {
+      "file": "delta1.xz",
+      "command": [
+        "xz",
+        "-c",
+        "--threads=1",
+        "--check=crc32",
+        "--delta=dist=1",
+        "--lzma2=dict=64KiB"
+      ],
+      "sha256": "0234a2f556de4090b32c32e927f406116f556d7e532c69513b5d085fbbcd073f",
+      "size": 968,
+      "decoded_sha256": "77bcda5db83967c595aa74970d021a7b456034d0c0f75e73f222a23d2619c05c"
+    },
+    {
+      "file": "delta256.xz",
+      "command": [
+        "xz",
+        "-c",
+        "--threads=1",
+        "--check=crc32",
+        "--delta=dist=256",
+        "--lzma2=dict=64KiB"
+      ],
+      "sha256": "87e79ab22491b8670a65b6226f0d1f73b0b08b321bd2755dfeb2bacbf9b8b9ed",
+      "size": 1320,
+      "decoded_sha256": "77bcda5db83967c595aa74970d021a7b456034d0c0f75e73f222a23d2619c05c"
+    },
+    {
+      "file": "x86.xz",
+      "command": [
+        "xz",
+        "-c",
+        "--threads=1",
+        "--check=crc32",
+        "--x86=start=4294967280",
+        "--lzma2=dict=64KiB"
+      ],
+      "sha256": "17bfed1d299fcfcaa37dbc9ccf3c83635ffa500d9c2c513380f1176f3ae633e5",
+      "size": 1020,
+      "decoded_sha256": "77bcda5db83967c595aa74970d021a7b456034d0c0f75e73f222a23d2619c05c"
+    },
+    {
+      "file": "chain.xz",
+      "command": [
+        "xz",
+        "-c",
+        "--threads=1",
+        "--check=crc32",
+        "--delta=dist=3",
+        "--x86=start=16",
+        "--lzma2=dict=64KiB"
+      ],
+      "sha256": "6e96175f5c2792bcb4709c08fc653840e97251eaa28ebc8eca49202bfbcb60fa",
+      "size": 1340,
+      "decoded_sha256": "77bcda5db83967c595aa74970d021a7b456034d0c0f75e73f222a23d2619c05c"
+    },
+    {
+      "file": "blocks.xz",
+      "command": [
+        "xz",
+        "-c",
+        "--threads=1",
+        "--check=crc32",
+        "--block-size=251",
+        "--x86=start=4294967280",
+        "--lzma2=dict=64KiB"
+      ],
+      "sha256": "ab28fe2b43c17b2af24a291914e7e10c099fe5d685865b09735d5362e4bffe7f",
+      "size": 1460,
+      "decoded_sha256": "77bcda5db83967c595aa74970d021a7b456034d0c0f75e73f222a23d2619c05c"
+    }
+  ]
+}
