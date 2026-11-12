@@ -199,6 +199,12 @@ void MIDIplay::partialReset()
     resetMIDIDefaults();
 }
 
+void MIDIplay::resetMtsTuning()
+{
+    for(size_t i = 0; i < 128; ++i)
+        m_mtsTuning[i] = 0.0;
+}
+
 void MIDIplay::resetMIDI()
 {
     Synth &synth = *m_synth;
@@ -206,6 +212,7 @@ void MIDIplay::resetMIDI()
     m_sysExDeviceId = 0;
     m_synthMode = Mode_XG;
     m_arpeggioCounter = 0;
+    resetMtsTuning();
 
     std::memset(m_midiDevices, 0, sizeof(m_midiDevices));
     std::memset(m_currentMidiDevice, 0, sizeof(m_currentMidiDevice));
@@ -313,6 +320,8 @@ void MIDIplay::realTime_ResetState()
 {
     Synth &synth = *m_synth;
 
+    resetMtsTuning();
+
     for(size_t ch = 0; ch < m_midiChannels.size; ch++)
     {
         MIDIchannel &chan = m_midiChannels[ch];
@@ -326,6 +335,10 @@ void MIDIplay::realTime_ResetState()
         noteUpdateAll(uint16_t(ch), Upd_All);
         noteUpdateAll(uint16_t(ch), Upd_Off);
     }
+
+    // The tuning table was just reset; pedal-held voices that no longer have
+    // an active note record must return to their 12-TET pitch too.
+    rePitchAllSustainedVoices();
 
     synth.m_masterVolume = MasterVolumeDefault;
 }
@@ -1020,6 +1033,12 @@ bool MIDIplay::realTime_SysEx(const uint8_t *msg, size_t size)
         break;
     case Manufacturer_UniversalNonRealtime:
     case Manufacturer_UniversalRealtime:
+        // Real-time MIDI Tuning Standard: Single Note Tuning Change.
+        // Dispatch it before the generic handler so the strict data-byte
+        // validation of this message does not affect other universal SysEx.
+        if(manufacturer == Manufacturer_UniversalRealtime && size >= 2 &&
+           msg[0] == 0x08 && msg[1] == 0x02)
+            return doUniversalRealtimeTuning(dev, msg + 2, size - 2);
         return doUniversalSysEx(
             dev, manufacturer == Manufacturer_UniversalRealtime, msg, size);
     case Manufacturer_Roland:
@@ -1031,10 +1050,175 @@ bool MIDIplay::realTime_SysEx(const uint8_t *msg, size_t size)
     return false;
 }
 
+double MIDIplay::mtsTuningOffset(const MIDIchannel::NoteInfo &info) const
+{
+    // Percussion channels are not affected by the tuning table, and the
+    // table is indexed by the original MIDI key, not by the transposed tone.
+    // (NoteInfo::note is a raw MIDI key in 0..127.)
+    if(info.isPercussion)
+        return 0.0;
+
+    return m_mtsTuning[info.note];
+}
+
+void MIDIplay::rePitchSustainedVoicesForKey(uint8_t note, double offset)
+{
+    Synth &synth = *m_synth;
+
+    // Pedal-held (CC64/CC66) voices may no longer have an active note record,
+    // so walk the physical chip channels and re-pitch the sustained identities
+    // directly from the pitch that was last sent to the chip. Only the tuning
+    // component changes: the envelope is not retriggered, and controller
+    // values received after the key release are not applied.
+    for(uint32_t c = 0; c < synth.m_numChannels; ++c)
+    {
+        AdlChannel &chipChan = m_chipChannels[c];
+
+        for(AdlChannel::users_iterator j = chipChan.users.begin(); !j.is_end(); ++j)
+        {
+            AdlChannel::LocationData &jd = j->value;
+
+            if(jd.sustained == AdlChannel::LocationData::Sustain_None)
+                continue;
+            if(jd.loc.note != note || jd.isPercussion)
+                continue;
+            if(!jd.baseToneValid)
+                continue;
+
+            synth.noteOn(jd.ins.chip_chan, jd.partnerChipChan, jd.baseTone + offset);
+        }
+    }
+}
+
+void MIDIplay::rePitchAllSustainedVoices()
+{
+    Synth &synth = *m_synth;
+
+    for(uint32_t c = 0; c < synth.m_numChannels; ++c)
+    {
+        AdlChannel &chipChan = m_chipChannels[c];
+
+        for(AdlChannel::users_iterator j = chipChan.users.begin(); !j.is_end(); ++j)
+        {
+            AdlChannel::LocationData &jd = j->value;
+
+            if(jd.sustained == AdlChannel::LocationData::Sustain_None)
+                continue;
+            if(jd.isPercussion || !jd.baseToneValid)
+                continue;
+
+            synth.noteOn(jd.ins.chip_chan, jd.partnerChipChan,
+                         jd.baseTone + m_mtsTuning[jd.loc.note]);
+        }
+    }
+}
+
+void MIDIplay::applyMtsTuningToKey(uint8_t note)
+{
+    if(note > 127)
+        return;
+
+    // Re-pitch all currently sounding melodic voices of this key that are
+    // still tracked as active notes. This grabs the current channel state
+    // (bend, vibrato, instrument offsets) exactly like a regular pitch update.
+    for(size_t ch = 0; ch < m_midiChannels.size; ++ch)
+    {
+        MIDIchannel &chan = m_midiChannels[ch];
+
+        for(MIDIchannel::notes_iterator it = chan.activenotes.begin(); !it.is_end(); )
+        {
+            MIDIchannel::notes_iterator cur(it++);
+            MIDIchannel::NoteInfo &info = cur->value;
+
+            if(info.note != note || info.isPercussion || info.isBlank)
+                continue;
+
+            noteUpdate(ch, cur, Upd_Pitch);
+        }
+    }
+
+    rePitchSustainedVoicesForKey(note, m_mtsTuning[note]);
+}
+
+bool MIDIplay::doUniversalRealtimeTuning(unsigned dev, const uint8_t *data, size_t size)
+{
+    bool devicematch = dev == 0x7F || dev == m_sysExDeviceId;
+
+    if(!devicematch || size < 2)
+        return false;
+
+    // MIDI Tuning Standard: Single Note Tuning Change is dispatched here with
+    // data pointing at the tuning bank byte:
+    // F0 7F <dev> 08 02 <tt> <count> [<key> <semitone> <fracMSB> <fracLSB>]... F7
+
+    // Only the zero tuning bank is supported for now
+    if(data[0] != 0x00)
+        return false;
+
+    unsigned count = data[1];
+
+    // The record count must match the message length exactly: no missing
+    // trailing bytes and no extra trailing data are accepted.
+    if(size != 2 + 4 * static_cast<size_t>(count))
+        return false;
+
+    // Every data byte must be seven-bit; validate the whole message before
+    // changing anything so a partially-applied update is impossible.
+    for(size_t i = 0; i < size; ++i)
+    {
+        if(data[i] > 0x7F)
+            return false;
+    }
+
+    // Stage the update. Duplicate keys keep the last valid record in order,
+    // while the "no change" record (7F 7F 7F 7F) leaves earlier values intact.
+    double staged[128];
+    for(size_t i = 0; i < 128; ++i)
+        staged[i] = m_mtsTuning[i];
+
+    for(unsigned r = 0; r < count; ++r)
+    {
+        const uint8_t *rec = data + 2 + 4 * static_cast<size_t>(r);
+        unsigned key = rec[0];
+        unsigned semitone = rec[1];
+        unsigned fracMsb = rec[2];
+        unsigned fracLsb = rec[3];
+
+        // "No change" record: the three tuning bytes (semitone and both
+        // fraction bytes) are all 7F; this record keeps the existing value.
+        if(semitone == 0x7F && fracMsb == 0x7F && fracLsb == 0x7F)
+            continue;
+
+        // Absolute pitch of this key in semitones (fraction is 1/16384)
+        double absolute = static_cast<double>(semitone) +
+                          static_cast<double>(fracMsb * 128 + fracLsb) / 16384.0;
+
+        staged[key] = absolute - static_cast<double>(key);
+    }
+
+    // Commit and re-pitch sounding voices key by key. Only keys whose value
+    // actually changed are touched.
+    for(unsigned key = 0; key < 128; ++key)
+    {
+        if(staged[key] == m_mtsTuning[key])
+            continue;
+
+        m_mtsTuning[key] = staged[key];
+        applyMtsTuningToKey(static_cast<uint8_t>(key));
+    }
+
+    return true;
+}
+
 bool MIDIplay::doUniversalSysEx(unsigned dev, bool realtime, const uint8_t *data, size_t size)
 {
     bool devicematch = dev == 0x7F || dev == m_sysExDeviceId;
     if(size < 2 || !devicematch)
+        return false;
+
+    // Sub-ID bytes are seven-bit data; reject malformed values outright
+    // instead of silently masking them.
+    if(data[0] > 0x7F || data[1] > 0x7F)
         return false;
 
     unsigned address =
@@ -1425,7 +1609,28 @@ void MIDIplay::noteUpdFreq(size_t midCh, const AdlChannel::Location &loc, MIDIch
         if(vibrato && (d.is_end() || d->value.vibdelay_us >= chan.vibdelay_us))
             bend += static_cast<double>(vibrato) * chan.vibdepth * std::sin(chan.vibpos);
 
-        m_synth->noteOn(ins.chip_chan, info.chip_channels[1].chip_chan, info.currentTone + bend + phase);
+        // Base pitch without the MIDI Tuning Standard offset. Kept per
+        // physical voice so a later tuning change can shift exactly this
+        // component, without accumulating drift and without re-applying
+        // controller state that arrived after the key was released.
+        double baseTone = info.currentTone + bend + phase;
+
+        if(!d.is_end())
+        {
+            d->value.baseTone = baseTone;
+            d->value.baseToneValid = true;
+            d->value.isPercussion = info.isPercussion;
+
+            // Remember the companion voice used by this note (the same one
+            // the regular pitch update passes to noteOn()) so a pedal-held
+            // voice can be re-pitched later without a retrigger.
+            d->value.partnerChipChan = (info.chip_channels_count > 1) ?
+                                       info.chip_channels[1].chip_chan :
+                                       ins.chip_chan;
+        }
+
+        m_synth->noteOn(ins.chip_chan, info.chip_channels[1].chip_chan,
+                        baseTone + mtsTuningOffset(info));
 
         if(hooks.onNote)
             hooks.onNote(hooks.onNote_userData, ins.chip_chan, info.noteTone, info.midiins, info.vol, midibend);

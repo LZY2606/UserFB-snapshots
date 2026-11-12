@@ -549,6 +549,26 @@ public:
             //! Timeout until note will be allowed to be killed by channel manager while it is on
             int64_t kon_time_until_neglible_us;
             int64_t vibdelay_us;
+            //! Pitch (tone without the MIDI tuning offset) last sent to the chip
+            double baseTone;
+            //! Whether baseTone contains a meaningful value
+            bool   baseToneValid;
+            //! Companion chip channel (second voice of a 4-op / pseudo-4-op pair)
+            uint16_t partnerChipChan;
+            //! Whether this voice belongs to a percussion channel
+            bool isPercussion;
+
+            LocationData() :
+                sustained(Sustain_None),
+                fixed_sustain(false),
+                kon_time_until_neglible_us(0),
+                vibdelay_us(0),
+                baseTone(0.0),
+                baseToneValid(false),
+                partnerChipChan(0xFFFF),
+                isPercussion(false)
+            {
+            }
 
             struct FindPredicate
             {
@@ -694,6 +714,10 @@ public:
 
     //! SysEx device ID
     uint8_t m_sysExDeviceId;
+
+    //! Per-key offsets of the MIDI Tuning Standard table (in semitones,
+    //! relative to the key's own equal-tempered pitch). All zeros = 12-TET.
+    double m_mtsTuning[128];
 
     /**
      * @brief MIDI Synthesizer mode
@@ -1079,6 +1103,45 @@ private:
      * @return true when event was successfully handled
      */
     bool doYamahaSysEx(unsigned dev, const uint8_t *data, size_t size);
+
+    /**
+     * @brief Process a real-time MIDI Tuning Standard message
+     * @param dev Device ID
+     * @param data Raw SysEx data after the tuning bank byte
+     * @param size Size of given SysEx data
+     * @return true when event was successfully handled
+     */
+    bool doUniversalRealtimeTuning(unsigned dev, const uint8_t *data, size_t size);
+
+    /**
+     * @brief Reset the per-key MIDI Tuning Standard table to 12-TET
+     */
+    void resetMtsTuning();
+
+    /**
+     * @brief Apply the current MIDI Tuning table to all sounding voices of one key
+     * @param note MIDI key (original key, not transposed tone)
+     */
+    void applyMtsTuningToKey(uint8_t note);
+
+    /**
+     * @brief Re-pitch all pedal-held physical voices of a key (no retrigger)
+     * @param note MIDI key (original key)
+     * @param offset Tuning offset in semitones to use
+     */
+    void rePitchSustainedVoicesForKey(uint8_t note, double offset);
+
+    /**
+     * @brief Re-pitch all pedal-held physical voices using the current tuning table
+     */
+    void rePitchAllSustainedVoices();
+
+    /**
+     * @brief Get the MIDI Tuning offset applied to a note (0 for percussion)
+     * @param info Active note record
+     * @return Offset in semitones
+     */
+    double mtsTuningOffset(const MIDIchannel::NoteInfo &info) const;
 
 private:
     /**

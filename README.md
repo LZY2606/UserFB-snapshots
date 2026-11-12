@@ -53,7 +53,42 @@ Library is based on the ADLMIDI, a MIDI player for Linux and Windows with OPL3 e
 * CC74 "Brightness" affects a modulator scale (to simulate frequency cut-off on WT synths)
 * Portamento support (CC5, CC37, and CC65)
 * SysEx support that supports some generic, GS, and XG features
+* Real-time MIDI Tuning Standard (MTS) Single Note Tuning Change (tuning bank 0)
 * Full-panning stereo option (works for emulators only)
+
+### MIDI Tuning Standard (Single Note Tuning Change)
+The real-time SysEx path accepts the universal real-time MTS "Single Note Tuning
+Change" message with tuning bank 0 and applies it to all melodic channels of the
+player instance:
+
+```
+F0 7F <device> 08 02 00 <count> [<key> <semitone> <fracMSB> <fracLSB>]... F7
+```
+
+`<device>` is either the id configured through `adl_setDeviceIdentifier()` or the
+broadcast id `7F`. Each record sets the *absolute* pitch of the key it names:
+`semitone + (128 * fracMSB + fracLSB) / 16384` in half-tones; the difference
+between that value and the key's own equal-tempered pitch becomes the tuning
+offset. The table is indexed by the original MIDI key (never by the instrument's
+transposition), percussion channels are not affected, and the update is applied
+both to keys that are sounding right now and to keys played later. Other
+device ids, the non-real-time `7E` manufacturer id, non-zero tuning banks, count
+mismatches and non-seven-bit data bytes are rejected with a return value of 0 and
+leave the sound untouched. A `7F 7F 7F` tuning triplet means "no change" and
+keeps the previous value; duplicate keys inside one message take the last valid
+record. `adl_rt_resetState()`, GM System On and `adl_reset()` restore 12-TET,
+while CC121 only resets controllers and keeps the tuning table.
+
+Example: tune key 60 to 60.5 half-tones and key 69 to 68.25 half-tones, sent to
+broadcast device id:
+
+```
+F0 7F 7F 08 02 00 02
+   3C 3C 40 00    ; key 60 (0x3C): 60 + 8192/16384 = 60.5
+   45 44 20 00    ; key 69 (0x45): 68 + 4096/16384 = 68.25
+F7
+```
+
 
 # How to build
 To build libADLMIDI you need to use CMake:
