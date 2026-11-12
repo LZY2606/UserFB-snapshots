@@ -25,6 +25,7 @@
 
 #include "../core/BaseObject.h"
 #include "../geom/Transform.h"
+#include <utility>
 
 DRAGONBONES_NAMESPACE_BEGIN
 /**
@@ -239,6 +240,45 @@ public:
      * @internal
      */
     ActionTimelineState* _actionTimeline;
+    /**
+     * @internal
+     * Phase synchronization state.
+     */
+    AnimationState* _syncLeader = nullptr;
+    /**
+     * @internal
+     */
+    std::vector<AnimationState*> _syncFollowers;
+    /**
+     * @internal
+     */
+    std::vector<std::pair<float, float>> _syncMarkers;
+    /**
+     * @internal
+     * -1: reverse, 1: forward, 0: not moving; tells the action timeline how to dispatch frame events.
+     */
+    int _syncDirection = 1;
+    /**
+     * @internal
+     * Pending crossing produced by the playhead pass, consumed (events replayed) in the timeline pass.
+     */
+    bool _syncCrossingPending = false;
+    float _syncOldTime = 0.0f;
+    float _syncNewTime = 0.0f;
+    /**
+     * @internal
+     */
+    bool _syncSuppressFrameEvents = false;
+    /**
+     * @internal
+     * Per-frame marker used by Animation to update sync chains in leader-first order.
+     */
+    bool _syncUpdated = false;
+    /**
+     * @internal
+     * The raw passed time of the current frame, shared by the playhead and timeline passes.
+     */
+    float _framePassedTime = 0.0f;
 
 private:
     unsigned _timelineDirty;
@@ -272,6 +312,10 @@ private:
     void _updateTimelines();
     void _updateBoneAndSlotTimelines();
     void _advanceFadeTime(float passedTime);
+    bool _validateSyncMarkers(const std::vector<std::pair<float, float>>& markers, float leaderDuration) const;
+    float _mapSyncTime(float leaderTime) const;
+    void _applySynchronizedTime();
+    void _clearSyncBinding();
 
 public:
     /**
@@ -282,6 +326,20 @@ public:
      * @internal
      */
     void advanceTime(float passedTime, float cacheFrameRate);
+    /**
+     * @internal
+     * First pass: advance only the playhead time (or map the leader's phase), without touching timelines.
+     */
+    void _advancePlayhead(float passedTime);
+    /**
+     * @internal
+     * Second pass: fade, timeline sampling and bone/slot blending, in the state list order.
+     */
+    void _advanceTimelines(float cacheFrameRate);
+    /**
+     * @internal
+     */
+    void _detachSyncOnRemove();
     /**
      * - Continue play.
      * @version DragonBones 3.0
@@ -474,6 +532,67 @@ public:
      */
     float getCurrentTime() const;
     void setCurrentTime(float value);
+    /**
+     * @internal
+     * The effective playhead direction, which for a synchronized state comes from the leader.
+     */
+    inline int _getPlayDirection() const
+    {
+        return _syncLeader != nullptr ? _syncDirection : (timeScale < 0.0f ? -1 : 1);
+    }
+    /**
+     * - Bind this animation state as a follower of another active state in the same armature.
+     * The follower's playhead keeps tracking the leader's phase, mapped piecewise linearly
+     * through the marker pairs (leader time in seconds, follower time in seconds).
+     * Only full-duration, infinitely looping (playTimes == 0) states can be bound.
+     * @param leader - The leading animation state.
+     * @param markers - Marker pairs, first must be (0, 0), last the full durations, each column strictly increasing.
+     * @returns true when the binding was created (or replaced), false when any argument or state is invalid;
+     * an existing binding is left untouched on failure.
+     * @version DragonBones 5.7
+     * @language en_US
+     */
+    /**
+     * - 将本动画状态绑定为同一骨架内另一个活动状态的从属状态。
+     * 从属状态的播放头按标记对（源动作秒数, 从属动作秒数）分段线性映射，持续跟随源状态的相位。
+     * 只有播放完整动作且无限循环（playTimes == 0）的状态可以绑定。
+     * @param leader - 作为相位源的动画状态。
+     * @param markers - 标记对，首对必须为 (0, 0)，末对为两者完整时长，两列各自严格递增。
+     * @returns 绑定成功（或替换成功）返回 true；参数或状态非法时返回 false 且原有绑定不变。
+     * @version DragonBones 5.7
+     * @language zh_CN
+     */
+    bool synchronizeTo(AnimationState* leader, const std::vector<std::pair<float, float>>& markers);
+    /**
+     * - Remove the phase synchronization binding. The state resumes playing with its own timeScale
+     * from the last mapped time.
+     * @version DragonBones 5.7
+     * @language en_US
+     */
+    /**
+     * - 解除相位同步绑定。该状态从最后一次实际映射到的时间开始，恢复按自身 timeScale 播放。
+     * @version DragonBones 5.7
+     * @language zh_CN
+     */
+    void unsynchronize();
+    /**
+     * - Whether this state is currently following another state's phase.
+     * @version DragonBones 5.7
+     * @language en_US
+     */
+    inline bool isSynchronized() const
+    {
+        return _syncLeader != nullptr;
+    }
+    /**
+     * - The phase leader of this state, or null when it is not synchronized.
+     * @version DragonBones 5.7
+     * @language en_US
+     */
+    inline AnimationState* getSyncLeader() const
+    {
+        return _syncLeader;
+    }
     inline const std::string& getName() const
     {
         return name;

@@ -13,6 +13,7 @@ void Animation::_onClear()
 {
     for (const auto animationState : _animationStates)
     {
+        animationState->_detachSyncOnRemove();
         animationState->returnToPool();
     }
 
@@ -118,6 +119,7 @@ void Animation::advanceTime(float passedTime)
         const auto animationState = _animationStates[0];
         if (animationState->_fadeState > 0 && animationState->_subFadeState > 0)
         {
+            animationState->_detachSyncOnRemove();
             _armature->_dragonBones->bufferObject(animationState);
             _animationStates.clear();
             _lastAnimationState = nullptr;
@@ -166,6 +168,7 @@ void Animation::advanceTime(float passedTime)
             if (animationState->_fadeState > 0 && animationState->_subFadeState > 0)
             {
                 r++;
+                animationState->_detachSyncOnRemove();
                 _armature->_dragonBones->bufferObject(animationState);
                 _animationDirty = true;
                 if (_lastAnimationState == animationState)
@@ -179,18 +182,77 @@ void Animation::advanceTime(float passedTime)
                 {
                     _animationStates[i - r] = animationState;
                 }
-
-                animationState->advanceTime(passedTime, 0.0f);
             }
 
             if (i == animationStateCount - 1 && r > 0)
             {
                 _animationStates.resize(animationStateCount - r);
-                if (_lastAnimationState == nullptr && !_animationStates.empty()) 
+                if (_lastAnimationState == nullptr && !_animationStates.empty())
                 {
                     _lastAnimationState = _animationStates[_animationStates.size() - 1];
                 }
             }
+        }
+
+        // Playhead pass: independent states first (original list order), then sync chains
+        // leader-first so every follower uses the leader's time from this same frame.
+        std::vector<AnimationState*> synchronizedStates;
+        for (const auto animationState : _animationStates)
+        {
+            if (animationState->isSynchronized())
+            {
+                synchronizedStates.push_back(animationState);
+            }
+            else
+            {
+                animationState->_advancePlayhead(passedTime);
+            }
+        }
+
+        std::size_t updatedCount = 0;
+        while (updatedCount < synchronizedStates.size())
+        {
+            const auto previousCount = updatedCount;
+            for (const auto animationState : synchronizedStates)
+            {
+                if (animationState->_syncUpdated)
+                {
+                    continue;
+                }
+
+                const auto leader = animationState->getSyncLeader();
+                if (leader == nullptr || !leader->isSynchronized() || leader->_syncUpdated)
+                {
+                    animationState->_advancePlayhead(passedTime);
+                    animationState->_syncUpdated = true;
+                    ++updatedCount;
+                }
+            }
+
+            if (updatedCount == previousCount) // Defensive guard; valid bindings never form a cycle.
+            {
+                for (const auto animationState : synchronizedStates)
+                {
+                    if (!animationState->_syncUpdated)
+                    {
+                        animationState->unsynchronize();
+                        animationState->_advancePlayhead(passedTime);
+                        animationState->_syncUpdated = true;
+                        ++updatedCount;
+                    }
+                }
+            }
+        }
+
+        for (const auto animationState : synchronizedStates)
+        {
+            animationState->_syncUpdated = false;
+        }
+
+        // Sampling/blend pass in the untouched state list (layer) order.
+        for (const auto animationState : _animationStates)
+        {
+            animationState->_advanceTimelines(0.0f);
         }
 
         _armature->_cacheFrameIndex = -1;
@@ -205,6 +267,7 @@ void Animation::reset()
 {
     for (const auto animationState : _animationStates)
     {
+        animationState->_detachSyncOnRemove();
         animationState->returnToPool();
     }
 

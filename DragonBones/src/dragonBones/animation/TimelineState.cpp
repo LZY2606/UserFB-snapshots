@@ -20,6 +20,11 @@ DRAGONBONES_NAMESPACE_BEGIN
 
 void ActionTimelineState::_onCrossFrame(unsigned frameIndex) const
 {
+    if (_animationState->_syncSuppressFrameEvents) // A phase sync step re-derives events itself.
+    {
+        return;
+    }
+
     const auto eventDispatcher = _armature->getProxy();
 
     if (_animationState->actionEnabled)
@@ -94,7 +99,7 @@ void ActionTimelineState::update(float passedTime)
             }
         }
 
-        const auto isReverse = _animationState->timeScale < 0.0f;
+        const auto isReverse = _animationState->_getPlayDirection() < 0;
         EventObject* loopCompleteEvent = nullptr;
         EventObject* completeEvent = nullptr;
 
@@ -296,6 +301,151 @@ void ActionTimelineState::setCurrentTime(float value)
 {
     _setCurrentTime(value);
     _frameIndex = -1;
+}
+
+void ActionTimelineState::dispatchCrossedEvents(float oldTime, float newTime, int direction)
+{
+    if (_timelineData == nullptr || _frameCount <= 1 || oldTime == newTime || direction == 0)
+    {
+        return;
+    }
+
+    struct Occurrence
+    {
+        float time;
+        unsigned frameIndex;
+        bool isLoopComplete;
+    };
+
+    std::vector<Occurrence> occurrences;
+    const auto duration = _duration;
+    const auto eventDispatcher = _armature->getProxy();
+    const auto wantsLoopComplete = eventDispatcher->hasDBEventListener(EventObject::LOOP_COMPLETE);
+
+    if (direction > 0) // Forward: strictly crossed expanded times are (oldTime, newTime].
+    {
+        for (unsigned frameIndex = 0; frameIndex < _frameCount; ++frameIndex)
+        {
+            const auto frameOffset = _animationData->frameOffset + _timelineArray[_timelineData->offset + (unsigned)BinaryOffset::TimelineFrameOffset + frameIndex];
+            const auto framePosition = (float)_frameArray[frameOffset] / _frameRate;
+            if (framePosition < _position || framePosition > _position + _duration)
+            {
+                continue;
+            }
+
+            for (auto cycle = std::floor((oldTime - framePosition) / duration) + 1.0f; ; cycle += 1.0f)
+            {
+                const auto expandedTime = cycle * duration + framePosition;
+                if (expandedTime > newTime)
+                {
+                    break;
+                }
+
+                occurrences.push_back({ expandedTime, frameIndex, false });
+            }
+        }
+
+        if (wantsLoopComplete) // Loop boundaries n * duration with oldTime < n * duration <= newTime.
+        {
+            for (auto cycle = std::floor(oldTime / duration) + 1.0f; ; cycle += 1.0f)
+            {
+                const auto expandedTime = cycle * duration;
+                if (expandedTime > newTime)
+                {
+                    break;
+                }
+
+                occurrences.push_back({ expandedTime, 0, true });
+            }
+        }
+
+        std::sort(occurrences.begin(), occurrences.end(), [](const Occurrence& a, const Occurrence& b) {
+            if (a.time != b.time)
+            {
+                return a.time < b.time;
+            }
+
+            return a.isLoopComplete && !b.isLoopComplete; // Loop complete precedes the first-frame event.
+        });
+
+        for (const auto& occurrence : occurrences)
+        {
+            if (occurrence.isLoopComplete)
+            {
+                const auto eventObject = BaseObject::borrowObject<EventObject>();
+                eventObject->type = EventObject::LOOP_COMPLETE;
+                eventObject->armature = _armature;
+                eventObject->animationState = _animationState;
+                _armature->_dragonBones->bufferEvent(eventObject);
+            }
+            else
+            {
+                _onCrossFrame(occurrence.frameIndex);
+            }
+        }
+    }
+    else // Reverse: strictly crossed expanded times are [newTime, oldTime).
+    {
+        for (unsigned frameIndex = 0; frameIndex < _frameCount; ++frameIndex)
+        {
+            const auto frameOffset = _animationData->frameOffset + _timelineArray[_timelineData->offset + (unsigned)BinaryOffset::TimelineFrameOffset + frameIndex];
+            const auto framePosition = (float)_frameArray[frameOffset] / _frameRate;
+            if (framePosition < _position || framePosition > _position + _duration)
+            {
+                continue;
+            }
+
+            for (auto cycle = std::ceil((oldTime - framePosition) / duration) - 1.0f; ; cycle -= 1.0f)
+            {
+                const auto expandedTime = cycle * duration + framePosition;
+                if (expandedTime < newTime)
+                {
+                    break;
+                }
+
+                occurrences.push_back({ expandedTime, frameIndex, false });
+            }
+        }
+
+        if (wantsLoopComplete) // Loop boundaries n * duration with newTime <= n * duration < oldTime.
+        {
+            for (auto cycle = std::ceil(oldTime / duration) - 1.0f; ; cycle -= 1.0f)
+            {
+                const auto expandedTime = cycle * duration;
+                if (expandedTime < newTime)
+                {
+                    break;
+                }
+
+                occurrences.push_back({ expandedTime, 0, true });
+            }
+        }
+
+        std::sort(occurrences.begin(), occurrences.end(), [](const Occurrence& a, const Occurrence& b) {
+            if (a.time != b.time)
+            {
+                return a.time > b.time;
+            }
+
+            return !a.isLoopComplete && b.isLoopComplete; // First-frame event precedes the loop complete.
+        });
+
+        for (const auto& occurrence : occurrences)
+        {
+            if (occurrence.isLoopComplete)
+            {
+                const auto eventObject = BaseObject::borrowObject<EventObject>();
+                eventObject->type = EventObject::LOOP_COMPLETE;
+                eventObject->armature = _armature;
+                eventObject->animationState = _animationState;
+                _armature->_dragonBones->bufferEvent(eventObject);
+            }
+            else
+            {
+                _onCrossFrame(occurrence.frameIndex);
+            }
+        }
+    }
 }
 
 void ZOrderTimelineState::_onArriveAtFrame()

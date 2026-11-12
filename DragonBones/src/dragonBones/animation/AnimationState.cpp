@@ -1,4 +1,5 @@
 #include "AnimationState.h"
+#include "Animation.h"
 #include "WorldClock.h"
 #include "../model/DisplayData.h"
 #include "../model/AnimationConfig.h"
@@ -15,6 +16,8 @@ DRAGONBONES_NAMESPACE_BEGIN
 
 void AnimationState::_onClear()
 {
+    _detachSyncOnRemove();
+
     for (const auto timeline : _boneTimelines)
     {
         timeline->returnToPool();
@@ -76,6 +79,16 @@ void AnimationState::_onClear()
     _armature = nullptr;
     _actionTimeline = nullptr;
     _zOrderTimeline = nullptr;
+    _syncLeader = nullptr;
+    _syncFollowers.clear();
+    _syncMarkers.clear();
+    _syncDirection = 1;
+    _syncCrossingPending = false;
+    _syncOldTime = 0.0f;
+    _syncNewTime = 0.0f;
+    _syncSuppressFrameEvents = false;
+    _syncUpdated = false;
+    _framePassedTime = 0.0f;
 }
 
 void AnimationState::_updateTimelines()
@@ -511,23 +524,33 @@ void AnimationState::init(Armature* parmature, AnimationData* panimationData, An
     }
 }
 
-void AnimationState::advanceTime(float passedTime, float cacheFrameRate)
+void AnimationState::_advancePlayhead(float passedTime)
 {
-    // Update fade time.
-    if (_fadeState != 0 || _subFadeState != 0) 
-    {
-        _advanceFadeTime(passedTime);
-    }
+    _framePassedTime = passedTime;
 
-    // Update time.
-    if (_playheadState == 3) // 11
+    if (_syncLeader != nullptr) // The playhead follows the leader's mapped phase instead of its own timeScale.
     {
-        if (timeScale != 1.0f) 
+        _applySynchronizedTime();
+    }
+    else if (_playheadState == 3) // 11
+    {
+        if (timeScale != 1.0f)
         {
             passedTime *= timeScale;
         }
 
         _time += passedTime;
+    }
+}
+
+void AnimationState::_advanceTimelines(float cacheFrameRate)
+{
+    const auto passedTime = _framePassedTime;
+
+    // Update fade time.
+    if (_fadeState != 0 || _subFadeState != 0)
+    {
+        _advanceFadeTime(passedTime);
     }
 
     if (_timelineDirty != 0) 
@@ -541,8 +564,9 @@ void AnimationState::advanceTime(float passedTime, float cacheFrameRate)
         _updateBoneAndSlotTimelines();
     }
 
-    if (weight == 0.0f) 
+    if (weight == 0.0f)
     {
+        _syncCrossingPending = false; // No timeline sampling this frame; the crossing would be stale later.
         return;
     }
 
@@ -551,6 +575,12 @@ void AnimationState::advanceTime(float passedTime, float cacheFrameRate)
     auto isUpdateBoneTimeline = true;
     auto time = _time;
     _weightResult = weight * _fadeProgress;
+
+    if (_syncLeader != nullptr && _syncCrossingPending) // Replay the crossing captured in the playhead pass.
+    {
+        _actionTimeline->dispatchCrossedEvents(_syncOldTime, _syncNewTime, _syncDirection);
+        _syncCrossingPending = false;
+    }
 
     if (_actionTimeline->playState <= 0)
     {
@@ -684,6 +714,12 @@ void AnimationState::advanceTime(float passedTime, float cacheFrameRate)
             }
         }
     }
+}
+
+void AnimationState::advanceTime(float passedTime, float cacheFrameRate)
+{
+    _advancePlayhead(passedTime);
+    _advanceTimelines(cacheFrameRate);
 }
 
 void AnimationState::play()
@@ -886,6 +922,264 @@ void AnimationState::setCurrentTime(float value)
     {
         timeline->playState = -1;
     }
+}
+
+bool AnimationState::_validateSyncMarkers(const std::vector<std::pair<float, float>>& markers, float leaderDuration) const
+{
+    if (markers.size() < 2 || _duration <= 0.0f || leaderDuration <= 0.0f)
+    {
+        return false;
+    }
+
+    for (const auto& marker : markers) // Every value must be a finite number.
+    {
+        if (!std::isfinite(marker.first) || !std::isfinite(marker.second))
+        {
+            return false;
+        }
+    }
+
+    if (markers.front().first != 0.0f || markers.front().second != 0.0f)
+    {
+        return false;
+    }
+
+    if (markers.back().first != leaderDuration || markers.back().second != _duration)
+    {
+        return false;
+    }
+
+    for (std::size_t i = 1; i < markers.size(); ++i) // Both columns must be strictly increasing.
+    {
+        if (!(markers[i].first > markers[i - 1].first) || !(markers[i].second > markers[i - 1].second))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+float AnimationState::_mapSyncTime(float leaderTime) const
+{
+    const auto leaderDuration = _syncLeader->_duration;
+    const auto followerDuration = _duration;
+
+    auto cycle = std::floor(leaderTime / leaderDuration);
+    auto localLeaderTime = leaderTime - cycle * leaderDuration;
+    if (localLeaderTime >= leaderDuration) // Keep the floating point remainder inside [0, duration).
+    {
+        localLeaderTime -= leaderDuration;
+        cycle += 1.0f;
+    }
+    else if (localLeaderTime < 0.0f)
+    {
+        localLeaderTime += leaderDuration;
+        cycle -= 1.0f;
+    }
+
+    std::size_t segment = 0;
+    while (segment + 2 < _syncMarkers.size() && _syncMarkers[segment + 1].first <= localLeaderTime)
+    {
+        ++segment;
+    }
+
+    const auto& from = _syncMarkers[segment];
+    const auto& to = _syncMarkers[segment + 1];
+    const auto leaderSpan = to.first - from.first;
+    const auto progress = leaderSpan > 0.0f ? (localLeaderTime - from.first) / leaderSpan : 0.0f;
+    const auto localFollowerTime = from.second + (to.second - from.second) * progress;
+
+    return cycle * followerDuration + localFollowerTime;
+}
+
+void AnimationState::_applySynchronizedTime()
+{
+    const auto leader = _syncLeader;
+    if (leader == nullptr)
+    {
+        return;
+    }
+
+    const auto leaderDirection = leader->_getPlayDirection();
+    if (leaderDirection != 0)
+    {
+        _syncDirection = leaderDirection;
+    }
+
+    const auto newTime = _mapSyncTime(leader->_time);
+    const auto oldTime = _time;
+
+    if (newTime == oldTime)
+    {
+        _time = newTime;
+        _syncCrossingPending = false;
+        return;
+    }
+
+    _time = newTime;
+    // Reposition every timeline through the regular pipeline, but swallow the frame events
+    // generated by the jump; the strictly crossed events are re-derived below.
+    _syncSuppressFrameEvents = true;
+    _actionTimeline->setCurrentTime(newTime);
+
+    if (_zOrderTimeline != nullptr)
+    {
+        _zOrderTimeline->playState = -1;
+    }
+
+    for (const auto timeline : _boneTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    for (const auto timeline : _slotTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    for (const auto timeline : _constraintTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    _syncSuppressFrameEvents = false;
+    if (newTime != oldTime) // The crossing itself is replayed in the timeline pass.
+    {
+        _syncCrossingPending = true;
+        _syncOldTime = oldTime;
+        _syncNewTime = newTime;
+    }
+}
+
+void AnimationState::_clearSyncBinding()
+{
+    _syncLeader = nullptr;
+    _syncMarkers.clear();
+    _syncSuppressFrameEvents = false;
+    _syncCrossingPending = false;
+    // _time is kept: playback resumes from the last mapped time.
+}
+
+void AnimationState::_detachSyncOnRemove()
+{
+    if (_syncLeader != nullptr)
+    {
+        auto& followers = _syncLeader->_syncFollowers;
+        followers.erase(std::remove(followers.begin(), followers.end(), this), followers.end());
+    }
+
+    for (const auto follower : _syncFollowers) // Followers become independent, keeping their last mapped time.
+    {
+        if (follower->_syncLeader == this)
+        {
+            follower->_clearSyncBinding();
+        }
+    }
+
+    _syncFollowers.clear();
+    _clearSyncBinding();
+}
+
+bool AnimationState::synchronizeTo(AnimationState* leader, const std::vector<std::pair<float, float>>& markers)
+{
+    if (leader == nullptr || leader == this)
+    {
+        return false;
+    }
+
+    if (_armature == nullptr || leader->_armature != _armature || leader->_animationData == nullptr)
+    {
+        return false;
+    }
+
+    const auto& states = _armature->getAnimation()->getStates();
+    if (std::find(states.cbegin(), states.cend(), this) == states.cend() ||
+        std::find(states.cbegin(), states.cend(), leader) == states.cend())
+    {
+        return false; // Both states must be active in this armature.
+    }
+
+    const auto isFullLoop = [](const AnimationState* state) {
+        return state->playTimes == 0 &&
+               state->_position == 0.0f &&
+               state->_duration > 0.0f &&
+               state->_duration == state->_animationData->duration;
+    };
+
+    if (!isFullLoop(this) || !isFullLoop(leader)) // Only full, infinitely looping states are supported.
+    {
+        return false;
+    }
+
+    for (auto* ancestor = leader; ancestor != nullptr; ancestor = ancestor->_syncLeader)
+    {
+        if (ancestor == this)
+        {
+            return false; // Would create a cycle.
+        }
+    }
+
+    if (!_validateSyncMarkers(markers, leader->_duration))
+    {
+        return false; // The existing binding (if any) is untouched until every check passes.
+    }
+
+    if (_syncLeader != nullptr && _syncLeader != leader)
+    {
+        auto& previousFollowers = _syncLeader->_syncFollowers;
+        previousFollowers.erase(std::remove(previousFollowers.begin(), previousFollowers.end(), this), previousFollowers.end());
+    }
+
+    _syncLeader = leader;
+    if (std::find(leader->_syncFollowers.cbegin(), leader->_syncFollowers.cend(), this) == leader->_syncFollowers.cend())
+    {
+        leader->_syncFollowers.push_back(this);
+    }
+
+    _syncMarkers = markers;
+    _syncSuppressFrameEvents = false;
+    _syncCrossingPending = false;
+    _syncDirection = leader->_getPlayDirection() == 0 ? 1 : leader->_getPlayDirection();
+
+    // Locate the current phase. Binding itself dispatches no events.
+    const auto mappedTime = _mapSyncTime(leader->_time);
+    _time = mappedTime;
+    _actionTimeline->setCurrentTime(mappedTime);
+
+    if (_zOrderTimeline != nullptr)
+    {
+        _zOrderTimeline->playState = -1;
+    }
+
+    for (const auto timeline : _boneTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    for (const auto timeline : _slotTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    for (const auto timeline : _constraintTimelines)
+    {
+        timeline->playState = -1;
+    }
+
+    return true;
+}
+
+void AnimationState::unsynchronize()
+{
+    if (_syncLeader == nullptr)
+    {
+        return;
+    }
+
+    auto& followers = _syncLeader->_syncFollowers;
+    followers.erase(std::remove(followers.begin(), followers.end(), this), followers.end());
+    _clearSyncBinding();
 }
 
 void BonePose::_onClear()

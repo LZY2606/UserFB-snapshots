@@ -92,10 +92,14 @@ bool TimelineState::_setCurrentTime(float passedTime)
             if (passedTime < 0.0f)
             {
                 passedTime = -passedTime;
-                currentPlayTimes = (int)(passedTime / _duration);
+                currentPlayTimes = -((int)(passedTime / _duration)) - (fmod(passedTime, _duration) == 0.0f ? 0 : 1);
                 currentTime = _duration - fmod(passedTime, _duration);
+                if (currentTime >= _duration)
+                {
+                    currentTime = 0.0f;
+                }
             }
-            else 
+            else
             {
                 currentPlayTimes = (int)(passedTime / _duration);
                 currentTime = fmod(passedTime, _duration);

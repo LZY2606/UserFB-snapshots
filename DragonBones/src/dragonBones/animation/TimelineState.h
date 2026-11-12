@@ -42,6 +42,12 @@ protected:
 public:
     void update(float passedTime) override;
     void setCurrentTime(float value);
+    /**
+     * @internal
+     * Re-dispatch the frame events (and loop completes) strictly crossed between two expanded times.
+     * Forward: (oldTime, newTime], reverse: [newTime, oldTime), ordered by the movement direction.
+     */
+    void dispatchCrossedEvents(float oldTime, float newTime, int direction);
 };
 /**
  * @internal
