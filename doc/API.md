@@ -16,6 +16,7 @@
     - [`type.compare(val1, val2)`](#typecompareval1-val2)
     - [`type.compareBuffers(buf1, buf2)`](#typecomparebuffersbuf1-buf2)
     - [`type.createResolver(writerType)`](#typecreateresolverwritertype)
+    - [`type.createTranscoder(writerType)`](#typecreatetranscoderwritertype)
     - [`type.decode(buf, [pos,] [resolver])`](#typedecodebuf-pos-resolver)
     - [`type.doc`](#typedoc)
     - [`type.encode(val, buf, [pos])`](#typeencodeval-buf-pos)
@@ -387,6 +388,34 @@ const obj = v2.fromBuffer(buf, resolver); // === {name: {string: 'Ann'}, phone: 
 
 See the [advanced usage page](Advanced-usage) for more details on how schema
 evolution can be used to significantly speed up decoding.
+
+### `type.createTranscoder(writerType)`
+
++ `writerType` {Type} Writer type.
+
+Create a reusable binary transcoding plan to convert data serialized with
+`writerType` directly into `type`'s binary encoding, without decoding any
+record, array, or map into a JavaScript object. Compatibility follows the same
+[rules][schema-resolution] as [`createResolver`](#typecreateresolverwritertype)
+and is checked when the plan is created; an incompatible writer or a logical
+type causes this method to throw.
+
+The returned plan exposes `transcode(buffer, offset = 0)`, which reads exactly
+one writer datum and returns `{buffer, offset}`: `buffer` is a freshly
+allocated record encoded per `type` (it never aliases the input), and `offset`
+is the absolute position just past the consumed datum, suitable for processing
+back-to-back records. When no conversion is needed, `string`, `bytes`,
+`fixed`, and `long` leaves are copied as raw bytes, so full 64-bit `long`
+bit patterns are preserved even beyond JavaScript's safe integer range.
+
+```javascript
+const transcoder = v2.createTranscoder(v1);
+const {buffer, offset} = transcoder.transcode(buf);
+// `buffer` is the reader-encoded datum; `offset` is the next read position.
+```
+
+See the [binary transcoding page](Binary-transcoding) for a streaming example
+and the full list of supported conversions.
 
 ### `type.decode(buf, [pos,] [resolver])`
 
