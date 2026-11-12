@@ -2,8 +2,14 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 cc_library(
     name = "tinyply",
-    srcs = ["source/tinyply.cpp"],
-    hdrs = ["source/tinyply.h"],
+    srcs = [
+        "source/tinyply.cpp",
+        "source/polygon_subset.cpp",
+    ],
+    hdrs = [
+        "source/tinyply.h",
+        "source/polygon_subset.h",
+    ],
     includes = ["source"],
     visibility = ["//visibility:public"],
 )

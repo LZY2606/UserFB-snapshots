@@ -36,6 +36,8 @@
 #include <functional>
 #include <type_traits>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 namespace tinyply
 {
@@ -176,6 +178,31 @@ namespace tinyply
             const uint8_t * data,
             const Type listType,
             const size_t listCount);
+
+        /*
+         * Adds a single variable-length list property described by row offsets.
+         *
+         * `offsets` has `count + 1` entries measured in scalar elements of `valueType`
+         * (not bytes); row i spans `data[offsets[i] .. offsets[i+1])`. Empty rows are
+         * legal, including rows sandwiched between non-empty ones. `dataBytes` must
+         * equal `offsets[count] * sizeof(valueType)`. `listType` names the integer
+         * type used to encode each per-row length and may only be one of the six
+         * signed or unsigned integer types; every row length has to fit its positive
+         * range.
+         *
+         * Unlike `add_properties_to_element`, which borrows the caller's buffer, this
+         * call takes ownership of copies of both `data` and `offsets`: the source
+         * arrays may be modified or released as soon as the call returns. Invalid
+         * arguments throw std::invalid_argument and leave the PlyFile unchanged.
+         */
+        void add_list_property_to_element(const std::string & elementKey,
+            const std::string & propertyKey,
+            Type valueType,
+            size_t count,
+            const size_t * offsets,
+            const uint8_t * data,
+            size_t dataBytes,
+            Type listType);
     };
 
 } // end namespace tinyply
@@ -388,6 +415,11 @@ struct PlyFile::PlyFileImpl
     void add_properties_to_element(const std::string & elementKey,
         const std::vector<std::string> propertyKeys,
         const Type type, const size_t count, const uint8_t * data, const Type listType, const size_t listCount);
+
+    void add_list_property_to_element(const std::string & elementKey,
+        const std::string & propertyKey,
+        Type valueType, size_t count, const size_t * offsets,
+        const uint8_t * data, size_t dataBytes, Type listType);
 
     std::vector<std::vector<PropertyLookup>> make_property_lookup_table();
 
@@ -1171,6 +1203,109 @@ void PlyFile::PlyFileImpl::add_properties_to_element(const std::string & element
     }
 }
 
+void PlyFile::PlyFileImpl::add_list_property_to_element(const std::string & elementKey,
+    const std::string & propertyKey,
+    Type valueType, size_t count, const size_t * offsets,
+    const uint8_t * data, size_t dataBytes, Type listType)
+{
+    // ---- Validation: every argument is checked before the PlyFile is mutated,
+    // so a rejected call never leaves a half-registered property behind. ----
+
+    if (elementKey.empty()) throw std::invalid_argument("`elementKey` argument is empty");
+    if (propertyKey.empty()) throw std::invalid_argument("`propertyKey` argument is empty");
+
+    if (valueType == Type::INVALID || PropertyTable[valueType].stride == 0)
+        throw std::invalid_argument("`valueType` is not a supported scalar type");
+
+    // The list length prefix may only use one of the six signed/unsigned integer types.
+    size_t listTypeMax = 0;
+    switch (listType)
+    {
+    case Type::INT8:   listTypeMax = static_cast<size_t>((std::numeric_limits<int8_t>::max)()); break;
+    case Type::UINT8:  listTypeMax = static_cast<size_t>((std::numeric_limits<uint8_t>::max)()); break;
+    case Type::INT16:  listTypeMax = static_cast<size_t>((std::numeric_limits<int16_t>::max)()); break;
+    case Type::UINT16: listTypeMax = static_cast<size_t>((std::numeric_limits<uint16_t>::max)()); break;
+    case Type::INT32:  listTypeMax = static_cast<size_t>((std::numeric_limits<int32_t>::max)()); break;
+    case Type::UINT32: listTypeMax = static_cast<size_t>((std::numeric_limits<uint32_t>::max)()); break;
+    default: throw std::invalid_argument("`listType` must be one of int8, uint8, int16, uint16, int32, uint32");
+    }
+
+    if (offsets == nullptr) throw std::invalid_argument("`offsets` argument is null");
+    if (offsets[0] != 0) throw std::invalid_argument("first offset must be zero");
+
+    for (size_t i = 1; i <= count; ++i)
+    {
+        if (offsets[i] < offsets[i - 1])
+            throw std::invalid_argument("offsets must be monotonically non-decreasing");
+    }
+
+    const size_t stride = static_cast<size_t>(PropertyTable[valueType].stride);
+    const size_t totalScalars = offsets[count];
+
+    // The byte width multiplication has to be representable before it is performed.
+    if (stride != 0 && totalScalars > (std::numeric_limits<size_t>::max)() / stride)
+        throw std::invalid_argument("offset range multiplied by value size exceeds size_t");
+    if (totalScalars * stride != dataBytes)
+        throw std::invalid_argument("dataBytes does not match the final offset times the value byte width");
+
+    // A non-empty payload requires a readable source; empty payloads do not.
+    if (dataBytes > 0 && data == nullptr)
+        throw std::invalid_argument("`data` argument is null while the payload is non-empty");
+
+    // Every per-row length must survive encoding in the chosen list count type.
+    for (size_t i = 0; i < count; ++i)
+    {
+        const size_t rowLength = offsets[i + 1] - offsets[i];
+        if (rowLength > listTypeMax)
+            throw std::invalid_argument("a row length cannot be represented by the chosen listType");
+    }
+
+    const int64_t elementIndex = find_element(elementKey, elements);
+    if (elementIndex >= 0)
+    {
+        const PlyElement & existing = elements[static_cast<size_t>(elementIndex)];
+        if (existing.size != count)
+            throw std::invalid_argument("row count does not match the existing element size");
+        if (find_property(propertyKey, existing.properties) >= 0)
+            throw std::invalid_argument("a property with this key already exists on the element");
+    }
+
+    // ---- All checks passed: take ownership of copies and register the property. ----
+
+    std::vector<size_t> ownedOffsets(offsets, offsets + count + 1);
+
+    std::vector<size_t> rowSizes;
+    rowSizes.reserve(count);
+    for (size_t i = 0; i < count; ++i) rowSizes.push_back(ownedOffsets[i + 1] - ownedOffsets[i]);
+
+    ParsingHelper helper;
+    helper.data = std::make_shared<PlyData>();
+    helper.data->count = count;
+    helper.data->t = valueType;
+    helper.data->isList = true;
+    helper.data->list_sizes = std::move(rowSizes);
+    helper.data->buffer = Buffer(dataBytes); // allocating: the library owns this storage
+    if (dataBytes > 0) std::memcpy(helper.data->buffer.get(), data, dataBytes);
+    helper.cursor = std::make_shared<PlyDataCursor>();
+
+    std::string key = propertyKey;
+    PlyProperty newProp(listType, valueType, key, 0); // listCount 0 => per-row sizes drive output
+
+    if (elementIndex >= 0)
+    {
+        PlyElement & e = elements[static_cast<size_t>(elementIndex)];
+        userData.insert(std::pair<uint32_t, ParsingHelper>(hash_fnv1a(elementKey + propertyKey), helper));
+        e.properties.push_back(newProp);
+    }
+    else
+    {
+        PlyElement newElement(elementKey, count);
+        userData.insert(std::pair<uint32_t, ParsingHelper>(hash_fnv1a(elementKey + propertyKey), helper));
+        newElement.properties.push_back(newProp);
+        elements.push_back(newElement);
+    }
+}
+
 template <bool is_binary, bool first_pass, bool big_endian>
 void PlyFile::PlyFileImpl::parse_data_impl(std::istream & is)
 {
@@ -1326,6 +1461,13 @@ void PlyFile::add_properties_to_element(const std::string & elementKey,
     const Type type, const size_t count, const uint8_t * data, const Type listType, const size_t listCount)
 {
     return impl->add_properties_to_element(elementKey, propertyKeys, type, count, data, listType, listCount);
+}
+void PlyFile::add_list_property_to_element(const std::string & elementKey,
+    const std::string & propertyKey,
+    Type valueType, size_t count, const size_t * offsets,
+    const uint8_t * data, size_t dataBytes, Type listType)
+{
+    return impl->add_list_property_to_element(elementKey, propertyKey, valueType, count, offsets, data, dataBytes, listType);
 }
 
 } // end namespace tinyply

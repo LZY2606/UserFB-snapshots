@@ -10,7 +10,76 @@ The library is written in C++17 and requires a recent compiler. Tinyply supports
 
 ## Getting Started
 
-The project comes with a simple example program demonstrating a circular write / read and all of the major API functionality. 
+The project comes with a simple example program demonstrating a circular write / read and all of the major API functionality.
+
+## Writing variable-length (ragged) lists
+
+Many polygon meshes mix triangles and quads in a single `face` element, where `vertex_indices`
+and the per-corner `texcoord` lists have a different length on every row. The fixed-count
+`add_properties_to_element` cannot express such data, because it assigns one `listCount` to
+every row. For these meshes tinyply provides an offset-based constructor:
+
+```cpp
+void PlyFile::add_list_property_to_element(
+    const std::string & elementKey,
+    const std::string & propertyKey,
+    Type valueType,
+    size_t count,
+    const size_t * offsets,     // count + 1 entries, in scalar elements (not bytes)
+    const uint8_t * data,
+    size_t dataBytes,
+    Type listType);
+```
+
+Row *i* spans `data[offsets[i] .. offsets[i+1])`. Each list property carries its own offsets,
+so two faces can have index offsets `[0, 3, 7]` and texcoord offsets `[0, 6, 14]`. The
+properties coexist with fixed per-row data (such as a per-face `material_index` or per-vertex
+coordinates added through the legacy interface) and are written in registration order. Empty
+rows are legal, including an empty list sandwiched between non-empty rows; `count == 0` still
+takes a single zero offset. `offsets[0]` must be zero, the offsets must be non-decreasing,
+`offsets[count] * sizeof(valueType)` must equal `dataBytes`, and every row length must fit the
+positive range of `listType` (one of the six signed/unsigned integer types). Invalid arguments
+throw `std::invalid_argument` and leave the `PlyFile` unchanged.
+
+### Ownership: the two writing interfaces differ
+
+* `add_properties_to_element` **borrows** the caller's buffer. The `PlyFile` keeps the raw
+  pointer and does not copy or take ownership, so the caller must keep the backing memory alive
+  until `write` returns. This behavior is unchanged.
+* `add_list_property_to_element` **takes ownership of copies**. On success the library copies
+  both the payload and the offsets; the caller may modify or free the source arrays immediately
+  after the call without affecting what gets written.
+
+The same `PlyFile` can be written repeatedly with `write(os, false)` (ascii) and
+`write(os, true)` (little-endian binary); internal cursors are reset on every call, so writing
+ascii, then binary, then ascii again produces identical list segmentation each time. Big-endian
+writing is not supported.
+
+### Editing a mesh and re-exporting it
+
+`source/polygon_subset.h` provides `tinyply_extras::extract_polygon_subset`, a reusable helper
+that takes decoded vertex channels, ragged face indices and per-corner texcoords (each with its
+own offsets), per-face materials, and an ordered list of face ids to keep. It renumbers the
+referenced vertices by first appearance, remaps every numeric vertex channel through that
+mapping, preserves the original corner order and UV correspondence, and returns the new-to-old
+vertex mapping (unreferenced vertices are dropped). The companion
+`add_polygon_subset_to_ply` writes the result through `add_list_property_to_element`, so the
+export does not depend on the original file object. Invalid selections (duplicate or
+out-of-range face ids, out-of-range vertex references, texcoord counts that are not twice the
+corner counts) throw `std::invalid_argument` without producing a partial result. The example
+program wires this into a full edit-and-export pass over a generated five-vertex, triangle-plus-
+quad mesh.
+
+The regression suite in `source/ragged_export_tests.cpp` covers the ragged construction path,
+including empty lists, zero rows, the int8 127/128 length boundary, bad offsets and byte
+counts, duplicate properties, recovery after a rejected call, source-array mutation after a
+successful call, and the legacy fixed-triangle interface. It verifies the output with both a
+tinyply round-trip and an independent little-endian byte / ascii token decoder. Build and run it
+from the repository root:
+
+```
+bash source/check_ragged_export.sh
+```
 
 ## In The Wild
 

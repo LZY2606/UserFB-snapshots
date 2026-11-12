@@ -19,9 +19,9 @@ endif()
 set(SHARED_LIB false CACHE BOOL "Build as shared library")
 if(${SHARED_LIB})
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    add_library(tinyply SHARED source/tinyply.cpp source/tinyply.h)
+    add_library(tinyply SHARED source/tinyply.cpp source/polygon_subset.cpp source/tinyply.h source/polygon_subset.h)
 else()
-    add_library(tinyply STATIC source/tinyply.cpp source/tinyply.h)
+    add_library(tinyply STATIC source/tinyply.cpp source/polygon_subset.cpp source/tinyply.h source/polygon_subset.h)
 endif()
 
 set(BUILD_TESTS false CACHE BOOL "Build tests")
@@ -29,6 +29,13 @@ set(BUILD_TESTS false CACHE BOOL "Build tests")
 # Example Application
 add_executable(example source/example.cpp)
 target_link_libraries(example PRIVATE tinyply)
+
+# Ragged (mixed polygon) export regression test
+add_executable(ragged_export_tests source/ragged_export_tests.cpp)
+target_link_libraries(ragged_export_tests PRIVATE tinyply)
+
+enable_testing()
+add_test(NAME ragged_export COMMAND ragged_export_tests)
 
 # Test Application
 if(${BUILD_TESTS})
