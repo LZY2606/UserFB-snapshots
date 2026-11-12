@@ -331,10 +331,12 @@ void TCP::write_serialization(uint8_t* buffer, uint32_t total_sz) {
         ) + Utils::sum_range(buffer, buffer + total_sz);
     }
     else if (const Tins::IPv6* ipv6_packet = tins_cast<const Tins::IPv6*>(parent)) {
+        const std::pair<IPv6Address, IPv6Address> addresses =
+            ipv6_packet->pseudoheader_addresses();
         check = Utils::pseudoheader_checksum(
-            ipv6_packet->src_addr(),  
-            ipv6_packet->dst_addr(), 
-            size(), 
+            addresses.first,
+            addresses.second,
+            size(),
             Constants::IP::PROTO_TCP
         ) + Utils::sum_range(buffer, buffer + total_sz);
     }

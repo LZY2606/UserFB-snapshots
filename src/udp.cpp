@@ -138,10 +138,12 @@ void UDP::write_serialization(uint8_t* buffer, uint32_t total_sz) {
         ) + Utils::sum_range(buffer, buffer + total_sz);
     }
     else if (const Tins::IPv6* ip6_packet = tins_cast<const Tins::IPv6*>(parent)) {
+        const std::pair<IPv6Address, IPv6Address> addresses =
+            ip6_packet->pseudoheader_addresses();
         checksum = Utils::pseudoheader_checksum(
-            ip6_packet->src_addr(), 
-            ip6_packet->dst_addr(), 
-            size(), 
+            addresses.first,
+            addresses.second,
+            size(),
             Constants::IP::PROTO_UDP
         ) + Utils::sum_range(buffer, buffer + total_sz);
     }

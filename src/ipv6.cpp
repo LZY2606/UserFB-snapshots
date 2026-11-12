@@ -411,6 +411,155 @@ const IPv6::ext_header* IPv6::search_header(ExtensionHeader id) const {
     return 0;
 }
 
+namespace {
+
+// Routing header types we know how to interpret
+const uint8_t IPV6_ROUTING_TYPE_2 = 2; // Mobile IPv6 (RFC 6275)
+const uint8_t IPV6_ROUTING_TYPE_SRH = 4; // Segment Routing Header (RFC 8754)
+// Destination Options option type for the Mobile IPv6 Home Address Option
+const uint8_t IPV6_OPTION_HOME_ADDRESS = 201;
+
+// Validates the TLVs that trail an SRH segment list so they are not
+// mistaken for extra addresses. Offsets are relative to the start of
+// the TLV area.
+void validate_srh_tlvs(const uint8_t* data, size_t size) {
+    Memory::InputMemoryStream stream(data, size);
+    while (stream.size() > 0) {
+        uint8_t type = stream.read<uint8_t>();
+        if (type == IPv6::PAD_1) {
+            continue;
+        }
+        if (!stream.can_read(sizeof(uint8_t))) {
+            throw invalid_ipv6_extension_header();
+        }
+        uint8_t length = stream.read<uint8_t>();
+        if (!stream.can_read(length)) {
+            throw invalid_ipv6_extension_header();
+        }
+        stream.skip(length);
+    }
+}
+
+// Extracts the final destination address from a routing extension
+// header. Returns true when the header is active and output was set.
+bool routing_header_final_destination(const IPv6::ext_header& hdr,
+                                      IPv6::address_type& output) {
+    const uint8_t* data = hdr.data_ptr();
+    const size_t size = hdr.data_size();
+    if (size < 2) {
+        throw invalid_ipv6_extension_header();
+    }
+    const uint8_t routing_type = data[0];
+    const uint8_t segments_left = data[1];
+    if (routing_type == IPV6_ROUTING_TYPE_2) {
+        // routing type + segments left + 4 reserved bytes + one address
+        if (size != 2 + 4 + IPv6::address_type::address_size || segments_left > 1) {
+            throw invalid_ipv6_extension_header();
+        }
+        if (segments_left == 1) {
+            output = IPv6::address_type(data + 6);
+            return true;
+        }
+        // Already processed by the end host; the address in the header
+        // may have been swapped, so the basic header destination stands.
+        return false;
+    }
+    if (routing_type == IPV6_ROUTING_TYPE_SRH) {
+        // routing type + segments left + last entry + flags + tag
+        if (size < 6) {
+            throw invalid_ipv6_extension_header();
+        }
+        const uint8_t last_entry = data[2];
+        // A reduced segment list allows segments_left == last_entry + 1
+        if (segments_left > last_entry + 1) {
+            throw invalid_ipv6_extension_header();
+        }
+        const size_t segment_list_end = 6 + (static_cast<size_t>(last_entry) + 1)
+                                            * IPv6::address_type::address_size;
+        if (size < segment_list_end) {
+            throw invalid_ipv6_extension_header();
+        }
+        validate_srh_tlvs(data + segment_list_end, size - segment_list_end);
+        if (segments_left > 0) {
+            // Segment List[0] is the final segment of the path; it is
+            // stored first on the wire.
+            output = IPv6::address_type(data + 6);
+            return true;
+        }
+        return false;
+    }
+    // Unknown (or unimplemented, e.g. type 0) routing types can only be
+    // tolerated when they have already been fully processed.
+    if (segments_left != 0) {
+        throw invalid_ipv6_extension_header();
+    }
+    return false;
+}
+
+} // namespace
+
+std::pair<IPv6::address_type, IPv6::address_type> IPv6::pseudoheader_addresses() const {
+    address_type source = src_addr();
+    address_type destination = dst_addr();
+    bool home_address_seen = false;
+    bool active_routing_seen = false;
+    for (headers_type::const_iterator it = ext_headers_.begin(); it != ext_headers_.end(); ++it) {
+        if (it->option() == DESTINATION_OPTIONS) {
+            // Walk the options looking for a Home Address Option
+            Memory::InputMemoryStream stream(it->data_ptr(), it->data_size());
+            size_t option_offset = 0;
+            while (stream.size() > 0) {
+                uint8_t type = 0;
+                try {
+                    type = stream.read<uint8_t>();
+                }
+                catch (const malformed_packet&) {
+                    throw invalid_ipv6_extension_header();
+                }
+                if (type == PAD_1) {
+                    ++option_offset;
+                    continue;
+                }
+                if (!stream.can_read(sizeof(uint8_t))) {
+                    throw invalid_ipv6_extension_header();
+                }
+                const uint8_t length = stream.read<uint8_t>();
+                if (!stream.can_read(length)) {
+                    throw invalid_ipv6_extension_header();
+                }
+                if (type == IPV6_OPTION_HOME_ADDRESS) {
+                    // A single IPv6 header chain carries at most one
+                    if (home_address_seen) {
+                        throw invalid_ipv6_extension_header();
+                    }
+                    // Fixed 16 byte contents, 8n+6 aligned from the start
+                    // of the Destination Options header (2 bytes before
+                    // this extension header's data)
+                    if (length != address_type::address_size
+                        || (option_offset + 2) % 8 != 6) {
+                        throw invalid_ipv6_extension_header();
+                    }
+                    source = address_type(stream.pointer());
+                    home_address_seen = true;
+                }
+                stream.skip(length);
+                option_offset += 2 + length;
+            }
+        }
+        else if (it->option() == ROUTING) {
+            address_type final_destination;
+            if (routing_header_final_destination(*it, final_destination)) {
+                if (active_routing_seen) {
+                    throw invalid_ipv6_extension_header();
+                }
+                active_routing_seen = true;
+                destination = final_destination;
+            }
+        }
+    }
+    return make_pair(source, destination);
+}
+
 void IPv6::set_last_next_header(uint8_t value) {
     if (ext_headers_.empty()) {
         header_.next_header = value;

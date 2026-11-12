@@ -393,16 +393,64 @@ public:
     #endif // TINS_IS_CXX11
 
     /**
-     * \brief Searchs for an extension header that matchs the given 
+     * \brief Searchs for an extension header that matchs the given
      * flag.
-     * 
-     * If the header is not found, a null pointer is returned. 
-     * Deleting the returned pointer will result in <b>undefined 
+     *
+     * If the header is not found, a null pointer is returned.
+     * Deleting the returned pointer will result in <b>undefined
      * behaviour</b>.
-     * 
+     *
      * \param id The header identifier to be searched.
      */
     const ext_header* search_header(ExtensionHeader id) const;
+
+    /**
+     * \brief Returns the addresses that actually take part in the
+     * transport layer pseudoheader checksum.
+     *
+     * The returned pair is {source, destination}. These are not
+     * necessarily the addresses stored in the basic IPv6 header:
+     *
+     * - <b>Source address</b>: when a Destination Options extension
+     *   header carries a Home Address Option (Mobile IPv6, option
+     *   type 201), the home address contained in that option is the
+     *   source address the end host will use, so it is the one that
+     *   belongs in the pseudoheader. Otherwise the basic header's
+     *   source address is returned.
+     *
+     * - <b>Destination address</b>: the basic header's destination
+     *   address is only the <i>current</i> destination (the next
+     *   routing waypoint). The pseudoheader must use the <i>final</i>
+     *   destination. For an active Type 2 Routing header
+     *   (Segments Left == 1) that is the home address carried by the
+     *   routing header. For an active Segment Routing Header
+     *   (Routing Type 4, Segments Left > 0) that is Segment List[0],
+     *   the last segment of the path, which is stored first on the
+     *   wire. When no routing header is active (Segments Left == 0,
+     *   or no routing header at all), the final destination is the
+     *   basic header's destination address.
+     *
+     * Both substitutions are resolved in a single query, so a packet
+     * that combines a Home Address Option with an active routing
+     * header yields the correct pair at once. The query only inspects
+     * this object's own extension headers; when IPv6 is encapsulated
+     * inside IPv6, each IPv6 PDU reports the addresses of its own
+     * header chain.
+     *
+     * This method does not modify any field; querying before or after
+     * serialization yields the same result.
+     *
+     * \return A pair containing the {source, destination} addresses
+     * to be used in the transport layer pseudoheader.
+     *
+     * \throw invalid_ipv6_extension_header If a routing or
+     * destination options header is malformed (truncated data,
+     * inconsistent segment counts, out-of-bounds TLVs, a duplicated
+     * or malformed Home Address Option, several active routing
+     * headers, or an active routing header of an unknown type). In
+     * that case no trustworthy checksum can be computed.
+     */
+    std::pair<address_type, address_type> pseudoheader_addresses() const;
 private:
     void write_serialization(uint8_t* buffer, uint32_t total_sz);
     void set_last_next_header(uint8_t value);

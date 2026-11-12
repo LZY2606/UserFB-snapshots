@@ -370,10 +370,12 @@ void ICMPv6::write_serialization(uint8_t* buffer, uint32_t total_sz) {
 
     const Tins::IPv6* ipv6 = tins_cast<const Tins::IPv6*>(parent_pdu());
     if (ipv6) {
+        const std::pair<IPv6Address, IPv6Address> addresses =
+            ipv6->pseudoheader_addresses();
         uint32_t checksum = Utils::pseudoheader_checksum(
-            ipv6->src_addr(),  
-            ipv6->dst_addr(), 
-            size(), 
+            addresses.first,
+            addresses.second,
+            size(),
             Constants::IP::PROTO_ICMPV6
         ) + Utils::sum_range(buffer, buffer + total_sz);
         while (checksum >> 16) {
