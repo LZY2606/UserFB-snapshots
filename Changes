@@ -1,3 +1,11 @@
+Unreleased
+
+Add yaml_document_expand_merges(): produce an independent, merge-key
+expanded copy of a yaml_document_t together with per-output-pair
+provenance (winning source mapping/pair and the merge hop chain),
+without changing the default load/dump behavior.  See
+doc/merge-expansion.md.
+
 0.2.5 2020-06-01
 
 https://github.com/yaml/libyaml/pull/105

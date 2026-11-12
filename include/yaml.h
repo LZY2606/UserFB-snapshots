@@ -680,6 +680,8 @@ yaml_event_delete(yaml_event_t *event);
 #define YAML_SEQ_TAG        "tag:yaml.org,2002:seq"
 /** The tag @c !!map is used to denote mapping. */
 #define YAML_MAP_TAG        "tag:yaml.org,2002:map"
+/** The tag @c !!merge is used to denote merge keys (@c <<). */
+#define YAML_MERGE_TAG      "tag:yaml.org,2002:merge"
 
 /** The default scalar tag is @c !!str. */
 #define YAML_DEFAULT_SCALAR_TAG     YAML_STR_TAG
@@ -959,6 +961,212 @@ yaml_document_append_sequence_item(yaml_document_t *document,
 YAML_DECLARE(int)
 yaml_document_append_mapping_pair(yaml_document_t *document,
         int mapping, int key, int value);
+
+/** @} */
+
+/**
+ * @defgroup merge Merge Key Expansion
+ * @{
+ */
+
+/** This macro is defined when the merge expansion API is available. */
+#define LIBYAML_FEATURE_DOCUMENT_MERGE_EXPAND 1
+
+/**
+ * The reasons why yaml_document_expand_merges() can fail.
+ */
+typedef enum yaml_merge_error_type_e {
+    /** No error. */
+    YAML_MERGE_OK = 0,
+    /** A memory allocation failed. */
+    YAML_MERGE_MEMORY_ERROR,
+    /** A mapping key is not a scalar node. */
+    YAML_MERGE_NON_SCALAR_KEY_ERROR,
+    /** A mapping contains two local pairs with the same key. */
+    YAML_MERGE_DUPLICATE_KEY_ERROR,
+    /** A merge value is neither a mapping nor a sequence of mappings. */
+    YAML_MERGE_INVALID_VALUE_ERROR,
+    /** The merge dependencies of a mapping form a cycle. */
+    YAML_MERGE_CYCLE_ERROR
+} yaml_merge_error_type_t;
+
+/**
+ * One hop on the chain of merge references crossed to reach a value.
+ *
+ * A hop records the source-document mapping that contained the @c <<
+ * pair, the index of that pair inside the mapping, and the source node
+ * the merge value pointed at (a mapping, or one item of a merge
+ * sequence).  The hops are ordered from the mapping whose value is
+ * being expanded towards the mapping that actually supplies the field.
+ * The chain is empty for fields written locally in the output mapping.
+ */
+typedef struct yaml_merge_hop_s {
+    /** The source mapping node id containing the @c << pair. */
+    int mapping;
+    /** The pair index of the @c << entry inside @c mapping. */
+    int pair;
+    /** The source node id referenced by the merge value. */
+    int target;
+} yaml_merge_hop_t;
+
+/**
+ * The provenance of a single pair of an expanded output mapping.
+ *
+ * Node and pair indices always refer to the source document passed to
+ * yaml_document_expand_merges(), never to the expanded document.
+ */
+typedef struct yaml_merge_origin_s {
+    /** The source mapping node id that supplies the winning value. */
+    int mapping;
+    /** The index of the winning pair inside the source mapping. */
+    int pair;
+    /** The source key node id of the winning pair. */
+    int key;
+    /** The source value node id of the winning pair. */
+    int value;
+    /** The number of merge hops crossed to reach the winning pair. */
+    int hop_count;
+    /** The merge hops, from the output mapping towards the source. */
+    yaml_merge_hop_t *hops;
+} yaml_merge_origin_t;
+
+/**
+ * The provenance of all pairs of one expanded output mapping.
+ *
+ * Entry @c i describes output pair @c i of the mapping, so the number
+ * of entries equals the number of pairs of the output node.  The array
+ * is owned by the result object and released by
+ * yaml_merge_result_delete().
+ */
+typedef struct yaml_merge_pair_info_s {
+    /** The number of entries in @c origins. */
+    int pair_count;
+    /** The per-pair provenance entries, in output pair order. */
+    yaml_merge_origin_t *origins;
+} yaml_merge_pair_info_t;
+
+/**
+ * The result of a successful merge expansion.
+ *
+ * The object owns the expanded document and all provenance arrays.  It
+ * must be released with yaml_merge_result_delete().  The expanded
+ * document is independent of the source document: the source may be
+ * deleted while the result remains usable, including for emitting with
+ * yaml_emitter_dump().
+ */
+typedef struct yaml_merge_result_s {
+    /** The expanded document, owned by the result. */
+    yaml_document_t document;
+    /** Per output mapping node id: provenance of its pairs, or @c NULL. */
+    yaml_merge_pair_info_t *mapping_info;
+    /** The number of entries in @c mapping_info (node ids start at 1). */
+    int mapping_info_count;
+} yaml_merge_result_t;
+
+/**
+ * Details of a failed merge expansion.
+ *
+ * Node indices refer to the source document.  Marks are copied from the
+ * offending source nodes; a zeroed mark means the information is not
+ * available.  The structure itself is provided by the caller and is not
+ * allocated by the library.
+ */
+typedef struct yaml_merge_error_s {
+    /** The kind of failure. */
+    yaml_merge_error_type_t type;
+    /** The source mapping node id involved in the failure, or 0. */
+    int mapping;
+    /** The pair index inside @c mapping involved, or -1. */
+    int pair;
+    /** Another relevant source node id (key, bad value or cycle node). */
+    int node;
+    /** A second source node id closing a merge cycle, or 0. */
+    int node2;
+    /** The start mark of the offending node. */
+    yaml_mark_t mark;
+    /** The end mark of the offending node. */
+    yaml_mark_t end_mark;
+} yaml_merge_error_t;
+
+/**
+ * Expand the merge keys (@c <<) of every mapping of a document.
+ *
+ * The source document is read only and is never modified.  A new,
+ * independently owned document is produced together with provenance
+ * information for every pair of every expanded mapping.
+ *
+ * A key is a merge key when it is a scalar that either carries the
+ * explicit @c tag:yaml.org,2002:merge tag, or carries the default
+ * string tag (@c tag:yaml.org,2002:str) and is the plain-scalar byte
+ * sequence @c "<<" of length 2.  A quoted @c "<<" scalar keeps the
+ * default string tag and is an ordinary field.  Key identity is
+ * determined by the tag and the scalar bytes compared by length; the
+ * bytes are never treated as NUL-terminated strings.
+ *
+ * A merge value must be a mapping node or a sequence of mapping nodes;
+ * earlier sequence entries take precedence.  Fields written locally in
+ * a mapping always take precedence over merged fields, regardless of
+ * their position relative to the merge key, and two local pairs with
+ * the same key are an error.  Output pairs keep the local, non-merge
+ * fields in their original order first; merged fields that are still
+ * unseen are then appended in merge order and in the source field
+ * order.  Several merge keys of one mapping are processed left to
+ * right.
+ *
+ * Ordinary aliases, including aliases forming cycles through sequences
+ * and plain values (for example @c loop: &c [*c]), are preserved: the
+ * expanded graph keeps sharing node identity.  Only a cycle made of
+ * merge dependencies is reported as an error.
+ *
+ * Scalar tags, bytes, styles and marks, node styles and the document
+ * version and tag directives are all preserved.  Nothing in the result
+ * aliases memory owned by the source document.
+ *
+ * Initialize @a result and @a error to zero before calling.  On success
+ * the function returns @c 1 and fills @a result; release it with
+ * yaml_merge_result_delete().  On failure it returns @c 0, fills
+ * @a error, leaves @a result empty (calling yaml_merge_result_delete()
+ * on it is safe) and leaves the source document untouched.  A partially
+ * built expanded document is never returned.
+ *
+ * @param[in]   document    A loaded source document.
+ * @param[out]  result      An empty result object.
+ * @param[out]  error       An empty error object, or @c NULL.
+ *
+ * @returns @c 1 on success, @c 0 on error.
+ */
+
+YAML_DECLARE(int)
+yaml_document_expand_merges(const yaml_document_t *document,
+        yaml_merge_result_t *result, yaml_merge_error_t *error);
+
+/**
+ * Get the provenance of the pairs of an expanded mapping.
+ *
+ * @param[in]   result      A successful merge expansion result.
+ * @param[in]   node_id     An output mapping node id.
+ *
+ * @returns the pair provenance, or @c NULL if @a node_id is not an
+ *          expanded mapping node of the result.
+ */
+
+YAML_DECLARE(const yaml_merge_pair_info_t *)
+yaml_merge_result_get_mapping_info(const yaml_merge_result_t *result,
+        int node_id);
+
+/**
+ * Release a merge expansion result.
+ *
+ * This deletes the expanded document and every provenance array.  It is
+ * safe to call it on a zero-initialized object or on an object left
+ * empty by a failed yaml_document_expand_merges().  The source
+ * document is unaffected.
+ *
+ * @param[in,out]   result  A result object, or @c NULL.
+ */
+
+YAML_DECLARE(void)
+yaml_merge_result_delete(yaml_merge_result_t *result);
 
 /** @} */
 

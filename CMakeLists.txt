@@ -41,6 +41,7 @@ set(SRCS
   src/dumper.c
   src/emitter.c
   src/loader.c
+  src/merge.c
   src/parser.c
   src/reader.c
   src/scanner.c
