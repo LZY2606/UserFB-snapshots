@@ -1,0 +1,64 @@
+; Readable companion of continuation.h; IDs intentionally stable.
+; %22 is a Function array [1,7]; %23/%31/%41 alias its first element.
+; main -> outer -> inner. inner adds 2, outer adds old first element,
+; main adds second element. Output is 11.
+; Pause before inner's Load: stack depth 2, current source line 27.
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %20 "main" %14
+OpExecutionMode %20 OriginUpperLeft
+%16 = OpString "debug"
+OpDecorate %14 Location 0
+%1 = OpTypeVoid
+%2 = OpTypeInt 32 1
+%3 = OpTypeBool
+%4 = OpConstant %2 0
+%5 = OpConstant %2 1
+%6 = OpConstant %2 2
+%7 = OpConstant %2 7
+%8 = OpTypeArray %2 %6
+%9 = OpTypePointer Function %8
+%10 = OpTypePointer Function %2
+%11 = OpTypePointer Output %2
+%12 = OpTypeFunction %1
+%13 = OpTypeFunction %2 %10
+%14 = OpVariable %11 Output
+%20 = OpFunction %1 None %12
+%21 = OpLabel
+%22 = OpVariable %9 Function
+%23 = OpAccessChain %10 %22 %4
+%24 = OpAccessChain %10 %22 %5
+OpStore %23 %5
+OpStore %24 %7
+%25 = OpFunctionCall %2 %30 %23
+%26 = OpLoad %2 %24
+%27 = OpIAdd %2 %25 %26
+OpStore %14 %27
+OpReturn
+OpFunctionEnd
+%30 = OpFunction %2 None %13
+%31 = OpFunctionParameter %10
+%32 = OpLabel
+%33 = OpLoad %2 %31
+%34 = OpFunctionCall %2 %40 %31
+%36 = OpSLessThan %3 %33 %7
+OpSelectionMerge %39 None
+OpBranchConditional %36 %37 %38
+%37 = OpLabel
+OpBranch %39
+%38 = OpLabel
+OpBranch %39
+%39 = OpLabel
+%45 = OpPhi %2 %34 %37 %7 %38
+%35 = OpIAdd %2 %33 %45
+OpReturnValue %35
+OpFunctionEnd
+%40 = OpFunction %2 None %13
+%41 = OpFunctionParameter %10
+%42 = OpLabel
+OpLine %16 27 3
+%43 = OpLoad %2 %41
+%44 = OpIAdd %2 %43 %6
+OpStore %41 %44
+OpReturnValue %44
+OpFunctionEnd
