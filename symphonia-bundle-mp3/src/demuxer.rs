@@ -34,6 +34,10 @@ const MP2_FORMAT_INFO: FormatInfo =
 const MP3_FORMAT_INFO: FormatInfo =
     FormatInfo { format: FORMAT_ID_MP3, short_name: "mp3", long_name: "MPEG Audio Layer 3 Native" };
 
+/// The maximum number of reference (reservoir) frames considered when seeking.
+const MAX_REF_FRAMES: usize = 4;
+const REF_FRAMES_MASK: usize = MAX_REF_FRAMES - 1;
+
 /// MPEG1 and MPEG2 audio elementary stream reader.
 ///
 /// `MpaReader` implements a demuxer for the MPEG1 and MPEG2 audio elementary stream.
@@ -45,6 +49,12 @@ pub struct MpaReader<'s> {
     metadata: MetadataLog,
     first_packet_pos: u64,
     next_packet_ts: Timestamp,
+    /// A seek index derived from the VBRI table-of-contents, if one was present and valid.
+    vbri_index: Option<VbriIndex>,
+    /// The duration of the first MPEG frame in timebase units.
+    first_frame_dur: u64,
+    /// The header word of the first MPEG frame.
+    first_header_word: u32,
 }
 
 impl Scoreable for MpaReader<'_> {
@@ -230,9 +240,6 @@ impl FormatReader for MpaReader<'_> {
     }
 
     fn seek(&mut self, mode: SeekMode, to: SeekTo) -> Result<SeekedTo> {
-        const MAX_REF_FRAMES: usize = 4;
-        const REF_FRAMES_MASK: usize = MAX_REF_FRAMES - 1;
-
         // Get the timestamp of the desired audio frame.
         let required_ts = match to {
             // Frame timestamp given.
@@ -283,16 +290,29 @@ impl FormatReader for MpaReader<'_> {
 
         // Step 1
         //
-        // In coarse seek mode, the underlying media source stream will be roughly seeked based on
-        // the required timestamp and the total duration of the media. Coarse seek mode requires a
-        // seekable stream because the total length in bytes of the stream is required.
+        // If a seek index derived from a VBRI table-of-contents is available and the stream is
+        // seekable, then both coarse and accurate seeks prefer an indexed anchor point that is
+        // not later than the required timestamp. The index provides absolute byte offsets, so
+        // this works even if the total length of the stream is unknown.
         //
-        // In accurate seek mode, the underlying media source stream will not be seeked unless the
-        // required timestamp is in the past, in which case the stream is seeked back to the start.
-        match mode {
-            SeekMode::Coarse if is_seekable => self.preseek_coarse(required_ts, min_ts, max_ts)?,
-            SeekMode::Accurate => self.preseek_accurate(required_ts, min_ts)?,
-            _ => (),
+        // Otherwise, in coarse seek mode, the underlying media source stream will be roughly
+        // seeked based on the required timestamp and the total duration of the media. Coarse
+        // seek mode requires a seekable stream because the total length in bytes of the stream
+        // is required.
+        //
+        // In accurate seek mode, the underlying media source stream will not be seeked unless
+        // the required timestamp is in the past, in which case the stream is seeked back to the
+        // start.
+        let indexed = is_seekable && self.preseek_index(required_ts, min_ts)?;
+
+        if !indexed {
+            match mode {
+                SeekMode::Coarse if is_seekable => {
+                    self.preseek_coarse(required_ts, min_ts, max_ts)?
+                }
+                SeekMode::Accurate => self.preseek_accurate(required_ts, min_ts)?,
+                _ => (),
+            }
         };
 
         // Step 2
@@ -428,6 +448,15 @@ impl<'s> MpaReader<'s> {
 
         track.with_codec_params(CodecParameters::Audio(codec_params));
 
+        // Remember the duration and header word of the first frame. These are used to compute
+        // timestamps and to verify frame boundaries when seeking with an index.
+        let first_frame_dur = u64::from(header.num_frames());
+        let first_header_word =
+            u32::from_be_bytes(packet[..MPEG_HEADER_LEN].try_into().expect("header word"));
+
+        // A seek index derived from a VBRI table-of-contents, if available.
+        let mut vbri_index = None;
+
         // Check if there is a Xing/Info tag contained in the first frame.
         if let Some(info_tag) = try_read_info_tag(&packet, &header) {
             // The LAME tag contains ReplayGain and padding information.
@@ -455,6 +484,34 @@ impl<'s> MpaReader<'s> {
 
             // Check if there is a VBRI tag.
             track.with_num_frames(num_frames);
+
+            // If the VBRI tag contains a valid table-of-contents, build a seek index from it.
+            // The table-of-contents is an optional optimization: if it is absent or invalid,
+            // the basic VBRI header above remains in effect.
+            if let Some(toc) = vbri_tag.toc {
+                info!("using vbri table-of-contents for seek index");
+
+                // Byte offsets in the table-of-contents are relative to the start of the
+                // first MPEG frame. That is the frame containing the VBRI tag itself, which
+                // was just read.
+                let base_pos = mss.pos() - (MPEG_HEADER_LEN + header.frame_size) as u64;
+
+                // Cumulative byte offset of the start of each group of frames relative to
+                // base_pos, plus the offset of the end of the final group. The cumulative
+                // sum was validated when the tag was parsed and cannot overflow.
+                let mut group_offsets = Vec::with_capacity(toc.spans.len() + 1);
+                group_offsets.push(0u64);
+
+                for span in &toc.spans {
+                    group_offsets.push(group_offsets.last().copied().unwrap_or(0) + span);
+                }
+
+                vbri_index = Some(VbriIndex {
+                    base_pos,
+                    group_offsets,
+                    frames_per_entry: u64::from(toc.frames_per_entry),
+                });
+            }
         }
         else {
             // The first frame was not a Xing/Info header, rewind back to the start of the frame so
@@ -487,6 +544,9 @@ impl<'s> MpaReader<'s> {
             metadata: opts.external_data.metadata.unwrap_or_default(),
             first_packet_pos,
             next_packet_ts,
+            vbri_index,
+            first_frame_dur,
+            first_header_word,
         })
     }
 
@@ -565,19 +625,133 @@ impl<'s> MpaReader<'s> {
     /// timestamp is in the past.
     fn preseek_accurate(&mut self, required_ts: Timestamp, min_ts: Timestamp) -> Result<()> {
         if required_ts < self.next_packet_ts {
-            let seeked_pos = self.reader.seek(SeekFrom::Start(self.first_packet_pos))?;
-
-            // Since the elementary stream has no timestamp information, the position seeked
-            // to must be exactly as requested.
-            if seeked_pos != self.first_packet_pos {
-                return seek_error(SeekErrorKind::Unseekable);
-            }
-
-            // Successfuly seeked to the start of the stream, reset the next packet timestamp.
-            self.next_packet_ts = min_ts;
+            self.rewind_to_first_packet(min_ts)?;
         }
 
         Ok(())
+    }
+
+    /// Seeks the media source stream back to the start of the first packet and resets the next
+    /// packet timestamp to the lower timestamp bound.
+    fn rewind_to_first_packet(&mut self, min_ts: Timestamp) -> Result<()> {
+        let seeked_pos = self.reader.seek(SeekFrom::Start(self.first_packet_pos))?;
+
+        // Since the elementary stream has no timestamp information, the position seeked
+        // to must be exactly as requested.
+        if seeked_pos != self.first_packet_pos {
+            return seek_error(SeekErrorKind::Unseekable);
+        }
+
+        // Successfuly seeked to the start of the stream, reset the next packet timestamp.
+        self.next_packet_ts = min_ts;
+
+        Ok(())
+    }
+
+    /// Seeks the media source stream to an anchor point derived from the VBRI
+    /// table-of-contents that is not later than the frame containing the required timestamp.
+    ///
+    /// Returns `true` if the stream was positioned using the index, or using a reliable
+    /// fallback if the index proved to be inconsistent. Returns `false` if no index is
+    /// available and the caller should pre-seek as usual.
+    fn preseek_index(&mut self, required_ts: Timestamp, min_ts: Timestamp) -> Result<bool> {
+        // Compute the anchor byte position and timestamp from the index.
+        let anchor = match &self.vbri_index {
+            Some(index) => {
+                // The index of the audio frame containing the required timestamp. Audio frame
+                // 0 is the first frame after the frame containing the VBRI tag.
+                let target_audio_frame =
+                    required_ts.abs_delta(min_ts).get() / self.first_frame_dur;
+
+                // The corresponding MPEG frame index. MPEG frame 0 contains the VBRI tag
+                // itself and does not map to an audio frame.
+                let target_mpeg_frame = target_audio_frame + 1;
+
+                // Select the group containing the target frame. If the target is too close to
+                // the start of its group, select an earlier group so that up-to
+                // MAX_REF_FRAMES reference (reservoir) frames are parsed before the target is
+                // reached.
+                let mut group = target_mpeg_frame / index.frames_per_entry;
+
+                while group > 0
+                    && target_mpeg_frame - group * index.frames_per_entry
+                        < MAX_REF_FRAMES as u64
+                {
+                    group -= 1;
+                }
+
+                // Clamp to the final group in case the required timestamp exceeds the frames
+                // covered by the index. The frame-by-frame scan after the pre-seek handles
+                // any overrun.
+                group = group.min(index.group_offsets.len() as u64 - 2);
+
+                if group == 0 {
+                    // Group 0 starts at the frame containing the VBRI tag. The first audio
+                    // frame is a known-good anchor with the initial timestamp.
+                    Some((self.first_packet_pos, min_ts))
+                }
+                else {
+                    // The timestamp of the first frame of the group. MPEG frame 0 (the VBRI
+                    // tag frame) does not contribute to the audio timestamp sequence.
+                    let mpeg_frame = group * index.frames_per_entry;
+
+                    min_ts
+                        .checked_add(Duration::from((mpeg_frame - 1) * self.first_frame_dur))
+                        .map(|ts| (index.base_pos + index.group_offsets[group as usize], ts))
+                }
+            }
+            None => return Ok(false),
+        };
+
+        // Seek to the anchor and verify that it lands exactly on a valid MPEG frame boundary
+        // that is similar to the first frame of the stream. If no consistent anchor could be
+        // computed, or the anchor does not land on a plausible frame boundary, then the index
+        // cannot be trusted: disable it and fall back to a reliable scan from the first
+        // packet so that no incorrect timestamps are published.
+        let verified = anchor.is_some_and(|(pos, _)| self.verify_frame_boundary(pos));
+
+        if !verified {
+            warn!("vbri seek index is inconsistent, disabling it and rescanning");
+
+            self.vbri_index = None;
+            self.rewind_to_first_packet(min_ts)?;
+
+            return Ok(true);
+        }
+
+        let (anchor_pos, anchor_ts) = anchor.expect("anchor is some");
+
+        self.next_packet_ts = anchor_ts;
+
+        debug!("seeked to indexed anchor ts={anchor_ts} @ pos={anchor_pos}");
+
+        Ok(true)
+    }
+
+    /// Verifies that a valid MPEG frame header similar to the first frame of the stream
+    /// starts exactly at the given byte position. The stream is left positioned at that
+    /// position if the verification succeeded.
+    fn verify_frame_boundary(&mut self, pos: u64) -> bool {
+        if self.reader.seek(SeekFrom::Start(pos)).is_err() {
+            return false;
+        }
+
+        let sync = match self.reader.read_be_u32() {
+            Ok(sync) => sync,
+            Err(_) => return false,
+        };
+
+        // Rewind the header word so that the stream is positioned at the frame boundary.
+        self.reader.seek_buffered_rev(MPEG_HEADER_LEN);
+
+        if !header::is_frame_header_word_synced(sync) {
+            return false;
+        }
+
+        match header::parse_frame_header(self.first_header_word) {
+            Ok(first_header) => is_frame_header_similar(&first_header, sync),
+            Err(_) => false,
+        }
     }
 }
 
@@ -969,11 +1143,35 @@ fn is_maybe_info_tag(buf: &[u8], header: &FrameHeader) -> bool {
 
 const VBRI_TAG_ID: [u8; 4] = *b"VBRI";
 
+/// A seek index derived from the table-of-contents of a VBRI tag.
+struct VbriIndex {
+    /// Byte position within the stream of the first MPEG frame. This is the frame containing
+    /// the VBRI tag itself, and is the origin of all table-of-contents offsets.
+    base_pos: u64,
+    /// Byte offset of the start of each group of MPEG frames relative to `base_pos`. Contains
+    /// one more entry than the table-of-contents: the final entry is the offset of the end of
+    /// the final group.
+    group_offsets: Vec<u64>,
+    /// The number of MPEG frames in each group. The final group may contain fewer frames.
+    frames_per_entry: u64,
+}
+
+/// The table-of-contents of a VBRI tag.
+struct VbriToc {
+    /// The number of MPEG frames covered by each table entry. The final entry may cover fewer
+    /// frames.
+    frames_per_entry: u16,
+    /// The byte span of each group of frames, with the scale factor already applied.
+    spans: Vec<u64>,
+}
+
 /// The contents of a VBRI tag.
-#[allow(dead_code)]
 struct VbriTag {
+    /// The declared size of the audio byte range. Only used to validate the table-of-contents.
+    #[allow(dead_code)]
     num_bytes: u32,
     num_mpeg_frames: u32,
+    toc: Option<VbriToc>,
 }
 
 /// Try to read a VBRI tag from the provided MPEG frame.
@@ -1015,7 +1213,69 @@ fn try_read_vbri_tag_inner(buf: &[u8], header: &FrameHeader) -> Result<Option<Vb
     let num_bytes = reader.read_be_u32()?;
     let num_mpeg_frames = reader.read_be_u32()?;
 
-    Ok(Some(VbriTag { num_bytes, num_mpeg_frames }))
+    // The table-of-contents is optional. An absent or invalid table only disables the seek
+    // index, it does not invalidate the basic VBRI header read above.
+    let toc = read_vbri_toc(&mut reader, num_bytes, num_mpeg_frames);
+
+    Ok(Some(VbriTag { num_bytes, num_mpeg_frames, toc }))
+}
+
+/// Try to read the table-of-contents of a VBRI tag. Returns `None` if the table is absent,
+/// truncated, or fails any consistency check.
+fn read_vbri_toc(
+    reader: &mut BufReader<'_>,
+    num_bytes: u32,
+    num_mpeg_frames: u32,
+) -> Option<VbriToc> {
+    let entry_count = reader.read_be_u16().ok()?;
+    let scale = reader.read_be_u16().ok()?;
+    let entry_width = reader.read_be_u16().ok()?;
+    let frames_per_entry = reader.read_be_u16().ok()?;
+
+    // A table with no entries, a zero scale factor, or zero frames per entry is useless.
+    if entry_count == 0 || scale == 0 || frames_per_entry == 0 {
+        return None;
+    }
+
+    // Only entry widths of 1 to 4 bytes are supported.
+    if !(1..=4).contains(&entry_width) {
+        return None;
+    }
+
+    // The table must cover all MPEG frames. The final entry may cover fewer frames than
+    // frames_per_entry, but it must cover at least one frame.
+    let max_covered = u64::from(entry_count).checked_mul(u64::from(frames_per_entry))?;
+    let min_covered = max_covered - u64::from(frames_per_entry);
+
+    if u64::from(num_mpeg_frames) > max_covered || u64::from(num_mpeg_frames) <= min_covered {
+        return None;
+    }
+
+    // Read the table entries. Each entry is a big-endian unsigned integer of entry_width
+    // bytes. The byte span of a group of frames is the entry value multiplied by the scale
+    // factor.
+    let mut spans = Vec::with_capacity(usize::from(entry_count));
+    let mut total_bytes = 0u64;
+
+    for _ in 0..entry_count {
+        let mut value = 0u64;
+
+        for _ in 0..entry_width {
+            value = (value << 8) | u64::from(reader.read_u8().ok()?);
+        }
+
+        let span = value.checked_mul(u64::from(scale))?;
+        total_bytes = total_bytes.checked_add(span)?;
+
+        spans.push(span);
+    }
+
+    // The spans must not exceed the declared audio byte range.
+    if total_bytes > u64::from(num_bytes) {
+        return None;
+    }
+
+    Some(VbriToc { frames_per_entry, spans })
 }
 
 /// Perform a fast check to see if the packet contains a VBRI tag. If this returns true, the
