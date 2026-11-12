@@ -86,6 +86,28 @@ void setIdentMat3x3d(double (*A)[3]) {
 	for (int i = 0; i != 3; i++)
 		A[i][i] = 1.0;
 }
+
+// Inverts a general 3x3 matrix. Returns 0 on success and -1 for a singular
+// matrix. Used to keep A_ as the exact inverse of _A for every lattice shape.
+int invertMat3x3d(const double (*A)[3], double (*Ai)[3]) {
+	double c00 = A[1][1]*A[2][2] - A[1][2]*A[2][1];
+	double c01 = A[1][2]*A[2][0] - A[1][0]*A[2][2];
+	double c02 = A[1][0]*A[2][1] - A[1][1]*A[2][0];
+	double det = A[0][0]*c00 + A[0][1]*c01 + A[0][2]*c02;
+	if (det == 0.0)
+		return -1;
+	double inv = 1.0/det;
+	Ai[0][0] = c00*inv;
+	Ai[0][1] = (A[0][2]*A[2][1] - A[0][1]*A[2][2])*inv;
+	Ai[0][2] = (A[0][1]*A[1][2] - A[0][2]*A[1][1])*inv;
+	Ai[1][0] = c01*inv;
+	Ai[1][1] = (A[0][0]*A[2][2] - A[0][2]*A[2][0])*inv;
+	Ai[1][2] = (A[0][2]*A[1][0] - A[0][0]*A[1][2])*inv;
+	Ai[2][0] = c02*inv;
+	Ai[2][1] = (A[0][1]*A[2][0] - A[0][0]*A[2][1])*inv;
+	Ai[2][2] = (A[0][0]*A[1][1] - A[0][1]*A[1][0])*inv;
+	return 0;
+}
 #endif
 
 //******************************************************************
@@ -284,21 +306,25 @@ void grid3d::update_matrices() {
 		double sg = sin(aux1);
 		double cg = cos(aux1);
 		aux1 = ca - cb*cg;
+		// aux2 is the square root of the Gram matrix determinant, i.e. the
+		// unit-cell volume: sqrt(1 + 2*ca*cb*cg - ca^2 - cb^2 - cg^2).
 		double aux2 = sqrt(sg*sg + 2*ca*cb*cg - ca*ca - cb*cb);
-		_A[0][0] = A_[0][0] = 1.0;
+		// _A maps grid (inclined) coordinates to orthogonal coordinates. Its
+		// columns are the unit lattice axes expressed in an orthogonal frame.
+		_A[0][0] = 1.0;
 		_A[0][1] = cg;
 		_A[0][2] = cb;
+		_A[1][0] = 0.0;
 		_A[1][1] = sg;
-		A_[1][1] = cb = 1.0/sg;
-		A_[0][1] = -cg*cb;
-		_A[1][2] = aux1*cb;
-		_A[2][2] = aux2*cb;
-		aux2 = 1.0/aux2;
-		A_[0][2] = (cg*aux1 - ca*sg*sg)*cb*aux2;
-		A_[1][2] = -aux1*cb*aux2;
-		A_[2][2] = sg*aux2;
-		_A[1][0] = _A[2][0] = _A[2][1] = 0.0;
-		A_[1][0] = A_[2][0] = A_[2][1] = 0.0;
+		_A[1][2] = aux1/sg;
+		_A[2][0] = _A[2][1] = 0.0;
+		_A[2][2] = aux2/sg;
+		// A_ must be the exact inverse of _A: it maps orthogonal (world)
+		// coordinates back to grid coordinates. Building it by inversion keeps
+		// the interpolation (world->grid) and the normal transform (M^-T)
+		// consistent for any non-degenerate set of pairwise angles, including
+		// unequal angles where the previous hand-derived formula failed.
+		invertMat3x3d(_A, A_);
 		multAbf = mult_TSAbf;
 	} else {
 		nonortho = 0;
@@ -359,9 +385,25 @@ void grid3d::free_F() {
 	}
 }
 
-grid3d::grid3d() : F(0), subgrid(0), nsg(0), maxnsg(0), interpolation(&grid3d::bad_value) {}
+grid3d::grid3d() : F(0), x_data(0), periodic(0), subgrid(0), nsg(0), maxnsg(0),
+	interpolation(&grid3d::bad_value) {
+	for (int i = 0; i != 3; i++) {
+		r0[i] = d[i] = 0.0;
+		N[i] = 0;
+		L[i] = 0.0f;
+#ifndef GRD_ORTHOGONAL
+		Ang[i] = 90.0f;
+#endif
+	}
+	title[0] = 0;
+#ifndef GRD_ORTHOGONAL
+	nonortho = 0;
+	setIdentMat3x3d(_A);
+	setIdentMat3x3d(A_);
+#endif
+}
 
-grid3d::grid3d(const grid3d &G) {
+grid3d::grid3d(const grid3d &G) : grid3d() {
 	if (!G.F)
 		return;
 	memcpy(this, &G, sizeof (grid3d));
@@ -427,6 +469,7 @@ int grid3d::set_grid_dimensions(unsigned int Nx, unsigned int Ny, unsigned int N
 		free_F();
 		return -2;
 	}
+	periodic = 0;
 	for (int i = 0; i != 3; i++) {
 		L[i] = N[i];
 		d[i] = 1.0;
@@ -468,6 +511,7 @@ int grid3d::set_data_pointer(unsigned int Nx, unsigned int Ny, unsigned int Nz, 
 			F[k][j] = data + j*Nx;
 		data += Ny*Nx;
 	}
+	periodic = 0;
 	for (int i = 0; i != 3; i++) {
 		L[i] = N[i];
 		d[i] = 1.0;
@@ -610,6 +654,7 @@ int grid3d::generate_grid_from_fn(double xi, double yi, double zi, double xf, do
 		free_F();
 		return -2;
 	}
+	periodic = 0;
 	d[0] = dx; d[1] = dy; d[2] = dz;
 	r0[0] = xi; r0[1] = yi; r0[2] = zi;
 	if (fn) {
@@ -655,7 +700,9 @@ int grid3d::read_grd(const char *filename) {
 	ifstream in(filename);
 	if (!in)
 		return -1;
+#ifndef GRD_ORTHOGONAL
 	nonortho = 0;
+#endif
 	periodic = 0;
 	in.getline(title, 159);
 	in.ignore(60, '\n');

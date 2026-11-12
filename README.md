@@ -231,6 +231,101 @@ For more information, see the `grid3d` class in the MC33.h file.
 
 ---
 
+#### COORDINATE CONVENTIONS (ORTHOGONAL AND INCLINED LATTICES)
+
+A `grid3d` is a regular affine lattice described by three independent pieces:
+
+- **Spacing** `d[3]` (`set_ratio_aspect`): the lengths of the three lattice axes.
+- **Angles** `Ang[3] = {bc, ca, ab}` in degrees (`set_Ang`): the three pairwise
+  angles **between the lattice axes**, not angles to any fixed world axis.
+  `ab` is the angle between the first and second axis, `bc` between the second
+  and third, and `ca` between the third and first.
+- **Origin** `r0[3]` (`set_r0`): a pure translation; it never changes directions.
+
+If `u = (i, j, k)` are the (possibly fractional) grid indices, the world
+position is
+
+```
+r_world = r0 + M u
+```
+
+where the columns of `M` are the three lattice axis vectors. The library builds
+them only from the axis lengths and the three pairwise dot products, so the
+convention supports arbitrary unequal angles and is not restricted to right or
+equal angles. With axis vectors `a, b, c`:
+
+```
+|a| = d0,  |b| = d1,  |c| = d2
+a·b = d0 d1 cos(ab),  b·c = d1 d2 cos(bc),  c·a = d2 d0 cos(ca)
+```
+
+The same geometry is used consistently in both directions:
+
+- `M` maps grid indices to world positions (the isosurface vertices).
+- `A_ = M^-1` maps a world point back to index coordinates before
+  trilinear interpolation, so `interpolated_value(x, y, z)` evaluates the field
+  at the correct lattice location on inclined grids.
+- The surface normal is the **negative unit world-space gradient**
+  (the default orientation, preserved by `MC33_NORMAL_NEG 0`). A field
+  `F(u)` with index-space gradient `g` has world-space gradient
+  `M^{-T} g`; the inverse-transpose is what keeps the normal perpendicular to
+  the isosurface for a general inclined lattice.
+
+The inverse matrix is now obtained by directly inverting the axis matrix, which
+guarantees `A_ M = I` for every legal lattice instead of relying on a
+hand-derived formula that only happened to work when the three angles were
+equal.
+
+**Normal applicability range.** The coordinate chain is valid for positive
+spacings, a finite origin, and angles that define a legal, non-degenerate
+(volume `det M > 0`, i.e. not near coplanar) lattice. Right angles, equal
+angles and fully orthogonal grids are special cases of the same formulas.
+Degenerate or near-coplanar angle sets are outside the supported range.
+
+**Rebinding after modifying a grid.** `MC33::set_grid3d` snapshots the lattice
+geometry. If a `grid3d` is changed in place (new dimensions, spacing, origin or
+angles, including switching an inclined grid back to orthogonal), the caller
+must call `set_grid3d` again before the next `calculate_isosurface`; the MC33
+object does not track parameter changes by itself. Subgrids do not gain
+interpolation support.
+
+#### TOLERANCES AND THE REGRESSION SUITE
+
+The `regress/` folder contains an independent coordinate-chain contract
+(`regression.cpp`, four no-argument entry points called by `driver.cpp`). Its
+reference geometry is rebuilt from axis lengths and pairwise angles, never from
+the library's own matrices. Two error bounds are used for small,
+well-conditioned inputs:
+
+- `1e-5` for positions and scalar (trilinear) values. This is the single
+  precision floor of the edge root interpolation and the trilinear weights;
+  observed residuals on the reference configurations are around `1e-7`.
+- `2e-4` for unit normal directions. Normals are stored as `float` and
+  normalized with a fast approximate inverse square root, so their bound is
+  looser than the position bound; observed direction errors are around `1e-7`.
+
+Run `bash regress/target.sh` to build and execute the four contract groups plus
+the orthogonal and inclined reference checks, and `bash regress/mutants.sh` to
+confirm the suite rejects an inverted face bilinear decision and a shortened
+edge-root interpolation.
+
+#### ADDING AN ANALYTIC FIELD
+
+Two equivalent routes are provided, both in standard C++ with no graphics,
+Python or external geometry dependency:
+
+- Use `generate_grid_from_fn(...)` with any
+  `double fn(double x, double y, double z)`, then call `set_Ang(...)` for an
+  inclined lattice and `set_grid3d` before extracting an isosurface.
+- Or allocate with `set_grid_dimensions`, set spacing/origin/angles with
+  `set_ratio_aspect` / `set_r0` / `set_Ang`, fill samples with
+  `set_grid_value`, and (re)bind with `MC33::set_grid3d`. To evaluate the same
+  analytic field between samples, enable `set_interpolation(1)` and call
+  `interpolated_value` at world coordinates; the world-to-index transform keeps
+  the result consistent with the isosurface geometry.
+
+---
+
 #### OTHERS:
 
 To display the surface, you can use the `draw()` and `drawdfaft()` functions of the `surface` class by defining `MC33_USE_DRAW_OPEN_GL` (in only one of the project files) before including the MC33.h file in your code. These functions use the OpenGL library. Alternatively, you can implement your own drawing functions in your code after including MC33.h. 

@@ -122,6 +122,7 @@ int surface::read_bin(const char *filename) {
 		in.read(reinterpret_cast<char*>(&nV),sizeof(int));
 		in.read(reinterpret_cast<char*>(&nT),sizeof(int));
 		adjustvectorlenght();
+		color.resize(nV); // adjustvectorlenght() does not size the color vector
 		in.read(reinterpret_cast<char*>(&T[0]),3*sizeof(int)*nT);
 		if (n == MC33_surf_magic_nu2) {
 			for (unsigned int j = 0; j != nV; j++) {
