@@ -1,0 +1,19 @@
+Passing record for the pre-existing legacy suite test/Util-test.ts.
+Command: ./node_modules/.bin/jest test/Util-test.ts --coverage=false
+Node.js v26.0.0, TypeScript 6.0.2, repository-locked devDependencies.
+The lines below are the unmodified captured output (exit code 0).
+
+ts-jest[versions] (WARN) Version 30.3.0 of jest installed has not been tested with ts-jest. If you're experiencing issues, consider using a supported version (>=29.0.0 <30.0.0-0). Please do not report issues to ts-jest if you are using unsupported versions.
+ts-jest[ts-jest-transformer] (WARN) Define `ts-jest` config under `globals` is deprecated. Please do
+transform: {
+    <transform_regex> ['ts-jest', { /* ts-jest config goes here in Jest */ }],
+},
+See more at https://kulshekhar.github.io/ts-jest/docs/getting-started/presets#advanced
+ts-jest[versions] (WARN) Version 6.0.2 of typescript installed has not been tested with ts-jest. If you're experiencing issues, consider using a supported version (>=4.3.0 <6.0.0-0). Please do not report issues to ts-jest if you are using unsupported versions.
+(node:77343) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` (warning shown above)
+Test Suites: 1 passed, 1 total
+Tests:       92 passed, 92 total
+Snapshots:   0 total
+Time:        0.64 s, estimated 1 s
+Ran all test suites matching test/Util-test.ts.

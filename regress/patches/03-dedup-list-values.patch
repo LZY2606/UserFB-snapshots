@@ -1,0 +1,16 @@
+--- a/lib/RdfaParser.ts
++++ b/lib/RdfaParser.ts
+@@ -789,7 +789,12 @@
+         activeTag.listMappingLocal[predicate.value] = predicateList = [];
+       }
+       if (currentObjectResource) {
+-        predicateList.push(currentObjectResource);
++        // MUTATION: drop repeated values instead of keeping every list position
++        const duplicate = predicateList.some(term => term !== false &&
++          (term as RDF.Term).equals(currentObjectResource as RDF.Term));
++        if (!duplicate) {
++          predicateList.push(currentObjectResource);
++        }
+       }
+     }
+   }

@@ -1,0 +1,17 @@
+--- a/lib/RdfaParser.ts
++++ b/lib/RdfaParser.ts
+@@ -778,12 +778,13 @@
+     predicate: RDF.Quad_Predicate,
+     currentObjectResource: RDF.Quad_Object | boolean,
+   ): void {
+-    if (activeTag.explicitNewSubject) {
++    if (false && activeTag.explicitNewSubject) {
+       const bNode = this.util.createBlankNode();
+       this.emitTriple(this.util.getResourceOrBaseIri(subject, activeTag), predicate, bNode);
+       this.emitTriple(bNode, this.util.dataFactory.namedNode(`${Util.RDF}first`), this.util.getResourceOrBaseIri(currentObjectResource, activeTag));
+       this.emitTriple(bNode, this.util.dataFactory.namedNode(`${Util.RDF}rest`), this.util.dataFactory.namedNode(`${Util.RDF}nil`));
+     } else {
++      // MUTATION: independent explicit-about lists are merged into the parent list
+       let predicateList = activeTag.listMappingLocal[predicate.value];
+       if (!predicateList) {
+         activeTag.listMappingLocal[predicate.value] = predicateList = [];

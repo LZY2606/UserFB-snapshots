@@ -1,0 +1,12 @@
+--- a/lib/RdfaParser.ts
++++ b/lib/RdfaParser.ts
+@@ -563,7 +563,8 @@
+       const object = this.util.getResourceOrBaseIri(newSubject, activeTag);
+       for (const incompleteTriple of parentTag.incompleteTriples!) {
+         if (incompleteTriple.reverse) {
+-          this.emitTriple(object, incompleteTriple.predicate, subject);
++          // MUTATION: treat a pending rev relation as a forward relation
++          this.emitTriple(subject, incompleteTriple.predicate, object);
+         } else if (incompleteTriple.list) {
+           // Find the active tag that defined the list by going up the stack
+           let firstInListTag: IActiveTag | null = null;
