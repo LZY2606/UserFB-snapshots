@@ -7,6 +7,16 @@ const tTags = [
   'be', 'blur', 'bord', 'xbord', 'ybord', 'shad', 'xshad', 'yshad',
 ];
 
+// Numeric/color style properties that `sampleDialogue` knows how to animate.
+// `clip` and `be` are deliberately excluded: geometry clipping and edge
+// softening are not sampled.
+const timelineTTags = [
+  'fs', 'fsp',
+  'c1', 'c2', 'c3', 'c4', 'a1', 'a2', 'a3', 'a4', 'alpha',
+  'fscx', 'fscy', 'fax', 'fay', 'frx', 'fry', 'frz', 'fr',
+  'blur', 'bord', 'xbord', 'ybord', 'shad', 'xshad', 'yshad',
+];
+
 export function compileTag(tag, key, presets = {}) {
   let value = tag[key];
   if (value === undefined) {
@@ -74,9 +84,26 @@ export function compileTag(tag, key, presets = {}) {
   if (key === 't') {
     const { t1, accel, tags } = value;
     const t2 = value.t2 || (presets.end - presets.start) * 1e3;
+    if (presets.timeline) {
+      if (!Number.isFinite(t1) || !Number.isFinite(t2) || t2 < t1) {
+        throw new RangeError(
+          `[ass-compiler] invalid transform time range: t1=${t1}, t2=${t2}`,
+        );
+      }
+      if (!Number.isFinite(accel) || accel <= 0) {
+        throw new RangeError(
+          `[ass-compiler] transform acceleration must be a positive finite number, got ${accel}`,
+        );
+      }
+    }
     const compiledTag = {};
     tags.forEach((t) => {
       const k = Object.keys(t)[0];
+      if (presets.timeline && (k === undefined || !~timelineTTags.indexOf(k))) {
+        throw new Error(
+          `[ass-compiler] unsupported animation target in transform: ${k || '(empty tag)'}`,
+        );
+      }
       if (~tTags.indexOf(k) && !(k === 'clip' && !t[k].dots)) {
         Object.assign(compiledTag, compileTag(t, k, presets));
       }

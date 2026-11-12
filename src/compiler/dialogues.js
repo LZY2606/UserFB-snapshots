@@ -1,6 +1,6 @@
 import { compileText } from './text.js';
 
-export function compileDialogues({ styles, dialogues }) {
+export function compileDialogues({ styles, dialogues, animationTimeline = false }) {
   let minLayer = Infinity;
   const results = [];
   for (let i = 0; i < dialogues.length; i++) {
@@ -18,6 +18,7 @@ export function compileDialogues({ styles, dialogues }) {
       parsed: dia.Text.parsed,
       start: dia.Start,
       end: dia.End,
+      timeline: animationTimeline,
     });
     const alignment = compiledText.alignment || stl.Alignment;
     minLayer = Math.min(minLayer, dia.Layer);

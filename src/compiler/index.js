@@ -20,6 +20,7 @@ export function compile(text, options = {}) {
     dialogues: compileDialogues({
       styles,
       dialogues: tree.events.dialogue,
+      animationTimeline: options.animationTimeline === true,
     }),
   };
 }

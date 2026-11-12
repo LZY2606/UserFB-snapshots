@@ -1,4 +1,4 @@
-import { ParsedTag, CompiledTag } from './tags';
+import { ParsedTag, CompiledTag, SampledDialogueTag, AnimationTimelineOperation } from './tags';
 
 interface ScriptInfo {
     Title: string;
@@ -182,6 +182,12 @@ export interface DialogueFragment {
     tag: CompiledTag;
     text: string;
     drawing?: DialogueDrawing;
+    /**
+     * Only present when compiled with `{ animationTimeline: true }`.
+     * Number of ordered timeline operations (including this fragment's own
+     * override block) that determine its sampled style.
+     */
+    timelineIndex?: number;
 }
 
 export interface DialogueSlice {
@@ -204,6 +210,12 @@ export interface Dialogue {
     alignment: number;
     q: 0 | 1 | 2 | 3;
     slices: DialogueSlice[];
+    /**
+     * Ordered static overrides, `\t` transforms and `\r` resets for offline
+     * style sampling. Only present when compiled with
+     * `{ animationTimeline: true }`.
+     */
+    animationTimeline?: AnimationTimelineOperation[];
     pos?: {
         x: number;
         y: number;
@@ -247,6 +259,25 @@ export interface Dialogue {
     }
 }
 
+export interface CompileOptions {
+    defaultInfo?: Partial<ScriptInfo>;
+    defaultStyle?: object;
+    /**
+     * Keep an ordered animation timeline on every dialogue so its concrete
+     * text style can be queried later with `sampleDialogue`. Defaults to
+     * `false`, in which case the compiled shape is unchanged.
+     */
+    animationTimeline?: boolean;
+}
+
+export interface SampledDialogueFragment {
+    text: string;
+    /** Fully resolved style at the queried time. */
+    tag: SampledDialogueTag;
+    /** Independent copy of the compiled drawing, or `null` for text. */
+    drawing: DialogueDrawing | null;
+}
+
 export interface CompiledASS {
     info: ScriptInfo;
     width: number;
@@ -257,6 +288,23 @@ export interface CompiledASS {
     dialogues: Dialogue[];
 }
 
-export function compile(text: string, options: object): CompiledASS;
+export function compile(text: string, options?: CompileOptions): CompiledASS;
 
 export function decompile(obj: CompiledASS): string;
+
+/**
+ * Sample the actual text style of every fragment of one dialogue at a given
+ * absolute time, without using the DOM, Canvas or a font engine. The compiled
+ * object and the returned values are never mutated.
+ * @param compiled result of `compile(text, { animationTimeline: true })`
+ * @param dialogueIndex index in `compiled.dialogues`
+ * @param absoluteSeconds seconds on the video timeline
+ * @returns fragments in slice/fragment order, or `null` when the time is
+ *   outside of the dialogue's `[start, end)` interval. Throws on an invalid
+ *   index, a non-finite time, or when no animation timeline is available.
+ */
+export function sampleDialogue(
+    compiled: CompiledASS,
+    dialogueIndex: number,
+    absoluteSeconds: number,
+): SampledDialogueFragment[] | null;

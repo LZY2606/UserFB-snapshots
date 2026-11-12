@@ -22,7 +22,7 @@ npm install ass-compiler
 You can use `parse` or `compile` as your need.
 
 ```js
-import { parse, stringify, compile, decompile } from 'ass-compiler';
+import { parse, stringify, compile, decompile, sampleDialogue } from 'ass-compiler';
 
 // ASS file content
 const text = `
@@ -38,6 +38,35 @@ const stringifiedText = stringify(parsedASS);
 const compiledASS = compile(text, options);
 const decompiledText = decompile(compiledASS);
 ```
+
+### sampleDialogue
+
+`compile` only turns the animation tags into data. To know the actual text
+style at a given moment while rendering subtitle frames offline — without the
+DOM, Canvas or a font engine — enable `animationTimeline` and call
+`sampleDialogue`.
+
+```js
+const compiled = compile(assText, { animationTimeline: true });
+
+// absolute time in seconds on the video timeline
+const fragments = sampleDialogue(compiled, dialogueIndex, 1.5);
+if (fragments === null) {
+  // the time is outside of the dialogue's [start, end) interval
+} else {
+  fragments.forEach(({ text, tag, drawing }) => {
+    // `tag` is the fully resolved style at 1.5s: fs, fsp, fscx/fscy,
+    // frx/fry/frz, colors c1-c4, alphas a1-a4, and so on
+  });
+}
+```
+
+Sampling never mutates the compiled object, its styles or previously returned
+results, so time can be queried in any order and different dialogues can be
+interleaved. An invalid dialogue index, a non-finite time or a compiled object
+without an animation timeline throws an error. Position, clipping, fades and
+karaoke are not sampled; their compiled fields are kept as usual.
+
 
 ### options
 
@@ -75,6 +104,10 @@ const decompiledText = decompile(compiledASS);
     MarginV: '10',
     Encoding: '1',
   },
+  // Keep an ordered animation timeline per dialogue so `sampleDialogue` can
+  // resolve the concrete style at any time. Defaults to `false`; when off,
+  // the compiled object and `decompile` output are unchanged.
+  animationTimeline: false,
 }
 ```
 
