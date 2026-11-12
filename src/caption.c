@@ -171,6 +171,10 @@ libcaption_stauts_t caption_frame_decode_midrowchange(caption_frame_t* frame, ui
     if (eia608_parse_midrowchange(cc_data, &chn, &sty, &unl)) {
         frame->state.sty = sty;
         frame->state.uln = unl;
+        // On the wire a mid-row style change occupies one display position:
+        // it displays a space carrying the new style and advances the cursor.
+        // Encoders pair it with a backspace when the space is not wanted.
+        eia608_write_char(frame, EIA608_CHAR_SPACE);
     }
 
     return LIBCAPTION_OK;
@@ -254,13 +258,16 @@ libcaption_stauts_t caption_frame_decode_control(caption_frame_t* frame, uint16_
     case eia608_control_end_of_caption:
         return caption_frame_end(frame);
 
-    // cursor positioning
+    // cursor positioning; tabs are cursor movement only and never display a
+    // cell, so clamp the cursor to the final screen column
     case eia608_tab_offset_0:
     case eia608_tab_offset_1:
     case eia608_tab_offset_2:
-    case eia608_tab_offset_3:
-        frame->state.col += (cmd - eia608_tab_offset_0);
+    case eia608_tab_offset_3: {
+        int col = frame->state.col + (cmd - eia608_tab_offset_0);
+        frame->state.col = (SCREEN_COLS < col) ? (SCREEN_COLS - 1) : col;
         return LIBCAPTION_OK;
+    }
 
     // Unhandled
     default:

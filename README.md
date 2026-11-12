@@ -36,6 +36,39 @@ H.264 utility functions are limited to wrapping the 708 payload into a SEI NALU.
 * WEP = Extended Western European character set : Portuguese
 * WEG = Extended Western European character set : German/Danish
 
+## Pop-on screen export
+`sei_from_caption_frame` exports the full 15x32 `caption_frame_t.front` screen as
+pop-on EIA-608 captions, carried inside GA94/CEA-708 SEI messages through the
+existing `sei_render` / `sei_parse` / `sei_to_caption_frame` path. The screen is
+built into the non-displayed memory and only appears after the end-of-caption
+(EOC) swap, so round-tripping a frame through export and import reconstructs the
+same screen.
+
+* Every written cell keeps its row, column, character, color and underline
+  attribute; cells that were never written stay holes and are re-crossed with
+  preamble/tab positioning, while explicit space characters are preserved.
+* Mid-row style changes follow the CEA-608 wire semantics (they occupy one
+  display position), paired with a backspace so no extra space appears between
+  visible characters; no visible cell or styled background space is inserted
+  into a hole.
+* Basic North American, Special North American and all Extended Western
+  European characters are supported, including consecutive special characters
+  and replacement characters interleaved with pending characters and style
+  changes. Column 31 and the final row are handled like any other position.
+* Each GA94 message holds at most 31 cc_data items; pending characters, styles
+  and the pen position continue across messages, the EOC pair swaps the buffers
+  exactly once, and exporting one frame never mutates its grid or write pointer.
+
+## Verification
+The pop-on encoder tests live in `unit_tests/test_popon_encode.c` and are
+driven by `verification/driver_main.c`. Each registered case executes real
+assertions and returns 1 on success (there is no skip result); an independent
+byte interpreter reconstructs the screen directly from the rendered control
+words. Run them, followed by the upstream regression probes, with:
+
+* `bash verification/target.sh`
+* `bash verification/baseline.sh`
+
 ## Limitations
 Current B-frame support for caption creation is minimal. libcaption ensures no re-ordering of captions is required
 on playback.

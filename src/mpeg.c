@@ -425,6 +425,15 @@ void sei_encode_eia608(sei_t* sei, cea708_t* cea708, uint16_t cc_data)
     }
 
     if (0 == cc_data) { // Finished
+        // Reserve room for both EOC words in one message. If the first EOC
+        // overflowed into a new message it would be followed by another EOC
+        // that swaps the already cleared back buffer over the displayed
+        // screen, erasing the caption. A content-only boundary message keeps
+        // loading the back buffer and the single final EOC swaps once.
+        if (29 < cea708->user_data.cc_count) {
+            sei_append_708(sei, cea708);
+        }
+
         sei_encode_eia608(sei, cea708, eia608_control_command(eia608_control_end_of_caption, DEFAULT_CHANNEL));
         sei_encode_eia608(sei, cea708, eia608_control_command(eia608_control_end_of_caption, DEFAULT_CHANNEL));
         sei_append_708(sei, cea708);
@@ -434,98 +443,191 @@ void sei_encode_eia608(sei_t* sei, cea708_t* cea708, uint16_t cc_data)
     cea708_add_cc_data(cea708, 1, cc_type_ntsc_cc_field_1, cc_data);
 }
 ////////////////////////////////////////////////////////////////////////////////
-// TODO move this out of sei
+// Pop-on encoder
+//
+// The 15x32 source grid distinguishes cells that were never written (holes)
+// from cells holding an explicit space character. Holes emit nothing and are
+// re-crossed with a PAC/tab repositioning sequence, while spaces are encoded
+// like any other Basic North American character.
+//
+// CEA-608 wire semantics honored here:
+//  - a preamble addresses a row and (with a column PAC) a 4 column anchor,
+//    a tab advances the cursor without displaying anything;
+//  - a mid-row style change occupies one display position, so a style change
+//    is emitted as mid-row + backspace and the following character overwrites
+//    the mid-row space, keeping the source column layout intact;
+//  - a Western European character replaces the previous cell, so it is always
+//    preceded by an explicit space on the wire;
+//  - Special NA characters and control codes are filtered when two identical
+//    words arrive back to back, so a no-op control is inserted between repeats.
+typedef struct {
+    sei_t* sei;
+    cea708_t cea708;
+    uint16_t pending; // odd Basic NA character waiting to be paired
+    int has_pending;
+    uint16_t last_raw; // last word emitted, for repeat filtering
+} popon_encoder_t;
+
+static void popon_raw(popon_encoder_t* enc, uint16_t cc_data)
+{
+    // Identical consecutive Special NA characters (and control words) are
+    // discarded by receivers as duplicate commands. Break the run with a
+    // no-op positioning/mode word that the pop-on back buffer ignores.
+    if ((eia608_is_specialna(cc_data) || eia608_is_control(cc_data)) && cc_data == enc->last_raw) {
+        uint16_t sep = (eia608_control_command(eia608_control_resume_caption_loading, DEFAULT_CHANNEL) == enc->last_raw)
+            ? eia608_tab(0, DEFAULT_CHANNEL)
+            : eia608_control_command(eia608_control_resume_caption_loading, DEFAULT_CHANNEL);
+        sei_encode_eia608(enc->sei, &enc->cea708, sep);
+        enc->last_raw = sep;
+    }
+
+    sei_encode_eia608(enc->sei, &enc->cea708, cc_data);
+    enc->last_raw = cc_data;
+}
+
+static void popon_flush_pending(popon_encoder_t* enc)
+{
+    if (enc->has_pending) {
+        popon_raw(enc, enc->pending);
+        enc->has_pending = 0;
+        enc->pending = 0;
+    }
+}
+
+// Any positioning or style word must only reach the wire once every buffered
+// character has been sent, otherwise the new style would apply early.
+static void popon_word(popon_encoder_t* enc, uint16_t cc_data)
+{
+    popon_flush_pending(enc);
+    popon_raw(enc, cc_data);
+}
+
+static void popon_reposition(popon_encoder_t* enc, int row, int col)
+{
+    popon_word(enc, eia608_row_column_pramble(row, col, DEFAULT_CHANNEL, 0));
+
+    if (col % 4) {
+        popon_word(enc, eia608_tab(col % 4, DEFAULT_CHANNEL));
+    }
+}
+
+// Mid-row codes display a space; backspace returns the cursor to that cell so
+// the next character overwrites the space while keeping the new style.
+static void popon_style(popon_encoder_t* enc, eia608_style_t styl, int uln)
+{
+    popon_word(enc, eia608_midrow_change(DEFAULT_CHANNEL, styl, uln));
+    popon_word(enc, eia608_control_command(eia608_control_backspace, DEFAULT_CHANNEL));
+}
+
+static void popon_text(popon_encoder_t* enc, uint16_t cc_data, int* cursor)
+{
+    if (eia608_is_basicna(cc_data)) {
+        if (enc->has_pending) {
+            popon_raw(enc, eia608_from_basicna(enc->pending, cc_data));
+            enc->has_pending = 0;
+            enc->pending = 0;
+        } else {
+            enc->has_pending = 1;
+            enc->pending = cc_data;
+        }
+    } else if (eia608_is_westeu(cc_data)) {
+        // The extended character overwrites the preceding wire cell, which is
+        // deliberately a space so no source character is ever replaced.
+        popon_flush_pending(enc);
+        popon_raw(enc, eia608_from_utf8_1(EIA608_CHAR_SPACE, DEFAULT_CHANNEL));
+        popon_raw(enc, cc_data);
+    } else {
+        // Special NA characters cannot share a word and must not be paired.
+        popon_flush_pending(enc);
+        popon_raw(enc, cc_data);
+    }
+
+    *cursor += 1;
+}
+
 libcaption_stauts_t sei_from_caption_frame(sei_t* sei, caption_frame_t* frame)
 {
     int r, c;
-    int unl, prev_unl;
-    cea708_t cea708;
-    const char* data;
-    uint16_t prev_cc_data;
-    eia608_style_t styl, prev_styl;
+    popon_encoder_t enc;
 
     sei_init(sei, frame->timestamp);
-    cea708_init(&cea708, frame->timestamp); // set up a new popon frame
-    cea708_add_cc_data(&cea708, 1, cc_type_ntsc_cc_field_1, eia608_control_command(eia608_control_erase_non_displayed_memory, DEFAULT_CHANNEL));
-    cea708_add_cc_data(&cea708, 1, cc_type_ntsc_cc_field_1, eia608_control_command(eia608_control_resume_caption_loading, DEFAULT_CHANNEL));
+    cea708_init(&enc.cea708, frame->timestamp); // set up a new popon frame
+    enc.sei = sei;
+    enc.pending = 0;
+    enc.has_pending = 0;
+    enc.last_raw = 0;
+    cea708_add_cc_data(&enc.cea708, 1, cc_type_ntsc_cc_field_1, eia608_control_command(eia608_control_erase_non_displayed_memory, DEFAULT_CHANNEL));
+    cea708_add_cc_data(&enc.cea708, 1, cc_type_ntsc_cc_field_1, eia608_control_command(eia608_control_resume_caption_loading, DEFAULT_CHANNEL));
 
     for (r = 0; r < SCREEN_ROWS; ++r) {
-        prev_unl = 0, prev_styl = eia608_style_white;
-        // Calculate preamble
-        for (c = 0; c < SCREEN_COLS && 0 == *caption_frame_read_char(frame, r, c, &styl, &unl); ++c) {
+        eia608_style_t styl, cur_styl;
+        int uln, cur_uln;
+        int first = 0, cursor;
+
+        // Find the first written cell; an empty row emits nothing.
+        while (first < SCREEN_COLS && 0 == caption_frame_read_char(frame, r, first, 0, 0)[0]) {
+            ++first;
         }
 
-        // This row is blank
-        if (SCREEN_COLS == c) {
+        if (SCREEN_COLS == first) {
             continue;
         }
 
-        // Write preamble
-        if (0 < c || (0 == unl && eia608_style_white == styl)) {
-            int tab = c % 4;
-            sei_encode_eia608(sei, &cea708, eia608_row_column_pramble(r, c, DEFAULT_CHANNEL, 0));
-            if (tab) {
-                sei_encode_eia608(sei, &cea708, eia608_tab(tab, DEFAULT_CHANNEL));
-            }
+        caption_frame_read_char(frame, r, first, &styl, &uln);
+
+        // Address the row. A style preamble is only available at column 0;
+        // otherwise anchor with a column PAC and a tab.
+        if (0 == first) {
+            popon_word(&enc, eia608_row_style_pramble(r, DEFAULT_CHANNEL, styl, uln));
+            cur_styl = styl;
+            cur_uln = uln;
         } else {
-            sei_encode_eia608(sei, &cea708, eia608_row_style_pramble(r, DEFAULT_CHANNEL, styl, unl));
-            prev_unl = unl, prev_styl = styl;
+            popon_reposition(&enc, r, first);
+            cur_styl = eia608_style_white;
+            cur_uln = 0;
         }
 
-        // Write the row
-        for (prev_cc_data = 0, data = caption_frame_read_char(frame, r, c, 0, 0);
-             (*data) && c < SCREEN_COLS; ++c, data = caption_frame_read_char(frame, r, c, &styl, &unl)) {
+        cursor = first;
+
+        // Walk every cell, including holes and explicit spaces, all the way to
+        // the final column of the final row.
+        for (c = first; c < SCREEN_COLS; ++c) {
+            const char* data = caption_frame_read_char(frame, r, c, &styl, &uln);
+
+            if (0 == data[0]) {
+                // Hole: nothing is displayed; flush so cursor tracking stays
+                // honest and the next written cell repositions explicitly.
+                popon_flush_pending(&enc);
+                continue;
+            }
+
+            // A hole or a held mid-row space leaves the decoder cursor behind
+            // the source column; re-anchor before writing.
+            if (c != cursor) {
+                popon_reposition(&enc, r, c);
+                cursor = c;
+                cur_styl = eia608_style_white;
+                cur_uln = 0;
+            }
+
+            if (styl != cur_styl || uln != cur_uln) {
+                popon_style(&enc, styl, uln);
+                cur_styl = styl;
+                cur_uln = uln;
+            }
+
             uint16_t cc_data = eia608_from_utf8_1(data, DEFAULT_CHANNEL);
 
-            if (unl != prev_unl || styl != prev_styl) {
-                sei_encode_eia608(sei, &cea708, eia608_midrow_change(DEFAULT_CHANNEL, styl, unl));
-                prev_unl = unl, prev_styl = styl;
-            }
-
-            if (!cc_data) {
-                // We do't want to write bad data, so just ignore it.
-            } else if (eia608_is_basicna(prev_cc_data)) {
-                if (eia608_is_basicna(cc_data)) {
-                    // previous and current chars are both basicna, combine them into current
-                    sei_encode_eia608(sei, &cea708, eia608_from_basicna(prev_cc_data, cc_data));
-                } else if (eia608_is_westeu(cc_data)) {
-                    // extended charcters overwrite the previous charcter, so insert a dummy char thren write the extended char
-                    sei_encode_eia608(sei, &cea708, eia608_from_basicna(prev_cc_data, eia608_from_utf8_1(EIA608_CHAR_SPACE, DEFAULT_CHANNEL)));
-                    sei_encode_eia608(sei, &cea708, cc_data);
-                } else {
-                    // previous was basic na, but current isnt; write previous and current
-                    sei_encode_eia608(sei, &cea708, prev_cc_data);
-                    sei_encode_eia608(sei, &cea708, cc_data);
-                }
-
-                prev_cc_data = 0; // previous is handled, we can forget it now
-            } else if (eia608_is_westeu(cc_data)) {
-                // extended chars overwrite the previous chars, so insert a dummy char
-                // TODO create a map of alternamt chars for eia608_is_westeu instead of using space
-                sei_encode_eia608(sei, &cea708, eia608_from_utf8_1(EIA608_CHAR_SPACE, DEFAULT_CHANNEL));
-                sei_encode_eia608(sei, &cea708, cc_data);
-            } else if (eia608_is_basicna(cc_data)) {
-                prev_cc_data = cc_data;
-            } else {
-                sei_encode_eia608(sei, &cea708, cc_data);
-            }
-
-            if (eia608_is_specialna(cc_data)) {
-                // specialna are treated as control charcters. Duplicated control charcters are discarded
-                // So we write a resume after a specialna as a noop to break repetition detection
-                // TODO only do this if the same charcter is repeated
-                sei_encode_eia608(sei, &cea708, eia608_control_command(eia608_control_resume_caption_loading, DEFAULT_CHANNEL));
+            if (cc_data) {
+                popon_text(&enc, cc_data, &cursor);
             }
         }
 
-        if (0 != prev_cc_data) {
-            sei_encode_eia608(sei, &cea708, prev_cc_data);
-        }
+        popon_flush_pending(&enc);
     }
 
-    sei_encode_eia608(sei, &cea708, 0); // flush
+    sei_encode_eia608(sei, &enc.cea708, 0); // EOC pair and final GA94 message
     sei->timestamp = frame->timestamp; // assumes in order frames
-    // sei_dump (sei);
     return LIBCAPTION_OK;
 }
 

@@ -43,10 +43,17 @@ const char* eia608_style_map[] = {
 static inline uint16_t eia608_row_pramble(int row, int chan, int x, int underline)
 {
     row = eia608_reverse_row_map[row & 0x0F];
-    return eia608_parity(0x1040 | (chan ? 0x0800 : 0x0000) | ((row << 7) & 0x0700) | ((row << 5) & 0x0020)) | ((x << 1) & 0x001E) | (underline ? 0x0001 : 0x0000);
+    // The column/underline bits must be included in the parity calculation;
+    // ORing them in after eia608_parity() produces words that fail the
+    // receiver's odd-parity check and are discarded.
+    return eia608_parity(0x1040 | (chan ? 0x0800 : 0x0000) | ((row << 7) & 0x0700) | ((row << 5) & 0x0020) | ((x << 1) & 0x001E) | (underline ? 0x0001 : 0x0000));
 }
 
-uint16_t eia608_row_column_pramble(int row, int col, int chan, int underline) { return eia608_row_pramble(row, chan, 0x10 | (col / 4), underline); }
+// In the second preamble byte bit 5 is the low row-address bit and bit 4 is
+// the indentation flag, so the flag is x bit 3 (0x08) before the left shift;
+// using 0x10 would collide with the row bit and make every column PAC decode
+// as a column 0 style preamble.
+uint16_t eia608_row_column_pramble(int row, int col, int chan, int underline) { return eia608_row_pramble(row, chan, 0x08 | (col / 4), underline); }
 uint16_t eia608_row_style_pramble(int row, int chan, eia608_style_t style, int underline) { return eia608_row_pramble(row, chan, style, underline); }
 uint16_t eia608_midrow_change(int chan, eia608_style_t style, int underline) { return eia608_parity(0x1120 | ((chan << 11) & 0x0800) | ((style << 1) & 0x000E) | (underline & 0x0001)); }
 
