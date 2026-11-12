@@ -36,6 +36,20 @@ struct ebur128_dq_entry {
   STAILQ_ENTRY(ebur128_dq_entry) entries;
 };
 
+/* Mix preview history entry: per-block covariance of the K-weighted
+ * physical input channels, including channels mapped to EBUR128_UNUSED and
+ * blocks below the absolute gate. cov is channels*channels in row-major
+ * order, divided by the number of frames in the block. */
+STAILQ_HEAD(ebur128_mp_queue, ebur128_mp_entry);
+struct ebur128_mp_entry {
+  double* cov;
+  STAILQ_ENTRY(ebur128_mp_entry) entries;
+};
+
+/* The distinguishing bit of EBUR128_MODE_MIX_PREVIEW (which also or's in
+ * EBUR128_MODE_I). */
+#define EBUR128_MIX_PREVIEW_FLAG (1 << 7)
+
 #define ALMOST_ZERO 0.000001
 #define FILTER_STATE_SIZE 5
 
@@ -83,6 +97,10 @@ struct ebur128_state_internal {
   struct ebur128_double_queue block_list;
   unsigned long block_list_max;
   unsigned long block_list_size;
+  /** Linked list of mix preview covariance blocks. */
+  struct ebur128_mp_queue mix_preview_list;
+  unsigned long mix_preview_list_max;
+  unsigned long mix_preview_list_size;
   /** Linked list of 3s-block energies, used to calculate LRA. */
   struct ebur128_double_queue short_term_block_list;
   unsigned long st_block_list_max;
@@ -419,6 +437,12 @@ ebur128_init(unsigned int channels, unsigned long samplerate, int mode) {
 
   VALIDATE_CHANNELS_AND_SAMPLERATE(NULL);
 
+  /* The histogram only stores the weighted sum of the original channel
+   * energies, which cannot answer arbitrary mix queries. */
+  if ((mode & EBUR128_MIX_PREVIEW_FLAG) && (mode & EBUR128_MODE_HISTOGRAM)) {
+    return NULL;
+  }
+
   st = (ebur128_state*) malloc(sizeof(ebur128_state));
   CHECK_ERROR(!st, 0, exit)
   st->d = (struct ebur128_state_internal*) malloc(
@@ -496,6 +520,9 @@ ebur128_init(unsigned int channels, unsigned long samplerate, int mode) {
   STAILQ_INIT(&st->d->block_list);
   st->d->block_list_size = 0;
   st->d->block_list_max = st->d->history / 100;
+  STAILQ_INIT(&st->d->mix_preview_list);
+  st->d->mix_preview_list_size = 0;
+  st->d->mix_preview_list_max = st->d->history / 100;
   STAILQ_INIT(&st->d->short_term_block_list);
   st->d->st_block_list_size = 0;
   st->d->st_block_list_max = st->d->history / 3000;
@@ -552,6 +579,16 @@ exit:
   return NULL;
 }
 
+static void ebur128_clear_mix_preview(ebur128_state* st) {
+  while (!STAILQ_EMPTY(&st->d->mix_preview_list)) {
+    struct ebur128_mp_entry* entry = STAILQ_FIRST(&st->d->mix_preview_list);
+    STAILQ_REMOVE_HEAD(&st->d->mix_preview_list, entries);
+    free(entry->cov);
+    free(entry);
+  }
+  st->d->mix_preview_list_size = 0;
+}
+
 void ebur128_destroy(ebur128_state** st) {
   struct ebur128_dq_entry* entry;
   free((*st)->d->short_term_block_energy_histogram);
@@ -573,6 +610,7 @@ void ebur128_destroy(ebur128_state** st) {
     STAILQ_REMOVE_HEAD(&(*st)->d->short_term_block_list, entries);
     free(entry);
   }
+  ebur128_clear_mix_preview(*st);
   ebur128_destroy_resampler(*st);
   free((*st)->d);
   free(*st);
@@ -623,6 +661,9 @@ static void ebur128_check_true_peak(ebur128_state* st, size_t frames) {
         EBUR128_MAX(-((double) (min_scale)), (double) (max_scale));            \
                                                                                \
     double* audio_data = st->d->audio_data + st->d->audio_data_index;          \
+    /* Mix preview needs the filtered data of every physical channel, even */  \
+    /* those mapped to EBUR128_UNUSED. */                                      \
+    const int keep_unused = (st->mode & EBUR128_MIX_PREVIEW_FLAG) != 0;        \
     size_t i, c;                                                               \
                                                                                \
     TURN_ON_FTZ                                                                \
@@ -653,7 +694,7 @@ static void ebur128_check_true_peak(ebur128_state* st, size_t frames) {
       ebur128_check_true_peak(st, frames);                                     \
     }                                                                          \
     for (c = 0; c < st->channels; ++c) {                                       \
-      if (st->d->channel_map[c] == EBUR128_UNUSED) {                           \
+      if (st->d->channel_map[c] == EBUR128_UNUSED && !keep_unused) {           \
         continue;                                                              \
       }                                                                        \
       for (i = 0; i < frames; ++i) {                                           \
@@ -778,6 +819,77 @@ static int ebur128_calc_gating_block(ebur128_state* st,
   return EBUR128_SUCCESS;
 }
 
+/* Compute the channel covariance of the last frames_per_block frames and
+ * append it to the mix preview history. All physical channels take part,
+ * regardless of the channel map. Silent blocks are kept as well; the history
+ * is bounded by mix_preview_list_max and evicted oldest first. */
+static int ebur128_calc_mix_preview_block(ebur128_state* st,
+                                          size_t frames_per_block) {
+  struct ebur128_mp_entry* block;
+  size_t i, c1, c2;
+  size_t first_frame, second_frame, second_count;
+
+  if (st->d->mix_preview_list_size == st->d->mix_preview_list_max) {
+    /* Reuse the oldest entry. */
+    block = STAILQ_FIRST(&st->d->mix_preview_list);
+    STAILQ_REMOVE_HEAD(&st->d->mix_preview_list, entries);
+  } else {
+    block = (struct ebur128_mp_entry*) malloc(sizeof(*block));
+    if (!block) {
+      return EBUR128_ERROR_NOMEM;
+    }
+    block->cov = (double*) malloc(st->channels * st->channels * sizeof(double));
+    if (!block->cov) {
+      free(block);
+      return EBUR128_ERROR_NOMEM;
+    }
+    st->d->mix_preview_list_size++;
+  }
+  for (i = 0; i < st->channels * st->channels; ++i) {
+    block->cov[i] = 0.0;
+  }
+
+  /* The block consists of the frames_per_block frames ending at
+   * audio_data_index, possibly wrapping around the ring buffer. */
+  if (st->d->audio_data_index < frames_per_block * st->channels) {
+    first_frame = 0;
+    second_frame = st->d->audio_data_frames -
+                   (frames_per_block - st->d->audio_data_index / st->channels);
+    second_count = st->d->audio_data_frames - second_frame;
+  } else {
+    first_frame = st->d->audio_data_index / st->channels - frames_per_block;
+    second_frame = st->d->audio_data_frames;
+    second_count = 0;
+  }
+
+  for (i = first_frame; i < first_frame + (frames_per_block - second_count);
+       ++i) {
+    const double* frame = st->d->audio_data + i * st->channels;
+    for (c1 = 0; c1 < st->channels; ++c1) {
+      for (c2 = c1; c2 < st->channels; ++c2) {
+        block->cov[c1 * st->channels + c2] += frame[c1] * frame[c2];
+      }
+    }
+  }
+  for (i = second_frame; i < second_frame + second_count; ++i) {
+    const double* frame = st->d->audio_data + i * st->channels;
+    for (c1 = 0; c1 < st->channels; ++c1) {
+      for (c2 = c1; c2 < st->channels; ++c2) {
+        block->cov[c1 * st->channels + c2] += frame[c1] * frame[c2];
+      }
+    }
+  }
+  for (c1 = 0; c1 < st->channels; ++c1) {
+    for (c2 = c1; c2 < st->channels; ++c2) {
+      block->cov[c1 * st->channels + c2] /= (double) frames_per_block;
+      block->cov[c2 * st->channels + c1] = block->cov[c1 * st->channels + c2];
+    }
+  }
+
+  STAILQ_INSERT_TAIL(&st->d->mix_preview_list, block, entries);
+  return EBUR128_SUCCESS;
+}
+
 int ebur128_set_channel(ebur128_state* st,
                         unsigned int channel_number,
                         int value) {
@@ -887,6 +999,8 @@ int ebur128_change_parameters(ebur128_state* st,
   st->d->audio_data_index = 0;
   /* reset short term frame counter */
   st->d->short_term_frame_counter = 0;
+  /* the mix preview history refers to the old parameters, drop it */
+  ebur128_clear_mix_preview(st);
 
 exit:
   return errcode;
@@ -957,11 +1071,19 @@ int ebur128_set_max_history(ebur128_state* st, unsigned long history) {
   st->d->history = history;
   st->d->block_list_max = st->d->history / 100;
   st->d->st_block_list_max = st->d->history / 3000;
+  st->d->mix_preview_list_max = st->d->history / 100;
   while (st->d->block_list_size > st->d->block_list_max) {
     struct ebur128_dq_entry* block = STAILQ_FIRST(&st->d->block_list);
     STAILQ_REMOVE_HEAD(&st->d->block_list, entries);
     free(block);
     st->d->block_list_size--;
+  }
+  while (st->d->mix_preview_list_size > st->d->mix_preview_list_max) {
+    struct ebur128_mp_entry* block = STAILQ_FIRST(&st->d->mix_preview_list);
+    STAILQ_REMOVE_HEAD(&st->d->mix_preview_list, entries);
+    free(block->cov);
+    free(block);
+    st->d->mix_preview_list_size--;
   }
   while (st->d->st_block_list_size > st->d->st_block_list_max) {
     struct ebur128_dq_entry* block =
@@ -993,6 +1115,12 @@ static int ebur128_energy_shortterm(ebur128_state* st, double* out);
         if ((st->mode & EBUR128_MODE_I) == EBUR128_MODE_I) {                   \
           if (ebur128_calc_gating_block(st, st->d->samples_in_100ms * 4,       \
                                         NULL)) {                               \
+            return EBUR128_ERROR_NOMEM;                                        \
+          }                                                                    \
+        }                                                                      \
+        if (st->mode & EBUR128_MIX_PREVIEW_FLAG) {                             \
+          if (ebur128_calc_mix_preview_block(st,                               \
+                                             st->d->samples_in_100ms * 4)) {   \
             return EBUR128_ERROR_NOMEM;                                        \
           }                                                                    \
         }                                                                      \
@@ -1179,6 +1307,107 @@ int ebur128_loudness_global_multiple(ebur128_state** sts,
                                      size_t size,
                                      double* out) {
   return ebur128_gated_loudness(sts, size, out);
+}
+
+static double ebur128_mix_block_energy(const ebur128_state* st,
+                                       const struct ebur128_mp_entry* block,
+                                       const double* matrix,
+                                       size_t rows,
+                                       const double* weights) {
+  const unsigned int channels = st->channels;
+  double total = 0.0;
+  size_t r;
+  unsigned int c1, c2;
+
+  for (r = 0; r < rows; ++r) {
+    const double* row = matrix + r * channels;
+    double energy = 0.0;
+    for (c1 = 0; c1 < channels; ++c1) {
+      double acc = 0.0;
+      for (c2 = 0; c2 < channels; ++c2) {
+        acc += row[c2] * block->cov[c1 * channels + c2];
+      }
+      energy += row[c1] * acc;
+    }
+    /* The covariance matrix is positive semidefinite; clamp tiny negative
+     * values caused by floating point roundoff. */
+    if (energy < 0.0) {
+      energy = 0.0;
+    }
+    total += weights[r] * energy;
+  }
+  return total;
+}
+
+int ebur128_loudness_mix(ebur128_state* st,
+                         const double* matrix,
+                         size_t rows,
+                         const double* weights,
+                         double* out) {
+  static const double allowed_weights[] = { 0.0, 1.0, 1.41, 2.0 };
+  struct ebur128_mp_entry* it;
+  double sum;
+  double relative_threshold;
+  size_t above_thresh_counter;
+  size_t i, r;
+
+  if (!(st->mode & EBUR128_MIX_PREVIEW_FLAG)) {
+    return EBUR128_ERROR_INVALID_MODE;
+  }
+  if (!matrix || !weights || !out || rows < 1 || rows > 32) {
+    return EBUR128_ERROR_INVALID_ARGUMENT;
+  }
+  for (i = 0; i < rows * st->channels; ++i) {
+    if (!isfinite(matrix[i])) {
+      return EBUR128_ERROR_INVALID_ARGUMENT;
+    }
+  }
+  for (r = 0; r < rows; ++r) {
+    int weight_ok = 0;
+    for (i = 0; i < sizeof(allowed_weights) / sizeof(allowed_weights[0]);
+         ++i) {
+      if (weights[r] == allowed_weights[i]) {
+        weight_ok = 1;
+      }
+    }
+    if (!weight_ok) {
+      return EBUR128_ERROR_INVALID_ARGUMENT;
+    }
+  }
+
+  /* Absolute gate on the mixed block energies. */
+  sum = 0.0;
+  above_thresh_counter = 0;
+  STAILQ_FOREACH(it, &st->d->mix_preview_list, entries) {
+    double energy = ebur128_mix_block_energy(st, it, matrix, rows, weights);
+    if (energy >= histogram_energy_boundaries[0]) {
+      ++above_thresh_counter;
+      sum += energy;
+    }
+  }
+  if (!above_thresh_counter) {
+    *out = -HUGE_VAL;
+    return EBUR128_SUCCESS;
+  }
+  relative_threshold = sum / (double) above_thresh_counter;
+  relative_threshold *= relative_gate_factor;
+
+  /* Relative gate on the mixed block energies. */
+  sum = 0.0;
+  above_thresh_counter = 0;
+  STAILQ_FOREACH(it, &st->d->mix_preview_list, entries) {
+    double energy = ebur128_mix_block_energy(st, it, matrix, rows, weights);
+    if (energy >= relative_threshold) {
+      ++above_thresh_counter;
+      sum += energy;
+    }
+  }
+  if (!above_thresh_counter) {
+    *out = -HUGE_VAL;
+    return EBUR128_SUCCESS;
+  }
+  *out = ebur128_energy_to_loudness(sum / (double) above_thresh_counter);
+  return EBUR128_SUCCESS;
 }
 
 static int ebur128_energy_in_interval(ebur128_state* st,

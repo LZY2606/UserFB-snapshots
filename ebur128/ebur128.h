@@ -70,7 +70,8 @@ enum error {
   EBUR128_ERROR_NOMEM,
   EBUR128_ERROR_INVALID_MODE,
   EBUR128_ERROR_INVALID_CHANNEL_INDEX,
-  EBUR128_ERROR_NO_CHANGE
+  EBUR128_ERROR_NO_CHANGE,
+  EBUR128_ERROR_INVALID_ARGUMENT
 };
 
 /** \enum mode
@@ -91,7 +92,13 @@ enum mode {
   /** can call ebur128_true_peak */
   EBUR128_MODE_TRUE_PEAK = (1 << 5) | EBUR128_MODE_M | EBUR128_MODE_SAMPLE_PEAK,
   /** uses histogram algorithm to calculate loudness */
-  EBUR128_MODE_HISTOGRAM = (1 << 6)
+  EBUR128_MODE_HISTOGRAM = (1 << 6),
+  /** can call ebur128_loudness_mix to preview arbitrary linear downmixes.
+   *  Keeps per-block channel covariance data so that the integrated loudness
+   *  of any linear mix of the physical input channels can be queried without
+   *  replaying the audio. Cannot be combined with EBUR128_MODE_HISTOGRAM;
+   *  ebur128_init() will return NULL if both are requested. */
+  EBUR128_MODE_MIX_PREVIEW = (1 << 7) | EBUR128_MODE_I
 };
 
 /** forward declaration of ebur128_state_internal */
@@ -251,6 +258,60 @@ int ebur128_loudness_global(ebur128_state* st, double* out);
 int ebur128_loudness_global_multiple(ebur128_state** sts,
                                      size_t size,
                                      double* out);
+
+/** \brief Get integrated loudness in LUFS of a linear mix of the input
+ *         channels, without replaying the audio.
+ *
+ *  Requires EBUR128_MODE_MIX_PREVIEW. The library stores, for every complete
+ *  400ms gating block (produced every 100ms, like in mode I), the covariance
+ *  matrix of the K-weighted physical input channels. This includes blocks
+ *  below the -70 LUFS absolute gate and channels mapped to EBUR128_UNUSED,
+ *  so any linear combination of the physical inputs can be evaluated later.
+ *  The raw PCM is not kept.
+ *
+ *  The mix is described by a matrix in row-major order: matrix[r * channels
+ *  + c] is the coefficient of physical input channel c in output channel r.
+ *  The output channels are mixed linearly first; the energy of output
+ *  channel r is then multiplied by weights[r]. Allowed weights are exactly
+ *  0.0, 1.0, 1.41 and 2.0. Matrix coefficients may be positive or negative
+ *  but must be finite. rows must be between 1 and 32. The channel map does
+ *  not apply to the preview: matrix columns always refer to physical input
+ *  channels and the only weights are those passed in weights.
+ *
+ *  Gating is performed on the mixed block energies: first the absolute
+ *  -70 LUFS gate is applied to the mixed energy of each block, then the
+ *  relative gate is computed from the blocks that passed, exactly like
+ *  ebur128_loudness_global() does for the unmixed signal.
+ *
+ *  The number of blocks kept is controlled by ebur128_set_max_history():
+ *  the most recent history/100 blocks (after the usual clamping of history,
+ *  rounded down) are retained, counted by their time position; silent blocks
+ *  count as well. The first block still needs 400ms of audio.
+ *
+ *  This function does not advance filtering, time or any gating statistics;
+ *  querying multiple matrices interleaved with add_frames calls does not
+ *  affect any measurement.
+ *
+ *  @param st library state.
+ *  @param matrix row-major mix matrix, rows * channels finite coefficients.
+ *  @param rows number of mix output channels, 1 to 32.
+ *  @param weights per-output-channel energy weights, each 0.0, 1.0, 1.41 or
+ *         2.0.
+ *  @param out integrated loudness of the mix in LUFS. -HUGE_VAL if no block
+ *         passes the gates. Not modified on error.
+ *  @return
+ *    - EBUR128_SUCCESS on success.
+ *    - EBUR128_ERROR_INVALID_MODE if mode "EBUR128_MODE_MIX_PREVIEW" has not
+ *      been set.
+ *    - EBUR128_ERROR_INVALID_ARGUMENT if matrix, weights or out is NULL,
+ *      rows is out of range, a matrix coefficient is not finite, or a
+ *      weight is not one of the allowed values.
+ */
+int ebur128_loudness_mix(ebur128_state* st,
+                         const double* matrix,
+                         size_t rows,
+                         const double* weights,
+                         double* out);
 
 /** \brief Get momentary loudness (last 400ms) in LUFS.
  *

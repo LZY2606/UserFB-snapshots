@@ -95,5 +95,37 @@ Library usage should be pretty straightforward. All exported symbols are
 documented in the ebur128.h header file. For a usage example, see
 minimal-example.c in the tests folder.
 
+Mix preview
+-----------
+
+With `EBUR128_MODE_MIX_PREVIEW` (which includes mode I) the library keeps,
+for every complete 400 ms gating block (produced every 100 ms), the
+covariance matrix of the K-weighted physical input channels instead of only
+the weighted channel energies. The raw PCM is not stored. This allows
+`ebur128_loudness_mix()` to report the integrated loudness of any linear
+downmix of the inputs without replaying the audio:
+
+* The mix matrix is row-major: `matrix[r * channels + c]` maps physical
+  input channel `c` into mix output `r` (`1 <= rows <= 32`). Coefficients
+  may be negative but must be finite.
+* Each output channel energy is weighted by `weights[r]`; allowed weights
+  are exactly 0.0, 1.0, 1.41 and 2.0.
+* The channel map does not apply: columns always refer to physical input
+  channels, so inputs mapped to `EBUR128_UNUSED` are still mixable.
+* Gating happens on the mixed block energies: first the -70 LUFS absolute
+  gate, then the -10 LU relative gate, exactly like
+  `ebur128_loudness_global()`. Blocks below the absolute gate in the
+  original domain are retained, so mixes that amplify can still pass.
+* The number of retained blocks is `history / 100` (rounded down) of the
+  effective history set with `ebur128_set_max_history()` (clamped to at
+  least 400 ms); silent blocks count towards the history, and shortening
+  the history evicts old blocks immediately.
+* Querying does not advance filtering, time or gating statistics, so
+  multiple matrices can be evaluated alternately.
+* `EBUR128_MODE_MIX_PREVIEW` cannot be combined with
+  `EBUR128_MODE_HISTOGRAM`; `ebur128_init()` returns NULL in that case.
+
+See mix_preview_example.c in the test folder for a complete example.
+
 On some operating systems, static libraries should be compiled as position
 independent code. You can enable that by turning on `WITH_STATIC_PIC`.
