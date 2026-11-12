@@ -1,0 +1,20 @@
+#include "harness.h"
+#include <stdio.h>
+#include <stdlib.h>
+static unsigned long checks;
+void check_assert(int ok, const char *file, int line) {
+  if (!ok) { fprintf(stderr,"assertion: %s:%d\n",file,line); exit(1); }
+  ++checks;
+}
+int main(void) {
+  const char *groups[] = {"compat","splices","boundaries","work"};
+  unsigned i; unsigned long before;
+  for (i=0; i<sizeof(groups)/sizeof(groups[0]); ++i) {
+    before=checks;
+    check_case(groups[i]);
+    if (checks==before) { fprintf(stderr,"empty group: %s\n",groups[i]); return 2; }
+    printf("CASE %s checks=%lu PASS\n",groups[i],checks-before);
+  }
+  printf("EDIT_TARGET_OK groups=%u checks=%lu\n",i,checks);
+  return 0;
+}
