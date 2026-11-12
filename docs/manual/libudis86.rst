@@ -529,3 +529,39 @@ prefixes.
     Repne prefix
 
 These fields default to :code:`UD_NONE` if the respective prefixes were not found.
+
+Backward Slicing
+----------------
+
+The optional interface in :code:`libudis86/slice.h` computes a backward
+slice of a straight-line x86-64 code fragment.  Given a read-only buffer
+of machine code, a set of general purpose register bits and a set of
+flags to track at the end of the fragment, it reports the instructions
+the tracked values depend on (sorted by offset), the relevant bits each
+of those instructions writes, and the register bits and flags that are
+still live at the fragment entry.  The input is only decoded, never
+executed.
+
+.. c:function:: int ud_slice(const uint8_t *code, size_t code_size, const uint64_t reg_mask[UD_SLICE_NUM_REGS], uint8_t flag_mask, struct ud_slice **result)
+
+    Computes the backward slice.  :code:`reg_mask` selects, per canonical
+    64-bit register identity (:code:`UD_SLICE_RAX` .. :code:`UD_SLICE_R15`),
+    the bits to track; :code:`flag_mask` selects flags with the
+    :code:`UD_SLICE_CF/PF/AF/ZF/SF/OF` bits.  Returns
+    :code:`UD_SLICE_OK` on success, or one of
+    :code:`UD_SLICE_ERR_DECODE`, :code:`UD_SLICE_ERR_UNSUPPORTED`,
+    :code:`UD_SLICE_ERR_UNDEF_FLAG` and :code:`UD_SLICE_ERR_NOMEM`.
+    Unless memory ran out, :code:`*result` receives a newly allocated
+    :type:`ud_slice` that must be released with :func:`ud_slice_free`.
+
+.. c:function:: void ud_slice_free(struct ud_slice *slice)
+
+    Releases a slice result.  :code:`NULL` is accepted.
+
+The supported instruction set covers MOV, MOVZX, MOVSX, MOVSXD, XCHG,
+XOR, AND, OR, ADD, SUB, CMP and TEST in register or immediate form,
+CMOVcc and SETcc in register form, and NOP.  Anything else, including
+branches, calls, returns and memory operands, fails with
+:code:`UD_SLICE_ERR_UNSUPPORTED` and the offset of the offending
+instruction.  A complete, directly buildable example program is
+available in :code:`docs/slice_example.c`.

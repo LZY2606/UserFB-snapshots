@@ -16,6 +16,7 @@ libudis86_la_SOURCES =	\
     syn-intel.c \
     syn-att.c \
     udis86.c \
+    slice.c \
 	udint.h \
     syn.h \
     decode.h
@@ -24,7 +25,8 @@ include_ladir = ${includedir}/libudis86
 include_la_HEADERS = \
     types.h \
     extern.h \
-    itab.h
+    itab.h \
+    slice.h
 
 
 BUILT_SOURCES = \
