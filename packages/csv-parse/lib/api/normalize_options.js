@@ -756,6 +756,104 @@ const normalize_options = function (opts) {
       );
     }
   }
+  // Normalize option `recover_records`
+  if (
+    options.recover_records === undefined ||
+    options.recover_records === null ||
+    options.recover_records === false
+  ) {
+    options.recover_records = undefined;
+  } else {
+    const recover = options.recover_records;
+    if (!is_object(recover)) {
+      throw new CsvError(
+        "CSV_INVALID_OPTION_RECOVER_RECORDS",
+        [
+          "Invalid option `recover_records`:",
+          "expect an object,",
+          `got ${JSON.stringify(recover)}`,
+        ],
+        options,
+      );
+    }
+    const safe_positive_integer = function (value, name) {
+      if (
+        typeof value !== "number" ||
+        Number.isSafeInteger(value) === false ||
+        value <= 0
+      ) {
+        throw new CsvError(
+          "CSV_INVALID_OPTION_RECOVER_RECORDS",
+          [
+            "Invalid option `recover_records`:",
+            `\`${name}\` must be a positive safe integer,`,
+            `got ${JSON.stringify(value)}`,
+          ],
+          options,
+        );
+      }
+    };
+    safe_positive_integer(recover.field_count, "field_count");
+    safe_positive_integer(recover.confirm, "confirm");
+    if (recover.confirm < 2) {
+      throw new CsvError(
+        "CSV_INVALID_OPTION_RECOVER_RECORDS",
+        [
+          "Invalid option `recover_records`:",
+          "`confirm` must be greater than or equal to 2,",
+          `got ${JSON.stringify(recover.confirm)}`,
+        ],
+        options,
+      );
+    }
+    if (typeof recover.on_quarantine !== "function") {
+      throw new CsvError(
+        "CSV_INVALID_OPTION_RECOVER_RECORDS",
+        [
+          "Invalid option `recover_records`:",
+          "`on_quarantine` must be a function,",
+          `got ${JSON.stringify(recover.on_quarantine)}`,
+        ],
+        options,
+      );
+    }
+    // Supported feature set, enforced before any input is read.
+    const incompatible = [
+      !["utf8", "utf-8"].includes(options.encoding) &&
+        "a non UTF-8 encoding",
+      options.delimiter_auto !== false && "`delimiter_auto`",
+      options.delimiter.length !== 1 && "multiple field delimiters",
+      options.record_delimiter.length > 1 &&
+        "multiple record delimiters",
+      options.relax_quotes === true && "`relax_quotes`",
+      (options.relax_column_count === true ||
+        options.relax_column_count_less === true ||
+        options.relax_column_count_more === true) &&
+        "`relax_column_count`",
+      options.skip_records_with_error === true &&
+        "`skip_records_with_error`",
+      options.columns === true && "dynamic columns",
+      Array.isArray(options.columns) &&
+        options.columns.length !== recover.field_count &&
+        "a columns length different from `field_count`",
+    ].filter(Boolean);
+    if (incompatible.length > 0) {
+      throw new CsvError(
+        "CSV_INVALID_OPTION_RECOVER_RECORDS",
+        [
+          "Invalid option `recover_records`:",
+          "it cannot be combined with",
+          incompatible.join(", "),
+        ],
+        options,
+      );
+    }
+    options.recover_records = {
+      field_count: recover.field_count,
+      confirm: recover.confirm,
+      on_quarantine: recover.on_quarantine,
+    };
+  }
   return options;
 };
 

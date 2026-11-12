@@ -17,6 +17,8 @@ export {
   InfoDataSet,
   InfoRecord,
   InfoField,
+  QuarantineReport,
+  RecoverRecordsOptions,
   CsvErrorCode,
   CsvError,
   normalize_options,

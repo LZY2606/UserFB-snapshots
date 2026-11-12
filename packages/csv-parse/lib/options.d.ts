@@ -109,6 +109,49 @@ export interface ScoringFunctionOptions {
   size: number;
 }
 
+/**
+ * Report delivered to the `recover_records.on_quarantine` callback when a
+ * damaged record is isolated.
+ */
+export interface QuarantineReport {
+  /**
+   * The original parsing error which triggered the resynchronization.
+   */
+  readonly error: CsvError;
+  /**
+   * Absolute byte offset of the first byte of the damaged record.
+   */
+  readonly start: number;
+  /**
+   * Absolute byte offset of the first byte of the recovery boundary. The
+   * range is half open, `[start, end)`.
+   */
+  readonly end: number;
+  /**
+   * Independent copy of the quarantined bytes, covering `[start, end)`.
+   */
+  readonly buffer: Buffer;
+}
+
+/**
+ * Configuration of the record resynchronization mode.
+ */
+export interface RecoverRecordsOptions {
+  /**
+   * Exact number of fields every confirmed record must contain.
+   */
+  field_count: number;
+  /**
+   * Number of consecutive valid logical records required to accept a
+   * candidate as the recovery boundary, minimum 2.
+   */
+  confirm: number;
+  /**
+   * Called exactly once per quarantine with the damaged byte range.
+   */
+  on_quarantine: (report: QuarantineReport) => void;
+}
+
 export interface OptionsNormalized<T = string[], U = T> {
   auto_parse?: boolean | CastingFunction;
   auto_parse_date?: boolean | CastingDateFunction;
@@ -225,6 +268,12 @@ export interface OptionsNormalized<T = string[], U = T> {
    * Supported auto discovery method are Linux ("\n"), Apple ("\r") and Windows ("\r\n") row delimiters.
    */
   record_delimiter: Buffer[];
+  /**
+   * Record resynchronization mode. When enabled, damaged records are
+   * quarantined instead of interrupting the parsing; a new record boundary is
+   * only accepted after `confirm` consecutive strictly valid records.
+   */
+  recover_records?: RecoverRecordsOptions;
   /**
    * Discard inconsistent columns count, default to false.
    */
@@ -412,6 +461,12 @@ export interface Options<T = string[], U = T> {
     | Buffer
     | null
     | (string | null)[];
+  /**
+   * Record resynchronization mode. Damaged records are quarantined through
+   * `on_quarantine` and parsing resumes at the earliest boundary followed by
+   * `confirm` consecutive valid logical records. Opt-in, off by default.
+   */
+  recover_records?: OptionsNormalized["recover_records"];
   /**
    * Discard inconsistent columns count, default to false.
    */

@@ -70,9 +70,13 @@ const init_state = function (options) {
       Buffer.isBuffer(options.quote) &&
       Buffer.compare(options.escape, options.quote) === 0,
     // columns can be `false`, `true`, `Array`
+    // With `recover_records`, the expected length is fixed from the start so
+    // the first record is also checked against `field_count`.
     expectedRecordLength: Array.isArray(options.columns)
       ? options.columns.length
-      : undefined,
+      : options.recover_records !== undefined
+        ? options.recover_records.field_count
+        : undefined,
     field: new ResizeableBuffer(20),
     firstLineToHeaders: options.cast_first_line_to_header,
     needMoreDataSize: Math.max(
@@ -90,7 +94,12 @@ const init_state = function (options) {
       ...timchars.map((t) => t.length),
     ),
     previousBuf: undefined,
+    // Current position inside the reconciled buffer, tracked for the record
+    // resynchronization (`recover_records`) logic.
+    parsePos: 0,
     quoting: false,
+    // Absolute byte offset of the first byte of the record being parsed.
+    recordStartOffset: 0,
     stop: false,
     rawBuffer: new ResizeableBuffer(100),
     record: [],

@@ -3,6 +3,7 @@ import { init_state } from "./init_state.js";
 import { normalize_options } from "./normalize_options.js";
 import { CsvError } from "./CsvError.js";
 import { delimiter_discover } from "../utils/delimiter_discover.js";
+import { create_recovery } from "./recover.js";
 
 const isRecordEmpty = function (record) {
   return record.every(
@@ -37,11 +38,13 @@ const transform = function (original_options = {}) {
     records: 0,
   };
   const options = normalize_options(original_options);
-  return {
+  const api = {
     info: info,
     original_options: original_options,
     options: options,
     state: init_state(options),
+    // Record resynchronization support, only present with `recover_records`
+    recovery: undefined,
     __needMoreData: function (i, bufLen, end) {
       if (end) return false;
       const { encoding, escape, quote } = this.options;
@@ -66,8 +69,20 @@ const transform = function (original_options = {}) {
       );
       return numOfCharLeft < requiredLength;
     },
-    // Central parser implementation
+    // Entry point: retains the incoming chunks and dispatches to the record
+    // resynchronization logic while a quarantine is in progress.
     parse: function (nextBuf, end, push, close) {
+      const recovery = this.recovery;
+      if (recovery !== undefined) {
+        if (nextBuf !== undefined) recovery.register(nextBuf);
+        if (recovery.active) {
+          return recovery.handle_input(end === true, push, close);
+        }
+      }
+      return this.__parse(nextBuf, end, push, close);
+    },
+    // Central parser implementation
+    __parse: function (nextBuf, end, push, close) {
       const {
         bom,
         comment_no_infix,
@@ -155,6 +170,8 @@ const transform = function (original_options = {}) {
               const bomLength = boms[encoding].length;
               this.state.bufBytesStart += bomLength;
               buf = buf.slice(bomLength);
+              // The first record starts right after the BOM.
+              this.state.recordStartOffset = this.state.bufBytesStart;
               // Renormalize original options with the new encoding
               const options = normalize_options({
                 ...this.original_options,
@@ -175,6 +192,7 @@ const transform = function (original_options = {}) {
       const bufLen = buf.length;
       let pos;
       for (pos = 0; pos < bufLen; pos++) {
+        this.state.parsePos = pos;
         // Ensure we get enough space to look ahead
         // There should be a way to move this out of the loop
         if (this.__needMoreData(pos, bufLen, end)) {
@@ -288,7 +306,8 @@ const transform = function (original_options = {}) {
                     this.__infoField(),
                   ),
                 );
-                if (err !== undefined) return err;
+                if (err !== undefined)
+                  return this.__handleError(err, push, close, end);
               } else {
                 this.state.quoting = false;
                 this.state.wasQuoting = true;
@@ -320,7 +339,8 @@ const transform = function (original_options = {}) {
                       },
                     ),
                   );
-                  if (err !== undefined) return err;
+                  if (err !== undefined)
+                    return this.__handleError(err, push, close, end);
                 }
               } else {
                 this.state.quoting = true;
@@ -336,6 +356,9 @@ const transform = function (original_options = {}) {
               pos,
             );
             if (recordDelimiterLength !== 0) {
+              // First byte of the record following this delimiter.
+              const nextRecordStart =
+                this.state.bufBytesStart + pos + recordDelimiterLength;
               // Do not emit comments which take a full line
               const skipCommentLine =
                 this.state.commenting &&
@@ -356,6 +379,7 @@ const transform = function (original_options = {}) {
                   this.state.enabled = true;
                   this.__resetField();
                   this.__resetRecord();
+                  this.state.recordStartOffset = nextRecordStart;
                   pos += recordDelimiterLength - 1;
                   continue;
                 }
@@ -367,16 +391,19 @@ const transform = function (original_options = {}) {
                   this.state.field.length === 0
                 ) {
                   this.info.empty_lines++;
+                  this.state.recordStartOffset = nextRecordStart;
                   pos += recordDelimiterLength - 1;
                   continue;
                 }
                 this.info.bytes = this.state.bufBytesStart + pos;
                 const errField = this.__onField();
-                if (errField !== undefined) return errField;
+                if (errField !== undefined)
+                  return this.__handleError(errField, push, close, end);
                 this.info.bytes =
                   this.state.bufBytesStart + pos + recordDelimiterLength;
                 const errRecord = this.__onRecord(push);
-                if (errRecord !== undefined) return errRecord;
+                if (errRecord !== undefined)
+                  return this.__handleError(errRecord, push, close, end);
                 if (to !== -1 && this.info.records >= to) {
                   this.state.stop = true;
                   close();
@@ -384,6 +411,9 @@ const transform = function (original_options = {}) {
                 }
               }
               this.state.commenting = false;
+              // Commit the next record start only once the current one was
+              // fully handled, so error reports keep the correct origin.
+              this.state.recordStartOffset = nextRecordStart;
               pos += recordDelimiterLength - 1;
               continue;
             }
@@ -406,7 +436,8 @@ const transform = function (original_options = {}) {
             if (delimiterLength !== 0) {
               this.info.bytes = this.state.bufBytesStart + pos;
               const errField = this.__onField();
-              if (errField !== undefined) return errField;
+              if (errField !== undefined)
+                return this.__handleError(errField, push, close, end);
               pos += delimiterLength - 1;
               continue;
             }
@@ -417,18 +448,23 @@ const transform = function (original_options = {}) {
             max_record_size !== 0 &&
             this.state.record_length + this.state.field.length > max_record_size
           ) {
-            return this.__error(
-              new CsvError(
-                "CSV_MAX_RECORD_SIZE",
-                [
-                  "Max Record Size:",
-                  "record exceed the maximum number of tolerated bytes",
-                  `of ${max_record_size}`,
-                  `at line ${this.info.lines}`,
-                ],
-                this.options,
-                this.__infoField(),
+            return this.__handleError(
+              this.__error(
+                new CsvError(
+                  "CSV_MAX_RECORD_SIZE",
+                  [
+                    "Max Record Size:",
+                    "record exceed the maximum number of tolerated bytes",
+                    `of ${max_record_size}`,
+                    `at line ${this.info.lines}`,
+                  ],
+                  this.options,
+                  this.__infoField(),
+                ),
               ),
+              push,
+              close,
+              end,
             );
           }
         }
@@ -442,17 +478,22 @@ const transform = function (original_options = {}) {
         if (lappend === true && rappend === true) {
           this.state.field.append(chr);
         } else if (rtrim === true && !this.__isCharTrimable(buf, pos)) {
-          return this.__error(
-            new CsvError(
-              "CSV_NON_TRIMABLE_CHAR_AFTER_CLOSING_QUOTE",
-              [
-                "Invalid Closing Quote:",
-                "found non trimable byte after quote",
-                `at line ${this.info.lines}`,
-              ],
-              this.options,
-              this.__infoField(),
+          return this.__handleError(
+            this.__error(
+              new CsvError(
+                "CSV_NON_TRIMABLE_CHAR_AFTER_CLOSING_QUOTE",
+                [
+                  "Invalid Closing Quote:",
+                  "found non trimable byte after quote",
+                  `at line ${this.info.lines}`,
+                ],
+                this.options,
+                this.__infoField(),
+              ),
             ),
+            push,
+            close,
+            end,
           );
         } else {
           if (lappend === false) {
@@ -475,7 +516,8 @@ const transform = function (original_options = {}) {
               this.__infoField(),
             ),
           );
-          if (err !== undefined) return err;
+          if (err !== undefined)
+            return this.__handleError(err, push, close, end);
         } else {
           // Skip last line if it has no characters
           if (
@@ -485,9 +527,11 @@ const transform = function (original_options = {}) {
           ) {
             this.info.bytes = this.state.bufBytesStart + pos;
             const errField = this.__onField();
-            if (errField !== undefined) return errField;
+            if (errField !== undefined)
+              return this.__handleError(errField, push, close, end);
             const errRecord = this.__onRecord(push);
-            if (errRecord !== undefined) return errRecord;
+            if (errRecord !== undefined)
+              return this.__handleError(errRecord, push, close, end);
           } else if (this.state.wasRowDelimiter === true) {
             this.info.empty_lines++;
           } else if (this.state.commenting === true) {
@@ -529,7 +573,13 @@ const transform = function (original_options = {}) {
         }
         return this.__firstLineToColumns(record);
       }
-      if (columns === false && this.info.records === 0) {
+      if (
+        columns === false &&
+        this.info.records === 0 &&
+        this.options.recover_records === undefined
+      ) {
+        // With `recover_records`, the expected length is fixed to
+        // `field_count` from the start, including for the first record.
         this.state.expectedRecordLength = recordLength;
       }
       if (recordLength !== this.state.expectedRecordLength) {
@@ -667,6 +717,11 @@ const transform = function (original_options = {}) {
         }
       }
       this.__resetRecord();
+      // Retained input chunks can be released once the record they belong to
+      // is published. No release happens while a quarantine is active.
+      if (this.recovery !== undefined) {
+        this.recovery.release(this.state.recordStartOffset);
+      }
     },
     __firstLineToColumns: function (record) {
       const { firstLineToHeaders } = this.state;
@@ -928,6 +983,20 @@ const transform = function (original_options = {}) {
         return err;
       }
     },
+    // Route a recoverable record error to the resynchronization logic; any
+    // other error (including errors thrown by the user callbacks) is returned
+    // unchanged and terminates the parsing.
+    __handleError: function (err, push, close, end) {
+      const recovery = this.recovery;
+      if (
+        err === undefined ||
+        recovery === undefined ||
+        recovery.isRecoverable(err) === false
+      ) {
+        return err;
+      }
+      return recovery.begin(err, end === true, push, close);
+    },
     __infoDataSet: function () {
       return {
         ...this.info,
@@ -963,6 +1032,10 @@ const transform = function (original_options = {}) {
       };
     },
   };
+  if (options.recover_records !== undefined) {
+    api.recovery = create_recovery(api);
+  }
+  return api;
 };
 
 export { transform, CsvError };
