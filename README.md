@@ -29,6 +29,7 @@
     - [Node.js](#nodejs)
     - [CommonJS](#commonjs)
     - [Cloudflare Email Workers](#cloudflare-email-workers)
+    - [Streaming input](#streaming-input)
 - [TypeScript Support](#typescript-support)
 - [API](#api)
     - [PostalMime.parse()](#postalmimeparse)
@@ -228,6 +229,23 @@ export default {
 
 </details>
 
+### Streaming input
+
+A `ReadableStream<Uint8Array>` is parsed as it is read rather than copied into one message-sized buffer first. Each chunk is split into physical lines and every complete line is processed immediately, so a limit such as `maxHeadersSize` rejects while the source is still being read instead of after it has been drained. The parsed `Email` still resolves once, when the whole message has been processed, and the result is identical to parsing the same bytes as a single buffer.
+
+```js
+import PostalMime from 'postal-mime';
+import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
+
+const stream = Readable.toWeb(createReadStream('email.eml'));
+const email = await PostalMime.parse(stream);
+```
+
+Only one `reader.read()` is in flight at a time and the reader lock is released on every exit path. A parse error or a chunk that is not an `ArrayBufferView` stops reading and cancels the source once; a `read()` rejection is rethrown with its original `Error`, and a cancellation that rejects or never settles never replaces the parser's own error. A successful parse does not cancel the source.
+
+The parser keeps only the bytes of the line it is assembling, each copied out of the chunk that carried it, so a source may reuse one `Uint8Array` workspace and refill it on the next `pull` — including a stream created with `highWaterMark: 0` that does not queue chunks ahead. Views at a non-zero byte offset are read over their own range only; bytes just outside a view never leak into the message. Empty chunks are ignored, and a message that ends without a final line break gets an LF after its last line exactly as the buffered inputs do.
+
 ---
 
 ## TypeScript Support
@@ -298,7 +316,7 @@ if (email.from && isMailbox(email.from)) {
 PostalMime.parse(email, options) -> Promise<Email>
 ```
 
-- **email**: An RFC822 formatted email. This can be a `string`, an `ArrayBuffer`, a `Uint8Array` or any other `ArrayBufferView` (including a Node.js `Buffer` and a `DataView`), a `Blob`, or a [ReadableStream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream). A stream is read to completion before parsing starts.
+- **email**: An RFC822 formatted email. This can be a `string`, an `ArrayBuffer`, a `Uint8Array` or any other `ArrayBufferView` (including a Node.js `Buffer` and a `DataView`), a `Blob`, or a [ReadableStream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream) of `Uint8Array` chunks. A stream is parsed line by line as it is read, see [Streaming input](#streaming-input); the other inputs are parsed as one buffer.
 - **options**: Optional configuration object:
     - **rfc822Attachments** (boolean, default: `false`): Treat `message/rfc822` attachments without a Content-Disposition as attachments.
     - **forceRfc822Attachments** (boolean, default: `false`): Treat _all_ `message/rfc822` parts as attachments.

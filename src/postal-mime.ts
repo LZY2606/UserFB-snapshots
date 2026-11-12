@@ -1,5 +1,6 @@
 import MimeNode from './mime-node.js';
 import BoundaryStack from './boundary-stack.js';
+import LineFramer from './line-framer.js';
 import { textToHtml, htmlToText, formatTextHeader, formatHtmlHeader } from './text-format.js';
 import addressParser from './address-parser.js';
 import { decodeWords, foldLineBreaks, textEncoder, blobToArrayBuffer } from './decode-strings.js';
@@ -558,47 +559,91 @@ export default class PostalMime {
         return found;
     }
 
-    /** @internal */
-    async resolveStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array<ArrayBuffer>> {
-        let chunkLen = 0;
-        let chunks: Uint8Array[] = [];
+    /**
+     * Parses a ReadableStream line by line. Each chunk is split into physical lines as it
+     * arrives and each complete line is fed to processLine at once, so the raw message is
+     * never held alongside the parsed result. The LineFramer copies every byte it keeps, so
+     * a source that reuses one working buffer can refill it on the next pull safely.
+     *
+     * At most one reader.read() is in flight, the lock is released on every exit path, a
+     * parse or input error cancels the source exactly once without letting a failing or
+     * stalling cancel mask it, and a read() rejection is rethrown with its Error identity.
+     * @internal
+     */
+    async parseStream(stream: ReadableStream<Uint8Array>): Promise<void> {
         const reader = stream.getReader();
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
+        let cancelRequested = false;
+        const cancelOnce = (reason: unknown): void => {
+            if (cancelRequested) {
+                return;
             }
-            // A chunk that is not a byte view, eg. a string from a text stream, used to be
-            // copied in as zeros
-            if (!ArrayBuffer.isView(value)) {
-                const error = createError('EINVALIDINPUT', 'Stream chunks must be Uint8Array values');
-                // Not awaited, a source that fails or stalls on cancel must not hide this error
-                reader.cancel(error).catch(() => {});
+            cancelRequested = true;
+            // Not awaited: a cancel that rejects or never settles must not replace or hold
+            // back the error that triggered it. releaseLock() still runs in finally.
+            reader.cancel(reason).catch(() => {});
+        };
+
+        const framer = new LineFramer();
+        let lineCount = 0;
+
+        const feed = async (
+            lines: { bytes: Uint8Array<ArrayBuffer>; lineBreak: Uint8Array<ArrayBuffer> }[],
+            isFinal: boolean
+        ): Promise<void> => {
+            try {
+                for (const line of lines) {
+                    await this.processLine(line.bytes, line.lineBreak, isFinal);
+                    lineCount++;
+                }
+            } catch (error) {
+                cancelOnce(error);
                 throw error;
             }
-            chunks.push(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-            chunkLen += value.byteLength;
-        }
+        };
 
-        const result = new Uint8Array(chunkLen);
-        let chunkPointer = 0;
-        for (let chunk of chunks) {
-            result.set(chunk, chunkPointer);
-            chunkPointer += chunk.length;
-        }
+        try {
+            while (true) {
+                // A rejection here is the source's own Error and is rethrown unchanged,
+                // without cancelling: the source has already failed
+                const { done, value } = await reader.read();
 
-        return result;
+                if (done) {
+                    const tail = framer.end();
+                    if (tail.length) {
+                        // the last line had no line break, it gets the synthetic LF
+                        await feed(tail, true);
+                    } else if (lineCount > 0) {
+                        // the last line ended in an LF and was already fed, finalize once
+                        try {
+                            await this.finalize();
+                        } catch (error) {
+                            cancelOnce(error);
+                            throw error;
+                        }
+                    }
+                    break;
+                }
+
+                // A chunk that is not a byte view, eg. a string from a text stream, used to be
+                // copied in as zeros
+                if (!ArrayBuffer.isView(value)) {
+                    const error = createError('EINVALIDINPUT', 'Stream chunks must be Uint8Array values');
+                    cancelOnce(error);
+                    throw error;
+                }
+
+                // A view over the exact range, no copy: the framer copies every byte it retains
+                const chunk = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+                await feed(framer.push(chunk), false);
+            }
+        } finally {
+            reader.releaseLock();
+        }
     }
 
     /** @internal */
     async resolveInput(buf: RawEmail): Promise<ArrayBuffer> {
         let input: RawEmail = buf;
-
-        // Check if the input is a readable stream and resolve it into an ArrayBuffer
-        if (isReadableStream(input)) {
-            input = await this.resolveStream(input);
-        }
 
         // Should it throw for an empty value instead of defaulting to an empty ArrayBuffer?
         input = input || new ArrayBuffer(0);
@@ -771,14 +816,20 @@ export default class PostalMime {
         }
         this.started = true;
 
-        this.buf = await this.resolveInput(buf);
-        this.av = new Uint8Array(this.buf);
-        this.readPos = 0;
+        if (isReadableStream(buf)) {
+            // A stream is parsed line by line as it is read, without keeping a second,
+            // message sized copy of the raw bytes. The parsed result still resolves once.
+            await this.parseStream(buf);
+        } else {
+            this.buf = await this.resolveInput(buf);
+            this.av = new Uint8Array(this.buf);
+            this.readPos = 0;
 
-        while (this.readPos < this.av.length) {
-            const line = this.readLine();
+            while (this.readPos < this.av.length) {
+                const line = this.readLine();
 
-            await this.processLine(line.bytes, line.lineBreak, line.done);
+                await this.processLine(line.bytes, line.lineBreak, line.done);
+            }
         }
 
         this.forceRfc822Attachments = Boolean(this.options.forceRfc822Attachments) || this.hasReportParts();
