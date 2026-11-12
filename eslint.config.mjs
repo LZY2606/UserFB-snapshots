@@ -300,6 +300,7 @@ export default [
       'jest/expect-expect': [2, {
         assertFunctionNames: [
           'expect',
+          'assert.*',
           'forResultStream',
           'shouldCallbackComments',
           'shouldEmitComments',

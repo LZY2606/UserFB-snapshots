@@ -1,5 +1,6 @@
 // **N3Store** objects store N3 quads by graph in memory.
 import { Readable } from 'readable-stream';
+import { alignStores } from './BlankNodeAlignment';
 import { default as N3DataFactory, termToId, termFromId } from './N3DataFactory';
 import namespaces from './IRIs';
 import { isDefaultGraph } from './N3Util';
@@ -1170,6 +1171,32 @@ export default class N3Store {
       other = other.filtered;
 
     return other === this || (this.size === other.size && this.contains(other));
+  }
+
+  /**
+   * Aligns the blank nodes of this store with those of the given store before
+   * reporting the changes between two captures, so a daily re-crawl that only
+   * renames blank nodes is not reported as deletion and insertion.
+   *
+   * The blank-node correspondence is chosen to retain the largest number of
+   * quads, using the fewest mapped blank nodes in case of a tie, and then by
+   * the smallest labels in UTF-8 byte order. Neither store is modified, and
+   * the semantics of `difference`, `equals`, and `match` are unaffected.
+   *
+   * @example
+   * const before = new Store([quad(blankNode('a'), namedNode('urn:p'), literal('v'))]);
+   * const after  = new Store([quad(blankNode('b'), namedNode('urn:p'), literal('v'))]);
+   * before.alignDiff(after);
+   * // { mapping: [[BlankNode('a'), BlankNode('b')]], retained: [{ before, after }],
+   * //   removed: [], added: [], stats: { states: 1 } }
+   *
+   * @returns {{mapping: Array, retained: Array, removed: Array, added: Array, stats: object}}
+   */
+  alignDiff(other) {
+    if (other instanceof DatasetCoreAndReadableStream)
+      other = other.filtered;
+
+    return alignStores(this, other);
   }
 
   /**
