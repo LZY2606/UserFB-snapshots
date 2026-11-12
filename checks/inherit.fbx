@@ -1,0 +1,25 @@
+; FBX 7.4.0 project file
+FBXHeaderExtension: {
+ FBXHeaderVersion: 1003
+ FBXVersion: 7400
+}
+Objects: {
+ Model: 1, "Model::parent", "LimbNode" {
+  Version: 232
+  Properties70: {
+   P: "Lcl Scaling", "Lcl Scaling", "", "A",2,1,1
+  }
+ }
+ Model: 2, "Model::child", "LimbNode" {
+  Version: 232
+  Properties70: {
+   P: "Lcl Translation", "Lcl Translation", "", "A",3,0,0
+   P: "Lcl Rotation", "Lcl Rotation", "", "A",0,0,90
+   P: "InheritType", "enum", "", "",0
+  }
+ }
+}
+Connections: {
+ C: "OO",1,0
+ C: "OO",2,1
+}
