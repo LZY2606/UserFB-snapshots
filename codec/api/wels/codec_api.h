@@ -572,6 +572,54 @@ long WelsCreateDecoder (ISVCDecoder** ppDecoder);
 */
 void WelsDestroyDecoder (ISVCDecoder* pDecoder);
 
+/**
+ * @brief Acquire an independent reference to the picture most recently
+ *        delivered by DecodeFrameNoDelay(), DecodeFrame2() or FlushFrame()
+ *        (i.e. the last call whose SBufferInfo had iBufferStatus == 1).
+ *
+ * The leased planes alias the decoder's internal storage instead of copying
+ * it; the addresses are exactly the ones that call reported in pDst. While any
+ * lease on a picture exists, that storage is neither overwritten by later
+ * decoding nor freed by DPB eviction, IDR, resolution changes,
+ * Uninitialize() or WelsDestroyDecoder(). When no lease is outstanding the
+ * decoder keeps its normal picture-pool recycling behavior.
+ *
+ * Eligibility is tied to the last delivery only: every new decode/flush call
+ * cancels the previous picture's eligibility at its start, and a call that
+ * produces no output does not restore an older picture. Repeated acquisition
+ * yields independent references to the same picture without consuming it.
+ *
+ * @param pDecoder  decoder instance
+ * @param ppFrame   on success receives a new handle; on failure is set to NULL
+ * @return 0 on success; non-zero when there is no eligible picture, the
+ *         decoder is not initialized, or it runs in parse-only mode
+ */
+int WelsAcquireDecodedFrame (ISVCDecoder* pDecoder, SWelsDecodedFrame** ppFrame);
+
+/**
+ * @brief Create another independent reference to an already leased picture.
+ *        May be called from any thread, including threads other than the one
+ *        driving the decoder.
+ * @return 0 on success; non-zero when pFrame is NULL
+ */
+int WelsRetainDecodedFrame (SWelsDecodedFrame* pFrame);
+
+/**
+ * @brief Release one reference. The picture storage is recycled only after
+ *        the last reference is released; this is safe after the owning
+ *        decoder has been destroyed and never calls back into that decoder.
+ *        NULL is accepted and treated as a no-op.
+ */
+void WelsReleaseDecodedFrame (SWelsDecodedFrame* pFrame);
+
+/**
+ * @brief Fill pInfo with the leased picture's plane pointers, strides,
+ *        visible dimensions and output timestamp. Plane pointers remain valid
+ *        until the last reference to the picture is released.
+ * @return 0 on success; non-zero when either argument is NULL
+ */
+int WelsGetDecodedFrameInfo (const SWelsDecodedFrame* pFrame, SWelsDecodedFrameInfo* pInfo);
+
 /** @brief   Get codec version
  *           Note, old versions of Mingw (GCC < 4.7) are buggy and use an
  *           incorrect/different ABI for calling this function, making it

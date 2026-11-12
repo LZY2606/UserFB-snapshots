@@ -147,9 +147,12 @@ CWelsDecoder::CWelsDecoder (void)
     m_pDecThrCtx (NULL),
     m_pLastDecThrCtx (NULL),
     m_iLastBufferedIdx (0),
-    m_iStreamSeqNum (0) {
+    m_iStreamSeqNum (0),
+    m_pFrameLeaseRegistry (NULL),
+    m_pLeasablePic (NULL) {
   memset (&m_sReoderingStatus, 0, sizeof (m_sReoderingStatus));
   m_sReoderingStatus.iMinPOC = IMinInt32;
+  memset (&m_sLeasableInfo, 0, sizeof (m_sLeasableInfo));
   for (int32_t i = 0; i < 16; ++i) {
     memset (&m_sPictInfoList[i], 0, sizeof (m_sPictInfoList[i]));
     m_sPictInfoList[i].iPOC = IMinInt32;
@@ -187,6 +190,10 @@ CWelsDecoder::CWelsDecoder (void)
   for (int32_t i = 0; i < WELS_DEC_MAX_NUM_CPU; ++i) {
     m_pDecThrCtxActive[i] = NULL;
   }
+  // The registry outlives every decoder context: detached leases release
+  // their picture storage through it even after WelsDestroyDecoder().
+  m_pFrameLeaseRegistry = new CDecodedFrameRegistry();
+  m_pLeasablePic = NULL;
 #ifdef OUTPUT_BIT_STREAM
   SWelsTime sCurTime;
 
@@ -244,6 +251,7 @@ CWelsDecoder::~CWelsDecoder() {
   }
   CloseDecoderThreads();
   UninitDecoder();
+  m_pLeasablePic = NULL;
 
 #ifdef OUTPUT_BIT_STREAM
   if (m_pFBS) {
@@ -263,6 +271,12 @@ CWelsDecoder::~CWelsDecoder() {
   if (m_pDecThrCtx != NULL) {
     delete[] m_pDecThrCtx;
     m_pDecThrCtx = NULL;
+  }
+  // Detached leases are self-contained, so the registry can go away while
+  // handles remain outstanding; their final release frees storage directly.
+  if (m_pFrameLeaseRegistry != NULL) {
+    delete m_pFrameLeaseRegistry;
+    m_pFrameLeaseRegistry = NULL;
   }
 }
 
@@ -287,6 +301,9 @@ long CWelsDecoder::Initialize (const SDecodingParam* pParam) {
 
 long CWelsDecoder::Uninitialize() {
   UninitDecoder();
+  // Pool storage is gone; nothing remains eligible for a new Acquire. Already
+  // leased handles stay valid through their own references.
+  InvalidateLeasablePicture();
 
   return ERR_NONE;
 }
@@ -431,6 +448,8 @@ int32_t CWelsDecoder::InitDecoderCtx (PWelsDecoderContext& pCtx, const SDecoding
   pCtx->pStreamSeqNum = &m_iStreamSeqNum;
   WelsDecoderDefaults (pCtx, &m_pWelsTrace->m_sLogCtx);
   WelsDecoderSpsPpsDefaults (pCtx->sSpsPpsCtx);
+  // Pool teardown paths route leased pictures through this shared registry.
+  pCtx->pFrameLeaseRegistry = m_pFrameLeaseRegistry;
   //check param and update decoder context
   pCtx->pParam = (SDecodingParam*)pCtx->pMemAlign->WelsMallocz (sizeof (SDecodingParam),
                  "SDecodingParam");
@@ -734,6 +753,7 @@ DECODING_STATE CWelsDecoder::DecodeFrameNoDelay (const unsigned char* kpSrc,
         ReleaseBufferedReadyPictureReorder (NULL, ppDst, pDstInfo);
       }
     }
+    RecordDeliveredPicture (pDstInfo);
     return (DECODING_STATE)iRet;
   }
   //SBufferInfo sTmpBufferInfo;
@@ -750,6 +770,7 @@ DECODING_STATE CWelsDecoder::DecodeFrameNoDelay (const unsigned char* kpSrc,
   //ppDst[1] = ppTmpDst[1];
   //ppDst[2] = ppTmpDst[2];
   //}
+  RecordDeliveredPicture (pDstInfo);
   return (DECODING_STATE)iRet;
 }
 
@@ -940,12 +961,20 @@ DECODING_STATE CWelsDecoder::DecodeFrame2 (const unsigned char* kpSrc,
     const int kiSrcLen,
     unsigned char** ppDst,
     SBufferInfo* pDstInfo) {
+  // Eligibility is call-scoped: entering a decode call retires the picture
+  // delivered by the previous call.
+  InvalidateLeasablePicture();
   PWelsDecoderContext pDecContext = m_pDecThrCtx[0].pCtx;
-  return DecodeFrame2WithCtx (pDecContext, kpSrc, kiSrcLen, ppDst, pDstInfo);
+  DECODING_STATE eRet = DecodeFrame2WithCtx (pDecContext, kpSrc, kiSrcLen, ppDst, pDstInfo);
+  RecordDeliveredPicture (pDstInfo);
+  return eRet;
 }
 
 DECODING_STATE CWelsDecoder::FlushFrame (unsigned char** ppDst,
     SBufferInfo* pDstInfo) {
+  // Flush is itself a delivery call: an empty flush must not revive the
+  // picture from before it.
+  InvalidateLeasablePicture();
   bool bEndOfStreamFlag = true;
   if (m_iThreadCount <= 1) {
     for (int32_t j = 0; j < m_iCtxCount; ++j) {
@@ -969,6 +998,7 @@ DECODING_STATE CWelsDecoder::FlushFrame (unsigned char** ppDst,
       ReleaseBufferedReadyPictureReorder (NULL, ppDst, pDstInfo, true);
     }
   }
+  RecordDeliveredPicture (pDstInfo);
   return dsErrorFree;
 }
 
@@ -1497,6 +1527,86 @@ int CWelsDecoder::ThreadDecodeFrameInternal (const unsigned char* kpSrc, const i
 
 
 using namespace WelsDec;
+
+void CWelsDecoder::InvalidateLeasablePicture() {
+  // Only eligibility is retired; pictures already leased stay alive through
+  // their handles.
+  m_pLeasablePic = NULL;
+}
+
+PPicture CWelsDecoder::FindPictureByOutputAddress (PPicBuff pPicBuff, const unsigned char* pDst0) {
+  if (pPicBuff == NULL || pDst0 == NULL)
+    return NULL;
+  for (int32_t i = 0; i < pPicBuff->iCapacity; ++i) {
+    PPicture pPic = pPicBuff->ppPic[i];
+    // The delivered address may carry crop/padding offsets, so match against
+    // the whole luma allocation rather than the plane origin only.
+    if (pPic != NULL && pPic->pBuffer[0] != NULL && pDst0 >= pPic->pBuffer[0]
+        && pDst0 < pPic->pBuffer[1]) {
+      return pPic;
+    }
+  }
+  return NULL;
+}
+
+void CWelsDecoder::RecordDeliveredPicture (SBufferInfo* pDstInfo) {
+  m_pLeasablePic = NULL;
+  if (pDstInfo == NULL || pDstInfo->iBufferStatus != 1)
+    return;
+
+  PWelsDecoderContext pCtx = m_pDecThrCtx[0].pCtx;
+  PPicBuff pPicBuff = (m_pPicBuff != NULL) ? m_pPicBuff
+                      : (pCtx != NULL ? pCtx->pPicBuff : NULL);
+  PPicture pPic = FindPictureByOutputAddress (pPicBuff, pDstInfo->pDst[0]);
+  if (pPic == NULL)
+    return;
+
+  memset (&m_sLeasableInfo, 0, sizeof (m_sLeasableInfo));
+  for (int32_t i = 0; i < 3; ++i)
+    m_sLeasableInfo.pData[i] = pDstInfo->pDst[i];
+  m_sLeasableInfo.iStride[0] = pDstInfo->UsrData.sSystemBuffer.iStride[0];
+  m_sLeasableInfo.iStride[1] = pDstInfo->UsrData.sSystemBuffer.iStride[1];
+  m_sLeasableInfo.iStride[2] = pDstInfo->UsrData.sSystemBuffer.iStride[1];
+  m_sLeasableInfo.iWidth = pDstInfo->UsrData.sSystemBuffer.iWidth;
+  m_sLeasableInfo.iHeight = pDstInfo->UsrData.sSystemBuffer.iHeight;
+  m_sLeasableInfo.uiTimeStamp = pDstInfo->uiOutYuvTimeStamp;
+  m_pLeasablePic = pPic;
+}
+
+int CWelsDecoder::AcquireDecodedFrame (SWelsDecodedFrame** ppFrame) {
+  if (ppFrame == NULL)
+    return 1;
+  *ppFrame = NULL;
+  if (m_pFrameLeaseRegistry == NULL || m_pLeasablePic == NULL)
+    return 1;
+  PWelsDecoderContext pCtx = m_pDecThrCtx[0].pCtx;
+  if (pCtx == NULL || pCtx->pParam == NULL || pCtx->pParam->bParseOnly)
+    return 1;
+
+  // Re-validate against the live pool; teardown retires the pointer.
+  PPicBuff pPicBuff = (m_pPicBuff != NULL) ? m_pPicBuff : pCtx->pPicBuff;
+  if (FindPictureByOutputAddress (pPicBuff, m_sLeasableInfo.pData[0]) != m_pLeasablePic)
+    return 1;
+
+  SWelsDecodedFrame* pFrame = m_pFrameLeaseRegistry->Acquire (m_pLeasablePic, m_sLeasableInfo);
+  if (pFrame == NULL)
+    return 1;
+  *ppFrame = pFrame;
+  return 0;
+}
+
+int CWelsDecoder::RetainDecodedFrame (SWelsDecodedFrame* pFrame) {
+  return CDecodedFrameRegistry::Retain (pFrame);
+}
+
+void CWelsDecoder::ReleaseDecodedFrame (SWelsDecodedFrame* pFrame) {
+  CDecodedFrameRegistry::Release (pFrame);
+}
+
+int CWelsDecoder::GetDecodedFrameInfo (const SWelsDecodedFrame* pFrame, SWelsDecodedFrameInfo* pInfo) {
+  return CDecodedFrameRegistry::GetInfo (pFrame, pInfo);
+}
+
 /*
 *       WelsGetDecoderCapability
 *       @return: DecCapability information
@@ -1543,4 +1653,25 @@ void WelsDestroyDecoder (ISVCDecoder* pDecoder) {
   if (NULL != pDecoder) {
     delete (CWelsDecoder*)pDecoder;
   }
+}
+
+int WelsAcquireDecodedFrame (ISVCDecoder* pDecoder, SWelsDecodedFrame** ppFrame) {
+  if (pDecoder == NULL) {
+    if (ppFrame != NULL)
+      *ppFrame = NULL;
+    return 1;
+  }
+  return static_cast<CWelsDecoder*> (pDecoder)->AcquireDecodedFrame (ppFrame);
+}
+
+int WelsRetainDecodedFrame (SWelsDecodedFrame* pFrame) {
+  return CDecodedFrameRegistry::Retain (pFrame);
+}
+
+void WelsReleaseDecodedFrame (SWelsDecodedFrame* pFrame) {
+  CDecodedFrameRegistry::Release (pFrame);
+}
+
+int WelsGetDecodedFrameInfo (const SWelsDecodedFrame* pFrame, SWelsDecodedFrameInfo* pInfo) {
+  return CDecodedFrameRegistry::GetInfo (pFrame, pInfo);
 }

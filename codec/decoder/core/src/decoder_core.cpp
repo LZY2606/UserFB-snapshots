@@ -2616,6 +2616,15 @@ int32_t DecodeCurrentAccessUnit (PWelsDecoderContext pCtx, uint8_t** ppDst, SBuf
       if (pCtx->iTotalNumMbRec != 0)
         pCtx->iTotalNumMbRec = 0;
 
+      if (NULL == pCtx->pDec && GetThreadCount (pCtx) <= 1) {
+        // Single-threaded path only: with no external leases this is a real
+        // ref-count error, but leases may have pinned every pool slot, so grow
+        // the pool for them and try again. (Threaded decoding shares one pool
+        // across contexts whose pointers are synced elsewhere, so on-the-fly
+        // growth is intentionally limited to this single-context path.)
+        if (ExpandPicBuffForLeases (pCtx) == ERR_NONE)
+          pCtx->pDec = PrefetchPic (pCtx->pPicBuff);
+      }
       if (NULL == pCtx->pDec) {
         WelsLog (& (pCtx->sLogCtx), WELS_LOG_ERROR,
                  "DecodeCurrentAccessUnit()::::::PrefetchPic ERROR, pSps->iNumRefFrames:%d.",

@@ -10,6 +10,7 @@ cpp_sources = [
   'core/src/decoder_data_tables.cpp',
   'core/src/error_concealment.cpp',
   'core/src/fmo.cpp',
+  'core/src/frame_lease.cpp',
   'core/src/get_intra_predictor.cpp',
   'core/src/manage_dec_ref.cpp',
   'core/src/memmgr_nal_unit.cpp',

@@ -33,6 +33,55 @@ Decoder Features
 - Multiple reference frames when specified in Sequence Parameter Set (SPS)
 - Annex B byte stream input
 - YUV 4:2:0 planar output
+- Zero-copy, reference-counted leases on decoded output pictures
+  (`WelsAcquireDecodedFrame`/`WelsRetainDecodedFrame`/
+  `WelsReleaseDecodedFrame`/`WelsGetDecodedFrameInfo`) so an analysis thread
+  can hold a picture without copying its pixels
+
+Leasing Decoded Pictures
+------------------------
+`DecodeFrameNoDelay()`, `DecodeFrame2()` and `FlushFrame()` return pointers
+into the decoder's internal picture pool; those pointers are only valid until
+the next call reuses the same storage. When a picture must outlive the next
+decode (for example a downstream analysis thread), acquire a lease instead of
+copying the pixels:
+
+```c
+SBufferInfo sInfo;
+unsigned char* pDst[3];
+if (pDecoder->DecodeFrameNoDelay (pAu, iAuLen, pDst, &sInfo) == 0
+    && sInfo.iBufferStatus == 1) {
+  SWelsDecodedFrame* pFrame = NULL;
+  if (WelsAcquireDecodedFrame (pDecoder, &pFrame) == 0) {
+    SWelsDecodedFrameInfo sFrame;
+    WelsGetDecodedFrameInfo (pFrame, &sFrame);
+    // sFrame.pData[0..2] equal pDst[0..2] and stay valid until every
+    // reference is released. Pass the handle to another thread safely.
+    WelsReleaseDecodedFrame (pFrame);
+  }
+}
+```
+
+Reference rules:
+- A lease references the picture most recently delivered (the last decode or
+  flush call whose `iBufferStatus` was 1). Starting a new decode/flush call
+  cancels that eligibility; a call that outputs nothing does not restore an
+  older picture.
+- Repeated `WelsAcquireDecodedFrame()` calls yield independent handles to the
+  same picture; acquiring never consumes the output.
+- `WelsRetainDecodedFrame()` adds a reference to an existing handle, including
+  from a different thread. Every successful acquire/retain must be matched by
+  exactly one `WelsReleaseDecodedFrame()`, which accepts NULL as a no-op.
+- While any reference exists the pixel storage is never overwritten by later
+  decoding nor freed by DPB eviction, IDR, resolution changes,
+  `Uninitialize()` or `WelsDestroyDecoder()`. With no outstanding leases the
+  decoder keeps its normal picture-pool recycling; if leases temporarily pin
+  every pool slot the pool grows instead of failing the decode.
+- Handles whose owner decoder has been destroyed remain fully usable; the last
+  release reclaims the storage and never calls back into the decoder.
+- The API returns non-zero (and sets the output handle to NULL on failure)
+  when there is no eligible picture, the decoder is uninitialized, or it runs
+  in parse-only mode.
 
 OS Support
 ----------
@@ -167,6 +216,14 @@ Run the tests with:
 
 ``` shell
 meson test -C builddir -v
+```
+
+The decoder frame-lease verification (no GTest dependency) builds the static
+library and drives real encode/decode pipelines:
+
+``` shell
+bash verification/target.sh   # six frame-lease cases
+bash verification/baseline.sh # four-frame encode/decode smoke test
 ```
 
 Install with:

@@ -95,6 +95,12 @@ struct SPicture {
   int32_t iMbEcedPropNum;
   int32_t iMbNum;
 
+  // Number of external WelsAcquireDecodedFrame() leases held on this picture.
+  // Decoder-internal bookkeeping uses iRefCount; leases are counted
+  // separately so a picture that stopped being a reference but is still leased
+  // can never be recycled by PrefetchPic() or freed by pool teardown.
+  int32_t iLeaseRefCount;
+
   bool*    pMbCorrectlyDecodedFlag;
   int8_t (*pNzc)[24];
   uint32_t*  pMbType; // mb type used for direct mode

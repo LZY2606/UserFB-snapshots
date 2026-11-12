@@ -107,6 +107,7 @@ PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const
   pPic->iHeightInPixel = kiPicHeight;
   pPic->iFrameNum      = -1;
   pPic->iRefCount = 0;
+  pPic->iLeaseRefCount = 0;
   pPic->pSetUnRef = NULL;
 
   uint32_t uiMbWidth = (kiPicWidth + 15) >> 4;
@@ -138,6 +139,11 @@ PPicture AllocPicture (PWelsDecoderContext pCtx, const int32_t kiPicWidth, const
 
 void FreePicture (PPicture pPic, CMemoryAlign* pMa) {
   if (NULL != pPic) {
+    // A leased picture is detached to CDecodedFrameRegistry before pool
+    // teardown; reaching here with outstanding leases would violate that
+    // ownership transfer, so keep the storage alive instead of corrupting it.
+    if (pPic->iLeaseRefCount > 0)
+      return;
     if (pPic->pBuffer[0]) {
       pMa->WelsFree (pPic->pBuffer[0], "pPic->pBuffer[0]");
       pPic->pBuffer[0] = NULL;
@@ -181,6 +187,49 @@ void FreePicture (PPicture pPic, CMemoryAlign* pMa) {
     pPic = NULL;
   }
 }
+// Mirror of FreePicture() for storage detached by a frame lease. The owning
+// decoder context (and its CMemoryAlign object) may be gone by the time the
+// last lease is released, so only the stateless global aligned free is used.
+void FreeDetachedPicture (PPicture pPic) {
+  if (pPic == NULL)
+    return;
+  if (pPic->pBuffer[0]) {
+    WelsFree (pPic->pBuffer[0], "pPic->pBuffer[0]");
+    pPic->pBuffer[0] = NULL;
+  }
+  if (pPic->pMbCorrectlyDecodedFlag) {
+    WelsFree (pPic->pMbCorrectlyDecodedFlag, "pPic->pMbCorrectlyDecodedFlag");
+    pPic->pMbCorrectlyDecodedFlag = NULL;
+  }
+  if (pPic->pNzc) {
+    WelsFree (pPic->pNzc, "pPic->pNzc");
+    pPic->pNzc = NULL;
+  }
+  if (pPic->pMbType) {
+    WelsFree (pPic->pMbType, "pPic->pMbType");
+    pPic->pMbType = NULL;
+  }
+  for (int32_t listIdx = LIST_0; listIdx < LIST_A; ++listIdx) {
+    if (pPic->pMv[listIdx]) {
+      WelsFree (pPic->pMv[listIdx], "pPic->pMv[]");
+      pPic->pMv[listIdx] = NULL;
+    }
+    if (pPic->pRefIndex[listIdx]) {
+      WelsFree (pPic->pRefIndex[listIdx], "pPic->pRefIndex[]");
+      pPic->pRefIndex[listIdx] = NULL;
+    }
+  }
+  if (pPic->pReadyEvent != NULL) {
+    uint32_t uiMbHeight = (pPic->iHeightInPixel + 15) >> 4;
+    for (uint32_t i = 0; i < uiMbHeight; ++i) {
+      CLOSE_EVENT (&pPic->pReadyEvent[i]);
+    }
+    WelsFree (pPic->pReadyEvent, "pPic->pReadyEvent");
+    pPic->pReadyEvent = NULL;
+  }
+  WelsFree (pPic, "pPic");
+}
+
 PPicture PrefetchPic (PPicBuff pPicBuf) {
   int32_t iPicIdx = 0;
   PPicture pPic  = NULL;
@@ -191,7 +240,8 @@ PPicture PrefetchPic (PPicBuff pPicBuf) {
 
   for (iPicIdx = pPicBuf->iCurrentIdx + 1; iPicIdx < pPicBuf->iCapacity ; ++iPicIdx) {
     if (pPicBuf->ppPic[iPicIdx] != NULL && !pPicBuf->ppPic[iPicIdx]->bUsedAsRef
-        && pPicBuf->ppPic[iPicIdx]->iRefCount <= 0) {
+        && pPicBuf->ppPic[iPicIdx]->iRefCount <= 0
+        && pPicBuf->ppPic[iPicIdx]->iLeaseRefCount <= 0) {
       pPic = pPicBuf->ppPic[iPicIdx];
       break;
     }
@@ -203,7 +253,8 @@ PPicture PrefetchPic (PPicBuff pPicBuf) {
   }
   for (iPicIdx = 0 ; iPicIdx <= pPicBuf->iCurrentIdx ; ++iPicIdx) {
     if (pPicBuf->ppPic[iPicIdx] != NULL && !pPicBuf->ppPic[iPicIdx]->bUsedAsRef
-        && pPicBuf->ppPic[iPicIdx]->iRefCount <= 0) {
+        && pPicBuf->ppPic[iPicIdx]->iRefCount <= 0
+        && pPicBuf->ppPic[iPicIdx]->iLeaseRefCount <= 0) {
       pPic = pPicBuf->ppPic[iPicIdx];
       break;
     }

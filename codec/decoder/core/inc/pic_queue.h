@@ -62,6 +62,12 @@ PPicture PrefetchPicForThread (PPicBuff pPicBuff); // To get current node applic
 PPicture PrefetchLastPicForThread (PPicBuff pPicBuff,
                                    const int32_t& iLast); // To get last node applicable in the case of threaded mode
 
+// Free a picture whose storage has been detached from its decoder context by a
+// frame lease. Unlike FreePicture() this does not reference the context's
+// CMemoryAlign (which may already be destroyed); it uses the process-global
+// aligned allocator and is safe from a lease's last-release path.
+void FreeDetachedPicture (PPicture pPic);
+
 } // namespace WelsDec
 
 #endif//WELS_PICTURE_QUEUE_H__

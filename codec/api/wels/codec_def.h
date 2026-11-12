@@ -204,6 +204,31 @@ typedef struct TagBufferInfo {
   unsigned char* pDst[3];  //point to picture YUV data
 } SBufferInfo;
 
+/**
+* @brief Opaque lease on a decoded picture.
+* A handle obtained from WelsAcquireDecodedFrame() keeps the picture's pixel
+* storage alive, at the exact addresses returned by the original decode/flush
+* call, until every reference to it has been released with
+* WelsReleaseDecodedFrame(). The struct is intentionally opaque: callers must
+* never dereference or free it directly.
+*/
+typedef struct TagWelsDecodedFrame SWelsDecodedFrame;
+
+/**
+* @brief Read-only description of a leased decoded picture.
+* All pointers stay valid for the lifetime of every handle that references the
+* picture. The plane pointers are identical to the ones reported by the
+* DecodeFrameNoDelay()/DecodeFrame2()/FlushFrame() call that delivered the
+* picture.
+*/
+typedef struct TagWelsDecodedFrameInfo {
+  const unsigned char* pData[3];      ///< Y, U (Cb), V (Cr) plane pointers
+  int                  iStride[3];    ///< stride in bytes of each plane
+  int                  iWidth;        ///< visible width in luma samples
+  int                  iHeight;       ///< visible height in luma samples
+  unsigned long long   uiTimeStamp;   ///< output timestamp (uiOutYuvTimeStamp)
+} SWelsDecodedFrameInfo;
+
 
 /**
 * @brief In a GOP, multiple of the key frame number, derived from

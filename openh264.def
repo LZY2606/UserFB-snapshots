@@ -1,6 +1,10 @@
 EXPORTS
     WelsCreateDecoder
     WelsDestroyDecoder
+    WelsAcquireDecodedFrame
+    WelsRetainDecodedFrame
+    WelsReleaseDecodedFrame
+    WelsGetDecodedFrameInfo
     WelsCreateSVCEncoder
     WelsDestroySVCEncoder
     WelsGetCodecVersion

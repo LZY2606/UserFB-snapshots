@@ -173,6 +173,13 @@ void UpdateDecStatNoFreezingInfo (PWelsDecoderContext pCtx);
 void UpdateDecStat (PWelsDecoderContext pCtx, const bool kbOutput);
 //Destroy picutre buffer
 void DestroyPicBuff (PWelsDecoderContext pCtx, PPicBuff* ppPicBuf, CMemoryAlign* pMa);
+
+/*
+ *  Grow the picture pool when external frame leases have pinned every slot,
+ *  so decoding keeps recycling normally instead of failing with no free
+ *  picture. Returns ERR_NONE when no growth was needed or growth succeeded.
+ */
+int32_t ExpandPicBuffForLeases (PWelsDecoderContext pCtx);
 //reset picture reodering buffer list
 void ResetReorderingPictureBuffers (PPictReoderingStatus pPictReoderingStatus, PPictInfo pPictInfo,
                                     const bool& bFullReset);

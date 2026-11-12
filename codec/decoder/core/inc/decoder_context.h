@@ -59,6 +59,10 @@
 #include "wels_decoder_thread.h"
 
 namespace WelsDec {
+// Decoder-wide registry for externally leased decoded pictures. Defined in
+// frame_lease.h; the context only needs the pointer.
+class CDecodedFrameRegistry;
+
 #define MAX_PRED_MODE_ID_I16x16  3
 #define MAX_PRED_MODE_ID_CHROMA  3
 #define MAX_PRED_MODE_ID_I4x4    8
@@ -397,6 +401,11 @@ typedef struct TagWelsDecoderContext {
 
   PPicBuff                      pPicBuff;       // Initially allocated memory for pictures which are used in decoding.
   int32_t                       iPicQueueNumber;
+
+  // Decoder-wide registry that keeps externally leased picture storage alive
+  // across pool recycling, teardown and decoder destruction. Owned by
+  // CWelsDecoder; shared by every context in multi-threaded mode.
+  CDecodedFrameRegistry*        pFrameLeaseRegistry;
 
   PAccessUnit                   pAccessUnitList;        // current access unit list to be performed
   //PSps                          pActiveLayerSps[MAX_LAYER_NUM];

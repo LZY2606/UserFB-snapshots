@@ -51,6 +51,7 @@
 #include "expand_pic.h"
 #include "decode_slice.h"
 #include "error_concealment.h"
+#include "frame_lease.h"
 #include "memory_align.h"
 #include "wels_decoder_thread.h"
 
@@ -233,6 +234,12 @@ static int32_t DecreasePicBuff (PWelsDecoderContext pCtx, PPicBuff* ppPicBuf, co
   for (iPicIdx = iDelIdx; iPicIdx < kiOldSize; iPicIdx++) {
     if (iPrevPicIdx != iPicIdx) {
       if (pPicOldBuf->ppPic[iPicIdx] != NULL) {
+        // Leased storage outlives the shrinking pool: hand it to the lease
+        // registry instead of freeing it.
+        if (pCtx->pFrameLeaseRegistry != NULL
+            && pPicOldBuf->ppPic[iPicIdx]->iLeaseRefCount > 0) {
+          pCtx->pFrameLeaseRegistry->DetachLeasedPicture (pPicOldBuf->ppPic[iPicIdx]);
+        }
         FreePicture (pPicOldBuf->ppPic[iPicIdx], pOldMa);
         pPicOldBuf->ppPic[iPicIdx] = NULL;
       }
@@ -275,6 +282,10 @@ void DestroyPicBuff (PWelsDecoderContext pCtx, PPicBuff* ppPicBuf, CMemoryAlign*
   // Free through the allocator that created this buffer.
   if (pPicBuf->pMa != NULL)
     pMa = pPicBuf->pMa;
+  // Pictures still leased by callers must survive pool destruction: transfer
+  // ownership of their storage to the lease registry before freeing slots.
+  if (pCtx != NULL && pCtx->pFrameLeaseRegistry != NULL)
+    pCtx->pFrameLeaseRegistry->DetachLeasedPictures (pPicBuf);
   while (pPicBuf->ppPic != NULL) {
     int32_t iPicIdx = 0;
     while (iPicIdx < pPicBuf->iCapacity) {
@@ -297,6 +308,34 @@ void DestroyPicBuff (PWelsDecoderContext pCtx, PPicBuff* ppPicBuf, CMemoryAlign*
 
   pPicBuf = NULL;
   *ppPicBuf = NULL;
+}
+
+int32_t ExpandPicBuffForLeases (PWelsDecoderContext pCtx) {
+  PPicBuff pPicBuff = (pCtx != NULL) ? pCtx->pPicBuff : NULL;
+  if (pPicBuff == NULL)
+    return ERR_NONE;
+
+  int32_t iLeased = 0;
+  bool bFreeSlot = false;
+  for (int32_t i = 0; i < pPicBuff->iCapacity; ++i) {
+    PPicture pPic = pPicBuff->ppPic[i];
+    if (pPic == NULL)
+      continue;
+    if (pPic->iLeaseRefCount > 0)
+      ++iLeased;
+    else if (!pPic->bUsedAsRef && pPic->iRefCount <= 0)
+      bFreeSlot = true;
+  }
+  // Only grow when leases actually pin the pool: a normal DPB working set
+  // without external leases keeps its original capacity and recycling.
+  if (iLeased == 0 || bFreeSlot)
+    return ERR_NONE;
+
+  const int32_t kiOldSize = pPicBuff->iCapacity;
+  const int32_t kiNewSize = kiOldSize + iLeased + 1;
+  const int32_t kiWidth = pCtx->iImgWidthInPixel;
+  const int32_t kiHeight = pCtx->iImgHeightInPixel;
+  return IncreasePicBuff (pCtx, &pCtx->pPicBuff, kiOldSize, kiWidth, kiHeight, kiNewSize);
 }
 
 //reset picture reodering buffer list

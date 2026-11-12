@@ -45,6 +45,7 @@
 #include "codec_api.h"
 #include "codec_app_def.h"
 #include "decoder_context.h"
+#include "frame_lease.h"
 #include "welsCodecTrace.h"
 #include "cpu.h"
 
@@ -109,12 +110,25 @@ class CWelsDecoder : public ISVCDecoder {
   virtual long EXTAPI SetOption (DECODER_OPTION eOptID, void* pOption);
   virtual long EXTAPI GetOption (DECODER_OPTION eOptID, void* pOption);
 
+  // Implementation of the public Wels*DecodedFrame lease entry points.
+  int AcquireDecodedFrame (SWelsDecodedFrame** ppFrame);
+  int RetainDecodedFrame (SWelsDecodedFrame* pFrame);
+  void ReleaseDecodedFrame (SWelsDecodedFrame* pFrame);
+  int GetDecodedFrameInfo (const SWelsDecodedFrame* pFrame, SWelsDecodedFrameInfo* pInfo);
+
  public:
   DECODING_STATE DecodeFrame2WithCtx (PWelsDecoderContext pCtx, const unsigned char* kpSrc, const int kiSrcLen,
                                       unsigned char** ppDst, SBufferInfo* pDstInfo);
   DECODING_STATE ParseAccessUnit (SWelsDecoderThreadCTX& sThreadCtx);
 
  private:
+  // Every new decode/flush call cancels eligibility of the previous picture.
+  void InvalidateLeasablePicture();
+  // Publish the picture actually delivered by the call (iBufferStatus == 1)
+  // as the next Acquire candidate; an empty delivery invalidates instead.
+  void RecordDeliveredPicture (SBufferInfo* pDstInfo);
+  static PPicture FindPictureByOutputAddress (PPicBuff pPicBuff, const unsigned char* pDst0);
+
   welsCodecTrace*         m_pWelsTrace;
   uint32_t                m_uiDecodeTimeStamp;
   bool                    m_bIsBaseline;
@@ -139,6 +153,13 @@ class CWelsDecoder : public ISVCDecoder {
   SWelsLastDecPicInfo     m_sLastDecPicInfo;
   SDecoderStatistics      m_sDecoderStatistics;// For real time debugging
   int32_t                 m_iStreamSeqNum;
+
+  // Lease support: m_pFrameLeaseRegistry owns lease bookkeeping for the whole
+  // decoder; m_pLeasablePic is the last delivered picture and remains eligible
+  // only until the next decode/flush call starts.
+  CDecodedFrameRegistry*  m_pFrameLeaseRegistry;
+  PPicture                m_pLeasablePic;
+  SWelsDecodedFrameInfo   m_sLeasableInfo;
 
  private:
   int32_t InitDecoder (const SDecodingParam* pParam);
