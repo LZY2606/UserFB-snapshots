@@ -35,6 +35,7 @@ struct number;
 class object;
 class object_iterator;
 class parser;
+class pointer_batch;
 class raw_json_string;
 class token_iterator;
 class value;
@@ -46,6 +47,13 @@ class array_range_iterator;
 class object_range;
 class object_range_iterator;
 #endif // SIMDJSON_SUPPORTS_RANGES
+
+namespace pointer_batch_detail {
+struct exec_state;
+simdjson_warn_unused error_code walk(value_iterator vi, std::size_t node_idx,
+                                      const pointer_batch &plan,
+                                      exec_state &state) noexcept;
+} // namespace pointer_batch_detail
 
 } // namespace ondemand
 } // namespace SIMDJSON_IMPLEMENTATION

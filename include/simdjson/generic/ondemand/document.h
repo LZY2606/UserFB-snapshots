@@ -952,6 +952,7 @@ protected:
   friend class token;
   friend class document_stream;
   friend class document_reference;
+  friend class pointer_batch;
 };
 
 

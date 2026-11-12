@@ -23,6 +23,7 @@
 #include "simdjson/generic/ondemand/key_selector.h"
 #include "simdjson/generic/ondemand/object.h"
 #include "simdjson/generic/ondemand/object_iterator.h"
+#include "simdjson/generic/ondemand/pointer_batch.h"
 #include "simdjson/generic/ondemand/ranges.h"
 #include "simdjson/generic/ondemand/serialization.h"
 
@@ -46,6 +47,7 @@
 #include "simdjson/generic/ondemand/raw_json_string-inl.h"
 #include "simdjson/generic/ondemand/token_iterator-inl.h"
 #include "simdjson/generic/ondemand/value_iterator-inl.h"
+#include "simdjson/generic/ondemand/pointer_batch-inl.h"
 #include "simdjson/generic/ondemand/serialization-inl.h"
 
 // JSON path accessor (compile-time) - must be after inline definitions

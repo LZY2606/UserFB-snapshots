@@ -509,6 +509,9 @@ protected:
   friend class array;
   friend class value;
   friend class field;
+  friend simdjson_warn_unused error_code pointer_batch_detail::walk(
+      value_iterator vi, std::size_t node_idx, const pointer_batch &plan,
+      pointer_batch_detail::exec_state &state) noexcept;
 }; // value_iterator
 
 } // namespace ondemand
