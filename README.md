@@ -21,6 +21,54 @@ See [Lumix Engine](https://github.com/nem0/LumixEngine/blob/master/src/renderer/
 
 Alternatively, CMake support is provided by community but it's not supported by me - @nem0.
 
+## Transform inheritance and poses
+
+`Object::getGlobalTransform()` honors the FBX `InheritType` property
+(`Properties70` and legacy `Properties60`):
+
+* `0` RrSs (default when the property is absent): the child rotation is applied
+  *before* the inherited scale,
+* `1` RSrs: the child rotation is applied *after* the inherited scale (plain
+  parent-world × local matrix multiplication),
+* `2` Rrs: only the direct parent's own local scale is compensated; scale
+  inherited from earlier ancestors is preserved.
+
+All three modes use the Autodesk "Transformations" residual formulas. The local
+transform definition (Euler order, Pre/PostRotation, rotation/scaling pivots and
+offsets) is unchanged. Translation is always transformed by the parent's complete
+world matrix — including its scale — for every mode, and matrices carrying
+anisotropic scale are kept opaque (no column-length TRS reassembly, so shear is
+preserved).
+
+`src/ofbx_pose.h` adds a read-only pose/skinning API built on the same
+inheritance engine, so static queries, animated poses and skinning can never
+drift apart:
+
+```cpp
+#include "ofbx.h"
+#include "ofbx_pose.h"
+
+// layer == nullptr evaluates the static pose; otherwise the Lcl
+// Translation/Rotation/Scaling curve nodes in the layer are sampled at `seconds`,
+// with static values and curve-node defaults filling the gaps.
+std::vector<ofbx::NodePose> pose;
+if (!ofbx::evaluatePose(*scene, layer, seconds, pose)) { /* unsupported input */ }
+
+// One matrix per cluster, in the Skin's cluster order. Each matrix accepts the
+// raw Geometry control points and already contains the Mesh geometric transform
+// once (do not apply getGeometricMatrix() again).
+std::vector<ofbx::SkinPose> skins;
+if (!ofbx::buildSkinMatrices(*mesh, pose, skins)) { /* singular bind matrix, ... */ }
+```
+
+The supported domain is finite TRS with strictly positive local scaling; zero
+scale, reflections and hand authored shear are not required. On unsupported
+input, unknown inheritance values, non-finite time, a layer from another scene,
+a missing cluster link or a non-invertible `TransformLink`, the new entry points
+return `false` and leave their output untouched. The legacy static interface
+keeps its old plain-matrix-multiplication behavior on those same inputs, so
+files that previously loaded continue to work.
+
 ## Compile demo project
 
 1. download source code

@@ -229,6 +229,10 @@ struct Object
 	DVec3 getLocalTranslation() const;
 	DVec3 getLocalRotation() const;
 	DVec3 getLocalScaling() const;
+	// InheritType from Properties70/Properties60.
+	// 0 = RrSs (also the default when the property is missing), 1 = RSrs, 2 = Rrs.
+	// Returns -1 if the property holds a value outside the documented range.
+	int getInheritType() const;
 	DMatrix getGlobalTransform() const;
 	DMatrix getLocalTransform() const;
 	DMatrix evalLocal(const DVec3& translation, const DVec3& rotation) const;

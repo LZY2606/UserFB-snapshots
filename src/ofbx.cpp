@@ -1,4 +1,5 @@
 #include "ofbx.h"
+#include "ofbx_pose_internal.h"
 #include "libdeflate.h"
 
 #include <assert.h>
@@ -4256,12 +4257,48 @@ DVec3 Object::getLocalScaling() const
 }
 
 
+int Object::getInheritType() const
+{
+	const int value = resolveEnumProperty(*this, "InheritType", 0);
+	// 0 = RrSs, 1 = RSrs, 2 = Rrs; anything else (or a malformed property)
+	// is reported as unknown so callers can refuse or fall back.
+	return (value >= 0 && value <= 2) ? value : -1;
+}
+
+
 DMatrix Object::getGlobalTransform() const
 {
-	const Object* parent = getParent();
-	if (!parent) return evalLocal(getLocalTranslation(), getLocalRotation());
+	const DVec3 local_scale = getLocalScaling();
+	const DMatrix local = evalLocal(getLocalTranslation(), getLocalRotation(), local_scale);
 
-	return parent->getGlobalTransform() * evalLocal(getLocalTranslation(), getLocalRotation());
+	const Object* parent = getParent();
+	if (!parent) return local;
+
+	const int inherit = getInheritType();
+
+	// Compatibility for inputs outside the documented supported domain: unknown
+	// InheritType values and anything other than finite strictly positive local
+	// scaling (zero scale, reflections, non-finite values) keep the legacy plain
+	// parent-world * local multiplication. Finite positive-scale TRS nodes go
+	// through the same inheritance engine as evaluatePose(), honoring
+	// RrSs / RSrs / Rrs exactly.
+	const bool supported_domain =
+		pose_detail::supportedScale(local_scale)
+		&& pose_detail::finiteMatrix(local);
+	// Rrs divides by the direct parent's own local scale; a parent outside the
+	// positive-scale TRS domain would make that singular, so such inputs keep
+	// the legacy multiplication instead of producing infinities.
+	const DVec3 parent_scale = parent->getLocalScaling();
+	const bool parent_supported =
+		inherit != 2 || pose_detail::supportedScale(parent_scale);
+	if (inherit < 0 || !supported_domain || !parent_supported)
+	{
+		return parent->getGlobalTransform() * local;
+	}
+
+	const DMatrix parent_world = parent->getGlobalTransform();
+	const pose_detail::NodeLocal node_local{ local, local_scale, inherit };
+	return pose_detail::inheritCompose(parent_world, parent_scale, node_local);
 }
 
 
