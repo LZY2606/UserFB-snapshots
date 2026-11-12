@@ -63,14 +63,96 @@ Organization:
 
 Building:
 
-1) In Makefile.conf set: 
+1) In Makefile.conf set:
     - CFLAGS for compiler flags.
     - CC for compiler.
     - ENABLE_TESTS for enabling (true) or disabling (false) tests compilation.
 2) In lib/Makefile select the primitives required by your project.
 3) In tests/Makefile select the corresponding tests of the selected primitives.
-4) make 
+4) make
 5) run tests in tests/
 
 ================================================================================
+
+AES-128 encryption: table-free bit-plane kernel
+
+The AES-128 encryption path (tc_aes_encrypt, tc_aes_encrypt4 and tc_ctr_mode)
+no longer indexes an S-box table with secret bytes.  SubBytes is evaluated as
+fixed Boolean operations on "bit planes", and ShiftRows, MixColumns and the
+round-key addition are performed in the same representation.  Key expansion
+likewise uses a Boolean SubWord; the only table access left is the public
+round-constant index rconst[i/Nk].  The tc_aes_key_sched_struct layout and the
+return conventions of all existing functions are unchanged, and decryption is
+untouched (it still uses its own implementation).
+
+Bit-plane layout.  Four blocks (lanes) are packed into eight 64-bit planes,
+one plane per state bit.  For state byte position p (0..15, in TinyCrypt's
+column-major order, i.e. p = 4*column + row) and block lane l (0..3), plane
+bit number (4*p + l) holds that byte's bit b (plane b = 0 is the least
+significant bit).  Equivalently, each 16-bit column group holds the same byte
+of the four blocks in four consecutive 4-bit fields: lane 0 in bits 0..3,
+lane 1 in bits 4..7, lane 2 in bits 8..11, lane 3 in bits 12..15.  Because the
+representation is defined purely by bit positions inside uint64_t values, the
+result does not depend on machine byte order, and input buffers need not be
+aligned.
+
+SubBytes circuit.  For each plane value, the kernel computes the
+multiplicative inverse in GF(2^8) as x^254 (a fixed sequence of squarings and
+multiplications by x), which maps 0 to 0, then applies the AES affine map as a
+fixed XOR of shifted planes plus the 0x63 constant.  gf_mul/gf_sqr/gf_xtime
+operate on polynomial coefficient planes and reduce modulo
+x^8 + x^4 + x^3 + x + 1.  MixColumns uses xtime on xored row planes, all on the
+same bit planes.  The final round applies SubBytes and ShiftRows but not
+MixColumns.
+
+CTR mode.  tc_ctr_mode processes input in batches of up to four 16-byte
+blocks.  A complete 64-byte batch goes through tc_aes_encrypt4; the remaining
+tail goes through the same kernel with only the needed lanes active, so no
+fallback to the old table implementation exists.  The counter behaviour is
+unchanged: the first 12 bytes stay fixed, the low 32 bits are incremented
+big-endian, and ceil(inlen/16) counter values are consumed per call.  The
+final counter is left exactly as the previous implementation left it.  A
+partial tail block writes only the input length; no keystream is cached
+between calls.  out == in (complete overlap) is supported for single-block,
+four-block and CTR calls; other partial overlaps are not supported.  All
+argument checks, the zero-length failure, and the rule that a failed call
+writes no output are preserved.
+
+Side-channel review of the encryption path.  Every memory address referenced
+by the kernel is either a fixed local stack slot, an input/output pointer
+moved by a loop index bounded by the public block count, or the public
+round-constant table in key expansion; no address depends on key or plaintext
+bytes.  Branches in the kernel are loop counters over fixed bounds, the
+public i%Nk test, and the compiler's stack-canary check.  There are no
+table scans, no secret-indexed lookups, and no secret-dependent conditional
+branches.  The kernel performs no heap allocation; all temporary state is in
+fixed-size local arrays.  This claim covers the AES-128 encryption path only
+(block encryption, four-block encryption and CTR).  It does not extend to
+tc_aes_decrypt, which still uses its inverse S-box table, nor to any other
+algorithm in the library.
+
+The tests in tests/test_aes_bitslice.c back the design claims without timing
+measurements: FIPS-197 and SP800-38A known-answer vectors; an independent
+scalar reference implementation (a separate byte-oriented AES, not a copy of
+the kernel) used to check four distinct blocks, all 256 values at every byte
+position, single-block/batch ordering, in-place and unaligned buffers; an
+instrumented copy of the library's CTR batch loop whose calls to
+tc_aes_encrypt4 and to the shared kernel are counted, proving that full
+batches reach the four-block entry and that tails do not fall back to an old
+path; and checks that failed calls leave the output untouched.  The probe
+copy is compiled from the library's own ctr_mode.c in the test translation
+unit, so it exercises the real control flow.
+
+Limitations after compiler optimization.  Constant-time behaviour is a
+property of the source and of the generated code observed for the tested
+target, not a guarantee for every compiler and optimization level.  A
+compiler is free to transform the fixed Boolean expressions into code that
+specifically recognizes the arithmetic (in particular, it may turn the
+GF(2^8) multiplication into a table or a sequence whose timing varies) or to
+introduce branches of its own.  Users who require this property on a
+particular toolchain should inspect the generated machine code for the
+target, or disable aggressive pattern-matching optimizations, rather than
+relying on the C source alone.
+
+
 

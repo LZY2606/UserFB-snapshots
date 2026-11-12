@@ -90,8 +90,28 @@ int tc_aes128_set_encrypt_key(TCAesKeySched_t s, const uint8_t *k);
  *  @param in IN -- a plaintext block to encrypt
  *  @param s IN -- initialized AES key schedule
  */
-int tc_aes_encrypt(uint8_t *out, const uint8_t *in, 
+int tc_aes_encrypt(uint8_t *out, const uint8_t *in,
 		   const TCAesKeySched_t s);
+
+/**
+ *  @brief AES-128 four-block encryption procedure
+ *  Encrypts four consecutive 16-byte blocks from in into out under the same
+ *              key schedule. The blocks are packed into shared bit planes and
+ *              processed together; SubBytes uses fixed Boolean operations only,
+ *              so no memory address depends on key or plaintext data.
+ *  @note Assumes s was initialized by tc_aes128_set_encrypt_key.
+ *              Reads exactly 64 bytes from in and writes exactly 64 bytes to
+ *              out. out == in is supported. Other partial overlaps are not
+ *              supported. The input need not be aligned, and the result is
+ *              independent of the machine byte order.
+ *  @return  returns TC_CRYPTO_SUCCESS (1)
+ *           returns TC_CRYPTO_FAIL (0) if: out == NULL or in == NULL or s == NULL
+ *  @param out OUT -- buffer to receive four ciphertext blocks
+ *  @param in IN -- four plaintext blocks to encrypt, in order
+ *  @param s IN -- initialized AES key schedule
+ */
+int tc_aes_encrypt4(uint8_t *out, const uint8_t *in,
+		    const TCAesKeySched_t s);
 
 /**
  *  @brief Set the AES-128 decryption key

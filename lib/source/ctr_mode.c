@@ -34,13 +34,27 @@
 #include <tinycrypt/ctr_mode.h>
 #include <tinycrypt/utils.h>
 
+#include "aes_encrypt_internal.h"
+
+/* XOR len bytes of keystream into out.  len <= 16. */
+static void xor_stream(uint8_t *out, const uint8_t *in,
+		       const uint8_t *stream, unsigned int len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; ++i) {
+		out[i] = stream[i] ^ in[i];
+	}
+}
+
 int tc_ctr_mode(uint8_t *out, unsigned int outlen, const uint8_t *in,
 		unsigned int inlen, uint8_t *ctr, const TCAesKeySched_t sched)
 {
-
-	uint8_t buffer[TC_AES_BLOCK_SIZE];
 	uint8_t nonce[TC_AES_BLOCK_SIZE];
+	uint8_t stream[4 * TC_AES_BLOCK_SIZE];
+	uint8_t ctrblock[4 * TC_AES_BLOCK_SIZE];
 	unsigned int block_num;
+	unsigned int offset;
 	unsigned int i;
 
 	/* input sanity check: */
@@ -58,28 +72,68 @@ int tc_ctr_mode(uint8_t *out, unsigned int outlen, const uint8_t *in,
 	(void)_copy(nonce, sizeof(nonce), ctr, sizeof(nonce));
 
 	/* select the last 4 bytes of the nonce to be incremented */
-	block_num = (nonce[12] << 24) | (nonce[13] << 16) |
-		    (nonce[14] << 8) | (nonce[15]);
-	for (i = 0; i < inlen; ++i) {
-		if ((i % (TC_AES_BLOCK_SIZE)) == 0) {
-			/* encrypt data using the current nonce */
-			if (tc_aes_encrypt(buffer, nonce, sched)) {
-				block_num++;
-				nonce[12] = (uint8_t)(block_num >> 24);
-				nonce[13] = (uint8_t)(block_num >> 16);
-				nonce[14] = (uint8_t)(block_num >> 8);
-				nonce[15] = (uint8_t)(block_num);
-			} else {
+	block_num = ((unsigned int)nonce[12] << 24) |
+		    ((unsigned int)nonce[13] << 16) |
+		    ((unsigned int)nonce[14] << 8) | (unsigned int)nonce[15];
+
+	/*
+	 * Process the input in batches of up to four blocks.  Every full batch
+	 * goes through the public four-block entry; the last partial batch goes
+	 * through the same table-free kernel with only the needed lanes active.
+	 * out == in is supported; other overlaps are not.
+	 */
+	for (offset = 0; offset < inlen; offset += 4 * TC_AES_BLOCK_SIZE) {
+		unsigned int remain = inlen - offset;
+		unsigned int nblocks;
+		unsigned int k;
+
+		if (remain >= 4 * TC_AES_BLOCK_SIZE) {
+			nblocks = 4;
+		} else {
+			nblocks = (remain + TC_AES_BLOCK_SIZE - 1) /
+				  TC_AES_BLOCK_SIZE;
+		}
+
+		for (k = 0; k < nblocks; ++k) {
+			(void)_copy(ctrblock + TC_AES_BLOCK_SIZE * k,
+				    TC_AES_BLOCK_SIZE, nonce, TC_AES_BLOCK_SIZE);
+			block_num++;
+			nonce[12] = (uint8_t)(block_num >> 24);
+			nonce[13] = (uint8_t)(block_num >> 16);
+			nonce[14] = (uint8_t)(block_num >> 8);
+			nonce[15] = (uint8_t)(block_num);
+		}
+
+		if (nblocks == 4) {
+			if (tc_aes_encrypt4(stream, ctrblock, sched) ==
+			    TC_CRYPTO_FAIL) {
+				return TC_CRYPTO_FAIL;
+			}
+		} else {
+			if (tc_aes_encrypt_blocks(stream, ctrblock, nblocks,
+						  sched) == TC_CRYPTO_FAIL) {
 				return TC_CRYPTO_FAIL;
 			}
 		}
-		/* update the output */
-		*out++ = buffer[i%(TC_AES_BLOCK_SIZE)] ^ *in++;
-	}
 
+		for (i = 0; i < nblocks; ++i) {
+			unsigned int base = i * TC_AES_BLOCK_SIZE;
+			unsigned int n = TC_AES_BLOCK_SIZE;
+
+			if (base + n > remain) {
+				n = remain - base;
+			}
+			xor_stream(out + offset + base, in + offset + base,
+				   stream + base, n);
+		}
+	}
 	/* update the counter */
 	ctr[12] = nonce[12]; ctr[13] = nonce[13];
 	ctr[14] = nonce[14]; ctr[15] = nonce[15];
+
+	_set(stream, TC_ZERO_BYTE, sizeof(stream));
+	_set(ctrblock, TC_ZERO_BYTE, sizeof(ctrblock));
+	_set(nonce, TC_ZERO_BYTE, sizeof(nonce));
 
 	return TC_CRYPTO_SUCCESS;
 }
