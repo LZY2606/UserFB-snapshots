@@ -1,0 +1,10 @@
+--- a/taglib/mpeg/id3v2/id3v2frame.cpp
+@@ -240,7 +240,7 @@
+   unsigned int frameDataOffset = headerSize;
+   unsigned int frameDataLength = size();
+ 
+-  if(d->header->compression() || d->header->dataLengthIndicator()) {
++  if(d->header->compression()) {
+     frameDataLength = SynchData::toUInt(frameData.mid(headerSize, 4));
+     frameDataOffset += 4;
+   }

@@ -1,0 +1,10 @@
+--- a/taglib/mpeg/id3v2/id3v2tag.cpp
+@@ -770,7 +770,7 @@
+ {
+   ByteVector data = origData;
+ 
+-  if(d->header.unsynchronisation() && d->header.majorVersion() <= 3)
++  if(false && d->header.unsynchronisation() && d->header.majorVersion() <= 3)
+     data = SynchData::decode(data);
+ 
+   unsigned int frameDataPosition = 0;
