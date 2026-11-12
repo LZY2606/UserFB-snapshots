@@ -44,6 +44,48 @@ python scripts/filter_verification.py -r build/Release/RunFilters.exe --tests al
 ```
 
 
+# Voice-Parallel Bank: RKSimulationBank
+
+`RKSimulationBank` runs many independent `RKSimulationMoog` voices at once. Instead of storing one filter object per voice and calling `Process` on each, the bank keeps every voice's four integration states in one stage-major layout and applies the same Runge–Kutta arithmetic to several voices per instruction. On AArch64 the `Auto` backend uses real NEON across voices (two voices per double-precision vector, with a scalar tail for odd counts); elsewhere `Auto` selects a portable scalar backend. The per-voice math, including the `double` integration states and the float round-trip in the saturation `clip`, matches `RKSimulationMoog`.
+
+Buffers are *planar*: each voice points at its own independent, in-place mono float buffer. No 16-byte alignment is required, and the voice count does not need to be a multiple of the vector width.
+
+```cpp
+#include "RKSimulationBank.h"
+#include <vector>
+
+constexpr std::size_t voices = 12;
+constexpr uint32_t    frames = 256;
+
+RKSimulationBank bank(48000.0f, voices, RKSimulationBank::Backend::Auto);
+
+// Per-voice parameters (initial cutoff/resonance already match RKSimulationMoog).
+for (std::size_t v = 0; v < voices; ++v)
+{
+    bank.SetCutoff(v, 200.0f + 80.0f * v);
+    bank.SetResonance(v, 1.5f);
+}
+
+// One independent buffer per voice (planar layout).
+std::vector<std::vector<float>> buffers(voices, std::vector<float>(frames));
+std::vector<float *> planar(voices);
+for (std::size_t v = 0; v < voices; ++v)
+    planar[v] = buffers[v].data();
+
+// Fill inputs, then process all voices for the whole block, in place.
+for (std::size_t v = 0; v < voices; ++v)
+    for (uint32_t f = 0; f < frames; ++f)
+        buffers[v][f] = /* voice v sample f */ 0.0f;
+
+bank.Process(planar.data(), frames);
+
+// Reset one voice's four integration states without touching its parameters
+// or the other voices' ringing tails.
+bank.ResetVoice(3);
+```
+
+Parameter updates take effect from the first frame of the next `Process` call, and `Process(nullptr, 0)` is a safe no-op. Selecting `Backend::Neon` on a target without NEON (or when `MOOG_BANK_FORCE_SCALAR` is defined) throws `std::invalid_argument`. Regression coverage for numeric parity, voice independence and the native NEON kernel lives in `tests/target_regression.cpp` and is driven by `bash checks/target.sh`.
+
 # ToDo
 
 Community contributions are welcome.

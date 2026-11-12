@@ -1,0 +1,7 @@
+voices=9 frames=16384 reps=9
+compile=-std=c++17 -O2 -ffp-contract=off
+neon_runs_ms=4.36921 4.35975 4.36838 4.36604 4.33638 4.65888 4.45237 4.38312 4.34542 
+neon_median_ms=4.36838
+scalar_runs_ms=17.6653 17.6629 17.4158 17.6109 11.8548 16.2212 17.6811 16.8728 15.4051 
+scalar_median_ms=17.4158
+median_speedup=3.9868

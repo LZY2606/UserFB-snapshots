@@ -1,0 +1,6 @@
+date: 2026-11-12T17:10:52Z
+uname: Darwin lzydeMacBook-Pro.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64
+arch: arm64
+compiler: Apple clang version 21.0.0 (clang-2100.4.1.1)
+compile: c++ -std=c++17 -O2 -ffp-contract=off -I. -Ichecks -Isrc tests/target_regression.cpp checks/target_main.cpp
+hw.optional.AdvSIMD: OID hidden; AdvSIMD is mandatory on AArch64 and is verified by the execution probe in uf_native
