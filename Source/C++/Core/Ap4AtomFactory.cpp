@@ -33,6 +33,7 @@
 #include "Ap4Utils.h"
 #include "Ap4AtomFactory.h"
 #include "Ap4SampleEntry.h"
+#include "Ap4Tx3g.h"
 #include "Ap4UuidAtom.h"
 #include "Ap4IsmaCryp.h"
 #include "Ap4UrlAtom.h"
@@ -371,6 +372,10 @@ AP4_AtomFactory::CreateAtomFromStream(AP4_ByteStream& stream,
             atom = new AP4_SubtitleSampleEntry(type, size_32, stream, *this);
             break;
 
+          case AP4_ATOM_TYPE_TX3G:
+            atom = new AP4_Tx3gSampleEntry(size_32, stream, *this);
+            break;
+
           default: {
             // try all the external type handlers
             AP4_List<TypeHandler>::Item* handler_item = m_TypeHandlers.FirstItem();
@@ -638,6 +643,13 @@ AP4_AtomFactory::CreateAtomFromStream(AP4_ByteStream& stream,
           case AP4_ATOM_TYPE_TIMS:
             if (atom_is_large) return AP4_ERROR_INVALID_FORMAT;
             atom = AP4_TimsAtom::Create(size_32, stream);
+            break;
+
+          case AP4_ATOM_TYPE_FTAB:
+            if (atom_is_large) return AP4_ERROR_INVALID_FORMAT;
+            if (GetContext() == AP4_ATOM_TYPE_TX3G) {
+                atom = new AP4_Tx3gFtabAtom(size_32, stream);
+            }
             break;
      
           case AP4_ATOM_TYPE_SDP_:

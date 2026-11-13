@@ -242,6 +242,8 @@
 #include "Ap4MetaData.h"
 #include "Ap4AtomFactory.h"
 #include "Ap4SampleEntry.h"
+#include "Ap4SampleDescription.h"
+#include "Ap4Tx3g.h"
 #include "Ap4Sample.h"
 #include "Ap4DataBuffer.h"
 #include "Ap4SampleTable.h"

@@ -136,6 +136,63 @@ For Debug builds:
 For Release builds:
 ```make AP4_BUILD_CONFIG=Release```
 
+Reading 3GPP Timed Text (tx3g) subtitles sample by sample
+---------------------------------------------------------
+
+A `tx3g` sample entry carries the default style, justification, background
+color, default text box and font table (`ftab`), while each sample carries a
+16-bit length prefixed text payload (UTF-8, or UTF-16 with a BOM) and optional
+`styl` boxes. `AP4_Tx3gDecoder::Decode` resolves all of that into a standalone
+`AP4_Tx3gCue`: UTF-8 text, non-overlapping style runs in text order, the
+presentation defaults, and the sample CTS/duration in track ticks. Each sample
+is decoded against the sample description selected for that sample, so an empty
+sample is a valid clear-screen cue rather than a repeat of the previous line.
+
+```cpp
+#include "Ap4.h"
+
+AP4_ByteStream* input = NULL;
+AP4_FileByteStream::Create("subtitles.mp4",
+                           AP4_FileByteStream::STREAM_MODE_READ, input);
+AP4_File  file(*input);
+AP4_Movie* movie = file.GetMovie();
+AP4_Track* track = movie->GetTrack(AP4_Track::TYPE_TEXT);
+if (track &&
+    track->GetSampleDescription(0)->GetFormat() == AP4_SAMPLE_FORMAT_TX3G) {
+    for (AP4_Ordinal i = 0; i < track->GetSampleCount(); i++) {
+        AP4_Tx3gCue cue;
+        AP4_Result result = AP4_Tx3gDecoder::Decode(*track, i, cue);
+        if (AP4_FAILED(result)) {
+            // the cue is left untouched on error, skip this sample
+            continue;
+        }
+
+        // UTF-8 text (an empty cue means "clear the screen")
+        // cue.GetText().GetData() / cue.GetText().GetDataSize()
+
+        // every run carries a complete, already-resolved style
+        for (AP4_Ordinal r = 0; r < cue.GetRuns().ItemCount(); r++) {
+            const AP4_Tx3gCue::Run& run = cue.GetRuns()[r];
+            const char* font = run.m_FontName.GetChars(); // resolved via ftab
+            bool bold = (run.m_Style.m_FontStyleFlags &
+                         AP4_Tx3gStyleRecord::FONT_STYLE_BOLD) != 0;
+            // render the half-open code point range [m_StartChar, m_EndChar)
+            (void)font;
+            (void)bold;
+        }
+
+        // timing in the media (track) timescale
+        AP4_UI64 cts      = cue.GetCts();
+        AP4_UI32 duration = cue.GetDuration();
+    }
+}
+input->Release();
+```
+
+The raw sample interface (`AP4_Track::ReadSample`) keeps returning the
+original length-prefixed bytes, so existing code that consumes tx3g samples
+directly is unaffected.
+
 ## Installing Bento4 (vcpkg)
 
 Alternatively, you can build and install Bento4 using [vcpkg](https://github.com/Microsoft/vcpkg/) dependency manager:
