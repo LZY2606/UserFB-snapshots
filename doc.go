@@ -134,7 +134,9 @@ different client can be set on the Fetcher.HttpClient field.
 by the robots.txt of a given host.
 
 * UserAgent : Sets the user agent string to use for the requests and to validate
-against the robots.txt entries.
+against the robots.txt entries. A Command may override it for its own request
+with a non-empty User-Agent header via HeaderProvider (see the Robots.txt,
+Identity and Crawl Delay section).
 
 * WorkerIdleTTL : Sets the duration that a worker goroutine can wait without receiving
 new commands to fetch. If the idle time-to-live is reached, the worker goroutine
@@ -145,6 +147,25 @@ long-running crawlers.
 reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
+
+Robots.txt, Identity and Crawl Delay
+
+Unless DisablePoliteness is set, the Fetcher fetches the robots.txt file of
+each host once, using the Fetcher's UserAgent for that probe request, and
+keeps the parsed rules for the lifetime of the host's worker. Each command
+is then checked against those rules under its own effective identity: the
+User-Agent header provided by the command's HeaderProvider if it is not
+empty, the Fetcher's UserAgent otherwise. The request is prepared a single
+time, so the identity that admits a command is exactly the identity sent on
+the wire for that command.
+
+The crawl delay comes from the same selected group: a positive CrawlDelay in
+the group overrides the Fetcher's CrawlDelay for that command, otherwise the
+Fetcher's CrawlDelay applies. Delays are tracked per host, not per identity -
+on a given host, a command matching a group with a shorter delay never skips
+the remaining wait imposed by a previous command, the first page request
+after the robots.txt response waits the delay of its own group, and a
+rejected command neither creates a new wait nor clears a pending one.
 
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside

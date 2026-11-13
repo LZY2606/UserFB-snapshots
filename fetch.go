@@ -35,6 +35,12 @@ var (
 // return an error.
 var robotsTxtParsedPath, _ = url.Parse("/robots.txt")
 
+// after is the single entry point for all time-based waits in the package
+// (crawl delays and worker idle TTL). It is a variable so that in-package
+// tests can substitute a controlled clock; in production it is always
+// time.After and callers have nothing to configure.
+var after = time.After
+
 const (
 	// DefaultCrawlDelay represents the delay to use if there is no robots.txt
 	// specified delay.
@@ -350,10 +356,10 @@ loop:
 // Goroutine for a host's worker, processing requests for all its URLs.
 func (f *Fetcher) processChan(ch <-chan Command, hostKey string) {
 	var (
-		agent *robotstxt.Group
-		wait  <-chan time.Time
-		ttl   <-chan time.Time
-		delay = f.CrawlDelay
+		robots    *robotstxt.RobotsData
+		wait      <-chan time.Time
+		ttl       <-chan time.Time
+		firstPage bool
 	)
 
 loop:
@@ -367,47 +373,84 @@ loop:
 				break loop
 			}
 
-			// Wait for the prescribed delay
-			if wait != nil {
-				<-wait
-			}
+			switch r, isRobot := v.(robotCommand); {
+			case isRobot:
+				// This is the robots.txt request, sent once for this host with
+				// the Fetcher's UserAgent. The parsed rules are kept as a whole,
+				// so that each command is checked against the group that matches
+				// its own effective identity.
+				robots = f.getRobotsData(r)
+				// The first page request waits the crawl delay of its own
+				// group, counted from the robots.txt response.
+				firstPage = true
 
-			// was it cancelled during the wait? check again
-			select {
-			case <-f.q.cancelled:
-				break loop
 			default:
-				// go on
-			}
-
-			switch r, ok := v.(robotCommand); {
-			case ok:
-				// This is the robots.txt request
-				agent = f.getRobotAgent(r)
-				// Initialize the crawl delay
-				if agent != nil && agent.CrawlDelay > 0 {
-					delay = agent.CrawlDelay
+				// Prepare the request once, so that the identity checked
+				// against the robots.txt policy is exactly the one sent on
+				// the wire.
+				req, err := f.newRequest(v)
+				if err != nil {
+					f.visit(v, nil, err)
+					wait = nil
+					break
 				}
-				wait = time.After(delay)
+				// Select the group matching this command's effective
+				// User-Agent. The group is selected per command, never cached
+				// from a previous one.
+				var grp *robotstxt.Group
+				if robots != nil {
+					grp = robots.FindGroup(f.effectiveAgent(req))
+				}
+				if robots != nil && !grp.Test(v.URL().Path) {
+					// Path disallowed by robots.txt. The command is rejected
+					// without establishing a new wait, and without clearing a
+					// wait left by a previous command.
+					f.visit(v, nil, ErrDisallowed)
+					break
+				}
 
-			case agent == nil || agent.Test(v.URL().Path):
+				// Wait for the delay left by the previous request, if any: a
+				// command matching a faster group never skips the wait imposed
+				// by a slower one.
+				if wait != nil {
+					<-wait
+					wait = nil
+
+					// was it cancelled during the wait? check again
+					select {
+					case <-f.q.cancelled:
+						break loop
+					default:
+						// go on
+					}
+				}
+				if firstPage {
+					// First page since the robots.txt response: wait the crawl
+					// delay of this command's group.
+					firstPage = false
+					<-after(f.crawlDelay(grp))
+
+					// was it cancelled during the wait? check again
+					select {
+					case <-f.q.cancelled:
+						break loop
+					default:
+						// go on
+					}
+				}
+
 				// Path allowed, process the request
-				res, err := f.doRequest(v)
+				res, err := f.doRequest(req, v)
 				f.visit(v, res, err)
 				// No delay on error - the remote host was not reached
 				if err == nil {
-					wait = time.After(delay)
+					wait = after(f.crawlDelay(grp))
 				} else {
 					wait = nil
 				}
-
-			default:
-				// Path disallowed by robots.txt
-				f.visit(v, nil, ErrDisallowed)
-				wait = nil
 			}
 			// Every time a command is received, reset the ttl channel
-			ttl = time.After(f.WorkerIdleTTL)
+			ttl = after(f.WorkerIdleTTL)
 
 		case <-ttl:
 			// Worker has been idle for WorkerIdleTTL, terminate it
@@ -435,9 +478,16 @@ loop:
 	f.q.wg.Done()
 }
 
-// Get the robots.txt User-Agent-specific group.
-func (f *Fetcher) getRobotAgent(r robotCommand) *robotstxt.Group {
-	res, err := f.doRequest(r)
+// Fetch and parse the robots.txt rules for a host. The probe request uses
+// the Fetcher's UserAgent. Returns nil if the rules could not be fetched or
+// parsed, which is interpreted as "no restrictions", as before.
+func (f *Fetcher) getRobotsData(r robotCommand) *robotstxt.RobotsData {
+	req, err := f.newRequest(r)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fetchbot: error fetching robots.txt: %s\n", err)
+		return nil
+	}
+	res, err := f.doRequest(req, r)
 	if err != nil {
 		// TODO: Ignore robots.txt request error?
 		fmt.Fprintf(os.Stderr, "fetchbot: error fetching robots.txt: %s\n", err)
@@ -452,7 +502,28 @@ func (f *Fetcher) getRobotAgent(r robotCommand) *robotstxt.Group {
 		fmt.Fprintf(os.Stderr, "fetchbot: error parsing robots.txt: %s\n", err)
 		return nil
 	}
-	return robData.FindGroup(f.UserAgent)
+	return robData
+}
+
+// The crawl delay to apply for a command admitted by this group: a positive
+// group delay overrides the Fetcher's CrawlDelay, otherwise the Fetcher's
+// configured delay is used.
+func (f *Fetcher) crawlDelay(grp *robotstxt.Group) time.Duration {
+	if grp != nil && grp.CrawlDelay > 0 {
+		return grp.CrawlDelay
+	}
+	return f.CrawlDelay
+}
+
+// The effective identity of a request: the User-Agent set by the Command's
+// HeaderProvider if it is not empty, the Fetcher's UserAgent otherwise. This
+// is the identity checked against the robots.txt policy, and the one sent on
+// the wire.
+func (f *Fetcher) effectiveAgent(req *http.Request) string {
+	if ua := req.Header.Get("User-Agent"); ua != "" {
+		return ua
+	}
+	return f.UserAgent
 }
 
 // Call the Handler for this Command. Closes the response's body.
@@ -469,20 +540,35 @@ func (f *Fetcher) visit(cmd Command, res *http.Response, err error) {
 	f.Handler.Handle(&Context{Cmd: cmd, Q: f.q}, res, err)
 }
 
-// Prepare and execute the request for this Command.
-func (f *Fetcher) doRequest(cmd Command) (*http.Response, error) {
+// Prepare the request for this Command: create the request and apply the
+// HeaderProvider values, which are evaluated at most once per command. The
+// returned request carries the effective identity of the command, so that
+// the robots.txt admission check and the actual request see the same
+// User-Agent.
+func (f *Fetcher) newRequest(cmd Command) (*http.Request, error) {
 	req, err := http.NewRequest(cmd.Method(), cmd.URL().String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	// If the Command implements some other recognized interfaces, set
 	// the request accordingly (see cmd.go for the list of interfaces).
-	// First, the Header values.
+	// First, the Header values. The header map and its values are copied,
+	// so that the rest of the request preparation (cookies, default
+	// headers) never writes back into the Command's own map and slices.
 	if hd, ok := cmd.(HeaderProvider); ok {
-		for k, v := range hd.Header() {
-			req.Header[k] = v
+		for k, vals := range hd.Header() {
+			cp := make([]string, len(vals))
+			copy(cp, vals)
+			req.Header[k] = cp
 		}
 	}
+	return req, nil
+}
+
+// Finalize and execute the request prepared by newRequest for this Command.
+// The User-Agent on the request is left untouched, so it is exactly the one
+// used for the robots.txt admission check.
+func (f *Fetcher) doRequest(req *http.Request, cmd Command) (*http.Response, error) {
 	// BasicAuth has higher priority than an Authorization header set by
 	// a HeaderProvider.
 	if ba, ok := cmd.(BasicAuthProvider); ok {
