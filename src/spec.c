@@ -927,6 +927,13 @@ int lc3_spec_get_side(lc3_bits_t *bits,
 /**
  * Decode spectral coefficients
  */
+#ifdef LC3_ENTROPY_TRACE
+/* Test only, read-only observation point implemented in target_bridge.c.
+ * Normal builds define nothing of the kind and keep zero extra state. */
+void lc3_entropy_trace_hook(enum lc3_dt dt, enum lc3_srate sr,
+    const lc3_spec_side_t *side, const float *x);
+#endif
+
 int lc3_spec_decode(lc3_bits_t *bits,
     enum lc3_dt dt, enum lc3_srate sr, enum lc3_bandwidth bw,
     int nbytes, const lc3_spec_side_t *side, float *x)
@@ -954,6 +961,10 @@ int lc3_spec_decode(lc3_bits_t *bits,
 
     if (nq > 2 || x[0] || x[1] || side->g_idx > 0 || nf < 7)
         fill_noise(dt, bw, nf, nf_seed, g, x, nq);
+
+#ifdef LC3_ENTROPY_TRACE
+    lc3_entropy_trace_hook(dt, sr, side, x);
+#endif
 
     return 0;
 }
