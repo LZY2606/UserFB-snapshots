@@ -151,6 +151,56 @@ The algorithm has a lot of number-crunching, so Debug builds are much slower (up
 
 This uses the [Signalsmith Linear](https://github.com/Signalsmith-Audio/linear) library for FFTs and other speedups.  There are [flags]([Linear repo](https://github.com/Signalsmith-Audio/linear?tab=readme-ov-file#building)) to use faster FFT implementations (`SIGNALSMITH_USE_ACCELERATE`/`SIGNALSMITH_USE_IPP`/`SIGNALSMITH_USE_PFFFT`/`SIGNALSMITH_USE_PFFFT_DOUBLE`), and corresponding CMake options.
 
+## Multi-voice harmoniser
+
+When several harmonies of the same input are needed, running several `SignalsmithStretch` instances re-analyses the identical input once per voice.  `SignalsmithHarmonizer` performs the analysis FFT once per channel (including the previous-position re-analysis after a seek), and keeps every voice's frequency map, peak targets, phase predictions, formant-corrected energies and overlap-add history private:
+
+```cpp
+#include "signalsmith-stretch/signalsmith-harmonizer.h"
+
+signalsmith::stretch::SignalsmithHarmonizer<float> harmoniser(seed);
+harmoniser.configure(channels, voices, blockSamples, intervalSamples, splitComputation);
+// Every voice starts at transpose = formant = 1 with compensation off.
+harmoniser.setVoice(0, 0.75f, 0.95f, false); // voice, transpose, formant, compensate
+harmoniser.setVoice(1, 1.0f,  1.0f,  false);
+harmoniser.setVoice(2, 1.5f,  1.08f, true);
+harmoniser.setFormantBase(180.0f/sampleRate); // shared by all voices
+
+// Planar inputs: `channels` planes.  Planar outputs: `voices*channels` planes,
+// with voice v, channel c at outputs[v*channels + c].
+harmoniser.process(inputs, inputSamples, outputs, outputSamples);
+```
+
+The outputs are the un-mixed per-voice signals - no limiting or normalisation is applied, so panning/gain and the mix bus are entirely up to the caller.  `inputLatency()`, `outputLatency()`, `reset()`, `seek()` and `flush()` keep the same meaning as the single-voice class; the shared input only ever advances once, regardless of the voice count.
+
+### Parameter latching
+
+`setVoice()` / `setFormantBase()` may be called between `process()` calls.  All settings are latched together at the start of each synthesis hop:
+
+* a hop already being computed (including a half-finished hop in split-computation mode) always finishes with the old settings, so its peak mapping and phase prediction can never mix old and new parameters;
+* several writes before the next hop start collapse to the last one;
+* changing one voice never resets another voice, and never clears the changed voice's own phase/tail state.
+
+### Latency and split computation
+
+Latency is reported exactly as for `SignalsmithStretch`: `inputLatency()` samples of look-ahead and `outputLatency()` samples of output delay.  With `splitComputation=true` the work of every stage (shared analysis, each voice's mapping/prediction and synthesis) is spread across the output interval, at the cost of one extra interval of output latency.  For a finite sound, feed `inputLatency()` samples of silence and then read at most one `blockSamples()` of tail through `flush()`.
+
+### Example and tests
+
+`examples/harmonizer-example.cpp` generates a signal, harmonises it with three voices, and mixes them with different gains/pan positions into a stereo WAV:
+
+```sh
+c++ -std=c++11 -O2 -I. -Ivendor/linear/include \
+    examples/harmonizer-example.cpp -o harmonizer-example
+./harmonizer-example harmonizer-example.wav
+```
+
+The task test suite (`task_tests/harmonizer.cpp`, no `main` of its own) checks per-voice numerical equivalence against independent `SignalsmithStretch` instances, the measured analysis-FFT call counts, parameter latching and stream lifecycle:
+
+```sh
+sh task_support/target.sh   # builds/runs the four test groups, then the legacy baseline
+```
+
 ## License
 
 Released under the [MIT License](LICENSE.txt) - get in touch if you need anything else.
