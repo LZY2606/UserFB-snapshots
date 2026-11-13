@@ -458,7 +458,8 @@ BOOL CSoundFile::ReadAMS2(LPCBYTE lpStream, DWORD dwMemLength)
 		for (UINT i=0; i<32; i++)
 		{
 			UINT chnnamlen = lpStream[dwMemPos];
-			if ((chnnamlen) && (chnnamlen < MAX_CHANNELNAME))
+			if ((chnnamlen) && (chnnamlen < MAX_CHANNELNAME)
+			 && (dwMemPos + 1 + chnnamlen <= dwMemLength))
 			{
 				memcpy(ChnSettings[i].szName, lpStream+dwMemPos+1, chnnamlen);
 			}
@@ -467,8 +468,9 @@ BOOL CSoundFile::ReadAMS2(LPCBYTE lpStream, DWORD dwMemLength)
 		}
 		// packed comments (ignored)
 		UINT songtextlen = READ_LE32(lpStream+dwMemPos);
+		if ((dwMemPos + 256 >= dwMemLength)
+		 || (songtextlen >= dwMemLength - dwMemPos - 256)) return TRUE;
 		dwMemPos += songtextlen;
-		if (dwMemPos + 256 >= dwMemLength) return TRUE;
 	}
 	// Order List
 	{
@@ -560,6 +562,7 @@ BOOL CSoundFile::ReadAMS2(LPCBYTE lpStream, DWORD dwMemLength)
 				if (byte1 & 0x80) row++;
 			}
 		}
+		if (packedlen >= dwMemLength - dwMemPos) return TRUE;
 		dwMemPos += packedlen;
 	}
 	// Read Samples
