@@ -163,5 +163,10 @@ namespace SoLoud
 	{
 	}
 
+	unsigned int FilterInstance::getTailFrames() const
+	{
+		return 0;
+	}
+
 };
 

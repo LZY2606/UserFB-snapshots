@@ -102,6 +102,10 @@ namespace SoLoud
 		mDelaySamples = 0;
 		mOverallVolume = 0;
 		mOverallRelativePlaySpeed = 1;
+		mFilterTailFrames = 0;
+		mFilterTailRemaining = 0;
+		mTailOutputsRemaining = 0;
+		mTailDraining = false;
 	}
 
 	AudioSourceInstance::~AudioSourceInstance()

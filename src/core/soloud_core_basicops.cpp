@@ -98,6 +98,14 @@ namespace SoLoud
 			if (aSound.mFilter[i])
 			{
 				mVoice[ch]->mFilter[i] = aSound.mFilter[i]->createInstance();
+				if (mVoice[ch]->mFilter[i])
+				{
+					// Declared tail lengths are read once, when the play
+					// instance is created, and never change afterwards.
+					// Frames are at the voice's source sample rate; chained
+					// filter tails add up.
+					mVoice[ch]->mFilterTailFrames += mVoice[ch]->mFilter[i]->getTailFrames();
+				}
 			}
 		}
 

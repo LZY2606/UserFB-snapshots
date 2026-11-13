@@ -188,6 +188,24 @@ namespace SoLoud
 		// When looping, start playing from this time
 		time mLoopPoint;
 
+		// Total finite filter tail, in source-rate frames, fixed at play time
+		// from the sum of the per-stream FilterInstance::getTailFrames() values.
+		// Zero keeps the legacy auto-stop and byte-output behavior.
+		unsigned int mFilterTailFrames;
+		// Zero-input frames still to be fed through the filter chain once the
+		// source has reached its natural end. Counts only frames actually
+		// processed by the filters, so short reads and zero-padded 512-blocks
+		// are never drained twice.
+		unsigned int mFilterTailRemaining;
+		// Number of resampler output frames that still map to meaningful
+		// (valid input plus declared tail) content. Computed once, in the block
+		// that exhausts the tail budget, and counted down as outputs are handed
+		// to the mix node. Independent of later 512-block swaps. Once zero, any
+		// further buffered output is guaranteed silence.
+		unsigned int mTailOutputsRemaining;
+		// Set while the source has ended but its filter tail is still flushing.
+		bool mTailDraining;
+
 		// Get N samples from the stream to the buffer. Report samples written.
 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize) = 0;
 		// Has the stream ended?

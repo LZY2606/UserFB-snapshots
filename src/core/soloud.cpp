@@ -1646,7 +1646,7 @@ namespace SoLoud
 					{
 						memset(aScratch + k * aBufferSize, 0, sizeof(float) * outofs); 
 					}
-				}												
+				}
 
 				while (step_fixed != 0 && outofs < aSamplesToRead)
 				{
@@ -1678,7 +1678,38 @@ namespace SoLoud
 							}
 						}
 
-                        // Clear remaining of the resample data if the full scratch wasn't used
+						// A non-looping source that has reached its natural end
+						// with a declared finite filter tail enters the draining
+						// phase. Looping voices keep their filter history across
+						// wrap points and never drain at a loop seam.
+						if (voice->mFilterTailFrames &&
+							!(voice->mFlags & AudioSourceInstance::LOOPING) &&
+							voice->hasEnded() &&
+							!voice->mTailDraining)
+						{
+							voice->mTailDraining = true;
+							voice->mFilterTailRemaining = voice->mFilterTailFrames;
+						}
+
+						// While draining, every frame past the valid source data
+						// is a zero-input frame that consumes tail budget. The
+						// budget is charged for frames actually sent through the
+						// filters, so a short zero-padded 512 block is never
+						// drained again on the next mix call.
+						unsigned int tailframes = 0;
+						bool tailExhaustedNow = false;
+						if (voice->mTailDraining)
+						{
+							tailframes = SAMPLE_GRANULARITY - (unsigned int)readcount;
+							if (tailframes > voice->mFilterTailRemaining)
+								tailframes = voice->mFilterTailRemaining;
+							unsigned int before = voice->mFilterTailRemaining;
+							voice->mFilterTailRemaining -= tailframes;
+							if (before && voice->mFilterTailRemaining == 0)
+								tailExhaustedNow = true;
+						}
+
+	                    // Clear remaining of the resample data if the full scratch wasn't used
 						if (readcount < SAMPLE_GRANULARITY)
 						{
 							unsigned int k;
@@ -1697,7 +1728,27 @@ namespace SoLoud
 							voice->mSrcOffset -= SAMPLE_GRANULARITY * FIXPOINT_FRAC_MUL;
 						}
 
-					
+						if (tailExhaustedNow)
+						{
+							// Local frame boundary (exclusive) of meaningful
+							// content in this block: valid input plus the tail.
+							unsigned int meaningful = (unsigned int)readcount + tailframes;
+							unsigned long long boundary = (unsigned long long)meaningful * FIXPOINT_FRAC_MUL;
+							if (boundary > voice->mSrcOffset)
+							{
+								// Number of resampler output frames, starting at
+								// the current offset, that still read source
+								// positions below the meaningful boundary.
+								voice->mTailOutputsRemaining =
+									(unsigned int)(((boundary - voice->mSrcOffset) + step_fixed - 1) / step_fixed);
+							}
+							else
+							{
+								voice->mTailOutputsRemaining = 0;
+							}
+						}
+
+
 						// Run the per-stream filters to get our source data
 
 						for (j = 0; j < FILTERS_PER_STREAM; j++)
@@ -1786,15 +1837,35 @@ namespace SoLoud
 					// Keep track of how many samples we've written so far
 					outofs += writesamples;
 
+					// Count down the meaningful tail outputs that remain; once
+					// zero, every further buffered output maps to silence.
+					if (voice->mTailOutputsRemaining)
+					{
+						unsigned int delivered = writesamples < voice->mTailOutputsRemaining
+							? writesamples : voice->mTailOutputsRemaining;
+						voice->mTailOutputsRemaining -= delivered;
+					}
+
 					// Move source pointer onwards (writesamples may be zero)
 					voice->mSrcOffset += writesamples * step_fixed;
 				}
-				
+
 				// Handle panning and channel expansion (and/or shrinking)
 				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);
 
-				// clear voice if the sound is over
-				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
+				// clear voice if the sound is over. A voice whose filters
+				// declared a finite tail stays valid while the tail is flushing
+				// and until every meaningful (valid input plus tail) resampler
+				// output has been handed to this mix node. Buffered outputs
+				// past that point map to guaranteed-silent frames and are
+				// discarded with the voice. Voices without a declared tail keep
+				// the legacy stop path.
+				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) &&
+					voice->hasEnded() &&
+					(voice->mFilterTailFrames == 0 ||
+						(voice->mTailDraining &&
+							voice->mFilterTailRemaining == 0 &&
+							voice->mTailOutputsRemaining == 0)))
 				{
 					stopVoice_internal(mActiveVoice[i]);
 				}
@@ -1902,7 +1973,11 @@ namespace SoLoud
 					voice->mSrcOffset += writesamples * step_fixed;
 				}
 
-				// clear voice if the sound is over
+				// clear voice if the sound is over. This inaudible tick path
+				// skips the filters and does not accumulate output, so a
+				// declared tail cannot be flushed here anyway; the legacy stop
+				// behavior is retained. Audible voices flush their tail on the
+				// normal path above.
 				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
 				{
 					stopVoice_internal(mActiveVoice[i]);

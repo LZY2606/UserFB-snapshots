@@ -49,6 +49,11 @@ namespace SoLoud
 		virtual void setFilterParameter(unsigned int aAttributeId, float aValue);
 		virtual void fadeFilterParameter(unsigned int aAttributeId, float aTo, time aTime, time aStartTime);
 		virtual void oscillateFilterParameter(unsigned int aAttributeId, float aFrom, float aTo, time aTime, time aStartTime);
+		// Number of zero-input frames this filter still needs after the last
+		// valid input frame to flush its (finite) tail. Unit is frames at the
+		// sample rate the filter is fed with, i.e. the voice's source rate.
+		// Zero means no declared tail, which preserves the legacy behavior.
+		virtual unsigned int getTailFrames() const;
 		virtual ~FilterInstance();
 	};
 
