@@ -105,13 +105,18 @@ static fci_t get_fci (const char *in, int *pos)
 static int get_objtype (const BYTE *membase, LONG memlen,
 			LONG ofs, int type)
 {
+	/* bytes left in the file at ofs: each signature below must fit in it */
+	LONG avail = memlen - ofs;
+
 	if (type == UMUSIC_IT) {
 	_retry:
+		if (avail < 4) return -1;
 		if (memcmp(membase + ofs, "IMPM", 4) == 0)
 			return UMUSIC_IT;
 		return -1;
 	}
 	if (type == UMUSIC_XM) {
+		if (avail < 38) return -1;
 		if (memcmp(membase + ofs, "Extended Module: ", 17) != 0)
 			return -1;
 		if (*(membase + ofs + 37) != 0x1a) return -1;
@@ -119,7 +124,7 @@ static int get_objtype (const BYTE *membase, LONG memlen,
 	}
 
 	if (type == UMUSIC_S3M) {
-		if (memcmp(membase + ofs + 44, "SCRM", 4) == 0)
+		if (avail >= 48 && memcmp(membase + ofs + 44, "SCRM", 4) == 0)
 			return UMUSIC_S3M;
 		/*return -1;*/
 		/* SpaceMarines.umx and Starseek.umx from Return to NaPali
@@ -128,6 +133,7 @@ static int get_objtype (const BYTE *membase, LONG memlen,
 	}
 
 	if (type == UMUSIC_MOD) {
+		if (avail < 1084) return -1;
 		membase += ofs + 1080;
 		if (memcmp(membase, "M.K.", 4) == 0 || memcmp(membase, "M!K!", 4) == 0)
 			return UMUSIC_MOD;
