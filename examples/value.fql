@@ -1,0 +1,4 @@
+LET doc = DOCUMENT("https://www.google.com/search?q=foobar", { driver: "cdp" })
+LET input = ELEMENT(doc, 'input[name="q"]')
+
+RETURN input.value

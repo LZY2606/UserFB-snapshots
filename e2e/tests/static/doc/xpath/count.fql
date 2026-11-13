@@ -1,0 +1,6 @@
+LET url = @lab.cdn.static + '/overview.html'
+LET page = DOCUMENT(url)
+
+LET actual = XPATH(page, "count(//body)")
+
+RETURN T::EQ(actual, 1)

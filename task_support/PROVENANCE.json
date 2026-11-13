@@ -1,0 +1,243 @@
+{
+  "upstream": {
+    "repo": "MontFerret/ferret",
+    "commit": "6b4e740ca01576be24685372413b1feaca3dc741"
+  },
+  "upstream_license": "Apache-2.0",
+  "original_archive_sha256": "f6bfefca20d46e7ae55a75613037c987bc2526094533ad26f4ea2d1c2ecc4d16",
+  "changes": "Unmodified upstream production code. Added offline module build metadata/vendor and task_support baseline/runner only. No target implementation.",
+  "dependency_locks": [
+    "go.mod",
+    "go.sum",
+    "vendor/modules.txt"
+  ],
+  "modules": [
+    {
+      "module": "github.com/PuerkitoBio/goquery",
+      "version": "v1.10.3",
+      "licenses": [
+        "vendor/github.com/PuerkitoBio/goquery/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/andybalholm/cascadia",
+      "version": "v1.3.3",
+      "licenses": [
+        "vendor/github.com/andybalholm/cascadia/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/antchfx/htmlquery",
+      "version": "v1.3.4",
+      "licenses": [
+        "vendor/github.com/antchfx/htmlquery/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/antchfx/xpath",
+      "version": "v1.3.4",
+      "licenses": [
+        "vendor/github.com/antchfx/xpath/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/antlr4-go/antlr/v4",
+      "version": "v4.13.1",
+      "licenses": [
+        "vendor/github.com/antlr4-go/antlr/v4/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/corpix/uarand",
+      "version": "v0.2.0",
+      "licenses": [
+        "vendor/github.com/corpix/uarand/license"
+      ]
+    },
+    {
+      "module": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "licenses": [
+        "vendor/github.com/davecgh/go-spew/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/gobwas/glob",
+      "version": "v0.2.3",
+      "licenses": [
+        "vendor/github.com/gobwas/glob/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/golang/groupcache",
+      "version": "v0.0.0-20210331224755-41bb18bfe9da",
+      "licenses": [
+        "vendor/github.com/golang/groupcache/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/gopherjs/gopherjs",
+      "version": "v1.17.2",
+      "licenses": [
+        "vendor/github.com/gopherjs/gopherjs/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/gorilla/css",
+      "version": "v1.0.1",
+      "licenses": [
+        "vendor/github.com/gorilla/css/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/gorilla/websocket",
+      "version": "v1.5.3",
+      "licenses": [
+        "vendor/github.com/gorilla/websocket/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/jarcoal/httpmock",
+      "version": "v1.4.0",
+      "licenses": [
+        "vendor/github.com/jarcoal/httpmock/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/jtolds/gls",
+      "version": "v4.20.0+incompatible",
+      "licenses": [
+        "vendor/github.com/jtolds/gls/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/mafredri/cdp",
+      "version": "v0.35.0",
+      "licenses": [
+        "vendor/github.com/mafredri/cdp/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/mattn/go-colorable",
+      "version": "v0.1.13",
+      "licenses": [
+        "vendor/github.com/mattn/go-colorable/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/mattn/go-isatty",
+      "version": "v0.0.19",
+      "licenses": [
+        "vendor/github.com/mattn/go-isatty/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/pkg/errors",
+      "version": "v0.9.1",
+      "licenses": [
+        "vendor/github.com/pkg/errors/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "licenses": [
+        "vendor/github.com/pmezard/go-difflib/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/rs/zerolog",
+      "version": "v1.34.0",
+      "licenses": [
+        "vendor/github.com/rs/zerolog/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/sethgrid/pester",
+      "version": "v1.2.0",
+      "licenses": [
+        "vendor/github.com/sethgrid/pester/LICENSE.md"
+      ]
+    },
+    {
+      "module": "github.com/smarty/assertions",
+      "version": "v1.15.0",
+      "licenses": [
+        "vendor/github.com/smarty/assertions/LICENSE.md"
+      ]
+    },
+    {
+      "module": "github.com/smartystreets/goconvey",
+      "version": "v1.8.1",
+      "licenses": [
+        "vendor/github.com/smartystreets/goconvey/LICENSE.md"
+      ]
+    },
+    {
+      "module": "github.com/stretchr/objx",
+      "version": "v0.1.0",
+      "licenses": [
+        "vendor/github.com/stretchr/objx/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/stretchr/testify",
+      "version": "v1.7.1",
+      "licenses": [
+        "vendor/github.com/stretchr/testify/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/wI2L/jettison",
+      "version": "v0.7.4",
+      "licenses": [
+        "vendor/github.com/wI2L/jettison/LICENSE",
+        "vendor/github.com/wI2L/jettison/LICENSE.golang"
+      ]
+    },
+    {
+      "module": "golang.org/x/exp",
+      "version": "v0.0.0-20240506185415-9bf2ced13842",
+      "licenses": [
+        "vendor/golang.org/x/exp/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/net",
+      "version": "v0.40.0",
+      "licenses": [
+        "vendor/golang.org/x/net/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/sync",
+      "version": "v0.14.0",
+      "licenses": [
+        "vendor/golang.org/x/sync/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/sys",
+      "version": "v0.33.0",
+      "licenses": [
+        "vendor/golang.org/x/sys/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/text",
+      "version": "v0.25.0",
+      "licenses": [
+        "vendor/golang.org/x/text/LICENSE"
+      ]
+    },
+    {
+      "module": "gopkg.in/yaml.v3",
+      "version": "v3.0.0-20200313102051-9f266ea9e77c",
+      "licenses": [
+        "vendor/gopkg.in/yaml.v3/LICENSE",
+        "vendor/gopkg.in/yaml.v3/NOTICE"
+      ]
+    }
+  ],
+  "support_license": "task_support/LICENSE (MIT)"
+}

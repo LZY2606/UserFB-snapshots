@@ -1,0 +1,13 @@
+LET p = DOCUMENT("https://www.gettyimages.com/", {
+    driver: "cdp",
+    ignore: {
+        resources: [
+            {
+                url: "*",
+                type: "image"
+            }
+        ]
+    }
+})
+
+RETURN TRUE

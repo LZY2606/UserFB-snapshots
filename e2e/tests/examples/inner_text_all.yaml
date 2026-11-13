@@ -1,0 +1,4 @@
+query:
+  ref: ../../../examples/inner_text_all.fql
+assert:
+  text: RETURN T::NOT::EMPTY(@lab.data.query.result)
