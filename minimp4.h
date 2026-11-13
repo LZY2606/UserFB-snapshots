@@ -167,6 +167,19 @@ typedef struct
 
 typedef struct MP4D_sample_to_chunk_t_tag MP4D_sample_to_chunk_t;
 
+/**
+*   Read-only view of one AVC sample description ('avc1' entry) declared by
+*   an 'stsd' box. The data is borrowed from the demuxer and stays valid
+*   until MP4D_close(); it must not be free()-ed by the caller.
+*/
+typedef struct
+{
+    unsigned width;
+    unsigned height;
+    unsigned avcc_bytes;
+    const unsigned char *avcc;
+} MP4D_avc_description_t;
+
 typedef struct
 {
     /************************************************************************/
@@ -263,6 +276,18 @@ typedef struct
     /************************************************************************/
     unsigned *entry_size;
 
+    // AVC sample descriptions ('avc1' entries) parsed from 'stsd', in
+    // declaration order. Each owns its AVCDecoderConfigurationRecord copy.
+    MP4D_avc_description_t *avc_descriptions;
+    unsigned avc_description_count;
+    unsigned avc_description_capacity;
+
+    unsigned stsd_declared_entries; // entry_count declared by 'stsd'
+    unsigned stsd_parsed_entries;   // 'avc1' sample entries actually seen
+    unsigned pending_width;         // width/height of the avc1 entry being parsed
+    unsigned pending_height;
+    unsigned in_avc1;               // set while parsing the children of an 'avc1'
+
     unsigned sample_to_chunk_count;
     struct MP4D_sample_to_chunk_t_tag *sample_to_chunk;
 
@@ -341,6 +366,7 @@ struct MP4D_sample_to_chunk_t_tag
 {
     unsigned first_chunk;
     unsigned samples_per_chunk;
+    unsigned sample_description_index; // 1-based, 0 = unknown/legacy
 };
 
 typedef struct
@@ -412,6 +438,21 @@ void MP4D_close(MP4D_demux_t *mp4);
 */
 const void *MP4D_read_sps(const MP4D_demux_t *mp4, unsigned int ntrack, int nsps, int *sps_bytes);
 const void *MP4D_read_pps(const MP4D_demux_t *mp4, unsigned int ntrack, int npps, int *pps_bytes);
+
+/**
+*   Return the AVC sample description with the given 1-based index, as
+*   declared by the track's 'stsd' box. The returned data is borrowed from
+*   mp4 and remains valid until MP4D_close(); do not free it. Returns NULL
+*   if the index is out of range or the track has no AVC descriptions.
+*/
+const MP4D_avc_description_t *MP4D_avc_description(const MP4D_demux_t *mp4, unsigned int ntrack, unsigned int description_index);
+
+/**
+*   Return the 1-based sample description index used by the given zero-based
+*   sample. Returns 0 for an invalid query (bad track/sample, or a track
+*   without AVC sample descriptions).
+*/
+unsigned MP4D_sample_description_index(const MP4D_demux_t *mp4, unsigned int ntrack, unsigned int nsample);
 
 #if MP4D_PRINT_INFO_SUPPORTED
 /**
@@ -496,6 +537,35 @@ int MP4E_set_sps(MP4E_mux_t *mux, int track_id, const void *sps, int bytes);
 *   return error code MP4E_STATUS_*
 */
 int MP4E_set_pps(MP4E_mux_t *mux, int track_id, const void *pps, int bytes);
+
+/**
+*   Register an additional AVC decoder configuration for a track. The track
+*   then carries several 'avc1' sample descriptions in its 'stsd' box, one
+*   per registration, and each sample is written with the description that
+*   was selected when it was submitted.
+*
+*   avcc is a complete AVCDecoderConfigurationRecord (without a box header).
+*   Only configurationVersion 1, 4-byte NAL length fields, and at least one
+*   non-empty SPS and PPS array are accepted; trailing extension bytes are
+*   preserved verbatim.
+*
+*   The first successful call switches the track into explicit description
+*   mode and selects description 1. It is only allowed while the track has
+*   neither legacy SPS/PPS nor samples. Later calls may be made mid-stream
+*   and do not change the selected description.
+*
+*   Return the 1-based description index, or an MP4E_STATUS_* error code.
+*/
+int MP4E_add_avc_description(MP4E_mux_t *mux, int track_id, unsigned width, unsigned height, const void *avcc, int bytes);
+
+/**
+*   Select the 1-based description used for subsequent samples of an
+*   explicit-description-mode AVC track. The selection does not flush any
+*   pending sample and does not affect already written samples.
+*
+*   return MP4E_STATUS_OK, or MP4E_STATUS_BAD_ARGUMENTS
+*/
+int MP4E_select_avc_description(MP4E_mux_t *mux, int track_id, unsigned description_index);
 
 /**
 *   Set or replace ASCII test comment for the file. Set comment to NULL to remove comment.
@@ -689,7 +759,21 @@ typedef struct
     boxsize_t offset;
     unsigned duration;
     unsigned flag_random_access;
+    unsigned description_index; // 1-based AVC sample description, 0 = legacy
 } sample_t;
+
+/**
+*   One registered AVC sample description: a full AVCDecoderConfigurationRecord
+*   deep-copied from the caller (box header excluded).
+*/
+typedef struct
+{
+    unsigned char *avcc;
+    int avcc_bytes;
+    unsigned description_index; // 1-based
+    unsigned width;
+    unsigned height;
+} mp4e_avc_description_t;
 
 typedef struct {
     unsigned char *data;
@@ -707,6 +791,14 @@ typedef struct
     minimp4_vector_t vpps;  // not used for audio
     minimp4_vector_t vvps;  // used for HEVC
 
+    // Explicit AVC description mode. When descriptions_count > 0, stsd
+    // carries one avc1 entry per registered description and stsc maps each
+    // sample to its own entry; vsps/vpps stay unused.
+    unsigned char *avc_descriptions; // array of mp4e_avc_description_t
+    unsigned descriptions_count;
+    unsigned descriptions_capacity;
+    unsigned selected_description;   // 1-based, 0 = none yet
+    unsigned selected_index;         // index into avc_descriptions, 0-based
 } track_t;
 
 typedef struct MP4E_mux_tag
@@ -721,6 +813,7 @@ typedef struct MP4E_mux_tag
     int sequential_mode_flag;
     int enable_fragmentation; // flag, indicating streaming-friendly 'fragmentation' mode
     int fragments_count;      // # of fragments in 'fragmentation' mode
+    int last_sample_track;    // track of the most recently committed sample, -1 = none
 
 } MP4E_mux_t;
 
@@ -846,6 +939,7 @@ MP4E_mux_t *MP4E_open(int sequential_mode_flag, int enable_fragmentation, void *
     mux->token = token;
     mux->text_comment = NULL;
     mux->write_pos = sizeof(box_ftyp);
+    mux->last_sample_track = -1;
 
     if (!mux->sequential_mode_flag)
     {   // Write filler, which would be updated later
@@ -941,18 +1035,208 @@ int MP4E_set_vps(MP4E_mux_t *mux, int track_id, const void *vps, int bytes)
     return append_mem(&tr->vvps, vps, bytes) ? MP4E_STATUS_OK : MP4E_STATUS_NO_MEMORY;
 }
 
-int MP4E_set_sps(MP4E_mux_t *mux, int track_id, const void *sps, int bytes)
-{
-    track_t* tr = ((track_t*)mux->tracks.data) + track_id;
-    assert(tr->info.track_media_kind == e_video);
-    return append_mem(&tr->vsps, sps, bytes) ? MP4E_STATUS_OK : MP4E_STATUS_NO_MEMORY;
-}
-
 int MP4E_set_pps(MP4E_mux_t *mux, int track_id, const void *pps, int bytes)
 {
     track_t* tr = ((track_t*)mux->tracks.data) + track_id;
     assert(tr->info.track_media_kind == e_video);
+    if (tr->descriptions_count)
+        return MP4E_STATUS_BAD_ARGUMENTS;   // explicit AVC description mode is active
     return append_mem(&tr->vpps, pps, bytes) ? MP4E_STATUS_OK : MP4E_STATUS_NO_MEMORY;
+}
+
+int MP4E_set_sps(MP4E_mux_t *mux, int track_id, const void *sps, int bytes)
+{
+    track_t* tr = ((track_t*)mux->tracks.data) + track_id;
+    assert(tr->info.track_media_kind == e_video);
+    if (tr->descriptions_count)
+        return MP4E_STATUS_BAD_ARGUMENTS;   // explicit AVC description mode is active
+    return append_mem(&tr->vsps, sps, bytes) ? MP4E_STATUS_OK : MP4E_STATUS_NO_MEMORY;
+}
+
+/**
+*   Validate an AVCDecoderConfigurationRecord: version 1, complete arrays,
+*   and at least one non-empty SPS and PPS. When require_nal_length is set,
+*   the NAL length field must be 4 bytes (muxer requirement; the demuxer
+*   accepts whatever a file declares).
+*   Returns 1 on success; sps_count/pps_count receive the array counts.
+*/
+static int minimp4_validate_avcc_impl(const unsigned char *p, unsigned bytes, int require_nal_length,
+                                      unsigned *sps_count, unsigned *pps_count)
+{
+    unsigned pos = 6, count, i, len;
+
+    if (bytes < 6)
+        return 0;
+    if (p[0] != 1)
+        return 0;                       // configurationVersion
+    if ((p[4] & 3) == 2)
+        return 0;                       // 3-byte NAL lengths are not representable here
+    if (require_nal_length && (p[4] & 3) != 3)
+        return 0;                       // lengthSizeMinusOne == 3 -> 4-byte NAL length
+    count = p[5] & 31;
+    if (count == 0)
+        return 0;                       // at least one SPS
+    for (i = 0; i < count; i++)
+    {
+        if (pos > bytes - 2)
+            return 0;
+        len = p[pos]*256 + p[pos + 1];
+        pos += 2;
+        if (!len || len > bytes - pos)
+            return 0;                   // empty or truncated SPS
+        pos += len;
+    }
+    if (pos >= bytes)
+        return 0;
+    count = p[pos++];
+    if (count == 0)
+        return 0;                       // at least one PPS
+    for (i = 0; i < count; i++)
+    {
+        if (pos > bytes - 2)
+            return 0;
+        len = p[pos]*256 + p[pos + 1];
+        pos += 2;
+        if (!len || len > bytes - pos)
+            return 0;                   // empty or truncated PPS
+        pos += len;
+    }
+    *sps_count = p[5] & 31;
+    *pps_count = count;
+    return 1;                           // trailing extension bytes are allowed
+}
+
+static int minimp4_validate_avcc(const unsigned char *p, unsigned bytes, unsigned *sps_count, unsigned *pps_count)
+{
+    return minimp4_validate_avcc_impl(p, bytes, 1, sps_count, pps_count);
+}
+
+/**
+*   Build the compact SPS/PPS representation expected by MP4D_read_sps/pps
+*   from a full AVCDecoderConfigurationRecord. Returns 0 on failure.
+*/
+static int minimp4_avcc_to_dsi(const unsigned char *p, unsigned bytes, unsigned char **dsi, unsigned *dsi_bytes)
+{
+    unsigned sps_count, pps_count, pos = 6, i, len, out = 0;
+    unsigned char *buf;
+
+    if (!minimp4_validate_avcc_impl(p, bytes, 0, &sps_count, &pps_count))
+        return 0;
+    buf = (unsigned char*)malloc(bytes + 2);
+    if (!buf)
+        return 0;
+    buf[out++] = (unsigned char)sps_count;
+    for (i = 0; i < sps_count; i++)
+    {
+        len = p[pos]*256 + p[pos + 1];
+        buf[out++] = p[pos];
+        buf[out++] = p[pos + 1];
+        memcpy(buf + out, p + pos + 2, len);
+        out += len;
+        pos += 2 + len;
+    }
+    pos++;                              // skip PPS count byte
+    buf[out++] = (unsigned char)pps_count;
+    for (i = 0; i < pps_count; i++)
+    {
+        len = p[pos]*256 + p[pos + 1];
+        buf[out++] = p[pos];
+        buf[out++] = p[pos + 1];
+        memcpy(buf + out, p + pos + 2, len);
+        out += len;
+        pos += 2 + len;
+    }
+    *dsi = buf;
+    *dsi_bytes = out;
+    return 1;
+}
+
+int MP4E_add_avc_description(MP4E_mux_t *mux, int track_id, unsigned width, unsigned height, const void *avcc, int bytes)
+{
+    track_t *tr;
+    mp4e_avc_description_t *desc;
+    unsigned char *copy;
+    unsigned sps_count, pps_count, n;
+
+    if (!mux || !avcc || bytes <= 0)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (track_id < 0 || (unsigned)track_id >= mux->tracks.bytes / sizeof(track_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr = ((track_t*)mux->tracks.data) + track_id;
+    if (mux->enable_fragmentation)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (tr->info.track_media_kind != e_video ||
+        tr->info.object_type_indication != MP4_OBJECT_TYPE_AVC)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (width < 1 || width > 65535 || height < 1 || height > 65535)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (!minimp4_validate_avcc((const unsigned char*)avcc, (unsigned)bytes, &sps_count, &pps_count))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (!tr->descriptions_count)
+    {
+        // Entering explicit description mode: no legacy parameter sets and
+        // no samples may exist yet.
+        if (tr->vsps.bytes || tr->vpps.bytes || tr->smpl.bytes || tr->pending_sample.bytes)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+    }
+
+    // Deep-copy the input before touching any track state, so a failure
+    // cannot leave a partially registered description behind.
+    copy = (unsigned char*)malloc((size_t)bytes);
+    if (!copy)
+        return MP4E_STATUS_NO_MEMORY;
+    memcpy(copy, avcc, (size_t)bytes);
+
+    n = tr->descriptions_count + 1;
+    if (n > tr->descriptions_capacity)
+    {
+        unsigned new_capacity = tr->descriptions_capacity ? tr->descriptions_capacity * 2 : 4;
+        size_t new_bytes;
+        void *mem;
+        if (new_capacity < n)
+            new_capacity = n;
+        if ((size_t)new_capacity > ((size_t)-1) / sizeof(mp4e_avc_description_t))
+        {
+            free(copy);
+            return MP4E_STATUS_NO_MEMORY;
+        }
+        new_bytes = (size_t)new_capacity * sizeof(mp4e_avc_description_t);
+        mem = realloc(tr->avc_descriptions, new_bytes);
+        if (!mem)
+        {
+            free(copy);
+            return MP4E_STATUS_NO_MEMORY;
+        }
+        tr->avc_descriptions = (unsigned char*)mem;
+        tr->descriptions_capacity = new_capacity;
+    }
+
+    desc = ((mp4e_avc_description_t*)tr->avc_descriptions) + tr->descriptions_count;
+    desc->avcc = copy;
+    desc->avcc_bytes = bytes;
+    desc->description_index = n;
+    desc->width = width;
+    desc->height = height;
+    tr->descriptions_count = n;
+    if (!tr->selected_description)
+    {
+        tr->selected_description = 1;
+        tr->selected_index = 0;
+    }
+    return (int)n;
+}
+
+int MP4E_select_avc_description(MP4E_mux_t *mux, int track_id, unsigned description_index)
+{
+    track_t *tr;
+    if (!mux || track_id < 0 || (unsigned)track_id >= mux->tracks.bytes / sizeof(track_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr = ((track_t*)mux->tracks.data) + track_id;
+    if (!tr->descriptions_count || description_index < 1 || description_index > tr->descriptions_count)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr->selected_description = description_index;
+    tr->selected_index = description_index - 1;
+    return MP4E_STATUS_OK;
 }
 
 static unsigned get_duration(const track_t *tr)
@@ -1006,6 +1290,7 @@ static int add_sample_descriptor(MP4E_mux_t *mux, track_t *tr, int data_bytes, i
     smp.offset = (boxsize_t)mux->write_pos;
     smp.duration = (duration ? duration : tr->info.default_duration);
     smp.flag_random_access = (kind == MP4E_SAMPLE_RANDOM_ACCESS);
+    smp.description_index = tr->selected_description;
     return NULL != minimp4_vector_put(&tr->smpl, &smp, sizeof(sample_t));
 }
 
@@ -1123,9 +1408,15 @@ static int mp4e_write_mdat_box(MP4E_mux_t *mux, uint32_t size)
 int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_bytes, int duration, int kind)
 {
     track_t *tr;
+    int explicit_descriptions;
     if (!mux || !data)
         return MP4E_STATUS_BAD_ARGUMENTS;
+    if (track_num < 0 || (unsigned)track_num >= mux->tracks.bytes / sizeof(track_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (data_bytes < 0)
+        return MP4E_STATUS_BAD_ARGUMENTS;
     tr = ((track_t*)mux->tracks.data) + track_num;
+    explicit_descriptions = !!tr->descriptions_count;
 
     if (mux->enable_fragmentation)
     {
@@ -1148,20 +1439,47 @@ int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_b
         return MP4E_STATUS_OK;
     }
 
+    if (explicit_descriptions && kind == MP4E_SAMPLE_CONTINUATION)
+    {
+        // A continuation only extends the most recently committed sample of
+        // this track: there must be a predecessor, no other track's sample
+        // may have been committed in between, and the selected configuration
+        // must still be the one that sample was committed with.
+        if (mux->last_sample_track != track_num ||
+            tr->smpl.bytes < (int)sizeof(sample_t))
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        {
+            const sample_t *prev = (const sample_t*)(tr->smpl.data + tr->smpl.bytes) - 1;
+            if (prev->description_index != tr->selected_description)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+        }
+    }
+    if (explicit_descriptions && kind != MP4E_SAMPLE_CONTINUATION)
+    {
+        // The first sample and every sample that changes configuration must
+        // be a random access point.
+        unsigned changed = !tr->smpl.bytes ||
+            (((const sample_t*)(tr->smpl.data + tr->smpl.bytes) - 1)->description_index != tr->selected_description);
+        if (changed && kind != MP4E_SAMPLE_RANDOM_ACCESS)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+    }
+
     if (kind != MP4E_SAMPLE_CONTINUATION)
     {
         if (mux->sequential_mode_flag)
             ERR(write_pending_data(mux, tr));
         if (!add_sample_descriptor(mux, tr, data_bytes, duration, kind))
             return MP4E_STATUS_NO_MEMORY;
+        mux->last_sample_track = track_num;
     } else
     {
         if (!mux->sequential_mode_flag)
         {
             sample_t *smpl_desc;
             if (tr->smpl.bytes < sizeof(sample_t))
-                return MP4E_STATUS_NO_MEMORY; // write continuation, but there are no samples in the index
+                return explicit_descriptions ? MP4E_STATUS_BAD_ARGUMENTS : MP4E_STATUS_NO_MEMORY; // write continuation, but there are no samples in the index
             // Accumulate size of the continuation in the sample descriptor
+            // and mark it as a random access point if it started as one.
             smpl_desc = (sample_t*)(tr->smpl.data + tr->smpl.bytes) - 1;
             smpl_desc->size += data_bytes;
         }
@@ -1233,11 +1551,38 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
     for (ntr = 0; ntr < ntracks; ntr++)
     {
         track_t *tr = ((track_t*)mux->tracks.data) + ntr;
+        unsigned d;
+        for (d = 0; d < tr->descriptions_count; d++)
+        {
+            // Re-validate here rather than trusting registration state at
+            // close time: this also re-checks the parameter-set layout
+            // written into every stsd entry.
+            unsigned sps_count, pps_count;
+            const mp4e_avc_description_t *desc = ((const mp4e_avc_description_t*)tr->avc_descriptions) + d;
+            if (!minimp4_validate_avcc(desc->avcc, (unsigned)desc->avcc_bytes, &sps_count, &pps_count))
+                return MP4E_STATUS_BAD_ARGUMENTS;
+        }
+    }
+    for (ntr = 0; ntr < ntracks; ntr++)
+    {
+        track_t *tr = ((track_t*)mux->tracks.data) + ntr;
         index_bytes += TRACK_HEADER_BYTES;          // fixed amount (implementation-dependent)
         // may need extra 4 bytes for duration field + 4 bytes for worst-case random access box
         index_bytes += tr->smpl.bytes * (sizeof(sample_t) + 4 + 4) / sizeof(sample_t);
         index_bytes += tr->vsps.bytes;
         index_bytes += tr->vpps.bytes;
+        if (tr->descriptions_count)
+        {
+            // One avc1 entry per description, plus one stsc run per sample
+            // (worst case: no two adjacent samples share a description).
+            unsigned d;
+            for (d = 0; d < tr->descriptions_count; d++)
+            {
+                const mp4e_avc_description_t *desc = ((const mp4e_avc_description_t*)tr->avc_descriptions) + d;
+                index_bytes += 512 + (unsigned)desc->avcc_bytes;
+            }
+            index_bytes += (unsigned)(tr->smpl.bytes / sizeof(sample_t)) * 12;
+        }
 
         ERR(write_pending_data(mux, tr));
     }
@@ -1366,8 +1711,17 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                 WRITE_4(0); // height
             } else
             {
-                WRITE_4(tr->info.u.v.width*0x10000);  // width
-                WRITE_4(tr->info.u.v.height*0x10000); // height
+                unsigned display_width = tr->info.u.v.width;
+                unsigned display_height = tr->info.u.v.height;
+                if (tr->descriptions_count)
+                {
+                    // Display size still tracks the first registered entry.
+                    const mp4e_avc_description_t *first = (const mp4e_avc_description_t*)tr->avc_descriptions;
+                    display_width = first->width;
+                    display_height = first->height;
+                }
+                WRITE_4(display_width*0x10000);  // width
+                WRITE_4(display_height*0x10000); // height
             }
             END_ATOM;
 
@@ -1437,7 +1791,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
 
                     ATOM(BOX_stbl);
                         ATOM_FULL(BOX_stsd, 0);
-                        WRITE_4(1); // entry_count;
+                        WRITE_4(tr->descriptions_count ? tr->descriptions_count : 1); // entry_count
 
                         if (tr->info.track_media_kind == e_audio || tr->info.track_media_kind == e_private)
                         {
@@ -1541,6 +1895,24 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                         {
                             int numOfSequenceParameterSets = items_count(&tr->vsps);
                             int numOfPictureParameterSets  = items_count(&tr->vpps);
+                            unsigned d, ndescriptions = 1;
+                            if (MP4_OBJECT_TYPE_AVC == tr->info.object_type_indication && tr->descriptions_count)
+                                ndescriptions = tr->descriptions_count;
+                            for (d = 0; d < ndescriptions; d++)
+                            {
+                            // In explicit AVC description mode each registered
+                            // description emits its own avc1 sample entry, in
+                            // registration order; otherwise a single entry is
+                            // written from the legacy SPS/PPS lists.
+                            const mp4e_avc_description_t *desc = NULL;
+                            unsigned width = tr->info.u.v.width;
+                            unsigned height = tr->info.u.v.height;
+                            if (MP4_OBJECT_TYPE_AVC == tr->info.object_type_indication && tr->descriptions_count)
+                            {
+                                desc = ((const mp4e_avc_description_t*)tr->avc_descriptions) + d;
+                                width = desc->width;
+                                height = desc->height;
+                            }
                             if (MP4_OBJECT_TYPE_AVC == tr->info.object_type_indication)
                             {
                                 ATOM(BOX_avc1);
@@ -1560,8 +1932,8 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                             WRITE_4(0); // pre_defined
                             WRITE_4(0); // pre_defined
                             WRITE_4(0); // pre_defined
-                            WRITE_2(tr->info.u.v.width);
-                            WRITE_2(tr->info.u.v.height);
+                            WRITE_2(width);
+                            WRITE_2(height);
                             WRITE_4(0x00480000); // horizresolution = 72 dpi
                             WRITE_4(0x00480000); // vertresolution  = 72 dpi
                             WRITE_4(0); // reserved
@@ -1576,21 +1948,33 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                             if (MP4_OBJECT_TYPE_AVC == tr->info.object_type_indication)
                             {
                                 ATOM(BOX_avcC);
-                                // AVCDecoderConfigurationRecord 5.2.4.1.1
-                                WRITE_1(1); // configurationVersion
-                                WRITE_1(tr->vsps.data[2 + 1]);
-                                WRITE_1(tr->vsps.data[2 + 2]);
-                                WRITE_1(tr->vsps.data[2 + 3]);
-                                WRITE_1(255); // 0xfc + NALU_len - 1
-                                WRITE_1(0xe0 | numOfSequenceParameterSets);
-                                for (i = 0; i < tr->vsps.bytes; i++)
+                                if (desc)
                                 {
-                                    WRITE_1(tr->vsps.data[i]);
-                                }
-                                WRITE_1(numOfPictureParameterSets);
-                                for (i = 0; i < tr->vpps.bytes; i++)
+                                    // Complete AVCDecoderConfigurationRecord,
+                                    // stored verbatim (trailing extensions
+                                    // included).
+                                    for (i = 0; i < desc->avcc_bytes; i++)
+                                    {
+                                        WRITE_1(desc->avcc[i]);
+                                    }
+                                } else
                                 {
-                                    WRITE_1(tr->vpps.data[i]);
+                                    // AVCDecoderConfigurationRecord 5.2.4.1.1
+                                    WRITE_1(1); // configurationVersion
+                                    WRITE_1(tr->vsps.data[2 + 1]);
+                                    WRITE_1(tr->vsps.data[2 + 2]);
+                                    WRITE_1(tr->vsps.data[2 + 3]);
+                                    WRITE_1(255); // 0xfc + NALU_len - 1
+                                    WRITE_1(0xe0 | numOfSequenceParameterSets);
+                                    for (i = 0; i < tr->vsps.bytes; i++)
+                                    {
+                                        WRITE_1(tr->vsps.data[i]);
+                                    }
+                                    WRITE_1(numOfPictureParameterSets);
+                                    for (i = 0; i < tr->vpps.bytes; i++)
+                                    {
+                                        WRITE_1(tr->vpps.data[i]);
+                                    }
                                 }
                             } else
                             {
@@ -1634,6 +2018,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
 
                             END_ATOM;
                             END_ATOM;
+                            }
                         }
                         END_ATOM;
 
@@ -1666,6 +2051,28 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                         if (mux->enable_fragmentation)
                         {
                             WRITE_4(0); // entry_count
+                        } else if (tr->descriptions_count)
+                        {
+                            // One sample per chunk: each entry starts a run
+                            // of adjacent samples that share a description.
+                            // A change back to an earlier description starts
+                            // a new run, so the boundaries stay correct.
+                            unsigned char *pentry_count = p;
+                            unsigned entry_count = 0, run_start = 0;
+                            WRITE_4(0); // entry_count, filled in below
+                            for (i = 0; i < samples_count; i++)
+                            {
+                                if (i == samples_count - 1 ||
+                                    sample[i].description_index != sample[i + 1].description_index)
+                                {
+                                    WRITE_4(run_start + 1); // first_chunk (1-based)
+                                    WRITE_4(1);             // samples_per_chunk (one sample per chunk)
+                                    WRITE_4(sample[i].description_index);
+                                    entry_count++;
+                                    run_start = i + 1;
+                                }
+                            }
+                            WR4(pentry_count, entry_count);
                         } else
                         {
                             WRITE_4(1); // entry_count
@@ -1810,6 +2217,13 @@ int MP4E_close(MP4E_mux_t *mux)
     for (ntr = 0; ntr < ntracks; ntr++)
     {
         track_t *tr = ((track_t*)mux->tracks.data) + ntr;
+        unsigned d;
+        for (d = 0; d < tr->descriptions_count; d++)
+            free(((mp4e_avc_description_t*)tr->avc_descriptions)[d].avcc);
+        free(tr->avc_descriptions);
+        tr->avc_descriptions = NULL;
+        tr->descriptions_count = 0;
+        tr->descriptions_capacity = 0;
         minimp4_vector_reset(&tr->vsps);
         minimp4_vector_reset(&tr->vpps);
         minimp4_vector_reset(&tr->smpl);
@@ -2946,7 +3360,7 @@ broken_android_meta_hack:
             {
                 tr->sample_to_chunk[i].first_chunk = READ(4);
                 tr->sample_to_chunk[i].samples_per_chunk = READ(4);
-                SKIP(4);    // sample_description_index
+                tr->sample_to_chunk[i].sample_description_index = READ(4);
             }
             break;
 #if MP4D_TRACE_TIMESTAMPS || MP4D_TIMESTAMPS_SUPPORTED
@@ -3144,7 +3558,10 @@ broken_android_meta_hack:
 #endif
 
         case BOX_stsd:
-            SKIP(4); // entry_count, BOX_mp4a & BOX_mp4v boxes follows immediately
+            // entry_count; the sample entries follow immediately. A zero
+            // count means "no descriptions declared"; the track keeps the
+            // legacy parser behavior in that case rather than failing.
+            tr->stsd_declared_entries = READ(4);
             break;
 
         case BOX_mp4s:  // private stream
@@ -3152,6 +3569,7 @@ broken_android_meta_hack:
             {
                 ERROR("broken file structure!");
             }
+            tr->in_avc1 = 0;
             SKIP(6*1 + 2/*Base SampleEntry*/);
             break;
 
@@ -3160,6 +3578,7 @@ broken_android_meta_hack:
             {
                 ERROR("broken file structure!");
             }
+            tr->in_avc1 = 0;
 #if MP4D_INFO_SUPPORTED
             SKIP(6*1+2/*Base SampleEntry*/  + 4*2);
             tr->SampleDescription.audio.channelcount = READ(2);
@@ -3181,8 +3600,19 @@ broken_android_meta_hack:
             }
 #if MP4D_INFO_SUPPORTED
             SKIP(6*1 + 2/*Base SampleEntry*/ + 2 + 2 + 4*3);
-            tr->SampleDescription.video.width  = READ(2);
-            tr->SampleDescription.video.height = READ(2);
+            {
+                unsigned w = READ(2);
+                unsigned h = READ(2);
+                // The legacy public SampleDescription stays pinned to the
+                // first sample entry; later entries feed AVC descriptions.
+                if (!tr->stsd_parsed_entries)
+                {
+                    tr->SampleDescription.video.width  = w;
+                    tr->SampleDescription.video.height = h;
+                }
+                tr->pending_width  = w;
+                tr->pending_height = h;
+            }
             // frame_count is always 1
             // compressorname is rarely set..
             SKIP(4 + 4 + 4 + 2/*frame_count*/ + 32/*compressorname*/ + 2 + 2);
@@ -3196,6 +3626,20 @@ broken_android_meta_hack:
             //      BOX_m4ds (optional)
             // for BOX_mp4v:
             //      BOX_esds
+            if (box_name == BOX_avc1)
+            {
+                // Entries are counted as they are seen; this must also hold
+                // for a track whose stsd declared no count.
+                if (++tr->stsd_parsed_entries > tr->stsd_declared_entries &&
+                    tr->stsd_declared_entries != 0)
+                {
+                    ERROR("sample description count mismatch");
+                }
+                tr->in_avc1 = 1;
+            } else
+            {
+                tr->in_avc1 = 0;
+            }
             break;
 
         case BOX_avcC:  // AVCDecoderConfigurationRecord()
@@ -3206,47 +3650,102 @@ broken_android_meta_hack:
             // "avcC" box reaches this with tr still NULL.
             if (!tr)
                 break;
-            tr->object_type_indication = MP4_OBJECT_TYPE_AVC;
-            tr->dsi = (unsigned char*)minimp4_bounded_malloc((size_t)box_bytes);
-            if (!tr->dsi)
+            if (tr->in_avc1 && tr->stsd_declared_entries)
             {
-                ERROR("out of memory");
-            }
-            tr->dsi_bytes = (unsigned)box_bytes;
-            {
-                int spspps;
-                unsigned char *p = tr->dsi;
-                unsigned int configurationVersion = READ(1);
-                unsigned int AVCProfileIndication = READ(1);
-                unsigned int profile_compatibility = READ(1);
-                unsigned int AVCLevelIndication = READ(1);
-                //bit(6) reserved =
-                unsigned int lengthSizeMinusOne = READ(1) & 3;
-
-                (void)configurationVersion;
-                (void)AVCProfileIndication;
-                (void)profile_compatibility;
-                (void)AVCLevelIndication;
-                (void)lengthSizeMinusOne;
-
-                for (spspps = 0; spspps < 2; spspps++)
+                // Explicit multi-description AVC track: keep the complete
+                // AVCDecoderConfigurationRecord verbatim for this entry.
+                boxsize_t record_bytes = payload_bytes;
+                unsigned char *avcc_copy = (unsigned char*)minimp4_bounded_malloc((size_t)record_bytes);
+                if (!avcc_copy && record_bytes)
                 {
-                    unsigned int numOfSequenceParameterSets= READ(1);
-                    if (!spspps)
+                    ERROR("out of memory");
+                }
+                for (i = 0; i < record_bytes; i++)
+                {
+                    avcc_copy[i] = (unsigned char)READ(1);
+                }
+                if (eof_flag)
+                {
+                    free(avcc_copy);
+                    RETURN_ERROR("premature EOF!");
+                }
+                if (tr->avc_description_count == tr->avc_description_capacity)
+                {
+                    unsigned new_capacity = tr->avc_description_capacity ? tr->avc_description_capacity * 2 : 4;
+                    size_t new_bytes = (size_t)new_capacity * sizeof(MP4D_avc_description_t);
+                    void *mem;
+                    if ((size_t)new_capacity > ((size_t)-1) / sizeof(MP4D_avc_description_t) ||
+                        new_bytes > MINIMP4_MAX_ALLOC_BYTES)
                     {
-                         numOfSequenceParameterSets &= 31;  // clears 3 msb for SPS
+                        free(avcc_copy);
+                        RETURN_ERROR("out of memory");
                     }
-                    *p++ = numOfSequenceParameterSets;
-                    for (i = 0; i < numOfSequenceParameterSets; i++)
+                    mem = realloc(tr->avc_descriptions, new_bytes);
+                    if (!mem)
                     {
-                        unsigned k, sequenceParameterSetLength = READ(2);
-                        *p++ = sequenceParameterSetLength >> 8;
-                        *p++ = sequenceParameterSetLength ;
-                        for (k = 0; k < sequenceParameterSetLength; k++)
-                        {
-                            *p++ = READ(1);
-                        }
+                        free(avcc_copy);
+                        RETURN_ERROR("out of memory");
                     }
+                    tr->avc_descriptions = (MP4D_avc_description_t*)mem;
+                    tr->avc_description_capacity = new_capacity;
+                }
+                {
+                    MP4D_avc_description_t *desc = tr->avc_descriptions + tr->avc_description_count;
+                    desc->width = tr->pending_width;
+                    desc->height = tr->pending_height;
+                    desc->avcc_bytes = (unsigned)record_bytes;
+                    desc->avcc = avcc_copy;
+                    tr->avc_description_count++;
+                }
+                tr->object_type_indication = MP4_OBJECT_TYPE_AVC;
+                if (tr->avc_description_count == 1)
+                {
+                    // The legacy dsi / read_sps / read_pps view is pinned to
+                    // the first description and must not follow queries.
+                    unsigned char *dsi = NULL;
+                    unsigned dsi_len = 0;
+                    if (!minimp4_avcc_to_dsi(avcc_copy, (unsigned)record_bytes, &dsi, &dsi_len))
+                    {
+                        RETURN_ERROR("invalid avcC");
+                    }
+                    free(tr->dsi);
+                    tr->dsi = dsi;
+                    tr->dsi_bytes = dsi_len;
+                }
+                break;
+            }
+            tr->object_type_indication = MP4_OBJECT_TYPE_AVC;
+            {
+                // Single-description (legacy) AVC track: build the compact
+                // SPS/PPS representation MP4D_read_sps/pps expect, after
+                // strictly validating the configuration record's arrays.
+                boxsize_t record_bytes = payload_bytes;
+                unsigned char *rec = (unsigned char*)minimp4_bounded_malloc((size_t)record_bytes);
+                unsigned dsi_len;
+                if (!rec && record_bytes)
+                {
+                    ERROR("out of memory");
+                }
+                for (i = 0; i < record_bytes; i++)
+                {
+                    rec[i] = (unsigned char)READ(1);
+                }
+                if (eof_flag)
+                {
+                    free(rec);
+                    RETURN_ERROR("premature EOF!");
+                }
+                {
+                    unsigned char *dsi = NULL;
+                    if (!minimp4_avcc_to_dsi(rec, (unsigned)record_bytes, &dsi, &dsi_len))
+                    {
+                        free(rec);
+                        RETURN_ERROR("invalid avcC");
+                    }
+                    free(rec);
+                    free(tr->dsi);
+                    tr->dsi = dsi;
+                    tr->dsi_bytes = dsi_len;
                 }
             }
             break;
@@ -3401,17 +3900,94 @@ broken_android_meta_hack:
     {
         RETURN_ERROR("no tracks found");
     }
+
+    // Validate the per-sample description mapping of every AVC track that
+    // actually carries sample descriptions. The stsc box may legally
+    // precede stsd, so this can only be checked once the whole file has
+    // been parsed.
+    for (i = 0; i < mp4->track_count; i++)
+    {
+        MP4D_track_t *vt = mp4->track + i;
+        unsigned c, entries = vt->sample_to_chunk_count;
+        uint64_t samples = 0;
+        if (vt->object_type_indication != MP4_OBJECT_TYPE_AVC || !vt->stsd_declared_entries)
+            continue;
+        if (vt->stsd_parsed_entries != vt->stsd_declared_entries ||
+            vt->avc_description_count != vt->stsd_declared_entries)
+        {
+            RETURN_ERROR("sample description count mismatch");
+        }
+        for (c = 0; c < vt->avc_description_count; c++)
+        {
+            const MP4D_avc_description_t *desc = vt->avc_descriptions + c;
+            unsigned sps_count, pps_count;
+            if (!minimp4_validate_avcc_impl(desc->avcc, desc->avcc_bytes, 0, &sps_count, &pps_count))
+            {
+                RETURN_ERROR("invalid avcC");
+            }
+        }
+        if (vt->sample_count == 0)
+            continue;   // nothing to map; an empty track may have no tables
+        if (!entries || !vt->sample_to_chunk || !vt->chunk_offset || !vt->entry_size)
+        {
+            // An empty AVC track may legitimately carry no chunk tables; any
+            // track that declares samples must have them.
+            if (vt->sample_count == 0)
+                continue;
+            RETURN_ERROR("missing sample-to-chunk mapping");
+        }
+        for (c = 0; c < entries; c++)
+        {
+            const MP4D_sample_to_chunk_t *e = vt->sample_to_chunk + c;
+            if (c == 0 && e->first_chunk != 1)
+            {
+                RETURN_ERROR("stsc does not start at the first chunk");
+            }
+            if (c > 0 && e->first_chunk <= vt->sample_to_chunk[c - 1].first_chunk)
+            {
+                RETURN_ERROR("stsc first_chunk is not increasing");
+            }
+            if (!e->samples_per_chunk)
+            {
+                RETURN_ERROR("stsc samples_per_chunk is zero");
+            }
+            if (e->first_chunk > vt->chunk_count)
+            {
+                RETURN_ERROR("stsc references past the last chunk");
+            }
+            if (e->sample_description_index < 1 ||
+                e->sample_description_index > vt->avc_description_count)
+            {
+                RETURN_ERROR("stsc description index out of range");
+            }
+            // number of chunks governed by this entry
+            {
+                uint64_t next = (c + 1 < entries) ? vt->sample_to_chunk[c + 1].first_chunk : (uint64_t)vt->chunk_count + 1;
+                if (next > (uint64_t)vt->chunk_count + 1)
+                {
+                    RETURN_ERROR("stsc references past the last chunk");
+                }
+                samples += (next - e->first_chunk) * e->samples_per_chunk;
+            }
+        }
+        if (samples != vt->sample_count)
+        {
+            RETURN_ERROR("stsc does not cover the samples");
+        }
+    }
     return 1;
 }
 
 /**
 *   Find chunk, containing given sample.
-*   Returns chunk number, and first sample in this chunk.
+*   Returns chunk number, and first sample in this chunk, as well as the
+*   1-based sample description index governing this chunk (0 if unknown).
 */
-static int sample_to_chunk(MP4D_track_t *tr, unsigned nsample, unsigned *nfirst_sample_in_chunk)
+static int sample_to_chunk(MP4D_track_t *tr, unsigned nsample, unsigned *nfirst_sample_in_chunk, unsigned *ndescription_index)
 {
     unsigned chunk_group, nc, sum;
     *nfirst_sample_in_chunk = 0;
+    *ndescription_index = 0;
     if (tr->chunk_count == 0)
     {
         // Hardening fix: a track can declare samples (stsz) with no chunk
@@ -3423,6 +3999,8 @@ static int sample_to_chunk(MP4D_track_t *tr, unsigned nsample, unsigned *nfirst_
     }
     if (tr->chunk_count == 1)
     {
+        if (tr->sample_to_chunk && tr->sample_to_chunk_count)
+            *ndescription_index = tr->sample_to_chunk[0].sample_description_index;
         return 0;
     }
     if (!tr->sample_to_chunk || tr->sample_to_chunk_count == 0)
@@ -3473,6 +4051,7 @@ static int sample_to_chunk(MP4D_track_t *tr, unsigned nsample, unsigned *nfirst_
             tr->stc_cache_group = chunk_group;
             tr->stc_cache_nc = nc + 1;
             tr->stc_cache_sum = sum;
+            *ndescription_index = tr->sample_to_chunk[chunk_group].sample_description_index;
             return nc;
         }
 
@@ -3489,9 +4068,10 @@ static int sample_to_chunk(MP4D_track_t *tr, unsigned nsample, unsigned *nfirst_
 MP4D_file_offset_t MP4D_frame_offset(const MP4D_demux_t *mp4, unsigned ntrack, unsigned nsample, unsigned *frame_bytes, unsigned *timestamp, unsigned *duration)
 {
     MP4D_track_t *tr = mp4->track + ntrack;
-    unsigned ns;
-    int nchunk = sample_to_chunk(tr, nsample, &ns);
+    unsigned ns, ndescription;
+    int nchunk = sample_to_chunk(tr, nsample, &ns, &ndescription);
     MP4D_file_offset_t offset;
+    (void)ndescription;
 
     if (nchunk < 0 || !tr->chunk_offset || !tr->entry_size)
     {
@@ -3563,6 +4143,36 @@ MP4D_file_offset_t MP4D_frame_offset(const MP4D_demux_t *mp4, unsigned ntrack, u
     return offset;
 }
 
+// Exported API function
+const MP4D_avc_description_t *MP4D_avc_description(const MP4D_demux_t *mp4, unsigned int ntrack, unsigned int description_index)
+{
+    if (!mp4 || ntrack >= mp4->track_count)
+        return NULL;
+    if (!description_index || description_index > mp4->track[ntrack].avc_description_count)
+        return NULL;
+    return mp4->track[ntrack].avc_descriptions + (description_index - 1);
+}
+
+// Exported API function
+unsigned MP4D_sample_description_index(const MP4D_demux_t *mp4, unsigned int ntrack, unsigned int nsample)
+{
+    MP4D_track_t *tr;
+    unsigned ns, ndescription;
+    int nchunk;
+    if (!mp4 || ntrack >= mp4->track_count)
+        return 0;
+    tr = mp4->track + ntrack;
+    if (!tr->avc_description_count || nsample >= tr->sample_count)
+        return 0;
+    // Uses only the local stsc resume cache (not the frame-offset one), so
+    // interleaving with MP4D_frame_offset and querying out of order is safe.
+    nchunk = sample_to_chunk(tr, nsample, &ns, &ndescription);
+    (void)ns;
+    if (nchunk < 0 || ndescription < 1 || ndescription > tr->avc_description_count)
+        return 0;
+    return ndescription;
+}
+
 #define FREE(x) if (x) {free(x); x = NULL;}
 
 // Exported API function
@@ -3571,6 +4181,7 @@ void MP4D_close(MP4D_demux_t *mp4)
     while (mp4->track_count)
     {
         MP4D_track_t *tr = mp4->track + --mp4->track_count;
+        unsigned d;
         FREE(tr->entry_size);
 #if MP4D_TIMESTAMPS_SUPPORTED
         FREE(tr->timestamp);
@@ -3579,6 +4190,9 @@ void MP4D_close(MP4D_demux_t *mp4)
         FREE(tr->sample_to_chunk);
         FREE(tr->chunk_offset);
         FREE(tr->dsi);
+        for (d = 0; d < tr->avc_description_count; d++)
+            free((void*)tr->avc_descriptions[d].avcc);
+        FREE(tr->avc_descriptions);
     }
     FREE(mp4->track);
 #if MP4D_INFO_SUPPORTED
