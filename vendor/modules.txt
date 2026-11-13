@@ -1,0 +1,10 @@
+# github.com/PuerkitoBio/goquery v1.5.1
+## explicit; go 1.13
+github.com/PuerkitoBio/goquery
+# github.com/andybalholm/cascadia v1.1.0
+## explicit
+github.com/andybalholm/cascadia
+# golang.org/x/net v0.0.0-20200202094626-16171245cfb2
+## explicit; go 1.11
+golang.org/x/net/html
+golang.org/x/net/html/atom

@@ -1,0 +1,38 @@
+{
+  "upstream": {
+    "repo": "headzoo/surf",
+    "commit": "37385ffec513af0627ee55d8d13b7bb890bb1bc0"
+  },
+  "upstream_license": "MIT",
+  "original_archive_sha256": "a8505c594eabc1cee69fe09b2d1e1d21f757a9deb902ebecc5e6056de8ffde57",
+  "changes": "Upstream production source unchanged. Added offline Go module/vendor metadata. Replaced unlicensed headzoo/ut test helper imports with original MIT task_support/assert, explicit per-test binding; assertBookmarks receives testing.T. Assertion arguments unchanged. No target implementation.",
+  "dependency_locks": [
+    "go.mod",
+    "go.sum",
+    "vendor/modules.txt"
+  ],
+  "modules": [
+    {
+      "module": "github.com/PuerkitoBio/goquery",
+      "version": "v1.5.1",
+      "licenses": [
+        "vendor/github.com/PuerkitoBio/goquery/LICENSE"
+      ]
+    },
+    {
+      "module": "github.com/andybalholm/cascadia",
+      "version": "v1.1.0",
+      "licenses": [
+        "vendor/github.com/andybalholm/cascadia/LICENSE"
+      ]
+    },
+    {
+      "module": "golang.org/x/net",
+      "version": "v0.0.0-20200202094626-16171245cfb2",
+      "licenses": [
+        "vendor/golang.org/x/net/LICENSE"
+      ]
+    }
+  ],
+  "support_license": "task_support/LICENSE (MIT)"
+}
