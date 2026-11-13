@@ -28,6 +28,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/intfloat.h"
+#include "libavutil/intreadwrite.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
@@ -36,12 +37,14 @@
 #include "bytestream.h"
 #include "codec_internal.h"
 #include "encode.h"
+#include "exrpiz.h"
 
 enum ExrCompr {
     EXR_RAW,
     EXR_RLE,
     EXR_ZIP1,
     EXR_ZIP16,
+    EXR_PIZ,
     EXR_NBCOMPR,
 };
 
@@ -87,12 +90,15 @@ typedef struct EXRContext {
 
     EXRScanlineData *scanline;
 
+    EXRPizEnc piz;
+
     Float2HalfTables f2h_tables;
 } EXRContext;
 
 static av_cold int encode_init(AVCodecContext *avctx)
 {
     EXRContext *s = avctx->priv_data;
+    int ret;
 
     ff_init_float2half_tables(&s->f2h_tables);
 
@@ -127,6 +133,13 @@ static av_cold int encode_init(AVCodecContext *avctx)
         s->scanline_height = 16;
         s->nb_scanlines = (avctx->height + s->scanline_height - 1) / s->scanline_height;
         break;
+    case EXR_PIZ:
+        s->scanline_height = FF_EXR_PIZ_MAX_LINES;
+        s->nb_scanlines = (avctx->height + s->scanline_height - 1) / s->scanline_height;
+        ret = ff_exr_piz_init(&s->piz);
+        if (ret < 0)
+            return ret;
+        break;
     default:
         av_assert0(0);
     }
@@ -151,6 +164,8 @@ static av_cold int encode_close(AVCodecContext *avctx)
     }
 
     av_freep(&s->scanline);
+
+    ff_exr_piz_uninit(&s->piz);
 
     return 0;
 }
@@ -270,6 +285,106 @@ static int encode_scanline_rle(EXRContext *s, const AVFrame *frame)
             FFSWAP(uint8_t *, scanline->uncompressed_data, scanline->compressed_data);
             FFSWAP(int, scanline->uncompressed_size, scanline->compressed_size);
             scanline->actual_size = tmp_size;
+        }
+    }
+
+    return 0;
+}
+
+static int encode_scanline_piz(EXRContext *s, const AVFrame *frame)
+{
+    const int pixel_half_size = s->pixel_type == EXR_HALF ? 1 : 2;
+    const int element_size = pixel_half_size * 2;
+
+    for (int y = 0; y < s->nb_scanlines; y++) {
+        EXRScanlineData *scanline = &s->scanline[y];
+        const int block_h = FFMIN(s->scanline_height,
+                                  frame->height - y * s->scanline_height);
+        const int64_t raw_size = (int64_t)element_size * s->planes *
+                                 frame->width * block_h;
+        const int64_t nb_words = (int)(raw_size / 2);
+        int64_t max_compressed_size = raw_size * 3 / 2 + FF_EXR_PIZ_BITMAP_SIZE;
+        int64_t actual_size;
+
+        av_fast_padded_malloc(&scanline->uncompressed_data, &scanline->uncompressed_size, raw_size);
+        if (!scanline->uncompressed_data)
+            return AVERROR(ENOMEM);
+
+        av_fast_padded_malloc(&scanline->tmp, &scanline->tmp_size, raw_size);
+        if (!scanline->tmp)
+            return AVERROR(ENOMEM);
+
+        av_fast_padded_malloc(&scanline->compressed_data, &scanline->compressed_size, max_compressed_size);
+        if (!scanline->compressed_data)
+            return AVERROR(ENOMEM);
+
+        /* Two views of the same pixels are needed:
+         *  - uncompressed_data is the line interleaved raw EXR layout, used
+         *    verbatim when a block does not compress,
+         *  - tmp is the channel major layout consumed by the PIZ wavelet:
+         *    a channel occupies phs interleaved 16-bit word planes of
+         *    width * block_h words, channels stored one after another. */
+        switch (s->pixel_type) {
+        case EXR_FLOAT:
+            for (int l = 0; l < block_h; l++) {
+                uint8_t *line = scanline->uncompressed_data +
+                                (int64_t)l * frame->width * 4 * s->planes;
+                for (int p = 0; p < s->planes; p++) {
+                    int ch = s->ch_order[p];
+                    const uint8_t *src = frame->data[ch] +
+                        (y * s->scanline_height + l) * frame->linesize[ch];
+                    uint16_t *cm = (uint16_t *)scanline->tmp +
+                                   (int64_t)p * 2 * frame->width * block_h +
+                                   (int64_t)l * 2 * frame->width;
+
+                    memcpy(line + p * frame->width * 4, src, frame->width * 4);
+                    for (int x = 0; x < frame->width; x++) {
+                        uint32_t u = AV_RL32(src + x * 4);
+                        cm[2 * x]     = (uint16_t)u;        /* low word plane  */
+                        cm[2 * x + 1] = (uint16_t)(u >> 16);/* high word plane */
+                    }
+                }
+            }
+            break;
+        case EXR_HALF:
+            for (int l = 0; l < block_h; l++) {
+                uint8_t *line = scanline->uncompressed_data +
+                                (int64_t)l * frame->width * 2 * s->planes;
+                for (int p = 0; p < s->planes; p++) {
+                    int ch = s->ch_order[p];
+                    const uint32_t *src = (const uint32_t *)(frame->data[ch] +
+                        (y * s->scanline_height + l) * frame->linesize[ch]);
+                    uint16_t *dst = (uint16_t *)(line + p * frame->width * 2);
+                    uint16_t *cm = (uint16_t *)scanline->tmp +
+                                   (int64_t)p * frame->width * block_h +
+                                   (int64_t)l * frame->width;
+
+                    for (int x = 0; x < frame->width; x++) {
+                        uint16_t hw = float2half(src[x], &s->f2h_tables);
+                        dst[x] = hw;
+                        cm[x]  = hw;
+                    }
+                }
+            }
+            break;
+        }
+
+        actual_size = ff_exr_piz_encode_block(&s->piz,
+                                              (uint16_t *)scanline->tmp,
+                                              nb_words, s->planes,
+                                              pixel_half_size,
+                                              frame->width, block_h,
+                                              scanline->compressed_data,
+                                              max_compressed_size);
+        if (actual_size < 0 || actual_size >= raw_size) {
+            /* EXR raw block fallback: store the untouched words and keep the
+             * block table consistent; the decoder copies raw blocks without
+             * entering the PIZ entropy path. */
+            FFSWAP(uint8_t *, scanline->uncompressed_data, scanline->compressed_data);
+            FFSWAP(int, scanline->uncompressed_size, scanline->compressed_size);
+            scanline->actual_size = raw_size;
+        } else {
+            scanline->actual_size = actual_size;
         }
     }
 
@@ -443,6 +558,9 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     case EXR_ZIP1:
         ret = encode_scanline_zip(s, frame);
         break;
+    case EXR_PIZ:
+        ret = encode_scanline_piz(s, frame);
+        break;
     default:
         av_assert0(0);
     }
@@ -491,6 +609,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     case EXR_ZIP16:
     case EXR_ZIP1:
     case EXR_RLE:
+    case EXR_PIZ:
         offset = bytestream2_tell_p(pb) + s->nb_scanlines * 8LL;
 
         for (int y = 0; y < s->nb_scanlines; y++) {
@@ -528,6 +647,7 @@ static const AVOption options[] = {
     { "rle" ,        "RLE",                  0,                   AV_OPT_TYPE_CONST, {.i64=EXR_RLE}, 0, 0, VE, .unit = "compr" },
     { "zip1",        "ZIP1",                 0,                   AV_OPT_TYPE_CONST, {.i64=EXR_ZIP1}, 0, 0, VE, .unit = "compr" },
     { "zip16",       "ZIP16",                0,                   AV_OPT_TYPE_CONST, {.i64=EXR_ZIP16}, 0, 0, VE, .unit = "compr" },
+    { "piz",         "PIZ",                  0,                   AV_OPT_TYPE_CONST, {.i64=EXR_PIZ}, 0, 0, VE, .unit = "compr" },
     { "format", "set pixel type", OFFSET(pixel_type), AV_OPT_TYPE_INT,   {.i64=EXR_FLOAT}, EXR_HALF, EXR_UNKNOWN-1, VE, .unit = "pixel" },
     { "half" ,       NULL,                   0,                   AV_OPT_TYPE_CONST, {.i64=EXR_HALF},  0, 0, VE, .unit = "pixel" },
     { "float",       NULL,                   0,                   AV_OPT_TYPE_CONST, {.i64=EXR_FLOAT}, 0, 0, VE, .unit = "pixel" },

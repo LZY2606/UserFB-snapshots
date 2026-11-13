@@ -1476,6 +1476,49 @@ Higher is better but slower.
 
 @end table
 
+@section exr
+
+OpenEXR encoder. It accepts the planar float pixel formats
+@code{grayf32le}, @code{gbrpf32le} and @code{gbrpf32le} with an alpha
+plane, and writes a scanline EXR image.
+
+@table @option
+@item compression @var{method}
+Set the scanline compression method.
+@table @samp
+@item none
+Store every scanline uncompressed.
+@item rle
+Run length encoding, one scanline per block.
+@item zip1
+zlib deflate, one scanline per block.
+@item zip16
+zlib deflate, 16 scanlines per block.
+@item piz
+PIZ wavelet and Huffman compression, 32 scanlines per block. The last block
+holds the remaining scanlines when the image height is not a multiple of 32.
+The reversible two dimensional wavelet is applied per channel and per 16-bit
+word plane, so the two word planes of a 32-bit float channel never mix with a
+neighbouring channel. A block whose compressed representation would not be
+smaller than its raw data is stored uncompressed instead, while the offset
+table still describes every block exactly.
+@end table
+@item format @var{format}
+Set the stored pixel type. @samp{float} keeps the 32-bit float input
+losslessly; @samp{half} converts every sample to a 16-bit half float with the
+same conversion as the rest of the library before compression.
+@item gamma @var{gamma}
+Set the gamma metadata attribute. This only records the value in the header;
+pixel data is always stored linearly.
+@end table
+
+The encoder keeps per-block scratch buffers and a reusable PIZ work area in
+its private context, growing them on demand for larger frames. These buffers
+are reused across frames and released when the encoder is closed; encoding a
+frame never modifies the input frame. The output packet is sized for the
+worst case raw payload plus compression overhead, then shrunk to the bytes
+actually written.
+
 @anchor{ffv1}
 @section ffv1
 
