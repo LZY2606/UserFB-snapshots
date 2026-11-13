@@ -140,6 +140,39 @@ type RequestOptions struct {
 	LocalAddr *net.TCPAddr
 }
 
+// clone returns a copy of the RequestOptions with independent snapshots of
+// the mutable collections (Headers, SensitiveHTTPHeaders, Auth and Cookies)
+// so that a request in flight treats the caller's configuration as
+// read-only. Readers and callbacks are shared as-is - callers are not
+// expected to mutate them while a request is running.
+func (ro *RequestOptions) clone() *RequestOptions {
+	clone := *ro
+
+	if ro.Headers != nil {
+		clone.Headers = make(map[string]string, len(ro.Headers))
+		for k, v := range ro.Headers {
+			clone.Headers[k] = v
+		}
+	}
+
+	if ro.SensitiveHTTPHeaders != nil {
+		clone.SensitiveHTTPHeaders = make(map[string]struct{}, len(ro.SensitiveHTTPHeaders))
+		for k, v := range ro.SensitiveHTTPHeaders {
+			clone.SensitiveHTTPHeaders[k] = v
+		}
+	}
+
+	if ro.Auth != nil {
+		clone.Auth = append([]string(nil), ro.Auth...)
+	}
+
+	if ro.Cookies != nil {
+		clone.Cookies = append([]*http.Cookie(nil), ro.Cookies...)
+	}
+
+	return &clone
+}
+
 // DoRegularRequest adds generic test functionality
 func DoRegularRequest(requestVerb, url string, ro *RequestOptions) (*Response, error) {
 	return buildResponse(buildRequest(requestVerb, url, ro, nil))
@@ -160,6 +193,10 @@ func buildRequest(httpMethod, url string, ro *RequestOptions, httpClient *http.C
 	if ro == nil {
 		ro = &RequestOptions{}
 	}
+
+	// Work on a private copy so the caller's RequestOptions is never
+	// mutated while the request is in flight
+	ro = ro.clone()
 
 	if ro.CookieJar != nil {
 		ro.UseCookieJar = true
@@ -194,7 +231,9 @@ func buildRequest(httpMethod, url string, ro *RequestOptions, httpClient *http.C
 	addHTTPHeaders(ro, req)
 	addCookies(ro, req)
 
-	addRedirectFunctionality(httpClient, ro)
+	// Install this request's redirect policy on a private copy of the
+	// client so concurrent requests never share a CheckRedirect closure
+	httpClient = withRedirectPolicy(httpClient, ro)
 
 	if ro.Context != nil {
 		req = req.WithContext(ro.Context)

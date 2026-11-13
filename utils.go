@@ -51,31 +51,42 @@ var (
 // because Go's XML library only supports XML encoded in UTF-8
 type XMLCharDecoder func(charset string, input io.Reader) (io.Reader, error)
 
-func addRedirectFunctionality(client *http.Client, ro *RequestOptions) {
-	if client.CheckRedirect != nil {
-		return
+// redirectCheckFunc builds the CheckRedirect function for a single request.
+// The redirect policy of every request is independent: the limit and the
+// sensitive header set are captured here (never written back into ro) so
+// requests sharing a client cannot affect each other. If next (a
+// user-provided CheckRedirect) is supplied, it is only called after the
+// library policy has accepted the redirect.
+func redirectCheckFunc(ro *RequestOptions, next func(req *http.Request, via []*http.Request) error) func(req *http.Request, via []*http.Request) error {
+	limit := ro.RedirectLimit
+	if limit == 0 {
+		limit = RequestRedirectLimit
 	}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+
+	sensitiveHTTPHeaders := ro.SensitiveHTTPHeaders
+	if sensitiveHTTPHeaders == nil {
+		sensitiveHTTPHeaders = RequestSensitiveHTTPHeaders
+	}
+
+	return func(req *http.Request, via []*http.Request) error {
 
 		if ro.RedirectLimit < 0 {
 			return http.ErrUseLastResponse
 		}
 
-		if ro.RedirectLimit == 0 {
-			ro.RedirectLimit = RequestRedirectLimit
-		}
-
-		if len(via) >= ro.RedirectLimit {
+		if len(via) >= limit {
 			return ErrRedirectLimitExceeded
-		}
-
-		if ro.SensitiveHTTPHeaders == nil {
-			ro.SensitiveHTTPHeaders = RequestSensitiveHTTPHeaders
 		}
 
 		for k, vv := range via[0].Header {
 			// Is this a sensitive header?
-			if _, found := ro.SensitiveHTTPHeaders[k]; found {
+			if _, found := sensitiveHTTPHeaders[k]; found {
+				continue
+			}
+
+			// net/http has already carried this header onto the redirect
+			// request - copying it again would grow the values on every hop
+			if _, found := req.Header[k]; found {
 				continue
 			}
 
@@ -84,8 +95,23 @@ func addRedirectFunctionality(client *http.Client, ro *RequestOptions) {
 			}
 		}
 
+		if next != nil {
+			return next(req, via)
+		}
+
 		return nil
 	}
+}
+
+// withRedirectPolicy returns a shallow copy of client with the per-request
+// redirect policy installed. The copy shares the Transport, Jar and Timeout
+// of the original client, so connection pools and cookie state are still
+// reused, while the original client (including http.DefaultClient) is never
+// modified.
+func withRedirectPolicy(client *http.Client, ro *RequestOptions) *http.Client {
+	clientCopy := *client
+	clientCopy.CheckRedirect = redirectCheckFunc(ro, client.CheckRedirect)
+	return &clientCopy
 }
 
 // EnsureTransporterFinalized will ensure that when the HTTP client is GCed

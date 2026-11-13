@@ -21,6 +21,10 @@ type Session struct {
 func NewSession(ro *RequestOptions) *Session {
 	if ro == nil {
 		ro = &RequestOptions{}
+	} else {
+		// The session keeps its own copy - the caller's RequestOptions
+		// is never written to
+		ro = ro.clone()
 	}
 
 	ro.UseCookieJar = true
@@ -33,34 +37,57 @@ func NewSession(ro *RequestOptions) *Session {
 // 2. Host
 // 3. Auth
 // 4. Headers
+// 5. RedirectLimit
+// 6. SensitiveHTTPHeaders
+//
+// The caller's RequestOptions is treated as read-only: the combined
+// options are returned as a new struct.
 func (s *Session) combineRequestOptions(ro *RequestOptions) *RequestOptions {
 	if ro == nil {
 		ro = &RequestOptions{}
 	}
 
-	if ro.UserAgent == "" && s.RequestOptions.UserAgent != "" {
-		ro.UserAgent = s.RequestOptions.UserAgent
+	combined := ro.clone()
+
+	if combined.UserAgent == "" && s.RequestOptions.UserAgent != "" {
+		combined.UserAgent = s.RequestOptions.UserAgent
 	}
 
-	if ro.Host == "" && s.RequestOptions.Host != "" {
-		ro.Host = s.RequestOptions.Host
+	if combined.Host == "" && s.RequestOptions.Host != "" {
+		combined.Host = s.RequestOptions.Host
 	}
 
-	if ro.Auth == nil && s.RequestOptions.Auth != nil {
-		ro.Auth = s.RequestOptions.Auth
+	if combined.Auth == nil && s.RequestOptions.Auth != nil {
+		combined.Auth = append([]string(nil), s.RequestOptions.Auth...)
 	}
 
-	if len(s.RequestOptions.Headers) > 0 || len(ro.Headers) > 0 {
+	if len(s.RequestOptions.Headers) > 0 || len(combined.Headers) > 0 {
 		headers := make(map[string]string)
 		for k, v := range s.RequestOptions.Headers {
 			headers[k] = v
 		}
-		for k, v := range ro.Headers {
+		for k, v := range combined.Headers {
 			headers[k] = v
 		}
-		ro.Headers = headers
+		combined.Headers = headers
 	}
-	return ro
+
+	// A non-zero redirect limit on the request overrides the session
+	// default - zero falls back to RequestRedirectLimit later on
+	if combined.RedirectLimit == 0 {
+		combined.RedirectLimit = s.RequestOptions.RedirectLimit
+	}
+
+	// A non-nil sensitive header set on the request overrides the session
+	// default - an explicitly empty set means no headers are stripped
+	if combined.SensitiveHTTPHeaders == nil && s.RequestOptions.SensitiveHTTPHeaders != nil {
+		combined.SensitiveHTTPHeaders = make(map[string]struct{}, len(s.RequestOptions.SensitiveHTTPHeaders))
+		for k, v := range s.RequestOptions.SensitiveHTTPHeaders {
+			combined.SensitiveHTTPHeaders[k] = v
+		}
+	}
+
+	return combined
 }
 
 // Get takes 2 parameters and returns a Response Struct. These two options are:

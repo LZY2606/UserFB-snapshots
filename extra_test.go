@@ -113,16 +113,15 @@ func (s *ResponseMethodSuite) TestXMLAndDownload() {
 type RedirectSuite struct{ suite.Suite }
 
 func (s *RedirectSuite) TestAddRedirectFunctionality() {
-	client := &http.Client{}
 	ro := &RequestOptions{RedirectLimit: 2, SensitiveHTTPHeaders: map[string]struct{}{"Foo": {}}}
-	addRedirectFunctionality(client, ro)
+	checkRedirect := redirectCheckFunc(ro, nil)
 	req1 := httptest.NewRequest("GET", "http://x", nil)
 	req1.Header.Set("Foo", "bar")
 	req2 := httptest.NewRequest("GET", "http://y", nil)
-	s.NoError(client.CheckRedirect(req2, []*http.Request{req1}))
+	s.NoError(checkRedirect(req2, []*http.Request{req1}))
 	s.Empty(req2.Header.Get("Foo"))
 	req3 := httptest.NewRequest("GET", "http://z", nil)
-	err := client.CheckRedirect(req3, []*http.Request{req1, req2})
+	err := checkRedirect(req3, []*http.Request{req1, req2})
 	s.Equal(ErrRedirectLimitExceeded, err)
 }
 
