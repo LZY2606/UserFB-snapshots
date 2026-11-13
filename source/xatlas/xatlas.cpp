@@ -8268,7 +8268,8 @@ struct Atlas
 	}
 
 	// Pack charts in the smallest possible rectangle.
-	bool packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	// chartFixedAtlas: optional chartCount length array. Entries >= 0 select charts that keep their input UVs (pixel coordinates) on the given sub-atlas. Only supported with UV meshes, and PackOptions resolution and texelsPerUnit greater than 0.
+	bool packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData, const int32_t *chartFixedAtlas = nullptr)
 	{
 		if (progressFunc) {
 			if (!progressFunc(ProgressCategory::PackCharts, 0, progressUserData))
@@ -8312,6 +8313,20 @@ struct Atlas
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
+			if (chartFixedAtlas && chartFixedAtlas[c] >= 0) {
+				// Fixed chart: keep the input UVs (absolute pixel coordinates). No rotation, scaling or size snapping. Only offset by padding, so that subtracting padding after placement restores the input coordinates.
+				Vector2 extents(0.0f);
+				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(i);
+					texcoord.x += options.padding;
+					texcoord.y += options.padding;
+					extents = max(extents, texcoord);
+				}
+				XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
+				chartExtents[c] = extents;
+				chartOrderArray[c] = 0.0f; // Fixed charts are placed before the sorted charts below, the sort key doesn't matter.
+				continue;
+			}
 			// Compute chart scale
 			float scale = 1.0f;
 			if (chart->parametricArea != 0.0f) {
@@ -8419,9 +8434,65 @@ struct Atlas
 		Array<Vector2i> atlasSizes;
 		atlasSizes.push_back(Vector2i(0, 0));
 		int progress = 0;
+		if (chartFixedAtlas) {
+			// Create pages up to the highest fixed page. Empty pages in between are preserved.
+			XA_DEBUG_ASSERT(resolution > 0);
+			uint32_t maxFixedAtlas = 0;
+			for (uint32_t c = 0; c < chartCount; c++) {
+				if (chartFixedAtlas[c] >= 0)
+					maxFixedAtlas = max(maxFixedAtlas, (uint32_t)chartFixedAtlas[c]);
+			}
+			while (m_bitImages.size() <= maxFixedAtlas) {
+				BitImage *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
+				m_bitImages.push_back(bi);
+				atlasSizes.push_back(Vector2i(0, 0));
+				if (createImage)
+					m_atlasImages.push_back(XA_NEW_ARGS(MemTag::Default, AtlasImage, resolution, resolution));
+				chartStartPositions.push_back(Vector2i(0, 0));
+			}
+			// Register fixed charts before any free chart, so the perimeter sort can't affect their placement.
+			for (uint32_t c = 0; c < chartCount; c++) {
+				const int32_t fixedAtlas = chartFixedAtlas[c];
+				if (fixedAtlas < 0)
+					continue;
+				Chart *chart = m_charts[c];
+				rasterizeChartImages(options, chart, chartExtents[c], chartImage, chartImageRotated, chartImageBilinear, chartImageBilinearRotated, chartImagePadding, chartImagePaddingRotated, boundaryEdgeGrid);
+				const BitImage *chartImageToPack = options.padding > 0 ? &chartImagePadding : options.bilinear ? &chartImageBilinear : &chartImage;
+				// Occupancy is decided like any other chart: rasterized triangles, bilinear expansion and padding dilation. The occupied pixels, mapped back to UV space by subtracting the padding offset, must stay inside the page.
+				for (uint32_t y = 0; y < chartImageToPack->height(); y++) {
+					for (uint32_t x = 0; x < chartImageToPack->width(); x++) {
+						if (!chartImageToPack->get(x, y))
+							continue;
+						if (x < options.padding || x >= options.padding + options.resolution || y < options.padding || y >= options.padding + options.resolution) {
+							XA_PRINT_WARNING("PackChartsPreservingUv: fixed chart %u doesn't fit on atlas %u.\n", c, (uint32_t)fixedAtlas);
+							return false;
+						}
+					}
+				}
+				// Fixed charts on the same page must not cover the same pixels. Bounding boxes may intersect, only real occupancy matters.
+				if (!m_bitImages[fixedAtlas]->canBlit(*chartImageToPack, 0, 0)) {
+					XA_PRINT_WARNING("PackChartsPreservingUv: fixed chart %u overlaps another fixed chart on atlas %u.\n", c, (uint32_t)fixedAtlas);
+					return false;
+				}
+				atlasSizes[fixedAtlas].x = max(atlasSizes[fixedAtlas].x, (int)chartImageToPack->width());
+				atlasSizes[fixedAtlas].y = max(atlasSizes[fixedAtlas].y, (int)chartImageToPack->height());
+				addChart(m_bitImages[fixedAtlas], chartImageToPack, nullptr, atlasSizes[fixedAtlas].x, atlasSizes[fixedAtlas].y, 0, 0, 0);
+				if (createImage)
+					m_atlasImages[fixedAtlas]->addChart(c, &chartImage, options.bilinear ? &chartImageBilinear : nullptr, options.padding > 0 ? &chartImagePadding : nullptr, atlasSizes[fixedAtlas].x, atlasSizes[fixedAtlas].y, 0, 0);
+				// Placed at the origin with no rotation: subtracting the padding offset restores the input UVs.
+				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(v);
+					texcoord.x -= options.padding;
+					texcoord.y -= options.padding;
+				}
+				chart->atlasIndex = fixedAtlas;
+			}
+		}
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_charts[c];
+			if (chartFixedAtlas && chartFixedAtlas[c] >= 0)
+				continue; // Fixed charts were placed above.
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
 			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
 			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
@@ -8435,48 +8506,7 @@ struct Atlas
 			//    V   V   V
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
-			// Resize and clear (discard = true) chart images.
-			// Leave room for padding at extents.
-			chartImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
-			if (options.rotateCharts)
-				chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
-			if (options.bilinear) {
-				chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
-				if (options.rotateCharts)
-					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
-			}
-			// Rasterize chart faces.
-			const uint32_t faceCount = chart->indices.length / 3;
-			for (uint32_t f = 0; f < faceCount; f++) {
-				Vector2 vertices[3];
-				for (uint32_t v = 0; v < 3; v++)
-					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
-				DrawTriangleCallbackArgs args;
-				args.chartBitImage = &chartImage;
-				args.chartBitImageRotated = options.rotateCharts ? &chartImageRotated : nullptr;
-				raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
-			}
-			// Expand chart by pixels sampled by bilinear interpolation.
-			if (options.bilinear)
-				bilinearExpand(chart, &chartImage, &chartImageBilinear, options.rotateCharts ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
-			// Expand chart by padding pixels (dilation).
-			if (options.padding > 0) {
-				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
-				XA_PROFILE_START(packChartsDilate)
-				if (options.bilinear)
-					chartImageBilinear.copyTo(chartImagePadding);
-				else
-					chartImage.copyTo(chartImagePadding);
-				chartImagePadding.dilate(options.padding);
-				if (options.rotateCharts) {
-					if (options.bilinear)
-						chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
-					else
-						chartImageRotated.copyTo(chartImagePaddingRotated);
-					chartImagePaddingRotated.dilate(options.padding);
-				}
-				XA_PROFILE_END(packChartsDilate)
-			}
+			rasterizeChartImages(options, chart, chartExtents[c], chartImage, chartImageRotated, chartImageBilinear, chartImageBilinearRotated, chartImagePadding, chartImagePaddingRotated, boundaryEdgeGrid);
 			XA_PROFILE_END(packChartsRasterize)
 			// Update brute force bucketing.
 			if (options.bruteForce) {
@@ -8780,6 +8810,52 @@ private:
 					}
 				}
 			}
+		}
+	}
+
+	void rasterizeChartImages(const PackOptions &options, const Chart *chart, const Vector2 &chartExtents, BitImage &chartImage, BitImage &chartImageRotated, BitImage &chartImageBilinear, BitImage &chartImageBilinearRotated, BitImage &chartImagePadding, BitImage &chartImagePaddingRotated, UniformGrid2 &boundaryEdgeGrid)
+	{
+		// Resize and clear (discard = true) chart images.
+		// Leave room for padding at extents.
+		chartImage.resize(ftoi_ceil(chartExtents.x) + options.padding, ftoi_ceil(chartExtents.y) + options.padding, true);
+		if (options.rotateCharts)
+			chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
+		if (options.bilinear) {
+			chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
+			if (options.rotateCharts)
+				chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
+		}
+		// Rasterize chart faces.
+		const uint32_t faceCount = chart->indices.length / 3;
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Vector2 vertices[3];
+			for (uint32_t v = 0; v < 3; v++)
+				vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
+			DrawTriangleCallbackArgs args;
+			args.chartBitImage = &chartImage;
+			args.chartBitImageRotated = options.rotateCharts ? &chartImageRotated : nullptr;
+			raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
+		}
+		// Expand chart by pixels sampled by bilinear interpolation.
+		if (options.bilinear)
+			bilinearExpand(chart, &chartImage, &chartImageBilinear, options.rotateCharts ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
+		// Expand chart by padding pixels (dilation).
+		if (options.padding > 0) {
+			// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
+			XA_PROFILE_START(packChartsDilate)
+			if (options.bilinear)
+				chartImageBilinear.copyTo(chartImagePadding);
+			else
+				chartImage.copyTo(chartImagePadding);
+			chartImagePadding.dilate(options.padding);
+			if (options.rotateCharts) {
+				if (options.bilinear)
+					chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
+				else
+					chartImageRotated.copyTo(chartImagePaddingRotated);
+				chartImagePaddingRotated.dilate(options.padding);
+			}
+			XA_PROFILE_END(packChartsDilate)
 		}
 	}
 
@@ -9546,6 +9622,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 	XA_PRINT_MEM_USAGE
 }
 
+static void PackChartsBuildOutput(Context *ctx, internal::pack::Atlas &packAtlas, const PackOptions &packOptions);
+
 void PackCharts(Atlas *atlas, PackOptions packOptions)
 {
 	// Validate arguments and context state.
@@ -9596,6 +9674,116 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	if (!packAtlas.packCharts(packOptions, ctx->progressFunc, ctx->progressUserData))
 		return;
 	XA_PROFILE_END(packCharts)
+	PackChartsBuildOutput(ctx, packAtlas, packOptions);
+}
+
+bool PackChartsPreservingUv(Atlas *atlas, const FixedUvMesh *fixedUvMeshes, uint32_t fixedUvMeshCount, PackOptions packOptions)
+{
+	// Validate arguments and context state.
+	if (!atlas) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: atlas is null.\n");
+		return false;
+	}
+	Context *ctx = (Context *)atlas;
+	if (fixedUvMeshCount == 0) {
+		// No fixed meshes: identical to PackCharts.
+		PackCharts(atlas, packOptions);
+		return true;
+	}
+	if (ctx->meshes.isEmpty() && ctx->uvMeshInstances.isEmpty()) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: No meshes. Call AddUvMesh first.\n");
+		return false;
+	}
+	if (!ctx->meshes.isEmpty()) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: All meshes must be added with AddUvMesh.\n");
+		return false;
+	}
+	if (!ctx->uvMeshChartsComputed) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: ComputeCharts must be called first.\n");
+		return false;
+	}
+	if (!fixedUvMeshes) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: fixedUvMeshes is null.\n");
+		return false;
+	}
+	if (packOptions.resolution == 0) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: PackOptions::resolution must be greater than 0.\n");
+		return false;
+	}
+	if (!(packOptions.texelsPerUnit > 0.0f)) {
+		XA_PRINT_WARNING("PackChartsPreservingUv: PackOptions::texelsPerUnit must be greater than 0.\n");
+		return false;
+	}
+	// Validate the fixed mesh selection. Nothing below may fail after the atlas output is destroyed, so everything is checked up front.
+	for (uint32_t i = 0; i < fixedUvMeshCount; i++) {
+		const FixedUvMesh &fixed = fixedUvMeshes[i];
+		if (fixed.meshIndex >= ctx->uvMeshInstances.size()) {
+			XA_PRINT_WARNING("PackChartsPreservingUv: meshIndex %u is out of range.\n", fixed.meshIndex);
+			return false;
+		}
+		for (uint32_t j = 0; j < i; j++) {
+			if (fixedUvMeshes[j].meshIndex == fixed.meshIndex) {
+				XA_PRINT_WARNING("PackChartsPreservingUv: meshIndex %u is selected more than once.\n", fixed.meshIndex);
+				return false;
+			}
+		}
+		// Fixed UVs are absolute pixel coordinates and must be finite and inside the page.
+		const internal::UvMesh *mesh = ctx->uvMeshInstances[fixed.meshIndex]->mesh;
+		for (uint32_t v = 0; v < mesh->texcoords.size(); v++) {
+			if (mesh->vertexToChartMap[v] == UINT32_MAX)
+				continue; // Not part of any chart.
+			const internal::Vector2 &uv = mesh->texcoords[v];
+			if (!internal::isFinite(uv.x) || !internal::isFinite(uv.y) || uv.x < 0.0f || uv.y < 0.0f || uv.x > (float)packOptions.resolution || uv.y > (float)packOptions.resolution) {
+				XA_PRINT_WARNING("PackChartsPreservingUv: UV (%g, %g) of mesh %u is not finite or outside the page.\n", uv.x, uv.y, fixed.meshIndex);
+				return false;
+			}
+		}
+	}
+	// Add charts.
+	XA_PROFILE_START(packChartsAddCharts)
+	internal::pack::Atlas packAtlas;
+	for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++)
+		packAtlas.addUvMeshCharts(ctx->uvMeshInstances[i]);
+	XA_PROFILE_END(packChartsAddCharts)
+	// Map charts to fixed pages. -1: packed normally.
+	internal::Array<int32_t> chartFixedAtlas;
+	chartFixedAtlas.resize(packAtlas.getChartCount());
+	uint32_t chartIndex = 0;
+	for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++) {
+		int32_t fixedAtlas = -1;
+		for (uint32_t j = 0; j < fixedUvMeshCount; j++) {
+			if (fixedUvMeshes[j].meshIndex == i) {
+				fixedAtlas = (int32_t)fixedUvMeshes[j].atlasIndex;
+				break;
+			}
+		}
+		const uint32_t meshChartCount = ctx->uvMeshInstances[i]->mesh->charts.size();
+		for (uint32_t c = 0; c < meshChartCount; c++)
+			chartFixedAtlas[chartIndex++] = fixedAtlas;
+	}
+	// Pack. Fixed chart placement is validated inside, before any output is modified, so a failure preserves the previous output.
+	XA_PROFILE_START(packCharts)
+	if (!packAtlas.packCharts(packOptions, ctx->progressFunc, ctx->progressUserData, chartFixedAtlas.data()))
+		return false;
+	XA_PROFILE_END(packCharts)
+	// Cleanup atlas.
+	DestroyOutputMeshes(ctx);
+	if (atlas->utilization) {
+		XA_FREE(atlas->utilization);
+		atlas->utilization = nullptr;
+	}
+	if (atlas->image) {
+		XA_FREE(atlas->image);
+		atlas->image = nullptr;
+	}
+	atlas->meshCount = 0;
+	PackChartsBuildOutput(ctx, packAtlas, packOptions);
+	return true;
+}
+
+static void PackChartsBuildOutput(Context *ctx, internal::pack::Atlas &packAtlas, const PackOptions &packOptions)
+{
+	Atlas *atlas = &ctx->atlas;
 	// Populate atlas object with pack results.
 	atlas->atlasCount = packAtlas.getNumAtlases();
 	atlas->chartCount = packAtlas.getChartCount();
@@ -9942,6 +10130,7 @@ static_assert(sizeof(xatlas::MeshDecl) == sizeof(xatlasMeshDecl), "xatlasMeshDec
 static_assert(sizeof(xatlas::UvMeshDecl) == sizeof(xatlasUvMeshDecl), "xatlasUvMeshDecl size mismatch");
 static_assert(sizeof(xatlas::ChartOptions) == sizeof(xatlasChartOptions), "xatlasChartOptions size mismatch");
 static_assert(sizeof(xatlas::PackOptions) == sizeof(xatlasPackOptions), "xatlasPackOptions size mismatch");
+static_assert(sizeof(xatlas::FixedUvMesh) == sizeof(xatlasFixedUvMesh), "xatlasFixedUvMesh size mismatch");
 
 #ifdef __cplusplus
 extern "C" {
@@ -9980,6 +10169,11 @@ void xatlasComputeCharts(xatlasAtlas *atlas, const xatlasChartOptions *chartOpti
 void xatlasPackCharts(xatlasAtlas *atlas, const xatlasPackOptions *packOptions)
 {
 	xatlas::PackCharts((xatlas::Atlas *)atlas, packOptions ? *(xatlas::PackOptions *)packOptions : xatlas::PackOptions());
+}
+
+bool xatlasPackChartsPreservingUv(xatlasAtlas *atlas, const xatlasFixedUvMesh *fixedUvMeshes, uint32_t fixedUvMeshCount, const xatlasPackOptions *packOptions)
+{
+	return xatlas::PackChartsPreservingUv((xatlas::Atlas *)atlas, (const xatlas::FixedUvMesh *)fixedUvMeshes, fixedUvMeshCount, packOptions ? *(xatlas::PackOptions *)packOptions : xatlas::PackOptions());
 }
 
 void xatlasGenerate(xatlasAtlas *atlas, const xatlasChartOptions *chartOptions, const xatlasPackOptions *packOptions)

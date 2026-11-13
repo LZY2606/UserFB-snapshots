@@ -209,6 +209,14 @@ typedef struct
 }
 xatlasPackOptions;
 
+// Same fields and meaning as xatlas::FixedUvMesh. Selects an AddUvMesh mesh whose charts keep their input UVs on a given sub-atlas.
+typedef struct
+{
+	uint32_t meshIndex;
+	uint32_t atlasIndex;
+}
+xatlasFixedUvMesh;
+
 typedef enum
 {
 	XATLAS_PROGRESS_CATEGORY_ADDMESH,
@@ -230,6 +238,7 @@ XATLAS_API void xatlasAddMeshJoin(xatlasAtlas *atlas);
 XATLAS_API xatlasAddMeshError xatlasAddUvMesh(xatlasAtlas *atlas, const xatlasUvMeshDecl *decl);
 XATLAS_API void xatlasComputeCharts(xatlasAtlas *atlas, const xatlasChartOptions *chartOptions);
 XATLAS_API void xatlasPackCharts(xatlasAtlas *atlas, const xatlasPackOptions *packOptions);
+XATLAS_API bool xatlasPackChartsPreservingUv(xatlasAtlas *atlas, const xatlasFixedUvMesh *fixedUvMeshes, uint32_t fixedUvMeshCount, const xatlasPackOptions *packOptions);
 XATLAS_API void xatlasGenerate(xatlasAtlas *atlas, const xatlasChartOptions *chartOptions, const xatlasPackOptions *packOptions);
 XATLAS_API void xatlasSetProgressCallback(xatlasAtlas *atlas, xatlasProgressFunc progressFunc, void *progressUserData);
 XATLAS_API void xatlasSetAlloc(xatlasReallocFunc reallocFunc, xatlasFreeFunc freeFunc);

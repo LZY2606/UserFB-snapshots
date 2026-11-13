@@ -234,6 +234,19 @@ struct PackOptions
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.
 void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 
+// Selects a mesh added with AddUvMesh (meshIndex is the AddUvMesh call order) whose charts must keep their input UVs on a given sub-atlas when packing with PackChartsPreservingUv.
+struct FixedUvMesh
+{
+	uint32_t meshIndex; // Index of the AddUvMesh call that added the mesh.
+	uint32_t atlasIndex; // Sub-atlas index the mesh's charts are fixed to.
+};
+
+// Like PackCharts, but charts of the given UV meshes are placed on the given sub-atlas with their input UVs (absolute pixel coordinates) preserved exactly: no rotation, no texelsPerUnit scaling and no size snapping. Remaining charts are packed around them as usual.
+// Requires that all meshes were added with AddUvMesh, ComputeCharts was called, and PackOptions resolution and texelsPerUnit are both greater than 0.
+// Returns false (invalid mesh index, duplicate selection, non-finite or out-of-page fixed UVs, fixed charts that don't fit their page, or overlapping fixed charts on the same page) without modifying the previous output. Fixed charts are never scaled, moved or dropped to make packing succeed.
+// With fixedUvMeshCount == 0 this is equivalent to PackCharts.
+bool PackChartsPreservingUv(Atlas *atlas, const FixedUvMesh *fixedUvMeshes, uint32_t fixedUvMeshCount, PackOptions packOptions);
+
 // Equivalent to calling ComputeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
 void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), PackOptions packOptions = PackOptions());
 

@@ -76,6 +76,37 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/source/examples/view
 
 [Example code here.](https://github.com/jpcy/xatlas/blob/master/source/examples/example_uvmesh.cpp)
 
+### Pack around meshes with baked (fixed) UVs
+
+If some of your UV meshes already have baked textures (e.g. a locally re-baked lightmap region), their charts must keep their original pixel coordinates instead of being rescaled and moved by the packer. `xatlas::PackChartsPreservingUv` pins selected `xatlas::AddUvMesh` meshes to a given sub-atlas with their input UVs preserved exactly, and packs the remaining meshes into the free space around them - including holes and concavities between the fixed charts.
+
+```cpp
+xatlas::Atlas *atlas = xatlas::Create();
+
+// Mesh 0: already baked, UVs are absolute pixel coordinates on page 0.
+xatlas::AddUvMesh(atlas, bakedMeshDecl);
+// Meshes 1..N: packed normally.
+xatlas::AddUvMesh(atlas, meshDecl1);
+xatlas::AddUvMesh(atlas, meshDecl2);
+
+xatlas::ComputeCharts(atlas);
+
+xatlas::PackOptions packOptions;
+packOptions.resolution = 1024;   // Must be > 0.
+packOptions.texelsPerUnit = 32;  // Must be > 0.
+packOptions.padding = 1;
+
+xatlas::FixedUvMesh fixed;
+fixed.meshIndex = 0;  // First AddUvMesh call.
+fixed.atlasIndex = 0; // Page the baked UVs refer to.
+if (!xatlas::PackChartsPreservingUv(atlas, &fixed, 1, packOptions)) {
+	// The fixed mesh didn't fit its page or overlapped another fixed chart.
+	// The previous xatlas::Atlas output is left untouched.
+}
+```
+
+Fixed charts are never rotated, scaled or moved, and the same occupancy rules (triangle coverage, bilinear expansion, padding) apply to them as to normally packed charts. The call fails - preserving any previous output - if a fixed UV is non-finite or outside the page, if a fixed chart's expanded occupancy leaves the page, or if fixed charts on the same page cover the same pixels. The C API equivalent is `xatlasPackChartsPreservingUv`.
+
 ## Technical information / related publications
 
 [Ignacio Castaño's blog post on thekla_atlas](http://www.ludicon.com/castano/blog/articles/lightmap-parameterization/)
