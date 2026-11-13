@@ -41,6 +41,19 @@ PGLDEF vec4 texture_cubemapGrad(GLuint texture, float x, float y, float z,
                                 float dPdx_x, float dPdx_y, float dPdx_z,
                                 float dPdy_x, float dPdy_y, float dPdy_z);
 
+// Sample a 2D texture with the analytic interpolation derivatives of two
+// vertex-output slots (they need not be adjacent).  Only valid inside a
+// filled-triangle fragment callback: builtins->pgl_DerivativesValid must be
+// GL_TRUE and fs_input/builtins are the pointers the callback received.
+// Without a derivative context (points, lines, non-FILL polygons, full-screen
+// programs), or when a slot is out of range, this raises GL_INVALID_OPERATION
+// and returns transparent black instead of silently falling back to the
+// per-triangle constant-LOD texture2D path.  All other format, filtering and
+// error rules are exactly those of texture2DGrad.
+PGLDEF vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                                const Shader_Builtins* builtins,
+                                GLuint u_slot, GLuint v_slot);
+
 // --- LOD helpers (for texture*Lod / manual control when auto-LOD is unavailable) ---
 //
 // tex must be a non-zero texture object (not default name 0).  tex==0 →

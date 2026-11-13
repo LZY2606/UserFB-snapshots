@@ -147,6 +147,70 @@ anything else, it might be worth adding your own test if applicable. You can see
 they work from looking at the code, but I'll add more details and documentation about
 the testing system later when it's more mature.
 
+Analytic varying derivatives
+=============================
+The C fragment callback already had explicit-gradient sampling through
+`texture2DGrad`, but it had no way to obtain the screen-space derivatives of the
+interpolated vertex outputs themselves; the automatic mip path only estimates one
+constant per triangle from a single varying pair, which cannot pick a separate level
+for the near and far ends of a perspective-sloped surface.
+
+`Shader_Builtins` therefore carries three new fields:
+
+```c
+GLfloat   pgl_Ddx[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+GLfloat   pgl_Ddy[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+GLboolean pgl_DerivativesValid;
+```
+
+During a **filled triangle**, every active slot `i` holds the derivative of
+`fs_input[i]` with respect to screen `x` and `y`, in units of one target pixel with `y`
+pointing up. The derivatives are computed analytically from the same snapped vertex
+positions and integer edge equations that produce the fragment's barycentric
+interpolation, not from re-invoking any shader and not from differencing the triangle's
+edges.
+
+* `PGL_SMOOTH` slots differentiate the actual perspective-correct interpolation, i.e.
+  the quotient of the affine numerator by the interpolated `1/w`. Because that is a
+  rational function, its gradient varies across the triangle and is evaluated at each
+  fragment from that fragment's own interpolated numerator and `1/w`.
+* `PGL_NOPERSPECTIVE` slots differentiate the screen-affine interpolation, whose
+  gradient is constant over the triangle.
+* `PGL_FLAT` slots are zero, as are every slot beyond the program's vertex-output size.
+
+This covers clipped fan triangles, indexed draws, triangle strips/fans and instanced
+drawing; clipping only restricts the domain of the same rational function, so the
+derivative relationship is unchanged on the surviving sub-triangles (the flat value
+still follows the usual provoking-vertex rule).
+
+`pgl_DerivativesValid` is `GL_FALSE` and both arrays are zeroed for points, lines,
+non-`FILL` polygon modes and the full-screen fragment programs (`pglDrawFrame*`), so a
+callback can never read a previous triangle's values, including when two contexts are
+used interleaved. A `discard` or a user-written `gl_FragDepth` leaves the derivatives
+untouched; color, depth and stencil processing are unaffected.
+
+A convenience wrapper picks any two slots (they need not be adjacent) and feeds them,
+with their derivatives, to the existing `texture2DGrad` path:
+
+```c
+vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                         const Shader_Builtins* builtins,
+                         GLuint u_slot, GLuint v_slot);
+```
+
+With no derivative context, or when a slot is out of range, it raises
+`GL_INVALID_OPERATION` and returns transparent black rather than silently falling back
+to the old per-triangle constant-LOD `texture2D` behavior, which is otherwise unchanged.
+All other texture format, filtering and error rules are exactly those of
+`texture2DGrad`. `examples/varying_mip.cpp` renders a perspective-foreshortened
+checkerboard to a PPM and shows the near-to-far mip selection.
+
+Scope. These are analytic derivatives of **vertex-output interpolation only**. They are
+not GLSL `dFdx`/`dFdy`: PortableGL does not form a `2x2` fragment quad or run the
+callback extra times, so no derivative is provided for arbitrary expressions computed
+inside the fragment shader, and quad-based finite differences (including the
+helper-invocation and communication those imply) are deliberately out of scope.
+
 Bindings/Ports
 ==============
 

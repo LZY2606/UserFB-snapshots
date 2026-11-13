@@ -696,6 +696,27 @@ typedef struct Shader_Builtins
 	float gl_FragDepth;
 	GLboolean discard;
 
+	// Analytic screen-space derivatives of the interpolated vertex outputs,
+	// filled only for filled-triangle fragments.  Each active slot i holds
+	// d(fs_input[i])/dx and d(fs_input[i])/dy in units of one target pixel,
+	// y pointing up.  PGL_SMOOTH slots differentiate the perspective-correct
+	// rational interpolation (after perspective divide); PGL_NOPERSPECTIVE
+	// slots the screen-affine interpolation; PGL_FLAT slots are zero.  Slots
+	// beyond the program's vs_output size are zeroed.
+	//
+	// pgl_DerivativesValid is GL_FALSE (and both arrays zeroed) for points,
+	// lines, non-FILL polygon modes and full-screen fragment programs, so a
+	// callback can never read the previous triangle's values, including when
+	// two contexts are used interleaved.  discard or a user-written
+	// gl_FragDepth does not change them.
+	//
+	// These describe vertex-output interpolation only.  They are not
+	// dFdx/dFdy-style quad finite differences and do not provide derivatives
+	// of arbitrary expressions computed inside the fragment callback.
+	GLfloat pgl_Ddx[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	GLfloat pgl_Ddy[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	GLboolean pgl_DerivativesValid;
+
 } Shader_Builtins;
 
 // TODO GLfloat* and GLvoid*?

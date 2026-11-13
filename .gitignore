@@ -5,6 +5,9 @@
 *.obj
 *.d
 
+# Task harness amalgamated header and binaries
+.task-build/
+
 # Libraries
 *.lib
 *.a

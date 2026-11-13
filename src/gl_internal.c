@@ -1,6 +1,10 @@
 
 static glContext* c;
 
+// 8-bit subpixel grid (1/256 px), same as common GPU rasterizers.
+#define PGL_SUBPIXEL_BITS 8
+#define PGL_SUBPIXEL_SCALE (1 << PGL_SUBPIXEL_BITS)
+
 static vec4 blend_pixel(vec4 src, vec4 dst, int buf);
 static int fragment_processing(int x, int y, float z);
 static void draw_pixel(vec4 cf, int x, int y, float z, int do_frag_processing);
@@ -29,6 +33,102 @@ static void draw_thick_line(vec3 hp1, vec3 hp2, float w1, float w2, float* v1_ou
 
 // Only width 1 supported for now
 static void draw_aa_line(vec3 hp1, vec3 hp2, float w1, float w2, float* v1_out, float* v2_out, unsigned int provoke, float poly_offset);
+
+// Points, lines, non-FILL polygon modes and full-screen fragment programs have
+// no triangle-interpolation derivative context: mark it invalid and zero the
+// arrays so a callback can never read values left by the previous triangle
+// (or by another context interleaved with this one).
+static void pgl_invalidate_derivatives(Shader_Builtins* b)
+{
+	b->pgl_DerivativesValid = GL_FALSE;
+	memset(b->pgl_Ddx, 0, sizeof(b->pgl_Ddx));
+	memset(b->pgl_Ddy, 0, sizeof(b->pgl_Ddy));
+}
+
+// Per-triangle constant coefficients of the interpolation, in the same
+// snapped subpixel coordinate system (one pixel = PGL_SUBPIXEL_SCALE units,
+// y up) as the edge equations and the barycentric fs_input loop in
+// draw_triangle_fill.  Barycentrics and the perspective numerator/denominator
+// are affine in screen position, so their Jacobians are constant over the
+// triangle.  The smooth value itself is their quotient (a rational function),
+// whose per-fragment gradient pgl_fill_smooth_derivatives() evaluates with the
+// fragment's own num/g.
+//
+// vx*/vy* are the snapped vertex positions and e01_v2/e20_v1 the non-zero
+// integer edge denominators, all shared with the coverage test, so these
+// coefficients describe exactly the triangle relationship that produced
+// fs_input rather than a separate float re-inversion.
+//
+// dnum_d*[i] holds the numerator Jacobian for smooth slot i; the noperspective
+// result is affine, so its constant gradient goes straight into ddx/ddy.
+static void pgl_setup_tri_derivatives(glVertex* v0, glVertex* v1, glVertex* v2,
+                                      int vx0, int vy0, int vx1, int vy1,
+                                      int vx2, int vy2,
+                                      i64 e01_v2, i64 e20_v1,
+                                      float* dnum_dx, float* dnum_dy,
+                                      float* dg_dx_out, float* dg_dy_out,
+                                      Shader_Builtins* b)
+{
+	pgl_invalidate_derivatives(b);
+	b->pgl_DerivativesValid = GL_TRUE;
+
+	// Barycentrics from the integer edges:
+	//   γ = e01/e01_v2, e01(px,py) = (vy0-vy1)*px + (vx1-vx0)*py + const
+	//   β = e20/e20_v1, e20(px,py) = (vy2-vy0)*px + (vx0-vx2)*py + const
+	// Sample subpixel coords are px = x*256+128 etc., hence the *256 to turn
+	// derivatives w.r.t. subpixel units into derivatives per target pixel.
+	// α = 1−β−γ, so its Jacobian is the negated sum of the other two.
+	float dbeta_dx  = PGL_SUBPIXEL_SCALE * (float)(vy2 - vy0) / (float)e20_v1;
+	float dbeta_dy  = PGL_SUBPIXEL_SCALE * (float)(vx0 - vx2) / (float)e20_v1;
+	float dgamma_dx = PGL_SUBPIXEL_SCALE * (float)(vy0 - vy1) / (float)e01_v2;
+	float dgamma_dy = PGL_SUBPIXEL_SCALE * (float)(vx1 - vx0) / (float)e01_v2;
+	float dalpha_dx = -(dbeta_dx + dgamma_dx);
+	float dalpha_dy = -(dbeta_dy + dgamma_dy);
+
+	float inv_w0 = 1.0f / v0->screen_space.w;
+	float inv_w1 = 1.0f / v1->screen_space.w;
+	float inv_w2 = 1.0f / v2->screen_space.w;
+
+	// g = 1/w = α/w0 + β/w1 + γ/w2, the same tmp2 the per-pixel loop divides by.
+	float dg_dx = dalpha_dx * inv_w0 + dbeta_dx * inv_w1 + dgamma_dx * inv_w2;
+	float dg_dy = dalpha_dy * inv_w0 + dbeta_dy * inv_w1 + dgamma_dy * inv_w2;
+	*dg_dx_out = dg_dx;
+	*dg_dy_out = dg_dy;
+
+	int n = c->vs_output.size;
+	for (int i = 0; i < n; ++i) {
+		if (c->vs_output.interpolation[i] == PGL_SMOOTH) {
+			// num = α f0/w0 + β f1/w1 + γ f2/w2 (the loop's tmp).  Its
+			// Jacobian is constant; the quotient f = num/g is differentiated
+			// per fragment in pgl_fill_smooth_derivatives().
+			float s0 = v0->vs_out[i] * inv_w0;
+			float s1 = v1->vs_out[i] * inv_w1;
+			float s2 = v2->vs_out[i] * inv_w2;
+			dnum_dx[i] = dalpha_dx * s0 + dbeta_dx * s1 + dgamma_dx * s2;
+			dnum_dy[i] = dalpha_dy * s0 + dbeta_dy * s1 + dgamma_dy * s2;
+		} else if (c->vs_output.interpolation[i] == PGL_NOPERSPECTIVE) {
+			// f = α f0 + β f1 + γ f2, affine in screen coordinates, so its
+			// gradient really is constant over the triangle.
+			b->pgl_Ddx[i] = dalpha_dx * v0->vs_out[i] + dbeta_dx * v1->vs_out[i] + dgamma_dx * v2->vs_out[i];
+			b->pgl_Ddy[i] = dalpha_dy * v0->vs_out[i] + dbeta_dy * v1->vs_out[i] + dgamma_dy * v2->vs_out[i];
+		}
+		// PGL_FLAT and unused slots stay zero from the invalidate above.
+	}
+}
+
+// Smooth-slot gradient at one fragment.  num is the perspective numerator
+// (the fill loop's tmp) and g the interpolated 1/w (tmp2) at that fragment;
+// d(f) = (dnum·g − num·dg)/g².  Constant across the fragment, varies with the
+// rational interpolation between fragments.
+static inline void pgl_fill_smooth_derivatives(float num, float g,
+                                                float dnum_dx, float dnum_dy,
+                                                float dg_dx, float dg_dy,
+                                                int slot, Shader_Builtins* b)
+{
+	float inv_g2 = 1.0f / (g * g);
+	b->pgl_Ddx[slot] = (dnum_dx * g - num * dg_dx) * inv_g2;
+	b->pgl_Ddy[slot] = (dnum_dy * g - num * dg_dy) * inv_g2;
+}
 
 /* this clip epsilon is needed to avoid some rounding errors after
    several clipping stages */
@@ -315,6 +415,8 @@ static void draw_point(glVertex* vert, float poly_offset)
 	//	clamp(point.z, c->depth_range_near, c->depth_range_far);
 
 	Shader_Builtins builtins;
+	// Points have no triangle-interpolation derivative context.
+	pgl_invalidate_derivatives(&builtins);
 	// 3.3 spec pg 110 says r,q are supposed to be replaced with 0 and 1...
 	// but PointCoord is a vec2 and that is not in the 4.6 spec so it must be a typo
 
@@ -698,6 +800,9 @@ static void pgl_raster_lines(pgl_line* lines, int n)
 		vec3 hp1 = v4_to_v3h(a->screen_space);
 		vec3 hp2 = v4_to_v3h(b->screen_space);
 		unsigned provoke = lines[i].meta & PGL_PROVOKE_MASK;
+		// Lines have no triangle-interpolation derivative context; the
+		// line shaders invoke the fragment callback through c->builtins.
+		pgl_invalidate_derivatives(&c->builtins);
 		if (c->line_smooth)
 			draw_aa_line(hp1, hp2, a->screen_space.w, b->screen_space.w, a->vs_out, b->vs_out, provoke, 0.0f);
 		else
@@ -1834,6 +1939,8 @@ static void draw_triangle_point(glVertex* v0, glVertex* v1,  glVertex* v2, unsig
 	//TODO use provoke?
 	PGL_UNUSED(provoke);
 	c->mip_uv_per_px = 0.0f;
+	// Point rasterization has no triangle derivative context.
+	pgl_invalidate_derivatives(&c->builtins);
 
 	glVertex* vert[3] = { v0, v1, v2 };
 	vec3 hp[3];
@@ -1860,6 +1967,9 @@ static void draw_triangle_line(glVertex* v0, glVertex* v1,  glVertex* v2, unsign
 	// TODO early return if no edge_flags
 	// Lines: no per-tri UV footprint (could add later from edge only)
 	c->mip_uv_per_px = 0.0f;
+	// Line rasterization has no triangle derivative context; the line
+	// shaders below invoke the callback through c->builtins.
+	pgl_invalidate_derivatives(&c->builtins);
 
 	vec4 s0 = v0->screen_space;
 	vec4 s1 = v1->screen_space;
@@ -1983,9 +2093,6 @@ static void pgl_setup_tri_mip_grad(glVertex* v0, glVertex* v1, glVertex* v2,
 }
 
 // 8-bit subpixel grid (1/256 px), same as common GPU rasterizers.
-#define PGL_SUBPIXEL_BITS 8
-#define PGL_SUBPIXEL_SCALE (1 << PGL_SUBPIXEL_BITS)
-
 static inline int pgl_snap_xy(float v)
 {
 	return (int)floorf(v * (float)PGL_SUBPIXEL_SCALE + 0.5f);
@@ -2097,6 +2204,12 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 	float alpha, beta, gamma, tmp, tmp2, z;
 	float fs_input[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
 	float perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS*3];
+	// Constant screen Jacobians of the perspective numerator per smooth slot,
+	// and of the shared 1/w denominator.  The smooth quotient gradient itself
+	// is evaluated per fragment from these and that fragment's tmp/tmp2.
+	float dnum_dx[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	float dnum_dy[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+	float dg_dx, dg_dy;
 	float* vs_output = &c->vs_output.output_buf[0];
 
 	for (int i=0; i<c->vs_output.size; ++i) {
@@ -2110,6 +2223,15 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 
 	int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
 	Shader_Builtins builtins;
+
+	// Same snapped vertex positions, integer edge denominators and triangle
+	// relationship as the barycentric fs_input loop below.  The affine
+	// coefficients are constant per triangle; the smooth (rational) quotient
+	// gradient is finished per fragment below.
+	pgl_setup_tri_derivatives(v0, v1, v2, vx0, vy0, vx1, vy1, vx2, vy2,
+	                          e01_v2, e20_v1,
+	                          dnum_dx, dnum_dy,
+	                          &dg_dx, &dg_dy, &builtins);
 
 	for (int iy = y_min; iy<iy_max; ++iy) {
 		int py = (iy << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
@@ -2153,6 +2275,12 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 							tmp = alpha*perspective[i] + beta*perspective[GL_MAX_VERTEX_OUTPUT_COMPONENTS + i] + gamma*perspective[2*GL_MAX_VERTEX_OUTPUT_COMPONENTS + i];
 
 							fs_input[i] = tmp/tmp2;
+
+							// Rational interpolation: finish the quotient rule
+							// at this fragment's numerator (tmp) and 1/w (tmp2).
+							pgl_fill_smooth_derivatives(tmp, tmp2,
+							                            dnum_dx[i], dnum_dy[i],
+							                            dg_dx, dg_dy, i, &builtins);
 
 						} else if (c->vs_output.interpolation[i] == PGL_NOPERSPECTIVE) {
 							fs_input[i] = alpha * v0->vs_out[i] + beta * v1->vs_out[i] + gamma * v2->vs_out[i];

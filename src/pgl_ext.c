@@ -96,6 +96,11 @@ PGLDEF void pglDrawFrame(void)
 	void* uniforms = c->programs.a[c->cur_program].uniform;
 
 	Shader_Builtins builtins;
+	// Full-screen fragment program: no triangle interpolation, so no
+	// analytic varying derivatives.  Zeroed per frame, never stale.
+	builtins.pgl_DerivativesValid = GL_FALSE;
+	memset(builtins.pgl_Ddx, 0, sizeof(builtins.pgl_Ddx));
+	memset(builtins.pgl_Ddy, 0, sizeof(builtins.pgl_Ddy));
 	//#pragma omp parallel for private(builtins)
 	for (int y=0; y<c->back_buffer.h; ++y) {
 		for (int x=0; x<c->back_buffer.w; ++x) {
@@ -116,6 +121,11 @@ PGLDEF void pglDrawFrame(void)
 PGLDEF void pglDrawFrame2(frag_func frag_shader, void* uniforms)
 {
 	Shader_Builtins builtins;
+	// Full-screen fragment program: no triangle interpolation, so no
+	// analytic varying derivatives.  Zeroed per frame, never stale.
+	builtins.pgl_DerivativesValid = GL_FALSE;
+	memset(builtins.pgl_Ddx, 0, sizeof(builtins.pgl_Ddx));
+	memset(builtins.pgl_Ddy, 0, sizeof(builtins.pgl_Ddy));
 	//#pragma omp parallel for private(builtins)
 	for (int y=0; y<c->back_buffer.h; ++y) {
 		for (int x=0; x<c->back_buffer.w; ++x) {

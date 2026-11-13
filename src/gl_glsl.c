@@ -729,6 +729,25 @@ PGLDEF vec4 texture2DGrad(GLuint tex, float x, float y,
 	                           pgl_within_level_filter(t->min_filter));
 }
 
+// Analytic varying-derivative front end for texture2DGrad.  The derivative
+// context exists only for filled-triangle fragments, and a valid slot is one
+// of the current program's vertex-output components.  Any failure raises
+// GL_INVALID_OPERATION and returns transparent black; there is deliberately
+// no fallback to the per-triangle constant-LOD texture2D auto path.
+PGLDEF vec4 pglTexture2DVarying(GLuint texture, const float* fs_input,
+                                const Shader_Builtins* builtins,
+                                GLuint u_slot, GLuint v_slot)
+{
+	GLsizei n = c->vs_output.size;
+	PGL_ERR_RET_VAL(!builtins || !fs_input || !builtins->pgl_DerivativesValid ||
+	                u_slot >= (GLuint)n || v_slot >= (GLuint)n,
+	                GL_INVALID_OPERATION, make_v4(0.0f, 0.0f, 0.0f, 0.0f));
+
+	return texture2DGrad(texture, fs_input[u_slot], fs_input[v_slot],
+	                     builtins->pgl_Ddx[u_slot], builtins->pgl_Ddx[v_slot],
+	                     builtins->pgl_Ddy[u_slot], builtins->pgl_Ddy[v_slot]);
+}
+
 PGLDEF vec4 texture3D(GLuint tex, float x, float y, float z)
 {
 	int i0, j0, i1, j1, k0, k1;

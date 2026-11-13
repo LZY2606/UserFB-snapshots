@@ -57,6 +57,14 @@ makes its way over here from demos as I polish them up.
 | [ex1_std_shaders.c](original/ex1_std_shaders.c) | <img src="original/ex1.png" alt="ex1_std_shaders" width="80"> | 0.100.0 | [Robert Winkler](https://github.com/rswinkle) |
 | [ex2_std_shaders.c](original/ex2_std_shaders.c) | <img src="original/ex2.png" alt="ex2_std_shaders" width="80"> | 0.100.0 | [Robert Winkler](https://github.com/rswinkle) |
 
+### Headless (no SDL)
+
+[varying_mip.cpp](varying_mip.cpp) needs no window or media layer: it renders a
+perspective-foreshortened checkerboard offscreen and writes a PPM given an output path
+(`varying_mip out.ppm`). It demonstrates the analytic varying derivatives
+(`pgl_Ddx`/`pgl_Ddy`, `pgl_DerivativesValid`) and `pglTexture2DVarying`, showing how a
+single sloped surface selects different mip levels at its near and far ends.
+
 ### Classic Ports
 
 Ports of classic OpenGL programs/demos
