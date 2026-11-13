@@ -99,3 +99,93 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+
+## Hard shadows with closed shadow volumes
+
+The original `rasterize()` path and the default command-line output are kept
+unchanged. A second, reusable path renders hard directional-light shadows with
+closed shadow volumes (the z-fail algorithm), avoiding shadow-map resolution
+and bias tuning. It lives in `shadow_volume.{h,cpp}` and the `ShadowRenderer`
+class in `our_gl.{h,cpp}`; the Phong math is shared through `phong_shader.h`.
+See `examples/shadow_volume.cpp` for a complete, self-contained program and
+`task_tests/target.cpp` for the semantics.
+
+### Building a volume
+
+```cpp
+ShadowVolume vol(positions,          // finite world-space positions
+                 face_indices,       // triples of *position* indices
+                 light_dir,          // non-zero, points TOWARD the light
+                 extrusion);         // positive finite distance D
+```
+
+* Adjacency is built from position indices only, so UV/normal seams (one
+  position referenced by several face corners) are not seen as cracks, while
+  positions that merely share coordinates but have different indices are never
+  welded.
+* A face is lit when `dot(outward_normal, light_dir) > 0`; an exactly zero dot
+  product faces away. Lit faces form the near cap, their reversed extrusions
+  form the far cap, and the silhouette edges (a lit face next to a dark one)
+  are joined by outward-oriented side walls. Coplanar triangulation edges are
+  interior and never produce walls.
+* Extrusion runs along `-normalize(light_dir) * D`. The caller chooses `D` and
+  must guarantee that every receiver-to-occluder intersection along
+  `normalize(light_dir)` is closer than `D`, so the far cap lies behind every
+  receiver. Infinite-far capping is intentionally not supported.
+* Out-of-range indices, zero-area faces, open edges, same-winding shared edges,
+  or an edge incident to more than two faces throw `ShadowVolumeError` during
+  construction; no half-built drawable object remains. The generated vertices,
+  triangles and silhouette edges are exposed read-only for closure checks.
+
+### Clip convention and supported range
+
+The new path takes a caller-supplied world-to-clip matrix and viewport; both
+orthographic and perspective projections work. A clip point `(x,y,z,w)` is
+inside the visible volume when `w > 0` and `-w <= x,y,z <= w`: the near plane
+is `z = +w`, the far plane `z = -w`, and a larger `z/w` is closer. Depth is
+`z/w`, interpolated linearly in screen space.
+
+Volumes and receivers may cross the near, side and eye planes. The supported
+range requires **every shadow-volume vertex to satisfy `z >= -w`**, so the far
+cap is never clipped and no far-plane cap reconstruction is performed — a more
+distant arbitrary cap must not be substituted for a genuinely closed volume.
+Receivers are clipped against all six planes.
+
+### Rasterization rules
+
+All new sampling uses half-pixel centers with y pointing up. Projected
+triangles are oriented to positive area; downward edges and leftward
+horizontal edges own their boundary, and clipping-fan inner edges cover each
+sample exactly once. After clipping, UV/normal interpolation still uses the
+perspective-correct weights of the original three vertices. The legacy rule
+that drops triangles under one pixel of area is not applied on this path.
+
+### Drawing order
+
+```cpp
+ShadowRenderer renderer(width, height, viewport);
+renderer.clear();                       // depth, valid, lighting, signed count
+
+renderer.draw_surface(nfaces, shader);  // opaque receivers and occluders;
+                                        // discard writes no depth or material
+renderer.draw_volume(volume, clip);     // two-sided, frozen-depth z-fail;
+                                        // no color or depth writes
+renderer.compose(framebuffer, background); // clamp + quantize only now
+```
+
+The stencil is a signed integer (never saturated to 8 bits and never treated as
+parity/XOR). Only fragments failing the frozen depth test are counted —
+back faces add one, front faces subtract one — including fragments at equal
+depth, so a lit near cap resting on the visible surface cancels its far cap
+and the occluder never shadows itself. Background pixels with no visible
+surface are not counted, and a non-zero total across any number of overlapping
+volumes means "in shadow". Because it is z-fail, the count stays correct when
+the camera is inside a volume or the near plane cuts a cap; it never assumes a
+zero count at the camera (z-pass).
+
+Lighting keeps unquantized `ambient` and `diffuse+specular` on the visible
+surface and composes `ambient + visibility*(diffuse+specular)` at the end, so
+an already byte-quantized image is never darkened after the fact. A new frame
+must call `clear()` (or `clear_stencil()` between lights); re-running a shadow
+pass without clearing would otherwise accumulate. `compose()` rejects a
+framebuffer whose dimensions do not match the renderer.
