@@ -1,0 +1,14 @@
+{
+  "armips": "62adab4ef30da765f5cf22a451eb08a59c54dc8b",
+  "tinyformat": {
+    "source": "ext/tinyformat/tinyformat.h",
+    "license": "BSL-1.0",
+    "provenance": "already vendored by armips commit"
+  },
+  "filesystem": {
+    "repo": "https://github.com/Kingcom/filesystem",
+    "commit": "3f1c185ab414e764c694b8171d1c4d8c5c437517",
+    "license": "MIT",
+    "usage": "materialized complete source to avoid dangling gitlink; runtime uses std::filesystem instead"
+  }
+}
