@@ -306,6 +306,37 @@ The `fill_weight` parameter (typically between 0 and 1, although values higher t
 
 When the resulting meshlets are used to generate hardware-specific acceleration structures, using fast trace (e.g. `VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR`) builds results in maximum performance; if build performance is important, using `meshopt_optimizeMeshlet` can help improve ray tracing performance when using fast build (e.g. `VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR`), although the tracing performance will still be lower than with fast trace builds.
 
+### Disk meshlets
+
+The regular meshlet builders only bound the number of vertices and triangles, so a single meshlet can contain a closed shell or several patches that merely touch at a vertex. Some applications - most notably local surface parameterization - need every cluster to be a genuine topological disk. `meshopt_buildMeshletsDisk` produces meshlets where every non-empty cluster is an oriented 2-manifold disk defined on the input vertex indices:
+
+- its triangles are connected through complete shared edges,
+- every vertex has a single triangle fan,
+- every interior edge has two oppositely oriented faces,
+- the boundary is one simple ring,
+- the Euler characteristic `V - E + F` is exactly 1.
+
+Closed shells, patches touching only at a point and surfaces with more than one boundary loop are never merged into one meshlet. Every input triangle is preserved exactly once with its original winding; no vertices are moved or removed and no faces are deleted to resolve a topological conflict. Faces that cannot join the current disk without breaking these rules are left for a later disk.
+
+```c++
+const size_t max_vertices = 64;
+const size_t max_triangles = 64;
+
+// disks and triangle_source each hold one entry per input triangle in the worst case;
+// meshlet_vertices, meshlet_triangles and boundary_vertices hold index_count entries
+std::vector<meshopt_MeshletDisk> disks(indices.size() / 3);
+std::vector<unsigned int> meshlet_vertices(indices.size());
+std::vector<unsigned char> meshlet_triangles(indices.size());
+std::vector<unsigned int> triangle_source(indices.size() / 3);
+std::vector<unsigned char> boundary_vertices(indices.size());
+
+size_t disk_count = meshopt_buildMeshletsDisk(disks.data(), meshlet_vertices.data(), meshlet_triangles.data(),
+    triangle_source.data(), boundary_vertices.data(), indices.data(), indices.size(), &vertices[0].x, vertices.size(),
+    sizeof(Vertex), max_vertices, max_triangles, cone_weight);
+```
+
+Each `meshopt_MeshletDisk` contains a regular `meshopt_Meshlet` plus `boundary_offset`/`boundary_count` indexing a ring of local meshlet vertex ids (the first vertex is not repeated). `triangle_source`, located through `meshlet.triangle_offset / 3`, stores the original input triangle id of every output triangle, which makes it possible to map parameterization results back onto the source mesh. The builder reuses the adjacency, spatial seeding and cone-based candidate ordering of `meshopt_buildMeshlets`, with `cone_weight` selecting between legal candidates; because disk topology is an additional hard constraint, the number of clusters is not computed from `meshopt_buildMeshletsBound`. A 16-bit index overload is available through the C++ template wrapper.
+
 ### Point cloud clusterization
 
 Both of the meshlet algorithms are designed to work with triangle meshes. In some cases, splitting a point cloud into fixed size clusters can be useful; the resulting point clusters could be rendered via mesh or compute shaders, or the resulting subdivision can be used to parallelize point processing while maintaining locality of points. To that end, this library provides `meshopt_spatialClusterPoints` algorithm:
