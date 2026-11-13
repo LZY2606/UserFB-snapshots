@@ -33,6 +33,41 @@ type bitReader struct {
 	limit   int  // index of the first byte not in the buffer (head <= limit)
 	current byte // byte being read, left-shifted by the # of bits read so far
 	bits    int  // number of unread bits in 'current' (0 <= bits < 8)
+
+	// frameBytes is the number of bytes the current frame still has left
+	// according to its header, or 0 when no frame is being tracked.
+	frameBytes int
+}
+
+// beginFrame marks the start of a frame whose size (including the 4 header
+// bytes already consumed) is size bytes. From now on endOfFrame can tell when
+// the whole frame has been read.
+func (rd *bitReader) beginFrame(size int) {
+	rd.frameBytes = size - 4
+}
+
+// endOfFrame consumes any unread bytes of the current frame up to its exact
+// end and clears the frame marker. It returns a nil error when the complete
+// frame was available. If the input ends first, the error is io.EOF and the
+// unread remainder stays in the buffer; any other I/O error is passed on.
+func (rd *bitReader) endOfFrame() error {
+	for rd.frameBytes > 0 {
+		if rd.head == rd.limit {
+			if err := rd.refill(); err != nil {
+				return err
+			}
+		}
+		n := rd.limit - rd.head
+		if n > rd.frameBytes {
+			n = rd.frameBytes
+		}
+		rd.head += n
+		rd.frameBytes -= n
+	}
+	// Discard any unread bits of the byte currently being read.
+	rd.bits = 0
+	rd.current = 0
+	return nil
 }
 
 // refill loads the next chunk from the input to the buffer, and updates 'head'
@@ -83,6 +118,7 @@ func (rd *bitReader) readBits(n int) (int, error) {
 			}
 			bits, rd.current = 8, rd.buffer[rd.head]
 			rd.head++
+			rd.consumeByte()
 		}
 
 		if n <= bits {
@@ -101,6 +137,14 @@ func (rd *bitReader) readBits(n int) (int, error) {
 	}
 }
 
+// consumeByte records that one more byte of the frame currently being tracked
+// has been taken out of the buffer.
+func (rd *bitReader) consumeByte() {
+	if rd.frameBytes > 0 {
+		rd.frameBytes--
+	}
+}
+
 // readByte skips to the next byte boundary, reads the next byte, and returns it
 // as an integer.
 func (rd *bitReader) readByte() (int, error) {
@@ -113,6 +157,7 @@ func (rd *bitReader) readByte() (int, error) {
 	rd.bits = 0
 	rd.current = rd.buffer[rd.head]
 	rd.head++
+	rd.consumeByte()
 	return int(rd.current), nil
 }
 
@@ -132,6 +177,9 @@ func (rd *bitReader) readBytes(dst []byte) (int, error) {
 		n := copy(dst, rd.buffer[rd.head:rd.limit])
 		dst = dst[n:]
 		rd.head += n
+		for i := 0; i < n; i++ {
+			rd.consumeByte()
+		}
 		total += n
 	}
 

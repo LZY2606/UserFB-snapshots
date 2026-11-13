@@ -38,6 +38,18 @@ func (err MalformedStream) Error() string {
 type Decoder struct {
 	Input io.Reader
 
+	// CheckCRC selects strict CRC mode. When it is false (the default),
+	// crc_check fields are ignored and the decoder behaves exactly as before.
+	// When it is true, error-protected (protection_bit == 0) Layer I and
+	// Layer II frames at non-free bitrates are actually verified: a frame that
+	// fails the check is discarded whole, DecodeFrame returns a CRCError, and
+	// the next call continues from the frame immediately following the
+	// rejected one. Protected Layer III frames and free-format frames cause
+	// ErrUnsupportedCRC, as the protected region cannot be determined.
+	// Frames without error protection are always decoded normally.
+	// The setting survives an automatic reset triggered by changing Input.
+	CheckCRC bool
+
 	// Header fields
 	layer         int
 	protectionBit int
@@ -55,6 +67,12 @@ type Decoder struct {
 	nChannels int
 	sample    [2][1152]float32
 	synth     [2]synthesisFilter
+
+	// CRC checking
+	crc        crc16
+	crcOn      bool // true while the protected fields of the current frame are accumulated
+	headerTail int  // last 16 bits of the current frame header
+	frameSize  int  // size of the frame currently being decoded, in bytes
 
 	// Layers I & II
 	bound         int
@@ -213,10 +231,16 @@ func (d *Decoder) ReadSamples(ch int, dst []float32) {
 //     absolutely pointless to continue (such as an invalid value in the 'layer'
 //     header field), DecodeFrame returns a MalformedStream, most likely leaving
 //     the decoder in an out-of-sync state.
+//   - In strict CRC mode (CheckCRC), a fully read protected Layer I or II
+//     frame that fails the check is returned as a CRCError, while a protected
+//     Layer III or free-format frame causes ErrUnsupportedCRC.
 func (d *Decoder) DecodeFrame() error {
 	if d.stream.input != d.Input {
+		// The automatic reset preserves the CheckCRC configuration.
+		checkCRC := d.CheckCRC
 		*d = Decoder{
 			Input:     d.Input,
+			CheckCRC:  checkCRC,
 			stream:    bitReader{input: d.Input},
 			reservoir: reservoirReader{stream: &d.stream},
 		}
@@ -224,19 +248,54 @@ func (d *Decoder) DecodeFrame() error {
 
 	var err error
 
+	// Any frame marker left over from the previous frame (e.g. its unread
+	// ancillary data) must not affect the new frame's accounting. The bytes
+	// skipped while synchronizing are not part of any tracked frame.
+	d.stream.frameBytes = 0
+
 	if err = d.decodeHeader(); err != nil {
 		return err
 	}
 
+	// Strict CRC mode only applies to protected Layer I/II frames at
+	// non-free bitrates; everything else keeps its original code path.
+	checkCRC := d.CheckCRC && d.protectionBit == 0 && d.layer != 3 && d.bitrateIndex != 0
+	if d.CheckCRC && d.protectionBit == 0 && (d.layer == 3 || d.bitrateIndex == 0) {
+		// The protected region cannot be determined; don't guess.
+		return ErrUnsupportedCRC
+	}
+
+	// Track the exact frame boundary so a rejected frame can be discarded up
+	// to its last byte, even when its payload is malformed. Free-format
+	// frames have no known size, so they cannot be tracked.
+	if d.frameSize > 0 {
+		d.stream.beginFrame(d.frameSize)
+	}
+
+	var storedCRC uint16
 	if d.protectionBit == 0 {
-		// Skip over crc_check.
-		for i := 0; i < 2; i++ {
-			if _, err = d.stream.readByte(); err == io.EOF {
-				return io.ErrUnexpectedEOF
-			} else if err != nil {
-				return err
-			}
+		if checkCRC {
+			d.crc.reset()
+			d.crc.addBits(uint(d.headerTail), 16)
+			// The ordinary decode path feeds the protected fields to the
+			// accumulator as it reads them.
+			d.crcOn = true
 		}
+
+		// Read crc_check.
+		b0, e := d.stream.readByte()
+		if e == io.EOF {
+			return io.ErrUnexpectedEOF
+		} else if e != nil {
+			return e
+		}
+		b1, e := d.stream.readByte()
+		if e == io.EOF {
+			return io.ErrUnexpectedEOF
+		} else if e != nil {
+			return e
+		}
+		storedCRC = uint16(b0)<<8 | uint16(b1)
 	}
 
 	switch d.layer {
@@ -247,11 +306,36 @@ func (d *Decoder) DecodeFrame() error {
 	case 3:
 		err = d.decodeFrame3()
 	}
+	d.crcOn = false
 
 	if err == io.EOF {
 		return io.ErrUnexpectedEOF
 	} else if err != nil {
+		// In strict mode, position the stream at the exact next frame before
+		// reporting the parse failure, so recovery does not depend on
+		// resynchronization. A frame that ends in the input is truncated.
+		if checkCRC && d.frameSize > 0 {
+			if e := d.stream.endOfFrame(); e != nil {
+				if e == io.EOF {
+					return io.ErrUnexpectedEOF
+				}
+				return e
+			}
+		}
 		return err
+	}
+
+	if checkCRC {
+		// The whole frame had to be readable before a mismatch may be reported.
+		if e := d.stream.endOfFrame(); e != nil {
+			if e == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
+			return e
+		}
+		if d.crc.state != storedCRC {
+			return CRCError{Stored: storedCRC, Computed: d.crc.state}
+		}
 	}
 
 	// Any ancillary data is ignored.
@@ -279,6 +363,10 @@ func (d *Decoder) decodeHeader() error {
 	d.copyright = (header >> 3) & 1
 	d.original = (header >> 2) & 1
 	d.emphasis = header & 3
+
+	// The last 16 bits of the header participate in the CRC.
+	d.headerTail = header & 0xffff
+	_, d.frameSize = validateHeader(uint32(header))
 
 	if d.mode == ModeMono {
 		d.nChannels = 1
@@ -457,6 +545,9 @@ func (d *Decoder) decodeAllocation1() error {
 			if err != nil {
 				return err
 			}
+			if d.crcOn {
+				d.crc.addBits(uint(alloc), 4)
+			}
 
 			if alloc == 15 {
 				return MalformedStream("alloc == 15")
@@ -606,6 +697,9 @@ func (d *Decoder) decodeAllocation2() error {
 			if err != nil {
 				return err
 			}
+			if d.crcOn {
+				d.crc.addBits(uint(index), aTab[sb].nbal)
+			}
 			d.allocation[ch][sb] = int(aTab[sb].bits[index])
 		}
 
@@ -626,6 +720,9 @@ func (d *Decoder) decodeScalefactorSelectionInformation2() error {
 				scfsi, err := d.stream.readBits(2)
 				if err != nil {
 					return err
+				}
+				if d.crcOn {
+					d.crc.addBits(uint(scfsi), 2)
 				}
 				d.scfsi2[ch][sb] = scfsi
 			}

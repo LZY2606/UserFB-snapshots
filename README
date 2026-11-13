@@ -1,1 +1,41 @@
 https://pkg.go.dev/github.com/korandiz/mpa
+
+# Strict CRC mode
+
+By default the decoder ignores the `crc_check` field of error-protected
+MPEG-1 Audio frames. Setting `Decoder.CheckCRC` to true enables strict CRC
+checking.
+
+In strict mode the decoder actually verifies the CRC of every error-protected
+(`protection_bit == 0`) frame it can check. The check covers exactly the
+fields defined by ISO/IEC 11172-3: the last 16 bits of the frame header,
+followed by the protected audio syntax. The `crc_check` field itself,
+scalefactors, quantized samples and ancillary data are not part of the
+protected region and are never checksummed.
+
+Scope and behavior:
+
+- Layer I: the protected region is the bit allocation as actually
+  transmitted. In joint stereo the subbands at and above the bound share one
+  allocation, which is therefore covered only once.
+- Layer II: the protected region is the bit allocation plus the
+  scalefactor-selection information (SCFSI) of every allocated subband. The
+  shared joint-stereo allocation is covered once; the SCFSI still appears,
+  and is covered, for each channel. The allocation table selected by the
+  bitrate and sampling frequency is the same one used by the decoding path.
+- A frame that fails the check is discarded whole: its samples are never fed
+  to the synthesis filterbank, so the per-channel synthesis history is left
+  untouched. `DecodeFrame` returns a `CRCError` carrying both the stored and
+  the computed CRC, identifiable with `errors.As`. The next call begins at
+  the exact following frame; a pseudo-syncword inside the rejected frame's
+  ancillary data cannot start a new frame.
+- A mismatch is reported only after the complete frame has been read. A frame
+  truncated inside its boundaries returns `io.ErrUnexpectedEOF`, and
+  underlying I/O errors are passed through unchanged.
+- Frames without error protection follow the ordinary decoding path in either
+  mode.
+- Protected Layer III frames and free-format frames have no determinable
+  protected region, so strict mode returns `ErrUnsupportedCRC` for them
+  rather than guessing what to verify.
+- The `CheckCRC` setting is retained across the automatic reset that happens
+  when `Decoder.Input` is replaced.
