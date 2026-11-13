@@ -38,6 +38,28 @@ $ build/test_shapes
 $ build/test_octasphere
 ```
 
+## adaptive parametric surfaces
+
+`par_shapes.h` can also tessellate a `par_shapes_fn` callback with an adaptive quadtree instead of a uniform slices × stacks grid, which is useful when curvature is concentrated in a small region of the parameter domain:
+
+```c
+par_shapes_adaptive* a = par_shapes_create_adaptive(fn, userdata,
+    0.002f /* tolerance */, 7 /* max_depth (2..8) */,
+    true /* wrap_u */, true /* wrap_v */);
+if (!a) {
+    // Failure: invalid arguments, max_depth exhausted, non-finite
+    // callback output, allocation failure, or degenerate triangles.
+    // All intermediate allocations were released; nothing to free.
+}
+par_shapes_mesh* mesh = a->mesh;             // owned by you
+par_shapes_adaptive_leaf* leaves = a->leaves; // a->nleaves entries
+par_shapes_free_adaptive(a); // frees mesh, leaves, and the struct; NULL-safe
+```
+
+Each leaf records its quadtree cell (`depth`, `ix`, `iy` spanning `[ix,ix+1]/2^depth × [iy,iy+1]/2^depth`) and the index of its center vertex; every output triangle belongs to the fan of exactly one leaf center.  The per-cell error estimate is the maximum distance between five parametric samples (the four edge midpoints and the center) and the bilinear interpolation of the four corner positions.  It is only a sampling estimate, not a guaranteed bound on the distance to the true surface for arbitrary callbacks.  Leaves are balanced so that cells sharing an edge differ in depth by at most one, so a local bump does not force the whole domain to the deepest level.
+
+With `wrap_u` / `wrap_v`, the caller promises that the two ends of the axis are the same smooth surface.  The subdivision is kept in sync across the seam and the mesh keeps distinct UV 0 and UV 1 render vertices, but positions are evaluated at the canonical parameter copy and smooth normals are accumulated by parametric identity, so seam duplicates get identical positions and normals.  Points that are merely close in world space are never welded together.  On failure the function returns NULL and releases every intermediate allocation; ownership of a successful result passes to the caller.  See `examples/adaptive.c` for a complete program.
+
 ## code formatting
 
 This library's code style is strictly enforced to be vertically dense (no consecutive newlines) and 100 columns or less.

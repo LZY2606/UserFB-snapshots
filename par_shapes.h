@@ -99,6 +99,56 @@ typedef void (*par_shapes_fn)(float const*, float*, void*);
 par_shapes_mesh* par_shapes_create_parametric(par_shapes_fn, int slices,
     int stacks, void* userdata);
 
+// Adaptively tessellate a parametric surface over the [0,1]^2 parameter
+// domain, refining only where the surface bends.  The domain starts as a
+// 4x4 grid of depth-2 quadtree cells.  Each cell is sampled at its four
+// corners, its four edge midpoints, and its center; the error estimate
+// eta is the maximum distance between the five non-corner samples and
+// the bilinear interpolation of the four corner positions.  Cells whose
+// eta exceeds `tolerance` split into four children, recursively, down to
+// `max_depth` (which must be between 2 and 8); if a cell still exceeds
+// the tolerance at `max_depth`, the call fails.  Note that eta is only a
+// sampling-based estimate, not a guaranteed bound on the distance
+// between the generated mesh and the true surface for arbitrary
+// callbacks.  After refinement, the quadtree is balanced so that leaves
+// sharing an edge differ in depth by at most one (across periodic seams
+// too), and each leaf becomes a triangle fan around its center point,
+// inserting shared edge midpoints wherever the neighbor across an edge
+// is more refined.
+//
+// Set `wrap_u` / `wrap_v` for periodic axes: the caller guarantees that
+// the two ends of the axis are the same smooth surface.  The subdivision
+// is kept in sync across the seam so that boundary vertices correspond
+// one-to-one, and the mesh retains distinct UV 0 and UV 1 render
+// vertices whose positions and smooth normals are derived from a
+// canonical parameter copy, so seam duplicates are consistent.  Vertices
+// are shared by parameter position only; points that are merely close in
+// world space are never welded together.
+//
+// The result and all arrays it references are owned by the caller.
+// Returns NULL on invalid arguments, exhausted depth, non-finite
+// callback output, allocation failure, or degenerate output triangles,
+// releasing all intermediate allocations.
+typedef struct par_shapes_adaptive_leaf_s {
+    int depth;  // Quadtree depth of the cell (2 at the coarsest level).
+    int ix;     // Cell spans [ix, ix+1] / 2^depth in U.
+    int iy;     // Cell spans [iy, iy+1] / 2^depth in V.
+    int center; // Index of the cell's center vertex in the output mesh.
+} par_shapes_adaptive_leaf;
+
+typedef struct par_shapes_adaptive_s {
+    par_shapes_mesh* mesh;            // The generated mesh.
+    int nleaves;                      // Number of quadtree leaf cells.
+    par_shapes_adaptive_leaf* leaves; // One entry per leaf cell.
+} par_shapes_adaptive;
+
+par_shapes_adaptive* par_shapes_create_adaptive(par_shapes_fn fn,
+    void* userdata, float tolerance, int max_depth, bool wrap_u,
+    bool wrap_v);
+
+// Frees the mesh, the leaf array, and the struct itself.  NULL-safe.
+void par_shapes_free_adaptive(par_shapes_adaptive* adaptive);
+
 // Generate points for a 20-sided polyhedron that fits in the unit sphere.
 // Texture coordinates and normals are not generated.
 par_shapes_mesh* par_shapes_create_icosahedron();
@@ -222,6 +272,7 @@ void par_shapes__connect(par_shapes_mesh* scene, par_shapes_mesh* cylinder,
 #include <stdio.h>
 #include <assert.h>
 #include <float.h>
+#include <limits.h>
 #include <string.h>
 #include <math.h>
 #include <errno.h>
@@ -498,6 +549,561 @@ par_shapes_mesh* par_shapes_create_parametric(par_shapes_fn fn,
 
     par_shapes__compute_welded_normals(mesh);
     return mesh;
+}
+
+typedef struct par_shapes__adaptive_ctx_s {
+    par_shapes_fn fn;
+    void* userdata;
+    float tolerance;
+    int max_depth;
+    int n;       // Finest leaf resolution: 1 << max_depth.
+    int r;       // Vertex key resolution: 2 << max_depth.
+    bool wrap_u;
+    bool wrap_v;
+    int* grid;   // n*n leaf depths covering the whole domain.
+} par_shapes__adaptive_ctx;
+
+// Evaluate the callback at a parameter position, mapping wrapped
+// coordinates to their canonical copy so that seam duplicates get
+// identical positions.  Returns false on non-finite output.
+static bool par_shapes__adaptive_eval(par_shapes__adaptive_ctx* ctx,
+    float u, float v, float* out)
+{
+    if (ctx->wrap_u && u == 1.0f) {
+        u = 0.0f;
+    }
+    if (ctx->wrap_v && v == 1.0f) {
+        v = 0.0f;
+    }
+    float uv[2] = {u, v};
+    ctx->fn(uv, out, ctx->userdata);
+    return isfinite(out[0]) && isfinite(out[1]) && isfinite(out[2]);
+}
+
+// Sampling-based error estimate for one cell: maximum distance between
+// the true surface at the four edge midpoints and the center, and the
+// bilinear interpolation of the four corner positions.
+static float par_shapes__adaptive_error(par_shapes__adaptive_ctx* ctx,
+    int depth, int ix, int iy, bool* ok)
+{
+    float s = 1.0f / (1 << depth);
+    float u0 = ix * s, v0 = iy * s;
+    float c[4][3];
+    static const float cu[4] = {0, 1, 1, 0};
+    static const float cv[4] = {0, 0, 1, 1};
+    static const float st[5][2] = {
+        {0.5f, 0.0f}, {1.0f, 0.5f}, {0.5f, 1.0f}, {0.0f, 0.5f},
+        {0.5f, 0.5f}};
+    *ok = false;
+    for (int k = 0; k < 4; k++) {
+        if (!par_shapes__adaptive_eval(ctx, u0 + cu[k] * s, v0 + cv[k] * s,
+                c[k])) {
+            return 0.0f;
+        }
+    }
+    float eta = 0.0f;
+    for (int k = 0; k < 5; k++) {
+        float su = st[k][0], tv = st[k][1];
+        float p[3];
+        if (!par_shapes__adaptive_eval(ctx, u0 + su * s, v0 + tv * s, p)) {
+            return 0.0f;
+        }
+        float w00 = (1.0f - su) * (1.0f - tv), w10 = su * (1.0f - tv);
+        float w11 = su * tv, w01 = (1.0f - su) * tv;
+        float d2 = 0.0f;
+        for (int j = 0; j < 3; j++) {
+            float b = w00 * c[0][j] + w10 * c[1][j] + w11 * c[2][j] +
+                w01 * c[3][j];
+            float dj = p[j] - b;
+            d2 += dj * dj;
+        }
+        if (d2 > eta) {
+            eta = d2;
+        }
+    }
+    *ok = true;
+    return sqrtf(eta);
+}
+
+static int par_shapes__adaptive_split(par_shapes__adaptive_ctx* ctx,
+    int depth, int ix, int iy);
+
+// Error-check one leaf cell, splitting it recursively while the error
+// estimate exceeds the tolerance.  Returns 0 on failure.
+static int par_shapes__adaptive_refine(par_shapes__adaptive_ctx* ctx,
+    int depth, int ix, int iy)
+{
+    bool ok;
+    float eta = par_shapes__adaptive_error(ctx, depth, ix, iy, &ok);
+    if (!ok) {
+        return 0;
+    }
+    if (eta > ctx->tolerance) {
+        if (depth >= ctx->max_depth) {
+            return 0;
+        }
+        return par_shapes__adaptive_split(ctx, depth, ix, iy);
+    }
+    return 1;
+}
+
+// Replace a leaf cell with four children, each of which is error-checked
+// and recursively refined as needed.  Returns 0 on failure.
+static int par_shapes__adaptive_split(par_shapes__adaptive_ctx* ctx,
+    int depth, int ix, int iy)
+{
+    int n = ctx->n;
+    int k = 1 << (ctx->max_depth - depth);
+    int h = k >> 1;
+    int fx = ix * k, fy = iy * k;
+    for (int j = 0; j < 2; j++) {
+        for (int i = 0; i < 2; i++) {
+            for (int y = 0; y < h; y++) {
+                int* row = ctx->grid + (fy + j * h + y) * n + fx + i * h;
+                for (int x = 0; x < h; x++) {
+                    row[x] = depth + 1;
+                }
+            }
+        }
+    }
+    for (int j = 0; j < 2; j++) {
+        for (int i = 0; i < 2; i++) {
+            if (!par_shapes__adaptive_refine(ctx, depth + 1, 2 * ix + i,
+                    2 * iy + j)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+// Split the leaf containing the finest cell (fx, fy).  Returns 0 on
+// failure.
+static int par_shapes__adaptive_split_at(par_shapes__adaptive_ctx* ctx,
+    int fx, int fy)
+{
+    int depth = ctx->grid[fy * ctx->n + fx];
+    int k = 1 << (ctx->max_depth - depth);
+    if (depth >= ctx->max_depth) {
+        return 0;
+    }
+    fx &= ~(k - 1);
+    fy &= ~(k - 1);
+    return par_shapes__adaptive_split(ctx, depth, fx / k, fy / k);
+}
+
+// Depth of the leaf adjacent across one edge of the cell whose finest
+// origin is (fx, fy) with size k, or -1 when the edge lies on the open
+// boundary of the domain.  dir: 0 south, 1 east, 2 north, 3 west.  When
+// out_x / out_y are given they receive the sampled neighbor cell.
+static int par_shapes__adaptive_neighbor(par_shapes__adaptive_ctx* ctx,
+    int fx, int fy, int k, int dir, int* out_x, int* out_y)
+{
+    int n = ctx->n;
+    int h = k >> 1;
+    int nx, ny;
+    if (dir == 0) {
+        nx = fx + h;
+        ny = fy - 1;
+        if (ny < 0) {
+            if (!ctx->wrap_v) {
+                return -1;
+            }
+            ny = n - 1;
+        }
+    } else if (dir == 1) {
+        nx = fx + k;
+        ny = fy + h;
+        if (nx >= n) {
+            if (!ctx->wrap_u) {
+                return -1;
+            }
+            nx = 0;
+        }
+    } else if (dir == 2) {
+        nx = fx + h;
+        ny = fy + k;
+        if (ny >= n) {
+            if (!ctx->wrap_v) {
+                return -1;
+            }
+            ny = 0;
+        }
+    } else {
+        nx = fx - 1;
+        ny = fy + h;
+        if (nx < 0) {
+            if (!ctx->wrap_u) {
+                return -1;
+            }
+            nx = n - 1;
+        }
+    }
+    if (out_x) {
+        *out_x = nx;
+        *out_y = ny;
+    }
+    return ctx->grid[ny * n + nx];
+}
+
+// One pass of 2:1 balancing: split any leaf whose edge neighbor is more
+// than one level coarser.  Periodic neighbors count too.  Returns 0 on
+// failure.
+static int par_shapes__adaptive_balance(par_shapes__adaptive_ctx* ctx,
+    int* changed)
+{
+    int n = ctx->n;
+    for (int fy = 0; fy < n; fy++) {
+        for (int fx = 0; fx < n; fx++) {
+            int depth = ctx->grid[fy * n + fx];
+            int k = 1 << (ctx->max_depth - depth);
+            if ((fx & (k - 1)) || (fy & (k - 1))) {
+                continue;
+            }
+            for (int dir = 0; dir < 4; dir++) {
+                int nx, ny;
+                int nd = par_shapes__adaptive_neighbor(ctx, fx, fy, k, dir,
+                    &nx, &ny);
+                if (nd >= 0 && nd < depth - 1) {
+                    if (!par_shapes__adaptive_split_at(ctx, nx, ny)) {
+                        return 0;
+                    }
+                    *changed = 1;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+// One pass of seam synchronization: the leaf depths along the two sides
+// of each wrapped axis must mirror each other exactly, so that boundary
+// vertices correspond one-to-one.  Returns 0 on failure.
+static int par_shapes__adaptive_sync(par_shapes__adaptive_ctx* ctx,
+    int* changed)
+{
+    int n = ctx->n;
+    if (ctx->wrap_u) {
+        for (int fy = 0; fy < n; fy++) {
+            int dl = ctx->grid[fy * n];
+            int dr = ctx->grid[fy * n + n - 1];
+            if (dl != dr) {
+                *changed = 1;
+                return par_shapes__adaptive_split_at(ctx,
+                    dl < dr ? 0 : n - 1, fy);
+            }
+        }
+    }
+    if (ctx->wrap_v) {
+        for (int fx = 0; fx < n; fx++) {
+            int db = ctx->grid[fx];
+            int dt = ctx->grid[(n - 1) * n + fx];
+            if (db != dt) {
+                *changed = 1;
+                return par_shapes__adaptive_split_at(ctx, fx,
+                    db < dt ? 0 : n - 1);
+            }
+        }
+    }
+    return 1;
+}
+
+// List the parameter positions (at vertex key resolution) along the
+// boundary of a leaf, counter-clockwise, starting at the SW corner.
+// Edge midpoints are included wherever the neighbor across the edge is
+// more refined.  Returns the count (4 to 8).
+static int par_shapes__adaptive_boundary(par_shapes__adaptive_ctx* ctx,
+    int depth, int ix, int iy, int* iu, int* iv)
+{
+    int k = 1 << (ctx->max_depth - depth);
+    int kr = 2 * k;
+    int fx = ix * k, fy = iy * k;
+    int u0 = ix * kr, v0 = iy * kr;
+    int u1 = u0 + kr, v1 = v0 + kr;
+    int um = u0 + (kr >> 1), vm = v0 + (kr >> 1);
+    int m = 0;
+    iu[m] = u0; iv[m] = v0; m++;
+    if (par_shapes__adaptive_neighbor(ctx, fx, fy, k, 0, 0, 0) > depth) {
+        iu[m] = um; iv[m] = v0; m++;
+    }
+    iu[m] = u1; iv[m] = v0; m++;
+    if (par_shapes__adaptive_neighbor(ctx, fx, fy, k, 1, 0, 0) > depth) {
+        iu[m] = u1; iv[m] = vm; m++;
+    }
+    iu[m] = u1; iv[m] = v1; m++;
+    if (par_shapes__adaptive_neighbor(ctx, fx, fy, k, 2, 0, 0) > depth) {
+        iu[m] = um; iv[m] = v1; m++;
+    }
+    iu[m] = u0; iv[m] = v1; m++;
+    if (par_shapes__adaptive_neighbor(ctx, fx, fy, k, 3, 0, 0) > depth) {
+        iu[m] = u0; iv[m] = vm; m++;
+    }
+    return m;
+}
+
+par_shapes_adaptive* par_shapes_create_adaptive(par_shapes_fn fn,
+    void* userdata, float tolerance, int max_depth, bool wrap_u,
+    bool wrap_v)
+{
+    if (!fn || !isfinite(tolerance) || tolerance <= 0.0f ||
+        max_depth < 2 || max_depth > 8) {
+        return 0;
+    }
+    par_shapes__adaptive_ctx ctx;
+    ctx.fn = fn;
+    ctx.userdata = userdata;
+    ctx.tolerance = tolerance;
+    ctx.max_depth = max_depth;
+    ctx.n = 1 << max_depth;
+    ctx.r = 2 << max_depth;
+    ctx.wrap_u = wrap_u;
+    ctx.wrap_v = wrap_v;
+    ctx.grid = 0;
+    int n = ctx.n, r = ctx.r;
+    par_shapes_adaptive* result = 0;
+    par_shapes_mesh* mesh = 0;
+    int* vmap = 0;
+    int* canon = 0;
+    int nleaves = 0;
+    int nboundary = 0;
+    int64_t ntris = 0;
+    int64_t npoints = 0;
+    int leaford = 0;
+    int changed = 0;
+    PAR_SHAPES_T* tri = 0;
+    ctx.grid = PAR_MALLOC(int, n * n);
+    if (!ctx.grid) {
+        goto fail;
+    }
+    for (int i = 0; i < n * n; i++) {
+        ctx.grid[i] = 2;
+    }
+    for (int iy = 0; iy < 4; iy++) {
+        for (int ix = 0; ix < 4; ix++) {
+            if (!par_shapes__adaptive_refine(&ctx, 2, ix, iy)) {
+                goto fail;
+            }
+        }
+    }
+    do {
+        changed = 0;
+        if (!par_shapes__adaptive_balance(&ctx, &changed)) {
+            goto fail;
+        }
+        if (!par_shapes__adaptive_sync(&ctx, &changed)) {
+            goto fail;
+        }
+    } while (changed);
+
+    // Count leaves and triangles; assign indices to boundary vertices.
+    vmap = PAR_MALLOC(int, (r + 1) * (r + 1));
+    if (!vmap) {
+        goto fail;
+    }
+    for (int i = 0; i < (r + 1) * (r + 1); i++) {
+        vmap[i] = -1;
+    }
+    for (int fy = 0; fy < n; fy++) {
+        for (int fx = 0; fx < n; fx++) {
+            int depth = ctx.grid[fy * n + fx];
+            int k = 1 << (max_depth - depth);
+            if ((fx & (k - 1)) || (fy & (k - 1))) {
+                continue;
+            }
+            int iu[8], iv[8];
+            int m = par_shapes__adaptive_boundary(&ctx, depth, fx / k,
+                fy / k, iu, iv);
+            for (int j = 0; j < m; j++) {
+                int key = iu[j] * (r + 1) + iv[j];
+                if (vmap[key] < 0) {
+                    vmap[key] = nboundary++;
+                }
+            }
+            ntris += m;
+            nleaves++;
+        }
+    }
+    npoints = (int64_t) nboundary + nleaves;
+    if (npoints < 1 || npoints * 3 > INT_MAX || ntris * 3 > INT_MAX) {
+        goto fail;
+    }
+    if ((uint64_t)(npoints - 1) > (uint64_t)(PAR_SHAPES_T)(-1)) {
+        goto fail;
+    }
+    result = PAR_CALLOC(par_shapes_adaptive, 1);
+    if (!result) {
+        goto fail;
+    }
+    result->nleaves = nleaves;
+    result->leaves = PAR_MALLOC(par_shapes_adaptive_leaf, nleaves);
+    result->mesh = PAR_CALLOC(par_shapes_mesh, 1);
+    canon = PAR_MALLOC(int, npoints);
+    if (!result->leaves || !result->mesh || !canon) {
+        goto fail;
+    }
+    mesh = result->mesh;
+    mesh->npoints = (int) npoints;
+    mesh->ntriangles = (int) ntris;
+    mesh->points = PAR_MALLOC(float, 3 * npoints);
+    mesh->tcoords = PAR_MALLOC(float, 2 * npoints);
+    mesh->normals = PAR_CALLOC(float, 3 * npoints);
+    mesh->triangles = PAR_MALLOC(PAR_SHAPES_T, 3 * ntris);
+    if (!mesh->points || !mesh->tcoords || !mesh->normals ||
+        !mesh->triangles) {
+        goto fail;
+    }
+
+    // Emit boundary vertices.  Positions come from the canonical
+    // parameter copy; texture coordinates are the literal parameters.
+    for (int iu = 0; iu <= r; iu++) {
+        for (int iv = 0; iv <= r; iv++) {
+            int idx = vmap[iu * (r + 1) + iv];
+            if (idx < 0) {
+                continue;
+            }
+            float u = (float) iu / r, v = (float) iv / r;
+            if (!par_shapes__adaptive_eval(&ctx, u, v,
+                    mesh->points + 3 * idx)) {
+                goto fail;
+            }
+            mesh->tcoords[2 * idx] = u;
+            mesh->tcoords[2 * idx + 1] = v;
+            int cu = (wrap_u && iu == r) ? 0 : iu;
+            int cv = (wrap_v && iv == r) ? 0 : iv;
+            int cidx = vmap[cu * (r + 1) + cv];
+            if (cidx < 0) {
+                goto fail;
+            }
+            canon[idx] = cidx;
+        }
+    }
+
+    // Emit leaves and their center vertices.
+    leaford = 0;
+    for (int fy = 0; fy < n; fy++) {
+        for (int fx = 0; fx < n; fx++) {
+            int depth = ctx.grid[fy * n + fx];
+            int k = 1 << (max_depth - depth);
+            if ((fx & (k - 1)) || (fy & (k - 1))) {
+                continue;
+            }
+            par_shapes_adaptive_leaf* leaf = result->leaves + leaford;
+            leaf->depth = depth;
+            leaf->ix = fx / k;
+            leaf->iy = fy / k;
+            leaf->center = nboundary + leaford;
+            float u = (float)(2 * fx + k) / r;
+            float v = (float)(2 * fy + k) / r;
+            if (!par_shapes__adaptive_eval(&ctx, u, v,
+                    mesh->points + 3 * leaf->center)) {
+                goto fail;
+            }
+            mesh->tcoords[2 * leaf->center] = u;
+            mesh->tcoords[2 * leaf->center + 1] = v;
+            canon[leaf->center] = leaf->center;
+            leaford++;
+        }
+    }
+
+    // Emit one triangle fan per leaf, wound for positive UV area, and
+    // accumulate area-weighted normals by parametric identity.
+    tri = mesh->triangles;
+    leaford = 0;
+    for (int fy = 0; fy < n; fy++) {
+        for (int fx = 0; fx < n; fx++) {
+            int depth = ctx.grid[fy * n + fx];
+            int k = 1 << (max_depth - depth);
+            if ((fx & (k - 1)) || (fy & (k - 1))) {
+                continue;
+            }
+            int iu[8], iv[8];
+            int m = par_shapes__adaptive_boundary(&ctx, depth, fx / k,
+                fy / k, iu, iv);
+            int ci = nboundary + leaford;
+            float const* pc = mesh->points + 3 * ci;
+            for (int j = 0; j < m; j++) {
+                int a = vmap[iu[j] * (r + 1) + iv[j]];
+                int b = vmap[iu[(j + 1) % m] * (r + 1) + iv[(j + 1) % m]];
+                float const* pa = mesh->points + 3 * a;
+                float const* pb = mesh->points + 3 * b;
+                float e1[3] = {pa[0] - pc[0], pa[1] - pc[1],
+                    pa[2] - pc[2]};
+                float e2[3] = {pb[0] - pc[0], pb[1] - pc[1],
+                    pb[2] - pc[2]};
+                float cp[3];
+                par_shapes__cross3(cp, e1, e2);
+                float cl2 = par_shapes__dot3(cp, cp);
+                if (!(cl2 > 0.0f)) {
+                    goto fail;
+                }
+                tri[0] = (PAR_SHAPES_T) ci;
+                tri[1] = (PAR_SHAPES_T) a;
+                tri[2] = (PAR_SHAPES_T) b;
+                tri += 3;
+                float* na = mesh->normals + 3 * canon[ci];
+                float* nb = mesh->normals + 3 * canon[a];
+                float* nc = mesh->normals + 3 * canon[b];
+                for (int q = 0; q < 3; q++) {
+                    na[q] += cp[q];
+                    nb[q] += cp[q];
+                    nc[q] += cp[q];
+                }
+            }
+            leaford++;
+        }
+    }
+
+    // Normalize the accumulated normals at each canonical parameter
+    // identity, then copy them to the seam duplicates.
+    for (int i = 0; i < npoints; i++) {
+        if (canon[i] != i) {
+            continue;
+        }
+        float* nrm = mesh->normals + 3 * i;
+        float len2 = par_shapes__dot3(nrm, nrm);
+        if (!(len2 > 0.0f)) {
+            goto fail;
+        }
+        float inv = 1.0f / sqrtf(len2);
+        nrm[0] *= inv;
+        nrm[1] *= inv;
+        nrm[2] *= inv;
+    }
+    for (int i = 0; i < npoints; i++) {
+        if (canon[i] == i) {
+            continue;
+        }
+        par_shapes__copy3(mesh->normals + 3 * i,
+            mesh->normals + 3 * canon[i]);
+    }
+    PAR_FREE(ctx.grid);
+    PAR_FREE(vmap);
+    PAR_FREE(canon);
+    return result;
+fail:
+    PAR_FREE(ctx.grid);
+    PAR_FREE(vmap);
+    PAR_FREE(canon);
+    if (result) {
+        if (result->mesh) {
+            par_shapes_free_mesh(result->mesh);
+        }
+        PAR_FREE(result->leaves);
+        PAR_FREE(result);
+    }
+    return 0;
+}
+
+void par_shapes_free_adaptive(par_shapes_adaptive* adaptive)
+{
+    if (!adaptive) {
+        return;
+    }
+    if (adaptive->mesh) {
+        par_shapes_free_mesh(adaptive->mesh);
+    }
+    PAR_FREE(adaptive->leaves);
+    PAR_FREE(adaptive);
 }
 
 void par_shapes_free_mesh(par_shapes_mesh* mesh)
