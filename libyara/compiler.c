@@ -53,6 +53,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yara/strutils.h>
 #include <yara/utils.h>
 
+#include "ct_trace.h"
+
 static void _yr_compiler_default_include_free(
     const char* callback_result_ptr,
     void* user_data)
@@ -305,6 +307,9 @@ YR_API int yr_compiler_create(YR_COMPILER** compiler)
 
 YR_API void yr_compiler_destroy(YR_COMPILER* compiler)
 {
+  if (compiler->condition_trace_ctx != NULL)
+    yr_ct_meta_abort(compiler);
+
   if (compiler->arena != NULL)
     yr_arena_release(compiler->arena);
 
@@ -740,6 +745,11 @@ static int _yr_compiler_compile_rules(YR_COMPILER* compiler)
   summary->num_namespaces = compiler->num_namespaces;
   summary->num_rules = compiler->next_rule_idx;
   summary->num_strings = compiler->current_string_idx;
+
+  // Flush the static condition-trace metadata into its own arena section.
+  // When tracing was never enabled this is a no-op and rules stay byte-for-byte
+  // compatible with the legacy compiled-file format.
+  FAIL_ON_ERROR(yr_ct_meta_finalize(compiler));
 
   return yr_rules_from_arena(compiler->arena, &compiler->rules);
 }

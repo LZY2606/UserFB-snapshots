@@ -66,10 +66,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define YR_AC_STATE_MATCHES_TABLE   9
 #define YR_AC_STATE_MATCHES_POOL    10
 #define YR_SUMMARY_SECTION          11
+#define YR_CONDITION_TRACE_SECTION  12
 
 // This is the number of buffers used by the compiler, should match the number
 // of items in the list above.
-#define YR_NUM_SECTIONS 12
+#define YR_NUM_SECTIONS 13
 
 // Number of variables used by loops. This doesn't include user defined
 // variables.
@@ -313,6 +314,18 @@ typedef struct _YR_COMPILER
   YR_COMPILER_INCLUDE_FREE_FUNC include_free;
   YR_COMPILER_RE_AST_CALLBACK_FUNC re_ast_callback;
   YR_ATOMS_CONFIG atoms_config;
+
+  // When true, expression metadata for the condition trace is collected for
+  // every rule parsed after yr_compiler_set_condition_trace() enabled it.
+  bool condition_trace_enabled;
+
+  // Number of static trace nodes written to YR_CONDITION_TRACE_SECTION so
+  // far. The next node gets this id, so node ids are dense starting at zero.
+  uint32_t condition_trace_node_count;
+
+  // Heap-side scratch context (YR_CT_COMPILER_CTX, see ct_trace.c) used while
+  // collecting nodes; NULL when tracing is disabled.
+  void* condition_trace_ctx;
 
 } YR_COMPILER;
 

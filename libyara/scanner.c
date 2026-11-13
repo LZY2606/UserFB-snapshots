@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yara/strutils.h>
 #include <yara/types.h>
 
+#include "ct_trace.h"
 #include "exception.h"
 
 static int _yr_scanner_scan_mem_block(
@@ -372,6 +373,11 @@ YR_API void yr_scanner_destroy(YR_SCANNER* scanner)
   yr_free(scanner->strings_temp_disabled);
   yr_free(scanner->matches);
   yr_free(scanner->unconfirmed_matches);
+
+  if (scanner->condition_trace_state != NULL)
+    yr_ct_state_destroy(
+        (YR_CT_STATE*) scanner->condition_trace_state);
+
   yr_free(scanner);
 }
 
@@ -516,6 +522,16 @@ YR_API int yr_scanner_scan_mem_blocks(
         scanner->rules->no_required_strings,
         sizeof(YR_BITMASK) * YR_BITMASK_SIZE(rules->num_rules));
 
+    // Start each traced scan with empty evidence so a previous scan's records
+    // can never leak into this one.
+    if (scanner->condition_trace_enabled)
+    {
+      result = yr_ct_state_reset(scanner);
+
+      if (result != ERROR_SUCCESS)
+        goto _exit;
+    }
+
     yr_stopwatch_start(&scanner->stopwatch);
 
     block = iterator->first(iterator);
@@ -555,12 +571,22 @@ YR_API int yr_scanner_scan_mem_blocks(
       { result = ERROR_COULD_NOT_MAP_FILE; });
 
   if (result != ERROR_SUCCESS)
+  {
+    if (scanner->condition_trace_enabled)
+      yr_ct_mark_incomplete(scanner);
+
     goto _exit;
+  }
 
   result = iterator->last_error;
 
   if (result != ERROR_SUCCESS)
+  {
+    if (scanner->condition_trace_enabled)
+      yr_ct_mark_incomplete(scanner);
+
     goto _exit;
+  }
 
   // If the iterator has a file_size function, ask the function for the file's
   // size, if not file size is undefined.
@@ -575,7 +601,21 @@ YR_API int yr_scanner_scan_mem_blocks(
       { result = ERROR_COULD_NOT_MAP_FILE; });
 
   if (result != ERROR_SUCCESS)
+  {
+    // The trace only covers the real prefix executed before the failure.
+    if (scanner->condition_trace_enabled)
+      yr_ct_mark_incomplete(scanner);
+
     goto _exit;
+  }
+
+  if (scanner->condition_trace_enabled)
+  {
+    result = yr_ct_record_decisions(scanner);
+
+    if (result != ERROR_SUCCESS)
+      goto _exit;
+  }
 
   for (i = 0, rule = rules->rules_table; !RULE_IS_NULL(rule); i++, rule++)
   {
@@ -599,10 +639,20 @@ YR_API int yr_scanner_scan_mem_blocks(
       {
       case CALLBACK_ABORT:
         result = ERROR_SUCCESS;
+
+        // Reporting was interrupted by the caller; the trace delivered on
+        // take is explicitly marked as an incomplete prefix.
+        if (scanner->condition_trace_enabled)
+          yr_ct_mark_incomplete(scanner);
+
         goto _exit;
 
       case CALLBACK_ERROR:
         result = ERROR_CALLBACK_ERROR;
+
+        if (scanner->condition_trace_enabled)
+          yr_ct_mark_incomplete(scanner);
+
         goto _exit;
       }
     }

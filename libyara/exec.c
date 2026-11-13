@@ -50,6 +50,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yara/unaligned.h>
 #include <yara/utils.h>
 
+#include "ct_trace.h"
+
 #define MEM_SIZE YR_MAX_LOOP_NESTING*(YR_MAX_LOOP_VARS + YR_INTERNAL_LOOP_VARS)
 
 #define push(x)                         \
@@ -516,8 +518,23 @@ int yr_execute_code(YR_SCAN_CONTEXT* context)
     // Read the opcode from the address indicated by the instruction pointer.
     opcode = *ip;
 
+    // Offset of this opcode within the code section; the condition-trace
+    // metadata is keyed on these offsets.
+    uint32_t opcode_offset = (uint32_t)(ip - code_start);
+
     // Advance the instruction pointer, which now points past the opcode.
     ip++;
+
+    if (context->condition_trace_enabled)
+    {
+      result = yr_ct_vm_before(context, opcode_offset, opcode);
+
+      if (result != ERROR_SUCCESS)
+      {
+        stop = true;
+        break;
+      }
+    }
 
     switch (opcode)
     {
@@ -2432,6 +2449,18 @@ int yr_execute_code(YR_SCAN_CONTEXT* context)
       assert(false);
     }
 
+    if (context->condition_trace_enabled && !stop)
+    {
+      int ct_result = yr_ct_vm_after(
+          context, opcode_offset, opcode, &stack);
+
+      if (ct_result != ERROR_SUCCESS)
+      {
+        result = ct_result;
+        stop = true;
+      }
+    }
+
     // Check for timeout every 100 instruction cycles. If timeout == 0 it means
     // no timeout at all.
 
@@ -2452,6 +2481,9 @@ int yr_execute_code(YR_SCAN_CONTEXT* context)
       cycle = 0;
     }
   }
+
+  if (stop && result != ERROR_SUCCESS && context->condition_trace_enabled)
+    yr_ct_mark_incomplete(context);
 
   obj_ptr = yr_arena_get_ptr(obj_arena, 0, 0);
 

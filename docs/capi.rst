@@ -1058,3 +1058,105 @@ Error codes
 .. c:macro:: ERROR_BLOCK_NOT_READY
 
   Next memory block to scan is not ready; custom iterators may return this.
+
+Condition tracing
+=================
+
+Match callbacks and profiling counters tell you *that* a rule ran, but not
+*why* a rule whose strings matched was not reported, or what each iteration of
+a quantifier actually evaluated. The condition-trace API collects this
+evidence along the real compiler and virtual-machine execution paths; it never
+runs a separate evaluator.
+
+Tracing is opt-in at both stages. First enable metadata collection on the
+compiler before adding any rule sources:
+
+.. code-block:: c
+
+    YR_COMPILER* compiler;
+    yr_compiler_create(&compiler);
+    yr_compiler_set_condition_trace(compiler, 1);
+    yr_compiler_add_string(compiler, "rule r { condition: ... }", NULL);
+
+    YR_RULES* rules;
+    yr_compiler_get_rules(compiler, &rules);
+
+Then enable dynamic recording on each scanner. The compiled rules must carry
+the metadata produced above; enabling tracing on rules compiled without it (for
+example a legacy ``.yarc`` file) fails with
+``ERROR_CONDITION_TRACE_MISSING`` while leaving normal scanning available:
+
+.. code-block:: c
+
+    YR_SCANNER* scanner;
+    yr_scanner_create(rules, &scanner);
+
+    if (yr_scanner_set_condition_trace(scanner, 1) ==
+        ERROR_CONDITION_TRACE_MISSING) {
+      // These rules have no trace metadata; scanning still works normally.
+    }
+
+After a scan, take ownership of a self-contained snapshot. It keeps working
+after the scanner and the compiled rules are destroyed; release it with
+:c:func:`yr_condition_trace_destroy`. Taking a snapshot also clears the
+scanner's evidence, so the next scan starts from an empty trace and can never
+return stale records.
+
+.. code-block:: c
+
+    yr_scanner_scan_mem(scanner, data, data_size);
+
+    YR_CONDITION_TRACE* trace = NULL;
+    yr_scanner_take_condition_trace(scanner, &trace);
+
+    for (uint32_t i = 0; i < trace->num_instances; i++) {
+      const YR_CT_INSTANCE* inst = &trace->instances[i];
+      // inst->state is one of EVALUATED, FOLDED, SKIPPED or UNSUPPORTED.
+    }
+
+    yr_condition_trace_destroy(trace);
+
+The static graph (``trace->nodes``) describes each expression node with its
+namespace, rule, source file and ending line, operation kind and child nodes.
+The dynamic instances (``trace->instances``) describe every actual evaluation.
+Repeated evaluations of the same expression inside a ``for`` loop produce
+distinct instances identified by their nested iteration path, so earlier
+iterations are never overwritten.
+
+Each instance is in one of four states:
+
+- ``YR_CT_INST_EVALUATED``: the node ran and produced a value. An explicit
+  undefined result uses ``YR_CT_VALUE_UNDEFINED``, which stays distinct from
+  integer zero and boolean false.
+- ``YR_CT_INST_FOLDED``: the value was resolved at compile time (literal
+  constants). The node's ``fold_origin_node_id`` points back at the source
+  expression; folded values are never presented as runtime calls.
+- ``YR_CT_INST_SKIPPED``: the node never executed because of short-circuiting,
+  a quantifier that had already decided, or a rule skipped by the
+  ``required_eval``/disabled optimizations. ``short_circuit_reason`` explains
+  which case applied.
+- ``YR_CT_INST_UNSUPPORTED``: the node belongs to an expression outside the
+  supported set (module functions, ``matches``, integer memory reads and the
+  other module-facing operators). Its scan behavior is unchanged, but the
+  graph marks the boundary instead of claiming per-node evidence, and it is
+  never silently omitted.
+
+Causal edges (``trace->edges``) link the dynamic instances that actually fed
+each other during execution. Rule references point at the referenced rule's
+own result instance rather than re-evaluating it, so a ``private`` rule still
+appears as evidence even though it is not reported.
+
+Rule decisions (``trace->decisions``) keep the condition value separate from
+the reporting outcome. A rule whose condition is true can still have
+``reported_match`` set to false when an unsatisfied ``global`` rule blocks its
+namespace; ``blocked_by_global_rule_idx`` identifies the blocking rule.
+
+If a scan is interrupted by a timeout, a callback abort or an error, the
+returned snapshot has ``incomplete`` set to true and contains only the real
+prefix executed up to the interruption.
+
+The static metadata is stored in the compiled-rules arena, so
+:c:func:`yr_rules_save_stream` and :c:func:`yr_rules_load_stream` preserve the
+node identities without needing the original rule sources. Files produced by
+older compilers simply have no trace section and continue to load; they report
+``ERROR_CONDITION_TRACE_MISSING`` only when tracing is explicitly enabled.

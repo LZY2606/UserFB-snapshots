@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define YR_YARA_H
 
 #include "yara/compiler.h"
+#include "yara/condition_trace.h"
 #include "yara/error.h"
 #include "yara/filemap.h"
 #include "yara/hash.h"

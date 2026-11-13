@@ -631,6 +631,18 @@ struct YR_RULES
 
   // Total number of namespaces.
   uint32_t num_namespaces;
+
+  // Static condition-trace metadata. Both are zero/NULL when the rules were
+  // compiled without yr_compiler_set_condition_trace() or loaded from a legacy
+  // compiled-rules file that predates the feature. Opaque; the layout lives in
+  // ct_trace.h.
+  const void* condition_trace_meta;
+  uint32_t condition_trace_num_nodes;
+
+  // Runtime index (YR_CT_RT_NODE array plus lookup tables) built from the
+  // static metadata. Shared read-only by every scanner using these rules; the
+  // per-scanner dynamic evidence lives in YR_SCAN_CONTEXT instead.
+  void* condition_trace_rt;
 };
 
 struct YR_RULES_STATS
@@ -836,6 +848,14 @@ struct YR_SCAN_CONTEXT
   // profiling_info is a pointer to an array of YR_PROFILING_INFO structures,
   // one per rule. Entry N has the profiling information for rule with index N.
   YR_PROFILING_INFO* profiling_info;
+
+  // Dynamic condition tracing. condition_trace_enabled is set by
+  // yr_scanner_set_condition_trace(); condition_trace_state points to the
+  // per-scan recording structure (YR_CT_STATE, defined in ct_trace.h) and is
+  // allocated when the first traced scan starts. Both are per-scanner state:
+  // scanners sharing the same YR_RULES record independently.
+  bool condition_trace_enabled;
+  void* condition_trace_state;
 };
 
 union YR_VALUE

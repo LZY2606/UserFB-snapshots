@@ -29,6 +29,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // clang-format off
 
+// Condition-trace note: expression metadata for yr_compiler_set_condition_trace()
+// is collected in the parser emit helpers (parser.c) rather than in these
+// grammar actions. Keeping the instrumentation in one place means the checked-in
+// grammar.c/grammar.h don't need to be regenerated, and the metadata stays in
+// sync with the emitted bytecode automatically. If you add a new emitted
+// opcode here, make sure parser.c's yr_parser_emit* wrappers (and the opcode
+// classification in ct_trace.c) understand it.
+
 %{
 
 #include <assert.h>

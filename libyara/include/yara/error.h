@@ -111,6 +111,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define ERROR_INVALID_VALUE                  64
 #define ERROR_TOO_SLOW_SCANNING              65
 #define ERROR_UNKNOWN_ESCAPE_SEQUENCE        66
+#define ERROR_CONDITION_TRACE_MISSING        67
 
 #define GOTO_EXIT_ON_ERROR(x)    \
   {                              \

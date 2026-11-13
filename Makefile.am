@@ -218,6 +218,7 @@ libyara_la_SOURCES = \
 	libyara/base64.c \
 	libyara/bitmask.c \
 	libyara/compiler.c \
+	libyara/condition_trace.c \
 	libyara/endian.c \
 	libyara/exec.c \
 	libyara/exefiles.c \

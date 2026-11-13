@@ -41,6 +41,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yara/scanner.h>
 #include <yara/utils.h>
 
+#include "ct_trace.h"
+
 YR_API int yr_rules_define_integer_variable(
     YR_RULES* rules,
     const char* identifier,
@@ -325,7 +327,11 @@ YR_API int yr_rules_scan_proc(
 
 int yr_rules_from_arena(YR_ARENA* arena, YR_RULES** rules)
 {
-  if (arena->num_buffers < YR_NUM_SECTIONS)
+  // The condition-trace section (YR_CONDITION_TRACE_SECTION) is optional:
+  // arenas produced by older compilers have one buffer fewer and must keep
+  // loading. All pre-existing sections are indexed below YR_NUM_SECTIONS - 1,
+  // so accepting either count stays backward compatible.
+  if (arena->num_buffers < YR_NUM_SECTIONS - 1)
     return ERROR_CORRUPT_FILE;
 
   YR_SUMMARY* summary = (YR_SUMMARY*) yr_arena_get_ptr(
@@ -529,6 +535,19 @@ int yr_rules_from_arena(YR_ARENA* arena, YR_RULES** rules)
       yr_bitmask_set(new_rules->no_required_strings, i);
   }
 
+  // Build the condition-trace runtime index when the arena carries metadata.
+  // Legacy compiled files simply have an empty trace section and this returns
+  // success without indexing anything.
+  int ct_result = yr_ct_build_runtime_index(new_rules);
+
+  if (ct_result != ERROR_SUCCESS)
+  {
+    yr_free(new_rules->no_required_strings);
+    yr_arena_release(arena);
+    yr_free(new_rules);
+    return ct_result;
+  }
+
   *rules = new_rules;
 
   return ERROR_SUCCESS;
@@ -689,6 +708,7 @@ YR_API int yr_rules_destroy(YR_RULES* rules)
     external++;
   }
 
+  yr_ct_free_runtime_index(rules);
   yr_free(rules->no_required_strings);
   yr_arena_release(rules->arena);
   yr_free(rules);

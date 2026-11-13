@@ -45,6 +45,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yara/utils.h>
 #include "yara/compiler.h"
 #include "yara/types.h"
+#include "ct_trace.h"
 
 #define todigit(x)                                        \
   ((x) >= 'A' && (x) <= 'F') ? ((uint8_t) (x - 'A' + 10)) \
@@ -55,12 +56,28 @@ int yr_parser_emit(
     uint8_t instruction,
     YR_ARENA_REF* instruction_ref)
 {
-  return yr_arena_write_data(
+  YR_ARENA_REF ref;
+
+  FAIL_ON_ERROR(yr_arena_write_data(
       yyget_extra(yyscanner)->arena,
       YR_CODE_SECTION,
       &instruction,
       sizeof(uint8_t),
-      instruction_ref);
+      &ref));
+
+  if (instruction_ref != NULL)
+    *instruction_ref = ref;
+
+  FAIL_ON_ERROR(yr_ct_meta_emit(
+      yyget_extra(yyscanner), instruction, ref.offset, NULL));
+
+  FAIL_ON_ERROR(yr_ct_meta_annotate(
+      yyget_extra(yyscanner),
+      yyget_lineno(yyscanner),
+      yr_compiler_get_current_file_name(yyget_extra(yyscanner)),
+      NULL));
+
+  return ERROR_SUCCESS;
 }
 
 int yr_parser_emit_with_arg_double(
@@ -70,12 +87,17 @@ int yr_parser_emit_with_arg_double(
     YR_ARENA_REF* instruction_ref,
     YR_ARENA_REF* argument_ref)
 {
+  YR_ARENA_REF local_ref;
+
   int result = yr_arena_write_data(
       yyget_extra(yyscanner)->arena,
       YR_CODE_SECTION,
       &instruction,
       sizeof(uint8_t),
-      instruction_ref);
+      &local_ref);
+
+  if (instruction_ref != NULL)
+    *instruction_ref = local_ref;
 
   if (result == ERROR_SUCCESS)
     result = yr_arena_write_data(
@@ -84,6 +106,10 @@ int yr_parser_emit_with_arg_double(
         &argument,
         sizeof(double),
         argument_ref);
+
+  if (result == ERROR_SUCCESS)
+    result = yr_ct_meta_emit(
+        yyget_extra(yyscanner), instruction, local_ref.offset, NULL);
 
   return result;
 }
@@ -95,12 +121,17 @@ int yr_parser_emit_with_arg_int32(
     YR_ARENA_REF* instruction_ref,
     YR_ARENA_REF* argument_ref)
 {
+  YR_ARENA_REF local_ref;
+
   int result = yr_arena_write_data(
       yyget_extra(yyscanner)->arena,
       YR_CODE_SECTION,
       &instruction,
       sizeof(uint8_t),
-      instruction_ref);
+      &local_ref);
+
+  if (instruction_ref != NULL)
+    *instruction_ref = local_ref;
 
   if (result == ERROR_SUCCESS)
     result = yr_arena_write_data(
@@ -109,6 +140,10 @@ int yr_parser_emit_with_arg_int32(
         &argument,
         sizeof(int32_t),
         argument_ref);
+
+  if (result == ERROR_SUCCESS)
+    result = yr_ct_meta_emit(
+        yyget_extra(yyscanner), instruction, local_ref.offset, NULL);
 
   return result;
 }
@@ -120,12 +155,17 @@ int yr_parser_emit_with_arg(
     YR_ARENA_REF* instruction_ref,
     YR_ARENA_REF* argument_ref)
 {
+  YR_ARENA_REF local_ref;
+
   int result = yr_arena_write_data(
       yyget_extra(yyscanner)->arena,
       YR_CODE_SECTION,
       &instruction,
       sizeof(uint8_t),
-      instruction_ref);
+      &local_ref);
+
+  if (instruction_ref != NULL)
+    *instruction_ref = local_ref;
 
   if (result == ERROR_SUCCESS)
     result = yr_arena_write_data(
@@ -134,6 +174,10 @@ int yr_parser_emit_with_arg(
         &argument,
         sizeof(int64_t),
         argument_ref);
+
+  if (result == ERROR_SUCCESS)
+    result = yr_ct_meta_emit(
+        yyget_extra(yyscanner), instruction, local_ref.offset, NULL);
 
   return result;
 }
@@ -152,12 +196,17 @@ int yr_parser_emit_with_arg_reloc(
   memset(&arg, 0, sizeof(arg));
   arg.ptr = argument;
 
+  YR_ARENA_REF opcode_ref = YR_ARENA_NULL_REF;
+
   int result = yr_arena_write_data(
       yyget_extra(yyscanner)->arena,
       YR_CODE_SECTION,
       &instruction,
       sizeof(uint8_t),
-      instruction_ref);
+      &opcode_ref);
+
+  if (instruction_ref != NULL)
+    *instruction_ref = opcode_ref;
 
   if (result == ERROR_SUCCESS)
     result = yr_arena_write_data(
@@ -173,6 +222,10 @@ int yr_parser_emit_with_arg_reloc(
 
   if (argument_ref != NULL)
     *argument_ref = ref;
+
+  if (result == ERROR_SUCCESS)
+    result = yr_ct_meta_emit(
+        yyget_extra(yyscanner), instruction, opcode_ref.offset, NULL);
 
   return result;
 }
@@ -310,15 +363,19 @@ int yr_parser_emit_push_const(yyscan_t yyscanner, uint64_t argument)
   uint8_t opcode[9];
   int opcode_len = 1;
 
+  uint8_t emitted_op;
+
   if (argument == YR_UNDEFINED)
   {
     opcode[0] = OP_PUSH_U;
+    emitted_op = OP_PUSH_U;
   }
   else if (argument <= 0xff)
   {
     opcode[0] = OP_PUSH_8;
     opcode[1] = (uint8_t) argument;
     opcode_len += sizeof(uint8_t);
+    emitted_op = OP_PUSH_8;
   }
   else if (argument <= 0xffff)
   {
@@ -326,6 +383,7 @@ int yr_parser_emit_push_const(yyscan_t yyscanner, uint64_t argument)
     uint16_t u = (uint16_t) argument;
     memcpy(opcode + 1, &u, sizeof(uint16_t));
     opcode_len += sizeof(uint16_t);
+    emitted_op = OP_PUSH_16;
   }
   else if (argument <= 0xffffffff)
   {
@@ -333,16 +391,29 @@ int yr_parser_emit_push_const(yyscan_t yyscanner, uint64_t argument)
     uint32_t u = (uint32_t) argument;
     memcpy(opcode + 1, &u, sizeof(uint32_t));
     opcode_len += sizeof(uint32_t);
+    emitted_op = OP_PUSH_32;
   }
   else
   {
     opcode[0] = OP_PUSH;
     memcpy(opcode + 1, &argument, sizeof(uint64_t));
     opcode_len += sizeof(uint64_t);
+    emitted_op = OP_PUSH;
   }
 
-  return yr_arena_write_data(
-      yyget_extra(yyscanner)->arena, YR_CODE_SECTION, opcode, opcode_len, NULL);
+  YR_ARENA_REF ref;
+
+  FAIL_ON_ERROR(yr_arena_write_data(
+      yyget_extra(yyscanner)->arena,
+      YR_CODE_SECTION,
+      opcode,
+      opcode_len,
+      &ref));
+
+  FAIL_ON_ERROR(yr_ct_meta_emit(
+      yyget_extra(yyscanner), emitted_op, ref.offset, NULL));
+
+  return ERROR_SUCCESS;
 }
 
 int yr_parser_check_types(
@@ -1254,6 +1325,12 @@ int yr_parser_reduce_string_identifier(
     }
 
     FAIL_ON_ERROR(yr_parser_emit(yyscanner, instruction, NULL));
+
+    FAIL_ON_ERROR(yr_ct_meta_annotate(
+        yyscanner,
+        yyget_lineno(yyscanner),
+        yr_compiler_get_current_file_name(compiler),
+        identifier));
 
     string->flags |= STRING_FLAGS_REFERENCED;
   }
