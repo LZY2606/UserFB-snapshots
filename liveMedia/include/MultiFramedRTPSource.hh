@@ -51,6 +51,12 @@ protected:
   Boolean fCurrentPacketBeginsFrame;
   Boolean fCurrentPacketCompletesFrame;
 
+  // To be called by subclasses when they determine that a frame that's
+  // fragmented over multiple packets can no longer be completed (e.g., a
+  // malformed or mismatched continuation packet arrived), so that any
+  // partially-delivered data for it gets discarded before the next frame:
+  void notePacketLossInFragmentedFrame() { fPacketLossInFragmentedFrame = True; }
+
 protected:
   // redefined virtual functions:
   virtual void doGetNextFrame();
@@ -108,6 +114,7 @@ public:
   BufferedPacket*& nextPacket() { return fNextPacket; }
 
   unsigned short rtpSeqNo() const { return fRTPSeqNo; }
+  unsigned rtpTimestamp() const { return fRTPTimestamp; }
   struct timeval const& timeReceived() const { return fTimeReceived; }
 
   unsigned char* data() const { return &fBuf[fHead]; }
@@ -124,7 +131,7 @@ protected:
   virtual void getNextEnclosedFrameParameters(unsigned char*& framePtr,
 					      unsigned dataSize,
 					      unsigned& frameSize,
-					      unsigned& frameDurationInMicroseconds);
+					      int& frameDurationInMicroseconds);
 
   unsigned fPacketSize;
   unsigned char* fBuf;

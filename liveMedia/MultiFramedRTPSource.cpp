@@ -175,11 +175,17 @@ void MultiFramedRTPSource::doGetNextFrame1() {
       continue;
     }
 
-    // The packet is usable. Deliver all or part of it to our caller:
+    // The packet is usable. Deliver all or part of it to our caller.
+    // If this packet continues a frame that began in an earlier packet, then
+    // keep the presentation time that we recorded for the frame's first
+    // packet; don't overwrite it with this (continuation) packet's time:
+    struct timeval presentationTimeForContinuationPacket;
+    struct timeval& presentationTime
+      = fCurrentPacketBeginsFrame ? fPresentationTime : presentationTimeForContinuationPacket;
     unsigned frameSize;
     nextPacket->use(fTo, fMaxSize, frameSize, fNumTruncatedBytes,
 		    fCurPacketRTPSeqNum, fCurPacketRTPTimestamp,
-		    fPresentationTime, fCurPacketHasBeenSynchronizedUsingRTCP,
+		    presentationTime, fCurPacketHasBeenSynchronizedUsingRTCP,
 		    fCurPacketMarkerBit);
     fFrameSize += frameSize;
 
@@ -393,7 +399,7 @@ unsigned BufferedPacket
 void BufferedPacket
 ::getNextEnclosedFrameParameters(unsigned char*& framePtr, unsigned dataSize,
 				 unsigned& frameSize,
-				 unsigned& frameDurationInMicroseconds) {
+				 int& frameDurationInMicroseconds) {
   // By default, use the entire buffered data, even though it may consist
   // of more than one frame, on the assumption that the client doesn't
   // care.  (This is more efficient than delivering a frame at a time)
@@ -462,7 +468,8 @@ void BufferedPacket::use(unsigned char* to, unsigned toSize,
 			 Boolean& rtpMarkerBit) {
   unsigned char* origFramePtr = &fBuf[fHead];
   unsigned char* newFramePtr = origFramePtr; // may change in the call below
-  unsigned frameSize, frameDurationInMicroseconds;
+  unsigned frameSize;
+  int frameDurationInMicroseconds;
 
   rtpSeqNo = fRTPSeqNo;
   rtpTimestamp = fRTPTimestamp;
@@ -489,6 +496,15 @@ void BufferedPacket::use(unsigned char* to, unsigned toSize,
   if (fPresentationTime.tv_usec >= 1000000) {
     fPresentationTime.tv_sec += fPresentationTime.tv_usec/1000000;
     fPresentationTime.tv_usec = fPresentationTime.tv_usec%1000000;
+  } else if (fPresentationTime.tv_usec < 0) {
+    // This can happen if "frameDurationInMicroseconds" was negative:
+    long const negativeUSec = -(long)fPresentationTime.tv_usec;
+    fPresentationTime.tv_sec -= 1 + negativeUSec/1000000;
+    fPresentationTime.tv_usec = 1000000 - negativeUSec%1000000;
+    if (fPresentationTime.tv_usec == 1000000) {
+      fPresentationTime.tv_sec += 1;
+      fPresentationTime.tv_usec = 0;
+    }
   }
 }
 

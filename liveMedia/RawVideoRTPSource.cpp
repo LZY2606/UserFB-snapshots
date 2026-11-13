@@ -31,7 +31,7 @@ private: // redefined virtual functions
   virtual void getNextEnclosedFrameParameters(unsigned char*& framePtr,
                                               unsigned dataSize,
                                               unsigned& frameSize,
-                                              unsigned& frameDurationInMicroseconds);
+                                              int& frameDurationInMicroseconds);
 private:
   RawVideoRTPSource* fOurSource;
 };
@@ -162,7 +162,7 @@ RawVideoBufferedPacket::~RawVideoBufferedPacket() {
 void RawVideoBufferedPacket::getNextEnclosedFrameParameters(unsigned char*& /*framePtr*/,
 							    unsigned dataSize,
 							    unsigned& frameSize,
-							    unsigned& frameDurationInMicroseconds) {
+							    int& frameDurationInMicroseconds) {
   frameDurationInMicroseconds = 0; // because all lines within the same packet are from the same frame
 
   if (fOurSource->fNextLine >= fOurSource->fNumLines) {

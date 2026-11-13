@@ -1349,6 +1349,15 @@ Boolean MediaSubsession::createSourceObjects(int useSpecialRTPoffset) {
 					     fRTPPayloadFormat,
 					     fRTPTimestampFrequency);
       } else if (strcmp(fCodecName, "MPEG4-GENERIC") == 0) {
+	// We don't implement the optional "DTS-delta", "RAP-flag" and
+	// "Stream-state" AU-header fields, so reject streams that use them,
+	// rather than misreading those header bits as AU payload:
+	if (attrVal_unsigned("dtsdeltalength") != 0
+	    || attrVal_unsigned("randomaccessindication") != 0
+	    || attrVal_unsigned("streamstateindication") != 0) {
+	  env().setResultMsg("MPEG4-GENERIC streams with \"dtsDeltaLength\", \"randomAccessIndication\" or \"streamStateIndication\" are not supported");
+	  break;
+	}
 	fReadSource = fRTPSource
 	  = MPEG4GenericRTPSource::createNew(env(), fRTPSocket,
 					     fRTPPayloadFormat,
@@ -1356,7 +1365,10 @@ Boolean MediaSubsession::createSourceObjects(int useSpecialRTPoffset) {
 					     fMediumName, attrVal_strToLower("mode"),
 					     attrVal_unsigned("sizelength"),
 					     attrVal_unsigned("indexlength"),
-					     attrVal_unsigned("indexdeltalength"));
+					     attrVal_unsigned("indexdeltalength"),
+					     attrVal_unsigned("constantduration"),
+					     attrVal_unsigned("ctsdeltalength"));
+	if (fRTPSource == NULL) break;
       } else if (strcmp(fCodecName, "MPV") == 0) { // MPEG-1 or 2 video
 	fReadSource = fRTPSource
 	  = MPEG1or2VideoRTPSource::createNew(env(), fRTPSocket,

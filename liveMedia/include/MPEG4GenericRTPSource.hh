@@ -33,11 +33,13 @@ public:
 	    unsigned rtpTimestampFrequency,
 	    char const* mediumName,
 	    char const* mode, unsigned sizeLength, unsigned indexLength,
-	    unsigned indexDeltaLength
-	    // add other parameters later
-	    );
+	    unsigned indexDeltaLength,
+	    unsigned constantDuration = 0, unsigned ctsDeltaLength = 0);
   // mediumName is "audio", "video", or "application"
   // it *cannot* be NULL
+  // "constantDuration" is in RTP timestamp units.  "ctsDeltaLength" (like the
+  // other *_LENGTH parameters) is a count of bits; each must be <= 32.
+  // Returns NULL if a parameter is out of range.
 
 protected:
   MPEG4GenericRTPSource(UsageEnvironment& env, Groupsock* RTPgs,
@@ -46,7 +48,8 @@ protected:
 			char const* mediumName,
 			char const* mode,
 			unsigned sizeLength, unsigned indexLength,
-			unsigned indexDeltaLength
+			unsigned indexDeltaLength,
+			unsigned constantDuration, unsigned ctsDeltaLength
 			);
       // called only by createNew(), or by subclass constructors
   virtual ~MPEG4GenericRTPSource();
@@ -62,9 +65,17 @@ private:
 
   char* fMode;
   unsigned fSizeLength, fIndexLength, fIndexDeltaLength;
+  unsigned fConstantDuration, fCTSDeltaLength;
   unsigned fNumAUHeaders; // in the most recently read packet
   unsigned fNextAUHeader; // index of the next AU Header to read
   struct AUHeader* fAUHeaders;
+  Boolean fLastAUComplete; // whether the packet's last AU is fully contained in it
+
+  // State about an AU that's fragmented across multiple packets:
+  Boolean fAUFragmentActive;
+  unsigned fAUFragmentFullSize; // the AU's "AU-size" is its complete size
+  unsigned fAUFragmentBytesRemaining;
+  unsigned fAUFragmentRTPTimestamp; // all fragments of an AU share its RTP timestamp
 
   friend class MPEG4GenericBufferedPacket;
 };
