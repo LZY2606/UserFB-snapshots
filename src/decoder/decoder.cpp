@@ -65,6 +65,11 @@ DecodeStatus Decoder::Decode(const uint8_t* pes_data, size_t length, int64_t pts
     return pimpl_->Decode(pes_data, length, pts, out_result);
 }
 
+DecodeStatus Decoder::DecodeSequence(const uint8_t* pes_data, size_t length, int64_t pts,
+                                     DecodeSequenceResult& out_result) {
+    return pimpl_->DecodeSequence(pes_data, length, pts, out_result);
+}
+
 void Decoder::Flush() {
     pimpl_->Flush();
 }

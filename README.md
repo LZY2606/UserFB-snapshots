@@ -150,6 +150,64 @@ gcc main.c -o main `pkg-config --cflags --libs --static libaribcaption`
 gcc main.c -o main `pkg-config --cflags --libs libaribcaption`
 ```
 
+### Decoding time-sequenced (incremental) captions
+
+A single ARIB caption PES can draw some characters, wait through one or more `TIME` controls,
+and then draw more. The legacy `Decoder::Decode()` merges everything into one aggregated
+`Caption` and accumulates all the waits into a single `wait_duration`, so a player cannot tell
+which characters appear late.
+
+`Decoder::DecodeSequence()` keeps that timing and returns a time-ordered list of incremental
+`Caption` fragments. Each fragment only carries the characters newly drawn at its `pts`; a later
+fragment never repeats earlier ones. A fragment's `wait_duration` is the interval until the next
+fragment and does **not** clear the screen — the picture stays until an explicit clear-screen
+(`CS`) fragment or until later content overwrites it. The last fragment uses
+`DURATION_INDEFINITE`. Feed the fragments to a presentation clock like this:
+
+```cpp
+#include <aribcaption/aribcaption.hpp>
+using namespace aribcaption;
+
+void OnCaptionPacket(Decoder& decoder, const uint8_t* pes, size_t len, int64_t pes_pts) {
+    DecodeSequenceResult result;
+    DecodeStatus status = decoder.DecodeSequence(pes, len, pes_pts, result);
+    if (status != DecodeStatus::kGotCaption) {
+        return;  // kError / kNoCaption: nothing to present
+    }
+
+    for (auto& caption : result.captions) {
+        // caption->pts is the absolute presentation time in milliseconds
+        if (caption->flags & CaptionFlags::kCaptionFlagsClearScreen) {
+            // Schedule a screen clear at caption->pts
+        }
+        if (!caption->regions.empty()) {
+            // Schedule drawing only this fragment's incremental regions at caption->pts.
+            // They remain visible until a clear-screen fragment or newer content, regardless
+            // of caption->wait_duration (which is just the gap to the next fragment).
+        }
+    }
+    // result owns every fragment's text, regions and DRCS; they are freed when it goes out of scope.
+}
+```
+
+The C API exposes the same data through `aribcc_decoder_decode_sequence()`; release the returned
+fragments (including all char and DRCS arrays) with
+`aribcc_decoder_decode_sequence_cleanup()`, which is safe to call more than once:
+
+```c
+aribcc_decode_sequence_result_t result;
+if (aribcc_decoder_decode_sequence(decoder, pes, len, pts, &result)
+        == ARIBCC_DECODE_STATUS_GOT_CAPTION) {
+    for (size_t i = 0; i < result.caption_count; i++) {
+        /* present result.captions[i] at result.captions[i].pts */
+    }
+    aribcc_decoder_decode_sequence_cleanup(&result);
+}
+```
+
+The aggregated `Decoder::Decode()` / `aribcc_decoder_decode()` entry is unchanged and remains
+available for existing callers.
+
 ## Documents
 See the comments in [public headers](include/aribcaption), and [sample code with ffmpeg](test/ffmpeg)
 

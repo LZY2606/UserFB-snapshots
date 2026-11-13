@@ -205,6 +205,59 @@ ARIBCC_API aribcc_decode_status_t aribcc_decoder_decode(aribcc_decoder_t* decode
                                                         aribcc_caption_t* out_caption);
 
 /**
+ * Structure holding a time-ordered sequence of incremental caption fragments.
+ *
+ * Each element of @captions is an independent aribcc_caption_t that owns its own text,
+ * regions and DRCS map. The fragments are sorted by pts in ascending order and represent
+ * incremental drawing statements: a later fragment never repeats earlier characters.
+ *
+ * A fragment's wait_duration is the execution interval until the next fragment; it does not
+ * trigger an automatic screen clear. The last fragment (and any fragment without a following
+ * wait) has wait_duration == ARIBCC_DURATION_INDEFINITE. A fragment carrying only a clear
+ * screen has empty regions / NULL text.
+ *
+ * Release a result received from the decoder with
+ * @aribcc_decoder_decode_sequence_cleanup(), never by freeing members manually.
+ */
+typedef struct aribcc_decode_sequence_result_t {
+    aribcc_caption_t* captions;
+    size_t caption_count;
+} aribcc_decode_sequence_result_t;
+
+/**
+ * Decode caption PES data into a time-ordered sequence of incremental caption fragments.
+ *
+ * Mirrors the C++ Decoder::DecodeSequence(). On success every fragment owns independent
+ * copies of its text, region chars and DRCS data; nothing references the input PES buffer or
+ * decoder-internal objects.
+ *
+ * @param decoder     @aribcc_decoder_t
+ * @param pes_data    pointer pointed to PES data, must be non-null
+ * @param length      PES data length, must be greater than 0
+ * @param pts         PES packet PTS, in milliseconds; ARIBCC_PTS_NOPTS is preserved
+ * @param out_result  Parameter for writing back the fragment sequence, must be non-null.
+ *                    Zeroed on entry by the callee; release it with
+ *                    @aribcc_decoder_decode_sequence_cleanup().
+ * @return            ARIBCC_DECODE_STATUS_ERROR on failure (the result is left empty),
+ *                    ARIBCC_DECODE_STATUS_NO_CAPTION if nothing obtained,
+ *                    ARIBCC_DECODE_STATUS_GOT_CAPTION if got a sequence
+ */
+ARIBCC_API aribcc_decode_status_t aribcc_decoder_decode_sequence(aribcc_decoder_t* decoder,
+                                                                 const uint8_t* pes_data,
+                                                                 size_t length,
+                                                                 int64_t pts,
+                                                                 aribcc_decode_sequence_result_t* out_result);
+
+/**
+ * Release all dynamic-allocated fields of a decode sequence result.
+ *
+ * Frees every fragment's text, region char arrays, region array and DRCS map, plus the
+ * fragment array itself. Safe to call repeatedly on the same result; the structure is zeroed
+ * before returning. This function doesn't release the memory of the result structure itself.
+ */
+ARIBCC_API void aribcc_decoder_decode_sequence_cleanup(aribcc_decode_sequence_result_t* result);
+
+/**
  * Reset decoder internal states
  *
  * @param decoder  @aribcc_decoder_t

@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include "aribcc_export.h"
 #include "caption.hpp"
 #include "context.hpp"
@@ -99,6 +100,32 @@ enum class DecodeStatus {
  */
 struct DecodeResult {
     std::unique_ptr<Caption> caption;
+};
+
+/**
+ * Structure for holding a time-ordered sequence of incremental caption fragments.
+ *
+ * Every Caption inside @captions owns its own regions, text and DRCS data.
+ *
+ * Unlike the aggregated Caption returned by @Decoder::Decode(), each fragment here represents
+ * only the incremental drawing statements that become visible at a specific presentation time.
+ * A later fragment never repeats the characters already published by an earlier fragment.
+ *
+ * The fragments are sorted by Caption::pts in ascending order.
+ *
+ * A fragment's Caption::wait_duration is the execution interval (in milliseconds) between
+ * this fragment and the next one. It does NOT trigger an automatic screen clear: the picture
+ * stays on screen until an explicit clear screen (CS) instruction or until later content
+ * overwrites it. This differs from the aggregated Decode() presentation, whose wait_duration
+ * is the accumulated TIME value over the whole PES.
+ *
+ * The final fragment (and any fragment without a following TIME wait) has
+ * Caption::wait_duration set to @DURATION_INDEFINITE.
+ *
+ * A fragment that only carries a clear screen flag has empty regions and text.
+ */
+struct DecodeSequenceResult {
+    std::vector<std::unique_ptr<Caption>> captions;
 };
 
 /**
@@ -185,6 +212,34 @@ public:
      * @return           kError on failure, kNoCaption if nothing obtained, kGotCaption if got a caption
      */
     ARIBCC_API DecodeStatus Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result);
+
+    /**
+     * Decode caption PES data into a time-ordered sequence of incremental caption fragments.
+     *
+     * This entry shares the same statement parsing as @Decode(), but preserves the timing carried
+     * by TIME (0x9D 0x20 n) control instructions instead of accumulating every wait into a single
+     * Caption. On a positive TIME wait, all the text, regions and clear-screen flag produced since
+     * the previous cut are published as one fragment. The fragment's pts is the input pts plus the
+     * accumulated wait so far, and its wait_duration is the current wait value. If nothing visible
+     * changed, only the internal time is advanced and no empty fragment is produced. TIME 0 does not
+     * cut a fragment. Any content still unpublished at the end of the PES is emitted at the current
+     * accumulated time with wait_duration @DURATION_INDEFINITE.
+     *
+     * Cutting a fragment only drains the pending content: persistent decoding state such as the
+     * active position, graphic sets, colors and character size is not reset and keeps affecting
+     * later characters. Multiple data units inside one PES stay on a single time axis.
+     *
+     * On error (truncated instruction, malformed data unit, pts / wait overflow, ...) the function
+     * returns @kError and @out_result is left empty: no partial sequence is published.
+     *
+     * @param pes_data   pointer pointed to PES data, must be non-null
+     * @param length     PES data length, must be greater than 0
+     * @param pts        PES packet PTS, in milliseconds; @PTS_NOPTS is preserved and never used in arithmetic
+     * @param out_result Write back parameter for holding the fragment sequence, only populated on success
+     * @return           kError on failure, kNoCaption if nothing obtained, kGotCaption if got a sequence
+     */
+    ARIBCC_API DecodeStatus DecodeSequence(const uint8_t* pes_data, size_t length, int64_t pts,
+                                           DecodeSequenceResult& out_result);
 
     /**
      * Reset decoder internal states

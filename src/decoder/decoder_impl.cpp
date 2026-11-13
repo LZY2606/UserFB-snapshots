@@ -106,6 +106,103 @@ uint32_t DecoderImpl::QueryISO6392LanguageCode(LanguageId language_id) const {
 }
 
 DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result) {
+    return DecodeInternal(pes_data, length, pts, SequenceMode::kAggregate, &out_result, nullptr);
+}
+
+DecodeStatus DecoderImpl::DecodeSequence(const uint8_t* pes_data, size_t length, int64_t pts,
+                                         DecodeSequenceResult& out_result) {
+    out_result.captions.clear();
+    return DecodeInternal(pes_data, length, pts, SequenceMode::kSequence, nullptr, &out_result);
+}
+
+void DecoderImpl::BeginSequence(DecodeSequenceResult* out_result, int64_t pts) {
+    sequence_result_ = out_result;
+    sequence_base_pts_ = pts;
+    sequence_waited_ms_ = 0;
+}
+
+void DecoderImpl::FillCaptionCommonFields(Caption& caption) {
+    caption.type = static_cast<CaptionType>(type_);
+    caption.iso6392_language_code = current_iso6392_language_code_;
+    caption.plane_width = caption_plane_width_;
+    caption.plane_height = caption_plane_height_;
+    caption.has_builtin_sound = has_builtin_sound_;
+    caption.builtin_sound_id = builtin_sound_id_;
+}
+
+bool DecoderImpl::AdvanceSequenceTime(int64_t wait_ms) {
+    // PTS_NOPTS is a sentinel and must never take part in arithmetic, but the accumulated
+    // wait is still tracked so a wait overflow can be reported.
+    if (wait_ms > INT64_MAX - sequence_waited_ms_) {
+        log_->e("DecoderImpl: accumulated TIME wait overflows int64_t");
+        return false;
+    }
+    int64_t new_waited = sequence_waited_ms_ + wait_ms;
+    if (sequence_base_pts_ != PTS_NOPTS && new_waited > INT64_MAX - sequence_base_pts_) {
+        log_->e("DecoderImpl: fragment pts (base pts + accumulated wait) overflows int64_t");
+        return false;
+    }
+    sequence_waited_ms_ = new_waited;
+    return true;
+}
+
+bool DecoderImpl::PublishPendingFragment(int64_t wait_ms) {
+    // wait_ms > 0 : cut driven by a positive TIME wait, the fragment lasts wait_ms milliseconds
+    // wait_ms == 0: cut driven by CS at the same timestamp, the preceding content is superseded immediately
+    // wait_ms < 0 : final flush at the end of the PES, the duration is indefinite
+    bool has_display_change = caption_ &&
+                              (!caption_->regions.empty() ||
+                               caption_->flags != CaptionFlags::kCaptionFlagsDefault);
+
+    // Drain the pending caption regardless: a cut only removes unpublished content,
+    // the persistent decoder state (active position, codesets, colors, size) is untouched.
+    auto pending = std::move(caption_);
+    caption_ = std::make_unique<Caption>();
+
+    if (!has_display_change) {
+        // No visible change since the previous cut: advance the time axis without emitting
+        // an empty caption fragment.
+        return true;
+    }
+
+    auto fragment = std::make_unique<Caption>();
+    FillCaptionCommonFields(*fragment);
+    fragment->flags = pending->flags;
+    fragment->text = std::move(pending->text);
+    fragment->regions = std::move(pending->regions);
+    fragment->drcs_map = std::move(pending->drcs_map);
+
+    // waited_ms_ was validated by AdvanceSequenceTime() before this point.
+    fragment->pts = (sequence_base_pts_ == PTS_NOPTS) ? PTS_NOPTS
+                                                      : sequence_base_pts_ + sequence_waited_ms_;
+
+    if (wait_ms < 0) {
+        // Final fragment of the PES: end time is undetermined.
+        fragment->wait_duration = DURATION_INDEFINITE;
+    } else if (wait_ms > 0) {
+        fragment->wait_duration = wait_ms;
+        fragment->flags = static_cast<CaptionFlags>(fragment->flags |
+                                                    CaptionFlags::kCaptionFlagsWaitDuration);
+    } else {
+        // Immediate supersession by a CS at the same timestamp: no determined positive duration.
+        fragment->wait_duration = 0;
+    }
+
+    sequence_result_->captions.push_back(std::move(fragment));
+    return true;
+}
+
+void DecoderImpl::AbortSequence() {
+    if (sequence_result_) {
+        sequence_result_->captions.clear();
+    }
+    caption_.reset();
+}
+
+DecodeStatus DecoderImpl::DecodeInternal(const uint8_t* pes_data, size_t length, int64_t pts,
+                                         SequenceMode mode,
+                                         DecodeResult* agg_result,
+                                         DecodeSequenceResult* seq_result) {
     if (pes_data == nullptr) {
         log_->e("DecoderImpl: pes_data is nullptr");
         assert(pes_data != nullptr);
@@ -117,8 +214,11 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
         return DecodeStatus::kError;
     }
 
-    out_result.caption.reset();
+    if (mode == SequenceMode::kAggregate) {
+        agg_result->caption.reset();
+    }
     pts_ = pts;
+    sequence_mode_ = mode;
     const uint8_t* data = pes_data;
 
     uint8_t data_identifier = data[0];
@@ -165,6 +265,10 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
 
     caption_ = std::make_unique<Caption>();
 
+    if (mode == SequenceMode::kSequence) {
+        BeginSequence(seq_result, pts);
+    }
+
     if (dgi_id == 0) {
         // Caption management data
         if (dgi_group == prev_dgi_group_) {
@@ -193,17 +297,30 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
     }
 
     if (!ret) {
-        caption_.reset();
+        if (mode == SequenceMode::kSequence) {
+            // Never publish a half-built sequence
+            AbortSequence();
+        } else {
+            caption_.reset();
+        }
         return DecodeStatus::kError;
     }
 
+    if (mode == SequenceMode::kSequence) {
+        // Emit whatever is still unpublished at the end of the PES, with indefinite duration.
+        if (!PublishPendingFragment(-1)) {
+            AbortSequence();
+            return DecodeStatus::kError;
+        }
+
+        if (sequence_result_->captions.empty()) {
+            return DecodeStatus::kNoCaption;
+        }
+        return DecodeStatus::kGotCaption;
+    }
+
     if (!caption_->regions.empty() || caption_->flags) {
-        caption_->type = static_cast<CaptionType>(type_);
-        caption_->iso6392_language_code = current_iso6392_language_code_;
-        caption_->plane_width = caption_plane_width_;
-        caption_->plane_height = caption_plane_height_;
-        caption_->has_builtin_sound = has_builtin_sound_;
-        caption_->builtin_sound_id = builtin_sound_id_;
+        FillCaptionCommonFields(*caption_);
 
         caption_->pts = pts_;
 
@@ -211,7 +328,7 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
             caption_->wait_duration = DURATION_INDEFINITE;
         }
 
-        out_result.caption = std::move(caption_);
+        agg_result->caption = std::move(caption_);
         return DecodeStatus::kGotCaption;
     }
 
@@ -526,11 +643,17 @@ bool DecoderImpl::ParseDataUnit(const uint8_t* data, size_t length) {
         }
 
         if (data_unit_parameter == 0x20) {
-            ParseStatementBody(data + offset + 5, data_unit_size);
+            if (!ParseStatementBody(data + offset + 5, data_unit_size)) {
+                return false;
+            }
         } else if (data_unit_parameter == 0x30) {
-            ParseDRCS(data + offset + 5, data_unit_size, 1);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 1)) {
+                return false;
+            }
         } else if (data_unit_parameter == 0x31) {
-            ParseDRCS(data + offset + 5, data_unit_size, 2);
+            if (!ParseDRCS(data + offset + 5, data_unit_size, 2)) {
+                return false;
+            }
         }
 
         offset += 5 + data_unit_size;
@@ -788,7 +911,21 @@ bool DecoderImpl::HandleC0(const uint8_t* data, size_t remain_bytes, size_t* byt
             break;
         case C0::CS: { // Clear screen
             ResetInternalState();
-            caption_->flags = static_cast<CaptionFlags>(caption_->flags | CaptionFlags::kCaptionFlagsClearScreen);
+            if (sequence_mode_ == SequenceMode::kSequence) {
+                // Flush any content drawn before CS first, so the clear-screen flag can never
+                // leak back into an earlier fragment. CS only takes effect at its own moment.
+                if (!PublishPendingFragment(0)) {
+                    return false;
+                }
+                // Keep the flag on a fresh, otherwise empty pending caption; it will be carried
+                // by the next TIME cut or the final flush (possibly together with later content
+                // drawn at the same timestamp).
+                caption_->flags = static_cast<CaptionFlags>(caption_->flags |
+                                                            CaptionFlags::kCaptionFlagsClearScreen);
+            } else {
+                caption_->flags = static_cast<CaptionFlags>(caption_->flags |
+                                                            CaptionFlags::kCaptionFlagsClearScreen);
+            }
             bytes = 1;
             break;
         }
@@ -1074,9 +1211,20 @@ bool DecoderImpl::HandleC1(const uint8_t* data, size_t remain_bytes, size_t* byt
             if (remain_bytes < 3)
                 return false;
             if (data[1] == 0x20) {
-                uint8_t p2 = data[2] & 0b00111111;
-                caption_->wait_duration += static_cast<int64_t>(p2) * 100;
-                caption_->flags = static_cast<CaptionFlags>(caption_->flags | CaptionFlags::kCaptionFlagsWaitDuration);
+                int64_t wait_ms = static_cast<int64_t>(data[2] & 0b00111111) * 100;
+                if (sequence_mode_ == SequenceMode::kSequence) {
+                    if (wait_ms > 0) {
+                        // Publish everything drawn before this wait, then move the time axis.
+                        // TIME 0 neither cuts a fragment nor advances the accumulated wait.
+                        if (!PublishPendingFragment(wait_ms))
+                            return false;
+                        if (!AdvanceSequenceTime(wait_ms))
+                            return false;
+                    }
+                } else {
+                    caption_->wait_duration += wait_ms;
+                    caption_->flags = static_cast<CaptionFlags>(caption_->flags | CaptionFlags::kCaptionFlagsWaitDuration);
+                }
                 bytes = 3;
             } else if (data[1] == 0x28) {
                 // Not used according to ARIB TR-B14

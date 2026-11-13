@@ -25,6 +25,7 @@
 #include <initializer_list>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 #include "aribcaption/caption.hpp"
 #include "aribcaption/context.hpp"
 #include "aribcaption/decoder.hpp"
@@ -51,8 +52,28 @@ public:
     [[nodiscard]]
     uint32_t QueryISO6392LanguageCode(LanguageId language_id) const;
     DecodeStatus Decode(const uint8_t* pes_data, size_t length, int64_t pts, DecodeResult& out_result);
+    DecodeStatus DecodeSequence(const uint8_t* pes_data, size_t length, int64_t pts,
+                                DecodeSequenceResult& out_result);
     void Flush();
 private:
+    // Whether TIME waits are aggregated into one Caption or split into a fragment sequence
+    enum class SequenceMode {
+        kAggregate = 0,
+        kSequence = 1
+    };
+    DecodeStatus DecodeInternal(const uint8_t* pes_data, size_t length, int64_t pts,
+                                SequenceMode mode,
+                                DecodeResult* agg_result,
+                                DecodeSequenceResult* seq_result);
+    // Sequence-mode hooks, driven by the shared statement parser.
+    void BeginSequence(DecodeSequenceResult* out_result, int64_t pts);
+    // Publish everything currently pending in caption_ as one fragment, then reset the pending caption.
+    // wait_ms < 0 means this is the final flush (DURATION_INDEFINITE).
+    bool PublishPendingFragment(int64_t wait_ms);
+    // Stamp pts / plane / language fields that every emitted Caption shares.
+    void FillCaptionCommonFields(Caption& caption);
+    bool AdvanceSequenceTime(int64_t wait_ms);
+    void AbortSequence();
     auto DetectEncodingScheme() -> EncodingScheme;
     void ResetGraphicSets();
     void ResetWritingFormat();
@@ -167,6 +188,12 @@ private:
     uint8_t palette_ = 0;
     ColorRGBA text_color_;
     ColorRGBA back_color_;
+
+    // ---- DecodeSequence() state, only meaningful while sequence_mode_ == kSequence ----
+    SequenceMode sequence_mode_ = SequenceMode::kAggregate;
+    DecodeSequenceResult* sequence_result_ = nullptr;
+    int64_t sequence_base_pts_ = PTS_NOPTS;   // input pts of the current PES
+    int64_t sequence_waited_ms_ = 0;          // accumulated positive TIME waits inside the PES
 };
 
 }  // namespace aribcaption::internal
