@@ -1,0 +1,6 @@
+#include "rtweekend.h"
+#include "camera.h"
+#include "sphere.h"
+#include <sstream>
+#include <fstream>
+int main(){std::srand(12);dielectric glass(1.5);ray r(point3(0,0,2),vec3(0,0,-1));hit_record rec;rec.p=point3(0,0,1);rec.normal=vec3(0,0,1);rec.front_face=true;scatter_record sr;if(!glass.scatter(r,rec,sr)||!sr.skip_pdf||sr.pdf_ptr)return 1;std::cout<<"DELTA_GLASS skip_pdf=1 direction="<<sr.skip_pdf_ray.direction().z()<<"\n";hittable_list world,lights;world.add(make_shared<sphere>(point3(0,0,-1),0.5,make_shared<dielectric>(1.5)));world.add(make_shared<sphere>(point3(0,-100.5,-1),100,make_shared<lambertian>(color(0.5,0.5,0.5))));auto light=make_shared<sphere>(point3(0,3,-1),0.5,make_shared<diffuse_light>(color(4,4,4)));world.add(light);lights.add(light);camera cam;cam.image_width=8;cam.samples_per_pixel=4;cam.max_depth=4;cam.background=color(0.3,0.4,0.5);std::ostringstream image;auto*old=std::cout.rdbuf(image.rdbuf());cam.render(world,lights);std::cout.rdbuf(old);std::string ppm=image.str();std::istringstream in(ppm);std::string magic;int w,h,maxv;in>>magic>>w>>h>>maxv;int count=0,v;long total=0;while(in>>v){if(v<0||v>255)return 2;count++;total+=v;}if(magic!="P3"||w!=8||h!=8||count!=192||total<=0)return 3;std::ofstream(".build/baseline.ppm")<<ppm;std::cout<<"CAMERA_RENDER pixels=64 rgb_sum="<<total<<"\n";}
