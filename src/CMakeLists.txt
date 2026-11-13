@@ -28,6 +28,7 @@ set(CCD_INCLUDES
 
 set(CCD_SOURCES
   alloc.h
+  cast.c
   ccd.c
   dbg.h
   list.h

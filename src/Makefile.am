@@ -5,6 +5,7 @@ lib_LTLIBRARIES = libccd.la
 libccd_la_SOURCES = alloc.h \
 		ccd/compiler.h \
 		dbg.h \
+		cast.c \
 		ccd.c ccd/ccd.h \
 		ccd/ccd_export.h \
 		list.h \

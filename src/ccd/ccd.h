@@ -147,6 +147,77 @@ CCD_EXPORT int ccdMPRPenetration(const void *obj1, const void *obj2,
                                   const ccd_t *ccd, ccd_real_t *depth,
                                   ccd_vec3_t *dir, ccd_vec3_t *pos);
 
+/**
+ * Result of a continuous translation sweep (ccdGJKCast()).
+ */
+struct _ccd_cast_result_t {
+    ccd_real_t toi;       /*!< Time of impact, normalized to [0, 1]. */
+    ccd_vec3_t normal;    /*!< Unit separation normal, pointing from obj1
+                               towards obj2 at the time of impact. */
+    ccd_vec3_t point1;    /*!< Contact point on obj1 in world coordinates
+                               (includes obj1's own sweep displacement). */
+    ccd_vec3_t point2;    /*!< Contact point on obj2 in world coordinates
+                               (includes obj2's own sweep displacement). */
+};
+typedef struct _ccd_cast_result_t ccd_cast_result_t;
+
+/**
+ * Continuous collision query for two convex objects undergoing fixed-pose
+ * translation only. At time t the objects are positioned at their original
+ * pose plus t * delta1 and t * delta2 respectively, with t in the closed
+ * interval [0, 1]. Rotation and collision response are not handled.
+ *
+ * The query reuses the support1/support2 callbacks and opaque objects of
+ * the given ccd_t structure. The callbacks are always invoked with the
+ * original object pointers; neither the objects nor the ccd_t structure
+ * are modified. The swept shapes are handled internally by offsetting the
+ * support points returned by the original callbacks, so any convex shape
+ * with a support mapping (polytopes, spheres, capsules, cylinders, ...) is
+ * supported without tessellation.
+ *
+ * Return values:
+ *   0  first contact found, result is filled;
+ *   1  no contact anywhere on [0, 1], result is zeroed;
+ *  -1  invalid argument (NULL object/result, missing support callback,
+ *      non-finite displacement component or non-positive dist_tolerance);
+ *  -2  memory allocation failure;
+ *  -3  iteration did not converge.
+ *
+ * If the objects already intersect or touch at t = 0, the function returns
+ * 0 with toi = 0 and normal, point1 and point2 all zero; the caller is
+ * expected to resolve that configuration with ccdGJKPenetration() or
+ * ccdMPRPenetration().
+ *
+ * Algorithm and stopping conditions (all tolerances are world-space
+ * lengths and scale linearly with the scene):
+ *  - A GJK closest-point query computes the distance d(t) between the two
+ *    swept objects together with their witness points. The inner GJK stops
+ *    when either the support plane is within ccd.dist_tolerance of the
+ *    closest point or the closest-point distance itself no longer improves
+ *    by more than ccd.dist_tolerance, so the distance is accurate to about
+ *    one dist_tolerance. Duplicate support points and degenerate
+ *    simplices are handled by solving the closest-point barycentric system
+ *    over every subset of the simplex.
+ *  - The distance between two convex sets in relative linear motion is a
+ *    convex (hence unimodal) function of t, so golden section search over
+ *    [0, 1] locates its global minimum deterministically - no time samples
+ *    are taken and therefore even an arbitrarily short contact window
+ *    cannot be skipped. Contact is declared once the minimum gap is at most
+ *    ccd.dist_tolerance; bisection then refines the first time the gap
+ *    crosses that threshold, so the two reported witness points are at most
+ *    dist_tolerance apart.
+ *  - If the global minimum stays above ccd.dist_tolerance the whole
+ *    interval is provably free of contact and the function returns 1.
+ *    Exhausting ccd.max_iterations (counted as distance evaluations)
+ *    before either state is reached returns -3; running out of iterations
+ *    is never reported as "no contact".
+ */
+CCD_EXPORT int ccdGJKCast(const void *obj1, const void *obj2,
+                          const ccd_t *ccd,
+                          const ccd_vec3_t *delta1,
+                          const ccd_vec3_t *delta2,
+                          ccd_cast_result_t *result);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
