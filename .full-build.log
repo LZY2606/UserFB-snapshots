@@ -1,0 +1,115 @@
+[  4%] Building CXX object CMakeFiles/armips.dir/Archs/Architecture.cpp.o
+[  4%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/ArmExpressionFunctions.cpp.o
+[  4%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/Arm.cpp.o
+[  6%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/ArmElfRelocator.cpp.o
+[  7%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/ArmOpcodes.cpp.o
+[  9%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/ArmParser.cpp.o
+[ 10%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/CArmInstruction.cpp.o
+[ 12%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/CThumbInstruction.cpp.o
+[ 13%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/Pool.cpp.o
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/Archs/ARM/CArmInstruction.cpp:356:12: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  356 |                         Dest += sprintf(Dest,"%s",ArmConditions[Vars.Opcode.c]);
+      |                                 ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/Archs/ARM/CArmInstruction.cpp:366:13: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  366 |                                 Dest += sprintf(Dest,"%s",ArmAddressingModes[LdmModes[Vars.Opcode.a]]);
+      |                                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/Archs/ARM/CArmInstruction.cpp:368:13: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  368 |                                 Dest += sprintf(Dest,"%s",ArmAddressingModes[StmModes[Vars.Opcode.a]]);
+      |                                         ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/Archs/ARM/CArmInstruction.cpp:497:12: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  497 |         int pos = sprintf(str,"   %s",OpcodeName);
+      |                   ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+4 warnings generated.
+[ 15%] Building CXX object CMakeFiles/armips.dir/Archs/ARM/ThumbOpcodes.cpp.o
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/Archs/ARM/CThumbInstruction.cpp:373:12: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  373 |         int pos = sprintf(str,"   %s",Opcode.name);
+      |                   ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+[ 16%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/CMipsInstruction.cpp.o
+1 warning generated.
+[ 18%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/Mips.cpp.o
+[ 20%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsElfFile.cpp.o
+[ 21%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsExpressionFunctions.cpp.o
+[ 23%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsElfRelocator.cpp.o
+[ 24%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsMacros.cpp.o
+[ 26%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsOpcodes.cpp.o
+[ 27%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/MipsParser.cpp.o
+[ 29%] Building CXX object CMakeFiles/armips.dir/Archs/MIPS/PsxRelocator.cpp.o
+[ 32%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/SuperH.cpp.o
+[ 32%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/CShInstruction.cpp.o
+[ 33%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/ShParser.cpp.o
+[ 35%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/ShOpcodes.cpp.o
+[ 36%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/ShElfRelocator.cpp.o
+[ 38%] Building CXX object CMakeFiles/armips.dir/Archs/SuperH/ShExpressionFunctions.cpp.o
+[ 40%] Building CXX object CMakeFiles/armips.dir/Commands/CAssemblerCommand.cpp.o
+[ 41%] Building CXX object CMakeFiles/armips.dir/Commands/CAssemblerLabel.cpp.o
+[ 43%] Building CXX object CMakeFiles/armips.dir/Commands/CDirectiveArea.cpp.o
+[ 44%] Building CXX object CMakeFiles/armips.dir/Commands/CDirectiveConditional.cpp.o
+[ 46%] Building CXX object CMakeFiles/armips.dir/Commands/CDirectiveData.cpp.o
+[ 47%] Building CXX object CMakeFiles/armips.dir/Commands/CDirectiveFile.cpp.o
+[ 49%] Building CXX object CMakeFiles/armips.dir/Commands/CDirectiveMessage.cpp.o
+[ 50%] Building CXX object CMakeFiles/armips.dir/Commands/CommandSequence.cpp.o
+[ 52%] Building CXX object CMakeFiles/armips.dir/Core/ELF/ElfRelocator.cpp.o
+[ 53%] Building CXX object CMakeFiles/armips.dir/Core/ELF/ElfFile.cpp.o
+[ 55%] Building CXX object CMakeFiles/armips.dir/Core/Allocations.cpp.o
+[ 56%] Building CXX object CMakeFiles/armips.dir/Core/Assembler.cpp.o
+[ 58%] Building CXX object CMakeFiles/armips.dir/Core/Common.cpp.o
+[ 60%] Building CXX object CMakeFiles/armips.dir/Core/Expression.cpp.o
+[ 61%] Building CXX object CMakeFiles/armips.dir/Core/ExpressionFunctionHandler.cpp.o
+[ 63%] Building CXX object CMakeFiles/armips.dir/Core/ExpressionFunctions.cpp.o
+[ 64%] Building CXX object CMakeFiles/armips.dir/Core/FileManager.cpp.o
+[ 66%] Building CXX object CMakeFiles/armips.dir/Core/Misc.cpp.o
+[ 67%] Building CXX object CMakeFiles/armips.dir/Core/SymbolData.cpp.o
+[ 69%] Building CXX object CMakeFiles/armips.dir/Core/SymbolTable.cpp.o
+[ 70%] Building CXX object CMakeFiles/armips.dir/Core/Types.cpp.o
+[ 72%] Building CXX object CMakeFiles/armips.dir/Parser/DirectivesParser.cpp.o
+[ 73%] Building CXX object CMakeFiles/armips.dir/Parser/ExpressionParser.cpp.o
+[ 75%] Building CXX object CMakeFiles/armips.dir/Parser/Parser.cpp.o
+[ 76%] Building CXX object CMakeFiles/armips.dir/Parser/Tokenizer.cpp.o
+[ 78%] Building CXX object CMakeFiles/armips.dir/Util/ByteArray.cpp.o
+[ 80%] Building CXX object CMakeFiles/armips.dir/Util/CRC.cpp.o
+[ 81%] Building CXX object CMakeFiles/armips.dir/Util/EncodingTable.cpp.o
+[ 83%] Building CXX object CMakeFiles/armips.dir/Util/FileClasses.cpp.o
+[ 84%] Building CXX object CMakeFiles/armips.dir/Util/FileSystem.cpp.o
+[ 86%] Building CXX object CMakeFiles/armips.dir/Util/Util.cpp.o
+[ 87%] Linking CXX static library libarmips.a
+[ 87%] Built target armips
+[ 93%] Building CXX object CMakeFiles/armipstests.dir/Main/CommandLineInterface.cpp.o
+[ 93%] Building CXX object CMakeFiles/armips-bin.dir/Main/main.cpp.o
+[ 93%] Building CXX object CMakeFiles/armipstests.dir/Main/main.cpp.o
+[ 93%] Building CXX object CMakeFiles/armips-bin.dir/Main/CommandLineInterface.cpp.o
+[ 95%] Building CXX object CMakeFiles/armipstests.dir/Main/Tests.cpp.o
+[ 96%] Building CXX object CMakeFiles/armips-bin.dir/Main/Tests.cpp.o
+[ 98%] Linking CXX executable armips
+[100%] Linking CXX executable armipstests
+[100%] Built target armipstests
+[100%] Built target armips-bin

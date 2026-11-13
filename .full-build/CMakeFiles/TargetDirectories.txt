@@ -1,0 +1,10 @@
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/armips.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/armips-bin.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/armipstests.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/test.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.full-build/CMakeFiles/install/strip.dir

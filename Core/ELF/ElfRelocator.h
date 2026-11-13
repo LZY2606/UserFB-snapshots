@@ -3,7 +3,10 @@
 #include "Core/ELF/ElfFile.h"
 #include "Core/Types.h"
 
+#include <cstdint>
 #include <memory>
+#include <utility>
+#include <vector>
 
 struct ElfRelocatorCtor
 {
@@ -11,11 +14,50 @@ struct ElfRelocatorCtor
 	size_t size;
 };
 
+// Description of an interworking veneer that an architecture relocator needs
+// the driver to allocate space for. The entry address is filled in by the
+// driver once the veneer area has been laid out.
+struct RelocationVeneer
+{
+	uint32_t targetAddress = 0;		// final destination including the mode bit
+	int callerState = 0;			// instruction state of the call site: 0 = ARM, 1 = Thumb
+	int targetState = 0;			// instruction state of the final target
+};
+
+// A veneer that the driver has to place at the end of the current code area.
+struct RelocationVeneerReservation
+{
+	RelocationVeneer veneer;
+	int alignment;				// required entry alignment
+};
+
+enum class RelocationActionKind
+{
+	SetOpcode,			// patch a 32-bit value into the relocated code
+	WriteVeneer,		// write finished veneer bytes into the allocated veneer area
+};
+
 struct RelocationAction
 {
-	RelocationAction(int64_t offset, uint32_t newValue) : offset(offset), newValue(newValue) {}
+	// ordinary opcode patch, keeps the existing two-argument construction
+	RelocationAction(int64_t offset, uint32_t newValue)
+		: kind(RelocationActionKind::SetOpcode), offset(offset), newValue(newValue) {}
+
+	static RelocationAction writeVeneer(int64_t entryAddress, std::vector<uint8_t> bytes)
+	{
+		RelocationAction action;
+		action.kind = RelocationActionKind::WriteVeneer;
+		action.offset = entryAddress;
+		action.veneerBytes = std::move(bytes);
+		return action;
+	}
+
+	RelocationAction() : kind(RelocationActionKind::SetOpcode), offset(0), newValue(0) {}
+
+	RelocationActionKind kind;
 	int64_t offset;
 	uint32_t newValue;
+	std::vector<uint8_t> veneerBytes;
 };
 
 class CAssemblerCommand;
@@ -31,6 +73,24 @@ public:
 	virtual bool relocateOpcode(int type, const RelocationData& data, std::vector<RelocationAction>& actions, std::vector<std::string>& errors) = 0;
 	virtual bool finish(std::vector<RelocationAction>& actions, std::vector<std::string>& errors) { return true; }
 	virtual void setSymbolAddress(RelocationData& data, int64_t symbolAddress, int symbolType) = 0;
+
+	// called once before every relocation run so that architecture specific
+	// state does not accumulate across the assembler's validation passes
+	virtual void resetRelocationRun() { }
+
+	// returns the deduplicated veneers required by the processed relocations,
+	// in a deterministic placement order
+	virtual std::vector<RelocationVeneerReservation> planVeneers() { return {}; }
+
+	// exact size of a veneer at the given (already aligned) entry address
+	virtual size_t getVeneerSize(const RelocationVeneer& veneer, int64_t entryAddress) const { return 0; }
+
+	// entry addresses of the reservations returned by planVeneers(), same order
+	virtual void assignVeneerAddresses(const std::vector<int64_t>& addresses) { }
+
+	// emits the final branch patches and veneer contents now that all entry
+	// addresses are known
+	virtual bool emitVeneers(std::vector<RelocationAction>& actions, std::vector<std::string>& errors) { return true; }
 
 	virtual std::unique_ptr<CAssemblerCommand> generateCtorStub(std::vector<ElfRelocatorCtor>& ctors);
 };
@@ -66,6 +126,14 @@ struct ElfRelocatorFile
 	std::string name;
 };
 
+// section contents copied out of an input object while relocations are gathered
+struct ElfLoadedSection
+{
+	int64_t baseAddress;
+	ByteArray data;
+	bool isNoBits;
+};
+
 class ElfRelocator
 {
 public:
@@ -77,12 +145,16 @@ public:
 	bool hasDataChanged() { return dataChanged; };
 	const ByteArray& getData() const { return outputData; };
 private:
-	bool relocateFile(ElfRelocatorFile& file, int64_t& relocationAddress);
+	bool gatherFile(ElfRelocatorFile& file, int64_t& relocationAddress);
 	void loadRelocation(Elf32_Rela& rela, bool addend, ByteArray& data, int offset, Endianness endianness);
 
 	ByteArray outputData;
 	std::unique_ptr<IElfRelocator> relocator;
 	std::vector<ElfRelocatorFile> files;
 	std::vector<ElfRelocatorCtor> ctors;
+	std::vector<RelocationVeneerReservation> plannedVeneers;
+	std::vector<int64_t> veneerAddresses;
+	std::vector<RelocationAction> plannedActions;
+	std::vector<ElfLoadedSection> loadedSections;
 	bool dataChanged;
 };

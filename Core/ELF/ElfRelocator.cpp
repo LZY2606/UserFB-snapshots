@@ -288,10 +288,9 @@ void ElfRelocator::loadRelocation(Elf32_Rela& rela, bool addend, ByteArray& data
 		rela.r_addend = 0;
 }
 
-bool ElfRelocator::relocateFile(ElfRelocatorFile& file, int64_t& relocationAddress)
+bool ElfRelocator::gatherFile(ElfRelocatorFile& file, int64_t& relocationAddress)
 {
 	ElfFile* elf = file.elf;
-	int64_t start = relocationAddress;
 
 	// calculate address for each section
 	std::map<int64_t,int64_t> relocationOffsets;
@@ -308,129 +307,116 @@ bool ElfRelocator::relocateFile(ElfRelocatorFile& file, int64_t& relocationAddre
 			entry.label->setValue(relocationAddress);
 
 		relocationOffsets[index] = relocationAddress;
+
+		ElfLoadedSection loaded;
+		loaded.baseAddress = relocationAddress;
+		loaded.isNoBits = section->getType() == SHT_NOBITS;
+		loaded.data = loaded.isNoBits ? ByteArray() : section->getData();
+		loadedSections.push_back(std::move(loaded));
+
 		relocationAddress += size;
 	}
 
-	size_t dataStart = outputData.size();
-	outputData.reserveBytes((size_t)(relocationAddress-start));
-
-	// load sections
 	bool error = false;
 	for (ElfRelocatorSection& entry: file.sections)
 	{
-		ElfSection* section = entry.section;
-		size_t index = entry.index;
-
-		if (section->getType() == SHT_NOBITS)
-		{
-			// reserveBytes initialized the data to 0 already
-			continue;
-		}
-		
-		ByteArray sectionData = section->getData();
-
-		// relocate if necessary
 		ElfSection* relSection = entry.relSection;
-		if (relSection != nullptr)
+		if (relSection == nullptr)
+			continue;
+
+		// NOBITS sections occupy no file space, so relocations against them
+		// cannot be applied
+		if (entry.section->getType() == SHT_NOBITS)
+			continue;
+
+		size_t index = entry.index;
+		int64_t sectionBase = relocationOffsets[index];
+		bool isRela = relSection->getType() == SHT_RELA;
+		int structSize = isRela ? sizeof(Elf32_Rela) : sizeof(Elf32_Rel);
+
+		for (unsigned int relOffset = 0; relOffset < relSection->getSize(); relOffset += structSize)
 		{
-			bool isRela = relSection->getType() == SHT_RELA;
-			int structSize = isRela ? sizeof(Elf32_Rela) : sizeof(Elf32_Rel);
+			Elf32_Rela rela;
+			loadRelocation(rela, isRela, relSection->getData(), relOffset, elf->getEndianness());
+			int pos = rela.r_offset;
 
-			std::vector<RelocationAction> relocationActions;
-			for (unsigned int relOffset = 0; relOffset < relSection->getSize(); relOffset += structSize)
+			if (relocator->isDummyRelocationType(rela.getType()))
+				continue;
+
+			int symNum = rela.getSymbolNum();
+			if (symNum <= 0)
 			{
-				Elf32_Rela rela;
-				loadRelocation(rela, isRela, relSection->getData(), relOffset, elf->getEndianness());
-				int pos = rela.r_offset;
-
-				if (relocator->isDummyRelocationType(rela.getType()))
-					continue;
-
-				int symNum = rela.getSymbolNum();
-				if (symNum <= 0)
-				{
-					Logger::queueError(Logger::Warning, "Invalid symbol num %06X",symNum);
-					error = true;
-					continue;
-				}
-
-				Elf32_Sym sym;
-				elf->getSymbol(sym, symNum);
-				int symSection = sym.st_shndx;
-				
-				RelocationData relData;
-				relData.opcode = sectionData.getDoubleWord(pos, elf->getEndianness());
-				relData.opcodeOffset = pos+relocationOffsets[index];
-				relData.addend = rela.r_addend;
-				relocator->setSymbolAddress(relData,sym.st_value,sym.st_info & 0xF);
-
-				// externs?
-				if (sym.st_shndx == 0)
-				{
-					if (sym.st_name == 0)
-					{
-						Logger::queueError(Logger::Error, "Symbol without a name");
-						error = true;
-						continue;
-					}
-
-					std::string symName = toLowercase(elf->getStrTableString(sym.st_name));
-
-					std::shared_ptr<Label> label = Global.symbolTable.getLabel(Identifier(symName),-1,-1);
-					if (label == nullptr)
-					{
-						Logger::queueError(Logger::Error, "Invalid external symbol %s",symName);
-						error = true;
-						continue;
-					}
-					if (!label->isDefined())
-					{
-						Logger::queueError(Logger::Error, "Undefined external symbol %s in file %s",symName,file.name);
-						error = true;
-						continue;
-					}
-					
-					relData.relocationBase = (unsigned int) label->getValue();
-					relData.targetSymbolType = label->isData() ? STT_OBJECT : STT_FUNC;
-					relData.targetSymbolInfo = label->getInfo();
-				} else {
-					relData.relocationBase = relocationOffsets[symSection]+relData.symbolAddress;
-				}
-
-				std::vector<std::string> errors;
-				if (!relocator->relocateOpcode(rela.getType(), relData, relocationActions, errors))
-				{
-					for (const std::string& error : errors)
-					{
-						Logger::queueError(Logger::Error, error);
-					}
-					error = true;
-					continue;
-				}
+				Logger::queueError(Logger::Warning, "Invalid symbol num %06X",symNum);
+				error = true;
+				continue;
 			}
 
-			// finish any dangling relocations
+			Elf32_Sym sym;
+			elf->getSymbol(sym, symNum);
+
+			RelocationData relData;
+			relData.opcode = entry.section->getData().getDoubleWord(pos, elf->getEndianness());
+			relData.opcodeOffset = pos+sectionBase;
+			relData.addend = rela.r_addend;
+			relocator->setSymbolAddress(relData,sym.st_value,sym.st_info & 0xF);
+
+			// externs?
+			if (sym.st_shndx == 0)
+			{
+				if (sym.st_name == 0)
+				{
+					Logger::queueError(Logger::Error, "Symbol without a name");
+					error = true;
+					continue;
+				}
+
+				std::string symName = toLowercase(elf->getStrTableString(sym.st_name));
+
+				std::shared_ptr<Label> label = Global.symbolTable.getLabel(Identifier(symName),-1,-1);
+				if (label == nullptr)
+				{
+					Logger::queueError(Logger::Error, "Invalid external symbol %s",symName);
+					error = true;
+					continue;
+				}
+				if (!label->isDefined())
+				{
+					Logger::queueError(Logger::Error, "Undefined external symbol %s in file %s",symName,file.name);
+					error = true;
+					continue;
+				}
+
+				relData.relocationBase = (unsigned int) label->getValue();
+				relData.targetSymbolType = label->isData() ? STT_OBJECT : STT_FUNC;
+				relData.targetSymbolInfo = label->getInfo();
+			} else {
+				relData.relocationBase = relocationOffsets[sym.st_shndx]+relData.symbolAddress;
+			}
+
 			std::vector<std::string> errors;
-			if (!relocator->finish(relocationActions, errors))
+			if (!relocator->relocateOpcode(rela.getType(), relData, plannedActions, errors))
 			{
 				for (const std::string& error : errors)
 				{
 					Logger::queueError(Logger::Error, error);
 				}
 				error = true;
-			}
-
-			// now actually write the relocated values
-			for (const RelocationAction& action : relocationActions)
-			{
-				sectionData.replaceDoubleWord(action.offset-relocationOffsets[index], action.newValue, elf->getEndianness());
+				continue;
 			}
 		}
 
-		size_t arrayStart = (size_t) (dataStart+relocationOffsets[index]-start);
-		memcpy(outputData.data(arrayStart),sectionData.data(),sectionData.size());
+		// finish any dangling relocations (e.g. MIPS HI16 entries)
+		std::vector<std::string> errors;
+		if (!relocator->finish(plannedActions, errors))
+		{
+			for (const std::string& error : errors)
+			{
+				Logger::queueError(Logger::Error, error);
+			}
+			error = true;
+		}
 	}
-	
+
 	// now update symbols
 	for (ElfRelocatorSymbol& sym: file.symbols)
 	{
@@ -442,16 +428,11 @@ bool ElfRelocator::relocateFile(ElfRelocatorFile& file, int64_t& relocationAddre
 			sym.relocatedAddress = sym.relativeAddress;
 			break;
 		case SHN_COMMON:	// needs to be allocated. relativeAddress gives alignment constraint
-			{
-				int64_t start = relocationAddress;
+			while (relocationAddress % sym.relativeAddress)
+				relocationAddress++;
 
-				while (relocationAddress % sym.relativeAddress)
-					relocationAddress++;
-
-				sym.relocatedAddress = relocationAddress;
-				relocationAddress += sym.size;
-				outputData.reserveBytes((size_t)(relocationAddress-start));
-			}
+			sym.relocatedAddress = relocationAddress;
+			relocationAddress += sym.size;
 			break;
 		default:			// normal relocated symbol
 			sym.relocatedAddress = sym.relativeAddress+relocationOffsets[sym.section];
@@ -473,16 +454,104 @@ bool ElfRelocator::relocate(int64_t& memoryAddress)
 	int oldCrc = getCrc32(outputData.data(),outputData.size());
 	outputData.clear();
 	dataChanged = false;
+	plannedActions.clear();
+	loadedSections.clear();
+	relocator->resetRelocationRun();
 
 	bool error = false;
 	int64_t start = memoryAddress;
 
 	for (ElfRelocatorFile& file: files)
 	{
-		if (!relocateFile(file,memoryAddress))
+		if (!gatherFile(file,memoryAddress))
 			error = true;
 	}
-	
+
+	// lay out the interworking veneers at the end of the import code area
+	plannedVeneers = relocator->planVeneers();
+	veneerAddresses.clear();
+	bool veneerLayoutError = false;
+	for (const RelocationVeneerReservation& reservation: plannedVeneers)
+	{
+		while (memoryAddress % reservation.alignment)
+			memoryAddress++;
+
+		if (memoryAddress > 0xFFFFFFFF)
+		{
+			Logger::queueError(Logger::Error, "Interworking veneer overflows the 32 bit address space");
+			error = true;
+			veneerLayoutError = true;
+			break;
+		}
+
+		veneerAddresses.push_back(memoryAddress);
+		memoryAddress += relocator->getVeneerSize(reservation.veneer, memoryAddress);
+	}
+	relocator->assignVeneerAddresses(veneerAddresses);
+
+	// the relocator can now emit the final branch patches and veneer contents.
+	// skip it when the layout itself failed, otherwise the relocator could index
+	// past the partially assigned veneer address list
+	if (!veneerLayoutError)
+	{
+		std::vector<std::string> veneerErrors;
+		if (!relocator->emitVeneers(plannedActions, veneerErrors))
+		{
+			for (const std::string& error : veneerErrors)
+			{
+				Logger::queueError(Logger::Error, error);
+			}
+			error = true;
+		}
+	}
+
+	size_t dataStart = outputData.size();
+	outputData.reserveBytes((size_t)(memoryAddress-start));
+
+	// apply the relocation actions. Ordinary patches go back into the section
+	// they belong to, veneer contents go into the generated veneer area.
+	for (const RelocationAction& action: plannedActions)
+	{
+		if (action.kind == RelocationActionKind::WriteVeneer)
+		{
+			if (!action.veneerBytes.empty())
+				memcpy(outputData.data(dataStart+(size_t)(action.offset-start)),action.veneerBytes.data(),action.veneerBytes.size());
+			continue;
+		}
+
+		bool applied = false;
+		for (ElfLoadedSection& loaded: loadedSections)
+		{
+			if (loaded.isNoBits)
+				continue;
+
+			int64_t sectionOffset = action.offset - loaded.baseAddress;
+			if (sectionOffset < 0 || (uint64_t) sectionOffset+4 > loaded.data.size())
+				continue;
+
+			loaded.data.replaceDoubleWord((size_t) sectionOffset, action.newValue,
+				Architecture::current().getEndianness());
+			applied = true;
+			break;
+		}
+
+		if (!applied)
+		{
+			Logger::queueError(Logger::Error, "Relocation action does not belong to any section");
+			error = true;
+		}
+	}
+
+	// copy the (possibly patched) sections into the output
+	for (const ElfLoadedSection& loaded: loadedSections)
+	{
+		if (loaded.isNoBits)
+			continue;	// reserveBytes initialized the data to 0 already
+
+		size_t arrayStart = (size_t) (dataStart+loaded.baseAddress-start);
+		memcpy(outputData.data(arrayStart),loaded.data.data(),loaded.data.size());
+	}
+
 	int newCrc = getCrc32(outputData.data(),outputData.size());
 	if (oldCrc != newCrc)
 		dataChanged = true;

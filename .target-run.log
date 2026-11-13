@@ -1,0 +1,14 @@
+PASS arm_to_thumb_gba
+PASS thumb_to_arm_gba
+PASS thumb_halfword_aligned_call_site
+PASS thumb_halfword_aligned_direct_bl
+PASS conditional_arm_call
+PASS tail_jump_arm_to_thumb
+PASS share_and_isolate
+PASS direct_encoding_unchanged
+PASS arm9_direct_blx_retained
+PASS abs32_keeps_mode_bit
+PASS multipass_stable
+PASS relocator_veneer_cycle_idempotent
+PASS error_cases
+CASES=13 ASSERTIONS=101

@@ -1,0 +1,3 @@
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.offline-build/CMakeFiles/armips.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.offline-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Y1055/attempts/20261113T180135435399Z/repo/.offline-build/CMakeFiles/rebuild_cache.dir
