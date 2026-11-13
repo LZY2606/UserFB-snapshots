@@ -5,13 +5,15 @@
 
 #define strneq(a,b,n) (strncmp(a,b,n)==0)
 
+static void set_active_hyperlink(VTermState *state, uint64_t id);
+
 #if defined(DEBUG) && DEBUG > 1
 # define DEBUG_GLYPH_COMBINE
 #endif
 
 /* Some convenient wrappers to make callback functions easier */
 
-static void putglyph(VTermState *state, const uint32_t chars[], int width, VTermPos pos)
+static void putglyph(VTermState *state, const uint32_t chars[], int width, VTermPos pos, uint64_t hyperlink_id)
 {
   VTermGlyphInfo info = {
     .chars = chars,
@@ -19,6 +21,7 @@ static void putglyph(VTermState *state, const uint32_t chars[], int width, VTerm
     .protected_cell = state->protected_cell,
     .dwl = state->lineinfo[pos.row].doublewidth,
     .dhl = state->lineinfo[pos.row].doubleheight,
+    .hyperlink_id = hyperlink_id,
   };
 
   if(state->callbacks && state->callbacks->putglyph)
@@ -102,6 +105,7 @@ static VTermState *vterm_state_new(VTerm *vt)
 
 INTERNAL void vterm_state_free(VTermState *state)
 {
+  set_active_hyperlink(state, 0);
   vterm_allocator_free(state->vt, state->tabstops);
   vterm_allocator_free(state->vt, state->lineinfos[BUFIDX_PRIMARY]);
   if(state->lineinfos[BUFIDX_ALTSCREEN])
@@ -364,8 +368,9 @@ static int on_text(const char bytes[], size_t len, void *user)
       printf("}\n");
 #endif
 
-      /* Now render it */
-      putglyph(state, state->combine_chars, state->combine_width, state->combine_pos);
+      /* Now render it; the glyph keeps the link it was first written with,
+       * even if the pen's active link has changed since */
+      putglyph(state, state->combine_chars, state->combine_width, state->combine_pos, state->combine_hyperlink_id);
     }
     else {
       DEBUG_LOG("libvterm: TODO: Skip over split char+combining\n");
@@ -433,7 +438,7 @@ static int on_text(const char bytes[], size_t len, void *user)
       scroll(state, rect, 0, -1);
     }
 
-    putglyph(state, chars, width, state->pos);
+    putglyph(state, chars, width, state->pos, state->hyperlink_id);
 
     if(i == npoints - 1) {
       /* End of the buffer. Save the chars in case we have to combine with
@@ -449,6 +454,7 @@ static int on_text(const char bytes[], size_t len, void *user)
       state->combine_chars[save_i] = 0;
       state->combine_width = width;
       state->combine_pos = state->pos;
+      state->combine_hyperlink_id = state->hyperlink_id;
     }
 
     if(state->pos.col + width >= THISROWWIDTH(state)) {
@@ -677,7 +683,7 @@ static int on_escape(const char *bytes, size_t len, void *user)
         uint32_t E[] = { 'E', 0 };
         for(pos.row = 0; pos.row < state->rows; pos.row++)
           for(pos.col = 0; pos.col < ROWWIDTH(state, pos.row); pos.col++)
-            putglyph(state, E, 1, pos);
+            putglyph(state, E, 1, pos, state->hyperlink_id);
         break;
       }
 
@@ -1263,7 +1269,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
     col = state->pos.col + count;
     UBOUND(col, row_width);
     while (state->pos.col < col) {
-      putglyph(state, state->combine_chars, state->combine_width, state->pos);
+      putglyph(state, state->combine_chars, state->combine_width, state->pos, state->hyperlink_id);
       state->pos.col += state->combine_width;
     }
     if (state->pos.col + state->combine_width >= row_width) {
@@ -1802,6 +1808,94 @@ static void osc_selection(VTermState *state, VTermStringFragment frag)
   }
 }
 
+/* Replaces the active pen hyperlink, moving the internal reference from the
+ * old identity to the new one. The new reference is taken before the old one
+ * is dropped so a no-change reassignment cannot transiently free the entry. */
+static void set_active_hyperlink(VTermState *state, uint64_t id)
+{
+  if(id == state->hyperlink_id)
+    return;
+
+  vterm_hyperlink_retain_internal(state->vt, id);
+  vterm_hyperlink_release_internal(state->vt, state->hyperlink_id);
+  state->hyperlink_id = id;
+}
+
+/* OSC 8 ; params ; URI  - hyperlinks
+ *
+ * The string may arrive in any number of fragments; the active link is only
+ * replaced once the string terminates normally. Aborted (CAN/SUB/ESC),
+ * overlong, NUL-containing or separator-less strings leave the previous link
+ * untouched.
+ */
+static void osc8_apply(VTermState *state, const char *buf, size_t len)
+{
+  const char *semi = memchr(buf, ';', len);
+  if(!semi)
+    /* No params/URI separator - not a well-formed OSC 8 */
+    return;
+
+  size_t params_len = semi - buf;
+  const char *uri   = semi + 1;
+  size_t uri_len    = len - params_len - 1;
+
+  if(!uri_len) {
+    /* Empty URI closes the current link */
+    set_active_hyperlink(state, 0);
+    return;
+  }
+
+  /* Params are ':'-separated; only the first id= is of interest */
+  const char *ext_id     = NULL;
+  size_t      ext_id_len = 0;
+  {
+    const char *p    = buf;
+    const char *end  = buf + params_len;
+    while(p < end) {
+      const char *colon = memchr(p, ':', end - p);
+      size_t plen = colon ? (size_t)(colon - p) : (size_t)(end - p);
+      if(plen >= 3 && p[0] == 'i' && p[1] == 'd' && p[2] == '=') {
+        ext_id     = p + 3;
+        ext_id_len = plen - 3;
+        break;
+      }
+      p += plen + 1;
+    }
+  }
+
+  uint64_t id = vterm_hyperlink_intern(state->vt,
+      ext_id ? ext_id : "", ext_id_len, uri, uri_len);
+  set_active_hyperlink(state, id);
+}
+
+static void osc8_fragment(VTermState *state, VTermStringFragment frag)
+{
+  if(frag.initial) {
+    state->osc8.len = 0;
+    state->osc8.discard = 0;
+  }
+
+  if(!state->osc8.discard) {
+    if(state->osc8.len + frag.len > sizeof(state->osc8.buf)) {
+      /* params + URI would exceed the limit; drop the rest of this string */
+      state->osc8.discard = 1;
+    }
+    else {
+      memcpy(state->osc8.buf + state->osc8.len, frag.str, frag.len);
+      state->osc8.len += frag.len;
+    }
+  }
+
+  if(!frag.final)
+    return;
+
+  if(!state->osc8.discard && !state->vt->parser.string_had_nul)
+    osc8_apply(state, state->osc8.buf, state->osc8.len);
+
+  state->osc8.len = 0;
+  state->osc8.discard = 0;
+}
+
 static int on_osc(int command, VTermStringFragment frag, void *user)
 {
   VTermState *state = user;
@@ -1818,6 +1912,10 @@ static int on_osc(int command, VTermStringFragment frag, void *user)
 
     case 2:
       settermprop_string(state, VTERM_PROP_TITLE, frag);
+      return 1;
+
+    case 8:
+      osc8_fragment(state, frag);
       return 1;
 
     case 52:
@@ -2148,6 +2246,12 @@ void vterm_state_reset(VTermState *state, int hard)
   state->gsingle_set = 0;
 
   state->protected_cell = 0;
+
+  /* Both soft (DECSTR) and hard (RIS) terminal resets close the active
+   * hyperlink; SGR reset and cursor save/restore do not */
+  set_active_hyperlink(state, 0);
+  state->osc8.len = 0;
+  state->osc8.discard = 0;
 
   // Initialise the props
   settermprop_bool(state, VTERM_PROP_CURSORVISIBLE, 1);

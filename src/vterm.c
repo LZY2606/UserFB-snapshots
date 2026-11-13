@@ -78,6 +78,9 @@ VTerm *vterm_build(const struct VTermBuilder *builder)
   vt->tmpbuffer_len = DEFAULT(builder->tmpbuffer_len, 4096);
   vt->tmpbuffer = vterm_allocator_malloc(vt, vt->tmpbuffer_len);
 
+  vt->hyperlinks.entries = NULL;
+  vt->hyperlinks.next_id = 1;
+
   return vt;
 }
 
@@ -88,6 +91,11 @@ void vterm_free(VTerm *vt)
 
   if(vt->state)
     vterm_state_free(vt->state);
+
+  /* By now all internal references are gone; callers were required to
+   * release their external references too, but reclaim anything left so the
+   * URI/id storage is never leaked */
+  vterm_hyperlink_destroy_all(vt);
 
   vterm_allocator_free(vt, vt->outbuffer);
   vterm_allocator_free(vt, vt->tmpbuffer);

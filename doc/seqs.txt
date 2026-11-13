@@ -145,6 +145,9 @@ x = xterm
    x   OSC 0;           = Set icon name and title
    x   OSC 1;           = Set icon name
    x   OSC 2;           = Set title
+   x   OSC 8;params;URI = Hyperlink (params ':'-separated, only id= used;
+                         empty URI closes; stored per cell as a uint64_t
+                         identity, see vterm_hyperlink_get/retain/release)
    x   OSC 52;          = Selection management
 
     Standard modes

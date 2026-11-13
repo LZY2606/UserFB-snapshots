@@ -32,6 +32,12 @@ typedef struct
   unsigned int protected_cell : 1;
   unsigned int dwl            : 1; /* on a DECDWL or DECDHL line */
   unsigned int dhl            : 2; /* on a DECDHL line (1=top 2=bottom) */
+
+  /* OSC 8 hyperlink identity stored in the cell; 0 = none. Each cell holding
+   * a nonzero identity owns one internal reference to it. The pen's own copy
+   * is always 0 because the active link arrives via VTermGlyphInfo, not via
+   * pen attributes */
+  uint64_t hyperlink_id;
 } ScreenPen;
 
 /* Internal representation of a screen cell */
@@ -78,6 +84,32 @@ static inline void clearcell(const VTermScreen *screen, ScreenCell *cell)
 {
   cell->chars[0] = 0;
   cell->pen = screen->pen;
+  /* Freshly-cleared cells never carry a hyperlink, even if the pen does */
+  cell->pen.hyperlink_id = 0;
+}
+
+/* Adjust hyperlink references for a range of cells */
+static void link_retain_range(const VTermScreen *screen, const ScreenCell *cells, size_t n)
+{
+  for(size_t i = 0; i < n; i++)
+    vterm_hyperlink_retain_internal(screen->vt, cells[i].pen.hyperlink_id);
+}
+
+static void link_release_range(const VTermScreen *screen, ScreenCell *cells, size_t n)
+{
+  for(size_t i = 0; i < n; i++)
+    vterm_hyperlink_release_internal(screen->vt, cells[i].pen.hyperlink_id);
+}
+
+/* memmove() of cells that keeps hyperlink references correct: the copies in
+ * the destination each need a new reference (taken from the source before
+ * anything is dropped, so overlapping ranges can't free an entry early) and
+ * the overwritten destination cells each lose one */
+static void move_cells(const VTermScreen *screen, ScreenCell *dest, const ScreenCell *src, size_t n)
+{
+  link_retain_range(screen, src, n);
+  link_release_range(screen, dest, n);
+  memmove(dest, src, n * sizeof(ScreenCell));
 }
 
 static inline ScreenCell *getcell(const VTermScreen *screen, int row, int col)
@@ -179,6 +211,11 @@ static int putglyph(VTermGlyphInfo *info, VTermPos pos, void *user)
   if(!cell)
     return 0;
 
+  /* Take the cell's new link before dropping its old one, so rewriting a
+   * cell with the same identity can't transiently free the entry */
+  vterm_hyperlink_retain_internal(screen->vt, info->hyperlink_id);
+  vterm_hyperlink_release_internal(screen->vt, cell->pen.hyperlink_id);
+
   int i;
   for(i = 0; i < VTERM_MAX_CHARS_PER_CELL && info->chars[i]; i++) {
     cell->chars[i] = info->chars[i];
@@ -187,8 +224,18 @@ static int putglyph(VTermGlyphInfo *info, VTermPos pos, void *user)
   if(i < VTERM_MAX_CHARS_PER_CELL)
     cell->chars[i] = 0;
 
-  for(int col = 1; col < info->width; col++)
-    getcell(screen, pos.row, pos.col + col)->chars[0] = (uint32_t)-1;
+  cell->pen.hyperlink_id = info->hyperlink_id;
+
+  for(int col = 1; col < info->width; col++) {
+    /* The trailing cells of a wide glyph belong to the same link */
+    ScreenCell *tail = getcell(screen, pos.row, pos.col + col);
+    if(!tail)
+      continue;
+    vterm_hyperlink_retain_internal(screen->vt, info->hyperlink_id);
+    vterm_hyperlink_release_internal(screen->vt, tail->pen.hyperlink_id);
+    tail->chars[0] = (uint32_t)-1;
+    tail->pen.hyperlink_id = info->hyperlink_id;
+  }
 
   VTermRect rect = {
     .start_row = pos.row,
@@ -256,9 +303,10 @@ static int moverect_internal(VTermRect dest, VTermRect src, void *user)
   }
 
   for(int row = init_row; row != test_row; row += inc_row)
-    memmove(getcell(screen, row, dest.start_col),
-            getcell(screen, row + downward, src.start_col),
-            cols * sizeof(ScreenCell));
+    move_cells(screen,
+               getcell(screen, row, dest.start_col),
+               getcell(screen, row + downward, src.start_col),
+               cols);
 
   return 1;
 }
@@ -293,6 +341,8 @@ static int erase_internal(VTermRect rect, int selective, void *user)
 
       if(selective && cell->pen.protected_cell)
         continue;
+
+      vterm_hyperlink_release_internal(screen->vt, cell->pen.hyperlink_id);
 
       cell->chars[0] = 0;
       cell->pen = (ScreenPen){
@@ -589,7 +639,7 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
       fprintf(stderr, "  scroll %d rows +%d downwards\n", rowcount, downwards);
 #endif
 
-      memmove(&new_buffer[downwards * new_cols], &new_buffer[0],   rowcount * new_cols * sizeof(ScreenCell));
+      move_cells(screen, &new_buffer[downwards * new_cols], &new_buffer[0], rowcount * new_cols);
       memmove(&new_lineinfo[downwards],          &new_lineinfo[0], rowcount            * sizeof(new_lineinfo[0]));
 
       new_row += downwards;
@@ -626,6 +676,8 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
       while(count) {
         /* TODO: This could surely be done a lot faster by memcpy()'ing the entire range */
         new_buffer[new_row * new_cols + new_col] = old_buffer[old_row * old_cols + old_col];
+        /* The copy in the new buffer owns its own reference */
+        vterm_hyperlink_retain_internal(screen->vt, new_buffer[new_row * new_cols + new_col].pen.hyperlink_id);
 
         if(old_cursor.row == old_row && old_cursor.col == old_col)
           new_cursor.row = new_row, new_cursor.col = new_col;
@@ -720,8 +772,15 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         dst->pen.fg = src->fg;
         dst->pen.bg = src->bg;
 
-        if(src->width == 2 && pos.col < (new_cols-1))
+        /* The screen takes its own internal reference for the accepted cell */
+        dst->pen.hyperlink_id = src->hyperlink_id;
+        vterm_hyperlink_retain_internal(screen->vt, src->hyperlink_id);
+
+        if(src->width == 2 && pos.col < (new_cols-1)) {
           (dst + 1)->chars[0] = (uint32_t) -1;
+          (dst + 1)->pen.hyperlink_id = src->hyperlink_id;
+          vterm_hyperlink_retain_internal(screen->vt, src->hyperlink_id);
+        }
       }
       for( ; pos.col < new_cols; pos.col++)
         clearcell(screen, &new_buffer[pos.row * new_cols + pos.col]);
@@ -734,18 +793,22 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
   if(new_row >= 0) {
     /* Scroll new rows back up to the top and fill in blanks at the bottom */
     int moverows = new_rows - new_row - 1;
-    memmove(&new_buffer[0], &new_buffer[(new_row + 1) * new_cols], moverows * new_cols * sizeof(ScreenCell));
+    move_cells(screen, &new_buffer[0], &new_buffer[(new_row + 1) * new_cols], moverows * new_cols);
     memmove(&new_lineinfo[0], &new_lineinfo[new_row + 1], moverows * sizeof(new_lineinfo[0]));
 
     new_cursor.row -= (new_row + 1);
 
     for(new_row = moverows; new_row < new_rows; new_row++) {
+      /* These rows still hold stale copies of the moved content */
+      link_release_range(screen, &new_buffer[new_row * new_cols], new_cols);
       for(int col = 0; col < new_cols; col++)
         clearcell(screen, &new_buffer[new_row * new_cols + col]);
       new_lineinfo[new_row] = (VTermLineInfo){ 0 };
     }
   }
 
+  /* Every reference held by the old buffer dies with it */
+  link_release_range(screen, old_buffer, (size_t)old_rows * old_cols);
   vterm_allocator_free(screen->vt, old_buffer);
   screen->buffers[bufidx] = new_buffer;
 
@@ -908,9 +971,13 @@ static VTermScreen *screen_new(VTerm *vt)
 
 INTERNAL void vterm_screen_free(VTermScreen *screen)
 {
-  vterm_allocator_free(screen->vt, screen->buffers[BUFIDX_PRIMARY]);
-  if(screen->buffers[BUFIDX_ALTSCREEN])
-    vterm_allocator_free(screen->vt, screen->buffers[BUFIDX_ALTSCREEN]);
+  for(int bufidx = BUFIDX_PRIMARY; bufidx <= BUFIDX_ALTSCREEN; bufidx++) {
+    if(!screen->buffers[bufidx])
+      continue;
+    /* Drop every internal hyperlink reference held by the buffer's cells */
+    link_release_range(screen, screen->buffers[bufidx], (size_t)screen->rows * screen->cols);
+    vterm_allocator_free(screen->vt, screen->buffers[bufidx]);
+  }
 
   vterm_allocator_free(screen->vt, screen->sb_buffer);
 
@@ -1014,6 +1081,9 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
 
   cell->fg = intcell->pen.fg;
   cell->bg = intcell->pen.bg;
+
+  /* Borrowed identity - no reference is taken for the caller */
+  cell->hyperlink_id = intcell->pen.hyperlink_id;
 
   if(pos.col < (screen->cols - 1) &&
      getcell(screen, pos.row, pos.col + 1)->chars[0] == (uint32_t)-1)

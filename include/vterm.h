@@ -295,6 +295,7 @@ typedef struct {
   unsigned int    protected_cell:1;  /* DECSCA-protected against DECSEL/DECSED */
   unsigned int    dwl:1;             /* DECDWL or DECDHL double-width line */
   unsigned int    dhl:2;             /* DECDHL double-height line (1=top 2=bottom) */
+  uint64_t        hyperlink_id;      /* OSC 8 hyperlink identity; 0 = none */
 } VTermGlyphInfo;
 
 typedef struct {
@@ -370,6 +371,41 @@ void vterm_keyboard_key(VTerm *vt, VTermKey key, VTermModifier mod);
 
 void vterm_keyboard_start_paste(VTerm *vt);
 void vterm_keyboard_end_paste(VTerm *vt);
+
+// ------------
+// Hyperlinks (OSC 8)
+// ------------
+
+/* Hyperlink identities are uint64_t values stored in VTermGlyphInfo and
+ * VTermScreenCell. Identity 0 means "no hyperlink". A nonzero identity is
+ * never reused for a different target within the lifetime of a VTerm.
+ *
+ * Identities obtained from vterm_screen_get_cell() or from the sb_pushline /
+ * sb_pushline4 callbacks are borrowed; call vterm_hyperlink_retain() to keep
+ * a target alive beyond the lifetime of the screen cell that referred to it.
+ */
+
+/* Looks up a hyperlink identity. On success returns 1 and stores pointers to
+ * read-only NUL-terminated strings owned by the library; *external_id is the
+ * empty string when the link was opened without an explicit id= parameter.
+ * The strings remain valid until the last internal or external reference to
+ * the identity is released; the caller must not modify them.
+ * Returns 0 (leaving the outputs untouched) for identity 0 or an unknown
+ * identity. */
+int vterm_hyperlink_get(const VTerm *vt, uint64_t id, const char **uri, const char **external_id);
+
+/* Takes an external reference on a hyperlink identity. Returns 1 on success,
+ * 0 if the identity is 0 or unknown. */
+int vterm_hyperlink_retain(VTerm *vt, uint64_t id);
+
+/* Releases one external reference previously taken by
+ * vterm_hyperlink_retain(). Returns 1 if a reference was released, 0 if the
+ * identity is 0, unknown, or has no outstanding external reference (internal
+ * references held by screen cells or the active pen are never affected).
+ * When the last internal and external reference is gone the URI and id
+ * storage is reclaimed. All external references must be released before
+ * vterm_free(). */
+int vterm_hyperlink_release(VTerm *vt, uint64_t id);
 
 void vterm_mouse_move(VTerm *vt, int row, int col, VTermModifier mod);
 void vterm_mouse_button(VTerm *vt, int button, bool pressed, VTermModifier mod);
@@ -533,6 +569,7 @@ typedef struct {
   char     width;
   VTermScreenCellAttrs attrs;
   VTermColor fg, bg;
+  uint64_t hyperlink_id;             /* OSC 8 hyperlink identity; 0 = none */
 } VTermScreenCell;
 
 typedef struct {

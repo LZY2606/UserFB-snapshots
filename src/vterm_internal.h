@@ -29,6 +29,28 @@
 
 typedef struct VTermEncoding VTermEncoding;
 
+/* One known OSC 8 hyperlink target. Identities are unique per VTerm and are
+ * never reused. An entry lives in the table exactly while it has at least
+ * one internal (screen cell / active pen) or external (API) reference. */
+typedef struct VTermHyperlink VTermHyperlink;
+struct VTermHyperlink {
+  VTermHyperlink *next;
+
+  uint64_t id;
+
+  unsigned long internal_refs;
+  unsigned long external_refs;
+
+  size_t uri_len;
+  size_t ext_id_len;   /* 0 when opened without an explicit id= parameter */
+
+  char *uri;           /* NUL-terminated */
+  char *ext_id;        /* NUL-terminated; "" when none */
+};
+
+/* Maximum combined length of OSC 8 params + URI payload */
+#define VTERM_HYPERLINK_MAX 4096
+
 typedef struct {
   VTermEncoding *enc;
 
@@ -127,6 +149,25 @@ struct VTermState
   int gl_set, gr_set, gsingle_set;
 
   struct VTermPen pen;
+
+  /* Active OSC 8 hyperlink identity for newly-written glyphs; 0 = none.
+   * Holds one internal reference while nonzero. Not saved/restored by
+   * DECSC/DECRC and not affected by SGR reset. */
+  uint64_t hyperlink_id;
+
+  /* Hyperlink identity that was active when the glyph currently held in
+   * combine_chars was first output; recombined glyphs keep their original
+   * link rather than taking the pen's current one */
+  uint64_t combine_hyperlink_id;
+
+  /* Accumulator for an inbound OSC 8 string, which may arrive in arbitrary
+   * fragments; only applied once the string terminates normally */
+  struct {
+    /* +1 so that "params;URI" with params+URI == VTERM_HYPERLINK_MAX fits */
+    char buf[VTERM_HYPERLINK_MAX + 1];
+    size_t len;
+    unsigned int discard : 1; /* overlong or invalid; ignore until it ends */
+  } osc8;
 
   VTermColor default_fg;
   VTermColor default_bg;
@@ -230,6 +271,10 @@ struct VTerm
 
     bool string_initial;
 
+    /* True if the current string contained a NUL byte (which the parser
+     * otherwise skips silently); reset when a new string begins */
+    bool string_had_nul;
+
     bool emit_nul;
   } parser;
 
@@ -247,6 +292,11 @@ struct VTerm
 
   VTermState *state;
   VTermScreen *screen;
+
+  struct {
+    VTermHyperlink *entries;
+    uint64_t next_id; /* next identity to hand out; never recycled */
+  } hyperlinks;
 };
 
 struct VTermEncoding {
@@ -271,6 +321,20 @@ void vterm_push_output_sprintf_ctrl(VTerm *vt, unsigned char ctrl, const char *f
 void vterm_push_output_sprintf_str(VTerm *vt, unsigned char ctrl, bool term, const char *fmt, ...);
 
 void vterm_state_free(VTermState *state);
+
+/* Hyperlink table management (src/hyperlink.c) */
+
+/* Finds or creates the identity for an (ext_id, uri) pair. An existing live
+ * entry is only reused when it has the same nonempty explicit id and the same
+ * URI; anonymous links always create a fresh identity. Does not take a
+ * reference; the caller must retain the returned identity if it keeps it. */
+uint64_t vterm_hyperlink_intern(VTerm *vt, const char *ext_id, size_t ext_id_len, const char *uri, size_t uri_len);
+
+void vterm_hyperlink_retain_internal(VTerm *vt, uint64_t id);
+void vterm_hyperlink_release_internal(VTerm *vt, uint64_t id);
+
+/* Frees any entries still left at vterm_free() time */
+void vterm_hyperlink_destroy_all(VTerm *vt);
 
 void vterm_state_newpen(VTermState *state);
 void vterm_state_resetpen(VTermState *state);

@@ -142,6 +142,8 @@ size_t vterm_input_write(VTerm *vt, const char *bytes, size_t len)
 
     if(c == 0x00 || c == 0x7f) { // NUL, DEL
       if(IS_STRING_STATE()) {
+        if(c == 0x00)
+          vt->parser.string_had_nul = true;
         string_fragment(vt, string_start, bytes + pos - string_start, false);
         string_start = bytes + pos + 1;
       }
@@ -322,11 +324,13 @@ string_state:
         switch(c) {
         case 0x90: // DCS
           vt->parser.string_initial = true;
+          vt->parser.string_had_nul = false;
           vt->parser.v.dcs.commandlen = 0;
           ENTER_STATE(DCS_COMMAND);
           break;
         case 0x98: // SOS
           vt->parser.string_initial = true;
+          vt->parser.string_had_nul = false;
           ENTER_STATE(SOS);
           string_start = bytes + pos + 1;
           string_len = 0;
@@ -338,17 +342,20 @@ string_state:
         case 0x9d: // OSC
           vt->parser.v.osc.command = -1;
           vt->parser.string_initial = true;
+          vt->parser.string_had_nul = false;
           string_start = bytes + pos + 1;
           ENTER_STATE(OSC_COMMAND);
           break;
         case 0x9e: // PM
           vt->parser.string_initial = true;
+          vt->parser.string_had_nul = false;
           ENTER_STATE(PM);
           string_start = bytes + pos + 1;
           string_len = 0;
           break;
         case 0x9f: // APC
           vt->parser.string_initial = true;
+          vt->parser.string_had_nul = false;
           ENTER_STATE(APC);
           string_start = bytes + pos + 1;
           string_len = 0;
