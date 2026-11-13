@@ -23,6 +23,7 @@
 #include "sao.h"
 #include "sei.h"
 #include "deblock.h"
+#include "filter_pipeline.h"
 
 #include <algorithm>
 #include <utility>
@@ -1894,6 +1895,14 @@ void decoder_context::run_postprocessing_filters_sequential(de265_image* img)
 
 void decoder_context::run_postprocessing_filters_parallel(image_unit* imgunit)
 {
+  // Bounded in-place pipeline for the supported geometries (4:2:0, 8/10/12
+  // bit). It writes into the image's own planes and never allocates a full
+  // SAO output image. Unsupported geometries and workspace allocation
+  // failure keep the legacy full-copy path as a fallback.
+  if (run_inplace_filter_pipeline(this, imgunit)) {
+    return;
+  }
+
   de265_image* img = imgunit->img;
 
   int saoWaitsForProgress = CTB_PROGRESS_PREFILTER;

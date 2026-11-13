@@ -26,4 +26,13 @@
 void add_deblocking_tasks(image_unit* imgunit);
 void apply_deblocking_filter(de265_image* img); //decoder_context* ctx);
 
+// Row-oriented entry points shared by the in-place filter pipeline.
+bool derive_edgeFlags_CTBRow(de265_image* img, uint16_t ctby);
+void derive_boundaryStrength(de265_image* img, bool vertical,
+                             int yStart,int yEnd, int xStart,int xEnd);
+void edge_filtering_luma(de265_image* img, bool vertical,
+                         int yStart,int yEnd, int xStart,int xEnd);
+void edge_filtering_chroma(de265_image* img, bool vertical,
+                           int yStart,int yEnd, int xStart,int xEnd);
+
 #endif

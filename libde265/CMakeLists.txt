@@ -14,6 +14,7 @@ set (libde265_sources
   fallback-intrapred.cc
   fallback-motion.cc
   fallback.cc
+  filter_pipeline.cc
   image-io.cc
   image.cc
   intrapred.cc
@@ -52,6 +53,7 @@ set (libde265_headers
   fallback-intrapred.h
   fallback-motion.h
   fallback.h
+  filter_pipeline.h
   image-io.h
   image.h
   intrapred.h

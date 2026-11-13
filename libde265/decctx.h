@@ -421,6 +421,11 @@ class decoder_context : public base_context {
  public:
   thread_pool thread_pool_;
 
+  // Test-only observation hook for the in-place filter pipeline (see
+  // filter_pipeline.h). Never set by production code; per decoder context, so
+  // two decoder instances can never share pipeline state or handshakes.
+  struct filter_pipeline_observer* m_filter_pipeline_observer = nullptr;
+
  private:
   int num_worker_threads = 0;
 

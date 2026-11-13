@@ -18,6 +18,37 @@ It correctly decodes almost all conformance streams (see
 
 A list of supported features are available in the [wiki](https://github.com/strukturag/libde265/wiki/Supported-decoding-features).
 
+In-place post-processing pipeline
+---------------------------------
+
+When worker threads are enabled, the deblocking and sample-adaptive-offset
+(SAO) post-filters run as a bounded, in-place pipeline
+(`libde265/filter_pipeline.*`) instead of allocating a second full-size SAO
+output image and swapping the planes at the end.
+
+- Scope: 4:2:0 pictures at 8, 10 or 12 bit, with positive even luma width and
+  height. Every other geometry (4:2:2, 4:4:4, separate colour planes, other
+  bit depths) and any workspace allocation failure keep the previous
+  full-copy implementation as a fallback. The zero-worker sequential path is
+  unchanged and remains the reference implementation.
+- Workspace ownership: the pipeline owns, per decoder instance, a fixed pool
+  of `W+4` row windows for `W` worker threads. Each window holds
+  `Sc * (Hc+2) * Bc` bytes per plane (sample stride `Sc`, one CTB row of
+  `Hc` samples plus one saved neighbour row above and below, `Bc` bytes per
+  sample), so the extra pixel memory is bounded by
+  `(W+4) * sum over planes of Sc*(Hc+2)*Bc` and does not grow with picture
+  height. All pixel workspace is allocated before the first filtering write;
+  nothing is allocated per CTB row while the pipeline runs. Two decoder
+  instances never share a pipeline, its tasks or its workspace.
+- Progress publishing: a CTB row's dependency progress is published only after
+  every filter that may read or write that row has finished, including the
+  horizontal deblocking pass that reaches into the adjacent rows. SAO reads a
+  saved pre-SAO neighbour snapshot rather than live (possibly already
+  offset-filtered) pixels, and a row window is recycled only after the SAO task
+  that reads it has finished. The coordinator waits on a condition variable;
+  worker threads only pick up tasks whose dependencies are already satisfied,
+  so they never sleep on a dependency, busy-poll or re-queue a task.
+
 For latest news check our website at http://www.libde265.org
 
 The library comes with two example programs:

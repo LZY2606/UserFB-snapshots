@@ -28,6 +28,15 @@ void apply_sample_adaptive_offset(de265_image* img);
 /* requires less memory than the function above */
 void apply_sample_adaptive_offset_sequential(de265_image* img);
 
+/* Windowed SAO for the in-place pipeline: 'in_img' holds only the CTB row's
+   input window (Hc+2 rows), with image row 'in_origin_y' at workspace row 0.
+   Output is still written with image-absolute addressing into 'out_img'. */
+void apply_sao_window(de265_image* img, int xCtb,int yCtb,
+                      const slice_segment_header* shdr, int cIdx, int nSW,int nSH,
+                      const uint8_t* in_img,  ptrdiff_t in_stride,
+                      uint8_t* out_img, ptrdiff_t out_stride,
+                      int in_origin_y);
+
 /* saoInputProgress - the CTB progress that SAO will wait for before beginning processing.
    Returns 'true' if any tasks have been added.
  */

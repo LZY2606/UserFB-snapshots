@@ -29,7 +29,8 @@ template <class pixel_t>
 void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
                         const slice_segment_header* shdr, int cIdx, int nSW,int nSH,
                         const pixel_t* in_img,  ptrdiff_t in_stride,
-                        /* */ pixel_t* out_img, ptrdiff_t out_stride)
+                        /* */ pixel_t* out_img, ptrdiff_t out_stride,
+                        int in_origin_y = 0)
 {
   const sao_info* saoinfo = img->get_sao_info(xCtb,yCtb);
 
@@ -75,6 +76,12 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
 
   const bool extendedTests = img->get_CTB_has_pcm_or_cu_transquant_bypass(xCtb,yCtb);
 
+  // When the input is a row-window workspace instead of a full image plane,
+  // in_origin_y is the image row that lives at workspace row 0. Every input
+  // access subtracts it; relative neighbour offsets (vPosStride) then still
+  // land on the saved edge rows. Output addressing stays image-absolute.
+  const ptrdiff_t in_origin = (ptrdiff_t)in_origin_y * in_stride;
+
   if (SaoTypeIdx==2) {
     int hPos[2], vPos[2];
     ptrdiff_t vPosStride[2]; // vPos[] multiplied by image stride
@@ -101,7 +108,7 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
 
 
     for (int j=0;j<ctbH;j++) {
-      const pixel_t* in_ptr  = &in_img [xC+(yC+j)*in_stride];
+      const pixel_t* in_ptr  = &in_img [xC+(yC+j)*in_stride - in_origin];
       /* */ pixel_t* out_ptr = &out_img[xC+(yC+j)*out_stride];
 
       for (int i=0;i<ctbW;i++) {
@@ -213,7 +220,7 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
 
           // Shifts are a strange thing. On x86, >>x actually computes >>(x%64).
           // But this should never happen, because the maximum bit-depth is 16.
-          int pixel = in_img[xC + i + (yC + j) * in_stride];
+          int pixel = in_img[xC + i + (yC + j) * in_stride - in_origin];
 
           // Note: the input pixel value should never exceed the valid range, but it seems that it still does,
           // maybe when there was a decoding error and the pixels have not been filled in correctly.
@@ -227,11 +234,11 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
 
             logtrace(LogSAO,"%d %d (%d) offset %d  %x -> %x\n",xC+i,yC+j,bandIdx,
                      offset,
-                     in_img[xC+i+(yC+j)*in_stride],
-                     in_img[xC+i+(yC+j)*in_stride]+offset);
+                     in_img[xC+i+(yC+j)*in_stride-in_origin],
+                     in_img[xC+i+(yC+j)*in_stride-in_origin]+offset);
 
             out_img[xC+i+(yC+j)*out_stride] = Clip3(0,maxPixelValue,
-                                                    in_img[xC+i+(yC+j)*in_stride] + offset);
+                                                    in_img[xC+i+(yC+j)*in_stride-in_origin] + offset);
           }
         }
     }
@@ -242,7 +249,7 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
         for (int j=0;j<ctbH;j++)
           for (int i=0;i<ctbW;i++) {
 
-            int pixel = in_img[xC + i + (yC + j) * in_stride];
+            int pixel = in_img[xC + i + (yC + j) * in_stride - in_origin];
 
             // Note: the input pixel value should never exceed the valid range, but it seems that it still does,
             // maybe when there was a decoding error and the pixels have not been filled in correctly.
@@ -255,7 +262,7 @@ void apply_sao_internal(de265_image* img, int xCtb,int yCtb,
               int offset = saoinfo->saoOffsetVal[cIdx][bandIdx-1];
 
               out_img[xC+i+(yC+j)*out_stride] = Clip3(0,maxPixelValue,
-                                                      in_img[xC+i+(yC+j)*in_stride] + offset);
+                                                      in_img[xC+i+(yC+j)*in_stride-in_origin] + offset);
             }
           }
       }
@@ -267,17 +274,20 @@ template <class pixel_t>
 void apply_sao(de265_image* img, int xCtb,int yCtb,
                const slice_segment_header* shdr, int cIdx, int nSW,int nSH,
                const pixel_t* in_img,  ptrdiff_t in_stride,
-               /* */ pixel_t* out_img, ptrdiff_t out_stride)
+               /* */ pixel_t* out_img, ptrdiff_t out_stride,
+               int in_origin_y = 0)
 {
   if (img->high_bit_depth(cIdx)) {
     apply_sao_internal<uint16_t>(img,xCtb,yCtb, shdr,cIdx,nSW,nSH,
                                  reinterpret_cast<const uint16_t*>(in_img), in_stride,
-                                 reinterpret_cast<uint16_t*>(out_img),out_stride);
+                                 reinterpret_cast<uint16_t*>(out_img),out_stride,
+                                 in_origin_y);
   }
   else {
     apply_sao_internal<uint8_t>(img,xCtb,yCtb, shdr,cIdx,nSW,nSH,
                                 in_img, in_stride,
-                                out_img,out_stride);
+                                out_img,out_stride,
+                                in_origin_y);
   }
 }
 
@@ -379,6 +389,30 @@ void apply_sample_adaptive_offset_sequential(de265_image* img)
   }
 
   delete[] inputCopy;
+}
+
+
+void apply_sao_window(
+    de265_image* img, int xCtb,int yCtb,
+    const slice_segment_header* shdr, int cIdx, int nSW,int nSH,
+    const uint8_t* in_img,  ptrdiff_t in_stride,
+    uint8_t* out_img, ptrdiff_t out_stride,
+    int in_origin_y)
+{
+  if (img->high_bit_depth(cIdx)) {
+    apply_sao_internal<uint16_t>(
+        img, xCtb, yCtb, shdr, cIdx, nSW, nSH,
+        reinterpret_cast<const uint16_t*>(in_img), in_stride,
+        reinterpret_cast<uint16_t*>(out_img), out_stride,
+        in_origin_y);
+  }
+  else {
+    apply_sao_internal<uint8_t>(
+        img, xCtb, yCtb, shdr, cIdx, nSW, nSH,
+        in_img, in_stride,
+        out_img, out_stride,
+        in_origin_y);
+  }
 }
 
 
