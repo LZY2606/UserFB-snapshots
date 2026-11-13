@@ -46,3 +46,20 @@ add_subdirectory(c)
 if(TARGET tinysplinecxx)
   add_subdirectory(cxx)
 endif()
+
+# ##############################################################################
+# Loft surface example. The source lives one directory up (it is also built
+# directly by the support scripts). It depends only on the C99 standard
+# library and libm, so no OpenGL/GLUT is required.
+# ##############################################################################
+add_executable(loft_c "${CMAKE_CURRENT_SOURCE_DIR}/loft.c")
+target_link_libraries(loft_c PRIVATE tinyspline)
+if(NOT WIN32)
+  target_link_libraries(loft_c PRIVATE m)
+endif()
+set_target_properties(
+  loft_c
+  PROPERTIES FOLDER "examples"
+             C_STANDARD 99
+             C_STANDARD_REQUIRED ON
+)

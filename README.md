@@ -47,6 +47,7 @@ MIT License - see the LICENSE file in the source distribution.
 - Degree elevation
 - Computation of rotation minimizing frames
 - Morphing
+- Lofting of section curves into rational tensor product surfaces
 - Serialization (JSON)
 - Vector math
 
@@ -152,6 +153,56 @@ plt.show()
 Result:
 
 ![Getting Started](res/getting_started.png)
+
+### Lofting Sections into a Surface
+
+`tinyspline_surface.h` turns a sequence of clamped section curves (each a
+regular `tsBSpline` of degree 1 to 3, with three or four dimensional control
+points for non-rational or rational curves) into an owning rational tensor
+product surface. The sections are rebased onto one common u basis and
+interpolated along the v axis with a natural cubic spline; the v axis passes
+through section `j` at `v = j / (count - 1)`. The surface stores its own
+homogeneous control net, knot vectors and degrees, so it stays valid after
+the input sections are released or edited:
+
+```c
+#include "tinyspline.h"
+#include "tinyspline_surface.h"
+
+tsBSpline sections[3];        /* clamped, degree 1..3, dim 3 or 4 */
+/* ... fill `sections` with ts_bspline_new / set_control_points ... */
+
+tsLoftSurface surface = ts_loft_surface_init();
+tsStatus status;
+if (ts_loft_surface_new(sections, 3, &surface, &status) != TS_SUCCESS) {
+    /* status.message describes the validation failure */
+}
+
+tsReal point[3], du[3], dv[3];
+ts_loft_surface_eval(&surface, 0.5, 0.5, point, du, dv, &status);
+
+/* The surface normal is the cross product of the partials. */
+tsReal normal[3] = {
+    du[1] * dv[2] - du[2] * dv[1],
+    du[2] * dv[0] - du[0] * dv[2],
+    du[0] * dv[1] - du[1] * dv[0]
+};
+
+/* The control net and both knot vectors are available read-only. */
+const tsReal *net = ts_loft_surface_control_points_ptr(&surface);
+const tsReal *knots_u = ts_loft_surface_knots_u_ptr(&surface);
+const tsReal *knots_v = ts_loft_surface_knots_v_ptr(&surface);
+
+ts_loft_surface_free(&surface);
+```
+
+The `loft` example samples such a surface, together with its analytic
+normals, into a Wavefront OBJ file. It takes the output directory as its
+only argument:
+
+```bash
+loft_c <output-directory>   # writes <output-directory>/result.obj
+```
 
 ### Documentation
 

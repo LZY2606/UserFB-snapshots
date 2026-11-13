@@ -903,6 +903,7 @@ set(TINYSPLINE_CXX_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # TINYSPLINE_C_SOURCE_FILES
 list(APPEND TINYSPLINE_C_SOURCE_FILES
      "${CMAKE_CURRENT_SOURCE_DIR}/tinyspline.c"
+     "${CMAKE_CURRENT_SOURCE_DIR}/tinyspline_surface.c"
      "${CMAKE_CURRENT_SOURCE_DIR}/parson.c"
 )
 
@@ -931,13 +932,20 @@ list(JOIN TINYSPLINE_C_INSTALL_CMAKE_CONFIG_DIR "/"
 
 add_library(tinyspline ${TINYSPLINE_C_SOURCE_FILES})
 target_compile_definitions(tinyspline PUBLIC ${TINYSPLINE_C_DEFINITIONS})
+# The loft surface module is written in C99. Compile just this translation
+# unit as C99 (the flag is appended after the target's C89 flag, so it wins
+# on GCC and Clang) without changing the dialect of the legacy sources.
+set_source_files_properties(
+  "${CMAKE_CURRENT_SOURCE_DIR}/tinyspline_surface.c"
+  PROPERTIES COMPILE_FLAGS "-std=c99"
+)
 set_target_properties(
   tinyspline
   PROPERTIES OUTPUT_NAME "${TINYSPLINE_C_LIBRARY_OUTPUT_NAME}"
              DEFINE_SYMBOL TINYSPLINE_SHARED
              C_VISIBILITY_PRESET hidden
              COMPILE_FLAGS "${TINYSPLINE_LIBRARY_C_FLAGS}"
-             PUBLIC_HEADER "tinyspline.h"
+             PUBLIC_HEADER "tinyspline.h;tinyspline_surface.h"
 )
 target_link_libraries(tinyspline PRIVATE ${TINYSPLINE_C_LINK_LIBRARIES})
 
