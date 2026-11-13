@@ -1,0 +1,11 @@
+--- a/amrwbenc/src/q_pulse.c
++++ b/amrwbenc/src/q_pulse.c
+@@ -99,7 +99,7 @@
+ 			}
+ 		}
+ 	}
+-	return (index);
++	return (index & 255);
+ }
+ 
+ 

@@ -1,0 +1,11 @@
+--- a/amrwbenc/src/c4t64fx.c
++++ b/amrwbenc/src/c4t64fx.c
+@@ -769,7 +769,7 @@
+ 		}
+ 		for (track = 2; track < NB_TRACK; track++)
+ 		{
+-			_index[track] = (Word16)(quant_2p_2N1(ind[k], ind[k + 1], 4));
++			_index[track ^ 1] = (Word16)(quant_2p_2N1(ind[k], ind[k + 1], 4));
+ 			k += NPMAXPT;
+ 		}
+ 	} else if(nbbits == 52)
