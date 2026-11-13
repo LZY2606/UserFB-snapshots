@@ -9,17 +9,18 @@ case "$mode" in
  baseline)
   "$cxx" "${flags[@]}" support/baseline.cpp -o build/baseline
   build/baseline
-  "$cxx" "${flags[@]}" example.cpp -o build/upstream-example
-  printf '8\n4\n12345\nn\n' | build/upstream-example
-  test -s f8o4_12345.bmp
-  echo 'BASELINE upstream-example OK'
+  "$cxx" "${flags[@]}" examples/raytrace.cpp -o build/raytrace-example
+  build/raytrace-example build
+  test -s build/depth.pgm
+  test -s build/status.pgm
+  echo 'BASELINE raytrace-example OK'
   ;;
  target)
   test -s support/target.cpp
   test -s examples/raytrace.cpp
   for z in default alternate; do
    extra=(); if [[ "$z" == alternate ]]; then extra=(-DSIVPERLIN_DEFAULT_Z=0.625); fi
-   "$cxx" "${flags[@]}" "${extra[@]}" support/driver.cpp support/target.cpp -o build/target
+   "$cxx" "${flags[@]}" ${extra[@]+"${extra[@]}"} support/driver.cpp support/target.cpp -o build/target
    for group in crossing ordering geometry limits; do build/target "$group"; done
   done
   "$cxx" "${flags[@]}" examples/raytrace.cpp -o build/raytrace
