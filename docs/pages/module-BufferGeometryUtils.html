@@ -20,6 +20,39 @@
 				<div class="container-overview">
 				</div>
 				<h2 class="subsection-title">Methods</h2>
+					<h3 class="name name-method" id="~bakeAffineGeometry" translate="no">.<a href="#~bakeAffineGeometry">bakeAffineGeometry</a><span class="signature">( geometry : <span class="param-type"><a href="BufferGeometry.html">BufferGeometry</a></span>, matrix : <span class="param-type"><a href="Matrix4.html">Matrix4</a></span> )</span><span class="type-signature"> : <a href="BufferGeometry.html">BufferGeometry</a></span> <span class="type-signature">(inner) </span></h3>
+					<div class="method">
+						<div class="description">
+							<p>Bakes an affine transformation into a new, independent <a href="BufferGeometry.html">BufferGeometry</a>, including every position and normal morph target, so the same morph weights keep driving the deformation in the transformed frame. Unlike <a href="BufferGeometry.html#applyMatrix4">BufferGeometry#applyMatrix4</a>, the morph records are transformed as well instead of being left in the source coordinate frame.</p>
+							<p>The geometry must be a triangle mesh, indexed or non-indexed, with only <code>position</code> and <code>normal</code> morph attributes; skinning, instancing and other morph kinds are rejected. Plain and <a href="InterleavedBufferAttribute.html">InterleavedBufferAttribute</a> attributes are accepted, and interleaved data may be de-interleaved in the result.</p>
+							<p>Relative position targets are treated as displacements (only the linear part of the matrix applies, so translation never leaks in); absolute targets are transformed as end points. Normal records are transformed with the inverse-transpose normal matrix without per-target normalization, while the base normal stays unit length, so weighted normal blends keep matching the transform of the source blends.</p>
+							<p>When the determinant is negative, winding is flipped by swapping the second and third corner of every triangle: index values for indexed geometry, or every per-vertex attribute and morph record for non-indexed geometry. Triangle order, groups, draw range and material grouping are preserved. Existing tangents are rebuilt on the transformed tangent plane with unit <code>xyz</code> and a <code>w</code> reflecting the new handedness; missing tangents are not generated. UV, color and custom attributes are not transformed but are copied (and corner-swapped when needed) with their typed array, <code>itemSize</code> and <code>normalized</code> preserved. Position, normal, tangent and morph outputs may be promoted to <code>Float32</code>. The source geometry, sibling geometries sharing its buffers and the matrix are never modified. Existing bounding volumes are rebuilt through the geometry's own compute methods; absent ones stay lazy.</p>
+							<p>Throws when the geometry lacks a base <code>position</code>, has mismatched attribute lengths, invalid triangle indices, non-finite values, unsupported attribute combinations, or when the matrix is not a finite, invertible affine matrix.</p>
+						</div>
+						<table class="params">
+							<tbody>
+								<tr>
+									<td class="name">
+										<strong translate="no">geometry</strong>
+									</td>
+									<td class="description">
+										<p>The triangle geometry to bake the transform into.</p>
+									</td>
+								</tr>
+								<tr>
+									<td class="name">
+										<strong translate="no">matrix</strong>
+									</td>
+									<td class="description last">
+										<p>The affine, non-singular transformation matrix.</p>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<dl class="details">
+							<dt class="tag-returns"><strong>Returns:</strong> A new geometry with the transformation baked into it.</dt>
+						</dl>
+					</div>
 					<h3 class="name name-method" id="~computeMikkTSpaceTangents" translate="no">.<a href="#~computeMikkTSpaceTangents">computeMikkTSpaceTangents</a><span class="signature">( geometry : <span class="param-type"><a href="BufferGeometry.html">BufferGeometry</a></span>, MikkTSpace : <span class="param-type">Object</span>, negateSign : <span class="param-type">boolean</span> )</span><span class="type-signature"> : <a href="BufferGeometry.html">BufferGeometry</a></span> <span class="type-signature">(inner) </span></h3>
 					<div class="method">
 						<div class="description">

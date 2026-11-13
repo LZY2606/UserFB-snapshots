@@ -5,6 +5,7 @@ import {
 	InstancedBufferAttribute,
 	InterleavedBuffer,
 	InterleavedBufferAttribute,
+	Matrix3,
 	MathUtils,
 	TriangleFanDrawMode,
 	TriangleStripDrawMode,
@@ -1537,6 +1538,633 @@ function remapAttribute( attribute, sourceIndices, buffers = new Map() ) {
 
 }
 
+const _bakeVector = /*@__PURE__*/ new Vector3();
+const _bakeTangent = /*@__PURE__*/ new Vector3();
+const _bakeUnitNormal = /*@__PURE__*/ new Vector3();
+
+/**
+ * Bakes an affine transformation into a new, independent {@link BufferGeometry}, including every
+ * position and normal morph target, so the original morph weights keep driving the deformation in
+ * the transformed frame. {@link BufferGeometry#applyMatrix4} only transforms the base attributes and
+ * leaves morph records in the source coordinate frame; this function transforms the morph records as
+ * well and keeps relative and absolute morph semantics intact.
+ *
+ * Supported scope:
+ *
+ * - Triangle meshes, indexed or non-indexed.
+ * - Plain {@link BufferAttribute} and {@link InterleavedBufferAttribute} inputs (interleaved data is
+ * de-interleaved on output; storage layout does not have to be preserved).
+ * - `position` and `normal` morph attributes only, with
+ * {@link BufferGeometry#morphTargetsRelative} honored per attribute kind.
+ *
+ * Relative position targets store displacements, so only the linear part of the matrix applies;
+ * absolute targets store end positions and are transformed as points. Normal records (which are
+ * always relative) are transformed with the inverse-transpose normal matrix. Morph normals are not
+ * re-normalized individually, because per-target normalization breaks the linear blend relation
+ * under non-uniform scale and shear; the base normal is unit length, morph normals may not be.
+ *
+ * A negative determinant reverses winding. Indexed geometry swaps the second and third index of
+ * every triangle; non-indexed geometry swaps the second and third corner of every triangle across
+ * every attribute and every morph record. Triangle order, groups, draw range and material grouping
+ * are preserved. Existing tangents are rebuilt onto the transformed tangent plane with unit xyz and
+ * a `w` component reflecting the new handedness; absent tangents are not generated.
+ *
+ * UV, color and custom attributes are not geometrically transformed, but are copied (and corner
+ * swapped on non-indexed reflection) with their typed array, `itemSize` and `normalized` preserved.
+ * Position, normal, tangent and their morph outputs may be promoted to `Float32`. The source
+ * geometry, sibling geometries sharing its buffers, and the matrix are never modified.
+ *
+ * Throws when the geometry is missing a base position, carries unsupported features (skinning,
+ * instancing, non position/normal morph kinds), has mismatched attribute lengths, invalid triangle
+ * indices, non-finite values, or when the matrix is not an invertible affine matrix.
+ *
+ * @param {BufferGeometry} geometry - The triangle geometry to bake the transform into.
+ * @param {Matrix4} matrix - The affine, non-singular transformation matrix.
+ * @return {BufferGeometry} A new geometry with the transformation baked into it.
+ */
+function bakeAffineGeometry( geometry, matrix ) {
+
+	function fail( message ) {
+
+		throw new Error( 'THREE.BufferGeometryUtils.bakeAffineGeometry(): ' + message );
+
+	}
+
+	if ( ! geometry || geometry.isBufferGeometry !== true ) {
+
+		fail( 'A BufferGeometry instance is required.' );
+
+	}
+
+	if ( ! matrix || matrix.isMatrix4 !== true ) {
+
+		fail( 'A Matrix4 instance is required.' );
+
+	}
+
+	if ( geometry.isInstancedBufferGeometry === true ) {
+
+		fail( 'InstancedBufferGeometry is not supported.' );
+
+	}
+
+	// Only position/normal morphs, no skinning or instance attributes.
+
+	const morphKeys = Object.keys( geometry.morphAttributes );
+
+	for ( const key of morphKeys ) {
+
+		if ( key !== 'position' && key !== 'normal' ) {
+
+			fail( 'Only "position" and "normal" morph attributes are supported.' );
+
+		}
+
+		const records = geometry.morphAttributes[ key ];
+
+		if ( ! Array.isArray( records ) || records.length === 0 ) {
+
+			fail( 'Morph attribute "' + key + '" must be a non-empty array.' );
+
+		}
+
+	}
+
+	const positionAttribute = geometry.attributes.position;
+
+	if ( positionAttribute === undefined ) {
+
+		fail( 'Geometry requires a "position" attribute.' );
+
+	}
+
+	if ( positionAttribute.itemSize !== 3 || positionAttribute.isGLBufferAttribute === true ) {
+
+		fail( 'Unsupported "position" attribute.' );
+
+	}
+
+	const vertexCount = positionAttribute.count;
+
+	if ( vertexCount === 0 || ! Number.isInteger( vertexCount ) ) {
+
+		fail( 'The "position" attribute is empty.' );
+
+	}
+
+	// Validate the matrix: affine, finite and invertible.
+
+	const me = matrix.elements;
+
+	for ( let i = 0; i < 16; i ++ ) {
+
+		if ( ! Number.isFinite( me[ i ] ) ) fail( 'Matrix contains non-finite values.' );
+
+	}
+
+	if ( me[ 3 ] !== 0 || me[ 7 ] !== 0 || me[ 11 ] !== 0 || me[ 15 ] !== 1 ) {
+
+		fail( 'Matrix must be affine (bottom row [0, 0, 0, 1]).' );
+
+	}
+
+	const determinant = matrix.determinantAffine();
+
+	if ( ! Number.isFinite( determinant ) || determinant === 0 ) {
+
+		fail( 'Matrix must be non-singular.' );
+
+	}
+
+	const normalMatrix = new Matrix3().getNormalMatrix( matrix );
+	const morphTargetsRelative = geometry.morphTargetsRelative === true;
+	const morphPositions = geometry.morphAttributes.position || [];
+	const morphNormals = geometry.morphAttributes.normal || [];
+
+	// Every attribute and morph record must describe the same vertices.
+
+	const checkLength = ( attribute, label ) => {
+
+		if ( attribute.isGLBufferAttribute === true ) fail( label + ' uses an unsupported GLBufferAttribute.' );
+		if ( attribute.count !== vertexCount ) fail( label + ' length does not match the "position" attribute.' );
+		if ( attribute.itemSize !== 3 ) fail( label + ' must have itemSize 3.' );
+
+	};
+
+	for ( const name in geometry.attributes ) {
+
+		const attribute = geometry.attributes[ name ];
+
+		if ( attribute.isGLBufferAttribute === true ) fail( 'Attribute "' + name + '" uses an unsupported GLBufferAttribute.' );
+		if ( attribute.isInstancedBufferAttribute === true || attribute.isInstancedInterleavedBufferAttribute === true ) {
+
+			fail( 'Instanced attributes are not supported.' );
+
+		}
+		if ( attribute.count !== vertexCount ) fail( 'Attribute "' + name + '" length does not match the "position" attribute.' );
+
+	}
+
+	const checkMorphRecord = ( attribute, label ) => {
+
+		checkLength( attribute, label );
+
+		if ( attribute.isInstancedBufferAttribute === true || attribute.isInstancedInterleavedBufferAttribute === true ) {
+
+			fail( label + ' is an instanced attribute, which is not supported.' );
+
+		}
+
+	};
+
+	for ( let i = 0; i < morphPositions.length; i ++ ) checkMorphRecord( morphPositions[ i ], 'Morph position ' + i );
+	for ( let i = 0; i < morphNormals.length; i ++ ) checkMorphRecord( morphNormals[ i ], 'Morph normal ' + i );
+
+	if ( morphNormals.length > 0 && morphNormals.length !== morphPositions.length && morphPositions.length !== 0 ) {
+
+		fail( 'Morph normal and position target counts do not match.' );
+
+	}
+
+	const normalAttribute = geometry.attributes.normal;
+	const tangentAttribute = geometry.attributes.tangent;
+
+	if ( normalAttribute !== undefined && normalAttribute.itemSize !== 3 ) {
+
+		fail( 'The "normal" attribute must have itemSize 3.' );
+
+	}
+
+	if ( morphNormals.length > 0 && normalAttribute === undefined ) {
+
+		fail( 'Morph normals require a base "normal" attribute.' );
+
+	}
+
+	if ( tangentAttribute !== undefined && tangentAttribute.itemSize !== 4 ) {
+
+		fail( 'The "tangent" attribute must have itemSize 4.' );
+
+	}
+
+	const indexed = geometry.index !== null;
+	let triangleCount;
+	let indexArray = null;
+
+	if ( indexed ) {
+
+		const index = geometry.index;
+
+		if ( index.isGLBufferAttribute === true ) fail( 'Unsupported GL index buffer.' );
+		if ( ! Number.isInteger( index.count ) ) fail( 'Index count must be an integer.' );
+		if ( index.count % 3 !== 0 ) fail( 'Index count must be a multiple of 3 for triangle lists.' );
+
+		triangleCount = index.count / 3;
+		indexArray = new index.array.constructor( index.array );
+
+		for ( let i = 0; i < index.count; i ++ ) {
+
+			const value = indexArray[ i ];
+
+			if ( ! Number.isInteger( value ) || value < 0 || value >= vertexCount ) {
+
+				fail( 'Triangle index ' + i + ' is out of range.' );
+
+			}
+
+		}
+
+	} else {
+
+		if ( vertexCount % 3 !== 0 ) fail( 'Non-indexed geometry must have a vertex count divisible by 3.' );
+
+		triangleCount = vertexCount / 3;
+
+	}
+
+	// All source values must be finite. Components are read through the same access path used for
+	// the bake, so stride, offset and normalized storage are all covered.
+
+	const validateFinite = ( attribute, label ) => {
+
+		for ( let vertex = 0; vertex < vertexCount; vertex ++ ) {
+
+			for ( let component = 0; component < attribute.itemSize; component ++ ) {
+
+				if ( ! Number.isFinite( readComponent( attribute, vertex, component ) ) ) {
+
+					fail( label + ' contains non-finite values.' );
+
+				}
+
+			}
+
+		}
+
+	};
+
+	for ( const name in geometry.attributes ) validateFinite( geometry.attributes[ name ], 'Attribute "' + name + '"' );
+	for ( let i = 0; i < morphPositions.length; i ++ ) validateFinite( morphPositions[ i ], 'Morph position ' + i );
+	for ( let i = 0; i < morphNormals.length; i ++ ) validateFinite( morphNormals[ i ], 'Morph normal ' + i );
+
+	// Read a component through the engine accessor, so stride, offset and
+	// normalized storage are all honored for plain and interleaved attributes.
+
+	function readComponent( attribute, vertex, component ) {
+
+		return attribute.getComponent( vertex, component );
+
+	}
+
+	function readVec3( attribute, vertex, target ) {
+
+		// fromBufferAttribute routes through getX/getY/getZ, so quantized and half-float
+		// storage decode exactly as the engine would read it.
+		target.fromBufferAttribute( attribute, vertex );
+
+		if ( ! Number.isFinite( target.x ) || ! Number.isFinite( target.y ) || ! Number.isFinite( target.z ) ) {
+
+			fail( 'Attribute "' + attribute.name + '" contains non-finite values.' );
+
+		}
+
+		return target;
+
+	}
+
+	// Output buffers. Geometric data is always promoted to Float32 so transformed values survive
+	// quantized integer inputs; other attributes keep their original typed array.
+
+	const result = new BufferGeometry();
+	result.morphTargetsRelative = morphTargetsRelative;
+
+	const positions = new Float32Array( vertexCount * 3 );
+	const normals = normalAttribute !== undefined ? new Float32Array( vertexCount * 3 ) : null;
+	const tangents = tangentAttribute !== undefined ? new Float32Array( vertexCount * 4 ) : null;
+
+	const morphPositionBuffers = morphPositions.map( () => new Float32Array( vertexCount * 3 ) );
+	const morphNormalBuffers = morphNormals.map( () => new Float32Array( vertexCount * 3 ) );
+
+	const linearOnly = ( out, vector ) => {
+
+		// Direction / displacement: linear part only, no translation.
+		out.set(
+			me[ 0 ] * vector.x + me[ 4 ] * vector.y + me[ 8 ] * vector.z,
+			me[ 1 ] * vector.x + me[ 5 ] * vector.y + me[ 9 ] * vector.z,
+			me[ 2 ] * vector.x + me[ 6 ] * vector.y + me[ 10 ] * vector.z
+		);
+
+	};
+
+	const normalOnly = ( out, vector ) => {
+
+		const ne = normalMatrix.elements;
+
+		out.set(
+			ne[ 0 ] * vector.x + ne[ 3 ] * vector.y + ne[ 6 ] * vector.z,
+			ne[ 1 ] * vector.x + ne[ 4 ] * vector.y + ne[ 7 ] * vector.z,
+			ne[ 2 ] * vector.x + ne[ 5 ] * vector.y + ne[ 8 ] * vector.z
+		);
+
+	};
+
+	for ( let vertex = 0; vertex < vertexCount; vertex ++ ) {
+
+		// Base position: transform as an affine point.
+
+		readVec3( positionAttribute, vertex, _bakeVector ).applyMatrix4( matrix );
+
+		if ( ! Number.isFinite( _bakeVector.x ) || ! Number.isFinite( _bakeVector.y ) || ! Number.isFinite( _bakeVector.z ) ) {
+
+			fail( 'Transformed position is non-finite.' );
+
+		}
+
+		positions[ vertex * 3 + 0 ] = _bakeVector.x;
+		positions[ vertex * 3 + 1 ] = _bakeVector.y;
+		positions[ vertex * 3 + 2 ] = _bakeVector.z;
+
+		// Morph positions.
+
+		for ( let i = 0; i < morphPositions.length; i ++ ) {
+
+			const record = morphPositions[ i ];
+			readVec3( record, vertex, _bakeVector );
+
+			if ( morphTargetsRelative ) {
+
+				// Displacement: linear part only, translation must not leak in.
+				linearOnly( _bakeTangent, _bakeVector );
+				_bakeVector.copy( _bakeTangent );
+
+			} else {
+
+				// Absolute end position.
+				_bakeVector.applyMatrix4( matrix );
+
+			}
+
+			if ( ! Number.isFinite( _bakeVector.x ) || ! Number.isFinite( _bakeVector.y ) || ! Number.isFinite( _bakeVector.z ) ) {
+
+				fail( 'Transformed morph position ' + i + ' is non-finite.' );
+
+			}
+
+			morphPositionBuffers[ i ][ vertex * 3 + 0 ] = _bakeVector.x;
+			morphPositionBuffers[ i ][ vertex * 3 + 1 ] = _bakeVector.y;
+			morphPositionBuffers[ i ][ vertex * 3 + 2 ] = _bakeVector.z;
+
+		}
+
+		// Base normal: inverse transpose, then unit length. The same per-vertex scale is applied
+		// to every morph normal record below, so any weighted blend of the baked normals stays
+		// parallel to the inverse-transpose of the matching source blend.
+
+		let normalScale = 1;
+
+		if ( normalAttribute !== undefined ) {
+
+			readVec3( normalAttribute, vertex, _bakeVector );
+			normalOnly( _bakeTangent, _bakeVector );
+			_bakeVector.copy( _bakeTangent );
+
+			const length = _bakeVector.length();
+
+			if ( length === 0 || ! Number.isFinite( length ) ) fail( 'Base normal transforms to a zero vector.' );
+
+			normalScale = 1 / length;
+			_bakeVector.multiplyScalar( normalScale );
+			_bakeUnitNormal.copy( _bakeVector );
+
+			normals[ vertex * 3 + 0 ] = _bakeVector.x;
+			normals[ vertex * 3 + 1 ] = _bakeVector.y;
+			normals[ vertex * 3 + 2 ] = _bakeVector.z;
+
+		}
+
+		// Morph normals are always relative deltas: inverse transpose without per-target
+		// normalization, scaled together with the base normal so linear blends survive exactly.
+
+		for ( let i = 0; i < morphNormals.length; i ++ ) {
+
+			const record = morphNormals[ i ];
+			readVec3( record, vertex, _bakeVector );
+			normalOnly( _bakeTangent, _bakeVector );
+			_bakeVector.copy( _bakeTangent ).multiplyScalar( normalScale );
+
+			if ( ! Number.isFinite( _bakeVector.x ) || ! Number.isFinite( _bakeVector.y ) || ! Number.isFinite( _bakeVector.z ) ) {
+
+				fail( 'Transformed morph normal ' + i + ' is non-finite.' );
+
+			}
+
+			morphNormalBuffers[ i ][ vertex * 3 + 0 ] = _bakeVector.x;
+			morphNormalBuffers[ i ][ vertex * 3 + 1 ] = _bakeVector.y;
+			morphNormalBuffers[ i ][ vertex * 3 + 2 ] = _bakeVector.z;
+
+		}
+
+		// Tangents: xyz follows the transformed tangent plane (unit), w tracks handedness.
+
+		if ( tangentAttribute !== undefined ) {
+
+			_bakeTangent.set(
+				tangentAttribute.getX( vertex ),
+				tangentAttribute.getY( vertex ),
+				tangentAttribute.getZ( vertex )
+			);
+
+			if ( ! Number.isFinite( _bakeTangent.x ) || ! Number.isFinite( _bakeTangent.y ) || ! Number.isFinite( _bakeTangent.z ) ) {
+
+				fail( 'Tangent contains non-finite values.' );
+
+			}
+
+			const sign = tangentAttribute.getW( vertex );
+
+			if ( ! Number.isFinite( sign ) ) fail( 'Tangent sign contains non-finite values.' );
+
+			linearOnly( _bakeVector, _bakeTangent );
+
+			// Project onto the transformed tangent plane so the result stays orthogonal to the
+			// baked unit normal even under shear or non-uniform scale.
+			if ( normalAttribute !== undefined ) {
+
+				_bakeVector.addScaledVector( _bakeUnitNormal, - _bakeVector.dot( _bakeUnitNormal ) );
+
+			}
+
+			const length = _bakeVector.length();
+
+			if ( length === 0 || ! Number.isFinite( length ) ) fail( 'Tangent transforms to a zero vector.' );
+
+			_bakeVector.multiplyScalar( 1 / length );
+
+			tangents[ vertex * 4 + 0 ] = _bakeVector.x;
+			tangents[ vertex * 4 + 1 ] = _bakeVector.y;
+			tangents[ vertex * 4 + 2 ] = _bakeVector.z;
+			tangents[ vertex * 4 + 3 ] = determinant < 0 ? - sign : sign;
+
+		}
+
+	}
+
+	const positionOut = new BufferAttribute( positions, 3 );
+	positionOut.name = positionAttribute.name;
+	result.setAttribute( 'position', positionOut );
+
+	if ( normals !== null ) {
+
+		const normalOut = new BufferAttribute( normals, 3 );
+		normalOut.name = normalAttribute.name;
+		result.setAttribute( 'normal', normalOut );
+
+	}
+
+	if ( tangents !== null ) {
+
+		const tangentOut = new BufferAttribute( tangents, 4 );
+		tangentOut.name = tangentAttribute.name;
+		result.setAttribute( 'tangent', tangentOut );
+
+	}
+
+	if ( morphPositionBuffers.length > 0 ) {
+
+		result.morphAttributes.position = morphPositionBuffers.map( ( array, i ) => {
+
+			const record = new BufferAttribute( array, 3 );
+			record.name = morphPositions[ i ].name;
+			return record;
+
+		} );
+
+	}
+
+	if ( morphNormalBuffers.length > 0 ) {
+
+		result.morphAttributes.normal = morphNormalBuffers.map( ( array, i ) => {
+
+			const record = new BufferAttribute( array, 3 );
+			record.name = morphNormals[ i ].name;
+			return record;
+
+		} );
+
+	}
+
+	// Non-geometric attributes: copy verbatim with type, itemSize and normalized preserved.
+
+	for ( const name in geometry.attributes ) {
+
+		if ( name === 'position' || name === 'normal' || name === 'tangent' ) continue;
+
+		const attribute = geometry.attributes[name];
+		const interleaved = attribute.isInterleavedBufferAttribute === true;
+		const stride = interleaved ? attribute.data.stride : attribute.itemSize;
+		const offset = interleaved ? attribute.offset : 0;
+		const sourceArray = interleaved ? attribute.data.array : attribute.array;
+		const array = new attribute.array.constructor( vertexCount * attribute.itemSize );
+		const copy = new BufferAttribute( array, attribute.itemSize, attribute.normalized );
+
+		// Raw storage values are preserved (including quantized normalized data); only the
+		// normalized flag interprets them later.
+
+		for ( let vertex = 0; vertex < vertexCount; vertex ++ ) {
+
+			for ( let component = 0; component < attribute.itemSize; component ++ ) {
+
+				copy.array[ vertex * attribute.itemSize + component ] =
+					sourceArray[ vertex * stride + offset + component ];
+
+			}
+
+		}
+
+		copy.name = attribute.name;
+		result.setAttribute( name, copy );
+
+	}
+
+	// Reflection handling. A negative determinant flips winding; swap the second and third corner
+	// of every triangle. Indexed geometry only needs index swaps; non-indexed geometry swaps every
+	// per-vertex attribute and every morph record.
+
+	if ( determinant < 0 ) {
+
+		if ( indexed ) {
+
+			for ( let triangle = 0; triangle < triangleCount; triangle ++ ) {
+
+				const base = triangle * 3;
+				const tmp = indexArray[ base + 1 ];
+				indexArray[ base + 1 ] = indexArray[ base + 2 ];
+				indexArray[ base + 2 ] = tmp;
+
+			}
+
+		} else {
+
+			const swapRecords = ( attribute ) => {
+
+				const array = attribute.array;
+				const itemSize = attribute.itemSize;
+
+				for ( let triangle = 0; triangle < triangleCount; triangle ++ ) {
+
+					const b = ( triangle * 3 + 1 ) * itemSize;
+					const c = ( triangle * 3 + 2 ) * itemSize;
+
+					for ( let component = 0; component < itemSize; component ++ ) {
+
+						const tmp = array[ b + component ];
+						array[ b + component ] = array[ c + component ];
+						array[ c + component ] = tmp;
+
+					}
+
+				}
+
+			};
+
+			for ( const name in result.attributes ) swapRecords( result.attributes[ name ] );
+
+			for ( const key of Object.keys( result.morphAttributes ) ) {
+
+				for ( const record of result.morphAttributes[ key ] ) swapRecords( record );
+
+			}
+
+		}
+
+	}
+
+	if ( indexed ) {
+
+		result.setIndex( new BufferAttribute( indexArray, 1 ) );
+
+	}
+
+	// Triangle order, groups, draw range and material grouping are untouched.
+
+	result.drawRange.start = geometry.drawRange.start;
+	result.drawRange.count = geometry.drawRange.count;
+
+	for ( const group of geometry.groups ) {
+
+		result.addGroup( group.start, group.count, group.materialIndex );
+
+	}
+
+	// Rebuild bounds only where the source already had them; keep null bounds lazy.
+
+	if ( geometry.boundingBox !== null ) result.computeBoundingBox();
+	if ( geometry.boundingSphere !== null ) result.computeBoundingSphere();
+
+	return result;
+
+}
+
 export {
 	computeMikkTSpaceTangents,
 	mergeGeometries,
@@ -1551,5 +2179,6 @@ export {
 	toTrianglesDrawMode,
 	computeMorphedAttributes,
 	mergeGroups,
-	toCreasedNormals
+	toCreasedNormals,
+	bakeAffineGeometry
 };

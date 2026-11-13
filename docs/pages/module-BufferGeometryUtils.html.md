@@ -10,6 +10,28 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 
 ## Methods
 
+### .bakeAffineGeometry( geometry : BufferGeometry, matrix : Matrix4 ) : BufferGeometry (inner)
+
+Bakes an affine transformation into a new, independent [BufferGeometry](BufferGeometry.html), including every position and normal morph target, so the same morph weights keep driving the deformation in the transformed frame. Unlike [BufferGeometry#applyMatrix4](BufferGeometry.html#applyMatrix4), the morph records are transformed as well instead of being left in the source coordinate frame.
+
+The geometry must be a triangle mesh, indexed or non-indexed, with only `position` and `normal` morph attributes; skinning, instancing and other morph kinds are rejected. Plain and [InterleavedBufferAttribute](InterleavedBufferAttribute.html) attributes are accepted, and interleaved data may be de-interleaved in the result.
+
+Relative position targets are treated as displacements (only the linear part of the matrix applies, so translation never leaks in); absolute targets are transformed as end points. Normal records are transformed with the inverse-transpose normal matrix without per-target normalization, while the base normal stays unit length, so weighted normal blends keep matching the transform of the source blends.
+
+When the determinant is negative, winding is flipped by swapping the second and third corner of every triangle: index values for indexed geometry, or every per-vertex attribute and morph record for non-indexed geometry. Triangle order, groups, draw range and material grouping are preserved. Existing tangents are rebuilt on the transformed tangent plane with unit `xyz` and a `w` reflecting the new handedness; missing tangents are not generated. UV, color and custom attributes are not transformed but are copied (and corner-swapped when needed) with their typed array, `itemSize` and `normalized` preserved. Position, normal, tangent and morph outputs may be promoted to `Float32`. The source geometry, sibling geometries sharing its buffers and the matrix are never modified. Existing bounding volumes are rebuilt through the geometry's own compute methods; absent ones stay lazy.
+
+Throws when the geometry lacks a base `position`, has mismatched attribute lengths, invalid triangle indices, non-finite values, unsupported attribute combinations, or when the matrix is not a finite, invertible affine matrix.
+
+**geometry**
+
+The triangle geometry to bake the transform into.
+
+**matrix**
+
+The affine, non-singular transformation matrix.
+
+**Returns:** A new geometry with the transformation baked into it.
+
 ### .computeMikkTSpaceTangents( geometry : BufferGeometry, MikkTSpace : Object, negateSign : boolean ) : BufferGeometry (inner)
 
 Computes vertex tangents using the MikkTSpace algorithm. MikkTSpace generates the same tangents consistently, and is used in most modelling tools and normal map bakers. Use MikkTSpace for materials with normal maps, because inconsistent tangents may lead to subtle visual issues in the normal map, particularly around mirrored UV seams.
