@@ -226,3 +226,38 @@ void ConstantQ::process(const double *FFTRe, const double* FFTIm,
         CQIm[ row ] += (r1*i2 + i1*r2);
     }
 }
+
+void ConstantQ::processAdjoint(const double *CQRe, const double *CQIm,
+                               double *FFTRe, double *FFTIm)
+{
+    if (!m_sparseKernel) {
+        std::cerr << "ERROR: ConstantQ::processAdjoint: Sparse kernel has not been initialised" << std::endl;
+        return;
+    }
+
+    SparseKernel *sk = m_sparseKernel;
+
+    const int *fftbin = &(sk->is[0]);
+    const int *cqbin = &(sk->js[0]);
+    const double *real = &(sk->real[0]);
+    const double *imag = &(sk->imag[0]);
+    const int sparseCells = int(sk->real.size());
+
+    // Exact transpose of the loop in process(FFTRe, FFTIm, ...):
+    // the same sparse cells, the same reversed FFT index and the
+    // same skipped DC bin, with the conjugate kernel applied to the
+    // coefficient vector. Buffers are accumulated into, not cleared,
+    // so overlapping frames can be summed at the caller.
+    for (int i = 0; i < sparseCells; i++) {
+        const int row = cqbin[i];
+        const int col = fftbin[i];
+        if (col == 0) continue;
+        const double & r1 = real[i];
+        const double & i1 = imag[i];
+        const double & r2 = CQRe[ row ];
+        const double & i2 = CQIm[ row ];
+        // (r1 + i i1)^* (r2 + i i2)
+        FFTRe[ m_FFTLength - col ] += (r1*r2 + i1*i2);
+        FFTIm[ m_FFTLength - col ] += (r1*i2 - i1*r2);
+    }
+}

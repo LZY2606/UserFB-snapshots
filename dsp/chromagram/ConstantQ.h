@@ -37,6 +37,20 @@ public:
     void process(const double* FFTRe, const double* FFTIm,
                  double* CQRe, double* CQIm);
 
+    /**
+     * True adjoint accumulation of process(FFTRe, FFTIm, ...).
+     * Given the complex Constant-Q coefficients (CQRe, CQIm), one
+     * value per getK() band, accumulate the conjugate transpose of
+     * the sparse kernel product (including its reversed frequency
+     * index mapping and skipped DC bin) into the FFT-length
+     * (FFTRe, FFTIm) buffers. The output buffers are not cleared:
+     * contributions from overlapping frames are meant to be summed
+     * into them. This is the exact adjoint of process(), not a
+     * per-band normalisation.
+     */
+    void processAdjoint(const double* CQRe, const double* CQIm,
+                        double* FFTRe, double* FFTIm);
+
     double* process(const double* FFTData);
 
     void sparsekernel();

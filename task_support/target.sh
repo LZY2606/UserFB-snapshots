@@ -1,6 +1,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
-build=$(mktemp -d)
+build=$(mktemp -d "${TMPDIR:-/tmp}/qmdsp-target.XXXXXX")
 trap 'rm -rf "$build"' EXIT
 source task_support/build.sh
 build_task task_support/target.cpp "$build/target" task_support/main.cpp
