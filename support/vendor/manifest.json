@@ -1,0 +1,12 @@
+{
+  "jspecify": {
+    "repo": "https://github.com/jspecify/jspecify",
+    "commit": "ce9bec0b8895f424d999d31e3a1bd33694ee4c0c",
+    "license": "Apache-2.0"
+  },
+  "re2j": {
+    "repo": "https://github.com/google/re2j",
+    "commit": "57278921a609461c14d9cdb057d7aa9511c8f7ac",
+    "license": "BSD-3-Clause"
+  }
+}
