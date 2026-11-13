@@ -96,6 +96,9 @@ public:
 
 public:
 
+  /// This module is binary and understands relocated collapse targets.
+  virtual bool relocation_compatible() const { return true; }
+
   /** Compute collapse priority due to angular deviation of face normals
    *  before and after a collapse.
    *
@@ -105,6 +108,11 @@ public:
    *  -# Prevent the collapse, if the cosine of the angle between the
    *     original and the new normal is below a given threshold.
    *
+   *  If the candidate relocates the remaining vertex (\c _ci.relocate), the
+   *  faces on the other side of \c v1 move as well, so they are checked,
+   *  too.  The test uses the actual target position \c _ci.p_target and
+   *  restores the mesh before returning.
+   *
    *  \param _ci The collapse description
    *  \return LEGAL_COLLAPSE or ILLEGAL_COLLAPSE
    *
@@ -112,33 +120,30 @@ public:
    */
   float collapse_priority(const CollapseInfo& _ci)
   {
-    // simulate collapse
-    Base::mesh().set_point(_ci.v0, _ci.p1);
+    Mesh& mesh = Base::mesh();
 
-    // check for flipping normals
-    typename Mesh::ConstVertexFaceIter vf_it(Base::mesh(), _ci.v0);
-    typename Mesh::FaceHandle          fh;
-    typename Mesh::Scalar              c(1.0);
+    // Simulate the collapse on the actual target position.  In default mode
+    // p_target == p1 and this reproduces the classic endpoint test exactly.
+    mesh.set_point(_ci.v0, _ci.p_target);
+    if (_ci.relocate)
+      mesh.set_point(_ci.v1, _ci.p_target);
 
-    for (; vf_it.is_valid(); ++vf_it)
-    {
-      fh = *vf_it;
-      if (fh != _ci.fl && fh != _ci.fr)
-      {
-        typename Mesh::Normal n1 = Base::mesh().normal(fh);
-        typename Mesh::Normal n2 = Base::mesh().calc_face_normal(fh);
+    bool illegal = false;
 
-        c = dot(n1, n2);
+    // faces around the removed vertex (fl and fr are deleted)
+    illegal = check_ring(_ci, _ci.v0);
 
-        if (c < min_cos_)
-          break;
-      }
-    }
+    // In relocation mode v1 moves, which changes the faces on its other
+    // side.  Those are not covered by the v0 ring, so check them as well.
+    if (!illegal && _ci.relocate)
+      illegal = check_ring(_ci, _ci.v1);
 
     // undo simulation changes
-    Base::mesh().set_point(_ci.v0, _ci.p0);
+    mesh.set_point(_ci.v0, _ci.p0);
+    if (_ci.relocate)
+      mesh.set_point(_ci.v1, _ci.p1);
 
-    return float( (c < min_cos_) ? Base::ILLEGAL_COLLAPSE : Base::LEGAL_COLLAPSE );
+    return float( illegal ? Base::ILLEGAL_COLLAPSE : Base::LEGAL_COLLAPSE );
   }
 
   /// set the percentage of maximum normal deviation
@@ -170,6 +175,26 @@ public:
   }
 
 private:
+
+  /// Test the faces around _center after the collapse simulation.
+  bool check_ring(const CollapseInfo& _ci, typename Mesh::VertexHandle _center)
+  {
+    typename Mesh::ConstVertexFaceIter vf_it(Base::mesh(), _center);
+    for (; vf_it.is_valid(); ++vf_it)
+    {
+      const typename Mesh::FaceHandle fh = *vf_it;
+      if (fh == _ci.fl || fh == _ci.fr)
+        continue;
+
+      // A face that degenerates during the collapse cannot be validated
+      // by its normal; treat it as a flip.
+      const typename Mesh::Normal n1 = Base::mesh().normal(fh);
+      const typename Mesh::Normal n2 = Base::mesh().calc_face_normal(fh);
+      if (dot(n1, n2) < min_cos_)
+        return true;
+    }
+    return false;
+  }
 
   // hide this method
   void set_binary(bool _b) {}

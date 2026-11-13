@@ -220,6 +220,36 @@ public:
   /// Set whether module is binary or not.
   void set_binary(bool _b)   { is_binary_ = _b; }
 
+  /** Returns true if this module can select the position of the vertex
+   *  that remains after a collapse (relocation mode).
+   *
+   *  The module then has to override relocation_target().  A decimater
+   *  running in relocation mode requires its priority module to be
+   *  relocation capable and non-binary.
+   */
+  virtual bool relocation_capable() const { return false; }
+
+  /** Returns true if this module may be attached as a binary module to a
+   *  decimater running in relocation mode.
+   *
+   *  Binary modules that take part in relocation have to inspect both
+   *  endpoints of the collapsed edge, because moving the remaining vertex
+   *  changes the faces on its other side as well.
+   */
+  virtual bool relocation_compatible() const { return false; }
+
+  /** Compute the position of the remaining vertex for one candidate.
+   *
+   *  \param _ci Collapse candidate.  It is called before the collapse
+   *             constraints have been tested and must not modify the mesh.
+   *  \param _p  Receives the target position if the function returns true.
+   *  \return \c true if the returned position replaces \c p1, \c false if
+   *          the candidate is not relocatable and has to use \c p1.
+   */
+  virtual bool relocation_target(const CollapseInfoT<MeshT>& /* _ci */,
+                                 typename MeshT::Point& /* _p */)
+  { return false; }
+
 
 public: // common interface
 

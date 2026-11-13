@@ -115,8 +115,14 @@ class ModAspectRatioT: public ModBaseT<MeshT> {
     /// Returns the collapse priority
     float collapse_priority(const CollapseInfo& _ci);
 
+    /// This module is binary and understands relocated collapse targets.
+    bool relocation_compatible() const { return true; }
+
     /// update aspect ratio of one-ring
     void preprocess_collapse(const CollapseInfo& _ci);
+
+    /// Refresh the aspect cache of faces moved by a relocation.
+    void postprocess_collapse(const CollapseInfo& _ci);
 
     /// set percentage of aspect ratio
     void set_error_tolerance_factor(double _factor);

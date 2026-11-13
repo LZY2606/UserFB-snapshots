@@ -107,9 +107,24 @@ public: //------------------------------------------------------ public methods
   /// Returns whether decimater has been successfully initialized.
   bool is_initialized() const { return initialized_; }
 
+  /** Returns whether the decimater is in relocation mode, i.e. whether the
+   *  priority module may choose a target position for the remaining vertex
+   *  that differs from \c p1.  Off by default.
+   */
+  bool relocation_enabled() const { return relocation_; }
+
 
   /// Print information about modules to _os
   void info( std::ostream& _os );
+
+  /** Enable or disable relocation mode.  Off by default.
+   *
+   *  In relocation mode the (non-binary) priority module may choose the
+   *  position of the vertex that remains after a collapse instead of
+   *  always keeping \c p1.  The decimater has to be initialized again
+   *  after the setting has been changed.
+   */
+  void set_relocation(bool _enable) { set_relocation_flag(_enable); }
 
 public: //--------------------------------------------------- module management
 
@@ -166,12 +181,25 @@ public: //--------------------------------------------------- module management
 
 protected:
 
-  // Reset the initialized flag, and clear the bmodules_ and cmodule_
+  /// Reset the initialized flag, and clear the bmodules_ and cmodule_
   void set_uninitialized() {
     initialized_ = false;
     cmodule_ = 0;
     bmodules_.clear();
   }
+
+  /// Enable or disable relocation (set_relocation()).
+  void set_relocation_flag(bool _enable)
+  {
+    if (relocation_ != _enable)
+    {
+      relocation_ = _enable;
+      set_uninitialized();
+    }
+  }
+
+  /// Fill in the relocation target of a collapse candidate.
+  void relocation_target(CollapseInfo& _ci);
 
   void update_modules(CollapseInfo& _ci)
   {
@@ -233,6 +261,9 @@ private: //------------------------------------------------------- private data
 
   // Flag if all modules were initialized
   bool       initialized_;
+
+  // Flag if the priority module may relocate the remaining vertex
+  bool       relocation_;
 
 
 };

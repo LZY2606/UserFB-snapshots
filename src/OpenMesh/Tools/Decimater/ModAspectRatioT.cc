@@ -97,6 +97,8 @@ void ModAspectRatioT<MeshT>::initialize() {
   typename Mesh::FVIter fv_it;
 
   for (f_it = mesh_.faces_begin(); f_it != f_end; ++f_it) {
+    if (mesh_.has_face_status() && mesh_.status(*f_it).deleted())
+      continue;
     fv_it = mesh_.fv_iter(*f_it);
     typename Mesh::Point& p0 = mesh_.point(*fv_it);
     typename Mesh::Point& p1 = mesh_.point(*(++fv_it));
@@ -130,9 +132,52 @@ void ModAspectRatioT<MeshT>::preprocess_collapse(const CollapseInfo& _ci) {
 
 template<class MeshT>
 float ModAspectRatioT<MeshT>::collapse_priority(const CollapseInfo& _ci) {
+  if (_ci.relocate) {
+    // The remaining vertex moves, so the faces on both sides of the edge
+    // change.  Apply the binary rule to the union of the two one-rings,
+    // comparing the worst quality before and after the collapse against
+    // each other and against the configured minimum.  Both values are
+    // computed from the current geometry, so the test never relies on a
+    // cache that another module or candidate could have left behind.
+    Scalar r0, r1, r0_min(1.0), r1_min(1.0);
+    const typename Mesh::Point& target = _ci.p_target;
+
+    const typename Mesh::VertexHandle centers[2] = { _ci.v0, _ci.v1 };
+    for (int c = 0; c < 2; ++c) {
+      for (typename Mesh::ConstVertexFaceIter vf_it(mesh_, centers[c]);
+           vf_it.is_valid(); ++vf_it) {
+        const typename Mesh::FaceHandle fh = *vf_it;
+        if (fh == _ci.fl || fh == _ci.fr)
+          continue;
+
+        typename Mesh::ConstFaceVertexIter fv_it = mesh_.cfv_iter(fh);
+        const typename Mesh::VertexHandle a = *fv_it; ++fv_it;
+        const typename Mesh::VertexHandle b = *fv_it; ++fv_it;
+        const typename Mesh::VertexHandle d = *fv_it;
+
+        const typename Mesh::Point& pa = mesh_.point(a);
+        const typename Mesh::Point& pb = mesh_.point(b);
+        const typename Mesh::Point& pd = mesh_.point(d);
+
+        if ((r0 = 1.0 / aspectRatio(pa, pb, pd)) < r0_min)
+          r0_min = r0;
+
+        const typename Mesh::Point& qa = (a == _ci.v0 || a == _ci.v1) ? target : pa;
+        const typename Mesh::Point& qb = (b == _ci.v0 || b == _ci.v1) ? target : pb;
+        const typename Mesh::Point& qd = (d == _ci.v0 || d == _ci.v1) ? target : pd;
+
+        if ((r1 = 1.0 / aspectRatio(qa, qb, qd)) < r1_min)
+          r1_min = r1;
+      }
+    }
+
+    return ((r1_min > r0_min) || (r1_min > min_aspect_))
+        ? Base::LEGAL_COLLAPSE : Base::ILLEGAL_COLLAPSE;
+  }
+
   typename Mesh::VertexHandle v2, v3;
   typename Mesh::FaceHandle fh;
-  const typename Mesh::Point *p1(&_ci.p1), *p2, *p3;
+  const typename Mesh::Point *p1(&_ci.p_target), *p2, *p3;
   typename Mesh::Scalar r0, r1, r0_min(1.0), r1_min(1.0);
   typename Mesh::ConstVertexOHalfedgeIter voh_it(mesh_, _ci.v0);
 
@@ -173,6 +218,29 @@ float ModAspectRatioT<MeshT>::collapse_priority(const CollapseInfo& _ci) {
     else
       return
           (r1_min > min_aspect_) ? 2.0 - r1_min : float(Base::ILLEGAL_COLLAPSE);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+template<class MeshT>
+void ModAspectRatioT<MeshT>::postprocess_collapse(const CollapseInfo& _ci) {
+  if (!_ci.relocate)
+    return;
+
+  // Moving v1 changes the geometry of all faces around it; the cached
+  // aspect ratios of those faces have to follow the new geometry.
+  for (typename Mesh::VFIter vf_it = mesh_.vf_iter(_ci.v1); vf_it.is_valid(); ++vf_it) {
+    const typename Mesh::FaceHandle fh = *vf_it;
+    if (mesh_.status(fh).deleted())
+      continue;
+
+    typename Mesh::FVIter fv_it = mesh_.fv_iter(fh);
+    const typename Mesh::Point& p0 = mesh_.point(*fv_it);
+    const typename Mesh::Point& p1 = mesh_.point(*(++fv_it));
+    const typename Mesh::Point& p2 = mesh_.point(*(++fv_it));
+
+    mesh_.property(aspect_, fh) = 1.0 / aspectRatio(p0, p1, p2);
   }
 }
 

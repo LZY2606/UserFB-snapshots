@@ -55,6 +55,7 @@
 //== INCLUDES =================================================================
 
 #include <memory>
+#include <vector>
 
 #include <OpenMesh/Core/Utils/Property.hh>
 #include <OpenMesh/Tools/Utils/HeapT.hh>
@@ -114,6 +115,14 @@ public:
    */
   size_t decimate_to_faces( size_t  _n_vertices=0, size_t _n_faces=0 );
 
+  /** Enable or disable relocation mode (see BaseDecimaterT::set_relocation()).
+   *
+   *  In relocation mode a non-binary ModQuadricT priority module may
+   *  choose the position of the remaining vertex instead of keeping it at
+   *  \c p1.  The decimater has to be initialized again afterwards.
+   */
+  void set_relocation(bool _enable) { this->set_relocation_flag(_enable); }
+
 public:
 
   typedef typename Mesh::VertexHandle    VertexHandle;
@@ -160,6 +169,10 @@ private: //---------------------------------------------------- private methods
 
   /// Insert vertex in heap
   void heap_vertex(VertexHandle _vh);
+
+  /// Collect the vertices whose one ring changes during a collapse.
+  void collect_relocation_support(const CollapseInfo& _ci,
+    std::vector<VertexHandle>& _support);
 
 private: //------------------------------------------------------- private data
 

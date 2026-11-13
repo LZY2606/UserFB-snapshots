@@ -91,6 +91,16 @@ struct CollapseInfoT {
     typename Mesh::VertexHandle v1; ///< Remaining vertex
     typename Mesh::Point p0; ///< Position of removed vertex
     typename Mesh::Point p1; ///< Positions of remaining vertex
+    /** Position at which the remaining vertex will be placed when the
+     *  collapse is executed.  For an ordinary halfedge collapse this is
+     *  simply \c p1; relocation aware decimaters may choose a different
+     *  point.  The field is part of the candidate description so that
+     *  binary modules, the heap priority and the final collapse all use
+     *  one and the same target position.
+     */
+    typename Mesh::Point p_target;
+    /// True if \c p_target was selected by a relocation placement rule.
+    bool relocate;
     typename Mesh::FaceHandle fl; ///< Left face
     typename Mesh::FaceHandle fr; ///< Right face
     typename Mesh::VertexHandle vl; ///< Left vertex
@@ -129,8 +139,8 @@ inline CollapseInfoT<Mesh>::CollapseInfoT(Mesh& _mesh,
     typename Mesh::HalfedgeHandle _heh) :
     mesh(_mesh), v0v1(_heh), v1v0(_mesh.opposite_halfedge_handle(v0v1)), v0(
         _mesh.to_vertex_handle(v1v0)), v1(_mesh.to_vertex_handle(v0v1)), p0(
-        _mesh.point(v0)), p1(_mesh.point(v1)), fl(_mesh.face_handle(v0v1)), fr(
-        _mesh.face_handle(v1v0))
+        _mesh.point(v0)), p1(_mesh.point(v1)), p_target(p1), relocate(false),
+        fl(_mesh.face_handle(v0v1)), fr(_mesh.face_handle(v1v0))
 
 {
   // get vl

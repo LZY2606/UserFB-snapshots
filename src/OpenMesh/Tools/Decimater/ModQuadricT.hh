@@ -120,7 +120,9 @@ public: // inherited
     Q q = Base::mesh().property(quadrics_, _ci.v0);
     q += Base::mesh().property(quadrics_, _ci.v1);
 
-    double err = q(_ci.p1);
+    // p_target is p1 unless relocation mode selected another position,
+    // in which case the error of the actual target has to be limited.
+    double err = q(_ci.p_target);
 
     //min_ = std::min(err, min_);
     //max_ = std::max(err, max_);
@@ -129,6 +131,22 @@ public: // inherited
 
     return float( (err < max_err_) ? err : float( Base::ILLEGAL_COLLAPSE ) );
   }
+
+  /// This module can select the position of the remaining vertex.
+  virtual bool relocation_capable() const { return true; }
+
+  /** Compute the unconstrained minimizer of the merged quadric.
+   *
+   *  The target position is only chosen freely for interior edges whose
+   *  two endpoints are not on the boundary, not locked and not marked as
+   *  features.  For all other candidates \c p1 is kept (returns false).
+   *
+   *  If the 3x3 system is numerically singular, or the solution is not
+   *  finite, the position with the smallest quadric error among p1, p0 and
+   *  the midpoint is used (ties broken in that order).
+   */
+  virtual bool relocation_target(const CollapseInfo& _ci,
+                                 typename Mesh::Point& _p);
 
 
   /// Post-process halfedge collapse (accumulate quadrics)

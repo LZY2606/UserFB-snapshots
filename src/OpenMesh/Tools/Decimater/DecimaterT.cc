@@ -54,6 +54,7 @@
 #include <OpenMesh/Tools/Decimater/DecimaterT.hh>
 
 #include <vector>
+#include <algorithm>
 #if defined(OM_CC_MIPS)
 #  include <float.h>
 #else
@@ -106,6 +107,11 @@ void DecimaterT<Mesh>::heap_vertex(VertexHandle _vh) {
     CollapseInfo ci(mesh_, heh);
 
     if (this->is_collapse_legal(ci)) {
+      // Select the target position before the modules look at the
+      // candidate, so that priorities, binary checks and the eventual
+      // collapse all refer to exactly the same position.
+      this->relocation_target(ci);
+
       prio = this->collapse_priority(ci);
       if (prio >= 0.0 && prio < best_prio) {
         best_prio = prio;
@@ -139,6 +145,36 @@ void DecimaterT<Mesh>::heap_vertex(VertexHandle _vh) {
 
 //-----------------------------------------------------------------------------
 template<class Mesh>
+void DecimaterT<Mesh>::collect_relocation_support(
+    const CollapseInfo& _ci,
+    std::vector<VertexHandle>& _support) {
+
+  // Vertices whose one ring is changed by the collapse.  The vertices
+  // around v0 lose their connection to v0 (the stored support of the
+  // original algorithm).  In relocation mode the remaining vertex v1 moves,
+  // which changes the geometry of all its incident faces, so the one ring
+  // of v1 has to be refreshed as well.
+  _support.clear();
+
+  typename Mesh::VertexVertexIter vv_it = mesh_.vv_iter(_ci.v0);
+  for (; vv_it.is_valid(); ++vv_it)
+    _support.push_back(*vv_it);
+
+  if (this->relocation_enabled())
+  {
+    // The remaining vertex itself moved, so its own priority is stale.
+    _support.push_back(_ci.v1);
+
+    vv_it = mesh_.vv_iter(_ci.v1);
+    for (; vv_it.is_valid(); ++vv_it)
+      if (!(*vv_it == _ci.v0) &&
+          std::find(_support.begin(), _support.end(), *vv_it) == _support.end())
+        _support.push_back(*vv_it);
+  }
+}
+
+//-----------------------------------------------------------------------------
+template<class Mesh>
 size_t DecimaterT<Mesh>::decimate(size_t _n_collapses) {
 
   if (!this->is_initialized())
@@ -147,7 +183,6 @@ size_t DecimaterT<Mesh>::decimate(size_t _n_collapses) {
   typename Mesh::VertexIter v_it, v_end(mesh_.vertices_end());
   typename Mesh::VertexHandle vp;
   typename Mesh::HalfedgeHandle v0v1;
-  typename Mesh::VertexVertexIter vv_it;
   typename Mesh::VertexFaceIter vf_it;
   unsigned int n_collapses(0);
 
@@ -179,24 +214,53 @@ size_t DecimaterT<Mesh>::decimate(size_t _n_collapses) {
     v0v1 = mesh_.property(collapse_target_, vp);
     heap_->pop_front();
 
+    // The entry may be stale: the vertex may have been removed meanwhile,
+    // or another collapse may have changed its neighbourhood and with it
+    // the validity of the stored halfedge.  Skip such entries.
+    if (mesh_.status(vp).deleted())
+      continue;
+
     // setup collapse info
     CollapseInfo ci(mesh_, v0v1);
+
+    // Recompute the target position for this candidate.  Neighbouring
+    // collapses may have changed the geometry on either side of the edge,
+    // so the stored target can no longer be trusted.
+    this->relocation_target(ci);
 
     // check topological correctness AGAIN !
     if (!this->is_collapse_legal(ci))
       continue;
 
-    // store support (= one ring of *vp)
-    vv_it = mesh_.vv_iter(ci.v0);
-    support.clear();
-    for (; vv_it.is_valid(); ++vv_it)
-      support.push_back(*vv_it);
+    // In relocation mode the binary modules and the priority module were
+    // evaluated in heap_vertex() for a possibly stale target position.
+    // Re-evaluate them here so that the stored priority, the checks and
+    // the executed collapse all refer to the same current position.  (In
+    // the default mode this is skipped, preserving the original call
+    // sequence and results.)  A candidate that no longer passes is not
+    // dropped: the vertex is re-scored against the current geometry and
+    // re-inserted, which may select a different edge.
+    if (this->relocation_enabled() &&
+        this->collapse_priority(ci) < 0.0) {
+      heap_vertex(vp);
+      continue;
+    }
+
+    // store support (= one ring of *vp, plus v1's ring in relocation mode)
+    collect_relocation_support(ci, support);
 
     // perform collapse
     mesh_.collapse(v0v1);
+
+    // Move the remaining vertex to the accepted target position before
+    // anything else observes the new geometry.
+    if (ci.relocate)
+      mesh_.set_point(ci.v1, ci.p_target);
+
     ++n_collapses;
 
-    // update triangle normals
+    // update triangle normals (faces around v1, including those on the
+    // other side that moved with the relocated vertex)
     vf_it = mesh_.vf_iter(ci.v1);
     for (; vf_it.is_valid(); ++vf_it)
       if (!mesh_.status(*vf_it).deleted())
@@ -235,7 +299,6 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
   typename Mesh::VertexIter v_it, v_end(mesh_.vertices_end());
   typename Mesh::VertexHandle vp;
   typename Mesh::HalfedgeHandle v0v1;
-  typename Mesh::VertexVertexIter vv_it;
   typename Mesh::VertexFaceIter vf_it;
   size_t nv = mesh_.n_vertices();
   size_t nf = mesh_.n_faces();
@@ -265,18 +328,40 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
     v0v1 = mesh_.property(collapse_target_, vp);
     heap_->pop_front();
 
+    // The entry may be stale: the vertex may have been removed meanwhile,
+    // or another collapse may have changed its neighbourhood and with it
+    // the validity of the stored halfedge.  Skip such entries.
+    if (mesh_.status(vp).deleted())
+      continue;
+
     // setup collapse info
     CollapseInfo ci(mesh_, v0v1);
+
+    // Recompute the target position for this candidate.  Neighbouring
+    // collapses may have changed the geometry on either side of the edge,
+    // so the stored target can no longer be trusted.
+    this->relocation_target(ci);
 
     // check topological correctness AGAIN !
     if (!this->is_collapse_legal(ci))
       continue;
 
-    // store support (= one ring of *vp)
-    vv_it = mesh_.vv_iter(ci.v0);
-    support.clear();
-    for (; vv_it.is_valid(); ++vv_it)
-      support.push_back(*vv_it);
+    // In relocation mode the binary modules and the priority module were
+    // evaluated in heap_vertex() for a possibly stale target position.
+    // Re-evaluate them here so that the stored priority, the checks and
+    // the executed collapse all refer to the same current position.  (In
+    // the default mode this is skipped, preserving the original call
+    // sequence and results.)  A candidate that no longer passes is not
+    // dropped: the vertex is re-scored against the current geometry and
+    // re-inserted, which may select a different edge.
+    if (this->relocation_enabled() &&
+        this->collapse_priority(ci) < 0.0) {
+      heap_vertex(vp);
+      continue;
+    }
+
+    // store support (= one ring of *vp, plus v1's ring in relocation mode)
+    collect_relocation_support(ci, support);
 
     // adjust complexity in advance (need boundary status)
     ++n_collapses;
@@ -292,7 +377,13 @@ size_t DecimaterT<Mesh>::decimate_to_faces(size_t _nv, size_t _nf) {
     // perform collapse
     mesh_.collapse(v0v1);
 
-    // update triangle normals
+    // Move the remaining vertex to the accepted target position before
+    // anything else observes the new geometry.
+    if (ci.relocate)
+      mesh_.set_point(ci.v1, ci.p_target);
+
+    // update triangle normals (faces around v1, including those on the
+    // other side that moved with the relocated vertex)
     vf_it = mesh_.vf_iter(ci.v1);
     for (; vf_it.is_valid(); ++vf_it)
       if (!mesh_.status(*vf_it).deleted())

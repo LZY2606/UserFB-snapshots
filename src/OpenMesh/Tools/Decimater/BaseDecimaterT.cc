@@ -67,7 +67,7 @@ namespace Decimater {
 
 template<class Mesh>
 BaseDecimaterT<Mesh>::BaseDecimaterT(Mesh& _mesh) :
-    mesh_(_mesh), cmodule_(NULL), initialized_(false) {
+    mesh_(_mesh), cmodule_(NULL), initialized_(false), relocation_(false) {
   // default properties
   mesh_.request_vertex_status();
   mesh_.request_edge_status();
@@ -147,6 +147,27 @@ bool BaseDecimaterT<Mesh>::is_collapse_legal(const CollapseInfo& _ci) {
 
   // collapse passed all tests -> ok
   return true;
+}
+
+//-----------------------------------------------------------------------------
+
+template<class Mesh>
+void BaseDecimaterT<Mesh>::relocation_target(CollapseInfo& _ci) {
+  // A candidate only has a free target position in relocation mode, and
+  // only if the priority module offers one.  Everything else keeps p1 so
+  // that the ordinary (endpoint) collapse is preserved bit by bit.
+  _ci.p_target = _ci.p1;
+  _ci.relocate = false;
+
+  if (!relocation_ || !cmodule_)
+    return;
+
+  typename Mesh::Point target;
+  if (cmodule_->relocation_target(_ci, target))
+  {
+    _ci.p_target = target;
+    _ci.relocate = true;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -276,6 +297,28 @@ bool BaseDecimaterT<Mesh>::initialize() {
     // At least one priority module required
     set_uninitialized();
     return false;
+  }
+
+  //--- relocation mode compatibility --------------------------------
+  // Relocation needs a priority module that can place the remaining
+  // vertex somewhere else than p1, and it needs binary modules that
+  // know how to validate such a placement.  Nothing is initialized
+  // unless the whole module set is compatible, so a failed
+  // initialize() leaves the mesh untouched.
+  if (relocation_) {
+    if (!pmodule->relocation_capable() || pmodule->is_binary()) {
+      set_uninitialized();
+      return false;
+    }
+    for (ModuleListIterator m_it = all_modules_.begin(), m_end =
+        all_modules_.end(); m_it != m_end; ++m_it) {
+      if (*m_it == pmodule)
+        continue;
+      if (!(*m_it)->relocation_compatible() || !(*m_it)->is_binary()) {
+        set_uninitialized();
+        return false;
+      }
+    }
   }
 
   // set pmodule as the current priority module

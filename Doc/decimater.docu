@@ -89,5 +89,65 @@
 
 \include decimater.cc
 
+\section DecimaterRelocation Vertex Relocation
+
+  An ordinary halfedge collapse removes the from-vertex \c v0 and keeps the
+  to-vertex \c v1 exactly where it was.  For a curved surface the best
+  position for the merged error quadric usually lies between the endpoints,
+  so restricting the result to \c p1 wastes accuracy that an edge could
+  provide.
+
+  Relocation mode removes that restriction for the quadric module:
+
+  \code
+  decimater.set_relocation( true );
+  decimater.initialize();
+  \endcode
+
+  \c set_relocation() is off by default.  It resets the decimater, so
+  initialize() has to be called afterwards.  While relocation is off, the
+  original call sequence, heap order and decimation results are preserved.
+
+  Placement rules (OpenMesh::Decimater::ModQuadricT::relocation_target()):
+
+  - A candidate on an interior edge whose two endpoints are neither on the
+    boundary, nor locked, nor marked as feature vertices uses the
+    unconstrained minimizer of the merged quadric \c Q(v0)+Q(v1).
+  - If the 3x3 system is numerically singular or its solution is not finite,
+    the position with the smallest quadric error among \c p1, \c p0 and the
+    midpoint is used.  Ties are broken in that order (p1 first).  The
+    singularity test is relative: a pivot is rejected when its magnitude does
+    not exceed 1e-12 times the largest absolute matrix element, so the zero
+    matrix takes the fallback as well.
+  - Every other candidate keeps \c p1.
+  - The quadrics are still built with the usual area weighting and merged
+    along the collapse history, and the max-error constraint is checked at
+    the actual target position.  No volume-preservation term is added.
+
+  Compatibility rules (checked by initialize()):
+
+  - The priority module has to be relocation capable and non-binary.  That is
+    ModQuadricT without \c set_max_err(..., true).
+  - Every other attached module has to be a relocation aware binary module,
+    i.e. ModNormalFlippingT or ModAspectRatioT.  Both inspect the actual
+    target position on the faces of both endpoints, so a face that only
+    touches \c v1 is covered as well.
+  - If the module set does not satisfy these rules, initialize() returns
+    false and the mesh stays untouched.
+
+  Only relocation aware binary modules move geometry during their test.  Their
+  trial changes are undone before returning, and after an accepted collapse
+  the retained vertex, the face normals and the aspect-ratio cache are updated
+  so that later candidates see the current geometry.  The decimater re-scores
+  a candidate when it is popped from the heap, and refreshes the heap entries
+  of the retained vertex's neighbourhood, because both are affected by a
+  moved vertex.
+
+  \note Relocation is supported by OpenMesh::Decimater::DecimaterT
+  (decimate() and decimate_to_faces()).  Modules without relocation support
+  are ModEdgeLengthT, ModHausdorffT, ModIndependentSetsT, ModNormalDeviationT,
+  ModProgMeshT and ModRoundnessT; attaching them while relocation is enabled
+  makes initialize() fail.
+
 */
 
