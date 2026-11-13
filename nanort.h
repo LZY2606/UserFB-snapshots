@@ -995,35 +995,63 @@ class TriangleIntersection {
 };
 
 ///
-/// Intersector is a template class which implements intersection method and stores
-/// intesection point information(`H`)
+/// Candidate of a watertight ray/triangle intersection test.
+///
+/// This is pure geometry: it does not touch the committed nearest-hit state.
+/// A derived intersector may filter the candidate (e.g. by material opacity)
+/// before committing it, so a rejected candidate cannot move the accepted hit
+/// distance or barycentric coordinates.
+///
+template <typename T = float>
+class TriangleIntersectionCandidate {
+ public:
+  TriangleIntersectionCandidate()
+      : t(static_cast<T>(0.0)),
+        u(static_cast<T>(0.0)),
+        v(static_cast<T>(0.0)),
+        prim_id(static_cast<unsigned int>(-1)) {}
+
+  T t;
+  T u;
+  T v;
+  unsigned int prim_id;
+};
+
+///
+/// Shared geometry kernel for triangle intersectors.
+///
+/// Implements the watertight ray/triangle candidate test (including the ray
+/// interval, primitive id range, self-intersection skip and back-face
+/// options) and keeps the committed hit state. `TriangleIntersector` and
+/// `OpacityIntersector` derive from this class, so the expensive
+/// intersection math is not duplicated.
 ///
 /// @tparam T Precision(float or double)
 /// @tparam H Intersection point information struct
 ///
 template <typename T = float, class H = TriangleIntersection<T> >
-class TriangleIntersector {
+class TriangleIntersectorBase {
  public:
 
   // Initialize from mesh object.
   // M: mesh class
   template<class M>
-  TriangleIntersector(const M &m)
+  TriangleIntersectorBase(const M &m)
       : vertices_(m.GetVertices()),
         faces_(m.GetFaces()),
         vertex_stride_bytes_(m.GetVertexStrideBytes()) {}
 
   template<class M>
-  TriangleIntersector(const M *m)
+  TriangleIntersectorBase(const M *m)
       : vertices_(m->GetVertices()),
         faces_(m->GetFaces()),
         vertex_stride_bytes_(m->GetVertexStrideBytes()) {}
 
-  TriangleIntersector(const T *vertices, const unsigned int *faces,
-                      const size_t vertex_stride_bytes)  // e.g.
-                                                         // vertex_stride_bytes
-                                                         // = 12 = sizeof(float)
-                                                         // * 3
+  TriangleIntersectorBase(const T *vertices, const unsigned int *faces,
+                          const size_t vertex_stride_bytes)  // e.g.
+                                                             // vertex_stride_bytes
+                                                             // = 12 =
+                                                             // sizeof(float) * 3
       : vertices_(vertices),
         faces_(faces),
         vertex_stride_bytes_(vertex_stride_bytes) {}
@@ -1038,10 +1066,15 @@ class TriangleIntersector {
     int kz;
   } RayCoeff;
 
-  /// Do ray intersection stuff for `prim_index` th primitive and return hit
-  /// distance `t`, barycentric coordinate `u` and `v`.
-  /// Returns true if there's intersection.
-  bool Intersect(T *t_inout, const unsigned int prim_index) const {
+  /// Test a single triangle against the prepared ray.
+  ///
+  /// Pure candidate computation: nothing is committed. The candidate is only
+  /// returned when `t <= t_max` and `t >= ray.min_t`, and when the primitive
+  /// passes the trace options (id range, skip id and back-face cull).
+  ///
+  /// @return true if a candidate intersection exists.
+  bool IntersectCandidate(const unsigned int prim_index, T t_max,
+                          TriangleIntersectionCandidate<T> *cand) const {
     if ((prim_index < trace_options_.prim_ids_range[0]) ||
         (prim_index >= trace_options_.prim_ids_range[1])) {
       return false;
@@ -1120,7 +1153,7 @@ class TriangleIntersector {
     const T rcpDet = static_cast<T>(1.0) / det;
     T tt = D * rcpDet;
 
-    if (tt > (*t_inout)) {
+    if (tt > t_max) {
       return false;
     }
 
@@ -1128,16 +1161,44 @@ class TriangleIntersector {
       return false;
     }
 
-    (*t_inout) = tt;
     // Use Möller-Trumbore style barycentric coordinates
     // U + V + W = 1.0 and interp(p) = U * p0 + V * p1 + W * p2
     // We want interp(p) = (1 - u - v) * p0 + u * v1 + v * p2;
     // => u = V, v = W.
-    u_ = V * rcpDet;
-    v_ = W * rcpDet;
+    cand->t = tt;
+    cand->u = V * rcpDet;
+    cand->v = W * rcpDet;
+    cand->prim_id = prim_index;
 
     return true;
   }
+
+  /// Commit an accepted candidate as the nearest hit.
+  void Commit(const TriangleIntersectionCandidate<T> &cand) const {
+    t_ = cand.t;
+    u_ = cand.u;
+    v_ = cand.v;
+    prim_id_ = cand.prim_id;
+  }
+
+  /// Test `prim_index` th primitive and commit it if it is nearer than the
+  /// current hit.
+  ///
+  /// This is the original single-shot behaviour of `TriangleIntersector`.
+  bool Intersect(T *t_inout, const unsigned int prim_index) const {
+    TriangleIntersectionCandidate<T> cand;
+    if (!IntersectCandidate(prim_index, (*t_inout), &cand)) {
+      return false;
+    }
+
+    (*t_inout) = cand.t;
+    Commit(cand);
+
+    return true;
+  }
+
+  /// Set the current distance bound (used for shadow rays).
+  T GetRayMaxT() const { return t_max_; }
 
   /// Returns the nearest hit distance.
   T GetT() const { return t_; }
@@ -1185,9 +1246,11 @@ class TriangleIntersector {
     trace_options_ = trace_options;
 
     t_min_ = ray.min_t;
+    t_max_ = ray.max_t;
 
     u_ = static_cast<T>(0.0);
     v_ = static_cast<T>(0.0);
+    prim_id_ = static_cast<unsigned int>(-1);
   }
 
   /// Post BVH traversal stuff.
@@ -1202,7 +1265,7 @@ class TriangleIntersector {
     (void)ray;
   }
 
- private:
+ protected:
   const T *vertices_;
   const unsigned int *faces_;
   const size_t vertex_stride_bytes_;
@@ -1211,11 +1274,32 @@ class TriangleIntersector {
   mutable RayCoeff ray_coeff_;
   mutable BVHTraceOptions trace_options_;
   mutable T t_min_;
+  mutable T t_max_;
 
   mutable T t_;
   mutable T u_;
   mutable T v_;
   mutable unsigned int prim_id_;
+};
+
+///
+/// Intersector that reports the nearest opaque triangle hit.
+///
+/// Kept as a thin subclass of `TriangleIntersectorBase` for source
+/// compatibility with previous NanoRT releases.
+///
+template <typename T = float, class H = TriangleIntersection<T> >
+class TriangleIntersector : public TriangleIntersectorBase<T, H> {
+ public:
+  template <class M>
+  TriangleIntersector(const M &m) : TriangleIntersectorBase<T, H>(m) {}
+
+  template <class M>
+  TriangleIntersector(const M *m) : TriangleIntersectorBase<T, H>(m) {}
+
+  TriangleIntersector(const T *vertices, const unsigned int *faces,
+                      const size_t vertex_stride_bytes)
+      : TriangleIntersectorBase<T, H>(vertices, faces, vertex_stride_bytes) {}
 };
 
 //

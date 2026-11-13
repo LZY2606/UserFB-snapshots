@@ -242,6 +242,74 @@ Here is an example of custom geometry.
 
 And plesae see API at wiki: https://github.com/lighttransport/nanort/wiki/API
 
+## Alpha-tested (cutout) triangles
+
+`nanort-opacity.h` adds an alpha-tested triangle path on top of the regular
+BVH. `nanort::OpacityMesh`, `nanort::OpacityMap` and
+`nanort::OpacityIntersector` are drop-in replacements for `TriangleMesh` and
+`TriangleIntersector` and work with the existing `Build()` and `Traverse()`.
+
+```c
+#include "nanort-opacity.h"
+
+// Per primitive: three corner UVs, one 8-bit alpha texture and a cutoff.
+std::vector<nanort::OpacityMap<float>::PrimitiveDesc> descs(num_faces);
+descs[f].uv[0] = uv0[0];  // uv0.u
+descs[f].uv[1] = uv0[1];  // uv0.v
+// ... uv1, uv2 ...
+descs[f].width = 256;
+descs[f].height = 256;
+descs[f].texels = alpha;    // row major, width * height bytes
+descs[f].cutoff = 128;      // surface when alpha >= cutoff
+
+nanort::OpacityMap<float> opacity;
+opacity.Build(descs.data(), num_faces, /* level = 0..5 */ 3);
+
+nanort::OpacityMesh<float> mesh(vertices, faces, sizeof(float) * 3, &opacity);
+nanort::TriangleSAHPred<float> pred(vertices, faces, sizeof(float) * 3);
+nanort::BVHAccel<float> accel;
+accel.Build(num_faces, mesh, pred, build_options);
+
+nanort::OpacityIntersector<float> intersector(mesh);
+nanort::TriangleIntersection<float> isect;
+bool hit = accel.Traverse(ray, intersector, &isect, trace_options);
+unsigned int definite = intersector.GetDefiniteRegionHits();
+unsigned int exact = intersector.GetExactAlphaSamples();
+```
+
+Sampling clamps the UV to `[0, 1]`, uses `floor(u * width)` / `floor(v * height)`
+and then clamps the texel index to the last texel. `t`, `u`, `v` and `prim_id`
+always refer to the original face id; the BVH's internal permutation is never
+exposed as a material id. The usual trace options (`min_t`/`max_t`,
+`cull_back_face`, `skip_prim_id`, `prim_ids_range`) and the padded vertex
+stride rule apply unchanged.
+
+### Micro regions and conservativeness
+
+At build time the barycentric domain of each original triangle is recursively
+split into fours, `level` times (0 to 5). Every leaf micro triangle is cached
+as fully transparent, fully opaque or mixed. A micro triangle is only marked
+definite when *every* texel reachable from the UV bounding rectangle of the
+region has that state. The UV rectangle may be larger than the exact footprint,
+so extra `MIXED` entries are possible; a definite entry that would skip a real
+opaque sample is not.
+
+At traverse time a candidate landing in a definite transparent micro region is
+rejected without a texel read, a definite opaque one is accepted directly, and
+only a mixed one samples the actual texel with the exact alpha test. Because a
+candidate is accepted or rejected before it is committed, a rejected near
+candidate never shrinks the current nearest distance, never modifies the
+accepted barycentrics, and never ends a shadow query early.
+
+`OpacityMap::Build()` copies all UVs and texels: the cache owns its data and
+the caller may safely reuse or release the source buffers. Replacing the
+texture or the UVs requires an explicit `Build()` call; the intersector keeps
+pointing at the same `OpacityMap`, so rebuild the map before tracing with the
+new material data.
+
+See `examples/opacity_layers.cpp` for two perforated layers, an opaque back
+wall and a point light with finite shadow rays.
+
 ## License
 
 `nanort.h` is licensed under MIT license.
