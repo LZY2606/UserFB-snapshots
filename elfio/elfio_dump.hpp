@@ -1230,6 +1230,138 @@ class dump
         out << std::endl;
     }
 
+    //------------------------------------------------------------------------------
+    //! Prints the identities stored in the group/section relation view: every
+    //! SHT_GROUP with its signature triple (symbol table, symbol index, string
+    //! table), its ordered members, every direct relationship reached from the
+    //! requested section set, and any structural group errors. The underlying
+    //! reader is only inspected, never modified.
+    static void
+    section_relations( std::ostream&                 out,
+                       const section_relation_result& result,
+                       const elfio&                  reader )
+    {
+        std::ios_base::fmtflags original_flags = out.flags();
+
+        out << "Section Relations:" << std::endl;
+
+        out << "  Requested:";
+        for ( Elf_Half index : result.requested ) {
+            out << " " << DUMP_DEC_FORMAT( 3 ) << index;
+        }
+        out << std::endl;
+
+        out << "  Reached sections:";
+        for ( Elf_Half index : result.sections ) {
+            const section* sec = reader.sections[index];
+            out << " [" << DUMP_DEC_FORMAT( 3 ) << index << "] "
+                << ( sec != nullptr ? sec->get_name() : std::string( "?" ) );
+        }
+        out << std::endl;
+
+        const group_relation_view& view = result.group_view;
+
+        for ( const auto& group : view.groups ) {
+            const section* gsec = reader.sections[group.group_section_index];
+            out << "  Group ["
+                << DUMP_DEC_FORMAT( 3 ) << group.group_section_index << "] "
+                << ( gsec != nullptr ? gsec->get_name() : std::string( "?" ) )
+                << std::endl;
+
+            out << "    flags: raw=0x" << std::hex << group.flags.raw
+                << " comdat=" << std::dec
+                << ( group.flags.comdat ? 1 : 0 ) << " uninterpreted=";
+            if ( group.flags.uninterpreted_bits.empty() ) {
+                out << "none";
+            }
+            else {
+                out << "0x" << std::hex;
+                for ( size_t i = 0; i < group.flags.uninterpreted_bits.size();
+                      ++i ) {
+                    if ( i != 0 ) out << ",";
+                    out << group.flags.uninterpreted_bits[i];
+                }
+                out << std::dec;
+            }
+            out << std::endl;
+
+            const group_signature_info& sig = group.signature;
+            out << "    signature: symtab="
+                << DUMP_DEC_FORMAT( 3 ) << sig.symbol_table_index
+                << " symbol=" << DUMP_DEC_FORMAT( 3 ) << sig.symbol_index
+                << " strtab=" << DUMP_DEC_FORMAT( 3 )
+                << sig.string_table_index << " resolved="
+                << ( sig.resolved ? 1 : 0 ) << " name=\"" << sig.name << "\""
+                << std::endl;
+
+            out << "    members:" << std::endl;
+            for ( const auto& member : group.members ) {
+                out << "      section="
+                    << DUMP_DEC_FORMAT( 3 ) << member.section_index
+                    << " offset=" << DUMP_DEC_FORMAT( 3 )
+                    << member.word_offset << " in_range="
+                    << ( member.in_range ? 1 : 0 )
+                    << " group_flag=" << ( member.has_group_flag ? 1 : 0 )
+                    << " duplicate=" << ( member.duplicate ? 1 : 0 );
+                if ( member.in_range ) {
+                    const section* msec =
+                        reader.sections[member.section_index];
+                    if ( msec != nullptr ) {
+                        out << " name=\"" << msec->get_name() << "\"";
+                    }
+                }
+                out << std::endl;
+            }
+        }
+
+        for ( const auto& relation : result.relations ) {
+            out << "  Relation "
+                << detail::relation_kind_name( relation.kind ) << ": ["
+                << DUMP_DEC_FORMAT( 3 ) << relation.from << "] -> ["
+                << DUMP_DEC_FORMAT( 3 ) << relation.to << "]" << std::endl;
+        }
+
+        if ( !view.dangling_sections.empty() ) {
+            out << "  Dangling SHF_GROUP sections:";
+            for ( Elf_Half index : view.dangling_sections ) {
+                out << " " << DUMP_DEC_FORMAT( 3 ) << index;
+            }
+            out << std::endl;
+        }
+
+        for ( const auto& error : view.errors ) {
+            out << "  Group error: section="
+                << DUMP_DEC_FORMAT( 3 ) << error.group_section_index
+                << " offset=";
+            if ( error.word_offset ==
+                 std::numeric_limits<Elf_Xword>::max() ) {
+                out << "n/a";
+            }
+            else {
+                out << DUMP_DEC_FORMAT( 3 ) << error.word_offset;
+            }
+            out << " value=0x" << std::hex << error.value << std::dec
+                << " " << error.message << std::endl;
+        }
+
+        if ( !result.ok ) {
+            out << "  Relation error: " << result.error << std::endl;
+        }
+
+        out.flags( original_flags );
+    }
+
+    //------------------------------------------------------------------------------
+    static void
+    section_relations( std::ostream&                 out,
+                       const elfio&                  reader,
+                       const std::vector<Elf_Half>&  requested )
+    {
+        section_relation_result result =
+            compute_section_relations( reader, requested );
+        section_relations( out, result, reader );
+    }
+
 //------------------------------------------------------------------------------
 #define STR_FUNC_TABLE( name )                                         \
     template <typename T> static std::string str_##name( const T key ) \
