@@ -16,6 +16,24 @@ library    | description  | link
 
 There are more libraries too but they're probably less useful; scroll to the bottom of this README.
 
+## shell meshes
+
+`par_shapes_create_shell` turns an open, consistently oriented 2-manifold
+triangle surface into a thin-walled solid.  The two skins are offset by plus
+and minus half the thickness along a per-vertex unit direction (the normalized
+source normals when present, otherwise area-weighted facet normals), and only
+the real boundary loops are sealed with rim walls, so interior triangle edges
+never become walls.  Closed inputs produce two disconnected skins instead.
+
+The result is a `par_shapes_shell` that owns its `mesh` together with the
+`vertex_source` and `vertex_layer` arrays; release all of it with
+`par_shapes_free_shell` and keep freeing the input mesh yourself with
+`par_shapes_free_mesh`.  The input mesh is never modified, and the function
+returns `NULL` for invalid connectivity, non-finite data, undefinable offset
+directions, degenerate offset geometry, or counts that overflow `int` or
+`PAR_SHAPES_T`.  The caller is responsible for choosing a thickness small
+enough to avoid self-intersection after the offset.
+
 ## tests
 
 To run tests, you need CMake and pkg-config.  On macOS, these can be installed with homebrew:

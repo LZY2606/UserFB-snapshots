@@ -175,6 +175,30 @@ par_shapes_mesh* par_shapes_weld(par_shapes_mesh const*, float epsilon,
 // Compute smooth normals by averaging adjacent facet normals.
 void par_shapes_compute_normals(par_shapes_mesh* m);
 
+// Shells ----------------------------------------------------------------------
+
+// Result of par_shapes_create_shell.  The mesh and both identity arrays are
+// owned by the shell; par_shapes_free_shell releases all of it.
+typedef struct par_shapes_shell_s {
+    par_shapes_mesh* mesh;  // Offset inner and outer skins connected by rims.
+    int* vertex_source;     // Source vertex index, one entry per mesh point.
+    int* vertex_layer;      // 0 for the inner skin, 1 for the outer skin.
+} par_shapes_shell;
+
+// Give an open, consistently oriented 2-manifold triangle surface a wall
+// thickness.  The two skins are offset by plus and minus thickness / 2 along a
+// per-vertex unit direction, and only true boundary loops are sealed with rim
+// walls, so interior triangle edges never become walls.  Closed inputs produce
+// two disconnected skins.  The source mesh is never modified and the result
+// must be released with par_shapes_free_shell.  NULL is returned for invalid
+// connectivity, non-finite data, undefinable offset directions, degenerate
+// offset geometry, or counts that overflow int or PAR_SHAPES_T.
+par_shapes_shell* par_shapes_create_shell(par_shapes_mesh const* source,
+    float thickness);
+
+// Free a shell and every buffer that it owns, including its mesh.
+void par_shapes_free_shell(par_shapes_shell* shell);
+
 // Global Config ---------------------------------------------------------------
 
 void par_shapes_set_epsilon_welded_normals(float epsilon);
@@ -222,6 +246,7 @@ void par_shapes__connect(par_shapes_mesh* scene, par_shapes_mesh* cylinder,
 #include <stdio.h>
 #include <assert.h>
 #include <float.h>
+#include <limits.h>
 #include <string.h>
 #include <math.h>
 #include <errno.h>
@@ -2151,6 +2176,706 @@ void par_shapes_remove_degenerate(par_shapes_mesh* mesh, float mintriarea)
     mesh->ntriangles = ntriangles;
     PAR_FREE(mesh->triangles);
     mesh->triangles = triangles;
+}
+
+// Shell construction ---------------------------------------------------------
+
+typedef struct par_shapes__sedge_s {
+    int lo;
+    int hi;
+    int half;
+} par_shapes__sedge;
+
+static int par_shapes__finite3(float const* v)
+{
+    return isfinite(v[0]) && isfinite(v[1]) && isfinite(v[2]);
+}
+
+static int par_shapes__edge_cmp(const void* a, const void* b)
+{
+    par_shapes__sedge const* ea = (par_shapes__sedge const*) a;
+    par_shapes__sedge const* eb = (par_shapes__sedge const*) b;
+    if (ea->lo != eb->lo) {
+        return ea->lo < eb->lo ? -1 : 1;
+    }
+    if (ea->hi != eb->hi) {
+        return ea->hi < eb->hi ? -1 : 1;
+    }
+    return ea->half < eb->half ? -1 : (ea->half > eb->half);
+}
+
+// Accumulate area-weighted facet normals onto the per-vertex direction array.
+static void par_shapes__shell_facet_normals(par_shapes_mesh const* m,
+    float* normals)
+{
+    for (int f = 0; f < m->ntriangles; f++) {
+        int ia = m->triangles[3 * f + 0];
+        int ib = m->triangles[3 * f + 1];
+        int ic = m->triangles[3 * f + 2];
+        float const* pa = m->points + 3 * ia;
+        float const* pb = m->points + 3 * ib;
+        float const* pc = m->points + 3 * ic;
+        float ab[3], ac[3], n[3];
+        par_shapes__copy3(ab, pb);
+        par_shapes__subtract3(ab, pa);
+        par_shapes__copy3(ac, pc);
+        par_shapes__subtract3(ac, pa);
+        par_shapes__cross3(n, ab, ac);
+        par_shapes__add3(normals + 3 * ia, n);
+        par_shapes__add3(normals + 3 * ib, n);
+        par_shapes__add3(normals + 3 * ic, n);
+    }
+}
+
+par_shapes_shell* par_shapes_create_shell(par_shapes_mesh const* source,
+    float thickness)
+{
+    par_shapes__sedge* edges = NULL;
+    int* opp = NULL;
+    int* first_inc = NULL;
+    int* inc_next = NULL;
+    int* degree = NULL;
+    int* mark = NULL;
+    int* stack = NULL;
+    float* directions = NULL;
+    int* loop_start = NULL;
+    int* ring_half = NULL;
+    unsigned char* seen = NULL;
+    par_shapes_mesh* mesh = NULL;
+    int* vertex_source = NULL;
+    int* vertex_layer = NULL;
+    float* out_pts = NULL;
+    float* out_nrm = NULL;
+    float* out_uv = NULL;
+    PAR_SHAPES_T* out_tri = NULL;
+
+    if (!source || !source->points || !source->triangles) {
+        return NULL;
+    }
+    if (!isfinite(thickness) || thickness <= 0.0f) {
+        return NULL;
+    }
+    int np = source->npoints;
+    int nt = source->ntriangles;
+    if (np <= 0 || nt <= 0) {
+        return NULL;
+    }
+    long long nedge_ll = 3LL * nt;
+    if (nedge_ll > (long long) INT_MAX || 3LL * np > (long long) INT_MAX) {
+        return NULL;
+    }
+    int nedge = (int) nedge_ll;
+
+    // Reject non-finite source data up front.
+    for (int i = 0; i < np; i++) {
+        if (!par_shapes__finite3(source->points + 3 * i)) {
+            return NULL;
+        }
+    }
+    int have_normals = source->normals != NULL;
+    if (have_normals) {
+        for (int i = 0; i < np; i++) {
+            if (!par_shapes__finite3(source->normals + 3 * i)) {
+                return NULL;
+            }
+        }
+    }
+    int have_uv = source->tcoords != NULL;
+    if (have_uv) {
+        for (int i = 0; i < np; i++) {
+            if (!isfinite(source->tcoords[2 * i]) ||
+                !isfinite(source->tcoords[2 * i + 1])) {
+                return NULL;
+            }
+        }
+    }
+
+    // Every triangle needs distinct in-range indices and nonzero area.
+    for (int f = 0; f < nt; f++) {
+        PAR_SHAPES_T const* face = source->triangles + 3 * f;
+        for (int k = 0; k < 3; k++) {
+            if ((unsigned long long) face[k] >= (unsigned long long) np) {
+                return NULL;
+            }
+        }
+        if (face[0] == face[1] || face[1] == face[2] ||
+            face[2] == face[0]) {
+            return NULL;
+        }
+        float ab[3], ac[3], n[3];
+        float const* pa = source->points + 3 * face[0];
+        float const* pb = source->points + 3 * face[1];
+        float const* pc = source->points + 3 * face[2];
+        par_shapes__copy3(ab, pb);
+        par_shapes__subtract3(ab, pa);
+        par_shapes__copy3(ac, pc);
+        par_shapes__subtract3(ac, pa);
+        par_shapes__cross3(n, ab, ac);
+        if (!par_shapes__finite3(n) ||
+            (n[0] == 0.0f && n[1] == 0.0f && n[2] == 0.0f)) {
+            return NULL;
+        }
+    }
+
+    // Sort the directed half-edges by their undirected endpoint pair.
+    edges = PAR_MALLOC(par_shapes__sedge, nedge);
+    opp = PAR_MALLOC(int, nedge);
+    if (!edges || !opp) {
+        goto fail;
+    }
+    for (int f = 0; f < nt; f++) {
+        for (int k = 0; k < 3; k++) {
+            int a = source->triangles[3 * f + k];
+            int b = source->triangles[3 * f + (k + 1) % 3];
+            par_shapes__sedge* e = edges + 3 * f + k;
+            e->lo = a < b ? a : b;
+            e->hi = a < b ? b : a;
+            e->half = 3 * f + k;
+            opp[3 * f + k] = -1;
+        }
+    }
+    qsort(edges, nedge, sizeof(par_shapes__sedge), par_shapes__edge_cmp);
+
+    // Each undirected edge may have one or two incident faces; two faces must
+    // traverse it in opposite directions for a consistent manifold.
+    int nboundary = 0;
+    int e = 0;
+    while (e < nedge) {
+        int j = e + 1;
+        while (j < nedge && edges[j].lo == edges[e].lo &&
+            edges[j].hi == edges[e].hi) {
+            j++;
+        }
+        int count = j - e;
+        if (count > 2) {
+            goto fail;
+        }
+        if (count == 2) {
+            int h0 = edges[e].half;
+            int h1 = edges[e + 1].half;
+            int o0 = source->triangles[h0];
+            int o1 = source->triangles[h1];
+            if (o0 == o1) {
+                goto fail;  // Same-direction shared edge, non-orientable.
+            }
+            opp[h0] = h1;
+            opp[h1] = h0;
+        } else {
+            nboundary++;
+        }
+        e = j;
+    }
+
+    // Per-vertex half-edge incidence chains (one link per half-edge, so a
+    // face participating in three fans cannot clobber the chains).
+    first_inc = PAR_MALLOC(int, np);
+    inc_next = PAR_MALLOC(int, nedge);
+    degree = PAR_CALLOC(int, np);
+    if (!first_inc || !inc_next || !degree) {
+        goto fail;
+    }
+    for (int i = 0; i < np; i++) {
+        first_inc[i] = -1;
+    }
+    for (int h = 0; h < nedge; h++) {
+        int v = source->triangles[h];
+        inc_next[h] = first_inc[v];
+        first_inc[v] = h;
+        degree[v]++;
+    }
+
+    // Reject point-contact fans: the faces incident on each vertex must form
+    // one connected fan through shared faces and opposite half-edges.  A
+    // vertex with no incident face is only acceptable when the caller gave
+    // normals, since otherwise it has no definable offset direction.
+    mark = PAR_CALLOC(int, nedge);
+    stack = PAR_MALLOC(int, nedge);
+    if (!mark || !stack) {
+        goto fail;
+    }
+    for (int v = 0; v < np; v++) {
+        if (degree[v] == 0) {
+            if (!have_normals) {
+                goto fail;
+            }
+            continue;
+        }
+        int stamp = v + 1;
+        int sp = 0;
+        stack[sp++] = first_inc[v];
+        mark[first_inc[v]] = stamp;
+        while (sp > 0) {
+            int h = stack[--sp];
+            int f = h / 3;
+            int k = h % 3;
+            int mates[2];
+            mates[0] = 3 * f + (k + 1) % 3;
+            mates[1] = 3 * f + (k + 2) % 3;
+            for (int q = 0; q < 2; q++) {
+                int h2 = mates[q];
+                if (mark[h2] != stamp) {
+                    mark[h2] = stamp;
+                    stack[sp++] = h2;
+                }
+            }
+            if (opp[h] >= 0 && mark[opp[h]] != stamp) {
+                mark[opp[h]] = stamp;
+                stack[sp++] = opp[h];
+            }
+        }
+        for (int h = first_inc[v]; h >= 0; h = inc_next[h]) {
+            if (mark[h] != stamp) {
+                goto fail;  // Multiple disconnected fans at this vertex.
+            }
+        }
+    }
+
+    // Per-vertex unit offset directions.
+    directions = PAR_CALLOC(float, 3 * np);
+    if (!directions) {
+        goto fail;
+    }
+    if (have_normals) {
+        for (int i = 0; i < np; i++) {
+            par_shapes__copy3(directions + 3 * i, source->normals + 3 * i);
+        }
+    } else {
+        par_shapes__shell_facet_normals(source, directions);
+    }
+    for (int i = 0; i < np; i++) {
+        float* d = directions + 3 * i;
+        float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (!isfinite(len) || len == 0.0f) {
+            goto fail;
+        }
+        d[0] /= len;
+        d[1] /= len;
+        d[2] /= len;
+    }
+
+    // Capacity checks against int and the configured index type.
+    unsigned long long maxidx;
+    int bits = (int) (sizeof(PAR_SHAPES_T) * 8);
+    if (bits >= 32) {
+        maxidx = (unsigned long long) INT_MAX;
+    } else {
+        maxidx = (1ULL << bits) - 1ULL;
+    }
+    if ((unsigned long long) np > maxidx) {
+        goto fail;
+    }
+
+    // Chain boundary half-edges into ordered loops.  Parenthesize the
+    // conditional counts: PAR_MALLOC splices its argument next to "* sizeof".
+    int* b_next = PAR_MALLOC(int, (nboundary > 0 ? nboundary : 1));
+    int* b_half = PAR_MALLOC(int, (nboundary > 0 ? nboundary : 1));
+    int* half_to_b = PAR_MALLOC(int, nedge);
+    loop_start = PAR_MALLOC(int, (nboundary + 2));
+    ring_half = PAR_MALLOC(int, (nboundary > 0 ? nboundary : 1));
+    seen = PAR_CALLOC(unsigned char, nedge);
+    if (!b_next || !b_half || !half_to_b || !loop_start || !ring_half ||
+        !seen) {
+        PAR_FREE(b_next);
+        PAR_FREE(b_half);
+        PAR_FREE(half_to_b);
+        PAR_FREE(loop_start);
+        PAR_FREE(ring_half);
+        goto fail;  // "seen" is an outer buffer freed at the fail label.
+    }
+    for (int h = 0; h < nedge; h++) {
+        half_to_b[h] = -1;
+    }
+    int nb = 0;
+    for (int i = 0; i < nedge; i++) {
+        int h = edges[i].half;
+        if (opp[h] == -1) {
+            half_to_b[h] = nb;
+            b_half[nb++] = h;
+        }
+    }
+    for (int i = 0; i < nboundary; i++) {
+        int h = b_half[i];
+        int endv = source->triangles[3 * (h / 3) + (h % 3 + 1) % 3];
+        int found = -1;
+        for (int q = first_inc[endv]; q >= 0; q = inc_next[q]) {
+            if (opp[q] == -1) {
+                if (found >= 0) {
+                    PAR_FREE(b_next);
+                    PAR_FREE(b_half);
+                    PAR_FREE(half_to_b);
+                    PAR_FREE(loop_start);
+                    PAR_FREE(ring_half);
+                    goto fail;
+                }
+                found = q;
+            }
+        }
+        if (found < 0) {
+            PAR_FREE(b_next);
+            PAR_FREE(b_half);
+            PAR_FREE(half_to_b);
+            PAR_FREE(loop_start);
+            PAR_FREE(ring_half);
+            goto fail;
+        }
+        b_next[i] = half_to_b[found];
+    }
+    int nloops = 0;
+    int placed = 0;
+    loop_start[0] = 0;
+    for (int seed = 0; seed < nboundary; seed++) {
+        if (seen[b_half[seed]]) {
+            continue;
+        }
+        int cur = seed;
+        do {
+            if (cur < 0 || seen[b_half[cur]]) {
+                PAR_FREE(b_next);
+                PAR_FREE(b_half);
+                PAR_FREE(half_to_b);
+                PAR_FREE(loop_start);
+                PAR_FREE(ring_half);
+                goto fail;
+            }
+            seen[b_half[cur]] = 1;
+            ring_half[placed++] = b_half[cur];
+            cur = b_next[cur];
+        } while (cur != seed);
+        nloops++;
+        loop_start[nloops] = placed;
+    }
+    if (placed != nboundary) {
+        PAR_FREE(b_next);
+        PAR_FREE(b_half);
+        PAR_FREE(half_to_b);
+        PAR_FREE(loop_start);
+        PAR_FREE(ring_half);
+        goto fail;
+    }
+
+    // Output sizing: two skin copies of every source vertex, plus six
+    // independent rim vertices per boundary edge (two flat-shaded triangles).
+    long long outpoints_ll = 2LL * np + 6LL * nboundary;
+    long long outtris_ll = 2LL * nt + 2LL * nboundary;
+    // The flattened 3-tuple and 2-tuple buffers must also fit in int counts.
+    if (outpoints_ll > (long long) INT_MAX ||
+        outtris_ll > (long long) INT_MAX ||
+        3LL * outpoints_ll > (long long) INT_MAX ||
+        3LL * outtris_ll > (long long) INT_MAX ||
+        outpoints_ll - 1 > (long long) maxidx) {
+        PAR_FREE(b_next);
+        PAR_FREE(b_half);
+        PAR_FREE(half_to_b);
+        PAR_FREE(loop_start);
+        PAR_FREE(ring_half);
+        goto fail;
+    }
+    int outpoints = (int) outpoints_ll;
+    int outtris = (int) outtris_ll;
+
+    mesh = PAR_CALLOC(par_shapes_mesh, 1);
+    vertex_source = PAR_MALLOC(int, outpoints);
+    vertex_layer = PAR_MALLOC(int, outpoints);
+    out_pts = PAR_MALLOC(float, 3 * outpoints);
+    out_nrm = PAR_CALLOC(float, 3 * outpoints);
+    out_tri = PAR_MALLOC(PAR_SHAPES_T, 3 * outtris);
+    if (have_uv) {
+        out_uv = PAR_MALLOC(float, 2 * outpoints);
+    }
+    if (!mesh || !vertex_source || !vertex_layer || !out_pts || !out_nrm ||
+        !out_tri || (have_uv && !out_uv)) {
+        PAR_FREE(b_next);
+        PAR_FREE(b_half);
+        PAR_FREE(half_to_b);
+        PAR_FREE(loop_start);
+        PAR_FREE(ring_half);
+        goto fail;
+    }
+
+    float half = thickness * 0.5f;
+    // Outer skin keeps the source winding; the inner skin reverses it.
+    for (int i = 0; i < np; i++) {
+        float const* p = source->points + 3 * i;
+        float const* d = directions + 3 * i;
+        float* qo = out_pts + 3 * i;
+        float* qi = out_pts + 3 * (np + i);
+        qo[0] = p[0] + half * d[0];
+        qo[1] = p[1] + half * d[1];
+        qo[2] = p[2] + half * d[2];
+        qi[0] = p[0] - half * d[0];
+        qi[1] = p[1] - half * d[1];
+        qi[2] = p[2] - half * d[2];
+        vertex_source[i] = i;
+        vertex_source[np + i] = i;
+        vertex_layer[i] = 1;
+        vertex_layer[np + i] = 0;
+        if (have_uv) {
+            out_uv[2 * i] = source->tcoords[2 * i];
+            out_uv[2 * i + 1] = source->tcoords[2 * i + 1];
+            out_uv[2 * (np + i)] = source->tcoords[2 * i];
+            out_uv[2 * (np + i) + 1] = source->tcoords[2 * i + 1];
+        }
+    }
+
+    int ti = 0;
+    for (int f = 0; f < nt; f++) {
+        int a = source->triangles[3 * f + 0];
+        int b = source->triangles[3 * f + 1];
+        int c = source->triangles[3 * f + 2];
+        out_tri[ti++] = (PAR_SHAPES_T) a;
+        out_tri[ti++] = (PAR_SHAPES_T) b;
+        out_tri[ti++] = (PAR_SHAPES_T) c;
+        out_tri[ti++] = (PAR_SHAPES_T) (np + a);
+        out_tri[ti++] = (PAR_SHAPES_T) (np + c);
+        out_tri[ti++] = (PAR_SHAPES_T) (np + b);
+    }
+
+    // Rim walls.  Within each loop the U coordinate follows the accumulated
+    // source arc length; V runs from 0 on the inner skin to 1 on the outer
+    // skin.  Each wall triangle owns three private flat-shaded vertices.
+    int rim_base = 2 * np;
+    int rp = rim_base;
+    for (int loop = 0; loop < nloops; loop++) {
+        int ls = loop_start[loop];
+        int le = loop_start[loop + 1];
+        int length = le - ls;
+        float* arc = PAR_CALLOC(float, (length + 1));
+        if (!arc) {
+            PAR_FREE(b_next);
+            PAR_FREE(b_half);
+            PAR_FREE(half_to_b);
+            PAR_FREE(loop_start);
+            PAR_FREE(ring_half);
+            goto fail;
+        }
+        float accum = 0.0f;
+        for (int s = 0; s < length; s++) {
+            arc[s] = accum;
+            int h = ring_half[ls + s];
+            int f = h / 3;
+            int k = h % 3;
+            int va = source->triangles[3 * f + k];
+            int vb = source->triangles[3 * f + (k + 1) % 3];
+            float const* pa = source->points + 3 * va;
+            float const* pb = source->points + 3 * vb;
+            float dx = pb[0] - pa[0];
+            float dy = pb[1] - pa[1];
+            float dz = pb[2] - pa[2];
+            accum += sqrtf(dx * dx + dy * dy + dz * dz);
+        }
+        arc[length] = accum;
+        float total = accum;
+        for (int s = 0; s < length; s++) {
+            int h = ring_half[ls + s];
+            int hn = ring_half[ls + (s + 1) % length];
+            int va = source->triangles[h];
+            int vb = source->triangles[hn];
+            float u0 = total > 0.0f ? arc[s] / total : 0.0f;
+            float u1 = total > 0.0f ? arc[s + 1] / total : 0.0f;
+            float const* pa = source->points + 3 * va;
+            float const* pb = source->points + 3 * vb;
+            float const* da = directions + 3 * va;
+            float const* db = directions + 3 * vb;
+            // Six fully private vertices, three per wall triangle, so each
+            // triangle keeps its own flat normal.  Copies at the same source
+            // position share their (source, layer) identity instead.
+            int ia = rp++;    // triangle 1: inner a
+            int ob = rp++;    // triangle 1: outer b
+            int oa = rp++;    // triangle 1: outer a
+            int ia2 = rp++;   // triangle 2: inner a
+            int ib = rp++;    // triangle 2: inner b
+            int ob2 = rp++;   // triangle 2: outer b
+            float* q;
+            q = out_pts + 3 * ia;
+            q[0] = pa[0] - half * da[0];
+            q[1] = pa[1] - half * da[1];
+            q[2] = pa[2] - half * da[2];
+            q = out_pts + 3 * ia2;
+            q[0] = pa[0] - half * da[0];
+            q[1] = pa[1] - half * da[1];
+            q[2] = pa[2] - half * da[2];
+            q = out_pts + 3 * oa;
+            q[0] = pa[0] + half * da[0];
+            q[1] = pa[1] + half * da[1];
+            q[2] = pa[2] + half * da[2];
+            q = out_pts + 3 * ib;
+            q[0] = pb[0] - half * db[0];
+            q[1] = pb[1] - half * db[1];
+            q[2] = pb[2] - half * db[2];
+            q = out_pts + 3 * ob;
+            q[0] = pb[0] + half * db[0];
+            q[1] = pb[1] + half * db[1];
+            q[2] = pb[2] + half * db[2];
+            q = out_pts + 3 * ob2;
+            q[0] = pb[0] + half * db[0];
+            q[1] = pb[1] + half * db[1];
+            q[2] = pb[2] + half * db[2];
+            vertex_source[ia] = va;
+            vertex_source[ia2] = va;
+            vertex_source[oa] = va;
+            vertex_source[ib] = vb;
+            vertex_source[ob] = vb;
+            vertex_source[ob2] = vb;
+            vertex_layer[ia] = 0;
+            vertex_layer[ia2] = 0;
+            vertex_layer[ib] = 0;
+            vertex_layer[oa] = 1;
+            vertex_layer[ob] = 1;
+            vertex_layer[ob2] = 1;
+            if (have_uv) {
+                out_uv[2 * ia] = u0;
+                out_uv[2 * ia + 1] = 0.0f;
+                out_uv[2 * ia2] = u0;
+                out_uv[2 * ia2 + 1] = 0.0f;
+                out_uv[2 * ib] = u1;
+                out_uv[2 * ib + 1] = 0.0f;
+                out_uv[2 * oa] = u0;
+                out_uv[2 * oa + 1] = 1.0f;
+                out_uv[2 * ob] = u1;
+                out_uv[2 * ob + 1] = 1.0f;
+                out_uv[2 * ob2] = u1;
+                out_uv[2 * ob2 + 1] = 1.0f;
+            }
+            out_tri[ti++] = (PAR_SHAPES_T) ia;
+            out_tri[ti++] = (PAR_SHAPES_T) ob;
+            out_tri[ti++] = (PAR_SHAPES_T) oa;
+            out_tri[ti++] = (PAR_SHAPES_T) ia2;
+            out_tri[ti++] = (PAR_SHAPES_T) ib;
+            out_tri[ti++] = (PAR_SHAPES_T) ob2;
+        }
+        PAR_FREE(arc);
+    }
+    PAR_FREE(b_next);
+    PAR_FREE(b_half);
+    PAR_FREE(half_to_b);
+    PAR_FREE(loop_start);
+    PAR_FREE(ring_half);
+    if (rp != outpoints || ti != 3 * outtris) {
+        goto fail;
+    }
+
+    mesh->npoints = outpoints;
+    mesh->ntriangles = outtris;
+    mesh->points = out_pts;
+    mesh->triangles = out_tri;
+    mesh->tcoords = out_uv;
+
+    // Validate the offset geometry and accumulate normals from the actual
+    // offset triangles rather than copying the source normals.
+    for (int i = 0; i < outpoints; i++) {
+        if (!par_shapes__finite3(mesh->points + 3 * i)) {
+            goto fail;
+        }
+    }
+    for (int f = 0; f < outtris; f++) {
+        PAR_SHAPES_T const* face = mesh->triangles + 3 * f;
+        for (int k = 0; k < 3; k++) {
+            if ((unsigned long long) face[k] >=
+                (unsigned long long) outpoints) {
+                goto fail;
+            }
+        }
+        float ab2[3], ac2[3], n2[3];
+        float const* pa = mesh->points + 3 * face[0];
+        float const* pb = mesh->points + 3 * face[1];
+        float const* pc = mesh->points + 3 * face[2];
+        par_shapes__copy3(ab2, pb);
+        par_shapes__subtract3(ab2, pa);
+        par_shapes__copy3(ac2, pc);
+        par_shapes__subtract3(ac2, pa);
+        par_shapes__cross3(n2, ab2, ac2);
+        if (!par_shapes__finite3(n2) ||
+            (n2[0] == 0.0f && n2[1] == 0.0f && n2[2] == 0.0f)) {
+            goto fail;
+        }
+        par_shapes__add3(out_nrm + 3 * face[0], n2);
+        par_shapes__add3(out_nrm + 3 * face[1], n2);
+        par_shapes__add3(out_nrm + 3 * face[2], n2);
+    }
+    for (int i = 0; i < outpoints; i++) {
+        float* n = out_nrm + 3 * i;
+        // Unreferenced source vertices keep skin copies that no triangle
+        // touches; give them a finite placeholder instead of a zero normal.
+        int used;
+        if (i < np) {
+            used = degree[i] > 0;
+        } else if (i < 2 * np) {
+            used = degree[i - np] > 0;
+        } else {
+            used = 1;  // Every rim vertex belongs to a wall triangle.
+        }
+        if (!used) {
+            int src = i < np ? i : i - np;
+            float sign = i < np ? 1.0f : -1.0f;  // Inner skin points inward.
+            n[0] = sign * directions[3 * src];
+            n[1] = sign * directions[3 * src + 1];
+            n[2] = sign * directions[3 * src + 2];
+            continue;
+        }
+        if (!par_shapes__finite3(n) ||
+            (n[0] == 0.0f && n[1] == 0.0f && n[2] == 0.0f)) {
+            goto fail;
+        }
+        par_shapes__normalize3(n);
+        if (!par_shapes__finite3(n)) {
+            goto fail;
+        }
+    }
+    mesh->normals = out_nrm;
+
+    PAR_FREE(edges);
+    PAR_FREE(opp);
+    PAR_FREE(first_inc);
+    PAR_FREE(inc_next);
+    PAR_FREE(degree);
+    PAR_FREE(mark);
+    PAR_FREE(stack);
+    PAR_FREE(directions);
+    PAR_FREE(seen);
+
+    par_shapes_shell* shell = PAR_CALLOC(par_shapes_shell, 1);
+    if (!shell) {
+        par_shapes_free_mesh(mesh);
+        PAR_FREE(vertex_source);
+        PAR_FREE(vertex_layer);
+        return NULL;
+    }
+    shell->mesh = mesh;
+    shell->vertex_source = vertex_source;
+    shell->vertex_layer = vertex_layer;
+    return shell;
+
+fail:
+    PAR_FREE(edges);
+    PAR_FREE(opp);
+    PAR_FREE(first_inc);
+    PAR_FREE(inc_next);
+    PAR_FREE(degree);
+    PAR_FREE(mark);
+    PAR_FREE(stack);
+    PAR_FREE(directions);
+    PAR_FREE(seen);
+    PAR_FREE(vertex_source);
+    PAR_FREE(vertex_layer);
+    PAR_FREE(out_pts);
+    PAR_FREE(out_nrm);
+    PAR_FREE(out_uv);
+    PAR_FREE(out_tri);
+    PAR_FREE(mesh);
+    return NULL;
+}
+
+void par_shapes_free_shell(par_shapes_shell* shell)
+{
+    if (!shell) {
+        return;
+    }
+    if (shell->mesh) {
+        par_shapes_free_mesh(shell->mesh);
+    }
+    PAR_FREE(shell->vertex_source);
+    PAR_FREE(shell->vertex_layer);
+    PAR_FREE(shell);
 }
 
 #endif // PAR_SHAPES_IMPLEMENTATION
