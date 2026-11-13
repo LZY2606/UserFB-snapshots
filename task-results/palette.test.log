@@ -1,0 +1,12 @@
+PASS huffman/cache2_after_three_literals
+PASS huffman/cache0_repeat_no_dequeue
+PASS huffman/two_trees_interleaved
+PASS huffman/zero_bit_constant_tree
+PASS blocks/full_left_right_order
+PASS blocks/double_half_asymmetric
+PASS blocks/long_run_wraps_block_row
+PASS blocks/mono_mask_pixel_selection
+PASS palette/void_block_with_palette_change
+TASK_ASSERT seed=12648430 frame=1 palette[4] channel=0 rgb expected=32 actual=130
+
+EXIT=42

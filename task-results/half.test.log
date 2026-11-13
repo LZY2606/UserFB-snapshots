@@ -1,0 +1,8 @@
+PASS huffman/cache2_after_three_literals
+PASS huffman/cache0_repeat_no_dequeue
+PASS huffman/two_trees_interleaved
+PASS huffman/zero_bit_constant_tree
+PASS blocks/full_left_right_order
+TASK_ASSERT seed=12648430 frame=0 block=1 xy=(7,1) index expected=85 actual=102
+
+EXIT=42
