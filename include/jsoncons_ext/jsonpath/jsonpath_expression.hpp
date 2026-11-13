@@ -23,6 +23,7 @@
 
 #include <jsoncons_ext/jsonpath/token_evaluator.hpp>
 #include <jsoncons_ext/jsonpath/json_location.hpp>
+#include <jsoncons_ext/jsonpath/jsonpath_function_mode.hpp>
 #include <jsoncons_ext/jsonpath/jsonpath_parser.hpp>
 #include <jsoncons_ext/jsonpath/path_node.hpp>
 
@@ -51,15 +52,25 @@ namespace jsonpath {
         std::unique_ptr<static_resources_type> static_resources_;
         const_path_expression_type const_expr_;
         path_expression_type expr_;
+        std::unique_ptr<jsoncons::jsonpath::detail::rfc9535_expression_if<value_type>> rfc9535_expr_;
     public:
         jsonpath_expression(const allocator_set<allocator_type,TempAlloc>& aset,
             std::unique_ptr<static_resources_type>&& resources,
-            const_path_expression_type&& const_expr, 
+            const_path_expression_type&& const_expr,
             path_expression_type&& expr)
             : alloc_(aset.get_allocator()),
-              static_resources_(std::move(resources)), 
+              static_resources_(std::move(resources)),
               const_expr_(std::move(const_expr)),
               expr_(std::move(expr))
+        {
+        }
+
+        jsonpath_expression(const allocator_set<allocator_type,TempAlloc>& aset,
+            std::unique_ptr<jsoncons::jsonpath::detail::rfc9535_expression_if<value_type>>&& rfc9535_expr)
+            : alloc_(aset.get_allocator()),
+              const_expr_(aset.get_allocator()),
+              expr_(aset.get_allocator()),
+              rfc9535_expr_(std::move(rfc9535_expr))
         {
         }
 
@@ -75,6 +86,15 @@ namespace jsonpath {
         typename std::enable_if<ext_traits::is_function_object<BinaryCallback,const string_type&,const_reference>::value,void>::type
         evaluate(const_reference root, BinaryCallback callback, result_options options = result_options()) const
         {
+            if (rfc9535_expr_)
+            {
+                value_type result = rfc9535_expr_->evaluate(root);
+                for (const auto& item : result.array_range())
+                {
+                    callback(string_type{}, item);
+                }
+                return;
+            }
             jsoncons::jsonpath::detail::eval_context<Json,const_reference> context{alloc_};
             auto f = [&callback](const path_node_type& path, const_reference val)
             {
@@ -85,6 +105,10 @@ namespace jsonpath {
 
         value_type evaluate(const_reference root, result_options options = result_options()) const
         {
+            if (rfc9535_expr_)
+            {
+                return rfc9535_expr_->evaluate(root);
+            }
             if ((options & result_options::path) == result_options::path)
             {
                 jsoncons::jsonpath::detail::eval_context<value_type, const_reference> context{ alloc_ };
@@ -103,6 +127,10 @@ namespace jsonpath {
 
         value_type select(const_reference root, result_options options = result_options()) const
         {
+            if (rfc9535_expr_)
+            {
+                return rfc9535_expr_->evaluate(root);
+            }
             if ((options & result_options::path) == result_options::path)
             {
                 jsoncons::jsonpath::detail::eval_context<value_type, const_reference> context{ alloc_ };
@@ -123,6 +151,15 @@ namespace jsonpath {
         typename std::enable_if<ext_traits::is_function_object<BinaryCallback,const path_node_type&,const_reference>::value,void>::type
         select(const_reference root, BinaryCallback callback, result_options options = result_options()) const
         {
+            if (rfc9535_expr_)
+            {
+                value_type result = rfc9535_expr_->evaluate(root);
+                for (const auto& item : result.array_range())
+                {
+                    callback(path_node_type{}, item);
+                }
+                return;
+            }
             jsoncons::jsonpath::detail::eval_context<value_type,const_reference> context{alloc_};
             const_expr_.evaluate(context, root, path_node_type{}, root, callback, options | result_options::path);
         }
@@ -182,6 +219,32 @@ namespace jsonpath {
     jsonpath_expression<Json> make_expression(const typename Json::string_view_type& expr, std::error_code& ec)
     {
         return make_expression<Json>(jsoncons::make_alloc_set(), expr, custom_functions<Json>(), ec);
+    }
+
+    template <typename Json>
+    jsonpath_expression<Json> make_expression(const typename Json::string_view_type& path,
+        jsoncons::jsonpath::function_mode mode)
+    {
+        if (mode == jsoncons::jsonpath::function_mode::rfc9535)
+        {
+            using value_type = typename jsonpath_traits<Json>::value_type;
+            return jsonpath_expression<Json>(jsoncons::make_alloc_set(),
+                jsoncons::jsonpath::detail::make_rfc9535_expression<value_type>(path));
+        }
+        return make_expression<Json>(path);
+    }
+
+    template <typename Json>
+    jsonpath_expression<Json> make_expression(const typename Json::string_view_type& path,
+        jsoncons::jsonpath::function_mode mode, std::error_code& ec)
+    {
+        if (mode == jsoncons::jsonpath::function_mode::rfc9535)
+        {
+            using value_type = typename jsonpath_traits<Json>::value_type;
+            return jsonpath_expression<Json>(jsoncons::make_alloc_set(),
+                jsoncons::jsonpath::detail::make_rfc9535_expression<value_type>(path, ec));
+        }
+        return make_expression<Json>(path, ec);
     }
 
     template <typename Json,typename TempAlloc >

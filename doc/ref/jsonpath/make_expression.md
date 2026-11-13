@@ -40,12 +40,32 @@ jsonpath_expression<Json> make_expression(const allocator_set<Json::allocator_ty
     Json::string_view_type& expr,
     const custom_functions<Json>& funcs, std::error_code& ec);                
 ```
+```cpp
+template <typename Json>                                                                 (7) (since 1.10.0)
+jsonpath_expression<Json> make_expression(const Json::string_view_type& expr,
+    function_mode mode);                
+```
+```cpp
+template <typename Json>                                                                 (8) (since 1.10.0)
+jsonpath_expression<Json> make_expression(const Json::string_view_type& expr,
+    function_mode mode, std::error_code& ec);                
+```
 
 (1) Makes a [jsonpath_expression](jsonpath_expression.md) from the JSONPath expression `expr`.
 
 (2-3) Makes a [jsonpath_expression](jsonpath_expression.md) from the JSONPath expression `expr`.
 
 (4-6) Same as (1-3) except that `alloc` is used to allocate memory during expression compilation and evaluation.
+
+(7-8) Makes a [jsonpath_expression](jsonpath_expression.md) from the JSONPath expression `expr`,
+using the function semantics selected by `mode` (see [function_mode](function_mode.md)).
+`function_mode::legacy` selects the historical behavior, in which `count` is an alias for `length`.
+`function_mode::rfc9535` selects function semantics aligned with RFC 9535 for the three standard
+functions `length`, `count` and `value`: function arguments and intermediate results distinguish
+node lists, JSON values and Nothing, argument kinds are checked at compile time, and a singular
+query (a chain of single member or single index selectors) is implicitly converted to a value
+where a value is required. All other [jsonpath_expression](jsonpath_expression.md) overloads
+behave as `function_mode::legacy`.
 
 #### Parameters
 
@@ -59,6 +79,10 @@ jsonpath_expression<Json> make_expression(const allocator_set<Json::allocator_ty
     <td>Custom functions</td> 
   </tr>
   <tr>
+    <td><code>mode</code></td>
+    <td><a href="function_mode.md">function_mode</a> selecting legacy or RFC 9535 function semantics</td> 
+  </tr>
+  <tr>
     <td><code>ec</code></td>
     <td>out-parameter for reporting errors in the non-throwing overload</td> 
   </tr>
@@ -70,9 +94,12 @@ Returns a [jsonpath_expression](jsonpath_expression.md) object that represents t
 
 #### Exceptions
 
-(1) throws a [jsonpath_error](jsonpath_error.md) if JSONPath compilation fails.
+(1,7) throws a [jsonpath_error](jsonpath_error.md) if JSONPath compilation fails.
+In `function_mode::rfc9535`, function argument kind mismatches (for example `count(1)` or
+`length(@.*)`) and value-typed function results used as filter tests are reported here,
+at compile time.
 
-(2) sets the out-parameter `ec` to the [jsonpath_error_category](jsonpath_errc.md) if JSONPath compilation fails. 
+(2,8) sets the out-parameter `ec` to the [jsonpath_error_category](jsonpath_errc.md) if JSONPath compilation fails. 
 
 ### Examples
 

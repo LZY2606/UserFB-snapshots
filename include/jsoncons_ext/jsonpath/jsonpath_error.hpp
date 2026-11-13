@@ -59,7 +59,9 @@ namespace jsonpath {
         expected_and,
         expected_comma_or_rparen,
         expected_comma_or_rbracket,
-        expected_relative_path
+        expected_relative_path,
+        invalid_function_argument_type,
+        invalid_expression_type
     };
 
     class jsonpath_error_category_impl
@@ -150,6 +152,10 @@ namespace jsonpath {
                     return "Expected comma or right bracket";
                 case jsonpath_errc::expected_relative_path:
                     return "Expected unquoted string, or single or double quoted string, or index or '*'";
+                case jsonpath_errc::invalid_function_argument_type:
+                    return "Invalid function argument type (expected node list or value as declared by the function)";
+                case jsonpath_errc::invalid_expression_type:
+                    return "Expression type (node list, value or logical) is not valid in this context";
                 default:
                     return "Unknown jsonpath parser error";
             }

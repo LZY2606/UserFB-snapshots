@@ -17,6 +17,10 @@ It provides functions for search and "search and replace" using JSONPath express
     <td><a href="basic_path_node.md">basic_path_node</a></td>
     <td>Represents a normalized path as a singly linked list where each node has a pointer to its (shared) parent node. (since 0.172.0)</td> 
   </tr>
+  <tr>
+    <td><a href="function_mode.md">function_mode</a></td>
+    <td>Selects legacy or RFC 9535 semantics for the <code>length</code>, <code>count</code> and <code>value</code> functions. (since 1.10.0)</td> 
+  </tr>
 </table>
 
 ### Functions
@@ -53,6 +57,10 @@ In addition, the C++ implementation supports the following features:
 e.g. `$[?(@.length == 2)]`.
 
 - Custom functions, allowing the user to augment the list of built in JSONPath functions with user-provided functions (since 0.164.0).
+
+- An opt-in [function mode](function_mode.md) that aligns the `length`, `count` and `value`
+functions with RFC 9535, distinguishing node lists, JSON values and Nothing, with function
+argument kinds checked at compile time (since 1.10.0).
 
 ### Examples
 
