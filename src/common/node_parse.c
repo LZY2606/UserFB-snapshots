@@ -293,7 +293,10 @@ struct cr_color_node *cr_color_node_build(const struct cJSON *desc) {
 	}
 
 	//FIXME: No good way to know if it's a color, so just check if it's got "r" in there.
-	if (cJSON_HasObjectItem(desc, "r")) {
+	// A serialized node graph can also use "r"/"g"/"b" (e.g. the rgb node), so
+	// only treat this as a plain color object when no explicit node type is given.
+	const cJSON *type = cJSON_GetObjectItem(desc, "type");
+	if (cJSON_HasObjectItem(desc, "r") && !cJSON_IsString(type)) {
 		// This is actually still a color object.
 		struct color c = color_parse(desc);
 		return cn_alloc((struct cr_color_node){
@@ -301,7 +304,6 @@ struct cr_color_node *cr_color_node_build(const struct cJSON *desc) {
 			.arg.constant = { c.red, c.green, c.blue, c.alpha }
 		});
 	}
-	const cJSON *type = cJSON_GetObjectItem(desc, "type");
 	if (cJSON_IsString(type)) {
 		if (stringEquals(type->valuestring, "constant")) {
 			struct color c = color_parse(cJSON_GetObjectItem(desc, "color"));
@@ -421,6 +423,35 @@ struct cr_color_node *cr_color_node_build(const struct cJSON *desc) {
 				}
 			});
 		}
+		if (stringEquals(type->valuestring, "triplanar")) {
+			struct cr_color_node *out = cn_alloc((struct cr_color_node){
+				.type = cr_cn_triplanar,
+				.arg.triplanar = {
+					.source = cr_color_node_build(cJSON_GetObjectItem(desc, "source")),
+					.sharpness = 1.0f,
+					.world_to_texture = {
+						{ 1, 0, 0, 0 },
+						{ 0, 1, 0, 0 },
+						{ 0, 0, 1, 0 },
+						{ 0, 0, 0, 1 },
+					}
+				}
+			});
+			const cJSON *sharpness = cJSON_GetObjectItem(desc, "sharpness");
+			if (cJSON_IsNumber(sharpness)) out->arg.triplanar.sharpness = (float)sharpness->valuedouble;
+			const cJSON *matrix = cJSON_GetObjectItem(desc, "world_to_texture");
+			if (cJSON_IsArray(matrix) && cJSON_GetArraySize(matrix) == 4) {
+				for (int row = 0; row < 4; ++row) {
+					const cJSON *jrow = cJSON_GetArrayItem(matrix, row);
+					if (!cJSON_IsArray(jrow)) continue;
+					for (int col = 0; col < 4 && col < cJSON_GetArraySize(jrow); ++col) {
+						const cJSON *cell = cJSON_GetArrayItem(jrow, col);
+						if (cJSON_IsNumber(cell)) out->arg.triplanar.world_to_texture[row][col] = (float)cell->valuedouble;
+					}
+				}
+			}
+			return out;
+		}
 	}
 
 	logr(warning, "Failed to parse textureNode. Here's a dump:\n");
@@ -491,6 +522,10 @@ void cr_color_node_free(struct cr_color_node *d) {
 			cr_value_node_free(d->arg.color_ramp.factor);
 			if (d->arg.color_ramp.elements)
 				free(d->arg.color_ramp.elements);
+			break;
+		case cr_cn_triplanar:
+			cr_color_node_free(d->arg.triplanar.source);
+			break;
 	}
 	free(d);
 }

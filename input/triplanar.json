@@ -1,0 +1,124 @@
+{
+	"version": 1.0,
+	"renderer": {
+		"threads": 0,
+		"samples": 64,
+		"bounces": 8,
+		"tileWidth": 32,
+		"tileHeight": 32,
+		"tileOrder": "fromMiddle",
+		"outputFilePath": "output/",
+		"outputFileName": "triplanar",
+		"fileType": "png",
+		"count": 0,
+		"width": 640,
+		"height": 360
+	},
+	"display": {
+		"isFullscreen": false,
+		"windowScale": 1.0
+	},
+	"camera": {
+		"FOV": 50.0,
+		"focalDistance": 0.7,
+		"fstops": 0,
+		"width": 640,
+		"height": 360,
+		"transforms": [
+			{
+				"type": "translate",
+				"x": 0,
+				"y": 0.6,
+				"z": -4.5
+			}
+		]
+	},
+	"scene": {
+		"ambientColor": {
+			"type": "background",
+			"down": {
+				"r": 0.05,
+				"g": 0.05,
+				"b": 0.08
+			},
+			"up": {
+				"r": 0.6,
+				"g": 0.7,
+				"b": 0.9
+			}
+		},
+		"primitives": [
+			{
+				"type": "sphere",
+				"radius": 1.0,
+				"instances": [
+					{
+						"transforms": [
+							{
+								"type": "translate",
+								"x": -1.1,
+								"y": 0,
+								"z": 0
+							}
+						]
+					}
+				],
+				"material": {
+					"type": "diffuse",
+					"color": {
+						"type": "triplanar",
+						"sharpness": 8,
+						"world_to_texture": [
+							[0.5, 0.0, 0.0, 0.25],
+							[0.0, 0.5, 0.0, 0.10],
+							[0.0, 0.0, 0.5, 0.00],
+							[0.0, 0.0, 0.0, 1.00]
+						],
+						"source": {
+							"type": "checkerboard",
+							"scale": 4,
+							"color1": { "r": 0.9, "g": 0.2, "b": 0.1 },
+							"color2": { "r": 0.95, "g": 0.9, "b": 0.7 }
+						}
+					}
+				}
+			},
+			{
+				"type": "sphere",
+				"radius": 1.0,
+				"instances": [
+					{
+						"transforms": [
+							{
+								"type": "translate",
+								"x": 1.1,
+								"y": 0,
+								"z": 0
+							}
+						]
+					}
+				],
+				"material": {
+					"type": "diffuse",
+					"color": {
+						"type": "triplanar",
+						"sharpness": 1,
+						"world_to_texture": [
+							[0.4, 0.15, 0.0, 0.0],
+							[0.0, 0.6, 0.0, 0.2],
+							[0.0, 0.0, -0.5, 0.0],
+							[0.0, 0.0, 0.0, 1.0]
+						],
+						"source": {
+							"type": "checkerboard",
+							"scale": 3,
+							"color1": { "r": 0.1, "g": 0.3, "b": 0.8 },
+							"color2": { "r": 0.8, "g": 0.85, "b": 0.95 }
+						}
+					}
+				}
+			}
+		],
+		"meshes": []
+	}
+}

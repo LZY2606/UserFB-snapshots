@@ -140,6 +140,11 @@ const struct colorNode *build_color_node(struct cr_scene *s_ext, const struct cr
 				desc->arg.color_ramp.interpolation,
 				desc->arg.color_ramp.elements,
 				desc->arg.color_ramp.element_count);
+		case cr_cn_triplanar:
+			return newTriplanar(&s,
+				build_color_node(s_ext, desc->arg.triplanar.source),
+				desc->arg.triplanar.world_to_texture,
+				desc->arg.triplanar.sharpness);
 		default: // FIXME: default remove
 			return NULL;
 	};

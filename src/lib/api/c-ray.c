@@ -673,6 +673,11 @@ struct cr_color_node *color_deepcopy(const struct cr_color_node *in) {
 			out->arg.color_ramp.elements = calloc(ct, sizeof(*out->arg.color_ramp.elements));
 			for (int i = 0; i < ct; ++i) out->arg.color_ramp.elements[i] = in->arg.color_ramp.elements[i];
 			break;
+		case cr_cn_triplanar:
+			out->arg.triplanar.source = color_deepcopy(in->arg.triplanar.source);
+			memcpy(out->arg.triplanar.world_to_texture, in->arg.triplanar.world_to_texture, sizeof(out->arg.triplanar.world_to_texture));
+			out->arg.triplanar.sharpness = in->arg.triplanar.sharpness;
+			break;
 		default: // FIXME: default remove
 			break;
 	}

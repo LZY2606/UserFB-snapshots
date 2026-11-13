@@ -110,6 +110,13 @@ class _color_arg_color_ramp(ct.Structure):
 		("element_count", ct.c_int)
 	]
 
+class _color_arg_triplanar(ct.Structure):
+	_fields_ = [
+		("source", ct.POINTER(_color)),
+		("world_to_texture", ct.c_float * 4 * 4),
+		("sharpness", ct.c_float),
+	]
+
 class _color_arg(ct.Union):
 	_fields_ = [
 		("constant", cr_color),
@@ -125,6 +132,7 @@ class _color_arg(ct.Union):
 		("gradient", _color_arg_gradient),
 		("color_mix", _color_arg_color_mix),
 		("color_ramp", _color_arg_color_ramp),
+		("triplanar", _color_arg_triplanar),
 	]
 
 class _color_type(IntEnum):
@@ -142,6 +150,7 @@ class _color_type(IntEnum):
 	gradient     = 11
 	color_mix    = 12
 	color_ramp   = 13
+	triplanar    = 14
 
 _color._anonymous_ = ("arg",)
 _color._fields_ = [
@@ -265,3 +274,10 @@ class NodeColorRamp(NodeColorBase):
 		self.elements = (ramp_element * len(elements))(*elements)
 		self.element_count = len(elements)
 		self.cr_struct.color_ramp = _color_arg_color_ramp(self.factor.castref(), self.color_mode, self.interpolation, self.elements, self.element_count)
+
+class NodeColorTriplanar(NodeColorBase):
+	def __init__(self, source, world_to_texture, sharpness = 1.0):
+		super().__init__()
+		self.cr_struct.type = _color_type.triplanar
+		matrix = (ct.c_float * 4 * 4)(*[(ct.c_float * 4)(*row) for row in world_to_texture])
+		self.cr_struct.triplanar = _color_arg_triplanar(source.castref(), matrix, sharpness)

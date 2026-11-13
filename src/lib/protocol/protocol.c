@@ -637,6 +637,19 @@ static cJSON *serialize_color_node(const struct cr_color_node *in) {
 				cJSON_AddItemToArray(array, element);
 			}
 			break;
+		case cr_cn_triplanar: {
+			cJSON_AddStringToObject(out, "type", "triplanar");
+			cJSON_AddItemToObject(out, "source", serialize_color_node(in->arg.triplanar.source));
+			cJSON *matrix = cJSON_AddArrayToObject(out, "world_to_texture");
+			for (int row = 0; row < 4; ++row) {
+				cJSON *jrow = cJSON_CreateArray();
+				for (int col = 0; col < 4; ++col)
+					cJSON_AddItemToArray(jrow, cJSON_CreateNumber(in->arg.triplanar.world_to_texture[row][col]));
+				cJSON_AddItemToArray(matrix, jrow);
+			}
+			cJSON_AddNumberToObject(out, "sharpness", in->arg.triplanar.sharpness);
+			break;
+		}
 	}
 	return out;
 }
