@@ -37,33 +37,61 @@ typedef struct readblock_crap readblock_crap;
 
 struct readblock_crap {
     unsigned char *sourcebuf;
-    unsigned char *sourcepos;
-    unsigned char *sourceend;
-    int rembits;
+    size_t sourceend; /* size in bytes */
+    size_t bitpos;    /* bits consumed, LSB first within each byte */
+    int error;
 };
 
-static int readblock(DUMBFILE *f, readblock_crap *crap) {
-    long size;
+/* Test-only observer. It is called with the size of every buffer allocated
+ * while reading IT sample data, so tests can prove that a truncated sample
+ * does not allocate for the discarded part of the file. */
+void (*_dumb_it_sample_alloc_hook)(size_t) = NULL;
+
+static void *it_sample_malloc(size_t size) {
+    if (_dumb_it_sample_alloc_hook)
+        _dumb_it_sample_alloc_hook(size);
+    return malloc(size);
+}
+
+/* Read the 16-bit length-prefixed body of one compressed block. The length
+ * delimits exactly how many body bytes this block owns; it is not a hint that
+ * may be padded past the end of the sample's source range. A block with no
+ * body is invalid. */
+static int readblock(DUMBFILE *f, readblock_crap *crap, dumb_off_t end) {
+    int size;
     int c;
+    dumb_off_t pos;
+
+    pos = dumbfile_pos(f);
+    if (pos < 0)
+        return -1;
+    if (end >= 0 && (pos >= end || end - pos < 2))
+        return -1;
 
     size = dumbfile_igetw(f);
-    if (size < 0)
-        return (int)size;
+    if (size <= 0 || dumbfile_error(f))
+        return -1;
 
-    crap->sourcebuf = malloc(size);
+    pos = dumbfile_pos(f);
+    if (pos < 0)
+        return -1;
+    if (end >= 0 && ((dumb_off_t)size > end || pos > end - size))
+        return -1;
+
+    crap->sourcebuf = it_sample_malloc((size_t)size);
     if (!crap->sourcebuf)
         return -1;
 
-    c = (int)dumbfile_getnc((char *)crap->sourcebuf, size, f);
+    c = (int)dumbfile_getnc((char *)crap->sourcebuf, (size_t)size, f);
     if (c < size) {
         free(crap->sourcebuf);
         crap->sourcebuf = NULL;
         return -1;
     }
 
-    crap->sourcepos = crap->sourcebuf;
-    crap->sourceend = crap->sourcebuf + size;
-    crap->rembits = 8;
+    crap->sourceend = (size_t)size;
+    crap->bitpos = 0;
+    crap->error = 0;
     return 0;
 }
 
@@ -72,196 +100,252 @@ static void freeblock(readblock_crap *crap) {
     crap->sourcebuf = NULL;
 }
 
+/* Read exactly bitwidth bits. Returns -1 if the block does not contain
+ * enough bits. A legitimately decoded zero is returned as 0, so callers can
+ * tell a zero value apart from an exhausted block. */
 static int readbits(int bitwidth, readblock_crap *crap) {
     int val = 0;
-    int b = 0;
+    size_t bit, nbits;
+    int i;
 
-    if (crap->sourcepos >= crap->sourceend)
-        return val;
-
-    while (bitwidth > crap->rembits) {
-        val |= *crap->sourcepos++ << b;
-        if (crap->sourcepos >= crap->sourceend)
-            return val;
-        b += crap->rembits;
-        bitwidth -= crap->rembits;
-        crap->rembits = 8;
+    if (crap->error || bitwidth <= 0 || bitwidth > 17) {
+        crap->error = 1;
+        return -1;
     }
 
-    val |= (*crap->sourcepos & ((1 << bitwidth) - 1)) << b;
-    *crap->sourcepos >>= bitwidth;
-    crap->rembits -= bitwidth;
+    nbits = crap->sourceend << 3;
+    if (crap->bitpos > nbits ||
+        (size_t)bitwidth > nbits - crap->bitpos) {
+        crap->error = 1;
+        return -1;
+    }
+
+    bit = crap->bitpos;
+    for (i = 0; i < bitwidth; i++, bit++)
+        val |= ((crap->sourcebuf[bit >> 3] >> (bit & 7)) & 1) << i;
+    crap->bitpos = bit;
 
     return val;
 }
 
-/** WARNING - do we even need to pass `right`? */
-/** WARNING - why bother memsetting at all? The whole array is written... */
-// if we do memset, dumb_silence() would be neater...
-static int decompress8(DUMBFILE *f, signed char *data, int len, int it215,
-                       int stereo) {
-    int blocklen, blockpos;
-    byte bitwidth;
-    word val;
-    signed char d1, d2;
+/* Decode one channel of an 8-bit compressed IT sample. The file holds
+ * `disk_len` frames, but only the first `retain` frames are written to
+ * `data` (with `stride` and `offset` selecting the channel in the output
+ * buffer). The rest of every block is still decoded and validated, so a
+ * corrupt tail rejects the whole module instead of being silently skipped.
+ *
+ * Each block starts a fresh bit reader and integration history. `end` is the
+ * end of this sample's source range; a block may not read past it. */
+static int decompress8(DUMBFILE *f, dumb_off_t end, long disk_len, long retain,
+                       signed char *data, int stride, int offset, int it215) {
+    long produced = 0;
     readblock_crap crap;
 
     memset(&crap, 0, sizeof(crap));
 
-    for (blocklen = 0, blockpos = 0; blocklen < len;
-         blocklen++, blockpos += 1 + stereo)
-        data[blockpos] = 0;
+    while (produced < disk_len) {
+        long blocklen, blockpos;
+        int bitwidth, val;
 
-    while (len > 0) {
-        // Read a block of compressed data:
-        if (readblock(f, &crap))
+        if (readblock(f, &crap, end))
             return -1;
-        // Set up a few variables
-        blocklen =
-            (len < 0x8000) ? len : 0x8000; // Max block length is 0x8000 bytes
+
+        blocklen = disk_len - produced;
+        if (blocklen > 0x8000)
+            blocklen = 0x8000; /* max 32768 frames per block */
+
         blockpos = 0;
         bitwidth = 9;
-        d1 = d2 = 0;
-        // Start the decompression:
-        while (blockpos < blocklen) {
-            // Read a value:
-            val = (word)readbits(bitwidth, &crap);
-            // Check for bit width change:
+        {
+            signed char d1 = 0, d2 = 0;
 
-            if (bitwidth < 7) { // Method 1:
-                if (val == (1 << (bitwidth - 1))) {
-                    val = (word)readbits(3, &crap) + 1;
-                    bitwidth = (val < bitwidth) ? val : val + 1;
-                    continue;
-                }
-            } else if (bitwidth < 9) { // Method 2
-                byte border = (0xFF >> (9 - bitwidth)) - 4;
+            while (blockpos < blocklen) {
+                int newwidth;
 
-                if (val > border && val <= (border + 8)) {
-                    val -= border;
-                    bitwidth = (val < bitwidth) ? val : val + 1;
-                    continue;
+                val = readbits(bitwidth, &crap);
+                if (val < 0) {
+                    freeblock(&crap);
+                    return -1;
                 }
-            } else if (bitwidth == 9) { // Method 3
-                if (val & 0x100) {
-                    bitwidth = (val + 1) & 0xFF;
-                    continue;
+
+                /* Control codes change the bit width and produce no PCM. */
+                if (bitwidth < 7) { /* Method 1 */
+                    if (val == (1 << (bitwidth - 1))) {
+                        int operand = readbits(3, &crap);
+                        if (operand < 0) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        newwidth = operand + 1;
+                        newwidth = (newwidth < bitwidth) ? newwidth
+                                                         : newwidth + 1;
+                        if (newwidth < 1 || newwidth > 9) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else if (bitwidth < 9) { /* Method 2 */
+                    byte border = (byte)((0xFF >> (9 - bitwidth)) - 4);
+
+                    if (val > border && val <= (border + 8)) {
+                        newwidth = val - border;
+                        newwidth = (newwidth < bitwidth) ? newwidth
+                                                         : newwidth + 1;
+                        if (newwidth < 1 || newwidth > 9) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else if (bitwidth == 9) { /* Method 3 */
+                    if (val & 0x100) {
+                        newwidth = (val + 1) & 0xFF;
+                        if (newwidth < 1 || newwidth > 9) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else { /* Illegal width */
+                    freeblock(&crap);
+                    return -1;
                 }
-            } else { // Illegal width, abort ?
-                freeblock(&crap);
-                return -1;
+
+                {
+                    int v;
+                    if (bitwidth < 8) {
+                        /* Sign-extend without shifting into the sign bit. */
+                        int sign = 1 << (bitwidth - 1);
+                        v = (val & sign) ? val - (sign << 1) : val;
+                    } else
+                        v = (signed char)val;
+
+                    d1 = (signed char)(d1 + v);
+                    d2 = (signed char)(d2 + d1);
+                }
+
+                if (produced + blockpos < retain)
+                    data[(produced + blockpos) * stride + offset] =
+                        it215 ? d2 : d1;
+                blockpos++;
             }
-
-            // Expand the value to signed byte:
-            {
-                signed char v; // The sample value:
-                if (bitwidth < 8) {
-                    byte shift = 8 - bitwidth;
-                    v = (val << shift);
-                    v >>= shift;
-                } else
-                    v = (signed char)val;
-
-                // And integrate the sample value
-                //(It always has to end with integration doesn't it ? ;-)
-                d1 += v;
-                d2 += d1;
-            }
-
-            // Store !
-            /* Version 2.15 was an unofficial version with hacked compression
-             * code. Yay, better compression :D
-             */
-            *data++ = it215 ? d2 : d1;
-            data += stereo;
-            len--;
-            blockpos++;
         }
+
         freeblock(&crap);
+        produced += blocklen;
     }
+
     return 0;
 }
 
-static int decompress16(DUMBFILE *f, short *data, int len, int it215,
-                        int stereo) {
-    int blocklen, blockpos;
-    byte bitwidth;
-    long val;
-    signed short d1, d2;
+static int decompress16(DUMBFILE *f, dumb_off_t end, long disk_len, long retain,
+                        short *data, int stride, int offset, int it215) {
+    long produced = 0;
     readblock_crap crap;
 
     memset(&crap, 0, sizeof(crap));
 
-    for (blocklen = 0, blockpos = 0; blocklen < len;
-         blocklen++, blockpos += 1 + stereo)
-        data[blockpos] = 0;
+    while (produced < disk_len) {
+        long blocklen, blockpos;
+        int bitwidth;
+        long val;
 
-    while (len > 0) {
-        // Read a block of compressed data:
-        if (readblock(f, &crap))
+        if (readblock(f, &crap, end))
             return -1;
-        // Set up a few variables
-        blocklen =
-            (len < 0x4000) ? len : 0x4000; // Max block length is 0x4000 bytes
+
+        blocklen = disk_len - produced;
+        if (blocklen > 0x4000)
+            blocklen = 0x4000; /* max 16384 frames per block */
+
         blockpos = 0;
         bitwidth = 17;
-        d1 = d2 = 0;
-        // Start the decompression:
-        while (blockpos < blocklen) {
-            val = readbits(bitwidth, &crap);
-            // Check for bit width change:
+        {
+            signed short d1 = 0, d2 = 0;
 
-            if (bitwidth < 7) { // Method 1:
-                if (val == (1 << (bitwidth - 1))) {
-                    val = readbits(4, &crap) + 1;
-                    bitwidth = (val < bitwidth) ? val : val + 1;
-                    continue;
-                }
-            } else if (bitwidth < 17) { // Method 2
-                word border = (0xFFFF >> (17 - bitwidth)) - 8;
+            while (blockpos < blocklen) {
+                int newwidth;
 
-                if (val > border && val <= (border + 16)) {
-                    val -= border;
-                    bitwidth = val < bitwidth ? val : val + 1;
-                    continue;
+                val = readbits(bitwidth, &crap);
+                if (val < 0) {
+                    freeblock(&crap);
+                    return -1;
                 }
-            } else if (bitwidth == 17) { // Method 3
-                if (val & 0x10000) {
-                    bitwidth = (val + 1) & 0xFF;
-                    continue;
+
+                if (bitwidth < 7) { /* Method 1 */
+                    if (val == (1 << (bitwidth - 1))) {
+                        int operand = readbits(4, &crap);
+                        if (operand < 0) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        newwidth = operand + 1;
+                        newwidth = (newwidth < bitwidth) ? newwidth
+                                                         : newwidth + 1;
+                        if (newwidth < 1 || newwidth > 17) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else if (bitwidth < 17) { /* Method 2 */
+                    word border =
+                        (word)((0xFFFF >> (17 - bitwidth)) - 8);
+
+                    if (val > border && val <= (border + 16)) {
+                        newwidth = (int)(val - border);
+                        newwidth = (newwidth < bitwidth) ? newwidth
+                                                         : newwidth + 1;
+                        if (newwidth < 1 || newwidth > 17) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else if (bitwidth == 17) { /* Method 3 */
+                    if (val & 0x10000) {
+                        newwidth = (int)((val + 1) & 0xFF);
+                        if (newwidth < 1 || newwidth > 17) {
+                            freeblock(&crap);
+                            return -1;
+                        }
+                        bitwidth = newwidth;
+                        continue;
+                    }
+                } else { /* Illegal width */
+                    freeblock(&crap);
+                    return -1;
                 }
-            } else { // Illegal width, abort ?
-                freeblock(&crap);
-                return -1;
+
+                {
+                    short v;
+                    if (bitwidth < 16) {
+                        /* Sign-extend without shifting into the sign bit. */
+                        int sign = 1 << (bitwidth - 1);
+                        v = (short)((val & sign) ? val - (sign << 1) : val);
+                    } else
+                        v = (short)val;
+
+                    d1 = (short)(d1 + v);
+                    d2 = (short)(d2 + d1);
+                }
+
+                if (produced + blockpos < retain)
+                    data[(produced + blockpos) * stride + offset] =
+                        it215 ? d2 : d1;
+                blockpos++;
             }
-
-            // Expand the value to signed byte:
-            {
-                short v; // The sample value:
-                if (bitwidth < 16) {
-                    byte shift = 16 - bitwidth;
-                    v = (short)(val << shift);
-                    v >>= shift;
-                } else
-                    v = (short)val;
-
-                // And integrate the sample value
-                //(It always has to end with integration doesn't it ? ;-)
-                d1 += v;
-                d2 += d1;
-            }
-
-            // Store !
-            /* Version 2.15 was an unofficial version with hacked compression
-             * code. Yay, better compression :D
-             */
-            *data++ = it215 ? d2 : d1;
-            data += stereo;
-            len--;
-            blockpos++;
         }
+
         freeblock(&crap);
+        produced += blocklen;
     }
+
     return 0;
 }
 
@@ -517,7 +601,8 @@ static int it_read_instrument(IT_INSTRUMENT *instrument, DUMBFILE *f,
 }
 
 static int it_read_sample_header(IT_SAMPLE *sample, unsigned char *convert,
-                                 long *offset, DUMBFILE *f) {
+                                 long *offset, long *disk_length,
+                                 DUMBFILE *f) {
     /* XXX
     if (dumbfile_mgetl(f) != IT_SAMPLE_SIGNATURE)
             return -1;*/
@@ -563,27 +648,37 @@ static int it_read_sample_header(IT_SAMPLE *sample, unsigned char *convert,
     }
 #endif
 
+    /* The frame count declared by the file, before any tail is dropped. The
+     * public IT_SAMPLE.length is the retained frame count; decoding needs
+     * this one to know how much source data the file actually holds. */
+    *disk_length = sample->length;
+
     if (sample->flags & IT_SAMPLE_EXISTS) {
         if (sample->length <= 0)
             sample->flags &= ~IT_SAMPLE_EXISTS;
         else {
-            if ((unsigned int)sample->loop_end > (unsigned int)sample->length)
+            if (sample->loop_end > sample->length ||
+                sample->loop_end < 0)
                 sample->flags &= ~IT_SAMPLE_LOOP;
-            else if ((unsigned int)sample->loop_start >=
-                     (unsigned int)sample->loop_end)
+            else if (sample->loop_start < 0 ||
+                     sample->loop_start >= sample->loop_end)
                 sample->flags &= ~IT_SAMPLE_LOOP;
 
-            if ((unsigned int)sample->sus_loop_end >
-                (unsigned int)sample->length)
+            if (sample->sus_loop_end > sample->length ||
+                sample->sus_loop_end < 0)
                 sample->flags &= ~IT_SAMPLE_SUS_LOOP;
-            else if ((unsigned int)sample->sus_loop_start >=
-                     (unsigned int)sample->sus_loop_end)
+            else if (sample->sus_loop_start < 0 ||
+                     sample->sus_loop_start >= sample->sus_loop_end)
                 sample->flags &= ~IT_SAMPLE_SUS_LOOP;
 
-            /* We may be able to truncate the sample to save memory. */
-            if (sample->flags & IT_SAMPLE_LOOP &&
-                *convert !=
-                    0xFF) { /* not truncating compressed samples, for now... */
+            /* We may be able to truncate the sample to save memory. A valid
+             * normal loop keeps only up to loop_end; when a valid sustain
+             * loop reaches further, keep up to the larger of the two ends.
+             * Without a valid normal loop the whole declared length is
+             * kept. Compressed data is still read in full below so that
+             * corruption in the dropped tail is detected. As before, the
+             * ADPCM4 path (convert == 0xFF) is not truncated. */
+            if ((sample->flags & IT_SAMPLE_LOOP) && *convert != 0xFF) {
                 if ((sample->flags & IT_SAMPLE_SUS_LOOP) &&
                     sample->sus_loop_end >= sample->loop_end)
                     sample->length = sample->sus_loop_end;
@@ -637,14 +732,24 @@ long _dumb_it_read_sample_data_adpcm4(IT_SAMPLE *sample, DUMBFILE *f) {
 }
 
 static long it_read_sample_data(IT_SAMPLE *sample, unsigned char convert,
+                                long disk_length, dumb_off_t end,
                                 DUMBFILE *f) {
     long n;
+    long retain = sample->length;
+    int channels = (sample->flags & IT_SAMPLE_STEREO) ? 2 : 1;
+    int bytes = (sample->flags & IT_SAMPLE_16BIT) ? 2 : 1;
+    size_t alloc_size;
 
-    long datasize = sample->length;
-    if (sample->flags & IT_SAMPLE_STEREO)
-        datasize <<= 1;
+    /* Checked arithmetic: never let the declared length wrap into a small or
+     * negative allocation. */
+    if (disk_length <= 0 || retain < 0 || retain > disk_length)
+        return -1;
+    if ((size_t)retain > ((size_t)-1) / (size_t)channels ||
+        (size_t)retain * (size_t)channels > ((size_t)-1) / (size_t)bytes)
+        return -1;
+    alloc_size = (size_t)retain * (size_t)channels * (size_t)bytes;
 
-    sample->data = malloc(datasize * (sample->flags & IT_SAMPLE_16BIT ? 2 : 1));
+    sample->data = it_sample_malloc(alloc_size ? alloc_size : 1);
     if (!sample->data)
         return -1;
 
@@ -657,56 +762,51 @@ static long it_read_sample_data(IT_SAMPLE *sample, unsigned char convert,
         /* Behavior as defined by greasemonkey's munch.py and observed by XMPlay
          * and OpenMPT */
 
-        if (sample->flags & IT_SAMPLE_STEREO) {
-            if (sample->flags & IT_SAMPLE_16BIT) {
-                decompress16(f, (short *)sample->data, (int)(datasize >> 1),
-                             convert & 4, 1);
-                decompress16(f, (short *)sample->data + 1, (int)(datasize >> 1),
-                             convert & 4, 1);
-            } else {
-                decompress8(f, (signed char *)sample->data,
-                            (int)(datasize >> 1), convert & 4, 1);
-                decompress8(f, (signed char *)sample->data + 1,
-                            (int)(datasize >> 1), convert & 4, 1);
-            }
+        if (sample->flags & IT_SAMPLE_16BIT) {
+            if (decompress16(f, end, disk_length, retain,
+                             (short *)sample->data, channels, 0, convert & 4))
+                return -1;
+            if (channels == 2 && decompress16(f, end, disk_length, retain,
+                                              (short *)sample->data, channels, 1,
+                                              convert & 4))
+                return -1;
         } else {
-            if (sample->flags & IT_SAMPLE_16BIT)
-                decompress16(f, (short *)sample->data, (int)datasize,
-                             convert & 4, 0);
-            else
-                decompress8(f, (signed char *)sample->data, (int)datasize,
-                            convert & 4, 0);
-        }
-    } else if (sample->flags & IT_SAMPLE_16BIT) {
-        if (sample->flags & IT_SAMPLE_STEREO) {
-            if (convert & 2) {
-                for (n = 0; n < datasize; n += 2)
-                    ((short *)sample->data)[n] = dumbfile_mgetw(f);
-                for (n = 1; n < datasize; n += 2)
-                    ((short *)sample->data)[n] = dumbfile_mgetw(f);
-            } else {
-                for (n = 0; n < datasize; n += 2)
-                    ((short *)sample->data)[n] = dumbfile_igetw(f);
-                for (n = 1; n < datasize; n += 2)
-                    ((short *)sample->data)[n] = dumbfile_igetw(f);
-            }
-        } else {
-            if (convert & 2)
-                for (n = 0; n < datasize; n++)
-                    ((short *)sample->data)[n] = dumbfile_mgetw(f);
-            else
-                for (n = 0; n < datasize; n++)
-                    ((short *)sample->data)[n] = dumbfile_igetw(f);
+            if (decompress8(f, end, disk_length, retain,
+                            (signed char *)sample->data, channels, 0,
+                            convert & 4))
+                return -1;
+            if (channels == 2 && decompress8(f, end, disk_length, retain,
+                                             (signed char *)sample->data,
+                                             channels, 1, convert & 4))
+                return -1;
         }
     } else {
-        if (sample->flags & IT_SAMPLE_STEREO) {
-            for (n = 0; n < datasize; n += 2)
-                ((signed char *)sample->data)[n] = dumbfile_getc(f);
-            for (n = 1; n < datasize; n += 2)
-                ((signed char *)sample->data)[n] = dumbfile_getc(f);
-        } else
-            for (n = 0; n < datasize; n++)
-                ((signed char *)sample->data)[n] = dumbfile_getc(f);
+        /* Uncompressed planar data: each channel physically holds every frame
+         * declared on disk, even though only the retained head is kept. Read
+         * (and validate) the whole left channel first, then locate the right
+         * channel by the disk frame count rather than by the retained one. */
+        int ch;
+        for (ch = 0; ch < channels; ch++) {
+            for (n = 0; n < disk_length; n++) {
+                int value;
+                if (end >= 0 && dumbfile_pos(f) >= end)
+                    return -1;
+                if (sample->flags & IT_SAMPLE_16BIT)
+                    value = (convert & 2) ? dumbfile_mgetw(f) : dumbfile_igetw(f);
+                else
+                    value = dumbfile_getc(f);
+                if (dumbfile_error(f))
+                    return -1;
+                if (n < retain) {
+                    if (sample->flags & IT_SAMPLE_16BIT)
+                        ((short *)sample->data)[n * channels + ch] =
+                            (short)value;
+                    else
+                        ((signed char *)sample->data)[n * channels + ch] =
+                            (signed char)value;
+                }
+            }
+        }
     }
 
     if (dumbfile_error(f))
@@ -714,11 +814,12 @@ static long it_read_sample_data(IT_SAMPLE *sample, unsigned char convert,
 
     if (!(convert & 1)) {
         /* Convert to signed. */
+        long count = retain * channels;
         if (sample->flags & IT_SAMPLE_16BIT)
-            for (n = 0; n < datasize; n++)
+            for (n = 0; n < count; n++)
                 ((short *)sample->data)[n] ^= 0x8000;
         else
-            for (n = 0; n < datasize; n++)
+            for (n = 0; n < count; n++)
                 ((signed char *)sample->data)[n] ^= 0x80;
     }
 
@@ -959,13 +1060,14 @@ typedef struct IT_COMPONENT {
     unsigned char type;
     unsigned short n;
     long offset;
-    short sampfirst; /* component[sampfirst] = first sample data after this */
-    short sampnext; /* sampnext is used to create linked lists of sample data */
+    long data_offset; /* for samples: start of sample data, once known */
+    short sampdata_valid;
 } IT_COMPONENT;
 
 static int it_component_compare(const void *e1, const void *e2) {
-    return (int)(((const IT_COMPONENT *)e1)->offset -
-                 ((const IT_COMPONENT *)e2)->offset);
+    long a = ((const IT_COMPONENT *)e1)->offset;
+    long b = ((const IT_COMPONENT *)e2)->offset;
+    return (a < b) ? -1 : (a > b) ? 1 : 0;
 }
 
 static sigdata_t *it_load_sigdata(DUMBFILE *f) {
@@ -973,13 +1075,15 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
 
     int cwt, cmwt;
     int special;
-    int message_length, message_offset;
+    int message_length;
+    long message_offset;
 
     IT_COMPONENT *component;
     int min_components;
     int n_components = 0;
 
     unsigned char sample_convert[4096];
+    long disk_length[4096];
 
     int n;
 
@@ -1032,7 +1136,7 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
     dumbfile_skip(f, 1);
 
     message_length = dumbfile_igetw(f);
-    message_offset = (int)dumbfile_igetl(f);
+    message_offset = dumbfile_igetl(f);
 
     /* Skip Reserved. */
     dumbfile_skip(f, 4);
@@ -1104,7 +1208,8 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
     if (special & 1) {
         component[n_components].type = IT_COMPONENT_SONG_MESSAGE;
         component[n_components].offset = message_offset;
-        component[n_components].sampfirst = -1;
+        component[n_components].data_offset = 0;
+        component[n_components].sampdata_valid = 0;
         n_components++;
     }
 
@@ -1112,7 +1217,8 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
         component[n_components].type = IT_COMPONENT_INSTRUMENT;
         component[n_components].n = n;
         component[n_components].offset = dumbfile_igetl(f);
-        component[n_components].sampfirst = -1;
+        component[n_components].data_offset = 0;
+        component[n_components].sampdata_valid = 0;
         n_components++;
     }
 
@@ -1120,7 +1226,8 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
         component[n_components].type = IT_COMPONENT_SAMPLE;
         component[n_components].n = n;
         component[n_components].offset = dumbfile_igetl(f);
-        component[n_components].sampfirst = -1;
+        component[n_components].data_offset = 0;
+        component[n_components].sampdata_valid = 0;
         n_components++;
     }
 
@@ -1130,7 +1237,8 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
             component[n_components].type = IT_COMPONENT_PATTERN;
             component[n_components].n = n;
             component[n_components].offset = offset;
-            component[n_components].sampfirst = -1;
+            component[n_components].data_offset = 0;
+            component[n_components].sampdata_valid = 0;
             n_components++;
         } else {
             /* Empty 64-row pattern */
@@ -1143,6 +1251,26 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
         free(component);
         _dumb_it_unload_sigdata(sigdata);
         return NULL;
+    }
+
+    /* Reject out-of-range offsets before any component is sought. A negative
+     * (sign-extended) or beyond-EOF offset is invalid; end-of-file itself is
+     * allowed. */
+    {
+        dumb_off_t file_size = dumbfile_get_size(f);
+        int valid = 1;
+        for (n = 0; n < n_components; n++) {
+            if (component[n].offset < 0 ||
+                (file_size >= 0 && component[n].offset > file_size)) {
+                valid = 0;
+                break;
+            }
+        }
+        if (!valid) {
+            free(component);
+            _dumb_it_unload_sigdata(sigdata);
+            return NULL;
+        }
     }
 
     /*
@@ -1338,53 +1466,106 @@ static sigdata_t *it_load_sigdata(DUMBFILE *f) {
         case IT_COMPONENT_SAMPLE:
             if (it_read_sample_header(&sigdata->sample[component[n].n],
                                       &sample_convert[component[n].n], &offset,
-                                      f)) {
+                                      &disk_length[component[n].n], f)) {
                 free(buffer);
                 free(component);
                 _dumb_it_unload_sigdata(sigdata);
                 return NULL;
             }
 
-            if (sigdata->sample[component[n].n].flags & IT_SAMPLE_EXISTS) {
-                short *sample;
-
-                for (m = n + 1; m < n_components; m++)
-                    if (component[m].offset > offset)
-                        break;
-                m--;
-
-                sample = &component[m].sampfirst;
-
-                while (*sample >= 0 && component[*sample].offset <= offset)
-                    sample = &component[*sample].sampnext;
-
-                component[n].sampnext = *sample;
-                *sample = n;
-
-                component[n].offset = offset;
+            if (sigdata->sample[component[n].n].flags & IT_SAMPLE_EXISTS &&
+                offset > 0) {
+                component[n].data_offset = offset;
+                component[n].sampdata_valid = 1;
             }
         }
+    }
 
-        m = component[n].sampfirst;
+    /* Discover the end of every sample's source range only after every header
+     * and data start is known. The boundaries are the file positions of all
+     * nonzero components (instruments, sample headers, patterns and the song
+     * message) plus the actual sample data starts. Two samples sharing the
+     * same data start each get the same, non-zero range. */
+    {
+        long *starts;
+        int n_starts = 0, max_starts = n_components + sigdata->n_samples + 1;
 
-        while (m >= 0) {
-            if (dumbfile_seek(f, component[m].offset, DFS_SEEK_SET)) {
-                free(buffer);
-                free(component);
-                _dumb_it_unload_sigdata(sigdata);
-                return NULL;
-            }
-
-            if (it_read_sample_data(&sigdata->sample[component[m].n],
-                                    sample_convert[component[m].n], f)) {
-                free(buffer);
-                free(component);
-                _dumb_it_unload_sigdata(sigdata);
-                return NULL;
-            }
-
-            m = component[m].sampnext;
+        starts = malloc((size_t)max_starts * sizeof(*starts));
+        if (!starts) {
+            free(buffer);
+            free(component);
+            _dumb_it_unload_sigdata(sigdata);
+            return NULL;
         }
+        for (n = 0; n < n_components; n++) {
+            if (component[n].offset > 0 &&
+                (n_starts == 0 || starts[n_starts - 1] != component[n].offset))
+                starts[n_starts++] = component[n].offset;
+        }
+        for (n = 0; n < n_components; n++) {
+            long off;
+            int i, j;
+            if (component[n].type != IT_COMPONENT_SAMPLE ||
+                !component[n].sampdata_valid)
+                continue;
+            off = component[n].data_offset;
+            for (i = 0; i < n_starts && starts[i] < off; i++)
+                ;
+            if (i < n_starts && starts[i] == off)
+                continue;
+            for (j = n_starts; j > i; j--)
+                starts[j] = starts[j - 1];
+            starts[i] = off;
+            n_starts++;
+        }
+        /* Every start is now known, so each sample's source range ends at the
+         * next distinct start, or at end-of-file when there is none. This is
+         * computed before any compressed body is read. */
+        for (n = 0; n < n_components; n++) {
+            dumb_off_t end;
+            int i;
+            if (component[n].type != IT_COMPONENT_SAMPLE ||
+                !component[n].sampdata_valid)
+                continue;
+            end = -1;
+            for (i = 0; i < n_starts; i++)
+                if (starts[i] > component[n].data_offset) {
+                    end = starts[i];
+                    break;
+                }
+            if (dumbfile_get_size(f) >= 0 &&
+                (end < 0 || dumbfile_get_size(f) < end))
+                end = dumbfile_get_size(f);
+
+            /* Reject out-of-range data offsets before seeking to them. */
+            if (component[n].data_offset < 0 ||
+                (end >= 0 && component[n].data_offset > end)) {
+                free(starts);
+                free(buffer);
+                free(component);
+                _dumb_it_unload_sigdata(sigdata);
+                return NULL;
+            }
+
+            if (dumbfile_seek(f, component[n].data_offset, DFS_SEEK_SET)) {
+                free(starts);
+                free(buffer);
+                free(component);
+                _dumb_it_unload_sigdata(sigdata);
+                return NULL;
+            }
+
+            if (it_read_sample_data(&sigdata->sample[component[n].n],
+                                    sample_convert[component[n].n],
+                                    disk_length[component[n].n], end, f)) {
+                free(starts);
+                free(buffer);
+                free(component);
+                _dumb_it_unload_sigdata(sigdata);
+                return NULL;
+            }
+        }
+        free(starts);
     }
 
     for (n = 0; n < 10; n++) {

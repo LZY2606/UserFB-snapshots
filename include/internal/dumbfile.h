@@ -6,7 +6,7 @@
 struct DUMBFILE {
     const DUMBFILE_SYSTEM *dfs;
     void *file;
-    long pos;
+    dumb_off_t pos;
 };
 
 #endif // DUMBFILE_H

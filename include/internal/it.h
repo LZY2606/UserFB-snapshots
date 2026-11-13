@@ -863,6 +863,11 @@ void _dumb_it_ptm_convert_effect(int effect, int value, IT_ENTRY *entry);
 
 long _dumb_it_read_sample_data_adpcm4(IT_SAMPLE *sample, DUMBFILE *f);
 
+/* Test-only allocation observer used while decoding IT sample data. When set,
+ * it is called with the size of every buffer allocated for sample PCM or a
+ * compressed block, so tests can check memory use on truncated samples. */
+extern void (*_dumb_it_sample_alloc_hook)(size_t);
+
 void _dumb_it_interleave_stereo_sample(IT_SAMPLE *sample);
 
 /* Calling either of these is optional */

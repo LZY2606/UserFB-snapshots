@@ -17,10 +17,31 @@
  *                                                       \__/
  */
 
+#include <stdint.h>
 #include <stdlib.h>
 
 #include "dumb.h"
 #include "internal/dumb.h"
+
+/* Returns nonzero if a + b does not fit in dumb_off_t. The sum is formed in
+ * unsigned arithmetic (which wraps predictably) and range-checked before any
+ * resulting value is treated as a signed offset. */
+static int dumb_off_add_overflow(dumb_off_t a, dumb_off_t b,
+                                 dumb_off_t *out) {
+    dumb_off_t sum;
+    if (sizeof(dumb_off_t) > sizeof(uint64_t)) {
+        /* Wider than 64 bits: the sum of two such values cannot overflow. */
+        *out = a + b;
+        return 0;
+    }
+    sum = (dumb_off_t)((uint64_t)a + (uint64_t)b);
+    if (b > 0 && sum < a)
+        return 1;
+    if (b < 0 && sum > a)
+        return 1;
+    *out = sum;
+    return 0;
+}
 
 static const DUMBFILE_SYSTEM *the_dfs = NULL;
 
@@ -92,6 +113,7 @@ dumb_off_t dumbfile_pos(DUMBFILE *f) {
 /* Move forward in the file from the current position by n bytes. */
 int dumbfile_skip(DUMBFILE *f, dumb_off_t n) {
     int rv;
+    dumb_off_t target;
 
     ASSERT(f);
     ASSERT(n >= 0);
@@ -99,7 +121,12 @@ int dumbfile_skip(DUMBFILE *f, dumb_off_t n) {
     if (f->pos < 0)
         return -1;
 
-    f->pos += n;
+    if (dumb_off_add_overflow(f->pos, n, &target)) {
+        f->pos = -1;
+        return -1;
+    }
+
+    f->pos = target;
 
     if (f->dfs->skip) {
         rv = (*f->dfs->skip)(f->file, n);
@@ -330,21 +357,43 @@ dumb_ssize_t dumbfile_getnc(char *ptr, size_t n, DUMBFILE *f) {
 }
 
 /* Move to an arbitrary position n in the file, specified relative to origin,
- * where origin shall be one of the DFS_SEEK_* constants.
- */
+ * where origin shall be one of the DFS_SEEK_* constants. Relative offsets are
+ * range-checked (including overflow) before reaching the backend. A failed
+ * backend seek puts the file into the error state; a subsequent successful
+ * absolute seek clears it again. */
 int dumbfile_seek(DUMBFILE *f, dumb_off_t n, int origin) {
+    dumb_off_t base;
+
     switch (origin) {
     case DFS_SEEK_CUR:
-        n += f->pos;
+        if (f->pos < 0)
+            return -1;
+        base = f->pos;
         break;
     case DFS_SEEK_END:
-        n += (*f->dfs->get_size)(f->file);
+        base = (*f->dfs->get_size)(f->file);
+        if (base < 0) {
+            f->pos = -1;
+            return -1;
+        }
         break;
     default:
+        base = 0;
         break; /* keep n, seek position from beginning of file */
     }
+
+    if (dumb_off_add_overflow(base, n, &n)) {
+        f->pos = -1;
+        return -1;
+    }
+
+    if ((*f->dfs->seek)(f->file, n)) {
+        f->pos = -1;
+        return -1;
+    }
+
     f->pos = n;
-    return (*f->dfs->seek)(f->file, n);
+    return 0;
 }
 
 dumb_off_t dumbfile_get_size(DUMBFILE *f) {

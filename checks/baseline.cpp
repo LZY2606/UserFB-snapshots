@@ -55,12 +55,13 @@ static void legacy(){
 int main(int argc,char**argv){try{
  legacy();if(argc>1&&std::strcmp(argv[1],"--legacy")==0)return 0;
  Bytes b=module(8,true,true,true,false,32769);Loaded x(b);auto&s=x.sample();int l=pcm(s,0),r=pcm(s,1);
- need(s.length==8&&l==1&&r==7,"loop witness changed");
  std::printf("IT_LOOP_WITNESS retained=%ld left=%d right=%d expected_right=23\n",s.length,l,r);
+ need(s.length==8&&l==1&&r==23,"loop witness changed");
  Bytes shortb=module(8,false,false,true,false,8);
  // Physically present block lacks the bits needed for eight 9-bit deltas.
  shortb.resize(0xd0+80+3);word(shortb,0xd0+80,1,2);shortb.back()=0;
- Loaded y(shortb);need(y.duh!=nullptr,"exhaustion witness changed");
- std::printf("IT_BITS_WITNESS incomplete_block=accepted frames=%ld\n",y.sample().length);
+ Loaded y(shortb);
+ std::printf("IT_BITS_WITNESS incomplete_block=%s frames=%ld\n", y.duh ? "accepted" : "rejected", y.duh ? y.sample().length : 0L);
+ need(y.duh==nullptr,"exhaustion witness changed");
  return 0;
  }catch(const std::exception&e){std::fprintf(stderr,"BASELINE_FAIL %s\n",e.what());return 1;}}

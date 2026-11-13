@@ -82,6 +82,30 @@ This is a fork of the original dumb (http://dumb.sf.net/) by Ben Davis.
 - Facility to embed music files in other files (e.g. Allegro datafiles)
 
 
+## IT sample loading notes
+
+When an IT sample has a valid normal loop, only the PCM up to `loop_end` is
+retained in memory; if a valid sustain loop reaches further, the larger of the
+two ends is kept instead. A sample without a valid normal loop keeps its full
+declared length. For stereo samples both channels are interleaved in the
+retained buffer, and `IT_SAMPLE.length` reports the retained frame count.
+
+Compressed (IT 2.14 / 2.15) samples are still decoded and validated across
+their entire declared length, including blocks past the retained tail, and
+uncompressed planar samples are located using the full on-disk frame count.
+This means silent tail corruption, an illegal bit width, a truncated block or a
+missing delta rejects the whole module through the normal `free`/`unload`
+paths rather than silently producing a partially loaded sample. The extra
+memory used during decoding is bounded by the retained PCM plus one compressed
+block (at most 65535 bytes), independent of how much of the tail is discarded.
+
+The source range of each sample is determined from file positions: every
+nonzero instrument, sample-header, pattern and song-message offset, plus every
+actual sample-data offset, forms a boundary, and a sample reads at most up to
+the next distinct start (or end of file). Two samples sharing a data offset
+each decode their own copy of that range.
+
+
 ## Installation
 
 Currently you need to compile libdumb yourself. For more details, please see

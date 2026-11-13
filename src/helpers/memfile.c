@@ -17,6 +17,7 @@
  *                                                       \__/
  */
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,10 +32,10 @@ struct MEMFILE {
 
 static int dumb_memfile_skip(void *f, dumb_off_t n) {
     MEMFILE *m = f;
-    if (n > (dumb_off_t)m->left)
+    if (n < 0 || n > (dumb_off_t)m->left)
         return -1;
-    m->ptr += n;
-    m->left -= n;
+    m->ptr += (size_t)n;
+    m->left -= (size_t)n;
     return 0;
 }
 
@@ -61,8 +62,16 @@ static void dumb_memfile_close(void *f) { free(f); }
 static int dumb_memfile_seek(void *f, dumb_off_t n) {
     MEMFILE *m = f;
 
-    m->ptr = m->ptr_begin + n;
-    m->left = m->size - n;
+    if (n < 0 || (uint64_t)n > (uint64_t)m->size) {
+        /* Put the file into an error state: the pointer stays inside the
+         * buffer but no further byte can be read until a valid seek. */
+        m->ptr = m->ptr_begin + m->size;
+        m->left = 0;
+        return -1;
+    }
+
+    m->ptr = m->ptr_begin + (size_t)n;
+    m->left = m->size - (size_t)n;
 
     return 0;
 }
