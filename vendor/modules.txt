@@ -1,0 +1,11 @@
+# github.com/otiai10/marmoset v0.4.0
+## explicit
+github.com/otiai10/marmoset
+# github.com/otiai10/mint v1.3.2
+## explicit; go 1.12
+github.com/otiai10/mint
+# golang.org/x/net v0.0.0-20200923182212-328152dc79b1
+## explicit; go 1.11
+golang.org/x/net/context
+golang.org/x/net/html
+golang.org/x/net/html/atom
