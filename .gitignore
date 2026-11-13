@@ -1,0 +1,47 @@
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+!hugo/go.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+build/**
+public/
+hugo/resources/
+hugo/.hugo_build.lock
+site/vendor/
+site/benchmark/vendor/
+benchmark/node_modules/
+test/boost/**
+test/fastjet/**
+test/voronoi++/**
+test/ivank/**
+test/shaneosullivan/**
+external
+
+.vscode
+**/.DS_Store
+tmp
