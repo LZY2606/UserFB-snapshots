@@ -58,7 +58,13 @@ public:
 
             const Vec2f sample = Vec2f(float(x), float(y)) + mRng.GetVec2f();
 
-            Ray   ray = mScene.mCamera.GenerateRay(sample);
+            // Forward lens sampling importance-samples the pupil transmittance,
+            // so the path weight stays 1. A pinhole draws no lens random numbers.
+            const CameraRaySample cameraSample = mScene.mCamera.HasLens() ?
+                mScene.mCamera.SampleRay(sample, mRng.GetVec2f()) :
+                mScene.mCamera.SampleRay(sample, Vec2f(0.f));
+
+            Ray   ray = cameraSample.ray;
             Isect isect;
             isect.dist = 1e36f;
 

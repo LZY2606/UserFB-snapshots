@@ -59,7 +59,12 @@ public:
             const Vec2f sample = Vec2f(float(x), float(y)) +
                 (aIteration == 1 ? Vec2f(0.5f) : mRng.GetVec2f());
 
-            Ray   ray = mScene.mCamera.GenerateRay(sample);
+            // A pinhole draws no lens random numbers and reproduces GenerateRay.
+            const CameraRaySample cameraSample = mScene.mCamera.HasLens() ?
+                mScene.mCamera.SampleRay(sample, mRng.GetVec2f()) :
+                mScene.mCamera.SampleRay(sample, Vec2f(0.f));
+
+            Ray   ray = cameraSample.ray;
             Isect isect;
             isect.dist = 1e36f;
 

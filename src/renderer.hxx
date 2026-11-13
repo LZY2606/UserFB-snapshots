@@ -67,6 +67,8 @@ protected:
     int          mIterations;
     Framebuffer  mFramebuffer;
     const Scene& mScene;
+
+    friend class ThinLensTestAccess;
 };
 
 #endif //__RENDERER_HXX__

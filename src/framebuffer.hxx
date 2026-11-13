@@ -256,6 +256,8 @@ private:
     Vec2f              mResolution;
     int                mResX;
     int                mResY;
+
+    friend class ThinLensTestAccess;
 };
 
 #endif //__FRAMEBUFFER_HXX__

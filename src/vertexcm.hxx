@@ -55,7 +55,53 @@
 //
 //   [tech. rep. (##)]
 //
-// where ## is the equation number. 
+// where ## is the equation number.
+//
+////////////////////////////////////////////////////////////////////////////////
+// THIN LENS MIS
+////////////////////////////////////////////////////////////////////////////////
+//
+// The camera now has two lens sampling strategies, expressed in the joint
+// measure (raster area, lens area); see camera.hxx for the pupil model.
+//
+//   Forward (eye sub-path):  p_fwd(L) = T(t)/(pi R^2 M), raster pdf = 1.
+//   Reverse (LT connection): p_rev(L) = 1/(pi R^2), raster position is a
+//                            deterministic function of the lens point.
+//
+// Both strategies share the same direction density for the lens-to-scene
+// ray, pdfW = d^2/cos^3 per unit raster area; the edge conversion to a surface
+// area density at a point y at distance dist is
+//
+//   cameraPdfA_geom(y) = pdfW * |cos_y| / dist^2,
+//
+// exactly the pinhole cameraPdfA factor.
+//
+// Every technique whose eye sub-path starts on the lens uses the forward
+// strategy, so the lens factor p_fwd(L) is a common term in all their full
+// path pdfs and cancels in every MIS ratio. The dVCM/dVC/dVM recursions are
+// therefore kept on the geometry-only pdfW, with the same initialization and
+// light-path-count normalization as before. A pinhole books pdfLensA = 1 and
+// reproduces the legacy numbers bit for bit.
+//
+// The only place the two strategies compete directly is ConnectToCamera().
+// The reverse technique draws L with p_rev; the competing eye technique would
+// draw it with p_fwd and the direction towards y with the raster density
+// pdfW. In full path area measure their ratio is
+//
+//   p_eye / p_reverse = (p_fwd(L)/p_rev(L)) * cameraPdfA_geom(y)
+//                     = response * cameraPdfA_geom(y),
+//
+// since p_fwd/p_rev = T/M = response. This is the single extra factor in the
+// [tech. rep. (46)] weight. For k = 0, response = 1 and no pi R^2 term
+// remains. The reverse estimator multiplies the contribution by response,
+// because the normalized pupil integral
+//
+//   integral_D (dA/A) (T/M) C(L)
+//
+// is estimated by uniform lens sampling as E[response * C(L)], whereas the
+// forward estimator uses p_fwd = T/(A M) directly and keeps unit throughput.
+// Opening the aperture only redistributes radiance between pixels (defocus);
+// the pupil average of T/M is 1, so the exposure is unchanged.
 //
 
 class VertexCM : public AbstractRenderer
@@ -563,7 +609,8 @@ private:
     // Generates new camera sample given a pixel index
     Vec2f GenerateCameraSample(
         const int    aPixelIndex,
-        SubPathState &oCameraState)
+        SubPathState &oCameraState,
+        CameraRaySample *oCameraSample = NULL)
     {
         const Camera &camera = mScene.mCamera;
         const int resX = int(camera.mResolution.x);
@@ -575,19 +622,18 @@ private:
         // Jitter pixel position
         const Vec2f sample = Vec2f(float(x), float(y)) + mRng.GetVec2f();
 
-        // Generate ray
-        const Ray primaryRay = camera.GenerateRay(sample);
+        // Generate ray. A pinhole draws no lens random numbers; a thin lens
+        // draws one fresh pair per camera path. The forward lens strategy
+        // importance-samples the pupil transmittance, so throughput stays 1.
+        const CameraRaySample cameraSample = camera.HasLens() ?
+            camera.SampleRay(sample, mRng.GetVec2f()) :
+            camera.SampleRay(sample, Vec2f(0.f));
+        const Ray primaryRay = cameraSample.ray;
 
-        // Compute pdf conversion factor from area on image plane to solid angle on ray
-        const float cosAtCamera = Dot(camera.mForward, primaryRay.dir);
-        const float imagePointToCameraDist = camera.mImagePlaneDist / cosAtCamera;
-        const float imageToSolidAngleFactor = Sqr(imagePointToCameraDist) / cosAtCamera;
-
-        // We put the virtual image plane at such a distance from the camera origin
-        // that the pixel area is one and thus the image plane sampling pdf is 1.
-        // The solid angle ray pdf is then equal to the conversion factor from
-        // image plane area density to ray solid angle density
-        const float cameraPdfW = imageToSolidAngleFactor;
+        // Solid angle density per unit raster area, d^2 / cos^3. The lens
+        // area density is a common factor of all eye techniques and therefore
+        // stays out of the MIS recursions (see THIN LENS MIS note above).
+        const float cameraPdfW = cameraSample.pdfW;
 
         oCameraState.mOrigin       = primaryRay.org;
         oCameraState.mDirection    = primaryRay.dir;
@@ -598,9 +644,22 @@ private:
 
         // Eye sub-path MIS quantities. Implements [tech. rep. (31)-(33)] partially.
         // The evaluation is completed after tracing the camera ray in the eye sub-path loop.
-        oCameraState.dVCM = Mis(mLightSubPathCount / cameraPdfW);
+        //
+        // The pure light-tracing technique uses the reverse (uniform) lens
+        // strategy. Expressed in the forward lens measure its root density
+        // differs by p_rev/p_fwd = 1/response, which is folded into the dVCM
+        // initialization once and then propagates through the unchanged
+        // geometry-only recursions. A pinhole books response = 1, so the
+        // legacy value is reproduced bit for bit.
+        const float lensMeasureRatio = camera.HasLens() ?
+            1.f / cameraSample.response : 1.f;
+        oCameraState.dVCM =
+            Mis(mLightSubPathCount / cameraPdfW * lensMeasureRatio);
         oCameraState.dVC  = 0;
         oCameraState.dVM  = 0;
+
+        if(oCameraSample)
+            *oCameraSample = cameraSample;
 
         return sample;
     }
@@ -862,73 +921,88 @@ private:
     void ConnectToCamera(
         const SubPathState &aLightState,
         const Vec3f        &aHitpoint,
-        const LightBSDF    &aBsdf)
+        const LightBSDF    &aBsdf,
+        CameraConnection   *oCam = NULL,
+        float              *oImageToSurface = NULL,
+        float              *oWLight = NULL,
+        float              *oMisWeight = NULL,
+        Vec3f              *oContrib = NULL,
+        bool               *oOccluded = NULL,
+        bool               *oConnected = NULL)
     {
-        const Camera &camera    = mScene.mCamera;
-        Vec3f directionToCamera = camera.mPosition - aHitpoint;
+        const Camera &camera = mScene.mCamera;
 
-        // Check point is in front of camera
-        if(Dot(camera.mForward, -directionToCamera) <= 0.f)
+        // Reverse lens strategy: one fresh lens sample per connection attempt;
+        // a pinhole draws no lens random numbers and connects to the center.
+        CameraConnection cam;
+        if(!camera.SampleConnection(aHitpoint,
+               camera.HasLens() ? mRng.GetVec2f() : Vec2f(0.f), cam))
+        {
+            if(oConnected) *oConnected = false;
             return;
-
-        // Check it projects to the screen (and where)
-        const Vec2f imagePos = camera.WorldToRaster(aHitpoint);
-        if(!camera.CheckRaster(imagePos))
-            return;
-
-        // Compute distance and normalize direction to camera
-        const float distEye2 = directionToCamera.LenSqr();
-        const float distance = std::sqrt(distEye2);
-        directionToCamera   /= distance;
+        }
 
         // Get the BSDF
         float cosToCamera, bsdfDirPdfW, bsdfRevPdfW;
         const Vec3f bsdfFactor = aBsdf.Evaluate(mScene,
-            directionToCamera, cosToCamera, &bsdfDirPdfW, &bsdfRevPdfW);
+            cam.directionToCamera, cosToCamera, &bsdfDirPdfW, &bsdfRevPdfW);
 
         if(bsdfFactor.IsZero())
             return;
 
         bsdfRevPdfW *= aBsdf.ContinuationProb();
 
-        // Compute pdf conversion factor from image plane area to surface area
-        const float cosAtCamera = Dot(camera.mForward, -directionToCamera);
-        const float imagePointToCameraDist = camera.mImagePlaneDist / cosAtCamera;
-        const float imageToSolidAngleFactor = Sqr(imagePointToCameraDist) / cosAtCamera;
-        const float imageToSurfaceFactor = imageToSolidAngleFactor * std::abs(cosToCamera) / Sqr(distance);
+        // Raster area to surface area density of the camera edge, geometry
+        // part only: pdfW = d^2/cos^3, converted with the scene-point cosine
+        // and the distance to the sampled lens point.
+        const float imageToSurfaceFactor =
+            cam.pdfW * std::abs(cosToCamera) / Sqr(cam.distance);
 
-        // We put the virtual image plane at such a distance from the camera origin
-        // that the pixel area is one and thus the image plane sampling pdf is 1.
-        // The area pdf of aHitpoint as sampled from the camera is then equal to
-        // the conversion factor from image plane area density to surface area density
-        const float cameraPdfA = imageToSurfaceFactor;
-
-        // Partial light sub-path weight [tech. rep. (46)]. Note the division by
-        // mLightPathCount, which is the number of samples this technique uses.
-        // This division also appears a few lines below in the framebuffer accumulation.
-        const float wLight = Mis(cameraPdfA / mLightSubPathCount) * (
-            mMisVmWeightFactor + aLightState.dVCM + aLightState.dVC * Mis(bsdfRevPdfW));
+        // Partial light sub-path weight [tech. rep. (46)]. The competing eye
+        // technique uses the forward lens strategy, whose density in the
+        // reverse measure differs by p_fwd/p_rev = response. Note the division
+        // by mLightPathCount, which is the number of samples this technique
+        // uses; it also appears in the splat below.
+        const float wLight =
+            Mis(cam.response * imageToSurfaceFactor / mLightSubPathCount) * (
+            mMisVmWeightFactor + aLightState.dVCM +
+            aLightState.dVC * Mis(bsdfRevPdfW));
 
         // Partial eye sub-path weight is 0 [tech. rep. (47)]
 
         // Full path MIS weight [tech. rep. (37)]. No MIS for traditional light tracing.
         const float misWeight = mLightTraceOnly ? 1.f : (1.f / (wLight + 1.f));
 
+        // The uniform (reverse) lens estimator pays the pupil response; its
+        // pupil average is 1, so aperture area never changes the exposure.
+        // The division form matches the legacy pinhole splat exactly
+        // (response == 1 then), keeping its floating point results.
         const float surfaceToImageFactor = 1.f / imageToSurfaceFactor;
-
-        // We divide the contribution by surfaceToImageFactor to convert the (already
-        // divided) pdf from surface area to image plane area, w.r.t. which the
-        // pixel integral is actually defined. We also divide by the number of samples
-        // this technique makes, which is equal to the number of light sub-paths
-        const Vec3f contrib = misWeight * aLightState.mThroughput * bsdfFactor /
+        const Vec3f contrib = misWeight * cam.response *
+            aLightState.mThroughput * bsdfFactor /
             (mLightSubPathCount * surfaceToImageFactor);
+
+        if(oCam)            *oCam = cam;
+        if(oImageToSurface) *oImageToSurface = imageToSurfaceFactor;
+        if(oWLight)         *oWLight = wLight;
+        if(oMisWeight)      *oMisWeight = misWeight;
+        if(oContrib)        *oContrib = contrib;
 
         if(!contrib.IsZero())
         {
-            if(mScene.Occluded(aHitpoint, directionToCamera, distance))
+            // The occlusion ray terminates at the sampled lens point.
+            const bool occluded =
+                mScene.Occluded(aHitpoint, cam.directionToCamera, cam.distance);
+            if(oOccluded)  *oOccluded = occluded;
+            if(oConnected) *oConnected = !occluded;
+            if(occluded)
                 return;
 
-            mFramebuffer.AddColor(imagePos, contrib);
+            mFramebuffer.AddColor(cam.raster, contrib);
+        }
+        else if(oConnected)
+        {
+            *oConnected = false;
         }
     }
 
@@ -1028,6 +1102,8 @@ private:
     HashGrid         mHashGrid;
 
     Rng              mRng;
+
+    friend class ThinLensTestAccess;
 };
 
 #endif //__VERTEXCM_HXX__
