@@ -1876,8 +1876,28 @@ static void ge_msub(ge *s, const ge *p, const ge_precomp *q, fe a, fe b)
 	ge_madd(s, p, &neg, a, b);
 }
 
+// Test hook (test builds only): count the point doublings performed by
+// the batch verification path, to prove its doublings are really shared.
+#ifdef CRYPTO_EDDSA_BATCH_TEST
+static size_t batch_double_count;
+static int    batch_counting_active;
+void crypto_eddsa_batch_test_reset(void)
+{
+	batch_double_count = 0;
+}
+size_t crypto_eddsa_batch_test_doubles(void)
+{
+	return batch_double_count;
+}
+#endif
+
 static void ge_double(ge *s, const ge *p, ge *q)
 {
+#ifdef CRYPTO_EDDSA_BATCH_TEST
+	if (batch_counting_active) {
+		batch_double_count++;
+	}
+#endif
 	fe_sq (q->X, p->X);
 	fe_sq (q->Y, p->Y);
 	fe_sq (q->Z, p->Z);          // qZ = pZ^2
@@ -2375,6 +2395,223 @@ int crypto_eddsa_check(const u8  signature[64], const u8 public_key[32],
 	u8 h[32];
 	hash_reduce(h, signature, 32, public_key, 32, message, message_size);
 	return crypto_eddsa_check_equation(signature, public_key, h);
+}
+
+//////////////////////////
+/// Batch verification ///
+//////////////////////////
+
+// Instead of checking each equation [8](S B - h A - R) = 0 separately,
+// we check the single aggregate equation
+//
+//     [8] * sum_i( z_i * (S_i B - h_i A_i - R_i) ) = 0
+//
+// where the z_i are random 128-bit coefficients provided by the caller.
+// The aggregate is one multi-scalar multiplication over 2*count+1 terms:
+//
+//     [sum(z_i S_i)]B  +  sum_i( [z_i h_i](-A_i) )  +  sum_i( [z_i](-R_i) )
+//
+// All scalars are reduced modulo L, so they fit in 253 bits.  Low-order
+// components of the input points survive the weighted sum and are only
+// eliminated by the final multiplication by the cofactor (8), exactly
+// like crypto_eddsa_check_equation().
+
+// Windowed bucket multi-scalar multiplication.
+// The point doublings of the ladder are shared by the whole batch.
+#define BATCH_W_WIDTH    4   // bits per window
+#define BATCH_NB_BUCKETS ((1 << BATCH_W_WIDTH) - 1)
+#define BATCH_NB_WINDOWS 64  // 256 bits: covers the 253-bit scalars,
+                             // the top window is only partially used
+
+size_t crypto_eddsa_batch_workspace_size(size_t count)
+{
+	// Per term of the aggregate: one cached point and one scalar.
+	// Fixed part: the window buckets.
+	const size_t per_point = sizeof(ge_cached) + 32;
+	const size_t fixed     = BATCH_NB_BUCKETS * sizeof(ge);
+	if (count == 0) {
+		return 0;
+	}
+	if (count > (SIZE_MAX - fixed - per_point) / (2 * per_point)) {
+		return SIZE_MAX; // The total size would overflow
+	}
+	return (2*count + 1) * per_point + fixed;
+}
+
+// acc = sum_i( [scalars[i]]points[i] )
+// scalars: nb_points 32-byte little-endian scalars, all below L.
+// points:  nb_points cached points.
+// buckets: BATCH_NB_BUCKETS temporary points.
+static void ge_multi_scalarmult(ge *acc, ge *buckets,
+                                const ge_cached *points, const u8 *scalars,
+                                size_t nb_points)
+{
+	ge tmp;     // doubling temporary
+	ge running; // bucket reduction: running sum
+	ge total;   // bucket reduction: window total
+	ge_zero(acc);
+	for (int w = BATCH_NB_WINDOWS - 1; w >= 0; w--) {
+		// Shared doublings (skipped for the most significant window)
+		if (w != BATCH_NB_WINDOWS - 1) {
+			FOR (d, 0, BATCH_W_WIDTH) {
+				ge_double(acc, acc, &tmp);
+			}
+		}
+		// Distribute the points over the buckets, by digit
+		FOR (b, 0, BATCH_NB_BUCKETS) {
+			ge_zero(buckets + b);
+		}
+		size_t byte = (size_t)w >> 1;
+		int    half = (w & 1) * 4;
+		FOR (i, 0, nb_points) {
+			int digit = (scalars[i*32 + byte] >> half) & 15;
+			if (digit != 0) { // zero digits add nothing
+				ge_add(buckets + digit-1, buckets + digit-1, points + i);
+			}
+		}
+		// Bucket reduction: total = sum_d( [d]bucket[d] )
+		// Empty buckets contribute nothing.
+		ge_zero(&running);
+		ge_zero(&total);
+		for (int d = BATCH_NB_BUCKETS; d >= 1; d--) {
+			ge_cached c;
+			ge_cache(&c, buckets + d-1);
+			ge_add(&running, &running, &c);
+			ge_cache(&c, &running);
+			ge_add(&total, &total, &c);
+		}
+		// Accumulate this window
+		ge_cached c;
+		ge_cache(&c, &total);
+		ge_add(acc, acc, &c);
+	}
+	WIPE_CTX(&tmp);
+	WIPE_CTX(&running);
+	WIPE_CTX(&total);
+}
+
+int crypto_eddsa_check_batch(const crypto_eddsa_batch_item *items,
+                             size_t count,
+                             const u8 (*coefficients)[16],
+                             void *workspace, size_t workspace_size)
+{
+	// An empty batch is trivially valid, all pointers may be NULL
+	if (count == 0) {
+		return 0;
+	}
+	// Check the arguments
+	if (items == 0 || coefficients == 0 || workspace == 0) {
+		return -2;
+	}
+	size_t needed = crypto_eddsa_batch_workspace_size(count);
+	if (needed == SIZE_MAX || workspace_size < needed) {
+		return -2;
+	}
+	FOR (i, 0, count) {
+		if (items[i].signature  == 0 ||
+		    items[i].public_key == 0 ||
+		    (items[i].message == 0 && items[i].message_size != 0)) {
+			return -2;
+		}
+		u8 nonzero = 0;
+		FOR (j, 0, 16) {
+			nonzero |= coefficients[i][j];
+		}
+		if (nonzero == 0) {
+			return -2; // Zero coefficients are not allowed
+		}
+	}
+
+	// Carve up the workspace: points, then buckets, then scalars
+	size_t     nb_points = 2*count + 1;
+	ge_cached *points    = (ge_cached*)workspace;
+	ge        *buckets   = (ge*)(points + nb_points);
+	u8        *scalars   = (u8*)(buckets + BATCH_NB_BUCKETS);
+
+	// Per-item structural checks, hash, and scalar computation.
+	// They are performed for every item, duplicates included.
+	u8 *s_sum = scalars + (nb_points-1)*32; // base point scalar
+	ZERO(s_sum, 32);
+	FOR (i, 0, count) {
+		const u8 *sig = items[i].signature;
+		const u8 *pk  = items[i].public_key;
+		const u8 *s   = sig + 32;
+
+		// Check that A and R are on the curve
+		// Check that 0 <= S < L (prevents malleability)
+		// *Allow* non-cannonical encoding for A and R
+		ge minus_A, minus_R;
+		u32 s32[8];
+		load32_le_buf(s32, s, 8);
+		if (ge_frombytes_neg_vartime(&minus_A, pk)  ||
+		    ge_frombytes_neg_vartime(&minus_R, sig) ||
+		    is_above_l(s32)) {
+			return -1;
+		}
+		ge_cache(points + 2*i  , &minus_A);
+		ge_cache(points + 2*i+1, &minus_R);
+
+		// h = hash(R || A || message) % L, over the *raw* encodings
+		u8 h[32];
+		hash_reduce(h, sig, 32, pk, 32,
+		            items[i].message, items[i].message_size);
+
+		// z: 128-bit little-endian coefficient, zero extended.
+		// It is non-zero (checked above) and below L.
+		u8 z[32];
+		ZERO(z, 32);
+		COPY(z, coefficients[i], 16);
+
+		// Scalars of the aggregate equation:
+		//   [z h](-A) + [z](-R), and s_sum += z S  (for the base point)
+		crypto_eddsa_mul_add(scalars + (2*i  )*32, z, h, zero);
+		COPY(scalars + (2*i+1)*32, z, 32);
+		crypto_eddsa_mul_add(s_sum, z, s, s_sum);
+
+		WIPE_BUFFER(h);
+		WIPE_BUFFER(z);
+	}
+
+	// The base point is part of the multi-scalar multiplication
+	{
+		// Encoding of the base point B
+		static const u8 base_point[32] = {
+			0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+			0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+			0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+			0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+		};
+		ge B;
+		ge_frombytes_neg_vartime(&B, base_point); // cannot fail, gives -B
+		fe_neg(B.X, B.X); // negate to get B itself
+		fe_neg(B.T, B.T);
+		ge_cache(points + nb_points-1, &B);
+		WIPE_CTX(&B);
+	}
+
+	// Aggregate multi-scalar multiplication, with shared doublings
+	ge acc;
+#ifdef CRYPTO_EDDSA_BATCH_TEST
+	batch_counting_active = 1;
+#endif
+	ge_multi_scalarmult(&acc, buckets, points, scalars, nb_points);
+
+	// Compare [8]acc and the zero point.
+	// The multiplication by 8 eliminates any low-order component.
+	ge tmp;
+	ge_double(&acc, &acc, &tmp);
+	ge_double(&acc, &acc, &tmp);
+	ge_double(&acc, &acc, &tmp);
+#ifdef CRYPTO_EDDSA_BATCH_TEST
+	batch_counting_active = 0;
+#endif
+	// The zero point is the only point with y == 1, that is Y == Z
+	// (Z is never zero: the Edwards addition law is complete).
+	// Checking this directly saves a field inversion.
+	int result = fe_isequal(acc.Y, acc.Z) - 1;
+	WIPE_CTX(&acc);
+	WIPE_CTX(&tmp);
+	return result;
 }
 
 /////////////////////////

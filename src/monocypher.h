@@ -245,6 +245,79 @@ int crypto_eddsa_check(const uint8_t  signature [64],
                        const uint8_t  public_key[32],
                        const uint8_t *message, size_t message_size);
 
+// Batch verification of EdDSA signatures
+//
+// crypto_eddsa_check_batch() checks many signatures at once.  Instead of
+// checking each equation [8](S B - h A - R) = 0 separately, it checks the
+// single aggregate equation
+//
+//     [8] * sum_i( z_i * (S_i B - h_i A_i - R_i) ) = 0
+//
+// where h_i = BLAKE2b(R_i || A_i || message_i) mod L is computed from the
+// *raw* signature and public key encodings, exactly like
+// crypto_eddsa_check().  Per-item rules are unchanged: non-canonical A and
+// R encodings are allowed, points not on the curve are rejected, and
+// 0 <= S < L is required.  Those structural checks are performed for every
+// item, they cannot be skipped or cancelled out by the aggregate.
+//
+// The aggregate is evaluated as one multi-scalar multiplication over all
+// 2*count+1 terms (the base point term included), using a 4-bit windowed
+// bucket method whose point doublings are shared by the whole batch.
+//
+// The coefficients z_i are 128-bit little-endian integers, and must be
+// non-zero.  They MUST be chosen by the caller, independently of the
+// batch, from a cryptographically secure random source, and only after
+// every signature, public key, and message of the batch is fixed.  If an
+// attacker can influence the coefficients, they can craft batches that
+// pass even though some signatures are invalid.  Monocypher does not
+// gather system entropy; obtaining randomness is the caller's job.
+//
+// WARNING: batch verification is probabilistic.  A successful check only
+// proves the aggregate equation holds for these particular coefficients:
+// a batch containing invalid signatures has a small chance (about 1 in
+// 2^128 per random coefficient choice) of being accepted anyway.  Do not
+// present a batch success as a deterministic proof of each individual
+// signature.  Fixed, published coefficients are acceptable for reproducible
+// test runs only, never for security decisions.
+//
+// Items may be duplicated (same signature, public key, or message); each
+// occurrence is verified as its own term of the aggregate equation.
+//
+// crypto_eddsa_batch_workspace_size(count) returns the number of bytes
+// crypto_eddsa_check_batch() needs in its workspace for count items.
+// It returns 0 when count is 0, and SIZE_MAX if the size would overflow
+// size_t.  It performs no allocation.  The workspace itself is provided
+// by the caller (e.g. with malloc(), which guarantees suitable alignment);
+// the library never allocates on the heap, and keeps no batch state
+// between calls.  The workspace layout is an internal detail: points and
+// scalars of the multi-scalar multiplication, plus the window buckets.
+//
+// crypto_eddsa_check_batch() returns:
+//    0 if the aggregate equation holds (always the case for count == 0);
+//   -1 if a point or signature encoding is rejected, or the aggregate
+//      equation does not hold;
+//   -2 if the arguments or the workspace are invalid (NULL pointers,
+//      zero coefficient, insufficient workspace, size overflow).
+//
+// For an empty batch (count == 0), all pointers may be NULL.  Otherwise
+// items, coefficients, and workspace must not be NULL, and for each item
+// signature and public_key must not be NULL, and message may only be NULL
+// when message_size is 0.  The workspace must hold at least
+// crypto_eddsa_batch_workspace_size(count) bytes.  Items, coefficients,
+// and workspace must not overlap.
+typedef struct {
+	const uint8_t *signature;   // 64 bytes
+	const uint8_t *public_key;  // 32 bytes
+	const uint8_t *message;     // message_size bytes (NULL if 0)
+	size_t         message_size;
+} crypto_eddsa_batch_item;
+
+size_t crypto_eddsa_batch_workspace_size(size_t count);
+int crypto_eddsa_check_batch(const crypto_eddsa_batch_item *items,
+                             size_t count,
+                             const uint8_t (*coefficients)[16],
+                             void *workspace, size_t workspace_size);
+
 // Conversion to X25519
 void crypto_eddsa_to_x25519(uint8_t x25519[32], const uint8_t eddsa[32]);
 

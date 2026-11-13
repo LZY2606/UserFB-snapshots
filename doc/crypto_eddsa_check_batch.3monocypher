@@ -1,0 +1,199 @@
+.\" This file is dual-licensed.  Choose whichever you want.
+.\"
+.\" The first licence is a regular 2-clause BSD licence.  The second licence
+.\" is the CC-0 from Creative Commons. It is intended to release Monocypher
+.\" to the public domain.  The BSD licence serves as a fallback option.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause OR CC0-1.0
+.\"
+.\" ----------------------------------------------------------------------------
+.\"
+.\" Written in 2026 by the Monocypher contributors
+.\"
+.\" To the extent possible under law, the author(s) have dedicated all copyright
+.\" and related neighboring rights to this software to the public domain
+.\" worldwide.  This software is distributed without any warranty.
+.\"
+.\" You should have received a copy of the CC0 Public Domain Dedication along
+.\" with this software.  If not, see
+.\" <https://creativecommons.org/publicdomain/zero/1.0/>
+.Dd November 13, 2026
+.Dt CRYPTO_EDDSA_CHECK_BATCH 3MONOCYPHER
+.Os
+.Sh NAME
+.Nm crypto_eddsa_check_batch ,
+.Nm crypto_eddsa_batch_workspace_size
+.Nd batch verification of EdDSA signatures
+.Sh SYNOPSIS
+.In monocypher.h
+.Ft size_t
+.Fo crypto_eddsa_batch_workspace_size
+.Fa "size_t count"
+.Fc
+.Ft int
+.Fo crypto_eddsa_check_batch
+.Fa "const crypto_eddsa_batch_item *items"
+.Fa "size_t count"
+.Fa "const uint8_t (*coefficients)[16]"
+.Fa "void *workspace"
+.Fa "size_t workspace_size"
+.Fc
+.Sh DESCRIPTION
+.Fn crypto_eddsa_check_batch
+checks many EdDSA (curve25519 + BLAKE2b) signatures at once,
+faster than checking each of them with the single-signature
+interface described in
+.Xr crypto_eddsa_sign 3monocypher .
+The signatures, public keys, and messages use exactly the same format
+as the single-signature interface.
+.Pp
+Each item is described by a
+.Vt crypto_eddsa_batch_item :
+.Bd -literal -offset indent
+typedef struct {
+	const uint8_t *signature;   /* 64 bytes */
+	const uint8_t *public_key;  /* 32 bytes */
+	const uint8_t *message;     /* message_size bytes */
+	size_t         message_size;
+} crypto_eddsa_batch_item;
+.Ed
+.Pp
+.Fa message
+may be
+.Dv NULL
+only when
+.Fa message_size
+is 0.
+Items may be duplicated:
+each occurrence is checked as its own term of the aggregate equation.
+.Ss The aggregate equation
+Instead of checking each equation
+[8](S B \- h A \- R) = 0 separately,
+a single weighted aggregate is checked:
+.Bd -literal -offset indent
+/* [8] * sum_i( z_i * (S_i B - h_i A_i - R_i) ) = 0 */
+.Ed
+.Pp
+As in the single-signature check,
+h_i is BLAKE2b(R_i || A_i || message_i) reduced modulo the prime order L,
+computed over the
+.Em raw
+signature and public key encodings.
+Per-item rules are unchanged and are enforced for every item:
+non-canonical A and R encodings are allowed,
+points not on the curve are rejected,
+and S must be below L.
+Low-order components are eliminated by the final multiplication
+by the cofactor (8).
+The aggregate is evaluated as one multi-scalar multiplication over all
+2\~N+1 terms (the base point term included),
+with a 4-bit windowed bucket method whose point doublings are shared
+by the whole batch.
+.Ss Random coefficients (required)
+The
+.Fa coefficients
+z_i are 128-bit little-endian integers, and must be non-zero.
+They
+.Em must
+be drawn from a cryptographically secure random source,
+independently of each other,
+and only
+.Em after
+every signature, public key, and message of the batch is fixed.
+If an attacker can influence the coefficients,
+they can make a batch of invalid signatures pass.
+Monocypher does not gather system entropy:
+obtaining randomness is the caller's responsibility.
+.Ss Probabilistic guarantee
+Batch verification is probabilistic.
+A successful check proves the aggregate equation holds for the
+coefficients that were used;
+a batch that contains invalid signatures still has a small chance
+(about 1 in 2^128 per random choice of coefficients)
+of being accepted.
+Do not treat a batch success as a deterministic proof of each
+individual signature.
+Fixed, published coefficients are acceptable for reproducible
+test runs only, never for security decisions.
+.Ss Workspace
+.Fn crypto_eddsa_check_batch
+uses no heap allocation and keeps no state between calls;
+its working memory is provided by the caller.
+.Fn crypto_eddsa_batch_workspace_size
+returns the number of bytes needed for
+.Fa count
+items.
+It returns 0 when
+.Fa count
+is 0,
+and
+.Dv SIZE_MAX
+if the size would overflow
+.Vt size_t .
+It performs no allocation.
+The workspace must come from an allocation with fundamental alignment
+(such as
+.Xr malloc 3 )
+and must not overlap the items, the coefficients, or any signature,
+key, or message buffer.
+.Sh RETURN VALUES
+.Fn crypto_eddsa_check_batch
+returns 0 if the aggregate equation holds,
+\-1 if a point or signature encoding is rejected or the equation
+does not hold,
+and \-2 if the arguments or the workspace are invalid.
+An empty batch
+.Pq Fa count No = 0
+always returns 0, and all pointers may be
+.Dv NULL .
+.Sh EXAMPLES
+The following example assumes the existence of
+.Fn arc4random_buf ,
+which fills the given buffer with cryptographically secure random bytes.
+.Bd -literal -offset indent
+/* Check a batch of NB signatures */
+const crypto_eddsa_batch_item *items; /* Filled elsewhere   */
+size_t                         count; /* Number of items    */
+uint8_t (*coefficients)[16] = malloc(count * sizeof *coefficients);
+if (coefficients == NULL) { /* Handle error */ }
+size_t workspace_size = crypto_eddsa_batch_workspace_size(count);
+void *workspace = malloc(workspace_size);
+if (workspace == NULL) { /* Handle error */ }
+
+/* Fix the whole batch first, *then* draw random coefficients */
+arc4random_buf(coefficients, count * sizeof *coefficients);
+for (size_t i = 0; i < count; i++) {
+	if (!memcmp(coefficients[i], (uint8_t[16]){0}, 16)) {
+		coefficients[i][0] = 1; /* Zero is not allowed */
+	}
+}
+
+int status = crypto_eddsa_check_batch(items, count,
+                                      (const uint8_t (*)[16])coefficients,
+                                      workspace, workspace_size);
+if (status != 0) {
+	/* Batch rejected: fall back to per-signature checks to
+	 * find the culprit, or reject them all.               */
+}
+free(workspace);
+free(coefficients);
+.Ed
+.Sh SEE ALSO
+.Xr crypto_eddsa_sign 3monocypher ,
+.Xr crypto_blake2b 3monocypher ,
+.Xr intro 3monocypher
+.Sh STANDARDS
+These functions check PureEdDSA signatures with Curve25519 and BLAKE2b,
+as described in RFC 8032 (with BLAKE2b instead of SHA-512).
+The weighted batch equation follows the standard
+.Sq Bos-Coster
+style aggregation with random 128-bit coefficients.
+.Sh CAVEATS
+.Sy Batch success is not a per-signature proof.
+See
+.Sx Probabilistic guarantee
+above.
+.Pp
+These functions do not run in constant time.
+This is not a problem for signature verification,
+whose inputs are public.

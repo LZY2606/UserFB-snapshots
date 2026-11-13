@@ -201,6 +201,7 @@ doc/man3/intro.3monocypher: \
 	doc/crypto_aead_lock.3monocypher     doc/crypto_argon2.3monocypher       \
 	doc/crypto_blake2b.3monocypher       doc/crypto_chacha20_djb.3monocypher \
 	doc/crypto_ed25519_sign.3monocypher  doc/crypto_eddsa_sign.3monocypher   \
+	doc/crypto_eddsa_check_batch.3monocypher                               \
 	doc/crypto_elligator_map.3monocypher doc/crypto_poly1305.3monocypher     \
 	doc/crypto_sha512.3monocypher        doc/crypto_verify16.3monocypher     \
 	doc/crypto_wipe.3monocypher          doc/crypto_x25519.3monocypher       \

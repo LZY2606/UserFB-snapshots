@@ -1,3 +1,13 @@
+Unreleased
+----------
+
+- Added `crypto_eddsa_check_batch()` and
+  `crypto_eddsa_batch_workspace_size()`: weighted batch verification of
+  EdDSA (curve25519 + BLAKE2b) signatures, using one multi-scalar
+  multiplication with shared point doublings over a caller-provided
+  workspace.  Batch success is probabilistic; see the manual.
+
+
 4.0.3
 -----
 2026/06/15
