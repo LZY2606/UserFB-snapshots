@@ -5,6 +5,7 @@ import org.jsoup.helper.Validate;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
+import org.jsoup.nodes.ShadowRoot;
 import org.jsoup.select.Evaluator;
 import org.jsoup.select.EvaluatorInternals;
 import org.jsoup.select.NodeVisitor;
@@ -428,7 +429,7 @@ public class StreamParser implements Closeable {
 
         // NodeVisitor Interface:
         @Override public void head(Node node, int depth) {
-            if (node instanceof Element) {
+            if (node instanceof Element && !inShadowRoot(node)) {
                 Element prev = node.previousElementSibling();
                 // We prefer to wait until an element has a next sibling before emitting it; otherwise, get it in tail
                 if (prev != null) {
@@ -439,7 +440,7 @@ public class StreamParser implements Closeable {
         }
 
         @Override public void tail(Node node, int depth) {
-            if (node instanceof Element) {
+            if (node instanceof Element && !inShadowRoot(node)) {
                 tail = (Element) node; // kept for final hit
                 if (!isReady(tail)) deferredEls.add(tail);
                 Element lastChild = tail.lastElementChild(); // won't get a nextsib, so emit that:
@@ -447,5 +448,13 @@ public class StreamParser implements Closeable {
                 if (tail == treeBuilder.doc) deferredEls.clear(); // completed document makes stale recovery state irrelevant
             }
         }
+    }
+
+    /** Tests if the node is a shadow root or contained in one; shadow content is never a stream candidate. */
+    private static boolean inShadowRoot(Node node) {
+        for (Node n = node; n != null; n = n.parentNode()) {
+            if (n instanceof ShadowRoot) return true;
+        }
+        return false;
     }
 }

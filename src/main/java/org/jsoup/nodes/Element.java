@@ -60,6 +60,7 @@ public class Element extends Node implements Iterable<Element> {
     Tag tag;
     NodeList childNodes;
     @Nullable Attributes attributes; // field is nullable but all methods for attributes are non-null
+    @Nullable ShadowRoot shadowRoot; // attached shadow tree, if any; held outside childNodes
 
     /**
      * Create a new, standalone element, in the specified namespace.
@@ -145,7 +146,8 @@ public class Element extends Node implements Iterable<Element> {
         while (el != null) {
             if (el.attributes != null && el.attributes.hasKey(key))
                 return el.attributes.get(key);
-            el = el.parent();
+            // a shadow root inherits from its host, as it has no parent link
+            el = el instanceof ShadowRoot ? ((ShadowRoot) el).host : el.parent();
         }
         return null;
     }
@@ -158,6 +160,19 @@ public class Element extends Node implements Iterable<Element> {
     @Override
     public int childNodeSize() {
         return childNodes.size();
+    }
+
+    /**
+     Get the shadow root attached to this element, if the parser attached one (see
+     {@link org.jsoup.parser.Parser#setDeclarativeShadowRoots(boolean)}). The shadow root is not part of this
+     element's {@link #childNodes()} or {@link #children()}; use the returned {@link ShadowRoot} to read the shadow
+     tree.
+     @return the attached shadow root, or {@code null} if this element has none
+     @see ShadowRoot#host()
+     @since 1.24.2
+     */
+    public @Nullable ShadowRoot shadowRoot() {
+        return shadowRoot;
     }
 
     @Override
@@ -1990,7 +2005,9 @@ public class Element extends Node implements Iterable<Element> {
         if (attributes != null) attributes.html(accum, out);
 
         boolean htmlVoid = out.syntax() == html && isHtmlVoid();
-        if (childNodes.isEmpty() || htmlVoid) {
+        // an attached shadow root counts as content, so the start tag is not collapsed (the root is serialized
+        // separately, e.g. by outerHtmlWithShadowRoots; for plain outerHtml the tail just closes the tag as usual)
+        if ((childNodes.isEmpty() && shadowRoot == null) || htmlVoid) {
             boolean xmlMode = out.syntax() == xml || !tag.namespace().equals(NamespaceHtml);
             if (xmlMode && (tag.is(Tag.SeenSelfClose) || (tag.isKnownTag() && (tag.isEmpty() || tag.isSelfClosing())))) {
                 accum.append(" />");
@@ -2006,7 +2023,7 @@ public class Element extends Node implements Iterable<Element> {
 
     @Override
     void outerHtmlTail(QuietAppendable accum, Document.OutputSettings out) {
-        if (!childNodes.isEmpty())
+        if (!childNodes.isEmpty() || shadowRoot != null)
             accum.append("</").append(safeTagName(out.syntax())).append('>');
         // if empty, we have already closed in htmlHead
     }
@@ -2077,6 +2094,22 @@ public class Element extends Node implements Iterable<Element> {
         return this;
     }
 
+    /**
+     Get the outer HTML of this element, including any attached shadow roots. Each element with a
+     {@link #shadowRoot()} is serialized with a declarative {@code <template shadowrootmode="open">} holding the
+     shadow content, emitted right after the host's start tag and before its light DOM children. Reparsing the output
+     with {@link org.jsoup.parser.Parser#setDeclarativeShadowRoots(boolean)} enabled restores the same shadow
+     hierarchy. (Unlike {@link #outerHtml()}, which serializes the light DOM only.)
+     @return the outer HTML of this element, with shadow roots in declarative form
+     @see #shadowRoot()
+     @since 1.24.2
+     */
+    public String outerHtmlWithShadowRoots() {
+        StringBuilder sb = StringUtil.borrowBuilder();
+        Printer.appendWithShadowRoots(this, QuietAppendable.wrap(sb));
+        return StringUtil.releaseBuilder(sb);
+    }
+
     @Override
     public Element clone() {
         return (Element) super.clone();
@@ -2096,6 +2129,11 @@ public class Element extends Node implements Iterable<Element> {
         clone.childNodes = new NodeList(childNodes.size());
         clone.childNodes.addAll(childNodes); // the children then get iterated and cloned in Node.clone
         clone.attributes = cloneAttributes();
+        if (shadowRoot != null) { // deep-copy the attached shadow tree, and re-point it at this clone
+            ShadowRoot rootClone = (ShadowRoot) shadowRoot.clone();
+            rootClone.host = clone;
+            clone.shadowRoot = rootClone;
+        }
 
         return clone;
     }

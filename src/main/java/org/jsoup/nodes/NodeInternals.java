@@ -2,6 +2,7 @@ package org.jsoup.nodes;
 
 import org.jsoup.helper.Validate;
 import org.jsoup.internal.LineMap;
+import org.jsoup.parser.Tag;
 
 /**
  Internal hooks used by the parser and cleaner to attach source ranges to nodes and attributes.
@@ -10,6 +11,19 @@ import org.jsoup.internal.LineMap;
  */
 public final class NodeInternals {
     private NodeInternals() {}
+
+    /**
+     Creates a shadow root with the given tag and attaches it to the supplied host element. Used by the HTML tree
+     builder when it consumes a declarative shadow root template.
+     */
+    public static ShadowRoot attachShadowRoot(Element host, Tag tag) {
+        Validate.notNull(host);
+        Validate.notNull(tag);
+        ShadowRoot root = new ShadowRoot(tag);
+        host.shadowRoot = root;
+        root.host = host;
+        return root;
+    }
 
     /**
      Sets the source range for a node's start.

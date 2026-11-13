@@ -13,6 +13,7 @@ import org.jsoup.nodes.FormElement;
 import org.jsoup.nodes.Node;
 import org.jsoup.nodes.NodeInternals;
 import org.jsoup.nodes.ProcessingInstruction;
+import org.jsoup.nodes.ShadowRoot;
 import org.jsoup.nodes.TextNode;
 import org.jspecify.annotations.Nullable;
 
@@ -402,6 +403,53 @@ public class HtmlTreeBuilder extends TreeBuilder {
         return onStack("template") || fragmentContextIs("template");
     }
 
+    /**
+     Attaches a declarative shadow root for a {@code template} start tag, when enabled and valid. The first open
+     declarative template that is a direct child of a valid host (an HTML {@code div}, {@code span}, or hyphenated
+     custom element) becomes that host's {@link ShadowRoot}; its contents build into the root, and the template
+     itself is not added to the light DOM. The root takes the template's place on the open element stack, so table
+     content modes, formatting element boundaries, and EOF handling follow the ordinary template rules.
+     @return true if the template was consumed as a shadow root attachment; false to process it as an ordinary
+     template
+     */
+    boolean maybeAttachShadowRoot(Token.StartTag start) {
+        if (!parser.isDeclarativeShadowRoots()) return false;
+        Attributes attributes = start.attributes;
+        if (attributes == null || !"open".equalsIgnoreCase(attributes.getIgnoreCase("shadowrootmode")))
+            return false;
+        if (!hasCurrentElement()) return false;
+        final Element host = currentElement();
+        if (!isValidShadowHost(host) || host.shadowRoot() != null) return false;
+        // declarations nested in ordinary template content stay ordinary templates (shadow content may host roots)
+        for (int pos = stack.size() - 1; pos >= 0; pos--) {
+            Element el = stack.get(pos);
+            if (isHtmlEl(el, "template") && !(el instanceof ShadowRoot)) return false;
+        }
+
+        ShadowRoot root = NodeInternals.attachShadowRoot(host, tagFor("template", "template", NamespaceHtml, settings));
+        push(root);
+        insertMarkerToFormattingElements();
+        framesetOk(false);
+        transition(HtmlTreeBuilderState.InTemplate);
+        pushTemplateMode(HtmlTreeBuilderState.InTemplate);
+        return true;
+    }
+
+    /** Tests if the element may host a shadow root: an HTML {@code div}, {@code span}, or custom (hyphenated) element. */
+    static boolean isValidShadowHost(Element el) {
+        if (!isHtmlEl(el)) return false;
+        String name = el.normalName();
+        return name.equals("div") || name.equals("span") || name.indexOf('-') != -1;
+    }
+
+    /** Tests if the stack currently holds an attached shadow root (used to isolate shadow content from outer state). */
+    private boolean inShadowRoot() {
+        for (int pos = stack.size() - 1; pos >= 0; pos--) {
+            if (stack.get(pos) instanceof ShadowRoot) return true;
+        }
+        return false;
+    }
+
     void error(HtmlTreeBuilderState state) {
         if (parser.getErrors().canAddError())
             parser.getErrors().add(new ParseError(reader, "Unexpected %s token [%s] when in state [%s]",
@@ -497,8 +545,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
     private void doInsertElement(Element el) {
         enforceStackDepthLimit();
 
-        if (formElement != null && isHtmlEl(el, TagFormListed))
-            formElement.addElement(el); // connect form controls to their form element
+        if (formElement != null && isHtmlEl(el, TagFormListed) && !inShadowRoot())
+            formElement.addElement(el); // connect form controls to their form element (shadow content stays unassociated)
 
         // in HTML, the xmlns attribute if set must match what the parser set the tag's namespace to
         if (parser.getErrors().canAddError() && el.hasAttr("xmlns") && !el.attr("xmlns").equals(el.tag().namespace()))

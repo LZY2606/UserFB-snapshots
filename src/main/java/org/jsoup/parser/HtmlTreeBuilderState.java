@@ -148,11 +148,13 @@ enum HtmlTreeBuilderState {
                         tb.error(this);
                         return false;
                     } else if (name.equals("template")) {
-                        tb.insertElementFor(start);
-                        tb.insertMarkerToFormattingElements();
-                        tb.framesetOk(false);
-                        tb.transition(InTemplate);
-                        tb.pushTemplateMode(InTemplate);
+                        if (!tb.maybeAttachShadowRoot(start)) { // declarative shadow root, if enabled and valid
+                            tb.insertElementFor(start);
+                            tb.insertMarkerToFormattingElements();
+                            tb.framesetOk(false);
+                            tb.transition(InTemplate);
+                            tb.pushTemplateMode(InTemplate);
+                        }
                     } else {
                         return anythingElse(t, tb);
                     }

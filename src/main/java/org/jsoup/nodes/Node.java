@@ -369,7 +369,8 @@ public abstract class Node implements Cloneable {
         Node node = this;
         while (node != null) {
             if (node instanceof Document) return (Document) node;
-            node = node.parentNode;
+            // a shadow root has no parent link; its document is its host's
+            node = node instanceof ShadowRoot ? ((ShadowRoot) node).host : node.parentNode;
         }
         return null;
     }
@@ -1083,7 +1084,8 @@ public abstract class Node implements Cloneable {
         clone.parentNode = (Element) parent; // can be null, to create an orphan split
         clone.siblingIndex = parent == null ? 0 : siblingIndex();
         // if not keeping the parent, shallowClone the ownerDocument to preserve its settings
-        if (parent == null && !(this instanceof Document)) {
+        // (a ShadowRoot stays an orphan; it tracks its host instead of a parent)
+        if (parent == null && !(this instanceof Document) && !(this instanceof ShadowRoot)) {
             Document doc = ownerDocument();
             if (doc != null) {
                 Document docClone = doc.shallowClone();

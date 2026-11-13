@@ -29,6 +29,7 @@ public class Parser implements Cloneable {
     private ParseErrorList errors;
     private ParseSettings settings;
     private boolean trackPosition = false;
+    private boolean declarativeShadowRoots = false;
     private @Nullable TagSet tagSet;
     private final ReentrantLock lock = new ReentrantLock();
     private int maxDepth;
@@ -63,6 +64,7 @@ public class Parser implements Cloneable {
         errors = new ParseErrorList(copy.errors); // only copies size, not contents
         settings = new ParseSettings(copy.settings);
         trackPosition = copy.trackPosition;
+        declarativeShadowRoots = copy.declarativeShadowRoots;
         maxDepth = copy.maxDepth;
         tagSet = new TagSet(copy.tagSet());
     }
@@ -196,6 +198,36 @@ public class Parser implements Cloneable {
      */
     public Parser setTrackPosition(boolean trackPosition) {
         this.trackPosition = trackPosition;
+        return this;
+    }
+
+    /**
+     * Test if declarative shadow root parsing is enabled.
+     * @return current declarative shadow root setting
+     * @see #setDeclarativeShadowRoots(boolean)
+     */
+    public boolean isDeclarativeShadowRoots() {
+        return declarativeShadowRoots;
+    }
+
+    /**
+     * Enable or disable parsing of declarative shadow roots. When enabled, the HTML tree builder attaches an open
+     * declarative shadow template ({@code <template shadowrootmode="open">}) that is a direct child of a valid host
+     * (an HTML {@code div}, {@code span}, or hyphenated custom element) as a {@link org.jsoup.nodes.ShadowRoot},
+     * readable via {@link org.jsoup.nodes.Element#shadowRoot()}. The template's contents build the shadow tree and
+     * are not part of the host's regular (light DOM) children. Declarations that are not the first valid one on a
+     * host, use another mode (e.g. {@code closed}), sit under an invalid host, or appear within ordinary template
+     * content remain ordinary {@code template} elements.
+     * <p>Disabled by default. When disabled (and always in XML parsing), such templates parse as ordinary
+     * {@code template} elements. Each parse run is independent; no shadow state carries over between parses.</p>
+     * @param declarativeShadowRoots {@code true} to attach open declarative shadow roots during HTML parsing
+     * @return this Parser, for chaining
+     * @see org.jsoup.nodes.Element#shadowRoot()
+     * @see org.jsoup.nodes.Element#outerHtmlWithShadowRoots()
+     * @since 1.24.2
+     */
+    public Parser setDeclarativeShadowRoots(boolean declarativeShadowRoots) {
+        this.declarativeShadowRoots = declarativeShadowRoots;
         return this;
     }
 

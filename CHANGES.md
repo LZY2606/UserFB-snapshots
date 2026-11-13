@@ -3,6 +3,7 @@
 ## 1.24.2 (Pending)
 
 ### Improvements
+* Added opt-in support for declarative shadow roots in the HTML parser. Enable with `Parser.setDeclarativeShadowRoots(true)`; a direct-child `<template shadowrootmode="open">` of a valid host (an HTML `div`, `span`, or hyphenated custom element) is attached as an `org.jsoup.nodes.ShadowRoot`, readable via `Element.shadowRoot()`. The shadow tree stays out of the host's light DOM (`childNodes`, `children`, `select`, `text`), while `Element.outerHtmlWithShadowRoots()` serializes both layers so a reparse with the option on restores the same hierarchy. See `support/ShadowRoots.md` for usage.
 * Added the opt-in `Tag.RcDataRecover` option to recover content after missing `title` or `textarea` end tags. [#2640](https://github.com/jhy/jsoup/issues/2640)
 
 ### Bug Fixes

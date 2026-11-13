@@ -253,4 +253,37 @@ class Printer implements NodeFilter {
         if (settings.prettyPrint()) return new Printer.Pretty(root, accum, settings);
         return new Printer(root, accum, settings);
     }
+
+    /**
+     Serializes the node and its descendants, emitting each attached shadow root as a declarative
+     {@code <template shadowrootmode="open">} right after its host's start tag. The root's internal pseudo tag is
+     never emitted.
+     */
+    static void appendWithShadowRoots(Node node, QuietAppendable accum) {
+        Printer printer = printerFor(node, accum);
+        appendShadow(node, printer, 0);
+    }
+
+    private static void appendShadow(Node node, Printer printer, int depth) {
+        if (node instanceof ShadowRoot) { // serialize as the declarative template form, not the internal tag
+            appendShadowTemplate((ShadowRoot) node, printer, depth);
+            return;
+        }
+        if (printer.head(node, depth) == FilterResult.SKIP_ENTIRELY) return;
+        if (node instanceof Element) {
+            ShadowRoot shadowRoot = ((Element) node).shadowRoot();
+            if (shadowRoot != null)
+                appendShadowTemplate(shadowRoot, printer, depth + 1);
+        }
+        for (Node child = node.firstChild(); child != null; child = child.nextSibling())
+            appendShadow(child, printer, depth + 1);
+        printer.tail(node, depth);
+    }
+
+    private static void appendShadowTemplate(ShadowRoot root, Printer printer, int depth) {
+        printer.accum.append("<template shadowrootmode=\"open\">");
+        for (Node child = root.firstChild(); child != null; child = child.nextSibling())
+            appendShadow(child, printer, depth);
+        printer.accum.append("</template>");
+    }
 }
