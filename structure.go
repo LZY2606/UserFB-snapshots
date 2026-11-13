@@ -130,6 +130,20 @@ type MediaPlaylist struct {
 	WV               *WV  // Widevine related tags outside of M3U8 specs
 	Custom           map[string]CustomTag
 	customDecoders   []CustomDecoder
+
+	// PartTargetDuration is the PART-TARGET value of the EXT-X-PART-INF
+	// tag (Low-Latency HLS). Zero means the tag is not written.
+	PartTargetDuration float64
+	// tailParts holds published parts (EXT-X-PART) of the media segment
+	// that is not finished yet. It is emptied by CommitSegment().
+	tailParts []*Part
+	// preloadHint is the pending EXT-X-PRELOAD-HINT tag of TYPE=PART.
+	preloadHint *PreloadHint
+	// tailKey, tailMap and tailDiscontinuity carry declarations of the
+	// next (not yet committed) segment. They move with it on commit.
+	tailKey           *Key
+	tailMap           *Map
+	tailDiscontinuity bool
 }
 
 // MasterPlaylist structure represents a master playlist which
@@ -215,6 +229,56 @@ type MediaSegment struct {
 	SCTE            *SCTE     // SCTE-35 used for Ad signaling in HLS
 	ProgramDateTime time.Time // EXT-X-PROGRAM-DATE-TIME tag associates the first sample of a media segment with an absolute date and/or time
 	Custom          map[string]CustomTag
+	// Parts are the EXT-X-PART tags that belong to the segment. On
+	// encoding they are written after the segment's KEY/MAP and
+	// discontinuity declarations and before its EXTINF tag.
+	Parts []*Part
+}
+
+// Part represents a partial segment (EXT-X-PART tag, Low-Latency HLS).
+// A part belongs either to a committed MediaSegment (via Parts) or to
+// the playlist's not yet finished tail.
+type Part struct {
+	// URI is the media resource of the part (URI attribute).
+	URI string
+	// Duration is the positive, finite part duration in seconds
+	// (DURATION attribute).
+	Duration float64
+	// Independent marks the part as independently decodable
+	// (INDEPENDENT=YES).
+	Independent bool
+	// Gap marks the part as a gap in the media (GAP=YES).
+	Gap bool
+	// Limit is the byte range length (BYTERANGE length). Zero together
+	// with HasRange == false means no BYTERANGE attribute.
+	Limit int64
+	// Offset is the byte range start (BYTERANGE offset). It is only
+	// meaningful together with HasRange.
+	Offset int64
+	// HasRange reports whether a BYTERANGE was provided. An explicit
+	// zero offset must stay distinguishable from an omitted offset.
+	HasRange bool
+	// HasOffset reports whether the BYTERANGE offset was given
+	// explicitly. HasRange can be true while HasOffset is false: the
+	// range then continues the previous part with the same URI.
+	HasOffset bool
+}
+
+// PreloadHint represents an EXT-X-PRELOAD-HINT tag with TYPE=PART. It
+// advertises a part that is about to be published and is never treated
+// as a completed part.
+type PreloadHint struct {
+	// URI is the resource that will be used by the upcoming part.
+	URI string
+	// Limit is the hinted byte range length (BYTERANGE-START without
+	// BYTERANGE-LENGTH means the length is unknown yet).
+	Limit int64
+	// Offset is the hinted byte range start (BYTERANGE-START).
+	Offset int64
+	// HasRange reports whether BYTERANGE-START was provided.
+	HasRange bool
+	// HasLimit reports whether BYTERANGE-LENGTH was provided.
+	HasLimit bool
 }
 
 // SCTE holds custom, non EXT-X-DATERANGE, SCTE-35 tags

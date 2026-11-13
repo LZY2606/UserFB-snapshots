@@ -340,6 +340,9 @@ func (p *MediaPlaylist) Remove() (err error) {
 	if p.count == 0 {
 		return errors.New("playlist is empty")
 	}
+	// Drop the segment together with its parts so a ring buffer
+	// wrap-around never brings the old slot contents back.
+	p.Segments[p.head] = nil
 	p.head = (p.head + 1) % p.capacity
 	p.count--
 	if !p.Closed {
@@ -487,6 +490,11 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 	}
 	if p.Iframe {
 		p.buf.WriteString("#EXT-X-I-FRAMES-ONLY\n")
+	}
+	if p.PartTargetDuration > 0 {
+		p.buf.WriteString("#EXT-X-PART-INF:PART-TARGET=")
+		p.buf.WriteString(strconv.FormatFloat(p.PartTargetDuration, 'f', -1, 64))
+		p.buf.WriteRune('\n')
 	}
 	// Widevine tags
 	if p.WV != nil {
@@ -682,6 +690,10 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 			}
 		}
 
+		for _, part := range seg.Parts {
+			writePartTag(&p.buf, part)
+		}
+
 		p.buf.WriteString("#EXTINF:")
 		if str, ok := durationCache[seg.Duration]; ok {
 			p.buf.WriteString(str)
@@ -705,10 +717,99 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		}
 		p.buf.WriteRune('\n')
 	}
+
+	// The unfinished segment: its declarations, published parts and
+	// the PART preload hint are emitted without an EXTINF.
+	if p.tailKey != nil && p.Key != p.tailKey {
+		p.buf.WriteString("#EXT-X-KEY:")
+		p.buf.WriteString("METHOD=")
+		p.buf.WriteString(p.tailKey.Method)
+		if p.tailKey.Method != "NONE" {
+			p.buf.WriteString(",URI=\"")
+			p.buf.WriteString(p.tailKey.URI)
+			p.buf.WriteRune('"')
+			if p.tailKey.IV != "" {
+				p.buf.WriteString(",IV=")
+				p.buf.WriteString(p.tailKey.IV)
+			}
+			if p.tailKey.Keyformat != "" {
+				p.buf.WriteString(",KEYFORMAT=\"")
+				p.buf.WriteString(p.tailKey.Keyformat)
+				p.buf.WriteRune('"')
+			}
+			if p.tailKey.Keyformatversions != "" {
+				p.buf.WriteString(",KEYFORMATVERSIONS=\"")
+				p.buf.WriteString(p.tailKey.Keyformatversions)
+				p.buf.WriteRune('"')
+			}
+		}
+		p.buf.WriteRune('\n')
+	}
+	if p.tailDiscontinuity {
+		p.buf.WriteString("#EXT-X-DISCONTINUITY\n")
+	}
+	if p.Map == nil && p.tailMap != nil {
+		p.buf.WriteString("#EXT-X-MAP:")
+		p.buf.WriteString("URI=\"")
+		p.buf.WriteString(p.tailMap.URI)
+		p.buf.WriteRune('"')
+		if p.tailMap.Limit > 0 {
+			p.buf.WriteString(",BYTERANGE=")
+			p.buf.WriteString(strconv.FormatInt(p.tailMap.Limit, 10))
+			p.buf.WriteRune('@')
+			p.buf.WriteString(strconv.FormatInt(p.tailMap.Offset, 10))
+		}
+		p.buf.WriteRune('\n')
+	}
+	for _, part := range p.tailParts {
+		writePartTag(&p.buf, part)
+	}
+	if p.preloadHint != nil {
+		writePreloadHintTag(&p.buf, p.preloadHint)
+	}
 	if p.Closed {
 		p.buf.WriteString("#EXT-X-ENDLIST\n")
 	}
 	return &p.buf
+}
+
+// writePartTag writes a single EXT-X-PART tag. Ranges are always
+// written with an explicit offset so that reading and writing a
+// playlist never changes the downloaded bytes.
+func writePartTag(buf *bytes.Buffer, part *Part) {
+	buf.WriteString("#EXT-X-PART:DURATION=")
+	buf.WriteString(strconv.FormatFloat(part.Duration, 'f', -1, 64))
+	if part.HasRange {
+		buf.WriteString(",BYTERANGE=")
+		buf.WriteString(strconv.FormatInt(part.Limit, 10))
+		buf.WriteRune('@')
+		buf.WriteString(strconv.FormatInt(part.Offset, 10))
+	}
+	if part.Independent {
+		buf.WriteString(",INDEPENDENT=YES")
+	}
+	if part.Gap {
+		buf.WriteString(",GAP=YES")
+	}
+	buf.WriteString(",URI=\"")
+	buf.WriteString(part.URI)
+	buf.WriteString("\"\n")
+}
+
+// writePreloadHintTag writes the EXT-X-PRELOAD-HINT tag of TYPE=PART.
+func writePreloadHintTag(buf *bytes.Buffer, hint *PreloadHint) {
+	buf.WriteString("#EXT-X-PRELOAD-HINT:TYPE=PART")
+	if hint.HasRange {
+		buf.WriteString(",BYTERANGE-START=")
+		buf.WriteString(strconv.FormatInt(hint.Offset, 10))
+		if hint.HasLimit {
+			buf.WriteString(",BYTERANGE-LENGTH=")
+			buf.WriteString(strconv.FormatInt(hint.Limit, 10))
+		}
+	}
+	buf.WriteString(",URI=\"")
+	buf.WriteString(hint.URI)
+	buf.WriteString("\"\n")
 }
 
 // String here for compatibility with Stringer interface For example

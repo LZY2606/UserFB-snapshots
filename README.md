@@ -97,6 +97,55 @@ You may use API methods to fill structures or create them manually to generate p
 	fmt.Println(p.Encode().String())
 ```
 
+Low-Latency HLS partial segments
+--------------------------------
+
+A media playlist can publish partial segments (`#EXT-X-PART`) while a
+video segment is still being written. Parts are appended to the
+unfinished tail and are committed as a complete media segment once the
+segment is ready. The tail is not counted by `Count()`, and a failed
+commit (for example when the playlist capacity is full) keeps the
+already published parts and the preload hint.
+
+```go
+	p, e := m3u8.NewMediaPlaylist(3, 10)
+	if e != nil {
+		panic(e)
+	}
+	if e = p.SetPartTargetDuration(0.5); e != nil {
+		panic(e)
+	}
+	// Publish the first two parts of the unfinished segment.
+	if e = p.AppendPart(&m3u8.Part{
+		URI:         "segment0.0.m4s",
+		Duration:    0.5,
+		Independent: true,
+	}); e != nil {
+		panic(e)
+	}
+	if e = p.AppendPart(&m3u8.Part{
+		URI:      "segment0.1.m4s",
+		Duration: 0.5,
+	}); e != nil {
+		panic(e)
+	}
+	// Announce the part that is about to be written.
+	if e = p.SetPreloadHint(&m3u8.PreloadHint{URI: "segment0.2.m4s"}); e != nil {
+		panic(e)
+	}
+	fmt.Println(p.Encode().String()) // parts and hint are already available
+	// When the whole segment is finished, commit it as a MediaSegment.
+	if e = p.CommitSegment("segment0.m4s", 2.0, ""); e != nil {
+		panic(e)
+	}
+```
+
+The encoded playlist uses the `#EXT-X-PART-INF`, `#EXT-X-PART` and
+`#EXT-X-PRELOAD-HINT` tags. Playlists containing these tags can also be
+read back: parts before an `#EXTINF` are attached to that complete
+segment, parts at the end of the file stay in the tail, and a preload
+hint is never treated as a completed part.
+
 Custom Tags
 -----------
 

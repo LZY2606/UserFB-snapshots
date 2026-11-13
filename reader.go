@@ -531,6 +531,29 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 				return err
 			}
 			state.tagInf = false
+			// EXT-X-PART tags seen before the EXTINF belong to this
+			// now complete segment together with their declarations.
+			// This runs only for a real segment URI line: blank or
+			// unknown lines must not consume the unfinished tail.
+			if len(p.tailParts) > 0 {
+				seg := p.Segments[p.last()]
+				if seg.Key == nil {
+					seg.Key = p.tailKey
+				}
+				if seg.Map == nil {
+					seg.Map = p.tailMap
+				}
+				if p.tailDiscontinuity {
+					seg.Discontinuity = true
+				}
+				seg.Parts = p.tailParts
+			}
+			// The declarations are consumed here so they cannot leak
+			// into the following segment.
+			p.tailParts = nil
+			p.tailKey = nil
+			p.tailMap = nil
+			p.tailDiscontinuity = false
 		}
 		if state.tagRange {
 			if err = p.SetRange(state.limit, state.offset); strict && err != nil {
@@ -657,6 +680,10 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 			}
 		}
 		state.tagKey = true
+		// Remember the declaration for an unfinished LL-HLS tail.
+		// It is consumed together with the following EXTINF or stays
+		// attached to the tail parts at the end of the file.
+		p.tailKey = cloneKey(state.xkey)
 	case strings.HasPrefix(line, "#EXT-X-MAP:"):
 		state.listType = MEDIA
 		state.xmap = new(Map)
@@ -671,6 +698,7 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 			}
 		}
 		state.tagMap = true
+		p.tailMap = cloneMap(state.xmap)
 	case !state.tagProgramDateTime && strings.HasPrefix(line, "#EXT-X-PROGRAM-DATE-TIME:"):
 		state.tagProgramDateTime = true
 		state.listType = MEDIA
@@ -747,6 +775,29 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 	case !state.tagDiscontinuity && strings.HasPrefix(line, "#EXT-X-DISCONTINUITY"):
 		state.tagDiscontinuity = true
 		state.listType = MEDIA
+		p.tailDiscontinuity = true
+	case strings.HasPrefix(line, "#EXT-X-PART-INF:"):
+		state.listType = MEDIA
+		version(&p.ver, 9)
+		for k, v := range decodeParamsLine(line[len("#EXT-X-PART-INF:"):]) {
+			if k == "PART-TARGET" {
+				if p.PartTargetDuration, err = strconv.ParseFloat(v, 64); strict && err != nil {
+					return fmt.Errorf("PART-TARGET value parsing error: %s", err)
+				}
+			}
+		}
+	case strings.HasPrefix(line, "#EXT-X-PART:"):
+		state.listType = MEDIA
+		version(&p.ver, 9)
+		if err = p.decodePartLine(line[len("#EXT-X-PART:"):], strict); strict && err != nil {
+			return err
+		}
+	case strings.HasPrefix(line, "#EXT-X-PRELOAD-HINT:"):
+		state.listType = MEDIA
+		version(&p.ver, 9)
+		if err = p.decodePreloadHintLine(line[len("#EXT-X-PRELOAD-HINT:"):], strict); strict && err != nil {
+			return err
+		}
 	case strings.HasPrefix(line, "#EXT-X-I-FRAMES-ONLY"):
 		state.listType = MEDIA
 		p.Iframe = true
