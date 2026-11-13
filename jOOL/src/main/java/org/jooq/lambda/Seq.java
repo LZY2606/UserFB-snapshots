@@ -3427,6 +3427,82 @@ public interface Seq<T> extends Stream<T>, Iterable<T>, Collectable<T> {
         return sorted(comparing(function, comparator));
     }
 
+    /**
+     * Lazily sort this sequence using a stable, external (spill) sort that can
+     * exceed main memory by spilling sorted runs to disk.
+     * <p>
+     * Unlike {@link #sorted(Comparator)}, which materialises the whole stream
+     * in memory, this operation pulls at most {@code maxItems} records into
+     * memory at a time. Sorted initial runs are written into a private
+     * subdirectory created under {@code tempRoot} and merged in repeated
+     * passes of at most {@code fanIn} runs. The sort is stable across runs and
+     * merge rounds: when the comparator says two records are equal, their
+     * source encounter order is preserved.
+     * <p>
+     * This method is lazy: it validates its arguments and returns immediately
+     * without pulling any records, invoking the comparator or codec, or
+     * creating files. The source is consumed only when the returned
+     * {@code Seq} is first terminally consumed, and the returned stream
+     * remains sequential, ordered and single-use (no worker threads are
+     * started).
+     * <p>
+     * Resources and error handling:
+     * <ul>
+     * <li>each sort gets its own private directory under {@code tempRoot};
+     * nothing else in {@code tempRoot} is ever deleted;</li>
+     * <li>the source is closed exactly once when it has been fully consumed,
+     * when the returned stream is closed, or when processing fails;</li>
+     * <li>all run files and the private directory are deleted when the result
+     * has been read to exhaustion, when iteration fails, or when the returned
+     * stream is {@link #close() closed}; closing more than once has no
+     * effect;</li>
+     * <li>closing a stream that was never started still closes the source and
+     * creates no directory;</li>
+     * <li>{@link java.io.IOException}s from the codec or the file system are
+     * propagated as {@link java.io.UncheckedIOException} retaining the cause;
+     * runtime exceptions from the source, comparator or codec propagate as the
+     * original object; cleanup failures are attached as suppressed
+     * exceptions instead of masking the primary error.</li>
+     * </ul>
+     * Java's short-circuiting terminal operations (e.g. {@link #findFirst()},
+     * {@link #limit(long)}) do not close the stream themselves, so prefer
+     * try-with-resources:
+     * <pre><code>
+     * SpillCodec&lt;Order&gt; codec = new OrderCodec();
+     * try (Seq&lt;Order&gt; sorted = orders.sortedExternal(
+     *         Comparator.comparing(Order::customerId), codec, tempDir, 10_000, 8)) {
+     *     sorted.limit(100).toList();
+     * }
+     * </code></pre>
+     * <p>
+     * Complexity: {@code O(n log n)} comparisons overall, {@code O(n)} codec
+     * invocations and run-file bytes. Resident memory is bounded by
+     * {@code maxItems} records during run building and by {@code fanIn}
+     * candidates (plus one small heap) during merging; run-path metadata grows
+     * only with the number of runs, never with the number of records.
+     * {@code maxItems} is a record count, not a byte limit.
+     *
+     * @param comparator the ordering to apply; may accept {@code null} values
+     * @param codec      the per-value binary codec; may support {@code null}
+     *                   values, in which case {@code null} is a regular value
+     * @param tempRoot   an existing directory under which the private spill
+     *                   directory is created
+     * @param maxItems   maximum number of records buffered per initial run,
+     *                   must be {@code >= 1}
+     * @param fanIn      maximum number of runs merged in one pass, must be
+     *                   {@code >= 2}
+     * @return a new, lazily evaluated, ordered and single-use {@code Seq}
+     * @throws NullPointerException     if any of {@code comparator},
+     *                                  {@code codec} or {@code tempRoot} is
+     *                                  {@code null}
+     * @throws IllegalArgumentException if {@code maxItems < 1} or
+     *                                  {@code fanIn < 2}
+     */
+    default Seq<T> sortedExternal(Comparator<? super T> comparator, SpillCodec<T> codec,
+                                  java.nio.file.Path tempRoot, int maxItems, int fanIn) {
+        return SpillSorter.sort(this, comparator, codec, tempRoot, maxItems, fanIn);
+    }
+
     // Methods taken from LINQ
     // -----------------------
 
