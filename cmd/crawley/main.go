@@ -41,6 +41,7 @@ var (
 	fBrute, fNoHeads        bool
 	fSkipSSL, fScanJS       bool
 	fScanCSS, fScanALL      bool
+	fCSSImports             bool
 	fSubdomains             bool
 	fDirsPolicy, fProxyAuth string
 	fRobotsPolicy, fUA      string
@@ -158,6 +159,7 @@ func parseFlags() (rv []crawler.Option, err error) {
 		crawler.WithoutHeads(fNoHeads),
 		crawler.WithScanJS(scanJS),
 		crawler.WithScanCSS(scanCSS),
+		crawler.WithCSSImports(fCSSImports && scanCSS),
 		crawler.WithExtraHeaders(uheaders),
 		crawler.WithExtraCookies(ucookies),
 		crawler.WithTagsFilter(tags.Values),
@@ -188,6 +190,7 @@ func setupFlags() {
 	flag.BoolVar(&fBrute, "brute", false, "scan html comments")
 	flag.BoolVar(&fSubdomains, "subdomains", false, "Support subdomains (e.g. if www.domain.com found, recurse over it)")
 	flag.BoolVar(&fScanCSS, "css", false, "scan css for urls")
+	flag.BoolVar(&fCSSImports, "css-imports", false, "collect css dependencies: expand @import stylesheets, report assets only (requires -css)")
 	flag.BoolVar(&fNoHeads, "headless", false, "disable pre-flight HEAD requests")
 	flag.BoolVar(&fScanJS, "js", false, "scan js code for endpoints")
 	flag.BoolVar(&fSkipSSL, "skip-ssl", false, "skip ssl verification")

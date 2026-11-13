@@ -18,6 +18,9 @@ const (
 	keyDATA   = "data"
 	keyACTION = "action"
 	keyPOSTER = "poster"
+	keyREL    = "rel"
+
+	relStyleSheet = "stylesheet"
 )
 
 // HTMLHandler is a callback for found links.
@@ -31,9 +34,17 @@ type HTMLParams struct {
 	Filter       TokenFilter
 	HandleHTML   HTMLHandler
 	HandleStatic URLHandler
-	Brute        bool
-	ScanJS       bool
-	ScanCSS      bool
+	// HandleCSS, when set, receives every reference found in an inline style
+	// block: imports are flagged as such, and both imports and resources are
+	// reported. When nil, the legacy ExtractCSS path is used.
+	HandleCSS func(CSSReference)
+	// HandleStyleSheet, when set, receives external stylesheet links (rel
+	// contains "stylesheet", ascii case-insensitive), reported in addition to
+	// the regular HandleHTML call. Only meaningful with ScanCSS.
+	HandleStyleSheet HTMLHandler
+	Brute            bool
+	ScanJS           bool
+	ScanCSS          bool
 }
 
 // AllowALL - stub that implements TokenFilter, it allows all tokens.
@@ -55,13 +66,27 @@ func ExtractHTML(r io.Reader, base *url.URL, cfg HTMLParams) {
 
 		case html.StartTagToken, html.SelfClosingTagToken:
 			if tok = tkns.Token(); cfg.Filter(tok) {
-				isJS, isCSS = extractToken(base, tok, &key, cfg.HandleHTML)
+				isJS, isCSS = false, false
+
+				if cfg.ScanCSS && cfg.HandleStyleSheet != nil &&
+					tok.DataAtom == atom.Link && isStyleSheetLink(tok) {
+					// A stylesheet link is a style entry: it goes through
+					// HandleStyleSheet only and is never treated as a plain
+					// static resource.
+					if href := rawAttr(tok, keyHREF); href != "" {
+						cfg.HandleStyleSheet(atom.Link, href)
+					}
+				} else {
+					isJS, isCSS = extractToken(base, tok, &key, cfg.HandleHTML)
+				}
 			}
 
 		case html.TextToken:
 			switch {
 			case cfg.ScanJS && isJS:
 				ExtractJS(bytes.NewReader(tkns.Text()), cfg.HandleStatic)
+			case cfg.ScanCSS && isCSS && cfg.HandleCSS != nil:
+				ExtractCSSReferences(bytes.NewReader(tkns.Text()), cfg.HandleCSS)
 			case cfg.ScanCSS && isCSS:
 				ExtractCSS(bytes.NewReader(tkns.Text()), cfg.HandleStatic)
 			}
@@ -173,6 +198,45 @@ func handleNotEmpty(h HTMLHandler, a atom.Atom, s string) {
 	if s != "" {
 		h(a, s)
 	}
+}
+
+// rawAttr returns the raw value of a token attribute, or "" when absent.
+func rawAttr(tok html.Token, key string) (rv string) {
+	for i := 0; i < len(tok.Attr); i++ {
+		if a := &tok.Attr[i]; a.Key == key {
+			return a.Val
+		}
+	}
+
+	return ""
+}
+
+// isStyleSheetLink reports whether a link token has a rel attribute whose
+// ASCII case-insensitive, whitespace-separated tokens contain "stylesheet".
+func isStyleSheetLink(tok html.Token) (yes bool) {
+	for i := 0; i < len(tok.Attr); i++ {
+		a := &tok.Attr[i]
+		if !strings.EqualFold(a.Key, keyREL) {
+			continue
+		}
+
+		for _, token := range strings.FieldsFunc(a.Val, isASCIISpace) {
+			if strings.EqualFold(token, relStyleSheet) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isASCIISpace(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '\r', '\f':
+		return true
+	}
+
+	return false
 }
 
 func extractTag(

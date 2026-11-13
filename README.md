@@ -33,6 +33,7 @@ Crawls web pages and prints any link it can find.
 - tag filter - allow to specify tags to crawl for (single: `-tag a -tag form`, multiple: `-tag a,form`, or mixed)
 - url ignore - allow to ignore urls with matched substrings from crawling (i.e.: `-ignore logout`)
 - subdomains support - allow depth crawling for subdomains as well (e.g. `crawley http://some-test.site` will be able to crawl `http://www.some-test.site`)
+- optional css dependency collection (`-css -css-imports`) - expand `@import` stylesheets as style entries while only reporting images and fonts
 
 
 # examples
@@ -52,6 +53,54 @@ crawley -depth -1 -tag img http://some-test.site | grep '\.png$' | wget -i -
 
 # fast directory traversal:
 crawley -headless -delay 0 -depth -1 -dirs only http://some-test.site
+```
+
+
+# css dependency collection
+
+The default css scanner (`-css`) reports `url(...)` addresses from inline and
+downloaded stylesheets, but does not follow `@import`. Add `-css-imports` to
+collect a full stylesheet dependency list instead:
+
+```sh
+# expand @import stylesheets, report images/fonts without fetching them:
+crawley -css -css-imports -depth -1 http://some-test.site
+```
+
+In this mode:
+
+- a `<link>` is a style entry only when its `rel` attribute contains
+  `stylesheet` (ascii case-insensitive, whitespace separated); other links are
+  still printed but never downloaded because of css scanning, and the usual
+  `-tag` filter still applies;
+- inline `<style>` blocks and downloaded stylesheets are parsed with the same
+  reference extractor: `@import` targets are expanded like stylesheets, while
+  images and fonts are only reported;
+- only the first string or `url(...)` of an `@import` prelude is used; layer,
+  supports and media conditions are neither evaluated nor treated as resource
+  sources, and `@import` nested in a block is ignored;
+- stylesheet entries and imports are fetched directly (no pre-flight `HEAD`,
+  even without `-headless`), report-only assets are never fetched, and imports
+  inherit the existing depth, robots, ignore and directory policies;
+- a stylesheet discovered after the same address was already reported as a
+  plain resource is still fetched, but every canonical url is printed once.
+
+`-css-imports` has no effect unless `-css` (or `-all`) is also enabled. With it
+off, the legacy `ExtractCSS` html callbacks, scanning and CLI behaviour are
+unchanged.
+
+The library API mirrors the CLI:
+
+```go
+c := crawler.New(
+    crawler.WithScanCSS(true),       // required
+    crawler.WithCSSImports(true),    // expand @import, report assets only
+)
+
+// for a single stylesheet, extracted references are unresolved:
+links.ExtractCSSReferences(r, func(ref links.CSSReference) {
+    // ref.URL is as written in source, ref.Import is true for @import
+})
 ```
 
 
@@ -76,6 +125,8 @@ possible flags with default values:
     extra cookies for request, can be used multiple times, accept files with '@'-prefix
 -css
     scan css for urls
+-css-imports
+    collect css dependencies: expand @import stylesheets, report assets only (requires -css)
 -delay duration
     per-request delay (0 - disable) (default 150ms)
 -depth int

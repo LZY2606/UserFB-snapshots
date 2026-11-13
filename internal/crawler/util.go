@@ -22,12 +22,13 @@ const (
 	proxyAuthKey   = "Proxy-Authorization"
 	proxyAuthBasic = "Basic"
 
-	contentType = "Content-Type"
-	contentHTML = "text/html"
-	contentCSS  = "text/css"
-	contentJS   = "application/javascript"
-	fileExtJS   = ".js"
-	fileExtCSS  = ".css"
+	contentType  = "Content-Type"
+	contentHTML  = "text/html"
+	contentCSS   = "text/css"
+	contentJS    = "application/javascript"
+	contentOctet = "application/octet-stream"
+	fileExtJS    = ".js"
+	fileExtCSS   = ".css"
 )
 
 var parsableExts = set.Load(make(set.Unordered[string]),
@@ -199,6 +200,18 @@ func isHTML(v string) (yes bool) {
 	}
 
 	return typ == contentHTML
+}
+
+// isCSSContent tells whether a response should be parsed as a stylesheet.
+// An empty or generic (application/octet-stream) content type is treated as
+// css, an explicit text/css is parsed, and any other explicit type is not.
+func isCSSContent(v string) (yes bool) {
+	typ, _, err := mime.ParseMediaType(v)
+	if err != nil {
+		return true
+	}
+
+	return typ == contentCSS || typ == contentOctet
 }
 
 func isJS(v, n string) (yes bool) {

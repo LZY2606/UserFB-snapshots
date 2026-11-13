@@ -29,6 +29,7 @@ type config struct {
 	NoHEAD     bool
 	ScanJS     bool
 	ScanCSS    bool
+	CSSImports bool
 	Subdomains bool
 }
 
@@ -51,6 +52,10 @@ func (c *config) String() (rv string) {
 
 	if c.ScanCSS {
 		sb.WriteString(" +css")
+	}
+
+	if c.CSSImports {
+		sb.WriteString(" +css-imports")
 	}
 
 	if c.Subdomains {

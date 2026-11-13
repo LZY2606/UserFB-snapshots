@@ -44,9 +44,15 @@ const (
 )
 
 type crawlResult struct {
-	URI  string
-	Hash uint64
-	Flag taskFlag
+	URI   string
+	Hash  uint64
+	Flag  taskFlag
+	Style bool
+}
+
+// newCrawlClient is a hook for tests, it builds the http client used by Run.
+var newCrawlClient = func(cfg *client.Config) crawlClient {
+	return client.New(cfg)
 }
 
 // Crawler holds crawling process config and state.
@@ -54,9 +60,12 @@ type Crawler struct {
 	cfg      *config
 	handleCh chan string
 	crawlCh  chan *url.URL
+	styleCh  chan *url.URL
 	resultCh chan crawlResult
 	robots   *robots.TXT
 	filter   links.TokenFilter
+	styleEnq map[uint64]struct{} // stylesheets queued, in flight or done
+	web      crawlClient         // overridable http client (tests)
 	wg       sync.WaitGroup
 }
 
@@ -86,18 +95,36 @@ func (c *Crawler) Run(uri string, urlcb func(string)) (err error) {
 	}
 
 	workers := c.cfg.Client.Workers
+	cssImports := c.cfg.CSSImports && c.cfg.ScanCSS
 
 	n := (workers + 1)
 	c.handleCh = make(chan string, n*chMult)
 	c.crawlCh = make(chan *url.URL, n*chMult)
+	c.styleCh = make(chan *url.URL, n*chMult)
 	c.resultCh = make(chan crawlResult, n*chMult)
+
+	if cssImports {
+		c.styleEnq = make(map[uint64]struct{})
+		c.styleEnq[urlhash(uri)] = struct{}{}
+	}
 
 	defer c.close()
 
-	seen := make(set.Unordered[uint64])
-	seen.Add(urlhash(uri))
+	// crawlSeen dedups crawl candidates, outSeen dedups output. They are kept
+	// apart so an address that was only reported as a resource can still be
+	// crawled later, e.g. when it turns into a stylesheet entry.
+	crawlSeen := make(set.Unordered[uint64])
+	crawlSeen.Add(urlhash(uri))
 
-	web := client.New(&c.cfg.Client)
+	// the starting document is never printed
+	outSeen := make(set.Unordered[uint64])
+	outSeen.Add(urlhash(uri))
+
+	web := c.web
+	if web == nil {
+		web = newCrawlClient(&c.cfg.Client)
+	}
+
 	c.initRobots(base, web)
 
 	for i := 0; i < workers; i++ {
@@ -124,16 +151,49 @@ func (c *Crawler) Run(uri string, urlcb func(string)) (err error) {
 		switch {
 		case t.Flag == TaskDone:
 			w--
-		case seen.Add(t.Hash):
-			if t.Flag == TaskCrawl && c.tryEnqueue(base, &t) {
-				w++
+		case t.Style:
+			// Style entries share output deduplication with ordinary results,
+			// but they are scheduled separately so a type change is not lost
+			// when the url has already been printed.
+			if addOnce(outSeen, t.Hash) {
+				c.tryHandle(t.URI)
 			}
 
-			c.tryHandle(t.URI)
+			if c.enqueueStyle(base, &t) {
+				w++
+			}
+		default:
+			// plain results are only produced once per url, so this branch is
+			// reachable a single time for any address; the guards below keep
+			// the original behaviour and are defensive.
+			emitted := addOnce(outSeen, t.Hash)
+
+			if t.Flag == TaskCrawl && !crawlSeen.Has(t.Hash) {
+				crawlSeen.Add(t.Hash)
+
+				if c.tryEnqueue(base, &t) {
+					w++
+				}
+			}
+
+			if emitted {
+				c.tryHandle(t.URI)
+			}
 		}
 	}
 
 	return nil
+}
+
+// addOnce adds v to the set and reports whether it was not there before.
+func addOnce(s set.Set[uint64], v uint64) (added bool) {
+	if s.Has(v) {
+		return false
+	}
+
+	s.Add(v)
+
+	return true
 }
 
 // DumpConfig returns internal config representation.
@@ -193,8 +253,55 @@ func (c *Crawler) tryEnqueue(base *url.URL, r *crawlResult) (yes bool) {
 	return false
 }
 
+// enqueueStyle schedules a stylesheet entry for direct GET scanning. Unlike
+// tryEnqueue it does not apply the resource-oriented directory policy, it
+// still honours crawl scope and robots rules. A stylesheet is only enqueued
+// once per canonical url even if it merges from several places or forms a
+// cycle, but its discovery is always reported upstream.
+func (c *Crawler) enqueueStyle(base *url.URL, r *crawlResult) (yes bool) {
+	if c.styleEnq == nil {
+		return false
+	}
+
+	u, err := url.Parse(r.URI)
+	if err != nil {
+		return false
+	}
+
+	if !canCrawl(base, u, c.cfg.Depth, c.cfg.Subdomains) ||
+		c.robots.Forbidden(u.Path) ||
+		c.isIgnored(r.URI) ||
+		(c.cfg.Dirs == DirsOnly && isResorce(u.Path)) {
+		return false
+	}
+
+	if _, ok := c.styleEnq[r.Hash]; ok {
+		return false
+	}
+
+	t := time.NewTimer(chTimeout)
+	defer t.Stop()
+
+	select {
+	case c.styleCh <- u:
+		c.styleEnq[r.Hash] = struct{}{}
+
+		return true
+	case <-t.C:
+	}
+
+	return false
+}
+
 func (c *Crawler) close() {
-	close(c.crawlCh)
+	if c.crawlCh != nil {
+		close(c.crawlCh)
+	}
+
+	if c.styleCh != nil {
+		close(c.styleCh)
+	}
+
 	c.wg.Wait() // wait for crawlers
 
 	c.wg.Add(1) // for handler`s Done()
@@ -273,9 +380,14 @@ func (c *Crawler) isIgnored(v string) (yes bool) {
 }
 
 func (c *Crawler) linkHandler(a atom.Atom, s string) {
+	c.emitLink(a, s, false)
+}
+
+func (c *Crawler) emitLink(a atom.Atom, s string, style bool) {
 	r := crawlResult{
-		URI:  s,
-		Hash: urlhash(s),
+		URI:   s,
+		Hash:  urlhash(s),
+		Style: style,
 	}
 
 	fetch := (a == atom.A || a == atom.Iframe) ||
@@ -295,19 +407,41 @@ func (c *Crawler) linkHandler(a atom.Atom, s string) {
 	}
 }
 
+// emitOnly reports an address without making it a download candidate.
+func (c *Crawler) emitOnly(s string) {
+	t := time.NewTimer(chTimeout)
+	defer t.Stop()
+
+	select {
+	case c.resultCh <- crawlResult{URI: s, Hash: urlhash(s)}:
+	case <-t.C:
+	}
+}
+
+// styleHandler reports a stylesheet entry (an external stylesheet link or an
+// @import target). Style entries always carry their type into the scheduler
+// and worker, regardless of the file extension.
+func (c *Crawler) styleHandler(s string) {
+	c.emitLink(atom.Link, s, true)
+}
+
 func (c *Crawler) staticHandler(s string) {
-	c.linkHandler(atom.Link, s)
+	c.emitLink(atom.Link, s, false)
 }
 
 func (c *Crawler) crawlHandler(s string) {
-	c.linkHandler(atom.A, s)
+	c.emitLink(atom.A, s, false)
 }
 
-func (c *Crawler) process(
+// processAs fetches and parses a document. knownStyle tells that the url is a
+// stylesheet entry discovered via html or @import, so it is parsed as css no
+// matter what the server declares.
+func (c *Crawler) processAs(
 	ctx context.Context,
 	web crawlClient,
 	base *url.URL,
 	uri string,
+	knownStyle bool,
 ) {
 	body, hdrs, err := web.Get(ctx, uri)
 	if err != nil {
@@ -321,41 +455,124 @@ func (c *Crawler) process(
 		}
 	}
 
-	handleStatic := func(s string) {
-		var ok bool
+	if body == nil {
+		return
+	}
 
+	cssImports := c.cfg.CSSImports && c.cfg.ScanCSS
+
+	// resolve turns a raw reference found in the document at uri into an
+	// absolute address using that document as the base.
+	resolve := func(s string) (rv string, ok bool) {
 		switch {
 		case strings.HasPrefix(s, doubleDash):
-			s, ok = base.Scheme+s, true
+			return base.Scheme + s, true
 		case strings.Contains(s, doubleDash):
-			ok = true
+			return s, true
 		default:
-			s, ok = resolveRef(uri, s)
+			return resolveRef(uri, s)
 		}
+	}
 
-		if ok {
+	// handleStatic keeps the legacy behaviour: resources are reported and may
+	// become crawl candidates depending on the enabled scanners.
+	handleStatic := func(s string) {
+		if s, ok := resolve(s); ok {
 			c.staticHandler(s)
 		}
+	}
+
+	// handleStyleRef resolves a css reference against the document it was
+	// found in, using the same url cleaning rules as html extraction. Both
+	// imports and resources are reported; the scheduler applies the ignore
+	// policy to fetching, matching plain html links.
+	handleStyleRef := func(ref links.CSSReference) {
+		b, err := url.Parse(uri)
+		if err != nil {
+			return
+		}
+
+		s, ok := links.CleanURL(b, ref.URL)
+		if !ok {
+			return
+		}
+
+		if ref.Import {
+			c.styleHandler(s)
+
+			return
+		}
+
+		c.emitOnly(s)
 	}
 
 	content := hdrs.Get(contentType)
 
 	switch {
+	case knownStyle:
+		// A known stylesheet entry is always parsed as css, except when the
+		// server explicitly declares a non-css type.
+		if cssImports && isCSSContent(content) {
+			links.ExtractCSSReferences(body, handleStyleRef)
+		}
 	case isHTML(content):
-		links.ExtractHTML(body, base, links.HTMLParams{
+		params := links.HTMLParams{
 			Brute:        c.cfg.Brute,
 			ScanJS:       c.cfg.ScanJS,
 			ScanCSS:      c.cfg.ScanCSS,
 			Filter:       c.filter,
 			HandleHTML:   c.linkHandler,
 			HandleStatic: handleStatic,
-		})
+		}
+
+		if cssImports {
+			// In dependency collection mode every inline style block and every
+			// downloaded stylesheet goes through the reference extractor.
+			// Resources are report-only, imports are scheduled as stylesheets.
+			params.HandleCSS = handleStyleRef
+
+			// Only links whose rel contains "stylesheet" are style entries;
+			// other links fall back to the regular handler and are still
+			// reported (and crawled as before), and pre-existing tag filtering
+			// still applies.
+			params.HandleStyleSheet = func(_ atom.Atom, ref string) {
+				b, err := url.Parse(uri)
+				if err != nil {
+					return
+				}
+
+				s, ok := links.CleanURL(b, ref)
+				if !ok {
+					return
+				}
+
+				c.styleHandler(s)
+			}
+
+			// Non-stylesheet links are still reported, but css scanning must
+			// not turn them into download candidates.
+			params.HandleHTML = func(a atom.Atom, s string) {
+				if a == atom.Link {
+					c.emitOnly(s)
+
+					return
+				}
+
+				c.linkHandler(a, s)
+			}
+		}
+
+		links.ExtractHTML(body, base, params)
 	case isSitemap(uri):
 		links.ExtractSitemap(body, base, c.crawlHandler)
 	case c.cfg.ScanJS && isJS(content, uri):
 		links.ExtractJS(body, handleStatic)
 	case c.cfg.ScanCSS && isCSS(content, uri):
-		links.ExtractCSS(body, handleStatic)
+		if cssImports {
+			links.ExtractCSSReferences(body, handleStyleRef)
+		} else {
+			links.ExtractCSS(body, handleStatic)
+		}
 	}
 
 	client.Discard(body)
@@ -364,37 +581,63 @@ func (c *Crawler) process(
 func (c *Crawler) worker(web crawlClient) {
 	defer c.wg.Done()
 
-	for uri := range c.crawlCh {
-		if c.cfg.Delay > 0 {
-			time.Sleep(c.cfg.Delay)
-		}
+	crawl, style := c.crawlCh, c.styleCh
 
-		ctx, cancel := context.WithTimeout(context.Background(), c.cfg.Client.Timeout)
-		us := uri.String()
+	for crawl != nil || style != nil {
+		select {
+		case uri, ok := <-crawl:
+			if !ok {
+				crawl = nil
 
-		var canProcess bool
-
-		if c.cfg.NoHEAD {
-			canProcess = canParse(uri.Path)
-		} else {
-			if hdrs, err := web.Head(ctx, us); err != nil {
-				log.Printf("[-] HEAD %s: %v", us, err)
-			} else {
-				ct := hdrs.Get(contentType)
-
-				canProcess = isHTML(ct) ||
-					isSitemap(us) ||
-					(c.cfg.ScanJS && isJS(ct, us)) ||
-					(c.cfg.ScanCSS && isCSS(ct, us))
+				continue
 			}
+
+			c.crawlOne(web, uri, false)
+		case uri, ok := <-style:
+			if !ok {
+				style = nil
+
+				continue
+			}
+
+			c.crawlOne(web, uri, true)
 		}
-
-		if canProcess {
-			c.process(ctx, web, uri, us)
-		}
-
-		cancel()
-
-		c.resultCh <- crawlResult{Flag: TaskDone}
 	}
+}
+
+func (c *Crawler) crawlOne(web crawlClient, uri *url.URL, style bool) {
+	if c.cfg.Delay > 0 {
+		time.Sleep(c.cfg.Delay)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.Client.Timeout)
+	us := uri.String()
+
+	var canProcess bool
+
+	if style {
+		// Known stylesheet entries are fetched directly, no pre-flight HEAD.
+		canProcess = true
+	} else if c.cfg.NoHEAD {
+		canProcess = canParse(uri.Path)
+	} else {
+		if hdrs, err := web.Head(ctx, us); err != nil {
+			log.Printf("[-] HEAD %s: %v", us, err)
+		} else {
+			ct := hdrs.Get(contentType)
+
+			canProcess = isHTML(ct) ||
+				isSitemap(us) ||
+				(c.cfg.ScanJS && isJS(ct, us)) ||
+				(c.cfg.ScanCSS && isCSS(ct, us))
+		}
+	}
+
+	if canProcess {
+		c.processAs(ctx, web, uri, us, style)
+	}
+
+	cancel()
+
+	c.resultCh <- crawlResult{Flag: TaskDone, Style: style}
 }

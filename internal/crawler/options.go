@@ -128,6 +128,15 @@ func WithScanCSS(v bool) Option {
 	}
 }
 
+// WithCSSImports enables css dependency collection: stylesheets found via
+// @import are expanded further, while images and fonts are only reported.
+// It has no effect unless css scanning is enabled with WithScanCSS(true).
+func WithCSSImports(v bool) Option {
+	return func(c *config) {
+		c.CSSImports = v
+	}
+}
+
 // WithSubdomains enables subdomains scanning.
 func WithSubdomains(v bool) Option {
 	return func(c *config) {
