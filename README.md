@@ -89,6 +89,51 @@ If you make a Scheduler module, you can use it by `Spider.SetScheduler(your_sche
 
 Extensions folder include modulers or other tools someone sharing. You can push your code without bugs.
 
+## Resumable crawling with RunCheckpoint
+
+`Spider.RunCheckpoint(ctx, dir)` runs the same pipeline as `Run` but keeps the
+crawl frontier (queued requests, in-flight requests and completed urls) in a
+checkpoint directory. A process killed mid-crawl can be restarted with the
+same directory and resumes the remaining requests instead of traversing the
+entry pages again. One directory belongs to a single crawl process; Redis and
+multi-process task stealing are not involved.
+
+``` Go
+sp := spider.NewSpider(NewMyPageProcesser(), "TaskName").
+    AddPipeline(pipeline.NewPipelineConsole()).
+    SetThreadnum(3)
+sp.AddUrl("https://example.invalid/index", "html")
+
+// Re-run the same program after a crash: it resumes from this directory.
+if err := sp.RunCheckpoint(context.Background(), "./crawl-state"); err != nil {
+    // Fix the problem and rerun; the frontier is still on disk.
+}
+```
+
+Key semantics:
+
+- De-duplication uses the raw url string and is scoped to one crawl
+  (one directory): queued, in-flight and completed urls all count, and a url
+  keeps the parameters of its first admission, so link cycles are safe.
+- Requests persist url, response type, method, postdata, urltag, header,
+  cookies and proxyHost: a POST is still a POST after restart. Requests with a
+  custom redirect callback or non-nil Meta are rejected with an error before
+  being persisted or downloaded.
+- The claim is persisted before the Downloader runs; the parent completion and
+  every child request it discovers commit in one atomic write. A page killed
+  before that commit is replayed, so pipeline outputs must be idempotent.
+- The three download attempts are kept; after they are exhausted the request
+  stays recoverable and `RunCheckpoint` returns an error instead of retrying
+  forever. Processor/pipeline panics and disk write failures are also errors,
+  never a clean finish.
+- Cancelling `ctx` stops new claims while in-flight pages finish and save,
+  then `ctx.Err()` is returned. `Finish` runs only when the frontier is fully
+  empty, at most once per checkpoint directory.
+
+See [`docs/checkpoint.md`](docs/checkpoint.md) for the full guide and
+[`example/checkpoint_resume`](example/checkpoint_resume) for a runnable
+cyclic-site example.
+
 ## Modulers
 
 ### Spider
