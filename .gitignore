@@ -16,12 +16,16 @@ Makefile.in
 missing
 src/.deps
 src/.libs
+*.a
 *.la
 *.lo
 src/config.h
 src/stamp-h1
 *.o
+*.o.d
 *.po
 *.Plo
 *.swp
 *.swo
+m4/libtool.m4
+m4/lt*.m4
