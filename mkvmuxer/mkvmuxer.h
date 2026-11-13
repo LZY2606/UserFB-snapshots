@@ -1667,8 +1667,22 @@ class Segment {
 
   // Sets which track to use for the Cues element. Must have added the track
   // before calling this function. Returns true on success. |track_number| is
-  // returned by the Add track functions.
+  // returned by the Add track functions. A successful call restores the
+  // default single-track Cue mode, leaving any multi-track Cue configuration
+  // set by SetCuesTracks() behind.
   bool CuesTrack(uint64_t track_number);
+
+  // Enters the multi-track Cue mode, where one CuePoint is maintained for
+  // every configured track. |tracks| must be non-NULL, |count| must be
+  // non-zero, and every entry must be an existing audio or video track with
+  // no duplicates. The call must be made after the tracks have been added but
+  // before the segment header has been written (i.e. before the first
+  // AddFrame/AddMetadata call). Returns false without changing the current
+  // configuration on any error. Multi-track Cues are only supported by
+  // seekable writers in |kFile| mode; they cannot be combined with chunking
+  // or AccurateClusterDuration. Those incompatible combinations are reported
+  // here, before the header is written.
+  bool SetCuesTracks(const uint64_t* tracks, size_t count);
 
   // This will force the muxer to create a new Cluster when the next frame is
   // added.
@@ -1790,6 +1804,20 @@ class Segment {
   bool DoNewClusterProcessing(uint64_t track_num, uint64_t timestamp_ns,
                               bool key);
 
+  // Returns true when |track_number| is configured for multi-track Cues.
+  bool IsMultiCueTrack(uint64_t track_number) const;
+
+  // Records the first locatable block of |track_number| inside the cluster
+  // currently being written. Video blocks count only when they are key
+  // frames; audio blocks always count. Must be called only after the block
+  // has been written successfully.
+  void RecordMultiCueBlock(uint64_t track_number, uint64_t timestamp_ns,
+                           bool is_key);
+
+  // Emits the CuePoints gathered for the most recently written cluster in
+  // multi-track Cue mode. Returns true on success.
+  bool FlushMultiCuePoints();
+
   // Adjusts Cue Point values (to place Cues before Clusters) so that they
   // reflect the correct offsets.
   void MoveCuesBeforeClusters();
@@ -1858,6 +1886,21 @@ class Segment {
 
   // Track number that is associated with the cues element for this segment.
   uint64_t cues_track_;
+
+  // True when the segment is in multi-track Cue mode, set by
+  // SetCuesTracks(). Cleared by a successful CuesTrack() call.
+  bool multi_cue_mode_;
+
+  // Track numbers that receive their own CuePoint in multi-track Cue mode.
+  std::vector<uint64_t> multi_cue_tracks_;
+
+  // For the cluster currently being written, the physical (1-based) block
+  // number of the first locatable block emitted for each multi-cue track.
+  std::map<uint64_t, uint64_t> multi_cue_block_number_;
+
+  // For the cluster currently being written, the timestamp (nanoseconds) of
+  // the first locatable block emitted for each multi-cue track.
+  std::map<uint64_t, uint64_t> multi_cue_block_timestamp_;
 
   // Tells the muxer to force a new cluster on the next Block.
   bool force_new_cluster_;

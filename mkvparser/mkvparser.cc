@@ -2014,64 +2014,56 @@ bool Cues::Find(long long time_ns, const Track* pTrack, const CuePoint*& pCP,
   if (time_ns < 0 || pTrack == NULL || m_cue_points == NULL || m_count == 0)
     return false;
 
-  CuePoint** const ii = m_cue_points;
-  CuePoint** i = ii;
+  // Cue points are kept in file order. The lookup is per track: a cue point
+  // belonging to another track must never hide an earlier point of the
+  // requested track.
+  const CuePoint* first_cp = NULL;  // earliest point of this track
+  const CuePoint::TrackPosition* first_tp = NULL;
+  const CuePoint* best_cp = NULL;  // latest point with time <= time_ns
+  const CuePoint::TrackPosition* best_tp = NULL;
+  long long best_time = 0;
 
-  CuePoint** const jj = ii + m_count;
-  CuePoint** j = jj;
+  for (long idx = 0; idx < m_count; ++idx) {
+    CuePoint* const cp = m_cue_points[idx];
+    if (cp == NULL || cp->GetTimeCode() < 0)
+      continue;  // not loaded yet
 
-  pCP = *i;
-  if (pCP == NULL)
-    return false;
+    const CuePoint::TrackPosition* const tp = cp->Find(pTrack);
+    if (tp == NULL)
+      continue;  // this cue point does not cover the requested track
 
-  if (time_ns <= pCP->GetTime(m_pSegment)) {
-    pTP = pCP->Find(pTrack);
-    return (pTP != NULL);
+    if (first_cp == NULL) {
+      first_cp = cp;
+      first_tp = tp;
+    }
+
+    const long long t = cp->GetTime(m_pSegment);
+    if (t <= time_ns) {
+      // Keep the latest point not later than the request. A strict comparison
+      // preserves the earlier (lower index, i.e. earlier in file) point when
+      // several points share the same time.
+      if (best_cp == NULL || t > best_time) {
+        best_cp = cp;
+        best_tp = tp;
+        best_time = t;
+      }
+    }
   }
 
-  while (i < j) {
-    // INVARIANT:
-    //[ii, i) <= time_ns
-    //[i, j)  ?
-    //[j, jj) > time_ns
-
-    CuePoint** const k = i + (j - i) / 2;
-    if (k >= jj)
-      return false;
-
-    CuePoint* const pCP = *k;
-    if (pCP == NULL)
-      return false;
-
-    const long long t = pCP->GetTime(m_pSegment);
-
-    if (t <= time_ns)
-      i = k + 1;
-    else
-      j = k;
-
-    if (i > j)
-      return false;
+  if (best_cp != NULL) {
+    pCP = best_cp;
+    pTP = best_tp;
+    return true;
   }
 
-  if (i != j || i > jj || i <= ii)
-    return false;
+  // The request precedes every point of this track: return its first point.
+  if (first_cp != NULL) {
+    pCP = first_cp;
+    pTP = first_tp;
+    return true;
+  }
 
-  pCP = *--i;
-
-  if (pCP == NULL || pCP->GetTime(m_pSegment) > time_ns)
-    return false;
-
-  // TODO: here and elsewhere, it's probably not correct to search
-  // for the cue point with this time, and then search for a matching
-  // track.  In principle, the matching track could be on some earlier
-  // cue point, and with our current algorithm, we'd miss it.  To make
-  // this bullet-proof, we'd need to create a secondary structure,
-  // with a list of cue points that apply to a track, and then search
-  // that track-based structure for a matching cue point.
-
-  pTP = pCP->Find(pTrack);
-  return (pTP != NULL);
+  return false;  // the requested track has no cue points
 }
 
 const CuePoint* Cues::GetFirst() const {

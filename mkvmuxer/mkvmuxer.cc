@@ -3164,6 +3164,7 @@ Segment::Segment()
       cluster_list_size_(0),
       cues_position_(kAfterClusters),
       cues_track_(0),
+      multi_cue_mode_(false),
       force_new_cluster_(false),
       frames_(NULL),
       frames_capacity_(0),
@@ -3349,6 +3350,10 @@ bool Segment::Finalize() {
     if (!old_cluster || !old_cluster->Finalize(false, 0))
       return false;
   }
+
+  // Flush any multi-track CuePoints collected for the last cluster.
+  if (!FlushMultiCuePoints())
+    return false;
 
   if (mode_ == kFile) {
     if (chunking_ && chunk_writer_cluster_) {
@@ -3687,6 +3692,10 @@ bool Segment::AddGenericFrame(const Frame* frame) {
   if (!cluster->AddFrame(frame))
     return false;
 
+  if (multi_cue_mode_)
+    RecordMultiCueBlock(frame->track_number(), frame->timestamp(),
+                        frame->is_key());
+
   if (new_cuepoint_ && cues_track_ == frame->track_number()) {
     // Only add a cue point at the start of a cluster if the frame is a
     // keyframe.
@@ -3798,6 +3807,162 @@ bool Segment::CuesTrack(uint64_t track_number) {
     return false;
 
   cues_track_ = track_number;
+
+  // A successful CuesTrack() selects the legacy single-track Cue mode,
+  // discarding any multi-track Cue configuration.
+  multi_cue_mode_ = false;
+  multi_cue_tracks_.clear();
+  multi_cue_block_number_.clear();
+  multi_cue_block_timestamp_.clear();
+  return true;
+}
+
+bool Segment::SetCuesTracks(const uint64_t* tracks, size_t count) {
+  // The configuration must be chosen after the tracks have been added but
+  // before the segment header has been written.
+  if (header_written_ || tracks == NULL || count == 0)
+    return false;
+
+  // Validate into a local vector first so that a failure leaves the current
+  // configuration untouched.
+  std::vector<uint64_t> validated;
+  validated.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    const uint64_t track_number = tracks[i];
+    const Track* const track = GetTrackByNumber(track_number);
+    if (!track)
+      return false;  // unknown track number
+
+    if (track->type() != Tracks::kAudio && track->type() != Tracks::kVideo)
+      return false;
+
+    if (std::find(validated.begin(), validated.end(), track_number) !=
+        validated.end()) {
+      return false;  // duplicate track number
+    }
+    validated.push_back(track_number);
+  }
+
+  // Multi-track Cues are only supported by seekable writers in kFile mode,
+  // without chunking and without AccurateClusterDuration. Reject these
+  // combinations before the header is written.
+  if (mode_ != kFile || chunking_ || accurate_cluster_duration_)
+    return false;
+  if (!writer_header_ || !writer_header_->Seekable())
+    return false;
+
+  multi_cue_tracks_.swap(validated);
+  multi_cue_mode_ = true;
+
+  // Single-track cueing is superseded. While multi-cue mode is active
+  // CheckHeaderInfo() must not assign a default CuesTrack().
+  cues_track_ = 0;
+  multi_cue_block_number_.clear();
+  multi_cue_block_timestamp_.clear();
+  return true;
+}
+
+bool Segment::IsMultiCueTrack(uint64_t track_number) const {
+  if (!multi_cue_mode_)
+    return false;
+  return std::find(multi_cue_tracks_.begin(), multi_cue_tracks_.end(),
+                   track_number) != multi_cue_tracks_.end();
+}
+
+void Segment::RecordMultiCueBlock(uint64_t track_number,
+                                  uint64_t timestamp_ns, bool is_key) {
+  if (!output_cues_ || !IsMultiCueTrack(track_number))
+    return;
+
+  // Only the first locatable block of each track in a cluster is registered.
+  if (multi_cue_block_number_.count(track_number) != 0)
+    return;
+
+  // Audio blocks are always locatable. Video blocks become locatable only at
+  // the first key frame, so leading non-key frames do not consume the track's
+  // opportunity.
+  if (tracks_.TrackIsVideo(track_number) && !is_key)
+    return;
+
+  if (cluster_list_size_ < 1)
+    return;
+  const Cluster* const cluster = cluster_list_[cluster_list_size_ - 1];
+  if (!cluster)
+    return;
+
+  const uint64_t block_number = static_cast<uint64_t>(cluster->blocks_added());
+  if (block_number < 1)
+    return;
+
+  multi_cue_block_number_[track_number] = block_number;
+  multi_cue_block_timestamp_[track_number] = timestamp_ns;
+}
+
+bool Segment::FlushMultiCuePoints() {
+  if (!multi_cue_mode_ || !output_cues_)
+    return true;
+
+  if (multi_cue_block_number_.empty()) {
+    multi_cue_block_timestamp_.clear();
+    return true;
+  }
+
+  if (cluster_list_size_ < 1)
+    return false;
+  const Cluster* const cluster = cluster_list_[cluster_list_size_ - 1];
+  if (!cluster)
+    return false;
+
+  // Gather this cluster's points, then order them by CueTime (with the
+  // configured track order as the tie breaker) so the on-disk CuePoints stay
+  // ascending by time. Same-time tracks remain separate CuePoints.
+  struct PendingCue {
+    uint64_t time;
+    size_t order;
+    uint64_t track;
+    uint64_t block_number;
+  };
+  std::vector<PendingCue> pending;
+  for (size_t i = 0; i < multi_cue_tracks_.size(); ++i) {
+    const uint64_t track_number = multi_cue_tracks_[i];
+    std::map<uint64_t, uint64_t>::const_iterator it =
+        multi_cue_block_number_.find(track_number);
+    if (it == multi_cue_block_number_.end())
+      continue;  // no locatable block for this track in this cluster
+
+    PendingCue cue;
+    cue.time = multi_cue_block_timestamp_[track_number] /
+               segment_info_.timecode_scale();
+    cue.order = i;
+    cue.track = track_number;
+    cue.block_number = it->second;
+    pending.push_back(cue);
+  }
+
+  std::sort(pending.begin(), pending.end(),
+            [](const PendingCue& a, const PendingCue& b) {
+              if (a.time != b.time)
+                return a.time < b.time;
+              return a.order < b.order;
+            });
+
+  for (size_t i = 0; i < pending.size(); ++i) {
+    CuePoint* const cue = new (std::nothrow) CuePoint();  // NOLINT
+    if (!cue)
+      return false;
+
+    cue->set_time(pending[i].time);
+    cue->set_block_number(pending[i].block_number);
+    cue->set_cluster_pos(cluster->position_for_cues());
+    cue->set_track(pending[i].track);
+    if (!cues_.AddCue(cue)) {
+      delete cue;
+      return false;
+    }
+  }
+
+  multi_cue_block_number_.clear();
+  multi_cue_block_timestamp_.clear();
   return true;
 }
 
@@ -3985,6 +4150,11 @@ bool Segment::MakeNewCluster(uint64_t frame_timestamp_ns) {
 
     if (!old_cluster || !old_cluster->Finalize(true, frame_timestamp_ns))
       return false;
+
+    // Every block that belongs to the old cluster has now been written, so
+    // emit its multi-track CuePoints before opening the next cluster.
+    if (!FlushMultiCuePoints())
+      return false;
   }
 
   if (output_cues_)
@@ -4069,7 +4239,7 @@ bool Segment::CheckHeaderInfo() {
     if (!seek_head_.AddSeekEntry(libwebm::kMkvCluster, MaxOffset()))
       return false;
 
-    if (output_cues_ && cues_track_ == 0) {
+    if (output_cues_ && !multi_cue_mode_ && cues_track_ == 0) {
       // Check for a video track
       for (uint32_t i = 0; i < tracks_.track_entries_size(); ++i) {
         const Track* const track = tracks_.GetTrackByIndex(i);
@@ -4195,6 +4365,7 @@ int Segment::WriteFramesAll() {
   if (!cluster)
     return -1;
 
+  bool write_failed = false;
   for (int32_t i = 0; i < frames_size_; ++i) {
     Frame*& frame = frames_[i];
     // TODO(jzern/vigneshv): using Segment::AddGenericFrame here would limit the
@@ -4202,9 +4373,17 @@ int Segment::WriteFramesAll() {
     if (frame->discard_padding() != 0)
       doc_type_version_ = 4;
     if (!cluster->AddFrame(frame)) {
+      // In multi-track Cue mode a failed block write must surface so that no
+      // Cue can point at a block that never made it to the file. The legacy
+      // single-track mode keeps going, dropping the frame.
+      write_failed = true;
       delete frame;
       continue;
     }
+
+    if (multi_cue_mode_)
+      RecordMultiCueBlock(frame->track_number(), frame->timestamp(),
+                          frame->is_key());
 
     if (new_cuepoint_ && cues_track_ == frame->track_number()) {
       // Only add a cue point at the start of a cluster if the frame is a
@@ -4229,6 +4408,9 @@ int Segment::WriteFramesAll() {
   const int result = frames_size_;
   frames_size_ = 0;
 
+  if (multi_cue_mode_ && write_failed)
+    return -1;
+
   return result;
 }
 
@@ -4245,6 +4427,7 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       return false;
 
     int32_t shift_left = 0;
+    bool write_failed = false;
 
     // TODO(fgalligan): Change this to use the durations of frames instead of
     // the next frame's start time if the duration is accurate.
@@ -4258,10 +4441,17 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       if (frame_prev->discard_padding() != 0)
         doc_type_version_ = 4;
       if (!cluster->AddFrame(frame_prev)) {
+        // Surface write failures in multi-track Cue mode so a failed block
+        // never receives a Cue; legacy single-track mode keeps dropping them.
+        write_failed = true;
         delete frame_prev;
         ++shift_left;
         continue;
       }
+
+      if (multi_cue_mode_)
+        RecordMultiCueBlock(frame_prev->track_number(),
+                            frame_prev->timestamp(), frame_prev->is_key());
 
       if (new_cuepoint_ && cues_track_ == frame_prev->track_number()) {
         if (!AddCuePoint(frame_prev->timestamp(), cues_track_)) {
@@ -4292,6 +4482,9 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
 
       frames_size_ = new_frames_size;
     }
+
+    if (multi_cue_mode_ && write_failed)
+      return false;
   }
 
   return true;

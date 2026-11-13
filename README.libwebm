@@ -141,6 +141,66 @@ the MINGW_PREFIX variable:
 $ cmake -DCMAKE_TOOLCHAIN_FILE=path/to/libwebm/build/mingw-w64_toolchain.cmake \
   -DMINGW_PREFIX=x86_64-w64-mingw32 path/to/libwebm
 
+
+Multi-track Cues
+----------------
+
+By default the muxer builds a Cues index for a single track (the video track
+when present, otherwise the first track). Multi-track Cues build one CuePoint
+per configured track so that, for example, a narration track and an original
+audio track can be located independently.
+
+Multi-track Cues are configured on the Segment, after the tracks have been
+added but before any frame is written (the first AddFrame call writes the
+segment header). Pass the existing, non-duplicated audio/video track numbers:
+
+  mkvmuxer::Segment segment;
+  segment.Init(&writer);
+  const uint64_t video = segment.AddVideoTrack(320, 240, 1);
+  const uint64_t narration = segment.AddAudioTrack(48000, 2, 2);
+  const uint64_t original = segment.AddAudioTrack(48000, 2, 3);
+
+  const uint64_t cue_tracks[] = {video, narration, original};
+  if (!segment.SetCuesTracks(cue_tracks, 3)) {
+    // Invalid configuration; the previous Cue configuration is left unchanged.
+  }
+
+  // ... add frames and call segment.Finalize() as usual.
+
+SetCuesTracks() returns false, without changing the current configuration,
+for a null pointer, a zero count, an unknown or non-audio/video track number,
+a duplicated track number, or a call made after the header was written. The
+mode is only supported by a seekable writer in Segment::kFile mode. It cannot
+be combined with chunking (SetChunking) or AccurateClusterDuration; those
+combinations are rejected before the header is written. A later successful
+CuesTrack() call switches the segment back to the legacy single-track mode.
+OutputCues(false) still disables the automatic Cues index entirely, and the
+single-track AccurateClusterDuration behavior is unchanged.
+
+For each cluster, every configured track registers its first locatable block:
+an audio track registers the first block successfully written for it, while a
+video track waits for its first key frame (leading non-key frames do not use
+up the track's slot). A track with no locatable block in a cluster simply gets
+no Cue for that cluster. Several tracks may share one timestamp; each is
+written as its own CuePoint. The CueTime is the block timestamp divided by the
+TimecodeScale, and CueClusterPosition/CueBlockNumber address the final cluster
+and the physical 1-based block within it. Frames written directly, dequeued
+before a cluster cut, and drained in Finalize all follow the same rule. If a
+block write fails in multi-track Cues mode the offending AddFrame or Finalize
+returns false, so no Cue can point at a block that was not written.
+
+On the reading side, mkvparser::Cues::Find() is per track. Given a requested
+time it returns the loaded CuePoint of the requested track whose time is not
+later than the request; a request before the track's first point returns that
+first point, and the earlier CuePoint in the file wins when several share a
+time. It returns false only when the requested track has no CuePoint. Negative
+times and a null track are still rejected as before. A globally nearest
+CuePoint belonging to another track no longer hides the requested track's
+predecessor. The existing "move Cues before clusters" flow
+(CopyAndMoveCuesBeforeClusters) keeps every moved CuePoint pointing at the
+same original block.
+
+
 Bug reports
 
 Bug reports can be filed in the libwebm issue tracker:
