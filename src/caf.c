@@ -66,6 +66,26 @@
 
 #define CAF_PEAK_CHUNK_SIZE(ch) 	((int) (sizeof (int) + ch * (sizeof (float) + 8)))
 
+/* Channel layout tags defined by the Core Audio Format specification. */
+#define CAF_CHANNEL_LAYOUT_USE_BITMAP		((1 << 16) | 0)
+#define CAF_CHANNEL_LAYOUT_USE_DESCRIPTIONS	((0 << 16) | 0)
+
+/* AudioChannelLayoutTag values 1..9 name the nine discrete speaker roles
+** handled here. Their order matches the SF_CHANNEL_MAP_* enumeration.
+*/
+#define CAF_CHANNEL_LABEL_LEFT				1
+#define CAF_CHANNEL_LABEL_RIGHT				2
+#define CAF_CHANNEL_LABEL_CENTER			3
+#define CAF_CHANNEL_LABEL_LFE				4
+#define CAF_CHANNEL_LABEL_REAR_LEFT			5
+#define CAF_CHANNEL_LABEL_REAR_RIGHT		6
+#define CAF_CHANNEL_LABEL_LEFT_CENTER		7
+#define CAF_CHANNEL_LABEL_RIGHT_CENTER		8
+#define CAF_CHANNEL_LABEL_REAR_CENTER		9
+
+/* A single AudioChannelDescription is a label, flags and three coordinates. */
+#define CAF_CHANNEL_DESCRIPTION_SIZE		(5 * (int) sizeof (uint32_t))
+
 /*------------------------------------------------------------------------------
 ** Typedefs.
 */
@@ -83,6 +103,11 @@ typedef struct
 typedef struct
 {	int			chanmap_tag ;
 
+	/* Set when the layout cannot be expressed with a predefined tag and the
+	** 'chan' chunk has to use explicit channel descriptions instead.
+	*/
+	int			use_channel_descriptions ;
+
 	ALAC_DECODER_INFO	alac ;
 } CAF_PRIVATE ;
 
@@ -96,6 +121,10 @@ static int	caf_write_header (SF_PRIVATE *psf, int calc_length) ;
 static int	caf_write_tailer (SF_PRIVATE *psf) ;
 static int	caf_command (SF_PRIVATE *psf, int command, void *data, int datasize) ;
 static int	caf_read_chanmap (SF_PRIVATE * psf, sf_count_t chunk_size) ;
+static int	caf_chanmap_from_label (int label) ;
+static int	caf_label_from_chanmap (int channel) ;
+static int	caf_chanmap_supported (const int *channel_map, int channels) ;
+static void	caf_write_chanmap (SF_PRIVATE *psf, CAF_PRIVATE *pcaf) ;
 static int	caf_read_strings (SF_PRIVATE * psf, sf_count_t chunk_size) ;
 static void	caf_write_strings (SF_PRIVATE * psf, int location) ;
 
@@ -235,7 +264,25 @@ caf_command (SF_PRIVATE * psf, int command, void * UNUSED (data), int UNUSED (da
 	switch (command)
 	{	case SFC_SET_CHANNEL_MAP_INFO :
 			pcaf->chanmap_tag = aiff_caf_find_channel_layout_tag (psf->channel_map, psf->sf.channels) ;
-			return (pcaf->chanmap_tag != 0) ;
+			if (pcaf->chanmap_tag != 0)
+			{	pcaf->use_channel_descriptions = SF_FALSE ;
+				return SF_TRUE ;
+				} ;
+
+			/* No predefined layout matches. If every role is one of the nine
+			** discrete speakers and no role repeats, store explicit channel
+			** descriptions in the caller's order. The PCM data is never
+			** reordered, mixed or resampled.
+			*/
+			if (caf_chanmap_supported (psf->channel_map, psf->sf.channels))
+			{	pcaf->chanmap_tag = CAF_CHANNEL_LAYOUT_USE_DESCRIPTIONS ;
+				pcaf->use_channel_descriptions = SF_TRUE ;
+				return SF_TRUE ;
+				} ;
+
+			pcaf->chanmap_tag = 0 ;
+			pcaf->use_channel_descriptions = SF_FALSE ;
+			return SF_FALSE ;
 
 		default :
 			break ;
@@ -441,12 +488,6 @@ caf_read_header (SF_PRIVATE *psf)
 				break ;
 
 			case chan_MARKER :
-				if (chunk_size < 12)
-				{	psf_log_printf (psf, "%M : %D (should be >= 12)\n", marker, chunk_size) ;
-					psf_binheader_readf (psf, "j", (size_t) chunk_size) ;
-					break ;
-					}
-
 				psf_log_printf (psf, "%M : %D\n", marker, chunk_size) ;
 
 				if ((error = caf_read_chanmap (psf, chunk_size)))
@@ -733,8 +774,8 @@ caf_write_header (SF_PRIVATE *psf, int calc_length)
 			psf_binheader_writef (psf, "Ef8", BHWf ((float) psf->peak_info->peaks [k].value), BHW8 (psf->peak_info->peaks [k].position)) ;
 		} ;
 
-	if (psf->channel_map && pcaf->chanmap_tag)
-		psf_binheader_writef (psf, "Em8444", BHWm (chan_MARKER), BHW8 ((sf_count_t) 12), BHW4 (pcaf->chanmap_tag), BHW4 (0), BHW4 (0)) ;
+	if (psf->channel_map && (pcaf->chanmap_tag != 0 || pcaf->use_channel_descriptions))
+		caf_write_chanmap (psf, pcaf) ;
 
 	/* Write custom headers. */
 	for (uk = 0 ; uk < psf->wchunks.used ; uk++)
@@ -793,13 +834,135 @@ caf_write_tailer (SF_PRIVATE *psf)
 	return 0 ;
 } /* caf_write_tailer */
 
+/*
+** Map one of the nine supported AudioChannelLabel values onto an
+** SF_CHANNEL_MAP_* value. Returns SF_CHANNEL_MAP_INVALID for anything else.
+*/
+static int
+caf_chanmap_from_label (int label)
+{
+	switch (label)
+	{	case CAF_CHANNEL_LABEL_LEFT :
+			return SF_CHANNEL_MAP_LEFT ;
+		case CAF_CHANNEL_LABEL_RIGHT :
+			return SF_CHANNEL_MAP_RIGHT ;
+		case CAF_CHANNEL_LABEL_CENTER :
+			return SF_CHANNEL_MAP_CENTER ;
+		case CAF_CHANNEL_LABEL_LFE :
+			return SF_CHANNEL_MAP_LFE ;
+		case CAF_CHANNEL_LABEL_REAR_LEFT :
+			return SF_CHANNEL_MAP_REAR_LEFT ;
+		case CAF_CHANNEL_LABEL_REAR_RIGHT :
+			return SF_CHANNEL_MAP_REAR_RIGHT ;
+		case CAF_CHANNEL_LABEL_LEFT_CENTER :
+			return SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER ;
+		case CAF_CHANNEL_LABEL_RIGHT_CENTER :
+			return SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER ;
+		case CAF_CHANNEL_LABEL_REAR_CENTER :
+			return SF_CHANNEL_MAP_REAR_CENTER ;
+		default :
+			return SF_CHANNEL_MAP_INVALID ;
+		} ;
+} /* caf_chanmap_from_label */
+
+/*
+** Inverse of caf_chanmap_from_label (). Returns zero when the public channel
+** map value is not one of the nine discrete speaker roles.
+*/
+static int
+caf_label_from_chanmap (int channel)
+{
+	switch (channel)
+	{	case SF_CHANNEL_MAP_LEFT :
+			return CAF_CHANNEL_LABEL_LEFT ;
+		case SF_CHANNEL_MAP_RIGHT :
+			return CAF_CHANNEL_LABEL_RIGHT ;
+		case SF_CHANNEL_MAP_CENTER :
+			return CAF_CHANNEL_LABEL_CENTER ;
+		case SF_CHANNEL_MAP_LFE :
+			return CAF_CHANNEL_LABEL_LFE ;
+		case SF_CHANNEL_MAP_REAR_LEFT :
+			return CAF_CHANNEL_LABEL_REAR_LEFT ;
+		case SF_CHANNEL_MAP_REAR_RIGHT :
+			return CAF_CHANNEL_LABEL_REAR_RIGHT ;
+		case SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER :
+			return CAF_CHANNEL_LABEL_LEFT_CENTER ;
+		case SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER :
+			return CAF_CHANNEL_LABEL_RIGHT_CENTER ;
+		case SF_CHANNEL_MAP_REAR_CENTER :
+			return CAF_CHANNEL_LABEL_REAR_CENTER ;
+		default :
+			return 0 ;
+		} ;
+} /* caf_label_from_chanmap */
+
+/*
+** Every role must be one of the nine supported discrete speakers and no role
+** may occur more than once.
+*/
+static int
+caf_chanmap_supported (const int *channel_map, int channels)
+{	unsigned mask = 0 ;
+	int k ;
+
+	if (channel_map == NULL || channels <= 0)
+		return SF_FALSE ;
+
+	for (k = 0 ; k < channels ; k++)
+	{	int label = caf_label_from_chanmap (channel_map [k]) ;
+
+		if (label == 0)
+			return SF_FALSE ;
+
+		if (mask & (1u << label))
+			return SF_FALSE ;
+
+		mask |= 1u << label ;
+		} ;
+
+	return SF_TRUE ;
+} /* caf_chanmap_supported */
+
+/*
+** Replace psf->channel_map with a freshly allocated table of psf->sf.channels
+** entries. A failure leaves the previous table untouched.
+*/
+static int
+caf_install_channel_map (SF_PRIVATE *psf, const int *channel_map, int channels)
+{	size_t chanmap_size = (size_t) channels * sizeof (psf->channel_map [0]) ;
+	int *new_map ;
+
+	if (channels != psf->sf.channels)
+		return SFE_MALFORMED_FILE ;
+
+	if ((new_map = malloc (chanmap_size)) == NULL)
+		return SFE_MALLOC_FAILED ;
+
+	memcpy (new_map, channel_map, chanmap_size) ;
+
+	free (psf->channel_map) ;
+	psf->channel_map = new_map ;
+
+	return SFE_NO_ERROR ;
+} /* caf_install_channel_map */
+
 static int
 caf_read_chanmap (SF_PRIVATE * psf, sf_count_t chunk_size)
 {	const AIFF_CAF_CHANNEL_MAP * map_info ;
-	unsigned channel_bitmap, channel_decriptions, bytesread ;
-	int layout_tag ;
+	unsigned channel_bitmap, channel_descriptions ;
+	int layout_tag, error, k ;
+	int new_map [SF_MAX_CHANNELS] ;
 
-	bytesread = psf_binheader_readf (psf, "E444", &layout_tag, &channel_bitmap, &channel_decriptions) ;
+	/* A predefined tag may name fewer channels than the file declares; the
+	** unused entries must stay zero just like the old calloc () based path.
+	*/
+	memset (new_map, 0, sizeof (new_map)) ;
+
+	if (chunk_size < 12)
+		return SFE_MALFORMED_FILE ;
+
+	if (psf_binheader_readf (psf, "E444", &layout_tag, &channel_bitmap, &channel_descriptions) != 12)
+		return SFE_MALFORMED_FILE ;
 
 	map_info = aiff_caf_of_channel_layout_tag (layout_tag) ;
 
@@ -807,28 +970,140 @@ caf_read_chanmap (SF_PRIVATE * psf, sf_count_t chunk_size)
 	if (map_info)
 		psf_log_printf (psf, "  Layout : %s\n", map_info->name) ;
 
-	if (bytesread < chunk_size)
-		psf_binheader_readf (psf, "j", chunk_size - bytesread) ;
-
+	/* A recognised predefined layout keeps its original behaviour. Unknown
+	** tags retain the previous no-mapping behaviour as well.
+	*/
 	if (map_info && map_info->channel_map != NULL)
-	{	/* The channel map buffer must hold psf->sf.channels entries, because that
-		** is how many SFC_GET_CHANNEL_MAP_INFO and the channel-layout matcher read
-		** back. The layout tag may describe fewer channels than the file declares,
-		** so size the allocation by the channel count and copy only the smaller of
-		** the two to avoid a heap over-read. */
-		size_t chanmap_size = (size_t) psf->sf.channels * sizeof (psf->channel_map [0]) ;
-		size_t copy_size = SF_MIN (psf->sf.channels, layout_tag & 0xff) * sizeof (psf->channel_map [0]) ;
+	{	int channels = SF_MIN (psf->sf.channels, layout_tag & 0xffff) ;
 
-		free (psf->channel_map) ;
+		for (k = 0 ; k < channels ; k++)
+			new_map [k] = map_info->channel_map [k] ;
 
-		if ((psf->channel_map = calloc (1, chanmap_size)) == NULL)
-			return SFE_MALLOC_FAILED ;
+		if ((error = caf_install_channel_map (psf, new_map, psf->sf.channels)))
+			return error ;
 
-		memcpy (psf->channel_map, map_info->channel_map, copy_size) ;
+		if (chunk_size > 12)
+			psf_binheader_readf (psf, "j", (size_t) (chunk_size - 12)) ;
+
+		return SFE_NO_ERROR ;
 		} ;
 
-	return 0 ;
+	if (layout_tag == CAF_CHANNEL_LAYOUT_USE_BITMAP)
+	{	int channels = 0 ;
+
+		if (chunk_size != 12)
+		{	psf_log_printf (psf, "**** Bad 'chan' bitmap chunk size %D.\n", chunk_size) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		/* Set bits, from lowest to highest, name the channels in order. Each
+		** bit is a distinct speaker role so duplicates cannot occur here.
+		*/
+		for (k = 0 ; k < 32 ; k++)
+		{	if ((channel_bitmap & (1u << k)) == 0)
+				continue ;
+
+			if (caf_chanmap_from_label (k + 1) == SF_CHANNEL_MAP_INVALID)
+			{	psf_log_printf (psf, "**** Unsupported channel bitmap bit %d.\n", k) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			new_map [channels++] = caf_chanmap_from_label (k + 1) ;
+			} ;
+
+		if (channels != psf->sf.channels)
+		{	psf_log_printf (psf, "**** Channel bitmap has %d channels, file declares %d.\n", channels, psf->sf.channels) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		if ((error = caf_install_channel_map (psf, new_map, channels)))
+			return error ;
+
+		return SFE_NO_ERROR ;
+		} ;
+
+	if (layout_tag == CAF_CHANNEL_LAYOUT_USE_DESCRIPTIONS)
+	{	sf_count_t remaining = chunk_size - 12 ;
+		unsigned role_mask = 0 ;
+
+		if (channel_descriptions != (unsigned) psf->sf.channels)
+		{	psf_log_printf (psf, "**** 'chan' has %u descriptions for %d channels.\n", channel_descriptions, psf->sf.channels) ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		if (remaining != (sf_count_t) channel_descriptions * CAF_CHANNEL_DESCRIPTION_SIZE)
+		{	psf_log_printf (psf, "**** 'chan' chunk truncated inside channel descriptions.\n") ;
+			return SFE_MALFORMED_FILE ;
+			} ;
+
+		for (k = 0 ; k < (int) channel_descriptions ; k++)
+		{	int raw_label, flags, coord1, coord2, coord3, role ;
+
+			if (k >= SF_MAX_CHANNELS)
+				return SFE_MALFORMED_FILE ;
+
+			if (psf_binheader_readf (psf, "E44444", &raw_label, &flags, &coord1, &coord2, &coord3) != CAF_CHANNEL_DESCRIPTION_SIZE)
+			{	psf_log_printf (psf, "**** 'chan' chunk truncated inside channel descriptions.\n") ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			if (flags != 0 || coord1 != 0 || coord2 != 0 || coord3 != 0)
+			{	psf_log_printf (psf, "**** Channel description %d has non-zero flags or coordinates.\n", k) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			if ((role = caf_chanmap_from_label (raw_label)) == SF_CHANNEL_MAP_INVALID)
+			{	psf_log_printf (psf, "**** Unsupported channel label %d.\n", raw_label) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			if (role_mask & (1u << role))
+			{	psf_log_printf (psf, "**** Duplicate channel role %d.\n", role) ;
+				return SFE_MALFORMED_FILE ;
+				} ;
+
+			role_mask |= 1u << role ;
+			new_map [k] = role ;
+			} ;
+
+		if ((error = caf_install_channel_map (psf, new_map, (int) channel_descriptions)))
+			return error ;
+
+		return SFE_NO_ERROR ;
+		} ;
+
+	/* Unknown layout tag: keep the file readable without a channel map. */
+	if (chunk_size > 12)
+		psf_binheader_readf (psf, "j", (size_t) (chunk_size - 12)) ;
+
+	return SFE_NO_ERROR ;
 } /* caf_read_chanmap */
+
+/*
+** Write the 'chan' chunk. A matching predefined layout tag always wins;
+** otherwise emit one 20 byte AudioChannelDescription per channel, in the
+** caller's order, with flags and all three coordinates set to zero.
+*/
+static void
+caf_write_chanmap (SF_PRIVATE *psf, CAF_PRIVATE *pcaf)
+{
+	if (pcaf->use_channel_descriptions == SF_FALSE)
+	{	psf_binheader_writef (psf, "Em8444", BHWm (chan_MARKER), BHW8 ((sf_count_t) 12),
+				BHW4 (pcaf->chanmap_tag), BHW4 (0), BHW4 (0)) ;
+		return ;
+		} ;
+
+	{	sf_count_t chunk_size = 12 + (sf_count_t) psf->sf.channels * CAF_CHANNEL_DESCRIPTION_SIZE ;
+		int k ;
+
+		psf_binheader_writef (psf, "Em8444", BHWm (chan_MARKER), BHW8 (chunk_size),
+				BHW4 (CAF_CHANNEL_LAYOUT_USE_DESCRIPTIONS), BHW4 (0), BHW4 (psf->sf.channels)) ;
+
+		for (k = 0 ; k < psf->sf.channels ; k++)
+			psf_binheader_writef (psf, "E44444", BHW4 (caf_label_from_chanmap (psf->channel_map [k])),
+					BHW4 (0), BHW4 (0), BHW4 (0), BHW4 (0)) ;
+		} ;
+} /* caf_write_chanmap */
 
 
 static uint32_t

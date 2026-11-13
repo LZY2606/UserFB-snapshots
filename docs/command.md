@@ -1502,6 +1502,50 @@ datasize
 `SF_TRUE` if setting the Channel Layout chunk was successful and `SF_FALSE`
 otherwise.
 
+### CAF channel layouts
+
+For Core Audio Format (CAF) files the channel layout is stored in the file's
+`chan` chunk and only applies to the integer PCM and floating point audio
+formats. The layout is metadata only: libsndfile never reorders, mixes or
+resamples the audio, so the interleaved PCM bytes on disk always keep the
+order in which they were written.
+
+Nine discrete speaker roles are supported. Their order matches the
+`SF_CHANNEL_MAP_*` enumeration:
+
+| AudioChannelLabel | Speaker role            | SF_CHANNEL_MAP value                    |
+|:------------------|:------------------------|:----------------------------------------|
+| 1                 | Left                    | `SF_CHANNEL_MAP_LEFT`                   |
+| 2                 | Right                   | `SF_CHANNEL_MAP_RIGHT`                  |
+| 3                 | Center                  | `SF_CHANNEL_MAP_CENTER`                 |
+| 4                 | LFE                     | `SF_CHANNEL_MAP_LFE`                    |
+| 5                 | Left Surround           | `SF_CHANNEL_MAP_REAR_LEFT`              |
+| 6                 | Right Surround          | `SF_CHANNEL_MAP_REAR_RIGHT`             |
+| 7                 | Left Center             | `SF_CHANNEL_MAP_FRONT_LEFT_OF_CENTER`   |
+| 8                 | Right Center            | `SF_CHANNEL_MAP_FRONT_RIGHT_OF_CENTER`  |
+| 9                 | Center Surround         | `SF_CHANNEL_MAP_REAR_CENTER`            |
+
+When reading, a recognised predefined layout tag is used as before. The two
+generic layouts are also understood:
+
+* `UseChannelBitmap`: the set bits, counted from the lowest bit to the
+  highest, name the channels in order.
+* `UseChannelDescriptions`: one 20 byte `AudioChannelDescription` per
+  channel, taken in the order they appear on disk rather than sorted by label.
+  The flags and all three coordinates must be zero.
+
+A `chan` chunk that names an unsupported role, repeats a role, describes a
+different number of channels than the audio, or is truncated makes opening
+the file fail. Files without a `chan` chunk still open normally, and unknown
+predefined tags retain the previous behaviour of exposing no channel map.
+
+When writing, a predefined layout tag is used whenever the requested map
+matches one. Otherwise, if every role is one of the nine supported speakers
+and no role repeats, the file stores `UseChannelDescriptions` entries in the
+caller's order, each 20 bytes long with zero flags and zero coordinates.
+Requests that cannot be represented this way are rejected. The layout can only
+be changed before the first audio frame is written.
+
 ## SFC_GET_CART_INFO
 
 Retrieve the Cart Chunk from WAV (and related) files. Based on AES46 standard
