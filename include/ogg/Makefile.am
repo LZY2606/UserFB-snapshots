@@ -2,5 +2,5 @@
 
 oggincludedir = $(includedir)/ogg
 
-ogginclude_HEADERS = ogg.h os_types.h
+ogginclude_HEADERS = ogg.h os_types.h opus_repage.h
 nodist_ogginclude_HEADERS = config_types.h

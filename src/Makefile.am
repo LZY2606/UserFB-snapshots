@@ -4,7 +4,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)/include
 
 lib_LTLIBRARIES = libogg.la
 
-libogg_la_SOURCES = framing.c bitwise.c crctable.h
+libogg_la_SOURCES = framing.c bitwise.c crctable.h opus_repage.c
 libogg_la_LDFLAGS = -no-undefined -version-info @LIB_CURRENT@:@LIB_REVISION@:@LIB_AGE@
 
 # build and run the self tests on 'make check'

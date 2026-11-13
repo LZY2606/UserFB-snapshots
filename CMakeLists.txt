@@ -70,12 +70,14 @@ set(OGG_HEADERS
     ${CMAKE_CURRENT_BINARY_DIR}/include/ogg/config_types.h
     include/ogg/ogg.h
     include/ogg/os_types.h
+    include/ogg/opus_repage.h
 )
 
 set(OGG_SOURCES
     src/bitwise.c
     src/framing.c
     src/crctable.h
+    src/opus_repage.c
 )
 
 if(WIN32 AND BUILD_SHARED_LIBS)
