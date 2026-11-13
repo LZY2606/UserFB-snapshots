@@ -26,3 +26,8 @@ target_link_libraries(Box renderer ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES})
 
 add_executable(Benchmark Benchmark.cpp Random.cpp Random.h)
 target_link_libraries(Benchmark renderer)
+
+# Headless depth-of-field preview. No SDL, no window, C++17 standard library.
+add_executable(DepthOfFieldPreview DepthOfFieldPreview.cpp)
+target_link_libraries(DepthOfFieldPreview renderer)
+set_target_properties(DepthOfFieldPreview PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)

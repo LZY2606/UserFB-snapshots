@@ -1,3 +1,7 @@
 /build
 /.vscode
 /x64
+/.build
+/dof_original.ppm
+/dof_blurred.ppm
+/dof_radius.ppm

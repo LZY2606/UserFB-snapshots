@@ -4,6 +4,8 @@ project(renderer)
 
 set(SOURCE_FILES
 	Renderer.h
+	DepthOfField.cpp
+	DepthOfField.h
 	EdgeData.h
 	EdgeEquation.h
 	IRasterizer.h
