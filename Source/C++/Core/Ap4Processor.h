@@ -37,6 +37,7 @@
 #include "Ap4File.h"
 #include "Ap4Track.h"
 #include "Ap4Sample.h"
+#include "Ap4Array.h"
 
 /*----------------------------------------------------------------------
 |   class references
@@ -49,6 +50,15 @@ class AP4_TrexAtom;
 class AP4_SidxAtom;
 class AP4_FragmentSampleTable;
 struct AP4_AtomLocator;
+class AP4_SidxIndexGraph;
+
+/*----------------------------------------------------------------------
+|   FragmentMapEntry
++---------------------------------------------------------------------*/
+struct AP4_FragmentMapEntry {
+    AP4_UI64 before;
+    AP4_UI64 after;
+};
 
 /*----------------------------------------------------------------------
 |   AP4_Processor
@@ -258,15 +268,39 @@ protected:
                        ProgressListener* listener,
                        AP4_AtomFactory&  atom_factory);
 
-    AP4_Result ProcessFragments(AP4_MoovAtom*              moov, 
-                                AP4_List<AP4_AtomLocator>& atoms, 
+    AP4_Result ProcessFragments(AP4_MoovAtom*              moov,
+                                AP4_List<AP4_AtomLocator>& atoms,
                                 AP4_ContainerAtom*         mfra,
-                                AP4_SidxAtom*              sidx,
-                                AP4_Position               sidx_position,
-                                AP4_ByteStream&            input, 
+                                AP4_ByteStream&            input,
                                 AP4_ByteStream&            output);
-    
-    
+
+    // process one moof atom and write its moof/mdat pair, returning the
+    // output positions of both boxes (the input moof is immediately
+    // followed by its mdat)
+    AP4_Result ProcessOneMoof(AP4_MoovAtom*            moov,
+                              AP4_AtomLocator&         locator,
+                              AP4_ByteStream&          input,
+                              AP4_ByteStream&          output,
+                              AP4_Array<AP4_FragmentMapEntry>& fragment_map,
+                              AP4_UI64&                moof_out_start,
+                              AP4_UI64&                mdat_out_start,
+                              AP4_UI64&                mdat_out_end);
+
+    // update the mfra/tfra moof offsets from the fragment map
+    AP4_Result UpdateMfra(AP4_ContainerAtom*          mfra,
+                          AP4_Array<AP4_FragmentMapEntry>& fragment_map);
+
+    // write the fragment stream when a validated sidx graph is available,
+    // filling the output offset/size arrays indexed by graph box records
+    AP4_Result ProcessFragmentsWithGraph(AP4_MoovAtom*              moov,
+                                         AP4_List<AP4_AtomLocator>& atoms,
+                                         AP4_ByteStream&            media_input,
+                                         AP4_ByteStream&            output,
+                                         class AP4_SidxIndexGraph&  graph,
+                                         AP4_Array<AP4_UI64>&       out_offsets,
+                                         AP4_Array<AP4_UI64>&       out_sizes);
+
+
     AP4_List<ExternalTrackData> m_ExternalTrackData;
     AP4_Array<AP4_UI32>         m_TrackIds;
     AP4_Array<TrackHandler*>    m_TrackHandlers;

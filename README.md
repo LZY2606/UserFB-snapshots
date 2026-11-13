@@ -148,6 +148,85 @@ Alternatively, you can build and install Bento4 using [vcpkg](https://github.com
 
 The Bento4 port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
 
+Fragment Processing and SIDX Indexes
+------------------------------------
+
+`AP4_Processor` can rewrite a fragmented MP4 stream while a custom
+`AP4_Processor::FragmentHandler` changes the size of fragment atoms and
+sample data. When the input carries one or more `sidx` (segment index)
+boxes — including multi-level hierarchies in which an index references
+other index boxes — the processor validates the whole index layout before
+any handler runs, then recomputes the `first_offset` and
+`referenced_size` fields from the actual output positions and sizes.
+
+The supported layouts are:
+
+ * multiple independent index roots, and index trees of any depth
+ * `reference_type` 1 references that point at exactly one complete child
+   `sidx` box, and `reference_type` 0 references that span whole top-level
+   boxes from a `moof` up to the matching `mdat` (a leaf range may cover
+   several consecutive `moof`/`mdat` pairs and the side boxes between them)
+ * side boxes such as `free`, `styp` and `emsg` interleaved with the
+   indexes and fragments, including large gaps between an index and the
+   media it references; the top-level ordering and side-box payloads are
+   preserved
+ * both public entry points: a single combined stream, and a separate
+   fragment stream processed against an init stream (in which case all
+   fragment addresses are relative to the fragment stream's byte 0)
+
+The `reference_ID`, `timescale`, `earliest_presentation_time`, `version`,
+reference count, `reference_type`, `subsegment_duration` and SAP fields
+are kept unchanged. Only `first_offset` and `referenced_size` are rewritten.
+An invalid layout (truncated box, zero timescale, zero-sized or zero-duration
+reference, a range that runs past the stream or does not end on a box
+boundary, a type-1 reference that does not target a complete `sidx`, a
+media range without an `mdat`, a time span that does not match between a
+parent and its child index, overlapping leaf ranges, or an offset/size that
+would not fit the original box version) is rejected before any handler is
+called or any output byte is written.
+
+A minimal fragment handler that appends a suffix to every sample looks
+like this. After `Process` returns, every `sidx` in the output points at
+the same indexes and media as the input, with offsets and sizes adjusted
+for the grown fragments.
+
+```cpp
+class MyFragmentHandler : public AP4_Processor::FragmentHandler {
+public:
+    AP4_Result ProcessFragment() override {
+        // optional: inspect or resize the moof before the samples are read
+        return AP4_SUCCESS;
+    }
+    AP4_Result ProcessSample(AP4_DataBuffer& data_in,
+                             AP4_DataBuffer& data_out) override {
+        AP4_Size n = data_in.GetDataSize();
+        AP4_Result result = data_out.SetDataSize(n + 2);
+        if (AP4_FAILED(result)) return result;
+        std::memcpy(data_out.UseData(), data_in.GetData(), n);
+        data_out.UseData()[n]     = 0xAA;
+        data_out.UseData()[n + 1] = 0xBB;
+        return AP4_SUCCESS;
+    }
+};
+
+class MyProcessor : public AP4_Processor {
+public:
+    FragmentHandler* CreateFragmentHandler(AP4_TrakAtom*, AP4_TrexAtom*,
+                                           AP4_ContainerAtom*,
+                                           AP4_ByteStream&, AP4_Position) override {
+        return new MyFragmentHandler();
+    }
+};
+
+// combined stream
+MyProcessor processor;
+processor.Process(input_stream, output_stream);
+
+// or, with a separate init stream (fragment addresses are relative to
+// the fragment stream's byte 0)
+processor.Process(fragment_stream, output_stream, init_stream);
+```
+
 Release Notes
 -------------
 
