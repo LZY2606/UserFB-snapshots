@@ -1,0 +1,5 @@
+# RGB8 ETC2 scope
+Format reference: https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#_format_rgb_etc2
+The existing ETC1 byte stream remains a valid ETC2 legacy block. The first byte carries the most significant bits of the 64-bit word. With differential enabled, test red overflow first (T), then green (H), then blue (planar); otherwise retain differential. Individual uses the old path.
+T and H use the distance table 3, 6, 11, 16, 23, 32, 41, 64. H includes an endpoint-order contribution to the distance index. Preserve column-major selector bit positions, while the public RGBA array is row-major.
+Planar stores three RGB676 anchors O,H,V. Extend 6/7-bit channels by bit replication. For each channel and x,y in 0..3, reconstruct clamp(floor((x*(H-O)+y*(V-O)+4*O+2)/4),0,255). Its anchors lie at parameter coordinates (0,0),(4,0),(0,4), not at the last texel centers. Mode bits and fragmented endpoint fields follow the format reference. The document is a factual navigation note, not a copied specification or a decoder implementation.
