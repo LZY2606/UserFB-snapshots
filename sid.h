@@ -103,6 +103,15 @@ public:
 
   void debugoutput(void);
 
+  // Instrumentation for the batch digital engine of clock(delta_t):
+  // debug_cycle_updates counts whole-chip cycle-by-cycle digital updates
+  // (the fallback used for combined waveforms), debug_event_updates counts
+  // O(1) event cycle processings. Quiet spans are skipped with counter and
+  // phase arithmetic and are not counted.
+  static unsigned long debug_cycle_updates;
+  static unsigned long debug_event_updates;
+  static void reset_debug_counters();
+
  protected:
   static double I0(double x);
   int clock_fast(cycle_count& delta_t, short* buf, int n, int interleave);

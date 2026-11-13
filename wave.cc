@@ -290,6 +290,138 @@ void WaveformGenerator::shiftreg_bitfade()
     shift_register_reset = (sid_model == MOS6581) ? SHIFT_REGISTER_RESET_BIT_6581 : SHIFT_REGISTER_RESET_BIT_8580;
 }
 
+// ----------------------------------------------------------------------------
+// Exact event-driven delta clocking.
+//
+// Between events the oscillator accumulator advances linearly and every
+// other effect is a deterministic countdown, so the number of quiet cycles
+// before the next event can be computed exactly. Events are:
+//  * accumulator bit 19 rising (arms the 2 cycle noise shift pipeline),
+//  * the shift pipeline reaching zero (noise shift register clocked),
+//  * the accumulator MSB rising while the sync destination listens,
+//  * the test bit shift register reset timer expiring,
+//  * the floating DAC timer expiring.
+// Combined waveforms which write back into the accumulator or the shift
+// register every cycle are not skippable; SID::clock() steps those cycle
+// by cycle instead.
+// ----------------------------------------------------------------------------
+
+// Number of cycles that can be skipped analytically before the next event
+// cycle (0 = the very next cycle is an event).
+cycle_count WaveformGenerator::quiet_cycles()
+{
+  const cycle_count inf = 0x3fffffff;
+  cycle_count q = inf;
+
+  if (test) {
+    // The accumulator is frozen; only the shift register reset timer runs.
+    if (shift_register_reset) {
+      q = shift_register_reset - 1;
+    }
+  }
+  else {
+    if (freq) {
+      // Cycles until accumulator bit 19 rises. The rise cycle itself is an
+      // event (it arms the shift pipeline), so subtract one.
+      reg24 b = accumulator & 0x0fffff;
+      reg24 target = b < 0x080000 ? 0x080000 : 0x180000;
+      q = (target - b - 1)/freq;
+
+      if (sync_dest->sync) {
+        // Cycles until the accumulator MSB rises (hard sync of destination).
+        reg24 target_msb = accumulator < 0x800000 ? 0x800000 : 0x1800000;
+        cycle_count a = (target_msb - accumulator - 1)/freq;
+        if (a < q) q = a;
+      }
+    }
+    if (shift_pipeline && shift_pipeline - 1 < q) {
+      q = shift_pipeline - 1;
+    }
+  }
+
+  if (!waveform && floating_output_ttl && floating_output_ttl - 1 < q) {
+    q = floating_output_ttl - 1;
+  }
+  return q;
+}
+
+// Advance the oscillator state by q quiet cycles (no events, as bounded by
+// quiet_cycles()). Waveform outputs are updated separately by
+// update_outputs_quiet() once all oscillators have been advanced, since
+// ring modulation reads the sync source accumulator.
+void WaveformGenerator::advance_quiet(cycle_count q)
+{
+  if (test) {
+    if (shift_register_reset) {
+      shift_register_reset -= q;
+    }
+  }
+  else {
+    accumulator = (accumulator +
+      (reg24)(((unsigned long long)q*freq) & 0xffffff)) & 0xffffff;
+    if (shift_pipeline) {
+      shift_pipeline -= q;
+    }
+  }
+  if (!waveform && floating_output_ttl) {
+    floating_output_ttl -= q;
+  }
+}
+
+// Recompute the waveform outputs after a quiet span. The pulse comparator
+// and the 8580 triangle/sawtooth pipeline carry one cycle of state. For a
+// single quiet cycle that state is already held in the members (it may have
+// been set by a register write); for longer spans the previous cycle lies
+// inside the span, where the accumulator is linear.
+void WaveformGenerator::update_outputs_quiet(cycle_count q)
+{
+  reg12 pulse_prev;
+  reg12 tp_prev = 0;
+  if (test) {
+    // The test bit forces the pulse line high at the start of every cycle.
+    pulse_prev = 0xfff;
+    tp_prev = q == 1 ? tri_saw_pipeline
+      : wave[(accumulator ^ (~(sync_source->test ? sync_source->accumulator
+                              : (sync_source->accumulator - sync_source->freq) & 0xffffff)
+                            & ring_msb_mask)) >> 12];
+  }
+  else if (q == 1) {
+    pulse_prev = pulse_output;
+    tp_prev = tri_saw_pipeline;
+  }
+  else {
+    reg24 accumulator_prev = (accumulator - freq) & 0xffffff;
+    reg24 source_prev = sync_source->test ? sync_source->accumulator
+      : (sync_source->accumulator - sync_source->freq) & 0xffffff;
+    pulse_prev = -((accumulator_prev >> 12) >= pw) & 0xfff;
+    tp_prev = wave[(accumulator_prev ^ (~source_prev & ring_msb_mask)) >> 12];
+  }
+
+  if (waveform) {
+    int ix = (accumulator ^ (~sync_source->accumulator & ring_msb_mask)) >> 12;
+
+    waveform_output =
+      wave[ix] & (no_pulse | pulse_prev) & no_noise_or_noise_output;
+
+    if ((waveform & 0xc) == 0xc) {
+      waveform_output = (sid_model == MOS6581) ?
+        noise_pulse6581(waveform_output) : noise_pulse8580(waveform_output);
+    }
+
+    if ((waveform & 3) && (sid_model == MOS8580)) {
+      // Triangle/Sawtooth output is delayed half cycle on the 8580.
+      osc3 = tp_prev & (no_pulse | pulse_prev) & no_noise_or_noise_output;
+      tri_saw_pipeline = wave[ix];
+    }
+    else {
+      osc3 = waveform_output;
+    }
+  }
+
+  // Push next pulse level into pulse level pipeline.
+  pulse_output = -((accumulator >> 12) >= pw) & 0xfff;
+}
+
 reg8 WaveformGenerator::readOSC()
 {
   return osc3 >> 4;

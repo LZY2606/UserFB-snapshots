@@ -42,9 +42,13 @@ public:
   void set_chip_model(chip_model model);
 
   void clock();
-  void clock(cycle_count delta_t);
   void synchronize();
   void reset();
+
+  // Exact event-driven delta clocking, see wave.cc and sid.cc.
+  cycle_count quiet_cycles();
+  void advance_quiet(cycle_count q);
+  void update_outputs_quiet(cycle_count q);
 
   void writeFREQ_LO(reg8);
   void writeFREQ_HI(reg8);
@@ -58,7 +62,6 @@ public:
 
   // Calculate and set waveform output value.
   void set_waveform_output();
-  void set_waveform_output(cycle_count delta_t);
 
 protected:
   void clock_shift_register();
@@ -170,80 +173,6 @@ void WaveformGenerator::clock()
     }
   }
 }
-
-// ----------------------------------------------------------------------------
-// SID clocking - delta_t cycles.
-// ----------------------------------------------------------------------------
-RESID_INLINE
-void WaveformGenerator::clock(cycle_count delta_t)
-{
-  if (unlikely(test)) {
-    // Count down time to fully reset shift register.
-    if (shift_register_reset) {
-      shift_register_reset -= delta_t;
-      if (unlikely(shift_register_reset <= 0)) {
-        shift_register = 0x7fffff;
-        shift_register_reset = 0;
-
-        // New noise waveform output.
-        set_noise_output();
-      }
-    }
-
-    // The test bit sets pulse high.
-    pulse_output = 0xfff;
-  }
-  else {
-    // Calculate new accumulator value;
-    reg24 delta_accumulator = delta_t*freq;
-    reg24 accumulator_next = (accumulator + delta_accumulator) & 0xffffff;
-    reg24 accumulator_bits_set = ~accumulator & accumulator_next;
-    accumulator = accumulator_next;
-
-    // Check whether the MSB is set high. This is used for synchronization.
-    msb_rising = (accumulator_bits_set & 0x800000) ? true : false;
-
-    // NB! Any pipelined shift register clocking from single cycle clocking
-    // will be lost. It is not worth the trouble to flush the pipeline here.
-
-    // Shift noise register once for each time accumulator bit 19 is set high.
-    // Bit 19 is set high each time 2^20 (0x100000) is added to the accumulator.
-    reg24 shift_period = 0x100000;
-
-    while (delta_accumulator) {
-      if (likely(delta_accumulator < shift_period)) {
-        shift_period = delta_accumulator;
-        // Determine whether bit 19 is set on the last period.
-        // NB! Requires two's complement integer.
-        if (likely(shift_period <= 0x080000)) {
-          // Check for flip from 0 to 1.
-          if (((accumulator - shift_period) & 0x080000) || !(accumulator & 0x080000))
-            {
-              break;
-            }
-        }
-        else {
-          // Check for flip from 0 (to 1 or via 1 to 0) or from 1 via 0 to 1.
-          if (((accumulator - shift_period) & 0x080000) && !(accumulator & 0x080000))
-            {
-              break;
-            }
-        }
-      }
-
-      // Shift the noise/random register.
-      // NB! The two-cycle pipeline delay is only modeled for 1 cycle clocking.
-      clock_shift_register();
-
-      delta_accumulator -= shift_period;
-    }
-
-    // Calculate pulse high/low.
-    // NB! The one-cycle pipeline delay is only modeled for 1 cycle clocking.
-    pulse_output = (accumulator >> 12) >= pw ? 0xfff : 0x000;
-  }
-}
-
 
 // ----------------------------------------------------------------------------
 // Synchronize oscillators.
@@ -517,43 +446,6 @@ void WaveformGenerator::set_waveform_output()
   // Push next pulse level into pulse level pipeline.
   pulse_output = -((accumulator >> 12) >= pw) & 0xfff;
 }
-
-RESID_INLINE
-void WaveformGenerator::set_waveform_output(cycle_count delta_t)
-{
-  // Set output value.
-  if (likely(waveform)) {
-    // The bit masks no_pulse and no_noise are used to achieve branch-free
-    // calculation of the output value.
-    int ix = (accumulator ^ (~sync_source->accumulator & ring_msb_mask)) >> 12;
-    waveform_output =
-      wave[ix] & (no_pulse | pulse_output) & no_noise_or_noise_output;
-    // Triangle/Sawtooth output delay for the 8580 is not modeled
-    osc3 = waveform_output;
-
-    if ((waveform & 0x2) && unlikely(waveform & 0xd) && (sid_model == MOS6581)) {
-        accumulator &= (waveform_output << 12) | 0x7fffff;
-    }
-
-    if (unlikely(waveform > 0x8) && likely(!test)) {
-      // Combined waveforms write to the shift register.
-      // NB! Since cycles are skipped in delta_t clocking, writes will be
-      // missed. Single cycle clocking must be used for 100% correct operation.
-      write_shift_register();
-    }
-  }
-  else {
-    if (likely(floating_output_ttl)) {
-      // Age floating D/A output.
-      floating_output_ttl -= delta_t;
-      if (unlikely(floating_output_ttl <= 0)) {
-        floating_output_ttl = 0;
-        osc3 = waveform_output = 0;
-      }
-    }
-  }
-}
-
 
 // ----------------------------------------------------------------------------
 // Waveform output (12 bits).

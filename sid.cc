@@ -80,6 +80,7 @@ SID::SID()
   bus_value = 0;
   bus_value_ttl = 0;
   write_pipeline = 0;
+  write_address = 0;
 
   databus_ttl = 0;
 
@@ -740,91 +741,148 @@ void SID::adjust_sampling_frequency(double sample_freq)
 
 
 // ----------------------------------------------------------------------------
+// Instrumentation counters for the batch digital engine.
+// ----------------------------------------------------------------------------
+unsigned long SID::debug_cycle_updates = 0;
+unsigned long SID::debug_event_updates = 0;
+
+void SID::reset_debug_counters()
+{
+  debug_cycle_updates = 0;
+  debug_event_updates = 0;
+}
+
+
+// ----------------------------------------------------------------------------
 // SID clocking - delta_t cycles.
+//
+// The digital parts (oscillators, envelope generators, register write
+// pipeline, readable digital registers) are advanced exactly as delta_t
+// consecutive single cycle clock() calls, using event-driven fast forward:
+// quiet spans are skipped with counter and phase arithmetic, and only event
+// cycles are processed individually. Regions with combined waveforms that
+// write back into the accumulator or the noise shift register every cycle
+// are stepped cycle by cycle. The analog filter and external filter keep
+// the original batch approximation.
 // ----------------------------------------------------------------------------
 void SID::clock(cycle_count delta_t)
 {
   int i;
 
-  // Pipelined writes on the MOS8580.
-  if (unlikely(write_pipeline) && likely(delta_t > 0)) {
-    // Step one cycle by a recursive call to ourselves.
-    write_pipeline = 0;
-    clock(1);
-    write();
-    delta_t -= 1;
-  }
-
   if (unlikely(delta_t <= 0)) {
     return;
   }
 
-  // Age bus value.
+  // Pipelined writes on the MOS8580: the write takes effect after the first
+  // cycle, exactly as with single cycle clocking. The first cycle must not
+  // see the new register values.
+  if (unlikely(write_pipeline)) {
+    for (i = 0; i < 3; i++) {
+      voice[i].envelope.clock();
+    }
+    for (i = 0; i < 3; i++) {
+      voice[i].wave.clock();
+    }
+    for (i = 0; i < 3; i++) {
+      voice[i].wave.synchronize();
+    }
+    for (i = 0; i < 3; i++) {
+      voice[i].wave.set_waveform_output();
+    }
+    filter.clock(voice[0].output(), voice[1].output(), voice[2].output());
+    extfilt.clock(filter.output());
+    write();
+    if (unlikely(!--bus_value_ttl)) {
+      bus_value = 0;
+    }
+    ++debug_event_updates;
+    if (--delta_t == 0) {
+      return;
+    }
+  }
+
+  // Clock amplitude modulators. The envelope generators are not coupled to
+  // the oscillators, so each can fast forward the whole span on its own.
+  for (i = 0; i < 3; i++) {
+    voice[i].envelope.clock(delta_t);
+  }
+
+  // Clock oscillators. Combined waveforms read back into the accumulator
+  // (6581) or the noise shift register every cycle; those regions are
+  // stepped cycle by cycle. Everything else is advanced with exact event
+  // skipping.
+  bool per_cycle = false;
+  for (i = 0; i < 3; i++) {
+    WaveformGenerator& wave = voice[i].wave;
+    if (!wave.test && wave.waveform != 0
+        && (wave.waveform > 0x8
+            || (wave.sid_model == MOS6581
+                && (wave.waveform & 0x2) && (wave.waveform & 0xd)))) {
+      per_cycle = true;
+      break;
+    }
+  }
+
+  cycle_count remaining = delta_t;
+  if (per_cycle) {
+    for (; remaining > 0; --remaining) {
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.clock();
+      }
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.synchronize();
+      }
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.set_waveform_output();
+      }
+      ++debug_cycle_updates;
+    }
+  }
+
+  while (remaining) {
+    cycle_count q = remaining;
+    for (i = 0; i < 3; i++) {
+      cycle_count a = voice[i].wave.quiet_cycles();
+      if (a < q) {
+        q = a;
+      }
+    }
+
+    if (q == 0) {
+      // Event cycle: advance every oscillator exactly one cycle, keeping
+      // the parallel clock/synchronize/output ordering of clock().
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.clock();
+      }
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.synchronize();
+      }
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.set_waveform_output();
+      }
+      ++debug_event_updates;
+      --remaining;
+    }
+    else {
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.advance_quiet(q);
+      }
+      for (i = 0; i < 3; i++) {
+        voice[i].wave.update_outputs_quiet(q);
+      }
+      remaining -= q;
+    }
+  }
+
+  // Age bus value. The readable value and the survival time of a rewritten
+  // value match single cycle clocking; the ttl counter itself may differ.
   bus_value_ttl -= delta_t;
   if (unlikely(bus_value_ttl <= 0)) {
     bus_value = 0;
     bus_value_ttl = 0;
   }
 
-  // Clock amplitude modulators.
-  for (i = 0; i < 3; i++) {
-    voice[i].envelope.clock(delta_t);
-  }
-
-  // Clock and synchronize oscillators.
-  // Loop until we reach the current cycle.
-  cycle_count delta_t_osc = delta_t;
-  while (delta_t_osc) {
-    cycle_count delta_t_min = delta_t_osc;
-
-    // Find minimum number of cycles to an oscillator accumulator MSB toggle.
-    // We have to clock on each MSB on / MSB off for hard sync to operate
-    // correctly.
-    for (i = 0; i < 3; i++) {
-      WaveformGenerator& wave = voice[i].wave;
-
-      // It is only necessary to clock on the MSB of an oscillator that is
-      // a sync source and has freq != 0.
-      if (likely(!(wave.sync_dest->sync && wave.freq))) {
-        continue;
-      }
-
-      reg16 freq = wave.freq;
-      reg24 accumulator = wave.accumulator;
-
-      // Clock on MSB off if MSB is on, clock on MSB on if MSB is off.
-      reg24 delta_accumulator =
-        (accumulator & 0x800000 ? 0x1000000 : 0x800000) - accumulator;
-
-      cycle_count delta_t_next = delta_accumulator/freq;
-      if (likely(delta_accumulator%freq)) {
-        ++delta_t_next;
-      }
-
-      if (unlikely(delta_t_next < delta_t_min)) {
-        delta_t_min = delta_t_next;
-      }
-    }
-
-    // Clock oscillators.
-    for (i = 0; i < 3; i++) {
-      voice[i].wave.clock(delta_t_min);
-    }
-
-    // Synchronize oscillators.
-    for (i = 0; i < 3; i++) {
-      voice[i].wave.synchronize();
-    }
-
-    delta_t_osc -= delta_t_min;
-  }
-
-  // Calculate waveform output.
-  for (i = 0; i < 3; i++) {
-    voice[i].wave.set_waveform_output(delta_t);
-  }
-
-  // Clock filter.
+  // Clock filter (analog batch approximation).
   filter.clock(delta_t, voice[0].output(), voice[1].output(), voice[2].output());
 
   // Clock external filter.
