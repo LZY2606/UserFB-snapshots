@@ -1,0 +1,104 @@
+{"Time":"2026-11-13T23:12:03.184788+09:00","Action":"start","Package":"github.com/fogleman/pt/pt"}
+{"Time":"2026-11-13T23:12:03.414368+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport"}
+{"Time":"2026-11-13T23:12:03.41441+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport","Output":"=== RUN   TestPhotonTransport\n"}
+{"Time":"2026-11-13T23:12:03.414438+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower"}
+{"Time":"2026-11-13T23:12:03.414444+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"=== RUN   TestPhotonTransport/SphereLightPower\n"}
+{"Time":"2026-11-13T23:12:03.414455+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:03.459549+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"    photon_target_test.go:77: TARGET_CONTENT sphere light power reaches plane\n"}
+{"Time":"2026-11-13T23:12:03.459575+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"Building k-d tree (3 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:03.508144+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"    photon_target_test.go:97: TARGET_CONTENT mixed lights keep total energy meaning\n"}
+{"Time":"2026-11-13T23:12:03.519135+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"    photon_target_test.go:111: TARGET_CONTENT photon count does not change exposure\n"}
+{"Time":"2026-11-13T23:12:03.519166+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Output":"--- PASS: TestPhotonTransport/SphereLightPower (0.10s)\n"}
+{"Time":"2026-11-13T23:12:03.51918+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/SphereLightPower","Elapsed":0.1}
+{"Time":"2026-11-13T23:12:03.519199+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather"}
+{"Time":"2026-11-13T23:12:03.519203+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Output":"=== RUN   TestPhotonTransport/MirrorGather\n"}
+{"Time":"2026-11-13T23:12:03.519206+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Output":"Building k-d tree (3 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:03.576273+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Output":"    photon_target_test.go:148: TARGET_CONTENT photons gather after ideal mirror reflection\n"}
+{"Time":"2026-11-13T23:12:03.576305+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Output":"    photon_target_test.go:150: TARGET_CONTENT mirror radiance positive\n"}
+{"Time":"2026-11-13T23:12:03.576315+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Output":"--- PASS: TestPhotonTransport/MirrorGather (0.06s)\n"}
+{"Time":"2026-11-13T23:12:03.57632+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/MirrorGather","Elapsed":0.06}
+{"Time":"2026-11-13T23:12:03.576326+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather"}
+{"Time":"2026-11-13T23:12:03.57633+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Output":"=== RUN   TestPhotonTransport/GlassGather\n"}
+{"Time":"2026-11-13T23:12:03.576333+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Output":"Building k-d tree (3 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:03.686977+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Output":"    photon_target_test.go:184: TARGET_CONTENT photons gather after refracting through glass\n"}
+{"Time":"2026-11-13T23:12:03.687022+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Output":"    photon_target_test.go:187: TARGET_CONTENT glass radiance finite and positive\n"}
+{"Time":"2026-11-13T23:12:03.687034+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Output":"--- PASS: TestPhotonTransport/GlassGather (0.11s)\n"}
+{"Time":"2026-11-13T23:12:03.68704+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/GlassGather","Elapsed":0.11}
+{"Time":"2026-11-13T23:12:03.687045+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane"}
+{"Time":"2026-11-13T23:12:03.687049+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"=== RUN   TestPhotonTransport/AnalyticPlane\n"}
+{"Time":"2026-11-13T23:12:03.687372+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:08.226913+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:227: seed 101: radiance=0.086422 M=8 emitted=20000000\n"}
+{"Time":"2026-11-13T23:12:08.226943+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:12.847663+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:227: seed 202: radiance=0.088297 M=3 emitted=20000000\n"}
+{"Time":"2026-11-13T23:12:12.847709+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:17.515561+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:227: seed 303: radiance=0.086212 M=12 emitted=20000000\n"}
+{"Time":"2026-11-13T23:12:17.515605+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.165985+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:227: seed 404: radiance=0.085355 M=9 emitted=20000000\n"}
+{"Time":"2026-11-13T23:12:22.166032+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:231: analytic plane: got 0.086571 want 0.088889 rel 0.0261 samples 32\n"}
+{"Time":"2026-11-13T23:12:22.166049+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"    photon_target_test.go:236: TARGET_CONTENT unoccluded plane matches analytic 0.8/9\n"}
+{"Time":"2026-11-13T23:12:22.166067+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Output":"--- PASS: TestPhotonTransport/AnalyticPlane (18.48s)\n"}
+{"Time":"2026-11-13T23:12:22.166087+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport/AnalyticPlane","Elapsed":18.48}
+{"Time":"2026-11-13T23:12:22.166103+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport","Output":"--- PASS: TestPhotonTransport (18.75s)\n"}
+{"Time":"2026-11-13T23:12:22.166116+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonTransport","Elapsed":18.75}
+{"Time":"2026-11-13T23:12:22.166131+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather"}
+{"Time":"2026-11-13T23:12:22.166158+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather","Output":"=== RUN   TestPhotonGather\n"}
+{"Time":"2026-11-13T23:12:22.166167+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive"}
+{"Time":"2026-11-13T23:12:22.166173+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"=== RUN   TestPhotonGather/IndexMatchesExhaustive\n"}
+{"Time":"2026-11-13T23:12:22.16618+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"    photon_target_test.go:313: TARGET_CONTENT index matches exhaustive distance reference\n"}
+{"Time":"2026-11-13T23:12:22.166185+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"    photon_target_test.go:319: TARGET_CONTENT boundary distance and coincident points accepted\n"}
+{"Time":"2026-11-13T23:12:22.166192+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"    photon_target_test.go:322: TARGET_CONTENT normal disagreement rejected\n"}
+{"Time":"2026-11-13T23:12:22.166197+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"    photon_target_test.go:325: TARGET_CONTENT hemisphere rule applied\n"}
+{"Time":"2026-11-13T23:12:22.166203+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Output":"--- PASS: TestPhotonGather/IndexMatchesExhaustive (0.00s)\n"}
+{"Time":"2026-11-13T23:12:22.166209+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/IndexMatchesExhaustive","Elapsed":0}
+{"Time":"2026-11-13T23:12:22.166214+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks"}
+{"Time":"2026-11-13T23:12:22.166219+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks","Output":"=== RUN   TestPhotonGather/BoundedCandidateChecks\n"}
+{"Time":"2026-11-13T23:12:22.169825+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks","Output":"    photon_target_test.go:362: candidate checks: 4096 (limit 65536)\n"}
+{"Time":"2026-11-13T23:12:22.169861+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks","Output":"    photon_target_test.go:367: TARGET_CONTENT candidate checks bounded by index selectivity\n"}
+{"Time":"2026-11-13T23:12:22.169873+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks","Output":"--- PASS: TestPhotonGather/BoundedCandidateChecks (0.00s)\n"}
+{"Time":"2026-11-13T23:12:22.169881+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather/BoundedCandidateChecks","Elapsed":0}
+{"Time":"2026-11-13T23:12:22.169889+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather","Output":"--- PASS: TestPhotonGather (0.00s)\n"}
+{"Time":"2026-11-13T23:12:22.169896+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonGather","Elapsed":0}
+{"Time":"2026-11-13T23:12:22.169902+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive"}
+{"Time":"2026-11-13T23:12:22.169907+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive","Output":"=== RUN   TestPhotonProgressive\n"}
+{"Time":"2026-11-13T23:12:22.169911+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation"}
+{"Time":"2026-11-13T23:12:22.169916+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"=== RUN   TestPhotonProgressive/InitialStateAndValidation\n"}
+{"Time":"2026-11-13T23:12:22.169941+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.169946+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.169951+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"    photon_target_test.go:421: TARGET_CONTENT invalid configurations rejected\n"}
+{"Time":"2026-11-13T23:12:22.169956+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"    photon_target_test.go:439: TARGET_CONTENT initial pixel state and counters are zero\n"}
+{"Time":"2026-11-13T23:12:22.169963+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Output":"--- PASS: TestPhotonProgressive/InitialStateAndValidation (0.00s)\n"}
+{"Time":"2026-11-13T23:12:22.169968+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InitialStateAndValidation","Elapsed":0}
+{"Time":"2026-11-13T23:12:22.169972+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence"}
+{"Time":"2026-11-13T23:12:22.169977+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence","Output":"=== RUN   TestPhotonProgressive/Recurrence\n"}
+{"Time":"2026-11-13T23:12:22.169982+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.183564+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence","Output":"    photon_target_test.go:499: TARGET_CONTENT progressive recurrence matches N/R/tau formulas across iterations\n"}
+{"Time":"2026-11-13T23:12:22.183588+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence","Output":"--- PASS: TestPhotonProgressive/Recurrence (0.01s)\n"}
+{"Time":"2026-11-13T23:12:22.183595+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Recurrence","Elapsed":0.01}
+{"Time":"2026-11-13T23:12:22.183604+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds"}
+{"Time":"2026-11-13T23:12:22.18361+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"=== RUN   TestPhotonProgressive/InvisibleAndEmptyRounds\n"}
+{"Time":"2026-11-13T23:12:22.183616+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"Building k-d tree (1 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.184042+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"    photon_target_test.go:529: TARGET_CONTENT invisible pixel keeps history and averages direct light\n"}
+{"Time":"2026-11-13T23:12:22.184065+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"Building k-d tree (3 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.185476+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"    photon_target_test.go:553: TARGET_CONTENT M=0 round leaves N, R and tau unchanged\n"}
+{"Time":"2026-11-13T23:12:22.185508+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.200529+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"    photon_target_test.go:594: TARGET_CONTENT radiance denominator includes lost photons\n"}
+{"Time":"2026-11-13T23:12:22.200576+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Output":"--- PASS: TestPhotonProgressive/InvisibleAndEmptyRounds (0.02s)\n"}
+{"Time":"2026-11-13T23:12:22.200585+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/InvisibleAndEmptyRounds","Elapsed":0.02}
+{"Time":"2026-11-13T23:12:22.200594+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss"}
+{"Time":"2026-11-13T23:12:22.2006+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss","Output":"=== RUN   TestPhotonProgressive/VisibilityLoss\n"}
+{"Time":"2026-11-13T23:12:22.200606+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.317179+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss","Output":"    photon_target_test.go:638: TARGET_CONTENT lost visible point preserves N, R and tau\n"}
+{"Time":"2026-11-13T23:12:22.31723+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss","Output":"--- PASS: TestPhotonProgressive/VisibilityLoss (0.12s)\n"}
+{"Time":"2026-11-13T23:12:22.317255+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/VisibilityLoss","Elapsed":0.12}
+{"Time":"2026-11-13T23:12:22.317266+09:00","Action":"run","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible"}
+{"Time":"2026-11-13T23:12:22.317271+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Output":"=== RUN   TestPhotonProgressive/Reproducible\n"}
+{"Time":"2026-11-13T23:12:22.317278+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.317283+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Output":"Building k-d tree (2 shapes)... OK\n"}
+{"Time":"2026-11-13T23:12:22.324055+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Output":"    photon_target_test.go:683: TARGET_CONTENT two identical instances reproduce exactly over three steps\n"}
+{"Time":"2026-11-13T23:12:22.324089+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Output":"--- PASS: TestPhotonProgressive/Reproducible (0.01s)\n"}
+{"Time":"2026-11-13T23:12:22.324097+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive/Reproducible","Elapsed":0.01}
+{"Time":"2026-11-13T23:12:22.324104+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive","Output":"--- PASS: TestPhotonProgressive (0.15s)\n"}
+{"Time":"2026-11-13T23:12:22.324109+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Test":"TestPhotonProgressive","Elapsed":0.15}
+{"Time":"2026-11-13T23:12:22.324115+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Output":"PASS\n"}
+{"Time":"2026-11-13T23:12:22.325023+09:00","Action":"output","Package":"github.com/fogleman/pt/pt","Output":"ok  \tgithub.com/fogleman/pt/pt\t19.140s\n"}
+{"Time":"2026-11-13T23:12:22.325039+09:00","Action":"pass","Package":"github.com/fogleman/pt/pt","Elapsed":19.14}

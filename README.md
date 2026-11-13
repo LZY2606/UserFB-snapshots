@@ -81,6 +81,55 @@ func main() {
 
 ![Hello World](http://i.imgur.com/FyAmeMx.png)
 
+### Progressive Photon Mapping (SPPM)
+
+In addition to the path tracing `Renderer`, the package ships a progressive
+photon mapping entry point that handles caustics (e.g. a glass sphere
+focusing light onto a table) which are hard to sample with camera paths
+alone. Each `Step` traces one jittered eye sample per pixel, emits a fresh
+batch of photons from the scene's sphere lights, gathers them onto the
+current visible points with a spatial hash index, and applies the
+progressive radius/flux update. Photons are not kept across iterations and
+memory does not grow with the iteration count.
+
+```go
+scene := Scene{}
+scene.Add(NewPlane(V(0, 0, 0), V(0, 0, 1), DiffuseMaterial(White)))
+scene.Add(NewSphere(V(0, 0, 1), 1, ClearMaterial(1.5, 0)))
+scene.Add(NewSphere(V(0, 0, 6), 0.5, LightMaterial(White, 8)))
+scene.Compile()
+
+camera := LookAt(V(3.5, -4.5, 2.8), V(0, 0, 0.6), V(0, 0, 1), 38)
+r, err := NewSPPM(&scene, camera, 320, 240, SPPMOptions{
+	PhotonsPerIteration: 100000,
+	MaxDepth:            8,
+	InitialRadius:       0.2,
+	Alpha:               0.7,
+	Seed:                1,
+})
+if err != nil {
+	panic(err)
+}
+for i := 0; i < 100; i++ {
+	r.Step()
+}
+c := r.Radiance(x, y)        // current linear RGB estimate of a pixel
+st := r.PixelState(x, y)     // radius, count, flux and last-iteration snapshot
+stats := r.Stats()           // iterations, emitted photons, candidate checks
+```
+
+See `examples/sppm/main.go` for a complete program that writes a PPM image:
+
+    go run examples/sppm/main.go out.ppm
+
+Supported scope: static `Sphere`, `Plane`, `Triangle` and `Mesh` shapes;
+`DiffuseMaterial`, `MetallicMaterial` with `Gloss=0` and `Tint=1`, and
+`ClearMaterial` with `Gloss=0`; lights are untextured `Sphere` shapes whose
+`Color` and `Emittance` describe a constant outgoing radiance. Textures,
+transformed instances, glossy/mixed materials and participating media are
+not supported. The scene and materials must not be modified after
+rendering starts.
+
 ### Adaptive Sampling
 
 There are several sampling options that can reduce the amount of time needed to converge to an acceptable noise level. Both images below were rendered in 60 seconds. On the left, no advanced features were enabled. On the right, the features listed below were used.
