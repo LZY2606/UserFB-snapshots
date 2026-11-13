@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/url"
 
+	"github.com/notedit/rtmp/format/flv"
 	"github.com/notedit/rtmp/format/flv/flvio"
 )
 
@@ -53,6 +54,8 @@ type Conn struct {
 
 	SendSampleAccess bool
 	BypassMsgtypeid  []uint8
+
+	enhancedReader *flv.EnhancedPacketReader
 }
 
 func NewConn(rw ReadWriteFlusher) *Conn {

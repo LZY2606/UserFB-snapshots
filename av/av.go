@@ -2,6 +2,7 @@ package av
 
 import (
 	"fmt"
+	"github.com/notedit/rtmp/codec/hevc"
 	"github.com/notedit/rtmp/codec/opus"
 	"time"
 
@@ -17,6 +18,12 @@ const (
 	H264SPSPPSNALU
 	AACDecoderConfig
 	Metadata
+	// HEVCDecoderConfig is one HEVCDecoderConfigurationRecord (SequenceStart).
+	HEVCDecoderConfig
+	// HEVC is one length-prefixed HEVC frame (CodedFrames/CodedFramesX).
+	HEVC
+	// HEVCEndOfSequence ends the configuration state of one track (SequenceEnd).
+	HEVCEndOfSequence
 )
 
 var PacketTypeString = map[int]string{
@@ -27,6 +34,9 @@ var PacketTypeString = map[int]string{
 	H264SPSPPSNALU:    "H264SPSPPSNALU",
 	AACDecoderConfig:  "AACDecoderConfig",
 	Metadata:          "Metadata",
+	HEVCDecoderConfig: "HEVCDecoderConfig",
+	HEVC:              "HEVC",
+	HEVCEndOfSequence: "HEVCEndOfSequence",
 }
 
 type Packet struct {
@@ -41,6 +51,15 @@ type Packet struct {
 	OPUS       *opus.Codec
 	AAC        *aac.Codec
 	H264       *h264.Codec
+
+	// TrackID identifies the HEVC track of an enhanced RTMP message.
+	// It is zero for the legacy AVC/AAC/script packets and for track 0.
+	TrackID uint8
+	// HEVC is the independent configuration snapshot bound to an HEVC packet
+	// at the moment it is handed out. Later configuration switches on the
+	// same track, or reuse of the input buffer, never mutate it. It is set
+	// on HEVCDecoderConfig and HEVC packets and nil for everything else.
+	HEVC *hevc.Codec
 }
 
 func (p Packet) String() string {

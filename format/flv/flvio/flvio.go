@@ -86,6 +86,32 @@ const (
 	VIDEO_H265 = 12
 )
 
+// Enhanced RTMP v2 video framing.
+const (
+	// EnhancedVideoMarker is the high bit of the first video header byte.
+	EnhancedVideoMarker = 0x80
+
+	// Enhanced packet types carried in the low four bits.
+	EnhancedSequenceStart = 0
+	EnhancedCodedFrames   = 1
+	EnhancedSequenceEnd   = 2
+	EnhancedCodedFramesX  = 3
+	EnhancedMultitrack    = 6
+
+	// Multitrack modes in the high nibble of the control byte.
+	EnhancedOneTrack   = 0
+	EnhancedManyTracks = 1
+
+	// FourCCHVC1 is the only FourCC handled by this library.
+	FourCCHVC1 = "hvc1"
+)
+
+// IsEnhancedVideoHeader reports whether b is the first byte of an enhanced
+// RTMP v2 video message.
+func IsEnhancedVideoHeader(b byte) bool {
+	return b&EnhancedVideoMarker != 0
+}
+
 type Tag struct {
 	Type uint8
 
@@ -180,6 +206,13 @@ type Tag struct {
 	StreamId uint32
 
 	Header, Data []byte
+
+	// Enhanced carries an Enhanced RTMP v2 video message. When set,
+	// EnhancedHeader is the complete enhanced video header (ex-header byte,
+	// FourCC and any multitrack control bytes) and FillHeader writes it
+	// verbatim instead of the legacy video header.
+	Enhanced       bool
+	EnhancedHeader []byte
 }
 
 func (t Tag) DebugFields() []interface{} {
@@ -294,6 +327,11 @@ func (t Tag) fillVideoHeader(b []byte) (n int) {
 }
 
 func (t Tag) FillHeader(b []byte) (n int) {
+	if t.Type == TAG_VIDEO && t.Enhanced {
+		copy(b, t.EnhancedHeader)
+		return len(t.EnhancedHeader)
+	}
+
 	switch t.Type {
 	case TAG_AUDIO:
 		return t.fillAudioHeader(b)
@@ -302,6 +340,33 @@ func (t Tag) FillHeader(b []byte) (n int) {
 		return t.fillVideoHeader(b)
 	}
 
+	return
+}
+
+// ParseEnhancedVideoHeader parses an Enhanced RTMP v2 video header. The
+// returned byte slice is the complete enhanced header (ex-header, FourCC and
+// multitrack control bytes); payload starts after it. Legacy video messages
+// are not recognized here.
+func ParseEnhancedVideoHeader(b []byte) (n int, frameType uint8, packetType uint8, fourcc string, multitrackMode uint8, innerPacketType uint8, err error) {
+	if len(b) < 5 || !IsEnhancedVideoHeader(b[0]) {
+		err = fmt.Errorf("EnhancedVideoHeaderInvalid")
+		return
+	}
+
+	frameType = (b[0] >> 4) & 0x7
+	packetType = b[0] & 0xf
+	fourcc = string(b[1:5])
+	n = 5
+
+	if packetType == EnhancedMultitrack {
+		if len(b) < 6 {
+			err = fmt.Errorf("EnhancedMultitrackHeaderTruncated")
+			return
+		}
+		multitrackMode = b[5] >> 4
+		innerPacketType = b[5] & 0xf
+		n = 6
+	}
 	return
 }
 
@@ -329,6 +394,25 @@ func (t *Tag) Parse(b []byte) (err error) {
 	}
 	t.Data = b[n:]
 	return
+}
+
+// ParseVideoData parses a video tag payload, detecting Enhanced RTMP v2
+// messages from the high bit of the first byte. Enhanced payloads populate
+// Enhanced/EnhancedHeader instead of the legacy FrameType/VideoFormat
+// fields; legacy payloads keep their historical parsing.
+func (t *Tag) ParseVideoData(b []byte) (err error) {
+	if len(b) > 0 && IsEnhancedVideoHeader(b[0]) {
+		var n int
+		if n, _, _, _, _, _, err = ParseEnhancedVideoHeader(b); err != nil {
+			return
+		}
+		t.Enhanced = true
+		t.EnhancedHeader = b[:n]
+		t.Header = b[:n]
+		t.Data = b[n:]
+		return
+	}
+	return t.Parse(b)
 }
 
 const (
@@ -372,7 +456,11 @@ func ReadTag(r io.Reader, b []byte, malloc func(int) ([]byte, error)) (tag Tag, 
 		return
 	}
 
-	if err = tag.Parse(data); err != nil {
+	if tag.Type == TAG_VIDEO {
+		if err = tag.ParseVideoData(data); err != nil {
+			return
+		}
+	} else if err = tag.Parse(data); err != nil {
 		return
 	}
 

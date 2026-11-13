@@ -495,7 +495,10 @@ func (c *Conn) ReadPacket() (pkt av.Packet, err error) {
 	if err = c.Prepare(StageCommandDone, PrepareReading); err != nil {
 		return
 	}
-	return flv.ReadPacket(c.ReadTag)
+	if c.enhancedReader == nil {
+		c.enhancedReader = flv.NewEnhancedPacketReader(c.ReadTag)
+	}
+	return c.enhancedReader.ReadPacket()
 }
 
 func (c *Conn) WritePacket(pkt av.Packet) (err error) {

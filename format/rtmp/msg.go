@@ -607,6 +607,12 @@ func (c *Conn) setAndWriteChunkSize(size int) (err error) {
 	return c.WriteSetChunkSize(size, c.wrapRW.write)
 }
 
+// SetWriteChunkSize changes the chunk size used for outgoing messages and
+// sends the mandatory Set Chunk Size protocol message to the peer.
+func (c *Conn) SetWriteChunkSize(size int) error {
+	return c.setAndWriteChunkSize(size)
+}
+
 func (c *Conn) WriteSetChunkSize(size int, write func([]byte) error) (err error) {
 	b := c.tmpwbuf2(4)
 	pio.PutU32BE(b[0:4], uint32(size))
@@ -684,6 +690,10 @@ func (c *Conn) writeMsg2(
 	if fillheader == nil {
 		fillheader = func(b []byte) int { return 0 }
 	}
+	if c.writeMaxChunkSize <= 0 {
+		err = fmt.Errorf("WriteChunkSizeInvalid(%d)", c.writeMaxChunkSize)
+		return
+	}
 
 	b := c.tmpwbuf(chunkHeader0Length + fillheader(nil))
 	chdrlen := fillChunkHeader0(b, csid, msg.timenow, msg.msgtypeid, msg.msgsid, 0)
@@ -691,44 +701,58 @@ func (c *Conn) writeMsg2(
 	msg.msgdatalen = uint32(taghdrlen + len(msg.msgdata))
 	msg.msgdataleft = msg.msgdatalen
 	fillChunkHeader0MsgDataLen(b, int(msg.msgdatalen))
-	wb := b[:chdrlen+taghdrlen]
-	if err = write(wb); err != nil {
-		return
+
+	// Logical wire body: the tag header in b, then the payload. Both are
+	// chunked against the real message length, so a chunk size smaller than
+	// the header can never desync continuation chunks.
+	writeBody := func(off, n int) error {
+		if n == 0 {
+			return nil
+		}
+		if off < taghdrlen {
+			k := n
+			if off+k > taghdrlen {
+				k = taghdrlen - off
+			}
+			if e := write(b[chdrlen+off : chdrlen+off+k]); e != nil {
+				return e
+			}
+			off += k
+			n -= k
+		}
+		if n > 0 {
+			start := off - taghdrlen
+			if e := write(msg.msgdata[start : start+n]); e != nil {
+				return e
+			}
+		}
+		return nil
 	}
 
-	chunkleft := c.writeMaxChunkSize - taghdrlen
-	if chunkleft < 0 {
-		panic(fmt.Sprintf("TagHdrTooLong(%d,%d)", c.writeMaxChunkSize, taghdrlen))
-	}
-	msg.msgdataleft -= uint32(taghdrlen)
-
-	i := 0
-
-	for msg.msgdataleft > 0 {
-		if i > 0 {
+	off := 0
+	first := true
+	for off < int(msg.msgdatalen) {
+		if first {
+			if err = write(b[:chdrlen]); err != nil {
+				return
+			}
+			first = false
+		} else {
 			n := c.fillChunkHeader3(b, csid, msg.timenow)
 			if err = write(b[:n]); err != nil {
 				return
 			}
 		}
 
-		n := int(msg.msgdataleft)
-		if n > chunkleft {
-			n = chunkleft
+		n := int(msg.msgdatalen) - off
+		if n > c.writeMaxChunkSize {
+			n = c.writeMaxChunkSize
 		}
-
-		start := int(msg.msgdatalen-msg.msgdataleft) - taghdrlen
-		if err = write(msg.msgdata[start : start+n]); err != nil {
+		if err = writeBody(off, n); err != nil {
 			return
 		}
-		chunkleft -= n
-		msg.msgdataleft -= uint32(n)
-
-		if chunkleft == 0 {
-			chunkleft = c.writeMaxChunkSize
-		}
-
-		i++
+		off += n
+		msg.msgdataleft = msg.msgdatalen - uint32(off)
 
 		if progress != nil {
 			progress(msg)
@@ -830,7 +854,22 @@ func (c *message) parseTag(bypass []uint8) (tag *flvio.Tag, err error) {
 	}
 
 	switch c.msgtypeid {
-	case msgtypeidVideoMsg, msgtypeidAudioMsg:
+	case msgtypeidVideoMsg:
+		_tag := flvio.Tag{Type: c.msgtypeid, Time: c.timenow}
+		if err = _tag.ParseVideoData(c.msgdata); err != nil {
+			// Enhanced messages with a truncated header must surface an
+			// explicit error instead of being silently skipped. Legacy
+			// video keeps its historical tolerant behavior.
+			if len(c.msgdata) > 0 && flvio.IsEnhancedVideoHeader(c.msgdata[0]) {
+				return
+			}
+			err = nil
+			return
+		}
+		tag = &_tag
+		return
+
+	case msgtypeidAudioMsg:
 		_tag := flvio.Tag{Type: c.msgtypeid, Time: c.timenow}
 		if err = _tag.Parse(c.msgdata); err != nil {
 			err = nil

@@ -1,6 +1,7 @@
 package flv
 
 import (
+	"fmt"
 	"github.com/notedit/rtmp/codec/opus"
 	"io"
 	"io/ioutil"
@@ -127,6 +128,13 @@ func OPUSTagFromCodec(codec *opus.Codec) flvio.Tag {
 
 func WritePacket(pkt av.Packet, writeTag func(flvio.Tag) error, publishing bool) (err error) {
 	switch pkt.Type {
+	case av.HEVCDecoderConfig, av.HEVC, av.HEVCEndOfSequence:
+		var tag flvio.Tag
+		if tag, err = enhancedVideoTag(pkt); err != nil {
+			return
+		}
+		return writeTag(tag)
+
 	case av.AAC:
 		tag := AACTagFromCodec(pkt.AAC)
 		tag.AACPacketType = flvio.AAC_RAW
@@ -207,6 +215,8 @@ type Demuxer struct {
 	Malloc     func(int) ([]byte, error)
 
 	LogHeaderEvent func(flags uint8)
+
+	er *EnhancedPacketReader
 }
 
 func NewDemuxer(r io.Reader) *Demuxer {
@@ -218,6 +228,13 @@ func NewDemuxer(r io.Reader) *Demuxer {
 		},
 	}
 	return d
+}
+
+func (r *Demuxer) enhancedReader() *EnhancedPacketReader {
+	if r.er == nil {
+		r.er = NewEnhancedPacketReader(r.ReadTag)
+	}
+	return r.er
 }
 
 func (r *Demuxer) ReadFileHeader() (err error) {
@@ -259,70 +276,20 @@ func ReadPacket(readTag func() (flvio.Tag, error)) (pkt av.Packet, err error) {
 			return
 		}
 
-		switch tag.Type {
-		case flvio.TAG_AMF0, flvio.TAG_AMF3:
-			data := convertToAMF0Metadata(tag.Data, tag.Type == flvio.TAG_AMF3)
-			if data != nil {
-				pkt = av.Packet{
-					Type: av.Metadata,
-					Data: data,
-					Time: flvio.TsToTime(int64(tag.Time)),
-				}
-				return
-			}
+		// Enhanced messages carry per-connection state, so they are only
+		// available through a stateful EnhancedPacketReader.
+		if tag.Type == flvio.TAG_VIDEO && tag.Enhanced {
+			err = fmt.Errorf("EnhancedVideoRequiresStatefulReader")
+			return
+		}
 
-		case flvio.TAG_VIDEO:
-			switch tag.VideoFormat {
-			case flvio.VIDEO_H264:
-				switch tag.AVCPacketType {
-				case flvio.AVC_SEQHDR:
-					pkt = av.Packet{
-						Type: av.H264DecoderConfig,
-						Data: tag.Data,
-					}
-					return
-				case flvio.AVC_NALU:
-					pkt = av.Packet{
-						Type:       av.H264,
-						Data:       tag.Data,
-						Time:       flvio.TsToTime(int64(tag.Time)),
-						CTime:      flvio.TsToTime(int64(tag.CTime)),
-						IsKeyFrame: tag.FrameType == flvio.FRAME_KEY,
-					}
-					return
-				}
-			}
-
-		case flvio.TAG_AUDIO:
-			switch tag.SoundFormat {
-			case flvio.SOUND_OPUS:
-				pkt = av.Packet{
-					Type: av.OPUS,
-					Data: tag.Data,
-					Time: flvio.TsToTime(int64(tag.Time)),
-				}
-				return
-			case flvio.SOUND_AAC:
-				switch tag.AACPacketType {
-				case flvio.AAC_SEQHDR:
-					pkt = av.Packet{
-						Type: av.AACDecoderConfig,
-						Data: tag.Data,
-					}
-					return
-				case flvio.AAC_RAW:
-					pkt = av.Packet{
-						Type: av.AAC,
-						Data: tag.Data,
-						Time: flvio.TsToTime(int64(tag.Time)),
-					}
-					return
-				}
-			}
+		var ok bool
+		if pkt, ok = legacyPacket(tag); ok {
+			return
 		}
 	}
 }
 
 func (r *Demuxer) ReadPacket() (pkt av.Packet, err error) {
-	return ReadPacket(r.ReadTag)
+	return r.enhancedReader().ReadPacket()
 }
