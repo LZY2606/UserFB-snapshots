@@ -17,13 +17,124 @@
 #ifndef EMVERB_H
 #define EMVERB_H
 
+#include <cmath>
+#include <cstring>
+
 //forward declaration
 template<typename T, int maxLength> class Allpass;
 template<typename T, int maxLength> class StaticAllpassFourTap;
 template<typename T, int maxLength> class StaticDelayLine;
 template<typename T, int maxLength> class StaticDelayLineFourTap;
 template<typename T, int maxLength> class StaticDelayLineEightTap;
+template<typename T, int maxLength> class MorphAllpassFourTap;
+template<typename T, int maxLength> class MorphDelayLineFourTap;
 template<typename T, int OverSampleCount> class StateVariable;
+
+// ---------------------------------------------------------------------------
+// Continuous-size mode primitives.
+//
+// Each line keeps a history ordered by actual write time. Sample at age a
+// (a == 0 is the most recently written sample) is read with linear
+// interpolation; ages that fall before the first stored sample read as zero.
+// Lengths and tap offsets are supplied every frame as floating point values
+// derived directly from the per-second constants, the sample rate and the
+// current room size, without any prior rounding.
+// ---------------------------------------------------------------------------
+template<typename T, int maxLength>
+class MorphLine
+{
+protected:
+    T buffer[maxLength] = {};
+    // Absolute write time of the slot that will be written next.
+    long long writeTime = 0;
+    // Number of samples currently stored (grows to maxLength, never shrinks
+    // while the room changes size: old samples are neither moved nor cleared).
+    int stored = 0;
+
+    // Read the sample written at absolute time t; negative or not-yet-written
+    // times read as zero.
+    T readAt(long long t) const
+    {
+        if(t < 0) return T(0);
+        long long age = writeTime - 1 - t;
+        if(age < 0 || age >= stored) return T(0);
+        long long pos = t % maxLength;
+        if(pos < 0) pos += maxLength;
+        return buffer[static_cast<int>(pos)];
+    }
+
+    // Fractional read at an age measured from the most recent write.
+    T readAge(T age) const
+    {
+        if(stored == 0) return T(0);
+        T baseT = static_cast<T>(writeTime - 1) - age;
+        long long t0 = static_cast<long long>(std::floor(baseT));
+        T frac = baseT - static_cast<T>(t0);
+        T v0 = readAt(t0);
+        T v1 = readAt(t0 + 1);
+        return v0 + frac * (v1 - v0);
+    }
+
+public:
+    void Clear()
+    {
+        std::memset(buffer, 0, sizeof(buffer));
+        writeTime = 0;
+        stored = 0;
+    }
+
+    // One write per frame. The main output at fractional delay L is taken
+    // before the write, matching the integer line whose pre-write read
+    // returns x[n - L]: relative to the newest stored sample x[n - 1] that is
+    // age L - 1.
+    T process(T input, T L)
+    {
+        T output = readAge(L - T(1));
+        long long pos = writeTime % maxLength;
+        if(pos < 0) pos += maxLength;
+        buffer[static_cast<int>(pos)] = input;
+        ++writeTime;
+        if(stored < maxLength) ++stored;
+        return output;
+    }
+
+    // Observed after the write/advance of a frame, exactly like GetIndex on
+    // the integer lines. Reads history at age L - q - 1 of the newest write.
+    T tap(T L, T q) const
+    {
+        return readAge(L - q - T(1));
+    }
+};
+
+template<typename T, int maxLength>
+class MorphAllpassFourTap : public MorphLine<T, maxLength>
+{
+private:
+    T Feedback = T(0.5);
+public:
+    void SetFeedback(T feedback) { Feedback = feedback; }
+
+    // Allpass kept as y = d - g*x, writing x + g*y (the original structure).
+    T process(T input, T L)
+    {
+        T d = this->readAge(L - T(1));
+        T y = d - Feedback * input;
+        T writeValue = input + Feedback * y;
+        long long pos = this->writeTime % maxLength;
+        if(pos < 0) pos += maxLength;
+        this->buffer[static_cast<int>(pos)] = writeValue;
+        ++this->writeTime;
+        if(this->stored < maxLength) ++this->stored;
+        return y;
+    }
+
+    using MorphLine<T, maxLength>::tap;
+};
+
+template<typename T, int maxLength>
+class MorphDelayLineFourTap : public MorphLine<T, maxLength>
+{
+};
 
 template<typename T>
 class MVerb
@@ -36,6 +147,12 @@ private:
     StaticDelayLine<T, 96000> predelay = {};
     StaticDelayLineFourTap<T, 96000> staticDelayLine[4] = {};
     StaticDelayLineEightTap<T, 96000> earlyReflectionsDelayLine[2] = {};
+
+    // Continuous-size equivalents of the four tank allpasses and four static
+    // delays. Only used when size morphing is enabled; they never allocate.
+    MorphAllpassFourTap<T, 96000> morphAllpass[4] = {};
+    MorphDelayLineFourTap<T, 96000> morphDelay[4] = {};
+
     T SampleRate = {};
     T DampingFreq = {};
     T Density1 = {};
@@ -62,6 +179,37 @@ private:
 
     int ControlRate = 0;
     int ControlRateCounter = 0;
+
+    // --- Continuous size mode ---------------------------------------------
+    bool morphEnabled = false;
+    // Set after reset; cleared by the first non-empty process call. The mode
+    // can only be toggled while this is still true.
+    bool pristineAfterReset = true;
+    // Normalized size in [0,1]; actual room size is 0.05 + 0.95 * this.
+    T morphNormalized = T(1);
+    // Size used for the next output frame.
+    T morphCurrent = T(1);
+    T morphTarget = T(1);
+    T morphStep = T(0);
+    unsigned morphFramesRemaining = 0;
+
+    // Per-second base lengths and tap constants from reset(), kept so the
+    // per-frame floating point L and q are derived without rounding first.
+    static constexpr T kAllpassSec[4] = {T(0.020), T(0.060), T(0.030), T(0.089)};
+    static constexpr T kDelaySec[4] = {T(0.15), T(0.12), T(0.14), T(0.11)};
+    // Tap offset seconds per line, index 0..2 (SetIndex slot 0 is always 0).
+    static constexpr T kAllpassTapSec[4][3] = {
+        {T(0), T(0), T(0)},
+        {T(0.006), T(0.041), T(0)},
+        {T(0), T(0), T(0)},
+        {T(0.031), T(0.011), T(0)}
+    };
+    static constexpr T kDelayTapSec[4][3] = {
+        {T(0.067), T(0.011), T(0.121)},
+        {T(0.036), T(0.089), T(0)},
+        {T(0.0089), T(0.099), T(0)},
+        {T(0.067), T(0.0041), T(0)}
+    };
 
 public:
     enum
@@ -101,6 +249,23 @@ public:
     }
 
     void process(T **inputs, T **outputs, int sampleFrames){
+        if(sampleFrames == 0)
+            return;
+        if(pristineAfterReset){
+            pristineAfterReset = false;
+            if(morphEnabled){
+                // Pin every legacy block smoother to its current target so
+                // old intra-block ramps cannot perturb the size comparison.
+                MixSmooth = Mix;
+                EarlyLateSmooth = EarlyMix;
+                BandwidthSmooth = static_cast<T>(BandwidthFreq * 18400. + 100.);
+                DampingSmooth = static_cast<T>(DampingFreq * 18400. + 100.);
+                PredelaySmooth = static_cast<T>(PreDelayTime * 200 * (SampleRate / 1000));
+                SizeSmooth = Size;
+                DecaySmooth = static_cast<T>(0.7995 * Decay + 0.005);
+                DensitySmooth = static_cast<T>(0.7995 * Density1 + 0.005);
+            }
+        }
         T OneOverSampleFrames = static_cast<T>(1. / sampleFrames);
         T MixDelta	= (Mix - MixSmooth) * OneOverSampleFrames;
         T EarlyLateDelta = (EarlyMix - EarlyLateSmooth) * OneOverSampleFrames;
@@ -118,7 +283,8 @@ public:
             BandwidthSmooth += BandwidthDelta;
             DampingSmooth += DampingDelta;
             PredelaySmooth += PredelayDelta;
-            SizeSmooth += SizeDelta;
+            if(!morphEnabled)
+                SizeSmooth += SizeDelta;
             DecaySmooth += DecayDelta;
             DensitySmooth += DensityDelta;
             if (ControlRateCounter >= ControlRate){
@@ -135,10 +301,17 @@ public:
                 Density2 = 0.5;
             if (Density2 < 0.25)
                 Density2 = 0.25;
-            allpassFourTap[1].SetFeedback(Density2);
-            allpassFourTap[3].SetFeedback(Density2);
-            allpassFourTap[0].SetFeedback(Density1);
-            allpassFourTap[2].SetFeedback(Density1);
+            if(morphEnabled){
+                morphAllpass[1].SetFeedback(Density2);
+                morphAllpass[3].SetFeedback(Density2);
+                morphAllpass[0].SetFeedback(Density1);
+                morphAllpass[2].SetFeedback(Density1);
+            } else {
+                allpassFourTap[1].SetFeedback(Density2);
+                allpassFourTap[3].SetFeedback(Density2);
+                allpassFourTap[0].SetFeedback(Density1);
+                allpassFourTap[2].SetFeedback(Density1);
+            }
             T bandwidthLeft = bandwidthFilter[0](left) ;
             T bandwidthRight = bandwidthFilter[1](right) ;
             T earlyReflectionsL = static_cast<T>(earlyReflectionsDelayLine[0] ( bandwidthLeft * 0.5 + bandwidthRight * 0.3 )
@@ -161,32 +334,38 @@ public:
             T smearedInput = predelayMonoInput;
             for(int j=0;j<4;j++)
                 smearedInput = allpass[j] ( smearedInput );
-            T leftTank = allpassFourTap[0] ( smearedInput + PreviousRightTank ) ;
-            leftTank = staticDelayLine[0] (leftTank);
-            leftTank = damping[0](leftTank);
-            leftTank = allpassFourTap[1](leftTank);
-            leftTank = staticDelayLine[1](leftTank);
-            T rightTank = allpassFourTap[2] (smearedInput + PreviousLeftTank) ;
-            rightTank = staticDelayLine[2](rightTank);
-            rightTank = damping[1] (rightTank);
-            rightTank = allpassFourTap[3](rightTank);
-            rightTank = staticDelayLine[3](rightTank);
-            PreviousLeftTank = leftTank * DecaySmooth;
-            PreviousRightTank = rightTank * DecaySmooth;
-            T accumulatorL = static_cast<T>((0.6*staticDelayLine[2].GetIndex(1))
-                            +(0.6*staticDelayLine[2].GetIndex(2))
-                            -(0.6*allpassFourTap[3].GetIndex(1))
-                            +(0.6*staticDelayLine[3].GetIndex(1))
-                            -(0.6*staticDelayLine[0].GetIndex(1))
-                            -(0.6*allpassFourTap[1].GetIndex(1))
-                            -(0.6*staticDelayLine[1].GetIndex(1)));
-            T accumulatorR = static_cast<T>((0.6*staticDelayLine[0].GetIndex(2))
-                            +(0.6*staticDelayLine[0].GetIndex(3))
-                            -(0.6*allpassFourTap[1].GetIndex(2))
-                            +(0.6*staticDelayLine[1].GetIndex(2))
-                            -(0.6*staticDelayLine[2].GetIndex(3))
-                            -(0.6*allpassFourTap[3].GetIndex(2))
-                            -(0.6*staticDelayLine[3].GetIndex(2)));
+            T accumulatorL;
+            T accumulatorR;
+            if(morphEnabled){
+                processMorphTank(smearedInput, accumulatorL, accumulatorR);
+            } else {
+                T leftTank = allpassFourTap[0] ( smearedInput + PreviousRightTank ) ;
+                leftTank = staticDelayLine[0] (leftTank);
+                leftTank = damping[0](leftTank);
+                leftTank = allpassFourTap[1](leftTank);
+                leftTank = staticDelayLine[1](leftTank);
+                T rightTank = allpassFourTap[2] (smearedInput + PreviousLeftTank) ;
+                rightTank = staticDelayLine[2](rightTank);
+                rightTank = damping[1] (rightTank);
+                rightTank = allpassFourTap[3](rightTank);
+                rightTank = staticDelayLine[3](rightTank);
+                PreviousLeftTank = leftTank * DecaySmooth;
+                PreviousRightTank = rightTank * DecaySmooth;
+                accumulatorL = static_cast<T>((0.6*staticDelayLine[2].GetIndex(1))
+                                +(0.6*staticDelayLine[2].GetIndex(2))
+                                -(0.6*allpassFourTap[3].GetIndex(1))
+                                +(0.6*staticDelayLine[3].GetIndex(1))
+                                -(0.6*staticDelayLine[0].GetIndex(1))
+                                -(0.6*allpassFourTap[1].GetIndex(1))
+                                -(0.6*staticDelayLine[1].GetIndex(1)));
+                accumulatorR = static_cast<T>((0.6*staticDelayLine[0].GetIndex(2))
+                                +(0.6*staticDelayLine[0].GetIndex(3))
+                                -(0.6*allpassFourTap[1].GetIndex(2))
+                                +(0.6*staticDelayLine[1].GetIndex(2))
+                                -(0.6*staticDelayLine[2].GetIndex(3))
+                                -(0.6*allpassFourTap[3].GetIndex(2))
+                                -(0.6*staticDelayLine[3].GetIndex(2)));
+            }
             accumulatorL = ((accumulatorL * EarlyMix) + ((1 - EarlyMix) * earlyReflectionsL));
             accumulatorR = ((accumulatorR * EarlyMix) + ((1 - EarlyMix) * earlyReflectionsR));
             left = ( left + MixSmooth * ( accumulatorL - left ) ) * Gain;
@@ -194,6 +373,136 @@ public:
             outputs[0][i] = left;
             outputs[1][i] = right;
         }
+    }
+
+private:
+    // Configure the integer tank lines' lengths and tap positions for the
+    // current Size (no clearing); used by reset, the legacy SIZE setter and
+    // when leaving continuous mode before any audio has run.
+    void sizeLegacyTanks(){
+        allpassFourTap[0].SetLength(static_cast<int>(0.020 * SampleRate * Size));
+        allpassFourTap[1].SetLength(static_cast<int>(0.060 * SampleRate * Size));
+        allpassFourTap[2].SetLength(static_cast<int>(0.030 * SampleRate * Size));
+        allpassFourTap[3].SetLength(static_cast<int>(0.089 * SampleRate * Size));
+        allpassFourTap[1].SetIndex(0, static_cast<int>(0.006 * SampleRate * Size), static_cast<int>(0.041 * SampleRate * Size), 0);
+        allpassFourTap[3].SetIndex(0, static_cast<int>(0.031 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), 0);
+        staticDelayLine[0].SetLength(static_cast<int>(0.15 * SampleRate * Size));
+        staticDelayLine[1].SetLength(static_cast<int>(0.12 * SampleRate * Size));
+        staticDelayLine[2].SetLength(static_cast<int>(0.14 * SampleRate * Size));
+        staticDelayLine[3].SetLength(static_cast<int>(0.11 * SampleRate * Size));
+        staticDelayLine[0].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), static_cast<int>(0.121 * SampleRate * Size));
+        staticDelayLine[1].SetIndex(0, static_cast<int>(0.036 * SampleRate * Size), static_cast<int>(0.089 * SampleRate * Size), 0);
+        staticDelayLine[2].SetIndex(0, static_cast<int>(0.0089 * SampleRate * Size), static_cast<int>(0.099 * SampleRate * Size), 0);
+        staticDelayLine[3].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.0041 * SampleRate * Size), 0);
+    }
+
+    // Advance the dual-tank network on the fractional-length lines using the
+    // size scheduled for this frame, preserving all in-flight sound. The
+    // trajectory position is advanced afterwards so that morphCurrent always
+    // holds the size the next output frame is going to use.
+    void processMorphTank(T smearedInput, T &accumulatorL, T &accumulatorR){
+        const T sz = morphCurrent;
+        T La[4], Ld[4], qa[4][3], qd[4][3];
+        for(int j=0;j<4;j++){
+            La[j] = kAllpassSec[j] * SampleRate * sz;
+            Ld[j] = kDelaySec[j] * SampleRate * sz;
+            for(int k=0;k<3;k++){
+                qa[j][k] = kAllpassTapSec[j][k] * SampleRate * sz;
+                qd[j][k] = kDelayTapSec[j][k] * SampleRate * sz;
+            }
+        }
+        T leftTank = morphAllpass[0].process(smearedInput + PreviousRightTank, La[0]);
+        leftTank = morphDelay[0].process(leftTank, Ld[0]);
+        leftTank = damping[0](leftTank);
+        leftTank = morphAllpass[1].process(leftTank, La[1]);
+        leftTank = morphDelay[1].process(leftTank, Ld[1]);
+        T rightTank = morphAllpass[2].process(smearedInput + PreviousLeftTank, La[2]);
+        rightTank = morphDelay[2].process(rightTank, Ld[2]);
+        rightTank = damping[1](rightTank);
+        rightTank = morphAllpass[3].process(rightTank, La[3]);
+        rightTank = morphDelay[3].process(rightTank, Ld[3]);
+        PreviousLeftTank = leftTank * DecaySmooth;
+        PreviousRightTank = rightTank * DecaySmooth;
+        accumulatorL = static_cast<T>(
+                        (0.6*morphDelay[2].tap(Ld[2], qd[2][0]))
+                       +(0.6*morphDelay[2].tap(Ld[2], qd[2][1]))
+                       -(0.6*morphAllpass[3].tap(La[3], qa[3][0]))
+                       +(0.6*morphDelay[3].tap(Ld[3], qd[3][0]))
+                       -(0.6*morphDelay[0].tap(Ld[0], qd[0][0]))
+                       -(0.6*morphAllpass[1].tap(La[1], qa[1][0]))
+                       -(0.6*morphDelay[1].tap(Ld[1], qd[1][0])));
+        accumulatorR = static_cast<T>(
+                        (0.6*morphDelay[0].tap(Ld[0], qd[0][1]))
+                       +(0.6*morphDelay[0].tap(Ld[0], qd[0][2]))
+                       -(0.6*morphAllpass[1].tap(La[1], qa[1][1]))
+                       +(0.6*morphDelay[1].tap(Ld[1], qd[1][1]))
+                       -(0.6*morphDelay[2].tap(Ld[2], qd[2][2]))
+                       -(0.6*morphAllpass[3].tap(La[3], qa[3][1]))
+                       -(0.6*morphDelay[3].tap(Ld[3], qd[3][1])));
+
+        // Schedule the size for the following frame; morphCurrent always
+        // mirrors the next frame's size, which is also the base a redirect
+        // command restarts from.
+        if(morphFramesRemaining > 0){
+            --morphFramesRemaining;
+            if(morphFramesRemaining == 0){
+                morphCurrent = morphTarget;
+                morphStep = T(0);
+            } else {
+                morphCurrent += morphStep;
+            }
+        }
+    }
+
+public:
+    // Enable or disable continuous size morphing. Only allowed after reset()
+    // and before the first non-empty process call; returns false otherwise.
+    // When enabled the mode starts at the size currently held by SIZE.
+    bool enableSizeMorph(bool enabled){
+        if(!pristineAfterReset)
+            return false;
+        morphEnabled = enabled;
+        if(enabled){
+            morphNormalized = (Size - T(0.05)) / T(0.95);
+            morphCurrent = Size;
+            morphTarget = Size;
+            morphStep = T(0);
+            morphFramesRemaining = 0;
+        } else {
+            // Keep the integer lines consistent with the current Size, which
+            // a zero-frame morph command may have moved while enabled.
+            sizeLegacyTanks();
+        }
+        return true;
+    }
+
+    // Schedule a size change to normalized in [0,1], spread over frames output
+    // samples starting with the next frame (frames == 0: immediate). A new
+    // command while a trajectory is still running restarts from the size the
+    // next frame would have used. Invalid input returns false and leaves both
+    // the audio and the modulation state untouched.
+    bool morphSize(T normalized, unsigned frames){
+        if(!morphEnabled)
+            return false;
+        if(!std::isfinite(normalized) || normalized < T(0) || normalized > T(1))
+            return false;
+        T target = T(0.05) + T(0.95) * normalized;
+        morphNormalized = normalized;
+        Size = target;
+        morphTarget = target;
+        if(frames == 0){
+            morphCurrent = target;
+            morphStep = T(0);
+            morphFramesRemaining = 0;
+        } else {
+            // morphCurrent is the next frame's scheduled size and therefore
+            // the anchor of the new ramp; over 'frames' output samples the
+            // sizes are anchor+step ... target, one equal step per frame.
+            morphStep = (target - morphCurrent) / static_cast<T>(frames);
+            morphFramesRemaining = frames;
+            morphCurrent += morphStep;
+        }
+        return true;
     }
 
     void reset(){
@@ -232,28 +541,32 @@ public:
         allpassFourTap[1].SetFeedback(Density2);
         allpassFourTap[2].SetFeedback(Density1);
         allpassFourTap[3].SetFeedback(Density2);
-        allpassFourTap[0].SetIndex(0, 0, 0, 0);
-        allpassFourTap[1].SetIndex(0, static_cast<int>(0.006 * SampleRate * Size), static_cast<int>(0.041 * SampleRate * Size), 0);
-        allpassFourTap[2].SetIndex(0, 0, 0, 0);
-        allpassFourTap[3].SetIndex(0, static_cast<int>(0.031 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), 0);
         staticDelayLine[0].Clear();
         staticDelayLine[1].Clear();
         staticDelayLine[2].Clear();
         staticDelayLine[3].Clear();
-        staticDelayLine[0].SetLength(static_cast<int>(0.15 * SampleRate * Size));
-        staticDelayLine[1].SetLength(static_cast<int>(0.12 * SampleRate * Size));
-        staticDelayLine[2].SetLength(static_cast<int>(0.14 * SampleRate * Size));
-        staticDelayLine[3].SetLength(static_cast<int>(0.11 * SampleRate * Size));
-        staticDelayLine[0].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), static_cast<int>(0.121 * SampleRate * Size));
-        staticDelayLine[1].SetIndex(0, static_cast<int>(0.036 * SampleRate * Size), static_cast<int>(0.089 * SampleRate * Size), 0);
-        staticDelayLine[2].SetIndex(0, static_cast<int>(0.0089 * SampleRate * Size), static_cast<int>(0.099 * SampleRate * Size), 0);
-        staticDelayLine[3].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.0041 * SampleRate * Size), 0);
+        sizeLegacyTanks();
         earlyReflectionsDelayLine[0].Clear();
         earlyReflectionsDelayLine[1].Clear();
         earlyReflectionsDelayLine[0].SetLength(static_cast<int>(0.089 * SampleRate));
         earlyReflectionsDelayLine[0].SetIndex(0, static_cast<int>(0.0199 * SampleRate), static_cast<int>(0.0219 * SampleRate), static_cast<int>(0.0354 * SampleRate), static_cast<int>(0.0389 * SampleRate), static_cast<int>(0.0414 * SampleRate), static_cast<int>(0.0692 * SampleRate), 0);
         earlyReflectionsDelayLine[1].SetLength(static_cast<int>(0.069 * SampleRate));
         earlyReflectionsDelayLine[1].SetIndex(0, static_cast<int>(0.0099 * SampleRate), static_cast<int>(0.011 * SampleRate), static_cast<int>(0.0182 * SampleRate), static_cast<int>(0.0189 * SampleRate), static_cast<int>(0.0213 * SampleRate), static_cast<int>(0.0431 * SampleRate), 0);
+
+        // Continuous-size state: histories and any unfinished trajectory are
+        // dropped, the enabled flag is retained, and the new trajectory starts
+        // from the most recent target size.
+        for(int j=0;j<4;j++){
+            morphAllpass[j].Clear();
+            morphDelay[j].Clear();
+            morphAllpass[j].SetFeedback(j == 1 || j == 3 ? Density2 : Density1);
+        }
+        pristineAfterReset = true;
+        morphNormalized = (Size - T(0.05)) / T(0.95);
+        morphCurrent = Size;
+        morphTarget = Size;
+        morphStep = T(0);
+        morphFramesRemaining = 0;
     }
 
     void setParameter(int index, T value){
@@ -271,29 +584,22 @@ public:
                     PreDelayTime = value;
                     break;
             case SIZE:
+                    if(morphEnabled){
+                        // Continuous mode: the legacy setter becomes a
+                        // zero-frame morph command, never clearing the tanks.
+                        morphSize(value, 0);
+                        break;
+                    }
                     Size = static_cast<T>((0.95 * value) + 0.05);
 					allpassFourTap[0].Clear();
 					allpassFourTap[1].Clear();
 					allpassFourTap[2].Clear();
 					allpassFourTap[3].Clear();
-                    allpassFourTap[0].SetLength(static_cast<int>(0.020 * SampleRate * Size));
-                    allpassFourTap[1].SetLength(static_cast<int>(0.060 * SampleRate * Size));
-                    allpassFourTap[2].SetLength(static_cast<int>(0.030 * SampleRate * Size));
-                    allpassFourTap[3].SetLength(static_cast<int>(0.089 * SampleRate * Size));
-                    allpassFourTap[1].SetIndex(0, static_cast<int>(0.006 * SampleRate * Size), static_cast<int>(0.041 * SampleRate * Size), 0);
-                    allpassFourTap[3].SetIndex(0, static_cast<int>(0.031 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), 0);
 					staticDelayLine[0].Clear();
 					staticDelayLine[1].Clear();
 					staticDelayLine[2].Clear();
 					staticDelayLine[3].Clear();
-                    staticDelayLine[0].SetLength(static_cast<int>(0.15 * SampleRate * Size));
-                    staticDelayLine[1].SetLength(static_cast<int>(0.12 * SampleRate * Size));
-                    staticDelayLine[2].SetLength(static_cast<int>(0.14 * SampleRate * Size));
-                    staticDelayLine[3].SetLength(static_cast<int>(0.11 * SampleRate * Size));
-                    staticDelayLine[0].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.011 * SampleRate * Size), static_cast<int>(0.121 * SampleRate * Size));
-                    staticDelayLine[1].SetIndex(0, static_cast<int>(0.036 * SampleRate * Size), static_cast<int>(0.089 * SampleRate * Size), 0);
-                    staticDelayLine[2].SetIndex(0, static_cast<int>(0.0089 * SampleRate * Size), static_cast<int>(0.099 * SampleRate * Size), 0);
-                    staticDelayLine[3].SetIndex(0, static_cast<int>(0.067 * SampleRate * Size), static_cast<int>(0.0041 * SampleRate * Size), 0);
+                    sizeLegacyTanks();
                     break;
             case DECAY:
                     Decay = value;
