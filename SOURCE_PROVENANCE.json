@@ -1,0 +1,19 @@
+{
+  "repo": "https://github.com/emilk/wfc",
+  "commit": "218293f3a8e106b565868d489adffddb417bbdc5",
+  "archive_sha256": "5c320ddaf0832e6055e9bc91c1b6683e9c8a969f1d6149a8ecb48231acc23206",
+  "submodules": [
+    {
+      "path": "libs/emilib",
+      "commit": "158454c95e0b7584cde55bd81f340c17cc212f80",
+      "repo": "https://github.com/emilk/emilib",
+      "license_evidence": [
+        "README.md",
+        "configuru.hpp",
+        "loguru.hpp"
+      ]
+    }
+  ],
+  "support": "support/ authored locally, baseline only; no target implementation",
+  "license": "public domain or irrevocable permissive grant (README.md); samples retain mxgmn attribution in README.md; embedded libraries retain their header notices"
+}
