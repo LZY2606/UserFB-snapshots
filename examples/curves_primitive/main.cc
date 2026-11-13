@@ -3,8 +3,12 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include "round_tube.h"
+
 #include <stdint.h>
 #include <cmath>
+#include <cstdio>
+#include <string>
 
 namespace {
 
@@ -841,9 +845,103 @@ class CurveIntersector {
 
 // -----------------------------------------------------
 
+// Headless round-tube (swept sphere) renderer.
+// Uses the same genFur control points as the default mode, but the four
+// thickness values of each curve are taken directly as the radii of the
+// swept-sphere union (no 0.5 factor).  Writes a 64x64 ASCII (P3) PPM shaded
+// with the true surface normal of the union boundary.  No window, no
+// downloads, no PNG.
+int RenderRoundTubesPPM(const char *filename) {
+  const int width = 64;
+  const int height = 64;
+
+  float3 p(0.0f, 0.0f, 0.0f);
+  float sphere_radius = 4.0f;
+  float thickness = 0.01f;
+
+  std::vector<float> vertices;
+  std::vector<float> thicknesses;
+  genFur(&vertices, &thicknesses, p, sphere_radius, thickness);
+
+  unsigned int num_curves = (unsigned int)(thicknesses.size() / 4);
+
+  round_tube::Geometry<float> geom(&vertices.at(0), &thicknesses.at(0));
+  round_tube::Pred<float> pred(&vertices.at(0));
+
+  nanort::BVHAccel<float> accel;
+  bool ret = accel.Build(num_curves, geom, pred);
+  if (!ret) {
+    fprintf(stderr, "Failed to build BVH\n");
+    return 1;
+  }
+
+  std::vector<float> rgb(width * height * 3, 0.0f);
+
+  // One intersector reused for all pixels (state is reset per traversal).
+  round_tube::Intersector<float> isector(&vertices.at(0), &thicknesses.at(0));
+
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      nanort::Ray<float> ray;
+      ray.org[0] = 0.0f;
+      ray.org[1] = 0.0f;
+      ray.org[2] = 20.0f;
+
+      float3 dir;
+      dir[0] = (x / (float)width) - 0.5f;
+      dir[1] = (y / (float)height) - 0.5f;
+      dir[2] = -1.0f;
+      dir = vnormalize(dir);
+      ray.dir[0] = dir[0];
+      ray.dir[1] = dir[1];
+      ray.dir[2] = dir[2];
+
+      ray.min_t = 0.0f;
+      ray.max_t = 1.0e+30f;
+
+      round_tube::Intersection<float> isect;
+      bool hit = accel.Traverse(ray, isector, &isect);
+      size_t px = (size_t)((height - y - 1) * width + x);  // Flip Y
+      if (hit) {
+        float3 v = isect.normal;  // true surface normal of the union boundary
+        rgb[3 * px + 0] = fabsf(v.x());
+        rgb[3 * px + 1] = fabsf(v.y());
+        rgb[3 * px + 2] = fabsf(v.z());
+      } else {
+        rgb[3 * px + 0] = 0.15f;  // background
+        rgb[3 * px + 1] = 0.15f;
+        rgb[3 * px + 2] = 0.20f;
+      }
+    }
+  }
+
+  FILE *fp = fopen(filename, "w");
+  if (!fp) {
+    fprintf(stderr, "Failed to open %s\n", filename);
+    return 1;
+  }
+  fprintf(fp, "P3\n%d %d\n255\n", width, height);
+  for (int i = 0; i < width * height; i++) {
+    fprintf(fp, "%d %d %d\n", (int)fclamp(rgb[3 * i + 0]),
+            (int)fclamp(rgb[3 * i + 1]), (int)fclamp(rgb[3 * i + 2]));
+  }
+  fclose(fp);
+  return 0;
+}
+
+// -----------------------------------------------------
+
 }  // namespace
 
 int main(int argc, char **argv) {
+  if (argc > 1 && std::string(argv[1]) == "--round-tubes") {
+    if (argc < 3) {
+      fprintf(stderr, "usage: %s --round-tubes <output.ppm>\n", argv[0]);
+      return 2;
+    }
+    return RenderRoundTubesPPM(argv[2]);
+  }
+
   int width = 1024;
   int height = 1024;
 
