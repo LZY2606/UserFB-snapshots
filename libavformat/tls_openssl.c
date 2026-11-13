@@ -368,8 +368,7 @@ error:
 /**
  * Deserialize a PEM-encoded private or public key from a NUL-terminated C string.
  *
- * @param pem_str   The PEM text, e.g.
- *                  "-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY-----\n"
+ * @param pem_str   NUL-terminated PEM text for the selected key kind.
  * @param is_priv   If non-zero, parse as a PRIVATE key; otherwise, parse as a PUBLIC key.
  * @return          EVP_PKEY* on success (must EVP_PKEY_free()), or NULL on error.
  */
