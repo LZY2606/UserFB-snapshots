@@ -1,0 +1,5 @@
+#include <fstream>
+#include <string>
+#include <iterator>
+#include <iostream>
+int main(int argc,char**argv){if(argc!=2)return 1;std::string out=argv[1];std::ifstream in("siddefs.h.in");std::string s((std::istreambuf_iterator<char>(in)),{});const char* keys[]={"RESID_INLINING","RESID_INLINE","RESID_BRANCH_HINTS","NEW_8580_FILTER","HAVE_BOOL","HAVE_BUILTIN_EXPECT","HAVE_LOG1P"};const char* vals[]={"1","inline","0","0","1","1","1"};for(int i=0;i<7;i++){std::string k="@"+std::string(keys[i])+"@";size_t p;while((p=s.find(k))!=std::string::npos)s.replace(p,k.size(),vals[i]);}std::ofstream(out+"/siddefs.h")<<s;const char* names[]={"wave6581_PST","wave6581_PS_","wave6581_P_T","wave6581__ST","wave8580_PST","wave8580_PS_","wave8580_P_T","wave8580__ST"};for(auto n:names){std::ifstream f(std::string(n)+".dat",std::ios::binary);std::ofstream h(out+"/"+n+".h");h<<"// Generated from upstream GPL-2.0-or-later waveform data; see wave.cc.\n{\n";int count=0;char c;while(f.get(c)){h<<(int)(static_cast<unsigned char>(c)<<4)<<",";if(++count%16==0)h<<"\n";}if(count!=4096)return 2;h<<"},\n";}std::cout<<"RESID_INPUTS_READY tables=8\n";}
