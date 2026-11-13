@@ -15,11 +15,19 @@
 
 
 class ray {
+  private:
+    point3 orig;
+    vec3 dir;
+    double tm;
+
   public:
-    ray() {}
+    ray()
+      : orig(0,0,0), dir(0,0,0), tm(0), has_differentials(false),
+        do_dx(0,0,0), do_dy(0,0,0), dd_dx(0,0,0), dd_dy(0,0,0) {}
 
     ray(const point3& origin, const vec3& direction, double time)
-      : orig(origin), dir(direction), tm(time) {}
+      : orig(origin), dir(direction), tm(time), has_differentials(false),
+        do_dx(0,0,0), do_dy(0,0,0), dd_dx(0,0,0), dd_dy(0,0,0) {}
 
     ray(const point3& origin, const vec3& direction)
       : ray(origin, direction, 0) {}
@@ -33,10 +41,30 @@ class ray {
         return orig + t*dir;
     }
 
-  private:
-    point3 orig;
-    vec3 dir;
-    double tm;
+    // Ray differentials: derivatives of the origin and (possibly unnormalized)
+    // direction with respect to the horizontal (x) and vertical (y) screen
+    // coordinates. Off by default; ray time does not vary with screen position.
+    bool has_differentials;
+    vec3 do_dx;   // d(origin) / d(screen_x)
+    vec3 do_dy;   // d(origin) / d(screen_y)
+    vec3 dd_dx;   // d(direction) / d(screen_x)
+    vec3 dd_dy;   // d(direction) / d(screen_y)
+
+    void copy_differentials_from(const ray& src) {
+        has_differentials = src.has_differentials;
+        do_dx = src.do_dx;
+        do_dy = src.do_dy;
+        dd_dx = src.dd_dx;
+        dd_dy = src.dd_dy;
+    }
+
+    void clear_differentials() {
+        has_differentials = false;
+        do_dx = vec3(0,0,0);
+        do_dy = vec3(0,0,0);
+        dd_dx = vec3(0,0,0);
+        dd_dy = vec3(0,0,0);
+    }
 };
 
 

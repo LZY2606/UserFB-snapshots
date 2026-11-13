@@ -56,11 +56,27 @@ class bvh_node : public hittable {
     }
 
     bool hit(const ray& r, interval ray_t, hit_record& rec) const override {
-        if (!bbox.hit(r, ray_t))
+        if (!bbox.hit(r, ray_t)) {
+            // A total miss still leaves the output record free of stale data.
+            rec.invalidate_differentials();
             return false;
+        }
 
-        bool hit_left = left->hit(r, ray_t, rec);
-        bool hit_right = right->hit(r, interval(ray_t.min, hit_left ? rec.t : ray_t.max), rec);
+        // Children invalidate the record on entry, so use a scratch record and
+        // only publish a result back into rec for an actual hit; a losing child
+        // must never erase the incumbent hit's differentials.
+        hit_record scratch;
+        bool hit_left = left->hit(r, ray_t, scratch);
+        if (hit_left)
+            rec = scratch;
+
+        bool hit_right = right->hit(r,
+            interval(ray_t.min, hit_left ? rec.t : ray_t.max), scratch);
+        if (hit_right)
+            rec = scratch;
+
+        if (!(hit_left || hit_right))
+            rec.invalidate_differentials();
 
         return hit_left || hit_right;
     }

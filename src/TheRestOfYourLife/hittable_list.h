@@ -36,6 +36,9 @@ class hittable_list : public hittable {
         bool hit_anything = false;
         auto closest_so_far = ray_t.max;
 
+        // A total miss still leaves the output record free of stale differentials.
+        rec.invalidate_differentials();
+
         for (const auto& object : objects) {
             if (object->hit(r, interval(ray_t.min, closest_so_far), temp_rec)) {
                 hit_anything = true;

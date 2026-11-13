@@ -12,6 +12,7 @@
 //==============================================================================================
 
 #include "aabb.h"
+#include "texture_footprint.h"
 
 
 class material;
@@ -27,12 +28,50 @@ class hit_record {
     double v;
     bool front_face;
 
+    // Surface differentials (with respect to screen x/y pixel coordinates).
+    // has_differentials mirrors the incoming ray's flag and gates dp/dn;
+    // uv_footprint additionally goes invalid at sphere poles and tangent hits.
+    bool has_differentials;
+    vec3 dpdx, dpdy;   // d(hit point) / d(screen x), d(hit point) / d(screen y)
+    vec3 dndx, dndy;   // d(unit geometric normal) / d(screen x), / d(screen y)
+    texture_footprint uv_footprint;
+
+    hit_record()
+      : p(0,0,0), normal(0,0,0), mat(nullptr), t(0), u(0), v(0),
+        front_face(false), has_differentials(false),
+        dpdx(0,0,0), dpdy(0,0,0), dndx(0,0,0), dndy(0,0,0),
+        uv_footprint() {}
+
     void set_face_normal(const ray& r, const vec3& outward_normal) {
         // Sets the hit record normal vector.
         // NOTE: the parameter `outward_normal` is assumed to have unit length.
 
         front_face = dot(r.direction(), outward_normal) < 0;
         normal = front_face ? outward_normal : -outward_normal;
+    }
+
+    // Drop every differential carried by this record. Primitives call this
+    // before filling a record in, so a reused hit_record can never keep the
+    // flags or values from a previous intersection.
+    void invalidate_differentials() {
+        has_differentials = false;
+        dpdx = vec3(0,0,0);
+        dpdy = vec3(0,0,0);
+        dndx = vec3(0,0,0);
+        dndy = vec3(0,0,0);
+        uv_footprint.reset();
+    }
+
+    bool differentials_finite() const {
+        return vec_finite(dpdx) && vec_finite(dpdy)
+            && vec_finite(dndx) && vec_finite(dndy)
+            && uv_footprint.all_finite();
+    }
+
+  private:
+    static bool vec_finite(const vec3& v) {
+        return std::isfinite(v.x()) && std::isfinite(v.y())
+            && std::isfinite(v.z());
     }
 };
 
@@ -66,6 +105,7 @@ class translate : public hittable {
     bool hit(const ray& r, interval ray_t, hit_record& rec) const override {
         // Move the ray backwards by the offset
         ray offset_r(r.origin() - offset, r.direction(), r.time());
+        offset_r.copy_differentials_from(r);
 
         // Determine whether an intersection exists along the offset ray (and if so, where)
         if (!object->hit(offset_r, ray_t, rec))
@@ -137,6 +177,13 @@ class rotate_y : public hittable {
         );
 
         ray rotated_r(origin, direction, r.time());
+        rotated_r.copy_differentials_from(r);
+        if (r.has_differentials) {
+            rotated_r.do_dx = rotate_in(r.do_dx);
+            rotated_r.do_dy = rotate_in(r.do_dy);
+            rotated_r.dd_dx = rotate_in(r.dd_dx);
+            rotated_r.dd_dy = rotate_in(r.dd_dy);
+        }
 
         // Determine whether an intersection exists in object space (and if so, where).
 
@@ -157,6 +204,17 @@ class rotate_y : public hittable {
             (-sin_theta * rec.normal.x()) + (cos_theta * rec.normal.z())
         );
 
+        if (rec.has_differentials) {
+            rec.dpdx = rotate_out(rec.dpdx);
+            rec.dpdy = rotate_out(rec.dpdy);
+            rec.dndx = rotate_out(rec.dndx);
+            rec.dndy = rotate_out(rec.dndy);
+            if (!vec_finite(rec.dpdx) || !vec_finite(rec.dpdy)
+                || !vec_finite(rec.dndx) || !vec_finite(rec.dndy)) {
+                rec.invalidate_differentials();
+            }
+        }
+
         return true;
     }
 
@@ -167,6 +225,29 @@ class rotate_y : public hittable {
     double sin_theta;
     double cos_theta;
     aabb bbox;
+
+    vec3 rotate_in(const vec3& v) const {
+        // World -> object space rotation about the Y axis.
+        return vec3(
+            (cos_theta * v.x()) - (sin_theta * v.z()),
+            v.y(),
+            (sin_theta * v.x()) + (cos_theta * v.z())
+        );
+    }
+
+    vec3 rotate_out(const vec3& v) const {
+        // Object -> world space rotation about the Y axis.
+        return vec3(
+            (cos_theta * v.x()) + (sin_theta * v.z()),
+            v.y(),
+            (-sin_theta * v.x()) + (cos_theta * v.z())
+        );
+    }
+
+    static bool vec_finite(const vec3& v) {
+        return std::isfinite(v.x()) && std::isfinite(v.y())
+            && std::isfinite(v.z());
+    }
 };
 
 

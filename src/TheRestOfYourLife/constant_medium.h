@@ -29,6 +29,9 @@ class constant_medium : public hittable {
     {}
 
     bool hit(const ray& r, interval ray_t, hit_record& rec) const override {
+        // Ensure an early miss never leaves a reused record holding old data.
+        rec.invalidate_differentials();
+
         hit_record rec1, rec2;
 
         if (!boundary->hit(r, interval::universe, rec1))
@@ -59,6 +62,10 @@ class constant_medium : public hittable {
         rec.normal = vec3(1,0,0);  // arbitrary
         rec.front_face = true;     // also arbitrary
         rec.mat = phase_function;
+
+        // A volume event has no surface differential; drop anything the
+        // boundary intersection carried so the record cannot reuse stale data.
+        rec.invalidate_differentials();
 
         return true;
     }

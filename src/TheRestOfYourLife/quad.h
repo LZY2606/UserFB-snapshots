@@ -38,6 +38,9 @@ class quad : public hittable {
     aabb bounding_box() const override { return bbox; }
 
     bool hit(const ray& r, interval ray_t, hit_record& rec) const override {
+        // A reused record must never keep differentials from an earlier hit.
+        rec.invalidate_differentials();
+
         auto denom = dot(normal, r.direction());
 
         // No hit if the ray is parallel to the plane.
@@ -63,6 +66,9 @@ class quad : public hittable {
         rec.p = intersection;
         rec.mat = mat;
         rec.set_face_normal(r, normal);
+
+        if (r.has_differentials)
+            fill_differentials(r, rec, denom);
 
         return true;
     }
@@ -105,6 +111,60 @@ class quad : public hittable {
     vec3 normal;
     double D;
     double area;
+
+    void fill_differentials(const ray& r, hit_record& rec, double denom) const {
+        // Plane: normal.P = D. With P(s) = O(s) + t(s) Dvec(s),
+        //     dt/ds = -normal.(dO/ds + t dDvec/ds) / (normal.Dvec)
+        // and dP/ds = dO/ds + t dDvec/ds + (dt/ds) Dvec.
+        // The plane normal is constant, so d(normal)/ds = 0 on both ray sides.
+        // The local coordinates are linear in P:
+        //     u = w.((P-Q) x v),  v = w.(u_vec x (P-Q)).
+
+        rec.has_differentials = true;
+
+        if (!std::isfinite(denom) || std::fabs(denom) < 1e-12) {
+            rec.has_differentials = false;
+            return;
+        }
+
+        vec3 dp[2];
+        double duv[4];
+        const vec3 d_origin[2]    = { r.do_dx, r.do_dy };
+        const vec3 d_direction[2] = { r.dd_dx, r.dd_dy };
+
+        for (int k = 0; k < 2; k++) {
+            const vec3 ray_point_deriv = d_origin[k] + rec.t * d_direction[k];
+            const double t_deriv = -dot(normal, ray_point_deriv) / denom;
+            dp[k] = ray_point_deriv + t_deriv * r.direction();
+
+            const vec3 d_planar = dp[k];
+            duv[2*k]     = dot(w, cross(d_planar, v));
+            duv[2*k + 1] = dot(w, cross(u, d_planar));
+        }
+
+        if (!all_finite(dp[0]) || !all_finite(dp[1])
+            || !std::isfinite(duv[0]) || !std::isfinite(duv[1])
+            || !std::isfinite(duv[2]) || !std::isfinite(duv[3])) {
+            rec.invalidate_differentials();
+            return;
+        }
+
+        rec.dpdx = dp[0];
+        rec.dpdy = dp[1];
+        rec.dndx = vec3(0,0,0);
+        rec.dndy = vec3(0,0,0);
+
+        rec.uv_footprint.valid = true;
+        rec.uv_footprint.dudx = duv[0];
+        rec.uv_footprint.dvdx = duv[1];
+        rec.uv_footprint.dudy = duv[2];
+        rec.uv_footprint.dvdy = duv[3];
+    }
+
+    static bool all_finite(const vec3& x) {
+        return std::isfinite(x.x()) && std::isfinite(x.y())
+            && std::isfinite(x.z());
+    }
 };
 
 

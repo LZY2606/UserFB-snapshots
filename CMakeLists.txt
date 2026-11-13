@@ -73,6 +73,7 @@ set ( SOURCE_REST_OF_YOUR_LIFE
   src/TheRestOfYourLife/rtweekend.h
   src/TheRestOfYourLife/sphere.h
   src/TheRestOfYourLife/texture.h
+  src/TheRestOfYourLife/texture_footprint.h
   src/TheRestOfYourLife/vec3.h
 )
 
