@@ -108,19 +108,26 @@ static inline bool inst_is_test_b(uint32_t instr) {
 }
 
 struct relo_ctx_t {
-  addr_t cursor;
+  // Instruction fetch only ever reads from `buffer`. `origin->addr()` is the
+  // virtual address of the same instructions inside the image and is used
+  // exclusively for PC-relative target computation; it is never dereferenced.
+  uint8_t *buffer;
+  uint32_t origin_offset;
+  uint32_t preferred_size;
   uint32_t relocated_insn_count;
 
   CodeMemBlock *origin;
   CodeMemBlock relocated{};
   CodeMemBuffer *relocated_buffer;
 
-  explicit relo_ctx_t(MemBlock *origin) : origin(origin) {
-    cursor = origin->addr();
+  relo_ctx_t(void *in_buffer, MemBlock *origin) : origin(origin) {
+    buffer = (uint8_t *)in_buffer;
+    origin_offset = 0;
+    preferred_size = origin->size;
   }
 
   uint32_t preferred_relo_size() {
-    return origin->size;
+    return preferred_size;
   }
 
   void correct_final_relo_size() {
@@ -128,7 +135,7 @@ struct relo_ctx_t {
   }
 
   uint32_t relo_size() {
-    return (uintptr_t)cursor - origin->addr();
+    return origin_offset;
   }
 
   addr_t origin_start() {
@@ -136,11 +143,21 @@ struct relo_ctx_t {
   }
 
   addr_t origin_cursor() {
-    return origin->addr() + relo_size();
+    return origin->addr() + origin_offset;
   }
 
   uint32_t origin_off() {
-    return (uintptr_t)cursor - origin->addr();
+    return origin_offset;
+  }
+
+  uint32_t fetch_next_insn() {
+    uint32_t inst;
+    memcpy(&inst, buffer + origin_offset, sizeof(inst));
+    return inst;
+  }
+
+  void advance_origin() {
+    origin_offset += sizeof(uint32_t);
   }
 
   addr_t relocated_start() {
@@ -164,6 +181,15 @@ struct relo_ctx_t {
 
 #define DEFINE_DATA_LABEL(data, name) auto name##_data_label = _ createDataLabel(data);
 
+// Encode a "load/store register (unsigned offset)" instruction with offset #0
+// from `rn`. `op` selects the access class: general-purpose vs SIMD&FP register,
+// the access width and the sign-extension behavior. This is what lets a literal
+// load keep its original register class instead of being degraded to a 64-bit
+// general-purpose load.
+static inline uint32_t encode_load_store_unsigned_offset(LoadStoreOp op, CPURegister rt, Register rn) {
+  return LoadStoreUnsignedOffsetFixed | static_cast<uint32_t>(op) | Rn(rn) | Rt(rt);
+}
+
 int relo_ctx_t::relocate(bool branch) {
   TurboAssembler turbo_assembler_;
 #undef _
@@ -174,7 +200,7 @@ int relo_ctx_t::relocate(bool branch) {
   while (relo_size() < preferred_relo_size()) {
     record_relo_start();
 
-    uint32_t inst = *(uint32_t *)origin_cursor();
+    uint32_t inst = fetch_next_insn();
     if (inst_is_b_bl(inst)) {
       DEBUG_LOG("%d:relo <b_bl> at %p", relocated_insn_count++, origin_cursor());
 
@@ -198,16 +224,57 @@ int relo_ctx_t::relocate(bool branch) {
 
       int rt = decode_rt(inst);
       char opc = bits(inst, 30, 31);
+      bool v = bit(inst, 26);
+
+      // Reproduce the original access class: V selects general-purpose vs
+      // SIMD&FP registers, opc selects the width / sign extension / prefetch.
+      // Rt is passed through untouched so Rt=31 keeps its original meaning
+      // (XZR/WZR for general registers, V31 for SIMD&FP registers).
+      uint32_t load_inst;
+      if (!v) {
+        switch (opc) {
+        case 0b00: // LDR Wt: 32-bit load, writes zero-extend into the 64-bit register
+          load_inst = encode_load_store_unsigned_offset(OP_W(LDR), W(rt), TMP_REG_0);
+          break;
+        case 0b01: // LDR Xt: 64-bit load
+          load_inst = encode_load_store_unsigned_offset(OP_X(LDR), X(rt), TMP_REG_0);
+          break;
+        case 0b10: // LDRSW Xt: 32-bit signed load, sign-extend into 64 bits
+          load_inst = encode_load_store_unsigned_offset(OP(LDRSW), X(rt), TMP_REG_0);
+          break;
+        default: // PRFM: keep the prefetch hint, never turn it into a real load
+          load_inst = encode_load_store_unsigned_offset(OP(PRFM), X(rt), TMP_REG_0);
+          break;
+        }
+      } else {
+        // Rt=31 is V31 here, a real SIMD&FP destination. The scalar widths
+        // zero the upper part of the 128-bit register, and LDR Q fills it all.
+        CPURegister vt = CPURegister::Create(rt, 32, CPURegister::kSIMD_FP_Register_32);
+        LoadStoreOp vop = OP_S(LDR);
+        switch (opc) {
+        case 0b00: // LDR St
+          break;
+        case 0b01: // LDR Dt
+          vt = CPURegister::Create(rt, 64, CPURegister::kSIMD_FP_Register_64);
+          vop = OP_D(LDR);
+          break;
+        case 0b10: // LDR Qt
+          vt = CPURegister::Create(rt, 128, CPURegister::kSIMD_FP_Register_128);
+          vop = OP_Q(LDR);
+          break;
+        default:
+          UNREACHABLE();
+          break;
+        }
+        load_inst = encode_load_store_unsigned_offset(vop, vt, TMP_REG_0);
+      }
 
       {
+        // Materialize the *original* data address at run time; the loaded
+        // value is never baked into a constant pool here, so a second
+        // execution observes whatever the data holds then.
         _ Mov(TMP_REG_0, dst);
-        if (opc == 0b00)
-          _ ldr(W(rt), MemOperand(TMP_REG_0, 0));
-        else if (opc == 0b01)
-          _ ldr(X(rt), MemOperand(TMP_REG_0, 0));
-        else {
-          UNIMPLEMENTED();
-        }
+        _ Emit(load_inst);
       }
     } else if (inst_is_adr(inst)) {
       DEBUG_LOG("%d:relo <adr> at %p", relocated_insn_count++, origin_cursor());
@@ -316,7 +383,7 @@ int relo_ctx_t::relocate(bool branch) {
       _ Emit(inst);
     }
 
-    this->cursor += sizeof(uint32_t);
+    this->advance_origin();
   }
 
   correct_final_relo_size();
@@ -334,7 +401,7 @@ int relo_ctx_t::relocate(bool branch) {
 }
 
 void GenRelocateCode(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
-  relo_ctx_t ctx(origin);
+  relo_ctx_t ctx(buffer, origin);
   ctx.relocate(branch);
   *relocated = ctx.relocated;
 }
