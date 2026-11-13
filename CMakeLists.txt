@@ -63,6 +63,8 @@ set ( SOURCE_REST_OF_YOUR_LIFE
   src/TheRestOfYourLife/hittable.h
   src/TheRestOfYourLife/hittable_list.h
   src/TheRestOfYourLife/interval.h
+  src/TheRestOfYourLife/light_path_expression.h
+  src/TheRestOfYourLife/light_path_expression.cpp
   src/TheRestOfYourLife/material.h
   src/TheRestOfYourLife/onb.h
   src/TheRestOfYourLife/pdf.h

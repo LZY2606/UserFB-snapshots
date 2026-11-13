@@ -1,0 +1,12 @@
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/inOneWeekend.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/theNextWeek.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/theRestOfYourLife.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/cos_cubed.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/cos_density.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/integrate_x_sq.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/pi.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/estimate_halfway.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/sphere_importance.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/sphere_plot.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Y1099/attempts/20261113T180501282302Z/repo/.build/cmake-check/CMakeFiles/rebuild_cache.dir

@@ -16,12 +16,24 @@
 #include "texture.h"
 
 
+// Light path expression event letters for scattering events. A material sets
+// scatter_record::event in scatter(); a custom material that leaves the field
+// untouched keeps the default 'D' (diffuse) classification.
+const char LPE_EVENT_DIFFUSE  = 'D';
+const char LPE_EVENT_SPECULAR = 'S';
+const char LPE_EVENT_TRANSMIT = 'T';
+const char LPE_EVENT_VOLUME   = 'V';
+
+
 class scatter_record {
   public:
     color attenuation;
     shared_ptr<pdf> pdf_ptr;
     bool skip_pdf;
     ray skip_pdf_ray;
+    char event;  // Light path event letter produced by this scatter (default D)
+
+    scatter_record() : skip_pdf(false), skip_pdf_ray(), event(LPE_EVENT_DIFFUSE) {}
 };
 
 
@@ -80,6 +92,8 @@ class metal : public material {
         srec.attenuation = albedo;
         srec.pdf_ptr = nullptr;
         srec.skip_pdf = true;
+        // Metal is a specular reflection, including the fuzzed variant.
+        srec.event = LPE_EVENT_SPECULAR;
         srec.skip_pdf_ray = ray(rec.p, reflected, r_in.time());
 
         return true;
@@ -108,10 +122,15 @@ class dielectric : public material {
         bool cannot_refract = ri * sin_theta > 1.0;
         vec3 direction;
 
-        if (cannot_refract || reflectance(cos_theta, ri) > random_double())
+        // Label the event from the branch actually taken: total internal
+        // reflection (and the Schlick branch) is 'S', refraction is 'T'.
+        if (cannot_refract || reflectance(cos_theta, ri) > random_double()) {
             direction = reflect(unit_direction, rec.normal);
-        else
+            srec.event = LPE_EVENT_SPECULAR;
+        } else {
             direction = refract(unit_direction, rec.normal, ri);
+            srec.event = LPE_EVENT_TRANSMIT;
+        }
 
         srec.skip_pdf_ray = ray(rec.p, direction, r_in.time());
         return true;
@@ -157,6 +176,7 @@ class isotropic : public material {
         srec.attenuation = tex->value(rec.u, rec.v, rec.p);
         srec.pdf_ptr = make_shared<sphere_pdf>();
         srec.skip_pdf = false;
+        srec.event = LPE_EVENT_VOLUME;
         return true;
     }
 

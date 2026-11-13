@@ -95,14 +95,18 @@ class aabb {
     }
 };
 
+// Out-of-class static definitions live in a single translation unit; TUs that
+// define RTWEEKEND_NO_HEADER_DEFINITIONS rely on the owning TU for them.
+#ifndef RTWEEKEND_NO_HEADER_DEFINITIONS
 const aabb aabb::empty    = aabb(interval::empty,    interval::empty,    interval::empty);
 const aabb aabb::universe = aabb(interval::universe, interval::universe, interval::universe);
+#endif
 
-aabb operator+(const aabb& bbox, const vec3& offset) {
+inline aabb operator+(const aabb& bbox, const vec3& offset) {
     return aabb(bbox.x + offset.x(), bbox.y + offset.y(), bbox.z + offset.z());
 }
 
-aabb operator+(const vec3& offset, const aabb& bbox) {
+inline aabb operator+(const vec3& offset, const aabb& bbox) {
     return bbox + offset;
 }
 

@@ -14,11 +14,22 @@
     #pragma warning (push, 0)
 #endif
 
+// The stb implementation is emitted in one translation unit only; TUs that
+// define RTWEEKEND_NO_HEADER_DEFINITIONS just get the declarations. The
+// allocation macros are supplied here either way, since stb only defines them
+// itself inside the implementation section but rtw_image uses STBI_FREE.
+#include <cstdlib>
+#ifndef STBI_MALLOC
+#define STBI_MALLOC(sz)       std::malloc(sz)
+#define STBI_REALLOC(p, newsz) std::realloc(p, newsz)
+#define STBI_FREE(p)          std::free(p)
+#endif
+#ifndef RTWEEKEND_NO_HEADER_DEFINITIONS
 #define STB_IMAGE_IMPLEMENTATION
+#endif
 #define STBI_FAILURE_USERMSG
 #include "external/stb_image.h"
 
-#include <cstdlib>
 #include <iostream>
 
 

@@ -50,14 +50,19 @@ class interval {
     static const interval empty, universe;
 };
 
+// Out-of-class static definitions are emitted by exactly one translation unit
+// (the one that does not define RTWEEKEND_NO_HEADER_DEFINITIONS), so the header
+// can be included from several TUs in one program.
+#ifndef RTWEEKEND_NO_HEADER_DEFINITIONS
 const interval interval::empty    = interval(+infinity, -infinity);
 const interval interval::universe = interval(-infinity, +infinity);
+#endif
 
-interval operator+(const interval& ival, double displacement) {
+inline interval operator+(const interval& ival, double displacement) {
     return interval(ival.min + displacement, ival.max + displacement);
 }
 
-interval operator+(double displacement, const interval& ival) {
+inline interval operator+(double displacement, const interval& ival) {
     return ival + displacement;
 }
 
