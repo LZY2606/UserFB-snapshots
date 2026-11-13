@@ -48,10 +48,16 @@ public:
         unsigned int flags;
         const char* constantBufferPrefix;
 
+        // When enabled, derivative uniformity is validated before any code is
+        // generated and generation fails rather than emitting a shader which
+        // may use derivative operations in divergent control flow.
+        bool checkDerivativeUniformity;
+
         Options()
         {
             flags = 0;
             constantBufferPrefix = "";
+            checkDerivativeUniformity = false;
         }
     };
 

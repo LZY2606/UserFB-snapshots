@@ -10,6 +10,7 @@
 #include "GLSLGenerator.h"
 #include "HLSLParser.h"
 #include "HLSLTree.h"
+#include "DerivativeUniformity.h"
 
 //#include "Engine/String.h"
 //#include "Engine/Log.h"
@@ -17,6 +18,7 @@
 
 #include <stdarg.h>
 #include <string.h>
+#include <vector>
 
 namespace M4
 {
@@ -185,6 +187,37 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     {
         Error("Entry point '%s' doesn't exist", m_entryName);
         return false;
+    }
+
+    // Run the optional derivative uniformity check before emitting anything,
+    // so a failed validation never leaves a half-written shader behind.
+    if (m_options.checkDerivativeUniformity)
+    {
+        std::vector<DerivativeDiagnostic> diagnostics;
+        if (!ValidateDerivativeUniformity(m_tree, m_entryName, diagnostics))
+        {
+            for (size_t i = 0; i < diagnostics.size(); ++i)
+            {
+                const DerivativeDiagnostic& diagnostic = diagnostics[i];
+                if (diagnostic.type == DerivativeDiagnostic_Unsupported)
+                {
+                    Error("Derivative uniformity analysis unsupported at %s:%d: %s\n",
+                          diagnostic.fileName ? diagnostic.fileName : m_entryName,
+                          diagnostic.line,
+                          diagnostic.message ? diagnostic.message : "unsupported construct");
+                }
+                else
+                {
+                    Error("Derivative operation at %s:%d is in divergent control flow "
+                          "(condition at %s:%d)\n",
+                          diagnostic.fileName, diagnostic.line,
+                          diagnostic.reasonFileName, diagnostic.reasonLine);
+                }
+            }
+            m_writer.Reset();
+            m_tree = NULL;
+            return false;
+        }
     }
 
     if (m_version == Version_110)
