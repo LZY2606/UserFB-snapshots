@@ -26,6 +26,7 @@
 #include "mlt_factory.h"
 #include "mlt_properties.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -454,6 +455,85 @@ int mlt_animation_get_item( mlt_animation self, mlt_animation_item item, int pos
 		error = 1;
 	}
 	item->frame = position;
+
+	return error;
+}
+
+/** Load an animation item for a fractional position.
+ *
+ * This performs interpolation if there is no keyframe at the \p position.
+ * It behaves like mlt_animation_get_item() when \p position is an integer,
+ * but it evaluates the interpolation curves directly at fractional positions
+ * instead of interpolating between neighboring integer frame evaluations.
+ * \public \memberof mlt_animation_s
+ * \param self an animation
+ * \param item an already allocated animation item that will be filled in
+ * \param position the fractional frame number for the point in time
+ * \return true if there was an error
+ */
+
+int mlt_animation_get_item_at( mlt_animation self, mlt_animation_item item, double position )
+{
+	if (!self || !item) return 1;
+
+	int error = 0;
+	// Need to find the nearest keyframe to the position specified
+	animation_node node = self->nodes;
+
+	// Iterate through the keyframes until we reach last or have
+	while ( node && node->next && position >= node->next->item.frame )
+		node = node->next;
+
+	if ( node )
+	{
+		item->keyframe_type = node->item.keyframe_type;
+
+		// Position is before the first keyframe.
+		if ( position < node->item.frame )
+		{
+			item->is_key = 0;
+			if ( item->property )
+				mlt_property_pass( item->property, node->item.property );
+		}
+		// Item exists.
+		else if ( position == node->item.frame )
+		{
+			item->is_key = node->item.is_key;
+			if ( item->property )
+				mlt_property_pass( item->property, node->item.property );
+		}
+		// Position is after the last keyframe.
+		else if ( !node->next )
+		{
+			item->is_key = 0;
+			if ( item->property )
+				mlt_property_pass( item->property, node->item.property );
+		}
+		// Interpolation needed.
+		else
+		{
+			if ( item->property )
+			{
+				double progress;
+				mlt_property points[4];
+				points[0] = node->prev? node->prev->item.property : node->item.property;
+				points[1] = node->item.property;
+				points[2] = node->next->item.property;
+				points[3] = node->next->next? node->next->next->item.property : node->next->item.property;
+				progress = position - node->item.frame;
+				progress /= node->next->item.frame - node->item.frame;
+				mlt_property_interpolate( item->property, points, progress,
+					self->fps, self->locale, item->keyframe_type );
+			}
+			item->is_key = 0;
+		}
+	}
+	else
+	{
+		item->frame = item->is_key = 0;
+		error = 1;
+	}
+	item->frame = (int) floor( position );
 
 	return error;
 }

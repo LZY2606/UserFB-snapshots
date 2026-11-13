@@ -2608,6 +2608,29 @@ double mlt_properties_anim_get_double( mlt_properties self, const char *name, in
 	return value == NULL ? 0.0 : mlt_property_anim_get_double( value, fps, list->locale, position, length );
 }
 
+/** Get a real number associated to the name at a fractional frame position.
+ *
+ * This evaluates the animation directly at \p position, which may be
+ * fractional. When \p position is an integer the result is the same as
+ * mlt_properties_anim_get_double().
+ * \public \memberof mlt_properties_s
+ * \param self a properties list
+ * \param name the property to get
+ * \param position the frame number, which may be fractional
+ * \param length the maximum number of frames when interpreting negative keyframe times,
+ *  <=0 if you don't care or need that
+ * \return the real number, 0 if not found (which may also be a legitimate value)
+ */
+
+double mlt_properties_anim_get_double_at( mlt_properties self, const char *name, double position, int length )
+{
+	mlt_profile profile = mlt_properties_get_data( self, "_profile", NULL );
+	double fps = mlt_profile_fps( profile );
+	property_list *list = self->local;
+	mlt_property value = mlt_properties_find( self, name );
+	return value == NULL ? 0.0 : mlt_property_anim_get_double_at( value, fps, list->locale, position, length );
+}
+
 /** Set a property to a real number at a frame position.
  *
  * \public \memberof mlt_properties_s

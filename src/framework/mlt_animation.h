@@ -55,6 +55,7 @@ extern int mlt_animation_get_length( mlt_animation self );
 extern void mlt_animation_set_length( mlt_animation self, int length );
 extern int mlt_animation_parse_item( mlt_animation self, mlt_animation_item item, const char *data );
 extern int mlt_animation_get_item( mlt_animation self, mlt_animation_item item, int position );
+extern int mlt_animation_get_item_at( mlt_animation self, mlt_animation_item item, double position );
 extern int mlt_animation_insert( mlt_animation self, mlt_animation_item item );
 extern int mlt_animation_remove( mlt_animation self, int position );
 extern void mlt_animation_interpolate( mlt_animation self );

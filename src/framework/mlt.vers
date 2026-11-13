@@ -636,3 +636,10 @@ MLT_7.6.0 {
     mlt_properties_copy;
     mlt_slices_size_slice;
 } MLT_7.4.0;
+
+MLT_7.7.0 {
+  global:
+    mlt_animation_get_item_at;
+    mlt_property_anim_get_double_at;
+    mlt_properties_anim_get_double_at;
+} MLT_7.6.0;

@@ -63,3 +63,20 @@ parameters:
     type: boolean
     default: 0
     mutable: yes
+
+  - identifier: sample_curve
+    title: Sample Curve
+    type: string
+    mutable: yes
+    description: >
+      An animation keyframe string (for example "0=0;10~=1") that gives the
+      mix level of the second frame at every audio sample position. The curve
+      is evaluated at the absolute time of each sample with frame 0 at the
+      transition in point, so non-linear fades are followed within a frame
+      instead of being approximated by a linear ramp across the frame.
+      The evaluated weight is clamped to the range 0 to 1 and the reverse
+      property inverts it. This requires both audio streams to have the same
+      sample rate, channel count, and sample count; it is mutually exclusive
+      with sum and combine, and get_audio fails if they are combined or the
+      formats differ. When not set, the start/end, sum, and combine behavior
+      is unchanged.
