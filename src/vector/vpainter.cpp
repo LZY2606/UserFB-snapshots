@@ -22,6 +22,7 @@
 
 #include "vpainter.h"
 #include <algorithm>
+#include <cstring>
 
 
 V_BEGIN_NAMESPACE
@@ -96,15 +97,36 @@ VPainter::VPainter(VBitmap *buffer)
 {
     begin(buffer);
 }
-bool VPainter::begin(VBitmap *buffer)
+bool VPainter::begin(VBitmap *buffer, bool clearOnBegin)
 {
+    mClearOnBegin = clearOnBegin;
     mBuffer.prepare(buffer);
     mSpanData.init(&mBuffer);
-    // TODO find a better api to clear the surface
-    mBuffer.clear();
+    // Offscreen layer surfaces start from clean pixels. A painter that wraps
+    // a caller owned surface keeps the existing pixels and clears only its
+    // draw region explicitly (see clearDrawRegion).
+    if (mClearOnBegin) mBuffer.clear();
     return true;
 }
 void VPainter::end() {}
+
+void VPainter::clearDrawRegion()
+{
+    const VPoint &offset = mSpanData.mOffset;
+    const VSize  &size = mSpanData.mDrawableSize;
+    if (size.width() <= 0 || size.height() <= 0) return;
+
+    const size_t bytesPerPixel = mBuffer.bytesPerPixel();
+    const size_t rowBytes = size_t(size.width()) * bytesPerPixel;
+    for (int y = 0; y < size.height(); ++y) {
+        // scanLine addresses the full surface, so add the region offset
+        // explicitly; pixels outside the region (including per-row padding)
+        // are never touched.
+        uint8_t *row = mBuffer.scanLine(y + offset.y()) +
+                       size_t(offset.x()) * bytesPerPixel;
+        memset(row, 0, rowBytes);
+    }
+}
 
 void VPainter::setDrawRegion(const VRect &region)
 {
@@ -119,6 +141,27 @@ void VPainter::setBrush(const VBrush &brush)
 void VPainter::setBlendMode(BlendMode mode)
 {
     mSpanData.mBlendMode = mode;
+}
+
+void VPainter::blendLayerSurface(const VBitmap &bitmap, LayerBlendMode mode,
+                                 uint8_t constAlpha)
+{
+    if (!bitmap.valid()) return;
+
+    const VSize  &size = mSpanData.mDrawableSize;
+    if (size.width() <= 0 || size.height() <= 0) return;
+
+    // Offscreen layer surfaces are rendered at the draw region size. Build a
+    // destination view rooted at the region origin: the destination keeps the
+    // full surface stride so per-row padding is preserved byte for byte.
+    if (bitmap.width() != size_t(size.width()) ||
+        bitmap.height() != size_t(size.height()))
+        return;
+
+    uint8_t *origin = reinterpret_cast<uint8_t *>(mSpanData.buffer(0, 0));
+    VBitmap  dstView(origin, size_t(size.width()), size_t(size.height()),
+                     mBuffer.bytesPerLine(), mBuffer.format());
+    blendLayer(dstView, bitmap, mode, constAlpha);
 }
 
 VRect VPainter::clipBoundingRect() const

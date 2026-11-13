@@ -26,6 +26,7 @@
 #include <iterator>
 #include "lottiekeypath.h"
 #include "vbitmap.h"
+#include "vblend.h"
 #include "vpainter.h"
 #include "vraster.h"
 
@@ -203,11 +204,16 @@ bool renderer::Composition::render(const rlottie::Surface &surface)
                int(surface.drawRegionHeight()));
     mRootLayer->preprocess(clip);
 
-    VPainter painter(&mSurface);
+    // The root painter wraps the caller owned buffer, so it must not wipe the
+    // whole surface: clear only the draw region and keep every byte outside
+    // it (including per-row padding) untouched.
+    VPainter painter;
+    painter.begin(&mSurface, /*clearOnBegin=*/false);
     // set sub surface area for drawing.
     painter.setDrawRegion(
         VRect(int(surface.drawRegionPosX()), int(surface.drawRegionPosY()),
               int(surface.drawRegionWidth()), int(surface.drawRegionHeight())));
+    painter.clearDrawRegion();
     mRootLayer->render(&painter, {}, {}, mSurfaceCache);
     painter.end();
     return true;
@@ -256,8 +262,10 @@ void renderer::Mask::preprocess(const VRect &clip)
         mRasterizer.rasterize(mFinalPath, FillRule::Winding, clip);
 }
 
-void renderer::Layer::render(VPainter *painter, const VRle &inheritMask,
-                             const VRle &matteRle, SurfaceCache &)
+void renderer::Layer::paintLayerContent(VPainter *painter,
+                                        const VRle &inheritMask,
+                                        const VRle &matteRle,
+                                        SurfaceCache &cache)
 {
     auto renderlist = renderList();
 
@@ -298,6 +306,49 @@ void renderer::Layer::render(VPainter *painter, const VRle &inheritMask,
             }
         }
     }
+}
+
+void renderer::Layer::render(VPainter *painter, const VRle &inheritMask,
+                             const VRle &matteRle, SurfaceCache &cache)
+{
+    paintLayerContent(painter, inheritMask, matteRle, cache);
+}
+
+LayerBlendMode renderer::Layer::toLayerBlend(model::BlendMode mode)
+{
+    switch (mode) {
+    case model::BlendMode::Multiply:
+        return LayerBlendMode::Multiply;
+    case model::BlendMode::Screen:
+        return LayerBlendMode::Screen;
+    case model::BlendMode::OverLay:
+        return LayerBlendMode::Overlay;
+    default:
+        // Normal and every unknown "bm" value use the Normal fallback.
+        return LayerBlendMode::Normal;
+    }
+}
+
+void renderer::Layer::renderOffscreen(VPainter *painter, const VRle &mask,
+                                      const VRle &matteRle,
+                                      SurfaceCache &cache, uint8_t extraAlpha)
+{
+    // The blend unit is the whole layer content: first form the source image
+    // with the existing in-layer rules, then read the parent backdrop exactly
+    // once at composite time. Offscreen surfaces are always rendered at the
+    // local draw-region size, never using full-surface coordinates.
+    VSize    size = painter->clipBoundingRect().size();
+    VPainter srcPainter;
+    VBitmap  srcBitmap = cache.make_surface(size.width(), size.height());
+    // begin() clears the freshly obtained surface, so a reused cache entry
+    // can never leak pixels from a previous frame into this layer.
+    srcPainter.begin(&srcBitmap);
+    paintLayerContent(&srcPainter, mask, matteRle, cache);
+    srcPainter.end();
+
+    painter->blendLayerSurface(srcBitmap, toLayerBlend(blendMode()),
+                               extraAlpha);
+    cache.release_surface(srcBitmap);
 }
 
 void renderer::LayerMask::preprocess(const VRect &clip)
@@ -551,6 +602,18 @@ void renderer::CompLayer::render(VPainter *painter, const VRle &inheritMask,
 {
     if (vIsZero(combinedAlpha())) return;
 
+    if (hasLayerBlend()) {
+        // The whole precomp content is one blend unit. Complex content is
+        // rendered at full opacity and the layer opacity is applied once at
+        // composite time; non-complex content already carries the opacity in
+        // its child brushes, so it must not be multiplied again.
+        uint8_t extraAlpha = complexContent()
+                                 ? uint8_t(combinedAlpha() * 255.0f)
+                                 : 255;
+        renderOffscreen(painter, inheritMask, matteRle, cache, extraAlpha);
+        return;
+    }
+
     if (vCompare(combinedAlpha(), 1.0)) {
         renderHelper(painter, inheritMask, matteRle, cache);
     } else {
@@ -568,6 +631,14 @@ void renderer::CompLayer::render(VPainter *painter, const VRle &inheritMask,
             renderHelper(painter, inheritMask, matteRle, cache);
         }
     }
+}
+
+void renderer::CompLayer::paintLayerContent(VPainter *painter,
+                                            const VRle &inheritMask,
+                                            const VRle &matteRle,
+                                            SurfaceCache &cache)
+{
+    renderHelper(painter, inheritMask, matteRle, cache);
 }
 
 void renderer::CompLayer::renderHelper(VPainter *    painter,
@@ -676,8 +747,16 @@ void renderer::CompLayer::renderMatteLayer(VPainter *painter, const VRle &mask,
     // 2.3 draw src buffer as mask
     layerPainter.drawBitmap(clip, srcBitmap, clip);
     layerPainter.end();
-    // 3. draw the result buffer into painter
-    painter->drawBitmap(clip, layerBitmap, clip);
+    // 3. draw the result buffer into painter. The matte provider only masks
+    // the content; it is never composited as colored content itself. When the
+    // content layer carries a blend mode, the fully matted source is blended
+    // against the parent backdrop as a single layer unit.
+    if (layer->hasLayerBlend()) {
+        painter->blendLayerSurface(layerBitmap,
+                                   toLayerBlend(layer->blendMode()));
+    } else {
+        painter->drawBitmap(clip, layerBitmap, clip);
+    }
 
     cache.release_surface(srcBitmap);
     cache.release_surface(layerBitmap);
@@ -781,6 +860,20 @@ renderer::DrawableList renderer::SolidLayer::renderList()
     return {&mDrawableList, 1};
 }
 
+void renderer::SolidLayer::render(VPainter *painter, const VRle &inheritMask,
+                                  const VRle &matteRle, SurfaceCache &cache)
+{
+    if (vIsZero(combinedAlpha())) return;
+
+    if (hasLayerBlend()) {
+        // The solid color (including its opacity) is rendered to one source
+        // surface first, then blended as a complete layer unit.
+        renderOffscreen(painter, inheritMask, matteRle, cache);
+        return;
+    }
+    Layer::render(painter, inheritMask, matteRle, cache);
+}
+
 renderer::ImageLayer::ImageLayer(model::Layer *layerData)
     : renderer::Layer(layerData)
 {
@@ -822,6 +915,22 @@ renderer::DrawableList renderer::ImageLayer::renderList()
     if (skipRendering()) return {};
 
     return {&mDrawableList, 1};
+}
+
+void renderer::ImageLayer::render(VPainter *painter, const VRle &inheritMask,
+                                  const VRle &matteRle, SurfaceCache &cache)
+{
+    if (vIsZero(combinedAlpha())) return;
+
+    if (hasLayerBlend()) {
+        // Image layers use the same pixel composite path as every other
+        // layer: the texture (with its opacity already in the texture alpha)
+        // forms one source surface, then the layer blend mode reads the
+        // parent backdrop.
+        renderOffscreen(painter, inheritMask, matteRle, cache);
+        return;
+    }
+    Layer::render(painter, inheritMask, matteRle, cache);
 }
 
 renderer::NullLayer::NullLayer(model::Layer *layerData)
@@ -967,6 +1076,16 @@ void renderer::ShapeLayer::render(VPainter *painter, const VRle &inheritMask,
                                  const VRle &matteRle, SurfaceCache &cache)
 {
     if (vIsZero(combinedAlpha())) return;
+
+    if (hasLayerBlend()) {
+        // Overlapping shapes inside the layer first form one source image
+        // under the normal in-layer rules; only that finished layer is
+        // blended with the backdrop. Render at full content opacity, then
+        // apply the layer opacity exactly once at composite time.
+        renderOffscreen(painter, inheritMask, matteRle, cache,
+                        uint8_t(combinedAlpha() * 255.0f));
+        return;
+    }
 
     if (vCompare(combinedAlpha(), 1.0)) {
         Layer::render(painter, inheritMask, matteRle, cache);

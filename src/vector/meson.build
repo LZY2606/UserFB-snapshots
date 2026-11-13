@@ -7,6 +7,7 @@ source_file = [
     'vdasher.cpp',
     'vbrush.cpp',
     'vbitmap.cpp',
+    'vblend.cpp',
     'vpainter.cpp',
     'vdrawhelper_common.cpp',
     'vdrawhelper.cpp',

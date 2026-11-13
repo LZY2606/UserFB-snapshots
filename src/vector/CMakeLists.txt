@@ -9,6 +9,7 @@ target_sources(rlottie
         "${CMAKE_CURRENT_LIST_DIR}/vdasher.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/vbrush.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/vbitmap.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/vblend.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/vpainter.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/vdrawhelper_common.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/vdrawhelper.cpp"

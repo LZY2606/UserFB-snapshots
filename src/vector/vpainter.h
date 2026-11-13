@@ -27,6 +27,7 @@
 #include "vpoint.h"
 #include "vrle.h"
 #include "vdrawhelper.h"
+#include "vblend.h"
 
 V_BEGIN_NAMESPACE
 
@@ -35,14 +36,27 @@ class VPainter {
 public:
     VPainter() = default;
     explicit VPainter(VBitmap *buffer);
-    bool  begin(VBitmap *buffer);
+    // When clearOnBegin is false the painter keeps the existing surface
+    // pixels instead of wiping the whole bitmap; only the draw region is
+    // cleared separately by the caller when required.
+    bool  begin(VBitmap *buffer, bool clearOnBegin = true);
     void  end();
     void  setDrawRegion(const VRect &region); // sub surface rendering area.
+    // Zero only the current draw region; pixels outside it and per-row
+    // padding are preserved byte for byte.
+    void  clearDrawRegion();
     void  setBrush(const VBrush &brush);
     void  setBlendMode(BlendMode mode);
     void  drawRle(const VPoint &pos, const VRle &rle);
     void  drawRle(const VRle &rle, const VRle &clip);
     VRect clipBoundingRect() const;
+
+    // Composite a fully rendered layer surface with a Lottie layer blend
+    // mode. The source is painted at the painter's draw-region offset and
+    // clipped to the painter region; constAlpha is the single optional
+    // layer opacity applied on top of the already rendered content.
+    void  blendLayerSurface(const VBitmap &bitmap, LayerBlendMode mode,
+                            uint8_t constAlpha = 255);
 
     void  drawBitmap(const VPoint &point, const VBitmap &bitmap, const VRect &source, uint8_t const_alpha = 255);
     void  drawBitmap(const VRect &target, const VBitmap &bitmap, const VRect &source, uint8_t const_alpha = 255);
@@ -53,6 +67,7 @@ private:
                                const VRect &source, uint8_t const_alpha);
     VRasterBuffer mBuffer;
     VSpanData     mSpanData;
+    bool          mClearOnBegin{true};
 };
 
 V_END_NAMESPACE

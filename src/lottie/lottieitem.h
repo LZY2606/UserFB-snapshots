@@ -23,6 +23,7 @@
 #ifndef LOTTIEITEM_H
 #define LOTTIEITEM_H
 
+#include <cstring>
 #include <memory>
 #include <sstream>
 
@@ -96,12 +97,22 @@ public:
         size_t width, size_t height,
         VBitmap::Format format = VBitmap::Format::ARGB32_Premultiplied)
     {
-        if (mCache.empty()) return {width, height, format};
-
-        auto surface = mCache.back();
-        surface.reset(width, height, format);
-
-        mCache.pop_back();
+        VBitmap surface;
+        if (mCache.empty()) {
+            surface = VBitmap(width, height, format);
+        } else {
+            surface = mCache.back();
+            mCache.pop_back();
+            // reset() keeps the storage when the size matches, otherwise it
+            // allocates fresh (uninitialized) memory. Either way the handed
+            // out surface must carry this request's size and clean pixels,
+            // so clear it here in addition to the painter's own clear.
+            surface.reset(width, height, format);
+        }
+        if (surface.valid()) {
+            std::memset(surface.data(), 0,
+                        surface.stride() * surface.height());
+        }
         return surface;
     }
 
@@ -230,6 +241,13 @@ public:
     virtual DrawableList renderList() { return {}; }
     virtual void         render(VPainter *painter, const VRle &mask,
                                 const VRle &matteRle, SurfaceCache &cache);
+    // Lottie "bm" of the layer. Unknown values are normalized to Normal by
+    // the parser, so only Normal/Multiply/Screen/Overlay can appear.
+    model::BlendMode     blendMode() const { return mLayerData->mBlendMode; }
+    bool                 hasLayerBlend() const
+    {
+        return blendMode() != model::BlendMode::Normal;
+    }
     bool                 hasMatte()
     {
         if (mLayerData->mMatteType == model::MatteType::None) return false;
@@ -249,6 +267,19 @@ public:
 protected:
     virtual void   preprocessStage(const VRect &clip) = 0;
     virtual void   updateContent() = 0;
+    // Draws the layer's own content onto the given painter. The base
+    // implementation paints the drawable list; CompLayer overrides it to run
+    // its child-layer composition (renderHelper). Used by the offscreen path
+    // so a blend mode always wraps the complete layer content.
+    virtual void   paintLayerContent(VPainter *painter, const VRle &mask,
+                                     const VRle &matteRle, SurfaceCache &cache);
+    // Render this layer's own content into a clean offscreen surface sized to
+    // the painter region, then composite it once with the layer blend mode.
+    // extraAlpha is the single layer opacity applied at composite time.
+    void           renderOffscreen(VPainter *painter, const VRle &mask,
+                                   const VRle &matteRle, SurfaceCache &cache,
+                                   uint8_t extraAlpha = 255);
+    static LayerBlendMode toLayerBlend(model::BlendMode mode);
     inline VMatrix combinedMatrix() const { return mCombinedMatrix; }
     inline int     frameNo() const { return mFrameNo; }
     inline float   combinedAlpha() const { return mCombinedAlpha; }
@@ -290,6 +321,8 @@ protected:
 private:
     void renderHelper(VPainter *painter, const VRle &mask, const VRle &matteRle,
                       SurfaceCache &cache);
+    void paintLayerContent(VPainter *painter, const VRle &mask,
+                           const VRle &matteRle, SurfaceCache &cache) final;
     void renderMatteLayer(VPainter *painter, const VRle &inheritMask,
                           const VRle &matteRle, Layer *layer, Layer *src,
                           SurfaceCache &cache);
@@ -304,6 +337,8 @@ public:
     explicit SolidLayer(model::Layer *layerData);
     void         buildLayerNode() final;
     DrawableList renderList() final;
+    void         render(VPainter *painter, const VRle &mask,
+                        const VRle &matteRle, SurfaceCache &cache) final;
 
 protected:
     void preprocessStage(const VRect &clip) final;
@@ -349,6 +384,8 @@ public:
     explicit ImageLayer(model::Layer *layerData);
     void         buildLayerNode() final;
     DrawableList renderList() final;
+    void         render(VPainter *painter, const VRle &mask,
+                        const VRle &matteRle, SurfaceCache &cache) final;
 
 protected:
     void preprocessStage(const VRect &clip) final;
