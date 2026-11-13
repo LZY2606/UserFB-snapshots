@@ -4,6 +4,8 @@ Notable changes between releases.
 
 ## Latest
 
+* Add `ReceiveBatch` to send read-only queries as one multipart/mixed POST and decode each application/http sub-response into its own Success/Failure target
+
 ## v1.4.2
 
 * Update Go module dependencies

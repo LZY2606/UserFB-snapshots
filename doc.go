@@ -175,5 +175,34 @@ failureV for non-2XX responses.
 	fmt.Println(issues, githubError, resp, err)
 
 Pass a nil successV or failureV argument to skip JSON decoding into that value.
+
+# Batch
+
+Some APIs accept several read-only queries as one multipart/mixed POST and
+return the sub-responses as application/http parts. Use
+ReceiveBatch(parts []BatchRequest) to send such a batch with the Sling's
+URL, query structs, headers, and Doer. Each BatchRequest carries an ID, a
+same-origin GET or HEAD *http.Request without a body, and Success/Failure
+decode targets.
+
+	result, err := base.New().Path("batch").ReceiveBatch([]sling.BatchRequest{
+	    {ID: "repo", Request: repoReq, Success: repo, Failure: repoErr},
+	    {ID: "issue", Request: issueReq, Success: issue, Failure: issueErr},
+	})
+
+The returned *BatchResult holds the outer response and one BatchPart per
+BatchRequest, in input order, each with its sub-response (status, headers,
+and originating request are inspectable; bodies are consumed and closed for
+you).
+
+There are two distinct error channels. Protocol errors — invalid batch
+definitions, transport failures, a non-2XX outer status, or a malformed
+multipart response (wrong part types, unknown, duplicate, or missing
+Content-IDs, truncation) — make ReceiveBatch return a nil *BatchResult and
+a non-nil error, and no Success/Failure value is modified. Per-item
+outcomes are reported on BatchPart: a non-2XX sub-response is a business
+result decoded into that part's Failure value, and a decode failure is
+recorded only on that part's Err while the remaining parts are still
+processed.
 */
 package sling
