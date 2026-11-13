@@ -1,0 +1,49 @@
+# github.com/abema/go-mp4 v1.5.0
+## explicit; go 1.14
+github.com/abema/go-mp4
+github.com/abema/go-mp4/internal/bitio
+github.com/abema/go-mp4/internal/util
+# github.com/asticode/go-astikit v0.30.0
+## explicit; go 1.13
+github.com/asticode/go-astikit
+# github.com/asticode/go-astits v1.15.0
+## explicit; go 1.13
+github.com/asticode/go-astits
+# github.com/bluenviron/mediacommon/v2 v2.8.3
+## explicit; go 1.25.0
+github.com/bluenviron/mediacommon/v2/internal/mp4
+github.com/bluenviron/mediacommon/v2/pkg/bits
+github.com/bluenviron/mediacommon/v2/pkg/codecs/ac3
+github.com/bluenviron/mediacommon/v2/pkg/codecs/av1
+github.com/bluenviron/mediacommon/v2/pkg/codecs/eac3
+github.com/bluenviron/mediacommon/v2/pkg/codecs/h264
+github.com/bluenviron/mediacommon/v2/pkg/codecs/h265
+github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg1audio
+github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio
+github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4video
+github.com/bluenviron/mediacommon/v2/pkg/codecs/opus
+github.com/bluenviron/mediacommon/v2/pkg/codecs/vp9
+github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4
+github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4/seekablebuffer
+github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs
+github.com/bluenviron/mediacommon/v2/pkg/formats/mpegts
+github.com/bluenviron/mediacommon/v2/pkg/formats/mpegts/codecs
+github.com/bluenviron/mediacommon/v2/pkg/formats/mpegts/substructs
+github.com/bluenviron/mediacommon/v2/pkg/rewindablereader
+# github.com/davecgh/go-spew v1.1.1
+## explicit
+github.com/davecgh/go-spew/spew
+# github.com/google/uuid v1.3.0
+## explicit
+github.com/google/uuid
+# github.com/pmezard/go-difflib v1.0.0
+## explicit
+github.com/pmezard/go-difflib/difflib
+# github.com/stretchr/testify v1.11.1
+## explicit; go 1.17
+github.com/stretchr/testify/assert
+github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/require
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3
