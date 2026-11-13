@@ -37,5 +37,25 @@ Manager by checking the error channel.
 		}
 		// Manager is closed.
 	}()
+
+AutoAttach takes over targets that the browser attaches automatically.
+Targets are paused at startup (waitForDebuggerOnStart), the Init callback
+runs against the paused target, and its scripts are resumed with
+Runtime.runIfWaitingForDebugger before the Ready callback hands over the
+session connection. AutoAttach can only be attempted once per Manager;
+Dial keeps working alongside it.
+
+	err = m.AutoAttach(context.TODO(), session.AutoAttachOptions{
+		Init: func(ctx context.Context, info target.Info, c *cdp.Client) error {
+			// Initialize the target while its scripts are paused.
+			return nil
+		},
+		Ready: func(info target.Info, conn *rpcc.Conn) {
+			// The target is running; conn is its session connection.
+		},
+	})
+	if err != nil {
+		// Handle error.
+	}
 */
 package session

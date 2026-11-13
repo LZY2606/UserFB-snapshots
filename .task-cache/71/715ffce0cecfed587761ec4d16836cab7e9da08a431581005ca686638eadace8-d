@@ -1,0 +1,3 @@
+./command.go
+./domain.go
+./types.go

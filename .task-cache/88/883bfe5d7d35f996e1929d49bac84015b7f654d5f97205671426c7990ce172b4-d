@@ -1,0 +1,6 @@
+./autoattach.go
+./conn.go
+./doc.go
+./manager.go
+./session.go
+./manager_test.go

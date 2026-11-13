@@ -47,10 +47,27 @@ func (ev *testMessenger) Recv() (*target.ReceivedMessageFromTargetReply, error) 
 	return nil, ev.err
 }
 
+type testAttacher struct {
+	*testEventClient
+}
+
+// Ready never fires: the attached event stream is part of the
+// synchronized select but no attached events are produced by this mock.
+// Returning a fresh blocked channel (instead of the blocking
+// testEventClient.Ready) keeps the Manager select parked without
+// occupying a goroutine inside Ready itself.
+func (ev *testAttacher) Ready() <-chan struct{} { return make(chan struct{}) }
+
+func (ev *testAttacher) Recv() (*target.AttachedToTargetReply, error) {
+	return nil, nil
+}
+
 func TestManager_ErrorsAreSentOnErrChan(t *testing.T) {
+	attached := &testAttacher{testEventClient: newTestEventClient()}
 	detached := &testDetacher{testEventClient: newTestEventClient()}
 	message := &testMessenger{testEventClient: newTestEventClient()}
 	ev := &sessionEvents{
+		attached: attached,
 		detached: detached,
 		message:  message,
 	}

@@ -1,0 +1,4 @@
+./command.go
+./domain.go
+./stream_reader.go
+./types.go

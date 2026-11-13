@@ -183,6 +183,40 @@ func run(timeout time.Duration) error {
 
 For more information, consult the [documentation](#documentation).
 
+## Auto-attaching to targets with paused startup
+
+The `session` package can also take over targets that the browser attaches automatically (pages, iframes, workers). With `Manager.AutoAttach`, `Target.setAutoAttach` is enabled with `waitForDebuggerOnStart`, so every related target is paused at startup. The `Init` callback installs the collection script while the target is paused; `Runtime.runIfWaitingForDebugger` is only sent (via the generated `Runtime` client) once `Init` succeeds, after which `Ready` hands over the session connection. The connection is the same lightweight, tunneled connection as `Manager.Dial` returns — no extra websocket and no separate message tunnel.
+
+```go
+manager, err := session.NewManager(cdp.NewClient(conn))
+if err != nil {
+    return err
+}
+defer manager.Close()
+
+go func() {
+    for err := range manager.Err() {
+        log.Println("auto-attach error:", err)
+    }
+}()
+
+err = manager.AutoAttach(ctx, session.AutoAttachOptions{
+    // Runs on the target before its scripts are resumed.
+    Init: func(ctx context.Context, info target.Info, c *cdp.Client) error {
+        _, err := c.Runtime.Evaluate(ctx,
+            runtime.NewEvaluateArgs(`window.__collector = installCollector();`).
+                SetReturnByValue(true))
+        return err
+    },
+    // Runs after Init (and the resume, when required) succeeded.
+    Ready: func(info target.Info, conn *rpcc.Conn) {
+        // The target connection is now fully operational; keep it for
+        // the lifetime of the target. Closing it detaches the target.
+        go collect(cdp.NewClient(conn))
+    },
+})
+```
+
 ## Acknowledgements
 
 The Go implementation of gRPC ([grpc-go](https://github.com/grpc/grpc-go)) has been a source of inspiration for some of the design decisions made in the `cdp` and `rpcc` packages. Some ideas have also been borrowed from the `net/rpc` package from the standard library.

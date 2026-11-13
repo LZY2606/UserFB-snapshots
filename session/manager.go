@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mafredri/cdp"
@@ -19,6 +21,53 @@ type Manager struct {
 	sC   chan *session
 	done chan error
 	errC chan error
+	// errSink funnels auto-attach errors from takeover goroutines
+	// into errC. It serializes shutdown so a publisher never writes to
+	// errC after the watch loop has closed it.
+	errSink *errSink
+
+	// autoBeginMu guards the at-most-once lifecycle of AutoAttach. The
+	// attempt counts as started while the setAutoAttach command is in
+	// flight, so concurrent and repeated calls fail with
+	// ErrAutoAttachActive.
+	autoBeginMu sync.Mutex
+	autoBegun   bool
+	// auto holds the auto-attach coordinator once AutoAttach has been
+	// called. It is installed before the command is sent so that
+	// attachedToTarget events arriving ahead of the reply are captured.
+	auto atomic.Pointer[autoAttach]
+
+	// dialedMu guards dialed, the sessions established through
+	// Manager.Dial. Their attachedToTarget events must be ignored by
+	// auto-attach so that a manually dialed target is not taken over
+	// twice.
+	dialedMu sync.Mutex
+	dialed   map[target.SessionID]struct{}
+}
+
+// markDialed records a session created by Manager.Dial.
+func (m *Manager) markDialed(id target.SessionID) {
+	m.dialedMu.Lock()
+	if m.dialed == nil {
+		m.dialed = make(map[target.SessionID]struct{})
+	}
+	m.dialed[id] = struct{}{}
+	m.dialedMu.Unlock()
+}
+
+// isDialed reports whether id belongs to a Manager.Dial session.
+func (m *Manager) isDialed(id target.SessionID) bool {
+	m.dialedMu.Lock()
+	defer m.dialedMu.Unlock()
+	_, ok := m.dialed[id]
+	return ok
+}
+
+// unmarkDialed removes a Manager.Dial session record.
+func (m *Manager) unmarkDialed(id target.SessionID) {
+	m.dialedMu.Lock()
+	delete(m.dialed, id)
+	m.dialedMu.Unlock()
 }
 
 const (
@@ -47,6 +96,9 @@ func (m *Manager) Dial(ctx context.Context, id target.ID) (*rpcc.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The browser emits attachedToTarget for manual attaches as well;
+	// record the session so auto-attach does not take it over again.
+	m.markDialed(s.ID)
 	select {
 	case m.sC <- s:
 	case <-m.ctx.Done():
@@ -64,6 +116,38 @@ func (m *Manager) Close() error {
 		return errors.Wrapf(<-m.done, "session.Manager: close failed")
 	}
 	return nil
+}
+
+// errSink delivers background errors (from auto-attach takeover
+// goroutines) onto the Manager error channel without ever blocking and
+// without racing the channel close performed by the watch loop.
+type errSink struct {
+	mu   sync.Mutex
+	done bool
+	ch   chan<- error
+}
+
+func newErrSink(ch chan<- error) *errSink { return &errSink{ch: ch} }
+
+// send delivers an error unless the sink has been shut down.
+func (s *errSink) send(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return
+	}
+	select {
+	case s.ch <- err:
+	default:
+	}
+}
+
+// shutdown stops accepting errors. It must be called (from the watch
+// loop) before errC is closed.
+func (s *errSink) shutdown() {
+	s.mu.Lock()
+	s.done = true
+	s.mu.Unlock()
 }
 
 func (m *Manager) watch(ev *sessionEvents, created <-chan *session, done, errC chan<- error) {
@@ -94,6 +178,10 @@ func (m *Manager) watch(ev *sessionEvents, created <-chan *session, done, errC c
 			// TODO(mafredri): Speed up by closing sessions concurrently.
 			err = append(err, ss.Close())
 		}
+		if m.errSink != nil {
+			// Stop background error publishers before closing errC.
+			m.errSink.shutdown()
+		}
 		done <- errors.Merge(err...)
 		close(done)
 		close(errC)
@@ -118,9 +206,39 @@ func (m *Manager) watch(ev *sessionEvents, created <-chan *session, done, errC c
 				continue
 			}
 
+			if h := m.auto.Load(); h != nil {
+				h.detached(ev.SessionID)
+			}
+			m.unmarkDialed(ev.SessionID)
+
 			if s, ok := sessions[ev.SessionID]; ok {
 				delete(sessions, s.ID)
 				s.Close()
+			}
+
+		case <-ev.attached.Ready():
+			attachedEvent, err := ev.attached.Recv()
+			if err != nil {
+				if isClosing(err) {
+					return
+				}
+				err = errors.Wrapf(err, "Manager.watch: error receiving attached event")
+				sendOrDiscardErr(errC, err)
+				continue
+			}
+
+			if m.isDialed(attachedEvent.SessionID) {
+				// This session was established through Manager.Dial,
+				// which registered it directly. Auto-attach must not
+				// take it over a second time.
+				continue
+			}
+
+			// The attached stream is synchronized with the other
+			// session event streams, so events keep their arrival
+			// order relative to messages and detaches.
+			if h := m.auto.Load(); h != nil {
+				h.attached(attachedEvent)
 			}
 
 		case <-ev.message.Ready():
@@ -176,6 +294,7 @@ func NewManager(c *cdp.Client) (*Manager, error) {
 		sC:   make(chan *session),
 		errC: make(chan error, 1),
 	}
+	m.errSink = newErrSink(m.errC)
 
 	// TODO(mafredri): Inherit the context from rpcc.Conn in cdp.Client.
 	// cdp.Client does not yet expose the context, nor rpcc.Conn.
@@ -194,6 +313,7 @@ func NewManager(c *cdp.Client) (*Manager, error) {
 }
 
 type sessionEvents struct {
+	attached target.AttachedToTargetClient
 	detached target.DetachedFromTargetClient
 	message  target.ReceivedMessageFromTargetClient
 }
@@ -206,6 +326,14 @@ func newSessionEvents(ctx context.Context, c *cdp.Client) (events *sessionEvents
 		}
 	}()
 
+	// The attachedToTarget stream is created up-front (and synchronized
+	// with the other streams) even though it only carries events once
+	// AutoAttach has been enabled. Creating it on demand would force a
+	// second Sync group, breaking event ordering across the streams.
+	ev.attached, err = c.Target.AttachedToTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
 	ev.detached, err = c.Target.DetachedFromTarget(ctx)
 	if err != nil {
 		return nil, err
@@ -215,7 +343,7 @@ func newSessionEvents(ctx context.Context, c *cdp.Client) (events *sessionEvents
 		return nil, err
 	}
 
-	err = cdp.Sync(ev.detached, ev.message)
+	err = cdp.Sync(ev.attached, ev.detached, ev.message)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +355,7 @@ func (ev *sessionEvents) Close() (err error) {
 	for _, c := range []interface {
 		Close() error
 	}{
+		ev.attached,
 		ev.detached,
 		ev.message,
 	} {

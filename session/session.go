@@ -98,9 +98,20 @@ func dial(ctx context.Context, id target.ID, tc *cdp.Client, detachTimeout time.
 		return nil, err
 	}
 
+	return newSession(ctx, reply.SessionID, id, tc, detachTimeout)
+}
+
+// newSession creates a lightweight RPC connection for a target session
+// that is already attached on the browser side (sessionID was assigned
+// by the browser). No AttachToTarget command is sent; closing the
+// connection invokes DetachFromTarget instead.
+func newSession(ctx context.Context, sessionID target.SessionID, targetID target.ID, tc *cdp.Client, detachTimeout time.Duration) (s *session, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s = &session{
-		TargetID: id,
-		ID:       reply.SessionID,
+		TargetID: targetID,
+		ID:       sessionID,
 		recvC:    make(chan []byte, 1),
 		init:     make(chan struct{}),
 		send: func(data []byte) error {
