@@ -1,0 +1,137 @@
+{
+  "repo": "https://github.com/Signalsmith-Audio/linear",
+  "commit": "d939a7df95cf096953ca0cc2962c0f4de0cc622c",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "vendor/linear/.gitignore",
+      "upstream_path": ".gitignore",
+      "sha256": "6b79eed3359c2e78489c9a976810f9dcd54ad5c195026676d934ff136efa1934"
+    },
+    {
+      "path": "vendor/linear/CMakeLists.txt",
+      "upstream_path": "CMakeLists.txt",
+      "sha256": "7a5279ba1da51dafc467ce394b4a3528864dd13e7cb78cde78b956217bb24e90"
+    },
+    {
+      "path": "vendor/linear/LICENSE.txt",
+      "upstream_path": "LICENSE.txt",
+      "sha256": "072b5e9eb5b22880bdf6256324654cf3ce53dba828edb911921121e1be09d9c3"
+    },
+    {
+      "path": "vendor/linear/README.md",
+      "upstream_path": "README.md",
+      "sha256": "4cdc3a2a10f6beb5b3c6ca63d27e0daadaba488fe6e13b73045e755ba190ed43"
+    },
+    {
+      "path": "vendor/linear/SUPPORT.txt",
+      "upstream_path": "SUPPORT.txt",
+      "sha256": "d884c47494ce0478b9d01db0103e06c54756f315c68f110486f8219e2e4472fb"
+    },
+    {
+      "path": "vendor/linear/fft.h",
+      "upstream_path": "fft.h",
+      "sha256": "e78d5f17be92c71687ef3ad7de1ccaaa61870b2b5e612ab6046c7151e7074fd5"
+    },
+    {
+      "path": "vendor/linear/include/signalsmith-linear/fft.h",
+      "upstream_path": "include/signalsmith-linear/fft.h",
+      "sha256": "98e7e64093b6fc8ccbba31f710370d5548243bad35beb489e8282de4dc25d76d"
+    },
+    {
+      "path": "vendor/linear/include/signalsmith-linear/linear.h",
+      "upstream_path": "include/signalsmith-linear/linear.h",
+      "sha256": "5c5d55810af0b7f8c8fe27ef1a36a87a4529f95cbebbb5e49f39845f6a2a0d5e"
+    },
+    {
+      "path": "vendor/linear/include/signalsmith-linear/stft.h",
+      "upstream_path": "include/signalsmith-linear/stft.h",
+      "sha256": "a323656e5ed80b271262106ea782d6150ef2f1c8b2f3c5896552b90b2ad6c17e"
+    },
+    {
+      "path": "vendor/linear/linear.h",
+      "upstream_path": "linear.h",
+      "sha256": "9f419baefff89b3a345f286c4646eeba72c04a8bb43bac927b56ec11ef3b305a"
+    },
+    {
+      "path": "vendor/linear/platform/fft-accelerate.h",
+      "upstream_path": "platform/fft-accelerate.h",
+      "sha256": "c670864cf5edf523533ab32b4e3e75ac1d0ed821785ca5b8be427bf9a3fe44c5"
+    },
+    {
+      "path": "vendor/linear/platform/fft-ipp.h",
+      "upstream_path": "platform/fft-ipp.h",
+      "sha256": "5d04e3be7f78372a9a1b1073bfa2f072f1392be8af5127d1a8697e41de0e9f82"
+    },
+    {
+      "path": "vendor/linear/platform/fft-pffft-double.h",
+      "upstream_path": "platform/fft-pffft-double.h",
+      "sha256": "42394511b8d51d4b5406e865ac429e8267b7d36aab241bd61c09778db3941fa4"
+    },
+    {
+      "path": "vendor/linear/platform/fft-pffft.h",
+      "upstream_path": "platform/fft-pffft.h",
+      "sha256": "542f3000852a9bff6d0f5e1b98cf71a650ffcc8c5a7a2a5d46238fffcfae8b21"
+    },
+    {
+      "path": "vendor/linear/platform/linear-accelerate.h",
+      "upstream_path": "platform/linear-accelerate.h",
+      "sha256": "f3490b580376416b5ebbcf24a8d911d9b442c9f91bbb2fdbfe8318c147f29cf4"
+    },
+    {
+      "path": "vendor/linear/stft.h",
+      "upstream_path": "stft.h",
+      "sha256": "74678f69cd235f6af7b12bbadf6c126458d17f923c75e8f9f7fc9f7fe2c418ee"
+    },
+    {
+      "path": "vendor/linear/tests/CMakeLists.txt",
+      "upstream_path": "tests/CMakeLists.txt",
+      "sha256": "90b503566e1f020c007aeccfc2e6b7576e69486a98cbfccb3a811ac088654916"
+    },
+    {
+      "path": "vendor/linear/tests/Makefile",
+      "upstream_path": "tests/Makefile",
+      "sha256": "a0209811b2709574ee68e00eccb4393743285a90c3d5f302c9cb863c988f179e"
+    },
+    {
+      "path": "vendor/linear/tests/main.cpp",
+      "upstream_path": "tests/main.cpp",
+      "sha256": "cc4b44e3fc0d7b4e30ffe8f6a7930ba2426db7e8903e5f5e49ea70a1e5add78b"
+    },
+    {
+      "path": "vendor/linear/tests/others/signalsmith-fft.h",
+      "upstream_path": "tests/others/signalsmith-fft.h",
+      "sha256": "17c8948062bbe66ff66df1b3886ba3ce1290df37acb06dc54cdac628ce79fa7d"
+    },
+    {
+      "path": "vendor/linear/tests/stop-denormals.h",
+      "upstream_path": "tests/stop-denormals.h",
+      "sha256": "9db5f979830ce398a1325cf622e862ecbde787f065eb87416148c82507b76674"
+    },
+    {
+      "path": "vendor/linear/tests/stopwatch.h",
+      "upstream_path": "tests/stopwatch.h",
+      "sha256": "013abf76442d743b70cad37f96de0ccd24c5f491bb03ca5b04d9e0a801a5f234"
+    },
+    {
+      "path": "vendor/linear/tests/test-ffts.h",
+      "upstream_path": "tests/test-ffts.h",
+      "sha256": "eeb83e2e451de0c343eceb5a5e56eee2726fc13324b9ebcf10cdbd061e89e255"
+    },
+    {
+      "path": "vendor/linear/tests/test-linear.h",
+      "upstream_path": "tests/test-linear.h",
+      "sha256": "0cf057acf1a196fcb75027d6ad657d8d98913be5cb679b5a2ad4579f447f70b6"
+    },
+    {
+      "path": "vendor/linear/tests/test-runner.h",
+      "upstream_path": "tests/test-runner.h",
+      "sha256": "9496a08e6ed8fbae391b15695cca63266a8d0128f56fb3b23c069a3706f564e2"
+    },
+    {
+      "path": "vendor/linear/tests/test-stfts.h",
+      "upstream_path": "tests/test-stfts.h",
+      "sha256": "9ea993e2a217cba38a1cd541234ebfb4c6cdb37cd50ad9432858c4d42a7addbf"
+    }
+  ]
+}
