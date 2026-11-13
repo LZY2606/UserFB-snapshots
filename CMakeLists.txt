@@ -73,6 +73,7 @@ target_sources(spatialaudio
         source/AmbisonicBase.cpp
         source/AmbisonicSpeaker.cpp
         source/AmbisonicEncoderDist.cpp
+        source/AmbisonicMovingEncoder.cpp
         source/AmbisonicZoomer.cpp
         source/Decorrelator.cpp
         source/adm/DirectSpeakersGainCalc.cpp
@@ -112,6 +113,7 @@ target_sources(spatialaudio
             include/AmbisonicDecoder.h
             include/AmbisonicEncoderDist.h
             include/AmbisonicEncoder.h
+            include/AmbisonicMovingEncoder.h
             include/AmbisonicMicrophone.h
             include/AmbisonicProcessor.h
             include/AmbisonicRotator.h

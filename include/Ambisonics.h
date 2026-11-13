@@ -23,6 +23,7 @@
 #include "AmbisonicMicrophone.h"
 #include "AmbisonicEncoder.h"
 #include "AmbisonicEncoderDist.h"
+#include "AmbisonicMovingEncoder.h"
 #include "AmbisonicDecoder.h"
 #include "AmbisonicProcessor.h"
 #include "AmbisonicRotator.h"

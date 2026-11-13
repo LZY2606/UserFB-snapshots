@@ -21,6 +21,7 @@ spatialaudio_sources = files(
     'AmbisonicBase.cpp',
     'AmbisonicSpeaker.cpp',
     'AmbisonicEncoderDist.cpp',
+    'AmbisonicMovingEncoder.cpp',
     'AmbisonicZoomer.cpp',
     'adm/DirectSpeakersGainCalc.cpp',
     'Renderer.cpp',
