@@ -63,7 +63,7 @@ endif()
 
 install(TARGETS jc_voronoi EXPORT jc_voronoiTargets)
 install(
-    FILES src/jc_voronoi.h src/jc_voronoi_clip.h
+    FILES src/jc_voronoi.h src/jc_voronoi_clip.h src/jc_voronoi_periodic.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(

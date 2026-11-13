@@ -485,6 +485,84 @@ Here, `allocate_vertex_site_storage` and `link_vertex_site` are client-defined.
 
 </details>
 
+## Periodic (tiling) diagrams
+
+[`src/jc_voronoi_periodic.h`](./src/jc_voronoi_periodic.h) adds a toroidal
+variant: the input rectangle is treated as a flat torus of width `W` and
+height `H`, and every seed is lifted to a lattice of replicas before the
+ordinary sweep-line generator runs over them. The result keeps full,
+unwrapped polygons instead of clipping the cells against the rectangle, so it
+is suitable for seamless textures and periodic Lloyd relaxation.
+
+Define `JC_VORONOI_PERIODIC_IMPLEMENTATION` in one translation unit (together
+with `JC_VORONOI_IMPLEMENTATION` if `jc_voronoi.h` is not otherwise compiled):
+
+```C
+#define JC_VORONOI_IMPLEMENTATION
+#define JC_VORONOI_PERIODIC_IMPLEMENTATION
+#include "jc_voronoi.h"
+#include "jc_voronoi_periodic.h"
+
+jcv_rect rect = { { 0, 0 }, { 1, 1 } };
+jcv_point points[4] = {
+    { 0.08f, 0.17f }, { 0.58f, 0.22f }, { 0.33f, 0.81f }, { 0.87f, 0.69f },
+};
+
+jcv_periodic_diagram diagram;
+memset(&diagram, 0, sizeof(diagram));
+if( !jcv_periodic_generate(4, points, &rect, &diagram) )
+    return 0; // rejected input; diagram stays zeroed
+
+for( int i = 0; i < diagram.numsites; ++i )
+{
+    const jcv_periodic_cell* cell = &diagram.cells[i];
+    for( int e = 0; e < cell->num_edges; ++e )
+    {
+        const jcv_periodic_edge* edge = &diagram.edges[cell->first_edge + e];
+        // edge->pos is in the unfolded plane. The neighbour copy is
+        //   cells[edge->neighbor].point + (shift_x * W, shift_y * H)
+    }
+}
+
+// One simultaneous Lloyd step; alpha must be finite and in [0, 1].
+jcv_point relaxed[4];
+jcv_periodic_relax(&diagram, 0.5, relaxed);
+
+jcv_periodic_free(&diagram); // safe on NULL and safe to call twice
+```
+
+Key properties:
+
+* `cells` stays in input order. `cells[i].point` is the seed normalized into
+  the half-open basic rectangle (`min <= x < max`).
+* `cells[i]` describes the entire Voronoi polygon of the central copy of that
+  seed, unfolded into the plane. It is never wrapped or split across the
+  basic rectangle.
+* `edges[first_edge .. first_edge + num_edges)` is a counter-clockwise closed
+  ring, and `num_edges >= 3`. A neighbour can be the cell itself, and the same
+  neighbour can occur at several lattice shifts; deduplicate on
+  `(neighbor, shift_x, shift_y)`, never on `neighbor` alone.
+* `area` and `centroid` are the area and area-moment centroid of the unfolded
+  polygon, so all areas sum to `W * H`. `centroid` deliberately keeps the
+  unfolded coordinates: adding `(dx, dy)` to every input seed translates each
+  unfolded cell (and its centroid) by the same vector.
+* `jcv_periodic_generate` returns 1 on success and 0 for rejected input
+  (1..256 points, finite values, origin component magnitude <= 1000, side
+  lengths 0.01..100, aspect ratio <= 16, seed displacement <= 10 periods,
+  and no two seeds coincident on the torus). On failure `out` stays zeroed.
+  `rect` and `points` are never modified.
+* The returned `cells`/`edges` arrays are owned by the diagram until
+  `jcv_periodic_free`; a later `jcv_periodic_generate` on the same struct
+  replaces them. An older diagram stays readable until it is freed.
+* `jcv_periodic_relax` writes `n` points into a caller-owned array, computed
+  simultaneously from the current diagram, then normalized back into the basic
+  rectangle. Invalid `alpha` or NULL pointers return 0 and leave the output
+  untouched.
+
+The generation internally uses `jcv_diagram_generate` over periodic replicas
+and maps each sweep site back to `(input index, lattice shift)`, so the
+ordinary non-periodic API and behaviour are unchanged.
+
 <details>
 <summary>Relaxing the points</summary>
 
