@@ -55,6 +55,10 @@ public:
 
 	inline size_t size() const { return _data.size(); }
 
+	size_t width()  const { return _width;  }
+	size_t height() const { return _height; }
+	size_t depth()  const { return _depth;  }
+
 private:
 	size_t _width, _height, _depth;
 	std::vector<T> _data;

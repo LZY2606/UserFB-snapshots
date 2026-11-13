@@ -44,6 +44,7 @@
 #include <memory>
 #include <numeric>
 #include <random>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -198,6 +199,10 @@ public:
 	Image image(const Output& output) const override;
 
 	Graphics graphics(const Output& output) const;
+
+	int                         n()        const { return _n; }
+	const std::vector<Pattern>& patterns() const { return _patterns; }
+	const Palette&              palette()  const { return _palette; }
 
 private:
 	int                       _n;
@@ -985,6 +990,384 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif
 	LOG_F(INFO, "Unfinished after %lu iterations", limit);
 	return Result::kUnfinished;
 }
+
+// ----------------------------------------------------------------------------
+// Constrained solving for the overlapping model.
+//
+// run_constrained() adds two kinds of constraints on top of the caller-provided
+// wave (whose existing bans, e.g. from a foundation, are treated as root
+// constraints):
+//  - PixelPin:    pin output pixel (x, y) to an exact RGBA color.
+//  - ColorBudget: bound how many physical pixels inside the half-open rectangle
+//                 [x0,x1) X [y0,y1) may end up with an exact RGBA color.
+//
+// A pixel is covered by up to n*n pattern anchors; its possible colors are the
+// intersection of the colors each valid covering anchor currently allows at the
+// corresponding pattern offset. Whenever such a color domain shrinks, every
+// covering pattern that disagrees with it gets banned, and the usual overlap
+// propagation shrinks the domains in turn - both alternate until a fixpoint.
+// Budgets are evaluated on the current domains, counting each physical pixel
+// once (never multiplied by the number of covering patterns): pixels forced to
+// the color (domain == {color}) and pixels that may still be it. Remaining
+// ambiguity is resolved with the usual weight/entropy heuristics plus full
+// backtracking: every branch keeps a complete snapshot of the wave, the
+// pending-propagation flags and the random generator state.
+
+struct PixelPin { size_t x, y; RGBA color; };
+
+struct ColorBudget
+{
+	size_t x0, y0, x1, y1; // Half-open rectangle [x0,x1) X [y0,y1) in output pixels.
+	RGBA   color;
+	size_t min_count, max_count;
+};
+
+struct TextureConstraints
+{
+	std::vector<PixelPin>    pins;
+	std::vector<ColorBudget> budgets;
+};
+
+namespace constrained
+{
+
+struct Pin    { size_t x, y;           ColorIndex color; };
+struct Budget { size_t x0, y0, x1, y1; ColorIndex color; size_t min_count, max_count; };
+
+class Solver
+{
+public:
+	Solver(const OverlappingModel& model, std::vector<Pin> pins, std::vector<Budget> budgets, size_t seed)
+		: _model(model)
+		, _pins(std::move(pins))
+		, _budgets(std::move(budgets))
+		, _gen(seed)
+		, _dis(0.0, 1.0)
+	{
+		_random_double = [&]() { return _dis(_gen); };
+	}
+
+	// Apply the pins on the root wave, before any search decision is taken.
+	void apply_root_pins(Output& output)
+	{
+		for (const auto& pin : _pins) {
+			ban_patterns_at_pixel(output, pin.x, pin.y, [&](ColorIndex c) { return c == pin.color; });
+		}
+	}
+
+	Result solve(Output& output)
+	{
+		if (!propagate_all(output)) { return Result::kFail; }
+
+		int x = -1, y = -1;
+		const auto status = find_lowest_entropy(_model, output, _random_double, &x, &y);
+		if (status != Result::kUnfinished) { return status; }
+
+		std::vector<PatternIndex> candidates;
+		for (size_t t = 0; t < _model._num_patterns; ++t) {
+			if (output._wave.get(x, y, t)) { candidates.push_back(t); }
+		}
+
+		while (!candidates.empty()) {
+			std::vector<double> dist;
+			for (const auto t : candidates) { dist.push_back(_model._pattern_weight[t]); }
+			const size_t pick = spin_the_bottle(dist, _random_double());
+			const PatternIndex t = candidates[pick];
+			candidates.erase(candidates.begin() + pick);
+
+			// Full snapshot: wave, pending-propagation flags and RNG state.
+			// Nothing from a failed branch may leak into its siblings.
+			const Output snapshot     = output;
+			const auto   gen_snapshot = _gen;
+			const auto   dis_snapshot = _dis;
+
+			for (size_t t2 = 0; t2 < _model._num_patterns; ++t2) {
+				output._wave.set(x, y, t2, t2 == t);
+			}
+			output._changes.set(x, y, true);
+
+			if (solve(output) == Result::kSuccess) { return Result::kSuccess; }
+
+			output = snapshot;
+			_gen   = gen_snapshot;
+			_dis   = dis_snapshot;
+		}
+		return Result::kFail;
+	}
+
+private:
+	// Call fun(anchor_x, anchor_y, dx, dy) for every valid pattern anchor whose
+	// n*n stamp covers pixel (x, y). Periodic outputs wrap around; non-periodic
+	// outputs only use anchors that are not on the boundary (edge and corner
+	// pixels included).
+	template <typename Fun>
+	void for_each_anchor(size_t x, size_t y, const Fun& fun) const
+	{
+		const int n = _model.n();
+		for (int dy = 0; dy < n; ++dy) {
+			for (int dx = 0; dx < n; ++dx) {
+				int sx = static_cast<int>(x) - dx;
+				int sy = static_cast<int>(y) - dy;
+				if (_model._periodic_out) {
+					sx = ((sx % (int)_model._width)  + (int)_model._width)  % (int)_model._width;
+					sy = ((sy % (int)_model._height) + (int)_model._height) % (int)_model._height;
+				} else {
+					if (sx < 0 || sy < 0 || _model.on_boundary(sx, sy)) { continue; }
+				}
+				fun(static_cast<size_t>(sx), static_cast<size_t>(sy), dx, dy);
+			}
+		}
+	}
+
+	// The colors pixel (x, y) may still have: the intersection, over all valid
+	// covering anchors, of the colors the current wave allows at that offset.
+	std::vector<char> pixel_domain(const Output& output, size_t x, size_t y) const
+	{
+		std::vector<char> domain(_model.palette().size(), true);
+		for_each_anchor(x, y, [&](size_t sx, size_t sy, int dx, int dy) {
+			std::vector<char> allowed(_model.palette().size(), false);
+			for (size_t t = 0; t < _model._num_patterns; ++t) {
+				if (output._wave.get(sx, sy, t)) {
+					allowed[_model.patterns()[t][dx + dy * _model.n()]] = true;
+				}
+			}
+			for (size_t c = 0; c < domain.size(); ++c) {
+				domain[c] = domain[c] && allowed[c];
+			}
+		});
+		return domain;
+	}
+
+	// Ban, at every anchor covering pixel (x, y), each still-possible pattern
+	// whose color at that offset does not satisfy keep(). Returns true if any
+	// pattern was banned.
+	template <typename Keep>
+	bool ban_patterns_at_pixel(Output& output, size_t x, size_t y, const Keep& keep)
+	{
+		bool changed = false;
+		for_each_anchor(x, y, [&](size_t sx, size_t sy, int dx, int dy) {
+			for (size_t t = 0; t < _model._num_patterns; ++t) {
+				if (output._wave.get(sx, sy, t) &&
+				    !keep(_model.patterns()[t][dx + dy * _model.n()])) {
+					output._wave.set(sx, sy, t, false);
+					output._changes.set(sx, sy, true);
+					changed = true;
+				}
+			}
+		});
+		return changed;
+	}
+
+	// Intersecting color domains with the wave: ban every covering pattern that
+	// disagrees with a pixel's domain. Returns false on an empty domain.
+	bool enforce_domains(Output& output, bool* did_change)
+	{
+		for (size_t y = 0; y < _model._height; ++y) {
+			for (size_t x = 0; x < _model._width; ++x) {
+				const auto domain = pixel_domain(output, x, y);
+				if (std::none_of(domain.begin(), domain.end(), [](char v) { return v != 0; })) {
+					return false; // No color can satisfy every anchor covering this pixel.
+				}
+				if (ban_patterns_at_pixel(output, x, y, [&](ColorIndex c) { return domain[c] != 0; })) {
+					*did_change = true;
+				}
+			}
+		}
+		return true;
+	}
+
+	static bool is_forced_to(const std::vector<char>& domain, size_t color)
+	{
+		if (!domain[color]) { return false; }
+		for (size_t c = 0; c < domain.size(); ++c) {
+			if (c != color && domain[c]) { return false; }
+		}
+		return true;
+	}
+
+	// Count forced/possible pixels per budget on the current domains and apply
+	// the consequences. Returns false on a contradicting budget.
+	bool enforce_budgets(Output& output, bool* did_change)
+	{
+		for (const auto& b : _budgets) {
+			size_t forced = 0, possible = 0;
+			std::vector<std::vector<char>> domains;
+			for (size_t y = b.y0; y < b.y1; ++y) {
+				for (size_t x = b.x0; x < b.x1; ++x) {
+					auto domain = pixel_domain(output, x, y);
+					forced   += is_forced_to(domain, b.color);
+					possible += domain[b.color] != 0;
+					domains.push_back(std::move(domain));
+				}
+			}
+
+			if (forced > b.max_count || possible < b.min_count) { return false; }
+
+			size_t i = 0;
+			for (size_t y = b.y0; y < b.y1; ++y) {
+				for (size_t x = b.x0; x < b.x1; ++x, ++i) {
+					if (!domains[i][b.color] || is_forced_to(domains[i], b.color)) { continue; }
+					if (forced == b.max_count) {
+						// Budget saturated: no other pixel may take this color.
+						if (ban_patterns_at_pixel(output, x, y, [&](ColorIndex c) { return c != b.color; })) {
+							*did_change = true;
+						}
+					}
+					if (possible == b.min_count) {
+						// Every pixel that can still be this color must become it.
+						if (ban_patterns_at_pixel(output, x, y, [&](ColorIndex c) { return c == b.color; })) {
+							*did_change = true;
+						}
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	// Alternate overlap propagation with color-domain and budget propagation
+	// until neither side changes anything. Returns false on a contradiction.
+	bool propagate_all(Output& output)
+	{
+		while (true) {
+			while (_model.propagate(&output)) { }
+			bool changed = false;
+			if (!enforce_domains(output, &changed)) { return false; }
+			if (changed) { continue; }
+			if (!enforce_budgets(output, &changed)) { return false; }
+			if (changed) { continue; }
+			return true;
+		}
+	}
+
+	const OverlappingModel&    _model;
+	std::vector<Pin>           _pins;
+	std::vector<Budget>        _budgets;
+	std::mt19937               _gen;
+	std::uniform_real_distribution<double> _dis;
+	RandomDouble               _random_double;
+};
+
+// Check a finished wave: every pixel's contributors must agree on one color,
+// and all pins and budgets must hold on those physical pixels.
+inline bool solution_satisfies(const OverlappingModel& model, const Output& output,
+                               const std::vector<Pin>& pins, const std::vector<Budget>& budgets)
+{
+	const auto graphics = model.graphics(output);
+	std::vector<ColorIndex> pixels(model._width * model._height);
+	for (size_t y = 0; y < model._height; ++y) {
+		for (size_t x = 0; x < model._width; ++x) {
+			const auto& contributors = graphics.ref(x, y);
+			if (contributors.empty()) { return false; }
+			for (const auto c : contributors) {
+				if (c != contributors.front()) { return false; }
+			}
+			pixels[y * model._width + x] = contributors.front();
+		}
+	}
+	for (const auto& pin : pins) {
+		if (pixels[pin.y * model._width + pin.x] != pin.color) { return false; }
+	}
+	for (const auto& b : budgets) {
+		size_t count = 0;
+		for (size_t y = b.y0; y < b.y1; ++y) {
+			for (size_t x = b.x0; x < b.x1; ++x) {
+				count += pixels[y * model._width + x] == b.color;
+			}
+		}
+		if (count < b.min_count || count > b.max_count) { return false; }
+	}
+	return true;
+}
+
+} // namespace constrained
+
+Result run_constrained(Output* output, const OverlappingModel& model, const TextureConstraints& constraints, size_t seed)
+{
+	using constrained::Pin;
+	using constrained::Budget;
+
+	const auto& palette = model.palette();
+	const auto palette_index = [&](RGBA color) -> size_t {
+		for (size_t i = 0; i < palette.size(); ++i) {
+			if (palette[i] == color) { return i; }
+		}
+		return kInvalidIndex;
+	};
+
+	// Validate everything before modifying *output.
+	if (output->_wave.width()    != model._width        ||
+	    output->_wave.height()   != model._height       ||
+	    output->_wave.depth()    != model._num_patterns ||
+	    output->_changes.width() != model._width        ||
+	    output->_changes.height() != model._height) {
+		throw std::invalid_argument("run_constrained: wave dimensions do not match the model");
+	}
+	for (const auto& pin : constraints.pins) {
+		if (pin.x >= model._width || pin.y >= model._height) {
+			throw std::invalid_argument("run_constrained: pin is out of bounds");
+		}
+		if (palette_index(pin.color) == kInvalidIndex) {
+			throw std::invalid_argument("run_constrained: pin color is not in the palette");
+		}
+	}
+	for (const auto& b : constraints.budgets) {
+		if (b.x0 >= b.x1 || b.y0 >= b.y1 || b.x1 > model._width || b.y1 > model._height) {
+			throw std::invalid_argument("run_constrained: budget rectangle is empty or out of bounds");
+		}
+		if (b.min_count > b.max_count) {
+			throw std::invalid_argument("run_constrained: budget min_count > max_count");
+		}
+		if (b.max_count > (b.x1 - b.x0) * (b.y1 - b.y0)) {
+			throw std::invalid_argument("run_constrained: budget max_count exceeds rectangle area");
+		}
+		if (palette_index(b.color) == kInvalidIndex) {
+			throw std::invalid_argument("run_constrained: budget color is not in the palette");
+		}
+	}
+
+	// Root state: caller-provided bans (e.g. a foundation) plus the pins.
+	// Restored verbatim on failure.
+	const Output root = *output;
+
+	std::vector<Pin> pins;
+	for (const auto& pin : constraints.pins) {
+		pins.push_back(Pin{pin.x, pin.y, static_cast<ColorIndex>(palette_index(pin.color))});
+	}
+	std::vector<Budget> budgets;
+	for (const auto& b : constraints.budgets) {
+		budgets.push_back(Budget{b.x0, b.y0, b.x1, b.y1,
+		                         static_cast<ColorIndex>(palette_index(b.color)),
+		                         b.min_count, b.max_count});
+	}
+
+	constrained::Solver solver(model, pins, budgets, seed);
+
+	// Make sure bans already present in the wave get propagated, even if the
+	// caller did not flag them as changes.
+	for (size_t y = 0; y < model._height; ++y) {
+		for (size_t x = 0; x < model._width; ++x) {
+			for (size_t t = 0; t < model._num_patterns; ++t) {
+				if (!output->_wave.get(x, y, t)) {
+					output->_changes.set(x, y, true);
+					break;
+				}
+			}
+		}
+	}
+
+	solver.apply_root_pins(*output);
+
+	const auto result = solver.solve(*output);
+
+	if (result == Result::kSuccess && constrained::solution_satisfies(model, *output, pins, budgets)) {
+		return Result::kSuccess;
+	}
+
+	*output = root;
+	return Result::kFail;
+}
+
 
 void run_and_write(const Options& options, const std::string& name, const configuru::Config& config, const Model& model)
 {
