@@ -23,6 +23,7 @@
 4. RTP with MPEG-2 PS/TS
 5. RTP Header Extension
 6. RTCP PSFB/RTPFB/XR
+7. RFC6184 H.264 interleaved mode (STAP-B/MTAP/FU-B): DON based reorder entry, see rtp-h264-interleaved.h
 
 # librtsp
 1. RFC2326 RTSP

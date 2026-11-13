@@ -73,11 +73,17 @@
 		46EDF20C2938E0220055AF56 /* rtcp-psfb.c in Sources */ = {isa = PBXBuildFile; fileRef = 46EDF2092938E0210055AF56 /* rtcp-psfb.c */; };
 		46EDF20D2938E0220055AF56 /* rtcp-xr.c in Sources */ = {isa = PBXBuildFile; fileRef = 46EDF20A2938E0220055AF56 /* rtcp-xr.c */; };
 		46EDF20E2938E0220055AF56 /* rtcp-rtpfb.c in Sources */ = {isa = PBXBuildFile; fileRef = 46EDF20B2938E0220055AF56 /* rtcp-rtpfb.c */; };
+		D1A100012183EE2C00419E57 /* rtp-h264-reader.c in Sources */ = {isa = PBXBuildFile; fileRef = D1A200012183EE2C00419E57 /* rtp-h264-reader.c */; };
+		D1A100022183EE2C00419E57 /* rtp-h264-interleaved.c in Sources */ = {isa = PBXBuildFile; fileRef = D1A200022183EE2C00419E57 /* rtp-h264-interleaved.c */; };
+		D1A100032183EE2C00419E57 /* rtp-h264-reader.h in Headers */ = {isa = PBXBuildFile; fileRef = D1A200032183EE2C00419E57 /* rtp-h264-reader.h */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0C9FC602298D059900FB85DD /* rtp-h266-pack.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = "rtp-h266-pack.c"; path = "payload/rtp-h266-pack.c"; sourceTree = SOURCE_ROOT; };
 		0C9FC603298D059900FB85DD /* rtp-h266-unpack.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = "rtp-h266-unpack.c"; path = "payload/rtp-h266-unpack.c"; sourceTree = SOURCE_ROOT; };
+		D1A200012183EE2C00419E57 /* rtp-h264-reader.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "rtp-h264-reader.c"; sourceTree = "<group>"; };
+		D1A200022183EE2C00419E57 /* rtp-h264-interleaved.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "rtp-h264-interleaved.c"; sourceTree = "<group>"; };
+		D1A200032183EE2C00419E57 /* rtp-h264-reader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "rtp-h264-reader.h"; sourceTree = "<group>"; };
 		461263D8263BE34000E07FD8 /* rtp-h264-bitstream.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "rtp-h264-bitstream.c"; sourceTree = "<group>"; };
 		4638E8772938D5480018F1E7 /* rtp-ext-transport-wide-cc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "rtp-ext-transport-wide-cc.c"; sourceTree = "<group>"; };
 		4638E8782938D5480018F1E7 /* rtp-ext.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "rtp-ext.c"; sourceTree = "<group>"; };
@@ -208,6 +214,9 @@
 				461263D8263BE34000E07FD8 /* rtp-h264-bitstream.c */,
 				46C5B3902183EE2C00419E57 /* rtp-h264-pack.c */,
 				46C5B3872183EE2C00419E57 /* rtp-h264-unpack.c */,
+				D1A200012183EE2C00419E57 /* rtp-h264-reader.c */,
+				D1A200022183EE2C00419E57 /* rtp-h264-interleaved.c */,
+				D1A200032183EE2C00419E57 /* rtp-h264-reader.h */,
 				46C5B39A2183EE2C00419E57 /* rtp-h265-pack.c */,
 				46C5B3862183EE2C00419E57 /* rtp-h265-unpack.c */,
 				0C9FC602298D059900FB85DD /* rtp-h266-pack.c */,
@@ -272,6 +281,7 @@
 			files = (
 				46C5B3AB2183EE2C00419E57 /* rtp-payload-helper.h in Headers */,
 				46C5B3A52183EE2C00419E57 /* rtp-payload-internal.h in Headers */,
+				D1A100032183EE2C00419E57 /* rtp-h264-reader.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -337,6 +347,8 @@
 				46C5B3CF2183EE4800419E57 /* rtcp-sdec.c in Sources */,
 				4638E8892938D5480018F1E7 /* rtp-ext.c in Sources */,
 				46C5B39F2183EE2C00419E57 /* rtp-h264-unpack.c in Sources */,
+				D1A100012183EE2C00419E57 /* rtp-h264-reader.c in Sources */,
+				D1A100022183EE2C00419E57 /* rtp-h264-interleaved.c in Sources */,
 				4638E8922938D5480018F1E7 /* rtp-ext-color-space.c in Sources */,
 				46C5B3D02183EE4800419E57 /* rtp-queue.c in Sources */,
 				46C5B3A22183EE2C00419E57 /* rtp-unpack.c in Sources */,
