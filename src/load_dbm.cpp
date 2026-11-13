@@ -268,6 +268,9 @@ BOOL CSoundFile::ReadDBM(const BYTE *lpStream, DWORD dwMemLength)
 							if (ch)
 							{
 								BYTE b = pkdata[i++];
+								UINT need = 0;
+								for (UINT bits = b & 0x3F; bits; bits >>= 1) need += bits & 1;
+								if (i + need > pksize) break;
 								ch--;
 								if (ch < m_nChannels)
 								{
