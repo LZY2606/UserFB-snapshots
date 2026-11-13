@@ -99,6 +99,19 @@ typedef struct FLAC__StreamEncoderProtected {
 	uint32_t bits_per_sample;
 	uint32_t sample_rate;
 	uint32_t blocksize;
+	/* Bounded look-ahead blocksize search configuration.
+	 * When blocksize_search_enabled is true, blocksize holds the maximum
+	 * search blocksize while initialized; fixed_blocksize_setting remembers
+	 * the user's ordinary FLAC__stream_encoder_set_blocksize() value so it
+	 * can be restored when the search is switched off again. */
+	FLAC__bool blocksize_search_enabled;
+	uint32_t blocksize_search_min;
+	uint32_t blocksize_search_max;
+	uint32_t fixed_blocksize_setting;
+	/* When true, audio frames are headed by the absolute sample number of
+	 * their first sample and use the variable-blocking strategy. */
+	FLAC__bool use_sample_number;
+	FLAC__uint64 frame_first_sample;
 #ifndef FLAC__INTEGER_ONLY_LIBRARY
 	uint32_t num_apodizations;
 	FLAC__ApodizationSpecification apodizations[FLAC__MAX_APODIZATION_FUNCTIONS];

@@ -37,6 +37,22 @@
 #include <config.h>
 #endif
 
+#include "FLAC/ordinals.h"
+#include "FLAC/stream_encoder.h"
+
+#ifdef FLAC__TEST_BLOCKSIZE_SEARCH
+/* Read-only observability of the real candidate construction path.
+ * Returns the number of trial frames actually built and a pointer to the
+ * recorded blocksize of each (in construction order).  The pointer is
+ * owned by the encoder and valid until the encoder is deleted. */
+FLAC_API void FLAC__stream_encoder_test_get_blocksize_search_stats(
+	const FLAC__StreamEncoder *encoder,
+	uint32_t *construct_count,
+	const uint32_t **lengths,
+	uint32_t *lengths_count
+);
+#endif
+
 /*
  * This is used to avoid overflow with unusual signals in 32-bit
  * accumulator in the *precompute_partition_info_sums_* functions.

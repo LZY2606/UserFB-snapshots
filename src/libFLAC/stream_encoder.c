@@ -114,6 +114,38 @@ typedef enum {
 	ENCODER_IN_AUDIO = 2
 } EncoderStateHint;
 
+/*
+ * Bounded look-ahead blocksize search.
+ *
+ * A decision window holds at most the configured maximum number of real
+ * sample frames.  Every feasible frame inside a window starts at a multiple
+ * of the configured minimum and has a length of minimum * 2^k that does not
+ * cross the window boundary.  Each feasible frame is analyzed and encoded
+ * exactly once, reusing the ordinary frame analysis and bit-writing logic;
+ * the produced bytes are cached so that the partition selected by the
+ * dynamic program can be delivered without a second encode.  All scratch
+ * memory is sized by the window (at most 'maximum' samples) and never grows
+ * with the length of the recording.
+ */
+typedef struct {
+	uint32_t start_min;                         /* start offset, in minimum units, inside the window */
+	uint32_t len_min;                           /* frame length in minimum units (a power of two) */
+	uint32_t blocksize;                         /* len_min * configured minimum */
+	FLAC__uint64 first_sample;                  /* absolute sample number encoded in the frame header */
+	FLAC__byte *bytes;                          /* the complete encoded audio frame */
+	size_t bytes_capacity;
+	size_t bytes_len;
+} blocksize_search_candidate;
+
+typedef struct {
+	FLAC__int32 *window[FLAC__MAX_CHANNELS];          /* accumulated PCM for the current window */
+	FLAC__int32 *window_unaligned[FLAC__MAX_CHANNELS];
+	uint32_t window_fill;                             /* valid samples currently in the window */
+	blocksize_search_candidate *candidates;
+	uint32_t candidates_capacity;
+	uint32_t candidates_count;
+} blocksize_search_state;
+
 static const  struct CompressionLevels {
 	FLAC__bool do_mid_side_stereo;
 	FLAC__bool loose_mid_side_stereo;
@@ -217,6 +249,17 @@ static void update_metadata_(const FLAC__StreamEncoder *encoder);
 static void update_ogg_metadata_(FLAC__StreamEncoder *encoder);
 #endif
 static FLAC__bool process_frame_(FLAC__StreamEncoder *encoder, FLAC__bool is_last_block);
+
+/* bounded look-ahead blocksize search */
+static FLAC__bool is_power_of_two_(uint32_t x);
+static FLAC__bool blocksize_search_init_(FLAC__StreamEncoder *encoder);
+static void blocksize_search_finish_(FLAC__StreamEncoder *encoder);
+static FLAC__bool blocksize_search_feed_(FLAC__StreamEncoder *encoder, const FLAC__int32 * const planar[], const FLAC__int32 *interleaved, uint32_t samples);
+static FLAC__bool blocksize_search_flush_(FLAC__StreamEncoder *encoder);
+static FLAC__bool blocksize_search_emit_frame_(FLAC__StreamEncoder *encoder, const FLAC__byte *bytes, size_t bytes_len, uint32_t blocksize, FLAC__uint64 first_sample, FLAC__bool is_last_block);
+static FLAC__bool blocksize_search_deliver_window_(FLAC__StreamEncoder *encoder, FLAC__bool finalize);
+static FLAC__bool blocksize_search_trial_encode_(FLAC__StreamEncoder *encoder, blocksize_search_candidate *candidate);
+
 #ifdef FLAC__USE_THREADS
 FLAC__thread_return_type process_frame_thread_(void * encoder);
 #endif
@@ -420,6 +463,14 @@ typedef struct FLAC__StreamEncoderPrivate {
 #endif
 	FLAC__StreamMetadata streaminfo;                  /* scratchpad for STREAMINFO as it is built */
 	FLAC__StreamMetadata_SeekTable *seek_table;       /* pointer into encoder->protected_->metadata_ where the seek table is */
+	blocksize_search_state *blocksize_search;         /* non-zero only while a blocksize search is initialized */
+#ifdef FLAC__TEST_BLOCKSIZE_SEARCH
+	/* Read-only observability of the real construction path; kept on the
+	 * encoder (not the per-window state) so they survive finish(). */
+	uint32_t test_candidate_constructs;
+	uint32_t test_lengths_count;
+	uint32_t test_lengths[256];
+#endif
 	uint32_t current_sample_number;
 	uint32_t current_frame_number;
 	FLAC__MD5Context md5context;
@@ -744,6 +795,25 @@ static FLAC__StreamEncoderInitStatus init_stream_internal_(
 
 	if(!FLAC__format_sample_rate_is_valid(encoder->protected_->sample_rate))
 		return FLAC__STREAM_ENCODER_INIT_STATUS_INVALID_SAMPLE_RATE;
+
+	if(encoder->protected_->blocksize_search_enabled) {
+		/* The bounded blocksize search is intentionally restricted: native
+		 * FLAC, single-threaded, one or two channels, 16/24-bit, and with
+		 * the non-loose stereo search. */
+		if(is_ogg)
+			return FLAC__STREAM_ENCODER_INIT_STATUS_UNSUPPORTED_CONTAINER;
+		if(encoder->protected_->num_threads > 1)
+			return FLAC__STREAM_ENCODER_INIT_STATUS_ENCODER_ERROR;
+		if(encoder->protected_->loose_mid_side_stereo || encoder->protected_->limit_min_bitrate)
+			return FLAC__STREAM_ENCODER_INIT_STATUS_ENCODER_ERROR;
+		if(encoder->protected_->channels < 1 || encoder->protected_->channels > 2)
+			return FLAC__STREAM_ENCODER_INIT_STATUS_INVALID_NUMBER_OF_CHANNELS;
+		if(encoder->protected_->bits_per_sample != 16 && encoder->protected_->bits_per_sample != 24)
+			return FLAC__STREAM_ENCODER_INIT_STATUS_INVALID_BITS_PER_SAMPLE;
+		/* get_blocksize() reports the maximum; the working blocksize is
+		 * pinned to it while initialized. */
+		encoder->protected_->blocksize = encoder->protected_->blocksize_search_max;
+	}
 
 	if(encoder->protected_->blocksize == 0) {
 		if(encoder->protected_->max_lpc_order == 0)
@@ -1323,6 +1393,11 @@ static FLAC__StreamEncoderInitStatus init_stream_internal_(
 	encoder->private_->verify.error_stats.expected = 0;
 	encoder->private_->verify.error_stats.got = 0;
 
+	if(encoder->protected_->blocksize_search_enabled) {
+		if(!blocksize_search_init_(encoder))
+			return FLAC__STREAM_ENCODER_INIT_STATUS_ENCODER_ERROR;
+	}
+
 	/*
 	 * These must be done before we write any metadata, because that
 	 * calls the write_callback, which uses these values.
@@ -1355,8 +1430,14 @@ static FLAC__StreamEncoderInitStatus init_stream_internal_(
 	encoder->private_->streaminfo.type = FLAC__METADATA_TYPE_STREAMINFO;
 	encoder->private_->streaminfo.is_last = false; /* we will have at a minimum a VORBIS_COMMENT afterwards */
 	encoder->private_->streaminfo.length = FLAC__STREAM_METADATA_STREAMINFO_LENGTH;
-	encoder->private_->streaminfo.data.stream_info.min_blocksize = encoder->protected_->blocksize; /* this encoder uses the same blocksize for the whole stream */
-	encoder->private_->streaminfo.data.stream_info.max_blocksize = encoder->protected_->blocksize;
+	if(encoder->protected_->blocksize_search_enabled) {
+		encoder->private_->streaminfo.data.stream_info.min_blocksize = encoder->protected_->blocksize_search_min;
+		encoder->private_->streaminfo.data.stream_info.max_blocksize = encoder->protected_->blocksize_search_max;
+	}
+	else {
+		encoder->private_->streaminfo.data.stream_info.min_blocksize = encoder->protected_->blocksize; /* this encoder uses the same blocksize for the whole stream */
+		encoder->private_->streaminfo.data.stream_info.max_blocksize = encoder->protected_->blocksize;
+	}
 	encoder->private_->streaminfo.data.stream_info.min_framesize = 0; /* we don't know this yet; have to fill it in later */
 	encoder->private_->streaminfo.data.stream_info.max_framesize = 0; /* we don't know this yet; have to fill it in later */
 	encoder->private_->streaminfo.data.stream_info.sample_rate = encoder->protected_->sample_rate;
@@ -1700,7 +1781,13 @@ FLAC_API FLAC__bool FLAC__stream_encoder_finish(FLAC__StreamEncoder *encoder)
 			FLAC__ASSERT(0);
 #endif
 		}
-		if(ok && encoder->private_->current_sample_number != 0) {
+		if(encoder->protected_->blocksize_search_enabled) {
+			/* Drain the final decision window, including any run shorter
+			 * than minimum as its own final frame. */
+			if(ok && !blocksize_search_flush_(encoder))
+				error = true;
+		}
+		else if(ok && encoder->private_->current_sample_number != 0) {
 			encoder->protected_->blocksize = encoder->private_->current_sample_number;
 			if(!resize_buffers_(encoder, encoder->protected_->blocksize)) {
 				/* the above function sets the state for us in case of an error */
@@ -1910,7 +1997,50 @@ FLAC_API FLAC__bool FLAC__stream_encoder_set_blocksize(FLAC__StreamEncoder *enco
 	FLAC__ASSERT(0 != encoder->protected_);
 	if(encoder->protected_->state != FLAC__STREAM_ENCODER_UNINITIALIZED)
 		return false;
+	if(encoder->protected_->blocksize_search_enabled)
+		return false;
 	encoder->protected_->blocksize = value;
+	encoder->protected_->fixed_blocksize_setting = value;
+	return true;
+}
+
+FLAC_API FLAC__bool FLAC__stream_encoder_set_blocksize_search(FLAC__StreamEncoder *encoder, uint32_t minimum, uint32_t maximum)
+{
+	FLAC__ASSERT(0 != encoder);
+	FLAC__ASSERT(0 != encoder->private_);
+	FLAC__ASSERT(0 != encoder->protected_);
+
+	if(encoder->protected_->state != FLAC__STREAM_ENCODER_UNINITIALIZED)
+		return false;
+
+	/* (0,0) switches the search off and restores the fixed blocksize
+	 * that was in effect before it was enabled. */
+	if(minimum == 0 && maximum == 0) {
+		encoder->protected_->blocksize_search_enabled = false;
+		encoder->protected_->blocksize_search_min = 0;
+		encoder->protected_->blocksize_search_max = 0;
+		encoder->protected_->blocksize = encoder->protected_->fixed_blocksize_setting;
+		return true;
+	}
+
+	if(!is_power_of_two_(minimum) || !is_power_of_two_(maximum))
+		return false;
+	if(minimum < 64 || maximum > 4096)
+		return false;
+	if(!(minimum < maximum))
+		return false;
+	if(maximum / minimum > 16)
+		return false;
+
+	/* Remember the fixed setting only when transitioning from off to on,
+	 * so repeated search configurations do not clobber it. */
+	if(!encoder->protected_->blocksize_search_enabled)
+		encoder->protected_->fixed_blocksize_setting = encoder->protected_->blocksize;
+
+	encoder->protected_->blocksize_search_enabled = true;
+	encoder->protected_->blocksize_search_min = minimum;
+	encoder->protected_->blocksize_search_max = maximum;
+	encoder->protected_->blocksize = maximum;
 	return true;
 }
 
@@ -2406,6 +2536,25 @@ FLAC_API uint32_t FLAC__stream_encoder_get_blocksize(const FLAC__StreamEncoder *
 	return encoder->protected_->blocksize;
 }
 
+#ifdef FLAC__TEST_BLOCKSIZE_SEARCH
+FLAC_API void FLAC__stream_encoder_test_get_blocksize_search_stats(
+	const FLAC__StreamEncoder *encoder,
+	uint32_t *construct_count,
+	const uint32_t **lengths,
+	uint32_t *lengths_count
+)
+{
+	FLAC__ASSERT(0 != encoder);
+	FLAC__ASSERT(0 != encoder->private_);
+	if(0 != construct_count)
+		*construct_count = encoder->private_->test_candidate_constructs;
+	if(0 != lengths)
+		*lengths = encoder->private_->test_lengths;
+	if(0 != lengths_count)
+		*lengths_count = encoder->private_->test_lengths_count;
+}
+#endif
+
 FLAC_API FLAC__bool FLAC__stream_encoder_get_do_mid_side_stereo(const FLAC__StreamEncoder *encoder)
 {
 	FLAC__ASSERT(0 != encoder);
@@ -2530,6 +2679,16 @@ FLAC_API FLAC__bool FLAC__stream_encoder_process(FLAC__StreamEncoder *encoder, c
 	if(encoder->protected_->state != FLAC__STREAM_ENCODER_OK)
 		return false;
 
+	if(encoder->protected_->blocksize_search_enabled) {
+		if(samples == 0)
+			return true;
+		for(channel = 0; channel < channels; channel++) {
+			if(buffer[channel] == NULL)
+				return false;
+		}
+		return blocksize_search_feed_(encoder, buffer, /*interleaved=*/0, samples);
+	}
+
 	do {
 		const uint32_t n = flac_min(blocksize+OVERREAD_-encoder->private_->current_sample_number, samples-j);
 
@@ -2587,6 +2746,9 @@ FLAC_API FLAC__bool FLAC__stream_encoder_process_interleaved(FLAC__StreamEncoder
 	if(encoder->protected_->state != FLAC__STREAM_ENCODER_OK)
 		return false;
 
+	if(encoder->protected_->blocksize_search_enabled)
+		return blocksize_search_feed_(encoder, /*planar=*/0, buffer, samples);
+
 	j = k = 0;
 	do {
 		if(encoder->protected_->verify)
@@ -2642,6 +2804,12 @@ void set_defaults_(FLAC__StreamEncoder *encoder)
 	encoder->protected_->bits_per_sample = 16;
 	encoder->protected_->sample_rate = 44100;
 	encoder->protected_->blocksize = 0;
+	encoder->protected_->blocksize_search_enabled = false;
+	encoder->protected_->blocksize_search_min = 0;
+	encoder->protected_->blocksize_search_max = 0;
+	encoder->protected_->fixed_blocksize_setting = 0;
+	encoder->protected_->use_sample_number = false;
+	encoder->protected_->frame_first_sample = 0;
 #ifndef FLAC__INTEGER_ONLY_LIBRARY
 	encoder->protected_->num_apodizations = 1;
 	encoder->protected_->apodizations[0].type = FLAC__APODIZATION_TUKEY;
@@ -2704,6 +2872,9 @@ void free_(FLAC__StreamEncoder *encoder)
 	uint32_t i, t, channel;
 
 	FLAC__ASSERT(0 != encoder);
+	/* The blocksize search owns scratch memory independent of the ordinary
+	 * thread-task buffers; release it first (also covers a failed init). */
+	blocksize_search_finish_(encoder);
 	if(encoder->protected_->metadata) {
 		free(encoder->protected_->metadata);
 		encoder->protected_->metadata = 0;
@@ -2900,8 +3071,13 @@ FLAC__bool resize_buffers_(FLAC__StreamEncoder *encoder, uint32_t new_blocksize)
 				ok = ok && FLAC__memory_alloc_aligned_uint32_array(new_blocksize * 2, &encoder->private_->threadtask[t]->raw_bits_per_partition_unaligned, &encoder->private_->threadtask[t]->raw_bits_per_partition);
 		}
 }
-	if(ok)
-		encoder->private_->input_capacity = new_blocksize;
+	if(ok) {
+		/* input_capacity is a high-water mark: buffers are only ever
+		 * grown, so it must never be lowered when reusing them for a
+		 * smaller blocksize (as the blocksize search does per frame). */
+		if(new_blocksize > encoder->private_->input_capacity)
+			encoder->private_->input_capacity = new_blocksize;
+	}
 	else {
 		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
 		return ok;
@@ -3432,6 +3608,508 @@ void update_ogg_metadata_(FLAC__StreamEncoder *encoder)
 }
 #endif
 
+
+/***********************************************************************
+ *
+ * Bounded look-ahead blocksize search
+ *
+ ***********************************************************************/
+
+/* Number of legal frame lengths inside a window: the configured
+ * maximum/minimum ratio is bounded by 16, so there are at most 5. */
+#define BLOCKSIZE_SEARCH_MAX_LENGTH_KINDS 5
+/* The window width in minimum units is maximum/minimum, bounded by 16. */
+#define BLOCKSIZE_SEARCH_MAX_WIDTH 16
+
+static FLAC__bool is_power_of_two_(uint32_t x)
+{
+	return x != 0 && (x & (x - 1)) == 0;
+}
+
+/* Copy the encoded frame out of the trial bitwriter into the candidate's
+ * own byte buffer, growing it when needed. */
+static FLAC__bool candidate_store_bytes_(blocksize_search_candidate *candidate, FLAC__BitWriter *frame)
+{
+	const FLAC__byte *buffer;
+	size_t bytes;
+
+	FLAC__ASSERT(FLAC__bitwriter_is_byte_aligned(frame));
+	if(!FLAC__bitwriter_get_buffer(frame, &buffer, &bytes))
+		return false;
+	if(candidate->bytes_capacity < bytes) {
+		FLAC__byte *grown = safe_realloc_nofree_add_2op_(candidate->bytes, /*+*/0, bytes);
+		if(0 == grown) {
+			FLAC__bitwriter_release_buffer(frame);
+			return false;
+		}
+		candidate->bytes = grown;
+		candidate->bytes_capacity = bytes;
+	}
+	memcpy(candidate->bytes, buffer, bytes);
+	candidate->bytes_len = bytes;
+	FLAC__bitwriter_release_buffer(frame);
+	return true;
+}
+
+/* Run the ordinary frame analysis and bit-writing logic on one feasible
+ * frame and cache the produced bytes.  Nothing is written to the client
+ * and no stream-level counter, MD5 accumulation, seek point, progress or
+ * verify state is touched.  Pristine window PCM is copied in before every
+ * trial, so in-place wasted-bit shifting of one candidate can never leak
+ * into another. */
+static FLAC__bool blocksize_search_trial_encode_(FLAC__StreamEncoder *encoder, blocksize_search_candidate *candidate)
+{
+	FLAC__StreamEncoderPrivate *priv = encoder->private_;
+	blocksize_search_state *search = priv->blocksize_search;
+	FLAC__StreamEncoderThreadTask *task = priv->threadtask[0];
+	FLAC__uint16 crc;
+	uint32_t channel;
+	const uint32_t start = candidate->start_min * encoder->protected_->blocksize_search_min;
+	const uint32_t saved_blocksize = encoder->protected_->blocksize;
+	const FLAC__bool saved_use_sample_number = encoder->protected_->use_sample_number;
+	const FLAC__uint64 saved_first_sample = encoder->protected_->frame_first_sample;
+
+	for(channel = 0; channel < encoder->protected_->channels; channel++)
+		memcpy(task->integer_signal[channel], search->window[channel] + start, sizeof(FLAC__int32) * candidate->blocksize);
+
+
+	/* Size the analysis windows for this candidate length; signal buffers
+	 * are already allocated for 'maximum' and only ever grow. */
+	encoder->protected_->blocksize = candidate->blocksize;
+	if(!resize_buffers_(encoder, candidate->blocksize))
+		return false;
+
+	encoder->protected_->use_sample_number = true;
+	encoder->protected_->frame_first_sample = candidate->first_sample;
+	task->current_frame_number = 0;
+
+	if(!process_subframes_(encoder, task))
+		return false;
+	if(!FLAC__bitwriter_zero_pad_to_byte_boundary(task->frame)) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		return false;
+	}
+	FLAC__ASSERT(FLAC__bitwriter_is_byte_aligned(task->frame));
+	if(
+		!FLAC__bitwriter_get_write_crc16(task->frame, &crc) ||
+		!FLAC__bitwriter_write_raw_uint32(task->frame, crc, FLAC__FRAME_FOOTER_CRC_LEN)
+	) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		return false;
+	}
+	if(!candidate_store_bytes_(candidate, task->frame)) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		return false;
+	}
+	FLAC__bitwriter_clear(task->frame);
+
+	encoder->protected_->blocksize = saved_blocksize;
+	encoder->protected_->use_sample_number = saved_use_sample_number;
+	encoder->protected_->frame_first_sample = saved_first_sample;
+
+#ifdef FLAC__TEST_BLOCKSIZE_SEARCH
+	priv->test_candidate_constructs++;
+	if(priv->test_lengths_count < sizeof(priv->test_lengths)/sizeof(priv->test_lengths[0]))
+		priv->test_lengths[priv->test_lengths_count++] = candidate->blocksize;
+#endif
+	return true;
+}
+
+/* Deliver one already-encoded frame to the real stream.  Every original
+ * sample is MD5-accumulated here and only here; write callbacks, frame
+ * counts, seek points, progress and verify decoding see the frame in
+ * delivery order exactly once. */
+static FLAC__bool blocksize_search_emit_frame_(FLAC__StreamEncoder *encoder, const FLAC__byte *bytes, size_t bytes_len, uint32_t blocksize, FLAC__uint64 first_sample, FLAC__bool is_last_block)
+{
+	FLAC__StreamEncoderPrivate *priv = encoder->private_;
+	blocksize_search_state *search = priv->blocksize_search;
+	const uint32_t start = (uint32_t)(first_sample % encoder->protected_->blocksize_search_max);
+	const FLAC__int32 *signals[FLAC__MAX_CHANNELS];
+	uint32_t channel;
+	const uint32_t saved_blocksize = encoder->protected_->blocksize;
+
+	FLAC__ASSERT(first_sample == priv->samples_written);
+
+	for(channel = 0; channel < encoder->protected_->channels; channel++)
+		signals[channel] = search->window[channel] + start;
+
+	if(encoder->protected_->do_md5 && !FLAC__MD5Accumulate(&priv->md5context, signals, encoder->protected_->channels, blocksize, (encoder->protected_->bits_per_sample+7)/8)) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		return false;
+	}
+
+	if(encoder->protected_->verify) {
+		priv->verify.output.data = bytes;
+		priv->verify.output.bytes = bytes_len;
+		if(!FLAC__stream_decoder_process_single(priv->verify.decoder)
+			|| (!is_last_block && FLAC__stream_encoder_get_verify_decoder_state(encoder) == FLAC__STREAM_DECODER_END_OF_STREAM)
+			|| encoder->protected_->state == FLAC__STREAM_ENCODER_VERIFY_DECODER_ERROR
+		) {
+			if(encoder->protected_->state != FLAC__STREAM_ENCODER_VERIFY_MISMATCH_IN_AUDIO_DATA)
+				encoder->protected_->state = FLAC__STREAM_ENCODER_VERIFY_DECODER_ERROR;
+			return false;
+		}
+	}
+
+	/* write_frame_() derives seek points from get_blocksize() and from
+	 * samples_written, both of which must describe this exact frame. */
+	encoder->protected_->blocksize = blocksize;
+	if(write_frame_(encoder, bytes, bytes_len, blocksize, is_last_block) != FLAC__STREAM_ENCODER_WRITE_STATUS_OK) {
+		encoder->protected_->blocksize = saved_blocksize;
+		encoder->protected_->state = FLAC__STREAM_ENCODER_CLIENT_ERROR;
+		return false;
+	}
+	encoder->protected_->blocksize = saved_blocksize;
+
+	priv->streaminfo.data.stream_info.min_framesize = flac_min((uint32_t)bytes_len, priv->streaminfo.data.stream_info.min_framesize);
+	priv->streaminfo.data.stream_info.max_framesize = flac_max((uint32_t)bytes_len, priv->streaminfo.data.stream_info.max_framesize);
+	priv->streaminfo.data.stream_info.total_samples += blocksize;
+	priv->current_frame_number++;
+	return true;
+}
+
+/* Returns true when length sequence a is lexicographically larger than b
+ * (both hold 'count' blocksize values). */
+static FLAC__bool length_sequence_greater_(const uint32_t *a, const uint32_t *b, uint32_t count)
+{
+	uint32_t i;
+	for(i = 0; i < count; i++) {
+		if(a[i] != b[i])
+			return a[i] > b[i];
+	}
+	return false;
+}
+
+/* Choose the minimum-total-byte partition of the feasible frames of the
+ * current window and deliver it.  On equal total cost, fewer frames win;
+ * on a further tie the lexicographically larger frame-length sequence
+ * wins.  When finalize is true, a remaining run shorter than minimum is
+ * delivered separately as the final frame: it is never zero-padded or
+ * merged into a frame of another length. */
+static FLAC__bool blocksize_search_deliver_window_(FLAC__StreamEncoder *encoder, FLAC__bool finalize)
+{
+	FLAC__StreamEncoderPrivate *priv = encoder->private_;
+	blocksize_search_state *search = priv->blocksize_search;
+	const uint32_t minimum = encoder->protected_->blocksize_search_min;
+	const uint32_t width = search->window_fill / minimum;   /* partitionable width in minimum units */
+	const uint32_t tail = search->window_fill % minimum;
+	const FLAC__uint64 window_first_sample = priv->samples_written;
+	FLAC__uint64 cost[BLOCKSIZE_SEARCH_MAX_WIDTH + 1];
+	uint32_t frame_count[BLOCKSIZE_SEARCH_MAX_WIDTH + 1];
+	uint32_t choice_len[BLOCKSIZE_SEARCH_MAX_WIDTH + 1];   /* chosen len_min at each position */
+	uint32_t sequence[BLOCKSIZE_SEARCH_MAX_WIDTH + 1][BLOCKSIZE_SEARCH_MAX_WIDTH];
+	uint32_t p, ci;
+	FLAC__bool ok = true;
+
+	if(search->window_fill == 0)
+		return true;
+
+	FLAC__ASSERT(width <= BLOCKSIZE_SEARCH_MAX_WIDTH);
+
+	for(p = 0; p <= width; p++) {
+		cost[p] = FLAC__U64L(0xFFFFFFFFFFFFFFFF);
+		frame_count[p] = 0;
+		choice_len[p] = 0;
+	}
+	cost[width] = 0;
+
+	for(p = width; p-- > 0; ) {
+		uint32_t len_min = 1;
+		while(len_min <= width - p) {
+			blocksize_search_candidate *candidate = 0;
+			FLAC__uint64 candidate_cost;
+			uint32_t candidate_frames;
+			uint32_t candidate_sequence[BLOCKSIZE_SEARCH_MAX_WIDTH];
+			uint32_t k;
+
+			for(ci = 0; ci < search->candidates_count; ci++) {
+				if(search->candidates[ci].start_min == p && search->candidates[ci].len_min == len_min) {
+					candidate = &search->candidates[ci];
+					break;
+				}
+			}
+			if(0 == candidate) {
+				len_min <<= 1;
+				continue;
+			}
+
+			candidate_cost = candidate->bytes_len + cost[p + len_min];
+			candidate_frames = 1 + frame_count[p + len_min];
+			candidate_sequence[0] = candidate->blocksize;
+			for(k = 0; k < frame_count[p + len_min]; k++)
+				candidate_sequence[1 + k] = sequence[p + len_min][k];
+
+			if(
+				candidate_cost < cost[p] ||
+				(candidate_cost == cost[p] && candidate_frames < frame_count[p]) ||
+				(candidate_cost == cost[p] && candidate_frames == frame_count[p] && length_sequence_greater_(candidate_sequence, sequence[p], candidate_frames))
+			) {
+				cost[p] = candidate_cost;
+				frame_count[p] = candidate_frames;
+				choice_len[p] = len_min;
+				memcpy(sequence[p], candidate_sequence, sizeof(uint32_t) * candidate_frames);
+			}
+			len_min <<= 1;
+		}
+	}
+
+	/* Walk the chosen partition and deliver each cached frame. */
+	{
+		uint32_t pos = 0;
+		while(pos < width) {
+			const uint32_t chosen_len = choice_len[pos];
+			blocksize_search_candidate *candidate = 0;
+			FLAC__bool is_last;
+
+			for(ci = 0; ci < search->candidates_count; ci++) {
+				if(search->candidates[ci].start_min == pos && search->candidates[ci].len_min == chosen_len) {
+					candidate = &search->candidates[ci];
+					break;
+				}
+			}
+			if(0 == candidate) {
+				encoder->protected_->state = FLAC__STREAM_ENCODER_FRAMING_ERROR;
+				return false;
+			}
+			is_last = finalize && (pos + chosen_len == width) && tail == 0;
+			if(!blocksize_search_emit_frame_(encoder, candidate->bytes, candidate->bytes_len, candidate->blocksize, window_first_sample + (FLAC__uint64)pos * minimum, is_last))
+				return false;
+			pos += chosen_len;
+		}
+	}
+
+	/* A remaining run shorter than minimum becomes its own final frame,
+	 * encoded at its true length with no padding or merging. */
+	if(finalize && tail > 0) {
+		blocksize_search_candidate tail_candidate;
+		FLAC__StreamEncoderThreadTask *task = priv->threadtask[0];
+		FLAC__uint16 crc;
+		uint32_t channel;
+		const uint32_t saved_blocksize = encoder->protected_->blocksize;
+		const FLAC__bool saved_use_sample_number = encoder->protected_->use_sample_number;
+		const FLAC__uint64 saved_first_sample = encoder->protected_->frame_first_sample;
+
+		memset(&tail_candidate, 0, sizeof(tail_candidate));
+		tail_candidate.blocksize = tail;
+		tail_candidate.first_sample = window_first_sample + (FLAC__uint64)width * minimum;
+		for(channel = 0; channel < encoder->protected_->channels; channel++)
+			memcpy(task->integer_signal[channel], search->window[channel] + width * minimum, sizeof(FLAC__int32) * tail);
+
+		encoder->protected_->blocksize = tail;
+		if(!resize_buffers_(encoder, tail))
+			return false;
+		encoder->protected_->use_sample_number = true;
+		encoder->protected_->frame_first_sample = tail_candidate.first_sample;
+		task->current_frame_number = 0;
+
+		if(!process_subframes_(encoder, task) ||
+			!FLAC__bitwriter_zero_pad_to_byte_boundary(task->frame) ||
+			!FLAC__bitwriter_get_write_crc16(task->frame, &crc) ||
+			!FLAC__bitwriter_write_raw_uint32(task->frame, crc, FLAC__FRAME_FOOTER_CRC_LEN) ||
+			!candidate_store_bytes_(&tail_candidate, task->frame)
+		) {
+			FLAC__bitwriter_clear(task->frame);
+			encoder->protected_->blocksize = saved_blocksize;
+			encoder->protected_->use_sample_number = saved_use_sample_number;
+			encoder->protected_->frame_first_sample = saved_first_sample;
+			encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+			free(tail_candidate.bytes);
+			return false;
+		}
+		FLAC__bitwriter_clear(task->frame);
+		ok = blocksize_search_emit_frame_(encoder, tail_candidate.bytes, tail_candidate.bytes_len, tail, tail_candidate.first_sample, /*is_last_block=*/true);
+		free(tail_candidate.bytes);
+		encoder->protected_->blocksize = saved_blocksize;
+		encoder->protected_->use_sample_number = saved_use_sample_number;
+		encoder->protected_->frame_first_sample = saved_first_sample;
+		if(!ok)
+			return false;
+	}
+
+	search->window_fill = 0;
+	search->candidates_count = 0;
+	return true;
+}
+
+/* Build every feasible candidate for the current window, each analyzed a
+ * single time, then select and deliver the partition. */
+static FLAC__bool blocksize_search_build_and_deliver_(FLAC__StreamEncoder *encoder, FLAC__bool finalize)
+{
+	blocksize_search_state *search = encoder->private_->blocksize_search;
+	const uint32_t minimum = encoder->protected_->blocksize_search_min;
+	const uint32_t width = search->window_fill / minimum;
+	uint32_t start, len_min, i;
+
+	if(search->window_fill == 0)
+		return true;
+
+	for(start = 0; start < width; start++) {
+		len_min = 1;
+		while(len_min <= width - start) {
+			blocksize_search_candidate *candidate;
+			if(search->candidates_count >= search->candidates_capacity) {
+				encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+				return false;
+			}
+			candidate = &search->candidates[search->candidates_count++];
+			candidate->start_min = start;
+			candidate->len_min = len_min;
+			candidate->blocksize = len_min * minimum;
+			candidate->first_sample = encoder->private_->samples_written + (FLAC__uint64)start * minimum;
+			candidate->bytes = 0;
+			candidate->bytes_capacity = 0;
+			candidate->bytes_len = 0;
+			if(!blocksize_search_trial_encode_(encoder, candidate))
+				return false;
+			len_min <<= 1;
+		}
+	}
+
+	if(!blocksize_search_deliver_window_(encoder, finalize))
+		return false;
+
+	/* Release cached frame bytes; the candidate structs are reused. */
+	for(i = 0; i < search->candidates_count; i++) {
+		free(search->candidates[i].bytes);
+		search->candidates[i].bytes = 0;
+		search->candidates[i].bytes_capacity = 0;
+	}
+	return true;
+}
+
+static FLAC__bool blocksize_search_feed_(FLAC__StreamEncoder *encoder, const FLAC__int32 * const planar[], const FLAC__int32 *interleaved, uint32_t samples)
+{
+	blocksize_search_state *search = encoder->private_->blocksize_search;
+	const uint32_t channels = encoder->protected_->channels;
+	const uint32_t maximum = encoder->protected_->blocksize_search_max;
+	const FLAC__int32 sample_max = INT32_MAX >> (32 - encoder->protected_->bits_per_sample);
+	const FLAC__int32 sample_min = INT32_MIN >> (32 - encoder->protected_->bits_per_sample);
+	uint32_t consumed = 0;
+	uint32_t channel;
+
+	if(samples == 0)
+		return true;
+
+	while(consumed < samples) {
+		const uint32_t room = maximum - search->window_fill;
+		const uint32_t chunk = flac_min(room, samples - consumed);
+		uint32_t i;
+
+		if(planar != 0) {
+			for(channel = 0; channel < channels; channel++) {
+				for(i = 0; i < chunk; i++) {
+					const FLAC__int32 v = planar[channel][consumed + i];
+					if(v < sample_min || v > sample_max) {
+						encoder->protected_->state = FLAC__STREAM_ENCODER_CLIENT_ERROR;
+						return false;
+					}
+					search->window[channel][search->window_fill + i] = v;
+				}
+			}
+		}
+		else {
+			for(i = 0; i < chunk; i++) {
+				for(channel = 0; channel < channels; channel++) {
+					const FLAC__int32 v = interleaved[(consumed + i) * channels + channel];
+					if(v < sample_min || v > sample_max) {
+						encoder->protected_->state = FLAC__STREAM_ENCODER_CLIENT_ERROR;
+						return false;
+					}
+					search->window[channel][search->window_fill + i] = v;
+				}
+			}
+		}
+
+		if(encoder->protected_->verify) {
+			if(planar != 0)
+				append_to_verify_fifo_(&encoder->private_->verify.input_fifo, planar, consumed, channels, chunk);
+			else
+				append_to_verify_fifo_interleaved_(&encoder->private_->verify.input_fifo, interleaved, consumed, channels, chunk);
+		}
+
+		search->window_fill += chunk;
+		consumed += chunk;
+
+		if(search->window_fill == maximum) {
+			if(!blocksize_search_build_and_deliver_(encoder, /*finalize=*/false))
+				return false;
+		}
+	}
+	return true;
+}
+
+static FLAC__bool blocksize_search_flush_(FLAC__StreamEncoder *encoder)
+{
+	blocksize_search_state *search = encoder->private_->blocksize_search;
+	if(0 == search || search->window_fill == 0)
+		return true;
+	return blocksize_search_build_and_deliver_(encoder, /*finalize=*/true);
+}
+
+static FLAC__bool blocksize_search_init_(FLAC__StreamEncoder *encoder)
+{
+	FLAC__StreamEncoderPrivate *priv = encoder->private_;
+	blocksize_search_state *search;
+	const uint32_t maximum = encoder->protected_->blocksize_search_max;
+	const uint32_t width = maximum / encoder->protected_->blocksize_search_min;
+	uint32_t channel;
+
+	search = safe_calloc_(1, sizeof(*search));
+	if(0 == search) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		return false;
+	}
+	priv->blocksize_search = search;
+
+	for(channel = 0; channel < encoder->protected_->channels; channel++) {
+		if(!FLAC__memory_alloc_aligned_int32_array(maximum, &search->window_unaligned[channel], &search->window[channel])) {
+			encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+			blocksize_search_finish_(encoder);
+			return false;
+		}
+	}
+
+	/* Upper bound on feasible (start,length) pairs in one window. */
+	search->candidates_capacity = width * BLOCKSIZE_SEARCH_MAX_LENGTH_KINDS;
+	search->candidates = safe_calloc_(search->candidates_capacity, sizeof(*search->candidates));
+	if(0 == search->candidates) {
+		encoder->protected_->state = FLAC__STREAM_ENCODER_MEMORY_ALLOCATION_ERROR;
+		blocksize_search_finish_(encoder);
+		return false;
+	}
+
+	search->window_fill = 0;
+	search->candidates_count = 0;
+	encoder->protected_->use_sample_number = true;
+	encoder->protected_->frame_first_sample = 0;
+	return true;
+}
+
+static void blocksize_search_finish_(FLAC__StreamEncoder *encoder)
+{
+	FLAC__StreamEncoderPrivate *priv = encoder->private_;
+	blocksize_search_state *search = priv->blocksize_search;
+	uint32_t channel, i;
+
+	if(0 == search)
+		return;
+
+	if(0 != search->candidates) {
+		for(i = 0; i < search->candidates_count; i++)
+			free(search->candidates[i].bytes);
+		free(search->candidates);
+	}
+	for(channel = 0; channel < FLAC__MAX_CHANNELS; channel++) {
+		if(0 != search->window_unaligned[channel]) {
+			free(search->window_unaligned[channel]);
+			search->window_unaligned[channel] = 0;
+		}
+	}
+	free(search);
+	priv->blocksize_search = 0;
+}
+
+
 FLAC__bool process_frame_(FLAC__StreamEncoder *encoder, FLAC__bool is_last_block)
 {
 	FLAC__uint16 crc;
@@ -3768,8 +4446,14 @@ FLAC__bool process_subframes_(FLAC__StreamEncoder *encoder, FLAC__StreamEncoderT
 	frame_header.channels = encoder->protected_->channels;
 	frame_header.channel_assignment = FLAC__CHANNEL_ASSIGNMENT_INDEPENDENT; /* the default unless the encoder determines otherwise */
 	frame_header.bits_per_sample = encoder->protected_->bits_per_sample;
-	frame_header.number_type = FLAC__FRAME_NUMBER_TYPE_FRAME_NUMBER;
-	frame_header.number.frame_number = threadtask->current_frame_number;
+	if(encoder->protected_->use_sample_number) {
+		frame_header.number_type = FLAC__FRAME_NUMBER_TYPE_SAMPLE_NUMBER;
+		frame_header.number.sample_number = encoder->protected_->frame_first_sample;
+	}
+	else {
+		frame_header.number_type = FLAC__FRAME_NUMBER_TYPE_FRAME_NUMBER;
+		frame_header.number.frame_number = threadtask->current_frame_number;
+	}
 
 	/*
 	 * Figure out what channel assignments to try

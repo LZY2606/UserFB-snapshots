@@ -889,6 +889,41 @@ FLAC_API FLAC__bool FLAC__stream_encoder_set_compression_level(FLAC__StreamEncod
  */
 FLAC_API FLAC__bool FLAC__stream_encoder_set_blocksize(FLAC__StreamEncoder *encoder, uint32_t value);
 
+/** Enable bounded look-ahead frame-length selection.
+ *
+ * When enabled, the encoder partitions the input into decision windows of
+ * \a maximum real sample frames.  Inside each window it encodes every
+ * feasible frame length (\a minimum, 2*\a minimum, 4*\a minimum, ... up to
+ * \a maximum, never crossing the window) and keeps the partition with the
+ * smallest total number of produced audio-frame bytes.  Every audio frame
+ * uses the variable-blocking strategy and is headed by the absolute sample
+ * number of its first sample.
+ *
+ * The switch may only be configured before initialization.  Passing
+ * (0, 0) disables the search and restores the fixed blocksize setting in
+ * effect before it was enabled.  Otherwise both values must be powers of
+ * two within [64, 4096], \a minimum must be smaller than \a maximum, and
+ * \a maximum / \a minimum must not exceed 16.  The search is restricted to
+ * native FLAC, single-threaded, one- or two-channel, 16- or 24-bit streams
+ * with non-loose stereo search; combining it with loose mid/side stereo,
+ * minimum-bitrate limiting, multithreading or Ogg makes initialization fail
+ * explicitly.
+ *
+ * While enabled, FLAC__stream_encoder_get_blocksize() returns \a maximum and
+ * FLAC__stream_encoder_set_blocksize() rejects changes.
+ *
+ * \default disabled (both values 0)
+ * \param  encoder  An encoder instance to configure.
+ * \param  minimum  Smallest selectable frame length, or 0 to disable.
+ * \param  maximum  Decision-window size and largest selectable frame length.
+ * \assert
+ *    \code encoder != NULL \endcode
+ * \retval FLAC__bool
+ *    \c false if the encoder is already initialized or the parameters are
+ *    invalid; the existing configuration is left unchanged on failure.
+ */
+FLAC_API FLAC__bool FLAC__stream_encoder_set_blocksize_search(FLAC__StreamEncoder *encoder, uint32_t minimum, uint32_t maximum);
+
 /** Set to \c true to enable mid-side encoding on stereo input.  The
  *  number of channels must be 2 for this to have any effect.  Set to
  *  \c false to use only independent channel coding.

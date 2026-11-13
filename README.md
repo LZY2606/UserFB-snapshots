@@ -63,6 +63,42 @@ git.
 The directory examples contains example source code on using libFLAC and
 libFLAC++.
 
+### Bounded look-ahead blocksize search
+
+Besides the fixed-blocksize encoder, libFLAC can choose the frame length
+per bounded decision window.  Enable it before initialization with
+`FLAC__stream_encoder_set_blocksize_search()`; the encoder then writes a
+native FLAC stream using the variable-blocking strategy, heading every
+frame with the absolute sample number of its first sample.  Passing
+`(0, 0)` disables the search again and restores the previous fixed
+blocksize.
+
+```c
+#include "FLAC/stream_encoder.h"
+
+FLAC__StreamEncoder *encoder = FLAC__stream_encoder_new();
+FLAC__stream_encoder_set_channels(encoder, 2);
+FLAC__stream_encoder_set_bits_per_sample(encoder, 16);
+FLAC__stream_encoder_set_sample_rate(encoder, 48000);
+FLAC__stream_encoder_set_compression_level(encoder, 5);
+
+/* decision windows of 512 samples; frame lengths in {64,128,256,512} */
+if(!FLAC__stream_encoder_set_blocksize_search(encoder, 64, 512)) {
+    /* invalid parameters or the encoder is already initialized */
+}
+
+if(FLAC__stream_encoder_init_stream(encoder, write_callback,
+        seek_callback, tell_callback, metadata_callback, client_data)
+        != FLAC__STREAM_ENCODER_INIT_STATUS_OK) {
+    /* initialization failed */
+}
+
+/* feed samples as usual; the encoder partitions each window itself */
+FLAC__stream_encoder_process_interleaved(encoder, pcm, num_samples);
+FLAC__stream_encoder_finish(encoder);
+FLAC__stream_encoder_delete(encoder);
+```
+
 Documentation concerning the FLAC format itself (which can be used to
 create software reading and writing FLAC software independent from
 libFLAC) was included in previous releases, but can now be found on
