@@ -477,7 +477,8 @@ func (t *TransportLayerCC) Unmarshal(rawPacket []byte) error { //nolint:gocognit
 	packetStatusPos := uint16(headerLength + packetChunkOffset)
 	var processedPacketNum uint16
 	for processedPacketNum < t.PacketStatusCount {
-		if packetStatusPos+packetStatusChunkLength >= totalLength {
+		// A chunk is 2 bytes; it may end exactly at totalLength.
+		if packetStatusPos+packetStatusChunkLength > totalLength {
 			return errPacketTooShort
 		}
 		typ := getNBitsFromByte(rawPacket[packetStatusPos : packetStatusPos+1][0], 0, 1)
