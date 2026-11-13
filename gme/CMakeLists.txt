@@ -151,6 +151,8 @@ if(USE_GME_NSF OR USE_GME_NSFE)
                 Nes_Fme7_Apu.h
                 Nes_Namco_Apu.cpp
                 Nes_Namco_Apu.h
+                Nes_Nonlinearizer.cpp
+                Nes_Nonlinearizer.h
                 Nes_Oscs.cpp
                 Nes_Oscs.h
                 Nes_Vrc6_Apu.cpp

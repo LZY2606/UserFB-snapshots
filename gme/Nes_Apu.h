@@ -10,6 +10,7 @@ typedef int32_t nes_time_t; // CPU clock cycle count
 typedef unsigned nes_addr_t; // 16-bit memory address
 
 #include "Nes_Oscs.h"
+#include "Nes_Nonlinearizer.h"
 
 struct apu_state_t;
 class Nes_Buffer;
@@ -18,6 +19,29 @@ class Nes_Apu {
 public:
 	// Set buffer to generate all sound into, or disable sound if NULL
 	void output( Blip_Buffer* );
+
+	// Enable the joint five-channel nonlinear DAC mixer and send the mixed
+	// signal to the given mono buffer. Pass NULL to detach it and restore the
+	// regular per-oscillator osc_output() routing. Only call before reset();
+	// switching modes during playback is not supported.
+	void set_nonlinear_output( Blip_Buffer* );
+
+	// In nonlinear mode, mute the channels selected by the low five bits of
+	// mask (0) Square 1, 1) Square 2, 2) Triangle, 3) Noise, 4) DMC) at the
+	// given time. Muted channels contribute zero to the mixing formula but
+	// keep running their internal state, so unmuting resumes immediately.
+	void set_nonlinear_mute_mask( nes_time_t time, int mask );
+
+	// True while the nonlinear mixer is attached.
+	bool nonlinear_output_enabled() const { return nonlinearizer.attached(); }
+
+	// Install a callback invoked with the mixed integer level at every CPU
+	// cycle where a raw DAC edge was merged. Test/diagnostic use only; the
+	// mixer's Blip output does not depend on it.
+	void set_nonlinear_listener( Nes_Nonlinearizer::listener_t fn, void* data )
+	{
+		nonlinearizer.set_listener( fn, data );
+	}
 
 	// Set memory reader callback used by DMC oscillator to fetch samples.
 	// When callback is invoked, 'user_data' is passed unchanged as the
@@ -99,8 +123,6 @@ public:
 	BLARGG_DISABLE_NOTHROW
 private:
 	friend class Nes_Nonlinearizer;
-	void enable_nonlinear( double volume );
-	static double nonlinear_tnd_gain() { return 0.75; }
 private:
 	friend struct Nes_Dmc;
 
@@ -114,6 +136,7 @@ private:
 	Nes_Noise           noise;
 	Nes_Triangle        triangle;
 	Nes_Dmc             dmc;
+	Nes_Nonlinearizer   nonlinearizer;
 
 	double tempo_;
 	nes_time_t last_time; // has been run until this time in current frame

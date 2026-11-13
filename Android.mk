@@ -70,6 +70,7 @@ LOCAL_SRC_FILES := \
 	gme/Nes_Cpu.cpp \
 	gme/Nes_Fme7_Apu.cpp \
 	gme/Nes_Namco_Apu.cpp \
+	gme/Nes_Nonlinearizer.cpp \
 	gme/Nes_Oscs.cpp \
 	gme/Nes_Vrc6_Apu.cpp \
 	gme/Nes_Fds_Apu.cpp \

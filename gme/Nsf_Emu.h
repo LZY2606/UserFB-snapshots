@@ -42,6 +42,12 @@ public:
 
 	static gme_type_t static_type() { return gme_nsf_type; }
 
+	// Route the five built-in APU channels through the joint nonlinear DAC
+	// mixer instead of the default linear per-channel outputs. Must be set
+	// before load(); the setting survives load and track restarts.
+	void set_nonlinear_mixing( bool enable );
+	bool nonlinear_mixing_enabled() const { return nonlinear_mixing; }
+
 public:
 	// deprecated
 	using Music_Emu::load;
@@ -59,6 +65,7 @@ protected:
 	blargg_err_t run_clocks( blip_time_t&, int );
 	void set_tempo_( double );
 	void set_voice( int, Blip_Buffer*, Blip_Buffer*, Blip_Buffer* );
+	void mute_voices_( int mask ) override;
 	void update_eq( blip_eq_t const& );
 	void unload();
 protected:
@@ -68,6 +75,9 @@ protected:
 	nes_addr_t play_addr;
 	double clock_rate_;
 	bool pal_only;
+	bool nonlinear_mixing;
+	int nonlinear_mute_mask;
+	double nonlinear_gain;
 
 	// timing
 	Nes_Cpu::registers_t saved_state;

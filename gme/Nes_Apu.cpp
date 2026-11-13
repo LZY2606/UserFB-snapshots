@@ -32,6 +32,12 @@ Nes_Apu::Nes_Apu() :
 	oscs [3] = &noise;
 	oscs [4] = &dmc;
 
+	for ( int i = 0; i < osc_count; i++ )
+	{
+		oscs [i]->mixer = NULL;
+		oscs [i]->mixer_index = i;
+	}
+
 	output( NULL );
 	volume( 1.0 );
 	reset( false );
@@ -43,32 +49,42 @@ void Nes_Apu::treble_eq( const blip_eq_t& eq )
 	triangle.synth.treble_eq( eq );
 	noise.synth.treble_eq( eq );
 	dmc.synth.treble_eq( eq );
-}
-
-void Nes_Apu::enable_nonlinear( double v )
-{
-	dmc.nonlinear = true;
-	square_synth.volume( 1.3 * 0.25751258 / 0.742467605 * 0.25 / amp_range * v );
-
-	const double tnd = 0.48 / 202 * nonlinear_tnd_gain();
-	triangle.synth.volume( 3.0 * tnd );
-	noise.synth.volume( 2.0 * tnd );
-	dmc.synth.volume( tnd );
-
-	square1 .last_amp = 0;
-	square2 .last_amp = 0;
-	triangle.last_amp = 0;
-	noise   .last_amp = 0;
-	dmc     .last_amp = 0;
+	nonlinearizer.treble_eq( eq );
 }
 
 void Nes_Apu::volume( double v )
 {
-	dmc.nonlinear = false;
 	square_synth.volume(   0.1128  / amp_range * v );
 	triangle.synth.volume( 0.12765 / amp_range * v );
 	noise.synth.volume(    0.0741  / amp_range * v );
 	dmc.synth.volume(      0.42545 / 127 * v );
+	if ( nonlinearizer.attached() )
+		nonlinearizer.volume( v );
+}
+
+void Nes_Apu::set_nonlinear_output( Blip_Buffer* buffer )
+{
+	if ( buffer )
+	{
+		for ( int i = 0; i < osc_count; i++ )
+		{
+			oscs [i]->mixer = &nonlinearizer;
+			oscs [i]->mixer_index = i;
+			oscs [i]->output = NULL;
+		}
+		nonlinearizer.attach( this, buffer );
+	}
+	else
+	{
+		nonlinearizer.detach();
+		for ( int i = 0; i < osc_count; i++ )
+			oscs [i]->mixer = NULL;
+	}
+}
+
+void Nes_Apu::set_nonlinear_mute_mask( nes_time_t time, int mask )
+{
+	nonlinearizer.set_mute_mask( time, mask );
 }
 
 void Nes_Apu::output( Blip_Buffer* buffer )
@@ -109,10 +125,11 @@ void Nes_Apu::reset( bool pal_mode, int initial_dmc_dac )
 		write_register( 0, addr, (addr & 3) ? 0x00 : 0x10 );
 
 	dmc.dac = initial_dmc_dac;
-	if ( !dmc.nonlinear )
-		triangle.last_amp = 15;
-	if ( !dmc.nonlinear ) // TODO: remove?
-		dmc.last_amp = initial_dmc_dac; // prevent output transition
+	triangle.last_amp = 15;
+	dmc.last_amp = initial_dmc_dac; // prevent output transition
+
+	if ( nonlinearizer.attached() )
+		nonlinearizer.reset_reference();
 }
 
 void Nes_Apu::irq_changed()
@@ -172,6 +189,8 @@ void Nes_Apu::run_until_( nes_time_t end_time )
 		square2.run( last_time, time );
 		triangle.run( last_time, time );
 		noise.run( last_time, time );
+		if ( nonlinearizer.attached() )
+			nonlinearizer.flush( time );
 		last_time = time;
 
 		if ( time == end_time )
@@ -225,29 +244,13 @@ void Nes_Apu::run_until_( nes_time_t end_time )
 	}
 }
 
-template<class T>
-inline void zero_apu_osc( T* osc, nes_time_t time )
-{
-	Blip_Buffer* output = osc->output;
-	int last_amp = osc->last_amp;
-	osc->last_amp = 0;
-	if ( output && last_amp )
-		osc->synth.offset( time, -last_amp, output );
-}
-
 void Nes_Apu::end_frame( nes_time_t end_time )
 {
 	if ( end_time > last_time )
 		run_until_( end_time );
 
-	if ( dmc.nonlinear )
-	{
-		zero_apu_osc( &square1,  last_time );
-		zero_apu_osc( &square2,  last_time );
-		zero_apu_osc( &triangle, last_time );
-		zero_apu_osc( &noise,    last_time );
-		zero_apu_osc( &dmc,      last_time );
-	}
+	if ( nonlinearizer.attached() )
+		nonlinearizer.end_frame( end_time );
 
 	// make times relative to new frame
 	last_time -= end_time;

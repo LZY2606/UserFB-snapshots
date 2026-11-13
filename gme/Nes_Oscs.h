@@ -8,6 +8,7 @@
 #include "Blip_Buffer.h"
 
 class Nes_Apu;
+class Nes_Nonlinearizer;
 
 struct Nes_Osc
 {
@@ -17,6 +18,13 @@ struct Nes_Osc
 	int length_counter;// length counter (0 if unused by oscillator)
 	int delay;      // delay until next (potential) transition
 	int last_amp;   // last amplitude oscillator was outputting
+
+	// When non-null, raw DAC level changes are sent here instead of to
+	// output, and the oscillator keeps its full state machine running
+	// regardless of the output pointer.
+	Nes_Nonlinearizer* mixer;
+	int mixer_index;
+	void mixer_level( nes_time_t time, int amp );
 
 	void clock_length( int halt_mask );
 	int period() const {
@@ -79,7 +87,13 @@ struct Nes_Triangle : Nes_Osc
 	int linear_counter;
 	Blip_Synth<blip_med_quality,1> synth;
 
-	int calc_amp() const;
+	int calc_amp() const
+	{
+		int amp = phase_range - phase;
+		if ( amp < 0 )
+			amp = phase - (phase_range + 1);
+		return amp;
+	}
 	void run( nes_time_t, nes_time_t );
 	void clock_linear_counter();
 	void reset() {
@@ -124,7 +138,6 @@ struct Nes_Dmc : Nes_Osc
 	bool irq_enabled;
 	bool irq_flag;
 	bool pal_mode;
-	bool nonlinear;
 
 	int (*prg_reader)( void*, nes_addr_t ); // needs to be initialized to prg read function
 	void* prg_reader_data;

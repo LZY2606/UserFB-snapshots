@@ -18,6 +18,7 @@ protected:
 	// Services
 	enum { wave_type = 0x100, noise_type = 0x200, mixed_type = wave_type | noise_type };
 	void set_voice_types( int const* t ) { voice_types = t; }
+	Multi_Buffer* multi_buffer() { return buf; }
 	blargg_err_t setup_buffer( uint32_t clock_rate );
 	long clock_rate() const { return clock_rate_; }
 	void change_clock_rate( uint32_t ); // experimental

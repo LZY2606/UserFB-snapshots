@@ -15,6 +15,14 @@ Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA */
 
 #include "blargg_source.h"
 
+#include "Nes_Nonlinearizer.h"
+
+void Nes_Osc::mixer_level( nes_time_t time, int amp )
+{
+	if ( mixer )
+		mixer->level( mixer_index, time, amp );
+}
+
 // Nes_Osc
 
 void Nes_Osc::clock_length( int halt_mask )
@@ -97,13 +105,16 @@ void Nes_Square::run( nes_time_t time, nes_time_t end_time )
 	const int period = this->period();
 	const int timer_period = (period + 1) * 2;
 
-	if ( !output )
+	const bool to_mixer = (mixer != 0);
+
+	if ( !output && !to_mixer )
 	{
 		delay = maintain_phase( time + delay, end_time, timer_period ) - end_time;
 		return;
 	}
 
-	output->set_modified();
+	if ( output )
+		output->set_modified();
 
 	int offset = period >> (regs [1] & shift_mask);
 	if ( regs [1] & negate_flag )
@@ -113,7 +124,10 @@ void Nes_Square::run( nes_time_t time, nes_time_t end_time )
 	if ( volume == 0 || period < 8 || (period + offset) >= 0x800 )
 	{
 		if ( last_amp ) {
-			synth.offset( time, -last_amp, output );
+			if ( to_mixer )
+				mixer_level( time, 0 );
+			else
+				synth.offset( time, -last_amp, output );
 			last_amp = 0;
 		}
 
@@ -136,7 +150,12 @@ void Nes_Square::run( nes_time_t time, nes_time_t end_time )
 		{
 			int delta = update_amp( amp );
 			if ( delta )
-				synth.offset( time, delta, output );
+			{
+				if ( to_mixer )
+					mixer_level( time, amp );
+				else
+					synth.offset( time, delta, output );
+			}
 		}
 
 		time += delay;
@@ -151,7 +170,10 @@ void Nes_Square::run( nes_time_t time, nes_time_t end_time )
 				phase = (phase + 1) & (phase_range - 1);
 				if ( phase == 0 || phase == duty ) {
 					delta = -delta;
-					synth.offset_inline( time, delta, output );
+					if ( to_mixer )
+						mixer_level( time, (delta + volume) >> 1 );
+					else
+						synth.offset_inline( time, delta, output );
 				}
 				time += timer_period;
 			}
@@ -178,14 +200,6 @@ void Nes_Triangle::clock_linear_counter()
 		reg_written [3] = false;
 }
 
-inline int Nes_Triangle::calc_amp() const
-{
-	int amp = phase_range - phase;
-	if ( amp < 0 )
-		amp = phase - (phase_range + 1);
-	return amp;
-}
-
 // TODO: clean up
 inline nes_time_t Nes_Triangle::maintain_phase( nes_time_t time, nes_time_t end_time,
 		nes_time_t timer_period )
@@ -204,7 +218,8 @@ inline nes_time_t Nes_Triangle::maintain_phase( nes_time_t time, nes_time_t end_
 void Nes_Triangle::run( nes_time_t time, nes_time_t end_time )
 {
 	const int timer_period = period() + 1;
-	if ( !output )
+	const bool to_mixer = (mixer != 0);
+	if ( !output && !to_mixer )
 	{
 		time += delay;
 		delay = 0;
@@ -213,14 +228,20 @@ void Nes_Triangle::run( nes_time_t time, nes_time_t end_time )
 		return;
 	}
 
-	output->set_modified();
+	if ( output )
+		output->set_modified();
 
 	// to do: track phase when period < 3
 	// to do: Output 7.5 on dac when period < 2? More accurate, but results in more clicks.
 
 	int delta = update_amp( calc_amp() );
 	if ( delta )
-		synth.offset( time, delta, output );
+	{
+		if ( to_mixer )
+			mixer_level( time, last_amp );
+		else
+			synth.offset( time, delta, output );
+	}
 
 	time += delay;
 	if ( length_counter == 0 || linear_counter == 0 || timer_period < 3 )
@@ -231,30 +252,61 @@ void Nes_Triangle::run( nes_time_t time, nes_time_t end_time )
 	{
 		Blip_Buffer* const output = this->output;
 
-		int phase = this->phase;
-		int volume = 1;
-		if ( phase > phase_range ) {
-			phase -= phase_range;
-			volume = -volume;
-		}
+		if ( to_mixer )
+		{
+			// Keep the full 32-step phase so calc_amp() stays valid.
+			int phase = this->phase;
+			do {
+				if ( --phase == 0 ) {
+					phase = phase_range * 2; // repeated endpoint level, no edge
+				}
+				else {
+					int amp = phase_range - phase;
+					if ( amp < 0 )
+						amp = phase - (phase_range + 1);
+					// The two valley phases both read zero: that is not a
+					// DAC level change, so only push real edges.
+					if ( amp != last_amp )
+					{
+						last_amp = amp;
+						mixer_level( time, amp );
+					}
+				}
 
-		do {
-			if ( --phase == 0 ) {
-				phase = phase_range;
+				time += timer_period;
+			}
+			while ( time < end_time );
+
+			this->phase = phase;
+			last_amp = calc_amp();
+		}
+		else
+		{
+			int phase = this->phase;
+			int volume = 1;
+			if ( phase > phase_range ) {
+				phase -= phase_range;
 				volume = -volume;
 			}
-			else {
-				synth.offset_inline( time, volume, output );
+
+			do {
+				if ( --phase == 0 ) {
+					phase = phase_range;
+					volume = -volume;
+				}
+				else {
+					synth.offset_inline( time, volume, output );
+				}
+
+				time += timer_period;
 			}
+			while ( time < end_time );
 
-			time += timer_period;
+			if ( volume < 0 )
+				phase += phase_range;
+			this->phase = phase;
+			last_amp = calc_amp();
 		}
-		while ( time < end_time );
-
-		if ( volume < 0 )
-			phase += phase_range;
-		this->phase = phase;
-		last_amp = calc_amp();
  	}
 	delay = time - end_time;
 }
@@ -361,7 +413,7 @@ void Nes_Dmc::write_register( int addr, int data )
 		// adjust last_amp so that "pop" amplitude will be properly non-linear
 		// with respect to change in dac
 		int faked_nonlinear = dac - (dac_table [dac] - dac_table [old_dac]);
-		if ( !nonlinear )
+		if ( !mixer )
 			last_amp = faked_nonlinear;
 	}
 }
@@ -398,16 +450,23 @@ void Nes_Dmc::fill_buffer()
 
 void Nes_Dmc::run( nes_time_t time, nes_time_t end_time )
 {
+	const bool to_mixer = (mixer != 0);
 	int delta = update_amp( dac );
-	if ( !output )
+	if ( !output && !to_mixer )
 	{
 		silence = true;
 	}
 	else
 	{
-		output->set_modified();
+		if ( output )
+			output->set_modified();
 		if ( delta )
-			synth.offset( time, delta, output );
+		{
+			if ( to_mixer )
+				mixer_level( time, dac );
+			else
+				synth.offset( time, delta, output );
+		}
 	}
 
 	time += delay;
@@ -435,7 +494,10 @@ void Nes_Dmc::run( nes_time_t time, nes_time_t end_time )
 					bits >>= 1;
 					if ( unsigned (dac + step) <= 0x7F ) {
 						dac += step;
-						synth.offset_inline( time, step, output );
+						if ( to_mixer )
+							mixer_level( time, dac );
+						else
+							synth.offset_inline( time, step, output );
 					}
 				}
 
@@ -451,7 +513,7 @@ void Nes_Dmc::run( nes_time_t time, nes_time_t end_time )
 						silence = false;
 						bits = buf;
 						buf_full = false;
-						if ( !output )
+						if ( !output && !to_mixer )
 							silence = true;
 						fill_buffer();
 					}
@@ -479,7 +541,9 @@ void Nes_Noise::run( nes_time_t time, nes_time_t end_time )
 {
 	int period = noise_period_table [regs [2] & 15];
 
-	if ( !output )
+	const bool to_mixer = (mixer != 0);
+
+	if ( !output && !to_mixer )
 	{
 		// TODO: clean up
 		time += delay;
@@ -487,14 +551,20 @@ void Nes_Noise::run( nes_time_t time, nes_time_t end_time )
 		return;
 	}
 
-	output->set_modified();
+	if ( output )
+		output->set_modified();
 
 	const int volume = this->volume();
 	int amp = (noise & 1) ? volume : 0;
 	{
 		int delta = update_amp( amp );
 		if ( delta )
-			synth.offset( time, delta, output );
+		{
+			if ( to_mixer )
+				mixer_level( time, amp );
+			else
+				synth.offset( time, delta, output );
+		}
 	}
 
 	time += delay;
@@ -513,6 +583,28 @@ void Nes_Noise::run( nes_time_t time, nes_time_t end_time )
 				int feedback = (noise << 13) ^ (noise << 14);
 				noise = (feedback & 0x4000) | (noise >> 1);
 			}
+		}
+		else if ( to_mixer )
+		{
+			// Raw noise DAC edges, merged later with the other channels.
+			int noise = this->noise;
+			const int tap = (regs [2] & mode_flag ? 8 : 13);
+
+			do {
+				int feedback = (noise << tap) ^ (noise << 14);
+				time += period;
+				noise = (feedback & 0x4000) | (noise >> 1);
+
+				int new_amp = (noise & 1) ? volume : 0;
+				if ( new_amp != last_amp )
+				{
+					last_amp = new_amp;
+					mixer_level( time, new_amp );
+				}
+			}
+			while ( time < end_time );
+
+			this->noise = noise;
 		}
 		else
 		{

@@ -2,6 +2,7 @@
 
 #include "Nsf_Emu.h"
 
+#include "Multi_Buffer.h"
 #include "blargg_endian.h"
 #include <string.h>
 #include <stdio.h>
@@ -60,12 +61,21 @@ Nsf_Emu::Nsf_Emu()
 	mmc5  = 0;
 	vrc7  = 0;
 
+	nonlinear_mixing = false;
+	nonlinear_mute_mask = 0;
+	nonlinear_gain = 1.0;
+
 	set_type( gme_nsf_type );
 	set_silence_lookahead( 6 );
 	apu.dmc_reader( pcm_read, this );
 	Music_Emu::set_equalizer( nes_eq );
 	set_gain( 1.4 );
 	memset( unmapped_code, Nes_Cpu::bad_opcode, sizeof unmapped_code );
+}
+
+void Nsf_Emu::set_nonlinear_mixing( bool enable )
+{
+	nonlinear_mixing = enable;
 }
 
 Nsf_Emu::~Nsf_Emu() { unload(); }
@@ -325,6 +335,7 @@ blargg_err_t Nsf_Emu::init_sound()
 	set_voice_names( &apu_names[0] );
 
 	apu.volume( adjusted_gain );
+	nonlinear_gain = adjusted_gain;
 
 	return 0;
 }
@@ -411,7 +422,10 @@ void Nsf_Emu::set_voice( int i, Blip_Buffer* buf, Blip_Buffer*, Blip_Buffer* )
 {
 	if ( i < Nes_Apu::osc_count )
 	{
-		apu.osc_output( i, buf );
+		// In nonlinear mode the five built-in voices are jointly mixed into
+		// one center buffer, so their individual routing is ignored.
+		if ( !nonlinear_mixing )
+			apu.osc_output( i, buf );
 		return;
 	}
 	i -= Nes_Apu::osc_count;
@@ -451,6 +465,26 @@ void Nsf_Emu::set_voice( int i, Blip_Buffer* buf, Blip_Buffer*, Blip_Buffer* )
 	#undef HANDLE_CHIP
 	#undef HANDLE_CHIP_VRC6
 	#endif
+}
+
+void Nsf_Emu::mute_voices_( int mask )
+{
+	Music_Emu::mute_voices_( mask );
+
+	if ( nonlinear_mixing )
+	{
+		// The first five logical voices are the jointly mixed APU channels.
+		// Their routing stays untouched (set_voice ignores them in this mode);
+		// muting zeroes their term inside the mixing formula instead.
+		nonlinear_mute_mask = mask & 0x1F;
+		if ( apu.nonlinear_output_enabled() )
+			apu.set_nonlinear_mute_mask( 0, nonlinear_mute_mask );
+	}
+
+	// Classic_Emu routes every voice through set_voice(); the five APU
+	// channels are no-ops there in nonlinear mode, while expansion chips keep
+	// their independent buffers and muting.
+	Classic_Emu::mute_voices_( mask );
 }
 
 // Emulation
@@ -579,9 +613,29 @@ blargg_err_t Nsf_Emu::start_track_( int track )
 	for ( int i = 0; i < bank_count; ++i )
 		cpu_write( bank_select_addr + i, initial_banks [i] );
 
+	if ( nonlinear_mixing )
+	{
+		// Joint mono signal goes to the stereo buffer's center, which is
+		// duplicated to both outputs.
+		Blip_Buffer* center = multi_buffer()->channel( 0, 0 ).center;
+		apu.set_nonlinear_output( center );
+		apu.volume( nonlinear_gain );
+	}
+	else
+	{
+		apu.set_nonlinear_output( NULL );
+	}
+
 	apu.reset( pal_only, (header_.speed_flags & 0x20) ? 0x3F : 0 );
 	apu.write_register( 0, 0x4015, 0x0F );
 	apu.write_register( 0, 0x4017, (header_.speed_flags & 0x10) ? 0x80 : 0 );
+
+	if ( nonlinear_mixing )
+	{
+		// Re-establish the logical mute state on the fresh timeline; this also
+		// clears any mask left over from the previous track.
+		apu.set_nonlinear_mute_mask( 0, nonlinear_mute_mask & 0x1F );
+	}
 	#if !NSF_EMU_APU_ONLY
 	if ( mmc5 )
 	{
