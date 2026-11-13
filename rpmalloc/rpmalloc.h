@@ -166,6 +166,20 @@ typedef struct rpmalloc_interface_t {
 	int (*map_fail_callback)(size_t size);
 	//! Called when an assert fails, if asserts are enabled. Will use the standard assert() if this is not set.
 	void (*error_callback)(const char* message);
+	//! Called at most once per block when a block leaves the free quarantine (see quarantine_max_bytes in
+	//! rpmalloc_config_t), reporting the first byte of the quarantined user area that no longer holds the
+	//! quarantine poison value. The arguments are the user pointer, the usable size at free time, the byte
+	//! offset relative to the user pointer, the expected byte, the actual byte and quarantine_userdata.
+	//! A duplicate free of a pointer still held in the quarantine is reported separately, with the offset
+	//! argument set to (size_t)-1 and the expected and actual byte arguments both zero. The callback only
+	//! records diagnostics: it must never call back into the allocator (no rpmalloc/rpfree/realloc and no
+	//! standard malloc/free when the override is enabled), must not block on another thread that allocates,
+	//! and may be invoked from any thread. Validation and release of the block complete even when this
+	//! callback is null.
+	void (*quarantine_error)(void* ptr, size_t usable_size, size_t offset, unsigned char expected,
+	                         unsigned char actual, void* userdata);
+	//! User pointer passed unchanged to every quarantine_error invocation
+	void* quarantine_userdata;
 } rpmalloc_interface_t;
 
 typedef struct rpmalloc_config_t {
@@ -211,6 +225,17 @@ typedef struct rpmalloc_config_t {
 	///  THP is usually enabled by default.
 	int disable_thp;
 #endif
+	//! Debug-only free quarantine limit in bytes, measured with the usable size reported by
+	//! rpmalloc_usable_size at free time. Zero (the default) disables the quarantine completely and
+	//! every free takes the ordinary path. A non-zero limit keeps freed blocks in a global FIFO queue
+	//! and fills the whole usable user area of each quarantined block with a poison byte so writes after
+	//! free can be detected when the block leaves the queue. The queue evicts from the head once the
+	//! limit is exceeded; a single block larger than the limit is validated and released immediately
+	//! after being poisoned. Quarantined blocks stay occupied in their pages and spans, they are never
+	//! handed out again, unmapped, decommitted or reused by another heap, thread or heap collection
+	//! until they leave the queue. Only change this through rpmalloc_initialize_config, never while the
+	//! allocator is running.
+	size_t quarantine_max_bytes;
 } rpmalloc_config_t;
 
 //! Initialize allocator
@@ -322,6 +347,27 @@ rpfree(void* ptr);
 //! Query the usable size of the given memory block (from given pointer to the end of block)
 RPMALLOC_EXPORT size_t
 rpmalloc_usable_size(void* ptr);
+
+typedef struct rpmalloc_quarantine_stats_t {
+	//! Number of blocks currently held in the free quarantine, zero when the quarantine is disabled
+	size_t block_count;
+	//! Number of usable bytes currently held in the free quarantine, zero when the quarantine is disabled
+	size_t byte_count;
+} rpmalloc_quarantine_stats_t;
+
+//! Force the free quarantine to process all blocks that had entered the queue when the call began.
+//! Each block is validated for poison damage and then made available for reuse or released, and the
+//! number of blocks whose quarantined area had changed is returned. Frees entering the queue from
+//! other threads while the flush runs can be left for the next flush. Returns zero when the
+//! quarantine is disabled. The quarantine_error callback must not reenter the allocator, see
+//! rpmalloc_interface_t.
+RPMALLOC_EXPORT size_t
+rpmalloc_quarantine_flush(void);
+
+//! Read-only snapshot of the current free quarantine occupancy. Blocks still in ordinary use are
+//! never counted, only blocks already freed and held back by the quarantine.
+RPMALLOC_EXPORT void
+rpmalloc_quarantine_statistics(rpmalloc_quarantine_stats_t* stats);
 
 //! Dummy empty function for forcing linker symbol inclusion
 RPMALLOC_EXPORT void

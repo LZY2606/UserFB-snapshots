@@ -1,3 +1,22 @@
+Unreleased
+
+Added an optional debug free quarantine, disabled by default. Setting the new
+rpmalloc_config_t.quarantine_max_bytes field (at the end of the config struct) to a non-zero byte
+limit keeps freed blocks in a global FIFO before they are returned, charging each block the usable
+size at free time and evicting validated blocks from the head once the limit is exceeded; a block
+larger than the limit is validated and released immediately. On entry the whole usable user area is
+filled with the poison byte 0xD3, and on exit the area is scanned and the first changed byte is
+reported through the new rpmalloc_interface_t.quarantine_error callback with its
+quarantine_userdata. A duplicate free of a still-queued pointer is reported separately without
+requeueing it or changing the statistics. New rpmalloc_quarantine_flush returns the number of
+damaged blocks among those queued when the call began, and rpmalloc_quarantine_statistics returns
+the current block and byte occupancy. The quarantine covers local, cross-thread, aligned and huge
+block frees and, with RPMALLOC_FIRST_CLASS_HEAPS, heap_free/heap_realloc; heap_free_all and the
+global finalize drain the records they own before destroying pages and mappings. The queue metadata
+is mapped independently of rpmalloc and a metadata mapping failure is fatal rather than silently
+skipping isolation. The quarantine_error callback is diagnostic only and must not reenter the
+allocator or block on an allocating thread.
+
 2.0.2
 
 Unloading a DLL or shared object that has rpmalloc compiled in no longer leaves the thread exit

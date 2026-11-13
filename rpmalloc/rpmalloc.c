@@ -2638,11 +2638,517 @@ block_get_span(block_t* block) {
 	return (span_t*)((uintptr_t)block & SPAN_MASK);
 }
 
-//! Deallocate a block, taking the fast path for a block in a page whose fast free key is the key of the owned
-//  heap. The caller owns that heap, it is the first class heap the block was allocated from, or the thread heap
-//  if the given heap is null
+static inline size_t
+block_usable_size(block_t* block);
+
 static inline void
-block_deallocate_heap(block_t* block, heap_t* owned_heap) {
+block_deallocate_raw(block_t* block, heap_t* owned_heap);
+
+////////////
+///
+/// Free quarantine (debug mode, see quarantine_max_bytes in rpmalloc_config_t)
+///
+//////
+
+//! Poison byte filling the whole usable area of a quarantined block
+#define QUARANTINE_POISON 0xD3
+//! Offset argument of the quarantine_error callback when reporting a duplicate free
+#define QUARANTINE_DUPLICATE_OFFSET ((size_t)-1)
+//! Records per metadata arena, the arena is mapped in one piece and never grows individually
+#define QUARANTINE_ARENA_RECORD_COUNT 256
+//! Initial slot count of the pointer lookup table, always a power of two
+#define QUARANTINE_TABLE_INITIAL_CAPACITY 1024
+//! Blocks released per lock hold during a flush, bounds the stack space of the drain batch
+#define QUARANTINE_DRAIN_BATCH 64
+
+typedef struct quarantine_record_t quarantine_record_t;
+typedef struct quarantine_arena_t quarantine_arena_t;
+typedef struct quarantine_table_t quarantine_table_t;
+
+//! One quarantined block. The queue links and all validation state live in this separately mapped
+//! record, never in the quarantined user area, which is filled with the poison byte in full
+struct quarantine_record_t {
+	//! User pointer of the quarantined block
+	void* block;
+	//! Usable size at free time, the number of poisoned and validated bytes
+	size_t usable;
+	//! FIFO queue links
+	quarantine_record_t *prev, *next;
+	//! Next record in the free record pool, used only while the record is not queued
+	quarantine_record_t* next_free;
+};
+
+struct quarantine_arena_t {
+	quarantine_arena_t* next;
+	size_t record_count;
+	quarantine_record_t record[QUARANTINE_ARENA_RECORD_COUNT];
+};
+
+//! Open addressing lookup table mapping user pointers to their quarantine record, used to reject
+//! duplicate frees while a block is still held in the queue. Empty slots hold null, slots of removed
+//! records hold the tombstone pointer so probes keep finding entries behind them
+struct quarantine_table_t {
+	quarantine_table_t* next;
+	size_t capacity;
+	size_t used;
+	quarantine_record_t* slot[1];
+};
+
+#define QUARANTINE_SLOT_EMPTY 0
+#define QUARANTINE_SLOT_TOMBSTONE ((quarantine_record_t*)-1)
+
+//! Global FIFO quarantine state. All access is serialized with the quarantine spin lock, which is
+//! never held while a heap lock is taken or while the user error callback runs, so no wait cycle can
+//! form between the quarantine and the heap locks.
+static struct {
+	atomic_uintptr_t lock;
+	//! Configured byte limit, zero while the quarantine is disabled
+	size_t max_bytes;
+	//! FIFO queue of quarantined blocks
+	quarantine_record_t *head, *tail;
+	//! Current occupancy
+	size_t block_count;
+	size_t byte_count;
+	//! Pool of records available for reuse
+	quarantine_record_t* free_record;
+	//! Metadata arenas kept for the lifetime of the process
+	quarantine_arena_t* arena;
+	//! Active pointer lookup table
+	quarantine_table_t* table;
+	//! Tables replaced by a growth, kept until finalize
+	quarantine_table_t* stale_table;
+} global_quarantine;
+
+static inline void
+quarantine_lock_acquire(void) {
+	uintptr_t lock = 0;
+	uint32_t spin = 0;
+	while (!atomic_compare_exchange_weak_explicit(&global_quarantine.lock, &lock, 1, memory_order_acquire,
+	                                              memory_order_relaxed)) {
+		lock = 0;
+		wait_spin(&spin);
+	}
+}
+
+static inline void
+quarantine_lock_release(void) {
+	atomic_store_explicit(&global_quarantine.lock, 0, memory_order_release);
+}
+
+//! Fatal quarantine failure. The metadata backing the quarantine is mapped straight from the OS,
+//! never through this allocator; if that mapping fails the quarantine cannot keep its promise, so
+//! the failure is reported through the error callback and ends the process instead of silently
+//! letting the block go without isolation
+static NOINLINE void
+quarantine_fatal(const char* message) {
+	if (global_memory_interface && global_memory_interface->error_callback)
+		global_memory_interface->error_callback(message);
+	fprintf(stderr, "rpmalloc: %s\n", message);
+	abort();
+}
+
+//! Map committed memory for quarantine metadata without going through the allocator itself
+static void*
+quarantine_meta_map(size_t size) {
+	size_t aligned = get_page_aligned_size(size);
+	size_t offset = 0;
+	size_t mapped_size = 0;
+	void* ptr = os_mmap(aligned, 0, &offset, &mapped_size);
+	if (!ptr)
+		return 0;
+	// Anonymous POSIX mappings are usable as mapped, the commit call only matters for the reserve-only
+	// Windows mapping os_mmap returns while decommit is enabled
+	if (os_mcommit(ptr, mapped_size ? mapped_size : aligned) != 0) {
+		os_munmap(ptr, offset, mapped_size);
+		return 0;
+	}
+	return ptr;
+}
+
+static NOINLINE quarantine_record_t*
+quarantine_record_alloc(void) {
+	quarantine_record_t* record = global_quarantine.free_record;
+	if (record) {
+		global_quarantine.free_record = record->next_free;
+		return record;
+	}
+	quarantine_arena_t* arena = quarantine_meta_map(sizeof(quarantine_arena_t));
+	if (!arena)
+		quarantine_fatal("quarantine metadata mapping failed");
+	arena->next = global_quarantine.arena;
+	arena->record_count = QUARANTINE_ARENA_RECORD_COUNT;
+	global_quarantine.arena = arena;
+	// Link all but the first record into the pool, then hand out the first
+	for (size_t irecord = 1; irecord < QUARANTINE_ARENA_RECORD_COUNT; ++irecord) {
+		arena->record[irecord].next_free = global_quarantine.free_record;
+		global_quarantine.free_record = &arena->record[irecord];
+	}
+	return &arena->record[0];
+}
+
+static inline size_t
+quarantine_hash(const void* block) {
+	uintptr_t value = (uintptr_t)block;
+	// Fibonacci hashing, the table capacity is always a power of two
+	return (size_t)((value * 11400714819323198485ULL) >> 17);
+}
+
+static NOINLINE void
+quarantine_table_grow(void) {
+	quarantine_table_t* old_table = global_quarantine.table;
+	size_t new_capacity = old_table ? old_table->capacity * 2 : QUARANTINE_TABLE_INITIAL_CAPACITY;
+	size_t map_size = sizeof(quarantine_table_t) + (new_capacity * sizeof(quarantine_record_t*)) -
+	                  sizeof(quarantine_record_t*);
+	quarantine_table_t* table = quarantine_meta_map(map_size);
+	if (!table)
+		quarantine_fatal("quarantine lookup table mapping failed");
+	table->next = 0;
+	table->capacity = new_capacity;
+	table->used = 0;
+	for (size_t islot = 0; islot < new_capacity; ++islot)
+		table->slot[islot] = QUARANTINE_SLOT_EMPTY;
+	if (old_table) {
+		size_t mask = new_capacity - 1;
+		for (size_t islot = 0; islot < old_table->capacity; ++islot) {
+			quarantine_record_t* record = old_table->slot[islot];
+			if ((record == QUARANTINE_SLOT_EMPTY) || (record == QUARANTINE_SLOT_TOMBSTONE))
+				continue;
+			size_t index = quarantine_hash(record->block) & mask;
+			while (table->slot[index] != QUARANTINE_SLOT_EMPTY)
+				index = (index + 1) & mask;
+			table->slot[index] = record;
+			++table->used;
+		}
+		old_table->next = global_quarantine.stale_table;
+		global_quarantine.stale_table = old_table;
+	}
+	global_quarantine.table = table;
+}
+
+//! Look up the record of a queued block, lock held. Returns null if the pointer is not quarantined
+static inline quarantine_record_t*
+quarantine_table_find(void* block) {
+	quarantine_table_t* table = global_quarantine.table;
+	if (!table)
+		return 0;
+	size_t mask = table->capacity - 1;
+	size_t index = quarantine_hash(block) & mask;
+	for (;;) {
+		quarantine_record_t* record = table->slot[index];
+		if (record == QUARANTINE_SLOT_EMPTY)
+			return 0;
+		if ((record != QUARANTINE_SLOT_TOMBSTONE) && (record->block == block))
+			return record;
+		index = (index + 1) & mask;
+	}
+}
+
+//! Insert a queued record into the lookup table, lock held
+static inline void
+quarantine_table_insert(quarantine_record_t* record) {
+	quarantine_table_t* table = global_quarantine.table;
+	if (!table || ((table->used + 1) > ((table->capacity * 7) / 10))) {
+		quarantine_table_grow();
+		table = global_quarantine.table;
+	}
+	size_t mask = table->capacity - 1;
+	size_t index = quarantine_hash(record->block) & mask;
+	for (;;) {
+		quarantine_record_t* slot = table->slot[index];
+		if (slot == QUARANTINE_SLOT_EMPTY) {
+			// A tombstone slot stays counted as occupied, only a genuinely empty slot grows the count
+			table->slot[index] = record;
+			++table->used;
+			return;
+		}
+		if (slot == QUARANTINE_SLOT_TOMBSTONE) {
+			table->slot[index] = record;
+			return;
+		}
+		index = (index + 1) & mask;
+	}
+}
+
+//! Remove a queued record from the lookup table, leaving a tombstone, lock held
+static inline void
+quarantine_table_remove(quarantine_record_t* record) {
+	quarantine_table_t* table = global_quarantine.table;
+	size_t mask = table->capacity - 1;
+	size_t index = quarantine_hash(record->block) & mask;
+	for (;;) {
+		if (table->slot[index] == record) {
+			table->slot[index] = QUARANTINE_SLOT_TOMBSTONE;
+			return;
+		}
+		index = (index + 1) & mask;
+	}
+}
+
+static inline void
+quarantine_queue_push(quarantine_record_t* record) {
+	record->prev = global_quarantine.tail;
+	record->next = 0;
+	if (global_quarantine.tail)
+		global_quarantine.tail->next = record;
+	else
+		global_quarantine.head = record;
+	global_quarantine.tail = record;
+}
+
+static inline quarantine_record_t*
+quarantine_queue_pop(void) {
+	quarantine_record_t* record = global_quarantine.head;
+	if (!record)
+		return 0;
+	global_quarantine.head = record->next;
+	if (record->next)
+		record->next->prev = 0;
+	else
+		global_quarantine.tail = 0;
+	return record;
+}
+
+static inline void
+quarantine_queue_unlink(quarantine_record_t* record) {
+	if (record->prev)
+		record->prev->next = record->next;
+	else
+		global_quarantine.head = record->next;
+	if (record->next)
+		record->next->prev = record->prev;
+	else
+		global_quarantine.tail = record->prev;
+	record->prev = record->next = 0;
+}
+
+//! Scan the poisoned user area and report the first byte that changed. Returns the offset of the
+//! first mismatch, or QUARANTINE_DUPLICATE_OFFSET when the whole area still holds the poison byte
+static inline size_t
+quarantine_scan(quarantine_record_t* record, unsigned char* actual) {
+	const unsigned char* area = (const unsigned char*)record->block;
+	for (size_t offset = 0; offset < record->usable; ++offset) {
+		if (area[offset] != QUARANTINE_POISON) {
+			*actual = area[offset];
+			return offset;
+		}
+	}
+	return QUARANTINE_DUPLICATE_OFFSET;
+}
+
+static inline void
+quarantine_report(void* block, size_t usable, size_t offset, unsigned char expected, unsigned char actual) {
+	rpmalloc_interface_t* interface = global_memory_interface;
+	if (interface && interface->quarantine_error)
+		interface->quarantine_error(block, usable, offset, expected, actual, interface->quarantine_userdata);
+}
+
+//! Validate then truly release a batch of records, outside the quarantine lock so the real free path
+//! can take heap locks without a wait cycle. Returns the number of damaged blocks
+static size_t
+quarantine_release_batch(quarantine_record_t** records, size_t count) {
+	size_t damaged = 0;
+	for (size_t irecord = 0; irecord < count; ++irecord) {
+		unsigned char actual = 0;
+		size_t offset = quarantine_scan(records[irecord], &actual);
+		if (offset != QUARANTINE_DUPLICATE_OFFSET) {
+			++damaged;
+			// The block stays unavailable until the callback returns, it is only freed afterwards
+			quarantine_report(records[irecord]->block, records[irecord]->usable, offset, QUARANTINE_POISON,
+			                  actual);
+		}
+	}
+	// All validation and diagnostics are done, the blocks may now be reused or unmapped. Bypass the
+	// quarantine intercept, these records have already left the queue
+	for (size_t irecord = 0; irecord < count; ++irecord)
+		block_deallocate_raw((block_t*)records[irecord]->block, 0);
+	quarantine_lock_acquire();
+	for (size_t irecord = 0; irecord < count; ++irecord) {
+		records[irecord]->next_free = global_quarantine.free_record;
+		global_quarantine.free_record = records[irecord];
+	}
+	quarantine_lock_release();
+	return damaged;
+}
+
+//! Evict queue heads while the byte budget is exceeded, lock held. The evicted records are handed to
+//! the caller in records for release outside the lock, up to QUARANTINE_DRAIN_BATCH per call
+static size_t
+quarantine_evict_locked(quarantine_record_t* records[], size_t max_count) {
+	size_t count = 0;
+	while ((count < max_count) && global_quarantine.head &&
+	       (global_quarantine.byte_count > global_quarantine.max_bytes)) {
+		quarantine_record_t* record = quarantine_queue_pop();
+		quarantine_table_remove(record);
+		global_quarantine.byte_count -= record->usable;
+		--global_quarantine.block_count;
+		records[count++] = record;
+	}
+	return count;
+}
+
+static inline int
+quarantine_is_enabled(void) {
+	return global_quarantine.max_bytes != 0;
+}
+
+//! Intercept every free of a live block. Returns non-zero if the block entered the quarantine and
+//! must not be released through the ordinary free path, zero if the quarantine is disabled or the
+//! pointer is already queued (a duplicate free, reported but never queued or counted twice)
+static NOINLINE int
+quarantine_enter(block_t* block) {
+	if (!quarantine_is_enabled())
+		return 0;
+
+	size_t usable = block_usable_size(block);
+
+	quarantine_lock_acquire();
+	if (quarantine_table_find(block)) {
+		// Another free of a pointer still in quarantine: do not requeue it and do not touch the
+		// occupancy counters, report the duplicate free as its own diagnostic
+		quarantine_lock_release();
+		quarantine_report(block, usable, QUARANTINE_DUPLICATE_OFFSET, 0, 0);
+		return 1;
+	}
+	quarantine_record_t* record = quarantine_record_alloc();
+	record->block = block;
+	record->usable = usable;
+	record->prev = record->next = record->next_free = 0;
+	// Poison the whole usable user area before the block becomes reachable through the queue
+	memset(block, QUARANTINE_POISON, usable);
+	quarantine_table_insert(record);
+	quarantine_queue_push(record);
+	++global_quarantine.block_count;
+	global_quarantine.byte_count += usable;
+
+	quarantine_record_t* evicted[QUARANTINE_DRAIN_BATCH];
+	size_t evict_count = quarantine_evict_locked(evicted, QUARANTINE_DRAIN_BATCH);
+	quarantine_lock_release();
+
+	if (evict_count)
+		quarantine_release_batch(evicted, evict_count);
+
+	return 1;
+}
+
+//! Validate and release every record that had entered the queue when the call began, returns the
+//! number of damaged blocks. Frees entering the queue after the snapshot are left for a later call
+static size_t
+quarantine_drain_all(void) {
+	if (!quarantine_is_enabled())
+		return 0;
+	quarantine_lock_acquire();
+	size_t target = global_quarantine.block_count;
+	quarantine_lock_release();
+	size_t processed = 0;
+	size_t damaged = 0;
+	while (processed < target) {
+		quarantine_record_t* batch[QUARANTINE_DRAIN_BATCH];
+		quarantine_lock_acquire();
+		size_t count = 0;
+		while ((count < QUARANTINE_DRAIN_BATCH) && ((processed + count) < target) && global_quarantine.head) {
+			quarantine_record_t* record = quarantine_queue_pop();
+			quarantine_table_remove(record);
+			global_quarantine.byte_count -= record->usable;
+			--global_quarantine.block_count;
+			batch[count++] = record;
+		}
+		quarantine_lock_release();
+		if (!count)
+			break;
+		damaged += quarantine_release_batch(batch, count);
+		processed += count;
+	}
+	return damaged;
+}
+
+//! Validate and remove the quarantine records of blocks owned by the given heap, before the heap
+//! destroys its pages. Records of other heaps are untouched
+static void
+quarantine_drain_heap(heap_t* heap) {
+	if (!quarantine_is_enabled())
+		return;
+	for (;;) {
+		quarantine_record_t* batch[QUARANTINE_DRAIN_BATCH];
+		size_t count = 0;
+		quarantine_lock_acquire();
+		// Walk with an explicit cursor: unlinking zeroes the record links, so the next link is saved
+		// before a match and the loop update is not left to dereference a removed record
+		quarantine_record_t* record = global_quarantine.head;
+		while (record && (count < QUARANTINE_DRAIN_BATCH)) {
+			quarantine_record_t* next = record->next;
+			if (block_get_page(record->block)->heap == heap) {
+				quarantine_queue_unlink(record);
+				quarantine_table_remove(record);
+				global_quarantine.byte_count -= record->usable;
+				--global_quarantine.block_count;
+				batch[count++] = record;
+			}
+			record = next;
+		}
+		quarantine_lock_release();
+		if (!count)
+			break;
+		quarantine_release_batch(batch, count);
+	}
+}
+
+//! Reset the quarantine for a fresh initialize/finalize cycle. The queue must already be drained;
+//! the metadata arenas and record pool stay mapped and are reused
+static void
+quarantine_initialize(size_t max_bytes) {
+	quarantine_lock_acquire();
+	global_quarantine.max_bytes = max_bytes;
+	global_quarantine.head = global_quarantine.tail = 0;
+	global_quarantine.block_count = 0;
+	global_quarantine.byte_count = 0;
+	if (global_quarantine.table) {
+		for (size_t islot = 0; islot < global_quarantine.table->capacity; ++islot)
+			global_quarantine.table->slot[islot] = QUARANTINE_SLOT_EMPTY;
+		global_quarantine.table->used = 0;
+	}
+	quarantine_lock_release();
+}
+
+//! Unmap the quarantine metadata at global finalize. The queue is drained first, so no record can
+//! be referenced anymore
+static void
+quarantine_metadata_unmap(void) {
+	quarantine_lock_acquire();
+	quarantine_arena_t* arena = global_quarantine.arena;
+	quarantine_table_t* table = global_quarantine.table;
+	quarantine_table_t* stale = global_quarantine.stale_table;
+	global_quarantine.arena = 0;
+	global_quarantine.table = 0;
+	global_quarantine.stale_table = 0;
+	global_quarantine.free_record = 0;
+	global_quarantine.head = global_quarantine.tail = 0;
+	global_quarantine.block_count = global_quarantine.byte_count = 0;
+	global_quarantine.max_bytes = 0;
+	quarantine_lock_release();
+	while (arena) {
+		quarantine_arena_t* next = arena->next;
+		os_munmap(arena, 0, get_page_aligned_size(sizeof(quarantine_arena_t)));
+		arena = next;
+	}
+	while (table) {
+		quarantine_table_t* next = table->next;
+		size_t size = sizeof(quarantine_table_t) +
+		              (table->capacity * sizeof(quarantine_record_t*)) - sizeof(quarantine_record_t*);
+		os_munmap(table, 0, get_page_aligned_size(size));
+		table = next;
+	}
+	while (stale) {
+		quarantine_table_t* next = stale->next;
+		size_t size = sizeof(quarantine_table_t) +
+		              (stale->capacity * sizeof(quarantine_record_t*)) - sizeof(quarantine_record_t*);
+		os_munmap(stale, 0, get_page_aligned_size(size));
+		stale = next;
+	}
+}
+
+//! Ordinary free path without the quarantine intercept, used for blocks leaving the queue
+static inline void
+block_deallocate_raw(block_t* block, heap_t* owned_heap) {
 	// The key and the page are loaded from the same slot table entry, so the ownership and eligibility check
 	// does not wait on a load of the page structure
 	page_slot_t* slot = block_get_slot(block);
@@ -2680,6 +3186,16 @@ block_deallocate_heap(block_t* block, heap_t* owned_heap) {
 	} else {
 		span_deallocate_block(page, block);
 	}
+}
+
+//! Free entry point shared by rpfree, cross-thread frees, first class heap frees and realloc. The
+//! debug quarantine intercepts every live block before any free chain writes into the user area, and
+//! keeps the block counted as used on its page and span until it leaves the queue
+static inline void
+block_deallocate_heap(block_t* block, heap_t* owned_heap) {
+	if (UNEXPECTED(quarantine_enter(block)))
+		return;
+	block_deallocate_raw(block, owned_heap);
 }
 
 static inline void
@@ -3816,6 +4332,10 @@ heap_reallocate_block_aligned(heap_t* heap, void* block, size_t alignment, size_
 
 static void
 heap_free_all(heap_t* heap) {
+	// Quarantined blocks of this heap still occupy its pages and spans. Validate and release them
+	// first, otherwise the unmapping below would pull the poisoned, still queued blocks out from under
+	// the quarantine. Blocks of other heaps remain queued
+	quarantine_drain_heap(heap);
 	for (int itype = 0; itype < 4; ++itype) {
 		span_t* span = heap->span_partial[itype];
 		while (span) {
@@ -3997,6 +4517,25 @@ rpposix_memalign(void** memptr, size_t alignment, size_t size) {
 extern inline size_t
 rpmalloc_usable_size(void* ptr) {
 	return (ptr ? block_usable_size(ptr) : 0);
+}
+
+size_t
+rpmalloc_quarantine_flush(void) {
+	return quarantine_drain_all();
+}
+
+void
+rpmalloc_quarantine_statistics(rpmalloc_quarantine_stats_t* stats) {
+	if (!stats)
+		return;
+	stats->block_count = 0;
+	stats->byte_count = 0;
+	if (!quarantine_is_enabled())
+		return;
+	quarantine_lock_acquire();
+	stats->block_count = global_quarantine.block_count;
+	stats->byte_count = global_quarantine.byte_count;
+	quarantine_lock_release();
 }
 
 extern void
@@ -4376,6 +4915,10 @@ rpmalloc_initialize(rpmalloc_interface_t* memory_interface) {
 
 	global_main_thread_id = get_thread_id();
 
+	// The debug quarantine is configured per initialize cycle. A zero limit keeps it disabled and all
+	// frees take the ordinary path, preserving the default behavior
+	quarantine_initialize(global_config.quarantine_max_bytes);
+
 	atomic_store_explicit(&global_rpmalloc_init_state, RPMALLOC_INIT_DONE, memory_order_release);
 
 	rpmalloc_thread_initialize();
@@ -4451,6 +4994,14 @@ extern void
 rpmalloc_finalize(void) {
 	if (atomic_load_explicit(&global_rpmalloc_init_state, memory_order_acquire) != RPMALLOC_INIT_DONE)
 		return;
+
+	// Release every block still held in the quarantine, validating their poison first. This must run
+	// while the calling thread still owns its heap and every heap and mapping is still live: draining
+	// after thread finalize would route the released blocks through the cross-thread free chain and
+	// then unmap the pages the chain points into. The thread finalize below flushes any chain the
+	// drain produced into the heaps before they are torn down
+	quarantine_drain_all();
+
 	rpmalloc_thread_finalize();
 
 #if HUGE_CACHE_SLOT_COUNT
@@ -4531,6 +5082,8 @@ rpmalloc_finalize(void) {
 
 	global_heap_creating = 0;
 	global_main_thread_id = 0;
+	// The queue is empty now, the separately mapped quarantine metadata can be returned to the OS
+	quarantine_metadata_unmap();
 	atomic_store_explicit(&global_rpmalloc_init_state, RPMALLOC_INIT_UNINIT, memory_order_release);
 }
 
