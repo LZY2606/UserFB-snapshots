@@ -1,0 +1,675 @@
+/*
+ * Copyright (c) 2015-2026, The matio contributors
+ * Copyright (c) 2012-2014, Christopher C. Hulbert
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+#include "matio_private.h"
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+#if defined(_MSC_VER) || defined(__MINGW32__)
+#define strdup _strdup
+#endif
+
+static char **
+copy_fieldnames(const char *const *fields, size_t nfields)
+{
+    char **fieldnames;
+    size_t i, j;
+
+    fieldnames = (char **)malloc(nfields * sizeof(char *));
+    if ( NULL == fieldnames )
+        return NULL;
+
+    for ( i = 0; i != nfields; ++i ) {
+        if ( NULL != fields[i] ) {
+            fieldnames[i] = strdup(fields[i]);
+            if ( NULL != fieldnames[i] )
+                continue;
+        }
+        /* Failed to allocate or duplicate fieldname, clean up and return NULL */
+        for ( j = 0; j != i; ++j ) {
+            free(fieldnames[j]);
+        }
+        free(fieldnames);
+        return NULL;
+    }
+    return fieldnames;
+}
+
+static matvar_t *
+VarCreateStruct(const char *name, int rank, const size_t *dims, const char *const *fields,
+                unsigned nfields)
+{
+    size_t nelems = 1;
+    int j;
+    matvar_t *matvar;
+
+    if ( NULL == dims || rank < 0 )
+        return NULL;
+
+    matvar = Mat_VarCalloc();
+    if ( NULL == matvar )
+        return NULL;
+
+    matvar->compression = MAT_COMPRESSION_NONE;
+    if ( NULL != name )
+        matvar->name = strdup(name);
+    matvar->rank = rank;
+    if ( rank > 0 ) {
+        size_t dims_size;
+        int err = Mul(&dims_size, (size_t)rank, sizeof(*matvar->dims));
+        if ( err ) {
+            Mat_VarFree(matvar);
+            return NULL;
+        }
+        matvar->dims = (size_t *)malloc(dims_size);
+        if ( NULL == matvar->dims ) {
+            Mat_VarFree(matvar);
+            return NULL;
+        }
+        for ( j = 0; j < rank; j++ ) {
+            matvar->dims[j] = dims[j];
+            err = Mul(&nelems, nelems, matvar->dims[j]);
+            if ( err ) {
+                Mat_VarFree(matvar);
+                return NULL;
+            }
+        }
+    }
+    matvar->class_type = MAT_C_STRUCT;
+    matvar->data_type = MAT_T_STRUCT;
+
+    matvar->data_size = sizeof(matvar_t *);
+
+    if ( nfields ) {
+        matvar->internal->fieldnames = copy_fieldnames(fields, nfields);
+        if ( NULL == matvar->internal->fieldnames ) {
+            Mat_VarFree(matvar);
+            return NULL;
+        }
+        matvar->internal->num_fields = nfields;
+
+        if ( nelems > 0 ) {
+            size_t nelems_x_nfields;
+            int err = Mul(&nelems_x_nfields, nelems, nfields);
+            err |= Mul(&matvar->nbytes, nelems_x_nfields, matvar->data_size);
+            if ( err ) {
+                Mat_VarFree(matvar);
+                return NULL;
+            }
+            matvar->data = calloc(nelems_x_nfields, matvar->data_size);
+        }
+    }
+
+    return matvar;
+}
+
+/** @brief Creates a structure MATLAB variable with the given name and fields
+ *
+ * @ingroup MAT
+ * @param name Name of the structure variable to create
+ * @param rank Rank of the variable
+ * @param dims array of dimensions of the variable of size rank
+ * @param fields Array of @c nfields fieldnames
+ * @param nfields Number of fields in the structure
+ * @return Pointer to the new structure MATLAB variable on success, NULL on error
+ */
+matvar_t *
+Mat_VarCreateStruct(const char *name, int rank, const size_t *dims, const char *const *fields,
+                    unsigned nfields)
+{
+    return VarCreateStruct(name, rank, dims, fields, nfields);
+}
+
+/** @brief Creates a structure MATLAB variable with the given name and fields
+ *
+ * @ingroup MAT
+ * @param name Name of the structure variable to create
+ * @param rank Rank of the variable
+ * @param dims array of dimensions of the variable of size rank
+ * @param fields NULL-terminated array of fieldnames
+ * @return Pointer to the new structure MATLAB variable on success, NULL on error
+ */
+matvar_t *
+Mat_VarCreateStruct2(const char *name, int rank, const size_t *dims, const char *const *fields)
+{
+    unsigned count = 0;
+    if ( NULL == fields )
+        return VarCreateStruct(name, rank, dims, fields, count);
+
+    while ( fields[count] ) {
+        count++;
+    }
+    return VarCreateStruct(name, rank, dims, fields, count);
+}
+
+/** @brief Adds a field to a structure
+ *
+ * Adds the given field to the structure. fields should be an array of matvar_t
+ * pointers of the same size as the structure (i.e. 1 field per structure
+ * element).
+ * @ingroup MAT
+ * @param matvar Pointer to the Structure MAT variable
+ * @param fieldname Name of field to be added
+ * @retval 0 on success
+ */
+int
+Mat_VarAddStructField(matvar_t *matvar, const char *fieldname)
+{
+    int err;
+    int cnt = 0;
+    size_t i, nfields, nelems = 1;
+    matvar_t **new_data, **old_data;
+    char **fieldnames;
+
+    if ( matvar == NULL || fieldname == NULL )
+        return -1;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return -1;
+
+    nfields = matvar->internal->num_fields + 1;
+    fieldnames = (char **)realloc(matvar->internal->fieldnames,
+                                  nfields * sizeof(*matvar->internal->fieldnames));
+    if ( NULL == fieldnames )
+        return -1;
+    matvar->internal->num_fields = nfields;
+    matvar->internal->fieldnames = fieldnames;
+    matvar->internal->fieldnames[nfields - 1] = strdup(fieldname);
+
+    {
+        size_t nelems_x_nfields;
+        err = Mul(&nelems_x_nfields, nelems, nfields);
+        err |= Mul(&matvar->nbytes, nelems_x_nfields, sizeof(*new_data));
+        if ( err ) {
+            matvar->nbytes = 0;
+            return -1;
+        }
+    }
+    new_data = (matvar_t **)malloc(matvar->nbytes);
+    if ( new_data == NULL ) {
+        matvar->nbytes = 0;
+        return -1;
+    }
+
+    old_data = (matvar_t **)matvar->data;
+    for ( i = 0; i < nelems; i++ ) {
+        size_t f;
+        for ( f = 0; f < nfields - 1; f++ )
+            new_data[cnt++] = old_data[i * (nfields - 1) + f];
+        new_data[cnt++] = NULL;
+    }
+
+    free(matvar->data);
+    matvar->data = new_data;
+
+    return 0;
+}
+
+/** @brief Returns the number of fields in a structure variable
+ *
+ * Returns the number of fields in the given structure.
+ * @ingroup MAT
+ * @param matvar Structure matlab variable
+ * @returns Number of fields
+ */
+unsigned
+Mat_VarGetNumberOfFields(const matvar_t *matvar)
+{
+    int nfields;
+    if ( matvar == NULL ||
+         (matvar->class_type != MAT_C_STRUCT && matvar->class_type != MAT_C_OBJECT) ||
+         NULL == matvar->internal ) {
+        nfields = 0;
+    } else {
+        nfields = matvar->internal->num_fields;
+    }
+    return nfields;
+}
+
+/** @brief Returns the fieldnames of a structure variable
+ *
+ * Returns the fieldnames for the given structure. The returned pointers are
+ * internal to the structure and should not be free'd.
+ * @ingroup MAT
+ * @param matvar Structure matlab variable
+ * @returns Array of fieldnames
+ */
+char *const *
+Mat_VarGetStructFieldnames(const matvar_t *matvar)
+{
+    if ( matvar == NULL ||
+         (matvar->class_type != MAT_C_STRUCT && matvar->class_type != MAT_C_OBJECT) ||
+         NULL == matvar->internal ) {
+        return NULL;
+    } else {
+        return matvar->internal->fieldnames;
+    }
+}
+
+/** @brief Finds a field of a structure by the field's index
+ *
+ * Returns a pointer to the structure field at the given 0-relative index.
+ * @ingroup MAT
+ * @param matvar Pointer to the Structure MAT variable
+ * @param field_index 0-relative index of the field.
+ * @param index linear index of the structure array
+ * @return Pointer to the structure field on success, NULL on error
+ */
+matvar_t *
+Mat_VarGetStructFieldByIndex(const matvar_t *matvar, size_t field_index, size_t index)
+{
+    int err;
+    matvar_t *field = NULL;
+    size_t nelems = 1, nfields;
+
+    if ( matvar == NULL || matvar->data == NULL || matvar->internal == NULL ||
+         (matvar->class_type != MAT_C_STRUCT && matvar->class_type != MAT_C_OBJECT) ||
+         matvar->data_size == 0 )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    nfields = matvar->internal->num_fields;
+
+    if ( index >= nelems ) {
+        Mat_Critical("Mat_VarGetStructField: structure index out of bounds");
+    } else if ( nfields > 0 ) {
+        if ( field_index >= nfields ) {
+            Mat_Critical("Mat_VarGetStructField: field index out of bounds");
+        } else {
+            field = *((matvar_t **)matvar->data + index * nfields + field_index);
+        }
+    }
+
+    return field;
+}
+
+/** @brief Finds a field of a structure by the field's name
+ *
+ * Returns a pointer to the structure field at the given 0-relative index.
+ * @ingroup MAT
+ * @param matvar Pointer to the Structure MAT variable
+ * @param field_name Name of the structure field
+ * @param index linear index of the structure array
+ * @return Pointer to the structure field on success, NULL on error
+ */
+matvar_t *
+Mat_VarGetStructFieldByName(const matvar_t *matvar, const char *field_name, size_t index)
+{
+    int i, nfields, field_index, err;
+    matvar_t *field = NULL;
+    size_t nelems = 1;
+
+    if ( matvar == NULL || matvar->data == NULL || matvar->internal == NULL || field_name == NULL ||
+         (matvar->class_type != MAT_C_STRUCT && matvar->class_type != MAT_C_OBJECT) ||
+         matvar->data_size == 0 )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    nfields = matvar->internal->num_fields;
+    field_index = -1;
+    if ( matvar->internal->fieldnames != NULL ) {
+        for ( i = 0; i < nfields; i++ ) {
+            if ( matvar->internal->fieldnames[i] != NULL &&
+                 !strcmp(matvar->internal->fieldnames[i], field_name) ) {
+                field_index = i;
+                break;
+            }
+        }
+    }
+
+    if ( index >= nelems ) {
+        Mat_Critical("Mat_VarGetStructField: structure index out of bounds");
+    } else if ( field_index >= 0 ) {
+        field = *((matvar_t **)matvar->data + index * nfields + field_index);
+    }
+
+    return field;
+}
+
+/** @brief Finds a field of a structure
+ *
+ * Returns a pointer to the structure field at the given 0-relative index.
+ * @ingroup MAT
+ * @param matvar Pointer to the Structure MAT variable
+ * @param name_or_index Name of the field, or the 1-relative index of the field
+ * If the index is used, it should be the address of an integer variable whose
+ * value is the index number.
+ * @param opt MAT_BY_NAME if the name_or_index is the name or MAT_BY_INDEX if
+ *            the index was passed.
+ * @param index linear index of the structure to find the field of
+ * @return Pointer to the Structure Field on success, NULL on error
+ */
+matvar_t *
+Mat_VarGetStructField(const matvar_t *matvar, void *name_or_index, int opt, int index)
+{
+    int err, nfields;
+    matvar_t *field = NULL;
+    size_t nelems = 1;
+
+    if ( matvar == NULL || matvar->internal == NULL )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    nfields = matvar->internal->num_fields;
+    if ( index < 0 || (nelems > 0 && (size_t)index >= nelems) )
+        err = 1;
+    else if ( nfields < 1 )
+        err = 1;
+
+    if ( !err && (opt == MAT_BY_INDEX) ) {
+        size_t field_index = *(int *)name_or_index;
+        if ( field_index > 0 )
+            field = Mat_VarGetStructFieldByIndex(matvar, field_index - 1, index);
+    } else if ( !err && (opt == MAT_BY_NAME) ) {
+        field = Mat_VarGetStructFieldByName(matvar, (const char *)name_or_index, index);
+    }
+
+    return field;
+}
+
+/** @brief Indexes a structure
+ *
+ * Finds structures of a structure array given a start, stride, and edge for
+ * each dimension.  The structures are placed in a new structure array.  If
+ * copy_fields is non-zero, the indexed structures are copied and should be
+ * freed, but if copy_fields is zero, the indexed structures are shallow
+ * duplicates of the original with conserved memory and should be freed.
+ *
+ * Note that this function is limited to structure arrays with a rank less than
+ * 10.
+ *
+ * @ingroup MAT
+ * @param matvar Structure matlab variable
+ * @param start vector of length rank with 0-relative starting coordinates for
+ *              each dimension.
+ * @param stride vector of length rank with strides for each dimension.
+ * @param edge vector of length rank with the number of elements to read in
+ *              each dimension.
+ * @param copy_fields 1 to copy the fields, 0 to just set pointers to them.
+ * @returns A new structure array with fields indexed from @c matvar.
+ */
+matvar_t *
+Mat_VarGetStructs(const matvar_t *matvar, const int *start, const int *stride, const int *edge,
+                  int copy_fields)
+{
+    size_t i, N, I, nfields, field, ndata,
+        idx[10] =
+            {
+                0,
+            },
+        cnt[10] =
+            {
+                0,
+            },
+        dimp[10] = {
+            0,
+        };
+    matvar_t **fields, *struct_slab;
+    int j;
+
+    if ( matvar == NULL || start == NULL || stride == NULL || edge == NULL ) {
+        return NULL;
+    }
+    if ( matvar->rank > 9 ) {
+        return NULL;
+    }
+    if ( matvar->class_type != MAT_C_STRUCT && matvar->class_type != MAT_C_OBJECT ) {
+        return NULL;
+    }
+    if ( matvar->data == NULL ) {
+        return NULL;
+    }
+
+    if ( CheckEdgeOverflow(matvar->rank, edge, matvar->internal->num_fields) ) {
+        return NULL;
+    }
+
+    struct_slab = Mat_VarDuplicate(matvar, 0);
+    if ( NULL == struct_slab )
+        return NULL;
+    struct_slab->data = NULL;
+    struct_slab->nbytes = 0;
+
+    nfields = matvar->internal->num_fields;
+    ndata = matvar->nbytes / sizeof(matvar_t *);
+
+    dimp[0] = matvar->dims[0];
+    N = edge[0];
+    I = start[0];
+    struct_slab->dims[0] = edge[0];
+    idx[0] = start[0];
+    for ( j = 1; j < matvar->rank; j++ ) {
+        idx[j] = start[j];
+        dimp[j] = dimp[j - 1] * matvar->dims[j];
+        N *= edge[j];
+        I += start[j] * dimp[j - 1];
+        struct_slab->dims[j] = edge[j];
+    }
+    I *= nfields;
+    struct_slab->nbytes = N * nfields * sizeof(matvar_t *);
+    if ( struct_slab->nbytes > 0 ) {
+        struct_slab->data = calloc(N * nfields, sizeof(matvar_t *));
+        if ( struct_slab->data == NULL ) {
+            Mat_VarFree(struct_slab);
+            return NULL;
+        }
+    } else {
+        struct_slab->data = NULL;
+    }
+    fields = (matvar_t **)struct_slab->data;
+    for ( i = 0; i < N; i += edge[0] ) {
+        for ( j = 0; j < edge[0]; j++ ) {
+            for ( field = 0; field < nfields; field++ ) {
+                if ( I >= ndata ) {
+                    Mat_VarFree(struct_slab);
+                    return NULL;
+                }
+                if ( copy_fields ) {
+                    fields[(i + j) * nfields + field] =
+                        Mat_VarDuplicate(*((matvar_t **)matvar->data + I), 1);
+                } else {
+                    fields[(i + j) * nfields + field] =
+                        Mat_VarDuplicate(*((matvar_t **)matvar->data + I), 0);
+                    if ( fields[(i + j) * nfields + field] != NULL )
+                        fields[(i + j) * nfields + field]->mem_conserve = 1;
+                }
+                I++;
+            }
+            I += (stride[0] - 1) * nfields;
+        }
+        idx[0] = start[0];
+        I = idx[0];
+        cnt[1]++;
+        idx[1] += stride[1];
+        for ( j = 1; j < matvar->rank; j++ ) {
+            if ( cnt[j] == (size_t)edge[j] ) {
+                cnt[j] = 0;
+                idx[j] = start[j];
+                if ( j < matvar->rank - 1 ) {
+                    cnt[j + 1]++;
+                    idx[j + 1] += stride[j + 1];
+                }
+            }
+            I += idx[j] * dimp[j - 1];
+        }
+        I *= nfields;
+    }
+    return struct_slab;
+}
+
+/** @brief Indexes a structure
+ *
+ * Finds structures of a structure array given a single (linear)start, stride,
+ * and edge.  The structures are placed in a new structure array.  If
+ * copy_fields is non-zero, the indexed structures are copied and should be
+ * freed, but if copy_fields is zero, the indexed structures are shallow
+ * duplicates of the original with conserved memory and should be freed.
+ * MAT file version must be 5.
+ * @ingroup MAT
+ * @param matvar Structure matlab variable
+ * @param start starting index (0-relative)
+ * @param stride stride (1 reads consecutive elements)
+ * @param edge Number of elements to read
+ * @param copy_fields 1 to copy the fields, 0 to just set pointers to them.
+ * @returns A new structure with fields indexed from matvar
+ */
+matvar_t *
+Mat_VarGetStructsLinear(const matvar_t *matvar, int start, int stride, int edge, int copy_fields)
+{
+    int i, I, field, nfields;
+    size_t ndata;
+    matvar_t **fields;
+    matvar_t *struct_slab;
+
+    if ( matvar == NULL || matvar->rank > 10 || matvar->data == NULL )
+        return NULL;
+
+    struct_slab = Mat_VarDuplicate(matvar, 0);
+    if ( NULL == struct_slab )
+        return NULL;
+    struct_slab->data = NULL;
+    struct_slab->nbytes = 0;
+    if ( struct_slab->rank < 2 || NULL == struct_slab->dims ) {
+        Mat_VarFree(struct_slab);
+        return NULL;
+    }
+
+    nfields = matvar->internal->num_fields;
+    ndata = matvar->nbytes / sizeof(matvar_t *);
+
+    struct_slab->nbytes = (size_t)edge * nfields * sizeof(matvar_t *);
+    if ( struct_slab->nbytes > 0 ) {
+        struct_slab->data = calloc((size_t)edge * nfields, sizeof(matvar_t *));
+        if ( struct_slab->data == NULL ) {
+            Mat_VarFree(struct_slab);
+            return NULL;
+        }
+    } else {
+        struct_slab->data = NULL;
+    }
+    struct_slab->dims[0] = edge;
+    struct_slab->dims[1] = 1;
+    fields = (matvar_t **)struct_slab->data;
+    I = start * nfields;
+    for ( i = 0; i < edge; i++ ) {
+        for ( field = 0; field < nfields; field++ ) {
+            if ( I < 0 || (size_t)I >= ndata ) {
+                Mat_VarFree(struct_slab);
+                return NULL;
+            }
+            if ( copy_fields ) {
+                fields[i * nfields + field] = Mat_VarDuplicate(*((matvar_t **)matvar->data + I), 1);
+            } else {
+                fields[i * nfields + field] = Mat_VarDuplicate(*((matvar_t **)matvar->data + I), 0);
+                if ( fields[i * nfields + field] != NULL )
+                    fields[i * nfields + field]->mem_conserve = 1;
+            }
+            I++;
+        }
+        I += (stride - 1) * nfields;
+    }
+    return struct_slab;
+}
+
+/** @brief Sets the structure field to the given variable
+ *
+ * Sets the structure field specified by the 0-relative field index
+ * @c field_index for the given 0-relative structure index @c index to
+ * @c field.
+ * @ingroup MAT
+ * @param matvar Pointer to the structure MAT variable
+ * @param field_index 0-relative index of the field.
+ * @param index linear index of the structure array
+ * @param field New field variable
+ * @return Pointer to the previous field (NULL if no previous field)
+ */
+matvar_t *
+Mat_VarSetStructFieldByIndex(matvar_t *matvar, size_t field_index, size_t index, matvar_t *field)
+{
+    int err;
+    matvar_t *old_field = NULL;
+    size_t nelems = 1, nfields;
+
+    if ( matvar == NULL || matvar->class_type != MAT_C_STRUCT || matvar->data == NULL )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    nfields = matvar->internal->num_fields;
+
+    if ( index < nelems && field_index < nfields ) {
+        matvar_t **fields = (matvar_t **)matvar->data;
+        old_field = fields[index * nfields + field_index];
+        fields[index * nfields + field_index] = field;
+        if ( NULL != field->name ) {
+            free(field->name);
+        }
+        field->name = strdup(matvar->internal->fieldnames[field_index]);
+    }
+
+    return old_field;
+}
+
+/** @brief Sets the structure field to the given variable
+ *
+ * Sets the specified structure fieldname at the given 0-relative @c index to
+ * @c field.
+ * @ingroup MAT
+ * @param matvar Pointer to the Structure MAT variable
+ * @param field_name Name of the structure field
+ * @param index linear index of the structure array
+ * @param field New field variable
+ * @return Pointer to the previous field (NULL if no previous field)
+ */
+matvar_t *
+Mat_VarSetStructFieldByName(matvar_t *matvar, const char *field_name, size_t index, matvar_t *field)
+{
+    int err, i, nfields, field_index;
+    matvar_t *old_field = NULL;
+    size_t nelems = 1;
+
+    if ( matvar == NULL || matvar->class_type != MAT_C_STRUCT || matvar->data == NULL )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    nfields = matvar->internal->num_fields;
+    field_index = -1;
+    if ( matvar->internal->fieldnames != NULL ) {
+        for ( i = 0; i < nfields; i++ ) {
+            if ( matvar->internal->fieldnames[i] != NULL &&
+                 !strcmp(matvar->internal->fieldnames[i], field_name) ) {
+                field_index = i;
+                break;
+            }
+        }
+    }
+
+    if ( index < nelems && field_index >= 0 ) {
+        matvar_t **fields = (matvar_t **)matvar->data;
+        old_field = fields[index * nfields + field_index];
+        fields[index * nfields + field_index] = field;
+        if ( NULL != field->name ) {
+            free(field->name);
+        }
+        field->name = strdup(matvar->internal->fieldnames[field_index]);
+    }
+
+    return old_field;
+}

@@ -1,0 +1,23 @@
+# Copyright (c) 2015-2026, The matio contributors
+# Copyright (c) 2012-2014, Christopher C. Hulbert
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-2-Clause
+
+AT_SETUP([Set cell array elements])
+AT_KEYWORDS([cell_api])
+AT_CHECK([cp $srcdir/results/cell_api_set.out expout
+          $builddir/test_mat cell_api_set],[0],[expout],[])
+AT_CLEANUP
+
+AT_SETUP([Linearly index cell array])
+AT_KEYWORDS([cell_api])
+AT_CHECK([cp $srcdir/results/cell_api_getlinear.out expout
+          $builddir/test_mat cell_api_getlinear],[0],[expout],[])
+AT_CLEANUP
+
+AT_SETUP([Index cell array via dimension slices])
+AT_KEYWORDS([cell_api])
+AT_CHECK([cp $srcdir/results/cell_api_getcells.out expout
+          $builddir/test_mat cell_api_getcells],[0],[expout],[])
+AT_CLEANUP

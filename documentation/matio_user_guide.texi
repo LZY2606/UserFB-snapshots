@@ -1,0 +1,45 @@
+% Copyright (c) 2015-2026, The matio contributors
+% Copyright (c) 2011-2014, Christopher C. Hulbert
+% All rights reserved.
+%
+% SPDX-License-Identifier: BSD-2-Clause
+
+\input texinfo
+@afourpaper
+@setfilename matio.info
+
+@setchapternewpage odd
+
+@settitle MATIO
+
+@titlepage
+@sp 5
+@titlefont{MATIO}
+@sp 0
+@title
+@subtitle User Manual
+@subtitle for version 1.6.0
+@subtitle August 2026
+@author Christopher C. Hulbert
+@page
+@vskip 0pt plus 1filll
+@smallexample
+@group
+  Copyright (c) @var{2015-2026}, @var{The matio contributors}.
+  Copyright (c) @var{2011-2014}, @var{Christopher C. Hulbert}.
+  All rights reserved.
+
+  SPDX-License-Identifier: BSD-2-Clause
+@end group
+@end smallexample
+@end titlepage
+
+@contents
+
+@include intro.texi
+@include build.texi
+@include quick.texi
+@include matvar_structure.texi
+@include mcos.texi
+
+@bye

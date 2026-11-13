@@ -1,0 +1,25 @@
+enum_scalar = TestClasses.EnumClass (6 fields)
+    .EnumerationInstanceTag: [1 mxUINT32_CLASS]
+    .ClassName = 'TestClasses.EnumClass'
+    .ValueNames: [1 mxCELL_CLASS]
+    .Values: [1 mxCELL_CLASS]
+    .ValueIndices: [1 mxUINT32_CLASS]
+    .BuiltinClassName: [0 mxCHAR_CLASS]
+enum_uint32 = TestClasses.EnumClassWithBase (6 fields)
+    .EnumerationInstanceTag: [1 mxUINT32_CLASS]
+    .ClassName = 'TestClasses.EnumClassWithBase'
+    .ValueNames: [1 mxCELL_CLASS]
+    .Values: [1 mxCELL_CLASS]
+    .ValueIndices: [1 mxUINT32_CLASS]
+    .BuiltinClassName = 'uint32.Data'
+enum_array = TestClasses.EnumClass (6 fields)
+    .EnumerationInstanceTag: [1 mxUINT32_CLASS]
+    .ClassName = 'TestClasses.EnumClass'
+    .ValueNames: [6 mxCELL_CLASS]
+    .Values: [6 mxCELL_CLASS]
+    .ValueIndices: [6 mxUINT32_CLASS]
+    .BuiltinClassName: [0 mxCHAR_CLASS]
+enum_nested = TestClasses.BasicClass (3 fields)
+    .a: [1 mxOBJECT_CLASS]
+    .b: [1 mxCELL_CLASS]
+    .c: [1 mxSTRUCT_CLASS]
