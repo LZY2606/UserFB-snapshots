@@ -134,6 +134,7 @@ cpPivotJointSetAnchorA(cpConstraint *constraint, cpVect anchorA)
 	cpAssertHard(cpConstraintIsPivotJoint(constraint), "Constraint is not a pivot joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpPivotJoint *)constraint)->anchorA = anchorA;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -149,4 +150,5 @@ cpPivotJointSetAnchorB(cpConstraint *constraint, cpVect anchorB)
 	cpAssertHard(cpConstraintIsPivotJoint(constraint), "Constraint is not a pivot joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpPivotJoint *)constraint)->anchorB = anchorB;
+	cpSpaceCheckpointBump(constraint->space);
 }

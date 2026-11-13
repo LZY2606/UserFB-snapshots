@@ -160,6 +160,7 @@ cpGrooveJointSetGrooveA(cpConstraint *constraint, cpVect value)
 	g->grv_n = cpvperp(cpvnormalize(cpvsub(g->grv_b, value)));
 	
 	cpConstraintActivateBodies(constraint);
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -179,6 +180,7 @@ cpGrooveJointSetGrooveB(cpConstraint *constraint, cpVect value)
 	g->grv_n = cpvperp(cpvnormalize(cpvsub(value, g->grv_a)));
 	
 	cpConstraintActivateBodies(constraint);
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -194,4 +196,5 @@ cpGrooveJointSetAnchorB(cpConstraint *constraint, cpVect anchorB)
 	cpAssertHard(cpConstraintIsGrooveJoint(constraint), "Constraint is not a groove joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpGrooveJoint *)constraint)->anchorB = anchorB;
+	cpSpaceCheckpointBump(constraint->space);
 }

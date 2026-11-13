@@ -120,4 +120,5 @@ cpSimpleMotorSetRate(cpConstraint *constraint, cpFloat rate)
 	cpAssertHard(cpConstraintIsSimpleMotor(constraint), "Constraint is not a SimpleMotor.");
 	cpConstraintActivateBodies(constraint);
 	((cpSimpleMotor *)constraint)->rate = rate;
+	cpSpaceCheckpointBump(constraint->space);
 }

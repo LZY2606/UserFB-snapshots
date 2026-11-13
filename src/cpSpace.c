@@ -169,6 +169,10 @@ cpSpaceInit(cpSpace *space)
 	
 	space->postStepCallbacks = cpArrayNew(0);
 	space->skipPostStep = cpFalse;
+
+	// Regular spaces start checkpointable; cpHastySpace opts out.
+	space->cpCheckpointFlags = CP_CHECKPOINT_SUPPORTED;
+	space->cpCheckpointGeneration = 0;
 	
 	cpBody *staticBody = cpBodyInit(&space->_staticBody, 0.0f, 0.0f);
 	cpBodySetType(staticBody, CP_BODY_TYPE_STATIC);
@@ -242,6 +246,7 @@ cpSpaceSetIterations(cpSpace *space, int iterations)
 {
 	cpAssertHard(iterations > 0, "Iterations must be positive and non-zero.");
 	space->iterations = iterations;
+	cpSpaceCheckpointBump(space);
 }
 
 cpVect
@@ -260,6 +265,7 @@ cpSpaceSetGravity(cpSpace *space, cpVect gravity)
 	for(int i=0; i<components->num; i++){
 		cpBodyActivate((cpBody *)components->arr[i]);
 	}
+	cpSpaceCheckpointBump(space);
 }
 
 cpFloat
@@ -273,6 +279,7 @@ cpSpaceSetDamping(cpSpace *space, cpFloat damping)
 {
 	cpAssertHard(damping >= 0.0, "Damping must be positive.");
 	space->damping = damping;
+	cpSpaceCheckpointBump(space);
 }
 
 cpFloat
@@ -285,6 +292,7 @@ void
 cpSpaceSetIdleSpeedThreshold(cpSpace *space, cpFloat idleSpeedThreshold)
 {
 	space->idleSpeedThreshold = idleSpeedThreshold;
+	cpSpaceCheckpointBump(space);
 }
 
 cpFloat
@@ -297,6 +305,7 @@ void
 cpSpaceSetSleepTimeThreshold(cpSpace *space, cpFloat sleepTimeThreshold)
 {
 	space->sleepTimeThreshold = sleepTimeThreshold;
+	cpSpaceCheckpointBump(space);
 }
 
 cpFloat
@@ -309,6 +318,7 @@ void
 cpSpaceSetCollisionSlop(cpSpace *space, cpFloat collisionSlop)
 {
 	space->collisionSlop = collisionSlop;
+	cpSpaceCheckpointBump(space);
 }
 
 cpFloat
@@ -321,6 +331,7 @@ void
 cpSpaceSetCollisionBias(cpSpace *space, cpFloat collisionBias)
 {
 	space->collisionBias = collisionBias;
+	cpSpaceCheckpointBump(space);
 }
 
 cpTimestamp
@@ -333,6 +344,7 @@ void
 cpSpaceSetCollisionPersistence(cpSpace *space, cpTimestamp collisionPersistence)
 {
 	space->collisionPersistence = collisionPersistence;
+	cpSpaceCheckpointBump(space);
 }
 
 cpDataPointer
@@ -392,6 +404,7 @@ cpSpaceUseWildcardDefaultHandler(cpSpace *space)
 cpCollisionHandler *cpSpaceAddDefaultCollisionHandler(cpSpace *space)
 {
 	cpSpaceUseWildcardDefaultHandler(space);
+	cpSpaceCheckpointBump(space);
 	return &space->defaultHandler;
 }
 
@@ -399,17 +412,24 @@ cpCollisionHandler *cpSpaceAddCollisionHandler(cpSpace *space, cpCollisionType a
 {
 	cpHashValue hash = CP_HASH_PAIR(a, b);
 	cpCollisionHandler handler = {a, b, DefaultBegin, DefaultPreSolve, DefaultPostSolve, DefaultSeparate, NULL};
-	return (cpCollisionHandler*)cpHashSetInsert(space->collisionHandlers, hash, &handler, (cpHashSetTransFunc)handlerSetTrans, NULL);
+	unsigned int before = cpHashSetCount(space->collisionHandlers);
+	cpCollisionHandler *result = (cpCollisionHandler*)cpHashSetInsert(space->collisionHandlers, hash, &handler, (cpHashSetTransFunc)handlerSetTrans, NULL);
+	// Only a newly created handler changes the space's fixed structure.
+	if(cpHashSetCount(space->collisionHandlers) != before) cpSpaceCheckpointBump(space);
+	return result;
 }
 
 cpCollisionHandler *
 cpSpaceAddWildcardHandler(cpSpace *space, cpCollisionType type)
 {
 	cpSpaceUseWildcardDefaultHandler(space);
-	
+
 	cpHashValue hash = CP_HASH_PAIR(type, CP_WILDCARD_COLLISION_TYPE);
 	cpCollisionHandler handler = {type, CP_WILDCARD_COLLISION_TYPE, AlwaysCollide, AlwaysCollide, DoNothing, DoNothing, NULL};
-	return (cpCollisionHandler*)cpHashSetInsert(space->collisionHandlers, hash, &handler, (cpHashSetTransFunc)handlerSetTrans, NULL);
+	unsigned int before = cpHashSetCount(space->collisionHandlers);
+	cpCollisionHandler *result = (cpCollisionHandler*)cpHashSetInsert(space->collisionHandlers, hash, &handler, (cpHashSetTransFunc)handlerSetTrans, NULL);
+	if(cpHashSetCount(space->collisionHandlers) != before) cpSpaceCheckpointBump(space);
+	return result;
 }
 
 
@@ -433,6 +453,7 @@ cpSpaceAddShape(cpSpace *space, cpShape *shape)
 	cpShapeUpdate(shape, body->transform);
 	cpSpatialIndexInsert(isStatic ? space->staticShapes : space->dynamicShapes, shape, shape->hashid);
 	shape->space = space;
+	cpSpaceCheckpointBump(space);
 		
 	return shape;
 }
@@ -446,6 +467,7 @@ cpSpaceAddBody(cpSpace *space, cpBody *body)
 	
 	cpArrayPush(cpSpaceArrayForBodyType(space, cpBodyGetType(body)), body);
 	body->space = space;
+	cpSpaceCheckpointBump(space);
 	
 	return body;
 }
@@ -469,6 +491,7 @@ cpSpaceAddConstraint(cpSpace *space, cpConstraint *constraint)
 	constraint->next_a = a->constraintList; a->constraintList = constraint;
 	constraint->next_b = b->constraintList; b->constraintList = constraint;
 	constraint->space = space;
+	cpSpaceCheckpointBump(space);
 	
 	return constraint;
 }
@@ -538,6 +561,7 @@ cpSpaceRemoveShape(cpSpace *space, cpShape *shape)
 	cpSpatialIndexRemove(isStatic ? space->staticShapes : space->dynamicShapes, shape, shape->hashid);
 	shape->space = NULL;
 	shape->hashid = 0;
+	cpSpaceCheckpointBump(space);
 }
 
 void
@@ -553,6 +577,7 @@ cpSpaceRemoveBody(cpSpace *space, cpBody *body)
 //	cpSpaceFilterArbiters(space, body, NULL);
 	cpArrayDeleteObj(cpSpaceArrayForBodyType(space, cpBodyGetType(body)), body);
 	body->space = NULL;
+	cpSpaceCheckpointBump(space);
 }
 
 void
@@ -568,6 +593,7 @@ cpSpaceRemoveConstraint(cpSpace *space, cpConstraint *constraint)
 	cpBodyRemoveConstraint(constraint->a, constraint);
 	cpBodyRemoveConstraint(constraint->b, constraint);
 	constraint->space = NULL;
+	cpSpaceCheckpointBump(space);
 }
 
 cpBool cpSpaceContainsShape(cpSpace *space, cpShape *shape)
@@ -698,4 +724,8 @@ cpSpaceUseSpatialHash(cpSpace *space, cpFloat dim, int count)
 	
 	space->staticShapes = staticShapes;
 	space->dynamicShapes = dynamicShapes;
+
+	// Checkpoints cannot be restored into a swapped-in custom spatial index.
+	cpSpaceCheckpointSetUnsupported(space);
+	cpSpaceCheckpointBump(space);
 }

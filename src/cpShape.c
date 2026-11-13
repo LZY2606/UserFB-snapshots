@@ -100,6 +100,7 @@ cpShapeSetMass(cpShape *shape, cpFloat mass){
 	
 	shape->massInfo.m = mass;
 	cpBodyAccumulateMassFromShapes(body);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpFloat cpShapeGetDensity(cpShape *shape){ return shape->massInfo.m/shape->massInfo.area; }
@@ -126,6 +127,7 @@ cpShapeSetSensor(cpShape *shape, cpBool sensor)
 {
 	cpBodyActivate(shape->body);
 	shape->sensor = sensor;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpFloat
@@ -140,6 +142,7 @@ cpShapeSetElasticity(cpShape *shape, cpFloat elasticity)
 	cpAssertHard(elasticity >= 0.0f, "Elasticity must be positive.");
 	cpBodyActivate(shape->body);
 	shape->e = elasticity;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpFloat
@@ -154,6 +157,7 @@ cpShapeSetFriction(cpShape *shape, cpFloat friction)
 	cpAssertHard(friction >= 0.0f, "Friction must be postive.");
 	cpBodyActivate(shape->body);
 	shape->u = friction;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpVect
@@ -167,6 +171,7 @@ cpShapeSetSurfaceVelocity(cpShape *shape, cpVect surfaceVelocity)
 {
 	cpBodyActivate(shape->body);
 	shape->surfaceV = surfaceVelocity;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpDataPointer
@@ -192,6 +197,7 @@ cpShapeSetCollisionType(cpShape *shape, cpCollisionType collisionType)
 {
 	cpBodyActivate(shape->body);
 	shape->type = collisionType;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpShapeFilter
@@ -205,6 +211,7 @@ cpShapeSetFilter(cpShape *shape, cpShapeFilter filter)
 {
 	cpBodyActivate(shape->body);
 	shape->filter = filter;
+	cpSpaceCheckpointBump(shape->space);
 }
 
 cpBB
@@ -543,6 +550,7 @@ cpSegmentShapeSetNeighbors(cpShape *shape, cpVect prev, cpVect next)
 	
 	seg->a_tangent = cpvsub(prev, seg->a);
 	seg->b_tangent = cpvsub(next, seg->b);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 // Unsafe API (chipmunk_unsafe.h)
@@ -560,6 +568,7 @@ cpCircleShapeSetRadius(cpShape *shape, cpFloat radius)
 	cpFloat mass = shape->massInfo.m;
 	shape->massInfo = cpCircleShapeMassInfo(mass, circle->r, circle->c);
 	if(mass > 0.0f) cpBodyAccumulateMassFromShapes(shape->body);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 void
@@ -573,6 +582,7 @@ cpCircleShapeSetOffset(cpShape *shape, cpVect offset)
 	cpFloat mass = shape->massInfo.m;
 	shape->massInfo = cpCircleShapeMassInfo(shape->massInfo.m, circle->r, circle->c);
 	if(mass > 0.0f) cpBodyAccumulateMassFromShapes(shape->body);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 void
@@ -588,6 +598,7 @@ cpSegmentShapeSetEndpoints(cpShape *shape, cpVect a, cpVect b)
 	cpFloat mass = shape->massInfo.m;
 	shape->massInfo = cpSegmentShapeMassInfo(shape->massInfo.m, seg->a, seg->b, seg->r);
 	if(mass > 0.0f) cpBodyAccumulateMassFromShapes(shape->body);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 void
@@ -601,4 +612,5 @@ cpSegmentShapeSetRadius(cpShape *shape, cpFloat radius)
 	cpFloat mass = shape->massInfo.m;
 	shape->massInfo = cpSegmentShapeMassInfo(shape->massInfo.m, seg->a, seg->b, seg->r);
 	if(mass > 0.0f) cpBodyAccumulateMassFromShapes(shape->body);
+	cpSpaceCheckpointBump(shape->space);
 }

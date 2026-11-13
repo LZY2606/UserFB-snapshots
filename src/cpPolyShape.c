@@ -303,10 +303,11 @@ cpPolyShapeSetVertsRaw(cpShape *shape, int count, cpVect *verts)
 	cpPolyShapeDestroy(poly);
 	
 	SetVerts(poly, count, verts);
-	
+
 	cpFloat mass = shape->massInfo.m;
 	shape->massInfo = cpPolyShapeMassInfo(shape->massInfo.m, count, verts, poly->r);
 	if(mass > 0.0f) cpBodyAccumulateMassFromShapes(shape->body);
+	cpSpaceCheckpointBump(shape->space);
 }
 
 void
@@ -315,8 +316,9 @@ cpPolyShapeSetRadius(cpShape *shape, cpFloat radius)
 	cpAssertHard(shape->klass == &polyClass, "Shape is not a poly shape.");
 	cpPolyShape *poly = (cpPolyShape *)shape;
 	poly->r = radius;
-	
-	
+	cpSpaceCheckpointBump(shape->space);
+
+
 	// TODO radius is not handled by moment/area
 //	cpFloat mass = shape->massInfo.m;
 //	shape->massInfo = cpPolyShapeMassInfo(shape->massInfo.m, poly->count, poly->verts, poly->r);

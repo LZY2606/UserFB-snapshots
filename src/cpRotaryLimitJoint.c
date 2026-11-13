@@ -142,6 +142,7 @@ cpRotaryLimitJointSetMin(cpConstraint *constraint, cpFloat min)
 	cpAssertHard(cpConstraintIsRotaryLimitJoint(constraint), "Constraint is not a rotary limit joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpRotaryLimitJoint *)constraint)->min = min;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -157,4 +158,5 @@ cpRotaryLimitJointSetMax(cpConstraint *constraint, cpFloat max)
 	cpAssertHard(cpConstraintIsRotaryLimitJoint(constraint), "Constraint is not a rotary limit joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpRotaryLimitJoint *)constraint)->max = max;
+	cpSpaceCheckpointBump(constraint->space);
 }

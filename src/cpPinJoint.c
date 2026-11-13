@@ -139,6 +139,7 @@ cpPinJointSetAnchorA(cpConstraint *constraint, cpVect anchorA)
 	cpAssertHard(cpConstraintIsPinJoint(constraint), "Constraint is not a pin joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpPinJoint *)constraint)->anchorA = anchorA;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -154,6 +155,7 @@ cpPinJointSetAnchorB(cpConstraint *constraint, cpVect anchorB)
 	cpAssertHard(cpConstraintIsPinJoint(constraint), "Constraint is not a pin joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpPinJoint *)constraint)->anchorB = anchorB;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -169,4 +171,5 @@ cpPinJointSetDist(cpConstraint *constraint, cpFloat dist)
 	cpAssertHard(cpConstraintIsPinJoint(constraint), "Constraint is not a pin joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpPinJoint *)constraint)->dist = dist;
+	cpSpaceCheckpointBump(constraint->space);
 }

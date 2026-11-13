@@ -147,6 +147,7 @@ cpRatchetJointSetAngle(cpConstraint *constraint, cpFloat angle)
 	cpAssertHard(cpConstraintIsRatchetJoint(constraint), "Constraint is not a ratchet joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpRatchetJoint *)constraint)->angle = angle;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -162,6 +163,7 @@ cpRatchetJointSetPhase(cpConstraint *constraint, cpFloat phase)
 	cpAssertHard(cpConstraintIsRatchetJoint(constraint), "Constraint is not a ratchet joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpRatchetJoint *)constraint)->phase = phase;
+	cpSpaceCheckpointBump(constraint->space);
 }
 cpFloat
 cpRatchetJointGetRatchet(const cpConstraint *constraint)
@@ -176,4 +178,5 @@ cpRatchetJointSetRatchet(cpConstraint *constraint, cpFloat ratchet)
 	cpAssertHard(cpConstraintIsRatchetJoint(constraint), "Constraint is not a ratchet joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpRatchetJoint *)constraint)->ratchet = ratchet;
+	cpSpaceCheckpointBump(constraint->space);
 }

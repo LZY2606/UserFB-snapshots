@@ -726,6 +726,240 @@ static cpSpatialIndexClass klass = {
 
 static inline cpSpatialIndexClass *Klass(){return &klass;}
 
+//MARK: Structural Cloning
+
+// Map entries for the internal source->clone identity hash sets.
+typedef struct { Node *src; Node *clone; } NodeMapEntry;
+typedef struct { Pair *src; Pair *clone; } PairMapEntry;
+
+static cpBool
+nodeMapEql(void *key, void *elt)
+{
+	return key == ((NodeMapEntry *)elt)->src;
+}
+
+static cpBool
+pairMapEql(void *key, void *elt)
+{
+	return key == ((PairMapEntry *)elt)->src;
+}
+
+// Deep copy of a node subtree. Shape object pointers are shared; only tree
+// bookkeeping is duplicated.
+static Node *
+CloneSubtree(Node *node, cpBBTree *tree, cpHashSet *nodeMap)
+{
+	if(!node) return NULL;
+
+	Node *clone = NodeFromPool(tree);
+	NodeMapEntry *entry = (NodeMapEntry *)cpcalloc(1, sizeof(NodeMapEntry));
+	entry->src = node; entry->clone = clone;
+	cpHashSetInsert(nodeMap, (cpHashValue)(uintptr_t)node, node, NULL, entry);
+	clone->obj = node->obj;
+	clone->bb = node->bb;
+	clone->parent = NULL;
+
+	if(NodeIsLeaf(node)){
+		clone->STAMP = node->STAMP;
+		clone->PAIRS = NULL;
+	} else {
+		NodeSetA(clone, CloneSubtree(node->A, tree, nodeMap));
+		NodeSetB(clone, CloneSubtree(node->B, tree, nodeMap));
+	}
+
+	return clone;
+}
+
+static void
+freeMapEntry(void *elt, void *data)
+{
+	cpfree(elt);
+}
+
+static void
+cpBBTreeGatherLeaves(void *elt, void *data);
+
+static Node *
+mapNodeImpl(Node *sn, cpHashSet *nodeMap, cpBBTree *staticClone)
+{
+	if(!sn) return NULL;
+	NodeMapEntry *entry = (NodeMapEntry *)cpHashSetFind(nodeMap, (cpHashValue)(uintptr_t)sn, sn);
+	if(entry) return entry->clone;
+	if(staticClone) return (Node *)cpHashSetFind(staticClone->leaves,
+		((cpShape *)sn->obj)->hashid, sn->obj);
+	return NULL;
+}
+
+// Deep-copy a BBTree. For a dynamic tree, staticClone is the previously cloned
+// static tree and staticSrc is the original static tree; cross-tree pairs
+// (which the engine allocates on the dynamic tree) are then enumerated from
+// both tree sets so every thread link resolves. Both extra arguments are NULL
+// when cloning a static tree.
+cpSpatialIndex *
+cpBBTreeClone(const cpSpatialIndex *index, cpSpatialIndex *staticCloneIndex,
+	const cpSpatialIndex *staticSrcIndex)
+{
+	const cpBBTree *src = (index && index->klass == Klass() ? (const cpBBTree *)index : NULL);
+	if(!src) return NULL;
+
+	cpBBTree *staticClone = (staticCloneIndex && staticCloneIndex->klass == Klass())
+		? (cpBBTree *)staticCloneIndex : NULL;
+	const cpBBTree *staticSrc = (staticSrcIndex && staticSrcIndex->klass == Klass())
+		? (const cpBBTree *)staticSrcIndex : NULL;
+
+	cpBBTree *tree = (cpBBTree *)cpBBTreeInit(cpBBTreeAlloc(), src->spatialIndex.bbfunc, staticCloneIndex);
+	tree->velocityFunc = src->velocityFunc;
+	tree->stamp = src->stamp;
+
+	if(!src->root) return (cpSpatialIndex *)tree;
+
+	// Source-node -> clone-node identity map (covers internal nodes and leaves).
+	cpHashSet *nodeMap = cpHashSetNew(0, (cpHashSetEqlFunc)nodeMapEql);
+	// Source-pair -> clone-pair identity map.
+	cpHashSet *pairMap = cpHashSetNew(0, (cpHashSetEqlFunc)pairMapEql);
+	// Source leaves in hash-set order.
+	struct GatherCtx { Node **out; int n; };
+	Node **srcLeaves = (Node **)cpcalloc(1, sizeof(Node *));
+	struct GatherCtx gather = {srcLeaves, 0};
+
+	tree->root = CloneSubtree(src->root, tree, nodeMap);
+
+	// Populate the cloned leaf hash set keyed by shape hash id, mirroring how
+	// the live tree indexes leaves.
+	int leafCount = cpHashSetCount(src->leaves);
+	cpfree(srcLeaves);
+	srcLeaves = (Node **)cpcalloc((size_t)(leafCount ? leafCount : 1), sizeof(Node *));
+	gather.out = srcLeaves; gather.n = 0;
+	cpHashSetEach(src->leaves, cpBBTreeGatherLeaves, &gather);
+
+	// Identity lookups with a fallback to the cloned static tree for pair
+	// links that reference static leaves.
+	#define MAP_NODE(sn) mapNodeImpl(sn, nodeMap, staticClone)
+	#define MAP_PAIR(sp) ((sp) ? ((PairMapEntry *)cpHashSetFind(pairMap, (cpHashValue)(uintptr_t)(sp), (sp)))->clone : NULL)
+
+	for(int li=0; li<gather.n; li++){
+		Node *sn = srcLeaves[li];
+		Node *cn = MAP_NODE(sn);
+		cpHashSetInsert(tree->leaves, ((cpShape *)sn->obj)->hashid, sn->obj, NULL, cn);
+	}
+
+	// Pair ownership mirrors the engine: every broadphase pair, including
+	// dynamic-static ones, is allocated in the master (dynamic) tree's pool and
+	// threaded into both leaves. A standalone static tree therefore keeps no
+	// pair nodes; its leaves stay unlinked until the dynamic clone wires them.
+	cpBool isDynamicClone = (staticSrc != NULL);
+
+	// Build the list of leaves whose pair links this tree must reproduce: all
+	// owned leaves, plus the source static leaves for the dynamic clone so its
+	// cross-tree pair threads can be repointed onto the cloned static leaves.
+	Node **allLeaves = srcLeaves;
+	int allCount = gather.n;
+	Node **staticLeaves = NULL;
+	if(isDynamicClone){
+		int staticCount = cpHashSetCount(staticSrc->leaves);
+		staticLeaves = (Node **)cpcalloc((size_t)(staticCount ? staticCount : 1), sizeof(Node *));
+		struct GatherCtx sg = {staticLeaves, 0};
+		cpHashSetEach(staticSrc->leaves, cpBBTreeGatherLeaves, &sg);
+		allLeaves = (Node **)cpcalloc((size_t)(gather.n + sg.n), sizeof(Node *));
+		for(int i=0; i<gather.n; i++) allLeaves[i] = srcLeaves[i];
+		for(int i=0; i<sg.n; i++) allLeaves[gather.n + i] = staticLeaves[i];
+		allCount = gather.n + sg.n;
+	}
+
+	// Walk every pair reachable from the participating leaves, following
+	// whichever thread belongs to that leaf, and deduplicate via pairMap.
+	int pairCount = 0;
+	if(isDynamicClone){
+		for(int li=0; li<allCount; li++){
+			Node *leaf = allLeaves[li];
+			for(Pair *pair = leaf->PAIRS; pair; ){
+				if(leaf == pair->b.leaf){ pairCount++; pair = pair->b.next; }
+				else { pairCount++; pair = pair->a.next; }
+			}
+		}
+	}
+
+	// Allocate the cloned pairs in engine-style buffers owned by the tree.
+	int pairsPerBuffer = CP_BUFFER_BYTES/(int)sizeof(Pair);
+	if(pairsPerBuffer < 1) pairsPerBuffer = 1;
+	int buffersNeeded = (pairCount + pairsPerBuffer - 1)/pairsPerBuffer;
+	Pair **pairBlocks = (Pair **)cpcalloc((size_t)(buffersNeeded ? buffersNeeded : 1), sizeof(Pair *));
+	for(int i=0; i<buffersNeeded; i++){
+		pairBlocks[i] = (Pair *)cpcalloc(1, CP_BUFFER_BYTES);
+		cpArrayPush(tree->allocatedBuffers, pairBlocks[i]);
+	}
+
+	// First pass: allocate each distinct cloned pair and map it.
+	int block = 0, slot = 0;
+	if(isDynamicClone){
+		for(int li=0; li<allCount; li++){
+			Node *leaf = allLeaves[li];
+			for(Pair *sp = leaf->PAIRS; sp; ){
+				Pair *next = (leaf == sp->b.leaf) ? sp->b.next : sp->a.next;
+				if(!cpHashSetFind(pairMap, (cpHashValue)(uintptr_t)sp, sp)){
+					Pair *cp_ = &pairBlocks[block][slot++];
+					if(slot == pairsPerBuffer){ block++; slot = 0; }
+					cp_->id = sp->id;
+					PairMapEntry *pEntry = (PairMapEntry *)cpcalloc(1, sizeof(PairMapEntry));
+					pEntry->src = sp; pEntry->clone = cp_;
+					cpHashSetInsert(pairMap, (cpHashValue)(uintptr_t)sp, sp, NULL, pEntry);
+				}
+				sp = next;
+			}
+		}
+	}
+
+	// Second pass: relink every cloned pair's threads against cloned nodes and
+	// cloned pairs, preserving the exact graph structure.
+	if(isDynamicClone){
+		for(int li=0; li<allCount; li++){
+			Node *leaf = allLeaves[li];
+			for(Pair *sp = leaf->PAIRS; sp; ){
+				Pair *next = (leaf == sp->b.leaf) ? sp->b.next : sp->a.next;
+				Pair *cp_ = MAP_PAIR(sp);
+				cp_->a.leaf = MAP_NODE(sp->a.leaf);
+				cp_->b.leaf = MAP_NODE(sp->b.leaf);
+				cp_->a.prev = MAP_PAIR(sp->a.prev);
+				cp_->a.next = MAP_PAIR(sp->a.next);
+				cp_->b.prev = MAP_PAIR(sp->b.prev);
+				cp_->b.next = MAP_PAIR(sp->b.next);
+				sp = next;
+			}
+		}
+	}
+
+	// Repoint every participating leaf's pair-list head. Static leaves owned by
+	// the static clone are linked here too, through the dynamic pair pool.
+	if(isDynamicClone){
+		for(int li=0; li<allCount; li++){
+			Node *bClone = MAP_NODE(allLeaves[li]);
+			bClone->PAIRS = allLeaves[li]->PAIRS ? MAP_PAIR(allLeaves[li]->PAIRS) : NULL;
+		}
+	}
+
+	cpfree(pairBlocks);
+	cpfree(staticLeaves);
+	if(allLeaves != srcLeaves) cpfree(allLeaves);
+	cpfree(srcLeaves);
+	cpHashSetEach(pairMap, freeMapEntry, NULL);
+	cpHashSetEach(nodeMap, freeMapEntry, NULL);
+	cpHashSetFree(pairMap);
+	cpHashSetFree(nodeMap);
+	#undef MAP_NODE
+	#undef MAP_PAIR
+
+	return (cpSpatialIndex *)tree;
+}
+
+void
+cpBBTreeGatherLeaves(void *elt, void *data)
+{
+	struct GatherCtx { Node **out; int n; };
+	struct GatherCtx *ctx = (struct GatherCtx *)data;
+	ctx->out[ctx->n++] = (Node *)elt;
+}
+
+
 
 //MARK: Tree Optimization
 

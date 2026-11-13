@@ -574,6 +574,9 @@ cpHastySpaceNew(void)
 	hasty->num_threads = 1;
 	cpHastySpaceSetThreads((cpSpace *)hasty, 1);
 
+	// Hasty spaces cannot be checkpointed.
+	cpSpaceCheckpointSetUnsupported((cpSpace *)hasty);
+
 	return (cpSpace *)hasty;
 }
 

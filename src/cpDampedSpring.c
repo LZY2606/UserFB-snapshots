@@ -138,6 +138,7 @@ cpDampedSpringSetAnchorA(cpConstraint *constraint, cpVect anchorA)
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->anchorA = anchorA;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -153,6 +154,7 @@ cpDampedSpringSetAnchorB(cpConstraint *constraint, cpVect anchorB)
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->anchorB = anchorB;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -168,6 +170,7 @@ cpDampedSpringSetRestLength(cpConstraint *constraint, cpFloat restLength)
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->restLength = restLength;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -183,6 +186,7 @@ cpDampedSpringSetStiffness(cpConstraint *constraint, cpFloat stiffness)
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->stiffness = stiffness;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -198,6 +202,7 @@ cpDampedSpringSetDamping(cpConstraint *constraint, cpFloat damping)
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->damping = damping;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpDampedSpringForceFunc
@@ -213,4 +218,5 @@ cpDampedSpringSetSpringForceFunc(cpConstraint *constraint, cpDampedSpringForceFu
 	cpAssertHard(cpConstraintIsDampedSpring(constraint), "Constraint is not a damped spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedSpring *)constraint)->springForceFunc = springForceFunc;
+	cpSpaceCheckpointBump(constraint->space);
 }

@@ -436,9 +436,17 @@ struct cpSpace {
 	
 	cpBool skipPostStep;
 	cpArray *postStepCallbacks;
-	
+
 	cpBody *staticBody;
 	cpBody _staticBody;
+
+	// Checkpoint support bookkeeping.
+	// cpCheckpointFlags holds CP_CHECKPOINT_SUPPORTED when the space
+	// configuration can be checkpointed. cpCheckpointGeneration is bumped
+	// whenever the space's structure or fixed parameters change, which
+	// invalidates every checkpoint taken before the change.
+	unsigned int cpCheckpointFlags;
+	cpTimestamp cpCheckpointGeneration;
 };
 
 typedef struct cpPostStepCallback {

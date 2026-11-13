@@ -130,6 +130,7 @@ cpDampedRotarySpringSetRestAngle(cpConstraint *constraint, cpFloat restAngle)
 	cpAssertHard(cpConstraintIsDampedRotarySpring(constraint), "Constraint is not a damped rotary spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedRotarySpring *)constraint)->restAngle = restAngle;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -145,6 +146,7 @@ cpDampedRotarySpringSetStiffness(cpConstraint *constraint, cpFloat stiffness)
 	cpAssertHard(cpConstraintIsDampedRotarySpring(constraint), "Constraint is not a damped rotary spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedRotarySpring *)constraint)->stiffness = stiffness;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -160,6 +162,7 @@ cpDampedRotarySpringSetDamping(cpConstraint *constraint, cpFloat damping)
 	cpAssertHard(cpConstraintIsDampedRotarySpring(constraint), "Constraint is not a damped rotary spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedRotarySpring *)constraint)->damping = damping;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpDampedRotarySpringTorqueFunc
@@ -175,4 +178,5 @@ cpDampedRotarySpringSetSpringTorqueFunc(cpConstraint *constraint, cpDampedRotary
 	cpAssertHard(cpConstraintIsDampedRotarySpring(constraint), "Constraint is not a damped rotary spring.");
 	cpConstraintActivateBodies(constraint);
 	((cpDampedRotarySpring *)constraint)->springTorqueFunc = springTorqueFunc;
+	cpSpaceCheckpointBump(constraint->space);
 }

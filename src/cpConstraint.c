@@ -86,6 +86,7 @@ cpConstraintSetMaxForce(cpConstraint *constraint, cpFloat maxForce)
 	cpAssertHard(maxForce >= 0.0f, "maxForce must be positive.");
 	cpConstraintActivateBodies(constraint);
 	constraint->maxForce = maxForce;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -100,6 +101,7 @@ cpConstraintSetErrorBias(cpConstraint *constraint, cpFloat errorBias)
 	cpAssertHard(errorBias >= 0.0f, "errorBias must be positive.");
 	cpConstraintActivateBodies(constraint);
 	constraint->errorBias = errorBias;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -114,6 +116,7 @@ cpConstraintSetMaxBias(cpConstraint *constraint, cpFloat maxBias)
 	cpAssertHard(maxBias >= 0.0f, "maxBias must be positive.");
 	cpConstraintActivateBodies(constraint);
 	constraint->maxBias = maxBias;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpBool
@@ -127,6 +130,7 @@ cpConstraintSetCollideBodies(cpConstraint *constraint, cpBool collideBodies)
 {
 	cpConstraintActivateBodies(constraint);
 	constraint->collideBodies = collideBodies;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpConstraintPreSolveFunc
@@ -139,6 +143,7 @@ void
 cpConstraintSetPreSolveFunc(cpConstraint *constraint, cpConstraintPreSolveFunc preSolveFunc)
 {
 	constraint->preSolve = preSolveFunc;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpConstraintPostSolveFunc
@@ -151,6 +156,7 @@ void
 cpConstraintSetPostSolveFunc(cpConstraint *constraint, cpConstraintPostSolveFunc postSolveFunc)
 {
 	constraint->postSolve = postSolveFunc;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpDataPointer

@@ -124,6 +124,7 @@ typedef struct cpSpace cpSpace;
 #include "cpConstraint.h"
 
 #include "cpSpace.h"
+#include "cpSpaceCheckpoint.h"
 
 // Chipmunk 7.0.3
 #define CP_VERSION_MAJOR 7

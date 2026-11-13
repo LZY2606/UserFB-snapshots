@@ -147,6 +147,7 @@ cpSlideJointSetAnchorA(cpConstraint *constraint, cpVect anchorA)
 	cpAssertHard(cpConstraintIsSlideJoint(constraint), "Constraint is not a slide joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpSlideJoint *)constraint)->anchorA = anchorA;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpVect
@@ -162,6 +163,7 @@ cpSlideJointSetAnchorB(cpConstraint *constraint, cpVect anchorB)
 	cpAssertHard(cpConstraintIsSlideJoint(constraint), "Constraint is not a slide joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpSlideJoint *)constraint)->anchorB = anchorB;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -177,6 +179,7 @@ cpSlideJointSetMin(cpConstraint *constraint, cpFloat min)
 	cpAssertHard(cpConstraintIsSlideJoint(constraint), "Constraint is not a slide joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpSlideJoint *)constraint)->min = min;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -192,4 +195,5 @@ cpSlideJointSetMax(cpConstraint *constraint, cpFloat max)
 	cpAssertHard(cpConstraintIsSlideJoint(constraint), "Constraint is not a slide joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpSlideJoint *)constraint)->max = max;
+	cpSpaceCheckpointBump(constraint->space);
 }

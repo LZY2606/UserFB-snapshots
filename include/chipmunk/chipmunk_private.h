@@ -83,6 +83,13 @@ void cpBodyRemoveConstraint(cpBody *body, cpConstraint *constraint);
 
 cpSpatialIndex *cpSpatialIndexInit(cpSpatialIndex *index, cpSpatialIndexClass *klass, cpSpatialIndexBBFunc bbfunc, cpSpatialIndex *staticIndex);
 
+// Deep-copy a BBTree spatial index, preserving its node topology so that
+// reindex queries visit pairs in the same order. For a dynamic tree,
+// staticClone is the previously cloned static tree and staticSrc is the
+// original static tree; both are NULL when cloning a static tree.
+cpSpatialIndex *cpBBTreeClone(const cpSpatialIndex *index, cpSpatialIndex *staticClone,
+	const cpSpatialIndex *staticSrc);
+
 
 //MARK: Arbiters
 
@@ -313,6 +320,17 @@ cpSpaceArrayForBodyType(cpSpace *space, cpBodyType type)
 
 void cpShapeUpdateFunc(cpShape *shape, void *unused);
 cpCollisionID cpSpaceCollideShapes(cpShape *a, cpShape *b, cpCollisionID id, cpSpace *space);
+
+
+//MARK: Checkpoints
+
+#define CP_CHECKPOINT_SUPPORTED 1u
+
+// Invalidate every checkpoint of a space after a structural or fixed
+// parameter change. Safe to call with NULL.
+void cpSpaceCheckpointBump(cpSpace *space);
+// Mark a space configuration as not checkpointable (hasty space, custom index).
+void cpSpaceCheckpointSetUnsupported(cpSpace *space);
 
 
 //MARK: Foreach loops

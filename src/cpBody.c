@@ -188,6 +188,9 @@ cpBodySetType(cpBody *body, cpBodyType type)
 			cpArrayPush(toArray, body);
 		}
 		
+		// A type change restructures the space and invalidates every checkpoint.
+		cpSpaceCheckpointBump(space);
+
 		// Move the body's shapes to the correct spatial index.
 		cpSpatialIndex *fromIndex = (oldType == CP_BODY_TYPE_STATIC ? space->staticShapes : space->dynamicShapes);
 		cpSpatialIndex *toIndex = (type == CP_BODY_TYPE_STATIC ? space->staticShapes : space->dynamicShapes);
@@ -236,6 +239,7 @@ cpBodyAccumulateMassFromShapes(cpBody *body)
 	// Realign the body since the CoG has probably moved.
 	cpBodySetPosition(body, pos);
 	cpAssertSaneBody(body);
+	cpSpaceCheckpointBump(body->space);
 }
 
 cpSpace *
@@ -260,6 +264,7 @@ cpBodySetMass(cpBody *body, cpFloat mass)
 	body->m = mass;
 	body->m_inv = mass == 0.0f ? INFINITY : 1.0f/mass;
 	cpAssertSaneBody(body);
+	cpSpaceCheckpointBump(body->space);
 }
 
 cpFloat
@@ -277,6 +282,7 @@ cpBodySetMoment(cpBody *body, cpFloat moment)
 	body->i = moment;
 	body->i_inv = moment == 0.0f ? INFINITY : 1.0f/moment;
 	cpAssertSaneBody(body);
+	cpSpaceCheckpointBump(body->space);
 }
 
 cpVect
@@ -393,6 +399,7 @@ cpBodySetCenterOfGravity(cpBody *body, cpVect cog)
 	cpBodyActivate(body);
 	body->cog = cog;
 	cpAssertSaneBody(body);
+	cpSpaceCheckpointBump(body->space);
 }
 
 cpVect

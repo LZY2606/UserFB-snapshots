@@ -126,6 +126,7 @@ cpGearJointSetPhase(cpConstraint *constraint, cpFloat phase)
 	cpAssertHard(cpConstraintIsGearJoint(constraint), "Constraint is not a ratchet joint.");
 	cpConstraintActivateBodies(constraint);
 	((cpGearJoint *)constraint)->phase = phase;
+	cpSpaceCheckpointBump(constraint->space);
 }
 
 cpFloat
@@ -142,4 +143,5 @@ cpGearJointSetRatio(cpConstraint *constraint, cpFloat ratio)
 	cpConstraintActivateBodies(constraint);
 	((cpGearJoint *)constraint)->ratio = ratio;
 	((cpGearJoint *)constraint)->ratio_inv = 1.0f/ratio;
+	cpSpaceCheckpointBump(constraint->space);
 }

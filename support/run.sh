@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-build=$(mktemp -d)
+build=$(mktemp -d 2>/dev/null || {
+  root="${TMPDIR:-/tmp}/cpbuild-$$-$RANDOM"
+  mkdir -p "$root"
+  echo "$root"
+})
 trap 'rm -rf "$build"' EXIT
 mode=${1:-baseline}
 cc -std=c99 -Iinclude src/*.c support/baseline.c -lm -pthread -o "$build/baseline"
