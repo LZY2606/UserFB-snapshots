@@ -146,6 +146,15 @@ struct instance_data {
   frame3f frame    = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
   int     shape    = invalidid;
   int     material = invalidid;
+  // Light-linking mask of light groups that illuminate this surface.
+  // A light contributes to the surface-to-emitter segment only when
+  // `receive_mask & emission_mask != 0`. Defaults to all bits enabled, so
+  // scenes that do not set the masks keep their original behavior.
+  uint64_t receive_mask = ~uint64_t{0};
+  // Light-linking group used when the instance material is emissive.
+  // Stored per instance so two instances sharing a material can belong to
+  // different light groups.
+  uint64_t emission_mask = 1;
 };
 
 // Environment map.
@@ -154,6 +163,11 @@ struct environment_data {
   frame3f frame        = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
   vec3f   emission     = {0, 0, 0};
   int     emission_tex = invalidid;
+  // Light-linking mask of the light group this environment belongs to.
+  // The environment illuminates a receiving surface only when
+  // `emission_mask & receive_mask != 0`. Directly visible environment is
+  // never masked.
+  uint64_t emission_mask = 1;
 };
 
 // Subdiv data represented as face-varying primitives where
