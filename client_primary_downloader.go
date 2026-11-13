@@ -245,8 +245,21 @@ func (d *clientPrimaryDownloader) run(ctx context.Context) error {
 
 	for _, stream := range streams {
 		select {
-		case streamTracks := <-stream.chTracks:
-			tracks = append(tracks, streamTracks...)
+		case result := <-stream.chTracks:
+			if result.err != nil {
+				// acknowledge the failure so that the stream can exit; this
+				// happens before returning so that this error is reported
+				// instead of a generic termination.
+				select {
+				case stream.chStartStreaming <- nil:
+				case <-ctx.Done():
+				}
+				return result.err
+			}
+			tracks = append(tracks, result.tracks...)
+
+		case err = <-stream.chProcessorError:
+			return err
 
 		case <-ctx.Done():
 			return fmt.Errorf("terminated")

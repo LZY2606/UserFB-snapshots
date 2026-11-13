@@ -15,6 +15,11 @@ type MediaMap struct {
 	// BYTERANGE
 	ByteRangeLength *uint64
 	ByteRangeStart  *uint64
+
+	// EXT-X-KEY in effect when the EXT-X-MAP tag was declared.
+	// It is a snapshot: it does not change when later EXT-X-KEY tags
+	// change the key of media segments.
+	Key *MediaKey
 }
 
 func (t *MediaMap) unmarshal(v string) error {

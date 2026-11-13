@@ -103,6 +103,18 @@ func (t MediaKey) marshal() string {
 	return ret
 }
 
+// clone returns an independent copy of the key.
+// It is used to bind a key snapshot to a playlist object without sharing
+// mutable state with other objects.
+func (t *MediaKey) clone() *MediaKey {
+	if t == nil {
+		return nil
+	}
+
+	clone := *t
+	return &clone
+}
+
 // Equal checks if two MediaKey objects are equal.
 func (t *MediaKey) Equal(key *MediaKey) bool {
 	if t == key {

@@ -15,6 +15,7 @@ Features:
 * Client
 
   * Read streams in MPEG-TS, fMP4 or Low-latency format
+  * Read AES-128 encrypted MPEG-TS and fMP4 segments (including encrypted EXT-X-MAP)
   * Read a single video track and/or multiple audio tracks
   * Read tracks encoded with AV1, VP9, H265, H264, Opus, MPEG-4 Audio (AAC)
   * Get absolute timestamp of incoming data
@@ -42,6 +43,7 @@ Features:
 
 * [playlist-parser](examples/playlist-parser/main.go)
 * [client](examples/client/main.go)
+* [client-aes128](examples/client-aes128/main.go)
 * [client-absolute-timestamp](examples/client-absolute-timestamp/main.go)
 * [client-codec-h264-save-to-disk](examples/client-codec-h264-save-to-disk/main.go)
 * [client-codec-h264-convert-to-jpeg](examples/client-codec-h264-convert-to-jpeg/main.go)
@@ -51,6 +53,54 @@ Features:
 ## API Documentation
 
 [Click to open the API Documentation](https://pkg.go.dev/github.com/bluenviron/gohlslib#pkg-index)
+
+## Encrypted playback (AES-128)
+
+The client transparently decrypts traditional HLS playlists that use
+`EXT-X-KEY` with `METHOD=AES-128`:
+
+```go
+c := &gohlslib.Client{
+	URI: "https://myserver/mystream/index.m3u8",
+}
+c.OnTracks = func(tracks []*gohlslib.Track) error {
+	for _, track := range tracks {
+		switch track.Codec.(type) {
+		case *codecs.H264:
+			c.OnDataH26x(track, func(pts int64, dts int64, au [][]byte) {
+				// au contains decrypted data
+			})
+		}
+	}
+	return nil
+}
+if err := c.Start(); err != nil {
+	panic(err)
+}
+defer c.Close()
+panic(c.Wait2())
+```
+
+Supported:
+
+* `METHOD=AES-128` with `KEYFORMAT` missing or `identity` and
+  `KEYFORMATVERSIONS` missing or `1`.
+* Encrypted MPEG-TS and fMP4 segments. For fMP4, an encrypted `EXT-X-MAP`
+  is supported too (it must carry an explicit `IV`).
+* Explicit `IV` values (`0x` followed by 1 to 32 hex digits) and implicit IVs
+  computed from `EXT-X-MEDIA-SEQUENCE` plus the segment position, including
+  when joining a live stream mid-window or after the playlist has slid.
+* Key rotation between `AES-128` keys and `METHOD=NONE`, including within the
+  same playlist.
+* Key URIs are resolved relative to the media playlist URL; key requests use
+  the client's `HTTPClient`, request context and `OnRequest` callback, so
+  custom authentication headers and cancellation work as usual.
+* Byte-range requests on unencrypted segments keep their original behavior.
+  Encrypted objects are required to be returned whole by the server.
+
+Not supported: low-latency parts, `SAMPLE-AES`, DRM key formats, MAP changes
+during playback and discontinuous timelines. Unsupported methods, formats or
+versions are reported as errors instead of being played as encrypted media.
 
 ## Specifications
 

@@ -208,6 +208,13 @@ func (m *Media) Unmarshal(buf []byte) error {
 			line = line[len("#EXT-X-MAP:"):]
 
 			m.Map = &MediaMap{}
+
+			// the key in effect when the MAP is declared belongs to the MAP
+			// itself and is independent from the key of the segments.
+			if curKey != nil {
+				m.Map.Key = curKey.clone()
+			}
+
 			err = m.Map.unmarshal(line)
 			if err != nil {
 				return err
@@ -287,7 +294,7 @@ func (m *Media) Unmarshal(buf []byte) error {
 				curSegment.Title = ""
 			}
 
-			curSegment.Key = curKey
+			curSegment.Key = curKey.clone()
 
 		case strings.HasPrefix(line, "#EXT-X-BYTERANGE:"):
 			line = line[len("#EXT-X-BYTERANGE:"):]
@@ -401,6 +408,11 @@ func (m Media) Marshal() ([]byte, error) {
 	}
 
 	if m.Map != nil {
+		// the key of the MAP is declared before the MAP itself
+		if m.Map.Key != nil {
+			ret.WriteString(m.Map.Key.marshal())
+		}
+
 		ret.WriteString(m.Map.marshal())
 	}
 
@@ -413,9 +425,25 @@ func (m Media) Marshal() ([]byte, error) {
 	}
 
 	var prevKey *MediaKey
+	if m.Map != nil && m.Map.Key != nil {
+		prevKey = m.Map.Key
+	}
+
 	for _, seg := range m.Segments {
-		if seg.Key != nil && (prevKey == nil || !seg.Key.Equal(prevKey)) {
-			ret.WriteString(seg.Key.marshal())
+		if seg.Key == nil {
+			// a segment without a key can only play in clear if the previous
+			// key has been explicitly reset. This matters in particular when
+			// the MAP is encrypted and the first segment is not.
+			if prevKey != nil {
+				ret.WriteString(MediaKey{Method: MediaKeyMethodNone}.marshal())
+				prevKey = nil
+			}
+		} else {
+			// when the MAP has no key but is declared before a key, no
+			// METHOD=NONE needs to be emitted for the MAP itself.
+			if prevKey == nil || !seg.Key.Equal(prevKey) {
+				ret.WriteString(seg.Key.marshal())
+			}
 			prevKey = seg.Key
 		}
 

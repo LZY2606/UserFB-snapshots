@@ -49,6 +49,14 @@ func dateTimeOfPreloadHint(pl *playlist.Media) *time.Time {
 	return &d
 }
 
+// streamTracksResult is the outcome of the track discovery of a stream.
+// A stream that fails before discovering its tracks reports the error here,
+// so that the primary downloader does not wait forever.
+type streamTracksResult struct {
+	tracks []*Track
+	err    error
+}
+
 type clientStreamDownloaderClient interface {
 	setTimeConv(ts clientTimeConv)
 	waitTimeConv(ctx context.Context) (clientTimeConv, bool)
@@ -72,9 +80,11 @@ type clientStreamDownloader struct {
 
 	segmentQueue *clientSegmentQueue
 	curSegmentID *int
+	// whether track discovery has been reported to the primary downloader.
+	tracksDelivered bool
 
 	// out
-	chTracks         chan []*Track
+	chTracks         chan streamTracksResult
 	chProcessorError chan error
 
 	// in
@@ -82,12 +92,33 @@ type clientStreamDownloader struct {
 }
 
 func (d *clientStreamDownloader) initialize() {
-	d.chTracks = make(chan []*Track)
+	d.chTracks = make(chan streamTracksResult)
 	d.chProcessorError = make(chan error)
 	d.chStartStreaming = make(chan map[*Track]*clientTrack)
 }
 
 func (d *clientStreamDownloader) run(ctx context.Context) error {
+	err := d.runInternal(ctx)
+	if err != nil && !d.tracksDelivered {
+		// Report the failure to the primary downloader, which may still be
+		// waiting for track discovery of this stream, and wait for its
+		// acknowledgment before returning: the primary downloader must see
+		// this error before the routine pool observes the routine termination.
+		select {
+		case d.chTracks <- streamTracksResult{err: err}:
+		case <-ctx.Done():
+			return err
+		}
+
+		select {
+		case <-d.chStartStreaming:
+		case <-ctx.Done():
+		}
+	}
+	return err
+}
+
+func (d *clientStreamDownloader) runInternal(ctx context.Context) error {
 	if d.firstPlaylist == nil {
 		var err error
 		d.firstPlaylist, err = d.downloadPlaylist(ctx, false)
@@ -99,12 +130,29 @@ func (d *clientStreamDownloader) run(ctx context.Context) error {
 	d.segmentQueue = &clientSegmentQueue{}
 	d.segmentQueue.initialize()
 
+	if d.firstPlaylist.Map != nil {
+		if err := checkMediaKeySupport(d.firstPlaylist.Map.Key); err != nil {
+			return err
+		}
+	}
+
 	if d.firstPlaylist.Map != nil && d.firstPlaylist.Map.URI != "" {
-		initFile, err := d.downloadSegment(
+		var iv []byte
+		if mediaKeyIsEncrypted(d.firstPlaylist.Map.Key) {
+			var err error
+			iv, err = objectIV(d.firstPlaylist.Map.Key, 0, 0, true)
+			if err != nil {
+				return err
+			}
+		}
+
+		initFile, err := d.downloadAndDecryptObject(
 			ctx,
 			d.firstPlaylist.Map.URI,
 			d.firstPlaylist.Map.ByteRangeStart,
-			d.firstPlaylist.Map.ByteRangeLength)
+			d.firstPlaylist.Map.ByteRangeLength,
+			d.firstPlaylist.Map.Key,
+			iv)
 		if err != nil {
 			return err
 		}
@@ -134,16 +182,18 @@ func (d *clientStreamDownloader) run(ctx context.Context) error {
 		d.rp.add(proc)
 	}
 
-	var err error
+	err := func() error {
+		if d.firstPlaylist.ServerControl != nil &&
+			d.firstPlaylist.ServerControl.CanBlockReload &&
+			d.firstPlaylist.PreloadHint != nil {
+			return d.runLowLatency(ctx)
+		}
+		return d.runTraditional(ctx)
+	}()
 
-	if d.firstPlaylist.ServerControl != nil &&
-		d.firstPlaylist.ServerControl.CanBlockReload &&
-		d.firstPlaylist.PreloadHint != nil {
-		err = d.runLowLatency(ctx)
-	} else {
-		err = d.runTraditional(ctx)
-	}
-
+	// The processor is notified so that it can relay the error to the primary
+	// downloader, then wait for the client to close: the processor exits on its
+	// own once it has consumed the queue item above.
 	d.segmentQueue.push(&segmentData{
 		err: err,
 	})
@@ -358,7 +408,20 @@ func (d *clientStreamDownloader) downloadNextSegment(
 
 	d.curSegmentID = ptrOf(pl.MediaSequence + segPos)
 
-	byts, err := d.downloadSegment(ctx, seg.URI, seg.ByteRangeStart, seg.ByteRangeLength)
+	if err := checkMediaKeySupport(seg.Key); err != nil {
+		return nil, nil, err
+	}
+
+	var iv []byte
+	if mediaKeyIsEncrypted(seg.Key) {
+		var err error
+		iv, err = objectIV(seg.Key, pl.MediaSequence, segPos, false)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	byts, err := d.downloadAndDecryptObject(ctx, seg.URI, seg.ByteRangeStart, seg.ByteRangeLength, seg.Key, iv)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -368,10 +431,14 @@ func (d *clientStreamDownloader) downloadNextSegment(
 
 func (d *clientStreamDownloader) setTracks(ctx context.Context, tracks []*Track) ([]*clientTrack, bool) {
 	select {
-	case d.chTracks <- tracks:
+	case d.chTracks <- streamTracksResult{tracks: tracks}:
 	case <-ctx.Done():
 		return nil, false
 	}
+
+	// track discovery has been reported: from now on the primary downloader
+	// is waiting for the start signal, not for a failure report.
+	d.tracksDelivered = true
 
 	var allTracks map[*Track]*clientTrack
 
