@@ -147,8 +147,9 @@ type MediaPlaylist struct {
 //    http://example.com/audio-only.m3u8
 type MasterPlaylist struct {
 	Variants            []*Variant
-	Args                string // optional arguments placed after URI (URI?Args)
-	CypherVersion       string // non-standard tag for Widevine (see also WV struct)
+	Renditions          []*Alternative // EXT-X-MEDIA catalog, including unreferenced groups
+	Args                string         // optional arguments placed after URI (URI?Args)
+	CypherVersion       string         // non-standard tag for Widevine (see also WV struct)
 	buf                 bytes.Buffer
 	ver                 uint8
 	independentSegments bool
@@ -197,6 +198,7 @@ type Alternative struct {
 	Forced          string
 	Characteristics string
 	Subtitles       string
+	InstreamId      string // INSTREAM-ID of a CLOSED-CAPTIONS rendition
 }
 
 // MediaSegment structure represents a media segment included in a
@@ -327,7 +329,7 @@ type decodingState struct {
 	duration           float64
 	title              string
 	variant            *Variant
-	alternatives       []*Alternative
+	renditions         map[renditionIdentity]int
 	xkey               *Key
 	xmap               *Map
 	scte               *SCTE

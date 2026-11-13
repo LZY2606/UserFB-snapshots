@@ -65,6 +65,7 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 	var eof bool
 
 	state := new(decodingState)
+	state.renditions = p.renditionIndex()
 
 	for !eof {
 		line, err := buf.ReadString('\n')
@@ -79,7 +80,7 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 		}
 	}
 
-	p.attachRenditionsToVariants(state.alternatives)
+	p.attachRenditionsToVariants()
 
 	if strict && !state.m3u {
 		return errors.New("#EXTM3U absent")
@@ -87,24 +88,29 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 	return nil
 }
 
-func (p *MasterPlaylist) attachRenditionsToVariants(alternatives []*Alternative) {
+// attachRenditionsToVariants links catalog entries to variants whose
+// AUDIO, VIDEO, SUBTITLES or CLOSED-CAPTIONS attribute names both the
+// rendition type and the group. Variant.Alternatives is rebuilt so that
+// repeated line-by-line parsing cannot attach the same entry twice.
+func (p *MasterPlaylist) attachRenditionsToVariants() {
 	for _, variant := range p.Variants {
-		for _, alt := range alternatives {
+		if variant == nil {
+			continue
+		}
+		variant.Alternatives = nil
+		for _, alt := range p.Renditions {
 			if alt == nil {
 				continue
 			}
-			if variant.Video != "" && alt.Type == "VIDEO" && variant.Video == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
+			switch {
+			case variant.Video != "" && alt.Type == "VIDEO" && variant.Video == alt.GroupId:
+			case variant.Audio != "" && alt.Type == "AUDIO" && variant.Audio == alt.GroupId:
+			case variant.Captions != "" && variant.Captions != "NONE" && alt.Type == "CLOSED-CAPTIONS" && variant.Captions == alt.GroupId:
+			case variant.Subtitles != "" && alt.Type == "SUBTITLES" && variant.Subtitles == alt.GroupId:
+			default:
+				continue
 			}
-			if variant.Audio != "" && alt.Type == "AUDIO" && variant.Audio == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
-			}
-			if variant.Captions != "" && alt.Type == "CLOSED-CAPTIONS" && variant.Captions == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
-			}
-			if variant.Subtitles != "" && alt.Type == "SUBTITLES" && variant.Subtitles == alt.GroupId {
-				variant.Alternatives = append(variant.Alternatives, alt)
-			}
+			variant.Alternatives = append(variant.Alternatives, alt)
 		}
 	}
 }
@@ -222,6 +228,7 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 	if err != nil {
 		return nil, 0, fmt.Errorf("Create media playlist failed: %s", err)
 	}
+	state.renditions = master.renditionIndex()
 
 	// If we have custom tags to parse
 	if customDecoders != nil {
@@ -245,7 +252,6 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 		}
 
 		err = decodeLineOfMasterPlaylist(master, state, line, strict)
-		master.attachRenditionsToVariants(state.alternatives)
 		if strict && err != nil {
 			return master, state.listType, err
 		}
@@ -256,6 +262,7 @@ func decode(buf *bytes.Buffer, strict bool, customDecoders []CustomDecoder) (Pla
 		}
 
 	}
+	master.attachRenditionsToVariants()
 	if state.listType == MEDIA && state.tagWV {
 		media.WV = wv
 	}
@@ -355,9 +362,13 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 				alt.Subtitles = v
 			case "URI":
 				alt.URI = v
+			case "INSTREAM-ID":
+				alt.InstreamId = v
 			}
 		}
-		state.alternatives = append(state.alternatives, &alt)
+		if err := p.addRendition(state, &alt, strict); err != nil {
+			return err
+		}
 	case !state.tagStreamInf && strings.HasPrefix(line, "#EXT-X-STREAM-INF:"):
 		state.tagStreamInf = true
 		state.listType = MASTER
@@ -417,10 +428,6 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 		state.listType = MASTER
 		state.variant = new(Variant)
 		state.variant.Iframe = true
-		if len(state.alternatives) > 0 {
-			state.variant.Alternatives = state.alternatives
-			state.alternatives = nil
-		}
 		p.Variants = append(p.Variants, state.variant)
 		for k, v := range decodeParamsLine(line[26:]) {
 			switch k {

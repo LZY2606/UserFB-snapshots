@@ -95,6 +95,36 @@ Custom Tags
 
 M3U8 supports parsing and writing of custom tags. You must implement both the `CustomTag` and `CustomDecoder` interface for each custom tag that may be encountered in the playlist. Look at the template files in `example/template/` for examples on parsing custom playlist and segment tags.
 
+Rendition groups
+----------------
+
+`MasterPlaylist.Renditions` keeps every parsed `EXT-X-MEDIA` declaration in
+declaration order, including groups no variant references. Declarations are
+identified by the `TYPE`, `GROUP-ID` and `NAME` triple, so a subtitle track and
+an audio track that share a group name remain separate entries. Groups can be
+renamed with `RenameRenditionGroups`, which updates the catalog, every matching
+`AUDIO`/`VIDEO`/`SUBTITLES`/`CLOSED-CAPTIONS` reference and legacy
+`Variant.Alternatives` consistently:
+
+```go
+	p := m3u8.NewMasterPlaylist()
+	if err := p.DecodeFrom(reader, true); err != nil {
+		panic(err)
+	}
+	err := p.RenameRenditionGroups(map[m3u8.RenditionGroupKey]string{
+		{Type: "AUDIO", GroupID: "audio-en"}:  "audio-main",
+		{Type: "SUBTITLES", GroupID: "subs"}:  "subtitles",
+	})
+	if err != nil {
+		// A missing source group, an empty target, an unknown type, a
+		// collision or renaming closed captions to NONE is rejected and the
+		// playlist is left untouched.
+		panic(err)
+	}
+	// Encode writes each group once, catalog entries first.
+	fmt.Println(p.Encode().String())
+```
+
 Library structure
 -----------------
 
