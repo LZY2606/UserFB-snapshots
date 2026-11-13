@@ -21,9 +21,12 @@ endif()
 
 find_package(OpenMP COMPONENTS CXX)
 
-set(SOURCES main.cpp our_gl.cpp model.cpp tgaimage.cpp)
+set(SOURCES main.cpp our_gl.cpp transparency.cpp model.cpp tgaimage.cpp)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+
+add_executable(transparency_demo examples/transparency.cpp transparency.cpp our_gl.cpp tgaimage.cpp)
+target_link_libraries(transparency_demo PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 
 file(GENERATE OUTPUT .gitignore CONTENT "*")

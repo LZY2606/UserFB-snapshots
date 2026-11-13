@@ -25,28 +25,12 @@ void init_zbuffer(const int width, const int height) {
 }
 
 void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer) {
-    vec4 ndc[3]    = { clip[0]/clip[0].w, clip[1]/clip[1].w, clip[2]/clip[2].w };                // normalized device coordinates
-    vec2 screen[3] = { (Viewport*ndc[0]).xy(), (Viewport*ndc[1]).xy(), (Viewport*ndc[2]).xy() }; // screen coordinates
-
-    mat<3,3> ABC = {{ {screen[0].x, screen[0].y, 1.}, {screen[1].x, screen[1].y, 1.}, {screen[2].x, screen[2].y, 1.} }};
-    if (ABC.det()<1) return; // backface culling + discarding triangles that cover less than a pixel
-
-    auto [bbminx,bbmaxx] = std::minmax({screen[0].x, screen[1].x, screen[2].x}); // bounding box for the triangle
-    auto [bbminy,bbmaxy] = std::minmax({screen[0].y, screen[1].y, screen[2].y}); // defined by its top left and bottom right corners
-#pragma omp parallel for
-    for (int x=std::max<int>(bbminx, 0); x<=std::min<int>(bbmaxx, framebuffer.width()-1); x++) {         // clip the bounding box by the screen
-        for (int y=std::max<int>(bbminy, 0); y<=std::min<int>(bbmaxy, framebuffer.height()-1); y++) {
-            vec3 bc_screen = ABC.invert_transpose() * vec3{static_cast<double>(x), static_cast<double>(y), 1.}; // barycentric coordinates of {x,y} w.r.t the triangle
-            vec3 bc_clip   = { bc_screen.x/clip[0].w, bc_screen.y/clip[1].w, bc_screen.z/clip[2].w };     // check https://github.com/ssloy/tinyrenderer/wiki/Technical-difficulties-linear-interpolation-with-perspective-deformations
-            bc_clip = bc_clip / (bc_clip.x + bc_clip.y + bc_clip.z);
-            if (bc_screen.x<0 || bc_screen.y<0 || bc_screen.z<0) continue; // negative barycentric coordinate => the pixel is outside the triangle
-            double z = bc_screen * vec3{ ndc[0].z, ndc[1].z, ndc[2].z };   // linear interpolation of the depth
-            if (z <= zbuffer[x+y*framebuffer.width()]) continue;   // discard fragments that are too deep w.r.t the z-buffer
-            auto [discard, color] = shader.fragment(bc_clip);
-            if (discard) continue;                                 // fragment shader can discard current fragment
-            zbuffer[x+y*framebuffer.width()] = z;                  // update the z-buffer
-            framebuffer.set(x, y, color);                          // update the framebuffer
-        }
-    }
+    raster_traverse(clip, framebuffer.width(), framebuffer.height(),
+        [&](const FragmentSample &f) {
+            if (f.z <= zbuffer[f.x+f.y*framebuffer.width()]) return;   // discard fragments that are too deep w.r.t the z-buffer
+            auto [discard, color] = shader.fragment(f.bar);
+            if (discard) return;                                      // fragment shader can discard current fragment
+            zbuffer[f.x+f.y*framebuffer.width()] = f.z;               // update the z-buffer
+            framebuffer.set(f.x, f.y, color);                         // update the framebuffer
+        });
 }
-

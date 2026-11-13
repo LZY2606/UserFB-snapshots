@@ -99,3 +99,59 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+
+## Weighted-blended transparency
+
+The default pipeline treats every fragment as an opaque surface, so
+overlapping thin surfaces hide each other through the z-buffer.
+`transparency.h/.cpp` adds an order-independent path based on weighted
+blended order-independent transparency (WBOIT): transparent triangles can be
+submitted in any order, intersecting surfaces need no sorting, and a single
+composite pass produces the final pixels.
+
+Per-frame call order:
+
+1. Run the opaque pass exactly as before (`rasterize` + `IShader`); it keeps
+   writing the ordinary z-buffer and the color framebuffer.
+2. Construct a `TransparencyBuffer` with the same width and height, passing
+   the opaque z-buffer. It only reads that buffer and never writes it.
+3. `submit()` every transparent triangle through an `ITransparencyShader`.
+   The shader returns a discard flag plus non-premultiplied linear RGB and an
+   alpha in `[0,1]`. Rasterization reuses the same traversal as `rasterize`
+   (perspective-correct barycentrics, coverage and back-face culling; no
+   frustum clipping is added). A fragment survives only when its depth is
+   strictly greater than the frozen opaque depth — equal depth counts as
+   occluded — and earlier transparent surfaces never block later ones.
+4. Call `composite()` once onto the opaque `TGAImage` (RGB, or RGBA whose
+   alpha bytes are all 255). Pixels without any contribution keep their
+   background bytes; output alpha is 255. Compositing again is a no-op, so
+   the previous result is never blended a second time.
+5. For the next frame, call `clear()` (or construct a fresh buffer) after the
+   new opaque pass; the accumulators hold floating-point state for the whole
+   frame and are never quantized per triangle.
+
+A standalone scene with two intersecting colored sheets, an opaque occluder
+and a checkerboard background lives in `examples/transparency.cpp`:
+
+```sh
+sh task_support/run.sh target     # builds the example, writes a small TGA, runs the numeric tests
+```
+
+Per pixel the buffer keeps `A.rgb += rgb*alpha*w`, `A.a += alpha*w` and
+`R *= 1-alpha` (initialized to zero, zero and one), where
+`w = clamp(0.01+8*alpha, 0.01, 8) * clamp(1+z/w_clip, 0.1, 2)`. The average
+transparent color is `A.rgb/A.a`, the coverage is `1-R`, and those are blended
+once over the frozen opaque background. The running values can be inspected
+through `accumulated_rgb()`, `accumulated_alpha()` and `revealage()`.
+
+### Applicability of the approximation
+
+Weighted blending is an approximation, not exact compositing. It fits thin,
+low-to-moderate-alpha surfaces (glass, colored sheets, smoke, hair wisps) and
+intersecting geometry where sorting triangles is impractical. The weighted
+average cannot reproduce a strict back-to-front color order, so strongly
+absorbing or nearly opaque layers, high-contrast overlapping colors, and
+correct refraction or transmission of the background are not modeled; for
+those, sorted alpha blending or a per-pixel fragment list is needed. It also
+assumes an opaque background: the framebuffer passed to `composite` must be
+RGB or fully opaque RGBA.
