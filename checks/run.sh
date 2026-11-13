@@ -8,7 +8,7 @@ if [[ "${1:-target}" == baseline ]]; then
  c++ -std=c++17 -O2 -I. -Ichecks/compat checks/baseline.cpp "${objects[@]}" -lm -o "$b/base"
  "$b/base"
 else
- c++ -std=c++17 -O2 -I. -Ichecks/compat checks/target.cpp checks/driver.cpp "${objects[@]}" -lm -o "$b/target"
+ c++ -std=c++17 -O2 -I. -Ichecks/compat checks/target.cpp checks/geo.cpp checks/driver.cpp "${objects[@]}" -lm -o "$b/target"
  "$b/target" model joins normalization callbacks
  bash checks/run.sh baseline
 fi

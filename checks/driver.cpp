@@ -14,6 +14,7 @@ int main(int argc,char**argv) {
    if(!n) throw std::runtime_error(std::string("zero executed cases: ")+argv[i]);
   }
   if(!count) throw std::runtime_error("zero cases");
+  if(after_all_checks) after_all_checks();
   std::cout<<"TARGET_CASES="<<count<<"\n";
  } catch(const std::exception&e) { std::cerr<<"FAIL "<<e.what()<<"\n"; return 1; }
 }
