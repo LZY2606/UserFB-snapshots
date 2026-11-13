@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 
 	"github.com/nlnwa/gowarc/v3"
 )
@@ -122,4 +124,45 @@ func ExampleNewWarcFileReader() {
 		// Do more with record as per needs
 	}
 
+}
+
+func ExampleMarshaler_segmentation() {
+	// Build a cached response record. In a real crawler this would be the
+	// response captured from an HTTP request.
+	payload := strings.Repeat("hello-", 300)
+	body := "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(payload)) + "\r\n\r\n" + payload
+	builder := gowarc.NewRecordBuilder(gowarc.Response,
+		gowarc.WithAddMissingDigest(true))
+	if _, err := builder.WriteString(body); err != nil {
+		panic(err)
+	}
+	builder.AddWarcHeader(gowarc.WarcTargetURI, "http://example.com/")
+	builder.AddWarcHeader(gowarc.WarcDate, "2026-01-01T00:00:00Z")
+	builder.AddWarcHeader(gowarc.ContentType, gowarc.ApplicationHttp+";msgtype=response")
+
+	record, _, err := builder.Build()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = record.Close() }()
+
+	// A small maxSize forces WARC 1.1 segmentation. The returned continuation
+	// is marshaled repeatedly until nil signals the complete logical record.
+	marshaler := gowarc.NewMarshaler()
+	var buf bytes.Buffer
+	current := record
+	segments := 0
+	for current != nil {
+		continuation, _, err := marshaler.Marshal(&buf, current, 600)
+		if err != nil {
+			panic(err)
+		}
+		segments++
+		if current != record {
+			_ = current.Close()
+		}
+		current = continuation
+	}
+	fmt.Println("segments:", segments)
+	// Output: segments: 10
 }

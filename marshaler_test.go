@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -172,7 +173,102 @@ func TestDefaultMarshaler_Marshal(t *testing.T) {
 }
 
 func TestDefaultMarshaler_MarshalWithMaxSize(t *testing.T) {
-	// Create a simple record
+	// Build a resource record large enough that no single physical record can
+	// hold the whole thing within a small maxSize.
+	content := strings.Repeat("abcdefgh", 256) // 2048 bytes
+	headers := &WarcFields{
+		&nameValue{Name: WarcRecordID, Value: "<urn:uuid:test-record-id>"},
+		&nameValue{Name: WarcDate, Value: "2024-01-01T00:00:00Z"},
+		&nameValue{Name: WarcTargetURI, Value: "http://example.com/resource"},
+		&nameValue{Name: ContentType, Value: "text/plain"},
+	}
+	record := createMarshalerTestRecord(Resource, headers, content)
+	defer func() { assert.NoError(t, record.Close()) }()
+
+	marshaler := NewMarshaler()
+
+	// Measure the size of the unsegmented record.
+	var full bytes.Buffer
+	_, fullSize, err := marshaler.Marshal(&full, record, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(full.Len()), fullSize)
+
+	// Choose a budget that forces segmentation but comfortably fits every
+	// segment, including the larger continuation and final headers.
+	const maxSize int64 = 600
+	require.Less(t, maxSize, fullSize)
+
+	// Re-create the record because the first Marshal consumed the uncached block.
+	record2 := createMarshalerTestRecord(Resource, headers, content)
+	defer func() { assert.NoError(t, record2.Close()) }()
+
+	var (
+		out          bytes.Buffer
+		current      = record2
+		segments     int
+		contentTotal int64
+		originID     string
+	)
+	for current != nil {
+		var seg bytes.Buffer
+		next, size, mErr := marshaler.Marshal(&seg, current, maxSize)
+		require.NoError(t, mErr)
+
+		// The physical record must never exceed the budget and must be non-empty.
+		assert.Equal(t, int64(seg.Len()), size)
+		assert.LessOrEqual(t, size, maxSize)
+		assert.Greater(t, size, int64(0))
+
+		parsed, off, _, uErr := NewUnmarshaler(WithSpecViolationPolicy(ErrIgnore), WithSyntaxErrorPolicy(ErrIgnore)).
+			Unmarshal(bufio.NewReader(bytes.NewReader(seg.Bytes())))
+		require.NoError(t, uErr)
+		assert.Equal(t, int64(0), off)
+
+		segments++
+		cl, cErr := parsed.ContentLength()
+		require.NoError(t, cErr)
+		contentTotal += cl
+
+		if segments == 1 {
+			assert.Equal(t, Resource, parsed.Type())
+			assert.Equal(t, "1", parsed.WarcHeader().Get(WarcSegmentNumber))
+			assert.False(t, parsed.WarcHeader().Has(WarcSegmentOriginID))
+			originID = parsed.RecordId()
+		} else {
+			assert.Equal(t, Continuation, parsed.Type())
+			assert.Equal(t, strconv.Itoa(segments), parsed.WarcHeader().Get(WarcSegmentNumber))
+			assert.Equal(t, originID, parsed.WarcHeader().GetId(WarcSegmentOriginID))
+			assert.NotEqual(t, originID, parsed.RecordId())
+			// Payload digest is not copied onto continuation segments.
+			assert.False(t, parsed.WarcHeader().Has(WarcPayloadDigest))
+		}
+
+		if next == nil {
+			// Only the last segment carries the total logical block length.
+			assert.True(t, parsed.WarcHeader().Has(WarcSegmentTotalLength))
+			total, tErr := parsed.WarcHeader().GetInt64(WarcSegmentTotalLength)
+			require.NoError(t, tErr)
+			assert.Equal(t, int64(len(content)), total)
+		} else {
+			assert.False(t, parsed.WarcHeader().Has(WarcSegmentTotalLength))
+			if current != record2 {
+				_ = current.Close()
+			}
+		}
+		_ = parsed.Close()
+
+		_, _ = out.Write(seg.Bytes())
+		current = next
+	}
+
+	assert.Greater(t, segments, 1)
+	// The concatenated segment content blocks equal the original raw block.
+	assert.Equal(t, int64(len(content)), contentTotal)
+}
+
+func TestDefaultMarshaler_MarshalWithMaxSize_FitsUnsegmented(t *testing.T) {
+	// When the whole record fits within maxSize it is written unchanged,
+	// without any segmentation fields.
 	headers := &WarcFields{
 		&nameValue{Name: WarcRecordID, Value: "<urn:uuid:test-record-id>"},
 		&nameValue{Name: WarcDate, Value: "2024-01-01T00:00:00Z"},
@@ -182,14 +278,36 @@ func TestDefaultMarshaler_MarshalWithMaxSize(t *testing.T) {
 	record := createMarshalerTestRecord(Resource, headers, "Hello")
 	defer func() { assert.NoError(t, record.Close()) }()
 
-	// Marshal with maxSize (currently not implemented, so should ignore)
 	marshaler := NewMarshaler()
 	var buf bytes.Buffer
-	continuation, size, err := marshaler.Marshal(&buf, record, 100)
+	continuation, size, err := marshaler.Marshal(&buf, record, 100_000)
 
 	require.NoError(t, err)
-	assert.Nil(t, continuation) // Segmentation not implemented yet
-	assert.Greater(t, size, int64(0))
+	assert.Nil(t, continuation)
+	assert.Equal(t, int64(buf.Len()), size)
+	assert.NotContains(t, buf.String(), WarcSegmentNumber)
+}
+
+func TestDefaultMarshaler_MarshalWithMaxSize_TooSmall(t *testing.T) {
+	// A budget that cannot hold even one content byte plus framing must write
+	// nothing and return ErrSegmentTooSmall, never an empty continuation.
+	headers := &WarcFields{
+		&nameValue{Name: WarcRecordID, Value: "<urn:uuid:test-record-id>"},
+		&nameValue{Name: WarcDate, Value: "2024-01-01T00:00:00Z"},
+		&nameValue{Name: ContentType, Value: "text/plain"},
+		&nameValue{Name: ContentLength, Value: "5"},
+	}
+	record := createMarshalerTestRecord(Resource, headers, "Hello")
+	defer func() { assert.NoError(t, record.Close()) }()
+
+	marshaler := NewMarshaler()
+	var buf bytes.Buffer
+	continuation, size, err := marshaler.Marshal(&buf, record, 5)
+
+	require.ErrorIs(t, err, ErrSegmentTooSmall)
+	assert.Nil(t, continuation)
+	assert.Equal(t, int64(0), size)
+	assert.Equal(t, 0, buf.Len())
 }
 
 func TestDefaultMarshaler_WriteRecord(t *testing.T) {

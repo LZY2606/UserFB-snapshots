@@ -371,10 +371,11 @@ func addConcurrentToHeaders(records []WarcRecord) {
 type singleWarcFileWriter struct {
 	opts *warcFileWriterOptions
 
-	fileName   string
-	file       *os.File
-	fileSize   int64 // bytes on disk (compressed if gzip is enabled)
-	warcInfoID string
+	fileName      string
+	file          *os.File
+	fileSize      int64 // bytes on disk (compressed if gzip is enabled)
+	warcInfoID    string
+	recordsInFile int // number of captured (non-warcinfo) physical records in the current file
 
 	gz *gzip.Writer        // reused gzip writer, if opts.compress
 	cw *countingFileWriter // reused counting writer
@@ -394,35 +395,157 @@ func (w *singleWarcFileWriter) Write(record WarcRecord) (resp WriteResponse) {
 		}
 	}
 
-	if w.file == nil {
-		if err := w.createFile(); err != nil {
-			resp.Err = err
-			return resp
+	if !w.opts.useSegmentation || w.opts.maxFileSize <= 0 {
+		// Segmentation disabled: one record is always written in full to the
+		// current file, preserving the default behavior.
+		if w.file == nil {
+			if err := w.createFile(); err != nil {
+				resp.Err = err
+				return resp
+			}
 		}
+		resp.FileName = w.fileName
+		resp.FileOffset = w.fileSize
+		n, err := w.writeOneFull(record)
+		resp.BytesWritten = n
+		resp.Err = err
+		return resp
 	}
 
-	resp.FileName = w.fileName
-	resp.FileOffset = w.fileSize
+	// Segmentation enabled: consume the whole chain of physical segments,
+	// rotating to new files whenever the remaining budget is exhausted. Files
+	// are created lazily so a record that must be split starts in a fresh file
+	// without leaving a warcinfo-only file behind.
+	current := record
+	first := true
+	var bytesWritten int64
+	// locationCaptured records whether the first segment's position has been
+	// reported, since that segment may start in a file created by rotation.
+	var locationCaptured bool
 
-	n, err := w.writeOne(record, w.maxRecordSize())
-	resp.BytesWritten = n
-	resp.Err = err
+	for current != nil {
+		if w.file == nil {
+			if err := w.createFile(); err != nil {
+				resp.Err = err
+				resp.BytesWritten = bytesWritten
+				return resp
+			}
+		}
+
+		budget := w.remainingBudget()
+
+		if first {
+			// A record that does not fit whole in the current file starts in a
+			// fresh file. A file holding only its warcinfo record is itself fresh,
+			// so the first segment is split into it rather than leaving an empty
+			// warcinfo-only file behind.
+			if fullSize, ok := fullUncompressedSize(current); ok && fullSize > budget && !w.isFreshFile() {
+				if err := w.rotateFile(); err != nil {
+					resp.Err = err
+					resp.BytesWritten = bytesWritten
+					return resp
+				}
+				budget = w.remainingBudget()
+			}
+			first = false
+		}
+
+		if budget <= 0 {
+			// Current file has no room left; continue in a new file.
+			if err := w.rotateFile(); err != nil {
+				resp.Err = err
+				resp.BytesWritten = bytesWritten
+				return resp
+			}
+			budget = w.remainingBudget()
+		}
+
+		// The offset of this physical segment is the current file size before
+		// writeOne appends it.
+		segmentOffset := w.fileSize
+		next, n, err := w.writeOne(current, budget)
+		if errors.Is(err, ErrSegmentTooSmall) {
+			// Nothing was written: the segment header plus one content byte does
+			// not fit. Rotate and retry, unless a fresh file cannot hold it either.
+			if next != nil {
+				_ = next.Close()
+			}
+			if w.isFreshFile() {
+				resp.Err = err
+				resp.BytesWritten = bytesWritten
+				return resp
+			}
+			if cerr := w.rotateFile(); cerr != nil {
+				resp.Err = errors.Join(err, cerr)
+				resp.BytesWritten = bytesWritten
+				return resp
+			}
+			continue
+		}
+		if err != nil {
+			if next != nil {
+				_ = next.Close()
+			}
+			if current != record {
+				_ = current.Close()
+			}
+			resp.Err = err
+			resp.BytesWritten = bytesWritten + n
+			return resp
+		}
+
+		if !locationCaptured {
+			// The response location points at the first segment.
+			resp.FileName = w.fileName
+			resp.FileOffset = segmentOffset
+			locationCaptured = true
+		}
+
+		bytesWritten += n
+		w.recordsInFile++
+		if current != record {
+			_ = current.Close()
+		}
+		current = next
+	}
+
+	resp.BytesWritten = bytesWritten
 	return resp
+}
+
+// rotateFile closes the current file and opens a new one, including its warcinfo record.
+func (w *singleWarcFileWriter) rotateFile() error {
+	if err := w.close(); err != nil {
+		return err
+	}
+	return w.createFile()
+}
+
+// isFreshFile reports whether no captured record has been written to the
+// current file yet (the file contains at most the warcinfo record).
+func (w *singleWarcFileWriter) isFreshFile() bool {
+	return w.recordsInFile == 0
+}
+
+// remainingBudget returns the number of uncompressed bytes still available for
+// records in the current file. For uncompressed files the physical budget is
+// exact and already excludes the warcinfo record. For compressed files the
+// physical headroom is converted using expectedCompressionRatio; the resulting
+// compressed file size is not guaranteed to hit maxFileSize exactly.
+func (w *singleWarcFileWriter) remainingBudget() int64 {
+	headroom := w.opts.maxFileSize - w.fileSize
+	if headroom <= 0 {
+		return 0
+	}
+	if w.opts.compress {
+		return int64(float64(headroom) / w.opts.expectedCompressionRatio)
+	}
+	return headroom
 }
 
 // Close closes the current file. Next Write creates a new file.
 func (w *singleWarcFileWriter) Close() error {
 	return w.close()
-}
-
-func (w *singleWarcFileWriter) maxRecordSize() int64 {
-	if !w.opts.useSegmentation || w.opts.maxFileSize <= 0 {
-		return 0
-	}
-	if w.opts.compress {
-		return int64(float64(w.opts.maxFileSize) / w.opts.expectedCompressionRatio)
-	}
-	return w.opts.maxFileSize
 }
 
 func (w *singleWarcFileWriter) wouldExceedMax(record WarcRecord) bool {
@@ -466,6 +589,7 @@ func (w *singleWarcFileWriter) createFile() error {
 	w.fileName = finalName
 	w.fileSize = 0
 	w.warcInfoID = ""
+	w.recordsInFile = 0
 
 	if w.opts.warcInfoFunc != nil {
 		if _, err := w.createWarcInfo(finalName); err != nil {
@@ -477,7 +601,27 @@ func (w *singleWarcFileWriter) createFile() error {
 	return nil
 }
 
-func (w *singleWarcFileWriter) writeOne(record WarcRecord, maxRecordSize int64) (uncompressed int64, err error) {
+// writeOneFull writes a record without a size limit and asserts that no
+// continuation is returned. It preserves the pre-segmentation behavior used
+// when WithSegmentation is not enabled.
+func (w *singleWarcFileWriter) writeOneFull(record WarcRecord) (int64, error) {
+	next, n, err := w.writeOne(record, 0)
+	if err != nil {
+		return n, err
+	}
+	if next != nil {
+		_ = next.Close()
+		return n, fmt.Errorf("marshaler returned continuation record but segmentation is not enabled")
+	}
+	return n, nil
+}
+
+// writeOne marshals one physical WARC record to the current file. With
+// maxRecordSize > 0 the marshaler may return a continuation record holding the
+// remaining, not-yet-written content; the caller keeps writing it, possibly to
+// another file. Each invocation forms its own gzip member when compression is
+// enabled, so every physical record can be read back independently.
+func (w *singleWarcFileWriter) writeOne(record WarcRecord, maxRecordSize int64) (next WarcRecord, uncompressed int64, err error) {
 	// Ensure records in this file reference the current warcinfo.
 	if w.warcInfoID != "" {
 		record.WarcHeader().SetId(WarcWarcinfoID, w.warcInfoID)
@@ -494,44 +638,44 @@ func (w *singleWarcFileWriter) writeOne(record WarcRecord, maxRecordSize int64) 
 		if w.gz == nil {
 			w.gz, err = gzip.NewWriterLevel(nil, w.opts.gzipLevel)
 			if err != nil {
-				return 0, err
+				return nil, 0, err
 			}
 		}
+		// A fresh gzip stream per physical record gives each record an
+		// independent gzip member.
 		w.gz.Reset(out)
 		out = w.gz
 	}
 
-	next, size, err := w.opts.marshaler.Marshal(out, record, maxRecordSize)
-	uncompressed = size
+	next, uncompressed, err = w.opts.marshaler.Marshal(out, record, maxRecordSize)
 	if err != nil {
 		if w.opts.compress {
 			_ = w.gz.Close()
 		}
-		return uncompressed, err
-	}
-	if next != nil {
-		_ = next.Close()
-		if w.opts.compress {
-			_ = w.gz.Close()
-		}
-		return uncompressed, fmt.Errorf("marshaler returned continuation record but segmentation is not supported")
+		return next, uncompressed, err
 	}
 
-	// Close gzip writer to flush all data.
+	// Close gzip writer to flush this record's member completely.
 	if w.opts.compress {
 		if cerr := w.gz.Close(); cerr != nil {
-			return uncompressed, cerr
+			if next != nil {
+				_ = next.Close()
+			}
+			return nil, uncompressed, cerr
 		}
 	}
 
 	if w.opts.flush {
 		if err := w.file.Sync(); err != nil {
-			return uncompressed, err
+			if next != nil {
+				_ = next.Close()
+			}
+			return nil, uncompressed, err
 		}
 	}
 
 	w.fileSize += w.cw.n
-	return uncompressed, nil
+	return next, uncompressed, nil
 }
 
 func (w *singleWarcFileWriter) createWarcInfo(fileName string) (n int64, err error) {
@@ -558,7 +702,7 @@ func (w *singleWarcFileWriter) createWarcInfo(fileName string) (n int64, err err
 	}()
 
 	w.warcInfoID = "" // don't self-reference
-	n, err = w.writeOne(warcinfo, 0)
+	_, n, err = w.writeOne(warcinfo, 0)
 	if err != nil {
 		return n, err
 	}
@@ -584,6 +728,7 @@ func (w *singleWarcFileWriter) close() error {
 	w.fileName = ""
 	w.fileSize = 0
 	w.warcInfoID = ""
+	w.recordsInFile = 0
 
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close %s: %w", tmpPath, err)
@@ -624,6 +769,39 @@ func contentLength(r WarcRecord) (int64, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// fullUncompressedSize reports the exact number of uncompressed bytes the
+// record would occupy when written in full (version line, header, block and
+// end-of-record marker). For a continuation record the worst-case final
+// segment header (which additionally carries WARC-Segment-Total-Length and a
+// WARC-Block-Digest) is used so the rotation decision never underestimates the
+// need for a new file. It is available for cached records whose full size is
+// known; otherwise ok is false and the caller falls back to rotation heuristics.
+func fullUncompressedSize(r WarcRecord) (int64, bool) {
+	wr, ok := r.(*warcRecord)
+	if !ok {
+		return 0, false
+	}
+	block := wr.Block()
+	if !block.IsCached() {
+		return 0, false
+	}
+	if sb, ok := block.(*segmentBlock); ok {
+		h := probeHeader(wr.headers, Continuation, int(segmentNumberOf(wr)),
+			sb.state.originID, sb.state.total, true, sb.length)
+		return physicalRecordSize(wr.version, h, sb.length), true
+	}
+	return physicalRecordSize(wr.version, wr.headers, block.Size()), true
+}
+
+// segmentNumberOf returns the WARC-Segment-Number of a record, defaulting to 1.
+func segmentNumberOf(wr *warcRecord) int64 {
+	n, err := wr.headers.GetInt64(WarcSegmentNumber)
+	if err != nil {
+		return 1
+	}
+	return n
 }
 
 // rename renames a file and fsyncs the parent directory to persist the change.
