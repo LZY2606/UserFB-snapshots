@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfcanonical.dir/test_canonical.c.o CMakeFiles/selfcanonical.dir/__/src/bin/dwarfdump/dd_safe_strcpy.c.o CMakeFiles/selfcanonical.dir/__/src/bin/dwarfdump/dd_canonical_append.c.o CMakeFiles/selfcanonical.dir/__/src/bin/dwarfdump/dd_esb.c.o -o selfcanonical

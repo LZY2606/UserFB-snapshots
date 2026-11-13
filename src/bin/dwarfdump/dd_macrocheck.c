@@ -74,6 +74,7 @@
 */
 
 Dwarf_Unsigned macro_import_stack[MACRO_IMPORT_STACK_DEPTH +1];
+unsigned macro_import_stack_owner[MACRO_IMPORT_STACK_DEPTH +1];
 unsigned macro_import_stack_next_to_use;
 unsigned macro_import_stack_max_seen;
 
@@ -84,6 +85,7 @@ unsigned macfile_stack_max_seen;
 void *  macro_check_tree;   /* DWARF5 macros */
 void *  macinfo_check_tree; /* DWARF 2,3,4 macros */
 void *  macdefundeftree;    /* DWARF5 macros */
+void *  macro_check_sup_tree; /* DWARF5 macros, tied object */
 
 static struct Macrocheck_Map_Entry_s * macrocheck_map_insert
 (
@@ -543,8 +545,10 @@ print_macro_import_stack(void)
         macro_import_stack_next_to_use);
     for ( ; i <  macro_import_stack_next_to_use; ++i) {
         printf("Macro Stack[%u] "
-            "MOFF=0x%" DW_PR_XZEROS DW_PR_DUx "\n",
-            i,macro_import_stack[i]);
+            "MOFF=0x%" DW_PR_XZEROS DW_PR_DUx " %s\n",
+            i,macro_import_stack[i],
+            macro_import_stack_owner[i] == MACRO_OWNER_SUP?
+                "supplementary-object":"main-object");
     }
 }
 
@@ -552,7 +556,7 @@ print_macro_import_stack(void)
     which would be because full.
     Else returns DW_DLV_OK.  */
 int
-macro_import_stack_push(Dwarf_Unsigned offset)
+macro_import_stack_push(unsigned owner, Dwarf_Unsigned offset)
 {
     if (macro_import_stack_next_to_use >=
         MACRO_IMPORT_STACK_DEPTH) {
@@ -563,6 +567,8 @@ macro_import_stack_push(Dwarf_Unsigned offset)
         return DW_DLV_ERROR;
     }
     macro_import_stack[macro_import_stack_next_to_use] = offset;
+    macro_import_stack_owner[macro_import_stack_next_to_use] =
+        owner;
     ++macro_import_stack_next_to_use;
     if (macro_import_stack_max_seen <
         macro_import_stack_next_to_use) {
@@ -587,15 +593,17 @@ macro_import_stack_pop(void)
     return DW_DLV_OK;
 }
 
-/*  Returns DW_DLV_OK if offset present
-    else DW_DLV_NO_ENTRY. */
+/*  Returns DW_DLV_OK if (owner,offset) present
+    else DW_DLV_NO_ENTRY.  The same offset in a
+    different object does not count as present. */
 int
-macro_import_stack_present(Dwarf_Unsigned offset)
+macro_import_stack_present(unsigned owner, Dwarf_Unsigned offset)
 {
     unsigned i = 0;
 
     for ( ; i < macro_import_stack_next_to_use;++i) {
-        if (macro_import_stack[i] == offset) {
+        if (macro_import_stack[i] == offset &&
+            macro_import_stack_owner[i] == owner) {
             return DW_DLV_OK;
         }
     }

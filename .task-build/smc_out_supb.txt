@@ -1,0 +1,57 @@
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000000
+Macro data from CU-DIE at .debug_info offset 0x0000000c:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000000
+  MacroInformationEntries count: 5, bytes length: 21
+   [  0] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+          Nested import level: 1
+          Macro version      : 5
+          macro section offset 0x00000000
+          Nested import level: 2
+          Macro version      : 5
+          macro section offset 0x0000000f
+   [  1] 0x02 DW_MACRO_undef        line 1 K
+   [  2] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+          Nested import level: 1
+          Macro version      : 5
+          macro section offset 0x00000000
+          Nested import level: 2
+          Macro version      : 5
+          macro section offset 0x0000000f
+   [  3] 0x01 DW_MACRO_define       line 1 K 2
+MACRONOTE: Duplicating the macro name "K" but with a different spelling seems to be an error
+ Earlier spelling in operator 0 is
+  MOFF=0x00000000 (supplementary-object) from line 1 file <Before-First-DW_MACRO_start_file> K 1
+ new spelling with operator 3 is
+  MOFF=0x00000000 from line 1 file <Before-First-DW_MACRO_start_file> K 2
+   [  4] 0x00 end-of-macros        op offset 0x00000017 macro unit length 24 next byte offset 0x00000018
+
+.debug_macro: Macro info for imported macro unit at macro Offset 0x00000000 in supplementary object
+          Nested import level: 0
+          Macro version      : 5
+          macro section offset 0x00000000
+  MacroInformationEntries count: 3, bytes length: 12
+   [  0] 0x01 DW_MACRO_define       line 1 K 1
+   [  1] 0x07 DW_MACRO_import       offset 0x0000000f
+   [  2] 0x00 end-of-macros        op offset 0x0000000e macro unit length 15 next byte offset 0x0000000f
+
+.debug_macro: Macro info for imported macro unit at macro Offset 0x0000000f in supplementary object
+          Nested import level: 0
+          Macro version      : 5
+          macro section offset 0x0000000f
+  MacroInformationEntries count: 2, bytes length: 7
+   [  0] 0x01 DW_MACRO_define       line 1 J 2
+   [  1] 0x00 end-of-macros        op offset 0x00000018 macro unit length 10 next byte offset 0x00000019
+  Macro unit count DWARF5 .debug_macro: 1
+  Macro Offsets start at 0x00000000 and end at 0x00000018
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 2
+  Macro unit count DWARF5 .debug_macro (supplementary object): 2
+  Macro Offsets start at 0x00000000 and end at 0x00000019
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 2
+
+There was 1 DWARF MACRONOTE reported: see MACRONOTE above.

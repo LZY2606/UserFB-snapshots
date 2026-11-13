@@ -1,3 +1,27 @@
+2026-11-14:  dev
+
+    New libdwarf interface
+    dwarf_get_macro_context_by_debug() reading a DWARF5
+    .debug_macro unit purely by section offset with no
+    CU required (for supplementary/tied objects).
+    dwarfdump now follows DW_MACRO_import_sup into the
+    tied object for both printing and checking, tracks
+    main vs supplementary macro units separately
+    (output, region statistics, import-cycle detection,
+    and pending-print traversal), diagnoses import
+    cycles per object, and recovers the import stack
+    and file context after failed imports.
+            modified:   src/lib/libdwarf/libdwarf.h
+            modified:   src/lib/libdwarf/dwarf_macro5.c
+            modified:   src/bin/dwarfdump/dd_macrocheck.h
+            modified:   src/bin/dwarfdump/dd_macrocheck.c
+            modified:   src/bin/dwarfdump/print_macro.c
+            modified:   src/bin/dwarfdump/print_die.c
+            modified:   src/bin/dwarfdump/dd_globals.h
+            modified:   src/bin/dwarfdump/dwarfdump.c
+            modified:   doc/checkexamples.c
+            new file:   test/supplementary_macro_contract.c
+
 2025-07-18:  David Anderson
     commit 11e987538f2820e2598bec6d18f77c6f90500323
 

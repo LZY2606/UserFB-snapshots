@@ -1,0 +1,19 @@
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+   [  3] 0x01 DW_MACRO_define       line 1 K 2
+MACRONOTE: Duplicating the macro name "K" but with a different spelling seems to be an error
+ Earlier spelling in operator 0 is
+  MOFF=0x00000000 (supplementary-object) from line 1 file <Before-First-DW_MACRO_start_file> K 1
+ new spelling with operator 3 is
+  MOFF=0x00000000 from line 1 file <Before-First-DW_MACRO_start_file> K 2
+     macro                    defs  undefs at-end
+[ 1] K                         3      3  defined
+  Macro unit count DWARF5 .debug_macro: 1
+  Macro Offsets start at 0x00000000 and end at 0x00000018
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 2
+  Macro unit count DWARF5 .debug_macro (supplementary object): 2
+  Macro Offsets start at 0x00000000 and end at 0x00000019
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 2
+
+There was 1 DWARF MACRONOTE reported: see MACRONOTE above.

@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/src/lib/libdwarf/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/doc/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/src/bin/dwarfdump/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/test/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

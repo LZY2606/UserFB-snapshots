@@ -1,0 +1,29 @@
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000000
+Macro data from CU-DIE at .debug_info offset 0x0000000c:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000000
+  MacroInformationEntries count: 3, bytes length: 16
+   [  0] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+
+/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/src/bin/dwarfdump/dwarfdump ERROR:  Unable to get a macro context at offset 0x00000000 in the supplementary-object for the DWARF 5 style macro:  DW_DLE_MACRO_OP_UNHANDLED: macro operator 0x3 in the macro unit at .debug_macro offset 0x00000000 is unsupported for a macro unit read without a CU: only define/undef with inline or strp strings, DW_MACRO_import, and the terminating zero are allowed. There is no CU to provide a string index table or file table.. Attempting to continue.
+
+CU Name = <unknown>
+CU Producer = <unknown>
+DIE OFF = 0x0000000c GOFF = 0x0000000c, Low PC = unknown   , High PC = unknown   
+
+/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/src/bin/dwarfdump/dwarfdump ERROR:  ERROR: Following DW_MACRO_import_sup to sup_offset 0x00000000 in the supplementary object (importing unit MOFF=0x00000000) main-object failed. :  DW_DLE_MACRO_OP_UNHANDLED: macro operator 0x3 in the macro unit at .debug_macro offset 0x00000000 is unsupported for a macro unit read without a CU: only define/undef with inline or strp strings, DW_MACRO_import, and the terminating zero are allowed. There is no CU to provide a string index table or file table.. Attempting to continue.
+
+CU Name = <unknown>
+CU Producer = <unknown>
+DIE OFF = 0x0000000c GOFF = 0x0000000c, Low PC = unknown   , High PC = unknown   
+   [  1] 0x01 DW_MACRO_define       line 1 AFTER 1
+   [  2] 0x00 end-of-macros        op offset 0x00000012 macro unit length 19 next byte offset 0x00000013
+  Macro unit count DWARF5 .debug_macro: 1
+  Macro Offsets start at 0x00000000 and end at 0x00000013
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 0
+
+There were 2 DWARF errors reported: see ERROR above.

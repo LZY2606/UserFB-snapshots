@@ -1,0 +1,33 @@
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000000
+Macro data from CU-DIE at .debug_info offset 0x0000000c:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000000
+  MacroInformationEntries count: 5, bytes length: 16
+   [  0] 0x03 DW_MACRO_start_file   line 1 file number 0 ./main.c
+   [  1] 0x05 DW_MACRO_define_strp  line 1 str offset 0x00000000 MAIN_OWNER 1
+   [  2] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+          Nested import level: 1
+          Macro version      : 5
+          macro section offset 0x00000000
+   [  3] 0x04 DW_MACRO_end_file   
+   [  4] 0x00 end-of-macros        op offset 0x00000016 macro unit length 23 next byte offset 0x00000017
+
+.debug_macro: Macro info for imported macro unit at macro Offset 0x00000000 in supplementary object
+          Nested import level: 0
+          Macro version      : 5
+          macro section offset 0x00000000
+  MacroInformationEntries count: 2, bytes length: 7
+   [  0] 0x05 DW_MACRO_define_strp  line 1 str offset 0x00000000 SUP_OWNER 9
+   [  1] 0x00 end-of-macros        op offset 0x00000009 macro unit length 10 next byte offset 0x0000000a
+  Macro unit count DWARF5 .debug_macro: 1
+  Macro Offsets start at 0x00000000 and end at 0x00000017
+Maximum nest depth of DW_MACRO_start_file: 1
+Maximum nest depth of DW_MACRO_import    : 1
+  Macro unit count DWARF5 .debug_macro (supplementary object): 1
+  Macro Offsets start at 0x00000000 and end at 0x0000000a
+Maximum nest depth of DW_MACRO_start_file: 1
+Maximum nest depth of DW_MACRO_import    : 1
+

@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfignoresec.dir/test_ignoresec.c.o CMakeFiles/selfignoresec.dir/__/src/lib/libdwarf/dwarf_secname_ck.c.o -o selfignoresec

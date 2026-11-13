@@ -236,6 +236,17 @@ int print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Unsigned offset,
     Dwarf_Error *);
 
+/*  For a macro unit in an object with no CU (the
+    supplementary/tied object reached via
+    DW_MACRO_import_sup).  dbg is the main object,
+    macdbg owns the macro unit at offset. */
+int print_macros_5style_this_debug(Dwarf_Debug dbg,
+    Dwarf_Debug macdbg,
+    int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
+    int descend_into_imports /* TRUE means follow imports */,
+    Dwarf_Unsigned offset,
+    Dwarf_Error *);
+
 /* Detailed attributes encoding space */
 int print_attributes_encoding(Dwarf_Debug dbg,Dwarf_Error *);
 

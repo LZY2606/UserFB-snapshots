@@ -1,0 +1,44 @@
+dwarfdump looking for configuration as "src/bin/dwarfdump/dwarfdump.conf"
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000000
+Macro data from CU-DIE at .debug_info offset 0x0000000c:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000000
+  MacroInformationEntries count: 2, bytes length: 6
+   [  0] 0x0a DW_MACRO_import_sup   sup_offset 0x00000000
+          Nested import level: 1
+          Macro version      : 5
+          macro section offset 0x00000000
+ERROR: While Printing DWARF5 macros we find a recursive nest of imports  noted with offset 0x00000000 in the supplementary-object so we stop this branch now. 
+Macro Stack Depth: 2
+Macro Stack[0] MOFF=0x00000000 main-object
+Macro Stack[1] MOFF=0x00000000 supplementary-object
+   [  1] 0x00 end-of-macros        op offset 0x00000008 macro unit length 9 next byte offset 0x00000009
+
+.debug_macro: Macro info for imported macro unit at macro Offset 0x00000000 in supplementary object
+          Nested import level: 0
+          Macro version      : 5
+          macro section offset 0x00000000
+  MacroInformationEntries count: 2, bytes length: 6
+   [  0] 0x07 DW_MACRO_import       offset 0x00000000
+   [  1] 0x00 end-of-macros        op offset 0x00000008 macro unit length 9 next byte offset 0x00000009
+
+.debug_macro: Macro info for a single cu at macro Offset 0x00000009
+Macro data from CU-DIE at .debug_info offset 0x00000020:
+  Nested import level: 0
+  Macro version      : 5
+  macro section offset 0x00000009
+  MacroInformationEntries count: 2, bytes length: 12
+   [  0] 0x01 DW_MACRO_define       line 1 CU2MAC 1
+   [  1] 0x00 end-of-macros        op offset 0x00000017 macro unit length 15 next byte offset 0x00000018
+  Macro unit count DWARF5 .debug_macro: 2
+  Macro Offsets start at 0x00000000 and end at 0x00000018
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 1
+  Macro unit count DWARF5 .debug_macro (supplementary object): 1
+  Macro Offsets start at 0x00000000 and end at 0x00000009
+Maximum nest depth of DW_MACRO_start_file: 0
+Maximum nest depth of DW_MACRO_import    : 1
+
+There was 1 DWARF error reported: see ERROR above.

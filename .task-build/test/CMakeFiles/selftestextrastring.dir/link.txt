@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selftestextrastring.dir/test_extra_flag_strings.c.o CMakeFiles/selftestextrastring.dir/__/src/lib/libdwarfp/dwarf_pro_log_extra_flag_strings.c.o CMakeFiles/selftestextrastring.dir/__/src/lib/libdwarf/dwarf_string.c.o -o selftestextrastring

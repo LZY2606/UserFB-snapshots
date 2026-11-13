@@ -5405,6 +5405,76 @@ DW_API int dwarf_get_macro_context_by_offset(Dwarf_Die dw_die,
     Dwarf_Unsigned      * dw_macro_ops_data_length,
     Dwarf_Error         * dw_error);
 
+/*! @brief DWARF5 .debug_macro access via Dwarf_Debug and an offset
+
+    Like dwarf_get_macro_context_by_offset() except that no
+    CU DIE is involved.  The macro unit is found purely by
+    its offset in the .debug_macro section of the object
+    represented by dw_dbg.  The object is not required to
+    have any compilation units at all, which makes this
+    entry point usable on a supplementary (tied) object
+    that only carries shared macro data.
+
+    Because there is no CU the macro unit must be
+    self-contained.  Only the following content is
+    supported (anything else returns DW_DLV_ERROR):
+    @code
+    - macro unit header version 5 (DWARF5).  The DWARF4/GNU
+      version 4, a header line-offset, and a header
+      operands (opcode) table are not supported.
+    - DW_MACRO_define/DW_MACRO_undef (inline string)
+    - DW_MACRO_define_strp/DW_MACRO_undef_strp
+      (the string is read from the .debug_str of the
+      object dw_dbg is associated with, never from some
+      other object)
+    - DW_MACRO_import (a normal import, interpreted as an
+      offset in the .debug_macro of this same object)
+    - the zero terminator byte
+    @endcode
+    DW_MACRO_define_strx/DW_MACRO_undef_strx,
+    DW_MACRO_start_file/DW_MACRO_end_file,
+    DW_MACRO_define_sup/DW_MACRO_undef_sup,
+    DW_MACRO_import_sup, and vendor/user opcodes are
+    reported as unsupported (DW_DLV_ERROR) since there is
+    no CU to supply a string-offsets table, a file table,
+    or a tied-object binding.
+
+    @param dw_dbg
+    The Dwarf_Debug of interest. It need not have any CUs.
+    @param dw_offset
+    The offset in the .debug_macro section to begin reading.
+    @param dw_version_out
+    On success returns the macro context version (5)
+    @param dw_macro_context
+    On success returns a pointer to a macro context
+    which allows access to the context content.
+    @param dw_macro_ops_count_out
+    On success returns the number of macro operations
+    in the context.
+    @param dw_macro_ops_data_length
+    On success returns the length in bytes of the
+    macro context, starting at the offset of the first
+    byte of the context.
+    @param dw_error
+    The usual error detail return pointer.
+    @return
+    Returns DW_DLV_OK etc.
+    If no .debug_macro section exists in the object
+    it returns DW_DLV_NO_ENTRY.
+    If the dw_offset is outside the section or the
+    macro unit uses unsupported constructs it
+    returns DW_DLV_ERROR.
+    Deallocate the context with
+    dwarf_dealloc_macro_context().
+*/
+DW_API int dwarf_get_macro_context_by_debug(Dwarf_Debug dw_dbg,
+    Dwarf_Unsigned        dw_offset,
+    Dwarf_Unsigned      * dw_version_out,
+    Dwarf_Macro_Context * dw_macro_context,
+    Dwarf_Unsigned      * dw_macro_ops_count_out,
+    Dwarf_Unsigned      * dw_macro_ops_data_length,
+    Dwarf_Error         * dw_error);
+
 /*  New December 2020. libdwarf 0.1.0
     Sometimes its necessary to know
     a context total length including macro 5 header */

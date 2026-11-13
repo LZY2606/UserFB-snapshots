@@ -1525,6 +1525,71 @@ print_one_die_section(Dwarf_Debug dbg,Dwarf_Bool is_info,
                             macro_import_stack_cleanout();
                         }
                     }
+                    /*  Likewise print any macro units in the
+                        supplementary (tied) object that were
+                        reached via DW_MACRO_import_sup and
+                        not printed yet.  These offsets are in
+                        the tied object, tracked separately
+                        from the main object offsets. */
+                    if (!glflags.gf_do_check_dwarf &&
+                        macro_check_sup_tree) {
+                        Dwarf_Debug tieddbg = 0;
+                        Dwarf_Error tiederr = 0;
+                        int tres = dwarf_get_tied_dbg(dbg,&tieddbg,
+                            &tiederr);
+
+                        if (tres == DW_DLV_ERROR) {
+                            dwarf_dealloc_error(dbg,tiederr);
+                            tiederr = 0;
+                            tieddbg = 0;
+                        }
+                        /*  dwarf_get_tied_dbg returns the
+                            main dbg itself when no tied
+                            object is bound. */
+                        if (tieddbg == dbg) {
+                            tieddbg = 0;
+                        }
+                        if (tieddbg) {
+                            Dwarf_Unsigned sup_import_offset = 0;
+                            int sres = 0;
+
+                            for (;;) {
+                                /* Never returns DW_DLV_ERROR */
+                                sres = get_next_unprinted_macro_offset(
+                                    &macro_check_sup_tree,
+                                    &sup_import_offset);
+                                if (sres != DW_DLV_OK) {
+                                    break;
+                                }
+                                macro_import_stack_cleanout();
+                                sres = print_macros_5style_this_debug(
+                                    dbg,tieddbg,
+                                    glflags.gf_do_print_dwarf,
+                                    FALSE /* no descend_into_imports */,
+                                    sup_import_offset,
+                                    pod_err);
+                                if (sres == DW_DLV_ERROR) {
+                                    struct esb_s m;
+
+                                    esb_constructor(&m);
+                                    esb_append_printf_u(&m,
+                                        "ERROR: Printing DWARF5 "
+                                        "macros  at offset 0x%x "
+                                        "in the supplementary "
+                                        "object failed. ",
+                                        sup_import_offset);
+                                    print_error_and_continue(
+                                        esb_get_string(&m),
+                                        sres,*pod_err);
+                                    DROP_ERROR_INSTANCE(dbg,sres,
+                                        *pod_err);
+                                    esb_destructor(&m);
+                                    break;
+                                }
+                                macro_import_stack_cleanout();
+                            }
+                        }
+                    }
                     glflags.current_section_id = oldsection;
                 }
                 if ( glflags.gf_macinfo_flag ||

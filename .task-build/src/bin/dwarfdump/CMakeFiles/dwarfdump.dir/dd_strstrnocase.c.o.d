@@ -1,0 +1,28 @@
+src/bin/dwarfdump/CMakeFiles/dwarfdump.dir/dd_strstrnocase.c.o: \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/bin/dwarfdump/dd_strstrnocase.c \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/config.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/ctype.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_ctype.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_symbol_aliasing.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_posix_availability.h \
+  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/ptrcheck.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/runetype.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_pthread/_pthread_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_size_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_ct_rune_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_rune_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_wchar_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_wint_t.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/lib/libdwarf/dwarf.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/lib/libdwarf/libdwarf.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/bin/dwarfdump/dd_defined_types.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/bin/dwarfdump/dd_checkutil.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/bin/dwarfdump/dd_glflags.h \
+  /Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/src/bin/dwarfdump/dd_globals.h

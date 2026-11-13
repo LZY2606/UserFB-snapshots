@@ -1445,6 +1445,38 @@ process_one_file(
                     glflags.section_high_offsets_global->
                         debug_macro_size);
             }
+            if (macro_check_sup_tree) {
+                /*  Macro units reached via DW_MACRO_import_sup
+                    live in the supplementary (tied) object,
+                    so report them separately with the tied
+                    object's own section size. */
+                Dwarf_Debug tieddbg = 0;
+                Dwarf_Error tiederr = 0;
+                Dwarf_Unsigned sup_macro_size = 0;
+                int tres = dwarf_get_tied_dbg(dbg,&tieddbg,
+                    &tiederr);
+
+                if (tres == DW_DLV_OK && tieddbg &&
+                    tieddbg != dbg) {
+                    Dwarf_Addr sec_addr = 0;
+                    int sres = dwarf_get_section_info_by_name(
+                        tieddbg,".debug_macro",
+                        &sec_addr,&sup_macro_size,&tiederr);
+                    if (sres == DW_DLV_ERROR) {
+                        dwarf_dealloc_error(tieddbg,tiederr);
+                        tiederr = 0;
+                        sup_macro_size = 0;
+                    }
+                } else if (tres == DW_DLV_ERROR) {
+                    dwarf_dealloc_error(dbg,tiederr);
+                    tiederr = 0;
+                }
+                print_macrocheck_statistics(
+                    "DWARF5 .debug_macro (supplementary object)",
+                    &macro_check_sup_tree,
+                    /* DWARF5 */ TRUE,
+                    sup_macro_size);
+            }
         }
         if (glflags.gf_check_macros) {
             if (macinfo_check_tree) {
@@ -1457,6 +1489,7 @@ process_one_file(
             }
         }
         clear_macrocheck_statistics(&macro_check_tree);
+        clear_macrocheck_statistics(&macro_check_sup_tree);
         clear_macrocheck_statistics(&macinfo_check_tree);
     }
     if (glflags.gf_gdbindex_flag) {

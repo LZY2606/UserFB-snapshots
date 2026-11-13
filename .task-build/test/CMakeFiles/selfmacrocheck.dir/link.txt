@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfmacrocheck.dir/test_macrocheck.c.o CMakeFiles/selfmacrocheck.dir/__/src/bin/dwarfdump/dd_esb.c.o CMakeFiles/selfmacrocheck.dir/__/src/bin/dwarfdump/dd_tsearchbal.c.o -o selfmacrocheck

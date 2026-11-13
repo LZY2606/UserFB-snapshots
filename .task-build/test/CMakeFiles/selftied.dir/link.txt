@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selftied.dir/test_dwarf_tied.c.o CMakeFiles/selftied.dir/__/src/lib/libdwarf/dwarf_tied.c.o CMakeFiles/selftied.dir/__/src/lib/libdwarf/dwarf_tsearchhash.c.o -o selftied

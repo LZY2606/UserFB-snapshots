@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+d1b5ce92dea903ec61522a9fd0ddd490 test/CMakeFiles/copyconf
+6b5c801812f297030a08ac402f01da90 test/CMakeFiles/copyconf2

@@ -1607,6 +1607,152 @@ dwarf_get_macro_context_by_offset(Dwarf_Die cu_die,
     return res;
 }
 
+/*  A macro unit read without any CU must be self-contained.
+    Only DWARF5, no header line-offset, no header operands
+    table, and only operators that need no CU data:
+    inline and strp define/undef, ordinary import, and the
+    terminating zero.  Anything else is reported as
+    unsupported here, never silently interpreted using
+    some other object's string index or file table. */
+static int
+_dwarf_macro_context_validate_no_cu(Dwarf_Debug dbg,
+    Dwarf_Macro_Context macro_context,
+    Dwarf_Unsigned macro_offset,
+    Dwarf_Error *error)
+{
+    Dwarf_Unsigned k = 0;
+
+    if (macro_context->mc_version_number != DW_MACRO_VERSION5) {
+        dwarfstring ms;
+
+        dwarfstring_constructor(&ms);
+        dwarfstring_append_printf_u(&ms,
+            "DW_DLE_MACRO_VERSION_ERROR: "
+            "version 0x%x ",
+            macro_context->mc_version_number);
+        dwarfstring_append_printf_u(&ms,
+            "at .debug_macro offset "
+            "0x%" DW_PR_XZEROS DW_PR_DUx " "
+            "is unsupported here, a macro unit read "
+            "without a CU must be DWARF5 (version 5).",
+            macro_offset);
+        _dwarf_error_string(dbg,error,
+            DW_DLE_MACRO_VERSION_ERROR,
+            dwarfstring_string(&ms));
+        dwarfstring_destructor(&ms);
+        return DW_DLV_ERROR;
+    }
+    if (macro_context->mc_debug_line_offset_flag ||
+        macro_context->mc_operands_table_flag) {
+        dwarfstring ms;
+
+        dwarfstring_constructor(&ms);
+        dwarfstring_append_printf_u(&ms,
+            "DW_DLE_MACRO_OP_UNHANDLED: "
+            "the macro unit at .debug_macro offset "
+            "0x%" DW_PR_XZEROS DW_PR_DUx " ",
+            macro_offset);
+        dwarfstring_append(&ms,
+            macro_context->mc_debug_line_offset_flag?
+            "has a debug_line offset in its header ":
+            "has an opcode operands table in its header ");
+        dwarfstring_append(&ms,
+            "which is unsupported for a macro unit "
+            "read without a CU.");
+        _dwarf_error_string(dbg,error,
+            DW_DLE_MACRO_OP_UNHANDLED,
+            dwarfstring_string(&ms));
+        dwarfstring_destructor(&ms);
+        return DW_DLV_ERROR;
+    }
+    for (k = 0; k < macro_context->mc_macro_ops_count; ++k) {
+        Dwarf_Small op =
+            macro_context->mc_ops[k].mo_opcode;
+
+        switch (op) {
+        case 0: /* terminator */
+        case DW_MACRO_define:
+        case DW_MACRO_undef:
+        case DW_MACRO_define_strp:
+        case DW_MACRO_undef_strp:
+        case DW_MACRO_import:
+            break;
+        default: {
+            dwarfstring ms;
+
+            dwarfstring_constructor(&ms);
+            dwarfstring_append_printf_u(&ms,
+                "DW_DLE_MACRO_OP_UNHANDLED: "
+                "macro operator 0x%x ",op);
+            dwarfstring_append_printf_u(&ms,
+                "in the macro unit at .debug_macro "
+                "offset 0x%" DW_PR_XZEROS DW_PR_DUx " ",
+                macro_offset);
+            dwarfstring_append(&ms,
+                "is unsupported for a macro unit read "
+                "without a CU: only define/undef with "
+                "inline or strp strings, DW_MACRO_import, "
+                "and the terminating zero are allowed. "
+                "There is no CU to provide a string "
+                "index table or file table.");
+            _dwarf_error_string(dbg,error,
+                DW_DLE_MACRO_OP_UNHANDLED,
+                dwarfstring_string(&ms));
+            dwarfstring_destructor(&ms);
+            return DW_DLV_ERROR;
+            }
+        }
+    }
+    return DW_DLV_OK;
+}
+
+/*  Like dwarf_get_macro_context_by_offset() but needs
+    no CU DIE at all: the macro unit is found purely by
+    its offset in the .debug_macro section of the object
+    dbg represents.  See the comment at
+    _dwarf_macro_context_validate_no_cu() for the
+    restrictions on the macro unit content. */
+int
+dwarf_get_macro_context_by_debug(Dwarf_Debug dbg,
+    Dwarf_Unsigned offset,
+    Dwarf_Unsigned      * version_out,
+    Dwarf_Macro_Context * macro_context,
+    Dwarf_Unsigned      * macro_ops_count_out,
+    Dwarf_Unsigned      * macro_ops_data_length,
+    Dwarf_Error * error)
+{
+    int res = 0;
+    Dwarf_Macro_Context mc = 0;
+
+    if (error != NULL) {
+        *error = NULL;
+    }
+    CHECK_DBG(dbg,error,"dwarf_get_macro_context_by_debug()");
+    res = _dwarf_internal_macro_context_by_offset(dbg,
+        offset,
+        version_out,
+        &mc,
+        macro_ops_count_out,
+        macro_ops_data_length,
+        0, /* no srcfiles */
+        0, /* no srcfiles count */
+        0, /* no comp_dir */
+        0, /* no comp_name */
+        0, /* no cu_context */
+        error);
+    if (res != DW_DLV_OK) {
+        return res;
+    }
+    res = _dwarf_macro_context_validate_no_cu(dbg,mc,
+        offset,error);
+    if (res != DW_DLV_OK) {
+        dwarf_dealloc_macro_context(mc);
+        return res;
+    }
+    *macro_context = mc;
+    return DW_DLV_OK;
+}
+
 int dwarf_get_macro_section_name(Dwarf_Debug dbg,
     const char **sec_name_out,
     Dwarf_Error *error)

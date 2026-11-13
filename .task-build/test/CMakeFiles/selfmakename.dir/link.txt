@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfmakename.dir/test_makename.c.o CMakeFiles/selfmakename.dir/__/src/bin/dwarfdump/dd_esb.c.o CMakeFiles/selfmakename.dir/__/src/bin/dwarfdump/dd_makename.c.o CMakeFiles/selfmakename.dir/__/src/bin/dwarfdump/dd_tsearchbal.c.o -o selfmakename

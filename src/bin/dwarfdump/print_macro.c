@@ -77,6 +77,7 @@ static void macdef_tree_insert(char *key,
     Dwarf_Unsigned offset,
     const char * string,
     Dwarf_Unsigned macro_unit_offset,
+    unsigned owner,
     void **map);
 static macdef_entry * macdef_tree_find(char *key,
     void **map);
@@ -86,6 +87,7 @@ static macdef_entry * macdef_tree_create_entry(char *key,
     Dwarf_Unsigned line,
     Dwarf_Unsigned offset,
     Dwarf_Unsigned macro_unit_offset,
+    unsigned owner,
     const char * string);
 static void macfile_array_destroy(void);
 void macdef_tree_run_checks(void);
@@ -130,6 +132,7 @@ destroy_macro_globals(void)
 
 static int
 print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
+    Dwarf_Debug macdbg /* object owning this macro unit */,
     char **dwarf_srcfiles,
     Dwarf_Signed srcfiles_count,
     int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
@@ -146,6 +149,16 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
 static const char *nonameavail = "<no-name-available>";
 static const char *nofileseenyet =
     "<Before-First-DW_MACRO_start_file>";
+
+/*  A short tag saying which object a macro unit lives in,
+    so equal offsets in the main and supplementary objects
+    are distinguishable in output. */
+static const char *
+macro_owner_tag(unsigned owner)
+{
+    return (owner == MACRO_OWNER_SUP)? "supplementary-object":
+        "main-object";
+}
 
 static void
 print_stack_crash(void)
@@ -216,6 +229,7 @@ add_def_undef(unsigned opnum,
     Dwarf_Unsigned line_number,
     const char * macro_string,
     Dwarf_Off  macro_unit_offset,
+    unsigned owner,
     struct esb_s *mtext,
     Dwarf_Bool didprintdwarf)
 {
@@ -263,7 +277,7 @@ add_def_undef(unsigned opnum,
         /* Unknown key.  */
         macdef_tree_insert(keystr,opnum,operator,line_number,
             offset,macro_string,
-            macro_unit_offset,
+            macro_unit_offset,owner,
             &macdefundeftree);
         meb = macdef_tree_find(keystr,&macdefundeftree);
         if (!meb) {
@@ -303,8 +317,11 @@ add_def_undef(unsigned opnum,
                 m = macfile_from_array_index(
                     meb->md_file_array_entry);
                 printf("  MOFF=0x%" DW_PR_XZEROS DW_PR_DUx
+                    "%s"
                     " from line %" DW_PR_DUu " file %s",
                     meb->md_macro_unit_offset,
+                    meb->md_owner == MACRO_OWNER_SUP?
+                        " (supplementary-object)":"",
                     meb->md_line,
                     sanitized(m->ms_filename));
                 printf(" %s\n",sanitized(meb->md_string));
@@ -313,8 +330,11 @@ add_def_undef(unsigned opnum,
                 m = macfile_from_array_index(
                     macfile_array_next_to_use -1);
                 printf("  MOFF=0x%" DW_PR_XZEROS DW_PR_DUx
+                    "%s"
                     " from line %" DW_PR_DUu " file %s",
                     macro_unit_offset,
+                    owner == MACRO_OWNER_SUP?
+                        " (supplementary-object)":"",
                     line_number,
                     sanitized(m->ms_filename));
                 printf(" %s\n",sanitized(macro_string));
@@ -331,7 +351,7 @@ add_def_undef(unsigned opnum,
             macdef_tree_insert(keystr,opnum,
                 operator,line_number,offset,
                 macro_string,
-                macro_unit_offset,
+                macro_unit_offset,owner,
                 &macdefundeftree);
             mee = macdef_tree_find(keystr,&macdefundeftree);
             if (!mee) {
@@ -359,7 +379,7 @@ add_def_undef(unsigned opnum,
             strcmp_for_macdef_tdel);
         macdef_tree_insert(keystr,opnum,
             operator,line_number,offset,macro_string,
-            macro_unit_offset,
+            macro_unit_offset,owner,
             &macdefundeftree);
         mec = macdef_tree_find(keystr,&macdefundeftree);
         if (!mec) {
@@ -385,7 +405,7 @@ add_def_undef(unsigned opnum,
             strcmp_for_macdef_tdel);
         macdef_tree_insert(keystr,opnum,
             operator,line_number,offset,macro_string,
-            macro_unit_offset,
+            macro_unit_offset,owner,
             &macdefundeftree);
         med = macdef_tree_find(keystr,&macdefundeftree);
         if (!med) {
@@ -419,16 +439,22 @@ add_def_undef(unsigned opnum,
     printf(" Earlier in operator %u is\n", meb->md_operatornum);
     m = macfile_from_array_index(meb->md_file_array_entry);
     printf("  MOFF=0x%" DW_PR_XZEROS DW_PR_DUx
+        "%s"
         " from line %" DW_PR_DUu " file %s",
         meb->md_macro_unit_offset,
+        meb->md_owner == MACRO_OWNER_SUP?
+            " (supplementary-object)":"",
         meb->md_line,
         sanitized(m->ms_filename));
     printf(" %s\n",sanitized(meb->md_key));
     printf(" new  in operator %u is\n", opnum);
     m = macfile_from_array_index(macfile_array_next_to_use -1);
     printf("  MOFF=0x%" DW_PR_XZEROS DW_PR_DUx
+        "%s"
         " from line %" DW_PR_DUu " file %s",
         macro_unit_offset,
+        owner == MACRO_OWNER_SUP?
+            " (supplementary-object)":"",
         line_number,
         sanitized(m->ms_filename));
     printf(" %s\n",sanitized(keystr));
@@ -676,6 +702,7 @@ print_split_macro_value(const char *m_in)
 static int
 print_macro_ops(Dwarf_Debug dbg,
     Dwarf_Die cu_die,
+    Dwarf_Debug macdbg /* object owning this macro unit */,
     char ** dwarf_srcfiles,
     Dwarf_Signed    srcfiles_count,
     Dwarf_Macro_Context mcontext,
@@ -689,6 +716,9 @@ print_macro_ops(Dwarf_Debug dbg,
     Dwarf_Error *err)
 {
     unsigned k = 0;
+    /*  Which object this macro unit lives in. */
+    unsigned owner = (macdbg != dbg)? MACRO_OWNER_SUP:
+        MACRO_OWNER_MAIN;
 
     for (k = 0; k < number_of_ops; ++k) {
         Dwarf_Unsigned  section_offset = 0;
@@ -733,6 +763,9 @@ print_macro_ops(Dwarf_Debug dbg,
             esb_append_printf_u(&mtext," <MOFF=0x%"
                 DW_PR_XZEROS DW_PR_DUx ">",
                 macro_unit_offset);
+            if (owner == MACRO_OWNER_SUP) {
+                esb_append(&mtext,"(sup)");
+            }
         }
         esb_append_printf_u(&mtext,"0x%02x",macro_operator);
         esb_append_printf_s(&mtext," %-20s",
@@ -822,7 +855,7 @@ print_macro_ops(Dwarf_Debug dbg,
             }
             add_def_undef(k,offset,macro_operator,
                 line_number,macro_string,
-                macro_unit_offset,
+                macro_unit_offset,owner,
                 &mtext,do_print_dwarf);
             break;
             }
@@ -860,7 +893,7 @@ print_macro_ops(Dwarf_Debug dbg,
             }
             add_def_undef(k,offset,macro_operator,
                 line_number,macro_string,
-                macro_unit_offset,
+                macro_unit_offset,owner,
                 &mtext,do_print_dwarf);
             }
             break;
@@ -897,7 +930,7 @@ print_macro_ops(Dwarf_Debug dbg,
             }
             add_def_undef(k,offset,macro_operator,
                 line_number,macro_string,
-                macro_unit_offset,
+                macro_unit_offset,owner,
                 &mtext,do_print_dwarf);
             break;
             }
@@ -1000,21 +1033,30 @@ print_macro_ops(Dwarf_Debug dbg,
             if (descend_into_import) {
                 /*  not do_print_dwarf */
                 macfile_entry *mac_e = 0;
+                unsigned saved_macfile_stack =
+                    macfile_stack_next_to_use;
                 mac_e = macfile_from_array_index(
                     macfile_array_next_to_use-1);
-                mres = macro_import_stack_present(offset);
+                mres = macro_import_stack_present(owner,offset);
                 if (mres == DW_DLV_OK) {
+                    /*  A cycle in the active import chain
+                        of this one object. Diagnose and
+                        stop this branch only, later
+                        sibling imports and other CUs
+                        still get processed. */
                     printf("ERROR: While Printing DWARF5 macros "
                         "we find a recursive nest of imports "
                         " noted with offset 0x%"
-                        DW_PR_XZEROS DW_PR_DUx " so we stop now. \n",
-                        offset);
+                        DW_PR_XZEROS DW_PR_DUx
+                        " in the %s so we stop this branch now. \n",
+                        offset,macro_owner_tag(owner));
                     print_macro_import_stack();
                     glflags.gf_count_major_errors++;
-                    return DW_DLV_NO_ENTRY;
+                    break;
                 }
                 mres = print_macros_5style_this_cu_inner(dbg,
                     cu_die,
+                    macdbg,
                     dwarf_srcfiles,srcfiles_count,
                     FALSE /* turns off do_print_dwarf */,
                     descend_into_import,
@@ -1024,6 +1066,11 @@ print_macro_ops(Dwarf_Debug dbg,
                     macfile_array_next_to_use-1,
                     level+1,
                     err);
+                /*  Restore the caller's file context,
+                    whatever the imported unit did to it.
+                    Defines/undefines already recorded
+                    stay recorded. */
+                macfile_stack_next_to_use = saved_macfile_stack;
                 if (mres == DW_DLV_ERROR) {
                     struct esb_s m;
 
@@ -1037,11 +1084,19 @@ print_macro_ops(Dwarf_Debug dbg,
                         mres,*err);
                     DROP_ERROR_INSTANCE(dbg,mres,*err);
                     esb_destructor(&m);
+                } else if (mres == DW_DLV_NO_ENTRY) {
+                    printf("MACRONOTE: DW_MACRO_import "
+                        "offset 0x%" DW_PR_XZEROS DW_PR_DUx
+                        " in the %s has no macro data, "
+                        "import ignored.\n",
+                        offset,macro_owner_tag(owner));
+                    glflags.gf_count_macronotes++;
                 }
             }
             break;
             }
         case DW_MACRO_import_sup: {
+            int mres = 0;
             lres = dwarf_get_macro_import(mcontext,
                 k,&offset,err);
             if (lres != DW_DLV_OK) {
@@ -1051,15 +1106,116 @@ print_macro_ops(Dwarf_Debug dbg,
                 esb_destructor(&mtext);
                 return lres;
             }
-#if 0 /* Possibly future use .debug_sup */
-            add_macro_import_sup();
-                /* The supplementary object file is not available,
-                So we cannot check the import references
-                or know the size. As of December 2020 */
-#endif
+            esb_append_printf_u(&mtext,
+                "  sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx,
+                offset);
+            esb_append(&mtext,"\n");
             if (do_print_dwarf) {
-                printf("  sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx "\n"
-                    ,offset);
+                printf("%s",sanitized(esb_get_string(&mtext)));
+            }
+            if (descend_into_import) {
+                /*  Follow the import into the supplementary
+                    (tied) object, whose macro units are
+                    read without any CU. */
+                Dwarf_Debug tieddbg = 0;
+                Dwarf_Error tiederr = 0;
+                int tres = 0;
+                macfile_entry *mac_e = 0;
+                unsigned saved_macfile_stack =
+                    macfile_stack_next_to_use;
+
+                tres = dwarf_get_tied_dbg(dbg,&tieddbg,&tiederr);
+                if (tres != DW_DLV_OK || !tieddbg ||
+                    tieddbg == dbg) {
+                    /*  No supplementary object bound
+                        (dwarf_get_tied_dbg returns the
+                        main dbg itself when none is bound),
+                        report source and offset and go on
+                        with the remaining operators. */
+                    printf("MACRONOTE: DW_MACRO_import_sup "
+                        "sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx
+                        " (importing unit MOFF=0x%"
+                        DW_PR_XZEROS DW_PR_DUx " %s)"
+                        " has no supplementary (tied) object "
+                        "bound, import not followed.\n",
+                        offset,macro_unit_offset,
+                        macro_owner_tag(owner));
+                    glflags.gf_count_macronotes++;
+                    if (tres == DW_DLV_ERROR) {
+                        dwarf_dealloc_error(dbg,tiederr);
+                        tiederr = 0;
+                    }
+                    break;
+                }
+                if (macro_import_stack_present(MACRO_OWNER_SUP,
+                    offset) == DW_DLV_OK) {
+                    /*  A real cycle within the supplementary
+                        object. The same offset in a different
+                        object would not be a cycle. */
+                    printf("ERROR: While Printing DWARF5 macros "
+                        "we find a recursive nest of imports "
+                        " noted with offset 0x%"
+                        DW_PR_XZEROS DW_PR_DUx
+                        " in the supplementary-object "
+                        "so we stop this branch now. \n",
+                        offset);
+                    print_macro_import_stack();
+                    glflags.gf_count_major_errors++;
+                    break;
+                }
+                mac_e = macfile_from_array_index(
+                    macfile_array_next_to_use-1);
+                mres = print_macros_5style_this_cu_inner(dbg,
+                    cu_die,
+                    tieddbg,
+                    dwarf_srcfiles,srcfiles_count,
+                    FALSE /* turns off do_print_dwarf */,
+                    descend_into_import,
+                    TRUE /* by offset */,
+                    offset,
+                    mac_e->ms_line,
+                    macfile_array_next_to_use-1,
+                    level+1,
+                    err);
+                /*  Restore the caller's file context,
+                    whatever the imported unit did to it.
+                    Defines/undefines already recorded
+                    stay recorded. */
+                macfile_stack_next_to_use = saved_macfile_stack;
+                if (mres == DW_DLV_ERROR) {
+                    struct esb_s m;
+
+                    esb_constructor(&m);
+                    esb_append_printf_u(&m,
+                        "ERROR: Following DW_MACRO_import_sup "
+                        "to sup_offset 0x%"
+                        DW_PR_XZEROS DW_PR_DUx,
+                        offset);
+                    esb_append(&m,
+                        " in the supplementary object");
+                    esb_append_printf_u(&m,
+                        " (importing unit MOFF=0x%"
+                        DW_PR_XZEROS DW_PR_DUx ")",
+                        macro_unit_offset);
+                    esb_append_printf_s(&m,
+                        " %s failed. ",
+                        macro_owner_tag(owner));
+                    print_error_and_continue(esb_get_string(&m),
+                        mres,*err);
+                    DROP_ERROR_INSTANCE(dbg,mres,*err);
+                    esb_destructor(&m);
+                } else if (mres == DW_DLV_NO_ENTRY) {
+                    printf("MACRONOTE: DW_MACRO_import_sup "
+                        "sup_offset 0x%" DW_PR_XZEROS DW_PR_DUx
+                        " (importing unit MOFF=0x%"
+                        DW_PR_XZEROS DW_PR_DUx " %s)"
+                        " has no macro data in the "
+                        "supplementary object, "
+                        "import ignored.\n",
+                        offset,macro_unit_offset,
+                        macro_owner_tag(owner));
+                    glflags.gf_count_macronotes++;
+                }
             }
             break;
             }
@@ -1075,6 +1231,7 @@ print_macro_ops(Dwarf_Debug dbg,
 */
 static int
 print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
+    Dwarf_Debug macdbg,
     char **dwarf_srcfiles,
     Dwarf_Signed srcfiles_count,
     int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
@@ -1098,6 +1255,14 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     Dwarf_Off dieprint_cu_goffset = 0;
     Dwarf_Off cudie_local_offset = 0;
     int atres = 0;
+    /*  Which object this macro unit lives in, and the
+        statistics tree for that object. The main and the
+        supplementary object may both have a macro unit
+        at the same offset (even offset zero). */
+    unsigned owner = (macdbg != dbg)? MACRO_OWNER_SUP:
+        MACRO_OWNER_MAIN;
+    void **check_tree = (owner == MACRO_OWNER_SUP)?
+        &macro_check_sup_tree:&macro_check_tree;
 
     glflags.current_section_id = DEBUG_MACRO;
     if (!by_offset) {
@@ -1108,6 +1273,17 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             &ops_total_byte_len,
             err);
         offset = macro_unit_offset;
+    } else if (owner == MACRO_OWNER_SUP) {
+        /*  A macro unit in the supplementary object,
+            found purely by offset: that object has
+            no CU for us to use. */
+        lres = dwarf_get_macro_context_by_debug(macdbg,
+            offset,
+            &version,&macro_context,
+            &number_of_ops,
+            &ops_total_byte_len,
+            err);
+        macro_unit_offset = offset;
     } else {
         lres = dwarf_get_macro_context_by_offset(cu_die,
             offset,
@@ -1121,27 +1297,40 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         return lres;
     }
     if (lres == DW_DLV_ERROR) {
-        print_error_and_continue("Unable to dwarf_get_macro_context()"
+        struct esb_s m;
+
+        esb_constructor(&m);
+        esb_append_printf_u(&m,
+            "Unable to get a macro context at offset 0x%"
+            DW_PR_XZEROS DW_PR_DUx,
+            offset);
+        esb_append_printf_s(&m,
+            " in the %s"
             " for the DWARF 5 style macro",
+            macro_owner_tag(owner));
+        print_error_and_continue(esb_get_string(&m),
             lres,*err);
+        esb_destructor(&m);
         return lres;
     }
     /*  If we fail to get the offsets we won't worry about it. */
-    atres = dwarf_die_offsets(cu_die,&dieprint_cu_goffset,
-        &cudie_local_offset,err);
-    DROP_ERROR_INSTANCE(dbg,atres,*err);
+    if (cu_die) {
+        atres = dwarf_die_offsets(cu_die,&dieprint_cu_goffset,
+            &cudie_local_offset,err);
+        DROP_ERROR_INSTANCE(dbg,atres,*err);
+    }
     lres = dwarf_macro_context_total_length(macro_context,
         &context_total_byte_len,err);
     if (lres != DW_DLV_OK) {
         dwarf_dealloc_macro_context(macro_context);
         return lres;
     }
-    add_macro_import(&macro_check_tree,
+    add_macro_import(check_tree,
         (!level)? 1:0,
         offset,lineno,filenum);
-    add_macro_area_len(&macro_check_tree,offset,
+    add_macro_area_len(check_tree,offset,
         context_total_byte_len);
-    lres = macro_import_stack_push(offset);
+    lres = macro_import_stack_push(owner,offset);
     if (lres == DW_DLV_ERROR) {
         dwarf_dealloc_macro_context(macro_context);
         /* message printed. Give up. */
@@ -1153,7 +1342,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         char buf[DWARF_SECNAME_BUFFER_SIZE];
 
         esb_constructor_fixed(&truename,buf,sizeof(buf));
-        get_true_section_name(dbg,".debug_macro",
+        get_true_section_name(macdbg,".debug_macro",
             &truename,TRUE);
         /* This does not return */
 
@@ -1163,6 +1352,14 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                 sanitized(esb_get_string(&truename)),
                 macro_unit_offset);
             print_source_intro(dbg,cu_die);
+        } else if (owner == MACRO_OWNER_SUP) {
+            printf("\n%s: Macro info for imported macro unit "
+                "at macro Offset "
+                "0x%" DW_PR_XZEROS DW_PR_DUx
+                " in supplementary object"
+                "\n",
+                sanitized(esb_get_string(&truename)),
+                offset);
         } else {
             printf("\n%s: Macro info for imported macro unit "
                 "at macro Offset "
@@ -1172,12 +1369,13 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                 offset);
         }
         esb_destructor(&truename);
-    } else {
+    } else if (cu_die) {
         /* We are checking, not printing. */
         Dwarf_Half tag = 0;
         int tres = dwarf_tag(cu_die, &tag, err);
         if (tres != DW_DLV_OK) {
             /*  Something broken here. */
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             print_error_and_continue("Unable to get CU DIE tag "
                 "though we could see it earlier. "
@@ -1185,13 +1383,14 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                 tres,*err);
             return tres;
         } else if (tag == DW_TAG_type_unit) {
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             /*  Not checking since type units missing
                 address or range in CU header. */
             return DW_DLV_OK;
         }
     }
-    if (do_print_dwarf && glflags.verbose > 1) {
+    if (cu_die && do_print_dwarf && glflags.verbose > 1) {
         Dwarf_Bool attr_dup = FALSE;
         int pdres = 0;
         pdres = print_one_die(dbg, cu_die,
@@ -1202,6 +1401,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             &attr_dup,
             /* ignore_die_stack= */TRUE,err);
         if (pdres == DW_DLV_ERROR) {
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             return pdres;
         }
@@ -1231,11 +1431,13 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             &has_offset_size_64,&has_operands_table,
             &opcode_count,err);
         if (lres == DW_DLV_NO_ENTRY) {
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             /* Impossible */
             return lres;
         }
         if (lres == DW_DLV_ERROR) {
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             print_error_and_continue(
                 "ERROR: dwarf_macro_context_head failed",
@@ -1293,6 +1495,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                     if (lres == DW_DLV_NO_ENTRY) {
                         struct esb_s m;
 
+                        macro_import_stack_pop();
                         dwarf_dealloc_macro_context(macro_context);
                         esb_constructor(&m);
 
@@ -1311,6 +1514,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
                     if (lres == DW_DLV_ERROR) {
                         struct esb_s m;
 
+                        macro_import_stack_pop();
                         dwarf_dealloc_macro_context(macro_context);
                         esb_constructor(&m);
                         esb_append_printf_u(&m,
@@ -1356,6 +1560,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         }
         lres = print_macro_ops(dbg,
             cu_die,
+            macdbg,
             dwarf_srcfiles,
             srcfiles_count,
             macro_context,number_of_ops,
@@ -1369,6 +1574,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
         if (lres != DW_DLV_OK) {
             struct esb_s m;
 
+            macro_import_stack_pop();
             dwarf_dealloc_macro_context(macro_context);
             esb_constructor(&m);
             if (lres == DW_DLV_ERROR){
@@ -1389,7 +1595,7 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
             is a real macro unit. */
     }
     if (do_print_dwarf) {
-        mark_macro_offset_printed(&macro_check_tree,offset);
+        mark_macro_offset_printed(check_tree,offset);
     }
     lres = macro_import_stack_pop();
     dwarf_dealloc_macro_context(macro_context);
@@ -1407,18 +1613,14 @@ print_macros_5style_this_cu_inner(Dwarf_Debug dbg, Dwarf_Die cu_die,
     we could have left off the argument and used
     do_check_dwarf() here.
 */
-int
-print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
+static int
+print_macros_5style_common(Dwarf_Debug dbg, Dwarf_Die cu_die,
+    Dwarf_Debug macdbg,
     char **dwarf_srcfiles,
     Dwarf_Signed srcfiles_count,
     int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
     int descend_into_import /* TRUE means follow imports */,
-
-        /*  if TRUE is an imported macro unit
-            so the offset is relevant.
-            If false is for the CU itself, offset not relevant. */
     int by_offset ,
-
     Dwarf_Unsigned offset,
     Dwarf_Error *err)
 {
@@ -1435,7 +1637,8 @@ print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     }
     add_array_file_entry(0,0,DW_MACRO_start_file,
         0,0,0,nofileseenyet);
-    res =print_macros_5style_this_cu_inner(dbg,cu_die,
+    res = print_macros_5style_this_cu_inner(dbg,cu_die,
+        macdbg,
         dwarf_srcfiles,
         srcfiles_count,
         do_print_dwarf,
@@ -1451,6 +1654,48 @@ print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
     /*  Do NOT clear macrocheck statistics  here,
         wait till all CUs processed before clearing. */
     return res;
+}
+
+int
+print_macros_5style_this_cu(Dwarf_Debug dbg, Dwarf_Die cu_die,
+    char **dwarf_srcfiles,
+    Dwarf_Signed srcfiles_count,
+    int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
+    int descend_into_import /* TRUE means follow imports */,
+
+        /*  if TRUE is an imported macro unit
+            so the offset is relevant.
+            If false is for the CU itself, offset not relevant. */
+    int by_offset ,
+
+    Dwarf_Unsigned offset,
+    Dwarf_Error *err)
+{
+    /*  The macro units live in the same object as the CU. */
+    return print_macros_5style_common(dbg,cu_die,dbg,
+        dwarf_srcfiles,srcfiles_count,
+        do_print_dwarf,descend_into_import,
+        by_offset,offset,err);
+}
+
+/*  Like print_macros_5style_this_cu() but for a macro unit
+    in an object with no CU to use (the supplementary,
+    tied, object).  dbg is the main object (used to find
+    the tied object again for nested DW_MACRO_import_sup),
+    macdbg is the object owning the macro unit at offset. */
+int
+print_macros_5style_this_debug(Dwarf_Debug dbg,
+    Dwarf_Debug macdbg,
+    int do_print_dwarf /* not relying on gf_do_print_dwarf here */,
+    int descend_into_import /* TRUE means follow imports */,
+    Dwarf_Unsigned offset,
+    Dwarf_Error *err)
+{
+    return print_macros_5style_common(dbg,0 /* no cu_die */,
+        macdbg,
+        0 /* no srcfiles */,0,
+        do_print_dwarf,descend_into_import,
+        TRUE /* by offset */,offset,err);
 }
 
 static int
@@ -1472,6 +1717,7 @@ macdef_tree_insert(char *key,
     Dwarf_Unsigned offset,
     const char * string,
     Dwarf_Unsigned macro_unit_offset,
+    unsigned owner,
     void **map)
 {
     void *retval     = 0;
@@ -1479,7 +1725,8 @@ macdef_tree_insert(char *key,
     macdef_entry  *e = 0;
 
     e  = macdef_tree_create_entry(key,
-        opnum,operator,line,offset,macro_unit_offset,string);
+        opnum,operator,line,offset,macro_unit_offset,owner,
+        string);
     e->md_defcount = 0;
     e->md_undefcount = 0;
     e->md_undefined = FALSE;
@@ -1506,6 +1753,7 @@ macdef_tree_create_entry(char *key,
     Dwarf_Unsigned line,
     Dwarf_Unsigned offset,
     Dwarf_Unsigned macro_unit_offset,
+    unsigned owner,
     const char * string)
 {
     char *keyspace = 0;
@@ -1530,6 +1778,7 @@ macdef_tree_create_entry(char *key,
     me->md_line = line;
     me->md_offset = offset;
     me->md_macro_unit_offset = macro_unit_offset;
+    me->md_owner = owner;
     me->md_string = keyspace + klen;
     me->md_file_array_entry = macfile_array_next_to_use-1;
     dd_safe_strcpy(me->md_string,slen,string,slen-1);
@@ -1543,7 +1792,7 @@ macdef_tree_find(char *key, void**tree)
     macdef_entry *re = 0;
     macdef_entry *e = 0;
 
-    e = macdef_tree_create_entry(key, 0,0,0,0,0,"<fake>");
+    e = macdef_tree_create_entry(key, 0,0,0,0,0,0,"<fake>");
     retval = dwarf_tfind(e,tree, macdef_tree_compare_func);
     if (retval) {
         re = *(macdef_entry **)retval;

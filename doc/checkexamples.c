@@ -3301,3 +3301,138 @@ int example_rnglist_for_attribute(Dwarf_Attribute attr,
     return DW_DLV_OK;
 }
 /*! @endcode */
+
+/*! @defgroup examplep6 Reading .debug_macro without a CU (DWARF5)
+
+    @brief Example reading supplementary-object macro data
+
+    Some builds place shared macro definitions in a
+    supplementary object (see dwarf_set_tied_dbg()) that
+    has no compilation units at all, and the main object
+    refers to those definitions with DW_MACRO_import_sup.
+    dwarf_get_macro_context_by_debug() finds such a macro
+    unit purely by its offset in the .debug_macro section
+    of the object passed in, no Dwarf_Die needed.
+
+    Supported scope of the CU-less entry point:
+    - macro unit header version 5 (DWARF5) only, and no
+      debug_line offset and no opcode operands table in
+      the header.
+    - DW_MACRO_define/DW_MACRO_undef with inline strings
+      and DW_MACRO_define_strp/DW_MACRO_undef_strp (the
+      string is read from the .debug_str of the object the
+      context belongs to, never from another object).
+    - DW_MACRO_import (an ordinary import, an offset in
+      the .debug_macro of this same object) and the zero
+      terminator.
+    Anything else (define_strx/undef_strx, start_file/
+    end_file, define_sup/undef_sup, import_sup, and
+    vendor/user opcodes) returns DW_DLV_ERROR as
+    unsupported: there is no CU to supply a string index
+    or a file table and the main CU's tables are never
+    borrowed.
+
+    The example walks every macro unit reachable from a
+    supplementary object offset reported by a
+    DW_MACRO_import_sup operator.
+
+    @code
+*/
+int  examplep6(Dwarf_Debug dbg, Dwarf_Unsigned sup_offset,
+    Dwarf_Error *error)
+{
+    Dwarf_Debug tieddbg = 0;
+    Dwarf_Macro_Context macro_context = 0;
+    Dwarf_Unsigned      version = 0;
+    Dwarf_Unsigned      number_of_ops = 0;
+    Dwarf_Unsigned      ops_total_byte_len = 0;
+    Dwarf_Unsigned      k = 0;
+    int lres = 0;
+    int tres = 0;
+
+    /*  dbg is the main object.  Find the supplementary
+        (tied) object bound to it, if any.  When no tied
+        object was bound this returns the main dbg, so
+        compare against dbg itself. */
+    tres = dwarf_get_tied_dbg(dbg,&tieddbg,error);
+    if (tres != DW_DLV_OK || !tieddbg || tieddbg == dbg) {
+        /*  No supplementary object bound: nothing to do. */
+        return DW_DLV_NO_ENTRY;
+    }
+    lres = dwarf_get_macro_context_by_debug(tieddbg,
+        sup_offset,
+        &version,
+        &macro_context,
+        &number_of_ops,
+        &ops_total_byte_len,
+        error);
+    if (lres != DW_DLV_OK) {
+        /*  DW_DLV_NO_ENTRY: no .debug_macro in the object.
+            DW_DLV_ERROR: bad offset or a construct that
+            is unsupported without a CU. */
+        return lres;
+    }
+    for (k = 0; k < number_of_ops; ++k) {
+        Dwarf_Unsigned  section_offset = 0;
+        Dwarf_Half      macro_operator = 0;
+        Dwarf_Half      forms_count = 0;
+        const Dwarf_Small *formcode_array = 0;
+        Dwarf_Unsigned  line_number = 0;
+        Dwarf_Unsigned  index = 0;
+        Dwarf_Unsigned  offset = 0;
+        const char    * macro_string = 0;
+        int lres2 = 0;
+
+        lres2 = dwarf_get_macro_op(macro_context,
+            k, &section_offset,&macro_operator,
+            &forms_count, &formcode_array,error);
+        if (lres2 != DW_DLV_OK) {
+            dwarf_dealloc_macro_context(macro_context);
+            return lres2;
+        }
+        switch(macro_operator) {
+        case 0:
+            /*  End of this macro unit. */
+            break;
+        case DW_MACRO_define:
+        case DW_MACRO_undef:
+        case DW_MACRO_define_strp:
+        case DW_MACRO_undef_strp:
+            lres2 = dwarf_get_macro_defundef(macro_context,
+                k,
+                &line_number,
+                &index,
+                &offset,
+                &forms_count,
+                &macro_string,
+                error);
+            if (lres2 != DW_DLV_OK) {
+                dwarf_dealloc_macro_context(macro_context);
+                return lres2;
+            }
+            /*  macro_string belongs to the object the
+                context belongs to.  Do something with it. */
+            break;
+        case DW_MACRO_import:
+            lres2 = dwarf_get_macro_import(macro_context,
+                k,&offset,error);
+            if (lres2 != DW_DLV_OK) {
+                dwarf_dealloc_macro_context(macro_context);
+                return lres2;
+            }
+            /*  offset is in this same object's
+                .debug_macro.  One could recurse with
+                dwarf_get_macro_context_by_debug(tieddbg,
+                offset,...) here, guarding against
+                import cycles. */
+            break;
+        default:
+            /*  Cannot happen: the CU-less entry rejects
+                all other operators at context creation. */
+            break;
+        }
+    }
+    dwarf_dealloc_macro_context(macro_context);
+    return DW_DLV_OK;
+}
+/*! @endcode */

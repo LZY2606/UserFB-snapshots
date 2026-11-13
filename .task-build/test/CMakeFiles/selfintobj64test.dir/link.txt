@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/selfintobj64test.dir/test_int64_test.c.o -o selfintobj64test

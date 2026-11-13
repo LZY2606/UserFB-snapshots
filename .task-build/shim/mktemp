@@ -1,0 +1,2 @@
+#!/bin/bash
+exec /usr/bin/mktemp "/Users/lzy/pro/UserFB/workspace/Y1073/attempts/20261113T180158411358Z/repo/.task-build/output_log.XXXXXX"
