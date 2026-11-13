@@ -730,7 +730,7 @@ func stlVerticalPositionFromStyle(sa *StyleAttributes) int {
 }
 
 func (li LineItem) STLString() string {
-	rs := li.Text
+	rs := li.plainText()
 	if li.InlineStyle != nil {
 		// Add color code prefix
 		if li.InlineStyle.STLColor != nil {

@@ -922,7 +922,7 @@ func newSSAEventFromItem(i Item) (e *ssaEvent) {
 			if item.InlineStyle != nil && len(item.InlineStyle.SSAEffect) > 0 {
 				s += item.InlineStyle.SSAEffect
 			}
-			s += item.Text
+			s += item.plainText()
 			items = append(items, s)
 		}
 		if len(l.VoiceName) > 0 {

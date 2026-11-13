@@ -52,6 +52,67 @@ var buf = &bytes.Buffer{}
 s2.WriteToTTML(buf)
 ```
 
+# Ruby annotations (WebVTT / TTML)
+
+Ruby annotations (base text plus its reading) are modelled in the public
+`Subtitles` tree, not as raw markup, so they can be edited and written back to
+either format.
+
+A ruby is a `LineItem` whose `Ruby` field is set. Its `Text` field is unused;
+`Line.String()` and plain-text outputs such as SRT render the base text only.
+
+```go
+// Create a ruby with two pairs: 東京/とうきょう and 駅/えき.
+tokyo := &astisub.Ruby{Pairs: []astisub.RubyPair{
+    {
+        Base: []astisub.LineItem{
+            {Text: "東", InlineStyle: &astisub.StyleAttributes{TTMLColor: astisub.ColorGreen}},
+            {Text: "京", InlineStyle: &astisub.StyleAttributes{TTMLColor: astisub.ColorBlue}},
+        },
+        Text: []astisub.LineItem{{Text: "とうきょう"}},
+    },
+    {
+        Base: []astisub.LineItem{{Text: "駅"}},
+        Text: []astisub.LineItem{{Text: "えき"}},
+    },
+}}
+
+s := astisub.NewSubtitles()
+s.Items = append(s.Items, &astisub.Item{
+    StartAt: time.Second,
+    EndAt:   3 * time.Second,
+    Lines:   []astisub.Line{{Items: []astisub.LineItem{{Ruby: tokyo}}}},
+})
+
+// Edit the annotation and one base run's color; both writers pick this up.
+tokyo.Pairs[0].Text[0].Text = "Tokyo"
+tokyo.Pairs[0].Base[0].InlineStyle.TTMLColor = astisub.ColorGreen
+
+// Write to either format; Line.String() still gives "東京駅".
+s.WriteToTTML(w)
+s.WriteToWebVTT(w)
+```
+
+Each `RubyPair` has a `Base` and a `Text` side, and each side is a list of
+styled runs so a side can be split by color (or left colorless). The number of
+pairs is what matters: splitting a side never adds or removes a pair.
+
+Reading behaves as follows:
+
+- WebVTT: `<ruby>` groups one or more base/`<rt>` pairs:
+  `<ruby><c.red>東</c><c.blue>京</c><rt>とうきょう</rt>駅<rt>えき</rt></ruby>`
+  is two pairs. Adjacent ruby annotations and normal text around them keep
+  their order.
+- TTML: `tts:ruby="container"` holds either a simple structure (one `base`
+  then one `text`) or a grouped one (`baseContainer` and `textContainer` with
+  one `base`/`text` per pair, matched by position). Inline `tts:color`
+  inherits from outer spans and is overridden by inner ones; splitting a side
+  into several colored spans never changes the pair count. Text spaces inside
+  `xml:space="preserve"` are kept, as are `br` breaks between groups.
+
+Writing normalizes one pair to a simple container and several pairs to a
+grouped container, so pairs are never interleaved under a simple container.
+
 # Using the CLI
 
 If **astisub** has been installed properly you can:

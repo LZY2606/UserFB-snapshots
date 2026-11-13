@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/asticode/go-astikit"
 )
@@ -45,16 +44,18 @@ type TTMLInBodyDiv struct {
 	XMLName   xml.Name         `xml:"div"`
 	Subtitles []TTMLInSubtitle `xml:"p"`
 
-	Region string `xml:"region,attr,omitempty"`
-	Style  string `xml:"style,attr,omitempty"`
+	Region string  `xml:"region,attr,omitempty"`
+	Space  *string `xml:"space,attr,omitempty"`
+	Style  string  `xml:"style,attr,omitempty"`
 	TTMLInStyleAttributes
 }
 type TTMLInBody struct {
 	XMLName xml.Name        `xml:"body"`
 	Divs    []TTMLInBodyDiv `xml:"div"`
 
-	Region string `xml:"region,attr,omitempty"`
-	Style  string `xml:"style,attr,omitempty"`
+	Region string  `xml:"region,attr,omitempty"`
+	Space  *string `xml:"space,attr,omitempty"`
+	Style  string  `xml:"style,attr,omitempty"`
 	TTMLInStyleAttributes
 }
 
@@ -181,9 +182,10 @@ type TTMLInSubtitle struct {
 	ID    string          `xml:"id,attr,omitempty"`
 	// We must store inner XML temporarily here since there's no tag to describe both any tag and chardata
 	// Real unmarshal will be done manually afterwards
-	Items  string `xml:",innerxml"`
-	Region string `xml:"region,attr,omitempty"`
-	Style  string `xml:"style,attr,omitempty"`
+	Items  string  `xml:",innerxml"`
+	Region string  `xml:"region,attr,omitempty"`
+	Space  *string `xml:"space,attr,omitempty"`
+	Style  string  `xml:"style,attr,omitempty"`
 	TTMLInStyleAttributes
 }
 
@@ -465,60 +467,28 @@ func ReadFromTTML(i io.Reader) (o *Subtitles, err error) {
 				s.Style = o.Styles[ts.Style]
 			}
 
-			// Remove items identation
-			lines := strings.Split(ts.Items, "\n")
-			for i := 0; i < len(lines); i++ {
-				lines[i] = strings.TrimLeftFunc(lines[i], unicode.IsSpace)
+			// Resolve xml:space="preserve" inheritance: body -> div -> p.
+			preserve := false
+			if v, ok := ttmlSpaceValue(ttml.Body.Space); ok {
+				preserve = v == "preserve"
+			}
+			if v, ok := ttmlSpaceValue(div.Space); ok {
+				preserve = v == "preserve"
+			}
+			if v, ok := ttmlSpaceValue(ts.Space); ok {
+				preserve = v == "preserve"
 			}
 
-			// Unmarshal items
-			var items = TTMLInItems{}
-			if err = newTTMLXmlDecoder(strings.Join(lines, "")).Decode(&items); err != nil {
+			// Parse items, keeping ruby annotations and line breaks.
+			var parser = &ttmlItemParser{styles: o.Styles}
+			if s.Lines, err = parser.parseInnerXML(ts.Items, preserve); err != nil {
 				err = fmt.Errorf("astisub: unmarshaling items failed: %w", err)
 				return
 			}
-
-			// Loop through texts
-			var l = &Line{}
-			for _, tt := range items {
-				// New line specified with the "br" tag
-				if strings.ToLower(tt.XMLName.Local) == "br" {
-					s.Lines = append(s.Lines, *l)
-					l = &Line{}
-					continue
-				}
-
-				// New line decoded as a line break. This can happen if there's a "br" tag within the text since
-				// since the go xml unmarshaler will unmarshal a "br" tag as a line break if the field has the
-				// chardata xml tag.
-				for idx, li := range strings.Split(tt.Text, "\n") {
-					// New line
-					if idx > 0 {
-						s.Lines = append(s.Lines, *l)
-						l = &Line{}
-					}
-
-					// Init line item
-					var t = LineItem{
-						InlineStyle: tt.TTMLInStyleAttributes.styleAttributes(),
-						Text:        li,
-					}
-
-					// Add style
-					if len(tt.Style) > 0 {
-						if _, ok := o.Styles[tt.Style]; !ok {
-							err = fmt.Errorf("astisub: Style %s requested by item with text %s doesn't exist", tt.Style, tt.Text)
-							return
-						}
-						t.Style = o.Styles[tt.Style]
-					}
-
-					// Append items
-					l.Items = append(l.Items, t)
-				}
-
+			if parser.err != nil {
+				err = parser.err
+				return
 			}
-			s.Lines = append(s.Lines, *l)
 
 			// Append subtitle
 			o.Items = append(o.Items, s)
@@ -649,7 +619,13 @@ type TTMLOutSubtitle struct {
 // TTMLOutItem represents an output TTML Item
 type TTMLOutItem struct {
 	Style string `xml:"style,attr,omitempty"`
+	// Ruby is the tts:ruby role, e.g. "container", "base", "text",
+	// "baseContainer" or "textContainer". It is emitted with the tts prefix.
+	Ruby  string `xml:"tts:ruby,attr,omitempty"`
+	Space string `xml:"xml:space,attr,omitempty"`
 	Text  string `xml:",chardata"`
+	// Children allows the nested structure ruby annotations require.
+	Children []TTMLOutItem `xml:",any,omitempty"`
 	TTMLOutStyleAttributes
 	XMLName xml.Name
 }
@@ -766,6 +742,13 @@ func (s Subtitles) WriteToTTML(o io.Writer, opts ...WriteToTTMLOption) (err erro
 		for _, line := range item.Lines {
 			// Loop through line items
 			for _, lineItem := range line.Items {
+				// Ruby items are written as a nested container so the base and
+				// annotation text stay separate and editable.
+				if lineItem.Ruby != nil && len(lineItem.Ruby.Pairs) > 0 {
+					ttmlSubtitle.Items = append(ttmlSubtitle.Items, ttmlOutRubyItem(lineItem))
+					continue
+				}
+
 				// Init ttml item
 				var ttmlItem = TTMLOutItem{
 					Text:                   lineItem.Text,

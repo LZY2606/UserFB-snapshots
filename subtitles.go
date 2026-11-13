@@ -297,7 +297,9 @@ func (c *Color) HTMLString() string {
 	return fmt.Sprintf("#%.6x", uint32(c.Red)<<16|uint32(c.Green)<<8|uint32(c.Blue))
 }
 
-// WebVTTString expresses the color as a CSS color class name (e.g., "red" or "cyan")
+// WebVTTString expresses the color as a CSS color class name (e.g., "red" or
+// "cyan"). The original mapping is kept for subtitle text; ruby annotations use
+// webVTTColorClass, which covers every color newColorFromWebVTTString decodes.
 func (c *Color) WebVTTString() string {
 	if c == nil {
 		return ""
@@ -309,6 +311,35 @@ func (c *Color) WebVTTString() string {
 		"#ff0000": "red",     // noises
 		"#ff00ff": "magenta", // song
 		"#00ff00": "lime",    // foreign speak
+	}
+	return colors[rgb]
+}
+
+// webVTTColorClass expresses any color newColorFromWebVTTString can decode as
+// its class name, so ruby annotations keep their colors across a
+// TTML -> WebVTT -> TTML round trip.
+func (c *Color) webVTTColorClass() string {
+	if c == nil {
+		return ""
+	}
+	rgb := fmt.Sprintf("#%.6x", uint32(c.Red)<<16|uint32(c.Green)<<8|uint32(c.Blue))
+	colors := map[string]string{
+		"#000000": "black",
+		"#c0c0c0": "silver",
+		"#808080": "gray",
+		"#ffffff": "white",
+		"#800000": "maroon",
+		"#ff0000": "red",
+		"#800080": "purple",
+		"#ff00ff": "magenta",
+		"#008000": "green",
+		"#00ff00": "lime",
+		"#808000": "olive",
+		"#ffff00": "yellow",
+		"#000080": "navy",
+		"#0000ff": "blue",
+		"#008080": "teal",
+		"#00ffff": "cyan",
 	}
 	return colors[rgb]
 }
@@ -838,9 +869,60 @@ type Line struct {
 func (l Line) String() string {
 	var texts []string
 	for _, i := range l.Items {
-		texts = append(texts, i.Text)
+		texts = append(texts, i.plainText())
 	}
 	// Don't add spaces here since items must contain their own space
+	return strings.Join(texts, "")
+}
+
+// plainText returns the text a plain-text output must show for this item:
+// the base text for a ruby annotation, the item's own text otherwise.
+func (li LineItem) plainText() string {
+	if li.Ruby != nil {
+		return li.Ruby.BaseText()
+	}
+	return li.Text
+}
+
+// RubyPair represents one base/annotation pair of a ruby annotation.
+//
+// Base and Text are each a list of styled runs. A side may be split into
+// several runs (for instance one run per color) and concatenating the runs'
+// Text fields yields that side's text. Both slices must be non-empty for a
+// pair to be meaningful.
+type RubyPair struct {
+	Base []LineItem
+	Text []LineItem
+}
+
+// Ruby represents a ruby annotation made of one or more base/annotation pairs.
+//
+// A LineItem whose Ruby field is non-nil renders its base text in plain text
+// outputs (Line.String, SRT, ...) while keeping the annotation available for
+// formats that can express it (WebVTT and TTML). Its own Text field is unused.
+type Ruby struct {
+	Pairs []RubyPair
+}
+
+// BaseText returns the concatenation of the base text of every pair.
+func (r *Ruby) BaseText() string {
+	var texts []string
+	for _, p := range r.Pairs {
+		for _, i := range p.Base {
+			texts = append(texts, i.Text)
+		}
+	}
+	return strings.Join(texts, "")
+}
+
+// TextText returns the concatenation of the annotation text of every pair.
+func (r *Ruby) TextText() string {
+	var texts []string
+	for _, p := range r.Pairs {
+		for _, i := range p.Text {
+			texts = append(texts, i.Text)
+		}
+	}
 	return strings.Join(texts, "")
 }
 
@@ -850,6 +932,11 @@ type LineItem struct {
 	StartAt     time.Duration
 	Style       *Style
 	Text        string
+
+	// Ruby is set on items that carry a ruby annotation. When non-nil the
+	// item's Text field is unused and the item renders Ruby.BaseText() as
+	// plain text. See Ruby and RubyPair.
+	Ruby *Ruby
 }
 
 // Add adds a duration to each time boundaries. As in the time package, duration can be negative.
@@ -1023,6 +1110,18 @@ func (s *Subtitles) removeUnusedRegionsAndStyles() {
 				// Add style
 				if lineItem.Style != nil {
 					usedStyles[lineItem.Style.ID] = true
+				}
+				// Add styles referenced by ruby runs
+				if lineItem.Ruby != nil {
+					for _, pair := range lineItem.Ruby.Pairs {
+						for _, runs := range [][]LineItem{pair.Base, pair.Text} {
+							for _, run := range runs {
+								if run.Style != nil {
+									usedStyles[run.Style.ID] = true
+								}
+							}
+						}
+					}
 				}
 			}
 		}

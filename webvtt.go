@@ -420,8 +420,105 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 	return
 }
 
+// webVTTTagName extracts the tag name from a raw tag string such as
+// "<c.red>" or "</rt>".
+func webVTTTagName(raw string) string {
+	if matches := webVTTRegexpTag.FindStringSubmatch(raw); len(matches) > 2 {
+		return matches[2]
+	}
+	return ""
+}
+
+// webVTTRubyRun is one styled run inside a WebVTT ruby base or annotation.
+type webVTTRubyRun struct {
+	text string
+	tags []WebVTTTag
+}
+
+func (r webVTTRubyRun) lineItem() LineItem {
+	return LineItem{
+		InlineStyle: webVTTRunStyle(r.tags),
+		Text:        r.text,
+	}
+}
+
+// webVTTRubySide collects the runs of one ruby base or annotation segment.
+type webVTTRubySide []webVTTRubyRun
+
+func (s webVTTRubySide) lineItems() []LineItem {
+	var items []LineItem
+	for _, r := range s {
+		items = append(items, r.lineItem())
+	}
+	return items
+}
+
 // parseTextWebVTT parses the input line to fill the Line
 func parseTextWebVTT(i string, sa *StyleAttributes) (o Line) {
+	// Ruby state. A ruby span is buffered and turned into a single Ruby
+	// LineItem once it closes: bases and annotations stay paired instead of
+	// being emitted as unrelated items. Every <rt> closes the base segment
+	// that precedes it, which is how the many-pairs-per-ruby form works.
+	type rubyState struct {
+		bases   []webVTTRubySide
+		texts   []webVTTRubySide
+		base    webVTTRubySide
+		text    webVTTRubySide
+		rtDepth int
+	}
+
+	var ruby *rubyState
+
+	// currentTags returns a copy of the currently open WebVTT tags.
+	currentTags := func() []WebVTTTag {
+		if len(sa.WebVTTTags) == 0 {
+			return nil
+		}
+		tags := make([]WebVTTTag, len(sa.WebVTTTags))
+		copy(tags, sa.WebVTTTags)
+		return tags
+	}
+
+	// finishRuby turns the buffered segments into a Ruby and returns any base
+	// text that follows the last annotation (it is not part of a pair and is
+	// emitted as ordinary text after the annotation).
+	finishRuby := func(r *rubyState) (*Ruby, webVTTRubySide) {
+		var rr = &Ruby{}
+		var n = len(r.texts)
+		for idx := 0; idx < n; idx++ {
+			var pair = RubyPair{Text: r.texts[idx].lineItems()}
+			if idx < len(r.bases) {
+				pair.Base = r.bases[idx].lineItems()
+			}
+			rr.Pairs = append(rr.Pairs, pair)
+		}
+		return rr, r.base
+	}
+
+	// emitRuby appends the finished ruby and the base text that follows its
+	// last annotation, then clears the state.
+	emitRuby := func() {
+		if ruby == nil {
+			return
+		}
+		r := ruby
+		ruby = nil
+		if len(r.texts) == 0 {
+			// A ruby without annotation: keep the base text.
+			for _, run := range r.base {
+				o.Items = append(o.Items, parseTextWebVTTTextToken(
+					webVTTRunStyle(run.tags), run.text)...)
+			}
+			return
+		}
+		rr, trailing := finishRuby(r)
+		o.Items = append(o.Items, LineItem{Ruby: rr})
+		for _, run := range trailing {
+			o.Items = append(o.Items, parseTextWebVTTTextToken(
+				webVTTRunStyle(run.tags), run.text)...)
+		}
+	}
+
 	// Create tokenizer
 	tr := html.NewTokenizer(strings.NewReader(i))
 
@@ -431,11 +528,34 @@ func parseTextWebVTT(i string, sa *StyleAttributes) (o Line) {
 		t := tr.Next()
 		// Process error
 		if err := tr.Err(); err != nil {
+			// An unterminated ruby still contributes its buffered text.
+			emitRuby()
 			break
 		}
 
 		switch t {
 		case html.EndTagToken:
+			var name = webVTTTagName(string(tr.Raw()))
+
+			// Closing an annotation: record it as the next pair's text. An
+			// unterminated <rt> is closed implicitly by </ruby>.
+			if ruby != nil && name == "rt" && ruby.rtDepth > 0 {
+				ruby.texts = append(ruby.texts, ruby.text)
+				ruby.text = nil
+				ruby.rtDepth--
+			}
+
+			// Closing the ruby span: emit the ruby and any trailing base text
+			// as ordinary items after it.
+			if ruby != nil && name == "ruby" {
+				if ruby.rtDepth > 0 {
+					ruby.texts = append(ruby.texts, ruby.text)
+					ruby.text = nil
+					ruby.rtDepth--
+				}
+				emitRuby()
+			}
+
 			// Pop the top of stack if we meet end tag
 			if len(sa.WebVTTTags) > 0 {
 				sa.WebVTTTags = sa.WebVTTTags[:len(sa.WebVTTTags)-1]
@@ -471,22 +591,47 @@ func parseTextWebVTT(i string, sa *StyleAttributes) (o Line) {
 					Classes:    classes,
 					Annotation: annotation,
 				})
+
+				switch tagName {
+				case "ruby":
+					ruby = &rubyState{}
+				case "rt":
+					if ruby != nil && ruby.rtDepth == 0 {
+						// The base segment collected so far is annotated by this
+						// annotation element: close it and start the annotation.
+						ruby.bases = append(ruby.bases, ruby.base)
+						ruby.base = nil
+						ruby.rtDepth++
+					}
+				}
 			}
 
 		case html.TextToken:
+			raw := string(tr.Raw())
+
+			// Inside a ruby span, route the text into the base or annotation
+			// side instead of emitting it as a standalone item.
+			if ruby != nil {
+				var unescaped = unescapeHTML(raw)
+				if ruby.rtDepth > 0 {
+					ruby.text = append(ruby.text, webVTTRubyRun{text: unescaped, tags: currentTags()})
+				} else {
+					ruby.base = append(ruby.base, webVTTRubyRun{text: unescaped, tags: currentTags()})
+				}
+				continue
+			}
+
 			// Get style attribute
 			var styleAttributes *StyleAttributes
 			if len(sa.WebVTTTags) > 0 {
-				tags := make([]WebVTTTag, len(sa.WebVTTTags))
-				copy(tags, sa.WebVTTTags)
 				styleAttributes = &StyleAttributes{
-					WebVTTTags: tags,
+					WebVTTTags: currentTags(),
 				}
 				styleAttributes.propagateWebVTTAttributes()
 			}
 
 			// Append items
-			o.Items = append(o.Items, parseTextWebVTTTextToken(styleAttributes, string(tr.Raw()))...)
+			o.Items = append(o.Items, parseTextWebVTTTextToken(styleAttributes, raw)...)
 		}
 	}
 	return
@@ -738,6 +883,15 @@ func (l Line) webVTTBytes() (c []byte) {
 }
 
 func (li LineItem) webVTTBytes(previous, next *LineItem) (c []byte) {
+	// Ruby annotations are written as their own structure, independent of the
+	// surrounding tags, so base and annotation text stay separated.
+	if li.Ruby != nil && len(li.Ruby.Pairs) > 0 {
+		if li.StartAt > 0 {
+			c = append(c, []byte("<"+formatDurationWebVTT(li.StartAt)+">")...)
+		}
+		return append(c, webVTTRubyBytes(li.Ruby)...)
+	}
+
 	// Add timestamp
 	if li.StartAt > 0 {
 		c = append(c, []byte("<"+formatDurationWebVTT(li.StartAt)+">")...)
