@@ -1,0 +1,10 @@
+{
+  "baseline": [
+    "TestBaseline"
+  ],
+  "target": [
+    "TestRedirectPolicyIsolation",
+    "TestRedirectPolicyComposition",
+    "TestSessionOptionsSnapshot"
+  ]
+}
