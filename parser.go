@@ -91,6 +91,10 @@ type Article struct {
 	Language      string
 	PublishedTime *time.Time
 	ModifiedTime  *time.Time
+	// SelectionTrace is the structured diagnostic recorded while the
+	// main content was selected. It is nil unless Parser.ExplainSelection
+	// was enabled for the parse.
+	SelectionTrace *SelectionTrace
 }
 
 // Parser is the parser that parses the page to get the readable content.
@@ -112,6 +116,10 @@ type Parser struct {
 	TagsToScore []string
 	// Debug determines if the log should be printed or not. Default: false.
 	Debug bool
+	// ExplainSelection determines whether a SelectionTrace with structured
+	// diagnostics is recorded while the main content is selected. The
+	// trace is attached to the returned Article. Default: false.
+	ExplainSelection bool
 	// DisableJSONLD determines if metadata in JSON+LD will be extracted
 	// or not. Default: false.
 	DisableJSONLD bool
@@ -128,6 +136,7 @@ type Parser struct {
 	articleLang     string
 	attempts        []parseAttempt
 	flags           flags
+	trace           *selectionRecorder
 }
 
 // NewParser returns new Parser which set up with default value.
@@ -639,6 +648,9 @@ func (ps *Parser) initializeNode(node *html.Node) {
 	}
 
 	ps.setContentScore(node, contentScore)
+	if ps.trace != nil {
+		ps.trace.eventInitial(node, contentScore, ps.getContentScore(node))
+	}
 }
 
 // removeAndGetNext remove node and returns its next node.
@@ -766,6 +778,9 @@ func (ps *Parser) grabArticle() *html.Node {
 
 	for {
 		doc := dom.Clone(ps.doc, true)
+		if ps.trace != nil {
+			ps.trace.mapClone(ps.doc, doc)
+		}
 
 		var page *html.Node
 		if nodes := dom.GetElementsByTagName(doc, "body"); len(nodes) > 0 {
@@ -776,6 +791,10 @@ func (ps *Parser) grabArticle() *html.Node {
 		if page == nil {
 			ps.log("no body found in document, abort")
 			return nil
+		}
+
+		if ps.trace != nil {
+			ps.trace.beginAttempt(ps.flags)
 		}
 
 		// First, node prepping. Trash nodes that look cruddy (like ones
@@ -871,7 +890,11 @@ func (ps *Parser) grabArticle() *html.Node {
 							dom.AppendChild(p, childNode)
 						} else if !ps.isWhitespace(childNode) {
 							p = dom.CreateElement("p")
-							dom.AppendChild(p, dom.Clone(childNode, true))
+							clonedChild := dom.Clone(childNode, true)
+							if ps.trace != nil {
+								ps.trace.mapClone(childNode, clonedChild)
+							}
+							dom.AppendChild(p, clonedChild)
 							dom.ReplaceChild(node, p, childNode)
 						}
 					} else if p != nil {
@@ -957,9 +980,12 @@ func (ps *Parser) grabArticle() *html.Node {
 					scoreDivider = level * 3
 				}
 
-				ancestorScore := ps.getContentScore(ancestor)
-				ancestorScore += float64(contentScore) / float64(scoreDivider)
-				ps.setContentScore(ancestor, ancestorScore)
+				before := ps.getContentScore(ancestor)
+				increment := float64(contentScore) / float64(scoreDivider)
+				ps.setContentScore(ancestor, before+increment)
+				if ps.trace != nil {
+					ps.trace.eventContribution(ancestor, elementToScore, level, before, increment, ps.getContentScore(ancestor))
+				}
 			})
 		})
 
@@ -975,9 +1001,14 @@ func (ps *Parser) grabArticle() *html.Node {
 		// less) and be mostly unaffected by this operation.
 		for i := 0; i < len(candidates); i++ {
 			candidate := candidates[i]
-			candidateScore := ps.getContentScore(candidate) * (1 - ps.getLinkDensity(candidate))
+			before := ps.getContentScore(candidate)
+			linkDensity := ps.getLinkDensity(candidate)
+			candidateScore := before * (1 - linkDensity)
 			ps.logf("candidate %q with score: %f\n", dom.OuterHTML(candidate), candidateScore)
 			ps.setContentScore(candidate, candidateScore)
+			if ps.trace != nil {
+				ps.trace.eventDensity(candidate, before, linkDensity, ps.getContentScore(candidate))
+			}
 		}
 
 		// After we've calculated scores, sort through all of the possible
@@ -985,6 +1016,9 @@ func (ps *Parser) grabArticle() *html.Node {
 		sort.Slice(candidates, func(i int, j int) bool {
 			return ps.getContentScore(candidates[i]) > ps.getContentScore(candidates[j])
 		})
+		if ps.trace != nil {
+			ps.trace.setRanked(candidates)
+		}
 
 		var topCandidates []*html.Node
 		if len(candidates) > ps.NTopCandidates {
@@ -1100,6 +1134,10 @@ func (ps *Parser) grabArticle() *html.Node {
 			}
 		}
 
+		if ps.trace != nil {
+			ps.trace.setWinner(topCandidate, len(candidates))
+		}
+
 		// Now that we have the top candidate, look through its siblings
 		// for content that might also be related. Things like preambles,
 		// content split by ads that we removed, etc.
@@ -1200,6 +1238,9 @@ func (ps *Parser) grabArticle() *html.Node {
 		// the sieve approach gives us a higher likelihood of
 		// finding the -right- content.
 		textLength := charCount(ps.getInnerText(articleContent, true))
+		if ps.trace != nil {
+			ps.trace.finishAttempt(textLength, articleContent)
+		}
 		if textLength < ps.CharThresholds {
 			parseSuccessful = false
 
@@ -1244,6 +1285,9 @@ func (ps *Parser) grabArticle() *html.Node {
 		}
 
 		if parseSuccessful {
+			if ps.trace != nil {
+				ps.trace.choose(articleContent)
+			}
 			return articleContent
 		}
 	}

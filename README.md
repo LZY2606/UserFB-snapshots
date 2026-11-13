@@ -13,6 +13,7 @@ This package is based from [Readability.js] by [Mozilla] and written line by lin
 - [Status](#status)
 - [Installation](#installation)
 - [Example](#example)
+- [Debugging the Content Selection](#debugging-the-content-selection)
 - [Command Line Usage](#command-line-usage)
 - [Licenses](#licenses)
 
@@ -138,6 +139,99 @@ func main() {
 	}
 }
 
+```
+
+## Debugging the Content Selection
+
+When the parser picks the wrong element as the main content, you can set `Parser.ExplainSelection` to record a structured `SelectionTrace` while the selection happens. The trace identifies every element of the original document by a stable ID and a path, and lists every score write (initialization, paragraph contribution, link-density scaling) of every attempt, so you can see exactly which paragraph gave score to which ancestor and which attempt the returned content came from. The original tree and the output HTML are never modified by the tracing.
+
+The example below shows how to resolve a contribution event back to the original element in your own document tree:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/url"
+	"strings"
+
+	readability "github.com/go-shiori/go-readability"
+	"golang.org/x/net/html"
+)
+
+// resolvePath walks the original document tree following the child
+// indexes recorded in a SelectionNode path.
+func resolvePath(root *html.Node, path []int) *html.Node {
+	cur := root
+	for _, idx := range path {
+		var next *html.Node
+		i := 0
+		for child := cur.FirstChild; child != nil; child = child.NextSibling {
+			if i == idx {
+				next = child
+				break
+			}
+			i++
+		}
+		if next == nil {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
+func main() {
+	raw := `<html><body><div class="article"><p>First paragraph, long enough to be scored.</p></div></body></html>`
+
+	// Keep the parsed document around: the trace refers to its elements.
+	doc, err := html.Parse(strings.NewReader(raw))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	parser := readability.NewParser()
+	parser.ExplainSelection = true
+	pageURL, _ := url.Parse("https://example.invalid/article")
+	article, err := parser.ParseDocument(doc, pageURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	trace := article.SelectionTrace
+	if trace == nil {
+		log.Fatal("selection tracing was not enabled")
+	}
+
+	// Index the node definitions by ID.
+	nodes := make(map[int]readability.SelectionNode, len(trace.Nodes))
+	for _, n := range trace.Nodes {
+		nodes[n.ID] = n
+	}
+
+	attempt := trace.Attempts[trace.ChosenAttempt]
+	for _, ev := range attempt.Events {
+		if ev.Kind != readability.SelectionEventContribution {
+			continue
+		}
+
+		// Find the original paragraph that produced this contribution.
+		src := nodes[ev.SourceID]
+		if src.Synthetic {
+			fmt.Printf("contribution came from a parser-created node #%d\n", src.ID)
+			continue
+		}
+
+		el := resolvePath(doc, src.Path)
+		tag := ""
+		if el != nil && el.Type == html.ElementNode {
+			tag = el.Data
+		}
+		fmt.Printf("paragraph #%d (<%s> at %v) added %.4f to node #%d\n",
+			src.ID, tag, src.Path, ev.Operand, ev.NodeID)
+	}
+}
 ```
 
 ## Command Line Usage

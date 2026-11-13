@@ -41,6 +41,16 @@ func (ps *Parser) ParseDocument(doc *html.Node, pageURL *nurl.URL) (Article, err
 		cleanConditionally: true,
 	}
 
+	// When selection diagnostics are requested, number the elements of
+	// the tree exactly as it was received, before any cleanup happens,
+	// and carry those IDs over to the working clone.
+	ps.trace = nil
+	if ps.ExplainSelection {
+		ps.trace = newSelectionRecorder()
+		ps.trace.defineOriginal(doc)
+		ps.trace.mapClone(doc, ps.doc)
+	}
+
 	// Avoid parsing too large documents, as per configuration option
 	if ps.MaxElemsToParse > 0 {
 		numTags := len(dom.GetElementsByTagName(ps.doc, "*"))
@@ -118,20 +128,26 @@ func (ps *Parser) ParseDocument(doc *html.Node, pageURL *nurl.URL) (Article, err
 	publishedTime := ps.getDate(metadata, "publishedTime")
 	modifiedTime := ps.getDate(metadata, "modifiedTime")
 
+	var selectionTrace *SelectionTrace
+	if ps.trace != nil {
+		selectionTrace = ps.trace.build()
+	}
+
 	return Article{
-		Title:         validTitle,
-		Byline:        validByline,
-		Node:          readableNode,
-		Content:       finalHTMLContent,
-		TextContent:   finalTextContent,
-		Length:        charCount(finalTextContent),
-		Excerpt:       validExcerpt,
-		SiteName:      metadata["siteName"],
-		Image:         metadata["image"],
-		Favicon:       metadata["favicon"],
-		Language:      ps.articleLang,
-		PublishedTime: publishedTime,
-		ModifiedTime:  modifiedTime,
+		Title:          validTitle,
+		Byline:         validByline,
+		Node:           readableNode,
+		Content:        finalHTMLContent,
+		TextContent:    finalTextContent,
+		Length:         charCount(finalTextContent),
+		Excerpt:        validExcerpt,
+		SiteName:       metadata["siteName"],
+		Image:          metadata["image"],
+		Favicon:        metadata["favicon"],
+		Language:       ps.articleLang,
+		PublishedTime:  publishedTime,
+		ModifiedTime:   modifiedTime,
+		SelectionTrace: selectionTrace,
 	}, nil
 }
 
