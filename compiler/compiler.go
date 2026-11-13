@@ -78,6 +78,12 @@ func Compile(tree *parser.Tree, config *conf.Config) (program *Program, err erro
 		c.debugInfo,
 		span,
 	)
+	program.SetCapsule(&CapsuleMeta{
+		FieldRefs:   c.fieldRefs,
+		BuiltinRefs: c.builtinRefs,
+		SafeRefs:    c.safeRefs,
+		Funcs:       c.functionsMeta,
+	})
 	return
 }
 
@@ -92,16 +98,22 @@ type compiler struct {
 	constantsIndex map[any]int
 	functions      []Function
 	functionsIndex map[string]int
+	functionsMeta  []FuncMeta
 	debugInfo      map[string]string
 	nodes          []ast.Node
 	spans          []*Span
 	chains         [][]int
 	arguments      []int
+	fieldRefs      []FieldRef
+	builtinRefs    []BuiltinRef
+	safeRefs       []SafeRef
+	provScopes     []provScope
 }
 
 type scope struct {
 	variableName string
 	index        int
+	prov         prov
 }
 
 func (c *compiler) nodeParent() ast.Node {
@@ -173,24 +185,31 @@ func (c *compiler) addVariable(name string) int {
 }
 
 // emitFunction adds builtin.Function.Func to the program.functions and emits call opcode.
-func (c *compiler) emitFunction(fn *builtin.Function, argsLen int) {
+func (c *compiler) emitFunction(fn *builtin.Function, argsLen int, fromBuiltin bool) {
+	meta := FuncMeta{Name: fn.Name, Builtin: fromBuiltin}
+	sigs, ok := EncodeFuncTypes(fn.Types)
+	if !ok {
+		meta.Unsupported = true
+	} else {
+		meta.Overloads = sigs
+	}
 	switch argsLen {
 	case 0:
-		c.emit(OpCall0, c.addFunction(fn.Name, fn.Func))
+		c.emit(OpCall0, c.addFunction(fn.Name, fn.Func, meta))
 	case 1:
-		c.emit(OpCall1, c.addFunction(fn.Name, fn.Func))
+		c.emit(OpCall1, c.addFunction(fn.Name, fn.Func, meta))
 	case 2:
-		c.emit(OpCall2, c.addFunction(fn.Name, fn.Func))
+		c.emit(OpCall2, c.addFunction(fn.Name, fn.Func, meta))
 	case 3:
-		c.emit(OpCall3, c.addFunction(fn.Name, fn.Func))
+		c.emit(OpCall3, c.addFunction(fn.Name, fn.Func, meta))
 	default:
-		c.emit(OpLoadFunc, c.addFunction(fn.Name, fn.Func))
+		c.emit(OpLoadFunc, c.addFunction(fn.Name, fn.Func, meta))
 		c.emit(OpCallN, argsLen)
 	}
 }
 
 // addFunction adds builtin.Function.Func to the program.functions and returns its index.
-func (c *compiler) addFunction(name string, fn Function) int {
+func (c *compiler) addFunction(name string, fn Function, meta FuncMeta) int {
 	if fn == nil {
 		panic("function is nil")
 	}
@@ -199,6 +218,7 @@ func (c *compiler) addFunction(name string, fn Function) int {
 	}
 	p := len(c.functions)
 	c.functions = append(c.functions, fn)
+	c.functionsMeta = append(c.functionsMeta, meta)
 	c.functionsIndex[name] = p
 	c.debugInfo[fmt.Sprintf("func_%d", p)] = name
 	return p
@@ -315,10 +335,10 @@ func (c *compiler) IdentifierNode(node *ast.IdentifierNode) {
 	if env.IsFastMap() {
 		c.emit(OpLoadFast, c.addConstant(node.Value))
 	} else if ok, index, name := checker.FieldIndex(c.ntCache, env, node); ok {
-		c.emit(OpLoadField, c.addConstant(&runtime.Field{
+		c.emitFieldAccess(node.Location(), OpLoadField, &runtime.Field{
 			Index: index,
 			Path:  []string{name},
-		}))
+		}, nil, node)
 	} else if ok, index, name := checker.MethodIndex(c.ntCache, env, node); ok {
 		c.emit(OpLoadMethod, c.addConstant(&runtime.Method{
 			Name:  name,
@@ -695,6 +715,7 @@ func (c *compiler) MemberNode(node *ast.MemberNode) {
 	}
 	op := OpFetch
 	base := node.Node
+	leafNode := node
 
 	ok, index, nodeName := checker.FieldIndex(c.ntCache, env, node)
 	path := []string{nodeName}
@@ -706,9 +727,8 @@ func (c *compiler) MemberNode(node *ast.MemberNode) {
 				if ok, identIndex, name := checker.FieldIndex(c.ntCache, env, ident); ok {
 					index = append(identIndex, index...)
 					path = append([]string{name}, path...)
-					c.emitLocation(ident.Location(), OpLoadField, c.addConstant(
-						&runtime.Field{Index: index, Path: path},
-					))
+					c.emitFieldAccess(ident.Location(), OpLoadField,
+						&runtime.Field{Index: index, Path: path}, nil, leafNode)
 					return
 				}
 			}
@@ -752,9 +772,7 @@ func (c *compiler) MemberNode(node *ast.MemberNode) {
 		}
 		c.emit(OpFetch)
 	} else {
-		c.emitLocation(node.Location(), op, c.addConstant(
-			&runtime.Field{Index: index, Path: path},
-		))
+		c.emitFieldAccess(node.Location(), op, &runtime.Field{Index: index, Path: path}, base, leafNode)
 	}
 }
 
@@ -815,7 +833,7 @@ func (c *compiler) CallNode(node *ast.CallNode) {
 	if ident, ok := node.Callee.(*ast.IdentifierNode); ok {
 		if c.config != nil {
 			if fn, ok := c.config.Functions[ident.Value]; ok {
-				c.emitFunction(fn, len(node.Arguments))
+				c.emitFunction(fn, len(node.Arguments), false)
 				return
 			}
 		}
@@ -843,6 +861,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -858,6 +878,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -874,6 +896,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -889,6 +913,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
 			c.emitCond(func() {
@@ -905,6 +931,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
 			c.emitCond(func() {
@@ -925,6 +953,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
 		})
@@ -937,6 +967,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			if len(node.Arguments) == 2 {
@@ -972,6 +1004,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		c.emit(OpInt, 0)
 		c.emit(OpSetAcc)
 		c.emitLoop(func() {
@@ -992,6 +1026,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -1020,6 +1056,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -1039,6 +1077,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoopBackwards(func() {
 			c.compile(node.Arguments[1])
@@ -1067,6 +1107,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		var loopBreak int
 		c.emitLoopBackwards(func() {
 			c.compile(node.Arguments[1])
@@ -1086,6 +1128,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		c.emit(OpCreate, 1)
 		c.emit(OpSetAcc)
 		c.emitLoop(func() {
@@ -1100,6 +1144,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		if len(node.Arguments) == 3 {
 			c.compile(node.Arguments[2])
 		} else {
@@ -1119,6 +1165,8 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		c.compile(node.Arguments[0])
 		c.derefInNeeded(node.Arguments[0])
 		c.emit(OpBegin)
+		c.pushElemScope(node.Arguments[0])
+		defer c.popProvScope()
 		if len(node.Arguments) == 3 {
 			c.compile(node.Arguments[2])
 			c.derefInNeeded(node.Arguments[2])
@@ -1136,6 +1184,16 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 			c.emit(OpPush, c.addConstant(fmt.Errorf("reduce of empty array with no initial value")))
 			c.emit(OpThrow)
 			c.patchJump(jumpPastError)
+		}
+		// The accumulator shares the predicate scope; its provenance is the
+		// initial value's one (or the element's one when no initial value is
+		// given). Note the initial value is compiled after OpBegin, so `#`
+		// inside it refers to this scope at runtime as well.
+		top := &c.provScopes[len(c.provScopes)-1]
+		top.acc = top.elem
+		top.hasAcc = true
+		if len(node.Arguments) == 3 {
+			top.acc = c.provOf(node.Arguments[2])
 		}
 		c.emitLoop(func() {
 			c.compile(node.Arguments[1])
@@ -1165,14 +1223,16 @@ func (c *compiler) BuiltinNode(node *ast.BuiltinNode) {
 		}
 
 		if f.Fast != nil {
-			c.emit(OpCallBuiltin1, id)
+			pc := c.emit(OpCallBuiltin1, id) - 1
+			c.builtinRefs = append(c.builtinRefs, BuiltinRef{PC: pc, Name: node.Name})
 		} else if f.Safe != nil {
 			id := c.addConstant(f.Safe)
-			c.emit(OpPush, id)
+			pc := c.emit(OpPush, id) - 1
+			c.safeRefs = append(c.safeRefs, SafeRef{PC: pc, Name: node.Name})
 			c.debugInfo[fmt.Sprintf("const_%d", id)] = node.Name
 			c.emit(OpCallSafe, len(node.Arguments))
 		} else if f.Func != nil {
-			c.emitFunction(f, len(node.Arguments))
+			c.emitFunction(f, len(node.Arguments), true)
 		}
 		return
 	}
@@ -1241,10 +1301,11 @@ func (c *compiler) PointerNode(node *ast.PointerNode) {
 }
 
 func (c *compiler) VariableDeclaratorNode(node *ast.VariableDeclaratorNode) {
+	p := c.provOf(node.Value)
 	c.compile(node.Value)
 	index := c.addVariable(node.Name)
 	c.emit(OpStore, index)
-	c.beginScope(node.Name, index)
+	c.beginScope(node.Name, index, p)
 	c.compile(node.Expr)
 	c.endScope()
 }
@@ -1258,8 +1319,8 @@ func (c *compiler) SequenceNode(node *ast.SequenceNode) {
 	}
 }
 
-func (c *compiler) beginScope(name string, index int) {
-	c.scopes = append(c.scopes, scope{name, index})
+func (c *compiler) beginScope(name string, index int, p prov) {
+	c.scopes = append(c.scopes, scope{variableName: name, index: index, prov: p})
 }
 
 func (c *compiler) endScope() {

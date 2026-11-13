@@ -28,6 +28,7 @@ type Program struct {
 	functions []Function
 	debugInfo map[string]string
 	span      *Span
+	capsule   *CapsuleMeta
 }
 
 // NewProgram returns a new Program. It's used by the compiler.
