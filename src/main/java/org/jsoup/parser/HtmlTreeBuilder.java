@@ -24,10 +24,11 @@ import static org.jsoup.internal.StringUtil.inSorted;
  */
 public class HtmlTreeBuilder extends TreeBuilder {
     // tag searches. must be sorted, used in inSorted. MUST update HtmlTreeBuilderTest if more arrays are added.
-    static final String[] TagsSearchInScope = new String[]{"applet", "caption", "html", "marquee", "object", "table", "td", "th"};
+    static final String[] TagsSearchInScope = new String[]{"applet", "caption", "html", "marquee", "object", "table", "td",
+        "template", "th"};
     static final String[] TagSearchList = new String[]{"ol", "ul"};
     static final String[] TagSearchButton = new String[]{"button"};
-    static final String[] TagSearchTableScope = new String[]{"html", "table"};
+    static final String[] TagSearchTableScope = new String[]{"html", "table", "template"};
     static final String[] TagSearchSelectScope = new String[]{"optgroup", "option"};
     static final String[] TagSearchEndTags = new String[]{"dd", "dt", "li", "optgroup", "option", "p", "rp", "rt"};
     static final String[] TagSearchSpecial = new String[]{"address", "applet", "area", "article", "aside", "base", "basefont", "bgsound",
@@ -36,8 +37,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
         "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html",
         "iframe", "img", "input", "isindex", "li", "link", "listing", "marquee", "menu", "meta", "nav",
         "noembed", "noframes", "noscript", "object", "ol", "p", "param", "plaintext", "pre", "script",
-        "section", "select", "style", "summary", "table", "tbody", "td", "textarea", "tfoot", "th", "thead",
-        "title", "tr", "ul", "wbr", "xmp"};
+        "section", "select", "style", "summary", "table", "tbody", "td", "template", "textarea", "tfoot",
+        "th", "thead", "title", "tr", "ul", "wbr", "xmp"};
 
     public static final int MaxScopeSearchDepth = 100; // prevents the parser bogging down in exceptionally broken pages
 
@@ -55,6 +56,13 @@ public class HtmlTreeBuilder extends TreeBuilder {
     private boolean framesetOk; // if ok to go into frameset
     private boolean fosterInserts; // if next inserts should be fostered
     private boolean fragmentParsing; // if parsing a fragment of html
+
+    // template insertion modes, one frame per open template element (innermost last). see "in template" insertion mode
+    private final ArrayList<HtmlTreeBuilderState> templateModes = new ArrayList<>();
+    // insertion mode in effect when each template was entered, restored verbatim when the template closes
+    private final ArrayList<HtmlTreeBuilderState> templateOuterModes = new ArrayList<>();
+    // form pointers saved on entering a template, restored on leaving, so template forms don't touch the outer form
+    private final ArrayList<FormElement> templateForms = new ArrayList<>();
 
     ParseSettings defaultSettings() {
         return ParseSettings.htmlDefault;
@@ -77,6 +85,9 @@ public class HtmlTreeBuilder extends TreeBuilder {
         framesetOk = true;
         fosterInserts = false;
         fragmentParsing = false;
+        templateModes.clear();
+        templateOuterModes.clear();
+        templateForms.clear();
     }
 
     List<Node> parseFragment(String inputFragment, Element context, String baseUri, Parser parser) {
@@ -110,6 +121,12 @@ public class HtmlTreeBuilder extends TreeBuilder {
             doc.appendChild(root);
             stack.add(root);
             resetInsertionMode();
+
+            // fragment rule: a template context supplies its own template insertion mode frame
+            if (context.normalName().equals("template")) {
+                templateModes.add(HtmlTreeBuilderState.InTemplate);
+                transition(HtmlTreeBuilderState.InTemplate);
+            }
 
             // setup form element to nearest form on context (up ancestor chain). ensures form controls are associated
             // with form correctly
@@ -283,9 +300,10 @@ public class HtmlTreeBuilder extends TreeBuilder {
         else
             currentElement().appendChild(node);
 
-        // connect form controls to their form element
+        // connect form controls to their form element, but not while building template content:
+        // template contents keep their own forms and never register on an outer form pointer
         if (node instanceof Element && ((Element) node).tag().isFormListed()) {
-            if (formElement != null)
+            if (formElement != null && !hasTemplateOnStack())
                 formElement.addElement((Element) node);
         }
     }
@@ -369,7 +387,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
     }
 
     void clearStackToTableContext() {
-        clearStackToContext("table");
+        // spec: clear back to a table context -- stops at table, template, or html
+        clearStackToContext("table", "template");
     }
 
     void clearStackToTableBodyContext() {
@@ -446,6 +465,11 @@ public class HtmlTreeBuilder extends TreeBuilder {
                 break; // frag
             } else if ("table".equals(name)) {
                 transition(HtmlTreeBuilderState.InTable);
+                break;
+            } else if ("template".equals(name)) {
+                // the contents of each template keep their own insertion mode; an empty frame means the
+                // template element is the fragment parse context rather than an open template on the stack
+                transition(templateModes.isEmpty() ? HtmlTreeBuilderState.InTemplate : currentTemplateMode());
                 break;
             } else if ("head".equals(name)) {
                 transition(HtmlTreeBuilderState.InBody);
@@ -708,18 +732,105 @@ public class HtmlTreeBuilder extends TreeBuilder {
         formattingElements.add(null);
     }
 
+    // ---- template support (https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-intemplate) ----
+
+    boolean hasTemplateOnStack() {
+        return getFromStack("template") != null;
+    }
+
+    /**
+     Push a new template frame: remember the form pointer in use outside the template, and remember the insertion
+     * mode that the template contents started in, so nested template close can restore it. Inside the template the
+     * form pointer starts unset, so template forms and controls never touch the outer form.
+     */
+    void pushTemplate(Element template) {
+        templateForms.add(formElement);
+        formElement = null;
+        // remember the real outer context (InHead, InTable, InSelect, an outer template mode, ...)
+        templateOuterModes.add(state);
+        // the first content token decides the mode; InTemplate holds the marker until then
+        templateModes.add(HtmlTreeBuilderState.InTemplate);
+        transition(HtmlTreeBuilderState.InTemplate);
+        insertMarkerToFormattingElements();
+    }
+
+    HtmlTreeBuilderState currentTemplateMode() {
+        return templateModes.get(templateModes.size() - 1);
+    }
+
+    void setTemplateMode(HtmlTreeBuilderState mode) {
+        templateModes.set(templateModes.size() - 1, mode);
+    }
+
+    /**
+     * Runs the "generate all implied end tags" / table context clear used by the template end tag and EOF rules,
+     * stopping at the template boundary so markers belonging to an outer context survive.
+     */
+    private void clearToTemplateBoundary(Element template) {
+        int templateIndex = stack.lastIndexOf(template);
+        while (stack.size() - 1 > templateIndex) {
+            Element current = currentElement();
+            String name = current.normalName();
+            if (inSorted(name, TagSearchEndTags))
+                pop();
+            else
+                break;
+        }
+        while (stack.size() - 1 > templateIndex)
+            pop();
+    }
+
+    /**
+     * Template end tag / EOF teardown. Removes the template and everything opened inside it, drops the active
+     * formatting entries added inside it, and restores the outer insertion mode and form pointer.
+     */
+    void closeTemplate(Element template) {
+        clearToTemplateBoundary(template);
+        pop(); // the template element itself
+
+        // remove active formatting elements up to and including the marker inserted with this template
+        for (int pos = formattingElements.size() - 1; pos >= 0; pos--) {
+            Element entry = formattingElements.remove(pos);
+            if (entry == null)
+                break;
+        }
+
+        templateModes.remove(templateModes.size() - 1);
+        formElement = templateForms.remove(templateForms.size() - 1);
+        // restore the exact outer insertion mode: nothing outside the template could have changed while it was open
+        transition(templateOuterModes.remove(templateOuterModes.size() - 1));
+    }
+
+    /**
+     * EOF rule for "in template": close every still-open template, innermost first, then reprocess the EOF in the
+     * restored outer mode. Each close restores the previous mode, so unclosed outer templates are handled too.
+     */
+    boolean processTemplateEof(Token eof) {
+        Element template;
+        while ((template = getFromStack("template")) != null) {
+            error(HtmlTreeBuilderState.InTemplate);
+            closeTemplate(template);
+        }
+        return process(eof);
+    }
+
     void insertInFosterParent(Node in) {
         Element fosterParent;
         Element lastTable = getFromStack("table");
+        Element lastTemplate = getFromStack("template");
+        int tableIndex = lastTable != null ? stack.lastIndexOf(lastTable) : -1;
+        int templateIndex = lastTemplate != null ? stack.lastIndexOf(lastTemplate) : -1;
+        boolean tableInsideTemplate = tableIndex > templateIndex; // a nearer template means the table belongs to it
         boolean isLastTableParent = false;
-        if (lastTable != null) {
+        if (lastTable != null && tableInsideTemplate) {
             if (lastTable.parent() != null) {
                 fosterParent = lastTable.parent();
                 isLastTableParent = true;
             } else
                 fosterParent = aboveOnStack(lastTable);
-        } else { // no table == frag
-            fosterParent = stack.get(0);
+        } else {
+            // no table in this template's scope: foster onto the template element (or the fragment root)
+            fosterParent = lastTemplate != null ? lastTemplate : stack.get(0);
         }
 
         if (isLastTableParent) {

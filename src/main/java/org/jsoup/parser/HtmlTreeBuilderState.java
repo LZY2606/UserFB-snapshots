@@ -140,6 +140,9 @@ enum HtmlTreeBuilderState {
                     } else if (name.equals("head")) {
                         tb.error(this);
                         return false;
+                    } else if (name.equals("template")) {
+                        // spec: process the token using the rules for the "in body" insertion mode
+                        return tb.process(t, InBody);
                     } else {
                         return anythingElse(t, tb);
                     }
@@ -148,9 +151,18 @@ enum HtmlTreeBuilderState {
                     Token.EndTag end = t.asEndTag();
                     name = end.normalName();
                     if (name.equals("head")) {
+                        if (tb.inScope("template")) {
+                            // no real head on the stack here; fall through to body rules instead of popping the template
+                            return anythingElse(t, tb);
+                        }
                         tb.pop();
                         tb.transition(AfterHead);
+                    } else if (name.equals("template")) {
+                        // a head-level template closes through the normal template end-tag rules
+                        return tb.process(t, InBody);
                     } else if (StringUtil.in(name, "body", "html", "br")) {
+                        return anythingElse(t, tb);
+                    } else if (tb.inScope("template")) {
                         return anythingElse(t, tb);
                     } else {
                         tb.error(this);
@@ -164,8 +176,16 @@ enum HtmlTreeBuilderState {
         }
 
         private boolean anythingElse(Token t, TreeBuilder tb) {
-            tb.processEndTag("head");
-            return tb.process(t);
+            HtmlTreeBuilder htb = (HtmlTreeBuilder) tb;
+            if (htb.inScope("template")) {
+                // inside template content, head only applies to the head-level tokens handled above;
+                // anything else falls back to body rules instead of closing the real head element
+                htb.setTemplateMode(InBody);
+                htb.transition(InBody);
+                return htb.process(t);
+            }
+            htb.processEndTag("head");
+            return htb.process(t);
         }
     },
     InHeadNoscript {
@@ -279,7 +299,10 @@ enum HtmlTreeBuilderState {
                     Token.StartTag startTag = t.asStartTag();
                     // todo - refactor to a switch statement
                     String name = startTag.normalName();
-                    if (name.equals("a")) {
+                    if (name.equals("template")) {
+                        Element template = tb.insert(startTag);
+                        tb.pushTemplate(template);
+                    } else if (name.equals("a")) {
                         if (tb.getActiveFormattingElement("a") != null) {
                             tb.error(this);
                             tb.processEndTag("a");
@@ -752,6 +775,17 @@ enum HtmlTreeBuilderState {
                         tb.error(this);
                         tb.processStartTag("br");
                         return false;
+                    } else if (name.equals("template")) {
+                        Element template = tb.getFromStack("template");
+                        if (template == null || !tb.inScope("template")) {
+                            // stray template end tag: parse error, token ignored
+                            tb.error(this);
+                            return false;
+                        }
+                        tb.generateImpliedEndTags();
+                        if (!tb.currentElement().normalName().equals("template"))
+                            tb.error(this);
+                        tb.closeTemplate(template);
                     } else {
                         return anyOtherEndTag(t, tb);
                     }
@@ -759,6 +793,8 @@ enum HtmlTreeBuilderState {
                     break;
                 case EOF:
                     // todo: error if stack contains something not dd, dt, li, p, tbody, td, tfoot, th, thead, tr, body, html
+                    if (tb.hasTemplateOnStack())
+                        return tb.processTemplateEof(t);
                     // stop parsing
                     break;
             }
@@ -784,6 +820,93 @@ enum HtmlTreeBuilderState {
                 }
             }
             return true;
+        }
+    },
+    InTemplate {
+        // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-intemplate
+        boolean process(Token t, HtmlTreeBuilder tb) {
+            switch (t.type) {
+                case Character:
+                case Comment:
+                    return tb.process(t, InBody);
+                case Doctype:
+                    tb.error(this);
+                    return false;
+                case StartTag: {
+                    Token.StartTag start = t.asStartTag();
+                    String name = start.normalName();
+                    if (StringUtil.in(name, "base", "basefont", "bgsound", "command", "link", "meta", "noframes",
+                            "script", "style", "title", "xmp")) {
+                        // lexically raw / head-level content keeps its own tokeniser and insertion rules
+                        tb.setTemplateMode(InHead);
+                        tb.transition(InHead);
+                        return tb.process(t);
+                    } else if (name.equals("caption")) {
+                        // establish the table context at the template boundary, without inventing a table element
+                        tb.clearStackToTableContext();
+                        tb.insertMarkerToFormattingElements();
+                        tb.insert(start);
+                        tb.setTemplateMode(InCaption);
+                        tb.transition(InCaption);
+                        return true;
+                    } else if (name.equals("colgroup")) {
+                        tb.clearStackToTableContext();
+                        tb.insert(start);
+                        tb.setTemplateMode(InColumnGroup);
+                        tb.transition(InColumnGroup);
+                        return true;
+                    } else if (name.equals("col")) {
+                        // the col belongs directly to the template; no colgroup is synthesised either
+                        tb.clearStackToTableContext();
+                        tb.insertEmpty(start);
+                        tb.setTemplateMode(InColumnGroup);
+                        tb.transition(InColumnGroup);
+                        return true;
+                    } else if (StringUtil.in(name, "tbody", "tfoot", "thead")) {
+                        tb.clearStackToTableBodyContext();
+                        tb.insert(start);
+                        tb.setTemplateMode(InTableBody);
+                        tb.transition(InTableBody);
+                        return true;
+                    } else if (name.equals("tr")) {
+                        tb.clearStackToTableRowContext();
+                        tb.insert(start);
+                        tb.setTemplateMode(InRow);
+                        tb.transition(InRow);
+                        return true;
+                    } else if (StringUtil.in(name, "td", "th")) {
+                        // a leading cell implies its row context; the row is created, but still no table
+                        tb.clearStackToTableRowContext();
+                        tb.insertStartTag("tr");
+                        tb.setTemplateMode(InRow);
+                        tb.transition(InRow);
+                        return tb.process(t);
+                    } else {
+                        tb.setTemplateMode(InBody);
+                        tb.transition(InBody);
+                        return tb.process(t);
+                    }
+                }
+                case EndTag: {
+                    Token.EndTag end = t.asEndTag();
+                    String name = end.normalName();
+                    if (name.equals("template")) {
+                        return tb.process(t, InBody);
+                    } else {
+                        tb.error(this);
+                        return false;
+                    }
+                }
+                case EOF:
+                    if (!tb.hasTemplateOnStack()) {
+                        // fragment parse with a template context and no template actually open: nothing to finalise
+                        return true;
+                    }
+                    return tb.processTemplateEof(t);
+                default:
+                    tb.error(this);
+                    return false;
+            }
         }
     },
     Text {
@@ -847,6 +970,9 @@ enum HtmlTreeBuilderState {
                         return tb.process(t);
                 } else if (StringUtil.in(name, "style", "script")) {
                     return tb.process(t, InHead);
+                } else if (name.equals("template")) {
+                    Element template = tb.insert(startTag);
+                    tb.pushTemplate(template);
                 } else if (name.equals("input")) {
                     if (!startTag.attributes.get("type").equalsIgnoreCase("hidden")) {
                         return anythingElse(t, tb);
@@ -887,6 +1013,8 @@ enum HtmlTreeBuilderState {
             } else if (t.isEOF()) {
                 if (tb.currentElement().normalName().equals("html"))
                     tb.error(this);
+                if (tb.hasTemplateOnStack())
+                    return tb.process(t, InBody);
                 return true; // stops parsing
             }
             return anythingElse(t, tb);
@@ -1005,7 +1133,8 @@ enum HtmlTreeBuilderState {
                 case EndTag:
                     Token.EndTag endTag = t.asEndTag();
                     if (endTag.normalName.equals("colgroup")) {
-                        if (tb.currentElement().normalName().equals("html")) { // frag case
+                        if (tb.currentElement().normalName().equals("html") || tb.currentElement().normalName().equals("template")) {
+                            // frag case, or a leading col in template content with no real colgroup: nothing to pop
                             tb.error(this);
                             return false;
                         } else {
@@ -1018,6 +1147,8 @@ enum HtmlTreeBuilderState {
                 case EOF:
                     if (tb.currentElement().normalName().equals("html"))
                         return true; // stop parsing; frag case
+                    else if (tb.hasTemplateOnStack())
+                        return tb.process(t, InBody);
                     else
                         return anythingElse(t, tb);
                 default:
@@ -1027,9 +1158,15 @@ enum HtmlTreeBuilderState {
         }
 
         private boolean anythingElse(Token t, TreeBuilder tb) {
-            boolean processed = tb.processEndTag("colgroup");
+            HtmlTreeBuilder htb = (HtmlTreeBuilder) tb;
+            if (htb.getFromStack("colgroup") == null) {
+                // a leading col in template content (or a template-context fragment) created no real colgroup;
+                // re-dispatch so the next token still gets the right template content mode
+                return htb.process(t, InTemplate);
+            }
+            boolean processed = htb.processEndTag("colgroup");
             if (processed) // only ignored in frag case
-                return tb.process(t);
+                return htb.process(t);
             return true;
         }
     },
@@ -1040,7 +1177,8 @@ enum HtmlTreeBuilderState {
                     Token.StartTag startTag = t.asStartTag();
                     String name = startTag.normalName();
                     if (name.equals("template")) {
-                        tb.insert(startTag);
+                        Element template = tb.insert(startTag);
+                        tb.pushTemplate(template);
                     } else if (name.equals("tr")) {
                         tb.clearStackToTableBodyContext();
                         tb.insert(startTag);
@@ -1102,7 +1240,8 @@ enum HtmlTreeBuilderState {
                 String name = startTag.normalName();
 
                 if (name.equals("template")) {
-                    tb.insert(startTag);
+                    Element template = tb.insert(startTag);
+                    tb.pushTemplate(template);
                 } else if (StringUtil.in(name, "th", "td")) {
                     tb.clearStackToTableRowContext();
                     tb.insert(startTag);
@@ -1258,6 +1397,10 @@ enum HtmlTreeBuilderState {
                         return tb.process(start);
                     } else if (name.equals("script")) {
                         return tb.process(t, InHead);
+                    } else if (name.equals("template")) {
+                        // "in select" delegates template start tags straight to the "in template" rules
+                        Element template = tb.insert(start);
+                        tb.pushTemplate(template);
                     } else {
                         return anythingElse(t, tb);
                     }
@@ -1296,6 +1439,8 @@ enum HtmlTreeBuilderState {
                 case EOF:
                     if (!tb.currentElement().normalName().equals("html"))
                         tb.error(this);
+                    if (tb.hasTemplateOnStack())
+                        return tb.processTemplateEof(t);
                     break;
                 default:
                     return anythingElse(t, tb);

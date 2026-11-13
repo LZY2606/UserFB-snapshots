@@ -1,6 +1,13 @@
 jsoup changelog
 
 **** Release 1.12.2 [PENDING]
+  * Improvement: the HTML parser now implements the "in template" tree-construction rules for <template>
+    elements. Template contents are kept as ordinary child elements with their own insertion mode, so table
+    rows, cells, columns, and nested forms inside unexpanded templates are preserved instead of being moved
+    or dropped. Templates act as boundaries for scope searches, table-stack clears, active formatting
+    reconstruction, foster parenting, and form control association; fragment parsing with a template
+    context, EOF finalisation of unclosed templates, and parse error reporting are handled as well.
+
   * Improvement: the :has() selector now supports relative selectors. For example, the query
     "div:has(> a)" will select all "div" elements that have at least one direct child "a" element.
     <https://github.com/jhy/jsoup/pull/1214>

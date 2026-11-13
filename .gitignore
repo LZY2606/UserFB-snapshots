@@ -3,6 +3,7 @@ jsoup.iml
 jsoup.ipr
 jsoup.iws
 target/
+.build/
 .classpath
 .project
 .settings/
