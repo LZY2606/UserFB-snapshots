@@ -1,0 +1,10 @@
+{
+  "baseline": [
+    "TestBaseline"
+  ],
+  "target": [
+    "TestRobotsEffectiveAgent",
+    "TestRobotsPreparation",
+    "TestRobotsGroupDelay"
+  ]
+}
