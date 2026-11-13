@@ -835,7 +835,7 @@ BOOL CSoundFile::ReadMed(const BYTE *lpStream, DWORD dwMemLength)
 			MODCOMMAND *p = Patterns[iBlk];
 			LPBYTE s = (LPBYTE)(lpStream + dwPos + 2);
 			UINT maxlen = tracks*lines*3;
-			if (maxlen + dwPos > dwMemLength - 2) break;
+			if (maxlen > dwMemLength - 2 - dwPos) break;
 			for (UINT y=0; y<lines; y++)
 			{
 				for (UINT x=0; x<tracks; x++, s+=3) if (x < m_nChannels)
@@ -896,7 +896,7 @@ BOOL CSoundFile::ReadMed(const BYTE *lpStream, DWORD dwMemLength)
 					if (cmdexttable < dwMemLength - 4)
 					{
 						cmdexttable = READ_BE32(lpStream + cmdexttable);
-						if ((cmdexttable) && (cmdexttable <= dwMemLength - lines*tracks))
+						if ((cmdexttable) && (cmdexttable < dwMemLength) && (lines*tracks <= dwMemLength - cmdexttable))
 						{
 							pcmdext = (BYTE *)(lpStream + cmdexttable);
 						}
@@ -905,8 +905,8 @@ BOOL CSoundFile::ReadMed(const BYTE *lpStream, DWORD dwMemLength)
 			}
 			MODCOMMAND *p = Patterns[iBlk];
 			LPBYTE s = (LPBYTE)(lpStream + dwPos + 8);
-			UINT maxlen = tracks*lines*4;
-			if (maxlen + dwPos > dwMemLength - 8) break;
+			// avoid overflow.
+			if (lines > (dwMemLength - 8 - dwPos) / (tracks*4)) break;
 			for (UINT y=0; y<lines; y++)
 			{
 				for (UINT x=0; x<tracks; x++, s+=4) if (x < m_nChannels)
