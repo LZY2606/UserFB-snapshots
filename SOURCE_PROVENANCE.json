@@ -1,0 +1,8 @@
+{
+  "repo": "https://github.com/Auburn/FastNoiseLite",
+  "commit": "785f37a9ad76e283586a379675085f2063ae03f7",
+  "archive_sha256": "f0b2d2a24ca87605db20590359b220a355488415eba6989d3121d090eaf32e99",
+  "submodules": [],
+  "support": "support/ authored locally, baseline only; no target implementation",
+  "license": "MIT (LICENSE)"
+}
