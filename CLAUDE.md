@@ -41,7 +41,7 @@ This is a Go library for parsing Open Graph Protocol (OGP) metadata from web pag
 
 - **Contribution Pattern**: Each tag type has a `Contribute()` method that updates the OpenGraph struct with parsed data. Meta tags handle complex property mapping including structured properties.
 
-- **URL Resolution**: `ToAbs()` method converts relative URLs to absolute using the base URL from og:url or Intent.URL.
+- **URL Resolution**: `ToAbs()` resolves ordinary and secure media URLs with `net/url` relative-reference rules, using the first valid HTTP(S) `<base href>` of the page (relative bases resolve against `Intent.URL`), then `Intent.URL`, falling back to `og:url` only when both are absent. Each media record remembers the page it came from, so multi-page parsing resolves every record against its own page base.
 
 - **Flexible Parsing Modes**:
   - **Strict mode**: Only trusts `<meta>` tags with OGP properties

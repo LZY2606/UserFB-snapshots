@@ -5,6 +5,8 @@ package opengraph
  * https://ogp.me/#structured
  */
 
+import "fmt"
+
 // Image represents a structure of "og:image".
 // "og:image" might have following properties:
 //   - og:image:url
@@ -53,4 +55,29 @@ type Audio struct {
 // Favicon represents an extra structure for "shortcut icon".
 type Favicon struct {
 	URL string `json:"url"`
+}
+
+// mediaKind identifies one of the structured media types defined by OGP.
+type mediaKind string
+
+const (
+	mediaKindImage mediaKind = "image"
+	mediaKindVideo mediaKind = "video"
+	mediaKindAudio mediaKind = "audio"
+)
+
+// NumericPropertyError reports that a width, height, or duration meta property
+// did not hold a non-negative decimal integer fitting into int. It carries the
+// offending property and its original content so callers can locate the tag.
+// The previously collected value of that field is kept untouched.
+type NumericPropertyError struct {
+	// Property is the full OGP property name, e.g. "og:image:width".
+	Property string
+	// Content is the raw meta content that could not be parsed.
+	Content string
+}
+
+// Error implements the error interface.
+func (e *NumericPropertyError) Error() string {
+	return fmt.Sprintf("opengraph: invalid non-negative integer for %s: %q", e.Property, e.Content)
 }

@@ -59,3 +59,27 @@ func (t *Title) Contribute(og *OpenGraph) error {
 	}
 	return nil
 }
+
+// Base represents any "<base ...>" HTML tag. Its href establishes the
+// document base used to resolve relative media URLs.
+type Base struct {
+	Href string
+}
+
+// BaseTag constructs Base.
+func BaseTag(n *html.Node) *Base {
+	b := new(Base)
+	for _, attr := range n.Attr {
+		if attr.Key == "href" {
+			b.Href = attr.Val
+		}
+	}
+	return b
+}
+
+// Contribute contributes to OpenGraph. Only the first valid HTTP(S) base of
+// the current page is kept.
+func (b *Base) Contribute(og *OpenGraph) error {
+	og.noteBaseHref(b.Href)
+	return nil
+}
