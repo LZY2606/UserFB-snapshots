@@ -33,6 +33,7 @@ EXPORTS
     SBNSearchDiskTree
     SBNSearchDiskTreeInteger
     SBNSearchFreeIds
+    SHPBuildPolygonComponents
     SHPCheckBoundsOverlap
     SHPClose
     SHPComputeExtents
@@ -41,6 +42,7 @@ EXPORTS
     SHPCreateSimpleObject
     SHPCreateTree
     SHPDestroyObject
+    SHPDestroyPolygonComponents
     SHPDestroyTree
     SHPGetInfo
     SHPOpen

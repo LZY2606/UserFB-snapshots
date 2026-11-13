@@ -15,6 +15,10 @@ if(BUILD_SHAPELIB_CONTRIB)
   target_link_libraries(shpcat shp)
   set_target_properties(shpcat PROPERTIES FOLDER "contrib")
 
+  add_executable(shpcomponents ${PROJECT_SOURCE_DIR}/contrib/shpcomponents.c)
+  target_link_libraries(shpcomponents shp)
+  set_target_properties(shpcomponents PROPERTIES FOLDER "contrib")
+
   add_executable(shpdxf ${PROJECT_SOURCE_DIR}/contrib/shpdxf.c)
   target_link_libraries(shpdxf shp)
   set_target_properties(shpdxf PROPERTIES FOLDER "contrib")

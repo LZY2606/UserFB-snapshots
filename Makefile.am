@@ -25,6 +25,7 @@ EXTRA_DIST = makefile.vc CMakeLists.txt autogen.sh \
 		tests/shp_test.cc \
 		tests/shpdxf_test.cc \
 		tests/shpgeo_test.cc \
+		tests/test_polygon_components.c \
 		tests/test1.sh tests/test2.sh tests/test3.sh \
 		tests/expect1.out tests/expect2.out tests/expect3.out \
 		tests/shape_eg_data/3dpoints.dbf \
@@ -121,7 +122,7 @@ lib_LTLIBRARIES = libshp.la
 libshp_la_includedir = $(includedir)
 libshp_la_include_HEADERS = shapefil.h
 noinst_HEADERS = shapefil_private.h
-libshp_la_SOURCES = shpopen.c dbfopen.c safileio.c shptree.c sbnsearch.c
+libshp_la_SOURCES = shpopen.c dbfopen.c safileio.c shppolygon.c shptree.c sbnsearch.c
 libshp_la_LDFLAGS = -version-info $(SHAPELIB_SO_VERSION) $(no_undefined) $(LIBM)
 
 # Installed executables

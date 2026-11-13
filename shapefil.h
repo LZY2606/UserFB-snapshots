@@ -313,6 +313,111 @@ extern "C"
 
     int SHPAPI_CALL SHPRewindObject(const SHPHandle hSHP, SHPObject *psObject);
 
+    /* -------------------------------------------------------------------- */
+    /*      Polygon component decomposition.                                */
+    /*                                                                      */
+    /*      SHPBuildPolygonComponents() splits a read-only POLYGON,         */
+    /*      POLYGONZ or POLYGONM SHPObject, whose rings may be stored in    */
+    /*      any order and with any winding direction, into independent      */
+    /*      polygon components. Each component holds one even-depth outer   */
+    /*      ring together with the odd-depth holes directly nested in it.  */
+    /*      Rings at even depth are outer rings; their parent is -1 and     */
+    /*      their depth is 0. Z and M values are carried along as           */
+    /*      ancillary data and do not participate in the 2D hierarchy.      */
+    /* -------------------------------------------------------------------- */
+
+    typedef enum
+    {
+        SHP_PC_OK = 0,
+        SHP_PC_INVALID_ARGUMENT,       /* NULL pointer or empty output slot */
+        SHP_PC_UNSUPPORTED_SHAPE_TYPE, /* not a POLYGON/POLYGONZ/POLYGONM */
+        SHP_PC_STRUCTURE, /* part offsets or vertex counts are inconsistent */
+        SHP_PC_NON_FINITE_COORDINATE,  /* NaN or infinite X/Y */
+        SHP_PC_UNSUPPORTED_COORDINATE_RANGE, /* |X| or |Y| outside 2^-30..2^30 */
+        SHP_PC_RING_NOT_CLOSED,
+        SHP_PC_RING_TOO_SMALL,    /* fewer than 3 distinct XY points */
+        SHP_PC_ZERO_LENGTH_EDGE,
+        SHP_PC_ZERO_AREA,
+        SHP_PC_SELF_INTERSECTION, /* non-adjacent edges of one ring meet */
+        SHP_PC_RINGS_INTERSECT,   /* distinct rings cross, overlap or touch */
+        SHP_PC_NOT_NESTED,        /* rings do not form a containment forest */
+        SHP_PC_MEMORY             /* allocation failure */
+    } SHPPolygonComponentError;
+
+    /* Provenance of one ring stored in an output component. */
+    typedef struct
+    {
+        /* Source part index of this ring in the input SHPObject. */
+        int nSrcPart;
+
+        /* Number of vertices of the output ring (always equals the source */
+        /* ring vertex count, including the closing duplicate vertex). */
+        int nVertices;
+
+        /* For each output vertex, the source vertex index in the input */
+        /* SHPObject. Entries are never rematched by coordinate lookup. */
+        int *panSrcVertex;
+
+        /* Nonzero when the source ring had to be reversed to meet the */
+        /* required winding order. */
+        int bReversed;
+    } SHPPolygonRingInfo;
+
+    /* One independent face: an outer ring (part 0) and its direct holes. */
+    typedef struct
+    {
+        /* Independently owned polygon object; free it together with the */
+        /* whole result through SHPDestroyPolygonComponents(), or on its */
+        /* own with SHPDestroyObject() if extracted. */
+        SHPObject *psObject;
+
+        /* Source part index of the outer ring (psObject part 0). */
+        int nOuterSrcPart;
+
+        /* One entry per part of psObject. The outer ring comes first and */
+        /* the holes follow, ordered by their source part indices. */
+        int nRings;
+        SHPPolygonRingInfo *pasRings;
+    } SHPPolygonComponent;
+
+    /* Result of SHPBuildPolygonComponents(). Owned by the caller through */
+    /* SHPDestroyPolygonComponents(): every array, ring info and component */
+    /* SHPObject is owned by this structure and must not be freed          */
+    /* individually. */
+    typedef struct
+    {
+        /* Number of source rings, i.e. the number of parts of the input. */
+        int nRings;
+
+        /* For each source ring (indexed by source part): the source part */
+        /* index of the smallest ring strictly containing it, or -1 for a */
+        /* root (outer) ring. */
+        int *panParent;
+
+        /* For each source ring (indexed by source part): 0 for a root */
+        /* ring, 1 for a direct hole, 2 for an island, and so on. */
+        int *panDepth;
+
+        /* One component per even-depth ring, ordered by the source part */
+        /* index of the outer ring. Zero for an empty input polygon. */
+        int nComponents;
+        SHPPolygonComponent *pasComponents;
+    } SHPPolygonComponents;
+
+    /* Build the polygon components of a read-only polygon object. */
+    /* Returns 1 on success and 0 on failure, in which case *pppsComponents */
+    /* is set to NULL. If ppszError is non-NULL, *ppszError receives a */
+    /* malloc()'d diagnostic (free() it with free()) or stays NULL. An */
+    /* empty polygon succeeds and yields an empty result. */
+    int SHPAPI_CALL SHPBuildPolygonComponents(
+        const SHPObject *psObject, SHPPolygonComponents **pppsComponents,
+        char **ppszError);
+
+    /* Free a result structure, including all component objects, rings and */
+    /* provenance arrays. Safe on NULL. Does not touch the input object. */
+    void SHPAPI_CALL
+        SHPDestroyPolygonComponents(SHPPolygonComponents *psComponents);
+
     void SHPAPI_CALL SHPClose(SHPHandle hSHP);
     void SHPAPI_CALL SHPWriteHeader(SHPHandle hSHP);
 

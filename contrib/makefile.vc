@@ -6,11 +6,18 @@ LINKARGS =	..\shapelib_i.lib
 
 default:	all
 
-all:	shpcat.exe shpcentrd.exe shpdxf.exe shpinfo.exe
+all:	shpcat.exe shpcomponents.exe shpcentrd.exe shpdxf.exe shpinfo.exe
 
 shpcat.exe:	shpcat.obj shpgeo.obj
 	$(CC) $(CFLAGS) shpcat.obj  $(LINKARGS)
 	if exist $@.manifest mt -manifest $@.manifest -outputresource:$@;1
+
+shpcomponents.exe:	shpcomponents.obj
+	$(CC) $(CFLAGS) shpcomponents.obj $(LINKARGS)
+	if exist $@.manifest mt -manifest $@.manifest -outputresource:$@;1
+
+shpcomponents.obj:	shpcomponents.c
+	$(CC) $(CFLAGS) -c shpcomponents.c
 
 shpcentrd.exe:	shpcentrd.obj shpgeo.obj
 	$(CC) $(CFLAGS) shpcentrd.obj  shpgeo.obj $(LINKARGS)

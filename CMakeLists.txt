@@ -125,6 +125,7 @@ set(lib_SRC
   shpopen.c
   dbfopen.c
   safileio.c
+  shppolygon.c
   shptree.c
   sbnsearch.c
   shapefil.h
