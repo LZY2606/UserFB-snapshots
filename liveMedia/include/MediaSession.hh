@@ -57,6 +57,9 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #ifndef _SRTP_CRYPTOGRAPHIC_CONTEXT_HH
 #include "SRTPCryptographicContext.hh"
 #endif
+#ifndef _RTP_RETRANSMISSION_HH
+#include "RTPRetransmission.hh"
+#endif
 
 class MediaSubsession; // forward
 
@@ -197,6 +200,17 @@ public:
   FramedSource* readSource() { return fReadSource; }
     // This is the source that client sinks read from.  It is usually
     // (but not necessarily) the same as "rtpSource()"
+
+  // RTP retransmission (RFC 4588) state parsed from this subsession's SDP.
+  // "rtxConfigured()" is True only when a complete, internally consistent
+  // rtpmap/fmtp(apt)/ssrc-group:FID declaration was present.  Partial
+  // declarations (rtx without apt or without FID) leave this False, so the
+  // subsession works as an ordinary, non-recovered video stream.
+  Boolean rtxConfigured() const { return fRtxConfigured; }
+  RTPRetransmissionConfig const& rtxConfig() const { return fRtxConfig; }
+  // True when an retransmission declaration was present but contradictory
+  // or illegal; "initiate()" then fails explicitly.
+  Boolean rtxDeclarationHasError() const { return fRtxDeclarationError; }
   void addFilter(FramedFilter* filter);
     // Changes "readSource()" to "filter" (which must have just been created with "readSource()" as its input)
 
@@ -312,6 +326,13 @@ protected:
   Boolean parseSDPAttribute_x_dimensions(char const* sdpLine);
   Boolean parseSDPAttribute_framerate(char const* sdpLine);
   Boolean parseSDPAttribute_key_mgmt(char const* sdpLine);
+  Boolean parseSDPAttribute_ssrc_group(char const* sdpLine);
+
+  // Cross-validate every rtpmap/fmtp/FID line seen for this subsession and,
+  // for a complete consistent declaration, fill in "fRtxConfig" and set
+  // "fRtxConfigured".  Returns False only for an actively contradictory or
+  // illegal retransmission declaration.
+  Boolean finalizeRetransmissionDeclaration();
 
   virtual Boolean createSourceObjects(int useSpecialRTPoffset);
     // create "fRTPSource" and "fReadSource" member objects, after we've been initialized via SDP
@@ -362,6 +383,26 @@ protected:
   RTPSource* fRTPSource; RTCPInstance* fRTCPInstance;
   FramedSource* fReadSource;
   Boolean fReceiveRawMP3ADUs, fReceiveRawJPEGFrames;
+
+  // RTP retransmission (RFC 4588) SDP bookkeeping, validated by
+  // "finalizeRetransmissionDeclaration()" after all of the subsession's SDP
+  // lines have been seen (rtpmap/fmtp/FID may appear in any order):
+  Boolean fRtxConfigured;       // a complete, consistent RTX declaration exists
+  Boolean fRtxDeclarationError; // an RTX declaration was present but illegal/contradictory
+  RTPRetransmissionConfig fRtxConfig;
+  Boolean fRtxRtpmapSeen;
+  unsigned char fRtxRtpmapPT;
+  unsigned fRtxRtpmapFreq;
+  unsigned fRtxRtpmapCount;    // number of rtx rtpmap lines seen
+  struct FmtpAptRecord {
+    unsigned char payloadType;
+    Boolean haveApt;
+    unsigned char apt;
+  } fFmtpAptRecords[8];
+  unsigned fFmtpAptRecordCount;
+  Boolean fFidSeen;
+  u_int32_t fFidPrimarySSRC, fFidRtxSSRC;
+  unsigned fFidLineCount;
 
   // Other fields:
   char* fSessionId; // used by RTSP

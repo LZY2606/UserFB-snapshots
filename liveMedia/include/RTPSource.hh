@@ -44,6 +44,10 @@ public:
 
   virtual Boolean hasBeenSynchronizedUsingRTCP();
 
+  // True only for "MultiFramedRTPSource" (and its subclasses).  Used by the
+  // session layer to attach RTP-retransmission handling without RTTI.
+  virtual Boolean isMultiFramedRTPSource() const { return False; }
+
   Groupsock* RTPgs() const { return fRTPInterface.gs(); }
 
   // Did the teardown classifier PROVE the far end closed this stream (captured FIN/RST)?
@@ -169,6 +173,17 @@ public:
 
   RTPReceptionStats* lookup(u_int32_t SSRC) const;
 
+  // Compute the presentation time (and RTCP-sync flag) that corresponds to
+  // "rtpTimestamp" for the given SSRC, without recording a received packet.
+  // This is used by retransmission recovery: a recovered packet reuses the
+  // primary stream's existing RTP->wall-clock mapping, but must not be counted
+  // a second time on the primary stream (which would hide real packet loss in
+  // the reception reports).  Returns False if no stats record exists yet.
+  Boolean lookupPresentationTime(u_int32_t SSRC, u_int32_t rtpTimestamp,
+				 unsigned timestampFrequency,
+				 struct timeval& resultPresentationTime,
+				 Boolean& resultHasBeenSyncedUsingRTCP) const;
+
 protected: // constructor and destructor, called only by RTPSource:
   friend class RTPSource;
   RTPReceptionStatsDB();
@@ -237,6 +252,12 @@ private:
 			  unsigned packetSize /* payload only */);
   void noteIncomingSR(u_int32_t ntpTimestampMSW, u_int32_t ntpTimestampLSW,
 		      u_int32_t rtpTimestamp);
+  // Like the presentation-time portion of "noteIncomingPacket", but changes
+  // no reception state (no counters, no jitter, no sync-timestamp update).
+  Boolean lookupPresentationTime(u_int32_t rtpTimestamp,
+				 unsigned timestampFrequency,
+				 struct timeval& resultPresentationTime,
+				 Boolean& resultHasBeenSyncedUsingRTCP) const;
   void init(u_int32_t SSRC);
   void initSeqNum(u_int16_t initialSeqNum);
   void reset();

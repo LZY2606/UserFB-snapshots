@@ -25,11 +25,33 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #ifndef _RTP_SOURCE_HH
 #include "RTPSource.hh"
 #endif
+#ifndef _RTP_RETRANSMISSION_HH
+#include "RTPRetransmission.hh"
+#endif
 
 class BufferedPacket; // forward
 class BufferedPacketFactory; // forward
+class RTPRetransmissionStats; // forward
 
 class MultiFramedRTPSource: public RTPSource {
+public:
+  // RTP retransmission (RFC 4588) configuration.  Called once, before network
+  // reading begins, by "MediaSubsession::initiate()".  When the argument is a
+  // valid config, packets on this source's groupsock whose payload type and
+  // SSRC match the retransmission side of the association are unwrapped
+  // (2-byte OSN header removed) and re-entered into the normal reordering
+  // buffer as if they were primary packets carrying the original sequence
+  // number.  Retransmission network statistics are kept separately, so the
+  // primary stream's reception reports are not affected.
+  void enableRetransmission(RTPRetransmissionConfig const& rtxConfig);
+  Boolean retransmissionEnabled() const { return fRetransmissionEnabled; }
+  RTPRetransmissionConfig const& retransmissionConfig() const { return fRtxConfig; }
+
+  // Reception statistics for the outer retransmission stream (RTX SSRC and
+  // the retransmission packets' own sequence numbers).  Returns NULL when
+  // retransmission was not enabled.
+  RTPRetransmissionStats* retransmissionStats() const { return fRtxReceptionStats; }
+
 protected:
   MultiFramedRTPSource(UsageEnvironment& env, Groupsock* RTPgs,
 		       unsigned char rtpPayloadFormat,
@@ -37,6 +59,8 @@ protected:
 		       BufferedPacketFactory* packetFactory = NULL);
       // virtual base class
   virtual ~MultiFramedRTPSource();
+
+  virtual Boolean isMultiFramedRTPSource() const { return True; }
 
   virtual Boolean processSpecialHeader(BufferedPacket* packet,
 				       unsigned& resultSpecialHeaderSize);
@@ -67,6 +91,17 @@ private:
   static void networkReadHandler(MultiFramedRTPSource* source, int /*mask*/);
   void networkReadHandler1();
 
+  // Returns True if "packet" is a retransmission packet matching our
+  // configured association (correct PT and RTX SSRC).  When True, the packet
+  // is validated and unwrapped in place: CSRC/extension/padding are processed
+  // exactly as for primary packets, the 2-byte OSN header is removed, and the
+  // packet descriptor is rewritten to carry the primary SSRC, primary PT,
+  // OSN and the original RTP timestamp/marker.  False means the packet must
+  // go through the normal primary-path validation.
+  Boolean tryHandleRetransmissionPacket(unsigned rtpHdr, unsigned rtpTimestamp,
+					BufferedPacket* bPacket,
+					Boolean& readSuccess);
+
   Boolean fAreDoingNetworkReads;
   BufferedPacket* fPacketReadInProgress;
   Boolean fNeedDelivery;
@@ -76,6 +111,12 @@ private:
 
   // A buffer to (optionally) hold incoming pkts that have been reorderered
   class ReorderingPacketBuffer* fReorderingBuffer;
+
+  // RTP retransmission (RFC 4588) state:
+  Boolean fRetransmissionEnabled;
+  RTPRetransmissionConfig fRtxConfig;
+  RTPRetransmissionStats* fRtxReceptionStats;
+  Boolean fHaveReceivedPrimaryPacket; // gate: no recovery before a valid primary packet
 };
 
 

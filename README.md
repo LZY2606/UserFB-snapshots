@@ -83,6 +83,32 @@ Rate-limited logging in `RTPInterface.cpp` surfaces previously-silent failure mo
 
 All rate limiting goes through the shared helper at `liveMedia/include/RateLimitedLog.hh`.
 
+### Same-session RTP retransmission (RFC 4588 / RFC 5576 FID)
+A receiving `MediaSubsession` can now recover lost video from an SSRC-multiplexed retransmission stream that shares its RTP transport, with no extra media source: the application keeps reading from the same `readSource()`. Recovery is wired up automatically inside `MediaSubsession::initiate()` once a complete, internally consistent declaration has been parsed.
+
+Scope (deliberately narrow): one video subsession, a single primary/RTX payload-type pair, one FID SSRC pair, unicast, H.264 or H.265, with the primary payload type listed first on the `m=` line. NACK sending, an RTX transmitter, standalone RTX sessions, dynamic SSRC discovery, and SRTP are out of scope.
+
+Example SDP (the `rtpmap`, `fmtp`, and `ssrc-group` lines may appear in any order):
+
+```
+m=video 0 RTP/AVP 96 97
+a=rtpmap:96 H264/90000
+a=fmtp:96 packetization-mode=1
+a=rtpmap:97 rtx/90000
+a=fmtp:97 apt=96
+a=ssrc-group:FID 1111 2222
+```
+
+Validation rules enforced at SDP parse time:
+- `apt` must point at the primary payload type, and the primary and RTX clocks must match (90000 here).
+- A complete declaration requires the `rtx` rtpmap, an `apt` fmtp, and a `FID` pair. `rtx` without `apt` or without `FID` leaves recovery off but ordinary video reception intact.
+- Identical repeated `rtpmap`/`fmtp`/`FID` lines are accepted; a different RTX mapping for the same primary stream, contradictory `apt`/clock/FID values, malformed FID groups, or illegal numeric values make `initiate()` fail explicitly rather than silently misbehave.
+- RTX `fmtp` parameters (such as `apt`) never enter the primary codec's attribute table.
+
+Per-packet behaviour: only the configured RTX payload type **and** RTX SSRC are accepted. CSRC lists, header extensions, and padding are validated exactly as on primary packets (a truncated extension or bad padding drops the packet). The 2-byte OSN header is removed and the recovered payload enters the existing reordering buffer under the primary SSRC/payload type with the OSN as its sequence number, preserving the original RTP timestamp and marker. Recovery starts only after a valid primary-SSRC packet has been seen. The reordering buffer's existing duplicate suppression means a recovered packet, a late original, or a repeated OSN each produce the video bytes at most once, including across the 65535→0 sequence wrap.
+
+Statistics stay split: primary packets are accounted under the primary SSRC and its own sequence numbers, so reception reports keep showing the real primary loss; RTX network packets are counted separately under the RTX SSRC and their outer sequence numbers (`MultiFramedRTPSource::retransmissionStats()`), and a recovered packet reuses the primary stream's RTP→presentation-time mapping without a second primary count or any jitter impact.
+
 ## Deployment notes
 
 ### Kernel TCP send-buffer tuning for multi-client fan-out

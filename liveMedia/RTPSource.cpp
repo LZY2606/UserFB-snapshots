@@ -178,6 +178,19 @@ RTPReceptionStats* RTPReceptionStatsDB::lookup(u_int32_t SSRC) const {
   return (RTPReceptionStats*)(fTable->Lookup((char const*)SSRC_long));
 }
 
+Boolean RTPReceptionStatsDB
+::lookupPresentationTime(u_int32_t SSRC, u_int32_t rtpTimestamp,
+			 unsigned timestampFrequency,
+			 struct timeval& resultPresentationTime,
+			 Boolean& resultHasBeenSyncedUsingRTCP) const {
+  RTPReceptionStats* stats = lookup(SSRC);
+  if (stats == NULL) return False;
+
+  return stats->lookupPresentationTime(rtpTimestamp, timestampFrequency,
+				       resultPresentationTime,
+				       resultHasBeenSyncedUsingRTCP);
+}
+
 void RTPReceptionStatsDB::add(u_int32_t SSRC, RTPReceptionStats* stats) {
   long SSRC_long = (long)SSRC;
   fTable->Add((char const*)SSRC_long, stats);
@@ -327,6 +340,27 @@ void RTPReceptionStats
     fSyncTime = timeNow;
   }
 
+  lookupPresentationTime(rtpTimestamp, timestampFrequency,
+			 resultPresentationTime,
+			 resultHasBeenSyncedUsingRTCP);
+
+  // Save these as the new synchronization timestamp & time:
+  fSyncTimestamp = rtpTimestamp;
+  fSyncTime = resultPresentationTime;
+
+  fPreviousPacketRTPTimestamp = rtpTimestamp;
+}
+
+Boolean RTPReceptionStats
+::lookupPresentationTime(u_int32_t rtpTimestamp,
+			 unsigned timestampFrequency,
+			 struct timeval& resultPresentationTime,
+			 Boolean& resultHasBeenSyncedUsingRTCP) const {
+  // If we've never established a synchronization point (no packet, no SR),
+  // there is no mapping to look up.  Recovery packets are gated on having
+  // already received a valid primary packet, so this normally succeeds.
+  if (fSyncTime.tv_sec == 0 && fSyncTime.tv_usec == 0) return False;
+
   int timestampDiff = rtpTimestamp - fSyncTimestamp;
       // Note: This works even if the timestamp wraps around
       // (as long as "int" is 32 bits)
@@ -359,11 +393,7 @@ void RTPReceptionStats
   resultPresentationTime.tv_usec = uSeconds;
   resultHasBeenSyncedUsingRTCP = fHasBeenSynchronized;
 
-  // Save these as the new synchronization timestamp & time:
-  fSyncTimestamp = rtpTimestamp;
-  fSyncTime = resultPresentationTime;
-
-  fPreviousPacketRTPTimestamp = rtpTimestamp;
+  return True;
 }
 
 void RTPReceptionStats::noteIncomingSR(u_int32_t ntpTimestampMSW,

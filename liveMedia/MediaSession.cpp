@@ -223,6 +223,7 @@ Boolean MediaSession::initializeWithSDP(char const* sdpDescription) {
       if (subsession->parseSDPAttribute_source_filter(sdpLine)) continue;
       if (subsession->parseSDPAttribute_x_dimensions(sdpLine)) continue;
       if (subsession->parseSDPAttribute_framerate(sdpLine)) continue;
+      if (subsession->parseSDPAttribute_ssrc_group(sdpLine)) continue;
       if (subsession->parseSDPAttribute_key_mgmt(sdpLine)) continue;
 
       // (Later, check for malformed lines, and other valid SDP lines#####)
@@ -253,6 +254,13 @@ Boolean MediaSession::initializeWithSDP(char const* sdpDescription) {
       subsession->fRTPTimestampFrequency
 	= guessRTPTimestampFrequency(subsession->fMediumName,
 				     subsession->fCodecName);
+    }
+
+    // All rtpmap/fmtp/FID lines for this subsession have now been seen;
+    // cross-validate any retransmission declaration.  A contradiction is
+    // remembered here and makes "initiate()" fail explicitly.
+    if (!subsession->finalizeRetransmissionDeclaration()) {
+      subsession->fRtxDeclarationError = True;
     }
   }
 
@@ -641,6 +649,10 @@ MediaSubsession::MediaSubsession(MediaSession& parent)
     fRTPSocket(NULL), fRTCPSocket(NULL),
     fRTPSource(NULL), fRTCPInstance(NULL), fReadSource(NULL),
     fReceiveRawMP3ADUs(False), fReceiveRawJPEGFrames(False),
+    fRtxConfigured(False), fRtxDeclarationError(False),
+    fRtxRtpmapSeen(False), fRtxRtpmapPT(0xFF), fRtxRtpmapFreq(0),
+    fRtxRtpmapCount(0), fFmtpAptRecordCount(0),
+    fFidSeen(False), fFidPrimarySSRC(0), fFidRtxSSRC(0), fFidLineCount(0),
     fSessionId(NULL) {
   rtpInfo.seqNum = 0; rtpInfo.timestamp = 0; rtpInfo.infoIsNew = False;
 
@@ -856,6 +868,14 @@ Boolean MediaSubsession::initiate(int useSpecialRTPoffset) {
     if (fReadSource == NULL) {
       env().setResultMsg("Failed to create read source");
       break;
+    }
+
+    // If a complete, validated retransmission association was declared, wire
+    // it into the existing RTP source.  The application keeps reading from the
+    // same "readSource()"; no extra media source is introduced.
+    if (fRtxConfigured && fRTPSource != NULL
+	&& fRTPSource->isMultiFramedRTPSource()) {
+      ((MultiFramedRTPSource*)fRTPSource)->enableRetransmission(fRtxConfig);
     }
     
     SRTPCryptographicContext* ourCrypto = NULL;
@@ -1086,17 +1106,37 @@ Boolean MediaSubsession::parseSDPAttribute_rtpmap(char const* sdpLine) {
       || sscanf(sdpLine, "a=rtpmap: %u %s",
 		&rtpmapPayloadFormat, codecName) == 2) {
     parseSuccess = True;
+    // Normalize the codec name to upper case for every rtpmap line (not only
+    // the primary payload type) so retransmission ("rtx") detection works
+    // regardless of which payload type the line describes.
+    {
+      Locale l("POSIX");
+      for (char* p = codecName; *p != '\0'; ++p) *p = toupper(*p);
+    }
     if (rtpmapPayloadFormat == fRTPPayloadFormat) {
       // This "rtpmap" matches our payload format, so set our
       // codec name and timestamp frequency:
-      // (First, make sure the codec name is upper case)
-      {
-	Locale l("POSIX");
-	for (char* p = codecName; *p != '\0'; ++p) *p = toupper(*p);
-      }
       delete[] fCodecName; fCodecName = strDup(codecName);
       fRTPTimestampFrequency = rtpTimestampFrequency;
       fNumChannels = numChannels;
+    }
+
+    // RTP retransmission bookkeeping: remember every "rtx" rtpmap.  An
+    // identical repeat is allowed; a second, different rtx mapping is a
+    // contradiction (one primary stream cannot have two RTX mappings).
+    if (strcmp(codecName, "RTX") == 0) {
+      if (rtpmapPayloadFormat > 127) {
+        fRtxDeclarationError = True;
+      } else if (fRtxRtpmapSeen
+                 && (fRtxRtpmapPT != (unsigned char)rtpmapPayloadFormat
+                     || fRtxRtpmapFreq != rtpTimestampFrequency)) {
+        fRtxDeclarationError = True;
+      } else {
+        fRtxRtpmapSeen = True;
+        fRtxRtpmapPT = (unsigned char)rtpmapPayloadFormat;
+        fRtxRtpmapFreq = rtpTimestampFrequency;
+        ++fRtxRtpmapCount;
+      }
     }
   }
   delete[] codecName;
@@ -1148,10 +1188,66 @@ Boolean MediaSubsession::parseSDPAttribute_range(char const* sdpLine) {
 
 Boolean MediaSubsession::parseSDPAttribute_fmtp(char const* sdpLine) {
   // Check for a "a=fmtp:" line:
-  // Later: Check that payload format number matches; #####
   do {
-    if (strncmp(sdpLine, "a=fmtp:", 7) != 0) break; sdpLine += 7;
-    while (isdigit(*sdpLine)) ++sdpLine;
+    if (strncmp(sdpLine, "a=fmtp:", 7) != 0) break;
+    char const* fmtpLine = sdpLine + 7;
+
+    // Extract the payload type that this fmtp line applies to (the existing
+    // code ignored it; we need it to keep RTX fmtp parameters from polluting
+    // the primary codec's attribute table).
+    unsigned fmtpPayloadType = 0;
+    Boolean haveFmtpPayloadType = False;
+    while (isdigit(*fmtpLine)) {
+      fmtpPayloadType = fmtpPayloadType*10 + (unsigned)(*fmtpLine - '0');
+      haveFmtpPayloadType = True;
+      ++fmtpLine;
+    }
+    if (!haveFmtpPayloadType || fmtpPayloadType > 127) break;
+    sdpLine = fmtpLine;
+
+    // Record any "apt=<pt>" parameter for later cross-validation.  The search
+    // is bounded by the END OF THIS LINE: strstr() alone would run across the
+    // "\r\n" into following SDP lines and falsely attribute the next line's
+    // "apt" to this payload type.
+    char const* lineEnd = sdpLine;
+    while (*lineEnd != '\0' && *lineEnd != '\r' && *lineEnd != '\n') ++lineEnd;
+    for (char const* q = sdpLine; q != NULL && q < lineEnd; ) {
+      q = (char const*)memchr(q, 'a', (size_t)(lineEnd - q));
+      if (q == NULL) break;
+      if ((size_t)(lineEnd - q) >= 3 && q[1] == 'p' && q[2] == 't'
+	  && (q == sdpLine || q[-1] == ';' || q[-1] == ' '
+	      || q[-1] == '\t' || q[-1] == '=')) {
+	char const* e = q + 3;
+	while (e < lineEnd && (*e == ' ' || *e == '\t')) ++e;
+	if (e < lineEnd && *e == '=') {
+	  ++e;
+	  while (e < lineEnd && (*e == ' ' || *e == '\t')) ++e;
+	  unsigned aptValue = 0;
+	  Boolean haveApt = False;
+	  while (e < lineEnd && isdigit(*e)) {
+	    aptValue = aptValue*10 + (unsigned)(*e - '0');
+	    haveApt = True;
+	    ++e;
+	  }
+	  if (haveApt && aptValue <= 127 && fFmtpAptRecordCount < 8) {
+	    fFmtpAptRecords[fFmtpAptRecordCount].payloadType = (unsigned char)fmtpPayloadType;
+	    fFmtpAptRecords[fFmtpAptRecordCount].haveApt = True;
+	    fFmtpAptRecords[fFmtpAptRecordCount].apt = (unsigned char)aptValue;
+	    ++fFmtpAptRecordCount;
+	  }
+	}
+	break;
+      }
+      ++q;
+    }
+
+    // RTX fmtp lines carry only retransmission parameters (at minimum "apt").
+    // They must never populate the primary codec's attribute table.  The
+    // primary codec is the first format on the "m=" line, so any fmtp line
+    // addressed to another payload type is excluded - this stays correct no
+    // matter what order the rtpmap and fmtp lines appear in.
+    Boolean const isRtxFmtp = fmtpPayloadType != fRTPPayloadFormat;
+    if (isRtxFmtp) return True;
 
     // The remaining "sdpLine" should be a sequence of
     //     <name>=<value>;
@@ -1513,4 +1609,134 @@ SDPAttribute::SDPAttribute(char const* strValue, Boolean valueIsHexadecimal)
 SDPAttribute::~SDPAttribute() {
   delete[] fStrValue;
   delete[] fStrValueToLower;
+}
+
+
+Boolean MediaSubsession::parseSDPAttribute_ssrc_group(char const* sdpLine) {
+  // Recognize "a=ssrc-group:FID <primary-ssrc> <rtx-ssrc>" (RFC 5576).
+  // Other grouping semantics (e.g. SIM) are not retransmission associations
+  // and are left unhandled.
+  if (strncmp(sdpLine, "a=ssrc-group:", 13) != 0) return False;
+
+  // Bound the parse to THIS line: scanf's "%s" treats "\r\n" as whitespace and
+  // would otherwise skip the line ending and consume tokens from following
+  // SDP lines, falsely counting them as extra SSRC members.
+  char const* lineEnd = sdpLine;
+  while (*lineEnd != '\0' && *lineEnd != '\r' && *lineEnd != '\n') ++lineEnd;
+  char lineBuf[256];
+  size_t lineLen = (size_t)(lineEnd - sdpLine);
+  if (lineLen >= sizeof lineBuf) lineLen = sizeof lineBuf - 1;
+  memcpy(lineBuf, sdpLine, lineLen);
+  lineBuf[lineLen] = '\0';
+
+  char semantics[16] = {0};
+  char ssrcAStr[32] = {0}, ssrcBStr[32] = {0}, ssrcCStr[32] = {0};
+  int matched = sscanf(lineBuf, "a=ssrc-group:%15s %31s %31s %31s",
+		       semantics, ssrcAStr, ssrcBStr, ssrcCStr);
+  if (matched < 1 || strcmp(semantics, "FID") != 0) return False;
+
+  // The supported scope is exactly one FID pair.
+  if (matched != 3) {
+    fRtxDeclarationError = True;
+    return True;
+  }
+
+  // SSRC identifiers are decimal per RFC 5576; tolerate a "0x" hex prefix too.
+  auto parseSSRC = [](char const* s, unsigned& value) -> Boolean {
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+      char* end = NULL;
+      unsigned long v = strtoul(s + 2, &end, 16);
+      if (end == s + 2 || *end != '\0' || v > 0xFFFFFFFFu) return False;
+      value = (unsigned)v;
+    } else {
+      char* end = NULL;
+      unsigned long v = strtoul(s, &end, 10);
+      if (end == s || *end != '\0' || v > 0xFFFFFFFFu) return False;
+      value = (unsigned)v;
+    }
+    return True;
+  };
+  unsigned ssrcA = 0, ssrcB = 0;
+  if (!parseSSRC(ssrcAStr, ssrcA) || !parseSSRC(ssrcBStr, ssrcB)) {
+    fRtxDeclarationError = True;
+    return True;
+  }
+  if (ssrcA == 0 || ssrcB == 0 || ssrcA == ssrcB) {
+    fRtxDeclarationError = True;
+    return True;
+  }
+  (void)ssrcCStr;
+
+  // An identical repeated declaration is allowed; a different pair is a
+  // contradiction (one primary stream cannot have two FID associations).
+  if (fFidSeen && (fFidPrimarySSRC != ssrcA || fFidRtxSSRC != ssrcB)) {
+    fRtxDeclarationError = True;
+    return True;
+  }
+
+  fFidSeen = True;
+  fFidPrimarySSRC = ssrcA;
+  fFidRtxSSRC = ssrcB;
+  ++fFidLineCount;
+  return True;
+}
+
+Boolean MediaSubsession::finalizeRetransmissionDeclaration() {
+  if (fRtxDeclarationError) return False;
+
+  // No "rtx" rtpmap means there is no retransmission declaration to enable.
+  if (!fRtxRtpmapSeen) return True;
+
+  // Collect the "apt" value(s) declared for the rtx payload type.
+  Boolean haveRtxApt = False;
+  unsigned char rtxApt = 0;
+  for (unsigned i = 0; i < fFmtpAptRecordCount; ++i) {
+    FmtpAptRecord const& rec = fFmtpAptRecords[i];
+    if (rec.payloadType != fRtxRtpmapPT) {
+      // A different payload type declaring "apt=<primary PT>" would be a
+      // second retransmission mapping onto the same primary stream.
+      if (rec.haveApt && rec.apt == fRTPPayloadFormat) return False;
+      continue;
+    }
+    if (!rec.haveApt) continue;
+    if (haveRtxApt && rtxApt != rec.apt) return False; // contradictory apt values
+    haveRtxApt = True;
+    rtxApt = rec.apt;
+  }
+
+  // "rtx" without a usable "apt": do not enable recovery; ordinary video
+  // reception still works.
+  if (!haveRtxApt) return True;
+
+  // The associated payload type must be this subsession's primary PT (the
+  // first payload format on the "m=" line).
+  if (rtxApt != fRTPPayloadFormat) return False;
+
+  // The rtx payload type must be distinct from the primary PT.
+  if (fRtxRtpmapPT == fRTPPayloadFormat) return False;
+
+  // Both sides must use the same RTP timestamp clock rate.
+  if (fRtxRtpmapFreq != fRTPTimestampFrequency) return False;
+
+  // This implementation performs recovery for H.264 and H.265 video only;
+  // for anything else, leave the (otherwise valid) declaration unenabled
+  // rather than failing the whole subsession.
+  if (fMediumName == NULL || strcmp(fMediumName, "video") != 0
+      || fCodecName == NULL
+      || (strcmp(fCodecName, "H264") != 0 && strcmp(fCodecName, "H265") != 0)) {
+    return True;
+  }
+
+  // A FID pair is required to know which SSRCs carry the two streams.
+  // Without it, recovery is simply not enabled.
+  if (!fFidSeen) return True;
+
+  fRtxConfig.primaryPayloadType = fRTPPayloadFormat;
+  fRtxConfig.rtxPayloadType = fRtxRtpmapPT;
+  fRtxConfig.primarySSRC = fFidPrimarySSRC;
+  fRtxConfig.rtxSSRC = fFidRtxSSRC;
+  if (!fRtxConfig.isValid()) return False;
+
+  fRtxConfigured = True;
+  return True;
 }

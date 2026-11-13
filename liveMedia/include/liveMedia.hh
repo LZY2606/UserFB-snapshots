@@ -81,6 +81,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "H263plusVideoRTPSource.hh"
 #include "H264VideoRTPSource.hh"
 #include "H265VideoRTPSource.hh"
+#include "RTPRetransmission.hh"
 #include "MP3FileSource.hh"
 #include "MP3ADU.hh"
 #include "MP3ADUinterleaving.hh"
