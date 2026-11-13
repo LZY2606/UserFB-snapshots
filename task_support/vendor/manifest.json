@@ -1,0 +1,16 @@
+[
+  {
+    "name": "ua-parser-js",
+    "version": "1.0.38",
+    "source": "https://registry.npmjs.org/ua-parser-js/-/ua-parser-js-1.0.38.tgz",
+    "archive_sha256": "8b49d6ee5c554cc66cc336b58d0dcac525733d6a0aa30db9947299928114a8f4",
+    "license": "MIT"
+  },
+  {
+    "name": "path-browserify",
+    "version": "1.0.1",
+    "source": "https://registry.npmjs.org/path-browserify/-/path-browserify-1.0.1.tgz",
+    "archive_sha256": "74ad6965c6f8cb61d17b1798d48095c3238eca5707b517640a12150f17b8f93d",
+    "license": "MIT"
+  }
+]
