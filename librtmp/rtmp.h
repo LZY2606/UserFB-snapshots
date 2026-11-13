@@ -280,6 +280,11 @@ extern "C"
     RTMPPacket m_write;
     RTMPSockBuf m_sb;
     RTMP_LNK Link;
+
+    /* private state for the queued, non-blocking write API;
+     * opaque singly-linked list of RTMP_QueueItem */
+    void *m_queueHead;
+    void *m_queueTail;
   } RTMP;
 
   int RTMP_ParseURL(const char *url, int *protocol, AVal *host,
@@ -319,6 +324,58 @@ extern "C"
   int RTMP_ReadPacket(RTMP *r, RTMPPacket *packet);
   int RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue);
   int RTMP_SendChunk(RTMP *r, RTMPChunk *chunk);
+
+  /* ---- queued, non-blocking write API ----
+   *
+   * These routines are an alternative to the blocking RTMP_SendPacket()
+   * entry point, intended for a single-threaded event loop driving an
+   * already-handshaked, plaintext (non-RTMPE/RTMPS/RTMPT) RTMP publishing
+   * connection.  A packet is first handed to the library with
+   * RTMP_QueuePacket(); its full serialized form is snapshotted into
+   * library-owned memory, so the caller may reuse or free the source
+   * RTMPPacket immediately afterwards.  Whenever the socket reports it is
+   * writable, RTMP_WriteQueue() performs a single non-blocking send of the
+   * pending bytes.  The synchronous RTMP_SendPacket() interface is
+   * unaffected and keeps its existing return-value semantics.
+   *
+   * Usage constraints (see librtmp.3):
+   *  - only one writer may be active: do not mix RTMP_SendPacket() and the
+   *    queued API on the same connection, and do not change
+   *    r->m_outChunkSize while packets are queued;
+   *  - single-threaded use only, do not queue again from a callback
+   *    re-entered during RTMP_WriteQueue().
+   */
+  typedef enum
+  {
+    RTMP_QUEUE_OK = 0,		/* packet snapshotted and queued */
+    RTMP_QUEUE_ERROR = -1	/* invalid argument/type or allocation failure;
+				   no partial packet was queued */
+  } RTMP_QueueResult;
+
+  typedef enum
+  {
+    RTMP_WRITE_DONE = 0,	/* every queued byte has been sent */
+    RTMP_WRITE_AGAIN = 1,	/* EAGAIN/EWOULDBLOCK: data remains, wait for
+				   the socket to become writable and retry */
+    RTMP_WRITE_ERROR = -1	/* send failure: the connection has been closed
+				   and queued snapshots discarded */
+  } RTMP_WriteResult;
+
+  /* Snapshot and enqueue an audio (0x08), video (0x09) or INFO (0x12)
+   * packet.  The source packet, its body and its header area are never
+   * modified and are not retained.  Returns RTMP_QUEUE_OK on success,
+   * RTMP_QUEUE_ERROR otherwise (nothing is left half-queued). */
+  int RTMP_QueuePacket(RTMP *r, const RTMPPacket *packet);
+
+  /* Attempt one non-blocking send of the head of the queue.  A positive
+   * short write consumes exactly that many bytes; EINTR is retried;
+   * EAGAIN/EWOULDBLOCK yields RTMP_WRITE_AGAIN without closing the
+   * connection.  Returns RTMP_WRITE_DONE once the queue is empty. */
+  int RTMP_WriteQueue(RTMP *r);
+
+  /* Non-zero when one or more queued packets still have pending bytes. */
+  int RTMP_HasQueuedData(RTMP *r);
+
   int RTMP_IsConnected(RTMP *r);
   int RTMP_Socket(RTMP *r);
   int RTMP_IsTimedout(RTMP *r);
@@ -358,6 +415,12 @@ extern "C"
   int RTMPSockBuf_Fill(RTMPSockBuf *sb);
   int RTMPSockBuf_Send(RTMPSockBuf *sb, const char *buf, int len);
   int RTMPSockBuf_Close(RTMPSockBuf *sb);
+
+  /* Weak socket-send seam.  The default definition forwards to
+   * RTMPSockBuf_Send(); providing a strong definition of this symbol in a
+   * test interposes a controlled write adapter (short writes, EINTR,
+   * EAGAIN) without a remote peer.  Not part of the stable API. */
+  int RTMP_SockSend(RTMPSockBuf *sb, const char *buf, int len);
 
   int RTMP_SendCreateStream(RTMP *r);
   int RTMP_SendSeek(RTMP *r, int dTime);

@@ -183,6 +183,95 @@ Specify how many days to use the cached SWF info before re-checking. Use
 0 to always check the SWF URL. Note that if the check shows that the
 SWF file has the same modification timestamp as before, it will not be
 retrieved again.
+.SH "QUEUED NON-BLOCKING WRITES"
+The synchronous
+.BR RTMP_SendPacket ()
+entry point treats a full send buffer
+.RB ( EAGAIN / EWOULDBLOCK )
+as a fatal error and closes the connection, so it cannot be driven from a
+single-threaded event loop that waits for socket writability.  For an
+already-handshaked, plaintext RTMP publishing connection (not RTMPT,
+RTMPS/TLS or RTMPE), librtmp provides an independent queued write API:
+.TP
+.BI "int RTMP_QueuePacket(RTMP *" r ", const RTMPPacket *" packet ");"
+Serialize and take a private snapshot of an audio
+.RB ( 0x08 ),
+video
+.RB ( 0x09 )
+or INFO/AMF0 metadata
+.RB ( 0x12 )
+packet, then append it to the per-connection send queue.  On success it
+returns
+.BR RTMP_QUEUE_OK ;
+the library keeps no reference to the caller's
+.BR RTMPPacket ,
+its body or its reserved header area, all of which may be reused or freed
+immediately, and the source packet's
+.B m_headerType
+and body bytes are never modified.  Any other packet type, an invalid
+argument, or an allocation failure returns
+.B RTMP_QUEUE_ERROR
+and leaves no half-queued packet.
+.TP
+.BI "int RTMP_WriteQueue(RTMP *" r ");"
+Attempt one non-blocking send of the queued bytes.  It returns one of three
+distinct states:
+.B RTMP_WRITE_DONE
+when the whole queue has been drained;
+.B RTMP_WRITE_AGAIN
+on
+.BR EAGAIN / EWOULDBLOCK ,
+with the connection kept open and every byte retained (wait for the socket
+to become writable and call again; do not busy-loop); and
+.B RTMP_WRITE_ERROR
+on any other send error, after which the connection is run through its
+normal teardown and the remaining snapshots are discarded.
+.B EINTR
+is retried internally and a positive short write consumes only that many
+bytes.  A byte is consumed at most once, so a write may stop inside a basic
+header, an extended timestamp or a media fragment and still resume
+correctly.
+.TP
+.BI "int RTMP_HasQueuedData(RTMP *" r ");"
+Return non-zero while one or more queued packets still have pending bytes.
+.PP
+Both the queued API and
+.BR RTMP_SendPacket ()
+use the same internal chunk serializer, so the wire format is identical; the
+synchronous interface and its return-value semantics are unchanged.
+.B RTMP_Close ()
+frees every snapshot that was not fully sent, so a later
+.B RTMP_Init ()
+cannot re-send stale bytes.
+.PP
+Usage constraints: the queued API is single-threaded and must not be
+re-entered from a callback invoked during
+.BR RTMP_WriteQueue ();
+while packets are queued the caller must not change
+.B r->m_outChunkSize
+and must not interleave the synchronous
+.BR RTMP_SendPacket ();
+and the connection must remain plaintext (no RTMPE/RTMPS/RTMPT).  A typical
+event-loop integration is:
+.nf
+  RTMP_QueuePacket(r, &pkt);          /* audio/video/metadata */
+  RTMPPacket_Free(&pkt);              /* snapshot owns the data now */
+
+  /* in the "socket writable" event handler: */
+  for (;;) {
+    int rc = RTMP_WriteQueue(r);
+    if (rc == RTMP_WRITE_DONE) {
+      /* remove the writable subscription */
+      break;
+    }
+    if (rc == RTMP_WRITE_AGAIN) {
+      /* keep the writable subscription; wait for the next event */
+      break;
+    }
+    /* RTMP_WRITE_ERROR: the connection is already closed */
+    break;
+  }
+.fi
 .SH EXAMPLES
 An example character string suitable for use with
 .BR RTMP_SetupURL ():

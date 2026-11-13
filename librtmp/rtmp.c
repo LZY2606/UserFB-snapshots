@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 #include <time.h>
 
 #include "rtmp_sys.h"
@@ -136,6 +137,9 @@ static void HandleClientBW(RTMP *r, const RTMPPacket *packet);
 
 static int ReadN(RTMP *r, char *buffer, int n);
 static int WriteN(RTMP *r, const char *buffer, int n);
+/* one non-blocking send attempt: bytes sent (>0), 0 on EAGAIN/EWOULDBLOCK,
+ * -1 on any other error (EINTR is retried internally) */
+static int WriteNBuf(RTMP *r, const char *buffer, int n);
 
 static void DecodeTEA(AVal *key, AVal *text);
 
@@ -1498,6 +1502,56 @@ ReadN(RTMP *r, char *buffer, int n)
   return nOriginalSize - n;
 }
 
+/* Socket-send seam.  By default it just forwards to RTMPSockBuf_Send(); the
+ * weak binding lets the offline write tests interpose a controlled adapter
+ * that scripts short writes, EINTR and EAGAIN without a remote peer.  All
+ * plaintext sends (both the blocking WriteN() loop and the queued write API)
+ * funnel through this single point. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+int
+RTMP_SockSend(RTMPSockBuf *sb, const char *buf, int len)
+{
+  return RTMPSockBuf_Send(sb, buf, len);
+}
+
+/* A single non-blocking write attempt over the (plaintext) socket.
+ * Shared by the blocking WriteN() loop and the queued write API so both
+ * paths push bytes through exactly the same socket call and error handling.
+ * Returns the number of bytes accepted (>0), 0 on EAGAIN/EWOULDBLOCK, or -1
+ * on a hard error; EINTR is retried without consuming bytes. */
+static int
+WriteNBuf(RTMP *r, const char *buffer, int n)
+{
+  int nBytes;
+
+  for (;;)
+    {
+      if (r->Link.protocol & RTMP_FEATURE_HTTP)
+	return -1;	/* queued writes never support RTMPT */
+
+      nBytes = RTMP_SockSend(&r->m_sb, buffer, n);
+
+      if (nBytes >= 0)
+	return nBytes;
+
+      {
+	int sockerr = GetSockError();
+	if (sockerr == EINTR && !RTMP_ctrlC)
+	  continue;
+	if (sockerr == EWOULDBLOCK || sockerr == EAGAIN)
+	  {
+	    r->m_sb.sb_timedout = TRUE;
+	    return 0;
+	  }
+	RTMP_Log(RTMP_LOGERROR, "%s, RTMP send error %d (%d bytes)", __FUNCTION__,
+	    sockerr, n);
+	return -1;
+      }
+    }
+}
+
 static int
 WriteN(RTMP *r, const char *buffer, int n)
 {
@@ -1524,25 +1578,28 @@ WriteN(RTMP *r, const char *buffer, int n)
       if (r->Link.protocol & RTMP_FEATURE_HTTP)
         nBytes = HTTP_Post(r, RTMPT_SEND, ptr, n);
       else
-        nBytes = RTMPSockBuf_Send(&r->m_sb, ptr, n);
-      /*RTMP_Log(RTMP_LOGDEBUG, "%s: %d\n", __FUNCTION__, nBytes); */
+        nBytes = WriteNBuf(r, ptr, n);
 
       if (nBytes < 0)
 	{
-	  int sockerr = GetSockError();
-	  RTMP_Log(RTMP_LOGERROR, "%s, RTMP send error %d (%d bytes)", __FUNCTION__,
-	      sockerr, n);
-
-	  if (sockerr == EINTR && !RTMP_ctrlC)
-	    continue;
-
+	  /* hard error: run the connection through its normal teardown */
 	  RTMP_Close(r);
 	  n = 1;
 	  break;
 	}
 
       if (nBytes == 0)
-	break;
+	{
+	  /* EAGAIN/EWOULDBLOCK: the blocking SendPacket interface has always
+	   * treated a full send buffer as a fatal send error, so keep that
+	   * behavior (and its log line) unchanged.  The queued write API
+	   * calls WriteNBuf() directly and instead returns RTMP_WRITE_AGAIN. */
+	  RTMP_Log(RTMP_LOGERROR, "%s, RTMP send error %d (%d bytes)", __FUNCTION__,
+	      GetSockError(), n);
+	  RTMP_Close(r);
+	  n = 1;
+	  break;
+	}
 
       n -= nBytes;
       ptr += nBytes;
@@ -3892,90 +3949,160 @@ RTMP_SendChunk(RTMP *r, RTMPChunk *chunk)
   return wrote;
 }
 
-int
-RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
+/* =======================================================================
+ * Queued, non-blocking write support
+ *
+ * A queued packet is fully serialized into one library-owned byte buffer
+ * (a "snapshot") at enqueue time.  The same RTMP_EncodePacket() routine
+ * produces the wire bytes for both the blocking RTMP_SendPacket() path and
+ * the queued path, so there is a single chunk-format encoder.
+ * ===================================================================== */
+typedef struct RTMP_QueueItem
+{
+  char *data;		/* serialized wire bytes (library-owned snapshot) */
+  int len;
+  int offset;		/* bytes already handed to the socket */
+  struct RTMP_QueueItem *next;
+} RTMP_QueueItem;
+
+typedef struct RTMP_EncodeBuffer
+{
+  char *data;
+  int len;
+} RTMP_EncodeBuffer;
+
+static void
+RTMP_ClearQueue(RTMP *r)
+{
+  RTMP_QueueItem *item = (RTMP_QueueItem *)r->m_queueHead;
+  while (item)
+    {
+      RTMP_QueueItem *next = item->next;
+      free(item->data);
+      free(item);
+      item = next;
+    }
+  r->m_queueHead = NULL;
+  r->m_queueTail = NULL;
+}
+
+/* Grow r->m_vecChannelsOut so packet channel is covered.  Mirrors the
+ * allocation logic historically embedded in RTMP_SendPacket(). */
+static int
+RTMP_EnsureChannelOut(RTMP *r, int channel)
+{
+  if (channel >= r->m_channelsAllocatedOut)
+    {
+      int n = channel + 10;
+      RTMPPacket **packets = realloc(r->m_vecChannelsOut,
+				     sizeof(RTMPPacket *) * n);
+      if (!packets)
+	{
+	  free(r->m_vecChannelsOut);
+	  r->m_vecChannelsOut = NULL;
+	  r->m_channelsAllocatedOut = 0;
+	  return FALSE;
+	}
+      r->m_vecChannelsOut = packets;
+      memset(r->m_vecChannelsOut + r->m_channelsAllocatedOut, 0,
+	     sizeof(RTMPPacket *) * (n - r->m_channelsAllocatedOut));
+      r->m_channelsAllocatedOut = n;
+    }
+  return TRUE;
+}
+
+/* Serialize one packet into out->data using the standard RTMP chunk format:
+ * the first (possibly compressed) header, then outChunkSize-sized body
+ * chunks separated by fmt-3 continuation headers, with extended timestamps
+ * preserved exactly.  The source packet is never modified.
+ *
+ * When updateHistory is true the per-channel compression state in r is
+ * advanced and the packet becomes the reference for the next packet on the
+ * same channel.  The caller owns out->data on success and must free it. */
+static int
+RTMP_EncodePacket(RTMP *r, const RTMPPacket *packet,
+		  RTMP_EncodeBuffer *out, int updateHistory)
 {
   const RTMPPacket *prevPacket;
   uint32_t last = 0;
   int nSize;
   int hSize, cSize;
-  char *header, *hptr, *hend, hbuf[RTMP_MAX_HEADER_SIZE], c;
+  char c;
   uint32_t t;
-  char *buffer, *tbuf = NULL, *toff = NULL;
-  int nChunkSize;
-  int tlen;
+  uint32_t bodySize = packet->m_nBodySize;
+  int nChunkSize = r->m_outChunkSize;
+  char *wp;
+  size_t total;
+  uint8_t headerType = packet->m_headerType;
 
-  if (packet->m_nChannel >= r->m_channelsAllocatedOut)
+  if (headerType > 3)	/* sanity */
     {
-      int n = packet->m_nChannel + 10;
-      RTMPPacket **packets = realloc(r->m_vecChannelsOut, sizeof(RTMPPacket*) * n);
-      if (!packets) {
-        free(r->m_vecChannelsOut);
-        r->m_vecChannelsOut = NULL;
-        r->m_channelsAllocatedOut = 0;
-        return FALSE;
-      }
-      r->m_vecChannelsOut = packets;
-      memset(r->m_vecChannelsOut + r->m_channelsAllocatedOut, 0, sizeof(RTMPPacket*) * (n - r->m_channelsAllocatedOut));
-      r->m_channelsAllocatedOut = n;
-    }
-
-  prevPacket = r->m_vecChannelsOut[packet->m_nChannel];
-  if (prevPacket && packet->m_headerType != RTMP_PACKET_SIZE_LARGE)
-    {
-      /* compress a bit by using the prev packet's attributes */
-      if (prevPacket->m_nBodySize == packet->m_nBodySize
-	  && prevPacket->m_packetType == packet->m_packetType
-	  && packet->m_headerType == RTMP_PACKET_SIZE_MEDIUM)
-	packet->m_headerType = RTMP_PACKET_SIZE_SMALL;
-
-      if (prevPacket->m_nTimeStamp == packet->m_nTimeStamp
-	  && packet->m_headerType == RTMP_PACKET_SIZE_SMALL)
-	packet->m_headerType = RTMP_PACKET_SIZE_MINIMUM;
-      last = prevPacket->m_nTimeStamp;
-    }
-
-  if (packet->m_headerType > 3)	/* sanity */
-    {
-      RTMP_Log(RTMP_LOGERROR, "sanity failed!! trying to send header of type: 0x%02x.",
-	  (unsigned char)packet->m_headerType);
+      RTMP_Log(RTMP_LOGERROR,
+	       "sanity failed!! trying to send header of type: 0x%02x.",
+	       (unsigned char)headerType);
       return FALSE;
     }
 
-  nSize = packetSize[packet->m_headerType];
-  hSize = nSize; cSize = 0;
-  t = packet->m_nTimeStamp - last;
+  if (bodySize > 0 && !packet->m_body)
+    return FALSE;
+  if (nChunkSize <= 0)
+    return FALSE;
 
-  if (packet->m_body)
+  if (!RTMP_EnsureChannelOut(r, packet->m_nChannel))
+    return FALSE;
+
+  prevPacket = r->m_vecChannelsOut[packet->m_nChannel];
+  if (prevPacket && headerType != RTMP_PACKET_SIZE_LARGE)
     {
-      header = packet->m_body - nSize;
-      hend = packet->m_body;
+      /* compress a bit by using the prev packet's attributes */
+      if (prevPacket->m_nBodySize == bodySize
+	  && prevPacket->m_packetType == packet->m_packetType
+	  && headerType == RTMP_PACKET_SIZE_MEDIUM)
+	headerType = RTMP_PACKET_SIZE_SMALL;
+
+      if (prevPacket->m_nTimeStamp == packet->m_nTimeStamp
+	  && headerType == RTMP_PACKET_SIZE_SMALL)
+	headerType = RTMP_PACKET_SIZE_MINIMUM;
+      last = prevPacket->m_nTimeStamp;
     }
-  else
-    {
-      header = hbuf + 6;
-      hend = hbuf + sizeof(hbuf);
-    }
+
+  nSize = packetSize[headerType];
+  hSize = nSize;
+  cSize = 0;
+  t = packet->m_nTimeStamp - last;
 
   if (packet->m_nChannel > 319)
     cSize = 2;
   else if (packet->m_nChannel > 63)
     cSize = 1;
   if (cSize)
-    {
-      header -= cSize;
-      hSize += cSize;
-    }
+    hSize += cSize;
 
   if (t >= 0xffffff)
     {
-      header -= 4;
       hSize += 4;
       RTMP_Log(RTMP_LOGWARNING, "Larger timestamp than 24-bit: 0x%x", t);
     }
 
-  hptr = header;
-  c = packet->m_headerType << 6;
+  /* total wire length: first header + body + one continuation header per
+   * additional chunk */
+  {
+    int chunks = bodySize ? (int)(((unsigned)bodySize + nChunkSize - 1)
+				  / nChunkSize) : 1;
+    int contHdr = 1 + cSize + (t >= 0xffffff ? 4 : 0);
+    total = (size_t)hSize + bodySize + (size_t)(chunks - 1) * contHdr;
+  }
+  if (total > (size_t)INT_MAX)
+    return FALSE;
+
+  out->data = calloc(1, total);
+  if (!out->data)
+    return FALSE;
+  out->len = (int)total;
+  wp = out->data;
+
+  /* ---- first chunk header ---- */
+  c = headerType << 6;
   switch (cSize)
     {
     case 0:
@@ -3987,112 +4114,121 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
       c |= 1;
       break;
     }
-  *hptr++ = c;
+  *wp++ = c;
   if (cSize)
     {
       int tmp = packet->m_nChannel - 64;
-      *hptr++ = tmp & 0xff;
+      *wp++ = tmp & 0xff;
       if (cSize == 2)
-	*hptr++ = tmp >> 8;
+	*wp++ = tmp >> 8;
     }
 
   if (nSize > 1)
-    {
-      hptr = AMF_EncodeInt24(hptr, hend, t > 0xffffff ? 0xffffff : t);
-    }
+    wp = AMF_EncodeInt24(wp, out->data + total,
+			 t > 0xffffff ? 0xffffff : t);
 
   if (nSize > 4)
     {
-      hptr = AMF_EncodeInt24(hptr, hend, packet->m_nBodySize);
-      *hptr++ = packet->m_packetType;
+      wp = AMF_EncodeInt24(wp, out->data + total, bodySize);
+      *wp++ = packet->m_packetType;
     }
 
   if (nSize > 8)
-    hptr += EncodeInt32LE(hptr, packet->m_nInfoField2);
+    wp += EncodeInt32LE(wp, packet->m_nInfoField2);
 
   if (t >= 0xffffff)
-    hptr = AMF_EncodeInt32(hptr, hend, t);
+    wp = AMF_EncodeInt32(wp, out->data + total, t);
 
-  nSize = packet->m_nBodySize;
-  buffer = packet->m_body;
-  nChunkSize = r->m_outChunkSize;
+  /* ---- body, split into chunks with fmt-3 continuation headers ---- */
+  {
+    const char *bp = packet->m_body;
+    uint32_t remaining = bodySize;
+    int thisChunk = nChunkSize;
 
-  RTMP_Log(RTMP_LOGDEBUG2, "%s: fd=%d, size=%d", __FUNCTION__, r->m_sb.sb_socket,
-      nSize);
-  /* send all chunks in one HTTP request */
-  if (r->Link.protocol & RTMP_FEATURE_HTTP)
+    while (wp < out->data + total)
+      {
+	if (remaining == 0)
+	  break;
+	if ((int)remaining < thisChunk)
+	  thisChunk = (int)remaining;
+
+	memcpy(wp, bp, thisChunk);
+	wp += thisChunk;
+	bp += thisChunk;
+	remaining -= thisChunk;
+
+	if (remaining > 0)
+	  {
+	    char chdr;
+	    chdr = 0xc0 | c;
+	    *wp++ = chdr;
+	    if (cSize)
+	      {
+		int tmp = packet->m_nChannel - 64;
+		*wp++ = tmp & 0xff;
+		if (cSize == 2)
+		  *wp++ = tmp >> 8;
+	      }
+	    if (t >= 0xffffff)
+	      wp = AMF_EncodeInt32(wp, out->data + total, t);
+	  }
+      }
+  }
+
+  if (wp != out->data + total)
     {
-      int chunks = (nSize+nChunkSize-1) / nChunkSize;
-      if (chunks > 1)
-        {
-	  tlen = chunks * (cSize + 1) + nSize + hSize;
-	  tbuf = malloc(tlen);
-	  if (!tbuf)
-	    return FALSE;
-	  toff = tbuf;
-	}
+      /* internal accounting error: never return a truncated snapshot */
+      free(out->data);
+      out->data = NULL;
+      out->len = 0;
+      return FALSE;
     }
-  while (nSize + hSize)
+
+  if (updateHistory)
     {
-      int wrote;
-
-      if (nSize < nChunkSize)
-	nChunkSize = nSize;
-
-      RTMP_LogHexString(RTMP_LOGDEBUG2, (uint8_t *)header, hSize);
-      RTMP_LogHexString(RTMP_LOGDEBUG2, (uint8_t *)buffer, nChunkSize);
-      if (tbuf)
-        {
-	  memcpy(toff, header, nChunkSize + hSize);
-	  toff += nChunkSize + hSize;
-	}
-      else
-        {
-	  wrote = WriteN(r, header, nChunkSize + hSize);
-	  if (!wrote)
-	    return FALSE;
-	}
-      nSize -= nChunkSize;
-      buffer += nChunkSize;
-      hSize = 0;
-
-      if (nSize > 0)
+      if (!r->m_vecChannelsOut[packet->m_nChannel])
+	r->m_vecChannelsOut[packet->m_nChannel] =
+	  malloc(sizeof(RTMPPacket));
+      if (!r->m_vecChannelsOut[packet->m_nChannel])
 	{
-	  header = buffer - 1;
-	  hSize = 1;
-	  if (cSize)
-	    {
-	      header -= cSize;
-	      hSize += cSize;
-	    }
-          if (t >= 0xffffff)
-            {
-              header -= 4;
-              hSize += 4;
-            }
-	  *header = (0xc0 | c);
-	  if (cSize)
-	    {
-	      int tmp = packet->m_nChannel - 64;
-	      header[1] = tmp & 0xff;
-	      if (cSize == 2)
-		header[2] = tmp >> 8;
-	    }
-          if (t >= 0xffffff)
-            {
-              char* extendedTimestamp = header + 1 + cSize;
-              AMF_EncodeInt32(extendedTimestamp, extendedTimestamp + 4, t);
-            }
+	  /* cannot record the compression reference: fail outright so no
+	   * half-serialized / history-inconsistent packet is queued */
+	  free(out->data);
+	  out->data = NULL;
+	  out->len = 0;
+	  return FALSE;
 	}
+      memcpy(r->m_vecChannelsOut[packet->m_nChannel], packet,
+	     sizeof(RTMPPacket));
     }
-  if (tbuf)
+
+  return TRUE;
+}
+
+int
+RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
+{
+  RTMP_EncodeBuffer enc;
+  int ok;
+
+  if (packet->m_headerType > 3)	/* sanity */
     {
-      int wrote = WriteN(r, tbuf, toff-tbuf);
-      free(tbuf);
-      tbuf = NULL;
-      if (!wrote)
-        return FALSE;
+      RTMP_Log(RTMP_LOGERROR,
+	       "sanity failed!! trying to send header of type: 0x%02x.",
+	       (unsigned char)packet->m_headerType);
+      return FALSE;
     }
+
+  if (!RTMP_EncodePacket(r, packet, &enc, TRUE))
+    return FALSE;
+
+  /* WriteN() already loops over short writes (via WriteNBuf) and selects
+   * HTTP_Post for RTMPT, so one call pushes the whole serialized message. */
+  ok = WriteN(r, enc.data, enc.len);
+  free(enc.data);
+
+  if (!ok)
+    return FALSE;
 
   /* we invoked a remote method */
   if (packet->m_packetType == RTMP_PACKET_TYPE_INVOKE)
@@ -4103,18 +4239,153 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
       AMF_DecodeString(ptr, &method);
       RTMP_Log(RTMP_LOGDEBUG, "Invoking %s", method.av_val);
       /* keep it in call queue till result arrives */
-      if (queue) {
-        int txn;
-        ptr += 3 + method.av_len;
-        txn = (int)AMF_DecodeNumber(ptr);
-	AV_queue(&r->m_methodCalls, &r->m_numCalls, &method, txn);
-      }
+      if (queue)
+	{
+	  int txn;
+	  ptr += 3 + method.av_len;
+	  txn = (int)AMF_DecodeNumber(ptr);
+	  AV_queue(&r->m_methodCalls, &r->m_numCalls, &method, txn);
+	}
     }
 
-  if (!r->m_vecChannelsOut[packet->m_nChannel])
-    r->m_vecChannelsOut[packet->m_nChannel] = malloc(sizeof(RTMPPacket));
-  memcpy(r->m_vecChannelsOut[packet->m_nChannel], packet, sizeof(RTMPPacket));
   return TRUE;
+}
+
+int
+RTMP_QueuePacket(RTMP *r, const RTMPPacket *packet)
+{
+  RTMP_QueueItem *item;
+  RTMP_EncodeBuffer enc;
+
+  if (!r || !packet)
+    return RTMP_QUEUE_ERROR;
+
+  /* only media and AMF0 metadata packets may be queued */
+  if (packet->m_packetType != RTMP_PACKET_TYPE_AUDIO
+      && packet->m_packetType != RTMP_PACKET_TYPE_VIDEO
+      && packet->m_packetType != RTMP_PACKET_TYPE_INFO)
+    return RTMP_QUEUE_ERROR;
+
+  if (packet->m_headerType > 3
+      || packet->m_nChannel < 0
+      || packet->m_nChannel >= RTMP_CHANNELS)
+    return RTMP_QUEUE_ERROR;
+
+  if (packet->m_nBodySize > 0 && !packet->m_body)
+    return RTMP_QUEUE_ERROR;
+
+  /* the queued API is defined for an already-handshaked, plaintext RTMP
+   * connection only (not RTMPT, TLS/RTMPS or encrypted RTMPE) */
+  if (r->Link.protocol & (RTMP_FEATURE_HTTP | RTMP_FEATURE_SSL
+			  | RTMP_FEATURE_ENC))
+    return RTMP_QUEUE_ERROR;
+#ifdef CRYPTO
+  if (r->Link.rc4keyOut)
+    return RTMP_QUEUE_ERROR;
+#endif
+#if defined(CRYPTO) && !defined(NO_SSL)
+  if (r->m_sb.sb_ssl)
+    return RTMP_QUEUE_ERROR;
+#endif
+
+  /* allocate the queue node first so a later allocation failure cannot
+   * leave the compression history advanced without a queued packet */
+  item = malloc(sizeof(RTMP_QueueItem));
+  if (!item)
+    return RTMP_QUEUE_ERROR;
+
+  if (!RTMP_EncodePacket(r, packet, &enc, TRUE))
+    {
+      free(item);
+      return RTMP_QUEUE_ERROR;
+    }
+
+  item->data = enc.data;
+  item->len = enc.len;
+  item->offset = 0;
+  item->next = NULL;
+
+  if (r->m_queueTail)
+    ((RTMP_QueueItem *)r->m_queueTail)->next = item;
+  else
+    r->m_queueHead = item;
+  r->m_queueTail = item;
+
+  return RTMP_QUEUE_OK;
+}
+
+int
+RTMP_WriteQueue(RTMP *r)
+{
+  RTMP_QueueItem *item;
+
+  if (!r)
+    return RTMP_WRITE_ERROR;
+
+  item = (RTMP_QueueItem *)r->m_queueHead;
+  if (!item)
+    return RTMP_WRITE_DONE;
+
+  /* queued writes are defined for plaintext RTMP only */
+  if (r->Link.protocol & (RTMP_FEATURE_HTTP | RTMP_FEATURE_SSL
+			  | RTMP_FEATURE_ENC))
+    {
+      RTMP_Close(r);
+      return RTMP_WRITE_ERROR;
+    }
+#ifdef CRYPTO
+  if (r->Link.rc4keyOut)
+    {
+      RTMP_Close(r);
+      return RTMP_WRITE_ERROR;
+    }
+#endif
+#if defined(CRYPTO) && !defined(NO_SSL)
+  if (r->m_sb.sb_ssl)
+    {
+      RTMP_Close(r);
+      return RTMP_WRITE_ERROR;
+    }
+#endif
+
+  for (;;)
+    {
+      int n = WriteNBuf(r, item->data + item->offset,
+			item->len - item->offset);
+
+      if (n > 0)
+	{
+	  item->offset += n;
+	  if (item->offset < item->len)
+	    continue;		/* short write: keep draining this snapshot */
+
+	  /* snapshot fully consumed */
+	  r->m_queueHead = item->next;
+	  if (!r->m_queueHead)
+	    r->m_queueTail = NULL;
+	  free(item->data);
+	  free(item);
+
+	  item = (RTMP_QueueItem *)r->m_queueHead;
+	  if (!item)
+	    return RTMP_WRITE_DONE;
+	  continue;
+	}
+
+      if (n == 0)
+	return RTMP_WRITE_AGAIN;	/* EAGAIN/EWOULDBLOCK: keep the connection */
+
+      /* hard send error: run the connection through normal teardown, which
+       * also discards every unsent snapshot */
+      RTMP_Close(r);
+      return RTMP_WRITE_ERROR;
+    }
+}
+
+int
+RTMP_HasQueuedData(RTMP *r)
+{
+  return r != NULL && r->m_queueHead != NULL;
 }
 
 int
@@ -4173,6 +4444,9 @@ CloseInternal(RTMP *r, int reconnect)
 
   r->m_write.m_nBytesRead = 0;
   RTMPPacket_Free(&r->m_write);
+
+  /* discard any queued write snapshots that never made it onto the wire */
+  RTMP_ClearQueue(r);
 
   for (i = 0; i < r->m_channelsAllocatedIn; i++)
     {
