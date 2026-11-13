@@ -1287,6 +1287,20 @@ function MediaPlayer() {
     }
 
     /**
+     * Returns the service location of the most recently accepted media segment for the given type.
+     * Returns null if no media segment has been accepted yet and an empty string for the unnamed
+     * location. Relevant when streaming.abr.throughput.isolateByServiceLocation is enabled.
+     *
+     * @param {MediaType} type
+     * @return {string|null} value
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getCurrentServiceLocation(type = Constants.VIDEO) {
+        return throughputController ? throughputController.getCurrentServiceLocation(type) : null;
+    }
+
+    /**
      * Sets whether withCredentials on XHR requests for a particular request
      * type is true or false
      *
@@ -2813,6 +2827,7 @@ function MediaPlayer() {
         getBufferLength,
         getCurrentLiveLatency,
         getCurrentRepresentationForType,
+        getCurrentServiceLocation,
         getCurrentSteeringResponseData,
         getCurrentTextTrackIndex,
         getCurrentTrackFor,

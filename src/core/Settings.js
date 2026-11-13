@@ -268,6 +268,7 @@ import Events from './events/Events.js';
  *                 throughput: {
  *                     averageCalculationMode: Constants.THROUGHPUT_CALCULATION_MODES.EWMA,
  *                     lowLatencyDownloadTimeCalculationMode: Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING,
+ *                     isolateByServiceLocation: false,
  *                     useResourceTimingApi: true,
  *                     useNetworkInformationApi: {
  *                         xhr: false,
@@ -846,6 +847,12 @@ import Events from './events/Events.js';
  * For exponential weighted moving average calculation the default values can be changed in "ewma"
  * @property {string} [lowLatencyDownloadTimeCalculationMode=Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING]
  * Defines the effective download time estimation method we use for low latency streams that utilize the Fetch API and chunked transfer coding
+ * @property {boolean} [isolateByServiceLocation=false]
+ * If enabled, throughput, latency and EWMA estimates for media downloads are isolated per service location. The most recently accepted media segment
+ * for a media type defines the current service location. Measurements from other locations are never mixed into the estimate, so switching to a
+ * different CDN immediately uses only the samples collected on that CDN. Switching back restores the previously collected samples.
+ *
+ * The option has to be configured before initialize() is called. The global MPD throughput handling is preserved and only applies to media downloads.
  * @property {boolean} [useResourceTimingApi=true]
  * If set to true the ResourceTimingApi is used to derive the download time and the number of downloaded bytes.
  * This option has no effect for low latency streaming as the download time equals the segment duration in most of the cases and therefor does not provide reliable values
@@ -876,6 +883,26 @@ import Events from './events/Events.js';
  * - `latencySlowHalfLifeCount`: Number by which the weight of the current latency is divided, see ThroughputModel._updateEwmaValues
  * - `latencyFastHalfLifeCount`: Number by which the weight of the current latency is divided, see ThroughputModel._updateEwmaValues
  * - `weightDownloadTimeMultiplicationFactor`: This value is multiplied with the download time in milliseconds to derive the weight for the EWMA calculation.
+ * @example
+ *
+ * // Isolate throughput estimates per service location (e.g. when switching between CDNs)
+ * // This has to be configured before player.initialize() is called.
+ * player.updateSettings({
+ *     streaming: {
+ *         abr: {
+ *             throughput: {
+ *                 isolateByServiceLocation: true,
+ *                 sampleSettings: {
+ *                     maxMeasurementsToKeep: 20
+ *                 }
+ *             }
+ *         }
+ *     }
+ * });
+ *
+ * // Audio and video keep separate current locations. The value is null before the first
+ * // media sample was accepted and an empty string for segments without a service location.
+ * const currentVideoLocation = player.getCurrentServiceLocation(Constants.VIDEO);
  */
 
 /**
@@ -1322,6 +1349,7 @@ function Settings() {
                 throughput: {
                     averageCalculationMode: Constants.THROUGHPUT_CALCULATION_MODES.EWMA,
                     lowLatencyDownloadTimeCalculationMode: Constants.LOW_LATENCY_DOWNLOAD_TIME_CALCULATION_MODE.MOOF_PARSING,
+                    isolateByServiceLocation: false,
                     useResourceTimingApi: true,
                     useNetworkInformationApi: {
                         xhr: false,

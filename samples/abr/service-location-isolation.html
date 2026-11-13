@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Isolate Throughput by Service Location</title>
+
+    <script src="../../dist/modern/umd/dash.all.debug.js"></script>
+
+    <!-- Bootstrap core CSS -->
+    <link href="../lib/bootstrap/bootstrap.min.css" rel="stylesheet">
+    <link href="../lib/main.css" rel="stylesheet">
+
+    <style>
+        video {
+            width: 640px;
+            height: 360px;
+        }
+    </style>
+
+    <script class="code">
+        function init() {
+            var video,
+                player,
+                url = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd";
+
+            video = document.querySelector("video");
+            player = dashjs.MediaPlayer().create();
+
+            // The option has to be configured before initialize() is called.
+            // With this enabled the most recent media segment defines the current service
+            // location per media type. Throughput, latency and EWMA estimates only use the
+            // samples collected on that location.
+            player.updateSettings({
+                streaming: {
+                    abr: {
+                        throughput: {
+                            isolateByServiceLocation: true,
+                            sampleSettings: {
+                                maxMeasurementsToKeep: 20
+                            }
+                        }
+                    }
+                }
+            });
+
+            player.initialize(video, url, true);
+        }
+    </script>
+</head>
+<body>
+
+<main>
+    <div class="container py-4">
+        <header class="pb-3 mb-4 border-bottom">
+            <img class=""
+                 src="../lib/img/dashjs-logo.png"
+                 width="200">
+        </header>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="h-100 p-5 bg-light border rounded-3">
+                    <h3>Isolation of throughput estimates per service location</h3>
+                    <p>When a stream is served from multiple CDNs, measurements from a fast location
+                        should not be used to select a high bitrate after switching to a slow one.
+                        Enabling <code>streaming.abr.throughput.isolateByServiceLocation</code> keeps
+                        the throughput, latency and EWMA estimates per service location. Switching
+                        back to a location restores its original samples.</p>
+                    <p>Use <code>player.getCurrentServiceLocation(dashjs.Constants.VIDEO)</code> to query
+                        the location of the most recently accepted media segment. The value is
+                        <code>null</code> before the first media sample and an empty string for
+                        segments without a service location.</p>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <video controls="true"></video>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <div id="code-output"></div>
+            </div>
+        </div>
+        <footer class="pt-3 mt-4 text-muted border-top">
+            &copy; DASH-IF
+        </footer>
+    </div>
+</main>
+
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        init();
+    });
+</script>
+<script src="../highlighter.js"></script>
+</body>
+</html>

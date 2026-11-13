@@ -461,6 +461,21 @@ function ThroughputController() {
         return throughputModel.getThroughputDict(mediaType);
     }
 
+    /**
+     * Returns the service location of the most recently accepted media segment for the provided
+     * media type. Returns null if no media segment has been accepted yet and an empty string for
+     * the unnamed location. Only meaningful when isolateByServiceLocation is enabled.
+     * @param {string} mediaType
+     * @return {string|null}
+     */
+    function getCurrentServiceLocation(mediaType) {
+        if (!throughputModel) {
+            return null;
+        }
+
+        return throughputModel.getCurrentServiceLocation(mediaType);
+    }
+
     function reset() {
         throughputModel.reset();
         _resetEvents();
@@ -472,6 +487,7 @@ function ThroughputController() {
         getAverageThroughput,
         getByteSizeWeightedArithmeticMean,
         getByteSizeWeightedHarmonicMean,
+        getCurrentServiceLocation,
         getDateWeightedArithmeticMean,
         getDateWeightedHarmonicMean,
         getEwma,

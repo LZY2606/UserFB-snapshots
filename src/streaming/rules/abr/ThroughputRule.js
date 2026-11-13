@@ -74,6 +74,10 @@ function ThroughputRule(config) {
                         latency,
                         message:`[ThroughputRule]: Switching to Representation with bitrate ${switchRequest.representation ? switchRequest.representation.bitrateInKbit : 'n/a'} kbit/s. Throughput: ${throughput}`
                     };
+                    const serviceLocation = typeof throughputController.getCurrentServiceLocation === 'function' ? throughputController.getCurrentServiceLocation(mediaType) : null;
+                    if (serviceLocation !== null) {
+                        switchRequest.reason.serviceLocation = serviceLocation;
+                    }
                     scheduleController.setTimeToLoadDelay(0);
                 }
             }

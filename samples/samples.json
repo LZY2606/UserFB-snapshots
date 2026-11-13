@@ -276,6 +276,17 @@
           "Video",
           "Audio"
         ]
+      },
+      {
+        "title": "Isolate throughput by service location",
+        "description": "Example showing how to keep throughput estimates separate per service location when switching between CDNs.",
+        "href": "abr/service-location-isolation.html",
+        "image": "lib/img/bbb-1.jpg",
+        "labels": [
+          "VoD",
+          "Video",
+          "Audio"
+        ]
       }
     ]
   },

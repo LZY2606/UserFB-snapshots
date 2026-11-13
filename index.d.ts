@@ -1851,6 +1851,7 @@ declare namespace dashjs {
                 throughput?: {
                     averageCalculationMode?: ThroughputCalculationModes,
                     lowLatencyDownloadTimeCalculationMode?: LowLatencyDownloadTimeCalculationModes,
+                    isolateByServiceLocation?: boolean,
                     useResourceTimingApi?: boolean,
                     useNetworkInformationApi?: {
                         xhr?: boolean,
@@ -2074,6 +2075,8 @@ declare namespace dashjs {
         getAverageThroughput(type: MediaType, calculationMode?: string | null, sampleSize?: number): number;
 
         getBufferLength(type: MediaType): number;
+
+        getCurrentServiceLocation(type: MediaType): string | null;
 
         getCurrentLiveLatency(): number;
 
@@ -3447,6 +3450,8 @@ declare namespace dashjs {
 
         getByteSizeWeightedHarmonicMean(dict: ThroughputDictEntry[], sampleSize: number): number
 
+        getCurrentServiceLocation(mediaType: MediaType): string | null
+
         getDateWeightedArithmeticMean(dict: ThroughputDictEntry[], sampleSize: number): number
 
         getDateWeightedHarmonicMean(dict: ThroughputDictEntry[], sampleSize: number): number
@@ -3904,6 +3909,8 @@ declare namespace dashjs {
 
     export interface ThroughputModel {
         addEntry(mediaType: MediaType, httpRequest: HTTPRequest): void;
+
+        getCurrentServiceLocation(mediaType: MediaType): string | null;
 
         getThroughputDict(mediaType: MediaType): ThroughputDictEntry;
 
