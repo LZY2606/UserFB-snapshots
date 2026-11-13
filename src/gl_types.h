@@ -617,6 +617,21 @@ enum
 #error "PGL_CHUNK_PRIMS must hold one clipped triangle"
 #endif
 
+// Tile-based CPU backend (PGL_TILE_THREADS). Tiles are 16x16 pixel rectangles
+// numbered from the bottom-left of the draw surface; edge tiles may be partial.
+#define PGL_TILE_SIZE 16
+
+// Debug hooks for the double-batched tile pipeline. Both fire on the calling
+// thread: READY when a batch is published, RETIRED after every reference to it
+// has ended. The sequence is continuous from 0 for the life of the context.
+// The hooks only observe events; they must not call back into the drawing API.
+#ifndef PGL_TILE_BATCH_READY
+#define PGL_TILE_BATCH_READY(sequence) ((void)0)
+#endif
+#ifndef PGL_TILE_BATCH_RETIRED
+#define PGL_TILE_BATCH_RETIRED(sequence) ((void)0)
+#endif
+
 typedef struct pgl_tri {
 	u32 v[3];
 	u32 meta;
@@ -846,6 +861,61 @@ typedef struct pgl_clip_arena {
 	int cap;
 	int prim_base;
 } pgl_clip_arena;
+
+#ifdef PGL_TILE_THREADS
+// Extra write-range clip for one tile invocation of the shared fill
+// rasterizer. NULL means the serial path (no extra bounds). The tile bounds
+// only shrink the pixel loop; the viewport transform and UV footprint are
+// untouched.
+typedef struct pgl_fill_clip {
+	int x0, y0, x1, y1;   // inclusive low, exclusive high, surface pixels
+	int instance_id;      // gl_InstanceID to publish in fragment builtins
+} pgl_fill_clip;
+
+// One nonempty tile of a batch, with the sequence it must wait for to keep
+// same-tile primitive order across batches.
+typedef struct pgl_tile_job {
+	int tile;
+	int wait_seq;
+} pgl_tile_job;
+
+// One published batch of generated triangle geometry. It owns private copies
+// of every primitive reference and clip vertex the workers may touch, so the
+// reusable prim_buf / clip_arena can immediately produce the next batch while
+// this one is still being shaded. Non-arena vertex ids keep pointing at the
+// draw's glverts / vs_output, which outlive the whole draw.
+typedef struct pgl_tile_batch {
+	u32 seq_key;             // sequence + 1; 0 means the slot is free
+	GLint instance_id;       // saved gl_InstanceID for the fill rasterizer
+
+	// Tile grid (origin at the bottom-left of the draw surface)
+	int tiles_x, tiles_y;
+
+	// CSR over tiles, bottom-left row-major: tile t owns entries
+	// [tile_offset[t], tile_offset[t+1]). Entries inside a tile keep the
+	// serial emission order, including near-plane clipping fragments.
+	int* tile_offset;
+	pgl_tri* entries;
+
+	// Worker dispatch cursor (guarded by the pool lock). next_tile counts
+	// claims against the fixed n_jobs; tiles_remaining counts completions.
+	pgl_tile_job* jobs;
+	int jobs_cap;
+	int n_jobs;
+	int next_tile;
+	int tiles_remaining;
+
+	// Private copy of this chunk's clip arena (indices are preserved)
+	glVertex* arena_verts;
+	float* arena_varyings;
+	int arena_count;
+
+	// Storage capacities (grow to the largest chunk, never to draw size)
+	int arena_cap;
+	int entries_cap;
+	int offset_cap;
+} pgl_tile_batch;
+#endif
 
 typedef struct glFramebuffer
 {

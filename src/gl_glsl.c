@@ -173,7 +173,7 @@ static float pgl_auto_lod(const glTexture* t, GLsizei dim0, GLsizei dim1)
 	float dim = (float)((dim0 > dim1) ? dim0 : dim1);
 	if (dim < 1.0f)
 		dim = 1.0f;
-	float rho = c->mip_uv_per_px * dim;
+	float rho = *pgl_current_mip_ref() * dim;
 	// Avoid -inf; tiny ρ => strong magnification (negative λ)
 	if (rho < 1e-10f)
 		return -16.0f;

@@ -1,6 +1,65 @@
 
 static glContext* c;
 
+#ifdef PGL_TILE_THREADS
+// Per-thread raster state for the tile worker backend. The serial pipeline
+// leaves pgl_tile_active at zero, so every accessor falls back to the shared
+// context fields and serial behavior is byte-for-byte unchanged.
+#ifdef __cplusplus
+#define PGL_TLS thread_local
+#else
+#define PGL_TLS _Thread_local
+#endif
+static PGL_TLS GLboolean pgl_tls_active;
+static PGL_TLS GLboolean pgl_tls_front;
+static PGL_TLS float pgl_tls_mip;
+
+static inline GLboolean pgl_current_front(void)
+{
+	return pgl_tls_active ? pgl_tls_front : c->builtins.gl_FrontFacing;
+}
+
+static inline float* pgl_current_mip_ref(void)
+{
+	return pgl_tls_active ? &pgl_tls_mip : &c->mip_uv_per_px;
+}
+
+// Used by gl_tile.c to switch the shared rasterizer into per-worker state.
+static void pgl_tls_enter(GLboolean front)
+{
+	pgl_tls_active = GL_TRUE;
+	pgl_tls_front = front;
+	pgl_tls_mip = 0.0f;
+}
+
+static void pgl_tls_set_front(GLboolean front)
+{
+	pgl_tls_front = front;
+}
+
+static void pgl_tls_reset_mip(void)
+{
+	pgl_tls_mip = 0.0f;
+}
+
+static void pgl_tls_exit(void)
+{
+	pgl_tls_active = GL_FALSE;
+}
+
+static void pgl_tile_shutdown(glContext* ctx);
+#else
+static inline GLboolean pgl_current_front(void)
+{
+	return c->builtins.gl_FrontFacing;
+}
+
+static inline float* pgl_current_mip_ref(void)
+{
+	return &c->mip_uv_per_px;
+}
+#endif
+
 static vec4 blend_pixel(vec4 src, vec4 dst, int buf);
 static int fragment_processing(int x, int y, float z);
 static void draw_pixel(vec4 cf, int x, int y, float z, int do_frag_processing);
@@ -18,10 +77,18 @@ static void draw_triangle_clip(glVertex* v0, glVertex* v1, glVertex* v2,
 static void draw_triangle_point(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
 static void draw_triangle_line(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
 static void draw_triangle_fill(glVertex* v0, glVertex* v1,  glVertex* v2, unsigned int provoke);
+#ifdef PGL_TILE_THREADS
+static void draw_triangle_fill_clipped(glVertex* v0, glVertex* v1, glVertex* v2,
+                                        unsigned int provoke, const pgl_fill_clip* tile);
+#endif
 
 static void pgl_assemble_lines(GLenum mode, GLsizei count);
 static void pgl_assemble_tris(GLenum mode, GLsizei count);
 static void pgl_update_clip_rect(void);
+#ifdef PGL_TILE_THREADS
+static GLboolean pgl_tile_fill_active(void);
+static void pgl_tile_assemble_tris(GLenum mode, GLsizei count);
+#endif
 
 // This is the prototype for either implementation; only one is defined based on
 // whether PGL_BETTER_THICK_LINES is defined
@@ -403,7 +470,16 @@ static void run_pipeline(GLenum mode, const GLvoid* indices, GLsizei count, GLsi
 	} else if (mode == GL_LINES || mode == GL_LINE_STRIP || mode == GL_LINE_LOOP) {
 		pgl_assemble_lines(mode, count);
 	} else if (mode == GL_TRIANGLES || mode == GL_TRIANGLE_STRIP || mode == GL_TRIANGLE_FAN) {
-		pgl_assemble_tris(mode, count);
+#ifdef PGL_TILE_THREADS
+		if (pgl_tile_fill_active()) {
+			// Filled triangles only; points, lines and point/line polygon modes
+			// take the serial path below.
+			pgl_tile_assemble_tris(mode, count);
+		} else
+#endif
+		{
+			pgl_assemble_tris(mode, count);
+		}
 	}
 }
 
@@ -1942,7 +2018,8 @@ static float calc_poly_offset(vec3 hp0, vec3 hp1, vec3 hp2)
 static void pgl_setup_tri_mip_grad(glVertex* v0, glVertex* v1, glVertex* v2,
                                    vec3 hp0, vec3 hp1, vec3 hp2)
 {
-	c->mip_uv_per_px = 0.0f;
+	float* mip_ref = pgl_current_mip_ref();
+	*mip_ref = 0.0f;
 
 	int n = c->vs_output.size;
 	if (n < 2)
@@ -1977,8 +2054,8 @@ static void pgl_setup_tri_mip_grad(glVertex* v0, glVertex* v1, glVertex* v2,
 		float dv = verts[b]->vs_out[uv0 + 1] - verts[a]->vs_out[uv0 + 1];
 		float uv_len = sqrtf(du * du + dv * dv);
 		float scale = uv_len * inv_pix;
-		if (scale > c->mip_uv_per_px)
-			c->mip_uv_per_px = scale;
+		if (scale > *mip_ref)
+			*mip_ref = scale;
 	}
 }
 
@@ -2005,7 +2082,17 @@ static inline int pgl_same_sign(i64 a, i64 b)
 	return (a > 0 && b > 0) || (a < 0 && b < 0);
 }
 
-static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigned int provoke)
+// Shared fill rasterizer. tile is NULL on the serial path; when non-NULL the
+// pixel loop is additionally clipped to that tile's write range. Coverage,
+// interpolation, depth and fragment submission rules are unchanged.
+static void draw_triangle_fill_clipped(glVertex* v0, glVertex* v1, glVertex* v2,
+                                       unsigned int provoke,
+#ifdef PGL_TILE_THREADS
+                                       const pgl_fill_clip* tile
+#else
+                                       const void* tile
+#endif
+                                       )
 {
 	vec4 p0 = v0->screen_space;
 	vec4 p1 = v1->screen_space;
@@ -2085,6 +2172,16 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 	x_max = MIN(x_max, (float)r_right);
 	y_min = MAX(y_min, (float)r_bottom);
 	y_max = MIN(y_max, (float)r_top);
+#ifdef PGL_TILE_THREADS
+	if (tile) {
+		// Tile write range only; the viewport transform above is untouched and
+		// texture sampling still uses the full-triangle UV derivatives.
+		if (tile->x0 > r_left)   x_min = MAX(x_min, (float)tile->x0);
+		if (tile->y0 > r_bottom) y_min = MAX(y_min, (float)tile->y0);
+		if (tile->x1 < r_right)  x_max = MIN(x_max, (float)tile->x1);
+		if (tile->y1 < r_top)    y_max = MIN(y_max, (float)tile->y1);
+	}
+#endif
 	if (!(x_min < x_max) || !(y_min < y_max))
 		return;
 
@@ -2110,6 +2207,9 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 
 	int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
 	Shader_Builtins builtins;
+	// Serial triangles set c->builtins.gl_FrontFacing in pgl_raster_tris;
+	// tile workers carry the per-triangle value in TLS. Both resolve here.
+	builtins.gl_FrontFacing = pgl_current_front();
 
 	for (int iy = y_min; iy<iy_max; ++iy) {
 		int py = (iy << PGL_SUBPIXEL_BITS) + (PGL_SUBPIXEL_SCALE / 2);
@@ -2169,7 +2269,11 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 
 					// have to do this here instead of outside the loop because somehow openmp messes it up
 					// TODO probably some way to prevent that but it's just copying an int so no big deal
+#ifdef PGL_TILE_THREADS
+					builtins.gl_InstanceID = tile ? tile->instance_id : c->builtins.gl_InstanceID;
+#else
 					builtins.gl_InstanceID = c->builtins.gl_InstanceID;
+#endif
 
 					c->programs.a[c->cur_program].fragment_shader(fs_input, &builtins, c->programs.a[c->cur_program].uniform);
 					if (!builtins.discard) {
@@ -2180,6 +2284,12 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigne
 			}
 		}
 	}
+}
+
+// Serial entry point used by the polygon-mode table and the serial pipeline.
+static void draw_triangle_fill(glVertex* v0, glVertex* v1, glVertex* v2, unsigned int provoke)
+{
+	draw_triangle_fill_clipped(v0, v1, v2, provoke, NULL);
 }
 
 
@@ -2407,7 +2517,7 @@ static int stencil_test(u8 stencil)
 {
 	int func, ref, mask;
 	// TODO what about non-triangles, should use front values, so need to make sure that's set?
-	if (c->builtins.gl_FrontFacing) {
+	if (pgl_current_front()) {
 		func = c->stencil_func;
 		ref = c->stencil_ref;
 		mask = c->stencil_valuemask;
@@ -2442,7 +2552,7 @@ static void stencil_op(int stencil, int depth, void* stencil_dest)
 	// or back facing
 	GLenum* ops;
 	// TODO what about non-triangles, should use front values, so need to make sure that's set?
-	if (c->builtins.gl_FrontFacing) {
+	if (pgl_current_front()) {
 		ops = &c->stencil_sfail;
 		ref = c->stencil_ref;
 		mask = c->stencil_writemask;

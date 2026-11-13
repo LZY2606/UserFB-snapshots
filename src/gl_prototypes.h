@@ -6,6 +6,13 @@ PGLDEF void free_glContext(glContext* context);
 PGLDEF void set_glContext(glContext* context);
 PGLDEF glContext* get_glContext(void);
 
+// Tile worker backend. 0 = serial pipeline (the default). A positive count
+// creates that many persistent POSIX worker threads (requires a build with
+// PGL_TILE_THREADS); negative values fail GL_INVALID_VALUE and leave the
+// current configuration unchanged. Without PGL_TILE_THREADS only 0 is valid
+// and positive values fail GL_INVALID_OPERATION.
+PGLDEF GLboolean pglSetTileWorkers(GLsizei workers);
+
 PGLDEF GLboolean pglResizeFramebuffer(GLsizei width, GLsizei height);
 
 PGLDEF void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);

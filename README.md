@@ -147,6 +147,63 @@ anything else, it might be worth adding your own test if applicable. You can see
 they work from looking at the code, but I'll add more details and documentation about
 the testing system later when it's more mature.
 
+Tile Worker Backend
+===================
+PortableGL can run filled-triangle fragment work on persistent POSIX worker
+threads while the calling thread keeps producing geometry. The backend is
+compiled in by defining `PGL_TILE_THREADS` (and linking pthread, e.g.
+`-pthread`). Without that define the library has no pthread dependency and the
+API still exists:
+
+```c
+GLboolean pglSetTileWorkers(GLsizei workers);
+```
+
+- `0` (the initial, per-context setting): the original serial pipeline.
+- a positive value: that many reusable worker threads. 1, 2 and 4 are
+  exercised by the test suite; any positive count is accepted. Filled
+  `GL_TRIANGLES`, `GL_TRIANGLE_STRIP` and `GL_TRIANGLE_FAN` draws are then
+  bucketed into 16x16 pixel tiles (the origin is the bottom-left of the draw
+  surface, edge tiles may be partial). Points, lines and non-fill polygon
+  modes always stay on the serial path.
+- a negative value fails with `GL_INVALID_VALUE` and leaves the current
+  configuration untouched. If thread creation fails no half-built pool is
+  left behind and the old configuration is preserved. Without
+  `PGL_TILE_THREADS`, positive values fail with `GL_INVALID_OPERATION`.
+
+Geometry is published in batches with at most two batches in flight, so
+workers shade one batch while the calling thread prepares the next. The
+vertex shader, homogeneous clipping and primitive assembly stay on the
+calling thread and run exactly as often as in the serial pipeline; per-tile
+bounds only restrict which pixels are written, never the viewport transform
+or the texture sampling footprint. Color, depth and stencil results are
+pixel-identical to serial rendering.
+
+### Thread callback constraints
+The fragment shader is the only user callback that may run on a worker
+thread. During a draw you must therefore:
+
+- treat uniforms and textures as read-only; do not delete or redefine
+  buffers, textures or programs, and do not change library state;
+- not call any state-changing GL/PGL function and not recurse into a draw;
+- read-only helpers such as `texture2D` (and the other texture sampling
+  functions) are fine.
+
+The vertex shader always runs serially on the calling thread. When a draw
+returns all of its work has completed, so `glClear`, uniform changes,
+resource deletion and FBO switches keep their ordinary synchronous semantics.
+Calling `pglSetTileWorkers(0)` joins the workers and returns subsequent draws
+to the calling thread with the original serial output.
+
+Two optional macros, `PGL_TILE_BATCH_READY(sequence)` and
+`PGL_TILE_BATCH_RETIRED(sequence)`, default to no-ops and let a debug build
+observe batch publication and retirement. The sequence starts at 0 and is
+continuous for the life of a context; the hooks must only record events, not
+call back into the drawing API.
+
+`examples/tile_offscreen.c` is a window-free example: it renders a 64x64
+image with real draw calls on the tile backend and writes a P6 PPM file.
+
 Bindings/Ports
 ==============
 

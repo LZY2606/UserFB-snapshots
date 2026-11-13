@@ -130,6 +130,7 @@ if __name__ == "__main__":
     gl_h.write(open("gl_glsl.c").read())
     gl_h.write(open("pgl_ext.c").read())
     gl_h.write(open("pgl_std_shaders.c").read())
+    gl_h.write(open("gl_tile.c").read())
 
 
 

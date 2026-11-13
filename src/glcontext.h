@@ -180,6 +180,17 @@ typedef struct glContext
 	u8* prim_buf;
 	pgl_clip_arena clip_arena;
 
+#ifdef PGL_TILE_THREADS
+	// Tile worker backend. tile_workers == 0 keeps the serial pipeline; a
+	// positive count is the number of persistent POSIX worker threads.
+	// tile_pool is NULL whenever tile_workers is 0. The two batch slots hold
+	// at most two in-flight batches per draw.
+	GLsizei tile_workers;
+	struct pgl_tile_pool* tile_pool;
+	pgl_tile_batch tile_slots[2];
+	unsigned tile_seq; // next batch sequence, continuous from 0
+#endif
+
 	// Bits 0..2: polygon-mode edges v0-v1, v1-v2, v2-v0. One triangle call.
 	int assemble_edges;
 } glContext;

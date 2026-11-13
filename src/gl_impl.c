@@ -418,6 +418,10 @@ PGLDEF void free_glContext(glContext* ctx)
 	PGL_FREE(ctx->clip_arena.verts);
 	PGL_FREE(ctx->clip_arena.varyings);
 
+#ifdef PGL_TILE_THREADS
+	pgl_tile_shutdown(ctx);
+#endif
+
 	if (c == ctx) {
 		c = NULL;
 	}
@@ -2168,7 +2172,6 @@ PGLDEF void glDebugMessageCallback(GLDEBUGPROC callback, void* userParam)
 	c->dbg_callback = callback;
 	c->dbg_userparam = userParam;
 }
-
 PGLDEF void glDebugMessageControl(GLenum source, GLenum type, GLenum severity, GLsizei count, const GLuint* ids, GLboolean enabled)
 {
 	PGL_UNUSED(source);
@@ -3751,3 +3754,14 @@ PGLDEF void glClearNamedFramebufferfi(GLuint framebuffer, GLenum buffer, GLint d
 		pgl_apply_draw_framebuffer();
 	}
 }
+
+#ifndef PGL_TILE_THREADS
+// Serial-only build: the library never references pthread. 0 keeps the serial
+// pipeline; positive counts are invalid because the backend was not compiled.
+PGLDEF GLboolean pglSetTileWorkers(GLsizei workers)
+{
+	PGL_ERR_RET_VAL(workers < 0, GL_INVALID_VALUE, GL_FALSE);
+	PGL_ERR_RET_VAL(workers > 0, GL_INVALID_OPERATION, GL_FALSE);
+	return GL_TRUE;
+}
+#endif
