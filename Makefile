@@ -74,6 +74,8 @@ OXX_FILES       := $(foreach f,$(CXX_FILES:.cpp=.o),build/$f)
 
 TESTS_DIRS      := $(shell find tests -mindepth 1 -type d -not -path "tests/asm*")
 TESTS_C         := $(foreach dir,$(TESTS_DIRS),$(wildcard $(dir)/*.c))
+# Driven by support/run.sh together with support/main.c instead of the standalone elf rule below.
+TESTS_C         := $(filter-out tests/c/delay_graph_cases.c,$(TESTS_C))
 TESTS_CXX       := $(foreach dir,$(TESTS_DIRS),$(wildcard $(dir)/*.cpp))
 TESTS_ELFS      := $(foreach f,$(TESTS_C:.c=.elf) $(TESTS_CXX:.cpp=.elf),build/$f)
 
