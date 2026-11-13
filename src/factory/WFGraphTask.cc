@@ -26,12 +26,28 @@ SubTask *WFGraphNode::done()
 
 	if (!this->user_data)
 	{
-		this->value = 1;
+		/* All in-edges have been settled. Nodes without predecessors
+		 * run directly; the others run iff at least one in-edge was
+		 * activated. */
 		this->user_data = (void *)1;
-	}
-	else
-		delete this;
+		this->value = 1;
 
+		if (this->dependencies == 0 || this->activated.load() > 0)
+			return series->pop();
+
+		/* Skipped: destroy the node's task without dispatching it and
+		 * without calling its callback, then re-dispatch this node once
+		 * to settle every out-edge as not activated. */
+		this->skipped = true;
+		delete series->pop();
+		this->graph->count_skipped_node();
+		return series->pop();
+	}
+
+	if (!this->skipped)
+		this->graph->count_executed_node(this->result);
+
+	delete this;
 	return series->pop();
 }
 
@@ -39,14 +55,18 @@ WFGraphNode::~WFGraphNode()
 {
 	if (this->user_data)
 	{
-		if (series_of(this)->is_canceled())
-		{
-			for (WFGraphNode *node : this->successors)
-				series_of(node)->SeriesWork::cancel();
-		}
+		bool canceled = series_of(this)->is_canceled();
+		bool ran = !this->skipped;
 
-		for (WFGraphNode *node : this->successors)
-			node->WFCounterTask::count();
+		for (const Edge& edge : this->successors)
+		{
+			if (canceled)
+				series_of(edge.node)->SeriesWork::cancel();
+
+			/* A skipped node activates no out-edge, not even an
+			 * unconditional one, but every edge is still settled. */
+			edge.node->settle(ran && edge.matches(this->result));
+		}
 	}
 }
 
@@ -55,6 +75,7 @@ WFGraphNode& WFGraphTask::create_graph_node(SubTask *task)
 	WFGraphNode *node = new WFGraphNode;
 	SeriesWork *series = Workflow::create_series_work(node, node, nullptr);
 
+	node->graph = this;
 	series->push_back(task);
 	this->parallel->add_series(series);
 	return *node;

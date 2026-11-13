@@ -1,0 +1,16 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/kernel/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/util/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/manager/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/protocol/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/factory/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/nameservice/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/server/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/X1196/attempts/20261113T164155251717Z/repo/.task-build/src/client/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

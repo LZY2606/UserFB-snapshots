@@ -178,6 +178,48 @@ Callback and Memory Reclamation Mechanism
   * The realization of an algorithm is simply a `std::function`. But the algorithm can also be implemented by derivation.
   * If used deeply, one will find that everything can be derived.
 
+#### Conditional DAG branches
+
+Graph nodes (see [About DAG](docs/en/tutorial-11-graph_task.md)) can select their successors by
+business result. A node reports its result with `set_result(bool)` (success by default), typically
+from the callback of its own task, and `precede_if(next, success)` creates an edge that is
+activated only when the source node's result equals `success`. A node runs when at least one of
+its in-edges is activated; otherwise it is skipped (its task is destroyed without running), but
+every out-edge of a skipped node is still settled, so downstream joins never hang. The plain
+`precede`/`succeed`/`-->` edges stay unconditional. `WFGraphTask::get_summary()` reports how many
+nodes were executed, succeeded, failed and skipped:
+
+```cpp
+WFGraphTask *graph = WFTaskFactory::create_graph_task([](WFGraphTask *g) {
+    WFGraphSummary s = g->get_summary();
+    printf("executed=%d succeeded=%d failed=%d skipped=%d\n",
+           s.executed, s.succeeded, s.failed, s.skipped);
+});
+
+WFGraphNode *delta_node = nullptr;
+auto &delta = graph->create_graph_node(WFTaskFactory::create_http_task(delta_url, 0, 0,
+    [delta_url, &delta_node](WFHttpTask *t) {
+        /* The caller decides the business result explicitly. */
+        if (t->get_state() != WFT_STATE_SUCCESS ||
+            strcmp(t->get_resp()->get_status_code(), "200") != 0)
+            delta_node->set_result(false);   // fall back to the full interface
+    }));
+delta_node = &delta;
+
+auto &proc_delta = graph->create_graph_node(WFTaskFactory::create_timer_task(0, process_delta));
+auto &full = graph->create_graph_node(WFTaskFactory::create_http_task(full_url, 0, 0, full_cb));
+auto &proc_full = graph->create_graph_node(WFTaskFactory::create_timer_task(0, process_full));
+auto &publish = graph->create_graph_node(WFTaskFactory::create_timer_task(0, publish_once));
+
+delta.precede_if(proc_delta, true);   // delta ok: skip the full interface entirely
+delta.precede_if(full, false);        // delta failed: fetch everything instead
+proc_delta.precede(publish);
+full.precede(proc_full);
+proc_full.precede(publish);           // conditional join: publish runs exactly once
+
+graph->start();
+```
+
 #### Any Other Questions?
 
 You may check the [FAQ](https://github.com/sogou/workflow/issues/406) and [issues](https://github.com/sogou/workflow/issues) list first to see if you can find the answer.
