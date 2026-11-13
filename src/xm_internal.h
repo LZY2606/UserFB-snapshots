@@ -11,7 +11,12 @@
 #include <string.h>
 #include <stdckdint.h>
 #include <stddef.h>
+#if __has_include(<stdbit.h>)
 #include <stdbit.h>
+#else
+/* C23 libc header fallback: the only stdbit operation used here. */
+#define stdc_count_ones(x) ((unsigned)__builtin_popcount((unsigned)(x)))
+#endif
 
 #define POINTER_SIZE (UINTPTR_MAX == UINT64_MAX ? 8 : 4)
 
