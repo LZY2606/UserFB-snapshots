@@ -145,7 +145,10 @@ typedef struct {
     vec3_t emission;
 } material_t;
 
-static material_t get_pbrm_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
+static material_t get_pbrm_material(pbr_uniforms_t *uniforms,
+                                    pbr_varyings_t *varyings,
+                                    vec3_t *normal) {
+    vec2_t texcoord = varyings->texcoord;
     vec3_t diffuse, specular, basecolor;
     float alpha, roughness, metalness;
     material_t material;
@@ -168,6 +171,15 @@ static material_t get_pbrm_material(pbr_uniforms_t *uniforms, vec2_t texcoord) {
     if (uniforms->roughness_map) {
         vec4_t sample = texture_sample(uniforms->roughness_map, texcoord);
         roughness *= sample.x;
+    }
+
+    if (uniforms->decals) {
+        /* the base normal is the normalized interpolated world normal,
+         * before normal mapping and before the backface flip */
+        vec3_t base_normal = vec3_normalize(varyings->world_normal);
+        decal_collection_apply(uniforms->decals, varyings->world_position,
+                               base_normal, &basecolor, &roughness,
+                               &metalness, normal);
     }
 
     diffuse = vec3_mul(basecolor, (1 - 0.04f) * (1 - metalness));
@@ -246,15 +258,16 @@ static material_t get_pixel_material(pbr_varyings_t *varyings,
                                      pbr_uniforms_t *uniforms,
                                      int backface) {
     vec2_t texcoord = varyings->texcoord;
+    vec3_t normal = get_normal_dir(varyings, uniforms, backface);
     material_t material;
 
     if (uniforms->workflow == METALNESS_WORKFLOW) {
-        material = get_pbrm_material(uniforms, texcoord);
+        material = get_pbrm_material(uniforms, varyings, &normal);
     } else {
         material = get_pbrs_material(uniforms, texcoord);
     }
 
-    material.normal = get_normal_dir(varyings, uniforms, backface);
+    material.normal = normal;
 
     if (uniforms->occlusion_map) {
         vec4_t sample = texture_sample(uniforms->occlusion_map, texcoord);
@@ -680,4 +693,10 @@ model_t *pbrs_create_model(const char *mesh, mat4_t transform,
     uniforms->layer_view = -1;
 
     return model;
+}
+
+void pbr_set_decals(model_t *model, decal_collection_t *collection) {
+    pbr_uniforms_t *uniforms;
+    uniforms = (pbr_uniforms_t*)program_get_uniforms(model->program);
+    uniforms->decals = collection;
 }

@@ -2,6 +2,7 @@
 #define PBR_SHADER_H
 
 #include "../core/api.h"
+#include "../core/decal.h"
 
 /* low-level api */
 
@@ -68,6 +69,8 @@ typedef struct {
     texture_t *emission_map;
     /* environment maps */
     ibldata_t *ibldata;
+    /* projected decals, evaluated in the metalness workflow only */
+    decal_collection_t *decals;
     /* render controls */
     workflow_t workflow;
     float alpha_cutoff;
@@ -123,5 +126,12 @@ model_t *pbrm_create_model(const char *mesh, mat4_t transform,
 model_t *pbrs_create_model(const char *mesh, mat4_t transform,
                            const char *skeleton, int attached,
                            pbrs_material_t *material, const char *env_name);
+
+/*
+ * binds a decal collection to a model created above (NULL unbinds); the
+ * model only borrows the collection, which must stay alive and read-only
+ * while the model is drawn, and is never released by the model
+ */
+void pbr_set_decals(model_t *model, decal_collection_t *collection);
 
 #endif
