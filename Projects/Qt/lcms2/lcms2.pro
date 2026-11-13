@@ -37,6 +37,7 @@ SOURCES += \
     ../../../src/cmspcs.c \
     ../../../src/cmsplugin.c \
     ../../../src/cmsps2.c \
+    ../../../src/cmsreverse.c \
     ../../../src/cmssamp.c \
     ../../../src/cmssm.c \
     ../../../src/cmstypes.c \

@@ -19,6 +19,7 @@ function(_lcms2_collect_sources out_var)
     "${PROJECT_SOURCE_DIR}/src/cmsmtrx.c"
     "${PROJECT_SOURCE_DIR}/src/cmspack.c"
     "${PROJECT_SOURCE_DIR}/src/cmspcs.c"
+    "${PROJECT_SOURCE_DIR}/src/cmsreverse.c"
     "${PROJECT_SOURCE_DIR}/src/cmswtpnt.c"
     "${PROJECT_SOURCE_DIR}/src/cmsxform.c"
     "${PROJECT_SOURCE_DIR}/src/cmssamp.c"

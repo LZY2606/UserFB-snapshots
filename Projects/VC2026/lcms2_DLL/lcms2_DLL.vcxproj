@@ -321,6 +321,7 @@
     <ClCompile Include="..\..\..\src\cmspcs.c" />
     <ClCompile Include="..\..\..\src\cmsplugin.c" />
     <ClCompile Include="..\..\..\src\cmsps2.c" />
+    <ClCompile Include="..\..\..\src\cmsreverse.c" />
     <ClCompile Include="..\..\..\src\cmssamp.c" />
     <ClCompile Include="..\..\..\src\cmssm.c" />
     <ClCompile Include="..\..\..\src\cmstypes.c" />

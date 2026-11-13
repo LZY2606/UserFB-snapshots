@@ -1296,6 +1296,62 @@ CMSAPI cmsBool           CMSEXPORT cmsPipelineEvalReverseFloat(cmsFloat32Number 
 CMSAPI cmsBool           CMSEXPORT cmsPipelineCat(cmsPipeline* l1, const cmsPipeline* l2);
 CMSAPI cmsBool           CMSEXPORT cmsPipelineSetSaveAs8bitsFlag(cmsPipeline* lut, cmsBool On);
 
+// Full-branch reverse CLUT index -----------------------------------------------------------------------------------
+//
+// cmsPipelineEvalReverseFloat() above starts from a single hint and keeps the best point found, so folded LUTs hide
+// every other preimage and an unreachable target cannot be told apart from a reachable one. The reverse CLUT index
+// instead enumerates, for one target color, all preimages of the default tetrahedral interpolation over the closed
+// input cube [0,1]^3. It is a reusable, read-only object: build it once, run as many queries as needed, concurrently
+// from several threads.
+//
+// Scope of the first revision. The index accepts exactly a pipeline made of a single floating point, 3 inputs to
+// 3 outputs CLUT stage, with 2 to 33 grid points on each axis (the per-axis counts may differ), and only when the
+// stage is actually evaluated by the built-in default tetrahedral interpolator. 16-bit tables, trilinear or
+// plug-in supplied interpolators, pipelines with extra stages, table entries that are not finite or outside
+// [-2, 2], and unsupported channel counts are rejected at allocation time. The table is never resampled into a
+// different one. On success the index keeps its own snapshot of the table, so the source pipeline may be edited or
+// released afterwards. The context used to build the index must remain valid until the index is freed.
+//
+// Numerical contract. Each returned root is re-evaluated through the original forward interpolation and is kept
+// only when every output channel is within 2e-6 (L-infinity) of the target and the input coordinates themselves
+// stay within 2e-6 of the analytically inverted tetrahedral coordinates. Inputs shared on grid faces, edges and
+// vertices are returned only once; after the lexicographic sort, two candidates whose input L-infinity distance
+// is at most 2e-6 are merged, while branches clearly farther apart are always kept separate. A tetrahedron whose
+// four output vertices give a degenerate affine map (edge scale s = 0, or |det| <= 1e-12 * s^3, computed in double
+// precision) is reported through the singular flag only when the L-infinity distance from the target to the
+// convex hull of its output vertices is at most 2e-6; merely falling inside the hull bounding box is not a hit.
+// The flag only states that a degenerate tetrahedron was encountered; it does not promise that infinitely many
+// solutions exist. Singular tetrahedra never contribute roots themselves, but they do not suppress the discrete
+// roots of the remaining, non-singular tetrahedra. Apart from the thresholds above, implementation choices are:
+// double precision for tetrahedron inversion, barycentric coordinates and convex-hull distance; 3x3 Cramer
+// inversion for the affine maps; and a uniform grid over the output-space bounding boxes for the spatial index.
+
+typedef struct _cmsReverseCLUT_struct cmsReverseCLUT;
+
+// Build a reverse index. Returns NULL (and signals an error) when the pipeline does not match the scope above or
+// on memory failure. The returned object owns an independent snapshot and does not keep the pipeline referenced.
+CMSAPI cmsReverseCLUT*    CMSEXPORT cmsReverseCLUTAlloc(const cmsPipeline* lut);
+
+// Release a reverse index. cmsReverseCLUTFree(NULL) is safe.
+CMSAPI void               CMSEXPORT cmsReverseCLUTFree(cmsReverseCLUT* index);
+
+// Query the index for all preimages of target. On success returns TRUE with *count set to the number of distinct
+// roots (zero means the target is unreachable: no clamping to a boundary color is ever done), *singular set to
+// whether a degenerate tetrahedron was encountered near the target, and, when work is not NULL, *work set to the
+// number of spatial-index nodes (including rejected ones) plus candidate tetrahedra visited by this query. A
+// counting call may pass roots == NULL with capacity == 0. When capacity is non zero, roots must be non NULL; if
+// it is too small, the call fails, roots is left completely untouched, and *count / *singular still report the
+// full result. Illegal parameters, non-finite targets and internal failures return FALSE, and the valid count,
+// singular and work outputs are then written as zero. The target and the index are never modified. All scratch
+// storage is private to each call, so concurrent read-only queries on one index cannot interfere.
+CMSAPI cmsBool           CMSEXPORT cmsReverseCLUTQuery(const cmsReverseCLUT* index,
+                                                       const cmsFloat32Number target[3],
+                                                       cmsFloat32Number (*roots)[3],
+                                                       cmsUInt32Number capacity,
+                                                       cmsUInt32Number* count,
+                                                       cmsBool* singular,
+                                                       cmsUInt32Number* work);
+
 // Where to place/locate the stages in the pipeline chain
 typedef enum { cmsAT_BEGIN, cmsAT_END } cmsStageLoc;
 
