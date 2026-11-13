@@ -51,6 +51,7 @@
 #define FASTNOISELITE_H
 
 #include <cmath>
+#include <stdexcept>
 
 class FastNoiseLite
 {
@@ -338,6 +339,44 @@ public:
         }
     }
 
+
+    /// <summary>
+    /// Full pixel footprint (the two complete pixel edge vectors in input
+    /// coordinates) for GetNoiseFootprint(...)
+    /// </summary>
+    struct NoiseFootprint2D
+    {
+        double ux, uy;
+        double vx, vy;
+    };
+
+    /// <summary>
+    /// Exact area average of the 2D noise over the parallelogram
+    /// (x, y) + s * (ux, uy) + t * (vx, vy), s, t in [-0.5, 0.5].
+    ///
+    /// The average integrates the continuous piecewise polynomial field used
+    /// by the 2D ValueCubic noise: every unit cell reuses the same 4x4
+    /// ValCoord lattice values as SingleValueCubic, promoted to double, and
+    /// is intersected with the footprint along the real cell boundaries, so
+    /// slanted footprints are never reduced to bounding boxes, mip levels or
+    /// point samples.
+    ///
+    /// Supported configurations:
+    ///   NoiseType_ValueCubic with FractalType_None, or FractalType_FBm
+    ///   whose weighted strength is zero. Everything else throws
+    ///   std::invalid_argument.
+    ///
+    /// FBm averages each octave separately (using the existing fractal
+    /// bounding, per-octave seed increments, lacunarity and gain, negative
+    /// gain included) and sums the per-octave averages. Frequency and
+    /// lacunarity may be zero or negative and keep their existing coordinate
+    /// scaling meaning; an octave collapsed to a constant still counts.
+    ///
+    /// A footprint whose two edges are both zero returns GetNoise(x, y).
+    /// Any other zero-area footprint throws std::invalid_argument.
+    /// Domain warping is left to the caller.
+    /// </summary>
+    double GetNoiseFootprint(double x, double y, const NoiseFootprint2D& footprint) const;
 
     /// <summary>
     /// 2D warps the input position using current domain warp settings
@@ -2442,7 +2481,453 @@ private:
         yr += vy * warpAmp;
         zr += vz * warpAmp;
     }
+
+    // ----- Exact footprint area averaging (2D ValueCubic) -----
+    //
+    // The ValueCubic field is a tensor-product cubic patch inside every unit
+    // cell. A footprint is intersected with the real cell boundaries (never
+    // with a bounding box), each convex polygon fragment is integrated in the
+    // cell's local coordinates, and the fragment integrals are combined using
+    // their true clipped areas. All arithmetic is double; the lattice values
+    // come from the same integer hash pipeline as ValCoord(...).
+
+    static const int FootprintMaxOctaves = 12;
+    static const long long FootprintMaxCells = 65536;
+
+    struct FootprintPoly1
+    {
+        double c[4]; // c0 + c1*t + c2*t^2 + c3*t^3
+    };
+
+    struct FootprintPoly2
+    {
+        double c[4][4]; // sum of c[i][j] * xs^i * ys^j
+    };
+
+    static double FootprintCross(double ux, double uy, double vx, double vy)
+    {
+        return ux * vy - uy * vx;
+    }
+
+    // Same integer hash operations as ValCoord(...), with the final scale
+    // evaluated in double so the lattice values are shared, not re-rolled.
+    static double ValCoordDouble(int seed, int xPrimed, int yPrimed)
+    {
+        int hash = Hash(seed, xPrimed, yPrimed);
+
+        hash *= hash;
+        hash ^= hash << 19;
+        return static_cast<double>(hash) * (1.0 / 2147483648.0);
+    }
+
+    // The 4x4 ValCoord lattice surrounding unit cell (x1, y1), laid out as
+    // v[y offset][x offset] exactly like SingleValueCubic(...).
+    void FootprintCellValues(int seed, int x1, int y1, double v[4][4]) const
+    {
+        int x1p = x1 * PrimeX;
+        int y1p = y1 * PrimeY;
+        int xp[4] = { x1p - PrimeX, x1p, x1p + PrimeX, x1p + static_cast<int>(static_cast<long>(PrimeX) << 1) };
+        int yp[4] = { y1p - PrimeY, y1p, y1p + PrimeY, y1p + static_cast<int>(static_cast<long>(PrimeY) << 1) };
+
+        for (int j = 0; j < 4; ++j)
+            for (int i = 0; i < 4; ++i)
+                v[j][i] = ValCoordDouble(seed, xp[i], yp[j]);
+    }
+
+    // Double-precision form of CubicLerp(...): same polynomial coefficients.
+    static FootprintPoly1 FootprintCubic1D(double a, double b, double c, double d)
+    {
+        double p = (d - c) - (a - b);
+        FootprintPoly1 r;
+        r.c[0] = b;
+        r.c[1] = c - a;
+        r.c[2] = (a - b) - p;
+        r.c[3] = p;
+        return r;
+    }
+
+    // Tensor product of the row and column CubicLerp polynomials.
+    static FootprintPoly2 FootprintBicubic(const double v[4][4])
+    {
+        FootprintPoly1 rows[4];
+        for (int j = 0; j < 4; ++j)
+            rows[j] = FootprintCubic1D(v[j][0], v[j][1], v[j][2], v[j][3]);
+
+        FootprintPoly2 out;
+        for (int i = 0; i < 4; ++i)
+        {
+            FootprintPoly1 col = FootprintCubic1D(rows[0].c[i], rows[1].c[i], rows[2].c[i], rows[3].c[i]);
+            for (int j = 0; j < 4; ++j)
+                out.c[i][j] = col.c[j];
+        }
+        return out;
+    }
+
+    static double FootprintPoly2At(const FootprintPoly2& p, double xs, double ys)
+    {
+        double yv[4];
+        for (int j = 0; j < 4; ++j)
+        {
+            double acc = 0.0;
+            for (int i = 3; i >= 0; --i)
+                acc = acc * xs + p.c[i][j];
+            yv[j] = acc;
+        }
+        double acc = 0.0;
+        for (int j = 3; j >= 0; --j)
+            acc = acc * ys + yv[j];
+        return acc;
+    }
+
+    static double FootprintFactorial(int k)
+    {
+        static const double fact[9] = { 1.0, 1.0, 2.0, 6.0, 24.0, 120.0, 720.0, 5040.0, 40320.0 };
+        return fact[k];
+    }
+
+    // Coefficients of (a + b*s + c*t)^n as coeff[p][q] for s^p t^q.
+    static void FootprintLinPow(double a, double b, double c, int n, double coeff[7][7])
+    {
+        for (int p = 0; p <= n; ++p)
+        {
+            for (int q = 0; p + q <= n; ++q)
+            {
+                int r = n - p - q;
+                double multinomial = FootprintFactorial(n) /
+                                     (FootprintFactorial(p) * FootprintFactorial(q) * FootprintFactorial(r));
+                coeff[p][q] = multinomial * std::pow(a, r) * std::pow(b, p) * std::pow(c, q);
+            }
+        }
+    }
+
+    // Exact integral of the bicubic patch over one triangle given in cell
+    // local coordinates. The triangle is mapped onto the standard triangle
+    // (s, t >= 0, s + t <= 1) and each monomial integrates to
+    // p! q! / (p + q + 2)!.
+    static double FootprintTriangleIntegral(const FootprintPoly2& p, const double a[2], const double b[2],
+                                            const double c[2])
+    {
+        double e1x = b[0] - a[0];
+        double e1y = b[1] - a[1];
+        double e2x = c[0] - a[0];
+        double e2y = c[1] - a[1];
+        double jacobian = std::fabs(e1x * e2y - e1y * e2x);
+        if (!(jacobian > 0.0))
+            return 0.0;
+
+        double q[7][7] = {};
+        for (int i = 0; i < 4; ++i)
+        {
+            double px[7][7] = {};
+            FootprintLinPow(a[0], e1x, e2x, i, px);
+            for (int j = 0; j < 4; ++j)
+            {
+                double py[7][7] = {};
+                FootprintLinPow(a[1], e1y, e2y, j, py);
+                for (int p1 = 0; p1 <= i; ++p1)
+                    for (int q1 = 0; p1 + q1 <= i; ++q1)
+                        for (int p2 = 0; p2 <= j; ++p2)
+                            for (int q2 = 0; p2 + q2 <= j; ++q2)
+                                q[p1 + p2][q1 + q2] += p.c[i][j] * px[p1][q1] * py[p2][q2];
+            }
+        }
+
+        double integral = 0.0;
+        for (int pp = 0; pp < 7; ++pp)
+            for (int qq = 0; qq < 7; ++qq)
+                if (q[pp][qq] != 0.0)
+                    integral += q[pp][qq] * FootprintFactorial(pp) * FootprintFactorial(qq) /
+                                FootprintFactorial(pp + qq + 2);
+        return integral * jacobian;
+    }
+
+    // Exact integral of the bicubic patch over a convex polygon given in cell
+    // local coordinates, using a triangle fan around the first vertex.
+    static double FootprintPolygonIntegral(const FootprintPoly2& p, const double poly[][2], int count)
+    {
+        double sum = 0.0;
+        for (int i = 1; i + 1 < count; ++i)
+            sum += FootprintTriangleIntegral(p, poly[0], poly[i], poly[i + 1]);
+        return sum;
+    }
+
+    static bool FootprintClipInside(double px, double py, int axis, int sign, double bound)
+    {
+        double q = axis == 0 ? px : py;
+        return sign > 0 ? q >= bound : q <= bound;
+    }
+
+    // Sutherland-Hodgman clipping of a convex polygon against one half plane.
+    static void FootprintClipPlane(const double in[][2], int inCount, double out[][2], int& outCount, int axis, int sign,
+                                   double bound)
+    {
+        outCount = 0;
+        for (int i = 0; i < inCount; ++i)
+        {
+            const double* a = in[i];
+            const double* b = in[(i + 1) % inCount];
+            bool aIn = FootprintClipInside(a[0], a[1], axis, sign, bound);
+            bool bIn = FootprintClipInside(b[0], b[1], axis, sign, bound);
+
+            if (aIn)
+            {
+                out[outCount][0] = a[0];
+                out[outCount][1] = a[1];
+                ++outCount;
+            }
+
+            if (aIn != bIn)
+            {
+                double aq = axis == 0 ? a[0] : a[1];
+                double bq = axis == 0 ? b[0] : b[1];
+                double t = (bound - aq) / (bq - aq);
+                out[outCount][0] = a[0] + t * (b[0] - a[0]);
+                out[outCount][1] = a[1] + t * (b[1] - a[1]);
+                ++outCount;
+            }
+        }
+    }
+
+    static double FootprintPolygonArea(const double poly[][2], int count)
+    {
+        double sum = 0.0;
+        for (int i = 0; i < count; ++i)
+        {
+            const double* a = poly[i];
+            const double* b = poly[(i + 1) % count];
+            sum += a[0] * b[1] - b[0] * a[1];
+        }
+        return 0.5 * std::fabs(sum);
+    }
+
+    static void FootprintCheckVertex(double x, double y)
+    {
+        static const double coordLimit = 1048576.0;
+        if (!(std::isfinite(x) && std::isfinite(y) && std::fabs(x) <= coordLimit &&
+              std::fabs(y) <= coordLimit))
+            throw std::length_error("footprint vertex exceeds the supported coordinate range");
+    }
+
+    // Exact double-precision ValueCubic value at one point (used when an
+    // octave collapses to a constant field, e.g. zero frequency/lacunarity).
+    double FootprintPointValue(int seed, double x, double y) const
+    {
+        int x1 = static_cast<int>(std::floor(x));
+        int y1 = static_cast<int>(std::floor(y));
+
+        double v[4][4];
+        FootprintCellValues(seed, x1, y1, v);
+        FootprintPoly2 poly = FootprintBicubic(v);
+
+        double xs = x - static_cast<double>(x1);
+        double ys = y - static_cast<double>(y1);
+        return FootprintPoly2At(poly, xs, ys) * (1.0 / (1.5 * 1.5));
+    }
+
+    // Area average of one ValueCubic octave over the parallelogram
+    //   (x, y) + s*(ux, uy) + t*(vx, vy), s, t in [-0.5, 0.5].
+    double AverageValueCubicFootprint(int seed, double x, double y, double ux, double uy, double vx,
+                                      double vy) const
+    {
+        double hu = 0.5 * ux, hv = 0.5 * vx;
+        double huY = 0.5 * uy, hvY = 0.5 * vy;
+        double poly[10][2] = {
+            { x - hu - hv, y - huY - hvY },
+            { x + hu - hv, y + huY - hvY },
+            { x + hu + hv, y + huY + hvY },
+            { x - hu + hv, y - huY + hvY },
+        };
+        int polyCount = 4;
+
+        double minX = poly[0][0], maxX = poly[0][0];
+        double minY = poly[0][1], maxY = poly[0][1];
+        for (int i = 0; i < polyCount; ++i)
+        {
+            FootprintCheckVertex(poly[i][0], poly[i][1]);
+            minX = std::fmin(minX, poly[i][0]);
+            maxX = std::fmax(maxX, poly[i][0]);
+            minY = std::fmin(minY, poly[i][1]);
+            maxY = std::fmax(maxY, poly[i][1]);
+        }
+
+        int firstCellX = static_cast<int>(std::floor(minX));
+        int firstCellY = static_cast<int>(std::floor(minY));
+        int cellsX = static_cast<int>(std::ceil(maxX)) - firstCellX;
+        int cellsY = static_cast<int>(std::ceil(maxY)) - firstCellY;
+        if (cellsX < 1)
+            cellsX = 1;
+        if (cellsY < 1)
+            cellsY = 1;
+        if (static_cast<long long>(cellsX) * static_cast<long long>(cellsY) > FootprintMaxCells)
+            throw std::length_error("footprint covers too many noise cells");
+
+        double integralSum = 0.0;
+        double areaSum = 0.0;
+
+        for (int cy = firstCellY; cy < firstCellY + cellsY; ++cy)
+        {
+            for (int cx = firstCellX; cx < firstCellX + cellsX; ++cx)
+            {
+                double loX = std::fmax(static_cast<double>(cx), minX);
+                double hiX = std::fmin(static_cast<double>(cx + 1), maxX);
+                double loY = std::fmax(static_cast<double>(cy), minY);
+                double hiY = std::fmin(static_cast<double>(cy + 1), maxY);
+                if (!(hiX > loX) || !(hiY > loY))
+                    continue;
+
+                double clipped[2][10][2];
+                int count = polyCount;
+                for (int i = 0; i < count; ++i)
+                {
+                    clipped[0][i][0] = poly[i][0];
+                    clipped[0][i][1] = poly[i][1];
+                }
+
+                int src = 0;
+                int clippedCount = count;
+                FootprintClipPlane(clipped[src], clippedCount, clipped[src ^ 1], clippedCount, 0, +1, loX);
+                src ^= 1;
+                FootprintClipPlane(clipped[src], clippedCount, clipped[src ^ 1], clippedCount, 0, -1, hiX);
+                src ^= 1;
+                FootprintClipPlane(clipped[src], clippedCount, clipped[src ^ 1], clippedCount, 1, +1, loY);
+                src ^= 1;
+                FootprintClipPlane(clipped[src], clippedCount, clipped[src ^ 1], clippedCount, 1, -1, hiY);
+                src ^= 1;
+
+                if (clippedCount < 3)
+                    continue;
+
+                double area = FootprintPolygonArea(clipped[src], clippedCount);
+                if (!(area > 0.0))
+                    continue;
+
+                double v[4][4];
+                FootprintCellValues(seed, cx, cy, v);
+                FootprintPoly2 patch = FootprintBicubic(v);
+
+                // Re-express the clipped fragment in this cell's local
+                // coordinates and integrate the bicubic patch over the actual
+                // polygon (a triangle fan), never over its bounding rectangle.
+                double local[10][2];
+                for (int k = 0; k < clippedCount; ++k)
+                {
+                    local[k][0] = clipped[src][k][0] - static_cast<double>(cx);
+                    local[k][1] = clipped[src][k][1] - static_cast<double>(cy);
+                }
+
+                double integral = FootprintPolygonIntegral(patch, local, clippedCount) * (1.0 / (1.5 * 1.5));
+                if (!std::isfinite(integral))
+                    throw std::runtime_error("non-finite footprint integral");
+
+                integralSum += integral;
+                areaSum += area;
+            }
+        }
+
+        if (!(areaSum > 0.0))
+            throw std::length_error("footprint does not cover any noise cell");
+        double average = integralSum / areaSum;
+        if (!std::isfinite(average))
+            throw std::runtime_error("non-finite footprint average");
+        return average;
+    }
+
+    // Average one octave, including the case where the coordinate scaling
+    // collapses the whole layer to a single point.
+    double AverageFootprintOctave(int seed, double x, double y, double ux, double uy, double vx,
+                                  double vy) const
+    {
+        bool uCollapsed = ux == 0.0 && uy == 0.0;
+        bool vCollapsed = vx == 0.0 && vy == 0.0;
+        if (uCollapsed && vCollapsed)
+        {
+            FootprintCheckVertex(x, y);
+            return FootprintPointValue(seed, x, y);
+        }
+        return AverageValueCubicFootprint(seed, x, y, ux, uy, vx, vy);
+    }
 };
+
+inline double FastNoiseLite::GetNoiseFootprint(double x, double y, const NoiseFootprint2D& footprint) const
+{
+    // Configuration is validated first, before the point-footprint fallback.
+    if (mNoiseType != NoiseType_ValueCubic)
+        throw std::invalid_argument("GetNoiseFootprint only supports NoiseType_ValueCubic");
+
+    const bool fbm = mFractalType == FractalType_FBm;
+    if (mFractalType != FractalType_None && !fbm)
+        throw std::invalid_argument("GetNoiseFootprint only supports FractalType_None or FractalType_FBm");
+    if (fbm && mWeightedStrength != 0.0f)
+        throw std::invalid_argument("GetNoiseFootprint requires zero weighted strength for FBm");
+    if (fbm && (mOctaves < 1 || mOctaves > FootprintMaxOctaves))
+        throw std::invalid_argument("FBm octaves must be between 1 and 12 for GetNoiseFootprint");
+    if (fbm && (!std::isfinite(static_cast<double>(mGain)) || std::fabs(static_cast<double>(mGain)) > 1.0))
+        throw std::invalid_argument("FBm gain must be finite with magnitude at most 1 for GetNoiseFootprint");
+
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(footprint.ux) || !std::isfinite(footprint.uy) ||
+        !std::isfinite(footprint.vx) || !std::isfinite(footprint.vy))
+        throw std::invalid_argument("GetNoiseFootprint arguments must be finite");
+
+    if (!std::isfinite(static_cast<double>(mFrequency)) || !std::isfinite(static_cast<double>(mLacunarity)) ||
+        !std::isfinite(static_cast<double>(mFractalBounding)))
+        throw std::invalid_argument("GetNoiseFootprint noise parameters must be finite");
+
+    const bool uZero = footprint.ux == 0.0 && footprint.uy == 0.0;
+    const bool vZero = footprint.vx == 0.0 && footprint.vy == 0.0;
+    if (uZero && vZero)
+    {
+        // Point footprint: reuse the existing scalar pipeline unchanged.
+        return static_cast<double>(GetNoise(x, y));
+    }
+    if (uZero || vZero ||
+        FootprintCross(footprint.ux, footprint.uy, footprint.vx, footprint.vy) == 0.0)
+        throw std::invalid_argument("zero-area footprint is not a point");
+
+    const double frequency = static_cast<double>(mFrequency);
+    const double lacunarity = static_cast<double>(fbm ? mLacunarity : 0.0);
+
+    double result = 0.0;
+
+    if (!fbm)
+    {
+        // FractalType_None carries no fractal bounding multiplier.
+        result = AverageFootprintOctave(mSeed, x * frequency, y * frequency, footprint.ux * frequency,
+                                        footprint.uy * frequency, footprint.vx * frequency,
+                                        footprint.vy * frequency);
+    }
+    else
+    {
+        const int octaves = mOctaves;
+        const double gain = static_cast<double>(mGain);
+        double lacScale = 1.0;
+        double amp = static_cast<double>(mFractalBounding);
+        int seed = mSeed;
+
+        for (int i = 0; i < octaves; ++i)
+        {
+            double sx = x * frequency * lacScale;
+            double sy = y * frequency * lacScale;
+            double sux = footprint.ux * frequency * lacScale;
+            double suy = footprint.uy * frequency * lacScale;
+            double svx = footprint.vx * frequency * lacScale;
+            double svy = footprint.vy * frequency * lacScale;
+
+            double layer = AverageFootprintOctave(seed, sx, sy, sux, suy, svx, svy);
+            if (!std::isfinite(layer))
+                throw std::runtime_error("non-finite footprint octave average");
+
+            result += layer * amp;
+
+            ++seed;
+            lacScale *= lacunarity;
+            amp *= gain;
+        }
+    }
+
+    if (!std::isfinite(result))
+        throw std::runtime_error("non-finite footprint result");
+    return result;
+}
 
 template <>
 struct FastNoiseLite::Arguments_must_be_floating_point_values<float> {};
