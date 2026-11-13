@@ -129,6 +129,11 @@ func (dbl *DebugLineInfo) defaultFile() string {
 	// which means that for DWARFv4 and earlier the default file is the first
 	// entry of the table where in DWARFv5 the default is the second entry.
 	// See DWARFv4 and DWARFv5 section 6.2.4 at the end.
+	if len(dbl.FileNames) == 0 {
+		// A line unit with an empty file table is unusual but legal; there is
+		// no default file to select.
+		return ""
+	}
 	if dbl.Prologue.Version < 5 {
 		return dbl.FileNames[0].Path
 	}

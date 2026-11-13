@@ -44,6 +44,16 @@ type DebugLineInfo struct {
 	// debugLineStr is the contents of the .debug_line_str section.
 	debugLineStr []byte
 
+	// debugStr is the contents of the .debug_str section. It is only populated
+	// by ParseWithDebugStr; Parse and ParseAll leave it nil.
+	debugStr []byte
+
+	// debugStrSupported is true if the parser was created with an entry point
+	// that knows about the .debug_str section (ParseWithDebugStr). Parse and
+	// ParseAll leave it false to preserve their historical handling of
+	// DW_FORM_strp as an unsupported form.
+	debugStrSupported bool
+
 	// staticBase is the address at which the executable is loaded, 0 for non-PIEs
 	staticBase uint64
 
@@ -51,6 +61,11 @@ type DebugLineInfo struct {
 	normalizeBackslash bool
 	ptrSize            int
 	endSeqIsValid      bool
+
+	// sourceFiles is the cached result of SourceFiles and sourceFilesLoaded
+	// records whether it has been computed.
+	sourceFiles       []FileEntry
+	sourceFilesLoaded bool
 }
 
 // FileEntry file entry in File Name Table.
@@ -59,6 +74,20 @@ type FileEntry struct {
 	DirIdx      uint64
 	LastModTime uint64
 	Length      uint64
+
+	// MD5 is the MD5 checksum stored in the DWARF5 file table
+	// (DW_LNCT_MD5). It is only meaningful if HasMD5 is true.
+	MD5 [16]byte
+
+	// HasMD5 is true if the file entry had an explicit DW_LNCT_MD5
+	// descriptor. An all-zero MD5 with HasMD5 set is different from an entry
+	// without an MD5 checksum at all.
+	HasMD5 bool
+
+	// Index is the index of this file in the line program's file table. For
+	// DWARF2-4 the first file has index 1, for DWARF5 the first file has
+	// index 0.
+	Index uint64
 }
 
 type DebugLines []*DebugLineInfo
@@ -80,7 +109,16 @@ func ParseAll(data []byte, debugLineStr []byte, logfn func(string, ...any), stat
 
 // Parse parses a single debug_line segment from buf. Compdir is the
 // DW_AT_comp_dir attribute of the associated compile unit.
+//
+// Parse does not have access to the .debug_str section. DW_FORM_strp
+// references in DWARF5 directory and file tables are therefore represented
+// with a placeholder; use ParseWithDebugStr when both string sections are
+// available.
 func Parse(compdir string, buf *bytes.Buffer, debugLineStr []byte, logfn func(string, ...any), staticBase uint64, normalizeBackslash bool, ptrSize int) *DebugLineInfo {
+	return parseWithSections(compdir, buf, debugLineStr, nil, false, logfn, staticBase, normalizeBackslash, ptrSize)
+}
+
+func parseWithSections(compdir string, buf *bytes.Buffer, debugLineStr, debugStr []byte, debugStrSupported bool, logfn func(string, ...any), staticBase uint64, normalizeBackslash bool, ptrSize int) *DebugLineInfo {
 	dbl := new(DebugLineInfo)
 	dbl.Logf = logfn
 	if logfn == nil {
@@ -95,6 +133,8 @@ func Parse(compdir string, buf *bytes.Buffer, debugLineStr []byte, logfn func(st
 	dbl.lastMachineCache = make(map[uint64]*StateMachine)
 	dbl.normalizeBackslash = normalizeBackslash
 	dbl.debugLineStr = debugLineStr
+	dbl.debugStr = debugStr
+	dbl.debugStrSupported = debugStrSupported
 
 	parseDebugLinePrologue(dbl, buf)
 	if dbl.Prologue.Version >= 5 {
@@ -184,27 +224,18 @@ func parseIncludeDirs5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 	first_DW_FORM_line_strp_bug := true
 	for range dirCount {
 		dirEntryFormReader.reset()
+		var (
+			dir     string
+			haveDir bool
+		)
 		for dirEntryFormReader.next(buf) {
 			switch dirEntryFormReader.contentType {
 			case _DW_LNCT_path:
-				switch dirEntryFormReader.formCode {
-				case _DW_FORM_string:
-					info.IncludeDirs = append(info.IncludeDirs, dirEntryFormReader.str)
-				case _DW_FORM_line_strp:
-					if info.debugLineStr == nil {
-						info.IncludeDirs = append(info.IncludeDirs, "<DW_FORM_line_strp without debug_line_str section>")
-						if first_DW_FORM_line_strp_bug {
-							first_DW_FORM_line_strp_bug = false
-							logflags.Bug.Inc()
-						}
-					} else {
-						buf := bytes.NewBuffer(info.debugLineStr[dirEntryFormReader.u64:])
-						dir, _ := dwarf.ReadString(buf)
-						info.IncludeDirs = append(info.IncludeDirs, dir)
-					}
-				default:
-					info.Logf("unsupported string form %#x", dirEntryFormReader.formCode)
+				if dirEntryFormReader.formCode == _DW_FORM_line_strp && info.debugLineStr == nil && first_DW_FORM_line_strp_bug {
+					first_DW_FORM_line_strp_bug = false
+					logflags.Bug.Inc()
 				}
+				dir, haveDir = info.readStringForm(dirEntryFormReader)
 			case _DW_LNCT_directory_index:
 			case _DW_LNCT_timestamp:
 			case _DW_LNCT_size:
@@ -216,6 +247,13 @@ func parseIncludeDirs5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 				info.Logf("error reading directory entries table: %v", dirEntryFormReader.err)
 			}
 			return false
+		}
+		// Append one entry per row that had a usable path descriptor. Rows with
+		// an unsupported path form are skipped, like Parse has always done;
+		// descriptors that follow the path descriptor (directory_index, size,
+		// MD5, ...) must not cause the directory to be dropped.
+		if haveDir {
+			info.IncludeDirs = append(info.IncludeDirs, dir)
 		}
 	}
 	return true
@@ -232,6 +270,8 @@ func parseFileEntries2(info *DebugLineInfo, buf *bytes.Buffer) bool {
 			break
 		}
 
+		// DWARF2-4 file indexes are 1-based.
+		entry.Index = uint64(len(info.FileNames)) + 1
 		info.FileNames = append(info.FileNames, entry)
 		info.Lookup[entry.Path] = entry
 	}
@@ -285,6 +325,51 @@ func pathIsAbs(s string) bool {
 	return false
 }
 
+// readStringForm resolves the string value of a DW_LNCT_path descriptor.
+//
+// DW_FORM_string values are stored inline and have already been read by the
+// form reader. DW_FORM_strp values are read from .debug_str and
+// DW_FORM_line_strp values from .debug_line_str. If the section a form
+// refers to is missing a placeholder is returned instead; the other string
+// section is never used as a fallback.
+func (info *DebugLineInfo) readStringForm(rdr *formReader) (string, bool) {
+	switch rdr.formCode {
+	case _DW_FORM_string:
+		return rdr.str, true
+	case _DW_FORM_line_strp:
+		if info.debugLineStr == nil {
+			return "<DW_FORM_line_strp without debug_line_str section>", true
+		}
+		return readSectionString(info.debugLineStr, rdr.u64), true
+	case _DW_FORM_strp:
+		if !info.debugStrSupported {
+			// Parse and ParseAll do not have access to .debug_str; keep their
+			// historical behavior for this form.
+			info.Logf("unsupported string form %#x", rdr.formCode)
+			return "", false
+		}
+		if info.debugStr == nil {
+			return "<DW_FORM_strp without debug_str section>", true
+		}
+		return readSectionString(info.debugStr, rdr.u64), true
+	default:
+		info.Logf("unsupported string form %#x", rdr.formCode)
+		return "", false
+	}
+}
+
+// readSectionString reads the null-terminated string at off from section.
+func readSectionString(section []byte, off uint64) string {
+	if off >= uint64(len(section)) {
+		return ""
+	}
+	rest := section[off:]
+	if i := bytes.IndexByte(rest, 0); i >= 0 {
+		return string(rest[:i])
+	}
+	return string(rest)
+}
+
 // parseFileEntries5 parses the file table for DWARF 5
 func parseFileEntries5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 	fileEntryFormReader := readEntryFormat(buf, info.Logf)
@@ -296,7 +381,7 @@ func parseFileEntries5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 	for i := 0; i < int(fileCount); i++ {
 		var (
 			p      string
-			diridx int
+			diridx = -1
 
 			entry = new(FileEntry)
 		)
@@ -304,31 +389,20 @@ func parseFileEntries5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 		fileEntryFormReader.reset()
 
 		for fileEntryFormReader.next(buf) {
-			diridx = -1
-
 			switch fileEntryFormReader.contentType {
 			case _DW_LNCT_path:
-				switch fileEntryFormReader.formCode {
-				case _DW_FORM_string:
-					p = fileEntryFormReader.str
-				case _DW_FORM_line_strp:
-					if info.debugLineStr == nil {
-						p = "<DW_FORM_line_strp without debug_line_str section>"
-					} else {
-						buf := bytes.NewBuffer(info.debugLineStr[fileEntryFormReader.u64:])
-						p, _ = dwarf.ReadString(buf)
-					}
-				default:
-					info.Logf("unsupported string form %#x", fileEntryFormReader.formCode)
-				}
+				p, _ = info.readStringForm(fileEntryFormReader)
 			case _DW_LNCT_directory_index:
 				diridx = int(fileEntryFormReader.u64)
+				entry.DirIdx = fileEntryFormReader.u64
 			case _DW_LNCT_timestamp:
 				entry.LastModTime = fileEntryFormReader.u64
 			case _DW_LNCT_size:
 				entry.Length = fileEntryFormReader.u64
 			case _DW_LNCT_MD5:
-				// not implemented
+				entry.HasMD5 = true
+				entry.MD5 = [16]byte{}
+				copy(entry.MD5[:], fileEntryFormReader.block)
 			}
 		}
 		if fileEntryFormReader.err != nil {
@@ -338,13 +412,17 @@ func parseFileEntries5(info *DebugLineInfo, buf *bytes.Buffer) bool {
 			return false
 		}
 
-		if diridx >= 0 && diridx < len(info.IncludeDirs) {
-			p = path.Join(info.IncludeDirs[diridx], p)
-		}
 		if info.normalizeBackslash {
 			p = strings.ReplaceAll(p, "\\", "/")
 		}
+		// Interpret paths using the rules of the target file, not the host: an
+		// absolute Unix or Windows path must not be joined with a directory.
+		if !pathIsAbs(p) && diridx >= 0 && diridx < len(info.IncludeDirs) {
+			p = path.Join(info.IncludeDirs[diridx], p)
+		}
 		entry.Path = p
+		// DWARF5 file indexes are 0-based.
+		entry.Index = uint64(i)
 		info.FileNames = append(info.FileNames, entry)
 		info.Lookup[entry.Path] = entry
 	}

@@ -93,6 +93,10 @@ func (rdr *formReader) next(buf *bytes.Buffer) bool {
 	rdr.contentType = rdr.contentTypes[rdr.nexti]
 	rdr.formCode = rdr.formCodes[rdr.nexti]
 
+	// Drop the previous descriptor's block so that consumers of rdr.block can
+	// not observe stale bytes when this form does not read a block.
+	rdr.block = rdr.block[:0]
+
 	switch rdr.formCode {
 	case _DW_FORM_block:
 		n, _ := leb128.DecodeUnsigned(buf)
