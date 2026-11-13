@@ -82,6 +82,11 @@ type Form struct {
 	checkboxs url.Values
 	selects   selects
 	files     FileSet
+
+	// frameDoc binds the form to the document instance it was read from.
+	// Within a frame tree the form cannot be submitted once that document
+	// has been replaced, even when the owning Browser handle is still alive.
+	frameDoc *frameDocument
 }
 
 // NewForm creates and returns a *Form type.
@@ -89,7 +94,7 @@ func NewForm(bow Browsable, s *goquery.Selection) *Form {
 	fields, buttons, checkboxs, selects, files := serializeForm(s)
 	method, action := formAttributes(bow, s)
 
-	return &Form{
+	f := &Form{
 		bow:       bow,
 		selection: s,
 		method:    method,
@@ -100,6 +105,10 @@ func NewForm(bow Browsable, s *goquery.Selection) *Form {
 		selects:   selects,
 		files:     files,
 	}
+	if b, ok := bow.(*Browser); ok {
+		f.frameDoc = b.frameDoc
+	}
+	return f
 }
 
 // Method returns the form method, eg "GET" or "POST".
@@ -329,6 +338,16 @@ func (f *Form) Dom() *goquery.Selection {
 
 // send submits the form.
 func (f *Form) send(buttonName, buttonValue string) error {
+	// In a frame tree the form is bound to its source document and the
+	// response is routed to the form target. The alive/document checks run
+	// before any request, body read or attachment read.
+	if b, ok := f.bow.(*Browser); ok && b.frameTree != nil {
+		if err := b.checkFormBinding(f.frameDoc); err != nil {
+			return err
+		}
+		return b.submitForm(f, buttonName, buttonValue)
+	}
+
 	method, ok := f.selection.Attr("method")
 	if !ok {
 		method = "GET"

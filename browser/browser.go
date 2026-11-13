@@ -18,6 +18,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/headzoo/surf/errors"
 	"github.com/headzoo/surf/jar"
+	"golang.org/x/net/html"
 )
 
 // Attribute represents a Browser capability.
@@ -182,6 +183,10 @@ type Browsable interface {
 	// Find returns the dom selections matching the given expression.
 	Find(expr string) *goquery.Selection
 
+	// Frame opens the single direct iframe/frame element matched by expr in
+	// the current document and returns its browsing context.
+	Frame(expr string) (*Browser, error)
+
 	// Create a new Browser instance and inherit the configuration
 	// Read more: https://github.com/headzoo/surf/issues/23
 	NewTab() (b *Browser)
@@ -218,6 +223,34 @@ type Browser struct {
 
 	// body of the current page.
 	body []byte
+
+	// frameTree is non-nil once the context belongs to (or roots) a frame
+	// tree opened through Browser.Frame. Standalone browsers and NewTab
+	// copies leave it nil and keep their historical behavior.
+	frameTree *frameTree
+
+	// frameParent links to the context whose document contains this frame.
+	// It is nil on the tree root and on standalone browsers.
+	frameParent *Browser
+
+	// frameElement is the iframe/frame DOM node in the parent document.
+	frameElement *html.Node
+
+	// frameName is the name attribute of the frame element. Empty names do
+	// not participate in target lookup by name.
+	frameName string
+
+	// frameDoc identifies the document currently displayed; every form
+	// binds to the identity of the document that created it.
+	frameDoc *frameDocument
+
+	// frameChildren are the frame contexts successfully opened from the
+	// current document. They are detached when the document changes.
+	frameChildren []*Browser
+
+	// frameDetached is true once this context's own document, or an ancestor
+	// document, has been replaced.
+	frameDetached bool
 }
 
 // buildClient instanciates the *http.Client used by the browser
@@ -229,6 +262,9 @@ func (bow *Browser) buildClient() *http.Client {
 
 // Open requests the given URL using the GET method.
 func (bow *Browser) Open(u string) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	ur, err := url.Parse(u)
 	if err != nil {
 		return err
@@ -238,6 +274,9 @@ func (bow *Browser) Open(u string) error {
 
 // Head requests the given URL using the HEAD method.
 func (bow *Browser) Head(u string) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	ur, err := url.Parse(u)
 	if err != nil {
 		return err
@@ -247,6 +286,9 @@ func (bow *Browser) Head(u string) error {
 
 // OpenForm appends the data values to the given URL and sends a GET request.
 func (bow *Browser) OpenForm(u string, data url.Values) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	ul, err := url.Parse(u)
 	if err != nil {
 		return err
@@ -267,6 +309,9 @@ func (bow *Browser) OpenBookmark(name string) error {
 
 // Post requests the given URL using the POST method.
 func (bow *Browser) Post(u string, contentType string, body io.Reader) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	ur, err := url.Parse(u)
 	if err != nil {
 		return err
@@ -281,6 +326,9 @@ func (bow *Browser) PostForm(u string, data url.Values) error {
 
 // PostMultipart requests the given URL using the POST method with the given data using multipart/form-data format.
 func (bow *Browser) PostMultipart(u string, fields url.Values, files FileSet) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -314,8 +362,15 @@ func (bow *Browser) PostMultipart(u string, fields url.Values, files FileSet) er
 // Returns a boolean value indicating whether a previous page existed, and was
 // successfully loaded.
 func (bow *Browser) Back() bool {
+	if err := bow.checkAlive(); err != nil {
+		return false
+	}
 	if bow.history.Len() > 1 {
 		bow.state = bow.history.Pop()
+		bow.relativeUrl = nil
+		bow.applyBaseTag()
+		bow.frameDoc = newFrameDocument()
+		bow.detachChildren()
 		return true
 	}
 	return false
@@ -323,6 +378,9 @@ func (bow *Browser) Back() bool {
 
 // Reload duplicates the last successful request.
 func (bow *Browser) Reload() error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	if bow.state.Request != nil {
 		return bow.httpRequest(bow.state.Request)
 	}
@@ -340,6 +398,9 @@ func (bow *Browser) Bookmark(name string) error {
 // to load the page pointed at by the link. Future versions of Surf may support
 // JavaScript and clicking on elements will fire the click event.
 func (bow *Browser) Click(expr string) error {
+	if err := bow.checkAlive(); err != nil {
+		return err
+	}
 	sel := bow.Find(expr)
 	if sel.Length() == 0 {
 		return errors.NewElementNotFound(
@@ -641,6 +702,15 @@ func (bow *Browser) NewTab() (b *Browser) {
 	b = &Browser{}
 	*b = *bow
 
+	// A new tab is an independent top-level context: it never inherits the
+	// frame tree, the parent link or the descendant registry.
+	b.frameTree = nil
+	b.frameParent = nil
+	b.frameElement = nil
+	b.frameDoc = nil
+	b.frameChildren = nil
+	b.frameDetached = false
+
 	return b
 }
 
@@ -716,13 +786,24 @@ func (bow *Browser) httpPOST(u *url.URL, ref *url.URL, contentType string, body 
 
 // send uses the given *http.Request to make an HTTP request.
 func (bow *Browser) httpRequest(req *http.Request) error {
+	resp, body, err := bow.fetch(req)
+	if err != nil {
+		return err
+	}
+	return bow.adoptResponse(req, resp, body)
+}
+
+// fetch performs the request using this context's HTTP client and request
+// configuration (redirect policy, headers, cookies) and returns the response
+// together with its fully read, decoded body. It never mutates browser state.
+func (bow *Browser) fetch(req *http.Request) (*http.Response, []byte, error) {
 	if bow.client == nil {
 		bow.client = bow.buildClient()
 	}
 	bow.preSend()
 	resp, err := bow.client.Do(req)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
@@ -731,7 +812,7 @@ func (bow *Browser) httpRequest(req *http.Request) error {
 	case "gzip":
 		reader, err = gzip.NewReader(resp.Body)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	case "deflate":
 		reader = flate.NewReader(resp.Body)
@@ -740,19 +821,33 @@ func (bow *Browser) httpRequest(req *http.Request) error {
 		reader = resp.Body
 	}
 
-	bow.body, err = ioutil.ReadAll(reader)
+	body, err := ioutil.ReadAll(reader)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+	return resp, body, nil
+}
 
-	buff := bytes.NewBuffer(bow.body)
+// adoptResponse parses a fetched response and makes it the context's current
+// document. Parsing happens before any state change, so a parse failure leaves
+// the old page and its descendant tree in place.
+func (bow *Browser) adoptResponse(req *http.Request, resp *http.Response, body []byte) error {
+	buff := bytes.NewBuffer(body)
 	dom, err := goquery.NewDocumentFromReader(buff)
 	if err != nil {
 		return err
 	}
 
+	// The response has been read and parsed successfully, so this is a real
+	// document switch: the old descendants are permanently detached and the
+	// context binds itself to the new document identity.
+	bow.detachChildren()
 	bow.history.Push(bow.state)
 	bow.state = jar.NewHistoryState(req, resp, dom)
+	bow.body = body
+	bow.relativeUrl = nil
+	bow.applyBaseTag()
+	bow.frameDoc = newFrameDocument()
 	bow.postSend()
 
 	return nil
@@ -779,17 +874,6 @@ func (bow *Browser) postSend() {
 						<-bow.refresh.C
 						bow.Reload()
 					}()
-				}
-			}
-		}
-
-		baseTag := bow.Find("base[href]")
-		if baseTag.Length() > 0 {
-			if href, exists := baseTag.Attr("href"); exists {
-				baseUrl, err := url.Parse(href)
-
-				if err == nil {
-					bow.relativeUrl = bow.ResolveUrl(baseUrl)
 				}
 			}
 		}
