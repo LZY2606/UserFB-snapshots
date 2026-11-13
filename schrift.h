@@ -25,6 +25,9 @@ extern "C" {
 #endif
 
 #define SFT_DOWNWARD_Y 0x01
+/* Use the even-odd (non-zero winding independent) fill rule instead of the
+ * default signed-area rule. May be combined with SFT_DOWNWARD_Y. */
+#define SFT_EVEN_ODD   0x02
 
 typedef struct SFT          SFT;
 typedef struct SFT_Font     SFT_Font;

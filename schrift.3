@@ -75,6 +75,21 @@ If the
 .Dv SFT_DOWNWARD_Y
 flag is set, the Y axis is interpreted to point downwards.
 Per default, it points upwards.
+.sp
+If the
+.Dv SFT_EVEN_ODD
+flag is set, glyphs are rasterized with the even-odd (parity) fill rule
+instead of the default non-zero-winding rule. All closed contours are then
+treated as one planar curve set: a point is filled when a horizontal ray
+from it crosses an odd number of edges. Repeated coincident contours cancel
+out, and all lobes of a self-intersecting contour contribute coverage.
+Orientation and the chosen starting point of a contour do not affect the
+result. Each output byte is the area of the intersection of the odd region
+with the pixel's unit square, multiplied by 255 and rounded. This flag may be
+combined with
+.Dv SFT_DOWNWARD_Y ;
+it changes only the fill rule, never the glyph metrics. With the flag
+cleared, rendering is identical to previous versions of the library.
 .Ss Glyph ids
 .Nm
 operates in terms of glyph ids (of type

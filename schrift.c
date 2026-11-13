@@ -76,38 +76,7 @@
 
 enum { SrcMapping, SrcUser };
 
-/* structs */
-typedef struct Point   Point;
-typedef struct Line    Line;
-typedef struct Curve   Curve;
-typedef struct Cell    Cell;
-typedef struct Outline Outline;
-typedef struct Raster  Raster;
-
-struct Point { double x, y; };
-struct Line  { uint_least16_t beg, end; };
-struct Curve { uint_least16_t beg, end, ctrl; };
-struct Cell  { double area, cover; };
-
-struct Outline
-{
-	Point *points;
-	Curve *curves;
-	Line  *lines;
-	uint_least16_t numPoints;
-	uint_least16_t capPoints;
-	uint_least16_t numCurves;
-	uint_least16_t capCurves;
-	uint_least16_t numLines;
-	uint_least16_t capLines;
-};
-
-struct Raster
-{
-	Cell *cells;
-	int   width;
-	int   height;
-};
+#include "schrift_internal.h"
 
 struct SFT_Font
 {
@@ -134,7 +103,7 @@ static void unmap_file(SFT_Font *font);
 static int  init_font (SFT_Font *font);
 /* simple mathematical operations */
 static Point midpoint(Point a, Point b);
-static void transform_points(unsigned int numPts, Point *points, double trf[6]);
+void transform_points(unsigned int numPts, Point *points, double trf[6]);
 static void clip_points(unsigned int numPts, Point *points, int width, int height);
 /* 'outline' data structure management */
 static int  init_outline(Outline *outl);
@@ -172,7 +141,7 @@ static int  decode_outline(SFT_Font *font, uint_fast32_t offset, int recDepth, O
 /* tesselation */
 static int  is_flat(Outline *outl, Curve curve);
 static int  tesselate_curve(Curve curve, Outline *outl);
-static int  tesselate_curves(Outline *outl);
+int   tesselate_curves(Outline *outl);
 /* silhouette rasterization */
 static void draw_line(Raster buf, Point origin, Point goal);
 static void draw_lines(Outline *outl, Raster buf);
@@ -393,7 +362,10 @@ sft_render(const SFT *sft, SFT_Glyph glyph, SFT_Image image)
 
 	if (decode_outline(sft->font, outline, 0, &outl) < 0)
 		goto failure;
-	if (render_outline(&outl, transform, image) < 0)
+	if (sft->flags & SFT_EVEN_ODD) {
+		if (sft_render_even_odd(&outl, transform, image) < 0)
+			goto failure;
+	} else if (render_outline(&outl, transform, image) < 0)
 		goto failure;
 
 	free_outline(&outl);
@@ -563,7 +535,7 @@ midpoint(Point a, Point b)
 }
 
 /* Applies an affine linear transformation matrix to a set of points. */
-static void
+void
 transform_points(unsigned int numPts, Point *points, double trf[6])
 {
 	Point pt;
@@ -1412,7 +1384,7 @@ tesselate_curve(Curve curve, Outline *outl)
 #undef STACK_SIZE
 }
 
-static int
+int
 tesselate_curves(Outline *outl)
 {
 	unsigned int i;

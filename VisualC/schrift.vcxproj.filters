@@ -18,9 +18,15 @@
     <ClCompile Include="..\schrift.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\schrift_raster.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\schrift.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\schrift_internal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
