@@ -1,15 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
-
+project(signalsmith_stretch_offline LANGUAGES CXX)
+option(SIGNALSMITH_USE_ACCELERATE "Use system FFT backend" OFF)
+add_subdirectory(vendor/linear)
 add_library(signalsmith-stretch INTERFACE)
-set_target_properties(signalsmith-stretch PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-include(FetchContent)
-FetchContent_Declare(
-	signalsmith-linear
-	GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
-	GIT_TAG 0.2.2
-	GIT_SHALLOW ON
-)
-FetchContent_MakeAvailable(signalsmith-linear)
-
+target_include_directories(signalsmith-stretch INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(signalsmith-stretch INTERFACE signalsmith-linear)
