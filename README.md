@@ -44,6 +44,24 @@ clock.setTimeout(function() {
 }, 10)
 ```
 
+**Schedule events in musical beats**
+
+```javascript
+var transport = clock.createTransport({ bpm: 120, originTime: 0, originBeat: 0 })
+
+// 4 beats at 120 BPM : the callback receives the absolute deadline to use
+var event = transport.callbackAtBeat(function(event) {
+  osc.start(event.deadline)
+}, 4).repeat(1).tolerance({ early: 0.05, late: 0.2 })
+
+// from beat 16, ramp linearly from 120 BPM down to 60 BPM over 8 beats,
+// then keep 60 BPM. Pending beat events are re-timed automatically.
+transport.replaceTempoFrom(16, [
+  { beat: 16, bpm: 120, curve: 'linear' },
+  { beat: 24, bpm: 60, curve: 'step' }
+])
+```
+
 **note :** this library uses current Web Audio API specification. Some older browsers still use prefixed / deprecated function names. You can use [Chris Wilson's AudioContext-MonkeyPatch](https://github.com/cwilso/AudioContext-MonkeyPatch) if you want to support those older browsers as well.
 
 
@@ -57,6 +75,7 @@ Examples
 
 - [tempo change](http://sebpiq.github.io/WAAClock/demos/tempoChange.html)
 - [basic drum machine](http://sebpiq.github.io/WAAClock/demos/beatSequence.html).
+- [beat transport with a tempo ramp](demos/tempoTransport.html)
 
 
 More infos about scheduling
@@ -140,6 +159,56 @@ const interval = wt.setInterval(() => clock.tick(), 10);
 clock.stop()
 wt.clearInterval(interval);
 ```
+
+
+### createTransport({ bpm, originTime, originBeat })
+
+Creates a `Transport` sharing this clock, so that beat events and plain second
+events run through the same queue and the same tick (manual or
+`ScriptProcessorNode`). `bpm` must be a finite number in [1, 1000].
+`originTime` defaults to `context.currentTime`, `originBeat` defaults to `0`.
+
+Beat coordinates and seconds are finite doubles. `timeAtBeat`/`beatAtTime` are
+defined from the origin onwards; earlier beats/times are rejected.
+
+Nothing in a transport affects `callbackAtTime`, `setTimeout` or
+`timeStretch`, and vice versa.
+
+
+### Transport.timeAtBeat(beat), Transport.beatAtTime(time)
+
+Convert between absolute beat coordinates and absolute seconds using the
+current tempo graph. Linear segments are linear in BPM as a function of
+*beats*; the conversion integrates `60 / BPM` in closed form (no sampling).
+
+
+### Transport.callbackAtBeat(func, beat)
+
+Schedules `func` at beat `beat` and returns a beat event. `func` receives the
+event, whose `occurrenceBeat` and `deadline` describe the occurrence. The event
+supports `repeat(beatInterval)`, `clear()` and `tolerance(values)` exactly like
+a regular event; tolerance values are always in seconds. `repeat` intervals
+must be finite and strictly positive, and each repetition is computed as
+`baseBeat + index * interval` (never by accumulating seconds).
+
+
+### Transport.replaceTempoFrom(beat, points)
+
+Replaces the tempo graph from `beat` onwards. `points` is a list of
+`{ beat, bpm, curve }`, where `curve` is `'step'` or `'linear'` and describes
+the segment from that point to the next one (the tail is always constant
+tempo). The first point must be exactly at `beat`, the rest strictly increasing;
+`beat` may not be before the beat currently corresponding to the audio time.
+
+The absolute time of the anchor is `timeAtBeat(beat)` in the old graph, and
+everything left of it keeps its old mapping — if the anchor falls inside a
+linear segment, the left side keeps the old slope and endpoint, and the new
+tempo only applies to the right side. All points are validated before
+anything is committed, so an invalid suffix changes neither the graph nor
+the queue. On success, deadlines and early/late bounds of every *pending* beat
+event of this transport are recomputed from the new graph and the clock queue
+is re-sorted. Already delivered occurrences are not replayed: the deadline
+given to the sound source keeps its original value.
 
 ## Event
 

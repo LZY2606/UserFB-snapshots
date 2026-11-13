@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WAAClock — beat transport with a tempo ramp</title>
+  <script src="js/AudioContextMonkeyPatch.js"></script>
+  <script src="../dist/WAAClock-latest.js"></script>
+  <link href="css/styles.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+  <h1>Beat transport with a tempo ramp</h1>
+  <p>
+    Clicks are scheduled by beat. From beat 16 the tempo ramps linearly from
+    120 to 60 BPM; the transport re-times pending events and hands absolute
+    second deadlines to the audio sources.
+  </p>
+  <button id="startButton">Start</button>
+  <button id="speedButton">Speed up from now</button>
+
+  <div id="source"></div>
+  <script src="tempoTransport.js"></script>
+</body>
+</html>
