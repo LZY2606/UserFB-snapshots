@@ -1,0 +1,48 @@
+Policy equivalence checking (re2/policy_diff.h)
+================================================
+
+A policy is an ordered list of rules (each an RE2 pattern plus an integer
+action) together with a default action.  For any input byte string, rules are
+tried in order and the first pattern that fully matches the whole string
+supplies the action; if none matches, the default action applies.
+
+    re2::PolicyDiffResult re2::ComparePolicies(
+        const std::vector<re2::PolicyRule>& left,  int left_default,
+        const std::vector<re2::PolicyRule>& right, int right_default);
+
+The result status is one of:
+
+  Equivalent  - both policies assign the same action to every finite byte
+                string; no witness is produced.
+  Different   - some byte string gets different actions.  result.witness is
+                a raw std::string (it may be empty or contain embedded NUL
+                bytes) that is shortest by byte length and, among shortest
+                witnesses, smallest by unsigned byte lexicographic order.
+                result.left_rule / right_rule give the zero-based index of
+                the first matching rule on each side, or -1 for the default
+                rule, and result.left_action / right_action give the actions.
+                Re-running RE2::FullMatch over the rule list reproduces those
+                indices exactly.
+  Invalid     - a pattern failed to parse; result.error names the side
+                ("left"/"right") and the zero-based rule index.  A pattern
+                that fails to parse is never treated as the empty language.
+
+Patterns use RE2's default syntax with RE2::Options::EncodingLatin1 and all
+other options left at their defaults; inline switches such as (?i), (?m) and
+(?s) take effect, and capturing groups do not influence action selection.
+
+This is an exact decision procedure over all byte strings, not a bounded
+probe: witnesses can be longer than any fixed sample limit.  It constructs
+its own lazily explored subset automata from freshly compiled Prog objects;
+it does not enumerate strings, does not call Prog::BuildEntireDFA(), and does
+not rely on pointers stored in an RE2 DFA cache.  Ordinary RE2 matching,
+concurrent independent comparisons and repeated comparisons are unaffected.
+
+Rules whose actions are identical are interchangeable as far as equivalence
+is concerned, so reordering them or adding a fully shadowed rule reports
+Equivalent.  Empty rule tables and patterns that match the empty language are
+ordinary inputs.
+
+Cost tracks the number of reachable product states, bounded by the product of
+the per-pattern subset DFA sizes; pathological patterns may still require
+substantial time and memory.

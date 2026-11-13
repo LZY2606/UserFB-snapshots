@@ -62,6 +62,7 @@ set(RE2_SOURCES
     re2/nfa.cc
     re2/onepass.cc
     re2/parse.cc
+    re2/policy_diff.cc
     re2/perl_groups.cc
     re2/prefilter.cc
     re2/prefilter_tree.cc
@@ -148,6 +149,7 @@ endif()
 
 set(RE2_HEADERS
     re2/filtered_re2.h
+    re2/policy_diff.h
     re2/re2.h
     re2/set.h
     re2/stringpiece.h

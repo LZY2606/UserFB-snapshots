@@ -73,6 +73,7 @@ all: obj/libre2.a obj/so/libre2.$(SOEXT)
 
 INSTALL_HFILES=\
 	re2/filtered_re2.h\
+	re2/policy_diff.h\
 	re2/re2.h\
 	re2/set.h\
 	re2/stringpiece.h\
@@ -92,6 +93,7 @@ HFILES=\
 	re2/bitmap256.h\
 	re2/filtered_re2.h\
 	re2/pod_array.h\
+	re2/policy_diff.h\
 	re2/prefilter.h\
 	re2/prefilter_tree.h\
 	re2/prog.h\
@@ -120,6 +122,7 @@ OFILES=\
 	obj/re2/nfa.o\
 	obj/re2/onepass.o\
 	obj/re2/parse.o\
+	obj/re2/policy_diff.o\
 	obj/re2/perl_groups.o\
 	obj/re2/prefilter.o\
 	obj/re2/prefilter_tree.o\
