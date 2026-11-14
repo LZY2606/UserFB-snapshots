@@ -1,0 +1,1 @@
+/usr/bin/cc  -Wall -Wno-strict-overflow -std=gnu11 -fPIC -O3 -mmacosx-version-min=10.9 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/cohpsk_mod.dir/cohpsk_mod.c.o -o cohpsk_mod  libcodec2.a -lm

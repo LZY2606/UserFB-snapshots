@@ -1,0 +1,1 @@
+/usr/bin/cc  -Wall -Wno-strict-overflow -std=gnu11 -fPIC -O3 -mmacosx-version-min=10.9 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/ldpc_noise.dir/ldpc_noise.c.o -o ldpc_noise  -lm

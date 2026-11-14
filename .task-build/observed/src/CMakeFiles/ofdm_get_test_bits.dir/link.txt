@@ -1,0 +1,1 @@
+/usr/bin/cc -DTASK_OBSERVE -Wall -Wno-strict-overflow -std=gnu11 -fPIC -O3 -mmacosx-version-min=10.9 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/ofdm_get_test_bits.dir/ofdm_get_test_bits.c.o -o ofdm_get_test_bits  libcodec2.a -lm

@@ -1,0 +1,1 @@
+/usr/bin/cc  -Wall -Wno-strict-overflow -std=gnu11 -fPIC -O3 -mmacosx-version-min=10.9 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/fdmdv_mod.dir/fdmdv_mod.c.o CMakeFiles/fdmdv_mod.dir/fdmdv.c.o CMakeFiles/fdmdv_mod.dir/kiss_fft.c.o CMakeFiles/fdmdv_mod.dir/codec2_fft.c.o CMakeFiles/fdmdv_mod.dir/kiss_fftr.c.o -o fdmdv_mod  -lm

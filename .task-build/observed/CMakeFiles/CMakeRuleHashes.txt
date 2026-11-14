@@ -1,0 +1,10 @@
+# Hashes of file build rules.
+457bc01508a0aa411774e2e957eec29a CMakeFiles/dist
+0f03db5f0738fda4e28d3251883ad604 src/codebook.c
+a175671ae65a95ee2bb3e73ae5626f8a src/codebookd.c
+ba393477cbfddf9b5287fde77908464f src/codebookge.c
+20a8c944a5f290c2257181e4ea3fb5da src/codebookjmv.c
+847997e2f3a1b37525b139c25461d7cd src/codebooknewamp1.c
+0d2cf8e0b1db9e243db37b79623f36d0 src/codebooknewamp1_energy.c
+f61496f7d2b1092980c0a98399f563c7 src/codebooknewamp2.c
+7a70c993cb93c3a941ab0c77581da0b2 src/codebooknewamp2_energy.c

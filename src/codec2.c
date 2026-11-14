@@ -84,6 +84,19 @@ void codec2_decode_700c(struct CODEC2 *c2, short speech[],
                         const unsigned char *bits);
 static void ear_protection(float in_out[], int n);
 
+/* Read-only observation points for the phase/overlap contract tests in
+   tests/phase_overlap_contract.c.  Only compiled when TASK_OBSERVE is
+   defined; the normal build is completely unaffected.  The callbacks are
+   implemented by the test harness and must not modify the codec state. */
+#ifdef TASK_OBSERVE
+void task_observe_frame_input(const void *c2, const MODEL *model,
+                              const COMP Aw[], float ex_phase, int n_samp,
+                              const float Pn[]);
+void task_observe_phase(const void *c2, const MODEL *model, float ex_phase);
+void task_observe_model(const void *c2, const MODEL *model);
+void task_observe_output(const void *c2, const float Sn_[], int n_samp);
+#endif
+
 /*---------------------------------------------------------------------------*\
 
                                 FUNCTIONS
@@ -1650,6 +1663,10 @@ void synthesise_one_frame(struct CODEC2 *c2, short speech[], MODEL *model,
                           COMP Aw[], float gain) {
   int i;
 
+#ifdef TASK_OBSERVE
+  task_observe_frame_input(c2, model, Aw, c2->ex_phase, c2->n_samp, c2->Pn);
+#endif
+
   if (CODEC2_MODE_ACTIVE(CODEC2_MODE_700C, c2->mode)) {
     /* newamp1, we've already worked out rate L phase */
     COMP *H = Aw;
@@ -1661,12 +1678,25 @@ void synthesise_one_frame(struct CODEC2 *c2, short speech[], MODEL *model,
     phase_synth_zero_order(c2->n_samp, model, &c2->ex_phase, H);
   }
 
+#ifdef TASK_OBSERVE
+  task_observe_phase(c2, model, c2->ex_phase);
+#endif
+
   postfilter(model, &c2->bg_est);
+
+#ifdef TASK_OBSERVE
+  task_observe_model(c2, model);
+#endif
+
   synthesise(c2->n_samp, c2->fftr_inv_cfg, c2->Sn_, model, c2->Pn, 1);
 
   for (i = 0; i < c2->n_samp; i++) {
     c2->Sn_[i] *= gain;
   }
+
+#ifdef TASK_OBSERVE
+  task_observe_output(c2, c2->Sn_, c2->n_samp);
+#endif
 
   ear_protection(c2->Sn_, c2->n_samp);
 

@@ -1,0 +1,2 @@
+# Empty dependencies file for freedv_datac1_rx.
+# This may be replaced when dependencies are built.

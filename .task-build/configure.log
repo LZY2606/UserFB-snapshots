@@ -1,0 +1,9 @@
+-- Codec2 current git hash: a19cdc8
+-- codec2 version: 1.2.0
+-- Build type is: Release
+-- Compiler Flags:  -Wall -Wno-strict-overflow -std=gnu11 -fPIC-O3
+-- Libraries linked: 
+-- Compilation date = XX2026-11-14XX
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z1836/attempts/20261114T162834850897Z/repo/.task-build/codec2

@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z1836/attempts/20261114T162834850897Z/repo/.task-build/observed/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1836/attempts/20261114T162834850897Z/repo/.task-build/observed/src/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1836/attempts/20261114T162834850897Z/repo/.task-build/observed/demo/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
