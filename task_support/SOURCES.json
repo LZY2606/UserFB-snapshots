@@ -1,0 +1,27 @@
+{
+  "upstream": {
+    "kind": "synthetic",
+    "repo": "https://github.com/jdupuy/HalfedgeCatmullClark",
+    "commit": "08f99cbb32203bbbc27fa970038a127986f6e6c0",
+    "license": "MIT",
+    "dir": "seed"
+  },
+  "scaffold": {
+    "id": "earlier-public-scaffold",
+    "commit": "08f99cbb32203bbbc27fa970038a127986f6e6c0",
+    "files": [
+      "task_support/fixture.h",
+      "task_support/baseline.c",
+      "task_support/upstream.c"
+    ],
+    "scope": "Only public cube fixture, existing production baseline and compiler unit. No old target interfaces or prior run approval.",
+    "fixture_correction": "Copied cube originally stored smaller halfedge ID. Upstream examples/obj_to_ccm.c LoadEdgeMappings explicitly chooses larger ID. Corrected only this input fixture; old multi-depth probe logs retained. No upstream production change."
+  },
+  "source_archive_sha256": "a1efb7f89e24e8d5e1901f3769c4548ac10b626ed1f34fda6422a0020491b877",
+  "exported_cpu_files": [
+    "CatmullClark.h",
+    "LICENSE.txt",
+    "examples/subd_cpu.c",
+    "examples/obj_to_ccm.c"
+  ]
+}
