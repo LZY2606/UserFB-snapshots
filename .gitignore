@@ -1,3 +1,10 @@
 # Ignore content built with CMake
 build/
 
+# Task harness and local scratch builds
+.task-build/
+.check/
+
+# Rendered output of the example
+isosurface.ppm
+out.ppm
