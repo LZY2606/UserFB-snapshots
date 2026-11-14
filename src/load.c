@@ -77,6 +77,12 @@
 	         int16_t: ((int16_t)((v) * 32768.f)), \
 	         float: (v))
 
+/* Apple Clang uses binary32 float but does not spell it _Float32. */
+#if defined(__apple_build_version__)
+typedef float _Float32;
+static_assert(sizeof(_Float32) == 4);
+#endif
+
 /* Type punning helpers */
 static uint32_t F32_TO_U32(_Float32 x) {
 	uint32_t y;
