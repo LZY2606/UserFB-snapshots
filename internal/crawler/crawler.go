@@ -4,6 +4,7 @@ package crawler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -57,6 +58,15 @@ type StatsSnapshot struct {
 	Enqueued int64
 }
 
+// recordWriter is the JSONL sink consumed by the crawler. *storage.Writer
+// is the production implementation; the interface keeps output failures
+// testable without touching real disk limits.
+type recordWriter interface {
+	Write(storage.Record) error
+	Close() error
+	Err() error
+}
+
 // Snapshot returns a point-in-time copy of the statistics.
 func (s *Stats) Snapshot() StatsSnapshot {
 	return StatsSnapshot{
@@ -73,13 +83,24 @@ type Crawler struct {
 	frontier frontier.Queue // supports both local and distributed modes
 	fetcher  *fetcher.Fetcher
 	robots   *robots.Checker
-	writer   *storage.Writer
+	writer   recordWriter
 	stats    Stats
 	logger   *slog.Logger
 
 	allowedHosts     map[string]struct{} // non-nil when SameDomain=true
 	checkpointCancel context.CancelFunc  // cancel periodic checkpointing
 	localFrontier    *frontier.Frontier  // reference to local frontier for checkpointing (nil if distributed)
+
+	// stop is canceled on the first output failure or when Run's context
+	// ends. It drives cancellation of in-flight work and wakes every
+	// blocked Pop / politeness wait without waiting for MinDelay.
+	stop    context.CancelFunc
+	stopMu  sync.Mutex
+	stopped bool
+
+	// runErr holds the first output failure, sticky across shutdown.
+	runErr   error
+	runErrMu sync.Mutex
 }
 
 // New creates a Crawler from cfg. Call Run to start crawling.
@@ -168,54 +189,64 @@ func New(cfg Config, logger *slog.Logger) (*Crawler, error) {
 	return c, nil
 }
 
-// Run starts the worker pool and blocks until the crawl completes or ctx is done.
+// Run starts the worker pool and blocks until the crawl completes, ctx is
+// done, or an output failure forces a drain. On return every worker has
+// exited and the output file is closed, so no file writes can happen after
+// Run. Inspect Err afterwards: it is nil on a clean run and otherwise
+// carries the original failure, reachable via errors.Is.
 func (c *Crawler) Run(ctx context.Context) StatsSnapshot {
-	defer c.writer.Close()
-	defer c.StopCheckpointing()
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	c.stopMu.Lock()
+	c.stop = cancel
+	c.stopped = false
+	c.stopMu.Unlock()
+	c.runErrMu.Lock()
+	c.runErr = nil
+	c.runErrMu.Unlock()
+
+	// Any end of the run context (external cancel or internal output
+	// failure) closes the frontier so blocked Pops return immediately.
+	go func() {
+		<-runCtx.Done()
+		c.frontier.Close()
+	}()
 
 	var wg sync.WaitGroup
-	// Channel to drain workers when frontier is closed
-	done := make(chan struct{})
-
-	// Watchdog: close frontier when queue empties and all workers are idle
 	idleWorkers := atomic.Int64{}
-	idleWorkers.Store(0)
 
 	for i := 0; i < c.cfg.Workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for {
-				select {
-				case <-ctx.Done():
+				if runCtx.Err() != nil {
 					return
-				case <-done:
-					return
-				default:
 				}
-
 				idleWorkers.Add(1)
-				item, ok := c.frontier.Pop()
+				item, ok := c.frontier.PopContext(runCtx)
 				idleWorkers.Add(-1)
-
 				if !ok {
-					return // frontier closed
+					return // frontier closed and drained, or context done
 				}
-				c.process(ctx, item)
+				c.process(runCtx, item)
 			}
 		}()
 	}
 
-	// Watchdog goroutine: closes frontier when all workers idle and queue empty
+	// Watchdog: close the frontier when the queue empties with all workers
+	// idle, when MaxPages is reached, or when the run is stopping.
 	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				c.frontier.Close()
 				return
-			default:
+			case <-ticker.C:
 			}
-			time.Sleep(200 * time.Millisecond)
 			if c.frontier.Len() == 0 && idleWorkers.Load() == int64(c.cfg.Workers) {
 				c.frontier.Close()
 				return
@@ -227,13 +258,75 @@ func (c *Crawler) Run(ctx context.Context) StatsSnapshot {
 		}
 	}()
 
+	// Wait for every in-flight worker to exit before touching the writer.
 	wg.Wait()
-	close(done)
+	closeErr := c.writer.Close()
+	c.StopCheckpointing()
+
+	c.runErrMu.Lock()
+	if closeErr != nil {
+		cerr := fmt.Errorf("crawler: close output file: %w", closeErr)
+		if c.runErr == nil {
+			c.runErr = cerr
+		} else {
+			// Report the close failure too, keeping the primary write error.
+			c.runErr = errors.Join(c.runErr, cerr)
+		}
+	}
+	c.runErrMu.Unlock()
+
 	return c.stats.Snapshot()
+}
+
+// Err returns the sticky output failure from the last Run, or nil when the
+// run finished cleanly. The original error (short write, truncate/restore
+// failure, close failure, ...) stays reachable through errors.Is.
+func (c *Crawler) Err() error {
+	c.runErrMu.Lock()
+	defer c.runErrMu.Unlock()
+	return c.runErr
+}
+
+// failOutput records the first output error and switches the crawler into
+// shutdown mode: the run context is canceled (in-flight requests and
+// politeness waits stop) and the frontier closes (no new Pop or Push is
+// admitted). A later context cancellation never replaces the stored file
+// error, because only output failures reach this method and the first one
+// wins.
+func (c *Crawler) failOutput(err error) {
+	if err == nil {
+		return
+	}
+	c.runErrMu.Lock()
+	if c.runErr == nil {
+		c.runErr = err
+	}
+	c.runErrMu.Unlock()
+
+	c.stopMu.Lock()
+	if !c.stopped {
+		c.stopped = true
+		c.stop()
+	}
+	c.stopMu.Unlock()
+	c.frontier.Close()
+}
+
+// writeRecord appends one record and, on failure, drives the output-failure
+// shutdown. It returns the error so callers stop processing the item.
+func (c *Crawler) writeRecord(rec storage.Record) error {
+	if err := c.writer.Write(rec); err != nil {
+		c.failOutput(err)
+		return err
+	}
+	return nil
 }
 
 // process fetches one URL, parses it, and enqueues discovered links.
 func (c *Crawler) process(ctx context.Context, item frontier.Item) {
+	if ctx.Err() != nil {
+		return
+	}
 	if c.cfg.MaxPages > 0 && c.stats.Fetched.Load() >= c.cfg.MaxPages {
 		return
 	}
@@ -257,36 +350,44 @@ func (c *Crawler) process(ctx context.Context, item frontier.Item) {
 		Depth:     item.Depth,
 	}
 
+	// Write path 1: transport failures are still recorded as error rows.
+	// A cancellation-driven failure is shutdown noise, not a fetch result,
+	// so it is not written.
 	if result.Error != nil {
+		if ctx.Err() != nil || errors.Is(result.Error, context.Canceled) {
+			return
+		}
 		rec.Error = result.Error.Error()
 		log.Warn("fetch error", "err", result.Error)
 		c.stats.Errors.Add(1)
-		_ = c.writer.Write(rec)
+		_ = c.writeRecord(rec)
 		return
 	}
 
 	rec.StatusCode = result.StatusCode
 	rec.Headers = storage.HeadersFlat(map[string][]string(result.Headers))
 
+	// Parse HTML before writing so a record is always emitted in one piece.
+	ct := result.Headers.Get("Content-Type")
+	isHTML := strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
+	var page parser.Page
+	if isHTML {
+		page = parser.Extract(result.Body, u)
+		rec.Title = page.Title
+		rec.Content = page.Text
+		rec.Links = storage.URLsToStrings(page.Links)
+	}
+
+	// Write paths 2 (non-HTML) and 3 (HTML). Only a fully persisted
+	// response counts as Fetched, and only a persisted HTML page hands its
+	// discovered links to the frontier.
+	if err := c.writeRecord(rec); err != nil {
+		return
+	}
 	c.stats.Fetched.Add(1)
 	log.Info("fetched", "status", result.StatusCode)
 
-	// Only parse HTML
-	ct := result.Headers.Get("Content-Type")
-	if !strings.Contains(ct, "text/html") && !strings.Contains(ct, "application/xhtml") {
-		_ = c.writer.Write(rec)
-		return
-	}
-
-	page := parser.Extract(result.Body, u)
-	rec.Title = page.Title
-	rec.Content = page.Text
-	rec.Links = storage.URLsToStrings(page.Links)
-
-	_ = c.writer.Write(rec)
-
-	// Enqueue discovered links
-	if item.Depth >= c.cfg.MaxDepth {
+	if !isHTML || item.Depth >= c.cfg.MaxDepth {
 		return
 	}
 	for _, link := range page.Links {

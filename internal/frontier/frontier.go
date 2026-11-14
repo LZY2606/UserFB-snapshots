@@ -4,6 +4,7 @@ package frontier
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/gob"
 	"fmt"
@@ -55,6 +56,9 @@ func (f *Frontier) Push(u *url.URL, depth int) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.closed {
+		return false
+	}
 	if f.visited.TestString(key) {
 		return false
 	}
@@ -79,6 +83,50 @@ func (f *Frontier) Pop() (Item, bool) {
 	item := f.queue[0]
 	f.queue = f.queue[1:]
 	return item, true
+}
+
+// PopContext blocks like Pop but returns (zero Item, false) as soon as ctx
+// is canceled, so workers never stay trapped in a Pop and no queued page is
+// admitted after the crawl has started shutting down.
+func (f *Frontier) PopContext(ctx context.Context) (Item, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// A watcher is started only on the first blocking wait; it broadcasts
+	// the Cond when ctx ends, while Close() broadcasts on its own.
+	var stop chan struct{}
+	defer func() {
+		if stop != nil {
+			close(stop)
+		}
+	}()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return Item{}, false
+		}
+		if len(f.queue) > 0 {
+			item := f.queue[0]
+			f.queue = f.queue[1:]
+			return item, true
+		}
+		if f.closed {
+			return Item{}, false
+		}
+		if stop == nil {
+			stop = make(chan struct{})
+			go func() {
+				select {
+				case <-ctx.Done():
+					f.mu.Lock()
+					f.cond.Broadcast()
+					f.mu.Unlock()
+				case <-stop:
+				}
+			}()
+		}
+		f.cond.Wait()
+	}
 }
 
 // Len returns the current number of queued (not yet processed) URLs.

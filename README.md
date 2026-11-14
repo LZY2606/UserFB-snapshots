@@ -285,6 +285,35 @@ Results are written to a JSONL (JSON Lines) file where each line is a JSON objec
 
 Failed fetches include an `error` field with the error message.
 
+### Reliable output and failure handling
+
+Every `Write` is all-or-nothing: a record lands in the file only as one
+complete JSON object followed by a newline. If the filesystem accepts only
+part of a line (a short write), the partial bytes are rolled back to the
+length the file had before that record, so the JSONL file can never contain
+a torn line and no next record is ever appended after a broken one. After
+the first failure the writer enters a permanent failed state: concurrent
+writes stop touching the file and keep reporting the same cause.
+
+A crawl only counts a response as fetched after its record has been fully
+persisted, and only a persisted HTML page hands its discovered links to the
+frontier. On the first output failure the crawler stops admitting new pages
+and links, cancels in-flight requests, interrupts politeness waits, drains
+all workers, and closes the file before `Run` returns.
+
+After `Run`, inspect `Err`; it is `nil` on a clean run and otherwise keeps
+the original write/close error reachable via `errors.Is`:
+
+```go
+stats := c.Run(ctx)
+if err := c.Err(); err != nil {
+    if errors.Is(err, syscall.ENOSPC) {
+        // the disk filled up; the file holds only complete lines
+    }
+    log.Fatalf("output failure: %v", err)
+}
+```
+
 ## Architecture
 
 The crawler consists of several modular components:

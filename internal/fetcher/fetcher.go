@@ -78,8 +78,12 @@ func (f *Fetcher) Client() *http.Client {
 
 // Fetch retrieves the given URL, respecting the per-host politeness delay.
 // extraDelay is added on top of minDelay (e.g. from robots.txt crawl-delay).
+// Both the delay wait and the HTTP request honor ctx, so a canceled or
+// failed crawl stops without sleeping through the whole delay.
 func (f *Fetcher) Fetch(ctx context.Context, u *url.URL, extraDelay time.Duration) Result {
-	f.rateLimit(u.Host, extraDelay)
+	if err := f.Wait(ctx, u.Host, extraDelay); err != nil {
+		return Result{URL: u, Error: err, FetchedAt: time.Now()}
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -106,8 +110,14 @@ func (f *Fetcher) Fetch(ctx context.Context, u *url.URL, extraDelay time.Duratio
 	}
 }
 
-// rateLimit sleeps until the host's politeness delay has elapsed.
-func (f *Fetcher) rateLimit(host string, extra time.Duration) {
+// Wait blocks until the per-host politeness delay has elapsed or ctx is
+// done. It returns ctx.Err() when interrupted before the delay is over,
+// otherwise nil.
+func (f *Fetcher) Wait(ctx context.Context, host string, extra time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	delay := f.minDelay
 	if extra > delay {
 		delay = extra
@@ -119,10 +129,20 @@ func (f *Fetcher) rateLimit(host string, extra time.Duration) {
 	f.hostLast[host] = now
 	f.mu.Unlock()
 
-	if ok {
-		elapsed := now.Sub(last)
-		if elapsed < delay {
-			time.Sleep(delay - elapsed)
-		}
+	if !ok {
+		return nil
+	}
+	wait := delay - now.Sub(last)
+	if wait <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

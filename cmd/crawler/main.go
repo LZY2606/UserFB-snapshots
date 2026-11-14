@@ -133,8 +133,22 @@ func main() {
 		"resume", *resume,
 	)
 
-	c.Run(ctx)
+	stats := c.Run(ctx)
 	c.PrintStats(logger)
+
+	// Run has fully drained every worker and closed the output file before
+	// returning. A non-nil Err means the JSONL sink failed: the original
+	// write/close error is reachable via errors.Is, and the file contains
+	// only complete lines. Surface it so downstream ingestion does not
+	// silently consume a truncated run.
+	if err := c.Err(); err != nil {
+		logger.Error("crawl stopped with an output failure",
+			"err", err,
+			"fetched", stats.Fetched,
+			"errors", stats.Errors,
+		)
+		os.Exit(1)
+	}
 }
 
 func splitTrim(s, sep string) []string {

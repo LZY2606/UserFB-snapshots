@@ -1,6 +1,9 @@
 package frontier
 
-import "net/url"
+import (
+	"context"
+	"net/url"
+)
 
 // Queue defines the interface for both local and distributed frontiers.
 type Queue interface {
@@ -11,6 +14,9 @@ type Queue interface {
 	// Pop blocks until an item is available or the frontier is closed.
 	// Returns the item and true, or zero-value and false when closed.
 	Pop() (Item, bool)
+
+	// PopContext blocks like Pop but also returns when ctx is done.
+	PopContext(ctx context.Context) (Item, bool)
 
 	// Len returns the current number of queued URLs.
 	Len() int

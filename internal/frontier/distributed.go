@@ -135,6 +135,43 @@ func (f *DistributedFrontier) Pop() (Item, bool) {
 	}
 }
 
+// PopContext blocks like Pop but also returns when ctx is done.
+func (f *DistributedFrontier) PopContext(ctx context.Context) (Item, bool) {
+	for {
+		if f.closed {
+			return Item{}, false
+		}
+		if err := ctx.Err(); err != nil {
+			return Item{}, false
+		}
+
+		// Bound the BLPOP wait so ctx cancellation is observed promptly.
+		result, err := f.client.BLPop(f.ctx, 250*time.Millisecond, f.queueKey).Result()
+		if err == redis.Nil {
+			continue // timeout: re-check ctx and closed before retrying
+		}
+		if err != nil {
+			return Item{}, false
+		}
+
+		// result[0] is the key, result[1] is the value
+		var itemData struct {
+			URL   string `json:"url"`
+			Depth int    `json:"depth"`
+		}
+		if err := json.Unmarshal([]byte(result[1]), &itemData); err != nil {
+			continue // Skip malformed items
+		}
+
+		u, err := url.Parse(itemData.URL)
+		if err != nil {
+			continue // Skip invalid URLs
+		}
+
+		return Item{URL: u, Depth: itemData.Depth}, true
+	}
+}
+
 // Len returns the approximate number of queued URLs.
 // Note: In distributed mode, this reflects the global queue length.
 func (f *DistributedFrontier) Len() int {
