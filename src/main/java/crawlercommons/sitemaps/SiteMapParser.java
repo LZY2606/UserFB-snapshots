@@ -26,16 +26,29 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.io.UncheckedIOException;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -121,6 +134,9 @@ public class SiteMapParser {
 
     /** Maximum size of a sitemap (uncompressed) in bytes. */
     private long maxBytes = MAX_BYTES_ALLOWED;
+
+    /** Maximum number of sitemap documents downloaded concurrently by one walk. */
+    private int walkParallelism = 1;
 
     /**
      * SiteMapParser with strict location validation ({@link #isStrict()}) and not
@@ -334,6 +350,37 @@ public class SiteMapParser {
     }
 
     /**
+     * @return the maximum number of sitemap documents downloaded concurrently by
+     *         a single {@link #walkSiteMap(URL, Consumer)} or
+     *         {@link #walkSiteMap(AbstractSiteMap, Consumer)} call.
+     */
+    public int getWalkParallelism() {
+        return walkParallelism;
+    }
+
+    /**
+     * Set the maximum number of sitemap documents which may be downloaded
+     * concurrently during one walk. The value is read once when a walk starts
+     * and does not change while it is running. Redirects followed while fetching
+     * a sitemap count against this limit as well.
+     * <p>
+     * The action passed to the walk is always executed sequentially in the
+     * thread which started the walk, in depth-first order, no matter how many
+     * downloads are performed in parallel.
+     *
+     * @param walkParallelism
+     *            maximum number of concurrent downloads, default is 1
+     * @throws IllegalArgumentException
+     *             if walkParallelism is not a positive number
+     */
+    public void setWalkParallelism(int walkParallelism) {
+        if (walkParallelism <= 0) {
+            throw new IllegalArgumentException("Walk parallelism must be positive: " + walkParallelism);
+        }
+        this.walkParallelism = walkParallelism;
+    }
+
+    /**
      * Returns a SiteMap or SiteMapIndex given an online sitemap URL
      *
      * Please note that this method is a static method which goes online and
@@ -356,11 +403,168 @@ public class SiteMapParser {
         if (onlineSitemapUrl == null) {
             return null;
         }
-        byte[] bytes;
-        try (InputStream in = limitSize(onlineSitemapUrl.openStream())) {
-            bytes = IOUtils.toByteArray(in);
+        Download download = downloadDocument(onlineSitemapUrl, null, null);
+        return parseSiteMap(download.body, download.finalUrl);
+    }
+
+    /** A downloaded sitemap document: response body and final response URL. */
+    private static final class Download {
+        final byte[] body;
+        final URL finalUrl;
+
+        Download(byte[] body, URL finalUrl) {
+            this.body = body;
+            this.finalUrl = finalUrl;
         }
-        return parseSiteMap(bytes, onlineSitemapUrl);
+    }
+
+    private static final int MAX_REDIRECTS = 20;
+
+    /**
+     * Download the document identified by {@code requestedUrl}, following HTTP
+     * redirects. Redirects are followed manually so that every hop respects the
+     * size limit and an optional abort signal, and so that the final response
+     * URL is known. Connections opened for redirect hops are closed before the
+     * next hop is requested.
+     *
+     * @param requestedUrl
+     *            URL to fetch
+     * @param abort
+     *            optional abort signal, checked before each request
+     * @param openConnections
+     *            optional set tracking open connections, so that another thread
+     *            may disconnect them to abort the download
+     * @return downloaded document
+     */
+    private Download downloadDocument(URL requestedUrl, BooleanSupplier abort, Set<HttpURLConnection> openConnections) throws IOException {
+        URL current = requestedUrl;
+        int redirects = 0;
+        while (true) {
+            if (abort != null && abort.getAsBoolean()) {
+                throw new IOException("Walk aborted before requesting " + current);
+            }
+            URLConnection connection = current.openConnection();
+            if (connection instanceof HttpURLConnection) {
+                HttpURLConnection http = (HttpURLConnection) connection;
+                http.setInstanceFollowRedirects(false);
+                if (openConnections != null) {
+                    synchronized (openConnections) {
+                        if (abort != null && abort.getAsBoolean()) {
+                            throw new IOException("Walk aborted before requesting " + current);
+                        }
+                        openConnections.add(http);
+                    }
+                }
+                try {
+                    int code = http.getResponseCode();
+                    String location = http.getHeaderField("Location");
+                    if (code >= 300 && code < 400 && location != null) {
+                        http.disconnect();
+                        if (++redirects > MAX_REDIRECTS) {
+                            throw new IOException("Too many redirects for " + requestedUrl);
+                        }
+                        current = resolveRedirect(current, location);
+                        continue;
+                    }
+                    if (code < 200 || code >= 300) {
+                        throw new IOException("HTTP " + code + " fetching sitemap " + current);
+                    }
+                    try (InputStream in = limitSize(http.getInputStream())) {
+                        byte[] bytes = IOUtils.toByteArray(in);
+                        return new Download(bytes, current);
+                    }
+                } finally {
+                    http.disconnect();
+                    if (openConnections != null) {
+                        synchronized (openConnections) {
+                            openConnections.remove(http);
+                        }
+                    }
+                }
+            } else {
+                try (InputStream in = limitSize(connection.getInputStream())) {
+                    byte[] bytes = IOUtils.toByteArray(in);
+                    return new Download(bytes, current);
+                }
+            }
+        }
+    }
+
+    private static URL resolveRedirect(URL base, String location) throws IOException {
+        try {
+            return base.toURI().resolve(location).toURL();
+        } catch (URISyntaxException | IllegalArgumentException | MalformedURLException e) {
+            throw new IOException("Invalid redirect location '" + location + "' from " + base, e);
+        }
+    }
+
+    /**
+     * Identity of a sitemap document for the purpose of deduplication during
+     * <em>one</em> walk: lower-cased scheme and host, effective port, path with
+     * dot segments removed, and the raw query. The fragment is ignored.
+     * Documents with different queries are different documents.
+     */
+    private static String documentIdentity(URL url) {
+        String scheme = url.getProtocol();
+        scheme = (scheme == null) ? "" : scheme.toLowerCase(Locale.ROOT);
+        String host = url.getHost();
+        host = (host == null) ? "" : host.toLowerCase(Locale.ROOT);
+        int port = url.getPort();
+        if (port == -1) {
+            if ("http".equals(scheme)) {
+                port = 80;
+            } else if ("https".equals(scheme)) {
+                port = 443;
+            }
+        }
+        String path = url.getPath();
+        path = (path == null) ? "" : removeDotSegments(path);
+        StringBuilder sb = new StringBuilder();
+        sb.append(scheme).append("://").append(host);
+        if (port != -1) {
+            sb.append(':').append(port);
+        }
+        sb.append(path);
+        if (url.getQuery() != null) {
+            sb.append('?').append(url.getQuery());
+        }
+        // the fragment deliberately does not take part in the identity
+        return sb.toString();
+    }
+
+    /**
+     * Remove &quot;.&quot; and &quot;..&quot; path segments as described by
+     * <a href="https://www.rfc-editor.org/rfc/rfc3986#section-5.2.4">RFC 3986,
+     * section 5.2.4</a>, preserving a trailing slash.
+     */
+    static String removeDotSegments(String path) {
+        if (path.indexOf('.') < 0) {
+            return path;
+        }
+        String[] segments = path.split("/", -1);
+        List<String> out = new ArrayList<>(segments.length);
+        for (int i = 0; i < segments.length; i++) {
+            String segment = segments[i];
+            boolean last = (i == segments.length - 1);
+            if (i == 0) {
+                // leading empty segment of an absolute path
+                out.add(segment);
+            } else if (segment.equals("..")) {
+                if (out.size() > 1) {
+                    out.remove(out.size() - 1);
+                }
+                if (last) {
+                    out.add("");
+                }
+            } else if (segment.equals(".")) {
+                if (last) {
+                    out.add("");
+                }
+            } else {
+                out.add(segment);
+            }
+        }
+        return String.join("/", out);
     }
 
     /**
@@ -499,7 +703,7 @@ public class SiteMapParser {
             LOG.info("Got null sitemap URL and/or action, stopping traversal");
             return;
         }
-        walkSiteMap(parseSiteMap(onlineSitemapUrl), action);
+        runWalk(walkParallelism, action, null, onlineSitemapUrl);
     }
 
     /**
@@ -536,17 +740,472 @@ public class SiteMapParser {
             LOG.info("Got null sitemap and/or action, stopping traversal");
             return;
         }
-        if (sitemap.isIndex()) {
-            final Collection<AbstractSiteMap> links = ((SiteMapIndex) sitemap).getSitemaps();
-            for (final AbstractSiteMap asm : links) {
-                if (asm == null) {
+        runWalk(walkParallelism, action, sitemap, null);
+    }
+
+    private void runWalk(int parallelism, Consumer<SiteMapURL> action, AbstractSiteMap root, URL rootUrl) throws UnknownFormatException, IOException {
+        Walk walk = new Walk(parallelism);
+        try {
+            if (root != null) {
+                walk.walkRoot(root, action);
+            } else {
+                walk.walkUrl(rootUrl, action);
+            }
+        } finally {
+            walk.close();
+        }
+    }
+
+    /**
+     * State of one walk invocation: per-walk document deduplication, bounded
+     * parallel downloads, and depth-first delivery of leaf URLs in the thread
+     * which called the walk.
+     * <p>
+     * Downloads may start for the direct children of a sitemap index before
+     * the depth-first descent reaches them, but the action is only ever
+     * executed by the caller's thread. A destination is expanded at most once
+     * per walk, at the position of its first depth-first reference.
+     */
+    private final class Walk {
+        private static final int DRAIN_SECONDS = 10;
+
+        private final int parallelism;
+        private final boolean parallel;
+        private final ExecutorService executor;
+        private final AtomicInteger threadCounter = new AtomicInteger();
+
+        /** Guards all mutable state below. */
+        private final Object lock = new Object();
+        /** In-flight or completed download per requested document identity. */
+        private final Map<String, CompletableFuture<Download>> downloads = new HashMap<>();
+        /** Completed downloads, keyed by canonical document identity. */
+        private final Map<String, Download> completed = new HashMap<>();
+        /** Aliases mapping document identities to their canonical identity. */
+        private final Map<String, String> aliases = new HashMap<>();
+        /** Canonical identities of documents already expanded. */
+        private final Set<String> expanded = new HashSet<>();
+        /** Connections currently open, disconnected to abort downloads. */
+        private final Set<HttpURLConnection> openConnections = new HashSet<>();
+        private boolean failed;
+        private boolean closed;
+
+        Walk(int parallelism) {
+            this.parallelism = parallelism;
+            this.parallel = parallelism > 1;
+            if (parallel) {
+                ThreadFactory factory = runnable -> {
+                    Thread thread = new Thread(runnable, "sitemap-walk-download-" + threadCounter.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                };
+                this.executor = Executors.newFixedThreadPool(parallelism, factory);
+            } else {
+                this.executor = null;
+            }
+        }
+
+        /** Stop download activity and release the worker threads. */
+        void close() {
+            synchronized (lock) {
+                closed = true;
+                for (CompletableFuture<Download> future : new ArrayList<>(downloads.values())) {
+                    future.cancel(true);
+                }
+                downloads.clear();
+            }
+            disconnectOpenConnections();
+            if (executor != null) {
+                executor.shutdownNow();
+                try {
+                    if (!executor.awaitTermination(DRAIN_SECONDS, TimeUnit.SECONDS)) {
+                        LOG.warn("Sitemap walk download threads did not terminate");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        /** Traverse an already parsed sitemap without fetching it again. */
+        void walkRoot(AbstractSiteMap root, Consumer<SiteMapURL> action) throws UnknownFormatException, IOException {
+            try {
+                processNode(root, action);
+            } catch (UnknownFormatException | IOException | RuntimeException | Error e) {
+                fail();
+                throw e;
+            }
+        }
+
+        void walkUrl(URL rootUrl, Consumer<SiteMapURL> action) throws UnknownFormatException, IOException {
+            try {
+                processNode(parseDownloaded(downloadForWalk(rootUrl)), action);
+            } catch (UnknownFormatException | IOException | RuntimeException | Error e) {
+                fail();
+                throw e;
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* Document identity and aliasing                                      */
+        /* ------------------------------------------------------------------ */
+
+        /** Canonical identity of a document (union-find, called with lock held). */
+        private String find(String identity) {
+            String parent = aliases.get(identity);
+            if (parent == null || parent.equals(identity)) {
+                return identity;
+            }
+            String root = find(parent);
+            aliases.put(identity, root);
+            return root;
+        }
+
+        /** Record that two identities denote the same document (lock held). */
+        private void union(String a, String b) {
+            String rootA = find(a);
+            String rootB = find(b);
+            if (rootA.equals(rootB)) {
+                return;
+            }
+            aliases.put(rootA, rootB);
+            // migrate canonical state so that a merged document is not seen as
+            // a new one (and thus fetched or expanded a second time)
+            Download migrated = completed.remove(rootA);
+            if (migrated != null) {
+                completed.putIfAbsent(rootB, migrated);
+            }
+            if (expanded.remove(rootA)) {
+                expanded.add(rootB);
+            }
+        }
+
+        /** Whether the document behind an identity was expanded already. */
+        private boolean isExpanded(String identity) {
+            synchronized (lock) {
+                return expanded.contains(find(identity));
+            }
+        }
+
+        /**
+         * Mark a node's document as expanded. Returns false if it had already
+         * been expanded, in which case the node must not be expanded again.
+         */
+        private boolean markExpanded(AbstractSiteMap node) {
+            URL url = node.getUrl();
+            if (url == null) {
+                return true;
+            }
+            synchronized (lock) {
+                String identity = documentIdentity(url);
+                // a previously parsed child object may itself be a redirect
+                // target reached by another reference; the alias map merges them
+                return expanded.add(find(identity));
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* Download scheduling                                                 */
+        /* ------------------------------------------------------------------ */
+
+        private Download downloadForWalk(URL url) throws UnknownFormatException, IOException {
+            return await(requestDownload(url), url);
+        }
+
+        /** Request (or join) the single download for a document identity. */
+        private CompletableFuture<Download> requestDownload(URL url) {
+            String identity = documentIdentity(url);
+            synchronized (lock) {
+                if (closed || failed) {
+                    return failedFuture(new IOException("Walk aborted before requesting " + url));
+                }
+                String root = find(identity);
+                Download known = completed.get(root);
+                if (known != null) {
+                    return CompletableFuture.completedFuture(known);
+                }
+                CompletableFuture<Download> future = downloads.get(identity);
+                if (future != null) {
+                    return future;
+                }
+                future = new CompletableFuture<>();
+                downloads.put(identity, future);
+                final CompletableFuture<Download> task = future;
+                if (parallel) {
+                    try {
+                        executor.execute(() -> runDownload(url, identity, task));
+                        prefetchDescendants(task);
+                    } catch (RejectedExecutionException e) {
+                        downloads.remove(identity);
+                        future.completeExceptionally(new IOException("Walk executor rejected download for " + url, e));
+                    }
+                } else {
+                    // no nesting an async task on itself: fetch synchronously
+                    try {
+                        Download download = fetchAndRegister(url, identity);
+                        future.complete(download);
+                    } catch (Throwable t) {
+                        future.completeExceptionally(t);
+                    }
+                }
+                return future;
+            }
+        }
+
+        private <T> CompletableFuture<T> failedFuture(Throwable failure) {
+            CompletableFuture<T> future = new CompletableFuture<>();
+            future.completeExceptionally(failure);
+            return future;
+        }
+
+        private void runDownload(URL url, String identity, CompletableFuture<Download> future) {
+            try {
+                future.complete(fetchAndRegister(url, identity));
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+            }
+        }
+
+        /**
+         * Once an index has been downloaded, request its direct children as
+         * well, so that a fast right branch downloads ahead while the
+         * depth-first descent is still busy on the left. Delivery order is not
+         * affected: results are only consumed by the depth-first walk. Nodes
+         * already being downloaded or expanded are not requested again.
+         */
+        private void prefetchDescendants(CompletableFuture<Download> parent) {
+            parent.thenAccept(download -> {
+                if (!parallel) {
+                    return;
+                }
+                AbstractSiteMap parsed;
+                try {
+                    parsed = parseSiteMap(download.body, download.finalUrl);
+                } catch (UnknownFormatException | IOException | RuntimeException e) {
+                    // the depth-first walk will report the failure at its position
+                    return;
+                }
+                if (!(parsed instanceof SiteMapIndex)) {
+                    return;
+                }
+                for (AbstractSiteMap child : new ArrayList<>(((SiteMapIndex) parsed).getSitemaps())) {
+                    if (child == null || child.getUrl() == null || child.isProcessed()) {
+                        continue;
+                    }
+                    CompletableFuture<Download> future = requestDownload(child.getUrl());
+                    // a speculative branch may fail without aborting the walk
+                    future.exceptionally(t -> null);
+                }
+            });
+        }
+
+        /**
+         * Fetch a document and register the result under the identity of the
+         * requested URL and under the identity of the final response URL. A
+         * document already downloaded concurrently (because its alias became
+         * known while both requests were in flight) is not fetched twice by
+         * the lookup, but the caller gets the previously registered body.
+         */
+        private Download fetchAndRegister(URL url, String identity) throws IOException {
+            synchronized (lock) {
+                if (closed || failed) {
+                    throw new IOException("Walk aborted before requesting " + url);
+                }
+                Download known = completed.get(find(identity));
+                if (known != null) {
+                    return known;
+                }
+            }
+            Download download = downloadDocument(url, this::isAborted, openConnections);
+            String finalIdentity = documentIdentity(download.finalUrl);
+            synchronized (lock) {
+                union(identity, finalIdentity);
+                String root = find(identity);
+                Download existing = completed.get(root);
+                if (existing == null) {
+                    completed.put(root, download);
+                    existing = download;
+                }
+                // make the final identity directly reachable as well
+                completed.putIfAbsent(find(finalIdentity), existing);
+                if (closed) {
+                    throw new IOException("Walk aborted while downloading " + url);
+                }
+                return existing;
+            }
+        }
+
+        private boolean isAborted() {
+            synchronized (lock) {
+                return failed || closed;
+            }
+        }
+
+        private Download await(CompletableFuture<Download> future, URL url) throws UnknownFormatException, IOException {
+            try {
+                return future.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while downloading sitemap " + url, e);
+            } catch (CancellationException e) {
+                throw new IOException("Download cancelled for sitemap " + url, e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof UnknownFormatException) {
+                    throw (UnknownFormatException) cause;
+                }
+                if (cause instanceof IOException) {
+                    throw (IOException) cause;
+                }
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
+                }
+                if (cause instanceof Error) {
+                    throw (Error) cause;
+                }
+                throw new IOException("Failed to download sitemap " + url, cause);
+            }
+        }
+
+        private void fail() {
+            synchronized (lock) {
+                failed = true;
+                for (CompletableFuture<Download> future : new ArrayList<>(downloads.values())) {
+                    future.cancel(true);
+                }
+                downloads.clear();
+            }
+            disconnectOpenConnections();
+        }
+
+        private void disconnectOpenConnections() {
+            List<HttpURLConnection> connections;
+            synchronized (openConnections) {
+                connections = new ArrayList<>(openConnections);
+                openConnections.clear();
+            }
+            for (HttpURLConnection connection : connections) {
+                try {
+                    connection.disconnect();
+                } catch (RuntimeException e) {
+                    LOG.debug("Failed to disconnect sitemap connection", e);
+                }
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* Depth-first traversal (always in the calling thread)                */
+        /* ------------------------------------------------------------------ */
+
+        private void processNode(AbstractSiteMap node, Consumer<SiteMapURL> action) throws UnknownFormatException, IOException {
+            if (node == null || !markExpanded(node)) {
+                return;
+            }
+            if (node.isIndex()) {
+                processIndex((SiteMapIndex) node, action);
+            } else if (node instanceof SiteMap) {
+                processLeaf((SiteMap) node, action);
+            }
+        }
+
+        private void processIndex(SiteMapIndex index, Consumer<SiteMapURL> action) throws UnknownFormatException, IOException {
+            List<AbstractSiteMap> children = new ArrayList<>(index.getSitemaps());
+            int size = children.size();
+            CompletableFuture<Download>[] prefetched = newFutureArray(size);
+            if (parallel && !failed) {
+                prefetch(children, prefetched);
+            }
+            for (int i = 0; i < size; i++) {
+                if (failed) {
+                    throw new IOException("Walk aborted after a previous failure");
+                }
+                AbstractSiteMap child = children.get(i);
+                if (child == null) {
                     continue;
                 }
-                walkSiteMap(asm.getUrl(), action);
+                URL childUrl = child.getUrl();
+                if (childUrl == null) {
+                    processNode(child, action);
+                    continue;
+                }
+                if (child.isProcessed()) {
+                    // already parsed object: use it as is, never fetch it again
+                    processNode(child, action);
+                    continue;
+                }
+                if (isExpanded(documentIdentity(childUrl))) {
+                    continue;
+                }
+                Download download = (prefetched[i] != null) ? await(prefetched[i], childUrl) : downloadForWalk(childUrl);
+                processNode(parseDownloaded(download), action);
             }
-        } else {
-            final Collection<SiteMapURL> links = ((SiteMap) sitemap).getSiteMapUrls();
-            for (final SiteMapURL url : links) {
+        }
+
+        @SuppressWarnings("unchecked")
+        private CompletableFuture<Download>[] newFutureArray(int size) {
+            return (CompletableFuture<Download>[]) new CompletableFuture<?>[size];
+        }
+
+        /**
+         * Start downloads for the direct children of an index before descending
+         * into them. Requests are started up to the parallelism limit, but the
+         * results are consumed in declaration order, so a slow left branch keeps
+         * the delivery position of its shared descendants.
+         */
+        private void prefetch(List<AbstractSiteMap> children, CompletableFuture<Download>[] prefetched) {
+            for (int i = 0; i < children.size(); i++) {
+                AbstractSiteMap child = children.get(i);
+                if (child == null || child.getUrl() == null || child.isProcessed()) {
+                    continue;
+                }
+                String identity = documentIdentity(child.getUrl());
+                synchronized (lock) {
+                    if (failed || closed) {
+                        return;
+                    }
+                    Download known = completed.get(find(identity));
+                    if (known != null) {
+                        prefetched[i] = CompletableFuture.completedFuture(known);
+                        continue;
+                    }
+                    if (isExpanded(identity)) {
+                        continue;
+                    }
+                    CompletableFuture<Download> future = downloads.get(identity);
+                    if (future == null) {
+                        future = new CompletableFuture<>();
+                        downloads.put(identity, future);
+                        final CompletableFuture<Download> task = future;
+                        try {
+                            executor.execute(() -> runDownload(child.getUrl(), identity, task));
+                            prefetchDescendants(task);
+                        } catch (RejectedExecutionException e) {
+                            downloads.remove(identity);
+                            future.completeExceptionally(new IOException("Walk executor rejected download for " + child.getUrl(), e));
+                        }
+                    }
+                    prefetched[i] = future;
+                }
+            }
+        }
+
+        private AbstractSiteMap parseDownloaded(Download download) throws UnknownFormatException, IOException {
+            // parsing is based on the final response URL, so that strict
+            // location checks use the address the content was served from
+            return parseSiteMap(download.body, download.finalUrl);
+        }
+
+        /**
+         * Deliver the URLs of a leaf. The map document itself is expanded at
+         * most once per walk, but all pages it lists are delivered as they are:
+         * repeated pages within a leaf, and the same page listed by distinct
+         * leaves, are passed to the action each time.
+         */
+        private void processLeaf(SiteMap leaf, Consumer<SiteMapURL> action) {
+            Collection<SiteMapURL> links = leaf.getSiteMapUrls();
+            if (links == null) {
+                return;
+            }
+            for (SiteMapURL url : new ArrayList<>(links)) {
                 if (url == null) {
                     continue;
                 }

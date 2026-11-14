@@ -1,6 +1,7 @@
 Crawler-Commons Change Log
 
 Current Development 1.7-SNAPSHOT (yyyy-mm-dd)
+- [Sitemaps] Walk sitemap graphs with shared sub-sitemaps and cycles, and allow parallel downloads via SiteMapParser#setWalkParallelism (crawler-commons)
 - [Sitemaps] Parse news and video extension values case-insensitively and skip unknown values instead of failing (rajda, Hasan Deniz) #542, #621
 - [Sitemaps] Enforce limits on the number of URLs and the size of sitemaps, also for XML and gzipped sitemaps (Richard Zowalla, sebastian-nagel) #611, #613
 - [IDN] Use ICU4J (optional) for IDNA2008 / UTS #46 if available on the classpath (Richard Zowalla, sebastian-nagel, jnioche) #608, #609⁠

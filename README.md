@@ -51,6 +51,34 @@ dependencies {
 }
 ```
 
+# Sitemap traversal
+
+`SiteMapParser` can walk a sitemap graph, including nested sitemap indexes
+which reference each other or share sub-sitemaps. The action passed to the
+walk is always called on the calling thread, in depth-first order following the
+index declaration order; a sitemap document is downloaded and expanded at most
+once per walk, while every page listed by a leaf is delivered as listed
+(repeated pages within a leaf are not collapsed).
+
+Downloads may be performed in parallel. `setWalkParallelism(int)` limits how
+many maps are downloaded at the same time (redirects count against the limit);
+the default is 1, which fetches everything sequentially. Parsing of an
+already parsed `AbstractSiteMap` passed to `walkSiteMap` never re-downloads it.
+
+```java
+SiteMapParser parser = new SiteMapParser();
+parser.setWalkParallelism(4);           // up to four concurrent downloads
+List<SiteMapURL> pages = new ArrayList<>();
+parser.walkSiteMap(new URL("https://example.org/sitemap_index.xml"), pages::add);
+```
+
+Documents are identified by lower-cased scheme and host, the effective port,
+the path with dot segments removed and the raw query (fragments are ignored),
+so the same map with a different query is fetched separately. Redirects are
+followed and the final response URL is also used as the parse base for strict
+location checks, e.g. `/old/start.xml` redirecting to `/new/map.xml` keeps the
+pages it lists under `/new/`.
+
 # News
 
 ## 4th December 2025 – crawler-commons 1.6 released
