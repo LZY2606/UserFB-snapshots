@@ -230,6 +230,24 @@ void app_update(app_t *self) {
 void app_on_video(plm_t *mpeg, plm_frame_t *frame, void *user) {
 	app_t *self = (app_t *)user;
 
+	// Streams with multiple consecutive sequences can change the display
+	// size mid-playback; recreate the texture to match the current frame.
+	int texture_w = 0, texture_h = 0;
+	SDL_QueryTexture(self->texture, NULL, NULL, &texture_w, &texture_h);
+	if (texture_w != (int)frame->width || texture_h != (int)frame->height) {
+		SDL_DestroyTexture(self->texture);
+		self->texture = SDL_CreateTexture(
+			self->renderer,
+			SDL_PIXELFORMAT_IYUV,
+			SDL_TEXTUREACCESS_STREAMING,
+			frame->width,
+			frame->height
+		);
+		self->rectangle.w = frame->width;
+		self->rectangle.h = frame->height;
+		SDL_RenderSetLogicalSize(self->renderer, frame->width, frame->height);
+	}
+
 	SDL_UpdateYUVTexture(self->texture, NULL, frame->y.data, frame->y.width, frame->cb.data, frame->cb.width, frame->cr.data,  frame->cr.width);
 }
 

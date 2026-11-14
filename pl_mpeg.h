@@ -730,9 +730,18 @@ void plm_video_rewind(plm_video_t *self);
 int plm_video_has_ended(plm_video_t *self);
 
 
-// Decode and return one frame of video and advance the internal time by 
+// Decode and return one frame of video and advance the internal time by
 // 1/framerate seconds. The returned frame_t is valid until the next call of
 // plm_video_decode() or until the video decoder is destroyed.
+//
+// The stream may consist of multiple consecutive sequences, each with its
+// own sequence header (dimensions, pixel aspect ratio, framerate, quantizer
+// matrices) and sequence end. When a sequence ends, its still unpublished
+// reference frame is returned once before the first frame of the next
+// sequence; the new sequence's configuration becomes active (and is
+// reported by the plm_video_get_* functions) with the decode call that
+// produces its first frame. frame->time accumulates continuously across
+// sequences with each sequence's actual frame period.
 
 plm_frame_t *plm_video_decode(plm_video_t *self);
 
@@ -2290,6 +2299,7 @@ static const int PLM_VIDEO_PICTURE_TYPE_PREDICTIVE = 2;
 static const int PLM_VIDEO_PICTURE_TYPE_B = 3;
 
 static const int PLM_START_SEQUENCE = 0xB3;
+static const int PLM_START_SEQUENCE_END = 0xB7;
 static const int PLM_START_SLICE_FIRST = 0x01;
 static const int PLM_START_SLICE_LAST = 0xAF;
 static const int PLM_START_PICTURE = 0x00;
@@ -2698,10 +2708,24 @@ typedef struct {
 	int v;
 } plm_video_motion_t;
 
+// Parsed sequence header. Streams can concatenate multiple sequences, each
+// with their own dimensions, framerate, pixel aspect ratio and quantizer
+// matrices.
+
+typedef struct {
+	int width;
+	int height;
+	double framerate;
+	double pixel_aspect_ratio;
+	uint8_t intra_quant_matrix[64];
+	uint8_t non_intra_quant_matrix[64];
+} plm_video_sequence_header_t;
+
 struct plm_video_t {
 	double framerate;
 	double pixel_aspect_ratio;
 	double time;
+	double time_base;
 	int frames_decoded;
 	int width;
 	int height;
@@ -2750,6 +2774,9 @@ struct plm_video_t {
 
 	int has_reference_frame;
 	int assume_no_b_frames;
+
+	int has_pending_sequence;
+	plm_video_sequence_header_t pending_sequence;
 };
 
 static inline uint8_t plm_clamp(int n) {
@@ -2763,6 +2790,8 @@ static inline uint8_t plm_clamp(int n) {
 }
 
 int plm_video_decode_sequence_header(plm_video_t *self);
+int plm_video_read_sequence_header(plm_video_t *self, plm_video_sequence_header_t *header);
+void plm_video_commit_sequence_header(plm_video_t *self, plm_video_sequence_header_t *header, int new_sequence);
 void plm_video_init_frame(plm_video_t *self, plm_frame_t *frame, uint8_t *base);
 void plm_video_decode_picture(plm_video_t *self);
 void plm_video_decode_slice(plm_video_t *self, int slice);
@@ -2838,13 +2867,16 @@ double plm_video_get_time(plm_video_t *self) {
 void plm_video_set_time(plm_video_t *self, double time) {
 	self->frames_decoded = self->framerate * time;
 	self->time = time;
+	self->time_base = 0;
 }
 
 void plm_video_rewind(plm_video_t *self) {
 	plm_buffer_rewind(self->buffer);
 	self->time = 0;
+	self->time_base = 0;
 	self->frames_decoded = 0;
 	self->has_reference_frame = FALSE;
+	self->has_pending_sequence = FALSE;
 	self->start_code = -1;
 }
 
@@ -2856,12 +2888,75 @@ plm_frame_t *plm_video_decode(plm_video_t *self) {
 	if (!plm_video_has_header(self)) {
 		return NULL;
 	}
-	
+
+	// Commit the configuration of a new sequence whose header has already
+	// been parsed, but couldn't be applied yet because the last frame of the
+	// previous sequence was still being delivered. The planes of that frame
+	// were borrowed by the caller until this decode call.
+	if (self->has_pending_sequence) {
+		plm_video_commit_sequence_header(self, &self->pending_sequence, TRUE);
+		self->has_pending_sequence = FALSE;
+	}
+
 	plm_frame_t *frame = NULL;
 	do {
+		// A sequence end terminates the current sequence. Deliver the still
+		// unpublished reference frame of the ending sequence (with its
+		// original size and plane content) before anything of the next
+		// sequence is touched.
+		if (self->start_code == PLM_START_SEQUENCE_END) {
+			self->start_code = -1;
+			if (self->has_reference_frame && !self->assume_no_b_frames) {
+				self->has_reference_frame = FALSE;
+				frame = &self->frame_backward;
+				break;
+			}
+			continue;
+		}
+
+		// A sequence header either reiterates the parameters of the current
+		// sequence (e.g. to update the quantizer matrices) or begins a new
+		// sequence with new parameters.
+		if (self->start_code == PLM_START_SEQUENCE) {
+			plm_video_sequence_header_t header;
+			if (!plm_video_read_sequence_header(self, &header)) {
+				// The header (or its quantizer matrices) has not fully
+				// arrived yet. Leave the buffer position untouched and wait
+				// for more data; a truncated stream simply ends here.
+				return NULL;
+			}
+
+			int new_sequence = (
+				header.width != self->width ||
+				header.height != self->height ||
+				header.framerate != self->framerate ||
+				header.pixel_aspect_ratio != self->pixel_aspect_ratio
+			);
+
+			if (
+				new_sequence &&
+				self->has_reference_frame &&
+				!self->assume_no_b_frames
+			) {
+				// A new sequence, but the previous one still has an
+				// unpublished reference frame. Deliver it first; the new
+				// configuration is committed on the next decode call.
+				self->pending_sequence = header;
+				self->has_pending_sequence = TRUE;
+				self->has_reference_frame = FALSE;
+				self->start_code = -1;
+				frame = &self->frame_backward;
+				break;
+			}
+
+			plm_video_commit_sequence_header(self, &header, new_sequence);
+			self->start_code = -1;
+			continue;
+		}
+
 		if (self->start_code != PLM_START_PICTURE) {
-			self->start_code = plm_buffer_find_start_code(self->buffer, PLM_START_PICTURE);
-			
+			self->start_code = plm_buffer_next_start_code(self->buffer);
+
 			if (self->start_code == -1) {
 				// If we reached the end of the file and the previously decoded
 				// frame was a reference frame, we still have to return it.
@@ -2880,21 +2975,24 @@ plm_frame_t *plm_video_decode(plm_video_t *self) {
 
 				return NULL;
 			}
+			continue;
 		}
 
 		// Make sure we have a full picture in the buffer before attempting to
 		// decode it. Sadly, this can only be done by seeking for the start code
-		// of the next picture. Also, if we didn't find the start code for the
-		// next picture, but the source has ended, we assume that this last
-		// picture is in the buffer.
+		// of the next picture, sequence or sequence end. Also, if we didn't
+		// find such a start code, but the source has ended, we assume that
+		// this last picture is in the buffer.
 		if (
 			plm_buffer_has_start_code(self->buffer, PLM_START_PICTURE) == -1 &&
+			plm_buffer_has_start_code(self->buffer, PLM_START_SEQUENCE_END) == -1 &&
+			plm_buffer_has_start_code(self->buffer, PLM_START_SEQUENCE) == -1 &&
 			!plm_buffer_has_ended(self->buffer)
 		) {
 			return NULL;
 		}
 		plm_buffer_discard_read_bytes(self->buffer);
-		
+
 		plm_video_decode_picture(self);
 
 		if (self->assume_no_b_frames) {
@@ -2910,11 +3008,11 @@ plm_frame_t *plm_video_decode(plm_video_t *self) {
 			self->has_reference_frame = TRUE;
 		}
 	} while (!frame);
-	
+
 	frame->time = self->time;
 	self->frames_decoded++;
-	self->time = (double)self->frames_decoded / self->framerate;
-	
+	self->time = self->time_base + (double)self->frames_decoded / self->framerate;
+
 	return frame;
 }
 
@@ -2938,15 +3036,26 @@ int plm_video_has_header(plm_video_t *self) {
 }
 
 int plm_video_decode_sequence_header(plm_video_t *self) {
+	plm_video_sequence_header_t header;
+	if (!plm_video_read_sequence_header(self, &header)) {
+		return FALSE;
+	}
+
+	plm_video_commit_sequence_header(self, &header, FALSE);
+	self->start_code = -1;
+	return TRUE;
+}
+
+int plm_video_read_sequence_header(plm_video_t *self, plm_video_sequence_header_t *header) {
 	int max_header_size = 64 + 2 * 64 * 8; // 64 bit header + 2x 64 byte matrix
 	if (!plm_buffer_has(self->buffer, max_header_size)) {
 		return FALSE;
 	}
 
-	self->width = plm_buffer_read(self->buffer, 12);
-	self->height = plm_buffer_read(self->buffer, 12);
+	header->width = plm_buffer_read(self->buffer, 12);
+	header->height = plm_buffer_read(self->buffer, 12);
 
-	if (self->width <= 0 || self->height <= 0) {
+	if (header->width <= 0 || header->height <= 0) {
 		return FALSE;
 	}
 
@@ -2962,35 +3071,61 @@ int plm_video_decode_sequence_header(plm_video_t *self) {
 	if (pixel_aspect_ratio_code > par_last) {
 		pixel_aspect_ratio_code = par_last;
 	}
-	self->pixel_aspect_ratio =
+	header->pixel_aspect_ratio =
 		PLM_VIDEO_PIXEL_ASPECT_RATIO[pixel_aspect_ratio_code];
 
 	// Get frame rate
-	self->framerate = PLM_VIDEO_PICTURE_RATE[plm_buffer_read(self->buffer, 4)];
+	header->framerate = PLM_VIDEO_PICTURE_RATE[plm_buffer_read(self->buffer, 4)];
 
 	// Skip bit_rate, marker, buffer_size and constrained bit
 	plm_buffer_skip(self->buffer, 18 + 1 + 10 + 1);
 
 	// Load custom intra quant matrix?
-	if (plm_buffer_read(self->buffer, 1)) { 
+	if (plm_buffer_read(self->buffer, 1)) {
 		for (int i = 0; i < 64; i++) {
 			int idx = PLM_VIDEO_ZIG_ZAG[i];
-			self->intra_quant_matrix[idx] = plm_buffer_read(self->buffer, 8);
+			header->intra_quant_matrix[idx] = plm_buffer_read(self->buffer, 8);
 		}
 	}
 	else {
-		memcpy(self->intra_quant_matrix, PLM_VIDEO_INTRA_QUANT_MATRIX, 64);
+		memcpy(header->intra_quant_matrix, PLM_VIDEO_INTRA_QUANT_MATRIX, 64);
 	}
 
 	// Load custom non intra quant matrix?
-	if (plm_buffer_read(self->buffer, 1)) { 
+	if (plm_buffer_read(self->buffer, 1)) {
 		for (int i = 0; i < 64; i++) {
 			int idx = PLM_VIDEO_ZIG_ZAG[i];
-			self->non_intra_quant_matrix[idx] = plm_buffer_read(self->buffer, 8);
+			header->non_intra_quant_matrix[idx] = plm_buffer_read(self->buffer, 8);
 		}
 	}
 	else {
-		memcpy(self->non_intra_quant_matrix, PLM_VIDEO_NON_INTRA_QUANT_MATRIX, 64);
+		memcpy(header->non_intra_quant_matrix, PLM_VIDEO_NON_INTRA_QUANT_MATRIX, 64);
+	}
+
+	return TRUE;
+}
+
+void plm_video_commit_sequence_header(plm_video_t *self, plm_video_sequence_header_t *header, int new_sequence) {
+	int size_changed = (
+		!self->has_sequence_header ||
+		header->width != self->width ||
+		header->height != self->height
+	);
+
+	self->width = header->width;
+	self->height = header->height;
+	self->framerate = header->framerate;
+	self->pixel_aspect_ratio = header->pixel_aspect_ratio;
+	memcpy(self->intra_quant_matrix, header->intra_quant_matrix, 64);
+	memcpy(self->non_intra_quant_matrix, header->non_intra_quant_matrix, 64);
+
+	if (new_sequence) {
+		// The display clock keeps running across the sequence boundary;
+		// only the frame period changes. Frames of the new sequence must
+		// not reference frames of the previous one.
+		self->time_base = self->time;
+		self->frames_decoded = 0;
+		self->has_reference_frame = FALSE;
 	}
 
 	self->mb_width = (self->width + 15) >> 4;
@@ -3003,19 +3138,22 @@ int plm_video_decode_sequence_header(plm_video_t *self) {
 	self->chroma_width = self->mb_width << 3;
 	self->chroma_height = self->mb_height << 3;
 
+	if (size_changed) {
+		// (Re)allocate one big chunk of data for all 3 frames = 9 planes
+		size_t luma_plane_size = self->luma_width * self->luma_height;
+		size_t chroma_plane_size = self->chroma_width * self->chroma_height;
+		size_t frame_data_size = (luma_plane_size + 2 * chroma_plane_size);
 
-	// Allocate one big chunk of data for all 3 frames = 9 planes
-	size_t luma_plane_size = self->luma_width * self->luma_height;
-	size_t chroma_plane_size = self->chroma_width * self->chroma_height;
-	size_t frame_data_size = (luma_plane_size + 2 * chroma_plane_size);
-
-	self->frames_data = (uint8_t*)PLM_MALLOC(frame_data_size * 3);
-	plm_video_init_frame(self, &self->frame_current, self->frames_data + frame_data_size * 0);
-	plm_video_init_frame(self, &self->frame_forward, self->frames_data + frame_data_size * 1);
-	plm_video_init_frame(self, &self->frame_backward, self->frames_data + frame_data_size * 2);
+		if (self->frames_data) {
+			PLM_FREE(self->frames_data);
+		}
+		self->frames_data = (uint8_t*)PLM_MALLOC(frame_data_size * 3);
+		plm_video_init_frame(self, &self->frame_current, self->frames_data + frame_data_size * 0);
+		plm_video_init_frame(self, &self->frame_forward, self->frames_data + frame_data_size * 1);
+		plm_video_init_frame(self, &self->frame_backward, self->frames_data + frame_data_size * 2);
+	}
 
 	self->has_sequence_header = TRUE;
-	return TRUE;
 }
 
 void plm_video_init_frame(plm_video_t *self, plm_frame_t *frame, uint8_t *base) {

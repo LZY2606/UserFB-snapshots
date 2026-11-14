@@ -137,6 +137,7 @@ typedef struct {
 	
 	GLuint texture_rgb;
 	uint8_t *rgb_data;
+	size_t rgb_data_size;
 } app_t;
 
 app_t * app_create(const char *filename, int texture_mode);
@@ -250,8 +251,8 @@ app_t * app_create(const char *filename, int texture_mode) {
 	}
 	else {
 		self->texture_rgb = app_create_texture(self, 0, "texture_rgb");
-		int num_pixels = plm_get_width(self->plm) * plm_get_height(self->plm);
-		self->rgb_data = (uint8_t*)malloc(num_pixels * 3);
+		self->rgb_data_size = plm_get_width(self->plm) * plm_get_height(self->plm) * 3;
+		self->rgb_data = (uint8_t*)malloc(self->rgb_data_size);
 	}
 	self->texture_crop_size = glGetUniformLocation(self->shader_program, "texture_crop_size");
 	
@@ -396,6 +397,13 @@ void app_on_video(plm_t *mpeg, plm_frame_t *frame, void *user) {
 		glUniform2f(self->texture_crop_size, cw, ch);
 	}
 	else {
+		// Streams with multiple consecutive sequences can change the display
+		// size mid-playback; grow the conversion buffer if needed.
+		size_t needed = frame->width * frame->height * 3;
+		if (needed > self->rgb_data_size) {
+			self->rgb_data_size = needed;
+			self->rgb_data = (uint8_t*)realloc(self->rgb_data, self->rgb_data_size);
+		}
 		plm_frame_to_rgb(frame, self->rgb_data, frame->width * 3);
 	
 		glBindTexture(GL_TEXTURE_2D, self->texture_rgb);

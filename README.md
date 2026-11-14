@@ -61,6 +61,38 @@ If you just want to quickly test the library, try this file:
 https://phoboslab.org/files/bjork-all-is-full-of-love.mpg
 
 
+## Consecutive video sequences
+
+The video decoder accepts streams that concatenate several MPEG-1 video
+sequences. Each sequence may have its own sequence header with different
+dimensions, pixel aspect ratio, framerate and quantizer matrices, and should
+be terminated by a sequence end code. This makes it possible to play a
+playlist of separately encoded segments as one continuous stream without an
+external splicing tool.
+
+When one sequence ends and the next begins:
+
+- a still unpublished reference frame of the ending sequence is delivered
+  once, in display order and with its original size and plane content,
+  before the first frame of the new sequence,
+- the new sequence starts with a fresh set of reference frames; no motion
+  prediction crosses the boundary,
+- `frame->time` keeps accumulating with each segment's actual frame period -
+  it is neither reset nor recomputed with the new framerate,
+- `plm_get_width()`, `plm_get_height()`, `plm_get_framerate()` and
+  `plm_get_pixel_aspect_ratio()` (and their `plm_video_*` counterparts)
+  always describe the frame that is currently being delivered,
+- a repeated sequence header with identical parameters (and no sequence
+  end) is part of the current sequence; it may update the quantizer
+  matrices but does not produce a frame or clear the reference frames.
+
+This works the same way for raw video streams (`plm_video_decode()`), for
+MPEG-PS containers (`plm_decode_video()`) and for the video decode callback
+used with `plm_decode()`. When feeding a `plm_buffer` incrementally, the
+decoder simply returns `NULL` until a sequence header (including its
+quantizer matrices) has fully arrived.
+
+
 ## Limitations
 
 - no error reporting. PL_MPEG will silently ignore any invalid data.

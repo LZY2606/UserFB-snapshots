@@ -65,22 +65,28 @@ int main(int argc, char *argv[]) {
 	}
 
 	plm_set_audio_enabled(plm, FALSE);
-	
-	int w = plm_get_width(plm);
-	int h = plm_get_height(plm);
-	uint8_t *pixels = (uint8_t *)malloc(w * h * 3);
-	
+
+	int w = 0, h = 0;
+	uint8_t *pixels = NULL;
+
 	char bmp_name[16];
 	plm_frame_t *frame = NULL;
 
 	for (int i = 1; frame = plm_decode_video(plm); i++) {
+		// The display size may change from one sequence to the next
+		if (frame->width != (unsigned)w || frame->height != (unsigned)h) {
+			w = frame->width;
+			h = frame->height;
+			pixels = (uint8_t *)realloc(pixels, w * h * 3);
+		}
 		plm_frame_to_bgr(frame, pixels, w * 3); // BMP expects BGR ordering
 
 		sprintf(bmp_name, "%06d.bmp", i);
 		printf("Writing %s\n", bmp_name);
 		write_bmp(bmp_name, w, h, pixels);
 	}
-	
+
+	free(pixels);
     return 0;
 }
 
