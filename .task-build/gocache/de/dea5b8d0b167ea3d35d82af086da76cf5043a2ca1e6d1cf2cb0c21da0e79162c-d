@@ -1,0 +1,7 @@
+./srt_test.go
+./ssa_test.go
+./stl_test.go
+./subtitles_test.go
+./teletext_example_test.go
+./ttml_test.go
+./webvtt_test.go

@@ -1,0 +1,16 @@
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+=== RUN   TestTeletextStreamPages
+2026/11/15 03:42:53 astisub: no teletext page specified, using page 888
+    check.go:29: TASK_GROUP_DONE TestTeletextStreamPages checks=26
+--- PASS: TestTeletextStreamPages (0.00s)
+=== RUN   TestTeletextStreamCharsets
+2026/11/15 03:42:53 astisub: no teletext page specified, using page 888
+    check.go:29: TASK_GROUP_DONE TestTeletextStreamCharsets checks=63
+--- PASS: TestTeletextStreamCharsets (0.00s)
+=== RUN   TestTeletextStreamTransport
+2026/11/15 03:42:53 astisub: no teletext page specified, using page 888
+2026/11/15 03:42:53 astisub: no teletext page specified, using page 888
+    check.go:29: TASK_GROUP_DONE TestTeletextStreamTransport checks=28
+--- PASS: TestTeletextStreamTransport (0.00s)
+PASS
+ok  	github.com/asticode/go-astisub	0.092s
