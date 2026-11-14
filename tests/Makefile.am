@@ -5,7 +5,14 @@ noinst_PROGRAMS = \
 	rdfastring2n3 \
 	curies \
 	speed \
-	speed2
+	speed2 \
+	property_copy_example
+
+property_copy_example_SOURCES = property_copy_example.c
+
+EXTRA_DIST = \
+	test-cases/fetch-tests \
+	property_copy_target.c
 
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/c \
@@ -14,7 +21,5 @@ AM_CPPFLAGS = \
 LDADD = \
 	$(top_builddir)/c/librdfa.la \
 	$(LIBXML2_LIBS)
-
-EXTRA_DIST = test-cases/fetch-tests
 
 ## end librdfa/tests/Makefile.am

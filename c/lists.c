@@ -138,8 +138,7 @@ void rdfa_complete_list_triples(rdfacontext* context)
             triple = rdfa_create_triple(context->new_subject, predicate,
                "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
                RDF_TYPE_IRI, NULL, NULL);
-            context->default_graph_triple_callback(
-               triple, context->callback_data);
+            rdfa_emit_default_triple(context, triple);
          }
          else
          {
@@ -167,8 +166,7 @@ void rdfa_complete_list_triples(rdfacontext* context)
                triple->predicate =
                   rdfa_replace_string(triple->predicate,
                      "http://www.w3.org/1999/02/22-rdf-syntax-ns#first");
-               context->default_graph_triple_callback(
-                  triple, context->callback_data);
+               rdfa_emit_default_triple(context, triple);
 
                /* Free the list item */
                free(list->items[i]);
@@ -196,8 +194,7 @@ void rdfa_complete_list_triples(rdfacontext* context)
                triple = rdfa_create_triple(bnode,
                   "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest",
                   next, RDF_TYPE_IRI, NULL, NULL);
-               context->default_graph_triple_callback(
-                  triple, context->callback_data);
+               rdfa_emit_default_triple(context, triple);
 
                /* Free the bnode, setting 'next' appropriately */
                free(bnode);
@@ -222,8 +219,7 @@ void rdfa_complete_list_triples(rdfacontext* context)
                 rdfa_replace_string(triple->subject, subject);
               triple->predicate =
                 rdfa_replace_string(triple->predicate, predicate);
-              context->default_graph_triple_callback(
-                triple, context->callback_data);
+              rdfa_emit_default_triple(context, triple);
             }
             if(subject)
               free(subject);

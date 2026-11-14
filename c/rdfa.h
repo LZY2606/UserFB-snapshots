@@ -40,6 +40,12 @@
  *
  * rdfa_set_issue_handler(context, triple_function);
  *
+ * HTML+RDFa 1.1 documents can reuse attributes with rdfa:Pattern and
+ * rdfa:copy.  That processing is optional and disabled by default.  To
+ * enable it, set the option on the root context before parsing starts:
+ *
+ * rdfa_set_property_copying(context, 1);
+ *
  * Usage if you need more control over when to fill rdfa's buffer:
  *
  * rdfacontext* context = rdfa_create_context(base_uri);
@@ -218,6 +224,14 @@ typedef struct rdfacontext
    buffer_filler_fp buffer_filler_callback;
    triple_handler_fp processor_graph_triple_callback;
 
+   /* HTML+RDFa 1.1 property copying.  When enabled the default graph is
+    * buffered until the input ends and the rdfa:copy closure has been
+    * applied.  The state pointer is shared by nested element contexts;
+    * only the root context owns it. */
+   unsigned char property_copying;
+   unsigned char property_copy_owner;
+   void* property_copy_state;
+
    unsigned char recurse;
    unsigned char skip_element;
    char* new_subject;
@@ -305,6 +319,32 @@ DLLEXPORT void rdfa_set_processor_graph_triple_handler(
  */
 DLLEXPORT void rdfa_set_buffer_filler(
    rdfacontext* context, buffer_filler_fp bf);
+
+/**
+ * Enables or disables HTML+RDFa 1.1 property copying for the given
+ * parsing context.
+ *
+ * Property copying is an optional processing mode that must be set on
+ * the root context before rdfa_parse_start() (or rdfa_parse()) is
+ * called.  It is disabled by default, in which case the streaming
+ * behaviour of the parser is unchanged.
+ *
+ * When enabled, the entire default graph is collected instead of being
+ * delivered as it is produced.  Once a successful end of input has been
+ * seen, every rdfa:copy relation whose object has rdf:type
+ * rdfa:Pattern is applied to a fixed point, so that chained or mutually
+ * recursive patterns are fully expanded regardless of the order in
+ * which they were declared.  The copy relations, the now-copied pattern
+ * definitions, and any rdf:type rdfa:Pattern marker on a copying
+ * subject are then removed, and each remaining triple is delivered
+ * exactly once through the default graph handler.  Namespace and
+ * processor graph reporting are not affected by this mode.
+ *
+ * @param context the root rdfa context.
+ * @param enabled non-zero to enable property copying, zero to disable it.
+ */
+DLLEXPORT void rdfa_set_property_copying(
+   rdfacontext* context, int enabled);
 
 /**
  * Starts processing given the base rdfa context.

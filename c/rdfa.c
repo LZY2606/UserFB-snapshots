@@ -50,10 +50,14 @@
 #include <libxml/SAX2.h>
 #include "rdfa_utils.h"
 #include "rdfa.h"
+#include "property_copy.h"
 #include "strtok_r.h"
 
 #define READ_BUFFER_SIZE 4096
 #define RDFA_DOCTYPE_STRING_LENGTH 103
+
+static int rdfa_finish_end_of_input(rdfacontext* context, int status);
+static void rdfa_discard_default_graph(rdfacontext* context);
 
 /**
  * Read the head of the XHTML document and determines the base IRI for
@@ -542,8 +546,7 @@ static void start_element(void *parser_context, const char* name,
                   triple = rdfa_create_triple(
                      context->base, "http://www.w3.org/ns/rdfa#usesVocabulary",
                      resolved_uri, RDF_TYPE_IRI, NULL, NULL);
-                  context->default_graph_triple_callback(
-                     triple, context->callback_data);
+                  rdfa_emit_default_triple(context, triple);
 
                   free(resolved_uri);
                }
@@ -1218,6 +1221,35 @@ void rdfa_set_buffer_filler(rdfacontext* context, buffer_filler_fp bf)
    context->buffer_filler_callback = bf;
 }
 
+void rdfa_set_property_copying(rdfacontext* context, int enabled)
+{
+   if(context == NULL)
+   {
+      return;
+   }
+
+   /* The mode must be chosen before parsing begins: nested element
+    * contexts inherit the root state pointer, so changing it mid-parse
+    * would leave them with a dangling or stale graph. */
+   if(context->working_buffer != NULL)
+   {
+      return;
+   }
+
+   context->property_copying = enabled ? 1 : 0;
+   context->property_copy_owner = 0;
+
+   /* The graph state is allocated lazily in rdfa_parse_start() so that
+    * the option can still be toggled before parsing begins.  A state
+    * held by a previous run is abandoned here. */
+   if(context->property_copy_state != NULL)
+   {
+      rdfa_property_copy_state_free(
+         (rdfa_property_copy_state*)context->property_copy_state);
+      context->property_copy_state = NULL;
+   }
+}
+
 #ifdef LIBRDFA_IN_RAPTOR
 /* Raptor reports its errors a different way */
 #else
@@ -1366,6 +1398,25 @@ int rdfa_parse_start(rdfacontext* context)
    context->done = 0;
    context->context_stack = rdfa_create_list(32);
 
+   /* Property copying buffers the whole default graph for this parse.
+    * The state is allocated here, on the root context, and is shared
+    * read-only by the nested element contexts.  If the allocation fails
+    * the mode falls back to normal streaming rather than dropping the
+    * document's triples. */
+   context->property_copy_owner = 0;
+   if(context->property_copying && context->property_copy_state == NULL)
+   {
+      context->property_copy_state = rdfa_property_copy_state_create();
+      if(context->property_copy_state != NULL)
+      {
+         context->property_copy_owner = 1;
+      }
+      else
+      {
+         context->property_copying = 0;
+      }
+   }
+
    /* initialize the context stack */
    rdfa_push_item(context->context_stack, context, RDFALIST_FLAG_CONTEXT);
 
@@ -1407,6 +1458,7 @@ int rdfa_parse_chunk(rdfacontext* context, char* data, size_t wblen, int done)
    xmlSAXHandler handler;
    xmlParserCtxtPtr parser;
 #endif
+   int rval = RDFA_PARSE_SUCCESS;
 
    /* it is an error to call this before rdfa_parse_start() */
    if(context->done)
@@ -1423,7 +1475,15 @@ int rdfa_parse_chunk(rdfacontext* context, char* data, size_t wblen, int done)
 
       /* continue looking if in first 131072 bytes of data */
       if(!context->base && context->wb_preread < (1<<17))
+      {
+         if(done)
+         {
+            /* Nothing was parsed, but the input has ended successfully,
+             * so the (empty) default graph is closed and delivered. */
+            return rdfa_finish_end_of_input(context, RDFA_PARSE_SUCCESS);
+         }
          return RDFA_PARSE_SUCCESS;
+      }
 
 #ifdef LIBRDFA_IN_RAPTOR
       /* term mappings are needed before SAX2 parsing */
@@ -1433,7 +1493,7 @@ int rdfa_parse_chunk(rdfacontext* context, char* data, size_t wblen, int done)
                                  (const unsigned char*)context->working_buffer,
                                  context->wb_position, done))
       {
-         return RDFA_PARSE_FAILED;
+         rval = RDFA_PARSE_FAILED;
       }
 #else
       /* create the SAX2 handler structure */
@@ -1459,6 +1519,29 @@ int rdfa_parse_chunk(rdfacontext* context, char* data, size_t wblen, int done)
 
       context->preread = 1;
 
+      if(rval != RDFA_PARSE_SUCCESS)
+      {
+         if(done)
+         {
+            return rdfa_finish_end_of_input(context, rval);
+         }
+         return rval;
+      }
+
+      if(done)
+      {
+         /* The very first chunk may already contain the whole document.
+          * libxml2's push parser only buffered it at creation time, so
+          * flush it now and terminate.  Raptor parsed the buffer above. */
+#ifndef LIBRDFA_IN_RAPTOR
+         if(xmlParseChunk(context->parser, NULL, 0, 1))
+         {
+            rval = RDFA_PARSE_FAILED;
+         }
+#endif
+         return rdfa_finish_end_of_input(context, rval);
+      }
+
       return RDFA_PARSE_SUCCESS;
    }
 
@@ -1467,20 +1550,76 @@ int rdfa_parse_chunk(rdfacontext* context, char* data, size_t wblen, int done)
    if(raptor_sax2_parse_chunk(context->sax2,
                               (const unsigned char*)data, wblen, done))
    {
-      return RDFA_PARSE_FAILED;
+      rval = RDFA_PARSE_FAILED;
    }
 #else
    if(xmlParseChunk(context->parser, data, wblen, done))
    {
-      return RDFA_PARSE_FAILED;
+      rval = RDFA_PARSE_FAILED;
    }
 #endif
 
-   return RDFA_PARSE_SUCCESS;
+   if(done)
+   {
+      /* All end-of-input paths share the same finalization semantics. */
+      return rdfa_finish_end_of_input(context, rval);
+   }
+
+   return rval;
+}
+
+/**
+ * Applies the property-copying closure, if enabled, and marks the input
+ * as finished.  This is the single end-of-input path used by
+ * rdfa_parse_chunk(), rdfa_parse_buffer() and rdfa_parse().
+ *
+ * @param context the root rdfa context.
+ * @param status the parse status observed for the final chunk.
+ *
+ * @return the parse status that should be reported to the caller.
+ */
+static int rdfa_finish_end_of_input(rdfacontext* context, int status)
+{
+   context->done = 1;
+
+   if(context->property_copying &&
+      context->property_copy_state != NULL)
+   {
+      if(status == RDFA_PARSE_SUCCESS)
+      {
+         rdfa_property_copy_run(
+            (rdfa_property_copy_state*)context->property_copy_state,
+            context->default_graph_triple_callback, context->callback_data);
+      }
+      else
+      {
+         /* Failed input never yields a default graph. */
+         rdfa_discard_default_graph(context);
+      }
+   }
+
+   return status;
+}
+
+static void rdfa_discard_default_graph(rdfacontext* context)
+{
+   if(context->property_copy_state != NULL)
+   {
+      rdfa_property_copy_state_free(
+         (rdfa_property_copy_state*)context->property_copy_state);
+      context->property_copy_state = NULL;
+   }
+   context->property_copy_owner = 0;
 }
 
 void rdfa_parse_end(rdfacontext* context)
 {
+   /* Property copying delivers, at most, once: an end-of-input that
+    * produced a successful delivery has already handed the triples to
+    * the handler.  Anything left here (an error, or an input that never
+    * ended) is discarded rather than delivered. */
+   rdfa_discard_default_graph(context);
+
    /* free context stack */
    rdfa_free_context_stack(context);
 
@@ -1509,7 +1648,9 @@ int rdfa_parse_buffer(rdfacontext* context, size_t bytes)
    int done;
    done = (bytes == 0);
    rval = rdfa_parse_chunk(context, context->working_buffer, bytes, done);
-   context->done = done;
+   /* rdfa_parse_chunk() marks the context done on the final chunk.  Do
+    * not clear that flag here, or a subsequent chunk could be accepted
+    * after the default graph has already been delivered. */
    return rval;
 }
 
@@ -1535,7 +1676,6 @@ int rdfa_parse(rdfacontext* context)
      done = (wblen == 0);
 
      rval = rdfa_parse_chunk(context, context->working_buffer, wblen, done);
-     context->done=done;
   }
   while(!context->done && rval == RDFA_PARSE_SUCCESS);
 

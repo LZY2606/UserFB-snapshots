@@ -1,0 +1,146 @@
+[  6%] Building C object CMakeFiles/LibXml2.dir/c14n.c.o
+[  6%] Building C object CMakeFiles/LibXml2.dir/buf.c.o
+[  6%] Building C object CMakeFiles/LibXml2.dir/catalog.c.o
+[  8%] Building C object CMakeFiles/LibXml2.dir/chvalid.c.o
+[ 13%] Building C object CMakeFiles/LibXml2.dir/dict.c.o
+[ 13%] Building C object CMakeFiles/LibXml2.dir/debugXML.c.o
+[ 15%] Building C object CMakeFiles/LibXml2.dir/encoding.c.o
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/vendor/libxml2/encoding.c:3336:5: warning: initializer-string for character array is too long, array size is 688 but initializer has size 689 (including the null terminating character); did you mean to use the 'nonstring' attribute? [-Wunterminated-string-initialization]
+ 3336 |     "\x00\x00\x01\x09\x04\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3337 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3338 |     "\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3339 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3340 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3341 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3342 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3343 |     "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3344 |     "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3345 |     "\xa0\x00\x00\xa3\x00\x00\x00\xa7\x00\xa9\x00\x00\x00\xad\xae\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3346 |     "\x00\x00\x00\x00\x00\x00\xb6\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3347 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3348 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3349 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3350 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x03\x08\x05\x06\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3351 |     "\x00\x00\xa1\xa2\x00\x00\x00\x00\x00\x00\xa6\xab\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/vendor/libxml2/encoding.c:3401:5: warning: initializer-string for character array is too long, array size is 432 but initializer has size 433 (including the null terminating character); did you mean to use the 'nonstring' attribute? [-Wunterminated-string-initialization]
+ 3401 |     "\x00\x00\x01\x05\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3402 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3403 |     "\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3404 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3405 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3406 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3407 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3408 |     "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3409 |     "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3410 |     "\xa0\xa1\xa2\xa3\x00\xa5\x00\xa7\x00\xa9\xaa\xab\xac\xad\xae\xaf"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3411 |     "\xb0\xb1\xb2\xb3\x00\xb5\xb6\xb7\x00\xb9\xba\xbb\x00\x00\x00\xbf"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3412 |     "\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3413 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3414 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3415 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3416 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/vendor/libxml2/encoding.c:3450:5: warning: initializer-string for character array is too long, array size is 624 but initializer has size 625 (including the null terminating character); did you mean to use the 'nonstring' attribute? [-Wunterminated-string-initialization]
+ 3450 |     "\x00\x00\x01\x08\x02\x03\x00\x00\x07\x00\x00\x00\x00\x00\x00\x00"
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3451 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3452 |     "\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3453 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3454 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3455 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3456 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3457 |     "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3458 |     "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3459 |     "\xa0\x00\x00\x00\x00\x00\x00\xa7\x00\xa9\x00\xab\x00\xad\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3460 |     "\xb0\xb1\x00\x00\x00\x00\xb6\xb7\x00\x00\x00\xbb\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3461 |     "\x00\x00\xc3\xe3\xa1\xa2\xc5\xe5\x00\x00\x00\x00\xb2\xb9\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3462 |     "\xd0\xf0\x00\x00\x00\x00\x00\x00\xdd\xfd\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3463 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3464 |     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 3465 |     "\x00\xa3\xb3\xd1\xf1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 17%] Building C object CMakeFiles/LibXml2.dir/entities.c.o
+[ 20%] Building C object CMakeFiles/LibXml2.dir/error.c.o
+[ 22%] Building C object CMakeFiles/LibXml2.dir/globals.c.o
+3 warnings generated.
+[ 24%] Building C object CMakeFiles/LibXml2.dir/hash.c.o
+[ 26%] Building C object CMakeFiles/LibXml2.dir/HTMLparser.c.o
+[ 28%] Building C object CMakeFiles/LibXml2.dir/HTMLtree.c.o
+[ 31%] Building C object CMakeFiles/LibXml2.dir/legacy.c.o
+[ 33%] Building C object CMakeFiles/LibXml2.dir/list.c.o
+[ 35%] Building C object CMakeFiles/LibXml2.dir/nanoftp.c.o
+[ 37%] Building C object CMakeFiles/LibXml2.dir/nanohttp.c.o
+[ 40%] Building C object CMakeFiles/LibXml2.dir/parser.c.o
+[ 42%] Building C object CMakeFiles/LibXml2.dir/parserInternals.c.o
+[ 44%] Building C object CMakeFiles/LibXml2.dir/pattern.c.o
+[ 46%] Building C object CMakeFiles/LibXml2.dir/relaxng.c.o
+[ 48%] Building C object CMakeFiles/LibXml2.dir/SAX.c.o
+[ 51%] Building C object CMakeFiles/LibXml2.dir/SAX2.c.o
+[ 53%] Building C object CMakeFiles/LibXml2.dir/schematron.c.o
+[ 55%] Building C object CMakeFiles/LibXml2.dir/threads.c.o
+[ 57%] Building C object CMakeFiles/LibXml2.dir/tree.c.o
+[ 60%] Building C object CMakeFiles/LibXml2.dir/uri.c.o
+[ 62%] Building C object CMakeFiles/LibXml2.dir/valid.c.o
+[ 64%] Building C object CMakeFiles/LibXml2.dir/xinclude.c.o
+[ 66%] Building C object CMakeFiles/LibXml2.dir/xlink.c.o
+[ 68%] Building C object CMakeFiles/LibXml2.dir/xmlIO.c.o
+[ 71%] Building C object CMakeFiles/LibXml2.dir/xmlmemory.c.o
+[ 73%] Building C object CMakeFiles/LibXml2.dir/xmlmodule.c.o
+[ 75%] Building C object CMakeFiles/LibXml2.dir/xmlreader.c.o
+[ 77%] Building C object CMakeFiles/LibXml2.dir/xmlregexp.c.o
+[ 80%] Building C object CMakeFiles/LibXml2.dir/xmlsave.c.o
+[ 82%] Building C object CMakeFiles/LibXml2.dir/xmlschemas.c.o
+[ 84%] Building C object CMakeFiles/LibXml2.dir/xmlschemastypes.c.o
+[ 86%] Building C object CMakeFiles/LibXml2.dir/xmlstring.c.o
+[ 88%] Building C object CMakeFiles/LibXml2.dir/xmlunicode.c.o
+[ 91%] Building C object CMakeFiles/LibXml2.dir/xmlwriter.c.o
+[ 93%] Building C object CMakeFiles/LibXml2.dir/xpath.c.o
+[ 95%] Building C object CMakeFiles/LibXml2.dir/xpointer.c.o
+[ 97%] Building C object CMakeFiles/LibXml2.dir/xzlib.c.o
+[100%] Linking C static library libxml2.a
+[100%] Built target LibXml2

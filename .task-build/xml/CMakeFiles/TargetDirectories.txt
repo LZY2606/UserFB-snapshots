@@ -1,0 +1,9 @@
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/LibXml2.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/package.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/package_source.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml/CMakeFiles/install/strip.dir

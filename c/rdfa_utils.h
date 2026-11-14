@@ -463,6 +463,9 @@ void rdfa_save_incomplete_triples(
 void rdfa_complete_object_literal_triples(rdfacontext* context);
 void rdfa_complete_current_property_value_triples(rdfacontext* context);
 
+/* Declarations needed by property_copy.c */
+void rdfa_emit_default_triple(rdfacontext* context, rdftriple* triple);
+
 /* Declarations needed by namespace.c */
 void rdfa_generate_namespace_triple(
    rdfacontext* context, const char* prefix, const char* iri);

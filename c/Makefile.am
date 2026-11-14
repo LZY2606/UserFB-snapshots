@@ -6,6 +6,9 @@ include_HEADERS = \
 	rdfa.h \
 	rdfa_utils.h
 
+noinst_HEADERS = \
+	property_copy.h
+
 librdfa_la_SOURCES = \
 	context.c \
 	curie.c \
@@ -13,6 +16,7 @@ librdfa_la_SOURCES = \
 	language.c \
 	lists.c \
 	namespace.c \
+	property_copy.c \
 	rdfa.c \
 	rdfa_utils.c \
 	subject.c \

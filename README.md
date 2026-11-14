@@ -50,6 +50,32 @@ Optionally, you can build the Python bindings with the following:
     ./configure --enable-python
     make
 
+HTML+RDFa 1.1 Property Copying
+------------------------------
+
+HTML+RDFa 1.1 lets documents reuse attributes by declaring a resource
+with `rdfa:Pattern` and pointing at it with `rdfa:copy`.  librdfa
+supports that processing as an optional mode, which is disabled by
+default:
+
+    rdfacontext* context = rdfa_create_context(base_uri);
+    rdfa_set_default_graph_triple_handler(context, &default_graph_triple);
+    rdfa_set_property_copying(context, 1);
+    rdfa_parse(context);
+
+The option must be set on the root context before `rdfa_parse_start()`
+(or `rdfa_parse()`).  When it is enabled the default graph is buffered
+for the whole document instead of being delivered as it is produced.
+After a successful end of input the `rdfa:copy` relations are applied to
+a fixed point, so chained and mutually recursive patterns converge
+regardless of declaration order, and then the copy relations and the
+copied pattern definitions are removed before each remaining triple is
+delivered exactly once.  Namespace and processor graph notifications are
+unaffected.  With the option disabled the parser keeps its streaming
+behaviour.
+
+See `tests/property_copy_example.c` for a complete example.
+
 Development
 -----------
 

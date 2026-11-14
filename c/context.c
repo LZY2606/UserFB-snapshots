@@ -31,6 +31,7 @@
 #include <string.h>
 #include "rdfa_utils.h"
 #include "rdfa.h"
+#include "property_copy.h"
 
 rdfacontext* rdfa_create_context(const char* base)
 {
@@ -431,6 +432,12 @@ rdfacontext* rdfa_create_new_element_context(rdfalist* context_stack)
       parent_context->processor_graph_triple_callback;
    rval->buffer_filler_callback = parent_context->buffer_filler_callback;
 
+   /* nested element contexts share the root context's property-copying
+    * graph; they never own it. */
+   rval->property_copying = parent_context->property_copying;
+   rval->property_copy_state = parent_context->property_copy_state;
+   rval->property_copy_owner = 0;
+
    /* inherit the bnode count, _: bnode name, recurse flag, and state
     * of the xml_literal_namespace_insertion */
    rval->bnode_count = parent_context->bnode_count;
@@ -587,5 +594,15 @@ void rdfa_free_context(rdfacontext* context)
 
    rdfa_free_context_stack(context);
    free(context->working_buffer);
+
+   /* Only the root context owns the buffered default graph.  Nested
+    * element contexts merely point at it. */
+   if(context->property_copy_owner && context->property_copy_state != NULL)
+   {
+      rdfa_property_copy_state_free(
+         (rdfa_property_copy_state*)context->property_copy_state);
+      context->property_copy_state = NULL;
+   }
+
    free(context);
 }

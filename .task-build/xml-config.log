@@ -1,0 +1,87 @@
+-- The C compiler identification is AppleClang 21.0.0.21000401
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found PkgConfig: /opt/homebrew/bin/pkg-config (found version "3.0.10")
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HAVE_ATTRIBUTE_DESTRUCTOR
+-- Performing Test HAVE_ATTRIBUTE_DESTRUCTOR - Success
+-- Looking for include file arpa/inet.h
+-- Looking for include file arpa/inet.h - found
+-- Looking for class
+-- Looking for class - not found
+-- Looking for include file dlfcn.h
+-- Looking for include file dlfcn.h - found
+-- Looking for dlopen in dl
+-- Looking for dlopen in dl - found
+-- Looking for include file dl.h
+-- Looking for include file dl.h - not found
+-- Looking for include file fcntl.h
+-- Looking for include file fcntl.h - found
+-- Looking for fpclass
+-- Looking for fpclass - not found
+-- Looking for ftime
+-- Looking for ftime - found
+-- Looking for gettimeofday
+-- Looking for gettimeofday - found
+-- Looking for include file inttypes.h
+-- Looking for include file inttypes.h - found
+-- Looking for isascii
+-- Looking for isascii - found
+-- Looking for append_history in history
+-- Looking for append_history in history - not found
+-- Looking for readline in readline
+-- Looking for readline in readline - found
+-- Looking for mmap
+-- Looking for mmap - found
+-- Looking for munmap
+-- Looking for munmap - found
+-- Looking for include file netdb.h
+-- Looking for include file netdb.h - found
+-- Looking for include file netinet/in.h
+-- Looking for include file netinet/in.h - found
+-- Looking for include file poll.h
+-- Looking for include file poll.h - found
+-- Looking for shl_load in dld
+-- Looking for shl_load in dld - not found
+-- Looking for stat
+-- Looking for stat - found
+-- Looking for include file stdint.h
+-- Looking for include file stdint.h - found
+-- Looking for include file sys/mman.h
+-- Looking for include file sys/mman.h - found
+-- Looking for include file sys/select.h
+-- Looking for include file sys/select.h - found
+-- Looking for include file sys/socket.h
+-- Looking for include file sys/socket.h - found
+-- Looking for include file sys/stat.h
+-- Looking for include file sys/stat.h - found
+-- Looking for include file sys/timeb.h
+-- Looking for include file sys/timeb.h - found
+-- Looking for include file sys/time.h
+-- Looking for include file sys/time.h - found
+-- Looking for include file unistd.h
+-- Looking for include file unistd.h - found
+-- Looking for va_copy
+-- Looking for va_copy - found
+-- Looking for __va_copy
+-- Looking for __va_copy - found
+-- Performing Test VA_LIST_IS_ARRAY_TEST
+-- Performing Test VA_LIST_IS_ARRAY_TEST - Success
+-- Performing Test XML_SOCKLEN_T_SOCKLEN_T
+-- Performing Test XML_SOCKLEN_T_SOCKLEN_T - Success
+-- Looking for include file pthread.h
+-- Looking for include file pthread.h - found
+-- Configuring done (9.0s)
+-- Generating done (0.0s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_DISABLE_FIND_PACKAGE_PkgConfig
+
+
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z2037/attempts/20261114T145659911529Z/repo/.task-build/xml
