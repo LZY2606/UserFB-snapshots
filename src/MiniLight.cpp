@@ -10,11 +10,14 @@
 
 #include <signal.h>
 #include <math.h>
+#include <cmath>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <cstdlib>
+#include <vector>
 
 #include "Primitives.hpp"
 
@@ -22,6 +25,8 @@
 #include "Image.hpp"
 #include "Scene.hpp"
 #include "Camera.hpp"
+#include "GradientState.hpp"
+#include "GradientSolver.hpp"
 
 
 
@@ -55,6 +60,12 @@ const char HELP_MESSAGE[] =
 "\n"
 "usage:\n"
 "  minilight modelFilePathName\n"
+"  minilight modelFilePathName --gradient alpha\n"
+"\n"
+"--gradient enables gradient-domain rendering: primal and paired neighbour\n"
+"difference estimates are accumulated per iteration, and each saved frame is\n"
+"reconstructed by solving a Poisson system weighted by alpha (a positive,\n"
+"finite real).\n"
 "\n"
 "The model text file format is:\n"
 "  #MiniLight\n"
@@ -138,6 +149,31 @@ int main
       {
          std::cout << BANNER_MESSAGE;
 
+         // parse rendering mode
+         bool   isGradient    = false;
+         real64 gradientAlpha = 0.0;
+         if( 2 == argc )
+         {
+            // legacy primal-only mode
+         }
+         else if( (4 == argc) && (std::string("--gradient") == argv[2]) )
+         {
+            char* end = 0;
+            gradientAlpha = std::strtod( argv[3], &end );
+            if( (end == argv[3]) || ('\0' != *end) ||
+               !(gradientAlpha > 0.0) || !std::isfinite(gradientAlpha) )
+            {
+               throw std::runtime_error(
+                  "--gradient alpha must be a positive finite number" );
+            }
+            isGradient = true;
+         }
+         else
+         {
+            std::cout << HELP_MESSAGE;
+            return EXIT_FAILURE;
+         }
+
          // make random generator
          hxa7241_general::Random random;
 
@@ -172,6 +208,10 @@ int main
 
          modelFile.close();
 
+         // make gradient-domain accumulation state, owned here by the caller
+         hxa7241_minilight::GradientState gradientState( image.getWidth(),
+            image.getHeight() );
+
          // setup ctrl-c/interruption/sigint handler
          ::signal( SIGINT, sigintHandler );
 
@@ -182,7 +222,14 @@ int main
             (std::cout << "\riteration: " << frameNo).flush();
 
             // render a frame
-            camera.getFrame( scene, random, image );
+            if( isGradient )
+            {
+               camera.getFrameGradient( scene, random, gradientState );
+            }
+            else
+            {
+               camera.getFrame( scene, random, image );
+            }
 
             // save image at twice error-halving rate, and at start and end
             if( ((frameNo & (frameNo - 1)) == 0) | (iterations == frameNo) )
@@ -193,8 +240,44 @@ int main
                imageFile.exceptions( std::ios::badbit | std::ios::failbit |
                   std::ios::eofbit );
 
-               // write image frame to file
-               image.getFormatted( imageFile, frameNo );
+               if( isGradient )
+               {
+                  // reconstruct linear radiance from all accumulated rounds
+                  std::vector<hxa7241_minilight::Vector3f> pixels;
+                  const hxa7241_minilight::GradientSolver::Result result(
+                     hxa7241_minilight::GradientSolver::solve( gradientState,
+                        gradientAlpha, 1e-10,
+                        (4 * image.getWidth() * image.getHeight()) + 64,
+                        pixels ) );
+                  if( !result.isConverged )
+                  {
+                     throw std::runtime_error(
+                        "gradient reconstruction did not converge" );
+                  }
+
+                  // route the linear radiance through the standard Image
+                  // tone-mapping and formatting chain
+                  std::istringstream gradientImageSize(
+                     (std::ostringstream() << image.getWidth() << ' ' <<
+                        image.getHeight()).str() );
+                  hxa7241_minilight::Image gradientImage(
+                     gradientImageSize );
+                  for( int32 y = 0;  y < image.getHeight();  ++y )
+                  {
+                     for( int32 x = 0;  x < image.getWidth();  ++x )
+                     {
+                        gradientImage.addToPixel( x, y,
+                           pixels[ static_cast<int32u>(
+                              x + (y * image.getWidth()) )] );
+                     }
+                  }
+                  gradientImage.getFormatted( imageFile, 1 );
+               }
+               else
+               {
+                  // write image frame to file
+                  image.getFormatted( imageFile, frameNo );
+               }
 
                imageFile.close();
             }

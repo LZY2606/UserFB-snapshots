@@ -29,6 +29,9 @@ namespace hxa7241_minilight
  *
  * getFrame() accumulates a frame of samples to the image.<br/><br/>
  *
+ * getFrameGradient() accumulates one gradient-domain round -- primal
+ * estimates and paired neighbour differences -- to a GradientState.<br/><br/>
+ *
  * Constant.
  *
  * @invariants
@@ -60,10 +63,39 @@ public:
                            const Random&,
                            Image& )                                       const;
 
+           /**
+            * Accumulate one gradient-domain round.<br/><br/>
+            *
+            * For each pixel, the caller's Random state is copied; the base
+            * pixel and its existing right/up neighbours are all evaluated
+            * from that same copied state -- identical sub-pixel jitter and
+            * identical subsequent random sequence -- each along its own
+            * camera ray. The neighbour-minus-base linear radiance difference
+            * is recorded per edge, and the base radiance per pixel. After
+            * each pixel, the caller's Random is advanced only to the state
+            * at the end of the base evaluation.<br/><br/>
+            */
+           void  getFrameGradient( const Scene&,
+                                   Random&,
+                                   GradientState& )                       const;
+
 
 /// constants ------------------------------------------------------------------
    static  real64 VIEW_ANGLE_MIN();
    static  real64 VIEW_ANGLE_MAX();
+
+
+/// implementation -------------------------------------------------------------
+private:
+           /**
+            * Make the sampling ray direction for pixel (x,y), with sub-pixel
+            * jitter drawn from random. Shared by both rasterizing queries.
+            */
+           Vector3f makeSampleDirection( real64        x,
+                                         real64        y,
+                                         real64        width,
+                                         real64        height,
+                                         const Random& random )           const;
 
 
 /// fields ---------------------------------------------------------------------

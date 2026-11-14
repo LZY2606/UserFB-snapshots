@@ -1,0 +1,5 @@
+#!/bin/sh
+# sandbox-safe mktemp replacement: create the temp file inside the repo build dir
+f=".task-build/mktemp.$$.$RANDOM"
+( umask 077; : > "$f" ) || exit 1
+printf '%s/%s\n' "$PWD" "$f"
