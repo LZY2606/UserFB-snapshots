@@ -1,4 +1,11 @@
 import Crawler from "./crawler.js";
+export type {
+    CrawlerOptions,
+    CrawlerResponse,
+    RequestConfig,
+    RequestOptions,
+    RevisionRequestOptions,
+} from "./types/crawler.js";
 if (typeof module !== "undefined" && module.exports) {
     module.exports = Crawler;
 }

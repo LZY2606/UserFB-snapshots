@@ -10,6 +10,17 @@ export type TaskWrapper = {
     rateLimiterId?: number;
 };
 
+/**
+ * A connection slot reserved for a queued task while its dispatch delay is
+ * counting down. `active` flips to false when the task is cancelled before
+ * the timer fires, so the timer can never dispatch a stale task.
+ */
+export type Reservation = {
+    task: Task;
+    active: boolean;
+    timer: NodeJS.Timeout;
+};
+
 export type RateLimiterOptions = {
     maxConnections: number;
     rateLimit: number;
@@ -21,6 +32,7 @@ export type RateLimiterOptions = {
 class RateLimiter {
     private _waitingTasks: multiPriorityQueue<Task>;
     private _cluster?: Cluster;
+    private _reservations: Set<Reservation> = new Set();
 
     public id?: number;
     public maxConnections: number;
@@ -67,12 +79,13 @@ class RateLimiter {
         if (this.rateLimit > 0) this.maxConnections = 1;
     }
 
-    submit(options: { priority: number } | number, task: Task): void {
+    submit(options: { priority: number } | number, task: Task): Task {
         let priority = typeof options === "number" ? options : options.priority;
         priority = Number.isInteger(priority) ? priority : this.defaultPriority;
         priority = Math.min(priority, this.priorityLevels - 1);
         this._waitingTasks.enqueue(task, priority);
         this._schedule();
+        return task;
     }
 
     private _schedule(): void {
@@ -82,14 +95,52 @@ class RateLimiter {
             this.nextRequestTime = Date.now() + delay + this.rateLimit;
 
             const { next, rateLimiterId } = this.dequeue() as TaskWrapper;
-            setTimeout(() => {
-                const done = () => {
-                    --this.runningSize;
-                    this._schedule();
-                };
-                next(done, rateLimiterId);
-            }, delay);
+            const reservation: Reservation = {
+                task: next,
+                active: true,
+                timer: setTimeout(() => {
+                    this._reservations.delete(reservation);
+                    // The task was cancelled while its dispatch was pending.
+                    // The slot was already handed back when cancel() ran.
+                    if (!reservation.active) return;
+                    const done = () => {
+                        --this.runningSize;
+                        this._schedule();
+                    };
+                    next(done, rateLimiterId);
+                }, delay),
+            };
+            this._reservations.add(reservation);
         }
+    }
+
+    /**
+     * Cancels a task that is either still queued or whose dispatch timer has
+     * already been reserved. A queued task is simply removed; a reserved task
+     * keeps its timer (which now no-ops) but releases the slot immediately and
+     * gives back the rate-limit interval it would have occupied.
+     * @returns true when the task belonged to this limiter and was cancelled.
+     */
+    cancel(task: Task): boolean {
+        if (this._waitingTasks.remove(task)) {
+            return true;
+        }
+        for (const reservation of this._reservations) {
+            if (reservation.task === task && reservation.active) {
+                reservation.active = false;
+                clearTimeout(reservation.timer);
+                this._reservations.delete(reservation);
+                --this.runningSize;
+                // Hand back the rate-limit gap the stale reservation was
+                // holding so the next valid task is not delayed by it.
+                if (this.rateLimit > 0) {
+                    this.nextRequestTime = Math.max(this.nextRequestTime - this.rateLimit, Date.now());
+                }
+                this._schedule();
+                return true;
+            }
+        }
+        return false;
     }
 
     directDequeue(): Task {

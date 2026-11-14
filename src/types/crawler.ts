@@ -218,3 +218,15 @@ export type RequestOptions = {
 export type RequestConfig = string | RequestOptions | RequestOptions[];
 export type CrawlerOptions = Partial<GlobalOnlyOptions> & RequestOptions;
 export type CrawlerResponse = any;
+
+/**
+ * Options accepted by `Crawler.addRevision()`. Only a single plain HTTP GET
+ * request with a string `url` (or the deprecated `uri`) is allowed. Inline
+ * `html`, function/array forms and `preRequest` are rejected with a
+ * `TypeError` at call time.
+ */
+export type RevisionRequestOptions = Omit<RequestOptions, "url" | "uri" | "html" | "preRequest" | "method"> & {
+    url?: string;
+    uri?: string;
+    method?: "GET";
+};

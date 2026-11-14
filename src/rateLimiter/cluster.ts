@@ -1,4 +1,4 @@
-import RateLimiter, { RateLimiterOptions, TaskWrapper } from "./rateLimiter.js";
+import RateLimiter, { RateLimiterOptions, Task, TaskWrapper } from "./rateLimiter.js";
 
 export type ClusterOptions = RateLimiterOptions & {
     homogeneous?: boolean;
@@ -45,6 +45,17 @@ class Cluster {
 
     hasRateLimiter(id: number): boolean {
         return !!this._rateLimiters[id];
+    }
+
+    /**
+     * Cancels a task across every limiter of the cluster.
+     * @returns true when one limiter owned and cancelled the task.
+     */
+    cancel(task: Task): boolean {
+        for (const rateLimiter of Object.values(this._rateLimiters)) {
+            if (rateLimiter.cancel(task)) return true;
+        }
+        return false;
     }
 
     deleteRateLimiter(id: number): boolean {

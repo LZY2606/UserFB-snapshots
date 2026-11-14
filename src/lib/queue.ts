@@ -114,6 +114,29 @@ class Queue<T> {
     }
 
     /**
+     * Removes the first occurrence of an element from the Queue by reference.
+     * @return {boolean} Whether the element was found and removed.
+     */
+    remove(value: T): boolean {
+        let node = this._dummyHead.next as AbstractNode;
+        while (node !== this._dummyTail) {
+            const current = node as Node<T>;
+            const nextNode = current.next as AbstractNode;
+            if (current.value === value) {
+                const prevNode = current.prev as AbstractNode;
+                prevNode.next = nextNode;
+                nextNode.prev = prevNode;
+                current.next = null;
+                current.prev = null;
+                this._length--;
+                return true;
+            }
+            node = nextNode;
+        }
+        return false;
+    }
+
+    /**
      * Returns the number of elements in the Queue.
      * @return {number} Number of elements in the Queue.
      */

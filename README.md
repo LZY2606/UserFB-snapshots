@@ -251,7 +251,73 @@ crawler.send({
 });
 ```
 
-### 
+## Merge revisions of the same item: `crawler.addRevision(key, revision, options)`
+
+A full catalog scan and incremental notifications can both enqueue a re-crawl
+of the same product, so the same item may arrive in several versions within a
+short window. `addRevision()` merges those notifications by a **business key**
+and only ever downloads the newest revision, while still using the normal
+request pool, fetch, decode and callback pipeline.
+
+- Identity is the `key` (e.g. the product id), not the URL, so `seenreq` URL
+  de-duplication and `skipDuplicates` do not apply. Different keys with the
+  same URL are each fetched and share the pool's concurrency limit.
+- `revision` must be a non-negative safe integer. The call returns `true` only
+  when it is greater than every revision already accepted for that `key`; an
+  equal or older revision returns `false`, sends no request and runs no
+  callback. The high-water mark never moves backwards, even after failures —
+  to re-crawl, pass a larger revision.
+- `options` is a single plain HTTP GET object whose `url` (or deprecated
+  `uri`) is a string. Inline `html`, function/array forms and `preRequest`
+  are rejected with a synchronous `TypeError`. The options are copied when
+  accepted, so mutating the object afterwards does not change the request.
+- While the item is still queued, a newer revision replaces the waiting
+  configuration in place (including `rateLimiterId` and `priority`) without
+  taking another queue position. While a download is in flight, the newest
+  revision is held and dispatched when the current attempt finishes; the
+  superseded result (success or error) and its retries are dropped. A retry
+  backoff is invalidated immediately. The running user callback is always
+  allowed to finish; `done` settles exactly once.
+
+```js
+import Crawler from "crawler";
+
+const crawler = new Crawler({ maxConnections: 10, jQuery: false });
+
+// A full scan and an incremental notification racing on the same product.
+crawler.addRevision("product-42", 1, {
+    url: "https://example.com/products/42",
+    callback: (error, response, done) => {
+        if (error) console.error(error);
+        else console.log("revision 1", response.body);
+        done();
+    },
+});
+
+// Continuous updates to the same key collapse to the newest revision.
+crawler.addRevision("product-42", 2, {
+    url: "https://example.com/products/42",
+    headers: { "x-revision": "2" },
+    callback: (error, response, done) => {
+        if (error) console.error(error);
+        else console.log("revision 2", response.body);
+        done();
+    },
+});
+crawler.addRevision("product-42", 3, {
+    url: "https://example.com/products/42",
+    headers: { "x-revision": "3" },
+    callback: (error, response, done) => {
+        if (error) console.error(error);
+        else console.log("revision 3", response.body); // only this callback runs
+        done();
+    },
+});
+
+crawler.addRevision("product-42", 3, { url: "https://example.com/products/42" }); // -> false
+```
+
+###
 
 # Table
 
@@ -264,6 +330,7 @@ crawler.send({
     - [Event: 'request'](#event-request)
     - [Event: 'drain'](#event-drain)
     - [crawler.add(url|options)](#crawleraddurloptions)
+    - [crawler.addRevision(key, revision, options)](#merge-revisions-of-the-same-item-crawleraddrevisionkey-revision-options)
     - [crawler.queueSize](#crawlerqueuesize)
   - [Options](#options)
     - [Global only options](#global-only-options)
@@ -434,6 +501,18 @@ crawler.on("drain", () => {
 -   `url | options`
 
 Add a task to queue and wait for it to be executed.
+
+### crawler.addRevision(key, revision, options)
+
+-   `key` : non-empty string business identity (e.g. product id).
+-   `revision` : non-negative safe integer; only revisions greater than the
+    accepted high-water mark are taken.
+-   `options` : a single plain HTTP GET object with a string `url`/`uri`;
+    `html`, function/array forms and `preRequest` throw a synchronous
+    `TypeError`.
+-   returns: `boolean` — `true` when accepted, `false` when equal or stale.
+
+See [Merge revisions of the same item](#merge-revisions-of-the-same-item-crawleraddrevisionkey-revision-options) for the full semantics and an example.
 
 ### crawler.queueSize
 

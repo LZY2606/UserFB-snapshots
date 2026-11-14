@@ -31,6 +31,20 @@ class multiPriorityQueue<T> {
         this._size++;
     }
 
+    /**
+     * Removes a previously enqueued value by reference, scanning every
+     * priority bucket. Returns false when the value is not queued anymore.
+     */
+    remove(value: T): boolean {
+        for (const queue of this._elements) {
+            if (queue.remove(value)) {
+                this._size--;
+                return true;
+            }
+        }
+        return false;
+    }
+
     dequeue(): T | undefined {
         for (let i = 0; i < this._elements.length; i++) {
             if (this._elements[i].length > 0) {

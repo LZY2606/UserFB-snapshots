@@ -3,13 +3,32 @@ import { Cluster } from "./rateLimiter/index.js";
 import { isBoolean, isFunction, setDefaults, flattenDeep, lowerObjectKeys, isNumber } from "./lib/utils.js";
 import { getValidOptions, alignOptions, getCharset, renameOptionParams } from "./options.js";
 import { getLogger } from "./logger.js";
-import type { CrawlerOptions, RequestOptions, RequestConfig, CrawlerResponse } from "./types/crawler.js";
+import type { CrawlerOptions, RequestOptions, RequestConfig, CrawlerResponse, RevisionRequestOptions } from "./types/crawler.js";
 import { load } from "cheerio";
 import seenreq from "seenreq";
 import iconv from "iconv-lite";
 import type { Got } from "got";
 // @todo: remove seenreq dependency
 const log = getLogger();
+
+type RevisionPhase = "idle" | "queued" | "downloading" | "retry" | "callback";
+
+/**
+ * Bookkeeping for one business key managed by `addRevision`. At most one
+ * attempt (`current`) owns a request-pool slot at any time; `pending` holds
+ * the newest config that has not been dispatched yet.
+ */
+interface RevisionState {
+    key: string;
+    phase: RevisionPhase;
+    pending: CrawlerOptions | null;
+    current: CrawlerOptions | null;
+    task: ((done: () => void) => void) | null;
+    limiterDone: (() => void) | null;
+    retryTimer: NodeJS.Timeout | null;
+    retryGeneration: number;
+    callbackDone: boolean;
+}
 
 // 缓存 got 实例
 let gotInstance: Got | null = null;
@@ -28,6 +47,11 @@ class Crawler extends EventEmitter {
 
     public options: CrawlerOptions;
     public seen: any;
+
+    /** Per-key revision bookkeeping, keyed by the business key of addRevision. */
+    private _revisionStates: Map<string, RevisionState> = new Map();
+    /** Reverse lookup from a live attempt's options back to its revision state. */
+    private _revisionContexts: Map<CrawlerOptions, RevisionState> = new Map();
 
     constructor(options?: CrawlerOptions) {
         super();
@@ -77,7 +101,7 @@ class Crawler extends EventEmitter {
             });
         this.on("_release", () => {
             log.debug(`Queue size: ${this.queueSize}`);
-            if (this._limiters.empty) this.emit("drain");
+            if (this._limiters.empty && this._revisionStates.size === 0) this.emit("drain");
         });
     }
 
@@ -180,6 +204,10 @@ class Crawler extends EventEmitter {
     };
 
     private _handler = (error: unknown, options: RequestOptions, response?: CrawlerResponse): CrawlerResponse => {
+        const revisionContext = this._revisionContexts.get(options as CrawlerOptions);
+        if (revisionContext) {
+            return this._revisionHandler(revisionContext, error, options, response);
+        }
         if (error) {
             if (options.retries && options.retries > 0) {
                 log.warn(`${error} occurred on ${options.url}. ${options.retries ? `(${options.retries} retries left)` : ""}`);
@@ -197,6 +225,18 @@ class Crawler extends EventEmitter {
                 }
             }
         }
+        response = this._processResponse(options, response as CrawlerResponse);
+        if (options.callback && typeof options.callback === "function") {
+            return options.callback(null, response, options.release);
+        }
+        return response;
+    };
+
+    /**
+     * Body normalization shared by the legacy queue path and the revision
+     * path: charset sniffing, iconv decoding, JSON parsing and Cheerio load.
+     */
+    private _processResponse = (options: RequestOptions, response: CrawlerResponse): CrawlerResponse => {
         if (!response.body) response.body = "";
         // got v15 returns the body as a Uint8Array; normalize to Buffer so
         // charset sniffing and iconv decoding behave as before.
@@ -240,10 +280,6 @@ class Crawler extends EventEmitter {
                     log.warn("HTML detected failed. Set jQuery to false to mute this warning.");
                 }
             }
-        }
-
-        if (options.callback && typeof options.callback === "function") {
-            return options.callback(null, response, options.release);
         }
         return response;
     };
@@ -352,6 +388,308 @@ class Crawler extends EventEmitter {
      */
     public queue = (options: RequestConfig): void => {
         return this.add(options);
+    };
+
+    /**
+     * The largest revision already accepted for each business key. Kept for
+     * the lifetime of the instance, independently of the active state below,
+     * so the high-water mark never moves backwards even after a key drains.
+     */
+    private _revisionWaterMarks: Map<string, number> = new Map();
+
+    /**
+     * Merge repeated notifications for the same business key and only fetch
+     * the newest revision. Identity is the `key`, so the seenreq URL
+     * de-duplication used by `add()` is bypassed. The request still goes
+     * through the shared request pool, fetch, decode and callback pipeline.
+     *
+     * @param key Business key, e.g. the product id. Must be a non-empty string.
+     * @param revision Monotonic revision number. Must be a non-negative safe integer.
+     * @param options Plain HTTP GET options; `url` (or `uri`) must be a string.
+     * @returns `true` when the revision is newer than the high-water mark and
+     * was accepted; `false` when it is equal or older, in which case no
+     * request is sent and no callback runs.
+     * @throws {TypeError} When any argument is invalid. Existing work is never
+     * touched by a validation failure.
+     * @example
+     * ```js
+     * const crawler = new Crawler();
+     * // Full scan and incremental notifications may race each other; only the
+     * // newest revision of each product is actually downloaded.
+     * crawler.addRevision("product-42", 1, {
+     *     url: "https://example.com/products/42",
+     *     callback: (error, response, done) => { done(); },
+     * });
+     * crawler.addRevision("product-42", 2, {
+     *     url: "https://example.com/products/42",
+     *     headers: { "x-revision": "2" },
+     *     callback: (error, response, done) => { done(); },
+     * });
+     * ```
+     */
+    public addRevision = (key: string, revision: number, options: RevisionRequestOptions): boolean => {
+        this._revisionValidate(key, revision, options);
+        const acceptedRevision = this._revisionWaterMarks.get(key);
+        if (acceptedRevision !== undefined && revision <= acceptedRevision) {
+            return false;
+        }
+        this._revisionWaterMarks.set(key, revision);
+
+        const config = this._revisionBuildOptions(options);
+        let state = this._revisionStates.get(key);
+        if (!state) {
+            state = {
+                key,
+                phase: "idle",
+                pending: null,
+                current: null,
+                task: null,
+                limiterDone: null,
+                retryTimer: null,
+                retryGeneration: 0,
+                callbackDone: false,
+            };
+            this._revisionStates.set(key, state);
+        }
+
+        switch (state.phase) {
+            case "idle":
+                this._revisionSubmit(state, config);
+                break;
+            case "queued":
+                // Not dispatched to the network yet: swap the waiting config
+                // instead of taking another queue position.
+                this._limiters.cancel(state.task as (done: () => void) => void);
+                this._revisionSubmit(state, config);
+                break;
+            case "retry":
+                // The old attempt is finished but its backoff still holds the
+                // slot: invalidate the backoff and advance immediately.
+                state.pending = config;
+                this._revisionCancelRetry(state);
+                this._revisionAdvance(state);
+                break;
+            case "downloading":
+            case "callback":
+            default:
+                // One download/callback is already bound to the slot; keep
+                // only the newest config and dispatch it once the slot frees.
+                state.pending = config;
+                break;
+        }
+        return true;
+    };
+
+    private _revisionValidate(key: unknown, revision: unknown, options: unknown): asserts options is RevisionRequestOptions {
+        if (typeof key !== "string" || key.length === 0) {
+            throw new TypeError("addRevision: key must be a non-empty string");
+        }
+        if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) {
+            throw new TypeError("addRevision: revision must be a non-negative safe integer");
+        }
+        if (options === null || typeof options !== "object" || Array.isArray(options)) {
+            throw new TypeError("addRevision: options must be a single plain request options object");
+        }
+        const prototype = Object.getPrototypeOf(options);
+        if (prototype !== Object.prototype && prototype !== null) {
+            throw new TypeError("addRevision: options must be a single plain request options object");
+        }
+        const opts = options as Record<string, unknown>;
+        if ("html" in opts) {
+            throw new TypeError("addRevision: inline html is not supported");
+        }
+        if ("preRequest" in opts) {
+            throw new TypeError("addRevision: preRequest is not supported");
+        }
+        if (opts.method !== undefined && opts.method !== "GET") {
+            throw new TypeError("addRevision: only plain HTTP GET requests are supported");
+        }
+        if (opts.url !== undefined && typeof opts.url !== "string") {
+            throw new TypeError("addRevision: options.url must be a string");
+        }
+        if (opts.uri !== undefined && typeof opts.uri !== "string") {
+            throw new TypeError("addRevision: options.uri must be a string");
+        }
+        const url = opts.url !== undefined ? opts.url : opts.uri;
+        if (typeof url !== "string" || url.length === 0) {
+            throw new TypeError("addRevision: a string url or uri is required");
+        }
+    }
+
+    /**
+     * Copies the accepted options at reception time so later mutations of the
+     * caller's object cannot change the request that will be sent. Plain
+     * nested values (headers, searchParams, ...) are cloned recursively;
+     * class instances such as cookie jars keep their reference.
+     */
+    private _revisionClone = (value: unknown): unknown => {
+        if (Array.isArray(value)) {
+            return value.map(item => this._revisionClone(item));
+        }
+        if (value !== null && typeof value === "object") {
+            const prototype = Object.getPrototypeOf(value);
+            if (prototype === Object.prototype || prototype === null) {
+                const clone: Record<string, unknown> = {};
+                Object.keys(value as Record<string, unknown>).forEach(k => {
+                    clone[k] = this._revisionClone((value as Record<string, unknown>)[k]);
+                });
+                return clone;
+            }
+        }
+        return value;
+    };
+
+    private _revisionBuildOptions = (options: RevisionRequestOptions): CrawlerOptions => {
+        const config = this._revisionClone(options) as CrawlerOptions;
+        config.method = "GET";
+        if (config.url === undefined && config.uri !== undefined) {
+            config.url = config.uri;
+        }
+        delete config.uri;
+        setDefaults(config, this.options);
+        config.headers = { ...this.options.headers, ...config.headers };
+        return config;
+    };
+
+    /**
+     * Hand a config to the shared request pool. The pool slot is reserved
+     * here, so the key counts as busy from submission until user `done`.
+     */
+    private _revisionSubmit = (state: RevisionState, config: CrawlerOptions): void => {
+        if (state.current) {
+            this._revisionContexts.delete(state.current);
+        }
+        state.current = config;
+        state.pending = null;
+        state.callbackDone = false;
+        state.phase = "queued";
+        this._revisionContexts.set(config, state);
+
+        const task = (done: () => void): void => {
+            state.limiterDone = done;
+            state.phase = "downloading";
+            config.release = () => this._revisionUserDone(state);
+            config.callback = config.callback || config.release;
+            delete config.uri;
+            this._execute(config);
+        };
+        state.task = task;
+        this._limiters
+            .getRateLimiter(config.rateLimiterId)
+            .submit(config.priority as number, task);
+    };
+
+    /**
+     * Route the result of a live revision attempt. A superseded attempt is
+     * swallowed entirely: no legacy callback, no retries of the old revision.
+     */
+    private _revisionHandler = (state: RevisionState, error: unknown, options: RequestOptions, response?: CrawlerResponse): CrawlerResponse => {
+        // Zombie retry timer: the attempt was superseded while backing off.
+        if (state.current !== options) {
+            return;
+        }
+        if (state.pending) {
+            // The attempt was already replaced before it reached the user
+            // callback. Drop both success and error, including old retries,
+            // and dispatch the newest revision through the normal pool.
+            this._revisionAdvance(state);
+            return;
+        }
+        if (error) {
+            if (options.retries && options.retries > 0) {
+                log.warn(`${error} occurred on ${options.url}. ${options.retries ? `(${options.retries} retries left)` : ""}`);
+                state.phase = "retry";
+                const generation = ++state.retryGeneration;
+                state.retryTimer = setTimeout(() => {
+                    state.retryTimer = null;
+                    if (generation !== state.retryGeneration || state.current !== options) return;
+                    options.retries!--;
+                    state.phase = "downloading";
+                    this._execute(options as CrawlerOptions);
+                }, options.retryInterval);
+                return;
+            }
+            log.error(`${error} occurred on ${options.url}. Request failed.`);
+            state.phase = "callback";
+            return options.callback!(error, { options }, options.release);
+        }
+        state.phase = "callback";
+        const processed = this._processResponse(options, response as CrawlerResponse);
+        return options.callback!(null, processed, options.release);
+    };
+
+    private _revisionCancelRetry = (state: RevisionState): void => {
+        if (state.retryTimer) {
+            clearTimeout(state.retryTimer);
+            state.retryTimer = null;
+        }
+        // Bump the generation so a timer that was already queued by the event
+        // loop can never dispatch the stale revision afterwards.
+        state.retryGeneration++;
+    };
+
+    private _revisionReleaseSlot = (state: RevisionState): void => {
+        if (state.limiterDone) {
+            const done = state.limiterDone;
+            state.limiterDone = null;
+            done();
+            this.emit("_release");
+        }
+    };
+
+    /**
+     * Send the newest pending config via the pool, reusing the slot the
+     * previous attempt has just released. Called when an attempt ends
+     * superseded, or when a retry backoff is invalidated by an update.
+     */
+    private _revisionAdvance = (state: RevisionState): void => {
+        const next = state.pending;
+        if (!next) {
+            this._revisionReleaseSlot(state);
+            this._revisionTeardown(state);
+            this._revisionMaybeDrain();
+            return;
+        }
+        this._revisionReleaseSlot(state);
+        this._revisionSubmit(state, next);
+    };
+
+    /**
+     * User-side `done`. Settles exactly once: repeated calls neither release
+     * the pool slot twice nor dispatch the successor twice. Updates that
+     * arrived during the callback are sent afterwards, newest one only.
+     */
+    private _revisionUserDone = (state: RevisionState): void => {
+        if (state.callbackDone || state.phase !== "callback") {
+            return;
+        }
+        state.callbackDone = true;
+        if (state.pending) {
+            const next = state.pending;
+            this._revisionReleaseSlot(state);
+            this._revisionSubmit(state, next);
+            return;
+        }
+        this._revisionReleaseSlot(state);
+        this._revisionTeardown(state);
+        this._revisionMaybeDrain();
+    };
+
+    private _revisionTeardown = (state: RevisionState): void => {
+        if (state.current) {
+            this._revisionContexts.delete(state.current);
+        }
+        state.current = null;
+        state.task = null;
+        state.pending = null;
+        state.retryTimer = null;
+        this._revisionStates.delete(state.key);
+    };
+
+    private _revisionMaybeDrain = (): void => {
+        if (this._limiters.empty && this._revisionStates.size === 0) {
+            this.emit("drain");
+        }
     };
 }
 
