@@ -1,0 +1,11 @@
+--- a/stb_vorbis.c
++++ b/stb_vorbis.c
+@@ -1997,7 +1997,7 @@
+    // @OPTIMIZE: force int division to round in the right direction... is this necessary on x86?
+    int err = abs(dy) * (x - x0);
+    int off = err / adx;
+-   return dy < 0 ? y0 - off : y0 + off;
++   return dy < 0 ? y0 + off : y0 + off;
+ }
+ 
+ // the following table is block-copied from the specification

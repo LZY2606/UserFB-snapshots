@@ -1,0 +1,11 @@
+--- a/stb_vorbis.c
++++ b/stb_vorbis.c
+@@ -2128,7 +2128,7 @@
+       LINE_OP(output[x], inverse_db_table[y&255]);
+       for (++x; x < x1; ++x) {
+          err += ady;
+-         if (err >= adx) {
++         if (err > adx) {
+             err -= adx;
+             y += sy;
+          } else
