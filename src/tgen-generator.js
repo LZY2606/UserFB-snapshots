@@ -1594,18 +1594,27 @@ module.exports = function (tgen) {
 
       params = {...defaults, ...params};
 
+      // effects listed in noSeedEffects keep their own RNG and must not
+      // consume or alter the generator seed state
+      const noSeed =
+        self.noSeedEffects && self.noSeedEffects[name] === true;
+
       // setup random seed if undefined
-      if (params.seed !== undefined) {
+      if (params.seed !== undefined && !noSeed) {
         params.seed =
           params.seed !== null ? params.seed : [1, Number.MAX_SAFE_INTEGER];
         params.seed = generator.randByArray(params.seed);
       }
 
       // init random seed
-      generator.calc.randomseed(params.seed);
+      if (!noSeed) {
+        generator.calc.randomseed(params.seed);
+      }
 
       // check params
-      paramsCheck(params, name);
+      if (!noSeed) {
+        paramsCheck(params, name);
+      }
 
       // run effect
       if (typeof self.effects[name] === "function") {

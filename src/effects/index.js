@@ -21,6 +21,7 @@ module.exports = function (tgen) {
   require("./noise.js")(tgen);
   require("./pentagons.js")(tgen);
   require("./pyramids.js")(tgen);
+  require("./quilt.js")(tgen);
   require("./spheres.js")(tgen);
   require("./stars.js")(tgen);
   require("./squares.js")(tgen);

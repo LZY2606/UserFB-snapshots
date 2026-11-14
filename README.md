@@ -245,6 +245,59 @@ New in 2.0:
     }
 ```
 
+### Quilting: synthesize a texture from a small example image
+
+`quilt` builds a larger texture from a small source image. It selects
+rectangular patches by the RGB squared error of the already filled overlap
+pixels, picks one candidate with a local seeded LCG, and solves one global
+binary minimum cut per patch to decide which pixels are kept and which are
+replaced. Overlap regions use that single joint cut (no per-seam cuts, no
+color averaging), and the alpha channel is copied whole without entering the
+error.
+
+The source is `{width, height, data}` where `data` is row-major RGBA with
+integer components from 0 to 255, as a plain array or a TypedArray.
+
+```javascript
+    // a tiny 3x3 example image: nine RGBA pixels, row by row
+    function rgba(r, g, b) {
+        return [r, g, b, 255];
+    }
+
+    var source = {
+        width: 3,
+        height: 3,
+        data: [
+            ...rgba(220, 120, 60), ...rgba(80, 160, 220), ...rgba(240, 240, 240),
+            ...rgba(40, 40, 40),   ...rgba(180, 60, 160), ...rgba(60, 200, 120),
+            ...rgba(250, 200, 80), ...rgba(90, 90, 180),  ...rgba(20, 20, 20)
+        ]
+    };
+
+    var options = {
+        width: 12,                 // output width,  6 to 128
+        height: 12,                // output height, 6 to 128
+        patchWidth: 3,             // at least 3, no larger than the source
+        patchHeight: 3,
+        overlapX: 1,               // 1 to patchWidth - 1
+        overlapY: 1,               // 1 to patchHeight - 1
+        tolerance: 0.1,            // candidates within minError * (1 + tolerance)
+        seed: 12345,               // uint32, drives the local LCG only
+        wrap: false                // true: blocks wrap around the output edges
+    };
+
+    // standalone call, also available as tgen.quilt(source, options)
+    var result = tgen.quilt(source, options);
+    // result.data        -> Uint8ClampedArray of output RGBA pixels
+    // result.provenance  -> Int32Array, source row-major index per pixel
+    // result.placements  -> replayable record of every placed patch
+
+    // or as a chainable generator effect: it replaces the current texture,
+    // does not blend, and leaves generator.calc.seed untouched
+    var generator = tgen.init(options.width, options.height)
+        .do('quilt', {source: source, options: options});
+```
+
 ### Available blends [demo here](https://texture-generator.com/generator/demo/blends.html)
 
 ![blends](https://texture-generator.com/generator/demo/images/blends.jpg#20190908)
