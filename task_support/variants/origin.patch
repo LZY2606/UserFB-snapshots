@@ -1,0 +1,11 @@
+--- a/src/unpack_seek.c
++++ b/src/unpack_seek.c
+@@ -214,7 +214,7 @@
+                 wpc->streams [stream_index]->init_done = TRUE;
+     }
+ 
+-    samples_to_skip = (uint32_t) (sample - wps->sample_index);
++    samples_to_skip = (uint32_t) (sample - wps->sample_index - (wpc->initial_index && sample > wps->sample_index));
+ 
+     if (samples_to_skip > 131072) {
+         free_streams (wpc);
