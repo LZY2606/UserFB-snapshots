@@ -4,6 +4,9 @@ package imap
 type SelectOptions struct {
 	ReadOnly  bool
 	CondStore bool // requires CONDSTORE
+	// QResync sends a QRESYNC select parameter (RFC 7162). It requires
+	// the QRESYNC extension to be enabled via ENABLE.
+	QResync *QResyncOptions
 }
 
 // SelectData is the data returned by a SELECT command.

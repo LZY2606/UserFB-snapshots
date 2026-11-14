@@ -379,6 +379,67 @@ func ExampleClient_Authenticate_oauth() {
 	}
 }
 
+// ExampleClient_Select_qresync shows how to persist the QRESYNC
+// synchronization parameters (UIDVALIDITY, highest mod-sequence and the set
+// of known UIDs) after a first selection, then use them on a later
+// connection to receive only the flag changes and deletions that happened in
+// the meantime.
+func ExampleClient_Select_qresync() {
+	// Parameters persisted from a previous synchronization of INBOX.
+	var (
+		uidValidity uint32      = 42
+		highestMod  uint64      = 100
+		knownUIDs   imap.UIDSet = imap.UIDSetNum(7, 8, 9)
+	)
+
+	c, err := imapclient.DialTLS("mail.example.org:993", nil)
+	if err != nil {
+		log.Fatalf("failed to dial IMAP server: %v", err)
+	}
+	defer c.Close()
+
+	if err := c.Login("root", "asdf").Wait(); err != nil {
+		log.Fatalf("failed to login: %v", err)
+	}
+
+	// QRESYNC must be confirmed by the server before it can be used in a
+	// selection.
+	if _, err := c.Enable(imap.CapQResync).Wait(); err != nil {
+		log.Fatalf("failed to enable QRESYNC: %v", err)
+	}
+
+	data, err := c.Select("INBOX", &imap.SelectOptions{
+		QResync: &imap.QResyncOptions{
+			UIDValidity: uidValidity,
+			ModSeq:      highestMod,
+			KnownUIDs:   knownUIDs,
+		},
+	}).WaitQResync()
+	if err != nil {
+		log.Fatalf("failed to select INBOX with QRESYNC: %v", err)
+	}
+
+	log.Printf("INBOX now contains %v messages", data.Select.NumMessages)
+	for _, change := range data.Changes {
+		switch {
+		case change.Fetch != nil:
+			// A flag/mod-sequence change for a still-existing message.
+			log.Printf("UID %v flags changed to %v (mod-sequence %v)",
+				change.Fetch.UID, change.Fetch.Flags, change.Fetch.ModSeq)
+		case change.Vanished != nil:
+			if change.Vanished.Earlier {
+				log.Printf("messages %v were removed in the past", change.Vanished.UIDs)
+			} else {
+				log.Printf("messages %v were just removed", change.Vanished.UIDs)
+			}
+		}
+	}
+
+	// Persist the refreshed synchronization parameters for next time.
+	uidValidity = data.Select.UIDValidity
+	highestMod = data.Select.HighestModSeq
+}
+
 func ExampleClient_Closed() {
 	c, err := imapclient.DialTLS("mail.example.org:993", nil)
 	if err != nil {

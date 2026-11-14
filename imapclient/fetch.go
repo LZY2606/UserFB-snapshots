@@ -616,6 +616,27 @@ func (c *Client) handleFetch(seqNum uint32) error {
 			return
 		}
 
+		// During a QRESYNC selection, FETCH responses belonging to the
+		// newly selected mailbox are delta responses: buffer them fully
+		// into the SelectCommand change list, in response order. The
+		// decoder keeps consuming them; the caller doesn't need to drain
+		// anything.
+		if selectCmd := findPendingCmdByType[*SelectCommand](c); selectCmd != nil &&
+			selectCmd.collectingNewMailbox() && selectCmd.qresync {
+			// The pointer is stable regardless of later changes slice
+			// growth, so the goroutine never touches the slice header.
+			result := &FetchMessageBuffer{SeqNum: seqNum}
+			selectCmd.changes = append(selectCmd.changes, QResyncChange{Fetch: result})
+			selectCmd.fetchWG.Add(1)
+			go func() {
+				defer selectCmd.fetchWG.Done()
+				buf, _ := msg.Collect()
+				*result = *buf
+			}()
+			handled = true
+			return
+		}
+
 		cmd := c.findPendingCmdFunc(func(anyCmd command) bool {
 			cmd, ok := anyCmd.(*FetchCommand)
 			if !ok {
