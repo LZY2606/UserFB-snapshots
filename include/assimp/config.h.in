@@ -197,6 +197,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     "PP_PTV_KEEP_HIERARCHY"
 
 // ---------------------------------------------------------------------------
+/** @brief Configures the #aiProcess_PreTransformVertices step to keep the
+ *  morph targets (aiMesh::mAnimMeshes) that belong to the meshes it bakes.
+ *
+ *  With this option enabled, both hierarchy modes keep the attached
+ *  aiAnimMesh targets. Base vertex data and every non-null replacement
+ *  stream of the targets are baked with the cumulative node matrix: positions
+ *  use the full matrix while normals, tangents and bitangents use the
+ *  inverse-transpose of the base mesh and are normalized. UV and color
+ *  channels are not spatially transformed. Target names, weights, ordering
+ *  and aiMesh::mMethod are preserved. Empty target streams keep inheriting
+ *  the host mesh, so a mesh referenced by several nodes gets a target set
+ *  matching each of its own cumulative transforms without modifying the
+ *  shared source.
+ *
+ *  When the hierarchy is collapsed, meshes are only joined if their ordered
+ *  target layout (method, count, names and weights) also matches. Compatible
+ *  targets union their present channels; a segment that does not override a
+ *  channel is filled from that instance's already baked base stream.
+ *
+ *  This option has no effect on the timeline (animations are still removed),
+ *  bones or the handling of node matrices. Property type: bool.
+ *  Default value: false.
+ */
+#define AI_CONFIG_PP_PTV_PRESERVE_MORPHS     \
+    "PP_PTV_PRESERVE_MORPHS"
+
+// ---------------------------------------------------------------------------
 /** @brief Configures the #aiProcess_PreTransformVertices step to normalize
  *  all vertex components into the [-1,1] range. That is, a bounding box
  *  for the whole scene is computed, the maximum component is taken and all

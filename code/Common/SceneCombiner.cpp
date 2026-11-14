@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 // ----------------------------------------------------------------------------
 #include "ScenePrivate.h"
+#include "MorphTargetUtils.h"
 #include <assimp/Hash.h>
 #include <assimp/SceneCombiner.h>
 #include <assimp/StringUtils.h>
@@ -61,6 +62,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <assimp/scene.h>
 #include <assimp/DefaultLogger.hpp>
 
+#include <iterator>
+#include <stdexcept>
 #include <unordered_set>
 #include <ctime>
 #include <cstdio>
@@ -779,7 +782,7 @@ void SceneCombiner::MergeBones(aiMesh *out, std::vector<aiMesh *>::const_iterato
 
 // ------------------------------------------------------------------------------------------------
 // Merge a list of meshes
-void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
+void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int flags,
         std::vector<aiMesh *>::const_iterator begin,
         std::vector<aiMesh *>::const_iterator end) {
     if (nullptr == _out) {
@@ -791,9 +794,28 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
         return;
     }
 
+    const bool preserveMorphs = (flags & AI_INT_MERGE_MESHES_PRESERVE_MORPHS) != 0;
+
+    // With morph preservation the ordered target layout is part of the
+    // compatibility contract. Which optional target streams exist is not,
+    // those are unioned when the targets are concatenated.
+    if (preserveMorphs) {
+        const MorphLayout layout = GetMorphLayout(*begin);
+        for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+            if (!MorphLayoutsEqual(layout, GetMorphLayout(*it))) {
+                *_out = nullptr;
+                throw std::invalid_argument(
+                        "SceneCombiner::MergeMeshes: input meshes have incompatible morph target layouts");
+            }
+        }
+    }
+
     // Allocate the output mesh
     aiMesh *out = *_out = new aiMesh();
     out->mMaterialIndex = (*begin)->mMaterialIndex;
+    if (preserveMorphs) {
+        out->mMethod = (*begin)->mMethod;
+    }
 
     std::string name;
     // Find out how much output storage we'll need
@@ -857,10 +879,36 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
                 pv2b += (*it)->mNumVertices;
             }
         }
-        // copy texture coordinates
+        // copy texture coordinates. With morph preservation every populated
+        // slot is considered, including sparse layouts where an earlier slot
+        // is empty; the output owns the union of those channels.
         unsigned int n = 0;
-        while ((**begin).HasTextureCoords(n)) {
+        while (n < AI_MAX_NUMBER_OF_TEXTURECOORDS) {
+            bool present = (**begin).HasTextureCoords(n);
+            if (preserveMorphs && !present) {
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end && !present; ++it) {
+                    present = (*it)->HasTextureCoords(n);
+                }
+            }
+            if (!present) {
+                if (preserveMorphs) {
+                    ++n;
+                    continue;
+                }
+                break;
+            }
+            // Take the component count from the first input that actually
+            // provides this slot, which need not be the first mesh for a
+            // sparse layout.
             out->mNumUVComponents[n] = (*begin)->mNumUVComponents[n];
+            if (!(**begin).HasTextureCoords(n)) {
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+                    if ((*it)->HasTextureCoords(n)) {
+                        out->mNumUVComponents[n] = (*it)->mNumUVComponents[n];
+                        break;
+                    }
+                }
+            }
 
             pv2 = out->mTextureCoords[n] = new aiVector3D[out->mNumVertices];
             for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
@@ -873,9 +921,22 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
             }
             ++n;
         }
-        // copy vertex colors
+        // copy vertex colors, same sparse-slot handling as the UV channels
         n = 0;
-        while ((**begin).HasVertexColors(n)) {
+        while (n < AI_MAX_NUMBER_OF_COLOR_SETS) {
+            bool present = (**begin).HasVertexColors(n);
+            if (preserveMorphs && !present) {
+                for (std::vector<aiMesh *>::const_iterator it = begin; it != end && !present; ++it) {
+                    present = (*it)->HasVertexColors(n);
+                }
+            }
+            if (!present) {
+                if (preserveMorphs) {
+                    ++n;
+                    continue;
+                }
+                break;
+            }
             aiColor4D *pVec2 = out->mColors[n] = new aiColor4D[out->mNumVertices];
             for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
                 if ((*it)->mColors[n]) {
@@ -899,16 +960,29 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
         for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
             for (unsigned int m = 0; m < (*it)->mNumFaces; ++m, ++pf2) {
                 aiFace &face = (*it)->mFaces[m];
-                pf2->mNumIndices = face.mNumIndices;
-                pf2->mIndices = face.mIndices;
 
-                if (ofs) {
-                    // add the offset to the vertex
-                    for (unsigned int q = 0; q < face.mNumIndices; ++q) {
-                        face.mIndices[q] += ofs;
+                if (preserveMorphs) {
+                    // Deep-copy the index array: the source meshes must not
+                    // be modified and the output owns its buffers.
+                    pf2->mNumIndices = face.mNumIndices;
+                    if (face.mNumIndices) {
+                        pf2->mIndices = new unsigned int[face.mNumIndices];
+                        for (unsigned int q = 0; q < face.mNumIndices; ++q) {
+                            pf2->mIndices[q] = face.mIndices[q] + ofs;
+                        }
                     }
+                } else {
+                    pf2->mNumIndices = face.mNumIndices;
+                    pf2->mIndices = face.mIndices;
+
+                    if (ofs) {
+                        // add the offset to the vertex
+                        for (unsigned int q = 0; q < face.mNumIndices; ++q) {
+                            face.mIndices[q] += ofs;
+                        }
+                    }
+                    face.mIndices = nullptr;
                 }
-                face.mIndices = nullptr;
             }
             ofs += (*it)->mNumVertices;
         }
@@ -918,9 +992,22 @@ void SceneCombiner::MergeMeshes(aiMesh **_out, unsigned int /*flags*/,
     if (out->mNumBones)
         MergeBones(out, begin, end);
 
-    // delete all source meshes
-    for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it)
-        delete *it;
+    if (preserveMorphs && (*begin)->mNumAnimMeshes) {
+        std::vector<const aiMesh *> inputs;
+        inputs.reserve(static_cast<size_t>(std::distance(begin, end)));
+        for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it) {
+            inputs.push_back(*it);
+        }
+        // The callers hand us already-baked meshes, so no per-input transform
+        // is applied here.
+        MergeMorphTargets(out, inputs, nullptr);
+    }
+
+    if (!preserveMorphs) {
+        // Historical behaviour: the merged inputs are consumed.
+        for (std::vector<aiMesh *>::const_iterator it = begin; it != end; ++it)
+            delete *it;
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1144,13 +1231,17 @@ void SceneCombiner::Copy(aiAnimMesh **_dest, const aiAnimMesh *src) {
     GetArrayCopy(dest->mTangents, dest->mNumVertices);
     GetArrayCopy(dest->mBitangents, dest->mNumVertices);
 
-    unsigned int n = 0;
-    while (dest->HasTextureCoords(n))
-        GetArrayCopy(dest->mTextureCoords[n++], dest->mNumVertices);
+    // Reallocate every populated UV and color channel, including sparse slots
+    // that follow an empty one. Walking the array with HasTextureCoords()/
+    // HasVertexColors() would stop at the first empty channel and leave later
+    // buffers aliased with the source.
+    for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++n) {
+        GetArrayCopy(dest->mTextureCoords[n], dest->mNumVertices);
+    }
 
-    n = 0;
-    while (dest->HasVertexColors(n))
-        GetArrayCopy(dest->mColors[n++], dest->mNumVertices);
+    for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_COLOR_SETS; ++n) {
+        GetArrayCopy(dest->mColors[n], dest->mNumVertices);
+    }
 }
 
 // ------------------------------------------------------------------------------------------------

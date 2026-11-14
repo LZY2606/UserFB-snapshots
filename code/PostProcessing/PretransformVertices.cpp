@@ -45,8 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "PretransformVertices.h"
 #include "ConvertToLHProcess.h"
 #include "ProcessHelper.h"
+#include "Common/MorphTargetUtils.h"
 #include <assimp/Exceptional.h>
 #include <assimp/SceneCombiner.h>
+
+#include <algorithm>
 
 using namespace Assimp;
 
@@ -56,8 +59,39 @@ using namespace Assimp;
 
 namespace {
 
+// Get a bitwise combination identifying the vertex format of a mesh.
+//
+// When sparse channels are preserved, every populated slot is reported, even
+// if an earlier slot is empty. Otherwise the historical contiguous-prefix
+// behaviour of GetMeshVFormatUnique() is kept so that disabling the morph
+// option does not alter existing output.
+static unsigned int ComputeMeshVFormat(const aiMesh *pcMesh, bool preserveSparse) {
+	if (!preserveSparse) {
+		return GetMeshVFormatUnique(pcMesh);
+	}
+
+	unsigned int iRet = 1;
+	if (pcMesh->HasNormals()) iRet |= 0x2;
+	if (pcMesh->HasTangentsAndBitangents()) iRet |= 0x4;
+
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++p) {
+		if (pcMesh->HasTextureCoords(p)) {
+			iRet |= (0x100u << p);
+			if (3 == pcMesh->mNumUVComponents[p]) {
+				iRet |= (0x10000u << p);
+			}
+		}
+	}
+	for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_COLOR_SETS; ++p) {
+		if (pcMesh->HasVertexColors(p)) {
+			iRet |= (0x1000000u << p);
+		}
+	}
+	return iRet;
+}
+
 // Get a bitwise combination identifying the vertex format of a mesh
-static unsigned int GetMeshVFormat(aiMesh *pcMesh)  {
+static unsigned int GetMeshVFormat(aiMesh *pcMesh, bool preserveSparse)  {
 	// the vertex format is stored in aiMesh::mBones for later retrieval.
 	// there isn't a good reason to compute it a few hundred times
 	// from scratch. The pointer is unused as animations are lost
@@ -65,20 +99,74 @@ static unsigned int GetMeshVFormat(aiMesh *pcMesh)  {
 	if (pcMesh->mBones)
 		return (unsigned int)(uint64_t)pcMesh->mBones;
 
-	const unsigned int iRet = GetMeshVFormatUnique(pcMesh);
+	const unsigned int iRet = ComputeMeshVFormat(pcMesh, preserveSparse);
 
 	// store the value for later use
 	pcMesh->mBones = (aiBone **)(uint64_t)iRet;
 	return iRet;
 }
 
-// Get a list of all vertex formats that occur for a given material index
-// The output list contains duplicate elements
-static void GetVFormatList(const aiScene *pcScene, unsigned int iMat, std::list<unsigned int> &aiOut)  {
+// Get the list of unique output specs that occur for a given material index.
+static void GetMorphSpecs(const aiScene *pcScene, unsigned int iMat, bool preserve,
+		std::vector<MorphTargetSpec> &aiOut) {
 	for (unsigned int i = 0; i < pcScene->mNumMeshes; ++i) {
 		aiMesh *pcMesh = pcScene->mMeshes[i];
-		if (iMat == pcMesh->mMaterialIndex) {
-			aiOut.push_back(GetMeshVFormat(pcMesh));
+		if (iMat != pcMesh->mMaterialIndex) {
+			continue;
+		}
+
+		MorphTargetSpec spec;
+		spec.mVertexFormat = GetMeshVFormat(pcMesh, preserve);
+		if (preserve) {
+			spec.mLayout = GetMorphLayout(pcMesh);
+		}
+
+		bool found = false;
+		for (std::vector<MorphTargetSpec>::const_iterator it = aiOut.begin(); it != aiOut.end(); ++it) {
+			if (it->mVertexFormat != spec.mVertexFormat) {
+				continue;
+			}
+			if (preserve && !MorphLayoutsEqual(it->mLayout, spec.mLayout)) {
+				continue;
+			}
+			found = true;
+			break;
+		}
+		if (!found) {
+			aiOut.push_back(spec);
+		}
+	}
+
+	// Keep the historical output ordering: ascending vertex format. Only ties
+	// (several target layouts sharing a format) keep their discovery order.
+	std::stable_sort(aiOut.begin(), aiOut.end(),
+			[](const MorphTargetSpec &a, const MorphTargetSpec &b) {
+				return a.mVertexFormat < b.mVertexFormat;
+			});
+}
+
+// Check whether a mesh belongs to an output spec.
+static bool MeshMatchesSpec(aiMesh *pcMesh, unsigned int iMat, const MorphTargetSpec &spec, bool preserve) {
+	if (iMat != pcMesh->mMaterialIndex) {
+		return false;
+	}
+	if (spec.mVertexFormat != GetMeshVFormat(pcMesh, preserve)) {
+		return false;
+	}
+	if (preserve && !MeshMatchesMorphLayout(pcMesh, spec.mLayout)) {
+		return false;
+	}
+	return true;
+}
+
+// Flip the winding order of all faces without touching any vertex stream.
+// Used when baking a reflective transform and morph targets are kept: the
+// vertex order of the base mesh and of every target must stay aligned.
+static void FlipFaceWinding(aiMesh *pcMesh) {
+	for (unsigned int a = 0; a < pcMesh->mNumFaces; ++a) {
+		aiFace &face = pcMesh->mFaces[a];
+		for (unsigned int b = 0; b < face.mNumIndices / 2; ++b) {
+			std::swap(face.mIndices[b], face.mIndices[face.mNumIndices - 1 - b]);
 		}
 	}
 }
@@ -91,7 +179,8 @@ PretransformVertices::PretransformVertices() :
 		mConfigNormalize(false),
 		mConfigTransform(false),
 		mConfigTransformation(),
-		mConfigPointCloud(false) {}
+		mConfigPointCloud(false),
+		mConfigPreserveMorphs(false) {}
 
 // ------------------------------------------------------------------------------------------------
 // Returns whether the processing step is present in the given flag field.
@@ -111,6 +200,7 @@ void PretransformVertices::SetupProperties(const Importer *pImp) {
 	mConfigTransformation = pImp->GetPropertyMatrix(AI_CONFIG_PP_PTV_ROOT_TRANSFORMATION, aiMatrix4x4());
 
 	mConfigPointCloud = pImp->GetPropertyBool(AI_CONFIG_EXPORT_POINT_CLOUDS);
+	mConfigPreserveMorphs = pImp->GetPropertyBool(AI_CONFIG_PP_PTV_PRESERVE_MORPHS, false);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -126,29 +216,39 @@ unsigned int PretransformVertices::CountNodes(const aiNode *pcNode) const {
 // ------------------------------------------------------------------------------------------------
 // Count the number of vertices in the whole scene and a given material index
 void PretransformVertices::CountVerticesAndFaces(const aiScene *pcScene, const aiNode *pcNode, unsigned int iMat,
-		unsigned int iVFormat, unsigned int *piFaces, unsigned int *piVertices) const {
+		const MorphTargetSpec &spec, unsigned int *piFaces, unsigned int *piVertices) const {
 	for (unsigned int i = 0; i < pcNode->mNumMeshes; ++i) {
 		aiMesh *pcMesh = pcScene->mMeshes[pcNode->mMeshes[i]];
-		if (iMat == pcMesh->mMaterialIndex && iVFormat == GetMeshVFormat(pcMesh)) {
+		if (MeshMatchesSpec(pcMesh, iMat, spec, mConfigPreserveMorphs)) {
 			*piVertices += pcMesh->mNumVertices;
 			*piFaces += pcMesh->mNumFaces;
 		}
 	}
 	for (unsigned int i = 0; i < pcNode->mNumChildren; ++i) {
-		CountVerticesAndFaces(pcScene, pcNode->mChildren[i], iMat, iVFormat, piFaces, piVertices);
+		CountVerticesAndFaces(pcScene, pcNode->mChildren[i], iMat, spec, piFaces, piVertices);
 	}
 }
 
 // ------------------------------------------------------------------------------------------------
 // Collect vertex/face data
 void PretransformVertices::CollectData(const aiScene *pcScene, const aiNode *pcNode, unsigned int iMat,
-		unsigned int iVFormat, aiMesh *pcMeshOut,
-		unsigned int aiCurrent[2], unsigned int *num_refs) const {
+		const MorphTargetSpec &spec, aiMesh *pcMeshOut,
+		unsigned int aiCurrent[2], unsigned int *num_refs,
+		std::vector<MorphSource> *morphSources) const {
+	const unsigned int iVFormat = spec.mVertexFormat;
 	// No need to multiply if there's no transformation
 	const bool identity = pcNode->mTransformation.IsIdentity();
 	for (unsigned int i = 0; i < pcNode->mNumMeshes; ++i) {
 		aiMesh *pcMesh = pcScene->mMeshes[pcNode->mMeshes[i]];
-		if (iMat == pcMesh->mMaterialIndex && iVFormat == GetMeshVFormat(pcMesh)) {
+		if (MeshMatchesSpec(pcMesh, iMat, spec, mConfigPreserveMorphs)) {
+			// Remember the source and the transform used for this instance so
+			// that target streams can be baked without touching the source.
+			if (mConfigPreserveMorphs && morphSources) {
+				MorphSource source;
+				source.mesh = pcMesh;
+				source.transform = pcNode->mTransformation;
+				morphSources->push_back(source);
+			}
 			// Decrement mesh reference counter
 			unsigned int &num_ref = num_refs[pcNode->mMeshes[i]];
 			ai_assert(0 != num_ref);
@@ -206,21 +306,24 @@ void PretransformVertices::CollectData(const aiScene *pcScene, const aiNode *pcN
 					}
 				}
 			}
-			unsigned int p = 0;
-			while (iVFormat & (0x100 << p)) {
-				// copy texture coordinates
-				memcpy(pcMeshOut->mTextureCoords[p] + aiCurrent[AI_PTVS_VERTEX],
-						pcMesh->mTextureCoords[p],
-						pcMesh->mNumVertices * sizeof(aiVector3D));
-				++p;
+			// Copy every populated texture coordinate and colour channel. All
+			// slots are checked (not just a contiguous prefix) so that sparse
+			// channel layouts survive baking. When morph preservation is off
+			// the format mask only contains the contiguous prefix, so this is
+			// equivalent to the historical loops.
+			for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++p) {
+				if ((iVFormat & (0x100u << p)) && pcMeshOut->mTextureCoords[p] && pcMesh->mTextureCoords[p]) {
+					memcpy(pcMeshOut->mTextureCoords[p] + aiCurrent[AI_PTVS_VERTEX],
+							pcMesh->mTextureCoords[p],
+							pcMesh->mNumVertices * sizeof(aiVector3D));
+				}
 			}
-			p = 0;
-			while (iVFormat & (0x1000000 << p)) {
-				// copy vertex colors
-				memcpy(pcMeshOut->mColors[p] + aiCurrent[AI_PTVS_VERTEX],
-						pcMesh->mColors[p],
-						pcMesh->mNumVertices * sizeof(aiColor4D));
-				++p;
+			for (unsigned int p = 0; p < AI_MAX_NUMBER_OF_COLOR_SETS; ++p) {
+				if ((iVFormat & (0x1000000u << p)) && pcMeshOut->mColors[p] && pcMesh->mColors[p]) {
+					memcpy(pcMeshOut->mColors[p] + aiCurrent[AI_PTVS_VERTEX],
+							pcMesh->mColors[p],
+							pcMesh->mNumVertices * sizeof(aiColor4D));
+				}
 			}
 			// now we need to copy all faces. since we will delete the source mesh afterwards,
 			// we don't need to reallocate the array of indices except if this mesh is
@@ -274,7 +377,7 @@ void PretransformVertices::CollectData(const aiScene *pcScene, const aiNode *pcN
 	// append all children of us
 	for (unsigned int i = 0; i < pcNode->mNumChildren; ++i) {
 		CollectData(pcScene, pcNode->mChildren[i], iMat,
-				iVFormat, pcMeshOut, aiCurrent, num_refs);
+				spec, pcMeshOut, aiCurrent, num_refs, morphSources);
 	}
 }
 
@@ -300,8 +403,15 @@ void PretransformVertices::ApplyTransform(aiMesh *mesh, const aiMatrix4x4 &mat) 
 
 	// Check for odd negative scale (mirror)
 	if (mesh->HasFaces() && mat.Determinant() < 0) {
-		// Reverse the mesh face winding order
-		FlipWindingOrderProcess::ProcessMesh(mesh);
+		if (mConfigPreserveMorphs) {
+			// Flip only the face winding. The historical helper also reverses
+			// every array of the attached anim meshes, which would push target
+			// vertices out of sync with the base mesh.
+			FlipFaceWinding(mesh);
+		} else {
+			// Reverse the mesh face winding order
+			FlipWindingOrderProcess::ProcessMesh(mesh);
+		}
 	}
 
 	// Update positions
@@ -327,6 +437,12 @@ void PretransformVertices::ApplyTransform(aiMesh *mesh, const aiMatrix4x4 &mat) 
 				mesh->mBitangents[i] = (m * mesh->mBitangents[i]).Normalize();
 			}
 		}
+	}
+
+	// Bake the morph targets with the very same cumulative matrix as the
+	// host mesh.
+	if (mConfigPreserveMorphs) {
+		BakeMorphTargets(mesh, mat);
 	}
 }
 
@@ -483,51 +599,70 @@ void PretransformVertices::Execute(aiScene *pScene) {
 		}
 	} else {
 		apcOutMeshes.reserve(static_cast<size_t>(pScene->mNumMaterials) << 1u);
-		std::list<unsigned int> aiVFormats;
-
-		std::vector<unsigned int> s(pScene->mNumMeshes, 0);
-		BuildMeshRefCountArray(pScene->mRootNode, &s[0]);
 
 		for (unsigned int i = 0; i < pScene->mNumMaterials; ++i) {
-			// get the list of all vertex formats for this material
-			aiVFormats.clear();
-			GetVFormatList(pScene, i, aiVFormats);
-			aiVFormats.sort();
-			aiVFormats.unique();
-			for (std::list<unsigned int>::const_iterator j = aiVFormats.begin(); j != aiVFormats.end(); ++j) {
+			// get the list of all output specs for this material
+			std::vector<MorphTargetSpec> aiSpecs;
+			GetMorphSpecs(pScene, i, mConfigPreserveMorphs, aiSpecs);
+			for (std::vector<MorphTargetSpec>::const_iterator j = aiSpecs.begin(); j != aiSpecs.end(); ++j) {
+				const unsigned int iVFormat = j->mVertexFormat;
 				unsigned int numVertices = 0u;
 				unsigned int numFaces = 0u;
 				CountVerticesAndFaces(pScene, pScene->mRootNode, i, *j, &numFaces, &numVertices);
-				if (0 != numFaces && 0 != numVertices) {
-					apcOutMeshes.push_back(new aiMesh());
-					aiMesh *pcMesh = apcOutMeshes.back();
-					pcMesh->mNumFaces = numFaces;
-					pcMesh->mNumVertices = numVertices;
-					pcMesh->mFaces = new aiFace[numFaces];
-					pcMesh->mVertices = new aiVector3D[numVertices];
-					pcMesh->mMaterialIndex = i;
-					if ((*j) & 0x2) pcMesh->mNormals = new aiVector3D[numVertices];
-					if ((*j) & 0x4) {
-						pcMesh->mTangents = new aiVector3D[numVertices];
-						pcMesh->mBitangents = new aiVector3D[numVertices];
-					}
-					numFaces = 0;
-					while ((*j) & (0x100 << numFaces)) {
-						pcMesh->mTextureCoords[numFaces] = new aiVector3D[numVertices];
-						if ((*j) & (0x10000 << numFaces)) {
-							pcMesh->mNumUVComponents[numFaces] = 3;
-						} else {
-							pcMesh->mNumUVComponents[numFaces] = 2;
-						}
-						++numFaces;
-					}
-					numFaces = 0;
-					while ((*j) & (0x1000000 << numFaces))
-						pcMesh->mColors[numFaces++] = new aiColor4D[numVertices];
+				if (0 == numFaces || 0 == numVertices) {
+					continue;
+				}
 
-					// fill the mesh ...
-					unsigned int aiTemp[2] = { 0, 0 };
-					CollectData(pScene, pScene->mRootNode, i, *j, pcMesh, aiTemp, &s[0]);
+				// Each bucket needs its own reference counts; CollectData
+				// consumes the entries of this mesh for the faces it steals.
+				std::vector<unsigned int> bucketRefs(pScene->mNumMeshes, 0);
+				BuildMeshRefCountArray(pScene->mRootNode, &bucketRefs[0]);
+
+				apcOutMeshes.push_back(new aiMesh());
+				aiMesh *pcMesh = apcOutMeshes.back();
+				pcMesh->mNumFaces = numFaces;
+				pcMesh->mNumVertices = numVertices;
+				pcMesh->mFaces = new aiFace[numFaces];
+				pcMesh->mVertices = new aiVector3D[numVertices];
+				pcMesh->mMaterialIndex = i;
+				pcMesh->mMethod = j->mLayout.mMethod;
+				if (iVFormat & 0x2) pcMesh->mNormals = new aiVector3D[numVertices];
+				if (iVFormat & 0x4) {
+					pcMesh->mTangents = new aiVector3D[numVertices];
+					pcMesh->mBitangents = new aiVector3D[numVertices];
+				}
+				for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++n) {
+					if (iVFormat & (0x100u << n)) {
+						pcMesh->mTextureCoords[n] = new aiVector3D[numVertices];
+						if (iVFormat & (0x10000u << n)) {
+							pcMesh->mNumUVComponents[n] = 3;
+						} else {
+							pcMesh->mNumUVComponents[n] = 2;
+						}
+					}
+				}
+				for (unsigned int n = 0; n < AI_MAX_NUMBER_OF_COLOR_SETS; ++n) {
+					if (iVFormat & (0x1000000u << n)) {
+						pcMesh->mColors[n] = new aiColor4D[numVertices];
+					}
+				}
+
+				// fill the mesh ...
+				unsigned int aiTemp[2] = { 0, 0 };
+				std::vector<MorphSource> morphSources;
+				CollectData(pScene, pScene->mRootNode, i, *j, pcMesh, aiTemp, &bucketRefs[0],
+						mConfigPreserveMorphs ? &morphSources : nullptr);
+
+				if (mConfigPreserveMorphs && !morphSources.empty()) {
+					std::vector<const aiMesh *> inputs;
+					std::vector<aiMatrix4x4> transforms;
+					inputs.reserve(morphSources.size());
+					transforms.reserve(morphSources.size());
+					for (std::vector<MorphSource>::const_iterator src = morphSources.begin(); src != morphSources.end(); ++src) {
+						inputs.push_back(src->mesh);
+						transforms.push_back(src->transform);
+					}
+					MergeMorphTargets(pcMesh, inputs, &transforms);
 				}
 			}
 		}
@@ -653,7 +788,7 @@ void PretransformVertices::Execute(aiScene *pScene) {
 	}
 
 	if (mConfigNormalize) {
-		// compute the boundary of all meshes
+		// compute the boundary of all base meshes
 		aiVector3D min, max;
 		MinMaxChooser<aiVector3D>()(min, max);
 
@@ -674,6 +809,21 @@ void PretransformVertices::Execute(aiScene *pScene) {
 			aiMesh *m = pScene->mMeshes[a];
 			for (unsigned int i = 0; i < m->mNumVertices; ++i) {
 				m->mVertices[i] = (m->mVertices[i] - d) / div;
+			}
+
+			// The mapping is derived from the baked base geometry only and
+			// then applied unchanged to every target position. Targets are
+			// allowed to end up outside the base bounding box.
+			if (mConfigPreserveMorphs && m->mAnimMeshes) {
+				for (unsigned int t = 0; t < m->mNumAnimMeshes; ++t) {
+					aiAnimMesh *target = m->mAnimMeshes[t];
+					if (target == nullptr || target->mVertices == nullptr) {
+						continue;
+					}
+					for (unsigned int i = 0; i < target->mNumVertices; ++i) {
+						target->mVertices[i] = (target->mVertices[i] - d) / div;
+					}
+				}
 			}
 		}
 	}

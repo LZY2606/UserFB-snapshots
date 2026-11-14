@@ -1,0 +1,11 @@
+-- Shared libraries disabled
+-- compiling zlib from sources
+-- Build an import-only version of Assimp.
+-- VRML disabled
+-- tinyusdz disabled
+INFO Hunter enabled or RT-extension not found. glTF import/export will be built without Open3DGC-compression.
+-- Enabled importer formats:
+-- Disabled importer formats: AMF 3DS AC ASE ASSBIN B3D BVH COLLADA DXF CSM HMP IRRMESH IQM IRR LWO LWS MD2 MD3 MD5 MDC MDL NFF NDO OFF OBJ OGRE OPENGEX PLY MS3D COB BLEND IFC XGL FBX Q3D Q3BSP RAW SIB SMD STL TERRAGEN 3D USD X X3D GLTF 3MF MMD
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build

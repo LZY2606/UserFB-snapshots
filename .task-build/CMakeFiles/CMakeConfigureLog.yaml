@@ -1,0 +1,3045 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "CMakeLists.txt:101 (find_program)"
+    mode: "program"
+    variable: "CCACHE_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ccache"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/tmp/claude-501/shim/ccache"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/ccache"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/ccache"
+      - "/Users/lzy/.dotnet/ccache"
+      - "/Users/lzy/.local/bin/ccache"
+      - "/usr/local/bin/ccache"
+      - "/System/Cryptexes/App/usr/bin/ccache"
+      - "/usr/bin/ccache"
+      - "/bin/ccache"
+      - "/usr/sbin/ccache"
+      - "/sbin/ccache"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/ccache"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/ccache"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/ccache"
+      - "/pkg/env/global/bin/ccache"
+      - "/Library/Apple/usr/bin/ccache"
+      - "/opt/homebrew/bin/ccache"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/ccache"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/ccache"
+      - "/Users/lzy/.deno/bin/ccache"
+      - "/Users/lzy/.cargo/bin/ccache"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/ccache"
+      - "/Applications/ChatGPT.app/Contents/Resources/ccache"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/ccache"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/tmp/claude-501/shim/uname"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/uname"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/uname"
+      - "/Users/lzy/.dotnet/uname"
+      - "/Users/lzy/.local/bin/uname"
+      - "/usr/local/bin/uname"
+      - "/System/Cryptexes/App/usr/bin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      The system is: Darwin - 27.0.0 - arm64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeUnixFindMake.cmake:5 (find_program)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_MAKE_PROGRAM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gmake"
+      - "make"
+      - "smake"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/tmp/claude-501/shim/gmake"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/gmake"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/gmake"
+      - "/Users/lzy/.dotnet/gmake"
+      - "/Users/lzy/.local/bin/gmake"
+      - "/usr/local/bin/gmake"
+      - "/System/Cryptexes/App/usr/bin/gmake"
+      - "/usr/bin/gmake"
+      - "/bin/gmake"
+      - "/usr/sbin/gmake"
+      - "/sbin/gmake"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/gmake"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/gmake"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/gmake"
+      - "/pkg/env/global/bin/gmake"
+      - "/Library/Apple/usr/bin/gmake"
+      - "/opt/homebrew/bin/gmake"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/gmake"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/gmake"
+      - "/Users/lzy/.deno/bin/gmake"
+      - "/Users/lzy/.cargo/bin/gmake"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/gmake"
+      - "/Applications/ChatGPT.app/Contents/Resources/gmake"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/gmake"
+      - "/tmp/claude-501/shim/make"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/make"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/make"
+      - "/Users/lzy/.dotnet/make"
+      - "/Users/lzy/.local/bin/make"
+      - "/usr/local/bin/make"
+      - "/System/Cryptexes/App/usr/bin/make"
+    found: "/usr/bin/make"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompiler.cmake:73 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:64 (_cmake_find_compiler)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER"
+    description: "C compiler"
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "cc"
+      - "gcc"
+      - "cl"
+      - "bcc"
+      - "xlc"
+      - "icx"
+      - "clang"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/tmp/claude-501/shim/cc"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/cc"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/cc"
+      - "/Users/lzy/.dotnet/cc"
+      - "/Users/lzy/.local/bin/cc"
+      - "/usr/local/bin/cc"
+      - "/System/Cryptexes/App/usr/bin/cc"
+    found: "/usr/bin/cc"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:468 (find_file)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:506 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCCompilerId.c.in"
+    candidate_directories:
+      - "/opt/homebrew/share/cmake/Modules/"
+    found: "/opt/homebrew/share/cmake/Modules/CMakeCCompilerId.c.in"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler: /usr/bin/cc 
+      Build flags: -include;stdio.h
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
+      
+      The C compiler identification is AppleClang, found in:
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/4.3.3/CompilerIdC/a.out
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:296 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Detecting C compiler apple sysroot: "/usr/bin/cc" "-include" "stdio.h" "-E" "apple-sdk.c"
+        # 1 "apple-sdk.c"
+        # 1 "<built-in>" 1
+        # 1 "<built-in>" 3
+        # 484 "<built-in>" 3
+        # 1 "<command line>" 1
+        # 1 "<built-in>" 2
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdio.h" 1 3 4
+        # 61 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 1 3 4
+        # 69 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h" 1 3 4
+        # 27 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 1 3 4
+        # 808 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_symbol_aliasing.h" 1 3 4
+        # 809 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 2 3 4
+        # 874 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_posix_availability.h" 1 3 4
+        # 875 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 2 3 4
+        # 992 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 3 4
+        # 1 "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/ptrcheck.h" 1 3 4
+        # 993 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h" 2 3 4
+        # 28 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_bounds.h" 2 3 4
+        # 70 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 1 3 4
+        # 196 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 197 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 1 3 4
+        # 33 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 2 3 4
+        # 198 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 1 3 4
+        # 35 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 2 3 4
+        # 199 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 72 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types.h" 1 3 4
+        # 27 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h" 1 3 4
+        # 33 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/_types.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/_types.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h" 1 3 4
+        # 28 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h" 3 4
+        typedef signed char __int8_t;
+        
+        
+        
+        typedef unsigned char __uint8_t;
+        typedef short __int16_t;
+        typedef unsigned short __uint16_t;
+        typedef int __int32_t;
+        typedef unsigned int __uint32_t;
+        typedef long long __int64_t;
+        typedef unsigned long long __uint64_t;
+        
+        typedef long __darwin_intptr_t;
+        typedef unsigned int __darwin_natural_t;
+        # 61 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h" 3 4
+        typedef int __darwin_ct_rune_t;
+        
+        
+        
+        
+        
+        typedef union {
+         char __mbstate8[128];
+         long long _mbstateL;
+        } __mbstate_t;
+        
+        typedef __mbstate_t __darwin_mbstate_t;
+        
+        
+        
+        
+        typedef long int __darwin_ptrdiff_t;
+        # 87 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h" 3 4
+        typedef long unsigned int __darwin_size_t;
+        
+        
+        
+        
+        
+        
+        
+        typedef __builtin_va_list __darwin_va_list;
+        
+        
+        
+        
+        
+        
+        
+        typedef int __darwin_wchar_t;
+        
+        
+        
+        
+        typedef __darwin_wchar_t __darwin_rune_t;
+        
+        
+        typedef int __darwin_wint_t;
+        
+        
+        
+        
+        typedef unsigned long __darwin_clock_t;
+        typedef __uint32_t __darwin_socklen_t;
+        typedef long __darwin_ssize_t;
+        typedef long __darwin_time_t;
+        # 35 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/_types.h" 2 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h" 2 3 4
+        # 67 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h" 3 4
+        typedef __int64_t __darwin_blkcnt_t;
+        typedef __int32_t __darwin_blksize_t;
+        typedef __int32_t __darwin_dev_t;
+        typedef unsigned int __darwin_fsblkcnt_t;
+        typedef unsigned int __darwin_fsfilcnt_t;
+        typedef __uint32_t __darwin_gid_t;
+        typedef __uint32_t __darwin_id_t;
+        typedef __uint64_t __darwin_ino64_t;
+        
+        typedef __darwin_ino64_t __darwin_ino_t;
+        
+        
+        
+        typedef __darwin_natural_t __darwin_mach_port_name_t;
+        typedef __darwin_mach_port_name_t __darwin_mach_port_t;
+        typedef __uint16_t __darwin_mode_t;
+        typedef __int64_t __darwin_off_t;
+        typedef __int32_t __darwin_pid_t;
+        typedef __uint32_t __darwin_sigset_t;
+        typedef __int32_t __darwin_suseconds_t;
+        typedef __uint32_t __darwin_uid_t;
+        typedef __uint32_t __darwin_useconds_t;
+        typedef unsigned char __darwin_uuid_t[16];
+        typedef char __darwin_uuid_string_t[37];
+        
+        
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_pthread/_pthread_types.h" 1 3 4
+        # 57 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_pthread/_pthread_types.h" 3 4
+        struct __darwin_pthread_handler_rec {
+         void (*__routine)(void *);
+         void *__arg;
+         struct __darwin_pthread_handler_rec *__next;
+        };
+        
+        struct _opaque_pthread_attr_t {
+         long __sig;
+         char __opaque[56];
+        };
+        
+        struct _opaque_pthread_cond_t {
+         long __sig;
+         char __opaque[40];
+        };
+        
+        struct _opaque_pthread_condattr_t {
+         long __sig;
+         char __opaque[8];
+        };
+        
+        struct _opaque_pthread_mutex_t {
+         long __sig;
+         char __opaque[56];
+        };
+        
+        struct _opaque_pthread_mutexattr_t {
+         long __sig;
+         char __opaque[8];
+        };
+        
+        struct _opaque_pthread_once_t {
+         long __sig;
+         char __opaque[8];
+        };
+        
+        struct _opaque_pthread_rwlock_t {
+         long __sig;
+         char __opaque[192];
+        };
+        
+        struct _opaque_pthread_rwlockattr_t {
+         long __sig;
+         char __opaque[16];
+        };
+        
+        struct _opaque_pthread_t {
+         long __sig;
+         struct __darwin_pthread_handler_rec *__cleanup_stack;
+         char __opaque[8176];
+        };
+        
+        typedef struct _opaque_pthread_attr_t __darwin_pthread_attr_t;
+        typedef struct _opaque_pthread_cond_t __darwin_pthread_cond_t;
+        typedef struct _opaque_pthread_condattr_t __darwin_pthread_condattr_t;
+        typedef unsigned long __darwin_pthread_key_t;
+        typedef struct _opaque_pthread_mutex_t __darwin_pthread_mutex_t;
+        typedef struct _opaque_pthread_mutexattr_t __darwin_pthread_mutexattr_t;
+        typedef struct _opaque_pthread_once_t __darwin_pthread_once_t;
+        typedef struct _opaque_pthread_rwlock_t __darwin_pthread_rwlock_t;
+        typedef struct _opaque_pthread_rwlockattr_t __darwin_pthread_rwlockattr_t;
+        typedef struct _opaque_pthread_t *__darwin_pthread_t;
+        # 95 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h" 2 3 4
+        # 28 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types.h" 2 3 4
+        # 43 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types.h" 3 4
+        typedef int __darwin_nl_item;
+        typedef int __darwin_wctrans_t;
+        
+        typedef __uint32_t __darwin_wctype_t;
+        # 74 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_va_list.h" 1 3 4
+        # 43 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_va_list.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/types.h" 1 3 4
+        # 37 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/types.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 1 3 4
+        # 55 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int8_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int8_t.h" 3 4
+        typedef signed char int8_t;
+        # 56 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int16_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int16_t.h" 3 4
+        typedef short int16_t;
+        # 57 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int32_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int32_t.h" 3 4
+        typedef int int32_t;
+        # 58 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int64_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int64_t.h" 3 4
+        typedef long long int64_t;
+        # 59 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int8_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int8_t.h" 3 4
+        typedef unsigned char u_int8_t;
+        # 61 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int16_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int16_t.h" 3 4
+        typedef unsigned short u_int16_t;
+        # 62 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int32_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int32_t.h" 3 4
+        typedef unsigned int u_int32_t;
+        # 63 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int64_t.h" 1 3 4
+        # 30 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_u_int64_t.h" 3 4
+        typedef unsigned long long u_int64_t;
+        # 64 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        
+        
+        typedef int64_t register_t;
+        
+        
+        
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_intptr_t.h" 1 3 4
+        # 32 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_intptr_t.h" 3 4
+        typedef __darwin_intptr_t intptr_t;
+        # 72 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uintptr_t.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uintptr_t.h" 3 4
+        typedef unsigned long uintptr_t;
+        # 73 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 2 3 4
+        
+        
+        
+        
+        typedef u_int64_t user_addr_t;
+        typedef u_int64_t user_size_t;
+        typedef int64_t user_ssize_t;
+        typedef int64_t user_long_t;
+        typedef u_int64_t user_ulong_t;
+        typedef int64_t user_time_t;
+        typedef int64_t user_off_t;
+        # 105 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/types.h" 3 4
+        typedef u_int64_t syscall_arg_t;
+        # 38 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/types.h" 2 3 4
+        # 44 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_va_list.h" 2 3 4
+        typedef __darwin_va_list va_list;
+        # 78 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_size_t.h" 1 3 4
+        # 50 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_size_t.h" 3 4
+        typedef __darwin_size_t size_t;
+        # 79 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_null.h" 1 3 4
+        # 80 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/stdio.h" 1 3 4
+        # 44 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 1 3 4
+        # 45 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/stdio.h" 2 3 4
+        
+        
+        
+        int renameat(int, const char *, int, const char *) __attribute__((availability(macosx,introduced=10.10)));
+        
+        
+        
+        int renamex_np(const char *, const char *, unsigned int) __attribute__((availability(macosx,introduced=10.12))) __attribute__((availability(ios,introduced=10.0))) __attribute__((availability(tvos,introduced=10.0))) __attribute__((availability(watchos,introduced=3.0)));
+        int renameatx_np(int, const char *, int, const char *, unsigned int) __attribute__((availability(macosx,introduced=10.12))) __attribute__((availability(ios,introduced=10.0))) __attribute__((availability(tvos,introduced=10.0))) __attribute__((availability(watchos,introduced=3.0)));
+        # 82 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_printf.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_printf.h" 3 4
+        int printf(const char * restrict, ...) __attribute__((__format__ (__printf__, 1, 2)));
+        # 83 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        
+        typedef __darwin_off_t fpos_t;
+        # 97 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        struct __sbuf {
+         unsigned char * _base;
+         int _size;
+        };
+        
+        
+        struct __sFILEX;
+        # 131 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        typedef struct __sFILE {
+         unsigned char * _p;
+         int _r;
+         int _w;
+         short _flags;
+         short _file;
+         struct __sbuf _bf;
+         int _lbfsize;
+        
+        
+         void *_cookie;
+         int (* _Nullable _close)(void *);
+         int (* _Nullable _read) (void *, char *, int __n);
+         fpos_t (* _Nullable _seek) (void *, fpos_t, int);
+         int (* _Nullable _write)(void *, const char *, int __n);
+        
+        
+         struct __sbuf _ub;
+         struct __sFILEX *_extra;
+         int _ur;
+        
+        
+         unsigned char _ubuf[3];
+         unsigned char _nbuf[1];
+        
+        
+         struct __sbuf _lb;
+        
+        
+         int _blksize;
+         fpos_t _offset;
+        } FILE;
+        
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_seek_set.h" 1 3 4
+        # 165 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        extern FILE *__stdinp __attribute__((__swift_attr__("nonisolated(unsafe)")));
+        extern FILE *__stdoutp __attribute__((__swift_attr__("nonisolated(unsafe)")));
+        extern FILE *__stderrp __attribute__((__swift_attr__("nonisolated(unsafe)")));
+        # 232 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        void clearerr(FILE *);
+        int fclose(FILE *);
+        int feof(FILE *);
+        int ferror(FILE *);
+        int fflush(FILE *);
+        int fgetc(FILE *);
+        int fgetpos(FILE * restrict, fpos_t *);
+        char * fgets(char * restrict , int __size, FILE *);
+        
+        
+        
+        FILE *fopen(const char * restrict __filename, const char * restrict __mode) __asm("_" "fopen" );
+        
+        int fprintf(FILE * restrict, const char * restrict, ...) __attribute__((__format__ (__printf__, 2, 3)));
+        int fputc(int, FILE *);
+        int fputs(const char * restrict, FILE * restrict) __asm("_" "fputs" );
+        size_t fread(void * restrict __ptr, size_t __size, size_t __nitems, FILE * restrict __stream);
+        FILE *freopen(const char * restrict, const char * restrict,
+             FILE * restrict) __asm("_" "freopen" );
+        int fscanf(FILE * restrict, const char * restrict, ...) __attribute__((__format__ (__scanf__, 2, 3)));
+        int fseek(FILE *, long, int);
+        int fsetpos(FILE *, const fpos_t *);
+        long ftell(FILE *);
+        size_t fwrite(const void * restrict __ptr, size_t __size, size_t __nitems, FILE * restrict __stream) __asm("_" "fwrite" );
+        int getc(FILE *);
+        int getchar(void);
+        
+        
+        __attribute__((__deprecated__("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of gets(3), it is highly recommended that you use fgets(3) instead.")))
+        
+        char * gets(char *) ;
+        
+        void perror(const char *) __attribute__((__cold__));
+        int putc(int, FILE *);
+        int putchar(int);
+        int puts(const char *);
+        int remove(const char *);
+        int rename (const char *__old, const char *__new);
+        void rewind(FILE *);
+        int scanf(const char * restrict, ...) __attribute__((__format__ (__scanf__, 1, 2)));
+        void setbuf(FILE * restrict, char * restrict );
+        int setvbuf(FILE * restrict, char * restrict , int, size_t __size);
+        
+        __attribute__((__availability__(swift, unavailable, message="Use snprintf instead.")))
+        
+        
+        __attribute__((__deprecated__("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")))
+        
+        int sprintf(char * restrict , const char * restrict, ...) __attribute__((__format__ (__printf__, 2, 3))) ;
+        
+        int sscanf(const char * restrict, const char * restrict, ...) __attribute__((__format__ (__scanf__, 2, 3)));
+        FILE *tmpfile(void);
+        
+        __attribute__((__availability__(swift, unavailable, message="Use mkstemp(3) instead.")))
+        
+        __attribute__((__deprecated__("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of tmpnam(3), it is highly recommended that you use mkstemp(3) instead.")))
+        
+        char * tmpnam(char *);
+        
+        int ungetc(int, FILE *);
+        int vfprintf(FILE * restrict, const char * restrict, va_list) __attribute__((__format__ (__printf__, 2, 0)));
+        int vprintf(const char * restrict, va_list) __attribute__((__format__ (__printf__, 1, 0)));
+        
+        __attribute__((__availability__(swift, unavailable, message="Use vsnprintf instead.")))
+        
+        
+        __attribute__((__deprecated__("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use vsnprintf(3) instead.")))
+        
+        int vsprintf(char * restrict , const char * restrict, va_list) __attribute__((__format__ (__printf__, 2, 0))) ;
+        # 315 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_ctermid.h" 1 3 4
+        # 38 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_ctermid.h" 3 4
+        char * ctermid(char *);
+        # 316 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        
+        
+        
+        
+        FILE *fdopen(int, const char *) __asm("_" "fdopen" );
+        
+        int fileno(FILE *);
+        # 335 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        int pclose(FILE *) __attribute__((__availability__(swift, unavailable, message="Use posix_spawn APIs or NSTask instead. (On iOS, process spawning is unavailable.)")));
+        
+        
+        
+        FILE *popen(const char *, const char *) __asm("_" "popen" ) __attribute__((__availability__(swift, unavailable, message="Use posix_spawn APIs or NSTask instead. (On iOS, process spawning is unavailable.)")));
+        # 354 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        int __srget(FILE *);
+        int __svfscanf(FILE *, const char *, va_list) __attribute__((__format__ (__scanf__, 2, 0)));
+        int __swbuf(int, FILE *);
+        # 365 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        inline __attribute__ ((__always_inline__)) int __sputc(int _c, FILE *_p) {
+         if (--_p->_w >= 0 || (_p->_w >= _p->_lbfsize && (char)_c != '\\n'))
+          return (*_p->_p++ = _c);
+         else
+          return (__swbuf(_c, _p));
+        }
+        # 391 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        void flockfile(FILE *);
+        int ftrylockfile(FILE *);
+        void funlockfile(FILE *);
+        int getc_unlocked(FILE *);
+        int getchar_unlocked(void);
+        int putc_unlocked(int, FILE *);
+        int putchar_unlocked(int);
+        
+        
+        
+        int getw(FILE *);
+        int putw(int, FILE *);
+        
+        
+        __attribute__((__availability__(swift, unavailable, message="Use mkstemp(3) instead.")))
+        
+        __attribute__((__deprecated__("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of tempnam(3), it is highly recommended that you use mkstemp(3) instead.")))
+        
+        char * tempnam(const char *__dir, const char *__prefix) __asm("_" "tempnam" );
+        # 429 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h" 1 3 4
+        # 31 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h" 3 4
+        typedef __darwin_off_t off_t;
+        # 430 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        int fseeko(FILE * __stream, off_t __offset, int __whence);
+        off_t ftello(FILE * __stream);
+        
+        
+        
+        
+        
+        int snprintf(char * restrict __str, size_t __size, const char * restrict __format, ...) __attribute__((__format__ (__printf__, 3, 4)));
+        int vfscanf(FILE * restrict __stream, const char * restrict __format, va_list) __attribute__((__format__ (__scanf__, 2, 0)));
+        int vscanf(const char * restrict __format, va_list) __attribute__((__format__ (__scanf__, 1, 0)));
+        int vsnprintf(char * restrict __str, size_t __size, const char * restrict __format, va_list) __attribute__((__format__ (__printf__, 3, 0)));
+        int vsscanf(const char * restrict __str, const char * restrict __format, va_list) __attribute__((__format__ (__scanf__, 2, 0)));
+        # 454 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_ssize_t.h" 1 3 4
+        # 31 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_ssize_t.h" 3 4
+        typedef __darwin_ssize_t ssize_t;
+        # 455 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        
+        
+        int dprintf(int, const char * restrict, ...) __attribute__((__format__ (__printf__, 2, 3))) __attribute__((availability(macosx,introduced=10.7)));
+        int vdprintf(int, const char * restrict, va_list) __attribute__((__format__ (__printf__, 2, 0))) __attribute__((availability(macosx,introduced=10.7)));
+        ssize_t getdelim(char * *restrict __linep, size_t * restrict __linecapp, int __delimiter, FILE * restrict __stream) __attribute__((availability(macosx,introduced=10.7)));
+        ssize_t getline(char * *restrict __linep, size_t * restrict __linecapp, FILE * restrict __stream) __attribute__((availability(macosx,introduced=10.7)));
+        FILE *fmemopen(void * restrict __buf , size_t __size, const char * restrict __mode) __attribute__((availability(macos,introduced=10.13))) __attribute__((availability(ios,introduced=11.0))) __attribute__((availability(tvos,introduced=11.0))) __attribute__((availability(watchos,introduced=4.0)));
+        FILE *open_memstream(char * *__bufp, size_t *__sizep) __attribute__((availability(macos,introduced=10.13))) __attribute__((availability(ios,introduced=11.0))) __attribute__((availability(tvos,introduced=11.0))) __attribute__((availability(watchos,introduced=4.0)));
+        # 472 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        extern const int sys_nerr;
+        extern const char *const sys_errlist[];
+        
+        int asprintf(char * *restrict, const char * restrict, ...) __attribute__((__format__ (__printf__, 2, 3)));
+        char * ctermid_r(char *);
+        char * fgetln(FILE *, size_t *__len);
+        const char *fmtcheck(const char *, const char *) __attribute__((format_arg(2)));
+        int fpurge(FILE *);
+        void setbuffer(FILE *, char *, int __size);
+        int setlinebuf(FILE *);
+        int vasprintf(char * *restrict, const char * restrict, va_list) __attribute__((__format__ (__printf__, 2, 0)));
+        
+        
+        
+        
+        
+        FILE *funopen(const void *,
+             int (* _Nullable)(void *, char *, int __n),
+             int (* _Nullable)(void *, const char *, int __n),
+             fpos_t (* _Nullable)(void *, fpos_t, int),
+             int (* _Nullable)(void *));
+        # 507 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/secure/_stdio.h" 1 3 4
+        # 32 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/secure/_stdio.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/secure/_common.h" 1 3 4
+        # 33 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/secure/_stdio.h" 2 3 4
+        
+        
+        
+        
+        
+        extern int __snprintf_chk (char * restrict , size_t __maxlen, int, size_t,
+             const char * restrict, ...);
+        extern int __vsnprintf_chk (char * restrict , size_t __maxlen, int, size_t,
+             const char * restrict, va_list);
+        
+        extern int __sprintf_chk (char * restrict , int, size_t,
+             const char * restrict, ...);
+        extern int __vsprintf_chk (char * restrict , int, size_t,
+             const char * restrict, va_list);
+        # 508 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h" 2 3 4
+        # 62 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdio.h" 2 3 4
+        # 2 "<built-in>" 2
+        # 1 "apple-sdk.c" 2
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 1 3 4
+        # 89 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 90 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/TargetConditionals.h" 1 3 4
+        # 91 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 207 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 1 3 4
+        # 208 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 2 "apple-sdk.c" 2
+        
+        
+      Found apple sysroot: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ar"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/ar"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_RANLIB"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ranlib"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/ranlib"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_STRIP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "strip"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/strip"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ld"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/ld"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_NM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "nm"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/nm"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_OBJDUMP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "objdump"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    found: "/usr/bin/objdump"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_OBJCOPY"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "objcopy"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/usr/bin/objcopy"
+      - "/tmp/claude-501/shim/objcopy"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/objcopy"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/objcopy"
+      - "/Users/lzy/.dotnet/objcopy"
+      - "/Users/lzy/.local/bin/objcopy"
+      - "/usr/local/bin/objcopy"
+      - "/System/Cryptexes/App/usr/bin/objcopy"
+      - "/bin/objcopy"
+      - "/usr/sbin/objcopy"
+      - "/sbin/objcopy"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/objcopy"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/objcopy"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/objcopy"
+      - "/pkg/env/global/bin/objcopy"
+      - "/Library/Apple/usr/bin/objcopy"
+      - "/opt/homebrew/bin/objcopy"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/objcopy"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/objcopy"
+      - "/Users/lzy/.deno/bin/objcopy"
+      - "/Users/lzy/.cargo/bin/objcopy"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/objcopy"
+      - "/Applications/ChatGPT.app/Contents/Resources/objcopy"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/objcopy"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_READELF"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "readelf"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/usr/bin/readelf"
+      - "/tmp/claude-501/shim/readelf"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/readelf"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/readelf"
+      - "/Users/lzy/.dotnet/readelf"
+      - "/Users/lzy/.local/bin/readelf"
+      - "/usr/local/bin/readelf"
+      - "/System/Cryptexes/App/usr/bin/readelf"
+      - "/bin/readelf"
+      - "/usr/sbin/readelf"
+      - "/sbin/readelf"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/readelf"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/readelf"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/readelf"
+      - "/pkg/env/global/bin/readelf"
+      - "/Library/Apple/usr/bin/readelf"
+      - "/opt/homebrew/bin/readelf"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/readelf"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/readelf"
+      - "/Users/lzy/.deno/bin/readelf"
+      - "/Users/lzy/.cargo/bin/readelf"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/readelf"
+      - "/Applications/ChatGPT.app/Contents/Resources/readelf"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/readelf"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_DLLTOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "dlltool"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/usr/bin/dlltool"
+      - "/tmp/claude-501/shim/dlltool"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/dlltool"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/dlltool"
+      - "/Users/lzy/.dotnet/dlltool"
+      - "/Users/lzy/.local/bin/dlltool"
+      - "/usr/local/bin/dlltool"
+      - "/System/Cryptexes/App/usr/bin/dlltool"
+      - "/bin/dlltool"
+      - "/usr/sbin/dlltool"
+      - "/sbin/dlltool"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/dlltool"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/dlltool"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/dlltool"
+      - "/pkg/env/global/bin/dlltool"
+      - "/Library/Apple/usr/bin/dlltool"
+      - "/opt/homebrew/bin/dlltool"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/dlltool"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/dlltool"
+      - "/Users/lzy/.deno/bin/dlltool"
+      - "/Users/lzy/.cargo/bin/dlltool"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/dlltool"
+      - "/Applications/ChatGPT.app/Contents/Resources/dlltool"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/dlltool"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_ADDR2LINE"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "addr2line"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/usr/bin/addr2line"
+      - "/tmp/claude-501/shim/addr2line"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/addr2line"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/addr2line"
+      - "/Users/lzy/.dotnet/addr2line"
+      - "/Users/lzy/.local/bin/addr2line"
+      - "/usr/local/bin/addr2line"
+      - "/System/Cryptexes/App/usr/bin/addr2line"
+      - "/bin/addr2line"
+      - "/usr/sbin/addr2line"
+      - "/sbin/addr2line"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/addr2line"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/addr2line"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/addr2line"
+      - "/pkg/env/global/bin/addr2line"
+      - "/Library/Apple/usr/bin/addr2line"
+      - "/opt/homebrew/bin/addr2line"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/addr2line"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/addr2line"
+      - "/Users/lzy/.deno/bin/addr2line"
+      - "/Users/lzy/.cargo/bin/addr2line"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/addr2line"
+      - "/Applications/ChatGPT.app/Contents/Resources/addr2line"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/addr2line"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_TAPI"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "tapi"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/usr/bin/tapi"
+      - "/tmp/claude-501/shim/tapi"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/tapi"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/tapi"
+      - "/Users/lzy/.dotnet/tapi"
+      - "/Users/lzy/.local/bin/tapi"
+      - "/usr/local/bin/tapi"
+      - "/System/Cryptexes/App/usr/bin/tapi"
+      - "/bin/tapi"
+      - "/usr/sbin/tapi"
+      - "/sbin/tapi"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/tapi"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/tapi"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/tapi"
+      - "/pkg/env/global/bin/tapi"
+      - "/Library/Apple/usr/bin/tapi"
+      - "/opt/homebrew/bin/tapi"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/tapi"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/tapi"
+      - "/Users/lzy/.deno/bin/tapi"
+      - "/Users/lzy/.cargo/bin/tapi"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/tapi"
+      - "/Applications/ChatGPT.app/Contents/Resources/tapi"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/tapi"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompiler.cmake:54 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:69 (_cmake_find_compiler)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER"
+    description: "CXX compiler"
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "c++"
+      - "g++"
+      - "cl"
+      - "bcc"
+      - "icpx"
+      - "icx"
+      - "clang++"
+    candidate_directories:
+      - "/usr/bin/"
+    found: "/usr/bin/c++"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:468 (find_file)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:506 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "/opt/homebrew/share/cmake/Modules/"
+    found: "/opt/homebrew/share/cmake/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler: /usr/bin/c++ 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
+      
+      The CXX compiler identification is AppleClang, found in:
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/4.3.3/CompilerIdCXX/a.out
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake:296 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Detecting CXX compiler apple sysroot: "/usr/bin/c++" "-E" "apple-sdk.cpp"
+        # 1 "apple-sdk.cpp"
+        # 1 "<built-in>" 1
+        # 1 "<built-in>" 3
+        # 533 "<built-in>" 3
+        # 1 "<command line>" 1
+        # 1 "<built-in>" 2
+        # 1 "apple-sdk.cpp" 2
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 1 3 4
+        # 89 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 90 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/TargetConditionals.h" 1 3 4
+        # 91 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 207 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 1 3 4
+        # 196 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 197 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 1 3 4
+        # 33 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityVersions.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 2 3 4
+        # 198 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 1 3 4
+        # 34 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 3 4
+        # 1 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h" 1 3 4
+        # 35 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternalLegacy.h" 2 3 4
+        # 199 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/Availability.h" 2 3 4
+        # 208 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityMacros.h" 2 3 4
+        # 2 "apple-sdk.cpp" 2
+        
+        
+      Found apple sysroot: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake:66 (find_program)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake:32 (include)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    mode: "program"
+    variable: "CMAKE_INSTALL_NAME_TOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "install_name_tool"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin/"
+      - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin/"
+      - "/pkg/env/global/bin/"
+      - "/Library/Apple/usr/bin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+    searched_directories:
+      - "/tmp/claude-501/shim/install_name_tool"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/install_name_tool"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/install_name_tool"
+      - "/Users/lzy/.dotnet/install_name_tool"
+      - "/Users/lzy/.local/bin/install_name_tool"
+      - "/usr/local/bin/install_name_tool"
+      - "/System/Cryptexes/App/usr/bin/install_name_tool"
+    found: "/usr/bin/install_name_tool"
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_2d80d/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_2d80d.dir/build.make CMakeFiles/cmTC_2d80d.dir/build
+        Building C object CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o
+        /usr/bin/cc   -include stdio.h    -v -Wl,-v -MD -MT CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -c /opt/homebrew/share/cmake/Modules/CMakeCCompilerABI.c
+        Apple clang version 21.0.0 (clang-2100.4.1.1)
+        Target: arm64-apple-darwin27.0.0
+        Thread model: posix
+        InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+        clang: warning: -Wl,-v: 'linker' input unused [-Wunused-command-line-argument]
+         "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang" -cc1 -triple arm64-apple-macosx27.0.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -fno-sized-deallocation -target-sdk-version=27.0 -fdepfile-entry=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json -fvisibility-inlines-hidden-static-local-var -fno-modulemap-allow-subdirectory-search -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -enable-tlsdesc -target-cpu apple-m1 -target-feature +v8.5a -target-feature +aes -target-feature +altnzcv -target-feature +ccdp -target-feature +ccpp -target-feature +complxnum -target-feature +crc -target-feature +dotprod -target-feature +flagm -target-feature +fp-armv8 -target-feature +fp16fml -target-feature +fptoint -target-feature +fullfp16 -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +perfmon -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +sha2 -target-feature +sha3 -target-feature +specrestrict -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA -target-linker-version 27033.1 -v -fcoverage-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA -resource-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21 -dependency-file CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -sys-header-deps -include stdio.h -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -I/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include -internal-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include -internal-externc-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks -Wno-elaborated-enum-base -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fmax-type-align=16 -fcommon -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -Wno-error=allocator-wrappers -fdwarf2-cfi-asm -o CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -x c /opt/homebrew/share/cmake/Modules/CMakeCCompilerABI.c
+        clang -cc1 version 21.0.0 (clang-2100.4.1.1) default target arm64-apple-darwin27.0.0
+        ignoring nonexistent directory "/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include
+         /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks (framework directory)
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks (framework directory)
+        End of search list.
+        Linking C executable cmTC_2d80d
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_2d80d.dir/link.txt --verbose=1
+        Apple clang version 21.0.0 (clang-2100.4.1.1)
+        Target: arm64-apple-darwin27.0.0
+        Thread model: posix
+        InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+         "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" -demangle -lto_library /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib -dynamic -arch arm64 -platform_version macos 27.0.0 27.0 -syslibroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mllvm -enable-linkonceodr-outlining -o cmTC_2d80d -L/usr/local/lib -v CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -lSystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a
+        @(#)PROGRAM:ld PROJECT:ld-27106.1
+        BUILD 19:06:34 Oct 19 2026
+        configured to support archs: armv6 armv7 armv7s arm64 arm64e arm64_32 i386 x86_64 x86_64h armv6m armv7k armv7m armv7em armv8m.main armv8.1m.main
+        LTO support using: LLVM version 21.0.0 (static support for 30, runtime is 30)
+        TAPI support using: Apple TAPI version 21.0.0 (tapi-2100.3.8.1)
+        Library search paths:
+        	/usr/local/lib
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift
+        Framework search paths:
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks
+        /usr/bin/cc -include stdio.h   -v -Wl,-v CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -o cmTC_2d80d
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:122 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Effective list of requested architectures (possibly empty)  : ""
+      Effective list of architectures found in the ABI info binary: "arm64"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Parsed C implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+          add: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+          add: [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        end of search list found
+        collapse include dir [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include] ==> [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+        collapse include dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+        collapse include dir [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include] ==> [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        implicit include dirs: [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|"|[0-9]+>[ 	-]*Build:[ 	0-9]+ ms[ 	]*)?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA']
+        ignore line: []
+        ignore line: [Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_2d80d/fast]
+        ignore line: [/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_2d80d.dir/build.make CMakeFiles/cmTC_2d80d.dir/build]
+        ignore line: [Building C object CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o]
+        ignore line: [/usr/bin/cc   -include stdio.h    -v -Wl -v -MD -MT CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -c /opt/homebrew/share/cmake/Modules/CMakeCCompilerABI.c]
+        ignore line: [Apple clang version 21.0.0 (clang-2100.4.1.1)]
+        ignore line: [Target: arm64-apple-darwin27.0.0]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]
+        ignore line: [clang: warning: -Wl -v: 'linker' input unused [-Wunused-command-line-argument]]
+        ignore line: [ "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang" -cc1 -triple arm64-apple-macosx27.0.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -fno-sized-deallocation -target-sdk-version=27.0 -fdepfile-entry=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json -fvisibility-inlines-hidden-static-local-var -fno-modulemap-allow-subdirectory-search -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -enable-tlsdesc -target-cpu apple-m1 -target-feature +v8.5a -target-feature +aes -target-feature +altnzcv -target-feature +ccdp -target-feature +ccpp -target-feature +complxnum -target-feature +crc -target-feature +dotprod -target-feature +flagm -target-feature +fp-armv8 -target-feature +fp16fml -target-feature +fptoint -target-feature +fullfp16 -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +perfmon -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +sha2 -target-feature +sha3 -target-feature +specrestrict -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA -target-linker-version 27033.1 -v -fcoverage-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-ZmZrfA -resource-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21 -dependency-file CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -sys-header-deps -include stdio.h -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -I/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include -internal-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include -internal-externc-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks -Wno-elaborated-enum-base -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fmax-type-align=16 -fcommon -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -Wno-error=allocator-wrappers -fdwarf2-cfi-asm -o CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -x c /opt/homebrew/share/cmake/Modules/CMakeCCompilerABI.c]
+        ignore line: [clang -cc1 version 21.0.0 (clang-2100.4.1.1) default target arm64-apple-darwin27.0.0]
+        ignore line: [ignoring nonexistent directory "/usr/local/include"]
+        ignore line: [ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include"]
+        ignore line: [ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+        ignore line: [ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks (framework directory)]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks (framework directory)]
+        ignore line: [End of search list.]
+        ignore line: [Linking C executable cmTC_2d80d]
+        ignore line: [/opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_2d80d.dir/link.txt --verbose=1]
+        ignore line: [Apple clang version 21.0.0 (clang-2100.4.1.1)]
+        ignore line: [Target: arm64-apple-darwin27.0.0]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]
+        link line: [ "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" -demangle -lto_library /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib -dynamic -arch arm64 -platform_version macos 27.0.0 27.0 -syslibroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mllvm -enable-linkonceodr-outlining -o cmTC_2d80d -L/usr/local/lib -v CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o -lSystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld] ==> ignore
+          arg [-demangle] ==> ignore
+          arg [-lto_library] ==> ignore, skip following value
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib] ==> skip value of -lto_library
+          arg [-dynamic] ==> ignore
+          arg [-arch] ==> ignore
+          arg [arm64] ==> ignore
+          arg [-platform_version] ==> ignore
+          arg [macos] ==> ignore
+          arg [27.0.0] ==> ignore
+          arg [27.0] ==> ignore
+          arg [-syslibroot] ==> ignore
+          arg [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk] ==> ignore
+          arg [-mllvm] ==> ignore
+          arg [-enable-linkonceodr-outlining] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_2d80d] ==> ignore
+          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
+          arg [-v] ==> ignore
+          arg [CMakeFiles/cmTC_2d80d.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [-lSystem] ==> lib [System]
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a] ==> lib [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+        linker tool for 'C': /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld
+        Library search paths: [;/usr/local/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        Framework search paths: [;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+        remove lib [System]
+        remove lib [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
+        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
+        collapse library dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib]
+        collapse library dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        collapse framework dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: [/usr/local/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        implicit fwks: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake:38 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Running the C compiler's linker: "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" "-v"
+      @(#)PROGRAM:ld PROJECT:ld-27106.1
+      BUILD 19:06:34 Oct 19 2026
+      configured to support archs: armv6 armv7 armv7s arm64 arm64e arm64_32 i386 x86_64 x86_64h armv6m armv7k armv7m armv7em armv8m.main armv8.1m.main
+      LTO support using: LLVM version 21.0.0 (static support for 30, runtime is 30)
+      TAPI support using: Apple TAPI version 21.0.0 (tapi-2100.3.8.1)
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_1e11b/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_1e11b.dir/build.make CMakeFiles/cmTC_1e11b.dir/build
+        Building CXX object CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o
+        /usr/bin/c++   -v -Wl,-v -MD -MT CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -c /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp
+        Apple clang version 21.0.0 (clang-2100.4.1.1)
+        Target: arm64-apple-darwin27.0.0
+        Thread model: posix
+        InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+        clang++: warning: -Wl,-v: 'linker' input unused [-Wunused-command-line-argument]
+        ignoring nonexistent directory "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../include/c++/v1"
+         "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang" -cc1 -triple arm64-apple-macosx27.0.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -fno-sized-deallocation -target-sdk-version=27.0 -fdepfile-entry=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json -fvisibility-inlines-hidden-static-local-var -fno-modulemap-allow-subdirectory-search -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -enable-tlsdesc -target-cpu apple-m1 -target-feature +v8.5a -target-feature +aes -target-feature +altnzcv -target-feature +ccdp -target-feature +ccpp -target-feature +complxnum -target-feature +crc -target-feature +dotprod -target-feature +flagm -target-feature +fp-armv8 -target-feature +fp16fml -target-feature +fptoint -target-feature +fullfp16 -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +perfmon -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +sha2 -target-feature +sha3 -target-feature +specrestrict -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG -target-linker-version 27033.1 -v -fcoverage-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG -resource-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21 -dependency-file CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -I/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1 -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include -internal-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include -internal-externc-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks -Wno-elaborated-enum-base -fdeprecated-macro -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -fmax-type-align=16 -fcommon -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -Wno-error=allocator-wrappers -fdwarf2-cfi-asm -o CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -x c++ /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp
+        clang -cc1 version 21.0.0 (clang-2100.4.1.1) default target arm64-apple-darwin27.0.0
+        ignoring nonexistent directory "/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1
+         /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include
+         /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks (framework directory)
+         /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks (framework directory)
+        End of search list.
+        Linking CXX executable cmTC_1e11b
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1e11b.dir/link.txt --verbose=1
+        Apple clang version 21.0.0 (clang-2100.4.1.1)
+        Target: arm64-apple-darwin27.0.0
+        Thread model: posix
+        InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+         "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" -demangle -lto_library /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib -dynamic -arch arm64 -platform_version macos 27.0.0 27.0 -syslibroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mllvm -enable-linkonceodr-outlining -o cmTC_1e11b -L/usr/local/lib -v CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -lc++ -lSystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a
+        @(#)PROGRAM:ld PROJECT:ld-27106.1
+        BUILD 19:06:34 Oct 19 2026
+        configured to support archs: armv6 armv7 armv7s arm64 arm64e arm64_32 i386 x86_64 x86_64h armv6m armv7k armv7m armv7em armv8m.main armv8.1m.main
+        LTO support using: LLVM version 21.0.0 (static support for 30, runtime is 30)
+        TAPI support using: Apple TAPI version 21.0.0 (tapi-2100.3.8.1)
+        Library search paths:
+        	/usr/local/lib
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift
+        Framework search paths:
+        	/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks
+        /usr/bin/c++  -v -Wl,-v CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_1e11b
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:122 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Effective list of requested architectures (possibly empty)  : ""
+      Effective list of architectures found in the ABI info binary: "arm64"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Parsed CXX implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1]
+          add: [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+          add: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+          add: [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        end of search list found
+        collapse include dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1]
+        collapse include dir [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include] ==> [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+        collapse include dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+        collapse include dir [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include] ==> [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        implicit include dirs: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1;/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|"|[0-9]+>[ 	-]*Build:[ 	0-9]+ ms[ 	]*)?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG']
+        ignore line: []
+        ignore line: [Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_1e11b/fast]
+        ignore line: [/Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_1e11b.dir/build.make CMakeFiles/cmTC_1e11b.dir/build]
+        ignore line: [Building CXX object CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o]
+        ignore line: [/usr/bin/c++   -v -Wl -v -MD -MT CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -c /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [Apple clang version 21.0.0 (clang-2100.4.1.1)]
+        ignore line: [Target: arm64-apple-darwin27.0.0]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]
+        ignore line: [clang++: warning: -Wl -v: 'linker' input unused [-Wunused-command-line-argument]]
+        ignore line: [ignoring nonexistent directory "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../include/c++/v1"]
+        ignore line: [ "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang" -cc1 -triple arm64-apple-macosx27.0.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -fno-sized-deallocation -target-sdk-version=27.0 -fdepfile-entry=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json -fvisibility-inlines-hidden-static-local-var -fno-modulemap-allow-subdirectory-search -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -enable-tlsdesc -target-cpu apple-m1 -target-feature +v8.5a -target-feature +aes -target-feature +altnzcv -target-feature +ccdp -target-feature +ccpp -target-feature +complxnum -target-feature +crc -target-feature +dotprod -target-feature +flagm -target-feature +fp-armv8 -target-feature +fp16fml -target-feature +fptoint -target-feature +fullfp16 -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +perfmon -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +sha2 -target-feature +sha3 -target-feature +specrestrict -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG -target-linker-version 27033.1 -v -fcoverage-compilation-dir=/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-bj8wfG -resource-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21 -dependency-file CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -I/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1 -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include -internal-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include -internal-externc-isystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks -internal-iframework /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks -Wno-elaborated-enum-base -fdeprecated-macro -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -fmax-type-align=16 -fcommon -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -Wno-error=allocator-wrappers -fdwarf2-cfi-asm -o CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -x c++ /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [clang -cc1 version 21.0.0 (clang-2100.4.1.1) default target arm64-apple-darwin27.0.0]
+        ignore line: [ignoring nonexistent directory "/usr/local/include"]
+        ignore line: [ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/local/include"]
+        ignore line: [ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1]
+        ignore line: [ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include]
+        ignore line: [ /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks (framework directory)]
+        ignore line: [ /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/SubFrameworks (framework directory)]
+        ignore line: [End of search list.]
+        ignore line: [Linking CXX executable cmTC_1e11b]
+        ignore line: [/opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1e11b.dir/link.txt --verbose=1]
+        ignore line: [Apple clang version 21.0.0 (clang-2100.4.1.1)]
+        ignore line: [Target: arm64-apple-darwin27.0.0]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]
+        link line: [ "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" -demangle -lto_library /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib -dynamic -arch arm64 -platform_version macos 27.0.0 27.0 -syslibroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mllvm -enable-linkonceodr-outlining -o cmTC_1e11b -L/usr/local/lib -v CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o -lc++ -lSystem /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld] ==> ignore
+          arg [-demangle] ==> ignore
+          arg [-lto_library] ==> ignore, skip following value
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libLTO.dylib] ==> skip value of -lto_library
+          arg [-dynamic] ==> ignore
+          arg [-arch] ==> ignore
+          arg [arm64] ==> ignore
+          arg [-platform_version] ==> ignore
+          arg [macos] ==> ignore
+          arg [27.0.0] ==> ignore
+          arg [27.0] ==> ignore
+          arg [-syslibroot] ==> ignore
+          arg [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk] ==> ignore
+          arg [-mllvm] ==> ignore
+          arg [-enable-linkonceodr-outlining] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_1e11b] ==> ignore
+          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
+          arg [-v] ==> ignore
+          arg [CMakeFiles/cmTC_1e11b.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [-lc++] ==> lib [c++]
+          arg [-lSystem] ==> lib [System]
+          arg [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a] ==> lib [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+        linker tool for 'CXX': /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld
+        Library search paths: [;/usr/local/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        Framework search paths: [;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+        remove lib [System]
+        remove lib [/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a]
+        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
+        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
+        collapse library dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib]
+        collapse library dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        collapse framework dir [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks] ==> [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+        implicit libs: [c++]
+        implicit objs: []
+        implicit dirs: [/usr/local/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/swift]
+        implicit fwks: [/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake:38 (message)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:120 (PROJECT)"
+    message: |
+      Running the CXX compiler's linker: "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld" "-v"
+      @(#)PROGRAM:ld PROJECT:ld-27106.1
+      BUILD 19:06:34 Oct 19 2026
+      configured to support archs: armv6 armv7 armv7s arm64 arm64e arm64_32 i386 x86_64 x86_64h armv6m armv7k armv7m armv7em armv8m.main armv8.1m.main
+      LTO support using: LLVM version 21.0.0 (static support for 30, runtime is 30)
+      TAPI support using: Apple TAPI version 21.0.0 (tapi-2100.3.8.1)
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckIncludeFile.cmake:174 (try_compile)"
+      - "contrib/zlib/CMakeLists.txt:35 (check_include_file)"
+    checks:
+      - "Looking for sys/types.h"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-XdQ0aY"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-XdQ0aY"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_SYS_TYPES_H"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-XdQ0aY'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_440be/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_440be.dir/build.make CMakeFiles/cmTC_440be.dir/build
+        Building C object CMakeFiles/cmTC_440be.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_440be.dir/CheckIncludeFile.c.o -MF CMakeFiles/cmTC_440be.dir/CheckIncludeFile.c.o.d -o CMakeFiles/cmTC_440be.dir/CheckIncludeFile.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-XdQ0aY/CheckIncludeFile.c
+        Linking C executable cmTC_440be
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_440be.dir/link.txt --verbose=1
+        /usr/bin/cc -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  CMakeFiles/cmTC_440be.dir/CheckIncludeFile.c.o -o cmTC_440be
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckIncludeFile.cmake:174 (try_compile)"
+      - "contrib/zlib/CMakeLists.txt:36 (check_include_file)"
+    checks:
+      - "Looking for stdint.h"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-QEyrbp"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-QEyrbp"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_STDINT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-QEyrbp'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_e3b3e/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_e3b3e.dir/build.make CMakeFiles/cmTC_e3b3e.dir/build
+        Building C object CMakeFiles/cmTC_e3b3e.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_e3b3e.dir/CheckIncludeFile.c.o -MF CMakeFiles/cmTC_e3b3e.dir/CheckIncludeFile.c.o.d -o CMakeFiles/cmTC_e3b3e.dir/CheckIncludeFile.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-QEyrbp/CheckIncludeFile.c
+        Linking C executable cmTC_e3b3e
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_e3b3e.dir/link.txt --verbose=1
+        /usr/bin/cc -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  CMakeFiles/cmTC_e3b3e.dir/CheckIncludeFile.c.o -o cmTC_e3b3e
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckIncludeFile.cmake:174 (try_compile)"
+      - "contrib/zlib/CMakeLists.txt:37 (check_include_file)"
+    checks:
+      - "Looking for stddef.h"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-JifARG"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-JifARG"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_STDDEF_H"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-JifARG'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_1a584/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_1a584.dir/build.make CMakeFiles/cmTC_1a584.dir/build
+        Building C object CMakeFiles/cmTC_1a584.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_1a584.dir/CheckIncludeFile.c.o -MF CMakeFiles/cmTC_1a584.dir/CheckIncludeFile.c.o.d -o CMakeFiles/cmTC_1a584.dir/CheckIncludeFile.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-JifARG/CheckIncludeFile.c
+        Linking C executable cmTC_1a584
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1a584.dir/link.txt --verbose=1
+        /usr/bin/cc -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  CMakeFiles/cmTC_1a584.dir/CheckIncludeFile.c.o -o cmTC_1a584
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckTypeSize.cmake:348 (try_compile)"
+      - "/opt/homebrew/share/cmake/Modules/CheckTypeSize.cmake:481 (__check_type_size_impl)"
+      - "contrib/zlib/CMakeLists.txt:55 (check_type_size)"
+    checks:
+      - "Check size of off64_t"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_OFF64_T"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_ee996/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_ee996.dir/build.make CMakeFiles/cmTC_ee996.dir/build
+        Building C object CMakeFiles/cmTC_ee996.dir/OFF64_T.c.o
+        /usr/bin/cc -DHAVE_STDDEF_H -DHAVE_STDINT_H -DHAVE_SYS_TYPES_H -D_LARGEFILE64_SOURCE=1  -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_ee996.dir/OFF64_T.c.o -MF CMakeFiles/cmTC_ee996.dir/OFF64_T.c.o.d -o CMakeFiles/cmTC_ee996.dir/OFF64_T.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:29:12: error: use of undeclared identifier 'off64_t'; did you mean 'off_t'?
+           29 |   ('0' + ((SIZE / 10000)%10)),
+              |            ^~~~
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:27:22: note: expanded from macro 'SIZE'
+           27 | #define SIZE (sizeof(off64_t))
+              |                      ^~~~~~~
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h:31:33: note: 'off_t' declared here
+           31 | typedef __darwin_off_t          off_t;
+              |                                 ^
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:30:12: error: use of undeclared identifier 'off64_t'; did you mean 'off_t'?
+           30 |   ('0' + ((SIZE / 1000)%10)),
+              |            ^~~~
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:27:22: note: expanded from macro 'SIZE'
+           27 | #define SIZE (sizeof(off64_t))
+              |                      ^~~~~~~
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h:31:33: note: 'off_t' declared here
+           31 | typedef __darwin_off_t          off_t;
+              |                                 ^
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:31:12: error: use of undeclared identifier 'off64_t'; did you mean 'off_t'?
+           31 |   ('0' + ((SIZE / 100)%10)),
+              |            ^~~~
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:27:22: note: expanded from macro 'SIZE'
+           27 | #define SIZE (sizeof(off64_t))
+              |                      ^~~~~~~
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h:31:33: note: 'off_t' declared here
+           31 | typedef __darwin_off_t          off_t;
+              |                                 ^
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:32:12: error: use of undeclared identifier 'off64_t'; did you mean 'off_t'?
+           32 |   ('0' + ((SIZE / 10)%10)),
+              |            ^~~~
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:27:22: note: expanded from macro 'SIZE'
+           27 | #define SIZE (sizeof(off64_t))
+              |                      ^~~~~~~
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h:31:33: note: 'off_t' declared here
+           31 | typedef __darwin_off_t          off_t;
+              |                                 ^
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:33:12: error: use of undeclared identifier 'off64_t'; did you mean 'off_t'?
+           33 |   ('0' +  (SIZE    % 10)),
+              |            ^~~~
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-FoTSIf/OFF64_T.c:27:22: note: expanded from macro 'SIZE'
+           27 | #define SIZE (sizeof(off64_t))
+              |                      ^~~~~~~
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_off_t.h:31:33: note: 'off_t' declared here
+           31 | typedef __darwin_off_t          off_t;
+              |                                 ^
+        5 errors generated.
+        make[1]: *** [CMakeFiles/cmTC_ee996.dir/OFF64_T.c.o] Error 1
+        make: *** [cmTC_ee996/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckFunctionExists.cmake:167 (try_compile)"
+      - "contrib/zlib/CMakeLists.txt:64 (check_function_exists)"
+    checks:
+      - "Looking for fseeko"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "HAVE_FSEEKO"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_c838c/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_c838c.dir/build.make CMakeFiles/cmTC_c838c.dir/build
+        Building C object CMakeFiles/cmTC_c838c.dir/CheckFunctionExists.c.o
+        /usr/bin/cc   -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h -DCHECK_FUNCTION_EXISTS=fseeko -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_c838c.dir/CheckFunctionExists.c.o -MF CMakeFiles/cmTC_c838c.dir/CheckFunctionExists.c.o.d -o CMakeFiles/cmTC_c838c.dir/CheckFunctionExists.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH/CheckFunctionExists.c
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH/CheckFunctionExists.c:7:3: error: conflicting types for 'fseeko'
+            7 |   CHECK_FUNCTION_EXISTS(void);
+              |   ^
+        <command line>:1:31: note: expanded from macro 'CHECK_FUNCTION_EXISTS'
+            1 | #define CHECK_FUNCTION_EXISTS fseeko
+              |                               ^
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:432:6: note: previous declaration is here
+          432 | int      fseeko(FILE * __stream, off_t __offset, int __whence);
+              |          ^
+        /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-id95OH/CheckFunctionExists.c:17:25: error: too few arguments to function call, expected 3, have 0
+           17 |   CHECK_FUNCTION_EXISTS();
+              |   ~~~~~~~~~~~~~~~~~~~~~ ^
+        /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_stdio.h:432:6: note: 'fseeko' declared here
+          432 | int      fseeko(FILE * __stream, off_t __offset, int __whence);
+              |          ^      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        2 errors generated.
+        make[1]: *** [CMakeFiles/cmTC_c838c.dir/CheckFunctionExists.c.o] Error 1
+        make: *** [cmTC_c838c/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckIncludeFile.cmake:174 (try_compile)"
+      - "contrib/zlib/CMakeLists.txt:72 (check_include_file)"
+    checks:
+      - "Looking for unistd.h"
+    directories:
+      source: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-yQ1fAX"
+      binary: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-yQ1fAX"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "-Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/cmake-modules"
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "Z_HAVE_UNISTD_H"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-yQ1fAX'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_42fe8/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_42fe8.dir/build.make CMakeFiles/cmTC_42fe8.dir/build
+        Building C object CMakeFiles/cmTC_42fe8.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  -std=gnu99 -fPIE -MD -MT CMakeFiles/cmTC_42fe8.dir/CheckIncludeFile.c.o -MF CMakeFiles/cmTC_42fe8.dir/CheckIncludeFile.c.o.d -o CMakeFiles/cmTC_42fe8.dir/CheckIncludeFile.c.o -c /Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/CMakeScratch/TryCompile-yQ1fAX/CheckIncludeFile.c
+        Linking C executable cmTC_42fe8
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_42fe8.dir/link.txt --verbose=1
+        /usr/bin/cc -Wno-deprecated-non-prototype -fno-strict-aliasing -include stdio.h  CMakeFiles/cmTC_42fe8.dir/CheckIncludeFile.c.o -o cmTC_42fe8
+        
+      exitCode: 0
+  -
+    kind: "find-v1"
+    backtrace:
+      - "cmake-modules/FindRT.cmake:14 (find_library)"
+      - "code/CMakeLists.txt:1476 (FIND_PACKAGE)"
+    mode: "library"
+    variable: "RT_LIBRARY"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "rt"
+    candidate_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/"
+      - "/opt/homebrew/lib/"
+      - "/opt/homebrew/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/opt/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/"
+      - "/Library/Developer/CommandLineTools/Library/Frameworks/"
+      - "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/"
+      - "/Library/Frameworks/"
+      - "/System/Library/Frameworks/"
+    searched_directories:
+      - "/tmp/claude-501/shim/"
+      - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/"
+      - "/Users/lzy/.dotnet/"
+      - "/Users/lzy/.local/bin/"
+      - "/usr/local/bin/"
+      - "/System/Cryptexes/App/usr/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/opt/homebrew/bin/"
+      - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "/Users/lzy/.deno/bin/"
+      - "/Users/lzy/.cargo/bin/"
+      - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "/Applications/ChatGPT.app/Contents/Resources/"
+      - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/"
+      - "/opt/homebrew/lib/"
+      - "/opt/homebrew/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/opt/"
+      - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/"
+      - "/Library/Developer/CommandLineTools/Library/Frameworks/"
+      - "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/"
+      - "/Library/Frameworks/"
+      - "/System/Library/Frameworks/"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/tmp/claude-501/shim"
+        - "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/pkg/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/opt/homebrew/bin"
+        - "/Users/lzy/.codex/tmp/arg0-macos/codex-arg0b14bPl"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override"
+        - "/Users/lzy/.deno/bin"
+        - "/Users/lzy/.dotnet"
+        - "/Users/lzy/.local/bin"
+        - "/Users/lzy/.cargo/bin"
+        - "/Users/lzy/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback"
+        - "/Applications/ChatGPT.app/Contents/Resources"
+        - "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr"
+        - "/opt/homebrew"
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/opt/homebrew"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+        - "/sw"
+        - "/opt/local"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+      CMAKE_SYSTEM_FRAMEWORK_PATH:
+        - "~/Library/Frameworks"
+        - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Library/Frameworks"
+        - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/Network/Library/Frameworks"
+        - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks"
+        - "/Library/Developer/CommandLineTools/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Library/Frameworks"
+        - "/Library/Frameworks"
+        - "/Network/Library/Frameworks"
+        - "/System/Library/Frameworks"
+...

@@ -228,6 +228,24 @@ enum aiPostProcessSteps
     * @note The <tt>#AI_CONFIG_PP_PTV_NORMALIZE</tt> configuration property
     * can be set to normalize the scene's spatial dimension to the -1...1
     * range.
+    *
+    * @note The <tt>#AI_CONFIG_PP_PTV_PRESERVE_MORPHS</tt> configuration
+    * property can be set to keep the attached morph targets
+    * (#aiMesh::mAnimMeshes) in both hierarchy modes. When enabled, target
+    * positions are transformed with the same cumulative node matrix as the
+    * base mesh (normals, tangents and bitangents use the inverse-transpose
+    * plus normalization; UV and color data are untouched). Empty target
+    * streams keep inheriting the host mesh, so a mesh shared by several
+    * nodes is baked independently for each instance and the source mesh is
+    * not modified. Names, weights, ordering and #aiMesh::mMethod are kept.
+    * When collapsing, meshes are only joined when their ordered target
+    * layout (method, count, names and weights) matches; present target
+    * channels are unioned and missing channels fall back to the baked base
+    * stream. With <tt>#AI_CONFIG_PP_PTV_NORMALIZE</tt> the normalization is
+    * derived from the baked base bounds only and the same mapping is applied
+    * to all target positions. Timeline animations are still removed, and
+    * bones and node matrices keep the regular handling. Default: false
+    * (morph targets behave as before).
     */
     aiProcess_PreTransformVertices = 0x100,
 

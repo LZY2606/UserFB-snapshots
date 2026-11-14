@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define AI_PRETRANSFORMVERTICES_H_INC
 
 #include "Common/BaseProcess.h"
+#include "Common/MorphTargetUtils.h"
 
 #include <assimp/mesh.h>
 
@@ -100,6 +101,21 @@ public:
 		return mConfigKeepHierarchy;
 	}
 
+	// -------------------------------------------------------------------
+	/** @brief Toggle the 'preserve morph targets' option
+     *  @param preserve true to bake and keep aiMesh::mAnimMeshes.
+     */
+	void PreserveMorphs(bool preserve) {
+		mConfigPreserveMorphs = preserve;
+	}
+
+	// -------------------------------------------------------------------
+	/** @brief Check whether morph targets are currently preserved.
+     */
+	bool AreMorphsPreserved() const {
+		return mConfigPreserveMorphs;
+	}
+
 private:
 	// -------------------------------------------------------------------
 	// Count the number of nodes
@@ -114,7 +130,7 @@ private:
 	// material index
 	void CountVerticesAndFaces(const aiScene *pcScene, const aiNode *pcNode,
 			unsigned int iMat,
-			unsigned int iVFormat,
+			const MorphTargetSpec &spec,
 			unsigned int *piFaces,
 			unsigned int *piVertices) const;
 
@@ -122,10 +138,11 @@ private:
 	// Collect vertex/face data
 	void CollectData(const aiScene *pcScene, const aiNode *pcNode,
 			unsigned int iMat,
-			unsigned int iVFormat,
+			const MorphTargetSpec &spec,
 			aiMesh *pcMeshOut,
 			unsigned int aiCurrent[2],
-			unsigned int *num_refs) const;
+			unsigned int *num_refs,
+			std::vector<MorphSource> *morphSources) const;
 
 	// -------------------------------------------------------------------
 	// Get a list of all vertex formats that occur for a given material
@@ -160,6 +177,8 @@ private:
 	bool mConfigTransform;
 	aiMatrix4x4 mConfigTransformation;
 	bool mConfigPointCloud;
+	//! Configuration option: bake and keep morph targets (anim meshes)
+	bool mConfigPreserveMorphs;
 };
 
 } // end of namespace Assimp

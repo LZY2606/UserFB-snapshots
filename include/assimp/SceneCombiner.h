@@ -137,6 +137,25 @@ struct NodeAttachmentInfo {
  */
 #define AI_INT_MERGE_SCENE_GEN_UNIQUE_NAMES_IF_NECESSARY 0x10
 
+/** @def AI_INT_MERGE_MESHES_PRESERVE_MORPHS
+ * Only honoured by SceneCombiner::MergeMeshes. Preserve the morph targets
+ * (aiMesh::mAnimMeshes) of the input meshes in the merged output.
+ *
+ * Inputs are compatible only when their ordered morph target layout matches:
+ * the same aiMesh::mMethod, target count, target names and target weights.
+ * Meshes without targets are only merged with other meshes without targets.
+ * Which optional streams a target overrides is not part of the layout;
+ * compatible targets union their present channels. A channel segment that a
+ * target does not override is filled from the already concatenated base
+ * stream of the corresponding input, and the output array stays null when no
+ * input overrides it at all.
+ *
+ * Incompatible layouts cause std::invalid_argument. Without this flag the
+ * behaviour is unchanged and morph targets are dropped. Inputs are never
+ * modified by the concatenation.
+ */
+#define AI_INT_MERGE_MESHES_PRESERVE_MORPHS 0x1
+
 using BoneSrcIndex = std::pair<aiBone *, unsigned int> ;
 
 // ---------------------------------------------------------------------------
@@ -233,7 +252,10 @@ public:
      *  material index is always the material index of the first mesh.
      *
      *  @param dest Destination mesh. Must be empty.
-     *  @param flags Currently no parameters
+     *  @param flags Combination of the AI_INT_MERGE_MESHES_* flags. Pass
+     *    AI_INT_MERGE_MESHES_PRESERVE_MORPHS to keep morph targets; the
+     *    inputs must then share an identical ordered target layout or
+     *    std::invalid_argument is thrown.
      *  @param begin First mesh to be processed
      *  @param end Points to the mesh after the last mesh to be processed
      */

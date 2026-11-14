@@ -1,0 +1,8 @@
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/contrib/zlib/CMakeFiles/zlibstatic.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/contrib/zlib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/contrib/zlib/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/code/CMakeFiles/assimp.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/code/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1978/attempts/20261114T171112310364Z/repo/.task-build/code/CMakeFiles/rebuild_cache.dir

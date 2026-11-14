@@ -33,6 +33,11 @@ ninja
 ## Documentation
 Read [our latest documentation](https://the-asset-importer-lib-documentation.readthedocs.io/en/latest/).
 
+Morph targets (blend shapes) can be kept while node transforms are baked into
+meshes: see [doc/morph-targets.md](doc/morph-targets.md) for the
+`AI_CONFIG_PP_PTV_PRESERVE_MORPHS` configuration and the
+`AI_INT_MERGE_MESHES_PRESERVE_MORPHS` concatenation flag.
+
 ## Pre-built binaries
 Download binaries from [our Itch Projectspace](https://kimkulling.itch.io/the-asset-importer-lib).
 

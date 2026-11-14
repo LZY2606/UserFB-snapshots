@@ -191,6 +191,8 @@ SET( Common_SRCS
   Common/VertexTriangleAdjacency.h
   Common/SpatialSort.cpp
   Common/SceneCombiner.cpp
+  Common/MorphTargetUtils.cpp
+  Common/MorphTargetUtils.h
   Common/ScenePreprocessor.cpp
   Common/ScenePreprocessor.h
   Common/SkeletonMeshBuilder.cpp
