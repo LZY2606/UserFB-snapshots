@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:fh="http://purl.org/syndication/history/1.0">
+ <title>Acquisition bulletin</title><id>urn:bulletin</id><updated>2026-11-14T00:00:00Z</updated>
+ <link rel="prev-archive" href="/archive"/>
+ <entry><id>urn:recent</id><title>Recent record</title><updated>2026-11-14T00:00:00Z</updated></entry>
+ <entry><id>urn:shared</id><title>Second record</title><updated>2026-11-13T00:00:00Z</updated></entry>
+</feed>

@@ -1,0 +1,4 @@
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:fh="http://purl.org/syndication/history/1.0">
+ <title>Archived bulletin</title><id>urn:archive</id><updated>2026-11-01T00:00:00Z</updated><fh:archive/>
+ <entry><id>urn:old</id><title>Historical record</title><updated>2026-10-30T00:00:00Z</updated></entry>
+</feed>
