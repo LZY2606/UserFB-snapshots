@@ -1,0 +1,28 @@
+{
+  "target": "test/scheduling-contract.test.mjs",
+  "groups": [
+    "Pool dispatch",
+    "Retry occupancy",
+    "Rate calendar"
+  ],
+  "build": "task_support/build.cjs",
+  "baseline": [
+    [
+      "task_support/wire-baseline.mjs"
+    ],
+    [
+      "task_support/scheduling-baseline.mjs"
+    ]
+  ],
+  "additionalFiles": [
+    "test/run-scheduling-mutations.mjs",
+    "test/scheduling-model.md"
+  ],
+  "post": "test/run-scheduling-mutations.mjs",
+  "markers": [
+    "SCHEDULING_BASE_OK",
+    "SCHEDULING_FIFO_CAUGHT",
+    "SCHEDULING_RETRY_CAUGHT",
+    "SCHEDULING_CALENDAR_CAUGHT"
+  ]
+}
