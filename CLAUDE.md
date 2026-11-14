@@ -26,7 +26,7 @@ This is a Go library for parsing Open Graph Protocol (OGP) metadata from web pag
 
 1. **OpenGraph struct** (opengraph.go:28-54): Central data structure holding all OGP metadata including basic fields (title, type, image, URL), optional fields (audio, description, video), and additional metadata (favicon). Uses an Intent field to control parsing behavior.
 
-2. **Intent struct** (intent.go): Configures parsing behavior including HTTP client, context, strict mode, trusted HTML tags, and custom HTTP headers. Controls whether non-standard tags are parsed and allows customization of request headers to bypass bot protection.
+2. **Intent struct** (intent.go): Configures parsing behavior including HTTP client, context, strict mode, trusted HTML tags, custom HTTP headers, and the `CollectMicroformats` switch. Controls whether non-standard tags are parsed and allows customization of request headers to bypass bot protection.
 
 3. **Tag Parsing System**:
    - **MetaTag** (meta.go): Parses `<meta>` tags and extracts OGP properties
@@ -34,6 +34,8 @@ This is a Go library for parsing Open Graph Protocol (OGP) metadata from web pag
    - **TitleTag** (tags.go): Falls back to `<title>` when no og:title exists (non-strict mode)
 
 4. **Structured Properties** (structured.go): Type definitions for nested OGP properties (Image, Video, Audio, Favicon) with their respective sub-properties.
+
+5. **Microformats2** (microformats.go): When `Intent.CollectMicroformats` is set, `Fetch`, `Parse`, and `Walk` additionally populate `OpenGraph.Microformats` with modern `h-*` roots, `p-*`/`u-*`/`e-*` properties, nested `children`, and implied `name`/`photo`/`url`. Relative URLs resolve against the first `<base href>` in scope, otherwise the document URL.
 
 ### Key Design Patterns
 

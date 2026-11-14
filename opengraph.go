@@ -3,6 +3,7 @@
 package opengraph
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -46,6 +47,10 @@ type OpenGraph struct {
 
 	// Additional (unofficial)
 	Favicon Favicon `json:"favicon"`
+
+	// Microformats holds Microformats2 roots collected from the page when
+	// Intent.CollectMicroformats is enabled.
+	Microformats []map[string]any `json:"microformats,omitempty"`
 
 	// Intent represents how to fetch, parse, and complete properties
 	// of this OpenGraph object.
@@ -122,7 +127,23 @@ func (og *OpenGraph) Fetch() error {
 		return fmt.Errorf("Content type must be text/html")
 	}
 
-	if err = og.Parse(res.Body); err != nil {
+	if og.Intent.CollectMicroformats {
+		body, readErr := io.ReadAll(res.Body)
+		if readErr != nil {
+			return readErr
+		}
+		node, parseErr := html.Parse(bytes.NewReader(body))
+		if parseErr != nil {
+			return parseErr
+		}
+		initial := og.Intent.URL
+		if res.Request != nil && res.Request.URL != nil {
+			initial = res.Request.URL.String()
+		}
+		if err = og.walkDocument(node, initial); err != nil {
+			return err
+		}
+	} else if err = og.Parse(res.Body); err != nil {
 		return err
 	}
 
@@ -145,6 +166,12 @@ func (og *OpenGraph) Parse(body io.Reader) error {
 
 // Walk scans HTML nodes to pick up meaningful OGP data.
 func (og *OpenGraph) Walk(node *html.Node) error {
+	return og.walkDocument(node, og.Intent.URL)
+}
+
+// walkDocument runs the existing OGP walk and, when enabled, collects
+// Microformats using initialBase unless the response supplied a final URL.
+func (og *OpenGraph) walkDocument(node *html.Node, initialBase string) error {
 	if len(og.Intent.TrustedTags) == 0 {
 		if og.Intent.Strict {
 			og.Intent.TrustedTags = []string{HTMLMetaTag}
@@ -152,7 +179,13 @@ func (og *OpenGraph) Walk(node *html.Node) error {
 			og.Intent.TrustedTags = []string{HTMLMetaTag, HTMLTitleTag, HTMLLinkTag}
 		}
 	}
-	return og.walk(node)
+	if err := og.walk(node); err != nil {
+		return err
+	}
+	if og.Intent.CollectMicroformats {
+		return og.collectMicroformats(node, initialBase)
+	}
+	return nil
 }
 
 func (og *OpenGraph) walk(node *html.Node) error {

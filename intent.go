@@ -29,4 +29,9 @@ type Intent struct {
 	// Headers to be sent with the HTTP request.
 	// If nil, default browser-like headers will be used.
 	Headers map[string]string
+
+	// CollectMicroformats enables Microformats2 extraction into
+	// OpenGraph.Microformats. It is disabled by default and is independent
+	// of Strict and TrustedTags.
+	CollectMicroformats bool
 }

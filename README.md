@@ -81,6 +81,34 @@ ogp.ToAbs()
 ogp.Image[0].URL // https://ogp.me/logo.png
 ```
 
+# Microformats2
+
+Pages often mark up people and articles with Microformats2 (`h-card`,
+`h-entry`, `p-name`, `u-url`, ...). Enable `CollectMicroformats` to collect
+the modern `h-*` roots alongside the Open Graph data:
+
+```go
+ogp := opengraph.New("https://example.com/people/alice")
+ogp.Intent.CollectMicroformats = true
+if err := ogp.Fetch(); err != nil {
+	log.Fatal(err)
+}
+for _, root := range ogp.Microformats {
+	fmt.Println(root["type"], root["properties"])
+}
+```
+
+`OpenGraph.Microformats` is serialized as `microformats` and omitted when
+empty. Each entry follows the Microformats2 object shape: `type` is the
+sorted list of `h-*` classes on the root, `properties` maps property names
+to ordered value arrays, `children` holds nested roots without a property
+class, and a non-empty `id` is preserved. Implied `name`, `photo`, and `url`
+values are derived with the parsing specification rules; relative URLs are
+resolved against the effective `<base href>` when one exists, otherwise the
+document URL. This switch is independent of `Strict` and `TrustedTags`, and
+`dt-*`, legacy microformats, `include`/`itemref`/`headers` references and
+`rel` collections are out of scope.
+
 # Issues
 
 - https://github.com/otiai10/opengraph/issues
