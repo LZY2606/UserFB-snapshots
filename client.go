@@ -86,10 +86,11 @@ func (c *Client) NewConnection(r *http.Request) *Connection {
 	mergeDefaults(&client)
 
 	conn := &Connection{
-		client:       client,               // we clone the client so the config cannot be modified from outside
-		request:      r.Clone(r.Context()), // we clone the request so its fields cannot be modified from outside
-		callbacks:    map[string]map[int]EventCallback{},
-		callbacksAll: map[int]EventCallback{},
+		client:        client,               // we clone the client so the config cannot be modified from outside
+		request:       r.Clone(r.Context()), // we clone the request so its fields cannot be modified from outside
+		callbacks:     map[string]map[int]EventCallback{},
+		callbacksAll:  map[int]EventCallback{},
+		consumeNotify: make(chan struct{}),
 	}
 
 	return conn

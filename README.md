@@ -23,6 +23,7 @@ Lightweight, fully spec-compliant HTML5 server-sent events library.
     - [Subscribing to events](#subscribing-to-events)
     - [Establishing the connection](#establishing-the-connection)
     - [Connection lost?](#connection-lost)
+    - [Explicit acknowledgements and concurrent processing](#explicit-acknowledgements-and-concurrent-processing)
     - [The “Hello world” server’s client](#the-hello-world-servers-client)
   - [License](#license)
   - [Contributing](#contributing)
@@ -411,6 +412,54 @@ Not a sweat, though! The connection will automatically be reattempted after a mi
 If the server doesn’t set a retry time, the reconnection time from the client’s
 [`Backoff`](https://pkg.go.dev/github.com/tmaxmax/go-sse#Backoff)
 configuration is used, 500ms by default.
+
+### Explicit acknowledgements and concurrent processing
+
+`Connect` and the `Subscribe` methods deliver an event and immediately treat it as
+processed: the connection’s `Last-Event-ID` cursor advances as soon as a callback
+returns, even if the callback only queued the event for a worker goroutine. If the
+connection is lost before that work finishes, the unprocessed events are not
+requested again.
+
+Use `Connection.Consume` when the consumer decides when an event is done. It takes a
+window and a handler. The handler receives the event and an acknowledgement
+function; it should return quickly, and may hand both to another goroutine:
+
+```go
+jobs := make(chan job)
+err := conn.Consume(16, func(event sse.Event, ack func() bool) {
+    // Do not acknowledge here unless the work below is already done.
+    jobs <- job{event: event, ack: ack}
+})
+
+// worker:
+for j := range jobs {
+    process(j.event)      // business logic, possibly concurrent with others
+    j.ack()               // returns false if the delivery is stale
+}
+```
+
+The window counts deliveries that have not yet crossed a contiguous acknowledged
+prefix: if the second event is acknowledged before the first, the gap keeps the
+window occupied. When the window is full, `Consume` stops parsing instead of
+buffering the rest of the stream. The acknowledgement function returns `true`
+only on its first call for a delivery of the current connection attempt; on every
+reconnection the acknowledged prefix is preserved as the new `Last-Event-ID` and
+all other deliveries and acknowledgement functions are invalidated.
+
+A few consequences worth knowing:
+
+- Events may be replayed after a reconnection. `Consume` does not deduplicate
+  them by ID (`id` values are opaque: they may repeat, be inherited, or be empty).
+- Acknowledgement means “the business logic is done with this event”. It does
+  not make a side effect in an external system exactly-once: if the process
+  crashes between the external write and the acknowledgement, the event is
+  replayed. Key your writes by the event ID or make them idempotent.
+- `Consume` and the `Subscribe` methods must not be used on the same
+  `Connection`; `Consume` owns event delivery for that connection.
+
+See [`cmd/consume`](cmd/consume/main.go) for a complete example with a bounded
+worker pool.
 
 ### The “Hello world” server’s client
 

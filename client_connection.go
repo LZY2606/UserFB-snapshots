@@ -37,6 +37,15 @@ type Connection struct { //nolint:govet // The current order aids readability.
 	bufMaxSize   int
 	callbackID   int
 	isRetry      bool
+
+	// State used by Consume.
+	consumeNotify      chan struct{}
+	consumeHandler     func(Event, func() bool)
+	consumeEpoch       *consumeEpoch
+	consumeInitialID   string
+	consumeLastAckedID string
+	consumeWindow      int
+	consumeAcked       bool
 }
 
 // SubscribeMessages subscribes the given callback to all events without type (without or with empty `event` field).
@@ -126,6 +135,13 @@ func (e *ConnectionError) Unwrap() error {
 }
 
 func (c *Connection) resetRequest() error {
+	return c.resetRequestWith(func() (string, bool) { return c.lastEventID, true })
+}
+
+// resetRequestWith resets the request body and the Last-Event-ID header before
+// a reconnection attempt. The lastID function returns the ID to send and whether
+// the header should be updated at all.
+func (c *Connection) resetRequestWith(lastID func() (string, bool)) error {
 	if !c.isRetry {
 		c.isRetry = true
 		return nil
@@ -133,10 +149,14 @@ func (c *Connection) resetRequest() error {
 	if err := resetRequestBody(c.request); err != nil {
 		return err
 	}
-	if c.lastEventID == "" {
+	id, update := lastID()
+	if !update {
+		return nil
+	}
+	if id == "" {
 		c.request.Header.Del("Last-Event-ID")
 	} else {
-		c.request.Header.Set("Last-Event-ID", c.lastEventID)
+		c.request.Header.Set("Last-Event-ID", id)
 	}
 	return nil
 }
@@ -159,14 +179,16 @@ func (c *Connection) dispatch(ev Event) {
 	}
 }
 
-func (c *Connection) read(r io.Reader, setRetry func(time.Duration)) error {
-	pf := func() *parser.Parser {
-		p := parser.New(r)
-		if c.buf != nil || c.bufMaxSize > 0 {
-			p.Buffer(c.buf, c.bufMaxSize)
-		}
-		return p
+func (c *Connection) parser(r io.Reader) *parser.Parser {
+	p := parser.New(r)
+	if c.buf != nil || c.bufMaxSize > 0 {
+		p.Buffer(c.buf, c.bufMaxSize)
 	}
+	return p
+}
+
+func (c *Connection) read(r io.Reader, setRetry func(time.Duration)) error {
+	pf := func() *parser.Parser { return c.parser(r) }
 
 	var readErr error
 	read(pf, c.lastEventID, func(r int64) { setRetry(time.Duration(r) * time.Millisecond) }, false)(func(e Event, err error) bool {
@@ -195,11 +217,20 @@ func (c *Connection) read(r io.Reader, setRetry func(time.Duration)) error {
 // inside a *ConnectionError.
 func (c *Connection) Connect() error {
 	ctx := c.request.Context()
-	backoff := c.client.Backoff.new()
 
 	c.request.Header.Set("Accept", "text/event-stream")
 	c.request.Header.Set("Connection", "keep-alive")
 	c.request.Header.Set("Cache", "no-cache")
+
+	return c.retryLoop(ctx, func(setRetry func(time.Duration)) (bool, error) {
+		return c.doConnect(ctx, setRetry)
+	})
+}
+
+// retryLoop runs the connection attempts according to the client's backoff
+// configuration. It is shared by Connect and Consume.
+func (c *Connection) retryLoop(ctx context.Context, attempt func(setRetry func(time.Duration)) (bool, error)) error {
+	backoff := c.client.Backoff.new()
 
 	t := time.NewTimer(0)
 	defer t.Stop()
@@ -207,7 +238,7 @@ func (c *Connection) Connect() error {
 	for {
 		select {
 		case <-t.C:
-			shouldRetry, err := c.doConnect(ctx, backoff.reset)
+			shouldRetry, err := attempt(backoff.reset)
 			if !shouldRetry {
 				return err
 			}
@@ -228,8 +259,17 @@ func (c *Connection) Connect() error {
 	}
 }
 
-func (c *Connection) doConnect(ctx context.Context, setRetry func(time.Duration)) (shouldRetry bool, err error) {
-	if err := c.resetRequest(); err != nil {
+func (c *Connection) doConnect(ctx context.Context, setRetry func(time.Duration)) (bool, error) {
+	return c.runAttempt(ctx, c.resetRequest, setRetry, func(res *http.Response, setRetry func(time.Duration)) error {
+		return c.read(res.Body, setRetry)
+	})
+}
+
+// runAttempt executes a single HTTP request attempt, shared by Connect and Consume.
+// The body is always closed after the attempt. The read function handles the
+// response body; it returns the error that ended the attempt.
+func (c *Connection) runAttempt(ctx context.Context, reset func() error, setRetry func(time.Duration), readBody func(*http.Response, func(time.Duration)) error) (shouldRetry bool, err error) {
+	if err := reset(); err != nil {
 		return false, &ConnectionError{Req: c.request, Reason: "request reset failed", Err: err}
 	}
 
@@ -241,6 +281,7 @@ func (c *Connection) doConnect(ctx context.Context, setRetry func(time.Duration)
 		}
 		return true, &ConnectionError{Req: c.request, Reason: "connection to server failed", Err: concrete.Err}
 	}
+	res.Body = &onceCloser{ReadCloser: res.Body}
 	defer res.Body.Close()
 
 	if err := c.client.ResponseValidator(res); err != nil {
@@ -249,12 +290,25 @@ func (c *Connection) doConnect(ctx context.Context, setRetry func(time.Duration)
 
 	setRetry(0)
 
-	err = c.read(res.Body, setRetry)
+	err = readBody(res, setRetry)
 	if errors.Is(err, ctx.Err()) {
 		return false, err
 	}
 
 	return true, &ConnectionError{Req: c.request, Reason: "connection to server lost", Err: err}
+}
+
+// onceCloser guarantees that the response body is closed only once, even when
+// both the read path and the attempt teardown try to close it.
+type onceCloser struct {
+	io.ReadCloser
+	once sync.Once
+	err  error
+}
+
+func (c *onceCloser) Close() error {
+	c.once.Do(func() { c.err = c.ReadCloser.Close() })
+	return c.err
 }
 
 // ErrNoGetBody is a sentinel error returned when the connection cannot be reattempted
