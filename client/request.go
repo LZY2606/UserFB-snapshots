@@ -28,6 +28,11 @@ type Request struct {
 	// Set this true to cancel requests. Should be used on middlewares.
 	Cancelled bool
 
+	// DedupScope scopes duplicate URL filtering. Requests with the same
+	// non-empty scope are deduplicated only against requests within that
+	// scope. Empty scope keeps the default global deduplication.
+	DedupScope string
+
 	// Chrome actions to be run if the request is Rendered
 	Actions []chromedp.Action
 

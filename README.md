@@ -50,6 +50,66 @@ func quotesParse(g *geziyor.Geziyor, r *client.Response) {
 
 See [tests](https://github.com/geziyor/geziyor/blob/master/geziyor_test.go) for more usage examples.
 
+### Staged Crawls
+
+With `StartPlan` a crawl can be split into dependent stages instead of one big
+`ParseFunc`. A stage runs only after all stages in its `After` list completed
+successfully (all of its requests, including recursively submitted ones, are
+drained first). Independent stages run concurrently. If a stage fails, its
+successors are skipped while unrelated branches finish, and the returned
+`PlanError` names the failed and skipped stages.
+
+This example extracts quotes page by page in a `catalog` stage and only then
+runs a `summary` stage:
+
+```go
+func main() {
+    g := geziyor.NewGeziyor(&geziyor.Options{
+        Exporters: []export.Exporter{&export.JSON{}},
+    })
+    err := g.StartPlan([]geziyor.CrawlStage{
+        {
+            Name: "catalog",
+            Seed: func(s *geziyor.Stage) error {
+                return s.Get("http://quotes.toscrape.com/", catalogParse)
+            },
+        },
+        {
+            Name:  "summary",
+            After: []string{"catalog"}, // starts once catalog fully drained
+            Seed: func(s *geziyor.Stage) error {
+                s.Geziyor().Exports <- map[string]interface{}{"status": "catalog done"}
+                return nil
+            },
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func catalogParse(s *geziyor.Stage, r *client.Response) error {
+    r.HTMLDoc.Find("div.quote").Each(func(i int, q *goquery.Selection) {
+        s.Geziyor().Exports <- map[string]interface{}{
+            "text":   q.Find("span.text").Text(),
+            "author": q.Find("small.author").Text(),
+        }
+    })
+    if href, ok := r.HTMLDoc.Find("li.next > a").Attr("href"); ok {
+        // Follow-up requests submitted while the callback runs are tracked
+        // by the stage; the stage finishes only when they are done.
+        return s.Get(r.JoinURL(href), catalogParse)
+    }
+    return nil
+}
+```
+
+Stage requests go through the regular middleware, retry and response
+processing chain. GET requests are deduplicated per stage, so different
+stages may fetch the same URL again. Rendered and synchronized requests are
+not supported in stages. A `Geziyor` instance starts only once: use either
+`Start` or `StartPlan`.
+
 ## Documentation
 
 ### Installation

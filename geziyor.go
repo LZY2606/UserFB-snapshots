@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
 // Geziyor is our main scraper type
@@ -37,6 +38,7 @@ type Geziyor struct {
 		hostSems map[string]chan struct{}
 	}
 	shutdown bool
+	started  int32
 }
 
 // NewGeziyor creates new Geziyor with default values.
@@ -140,6 +142,10 @@ func NewGeziyor(opt *Options) *Geziyor {
 
 // Start starts scraping
 func (g *Geziyor) Start() {
+	if !atomic.CompareAndSwapInt32(&g.started, 0, 1) {
+		internal.Logger.Println("Scraper already started")
+		return
+	}
 	internal.Logger.Println("Scraping Started")
 
 	// Metrics
