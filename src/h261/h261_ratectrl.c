@@ -151,6 +151,10 @@ Void h261_init_ratectrl( h261_context_t *ps_ctx, Int32 i_quant, Int32 i_bitrate,
 	ps_ratectrl->f_wanted_bits = i_bitrate * ps_ratectrl->f_framerate;
 	ps_ratectrl->f_bits_quant = ps_ratectrl->f_actual_bits * ps_ratectrl->i_current_quant;
 
+	/* reinitialising through the legacy entry point leaves GOB budget mode */
+	ps_ctx->s_gob_budget.i_enabled = 0;
+	h261_gob_budget_deinit( ps_ctx );
+
 }
 
 
@@ -186,6 +190,11 @@ Void h261_ratectrl_init_picture( h261_context_t *ps_ctx, h261_picture_parameters
 		ps_ratectrl->i_current_quant = MIN( 31, MAX( 0, ( Int32 ) floorf( f_quantizer + 0.5f ) ) );
 		ps_picture->i_quantiser = ps_ratectrl->i_current_quant;
 	}
+	else if( ps_ratectrl->i_ratectrl_mode == H261_RATECTRL_MODE_GOB_BUDGET )
+	{
+		/* per-GOB quantiser selection happens inside the GOB encoder */
+		h261_gob_budget_init_picture( ps_ctx, ps_picture );
+	}
 }
 
 
@@ -201,6 +210,71 @@ Void h261_ratectrl_update_picture( h261_context_t *ps_ctx, Int32 i_bitstream_byt
 		ps_ratectrl->f_wanted_bits += ps_ratectrl->f_bitrate * ps_ratectrl->f_framerate;
 		ps_ratectrl->f_bits_quant += i_bitstream_bytes * 8 * ps_ratectrl->i_current_quant;
 	}
+}
+
+
+Int32 h261_ratectrl_init_gob_budget( h261_context_t *ps_ctx, const h261_gob_budget_config_t *ps_config )
+{
+	h261_gob_budget_state_t *ps_state;
+	Int64 i64_ratio_num, i64_ratio_den;
+
+	if( ps_config == NULL )
+	{
+		return 0;
+	}
+
+	if( ps_config->i_bitrate < 1 || ps_config->i_bitrate > 100000000 )
+	{
+		return 0;
+	}
+	if( ps_config->i_buffer_bits < 1 || ps_config->i_buffer_bits > 1000000000 )
+	{
+		return 0;
+	}
+	if( ps_config->i_fps_num < 1 || ps_config->i_fps_num > 1000000 ||
+		ps_config->i_fps_den < 1 || ps_config->i_fps_den > 1000000 )
+	{
+		return 0;
+	}
+
+	/* frame rate ratio fps_num/fps_den must lie in [1, 120] */
+	i64_ratio_num = ( Int64 ) ps_config->i_fps_num;
+	i64_ratio_den = ( Int64 ) ps_config->i_fps_den;
+	if( i64_ratio_num < i64_ratio_den || i64_ratio_num > 120 * i64_ratio_den )
+	{
+		return 0;
+	}
+
+	ps_state = &ps_ctx->s_gob_budget;
+
+	ps_state->i_bitrate = ps_config->i_bitrate;
+	ps_state->i_fps_num = ps_config->i_fps_num;
+	ps_state->i_fps_den = ps_config->i_fps_den;
+	ps_state->i_buffer_bits = ps_config->i_buffer_bits;
+	ps_state->pf_observe = ps_config->pf_observe;
+	ps_state->p_opaque = ps_config->p_opaque;
+
+	ps_state->i_gobs_per_frame = ( ps_ctx->i_source_format == H261_SOURCE_FORMAT_CIF ) ? 12 : 3;
+
+	/* cumulative budget after K GOBs is floor( K * budget_num / budget_den ) */
+	ps_state->i_budget_num = ( Int64 ) ps_config->i_bitrate * ( Int64 ) ps_config->i_fps_den;
+	ps_state->i_budget_den = ( Int64 ) ps_config->i_fps_num * ( Int64 ) ps_state->i_gobs_per_frame;
+
+	/* restart the budget history */
+	ps_state->i_gob_counter = 0;
+	ps_state->i_debt = 0;
+	ps_state->i_coded_total = 0;
+	ps_state->i_target_total = 0;
+	ps_state->i_budget_remain = 0;
+	ps_state->i_trials = 0;
+	ps_state->i_frame_num = 0;
+	ps_state->i_gob_number = 0;
+	ps_state->i_gob_index_in_frame = 0;
+
+	ps_state->i_enabled = 1;
+	ps_ctx->s_ratectrl.i_ratectrl_mode = H261_RATECTRL_MODE_GOB_BUDGET;
+
+	return 1;
 }
 
 

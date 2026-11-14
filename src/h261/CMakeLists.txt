@@ -36,6 +36,8 @@ add_executable(h261enc
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_decl.h
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_gob.c
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_gob.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/h261_gob_budget.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/h261_gob_budget.h
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_macroblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_macroblock.h
     ${CMAKE_CURRENT_SOURCE_DIR}/h261_main.c

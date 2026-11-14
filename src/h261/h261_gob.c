@@ -36,6 +36,10 @@ Void h261_encode_gobs( h261_context_t *ps_ctx )
 {
 	Int32 i_idx;
 	Int32 i_gob_idx, i_offset_x, i_offset_y;
+	Void ( *pf_encode_gob )( h261_context_t *, Int32, Int32, Int32 );
+
+	pf_encode_gob = h261_gob_budget_active( ps_ctx ) ?
+		h261_gob_budget_encode_gob : h261_encode_gob;
 
 	if( ps_ctx->i_source_format == H261_SOURCE_FORMAT_CIF )
 	{
@@ -60,7 +64,7 @@ Void h261_encode_gobs( h261_context_t *ps_ctx )
 			i_offset_x = rgi_cif[ i_idx ][ 1 ] * H261_GOB_WIDTH;
 			i_offset_y = rgi_cif[ i_idx ][ 2 ] * H261_GOB_HEIGHT;
 
-			h261_encode_gob( ps_ctx, i_gob_idx, i_offset_x, i_offset_y );
+			pf_encode_gob( ps_ctx, i_gob_idx, i_offset_x, i_offset_y );
 		}
 	}
 	else
@@ -77,7 +81,7 @@ Void h261_encode_gobs( h261_context_t *ps_ctx )
 			i_offset_x = rgi_qcif[ i_idx ][ 1 ] * H261_GOB_WIDTH;
 			i_offset_y = rgi_qcif[ i_idx ][ 2 ] * H261_GOB_HEIGHT;
 
-			h261_encode_gob( ps_ctx, i_gob_idx, i_offset_x, i_offset_y );
+			pf_encode_gob( ps_ctx, i_gob_idx, i_offset_x, i_offset_y );
 		}
 	}
 }

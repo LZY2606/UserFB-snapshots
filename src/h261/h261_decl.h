@@ -56,6 +56,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 #include "h261_ratectrl.h"
+#include "h261_gob_budget.h"
 #include "h261_moded.h"
 
 #include "sys_win32.h"

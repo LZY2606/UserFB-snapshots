@@ -67,6 +67,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #define H261_RATECTRL_MODE_QUANT	1
 #define H261_RATECTRL_MODE_VBR		2
+#define H261_RATECTRL_MODE_GOB_BUDGET	3
 
 #define MAX_COST ( 1 << 30 )
 
@@ -202,6 +203,38 @@ typedef struct {
 } h261_ratectrl_t;
 
 
+/* Full definition of the stats record lives in h261_ratectrl.h. */
+struct h261_gob_budget_stats_s;
+
+/* Runtime state of the optional per-GOB budget mode (see h261_ratectrl.h). */
+typedef struct {
+	Int32 i_enabled;          /* nonzero while GOB budget mode is active */
+	Int32 i_bitrate;          /* bit/s */
+	Int32 i_fps_num;          /* frame rate numerator */
+	Int32 i_fps_den;          /* frame rate denominator */
+	Int32 i_buffer_bits;      /* buffer size in bits */
+	Void ( *pf_observe )( const struct h261_gob_budget_stats_s *, Void * );
+	Void *p_opaque;
+
+	Int32 i_gobs_per_frame;   /* G: 3 for QCIF, 12 for CIF */
+	Int64 i_gob_counter;      /* K: committed GOBs since the last (re)start */
+	Int64 i_debt;             /* D: settlement debt, never reset or clamped */
+	Int64 i_coded_total;      /* cumulative effective committed bits */
+	Int64 i_target_total;     /* cumulative link budget, bits */
+	Int64 i_budget_num;       /* bitrate * fps_den: per-GOB numerator step */
+	Int64 i_budget_den;       /* fps_num * G: budget divisor */
+	Int64 i_budget_remain;    /* saved integer remainder of the budget clock */
+
+	Int32 i_frame_num;        /* frame number of the picture being coded */
+	Int32 i_gob_number;       /* GOB number taken from the bitstream */
+	Int32 i_gob_index_in_frame;/* 0-based position of the GOB in the picture */
+	Int32 i_trials;           /* real candidate encodings run for this GOB */
+	Int64 i_frame_start_bits; /* writer bit position just before the picture header */
+
+	Void *p_workspace;        /* per-GOB scratch/best workspace, NULL if unused */
+} h261_gob_budget_state_t;
+
+
 typedef struct {
 	Int32	i_source_format;
 
@@ -215,6 +248,8 @@ typedef struct {
 	h261_bitstream_t s_bitstream;
 
 	h261_ratectrl_t		s_ratectrl;
+
+	h261_gob_budget_state_t	s_gob_budget;
 
 	h261_mb_cache_t *ps_mb_cache;
 

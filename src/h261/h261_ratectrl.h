@@ -37,3 +37,50 @@ Void h261_ratectrl_update_picture( h261_context_t *ps_ctx, Int32 i_bitstream_len
 Void h261_ratectrl_collect_picture_stats( h261_context_t *ps_ctx, h261_picture_parameters_t *ps_picture );
 
 Void h261_ratectrl_finish( h261_context_t *ps_ctx );
+
+
+/*
+ * Optional per-GOB budget rate control mode.
+ *
+ * When enabled, every GOB is trial encoded with each base GQUANT from 1 to
+ * 31; the candidate with the smallest reconstruction SSE that still fits the
+ * link buffer is committed. The fixed-quantizer (H261_RATECTRL_MODE_QUANT)
+ * and whole-frame VBR (H261_RATECTRL_MODE_VBR) modes are unaffected. The
+ * mode is switched off again by calling h261_init_ratectrl().
+ */
+
+/* Per-GOB statistics handed to the observe callback. */
+typedef struct h261_gob_budget_stats_s {
+	Int32 i_frame_num;       /* input frame number of the picture */
+	Int32 i_gob_number;      /* GOB number as written into the bitstream (1..12) */
+	Int32 i_gquant;          /* base GQUANT of the committed candidate (1..31) */
+	Int32 i_overflow;        /* 1 if no candidate fit the buffer, else 0 */
+	Int32 i_trials;          /* number of real candidate encodings for this GOB */
+	Int64 i_bits;            /* effective bits spent on this GOB */
+	Int64 i_quota;           /* budget quota granted to this GOB, in bits */
+	Int64 i_target_total;    /* cumulative link budget after this GOB, in bits */
+	Int64 i_coded_total;     /* cumulative effective bits after this GOB */
+	Int64 i_debt_after;      /* settlement debt D after this GOB, in bits */
+	Int64 i_sse;             /* Y/Cb/Cr reconstruction SSE of the committed GOB */
+} h261_gob_budget_stats_t;
+
+typedef Void ( *h261_gob_budget_observe_t )( const h261_gob_budget_stats_t *ps_stats, Void *p_opaque );
+
+typedef struct {
+	Int32 i_bitrate;                         /* link bitrate, 1..100000000 bit/s */
+	Int32 i_fps_num;                         /* frame rate numerator, 1..1000000 */
+	Int32 i_fps_den;                         /* frame rate denominator, 1..1000000 */
+	Int32 i_buffer_bits;                     /* buffer size, 1..1000000000 bits */
+	h261_gob_budget_observe_t pf_observe;    /* may be NULL */
+	Void *p_opaque;                          /* passed back to pf_observe */
+} h261_gob_budget_config_t;
+
+/*
+ * Enable the GOB budget mode. Returns 1 on success, 0 if ps_config is NULL or
+ * any field is out of range (in which case the control state is untouched).
+ * On success the budget history (debt, cumulative counters) is restarted.
+ * Reinitialising with h261_init_ratectrl() disables the mode again.
+ * The configured frame rate only drives the budget clock; it does not change
+ * the meaning of temporal_reference.
+ */
+Int32 h261_ratectrl_init_gob_budget( h261_context_t *ps_ctx, const h261_gob_budget_config_t *ps_config );
