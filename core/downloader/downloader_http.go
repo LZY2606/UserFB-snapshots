@@ -50,6 +50,8 @@ func (this *HttpDownloader) Download(req *request.Request) *page.Page {
         return this.downloadJson(p, req)
     case "text":
         return this.downloadText(p, req)
+    case "file":
+        return this.downloadFileTarget(p, req)
     default:
         mlog.LogInst().LogError("error request type:" + mtype)
     }

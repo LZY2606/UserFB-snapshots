@@ -85,6 +85,61 @@ If you make a Pipeline module, you can use it by `Spider.AddPipeline(your_pipeli
 If you make a Scheduler module, you can use it by `Spider.SetScheduler(your_scheduler)`.
 
 
+## Downloading large files to disk
+
+Responses of type `"file"` are never loaded into the `Page` body. Point a
+request at a destination with `SetFileTarget(path, chunkSize, workers)` and the
+downloader keeps the raw bytes on disk: it probes the representation with a
+one-byte `Range`, binds the strong ETag/total length/final URL together, and
+fetches fixed blocks in parallel. Completion is recorded in
+`<path>.ranges.json` alongside the staging file `<path>.part`, so an
+interrupted or failed download resumes across processes and never mixes two
+server versions. The destination path is replaced atomically only after every
+block has been verified; until then `Page.GetFilePath()` stays empty and the
+existing destination is left untouched. `html`, `json`, `jsonp` and `text`
+requests keep their previous behavior.
+
+``` Go
+type exportProcesser struct{}
+
+func (e *exportProcesser) Process(p *page.Page) {
+    // Nonempty only after the file has been fully published.
+    path := p.GetFilePath()
+    if path == "" {
+        return
+    }
+    b, err := os.ReadFile(path) // the processor sees the complete file
+    if err != nil {
+        p.SetStatus(true, err.Error())
+        return
+    }
+    p.AddField("path", path)
+    p.AddField("sha256", fmt.Sprintf("%x", sha256.Sum256(b)))
+}
+
+func (e *exportProcesser) Finish() {}
+
+func main() {
+    req := request.NewRequest(
+        "https://example.com/exports/2026/data.bin", "file", "export",
+        "GET", "", nil, nil, nil, nil,
+    ).SetFileTarget("/data/export.bin", 4<<20 /* 4 MiB blocks */, 4 /* workers */)
+
+    spider.NewSpider(&exportProcesser{}, "file-export").
+        AddRequest(req).
+        AddPipeline(pipeline.NewPipelineConsole()).
+        SetThreadnum(1).
+        Run()
+}
+```
+
+File capture requires a bodyless GET, a nonempty destination whose parent
+directory exists, and positive `chunkSize`/`workers`; a caller-supplied
+`Range` or `If-Range` header is rejected before any I/O. The downloader forces
+`Accept-Encoding: identity` and preserves the original headers, cookies, proxy
+and redirect callback without mutating the request.
+
+
 ## Extensions
 
 Extensions folder include modulers or other tools someone sharing. You can push your code without bugs.

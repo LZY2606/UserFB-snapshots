@@ -6,6 +6,7 @@ import (
     "io/ioutil"
     "net/http"
     "os"
+    "path/filepath"
 
     "github.com/hu17889/go_spider/core/common/mlog"
 )
@@ -42,6 +43,43 @@ type Request struct {
     checkRedirect func(req *http.Request, via []*http.Request) error
 
     Meta interface{}
+
+    // File capture configuration, used only when RespType is "file".
+    // They are set through SetFileTarget and never mutate Header or Cookies.
+    filePath  string
+    chunkSize int64
+    workers   int
+}
+
+// SetFileTarget selects on-disk capture for a "file" request. path is the
+// final destination; chunkSize is the fixed block span in bytes and workers
+// bounds the number of concurrent block responses. It returns the same
+// Request so calls can be chained. The cleaned path, positive block size and
+// positive worker count are validated again by the downloader before I/O.
+func (this *Request) SetFileTarget(path string, chunkSize int64, workers int) *Request {
+    this.filePath = path
+    this.chunkSize = chunkSize
+    this.workers = workers
+    return this
+}
+
+// GetFilePath returns the cleaned configured destination path, or "" when
+// SetFileTarget has not been called.
+func (this *Request) GetFilePath() string {
+    if this.filePath == "" {
+        return ""
+    }
+    return filepath.Clean(this.filePath)
+}
+
+// GetChunkSize returns the configured block size in bytes.
+func (this *Request) GetChunkSize() int64 {
+    return this.chunkSize
+}
+
+// GetWorkers returns the configured concurrent block worker count.
+func (this *Request) GetWorkers() int {
+    return this.workers
 }
 
 // NewRequest returns initialized Request object.
@@ -56,14 +94,22 @@ func NewRequest(url string, respType string, urltag string, method string,
     postdata string, header http.Header, cookies []*http.Cookie,
     checkRedirect func(req *http.Request, via []*http.Request) error,
     meta interface{}) *Request {
-    return &Request{url, respType, method, postdata, urltag, header, cookies, "", checkRedirect, meta}
+    return &Request{
+        Url: url, RespType: respType, Method: method, Postdata: postdata,
+        Urltag: urltag, Header: header, Cookies: cookies, ProxyHost: "",
+        checkRedirect: checkRedirect, Meta: meta,
+    }
 }
 
 func NewRequestWithProxy(url string, respType string, urltag string, method string,
     postdata string, header http.Header, cookies []*http.Cookie, proxyHost string,
     checkRedirect func(req *http.Request, via []*http.Request) error,
     meta interface{}) *Request {
-    return &Request{url, respType, method, postdata, urltag, header, cookies, proxyHost, checkRedirect, meta}
+    return &Request{
+        Url: url, RespType: respType, Method: method, Postdata: postdata,
+        Urltag: urltag, Header: header, Cookies: cookies, ProxyHost: proxyHost,
+        checkRedirect: checkRedirect, Meta: meta,
+    }
 }
 
 func NewRequestWithHeaderFile(url string, respType string, headerFile string) *Request {

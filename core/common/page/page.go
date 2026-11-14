@@ -38,6 +38,11 @@ type Page struct {
     // And pItems is output in Pipline.
     pItems *page_items.PageItems
 
+    // filePath is the published on-disk result of a "file" request. It stays
+    // empty until the downloader atomically replaces the destination path,
+    // so PageProcesser can never observe a half-written file.
+    filePath string
+
     // The targetRequests is requests to put into Scheduler.
     targetRequests []*request.Request
 }
@@ -189,6 +194,19 @@ func (this *Page) SetBodyStr(body string) *Page {
 // GetBodyStr returns plain string crawled.
 func (this *Page) GetBodyStr() string {
     return this.body
+}
+
+// SetFilePath records the published destination of a successful "file"
+// download. It is called only after the staging file has replaced the target.
+func (this *Page) SetFilePath(path string) *Page {
+    this.filePath = path
+    return this
+}
+
+// GetFilePath returns the published file path, or "" while the capture is
+// absent or unsuccessful.
+func (this *Page) GetFilePath() string {
+    return this.filePath
 }
 
 // SetHtmlParser saves goquery object binded to target crawl result.
