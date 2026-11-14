@@ -38,6 +38,8 @@ void htmlcxx::HTML::ParserSax::parse(_Iterator &begin, _Iterator &end, std::forw
 	mCdata = false;
 	mpLiteral = 0;
 	mCurrentOffset = 0;
+	mStreamActive = false;
+	mStreamBuf.clear();
 	this->beginParsing();
 
 //	DEBUGP("Parsed text\n");

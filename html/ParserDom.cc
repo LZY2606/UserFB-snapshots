@@ -22,6 +22,7 @@ const tree<HTML::Node>& ParserDom::parseTree(const std::string &html)
 void ParserDom::beginParsing()
 {
 	mHtmlTree.clear();
+	mParsingDone = false;
 	tree<HTML::Node>::iterator top = mHtmlTree.begin();
 	HTML::Node lambda_node;
 	lambda_node.offset(0);
@@ -35,18 +36,76 @@ void ParserDom::endParsing()
 {
 	tree<HTML::Node>::iterator top = mHtmlTree.begin();
 	top->length(mCurrentOffset);
+	mParsingDone = true;
+}
+
+void ParserDom::updateRootLength()
+{
+	// The virtual root of the live tree always spans the bytes of the
+	// tokens emitted so far, also between feed() calls
+	if (!mHtmlTree.empty())
+		mHtmlTree.begin()->length(mCurrentOffset);
+}
+
+tree<HTML::Node> ParserDom::takeCompleted()
+{
+	tree<HTML::Node> out;
+
+	HTML::Node lambda_node;
+	lambda_node.offset(0);
+	lambda_node.length(0);
+	lambda_node.isTag(true);
+	lambda_node.isComment(false);
+
+	if (!mHtmlTree.empty())
+		lambda_node = *mHtmlTree.begin();
+
+	out.set_head(lambda_node);
+	tree<HTML::Node>::iterator out_root = out.begin();
+
+	if (mHtmlTree.empty())
+		return out;
+
+	tree<HTML::Node>::iterator root = mHtmlTree.begin();
+
+	// Root-level nodes are final up to the top-level branch that is still
+	// being built (the one containing the current insertion point). That
+	// branch and anything after it must stay in the live tree. Once parsing
+	// is done there is no active branch any more.
+	tree<HTML::Node>::sibling_iterator stop = mHtmlTree.end(root);
+	if (!mParsingDone && mCurrentState != root)
+	{
+		tree<HTML::Node>::iterator active = mCurrentState;
+		while (mHtmlTree.parent(active) != root)
+			active = mHtmlTree.parent(active);
+		stop = tree<HTML::Node>::sibling_iterator(active);
+	}
+
+	tree<HTML::Node>::sibling_iterator it = mHtmlTree.begin(root);
+	while (it != stop)
+	{
+		tree<HTML::Node>::sibling_iterator next = it;
+		++next;
+		tree<HTML::Node>::iterator placeholder = out.append_child(out_root, HTML::Node());
+		out.move_ontop(placeholder, tree<HTML::Node>::iterator(it));
+		it = next;
+	}
+
+	return out;
 }
 
 void ParserDom::foundComment(Node node)
 {
 	//Add child content node, but do not update current state
 	mHtmlTree.append_child(mCurrentState, node);
+	updateRootLength();
 }
 
 void ParserDom::foundText(Node node)
 {
 	//Add child content node, but do not update current state
 	mHtmlTree.append_child(mCurrentState, node);
+	updateRootLength();
 }
 
 void ParserDom::foundTag(Node node, bool isEnd)
@@ -112,7 +171,7 @@ void ParserDom::foundTag(Node node, bool isEnd)
 				mHtmlTree.flatten(path[j]);
 			}
 		} 
-		else 
+		else
 		{
 			DEBUGP("Unmatched tag %s\n", node.text().c_str());
 
@@ -122,6 +181,7 @@ void ParserDom::foundTag(Node node, bool isEnd)
 			mHtmlTree.append_child(mCurrentState, node);
 		}
 	}
+	updateRootLength();
 }
 
 ostream &HTML::operator<<(ostream &stream, const tree<HTML::Node> &tr) 

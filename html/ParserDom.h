@@ -11,12 +11,18 @@ namespace htmlcxx
 		class ParserDom : public ParserSax
 		{
 			public:
-				ParserDom() {}
+				ParserDom() : mParsingDone(false) {}
 				~ParserDom() {}
 
 				const tree<Node> &parseTree(const std::string &html);
 				const tree<Node> &getTree()
 				{ return mHtmlTree; }
+
+				/** Move the already completed root-level prefix of the live
+				    tree into a new tree and return it. The returned tree has
+				    the same virtual root and owns its nodes; the active
+				    top-level branch and anything after it stays in getTree(). */
+				tree<Node> takeCompleted();
 
 			protected:
 				virtual void beginParsing();
@@ -26,9 +32,12 @@ namespace htmlcxx
 				virtual void foundComment(Node node);
 
 				virtual void endParsing();
-				
+
+				void updateRootLength();
+
 				tree<Node> mHtmlTree;
 				tree<Node>::iterator mCurrentState;
+				bool mParsingDone;
 		};
 
 		std::ostream &operator<<(std::ostream &stream, const tree<HTML::Node> &tr);
