@@ -1,0 +1,21 @@
+=== RUN   TestTaskShrinkIdentity
+    task_replay_test.go:409: reproduced failure has a stable traceback
+    task_replay_test.go:421: shrinker preserved the original site-A origin
+    task_replay_test.go:422: shrunk witness did not migrate to the site-B origin
+    task_replay_test.go:429: replayed failure originates at site A
+    task_replay_test.go:430: exactly one site-A hit and no site-B hit on replay: [0 1]
+    task_replay_test.go:447: shrunk witness has the minimum level sum for site A: got 1 want 2
+    task_replay_test.go:456: the site-A boundary sum 2 is reproduced
+--- FAIL: TestTaskShrinkIdentity (0.00s)
+=== RUN   TestTaskReplayFiles
+    task_replay_test.go:514: inherited shrink evidence fails at site A
+    task_replay_test.go:537: both fail-file replays keep the site-A origin
+    task_replay_test.go:545: both runs hit site A: [0 2]
+    task_replay_test.go:560: doCheck replay stays at site A
+    task_replay_test.go:654: glob replay keeps site A
+--- FAIL: TestTaskReplayFiles (0.00s)
+=== RUN   TestTaskByteBridge
+    task_replay_test.go:887: shrink evidence is site A
+    task_replay_test.go:894: child failure originates at site A: [origin=1]
+--- FAIL: TestTaskByteBridge (4.56s)
+FAIL

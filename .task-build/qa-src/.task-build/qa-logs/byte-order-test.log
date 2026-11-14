@@ -1,0 +1,17 @@
+=== RUN   TestTaskShrinkIdentity
+    check.go:29: TASK_GROUP_DONE TestTaskShrinkIdentity checks=31
+--- PASS: TestTaskShrinkIdentity (0.00s)
+=== RUN   TestTaskReplayFiles
+    check.go:29: TASK_GROUP_DONE TestTaskReplayFiles checks=48
+--- PASS: TestTaskReplayFiles (0.00s)
+=== RUN   TestTaskByteBridge
+    task_replay_test.go:850: trace decodes back to the original asymmetric words: [0x807060504030201 0xff00000000000000]
+    task_replay_test.go:861: partial last word is zero-padded: [0x807060504030201 0xff00000000000000]
+    task_replay_test.go:881: only the available word was drawn: [0x807060504030201]
+    task_replay_test.go:889: failing child exits like a failed Go test, got 0
+    task_replay_test.go:890: same failure message in the child
+    task_replay_test.go:891: failure is a stop-test, not a panic
+    task_replay_test.go:893: child recorded a trace
+    task_replay_test.go:894: child failure originates at site A: []
+--- FAIL: TestTaskByteBridge (4.57s)
+FAIL

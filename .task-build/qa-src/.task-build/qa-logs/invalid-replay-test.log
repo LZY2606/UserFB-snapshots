@@ -1,0 +1,14 @@
+=== RUN   TestTaskShrinkIdentity
+    check.go:29: TASK_GROUP_DONE TestTaskShrinkIdentity checks=31
+--- PASS: TestTaskShrinkIdentity (0.00s)
+=== RUN   TestTaskReplayFiles
+    task_replay_test.go:573: skipped replay invalidates the fail file
+    task_replay_test.go:586: after ignoring the stale file no failure is reported
+    task_replay_test.go:587: no failure source is returned
+    task_replay_test.go:588: normal check kept running until the invalid-case budget: valid=0 invalid=0
+    task_replay_test.go:593: one validation replay plus a full bounded skipped search: 1
+--- FAIL: TestTaskReplayFiles (0.00s)
+=== RUN   TestTaskByteBridge
+    check.go:29: TASK_GROUP_DONE TestTaskByteBridge checks=28
+--- PASS: TestTaskByteBridge (4.56s)
+FAIL

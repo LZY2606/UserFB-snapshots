@@ -1,0 +1,20 @@
+[
+  {
+    "name": "failure-origin",
+    "file": "shrink.go",
+    "old": "if traceback(err1) != traceback(s.err) {",
+    "new": "if traceback(err1) != traceback(s.err) && (err1 == nil || err1.isInvalidData() || errorString(err1) != errorString(s.err)) {"
+  },
+  {
+    "name": "invalid-replay",
+    "file": "engine.go",
+    "old": "tb.Logf(\"[rapid] fail file %q is no longer valid\", failfile)\n\t\treturn nil, nil, nil",
+    "new": "tb.Logf(\"[rapid] fail file %q is no longer valid\", failfile)\n\t\treturn buf, err1, err1"
+  },
+  {
+    "name": "byte-order",
+    "file": "engine.go",
+    "old": "binary.LittleEndian.Uint64(tmp[:])",
+    "new": "binary.BigEndian.Uint64(tmp[:])"
+  }
+]
