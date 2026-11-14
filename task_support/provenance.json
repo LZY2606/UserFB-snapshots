@@ -1,0 +1,11 @@
+{
+  "repository": "strukturag/libde265",
+  "commit": "4fb298ec1af0686211dc2def73f4f41c2ce19ce5",
+  "upstream_copies": {
+    "task_support/upstream/test-cabac.cc": "dev-tools/test-cabac.cc",
+    "task_support/upstream/tests.h": "dev-tools/tests.h"
+  },
+  "baseline_scaffold": "support/baseline.cpp adapted fixture path only; old_cabac_main.cpp reused",
+  "fixture": "unchanged upstream testdata/girlshy.h265; no external tool or service at runtime",
+  "note": "dev-tools is export-ignored upstream; copied CABAC source included in patch"
+}
