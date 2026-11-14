@@ -310,7 +310,7 @@ func verifyBody(fn *wasm.FunctionSig, body *wasm.FunctionBody, module *wasm.Modu
 				return vm, err
 			}
 
-			gv := module.GetGlobal(int(index))
+			gv := globalAt(module, index)
 			if gv == nil {
 				return vm, wasm.InvalidGlobalIndexError(index)
 			}
@@ -373,9 +373,9 @@ func verifyBody(fn *wasm.FunctionSig, body *wasm.FunctionBody, module *wasm.Modu
 				return vm, err
 			}
 
-			fn := module.GetFunction(int(index))
-			if fn == nil {
-				return vm, wasm.InvalidFunctionIndexError(index)
+			fn, err := resolveFunction(module, index)
+			if err != nil {
+				return vm, err
 			}
 
 			logger.Printf("Function being called: %v", fn)
@@ -395,9 +395,6 @@ func verifyBody(fn *wasm.FunctionSig, body *wasm.FunctionBody, module *wasm.Modu
 			}
 
 		case ops.CallIndirect:
-			if module.Table == nil || len(module.Table.Entries) == 0 {
-				return vm, NoSectionError(wasm.SectionIDTable)
-			}
 			// The call_indirect process consists of getting two i32 values
 			// off (first from the bytecode stream, and the second from
 			//  the stack) and using first as an index into the "Types" section
@@ -414,15 +411,24 @@ func verifyBody(fn *wasm.FunctionSig, body *wasm.FunctionBody, module *wasm.Modu
 			if err != nil {
 				return vm, err
 			}
-			tableIndex, err := vm.fetchByte()
+			// table index, a full unsigned LEB128 in the reference-types
+			// proposal.
+			tableIndex, err := vm.fetchVarUint()
 			if err != nil {
 				return vm, err
 			}
-			if tableIndex != 0x00 {
-				return vm, InvalidTableIndexError{"table", uint32(tableIndex)}
+
+			// The table must exist and contain funcref entries. Imported
+			// tables occupy the prefix of the table index space.
+			tables := tableTypes(module)
+			if int(tableIndex) >= len(tables) {
+				return vm, InvalidTableIndexError{"table", tableIndex}
+			}
+			if tables[tableIndex] != wasm.ElemTypeFuncref {
+				return vm, InvalidTableTypeError{Table: tableIndex, Got: tables[tableIndex], Wanted: wasm.ElemTypeFuncref}
 			}
 
-			if index >= uint32(len(module.Types.Entries)) {
+			if module.Types == nil || index >= uint32(len(module.Types.Entries)) {
 				return vm, errors.New("validate: type index out of range in call_indirect")
 			}
 
@@ -515,8 +521,26 @@ func verifyBody(fn *wasm.FunctionSig, body *wasm.FunctionBody, module *wasm.Modu
 
 // VerifyModule verifies the given module according to WebAssembly verification
 // specs.
+//
+// It accepts both modules returned by ReadModule (whose runtime index spaces
+// are populated) and modules returned by DecodeModule (whose FunctionIndexSpace
+// is still empty). In the latter case function bodies are located through the
+// function and code sections directly, and function imports occupy the prefix
+// of the function index space.
 func VerifyModule(module *wasm.Module) error {
-	if module.Function == nil || module.Types == nil || len(module.Types.Entries) == 0 {
+	if err := verifyElements(module); err != nil {
+		return err
+	}
+
+	if module.Types == nil || len(module.Types.Entries) == 0 {
+		return nil
+	}
+
+	if len(module.FunctionIndexSpace) == 0 {
+		return verifyDecodedModule(module)
+	}
+
+	if module.Function == nil {
 		return nil
 	}
 	if module.Code == nil {
@@ -526,11 +550,43 @@ func VerifyModule(module *wasm.Module) error {
 	logger.Printf("There are %d functions", len(module.Function.Types))
 	for i, fn := range module.FunctionIndexSpace {
 		logger.Printf("Validating function: %q", fn.Name)
+		if fn.Sig == nil || fn.Body == nil {
+			// Imported functions have no body; nothing to verify.
+			continue
+		}
 		if vm, err := verifyBody(fn.Sig, fn.Body, module); err != nil {
 			return Error{vm.pc(), i, err}
 		}
 		logger.Printf("No errors in function %d (%q)", i, fn.Name)
 	}
 
+	return nil
+}
+
+// verifyDecodedModule verifies each locally defined function of a module that
+// has not had its function index space populated.
+func verifyDecodedModule(module *wasm.Module) error {
+	if module.Function == nil || len(module.Function.Types) == 0 {
+		return nil
+	}
+	if module.Code == nil {
+		return NoSectionError(wasm.SectionIDCode)
+	}
+	if len(module.Code.Bodies) != len(module.Function.Types) {
+		return wasm.InvalidCodeIndexError(len(module.Code.Bodies))
+	}
+
+	imported := uint32(importedFuncCount(module))
+	for i := range module.Code.Bodies {
+		index := imported + uint32(i)
+		sig, body, err := functionBodyAt(module, index)
+		if err != nil {
+			return err
+		}
+		logger.Printf("Validating function: %d", index)
+		if vm, err := verifyBody(sig, body, module); err != nil {
+			return Error{vm.pc(), int(index), err}
+		}
+	}
 	return nil
 }

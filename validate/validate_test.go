@@ -1201,13 +1201,13 @@ func TestValidateStackTypechecking(t *testing.T) {
 			err: InvalidTypeError{wasm.ValueTypeI32, wasm.ValueTypeF32},
 		},
 		{
-			name: "call indirect non-zero table index",
+			name: "call indirect out-of-range table index",
 			code: []byte{
 				operators.I32Const, 0,
-				operators.CallIndirect, 0, 1,
+				operators.CallIndirect, 0, 2,
 				operators.Drop,
 			},
-			err: InvalidTableIndexError{"table", 1},
+			err: InvalidTableIndexError{"table", 2},
 		},
 		{
 			name: "call indirect i32 unbalanced",

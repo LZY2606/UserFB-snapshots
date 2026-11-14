@@ -399,14 +399,13 @@ func Disassemble(code []byte) ([]Instr, error) {
 			}
 			instr.Immediates = append(instr.Immediates, index)
 			if op == ops.CallIndirect {
-				idx, err := wasm.ReadByte(reader)
+				// The table index is a full unsigned LEB128 in the
+				// reference-types proposal, not just a reserved zero byte.
+				tableIndex, err := leb128.ReadVarUint32(reader)
 				if err != nil {
 					return nil, err
 				}
-				if idx != 0x00 {
-					return nil, errors.New("disasm: table index in call_indirect must be 0")
-				}
-				instr.Immediates = append(instr.Immediates, uint32(idx))
+				instr.Immediates = append(instr.Immediates, tableIndex)
 			}
 		case ops.GetLocal, ops.SetLocal, ops.TeeLocal, ops.GetGlobal, ops.SetGlobal:
 			index, err := leb128.ReadVarUint32(reader)

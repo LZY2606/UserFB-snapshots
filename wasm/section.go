@@ -771,58 +771,6 @@ func (s *SectionElements) WritePayload(w io.Writer) error {
 	return nil
 }
 
-// ElementSegment describes a group of repeated elements that begin at a specified offset
-type ElementSegment struct {
-	Index  uint32 // The index into the global table space, should always be 0 in the MVP.
-	Offset []byte // initializer expression for computing the offset for placing elements, should return an i32 value
-	Elems  []uint32
-}
-
-func (s *ElementSegment) UnmarshalWASM(r io.Reader) error {
-	var err error
-
-	if s.Index, err = leb128.ReadVarUint32(r); err != nil {
-		return err
-	}
-	if s.Offset, err = readInitExpr(r); err != nil {
-		return err
-	}
-
-	numElems, err := leb128.ReadVarUint32(r)
-	if err != nil {
-		return err
-	}
-	s.Elems = make([]uint32, 0, getInitialCap(numElems))
-	for i := uint32(0); i < numElems; i++ {
-		e, err := leb128.ReadVarUint32(r)
-		if err != nil {
-			return err
-		}
-		s.Elems = append(s.Elems, e)
-	}
-
-	return nil
-}
-
-func (s *ElementSegment) MarshalWASM(w io.Writer) error {
-	if _, err := leb128.WriteVarUint32(w, s.Index); err != nil {
-		return err
-	}
-	if _, err := w.Write(s.Offset); err != nil {
-		return err
-	}
-
-	if _, err := leb128.WriteVarUint32(w, uint32(len(s.Elems))); err != nil {
-		return err
-	}
-	for _, e := range s.Elems {
-		if _, err := leb128.WriteVarUint32(w, e); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // SectionCode describes the body for every function declared inside a module.
 type SectionCode struct {
 	RawSection

@@ -76,33 +76,55 @@ func (b BlockType) String() string {
 	return ValueType(b).String()
 }
 
-// ElemType describes the type of a table's elements
+// ElemType describes a reference type used by table and element declarations.
+// In the reference-types proposal these are encoded with the same byte values
+// as the legacy MVP elem_type field.
 type ElemType uint8 // varint7
-// ElemTypeAnyFunc descibres an any_func value
-const ElemTypeAnyFunc ElemType = 0x70
+
+const (
+	// ElemTypeFuncref is the reference type of function references.
+	ElemTypeFuncref ElemType = 0x70
+	// ElemTypeAnyFunc is the legacy name of ElemTypeFuncref.
+	ElemTypeAnyFunc ElemType = ElemTypeFuncref
+	// ElemTypeExternRef is the reference type of external references.
+	ElemTypeExternRef ElemType = 0x6f
+)
 
 func (t *ElemType) UnmarshalWASM(r io.Reader) error {
 	b, err := ReadByte(r)
 	if err != nil {
 		return err
 	}
-	if b != uint8(ElemTypeAnyFunc) {
+	*t = ElemType(b)
+	switch *t {
+	case ElemTypeFuncref, ElemTypeExternRef:
+		return nil
+	default:
 		return fmt.Errorf("wasm: unsupported elem type:%d", b)
 	}
-	*t = ElemType(b)
-	return nil
 }
 
 func (t ElemType) MarshalWASM(w io.Writer) error {
+	if t != ElemTypeFuncref && t != ElemTypeExternRef {
+		return fmt.Errorf("wasm: unsupported elem type:%d", uint8(t))
+	}
 	return writeByte(w, byte(t))
 }
 
 func (t ElemType) String() string {
-	if t == ElemTypeAnyFunc {
-		return "anyfunc"
+	switch t {
+	case ElemTypeFuncref:
+		return "funcref"
+	case ElemTypeExternRef:
+		return "externref"
+	default:
+		return "<unknown elem_type>"
 	}
+}
 
-	return "<unknown elem_type>"
+// IsValid reports whether t is a reference type understood by this package.
+func (t ElemType) IsValid() bool {
+	return t == ElemTypeFuncref || t == ElemTypeExternRef
 }
 
 // FunctionSig describes the signature of a declared function in a WASM module

@@ -209,8 +209,11 @@ func (m *Module) populateTables() error {
 	}
 
 	for _, elem := range m.Elements.Entries {
-		// the MVP dictates that index should always be zero, we should
-		// probably check this
+		// Passive and declarative segments do not write to a table at
+		// instantiation time.
+		if !elem.IsActive() {
+			continue
+		}
 		if elem.Index >= uint32(len(m.TableIndexSpace)) {
 			return InvalidTableIndexError(elem.Index)
 		}
@@ -225,9 +228,14 @@ func (m *Module) populateTables() error {
 		}
 		offset := uint32(off)
 
+		elems, err := elem.TableElems()
+		if err != nil {
+			return err
+		}
+
 		table := m.TableIndexSpace[elem.Index]
 		//use uint64 to avoid overflow
-		totalSize := uint64(offset) + uint64(len(elem.Elems))
+		totalSize := uint64(offset) + uint64(len(elems))
 		if totalSize > uint64(len(table)) {
 			maxAllowSize := uint64(m.Table.Entries[elem.Index].Limits.Maximum)
 			if totalSize > maxAllowSize {
@@ -235,13 +243,19 @@ func (m *Module) populateTables() error {
 			}
 			data := make([]TableEntry, totalSize)
 			copy(data, table)
-			for i, index := range elem.Elems {
-				data[offset+uint32(i)] = TableEntry{Index: index, Initialized: true}
+			for i, index := range elems {
+				if index == nil {
+					continue
+				}
+				data[offset+uint32(i)] = TableEntry{Index: *index, Initialized: true}
 			}
 			m.TableIndexSpace[elem.Index] = data
 		} else {
-			for i, index := range elem.Elems {
-				table[offset+uint32(i)] = TableEntry{Index: index, Initialized: true}
+			for i, index := range elems {
+				if index == nil {
+					continue
+				}
+				table[offset+uint32(i)] = TableEntry{Index: *index, Initialized: true}
 			}
 		}
 	}
