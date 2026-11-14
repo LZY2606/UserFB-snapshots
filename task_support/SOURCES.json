@@ -1,0 +1,7 @@
+{
+  "repo": "https://github.com/prideout/par",
+  "commit": "68e1215a055ccbeae378dd5969e09d0c79963a4a",
+  "license": "MIT",
+  "runtime": "C/C++ standard library and libm only; Bash runner; no Python or downloads",
+  "support": "Offline build and original-feature baseline only; upstream source and licenses are preserved."
+}
