@@ -1,0 +1,2 @@
+/usr/bin/ar qc libOSDependent.a CMakeFiles/OSDependent.dir/Users/lzy/pro/UserFB/workspace/Z1805/attempts/20261114T130915361738Z/repo/glslang/stub.cpp.o
+/usr/bin/ranlib libOSDependent.a

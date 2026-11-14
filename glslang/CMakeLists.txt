@@ -64,6 +64,7 @@ set(MACHINEINDEPENDENT_SOURCES
     MachineIndependent/glslang_tab.cpp
     MachineIndependent/attribute.cpp
     MachineIndependent/Constant.cpp
+    MachineIndependent/constantArgumentSpecialization.cpp
     MachineIndependent/iomapper.cpp
     MachineIndependent/InfoSink.cpp
     MachineIndependent/Initialize.cpp
@@ -93,6 +94,7 @@ set(MACHINEINDEPENDENT_SOURCES
 
 set(MACHINEINDEPENDENT_HEADERS
     MachineIndependent/attribute.h
+    MachineIndependent/constantArgumentSpecialization.h
     MachineIndependent/glslang_tab.cpp.h
     MachineIndependent/gl_types.h
     MachineIndependent/Initialize.h
