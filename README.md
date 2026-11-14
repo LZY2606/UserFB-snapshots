@@ -27,6 +27,74 @@ And last mode is fragmented aka fMP4.
 This mode stores track information first and spreads indexes across all stream, so decoding can start before whole stream available.
 This mode is sequential too and usually used by browsers and HLS streaming.
 
+## Fast start rewrite
+
+`MP4E_faststart()` rewrites an existing MP4 stream into "fast start" layout:
+the `moov` index is emitted right after `ftyp`, before the media data, so a
+player does not have to download the file tail first. Samples are not decoded
+or re-muxed — `mdat` payload is copied byte-for-byte and only `stco`/`co64`
+chunk offsets are adjusted (upgrading `stco` tables to `co64` when an offset
+stops fitting in 32 bits, iterating until the layout is stable).
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include "minimp4.h"
+
+typedef struct { FILE *in, *out; } faststart_io_t;
+
+/* random-access read; return 0 on success */
+static int reader(int64_t offset, void *buffer, size_t size, void *token)
+{
+    FILE *f = ((faststart_io_t *)token)->in;
+    if (fseek(f, (long)offset, SEEK_SET)) return 1;   /* use fseeko() for >2GB */
+    return fread(buffer, 1, size, f) != size;
+}
+
+/* offsets arrive sequentially, starting at 0; return 0 on success */
+static int writer(int64_t offset, const void *buffer, size_t size, void *token)
+{
+    FILE *f = ((faststart_io_t *)token)->out;
+    (void)offset;
+    return fwrite(buffer, 1, size, f) != size;
+}
+
+int main(void)
+{
+    faststart_io_t io;
+    long size;
+    int rc;
+    io.in = fopen("input.mp4", "rb");
+    io.out = fopen("output.mp4", "wb");
+    fseek(io.in, 0, SEEK_END);
+    size = ftell(io.in);
+    rc = MP4E_faststart((uint64_t)size, &io, reader, writer);
+    fclose(io.in);
+    fclose(io.out);
+    return rc == MP4E_STATUS_OK ? 0 : 1;
+}
+```
+
+Input requirements and behavior:
+
+ * The input must be a complete, valid, self-contained, unencrypted,
+   non-fragmented MP4 stream of at most `INT64_MAX` bytes, with exactly one
+   `ftyp` and one `moov` box and at least one `mdat` box. Input and output
+   must be different storages.
+ * Size-0 boxes, compressed `moov` (`cmov`), movie fragments (`moof`) and
+   external data references are rejected with `MP4E_STATUS_BAD_ARGUMENTS`.
+ * The output is: the original `ftyp`, the new `moov`, then the remaining
+   top-level boxes in their original relative order. Top-level `free`/`skip`
+   boxes are dropped; unknown boxes and `mdat` payload are preserved
+   byte-for-byte. Already fast-starting inputs are handled.
+ * Both callbacks return 0 on success. The read callback may be called at any
+   offset; write offsets start at 0 and grow contiguously. Each callback
+   invocation transfers at most 64 KiB of payload.
+ * Only the `moov` box plus a 64 KiB scratch buffer are held in memory;
+   media data is streamed, no temporary files or seek-back writes are used.
+ * A failing callback aborts the rewrite immediately with
+   `MP4E_STATUS_FILE_WRITE_ERROR`.
+
 ## Bindings
 
  * https://github.com/darkskygit/minimp4.rs - rust bindings

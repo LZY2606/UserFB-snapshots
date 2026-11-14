@@ -504,6 +504,37 @@ int MP4E_set_pps(MP4E_mux_t *mux, int track_id, const void *pps, int bytes);
 */
 int MP4E_set_text_comment(MP4E_mux_t *mux, const char *comment);
 
+/**
+*   Rewrite a complete, self-contained, non-fragmented MP4 stream into
+*   "fast start" layout: the movie index (moov) is emitted right after ftyp,
+*   before the media data, so a player can start before the whole file is
+*   downloaded.  Samples are not decoded or re-muxed: mdat payload is copied
+*   byte-for-byte, unknown boxes are preserved, and only stco/co64 chunk
+*   offsets are adjusted to the new layout.
+*
+*   input_bytes - exact size of the input stream, must not exceed INT64_MAX
+*   read_cb(offset, buffer, size, token)  - random-access read of the input,
+*       returns 0 on success, non-zero on failure
+*   write_cb(offset, buffer, size, token) - write of the output, returns 0 on
+*       success, non-zero on failure.  Offsets start at 0 and grow
+*       contiguously; each callback invocation transfers at most 64 KiB.
+*   Input and output must be different storages.
+*
+*   The input must contain exactly one ftyp and one moov box and at least one
+*   mdat box.  Top-level free/skip boxes are dropped; all other top-level
+*   boxes keep their relative order after the new moov.  Files with size-0
+*   boxes, compressed moov (cmov), movie fragments (moof) or external data
+*   references are rejected with MP4E_STATUS_BAD_ARGUMENTS.  A failing
+*   callback aborts the rewrite with MP4E_STATUS_FILE_WRITE_ERROR.
+*   Only the moov box plus a small scratch buffer are held in memory; media
+*   data is streamed and never buffered whole.
+*
+*   return error code MP4E_STATUS_*
+*/
+int MP4E_faststart(uint64_t input_bytes, void *token,
+    int (*read_cb)(int64_t offset, void *buffer, size_t size, void *token),
+    int (*write_cb)(int64_t offset, const void *buffer, size_t size, void *token));
+
 #ifdef __cplusplus
 }
 #endif
@@ -1817,6 +1848,626 @@ int MP4E_close(MP4E_mux_t *mux)
     }
     minimp4_vector_reset(&mux->tracks);
     free(mux);
+    return err;
+}
+
+/************************************************************************/
+/*          Fast-start rewrite: relocate moov before the media data     */
+/************************************************************************/
+
+#define FS_IO_CHUNK   65536   // max payload bytes per read/write callback call
+#define FS_MAX_DEPTH  32      // max box nesting level inside moov
+#define FS_BOX_cmov   FOUR_CHAR_INT( 'c', 'm', 'o', 'v' )
+
+typedef struct
+{
+    uint32_t type;
+    uint64_t offset;      // input offset of the box header
+    uint64_t size;         // total box size, header included
+    uint64_t header;       // header size: 8 or 16
+    uint64_t new_offset;   // output offset, valid for copied boxes
+} fs_top_box_t;
+
+typedef struct fs_box_tag fs_box_t;
+struct fs_box_tag
+{
+    fs_box_t *next;
+    fs_box_t *child_head;
+    fs_box_t *child_tail;
+    uint32_t type;
+    int orig_wide;         // non-zero if the source box used the 64-bit extended header
+    int is_container;
+    // leaf boxes: content location inside the buffered source moov
+    uint64_t content_off;
+    uint64_t content_size;
+    // stco/co64 tables: original entry values
+    uint64_t *entries;
+    uint32_t entry_count;
+    int is_co64;           // current output representation (stco may be upgraded)
+    // computed output content size
+    uint64_t out_content;
+};
+
+typedef struct
+{
+    int (*read_cb)(int64_t, void *, size_t, void *);
+    int (*write_cb)(int64_t, const void *, size_t, void *);
+    void *token;
+    uint64_t input_bytes;
+    uint64_t write_pos;
+    unsigned char *io;     // FS_IO_CHUNK scratch buffer
+    fs_top_box_t *top;
+    size_t top_count;
+    size_t top_ftyp, top_moov;
+    unsigned char *moov;   // whole source moov box, header included
+    uint64_t moov_size;
+    fs_box_t *root;        // parsed moov box tree
+    fs_box_t **tables;     // all stco/co64 boxes, in parse order
+    size_t table_count;
+} fs_ctx_t;
+
+static uint32_t fs_get_be32(const unsigned char *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint64_t fs_get_be64(const unsigned char *p)
+{
+    return ((uint64_t)fs_get_be32(p) << 32) | fs_get_be32(p + 4);
+}
+
+static void fs_put_be32(unsigned char *p, uint32_t v)
+{
+    p[0] = (unsigned char)(v >> 24);
+    p[1] = (unsigned char)(v >> 16);
+    p[2] = (unsigned char)(v >> 8);
+    p[3] = (unsigned char)v;
+}
+
+static void fs_put_be64(unsigned char *p, uint64_t v)
+{
+    fs_put_be32(p, (uint32_t)(v >> 32));
+    fs_put_be32(p + 4, (uint32_t)v);
+}
+
+static int fs_read_at(fs_ctx_t *ctx, uint64_t offset, void *buffer, size_t size)
+{
+    if (offset > ctx->input_bytes || (uint64_t)size > ctx->input_bytes - offset)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (size && ctx->read_cb((int64_t)offset, buffer, size, ctx->token))
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    return MP4E_STATUS_OK;
+}
+
+// Read [offset, offset+size) in chunks of at most FS_IO_CHUNK bytes.
+static int fs_read_span(fs_ctx_t *ctx, uint64_t offset, unsigned char *buffer, uint64_t size)
+{
+    while (size)
+    {
+        size_t chunk = (size_t)MINIMP4_MIN(size, (uint64_t)FS_IO_CHUNK);
+        int err = fs_read_at(ctx, offset, buffer, chunk);
+        if (err) return err;
+        offset += chunk;
+        buffer += chunk;
+        size -= chunk;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Write size bytes at the current output position, in chunks of at most FS_IO_CHUNK bytes.
+static int fs_write_span(fs_ctx_t *ctx, const void *data, size_t size)
+{
+    const unsigned char *p = (const unsigned char *)data;
+    while (size)
+    {
+        size_t chunk = MINIMP4_MIN(size, (size_t)FS_IO_CHUNK);
+        if (ctx->write_cb((int64_t)ctx->write_pos, p, chunk, ctx->token))
+            return MP4E_STATUS_FILE_WRITE_ERROR;
+        ctx->write_pos += chunk;
+        p += chunk;
+        size -= chunk;
+    }
+    return MP4E_STATUS_OK;
+}
+
+// Copy [src, src+size) from input to output without buffering it whole.
+static int fs_copy_span(fs_ctx_t *ctx, uint64_t src, uint64_t size)
+{
+    while (size)
+    {
+        size_t chunk = (size_t)MINIMP4_MIN(size, (uint64_t)FS_IO_CHUNK);
+        int err = fs_read_at(ctx, src, ctx->io, chunk);
+        if (err) return err;
+        err = fs_write_span(ctx, ctx->io, chunk);
+        if (err) return err;
+        src += chunk;
+        size -= chunk;
+    }
+    return MP4E_STATUS_OK;
+}
+
+static int fs_scan_top_level(fs_ctx_t *ctx)
+{
+    uint64_t pos = 0;
+    size_t capacity = 0;
+    unsigned n_ftyp = 0, n_moov = 0, n_mdat = 0;
+    while (pos < ctx->input_bytes)
+    {
+        unsigned char hdr[16];
+        uint64_t size, header = 8;
+        uint32_t type;
+        size_t want;
+        fs_top_box_t *box;
+        int err;
+        if (ctx->input_bytes - pos < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        want = (size_t)MINIMP4_MIN((uint64_t)16, ctx->input_bytes - pos);
+        err = fs_read_at(ctx, pos, hdr, want);
+        if (err) return err;
+        size = fs_get_be32(hdr);
+        type = fs_get_be32(hdr + 4);
+        if (size == 0)
+            return MP4E_STATUS_BAD_ARGUMENTS;   // to-end-of-file boxes unsupported
+        if (size == 1)
+        {
+            if (want < 16)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            size = fs_get_be64(hdr + 8);
+            header = 16;
+            if (size < 16)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+        } else if (size < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (size > ctx->input_bytes - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == BOX_moof)
+            return MP4E_STATUS_BAD_ARGUMENTS;   // fragmented input unsupported
+        if (ctx->top_count == capacity)
+        {
+            fs_top_box_t *nt;
+            capacity = capacity ? capacity * 2 : 16;
+            nt = (fs_top_box_t *)realloc(ctx->top, capacity * sizeof(*nt));
+            if (!nt)
+                return MP4E_STATUS_NO_MEMORY;
+            ctx->top = nt;
+        }
+        box = ctx->top + ctx->top_count;
+        box->type = type;
+        box->offset = pos;
+        box->size = size;
+        box->header = header;
+        box->new_offset = 0;
+        if (type == BOX_ftyp) { ctx->top_ftyp = ctx->top_count; n_ftyp++; }
+        if (type == BOX_moov) { ctx->top_moov = ctx->top_count; n_moov++; }
+        if (type == BOX_mdat) n_mdat++;
+        ctx->top_count++;
+        pos += size;
+    }
+    if (n_ftyp != 1 || n_moov != 1 || n_mdat == 0)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    return MP4E_STATUS_OK;
+}
+
+static fs_box_t *fs_box_new(fs_box_t *parent, uint32_t type, int wide)
+{
+    fs_box_t *b = (fs_box_t *)calloc(1, sizeof(*b));
+    if (!b)
+        return NULL;
+    b->type = type;
+    b->orig_wide = wide;
+    if (parent)
+    {
+        if (parent->child_tail)
+            parent->child_tail->next = b;
+        else
+            parent->child_head = b;
+        parent->child_tail = b;
+    }
+    return b;
+}
+
+static void fs_box_free(fs_box_t *b)
+{
+    while (b)
+    {
+        fs_box_t *next = b->next;
+        if (b->child_head)
+            fs_box_free(b->child_head);
+        free(b->entries);
+        free(b);
+        b = next;
+    }
+}
+
+// Reject external data references: every 'url '/'urn ' entry of every 'dref'
+// inside the given 'dinf' box content must carry the self-contained flag.
+static int fs_check_dinf(const unsigned char *p, uint64_t size)
+{
+    uint64_t pos = 0;
+    while (pos < size)
+    {
+        uint64_t box_size, header = 8;
+        uint32_t type;
+        if (size - pos < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        box_size = fs_get_be32(p + pos);
+        type = fs_get_be32(p + pos + 4);
+        if (box_size == 0)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (box_size == 1)
+        {
+            if (size - pos < 16)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            box_size = fs_get_be64(p + pos + 8);
+            header = 16;
+        }
+        if (box_size < header || box_size > size - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == BOX_dref)
+        {
+            const unsigned char *d = p + pos + header;
+            uint64_t dlen = box_size - header, dpos = 8, i, count;
+            if (dlen < 8)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            count = fs_get_be32(d + 4);
+            for (i = 0; i < count; i++)
+            {
+                uint64_t esize, ehdr = 8;
+                uint32_t etype;
+                if (dlen - dpos < 8)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                esize = fs_get_be32(d + dpos);
+                etype = fs_get_be32(d + dpos + 4);
+                if (esize == 0)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                if (esize == 1)
+                {
+                    if (dlen - dpos < 16)
+                        return MP4E_STATUS_BAD_ARGUMENTS;
+                    esize = fs_get_be64(d + dpos + 8);
+                    ehdr = 16;
+                }
+                if (esize < ehdr || esize > dlen - dpos)
+                    return MP4E_STATUS_BAD_ARGUMENTS;
+                if (etype == BOX_url_ || etype == BOX_urn_)
+                {
+                    if (esize - ehdr < 4)
+                        return MP4E_STATUS_BAD_ARGUMENTS;
+                    // flags & 1: the data is in the same file as this box
+                    if (!(d[dpos + ehdr + 3] & 1))
+                        return MP4E_STATUS_BAD_ARGUMENTS;
+                }
+                dpos += esize;
+            }
+        }
+        pos += box_size;
+    }
+    return MP4E_STATUS_OK;
+}
+
+static int fs_parse_chunk_table(fs_ctx_t *ctx, fs_box_t *b, const unsigned char *p, uint64_t size)
+{
+    uint64_t count, i, entry_size = (b->type == BOX_co64) ? 8 : 4;
+    fs_box_t **nt;
+    if (size < 8)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    count = fs_get_be32(p + 4);
+    if (count > (size - 8) / entry_size || 8 + count * entry_size != size)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    b->is_co64 = (b->type == BOX_co64);
+    b->entry_count = (uint32_t)count;
+    if (count)
+    {
+        b->entries = (uint64_t *)malloc((size_t)count * sizeof(uint64_t));
+        if (!b->entries)
+            return MP4E_STATUS_NO_MEMORY;
+        for (i = 0; i < count; i++)
+            b->entries[i] = (entry_size == 8) ? fs_get_be64(p + 8 + i * 8) : fs_get_be32(p + 8 + i * 4);
+    }
+    nt = (fs_box_t **)realloc(ctx->tables, (ctx->table_count + 1) * sizeof(*nt));
+    if (!nt)
+        return MP4E_STATUS_NO_MEMORY;
+    ctx->tables = nt;
+    ctx->tables[ctx->table_count++] = b;
+    return MP4E_STATUS_OK;
+}
+
+// Parse the boxes inside [off, off+size) of the buffered moov, descending
+// into trak/mdia/minf/stbl containers; every other box is an opaque leaf.
+static int fs_parse_moov_boxes(fs_ctx_t *ctx, fs_box_t *parent, uint64_t off, uint64_t size, int depth)
+{
+    uint64_t pos = 0;
+    if (depth > FS_MAX_DEPTH)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    while (pos < size)
+    {
+        uint64_t box_size, header = 8, content_off, content_size;
+        uint32_t type;
+        int wide = 0, err;
+        fs_box_t *b;
+        const unsigned char *h = ctx->moov + off + pos;
+        if (size - pos < 8)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        box_size = fs_get_be32(h);
+        type = fs_get_be32(h + 4);
+        if (box_size == 0)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (box_size == 1)
+        {
+            if (size - pos < 16)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+            box_size = fs_get_be64(h + 8);
+            header = 16;
+            wide = 1;
+        }
+        if (box_size < header || box_size > size - pos)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (type == FS_BOX_cmov)
+            return MP4E_STATUS_BAD_ARGUMENTS;   // compressed moov unsupported
+        b = fs_box_new(parent, type, wide);
+        if (!b)
+            return MP4E_STATUS_NO_MEMORY;
+        content_off = off + pos + header;
+        content_size = box_size - header;
+        b->content_off = content_off;
+        b->content_size = content_size;
+        if (type == BOX_trak || type == BOX_mdia || type == BOX_minf || type == BOX_stbl)
+        {
+            b->is_container = 1;
+            err = fs_parse_moov_boxes(ctx, b, content_off, content_size, depth + 1);
+            if (err) return err;
+        } else if (type == BOX_stco || type == BOX_co64)
+        {
+            err = fs_parse_chunk_table(ctx, b, ctx->moov + content_off, content_size);
+            if (err) return err;
+        } else if (type == BOX_dinf)
+        {
+            err = fs_check_dinf(ctx->moov + content_off, content_size);
+            if (err) return err;
+        }
+        pos += box_size;
+    }
+    return MP4E_STATUS_OK;
+}
+
+static uint64_t fs_box_total_size(fs_box_t *b);
+
+static uint64_t fs_box_content_size(fs_box_t *b)
+{
+    if (b->is_container)
+    {
+        uint64_t sum = 0;
+        fs_box_t *ch;
+        for (ch = b->child_head; ch; ch = ch->next)
+            sum += fs_box_total_size(ch);
+        b->out_content = sum;
+    } else if (b->type == BOX_stco || b->type == BOX_co64)
+        b->out_content = 8 + (uint64_t)b->entry_count * (b->is_co64 ? 8 : 4);
+    else
+        b->out_content = b->content_size;
+    return b->out_content;
+}
+
+// Keep the original header width while it can represent the box,
+// upgrade to the 64-bit extended header otherwise.
+static int fs_box_wide(const fs_box_t *b)
+{
+    return b->orig_wide || b->out_content + 8 > 0xFFFFFFFFu;
+}
+
+static uint64_t fs_box_total_size(fs_box_t *b)
+{
+    uint64_t content = fs_box_content_size(b);
+    return content + ((b->orig_wide || content + 8 > 0xFFFFFFFFu) ? 16 : 8);
+}
+
+// Map a chunk offset from the input layout to the output layout, according
+// to which mdat payload interval contains it.
+static int fs_map_offset(fs_ctx_t *ctx, uint64_t old_offset, uint64_t *new_offset)
+{
+    size_t i;
+    for (i = 0; i < ctx->top_count; i++)
+    {
+        fs_top_box_t *box = ctx->top + i;
+        uint64_t payload;
+        if (box->type != BOX_mdat)
+            continue;
+        payload = box->offset + box->header;
+        if (old_offset >= payload && old_offset < payload + (box->size - box->header))
+        {
+            *new_offset = box->new_offset + box->header + (old_offset - payload);
+            return MP4E_STATUS_OK;
+        }
+    }
+    return MP4E_STATUS_BAD_ARGUMENTS;   // chunk does not point into any mdat payload
+}
+
+// Compute the output layout. A stco table is upgraded to co64 as soon as any
+// of its remapped entries stops fitting in 32 bits; such upgrades grow the
+// new moov, which moves every later box and may push other tables over the
+// limit, so iterate until the layout is stable.
+static int fs_plan_layout(fs_ctx_t *ctx)
+{
+    int changed;
+    do
+    {
+        uint64_t pos, moov_total;
+        size_t i, t;
+        changed = 0;
+        moov_total = fs_box_total_size(ctx->root);
+        pos = ctx->top[ctx->top_ftyp].size + moov_total;
+        for (i = 0; i < ctx->top_count; i++)
+        {
+            fs_top_box_t *box = ctx->top + i;
+            if (i == ctx->top_ftyp || i == ctx->top_moov)
+                continue;
+            if (box->type == BOX_free || box->type == BOX_skip)
+                continue;
+            box->new_offset = pos;
+            pos += box->size;
+        }
+        for (t = 0; t < ctx->table_count; t++)
+        {
+            fs_box_t *tab = ctx->tables[t];
+            uint32_t e;
+            for (e = 0; e < tab->entry_count; e++)
+            {
+                uint64_t mapped;
+                int err = fs_map_offset(ctx, tab->entries[e], &mapped);
+                if (err) return err;
+                if (!tab->is_co64 && mapped > 0xFFFFFFFFu)
+                {
+                    tab->is_co64 = 1;
+                    changed = 1;
+                    break;
+                }
+            }
+        }
+    } while (changed);
+    return MP4E_STATUS_OK;
+}
+
+static int fs_emit_box(fs_ctx_t *ctx, fs_box_t *b)
+{
+    unsigned char hdr[16];
+    uint32_t type = b->type;
+    uint64_t total;
+    int wide, err;
+    if (type == BOX_stco && b->is_co64)
+        type = BOX_co64;
+    fs_box_content_size(b);
+    wide = fs_box_wide(b);
+    total = b->out_content + (wide ? 16 : 8);
+    if (wide)
+    {
+        fs_put_be32(hdr, 1);
+        fs_put_be32(hdr + 4, type);
+        fs_put_be64(hdr + 8, total);
+        err = fs_write_span(ctx, hdr, 16);
+    } else
+    {
+        fs_put_be32(hdr, (uint32_t)total);
+        fs_put_be32(hdr + 4, type);
+        err = fs_write_span(ctx, hdr, 8);
+    }
+    if (err) return err;
+    if (b->is_container)
+    {
+        fs_box_t *ch;
+        for (ch = b->child_head; ch; ch = ch->next)
+        {
+            err = fs_emit_box(ctx, ch);
+            if (err) return err;
+        }
+        return MP4E_STATUS_OK;
+    }
+    if (b->type == BOX_stco || b->type == BOX_co64)
+    {
+        uint32_t e = 0;
+        // version/flags + entry_count are unchanged in the source box
+        err = fs_write_span(ctx, ctx->moov + b->content_off, 8);
+        if (err) return err;
+        while (e < b->entry_count)
+        {
+            size_t used = 0;
+            while (e < b->entry_count && used + 8 <= FS_IO_CHUNK)
+            {
+                uint64_t mapped;
+                err = fs_map_offset(ctx, b->entries[e], &mapped);
+                if (err) return err;
+                if (b->is_co64)
+                {
+                    fs_put_be64(ctx->io + used, mapped);
+                    used += 8;
+                } else
+                {
+                    fs_put_be32(ctx->io + used, (uint32_t)mapped);
+                    used += 4;
+                }
+                e++;
+            }
+            err = fs_write_span(ctx, ctx->io, used);
+            if (err) return err;
+        }
+        return MP4E_STATUS_OK;
+    }
+    return fs_write_span(ctx, ctx->moov + b->content_off, (size_t)b->content_size);
+}
+
+int MP4E_faststart(uint64_t input_bytes, void *token,
+    int (*read_cb)(int64_t offset, void *buffer, size_t size, void *token),
+    int (*write_cb)(int64_t offset, const void *buffer, size_t size, void *token))
+{
+    fs_ctx_t ctx;
+    int err;
+    size_t i;
+    memset(&ctx, 0, sizeof(ctx));
+    if (!read_cb || !write_cb || !input_bytes || input_bytes > (uint64_t)INT64_MAX)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    ctx.read_cb = read_cb;
+    ctx.write_cb = write_cb;
+    ctx.token = token;
+    ctx.input_bytes = input_bytes;
+    ctx.io = (unsigned char *)malloc(FS_IO_CHUNK);
+    if (!ctx.io)
+    {
+        err = MP4E_STATUS_NO_MEMORY;
+        goto done;
+    }
+    err = fs_scan_top_level(&ctx);
+    if (err) goto done;
+    // Buffer the whole moov box; media data is never buffered this way.
+    ctx.moov_size = ctx.top[ctx.top_moov].size;
+    if (ctx.moov_size > (uint64_t)SIZE_MAX)
+    {
+        err = MP4E_STATUS_NO_MEMORY;
+        goto done;
+    }
+    ctx.moov = (unsigned char *)malloc((size_t)ctx.moov_size);
+    if (!ctx.moov)
+    {
+        err = MP4E_STATUS_NO_MEMORY;
+        goto done;
+    }
+    err = fs_read_span(&ctx, ctx.top[ctx.top_moov].offset, ctx.moov, ctx.moov_size);
+    if (err) goto done;
+    {
+        // The scan above already validated the moov box header.
+        uint64_t header = (fs_get_be32(ctx.moov) == 1) ? 16 : 8;
+        ctx.root = fs_box_new(NULL, BOX_moov, header == 16);
+        if (!ctx.root)
+        {
+            err = MP4E_STATUS_NO_MEMORY;
+            goto done;
+        }
+        ctx.root->is_container = 1;
+        err = fs_parse_moov_boxes(&ctx, ctx.root, header, ctx.moov_size - header, 0);
+        if (err) goto done;
+    }
+    // All validation and layout planning finishes before the first write.
+    err = fs_plan_layout(&ctx);
+    if (err) goto done;
+    err = fs_copy_span(&ctx, ctx.top[ctx.top_ftyp].offset, ctx.top[ctx.top_ftyp].size);
+    if (err) goto done;
+    err = fs_emit_box(&ctx, ctx.root);
+    if (err) goto done;
+    for (i = 0; i < ctx.top_count; i++)
+    {
+        fs_top_box_t *box = ctx.top + i;
+        if (i == ctx.top_ftyp || i == ctx.top_moov)
+            continue;
+        if (box->type == BOX_free || box->type == BOX_skip)
+            continue;
+        err = fs_copy_span(&ctx, box->offset, box->size);
+        if (err) goto done;
+    }
+done:
+    if (ctx.root)
+        fs_box_free(ctx.root);
+    free(ctx.tables);
+    free(ctx.moov);
+    free(ctx.top);
+    free(ctx.io);
     return err;
 }
 
