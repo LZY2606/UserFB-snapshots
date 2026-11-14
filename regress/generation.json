@@ -1,0 +1,21 @@
+{
+  "grammar_commit": "df38168919485d6dbc51cf69f440f08ef72d7fc8",
+  "bison": "3.8.2",
+  "bison_tar_sha256": "9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2",
+  "flex": "flex 2.6.4",
+  "commands": [
+    "BISON_PKGDATADIR=<bison-source>/data <bison-source>/src/bison ../../src/parser.y",
+    "flex ../../src/lexer.l"
+  ],
+  "generated": {
+    "regress/generated/parser.h": "0c5b51a764003ba930fb7e0775e156d9ae30a5a79cb8a1ca8868a0f8c32c017e",
+    "regress/generated/lexer.c": "e77410cbbf4d8155afbf1b0a3167664963a8fd04891d2bbc60685aaf152d65d4",
+    "regress/generated/lexer.h": "6b449b36f0ac411ef00a1defcf23c23003002cbd2fdd9301b9b87628e308953a",
+    "regress/generated/parser.c": "6ff2456d15ee3b358e7887f9258e40836413a8a08061d2ee77983cb69e00d21f"
+  },
+  "compat": "regress/compat contains authored numeric ABI/layout shims only, no kernel calls or compiler logic. Fixed Linux UAPI meanings referenced by upstream codegen and interpreter.",
+  "license_files": {
+    "COPYING.bison": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "Bison-exception.txt": "2df48a5ef7b2ff7861bc64e293e176cc63490c408a5a243537c021e7f88e8ef0"
+  }
+}
