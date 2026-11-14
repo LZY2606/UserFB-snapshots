@@ -131,7 +131,8 @@ func (d *ChromeDriver) NewSession(desired, required Capabilities) (*Session, err
 		return nil, err
 	}
 	session.wd = d
-	return session, nil
+	bound := session.bindInputState()
+	return &bound, nil
 }
 
 func (d *ChromeDriver) Sessions() ([]Session, error) {
@@ -141,6 +142,7 @@ func (d *ChromeDriver) Sessions() ([]Session, error) {
 	}
 	for i := range sessions {
 		sessions[i].wd = d
+		sessions[i] = sessions[i].bindInputState()
 	}
 	return sessions, nil
 }

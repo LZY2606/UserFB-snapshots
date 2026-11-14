@@ -350,7 +350,8 @@ func (d *FirefoxDriver) NewSession(desired, required Capabilities) (*Session, er
 		return nil, err
 	}
 	session.wd = d
-	return session, nil
+	bound := session.bindInputState()
+	return &bound, nil
 }
 
 func (d *FirefoxDriver) Sessions() ([]Session, error) {
@@ -360,6 +361,7 @@ func (d *FirefoxDriver) Sessions() ([]Session, error) {
 	}
 	for i := range sessions {
 		sessions[i].wd = d
+		sessions[i] = sessions[i].bindInputState()
 	}
 	return sessions, nil
 }

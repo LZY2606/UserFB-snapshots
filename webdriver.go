@@ -6,6 +6,7 @@ package webdriver
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,9 @@ type WebDriver interface {
 	Sessions() ([]Session, error)
 
 	do(params interface{}, method, urlFormat string, urlParams ...interface{}) (string, []byte, error)
+	//doContext is the context aware variant of do. The request chain is
+	//canceled through the context; it never mutates a global client timeout.
+	doContext(ctx context.Context, params interface{}, method, urlFormat string, urlParams ...interface{}) (string, []byte, error)
 }
 
 //typing saver
@@ -61,6 +65,10 @@ type Session struct {
 	Id           string
 	Capabilities Capabilities
 	wd           WebDriver
+	//input is the shared per-generation input lease latch. All value copies
+	//of the same Session view point at the same instance; it is attached when
+	//the view is produced by NewSession or Sessions.
+	input *inputState
 }
 
 type WindowHandle struct {
@@ -165,9 +173,21 @@ func (s Session) GetCapabilities() Capabilities {
 }
 
 //Delete the session.
+//A successful delete closes the current input generation: old Session views
+//and their leases can no longer be used, and a later session with the same id
+//starts a fresh generation. A failed delete leaves the generation untouched.
 func (s Session) Delete() error {
 	_, _, err := s.wd.do(nil, "DELETE", "/session/%s", s.Id)
-	return err
+	if err != nil {
+		return err
+	}
+	key := inputStateKey{driver: s.wd, id: s.Id}
+	if previous, ok := inputStates.LoadAndDelete(key); ok {
+		previous.(*inputState).markDead()
+	} else if s.input != nil {
+		s.input.markDead()
+	}
+	return nil
 }
 
 //Configure the amount of time that a particular type of operation can execute for before they are aborted and a |Timeout| error is returned to the client.  Valid values are: "script" for script timeouts, "implicit" for modifying the implicit wait timeout and "page load" for setting a page load timeout.

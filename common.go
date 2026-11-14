@@ -6,12 +6,12 @@ package webdriver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 )
 
 const (
@@ -160,6 +160,11 @@ func newRequest(method, url string, data []byte) (*http.Request, error) {
 	return request, nil
 }
 
+// httpClient is a package private client. Cancellation flows through request
+// contexts instead of a shared Timeout, so no caller can mutate global state
+// to bound a single request.
+var httpClient = &http.Client{}
+
 type WebDriverCore struct {
 	url string
 }
@@ -168,15 +173,26 @@ func (w WebDriverCore) Start() error { return nil }
 func (w WebDriverCore) Stop() error  { return nil }
 
 func (w WebDriverCore) do(params interface{}, method, urlFormat string, urlParams ...interface{}) (string, []byte, error) {
+	return w.doContext(context.Background(), params, method, urlFormat, urlParams...)
+}
+
+func (w WebDriverCore) doContext(ctx context.Context, params interface{}, method, urlFormat string, urlParams ...interface{}) (string, []byte, error) {
 	if method != "GET" && method != "POST" && method != "DELETE" {
 		return "", nil, errors.New("invalid method: " + method)
 	}
 	url := w.url + fmt.Sprintf(urlFormat, urlParams...)
-	return w.doInternal(params, method, url)
+	return w.doInternalContext(ctx, params, method, url)
 }
 
 //communicate with the server.
 func (w WebDriverCore) doInternal(params interface{}, method, url string) (string, []byte, error) {
+	return w.doInternalContext(context.Background(), params, method, url)
+}
+
+// doInternalContext performs one round trip. The context owns cancellation of
+// the whole request chain. The response body is fully drained and closed here;
+// callers only receive the decoded payload.
+func (w WebDriverCore) doInternalContext(ctx context.Context, params interface{}, method, url string) (string, []byte, error) {
 	debugprint(">> " + method + " " + url)
 	var jsonParams []byte
 	var err error
@@ -193,24 +209,33 @@ func (w WebDriverCore) doInternal(params interface{}, method, url string) (strin
 	if err != nil {
 		return "", nil, err
 	}
-	response, err := http.DefaultClient.Do(request)
+	request = request.WithContext(ctx)
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return "", nil, err
 	}
-	debugprint("StatusCode: " + strconv.Itoa(response.StatusCode))
 	//http.Client doesn't follow POST redirected (/session command)
 	if method == "POST" && isRedirect(response) {
 		debugprint("redirected")
+		// The body of the redirect response is not needed; close it before
+		// following the location.
+		response.Body.Close()
 		url, err := response.Location()
 		if err != nil {
 			return "", nil, err
 		}
-		return w.doInternal(nil, "GET", url.String())
+		return w.doInternalContext(ctx, nil, "GET", url.String())
 	}
 
-	buf, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return "", nil, err
+	// Every non-redirect response is consumed and closed here so connections
+	// can be returned to the pool even on protocol errors.
+	buf, readErr := ioutil.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	if readErr != nil {
+		return "", nil, readErr
+	}
+	if closeErr != nil {
+		return "", nil, closeErr
 	}
 	head := string(buf)
 	if len(buf) > 1024 {
