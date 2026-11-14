@@ -80,6 +80,9 @@ function World(options) {
 	this._changedEntities = [];
 	this._removedEntities = [];
 
+	// Optional SceneResidency controller owning part of the entity membership.
+	this._sceneResidency = null;
+
 	this.by = {};
 	this._installDefaultSelectors();
 
@@ -215,6 +218,62 @@ World.prototype.registerComponent = function (componentConstructor) {
 		this._components.push(componentConstructor);
 		Component.applyEntitySelectionAPI(componentConstructor.entitySelectionAPI, componentConstructor.type);
 	}
+	return this;
+};
+
+/**
+ * Commit an entity membership change initiated by a {@link SceneResidency}
+ * controller. Unlike {@link World#removeEntity}, removing an entity here never
+ * detaches it from its parent, clears its children or changes its transform:
+ * the transform hierarchy is independent from world membership so that a
+ * resident subtree can leave and re-enter without losing its structure.
+ *
+ * Membership changes are applied to the managers and systems synchronously.
+ * Inserted/deleted notifications are only sent for real net membership changes.
+ *
+ * @param {Array<Entity>} entitiesToAdd
+ * @param {Array<Entity>} entitiesToRemove
+ */
+World.prototype.commitResidencyMembers = function (entitiesToAdd, entitiesToRemove) {
+	var i, j, entity;
+
+	entitiesToRemove = entitiesToRemove || [];
+	entitiesToAdd = entitiesToAdd || [];
+
+	for (i = 0; i < entitiesToRemove.length; i++) {
+		entity = entitiesToRemove[i];
+
+		var pendingAddIndex = this._addedEntities.indexOf(entity);
+		if (pendingAddIndex !== -1) {
+			this._addedEntities.splice(pendingAddIndex, 1);
+		}
+		if (this._removedEntities.indexOf(entity) === -1) {
+			this._removedEntities.push(entity);
+		}
+
+		for (j = 0; j < this._managers.length; j++) {
+			this._managers[j].removed(entity);
+		}
+	}
+
+	for (i = 0; i < entitiesToAdd.length; i++) {
+		entity = entitiesToAdd[i];
+
+		var pendingRemoveIndex = this._removedEntities.indexOf(entity);
+		if (pendingRemoveIndex !== -1) {
+			this._removedEntities.splice(pendingRemoveIndex, 1);
+		}
+		if (this._addedEntities.indexOf(entity) === -1) {
+			this._addedEntities.push(entity);
+		}
+
+		for (j = 0; j < this._managers.length; j++) {
+			this._managers[j].added(entity);
+		}
+	}
+
+	this.processEntityChanges();
+
 	return this;
 };
 
