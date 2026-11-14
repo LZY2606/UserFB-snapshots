@@ -642,6 +642,20 @@ func (c *Collector) UnmarshalRequest(r []byte) (*Request, error) {
 }
 
 func (c *Collector) scrape(u, method string, depth int, requestData io.Reader, ctx *Context, hdr http.Header, checkRevisit bool) error {
+	return c.scrapeImpl(u, method, depth, requestData, ctx, hdr, checkRevisit, false)
+}
+
+// scrapeTracked is scrape with one difference: when the Collector is
+// asynchronous, the spawned fetch goroutine is joined before returning
+// instead of being left to the WaitGroup. The WaitGroup accounting is kept
+// intact so Wait still reflects every issued request, but callers needing
+// their own completion (the queue) do not depend on it and are unaffected
+// by unrelated asynchronous Visit calls on the same Collector.
+func (c *Collector) scrapeTracked(u, method string, depth int, requestData io.Reader, ctx *Context, hdr http.Header, checkRevisit bool) error {
+	return c.scrapeImpl(u, method, depth, requestData, ctx, hdr, checkRevisit, true)
+}
+
+func (c *Collector) scrapeImpl(u, method string, depth int, requestData io.Reader, ctx *Context, hdr http.Header, checkRevisit, wait bool) error {
 	parsedWhatwgURL, err := urlParser.Parse(u)
 	if err != nil {
 		return err
@@ -689,10 +703,13 @@ func (c *Collector) scrape(u, method string, depth int, requestData io.Reader, c
 	}
 	u = parsedURL.String()
 	c.wg.Add(1)
-	if c.Async {
+	if c.Async && !wait {
 		go c.fetch(u, method, depth, requestData, ctx, hdr, req)
 		return nil
 	}
+	// In synchronous mode, and for tracked asynchronous callers, fetch
+	// runs on the current goroutine and its deferred wg.Done keeps the
+	// WaitGroup balance unchanged.
 	return c.fetch(u, method, depth, requestData, ctx, hdr, req)
 }
 
@@ -939,6 +956,20 @@ func (c *Collector) String() string {
 // Wait returns when the collector jobs are finished
 func (c *Collector) Wait() {
 	c.wg.Wait()
+}
+
+// RunScraped executes a Request and blocks until its entire processing has
+// finished: OnRequest, request and response header callbacks, body
+// download, parsing, OnResponse/OnHTML/OnXML/OnScraped and, on failure,
+// OnError. Unlike Request.Do it keeps blocking even when the Collector is
+// asynchronous, without changing the Collector's Async mode and without
+// waiting on the WaitGroup behind Wait, so external asynchronous Visit
+// calls sharing the same Collector are not blocked by or mixed into this
+// call. This is the entry point used by the queue package to own request
+// completion; the returned error keeps the same semantics as
+// Visit/Request.Do, while crawl errors are still delivered to OnError.
+func (c *Collector) RunScraped(r *Request) error {
+	return c.scrapeTracked(r.URL.String(), r.Method, r.Depth, r.Body, r.Ctx, *r.Headers, !c.AllowURLRevisit)
 }
 
 // OnRequest registers a function. Function will be executed on every

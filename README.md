@@ -99,6 +99,56 @@ See [examples folder](https://github.com/gocolly/colly/tree/master/_examples) fo
 `go get github.com/gocolly/colly/v2`
 
 
+## Queued scraping
+
+The `queue` package drains a persistent request queue through a normal
+`Collector`, including an asynchronous one:
+
+```go
+q, err := queue.New(
+    2,                                  // consumer threads
+    &queue.InMemoryQueueStorage{MaxSize: 10000},
+)
+if err != nil {
+    panic(err)
+}
+
+c := colly.NewCollector(colly.Async(true))
+c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+    // Links found while crawling are picked up by the running queue.
+    q.AddURL(e.Request.AbsoluteURL(e.Attr("href")))
+})
+
+q.AddURL("https://go-colly.org/")
+if err := q.Run(c); err != nil {
+    panic(err)
+}
+```
+
+Behavior to rely on:
+
+- `Threads` bounds the number of requests the queue processes at once. A
+  slot is occupied from dispatch until the response body, parsing and all
+  user callbacks of that request have finished. Normal completion, network
+  and HTTP errors, aborts and rejected (deduplicated or domain-filtered)
+  requests all release the slot; crawl errors are still delivered to
+  `OnError`, while `Run` itself only reports storage errors.
+- `Run` blocks until the queue has no pending work and every request it
+  dispatched has fully finished. An empty storage does not end the run
+  while a callback may still enqueue more links. With `colly.Async(true)`
+  the queue waits on its own requests without calling the collector's
+  `Wait`, so unrelated `Visit` calls sharing the same collector neither
+  slow the queue down nor consume a queue slot; do not change the
+  collector's `Async` mode yourself.
+- `q.Stop()` returns immediately and is safe to call from a callback. It
+  stops new dispatch, lets in-flight requests finish (and waits for them),
+  and keeps any stored request — including links discovered while stopping
+  — for the next `Run`. Requests already taken from storage but not yet
+  dispatched are retained ahead of anything added later.
+
+See the [queue example](_examples/queue/queue.go) for a runnable version.
+
+
 ## Bugs
 
 Bugs or suggestions? Visit the [issue tracker](https://github.com/gocolly/colly/issues) or join `#colly` on freenode
