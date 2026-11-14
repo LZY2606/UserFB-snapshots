@@ -24,12 +24,34 @@ void init_zbuffer(const int width, const int height) {
     zbuffer = std::vector(width*height, -1000.);
 }
 
+void clear_ownership(FragmentOwnership &owner) {
+    std::fill(owner.object.begin(), owner.object.end(), -1);
+    std::fill(owner.face.begin(),   owner.face.end(),   -1);
+}
+
+void resize_ownership(FragmentOwnership &owner, int width, int height) {
+    owner.object.assign(width*height, -1);
+    owner.face.assign(width*height, -1);
+}
+
 void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer) {
+    rasterize(clip, shader, framebuffer, -1, -1, nullptr);
+}
+
+void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer,
+               int object_id, int face_id, FragmentOwnership *owner) {
     vec4 ndc[3]    = { clip[0]/clip[0].w, clip[1]/clip[1].w, clip[2]/clip[2].w };                // normalized device coordinates
     vec2 screen[3] = { (Viewport*ndc[0]).xy(), (Viewport*ndc[1]).xy(), (Viewport*ndc[2]).xy() }; // screen coordinates
 
     mat<3,3> ABC = {{ {screen[0].x, screen[0].y, 1.}, {screen[1].x, screen[1].y, 1.}, {screen[2].x, screen[2].y, 1.} }};
     if (ABC.det()<1) return; // backface culling + discarding triangles that cover less than a pixel
+
+    const int fb_width = framebuffer.width();
+    if (owner) { // ownership storage must cover exactly the same pixels as the depth buffer
+        if (static_cast<int>(owner->object.size()) != static_cast<int>(zbuffer.size()) ||
+            static_cast<int>(owner->face.size())   != static_cast<int>(zbuffer.size()))
+            return;
+    }
 
     auto [bbminx,bbmaxx] = std::minmax({screen[0].x, screen[1].x, screen[2].x}); // bounding box for the triangle
     auto [bbminy,bbmaxy] = std::minmax({screen[0].y, screen[1].y, screen[2].y}); // defined by its top left and bottom right corners
@@ -41,12 +63,15 @@ void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffe
             bc_clip = bc_clip / (bc_clip.x + bc_clip.y + bc_clip.z);
             if (bc_screen.x<0 || bc_screen.y<0 || bc_screen.z<0) continue; // negative barycentric coordinate => the pixel is outside the triangle
             double z = bc_screen * vec3{ ndc[0].z, ndc[1].z, ndc[2].z };   // linear interpolation of the depth
-            if (z <= zbuffer[x+y*framebuffer.width()]) continue;   // discard fragments that are too deep w.r.t the z-buffer
+            if (z <= zbuffer[x+y*fb_width]) continue;   // discard fragments that are too deep w.r.t the z-buffer
             auto [discard, color] = shader.fragment(bc_clip);
             if (discard) continue;                                 // fragment shader can discard current fragment
-            zbuffer[x+y*framebuffer.width()] = z;                  // update the z-buffer
+            zbuffer[x+y*fb_width] = z;                  // update the z-buffer
             framebuffer.set(x, y, color);                          // update the framebuffer
+            if (owner) {                                           // color/depth/ownership move together on the winning fragment
+                owner->object[x+y*fb_width] = object_id;
+                owner->face[x+y*fb_width]   = face_id;
+            }
         }
     }
 }
-

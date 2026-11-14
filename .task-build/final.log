@@ -1,0 +1,148 @@
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+# v# 4 f# 2
+texture file .task-build/t_plane_diffuse.tga loading can't open file .task-build/t_plane_diffuse.tga
+failed
+texture file .task-build/t_plane_nm_tangent.tga loading can't open file .task-build/t_plane_nm_tangent.tga
+failed
+texture file .task-build/t_plane_spec.tga loading can't open file .task-build/t_plane_spec.tga
+failed
+CASE topology plane_split_uv_no_diagonal checks=9
+# v# 4 f# 2
+texture file .task-build/t_dup_diffuse.tga loading can't open file .task-build/t_dup_diffuse.tga
+failed
+texture file .task-build/t_dup_nm_tangent.tga loading can't open file .task-build/t_dup_nm_tangent.tga
+failed
+texture file .task-build/t_dup_spec.tga loading can't open file .task-build/t_dup_spec.tga
+failed
+CASE topology duplicate_positions_not_welded checks=6
+# v# 4 f# 2
+texture file .task-build/t_fold_diffuse.tga loading can't open file .task-build/t_fold_diffuse.tga
+failed
+texture file .task-build/t_fold_nm_tangent.tga loading can't open file .task-build/t_fold_nm_tangent.tga
+failed
+texture file .task-build/t_fold_spec.tga loading can't open file .task-build/t_fold_spec.tga
+failed
+CASE topology folded_mesh_crease_threshold checks=6
+# v# 3 f# 2
+texture file .task-build/t_zero_diffuse.tga loading can't open file .task-build/t_zero_diffuse.tga
+failed
+texture file .task-build/t_zero_nm_tangent.tga loading can't open file .task-build/t_zero_nm_tangent.tga
+failed
+texture file .task-build/t_zero_spec.tga loading can't open file .task-build/t_zero_spec.tga
+failed
+CASE topology zero_area_face_excluded checks=8
+# v# 5 f# 3
+texture file .task-build/t_three_diffuse.tga loading can't open file .task-build/t_three_diffuse.tga
+failed
+texture file .task-build/t_three_nm_tangent.tga loading can't open file .task-build/t_three_nm_tangent.tga
+failed
+texture file .task-build/t_three_spec.tga loading can't open file .task-build/t_three_spec.tga
+failed
+CASE topology three_neighbors_handled_crease checks=4
+GROUP topology cases=5 checks=33 COMPLETE
+# v# 4 f# 2
+texture file .task-build/t_corner_diffuse.tga loading can't open file .task-build/t_corner_diffuse.tga
+failed
+texture file .task-build/t_corner_nm_tangent.tga loading can't open file .task-build/t_corner_nm_tangent.tga
+failed
+texture file .task-build/t_corner_spec.tga loading can't open file .task-build/t_corner_spec.tga
+failed
+CASE visibility silhouette_changes_with_eye checks=6
+# v# 3 f# 1
+texture file .task-build/t_tri_diffuse.tga loading can't open file .task-build/t_tri_diffuse.tga
+failed
+texture file .task-build/t_tri_nm_tangent.tga loading can't open file .task-build/t_tri_nm_tangent.tga
+failed
+texture file .task-build/t_tri_spec.tga loading can't open file .task-build/t_tri_spec.tga
+failed
+CASE visibility line_width_and_round_caps checks=9
+# v# 3 f# 1
+texture file .task-build/t_off_diffuse.tga loading can't open file .task-build/t_off_diffuse.tga
+failed
+texture file .task-build/t_off_nm_tangent.tga loading can't open file .task-build/t_off_nm_tangent.tga
+failed
+texture file .task-build/t_off_spec.tga loading can't open file .task-build/t_off_spec.tga
+failed
+CASE visibility edge_partly_outside_viewport checks=3
+# v# 3 f# 1
+texture file .task-build/t_behind_diffuse.tga loading can't open file .task-build/t_behind_diffuse.tga
+failed
+texture file .task-build/t_behind_nm_tangent.tga loading can't open file .task-build/t_behind_nm_tangent.tga
+failed
+texture file .task-build/t_behind_spec.tga loading can't open file .task-build/t_behind_spec.tga
+failed
+CASE visibility non_positive_w_vertex_skipped checks=2
+GROUP visibility cases=4 checks=20 COMPLETE
+# v# 3 f# 1
+texture file .task-build/t_sheet_diffuse.tga loading can't open file .task-build/t_sheet_diffuse.tga
+failed
+texture file .task-build/t_sheet_nm_tangent.tga loading can't open file .task-build/t_sheet_nm_tangent.tga
+failed
+texture file .task-build/t_sheet_spec.tga loading can't open file .task-build/t_sheet_spec.tga
+failed
+# v# 3 f# 1
+texture file .task-build/t_occ_diffuse.tga loading can't open file .task-build/t_occ_diffuse.tga
+failed
+texture file .task-build/t_occ_nm_tangent.tga loading can't open file .task-build/t_occ_nm_tangent.tga
+failed
+texture file .task-build/t_occ_spec.tga loading can't open file .task-build/t_occ_spec.tga
+failed
+CASE integration intersecting_occluder checks=4
+# v# 3 f# 1
+texture file .task-build/t_sheet2_diffuse.tga loading can't open file .task-build/t_sheet2_diffuse.tga
+failed
+texture file .task-build/t_sheet2_nm_tangent.tga loading can't open file .task-build/t_sheet2_nm_tangent.tga
+failed
+texture file .task-build/t_sheet2_spec.tga loading can't open file .task-build/t_sheet2_spec.tga
+failed
+# v# 3 f# 1
+texture file .task-build/t_occ2_diffuse.tga loading can't open file .task-build/t_occ2_diffuse.tga
+failed
+texture file .task-build/t_occ2_nm_tangent.tga loading can't open file .task-build/t_occ2_nm_tangent.tga
+failed
+texture file .task-build/t_occ2_spec.tga loading can't open file .task-build/t_occ2_spec.tga
+failed
+CASE integration same_face_number_other_object checks=2
+# v# 3 f# 1
+texture file .task-build/t_sheet3_diffuse.tga loading can't open file .task-build/t_sheet3_diffuse.tga
+failed
+texture file .task-build/t_sheet3_nm_tangent.tga loading can't open file .task-build/t_sheet3_nm_tangent.tga
+failed
+texture file .task-build/t_sheet3_spec.tga loading can't open file .task-build/t_sheet3_spec.tga
+failed
+# v# 3 f# 1
+texture file .task-build/t_occ3_diffuse.tga loading can't open file .task-build/t_occ3_diffuse.tga
+failed
+texture file .task-build/t_occ3_nm_tangent.tga loading can't open file .task-build/t_occ3_nm_tangent.tga
+failed
+texture file .task-build/t_occ3_spec.tga loading can't open file .task-build/t_occ3_spec.tga
+failed
+CASE integration discarded_fragment_hole checks=3
+# v# 3 f# 1
+texture file .task-build/t_sheet4_diffuse.tga loading can't open file .task-build/t_sheet4_diffuse.tga
+failed
+texture file .task-build/t_sheet4_nm_tangent.tga loading can't open file .task-build/t_sheet4_nm_tangent.tga
+failed
+texture file .task-build/t_sheet4_spec.tga loading can't open file .task-build/t_sheet4_spec.tga
+failed
+CASE integration overlay_stable_and_preserves checks=4098
+CASE integration default_rasterize_compatible checks=4099
+# v# 3 f# 1
+texture file .task-build/t_material_diffuse.tga loading 8x8/24
+ok
+texture file .task-build/t_material_nm_tangent.tga loading can't open file .task-build/t_material_nm_tangent.tga
+failed
+texture file .task-build/t_material_spec.tga loading can't open file .task-build/t_material_spec.tga
+failed
+64x64/24
+CASE integration generated_obj_writes_tga checks=6
+GROUP integration cases=6 checks=8212 COMPLETE
+TARGET_COMPLETE cases=15
+# v# 4 f# 2
+texture file .task-build/plane_diffuse.tga loading can't open file .task-build/plane_diffuse.tga
+failed
+texture file .task-build/plane_nm_tangent.tga loading can't open file .task-build/plane_nm_tangent.tga
+failed
+texture file .task-build/plane_spec.tga loading can't open file .task-build/plane_spec.tga
+failed
+BASELINE_OK faces=2 foreground_depth=0.5 discard_preserved=1

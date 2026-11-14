@@ -1,0 +1,4 @@
+#!/bin/bash
+# Sandbox-only shim: stock macOS mktemp ignores TMPDIR and targets a path this
+# sandbox blocks. Force the temporary file into the writable TMPDIR instead.
+exec /usr/bin/mktemp "${TMPDIR}/taskrun.XXXXXX"
