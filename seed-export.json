@@ -1,0 +1,413 @@
+{
+  "repo": "https://github.com/WebAssembly/wabt",
+  "commit": "4fbd7198c766e3d450edfe3847ff6f45f360e078",
+  "mode": "minimal complete production runtime export",
+  "unchanged_upstream_files": [
+    {
+      "path": "LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "README.md",
+      "sha256": "89747b7b10bc1f54e908262d6098a56c496f853434ec5676d2161592f0d4480c"
+    },
+    {
+      "path": "include/wabt/apply-names.h",
+      "sha256": "63b0ef27bfec1d5e0b35709462c252bf6a8437898bdc04f1357b0ee46a00a474"
+    },
+    {
+      "path": "include/wabt/base-types.h",
+      "sha256": "3777fece5150e493d1ee466d2410215bf6d9a72902ee81f020b4e3f6766eacca"
+    },
+    {
+      "path": "include/wabt/binary-reader-ir.h",
+      "sha256": "ac6831dd9f7ef045f3f63e95b8d83110a0bd3fbec313cfeb4c388cf994a6f984"
+    },
+    {
+      "path": "include/wabt/binary-reader-logging.h",
+      "sha256": "fb5c1131057b7b279ace02d19f42307e9e5a7c639558fb4a6a7a55eaa6005006"
+    },
+    {
+      "path": "include/wabt/binary-reader-nop.h",
+      "sha256": "6b26af5b2790f116fe174136761b64e4699ba3940333d8f2934b2022b2d57de7"
+    },
+    {
+      "path": "include/wabt/binary-reader-objdump.h",
+      "sha256": "091c2146b0182f15b2dd716d60d1060f4d18bf5af92aa361b87c889c790f1a57"
+    },
+    {
+      "path": "include/wabt/binary-reader-stats.h",
+      "sha256": "fd26d989475174a44d317759d449203d4af8f345ee5741478556eb1a0b291b6a"
+    },
+    {
+      "path": "include/wabt/binary-reader.h",
+      "sha256": "3575b21549c67306bd7bb17297a9642aa5d51d73503dcad2f28cb21a947992df"
+    },
+    {
+      "path": "include/wabt/binary-writer-spec.h",
+      "sha256": "1ee60b6e4fd4e11c06706a365f2b041d75dddedf09aebf7711523454b0c5e90b"
+    },
+    {
+      "path": "include/wabt/binary-writer.h",
+      "sha256": "705ac33dd1470fe4c8e93e228d9f9a39d1ec9e458d614e89ea3186f6d1381416"
+    },
+    {
+      "path": "include/wabt/binary.h",
+      "sha256": "1b5977b8cb203f1c47504d769defd39b87677341665af9a0b178b2ee9ae376c3"
+    },
+    {
+      "path": "include/wabt/binding-hash.h",
+      "sha256": "8613721b98c3108862ab9b11658ede87538d0831c4a9d4cd4ed5e3bf851c8e70"
+    },
+    {
+      "path": "include/wabt/c-writer.h",
+      "sha256": "b553d9717e171d16d289fbf90ee9bb5a99331ab0d83b586bd591822fe9f013c1"
+    },
+    {
+      "path": "include/wabt/cast.h",
+      "sha256": "57072880017476a5a42eb0d480918ae66df6778cb13a9550a26810b8b9b95899"
+    },
+    {
+      "path": "include/wabt/color.h",
+      "sha256": "98986adde2c3bc1390892c51dbc85104edb43d2452da71807163efe82702580f"
+    },
+    {
+      "path": "include/wabt/common.h",
+      "sha256": "23da251dc092cfbf85fdc3627cd97dd6c364dfff21fe2ba1f8f7650041decd1c"
+    },
+    {
+      "path": "include/wabt/error-formatter.h",
+      "sha256": "8eb30e94036a721bd04cee909714edc7c33fc7be85216e2a184f0ddeacc332a3"
+    },
+    {
+      "path": "include/wabt/error.h",
+      "sha256": "57e4144e62be8c04f30c3853bbcd717dc2207573c25199f91b5d30dbba2b4efa"
+    },
+    {
+      "path": "include/wabt/expr-visitor.h",
+      "sha256": "5c7f83b8563c9e038b47b12d1109bb374e320cc0ddc18527d43ebc630b51fe09"
+    },
+    {
+      "path": "include/wabt/feature.def",
+      "sha256": "c98d630c8c44b2457df1eeec10d667742c5d2e3bca37122c852f6420e37135f1"
+    },
+    {
+      "path": "include/wabt/feature.h",
+      "sha256": "bea2226ee3d4eec86c8ac3b1590d887624ab217d79638a33f2ed9c94659f61a9"
+    },
+    {
+      "path": "include/wabt/filenames.h",
+      "sha256": "b21bcc5445705d8294e0ad87496e3bcf4fb20e05e49a7237e1077aa28aabeff4"
+    },
+    {
+      "path": "include/wabt/generate-names.h",
+      "sha256": "82530dc2b59ce63bea0a101753441dde6c9996589186753d6b9fe7ee1619ba2e"
+    },
+    {
+      "path": "include/wabt/interp/binary-reader-interp.h",
+      "sha256": "a8805a94fe24882dc883aa64809ff8d6d9e27fcb24c916ce05d8f0313ccc64e6"
+    },
+    {
+      "path": "include/wabt/interp/interp-inl.h",
+      "sha256": "9319bdd4df4ecba0b09616d653869488ea05c5cd51b7fd880ad6b02a15dcacc1"
+    },
+    {
+      "path": "include/wabt/interp/interp-math.h",
+      "sha256": "1144306aaf2c9606e09b69daf519cfcda51f5b23d3436841a1e9e4033535d17e"
+    },
+    {
+      "path": "include/wabt/interp/interp-util.h",
+      "sha256": "73d44757e4137e1c70cec0282b313aa957cefd9e39e9a30fd219a20c25a3ab13"
+    },
+    {
+      "path": "include/wabt/interp/interp-wasi.h",
+      "sha256": "2eccb8ae5ef8040b3ffe5889f96e9d7851fe1a8dda49404244c74b32d52ba81e"
+    },
+    {
+      "path": "include/wabt/interp/interp.h",
+      "sha256": "ef69360f3ece9dc46cc64c6ee73676dbd13b463e7c067ffad13315a5f12ebf13"
+    },
+    {
+      "path": "include/wabt/interp/istream.h",
+      "sha256": "dbc8a2d1957ea22d20328013b8f4682af1cd88a182ab6d1324b63a35e2724009"
+    },
+    {
+      "path": "include/wabt/intrusive-list.h",
+      "sha256": "afebe0f61dd02de9f3a28ec60e4fdfb63d52775799cd561468bc0d462c35407e"
+    },
+    {
+      "path": "include/wabt/ir-util.h",
+      "sha256": "2a4376bcf93fb0cf365010b2d51fd875b52c7a4567130de3579f5b823cc9631b"
+    },
+    {
+      "path": "include/wabt/ir.h",
+      "sha256": "914eb93651c90215519c262e4716c377ee0fa95a4c7e54314808cc88dc1ded1f"
+    },
+    {
+      "path": "include/wabt/leb128.h",
+      "sha256": "5a943eab07db437f3a3fa32ab6da287a28fd60baae320294e8c526f534d7cde3"
+    },
+    {
+      "path": "include/wabt/lexer-source-line-finder.h",
+      "sha256": "1f58e509d53de1cb486924f95457f9cabefa7f7230aa839d465e7f656720fa06"
+    },
+    {
+      "path": "include/wabt/lexer-source.h",
+      "sha256": "da3dd54d3252c2f748f9184cf800304342eb2853d18792f1a7daec375a41c4f0"
+    },
+    {
+      "path": "include/wabt/literal.h",
+      "sha256": "132d38572cc78f06b153383a848c669e2e3347ce0b66c2815f3572ddf9504ef5"
+    },
+    {
+      "path": "include/wabt/opcode-code-table.h",
+      "sha256": "440203e4b7cc75c38bd156df1d3071e6e97c6b27e73d5625325a1ad83beb815b"
+    },
+    {
+      "path": "include/wabt/opcode.def",
+      "sha256": "32879e8fce3309b6b207f790506cb60a3e77cca815abb26508b3db3496012a29"
+    },
+    {
+      "path": "include/wabt/opcode.h",
+      "sha256": "24198104950a0a2317425c14e81f4fa24e3de9453d1c7476a4482e8802e9a8ca"
+    },
+    {
+      "path": "include/wabt/option-parser.h",
+      "sha256": "c3cef8339dacc18587e4750bf11805120cb96c78f1dd54e811653f683f94f425"
+    },
+    {
+      "path": "include/wabt/range.h",
+      "sha256": "6f26e066bf1ecc95e5ddfd89bae5a9453fada3bbea50e84652bbae6928637b07"
+    },
+    {
+      "path": "include/wabt/resolve-names.h",
+      "sha256": "8f299fe210a8ca683bce5b042336527985caeb4326e8e3ab4a87a73c9e819c89"
+    },
+    {
+      "path": "include/wabt/result.h",
+      "sha256": "d5f74b55deca215db04d4af5837a19f363beb474514cf5aad16c9f81c8a4ed5d"
+    },
+    {
+      "path": "include/wabt/sha256.h",
+      "sha256": "7b3e9b9c9c3b6fc11582e1e8908ead956b2d4ba8118844f885e195dab1435cbb"
+    },
+    {
+      "path": "include/wabt/shared-validator.h",
+      "sha256": "e7fe6757634a55f11603f669c2c7e713e0e1c9a11fde149b317df680d269f1a4"
+    },
+    {
+      "path": "include/wabt/stream.h",
+      "sha256": "027afd4348540950987815d2930b4ee005cca44486572c5dc28e3066e0f03671"
+    },
+    {
+      "path": "include/wabt/string-format.h",
+      "sha256": "f8706dc09345dee2331d9938bbbd9fa8593d821eb2be75bdb0fba09a911f833e"
+    },
+    {
+      "path": "include/wabt/string-util.h",
+      "sha256": "9ce64474011a4b5d0e61f7343285042ef7b450c646e2b2704cb98b0ecd548558"
+    },
+    {
+      "path": "include/wabt/token.def",
+      "sha256": "e3223561f9456a21a8a26e0ba36f7240ac3711340d1c56be835d798346871440"
+    },
+    {
+      "path": "include/wabt/token.h",
+      "sha256": "4f8cbf46c842926898613be6153f38943fb704617495fee92ebdb3665108b9a6"
+    },
+    {
+      "path": "include/wabt/tracing.h",
+      "sha256": "78210c14b3f1acec45f4d3fd2703d69b3cbd8949157f596c2b6f73513f4a9556"
+    },
+    {
+      "path": "include/wabt/type-checker.h",
+      "sha256": "f7e80535dd68c4b94a613ea6c907955a310bf0e717fe8046d2ed6dd6ae4185c2"
+    },
+    {
+      "path": "include/wabt/type.h",
+      "sha256": "52d49587d21f38eb1286ddb49540e70b7797b31af47f41d2364ce7e7b94725f5"
+    },
+    {
+      "path": "include/wabt/utf8.h",
+      "sha256": "48021c0ac0486839d4e18318da931abf5da0f12ecf50975b8a9d0bebdb305d3d"
+    },
+    {
+      "path": "include/wabt/validator.h",
+      "sha256": "cc0d5983d403d0fc90091550d52297024270f3c42ab20e1f4d097d3f652d45b9"
+    },
+    {
+      "path": "include/wabt/wast-lexer.h",
+      "sha256": "eab380f9032fa82dff76ceb7f003768a8eb79d9cef9d337b1147b688e3293deb"
+    },
+    {
+      "path": "include/wabt/wast-parser.h",
+      "sha256": "b4d0554b7a9f7605adaeba02527516819912bc6f6dd4982dc98adcf21e69a037"
+    },
+    {
+      "path": "include/wabt/wat-writer.h",
+      "sha256": "9e6ae79464371b81f72ce8472381e8c8147a42c2238a223e0ef1bc20e710cfb9"
+    },
+    {
+      "path": "src/apply-names.cc",
+      "sha256": "55e23d5cf80229ae5b76b50e37afad83eccb7d62c22d109d494c46987d000113"
+    },
+    {
+      "path": "src/binary-reader-ir.cc",
+      "sha256": "22e1749ae19d0da4bfe2cf48f3670747d19ccc0a2567db71fd06a2a093d75b15"
+    },
+    {
+      "path": "src/binary-reader-logging.cc",
+      "sha256": "c6f29d29ccba0390d83b5965aa76d82ab3ce40500252c01446752a9553c6f92d"
+    },
+    {
+      "path": "src/binary-reader.cc",
+      "sha256": "c6c924cce8d0189c774eaf96ca563beb821b7a06f5318e1fd63d4174b6a46c01"
+    },
+    {
+      "path": "src/binary.cc",
+      "sha256": "4c436712ac27098cd5c56a39517d6aaa11e23686d876e6c78d6d7d301666a2ab"
+    },
+    {
+      "path": "src/binding-hash.cc",
+      "sha256": "dc2e2619f43d61a1fbd130b9ff6bd402e96b3a9fb0050a544d213e097af44afe"
+    },
+    {
+      "path": "src/color.cc",
+      "sha256": "fe944d0cfc5834fdccc7148f4df78713187d9e8e358b7fd9ecd7a7e7ac8baec9"
+    },
+    {
+      "path": "src/common.cc",
+      "sha256": "b90c9a159b5565beca928ac455ca5c265570c5d8712860f0bf17c089d6b0a6ce"
+    },
+    {
+      "path": "src/config.cc",
+      "sha256": "0d503a0187334e134d7fad8bfcbbd27570715dce0ae648392144b9f0015546c1"
+    },
+    {
+      "path": "src/error-formatter.cc",
+      "sha256": "805f66407f3b60f003ba3eddab5e3d82069b4910f645a96bb779a5b353c0e1f4"
+    },
+    {
+      "path": "src/expr-visitor.cc",
+      "sha256": "fccfe3508b66435b2776da80b766063d0f481d7b02d421437243c8bbb431d32d"
+    },
+    {
+      "path": "src/feature.cc",
+      "sha256": "24bc6bdd42b51a6cc3f32a16aedf3e2fa9217f857e7fe29a04c7c7897b1b2096"
+    },
+    {
+      "path": "src/filenames.cc",
+      "sha256": "67b768dc69c7e434eba3b561fcdae13ac21ebac7dbd4dc24942c6e8655d0b3b8"
+    },
+    {
+      "path": "src/generate-names.cc",
+      "sha256": "2a9371ab803c9842d736e81a05488c17ccab28b686cf3b93ef3cc87797674b38"
+    },
+    {
+      "path": "src/ir-util.cc",
+      "sha256": "7d06306b6bcc2c7e72f1f3c1b262a7055c8ae06efee2ba4f215e03bad8b292f1"
+    },
+    {
+      "path": "src/ir.cc",
+      "sha256": "5f93d68c03c6775178880226f65c96b3c366b51cc608d5430b37ec9cec2af290"
+    },
+    {
+      "path": "src/leb128.cc",
+      "sha256": "e84d2412ce23972e0e166d0dc5548774f7b0a8e617bdadb49307761159417b6f"
+    },
+    {
+      "path": "src/lexer-source-line-finder.cc",
+      "sha256": "80b11f451f4985912aacd41feb0c64da7738b7b882310619045bb870ec876f25"
+    },
+    {
+      "path": "src/lexer-source.cc",
+      "sha256": "d54ad6b0e9070c7b74548a1ad356bdc7d510730937342675b6bc5c2089ea298c"
+    },
+    {
+      "path": "src/literal.cc",
+      "sha256": "b46ec4e3c1c4f21a3c540a8881f3722870f94e39e21742203efa64441ea7e465"
+    },
+    {
+      "path": "src/opcode.cc",
+      "sha256": "914c02bdb454e6ddad3f0a3d6fe6f77c3a6e53da9006193fba9f56786942ec6b"
+    },
+    {
+      "path": "src/option-parser.cc",
+      "sha256": "1196cec2cff32592d97e31e32ad0fa49654ef57042cd603303fb6900d6255ba2"
+    },
+    {
+      "path": "src/resolve-names.cc",
+      "sha256": "d3fdf5a38db1c9f8ded3806041f07c203446406cb37f24d607a1d86c6fc32537"
+    },
+    {
+      "path": "src/shared-validator.cc",
+      "sha256": "61d07416636a0fec6940d10e292366f4a100299577da41b8a2eb42d8a79afa4a"
+    },
+    {
+      "path": "src/stream.cc",
+      "sha256": "e2361c3871825bcdeb7744425f7b51a971ab849b31dc135bfe4a7d114f221c5e"
+    },
+    {
+      "path": "src/token.cc",
+      "sha256": "9591fa04d75b6a28938ee5b79f8bb698f554bd7b51230cd63ec647d779e3e208"
+    },
+    {
+      "path": "src/tracing.cc",
+      "sha256": "86422576362dcae56ca46251f6a747d1fc584d628e76485b54d0eee3492da2c9"
+    },
+    {
+      "path": "src/type-checker.cc",
+      "sha256": "02f8b904ac789685a5892c1bfb960e3b7951152c021c12be66418dbf1d644dac"
+    },
+    {
+      "path": "src/utf8.cc",
+      "sha256": "b5333345198e746b2fcd38ab5d99358a83dfa826fde786bdc99c12c5f3ab51d8"
+    },
+    {
+      "path": "src/validator.cc",
+      "sha256": "9efdae4e3470696356e089c06a385f7e2190708dc8aabfea5718183c59c037d5"
+    },
+    {
+      "path": "src/wast-lexer.cc",
+      "sha256": "ac1b364541dad7e36dea6b9fab56a105f0f8b7c68c6c6a5ed4ee5e52cbbec36b"
+    },
+    {
+      "path": "src/wast-parser.cc",
+      "sha256": "5c3528ea41b15d980b3e8eeedd382d0a4a8d714d1a465cd86973695149f88b84"
+    },
+    {
+      "path": "src/wat-writer.cc",
+      "sha256": "e4bdde9a1015a7b2bb007c7d02551f5dbff7985c42d6848768f3c8b30091a4d2"
+    },
+    {
+      "path": "src/opcode-code-table.c",
+      "sha256": "44c463e832c8f70a77e21947c3786ad22fb0b68a6c6346729063a5b7c4b7605e"
+    },
+    {
+      "path": "src/prebuilt/lexer-keywords.cc",
+      "sha256": "54cb8434e9e663a16a77234bb2a9108c21dcfb9f5c21644cf06947ddad14a2fc"
+    },
+    {
+      "path": "test/dump/extended-names.txt",
+      "sha256": "af69a9cd02130af3481907a287d0265ef133ddfa677872de0cbdb8b7f2564a07"
+    },
+    {
+      "path": "test/binary/name-section-unknown-subsection.txt",
+      "sha256": "a5bc80dda4ce155a775dbff7fadfd8d5baa150b6de36b4e000be8677881c16f4"
+    },
+    {
+      "path": "test/roundtrip/generate-label-names.txt",
+      "sha256": "bf57ab8d6dde0c278fed457b2db84cdaa0b755e3114e1dadc7c3fadb72cb3051"
+    },
+    {
+      "path": "test/roundtrip/generate-some-names.txt",
+      "sha256": "502cf86462f59bf595c817c17dec6044f5f66506c80f27e9a0a9e6ab9b2f9bc0"
+    },
+    {
+      "path": "test/roundtrip/generate-existing-name.txt",
+      "sha256": "1f5ed8eee05afd42b5778b2ba2bae51f109bc075b9fcd348815adca95341916c"
+    }
+  ],
+  "excluded": "Unused submodules, interpreter, C emitter, upstream build system and unrelated tools/tests; no dependency on these paths. Original tracked source retained in private clone.",
+  "author_files": "task_support/*; see actual delivered file inventory"
+}
