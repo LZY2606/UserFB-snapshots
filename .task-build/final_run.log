@@ -1,0 +1,31 @@
+BUILD_OK float=1 scalar=1 cxx17=1
+CASE search random_stereo_position checks=3
+CASE search six_channel_joint_position checks=3
+CASE search zero_energy_deterministic checks=2
+CASE search candidate_zero_unweighted_quirk checks=3
+GROUP search cases=4 checks=11 COMPLETE
+CASE overlap first_round_mono_stereo_six checks=30
+CASE overlap stereo_dirty_mid_rebuild checks=10
+CASE overlap six_channel_dirty_mid_rebuild checks=10
+GROUP overlap cases=3 checks=50 COMPLETE
+CASE stream tempo_0p70_stereo_48k checks=21
+CASE stream tempo_1p37_stereo_48k checks=21
+CASE stream tempo_1p00_stereo_48k checks=21
+CASE stream tempo_0p70_six_channel_44k1 checks=21
+CASE stream tempo_1p37_six_channel_44k1 checks=21
+CASE stream tempo_0p90_six_channel_48k checks=21
+CASE stream clear_preserves_skip_fraction checks=25
+CASE stream clear_zero_residue_matches_new_instance checks=20
+CASE stream empty_put_and_read_no_advance checks=9
+CASE stream public_soundtouch_wiring checks=5
+GROUP stream cases=10 checks=185 COMPLETE
+TARGET_COMPLETE cases=17
+LEGACY_PCM channels=1 tempo=0.75 frames=127909 hash=a0807810c407046b maxdiff=0
+LEGACY_PCM channels=1 tempo=1.00 frames=95932 hash=d9894e95afd5e853 maxdiff=0
+LEGACY_PCM channels=1 tempo=1.50 frames=63955 hash=c020aceb4245934b maxdiff=0
+LEGACY_PCM channels=2 tempo=0.75 frames=127909 hash=c74001ba2a9e430f maxdiff=0
+LEGACY_PCM channels=2 tempo=1.00 frames=95932 hash=dff9601e99167ebf maxdiff=0
+LEGACY_PCM channels=2 tempo=1.50 frames=63955 hash=b8bbf96673b46dca maxdiff=0
+LEGACY_CONTROLS_OK cases=6
+SOUNDSTRETCH_WAV_OK tempo_percent=25
+UPSTREAM_RUN_TEST_OK files=8 pitch=-3 bpm=1

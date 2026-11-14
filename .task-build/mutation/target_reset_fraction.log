@@ -1,0 +1,12 @@
+  FIRST_DIFF fragmented window offset mismatch at round 6
+FAIL tests/wsola_reference.cpp:796 expectTrueF(offsetIndex < 0, "%s window offset mismatch at round %ld", tag, offsetIndex)
+FAIL tests/wsola_reference.cpp:850 compareStreamRun("fragmented", fragmentedProductionRun, fragmentedModelRun) == 0
+CASE search random_stereo_position checks=3
+CASE search six_channel_joint_position checks=3
+CASE search zero_energy_deterministic checks=2
+CASE search candidate_zero_unweighted_quirk checks=3
+GROUP search cases=4 checks=11 COMPLETE
+CASE overlap first_round_mono_stereo_six checks=30
+CASE overlap stereo_dirty_mid_rebuild checks=10
+CASE overlap six_channel_dirty_mid_rebuild checks=10
+GROUP overlap cases=3 checks=50 COMPLETE

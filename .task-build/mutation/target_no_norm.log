@@ -1,0 +1,2 @@
+  FIRST_DIFF random stereo position production=405 reference=385
+FAIL tests/wsola_reference.cpp:453 expectTrueF(productionPosition == refPosition, "random stereo position production=%d reference=%d", productionPosition, refPosition)

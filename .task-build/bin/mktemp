@@ -1,0 +1,4 @@
+#!/bin/bash
+if [ $# -eq 0 ]; then exec /usr/bin/mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX"; fi
+if [ "$1" = "-t" ] && [ -n "$2" ]; then exec /usr/bin/mktemp "${TMPDIR:-/tmp}/$2.XXXXXXXXXX"; fi
+exec /usr/bin/mktemp "$@"

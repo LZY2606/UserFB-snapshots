@@ -527,4 +527,125 @@ You should have received a copy of the GNU Lesser General Public License along w
 
 * * *
 
+## 8\. WSOLA numerical regression (`tests/wsola_reference.cpp`)
+
+The floating-point, scalar build ships an independent numerical regression for
+the `TDStretch` WSOLA time-stretch path. It complements the file-conversion and
+constant-rate checks (which can hide a wrong window choice or a drifting skip
+clock behind an otherwise normal-sounding output) by comparing the production
+code against a separately written reference instead of another run of the same
+implementation.
+
+### 8.1 What the independent model is based on
+
+The reference is plain C++ standard-library code (direct sums and frame
+coordinates only — no production search, overlap or correlation routine is
+called, `TDStretch.cpp` is not included, and no golden PCM produced by the
+library is stored). A test-only derived class is used solely to load or observe
+protected state. For every processing round the model:
+
+* recomputes, **for each candidate from scratch in `double`**, the full
+  all-channel inner product `corr` and candidate energy `norm`, then evaluates
+  `corr / sqrt(norm < 1e-9 ? 1.0 : norm)`;
+* applies the centre preference defined by the fixed source:
+  `(corr + 0.1) * (1 - 0.25 * tmp * tmp)` with
+  `tmp = (2*candidate - seekLength) / seekLength`. Candidate **0 is scored with
+  the raw normalized correlation and is not weighted** (the source stores the
+  candidate-0 result straight into `bestCorr`); only candidates `1..seekLength-1`
+  are weighted. A dedicated case proves a generic "weight every candidate" rule
+  would pick a different position here;
+* resolves ties with the same strict greater-than rule, so the all-zero-energy
+  case is deterministic: candidate 0 stays at raw `0.0` while the weighted zero
+  scores of the other candidates peak at the centre candidate `seekLength/2`;
+* rebuilds, at the independently chosen position, the linear cross-fade of the
+  previous retained tail window (weight `1 -> 0`) and the new window
+  (weight `0 -> 1`), the bit-exact pass-through middle, and the tail window
+  retained for the next round;
+* keeps its own fractional clock in `double`:
+  `skipFract += nominalSkip; ovlSkip = (int)skipFract; skipFract -= ovlSkip`,
+  and consumes exactly `ovlSkip` input frames per round.
+
+Stereo and six-channel material is searched jointly over all channels for one
+position, while each channel carries independent non-periodic noise so a
+first-channel-only listener reaches a different decision (verified explicitly);
+the case is therefore not reducible to an inverted mono tone. Geometry is fixed
+at sequence/seek/overlap = 40/15/8 ms with quickseek disabled, at two sample
+rates (48000 and 44100 Hz). No integer or SIMD path is exercised.
+
+### 8.2 Coverage
+
+* **search group** — independent full-search positions on stereo and
+  six-channel inputs, the candidate-0 unweighted quirk, and deterministic
+  zero-energy behaviour.
+* **overlap group** — sample-level rebuild of cross-fade, pass-through middle
+  and retained tail for mono/stereo/six-channel first rounds and dirty-mid
+  rounds, at the independently selected position.
+* **stream group** — the model driven through `putSamples` /
+  `receiveSamples` for at least 64 windows at fractional tempos on both sides
+  of 1.0 (including non-integral `nominalSkip`), comparing every output sample,
+  the per-window offsets, the per-round integer skips and the per-put
+  consumption history. The same deterministic input is fed once as a single
+  block and once in an alternating 1/7/113-frame pattern with alternating read
+  capacities; both must match the model and each other. Empty puts and empty
+  reads advance nothing. `clear()` is checked to drop the audio history while
+  preserving the fractional skip residue (the reference keeps the same clock),
+  and a zero-residue clear point is compared with a freshly constructed
+  instance. A final case exercises the public `SoundTouch` API on an anti-phase
+  stereo signal as a wiring check only (non-empty, finite, channel relation and
+  plausible duration); it is not a content reference.
+
+### 8.3 Tolerances
+
+* Cross-fade samples are compared at `1e-5`: the blend is the only place the
+  production float summation order differs from the `double` reference, and
+  observed divergence stays below ~`6e-6` on the chosen inputs. A wrong window
+  moves the output by order `1e-1`, so the bound is tight without depending on
+  the host machine.
+* Pass-through middle and retained tail are required to be bit-identical.
+* Window positions, skips and consumption history are required to be exact
+  integers.
+* After the first (zero-mid) window the chosen score exceeds the runner-up by
+  more than `1e-5`, so no assertion relies on floating-point ties; the final
+  skip fraction is compared at `1e-9`.
+
+### 8.4 Commands
+
+Build the scalar float library, compile and run the three groups, then run the
+existing constant-rate audio and SoundStretch file comparisons:
+
+```
+bash task_support/run.sh target
+```
+
+A passing run prints one `GROUP <name> cases=... checks=... COMPLETE` line per
+group (`search`, `overlap`, `stream`), a `TARGET_COMPLETE` line, and the legacy
+`LEGACY_*` / `SOUNDSTRETCH_*` / `UPSTREAM_RUN_TEST_OK` lines.
+
+### 8.5 Reproducible mutation (regression-sensitivity) check
+
+`task_support/mutation_probe.sh` proves the test detects two degradations that
+still compile and run. Each is built from a **temporary copy** of
+`TDStretch.cpp` under `.task-build/mutation/`; the normal library and the real
+source tree are never modified:
+
+```
+bash task_support/mutation_probe.sh
+```
+
+* **no-norm** — the floating-point `calcCrossCorr` /
+  `calcCrossCorrAccumulate` return values have their candidate-energy
+  normalization removed. The test fails on a window-position mismatch.
+* **reset-fraction** — `skipFract` is zeroed after every round, discarding the
+  fractional `nominalSkip` residue. The test fails on the per-window/consumption
+  history at a fractional tempo (and the resulting PCM).
+
+The baseline library keeps passing; each mutant exits non-zero through an
+ordinary assertion (driver exit code 1..6, never a build error or a signal) and
+the log's first `FIRST_DIFF` line names the earliest concrete divergence. The
+same steps can be reproduced manually by copying `source/SoundTouch/TDStretch.cpp`
+elsewhere, applying either edit, rebuilding the static library from that copy,
+and linking `task_support/driver.c` + `tests/wsola_reference.cpp` against it.
+
+* * *
+
 _RREADME.html file updated on 7-Jan-2014_
