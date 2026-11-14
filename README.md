@@ -46,6 +46,31 @@ import "github.com/oxffaa/gopher-parse-sitemap"
 
 Well done, you can start to create something awesome.
 
+## Resuming a huge sitemap across processes
+
+When a sitemap is too large to process in one go, `ResumeFromSite` keeps a
+checkpoint on disk and continues from the first unacknowledged entry next time,
+instead of downloading the file again from the beginning.
+
+```golang
+err := sitemap.ResumeFromSite(ctx, httpClient, sitemapURL, "./sitemap.checkpoint", func(e Entry) error {
+    return save(entryKey(e.GetLocation())) // make this idempotent
+})
+```
+
+The checkpoint stores the strong ETag, the total byte length, the original
+request identity, the final document address and a byte offset into the HTTP
+body. A later call asks the server for `Range: bytes=<offset>-` with
+`If-Range: <ETag>` and refuses to continue if the representation, the address
+or the returned range no longer match (`errors.Is(err,
+sitemap.ErrResumeMismatch)`). Only plain UTF-8 urlsets are supported: indexes
+are not followed and compressed files are not handled.
+
+Delivery is **at least once**, not exactly once: if the process stops after the
+consumer returned `nil` for an entry but before the checkpoint was written, that
+entry is delivered again on the next call. Make the consumer's side effects
+idempotent. See `ExampleResumeFromSite` for a complete sketch.
+
 ## Documentation
 
 Please, see [here](https://godoc.org/github.com/oxffaa/gopher-parse-sitemap) for documentation.

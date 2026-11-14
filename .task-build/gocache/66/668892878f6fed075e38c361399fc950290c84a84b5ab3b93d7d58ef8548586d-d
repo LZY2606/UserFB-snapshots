@@ -1,0 +1,5 @@
+./sitemap.go
+./sitemap_impl.go
+./sitemap_types.go
+./resume_baseline_test.go
+./sitemap_test.go
