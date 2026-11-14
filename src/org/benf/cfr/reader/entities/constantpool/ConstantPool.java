@@ -7,10 +7,12 @@ import org.benf.cfr.reader.util.ConfusedCFRException;
 import org.benf.cfr.reader.util.bytestream.ByteData;
 import org.benf.cfr.reader.util.bytestream.OffsettingByteData;
 import org.benf.cfr.reader.util.collections.ListFactory;
+import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.output.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
@@ -28,6 +30,8 @@ public class ConstantPool {
     private final int idx = sidx.getAndIncrement();
     private final static AtomicInteger sidx = new AtomicInteger();
     private final boolean dynamicConstants;
+    private final List<Integer> dynamicConstantIndices;
+    private Map<Integer, CondySymbol> condySymbols;
 
     public ConstantPool(ClassFile classFile, DCCommonState dcCommonState, ByteData raw, int count) {
         this.classFile = classFile;
@@ -38,6 +42,7 @@ public class ConstantPool {
         this.entries = tmp.entries;
         this.length = tmp.rawLength;
         this.dynamicConstants = tmp.dynamicConstants;
+        this.dynamicConstantIndices = tmp.dynamicConstantIndices;
         this.dcCommonState = dcCommonState;
         this.classCache = dcCommonState.getClassCache();
         this.isLoaded = true;
@@ -55,20 +60,48 @@ public class ConstantPool {
         return dynamicConstants;
     }
 
+    /*
+     * Raw constant pool indices of all CONSTANT_Dynamic entries, in pool order.
+     */
+    public List<Integer> getDynamicConstantIndices() {
+        return dynamicConstantIndices;
+    }
+
+    public ClassFile getClassFile() {
+        return classFile;
+    }
+
+    /*
+     * Symbols are cached per constant pool, so every read of the same dynamic constant
+     * (from any method, or as a repeated bootstrap argument) yields the same node.
+     */
+    public CondySymbol getCondySymbol(int index) {
+        if (condySymbols == null) condySymbols = MapFactory.newMap();
+        CondySymbol symbol = condySymbols.get(index);
+        if (symbol == null) {
+            symbol = new CondySymbol(this, index);
+            condySymbols.put(index, symbol);
+        }
+        return symbol;
+    }
+
     private static class RawTmp {
         final List<ConstantPoolEntry> entries;
         final long rawLength;
         final boolean dynamicConstants;
+        final List<Integer> dynamicConstantIndices;
 
-        RawTmp(List<ConstantPoolEntry> entries, long rawLength, boolean dynamicConstants) {
+        RawTmp(List<ConstantPoolEntry> entries, long rawLength, boolean dynamicConstants, List<Integer> dynamicConstantIndices) {
             this.entries = entries;
             this.rawLength = rawLength;
             this.dynamicConstants = dynamicConstants;
+            this.dynamicConstantIndices = dynamicConstantIndices;
         }
     }
 
     private RawTmp processRaw(ByteData raw, int count) {
         List<ConstantPoolEntry> tgt = ListFactory.newList(count);
+        List<Integer> dynamicConstantIndices = ListFactory.newList();
         OffsettingByteData data = raw.getOffsettingOffsetData(0);
         boolean dynamicConstant = false;
         logger.info("Processing " + count + " constpool entries.");
@@ -116,8 +149,9 @@ public class ConstantPool {
                     cpe = new ConstantPoolEntryMethodType(this, data);
                     break;
                 case CPT_DynamicInfo:
-                    cpe = new ConstantPoolEntryDynamicInfo(this, data);
+                    cpe = new ConstantPoolEntryDynamicInfo(this, data, x + 1);
                     dynamicConstant = true;
+                    dynamicConstantIndices.add(x + 1);
                     break;
                 case CPT_InvokeDynamic:
                     cpe = new ConstantPoolEntryInvokeDynamic(this, data);
@@ -144,7 +178,7 @@ public class ConstantPool {
             long size = cpe.getRawByteLength();
             data.advance(size);
         }
-        return new RawTmp(tgt, data.getOffset(), dynamicConstant);
+        return new RawTmp(tgt, data.getOffset(), dynamicConstant, dynamicConstantIndices);
     }
 
     public long getRawByteLength() {

@@ -31,7 +31,8 @@ public class TypedLiteral implements TypeUsageCollectable, Dumpable {
         Class,
         MethodHandle,  // Only used for invokedynamic arguments
         MethodType,     // Only used for invokedynamic arguments
-        DynamicLiteral
+        DynamicLiteral,
+        Condy           // Symbolic reference to an unreduced CONSTANT_Dynamic constant
     }
 
     public enum FormatHint {
@@ -237,6 +238,8 @@ public class TypedLiteral implements TypeUsageCollectable, Dumpable {
                 return d.literal(value.toString() + "f", value);
             case DynamicLiteral:
                 return d.dump((Expression)value);
+            case Condy:
+                return d.print(((CondySymbol) value).getReference());
             default:
                 return d.print(value.toString());
         }
@@ -317,6 +320,20 @@ public class TypedLiteral implements TypeUsageCollectable, Dumpable {
         return new TypedLiteral(LiteralType.DynamicLiteral, e.getInferredJavaType(), e);
     }
 
+    /*
+     * A dynamic constant we could not statically reduce.  The literal's type is the constant's
+     * declared field descriptor type (NOT the bootstrap method's return type), and its value is
+     * the shared symbol node for that constant pool entry.
+     */
+    public static TypedLiteral getCondy(CondySymbol symbol) {
+        return new TypedLiteral(LiteralType.Condy, new InferredJavaType(symbol.getType(), Source.LITERAL), symbol);
+    }
+
+    public CondySymbol getCondySymbol() {
+        if (type != LiteralType.Condy) throw new IllegalStateException("Expecting condy symbol literal");
+        return (CondySymbol) value;
+    }
+
     public static TypedLiteral getString(String v) {
         return new TypedLiteral(LiteralType.String, new InferredJavaType(TypeConstants.STRING, InferredJavaType.Source.LITERAL), v);
     }
@@ -361,7 +378,8 @@ public class TypedLiteral implements TypeUsageCollectable, Dumpable {
         } else if (cpe instanceof ConstantPoolEntryMethodType) {
             return getMethodType((ConstantPoolEntryMethodType) cpe, cp);
         } else if (cpe instanceof ConstantPoolEntryDynamicInfo) {
-            // This should have been filtered out at op02.
+            // An unreduced dynamic constant is a symbolic reference, not a value.
+            return getCondy(cp.getCondySymbol(((ConstantPoolEntryDynamicInfo) cpe).getConstantPoolIndex()));
         }
         throw new ConfusedCFRException("Can't turn ConstantPoolEntry into Literal - got " + cpe);
     }

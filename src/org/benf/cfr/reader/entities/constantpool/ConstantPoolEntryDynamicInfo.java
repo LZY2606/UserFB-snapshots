@@ -10,11 +10,13 @@ public class ConstantPoolEntryDynamicInfo extends AbstractConstantPoolEntry {
 
     private final int bootstrapMethodAttrIndex;
     private final int nameAndTypeIndex;
+    private final int constantPoolIndex;
 
-    public ConstantPoolEntryDynamicInfo(ConstantPool cp, ByteData data) {
+    public ConstantPoolEntryDynamicInfo(ConstantPool cp, ByteData data, int constantPoolIndex) {
         super(cp);
         this.bootstrapMethodAttrIndex = data.getU2At(OFFSET_OF_BOOTSTRAP_METHOD_ATTR_INDEX);
         this.nameAndTypeIndex = data.getU2At(OFFSET_OF_NAME_AND_TYPE_INDEX);
+        this.constantPoolIndex = constantPoolIndex;
     }
 
     @Override
@@ -29,6 +31,14 @@ public class ConstantPoolEntryDynamicInfo extends AbstractConstantPoolEntry {
 
     public int getBootstrapMethodAttrIndex() {
         return bootstrapMethodAttrIndex;
+    }
+
+    /*
+     * The raw (1 based) constant pool index of this entry - part of the identity of any
+     * dynamic constant read from it.
+     */
+    public int getConstantPoolIndex() {
+        return constantPoolIndex;
     }
 
     public ConstantPoolEntryNameAndType getNameAndTypeEntry() {

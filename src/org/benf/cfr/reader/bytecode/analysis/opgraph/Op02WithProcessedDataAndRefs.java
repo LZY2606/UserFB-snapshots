@@ -538,19 +538,37 @@ public class Op02WithProcessedDataAndRefs implements Dumpable, Graph<Op02WithPro
         ConstantPoolEntry entry = bootstrapArguments[x];
 
         if (entry instanceof ConstantPoolEntryDynamicInfo) {
-            DecompilerComments tmp = new DecompilerComments();
-            Expression e = getLiteralConstantPoolEntry(cf, entry, tmp);
-
-            if (e instanceof Literal) {
-                return ((Literal) e).getValue();
-            } else if (e instanceof DynamicConstExpression) {
-                return KnownBootstraps.ConvertToLiteral((DynamicConstExpression) e, cp);
-            } else {
-                return TypedLiteral.getString(e.toString());
-            }
+            ConstantPoolEntryDynamicInfo dynamicInfo = (ConstantPoolEntryDynamicInfo) entry;
+            TypedLiteral reduced = reduceDynamicConstant(cf, dynamicInfo);
+            if (reduced != null) return reduced;
+            // Not statically reducible - keep a typed symbolic reference, both on the
+            // fixed argument path and on the varargs path.
+            return TypedLiteral.getCondy(cp.getCondySymbol(dynamicInfo.getConstantPoolIndex()));
         } else {
             return TypedLiteral.getConstantPoolEntry(cp, entry);
         }
+    }
+
+    /*
+     * Attempt to statically reduce a dynamic constant.  Only the well known ConstantBootstraps
+     * methods are understood - anything else returns null, and the constant is left as a
+     * symbolic reference.  We never load the target class, execute the bootstrap, or guess
+     * at the runtime value of an arbitrary constant.
+     */
+    private TypedLiteral reduceDynamicConstant(ClassFile classFile, ConstantPoolEntryDynamicInfo cpe) {
+        BootstrapMethodInfo bootstrapMethodInfo = classFile.getBootstrapMethods().getBootStrapMethodInfo(cpe.getBootstrapMethodAttrIndex());
+        String owner = bootstrapMethodInfo.getConstantPoolEntryMethodRef().getClassEntry().getTypeInstance().getRawName();
+        if (!TypeConstants.constantBootstrapsName.equals(owner)) return null;
+        ConstantPoolEntryNameAndType nameAndType = cpe.getNameAndTypeEntry();
+        MethodPrototype dynamicProto = new MethodPrototype(cp.getDCCommonState(), classFile, classFile.getClassType(), "???",
+                false, Method.MethodConstructor.NOT, Collections.<FormalTypeParameter>emptyList(), Collections.<JavaTypeInstance>emptyList(),
+                nameAndType.decodeTypeTok(), Collections.<JavaTypeInstance>emptyList(), false, new VariableNamerDefault(), false, "");
+        Statement s = buildInvokeDynamic(classFile, cp.getDCCommonState(), nameAndType.getName().getValue(), dynamicProto, cpe.getBootstrapMethodAttrIndex(), true, new DecompilerComments());
+        if (!(s instanceof AssignmentSimple)) {
+            return null;
+        }
+        AssignmentSimple as = (AssignmentSimple) s;
+        return KnownBootstraps.ConvertToLiteral(new DynamicConstExpression(loc, cpe, as.getRValue()), cp);
     }
 
     @SuppressWarnings("unused")
@@ -1518,17 +1536,10 @@ public class Op02WithProcessedDataAndRefs implements Dumpable, Graph<Op02WithPro
     }
 
     private Expression getDynamicLiteral(ClassFile classFile, ConstantPoolEntryDynamicInfo cpe, DecompilerComments comments) {
-        ConstantPoolEntryNameAndType nameAndType = cpe.getNameAndTypeEntry();
-        int idx = cpe.getBootstrapMethodAttrIndex();
-        MethodPrototype dynamicProto = new MethodPrototype(cp.getDCCommonState(), classFile, classFile.getClassType(), "???",
-                false, Method.MethodConstructor.NOT, Collections.<FormalTypeParameter>emptyList(), Collections.<JavaTypeInstance>emptyList(),
-                nameAndType.decodeTypeTok(), Collections.<JavaTypeInstance>emptyList(), false, new VariableNamerDefault(), false, "");
-        Statement s = buildInvokeDynamic(classFile, cp.getDCCommonState(), nameAndType.getName().getValue(), dynamicProto, idx, true, comments);
-        if (!(s instanceof AssignmentSimple)) {
-            throw new ConfusedCFRException("Expected a result from a dynamic literal");
-        }
-        AssignmentSimple as = (AssignmentSimple)s;
-        return new DynamicConstExpression(loc, cpe, as.getRValue());
+        TypedLiteral reduced = reduceDynamicConstant(classFile, cpe);
+        if (reduced != null) return new Literal(reduced);
+        // Couldn't statically reduce - emit a typed symbolic reference to the constant.
+        return new Literal(TypedLiteral.getCondy(cp.getCondySymbol(cpe.getConstantPoolIndex())));
     }
 
     private StackValue getStackRValue(int idx) {

@@ -25,14 +25,17 @@ import java.util.List;
  * In order to handle this cleanly, we need to hardcode some knowledge of how these methods behave.
  */
 public class KnownBootstraps {
+    /*
+     * Attempt to statically reduce a dynamic constant resolved by a known bootstrap method.
+     * Returns null if the constant cannot be reduced - callers must then fall back to a
+     * symbolic reference (we never stringify a pseudo-call and pretend it's a value).
+     */
     public static TypedLiteral ConvertToLiteral(DynamicConstExpression dce, ConstantPool cp) {
         Expression e = dce.getContent();
         if (e instanceof StaticFunctionInvokation) {
-            TypedLiteral res = ConvertToLiteral((StaticFunctionInvokation)e, cp, dce.getConstPoolEntry());
-            if (res != null) return res;
+            return ConvertToLiteral((StaticFunctionInvokation)e, cp, dce.getConstPoolEntry());
         }
-        // Failed to decode.  This is going to be wrong, but potentially informative.
-        return TypedLiteral.getString(dce.toString());
+        return null;
     }
 
     private static String literalStringVal(Expression e) {

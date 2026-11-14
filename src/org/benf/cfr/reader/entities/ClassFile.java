@@ -42,6 +42,7 @@ import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperInterface;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperModule;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperNormal;
 import org.benf.cfr.reader.entities.classfilehelpers.OverloadMethodSet;
+import org.benf.cfr.reader.entities.constantpool.CondySymbol;
 import org.benf.cfr.reader.entities.constantpool.ConstantPool;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryClass;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryNameAndType;
@@ -337,6 +338,10 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
 
         if (constantPool.isDynamicConstants()) {
             addComment(DecompilerComment.DYNAMIC_CONSTANTS);
+            // Class level legend for the dynamic constant symbols referenced from the code.
+            for (String legendLine : CondySymbol.legend(constantPool)) {
+                addComment(new DecompilerComment(legendLine));
+            }
         }
 
         if (dcCommonState.getVersionCollisions().contains(getClassType())) {
