@@ -59,10 +59,21 @@ void CalMixer::updateSkeleton(
                 continue;
             }
 
-            bones[track->coreBoneId].blendPose(
+            CalBone& bone = bones[track->coreBoneId];
+
+            bone.blendPose(
                 animation->weight * animation->rampValue,
                 track->getCurrentTransform(animation->time),
                 // higher priority animations replace 0-priority animations
+                animation->priority != 0 ? animation->rampValue : 0.0f);
+
+            // Scale is mixed independently of the pose: the remaining
+            // coefficient is only consumed by animations that actually have a
+            // track for this bone, and replace-style animations attenuate
+            // subsequent scale weights the same way they attenuate poses.
+            bone.blendScalePose(
+                animation->weight * animation->rampValue,
+                track->getCurrentScale(animation->time),
                 animation->priority != 0 ? animation->rampValue : 0.0f);
         }
     }
@@ -90,6 +101,6 @@ void CalMixer::applyBoneAdjustments(
 
     for (size_t i = 0; i < boneScaleAdjustments.size(); i++) {
         const BoneScaleAdjustment& ba = boneScaleAdjustments[i];
-        bones[ba.boneId].scale = ba.scale;
+        bones[ba.boneId].setScaleAdjustment(ba.scale);
     }
 }

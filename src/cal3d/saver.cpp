@@ -44,6 +44,36 @@ std::string save(const ISTD::shared_ptr<T>& t, bool (saveBinary)(std::ostream&, 
     }
 }
 
+// The CAF binary format has no field for the keyframe local scale yet.  Saving
+// one would silently drop the channel, so callers must be told it cannot be
+// represented instead.
+static bool animationHasNonIdentityScale(const CalCoreAnimation* pCoreAnimation) {
+    const CalCoreAnimation::TrackList& tracks = pCoreAnimation->tracks;
+    for (size_t t = 0; t < tracks.size(); ++t) {
+        const CalCoreTrack::KeyframeList& keyframes = tracks[t].keyframes;
+        for (size_t i = 0; i < keyframes.size(); ++i) {
+            if (!exactlyEqual(keyframes[i].localScale, CalVector(1, 1, 1))) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool rejectNonIdentityScale(const CalCoreAnimation* pCoreAnimation, const std::string& strFilename) {
+    if (!animationHasNonIdentityScale(pCoreAnimation)) {
+        return false;
+    }
+
+    CalError::setLastError(
+        CalError::INVALID_ATTRIBUTE_VALUE,
+        __FILE__,
+        __LINE__,
+        "animation has non-identity keyframe scale; the binary CAF format cannot store it");
+    return true;
+}
+
 std::string CalSaver::saveCoreAnimationToBuffer(ISTD::shared_ptr<CalCoreAnimation> pCoreAnimation) {
     return save(pCoreAnimation, &saveCoreAnimation);
 }
@@ -90,6 +120,11 @@ bool CalSaver::saveCoreAnimation(const std::string& strFilename, CalCoreAnimatio
         return saveXmlCoreAnimation(strFilename, pCoreAnimation);
     }
 
+    // Reject non-representable scale before opening (and truncating) the file.
+    if (rejectNonIdentityScale(pCoreAnimation, strFilename)) {
+        return false;
+    }
+
     // open the file
     std::ofstream file;
     file.open(strFilename.c_str(), std::ios::out | std::ios::binary);
@@ -103,6 +138,11 @@ bool CalSaver::saveCoreAnimation(const std::string& strFilename, CalCoreAnimatio
 
 bool CalSaver::saveCoreAnimation(std::ostream& file, CalCoreAnimation* pCoreAnimation) {
     const char* strFilename = ""; // do we care?
+
+    // Refuse before writing anything: the CAF format cannot carry keyframe scale.
+    if (rejectNonIdentityScale(pCoreAnimation, strFilename)) {
+        return false;
+    }
 
     // write magic tag
     if (!CalPlatform::writeBytes(file, &cal3d::ANIMATION_FILE_MAGIC, sizeof(cal3d::ANIMATION_FILE_MAGIC))) {
@@ -1010,6 +1050,24 @@ bool CalSaver::saveXmlCoreAnimation(std::ostream& os, CalCoreAnimation* pCoreAni
             TiXmlText rotationdata(str.str());
             rotation.InsertEndChild(rotationdata);
             keyframe.InsertEndChild(rotation);
+
+            // The local scale is dimensionless animation data.  Write it only
+            // when not exactly identity so existing files keep their exact
+            // bytes and the identity default applies on load; any non-identity
+            // value is preserved verbatim.
+            const CalVector& localScale = pCoreKeyframe.localScale;
+            if (!exactlyEqual(localScale, CalVector(1, 1, 1))) {
+                TiXmlElement scale("SCALE");
+
+                str.str("");
+                str << localScale.x << " "
+                    << localScale.y << " "
+                    << localScale.z;
+
+                TiXmlText scaledata(str.str());
+                scale.InsertEndChild(scaledata);
+                keyframe.InsertEndChild(scale);
+            }
 
             track.InsertEndChild(keyframe);
         }

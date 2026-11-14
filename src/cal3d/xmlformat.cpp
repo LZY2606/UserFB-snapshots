@@ -191,6 +191,45 @@ static inline void ReadTripleFloat(char const* buffer, float* f1, float* f2, flo
 #endif
 }
 
+// Strictly parse three positive, finite floats from a SCALE element.  Unlike
+// ReadTripleFloat, missing or malformed components are a hard error; a
+// partially parsed scale would silently corrupt the animation.
+static bool ReadScaleTriple(char const* buffer, CalVector* scale) {
+    if (!buffer) {
+        return false;
+    }
+
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    int consumed = 0;
+    if (sscanf(buffer, " %f %f %f%n", &x, &y, &z, &consumed) != 3) {
+        return false;
+    }
+
+    // Only whitespace may follow the third component.
+    for (const char* p = buffer + consumed; *p; ++p) {
+        if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+            return false;
+        }
+    }
+
+#if defined(IMVU_WINDOWS)
+    if (!_finite(x) || !_finite(y) || !_finite(z)) {
+#else
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+#endif
+        return false;
+    }
+
+    if (x <= 0.0f || y <= 0.0f || z <= 0.0f) {
+        return false;
+    }
+
+    scale->x = x;
+    scale->y = y;
+    scale->z = z;
+    return true;
+}
+
 static inline void ReadTripleInt(char const* buffer, int* f1, int* f2, int* f3) {
     int a = 0;
     int b = 0;
@@ -687,8 +726,27 @@ ISTD::shared_ptr<CalCoreAnimation> CalLoader::loadXmlCoreAnimationDoc(const rapi
             float rx, ry, rz, rw;
             ReadQuadFloat(get_string_value(rotation), &rx, &ry, &rz, &rw);
 
+            // SCALE is optional and, when present, follows ROTATION.  It
+            // defaults to the identity so older files keep loading unchanged.
+            // Other trailing nodes are ignored, as they always were, but more
+            // than one SCALE is ambiguous and therefore invalid.
+            CalVector localScale(1, 1, 1);
+            bool sawScale = false;
+            for (TiXmlElement* sibling = rotation->next_sibling(); sibling; sibling = sibling->next_sibling()) {
+                if (!has_name(sibling, "SCALE")) {
+                    continue;
+                }
+                if (sawScale) {
+                    return InvalidFileFormatTracked();
+                }
+                if (!ReadScaleTriple(get_string_value(sibling), &localScale)) {
+                    return InvalidFileFormatTracked();
+                }
+                sawScale = true;
+            }
+
             rw = -rw;
-            CalCoreKeyframe pCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, rw));
+            CalCoreKeyframe pCoreKeyframe(time, t, CalQuaternion(rx, ry, rz, rw), localScale);
             hasLastKeyframe = true;
             prevCoreKeyframe = pCoreKeyframe;
 

@@ -54,7 +54,10 @@ void CalBone::resetPose() {
     transformAccumulator.reset(coreRelativeTransform); // if no animations are applied, use this
     currentAttenuation = 1.0f;
     scale.setIdentity();
+    scaleAdjustment.setIdentity();
     absoluteScale.setIdentity();
+    currentScaleAttenuation = 1.0f;
+    currentScaleWeight = 0.0f;
 }
 
 /*****************************************************************************/
@@ -78,6 +81,20 @@ void CalBone::blendPose(
 ) {
     transformAccumulator.addTransform(weight * currentAttenuation, transform);
     currentAttenuation *= (1.0f - subsequentAttenuation);
+}
+
+void CalBone::blendScalePose(
+    float weight,
+    const CalVector& scaleValue,
+    float subsequentAttenuation
+) {
+    float effectiveWeight = weight * currentScaleAttenuation;
+    if (effectiveWeight) {
+        currentScaleWeight += effectiveWeight;
+        float factor = effectiveWeight / currentScaleWeight;
+        scale.scale = lerp(factor, scale.scale, scaleValue);
+    }
+    currentScaleAttenuation *= (1.0f - subsequentAttenuation);
 }
 
 static void removeScale(CalMatrix& m) {
@@ -107,6 +124,6 @@ void CalBone::calculateAbsolutePose(const CalBone* bones) {
         ? parentBone->absoluteTransform
         : cal3d::Transform();
 
-    absoluteScale = parentScale * scale;
+    absoluteScale = parentScale * scaleAdjustment * scale;
     absoluteTransform = removeScale(parentTransform * getRelativeTransform()) * absoluteScale;
 }

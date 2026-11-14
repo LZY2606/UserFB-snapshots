@@ -39,6 +39,9 @@ class CAL3D_API CalBone {
 public:
     const int parentId;
     cal3d::Transform absoluteTransform;
+
+    // Animation-driven local scale: the weighted mean of the scales sampled
+    // from the animations affecting this bone.  Identity if none contributed.
     cal3d::Scale scale;
 
     CalBone(const CalCoreBone& coreBone);
@@ -57,6 +60,20 @@ public:
         const cal3d::RotateTranslate& transform,
         float subsequentAttenuation);
 
+    // Accumulate an animation's local scale into this bone's scale.  The
+    // attenuation applies only to subsequent animations' scale weights, and is
+    // independent of the pose attenuation used by blendPose above.
+    void blendScalePose(
+        float weight,
+        const CalVector& scaleValue,
+        float subsequentAttenuation);
+
+    // BoneScaleAdjustment is a per-frame multiplier applied on top of the
+    // animation scale, not part of the animation weight calculation.
+    void setScaleAdjustment(const CalVector& scaleValue) {
+        scaleAdjustment.scale = scaleValue;
+    }
+
     void calculateAbsolutePose(const CalBone* bones);
 
 private:
@@ -65,6 +82,9 @@ private:
 
     // animated bone state
     cal3d::Scale absoluteScale;
+    cal3d::Scale scaleAdjustment;
     float currentAttenuation;
+    float currentScaleAttenuation;
+    float currentScaleWeight;
     cal3d::TransformAccumulator transformAccumulator;
 };

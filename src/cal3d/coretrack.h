@@ -43,6 +43,11 @@ public:
 
     cal3d::RotateTranslate getCurrentTransform(float time) const;
 
+    // Per-component linear interpolation of the keyframe local scale.  Times
+    // before/after the track's range clamp to the first/last keyframe; an
+    // empty track returns the identity scale.
+    CalVector getCurrentScale(float time) const;
+
     ISTD::shared_ptr<CalCoreTrack> compress(double translationTolerance, double rotationToleranceDegrees, CalCoreSkeleton* skelOrNull) const;
     void translationCompressibility(
         bool* transRequiredResult, bool* transDynamicResult,

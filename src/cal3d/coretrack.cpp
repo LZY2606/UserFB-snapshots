@@ -53,12 +53,14 @@ void CalCoreTrack::scale(float factor) {
 
 void CalCoreTrack::optimize() {
     // if an animation is bracketed by two keyframes, and the
-    // keyframes have the same transform, then the animation is
+    // keyframes have the same transform and scale, then the animation is
     // equivalent to an animation with one keyframe.
     //
     // this optimization is worth doing because the catalog is full of
     // static pose animation that have two keyframes.
-    if (2u == keyframes.size() && keyframes[0].transform == keyframes[1].transform) {
+    if (2u == keyframes.size() &&
+        keyframes[0].transform == keyframes[1].transform &&
+        keyframes[0].localScale == keyframes[1].localScale) {
         keyframes.resize(1);
     }
 }
@@ -146,14 +148,60 @@ static bool Near(
 }
 
 
+static const double ScaleCompressionTolerance = 1e-5;
+
+static bool ScaleNear(const CalVector& a, const CalVector& b) {
+    return fabs(a.x - b.x) <= ScaleCompressionTolerance
+           && fabs(a.y - b.y) <= ScaleCompressionTolerance
+           && fabs(a.z - b.z) <= ScaleCompressionTolerance;
+}
+
+// Check the scale channel at every original keyframe time in the candidate
+// span, not just at the keyframe being removed.  Eliminating a keyframe can
+// extend a retained interval, and previously eliminated keys must stay within
+// tolerance of the new linear segment too.
+static bool scaleEliminatable(
+    const CalCoreKeyframe* prev,
+    const CalCoreKeyframe* next,
+    const CalCoreTrack::KeyframeList& keyframes
+) {
+    const CalCoreKeyframe* begin = keyframes.empty() ? 0 : &keyframes[0];
+    size_t prevIndex = size_t(prev - begin);
+    size_t nextIndex = size_t(next - begin);
+
+    for (size_t i = prevIndex + 1; i < nextIndex; ++i) {
+        const CalCoreKeyframe& keyframe = keyframes[i];
+
+        CalVector expected;
+        if (next->time != prev->time) {
+            float blendFactor = (keyframe.time - prev->time) / (next->time - prev->time);
+            expected = lerp(blendFactor, prev->localScale, next->localScale);
+        } else {
+            expected = prev->localScale;
+        }
+
+        if (!ScaleNear(expected, keyframe.localScale)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool keyframeEliminatable(
     const CalCoreKeyframe* prev,
     const CalCoreKeyframe* p,
     const CalCoreKeyframe* next,
+    const CalCoreTrack::KeyframeList& keyframes,
     double transTolerance,
     double rotTolerance
 ) {
     assert(prev && p && next);
+
+    if (!scaleEliminatable(prev, next, keyframes)) {
+        return false;
+    }
+
     float blendFactor = (p->time - prev->time) / (next->time - prev->time);
 
     // blend between the two keyframes
@@ -227,6 +275,7 @@ ISTD::shared_ptr<CalCoreTrack> CalCoreTrack::compress(
             if (keyframeEliminatable(prev->keyframe_,
                                      p->keyframe_,
                                      next->keyframe_,
+                                     keyframes,
                                      translationTolerance, rotationToleranceDegrees)) {
                 p->eliminated_ = true;
 
@@ -330,6 +379,36 @@ cal3d::RotateTranslate CalCoreTrack::getCurrentTransform(float time) const {
     }
 
     return blend(blendFactor, pCoreKeyframeBefore.transform, pCoreKeyframeAfter.transform);
+}
+
+CalVector CalCoreTrack::getCurrentScale(float time) const {
+    if (keyframes.empty()) {
+        return CalVector(1, 1, 1);
+    }
+
+    KeyframeList::const_iterator iteratorCoreKeyframeAfter = getUpperBound(time);
+
+    if (iteratorCoreKeyframeAfter == keyframes.end()) {
+        --iteratorCoreKeyframeAfter;
+        return iteratorCoreKeyframeAfter->localScale;
+    }
+
+    if (iteratorCoreKeyframeAfter == keyframes.begin()) {
+        return iteratorCoreKeyframeAfter->localScale;
+    }
+
+    KeyframeList::const_iterator iteratorCoreKeyframeBefore = iteratorCoreKeyframeAfter;
+    --iteratorCoreKeyframeBefore;
+
+    const CalCoreKeyframe& pCoreKeyframeBefore = *iteratorCoreKeyframeBefore;
+    const CalCoreKeyframe& pCoreKeyframeAfter  = *iteratorCoreKeyframeAfter;
+
+    float blendFactor = 0.0f;
+    if (pCoreKeyframeAfter.time != pCoreKeyframeBefore.time) {
+        blendFactor = (time - pCoreKeyframeBefore.time) / (pCoreKeyframeAfter.time - pCoreKeyframeBefore.time);
+    }
+
+    return lerp(blendFactor, pCoreKeyframeBefore.localScale, pCoreKeyframeAfter.localScale);
 }
 
 CalCoreTrack::KeyframeList::const_iterator CalCoreTrack::getUpperBound(float time) const {

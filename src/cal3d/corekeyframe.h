@@ -19,11 +19,19 @@ class CalCoreKeyframe {
 public:
     CalCoreKeyframe()
         : time(0.0f)
+        , localScale(1.0f, 1.0f, 1.0f)
     {}
 
     CalCoreKeyframe(float t, const CalVector& tr, const CalQuaternion& ro)
         : time(t)
         , transform(ro, tr)
+        , localScale(1.0f, 1.0f, 1.0f)
+    {}
+
+    CalCoreKeyframe(float t, const CalVector& tr, const CalQuaternion& ro, const CalVector& sc)
+        : time(t)
+        , transform(ro, tr)
+        , localScale(sc)
     {}
 
     void scale(float factor) {
@@ -35,6 +43,11 @@ public:
 
     float time;
     cal3d::RotateTranslate transform;
+
+    // Dimensionless per-component scale of the bone in its parent's frame of
+    // reference.  This is animation data, so the model-unit scale(factor)
+    // above must not touch it.
+    CalVector localScale;
 };
 
 CAL3D_PTR(CalCoreKeyframe);
@@ -44,5 +57,7 @@ inline bool operator<(const CalCoreKeyframe& lhs, const CalCoreKeyframe& rhs) {
 }
 
 inline bool operator==(const CalCoreKeyframe& lhs, const CalCoreKeyframe& rhs) {
-    return cal3d::close(lhs.time, rhs.time) && lhs.transform == rhs.transform;
+    return cal3d::close(lhs.time, rhs.time) &&
+           lhs.transform == rhs.transform &&
+           lhs.localScale == rhs.localScale;
 }
