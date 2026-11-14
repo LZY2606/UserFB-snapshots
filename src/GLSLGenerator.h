@@ -16,6 +16,8 @@
 namespace M4
 {
 
+struct MatrixUsage;
+
 class GLSLGenerator
 {
 
@@ -70,6 +72,9 @@ private:
 
     void OutputExpressionList(HLSLExpression* expression, HLSLArgument* argument = NULL);
     void OutputExpression(HLSLExpression* expression, const HLSLType* dstType = NULL);
+
+    /** Emits the scalar/vector constructor arguments expanded into comma separated scalar values. */
+    void OutputConstructorScalarArguments(HLSLExpression* expression);
     void OutputIdentifier(const char* name);
     void OutputArguments(HLSLArgument* argument);
     
@@ -100,6 +105,9 @@ private:
     unsigned int OutputBufferAccessIndex(HLSLExpression* expression, unsigned int postOffset);
 
     void OutputBuffer(int indent, HLSLBuffer* buffer);
+
+    /** Emits the row access, constructor and lowered multiplication helpers for matrix shapes in use. */
+    void OutputMatrixHelpers();
 
     HLSLFunction* FindFunction(HLSLRoot* root, const char* name);
     HLSLStruct* FindStruct(HLSLRoot* root, const char* name);
@@ -139,6 +147,7 @@ private:
 
     char                m_matrixRowFunction[64];
     char                m_matrixCtorFunction[64];
+    char                m_matrixCtorShapeFunction[HLSLBaseType_Count][64];
     char                m_matrixMulFunction[64];
     char                m_clipFunction[64];
     char                m_tex2DlodFunction[64];
@@ -154,6 +163,8 @@ private:
 	char                m_bvecTernary[ 64 ];
 
     bool                m_error;
+
+    MatrixUsage*        m_matrixUsage;
 
     char                m_reservedWord[s_numReservedWords][64];
 

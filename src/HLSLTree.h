@@ -58,7 +58,11 @@ enum HLSLTypeDimension
     HLSLTypeDimension_Matrix3x3,
     HLSLTypeDimension_Matrix4x4,
     HLSLTypeDimension_Matrix4x3,
-    HLSLTypeDimension_Matrix4x2
+    HLSLTypeDimension_Matrix4x2,
+    HLSLTypeDimension_Matrix2x3,
+    HLSLTypeDimension_Matrix2x4,
+    HLSLTypeDimension_Matrix3x2,
+    HLSLTypeDimension_Matrix3x4
 };
     
 enum HLSLBaseType
@@ -75,6 +79,10 @@ enum HLSLBaseType
     HLSLBaseType_Float4x4,
     HLSLBaseType_Float4x3,
     HLSLBaseType_Float4x2,
+    HLSLBaseType_Float2x3,
+    HLSLBaseType_Float2x4,
+    HLSLBaseType_Float3x2,
+    HLSLBaseType_Float3x4,
     HLSLBaseType_Half,
     HLSLBaseType_Half2,
     HLSLBaseType_Half3,
@@ -139,8 +147,135 @@ inline bool IsSamplerType(HLSLBaseType baseType)
 
 inline bool IsMatrixType(HLSLBaseType baseType)
 {
-    return baseType == HLSLBaseType_Float3x3 || baseType == HLSLBaseType_Float4x4 || baseType == HLSLBaseType_Float4x3 || baseType == HLSLBaseType_Float4x2 ||
-        baseType == HLSLBaseType_Half3x3 || baseType == HLSLBaseType_Half4x4 || baseType == HLSLBaseType_Half4x3 || baseType == HLSLBaseType_Half4x2;
+    return BaseTypeDimension[baseType] >= HLSLTypeDimension_Matrix2x2 &&
+           BaseTypeDimension[baseType] <= HLSLTypeDimension_Matrix3x4;
+}
+
+// Returns the number of rows of a matrix type (m[r] selects a row), 0 for non-matrix types.
+inline int GetMatrixRows(HLSLBaseType baseType)
+{
+    switch (BaseTypeDimension[baseType])
+    {
+    case HLSLTypeDimension_Matrix2x2:
+    case HLSLTypeDimension_Matrix2x3:
+    case HLSLTypeDimension_Matrix2x4:
+        return 2;
+    case HLSLTypeDimension_Matrix3x2:
+    case HLSLTypeDimension_Matrix3x3:
+    case HLSLTypeDimension_Matrix3x4:
+        return 3;
+    case HLSLTypeDimension_Matrix4x2:
+    case HLSLTypeDimension_Matrix4x3:
+    case HLSLTypeDimension_Matrix4x4:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+// Returns the number of columns of a matrix type (the length of a row), 0 for non-matrix types.
+inline int GetMatrixCols(HLSLBaseType baseType)
+{
+    switch (BaseTypeDimension[baseType])
+    {
+    case HLSLTypeDimension_Matrix2x2:
+    case HLSLTypeDimension_Matrix3x2:
+    case HLSLTypeDimension_Matrix4x2:
+        return 2;
+    case HLSLTypeDimension_Matrix2x3:
+    case HLSLTypeDimension_Matrix3x3:
+    case HLSLTypeDimension_Matrix4x3:
+        return 3;
+    case HLSLTypeDimension_Matrix2x4:
+    case HLSLTypeDimension_Matrix3x4:
+    case HLSLTypeDimension_Matrix4x4:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+// True for matrices whose row and column counts differ (e.g. float2x3, float4x3).
+inline bool IsNonSquareMatrix(HLSLBaseType baseType)
+{
+    return IsMatrixType(baseType) && GetMatrixRows(baseType) != GetMatrixCols(baseType);
+}
+
+// Returns the vector type describing a single row of a matrix (e.g. float3 for float2x3),
+// or HLSLBaseType_Unknown for non-matrix types.
+inline HLSLBaseType GetMatrixRowType(HLSLBaseType baseType)
+{
+    if (!IsMatrixType(baseType))
+    {
+        return HLSLBaseType_Unknown;
+    }
+    const bool isHalf = ScalarBaseType[baseType] == HLSLBaseType_Half;
+    const int cols = GetMatrixCols(baseType);
+    if (isHalf)
+    {
+        return HLSLBaseType(HLSLBaseType_Half + (cols - 1));
+    }
+    return HLSLBaseType(HLSLBaseType_Float + (cols - 1));
+}
+
+// Returns the matrix type with the requested row/column count for the given scalar base
+// (HLSLBaseType_Float or HLSLBaseType_Half), or HLSLBaseType_Unknown for invalid dimensions.
+inline HLSLBaseType MakeMatrixType(HLSLBaseType scalarBaseType, int rows, int cols)
+{
+    if (scalarBaseType != HLSLBaseType_Float && scalarBaseType != HLSLBaseType_Half)
+    {
+        return HLSLBaseType_Unknown;
+    }
+
+    if (scalarBaseType == HLSLBaseType_Half)
+    {
+        // Half matrix types are kept in their original (non-contiguous) location and only the
+        // previously supported shapes are available.
+        switch (rows)
+        {
+        case 2:
+            return cols == 2 ? HLSLBaseType_Half2x2 : HLSLBaseType_Unknown;
+        case 3:
+            return cols == 3 ? HLSLBaseType_Half3x3 : HLSLBaseType_Unknown;
+        case 4:
+            if (cols == 4) return HLSLBaseType_Half4x4;
+            if (cols == 3) return HLSLBaseType_Half4x3;
+            if (cols == 2) return HLSLBaseType_Half4x2;
+            return HLSLBaseType_Unknown;
+        default:
+            return HLSLBaseType_Unknown;
+        }
+    }
+
+    switch (rows)
+    {
+    case 2:
+        if (cols == 2) return HLSLBaseType_Float2x2;
+        if (cols == 3) return HLSLBaseType_Float2x3;
+        if (cols == 4) return HLSLBaseType_Float2x4;
+        break;
+    case 3:
+        if (cols == 2) return HLSLBaseType_Float3x2;
+        if (cols == 3) return HLSLBaseType_Float3x3;
+        if (cols == 4) return HLSLBaseType_Float3x4;
+        break;
+    case 4:
+        if (cols == 2) return HLSLBaseType_Float4x2;
+        if (cols == 3) return HLSLBaseType_Float4x3;
+        if (cols == 4) return HLSLBaseType_Float4x4;
+        break;
+    }
+    return HLSLBaseType_Unknown;
+}
+
+// Transpose of a matrix type: swaps rows and columns, preserving the scalar base.
+inline HLSLBaseType GetTransposedMatrixType(HLSLBaseType baseType)
+{
+    if (!IsMatrixType(baseType))
+    {
+        return HLSLBaseType_Unknown;
+    }
+    return MakeMatrixType(ScalarBaseType[baseType], GetMatrixCols(baseType), GetMatrixRows(baseType));
 }
 
 inline bool IsScalarType( HLSLBaseType baseType )

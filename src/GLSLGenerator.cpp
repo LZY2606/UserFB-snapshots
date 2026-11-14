@@ -50,6 +50,12 @@ static const char* GetTypeName(const HLSLType& type)
 	case HLSLBaseType_Float2x2:     return "mat2";
     case HLSLBaseType_Float3x3:     return "mat3";
     case HLSLBaseType_Float4x4:     return "mat4";
+    case HLSLBaseType_Float4x3:     return "mat3x4";
+    case HLSLBaseType_Float4x2:     return "mat2x4";
+    case HLSLBaseType_Float2x3:     return "mat3x2";
+    case HLSLBaseType_Float2x4:     return "mat4x2";
+    case HLSLBaseType_Float3x2:     return "mat2x3";
+    case HLSLBaseType_Float3x4:     return "mat4x3";
     case HLSLBaseType_Half:         return "float";
     case HLSLBaseType_Half2:        return "vec2";
     case HLSLBaseType_Half3:        return "vec3";
@@ -57,6 +63,8 @@ static const char* GetTypeName(const HLSLType& type)
 	case HLSLBaseType_Half2x2:      return "mat2";
     case HLSLBaseType_Half3x3:      return "mat3";
     case HLSLBaseType_Half4x4:      return "mat4";
+    case HLSLBaseType_Half4x3:      return "mat3x4";
+    case HLSLBaseType_Half4x2:      return "mat2x4";
     case HLSLBaseType_Bool:         return "bool";
 	case HLSLBaseType_Bool2:        return "bvec2";
 	case HLSLBaseType_Bool3:        return "bvec3";
@@ -85,6 +93,128 @@ static bool GetCanImplicitCast(const HLSLType& srcType, const HLSLType& dstType)
 {
     return srcType.baseType == dstType.baseType;
 }
+
+// Number of components of a scalar/vector type, 0 for matrices and other types.
+static int GetScalarComponentCount(HLSLBaseType baseType)
+{
+    const HLSLTypeDimension dimension = BaseTypeDimension[baseType];
+    switch (dimension)
+    {
+    case HLSLTypeDimension_Scalar:   return 1;
+    case HLSLTypeDimension_Vector2:  return 2;
+    case HLSLTypeDimension_Vector3:  return 3;
+    case HLSLTypeDimension_Vector4:  return 4;
+    default:                         return 0;
+    }
+}
+
+static const char* GetGLSLVectorType(int numComponents)
+{
+    switch (numComponents)
+    {
+    case 1:  return "float";
+    case 2:  return "vec2";
+    case 3:  return "vec3";
+    default: return "vec4";
+    }
+}
+
+// GLSL matrix name for an HLSL matrix type: HLSL floatRxC is stored column major as a
+// GLSL matCxR (the row/column order is swapped in the type name).
+static const char* GetGLSLMatrixType(HLSLBaseType baseType)
+{
+    if (!IsMatrixType(baseType))
+    {
+        return "?";
+    }
+    return GetTypeName(HLSLType(baseType));
+}
+
+// Collects every matrix related construct the generator has to emit helper functions for.
+struct MatrixUsage
+{
+    bool hasGeneralizedMatrix;
+    bool rowShape[HLSLBaseType_Count];
+    bool ctorShape[HLSLBaseType_Count];
+    HLSLBaseType mulLeft[64];
+    HLSLBaseType mulRight[64];
+    int numMulSigs;
+
+    MatrixUsage() : hasGeneralizedMatrix(false), numMulSigs(0)
+    {
+        for (int i = 0; i < HLSLBaseType_Count; ++i)
+        {
+            rowShape[i] = false;
+            ctorShape[i] = false;
+        }
+    }
+
+    void AddMul(HLSLBaseType left, HLSLBaseType right)
+    {
+        for (int i = 0; i < numMulSigs; ++i)
+        {
+            if (mulLeft[i] == left && mulRight[i] == right)
+            {
+                return;
+            }
+        }
+        if (numMulSigs < 64)
+        {
+            mulLeft[numMulSigs] = left;
+            mulRight[numMulSigs] = right;
+            ++numMulSigs;
+        }
+    }
+};
+
+class MatrixUsageVisitor : public HLSLTreeVisitor
+{
+public:
+    MatrixUsage* usage;
+
+    MatrixUsageVisitor(MatrixUsage* usage) : usage(usage) {}
+
+    virtual void VisitType(HLSLType& type)
+    {
+        if (type.baseType == HLSLBaseType_Float2x3 || type.baseType == HLSLBaseType_Float2x4 ||
+            type.baseType == HLSLBaseType_Float3x2 || type.baseType == HLSLBaseType_Float3x4)
+        {
+            usage->hasGeneralizedMatrix = true;
+        }
+    }
+
+    virtual void VisitConstructorExpression(HLSLConstructorExpression* node)
+    {
+        if (IsMatrixType(node->type.baseType))
+        {
+            usage->ctorShape[node->type.baseType] = true;
+        }
+        HLSLTreeVisitor::VisitConstructorExpression(node);
+    }
+
+    virtual void VisitArrayAccess(HLSLArrayAccess* node)
+    {
+        if (!node->array->expressionType.array && IsMatrixType(node->array->expressionType.baseType))
+        {
+            usage->rowShape[node->array->expressionType.baseType] = true;
+        }
+        HLSLTreeVisitor::VisitArrayAccess(node);
+    }
+
+    virtual void VisitFunctionCall(HLSLFunctionCall* node)
+    {
+        if (node->function != NULL && String_Equal(node->function->name, "mul") && node->numArguments == 2)
+        {
+            const HLSLBaseType left = node->argument->expressionType.baseType;
+            const HLSLBaseType right = node->argument->nextExpression->expressionType.baseType;
+            if (IsMatrixType(left) || IsMatrixType(right))
+            {
+                usage->AddMul(left, right);
+            }
+        }
+        HLSLTreeVisitor::VisitFunctionCall(node);
+    }
+};
 
 static int GetFunctionArguments(HLSLFunctionCall* functionCall, HLSLExpression* expression[], int maxArguments)
 {
@@ -115,6 +245,10 @@ GLSLGenerator::GLSLGenerator() :
     m_error                     = false;
     m_matrixRowFunction[0]      = 0;
     m_matrixCtorFunction[0]     = 0;
+    for (int i = 0; i < HLSLBaseType_Count; ++i)
+    {
+        m_matrixCtorShapeFunction[i][0] = 0;
+    }
     m_matrixMulFunction[0]      = 0;
     m_clipFunction[0]           = 0;
     m_tex2DlodFunction[0]       = 0;
@@ -129,6 +263,7 @@ GLSLGenerator::GLSLGenerator() :
 	m_bvecTernary[ 0 ]			= 0;
     m_outputPosition            = false;
     m_outputTargets             = 0;
+    m_matrixUsage               = NULL;
 }
 
 bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, const char* entryName, const Options& options)
@@ -184,6 +319,21 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     if (entryFunction == NULL)
     {
         Error("Entry point '%s' doesn't exist", m_entryName);
+        return false;
+    }
+
+    // Scan the tree once to find which matrix helper functions have to be emitted.
+    MatrixUsage matrixUsage;
+    MatrixUsageVisitor usageVisitor(&matrixUsage);
+    usageVisitor.VisitRoot(root);
+    m_matrixUsage = &matrixUsage;
+
+    // The generalized non-square matrices are not covered by the constant buffer emulation
+    // nor the row major packing paths yet.
+    if (matrixUsage.hasGeneralizedMatrix &&
+        (m_options.flags & (Flag_EmulateConstantBuffer | Flag_PackMatrixRowMajor)))
+    {
+        Error("non-square matrix types are not supported with constant buffer emulation or row major packing");
         return false;
     }
 
@@ -244,6 +394,9 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
         m_writer.WriteLine(0, "vec4 %s(mat4 m, vec4 v) { return m[0] * v.x + m[1] * v.y + m[2] * v.z + m[3] * v.w; }", m_matrixMulFunction);
         m_writer.WriteLine(0, "vec4 %s(vec4 v, mat4 m) { return vec4(dot(m[0], v), dot(m[1], v), dot(m[2], v), dot(m[3], v)); }", m_matrixMulFunction);
     }
+
+    // Row access / constructor / multiplication helpers for the generalized matrix shapes.
+    OutputMatrixHelpers();
 
     // Output the special function used to emulate HLSL clip.
     if (m_tree->NeedsFunction("clip"))
@@ -422,6 +575,210 @@ const char* GLSLGenerator::GetResult() const
     return m_writer.GetResult();
 }
 
+void GLSLGenerator::OutputMatrixHelpers()
+{
+    if (m_matrixUsage == NULL)
+    {
+        return;
+    }
+
+    // Row access helpers: HLSL m[r] returns the r'th row with one component per column.
+    // The GLSL matrix is stored column major as matCxR, so column c holds row component r
+    // at index [c][r]. Half matrices use the same GLSL storage as float matrices.
+    for (int rows = 2; rows <= 4; ++rows)
+    {
+        for (int cols = 2; cols <= 4; ++cols)
+        {
+            const HLSLBaseType floatType = MakeMatrixType(HLSLBaseType_Float, rows, cols);
+            const HLSLBaseType halfType = MakeMatrixType(HLSLBaseType_Half, rows, cols);
+            const bool used = m_matrixUsage->rowShape[floatType] ||
+                              (halfType != HLSLBaseType_Unknown && m_matrixUsage->rowShape[halfType]);
+            if (!used)
+            {
+                continue;
+            }
+            // The legacy preamble already provides the mat3 and mat4 row access overloads.
+            if (rows == cols && (rows == 3 || rows == 4))
+            {
+                continue;
+            }
+            m_writer.Write("%s %s(%s m, int i) { return %s(", GetGLSLVectorType(cols), m_matrixRowFunction,
+                GetGLSLMatrixType(floatType), GetGLSLVectorType(cols));
+            for (int c = 0; c < cols; ++c)
+            {
+                if (c > 0)
+                {
+                    m_writer.Write(", ");
+                }
+                m_writer.Write("m[%d][i]", c);
+            }
+            m_writer.WriteLine(0, "); }");
+        }
+    }
+
+    // Constructor helpers: HLSL supplies R*C components in row order, while GLSL expects the
+    // columns of the column major matCxR. Square matrices keep using the native constructor.
+    // The helper is shared by the float and half HLSL types of the same shape.
+    for (int rows = 2; rows <= 4; ++rows)
+    {
+        for (int cols = 2; cols <= 4; ++cols)
+        {
+            if (rows == cols)
+            {
+                continue;
+            }
+            const HLSLBaseType floatType = MakeMatrixType(HLSLBaseType_Float, rows, cols);
+            const HLSLBaseType halfType = MakeMatrixType(HLSLBaseType_Half, rows, cols);
+            const bool used = m_matrixUsage->ctorShape[floatType] ||
+                              (halfType != HLSLBaseType_Unknown && m_matrixUsage->ctorShape[halfType]);
+            if (!used)
+            {
+                continue;
+            }
+
+            const int numComponents = rows * cols;
+
+            char ctorName[64];
+            String_Printf(ctorName, sizeof(ctorName), "%s_%dx%d", m_matrixCtorFunction, rows, cols);
+            String_Printf(m_matrixCtorShapeFunction[floatType], 64, "%s", ctorName);
+            if (halfType != HLSLBaseType_Unknown)
+            {
+                String_Printf(m_matrixCtorShapeFunction[halfType], 64, "%s", ctorName);
+            }
+
+            m_writer.Write("%s %s(", GetGLSLMatrixType(floatType), ctorName);
+            for (int k = 0; k < numComponents; ++k)
+            {
+                if (k > 0)
+                {
+                    m_writer.Write(", ");
+                }
+                m_writer.Write("float v%d", k);
+            }
+            m_writer.WriteLine(0, ") {");
+            m_writer.Write("    return %s(", GetGLSLMatrixType(floatType));
+            for (int c = 0; c < cols; ++c)
+            {
+                if (c > 0)
+                {
+                    m_writer.Write(", ");
+                }
+                m_writer.Write("%s(", GetGLSLVectorType(rows));
+                for (int r = 0; r < rows; ++r)
+                {
+                    if (r > 0)
+                    {
+                        m_writer.Write(", ");
+                    }
+                    m_writer.Write("v%d", r * cols + c);
+                }
+                m_writer.Write(")");
+            }
+            m_writer.WriteLine(0, ");");
+            m_writer.WriteLine(0, "}");
+        }
+    }
+
+    // Multiplication helpers. The explicit bodies keep the HLSL argument order and encode the
+    // column major storage transposition internally, so the row/column order is never swapped.
+    // Any signature involving a non-square matrix is emitted here for both output paths; the
+    // square matrix overloads are covered by the legacy block above.
+    for (int sig = 0; sig < m_matrixUsage->numMulSigs; ++sig)
+    {
+        const HLSLBaseType leftType = m_matrixUsage->mulLeft[sig];
+        const HLSLBaseType rightType = m_matrixUsage->mulRight[sig];
+
+        if (!IsNonSquareMatrix(leftType) && !IsNonSquareMatrix(rightType))
+        {
+            continue;
+        }
+
+        const bool leftIsMatrix = IsMatrixType(leftType);
+        const bool rightIsMatrix = IsMatrixType(rightType);
+
+        if (leftIsMatrix && rightIsMatrix)
+        {
+            // mul(A: RxC, B: CxK) -> RxK. Storage: matCxR A, matKxC B, result matKxR = B * A.
+            const int resultRows = GetMatrixRows(leftType);
+            const int resultCols = GetMatrixCols(rightType);
+            const HLSLBaseType resultType = MakeMatrixType(HLSLBaseType_Float, resultRows, resultCols);
+            m_writer.WriteLine(0, "%s %s(%s a, %s b) { return b * a; }",
+                GetGLSLMatrixType(resultType), m_matrixMulFunction,
+                GetGLSLMatrixType(leftType), GetGLSLMatrixType(rightType));
+        }
+        else if (leftIsMatrix)
+        {
+            // mul(M: RxC, v: C) -> R. GLSL stores matCxR, so sum the stored columns scaled by
+            // the vector components (the native '*' would expect an R length vector).
+            const int rows = GetMatrixRows(leftType);
+            const int cols = GetMatrixCols(leftType);
+            m_writer.Write("%s %s(%s a, %s b) { return ", GetGLSLVectorType(rows), m_matrixMulFunction,
+                GetGLSLMatrixType(leftType), GetGLSLVectorType(cols));
+            for (int c = 0; c < cols; ++c)
+            {
+                if (c > 0)
+                {
+                    m_writer.Write(" + ");
+                }
+                m_writer.Write("a[%d] * b[%d]", c, c);
+            }
+            m_writer.WriteLine(0, "; }");
+        }
+        else
+        {
+            // mul(v: R, M: RxC) -> C. With the column major storage each result component is
+            // the dot product of the row vector with the corresponding stored column.
+            const int rows = GetMatrixRows(rightType);
+            const int cols = GetMatrixCols(rightType);
+            char components[256];
+            components[0] = 0;
+            for (int c = 0; c < cols; ++c)
+            {
+                char piece[40];
+                String_Printf(piece, sizeof(piece), "%sdot(b[%d], a)", c == 0 ? "" : ", ", c);
+                strncat(components, piece, sizeof(components) - strlen(components) - 1);
+            }
+            m_writer.WriteLine(0, "%s %s(%s a, %s b) { return %s(%s); }",
+                GetGLSLVectorType(cols), m_matrixMulFunction,
+                GetGLSLVectorType(rows), GetGLSLMatrixType(rightType),
+                GetGLSLVectorType(cols), components);
+        }
+    }
+}
+
+void GLSLGenerator::OutputConstructorScalarArguments(HLSLExpression* expression)
+{
+    static const char componentName[4] = { 'x', 'y', 'z', 'w' };
+    bool first = true;
+    while (expression != NULL)
+    {
+        const int componentCount = GetScalarComponentCount(expression->expressionType.baseType);
+        if (componentCount <= 1)
+        {
+            if (!first)
+            {
+                m_writer.Write(", ");
+            }
+            OutputExpression(expression);
+            first = false;
+        }
+        else
+        {
+            for (int i = 0; i < componentCount; ++i)
+            {
+                if (!first)
+                {
+                    m_writer.Write(", ");
+                }
+                OutputExpression(expression);
+                m_writer.Write(".%c", componentName[i]);
+                first = false;
+            }
+        }
+        expression = expression->nextExpression;
+    }
+}
+
 void GLSLGenerator::OutputExpressionList(HLSLExpression* expression, HLSLArgument* argument)
 {
     int numExpressions = 0;
@@ -496,9 +853,21 @@ void GLSLGenerator::OutputExpression(HLSLExpression* expression, const HLSLType*
     else if (expression->nodeType == HLSLNodeType_ConstructorExpression)
     {
         HLSLConstructorExpression* constructorExpression = static_cast<HLSLConstructorExpression*>(expression);
-        m_writer.Write("%s(", GetTypeName(constructorExpression->type));
-        OutputExpressionList(constructorExpression->argument);
-        m_writer.Write(")");
+        const HLSLBaseType constructorType = constructorExpression->type.baseType;
+        if (IsMatrixType(constructorType) && GetMatrixRows(constructorType) != GetMatrixCols(constructorType))
+        {
+            // The helper takes the HLSL row ordered scalar components and rearranges them
+            // into the column major GLSL storage.
+            m_writer.Write("%s(", m_matrixCtorShapeFunction[constructorType]);
+            OutputConstructorScalarArguments(constructorExpression->argument);
+            m_writer.Write(")");
+        }
+        else
+        {
+            m_writer.Write("%s(", GetTypeName(constructorExpression->type));
+            OutputExpressionList(constructorExpression->argument);
+            m_writer.Write(")");
+        }
     }
     else if (expression->nodeType == HLSLNodeType_CastingExpression)
     {
@@ -692,14 +1061,9 @@ void GLSLGenerator::OutputExpression(HLSLExpression* expression, const HLSLType*
             OutputExpression(memberAccess->object);
             m_writer.Write(")");
 
-			if( memberAccess->object->expressionType.baseType == HLSLBaseType_Float2x2 ||
-				memberAccess->object->expressionType.baseType == HLSLBaseType_Float3x3 ||
-                memberAccess->object->expressionType.baseType == HLSLBaseType_Float4x4 ||
-				memberAccess->object->expressionType.baseType == HLSLBaseType_Half2x2 ||
-				memberAccess->object->expressionType.baseType == HLSLBaseType_Half3x3 ||
-				memberAccess->object->expressionType.baseType == HLSLBaseType_Half4x4 )
+			if( IsMatrixType(memberAccess->object->expressionType.baseType) )
             {
-                // Handle HLSL matrix "swizzling".
+                // Handle HLSL matrix "swizzling" (_mRC / _RC element access).
                 // TODO: Properly handle multiple element selection such as _m00_m12
                 const char* n = memberAccess->field;
                 while (n[0] != 0)
@@ -741,15 +1105,10 @@ void GLSLGenerator::OutputExpression(HLSLExpression* expression, const HLSLType*
         HLSLArrayAccess* arrayAccess = static_cast<HLSLArrayAccess*>(expression);
 
         if (!arrayAccess->array->expressionType.array &&
-			(arrayAccess->array->expressionType.baseType == HLSLBaseType_Float2x2 ||
-			 arrayAccess->array->expressionType.baseType == HLSLBaseType_Float3x3 ||
-             arrayAccess->array->expressionType.baseType == HLSLBaseType_Float4x4 ||
-			 arrayAccess->array->expressionType.baseType == HLSLBaseType_Half2x2 ||
-			 arrayAccess->array->expressionType.baseType == HLSLBaseType_Half3x3 ||
-			 arrayAccess->array->expressionType.baseType == HLSLBaseType_Half4x4 ) )
+            IsMatrixType(arrayAccess->array->expressionType.baseType))
         {
-            // GLSL access a matrix as m[c][r] while HLSL is m[r][c], so use our
-            // special row access function to convert.
+            // GLSL accesses a matrix as m[c][r] while HLSL is m[r][c], so use the
+            // special row access function to convert for every matrix shape.
             m_writer.Write("%s(", m_matrixRowFunction);
             OutputExpression(arrayAccess->array);
             m_writer.Write(",");
@@ -785,6 +1144,23 @@ void GLSLGenerator::OutputExpression(HLSLExpression* expression, const HLSLType*
             const HLSLType& type0 = functionCall->function->argument->type;
             const HLSLType& type1 = functionCall->function->argument->nextArgument->type;
 
+            const HLSLBaseType argBase0 = argument[0]->expressionType.baseType;
+            const HLSLBaseType argBase1 = argument[1]->expressionType.baseType;
+            const bool nonSquareMul = IsNonSquareMatrix(argBase0) || IsNonSquareMatrix(argBase1);
+
+            if (nonSquareMul)
+            {
+                // Non-square products always go through the dedicated helper, regardless of
+                // the lowering flag, since the native GLSL '*' ordering is shape dependent.
+                m_writer.Write("%s(", m_matrixMulFunction);
+                OutputExpression(argument[0], &type0);
+                m_writer.Write(", ");
+                OutputExpression(argument[1], &type1);
+                m_writer.Write(")");
+                handled = true;
+            }
+            else
+            {
             const char* prefix = (m_options.flags & Flag_LowerMatrixMultiplication) ? m_matrixMulFunction : "";
             const char* infix = (m_options.flags & Flag_LowerMatrixMultiplication) ? "," : "*";
 
@@ -806,6 +1182,7 @@ void GLSLGenerator::OutputExpression(HLSLExpression* expression, const HLSLType*
             }
 
             handled = true;
+            }
         }
         else if (String_Equal(functionName, "saturate"))
         {

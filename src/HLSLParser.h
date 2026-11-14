@@ -112,6 +112,13 @@ private:
     /** Finds the overloaded function that matches the specified call. */
     const HLSLFunction* MatchFunctionCall(const HLSLFunctionCall* functionCall, const char* name);
 
+    /** Handles mul/transpose overloads whose shapes involve the generalized (non-square) matrices. */
+    const HLSLFunction* MatchMatrixIntrinsic(const HLSLFunctionCall* functionCall, const char* name, bool& handled);
+
+    /** Allocates a persistent synthetic intrinsic descriptor inside the syntax tree. */
+    const HLSLFunction* CreateMatrixIntrinsic(const char* fileName, int line, const char* name,
+        HLSLBaseType returnType, HLSLBaseType argType0, HLSLBaseType argType1);
+
     /** Gets the type of the named field on the specified object type (fieldName can also specify a swizzle. ) */
     bool GetMemberType(const HLSLType& objectType, HLSLMemberAccess * memberAccess);
 

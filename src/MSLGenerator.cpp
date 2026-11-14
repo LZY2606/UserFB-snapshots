@@ -44,6 +44,10 @@ namespace M4
         case HLSLBaseType_Float4x4:         return "float4x4";
         case HLSLBaseType_Float4x3:         return "float3x4";
         case HLSLBaseType_Float4x2:         return "float2x4";
+        case HLSLBaseType_Float2x3:         return "float3x2";
+        case HLSLBaseType_Float2x4:         return "float4x2";
+        case HLSLBaseType_Float3x2:         return "float2x3";
+        case HLSLBaseType_Float3x4:         return "float4x3";
         case HLSLBaseType_Half:             return "half";
         case HLSLBaseType_Half2:            return "half2";
         case HLSLBaseType_Half3:            return "half3";
@@ -124,12 +128,12 @@ namespace M4
 
     inline bool IsHalf(HLSLBaseType type)
     {
-        return type >= HLSLBaseType_Half && type <= HLSLBaseType_Half4x2;
+        return ScalarBaseType[type] == HLSLBaseType_Half;
     }
 
     inline bool IsFloat(HLSLBaseType type)
     {
-        return type >= HLSLBaseType_Float && type <= HLSLBaseType_Float4x2;
+        return ScalarBaseType[type] == HLSLBaseType_Float;
     }
 
 
@@ -2360,6 +2364,10 @@ namespace M4
         case HLSLBaseType_Float4x4:         return float_to_half ? "half4x4" : "float4x4";
         case HLSLBaseType_Float4x3:         return float_to_half ? "half3x4" : "float3x4";
         case HLSLBaseType_Float4x2:         return float_to_half ? "half2x4" : "float2x4";
+        case HLSLBaseType_Float2x3:         return float_to_half ? "half3x2" : "float3x2";
+        case HLSLBaseType_Float2x4:         return float_to_half ? "half4x2" : "float4x2";
+        case HLSLBaseType_Float3x2:         return float_to_half ? "half2x3" : "float2x3";
+        case HLSLBaseType_Float3x4:         return float_to_half ? "half4x3" : "float4x3";
         case HLSLBaseType_Half:             return half_to_float ? "float" : "half";
         case HLSLBaseType_Half2:            return half_to_float ? "float2" : "half2";
         case HLSLBaseType_Half3:            return half_to_float ? "float3" : "half3";

@@ -647,6 +647,10 @@ const BaseTypeDescription _baseTypeDescriptions[HLSLBaseType_Count] =
         { "float4x4",           NumericType_Float,      4, 2, 4,  0 },      // HLSLBaseType_Float4x4
         { "float4x3",           NumericType_Float,      4, 2, 3,  0 },      // HLSLBaseType_Float4x3
         { "float4x2",           NumericType_Float,      4, 2, 2,  0 },      // HLSLBaseType_Float4x2
+        { "float2x3",           NumericType_Float,      3, 2, 2,  0 },      // HLSLBaseType_Float2x3
+        { "float2x4",           NumericType_Float,      4, 2, 2,  0 },      // HLSLBaseType_Float2x4
+        { "float3x2",           NumericType_Float,      2, 2, 3,  0 },      // HLSLBaseType_Float3x2
+        { "float3x4",           NumericType_Float,      4, 2, 3,  0 },      // HLSLBaseType_Float3x4
 
         { "half",               NumericType_Half,       1, 0, 1,  1 },      // HLSLBaseType_Half
         { "half2",              NumericType_Half,       2, 1, 1,  1 },      // HLSLBaseType_Half2
@@ -688,7 +692,9 @@ const BaseTypeDescription _baseTypeDescriptions[HLSLBaseType_Count] =
 // IC: I'm not sure this table is right, but any errors should be caught by the backend compiler.
 // Also, this is operator dependent. The type resulting from (float4 * float4x4) is not the same as (float4 + float4x4).
 // We should probably distinguish between component-wise operator and only allow same dimensions
-HLSLBaseType _binaryOpTypeLookup[HLSLBaseType_NumericCount][HLSLBaseType_NumericCount] = 
+// Note: only the legacy numeric types (indices 0..28, see GetLegacyNumericIndex) carry
+// meaningful entries; the generalized non-square matrix types are handled by GetBinaryOpType.
+HLSLBaseType _legacyBinaryOpTypeLookup[HLSLBaseType_NumericCount][HLSLBaseType_NumericCount] =
     {
         {   // float
             HLSLBaseType_Float, HLSLBaseType_Float2, HLSLBaseType_Float3, HLSLBaseType_Float4, HLSLBaseType_Float2x2, HLSLBaseType_Float3x3, HLSLBaseType_Float4x4, HLSLBaseType_Float4x3, HLSLBaseType_Float4x2,
@@ -917,6 +923,129 @@ static const char* GetTypeName(const HLSLType& type)
     }
 }
 
+// An expression is considered side effect free when it cannot modify any observable state
+// when evaluated. Function calls are treated conservatively (they could have out parameters
+// or other side effects), and assignments/inc/dec are rejected outright.
+static bool IsSideEffectFreeExpression(const HLSLExpression* expression)
+{
+    if (expression == NULL)
+    {
+        return true;
+    }
+
+    switch (expression->nodeType)
+    {
+    case HLSLNodeType_LiteralExpression:
+    case HLSLNodeType_IdentifierExpression:
+        return true;
+
+    case HLSLNodeType_UnaryExpression:
+        {
+            const HLSLUnaryExpression* unary = static_cast<const HLSLUnaryExpression*>(expression);
+            switch (unary->unaryOp)
+            {
+            case HLSLUnaryOp_PreIncrement:
+            case HLSLUnaryOp_PreDecrement:
+            case HLSLUnaryOp_PostIncrement:
+            case HLSLUnaryOp_PostDecrement:
+                return false;
+            default:
+                return IsSideEffectFreeExpression(unary->expression);
+            }
+        }
+
+    case HLSLNodeType_BinaryExpression:
+        {
+            const HLSLBinaryExpression* binary = static_cast<const HLSLBinaryExpression*>(expression);
+            if (IsAssignOp(binary->binaryOp))
+            {
+                return false;
+            }
+            return IsSideEffectFreeExpression(binary->expression1) &&
+                   IsSideEffectFreeExpression(binary->expression2);
+        }
+
+    case HLSLNodeType_ConditionalExpression:
+        {
+            const HLSLConditionalExpression* conditional = static_cast<const HLSLConditionalExpression*>(expression);
+            return IsSideEffectFreeExpression(conditional->condition) &&
+                   IsSideEffectFreeExpression(conditional->trueExpression) &&
+                   IsSideEffectFreeExpression(conditional->falseExpression);
+        }
+
+    case HLSLNodeType_CastingExpression:
+        return IsSideEffectFreeExpression(static_cast<const HLSLCastingExpression*>(expression)->expression);
+
+    case HLSLNodeType_ConstructorExpression:
+        {
+            const HLSLExpression* argument = static_cast<const HLSLConstructorExpression*>(expression)->argument;
+            while (argument != NULL)
+            {
+                if (!IsSideEffectFreeExpression(argument))
+                {
+                    return false;
+                }
+                argument = argument->nextExpression;
+            }
+            return true;
+        }
+
+    case HLSLNodeType_MemberAccess:
+        return IsSideEffectFreeExpression(static_cast<const HLSLMemberAccess*>(expression)->object);
+
+    case HLSLNodeType_ArrayAccess:
+        {
+            const HLSLArrayAccess* arrayAccess = static_cast<const HLSLArrayAccess*>(expression);
+            return IsSideEffectFreeExpression(arrayAccess->array) &&
+                   IsSideEffectFreeExpression(arrayAccess->index);
+        }
+
+    case HLSLNodeType_FunctionCall:
+    case HLSLNodeType_SamplerState:
+        return false;
+
+    default:
+        return false;
+    }
+}
+
+// Builds a vector type with the requested number of components for the Float/Half scalar base.
+static HLSLBaseType MakeVectorType(HLSLBaseType scalarBaseType, int numComponents)
+{
+    if (numComponents < 1 || numComponents > 4)
+    {
+        return HLSLBaseType_Unknown;
+    }
+    if (scalarBaseType == HLSLBaseType_Half)
+    {
+        return HLSLBaseType(HLSLBaseType_Half + (numComponents - 1));
+    }
+    if (scalarBaseType == HLSLBaseType_Float)
+    {
+        return HLSLBaseType(HLSLBaseType_Float + (numComponents - 1));
+    }
+    return HLSLBaseType_Unknown;
+}
+
+// Number of components for a scalar/vector type, 0 for matrices and other types.
+static int GetNumericVectorLength(HLSLBaseType baseType)
+{
+    if (baseType >= HLSLBaseType_FirstNumeric && baseType <= HLSLBaseType_LastNumeric &&
+        _baseTypeDescriptions[baseType].numDimensions <= 1)
+    {
+        return _baseTypeDescriptions[baseType].numComponents;
+    }
+    return 0;
+}
+
+// True only for the four matrix enum values added by the generalized matrix support; these
+// have no entries in the legacy binary operator lookup table.
+static bool IsNewGeneralizedMatrix(HLSLBaseType baseType)
+{
+    return baseType == HLSLBaseType_Float2x3 || baseType == HLSLBaseType_Float2x4 ||
+           baseType == HLSLBaseType_Float3x2 || baseType == HLSLBaseType_Float3x4;
+}
+
 static const char* GetBinaryOpName(HLSLBinaryOp binaryOp)
 {
     switch (binaryOp)
@@ -1011,6 +1140,15 @@ static int GetTypeCastRank(HLSLTree * tree, const HLSLType& srcType, const HLSLT
     {
         // Scalar dimension promotion
         result |= (1 << 0);
+    }
+    else if (srcDesc.numDimensions == 2 && dstDesc.numDimensions == 2)
+    {
+        // Matrices can only convert when their shape matches exactly: there must be no
+        // truncation or reshaping between matrix types.
+        if (srcDesc.numComponents != dstDesc.numComponents || srcDesc.height != dstDesc.height)
+        {
+            return -1;
+        }
     }
     else if ((srcDesc.numDimensions == dstDesc.numDimensions && (srcDesc.numComponents > dstDesc.numComponents || srcDesc.height > dstDesc.height)) ||
              (srcDesc.numDimensions > 0 && dstDesc.numDimensions == 0))
@@ -1119,9 +1257,71 @@ static CompareFunctionsResult CompareFunctions(HLSLTree* tree, const HLSLFunctio
 
 }
 
+// Maps a numeric base type onto the index used by the legacy binary operator table. The
+// generalized non-square matrices share the table slot of a matrix with the same row count
+// because their component-wise binary semantics only depend on the scalar base and rows.
+static int GetLegacyNumericIndex(HLSLBaseType baseType)
+{
+    switch (baseType)
+    {
+    case HLSLBaseType_Float2x3:
+    case HLSLBaseType_Float2x4:
+        return HLSLBaseType_Float2x2 - HLSLBaseType_FirstNumeric;
+    case HLSLBaseType_Float3x2:
+    case HLSLBaseType_Float3x4:
+        return HLSLBaseType_Float3x3 - HLSLBaseType_FirstNumeric;
+    default:
+        return baseType - HLSLBaseType_FirstNumeric;
+    }
+}
+
+static HLSLBaseType GetBinaryOpType(HLSLBaseType type1, HLSLBaseType type2)
+{
+    const bool newMatrix1 = IsNewGeneralizedMatrix(type1);
+    const bool newMatrix2 = IsNewGeneralizedMatrix(type2);
+
+    if (!newMatrix1 && !newMatrix2)
+    {
+        return _legacyBinaryOpTypeLookup[GetLegacyNumericIndex(type1)][GetLegacyNumericIndex(type2)];
+    }
+
+    // Component-wise matrix operators only accept identical shapes (besides scalar promotion).
+    if (IsMatrixType(type1) && IsMatrixType(type2))
+    {
+        if (GetMatrixRows(type1) != GetMatrixRows(type2) || GetMatrixCols(type1) != GetMatrixCols(type2))
+        {
+            return HLSLBaseType_Unknown;
+        }
+        const HLSLBaseType scalarBase =
+            (ScalarBaseType[type1] == HLSLBaseType_Float || ScalarBaseType[type2] == HLSLBaseType_Float)
+            ? HLSLBaseType_Float : ScalarBaseType[type1];
+        return MakeMatrixType(scalarBase, GetMatrixRows(type1), GetMatrixCols(type1));
+    }
+
+    if (IsMatrixType(type1) && !IsMatrixType(type2))
+    {
+        // A scalar is broadcast over every matrix component; vectors are not compatible.
+        if (IsScalarType(type2))
+        {
+            const HLSLBaseType scalarBase =
+                ScalarBaseType[type2] == HLSLBaseType_Float ? HLSLBaseType_Float : ScalarBaseType[type1];
+            return MakeMatrixType(scalarBase, GetMatrixRows(type1), GetMatrixCols(type1));
+        }
+        return HLSLBaseType_Unknown;
+    }
+
+    if (IsScalarType(type1))
+    {
+        const HLSLBaseType scalarBase =
+            ScalarBaseType[type1] == HLSLBaseType_Float ? HLSLBaseType_Float : ScalarBaseType[type2];
+        return MakeMatrixType(scalarBase, GetMatrixRows(type2), GetMatrixCols(type2));
+    }
+
+    return HLSLBaseType_Unknown;
+}
+
 static bool GetBinaryOpResultType(HLSLBinaryOp binaryOp, const HLSLType& type1, const HLSLType& type2, HLSLType& result)
 {
-
     if (type1.baseType < HLSLBaseType_FirstNumeric || type1.baseType > HLSLBaseType_LastNumeric || type1.array ||
         type2.baseType < HLSLBaseType_FirstNumeric || type2.baseType > HLSLBaseType_LastNumeric || type2.array)
     {
@@ -1152,7 +1352,7 @@ static bool GetBinaryOpResultType(HLSLBinaryOp binaryOp, const HLSLType& type1, 
 			break;
 		}
     default:
-        result.baseType = _binaryOpTypeLookup[type1.baseType - HLSLBaseType_FirstNumeric][type2.baseType - HLSLBaseType_FirstNumeric];
+        result.baseType = GetBinaryOpType(type1.baseType, type2.baseType);
         break;
     }
 
@@ -2194,7 +2394,46 @@ bool HLSLParser::ParsePartialConstructor(HLSLExpression*& expression, HLSLBaseTy
     if (!ParseExpressionList(')', false, constructorExpression->argument, numArguments))
     {
         return false;
-    }    
+    }
+
+    // Matrix constructors take row ordered scalar/vector components which must fill the
+    // matrix exactly, and every component must be free of side effects.
+    if (IsMatrixType(type))
+    {
+        const int expectedComponents = GetMatrixRows(type) * GetMatrixCols(type);
+        int componentCount = 0;
+        HLSLExpression* argument = constructorExpression->argument;
+        while (argument != NULL)
+        {
+            if (!IsSideEffectFreeExpression(argument))
+            {
+                m_tokenizer.Error("matrix constructor components must be expressions without side effects");
+                return false;
+            }
+            const HLSLBaseType argumentType = argument->expressionType.baseType;
+            if (IsMatrixType(argumentType))
+            {
+                m_tokenizer.Error("matrix constructor cannot be initialized with another matrix");
+                return false;
+            }
+            const int vectorLength = GetNumericVectorLength(argumentType);
+            if (vectorLength == 0)
+            {
+                m_tokenizer.Error("matrix constructor only accepts scalar or vector components");
+                return false;
+            }
+            componentCount += vectorLength;
+            argument = argument->nextExpression;
+        }
+
+        if (componentCount != expectedComponents)
+        {
+            m_tokenizer.Error("matrix constructor for '%s' expects exactly %d components but got %d",
+                GetTypeName(constructorExpression->type), expectedComponents, componentCount);
+            return false;
+        }
+    }
+
     constructorExpression->expressionType = constructorExpression->type;
     constructorExpression->expressionType.flags = HLSLTypeFlag_Const;
     expression = constructorExpression;
@@ -2438,6 +2677,36 @@ bool HLSLParser::ParseTerminalExpression(HLSLExpression*& expression, bool& need
             }
             else
             {
+                const HLSLBaseType objectBaseType = expression->expressionType.baseType;
+                if (IsMatrixType(objectBaseType))
+                {
+                    // m[r] returns a vector with one component per matrix column.
+                    arrayAccess->expressionType.baseType = GetMatrixRowType(objectBaseType);
+                    // Row indices must be side effect free integer expressions.
+                    const HLSLBaseType indexBaseType = arrayAccess->index->expressionType.baseType;
+                    if (indexBaseType != HLSLBaseType_Int && indexBaseType != HLSLBaseType_Uint)
+                    {
+                        m_tokenizer.Error("matrix row index must be an integer expression");
+                        return false;
+                    }
+                    if (!IsSideEffectFreeExpression(arrayAccess->index))
+                    {
+                        m_tokenizer.Error("matrix row index must be an expression without side effects");
+                        return false;
+                    }
+                    // Validate the range when the index is a compile time constant.
+                    int rowIndex = 0;
+                    if (m_tree->GetExpressionValue(arrayAccess->index, rowIndex))
+                    {
+                        if (rowIndex < 0 || rowIndex >= GetMatrixRows(objectBaseType))
+                        {
+                            m_tokenizer.Error("matrix row index %d is out of range for a matrix with %d rows", rowIndex, GetMatrixRows(objectBaseType));
+                            return false;
+                        }
+                    }
+                }
+                else
+                {
                 switch (expression->expressionType.baseType)
                 {
                 case HLSLBaseType_Float2:
@@ -2445,40 +2714,10 @@ bool HLSLParser::ParseTerminalExpression(HLSLExpression*& expression, bool& need
                 case HLSLBaseType_Float4:
                     arrayAccess->expressionType.baseType = HLSLBaseType_Float;
                     break;
-				case HLSLBaseType_Float2x2:
-					arrayAccess->expressionType.baseType = HLSLBaseType_Float2;
-					break;
-                case HLSLBaseType_Float3x3:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Float3;
-                    break;
-                case HLSLBaseType_Float4x4:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Float4;
-                    break;
-                case HLSLBaseType_Float4x3:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Float3;
-                    break;
-                case HLSLBaseType_Float4x2:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Float2;
-                    break;
                 case HLSLBaseType_Half2:
                 case HLSLBaseType_Half3:
                 case HLSLBaseType_Half4:
                     arrayAccess->expressionType.baseType = HLSLBaseType_Half;
-                    break;
-				case HLSLBaseType_Half2x2:
-					arrayAccess->expressionType.baseType = HLSLBaseType_Half2;
-					break;
-                case HLSLBaseType_Half3x3:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Half3;
-                    break;
-                case HLSLBaseType_Half4x4:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Half4;
-                    break;
-                case HLSLBaseType_Half4x3:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Half3;
-                    break;
-                case HLSLBaseType_Half4x2:
-                    arrayAccess->expressionType.baseType = HLSLBaseType_Half2;
                     break;
                 case HLSLBaseType_Int2:
                 case HLSLBaseType_Int3:
@@ -2493,6 +2732,7 @@ bool HLSLParser::ParseTerminalExpression(HLSLExpression*& expression, bool& need
                 default:
                     m_tokenizer.Error("array, matrix, vector, or indexable object type expected in index expression");
                     return false;
+                }
                 }
             }
 
@@ -3329,6 +3569,18 @@ bool HLSLParser::AcceptType(bool allowVoid, HLSLType& type/*, bool acceptFlags*/
     case HLSLToken_Float4x2:
         type.baseType = HLSLBaseType_Float4x2;
         break;
+    case HLSLToken_Float2x3:
+        type.baseType = HLSLBaseType_Float2x3;
+        break;
+    case HLSLToken_Float2x4:
+        type.baseType = HLSLBaseType_Float2x4;
+        break;
+    case HLSLToken_Float3x2:
+        type.baseType = HLSLBaseType_Float3x2;
+        break;
+    case HLSLToken_Float3x4:
+        type.baseType = HLSLBaseType_Float3x4;
+        break;
     case HLSLToken_Half:
         type.baseType = HLSLBaseType_Half;
         break;
@@ -3671,8 +3923,174 @@ bool HLSLParser::GetIsFunction(const char* name) const
     return false;
 }
 
+const HLSLFunction* HLSLParser::CreateMatrixIntrinsic(const char* fileName, int line, const char* name,
+    HLSLBaseType returnType, HLSLBaseType argType0, HLSLBaseType argType1)
+{
+    HLSLFunction* function = m_tree->AddNode<HLSLFunction>(fileName, line);
+    function->name = m_tree->AddString(name);
+    function->returnType.baseType = returnType;
+    function->numArguments = (argType1 == HLSLBaseType_Unknown) ? 1 : 2;
+
+    HLSLArgument* first = m_tree->AddNode<HLSLArgument>(fileName, line);
+    first->name = m_tree->AddString("a");
+    first->type.baseType = argType0;
+    first->type.flags = HLSLTypeFlag_Const;
+    function->argument = first;
+
+    if (function->numArguments == 2)
+    {
+        HLSLArgument* second = m_tree->AddNode<HLSLArgument>(fileName, line);
+        second->name = m_tree->AddString("b");
+        second->type.baseType = argType1;
+        second->type.flags = HLSLTypeFlag_Const;
+        first->nextArgument = second;
+    }
+
+    return function;
+}
+
+const HLSLFunction* HLSLParser::MatchMatrixIntrinsic(const HLSLFunctionCall* functionCall, const char* name, bool& handled)
+{
+    handled = false;
+
+    const bool isMul = String_Equal(name, "mul");
+    const bool isTranspose = String_Equal(name, "transpose");
+    if (!isMul && !isTranspose)
+    {
+        return NULL;
+    }
+
+    const int numArguments = functionCall->numArguments;
+    if ((isMul && numArguments != 2) || (isTranspose && numArguments != 1))
+    {
+        // Wrong number of arguments: leave it to the regular matcher to report the error.
+        return NULL;
+    }
+
+    HLSLExpression* const firstArg = functionCall->argument;
+    HLSLExpression* const secondArg = isMul ? firstArg->nextExpression : NULL;
+
+    const HLSLBaseType type0 = firstArg->expressionType.baseType;
+    const HLSLBaseType type1 = isMul ? secondArg->expressionType.baseType : HLSLBaseType_Unknown;
+
+    // Any non-square matrix requires shape derived overloads; square matrices and pure vector
+    // calls keep using the regular intrinsic table below.
+    const bool involvesNonSquareMatrix = isTranspose ? IsNonSquareMatrix(type0)
+                                               : (IsNonSquareMatrix(type0) || IsNonSquareMatrix(type1));
+    if (!involvesNonSquareMatrix)
+    {
+        return NULL;
+    }
+
+    handled = true;
+
+    const char* const fileName = functionCall->fileName;
+    const int line = functionCall->line;
+
+    if (isTranspose)
+    {
+        if (!IsMatrixType(type0))
+        {
+            m_tokenizer.Error("transpose expects a matrix argument");
+            return NULL;
+        }
+        const HLSLBaseType returnType = GetTransposedMatrixType(type0);
+        if (returnType == HLSLBaseType_Unknown)
+        {
+            m_tokenizer.Error("transpose is not supported for this matrix type");
+            return NULL;
+        }
+        return CreateMatrixIntrinsic(fileName, line, "transpose", returnType, type0, HLSLBaseType_Unknown);
+    }
+
+    // mul: the inner dimensions must match exactly, and the result follows linear algebra.
+    const bool leftIsMatrix = IsMatrixType(type0);
+    const bool rightIsMatrix = IsMatrixType(type1);
+    // Half implicitly converts to float, so any float operand makes the whole result float.
+    const HLSLBaseType scalarBase =
+        (ScalarBaseType[type0] == HLSLBaseType_Float || ScalarBaseType[type1] == HLSLBaseType_Float)
+        ? HLSLBaseType_Float : HLSLBaseType_Half;
+
+    if (leftIsMatrix && rightIsMatrix)
+    {
+        // mul(RxC, CxK) -> RxK
+        const int leftRows = GetMatrixRows(type0);
+        const int leftCols = GetMatrixCols(type0);
+        const int rightRows = GetMatrixRows(type1);
+        const int rightCols = GetMatrixCols(type1);
+        if (leftCols != rightRows)
+        {
+            m_tokenizer.Error("mul: incompatible matrix dimensions %dx%d and %dx%d (inner dimensions must match)",
+                leftRows, leftCols, rightRows, rightCols);
+            return NULL;
+        }
+        const HLSLBaseType returnType = MakeMatrixType(scalarBase, leftRows, rightCols);
+        if (returnType == HLSLBaseType_Unknown)
+        {
+            m_tokenizer.Error("mul: no result matrix type for the requested dimensions");
+            return NULL;
+        }
+        return CreateMatrixIntrinsic(fileName, line, "mul", returnType, type0, type1);
+    }
+
+    if (leftIsMatrix && !rightIsMatrix)
+    {
+        // mul(RxC matrix, C vector) -> R vector
+        const int rows = GetMatrixRows(type0);
+        const int cols = GetMatrixCols(type0);
+        const int vectorLength = GetNumericVectorLength(type1);
+        if (vectorLength == 0 || vectorLength != cols)
+        {
+            m_tokenizer.Error("mul: matrix with %d columns cannot be multiplied by a vector of length %d",
+                cols, vectorLength);
+            return NULL;
+        }
+        const HLSLBaseType returnType = MakeVectorType(scalarBase, rows);
+        if (returnType == HLSLBaseType_Unknown)
+        {
+            m_tokenizer.Error("mul: no result vector type for the requested dimensions");
+            return NULL;
+        }
+        return CreateMatrixIntrinsic(fileName, line, "mul", returnType, type0, type1);
+    }
+
+    if (!leftIsMatrix && rightIsMatrix)
+    {
+        // mul(R vector, RxC matrix) -> C vector
+        const int rows = GetMatrixRows(type1);
+        const int cols = GetMatrixCols(type1);
+        const int vectorLength = GetNumericVectorLength(type0);
+        if (vectorLength == 0 || vectorLength != rows)
+        {
+            m_tokenizer.Error("mul: vector of length %d cannot be multiplied by a matrix with %d rows",
+                vectorLength, rows);
+            return NULL;
+        }
+        const HLSLBaseType returnType = MakeVectorType(scalarBase, cols);
+        if (returnType == HLSLBaseType_Unknown)
+        {
+            m_tokenizer.Error("mul: no result vector type for the requested dimensions");
+            return NULL;
+        }
+        return CreateMatrixIntrinsic(fileName, line, "mul", returnType, type0, type1);
+    }
+
+    m_tokenizer.Error("mul expects at least one matrix argument");
+    return NULL;
+}
+
 const HLSLFunction* HLSLParser::MatchFunctionCall(const HLSLFunctionCall* functionCall, const char* name)
 {
+    // Generalized matrix mul/transpose: derive the result shape directly from the operand
+    // dimensions instead of letting truncation based overload resolution accept incompatible
+    // calls. Existing square matrix overloads keep going through the regular path below.
+    bool matrixHandled = false;
+    const HLSLFunction* matrixIntrinsic = MatchMatrixIntrinsic(functionCall, name, matrixHandled);
+    if (matrixHandled)
+    {
+        return matrixIntrinsic;
+    }
+
     const HLSLFunction* matchedFunction     = NULL;
 
     int  numArguments           = functionCall->numArguments;
