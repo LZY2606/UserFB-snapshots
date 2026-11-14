@@ -1,0 +1,24 @@
+{
+  "target": "test/checkpoint.cjs",
+  "groups": [
+    "Quiescent capture",
+    "Atomic restore",
+    "Resume discovery"
+  ],
+  "baseline": [
+    [
+      "task_support/baseline.cjs"
+    ],
+    [
+      "node_modules/mocha/bin/mocha",
+      "test/init.js",
+      "test/queue.js",
+      "test/conditions.js",
+      "test/reliability.js",
+      "test/discovery.js",
+      "--reporter",
+      "dot",
+      "--exit"
+    ]
+  ]
+}
