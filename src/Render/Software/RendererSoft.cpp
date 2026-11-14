@@ -65,18 +65,27 @@ void RendererSoft::beginRenderPass(std::shared_ptr<FrameBuffer> &frameBuffer, co
     return;
   }
 
-  fboColor_ = fbo_->getColorBuffer();
-  fboDepth_ = fbo_->getDepthBuffer();
+  // reject invalid framebuffers before any clear or draw
+  fbo_->validate();
 
-  if (states.colorFlag && fboColor_) {
+  refreshFrameBuffers();
+
+  if (states.colorFlag) {
+    // the same clear color applies to every bound color slot, empty slots are untouched
     RGBA color = RGBA(states.clearColor.r * 255,
                       states.clearColor.g * 255,
                       states.clearColor.b * 255,
                       states.clearColor.a * 255);
-    if (fboColor_->multiSample) {
-      fboColor_->bufferMs4x->setAll(glm::tvec4<RGBA>(color));
-    } else {
-      fboColor_->buffer->setAll(color);
+    for (unsigned slot = 0; slot < FrameBuffer::COLOR_ATTACHMENT_COUNT; slot++) {
+      auto &fboColor = fboColors_[slot];
+      if (!fboColor) {
+        continue;
+      }
+      if (fboColor->multiSample) {
+        fboColor->bufferMs4x->setAll(glm::tvec4<RGBA>(color));
+      } else {
+        fboColor->buffer->setAll(color);
+      }
     }
   }
 
@@ -138,16 +147,24 @@ void RendererSoft::draw() {
     return;
   }
 
-  fboColor_ = fbo_->getColorBuffer();
-  fboDepth_ = fbo_->getDepthBuffer();
+  // reject invalid framebuffers before drawing as well
+  fbo_->validate();
+
+  // always re-read attachments so a rebind or framebuffer switch takes effect
+  refreshFrameBuffers();
   primitiveType_ = renderState_->primitiveType;
 
-  if (fboColor_) {
-    rasterSamples_ = fboColor_->sampleCnt;
-  } else if (fboDepth_) {
+  rasterSamples_ = 1;
+  bool hasColor = false;
+  for (unsigned slot = 0; slot < FrameBuffer::COLOR_ATTACHMENT_COUNT; slot++) {
+    if (fboColors_[slot]) {
+      rasterSamples_ = fboColors_[slot]->sampleCnt;
+      hasColor = true;
+      break;
+    }
+  }
+  if (!hasColor && fboDepth_) {
     rasterSamples_ = fboDepth_->sampleCnt;
-  } else {
-    rasterSamples_ = 1;
   }
 
   processVertexShader();
@@ -158,8 +175,11 @@ void RendererSoft::draw() {
   processFaceCulling();
   processRasterization();
 
-  if (fboColor_ && fboColor_->multiSample) {
-    multiSampleResolve();
+  // resolve every multisample color attachment independently
+  for (unsigned slot = 0; slot < FrameBuffer::COLOR_ATTACHMENT_COUNT; slot++) {
+    if (fboColors_[slot] && fboColors_[slot]->multiSample) {
+      multiSampleResolve(slot);
+    }
   }
 }
 
@@ -343,35 +363,63 @@ void RendererSoft::processFragmentShader(glm::vec4 &screenPos,
                                          bool front_facing,
                                          void *varyings,
                                          ShaderProgramSoft *shader) {
-  if (!fboColor_) {
-    return;
-  }
-
   auto &builtin = shader->getShaderBuiltin();
   builtin.FragCoord = screenPos;
   builtin.FrontFacing = front_facing;
+
+  // every fragment starts with all four color outputs cleared and discard reset
+  builtin.resetFragmentOutputs();
 
   shader->bindFragmentShaderVaryings(varyings);
   shader->execFragmentShader();
 }
 
-void RendererSoft::processPerSampleOperations(int x, int y, float depth, const glm::vec4 &color, int sample) {
-  // depth test
+void RendererSoft::processPerSampleOperations(int x, int y, float depth, ShaderBuiltin &builtin, int sample) {
+  // depth is a single shared test for all attachments; a failed test skips
+  // every color write but the shader itself is never re-run per attachment
   if (!processDepthTest(x, y, depth, sample, false)) {
     return;
   }
 
-  if (!fboColor_) {
-    return;
+  // one fragment execution fans its color outputs out to the bound slots
+  for (unsigned slot = 0; slot < FrameBuffer::COLOR_ATTACHMENT_COUNT; slot++) {
+    if (!fboColors_[slot]) {
+      // unbound slot: nothing to write
+      continue;
+    }
+
+    const ColorAttachmentState &attachState = attachmentState(slot);
+    if (attachState.colorWriteMask == 0) {
+      // all color channels disabled: depth already updated above, skip color
+      continue;
+    }
+
+    glm::vec4 color = builtin.colorOutput(slot);
+    color = glm::clamp(color, 0.f, 1.f);
+
+    // color blending, reading this attachment's own destination color
+    processColorBlending(slot, x, y, color, sample);
+
+    // byte conversion follows the original rule, then honor the write mask
+    RGBA out = RGBA(color * 255.f);
+    RGBA *ptr = getFrameColor(slot, x, y, sample);
+    if (ptr) {
+      RGBA masked = *ptr;
+      if (attachState.colorWriteMask & ColorWrite_R) {
+        masked.r = out.r;
+      }
+      if (attachState.colorWriteMask & ColorWrite_G) {
+        masked.g = out.g;
+      }
+      if (attachState.colorWriteMask & ColorWrite_B) {
+        masked.b = out.b;
+      }
+      if (attachState.colorWriteMask & ColorWrite_A) {
+        masked.a = out.a;
+      }
+      *ptr = masked;
+    }
   }
-
-  glm::vec4 color_clamp = glm::clamp(color, 0.f, 1.f);
-
-  // color blending
-  processColorBlending(x, y, color_clamp, sample);
-
-  // write final color to fbo
-  setFrameColor(x, y, color_clamp * 255.f, sample);
 }
 
 bool RendererSoft::processDepthTest(int x, int y, float depth, int sample, bool skipWrite) {
@@ -394,16 +442,22 @@ bool RendererSoft::processDepthTest(int x, int y, float depth, int sample, bool 
   return false;
 }
 
-void RendererSoft::processColorBlending(int x, int y, glm::vec4 &color, int sample) {
-  if (renderState_->blend) {
-    glm::vec4 &srcColor = color;
-    glm::vec4 dstColor = glm::vec4(0.f);
-    auto *ptr = getFrameColor(x, y, sample);
-    if (ptr) {
-      dstColor = glm::vec4(*ptr) / 255.f;
-    }
-    color = calcBlendColor(srcColor, dstColor, renderState_->blendParams);
+void RendererSoft::processColorBlending(unsigned slot, int x, int y, glm::vec4 &color, int sample) {
+  const ColorAttachmentState &attachState = attachmentState(slot);
+  bool blend = attachState.blendOverride ? attachState.blend : renderState_->blend;
+  if (!blend) {
+    return;
   }
+  const BlendParameters &params =
+      attachState.blendOverride ? attachState.blendParams : renderState_->blendParams;
+
+  glm::vec4 srcColor = color;
+  glm::vec4 dstColor = glm::vec4(0.f);
+  auto *ptr = getFrameColor(slot, x, y, sample);
+  if (ptr) {
+    dstColor = glm::vec4(*ptr) / 255.f;
+  }
+  color = calcBlendColor(srcColor, dstColor, params);
 }
 
 void RendererSoft::processPointAssembly() {
@@ -634,10 +688,6 @@ void RendererSoft::rasterizationPolygonsTriangle(std::vector<PrimitiveHolder> &p
 }
 
 void RendererSoft::rasterizationPoint(VertexHolder *v, float pointSize) {
-  if (!fboColor_) {
-    return;
-  }
-
   float left = v->fragPos.x - pointSize / 2.f + 0.5f;
   float right = left + pointSize;
   float top = v->fragPos.y - pointSize / 2.f + 0.5f;
@@ -653,7 +703,7 @@ void RendererSoft::rasterizationPoint(VertexHolder *v, float pointSize) {
       if (!builtIn.discard) {
         // TODO MSAA
         for (int idx = 0; idx < rasterSamples_; idx++) {
-          processPerSampleOperations(x, y, screenPos.z, builtIn.FragColor, idx);
+          processPerSampleOperations(x, y, screenPos.z, builtIn, idx);
         }
       }
     }
@@ -834,6 +884,11 @@ void RendererSoft::rasterizationPixelQuad(PixelQuadContext &quad) {
     // sample coverage
     auto &builtIn = quad.shaderProgram->getShaderBuiltin();
 
+    // a discarded fragment commits neither color nor depth on any attachment
+    if (builtIn.discard) {
+      continue;
+    }
+
     // per-sample operations
     if (pixel.sampleCount > 1) {
       for (int idx = 0; idx < pixel.sampleCount; idx++) {
@@ -841,11 +896,11 @@ void RendererSoft::rasterizationPixelQuad(PixelQuadContext &quad) {
         if (!sample.inside) {
           continue;
         }
-        processPerSampleOperations(sample.fboCoord.x, sample.fboCoord.y, sample.position.z, builtIn.FragColor, idx);
+        processPerSampleOperations(sample.fboCoord.x, sample.fboCoord.y, sample.position.z, builtIn, idx);
       }
     } else {
       auto &sample = *pixel.sampleShading;
-      processPerSampleOperations(sample.fboCoord.x, sample.fboCoord.y, sample.position.z, builtIn.FragColor, 0);
+      processPerSampleOperations(sample.fboCoord.x, sample.fboCoord.y, sample.position.z, builtIn, 0);
     }
   }
 }
@@ -877,28 +932,33 @@ bool RendererSoft::earlyZTest(PixelQuadContext &quad) {
   return quad.CheckInside();
 }
 
-void RendererSoft::multiSampleResolve() {
-  if (!fboColor_->buffer) {
-    fboColor_->buffer = Buffer<RGBA>::makeDefault(fboColor_->width, fboColor_->height);
+void RendererSoft::multiSampleResolve(unsigned slot) {
+  auto &fboColor = fboColors_[slot];
+  if (!fboColor) {
+    return;
   }
 
-  auto *srcPtr = fboColor_->bufferMs4x->getRawDataPtr();
-  auto *dstPtr = fboColor_->buffer->getRawDataPtr();
+  if (!fboColor->buffer) {
+    fboColor->buffer = Buffer<RGBA>::makeDefault(fboColor->width, fboColor->height);
+  }
 
-  for (size_t row = 0; row < fboColor_->height; row++) {
-    auto *rowSrc = srcPtr + row * fboColor_->width;
-    auto *rowDst = dstPtr + row * fboColor_->width;
+  auto *srcPtr = fboColor->bufferMs4x->getRawDataPtr();
+  auto *dstPtr = fboColor->buffer->getRawDataPtr();
+
+  for (size_t row = 0; row < fboColor->height; row++) {
+    auto *rowSrc = srcPtr + row * fboColor->width;
+    auto *rowDst = dstPtr + row * fboColor->width;
 #ifdef RASTER_MULTI_THREAD
     threadPool_.pushTask([&, rowSrc, rowDst](int thread_id) {
 #endif
       auto *src = rowSrc;
       auto *dst = rowDst;
-      for (size_t idx = 0; idx < fboColor_->width; idx++) {
+      for (size_t idx = 0; idx < fboColor->width; idx++) {
         glm::vec4 color(0.f);
-        for (int i = 0; i < fboColor_->sampleCnt; i++) {
+        for (int i = 0; i < fboColor->sampleCnt; i++) {
           color += (glm::vec4) (*src)[i];
         }
-        color /= fboColor_->sampleCnt;
+        color /= fboColor->sampleCnt;
         *dst = color;
         src++;
         dst++;
@@ -911,19 +971,20 @@ void RendererSoft::multiSampleResolve() {
   threadPool_.waitTasksFinish();
 }
 
-RGBA *RendererSoft::getFrameColor(int x, int y, int sample) {
-  if (!fboColor_) {
+RGBA *RendererSoft::getFrameColor(unsigned slot, int x, int y, int sample) {
+  if (slot >= FrameBuffer::COLOR_ATTACHMENT_COUNT || !fboColors_[slot]) {
     return nullptr;
   }
 
+  auto &fboColor = fboColors_[slot];
   RGBA *ptr = nullptr;
-  if (fboColor_->multiSample) {
-    auto *ptrMs = fboColor_->bufferMs4x->get(x, y);
+  if (fboColor->multiSample) {
+    auto *ptrMs = fboColor->bufferMs4x->get(x, y);
     if (ptrMs) {
       ptr = (RGBA *) ptrMs + sample;
     }
   } else {
-    ptr = fboColor_->buffer->get(x, y);
+    ptr = fboColor->buffer->get(x, y);
   }
 
   return ptr;
@@ -946,11 +1007,15 @@ float *RendererSoft::getFrameDepth(int x, int y, int sample) {
   return depthPtr;
 }
 
-void RendererSoft::setFrameColor(int x, int y, const RGBA &color, int sample) {
-  RGBA *ptr = getFrameColor(x, y, sample);
-  if (ptr) {
-    *ptr = color;
+void RendererSoft::refreshFrameBuffers() {
+  for (unsigned slot = 0; slot < FrameBuffer::COLOR_ATTACHMENT_COUNT; slot++) {
+    fboColors_[slot] = fbo_->getColorBuffer(slot);
   }
+  fboDepth_ = fbo_->getDepthBuffer();
+}
+
+const ColorAttachmentState &RendererSoft::attachmentState(unsigned slot) const {
+  return renderState_->colorAttachments[slot];
 }
 
 size_t RendererSoft::clippingNewVertex(size_t idx0, size_t idx1, float t, bool postVertexProcess) {

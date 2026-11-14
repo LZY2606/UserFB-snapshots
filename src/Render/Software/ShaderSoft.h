@@ -41,11 +41,40 @@ struct ShaderBuiltin {
   bool FrontFacing;
 
   // fragment shader output
+  // slot 0 is the legacy FragColor object; slots 1..3 are independent MTR outputs
   glm::vec4 FragColor;
   bool discard = false;
 
+  // maximum number of color outputs, matches FrameBuffer::COLOR_ATTACHMENT_COUNT
+  static constexpr unsigned COLOR_OUTPUT_COUNT = 4;
+
+  /**
+   * Access the color output of the given slot.
+   * Slot 0 returns the very same object as FragColor (output-0 alias), the
+   * other slots return independent vectors.
+   */
+  inline glm::vec4 &colorOutput(unsigned slot) {
+    return slot == 0 ? FragColor : colorOutputs_[slot - 1];
+  }
+
+  inline const glm::vec4 &colorOutput(unsigned slot) const {
+    return slot == 0 ? FragColor : colorOutputs_[slot - 1];
+  }
+
+  // reset every color output and the discard flag before a fragment runs
+  inline void resetFragmentOutputs() {
+    FragColor = glm::vec4(0.f);
+    for (unsigned i = 0; i < COLOR_OUTPUT_COUNT - 1; i++) {
+      colorOutputs_[i] = glm::vec4(0.f);
+    }
+    discard = false;
+  }
+
   // derivative
   DerivativeContext dfCtx;
+
+ private:
+  glm::vec4 colorOutputs_[COLOR_OUTPUT_COUNT - 1]{};
 };
 
 class ShaderSoft {

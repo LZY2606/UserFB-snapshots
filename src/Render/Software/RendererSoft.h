@@ -61,9 +61,9 @@ class RendererSoft : public Renderer {
   void processFaceCulling();
   void processRasterization();
   void processFragmentShader(glm::vec4 &screenPos, bool frontFacing, void *varyings, ShaderProgramSoft *shader);
-  void processPerSampleOperations(int x, int y, float depth, const glm::vec4 &color, int sample);
+  void processPerSampleOperations(int x, int y, float depth, ShaderBuiltin &builtin, int sample);
   bool processDepthTest(int x, int y, float depth, int sample, bool skipWrite);
-  void processColorBlending(int x, int y, glm::vec4 &color, int sample);
+  void processColorBlending(unsigned slot, int x, int y, glm::vec4 &color, int sample);
 
   void processPointAssembly();
   void processLineAssembly();
@@ -88,11 +88,12 @@ class RendererSoft : public Renderer {
   void rasterizationPixelQuad(PixelQuadContext &quad);
 
   bool earlyZTest(PixelQuadContext &quad);
-  void multiSampleResolve();
+  void multiSampleResolve(unsigned slot);
  private:
-  inline RGBA *getFrameColor(int x, int y, int sample);
+  inline RGBA *getFrameColor(unsigned slot, int x, int y, int sample);
   inline float *getFrameDepth(int x, int y, int sample);
-  inline void setFrameColor(int x, int y, const RGBA &color, int sample);
+  void refreshFrameBuffers();
+  const ColorAttachmentState &attachmentState(unsigned slot) const;
 
   size_t clippingNewVertex(size_t idx0, size_t idx1, float t, bool postVertexProcess = false);
   void vertexShaderImpl(VertexHolder &vertex);
@@ -111,7 +112,8 @@ class RendererSoft : public Renderer {
   VertexArrayObjectSoft *vao_ = nullptr;
   ShaderProgramSoft *shaderProgram_ = nullptr;
 
-  std::shared_ptr<ImageBufferSoft<RGBA>> fboColor_ = nullptr;
+  // one shared depth buffer plus one color buffer per bound slot (nullptr when unbound)
+  std::shared_ptr<ImageBufferSoft<RGBA>> fboColors_[FrameBuffer::COLOR_ATTACHMENT_COUNT]{};
   std::shared_ptr<ImageBufferSoft<float>> fboDepth_ = nullptr;
 
   std::vector<VertexHolder> vertexes_;
