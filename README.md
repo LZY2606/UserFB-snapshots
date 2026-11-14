@@ -109,6 +109,64 @@ func ExampleCrawl() {
 }
 ```
 
+### Layered crawling
+
+By default, gocrawl fetches URLs as soon as they are discovered, so a fast site can be several links deep while a slower site is still on its first page. When crawling the directories of several sites together, it is often preferable to finish one level at a time: all the seeds, then every page linked from them, then the next level, and so on. Set `Options.Layered` to `true` to get this ordering.
+
+```Go
+package main
+
+import (
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/PuerkitoBio/gocrawl"
+    "github.com/PuerkitoBio/goquery"
+)
+
+// LayeredExtender prints the layer (depth) of each visited page.
+type LayeredExtender struct {
+    gocrawl.DefaultExtender
+}
+
+func (x *LayeredExtender) Visit(ctx *gocrawl.URLContext, res *http.Response, doc *goquery.Document) (interface{}, bool) {
+    log.Printf("depth %d: %v", ctx.Depth(), ctx.URL())
+    return nil, true
+}
+
+func main() {
+    opts := gocrawl.NewOptions(new(LayeredExtender))
+    opts.RobotUserAgent = "LayeredExample"
+    opts.UserAgent = "Mozilla/5.0 (compatible; LayeredExample/1.0)"
+    opts.CrawlDelay = 1 * time.Second
+
+    // Process every page of a layer before fetching the next layer.
+    opts.Layered = true
+
+    c := gocrawl.NewCrawlerWithOptions(opts)
+    if err := c.Run([]string{
+        "https://site-a.example/docs/",
+        "https://site-b.example/docs/",
+    }); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+With `Layered` enabled:
+
+* Seeds are at depth 0. URLs harvested by `Visit` (or found automatically by gocrawl) and URLs successfully sent through `EnqueueChan` belong to the parent page's next depth. Redirect targets belong to the same depth as the request that was redirected.
+* `URLContext.Depth()` returns the depth. When `Layered` is disabled it always returns `0`.
+* The next layer only starts fetching once every request of the current layer has finished its body read, `Visit`, `Visited` and link handoff, including any buffered `EnqueueChan` messages. This is not achieved by serializing requests: different hosts of the same layer are still crawled concurrently.
+* A pending or slow response in the current layer never ends the run; the crawler waits for it.
+* A new host discovered in a layer fetches its `robots.txt` as part of that layer, and existing robots.txt rules and crawl delays still apply.
+* A `HEAD` followed by its `GET` is the same page and stays in one layer.
+* A redirect to an address already reserved for a future layer promotes it into the current layer, reusing the first admission's source URL, state and `HeadBeforeGet`; it is downloaded only once. Addresses already in flight or finished are not fetched again, and redirect loops terminate. In `Layered` mode each normalized URL is physically scheduled once.
+* `WorkerIdleTTL` is not applied while `Layered` is enabled, so that a host's workers (and its robots.txt rules and crawl delay) are kept for the whole run.
+
+The `MaxVisits`, `Stop` and `Start`/`End` contracts, and the `Run` return values, are unchanged. A single `Crawler` can be run again; the next `Run` starts over at depth 0.
+
 ## API
 
 Gocrawl can be described as a minimalist web crawler (hence the "slim" tag, at ~1000 sloc), providing the basic engine upon which to build a full-fledged indexing machine with caching, persistence and staleness detection logic, or to use as is for quick and easy crawling. Gocrawl itself does not attempt to detect staleness of a page, nor does it implement a caching mechanism. If an URL is enqueued to be processed, it *will* make a request to fetch it (provided it is allowed by robots.txt - hence the "polite" tag). And there is no prioritization among the URLs to process, it assumes that all enqueued URLs must be visited at some point, and that the order in which they are is unimportant.
@@ -180,6 +238,8 @@ The `Options` type provides the hooks and customizations offered by gocrawl. All
 
 *    **LogFlags** : The level of verbosity for logging. Defaults to errors only (`LogError`). Can be a set of flags (i.e. `LogError | LogTrace`).
 
+*    **Layered** : When `true`, all the work for a given depth is completed before the next depth is fetched. Seeds are depth 0, harvested and `EnqueueChan` URLs belong to the next depth, and redirects stay in the current depth. Within a layer, different hosts are still crawled concurrently. Defaults to `false`. See [Layered crawling](#layered-crawling) for details.
+
 *    **Extender** : The instance implementing the `Extender` interface. This implements the various callbacks offered by gocrawl. Must be specified when creating a `Crawler` (or when creating an `Options` to pass to `NewCrawlerWithOptions` constructor). A default extender is provided as a valid default implementation, `DefaultExtender`. It can be used by [embedding it as an anonymous field][gotalk] to implement a custom extender when not all methods need customization (see the example above).
 
 ### The Extender interface
@@ -205,6 +265,7 @@ The remaining extension functions are all called in the context of a given URL, 
 * `SourceURL() *url.URL` : The getter method that returns the source URL in non-normalized form. Can be `nil` for seeds or URLs enqueued via the `EnqueueChan`.
 * `NormalizedSourceURL() *url.URL` : The getter method that returns the source URL in normalized form. Can be `nil` for seeds or URLs enqueued via the `EnqueueChan`.
 * `IsRobotsURL() bool` : Indicates if the current URL is a robots.txt URL.
+* `Depth() int` : Returns the layer (depth) of the URL when `Options.Layered` is enabled (seeds are `0`, harvested and enqueued URLs are their parent's depth plus one, redirects keep the redirecting request's depth). Returns `0` when layered crawling is disabled.
 
 With this out of the way, here are the other `Extender` functions:
 

@@ -14,6 +14,26 @@ type workerResponse struct {
 	harvestedURLs interface{}
 	host          string
 	idleDeath     bool
+	redirect      *URLContext
+}
+
+// Status of a URL admitted while Layered mode is enabled.
+type layerStatus uint8
+
+const (
+	layerReserved layerStatus = iota
+	layerDispatched
+	layerDone
+)
+
+// layerItem is the internal record of a canonical URL admitted in Layered
+// mode. There is at most one item per normalized URL, which guarantees a
+// single physical scheduling of a given URL.
+type layerItem struct {
+	key    string
+	ctx    *URLContext
+	depth  int
+	status layerStatus
 }
 
 // Crawler is the web crawler that processes URLs and manages the workers.
@@ -35,6 +55,11 @@ type Crawler struct {
 	visited map[string]struct{}
 	hosts   map[string]struct{}
 	workers map[string]*worker
+
+	// Layered crawling state (only used when Options.Layered is true).
+	items        map[string]*layerItem
+	layer        int
+	layerPending int
 }
 
 // NewCrawlerWithOptions returns a Crawler initialized with the
@@ -67,7 +92,11 @@ func (c *Crawler) Run(seeds interface{}) error {
 	c.init(ctxs)
 
 	// Start with the seeds, and loop till death
-	c.enqueueUrls(ctxs)
+	if c.Options.Layered {
+		c.enqueueSeedURLs(ctxs)
+	} else {
+		c.enqueueUrls(ctxs)
+	}
 	err := c.collectUrls()
 
 	c.Options.Extender.End(err)
@@ -111,6 +140,10 @@ func (c *Crawler) init(ctxs []*URLContext) {
 	// Create and pass the enqueue channel
 	c.enqueue = make(chan interface{}, c.Options.EnqueueChanBuffer)
 	c.setExtenderEnqueueChan()
+
+	// Initialize the layered crawling state.
+	c.items = make(map[string]*layerItem, l)
+	c.layer, c.layerPending = 0, 0
 }
 
 // Set the Enqueue channel on the extender, based on the naming convention.
@@ -168,6 +201,7 @@ func (c *Crawler) launchWorker(ctx *URLContext) *worker {
 		wg:      c.wg,
 		logFunc: getLogFunc(c.Options.Extender, c.Options.LogFlags, i),
 		opts:    c.Options,
+		layered: c.Options.Layered,
 	}
 
 	// Increment wait group count
@@ -197,6 +231,10 @@ func (c *Crawler) isSameHost(ctx *URLContext) bool {
 // Enqueue the URLs returned from the worker, as long as it complies with the
 // selection policies.
 func (c *Crawler) enqueueUrls(ctxs []*URLContext) (cnt int) {
+	if c.Options.Layered {
+		return c.enqueueUrlsLayered(ctxs)
+	}
+
 	for _, ctx := range ctxs {
 		var isVisited, enqueue bool
 
@@ -272,6 +310,212 @@ func (c *Crawler) enqueueUrls(ctxs []*URLContext) (cnt int) {
 	return
 }
 
+// filterURL applies the extender's Filter hook followed by the generic URL
+// policies. It reports whether the URL may be visited.
+func (c *Crawler) filterURL(ctx *URLContext, isVisited bool) bool {
+	if !c.Options.Extender.Filter(ctx, isVisited) {
+		c.logFunc(LogIgnored, "ignore on filter policy: %s", ctx.normalizedURL)
+		return false
+	}
+	if !ctx.normalizedURL.IsAbs() {
+		c.logFunc(LogIgnored, "ignore on absolute policy: %s", ctx.normalizedURL)
+		return false
+	}
+	if !strings.HasPrefix(ctx.normalizedURL.Scheme, "http") {
+		c.logFunc(LogIgnored, "ignore on scheme policy: %s", ctx.normalizedURL)
+		return false
+	}
+	if c.Options.SameHostOnly && !c.isSameHost(ctx) {
+		c.logFunc(LogIgnored, "ignore on same host policy: %s", ctx.normalizedURL)
+		return false
+	}
+	return true
+}
+
+// enqueueSeedURLs admits the initial seeds at layer 0 when Layered mode is
+// enabled, then starts fetching that layer.
+func (c *Crawler) enqueueSeedURLs(ctxs []*URLContext) {
+	for _, ctx := range ctxs {
+		if ctx.IsRobotsURL() {
+			continue
+		}
+		key := ctx.normalizedURL.String()
+		if _, ok := c.items[key]; ok {
+			continue
+		}
+		if !c.filterURL(ctx, false) {
+			continue
+		}
+		ctx.depth = 0
+		it := &layerItem{key: key, ctx: ctx, depth: 0}
+		c.items[key] = it
+		c.visited[key] = struct{}{}
+	}
+	c.dispatchLayer()
+}
+
+// enqueueUrlsLayered admits URLs in Layered mode. Ordinary URLs become part
+// of the layer following the one currently being processed.
+func (c *Crawler) enqueueUrlsLayered(ctxs []*URLContext) (cnt int) {
+	for _, ctx := range ctxs {
+		if c.reserveLayerURL(ctx) {
+			cnt++
+		}
+	}
+	return
+}
+
+func (c *Crawler) reserveLayerURL(ctx *URLContext) bool {
+	if ctx.IsRobotsURL() {
+		return false
+	}
+	key := ctx.normalizedURL.String()
+	// Already admitted: keep its first-admission layer and metadata. The
+	// visited set also covers items of completed layers that were pruned.
+	if _, ok := c.visited[key]; ok {
+		return false
+	}
+	if !c.filterURL(ctx, false) {
+		return false
+	}
+	ctx.depth = c.layer + 1
+	it := &layerItem{key: key, ctx: ctx, depth: ctx.depth}
+	c.items[key] = it
+	c.visited[key] = struct{}{}
+	return true
+}
+
+// dispatchLayer starts fetching every pending URL of the current layer. Hosts
+// are dispatched independently, so different sites still crawl concurrently.
+func (c *Crawler) dispatchLayer() {
+	for _, it := range c.items {
+		if it.depth == c.layer && it.status == layerReserved {
+			c.dispatchLayerItem(it)
+		}
+	}
+}
+
+// dispatchLayerItem hands a URL to the worker of its host.
+func (c *Crawler) dispatchLayerItem(it *layerItem) {
+	ctx := it.ctx
+	it.status = layerDispatched
+	c.layerPending++
+
+	// Launch worker if required, based on the host of the normalized URL
+	w, ok := c.workers[ctx.normalizedURL.Host]
+	if !ok {
+		w = c.launchWorker(ctx)
+		// Automatically enqueue the robots.txt URL as first in line. This
+		// stays within the current layer: a late-discovered host does not
+		// move robots.txt fetching ahead of the layer barrier.
+		if robCtx, e := ctx.getRobotsURLCtx(); e != nil {
+			c.Options.Extender.Error(newCrawlError(ctx, e, CekParseRobots))
+			c.logFunc(LogError, "ERROR parsing robots.txt from %s: %s", ctx.normalizedURL, e)
+		} else {
+			c.logFunc(LogEnqueued, "enqueue: %s", robCtx.url)
+			c.Options.Extender.Enqueued(robCtx)
+			w.pop.stack(robCtx)
+		}
+	}
+
+	c.logFunc(LogEnqueued, "enqueue: %s", ctx.url)
+	c.Options.Extender.Enqueued(ctx)
+	w.pop.stack(ctx)
+	c.pushPopRefCount++
+}
+
+// processRedirect handles a redirect in Layered mode. The redirect target
+// belongs to the same layer as the redirecting request. If the target was
+// already reserved for a future layer, it is promoted to the current layer
+// with its first-admission metadata intact. Targets already in flight or
+// finished are never fetched twice.
+func (c *Crawler) processRedirect(rCtx *URLContext) {
+	if rCtx.IsRobotsURL() {
+		return
+	}
+	key := rCtx.normalizedURL.String()
+	if it, ok := c.items[key]; ok {
+		if it.status != layerReserved {
+			// Dispatched or done: no duplicate physical fetch.
+			return
+		}
+		// Promote: keep the original SourceURL, State and HeadBeforeGet,
+		// only the layer is updated.
+		it.ctx.depth = c.layer
+		it.depth = c.layer
+		c.dispatchLayerItem(it)
+		return
+	}
+	if _, ok := c.visited[key]; ok {
+		// Admitted before and already dispatched or finished (possibly in a
+		// pruned completed layer): never fetch it twice.
+		return
+	}
+	if !c.filterURL(rCtx, false) {
+		return
+	}
+	rCtx.depth = c.layer
+	it := &layerItem{key: key, ctx: rCtx, depth: c.layer}
+	c.items[key] = it
+	c.visited[key] = struct{}{}
+	c.dispatchLayerItem(it)
+}
+
+// completeLayerItem marks the work for a URL of the current layer as done.
+func (c *Crawler) completeLayerItem(ctx *URLContext) {
+	if ctx == nil {
+		return
+	}
+	it, ok := c.items[ctx.normalizedURL.String()]
+	if !ok {
+		return
+	}
+	if it.status == layerDone {
+		return
+	}
+	it.status = layerDone
+	if c.layerPending > 0 {
+		c.layerPending--
+	}
+}
+
+// processPendingEnqueue handles messages that arrived on the enqueue channel.
+func (c *Crawler) processPendingEnqueue(enq interface{}) {
+	c.enqueueUrls(c.toURLContexts(enq, nil))
+}
+
+// advanceLayer starts the next layer once all the work of the current layer
+// (requests, body reads, Visit and Visited hooks, harvested link handoff and
+// buffered enqueue messages) has completed.
+func (c *Crawler) advanceLayer() {
+	if !c.Options.Layered || c.layerPending > 0 || len(c.enqueue) > 0 {
+		return
+	}
+	next := -1
+	for _, it := range c.items {
+		if it.status == layerReserved && (next == -1 || it.depth < next) {
+			next = it.depth
+		}
+	}
+	if next == -1 {
+		return
+	}
+	c.layer = next
+	c.logFunc(LogInfo, "starting layer %d", c.layer)
+
+	// Items of completed layers are no longer referenced by depth; keeping
+	// them would grow the map without bound. Deduplication of these URLs is
+	// still guaranteed by the visited set, and promotion only ever applies to
+	// a reserved item.
+	for key, it := range c.items {
+		if it.status == layerDone && it.depth < c.layer {
+			delete(c.items, key)
+		}
+	}
+
+	c.dispatchLayer()
+}
+
 // This is the main loop of the crawler, waiting for responses from the workers
 // and processing these responses.
 func (c *Crawler) collectUrls() error {
@@ -282,6 +526,10 @@ func (c *Crawler) collectUrls() error {
 	}()
 
 	for {
+		// In Layered mode, try to advance to the next layer when this layer's
+		// work is fully complete.
+		c.advanceLayer()
+
 		// By checking this after each channel reception, there is a bug if the worker
 		// wants to reenqueue following an error or a redirection. The pushPopRefCount
 		// temporarily gets to zero before the new URL is enqueued. Check the length
@@ -313,7 +561,18 @@ func (c *Crawler) collectUrls() error {
 				delete(c.workers, res.host)
 				c.logFunc(LogInfo, "worker for host %s cleared on idle policy", res.host)
 			} else {
+				// A redirect target belongs to the current layer. It is
+				// handled, and the current URL is completed, atomically with
+				// respect to the layer barrier.
+				if res.redirect != nil {
+					c.processRedirect(res.redirect)
+				}
 				c.enqueueUrls(c.toURLContexts(res.harvestedURLs, res.ctx.url))
+				if c.Options.Layered {
+					// Bodies, Visit, Visited and harvested handoff are all
+					// done at this point; the current layer work is over.
+					c.completeLayerItem(res.ctx)
+				}
 				c.pushPopRefCount--
 			}
 

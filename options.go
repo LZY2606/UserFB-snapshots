@@ -73,6 +73,13 @@ type Options struct {
 	// LogFlags controls the verbosity of the logger.
 	LogFlags LogFlags
 
+	// Layered enables layered crawling. When enabled, all the work for a
+	// given depth (the seed URLs are depth 0) is completed before any URL
+	// from the next depth is fetched. Work is still performed concurrently
+	// across hosts within a layer. URLs harvested by Visit and URLs
+	// successfully sent through EnqueueChan belong to the next layer.
+	Layered bool
+
 	// Extender is the implementation of hooks to use by the crawler.
 	Extender Extender
 }
@@ -95,6 +102,7 @@ func NewOptions(ext Extender) *Options {
 		false,
 		DefaultNormalizationFlags,
 		LogError,
+		false,
 		ext,
 	}
 }

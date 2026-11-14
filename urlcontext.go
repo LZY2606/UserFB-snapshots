@@ -30,6 +30,16 @@ type URLContext struct {
 	normalizedURL       *url.URL
 	sourceURL           *url.URL
 	normalizedSourceURL *url.URL
+	depth               int
+}
+
+// Depth returns the layer (depth) of the URL when the crawler's Layered
+// option is enabled. Seed URLs are at depth 0, URLs harvested by Visit or
+// successfully sent through EnqueueChan are at their parent's depth plus one,
+// and redirect targets share the depth of the redirecting request. When the
+// Layered option is disabled, Depth always returns 0.
+func (uc *URLContext) Depth() int {
+	return uc.depth
 }
 
 // URL returns the URL.
@@ -94,6 +104,7 @@ func (uc *URLContext) cloneForRedirect(dst *url.URL, normFlags purell.Normalizat
 		normalizedURL:       dst,
 		sourceURL:           src,
 		normalizedSourceURL: normalizedSrc,
+		depth:               uc.depth,
 	}
 }
 
@@ -127,12 +138,13 @@ func (uc *URLContext) getRobotsURLCtx() (*URLContext, error) {
 		return nil, err
 	}
 	return &URLContext{
-		false, // Never request HEAD before GET for robots.txt
-		nil,   // Always nil state
-		robURL,
-		robURL,       // Normalized is same as raw
-		uc.sourceURL, // Source and normalized source is same as for current context
-		uc.normalizedSourceURL,
+		HeadBeforeGet:       false, // Never request HEAD before GET for robots.txt
+		State:               nil,   // Always nil state
+		url:                 robURL,
+		normalizedURL:       robURL,       // Normalized is same as raw
+		sourceURL:           uc.sourceURL, // Source and normalized source is same as for current context
+		normalizedSourceURL: uc.normalizedSourceURL,
+		depth:               uc.depth,
 	}, nil
 }
 
@@ -238,11 +250,11 @@ func (c *Crawler) urlToURLContext(u, src *url.URL) *URLContext {
 	}
 
 	return &URLContext{
-		c.Options.HeadBeforeGet,
-		nil,
-		&rawU,
-		u,
-		rawSrc,
-		src,
+		HeadBeforeGet:       c.Options.HeadBeforeGet,
+		State:               nil,
+		url:                 &rawU,
+		normalizedURL:       u,
+		sourceURL:           rawSrc,
+		normalizedSourceURL: src,
 	}
 }

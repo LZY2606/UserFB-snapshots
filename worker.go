@@ -39,10 +39,12 @@ type worker struct {
 	logFunc func(LogFlags, string, ...interface{})
 
 	// Implementation fields
-	wait           <-chan time.Time
-	lastFetch      *FetchInfo
-	lastCrawlDelay time.Duration
-	opts           *Options
+	wait            <-chan time.Time
+	lastFetch       *FetchInfo
+	lastCrawlDelay  time.Duration
+	opts            *Options
+	layered         bool
+	pendingRedirect *URLContext
 }
 
 // Start crawling the host.
@@ -58,8 +60,11 @@ func (w *worker) run() {
 
 		w.logFunc(LogInfo, "waiting for pop...")
 
-		// Initialize the idle timeout channel, if required
-		if w.opts.WorkerIdleTTL > 0 {
+		// In Layered mode, a worker is idle only while the crawler is between
+		// layers, and the crawler advances the layer itself. Idling a worker
+		// out would discard its robots.txt state, so the idle TTL is not
+		// applied while layered crawling is enabled.
+		if w.opts.WorkerIdleTTL > 0 && !w.layered {
 			idleChan = time.After(w.opts.WorkerIdleTTL)
 		}
 
@@ -130,9 +135,9 @@ func (w *worker) requestURL(ctx *URLContext, headRequest bool) {
 
 		// Any 2xx status code is good to go
 		if res.StatusCode >= 200 && res.StatusCode < 300 {
-			// Success, visit the URL
-			harvested = w.visitURL(ctx, res)
-			visited = true
+			// Success, visit the URL. A body read error fails the visit and
+			// does not count as a successful visit.
+			harvested, visited = w.visitURL(ctx, res)
 		} else {
 			// Error based on status code received
 			w.opts.Extender.Error(newCrawlErrorMessage(ctx, res.Status, CekHttpStatusCode))
@@ -243,7 +248,15 @@ func (w *worker) fetchURL(ctx *URLContext, agent string, headRequest bool) (res 
 						w.logFunc(LogTrace, "redirect to %s from %s, linked from %s", ur, ctx.URL(), ctx.SourceURL())
 						// Enqueue the redirect-to URL with the original source
 						rCtx := ctx.cloneForRedirect(ur, w.opts.URLNormalizationFlags)
-						w.enqueue <- rCtx
+						if w.layered {
+							// In Layered mode, the redirect is part of the
+							// current layer. Send it with the response so that
+							// it is handled before the current URL's layer
+							// work is considered complete.
+							w.pendingRedirect = rCtx
+						} else {
+							w.enqueue <- rCtx
+						}
 					}
 				}
 			}
@@ -317,19 +330,27 @@ func (w *worker) sendResponse(ctx *URLContext, visited bool, harvested interface
 			harvested,
 			w.host,
 			idleDeath,
+			nil,
+		}
+		if !idleDeath {
+			res.redirect = w.pendingRedirect
+			w.pendingRedirect = nil
 		}
 		w.push <- res
 	}
 }
 
-// Process the response for a URL.
-func (w *worker) visitURL(ctx *URLContext, res *http.Response) interface{} {
+// Process the response for a URL. It returns the harvested URLs and whether
+// the visit succeeded (a body read error makes it fail).
+func (w *worker) visitURL(ctx *URLContext, res *http.Response) (interface{}, bool) {
 	var doc *goquery.Document
 	var harvested interface{}
 	var doLinks bool
+	readErr := error(nil)
 
 	// Load a goquery document and call the visitor function
 	if bd, e := ioutil.ReadAll(res.Body); e != nil {
+		readErr = e
 		w.opts.Extender.Error(newCrawlError(ctx, e, CekReadBody))
 		w.logFunc(LogError, "ERROR reading body %s: %s", ctx.url, e)
 	} else {
@@ -357,7 +378,7 @@ func (w *worker) visitURL(ctx *URLContext, res *http.Response) interface{} {
 	// Notify that this URL has been visited
 	w.opts.Extender.Visited(ctx, harvested)
 
-	return harvested
+	return harvested, readErr == nil
 }
 
 func handleBaseTag(root *url.URL, baseHref string, aHref string) string {
