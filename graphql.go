@@ -55,6 +55,10 @@ type Client struct {
 	// To log to standard out, use:
 	//  client.Log = func(s string) { log.Println(s) }
 	Log func(s string)
+
+	// subs holds the subscription configuration and the shared connection
+	// state. It is only enabled by WithSubscriptions.
+	subs subscriptionClientState
 }
 
 // NewClient makes a new Client capable of making GraphQL requests.

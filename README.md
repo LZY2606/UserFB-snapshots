@@ -62,6 +62,62 @@ client := graphql.NewClient("https://machinebox.io/graphql", graphql.UseMultipar
 
 For more information, [read the godoc package documentation](http://godoc.org/github.com/machinebox/graphql) or the [blog post](https://blog.machinebox.io/a-graphql-client-library-for-go-5bffd0455878).
 
+### Subscriptions
+
+Configure a WebSocket endpoint with `WithSubscriptions` to receive GraphQL
+subscription results over the `graphql-transport-ws` protocol. The handshake
+header is supplied here, separately from the HTTP endpoint and from
+`Request.Header`:
+
+```go
+client := graphql.NewClient(
+    "https://machinebox.io/graphql",
+    graphql.WithSubscriptions("wss://machinebox.io/graphql", http.Header{
+        "Authorization": []string{"Bearer ..."},
+    }),
+)
+defer client.CloseSubscriptions()
+
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+req := graphql.NewRequest(`subscription ($key: String!) {
+    itemChanged(id: $key) {
+        field1
+    }
+}`)
+req.Var("key", "value")
+
+// capacity bounds how many not-yet-read results are buffered.
+sub, err := client.Subscribe(ctx, req, 8)
+if err != nil {
+    log.Fatal(err)
+}
+
+for {
+    // Next returns the complete payload of each next message, in order.
+    payload, err := sub.Next(ctx)
+    if errors.Is(err, io.EOF) {
+        break // the server completed the operation
+    }
+    if err != nil {
+        log.Fatal(err)
+    }
+    var event struct { ... }
+    if err := json.Unmarshal(payload, &event); err != nil {
+        log.Fatal(err)
+    }
+    // handle event
+}
+```
+
+All subscriptions on a client share one connection, and `Next` never blocks
+the shared read loop. A subscription whose queue fills up is terminated and
+its accepted results can still be drained before `Next` reports
+`graphql: subscription result queue is full` (match it with
+`errors.Is(err, graphql.ErrSlowConsumer)`). Calling `sub.Cancel()` stops
+receiving results; the connection stays open for other subscriptions.
+
 ## Thanks
 
 Thanks to [Chris Broadfoot](https://github.com/broady) for design help.
