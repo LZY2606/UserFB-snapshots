@@ -43,6 +43,12 @@ int vsLocalmotions2Transforms(VSTransformData* td,
   int len = vs_vector_size(motions);
   assert(trans->len==0 && trans->ts == 0);
   trans->ts = vs_malloc(sizeof(VSTransform)*len );
+  /* The new transforms do not carry timestamps; a leftover array from an
+     earlier use would describe different frames. */
+  if(trans->pts){
+    vs_free(trans->pts);
+    trans->pts = NULL;
+  }
   /* long start= timeOfDayinMS(); */
   FILE *f=0;
   if(td->conf.storeTransforms){

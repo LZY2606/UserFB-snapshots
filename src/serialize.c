@@ -25,6 +25,8 @@
  */
 
 #include <assert.h>
+#include <errno.h>
+#include <math.h>
 #include <string.h>
 
 #include "serialize.h"
@@ -619,9 +621,197 @@ int vsReadOldTransforms(const VSTransformData* td, FILE* f , VSTransformations* 
     i++;
   }
   trans->len = i;
+  /* This old entry point has no timestamps to restore, so an array left
+     over from a previous use no longer matches the length and must go. */
+  if(trans->pts){
+    vs_free(trans->pts);
+    trans->pts = NULL;
+  }
 
   return i;
 }
+
+/* ---- Timed transform file format ---------------------------------------
+ *
+ *   VID.STAB.TIMED 1 N
+ *   PTS x y alpha zoom barrel rshutter extra        (exactly N lines)
+ *
+ * Text rather than binary so the format is readable and portable, and %.17g
+ * because that is what makes a double survive the round trip bit-exactly.
+ * The parser is line based and rejects anything that is not exactly one
+ * well-formed record per line: fscanf's conversions happily skip newlines,
+ * which would accept a file with the right numbers spread over the wrong
+ * number of lines. */
+
+#define VS_TIMED_FORMAT_VERSION 1
+
+/* Parse one whole line as `int64 double x6 int`.  Returns 1 on success.
+   Trailing whitespace is tolerated; trailing non-whitespace is not. */
+static int parseTimedLine(const char* line, int64_t* pts, VSTransform* t){
+  const char* p = line;
+  char* end;
+  long long v;
+  double fields[6];
+  int i;
+  errno = 0;
+  v = strtoll(p, &end, 10);
+  if(end == p || errno == ERANGE) return 0;
+  if(*end != ' ' && *end != '\t') return 0;
+  p = end;
+  for(i=0; i<6; i++){
+    /* No ERANGE rejection here: strtod sets it for subnormal results too
+       (5e-324 is a legitimate double that must survive the round trip), and
+       overflow to infinity is caught by the isfinite() check in the caller.
+       Underflow to zero is a normal rounding result. */
+    fields[i] = strtod(p, &end);
+    if(end == p) return 0;
+    if(*end != ' ' && *end != '\t') return 0;
+    p = end;
+  }
+  {
+    long ev;
+    errno = 0;
+    ev = strtol(p, &end, 10);
+    if(end == p || errno != 0) return 0;
+    while(*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') end++;
+    if(*end != '\0') return 0;
+    t->extra = (int)ev;
+  }
+  *pts = (int64_t)v;
+  t->x        = fields[0];
+  t->y        = fields[1];
+  t->alpha    = fields[2];
+  t->zoom     = fields[3];
+  t->barrel   = fields[4];
+  t->rshutter = fields[5];
+  return 1;
+}
+
+int vsWriteTimedTransforms(FILE* f, const VSTransformations* trans){
+  int i;
+  if(!f || !trans)
+    return VS_ERROR;
+  if(trans->len < 0)
+    return VS_ERROR;
+  if(trans->len > 0 && (!trans->ts || !trans->pts))
+    return VS_ERROR;
+  /* A sequence without timestamps cannot be written in this format; refuse
+     rather than inventing frame indices, which would read back as real
+     microsecond values. */
+  if(fprintf(f, "VID.STAB.TIMED %d %d\n", VS_TIMED_FORMAT_VERSION,
+             trans->len) < 0)
+    return VS_ERROR;
+  for(i=0; i<trans->len; i++){
+    const VSTransform* t = &trans->ts[i];
+    if(fprintf(f, "%lld %.17g %.17g %.17g %.17g %.17g %.17g %d\n",
+               (long long)trans->pts[i], t->x, t->y, t->alpha, t->zoom,
+               t->barrel, t->rshutter, t->extra) < 0)
+      return VS_ERROR;
+  }
+  return VS_OK;
+}
+
+int vsReadTimedTransforms(FILE* f, VSTransformations* trans){
+  char line[4096];
+  int64_t* pts = NULL;
+  VSTransform* ts = NULL;
+  int version, count, i, got = 0;
+
+  if(!f || !trans)
+    return VS_ERROR;
+  if(trans->ts || trans->pts || trans->len != 0){
+    vs_log_error(modname, "timed transforms must be read into an empty "
+                 "initialized sequence\n");
+    return VS_ERROR;
+  }
+  if(!fgets(line, sizeof(line), f))
+    return VS_ERROR;
+  {
+    int used = 0;
+    const char* p;
+    if(sscanf(line, "VID.STAB.TIMED %d %d%n", &version, &count, &used) != 2 ||
+       used <= 0)
+      return VS_ERROR;
+    /* Only trailing whitespace is allowed after the count. */
+    for(p = line + used; *p; p++)
+      if(*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n')
+        return VS_ERROR;
+  }
+  if(version != VS_TIMED_FORMAT_VERSION){
+    vs_log_error(modname, "unsupported timed transform format version %d\n",
+                 version);
+    return VS_ERROR;
+  }
+  if(count < 0 || count > VS_MAX_FRAMES){
+    vs_log_error(modname, "implausible timed transform count %d\n", count);
+    return VS_ERROR;
+  }
+  if(count == 0)
+    return VS_OK;
+
+  ts  = vs_malloc(sizeof(VSTransform) * count);
+  pts = vs_malloc(sizeof(int64_t) * count);
+  if(!ts || !pts)
+    goto fail;
+
+  for(i=0; i<count; i++){
+    VSTransform t = null_transform();
+    int64_t p;
+    int64_t len;
+    if(!fgets(line, sizeof(line), f)){
+      vs_log_error(modname, "timed transform file ends after %d of %d records\n",
+                   i, count);
+      goto fail;
+    }
+    /* A record that did not fit in `line` has no terminating newline and is
+       not a valid record. */
+    len = (int64_t)strlen(line);
+    if(len == 0 || line[len-1] != '\n'){
+      vs_log_error(modname, "timed transform line %d is malformed\n", i+1);
+      goto fail;
+    }
+    if(!parseTimedLine(line, &p, &t)){
+      vs_log_error(modname, "cannot parse timed transform line %d\n", i+1);
+      goto fail;
+    }
+    if(p < 0 || (i > 0 && p <= pts[i-1])){
+      vs_log_error(modname, "timed transform PTS are not non-negative and "
+                   "strictly increasing at line %d\n", i+1);
+      goto fail;
+    }
+    /* Reject non-finite values here rather than letting them into the
+       math: the text parser would happily read "nan" as a double. */
+    if(!isfinite(t.x) || !isfinite(t.y) || !isfinite(t.alpha) ||
+       !isfinite(t.zoom) || !isfinite(t.barrel) || !isfinite(t.rshutter)){
+      vs_log_error(modname, "timed transform line %d has a non-finite value\n",
+                   i+1);
+      goto fail;
+    }
+    ts[i]  = t;
+    pts[i] = p;
+  }
+  /* Exactly N records: a further non-blank line means the header lied. */
+  while(fgets(line, sizeof(line), f)){
+    int j;
+    for(j=0; line[j]==' ' || line[j]=='\t' || line[j]=='\r' || line[j]=='\n'; j++);
+    if(line[j] != '\0'){
+      vs_log_error(modname, "timed transform file has more than %d records\n",
+                   count);
+      goto fail;
+    }
+  }
+  got = count;
+  trans->ts  = ts;
+  trans->pts = pts;
+  trans->len = got;
+  return VS_OK;
+
+fail:
+  if(ts)  vs_free(ts);
+  if(pts) vs_free(pts);
+  return VS_ERROR;
+}
+
 
 
 //     t = vsSimpleMotionsToTransform(md, &localmotions);

@@ -43,6 +43,10 @@
 
 typedef struct _vstransformations {
     VSTransform* ts; // array of transformations
+    /* Presentation timestamps in microseconds, one per transform, or NULL
+       when the sequence is frame-order only.  Owned by this structure; see
+       vsTransformationsSetTimestamps(). */
+    int64_t* pts;
     int current;   // index to current transformation
     int len;       // length of trans array
     short warned_end; // whether we warned that there is no transform left
@@ -63,7 +67,10 @@ typedef enum { VS_Zero, VS_Linear, VS_BiLinear, VS_BiCubic, VS_NBInterPolTypes} 
 VS_API const char* getInterpolationTypeName(VSInterpolType type);
 
 typedef enum { VSKeepBorder = 0, VSCropBorder } VSBorderType;
-typedef enum { VSOptimalL1 = 0, VSGaussian, VSAvg } VSCamPathAlgo;
+/* VSTimeBox smooths the camera path in wall-clock time rather than per
+   frame, using VSTransformConfig.smoothingTime and the sequence's microsecond
+   timestamps.  See vsPreprocessTransforms(). */
+typedef enum { VSOptimalL1 = 0, VSGaussian, VSAvg, VSTimeBox } VSCamPathAlgo;
 
 /**
  * interpolate: general interpolation function pointer for one channel image data
@@ -91,6 +98,11 @@ typedef struct _VSTransformConfig {
     /* number of frames (forward and backward)
      * to use for smoothing transforms */
     int            smoothing;
+    /* Half-window in microseconds for VSTimeBox: the camera path is
+       averaged over [t-h, t+h] at each PTS.  0 leaves the time-box mode
+       without a window, which is an error (see vsPreprocessTransforms).
+       Unused by the frame-order algorithms. */
+    int64_t        smoothingTime;
     VSBorderType   crop;        // 1: black bg, 0: keep border from last frame(s)
     int            invert;      // 1: invert transforms, 0: nothing
     double         zoom;        // percentage to zoom: 0->no zooming 10:zoom in 10%
@@ -245,8 +257,31 @@ VS_API void vsTransformationsInit(VSTransformations* trans);
 /// deletes VSTransformations internal memory
 VS_API void vsTransformationsCleanup(VSTransformations* trans);
 
+/** Stores a private copy of `count` microsecond timestamps in `trans`.
+ *
+ *  Initialises (or replaces) the sequence's timestamp array.  `count` must
+ *  equal trans->len for a non-empty sequence; the timestamps must be
+ *  non-negative and strictly increasing.  The caller's buffer is not retained.
+ *  @return VS_OK on success, VS_ERROR on invalid arguments or allocation
+ *          failure (in which case the previous timestamps are left intact).
+ */
+VS_API int vsTransformationsSetTimestamps(VSTransformations* trans,
+                                          const int64_t* pts, int count);
+
 /// return next Transform and increases internal counter
 VS_API VSTransform vsGetNextTransform(const VSTransformData* td, VSTransformations* trans);
+
+/** Returns the smoothed transform at the given microsecond PTS by linearly
+ *  interpolating between the preprocessed sequence's timestamps.  Values
+ *  outside the sequence's range are the endpoint values.  Does not move
+ *  trans->current, so it can be called in any order alongside
+ *  vsGetNextTransform().
+ *  @return VS_OK on success, VS_ERROR on a negative pts, an empty sequence,
+ *          a sequence without timestamps, or a NULL out.
+ */
+VS_API int vsGetTransformAtPTS(const VSTransformData* td,
+                               const VSTransformations* trans,
+                               int64_t pts, VSTransform* out);
 
 /** preprocesses the list of transforms all at once. Here the deshaking is calculated!
  */

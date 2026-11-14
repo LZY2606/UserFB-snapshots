@@ -100,5 +100,28 @@ VS_API int vsReadLocalMotionsFile(FILE* f, VSManyLocalMotions* lms);
 // read the transformations from the given file (Deprecated format)
 VS_API int vsReadOldTransforms(const VSTransformData* td, FILE* f , VSTransformations* trans);
 
+/*
+ * Timed transform file format (text):
+ *
+ *   VID.STAB.TIMED 1 N
+ *   PTS x y alpha zoom barrel rshutter extra
+ *   ... exactly N lines ...
+ *
+ * PTS is the presentation timestamp in microseconds; the six doubles are
+ * written with enough digits to round-trip bit-exactly.  Timestamps must be
+ * non-negative and strictly increasing.  Neither function accepts or emits
+ * trailing content beyond the N lines.
+ */
+
+/// writes the sequence (transforms plus PTS) in the timed text format
+VS_API int vsWriteTimedTransforms(FILE* f, const VSTransformations* trans);
+
+/** reads a timed text transform file into an empty, initialized sequence.
+ *
+ *  On failure VS_ERROR is returned, the sequence is left empty and may still
+ *  be passed to vsTransformationsCleanup().
+ */
+VS_API int vsReadTimedTransforms(FILE* f, VSTransformations* trans);
+
 
 #endif

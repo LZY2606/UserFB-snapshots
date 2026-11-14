@@ -35,3 +35,6 @@ docs/superpowers/
 
 # out-of-tree test build (cmake -S tests -B build-tests)
 build-tests/
+
+# task runner scratch space
+.task-build/

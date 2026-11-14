@@ -38,6 +38,7 @@
 #ifndef _MSC_VER
     #include <libgen.h>
 #endif
+#include <stddef.h>
 #include <string.h>
 
 const char* interpol_type_names[5] = {"No (0)", "Linear (1)", "Bi-Linear (2)",
@@ -69,6 +70,7 @@ VSTransformConfig vsTransformGetDefaultConfig(const char* modName){
   conf.relative           = 1;
   conf.invert             = 0;
   conf.smoothing          = 15;
+  conf.smoothingTime      = 0;
   conf.zoom               = 0;
   conf.optZoom            = 1;
   conf.zoomSpeed          = 0.25;
@@ -291,8 +293,50 @@ VSTransform vsGetNextTransform(const VSTransformData* td, VSTransformations* tra
   return trans->ts[trans->current-1];
 }
 
+int vsGetTransformAtPTS(const VSTransformData* td, const VSTransformations* trans,
+                        int64_t pts, VSTransform* out){
+  int lo, hi;
+  (void) td;  /* only used for logging, and a successful query needs none */
+  if(!trans || !out || pts < 0 || trans->len <= 0 || !trans->pts)
+    return VS_ERROR;
+  /* Clamp to the endpoints outside the measured range. */
+  if(pts <= trans->pts[0]){
+    *out = trans->ts[0];
+    return VS_OK;
+  }
+  if(pts >= trans->pts[trans->len-1]){
+    *out = trans->ts[trans->len-1];
+    return VS_OK;
+  }
+  /* largest lo with pts[lo] <= query; the sequence is strictly increasing */
+  lo = 0; hi = trans->len - 1;
+  while(hi - lo > 1){
+    int mid = lo + (hi - lo)/2;
+    if(trans->pts[mid] <= pts) lo = mid; else hi = mid;
+  }
+  {
+    /* Both differences are exact int64 arithmetic, so a large absolute PTS
+       does not cost the microsecond offset that carries the interpolation
+       weight.  Only the ratio is converted. */
+    int64_t span = trans->pts[hi] - trans->pts[lo];
+    double w = (double)(pts - trans->pts[lo]) / (double)span;
+    const VSTransform* a = &trans->ts[lo];
+    const VSTransform* b = &trans->ts[hi];
+    *out = null_transform();
+    out->x        = a->x        + (b->x        - a->x)        * w;
+    out->y        = a->y        + (b->y        - a->y)        * w;
+    out->alpha    = a->alpha    + (b->alpha    - a->alpha)    * w;
+    out->zoom     = a->zoom     + (b->zoom     - a->zoom)     * w;
+    out->barrel   = a->barrel   + (b->barrel   - a->barrel)   * w;
+    out->rshutter = a->rshutter + (b->rshutter - a->rshutter) * w;
+    out->extra    = a->extra;
+  }
+  return VS_OK;
+}
+
 void vsTransformationsInit(VSTransformations* trans){
   trans->ts = 0;
+  trans->pts = 0;
   trans->len = 0;
   trans->current = 0;
   trans->warned_end = 0;
@@ -303,7 +347,47 @@ void vsTransformationsCleanup(VSTransformations* trans){
     vs_free(trans->ts);
     trans->ts = NULL;
   }
+  if (trans->pts) {
+    vs_free(trans->pts);
+    trans->pts = NULL;
+  }
   trans->len=0;
+}
+
+int vsTransformationsSetTimestamps(VSTransformations* trans,
+                                   const int64_t* pts, int count){
+  int64_t* copy;
+  int i;
+  if(!trans || count < 0 || trans->len < 0)
+    return VS_ERROR;
+  /* For a non-empty sequence the timestamps and the transforms must describe
+     the same frames.  A zero-length sequence may be given zero timestamps to
+     clear them. */
+  if(count != trans->len)
+    return VS_ERROR;
+  if(count == 0){
+    if(trans->pts){
+      vs_free(trans->pts);
+      trans->pts = NULL;
+    }
+    return VS_OK;
+  }
+  if(!pts)
+    return VS_ERROR;
+  for(i=0; i<count; i++){
+    if(pts[i] < 0)
+      return VS_ERROR;
+    if(i > 0 && pts[i] <= pts[i-1])
+      return VS_ERROR;
+  }
+  copy = vs_malloc(sizeof(int64_t) * count);
+  if(!copy)
+    return VS_ERROR;
+  memcpy(copy, pts, sizeof(int64_t) * count);
+  if(trans->pts)
+    vs_free(trans->pts);
+  trans->pts = copy;
+  return VS_OK;
 }
 
 /*
@@ -313,6 +397,7 @@ void vsTransformationsCleanup(VSTransformations* trans){
 int cameraPathOptimization(VSTransformData* td, VSTransformations* trans){
   switch(td->conf.camPathAlgo){
    case VSAvg: return cameraPathAvg(td,trans);
+   case VSTimeBox: return cameraPathTimeBox(td,trans);
    case VSOptimalL1:
 #ifdef VS_HAVE_LPSOLVER
     /* L1 optimizes a camera path built by composing relative transforms, so
@@ -500,6 +585,271 @@ int cameraPathAvg(VSTransformData* td, VSTransformations* trans){
 }
 
 
+/* ---- Time-box smoothing -------------------------------------------------
+ *
+ * The frame-order algorithms treat every frame as equally long.  With
+ * variable-rate material that is wrong: a 50 ms gap should pull the
+ * average as much as fifty 1 ms gaps.  VSTimeBox instead measures the camera
+ * path as a function of wall-clock time and averages it over a window of
+ * +-smoothingTime microseconds around each PTS.
+ *
+ * The path is piecewise linear between timestamps (the natural assumption:
+ * constant velocity between samples) and held at its endpoint values outside
+ * the measured span.  The integral of that piecewise-linear function over
+ * [t-h, t+h] is evaluated from a prefix integral, so preprocessing stays
+ * O(n) and each prefix value is exact for its breakpoints.  Only the
+ * breakpoints falling inside a window are summed; sub-interval pieces are
+ * handled with the trapezoid, which is exact because the path is linear
+ * there. */
+
+typedef struct _vstimepath {
+  int64_t* pts;          // timestamps (borrowed from the sequence)
+  double* p[6];          // absolute path per field: x, y, alpha, zoom, barrel, rshutter
+  int len;
+  int64_t t0, t1;        // first and last timestamp
+} VSTimePath;
+
+/* The six floating fields, in the order add_transforms() composes them. */
+enum { VS_TP_X, VS_TP_Y, VS_TP_ALPHA, VS_TP_ZOOM, VS_TP_BARREL, VS_TP_RSHUTTER,
+       VS_TP_FIELDS };
+
+static double timepathField(const VSTransform* t, int f){
+  switch(f){
+   case VS_TP_X:        return t->x;
+   case VS_TP_Y:        return t->y;
+   case VS_TP_ALPHA:    return t->alpha;
+   case VS_TP_ZOOM:     return t->zoom;
+   case VS_TP_BARREL:   return t->barrel;
+   default:             return t->rshutter;
+  }
+}
+
+/* Builds the absolute path.  relative == 0 means the stored transforms are
+   already absolute, so P is the input itself. */
+static int timePathBuild(VSTimePath* tp, const VSTransform* ts,
+                         int64_t* pts, int len, int relative){
+  int i, f;
+  tp->pts = pts;
+  tp->len = len;
+  tp->t0  = pts[0];
+  tp->t1  = pts[len-1];
+  for(f=0; f<VS_TP_FIELDS; f++) tp->p[f] = NULL;
+  for(f=0; f<VS_TP_FIELDS; f++){
+    tp->p[f] = vs_malloc(sizeof(double) * len);
+    if(!tp->p[f])
+      goto fail;
+  }
+  {
+    double accum[VS_TP_FIELDS];
+    for(f=0; f<VS_TP_FIELDS; f++) accum[f] = 0.0;
+    for(i=0; i<len; i++){
+      if(relative && i > 0){
+        for(f=0; f<VS_TP_FIELDS; f++)
+          accum[f] += timepathField(&ts[i], f);
+        /* A relative rotation is a small step; map it to (-pi, pi] before
+           adding it so the accumulated angle is the continuous one. */
+        {
+          double d = ts[i].alpha;
+          int64_t turns = (int64_t) floor((d + M_PI) / (2.0 * M_PI));
+          accum[VS_TP_ALPHA] -= turns * 2.0 * M_PI;
+        }
+      }else{
+        for(f=0; f<VS_TP_FIELDS; f++) accum[f] = timepathField(&ts[i], f);
+        if(i > 0){
+          /* Absolute input: unwrap each rotation against the previous
+             accumulated one so a path crossing the representation's +-pi
+             seam stays continuous. */
+          double d = accum[VS_TP_ALPHA] - tp->p[VS_TP_ALPHA][i-1];
+          int64_t turns = (int64_t) floor((d + M_PI) / (2.0 * M_PI));
+          accum[VS_TP_ALPHA] -= turns * 2.0 * M_PI;
+        }
+      }
+      for(f=0; f<VS_TP_FIELDS; f++) tp->p[f][i] = accum[f];
+    }
+  }
+  return VS_OK;
+fail:
+  for(f=0; f<VS_TP_FIELDS; f++){
+    if(tp->p[f]){
+      vs_free(tp->p[f]);
+      tp->p[f] = NULL;
+    }
+  }
+  return VS_ERROR;
+}
+
+static void timePathFree(VSTimePath* tp){
+  int f;
+  for(f=0; f<VS_TP_FIELDS; f++){
+    if(tp->p[f]){
+      vs_free(tp->p[f]);
+      tp->p[f] = NULL;
+    }
+  }
+}
+
+/* Value of the path at time t, linear between breakpoints and constant
+   outside the span. */
+static double timePathValue(const VSTimePath* tp, int f, int64_t t){
+  const double* p = tp->p[f];
+  int lo, hi;
+  if(t <= tp->pts[0])       return p[0];
+  if(t >= tp->pts[tp->len-1]) return p[tp->len-1];
+  lo = 0; hi = tp->len - 1;
+  while(hi - lo > 1){
+    int mid = lo + (hi - lo)/2;
+    if(tp->pts[mid] <= t) lo = mid; else hi = mid;
+  }
+  {
+    int64_t span = tp->pts[hi] - tp->pts[lo];
+    double w = (double)(t - tp->pts[lo]) / (double)span;
+    return p[lo] + (p[hi] - p[lo]) * w;
+  }
+}
+
+/* Integral of the extended path over [x,y].  The path is linear between
+   breakpoints and held at its endpoint values outside the measured span, so
+   the trapezoid over each piece is exact.  Only the breakpoints strictly
+   inside the interval are walked; the two partial end pieces are exact for
+   the same reason.  O(log n + breakpoints inside). */
+static double timePathIntegralSegment(const VSTimePath* tp, int f,
+                                      int64_t x, int64_t y){
+  const double* p = tp->p[f];
+  const int64_t* q = tp->pts;
+  double total = 0.0;
+  int lo, hi, i;
+  int64_t prev_t;
+  double prev_v;
+  if(y <= x) return 0.0;
+  /* constant head and tail; handled before the linear body below */
+  if(x >= tp->t1) return p[tp->len-1] * ((double)y - (double)x);
+  if(y <= tp->t0) return p[0] * ((double)y - (double)x);
+  if(x < tp->t0){
+    total += p[0] * ((double)tp->t0 - (double)x);
+    x = tp->t0;
+  }
+  if(y > tp->t1){
+    total += p[tp->len-1] * ((double)y - (double)tp->t1);
+    y = tp->t1;
+  }
+  if(y <= x) return total;
+  /* largest lo with q[lo] <= x; x is now within [t0, t1] */
+  lo = 0; hi = tp->len - 1;
+  while(hi - lo > 1){
+    int mid = lo + (hi - lo)/2;
+    if(q[mid] <= x) lo = mid; else hi = mid;
+  }
+  prev_t = x;
+  prev_v = timePathValue(tp, f, x);
+  for(i=lo+1; i<tp->len && q[i] <= y; i++){
+    total += 0.5 * (prev_v + p[i]) * (double)(q[i] - prev_t);
+    prev_t = q[i];
+    prev_v = p[i];
+  }
+  if(y > prev_t)
+    total += 0.5 * (prev_v + timePathValue(tp, f, y)) * (double)(y - prev_t);
+  return total;
+}
+
+/* Smoothing state for one field: the running integral of the extended path
+   over the window [a,b] = [t-h, t+h].  As t advances both ends advance
+   monotonically, so only the pieces leaving through a and entering through b
+   change.  Over the whole sequence those pieces together cover each
+   breakpoint once, which makes the total O(n log n) rather than O(n^2),
+   while every removed/added piece is a short interval -- its length and the
+   path values are moderate, so nothing cancels against the absolute PTS. */
+typedef struct _vstimewindow {
+  int64_t a, b;        // [t-h, t+h]
+  double integral[VS_TP_FIELDS];
+} VSTimeWindow;
+
+static void timeWindowInit(VSTimeWindow* w, const VSTimePath* tp, int64_t h){
+  int f;
+  int64_t t = tp->pts[0];
+  w->a = t - h;
+  w->b = (h > INT64_MAX - t) ? INT64_MAX : t + h;
+  for(f=0; f<VS_TP_FIELDS; f++)
+    w->integral[f] = timePathIntegralSegment(tp, f, w->a, w->b);
+}
+
+static void timeWindowAdvance(VSTimeWindow* w, const VSTimePath* tp,
+                              int64_t t_prev, int64_t t){
+  int f;
+  int64_t delta = t - t_prev;
+  int64_t na = w->a + delta;
+  int64_t nb = (w->b > INT64_MAX - delta) ? INT64_MAX : w->b + delta;
+  for(f=0; f<VS_TP_FIELDS; f++){
+    w->integral[f] -= timePathIntegralSegment(tp, f, w->a, na);
+    w->integral[f] += timePathIntegralSegment(tp, f, w->b, nb);
+  }
+  w->a = na;
+  w->b = nb;
+}
+
+int cameraPathTimeBox(VSTransformData* td, VSTransformations* trans){
+  VSTimePath tp;
+  VSTimeWindow win;
+  int i;
+  int relative = td->conf.relative;
+  int64_t h = td->conf.smoothingTime;
+  /* The constraints on conf are checked by vsPreprocessTransforms before
+     dispatching here; this is the window itself. */
+  if(h <= 0 || !trans->pts)
+    return VS_ERROR;
+  memset(&tp, 0, sizeof(tp));
+  if(timePathBuild(&tp, trans->ts, trans->pts, trans->len, relative) != VS_OK)
+    return VS_ERROR;
+
+  /* The correction at frame i is the node value of the path minus the
+     window mean.  P(t_i) is exactly tp.p[f][i]: the node is a breakpoint. */
+  timeWindowInit(&win, &tp, h);
+  for(i=0; i<trans->len; i++){
+    VSTransform out = null_transform();
+    if(i > 0)
+      timeWindowAdvance(&win, &tp, trans->pts[i-1], trans->pts[i]);
+    out.x        = tp.p[VS_TP_X][i]        - win.integral[VS_TP_X]        / (2.0 * (double)h);
+    out.y        = tp.p[VS_TP_Y][i]        - win.integral[VS_TP_Y]        / (2.0 * (double)h);
+    out.alpha    = tp.p[VS_TP_ALPHA][i]    - win.integral[VS_TP_ALPHA]    / (2.0 * (double)h);
+    out.zoom     = tp.p[VS_TP_ZOOM][i]     - win.integral[VS_TP_ZOOM]     / (2.0 * (double)h);
+    out.barrel   = tp.p[VS_TP_BARREL][i]   - win.integral[VS_TP_BARREL]   / (2.0 * (double)h);
+    out.rshutter = tp.p[VS_TP_RSHUTTER][i] - win.integral[VS_TP_RSHUTTER] / (2.0 * (double)h);
+    out.extra    = trans->ts[i].extra;
+    trans->ts[i] = out;
+  }
+  timePathFree(&tp);
+  return VS_OK;
+}
+
+/* The time-box mode deliberately supports only the plain similarity-model
+   setup: it smooths the six fields independently, which is meaningful only
+   when no later stage would reinterpret them (optZoom changes zoom, the lens
+   map and the rotational model change how x/y mean, and extra marks scene
+   cuts the time integral would smear across).  Rather than silently producing
+   something else, unsupported combinations are rejected. */
+static int timeBoxConfigSupported(const VSTransformData* td,
+                                  const VSTransformations* trans){
+  int i;
+  if(td->conf.smoothingTime <= 0)
+    return 0;
+  if(td->conf.optZoom != 0)
+    return 0;
+  if(td->conf.lensCorrection != VSLensCorrectOff)
+    return 0;
+  if(td->conf.fov != 0.0)
+    return 0;
+  if(!trans || trans->len <= 0 || !trans->pts)
+    return 0;
+  for(i=0; i<trans->len; i++){
+    const VSTransform* t = &trans->ts[i];
+    if(t->extra != 0)
+      return 0;
+    if(!isfinite(t->x) || !isfinite(t->y) || !isfinite(t->alpha) ||
+       !isfinite(t->zoom) || !isfinite(t->barrel) || !isfinite(t->rshutter))
+      return 0;
+  }
+  return 1;
+}
+
 /* Boundary samples per edge used to decide whether a zoom fits.  Corners and
    edge midpoints do not suffice: containment is tested per axis against a
    rectangle, not against a radius, so composed with a rotation the radial
@@ -623,6 +973,13 @@ double vsTransformRequiredZoom(VSTransformData* td, const VSTransform* t){
  */
 int vsPreprocessTransforms(VSTransformData* td, VSTransformations* trans)
 {
+  if(td->conf.camPathAlgo == VSTimeBox &&
+     !timeBoxConfigSupported(td, trans)){
+    vs_log_error(td->conf.modName,
+                 "time-box smoothing needs a positive smoothingTime, PTS, "
+                 "optZoom=0, lensCorrection=off, fov=0 and extra=0\n");
+    return VS_ERROR;
+  }
   // works inplace on trans
   if(cameraPathOptimization(td, trans)!=VS_OK) return VS_ERROR;
   VSTransform* ts = trans->ts;

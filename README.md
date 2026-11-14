@@ -175,6 +175,50 @@ The `.trf` file written by the first pass is documented in
 [docs/trf-format.md](docs/trf-format.md) — both encodings, the meaning of the
 stored values, and how to supply a camera path of your own.
 
+### Variable frame rate and time-based smoothing
+
+The two-pass pipeline above assumes every frame is the same length: the camera
+path is smoothed over a fixed *number* of frames, so on variable-rate material
+a long gap and a short one pull on the average equally.  When the library is
+used directly (not through the ffmpeg filters) the transform sequence can
+carry a microsecond PTS per frame, and `VSTimeBox` smooths the camera path in
+wall-clock time instead.
+
+* `vsTransformationsSetTimestamps(trans, pts, count)` stores a private copy of
+  the timestamps.  `count` must equal the sequence length, values must be
+  non-negative and strictly increasing.  Initialisation, replacement, cleanup
+  and `vsReadTimedTransforms()` all manage the copy; the caller's array is
+  never retained.
+* `VSTransformConfig.camPathAlgo = VSTimeBox` with a positive
+  `smoothingTime` (microseconds, default 0) averages the absolute camera path
+  over `[t-h, t+h]` at every PTS, connecting the samples linearly in time and
+  holding the endpoint values outside the sequence.  Preprocessing is
+  O(n log n); no per-microsecond array is built.
+* `vsGetTransformAtPTS(td, trans, pts, out)` returns the preprocessed
+  correction at any PTS, interpolating linearly between the stored timestamps.
+  It does not move the `vsGetNextTransform()` cursor, so a consumer that
+  changes the output frame rate can query by output PTS freely.
+* `vsWriteTimedTransforms()` / `vsReadTimedTransforms()` persist such a
+  sequence as text: a `VID.STAB.TIMED 1 N` header followed by exactly N lines
+  of `PTS x y alpha zoom barrel rshutter extra`, doubles written
+  round-trip-exact.  The original `.trf` formats are unaffected.
+
+`VSTimeBox` covers `optZoom=0`, `lensCorrection=off`, `fov=0` and transforms
+with `extra=0`; any other combination, a missing PTS array or a non-finite
+value is rejected with `VS_ERROR`.  The frame-order algorithms
+(`VSOptimalL1`, `VSGaussian`, `VSAvg`) and `vsLowPassTransforms()` are
+unchanged and ignore timestamps.
+
+See `examples/timed_stabilize.c` for a complete C example: it generates eight
+32x24 gray frames, takes the correction for each frame with a 125 ms interval,
+and writes 6144 bytes of raw gray8.  From a built source tree:
+
+```shell
+cc -std=c99 -DVIDSTAB_STATIC_DEFINE -I. -Isrc -Ibuild \
+   examples/timed_stabilize.c build/libvidstab.a -lm -o timed_stabilize
+./timed_stabilize out.gray        # 8 * 32 * 24 = 6144 bytes
+```
+
 ### Available options with vidstab filters:
 
 ##### First pass (vidstabdetect filter):
