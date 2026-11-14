@@ -468,6 +468,18 @@ namespace SoLoud
 		void mapResampleBuffers_internal();
 		// Perform mixing for a specific bus
 		void mixBus_internal(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aBus, float aSamplerate, unsigned int aChannels, unsigned int aResampler);
+		// Apply the voice volume automation to the resampled source samples
+		// before panning. Only the first aSamples frames are touched; aBufferSize
+		// is the internal per-channel stride. Frame k of this mix call (k = 1
+		// in the API's one-based sense) is evaluated at (aStartFrame + k) /
+		// mSamplerate.
+		void applyVoiceVolumeEnvelope(AudioSourceInstance *aVoice, float *aScratch, unsigned int aSamples, unsigned int aBufferSize, unsigned long long aStartFrame);
+		// Clip samples using the global volume fader as a per-frame envelope.
+		// aSamples is the number of frames that were actually requested for
+		// this mix call; aStride is only the internal channel stride and is
+		// not a length. Frame k of this call (k = 1 in the API's one-based
+		// sense) uses time (aStartFrame + k) / mSamplerate.
+		void clip_internal_envelope(AlignedFloatBuffer &aBuffer, AlignedFloatBuffer &aDestBuffer, unsigned int aSamples, unsigned int aStride, const Fader &aVolumeFader, unsigned long long aStartFrame);
 		// Find a free voice, stopping the oldest if no free voice is found.
 		int findFreeVoice_internal();
 		// Converts handle to voice, if the handle is valid. Returns -1 if not.
@@ -546,6 +558,10 @@ namespace SoLoud
 		Fader mGlobalVolumeFader;
 		// Global stream time, for the global volume fader.
 		time mStreamTime;
+		// Number of output frames delivered so far. Automation times are
+		// derived from this as frame / mSamplerate, so block size does not
+		// influence envelope sampling.
+		unsigned long long mStreamFrames;
 		// Last time seen by the playClocked call
 		time mLastClockedTime;
 		// Global filter

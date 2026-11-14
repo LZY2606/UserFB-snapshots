@@ -57,7 +57,12 @@ namespace SoLoud
 		void set(float aFrom, float aTo, time aTime, time aStartTime);
 		// Get the current fading value
 		float get(time aCurrentTime);
-	}; 
+		// Get the automation value at an arbitrary time without mutating
+		// the fader. Linear fades clamp to the target once the duration has
+		// elapsed, and LFO mode follows the sine formula. Times are absolute
+		// stream times; callers pass k/R for output frame k (k starts at 1).
+		float getAt(time aCurrentTime) const;
+	};
 };
 
 #endif 

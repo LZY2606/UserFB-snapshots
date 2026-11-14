@@ -70,7 +70,7 @@ namespace SoLoud
 			}
 			double t = aCurrentTime - mStartTime;
 			return (float)(sin(t * mEndTime) * mDelta + (mFrom + mDelta));
-			
+
 		}
 		if (mStartTime > aCurrentTime)
 		{
@@ -90,5 +90,35 @@ namespace SoLoud
 		}
 		mCurrent = (float)(mFrom + mDelta * ((aCurrentTime - mStartTime) / mTime));
 		return mCurrent;
+	}
+
+	// Pure evaluation used by volume automation. Unlike get(), this never
+	// rewrites the fader state, so every output frame can be evaluated against
+	// the exact time k / samplerate without the result depending on how the
+	// output was split into blocks.
+	float Fader::getAt(double aCurrentTime) const
+	{
+		if (mActive == 2)
+		{
+			// LFO mode. mEndTime holds the angular frequency (2*pi/period)
+			// and the value at t == 0 is the midpoint of the bounds.
+			double t = aCurrentTime - mStartTime;
+			if (t < 0) t = 0;
+			return (float)(sin(t * mEndTime) * mDelta + (mFrom + mDelta));
+		}
+		if (mTime <= 0)
+		{
+			return mTo;
+		}
+		double t = aCurrentTime - mStartTime;
+		if (t <= 0)
+		{
+			return mFrom;
+		}
+		if (t >= mTime)
+		{
+			return mTo;
+		}
+		return (float)(mFrom + mDelta * (t / mTime));
 	}
 };

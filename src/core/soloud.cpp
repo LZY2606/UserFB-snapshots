@@ -120,6 +120,7 @@ namespace SoLoud
 		mBackendResumeFunc = NULL;
 		mChannels = 2;		
 		mStreamTime = 0;
+		mStreamFrames = 0;
 		mLastClockedTime = 0;
 		mAudioSourceID = 1;
 		mBackendString = 0;
@@ -591,6 +592,7 @@ namespace SoLoud
 	void Soloud::postinit_internal(unsigned int aSamplerate, unsigned int aBufferSize, unsigned int aFlags, unsigned int aChannels)
 	{		
 		mGlobalVolume = 1;
+		mStreamFrames = 0;
 		mChannels = aChannels;
 		mSamplerate = aSamplerate;
 		mBufferSize = aBufferSize;
@@ -1050,7 +1052,7 @@ namespace SoLoud
 
 
 
-	void panAndExpand(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aChannels)
+	void panAndExpand(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aChannels, bool aPrescaled = false, float aStaticVolume = 1.0f)
 	{
 #ifdef SOLOUD_SSE_INTRINSICS
 		SOLOUD_ASSERT(((size_t)aBuffer & 0xf) == 0);
@@ -1063,9 +1065,21 @@ namespace SoLoud
 		unsigned int j, k;
 		for (k = 0; k < aChannels; k++)
 		{
-			pan[k] = aVoice->mCurrentChannelVolume[k];
-			pand[k] = aVoice->mChannelVolume[k] * aVoice->mOverallVolume;
-			pani[k] = (pand[k] - pan[k]) / aSamplesToRead; // TODO: this is a bit inconsistent.. but it's a hack to begin with
+			if (aPrescaled)
+			{
+				// The source data already carries the per-frame volume
+				// automation, so only the constant panning weight and the
+				// static (3d/set) gain remain.
+				pan[k] = aVoice->mChannelVolume[k] * aStaticVolume;
+				pand[k] = aVoice->mChannelVolume[k] * aVoice->mOverallVolume;
+				pani[k] = 0;
+			}
+			else
+			{
+				pan[k] = aVoice->mCurrentChannelVolume[k];
+				pand[k] = aVoice->mChannelVolume[k] * aVoice->mOverallVolume;
+				pani[k] = (pand[k] - pan[k]) / aSamplesToRead; // TODO: this is a bit inconsistent.. but it's a hack to begin with
+			}
 		}
 
 		int ofs = 0;
@@ -1074,7 +1088,7 @@ namespace SoLoud
 		case 1: // Target is mono. Sum everything. (1->1, 2->1, 4->1, 6->1, 8->1)
 			for (j = 0, ofs = 0; j < aVoice->mChannels; j++, ofs += aBufferSize)
 			{
-				pan[0] = aVoice->mCurrentChannelVolume[0];
+				pan[0] = aPrescaled ? aVoice->mChannelVolume[0] * aStaticVolume : aVoice->mCurrentChannelVolume[0];
 				for (k = 0; k < aSamplesToRead; k++)
 				{
 					pan[0] += pani[0];
@@ -1790,8 +1804,24 @@ namespace SoLoud
 					voice->mSrcOffset += writesamples * step_fixed;
 				}
 				
+				// Apply per-frame volume automation to the resampled source
+				// before panning. This keeps the automation at the original
+				// gain stage: source -> volume -> pan -> bus sum. The envelope
+				// is keyed to output frames (not the internal 512-frame
+				// resample stride) and is the same whether this block is
+				// delivered whole or split into several mix calls. Only the
+				// root bus is automated; bus child voices keep their fixed
+				// set volume.
+				bool automated = voice->mVolumeFader.mActive > 0 && aBus == 0;
+				if (automated)
+				{
+					applyVoiceVolumeEnvelope(voice, aScratch, aSamplesToRead, aBufferSize, voice->mBlockStartFrame);
+				}
+
 				// Handle panning and channel expansion (and/or shrinking)
-				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);
+				// With automation, the source already carries the set volume;
+				// panning applies only the pan weight times the 3d gain.
+				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels, automated, m3dData[mActiveVoice[i]].m3dVolume);
 
 				// clear voice if the sound is over
 				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
@@ -2113,15 +2143,20 @@ namespace SoLoud
 
 		float buffertime = aSamples / (float)mSamplerate;
 		float globalVolume[2];
+		// Frame index of the first frame that will be delivered by this call.
+		// Automation is evaluated at (frame + k) / samplerate for k = 1..aSamples
+		// so the envelope depends only on elapsed output frames.
+		unsigned long long globalStartFrame = mStreamFrames;
 		mStreamTime += buffertime;
 		mLastClockedTime = 0;
 
 		globalVolume[0] = mGlobalVolume;
-		if (mGlobalVolumeFader.mActive)
+		if (mGlobalVolumeFader.mActive > 0)
 		{
-			mGlobalVolume = mGlobalVolumeFader.get(mStreamTime);
+			mGlobalVolume = mGlobalVolumeFader.getAt((globalStartFrame + aSamples) / (double)mSamplerate);
 		}
 		globalVolume[1] = mGlobalVolume;
+		mStreamFrames = globalStartFrame + aSamples;
 
 		lockAudioMutex_internal();
 
@@ -2140,11 +2175,16 @@ namespace SoLoud
 					mVoice[i]->mActiveFader = 1;
 				}
 
+				// Output frames already delivered by this voice while it was
+				// not paused. Pausing freezes this clock, so automation
+				// resumes where it stopped.
+				mVoice[i]->mBlockStartFrame = mVoice[i]->mStreamFrames;
+
 				mVoice[i]->mStreamTime += buffertime;
 				mVoice[i]->mStreamPosition += (double)buffertime * (double)mVoice[i]->mOverallRelativePlaySpeed;
 
 				// TODO: this is actually unstable, because mStreamTime depends on the relative
-				// play speed. 
+				// play speed.
 				if (mVoice[i]->mRelativePlaySpeedFader.mActive > 0)
 				{
 					float speed = mVoice[i]->mRelativePlaySpeedFader.get(mVoice[i]->mStreamTime);
@@ -2154,12 +2194,16 @@ namespace SoLoud
 				volume[0] = mVoice[i]->mOverallVolume;
 				if (mVoice[i]->mVolumeFader.mActive > 0)
 				{
-					mVoice[i]->mSetVolume = mVoice[i]->mVolumeFader.get(mVoice[i]->mStreamTime);
+					// Report the value at the last frame delivered by this
+					// call. The mixer applies the exact per-frame envelope.
+					mVoice[i]->mSetVolume = mVoice[i]->mVolumeFader.getAt((mVoice[i]->mStreamFrames + aSamples) / (double)mSamplerate);
 					mVoice[i]->mActiveFader = 1;
 					updateVoiceVolume_internal(i);
 					mActiveVoiceDirty = true;
 				}
 				volume[1] = mVoice[i]->mOverallVolume;
+
+				mVoice[i]->mStreamFrames += aSamples;
 
 				if (mVoice[i]->mPanFader.mActive > 0)
 				{
@@ -2204,10 +2248,19 @@ namespace SoLoud
 		}
 
 		unlockAudioMutex_internal();
-		
+
 		// Note: clipping channels*aStride, not channels*aSamples, so we're possibly clipping some unused data.
 		// The buffers should be large enough for it, we just may do a few bytes of unneccessary work.
-		clip_internal(mOutputScratch, mScratch, aStride, globalVolume[0], globalVolume[1]);
+		if (mGlobalVolumeFader.mActive > 0)
+		{
+			// The main volume fader is a per-frame envelope: frame k of this
+			// call uses (globalStartFrame + k) / mSamplerate.
+			clip_internal_envelope(mOutputScratch, mScratch, aSamples, aStride, mGlobalVolumeFader, globalStartFrame);
+		}
+		else
+		{
+			clip_internal(mOutputScratch, mScratch, aStride, globalVolume[0], globalVolume[1]);
+		}
 
 		if (mFlags & ENABLE_VISUALIZATION)
 		{

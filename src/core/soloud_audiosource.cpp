@@ -79,6 +79,8 @@ namespace SoLoud
 		mSamplerate = 44100.0f;
 		mSetRelativePlaySpeed = 1.0f;
 		mStreamTime = 0.0f;
+		mStreamFrames = 0;
+		mBlockStartFrame = 0;
 		mStreamPosition = 0.0f;
 		mAudioSourceID = 0;
 		mActiveFader = 0;
@@ -120,6 +122,8 @@ namespace SoLoud
 		mSamplerate = mBaseSamplerate;
 		mChannels = aSource.mChannels;
 		mStreamTime = 0.0f;
+		mStreamFrames = 0;
+		mBlockStartFrame = 0;
 		mStreamPosition = 0.0f;
 		mLoopPoint = aSource.mLoopPoint;
 

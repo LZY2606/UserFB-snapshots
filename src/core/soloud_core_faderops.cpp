@@ -62,7 +62,13 @@ namespace SoLoud
 		}
 
 		FOR_ALL_VOICES_PRE
-		mVoice[ch]->mVolumeFader.set(from, aTo, aTime, mVoice[ch]->mStreamTime);
+		// Automation time origin is the position of the last frame already
+		// delivered by this voice, measured in output frames. Frame k after
+		// this call is evaluated at (mStreamFrames + k) / mSamplerate, so the
+		// envelope does not depend on how the output is split into mix calls.
+		mVoice[ch]->mVolumeFader.set(from, aTo, aTime, mVoice[ch]->mStreamFrames / (double)mSamplerate);
+		mVoice[ch]->mSetVolume = from;
+		updateVoiceVolume_internal(ch);
 		FOR_ALL_VOICES_POST
 	}
 
@@ -101,7 +107,10 @@ namespace SoLoud
 			setGlobalVolume(aTo);
 			return;
 		}
-		mGlobalVolumeFader.set(from, aTo, aTime, mStreamTime);
+		// See fadeVolume: the origin is the number of output frames already
+		// delivered by the engine.
+		mGlobalVolumeFader.set(from, aTo, aTime, mStreamFrames / (double)mSamplerate);
+		mGlobalVolume = from;
 	}
 
 
@@ -114,7 +123,11 @@ namespace SoLoud
 		}
 
 		FOR_ALL_VOICES_PRE
-		mVoice[ch]->mVolumeFader.setLFO(aFrom, aTo, aTime, mVoice[ch]->mStreamTime);
+		// The bounds are ordered so the lower bound is mFrom; the first output
+		// frame is evaluated at 1 / mSamplerate like any other fade.
+		mVoice[ch]->mVolumeFader.setLFO(aFrom < aTo ? aFrom : aTo, aFrom < aTo ? aTo : aFrom, aTime, mVoice[ch]->mStreamFrames / (double)mSamplerate);
+		mVoice[ch]->mSetVolume = (aFrom + aTo) * 0.5f;
+		updateVoiceVolume_internal(ch);
 		FOR_ALL_VOICES_POST
 	}
 
@@ -151,6 +164,7 @@ namespace SoLoud
 			setGlobalVolume(aTo);
 			return;
 		}
-		mGlobalVolumeFader.setLFO(aFrom, aTo, aTime, mStreamTime);
+		mGlobalVolumeFader.setLFO(aFrom < aTo ? aFrom : aTo, aFrom < aTo ? aTo : aFrom, aTime, mStreamFrames / (double)mSamplerate);
+		mGlobalVolume = (aFrom + aTo) * 0.5f;
 	}
 }

@@ -153,6 +153,13 @@ namespace SoLoud
 		float mOverallRelativePlaySpeed;
 		// How long this stream has played, in seconds.
 		time mStreamTime;
+		// Number of output frames this stream has played while not paused.
+		// Volume automation uses frame / output samplerate as its time base so
+		// that pausing freezes the automation and block size does not matter.
+		unsigned long long mStreamFrames;
+		// Output frame index of the start of the block currently being mixed.
+		// Set by the mixer for each non-paused voice.
+		unsigned long long mBlockStartFrame;
 		// Position of this stream, in seconds.
 		time mStreamPosition;
 		// Fader for the audio panning
