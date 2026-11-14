@@ -1,0 +1,36 @@
+{
+	"github.com/google/gofuzz_test": {
+		"tests": [
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:28:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:28:1",
+				"message": "ExampleSimple refers to unknown identifier: Simple"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:52:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:52:1",
+				"message": "ExampleCustom refers to unknown identifier: Custom"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:81:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:81:1",
+				"message": "ExampleComplex refers to unknown identifier: Complex"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:165:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:165:1",
+				"message": "ExampleSingle refers to unknown identifier: Single"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:176:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:176:1",
+				"message": "ExampleEnum refers to unknown identifier: Enum"
+			},
+			{
+				"posn": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:228:1",
+				"end": "/Users/lzy/pro/UserFB/workspace/Z1752/attempts/20261114T171931652483Z/repo/example_test.go:228:1",
+				"message": "ExampleCustomString refers to unknown identifier: CustomString"
+			}
+		]
+	}
+}
