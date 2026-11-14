@@ -85,8 +85,14 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////////
+    // Read-only access (used by tests)
+    int ResX() const { return mResX; }
+    int ResY() const { return mResY; }
+    const Vec3f* ColorData() const { return mColor.data(); }
+
+    //////////////////////////////////////////////////////////////////////////
     // Statistics
-    float TotalLuminance()
+    float TotalLuminance() const
     {
         float lum = 0;
 
