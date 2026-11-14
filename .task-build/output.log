@@ -1,0 +1,24 @@
+CASE contracts load_valid checks=19
+CASE contracts missing_result checks=2
+CASE contracts bad_result checks=2
+CASE contracts duplicate_relation checks=2
+CASE contracts bad_nr checks=3
+CASE contracts requires_pure checks=3
+GROUP contracts cases=6 checks=31 COMPLETE
+CASE branches if_guard checks=5
+CASE branches negated_early_return checks=4
+CASE branches other_side_unknown checks=4
+CASE branches short_circuit checks=6
+CASE branches result_false checks=4
+CASE branches multiple_args checks=4
+CASE branches scoped_variables checks=4
+CASE branches deref_guarded checks=3
+CASE branches stored_result_untracked checks=3
+CASE branches no_contract checks=6
+CASE branches non_pointer_arg checks=3
+GROUP branches cases=11 checks=46 COMPLETE
+CASE invalidation rebind checks=3
+CASE invalidation unknown_call checks=3
+CASE invalidation reproof checks=4
+GROUP invalidation cases=3 checks=10 COMPLETE
+TARGET_COMPLETE cases=20

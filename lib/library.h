@@ -266,6 +266,11 @@ public:
     struct ArgumentChecks {
         bool notbool{};
         bool notnull{};
+        // one-directional guard contract for pure boolean functions: when the
+        // function returns the configured result, this argument is not null.
+        // The other result says nothing (neither null nor not-null).
+        enum class NotNullWhen : std::uint8_t { NONE, TRUE, FALSE };
+        NotNullWhen notNullWhen = NotNullWhen::NONE;
         int notuninit = -1;
         bool formatstr{};
         bool strz{};
@@ -332,6 +337,13 @@ public:
 
     bool isnullargbad(const Token *ftok, int argnr) const;
     bool isuninitargbad(const Token *ftok, int argnr, int indirect = 0, bool *hasIndirect=nullptr) const;
+
+    /** returns the configured guard contract (<not-null-when result="..."/>) for an argument,
+     * kept separate from the unconditional <not-null/> check (isnullargbad) */
+    ArgumentChecks::NotNullWhen notNullWhen(const Token *ftok, int argnr) const {
+        const ArgumentChecks *arg = getarg(ftok, argnr);
+        return arg ? arg->notNullWhen : ArgumentChecks::NotNullWhen::NONE;
+    }
 
     bool isargformatstr(const Token *ftok, int argnr) const {
         const ArgumentChecks *arg = getarg(ftok, argnr);

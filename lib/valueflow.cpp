@@ -3188,7 +3188,7 @@ struct ConditionHandler {
                         continue;
                     if (cond.vartok->hasKnownIntValue())
                         continue;
-                    if (cond.true_values.empty() || cond.false_values.empty())
+                    if (cond.true_values.empty() && cond.false_values.empty())
                         continue;
                     if (!isConstExpression(cond.vartok, settings.library))
                         continue;
@@ -3724,6 +3724,52 @@ struct SimpleConditionHandler : ConditionHandler {
         cond.vartok = vartok;
 
         return {std::move(cond)};
+    }
+};
+
+// Propagates one-directional guard contracts (<not-null-when result="..."/>) from pure
+// library functions: when the call result matches the configured result, the configured
+// pointer argument cannot be null. The opposite result gives no information, so only one
+// side of the condition carries a value.
+struct GuardConditionHandler : ConditionHandler {
+    std::vector<Condition> parse(const Token* tok, const Settings& settings) const override {
+        // The call paren of a function call in a condition position
+        if (!Token::Match(tok->previous(), "%name%"))
+            return {};
+        if (tok->str() != "(" || !tok->astOperand1())
+            return {};
+        const Token* ftok = tok->previous();
+        const Library::Function* func = settings.library.getFunction(ftok);
+        if (!func || !func->ispure)
+            return {};
+
+        std::vector<Condition> conds;
+        std::vector<const Token*> args;
+        bool argsInit = false;
+        for (const std::pair<const int, Library::ArgumentChecks>& argCheck : func->argumentChecks) {
+            const Library::ArgumentChecks::NotNullWhen when = argCheck.second.notNullWhen;
+            if (when == Library::ArgumentChecks::NotNullWhen::NONE)
+                continue;
+            const int nr = argCheck.first;
+            if (nr <= 0)
+                continue;
+            if (!argsInit) {
+                args = getArguments(ftok);
+                argsInit = true;
+            }
+            if (nr > static_cast<int>(args.size()))
+                continue;
+            const Token* argTok = args[nr - 1];
+            if (!argTok || !astIsPointer(argTok) || argTok->exprId() == 0)
+                continue;
+            Condition cond;
+            cond.vartok = argTok;
+            cond.true_values.emplace_back(tok, 0LL);
+            // false_values stays empty on purpose: the other result is unknown
+            cond.inverted = (when == Library::ArgumentChecks::NotNullWhen::FALSE);
+            conds.push_back(std::move(cond));
+        }
+        return conds;
     }
 };
 
@@ -5455,6 +5501,7 @@ void ValueFlow::setValues(TokenList& tokenlist,
         VFA(valueFlowAfterAssign(tokenlist, symboldatabase, errorLogger, settings, skippedFunctions)),
         VFA_CPP(valueFlowAfterSwap(tokenlist, symboldatabase, errorLogger, settings)),
         VFA(valueFlowCondition(SimpleConditionHandler{}, tokenlist, symboldatabase, errorLogger, settings, skippedFunctions)),
+        VFA(valueFlowCondition(GuardConditionHandler{}, tokenlist, symboldatabase, errorLogger, settings, skippedFunctions)),
         VFA(analyzeInferCondition(tokenlist, settings)),
         VFA(analyzeSwitchVariable(tokenlist, symboldatabase, errorLogger, settings)),
         VFA(valueFlowForLoop(tokenlist, symboldatabase, errorLogger, settings)),

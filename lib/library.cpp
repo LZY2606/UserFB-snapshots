@@ -881,6 +881,23 @@ Library::Error Library::loadFunction(const tinyxml2::XMLElement * const node, co
                     ac.notbool = true;
                 else if (argnodename == "not-null")
                     ac.notnull = true;
+                else if (argnodename == "not-null-when") {
+                    const char* const result = argnode->Attribute("result");
+                    if (!result)
+                        return Error(ErrorCode::MISSING_ATTRIBUTE, "result");
+                    ArgumentChecks::NotNullWhen when;
+                    if (std::strcmp(result, "true") == 0)
+                        when = ArgumentChecks::NotNullWhen::TRUE;
+                    else if (std::strcmp(result, "false") == 0)
+                        when = ArgumentChecks::NotNullWhen::FALSE;
+                    else
+                        return Error(ErrorCode::BAD_ATTRIBUTE_VALUE, result);
+                    if (bAnyArg || bVariadicArg || nr <= 0)
+                        return Error(ErrorCode::BAD_ATTRIBUTE_VALUE, argNrString);
+                    if (ac.notNullWhen != ArgumentChecks::NotNullWhen::NONE)
+                        return Error(ErrorCode::BAD_ATTRIBUTE_VALUE, "duplicate not-null-when");
+                    ac.notNullWhen = when;
+                }
                 else if (argnodename == "not-uninit")
                     ac.notuninit = indirect;
                 else if (argnodename == "formatstr")
@@ -1043,6 +1060,12 @@ Library::Error Library::loadFunction(const tinyxml2::XMLElement * const node, co
                 func.returnType = returnType;
         } else
             unknown_elements.insert(functionnodename);
+    }
+    // a one-directional guard contract is only meaningful for pure functions;
+    // checked after the whole element is parsed so the tag order does not matter
+    for (const std::pair<const int, ArgumentChecks> &argCheck : func.argumentChecks) {
+        if (argCheck.second.notNullWhen != ArgumentChecks::NotNullWhen::NONE && !func.ispure)
+            return Error(ErrorCode::BAD_ATTRIBUTE_VALUE, "not-null-when requires a pure function");
     }
     return Error(ErrorCode::OK);
 }
