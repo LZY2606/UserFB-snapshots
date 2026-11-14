@@ -24,6 +24,17 @@ public:
     return _elements[x][y];
   }
 
+  T get(size_t x, size_t y) const
+  {
+    if (x>width()) {
+      throw std::runtime_error("x > width()");
+    }
+    if (y>height()) {
+      throw std::runtime_error("x > height()");
+    }
+    return _elements[x][y];
+  }
+
   void set(size_t x, size_t y, const T& value)
   {
     if (x>width()) {
@@ -36,6 +47,11 @@ public:
   }
 
   T unsafeGet(size_t x, size_t y)
+  {
+    return _elements[x][y];
+  }
+
+  T unsafeGet(size_t x, size_t y) const
   {
     return _elements[x][y];
   }

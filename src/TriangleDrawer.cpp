@@ -31,14 +31,24 @@ inline void TriangleDrawer::scanline(ImageData& imageData,
                                      const Vertex4f& right,
                                      int y)
 {
+  if (scissorEnabled && (y < scissorY0 || y >= scissorY1)) {
+    // Whole row lies outside the scissor's vertical extent.
+    return;
+  }
   const int leftx = left.x();
   const int rightx = right.x();
   const int dx = rightx - leftx;
   if (dx) {
     const Vertex4f scanlinestep = (right-left)/dx;
-    const int xstart = std::max(0, leftx);
-    const int xend   = std::min((int)imageData.width()-1, rightx) ;
+    const int clipX0 = scissorEnabled ? scissorX0 : 0;
+    const int clipX1 = scissorEnabled ? scissorX1 : (int)imageData.width();
+    const int xstart = std::max(std::max(0, leftx), clipX0);
+    const int xend   = std::min(std::min((int)imageData.width()-1, rightx),
+                                clipX1-1);
     for (int x=xstart; x<=xend; x++) {
+      if (!scissorContains(x, y)) {
+        continue;
+      }
       const int xsteps = x-leftx;
       const Vertex4f tex = left + scanlinestep * xsteps;
       const float w = 1/tex.w();
@@ -303,7 +313,13 @@ barycentricTriangle(ImageData& imageData, const Triangle& triangle)
   double area = G3D::crossProduct2D(a.pos, b.pos, c.pos);
 
   for (int y = minY; y < maxY; ++y) {
+    if (scissorEnabled && (y < scissorY0 || y >= scissorY1)) {
+      continue;
+    }
     for (int x = minX; x < maxX; ++x) {
+      if (!scissorContains(x, y)) {
+        continue;
+      }
       Vector4f p(x + 0.5f, y + 0.5f, 0);
 
       // crossProduct2D is <= 0 if
@@ -400,6 +416,9 @@ barycentricO1(ImageData& imageData, const Triangle& triangle)
     w1_row += deltarows[1],
     w2_row += deltarows[2]
   ) {
+    if (scissorEnabled && (y < scissorY0 || y >= scissorY1)) {
+      continue;
+    }
     float w0 = w0_row;
     float w1 = w1_row;
     float w2 = w2_row;
@@ -408,6 +427,9 @@ barycentricO1(ImageData& imageData, const Triangle& triangle)
       w1 += deltacols[1],
       w2 += deltacols[2]
     ) {
+      if (!scissorContains(x, y)) {
+        continue;
+      }
       // crossProduct2D is <= 0 if
       // 1. Point is in triangle
       // 2. Vertices are passed in counter-clockwise CCW winding order
@@ -449,6 +471,8 @@ inline int TriangleDrawer::barycentricScanline(ImageData& imageData,
   int newMinX = -1;
   int finalX = 0;
   bool wasInside = false;
+  // The scan range and interpolation progression deliberately stay identical
+  // to the unscissored path: only the pixel side effects are scissored.
   const int xstart = std::max(0, leftx);
   const int xend   = std::min((int)imageData.width()-1, rightx) ;
   const Vector4f p(xstart + 0.5f , y + 0.5f);
@@ -478,6 +502,13 @@ inline int TriangleDrawer::barycentricScanline(ImageData& imageData,
     const double gam = w2 / area;
     const double w = 1 / (a.w()*alp + b.w()*bet + c.w()*gam);
     const double depth = w;
+    if (!scissorContains(x, y)) {
+      // Keep the original left-edge progression by advancing finalX as if the
+      // pixel had been written, but do not read or write colour/depth outside
+      // the scissor.
+      finalX = x;
+      continue;
+    }
     if (depthBuffer) {
       if (depth>=depthBuffer->unsafeGet(x,y)) {
         continue;

@@ -79,8 +79,10 @@ inline ImageData::ImageData(const ImageData& other)
 
 inline ImageData& ImageData::operator=(const ImageData& other)
 {
-	copy(other.data_, other.w_, other.h_);
-	return *this;
+  if (this != &other) {
+    copy(other.data_, other.w_, other.h_);
+  }
+  return *this;
 }
 
 inline ImageData::~ImageData()
@@ -94,9 +96,15 @@ inline void ImageData::create(u32 w, u32 h)
   w_ = w;
   h_ = h;
   length_ = w * h;
-  data_ = new u8[length_*BYTES_PER_PIXEL]{0};
-
-  needCleanUp_ = true;
+  if (length_) {
+    data_ = new u8[length_*BYTES_PER_PIXEL]{0};
+    needCleanUp_ = true;
+  }
+  else {
+    // Avoid new u8[0]: some C++ runtimes throw bad_alloc for it.
+    data_ = 0;
+    needCleanUp_ = false;
+  }
 }
 
 inline void ImageData::assign(u8* data, u32 w, u32 h)
@@ -112,7 +120,9 @@ inline void ImageData::copy(u8* data, u32 w, u32 h)
 {
   cleanup();
   create(w, h);
-  memcpy(data_, data, length_*BYTES_PER_PIXEL);
+  if (length_) {
+    memcpy(data_, data, length_*BYTES_PER_PIXEL);
+  }
 }
 
 inline void ImageData::cleanup()
@@ -153,7 +163,9 @@ inline u32 ImageData::makePixel(u8 c1, u8 c2, u8 c3, u8 c4)
 
 inline void ImageData::clear()
 {
-  memset(data_, 0, length_*BYTES_PER_PIXEL);
+  if (data_) {
+    memset(data_, 0, length_*BYTES_PER_PIXEL);
+  }
 }
 
 inline void ImageData::fill(u32 pixel)

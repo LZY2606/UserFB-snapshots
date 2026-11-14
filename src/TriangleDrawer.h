@@ -34,6 +34,15 @@ public:
   std::uint32_t color;
   ImageData* textureImageData;
 
+  // Optional half-open scissor rectangle [scissorX0, scissorX1) x
+  // [scissorY0, scissorY1). Disabled by default, which reproduces the
+  // original full-image behaviour exactly.
+  bool scissorEnabled;
+  int scissorX0;
+  int scissorY0;
+  int scissorX1;
+  int scissorY1;
+
   TriangleDrawer(ZBuffer* depthBuffer = 0)
   : drawMode(TriangleDrawer::DRAW_SOLID)
   , lightsStyle(TriangleDrawer::LIGHTS_STYLE_SMOOTH)
@@ -41,8 +50,38 @@ public:
   , depthBuffer(depthBuffer)
   , color(0)
   , textureImageData(0)
+  , scissorEnabled(false)
+  , scissorX0(0)
+  , scissorY0(0)
+  , scissorX1(0)
+  , scissorY1(0)
   {
     lightDirection = G3D::normalize(lightDirection);
+  }
+
+  void setScissor(int x0, int y0, int x1, int y1)
+  {
+    scissorEnabled = true;
+    scissorX0 = x0;
+    scissorY0 = y0;
+    scissorX1 = x1;
+    scissorY1 = y1;
+  }
+
+  void clearScissor()
+  {
+    scissorEnabled = false;
+  }
+
+  // True when (x,y) may be read from or written to. Uses a half-open
+  // rectangle so adjacent tiles/scissors do not overlap.
+  bool scissorContains(int x, int y) const
+  {
+    if (!scissorEnabled) {
+      return true;
+    }
+    return x >= scissorX0 && x < scissorX1 &&
+           y >= scissorY0 && y < scissorY1;
   }
 
   void wireframeTriangle(ImageData& imageData,
