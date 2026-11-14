@@ -193,6 +193,56 @@ func main() {
 ```
 <br>
 
+#### Graceful shutdown
+
+  `Run` always waits for the whole crawl round to wind down before it
+  returns: every worker goroutine, in-flight HTTP request and `Scraper`
+  call has to exit. It never returns early by skipping `Queue.Wait` or by
+  resetting the queue's counters.
+
+  A round shuts down for one of three reasons:
+
+  - There are no more URLs to crawl and every dequeued URL was handled.
+  - The `context.Context` passed to `Run` was canceled.
+  - A worker hit an unrecoverable `Scraper`, `Limiter`, `Deduper`,
+    `Queue` or fetch error.
+
+  On shutdown the queue is closed through `Queue.Close`, which discards
+  the entries no worker had dequeued yet. Every entry a worker *did*
+  dequeue is acknowledged with `Done` exactly once, whether its HTTP
+  request started, it was still waiting for a `Concurrency` slot, or the
+  round was canceled while it ran.
+
+  When a worker fails, new dispatching stops immediately and the sibling
+  workers are canceled through the shared context; a scraper already
+  running is still awaited, so it can finish cleaning its resources up
+  after observing cancellation. The first non-context failure is returned
+  from `Run` wrapped with `%w`, so it stays reachable through
+  `errors.Is` and is not masked by the `context.Canceled` or queue-close
+  errors it triggered. If the root cause was the caller canceling the
+  context, the caller's context error wins instead.
+
+  ```go
+  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+  defer cancel()
+
+  // Returns after every worker, request and scraper has exited.
+  // On timeout the error satisfies errors.Is(err, context.DeadlineExceeded);
+  // on a scraper failure it satisfies errors.Is(err, scraperErr).
+  err := eng.Run(ctx, "https://example.com")
+  ```
+
+  `MemoryQueue` follows the same contract on its own. A `Dequeue` parked
+  on an empty queue returns the context's error as soon as that context
+  is canceled, without needing another `Enqueue` or `Close` call to wake
+  it. After `Close`, `Dequeue` keeps returning `io.EOF`, enqueuing fails
+  with `io.EOF`, and calling `Close` more than once is a no-op that does
+  not account for the discarded entries a second time. Custom `Queue`
+  implementations only need the public interface; the engine's teardown
+  never relies on the internals of the in-memory queue.
+
+<br>
+
 #### Testing
 
   `anttest` package makes it easy to test your scraper implementation

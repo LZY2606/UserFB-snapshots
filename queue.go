@@ -25,8 +25,9 @@ type Queue interface {
 	// The method returns a URL or io.EOF error if
 	// the queue was stopped.
 	//
-	// The method blocks until a URL is available or
-	// until the queue is closed.
+	// The method blocks until a URL is available, the
+	// queue is closed or the given context is canceled,
+	// in which case the context's error is returned.
 	Dequeue(ctx context.Context) (*URL, error)
 
 	// Done acknowledges a URL.
@@ -35,35 +36,39 @@ type Queue interface {
 	// is called with the URL.
 	Done(ctx context.Context, url *URL) error
 
-	// Wait blocks until the queue is closed.
-	//
-	// When the engine encounters an error, or there are
-	// no more URLs to handle the method should unblock.
+	// Wait blocks until every URL that was enqueued has
+	// either been dequeued and acknowledged with Done or
+	// been discarded by Close.
 	Wait()
 
 	// Close closes the queue.
 	//
-	// The method blocks until the queue is closed
-	// any queued URLs are discarded.
+	// The method blocks until the queue is closed, any URLs
+	// that were still queued are discarded and must not be
+	// acknowledged with Done.
+	//
+	// Closing an already closed queue is a no-op and must
+	// not account for the discarded URLs a second time.
 	Close(context.Context) error
 }
 
 // MemoryQueue implements a naive in-memory queue.
 type memoryQueue struct {
-	pending URLs
-	cond    *sync.Cond
-	stopped bool
-	wg      *sync.WaitGroup
+	mu       sync.Mutex
+	cond     *sync.Cond
+	pending  URLs
+	stopped  bool
+	wg       sync.WaitGroup
+	closeOne sync.Once
 }
 
 // MemoryQueue returns a new memory queue.
 func MemoryQueue(size int) Queue {
-	return &memoryQueue{
+	mq := &memoryQueue{
 		pending: make(URLs, 0, size),
-		cond:    sync.NewCond(&sync.RWMutex{}),
-		stopped: false,
-		wg:      &sync.WaitGroup{},
 	}
+	mq.cond = sync.NewCond(&mq.mu)
+	return mq
 }
 
 // Enqueue implementation.
@@ -72,15 +77,15 @@ func (mq *memoryQueue) Enqueue(ctx context.Context, urls URLs) error {
 		return nil
 	}
 
-	mq.cond.L.Lock()
-	defer mq.cond.L.Unlock()
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
 
 	if mq.stopped {
 		return io.EOF
 	}
 
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	mq.pending = append(mq.pending, urls...)
@@ -92,8 +97,15 @@ func (mq *memoryQueue) Enqueue(ctx context.Context, urls URLs) error {
 
 // Dequeue implementation.
 func (mq *memoryQueue) Dequeue(ctx context.Context) (*URL, error) {
-	mq.cond.L.Lock()
-	defer mq.cond.L.Unlock()
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	var stop func()
+	defer func() {
+		if stop != nil {
+			stop()
+		}
+	}()
 
 	for len(mq.pending) == 0 {
 		if mq.stopped {
@@ -101,6 +113,13 @@ func (mq *memoryQueue) Dequeue(ctx context.Context) (*URL, error) {
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+
+		// A blocked Dequeue must wake up on its own when the
+		// context is canceled, without relying on an external
+		// Enqueue or Close call.
+		if stop == nil {
+			stop = mq.watchContext(ctx)
 		}
 		mq.cond.Wait()
 	}
@@ -124,15 +143,40 @@ func (mq *memoryQueue) Wait() {
 
 // Close implementation.
 func (mq *memoryQueue) Close(_ context.Context) error {
-	mq.cond.L.Lock()
-	defer mq.cond.L.Unlock()
+	mq.closeOne.Do(func() {
+		mq.mu.Lock()
+		pending := mq.pending
+		mq.pending = mq.pending[:0]
+		mq.stopped = true
+		for range pending {
+			mq.wg.Done()
+		}
+		mq.cond.Broadcast()
+		mq.mu.Unlock()
+	})
+	return nil
+}
 
-	for range mq.pending {
-		mq.wg.Done()
+// watchContext broadcasts on the queue's cond when ctx is
+// canceled, waking every Dequeue blocked in cond.Wait.
+//
+// The returned function stops the watcher and must be called
+// when the caller is done waiting.
+func (mq *memoryQueue) watchContext(ctx context.Context) func() {
+	if err := ctx.Err(); err != nil {
+		return func() {}
 	}
 
-	mq.stopped = true
-	mq.pending = mq.pending[:0]
-	mq.cond.Broadcast()
-	return nil
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			mq.mu.Lock()
+			mq.cond.Broadcast()
+			mq.mu.Unlock()
+		case <-done:
+		}
+	}()
+
+	return func() { close(done) }
 }
