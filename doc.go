@@ -113,6 +113,11 @@ by a specific callback function. By default, the response is handled by the Fetc
 Handler, but if the Command implements this, this handler function takes precedence
 and the Fetcher's Handler is ignored.
 
+* CoalescibleCommand: Implement this interface and return a non-empty key to
+declare that the Command's response may be shared with other commands. Commands
+sent with the same key while the fetch is in flight join a single HTTP request,
+and each command's Handler receives its own independent copy of the response.
+
 Since the Command is an interface, it can be a custom struct that holds additional
 information, such as an ID for the URL (e.g. from a database), or a depth counter
 so that the crawling stops at a certain depth, etc. For basic commands that don't
@@ -145,6 +150,10 @@ long-running crawlers.
 reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
+
+* CoalesceTempDir : Sets the directory where bodies of coalesced responses are
+staged while they are delivered to each subscriber. If empty, the operating
+system's temporary directory is used.
 
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside

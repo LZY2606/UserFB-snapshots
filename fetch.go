@@ -86,6 +86,12 @@ type Fetcher struct {
 	// duration.
 	AutoClose bool
 
+	// CoalesceTempDir is the directory where bodies of coalesced responses
+	// (see CoalescibleCommand) are staged while they are delivered to each
+	// subscriber. If empty, the operating system's temporary directory is
+	// used. Bodies are always staged on disk, never in memory.
+	CoalesceTempDir string
+
 	// q holds the Queue to send data to the fetcher and optionally close (stop) it.
 	q *Queue
 	// dbg is a channel used to push debug information.
@@ -125,6 +131,12 @@ type Queue struct {
 	closed, cancelled, done chan struct{}
 
 	wg sync.WaitGroup
+
+	// cmu protects coalesceGroups, the table of joinable coalesced fetch
+	// groups indexed by coalesce key. A group is present in the table only
+	// while it accepts new subscribers.
+	cmu            sync.Mutex
+	coalesceGroups map[string]*coalesceGroup
 }
 
 // Close closes the Queue so that no more Commands can be sent. It blocks until
@@ -180,12 +192,24 @@ func (q *Queue) Cancel() error {
 
 // Send enqueues a Command into the Fetcher. If the Queue has been closed, it
 // returns ErrQueueClosed. The Command's URL must have a Host.
+//
+// If the Command implements CoalescibleCommand and returns a non-empty key,
+// the command may join an in-flight fetch group with the same key instead of
+// being enqueued on its own; see CoalescibleCommand for the details.
 func (q *Queue) Send(c Command) error {
 	if c == nil {
 		return ErrEmptyHost
 	}
 	if u := c.URL(); u == nil || u.Host == "" {
 		return ErrEmptyHost
+	}
+	var key string
+	if cc, ok := c.(CoalescibleCommand); ok {
+		// The key is read exactly once per Send.
+		key = cc.CoalesceKey()
+	}
+	if key != "" {
+		return q.sendCoalescible(c, key)
 	}
 	select {
 	case <-q.closed:
@@ -238,10 +262,11 @@ func (f *Fetcher) Start() *Queue {
 	f.hosts = make(map[string]chan Command)
 
 	f.q = &Queue{
-		ch:        make(chan Command, 1),
-		closed:    make(chan struct{}),
-		cancelled: make(chan struct{}),
-		done:      make(chan struct{}),
+		ch:             make(chan Command, 1),
+		closed:         make(chan struct{}),
+		cancelled:      make(chan struct{}),
+		done:           make(chan struct{}),
+		coalesceGroups: make(map[string]*coalesceGroup),
 	}
 
 	// Start the one and only queue processing goroutine.
@@ -392,8 +417,16 @@ loop:
 
 			case agent == nil || agent.Test(v.URL().Path):
 				// Path allowed, process the request
-				res, err := f.doRequest(v)
-				f.visit(v, res, err)
+				var err error
+				if g, ok := v.(*coalesceGroup); ok {
+					// Coalesced group: a single request is made and its
+					// response is delivered to every subscriber.
+					err = f.fetchGroup(g)
+				} else {
+					var res *http.Response
+					res, err = f.doRequest(v)
+					f.visit(v, res, err)
+				}
 				// No delay on error - the remote host was not reached
 				if err == nil {
 					wait = time.After(delay)
@@ -403,7 +436,11 @@ loop:
 
 			default:
 				// Path disallowed by robots.txt
-				f.visit(v, nil, ErrDisallowed)
+				if g, ok := v.(*coalesceGroup); ok {
+					f.failGroup(g, ErrDisallowed)
+				} else {
+					f.visit(v, nil, ErrDisallowed)
+				}
 				wait = nil
 			}
 			// Every time a command is received, reset the ttl channel

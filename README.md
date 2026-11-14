@@ -122,6 +122,13 @@ by a specific callback function. By default, the response is handled by the Fetc
 Handler, but if the Command implements this, this handler function takes precedence
 and the Fetcher's Handler is ignored.
 
+* `CoalescibleCommand`: Implement this interface and return a non-empty key to
+declare that the Command's response may be shared with other commands. While a
+fetch for a given key is in flight (queued or downloading), other commands sent
+with the same key, method and URL join it: a single HTTP request is made and each
+command's Handler receives its own independent copy of the response. See
+"Coalescing in-flight fetches" below.
+
 Since the Command is an interface, it can be a custom struct that holds additional
 information, such as an ID for the URL (e.g. from a database), or a depth counter
 so that the crawling stops at a certain depth, etc. For basic commands that don't
@@ -154,6 +161,106 @@ long-running crawlers.
 reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
+
+* CoalesceTempDir : Sets the directory where bodies of coalesced responses are
+staged while they are delivered to each subscriber. If empty, the operating
+system's temporary directory is used. Bodies are always staged on disk, so memory
+usage does not grow with the response size.
+
+### Coalescing in-flight fetches
+
+When several consumers are interested in the same resource at the same time, the
+Fetcher can merge the duplicate requests into a single HTTP fetch. A Command opts
+in by implementing `CoalescibleCommand` and returning a non-empty key:
+
+```go
+type CoalescibleCommand interface {
+	CoalesceKey() string
+}
+```
+
+Only `GET` and `HEAD` commands without a request body (`ReaderProvider` or
+`ValuesProvider`) can be coalesced; `Send` returns `ErrCoalesceUnsupported`
+otherwise, and `ErrCoalesceConflict` if the key is already bound to an in-flight
+fetch with a different method or URL. In both cases the command is not enqueued
+and its Handler is not called. An empty key (or not implementing the interface)
+keeps the default one-request-per-command behavior.
+
+The first command sent with a key is the leader: it goes through robots.txt
+validation and the host's crawl delay, and it alone determines the headers and
+authentication of the request that is actually sent. Followers sent with the same
+key while the leader is queued or downloading join the group without occupying a
+slot in the host queue. Once the body has been fully downloaded, the group is
+sealed and a later `Send` with the same key starts a new fetch - keys are never
+cached across batches. The body is staged in a temporary file (see
+`CoalesceTempDir`) and every subscriber gets an independent `http.Response` -
+its own `Header`, `Trailer`, `Request` metadata and a `Body` that reads from the
+start - delivered to its own Handler in admission order. If the fetch fails
+(robots.txt refusal, transport or staging error), every subscriber receives the
+original error once, and the key can be fetched again.
+
+The following example shows multiple consumers sharing a single fetch of the
+same resource:
+
+```go
+package main
+
+import (
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+
+	"github.com/PuerkitoBio/fetchbot"
+)
+
+// feedCmd declares, via its coalesce key, that its response may be shared
+// with the other consumers of the same resource.
+type feedCmd struct {
+	*fetchbot.Cmd
+	key     string
+	consume func([]byte)
+}
+
+func (c *feedCmd) CoalesceKey() string { return c.key }
+
+// Handle gives each consumer its own copy of the shared response.
+func (c *feedCmd) Handle(ctx *fetchbot.Context, res *http.Response, err error) {
+	if err != nil {
+		fmt.Println("fetch error:", err)
+		return
+	}
+	defer res.Body.Close()
+	b, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println("read error:", err)
+		return
+	}
+	c.consume(b)
+}
+
+func main() {
+	f := fetchbot.New(fetchbot.HandlerFunc(func(ctx *fetchbot.Context, res *http.Response, err error) {}))
+	// Optional: stage large shared bodies in a specific directory.
+	// f.CoalesceTempDir = "/var/tmp/crawler"
+	q := f.Start()
+
+	u, _ := url.Parse("http://example.com/feed")
+	consumers := []func([]byte){
+		func(b []byte) { fmt.Println("indexer got", len(b), "bytes") },
+		func(b []byte) { fmt.Println("archiver got", len(b), "bytes") },
+		func(b []byte) { fmt.Println("alerter got", len(b), "bytes") },
+	}
+	for _, consume := range consumers {
+		// All three commands share the key "feed": a single HTTP request is
+		// made, and each consumer's Handler is called with its own response.
+		if err := q.Send(&feedCmd{Cmd: &fetchbot.Cmd{U: u, M: "GET"}, key: "feed", consume: consume}); err != nil {
+			fmt.Println("send error:", err)
+		}
+	}
+	q.Close()
+}
+```
 
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside
