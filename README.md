@@ -36,6 +36,7 @@ simplecrawler is designed to provide a basic, flexible and robust API for crawli
     - [Queue items](#queue-items)
     - [Queue statistics and reporting](#queue-statistics-and-reporting)
     - [Saving and reloading the queue (freeze/defrost)](#saving-and-reloading-the-queue-freezedefrost)
+    - [Checkpoints (checkpoint/restoreCheckpoint)](#checkpoints-checkpointrestorecheckpoint)
 - [Cookies](#cookies)
     - [Cookie events](#cookie-events)
 - [Link Discovery](#link-discovery)
@@ -979,6 +980,36 @@ Import the queue from a frozen JSON file on disk.
 | --- | --- | --- |
 | filename | <code>String</code> | Filename passed directly to [fs.readFile](https://nodejs.org/api/fs.html#fs_fs_readfile_file_options_callback) |
 | callback | <code>function</code> | Gets a single `error` parameter. If the operation was successful, this parameter will be `null`. |
+
+### Checkpoints (checkpoint/restoreCheckpoint)
+
+`freeze`/`defrost` only save the queue itself, and `freeze` rewrites in-progress items as `queued` in the live crawler. When you want to save a resumable snapshot of a crawl without stopping it first - for example before your process exits - use `crawler.checkpoint(filename, callback)` and `crawler.restoreCheckpoint(filename, callback)` instead.
+
+`checkpoint` stops dispatching new requests the moment it is called (requests already sent, including robots.txt requests, are allowed to finish and are never aborted). Once response handling, redirects, link discovery - including async fetch conditions and `queue.add` callbacks - and any outstanding `crawler.wait()` holds have all settled, the queue and the crawler's address state (`host`, `protocol`, `port`, `initialURL` and `_isFirstRequest`) are copied to a versioned JSON document, written to a temporary file in the same directory, and atomically renamed into place. The live queue is never modified, links discovered while the checkpoint is being prepared are still admitted to the queue, and if the crawler was running it resumes afterwards (unless `stop()` was called in the meantime - a stopped crawler stays stopped).
+
+`restoreCheckpoint` loads a checkpoint into a stopped, idle crawler. The file is fully validated first (format version, field types, queue item ids contiguous and unique, item statuses legal); if it's invalid or can't be read, the existing queue and address state are left untouched. On success the queue and the stored address fields are atomically replaced - not merged - and the deduplication index is rebuilt. Restoring performs no HTTP requests and doesn't start the crawl; call `crawler.start()` afterwards to resume where the checkpoint left off. Already fetched pages won't be fetched again, and robots.txt rules are fetched afresh under the new process's policy. The crawler's existing cookie jar and cache instances are kept.
+
+```js
+crawler.checkpoint("crawl.checkpoint.json", function(error) {
+    if (error) {
+        console.error("Couldn't save checkpoint:", error);
+    }
+    // Safe to exit now - the crawl can be resumed later
+});
+
+// Later, possibly in another process. Construct the crawler with the
+// original options - they take precedence for everything not stored in
+// the checkpoint:
+var crawler = new Crawler("http://example.com/");
+crawler.restoreCheckpoint("crawl.checkpoint.json", function(error) {
+    if (error) {
+        throw error;
+    }
+    crawler.start();
+});
+```
+
+Only the built-in `FetchQueue` is supported - with any other queue backend the callback receives an error with code `ERR_CHECKPOINT_QUEUE`. If another checkpoint or restore operation is already in progress, the callback receives an error with code `ERR_CHECKPOINT_BUSY` and the original operation is unaffected.
 
 
 ## Cookies
