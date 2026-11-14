@@ -1,0 +1,19 @@
+CASE pitch frac_positive checks=239
+CASE pitch frac_negative checks=239
+CASE pitch frac_zero checks=239
+CASE pitch window_clamp_low checks=239
+CASE pitch window_clamp_high checks=239
+CASE pitch parity_error_sf1 checks=239
+CASE pitch frame_erasure_push checks=239
+CASE pitch frame_erasure_cap checks=239
+GROUP pitch cases=8 checks=1912 COMPLETE
+CASE innovation jx1_mixed_signs checks=52
+CASE innovation jx0_alternating_signs checks=52
+CASE innovation min_lag_max_gain checks=62
+CASE innovation pulse_collision checks=61
+CASE innovation no_propagation checks=42
+GROUP innovation cases=5 checks=269 COMPLETE
+CASE frames interleaved_seven_frames checks=3322
+GROUP frames cases=1 checks=3322 COMPLETE
+TARGET_COMPLETE cases=14
+BCG729_BASELINE_OK frames=24 bytes=240 nonzero=1904 pcm=9a73329d

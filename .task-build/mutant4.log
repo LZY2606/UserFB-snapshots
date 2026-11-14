@@ -1,0 +1,16 @@
+FAIL tests/excitation_reference.c:331 got == expSub1[n] || ref_mismatch("pitch.sf1.vector", 0, n, expSub1[n], got)
+CONTENT_MISMATCH stage=pitch.sf1.vector subframe=0 sample=0 expected=-97 actual=-4
+MUTANT fractional_base_point: detected via CONTENT_MISMATCH (exit 4)
+FAIL tests/excitation_reference.c:437 actual[n] == expected[n] || ref_mismatch("innovation.vector", 0, n, expected[n], actual[n])
+CASE pitch frac_positive checks=239
+CASE pitch frac_negative checks=239
+CASE pitch frac_zero checks=239
+CASE pitch window_clamp_low checks=239
+CASE pitch window_clamp_high checks=239
+CASE pitch parity_error_sf1 checks=239
+CASE pitch frame_erasure_push checks=239
+CASE pitch frame_erasure_cap checks=239
+GROUP pitch cases=8 checks=1912 COMPLETE
+CONTENT_MISMATCH stage=innovation.vector subframe=0 sample=3 expected=0 actual=8192
+MUTANT fixed_codebook_track_bit: detected via CONTENT_MISMATCH (exit 4)
+EXCITATION_MUTANTS_OK mutants=2

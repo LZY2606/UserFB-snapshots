@@ -1,0 +1,12 @@
+mkdir: /tmp/claude-501/runlog.TYwK6sub: File exists
+cp: /tmp/claude-501/runlog.TYwK6sub: Not a directory
+sed: /tmp/claude-501/runlog.TYwK6sub/src/decodeAdaptativeCodeVector.c: Not a directory
+grep: /tmp/claude-501/runlog.TYwK6sub/src/decodeAdaptativeCodeVector.c: Not a directory
+tests/check_excitation_mutants.sh: line 80: cd: /tmp/claude-501/runlog.TYwK6sub: Not a directory
+MUTANT fractional_base_point: expected runner exit 4, got 1
+mkdir: /tmp/claude-501/runlog.jg80SiDh: File exists
+cp: /tmp/claude-501/runlog.jg80SiDh: Not a directory
+sed: /tmp/claude-501/runlog.jg80SiDh/src/decodeFixedCodeVector.c: Not a directory
+grep: /tmp/claude-501/runlog.jg80SiDh/src/decodeFixedCodeVector.c: Not a directory
+tests/check_excitation_mutants.sh: line 80: cd: /tmp/claude-501/runlog.jg80SiDh: Not a directory
+MUTANT fixed_codebook_track_bit: expected runner exit 4, got 1
