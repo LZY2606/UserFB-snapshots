@@ -1,0 +1,29 @@
+ILBC_TARGET_LINK_OK
+CASE vectors short_plain checks=2
+CASE vectors long_plain checks=2
+CASE vectors long_augmented checks=23
+CASE vectors long_filtered checks=1
+CASE vectors long_filtered_interp checks=1
+CASE vectors gain_chain_weighted checks=5
+GROUP vectors cases=6 checks=34 COMPLETE
+CASE residual m20_s1_f1 checks=3
+CASE residual m20_s1_f0 checks=3
+CASE residual m20_s2_f1 checks=4
+CASE residual m20_s2_f0 checks=4
+CASE residual m20_s3_f1 checks=4
+CASE residual m20_s3_f0 checks=4
+CASE residual m30_s1_f1 checks=3
+CASE residual m30_s1_f0 checks=3
+CASE residual m30_s3_f1 checks=6
+CASE residual m30_s3_f0 checks=6
+CASE residual m30_s5_f1 checks=4
+CASE residual m30_s5_f0 checks=4
+GROUP residual cases=12 checks=48 COMPLETE
+STREAM_COVERAGE mode=20 frames=96 fwd=76 back=74 cap=0 pairs=(1,0)=9,(1,1)=13,(2,0)=28,(2,1)=26,(3,0)=18,(3,1)=2
+CASE stream mode20 checks=979
+STREAM_COVERAGE mode=30 frames=96 fwd=82 back=83 cap=52 pairs=(1,0)=6,(1,1)=7,(2,0)=3,(2,1)=16,(3,0)=19,(3,1)=14,(4,0)=15,(4,1)=2,(5,0)=10,(5,1)=4
+CASE stream mode30 checks=983
+GROUP stream cases=2 checks=1962 COMPLETE
+TARGET_COMPLETE cases=20
+ILBC_BASELINE_OK mode=20 frames=96 bytes=3648 samples=15360 stream=f69d611553a70983 pcm=c8b3dd4729b36513 state_first=46/50 starts=24,46,26
+ILBC_BASELINE_OK mode=30 frames=96 bytes=4800 samples=23040 stream=ad7d5a1cb70781dd pcm=dec88291268e1e45 state_first=43/53 starts=16,17,26,20,17

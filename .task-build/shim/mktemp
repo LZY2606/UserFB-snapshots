@@ -1,0 +1,28 @@
+#!/bin/bash
+# Sandbox-local mktemp shim. The OS seatbelt blocks the canonical macOS
+# $TMPDIR under /var/folders, while the exported $TMPDIR is writable. This
+# shim reproduces just the mktemp forms used by task_support/run.sh and
+# tests/check_codebook_mutants.sh, redirecting allocation into $TMPDIR.
+set -u
+base="${TMPDIR:-/tmp}"
+dir_mode=0
+prefix="tmp"
+template=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d) dir_mode=1; shift ;;
+    -t) prefix="$2"; shift 2 ;;
+    -u| -q) shift ;;
+    *) template="$1"; shift ;;
+  esac
+done
+pid=$$
+for n in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  cand="$base/${prefix}.${pid}.${RANDOM:-$n}.$n"
+  if [ "$dir_mode" -eq 1 ]; then
+    if mkdir "$cand" 2>/dev/null; then printf '%s\n' "$cand"; exit 0; fi
+  else
+    if (set -C; : >"$cand") 2>/dev/null; then printf '%s\n' "$cand"; exit 0; fi
+  fi
+done
+exit 1

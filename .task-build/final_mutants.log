@@ -1,0 +1,5 @@
+CONTENT_MISMATCH vectors.long_augmented at sample 17 got=6633 want=6632
+MUTANT_CONTENT_REJECTED variant=merged exit=4
+CONTENT_MISMATCH residual.m20.s2.f1 at sample 0 got=3 want=15
+MUTANT_CONTENT_REJECTED variant=forward exit=4
+ILBC_MUTANTS_OK variants=2
