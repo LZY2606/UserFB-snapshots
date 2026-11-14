@@ -174,6 +174,7 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 	var blockName string
 	var comments []string
 	var index int
+	var identifier string
 	var sa = &StyleAttributes{}
 	var currentRegion *Region
 
@@ -281,13 +282,15 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 
 			// Init new item
 			item = &Item{
-				Comments:    comments,
-				Index:       index,
-				InlineStyle: &StyleAttributes{},
+				Comments:         comments,
+				Index:            index,
+				InlineStyle:      &StyleAttributes{},
+				WebVTTIdentifier: identifier,
 			}
 
-			// Reset index
+			// Reset index and identifier
 			index = 0
+			identifier = ""
 
 			// Split line on time boundaries
 			var left = strings.Split(line, webvttTimeBoundariesSeparator)
@@ -412,7 +415,9 @@ func ReadFromWebVTT(i io.Reader) (o *Subtitles, err error) {
 					item.Lines = append(item.Lines, l)
 				}
 			default:
-				// This is the ID
+				// This is the ID: keep the raw string so that non numeric
+				// identifiers survive a read/write round trip
+				identifier = line
 				index, _ = strconv.Atoi(line)
 			}
 		}
@@ -647,7 +652,11 @@ func (s Subtitles) WriteToWebVTT(o io.Writer) (err error) {
 		}
 
 		// Add time boundaries
-		c = append(c, []byte(strconv.Itoa(index+1))...)
+		if item.WebVTTIdentifier != "" {
+			c = append(c, []byte(item.WebVTTIdentifier)...)
+		} else {
+			c = append(c, []byte(strconv.Itoa(index+1))...)
+		}
 		c = append(c, bytesLineSeparator...)
 		c = append(c, []byte(formatDurationWebVTT(item.StartAt))...)
 		c = append(c, bytesWebVTTTimeBoundariesSeparator...)

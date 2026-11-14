@@ -121,14 +121,15 @@ func NewSubtitles() *Subtitles {
 
 // Item represents a text to show between 2 time boundaries with formatting
 type Item struct {
-	Comments    []string
-	Index       int
-	EndAt       time.Duration
-	InlineStyle *StyleAttributes
-	Lines       []Line
-	Region      *Region
-	StartAt     time.Duration
-	Style       *Style
+	Comments         []string
+	Index            int
+	EndAt            time.Duration
+	InlineStyle      *StyleAttributes
+	Lines            []Line
+	Region           *Region
+	StartAt          time.Duration
+	Style            *Style
+	WebVTTIdentifier string
 }
 
 // String implements the Stringer interface
