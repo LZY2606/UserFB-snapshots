@@ -1,0 +1,4 @@
+#include <stdint.h>
+static const uint32_t pic_words[]={
+0x3c1c1234u,0x279cfff0u,0x0399e021u,0x8f998010u,0x0320f809u,0x24040007u,0x03808021u,0x8f990010u,
+};
