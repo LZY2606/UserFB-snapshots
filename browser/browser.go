@@ -185,6 +185,10 @@ type Browsable interface {
 	// Create a new Browser instance and inherit the configuration
 	// Read more: https://github.com/headzoo/surf/issues/23
 	NewTab() (b *Browser)
+
+	// ForkTab creates a new Browser instance branched off from the current
+	// one, with independent copies of the state, history and configuration.
+	ForkTab() (*Browser, error)
 }
 
 // Browser is the default Browser implementation.
@@ -642,6 +646,85 @@ func (bow *Browser) NewTab() (b *Browser) {
 	*b = *bow
 
 	return b
+}
+
+// ForkTab creates a new Browser instance that branches off from the current
+// one, eg to submit a form in two different ways from the same confirmation
+// page. Unlike NewTab, which shares everything with the original browser,
+// the forked tab receives independent copies of the mutable state:
+//
+//   - the current state and every state recorded in the history are deep
+//     copied, with their own DOM nodes (parent-child relationships
+//     preserved), request and response headers and URLs, so Find, Form and
+//     Back on either tab operate on that tab alone;
+//   - the request headers (including multi-value slices), the attributes,
+//     the current body and the relative URL configuration are copied;
+//   - a pending meta refresh timer is not inherited, and requests made by
+//     the forked tab never stop the original tab's timer.
+//
+// The fork does not visit the site again and does not re-parse the HTML;
+// the new tab continues from the current page, including any modifications
+// made through Dom. A browser that has not opened a page yet may be forked
+// as well.
+//
+// The cookie jar, transport and bookmarks jar remain shared objects, and
+// the new client inherits the timeout, but afterwards setting the jar,
+// transport or timeout on either tab affects that tab alone. The redirect
+// callback of the forked tab reads the forked tab's own FollowRedirects
+// attribute and UserAgent. Forms obtained before forking keep belonging to
+// the browser they were obtained from.
+//
+// Forking requires the history jar to implement jar.ForkableHistory, as
+// jar.MemoryHistory does. When the history jar does not implement it, an
+// error is returned and the original page, history and timers are left
+// unchanged.
+func (bow *Browser) ForkTab() (*Browser, error) {
+	forkable, ok := bow.history.(jar.ForkableHistory)
+	if !ok {
+		return nil, errors.New(
+			"Cannot fork the tab: the history jar does not implement jar.ForkableHistory.")
+	}
+	history, err := forkable.Fork()
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Browser{}
+	*b = *bow
+	b.history = history
+	b.state = bow.state.Fork()
+	b.headers = bow.headers.Clone()
+	b.attributes = copyAttributes(bow.attributes)
+	if bow.body != nil {
+		b.body = append([]byte(nil), bow.body...)
+	}
+	if bow.relativeUrl != nil {
+		u := *bow.relativeUrl
+		b.relativeUrl = &u
+	}
+	b.refresh = nil
+	if bow.client != nil {
+		b.client = &http.Client{
+			Transport:     bow.client.Transport,
+			CheckRedirect: b.shouldRedirect,
+			Jar:           bow.client.Jar,
+			Timeout:       bow.client.Timeout,
+		}
+	}
+
+	return b, nil
+}
+
+// copyAttributes returns a copy of the given attribute map.
+func copyAttributes(a AttributeMap) AttributeMap {
+	if a == nil {
+		return nil
+	}
+	c := make(AttributeMap, len(a))
+	for k, v := range a {
+		c[k] = v
+	}
+	return c
 }
 
 // buildRequest creates and returns a *http.Request type.

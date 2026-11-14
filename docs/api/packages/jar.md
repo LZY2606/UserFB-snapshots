@@ -128,6 +128,25 @@ type History interface {
 
 History is a type that records browser state.
 
+#### type ForkableHistory
+
+```go
+type ForkableHistory interface {
+	History
+
+	// Fork returns an independent copy of the history.
+	Fork() (History, error)
+}
+```
+
+ForkableHistory is an optional interface a History implementation may
+satisfy to support forking, eg branching a browser tab into two independent
+tabs. The History interface itself does not require it, and browsers using a
+History implementation that does not satisfy ForkableHistory cannot be
+forked. The forked history holds deep copies of the recorded states, in the
+same order and with the same maximum length as the original, so that Push,
+Pop, Clear and SetMax called on either history do not affect the other.
+
 #### type MemoryBookmarks
 
 ```go
@@ -206,6 +225,15 @@ func NewMemoryHistory() *MemoryHistory
 ```
 NewMemoryHistory creates and returns a new *StateHistory type.
 
+#### func (*MemoryHistory) Fork
+
+```go
+func (his *MemoryHistory) Fork() (History, error)
+```
+Fork creates and returns an independent copy of the history. Every recorded
+state is deep copied, the order of the states and the maximum history length
+are preserved, and the original history is left untouched.
+
 #### func (*MemoryHistory) Len
 
 ```go
@@ -263,3 +291,14 @@ State represents a point in time.
 func NewHistoryState(req *http.Request, resp *http.Response, dom *goquery.Document) *State
 ```
 NewHistoryState creates and returns a new *State type.
+
+#### func (*State) Fork
+
+```go
+func (s *State) Fork() *State
+```
+Fork returns a deep copy of the state. The copy has its own DOM nodes,
+request and response headers, URLs and other mutable metadata, so it may be
+modified without affecting the original state. The request and response
+bodies are neither read, closed nor rewound; the copy references the same
+body readers as the original.

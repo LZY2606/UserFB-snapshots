@@ -370,6 +370,37 @@ func (bow *Browser) Find(expr string) *goquery.Selection
 ```
 Find returns the dom selections matching the given expression.
 
+#### func (*Browser) ForkTab
+
+```go
+func (bow *Browser) ForkTab() (*Browser, error)
+```
+ForkTab creates a new Browser instance that branches off from the current
+one, eg to submit a form in two different ways from the same confirmation
+page. Unlike NewTab, which shares everything with the original browser, the
+forked tab receives independent copies of the mutable state: the current
+state and every state recorded in the history are deep copied, with their
+own DOM nodes, request and response headers and URLs, so Find, Form and Back
+on either tab operate on that tab alone; the request headers (including
+multi-value slices), the attributes, the current body and the relative URL
+configuration are copied; a pending meta refresh timer is not inherited, and
+requests made by the forked tab never stop the original tab's timer.
+
+The fork does not visit the site again and does not re-parse the HTML; the
+new tab continues from the current page, including any modifications made
+through Dom. A browser that has not opened a page yet may be forked as well.
+
+The cookie jar, transport and bookmarks jar remain shared objects, and the
+new client inherits the timeout, but afterwards setting the jar, transport or
+timeout on either tab affects that tab alone. The redirect callback of the
+forked tab reads the forked tab's own FollowRedirects attribute and
+UserAgent. Forms obtained before forking keep belonging to the browser they
+were obtained from.
+
+Forking requires the history jar to implement jar.ForkableHistory, as
+jar.MemoryHistory does. When the history jar does not implement it, an error
+is returned and the original page, history and timers are left unchanged.
+
 #### func (*Browser) Form
 
 ```go
