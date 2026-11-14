@@ -448,6 +448,11 @@ type ELF32File struct {
 	Segments   []ELF32ProgramHeader
 	Raw        []byte
 	Endianness binary.ByteOrder
+	// When parsed from an io.ReaderAt (see ParseELFReader), Raw is nil and
+	// section/segment contents are read from this source on demand instead.
+	// The reader is owned by the caller and is never closed by this library.
+	reader     io.ReaderAt
+	readerSize int64
 }
 
 // Returns the bytes of the section at the given index, or an error if one
@@ -460,17 +465,17 @@ func (f *ELF32File) GetSectionContent(sectionIndex uint16) ([]byte, error) {
 	if sectionHeader.Type == UninitializedSection {
 		return nil, UninitializedDataSectionError(sectionIndex)
 	}
-	start := sectionHeader.FileOffset
-	if (int(start) < 0) || (int(start) > len(f.Raw)) {
+	start := uint64(sectionHeader.FileOffset)
+	if start > f.dataSize() {
 		return nil, fmt.Errorf("Bad file offset for section %d: %d",
 			sectionIndex, start)
 	}
-	end := start + sectionHeader.Size
-	if (int(end) < int(start)) || (int(end) > len(f.Raw)) {
+	end := start + uint64(sectionHeader.Size)
+	if (end > f.dataSize()) || (end < start) {
 		return nil, fmt.Errorf("Bad end offset for %d-byte section %d: %d",
 			f.Sections[sectionIndex].Size, sectionIndex, end)
 	}
-	return f.Raw[start:end], nil
+	return f.readAt(start, end-start)
 }
 
 // Returns the bytes of the segment at the given index, or an error if one
@@ -480,14 +485,14 @@ func (f *ELF32File) GetSegmentContent(segmentIndex uint16) ([]byte, error) {
 		return nil, fmt.Errorf("Invalid segment index: %d", segmentIndex)
 	}
 	start := f.Segments[segmentIndex].FileOffset
-	if uint64(start) > uint64(len(f.Raw)) {
+	if uint64(start) > f.dataSize() {
 		return nil, fmt.Errorf("Bad file offset for segment %d", segmentIndex)
 	}
 	end := start + f.Segments[segmentIndex].FileSize
-	if (uint64(end) > uint64(len(f.Raw))) || (end < start) {
+	if (uint64(end) > f.dataSize()) || (end < start) {
 		return nil, fmt.Errorf("Bad size for segment %d", segmentIndex)
 	}
-	return f.Raw[start:end], nil
+	return f.readAt(uint64(start), uint64(end-start))
 }
 
 // Returns the string at the given offset in the string table contained in the

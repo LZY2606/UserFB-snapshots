@@ -59,3 +59,56 @@ func main() {
 	}
 }
 ```
+
+Reading Large Files Lazily
+--------------------------
+
+When inspecting a large ELF file offline, loading the entire image into a
+`[]byte` may be undesirable. `ParseELFReader(...)` parses an ELF file from
+any `io.ReaderAt` (such as an `*os.File`) plus the file's size, and reads
+only the identification bytes, the ELF header, and the section/program
+header tables up front:
+
+```go
+file, e := os.Open("/path/to/huge.elf")
+if e != nil {
+	fmt.Printf("Failed opening file: %s\n", e)
+	return
+}
+defer file.Close()
+stat, e := file.Stat()
+if e != nil {
+	fmt.Printf("Failed statting file: %s\n", e)
+	return
+}
+elf, e := elf_reader.ParseELFReader(file, stat.Size())
+if e != nil {
+	fmt.Printf("Failed parsing ELF file: %s\n", e)
+	return
+}
+// Use elf exactly like the result of ParseELFFile: GetSectionName,
+// GetSectionContent, GetSegmentContent, GetSymbols, GetRelocations,
+// DynamicEntries, and so on.
+```
+
+The returned value is the same `ELFFile` interface, backed by the same
+`*ELF32File` or `*ELF64File` concrete types, and supports 32- and 64-bit
+files of either endianness. Behavior notes specific to this entry point:
+
+ - The file's `Raw` field stays `nil`; no in-memory copy of the file (or of
+   a rewritten fake image) is ever built.
+ - Section names, symbol tables, relocations, dynamic entries, and section
+   or segment contents are read on demand, at the original file offsets
+   recorded in the headers. Tables and contents located past the 4 GiB mark
+   are supported, and the sparse gaps between tables and contents are never
+   read.
+ - Segments are returned as exactly `FileSize` bytes; the `MemorySize`
+   zero-fill is not file content. NOBITS sections still return
+   `UninitializedDataSectionError`. Zero-length contents at the legal end of
+   the file succeed without issuing a read.
+ - Every successful call returns a freshly-read copy, so modifying a
+   returned slice never affects later queries, and failures are not cached.
+ - Short reads and source errors are returned as errors wrapping the
+   underlying cause (checkable with `errors.Is`, e.g. against `io.EOF`).
+ - The caller retains ownership of the reader; the library never closes it.
+
