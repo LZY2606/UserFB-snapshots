@@ -173,6 +173,31 @@ typedef struct _pe_header {
   nt_header_32 nt;
 } pe_header;
 
+// UEFI TE (Terse Executable) header. A TE image is a stripped PE image:
+// the original headers are replaced by this 40 byte header, which is
+// immediately followed by the section table. StrippedSize is the number of
+// bytes removed from the beginning of the original PE image and does not
+// include this header. All RVAs and the ImageBase are the original PE
+// values, so a file offset in the pre-stripping coordinate space P maps to
+// P - StrippedSize + sizeof(te_header) inside the TE file.
+constexpr std::uint16_t TE_MAGIC = 0x5A56;
+constexpr std::uint32_t TE_HEADER_SIZE = 40;
+
+typedef struct _te_header {
+  std::uint16_t Signature;
+  std::uint16_t Machine;
+  std::uint8_t NumberOfSections;
+  std::uint8_t Subsystem;
+  std::uint16_t StrippedSize;
+  std::uint32_t AddressOfEntryPoint;
+  std::uint32_t BaseOfCode;
+  std::uint64_t ImageBase;
+  // DataDirectory[0] is the base relocation directory and
+  // DataDirectory[1] is the debug directory. These deliberately do not
+  // follow the PE data directory indices.
+  data_directory DataDirectory[2];
+} te_header;
+
 typedef struct _parsed_pe {
   bounded_buffer *fileBuffer;
   parsed_pe_internal *internal;
@@ -199,6 +224,9 @@ parsed_pe *ParsePEFromFile(const char *filePath);
 
 parsed_pe *ParsePEFromPointer(std::uint8_t *buffer, std::uint32_t sz);
 parsed_pe *ParsePEFromBuffer(bounded_buffer *buffer);
+
+// get the TE header of a parsed image. Returns false for a regular PE.
+bool GetTEHeader(parsed_pe *pe, te_header &hdr);
 
 // destruct a PE context
 void DestructParsedPE(parsed_pe *p);

@@ -25,6 +25,7 @@ THE SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -36,11 +37,26 @@ THE SOFTWARE.
 
 namespace peparse {
 
+static_assert(sizeof(te_header) == TE_HEADER_SIZE,
+              "te_header must match the 40 byte on-disk TE header");
+static_assert(offsetof(te_header, Machine) == 2, "TE header layout drift");
+static_assert(offsetof(te_header, StrippedSize) == 6, "TE header layout drift");
+static_assert(offsetof(te_header, AddressOfEntryPoint) == 8,
+              "TE header layout drift");
+static_assert(offsetof(te_header, BaseOfCode) == 12, "TE header layout drift");
+static_assert(offsetof(te_header, ImageBase) == 16, "TE header layout drift");
+static_assert(offsetof(te_header, DataDirectory) == 24,
+              "TE header layout drift");
+
 struct section {
   std::string sectionName;
   std::uint64_t sectionBase;
   bounded_buffer *sectionData;
   image_section_header sec;
+  // Optional override for the virtual extent used by VA lookups. Zero means
+  // "use sec.Misc.VirtualSize" (the PE behaviour). TE images set this so a
+  // section with a zero VirtualSize still resolves its raw contents.
+  std::uint32_t lookupSize = 0;
 };
 
 struct importent {
@@ -130,6 +146,13 @@ struct parsed_pe_internal {
   std::vector<exportent> exports;
   std::vector<symbol> symbols;
   std::vector<debugent> debugdirs;
+  // True when the image was parsed from a UEFI TE header. The TE header is
+  // preserved verbatim and `teBias` is StrippedSize - sizeof(te_header),
+  // i.e. the amount by which a pre-stripping file offset is shifted to get
+  // its position in the TE file.
+  bool isTE = false;
+  te_header te = {};
+  std::uint32_t teBias = 0;
 };
 
 // String representation of Rich header object types
@@ -594,7 +617,9 @@ static bool readCString(const bounded_buffer &buffer,
 bool getSecForVA(const std::vector<section> &secs, VA v, section &sec) {
   for (section s : secs) {
     std::uint64_t low = s.sectionBase;
-    std::uint64_t high = low + s.sec.Misc.VirtualSize;
+    std::uint64_t extent = s.lookupSize != 0 ? s.lookupSize
+                                             : s.sec.Misc.VirtualSize;
+    std::uint64_t high = low + extent;
 
     if (v >= low && v < high) {
       sec = s;
@@ -2484,7 +2509,534 @@ bool getSymbolTable(parsed_pe *p) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// UEFI TE (Terse Executable) support.
+//
+// A TE image replaces the DOS stub, PE signature and optional header of a
+// regular PE image with a 40 byte header. The section table follows that
+// header directly. Section raw pointers, RVAs, the entry point and the
+// image base all remain in the original (pre-stripping) PE coordinate
+// space, so file positions have to be translated by
+//
+//   filePos = originalPos - StrippedSize + sizeof(te_header)
+//           = originalPos - teBias
+//
+// for every offset that referred to file contents before stripping.
+// ---------------------------------------------------------------------------
+
+static bool readTEHeader(bounded_buffer *b, te_header &te) {
+  if (b == nullptr) {
+    PE_ERR(PEERR_BUFFER);
+    return false;
+  }
+
+  if (b->bufLen < TE_HEADER_SIZE) {
+    PE_ERR(PEERR_HDR);
+    return false;
+  }
+
+  READ_WORD(b, 0, te, Signature);
+  if (te.Signature != TE_MAGIC) {
+    PE_ERR(PEERR_MAGIC);
+    return false;
+  }
+
+  READ_WORD(b, 0, te, Machine);
+  READ_BYTE(b, 0, te, NumberOfSections);
+  READ_BYTE(b, 0, te, Subsystem);
+  READ_WORD(b, 0, te, StrippedSize);
+  READ_DWORD(b, 0, te, AddressOfEntryPoint);
+  READ_DWORD(b, 0, te, BaseOfCode);
+  READ_QWORD(b, 0, te, ImageBase);
+
+  // The TE data directories are base relocations and debug, in that order.
+  // They are not the PE data directory indices for those kinds.
+  if (!readDword(b, 24, te.DataDirectory[0].VirtualAddress) ||
+      !readDword(b, 28, te.DataDirectory[0].Size) ||
+      !readDword(b, 32, te.DataDirectory[1].VirtualAddress) ||
+      !readDword(b, 36, te.DataDirectory[1].Size)) {
+    PE_ERR(PEERR_READ);
+    return false;
+  }
+
+  // Only little endian I386 and AMD64 images are supported.
+  if (te.Machine != IMAGE_FILE_MACHINE_I386 &&
+      te.Machine != IMAGE_FILE_MACHINE_AMD64) {
+    PE_ERR(PEERR_MAGIC);
+    return false;
+  }
+
+  // An I386 image exposes a 32-bit image base through the optional header,
+  // so a wider value could not be represented consistently in VA queries.
+  if (te.Machine == IMAGE_FILE_MACHINE_I386 &&
+      (te.ImageBase >> 32) != 0) {
+    PE_ERR(PEERR_HDR);
+    return false;
+  }
+
+  // StrippedSize must at least cover the replaced PE headers, otherwise the
+  // bias computation below would underflow.
+  if (te.StrippedSize < TE_HEADER_SIZE) {
+    PE_ERR(PEERR_HDR);
+    return false;
+  }
+
+  return true;
+}
+
+static bool getTESections(bounded_buffer *file,
+                          const te_header &te,
+                          std::uint32_t teBias,
+                          std::vector<section> &secs) {
+  if (file == nullptr) {
+    PE_ERR(PEERR_BUFFER);
+    return false;
+  }
+
+  std::uint64_t tableEnd =
+      static_cast<std::uint64_t>(TE_HEADER_SIZE) +
+      static_cast<std::uint64_t>(te.NumberOfSections) *
+          sizeof(image_section_header);
+  if (tableEnd > file->bufLen) {
+    PE_ERR(PEERR_SECT);
+    return false;
+  }
+
+  bounded_buffer *table = splitBuffer(
+      file, TE_HEADER_SIZE, static_cast<std::uint32_t>(tableEnd));
+  if (table == nullptr) {
+    PE_ERR(PEERR_MEM);
+    return false;
+  }
+
+  bool ok = true;
+  for (std::uint32_t i = 0; i < te.NumberOfSections && ok; i++) {
+    image_section_header curSec;
+    std::uint32_t o = i * sizeof(image_section_header);
+
+    for (std::uint32_t k = 0; k < NT_SHORT_NAME_LEN; k++) {
+      if (!readByte(table, o + k, curSec.Name[k])) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) {
+      break;
+    }
+
+    if (!readDword(table, o + offsetof(image_section_header, Misc.VirtualSize),
+                   curSec.Misc.VirtualSize) ||
+        !readDword(table, o + offsetof(image_section_header, VirtualAddress),
+                   curSec.VirtualAddress) ||
+        !readDword(table, o + offsetof(image_section_header, SizeOfRawData),
+                   curSec.SizeOfRawData) ||
+        !readDword(table, o + offsetof(image_section_header, PointerToRawData),
+                   curSec.PointerToRawData) ||
+        !readDword(table,
+                   o + offsetof(image_section_header, PointerToRelocations),
+                   curSec.PointerToRelocations) ||
+        !readDword(table,
+                   o + offsetof(image_section_header, PointerToLinenumbers),
+                   curSec.PointerToLinenumbers) ||
+        !readWord(table, o + offsetof(image_section_header, NumberOfRelocations),
+                  curSec.NumberOfRelocations) ||
+        !readWord(table,
+                  o + offsetof(image_section_header, NumberOfLinenumbers),
+                  curSec.NumberOfLinenumbers) ||
+        !readDword(table, o + offsetof(image_section_header, Characteristics),
+                   curSec.Characteristics)) {
+      ok = false;
+      break;
+    }
+
+    section thisSec;
+    for (std::uint32_t charIndex = 0; charIndex < NT_SHORT_NAME_LEN;
+         charIndex++) {
+      std::uint8_t c = curSec.Name[charIndex];
+      if (c == 0) {
+        break;
+      }
+      thisSec.sectionName.push_back(static_cast<char>(c));
+    }
+
+    // Section VAs stay anchored at the original image base and RVA.
+    thisSec.sectionBase = te.ImageBase + curSec.VirtualAddress;
+
+    // A TE image's readable extent is its raw data; use whichever of the
+    // declared virtual and raw sizes is larger so existing VA lookups can
+    // reach every byte actually present.
+    thisSec.lookupSize = std::max(curSec.Misc.VirtualSize, curSec.SizeOfRawData);
+
+    // Preserve the original section header fields verbatim. The raw data
+    // slice, however, must be taken from the actual TE file position: the
+    // recorded PointerToRawData is a pre-stripping file coordinate.
+    thisSec.sec = curSec;
+
+    if (curSec.PointerToRawData < teBias) {
+      // Translating this pointer would underflow.
+      PE_ERR(PEERR_SIZE);
+      ok = false;
+      break;
+    }
+
+    std::uint64_t lowOff =
+        static_cast<std::uint64_t>(curSec.PointerToRawData) - teBias;
+    std::uint64_t highOff = lowOff + curSec.SizeOfRawData;
+    if (highOff < lowOff || highOff > file->bufLen) {
+      PE_ERR(PEERR_SIZE);
+      ok = false;
+      break;
+    }
+
+    thisSec.sectionData = splitBuffer(
+        file, static_cast<std::uint32_t>(lowOff),
+        static_cast<std::uint32_t>(highOff));
+    if (thisSec.sectionData == nullptr) {
+      PE_ERR(PEERR_MEM);
+      ok = false;
+      break;
+    }
+
+    secs.push_back(thisSec);
+  }
+
+  deleteBuffer(table);
+
+  if (!ok) {
+    return false;
+  }
+
+  std::sort(
+      secs.begin(), secs.end(), [](const section &lhs, const section &rhs) {
+        return lhs.sec.PointerToRawData < rhs.sec.PointerToRawData;
+      });
+
+  return true;
+}
+
+// Locate the section that backs a TE RVA. The returned offset is relative to
+// the section's raw data, so it stays valid even when the directory starts
+// somewhere in the middle of a section.
+static bool getTESectionForRVA(const parsed_pe *p,
+                               std::uint32_t rva,
+                               section &sec,
+                               std::uint32_t &offset) {
+  VA va = p->internal->te.ImageBase + rva;
+  if (!getSecForVA(p->internal->secs, va, sec)) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  if (rva < sec.sec.VirtualAddress) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  offset = rva - sec.sec.VirtualAddress;
+  return true;
+}
+
+static bool getTERelocations(parsed_pe *p) {
+  const data_directory &relocDir = p->internal->te.DataDirectory[0];
+
+  // A missing directory is not an error, it simply yields no relocations.
+  if (relocDir.Size == 0) {
+    return true;
+  }
+
+  if (relocDir.VirtualAddress == 0) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  section sec;
+  std::uint32_t offset = 0;
+  if (!getTESectionForRVA(p, relocDir.VirtualAddress, sec, offset)) {
+    return false;
+  }
+
+  if (sec.sectionData == nullptr ||
+      static_cast<std::uint64_t>(offset) >= sec.sectionData->bufLen) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  // The loop bound is the number of bytes consumed from the directory, not
+  // the offset inside the section where the directory happens to start.
+  std::uint32_t consumed = 0;
+  while (consumed < relocDir.Size) {
+    std::uint32_t pageRva = 0;
+    std::uint32_t blockSize = 0;
+
+    if (relocDir.Size - consumed < sizeof(reloc_block) ||
+        !readDword(sec.sectionData,
+                   offset + offsetof(reloc_block, PageRVA),
+                   pageRva) ||
+        !readDword(sec.sectionData,
+                   offset + offsetof(reloc_block, BlockSize),
+                   blockSize)) {
+      PE_ERR(PEERR_SIZE);
+      return false;
+    }
+
+    if (blockSize < sizeof(reloc_block) ||
+        blockSize > relocDir.Size - consumed) {
+      PE_ERR(PEERR_SIZE);
+      return false;
+    }
+
+    std::uint32_t entryCount =
+        static_cast<std::uint32_t>((blockSize - sizeof(reloc_block)) /
+                                   sizeof(std::uint16_t));
+    std::uint32_t entryOff = offset + static_cast<std::uint32_t>(
+                                          sizeof(reloc_block));
+
+    for (std::uint32_t i = 0; i < entryCount; i++) {
+      std::uint16_t entry = 0;
+      if (!readWord(sec.sectionData, entryOff, entry)) {
+        PE_ERR(PEERR_READ);
+        return false;
+      }
+
+      reloc r;
+      r.shiftedAddr = p->internal->te.ImageBase + pageRva + (entry & 0x0FFF);
+      r.type = static_cast<reloc_type>(entry >> 12);
+      p->internal->relocs.push_back(r);
+
+      entryOff += sizeof(std::uint16_t);
+    }
+
+    consumed += blockSize;
+    offset += blockSize;
+  }
+
+  return true;
+}
+
+static bool getTEDebugDir(parsed_pe *p) {
+  const data_directory &debugDir = p->internal->te.DataDirectory[1];
+
+  if (debugDir.Size == 0) {
+    return true;
+  }
+
+  if (debugDir.VirtualAddress == 0) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  section sec;
+  std::uint32_t offset = 0;
+  if (!getTESectionForRVA(p, debugDir.VirtualAddress, sec, offset)) {
+    return false;
+  }
+
+  if (sec.sectionData == nullptr) {
+    PE_ERR(PEERR_SECTVA);
+    return false;
+  }
+
+  std::uint32_t numOfDebugEnts =
+      debugDir.Size / static_cast<std::uint32_t>(sizeof(debug_dir_entry));
+
+  for (std::uint32_t i = 0; i < numOfDebugEnts; i++) {
+    debug_dir_entry curEnt;
+    memset(&curEnt, 0, sizeof(debug_dir_entry));
+
+    READ_DWORD(sec.sectionData, offset, curEnt, Characteristics);
+    READ_DWORD(sec.sectionData, offset, curEnt, TimeStamp);
+    READ_WORD(sec.sectionData, offset, curEnt, MajorVersion);
+    READ_WORD(sec.sectionData, offset, curEnt, MinorVersion);
+    READ_DWORD(sec.sectionData, offset, curEnt, Type);
+    READ_DWORD(sec.sectionData, offset, curEnt, SizeOfData);
+    READ_DWORD(sec.sectionData, offset, curEnt, AddressOfRawData);
+    READ_DWORD(sec.sectionData, offset, curEnt, PointerToRawData);
+
+    // An all-zero entry terminates the list, exactly like for PE images.
+    if (curEnt.SizeOfData == 0 && curEnt.AddressOfRawData == 0 &&
+        curEnt.PointerToRawData == 0) {
+      break;
+    }
+
+    debugent ent;
+    ent.type = curEnt.Type;
+    ent.data = nullptr;
+
+    if (curEnt.AddressOfRawData != 0) {
+      // The payload is addressed by RVA and can live in a different section
+      // than the debug directory itself.
+      VA rawData = p->internal->te.ImageBase + curEnt.AddressOfRawData;
+      section dataSec;
+      if (!getSecForVA(p->internal->secs, rawData, dataSec)) {
+        PE_ERR(PEERR_SECTVA);
+        return false;
+      }
+      if (dataSec.sectionData == nullptr ||
+          curEnt.AddressOfRawData < dataSec.sec.VirtualAddress) {
+        PE_ERR(PEERR_SECTVA);
+        return false;
+      }
+
+      std::uint64_t dataoff =
+          static_cast<std::uint64_t>(curEnt.AddressOfRawData) -
+          dataSec.sec.VirtualAddress;
+      std::uint64_t dataEnd = dataoff + curEnt.SizeOfData;
+      if (dataEnd < dataoff || dataEnd > dataSec.sectionData->bufLen) {
+        PE_ERR(PEERR_SIZE);
+        return false;
+      }
+
+      ent.data = makeBufferFromPointer(dataSec.sectionData->buf + dataoff,
+                                       curEnt.SizeOfData);
+    } else if (curEnt.PointerToRawData != 0) {
+      // A bare file pointer is still in pre-stripping coordinates.
+      if (curEnt.PointerToRawData < p->internal->teBias) {
+        PE_ERR(PEERR_SIZE);
+        return false;
+      }
+
+      std::uint64_t lowOff =
+          static_cast<std::uint64_t>(curEnt.PointerToRawData) -
+          p->internal->teBias;
+      std::uint64_t highOff = lowOff + curEnt.SizeOfData;
+      if (highOff < lowOff || highOff > p->fileBuffer->bufLen) {
+        PE_ERR(PEERR_SIZE);
+        return false;
+      }
+
+      ent.data = splitBuffer(p->fileBuffer, static_cast<std::uint32_t>(lowOff),
+                             static_cast<std::uint32_t>(highOff));
+    } else {
+      // No way to locate the payload.
+      break;
+    }
+
+    if (ent.data == nullptr) {
+      PE_ERR(PEERR_MEM);
+      return false;
+    }
+
+    p->internal->debugdirs.push_back(ent);
+    offset += sizeof(debug_dir_entry);
+  }
+
+  return true;
+}
+
+static parsed_pe *parseTEImage(bounded_buffer *buffer) {
+  parsed_pe *p = new (std::nothrow) parsed_pe();
+
+  if (p == nullptr) {
+    PE_ERR(PEERR_MEM);
+    return nullptr;
+  }
+
+  p->fileBuffer = buffer;
+
+  p->internal = new (std::nothrow) parsed_pe_internal();
+
+  if (p->internal == nullptr) {
+    deleteBuffer(p->fileBuffer);
+    delete p;
+    PE_ERR(PEERR_MEM);
+    return nullptr;
+  }
+
+  te_header te = {};
+  if (!readTEHeader(buffer, te)) {
+    DestructParsedPE(p);
+    return nullptr;
+  }
+
+  p->internal->isTE = true;
+  p->internal->te = te;
+  p->internal->teBias =
+      static_cast<std::uint32_t>(te.StrippedSize) - TE_HEADER_SIZE;
+
+  // Synthesize the parts of the PE header that the existing public API
+  // queries (machine, subsystem, entry point, image base, directory
+  // accessors). No DOS or Rich header existed in the TE file.
+  p->peHeader.nt.Signature = TE_MAGIC;
+  p->peHeader.nt.FileHeader.Machine = te.Machine;
+  p->peHeader.nt.FileHeader.NumberOfSections = te.NumberOfSections;
+  p->peHeader.rich.isPresent = false;
+  p->peHeader.rich.isValid = false;
+
+  if (te.Machine == IMAGE_FILE_MACHINE_AMD64) {
+    p->peHeader.nt.OptionalMagic = NT_OPTIONAL_64_MAGIC;
+    p->peHeader.nt.OptionalHeader64.Magic = NT_OPTIONAL_64_MAGIC;
+    p->peHeader.nt.OptionalHeader64.AddressOfEntryPoint =
+        te.AddressOfEntryPoint;
+    p->peHeader.nt.OptionalHeader64.BaseOfCode = te.BaseOfCode;
+    p->peHeader.nt.OptionalHeader64.ImageBase = te.ImageBase;
+    p->peHeader.nt.OptionalHeader64.Subsystem = te.Subsystem;
+    p->peHeader.nt.OptionalHeader64.NumberOfRvaAndSizes = NUM_DIR_ENTRIES;
+  } else {
+    p->peHeader.nt.OptionalMagic = NT_OPTIONAL_32_MAGIC;
+    p->peHeader.nt.OptionalHeader.Magic = NT_OPTIONAL_32_MAGIC;
+    p->peHeader.nt.OptionalHeader.AddressOfEntryPoint = te.AddressOfEntryPoint;
+    p->peHeader.nt.OptionalHeader.BaseOfCode = te.BaseOfCode;
+    p->peHeader.nt.OptionalHeader.ImageBase =
+        static_cast<std::uint32_t>(te.ImageBase);
+    p->peHeader.nt.OptionalHeader.Subsystem = te.Subsystem;
+    p->peHeader.nt.OptionalHeader.NumberOfRvaAndSizes = NUM_DIR_ENTRIES;
+  }
+
+  // Keep the PE data directory view usable for existing consumers: TE
+  // directory 0 is the base relocation directory and TE directory 1 is the
+  // debug directory.
+  if (te.Machine == IMAGE_FILE_MACHINE_AMD64) {
+    p->peHeader.nt.OptionalHeader64.DataDirectory[DIR_BASERELOC] =
+        te.DataDirectory[0];
+    p->peHeader.nt.OptionalHeader64.DataDirectory[DIR_DEBUG] =
+        te.DataDirectory[1];
+  } else {
+    p->peHeader.nt.OptionalHeader.DataDirectory[DIR_BASERELOC] =
+        te.DataDirectory[0];
+    p->peHeader.nt.OptionalHeader.DataDirectory[DIR_DEBUG] =
+        te.DataDirectory[1];
+  }
+
+  if (!getTESections(
+          buffer, te, p->internal->teBias, p->internal->secs)) {
+    DestructParsedPE(p);
+    return nullptr;
+  }
+
+  if (!getTERelocations(p)) {
+    DestructParsedPE(p);
+    return nullptr;
+  }
+
+  if (!getTEDebugDir(p)) {
+    DestructParsedPE(p);
+    return nullptr;
+  }
+
+  return p;
+}
+
 parsed_pe *ParsePEFromBuffer(bounded_buffer *buffer) {
+  // Reset the parser status so that a previous failure cannot be observed
+  // through a subsequent successful parse.
+  err = PEERR_NONE;
+  err_loc.clear();
+
+  if (buffer == nullptr) {
+    PE_ERR(PEERR_BUFFER);
+    return nullptr;
+  }
+
+  // A TE header is recognizable by its signature. Everything else follows
+  // the pre-existing PE code path unchanged.
+  if (buffer->bufLen >= sizeof(std::uint16_t)) {
+    std::uint16_t magic;
+    std::memcpy(&magic, buffer->buf, sizeof(std::uint16_t));
+    if (magic == TE_MAGIC) {
+      return parseTEImage(buffer);
+    }
+  }
+
   // First, create a new parsed_pe structure
   // We pass std::nothrow parameter to new so in case of failure it returns
   // nullptr instead of throwing exception std::bad_alloc.
@@ -2825,6 +3377,20 @@ const char *GetSubsystemAsString(parsed_pe *pe) {
     default:
       return nullptr;
   }
+}
+
+bool GetTEHeader(parsed_pe *pe, te_header &hdr) {
+  if (pe == nullptr || pe->internal == nullptr) {
+    PE_ERR(PEERR_BUFFER);
+    return false;
+  }
+
+  if (!pe->internal->isTE) {
+    return false;
+  }
+
+  hdr = pe->internal->te;
+  return true;
 }
 
 bool GetDataDirectoryEntry(parsed_pe *pe,
