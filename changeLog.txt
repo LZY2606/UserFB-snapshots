@@ -1,0 +1,42 @@
+VERSION : 0.0.0.4
+
+New
+- Bvh parsing of Skin & Animations
+
+Changes
+- Animator has inPlaceScale to set which axes to zero out for inPlace Animation, before it would zero out Y Axis for Mixamo Animations
+- IKChain.bindAltDirections, effectorDir & poleDir are option, so can call this method to modify just one direction instead of both.
+- BipedIKPose has inPlace & inPlaceScale added to cancel out hip position change changes
+
+=========================================================================
+VERSION : 0.0.0.3
+
+New
+- Armature object can be cloned
+- New IK Solvers:
+  - ArcSolver
+  - ArcSinSolver
+  - PistonSolver
+  - SpringSolver
+  - TrapezoidSolver
+  - ZSolver
+  - FabrikSolver
+  - NaturalCCDSolver
+  - CatenarySolver
+- BabylonJS Examples
+- ReadyPlayerMe : Loading & TPose Generation
+- Quadruped IK Rig ( Prototype )
+- Bone Slots : Attachment locations to bones
+- IK Animation Additives
+
+Changes
+- Bone.pidx is no longer nullable. -1 is used to denote there is no parent
+- Pose.getWorldTransform & getWorldRotation handles bIdx == -1 by returning Pose.offset value.
+- SwingTwistSolver doesn't apply twist if pole direction is all zeros
+- BoneSprings setRestPose has a parameter to not reset the current springs velocity and position.
+
+Fixes
+- Update the codebase to handle the Bone.pidx change.
+- Bug in BoneSprings where reset is called, it was zeroing out the input data which caused issues.
+
+=========================================================================
