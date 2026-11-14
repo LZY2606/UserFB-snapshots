@@ -129,10 +129,17 @@ GLSLGenerator::GLSLGenerator() :
 	m_bvecTernary[ 0 ]			= 0;
     m_outputPosition            = false;
     m_outputTargets             = 0;
+    m_entryPlan                 = NULL;
 }
 
 bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, const char* entryName, const Options& options)
 {
+
+    m_writer.Reset();
+    m_error                     = false;
+    m_outputPosition            = false;
+    m_outputTargets             = 0;
+    m_entryPlan                 = NULL;
 
     m_tree      = tree;
     m_entryName = entryName;
@@ -185,6 +192,23 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     {
         Error("Entry point '%s' doesn't exist", m_entryName);
         return false;
+    }
+
+    if (m_options.recursiveEntryInterfaces)
+    {
+        // Build the backend independent leaf plan before anything is written,
+        // so a failure leaves the result empty.
+        EntryInterfacePlan* plan = new EntryInterfacePlan();
+        std::string planError;
+        const EntryTarget entryTarget = (target == Target_VertexShader) ?
+            EntryTarget_VertexShader : EntryTarget_FragmentShader;
+        if (!plan->Build(m_tree, entryFunction, entryTarget, m_versionLegacy, NULL, planError))
+        {
+            delete plan;
+            Error("%s", planError.c_str());
+            return false;
+        }
+        m_entryPlan = plan;
     }
 
     if (m_version == Version_110)
@@ -389,6 +413,27 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     if (m_version == Version_100_ES && (m_tree->NeedsFunction("ddx") || m_tree->NeedsFunction("ddy")))
     {
         m_writer.WriteLine(0, "#extension GL_OES_standard_derivatives : require");
+    }
+
+    if (m_options.recursiveEntryInterfaces)
+    {
+        // In recursive mode the leaf plan drives every interface declaration
+        // and the marshalling around the single entry call.
+        OutputRecursiveAttributes();
+
+        if (m_target == Target_FragmentShader)
+        {
+            if (!m_versionLegacy)
+                m_writer.WriteLine(0, "out vec4 rast_FragData[%d];", m_entryPlan->GetNumColorSlots());
+        }
+
+        OutputStatements(0, statement);
+        OutputRecursiveEntryCaller(entryFunction);
+
+        m_tree = NULL;
+        delete m_entryPlan;
+        m_entryPlan = NULL;
+        return !m_error;
     }
 
     OutputAttributes(entryFunction);
@@ -1915,6 +1960,226 @@ const char* GLSLGenerator::GetBuiltInSemantic(const char* semantic, AttributeMod
     }
 
     return NULL;
+}
+
+std::string GLSLGenerator::BuildMemberChain(const std::string& memberChain) const
+{
+    // memberChain is either empty (the root object itself) or a sequence of
+    // ".field" pieces. Each field name goes through the reserved word
+    // handling used everywhere else.
+    std::string result;
+    size_t pos = 0;
+    while (pos < memberChain.size())
+    {
+        size_t dot = memberChain.find('.', pos);
+        if (dot == std::string::npos)
+            dot = memberChain.size();
+        if (dot > pos)
+        {
+            std::string field = memberChain.substr(pos, dot - pos);
+            result += ".";
+            result += GetSafeIdentifierName(field.c_str());
+        }
+        pos = dot + 1;
+    }
+    return result;
+}
+
+bool GLSLGenerator::IsGLSLBuiltinTarget(const EntryInterfaceLeaf& leaf)
+{
+    // gl_* names are real GLSL built-ins, and the color array is declared as
+    // a whole (rast_FragData[N], or gl_FragData in legacy). Everything else
+    // is a plain interface variable we must declare ourselves -- including
+    // Metal built-ins such as VFACE/SAMPLE_ID that this GLSL backend exposes
+    // as ordinary frag_ varyings.
+    const std::string& target = leaf.glslTarget;
+    if (target.compare(0, 3, "gl_") == 0)
+        return true;
+    if (target == "rast_FragData")
+        return true;
+    return false;
+}
+
+void GLSLGenerator::OutputRecursiveAttributes()
+{
+    // Input interface variables first, then output interface variables. The
+    // same semantic is legal in both directions (e.g. a TEXCOORD in and out)
+    // and maps to distinct variable names.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        const AttributeModifier modifier = (pass == 0) ? AttributeModifier_In : AttributeModifier_Out;
+
+        for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+        {
+            const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+            if (leaf.direction != (pass == 0 ? EntryDirection_Input : EntryDirection_Output))
+                continue;
+
+            // Built-in variables (gl_Position, gl_FragCoord, ...) and the
+            // fragment color array are declared elsewhere.
+            if (IsGLSLBuiltinTarget(leaf))
+                continue;
+
+            m_writer.BeginLine(0);
+            m_writer.Write("%s ", GetAttribQualifier(modifier));
+            m_writer.Write("%s %s;", GetTypeName(HLSLType(leaf.baseType)), leaf.glslTarget.c_str());
+            m_writer.EndLine();
+        }
+    }
+}
+
+void GLSLGenerator::OutputRecursiveLeafExport(const EntryInterfaceLeaf& leaf, const char* source)
+{
+    if (!leaf.builtIn)
+    {
+        m_writer.WriteLine(1, "%s = %s;", leaf.glslTarget.c_str(), source);
+        return;
+    }
+
+    if (leaf.glslTarget == "gl_Position")
+    {
+        if (m_options.flags & Flag_FlipPositionOutput)
+        {
+            // Mirror the y-coordinate when we're outputing from the vertex
+            // shader so that we match the D3D texture coordinate origin
+            // convention in render-to-texture operations. The flip runs once
+            // per position leaf.
+            m_writer.WriteLine(1, "vec4 temp = %s;", source);
+            m_writer.WriteLine(1, "%s = temp * vec4(1,-1,2,1) - vec4(0,0,temp.w,0);", leaf.glslTarget.c_str());
+        }
+        else
+        {
+            m_writer.WriteLine(1, "%s = %s;", leaf.glslTarget.c_str(), source);
+        }
+        m_outputPosition = true;
+    }
+    else if (leaf.glslTarget == "gl_FragDepth")
+    {
+        // If the value goes outside of the 0 to 1 range, the fragment will be
+        // rejected unlike in D3D, so clamp it.
+        m_writer.WriteLine(1, "%s = clamp(float(%s), 0.0, 1.0);", leaf.glslTarget.c_str(), source);
+    }
+    else if (leaf.colorSlot >= 0)
+    {
+        m_writer.WriteLine(1, "%s[%d] = %s;", leaf.glslTarget.c_str(), leaf.colorSlot, source);
+    }
+    else
+    {
+        m_writer.WriteLine(1, "%s = %s;", leaf.glslTarget.c_str(), source);
+    }
+}
+
+void GLSLGenerator::OutputRecursiveEntryCaller(HLSLFunction* entryFunction)
+{
+    m_writer.WriteLine(0, "void main() {");
+
+    // One local variable per parameter, keeping the original structure type.
+    struct ArgumentLocal
+    {
+        const HLSLArgument* argument;
+        char                name[64];
+    };
+
+    std::vector<ArgumentLocal> locals;
+    std::vector<std::string> usedNames;
+
+    for (HLSLArgument* argument = entryFunction->argument; argument != NULL;
+         argument = argument->nextArgument)
+    {
+        ArgumentLocal local;
+        local.argument = argument;
+
+        for (int attempt = 0; attempt < 1024; ++attempt)
+        {
+            const char* safeBase = GetSafeIdentifierName(argument->name);
+            if (attempt == 0)
+                String_Printf(local.name, sizeof(local.name), "%s", safeBase);
+            else
+                String_Printf(local.name, sizeof(local.name), "%s%d", safeBase, attempt);
+
+            bool collision = false;
+            if (m_tree->GetContainsString(local.name))
+                collision = true;
+            for (size_t k = 0; k < usedNames.size() && !collision; ++k)
+                if (usedNames[k] == local.name)
+                    collision = true;
+            if (!collision)
+                break;
+        }
+
+        usedNames.push_back(local.name);
+        locals.push_back(local);
+
+        m_writer.BeginLine(1);
+        OutputDeclaration(argument->type, local.name);
+        m_writer.EndLine(";");
+    }
+
+    char resultName[64];
+    const bool hasReturn = entryFunction->returnType.baseType != HLSLBaseType_Void;
+    if (hasReturn)
+    {
+        ChooseUniqueName("entry_result", resultName, sizeof(resultName));
+    }
+
+    // Pre-call assembly: write every input leaf into its original structure
+    // location along the full member path.
+    for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+    {
+        const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+        if (leaf.direction != EntryDirection_Input)
+            continue;
+
+        const ArgumentLocal* local = NULL;
+        for (size_t k = 0; k < locals.size(); ++k)
+        {
+            if (static_cast<int>(k) == leaf.argumentIndex)
+            {
+                local = &locals[k];
+                break;
+            }
+        }
+        ASSERT(local != NULL);
+
+        std::string lhs = local->name + BuildMemberChain(leaf.memberChain);
+        if (leaf.colorSlot >= 0)
+            m_writer.WriteLine(1, "%s = %s[%d];", lhs.c_str(), leaf.glslTarget.c_str(), leaf.colorSlot);
+        else
+            m_writer.WriteLine(1, "%s = %s;", lhs.c_str(), leaf.glslTarget.c_str());
+    }
+
+    // The entry point is called exactly once, with the original argument types.
+    m_writer.BeginLine(1);
+    if (hasReturn)
+        m_writer.Write("%s %s = ", GetTypeName(entryFunction->returnType), resultName);
+    m_writer.Write("%s(", m_entryName);
+    for (size_t k = 0; k < locals.size(); ++k)
+    {
+        if (k > 0)
+            m_writer.Write(", ");
+        m_writer.Write("%s", locals[k].name);
+    }
+    m_writer.EndLine(");");
+
+    // Post-call export: read output leaves back out of the original local
+    // structures (or the return value) and assign them to their targets.
+    for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+    {
+        const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+        if (leaf.direction != EntryDirection_Output)
+            continue;
+
+        std::string source;
+        if (leaf.isReturn)
+            source = resultName + BuildMemberChain(leaf.memberChain);
+        else
+            source = locals[static_cast<size_t>(leaf.argumentIndex)].name +
+                     BuildMemberChain(leaf.memberChain);
+
+        OutputRecursiveLeafExport(leaf, source.c_str());
+    }
+
+    m_writer.WriteLine(0, "}");
 }
 
 }

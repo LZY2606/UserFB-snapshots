@@ -139,11 +139,13 @@ namespace M4
         m_entryName = NULL;
         m_target = Target_VertexShader;
         m_error = false;
+        m_entryPlan = NULL;
 
         m_firstClassArgument = NULL;
         m_lastClassArgument = NULL;
 
         m_currentFunction = NULL;
+        m_recursiveMode = false;
     }
 
     // Copied from GLSLGenerator
@@ -730,6 +732,9 @@ namespace M4
     {
         m_firstClassArgument = NULL;
         m_lastClassArgument = NULL;
+        m_entryPlan = NULL;
+        m_error = false;
+        m_recursiveMode = false;
 
         m_tree = tree;
         m_target = target;
@@ -745,6 +750,55 @@ namespace M4
         {
             Error("Entry point '%s' doesn't exist\n", entryName);
             return false;
+        }
+
+        if (m_options.recursiveEntryInterfaces)
+        {
+            // The leaf plan is built before anything is written, so a failed
+            // build leaves the result empty. The prepass is deliberately
+            // skipped: it mutates the shared AST (hidden flags and
+            // sv_semantic tags), while recursive mode must keep the tree
+            // untouched and never write direction dependent tags back.
+            EntryInterfacePlan* plan = new EntryInterfacePlan();
+            std::string planError;
+            const EntryTarget entryTarget = (target == Target_VertexShader) ?
+                EntryTarget_VertexShader : EntryTarget_FragmentShader;
+            if (!plan->Build(tree, entryFunction, entryTarget, /*glslLegacy=*/false,
+                             m_options.attributeCallback, planError))
+            {
+                delete plan;
+                Error("%s\n", planError.c_str());
+                return false;
+            }
+            m_entryPlan = plan;
+
+            m_recursiveMode = true;
+
+            PrependDeclarations();
+
+            HLSLRoot* root = m_tree->GetRoot();
+
+            OutputStaticDeclarationsReadOnly(0, root->statement);
+
+            // The original nested structures stay inside the shader class.
+            const char* shaderClassName = (target == MSLGenerator::Target_VertexShader) ? "Vertex_Shader" : "Pixel_Shader";
+            m_writer.WriteLine(0, "struct %s {", shaderClassName);
+
+            OutputStatements(1, root->statement);
+
+            m_writer.WriteLine(0, "");
+            m_writer.WriteLine(1, "%s() {}", shaderClassName);
+
+            m_writer.WriteLine(0, "};");
+
+            OutputRecursiveStageStructs();
+            OutputRecursiveEntryPoint(entryFunction);
+
+            m_recursiveMode = false;
+            delete m_entryPlan;
+            m_entryPlan = NULL;
+            m_tree = NULL;
+            return !m_error;
         }
 
         Prepass(tree, target, entryFunction);
@@ -1004,6 +1058,228 @@ namespace M4
         }
     }
 
+    void MSLGenerator::OutputStaticDeclarationsReadOnly(int indent, HLSLStatement* statement)
+    {
+        // Same walk as OutputStaticDeclarations, but the AST is never mutated:
+        // recursive generation has to leave every node reusable for another
+        // run on the same tree.
+        while (statement != NULL)
+        {
+            if (statement->hidden)
+            {
+                statement = statement->nextStatement;
+                continue;
+            }
+
+            if (statement->nodeType == HLSLNodeType_Declaration)
+            {
+                HLSLDeclaration* declaration = static_cast<HLSLDeclaration*>(statement);
+
+                const HLSLType& type = declaration->type;
+
+                if ((type.flags & HLSLTypeFlag_Const) && (type.flags & HLSLTypeFlag_Static))
+                {
+                    m_writer.BeginLine(indent, declaration->fileName, declaration->line);
+                    OutputDeclaration(declaration);
+                    m_writer.EndLine(";");
+                }
+            }
+            else if (statement->nodeType == HLSLNodeType_Function)
+            {
+                HLSLFunction* function = static_cast<HLSLFunction*>(statement);
+
+                if (!function->forward)
+                    OutputStaticDeclarationsReadOnly(indent, function->statement);
+            }
+
+            statement = statement->nextStatement;
+        }
+    }
+
+    std::string MSLGenerator::BuildMemberChain(const std::string& memberChain) const
+    {
+        std::string result;
+        size_t pos = 0;
+        while (pos < memberChain.size())
+        {
+            size_t dot = memberChain.find('.', pos);
+            if (dot == std::string::npos)
+                dot = memberChain.size();
+            if (dot > pos)
+                result += "." + memberChain.substr(pos, dot - pos);
+            pos = dot + 1;
+        }
+        return result;
+    }
+
+    bool MSLGenerator::ChooseUniqueIdentifier(const char* base, char* dst, int dstLength) const
+    {
+        for (int i = 0; i < 1024; ++i)
+        {
+            if (i == 0)
+                String_Printf(dst, dstLength, "%s", base);
+            else
+                String_Printf(dst, dstLength, "%s%d", base, i);
+
+            if (!m_tree->GetContainsString(dst))
+                return true;
+        }
+        return false;
+    }
+
+    void MSLGenerator::OutputRecursiveStageStructs()
+    {
+        // Flat stage_in structure for the input leaves and a flat stage output
+        // structure for the output leaves. The original nested structures are
+        // still emitted inside the shader class.
+        m_writer.WriteLine(0, "");
+        m_writer.WriteLine(0, "struct %s_stage_in {", m_entryName);
+        for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+        {
+            const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+            if (leaf.direction != EntryDirection_Input)
+                continue;
+            m_writer.WriteLine(1, "%s %s [[%s]];",
+                GetTypeName(HLSLType(leaf.baseType), /*exactType=*/true),
+                leaf.stageName.c_str(), leaf.mslTarget.c_str());
+        }
+        m_writer.WriteLine(0, "};");
+
+        m_writer.WriteLine(0, "");
+        m_writer.WriteLine(0, "struct %s_stage_out {", m_entryName);
+        for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+        {
+            const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+            if (leaf.direction != EntryDirection_Output)
+                continue;
+            m_writer.WriteLine(1, "%s %s [[%s]];",
+                GetTypeName(HLSLType(leaf.baseType), /*exactType=*/true),
+                leaf.stageName.c_str(), leaf.mslTarget.c_str());
+        }
+        m_writer.WriteLine(0, "};");
+    }
+
+    void MSLGenerator::OutputRecursiveEntryPoint(HLSLFunction* entryFunction)
+    {
+        const char* shaderClassName = (m_target == Target_VertexShader) ? "Vertex_Shader" : "Pixel_Shader";
+
+        m_writer.WriteLine(0, "");
+        m_writer.BeginLine(0);
+        m_writer.Write(m_target == Target_VertexShader ? "vertex " : "fragment ");
+        m_writer.Write("%s_stage_out %s(%s_stage_in stage [[stage_in]]) {",
+            m_entryName, m_entryName, m_entryName);
+        m_writer.EndLine();
+
+        // The helper class instance, exactly like the legacy wrapper.
+        m_writer.WriteLine(1, "%s %s;", shaderClassName, m_entryName);
+
+        // One local per parameter, with the original structure type. Names are
+        // picked so they can never collide with identifiers in the source.
+        struct ArgumentLocal
+        {
+            const HLSLArgument* argument;
+            char                name[64];
+        };
+        std::vector<ArgumentLocal> locals;
+
+        int argumentIndex = 0;
+        for (HLSLArgument* argument = entryFunction->argument; argument != NULL;
+             argument = argument->nextArgument, ++argumentIndex)
+        {
+            ArgumentLocal local;
+            local.argument = argument;
+            ChooseUniqueIdentifier(argument->name, local.name, sizeof(local.name));
+            locals.push_back(local);
+
+            m_writer.BeginLine(1);
+            OutputDeclaration(argument->type, local.name, NULL);
+            m_writer.EndLine(";");
+        }
+
+        // Pre-call assembly along the full member paths.
+        for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+        {
+            const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+            if (leaf.direction != EntryDirection_Input)
+                continue;
+            const ArgumentLocal& local = locals[static_cast<size_t>(leaf.argumentIndex)];
+            std::string lhs = std::string(local.name) + BuildMemberChain(leaf.memberChain);
+            m_writer.WriteLine(1, "%s = stage.%s;", lhs.c_str(), leaf.stageName.c_str());
+        }
+
+        // The entry function is called exactly once. When it has out/inout
+        // parameters the class method returns a tuple, which is consumed
+        // member by member below rather than handed to the stage output.
+        char tupleName[64];
+        char resultName[64];
+        ChooseUniqueIdentifier("entry_out", tupleName, sizeof(tupleName));
+        ChooseUniqueIdentifier("entry_result", resultName, sizeof(resultName));
+
+        const bool hasReturn = entryFunction->returnType.baseType != HLSLBaseType_Void;
+        const bool hasTuple  = entryFunction->numOutputArguments > 0;
+
+        m_writer.BeginLine(1);
+        if (hasTuple)
+            m_writer.Write("auto %s = ", tupleName);
+        else if (hasReturn)
+            m_writer.Write("%s %s = ", GetTypeName(entryFunction->returnType, true), resultName);
+        m_writer.Write("%s.%s", m_entryName, m_entryName);
+        if (hasTuple)
+            m_writer.Write("_%d", entryFunction->line);
+        m_writer.Write("(");
+        // The generated class method drops pure "out" parameters (they come
+        // back through the return tuple), so only pass in/inout locals.
+        bool firstCallArg = true;
+        for (size_t k = 0; k < locals.size(); ++k)
+        {
+            if (locals[k].argument->modifier == HLSLArgumentModifier_Out)
+                continue;
+            if (!firstCallArg)
+                m_writer.Write(", ");
+            firstCallArg = false;
+            m_writer.Write("%s", locals[k].name);
+        }
+        m_writer.EndLine(");");
+
+        char stageOutName[64];
+        ChooseUniqueIdentifier("stageOut", stageOutName, sizeof(stageOutName));
+        m_writer.WriteLine(1, "%s_stage_out %s;", m_entryName, stageOutName);
+
+        // Post-call export from the original locals / return value (the tuple
+        // fields carry exactly those post-call values) into the flat stage out.
+        for (int i = 0; i < m_entryPlan->GetNumLeaves(); ++i)
+        {
+            const EntryInterfaceLeaf& leaf = m_entryPlan->GetLeaf(i);
+            if (leaf.direction != EntryDirection_Output)
+                continue;
+
+            std::string source;
+            if (leaf.isReturn)
+            {
+                if (hasTuple)
+                    source = std::string(tupleName) + ".__result" + BuildMemberChain(leaf.memberChain);
+                else
+                    source = std::string(resultName) + BuildMemberChain(leaf.memberChain);
+            }
+            else
+            {
+                if (hasTuple)
+                    // The tuple fields keep the original argument names, not
+                    // the names of the wrapper's local variables.
+                    source = std::string(tupleName) + "." + leaf.rootName +
+                             BuildMemberChain(leaf.memberChain);
+                else
+                    source = std::string(locals[static_cast<size_t>(leaf.argumentIndex)].name) +
+                             BuildMemberChain(leaf.memberChain);
+            }
+
+            m_writer.WriteLine(1, "%s.%s = %s;", stageOutName, leaf.stageName.c_str(), source.c_str());
+        }
+
+        m_writer.WriteLine(1, "return %s;", stageOutName);
+        m_writer.WriteLine(0, "}");
+    }
+
     void MSLGenerator::OutputStatements(int indent, HLSLStatement* statement)
     {
         // Main generator loop: called recursively
@@ -1020,6 +1296,17 @@ namespace M4
             if (statement->nodeType == HLSLNodeType_Declaration)
             {
                 HLSLDeclaration* declaration = static_cast<HLSLDeclaration*>(statement);
+
+                // In recursive mode the file-scope pass already emitted static
+                // const globals without mutating the AST, so they must not be
+                // emitted a second time as members of the shader class.
+                if (m_recursiveMode &&
+                    (declaration->type.flags & HLSLTypeFlag_Const) &&
+                    (declaration->type.flags & HLSLTypeFlag_Static))
+                {
+                    statement = statement->nextStatement;
+                    continue;
+                }
 
                 if (declaration->assignment && declaration->assignment->nodeType == HLSLNodeType_FunctionCall)
                 {
@@ -1286,7 +1573,7 @@ namespace M4
             {
                 m_writer.BeginLine(indent + 1, field->fileName, field->line);
                 OutputDeclaration(field->type, field->name, NULL);
-                if (field->sv_semantic)
+                if (field->sv_semantic && !m_recursiveMode)
                 {
                     m_writer.Write(" [[%s]]", field->sv_semantic);
                 }

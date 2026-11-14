@@ -2,6 +2,7 @@
 #define MSL_GENERATOR_H
 
 #include "CodeWriter.h"
+#include "EntryInterface.h"
 #include "HLSLTree.h"
 
 namespace M4
@@ -39,6 +40,7 @@ public:
         bool forceHalfPrecision;    // Not implemented.
         bool usePreciseFma;
         bool use16BitIntegers;
+        bool recursiveEntryInterfaces;
 
         Options()
         {
@@ -49,6 +51,7 @@ public:
             forceHalfPrecision = false;
             usePreciseFma = false;
             use16BitIntegers = false;
+            recursiveEntryInterfaces = false;
         }
     };
 
@@ -84,6 +87,9 @@ private:
     void PrependDeclarations();
     
     void OutputStaticDeclarations(int indent, HLSLStatement* statement);
+    // Like OutputStaticDeclarations, but never flips the hidden flag on AST
+    // nodes so repeated generation keeps the original tree intact.
+    void OutputStaticDeclarationsReadOnly(int indent, HLSLStatement* statement);
     void OutputStatements(int indent, HLSLStatement* statement);
     void OutputAttributes(int indent, HLSLAttribute* attribute);
     void OutputDeclaration(HLSLDeclaration* declaration);
@@ -109,6 +115,12 @@ private:
     const char* TranslateInputSemantic(const char* semantic);
     const char* TranslateOutputSemantic(const char* semantic);
 
+    // Recursive entry interface mode.
+    void OutputRecursiveStageStructs();
+    void OutputRecursiveEntryPoint(HLSLFunction* entryFunction);
+    std::string BuildMemberChain(const std::string& memberChain) const;
+    bool ChooseUniqueIdentifier(const char* base, char* dst, int dstLength) const;
+
     const char* GetTypeName(const HLSLType& type, bool exactType);
     
     void Error(const char* format, ...);
@@ -124,10 +136,16 @@ private:
 
     bool            m_error;
 
+    EntryInterfacePlan* m_entryPlan;
+
     ClassArgument * m_firstClassArgument;
     ClassArgument * m_lastClassArgument;
     
     HLSLFunction *  m_currentFunction;
+
+    // When set, nested structures are emitted without the direction dependent
+    // sv_semantic tags, which recursive mode never writes back into the tree.
+    bool            m_recursiveMode;
 };
 
 } // M4

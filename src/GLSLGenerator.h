@@ -11,6 +11,7 @@
 #define GLSL_GENERATOR_H
 
 #include "CodeWriter.h"
+#include "EntryInterface.h"
 #include "HLSLTree.h"
 
 namespace M4
@@ -47,11 +48,13 @@ public:
     {
         unsigned int flags;
         const char* constantBufferPrefix;
+        bool recursiveEntryInterfaces;
 
         Options()
         {
             flags = 0;
             constantBufferPrefix = "";
+            recursiveEntryInterfaces = false;
         }
     };
 
@@ -82,6 +85,15 @@ private:
     void OutputAttribute(const HLSLType& type, const char* semantic, AttributeModifier modifier);
     void OutputAttributes(HLSLFunction* entryFunction);
     void OutputEntryCaller(HLSLFunction* entryFunction);
+
+    // Recursive entry interface mode: the entry signature is flattened into
+    // scalar/vector leaves described by an EntryInterfacePlan, while the
+    // original entry function keeps its nested structure.
+    void OutputRecursiveAttributes();
+    void OutputRecursiveEntryCaller(HLSLFunction* entryFunction);
+    void OutputRecursiveLeafExport(const EntryInterfaceLeaf& leaf, const char* source);
+    std::string BuildMemberChain(const std::string& memberChain) const;
+    static bool IsGLSLBuiltinTarget(const EntryInterfaceLeaf& leaf);
     void OutputDeclaration(HLSLDeclaration* declaration);
 	void OutputDeclarationType( const HLSLType& type );
 	void OutputDeclarationBody( const HLSLType& type, const char* name );
@@ -154,6 +166,8 @@ private:
 	char                m_bvecTernary[ 64 ];
 
     bool                m_error;
+
+    EntryInterfacePlan* m_entryPlan;
 
     char                m_reservedWord[s_numReservedWords][64];
 
