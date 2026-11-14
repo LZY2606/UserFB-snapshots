@@ -36,3 +36,7 @@
 *.jpeg
 *.png
 *.bmp
+
+# Task build artifacts
+/.task-build/
+/vsm_compare.ppm

@@ -40,6 +40,56 @@
 增加光照和二次线性插值（朋友给 Mini3D 增加的光照效果截图）
 ![](https://raw.githubusercontent.com/skywind3000/mini3d/master/images/mini_3.png)
 
+## 方差阴影（离线预览）
+
+在保留原有矩阵、梯形和扫描线渲染链的基础上，新增了一条先过滤矩再采样的
+方差阴影（VSM）路径，而不是把硬阴影比较结果做平均。核心接口在 `mini3d.h`，
+阴影图由 `vsm.h` / `vsm.c` 管理，全部为 C99 + libm；定义 `MINI3D_HEADLESS`
+即可关闭 Win32 窗口层，只编译核心。
+
+* `vsm_create(width,height)` / `vsm_destroy`：创建、销毁阴影图。
+* `vsm_clear`：深度与一阶、二阶矩全部复位为 1；`vsm_capture` 内部每次
+  也会重新清图，不会改写输入三角形或外部设备。
+* `vsm_capture(map, object_to_light, triangles, count)`：`triangles` 是
+  `vertex_t` 的三元组数组，矩阵把坐标变到正交光源齐次空间（`w` 恒为 1，
+  CVV 为 x/y∈[-w,w]、z∈[0,w]）。三角形先过六个裁剪面，裁出的可见部分
+  交给既有的梯形/扫描线生产光栅路径，不另写一套三角形光栅器。每个光图
+  像素保留最小 z，并写入
+  `M1=z`、`M2=z²+(dz/dx)²/4+(dz/dy)²/4`，
+  梯度来自当前面的深度平面（单位为光图像素），不取邻像素有限差分。
+* `vsm_filter(map, passes)`：从原始矩快照开始，每轮横向、纵向各做一次
+  `[1,2,1]/4` 卷积，两个矩独立过滤，越界 tap 取 `(1,1)`；`passes=0`
+  复制原始矩。重复调用相同轮数结果一致，不会在上次结果上继续模糊。
+* `vsm_depth` / `vsm_raw_moment` / `vsm_moment`：分别读出最近深度、
+  原始矩和过滤后矩。
+* `vsm_sample(map,u,v,t,bias,min_variance,bleed)`：先对过滤后矩做双线性
+  插值（纹素中心 `((x+.5)/width,(y+.5)/height)`，越界 tap 取 `(1,1)`），
+  接收深度先减 bias，`t<=M1` 全亮；否则
+  `variance=max(M2-M1²,min_variance)`、
+  `p=variance/(variance+(t-M1)²)`，最后
+  `clamp((p-bleed)/(1-bleed),0,1)`。光图外、深度域外或无效齐次投影
+  一律按全亮处理。参数约束：`bias>=0`、`min_variance>0`、`bleed∈[0,1)`。
+* `device_bind_vsm(device, map, object_to_light, bias, min_variance,
+  bleed, ambient)` / `device_unbind_vsm`：绑定后，光坐标作为顶点属性
+  跨相机裁剪与梯形插值，按主相机 `w` 透视校正后再做光投影（主相机的
+  `rhw` 不会被当作光深度）。扫描线在选好纹理或顶点底色之后，用
+  `ambient+(1-ambient)*p` 调制浮点底色再量化，纹理/颜色优先级和主相机
+  深度比较均保持不变，两台设备绑定不同阴影图时状态互不串扰。
+
+离线示例 `examples/vsm.c` 生成地面加遮挡方块的场景，输出左右对照 PPM
+（左：未绑定全亮，右：VSM 阴影）：
+
+	cc -std=c99 -O2 -DMINI3D_HEADLESS -I. examples/vsm.c mini3d.c vsm.c -lm -o vsm_example
+	./vsm_example vsm_compare.ppm
+
+任务测试 `tests/vsm_target.c` 覆盖矩捕获（斜平面梯度矩、六面裁剪、
+不同深度遮挡者）、矩过滤（独立卷积核对、先比较再过滤的反例）和相机
+着色（非等 w 透视、纹理优先级、后方遮挡、解绑与双设备），执行：
+
+	bash task_support/run.sh target
+
+该命令会链接 `mini3d.c`、`vsm.c` 和新测试，并同时重跑原颜色/纹理基线。
+
 ## 基础作业
 
 * 增加背面剔除

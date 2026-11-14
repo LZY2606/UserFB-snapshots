@@ -1,18 +1,18 @@
 //=====================================================================
-// 
+//
 // mini3d.c - Mini Software Render All-In-One
 //
 // build:
 //   mingw: gcc -O3 mini3d.c -o mini3d.exe -lgdi32
-//   msvc:  cl -O2 -nologo mini3d.c 
+//   msvc:  cl -O2 -nologo mini3d.c
 //
 // history:
 //   2007.7.01  skywind  create this file as a tutorial
 //   2007.7.02  skywind  implementate texture and color render
 //   2008.3.15  skywind  fixed a trapezoid issue
 //   2015.8.09  skywind  rewrite with more comment
-//   2015.8.12  skywind  adjust interfaces for clearity 
-// 
+//   2015.8.12  skywind  adjust interfaces for clearity
+//
 //=====================================================================
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,20 +20,16 @@
 #include <assert.h>
 
 #include <string.h>
+#include "mini3d.h"
+
 #ifndef MINI3D_HEADLESS
 #include <windows.h>
 #include <tchar.h>
 #endif
 
-typedef unsigned int IUINT32;
-
 //=====================================================================
 // 数学库：此部分应该不用详解，熟悉 D3D 矩阵变换即可
 //=====================================================================
-typedef struct { float m[4][4]; } matrix_t;
-typedef struct { float x, y, z, w; } vector_t;
-typedef vector_t point_t;
-
 int CMID(int x, int min, int max) { return (x < min)? min : ((x > max)? max : x); }
 
 // 计算插值：t 为 [0, 1] 之间的数值
@@ -91,7 +87,7 @@ void vector_normalize(vector_t *v) {
 	float length = vector_length(v);
 	if (length != 0.0f) {
 		float inv = 1.0f / length;
-		v->x *= inv; 
+		v->x *= inv;
 		v->y *= inv;
 		v->z *= inv;
 	}
@@ -134,7 +130,7 @@ void matrix_mul(matrix_t *c, const matrix_t *a, const matrix_t *b) {
 void matrix_scale(matrix_t *c, const matrix_t *a, float f) {
 	int i, j;
 	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++) 
+		for (j = 0; j < 4; j++)
 			c->m[i][j] = a->m[i][j] * f;
 	}
 }
@@ -149,7 +145,7 @@ void matrix_apply(vector_t *y, const vector_t *x, const matrix_t *m) {
 }
 
 void matrix_set_identity(matrix_t *m) {
-	m->m[0][0] = m->m[1][1] = m->m[2][2] = m->m[3][3] = 1.0f; 
+	m->m[0][0] = m->m[1][1] = m->m[2][2] = m->m[3][3] = 1.0f;
 	m->m[0][1] = m->m[0][2] = m->m[0][3] = 0.0f;
 	m->m[1][0] = m->m[1][2] = m->m[1][3] = 0.0f;
 	m->m[2][0] = m->m[2][1] = m->m[2][3] = 0.0f;
@@ -199,7 +195,7 @@ void matrix_set_rotate(matrix_t *m, float x, float y, float z, float theta) {
 	m->m[1][2] = 2 * y * z + 2 * w * x;
 	m->m[2][2] = 1 - 2 * x * x - 2 * y * y;
 	m->m[0][3] = m->m[1][3] = m->m[2][3] = 0.0f;
-	m->m[3][0] = m->m[3][1] = m->m[3][2] = 0.0f;	
+	m->m[3][0] = m->m[3][1] = m->m[3][2] = 0.0f;
 	m->m[3][3] = 1.0f;
 }
 
@@ -227,7 +223,7 @@ void matrix_set_lookat(matrix_t *m, const vector_t *eye, const vector_t *at, con
 	m->m[1][2] = zaxis.y;
 	m->m[2][2] = zaxis.z;
 	m->m[3][2] = -vector_dotproduct(&zaxis, eye);
-	
+
 	m->m[0][3] = m->m[1][3] = m->m[2][3] = 0.0f;
 	m->m[3][3] = 1.0f;
 }
@@ -247,14 +243,6 @@ void matrix_set_perspective(matrix_t *m, float fovy, float aspect, float zn, flo
 //=====================================================================
 // 坐标变换
 //=====================================================================
-typedef struct { 
-	matrix_t world;         // 世界坐标变换
-	matrix_t view;          // 摄影机坐标变换
-	matrix_t projection;    // 投影变换
-	matrix_t transform;     // transform = world * view * projection
-	float w, h;             // 屏幕大小
-}	transform_t;
-
 
 // 矩阵更新，计算 transform = world * view * projection
 void transform_update(transform_t *ts) {
@@ -274,7 +262,7 @@ void transform_init(transform_t *ts, int width, int height) {
 	transform_update(ts);
 }
 
-// 将矢量 x 进行 project 
+// 将矢量 x 进行 project
 void transform_apply(const transform_t *ts, vector_t *y, const vector_t *x) {
 	matrix_apply(y, x, &ts->transform);
 }
@@ -305,14 +293,6 @@ void transform_homogenize(const transform_t *ts, vector_t *y, const vector_t *x)
 //=====================================================================
 // 几何计算：顶点、扫描线、边缘、矩形、步长计算
 //=====================================================================
-typedef struct { float r, g, b; } color_t;
-typedef struct { float u, v; } texcoord_t;
-typedef struct { point_t pos; texcoord_t tc; color_t color; float rhw; } vertex_t;
-
-typedef struct { vertex_t v, v1, v2; } edge_t;
-typedef struct { float top, bottom; edge_t left, right; } trapezoid_t;
-typedef struct { vertex_t v, step; int x, y, w; } scanline_t;
-
 
 void vertex_rhw_init(vertex_t *v) {
 	float rhw = 1.0f / v->pos.w;
@@ -322,6 +302,12 @@ void vertex_rhw_init(vertex_t *v) {
 	v->color.r *= rhw;
 	v->color.g *= rhw;
 	v->color.b *= rhw;
+	// 光空间齐次坐标同样按主相机 w 透视除法后携带，
+	// 随梯形/扫描线做透视校正插值，rhw 本身不是光深度
+	v->lc.x *= rhw;
+	v->lc.y *= rhw;
+	v->lc.z *= rhw;
+	v->lc.w *= rhw;
 }
 
 void vertex_interp(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float t) {
@@ -332,6 +318,10 @@ void vertex_interp(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float t)
 	y->color.g = interp(x1->color.g, x2->color.g, t);
 	y->color.b = interp(x1->color.b, x2->color.b, t);
 	y->rhw = interp(x1->rhw, x2->rhw, t);
+	y->lc.x = interp(x1->lc.x, x2->lc.x, t);
+	y->lc.y = interp(x1->lc.y, x2->lc.y, t);
+	y->lc.z = interp(x1->lc.z, x2->lc.z, t);
+	y->lc.w = interp(x1->lc.w, x2->lc.w, t);
 }
 
 void vertex_division(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float w) {
@@ -346,6 +336,10 @@ void vertex_division(vertex_t *y, const vertex_t *x1, const vertex_t *x2, float 
 	y->color.g = (x2->color.g - x1->color.g) * inv;
 	y->color.b = (x2->color.b - x1->color.b) * inv;
 	y->rhw = (x2->rhw - x1->rhw) * inv;
+	y->lc.x = (x2->lc.x - x1->lc.x) * inv;
+	y->lc.y = (x2->lc.y - x1->lc.y) * inv;
+	y->lc.z = (x2->lc.z - x1->lc.z) * inv;
+	y->lc.w = (x2->lc.w - x1->lc.w) * inv;
 }
 
 void vertex_add(vertex_t *y, const vertex_t *x) {
@@ -359,10 +353,14 @@ void vertex_add(vertex_t *y, const vertex_t *x) {
 	y->color.r += x->color.r;
 	y->color.g += x->color.g;
 	y->color.b += x->color.b;
+	y->lc.x += x->lc.x;
+	y->lc.y += x->lc.y;
+	y->lc.z += x->lc.z;
+	y->lc.w += x->lc.w;
 }
 
 // 根据三角形生成 0-2 个梯形，并且返回合法梯形的数量
-int trapezoid_init_triangle(trapezoid_t *trap, const vertex_t *p1, 
+int trapezoid_init_triangle(trapezoid_t *trap, const vertex_t *p1,
 	const vertex_t *p2, const vertex_t *p3) {
 	const vertex_t *p;
 	float k, x;
@@ -451,25 +449,6 @@ void trapezoid_init_scan_line(const trapezoid_t *trap, scanline_t *scanline, int
 //=====================================================================
 // 渲染设备
 //=====================================================================
-typedef struct {
-	transform_t transform;      // 坐标变换器
-	int width;                  // 窗口宽度
-	int height;                 // 窗口高度
-	IUINT32 **framebuffer;      // 像素缓存：framebuffer[y] 代表第 y行
-	float **zbuffer;            // 深度缓存：zbuffer[y] 为第 y行指针
-	IUINT32 **texture;          // 纹理：同样是每行索引
-	int tex_width;              // 纹理宽度
-	int tex_height;             // 纹理高度
-	float max_u;                // 纹理最大宽度：tex_width - 1
-	float max_v;                // 纹理最大高度：tex_height - 1
-	int render_state;           // 渲染状态
-	IUINT32 background;         // 背景颜色
-	IUINT32 foreground;         // 线框颜色
-}	device_t;
-
-#define RENDER_STATE_WIREFRAME      1		// 渲染线框
-#define RENDER_STATE_TEXTURE        2		// 渲染纹理
-#define RENDER_STATE_COLOR          4		// 渲染颜色
 
 // 设备初始化，fb为外部帧缓存，非 NULL 将引用外部帧缓存（每行 4字节对齐）
 void device_init(device_t *device, int width, int height, void *fb) {
@@ -504,11 +483,20 @@ void device_init(device_t *device, int width, int height, void *fb) {
 	device->foreground = 0;
 	transform_init(&device->transform, width, height);
 	device->render_state = RENDER_STATE_WIREFRAME;
+	device->vsm_user = NULL;
+	device->vsm_sample = NULL;
+	matrix_set_zero(&device->vsm_light);
+	device->vsm_bias = 0.0f;
+	device->vsm_min_variance = 1e-6f;
+	device->vsm_bleed = 0.0f;
+	device->vsm_ambient = 0.0f;
+	device->shadow_pixel_cb = NULL;
+	device->shadow_user = NULL;
 }
 
 // 删除设备
 void device_destroy(device_t *device) {
-	if (device->framebuffer) 
+	if (device->framebuffer)
 		free(device->framebuffer);
 	device->framebuffer = NULL;
 	device->zbuffer = NULL;
@@ -612,6 +600,28 @@ IUINT32 device_texture_read(const device_t *device, float u, float v) {
 // 渲染实现
 //=====================================================================
 
+// 绑定阴影后，由透视校正插值后的光空间属性计算 VSM 可见度，
+// 返回 ambient+(1-ambient)*p；未绑定或无效投影返回 1（全亮）
+static float device_shadow_factor(device_t *device, const vertex_t *v, float cam_w) {
+	float lx, ly, lz, lw, u, vv, t, p;
+	if (device->vsm_user == NULL || device->vsm_sample == NULL) return 1.0f;
+	if (!isfinite(v->lc.x) || !isfinite(v->lc.y) || !isfinite(v->lc.z) ||
+		!isfinite(v->lc.w) || !isfinite(cam_w)) return 1.0f;
+	// 存储时除过主相机 w，先还原光空间齐次坐标
+	lx = v->lc.x * cam_w;
+	ly = v->lc.y * cam_w;
+	lz = v->lc.z * cam_w;
+	lw = v->lc.w * cam_w;
+	if (lw == 0.0f) return 1.0f;		// 无效齐次投影按全亮
+	u = (lx / lw + 1.0f) * 0.5f;
+	vv = (1.0f - ly / lw) * 0.5f;
+	t = lz / lw;
+	if (!isfinite(u) || !isfinite(vv) || !isfinite(t)) return 1.0f;
+	p = device->vsm_sample(device->vsm_user, u, vv, t,
+		device->vsm_bias, device->vsm_min_variance, device->vsm_bleed);
+	return device->vsm_ambient + (1.0f - device->vsm_ambient) * p;
+}
+
 // 绘制扫描线
 void device_draw_scanline(device_t *device, scanline_t *scanline) {
 	IUINT32 *framebuffer = device->framebuffer[scanline->y];
@@ -622,26 +632,50 @@ void device_draw_scanline(device_t *device, scanline_t *scanline) {
 	int render_state = device->render_state;
 	for (; w > 0; x++, w--) {
 		if (x >= 0 && x < width) {
-			float rhw = scanline->v.rhw;
-			if (rhw >= zbuffer[x]) {	
-				float w = 1.0f / rhw;
-				zbuffer[x] = rhw;
+			// 阴影图捕获模式：只把覆盖到的光图像素交给 VSM 回调，
+			// 不触碰帧缓存/深度缓存，最小 z 由 vsm.c 自行维护
+			if (device->shadow_pixel_cb != NULL) {
+				device->shadow_pixel_cb(device->shadow_user, x, scanline->y,
+					&scanline->v);
+			} else if (scanline->v.rhw >= zbuffer[x]) {
+				float w = 1.0f / scanline->v.rhw;
+				float br = 0.0f, bg = 0.0f, bb = 0.0f;
+				int have_color = 0;
+				float factor = 1.0f;
+				IUINT32 cc;
+				int R, G, B;
+				zbuffer[x] = scanline->v.rhw;	// 主相机深度比较仍决定遮挡
 				if (render_state & RENDER_STATE_COLOR) {
-					float r = scanline->v.color.r * w;
-					float g = scanline->v.color.g * w;
-					float b = scanline->v.color.b * w;
-					int R = (int)(r * 255.0f);
-					int G = (int)(g * 255.0f);
-					int B = (int)(b * 255.0f);
-					R = CMID(R, 0, 255);
-					G = CMID(G, 0, 255);
-					B = CMID(B, 0, 255);
-					framebuffer[x] = (R << 16) | (G << 8) | (B);
+					// 顶点底色经透视校正后的浮点值
+					br = scanline->v.color.r * w;
+					bg = scanline->v.color.g * w;
+					bb = scanline->v.color.b * w;
+					have_color = 1;
 				}
 				if (render_state & RENDER_STATE_TEXTURE) {
 					float u = scanline->v.tc.u * w;
 					float v = scanline->v.tc.v * w;
-					IUINT32 cc = device_texture_read(device, u, v);
+					IUINT32 texel = device_texture_read(device, u, v);
+					// 纹理优先级不变，纹理色先转浮点作为底色
+					br = ((texel >> 16) & 255) / 255.0f;
+					bg = ((texel >> 8) & 255) / 255.0f;
+					bb = (texel & 255) / 255.0f;
+					have_color = 1;
+				}
+				if (have_color) {
+					if (device->vsm_user != NULL)
+						factor = device_shadow_factor(device, &scanline->v, w);
+					// 调制浮点底色后再量化，未绑定时 factor 恒为 1
+					br *= factor;
+					bg *= factor;
+					bb *= factor;
+					R = (int)(br * 255.0f);
+					G = (int)(bg * 255.0f);
+					B = (int)(bb * 255.0f);
+					R = CMID(R, 0, 255);
+					G = CMID(G, 0, 255);
+					B = CMID(B, 0, 255);
+					cc = (R << 16) | (G << 8) | B;
 					framebuffer[x] = cc;
 				}
 			}
@@ -668,7 +702,7 @@ void device_render_trap(device_t *device, trapezoid_t *trap) {
 }
 
 // 根据 render_state 绘制原始三角形
-void device_draw_primitive(device_t *device, const vertex_t *v1, 
+void device_draw_primitive(device_t *device, const vertex_t *v1,
 	const vertex_t *v2, const vertex_t *v3) {
 	point_t p1, p2, p3, c1, c2, c3;
 	int render_state = device->render_state;
@@ -695,17 +729,24 @@ void device_draw_primitive(device_t *device, const vertex_t *v1,
 		trapezoid_t traps[2];
 		int n;
 
-		t1.pos = p1; 
+		t1.pos = p1;
 		t2.pos = p2;
 		t3.pos = p3;
 		t1.pos.w = c1.w;
 		t2.pos.w = c2.w;
 		t3.pos.w = c3.w;
-		
+
+		// 光坐标作为顶点属性随主相机管线传递，按主相机 w 透视校正
+		if (device->vsm_user != NULL) {
+			matrix_apply(&t1.lc, &v1->pos, &device->vsm_light);
+			matrix_apply(&t2.lc, &v2->pos, &device->vsm_light);
+			matrix_apply(&t3.lc, &v3->pos, &device->vsm_light);
+		}
+
 		vertex_rhw_init(&t1);	// 初始化 w
 		vertex_rhw_init(&t2);	// 初始化 w
 		vertex_rhw_init(&t3);	// 初始化 w
-		
+
 		// 拆分三角形为0-2个梯形，并且返回可用梯形数量
 		n = trapezoid_init_triangle(traps, &t1, &t2, &t3);
 
@@ -741,7 +782,7 @@ void screen_dispatch(void);							// 处理消息
 void screen_update(void);							// 显示 FrameBuffer
 
 // win32 event handler
-static LRESULT screen_events(HWND, UINT, WPARAM, LPARAM);	
+static LRESULT screen_events(HWND, UINT, WPARAM, LPARAM);
 
 #ifdef _MSC_VER
 #pragma comment(lib, "gdi32.lib")
@@ -750,9 +791,9 @@ static LRESULT screen_events(HWND, UINT, WPARAM, LPARAM);
 
 // 初始化窗口并设置标题
 int screen_init(int w, int h, const TCHAR *title) {
-	WNDCLASS wc = { CS_BYTEALIGNCLIENT, (WNDPROC)screen_events, 0, 0, 0, 
+	WNDCLASS wc = { CS_BYTEALIGNCLIENT, (WNDPROC)screen_events, 0, 0, 0,
 		NULL, NULL, NULL, NULL, _T("SCREEN3.1415926") };
-	BITMAPINFO bi = { { sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB, 
+	BITMAPINFO bi = { { sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB,
 		w * h * 4, 0, 0, 0, 0 }  };
 	RECT rect = { 0, 0, w, h };
 	int wx, wy, sx, sy;
@@ -784,7 +825,7 @@ int screen_init(int w, int h, const TCHAR *title) {
 	screen_w = w;
 	screen_h = h;
 	screen_pitch = w * 4;
-	
+
 	AdjustWindowRect(&rect, GetWindowLong(screen_handle, GWL_STYLE), 0);
 	wx = rect.right - rect.left;
 	wy = rect.bottom - rect.top;
@@ -805,25 +846,25 @@ int screen_init(int w, int h, const TCHAR *title) {
 
 int screen_close(void) {
 	if (screen_dc) {
-		if (screen_ob) { 
-			SelectObject(screen_dc, screen_ob); 
-			screen_ob = NULL; 
+		if (screen_ob) {
+			SelectObject(screen_dc, screen_ob);
+			screen_ob = NULL;
 		}
 		DeleteDC(screen_dc);
 		screen_dc = NULL;
 	}
-	if (screen_hb) { 
-		DeleteObject(screen_hb); 
-		screen_hb = NULL; 
+	if (screen_hb) {
+		DeleteObject(screen_hb);
+		screen_hb = NULL;
 	}
-	if (screen_handle) { 
-		CloseWindow(screen_handle); 
-		screen_handle = NULL; 
+	if (screen_handle) {
+		CloseWindow(screen_handle);
+		screen_handle = NULL;
 	}
 	return 0;
 }
 
-static LRESULT screen_events(HWND hWnd, UINT msg, 
+static LRESULT screen_events(HWND hWnd, UINT msg,
 	WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_CLOSE: screen_exit = 1; break;
@@ -855,14 +896,14 @@ void screen_update(void) {
 // 主程序
 //=====================================================================
 vertex_t mesh[8] = {
-	{ { -1, -1,  1, 1 }, { 0, 0 }, { 1.0f, 0.2f, 0.2f }, 1 },
-	{ {  1, -1,  1, 1 }, { 0, 1 }, { 0.2f, 1.0f, 0.2f }, 1 },
-	{ {  1,  1,  1, 1 }, { 1, 1 }, { 0.2f, 0.2f, 1.0f }, 1 },
-	{ { -1,  1,  1, 1 }, { 1, 0 }, { 1.0f, 0.2f, 1.0f }, 1 },
-	{ { -1, -1, -1, 1 }, { 0, 0 }, { 1.0f, 1.0f, 0.2f }, 1 },
-	{ {  1, -1, -1, 1 }, { 0, 1 }, { 0.2f, 1.0f, 1.0f }, 1 },
-	{ {  1,  1, -1, 1 }, { 1, 1 }, { 1.0f, 0.3f, 0.3f }, 1 },
-	{ { -1,  1, -1, 1 }, { 1, 0 }, { 0.2f, 1.0f, 0.3f }, 1 },
+	{ { -1, -1,  1, 1 }, { 0, 0 }, { 1.0f, 0.2f, 0.2f }, 1, { 0, 0, 0, 1 } },
+	{ {  1, -1,  1, 1 }, { 0, 1 }, { 0.2f, 1.0f, 0.2f }, 1, { 0, 0, 0, 1 } },
+	{ {  1,  1,  1, 1 }, { 1, 1 }, { 0.2f, 0.2f, 1.0f }, 1, { 0, 0, 0, 1 } },
+	{ { -1,  1,  1, 1 }, { 1, 0 }, { 1.0f, 0.2f, 1.0f }, 1, { 0, 0, 0, 1 } },
+	{ { -1, -1, -1, 1 }, { 0, 0 }, { 1.0f, 1.0f, 0.2f }, 1, { 0, 0, 0, 1 } },
+	{ {  1, -1, -1, 1 }, { 0, 1 }, { 0.2f, 1.0f, 1.0f }, 1, { 0, 0, 0, 1 } },
+	{ {  1,  1, -1, 1 }, { 1, 1 }, { 1.0f, 0.3f, 0.3f }, 1, { 0, 0, 0, 1 } },
+	{ { -1,  1, -1, 1 }, { 1, 0 }, { 0.2f, 1.0f, 0.3f }, 1, { 0, 0, 0, 1 } },
 };
 
 void draw_plane(device_t *device, int a, int b, int c, int d) {
@@ -916,7 +957,7 @@ int main(void)
 	TCHAR *title = _T("Mini3d (software render tutorial) - ")
 		_T("Left/Right: rotation, Up/Down: forward/backward, Space: switch state");
 
-	if (screen_init(800, 600, title)) 
+	if (screen_init(800, 600, title))
 		return -1;
 
 	device_init(&device, 800, 600, screen_fb);
@@ -929,7 +970,7 @@ int main(void)
 		screen_dispatch();
 		device_clear(&device, 1);
 		camera_at_zero(&device, pos, 0, 0);
-		
+
 		if (screen_keys[VK_UP]) pos -= 0.01f;
 		if (screen_keys[VK_DOWN]) pos += 0.01f;
 		if (screen_keys[VK_LEFT]) alpha += 0.01f;
