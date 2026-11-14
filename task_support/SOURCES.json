@@ -1,0 +1,7 @@
+{
+  "repo": "jdupuy/HalfedgeCatmullClark",
+  "commit": "08f99cbb32203bbbc27fa970038a127986f6e6c0",
+  "license": "MIT chosen; LICENSE.txt retained",
+  "export": "all upstream tracked files, no git metadata",
+  "upstream_modifications": []
+}
