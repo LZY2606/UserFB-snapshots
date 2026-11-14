@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.task-build/gc/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.task-build/gc/deps/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.task-build/gc/src/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,31 @@
+-- Building STATIC libraries
+-- Detected Homebrew with install prefix: /opt/homebrew, adding to CMake search paths.
+CMake Deprecation Warning at /Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/deps/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+--  resolving Eigen dependency:
+-- --    variable GC_EIGEN_LOCATION was set with value /Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/task_support/../.deps/eigen
+-- --    success. Found suitable Eigen from GC_EIGEN_LOCATION at /Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.deps/eigen
+-- Building without SuiteSparse.
+CMake Deprecation Warning at /Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z1849/attempts/20261114T071303749562Z/repo/.task-build
+[  1%] Building CXX object gc/src/CMakeFiles/geometry-central.dir/surface/flip_geodesics.cpp.o
+[  2%] Linking CXX static library libgeometry-central.a
+[100%] Built target geometry-central
+FAIL task_tests/geodesic_network.cpp:467 net.nFlips > 0
