@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "nestegg/nestegg.h"
+#include "nestegg/nestegg-events.h"
 
 /* EBML Elements */
 #define ID_EBML                     0x1a45dfa3
@@ -476,6 +477,8 @@ typedef struct {
 } ne_io;
 
 /* Public (opaque) Structures */
+struct ne_event_state;
+
 struct nestegg {
   ne_io io;
   nestegg_log log;
@@ -494,6 +497,9 @@ struct nestegg {
   uint64_t cluster_timecode;
   int read_cluster_timecode;
   struct saved_state saved;
+  /* Incremental event reader state.  Kept out of the whole-packet path. */
+  struct ne_event_state * event_state;
+  uint64_t event_next_packet_id;
 };
 
 struct nestegg_packet {
@@ -989,16 +995,12 @@ ne_io_read_skip(ne_io * io, size_t length)
 }
 
 static int
-ne_bare_read_vint(ne_io * io, uint64_t * value, uint64_t * length, enum vint_mask maskflag)
+ne_bare_read_vint_first(ne_io * io, unsigned char b, uint64_t * value,
+                        uint64_t * length, enum vint_mask maskflag)
 {
   int r;
-  unsigned char b;
   size_t maxlen = 8;
   unsigned int count = 1, mask = 1 << 7;
-
-  r = ne_io_read(io, &b, 1);
-  if (r != 1)
-    return r;
 
   while (count < maxlen) {
     if ((b & mask) != 0)
@@ -1023,6 +1025,19 @@ ne_bare_read_vint(ne_io * io, uint64_t * value, uint64_t * length, enum vint_mas
   }
 
   return 1;
+}
+
+static int
+ne_bare_read_vint(ne_io * io, uint64_t * value, uint64_t * length, enum vint_mask maskflag)
+{
+  int r;
+  unsigned char b;
+
+  r = ne_io_read(io, &b, 1);
+  if (r != 1)
+    return r;
+
+  return ne_bare_read_vint_first(io, b, value, length, maskflag);
 }
 
 static int
@@ -1964,116 +1979,153 @@ ne_free_frame(struct frame * f)
   free(f);
 }
 
+/* Parsed framing of a SimpleBlock or Block, without its frame payloads.
+   Shared by the whole-packet reader and the incremental event reader so both
+   interpret lacing identically. */
+struct ne_block_header {
+  uint64_t track_number;
+  uint64_t block_size;
+  int64_t timecode;
+  uint8_t flags;
+  unsigned int lacing;
+  unsigned int frames;
+  size_t header_size;
+  uint64_t * frame_sizes; /* caller-owned storage for 256 frame sizes */
+};
+
+/* Parse only the block header fields needed to locate frames: track number,
+   timecode, flags and, when laced, the frame count and lace sizes.  Returns 1
+   on success, 0 on a clean end of stream, and -1 on error. */
 static int
-ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_packet ** data)
+ne_parse_block_header(nestegg * ctx, uint64_t block_size,
+                      struct ne_block_header * header)
 {
   int r;
-  int64_t timecode, abs_timecode;
-  nestegg_packet * pkt;
-  struct frame * f;
-  struct track_entry * entry;
-  uint64_t track_number, length, frame_sizes[256], cluster_tc, flags, frames, tc_scale, total,
-           encoding_type, encryption_algo, encryption_mode;
-  unsigned int i, lacing, track;
-  uint8_t signal_byte, keyframe = NESTEGG_PACKET_HAS_KEYFRAME_UNKNOWN, j = 0;
-  size_t consumed = 0, data_size, encryption_size;
-
-  *data = NULL;
+  uint64_t length, flags, frame_count;
+  unsigned int i, lacing;
+  size_t consumed = 0;
 
   if (block_size > LIMIT_BLOCK)
     return -1;
 
-  r = ne_read_vint(&ctx->io, &track_number, &length);
+  r = ne_read_vint(&ctx->io, &header->track_number, &length);
   if (r != 1)
     return r;
-
-  if (track_number == 0)
+  if (header->track_number == 0)
     return -1;
-
   consumed += length;
 
-  r = ne_read_int(&ctx->io, &timecode, 2);
+  r = ne_read_int(&ctx->io, &header->timecode, 2);
   if (r != 1)
     return r;
-
   consumed += 2;
 
   r = ne_read_uint(&ctx->io, &flags, 1);
   if (r != 1)
     return r;
-
   consumed += 1;
+  header->flags = (uint8_t) flags;
+  header->block_size = block_size;
+  header->lacing = lacing = (unsigned int) ((flags & BLOCK_FLAGS_LACING) >> 1);
 
-  frames = 0;
-
-  /* Simple blocks have an explicit flag for if the contents a keyframes*/
-  if (block_id == ID_SIMPLE_BLOCK)
-    keyframe = (flags & SIMPLE_BLOCK_FLAGS_KEYFRAME) == SIMPLE_BLOCK_FLAGS_KEYFRAME ?
-                                                        NESTEGG_PACKET_HAS_KEYFRAME_TRUE :
-                                                        NESTEGG_PACKET_HAS_KEYFRAME_FALSE;
-
-  /* Flags are different between Block and SimpleBlock, but lacing is
-     encoded the same way. */
-  lacing = (flags & BLOCK_FLAGS_LACING) >> 1;
-
+  frame_count = 0;
   switch (lacing) {
   case LACING_NONE:
-    frames = 1;
+    frame_count = 1;
     break;
   case LACING_XIPH:
   case LACING_FIXED:
   case LACING_EBML:
-    r = ne_read_uint(&ctx->io, &frames, 1);
+    r = ne_read_uint(&ctx->io, &frame_count, 1);
     if (r != 1)
       return r;
     consumed += 1;
-    frames += 1;
+    frame_count += 1;
     break;
   default:
-    assert(0);
     return -1;
   }
 
-  if (frames > 256)
+  if (frame_count > 256)
     return -1;
 
   switch (lacing) {
   case LACING_NONE:
-    frame_sizes[0] = block_size - consumed;
+    header->frame_sizes[0] = block_size - consumed;
     break;
   case LACING_XIPH:
-    if (frames == 1)
+    if (frame_count == 1)
       return -1;
-    r = ne_read_xiph_lacing(&ctx->io, block_size, &consumed, frames, frame_sizes);
+    r = ne_read_xiph_lacing(&ctx->io, (size_t) block_size, &consumed,
+                            frame_count, header->frame_sizes);
     if (r != 1)
       return r;
     break;
   case LACING_FIXED:
-    if ((block_size - consumed) % frames)
+    if ((block_size - consumed) % frame_count)
       return -1;
-    for (i = 0; i < frames; ++i)
-      frame_sizes[i] = (block_size - consumed) / frames;
+    for (i = 0; i < frame_count; ++i)
+      header->frame_sizes[i] = (block_size - consumed) / frame_count;
     break;
   case LACING_EBML:
-    if (frames == 1)
+    if (frame_count == 1)
       return -1;
-    r = ne_read_ebml_lacing(&ctx->io, block_size, &consumed, frames, frame_sizes);
+    r = ne_read_ebml_lacing(&ctx->io, (size_t) block_size, &consumed,
+                            frame_count, header->frame_sizes);
     if (r != 1)
       return r;
     break;
   default:
-    assert(0);
     return -1;
   }
 
-  /* Sanity check unlaced frame sizes against total block size. */
-  total = consumed;
-  for (i = 0; i < frames; ++i)
-    total += frame_sizes[i];
-  if (total > block_size)
-    return -1;
+  {
+    uint64_t total = consumed;
+    for (i = 0; i < frame_count; ++i)
+      total += header->frame_sizes[i];
+    if (total > block_size)
+      return -1;
+  }
 
-  if (ne_map_track_number_to_index(ctx, track_number, &track) != 0)
+  header->frames = (unsigned int) frame_count;
+  header->header_size = consumed;
+  return 1;
+}
+
+static int
+ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_packet ** data)
+{
+  int r;
+  int64_t abs_timecode;
+  nestegg_packet * pkt;
+  struct frame * f;
+  struct track_entry * entry;
+  struct ne_block_header header;
+  uint64_t frame_sizes[256];
+  uint64_t cluster_tc, tc_scale, encoding_type, encryption_algo, encryption_mode;
+  unsigned int i, track;
+  uint8_t signal_byte, keyframe = NESTEGG_PACKET_HAS_KEYFRAME_UNKNOWN, j = 0;
+  size_t data_size, encryption_size;
+  unsigned int frames;
+  int64_t timecode;
+
+  *data = NULL;
+
+  header.frame_sizes = frame_sizes;
+  r = ne_parse_block_header(ctx, block_size, &header);
+  if (r != 1)
+    return r;
+
+  frames = header.frames;
+  timecode = header.timecode;
+
+  /* Simple blocks have an explicit flag for if the contents a keyframes*/
+  if (block_id == ID_SIMPLE_BLOCK)
+    keyframe = (header.flags & SIMPLE_BLOCK_FLAGS_KEYFRAME) == SIMPLE_BLOCK_FLAGS_KEYFRAME ?
+                                                        NESTEGG_PACKET_HAS_KEYFRAME_TRUE :
+                                                        NESTEGG_PACKET_HAS_KEYFRAME_FALSE;
+
+  if (ne_map_track_number_to_index(ctx, header.track_number, &track) != 0)
     return -1;
 
   entry = ne_find_track_entry(ctx, track);
@@ -2085,7 +2137,7 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
     return r;
 
   /* Encryption does not support lacing */
-  if (lacing != LACING_NONE && encoding_type == NESTEGG_ENCODING_ENCRYPTION) {
+  if (header.lacing != LACING_NONE && encoding_type == NESTEGG_ENCODING_ENCRYPTION) {
     ctx->log(ctx, NESTEGG_LOG_ERROR, "Encrypted blocks may not also be laced");
     return -1;
   }
@@ -2118,10 +2170,10 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
   }
 
   ctx->log(ctx, NESTEGG_LOG_DEBUG, "%sblock t %lld pts %f f %llx frames: %llu",
-           block_id == ID_BLOCK ? "" : "simple", pkt->track, pkt->timecode / 1e9, flags, frames);
+           block_id == ID_BLOCK ? "" : "simple", pkt->track, pkt->timecode / 1e9, header.flags, (uint64_t) frames);
 
   for (i = 0; i < frames; ++i) {
-    if (frame_sizes[i] > LIMIT_FRAME) {
+    if (header.frame_sizes[i] > LIMIT_FRAME) {
       nestegg_free_packet(pkt);
       return -1;
     }
@@ -2195,12 +2247,12 @@ ne_read_block(nestegg * ctx, uint64_t block_id, uint64_t block_size, nestegg_pac
     } else {
       encryption_size = 0;
     }
-    if (encryption_size > frame_sizes[i]) {
+    if (encryption_size > header.frame_sizes[i]) {
       ne_free_frame(f);
       nestegg_free_packet(pkt);
       return -1;
     }
-    data_size = frame_sizes[i] - encryption_size;
+    data_size = (size_t) (header.frame_sizes[i] - encryption_size);
     /* Encryption parsed */
     f->data = ne_alloc(data_size);
     if (!f->data) {
@@ -2755,6 +2807,7 @@ void
 nestegg_destroy(nestegg * ctx)
 {
   assert(ctx->ancestor == NULL);
+  free(ctx->event_state);
   if (ctx->alloc_pool)
     ne_pool_destroy(ctx->alloc_pool);
   free(ctx->io.io);
@@ -2865,6 +2918,8 @@ nestegg_get_cue_point(nestegg * ctx, unsigned int cluster_num, int64_t max_offse
   return 0;
 }
 
+static void ne_event_reset(nestegg * ctx);
+
 int
 nestegg_offset_seek(nestegg * ctx, uint64_t offset)
 {
@@ -2880,6 +2935,8 @@ nestegg_offset_seek(nestegg * ctx, uint64_t offset)
   ctx->last_valid = 0;
 
   assert(ctx->ancestor == NULL);
+
+  ne_event_reset(ctx);
 
   return 0;
 }
@@ -4110,6 +4167,8 @@ ne_sum_block_or_group(nestegg * ctx, uint64_t id, uint64_t size, uint64_t * fram
   return 1;
 }
 
+static int ne_size_is_unknown(uint64_t size);
+
 /* Returns non-zero if 'size' equals the EBML unknown-size pattern for any VINT
    length. Patterns (data bits all 1): 0x7F, 0x3FFF, 0x1FFFFF, 0x0FFFFFFF,
    0x07FFFFFFFF, 0x03FFFFFFFFFF, 0x01FFFFFFFFFFFF, 0x00FFFFFFFFFFFFFF. */
@@ -4266,4 +4325,745 @@ nestegg_read_total_frames_count(nestegg * context, uint64_t * frames_out)
 
   *frames_out = totalFrames;
   return 0;
+}
+
+
+
+
+/*
+ * Incremental event reader.
+ *
+ * Hands compressed frame fragments to the caller as they are read, so a
+ * whole block or frame is never held in memory.  The persistent state is one
+ * fixed-size allocation, created lazily on first use and freed by
+ * nestegg_destroy; with its transient buffers it stays inside the documented
+ * 8192 byte budget.  Element, track and lacing parsing is shared with the
+ * whole-packet reader above.
+ */
+
+#define NE_EVENT_STATE_SIZE 5120
+
+struct ne_event_state {
+  /* Frame lengths of the block being read. */
+  uint64_t frames[256];
+
+  /* Block being read. */
+  uint64_t packet_id;
+  uint64_t track_number;
+  int64_t block_timecode;
+  uint64_t timecode;
+  uint64_t block_size;
+  uint64_t block_read;
+  int64_t block_end;
+  uint8_t flags;
+  unsigned int frame_count;
+  unsigned int frame_index;
+  uint64_t frame_len;
+  uint64_t frame_read;
+
+  /* BlockGroup trailing metadata. */
+  uint64_t duration;
+  int read_duration;
+  int64_t discard_padding;
+  int read_discard_padding;
+  int64_t reference_block;
+  int read_reference_block;
+  int in_group;
+  int was_group;
+  int group_has_block;
+  int64_t group_end;
+
+  /* Current Cluster. */
+  int in_cluster;
+  int cluster_unknown;
+  int64_t cluster_end;
+
+  /* Fragment delivery buffer; a fragment never exceeds this. */
+  unsigned char data[1024];
+
+  int phase;
+  int eof;
+  int error;
+  nestegg_event event;
+} ne_event_state_node;
+
+/* The persistent event state must fit the documented budget. */
+typedef char ne_event_size_check[
+  sizeof(struct ne_event_state) <= NE_EVENT_STATE_SIZE ? 1 : -1];
+
+enum ne_event_phase {
+  NE_EVENT_READ = 0,   /* looking for the next element */
+  NE_EVENT_FRAGMENT,   /* inside a block, frame fragments pending */
+  NE_EVENT_COMMIT      /* a COMMIT event is ready */
+};
+
+/* Read exactly @a length bytes.  Returns 1 or -1; a short read is fatal. */
+static int
+ne_event_read_exact(nestegg * ctx, void * buffer, size_t length)
+{
+  unsigned char * out = buffer;
+  size_t buffered;
+
+  buffered = ctx->io.buf_fill - ctx->io.buf_offset;
+  if (length <= buffered)
+    return ne_io_read_from_buffer(&ctx->io, out, length);
+
+  if (ctx->io.poisoned)
+    return -1;
+
+  if (buffered) {
+    memcpy(out, ctx->io.buf + ctx->io.buf_offset, buffered);
+    ctx->io.buf_offset = ctx->io.buf_fill;
+    out += buffered;
+    length -= buffered;
+  }
+
+  while (length) {
+    int64_t r = ctx->io.io->read(out, length, ctx->io.io->userdata);
+    if (r <= 0 || (size_t) r > length)
+      return -1;
+    out += r;
+    length -= (size_t) r;
+  }
+
+  return 1;
+}
+
+/* Skip @a length bytes of element payload.  Returns 1 or -1. */
+static int
+ne_event_skip(nestegg * ctx, uint64_t length)
+{
+  unsigned char discard[64];
+
+  while (length) {
+    size_t chunk = length < sizeof(discard) ? (size_t) length : sizeof(discard);
+    int r = ne_event_read_exact(ctx, discard, chunk);
+    if (r != 1)
+      return -1;
+    length -= chunk;
+  }
+  return 1;
+}
+
+/* Peek an element header without consuming it.  Returns 1, 0 on a clean
+   end of stream at the element boundary, or -1 on a truncated header.
+   Bytes are read through the normal I/O wrapper so the buffer is used the
+   same way as the whole-packet path. */
+static int
+ne_event_peek(nestegg * ctx, uint64_t * id, uint64_t * size)
+{
+  unsigned char b;
+  uint64_t value;
+  int r;
+
+  if (ctx->last_valid) {
+    if (id)
+      *id = ctx->last_id;
+    if (size)
+      *size = ctx->last_size;
+    return 1;
+  }
+
+  r = ne_io_read(&ctx->io, &b, 1);
+  if (r != 1)
+    return r;
+
+  r = ne_bare_read_vint_first(&ctx->io, b, &value, NULL, MASK_NONE);
+  if (r != 1)
+    return -1; /* truncated after a leading byte */
+  ctx->last_id = value;
+
+  r = ne_io_read(&ctx->io, &b, 1);
+  if (r != 1)
+    return -1;
+  r = ne_bare_read_vint_first(&ctx->io, b, &value, NULL, MASK_FIRST_BIT);
+  if (r != 1)
+    return -1;
+  ctx->last_size = value;
+  ctx->last_valid = 1;
+
+  if (id)
+    *id = ctx->last_id;
+  if (size)
+    *size = ctx->last_size;
+  return 1;
+}
+
+/* Consume the element header last returned by ne_event_peek. */
+static int
+ne_event_read_element(nestegg * ctx, uint64_t * id, uint64_t * size)
+{
+  if (ne_event_peek(ctx, id, size) != 1)
+    return -1;
+  ctx->last_valid = 0;
+  return 1;
+}
+
+/* Reject media the event path does not support: encryption, non-default
+   content encodings and BlockAdditions are errors. */
+static int
+ne_event_track_supported(nestegg * ctx, struct track_entry * entry)
+{
+  uint64_t encoding_type, encryption_algo, encryption_mode;
+
+  if (ne_read_block_encryption(ctx, entry, &encoding_type, &encryption_algo,
+                               &encryption_mode) != 1)
+    return -1;
+  return encoding_type == NESTEGG_ENCODING_COMPRESSION ? 1 : -1;
+}
+
+/* Begin delivering a block.  @a id is ID_SIMPLE_BLOCK or ID_BLOCK.
+   Returns 1 or -1. */
+static int
+ne_event_begin_block(nestegg * ctx, struct ne_event_state * st,
+                     uint64_t block_size)
+{
+  struct ne_block_header header;
+  struct track_entry * entry;
+  uint64_t tc_scale, cluster_tc;
+  unsigned int track;
+  int64_t abs_timecode;
+  int r;
+
+  if (block_size > LIMIT_BLOCK)
+    return -1;
+
+  header.frame_sizes = st->frames;
+  r = ne_parse_block_header(ctx, block_size, &header);
+  if (r != 1)
+    return -1;
+
+  if (ne_map_track_number_to_index(ctx, header.track_number, &track) != 0)
+    return -1;
+  entry = ne_find_track_entry(ctx, track);
+  if (!entry)
+    return -1;
+  if (ne_event_track_supported(ctx, entry) != 1)
+    return -1;
+
+  if (!ctx->read_cluster_timecode)
+    return -1;
+  cluster_tc = ctx->cluster_timecode;
+  tc_scale = ne_get_timecode_scale(ctx);
+  if (tc_scale == 0)
+    return -1;
+
+  abs_timecode = header.timecode + (int64_t) cluster_tc;
+  if (abs_timecode < 0) {
+    ctx->log(ctx, NESTEGG_LOG_WARNING, "ignoring negative timecode: %lld", abs_timecode);
+    abs_timecode = 0;
+  }
+
+  st->packet_id = ctx->event_next_packet_id++;
+  st->was_group = st->in_group;
+  st->block_size = block_size;
+  st->track_number = track;
+  st->block_timecode = header.timecode;
+  st->timecode = ne_saturate_mul_uint64((uint64_t) abs_timecode, tc_scale);
+  st->flags = header.flags;
+  st->frame_count = header.frames;
+  st->frame_index = 0;
+  st->frame_len = st->frames[0];
+  st->frame_read = 0;
+  st->block_read = header.header_size;
+  st->block_end = ne_io_tell(&ctx->io);
+  if (st->block_end < 0)
+    return -1;
+  st->block_end += (int64_t) (block_size - header.header_size);
+  st->phase = NE_EVENT_FRAGMENT;
+  return 1;
+}
+
+/* Fill st->event with the next fragment of the current block.  Returns 1. */
+static int
+ne_event_fragment(nestegg * ctx, struct ne_event_state * st)
+{
+  size_t want, got;
+  int r;
+
+  assert(st->frame_index < st->frame_count);
+
+  want = (size_t) (st->frame_len - st->frame_read);
+  if (want > sizeof(st->data))
+    want = sizeof(st->data);
+
+  got = 0;
+  if (want) {
+    r = ne_event_read_exact(ctx, st->data, want);
+    if (r != 1)
+      return -1;
+    got = want;
+  }
+
+  st->frame_read += got;
+  st->block_read += got;
+
+  st->event.type = NESTEGG_EVENT_DATA;
+  st->event.packet_id = st->packet_id;
+  st->event.timestamp = st->timecode;
+  st->event.duration = 0;
+  st->event.track = (unsigned int) st->track_number;
+  st->event.frame_index = st->frame_index;
+  st->event.frame_count = st->frame_count;
+  st->event.data = got ? st->data : NULL;
+  st->event.length = got;
+  st->event.first = st->frame_read == got;
+  st->event.last = st->frame_read == st->frame_len;
+  st->event.keyframe = NESTEGG_PACKET_HAS_KEYFRAME_UNKNOWN;
+  st->event.has_duration = 0;
+  st->event.has_discard_padding = 0;
+  st->event.has_reference = 0;
+  st->event.discard_padding = 0;
+  st->event.reference = 0;
+
+  if (st->event.last) {
+    st->frame_index += 1;
+    if (st->frame_index < st->frame_count) {
+      st->frame_len = st->frames[st->frame_index];
+      st->frame_read = 0;
+    }
+  }
+
+  return 1;
+}
+
+/* Fill st->event with the final metadata of a completed block. */
+static int
+ne_event_commit(nestegg * ctx, struct ne_event_state * st)
+{
+  int keyframe;
+
+  (void) ctx;
+
+  if (!st->was_group) {
+    keyframe = (st->flags & SIMPLE_BLOCK_FLAGS_KEYFRAME)
+                 ? NESTEGG_PACKET_HAS_KEYFRAME_TRUE
+                 : NESTEGG_PACKET_HAS_KEYFRAME_FALSE;
+  } else if (st->read_reference_block) {
+    keyframe = NESTEGG_PACKET_HAS_KEYFRAME_FALSE;
+  } else {
+    keyframe = NESTEGG_PACKET_HAS_KEYFRAME_TRUE;
+  }
+
+  st->event.type = NESTEGG_EVENT_COMMIT;
+  st->event.packet_id = st->packet_id;
+  st->event.timestamp = st->timecode;
+  st->event.duration = st->duration;
+  st->event.track = (unsigned int) st->track_number;
+  st->event.frame_index = 0;
+  st->event.frame_count = st->frame_count;
+  st->event.data = NULL;
+  st->event.length = 0;
+  st->event.first = 0;
+  st->event.last = 0;
+  st->event.keyframe = keyframe;
+  st->event.has_duration = st->read_duration;
+  st->event.has_discard_padding = st->read_discard_padding;
+  st->event.has_reference = st->read_reference_block;
+  st->event.discard_padding = st->discard_padding;
+  st->event.reference = st->reference_block;
+
+  st->phase = NE_EVENT_COMMIT;
+  return 1;
+}
+
+/* Consume the rest of the current BlockGroup, then produce its COMMIT. */
+static int
+ne_event_finish_group(nestegg * ctx, struct ne_event_state * st)
+{
+  uint64_t id, size, tc_scale;
+  int r;
+
+  for (;;) {
+    int64_t pos = ne_io_tell(&ctx->io);
+    if (pos < 0)
+      return -1;
+    if (pos >= st->group_end)
+      break;
+
+    r = ne_event_read_element(ctx, &id, &size);
+    if (r != 1)
+      return -1;
+
+    switch (id) {
+    case ID_BLOCK_DURATION:
+      r = ne_read_uint(&ctx->io, &st->duration, size);
+      if (r != 1)
+        return -1;
+      tc_scale = ne_get_timecode_scale(ctx);
+      if (tc_scale == 0)
+        return -1;
+      st->duration = ne_saturate_mul_uint64(st->duration, tc_scale);
+      st->read_duration = 1;
+      break;
+    case ID_DISCARD_PADDING:
+      r = ne_read_int(&ctx->io, &st->discard_padding, size);
+      if (r != 1)
+        return -1;
+      st->read_discard_padding = 1;
+      break;
+    case ID_REFERENCE_BLOCK:
+      r = ne_read_int(&ctx->io, &st->reference_block, size);
+      if (r != 1)
+        return -1;
+      st->read_reference_block = 1;
+      break;
+    case ID_BLOCK_ADDITIONS:
+      ctx->log(ctx, NESTEGG_LOG_ERROR,
+               "BlockAdditions are not supported by the event reader");
+      return -1;
+    case ID_BLOCK:
+      ctx->log(ctx, NESTEGG_LOG_ERROR,
+               "multiple Blocks in a BlockGroup are not supported by the event reader");
+      return -1;
+    default:
+      r = ne_event_skip(ctx, size);
+      if (r != 1)
+        return -1;
+      break;
+    }
+  }
+
+  st->in_group = 0;
+  st->was_group = 1;
+  return ne_event_commit(ctx, st);
+}
+
+static int
+ne_event_is_top_level(uint64_t id)
+{
+  return id == ID_EBML || id == ID_SEGMENT || id == ID_SEEK_HEAD ||
+         id == ID_INFO || id == ID_TRACKS || id == ID_CHAPTERS ||
+         id == ID_CLUSTER || id == ID_CUES || id == ID_ATTACHMENTS ||
+         id == ID_TAGS;
+}
+
+/* Start a Cluster whose header has just been consumed. */
+static int
+ne_event_enter_cluster(nestegg * ctx, struct ne_event_state * st, uint64_t size)
+{
+  st->in_cluster = 1;
+  st->cluster_unknown = ne_size_is_unknown(size);
+  if (!st->cluster_unknown) {
+    st->cluster_end = ne_io_tell(&ctx->io);
+    if (st->cluster_end < 0)
+      return -1;
+    st->cluster_end += (int64_t) size;
+  }
+  ctx->read_cluster_timecode = 0;
+  return 1;
+}
+
+/* True once the parser has reached the end of the current Cluster.  Must not
+   consume the next top-level element. */
+static int
+ne_event_cluster_done(nestegg * ctx, struct ne_event_state * st)
+{
+  int64_t pos;
+
+  if (!st->in_cluster)
+    return 0;
+  if (st->cluster_unknown) {
+    uint64_t id, size;
+    int r = ne_event_peek(ctx, &id, &size);
+    if (r != 1)
+      return r == 0 ? 0 : -1;
+    return ne_event_is_top_level(id);
+  }
+  pos = ne_io_tell(&ctx->io);
+  if (pos < 0)
+    return -1;
+  return pos >= st->cluster_end;
+}
+
+/* Read elements until a block starts, a complete event is ready, end of
+   stream, or an error.  Returns:
+     1  an event is ready in st->event
+     0  clean end of stream
+    -1  error
+   st->phase says which event is ready. */
+static int
+ne_event_read_some(nestegg * ctx, struct ne_event_state * st)
+{
+  int r;
+  uint64_t id, size;
+
+  for (;;) {
+    if (st->phase == NE_EVENT_FRAGMENT) {
+      if (st->frame_index < st->frame_count)
+        return ne_event_fragment(ctx, st);
+
+      /* The block payload must have been consumed exactly.  A shortfall
+         means the frame lengths did not describe the declared block size. */
+      {
+        int64_t pos = ne_io_tell(&ctx->io);
+        if (pos < 0 || pos != st->block_end)
+          return -1;
+      }
+
+      /* The block is fully delivered, but a BlockGroup's tail comes after
+         the Block.  Only finish the group once the parser reaches a group
+         child; the group tail may contain the metadata. */
+      if (st->in_group) {
+        int64_t pos = ne_io_tell(&ctx->io);
+        if (pos < 0)
+          return -1;
+        if (pos >= st->group_end) {
+          r = ne_event_finish_group(ctx, st);
+          if (r != 1)
+            return -1;
+          continue;
+        }
+        st->phase = NE_EVENT_READ;
+        continue;
+      }
+
+      r = ne_event_commit(ctx, st);
+      if (r != 1)
+        return -1;
+      continue;
+    }
+
+    if (st->phase == NE_EVENT_COMMIT)
+      return 1;
+
+    /* NE_EVENT_READ. */
+    if (st->in_group && st->group_has_block) {
+      /* The Block is done and group children remain. */
+      r = ne_event_finish_group(ctx, st);
+      if (r != 1)
+        return -1;
+      continue;
+    }
+    if (st->in_group) {
+      /* A group whose Block has not been seen cannot end here. */
+      int64_t pos = ne_io_tell(&ctx->io);
+      if (pos < 0)
+        return -1;
+      if (pos >= st->group_end)
+        return -1;
+    }
+
+    if (st->in_cluster) {
+      r = ne_event_cluster_done(ctx, st);
+      if (r < 0)
+        return -1;
+      if (r) {
+        st->in_cluster = 0;
+        continue;
+      }
+    }
+
+    r = ne_event_peek(ctx, &id, &size);
+    if (r == 0) {
+      if (st->in_group)
+        return -1; /* truncated BlockGroup */
+      return 0;
+    }
+    if (r != 1)
+      return -1;
+
+    if (!st->in_cluster) {
+      r = ne_event_read_element(ctx, &id, &size);
+      if (r != 1)
+        return -1;
+      if (id == ID_CLUSTER) {
+        r = ne_event_enter_cluster(ctx, st, size);
+        if (r != 1)
+          return -1;
+      } else if (ne_event_is_top_level(id)) {
+        r = ne_event_skip(ctx, size);
+        if (r != 1)
+          return -1;
+      } else {
+        return -1;
+      }
+      continue;
+    }
+
+    r = ne_event_read_element(ctx, &id, &size);
+    if (r != 1)
+      return -1;
+
+    switch (id) {
+    case ID_TIMECODE:
+      if (st->in_group) {
+        r = ne_event_skip(ctx, size);
+        if (r != 1)
+          return -1;
+        break;
+      }
+      r = ne_read_uint(&ctx->io, &ctx->cluster_timecode, size);
+      if (r != 1)
+        return -1;
+      ctx->read_cluster_timecode = 1;
+      break;
+    case ID_SIMPLE_BLOCK:
+      if (st->in_group || !ctx->read_cluster_timecode) {
+        if (!st->in_group)
+          return -1;
+        r = ne_event_skip(ctx, size);
+        if (r != 1)
+          return -1;
+        break;
+      }
+      st->in_group = 0;
+      st->duration = 0;
+      st->read_duration = 0;
+      st->discard_padding = 0;
+      st->read_discard_padding = 0;
+      st->reference_block = 0;
+      st->read_reference_block = 0;
+      r = ne_event_begin_block(ctx, st, size);
+      if (r != 1)
+        return -1;
+      break;
+    case ID_BLOCK_GROUP:
+      if (!ctx->read_cluster_timecode || ne_size_is_unknown(size))
+        return -1;
+      st->group_end = ne_io_tell(&ctx->io);
+      if (st->group_end < 0)
+        return -1;
+      st->group_end += (int64_t) size;
+      st->in_group = 1;
+      st->group_has_block = 0;
+      st->duration = 0;
+      st->read_duration = 0;
+      st->discard_padding = 0;
+      st->read_discard_padding = 0;
+      st->reference_block = 0;
+      st->read_reference_block = 0;
+      break;
+    case ID_BLOCK:
+      if (!st->in_group || st->group_has_block)
+        return -1;
+      st->group_has_block = 1;
+      r = ne_event_begin_block(ctx, st, size);
+      if (r != 1)
+        return -1;
+      break;
+    case ID_BLOCK_DURATION:
+      if (!st->in_group || st->group_has_block)
+        return -1;
+      r = ne_read_uint(&ctx->io, &st->duration, size);
+      if (r != 1)
+        return -1;
+      {
+        uint64_t tc_scale = ne_get_timecode_scale(ctx);
+        if (tc_scale == 0)
+          return -1;
+        st->duration = ne_saturate_mul_uint64(st->duration, tc_scale);
+      }
+      st->read_duration = 1;
+      break;
+    case ID_DISCARD_PADDING:
+      if (!st->in_group || st->group_has_block)
+        return -1;
+      r = ne_read_int(&ctx->io, &st->discard_padding, size);
+      if (r != 1)
+        return -1;
+      st->read_discard_padding = 1;
+      break;
+    case ID_REFERENCE_BLOCK:
+      if (!st->in_group || st->group_has_block)
+        return -1;
+      r = ne_read_int(&ctx->io, &st->reference_block, size);
+      if (r != 1)
+        return -1;
+      st->read_reference_block = 1;
+      break;
+    case ID_BLOCK_ADDITIONS:
+      ctx->log(ctx, NESTEGG_LOG_ERROR,
+               "BlockAdditions are not supported by the event reader");
+      return -1;
+    default:
+      r = ne_event_skip(ctx, size);
+      if (r != 1)
+        return -1;
+      break;
+    }
+
+    /* After each child, a group may have ended.  If the block was already
+       delivered, read out the tail metadata and commit. */
+    if (st->in_group && st->group_has_block && st->phase != NE_EVENT_FRAGMENT) {
+      int64_t pos = ne_io_tell(&ctx->io);
+      if (pos < 0)
+        return -1;
+      if (pos >= st->group_end) {
+        r = ne_event_finish_group(ctx, st);
+        if (r != 1)
+          return -1;
+        continue;
+      }
+    }
+  }
+}
+
+/* Called by the seek entry points once a seek has succeeded: drop any
+   partially delivered block and resume from the new location.  The packet id
+   sequence continues. */
+static void
+ne_event_reset(nestegg * ctx)
+{
+  struct ne_event_state * st = ctx->event_state;
+
+  if (!st)
+    return;
+  st->phase = NE_EVENT_READ;
+  st->in_group = 0;
+  st->group_has_block = 0;
+  st->in_cluster = 0;
+  st->cluster_unknown = 0;
+  st->frame_index = 0;
+  st->frame_count = 0;
+  ctx->read_cluster_timecode = 0;
+}
+
+int
+nestegg_read_event(nestegg * ctx, const nestegg_event ** event)
+{
+  struct ne_event_state * st;
+  int r;
+
+  if (!ctx || !event)
+    return -1;
+  *event = NULL;
+
+  if (!ctx->event_state) {
+    ctx->event_state = ne_alloc(sizeof(*ctx->event_state));
+    if (!ctx->event_state)
+      return -1;
+    ctx->event_state->phase = NE_EVENT_READ;
+    ctx->event_next_packet_id = 1;
+  }
+  st = ctx->event_state;
+
+  /* Once ended or failed, keep reporting the same result without emitting
+     any further events. */
+  if (st->error)
+    return -1;
+  if (st->eof)
+    return 0;
+
+  assert(ctx->ancestor == NULL);
+
+  while (1) {
+    r = ne_event_read_some(ctx, st);
+    if (r == 1) {
+      if (st->phase == NE_EVENT_COMMIT) {
+        /* A COMMIT is emitted and then the reader resumes reading. */
+        *event = &st->event;
+        st->phase = NE_EVENT_READ;
+        return 1;
+      }
+      *event = &st->event;
+      return 1;
+    }
+    if (r == 0) {
+      st->eof = 1;
+      return 0;
+    }
+    st->error = 1;
+    return -1;
+  }
 }

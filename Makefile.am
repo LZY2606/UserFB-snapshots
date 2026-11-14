@@ -16,7 +16,8 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = nestegg.pc
 
 nesteggincludedir = $(includedir)/nestegg
-nestegginclude_HEADERS = include/nestegg/nestegg.h
+nestegginclude_HEADERS = include/nestegg/nestegg.h \
+	include/nestegg/nestegg-events.h
 
 lib_LTLIBRARIES = src/libnestegg.la
 
