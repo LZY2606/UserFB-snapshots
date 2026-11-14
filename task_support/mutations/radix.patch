@@ -1,0 +1,11 @@
+--- a/minimp3.h
++++ b/minimp3.h
+@@ -453,7 +453,7 @@
+                 {
+                     unsigned mod = (2 << (ba - 17)) + 1;    /* 3, 5, 9 */
+                     unsigned code = get_bits(bs, mod + 2 - (mod >> 3));  /* 5, 7, 10 */
+-                    for (k = 0; k < group_size; k++, code /= mod)
++                    for (k = 0; k < group_size; k++, code /= (mod + 2))
+                     {
+                         dst[k] = (float)((int)(code % mod - mod/2));
+                     }

@@ -1,0 +1,11 @@
+--- a/minimp3.h
++++ b/minimp3.h
+@@ -370,7 +370,7 @@
+     {
+         float s = 0;
+         int ba = *pba++;
+-        int mask = ba ? 4 + ((19 >> scfcod[i]) & 3) : 0;
++        int mask = ba ? 4 + ((27 >> scfcod[i]) & 3) : 0;
+         for (m = 4; m; m >>= 1)
+         {
+             if (mask & m)
