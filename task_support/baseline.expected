@@ -1,0 +1,4 @@
+H261_BASELINE mode=1 format=0 frames=3 bits=10212 stream=e4896ee0be94656c recon=834789da8ba43673
+H261_BASELINE mode=2 format=0 frames=3 bits=9302 stream=bf9ecc18898463b3 recon=8ebd45d84158d294
+H261_BASELINE mode=1 format=1 frames=3 bits=39214 stream=5e855ce0198aaa34 recon=b7a34323f87da662
+H261_REAL_ENCODING_BASELINE_OK

@@ -715,10 +715,12 @@ Void h261_initialize_transform_functions( )
 
 	g_quant_inter_8x8 = h261_quant8x8_inter_REF;
 
+#ifndef H261_PORTABLE
 	if( 1 )
 	{
 		g_fdct_8x8 = h261_fdct_8x8_sse2;
 		g_idct_8x8 = h261_idct_8x8_sse2;
 		g_quant_inter_8x8 = h261_quant_inter_8x8_sse2;
 	}
+#endif
 }

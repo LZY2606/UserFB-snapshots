@@ -209,6 +209,7 @@ Void h261_initialize_pixelop_functions( )
 	g_compensate_8x8 = compensate_8x8_REF;
 	g_compensate_8x8_filter = compensate_8x8_filter_REF;
 
+#ifndef H261_PORTABLE
 	if( 1 )
 	{
 		g_get_sad = h261_get_sad_sse2;
@@ -219,4 +220,5 @@ Void h261_initialize_pixelop_functions( )
 		g_compensate_8x8 = h261_compensate_8x8_mmx;
 		g_compensate_8x8_filter = h261_compensate_8x8_filter_sse2;
 	}
+#endif
 }
