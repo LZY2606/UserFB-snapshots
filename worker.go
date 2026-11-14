@@ -32,6 +32,10 @@ type worker struct {
 	enqueue chan<- interface{}
 	wg      *sync.WaitGroup
 
+	// Pause/Resume barrier shared with the master crawler. The timing fields
+	// below are protected by gate.mu when a pause freezes or restarts them.
+	gate *crawlGate
+
 	// Robots validation
 	robotsGroup *robotstxt.Group
 
@@ -39,9 +43,17 @@ type worker struct {
 	logFunc func(LogFlags, string, ...interface{})
 
 	// Implementation fields
-	wait           <-chan time.Time
+	waitEnd        time.Time     // deadline of the pending crawl delay
+	idleDeadline   time.Time     // deadline of the current idle TTL wait
+	frozenWait     time.Duration // crawl delay left when the worker parked
+	frozenWaitOK   bool
+	frozenIdle     time.Duration // idle TTL left when the worker parked
+	frozenIdleOK   bool
+	idleWaiting    bool // the worker is resuming an idle wait interrupted by a pause
+	parked         bool // the worker is waiting while admission is closed
 	lastFetch      *FetchInfo
 	lastCrawlDelay time.Duration
+	headPending    *URLContext // a HEAD phase completed, its GET is still due
 	opts           *Options
 }
 
@@ -49,57 +61,255 @@ type worker struct {
 func (w *worker) run() {
 	defer func() {
 		w.logFunc(LogInfo, "worker done.")
+		// Unregister before releasing the WaitGroup, so that a Pause observing
+		// the unit as quiescent also observes that the worker can no longer
+		// invoke any hook.
+		w.gate.removeWorker(w)
 		w.wg.Done()
 	}()
 
 	// Enter loop to process URLs until stop signal is received
 	for {
+		// Park before accepting a new phase. This is the only place where a
+		// worker that is between phases can be seen as quiescent by Pause.
+		if !w.awaitAdmission() {
+			w.logFunc(LogInfo, "stop signal received.")
+			return
+		}
+
 		var idleChan <-chan time.Time
 
 		w.logFunc(LogInfo, "waiting for pop...")
 
-		// Initialize the idle timeout channel, if required
+		// Initialize the idle timeout channel, if required. A worker that is
+		// resuming an idle wait interrupted by a pause re-arms from its frozen
+		// remainder, so the countdown continues instead of restarting.
 		if w.opts.WorkerIdleTTL > 0 {
-			idleChan = time.After(w.opts.WorkerIdleTTL)
+			w.gate.armIdle(w, w.idleWaiting)
+			idleChan = time.After(w.gate.remainingIdleW(w))
 		}
+		pauseChan, _ := w.gate.pauseSignal()
 
 		select {
 		case <-w.stop:
 			w.logFunc(LogInfo, "stop signal received.")
 			return
 
+		case <-pauseChan:
+			// A pause began while the worker was idle: park so that the
+			// quiescence barrier can complete, and preserve the remaining
+			// idle TTL for after the resume.
+			if !w.parkUntilResume() {
+				w.logFunc(LogInfo, "stop signal received.")
+				return
+			}
+			w.idleWaiting = true
+			continue
+
 		case <-idleChan:
+			// Do not let an idle TTL that expires at the pause boundary tear
+			// down a paused worker.
+			if !w.gate.isOpen() {
+				if !w.parkUntilResume() {
+					w.logFunc(LogInfo, "stop signal received.")
+					return
+				}
+				w.idleWaiting = true
+				continue
+			}
 			w.logFunc(LogInfo, "idle timeout received.")
 			w.sendResponse(nil, false, nil, true)
 			return
 
 		case batch := <-w.pop:
+			// Activity resets the idle countdown.
+			w.gate.resetIdleDeadline(w)
+			w.idleWaiting = false
 
-			// Got a batch of urls to crawl, loop and check at each iteration if a stop
-			// is received.
+			// Got a batch of urls to crawl, loop and check at each iteration if a
+			// stop is received or a pause must be honored.
 			for _, ctx := range batch {
-				w.logFunc(LogInfo, "popped: %s", ctx.url)
-
-				if ctx.IsRobotsURL() {
-					w.requestRobotsTxt(ctx)
-				} else if w.isAllowedPerRobotsPolicies(ctx.url) {
-					w.requestURL(ctx, ctx.HeadBeforeGet)
-				} else {
-					// Must still notify Crawler that this URL was processed, although not visited
-					w.opts.Extender.Disallowed(ctx)
-					w.sendResponse(ctx, false, nil, false)
-				}
-
-				// No need to check for idle timeout here, no idling while looping through
-				// a batch of URLs.
-				select {
-				case <-w.stop:
+				if !w.awaitAdmission() {
+					// The batch is left in the worker's hands; it is
+					// preserved only in memory after a stop, which is fine.
 					w.logFunc(LogInfo, "stop signal received.")
 					return
-				default:
-					// Nothing, just continue...
+				}
+
+				w.logFunc(LogInfo, "popped: %s", ctx.url)
+				w.processURL(ctx)
+
+				// A HEAD phase completes on its own (including the RequestGet
+				// decision). The GET it decided on is a new phase, and must
+				// observe the pause barrier before starting.
+				if w.headPending == ctx {
+					if !w.awaitAdmission() {
+						w.logFunc(LogInfo, "stop signal received.")
+						return
+					}
+					w.continueHeadGet(ctx)
 				}
 			}
+
+			// No need to check for idle timeout here, no idling while looping
+			// through a batch of URLs.
+		}
+	}
+}
+
+// processURL runs one crawling phase for the given URL. For a HEAD decision,
+// only the HEAD fragment runs here; continueHeadGet runs the subsequent GET.
+func (w *worker) processURL(ctx *URLContext) {
+	if ctx.IsRobotsURL() {
+		w.requestRobotsTxt(ctx)
+		return
+	}
+	if !w.isAllowedPerRobotsPolicies(ctx.url) {
+		// Must still notify Crawler that this URL was processed, although not visited
+		w.opts.Extender.Disallowed(ctx)
+		w.sendResponse(ctx, false, nil, false)
+		return
+	}
+	w.requestURL(ctx, ctx.HeadBeforeGet)
+}
+
+// continueHeadGet runs the GET phase that follows a completed HEAD phase,
+// reusing the decision already made by RequestGet.
+func (w *worker) continueHeadGet(ctx *URLContext) {
+	if w.headPending == ctx {
+		w.headPending = nil
+	}
+	if res, ok := w.fetchURL(ctx, w.opts.UserAgent, false); ok {
+		w.consumeResponse(ctx, res)
+	}
+}
+
+// consumeResponse closes the response body after visiting or reporting it.
+func (w *worker) consumeResponse(ctx *URLContext, res *http.Response) {
+	var harvested interface{}
+	var visited bool
+
+	// Close the body on function end
+	defer res.Body.Close()
+
+	// Any 2xx status code is good to go
+	if res.StatusCode >= 200 && res.StatusCode < 300 {
+		// Success, visit the URL
+		harvested = w.visitURL(ctx, res)
+		visited = true
+	} else {
+		// Error based on status code received
+		w.opts.Extender.Error(newCrawlErrorMessage(ctx, res.Status, CekHttpStatusCode))
+		w.logFunc(LogError, "ERROR status code for %s: %s", ctx.url, res.Status)
+	}
+	w.sendResponse(ctx, visited, harvested, false)
+}
+
+// awaitAdmission blocks until the crawler is running again or reports that it
+// is stopping. While admission is closed, the worker is registered as parked.
+// A closed stop signal always wins: no new phase may start after a Stop.
+func (w *worker) awaitAdmission() bool {
+	for {
+		g := w.gate
+		g.mu.Lock()
+		if w.isStopped() {
+			// Leave w.parked set; removeWorker accounts for it.
+			g.mu.Unlock()
+			return false
+		}
+		if g.open {
+			g.mu.Unlock()
+			return true
+		}
+		g.park(w, time.Now())
+		resumeCh, stop := g.resumeCh, w.stop
+		g.mu.Unlock()
+
+		select {
+		case <-resumeCh:
+		case <-stop:
+			// Leave w.parked set; removeWorker accounts for it.
+			return false
+		}
+
+		g.mu.Lock()
+		g.unpark(w, time.Now())
+		open := g.open
+		g.mu.Unlock()
+		if open {
+			return true
+		}
+	}
+}
+
+// isStopped reports whether the stop signal has been closed.
+func (w *worker) isStopped() bool {
+	select {
+	case <-w.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// parkUntilResume parks the worker (freezing its crawl delay and idle TTL) and
+// waits for the resume. It returns false if the crawler is stopping instead.
+func (w *worker) parkUntilResume() bool {
+	g := w.gate
+	g.mu.Lock()
+	if g.open {
+		// The pause was already resolved; nothing to wait for.
+		g.mu.Unlock()
+		return true
+	}
+	g.park(w, time.Now())
+	resumeCh, stop := g.resumeCh, w.stop
+	g.mu.Unlock()
+
+	select {
+	case <-resumeCh:
+	case <-stop:
+		return false
+	}
+
+	g.mu.Lock()
+	g.unpark(w, time.Now())
+	g.mu.Unlock()
+	return true
+}
+
+// awaitCrawlDelay waits for the pending crawl delay, if any. The wait is
+// interruptible by a pause: the remaining time is frozen while parked and
+// resumes afterwards, so a long pause does not turn into an immediate
+// back-to-back request, and a pause does not have to wait out the full delay.
+func (w *worker) awaitCrawlDelay() bool {
+	for {
+		waitEnd, hasWait := w.gate.waitDeadline(w)
+		if !hasWait {
+			return true
+		}
+		d := time.Until(waitEnd)
+		if d <= 0 {
+			w.gate.clearWaitDeadline(w)
+			return true
+		}
+
+		timer := time.NewTimer(d)
+		pauseChan, _ := w.gate.pauseSignal()
+		select {
+		case <-timer.C:
+			w.gate.clearWaitDeadline(w)
+			return true
+		case <-w.stop:
+			timer.Stop()
+			return false
+		case <-pauseChan:
+			timer.Stop()
+			if !w.parkUntilResume() {
+				return false
+			}
+			// w.waitEnd was frozen while parked, then restarted from its
+			// remainder by unpark; loop and wait that remainder.
 		}
 	}
 }
@@ -121,25 +331,12 @@ func (w *worker) isAllowedPerRobotsPolicies(u *url.URL) bool {
 
 // Process the specified URL.
 func (w *worker) requestURL(ctx *URLContext, headRequest bool) {
-	if res, ok := w.fetchURL(ctx, w.opts.UserAgent, headRequest); ok {
-		var harvested interface{}
-		var visited bool
-
-		// Close the body on function end
-		defer res.Body.Close()
-
-		// Any 2xx status code is good to go
-		if res.StatusCode >= 200 && res.StatusCode < 300 {
-			// Success, visit the URL
-			harvested = w.visitURL(ctx, res)
-			visited = true
-		} else {
-			// Error based on status code received
-			w.opts.Extender.Error(newCrawlErrorMessage(ctx, res.Status, CekHttpStatusCode))
-			w.logFunc(LogError, "ERROR status code for %s: %s", ctx.url, res.Status)
-		}
-		w.sendResponse(ctx, visited, harvested, false)
+	res, ok := w.fetchURL(ctx, w.opts.UserAgent, headRequest)
+	if !ok || res == nil {
+		// Fetch error, or a HEAD whose GET is now pending.
+		return
 	}
+	w.consumeResponse(ctx, res)
 }
 
 // Process the robots.txt URL.
@@ -209,11 +406,11 @@ func (w *worker) fetchURL(ctx *URLContext, agent string, headRequest bool) (res 
 	var silent bool
 
 	for {
-		// Wait for crawl delay, if one is pending.
+		// Wait for crawl delay, if one is pending. This wait is pause-aware:
+		// it parks without consuming the remaining delay.
 		w.logFunc(LogTrace, "waiting for crawl delay")
-		if w.wait != nil {
-			<-w.wait
-			w.wait = nil
+		if !w.awaitCrawlDelay() {
+			return nil, false
 		}
 
 		// Compute the next delay
@@ -264,8 +461,9 @@ func (w *worker) fetchURL(ctx *URLContext, agent string, headRequest bool) (res 
 		}
 		// Get the fetch duration
 		fetchDuration := time.Now().Sub(now)
-		// Crawl delay starts now.
-		w.wait = time.After(w.lastCrawlDelay)
+		// Crawl delay starts now. A pause freezes its remaining time; the
+		// deadline is what the worker parks against.
+		w.gate.setWaitEnd(w, time.Now().Add(w.lastCrawlDelay))
 
 		// Keep trace of this last fetch info
 		w.lastFetch = &FetchInfo{
@@ -287,10 +485,14 @@ func (w *worker) fetchURL(ctx *URLContext, agent string, headRequest bool) (res 
 				ok = false
 				break
 			}
-		} else {
-			ok = true
+			// The HEAD phase is complete, but the GET it decided on is a
+			// separate phase and must observe the pause barrier. Signal the
+			// caller that a GET is due for this context.
+			w.headPending = ctx
 			break
 		}
+		ok = true
+		break
 	}
 	return
 }

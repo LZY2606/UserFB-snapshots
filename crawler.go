@@ -30,11 +30,26 @@ type Crawler struct {
 	pushPopRefCount int
 	visits          int
 
+	// Pause/Resume control state. See pause.go.
+	ctrlMu    sync.Mutex
+	ctrlState crawlerState
+	gate      *crawlGate
+	pauseDone chan struct{}
+	runDone   chan struct{}
+
 	// keep lookups in maps, O(1) access time vs O(n) for slice. The empty struct value
 	// is of no use, but this is the smallest type possible - it uses no memory at all.
 	visited map[string]struct{}
 	hosts   map[string]struct{}
 	workers map[string]*worker
+
+	// maxVisitsReached is set when MaxVisits is hit while a Pause is in
+	// flight; the terminal error is returned once the crawler is running
+	// again. It is only accessed by the master goroutine.
+	maxVisitsReached bool
+	// terminalErr is the error that ends the current Run. It is protected by
+	// ctrlMu and set when the control state moves to Finishing.
+	terminalErr error
 }
 
 // NewCrawlerWithOptions returns a Crawler initialized with the
@@ -97,6 +112,7 @@ func (c *Crawler) init(ctxs []*URLContext) {
 	// Initialize the visits fields
 	c.visited = make(map[string]struct{}, l)
 	c.pushPopRefCount, c.visits = 0, 0
+	c.maxVisitsReached = false
 
 	// Create the workers map and the push channel (the channel used by workers
 	// to communicate back to the crawler)
@@ -111,6 +127,16 @@ func (c *Crawler) init(ctxs []*URLContext) {
 	// Create and pass the enqueue channel
 	c.enqueue = make(chan interface{}, c.Options.EnqueueChanBuffer)
 	c.setExtenderEnqueueChan()
+
+	// Reset the control state for this Run: a new run never inherits the
+	// control signals of a previous one.
+	c.ctrlMu.Lock()
+	c.ctrlState = stateRunning
+	c.gate = newCrawlGate()
+	c.pauseDone = nil
+	c.runDone = make(chan struct{})
+	c.terminalErr = nil
+	c.ctrlMu.Unlock()
 }
 
 // Set the Enqueue channel on the extender, based on the naming convention.
@@ -168,7 +194,12 @@ func (c *Crawler) launchWorker(ctx *URLContext) *worker {
 		wg:      c.wg,
 		logFunc: getLogFunc(c.Options.Extender, c.Options.LogFlags, i),
 		opts:    c.Options,
+		gate:    c.gate,
 	}
+
+	// Register the worker as active before it can possibly park, so that a
+	// concurrent Pause cannot observe a false quiescence.
+	c.gate.addWorker()
 
 	// Increment wait group count
 	c.wg.Add(1)
@@ -276,6 +307,7 @@ func (c *Crawler) enqueueUrls(ctxs []*URLContext) (cnt int) {
 // and processing these responses.
 func (c *Crawler) collectUrls() error {
 	defer func() {
+		c.finishControl()
 		c.logFunc(LogInfo, "waiting for goroutines to complete...")
 		c.wg.Wait()
 		c.logFunc(LogInfo, "crawler done.")
@@ -289,12 +321,18 @@ func (c *Crawler) collectUrls() error {
 		// state.
 		//
 		// Check if refcount is zero - MUST be before the select statement, so that if
-		// no valid seeds are enqueued, the crawler stops.
-		if c.pushPopRefCount == 0 && len(c.enqueue) == 0 {
+		// no valid seeds are enqueued, the crawler stops. Do not finish while a
+		// Pause is pending or in effect: the Run keeps its state alive. A crawl
+		// that reached MaxVisits still ends while paused, since it cannot make
+		// progress anymore. Natural end and Stop both move the state to Finishing
+		// atomically with the stop channel closing.
+		if c.claimFinish(c.maxVisitsReached || (c.pushPopRefCount == 0 && len(c.enqueue) == 0)) {
 			c.logFunc(LogInfo, "sending STOP signals...")
-			close(c.stop)
-			return nil
+			return c.terminalError()
 		}
+
+		// Complete a pending Pause as soon as the quiescence condition is met.
+		c.tryFinishPause()
 
 		select {
 		case res := <-c.push:
@@ -302,10 +340,13 @@ func (c *Crawler) collectUrls() error {
 			if res.visited {
 				c.visits++
 				if c.Options.MaxVisits > 0 && c.visits >= c.Options.MaxVisits {
-					// Limit reached, request workers to stop
+					// Limit reached. Closing stop and moving to Finishing is
+					// atomic with respect to Pause, so a Pause can never report
+					// success after Run has decided to end.
 					c.logFunc(LogInfo, "sending STOP signals...")
-					close(c.stop)
-					return ErrMaxVisits
+					c.maxVisitsReached = true
+					c.claimFinish(true)
+					return c.terminalError()
 				}
 			}
 			if res.idleDeath {
@@ -323,8 +364,57 @@ func (c *Crawler) collectUrls() error {
 			c.logFunc(LogTrace, "receive url(s) to enqueue %v", toStringArrayContextURL(ctxs))
 			c.enqueueUrls(ctxs)
 		case <-c.stop:
-			return ErrInterrupted
+			return c.terminalError()
+		case <-c.gate.notify:
+			// A worker parked or stopped: re-evaluate the pause barrier and the
+			// natural-end condition at the top of the loop.
 		}
+	}
+}
+
+// claimFinish atomically decides whether this Run should end (naturally, on
+// MaxVisits, or after a Stop) and moves the control state to Finishing so that
+// a concurrent Pause cannot report success after Run has ended. mustFinish
+// reports the natural-end condition of the crawl loop.
+//
+// While a Pause is pending or in effect a natural end is not claimed: the Run
+// must keep its state and let the Pause succeed. MaxVisits is terminal (no
+// more progress is possible) and may end the Run even then.
+func (c *Crawler) claimFinish(mustFinish bool) bool {
+	c.ctrlMu.Lock()
+	defer c.ctrlMu.Unlock()
+
+	switch c.ctrlState {
+	case stateFinishing:
+		// Stop won the race: end the loop.
+		return true
+	case stateNotRunning:
+		return true
+	}
+	if !mustFinish {
+		return false
+	}
+	if !c.maxVisitsReached &&
+		(c.ctrlState == statePausing || c.ctrlState == statePaused) {
+		// A Pause owns the barrier: do not tear the Run down underneath it.
+		return false
+	}
+	if c.maxVisitsReached {
+		c.terminalErr = ErrMaxVisits
+	}
+	c.ctrlState = stateFinishing
+	// Wake a control caller waiting for a Pause round or for Run to finish.
+	c.closeRunDoneLocked()
+	close(c.stop)
+	return true
+}
+
+// closeRunDoneLocked wakes the control callers waiting for Run to finish.
+// ctrlMu must be held.
+func (c *Crawler) closeRunDoneLocked() {
+	if c.runDone != nil {
+		close(c.runDone)
+		c.runDone = nil
 	}
 }
 
@@ -336,6 +426,7 @@ func (c *Crawler) Stop() {
 		}
 	}()
 
-	// this channel may be closed already
-	close(c.stop)
+	// Only close stop (and wake a waiting Pause with ErrInterrupted) while a
+	// Run round is still active; a second Stop is a no-op.
+	c.claimStop()
 }

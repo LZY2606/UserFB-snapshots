@@ -17,6 +17,10 @@ var (
 	// ErrInterrupted is returned when the crawler is manually stopped
 	// (via a call to Stop).
 	ErrInterrupted = errors.New("interrupted")
+
+	// ErrNotRunning is returned by Pause and Resume when the crawler is not
+	// running (it was never started, or its Run call has already returned).
+	ErrNotRunning = errors.New("crawler is not running")
 )
 
 // CrawlErrorKind indicated the kind of crawling error.

@@ -135,7 +135,7 @@ The Crawler type controls the whole execution. It spawns worker goroutines and m
 *    **NewCrawler(Extender)** : Creates a crawler with the specified `Extender` instance.
 *    **NewCrawlerWithOptions(*Options)** : Creates a crawler with a pre-initialized `*Options` instance.
 
-The one and only public function is `Run(seeds interface{}) error` which take a seeds argument (the base URLs used to start crawling) that can be expressed a number of different ways. It ends when there are no more URLs waiting to be visited, or when the `Options.MaxVisit` number is reached. It returns an error, which is `ErrMaxVisits` if this setting is what caused the crawling to stop.
+The main entry point is `Run(seeds interface{}) error` which take a seeds argument (the base URLs used to start crawling) that can be expressed a number of different ways. It ends when there are no more URLs waiting to be visited, or when the `Options.MaxVisit` number is reached. It returns an error, which is `ErrMaxVisits` if this setting is what caused the crawling to stop. The control methods `Stop`, and the in-place `Pause`/`Resume` pair, are described [below](#pausing).
 
 <a name="types" />
 The various types that can be used to pass the seeds are the following (the same types apply for the empty interfaces in `Extender.Start(interface{}) interface{}`, `Extender.Visit(*URLContext, *http.Response, *goquery.Document) (interface{}, bool)` and in `Extender.Visited(*URLContext, interface{})`, as well as the type of the `EnqueueChan` field):
@@ -148,6 +148,61 @@ The various types that can be used to pass the seeds are the following (the same
 *    `map[*url.URL]interface{}` : a map of URLs expressed as parsed pointers to URL objects (for the key) and their associated state data
 
 For convenience, the types `gocrawl.S` and `gocrawl.U` are provided as equivalent to the map of strings and map of URLs, respectively (so that, for example, the code can look like `gocrawl.S{"http://site.com": "some state data"}`).
+
+### Pausing and resuming a run
+
+`Crawler.Stop` terminates a run: the worker goroutines end and a subsequent `Run` starts from scratch, with an empty visited set and no per-host state. When resources must be yielded temporarily but the crawl must continue where it left off, use the in-place `Pause` and `Resume` methods instead:
+
+```Go
+func (c *Crawler) Pause() error
+func (c *Crawler) Resume() error
+```
+
+`Pause` closes the admission of new crawling phases and waits until every phase that had already started has completed and handed its result back to the master. A phase is one `Fetch` plus its body consumption, its extender callbacks, its body close and its result delivery to the master; a robots.txt request is a phase too, and the HEAD and the GET of a `HeadBeforeGet` URL are two distinct phases. When `Pause` returns nil, all workers are parked and no worker-side extender hook (ComputeDelay, RequestRobots, Fetch, RequestGet, FetchedRobots, Visit, Visited, Disallowed) will run until `Resume`. `Filter` and `Enqueued` are still processed by the master.
+
+A user `Fetch` or hook that is already running is never interrupted: if it does not return, `Pause` keeps waiting. A pause is not a queue-dropping stop. The tail of a batch already handed to a worker, the URLs still in the pop channel, the links discovered by an in-flight phase and the URLs sent on `Extender.EnqueueChan` are all preserved. `Run` keeps running: `Start` and `End` are not called again, the visited set and the hosts' robots state remain live, and no URL is re-spawned from the seeds. URLs accepted while paused still go through the normal conversion, `Filter`, same-host policy, `Enqueued` and deduplication, and may therefore create a new host worker; that worker simply cannot start its robots request until the resume. After a resume every accepted URL is processed in its original per-host order, and already-filtered URLs are not filtered again.
+
+Timing state is frozen by the pause. A worker waiting for its polite crawl delay parks immediately instead of waiting out the full delay; the remaining delay (and the remaining worker idle TTL) resumes from where it stopped, so a long pause never turns into an immediate back-to-back request, and a delay never restarts from zero. `robotsGroup`, `lastFetch`, `lastCrawlDelay`, and a HEAD whose GET is still pending all survive the pause: the next `ComputeDelay` still sees the previous request. An idle TTL that already expired before the pause is still applied normally.
+
+Control-call rules:
+
+* All control calls must be issued from a control goroutine, never from inside an extender hook (the hooks run on the workers the pause is waiting for).
+* Multiple concurrent `Pause` calls wait for the same quiescence; a `Pause` on an already-paused crawler returns immediately.
+* `Resume` wakes the workers of the current pause round. A repeated `Resume` while running is a successful no-op.
+* `Stop` may race with `Pause`, and may end a paused run; a `Pause` waiting at that moment returns `ErrInterrupted`. Neither `Stop` nor the end of the crawl waits for a crawl delay or an idle TTL.
+* `Pause` and `Resume` on a crawler that is not running return the new error `ErrNotRunning`.
+* If the crawl ends naturally at the same time as a pause, the pause either succeeds and keeps the run alive, or `Pause` returns `ErrNotRunning` because the run has ended; it never reports success after `Run` has returned.
+* Only one `Run` at a time is supported, and a new `Run` starts with fresh control state: signals from a previous run are not inherited. `Options` must not change during a run.
+
+Example of a control goroutine that yields the network for a while and then resumes the same crawl:
+
+```Go
+opts := gocrawl.NewOptions(new(ExampleExtender))
+opts.RobotUserAgent = "Example"
+opts.UserAgent = "Mozilla/5.0 (compatible; Example/1.0; +http://example.com)"
+opts.CrawlDelay = 1 * time.Second
+
+c := gocrawl.NewCrawlerWithOptions(opts)
+
+done := make(chan error, 1)
+go func() { done <- c.Run("https://example.com/") }()
+
+// Later, from a control goroutine (not from an extender hook):
+if err := c.Pause(); err != nil {
+    // ErrNotRunning if the crawl already ended, ErrInterrupted if Stop won.
+    log.Printf("pause: %v", err)
+    return
+}
+// While paused, no Fetch, Visit or other worker hook runs, and the
+// crawl delay / idle countdowns are frozen. Filter and Enqueued may still
+// process URLs sent on EnqueueChan.
+doOtherWork()
+
+if err := c.Resume(); err != nil {
+    log.Printf("resume: %v", err)
+}
+err := <-done
+```
 
 ### Options
 
