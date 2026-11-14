@@ -91,7 +91,8 @@ static SRC_STATE_VT sinc_multichan_state_vt =
 	sinc_multichan_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	NULL
 } ;
 
 static SRC_STATE_VT sinc_hex_state_vt =
@@ -100,7 +101,8 @@ static SRC_STATE_VT sinc_hex_state_vt =
 	sinc_hex_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	NULL
 } ;
 
 static SRC_STATE_VT sinc_quad_state_vt =
@@ -109,7 +111,8 @@ static SRC_STATE_VT sinc_quad_state_vt =
 	sinc_quad_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	NULL
 } ;
 
 static SRC_STATE_VT sinc_stereo_state_vt =
@@ -118,7 +121,8 @@ static SRC_STATE_VT sinc_stereo_state_vt =
 	sinc_stereo_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	NULL
 } ;
 
 static SRC_STATE_VT sinc_mono_state_vt =
@@ -127,7 +131,8 @@ static SRC_STATE_VT sinc_mono_state_vt =
 	sinc_mono_vari_process,
 	sinc_reset,
 	sinc_copy,
-	sinc_close
+	sinc_close,
+	NULL
 } ;
 
 static inline increment_t

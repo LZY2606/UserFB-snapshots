@@ -30,6 +30,7 @@ CLEANFILES = src/src_sinc.s
 # MinGW requires -no-undefined if a DLL is to be built.
 src_libsamplerate_la_LDFLAGS = -no-undefined -version-info $(SHARED_VERSION_INFO) $(SHLIB_VERSION_ARG)
 src_libsamplerate_la_SOURCES = src/samplerate.c src/src_sinc.c src/src_zoh.c src/src_linear.c \
+	src/src_minphase.c \
 	src/common.h src/fastest_coeffs.h src/mid_qual_coeffs.h src/high_qual_coeffs.h
 
 #-------------------------------------------------------------------------------
@@ -56,14 +57,20 @@ AUTOHEADER=echo
 
 dist_doc_DATA = docs/SRC.png docs/SRC.css docs/index.md docs/license.md docs/history.md \
 	docs/download.md docs/lists.md docs/quality.md docs/win32.md docs/faq.md docs/api.md \
-	docs/api_simple.md docs/api_callback.md docs/api_full.md docs/api_misc.md docs/bugs.md
+	docs/api_simple.md docs/api_callback.md docs/api_full.md docs/api_misc.md docs/bugs.md \
+	docs/minimum_phase.md
 
 #############
 # examples/ #
 #############
 
+noinst_PROGRAMS = examples/minphase_stream
+
+examples_minphase_stream_SOURCES = examples/minphase_stream.c
+examples_minphase_stream_LDADD = src/libsamplerate.la
+
 if HAVE_LIBSNDFILE
-noinst_PROGRAMS = examples/varispeed-play examples/timewarp-file
+noinst_PROGRAMS += examples/varispeed-play examples/timewarp-file
 
 examples_varispeed_play_SOURCES = examples/varispeed-play.c examples/audio_out.c examples/audio_out.h
 examples_varispeed_play_CFLAGS = $(SNDFILE_CFLAGS) $(AUDIO_CFLAGS)
@@ -84,6 +91,7 @@ TESTS = \
 	tests/clone_test \
 	tests/downsample_test \
 	tests/float_short_test \
+	tests/minimum_phase_test \
 	tests/misc_test \
 	tests/multi_channel_test \
 	tests/nullptr_test \
@@ -103,6 +111,9 @@ check_PROGRAMS = \
 
 tests_misc_test_SOURCES = tests/misc_test.c tests/util.c tests/util.h
 tests_misc_test_LDADD = src/libsamplerate.la
+
+tests_minimum_phase_test_SOURCES = tests/minimum_phase_test.c tests/util.c tests/util.h
+tests_minimum_phase_test_LDADD = src/libsamplerate.la
 
 tests_termination_test_SOURCES = tests/termination_test.c tests/util.c tests/util.h
 tests_termination_test_LDADD = src/libsamplerate.la

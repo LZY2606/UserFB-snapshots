@@ -32,7 +32,8 @@ enum
     SRC_SINC_MEDIUM_QUALITY     = 1,
     SRC_SINC_FASTEST            = 2,
     SRC_ZERO_ORDER_HOLD         = 3,
-    SRC_LINEAR                  = 4
+    SRC_LINEAR                  = 4,
+    SRC_SINC_MINIMUM_PHASE      = 5
 } ;
 ```
 
@@ -59,6 +60,11 @@ The details of these converters are as follows:
 - **SRC_LINEAR** - A linear converter. Again the quality is poor, but the
   conversion speed is blindingly fast. This interpolator is also not bandlimited, 
   and the user is responsible for adding anti-aliasing filtering.
+- **SRC_SINC_MINIMUM_PHASE** - A causal, minimum phase sinc converter for low
+  latency monitoring. It supports fixed conversion ratios in [0.5, 2.0] only
+  (locked by the first non-empty conversion after each reset), has a nonlinear
+  phase response and an effective kernel support of 32 input frames. See
+  [minimum_phase.md](minimum_phase.md) for details.
 
 There are two functions that give either a (text string) name or description for
 each converter:

@@ -42,7 +42,8 @@ static SRC_STATE_VT zoh_state_vt =
 	zoh_vari_process,
 	zoh_reset,
 	zoh_copy,
-	zoh_close
+	zoh_close,
+	NULL
 } ;
 
 /*----------------------------------------------------------------------------------------

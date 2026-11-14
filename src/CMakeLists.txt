@@ -36,6 +36,7 @@ add_library(samplerate
   samplerate.c
   ${PROJECT_SOURCE_DIR}/include/samplerate.h
   src_linear.c
+  src_minphase.c
   src_sinc.c
   src_zoh.c
   $<$<AND:$<BOOL:${WIN32}>,$<BOOL:${BUILD_SHARED_LIBS}>>:../Win32/libsamplerate-0.def>)

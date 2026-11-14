@@ -17,6 +17,9 @@ target_link_libraries(timewarp-file
     samplerate
     $<$<BOOL:${SndFile_FOUND}>:${SNDFILE_TARGET}>)
 
+add_executable(minphase_stream minphase_stream.c)
+target_link_libraries(minphase_stream PRIVATE samplerate)
+
 add_executable(varispeed-play varispeed-play.c audio_out.c audio_out.h)
 target_link_libraries(varispeed-play
   PRIVATE

@@ -246,6 +246,13 @@ src_set_ratio (SRC_STATE *state, double new_ratio)
 	if (is_bad_src_ratio (new_ratio))
 		return SRC_ERR_BAD_SRC_RATIO ;
 
+	/* Allow converters to impose extra ratio constraints. */
+	if (state->vt->set_ratio != NULL)
+	{	int error = state->vt->set_ratio (state, new_ratio) ;
+		if (error != SRC_ERR_NO_ERROR)
+			return error ;
+		} ;
+
 	state->last_ratio = new_ratio ;
 
 	return SRC_ERR_NO_ERROR ;
@@ -296,6 +303,9 @@ src_get_name (int converter_type)
 	if ((desc = linear_get_name (converter_type)) != NULL)
 		return desc ;
 
+	if ((desc = minphase_get_name (converter_type)) != NULL)
+		return desc ;
+
 	return NULL ;
 } /* src_get_name */
 
@@ -310,6 +320,9 @@ src_get_description (int converter_type)
 		return desc ;
 
 	if ((desc = linear_get_description (converter_type)) != NULL)
+		return desc ;
+
+	if ((desc = minphase_get_description (converter_type)) != NULL)
 		return desc ;
 
 	return NULL ;
@@ -513,6 +526,9 @@ psrc_set_converter (int converter_type, int channels, int *error)
 		break ;
 	case SRC_LINEAR :
 		state = linear_state_new (channels, &temp_error) ;
+		break ;
+	case SRC_SINC_MINIMUM_PHASE :
+		state = minphase_state_new (channels, &temp_error) ;
 		break ;
 	default :
 		temp_error = SRC_ERR_BAD_CONVERTER ;
