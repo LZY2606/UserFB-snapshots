@@ -8,20 +8,27 @@ import (
 type packetAccumulator struct {
 	pid        uint16
 	programMap *programMap
+	clocks     *programClocks
 	q          []*Packet
+	// clock is the program clock snapshot captured when the first packet of the
+	// currently queued payload was received. It is handed to the packet pool's
+	// clock tracker when the queue is flushed.
+	clock *clockSnapshot
 }
 
 // newPacketAccumulator creates a new packet queue for a single PID
-func newPacketAccumulator(pid uint16, programMap *programMap) *packetAccumulator {
+func newPacketAccumulator(pid uint16, programMap *programMap, clocks *programClocks) *packetAccumulator {
 	return &packetAccumulator{
 		pid:        pid,
 		programMap: programMap,
+		clocks:     clocks,
 	}
 }
 
 // add adds a new packet for this PID to the queue
 func (b *packetAccumulator) add(p *Packet) (ps []*Packet) {
 	mps := b.q
+	mclock := b.clock
 
 	// Empty buffer if we detect a discontinuity
 	if hasDiscontinuity(mps, p) {
@@ -31,6 +38,8 @@ func (b *packetAccumulator) add(p *Packet) (ps []*Packet) {
 		} else {
 			mps = make([]*Packet, 0, 10)
 		}
+		// The dropped payload took its snapshot with it.
+		mclock = nil
 	}
 
 	// Throw away packet if it's the same as the previous one
@@ -41,15 +50,25 @@ func (b *packetAccumulator) add(p *Packet) (ps []*Packet) {
 	// Flush buffer if new payload starts here
 	if p.Header.PayloadUnitStartIndicator {
 		ps = mps
+		if len(ps) > 0 {
+			b.storeFlushedClock(mclock)
+		}
 		mps = make([]*Packet, 0, cap(mps))
+		mclock = nil
 	}
 
+	// Capture the clock context of the first packet of this payload, after the
+	// packet's own adaptation field effects have already been applied.
+	if mclock == nil && b.clocks != nil {
+		mclock = b.clocks.snapshot(p)
+	}
 	mps = append(mps, p)
 
 	// A single call can only return one payload: if this packet already flushed the
 	// previous one, keep the new payload queued instead of overwriting the result.
 	if len(ps) > 0 {
 		b.q = mps
+		b.clock = mclock
 		return
 	}
 
@@ -59,13 +78,27 @@ func (b *packetAccumulator) add(p *Packet) (ps []*Packet) {
 		isPSIComplete(mps) {
 		ps = mps
 		mps = nil
+		b.storeFlushedClock(mclock)
+		mclock = nil
 	} else if isPESPayload(mps[0].Payload) && isPESComplete(mps) { // Check if PES payload is complete
 		ps = mps
 		mps = nil
+		b.storeFlushedClock(mclock)
+		mclock = nil
 	}
 
 	b.q = mps
+	b.clock = mclock
 	return
+}
+
+// storeFlushedClock makes the snapshot of the flushed payload available to the
+// demuxer alongside the returned packet set.
+func (b *packetAccumulator) storeFlushedClock(clock *clockSnapshot) {
+	if b.clocks == nil {
+		return
+	}
+	b.clocks.anchors[uint32(b.pid)] = clock
 }
 
 // packetPool represents a queue of packets for each PID in the stream
@@ -74,6 +107,7 @@ type packetPool struct {
 	b map[uint32]*packetAccumulator // Indexed by PID
 
 	programMap *programMap
+	clocks     *programClocks
 }
 
 // newPacketPool creates a new packet pool with an optional parser and programMap
@@ -87,9 +121,17 @@ func newPacketPool(programMap *programMap) *packetPool {
 
 // addUnlocked adds a new packet to the pool
 func (b *packetPool) addUnlocked(p *Packet) (ps []*Packet) {
-	// Throw away packet if error indicator
+	// Throw away packet if error indicator: a corrupt packet must not update
+	// the program clock either.
 	if p.Header.TransportErrorIndicator {
 		return
+	}
+
+	// Adaptation field effects (discontinuity, PCR) apply even when the packet
+	// carries no payload, so the program clock tracker runs before the packet
+	// is queued.
+	if b.clocks != nil {
+		b.clocks.handlePacket(p)
 	}
 
 	// Throw away packets that don't have a payload until we figure out what we're going to do with them
@@ -101,12 +143,23 @@ func (b *packetPool) addUnlocked(p *Packet) (ps []*Packet) {
 	// Make sure accumulator exists
 	acc, ok := b.b[uint32(p.Header.PID)]
 	if !ok {
-		acc = newPacketAccumulator(p.Header.PID, b.programMap)
+		acc = newPacketAccumulator(p.Header.PID, b.programMap, b.clocks)
 		b.b[uint32(p.Header.PID)] = acc
 	}
 
 	// Add to the accumulator
 	return acc.add(p)
+}
+
+// consumeClock returns the snapshot captured for the most recently flushed
+// payload of the PID and forgets it.
+func (b *packetPool) consumeClock(pid uint16) *clockSnapshot {
+	if b.clocks == nil {
+		return nil
+	}
+	s := b.clocks.anchors[uint32(pid)]
+	delete(b.clocks.anchors, uint32(pid))
+	return s
 }
 
 // dumpUnlocked dumps the packet pool by looking for the first item with packets inside
@@ -117,9 +170,13 @@ func (b *packetPool) dumpUnlocked() (ps []*Packet) {
 	}
 	sort.Ints(keys)
 	for _, k := range keys {
-		ps = b.b[uint32(k)].q
+		acc := b.b[uint32(k)]
+		ps = acc.q
 		delete(b.b, uint32(k))
 		if len(ps) > 0 {
+			if b.clocks != nil {
+				b.clocks.anchors[uint32(k)] = acc.clock
+			}
 			return
 		}
 	}
@@ -155,7 +212,7 @@ func hasDiscontinuity(ps []*Packet, p *Packet) bool {
 	return true
 }
 
-// isSameAsPrevious checks whether a packet is the same as the last packet of a set of packets
+// isSameAsPrevious checks whether the packet is the same as the last packet of a set of packets
 func isSameAsPrevious(ps []*Packet, p *Packet) bool {
 	l := len(ps)
 	return l > 0 && p.Header.HasPayload && p.Header.ContinuityCounter == ps[l-1].Header.ContinuityCounter

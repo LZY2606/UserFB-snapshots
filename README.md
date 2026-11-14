@@ -140,6 +140,69 @@ p := func(ps []*astits.Packet) (ds []*astits.Data, skip bool, err error) {
 dmx := NewDemuxer(ctx, f, DemuxerOptPacketSize(192), DemuxerOptPacketsParser(p))
 ```
 
+## Timed data and program clocks
+
+Besides the raw 33-bit PTS/DTS and PCR values, the demuxer can deliver each
+parsed data together with the program clock that was in effect when the media
+started being received. Call `NextTimedData()` instead of `NextData()`:
+
+```go
+dmx := astits.NewDemuxer(ctx, f)
+for {
+        td, err := dmx.NextTimedData()
+        if err == astits.ErrNoMorePackets {
+                break
+        }
+        if err != nil {
+                panic(err)
+        }
+
+        // td.Data is the same *DemuxerData that NextData() returns, in the
+        // same order. PAT/PMT and other non-PES data are delivered normally
+        // with nil time pointers.
+        if td.Data.PES == nil {
+                continue
+        }
+
+        // Program the PES belongs to, derived from the received PAT/PMT.
+        // It is zero when no known program owns the PID.
+        fmt.Printf("program %d, epoch %d\n", td.ProgramNumber, td.ClockEpoch)
+
+        // PCR27MHz is the unwrapped PCR (27 MHz units) captured when the
+        // first TS packet of this PES was received. PTS90k/DTS90k are the
+        // 90 kHz timestamps expanded onto that same continuous clock.
+        // Pointers stay nil when there is no PCR anchor, no PTS/DTS, or no
+        // known program; missing values are never synthesized.
+        if td.PCR27MHz != nil {
+                fmt.Printf("pcr=%d pts=%v dts=%v\n", *td.PCR27MHz, td.PTS90k, td.DTS90k)
+        }
+}
+```
+
+Per-program clock tracking works as follows:
+
+- Each program keeps its own clock, anchored on the PCR PID declared by its
+  PMT. PCR-only PIDs (packets containing only an adaptation field) are still
+  consumed. A PCR PID of `0x1fff` means the program has no anchor.
+- PCR values (`base*300 + extension`) are unwrapped over the `2^33*300`
+  modulus by accumulating the smallest signed difference between consecutive
+  PCRs. PTS/DTS are expanded onto the 33-bit value closest to the anchor
+  `PCR/300`, independently for each timestamp, so B-frame presentation times
+  are allowed to go backwards.
+- A discontinuity indicator on a program's current PCR PID (even without a
+  payload), or a PMT that changes that PCR PID, starts a new clock epoch and
+  clears the anchor. Repeated PMTs and descriptor-only changes do not.
+- The snapshot belongs to the PES: PCR or PMT updates arriving while a PES is
+  still being reassembled never replace its captured context, and the returned
+  values are owned by the `TimedData`. `Rewind()` rebuilds every program clock
+  from scratch, so re-reading the same stream gives the same results.
+
+A single `Demuxer` exposes three read entry points — `NextPacket()`,
+`NextData()` and `NextTimedData()` — and they must not be mixed during the
+lifetime of one demuxer. Each entry keeps its own buffering and clock
+tracking; pick the one you need and use it consistently (calling `Rewind()`
+resets the demuxer and lets you start over with any entry point).
+
 # CLI
 
 This library provides 2 CLIs that will automatically get installed in `GOPATH/bin` on `go get` execution.
