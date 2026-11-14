@@ -26,7 +26,7 @@ struct gsm_state {
 
 	word		u[8];		/* short_term_aly_filter.c	*/
 	word		LARpp[2][8]; 	/*                              */
-	word		j;		/*                              */
+		word		j;		/*                              */
 
 	word            ltp_cut;        /* long_term.c, LTP crosscorr.  */
 	word		nrp; /* 40 */	/* long_term.c, synthesis	*/
@@ -48,14 +48,63 @@ struct gsm_state {
 #define	MIN_LONGWORD	(-2147483647 - 1)
 #define	MAX_LONGWORD	  2147483647
 
-#ifdef	SASR		/* flag: >> is a signed arithmetic shift right */
-#undef	SASR
-#define	SASR(x, by)	((x) >> (by))
-#else
-#define	SASR(x, by)	((x) >= 0 ? (x) >> (by) : (~(-((x) + 1) >> (by))))
-#endif	/* SASR */
-
 #include "proto.h"
+
+/* ------------------------------------------------------------------ *
+ *  Portable fixed point primitives (implemented in add.c).
+ *
+ *  Target: two's complement, 8 bit bytes, 16 bit short, 32 bit int,
+ *  long 32 or 64 bits.  None of these rely on:
+ *
+ *	- long being exactly 32 bits,
+ *	- left shifting a negative signed value,
+ *	- right shifting a negative signed value (arithmetic shift),
+ *	- signed integer overflow wrapping.
+ *
+ *  Four operation classes are deliberately kept separate:
+ *
+ *	saturated add/sub	clamp to the destination word range,
+ *	arithmetic right shift	round toward -infinity (floor),
+ *	truncating left shift	keep the destination word's low bits
+ *				and re-interpret them signed,
+ *	wide products		formed in a wider signed intermediate.
+ * ------------------------------------------------------------------ */
+
+/* Re-interpret the low 16 / 32 bits of an unsigned pattern as a
+ * two's complement signed value, without assuming long's width.
+ */
+extern word	gsm_mk_word	P((unsigned u));
+extern longword gsm_mk_long	P((ulongword u));
+
+/* Truncating left shift (count in [0, width-1]): keep the low bits of
+ * the destination word -- the deliberate low-bit truncation of the spec.
+ */
+extern word	gsm_sll_word	P((word a, int n));
+extern longword gsm_sll_long	P((longword a, int n));
+
+/* Arithmetic right shift, floor (toward -infinity).  For x < 0 the
+ * identity floor(x/2^n) = ~((~x) >> n) only shifts non-negative values,
+ * so no hardware arithmetic shift is assumed and it differs from C's
+ * toward-zero division.
+ */
+extern word	gsm_sra_word	P((word a, int n));
+extern longword gsm_sra_long	P((longword a, int n));
+
+/* Q15 products with the exact truncation semantics of the historical
+ * GSM_MULT / GSM_MULT_R / GSM_L_MULT macros (no MIN_WORD shortcut).
+ */
+extern word	gsm_mult_m	P((word a, word b));
+extern word	gsm_mult_r_m	P((word a, word b));
+extern longword gsm_L_mult_m	P((word a, word b));
+
+/*
+ * SASR keeps its historical name but no longer has two meanings:
+ * regardless of the SASR build flag it is the portable floor
+ * (-infinity) arithmetic right shift.  Type generic for word/longword;
+ * every ``>>`` actually executed has a non-negative operand.
+ */
+#undef	SASR
+#define	SASR(x, by)	((x) >= 0 ? (x) >> (by) : ~((~(x)) >> (by)))
 
 /*
  *	Prototypes from add.c
@@ -83,60 +132,19 @@ extern longword gsm_L_asr  	P((longword a, int n));
 extern word	gsm_asr  	P((word a, int n));
 
 /*
- *  Inlined functions from add.h 
+ *  Inlined fixed point operations now dispatch to the portable add.c
+ *  functions.  Products use a wide signed intermediate (16x16 cannot
+ *  overflow a 32 bit value); shifts use the floor helpers and results
+ *  are truncated to 16 or 32 bits.  Saturating add/sub apply the GSM
+ *  clamp rule.
  */
-
-/* 
- * #define GSM_MULT_R(a, b) (* word a, word b, !(a == b == MIN_WORD) *)	\
- *	(0x0FFFF & SASR(((longword)(a) * (longword)(b) + 16384), 15))
- */
-#define GSM_MULT_R(a, b) /* word a, word b, !(a == b == MIN_WORD) */	\
-	(SASR( ((longword)(a) * (longword)(b) + 16384), 15 ))
-
-# define GSM_MULT(a,b)	 /* word a, word b, !(a == b == MIN_WORD) */	\
-	(SASR( ((longword)(a) * (longword)(b)), 15 ))
-
-# define GSM_L_MULT(a, b) /* word a, word b */	\
-	(((longword)(a) * (longword)(b)) << 1)
-
-# define GSM_L_ADD(a, b)	\
-	( (a) <  0 ? ( (b) >= 0 ? (a) + (b)	\
-		 : (utmp = (ulongword)-((a) + 1) + (ulongword)-((b) + 1)) \
-		   >= MAX_LONGWORD ? MIN_LONGWORD : -(longword)utmp-2 )   \
-	: ((b) <= 0 ? (a) + (b)   \
-	          : (utmp = (ulongword)(a) + (ulongword)(b)) >= MAX_LONGWORD \
-		    ? MAX_LONGWORD : utmp))
-
-/*
- * # define GSM_ADD(a, b)	\
- * 	((ltmp = (longword)(a) + (longword)(b)) >= MAX_WORD \
- * 	? MAX_WORD : ltmp <= MIN_WORD ? MIN_WORD : ltmp)
- */
-/* Nonportable, but faster: */
-
-#define	GSM_ADD(a, b)	\
-	((ulongword)((ltmp = (longword)(a) + (longword)(b)) - MIN_WORD) > \
-		MAX_WORD - MIN_WORD ? (ltmp > 0 ? MAX_WORD : MIN_WORD) : ltmp)
-
-# define GSM_SUB(a, b)	\
-	((ltmp = (longword)(a) - (longword)(b)) >= MAX_WORD \
-	? MAX_WORD : ltmp <= MIN_WORD ? MIN_WORD : ltmp)
-
-# define GSM_ABS(a)	((a) < 0 ? ((a) == MIN_WORD ? MAX_WORD : -(a)) : (a))
-
-/* Use these if necessary:
-
-# define GSM_MULT_R(a, b)	gsm_mult_r(a, b)
-# define GSM_MULT(a, b)		gsm_mult(a, b)
-# define GSM_L_MULT(a, b)	gsm_L_mult(a, b)
-
-# define GSM_L_ADD(a, b)	gsm_L_add(a, b)
-# define GSM_ADD(a, b)		gsm_add(a, b)
-# define GSM_SUB(a, b)		gsm_sub(a, b)
-
-# define GSM_ABS(a)		gsm_abs(a)
-
-*/
+#define GSM_MULT_R(a, b)	gsm_mult_r_m((a), (b))
+#define GSM_MULT(a, b)		gsm_mult_m((a), (b))
+#define GSM_L_MULT(a, b)	gsm_L_mult_m((a), (b))
+#define GSM_L_ADD(a, b)		gsm_L_add((a), (b))
+#define	GSM_ADD(a, b)		gsm_add((a), (b))
+#define	GSM_SUB(a, b)		gsm_sub((a), (b))
+#define	GSM_ABS(a)		gsm_abs((a))
 
 /*
  *  More prototypes from implementations..
@@ -171,10 +179,10 @@ extern void Gsm_Preprocess P((
 
 extern void Gsm_Encoding P((
 		struct gsm_state * S,
-		word	* e,	
-		word	* ep,	
+		word	* e,
+		word	* ep,
 		word	* xmaxc,
-		word	* Mc,	
+		word	* Mc,
 		word	* xMc));
 
 extern void Gsm_Short_Term_Analysis_Filter P((
@@ -188,7 +196,7 @@ extern void Gsm_Decoder P((
 		word	* Ncr,		/* [0..3] 		IN 	*/
 		word	* bcr,		/* [0..3]		IN	*/
 		word	* Mcr,		/* [0..3] 		IN 	*/
-		word	* xmaxcr,	/* [0..3]		IN 	*/
+		word	* xmaxcr,	/* [0..3]		IN	*/
 		word	* xMcr,		/* [0..13*4]		IN	*/
 		word	* s));		/* [0..159]		OUT 	*/
 
@@ -223,12 +231,12 @@ void Gsm_RPE_Encoding P((
 extern void Gsm_Short_Term_Synthesis_Filter P((
 		struct gsm_state * S,
 		word	* LARcr, 	/* log area ratios [0..7]  IN	*/
-		word	* drp,		/* received d [0...39]	   IN	*/
-		word	* s));		/* signal   s [0..159]	  OUT	*/
+		word	* wt,		/* received d [0...39]	   IN  */
+		word	* s));		/* signal   s [0..159]	  OUT  */
 
 extern void Gsm_Update_of_reconstructed_short_time_residual_signal P((
-		word	* dpp,		/* [0...39]	IN	*/
-		word	* ep,		/* [0...39]	IN	*/
+		word	* dpp,		/* [0...39]	IN		*/
+		word	* ep,		/* [0...39]	IN		*/
 		word	* dp));		/* [-120...-1]  IN/OUT 	*/
 
 /*

@@ -170,7 +170,7 @@ static void RPE_grid_selection P3((x,xM,Mc_out),
 	/* i = 0 */
 
 	STEP( 0, 0 );
-	L_result <<= 1;	/* implicit in L_MULT */
+	L_result = gsm_sll_long(L_result, 1);	/* implicit in L_MULT */
 	EM = L_result;
 
 	/* i = 1 */
@@ -180,7 +180,7 @@ static void RPE_grid_selection P3((x,xM,Mc_out),
 	STEP( 1, 1 ); STEP( 1, 2 ); STEP( 1, 3 ); STEP( 1, 4 );
 	STEP( 1, 5 ); STEP( 1, 6 ); STEP( 1, 7 ); STEP( 1, 8 );
 	STEP( 1, 9 ); STEP( 1, 10); STEP( 1, 11); STEP( 1, 12);
-	L_result <<= 1;
+	L_result = gsm_sll_long(L_result, 1);
 	if (L_result > EM) {
 		Mc = 1;
 	 	EM = L_result;
@@ -193,7 +193,7 @@ static void RPE_grid_selection P3((x,xM,Mc_out),
 	STEP( 2, 1 ); STEP( 2, 2 ); STEP( 2, 3 ); STEP( 2, 4 );
 	STEP( 2, 5 ); STEP( 2, 6 ); STEP( 2, 7 ); STEP( 2, 8 );
 	STEP( 2, 9 ); STEP( 2, 10); STEP( 2, 11); STEP( 2, 12);
-	L_result <<= 1;
+	L_result = gsm_sll_long(L_result, 1);
 	if (L_result > EM) {
 		Mc = 2;
 	 	EM = L_result;
@@ -203,7 +203,7 @@ static void RPE_grid_selection P3((x,xM,Mc_out),
 
 	L_result = L_common_0_3;
 	STEP( 3, 12 );
-	L_result <<= 1;
+	L_result = gsm_sll_long(L_result, 1);
 	if (L_result > EM) {
 		Mc = 3;
 	 	EM = L_result;
@@ -232,7 +232,7 @@ static void APCM_quantization_xmaxc_to_exp_mant P3((xmaxc,exp_out,mant_out),
 
 	exp = 0;
 	if (xmaxc > 15) exp = SASR(xmaxc, 3) - 1;
-	mant = xmaxc - (exp << 3);
+	mant = xmaxc - gsm_sll_word(exp, 3);
 
 	if (mant == 0) {
 		exp  = -4;
@@ -240,7 +240,7 @@ static void APCM_quantization_xmaxc_to_exp_mant P3((xmaxc,exp_out,mant_out),
 	}
 	else {
 		while (mant <= 7) {
-			mant = mant << 1 | 1;
+			mant = (word)(gsm_sll_word(mant, 1) | 1);
 			exp--;
 		}
 		mant -= 8;
@@ -298,7 +298,7 @@ static void APCM_quantization P5((xM,xMc,mant_out,exp_out,xmaxc_out),
 	temp = exp + 5;
 
 	assert(temp <= 11 && temp >= 0);
-	xmaxc = gsm_add( SASR(xmax, temp), exp << 3 );
+	xmaxc = gsm_add( SASR(xmax, temp), gsm_sll_word(exp, 3) );
 
 	/*   Quantizing and coding of the xM[0..12] RPE sequence
 	 *   to get the xMc[0..12]
@@ -330,7 +330,7 @@ static void APCM_quantization P5((xM,xMc,mant_out,exp_out,xmaxc_out),
 
 		assert(temp1 >= 0 && temp1 < 16);
 
-		temp = xM[i] << temp1;
+		temp = gsm_sll_word(xM[i], temp1);
 		temp = GSM_MULT( temp, temp2 );
 		temp = SASR(temp, 12);
 		xMc[i] = temp + 4;		/* see note below */
@@ -372,10 +372,10 @@ static void APCM_inverse_quantization P4((xMc,mant,exp,xMp),
 		assert( *xMc <= 7 && *xMc >= 0 ); 	/* 3 bit unsigned */
 
 		/* temp = gsm_sub( *xMc++ << 1, 7 ); */
-		temp = (*xMc++ << 1) - 7;	        /* restore sign   */
+		temp = gsm_sll_word(*xMc++, 1) - 7;	/* restore sign   */
 		assert( temp <= 7 && temp >= -7 ); 	/* 4 bit signed   */
 
-		temp <<= 12;				/* 16 bit signed  */
+		temp = gsm_sll_word(temp, 12);		/* 16 bit signed  */
 		temp = GSM_MULT_R( temp1, temp );
 		temp = GSM_ADD( temp, temp3 );
 		*xMp++ = gsm_asr( temp, temp2 );

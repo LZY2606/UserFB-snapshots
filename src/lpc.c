@@ -55,7 +55,10 @@ static void Autocorrelation P2((s, L_ACF),
 	if (smax == 0) scalauto = 0;
 	else {
 		assert(smax > 0);
-		scalauto = 4 - gsm_norm( (longword)smax << 16 );/* sub(4,..) */
+		/* smax is non-negative, but route the 16 bit placement
+		 * through the truncating helper so no signed shift is used.
+		 */
+		scalauto = 4 - gsm_norm( gsm_sll_long((longword)smax, 16) );/* sub(4,..) */
 	}
 
 	/*  Scaling of the array s[0...159]
@@ -133,14 +136,14 @@ static void Autocorrelation P2((s, L_ACF),
 		STEP(5); STEP(6); STEP(7); STEP(8);
 	}
 
-	for (k = 9; k--; L_ACF[k] <<= 1) ; 
+	for (k = 9; k--; L_ACF[k] = gsm_sll_long(L_ACF[k], 1)) ;
 
 	}
 	/*   Rescaling of the array s[0..159]
 	 */
 	if (scalauto > 0) {
-		assert(scalauto <= 4); 
-		for (k = 160; k--; *s++ <<= scalauto) ;
+		assert(scalauto <= 4);
+		for (k = 160; k--; ) *s = gsm_sll_word(*s, scalauto), s++;
 	}
 }
 
@@ -200,7 +203,7 @@ static void Reflection_coefficients P2( (L_ACF, r),
 	assert(temp >= 0 && temp < 32);
 
 	/* ? overflow ? */
-	for (i = 0; i <= 8; i++) ACF[i] = SASR( L_ACF[i] << temp, 16 );
+	for (i = 0; i <= 8; i++) ACF[i] = SASR( gsm_sll_long(L_ACF[i], temp), 16 );
 
 	/*   Initialize array P[..] and K[..] for the recursion.
 	 */
@@ -267,14 +270,14 @@ static void Transformation_to_Log_Area_Ratios P1((r),
 		assert(temp >= 0);
 
 		if (temp < 22118) {
-			temp >>= 1;
+			temp >>= 1;			/* temp >= 0 here */
 		} else if (temp < 31130) {
 			assert( temp >= 11059 );
 			temp -= 11059;
 		} else {
 			assert( temp >= 26112 );
 			temp -= 26112;
-			temp <<= 2;
+			temp = gsm_sll_word(temp, 2);
 		}
 
 		*r = *r < 0 ? -temp : temp;

@@ -35,3 +35,107 @@ Fax: +49.30.31425156, Phone: +49.30.31424315
 Copyright 1992 by Jutta Degener and Carsten Bormann, Technische
 Universitaet Berlin.  See the accompanying file "COPYRIGHT" for
 details.  THERE IS ABSOLUTELY NO WARRANTY FOR THIS SOFTWARE.
+
+
+Portable fixed point (UndefinedBehaviorSanitizer clean)
+-------------------------------------------------------
+
+The integer GSM 06.10 coder/decoder and the WAV49 packing of the same
+integer algorithm are written as strictly defined C for two's complement
+machines with 8 bit bytes, 16 bit short, 32 bit int and a long that may
+be 32 or 64 bits.  The FAST/USE_FLOAT_MUL and LTP_CUT approximation
+branches are untouched; gsm.h, gsm_signal, the opaque state and the
+33 byte normal frame are unchanged.
+
+What was actually wrong, and what the rewrite removes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These were genuine undefined or implementation-defined operations in
+the integer chain, not stylistic issues:
+
+  * Negative values shifted left.  C only defines << on non-negative
+    signed operands.  Sites included the LAR reconstruction in
+    short_term.c, the input downscale and the s1/msp placement in
+    preprocess.c, the autocorrelation scaling/normalization and the LAR
+    transformation in lpc.c, the RPE grid energies and APCM
+    quantization/dequantization in rpe.c, and the cross-correlation,
+    power and normalization shifts in long_term.c.
+  * Relying on >> of a negative signed value being arithmetic.  The code
+    assumed round-toward-minus-infinity, which is not guaranteed by C and
+    is different from the truncation of signed division.
+  * Assuming long is exactly 32 bits and that signed overflow wraps.
+
+The implementation now keeps four operation classes distinct:
+
+  * Internal 16/32 bit signed quantities stay in their declared words.
+  * Wide intermediate products use the natural longword product; a
+    16x16 product cannot overflow 32 bits.
+  * Saturating add/sub keep the GSM clamp rules (including the MIN_WORD
+    -> MAX_WORD absolute value rule) and are computed without signed
+    overflow, using unsigned magnitude bookkeeping for the 32 bit cases.
+  * Deliberate low-bit truncations (the gsm_asl/gsm_L_asl word shifts)
+    explicitly keep the destination word's low bits and re-interpret
+    them as two's complement.  Their historical behavior is preserved:
+    shifts at or beyond the word width return 0, and negative counts
+    reverse into an arithmetic right shift (and vice versa).
+
+Arithmetic right shifts use the floor identity
+floor(x / 2^n) = ~((~x) >> n) for x < 0, which only ever shifts
+non-negative operands, so it neither assumes a hardware arithmetic
+shift nor substitutes C's toward-zero division.  The scaling positions
+in the MAC/LAR/normalization/RPE-dequantization paths are unchanged;
+only the representation of each shift was made explicit.
+
+Basis for compatibility (no single hash is claimed as proof)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The observable codec output is unchanged.  This is established several
+independent ways, each reproduced at -O0 and -O2 and with and without
+the SASR define, under full -fsanitize=undefined:
+
+  * The fixed devcheck baseline still prints its exact compressed-byte
+    and PCM fingerprints and non-zero count over the same 12 frames.
+  * A 500 frame diverse stream (silence, both rails, random rail flips,
+    full-range noise, small and mid-scale signals) is bit-identical to
+    the unmodified library at both the 33 byte frame level and the
+    decoded PCM level.
+  * The add-test arithmetic vectors (add, sub, mult, mult_r, L_mult,
+    L_add, L_sub, abs, norm, shifts and div) produce identical results.
+  * tests/portable_fixed.c independently reconstructs expected values
+    from long long arithmetic and an explicit quotient/remainder floor
+    rule (never from a production helper), and checks whole-codec
+    streams, hand-built legal parameter frames (edge LAR, RPE pulses,
+    every grid, long-term lag reuse) and normal-vs-WAV49 behavior.
+
+The WAV49 half-byte chaining state machine is preserved verbatim, so its
+per-frame output matches the original implementation even where WAV49
+does not byte-equal the normal 33 byte packing.
+
+Usage and verification
+~~~~~~~~~~~~~~~~~~~~~~
+
+Plain encode/decode, and the WAV49 option, using only the compiler and
+the standard library:
+
+    #include "gsm.h"
+
+    gsm enc = gsm_create(), dec = gsm_create();
+    gsm_signal in[160], out[160];
+    gsm_byte frame[33];
+
+    gsm_encode(enc, in, frame);          /* 160 samples -> 33 bytes */
+    if (gsm_decode(dec, frame, out) != 0)
+        /* bad frame magic */;
+
+    int on = 1;
+    gsm_option(enc, GSM_OPT_WAV49, &on); /* same integer algorithm,    */
+    gsm_option(dec, GSM_OPT_WAV49, &on); /* WAV49 65-byte frame pairs  */
+
+    gsm_destroy(enc);
+    gsm_destroy(dec);
+
+Run the complete matrix (four O0/O2 by SASR combinations with full
+UBSan, then the normal non-sanitized baseline) with:
+
+    bash devcheck/target.sh
+

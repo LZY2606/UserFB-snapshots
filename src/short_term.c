@@ -52,9 +52,9 @@ static void Decoding_of_the_coded_Log_Area_Ratios P2((LARc,LARpp),
 
 #undef	STEP
 #define	STEP( B_TIMES_TWO, MIC, INVA )	\
-		temp1    = GSM_ADD( *LARc++, MIC ) << 10;	\
-		temp1    = GSM_SUB( temp1, B_TIMES_TWO );	\
-		temp1    = GSM_MULT_R( INVA, temp1 );		\
+		temp1    = gsm_sll_word(GSM_ADD( *LARc++, MIC ), 10);	\
+		temp1    = GSM_SUB( temp1, B_TIMES_TWO );		\
+		temp1    = GSM_MULT_R( INVA, temp1 );			\
 		*LARpp++ = GSM_ADD( temp1, temp1 );
 
 	STEP(      0,  -32,  13107 );
@@ -164,16 +164,20 @@ static void LARp_to_rp P1((LARp),
 		 * *LARp = *LARp < 0 ? -temp : temp;
 		 */
 
+		/* temp is always non-negative here (absolute value); the
+		 * shifts are nevertheless routed through the explicit
+		 * helpers to document the truncation semantics.
+		 */
 		if (*LARp < 0) {
 			temp = *LARp == MIN_WORD ? MAX_WORD : -(*LARp);
-			*LARp = - ((temp < 11059) ? temp << 1
+			*LARp = - ((temp < 11059) ? gsm_sll_word(temp, 1)
 				: ((temp < 20070) ? temp + 11059
-				:  GSM_ADD( temp >> 2, 26112 )));
+				:  GSM_ADD( gsm_sra_word(temp, 2), 26112 )));
 		} else {
 			temp  = *LARp;
-			*LARp =    (temp < 11059) ? temp << 1
+			*LARp =    (temp < 11059) ? gsm_sll_word(temp, 1)
 				: ((temp < 20070) ? temp + 11059
-				:  GSM_ADD( temp >> 2, 26112 ));
+				:  GSM_ADD( gsm_sra_word(temp, 2), 26112 ));
 		}
 	}
 }
@@ -283,19 +287,13 @@ static void Short_term_synthesis_filtering P5((S,rrp,k,wt,sr),
 			 */
 			tmp1 = rrp[i];
 			tmp2 = v[i];
-			tmp2 =  ( tmp1 == MIN_WORD && tmp2 == MIN_WORD
-				? MAX_WORD
-				: 0x0FFFF & (( (longword)tmp1 * (longword)tmp2
-					     + 16384) >> 15)) ;
+			tmp2 = gsm_mult_r(tmp1, tmp2);
 
 			sri  = GSM_SUB( sri, tmp2 );
 
 			/* v[i+1] = GSM_ADD( v[i], gsm_mult_r( rrp[i], sri ) );
 			 */
-			tmp1  = ( tmp1 == MIN_WORD && sri == MIN_WORD
-				? MAX_WORD
-				: 0x0FFFF & (( (longword)tmp1 * (longword)sri
-					     + 16384) >> 15)) ;
+			tmp1  = gsm_mult_r(tmp1, sri);
 
 			v[i+1] = GSM_ADD( v[i], tmp1);
 		}

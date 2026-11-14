@@ -11,11 +11,11 @@
 
 #include "private.h"
 
-#include	"gsm.h"
+#include "gsm.h"
 #include 	"proto.h"
 
 /*	4.2.0 .. 4.2.3	PREPROCESSING SECTION
- *  
+ *
  *  	After A-law to linear conversion (or directly from the
  *   	Ato D converter) the following scaling is assumed for
  * 	input to the RPE-LTP algorithm:
@@ -26,7 +26,7 @@
  *	Where S is the sign bit, v a valid bit, and * a "don't care" bit.
  * 	The original signal is called sop[..]
  *
- *      out:   0.1................... 12 
+ *      out:   0.1................... 12
  *	     S.S.v.v.v.v.v.v.v.v.v.v.v.v.0.0
  */
 
@@ -49,16 +49,15 @@ void Gsm_Preprocess P3((S, s, so),
 	word		msp, lsp;
 	word		SO;
 
-	longword	ltmp;		/* for   ADD */
-	ulongword	utmp;		/* for L_ADD */
-
 	register int		k = 160;
 
 	while (k--) {
 
-	/*  4.2.1   Downscaling of the input signal
+	/*  4.2.1   Downscaling of the input signal.
+	 *  Arithmetic (floor) shift by 3, then a deliberate 2 bit
+	 *  truncating left shift; the low two bits become zero.
 	 */
-		SO = SASR( *s, 3 ) << 2;
+		SO = gsm_sll_word(SASR( *s, 3 ), 2);
 		s++;
 
 		assert (SO >= -0x4000);	/* downscaled by     */
@@ -66,7 +65,7 @@ void Gsm_Preprocess P3((S, s, so),
 
 
 	/*  4.2.2   Offset compensation
-	 * 
+	 *
 	 *  This part implements a high-pass filter and requires extended
 	 *  arithmetic precision for the recursive part of this filter.
 	 *  The input of this procedure is the array so[0...159] and the
@@ -80,16 +79,17 @@ void Gsm_Preprocess P3((S, s, so),
 
 		assert(s1 != MIN_WORD);
 
-		/*   Compute the recursive part
+		/*   Compute the recursive part.  s1 is shifted into the
+		 *   upper 16 bits with explicit 32 bit truncation.
 		 */
-		L_s2 = s1;
-		L_s2 <<= 15;
+		L_s2 = gsm_sll_long((longword)s1, 15);
 
-		/*   Execution of a 31 bv 16 bits multiplication
+		/*   Execution of a 31 by 16 bits multiplication
 		 */
 
 		msp = SASR( L_z2, 15 );
-		lsp = L_z2-((longword)msp<<15); /* gsm_L_sub(L_z2,(msp<<15)); */
+		/* gsm_L_sub(L_z2,(msp<<15)); msp<<15 truncates to 32 bits */
+		lsp = L_z2 - gsm_sll_long((longword)msp, 15);
 
 		L_s2  += GSM_MULT_R( lsp, 32735 );
 		L_temp = (longword)msp * 32735; /* GSM_L_MULT(msp,32735) >> 1;*/
