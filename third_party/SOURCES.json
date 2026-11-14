@@ -1,0 +1,261 @@
+{
+  "dependencies": [
+    {
+      "repo": "pkg/errors",
+      "tag": "v0.9.1",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "license": "BSD-2-Clause",
+      "role": "\u4e0a\u6e38\u8fd0\u884c\u65f6\u5df2\u7528\u7684\u5c0f\u578b\u9519\u8bef\u5305\u88c5"
+    },
+    {
+      "repo": "matryer/is",
+      "tag": "v1.4.1",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "license": "MIT",
+      "role": "\u539f\u6d4b\u8bd5\u4f9d\u8d56"
+    }
+  ],
+  "added_module": "third_party/pkgerrors/go.mod is provided module metadata only; dependency source unchanged",
+  "files": [
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": ".gitignore",
+      "destination": "third_party/pkgerrors/.gitignore",
+      "sha256": "cb568f716e3315bcebfc75bbc274b56577c2734ec3da6729ffac15919f416240",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": ".travis.yml",
+      "destination": "third_party/pkgerrors/.travis.yml",
+      "sha256": "94b59f3214367453c739d213f2147c342397bce8d2933f275dd0f964848fc564",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "LICENSE",
+      "destination": "third_party/pkgerrors/LICENSE",
+      "sha256": "8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "Makefile",
+      "destination": "third_party/pkgerrors/Makefile",
+      "sha256": "5cf1acb1821fb8cf033e95c135e14b42fdd0e2feaa30ebeb351fec4e3d2db621",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "README.md",
+      "destination": "third_party/pkgerrors/README.md",
+      "sha256": "05f05fab4a6768d101da9f87b3ab341a1ef02576eb1d14ca39965658b0ac088a",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "appveyor.yml",
+      "destination": "third_party/pkgerrors/appveyor.yml",
+      "sha256": "96ff26845daa1898b920e87d9773d851ba9ead739da89149b56cf37dec7e647f",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "bench_test.go",
+      "destination": "third_party/pkgerrors/bench_test.go",
+      "sha256": "86b7ee347383ace847a598e3100731cd0c84269a435c2de42620615a661e8d2d",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "errors.go",
+      "destination": "third_party/pkgerrors/errors.go",
+      "sha256": "1b60ba5bcb417f0060d1c1fbcedaa1a702020499094ce8134f8b45a58c0ebbff",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "errors_test.go",
+      "destination": "third_party/pkgerrors/errors_test.go",
+      "sha256": "83e35523a54b7625833698300ab3f243d4afbd79747a0d39516da2583e97f712",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "example_test.go",
+      "destination": "third_party/pkgerrors/example_test.go",
+      "sha256": "69fc77ffa6bda83d8277079b55d3c87925a17cd45d1a708c7815cdb1bcf0e62a",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "format_test.go",
+      "destination": "third_party/pkgerrors/format_test.go",
+      "sha256": "9567ff95c5b8034276526d22ae345b67169ecabccf6bd29f4c5cf8679e20db1f",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "go113.go",
+      "destination": "third_party/pkgerrors/go113.go",
+      "sha256": "376074468c446254f347c884cd0c8137aae395a7a30fabb06ad19f211ba04d47",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "go113_test.go",
+      "destination": "third_party/pkgerrors/go113_test.go",
+      "sha256": "e4c7aea964e16cac1abdadd14f5e716ba6fb3f63ec37ecb9c1d8f9cf92b13adc",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "json_test.go",
+      "destination": "third_party/pkgerrors/json_test.go",
+      "sha256": "6e1aaeb129fe955b067d2130386eb00464d22a52ca4f874381ac1146616dc660",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "stack.go",
+      "destination": "third_party/pkgerrors/stack.go",
+      "sha256": "ee30b2b9525acc7749abb992f150e6d5673c63c1ef8c30620ec70eed11abec35",
+      "mode": "100644"
+    },
+    {
+      "repo": "pkg-errors-source",
+      "commit": "614d223910a179a466c1767a985424175c39b465",
+      "path": "stack_test.go",
+      "destination": "third_party/pkgerrors/stack_test.go",
+      "sha256": "2b5c5a152356261a9e9869a1a5378d6b9eaa48ba0ecbafbf80913fc864ac3cd4",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": ".github/FUNDING.yml",
+      "destination": "third_party/is/.github/FUNDING.yml",
+      "sha256": "df8d65cdbaa10e3f91ea6dd411d5265de5e84140d7e234fd479e07f9452a1943",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": ".gitignore",
+      "destination": "third_party/is/.gitignore",
+      "sha256": "cb568f716e3315bcebfc75bbc274b56577c2734ec3da6729ffac15919f416240",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": ".travis.yml",
+      "destination": "third_party/is/.travis.yml",
+      "sha256": "3c8294e68750b5df2311be3d7a1178eaa9e97689cc74f39f9bbc8c59ed155d9a",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "LICENSE",
+      "destination": "third_party/is/LICENSE",
+      "sha256": "6301d8f752c0e25e48de2af89c3d641edf523e100d9324cf6ab27cb6924cb855",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "README.md",
+      "destination": "third_party/is/README.md",
+      "sha256": "57bfe10dff9d4e2a95f46983307705bff8102e9ff9712c64984c5661171a74f6",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "go.mod",
+      "destination": "third_party/is/go.mod",
+      "sha256": "dca8bd0a745de5a2410903aa1aac336e9fa342b7a74acaba55d1bc8f4b388def",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is-1.7.go",
+      "destination": "third_party/is/is-1.7.go",
+      "sha256": "fedb077abcccbf5e61c13e25d7c3b0ebf9b4d2c3c20521043a3957471e374cfb",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is-1.7_test.go",
+      "destination": "third_party/is/is-1.7_test.go",
+      "sha256": "77a2f72eeb18703fcb9bd2497f23c565f9ae2ff2867a1319ce546658d6acd337",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is-before-1.7.go",
+      "destination": "third_party/is/is-before-1.7.go",
+      "sha256": "57bbcb902ad88aecd6afe72df9b96f84910495c2ef736df04c20d57b2540f920",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is.go",
+      "destination": "third_party/is/is.go",
+      "sha256": "887aaaf5eb2c80eb60552a168d5e46ac2f9f0a4605157f5f7323b63e6135f6d3",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is_helper_test.go",
+      "destination": "third_party/is/is_helper_test.go",
+      "sha256": "adcae6780a90c8f225c184870da800bed61e7f4f7d8213310d8321a6e9c97618",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "is_test.go",
+      "destination": "third_party/is/is_test.go",
+      "sha256": "cc7a66df372bc10212b66297ad154d46e803769e3016517006ae2e842b76235a",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "misc/delicious-failures.png",
+      "destination": "third_party/is/misc/delicious-failures.png",
+      "sha256": "56ce7380ac37c2ad0474e10c336db8dd0eba96e45796333750b691b30c8e0d7c",
+      "mode": "100644"
+    },
+    {
+      "repo": "matryer-is-source",
+      "commit": "02e4121244e0f9e27b5ebdade62f5da7b7a42f23",
+      "path": "testdata/example_test.go",
+      "destination": "third_party/is/testdata/example_test.go",
+      "sha256": "af7cf937213f448cd0e8325f7680da582e7a399c8e405002164d17942de5e960",
+      "mode": "100644"
+    }
+  ]
+}
