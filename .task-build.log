@@ -1,0 +1,16 @@
+[ 28%] Built target ozz_base
+[ 60%] Built target ozz_animation
+[ 95%] Built target ozz_animation_offline
+[100%] Built target task_baseline
+[ 27%] Built target ozz_base
+[ 31%] Built target ozz_geometry
+[ 60%] Built target ozz_animation
+[ 93%] Built target ozz_animation_offline
+[ 95%] Building CXX object CMakeFiles/task_target.dir/driver.c.o
+[ 97%] Building CXX object CMakeFiles/task_target.dir/Users/lzy/pro/UserFB/workspace/Z1816/attempts/20261114T131355445916Z/repo/test/clip_skin_bounds_test.cpp.o
+/Users/lzy/pro/UserFB/workspace/Z1816/attempts/20261114T131355445916Z/repo/test/clip_skin_bounds_test.cpp:608:3: warning: non-void lambda does not return a value in all control paths [-Wreturn-type]
+  608 |   };
+      |   ^
+1 warning generated.
+[100%] Linking CXX executable target
+[100%] Built target task_target

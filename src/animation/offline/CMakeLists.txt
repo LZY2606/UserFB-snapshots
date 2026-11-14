@@ -14,7 +14,8 @@ add_library(ozz_animation_offline
   raw_track.cc
   raw_track_utils.cc
   track_builder.cc
-  track_optimizer.cc)
+  track_optimizer.cc
+  clip_skin_bounds_builder.cc)
 
 target_sources(ozz_animation_offline PUBLIC
   FILE_SET HEADERS
@@ -32,7 +33,8 @@ target_sources(ozz_animation_offline PUBLIC
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/raw_track.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/raw_track_utils.h
     ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/track_builder.h
-    ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/track_optimizer.h)
+    ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/track_optimizer.h
+    ${PROJECT_SOURCE_DIR}/include/ozz/animation/offline/clip_skin_bounds_builder.h)
 
 target_compile_definitions(ozz_animation_offline PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:OZZ_BUILD_ANIMOFFLINE_LIB>)
 

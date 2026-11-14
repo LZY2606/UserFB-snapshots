@@ -2,6 +2,7 @@ Release version 0.17.0
 ----------------------
 
 * Library
+  - [offline] Implements `ozz::animation::offline::ClipSkinBoundsBuilder`, which computes a conservative axis-aligned bounding box of every skinned vertex position over a continuous time interval of a RawAnimation. Containment is proven with outward-rounded interval arithmetic (no fixed-rate sampling or empirical padding), and tightness is certified by per-face witnesses (an actual vertex position and time for each of the 6 box faces): a result is kComplete only when every face is within the caller-provided epsilon of an actual position. A subdivision budget bounds the computation; when it runs out, the builder returns kIncomplete with the still-valid finite outer box, the current witnesses, and the remaining worst face-to-witness gap.
   - [animation] Prevents introducing NaNs in two-bone IK computation, which was causing instability when softening target position.
   - [animation] Implements skeleton model-space rest pose computation utility.
   - [offline] Implements model-space raw track sampling utility.
