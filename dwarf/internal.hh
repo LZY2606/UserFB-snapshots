@@ -230,6 +230,11 @@ struct attribute_spec
         // Computed information
         value::type type;
 
+        // For DW_FORM::implicit_const, the signed constant recorded
+        // in the abbrev declaration itself (DWARF5 section 7.5.3).
+        // Zero for other forms.
+        std::int64_t implicit_const;
+
         attribute_spec(DW_AT name, DW_FORM form);
 };
 

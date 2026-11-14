@@ -156,18 +156,31 @@ cursor::skip_form(DW_FORM form)
 
                 // fixed-length forms
         case DW_FORM::flag_present:
+        case DW_FORM::implicit_const:
+                // implicit_const's value is stored in the abbrev
+                // declaration; it occupies no bytes in the DIE.
                 break;
         case DW_FORM::flag:
         case DW_FORM::data1:
         case DW_FORM::ref1:
+        case DW_FORM::strx1:
+        case DW_FORM::addrx1:
                 pos += 1;
                 break;
         case DW_FORM::data2:
         case DW_FORM::ref2:
+        case DW_FORM::strx2:
+        case DW_FORM::addrx2:
                 pos += 2;
+                break;
+        case DW_FORM::strx3:
+        case DW_FORM::addrx3:
+                pos += 3;
                 break;
         case DW_FORM::data4:
         case DW_FORM::ref4:
+        case DW_FORM::strx4:
+        case DW_FORM::addrx4:
                 pos += 4;
                 break;
         case DW_FORM::data8:
@@ -179,6 +192,8 @@ cursor::skip_form(DW_FORM form)
         case DW_FORM::sdata:
         case DW_FORM::udata:
         case DW_FORM::ref_udata:
+        case DW_FORM::strx:
+        case DW_FORM::addrx:
                 while (pos < sec->end && (*(uint8_t*)pos & 0x80))
                         pos++;
                 pos++;

@@ -213,6 +213,10 @@ enum class DW_AT
         enum_class           = 0x6d, // flag
         linkage_name         = 0x6e, // string
 
+        // DWARF 5
+        str_offsets_base     = 0x72, // stroffsetsptr
+        addr_base            = 0x73, // addrptr
+
         lo_user              = 0x2000,
         hi_user              = 0x3fff,
 };
@@ -251,6 +255,19 @@ enum class DW_FORM
         exprloc      = 0x18,    // exprloc
         flag_present = 0x19,    // flag
         ref_sig8     = 0x20,    // reference
+
+        // DWARF 5
+        strx         = 0x1a,    // string
+        addrx        = 0x1b,    // address
+        implicit_const = 0x21,  // constant (value in the abbrev)
+        strx1        = 0x25,    // string
+        strx2        = 0x26,    // string
+        strx3        = 0x27,    // string
+        strx4        = 0x28,    // string
+        addrx1       = 0x2b,    // address
+        addrx2       = 0x2c,    // address
+        addrx3       = 0x2d,    // address
+        addrx4       = 0x2e,    // address
 };
 
 std::string

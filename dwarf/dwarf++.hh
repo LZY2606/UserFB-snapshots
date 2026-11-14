@@ -92,6 +92,10 @@ enum class section_type
         ranges,
         str,
         types,
+
+        // DWARF 5
+        str_offsets,
+        addr,
 };
 
 std::string
@@ -246,6 +250,23 @@ public:
          * code.
          */
         const abbrev_entry &get_abbrev(std::uint64_t acode) const;
+
+        /**
+         * \internal Return the offset of this unit's contribution to
+         * the .debug_str_offsets section.  This is the value of the
+         * root DIE's DW_AT::str_offsets_base attribute, or 0 if the
+         * root DIE does not have that attribute (DWARF5 section
+         * 7.26).
+         */
+        section_offset get_str_offsets_base() const;
+
+        /**
+         * \internal Return the offset of this unit's contribution to
+         * the .debug_addr section.  This is the value of the root
+         * DIE's DW_AT::addr_base attribute, or 0 if the root DIE does
+         * not have that attribute (DWARF5 section 7.27).
+         */
+        section_offset get_addr_base() const;
 
 protected:
         friend struct ::std::hash<unit>;
@@ -567,7 +588,7 @@ public:
         /**
          * Construct a value with type `type::invalid`.
          */
-        value() : cu(nullptr), typ(type::invalid) { }
+        value() : cu(nullptr), typ(type::invalid), implicit_const(0) { }
 
         value(const value &o) = default;
         value(value &&o) = default;
@@ -705,7 +726,8 @@ private:
         friend class die;
 
         value(const unit *cu,
-              DW_AT name, DW_FORM form, type typ, section_offset offset);
+              DW_AT name, DW_FORM form, type typ, section_offset offset,
+              std::int64_t implicit_const = 0);
 
         void resolve_indirect(DW_AT name);
 
@@ -713,6 +735,9 @@ private:
         DW_FORM form;
         type typ;
         section_offset offset;
+        // For DW_FORM::implicit_const, the constant value recorded in
+        // the abbrev declaration.  Unused for other forms.
+        std::int64_t implicit_const;
 };
 
 std::string

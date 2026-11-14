@@ -82,6 +82,7 @@ resolve_type(DW_AT name, DW_FORM form)
         case DW_FORM::udata:
                 return value::type::uconstant;
         case DW_FORM::sdata:
+        case DW_FORM::implicit_const:
                 return value::type::sconstant;
 
         case DW_FORM::exprloc:
@@ -102,7 +103,19 @@ resolve_type(DW_AT name, DW_FORM form)
 
         case DW_FORM::string:
         case DW_FORM::strp:
+        case DW_FORM::strx:
+        case DW_FORM::strx1:
+        case DW_FORM::strx2:
+        case DW_FORM::strx3:
+        case DW_FORM::strx4:
                 return value::type::string;
+
+        case DW_FORM::addrx:
+        case DW_FORM::addrx1:
+        case DW_FORM::addrx2:
+        case DW_FORM::addrx3:
+        case DW_FORM::addrx4:
+                return value::type::address;
 
         case DW_FORM::indirect:
                 // There's nothing meaningful we can do
@@ -133,6 +146,12 @@ resolve_type(DW_AT name, DW_FORM form)
                 case DW_AT::ranges:
                         return value::type::rangelist;
 
+                case DW_AT::str_offsets_base:
+                case DW_AT::addr_base:
+                        // Offsets into .debug_str_offsets and
+                        // .debug_addr.  Read them with as_sec_offset.
+                        return value::type::constant;
+
                 case DW_AT::lo_user...DW_AT::hi_user:
                         //HACK: ignore vendor extensions
                         return value::type::invalid;
@@ -146,7 +165,8 @@ resolve_type(DW_AT name, DW_FORM form)
 }
 
 attribute_spec::attribute_spec(DW_AT name, DW_FORM form)
-        : name(name), form(form), type(resolve_type(name, form))
+        : name(name), form(form), type(resolve_type(name, form)),
+          implicit_const(0)
 {
 }
 
@@ -168,6 +188,11 @@ abbrev_entry::read(cursor *cur)
                 if (name == (DW_AT)0 && form == (DW_FORM)0)
                         break;
                 attributes.push_back(attribute_spec(name, form));
+                // DWARF5: the constant of an implicit_const attribute
+                // is stored in the abbrev declaration, not in the
+                // DIE.
+                if (form == DW_FORM::implicit_const)
+                        attributes.back().implicit_const = cur->sleb128();
         }
         attributes.shrink_to_fit();
         return true;

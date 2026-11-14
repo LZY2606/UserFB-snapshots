@@ -21,6 +21,8 @@ to_string(section_type v)
         case section_type::ranges: return "section_type::ranges";
         case section_type::str: return "section_type::str";
         case section_type::types: return "section_type::types";
+        case section_type::str_offsets: return "section_type::str_offsets";
+        case section_type::addr: return "section_type::addr";
         }
         return "(section_type)" + std::to_string((int)v);
 }
@@ -236,6 +238,8 @@ to_string(DW_AT v)
         case DW_AT::const_expr: return "DW_AT_const_expr";
         case DW_AT::enum_class: return "DW_AT_enum_class";
         case DW_AT::linkage_name: return "DW_AT_linkage_name";
+        case DW_AT::str_offsets_base: return "DW_AT_str_offsets_base";
+        case DW_AT::addr_base: return "DW_AT_addr_base";
         case DW_AT::lo_user: break;
         case DW_AT::hi_user: break;
         }
@@ -271,6 +275,17 @@ to_string(DW_FORM v)
         case DW_FORM::exprloc: return "DW_FORM_exprloc";
         case DW_FORM::flag_present: return "DW_FORM_flag_present";
         case DW_FORM::ref_sig8: return "DW_FORM_ref_sig8";
+        case DW_FORM::strx: return "DW_FORM_strx";
+        case DW_FORM::addrx: return "DW_FORM_addrx";
+        case DW_FORM::implicit_const: return "DW_FORM_implicit_const";
+        case DW_FORM::strx1: return "DW_FORM_strx1";
+        case DW_FORM::strx2: return "DW_FORM_strx2";
+        case DW_FORM::strx3: return "DW_FORM_strx3";
+        case DW_FORM::strx4: return "DW_FORM_strx4";
+        case DW_FORM::addrx1: return "DW_FORM_addrx1";
+        case DW_FORM::addrx2: return "DW_FORM_addrx2";
+        case DW_FORM::addrx3: return "DW_FORM_addrx3";
+        case DW_FORM::addrx4: return "DW_FORM_addrx4";
         }
         return "(DW_FORM)0x" + to_hex((int)v);
 }

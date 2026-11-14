@@ -122,7 +122,7 @@ dwarf::get_section(section_type type) const
         if (!data)
                 throw format_error(std::string(elf::section_type_to_name(type))
                                    + " section missing");
-        m->sections[type] = std::make_shared<section>(section_type::str, data, size, m->sec_info->ord);
+        m->sections[type] = std::make_shared<section>(type, data, size, m->sec_info->ord);
         return m->sections[type];
 }
 
@@ -151,6 +151,14 @@ struct unit::impl
         // Lazily constructed line table
         line_table lt;
 
+        // Lazily resolved DWARF5 indexed-form table bases (from the
+        // root DIE's DW_AT::str_offsets_base and DW_AT::addr_base
+        // attributes)
+        bool have_str_offsets_base;
+        section_offset str_offsets_base;
+        bool have_addr_base;
+        section_offset addr_base;
+
         // Map from abbrev code to abbrev.  If the map is dense, it
         // will be stored in the vector; otherwise it will be stored
         // in the map.
@@ -165,7 +173,10 @@ struct unit::impl
                 : file(file), offset(offset), subsec(subsec),
                   debug_abbrev_offset(debug_abbrev_offset),
                   root_offset(root_offset), type_signature(type_signature),
-                  type_offset(type_offset), have_abbrevs(false) { }
+                  type_offset(type_offset),
+                  have_str_offsets_base(false), str_offsets_base(0),
+                  have_addr_base(false), addr_base(0),
+                  have_abbrevs(false) { }
 
         void force_abbrevs();
 };
@@ -201,6 +212,39 @@ const std::shared_ptr<section> &
 unit::data() const
 {
         return m->subsec;
+}
+
+section_offset
+unit::get_str_offsets_base() const
+{
+        // DWARF5 section 7.26.  The base is given by the root DIE's
+        // DW_AT::str_offsets_base attribute; if it is not present,
+        // the unit's contribution starts at the beginning of
+        // .debug_str_offsets.  Note that the attribute may appear in
+        // the root DIE after attributes that use indexed forms, so
+        // this is resolved lazily, on first use.
+        if (!m->have_str_offsets_base) {
+                const die &d = root();
+                if (d.has(DW_AT::str_offsets_base))
+                        m->str_offsets_base =
+                                d[DW_AT::str_offsets_base].as_sec_offset();
+                m->have_str_offsets_base = true;
+        }
+        return m->str_offsets_base;
+}
+
+section_offset
+unit::get_addr_base() const
+{
+        // DWARF5 section 7.27.  As for get_str_offsets_base, but for
+        // DW_AT::addr_base and .debug_addr.
+        if (!m->have_addr_base) {
+                const die &d = root();
+                if (d.has(DW_AT::addr_base))
+                        m->addr_base = d[DW_AT::addr_base].as_sec_offset();
+                m->have_addr_base = true;
+        }
+        return m->addr_base;
 }
 
 const abbrev_entry &
