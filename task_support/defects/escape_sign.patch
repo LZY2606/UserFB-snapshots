@@ -1,0 +1,11 @@
+--- a/src/libFLAC/stream_decoder.c
++++ b/src/libFLAC/stream_decoder.c
+@@ -3347,7 +3347,7 @@
+ 				for(u = (partition == 0)? predictor_order : 0; u < partition_samples; u++, sample++) {
+ 					if(!FLAC__bitreader_read_raw_int32(decoder->private_->input, &i, rice_parameter))
+ 						return false; /* read_callback_ sets the state for us */
+-					residual[sample] = i;
++					residual[sample] = -i;
+ 				}
+ 			}
+ 		}

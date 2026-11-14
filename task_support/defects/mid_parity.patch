@@ -1,0 +1,11 @@
+--- a/src/libFLAC/stream_decoder.c
++++ b/src/libFLAC/stream_decoder.c
+@@ -3506,7 +3506,7 @@
+ 				mid = decoder->private_->output[0][i];
+ 				side = decoder->private_->output[1][i];
+ 				mid = ((uint32_t) mid) << 1;
+-				mid |= (side & 1); /* i.e. if 'side' is odd... */
++				mid |= 0; /* parity deliberately omitted */
+ 				decoder->private_->output[0][i] = (mid + side) >> 1;
+ 				decoder->private_->output[1][i] = (mid - side) >> 1;
+ 			}
