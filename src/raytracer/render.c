@@ -19,7 +19,9 @@
 #include "argv.h"
 #include "calc.h"
 #include "camera.h"
+#include "error.h"
 #include "image.h"
+#include "lighttree.h"
 #include "material.h"
 #include "mem.h"
 #include "object.h"
@@ -57,6 +59,36 @@ static enum ReflectionModel reflection_model = REFLECTION_PHONG;
 static enum GlobalIlluminationModel global_illumination_model = GLOBAL_ILLUMINATION_AMBIENT;
 static size_t samples_per_pixel = 1;
 static enum LightAttenuation light_attenuation = LIGHT_ATTENUATION_SQUARE;
+
+/* Deterministic hierarchical point-light channel.  The tree is a read-only
+ * snapshot shared by every shading point; NULL keeps the legacy path
+ * bit-for-bit identical and never touches the random stream. */
+static LightTree *point_light_tree = NULL;
+static double point_light_offset = 1.;
+static double point_light_abs_tol = 0.;
+static double point_light_rel_tol = 0.;
+
+void render_set_point_lights(const struct PointLight *lights, const size_t count, const double offset, const double abs_tol, const double rel_tol)
+{
+	error_check(isfinite(offset) && offset > 0., "render_set_point_lights: offset must be strictly positive.");
+	error_check(isfinite(abs_tol) && abs_tol >= 0. && isfinite(rel_tol) && rel_tol >= 0., "render_set_point_lights: tolerances must be non-negative.");
+
+	LightTree *new_tree = lighttree_build(lights, count);
+	if (point_light_tree)
+		lighttree_free(point_light_tree);
+	point_light_tree = new_tree;
+	point_light_offset = offset;
+	point_light_abs_tol = abs_tol;
+	point_light_rel_tol = rel_tol;
+}
+
+void render_clear_point_lights(void)
+{
+	if (point_light_tree) {
+		lighttree_free(point_light_tree);
+		point_light_tree = NULL;
+	}
+}
 
 void render_init(void)
 {
@@ -226,6 +258,19 @@ float cast_ray(const struct Ray *ray, const v3 kr, v3 color, const uint32_t rema
 				add3v3(obj_color, diffuse, specular, obj_color);
 			}
 		}
+	}
+
+	//deterministic hierarchical point-light channel (diffuse only)
+	if (point_light_tree && is_outside) {
+		v3 point_diffuse;
+		material->texture->get_color(material->texture, outgoing_ray.point, point_diffuse);
+		struct LightResult point_light_result;
+		lighttree_eval(point_light_tree, outgoing_ray.point, normal, point_diffuse, point_light_offset, point_light_abs_tol, point_light_rel_tol, &point_light_result);
+		v3 point_light_color;
+		size_t c;
+		for (c = 0; c < 3; c++)
+			point_light_color[c] = (float)point_light_result.color[c];
+		add3v(obj_color, point_light_color, obj_color);
 	}
 
 	//global illumination

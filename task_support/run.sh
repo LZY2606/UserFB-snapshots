@@ -19,7 +19,7 @@ ar rcs .task-build/libscene.a "${objects[@]}"
 "$cc" "${flags[@]}" "${includes[@]}" task_support/baseline.c .task-build/libscene.a -lm -o .task-build/baseline
 if [[ $mode == target ]]; then
   "$cc" "${flags[@]}" "${includes[@]}" task_support/driver.c tests/lighttree_test.c .task-build/libscene.a -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/lighttask.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
