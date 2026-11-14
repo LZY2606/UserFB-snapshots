@@ -75,9 +75,11 @@ namespace Cubiquity
 		public:
 			NodeStore();
 
-			// Non-copyable (deleted)
+			// Non-copyable (deleted), but movable.
 			NodeStore(const NodeStore&) = delete;
 			NodeStore& operator=(const NodeStore&) = delete;
+			NodeStore(NodeStore&&) = default;
+			NodeStore& operator=(NodeStore&&) = default;
 
 			// Element access
 			const Node& operator[](u32 index) const { return mNodeVector[index]; }
@@ -95,8 +97,14 @@ namespace Cubiquity
 			void read(std::ifstream& file);
 			void write(std::ofstream& file);
 
-			u32 merge(u32 index);
-			u32 merge_node(u32 nodeIndex, NodeVector& merged_node_vector);
+			// Builds a new, deduplicated and compacted node vector containing exactly
+			// the nodes reachable from any of the supplied roots. Every root is
+			// remapped into the new vector (uniform roots stay material indices). The
+			// current store is not modified, so this can be used both for baking
+			// (where the result replaces the store) and for saving (where only the
+			// current scene is written while in-memory history is preserved).
+			NodeVector mergeNodes(const std::vector<u32>& roots, std::vector<u32>& mergedRoots) const;
+			void replaceNodes(NodeVector&& nodes);
 
 			const void* rawBytesPtr() const { return mNodeVector.data(); }
 			u32 rawBytesCount() const { return mNodeVector.size() * sizeof(mNodeVector[0]); }
@@ -174,6 +182,14 @@ namespace Cubiquity
 
 		void bake();
 
+		// Monotonically increasing edition counter. It is advanced (possibly
+		// conservatively) by every public operation which can change the volume
+		// data, including history navigation and compaction. It lets clients such
+		// as RaycastContext detect changes without relying on the root index,
+		// which is not sufficient because nodes can be edited in place and
+		// compaction may happen to preserve the root index.
+		u64 revision() const { return mRevision; }
+
 		u32 countNodes() const { return mNodeStore.countNodes(rootNodeIndex()); };
 
 		bool load(const std::string& filename);
@@ -194,6 +210,7 @@ namespace Cubiquity
 	private:
 		std::vector<u32> mRootNodeIndices;
 		int mCurrentRoot = 0;
+		u64 mRevision = 0;
 	};
 
 	// Implementation of templatised accessors

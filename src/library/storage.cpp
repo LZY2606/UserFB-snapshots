@@ -17,8 +17,10 @@
 #include <cassert>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <numeric>
+#include <unordered_map>
 #include <unordered_set>
 
 #ifdef CUBIQUITY_USE_POOLSTL
@@ -191,10 +193,38 @@ namespace Cubiquity
 
 	void NodeStore::read(std::ifstream& file)
 	{
-		u32 nodeCount;
+		u32 nodeCount = 0;
 		file.read(reinterpret_cast<char*>(&nodeCount), sizeof(nodeCount));
+		if (!file) { return; }
+
+		// A truncated or corrupt file can claim an arbitrary node count. Reject
+		// counts which cannot possibly fit in the remaining bytes of the file
+		// before allocating, so a bad load cannot exhaust memory.
+		if (nodeCount > (UINT32_MAX - MaterialCount)) {
+			file.setstate(std::ios::failbit);
+			return;
+		}
+
+		std::streampos current = file.tellg();
+		if (current != std::streampos(-1)) {
+			file.seekg(0, std::ios::end);
+			const std::streampos end = file.tellg();
+			file.seekg(current, std::ios::beg);
+			if ((end == std::streampos(-1)) || (current == std::streampos(-1))) {
+				file.setstate(std::ios::failbit);
+				return;
+			}
+			const std::streamoff remaining = end - current;
+			if (remaining < static_cast<std::streamoff>(sizeof(Node)) * nodeCount) {
+				file.setstate(std::ios::failbit);
+				return;
+			}
+		}
+
 		mNodeVector.resize(MaterialCount + nodeCount);
-		file.read(reinterpret_cast<char*>(&(mNodeVector[sharedNodesBegin()])), sizeof(Node) * nodeCount);
+		if (nodeCount > 0) {
+			file.read(reinterpret_cast<char*>(&(mNodeVector[sharedNodesBegin()])), sizeof(Node) * nodeCount);
+		}
 		mSharedNodesEnd = mNodeVector.size(); // One past end, no unshared nodes.
 	}
 
@@ -203,96 +233,118 @@ namespace Cubiquity
 		u32 nodeCount = sharedNodesEnd() - sharedNodesBegin();
 		file.write(reinterpret_cast<const char*>(&nodeCount), sizeof(nodeCount));
 		file.write(reinterpret_cast<const char*>(&mNodeVector[sharedNodesBegin()]), sizeof(Node) * nodeCount);
-	}	
-
-	u32 NodeStore::merge(u32 index)
-	{
-		// Destination used as hashmap and bigger than source to reduce collisions
-		NodeVector merged_node_vector = make_node_vector((mNodeVector.size() * 12) / 10);
-
-		// Perform the recursive merge
-		u32 mergedRoot = merge_node(index, merged_node_vector);
-
-		// Compact in-place, tracking how nodes move.
-		std::vector<u32> moves(merged_node_vector.size());
-
-		size_t write = 0;
-		for (size_t read = 0; read < merged_node_vector.size(); ++read) {
-			if (merged_node_vector[read][0] != InvalidNodeIndex) { // Occupied
-				merged_node_vector[write] = std::move(merged_node_vector[read]);
-				moves[read] = write;
-				write++;
-			}
-		}
-		merged_node_vector.resize(write);
-
-		// Update node children based on how they moved during compacting.
-		for (int i = 0; i < merged_node_vector.size(); i++)	{
-			for (int childId = 0; childId < 8; childId++) {
-				merged_node_vector[i][childId] = moves[merged_node_vector[i][childId]];
-			}
-		}
-		mergedRoot = moves[mergedRoot];
-
-		mNodeVector = std::move(merged_node_vector);
-		mSharedNodesEnd = mNodeVector.size(); // Everything is now potentially shared
-
-		return mergedRoot;
-	}
-
-	u32 NodeStore::merge_node(u32 nodeIndex, NodeVector& merged_node_vector)
-	{
-		assert(!isMaterialNode(nodeIndex));
-		Node& node = mNodeVector[nodeIndex]; // By ref, modify in-place
-
-		// In a DAG we might hit the same node more than once due to multiple 
-		// parents. Handle this case to avoid reprocessing the node.
-		const int Visited = 0, NewPos = 1; // Channel identifiers, not flags.
-		if (node[Visited] == InvalidNodeIndex) return node[NewPos];
-
-		// Merge the children if needed
-		for (int i = 0; i < 8; i++) {
-			if (!isMaterialNode(node[i])) {
-				node[i] = merge_node(node[i], merged_node_vector);
-			}
-		}
-
-		u32 newNodeIndex = 0;
-		if (isMaterialNode(node)) {
-			newNodeIndex = node[0]; // Any element works here, they are all the same
-		}
-		else {
-			// Determine first index (skipping material node slots)
-			newNodeIndex = static_cast<u32>(NodeHasher{}(node));
-			newNodeIndex %= (merged_node_vector.size() - MaterialCount);
-			newNodeIndex += MaterialCount;
-
-			while (true) {
-				if (merged_node_vector[newNodeIndex] == node) break; // Already present
-
-				if (merged_node_vector[newNodeIndex][0] == InvalidNodeIndex) { // Empty space
-					merged_node_vector[newNodeIndex] = node;
-					break;
-				}
-
-				if (++newNodeIndex == merged_node_vector.size()) { // Move to next slot
-					newNodeIndex = MaterialCount; // Wrap around, skip material nodes.
-				}
-			}
-		}
-
-		// Mark node as visited and note where it went. Making these changes
-		// invalidates the node but we have already copied it to the destination.
-		node[Visited] = InvalidNodeIndex;
-		node[NewPos] = newNodeIndex;
-
-		return newNodeIndex;
 	}
 
 	u32 NodeStore::append(const Node& node)
 	{
 		mNodeVector.push_back(node);
 		return mNodeVector.size() - 1; // Index of new node
+	}
+
+	// Produce a compacted node vector which contains (once each) every node which is
+	// reachable from any of 'roots'. Identical nodes are deduplicated, so after this
+	// call the nodes reachable from the returned roots are fully shared. The input
+	// store is left untouched.
+	//
+	// The implementation is deliberately independent of the shared/unshared split,
+	// because such a split no longer exists once the result replaces the store.
+	NodeVector NodeStore::mergeNodes(const std::vector<u32>& roots, std::vector<u32>& mergedRoots) const
+	{
+		// A DAG can be exponentially larger than the number of nodes it contains, so
+		// we memoise every node which has already been copied to the destination.
+		std::unordered_map<u32, u32> nodeMap;
+		std::unordered_map<Node, u32, NodeHasher> nodeLookup;
+		NodeVector merged = make_node_vector();
+		merged.reserve(mNodeVector.size()); // Number of distinct nodes can never exceed the source.
+
+		std::function<u32(u32)> mergeNode = [&](u32 nodeIndex) -> u32 {
+			if (isMaterialNode(nodeIndex)) { return nodeIndex; }
+
+			const auto existing = nodeMap.find(nodeIndex);
+			if (existing != nodeMap.end()) { return existing->second; }
+
+			Node node = mNodeVector[nodeIndex];
+			for (u32 childId = 0; childId < 8; childId++) {
+				node[childId] = mergeNode(node[childId]);
+			}
+
+			// If the children all ended up identical then collapse this node into a
+			// material reference. This keeps the result pruned while still handling
+			// nodes which were not pruned in the source store.
+			u32 newNodeIndex;
+			if (isMaterialNode(node)) {
+				newNodeIndex = node[0];
+			}
+			else {
+				const auto lookup = nodeLookup.find(node);
+				if (lookup != nodeLookup.end()) {
+					newNodeIndex = lookup->second;
+				}
+				else {
+					newNodeIndex = static_cast<u32>(merged.size());
+					merged.push_back(node);
+					nodeLookup.emplace(node, newNodeIndex);
+				}
+			}
+
+			nodeMap.emplace(nodeIndex, newNodeIndex);
+			return newNodeIndex;
+		};
+
+		mergedRoots.clear();
+		mergedRoots.reserve(roots.size());
+		for (const u32 root : roots) {
+			mergedRoots.push_back(mergeNode(root));
+		}
+
+		// Nodes below a subtree which collapsed to a material (because it became
+		// uniform) were merged before we knew the parent would be pruned. Drop
+		// everything which is not actually reachable from a returned root, both to
+		// avoid leaking nodes into the compacted store and to guarantee that no
+		// unreferenced nodes remain.
+		std::vector<u32> remap(merged.size(), InvalidNodeIndex);
+		std::vector<u32> pending;
+		for (const u32 root : mergedRoots) {
+			if (!isMaterialNode(root)) { pending.push_back(root); }
+		}
+		while (!pending.empty()) {
+			const u32 nodeIndex = pending.back();
+			pending.pop_back();
+			if (remap[nodeIndex] != InvalidNodeIndex) { continue; }
+			remap[nodeIndex] = 0; // Marked, assigned below.
+			for (const u32 child : merged[nodeIndex]) {
+				if (!isMaterialNode(child)) { pending.push_back(child); }
+			}
+		}
+
+		u32 nextNodeIndex = MaterialCount;
+		for (u32 i = MaterialCount; i < merged.size(); i++) {
+			if (remap[i] != InvalidNodeIndex) { remap[i] = nextNodeIndex++; }
+		}
+
+		NodeVector compacted = make_node_vector(nextNodeIndex);
+		for (u32 i = MaterialCount; i < merged.size(); i++) {
+			if (remap[i] == InvalidNodeIndex) { continue; }
+			Node node = merged[i];
+			for (u32 childId = 0; childId < 8; childId++) {
+				if (!isMaterialNode(node[childId])) {
+					node[childId] = remap[node[childId]];
+				}
+			}
+			compacted[remap[i]] = node;
+		}
+
+		for (u32& root : mergedRoots) {
+			if (!isMaterialNode(root)) { root = remap[root]; }
+		}
+
+		return compacted;
+	}
+
+	void NodeStore::replaceNodes(NodeVector&& nodes)
+	{
+		mNodeVector = std::move(nodes);
+		mSharedNodesEnd = mNodeVector.size(); // Everything is shared / merged.
 	}
 
 	u32 NodeStore::cloneRoot(u32 rootIndex)
@@ -353,6 +405,7 @@ namespace Cubiquity
 	void Volume::setRootNodeIndex(u32 newRootNodeIndex)
 	{
 		mRootNodeIndices[mCurrentRoot] = newRootNodeIndex;
+		++mRevision;
 	}
 
 	void Volume::checkpoint()
@@ -368,12 +421,17 @@ namespace Cubiquity
 		// Store it
 		mRootNodeIndices.push_back(newRoot);
 		mCurrentRoot++;
+
+		// Navigating history changes the visible scene even if the root index is
+		// unchanged, so readers must be told to refresh.
+		++mRevision;
 	}
 
 	void Volume::undo()
 	{
 		if (mCurrentRoot > 0) {
 			mCurrentRoot--;
+			++mRevision;
 		}
 	}
 
@@ -381,16 +439,26 @@ namespace Cubiquity
 	{
 		if (mCurrentRoot < mRootNodeIndices.size() - 1)	{
 			mCurrentRoot++;
+			++mRevision;
 		}
 	}
 
+	// Compact the node store while retaining the entire history (including redo
+	// states). All roots are remapped into a single merged store so they continue
+	// to share nodes; the current history position is preserved.
 	void Volume::bake()
 	{
 		Cubiquity::Timer timer;
-		u32 newRootIndex = mNodeStore.merge(rootNodeIndex());
-		setRootNodeIndex(newRootIndex);
-		log_debug("Baked %u nodes in %.3f seconds",
-			mNodeStore.unsharedNodesEnd(), timer.elapsed_seconds());
+
+		std::vector<u32> mergedRoots;
+		NodeVector mergedNodes = mNodeStore.mergeNodes(mRootNodeIndices, mergedRoots);
+
+		const u32 nodeCount = static_cast<u32>(mergedNodes.size());
+		mNodeStore.replaceNodes(std::move(mergedNodes));
+		mRootNodeIndices = std::move(mergedRoots);
+		++mRevision;
+
+		log_debug("Baked %u nodes in %.3f seconds", nodeCount, timer.elapsed_seconds());
 	}
 
 	void Volume::setVoxel(i32 x, i32 y, i32 z, MaterialId matId)
@@ -414,6 +482,10 @@ namespace Cubiquity
 	// the commit history on the NodeStore branch (present in Jan 2026).
 	u32 Volume::setVoxel(u32 ux, u32 uy, u32 uz, MaterialId matId, u32 nodeIndex, int nodeHeight)
 	{
+		// Also reachable directly (e.g. from brush code), so make sure caches see
+		// the change even when the caller commits the returned index itself.
+		++mRevision;
+
 		// Get the relevant child node
 		u32 childId = extract_next_child_id(ux, uy, uz); // Modifies params
 		u32 childNodeIndex = mNodeStore.getNodeChild(nodeIndex, childId);
@@ -447,11 +519,10 @@ namespace Cubiquity
 	// if seperate volumes shared a common memory space it would be easier to copy node directly across (maybe in compressd space?).
 	u32 Volume::combine(const Volume& rhsVolume, u32 rhsNodeIndex, u32 nodeIndex, const MaterialCombiner& combiner)
 	{
+		++mRevision; // Conservative; see setVoxel().
+
 		for (u32 childId = 0; childId < 8; childId++)
 		{
-			const bool nodeIsMaterial = isMaterialNode(nodeIndex);
-			const bool rhsNodeIsMaterial = isMaterialNode(rhsNodeIndex);
-
 			// If current node is a material then just propergate it. Otherwise get the true child.
 			u32 childNodeIndex = mNodeStore.getNodeChild(nodeIndex, childId);
 			u32 rhsChildNodeIndex = rhsVolume.mNodeStore.getNodeChild(rhsNodeIndex, childId);
@@ -509,35 +580,62 @@ namespace Cubiquity
 		// FIXME - What should we do for error handling in this function? Return codes or exceptions?
 		if(!file.is_open())
 		{
+			return false; // Leave the existing scene and history untouched.
+		}
+
+		u32 rootNodeIndex = InvalidNodeIndex;
+		file.read(reinterpret_cast<char*>(&rootNodeIndex), sizeof(rootNodeIndex));
+		if (!file)
+		{
+			return false; // Leave the existing scene and history untouched.
+		}
+
+		// Read into a temporary store so a truncated/failed read does not corrupt
+		// the volume which is currently in memory.
+		Internals::NodeStore loadedStore;
+		loadedStore.read(file);
+
+		if (!file)
+		{
 			return false;
 		}
 
-		u32 rootNodeIndex;
-		file.read(reinterpret_cast<char*>(&rootNodeIndex), sizeof(rootNodeIndex));
-
-		mNodeStore.read(file);
-
 		if (rootNodeIndex >= MaterialCount)
 		{
-			rootNodeIndex += mNodeStore.sharedNodesBegin() - MaterialCount;
+			rootNodeIndex += loadedStore.sharedNodesBegin() - MaterialCount;
 		}
 
-		setRootNodeIndex(rootNodeIndex);
+		// A successful load replaces both the scene and its history. Previously
+		// recorded states are intentionally no longer reachable through undo.
+		mNodeStore = std::move(loadedStore);
+		mRootNodeIndices.assign(1, rootNodeIndex);
+		mCurrentRoot = 0;
+		++mRevision;
 
 		return true;
 	}
 
 	void Volume::save(const std::string& filename)
 	{
-		bake(); // Possibly should be here, not part of saving?
+		// Only the current scene is written, and the on-disk layout is unchanged
+		// (root index followed by the node array starting at MaterialCount).
+		// Compact a copy rather than baking the live store, so saving does not
+		// destroy in-memory history.
+		std::vector<u32> roots = { rootNodeIndex() };
+		std::vector<u32> mergedRoots;
+		const NodeVector mergedNodes = mNodeStore.mergeNodes(roots, mergedRoots);
 
-		u32 root = rootNodeIndex();
-		const Node& data = mNodeStore[mNodeStore.sharedNodesBegin()];
+		const u32 root = mergedRoots[0];
+		const u32 nodeCount = static_cast<u32>(mergedNodes.size()) - MaterialCount;
 
-		std::ofstream file;
-		file = std::ofstream(filename, std::ios::out | std::ios::binary);
+		// Write compacted nodes directly. Note they start at 'MaterialCount' but the
+		// on-disk format deliberately omits the material slots.
+		std::ofstream file(filename, std::ios::out | std::ios::binary);
 		file.write(reinterpret_cast<const char*>(&root), sizeof(root));
-		mNodeStore.write(file);
+		file.write(reinterpret_cast<const char*>(&nodeCount), sizeof(nodeCount));
+		for (u32 i = MaterialCount; i < mergedNodes.size(); ++i) {
+			file.write(reinterpret_cast<const char*>(&mergedNodes[i]), sizeof(Node));
+		}
 		file.close();
 	}
 

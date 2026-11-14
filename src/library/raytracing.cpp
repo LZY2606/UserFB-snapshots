@@ -49,7 +49,7 @@ namespace Cubiquity
 		// We never return the root node as a subDAG, instead
 		// we always descend into at least the first child.
 		uint onlyChildId = childId;
-		uint nextNodeIndex = nodes[rootNodeIndex][onlyChildId];
+		uint nextNodeIndex = nodes.getNodeChild(rootNodeIndex, onlyChildId);
 		uint nodeIndex = 0;
 		uint childCount = 1;
 
@@ -66,7 +66,7 @@ namespace Cubiquity
 			childCount = 0;
 			for (uint i = 0; i < 8; i++)
 			{
-				uint childNodeIndex = nodes[nodeIndex][i];
+				uint childNodeIndex = nodes.getNodeChild(nodeIndex, i);
 				if (childNodeIndex > 0)
 				{
 					// Store value we just received to avoid GPU memory access
@@ -116,7 +116,7 @@ namespace Cubiquity
 			bypassSubDAG.lowerBound[1] = bool(childId & 0x2) ? 0 : INT_MIN;
 			bypassSubDAG.lowerBound[2] = bool(childId & 0x4) ? 0 : INT_MIN;
 			bypassSubDAG.nodeHeight = RootNodeHeight - 1;
-			bypassSubDAG.nodeIndex = nodes[rootNodeIndex][childId];
+			bypassSubDAG.nodeIndex = nodes.getNodeChild(rootNodeIndex, childId);
 			return bypassSubDAG;
 		}
 	}
@@ -412,6 +412,13 @@ namespace Cubiquity
 
 		const uint rootNodeIndex = Internals::getRootNodeIndex(volume);
 
+		// The shape of an octant is also a valid node shape. Note that the SubDAG
+		// can legally reference a material node directly, which happens when an
+		// entire octant is uniformly filled (for example after a fill or after
+		// compaction has pruned a uniform subtree). Such nodes have all of their
+		// children pointing back at themselves, so the traversal below handles
+		// them without needing a special case.
+
 		// Store the sign of the ray direction
 		ivec3 rayDirSignBitsAsVec = ivec3(lessThan(ray.mDir, vec3({0,0,0}))); // 0 means +ve, 1 means -ve
 		uint rayDirSignBits = rayDirSignBitsAsVec[0] | (rayDirSignBitsAsVec[1] << 1) | (rayDirSignBitsAsVec[2] << 2);
@@ -445,9 +452,6 @@ namespace Cubiquity
 
 			if (childNodeIndex > 0)
 			{
-				// FIXME - Handle fully occupied direct child of root node.
-				assert(childNodeIndex >= MaterialCount);
-
 				// We can store the lower bound as integers because we offset ray origin by 0.5.
 				// On reflected axis the 'upper' corner becomes lower than the 'lower' corner.
 				// Node size might be large and negative, but I *think* the logic still works.
@@ -477,6 +481,42 @@ namespace Cubiquity
 		return intersection;
 	}
 
+	// Ensure the context's cached SubDAGArray corresponds to the bound volume's
+	// current state. The first call for a given volume always prepares the cache;
+	// afterwards it is only rebuilt when the volume's revision changes.
+	const SubDAGArray& RaycastContext::prepare(const Volume& volume)
+	{
+		const u64 revision = volume.revision();
+
+		// Rebind (and refresh) when the volume changed or its revision advanced.
+		// Comparing the volume pointer catches a switch to a different Volume even
+		// if it happens to share the same revision value.
+		if ((&volume != mVolume) || (revision != mRevision))
+		{
+			mSubDAGs = findSubDAGs(Internals::getNodes(volume), volume.rootNodeIndex());
+			mVolume = &volume;
+			mRevision = revision;
+			++mPreparationCount;
+		}
+
+		return mSubDAGs;
+	}
+
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context,
+		float ray_orig_x, float ray_orig_y, float ray_orig_z,
+		float ray_dir_x, float ray_dir_y, float ray_dir_z,
+		bool computeSurfaceProperties, float maxFootprint)
+	{
+		return intersectVolume(volume, context,
+			Ray3f(vec3(ray_orig_x, ray_orig_y, ray_orig_z), vec3(ray_dir_x, ray_dir_y, ray_dir_z)),
+			computeSurfaceProperties, maxFootprint);
+	}
+
+	RayVolumeIntersection intersectVolume(const Volume& volume, RaycastContext& context, Ray3f ray, bool computeSurfaceProperties, float maxFootprint)
+	{
+		return intersectVolume(volume, context.prepare(volume), ray, computeSurfaceProperties, maxFootprint);
+	}
+
 	class IntersectionFinder
 	{
 	public:
@@ -487,7 +527,7 @@ namespace Cubiquity
 			mIntersection.distance = DBL_MAX; // Note: Might change type to float in the future?
 		}
 
-		bool operator()(NodeStore& nodes, u32 nodeIndex, const Box3i& bounds)
+		bool operator()(NodeStore& /*nodes*/, u32 nodeIndex, const Box3i& bounds)
 		{
 			Box3d dilatedBounds = static_cast<Box3d>(bounds);
 			dilatedBounds.dilate(0.5);
