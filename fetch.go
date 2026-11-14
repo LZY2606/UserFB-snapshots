@@ -29,6 +29,11 @@ var (
 
 	// ErrQueueClosed is returned when a Send call is made on a closed Queue.
 	ErrQueueClosed = errors.New("fetchbot: send on a closed queue")
+
+	// ErrRobotsUnavailable is returned when RobotsCacheTTL is enabled and no
+	// usable robots.txt version has ever been obtained for the origin. The
+	// page request is not sent until a later refresh succeeds.
+	ErrRobotsUnavailable = errors.New("fetchbot: robots.txt unavailable")
 )
 
 // Parse the robots.txt relative path a single time at startup, this can't
@@ -86,6 +91,14 @@ type Fetcher struct {
 	// duration.
 	AutoClose bool
 
+	// RobotsCacheTTL, when positive, enables periodic refresh of the robots.txt
+	// rules. A cached version is reused until it expires, at which point the
+	// next command for that origin triggers a refresh (using a conditional
+	// request when validators are available). A zero value keeps the original
+	// behavior of fetching robots.txt once per host worker. DisablePoliteness
+	// still bypasses all robots.txt handling.
+	RobotsCacheTTL time.Duration
+
 	// q holds the Queue to send data to the fetcher and optionally close (stop) it.
 	q *Queue
 	// dbg is a channel used to push debug information.
@@ -97,6 +110,12 @@ type Fetcher struct {
 	// concurrent access to the hosts field.
 	mu    sync.Mutex
 	hosts map[string]chan Command
+
+	// robots holds the per-origin rules cache when RobotsCacheTTL is enabled.
+	// It is independent from the host workers, so it survives their idle
+	// reclamation. robotsMu protects the map itself.
+	robotsMu sync.Mutex
+	robots   map[string]*robotsOrigin
 }
 
 // The DebugInfo holds information to introspect the Fetcher's state.
@@ -236,6 +255,10 @@ func (q *Queue) sendWithMethod(method string, rawurl []string) (int, error) {
 // Start starts the Fetcher, and returns the Queue to use to send Commands to be fetched.
 func (f *Fetcher) Start() *Queue {
 	f.hosts = make(map[string]chan Command)
+	// Each Start maintains its own rules cache.
+	f.robotsMu.Lock()
+	f.robots = make(map[string]*robotsOrigin)
+	f.robotsMu.Unlock()
 
 	f.q = &Queue{
 		ch:        make(chan Command, 1),
@@ -286,14 +309,22 @@ loop:
 		// Get the URL to enqueue
 		u := v.URL()
 
+		refresh := f.robotsRefreshEnabled()
+		hostKey := u.Host
+		if refresh {
+			// In refresh mode the worker and cache are keyed by origin, so
+			// that the scheme and effective port isolate rules too.
+			hostKey = robotsOriginKey(u)
+		}
+
 		// Check if a channel is already started for this host
 		f.mu.Lock()
-		in, ok := f.hosts[u.Host]
+		in, ok := f.hosts[hostKey]
 		if !ok {
 			// Start a new channel and goroutine for this host.
 
 			var rob *url.URL
-			if !f.DisablePoliteness {
+			if !f.DisablePoliteness && !refresh {
 				// Must send the robots.txt request.
 				rob = u.ResolveReference(robotsTxtParsedPath)
 			}
@@ -302,15 +333,15 @@ loop:
 			// to read from in the host's goroutine, and add to the hosts map
 			var out chan Command
 			in, out = make(chan Command, 1), make(chan Command, 1)
-			f.hosts[u.Host] = in
+			f.hosts[hostKey] = in
 			f.mu.Unlock()
 			f.q.wg.Add(1)
 			// Start the infinite queue goroutine for this host
 			go sliceIQ(in, out)
 			// Start the working goroutine for this host
-			go f.processChan(out, u.Host)
+			go f.processChan(out, hostKey)
 
-			if !f.DisablePoliteness {
+			if !f.DisablePoliteness && !refresh {
 				// Enqueue the robots.txt request first.
 				in <- robotCommand{&Cmd{U: rob, M: "GET"}}
 			}
@@ -356,6 +387,11 @@ func (f *Fetcher) processChan(ch <-chan Command, hostKey string) {
 		delay = f.CrawlDelay
 	)
 
+	var origin *robotsOrigin
+	if f.robotsRefreshEnabled() {
+		origin = f.getRobotsOrigin(hostKey)
+	}
+
 loop:
 	for {
 		select {
@@ -380,6 +416,13 @@ loop:
 				// go on
 			}
 
+			if origin != nil {
+				delay = f.processCommandWithRefresh(origin, v)
+				wait = nil
+				ttl = clockAfter(f.WorkerIdleTTL)
+				continue
+			}
+
 			switch r, ok := v.(robotCommand); {
 			case ok:
 				// This is the robots.txt request
@@ -388,7 +431,7 @@ loop:
 				if agent != nil && agent.CrawlDelay > 0 {
 					delay = agent.CrawlDelay
 				}
-				wait = time.After(delay)
+				wait = clockAfter(delay)
 
 			case agent == nil || agent.Test(v.URL().Path):
 				// Path allowed, process the request
@@ -396,7 +439,7 @@ loop:
 				f.visit(v, res, err)
 				// No delay on error - the remote host was not reached
 				if err == nil {
-					wait = time.After(delay)
+					wait = clockAfter(delay)
 				} else {
 					wait = nil
 				}
@@ -407,7 +450,7 @@ loop:
 				wait = nil
 			}
 			// Every time a command is received, reset the ttl channel
-			ttl = time.After(f.WorkerIdleTTL)
+			ttl = clockAfter(f.WorkerIdleTTL)
 
 		case <-ttl:
 			// Worker has been idle for WorkerIdleTTL, terminate it

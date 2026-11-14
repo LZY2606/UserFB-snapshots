@@ -146,6 +146,46 @@ reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
 
+* RobotsCacheTTL : If positive, enables periodic refresh of the robots.txt
+rules for long-running crawlers. By default (zero), the rules are fetched
+once per host worker and reused until that worker is reclaimed. With a TTL
+set, each Start keeps a rules cache per origin (lower-cased scheme, hostname
+and effective port, so the default port and an omitted port are the same
+origin) that outlives the workers: an idle-reclaimed worker resumes with the
+unexpired rules and the remaining send delay. Before a normal command is
+processed, its origin's cached version is checked; if it expired, robots.txt
+is fetched first. Requests to a given origin are still serialized, while other
+origins proceed independently.
+
+A refresh uses the Fetcher's HttpClient and selects the rule group with the
+Fetcher's UserAgent (overriding the User-Agent for the request is not
+supported). When the current version has an ETag, the refresh sends
+If-None-Match; otherwise it sends If-Modified-Since if a Last-Modified value
+is available. The TTL starts at the end of a successful response. A 200
+response is fully read and parsed before its rules, validators and expiry
+replace the cached ones together, and validators absent from the new response
+are cleared. A 304 only extends the existing version's expiry; it never
+turns into a full-allow version and its validators are ignored. A 404 or 410
+publishes a full-allow version and clears the old validators.
+
+Network, body-read, parse errors and other status codes never publish a new
+version: the previous rules stay in effect and the next refresh attempt waits
+one TTL. If no usable version has ever been obtained, the page request is
+not sent, the command's handler receives ErrRobotsUnavailable, and the retry
+is likewise bounded by the TTL. A rejected page still receives ErrDisallowed,
+the Command's own handler receives the original Command value, and a command
+body provider is only consulted when the page is allowed. None of these errors
+drop commands already accepted by the Queue.
+
+Refreshes also respect the origin's existing wait. Once new rules are
+published, the interval before the next request uses the new Crawl-delay
+(or Fetcher.CrawlDelay when the robots.txt has none), and never moves the
+earliest send time earlier than what the old version had already established.
+That schedule starts from the completion of the origin's most recent real HTTP
+response, including robots.txt responses. A rejected page neither establishes
+nor clears a wait. The clock and wait primitives are package-level variables,
+so tests can substitute a controlled clock instead of sleeping.
+
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside
 the scope of this package - all commands sent on the Queue will be fetched.
