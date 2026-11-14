@@ -118,6 +118,20 @@ This module contains 3 routines for converting paletted voxel grid data to trian
 - **ogt_mesh_from_paletted_voxels_polygon**: will polygonize and triangulate connected voxels that are of the same color. The boundary of the polygon will be tessellated only to the degree that is necessary to there are tessellations at color discontinuities. Generally produces slightly more triangles that greedy meshing but it is mostly water-tight, except for a very small number of cases.
 ![image](https://user-images.githubusercontent.com/8569715/114662191-20e3b000-9cad-11eb-8cd1-2e6be2a38512.png)
 
+- **ogt_mesh_from_paletted_voxels_atlas**: uses the same greedy box-expansion pass as the greedy meshifier, but merges visible faces regardless of color and bakes the palette colors of each rectangular region into a texture atlas instead of per-vertex colors. This keeps triangle counts low even for colorful surfaces such as checkerboards. Each unique rectangle texture (up to rotation/mirroring) is stored once in the atlas, surrounded by a 1-texel gutter. Grid dimensions must be within [1,64] and the requested atlas width within [3,512].
+
+```cpp
+// example: meshify a paletted voxel grid into a mesh + texture atlas
+ogt_voxel_meshify_context ctx = {};
+ogt_mesh_atlas* mesh = ogt_mesh_from_paletted_voxels_atlas(&ctx, voxel_data, size_x, size_y, size_z, voxel_palette, 256);
+if (mesh) {
+    // mesh->vertices / mesh->indices : indexed triangle list with pos/normal/u,v per vertex
+    // mesh->pixels / mesh->width / mesh->height : RGBA atlas image, (0,0) is top-left
+    // mesh->chart_count : number of unique texture charts packed into the atlas
+    ogt_mesh_atlas_destroy(&ctx, mesh);
+}
+```
+
 
 More documentation and a demo will be added soon.
 
@@ -142,6 +156,13 @@ It can be used from command-line with these args:
  - `--output_name <name>`    : (default: disabled): name of output files
  - `--scale <value>`         : (default: 1.0): scaling factor to apply to output voxels
  - `--frames <first> <last>` : which frame range to extract. If not specified, will extract all frames between min and max keyframes within the .vox file.
+ - `--atlas_width <width>`   : (default: disabled) meshify with texture atlases instead of per-vertex colors. Exports exactly one frame (which must be specified via `--frames N N`) to `<output_name>.obj`/`.mtl`, with one shared `<output_name>-model-N.tga` 32-bit texture atlas and one material per model. `<width>` must be within [3,512].
+
+For example, to export frame 3 of `scene.vox` with texture atlases:
+
+```
+vox2obj --atlas_width 256 --frames 3 3 --output_name scene_atlas scene.vox
+```
 
 It can also be used from windows explorer by dragging-and-drop your .vox files onto it, and it will produce an output .obj file with the above defaults.
    

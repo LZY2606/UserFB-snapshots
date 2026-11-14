@@ -68,6 +68,7 @@
         * ogt_mesh_from_paletted_voxels_simple:  creates 2 triangles for every visible voxel face.
         * ogt_mesh_from_paletted_voxels_greedy:  creates 2 triangles for every rectangular region of voxel faces with the same color
         * ogt_mesh_from_paletted_voxels_polygon: determines the polygon contour of every connected voxel face with the same color and then triangulates that.
+        * ogt_mesh_from_paletted_voxels_atlas:   greedy-merges visible faces regardless of color and bakes per-face colors into a texture atlas.
 */
 #ifndef OGT_VOXEL_MESHIFY_H__
 #define OGT_VOXEL_MESHIFY_H__
@@ -126,6 +127,29 @@ struct ogt_mesh
     uint32_t*        indices;		// array of indices
 };
 
+// represents a vertex in a mesh that is textured by a texture atlas
+struct ogt_mesh_atlas_vertex
+{
+    ogt_mesh_vec3  pos;			// position of the vertex
+    ogt_mesh_vec3  normal;		// normal of the vertex
+    float          u;			// u texture coordinate. (0,0) is the top-left of the atlas image.
+    float          v;			// v texture coordinate. (0,0) is the top-left of the atlas image.
+};
+
+// a mesh that contains an indexed triangle list of vertices, along with a texture atlas
+// that the per-vertex u,v coordinates sample from.
+struct ogt_mesh_atlas
+{
+    uint32_t               vertex_count;	// number of vertices
+    uint32_t               index_count;		// number of indices
+    uint32_t               width;			// width of the atlas texture in texels
+    uint32_t               height;			// height of the atlas texture in texels
+    uint32_t               chart_count;		// number of unique texture charts packed into the atlas
+    ogt_mesh_atlas_vertex* vertices;		// array of vertices
+    uint32_t*              indices;			// array of indices
+    ogt_mesh_rgba*         pixels;			// atlas texture texels in row-major order. pixels[0] is the top-left texel of the image.
+};
+
 // allocate memory function interface. pass in size, and get a pointer to memory with at least that size available.
 typedef void* (*ogt_voxel_meshify_alloc_func)(size_t size, void* user_data);
 
@@ -158,6 +182,18 @@ ogt_mesh* ogt_mesh_from_paletted_voxels_greedy(const ogt_voxel_meshify_context* 
 // will be tessellated only to the degree that is necessary to there are tessellations at color discontinuities.
 // This will mostly be water-tight, except for a very small number of cases.
 ogt_mesh* ogt_mesh_from_paletted_voxels_polygon(const ogt_voxel_meshify_context* ctx, const uint8_t* voxels, uint32_t size_x, uint32_t size_y, uint32_t size_z, const ogt_mesh_rgba* palette);
+
+// The atlas meshifier uses the same greedy box-expansion pass as ogt_mesh_from_paletted_voxels_greedy, but adjacent
+// faces are merged into rectangular regions based only on visibility (not color), and the palette colors of the unit
+// faces within each rectangle are baked into a texture atlas instead of per-vertex colors. Each unique rectangle
+// texture (up to rotation/mirroring) is stored once in the atlas, surrounded by a 1-texel gutter that replicates
+// the nearest edge texel. The u,v coordinates of each vertex address the content region of a chart within the
+// atlas such that the center of each unit face lands on the center of its corresponding texel.
+// size_x/size_y/size_z must be in the range [1,64] and atlas_width must be in the range [3,512], otherwise NULL is returned.
+ogt_mesh_atlas* ogt_mesh_from_paletted_voxels_atlas(const ogt_voxel_meshify_context* ctx, const uint8_t* voxels, uint32_t size_x, uint32_t size_y, uint32_t size_z, const ogt_mesh_rgba* palette, uint32_t atlas_width);
+
+// destroys the mesh returned by ogt_mesh_from_paletted_voxels_atlas.
+void      ogt_mesh_atlas_destroy(const ogt_voxel_meshify_context* ctx, ogt_mesh_atlas* atlas);
 
 // ogt_mesh_remove_duplicate_vertices will in-place remove identical vertices and remap indices to produce an identical mesh.
 // Use this after a call to ogt_mesh_from_paletted_voxels_* functions to remove duplicate vertices with the same attributes.
@@ -1799,6 +1835,537 @@ void ogt_mesh_destroy(const ogt_voxel_meshify_context* ctx, ogt_mesh* mesh )
 {
     _voxel_meshify_free(ctx, mesh);
 }
+
+//-----------------------------------------------------------------------------------------------------------------
+// atlas meshifier
+//-----------------------------------------------------------------------------------------------------------------
+
+// a rectangular region of visible voxel faces extracted by the greedy pass, along with the palette
+// colors of each unit face within the region.
+struct _ogt_mesh_atlas_rect {
+    ogt_mesh_vec3 pos[4];           // object-space positions of the 4 corners of the rectangle
+    ogt_mesh_vec3 normal;           // object-space normal of the rectangle
+    uint32_t      texel_offset;     // offset (in texels) into the tile texel buffers for this rect's w*h texels
+    uint32_t      w, h;             // dimensions of the rectangle in unit faces
+    uint32_t      cw, ch;           // dimensions of the canonical form of this rect's tile
+    uint32_t      transform;        // dihedral transform (0..7) that maps source tile coordinates to canonical tile coordinates
+    uint32_t      chart;            // index of the unique chart this rect references
+    bool          is_parity_flipped; // whether the winding of this rect's triangles must be flipped
+};
+
+// a unique tile within the atlas, packed with a 1-texel gutter on all sides.
+struct _ogt_mesh_atlas_chart {
+    uint32_t      x, y;             // packed position of the chart (including gutter) within the atlas, in texels
+    uint32_t      w, h;             // content dimensions of the chart in texels
+    uint32_t      texel_offset;     // offset (in texels) into the canonical texel buffer for this chart's w*h texels
+};
+
+// extracts rectangular regions of visible faces in one of the 6 cardinal face directions. This follows the
+// same traversal and greedy expansion as _greedy_meshify_voxels_in_face_direction, except faces are merged
+// based only on visibility (any non-empty voxel occludes, regardless of its color), and the palette colors
+// of the unit faces within each rectangle are written out as a tile of texels instead of vertex colors.
+static void _atlas_meshify_voxels_in_face_direction(
+    const uint8_t* voxels,
+    const ogt_mesh_rgba* palette,
+    int32_t size_x, int32_t size_y, int32_t size_z,                // how many voxels in each of X,Y,Z dimensions
+    int32_t k_stride_x, int32_t k_stride_y, int32_t k_stride_z,    // the memory stride for each of those X,Y,Z dimensions within the voxel data.
+    const ogt_mesh_transform& transform,                           // transform to convert from X,Y,Z to "objectSpace"
+    _ogt_mesh_atlas_rect* rects, uint32_t* rect_count,             // output rects
+    ogt_mesh_rgba* texels, uint32_t* texel_count)                  // output tile texels
+{
+    uint32_t max_voxels_per_slice = size_x * size_y;
+    assert(max_voxels_per_slice <= 65536);
+    ogt_mesh_bitset_64k voxel_polygonized;
+
+    ogt_mesh_vec3 normal = _transform_vector(transform, _make_vec3(0.0f, 0.0f, 1.0f));
+
+    // determine if the transform parity has flipped in a way that winding would have been switched.
+    const ogt_mesh_vec3* side = _make_vec3_ptr(&transform.m00);
+    const ogt_mesh_vec3* up   = _make_vec3_ptr(&transform.m10);
+    const ogt_mesh_vec3* fwd  = _make_vec3_ptr(&transform.m20);
+    bool is_parity_flipped = _dot3(*fwd, _cross3(*side, *up)) < 0.0f;
+
+#define VOXELDATA_INDEX(_x,_y,_z)        ((_x) * k_stride_x) + ((_y) * k_stride_y) + ((_z) * k_stride_z)
+#define LOCALDATA_INDEX(_x,_y)            ((_x) + ((_y) * size_x))
+
+    for (int32_t k0 = 0; k0 < size_z; k0++) {
+        // k0 = current slice, k1 = next slice
+        int32_t k1 = k0 + 1;
+
+        // reset the per-voxel X/Y status for this slice.
+        voxel_polygonized.clear(max_voxels_per_slice);
+
+        // is this the last slice? If yes, we don't check
+        bool is_last_k_slice = (k1 == size_z);
+
+        // here, we search for the first unprocessed voxel
+        for (int32_t j0 = 0; j0 < size_y; j0++) {
+            for (int32_t i0 = 0; i0 < size_x; i0++) {
+                // this voxel doesn't need to be polygonized if...
+                if ((voxels[VOXELDATA_INDEX(i0, j0, k0)] == 0) ||                         // (1) voxel is empty
+                    voxel_polygonized.is_set(LOCALDATA_INDEX(i0, j0)) ||                  // (2) voxel is already part of a rect for the zslice.
+                    (!is_last_k_slice && voxels[VOXELDATA_INDEX(i0, j0, k1)] != 0))       // (3) voxel in the next slice (+z direction) is solid
+                {
+                    continue;
+                }
+
+                // compute i1. This is the coord bounding the longest span of visible voxels in the +i direction.
+                int32_t i1 = i0 + 1;
+                for (i1 = i0 + 1; i1 < size_x; i1++) {
+                    // stop extending i1 if...
+                    if ((voxels[VOXELDATA_INDEX(i1, j0, k0)] == 0) ||                     // (1) this voxel is empty
+                        (voxel_polygonized.is_set(LOCALDATA_INDEX(i1, j0))) ||            // (2) voxel is already part of a rect for the zslice
+                        (!is_last_k_slice && voxels[VOXELDATA_INDEX(i1, j0, k1)] != 0))   // (3) voxel in the next slice (+z direction) is solid
+                    {
+                        break;
+                    }
+                }
+
+                // compute j1. The is the coord bounding the longest span of visible voxels [i0..i1] in the +j direction
+                int32_t j1 = j0 + 1;
+                for (j1 = j0 + 1; j1 < size_y; j1++) {
+                    bool got_j1 = false;
+                    for (int32_t a = i0; a < i1; a++) {
+                        // stop extending j1 if...
+                        if ((voxels[VOXELDATA_INDEX(a, j1, k0)] == 0) ||                  // (1) this voxel is empty
+                            (voxel_polygonized.is_set(LOCALDATA_INDEX(a,j1))) ||          // (2) voxel is already part of a rect for the zslice
+                            (!is_last_k_slice && voxels[VOXELDATA_INDEX(a,j1,k1)] != 0))  // (3) voxel in the next slice (+z direction) is solid
+                        {
+                            got_j1 = true;
+                            break;
+                        }
+                    }
+                    if (got_j1)
+                        break;
+                }
+
+                // now j1 and i1 are the upper bound (exclusive) of the rectangle starting from i0,j0.
+                // mark all of this slice voxels in that rectangle as processed.
+                for (int32_t b = j0; b < j1; b++)
+                    for (int32_t a = i0; a < i1; a++)
+                        voxel_polygonized.set(LOCALDATA_INDEX(a,b));
+
+                // determine the min/max coords of the rectangle for each dimension.
+                float min_x = (float)i0;
+                float max_x = (float)i1;
+                float min_y = (float)j0;
+                float max_y = (float)j1;
+                float max_z = (float)k1;
+
+                _ogt_mesh_atlas_rect* rect = &rects[*rect_count];
+                rect->pos[0] = _transform_point(transform, _make_vec3(min_x, min_y, max_z));
+                rect->pos[1] = _transform_point(transform, _make_vec3(max_x, min_y, max_z));
+                rect->pos[2] = _transform_point(transform, _make_vec3(max_x, max_y, max_z));
+                rect->pos[3] = _transform_point(transform, _make_vec3(min_x, max_y, max_z));
+                rect->normal = normal;
+                rect->w = (uint32_t)(i1 - i0);
+                rect->h = (uint32_t)(j1 - j0);
+                rect->texel_offset = *texel_count;
+                rect->is_parity_flipped = is_parity_flipped;
+
+                // bake the palette color of each unit face within the rectangle into the tile texels.
+                ogt_mesh_rgba* tile = &texels[*texel_count];
+                for (int32_t b = j0; b < j1; b++)
+                    for (int32_t a = i0; a < i1; a++)
+                        tile[(uint32_t)(b - j0) * rect->w + (uint32_t)(a - i0)] = palette[voxels[VOXELDATA_INDEX(a, b, k0)]];
+
+                *texel_count += rect->w * rect->h;
+                *rect_count  += 1;
+            }
+        }
+    }
+
+#undef VOXELDATA_INDEX
+#undef LOCALDATA_INDEX
+}
+
+// transforms a w x h tile of texels by one of the 8 dihedral transforms: the 4 rotations (transform 0..3
+// rotates by 0/90/180/270 degrees) and the horizontal mirror of each of those rotations (transform 4..7).
+static void _atlas_transform_tile(ogt_mesh_rgba* dst, const ogt_mesh_rgba* src, uint32_t w, uint32_t h, uint32_t transform) {
+    uint32_t cw = (transform & 1) ? h : w;
+    uint32_t ch = (transform & 1) ? w : h;
+    for (uint32_t y = 0; y < ch; y++) {
+        for (uint32_t x = 0; x < cw; x++) {
+            // undo the horizontal mirror first: mirrored(x,y) = rotated(cw-1-x, y)
+            uint32_t rx = (transform >= 4) ? (cw - 1 - x) : x;
+            uint32_t ry = y;
+            uint32_t sx = 0, sy = 0;
+            switch (transform & 3) {
+                case 0:  sx = rx;           sy = ry;           break;
+                case 1:  sx = ry;           sy = (h - 1) - rx; break;
+                case 2:  sx = (w - 1) - rx; sy = (h - 1) - ry; break;
+                default: sx = (w - 1) - ry; sy = rx;           break;
+            }
+            dst[x + y * cw] = src[sx + sy * w];
+        }
+    }
+}
+
+// maps a continuous coordinate within a source w x h tile to the equivalent coordinate within the
+// canonically-transformed tile, using the same dihedral transforms as _atlas_transform_tile.
+static void _atlas_transform_point(float fx, float fy, uint32_t w, uint32_t h, uint32_t transform, float* out_x, float* out_y) {
+    float rx, ry;
+    switch (transform & 3) {
+        case 0:  rx = fx;            ry = fy;            break;
+        case 1:  rx = (float)h - fy; ry = fx;            break;
+        case 2:  rx = (float)w - fx; ry = (float)h - fy; break;
+        default: rx = fy;            ry = (float)w - fx; break;
+    }
+    if (transform >= 4) {
+        float cw = (transform & 1) ? (float)h : (float)w;
+        rx = cw - rx;
+    }
+    *out_x = rx;
+    *out_y = ry;
+}
+
+// compares two tile keys of the form (width, height, row-major RGBA bytes). returns <0, 0 or >0.
+static int _atlas_compare_tiles(const ogt_mesh_rgba* a, uint32_t aw, uint32_t ah, const ogt_mesh_rgba* b, uint32_t bw, uint32_t bh) {
+    if (aw != bw)
+        return aw < bw ? -1 : 1;
+    if (ah != bh)
+        return ah < bh ? -1 : 1;
+    return memcmp(a, b, (size_t)aw * ah * sizeof(ogt_mesh_rgba));
+}
+
+// sorts rect indices by their canonical tile key (width, height, row-major RGBA bytes) using a stable merge sort.
+static void _atlas_merge_sort_rects(uint32_t* indices, uint32_t* temp, uint32_t count, const _ogt_mesh_atlas_rect* rects, const ogt_mesh_rgba* canonical_texels) {
+    if (count <= 1)
+        return;
+    uint32_t half = count / 2;
+    _atlas_merge_sort_rects(indices, temp, half, rects, canonical_texels);
+    _atlas_merge_sort_rects(indices + half, temp, count - half, rects, canonical_texels);
+    uint32_t i = 0, j = half, k = 0;
+    while (i < half && j < count) {
+        const _ogt_mesh_atlas_rect* ra = &rects[indices[i]];
+        const _ogt_mesh_atlas_rect* rb = &rects[indices[j]];
+        int cmp = _atlas_compare_tiles(&canonical_texels[ra->texel_offset], ra->cw, ra->ch, &canonical_texels[rb->texel_offset], rb->cw, rb->ch);
+        temp[k++] = (cmp <= 0) ? indices[i++] : indices[j++];
+    }
+    while (i < half)
+        temp[k++] = indices[i++];
+    while (j < count)
+        temp[k++] = indices[j++];
+    memcpy(indices, temp, count * sizeof(uint32_t));
+}
+
+ogt_mesh_atlas* ogt_mesh_from_paletted_voxels_atlas(
+    const ogt_voxel_meshify_context* ctx,
+    const uint8_t* voxels, uint32_t size_x, uint32_t size_y, uint32_t size_z, const ogt_mesh_rgba* palette,
+    uint32_t atlas_width)
+{
+    // validate arguments.
+    if (!ctx || !voxels || !palette)
+        return NULL;
+    if (size_x < 1 || size_x > 64 || size_y < 1 || size_y > 64 || size_z < 1 || size_z > 64)
+        return NULL;
+    if (atlas_width < 3 || atlas_width > 512)
+        return NULL;
+
+    uint32_t max_face_count = _count_voxel_sized_faces( voxels, size_x, size_y, size_z );
+
+    _ogt_mesh_atlas_rect*  rects             = NULL;
+    _ogt_mesh_atlas_chart* charts            = NULL;
+    ogt_mesh_rgba*         tile_texels       = NULL;
+    ogt_mesh_rgba*         canonical_texels  = NULL;
+    ogt_mesh_rgba*         candidate_texels  = NULL;
+    uint32_t*              sort_indices      = NULL;
+    uint32_t*              sort_temp         = NULL;
+    ogt_mesh_atlas*        atlas             = NULL;
+    uint32_t               rect_count        = 0;
+    uint32_t               chart_count       = 0;
+    uint32_t               atlas_height      = 1;
+
+    if (max_face_count) {
+        // allocate temporary storage. note the total number of tile texels across all rects is exactly
+        // max_face_count, as each visible unit face contributes exactly one texel to one rect.
+        rects            = (_ogt_mesh_atlas_rect*)_voxel_meshify_malloc(ctx, sizeof(_ogt_mesh_atlas_rect) * max_face_count);
+        tile_texels      = (ogt_mesh_rgba*)_voxel_meshify_malloc(ctx, sizeof(ogt_mesh_rgba) * max_face_count);
+        canonical_texels = (ogt_mesh_rgba*)_voxel_meshify_malloc(ctx, sizeof(ogt_mesh_rgba) * max_face_count);
+        candidate_texels = (ogt_mesh_rgba*)_voxel_meshify_malloc(ctx, sizeof(ogt_mesh_rgba) * 64 * 64);
+        sort_indices     = (uint32_t*)_voxel_meshify_malloc(ctx, sizeof(uint32_t) * max_face_count);
+        sort_temp        = (uint32_t*)_voxel_meshify_malloc(ctx, sizeof(uint32_t) * max_face_count);
+        if (!rects || !tile_texels || !canonical_texels || !candidate_texels || !sort_indices || !sort_temp)
+            goto fail;
+
+        // extract rects of visible faces from all 6 face directions, using the same local
+        // coordinate frames and traversal order as the greedy meshifier.
+        uint32_t texel_count = 0;
+        const int32_t k_stride_x = 1;
+        const int32_t k_stride_y = size_x;
+        const int32_t k_stride_z = size_x * size_y;
+
+        // do the +y PASS
+        {
+            ogt_mesh_transform transform_pos_y = _make_transform(
+                0.0f, 0.0f, 1.0f, 0.0f,
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels, palette,
+                size_z, size_x, size_y,
+                k_stride_z, k_stride_x, k_stride_y,
+                transform_pos_y,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+        // do the -y PASS
+        {
+            ogt_mesh_transform transform_neg_y = _make_transform(
+                0.0f, 0.0f, 1.0f, 0.0f,
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f,-1.0f, 0.0f, 0.0f,
+                0.0f, (float)(size_y), 0.0f, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels + (size_y - 1) * k_stride_y,
+                palette,
+                size_z, size_x, size_y,
+                k_stride_z, k_stride_x,-k_stride_y,
+                transform_neg_y,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+        // do the +X pass
+        {
+            ogt_mesh_transform transform_pos_x = _make_transform(
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels, palette,
+                size_y, size_z, size_x,
+                k_stride_y, k_stride_z, k_stride_x,
+                transform_pos_x,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+        // do the -X pass
+        {
+            ogt_mesh_transform transform_neg_x = _make_transform(
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+               -1.0f, 0.0f, 0.0f, 0.0f,
+            (float)size_x, 0.0f, 0.0f, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels + (size_x - 1) * k_stride_x,
+                palette,
+                size_y, size_z, size_x,
+                k_stride_y, k_stride_z, -k_stride_x,
+                transform_neg_x,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+        // do the +Z pass
+        {
+            ogt_mesh_transform transform_pos_z = _make_transform(
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels, palette,
+                size_x, size_y, size_z,
+                k_stride_x, k_stride_y, k_stride_z,
+                transform_pos_z,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+        // do the -Z pass
+        {
+            ogt_mesh_transform transform_neg_z = _make_transform(
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, -1.0f, 0.0f,
+                0.0f, 0.0f,(float)size_z, 0.0f);
+
+            _atlas_meshify_voxels_in_face_direction(
+                voxels + (size_z-1) * k_stride_z,
+                palette,
+                size_x, size_y, size_z,
+                k_stride_x, k_stride_y, -k_stride_z,
+                transform_neg_z,
+                rects, &rect_count, tile_texels, &texel_count);
+        }
+
+        // for each rect, compute the canonical form of its tile: the lexicographically smallest
+        // (width, height, row-major RGBA bytes) of the 4 rotations of the tile and the horizontal
+        // mirror of each of those rotations.
+        for (uint32_t r = 0; r < rect_count; r++) {
+            _ogt_mesh_atlas_rect* rect = &rects[r];
+            const ogt_mesh_rgba* src = &tile_texels[rect->texel_offset];
+            uint32_t best_transform = 0;
+            _atlas_transform_tile(&canonical_texels[rect->texel_offset], src, rect->w, rect->h, 0);
+            rect->cw = rect->w;
+            rect->ch = rect->h;
+            for (uint32_t t = 1; t < 8; t++) {
+                uint32_t cw = (t & 1) ? rect->h : rect->w;
+                uint32_t ch = (t & 1) ? rect->w : rect->h;
+                _atlas_transform_tile(candidate_texels, src, rect->w, rect->h, t);
+                if (_atlas_compare_tiles(candidate_texels, cw, ch, &canonical_texels[rect->texel_offset], rect->cw, rect->ch) < 0) {
+                    memcpy(&canonical_texels[rect->texel_offset], candidate_texels, (size_t)cw * ch * sizeof(ogt_mesh_rgba));
+                    best_transform = t;
+                    rect->cw = cw;
+                    rect->ch = ch;
+                }
+            }
+            rect->transform = best_transform;
+        }
+
+        // sort rects by canonical tile key, then group rects with identical keys into unique charts.
+        for (uint32_t r = 0; r < rect_count; r++)
+            sort_indices[r] = r;
+        _atlas_merge_sort_rects(sort_indices, sort_temp, rect_count, rects, canonical_texels);
+
+        charts = (_ogt_mesh_atlas_chart*)_voxel_meshify_malloc(ctx, sizeof(_ogt_mesh_atlas_chart) * rect_count);
+        if (!charts)
+            goto fail;
+
+        for (uint32_t r = 0; r < rect_count; r++) {
+            _ogt_mesh_atlas_rect* rect = &rects[sort_indices[r]];
+            if (r == 0 ||
+                _atlas_compare_tiles(&canonical_texels[rect->texel_offset], rect->cw, rect->ch,
+                                     &canonical_texels[charts[chart_count-1].texel_offset], charts[chart_count-1].w, charts[chart_count-1].h) != 0)
+            {
+                charts[chart_count].w = rect->cw;
+                charts[chart_count].h = rect->ch;
+                charts[chart_count].texel_offset = rect->texel_offset;
+                chart_count++;
+            }
+            rect->chart = chart_count - 1;
+        }
+
+        // shelf-pack the unique charts (including their 1-texel gutter) left-to-right starting from the
+        // top-left of the atlas, moving to the next row whenever a chart doesn't fit on the current row.
+        {
+            uint32_t cursor_x   = 0;
+            uint32_t cursor_y   = 0;
+            uint32_t row_height = 0;
+            for (uint32_t c = 0; c < chart_count; c++) {
+                uint32_t packed_w = charts[c].w + 2;
+                uint32_t packed_h = charts[c].h + 2;
+                if (packed_w > atlas_width)
+                    goto fail;
+                if (cursor_x + packed_w > atlas_width) {
+                    cursor_x = 0;
+                    cursor_y += row_height;
+                    row_height = 0;
+                }
+                charts[c].x = cursor_x;
+                charts[c].y = cursor_y;
+                cursor_x += packed_w;
+                if (row_height < packed_h)
+                    row_height = packed_h;
+            }
+            // the atlas height is exactly the height that was used, it is not padded up.
+            atlas_height = cursor_y + row_height;
+        }
+    }
+
+    // allocate the output atlas as a single block of memory.
+    {
+        uint32_t vertex_count = rect_count * 4;
+        uint32_t index_count  = rect_count * 6;
+        size_t vertices_size  = sizeof(ogt_mesh_atlas_vertex) * vertex_count;
+        size_t indices_size   = sizeof(uint32_t) * index_count;
+        size_t pixels_size    = sizeof(ogt_mesh_rgba) * atlas_width * atlas_height;
+        atlas = (ogt_mesh_atlas*)_voxel_meshify_malloc(ctx, sizeof(ogt_mesh_atlas) + vertices_size + indices_size + pixels_size);
+        if (!atlas)
+            goto fail;
+        atlas->vertices = (ogt_mesh_atlas_vertex*)&atlas[1];
+        atlas->indices  = (uint32_t*)&atlas->vertices[vertex_count];
+        atlas->pixels   = (ogt_mesh_rgba*)&atlas->indices[index_count];
+        atlas->vertex_count = vertex_count;
+        atlas->index_count  = index_count;
+        atlas->width        = atlas_width;
+        atlas->height       = atlas_height;
+        atlas->chart_count  = chart_count;
+        memset(atlas->pixels, 0, pixels_size);
+    }
+
+    // blit each chart into the atlas, replicating the nearest edge texel into the 1-texel
+    // gutter on all 4 sides (and into the 4 corners).
+    for (uint32_t c = 0; c < chart_count; c++) {
+        const _ogt_mesh_atlas_chart* chart = &charts[c];
+        const ogt_mesh_rgba* src = &canonical_texels[chart->texel_offset];
+        for (int32_t y = -1; y <= (int32_t)chart->h; y++) {
+            uint32_t sy = y < 0 ? 0 : (y >= (int32_t)chart->h ? chart->h - 1 : (uint32_t)y);
+            uint32_t dy = (uint32_t)((int32_t)chart->y + 1 + y);
+            for (int32_t x = -1; x <= (int32_t)chart->w; x++) {
+                uint32_t sx = x < 0 ? 0 : (x >= (int32_t)chart->w ? chart->w - 1 : (uint32_t)x);
+                uint32_t dx = (uint32_t)((int32_t)chart->x + 1 + x);
+                atlas->pixels[dy * atlas_width + dx] = src[sx + sy * chart->w];
+            }
+        }
+    }
+
+    // emit the geometry for each rect: 4 vertices and 2 outward-facing triangles. the u,v coordinates
+    // address the boundary of the chart's content region, mapped through the rect's canonical transform
+    // so that the center of each unit face lands on the center of its corresponding texel.
+    for (uint32_t r = 0; r < rect_count; r++) {
+        const _ogt_mesh_atlas_rect*  rect  = &rects[r];
+        const _ogt_mesh_atlas_chart* chart = &charts[rect->chart];
+        const float local_x[4] = { 0.0f, (float)rect->w, (float)rect->w, 0.0f };
+        const float local_y[4] = { 0.0f, 0.0f, (float)rect->h, (float)rect->h };
+
+        ogt_mesh_atlas_vertex* vertex_data = &atlas->vertices[r * 4];
+        for (uint32_t v = 0; v < 4; v++) {
+            float cx, cy;
+            _atlas_transform_point(local_x[v], local_y[v], rect->w, rect->h, rect->transform, &cx, &cy);
+            vertex_data[v].pos    = rect->pos[v];
+            vertex_data[v].normal = rect->normal;
+            vertex_data[v].u      = ((float)(chart->x + 1) + cx) / (float)atlas_width;
+            vertex_data[v].v      = ((float)(chart->y + 1) + cy) / (float)atlas_height;
+        }
+
+        uint32_t* index_data = &atlas->indices[r * 6];
+        uint32_t  base       = r * 4;
+        if (rect->is_parity_flipped) {
+            index_data[0] = base + 0;
+            index_data[1] = base + 3;
+            index_data[2] = base + 2;
+            index_data[3] = base + 2;
+            index_data[4] = base + 1;
+            index_data[5] = base + 0;
+        }
+        else {
+            index_data[0] = base + 0;
+            index_data[1] = base + 1;
+            index_data[2] = base + 2;
+            index_data[3] = base + 2;
+            index_data[4] = base + 3;
+            index_data[5] = base + 0;
+        }
+    }
+
+    // free all temporary storage.
+    _voxel_meshify_free(ctx, rects);
+    _voxel_meshify_free(ctx, charts);
+    _voxel_meshify_free(ctx, tile_texels);
+    _voxel_meshify_free(ctx, canonical_texels);
+    _voxel_meshify_free(ctx, candidate_texels);
+    _voxel_meshify_free(ctx, sort_indices);
+    _voxel_meshify_free(ctx, sort_temp);
+    return atlas;
+
+fail:
+    // clean up all resources allocated by this call.
+    _voxel_meshify_free(ctx, rects);
+    _voxel_meshify_free(ctx, charts);
+    _voxel_meshify_free(ctx, tile_texels);
+    _voxel_meshify_free(ctx, canonical_texels);
+    _voxel_meshify_free(ctx, candidate_texels);
+    _voxel_meshify_free(ctx, sort_indices);
+    _voxel_meshify_free(ctx, sort_temp);
+    return NULL;
+}
+
+void ogt_mesh_atlas_destroy(const ogt_voxel_meshify_context* ctx, ogt_mesh_atlas* atlas)
+{
+    _voxel_meshify_free(ctx, atlas);
+}
+
 
 #endif // #ifdef OGT_VOXEL_MESHIFY_IMPLEMENTATION
 

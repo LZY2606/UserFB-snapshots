@@ -137,6 +137,42 @@ void write_tga_24bit(const uint8_t* pixels, uint32_t width, uint32_t height, FIL
     }
 }
 
+// writes a 32-bit BGRA tga with a top-left origin. pixels are RGBA in row-major order starting
+// from the top-left texel of the image.
+void write_tga_32bit(const ogt_mesh_rgba* pixels, uint32_t width, uint32_t height, FILE* fout) {
+    #pragma pack(push, 1)
+    #pragma pack(1)
+    struct tga_file_header {
+        uint8_t  id_length;
+        uint8_t  color_map_type;
+        uint8_t  image_type;
+        uint16_t first_entry_index;
+        uint16_t color_map_length;
+        uint8_t  color_map_entry_size;
+        uint16_t origin_x;
+        uint16_t origin_y;
+    };
+    struct tga_image_header {
+        uint16_t image_width;
+        uint16_t image_height;
+        uint8_t  pixel_depth;
+        uint8_t  pixel_descriptor;
+    };
+    #pragma pack(pop)
+    tga_file_header  file_header = {0, 0, 2, 0, 0, 0, 0, 0 };
+    // pixel descriptor: 8 alpha bits, and bit 5 set so the image origin is top-left.
+    tga_image_header image_header = { (uint16_t)width, (uint16_t)height, 32, 0x28 };
+    fwrite(&file_header, sizeof(file_header), 1, fout);
+    fwrite(&image_header, sizeof(image_header), 1, fout);
+    // input is R,G,B,A, but we write in B,G,R,A order.
+    for (uint32_t i = 0; i < width * height; i++) {
+        fwrite(&pixels[i].b, 1, 1, fout);
+        fwrite(&pixels[i].g, 1, 1, fout);
+        fwrite(&pixels[i].r, 1, 1, fout);
+        fwrite(&pixels[i].a, 1, 1, fout);
+    }
+}
+
 FILE* open_obj_file(const char* filename)
 {
     FILE * fout = open_file(filename, "wb");
@@ -436,6 +472,196 @@ bool export_scene_anim_as_obj(const ogt_vox_scene* scene, const std::string& out
     return !error;
 }
 
+// exports a single frame of the scene as one .obj file textured by per-model texture atlases.
+// each referenced model is meshified once with ogt_mesh_from_paletted_voxels_atlas and gets a
+// single shared <out_name>-model-N.tga texture and a single shared material in <out_name>.mtl.
+bool export_scene_frame_as_obj_atlas(const ogt_vox_scene* scene, const std::string& out_name, float voxel_scale, uint32_t frame_index, uint32_t atlas_width) {
+    ogt_voxel_meshify_context meshify_context = {};
+
+    // meshify all models that are referenced by a visible instance on this frame.
+    std::vector<ogt_mesh_atlas*> atlases;
+    atlases.resize(scene->num_models, nullptr);
+
+    for (uint32_t instance_index = 0; instance_index < scene->num_instances; instance_index++) {
+        const ogt_vox_instance* instance = &scene->instances[instance_index];
+        // skip this instance if it's hidden in the .vox file
+        if (instance->hidden)
+            continue;
+        // skip this instance if it's part of a hidden layer in the .vox file
+        if (scene->layers[instance->layer_index].hidden)
+            continue;
+        // skip this instance if it's part of a hidden group
+        if (instance->group_index != k_invalid_group_index && scene->groups[instance->group_index].hidden)
+            continue;
+
+        uint32_t model_index = ogt_vox_sample_instance_model(instance, frame_index);
+        const ogt_vox_model* model = scene->models[model_index];
+        if (!model || atlases[model_index])
+            continue;
+
+        printf("  - generating atlas mesh for model of size %u x %u x %u\n", model->size_x, model->size_y, model->size_z);
+        // note: the scene palette is passed unmodified so the original alpha is preserved in the atlas.
+        ogt_mesh_atlas* atlas = ogt_mesh_from_paletted_voxels_atlas(&meshify_context, model->voxel_data, model->size_x, model->size_y, model->size_z, (const ogt_mesh_rgba*)&scene->palette.color[0], atlas_width);
+        if (!atlas) {
+            printf("ERROR: could not generate atlas mesh for model %u (model dims must be within [1,64] and charts must fit the atlas width)\n", model_index);
+            goto fail;
+        }
+        atlases[model_index] = atlas;
+        if (atlas->height > 65535) {
+            printf("ERROR: atlas height %u for model %u exceeds the tga limit of 65535\n", atlas->height, model_index);
+            goto fail;
+        }
+    }
+
+    // write one texture per meshified model.
+    for (uint32_t model_index = 0; model_index < scene->num_models; model_index++) {
+        const ogt_mesh_atlas* atlas = atlases[model_index];
+        if (!atlas)
+            continue;
+        std::string out_texture_name = out_name + "-model-" + std::to_string(model_index) + ".tga";
+        FILE* fout = open_file(out_texture_name.c_str(), "wb");
+        if (!fout) {
+            printf("could not open file '%s' for write - aborting!", out_texture_name.c_str());
+            goto fail;
+        }
+        printf("writing file %s\n", out_texture_name.c_str());
+        write_tga_32bit(atlas->pixels, atlas->width, atlas->height, fout);
+        fclose(fout);
+    }
+
+    // write one material per meshified model, all within a single .mtl file.
+    {
+        std::string out_material_name = out_name + ".mtl";
+        FILE* fout = open_file(out_material_name.c_str(), "wb");
+        if (!fout) {
+            printf("could not open file '%s' for write - aborting!", out_material_name.c_str());
+            goto fail;
+        }
+        printf("writing file %s\n", out_material_name.c_str());
+        fprintf(fout, "# opengametools vox2obj - see source code at https://github.com/jpaver/opengametools/tree/master/apps/vox2obj.cpp\r\n");
+        fprintf(fout, "\r\n");
+        for (uint32_t model_index = 0; model_index < scene->num_models; model_index++) {
+            if (!atlases[model_index])
+                continue;
+            std::string out_texture_name = out_name + "-model-" + std::to_string(model_index) + ".tga";
+            fprintf(fout, "newmtl model_%u\r\n", model_index);
+            fprintf(fout, "illum 1\r\n");
+            fprintf(fout, "Ka 0.000 0.000 0.000\r\n");
+            fprintf(fout, "Kd 1.000 1.000 1.000\r\n");
+            fprintf(fout, "Ks 0.000 0.000 0.000\r\n");
+            fprintf(fout, "map_Kd %s\r\n", out_texture_name.c_str());
+            fprintf(fout, "\r\n");
+        }
+        fclose(fout);
+    }
+
+    // write the geometry. vertex, normal and uv indices are recorded independently.
+    {
+        std::string out_obj_name = out_name + ".obj";
+        FILE* fout = open_file(out_obj_name.c_str(), "wb");
+        if (!fout) {
+            printf("could not open file '%s' for write - aborting!", out_obj_name.c_str());
+            goto fail;
+        }
+        printf("writing file %s\n", out_obj_name.c_str());
+        std::string out_material_name = out_name + ".mtl";
+        fprintf(fout, "o frame_%03u\n", frame_index);
+        fprintf(fout, "mtllib %s\n", out_material_name.c_str());
+
+        uint32_t base_vertex_index   = 0;
+        uint32_t base_texcoord_index = 0;
+        uint32_t base_normal_index   = 0;
+        for (uint32_t instance_index = 0; instance_index < scene->num_instances; instance_index++) {
+            const ogt_vox_instance* instance = &scene->instances[instance_index];
+            // skip this instance if it's hidden in the .vox file
+            if (instance->hidden)
+                continue;
+            // skip this instance if it's part of a hidden layer in the .vox file
+            if (scene->layers[instance->layer_index].hidden)
+                continue;
+            // skip this instance if it's part of a hidden group
+            if (instance->group_index != k_invalid_group_index && scene->groups[instance->group_index].hidden)
+                continue;
+
+            ogt_vox_transform transform   = ogt_vox_sample_instance_transform_global(instance, frame_index, scene);
+            uint32_t          model_index = ogt_vox_sample_instance_model(instance, frame_index);
+            const ogt_vox_model* model    = scene->models[model_index];
+            const ogt_mesh_atlas* atlas   = model ? atlases[model_index] : nullptr;
+            if (!atlas)
+                continue;
+
+            // instances with a reflection in their transform need their triangle winding flipped.
+            float det = (transform.m00 * ((transform.m11 * transform.m22) - (transform.m12 * transform.m21)))
+                      - (transform.m10 * ((transform.m01 * transform.m22) - (transform.m02 * transform.m21)))
+                      + (transform.m20 * ((transform.m01 * transform.m12) - (transform.m02 * transform.m11)));
+            bool is_reflected = det < 0.0f;
+
+            // bake the voxel scale into the transform used for positions.
+            ogt_vox_transform scaled_transform = transform;
+            {
+                float* transform_data = &scaled_transform.m00;
+                for (size_t i = 0; i < 16; i++) {
+                    transform_data[i] *= voxel_scale;
+                }
+            }
+
+            fprintf(fout, "usemtl model_%u\n", model_index);
+
+            // write vertices: model-space positions are re-centered so the model pivot is at (0,0,0),
+            // then transformed by the global instance transform.
+            for (uint32_t i = 0; i < atlas->vertex_count; i++) {
+                ogt_mesh_vec3 pos = atlas->vertices[i].pos;
+                pos.x -= (float)(model->size_x / 2);
+                pos.y -= (float)(model->size_y / 2);
+                pos.z -= (float)(model->size_z / 2);
+                pos = transform_point(scaled_transform, pos);
+                fprintf(fout, "v %f %f %f\n", pos.x, pos.y, pos.z);
+            }
+            // write texcoords: obj v coordinates are bottom-up, so flip v here.
+            for (uint32_t i = 0; i < atlas->vertex_count; i++) {
+                fprintf(fout, "vt %f %f\n", atlas->vertices[i].u, 1.0f - atlas->vertices[i].v);
+            }
+            // write normals: rotated by the instance transform (the unscaled rotation keeps them unit length).
+            for (uint32_t i = 0; i < atlas->vertex_count; i++) {
+                ogt_mesh_vec3 normal = transform_vector(transform, atlas->vertices[i].normal);
+                fprintf(fout, "vn %f %f %f\n", normal.x, normal.y, normal.z);
+            }
+            // write faces
+            for (uint32_t i = 0; i < atlas->index_count; i += 3) {
+                uint32_t i0 = atlas->indices[i + 0];
+                uint32_t i1 = atlas->indices[i + 1];
+                uint32_t i2 = atlas->indices[i + 2];
+                if (is_reflected) {
+                    uint32_t tmp = i1;
+                    i1 = i2;
+                    i2 = tmp;
+                }
+                fprintf(fout, "f %u/%u/%u %u/%u/%u %u/%u/%u\n",
+                    base_vertex_index + i0 + 1, base_texcoord_index + i0 + 1, base_normal_index + i0 + 1,
+                    base_vertex_index + i1 + 1, base_texcoord_index + i1 + 1, base_normal_index + i1 + 1,
+                    base_vertex_index + i2 + 1, base_texcoord_index + i2 + 1, base_normal_index + i2 + 1);
+            }
+            base_vertex_index   += atlas->vertex_count;
+            base_texcoord_index += atlas->vertex_count;
+            base_normal_index   += atlas->vertex_count;
+        }
+        fclose(fout);
+    }
+
+    for (uint32_t model_index = 0; model_index < scene->num_models; model_index++) {
+        if (atlases[model_index])
+            ogt_mesh_atlas_destroy(&meshify_context, atlases[model_index]);
+    }
+    return true;
+
+fail:
+    for (uint32_t model_index = 0; model_index < scene->num_models; model_index++) {
+        if (atlases[model_index])
+            ogt_mesh_atlas_destroy(&meshify_context, atlases[model_index]);
+    }
+    return false;
+}
+
 void print_help()
 {
     printf(
@@ -452,6 +678,9 @@ void print_help()
         " --output_name <name>    : (default: disabled): name of output files\n"
         " --scale <value>         : (default: 1.0): scaling factor to apply to output voxels\n"
         " --frames <first> <last> : which frame range to extract. If not specified, will extract all keyframes within the .vox file.\n"
+        " --atlas_width <width>   : (default: disabled) meshify with texture atlases instead of per-vertex colors. Exports exactly\n"
+        "                           one frame (which must be specified via --frames N N) to <output_name>.obj/.mtl with one shared\n"
+        "                           <output_name>-model-N.tga texture atlas per model. <width> must be within [3,512].\n"
         " --output_vox            : (default: disabled): if specified will output .vox files for each frame instead of .obj"
         "\n"
         "example:\n"
@@ -483,6 +712,7 @@ int main(int argc, char** argv) {
     bool        output_as_vox     = false;
     uint32_t    frame_min         = UINT32_MAX; // auto!
     uint32_t    frame_max         = UINT32_MAX; // auto!
+    uint32_t    atlas_width       = 0;          // disabled!
     float       scale             = 1.0f;
 
     // parse arguments and override default parameter values
@@ -511,6 +741,10 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--output_vox") == 0) {
             output_as_vox = true;
             i++;
+        }
+        else if (strcmp(argv[i], "--atlas_width") == 0) {
+            atlas_width = (uint32_t)atoi(argv[i+1]);
+            i += 2;
         }
         else if (strncmp(argv[i], "--", 2) == 0) {
             printf("ERROR: unrecognized parameter '%s'\n", argv[i]);
@@ -548,6 +782,22 @@ int main(int argc, char** argv) {
     }
 
     bool ret = false;
+    if (atlas_width != 0) {
+        // atlas mode exports exactly one frame, which must be explicitly specified via --frames N N.
+        if (frame_min == UINT32_MAX || frame_max == UINT32_MAX || frame_min != frame_max) {
+            printf("ERROR: --atlas_width requires exactly one frame to be specified via --frames N N\n");
+            ogt_vox_destroy_scene(scene);
+            return 2;
+        }
+        if (atlas_width < 3 || atlas_width > 512) {
+            printf("ERROR: --atlas_width must be within [3,512]\n");
+            ogt_vox_destroy_scene(scene);
+            return 2;
+        }
+        ret = export_scene_frame_as_obj_atlas(scene, output_prefix, scale, frame_min, atlas_width);
+        ogt_vox_destroy_scene(scene);
+        return ret ? 0 : 1;
+    }
     if (output_as_vox) {
         ret = export_scene_anim_as_vox(scene, output_prefix, frame_min, frame_max);
     }
