@@ -1,0 +1,21 @@
+{
+  "repo": "https://github.com/Haivision/srt",
+  "commit": "80e0bc48adb8dbc0d4d4635a65a08f31ebd20022",
+  "license": "MPL-2.0 with retained per-file BSD notices",
+  "source_manifest": "Author evidence private/seed-export.json records exact upstream hashes",
+  "optional_exclusions": [
+    {
+      "path": ".gitmodules",
+      "mode": "100644",
+      "object": "0c81e9233a7decab1658201c282e08db3bdce22b",
+      "reason": "optional upstream ABI tooling only; not part of runtime build"
+    },
+    {
+      "path": "submodules/abi-compliance-checker",
+      "mode": "160000",
+      "object": "7c175c45a8ba9ac41b8e47d8ebbab557b623b18e",
+      "reason": "optional upstream ABI tooling only; not part of runtime build"
+    }
+  ],
+  "notes": "No external ABI compliance checker is needed by the static runtime build. Existing source, tests, licenses and copyright notices are retained."
+}
