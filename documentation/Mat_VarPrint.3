@@ -1,0 +1,28 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd November 20, 2023
+.Dt MAT_VARPRINT 3
+.Os
+.Sh NAME
+.Nm Mat_VarPrint
+.Nd Prints the information of a MAT variable to stdout.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft void
+.Fo Mat_VarPrint
+.Fa "const matvar_t *matvar"
+.Fa "int printdata"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_VarPrint
+function prints the information of a MAT variable
+.Fa matvar
+to stdout.
+If
+.Fa printdata
+is set to non-zero the data of the variable also is printed.

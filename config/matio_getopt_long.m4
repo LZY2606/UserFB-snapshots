@@ -1,0 +1,30 @@
+dnl Copyright (c) 2015-2026, The matio contributors
+dnl Copyright (c) 2010-2014, Christopher C. Hulbert
+dnl All rights reserved.
+dnl
+dnl SPDX-License-Identifier: BSD-2-Clause
+AC_DEFUN([MATIO_CHECK_GETOPT_LONG],
+[
+
+AC_MSG_CHECKING(for getopt_long)
+
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <stdio.h>
+ #include <stdlib.h>
+ #ifdef HAVE_STDDEF_H
+ #include <stddef.h>
+ #endif
+ #ifdef HAVE_UNISTD_H
+ #include <unistd.h>
+ #endif
+ #define _GNU_SOURCE /* For getopt_long on GNU systems */
+ #include <getopt.h>
+]], [[int opt = getopt_long(0,NULL,NULL,NULL,NULL);]])],[ac_have_getopt_long=yes],[ac_have_getopt_long=no])
+
+if test "x$ac_have_getopt_long" = "xyes"
+then
+    AC_MSG_RESULT([system])
+else
+    AC_MSG_RESULT([internal])
+fi
+AM_CONDITIONAL(NEED_GETOPT, test "x$ac_have_getopt_long" = "xno" )
+])

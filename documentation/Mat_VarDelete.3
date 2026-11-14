@@ -1,0 +1,29 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd October 20, 2017
+.Dt MAT_VARDELETE 3
+.Os
+.Sh NAME
+.Nm Mat_VarDelete
+.Nd Deletes a MAT variable from a file.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft int
+.Fo Mat_VarDelete
+.Fa "mat_t *matfp"
+.Fa "const char *name"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_VarDelete
+function deletes the MAT variable
+.Fa name
+from the MAT file given by MAT file structure
+.Fa matfp .
+.Sh RETURN VALUES
+The function returns 0 on success.
+Otherwise, an error value is returned.

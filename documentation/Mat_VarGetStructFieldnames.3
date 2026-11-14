@@ -1,0 +1,32 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd January 19, 2012
+.Dt MAT_VARGETSTRUCTFIELDNAMES 3
+.Os
+.Sh NAME
+.Nm Mat_VarGetStructFieldnames
+.Nd Get the fieldnames of a structure variable.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft char * const *
+.Fo Mat_VarGetStructFieldnames
+.Fa "const matvar_t *matvar"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_VarGetStructFieldnames
+function returns the fieldnames of the structure variable
+.Fa matvar.
+.Sh RETURN VALUES
+An array of fieldnames is returned of the variable is a valid structure
+variable.
+Otherwise NULL is returned.
+The
+.Fn Mat_VarGetNumberOfFields
+function returns the number of fields for the structure.
+.Sh SEE ALSO
+.Xr Mat_VarGetNumberOfFields 3

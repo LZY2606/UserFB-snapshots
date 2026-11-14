@@ -1,0 +1,38 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd November 20, 2023
+.Dt MAT_GETFILEACCESSMODE 3
+.Os
+.Sh NAME
+.Nm Mat_GetFileAccessMode
+.Nd Returns the file access mode of a MATLAB MAT file given a MAT file structure.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft enum mat_acc
+.Fo Mat_GetFileAccessMode
+.Fa "const mat_t *matfp"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_GetFileAccessMode
+function returns the file access mode of the MATLAB MAT file given by the MAT file
+structure.
+.Sh RETURN VALUES
+The return value is one of the following:
+.Bl -bullet
+.It
+.Cm MAT_ACC_RDONLY
+if the file is opened with read-only access or not opened at all.
+.It
+.Cm MAT_ACC_RDWR
+if the file is opened with read/write access.
+.El
+.Sh SEE ALSO
+.Xr Mat_CreateVer 3 ,
+.Xr Mat_Open 3 ,
+.Xr Mat_GetFilename 3 ,
+.Xr Mat_GetHeader 3

@@ -1,0 +1,201 @@
+/*
+ * Copyright (c) 2015-2026, The matio contributors
+ * Copyright (c) 2012-2014, Christopher C. Hulbert
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+#include "matio_private.h"
+#include <stdlib.h>
+#include <string.h>
+
+/** @brief Returns a pointer to the Cell array at a specific index
+ *
+ * Returns a pointer to the Cell Array Field at the given 1-relative index.
+ * MAT file must be a version 5 matlab file.
+ * @ingroup MAT
+ * @param matvar Pointer to the Cell Array MAT variable
+ * @param index linear index of cell to return
+ * @return Pointer to the Cell Array Field on success, NULL on error
+ */
+matvar_t *
+Mat_VarGetCell(const matvar_t *matvar, int index)
+{
+    size_t nelems = 1;
+    matvar_t *cell = NULL;
+    int err;
+
+    if ( matvar == NULL || matvar->data == NULL )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    if ( 0 <= index && (size_t)index < nelems )
+        cell = *((matvar_t **)matvar->data + index);
+
+    return cell;
+}
+
+/** @brief Indexes a cell array
+ *
+ * Finds cells of a cell array given a start, stride, and edge for each.
+ * dimension.  The cells are placed in a pointer array.  The cells should not
+ * be freed, but the array of pointers should be.  If copies are needed,
+ * use Mat_VarDuplicate on each cell.
+ *
+ * Note that this function is limited to structure arrays with a rank less than
+ * 10.
+ *
+ * @ingroup MAT
+ * @param matvar Cell Array matlab variable
+ * @param start vector of length rank with 0-relative starting coordinates for
+ *              each dimension.
+ * @param stride vector of length rank with strides for each dimension.
+ * @param edge vector of length rank with the number of elements to read in
+ *              each dimension.
+ * @returns an array of pointers to the cells
+ */
+matvar_t **
+Mat_VarGetCells(const matvar_t *matvar, const int *start, const int *stride, const int *edge)
+{
+    int i, j, N, I;
+    size_t ndata;
+    size_t idx[10] =
+        {
+            0,
+        },
+           cnt[10] =
+               {
+                   0,
+               },
+           dimp[10] = {
+               0,
+           };
+    matvar_t **cells;
+
+    if ( matvar == NULL || matvar->data == NULL || start == NULL || stride == NULL ||
+         edge == NULL ) {
+        return NULL;
+    } else if ( matvar->rank > 9 ) {
+        return NULL;
+    }
+
+    if ( CheckEdgeOverflow(matvar->rank, edge, 1) ) {
+        return NULL;
+    }
+
+    ndata = matvar->nbytes / sizeof(matvar_t *);
+    dimp[0] = matvar->dims[0];
+    N = edge[0];
+    I = start[0];
+    idx[0] = start[0];
+    for ( i = 1; i < matvar->rank; i++ ) {
+        idx[i] = start[i];
+        dimp[i] = dimp[i - 1] * matvar->dims[i];
+        N *= edge[i];
+        I += start[i] * dimp[i - 1];
+    }
+    cells = (matvar_t **)malloc(N * sizeof(matvar_t *));
+    if ( cells == NULL )
+        return NULL;
+    for ( i = 0; i < N; i += edge[0] ) {
+        for ( j = 0; j < edge[0]; j++ ) {
+            if ( I < 0 || (size_t)I >= ndata ) {
+                free(cells);
+                return NULL;
+            }
+            cells[i + j] = *((matvar_t **)matvar->data + I);
+            I += stride[0];
+        }
+        idx[0] = start[0];
+        I = idx[0];
+        cnt[1]++;
+        idx[1] += stride[1];
+        for ( j = 1; j < matvar->rank; j++ ) {
+            if ( cnt[j] == (size_t)edge[j] ) {
+                cnt[j] = 0;
+                idx[j] = start[j];
+                if ( j < matvar->rank - 1 ) {
+                    cnt[j + 1]++;
+                    idx[j + 1] += stride[j + 1];
+                }
+            }
+            I += idx[j] * dimp[j - 1];
+        }
+    }
+    return cells;
+}
+
+/** @brief Indexes a cell array
+ *
+ * Finds cells of a cell array given a linear indexed start, stride, and edge.
+ * The cells are placed in a pointer array.  The cells themself should not
+ * be freed as they are part of the original cell array, but the pointer array
+ * should be.  If copies are needed, use Mat_VarDuplicate on each of the cells.
+ * MAT file version must be 5.
+ * @ingroup MAT
+ * @param matvar Cell Array matlab variable
+ * @param start starting index
+ * @param stride stride
+ * @param edge Number of cells to get
+ * @returns an array of pointers to the cells
+ */
+matvar_t **
+Mat_VarGetCellsLinear(const matvar_t *matvar, int start, int stride, int edge)
+{
+    matvar_t **cells = NULL;
+
+    if ( matvar != NULL && matvar->data != NULL && edge > 0 ) {
+        int i, I;
+        size_t ndata = matvar->nbytes / sizeof(matvar_t *);
+        cells = (matvar_t **)malloc(edge * sizeof(matvar_t *));
+        if ( cells == NULL )
+            return NULL;
+        I = start;
+        for ( i = 0; i < edge; i++ ) {
+            if ( I < 0 || (size_t)I >= ndata ) {
+                free(cells);
+                return NULL;
+            }
+            cells[i] = *((matvar_t **)matvar->data + I);
+            I += stride;
+        }
+    }
+    return cells;
+}
+
+/** @brief Sets the element of the cell array at the specific index
+ *
+ * Sets the element of the cell array at the given 0-relative index to @c cell.
+ * @ingroup MAT
+ * @param matvar Pointer to the cell array variable
+ * @param index 0-relative linear index of the cell to set
+ * @param cell Pointer to the cell to set
+ * @return Pointer to the previous cell element, or NULL if there was no
+*          previous cell element or error.
+ */
+matvar_t *
+Mat_VarSetCell(matvar_t *matvar, int index, matvar_t *cell)
+{
+    size_t nelems = 1;
+    matvar_t **cells, *old_cell = NULL;
+    int err;
+
+    if ( matvar == NULL || matvar->rank < 1 || matvar->data == NULL )
+        return NULL;
+
+    err = Mat_MulDims(matvar, &nelems);
+    if ( err )
+        return NULL;
+
+    cells = (matvar_t **)matvar->data;
+    if ( 0 <= index && (size_t)index < nelems ) {
+        old_cell = cells[index];
+        cells[index] = cell;
+    }
+
+    return old_cell;
+}

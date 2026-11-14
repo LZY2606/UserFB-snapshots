@@ -1,0 +1,26 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2012-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd November 20, 2023
+.Dt MAT_VARGETSIZE 3
+.Os
+.Sh NAME
+.Nm Mat_VarGetSize
+.Nd Calculates the size of a MAT variable in bytes.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft size_t
+.Fo Mat_VarGetSize
+.Fa "const matvar_t *matvar"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_VarGetSize
+function calculates the size of a MAT variable
+.Fa matvar
+in bytes similar to the MATLAB whos command.
+.Sh RETURN VALUES
+The function returns the number of bytes.

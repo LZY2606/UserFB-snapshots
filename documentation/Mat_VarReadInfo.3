@@ -1,0 +1,61 @@
+.\" Copyright (c) 2015-2026, The matio contributors
+.\" Copyright (c) 2011-2014, Christopher C. Hulbert
+.\" All rights reserved.
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd September 12, 2019
+.Dt MAT_VARREADINFO 3
+.Os
+.Sh NAME
+.Nm Mat_VarReadInfo
+.Nd Reads the information for a specific variable in a MATLAB MAT file.
+.Sh SYNOPSIS
+.Fd #include <matio.h>
+.Ft matvar_t *
+.Fo Mat_VarReadInfo
+.Fa "mat_t *matfp"
+.Fa "const char *name"
+.Fc
+.Sh DESCRIPTION
+The
+.Fn Mat_VarReadInfo
+function reads the information for the variable
+.Fa name
+in the open MAT file.
+.Sh RETURN VALUES
+If the variable was found in the MAT file and the information about the variable
+successfully read, a pointer to the MATLAB variable structure is returned.
+If the variable was not found, or there was an error reading the variable
+information, NULL is returned.
+.Sh EXAMPLES
+.Bd -literal
+#include "matio.h"
+
+int
+main(int argc, char **argv)
+{
+    mat_t    *matfp;
+    matvar_t *matvar;
+
+    matfp = Mat_Open(argv[1], MAT_ACC_RDONLY);
+    if ( NULL == matfp ) {
+        fprintf(stderr, "Error opening MAT file %s\n", argv[1]);
+        return EXIT_FAILURE;
+    }
+
+    matvar = Mat_VarReadInfo(matfp, "x");
+    if ( NULL != matvar ) {
+        Mat_VarPrint(matvar);
+        Mat_VarFree(matvar);
+    }
+
+    Mat_Close(matfp);
+    return EXIT_SUCCESS;
+}
+
+.Ed
+.Sh SEE ALSO
+.Xr Mat_VarRead 3 ,
+.Xr Mat_VarReadNextInfo 3 ,
+.Xr Mat_VarPrint 3
