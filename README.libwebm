@@ -146,3 +146,75 @@ Bug reports
 Bug reports can be filed in the libwebm issue tracker:
 https://issues.webmproject.org/.
 For security reports, select 'Security report' from the Template dropdown.
+
+
+Appending frames to an existing WebM file
+
+A finalized, seekable WebM file produced by libwebm can be reopened so that more
+frames are appended to its single Segment without remuxing the existing
+clusters. Use Segment::InitAppend() instead of Init(), then drive the recovered
+Segment with the same AddGenericFrame() and Finalize() calls.
+
+The reader is used only to recover metadata and block headers; the existing
+frame payloads are never read or rewritten. The writer must be seekable and
+already positioned at the end of the file, and the caller must keep its view of
+the bytes consistent with the reader. Open the file with the r+b mode so the
+existing contents are preserved rather than truncated (the plain w+b mode would
+erase the file). Hand the already-open FILE* to MkvWriter; do not call
+MkvWriter::Open(), which always uses w+b.
+
+The first appended frame must be a video key frame; it starts a new cluster at
+the old tail Cues position. Every appended frame needs a positive duration, and
+timestamps stay on the original file's nanosecond time base (they are not reset
+to zero). Finalize() merges the old Cue points with the new keyframe points,
+rewrites the SeekHead, Duration and Segment size, and leaves no fragment of the
+old tail index behind. Reopening and immediately calling Finalize() without
+adding frames leaves the file byte-for-byte unchanged.
+
+  #include <cstdio>
+  #include "mkvmuxer/mkvmuxer.h"
+  #include "mkvmuxer/mkvwriter.h"
+  #include "mkvparser/mkvreader.h"
+
+  void AppendFrames(const char* path) {
+    // r+b keeps the existing bytes and permits seeking; w+b would truncate.
+    std::FILE* file = std::fopen(path, "r+b");
+    if (file == NULL)
+      return;
+
+    // Both wrappers share the same FILE* without taking ownership. Constructing
+    // the reader rewinds the handle to measure the file, so seek to the end
+    // again once both wrappers exist; InitAppend requires the writer to already
+    // be positioned at the file end.
+    mkvparser::MkvReader reader(file);
+    mkvmuxer::MkvWriter writer(file);
+    if (std::fseek(file, 0, SEEK_END) != 0) {
+      std::fclose(file);
+      return;
+    }
+
+    mkvmuxer::Segment segment;
+    if (!segment.InitAppend(&reader, &writer)) {
+      // Unsupported layout or read failure; nothing was written.
+      std::fclose(file);
+      return;
+    }
+
+    // Recovered track numbers, the timecode scale and the cue track are already
+    // installed. Append frames using the original nanosecond time base.
+    const mkvmuxer::uint64 video_track = 1;
+    mkvmuxer::Frame frame;
+    frame.Init(video_data, video_data_length);
+    frame.set_track_number(video_track);
+    frame.set_timestamp(timestamp_ns);   // strictly after the last old block
+    frame.set_duration(duration_ns);     // a positive duration is required
+    frame.set_is_key(true);              // first frame must be a video key
+    if (!segment.AddGenericFrame(&frame)) {
+      // The frame was rejected without changing the file.
+      std::fclose(file);
+      return;
+    }
+
+    segment.Finalize();  // merges Cues and backfills Duration/Segment size
+    std::fclose(file);   // the caller owns and closes the FILE*
+  }

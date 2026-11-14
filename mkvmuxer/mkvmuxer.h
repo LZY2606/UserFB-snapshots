@@ -24,6 +24,9 @@
 
 namespace mkvparser {
 class IMkvReader;
+class Track;
+class VideoTrack;
+class AudioTrack;
 }  // namespace mkvparser
 
 namespace mkvmuxer {
@@ -941,6 +944,10 @@ class Tracks {
 
   uint32_t track_entries_size() const { return track_entries_size_; }
 
+  // Marks whether the Tracks element has already been written. InitAppend sets
+  // this after recovering the existing tracks, preventing further additions.
+  void set_wrote_tracks(bool wrote_tracks) { wrote_tracks_ = wrote_tracks; }
+
  private:
   // Track element list.
   Track** track_entries_;
@@ -1452,6 +1459,11 @@ class SeekHead {
   // Returns true on success.
   bool SetSeekEntry(int index, uint32_t id, uint64_t position);
 
+  // Records the file position of the SeekHead element. Used when reopening an
+  // existing file whose SeekHead reservation must be rewritten in place.
+  void set_start_pos(int64_t start_pos) { start_pos_ = start_pos; }
+  int64_t start_pos() const { return start_pos_; }
+
   // Reserves space by writing out a Void element which will be updated with
   // a SeekHead element later. Returns true on success.
   bool Write(IMkvWriter* writer);
@@ -1459,9 +1471,14 @@ class SeekHead {
   // We are going to put a cap on the number of Seek Entries.
   constexpr static int32_t kSeekEntryCount = 5;
 
+  // Total size, in bytes, of the SeekHead reservation written by Write(),
+  // including the SeekHead master element header and all five Seek entries.
+  // Used to validate the reservation recovered by Segment::InitAppend().
+  static uint64_t ReservationSize();
+
  private:
   // Returns the maximum size in bytes of one seek entry.
-  uint64_t MaxEntrySize() const;
+  static uint64_t MaxEntrySize();
 
   // Seek entry id element list.
   uint32_t seek_entry_id_[kSeekEntryCount];
@@ -1502,6 +1519,11 @@ class SegmentInfo {
   const char* writing_app() const { return writing_app_; }
   void set_date_utc(int64_t date_utc) { date_utc_ = date_utc; }
   int64_t date_utc() const { return date_utc_; }
+
+  // The file position of the serialized Duration element. Recovering an
+  // existing Segment sets this so Finalize can overwrite the value in place.
+  void set_duration_pos(int64_t duration_pos) { duration_pos_ = duration_pos; }
+  int64_t duration_pos() const { return duration_pos_; }
 
  private:
   // Segment Information element names.
@@ -1546,6 +1568,24 @@ class Segment {
   // Initializes |SegmentInfo| and returns result. Always returns false when
   // |ptr_writer| is NULL.
   bool Init(IMkvWriter* ptr_writer);
+
+  // Reopens a previously finalized, seekable WebM file so that more frames can
+  // be appended to its existing (and only) Segment. The file must have been
+  // produced by this library in kFile mode and contain a single VP8/VP9 video
+  // track, optionally followed by one Vorbis/Opus audio track, with Cues at the
+  // tail and a known Segment size. Chunking, accurate cluster durations,
+  // front-mounted Cues, Chapters, Tags, encryption, block additions and lacing
+  // are not supported. |reader| is used only to parse metadata and block
+  // headers; frame payloads are never read. |writer| must be seekable and must
+  // already be positioned at the end of the file; the caller is responsible for
+  // keeping the two views consistent. On success the recovered tracks,
+  // timecode scale, duration backfill position, SeekHead reservation and Cues
+  // are installed on this Segment, and the writer is left positioned at the
+  // start of the old Cues (which is also the end of the file); |reader| may then
+  // be destroyed. Returns false without writing anything or moving the writer
+  // when reading fails, the layout is unsupported, or a value is out of range.
+  // Only a Segment that has not been initialized is accepted.
+  bool InitAppend(mkvparser::IMkvReader* reader, IMkvWriter* writer);
 
   // Adds a generic track to the segment.  Returns the newly-allocated
   // track object (which is owned by the segment) on success, NULL on
@@ -1740,6 +1780,33 @@ class Segment {
   // will output the Segment element and initialize the SeekHead elment and
   // Cues elements.
   bool CheckHeaderInfo();
+
+  // Validates and recovers state from an existing WebM file when InitAppend()
+  // is used. On success installs the recovered tracks, timecode scale,
+  // backfill positions and Cues, and positions the writer at the start of the
+  // old tail Cues. Reads only metadata and block headers, never frame
+  // payloads, and writes nothing. Returns false on any read failure,
+  // unsupported layout or out of range value.
+  bool RecoverForAppend(mkvparser::IMkvReader* reader, IMkvWriter* writer);
+
+  // Reconstructs one muxer Track (and, for audio/video, the matching derived
+  // track) from a parsed track. Copies the codec id, codec private, UID,
+  // default duration, codec delay, seek pre-roll and audio/video parameters.
+  // Returns the recovered track, or NULL when the track is unsupported.
+  Track* RecoverTrack(const mkvparser::Track* parsed_track);
+
+  // Recovers the old tail Cues as muxer CuePoint objects by parsing the Cues
+  // element directly. Old points keep their original time and segment-relative
+  // position, so they continue to reference the original on-disk blocks.
+  bool RecoverCues(mkvparser::IMkvReader* reader, int64_t cues_payload_start,
+                   int64_t cues_payload_size);
+
+  // Finalize implementation used in append mode. Flushes any buffered audio,
+  // closes the last new cluster, rewrites the tail Cues (old points plus new
+  // keyframe points), updates the SeekHead, Duration, DocTypeVersion and
+  // Segment size up to the real file end. On the first failed write or backfill
+  // the session enters the failure state and the method returns false.
+  bool FinalizeAppend();
 
   // Sets |doc_type_version_| based on the current element requirements.
   void UpdateDocTypeVersion();
@@ -1947,6 +2014,27 @@ class Segment {
   IMkvWriter* writer_cluster_;
   IMkvWriter* writer_cues_;
   IMkvWriter* writer_header_;
+
+  // True when this Segment was opened with InitAppend(). In append mode the
+  // header and tracks already exist on disk and must not be rewritten.
+  bool append_mode_;
+
+  // True once a real write or backfill has failed. The session then stays in a
+  // failure state: every AddGenericFrame() and Finalize() returns false.
+  bool append_failed_;
+
+  // Absolute file position of the old tail Cues element. New clusters are
+  // written starting here, overwriting the old Cues and any bytes that follow.
+  int64_t append_cues_start_;
+
+  // Old Duration, in nanoseconds. The final Duration is the maximum of this
+  // value and the end of every successfully appended frame.
+  uint64_t append_old_duration_ns_;
+
+  // Largest frame end (timestamp + duration) seen during the append session,
+  // including audio frames held in the queue and flushed at Finalize time.
+  // Seeded with the old Duration so the tail buffered audio cannot be missed.
+  uint64_t append_max_end_ns_;
 
   LIBWEBM_DISALLOW_COPY_AND_ASSIGN(Segment);
 };

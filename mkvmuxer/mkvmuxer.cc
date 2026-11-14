@@ -2979,7 +2979,8 @@ bool SeekHead::SetSeekEntry(int index, uint32_t id, uint64_t position) {
   return true;
 }
 
-uint64_t SeekHead::MaxEntrySize() const {
+// static
+uint64_t SeekHead::MaxEntrySize() {
   const uint64_t max_entry_payload_size =
       EbmlElementSize(libwebm::kMkvSeekID,
                       static_cast<uint64>(UINT64_C(0xffffffff))) +
@@ -2990,6 +2991,16 @@ uint64_t SeekHead::MaxEntrySize() const {
       max_entry_payload_size;
 
   return max_entry_size;
+}
+
+uint64_t SeekHead::ReservationSize() {
+  // Mirrors the reservation written by Write(): a SeekHead master element
+  // large enough for the maximum-sized encoding of all kSeekEntryCount
+  // entries.
+  const uint64_t entry_size =
+      static_cast<uint64_t>(kSeekEntryCount) * MaxEntrySize();
+  return EbmlMasterElementSize(libwebm::kMkvSeekHead, entry_size) +
+         entry_size;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -3188,7 +3199,12 @@ Segment::Segment()
       duration_(0.0),
       writer_cluster_(NULL),
       writer_cues_(NULL),
-      writer_header_(NULL) {
+      writer_header_(NULL),
+      append_mode_(false),
+      append_failed_(false),
+      append_cues_start_(-1),
+      append_old_duration_ns_(0),
+      append_max_end_ns_(0) {
   const time_t curr_time = time(NULL);
   seed_ = static_cast<unsigned int>(curr_time);
 #ifdef _WIN32
@@ -3297,6 +3313,764 @@ bool Segment::Init(IMkvWriter* ptr_writer) {
   return segment_info_.Init();
 }
 
+namespace {
+
+// Reads one EBML element header starting at |*pos|. On success returns the
+// element id in |id|, its payload size in |size|, the size field length in
+// |size_len| and advances |*pos| to the payload start. Only header bytes are
+// read; payloads are never touched. |stop| of -1 means no enclosing bound.
+bool AppendReadHeader(mkvparser::IMkvReader* reader, long long* pos,
+                      long long stop, long long* id, long long* size,
+                      long* size_len) {
+  if (!reader || !pos || *pos < 0)
+    return false;
+
+  long id_len = 0;
+  const long long elem_id = mkvparser::ReadID(reader, *pos, id_len);
+  if (elem_id < 0 || id_len < 1)
+    return false;
+
+  long long header_end = *pos + id_len;
+  if (stop >= 0 && header_end >= stop)
+    return false;
+
+  long len = 0;
+  const long long elem_size =
+      mkvparser::ReadUInt(reader, header_end, len);
+  if (elem_size < 0 || len < 1 || len > 8)
+    return false;
+
+  header_end += len;
+  if (stop >= 0 && header_end > stop)
+    return false;
+  if (elem_size > LLONG_MAX - header_end)
+    return false;
+  if (stop >= 0 && header_end + elem_size > stop)
+    return false;
+
+  *id = elem_id;
+  *size = elem_size;
+  *size_len = len;
+  *pos = header_end;
+  return true;
+}
+
+// Reads an unsigned integer element payload of |size| bytes at |pos|.
+bool AppendReadUInt(mkvparser::IMkvReader* reader, long long pos,
+                    long long size, long long* value) {
+  if (size < 1 || size > 8)
+    return false;
+  const long long result = mkvparser::UnserializeUInt(reader, pos, size);
+  if (result < 0)
+    return false;
+  *value = result;
+  return true;
+}
+
+// Independently validates the sub-elements of one cluster using only EBML
+// framing. Only the element headers are read: block payloads (which include the
+// frame bytes) are skipped, never read. Rejects lacing (already checked through
+// the parser) and any BlockAdditions, since append mode cannot reproduce them.
+bool AppendValidateClusterChildren(mkvparser::IMkvReader* reader,
+                                   int64_t payload_start,
+                                   int64_t payload_size) {
+  long long pos = payload_start;
+  const long long stop = payload_start + payload_size;
+
+  while (pos < stop) {
+    long long id = 0;
+    long long size = 0;
+    long size_len = 0;
+    if (!AppendReadHeader(reader, &pos, stop, &id, &size, &size_len))
+      return false;
+    const long long block_payload_start = pos;
+    const long long block_stop = block_payload_start + size;
+
+    if (id == libwebm::kMkvSimpleBlock) {
+      // The block header (track, timecode, flags) precedes the single frame.
+      // Skip over the whole payload without touching the frame bytes.
+      pos = block_stop;
+      continue;
+    }
+
+    if (id == libwebm::kMkvBlockGroup) {
+      long long child = block_payload_start;
+      bool saw_block = false;
+      while (child < block_stop) {
+        long long child_id = 0;
+        long long child_size = 0;
+        long child_len = 0;
+        // The call advances |child| from the child ID start to its value
+        // start; the next sibling begins at that value start plus the value
+        // size.
+        if (!AppendReadHeader(reader, &child, block_stop, &child_id,
+                              &child_size, &child_len))
+          return false;
+        if (child_id == libwebm::kMkvBlock) {
+          saw_block = true;
+        } else if (child_id == libwebm::kMkvBlockAdditions) {
+          // Block additions are not supported in append mode.
+          return false;
+        }
+        // Block, BlockDuration, ReferenceBlock and DiscardPadding payloads are
+        // skipped without being read.
+        child += child_size;
+      }
+      if (!saw_block || child != block_stop)
+        return false;
+      pos = block_stop;
+      continue;
+    }
+
+    if (id == libwebm::kMkvTimecode || id == libwebm::kMkvPrevSize) {
+      pos = block_stop;
+      continue;
+    }
+
+    // Anything else inside a cluster is unsupported (e.g. slices, encrypted
+    // content).
+    return false;
+  }
+
+  return pos == stop;
+}
+
+}  // namespace
+
+bool Segment::InitAppend(mkvparser::IMkvReader* reader, IMkvWriter* writer) {
+  // Only a fresh, uninitialized Segment can be recovered.
+  if (!reader || !writer || header_written_ || writer_cluster_ ||
+      tracks_.track_entries_size() > 0) {
+    return false;
+  }
+  if (!writer->Seekable())
+    return false;
+
+  long long file_length = -1;
+  long long available = -1;
+  if (reader->Length(&file_length, &available) || file_length <= 0 ||
+      available != file_length) {
+    return false;  // read failure or unknown/truncated length
+  }
+
+  // The writer must already sit at the end of the file. Recovery never writes,
+  // so on every failure path the writer position is left untouched.
+  const int64_t writer_start = writer->Position();
+  if (writer_start != file_length)
+    return false;
+
+  if (!RecoverForAppend(reader, writer))
+    return false;
+
+  // Recovery never writes. On success move the writer to the start of the old
+  // tail Cues: the first new cluster overwrites the old index in place, and
+  // Finalize writes the merged Cues immediately after the new clusters. A
+  // failed seek leaves the writer position untouched.
+  if (writer->Position(append_cues_start_))
+    return false;
+
+  return writer->Position() == append_cues_start_;
+}
+
+Track* Segment::RecoverTrack(const mkvparser::Track* parsed_track) {
+  if (!parsed_track)
+    return NULL;
+
+  const long type = parsed_track->GetType();
+  Track* track = NULL;
+
+  if (type == mkvparser::Track::kVideo) {
+    const mkvparser::VideoTrack* const video =
+        static_cast<const mkvparser::VideoTrack*>(parsed_track);
+    VideoTrack* const video_track = new (std::nothrow) VideoTrack(&seed_);
+    if (!video_track)
+      return NULL;
+
+    if (video->GetWidth() <= 0 || video->GetHeight() <= 0) {
+      delete video_track;
+      return NULL;
+    }
+    video_track->set_width(static_cast<uint64_t>(video->GetWidth()));
+    video_track->set_height(static_cast<uint64_t>(video->GetHeight()));
+    video_track->set_pixel_width(
+        static_cast<uint64_t>(video->GetWidth()));
+    video_track->set_pixel_height(
+        static_cast<uint64_t>(video->GetHeight()));
+    if (video->GetDisplayWidth() > 0)
+      video_track->set_display_width(
+          static_cast<uint64_t>(video->GetDisplayWidth()));
+    if (video->GetDisplayHeight() > 0)
+      video_track->set_display_height(
+          static_cast<uint64_t>(video->GetDisplayHeight()));
+    track = video_track;
+  } else if (type == mkvparser::Track::kAudio) {
+    const mkvparser::AudioTrack* const audio =
+        static_cast<const mkvparser::AudioTrack*>(parsed_track);
+    AudioTrack* const audio_track = new (std::nothrow) AudioTrack(&seed_);
+    if (!audio_track)
+      return NULL;
+
+    if (audio->GetSamplingRate() <= 0.0 || audio->GetChannels() <= 0) {
+      delete audio_track;
+      return NULL;
+    }
+    audio_track->set_sample_rate(audio->GetSamplingRate());
+    audio_track->set_channels(
+        static_cast<uint64_t>(audio->GetChannels()));
+    if (audio->GetBitDepth() > 0)
+      audio_track->set_bit_depth(
+          static_cast<uint64_t>(audio->GetBitDepth()));
+    track = audio_track;
+  } else {
+    return NULL;
+  }
+
+  const char* const codec_id = parsed_track->GetCodecId();
+  if (!codec_id) {
+    delete track;
+    return NULL;
+  }
+  track->set_type(static_cast<uint64_t>(type));
+  track->set_number(static_cast<uint64_t>(parsed_track->GetNumber()));
+  track->set_uid(parsed_track->GetUid());
+  track->set_codec_id(codec_id);
+
+  size_t codec_private_size = 0;
+  const unsigned char* const codec_private =
+      parsed_track->GetCodecPrivate(codec_private_size);
+  if (codec_private && codec_private_size > 0) {
+    if (!track->SetCodecPrivate(
+            codec_private, static_cast<uint64_t>(codec_private_size))) {
+      delete track;
+      return NULL;
+    }
+  }
+
+  if (parsed_track->GetDefaultDuration() > 0)
+    track->set_default_duration(parsed_track->GetDefaultDuration());
+  if (parsed_track->GetCodecDelay() > 0)
+    track->set_codec_delay(parsed_track->GetCodecDelay());
+  if (parsed_track->GetSeekPreRoll() > 0)
+    track->set_seek_pre_roll(parsed_track->GetSeekPreRoll());
+
+  return track;
+}
+
+bool Segment::RecoverCues(mkvparser::IMkvReader* reader,
+                          int64_t cues_payload_start,
+                          int64_t cues_payload_size) {
+  long long pos = cues_payload_start;
+  const long long stop = cues_payload_start + cues_payload_size;
+  bool have_cue = false;
+
+  while (pos < stop) {
+    long long point_id = 0;
+    long long point_size = 0;
+    long point_size_len = 0;
+    // On success |pos| points at the CuePoint payload (value start).
+    if (!AppendReadHeader(reader, &pos, stop, &point_id, &point_size,
+                          &point_size_len) ||
+        point_id != libwebm::kMkvCuePoint) {
+      return false;
+    }
+
+    const long long point_payload = pos;
+    const long long point_stop = point_payload + point_size;
+    long long cue_time = -1;
+
+    // First pass: CueTime and the count of track positions.
+    long long scan = point_payload;
+    int track_position_count = 0;
+    while (scan < point_stop) {
+      long long child_id = 0;
+      long long child_size = 0;
+      long child_len = 0;
+      // The call advances |scan| from the child ID start to its value start;
+      // the next element begins at that value start plus the value size.
+      if (!AppendReadHeader(reader, &scan, point_stop, &child_id, &child_size,
+                            &child_len))
+        return false;
+      if (child_id == libwebm::kMkvCueTime) {
+        if (cue_time >= 0 ||
+            !AppendReadUInt(reader, scan, child_size, &cue_time))
+          return false;
+      } else if (child_id == libwebm::kMkvCueTrackPositions) {
+        ++track_position_count;
+      }
+      scan += child_size;
+    }
+    if (cue_time < 0 || track_position_count <= 0)
+      return false;
+
+    // Second pass: turn every track position into a muxer cue point.
+    scan = point_payload;
+    while (scan < point_stop) {
+      long long child_id = 0;
+      long long child_size = 0;
+      long child_len = 0;
+      if (!AppendReadHeader(reader, &scan, point_stop, &child_id, &child_size,
+                            &child_len))
+        return false;
+      if (child_id == libwebm::kMkvCueTrackPositions) {
+        // |scan| now points at the CueTrackPositions value start.
+        long long tp_pos = scan;
+        const long long tp_stop = scan + child_size;
+        long long cue_track = -1;
+        long long cluster_pos = -1;
+        long long block_number = 1;
+        while (tp_pos < tp_stop) {
+          long long tp_id = 0;
+          long long tp_size = 0;
+          long tp_len = 0;
+          if (!AppendReadHeader(reader, &tp_pos, tp_stop, &tp_id, &tp_size,
+                                &tp_len))
+            return false;
+          // |tp_pos| is the value start for this child.
+          long long value = 0;
+          if (!AppendReadUInt(reader, tp_pos, tp_size, &value))
+            return false;
+          if (tp_id == libwebm::kMkvCueTrack)
+            cue_track = value;
+          else if (tp_id == libwebm::kMkvCueClusterPosition)
+            cluster_pos = value;
+          else if (tp_id == libwebm::kMkvCueBlockNumber)
+            block_number = value;
+          tp_pos += tp_size;
+        }
+        if (cue_track <= 0 || cluster_pos < 0 || block_number < 1)
+          return false;
+        if (!tracks_.GetTrackByNumber(
+                static_cast<uint64_t>(cue_track)))
+          return false;
+
+        CuePoint* const cue = new (std::nothrow) CuePoint();
+        if (!cue)
+          return false;
+        cue->set_time(static_cast<uint64_t>(cue_time));
+        cue->set_track(static_cast<uint64_t>(cue_track));
+        // CueClusterPosition is stored relative to the Segment payload, as in
+        // the source file, so old points keep pointing at the original blocks.
+        cue->set_cluster_pos(static_cast<uint64_t>(cluster_pos));
+        cue->set_block_number(static_cast<uint64_t>(block_number));
+        if (!cues_.AddCue(cue)) {
+          delete cue;
+          return false;
+        }
+        have_cue = true;
+      }
+      scan += child_size;
+    }
+
+    pos = point_stop;
+  }
+
+  if (pos != stop || !have_cue)
+    return false;
+  return true;
+}
+
+bool Segment::RecoverForAppend(mkvparser::IMkvReader* reader,
+                               IMkvWriter* writer) {
+  long long file_length = -1;
+  long long available = -1;
+  if (reader->Length(&file_length, &available) || file_length <= 0 ||
+      available != file_length) {
+    return false;
+  }
+
+  mkvparser::EBMLHeader ebml_header;
+  long long ebml_end = 0;
+  if (ebml_header.Parse(reader, ebml_end) != 0 ||
+      !ebml_header.m_docType ||
+      strcmp(ebml_header.m_docType, kDocTypeWebm) != 0 ||
+      ebml_header.m_docTypeVersion <= 0) {
+    return false;
+  }
+
+  mkvparser::Segment* parsed_raw = NULL;
+  if (mkvparser::Segment::CreateInstance(reader, ebml_end, parsed_raw) != 0 ||
+      !parsed_raw) {
+    return false;
+  }
+  std::unique_ptr<mkvparser::Segment> parsed(parsed_raw);
+
+  // A single, fully available, known-size Segment is required.
+  if (parsed->m_size <= 0 || parsed->m_start <= 0)
+    return false;
+  const long long segment_payload_start = parsed->m_start;
+  const long long segment_stop = segment_payload_start + parsed->m_size;
+  if (segment_stop != file_length)
+    return false;
+
+  if (parsed->Load() != 0)
+    return false;
+
+  const mkvparser::SegmentInfo* const info = parsed->GetInfo();
+  const mkvparser::Tracks* const parsed_tracks = parsed->GetTracks();
+  if (!info || !parsed_tracks)
+    return false;
+
+  // Chapters, Tags and any non-default muxer features are unsupported.
+  if (parsed->GetChapters() || parsed->GetTags())
+    return false;
+  if (chunking_ || accurate_cluster_duration_ ||
+      cues_position_ != kAfterClusters) {
+    return false;
+  }
+
+  const long long timecode_scale = info->GetTimeCodeScale();
+  if (timecode_scale <= 0)
+    return false;
+  const long long old_duration_ns = parsed->GetDuration();
+  if (old_duration_ns < 0)
+    return false;
+
+  // Independently walk the level-1 elements using plain EBML framing so that
+  // layout decisions do not rely solely on the high level parser. The Cues
+  // must be the final element and nothing may follow the Segment.
+  long long walk = segment_payload_start;
+  long long first_cluster_start = -1;
+  long long last_cluster_end = -1;
+  long long seekhead_start = -1;
+  long long info_start = -1;
+  long long cues_element_start = -1;
+  long long cues_payload_start = -1;
+  long long cues_payload_size = -1;
+  long long last_level1_id = 0;
+  int seekhead_count = 0;
+  bool saw_cluster = false;
+  // Payload range (start, size) of every cluster for the independent child
+  // validation pass below.
+  std::vector<std::pair<int64_t, int64_t> > cluster_payloads;
+
+  while (walk < segment_stop) {
+    const long long element_start = walk;
+    long long id = 0;
+    long long size = 0;
+    long size_len = 0;
+    if (!AppendReadHeader(reader, &walk, segment_stop, &id, &size, &size_len))
+      return false;
+    const long long payload_start = walk;
+    const long long element_end = payload_start + size;
+    const long long unknown_size = (1LL << (7 * size_len)) - 1;
+    if (size == unknown_size)
+      return false;
+
+    switch (id) {
+      case libwebm::kMkvSeekHead:
+        if (seekhead_count++ > 0)
+          return false;
+        seekhead_start = element_start;
+        break;
+      case libwebm::kMkvInfo:
+        if (info_start < 0)
+          info_start = element_start;
+        break;
+      case libwebm::kMkvTracks:
+        break;
+      case libwebm::kMkvVoid:
+        // SeekHead reservation padding; only valid between the SeekHead and
+        // Info elements.
+        if (seekhead_start < 0 ||
+            (info_start >= 0 && element_start >= info_start)) {
+          return false;
+        }
+        break;
+      case libwebm::kMkvCluster:
+        if (!saw_cluster)
+          first_cluster_start = element_start;
+        saw_cluster = true;
+        last_cluster_end = element_end;
+        cluster_payloads.push_back(std::make_pair(payload_start, size));
+        break;
+      case libwebm::kMkvCues:
+        if (cues_element_start >= 0)
+          return false;
+        cues_element_start = element_start;
+        cues_payload_start = payload_start;
+        cues_payload_size = size;
+        break;
+      default:
+        // Tags, Chapters, attachments and anything else are unsupported.
+        return false;
+    }
+    last_level1_id = id;
+    walk = element_end;
+  }
+
+  if (walk != segment_stop || !saw_cluster || cues_element_start < 0 ||
+      last_level1_id != libwebm::kMkvCues ||
+      cues_element_start + (cues_payload_start - cues_element_start) +
+              cues_payload_size !=
+          file_length) {
+    return false;
+  }
+
+  // Independently confirm every cluster contains only Timecode plus
+  // SimpleBlock/BlockGroup elements with no BlockAdditions or other
+  // unsupported children. Only headers are read, never frame payloads.
+  for (const auto& cluster_payload : cluster_payloads) {
+    if (!AppendValidateClusterChildren(reader, cluster_payload.first,
+                                       cluster_payload.second)) {
+      return false;
+    }
+  }
+
+  // Validate the 8-byte Segment size field and remember its backfill position.
+  // The serialized value carries the EBML length marker (the top bit of an
+  // 8-byte coded size), so mask it off before comparing to the real size.
+  const long long size_position = segment_payload_start - 8;
+  {
+    long len = 0;
+    if (mkvparser::GetUIntLength(reader, size_position, len) != 0 ||
+        len != 8)
+      return false;
+    long long coded_size = 0;
+    const uint64_t kSizeMarkerMask = (1ULL << 56) - 1;
+    if (!AppendReadUInt(reader, size_position, 8, &coded_size) ||
+        (static_cast<uint64_t>(coded_size) & kSizeMarkerMask) !=
+            static_cast<uint64_t>(parsed->m_size)) {
+      return false;
+    }
+  }
+
+  // Recover the Duration backfill position; this muxer always writes it as a
+  // four-byte float inside Info.
+  long long duration_position = -1;
+  {
+    long long info_pos = info->m_start;
+    const long long info_stop = info->m_start + info->m_size;
+    while (info_pos < info_stop) {
+      const long long element_start = info_pos;
+      long long id = 0;
+      long long size = 0;
+      long size_len = 0;
+      if (!AppendReadHeader(reader, &info_pos, info_stop, &id, &size,
+                            &size_len))
+        return false;
+      if (id == libwebm::kMkvDuration) {
+        if (duration_position >= 0 || size != 4)
+          return false;
+        duration_position = element_start;
+      }
+      info_pos += size;
+    }
+    if (info_pos != info_stop || duration_position < 0)
+      return false;
+  }
+
+  // Recover tracks: exactly one VP8/VP9 video track and at most one
+  // Vorbis/Opus audio track, with no content encodings.
+  const unsigned long track_count = parsed_tracks->GetTracksCount();
+  if (track_count < 1 || track_count > 2)
+    return false;
+
+  bool have_video = false;
+  bool have_audio = false;
+  uint64_t video_track_number = 0;
+  for (unsigned long i = 0; i < track_count; ++i) {
+    const mkvparser::Track* const parsed_track =
+        parsed_tracks->GetTrackByIndex(i);
+    if (!parsed_track ||
+        parsed_track->GetContentEncodingCount() != 0 ||
+        parsed_track->GetNumber() <= 0 ||
+        parsed_track->GetNumber() >
+            static_cast<long long>(kMaxTrackNumber)) {
+      return false;
+    }
+
+    const std::string codec_id = parsed_track->GetCodecId();
+    const long track_type = parsed_track->GetType();
+    if (track_type == mkvparser::Track::kVideo) {
+      if (have_video || have_audio ||
+          (codec_id != Tracks::kVp8CodecId &&
+           codec_id != Tracks::kVp9CodecId)) {
+        return false;
+      }
+      have_video = true;
+      video_track_number =
+          static_cast<uint64_t>(parsed_track->GetNumber());
+    } else if (track_type == mkvparser::Track::kAudio) {
+      if (have_audio ||
+          (codec_id != Tracks::kVorbisCodecId &&
+           codec_id != Tracks::kOpusCodecId)) {
+        return false;
+      }
+      have_audio = true;
+    } else {
+      return false;
+    }
+
+    Track* const recovered = RecoverTrack(parsed_track);
+    if (!recovered)
+      return false;
+    if (!tracks_.AddTrack(recovered,
+                          static_cast<int32_t>(recovered->number()))) {
+      delete recovered;
+      return false;
+    }
+  }
+  if (!have_video)
+    return false;
+  tracks_.set_wrote_tracks(true);
+
+  // Scan every old block through the parser. This reads block headers only;
+  // the frame payload offsets are computed but never read.
+  uint64_t max_block_timestamp = 0;
+  const mkvparser::Cluster* cluster = parsed->GetFirst();
+  if (!cluster || cluster->EOS())
+    return false;
+
+  for (; cluster && !cluster->EOS();
+       cluster = parsed->GetNext(cluster)) {
+    const mkvparser::BlockEntry* entry = NULL;
+    if (cluster->GetFirst(entry) != 0)
+      return false;
+    while (entry && !entry->EOS()) {
+      const mkvparser::Block* const block = entry->GetBlock();
+      if (!block || block->GetFrameCount() != 1 ||
+          block->GetLacing() != mkvparser::Block::kLacingNone) {
+        return false;
+      }
+      if (!parsed_tracks->GetTrackByNumber(block->GetTrackNumber()))
+        return false;
+      const long long block_time_ns = block->GetTime(cluster);
+      if (block_time_ns < 0)
+        return false;
+      const uint64_t timestamp = static_cast<uint64_t>(block_time_ns);
+      if (timestamp > max_block_timestamp)
+        max_block_timestamp = timestamp;
+      const uint64_t track_index =
+          static_cast<uint64_t>(block->GetTrackNumber()) - 1;
+      if (timestamp > last_track_timestamp_[track_index])
+        last_track_timestamp_[track_index] = timestamp;
+
+      const mkvparser::BlockEntry* next_entry = NULL;
+      if (cluster->GetNext(entry, next_entry) != 0)
+        return false;
+      entry = next_entry;
+    }
+  }
+
+  // The independent walk and the parser must agree on the clusters.
+  if (first_cluster_start < 0 || last_cluster_end != cues_element_start)
+    return false;
+
+  // Recover the SeekHead reservation and its Info/Tracks/Cluster entries; the
+  // Cues entry is re-added by Finalize at the new tail position.
+  const mkvparser::SeekHead* const parsed_seekhead = parsed->GetSeekHead();
+  if (!parsed_seekhead || seekhead_start < 0 || info_start <= seekhead_start ||
+      parsed_seekhead->m_element_start != seekhead_start) {
+    return false;
+  }
+  // The reservation spans the SeekHead element plus the Void padding that
+  // Write() places between it and the Info element.
+  if (static_cast<uint64_t>(info_start - seekhead_start) !=
+      SeekHead::ReservationSize())
+    return false;
+
+  seek_head_.set_start_pos(seekhead_start);
+  int recovered_seek_entries = 0;
+  for (int i = 0; i < parsed_seekhead->GetCount(); ++i) {
+    const mkvparser::SeekHead::Entry* const entry =
+        parsed_seekhead->GetEntry(i);
+    if (!entry)
+      return false;
+    if (entry->id == libwebm::kMkvCues)
+      continue;  // rewritten when Finalize runs
+    if (entry->id != libwebm::kMkvInfo &&
+        entry->id != libwebm::kMkvTracks &&
+        entry->id != libwebm::kMkvCluster) {
+      return false;
+    }
+    if (!seek_head_.AddSeekEntry(
+            static_cast<uint32_t>(entry->id),
+            static_cast<uint64_t>(entry->pos))) {
+      return false;
+    }
+    ++recovered_seek_entries;
+  }
+  // One slot must remain free for the Cues entry Finalize adds.
+  if (recovered_seek_entries >= SeekHead::kSeekEntryCount)
+    return false;
+
+  // Recover the old Cue points before installing append state, since the cue
+  // positions reference payload_pos_.
+  payload_pos_ = segment_payload_start;
+  if (!RecoverCues(reader, cues_payload_start, cues_payload_size))
+    return false;
+
+  // Every old cue must point at a real Cluster. Cue positions are segment
+  // relative, so add payload_pos_ to obtain the absolute file offset.
+  const long long first_cluster_segment_pos =
+      first_cluster_start - segment_payload_start;
+  const long long last_cluster_segment_end =
+      last_cluster_end - segment_payload_start;
+  for (int32_t i = 0; i < cues_.cue_entries_size(); ++i) {
+    const CuePoint* const cue = cues_.GetCueByIndex(i);
+    if (!cue)
+      return false;
+    const long long cue_segment_pos =
+        static_cast<long long>(cue->cluster_pos());
+    if (cue_segment_pos < first_cluster_segment_pos ||
+        cue_segment_pos >= last_cluster_segment_end) {
+      return false;
+    }
+    long id_len = 0;
+    if (mkvparser::ReadID(reader,
+                          payload_pos_ + cue_segment_pos, id_len) !=
+        libwebm::kMkvCluster) {
+      return false;
+    }
+  }
+
+  // Install the recovered Segment state. The EBML/Segment header and the
+  // Tracks already exist on disk and must never be rewritten, so the writer is
+  // not moved here and no header bytes are written.
+  writer_cluster_ = writer;
+  writer_cues_ = writer;
+  writer_header_ = writer;
+
+  mode_ = kFile;
+  chunking_ = false;
+  accurate_cluster_duration_ = false;
+  fixed_size_cluster_timecode_ = false;
+  estimate_file_duration_ = false;
+  cues_position_ = kAfterClusters;
+  output_cues_ = true;
+  has_video_ = true;
+  cues_track_ = video_track_number;
+  header_written_ = true;
+  force_new_cluster_ = false;
+  new_cuepoint_ = false;
+
+  segment_info_.set_timecode_scale(
+      static_cast<uint64_t>(timecode_scale));
+  segment_info_.set_duration_pos(duration_position);
+
+  size_position_ = size_position;
+  // The parser records the Segment element ID position, which is exactly the
+  // byte immediately following the EBML header.
+  ebml_header_size_ = static_cast<int32_t>(parsed->m_element_start);
+  doc_type_version_ =
+      static_cast<uint32_t>(ebml_header.m_docTypeVersion);
+  doc_type_version_written_ = doc_type_version_;
+
+  last_timestamp_ = max_block_timestamp;
+  last_block_duration_ = 0;
+  memset(&track_frames_written_, 0,
+         sizeof(track_frames_written_[0]) * kMaxTrackNumber);
+
+  append_mode_ = true;
+  append_failed_ = false;
+  append_cues_start_ = cues_element_start;
+  append_old_duration_ns_ = static_cast<uint64_t>(old_duration_ns);
+  // Seed with the old duration so buffered audio flushed at Finalize cannot
+  // shrink the reported Duration below what the file already had.
+  append_max_end_ns_ = static_cast<uint64_t>(old_duration_ns);
+  return true;
+}
+
 bool Segment::CopyAndMoveCuesBeforeClusters(mkvparser::IMkvReader* reader,
                                             IMkvWriter* writer) {
   if (!writer->Seekable() || chunking_)
@@ -3334,6 +4108,9 @@ bool Segment::CopyAndMoveCuesBeforeClusters(mkvparser::IMkvReader* reader,
 }
 
 bool Segment::Finalize() {
+  if (append_mode_)
+    return FinalizeAppend();
+
   if (WriteFramesAll() < 0)
     return false;
 
@@ -3455,6 +4232,126 @@ bool Segment::Finalize() {
       chunk_writer_cues_->Close();
       chunk_writer_header_->Close();
     }
+  }
+
+  return true;
+}
+
+bool Segment::FinalizeAppend() {
+  if (append_failed_)
+    return false;
+
+  // Only flush held-back audio when a new cluster exists to receive it. Audio
+  // staged before the first video key frame has nowhere to go and is simply
+  // discarded, leaving the file unchanged.
+  if (cluster_list_size_ > 0 && WriteFramesAll() < 0) {
+    append_failed_ = true;
+    return false;
+  }
+
+  // Close the last newly written cluster so its size is backfilled in place.
+  // Old on-disk clusters are not owned by this Segment and are never touched.
+  if (cluster_list_size_ > 0) {
+    Cluster* const last_cluster = cluster_list_[cluster_list_size_ - 1];
+    if (!last_cluster || !last_cluster->Finalize(false, 0)) {
+      append_failed_ = true;
+      return false;
+    }
+  }
+
+  // With no committed new frame no bytes were ever written; leave the file and
+  // the writer exactly as they were when InitAppend returned.
+  if (cluster_list_size_ == 0)
+    return true;
+
+  // Final duration is the maximum of the old duration and every committed
+  // frame's end, including audio that was buffered until this flush.
+  const uint64_t duration_ns =
+      (append_max_end_ns_ > append_old_duration_ns_)
+          ? append_max_end_ns_
+          : append_old_duration_ns_;
+  const double duration_scaled =
+      static_cast<double>(duration_ns) /
+      static_cast<double>(segment_info_.timecode_scale());
+
+  // The writer now sits at the end of the new clusters, which is where the new
+  // tail Cues begin. Point the SeekHead at that segment-relative offset.
+  const int64_t cues_file_pos = writer_header_->Position();
+  if (cues_file_pos < payload_pos_) {
+    append_failed_ = true;
+    return false;
+  }
+  if (!seek_head_.AddSeekEntry(
+          libwebm::kMkvCues,
+          static_cast<uint64_t>(cues_file_pos - payload_pos_))) {
+    append_failed_ = true;
+    return false;
+  }
+
+  // Write the merged Cues (old points plus the new keyframe points), replacing
+  // the old tail index in place.
+  if (output_cues_ && !cues_.Write(writer_cues_)) {
+    append_failed_ = true;
+    return false;
+  }
+
+  // Backfill the Duration using the same four-byte float element size.
+  segment_info_.set_duration(duration_scaled);
+  if (!segment_info_.Finalize(writer_header_)) {
+    append_failed_ = true;
+    return false;
+  }
+
+  // Rewrite the reserved SeekHead region; it keeps the same footprint and is
+  // padded with Void.
+  if (!seek_head_.Finalize(writer_header_)) {
+    append_failed_ = true;
+    return false;
+  }
+
+  // Bump DocTypeVersion when the recovered tracks require it, rewriting the
+  // EBML header only if the value changed.
+  UpdateDocTypeVersion();
+  if (doc_type_version_ != doc_type_version_written_) {
+    const int64_t saved_pos = writer_header_->Position();
+    if (writer_header_->Position(0)) {
+      append_failed_ = true;
+      return false;
+    }
+    const char* const doc_type =
+        DocTypeIsWebm() ? kDocTypeWebm : kDocTypeMatroska;
+    if (!WriteEbmlHeader(writer_header_, doc_type_version_, doc_type) ||
+        writer_header_->Position() != ebml_header_size_) {
+      append_failed_ = true;
+      return false;
+    }
+    doc_type_version_written_ = doc_type_version_;
+    if (writer_header_->Position(saved_pos)) {
+      append_failed_ = true;
+      return false;
+    }
+  }
+
+  // Backfill the Segment size so it reaches the true file end (new clusters and
+  // the new Cues). Any leftover bytes of the previous, longer Cues are
+  // impossible because the file end is derived from the actual write position.
+  const int64_t segment_size = MaxOffset();
+  if (segment_size < 1 || size_position_ < 0) {
+    append_failed_ = true;
+    return false;
+  }
+  const int64_t saved_pos = writer_header_->Position();
+  if (writer_header_->Position(size_position_)) {
+    append_failed_ = true;
+    return false;
+  }
+  if (WriteUIntSize(writer_header_, static_cast<uint64_t>(segment_size), 8)) {
+    append_failed_ = true;
+    return false;
+  }
+  if (writer_header_->Position(saved_pos)) {
+    append_failed_ = true;
+    return false;
   }
 
   return true;
@@ -3611,16 +4508,61 @@ bool Segment::AddGenericFrame(const Frame* frame) {
   if (!frame)
     return false;
 
+  // Once a real write or backfill has failed the append session is dead.
+  if (append_failed_)
+    return false;
+
   if (!CheckHeaderInfo())
     return false;
 
-  // Check for non-monotonically increasing timestamps.
-  if (frame->timestamp() < last_timestamp_)
+  if (append_mode_) {
+    // Reject without writing or moving any state so that a later, legal frame
+    // can still be committed. A non-key frame's reference timestamp is filled
+    // in later, so only the intrinsic frame invariants are checked here.
+    if (!frame->frame() || frame->length() == 0 ||
+        frame->track_number() == 0 ||
+        frame->track_number() > kMaxTrackNumber) {
+      return false;
+    }
+
+    // Unknown track.
+    if (!tracks_.GetTrackByNumber(frame->track_number()))
+      return false;
+
+    // Every new frame must carry a positive duration.
+    if (!frame->duration_set() || frame->duration() == 0)
+      return false;
+
+    // timestamp + duration must not overflow.
+    if (frame->timestamp() > UINT64_MAX - frame->duration())
+      return false;
+
+    // The first new frame must land strictly after the largest old block
+    // timestamp; later frames only need to be globally non-decreasing.
+    const bool no_new_frame_yet =
+        (cluster_list_size_ == 0 && frames_size_ == 0);
+    if (no_new_frame_yet) {
+      if (frame->timestamp() <= last_timestamp_)
+        return false;
+    } else if (frame->timestamp() < last_timestamp_) {
+      return false;
+    }
+  } else if (frame->timestamp() < last_timestamp_) {
+    // Check for non-monotonically increasing timestamps.
     return false;
+  }
 
   // Check if the track number is valid.
   if (!tracks_.GetTrackByNumber(frame->track_number()))
     return false;
+
+  if (append_mode_) {
+    // The frame is now accepted. Remember its end so buffered audio is still
+    // counted when Finalize computes the final Duration.
+    const uint64_t frame_end = frame->timestamp() + frame->duration();
+    if (frame_end > append_max_end_ns_)
+      append_max_end_ns_ = frame_end;
+  }
 
   if (frame->discard_padding() != 0)
     doc_type_version_ = 4;
@@ -3656,17 +4598,35 @@ bool Segment::AddGenericFrame(const Frame* frame) {
     return true;
   }
 
-  if (!DoNewClusterProcessing(frame->track_number(), frame->timestamp(),
-                              frame->is_key())) {
+  // The first frame actually written must open a brand new cluster with a
+  // video key frame. Audio reaching this point can only have been forced out,
+  // which is not allowed to seed the first appended cluster.
+  if (append_mode_ && cluster_list_size_ == 0 &&
+      (!tracks_.TrackIsVideo(frame->track_number()) || !frame->is_key())) {
     return false;
   }
 
-  if (cluster_list_size_ < 1)
+  if (!DoNewClusterProcessing(frame->track_number(), frame->timestamp(),
+                              frame->is_key())) {
+    // A new cluster (or the audio flush it triggers) is written here, so a
+    // failure means bytes may already be on disk.
+    if (append_mode_)
+      append_failed_ = true;
     return false;
+  }
+
+  if (cluster_list_size_ < 1) {
+    if (append_mode_)
+      append_failed_ = true;
+    return false;
+  }
 
   Cluster* const cluster = cluster_list_[cluster_list_size_ - 1];
-  if (!cluster)
+  if (!cluster) {
+    if (append_mode_)
+      append_failed_ = true;
     return false;
+  }
 
   // If the Frame is not a SimpleBlock, then set the reference_block_timestamp
   // if it is not set already.
@@ -3676,6 +4636,8 @@ bool Segment::AddGenericFrame(const Frame* frame) {
     Frame* const new_frame = new (std::nothrow) Frame();
     if (!new_frame || !new_frame->CopyFrom(*frame)) {
       delete new_frame;
+      if (append_mode_)
+        append_failed_ = true;
       return false;
     }
     new_frame->set_reference_block_timestamp(
@@ -3684,13 +4646,18 @@ bool Segment::AddGenericFrame(const Frame* frame) {
     frame_created = true;
   }
 
-  if (!cluster->AddFrame(frame))
+  if (!cluster->AddFrame(frame)) {
+    if (append_mode_)
+      append_failed_ = true;
     return false;
+  }
 
   if (new_cuepoint_ && cues_track_ == frame->track_number()) {
     // Only add a cue point at the start of a cluster if the frame is a
     // keyframe.
     if (frame->is_key() && !AddCuePoint(frame->timestamp(), cues_track_)) {
+      if (append_mode_)
+        append_failed_ = true;
       return false;
     } else {
       new_cuepoint_ = false;
@@ -4202,6 +5169,11 @@ int Segment::WriteFramesAll() {
     if (frame->discard_padding() != 0)
       doc_type_version_ = 4;
     if (!cluster->AddFrame(frame)) {
+      // In append mode a failed block write is a real I/O failure: surface it
+      // so the drain cannot report success after dropping audio frames. Other
+      // modes keep the historical behavior of skipping the frame.
+      if (append_mode_)
+        return -1;
       delete frame;
       continue;
     }
@@ -4210,6 +5182,8 @@ int Segment::WriteFramesAll() {
       // Only add a cue point at the start of a cluster if the frame is a
       // keyframe.
       if (frame->is_key() && !AddCuePoint(frame->timestamp(), cues_track_)) {
+        if (append_mode_)
+          return -1;
         delete frame;
         continue;
       } else {
@@ -4258,6 +5232,10 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
       if (frame_prev->discard_padding() != 0)
         doc_type_version_ = 4;
       if (!cluster->AddFrame(frame_prev)) {
+        // Append mode must not swallow a real write failure and report the
+        // drain as successful.
+        if (append_mode_)
+          return false;
         delete frame_prev;
         ++shift_left;
         continue;
@@ -4265,6 +5243,8 @@ bool Segment::WriteFramesLessThan(uint64_t timestamp) {
 
       if (new_cuepoint_ && cues_track_ == frame_prev->track_number()) {
         if (!AddCuePoint(frame_prev->timestamp(), cues_track_)) {
+          if (append_mode_)
+            return false;
           delete frame_prev;
           ++shift_left;
           continue;
