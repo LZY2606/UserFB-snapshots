@@ -41,6 +41,7 @@ extern "C" {
 drc_info *drc_init(real_t cut, real_t boost);
 void drc_end(drc_info *drc);
 void drc_decode(drc_info *drc, real_t *spec);
+int drc_decode_frame(drc_info *drc, real_t *spec, uint16_t frame_len);
 
 
 #ifdef __cplusplus

@@ -55,6 +55,13 @@
 #include "ssr_fb.h"
 #endif
 
+#ifdef DRC_CONTRACT_TEST
+/* read-only pre-synthesis spectrum observation point, only present in
+   DRC_CONTRACT_TEST builds; implemented by the test suite */
+extern void drc_contract_observe_spec(const real_t *spec, uint16_t frame_len,
+                                      uint8_t channel);
+#endif
+
 
 /* static function declarations */
 static uint8_t quant_to_spec(NeAACDecStruct *hDecoder,
@@ -1055,8 +1062,12 @@ uint8_t reconstruct_single_channel(NeAACDecStruct *hDecoder, ic_stream *ics,
     if (hDecoder->drc->present)
     {
         if (!hDecoder->drc->exclude_mask[sce->channel] || !hDecoder->drc->excluded_chns_present)
-            drc_decode(hDecoder->drc, spec_coef);
+            drc_decode_frame(hDecoder->drc, spec_coef, hDecoder->frameLength);
     }
+#endif
+#ifdef DRC_CONTRACT_TEST
+    /* read-only pre-synthesis spectrum observation point (test builds only) */
+    drc_contract_observe_spec(spec_coef, hDecoder->frameLength, sce->channel);
 #endif
     /* filter bank */
 #ifdef SSR_DEC
@@ -1312,10 +1323,15 @@ uint8_t reconstruct_channel_pair(NeAACDecStruct *hDecoder, ic_stream *ics1, ic_s
     if (hDecoder->drc->present)
     {
         if (!hDecoder->drc->exclude_mask[cpe->channel] || !hDecoder->drc->excluded_chns_present)
-            drc_decode(hDecoder->drc, spec_coef1);
+            drc_decode_frame(hDecoder->drc, spec_coef1, hDecoder->frameLength);
         if (!hDecoder->drc->exclude_mask[cpe->paired_channel] || !hDecoder->drc->excluded_chns_present)
-            drc_decode(hDecoder->drc, spec_coef2);
+            drc_decode_frame(hDecoder->drc, spec_coef2, hDecoder->frameLength);
     }
+#endif
+#ifdef DRC_CONTRACT_TEST
+    /* read-only pre-synthesis spectrum observation point (test builds only) */
+    drc_contract_observe_spec(spec_coef1, hDecoder->frameLength, cpe->channel);
+    drc_contract_observe_spec(spec_coef2, hDecoder->frameLength, cpe->paired_channel);
 #endif
     /* filter bank */
 #ifdef SSR_DEC

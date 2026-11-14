@@ -2309,7 +2309,15 @@ static uint8_t dynamic_range_info(bitfile *ld, drc_info *drc)
     uint8_t i, n = 1;
     uint8_t band_incr;
 
+    /* a new payload is a complete description: fields that are omitted
+       fall back to their defaults instead of inheriting the previously
+       received values */
     drc->num_bands = 1;
+    drc->band_top[0] = 1024/4 - 1;
+    drc->prog_ref_level = DRC_REF_LEVEL;
+    drc->excluded_chns_present = 0;
+    memset(drc->exclude_mask, 0, MAX_CHANNELS*sizeof(uint8_t));
+    memset(drc->additional_excluded_chns, 0, MAX_CHANNELS*sizeof(uint8_t));
 
     if (faad_get1bit(ld
         DEBUGVAR(1,90,"dynamic_range_info(): has instance_tag")) & 1)

@@ -1,0 +1,4 @@
+#!/bin/bash
+f="$PWD/.task-build/runlog.$$"
+: > "$f"
+echo "$f"
