@@ -9,11 +9,86 @@ func moov_Movie() {
 
 func mvhd_MovieHeader() {
 	uint8(Version)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if unsupportedVersion(self.Version) {
+			err = parseErr("UnsupportedVersion", n+offset, err)
+			return
+		}
+	})
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	// Version 1 widens CreateTime/ModifyTime/Duration from 32 to 64 bits.
+	time64(CreateTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
 	int32(TimeScale)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 1 {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		} else {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		} else {
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		}
+	}))
 	fixed32(PreferredRate)
 	fixed16(PreferredVolume)
 	_skip(10)
@@ -35,12 +110,87 @@ func trak_Track() {
 
 func tkhd_TrackHeader() {
 	uint8(Version)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if unsupportedVersion(self.Version) {
+			err = parseErr("UnsupportedVersion", n+offset, err)
+			return
+		}
+	})
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	// Version 1 widens CreateTime/ModifyTime/Duration from 32 to 64 bits.
+	time64(CreateTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
 	int32(TrackId)
 	_skip(4)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 1 {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		} else {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		} else {
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		}
+	}))
 	_skip(8)
 	int16(Layer)
 	int16(AlternateGroup)
@@ -68,11 +218,86 @@ func mdia_Media() {
 
 func mdhd_MediaHeader() {
 	uint8(Version)
+	_code(func() {
+	}, func() {
+	}, func() {
+		if unsupportedVersion(self.Version) {
+			err = parseErr("UnsupportedVersion", n+offset, err)
+			return
+		}
+	})
 	uint24(Flags)
-	time32(CreateTime)
-	time32(ModifyTime)
+	// Version 1 widens CreateTime/ModifyTime/Duration from 32 to 64 bits.
+	time64(CreateTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.CreateTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.CreateTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.CreateTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.CreateTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
+	time64(ModifyTime, _code(func() {
+		if self.Version == 1 {
+			PutTime64(b[n:], self.ModifyTime)
+			n += 8
+		} else {
+			PutTime32(b[n:], self.ModifyTime)
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.ModifyTime = GetTime64(b[n:])
+			n += 8
+		} else {
+			self.ModifyTime = GetTime32(b[n:])
+			n += 4
+		}
+	}))
 	int32(TimeScale)
-	int32(Duration)
+	uint64(Duration, _code(func() {
+		if self.Version == 1 {
+			pio.PutU64BE(b[n:], self.Duration)
+			n += 8
+		} else {
+			pio.PutU32BE(b[n:], uint32(self.Duration))
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			n += 8
+		} else {
+			n += 4
+		}
+	}, func() {
+		if self.Version == 1 {
+			self.Duration = pio.U64BE(b[n:])
+			n += 8
+		} else {
+			self.Duration = uint64(pio.U32BE(b[n:]))
+			n += 4
+		}
+	}))
 	int16(Language)
 	int16(Quality)
 }

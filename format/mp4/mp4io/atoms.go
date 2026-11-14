@@ -320,7 +320,7 @@ type MovieHeader struct {
 	CreateTime		time.Time
 	ModifyTime		time.Time
 	TimeScale		int32
-	Duration		int32
+	Duration		uint64
 	PreferredRate		float64
 	PreferredVolume		float64
 	Matrix			[9]int32
@@ -345,14 +345,14 @@ func (self MovieHeader) marshal(b []byte) (n int) {
 	n += 1
 	pio.PutU24BE(b[n:], self.Flags)
 	n += 3
-	PutTime32(b[n:], self.CreateTime)
-	n += 4
-	PutTime32(b[n:], self.ModifyTime)
-	n += 4
+	putVersionTime(b[n:], self.Version, self.CreateTime)
+	n += versionFieldWidth(self.Version)
+	putVersionTime(b[n:], self.Version, self.ModifyTime)
+	n += versionFieldWidth(self.Version)
 	pio.PutI32BE(b[n:], self.TimeScale)
 	n += 4
-	pio.PutI32BE(b[n:], self.Duration)
-	n += 4
+	putVersionUint64(b[n:], self.Version, self.Duration)
+	n += versionFieldWidth(self.Version)
 	PutFixed32(b[n:], self.PreferredRate)
 	n += 4
 	PutFixed16(b[n:], self.PreferredVolume)
@@ -382,10 +382,10 @@ func (self MovieHeader) Len() (n int) {
 	n += 8
 	n += 1
 	n += 3
+	n += versionFieldWidth(self.Version)
+	n += versionFieldWidth(self.Version)
 	n += 4
-	n += 4
-	n += 4
-	n += 4
+	n += versionFieldWidth(self.Version)
 	n += 4
 	n += 2
 	n += 10
@@ -408,36 +408,40 @@ func (self *MovieHeader) Unmarshal(b []byte, offset int) (n int, err error) {
 	}
 	self.Version = pio.U8(b[n:])
 	n += 1
+	if unsupportedVersion(self.Version) {
+		err = parseErr("UnsupportedVersion", n+offset, err)
+		return
+	}
 	if len(b) < n+3 {
 		err = parseErr("Flags", n+offset, err)
 		return
 	}
 	self.Flags = pio.U24BE(b[n:])
 	n += 3
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("CreateTime", n+offset, err)
 		return
 	}
-	self.CreateTime = GetTime32(b[n:])
-	n += 4
-	if len(b) < n+4 {
+	self.CreateTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("ModifyTime", n+offset, err)
 		return
 	}
-	self.ModifyTime = GetTime32(b[n:])
-	n += 4
+	self.ModifyTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	if len(b) < n+4 {
 		err = parseErr("TimeScale", n+offset, err)
 		return
 	}
 	self.TimeScale = pio.I32BE(b[n:])
 	n += 4
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("Duration", n+offset, err)
 		return
 	}
-	self.Duration = pio.I32BE(b[n:])
-	n += 4
+	self.Duration = getVersionUint64(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	if len(b) < n+4 {
 		err = parseErr("PreferredRate", n+offset, err)
 		return
@@ -605,7 +609,7 @@ type TrackHeader struct {
 	CreateTime	time.Time
 	ModifyTime	time.Time
 	TrackId		int32
-	Duration	int32
+	Duration	uint64
 	Layer		int16
 	AlternateGroup	int16
 	Volume		float64
@@ -626,15 +630,15 @@ func (self TrackHeader) marshal(b []byte) (n int) {
 	n += 1
 	pio.PutU24BE(b[n:], self.Flags)
 	n += 3
-	PutTime32(b[n:], self.CreateTime)
-	n += 4
-	PutTime32(b[n:], self.ModifyTime)
-	n += 4
+	putVersionTime(b[n:], self.Version, self.CreateTime)
+	n += versionFieldWidth(self.Version)
+	putVersionTime(b[n:], self.Version, self.ModifyTime)
+	n += versionFieldWidth(self.Version)
 	pio.PutI32BE(b[n:], self.TrackId)
 	n += 4
 	n += 4
-	pio.PutI32BE(b[n:], self.Duration)
-	n += 4
+	putVersionUint64(b[n:], self.Version, self.Duration)
+	n += versionFieldWidth(self.Version)
 	n += 8
 	pio.PutI16BE(b[n:], self.Layer)
 	n += 2
@@ -657,11 +661,11 @@ func (self TrackHeader) Len() (n int) {
 	n += 8
 	n += 1
 	n += 3
+	n += versionFieldWidth(self.Version)
+	n += versionFieldWidth(self.Version)
 	n += 4
 	n += 4
-	n += 4
-	n += 4
-	n += 4
+	n += versionFieldWidth(self.Version)
 	n += 8
 	n += 2
 	n += 2
@@ -681,24 +685,28 @@ func (self *TrackHeader) Unmarshal(b []byte, offset int) (n int, err error) {
 	}
 	self.Version = pio.U8(b[n:])
 	n += 1
+	if unsupportedVersion(self.Version) {
+		err = parseErr("UnsupportedVersion", n+offset, err)
+		return
+	}
 	if len(b) < n+3 {
 		err = parseErr("Flags", n+offset, err)
 		return
 	}
 	self.Flags = pio.U24BE(b[n:])
 	n += 3
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("CreateTime", n+offset, err)
 		return
 	}
-	self.CreateTime = GetTime32(b[n:])
-	n += 4
-	if len(b) < n+4 {
+	self.CreateTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("ModifyTime", n+offset, err)
 		return
 	}
-	self.ModifyTime = GetTime32(b[n:])
-	n += 4
+	self.ModifyTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	if len(b) < n+4 {
 		err = parseErr("TrackId", n+offset, err)
 		return
@@ -706,12 +714,12 @@ func (self *TrackHeader) Unmarshal(b []byte, offset int) (n int, err error) {
 	self.TrackId = pio.I32BE(b[n:])
 	n += 4
 	n += 4
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("Duration", n+offset, err)
 		return
 	}
-	self.Duration = pio.I32BE(b[n:])
-	n += 4
+	self.Duration = getVersionUint64(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	n += 8
 	if len(b) < n+2 {
 		err = parseErr("Layer", n+offset, err)
@@ -947,7 +955,7 @@ type MediaHeader struct {
 	CreateTime	time.Time
 	ModifyTime	time.Time
 	TimeScale	int32
-	Duration	int32
+	Duration	uint64
 	Language	int16
 	Quality		int16
 	AtomPos
@@ -964,14 +972,14 @@ func (self MediaHeader) marshal(b []byte) (n int) {
 	n += 1
 	pio.PutU24BE(b[n:], self.Flags)
 	n += 3
-	PutTime32(b[n:], self.CreateTime)
-	n += 4
-	PutTime32(b[n:], self.ModifyTime)
-	n += 4
+	putVersionTime(b[n:], self.Version, self.CreateTime)
+	n += versionFieldWidth(self.Version)
+	putVersionTime(b[n:], self.Version, self.ModifyTime)
+	n += versionFieldWidth(self.Version)
 	pio.PutI32BE(b[n:], self.TimeScale)
 	n += 4
-	pio.PutI32BE(b[n:], self.Duration)
-	n += 4
+	putVersionUint64(b[n:], self.Version, self.Duration)
+	n += versionFieldWidth(self.Version)
 	pio.PutI16BE(b[n:], self.Language)
 	n += 2
 	pio.PutI16BE(b[n:], self.Quality)
@@ -982,10 +990,10 @@ func (self MediaHeader) Len() (n int) {
 	n += 8
 	n += 1
 	n += 3
+	n += versionFieldWidth(self.Version)
+	n += versionFieldWidth(self.Version)
 	n += 4
-	n += 4
-	n += 4
-	n += 4
+	n += versionFieldWidth(self.Version)
 	n += 2
 	n += 2
 	return
@@ -999,36 +1007,40 @@ func (self *MediaHeader) Unmarshal(b []byte, offset int) (n int, err error) {
 	}
 	self.Version = pio.U8(b[n:])
 	n += 1
+	if unsupportedVersion(self.Version) {
+		err = parseErr("UnsupportedVersion", n+offset, err)
+		return
+	}
 	if len(b) < n+3 {
 		err = parseErr("Flags", n+offset, err)
 		return
 	}
 	self.Flags = pio.U24BE(b[n:])
 	n += 3
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("CreateTime", n+offset, err)
 		return
 	}
-	self.CreateTime = GetTime32(b[n:])
-	n += 4
-	if len(b) < n+4 {
+	self.CreateTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("ModifyTime", n+offset, err)
 		return
 	}
-	self.ModifyTime = GetTime32(b[n:])
-	n += 4
+	self.ModifyTime = getVersionTime(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	if len(b) < n+4 {
 		err = parseErr("TimeScale", n+offset, err)
 		return
 	}
 	self.TimeScale = pio.I32BE(b[n:])
 	n += 4
-	if len(b) < n+4 {
+	if len(b) < n+versionFieldWidth(self.Version) {
 		err = parseErr("Duration", n+offset, err)
 		return
 	}
-	self.Duration = pio.I32BE(b[n:])
-	n += 4
+	self.Duration = getVersionUint64(b[n:], self.Version)
+	n += versionFieldWidth(self.Version)
 	if len(b) < n+2 {
 		err = parseErr("Language", n+offset, err)
 		return

@@ -138,7 +138,7 @@ func (self *Stream) setSampleIndex(index int) (err error) {
 		}
 	}
 
-	self.dts = int64(0)
+	self.dts = 0
 	start = 0
 	found = false
 	self.sttsEntryIndex = 0
@@ -147,12 +147,12 @@ func (self *Stream) setSampleIndex(index int) (err error) {
 		n := int(entry.Count)
 		if index >= start && index < start+n {
 			self.sampleIndexInSttsEntry = index - start
-			self.dts += int64(index-start) * int64(entry.Duration)
+			self.dts += uint64(index-start) * uint64(entry.Duration)
 			found = true
 			break
 		}
 		start += n
-		self.dts += int64(n) * int64(entry.Duration)
+		self.dts += uint64(n) * uint64(entry.Duration)
 		self.sttsEntryIndex++
 	}
 	if !found {
@@ -227,7 +227,7 @@ func (self *Stream) isSampleValid() bool {
 	return true
 }
 
-func (self *Stream) incSampleIndex() (duration int64) {
+func (self *Stream) incSampleIndex() (duration uint64) {
 	if false {
 		fmt.Printf("incSampleIndex sampleIndex=%d sampleOffsetInChunk=%d sampleIndexInChunk=%d chunkGroupIndex=%d chunkIndex=%d\n",
 			self.sampleIndex, self.sampleOffsetInChunk, self.sampleIndexInChunk, self.chunkGroupIndex, self.chunkIndex)
@@ -252,7 +252,7 @@ func (self *Stream) incSampleIndex() (duration int64) {
 	}
 
 	sttsEntry := self.sample.TimeToSample.Entries[self.sttsEntryIndex]
-	duration = int64(sttsEntry.Duration)
+	duration = uint64(sttsEntry.Duration)
 	self.sampleIndexInSttsEntry++
 	self.dts += duration
 	if uint32(self.sampleIndexInSttsEntry) == sttsEntry.Count {
@@ -385,7 +385,7 @@ func (self *Stream) readPacket() (pkt av.Packet, err error) {
 
 	//println("pts/dts", self.ptsEntryIndex, self.dtsEntryIndex)
 	if self.sample.CompositionOffset != nil && len(self.sample.CompositionOffset.Entries) > 0 {
-		cts := int64(self.sample.CompositionOffset.Entries[self.cttsEntryIndex].Offset)
+		cts := uint64(self.sample.CompositionOffset.Entries[self.cttsEntryIndex].Offset)
 		pkt.CompositionTime = self.tsToTime(cts)
 	}
 
@@ -406,30 +406,26 @@ func (self *Stream) seekToTime(tm time.Duration) (err error) {
 }
 
 func (self *Stream) timeToSampleIndex(tm time.Duration) int {
-	targetTs := self.timeToTs(tm)
+	targetTs := uint64(self.timeToTs(tm))
 	targetIndex := 0
 
-	startTs := int64(0)
-	endTs := int64(0)
+	startTs := uint64(0)
+	endTs := uint64(0)
 	startIndex := 0
 	endIndex := 0
 	found := false
 	for _, entry := range self.sample.TimeToSample.Entries {
-		endTs = startTs + int64(entry.Count*entry.Duration)
+		endTs = startTs + uint64(entry.Count)*uint64(entry.Duration)
 		endIndex = startIndex + int(entry.Count)
 		if targetTs >= startTs && targetTs < endTs {
-			targetIndex = startIndex + int((targetTs-startTs)/int64(entry.Duration))
+			targetIndex = startIndex + int((targetTs-startTs)/uint64(entry.Duration))
 			found = true
 		}
 		startTs = endTs
 		startIndex = endIndex
 	}
 	if !found {
-		if targetTs < 0 {
-			targetIndex = 0
-		} else {
-			targetIndex = endIndex - 1
-		}
+		targetIndex = endIndex - 1
 	}
 
 	if self.sample.SyncSample != nil {

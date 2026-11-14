@@ -56,6 +56,51 @@ func PutTime64(b []byte, t time.Time) {
 	pio.PutU64BE(b, sec)
 }
 
+// The version 0/1 full-box headers (mvhd/tkhd/mdhd) widen their creation
+// time, modification time and duration from 32 to 64 bits when Version == 1.
+// The helpers below keep the wire-format switch in one place.
+
+func versionFieldWidth(version uint8) int {
+	if version == 1 {
+		return 8
+	}
+	return 4
+}
+
+func unsupportedVersion(version uint8) bool {
+	return version > 1
+}
+
+func putVersionTime(b []byte, version uint8, t time.Time) {
+	if version == 1 {
+		PutTime64(b, t)
+	} else {
+		PutTime32(b, t)
+	}
+}
+
+func getVersionTime(b []byte, version uint8) time.Time {
+	if version == 1 {
+		return GetTime64(b)
+	}
+	return GetTime32(b)
+}
+
+func putVersionUint64(b []byte, version uint8, v uint64) {
+	if version == 1 {
+		pio.PutU64BE(b, v)
+	} else {
+		pio.PutU32BE(b, uint32(v))
+	}
+}
+
+func getVersionUint64(b []byte, version uint8) uint64 {
+	if version == 1 {
+		return pio.U64BE(b)
+	}
+	return uint64(pio.U32BE(b))
+}
+
 func PutFixed16(b []byte, f float64) {
 	intpart, fracpart := math.Modf(f)
 	b[0] = uint8(intpart)
