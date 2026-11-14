@@ -1,0 +1,9 @@
+#!/bin/sh
+# sandbox shim: macOS mktemp without a template ignores TMPDIR and uses
+# /var/folders/... which this sandbox cannot write; redirect into TMPDIR.
+dir=${TMPDIR:-/tmp/claude-501}
+if [ "$1" = "-d" ]; then
+  exec /usr/bin/mktemp -d "$dir/tmp.XXXXXXXX"
+else
+  exec /usr/bin/mktemp "$dir/tmp.XXXXXXXX"
+fi
