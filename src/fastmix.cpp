@@ -19,7 +19,7 @@ int MixSoundBuffer[MIXBUFFERSIZE*4];
 // Reverb Mix Buffer
 #ifndef MODPLUG_NO_REVERB
 int MixReverbBuffer[MIXBUFFERSIZE*2];
-extern UINT gnReverbSend;
+// gnReverbSend is per-session state, see libmodplug/session.h
 #endif
 
 #ifndef MODPLUG_FASTSOUNDLIB
@@ -31,11 +31,8 @@ float MixFloatBuffer[MIXBUFFERSIZE*2];
 #pragma bss_seg()
 #endif
 
-
-extern LONG gnDryROfsVol;
-extern LONG gnDryLOfsVol;
-extern LONG gnRvbROfsVol;
-extern LONG gnRvbLOfsVol;
+// gnDryROfsVol / gnDryLOfsVol / gnRvbROfsVol / gnRvbLOfsVol are per-session
+// state, routed through the macros in libmodplug/session.h.
 
 // 4x256 taps polyphase FIR resampling filter
 extern short int gFastSinc[];
@@ -2359,7 +2356,7 @@ UINT MPPASMCALL X86_AGC(int *pBuffer, UINT nSamples, UINT nAGC)
 void CSoundFile::ProcessAGC(int count)
 //------------------------------------
 {
-	static DWORD gAGCRecoverCount = 0;
+	// gAGCRecoverCount is per-session state, see libmodplug/session.h.
 	UINT agc = X86_AGC(MixSoundBuffer, count, gnAGC);
 	// Some kind custom law, so that the AGC stays quite stable, but slowly
 	// goes back up if the sound level stays below a level inversely

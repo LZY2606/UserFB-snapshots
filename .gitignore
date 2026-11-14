@@ -29,3 +29,8 @@ src/stamp-h1
 *.swo
 m4/libtool.m4
 m4/lt*.m4
+
+# Task test runner build outputs (task_support/run.sh)
+.task-build
+.task-build-configure.log
+.task-build-build.log

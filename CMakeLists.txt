@@ -85,6 +85,7 @@ endif()
 add_library(modplug ${LIB_TYPE}
   src/libmodplug/it_defs.h
   src/libmodplug/sndfile.h
+  src/libmodplug/session.h
   src/libmodplug/stdafx.h
 
   src/fastmix.cpp

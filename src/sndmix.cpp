@@ -18,28 +18,62 @@
 // VU-Meter
 #define VUMETER_DECAY		4
 
-// SNDMIX: These are global flags for playback control (first two configurable via SetMixConfig)
-UINT CSoundFile::m_nStereoSeparation = 128;
-UINT CSoundFile::m_nMaxMixChannels = 32;
-LONG CSoundFile::m_nStreamVolume = 0x8000;
-// Mixing Configuration (SetWaveConfig)
-DWORD CSoundFile::gdwSysInfo = 0;
-DWORD CSoundFile::gnChannels = 1;
-DWORD CSoundFile::gdwSoundSetup = 0;
-DWORD CSoundFile::gdwMixingFreq = 44100;
-DWORD CSoundFile::gnBitsPerSample = 16;
-// Mixing data initialized in
-UINT CSoundFile::gnAGC = AGC_UNITY;
-UINT CSoundFile::gnVolumeRampSamples = 64;
-UINT CSoundFile::gnVUMeter = 0;
-UINT CSoundFile::gnCPUUsage = 0;
-LPSNDMIXHOOKPROC CSoundFile::gpSndMixHook = NULL;
+// All mixer configuration and persistent DSP state used to be process-global
+// here.  It now lives in ModPlugSession objects; gLegacySession preserves the
+// exact original default values and backs every legacy ModPlug_Load() file.
+namespace ModPlug
+{
+	ModPlugSession gLegacySession;
+	ModPlugSession *gActiveSession = &gLegacySession;
+
+	void InitSessionDefaults(ModPlugSession *s)
+	{
+		// CSoundFile static members (snd_dsp.cpp / sndmix.cpp defaults)
+		s->m_nXBassDepth_ = 6;
+		s->m_nXBassRange_ = 14;	// XBASS_DELAY in snd_dsp.cpp
+		s->m_nReverbDepth_ = 1;
+		s->m_nReverbDelay_ = 100;
+		s->gnReverbType_ = 0;
+		s->m_nProLogicDepth_ = 12;
+		s->m_nProLogicDelay_ = 20;
+		s->m_nStereoSeparation_ = 128;
+		s->m_nMaxMixChannels_ = 32;
+		s->m_nStreamVolume_ = 0x8000;
+		s->gdwSysInfo_ = 0;
+		s->gnChannels_ = 1;
+		s->gdwSoundSetup_ = 0;
+		s->gdwMixingFreq_ = 44100;
+		s->gnBitsPerSample_ = 16;
+		s->gnAGC_ = AGC_UNITY;
+		s->gnVolumeRampSamples_ = 64;
+		s->gnVUMeter_ = 0;
+		s->gnCPUUsage_ = 0;
+		s->gpSndMixHook_ = NULL;
+		// File-scope mixer state
+		s->gnDryROfsVol_ = 0;
+		s->gnDryLOfsVol_ = 0;
+		s->gnRvbROfsVol_ = 0;
+		s->gnRvbLOfsVol_ = 0;
+		s->gnReverbSend_ = 0;
+		s->gbInitPlugins_ = 0;
+		s->gAGCRecoverCount_ = 0;
+		// DSP delay lines and filter history start zeroed
+		memset(&s->dsp, 0, sizeof(s->dsp));
+		s->gSampleSize_ = 0;
+	}
+
+	// Give the legacy session the exact values the old file-scope statics had
+	// at process startup, rather than plain zero initialization (in particular
+	// gnAGC, the effect depths and gnVolumeRampSamples were non-zero).
+	namespace {
+		struct LegacySessionBootstrap
+		{
+			LegacySessionBootstrap() { InitSessionDefaults(&gLegacySession); }
+		} gLegacySessionBootstrap;
+	}
+}
+
 PMIXPLUGINCREATEPROC CSoundFile::gpMixPluginCreateProc = NULL;
-LONG gnDryROfsVol = 0;
-LONG gnDryLOfsVol = 0;
-LONG gnRvbROfsVol = 0;
-LONG gnRvbLOfsVol = 0;
-int gbInitPlugins = 0;
 
 typedef DWORD (MPPASMCALL * LPCONVERTPROC)(LPVOID, int *, DWORD, LPLONG, LPLONG);
 
@@ -55,7 +89,7 @@ extern VOID MPPASMCALL X86_MonoFromStereo(int *pMixBuf, UINT nSamples);
 
 extern int MixSoundBuffer[MIXBUFFERSIZE*4];
 extern int MixRearBuffer[MIXBUFFERSIZE*2];
-UINT gnReverbSend;
+// gnReverbSend is per-session state, see libmodplug/session.h
 
 
 // Log tables for pre-amp
@@ -172,6 +206,15 @@ rneg:
 	return ((uint64_t) a * (uint64_t) b + (c >> 1)) / c;
 #endif
 }
+
+
+// Static accessors: defined out-of-line so the session routing macros only
+// need the complete ModPlugSession type at this point, not in sndfile.h.
+BOOL CSoundFile::IsStereo() { return (gnChannels > 1) ? TRUE : FALSE; }
+DWORD CSoundFile::GetSampleRate() { return gdwMixingFreq; }
+DWORD CSoundFile::GetBitsPerSample() { return gnBitsPerSample; }
+DWORD CSoundFile::GetSysInfo() { return gdwSysInfo; }
+BOOL CSoundFile::GetAGC() { return (gdwSoundSetup & SNDMIX_AGC) ? TRUE : FALSE; }
 
 
 BOOL CSoundFile::InitPlayer(BOOL bReset)

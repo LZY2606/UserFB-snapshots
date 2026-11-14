@@ -37,66 +37,17 @@
 
 
 // DSP Effects: PUBLIC members
-UINT CSoundFile::m_nXBassDepth = 6;
-UINT CSoundFile::m_nXBassRange = XBASS_DELAY;
-UINT CSoundFile::m_nReverbDepth = 1;
-UINT CSoundFile::m_nReverbDelay = 100;
-UINT CSoundFile::m_nProLogicDepth = 12;
-UINT CSoundFile::m_nProLogicDelay = 20;
+// m_nXBassDepth, m_nXBassRange, m_nReverbDepth, m_nReverbDelay,
+// m_nProLogicDepth and m_nProLogicDelay are per-session parameters now;
+// see libmodplug/session.h.
 
 ////////////////////////////////////////////////////////////////////
 // DSP Effects internal state
-
-// Bass Expansion: low-pass filter
-static LONG nXBassSum = 0;
-static LONG nXBassBufferPos = 0;
-static LONG nXBassDlyPos = 0;
-static LONG nXBassMask = 0;
-
-// Noise Reduction: simple low-pass filter
-static LONG nLeftNR = 0;
-static LONG nRightNR = 0;
-
-// Surround Encoding: 1 delay line + low-pass filter + high-pass filter
-static LONG nSurroundSize = 0;
-static LONG nSurroundPos = 0;
-static LONG nDolbyDepth = 0;
-static LONG nDolbyLoDlyPos = 0;
-static LONG nDolbyLoFltPos = 0;
-static LONG nDolbyLoFltSum = 0;
-static LONG nDolbyHiFltPos = 0;
-static LONG nDolbyHiFltSum = 0;
-
-// Reverb: 4 delay lines + high-pass filter + low-pass filter
-#ifndef MODPLUG_NO_REVERB
-static LONG nReverbSize = 0;
-static LONG nReverbBufferPos = 0;
-static LONG nReverbSize2 = 0;
-static LONG nReverbBufferPos2 = 0;
-static LONG nReverbSize3 = 0;
-static LONG nReverbBufferPos3 = 0;
-static LONG nReverbSize4 = 0;
-static LONG nReverbBufferPos4 = 0;
-static LONG nReverbLoFltSum = 0;
-static LONG nReverbLoFltPos = 0;
-static LONG nReverbLoDlyPos = 0;
-static LONG nFilterAttn = 0;
-static LONG gRvbLowPass[8];
-static LONG gRvbLPPos = 0;
-static LONG gRvbLPSum = 0;
-static LONG ReverbLoFilterBuffer[XBASSBUFFERSIZE];
-static LONG ReverbLoFilterDelay[XBASSBUFFERSIZE];
-static LONG ReverbBuffer[REVERBBUFFERSIZE];
-static LONG ReverbBuffer2[REVERBBUFFERSIZE2];
-static LONG ReverbBuffer3[REVERBBUFFERSIZE3];
-static LONG ReverbBuffer4[REVERBBUFFERSIZE4];
-#endif
-static LONG XBassBuffer[XBASSBUFFERSIZE];
-static LONG XBassDelay[XBASSBUFFERSIZE];
-static LONG DolbyLoFilterBuffer[XBASSBUFFERSIZE];
-static LONG DolbyLoFilterDelay[XBASSBUFFERSIZE];
-static LONG DolbyHiFilterBuffer[FILTERBUFFERSIZE];
-static LONG SurroundBuffer[SURROUNDBUFFERSIZE];
+//
+// All the filter history and delay lines below used to be file-scope static
+// storage, which shared reverb/surround/bass/noise-reduction history across
+// every open module.  They are per-ModPlugFile session state now, routed
+// through the macros in libmodplug/session.h.
 
 // Access the main temporary mix buffer directly: avoids an extra pointer
 extern int MixSoundBuffer[MIXBUFFERSIZE*4];

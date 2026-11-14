@@ -145,6 +145,36 @@ Looping: Some mods have loops built-in.  Normally, these loops are
  you can choose to respect the loops, or even set a number of times to
  follow a loop.
 
+Independent rendering sessions
+-------------------------------
+The classic API keeps one process-global set of decoder settings.  Files
+opened with ModPlug_Load() therefore share a single mixer configuration
+(sample rate, bit depth, channel count, resampling, stereo separation,
+polyphony cap, loop count and the noise reduction/reverb/megabass/surround
+parameters) as well as the master effect filter histories and the mixer
+callback.  Loading or reconfiguring another module can change what a module
+that is already playing sounds like.
+
+ModPlug_LoadWithSettings(data, size, settings) instead copies the supplied
+ModPlug_Settings and returns a handle with its own rendering session:
+
+- every setting, including all five effect switches and parameters and the
+  four resampling modes, is private to the handle;
+- later changes to the caller's struct or calls to ModPlug_SetSettings()
+  never affect the handle, and the explicit load never changes the global
+  defaults;
+- noise reduction, reverb, megabass and surround histories, volume-ramp
+  leftovers, the mixer clock and the mixer callback all stay with their
+  owning handle;
+- ModPlug_Read() interleaved across several such handles returns exactly the
+  same byte counts, PCM and order/row as reading each handle on its own,
+  including when reads stop in the middle of a tick.
+
+Temporary per-call mix buffers may still be shared; only state that must
+survive across ModPlug_Read() calls is per-session.  Calls remain serialized
+- the sessions are not thread-safe, and seeking keeps its existing
+  approximate behavior.
+
 ------------------
 4. Troubleshooting
 ------------------

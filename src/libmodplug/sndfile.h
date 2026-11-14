@@ -13,6 +13,34 @@
 #ifndef __SNDFILE_H
 #define __SNDFILE_H
 
+// Rendering configuration and DSP history live in a per-file session
+// (see session.h).  These names used to be CSoundFile static members / file
+// scope globals; route every reference at the currently active session so
+// that interleaved ModPlugFile handles cannot influence each other.
+struct ModPlugSession;
+namespace ModPlug { ModPlugSession& ActiveSession(); }
+
+#define m_nXBassDepth       (ModPlug::ActiveSession().m_nXBassDepth_)
+#define m_nXBassRange       (ModPlug::ActiveSession().m_nXBassRange_)
+#define m_nReverbDepth      (ModPlug::ActiveSession().m_nReverbDepth_)
+#define m_nReverbDelay      (ModPlug::ActiveSession().m_nReverbDelay_)
+#define gnReverbType        (ModPlug::ActiveSession().gnReverbType_)
+#define m_nProLogicDepth    (ModPlug::ActiveSession().m_nProLogicDepth_)
+#define m_nProLogicDelay    (ModPlug::ActiveSession().m_nProLogicDelay_)
+#define m_nStereoSeparation (ModPlug::ActiveSession().m_nStereoSeparation_)
+#define m_nMaxMixChannels   (ModPlug::ActiveSession().m_nMaxMixChannels_)
+#define m_nStreamVolume     (ModPlug::ActiveSession().m_nStreamVolume_)
+#define gdwSysInfo          (ModPlug::ActiveSession().gdwSysInfo_)
+#define gdwSoundSetup       (ModPlug::ActiveSession().gdwSoundSetup_)
+#define gdwMixingFreq       (ModPlug::ActiveSession().gdwMixingFreq_)
+#define gnBitsPerSample     (ModPlug::ActiveSession().gnBitsPerSample_)
+#define gnChannels          (ModPlug::ActiveSession().gnChannels_)
+#define gnAGC               (ModPlug::ActiveSession().gnAGC_)
+#define gnVolumeRampSamples (ModPlug::ActiveSession().gnVolumeRampSamples_)
+#define gnVUMeter           (ModPlug::ActiveSession().gnVUMeter_)
+#define gnCPUUsage          (ModPlug::ActiveSession().gnCPUUsage_)
+#define gpSndMixHook        (ModPlug::ActiveSession().gpSndMixHook_)
+
 #ifdef UNDER_CE
 int _strnicmp(const char *str1,const char *str2, int n);
 #endif
@@ -540,26 +568,8 @@ class MODPLUG_EXPORT CSoundFile
 //==============
 {
 public:	// Static Members
-	static UINT m_nXBassDepth;
-	static UINT m_nXBassRange;
-	static UINT m_nReverbDepth;
-	static UINT m_nReverbDelay;
-	static UINT gnReverbType;
-	static UINT m_nProLogicDepth;
-	static UINT m_nProLogicDelay;
-	static UINT m_nStereoSeparation;
-	static UINT m_nMaxMixChannels;
-	static LONG m_nStreamVolume;
-	static DWORD gdwSysInfo;
-	static DWORD gdwSoundSetup;
-	static DWORD gdwMixingFreq;
-	static DWORD gnBitsPerSample;
-	static DWORD gnChannels;
-	static UINT gnAGC;
-	static UINT gnVolumeRampSamples;
-	static UINT gnVUMeter;
-	static UINT gnCPUUsage;
-	static LPSNDMIXHOOKPROC gpSndMixHook;
+	// Mixer configuration and DSP parameters are per ModPlugFile session
+	// state; see session.h and the routing macros above.
 	static PMIXPLUGINCREATEPROC gpMixPluginCreateProc;
 
 public:	// for Editing
@@ -693,13 +703,13 @@ public:
 	static BOOL SetMixConfig(UINT nStereoSeparation, UINT nMaxMixChannels);
 	static BOOL SetWaveConfig(UINT nRate,UINT nBits,UINT nChannels,BOOL bMMX=FALSE);
 	static BOOL SetResamplingMode(UINT nMode); // SRCMODE_XXXX
-	static BOOL IsStereo() { return (gnChannels > 1) ? TRUE : FALSE; }
-	static DWORD GetSampleRate() { return gdwMixingFreq; }
-	static DWORD GetBitsPerSample() { return gnBitsPerSample; }
+	static BOOL IsStereo();
+	static DWORD GetSampleRate();
+	static DWORD GetBitsPerSample();
 	static DWORD InitSysInfo();
-	static DWORD GetSysInfo() { return gdwSysInfo; }
+	static DWORD GetSysInfo();
 	// AGC
-	static BOOL GetAGC() { return (gdwSoundSetup & SNDMIX_AGC) ? TRUE : FALSE; }
+	static BOOL GetAGC();
 	static void SetAGC(BOOL b);
 	static void ResetAGC();
 	static void ProcessAGC(int count);
@@ -952,8 +962,11 @@ typedef struct WAVEEXTRAHEADER
 #define MOD2XMFineTune(k)	((int)( (signed char)((k)<<4) ))
 #define XM2MODFineTune(k)	((int)( (k>>4)&0x0f ))
 
-int _muldiv(long a, long b, long c);
-int _muldivr(long a, long b, long c);
+// These are free functions shared across translation units; give them export
+// visibility so hidden-visibility library builds (and macOS libtool's
+// incremental partial links) can resolve them.
+MODPLUG_EXPORT int _muldiv(long a, long b, long c);
+MODPLUG_EXPORT int _muldivr(long a, long b, long c);
 
 
 // Functions to read 16 and 32 bits endian-specific data and return in native format:
@@ -1040,5 +1053,10 @@ ARM_get32(const void *data)
 #define bswapBE16(X) bswap_16(X)
 #define bswapBE32(X) bswap_32(X)
 #endif
+
+// Complete per-session state plus routing macros for the remaining legacy
+// file-scope mixer globals.  session.h re-includes this header, but the
+// include guard makes either inclusion order safe.
+#include "session.h"
 
 #endif

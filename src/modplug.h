@@ -48,13 +48,24 @@ typedef void (*ModPlugMixerProc)(int*, unsigned long, unsigned long);
 
 /* Load a mod file.  [data] should point to a block of memory containing the complete
  * file, and [size] should be the size of that block.
- * Return the loaded mod file on success, or NULL on failure. */
+ * Return the loaded mod file on success, or NULL on failure.
+ *
+ * The file is driven by the process-global settings (ModPlug_GetSettings /
+ * ModPlug_SetSettings): every open file shares one mixer configuration and one
+ * set of master effect histories, so loading another file or changing the
+ * global settings can affect this file's rendering.
+ * ModPlug_LoadWithSettings() below opens an isolated rendering session
+ * instead. */
 MODPLUG_EXPORT ModPlugFile* ModPlug_Load(const void* data, int size);
 /* Unload a mod file. */
 MODPLUG_EXPORT void ModPlug_Unload(ModPlugFile* file);
 
 /* Read sample data into the buffer.  Returns the number of bytes read.  If the end
- * of the mod has been reached, zero is returned. */
+ * of the mod has been reached, zero is returned.  For files opened with
+ * ModPlug_LoadWithSettings(), the byte count and PCM format follow that
+ * handle's private settings; small reads that stop in the middle of a tick keep
+ * their exact progress, so interleaving reads from several handles produces
+ * the same bytes and order/row as reading each handle on its own. */
 MODPLUG_EXPORT int  ModPlug_Read(ModPlugFile* file, void* buffer, int size);
 
 /* Get the name of the mod.  The returned buffer is stored within the ModPlugFile
@@ -70,7 +81,9 @@ MODPLUG_EXPORT int ModPlug_GetLength(ModPlugFile* file);
  * does not scan the sequence backwards to find out which instruments were supposed to be
  * playing at that time.  (Doing so would be difficult and not very reliable.)  Also,
  * note that seeking is not very exact in some mods -- especially those for which
- * ModPlug_GetLength() does not report the full length. */
+ * ModPlug_GetLength() does not report the full length.  The same approximate positioning
+ * applies to independent render sessions; no sample-accurate seek is provided.  A seek
+ * only touches the handle it is called on. */
 MODPLUG_EXPORT void ModPlug_Seek(ModPlugFile* file, int millisecond);
 
 enum _ModPlug_Flags
@@ -114,9 +127,34 @@ typedef struct _ModPlug_Settings
 			      * -1 loops forever. */
 } ModPlug_Settings;
 
-/* Get and set the mod decoder settings.  All options, except for channels, bits-per-sample,
- * sampling rate, and loop count, will take effect immediately.  Those options which don't
- * take effect immediately will take effect the next time you load a mod. */
+/* Load a mod file into an independent rendering session.  Behaves like
+ * ModPlug_Load(), except that [settings] is copied and becomes the private
+ * configuration of the returned handle:
+ *
+ *  - every ModPlug_Settings field is honored (channels, bits, frequency, the
+ *    four resampling modes, stereo separation, maximum mix channels, loop
+ *    count and all five effect switches with their parameters);
+ *  - later changes to the caller's struct, or calls to ModPlug_SetSettings(),
+ *    never affect the returned handle, and loading this file does not change
+ *    the global default settings either;
+ *  - the mixer clock, output format, volume-ramp leftovers, noise reduction /
+ *    reverb / megabass / surround filter histories and the mixer callback are
+ *    all owned by the handle.  Several such handles may be read interleaved
+ *    without one changing another's PCM, playback position or order/row;
+ *  - ModPlug_Read() returns bytes in the format selected by the copied
+ *    settings (bits/8 * channels per frame).
+ *
+ * Returns NULL when [settings] is NULL or the module cannot be loaded.
+ * Rendering sessions are not thread-safe; calls are expected to be
+ * serialized, just as with ModPlug_Load(). */
+MODPLUG_EXPORT ModPlugFile* ModPlug_LoadWithSettings(const void* data, int size, const ModPlug_Settings* settings);
+
+/* Get and set the process-global mod decoder settings, used by files opened
+ * with ModPlug_Load().  All options, except for channels, bits-per-sample,
+ * sampling rate, and loop count, will take effect immediately.  Those options
+ * which don't take effect immediately will take effect the next time you load
+ * a mod.  Handles returned by ModPlug_LoadWithSettings() keep private copies
+ * of their settings and are never affected by these functions. */
 MODPLUG_EXPORT void ModPlug_GetSettings(ModPlug_Settings* settings);
 MODPLUG_EXPORT void ModPlug_SetSettings(const ModPlug_Settings* settings);
 
@@ -172,14 +210,18 @@ MODPLUG_EXPORT ModPlugNote* ModPlug_GetPattern(ModPlugFile* file, int pattern, u
  * =================
  *
  * Use this callback if you want to 'modify' the mixed data of LibModPlug.
- * 
- * void proc(int* buffer,unsigned long channels,unsigned long nsamples) ;
+ *
+ * void proc(int* buffer,unsigned long nsamples,unsigned long channels) ;
  *
  * 'buffer': A buffer of mixed samples
+ * 'nsamples': N. of samples in the buffer (including all channels)
  * 'channels': N. of channels in the buffer
- * 'nsamples': N. of samples in the buffeer (without taking care of n.channels)
  *
  * (Samples are signed 32-bit integers)
+ *
+ * The callback is stored per ModPlugFile: it is invoked only while that file
+ * is being read, with the same buffer/nsamples/channels convention above, and
+ * unloading a file or clearing its callback never touches any other handle.
  */
 MODPLUG_EXPORT void ModPlug_InitMixerCallback(ModPlugFile* file,ModPlugMixerProc proc) ;
 MODPLUG_EXPORT void ModPlug_UnloadMixerCallback(ModPlugFile* file) ;
