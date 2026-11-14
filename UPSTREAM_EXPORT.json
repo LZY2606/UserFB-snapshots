@@ -1,0 +1,65 @@
+{
+  "repo": "https://github.com/trailofbits/pe-parse",
+  "commit": "31ac5966503689d5693cd9fb520bd525a8710e17",
+  "license": "MIT",
+  "unmodified_upstream_files": [
+    {
+      "path": "LICENSE",
+      "sha256": "5fb0c373b1b1077d3ae66fab21516a3c58dc2265e0480e526aaa8ff8da377dc6",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/LICENSE"
+    },
+    {
+      "path": "VERSION",
+      "sha256": "7b3ff271f1373cfb97e9e53349794e1450f3794e4c0788c54a2060c7596da821",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/VERSION"
+    },
+    {
+      "path": "pe-parser-library/include/pe-parse/nt-headers.h",
+      "sha256": "333b11c7d8fa7ddd546226c8a37f3d51d629b170293ddca0477ad173a98b50af",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/include/pe-parse/nt-headers.h"
+    },
+    {
+      "path": "pe-parser-library/include/pe-parse/parse.h",
+      "sha256": "f56b250fe738dff2b83a47d75b61f0fdb7ef3b9f2c53ff1378008b17d8661bc7",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/include/pe-parse/parse.h"
+    },
+    {
+      "path": "pe-parser-library/include/pe-parse/to_string.h",
+      "sha256": "a95e7510b465b62660139b06bb983cdfe28b94d5fa2a6e0af74a09fb95950e31",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/include/pe-parse/to_string.h"
+    },
+    {
+      "path": "pe-parser-library/src/buffer.cpp",
+      "sha256": "89693e33f5d50d8c459a27e782c85abae55fc137397b7d251474fb16771d19bd",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/src/buffer.cpp"
+    },
+    {
+      "path": "pe-parser-library/src/parse.cpp",
+      "sha256": "c951b329533c634c73375fd1869c72b921e22f1e0be4a0171748c8d72cd95b0a",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/src/parse.cpp"
+    },
+    {
+      "path": "pe-parser-library/src/unicode_codecvt.cpp",
+      "sha256": "223c6323b5c3c127d1056c1ebd940522bd105ae2f9fd5814603445920361de47",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/src/unicode_codecvt.cpp"
+    },
+    {
+      "path": "pe-parser-library/src/unicode_winapi.cpp",
+      "sha256": "24b0493c72d50a141e7623866afb19bcb556855b6a30d2e779454ece6a2919bd",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/pe-parser-library/src/unicode_winapi.cpp"
+    },
+    {
+      "path": "tests/simple_test.cpp",
+      "sha256": "e3054aac18b975ee8d51572a5b9598c66df89ba47f10281edd0c35b85ccd3bc5",
+      "source": "https://github.com/trailofbits/pe-parse/blob/31ac5966503689d5693cd9fb520bd525a8710e17/tests/simple_test.cpp"
+    }
+  ],
+  "support": "task_support is newly authored build/material scaffolding only",
+  "optional_exclusions": {
+    ".gitmodules": "references only optional Corkami dataset tests",
+    "tests/assets/corkami-poc-dataset": "gitlink befb3632214640a4af20be3b463f41e4b82f04f6; not initialized or used",
+    "CMakeLists.txt and other CMake/test infrastructure": "optional upstream Catch fetch; task uses direct production compilation",
+    "tests/assets and other tests": "upstream binary samples and optional suites unused; original simple_test.cpp retained for source context",
+    "pepy and packaging/docs": "not part of production runtime path"
+  }
+}
