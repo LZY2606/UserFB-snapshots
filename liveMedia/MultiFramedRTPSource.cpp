@@ -104,6 +104,44 @@ Boolean MultiFramedRTPSource
   return True;
 }
 
+Boolean MultiFramedRTPSource
+::handleReceivedPacket(BufferedPacket* /*bPacket*/, u_int32_t /*rtpSSRC*/) {
+  // Default implementation: use the base class's single-SSRC reordering logic.
+  return False;
+}
+
+void MultiFramedRTPSource::afterFrameDelivered() {
+  // Default implementation: nothing more to do.
+}
+
+void MultiFramedRTPSource
+::setCurrentDeliveryParams(u_int16_t seqNum, u_int32_t rtpTimestamp,
+			   struct timeval presentationTime,
+			   Boolean hasBeenSyncedUsingRTCP,
+			   Boolean markerBit) {
+  fCurPacketRTPSeqNum = seqNum;
+  fCurPacketRTPTimestamp = rtpTimestamp;
+  fPresentationTime = presentationTime;
+  fCurPacketHasBeenSynchronizedUsingRTCP = hasBeenSyncedUsingRTCP;
+  fCurPacketMarkerBit = markerBit;
+}
+
+void MultiFramedRTPSource::deliverCurrentFrame() {
+  // Call our own 'after getting' function directly.  This is the same common
+  // case optimization as in doGetNextFrame1(): the caller is responsible for
+  // ensuring there is no risk of unbounded recursion (e.g. by rescheduling via
+  // the event loop when further frames are already queued).
+  afterGetting(this);
+}
+
+BufferedPacket* MultiFramedRTPSource::getFreeBufferedPacket() {
+  return fReorderingBuffer->getFreePacket(this);
+}
+
+void MultiFramedRTPSource::releaseBufferedPacket(BufferedPacket* packet) {
+  fReorderingBuffer->freePacket(packet);
+}
+
 void MultiFramedRTPSource::doStopGettingFrames() {
   if (fPacketReadInProgress != NULL) {
     fReorderingBuffer->freePacket(fPacketReadInProgress);
@@ -206,6 +244,9 @@ void MultiFramedRTPSource::doGetNextFrame1() {
 	nextTask() = envir().taskScheduler().scheduleDelayedTask(0,
 								 (TaskFunc*)FramedSource::afterGetting, this);
       }
+      // Let subclasses (e.g. the multi-SSRC H.264 receiver) deliver any
+      // further frames that became ready while this one was being processed:
+      afterFrameDelivered();
     } else {
       // This packet contained fragmented data, and does not complete
       // the data that the client wants.  Keep getting data:
@@ -336,6 +377,12 @@ void MultiFramedRTPSource::networkReadHandler1() {
     bPacket->assignMiscParams(rtpSeqNo, rtpTimestamp, presentationTime,
 			      hasBeenSyncedUsingRTCP, rtpMarkerBit,
 			      timeNow);
+    if (handleReceivedPacket(bPacket, rtpSSRC)) {
+      // A subclass (e.g. the multi-SSRC H.264 receiver) has taken ownership of
+      // this packet and processed it using its own per-SSRC state.
+      readSuccess = True;
+      break;
+    }
     if (!fReorderingBuffer->storePacket(bPacket)) break;
 
     readSuccess = True;

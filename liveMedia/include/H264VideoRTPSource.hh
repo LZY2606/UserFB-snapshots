@@ -25,12 +25,32 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "MultiFramedRTPSource.hh"
 #endif
 
+class H264MultiSSRCReception; // internal per-SSRC reassembly/reordering state
+
 class H264VideoRTPSource: public MultiFramedRTPSource {
 public:
   static H264VideoRTPSource*
   createNew(UsageEnvironment& env, Groupsock* RTPgs,
 	    unsigned char rtpPayloadFormat,
 	    unsigned rtpTimestampFrequency = 90000);
+
+  // Multi-SSRC reception.  By default (False), this source behaves exactly
+  // like a single-SSRC receiver: a change of SSRC resets the reordering state,
+  // and only one in-progress NAL unit can exist at a time.
+  // When enabled, packets from several SSRCs arriving interleaved on the same
+  // RTP channel are tracked independently.  Each SSRC gets its own sequence
+  // number reordering, FU-A reassembly, loss detection and media timing, and
+  // complete NAL units are delivered through the usual getNextFrame() callback
+  // in the order in which they become ready.  Must be called before the first
+  // getNextFrame(); no extra sockets or port rebinding are used.
+  void enableMultiSSRCReception(Boolean enable);
+  Boolean multiSSRCReceptionEnabled() const { return fMultiSSRCReceptionEnabled; }
+
+  // SSRC of the NAL unit most recently delivered to the getNextFrame() callback.
+  u_int32_t curPacketSSRC() const { return fCurPacketSSRC; }
+
+  // Also applies the threshold to each per-SSRC reordering queue:
+  virtual void setPacketReorderingThresholdTime(unsigned uSeconds);
 
 protected:
   H264VideoRTPSource(UsageEnvironment& env, Groupsock* RTPgs,
@@ -45,10 +65,38 @@ protected:
   virtual Boolean processSpecialHeader(BufferedPacket* packet,
                                        unsigned& resultSpecialHeaderSize);
   virtual char const* MIMEtype() const;
+  virtual void doGetNextFrame();
+  virtual void doStopGettingFrames();
+
+  // Hooks for the per-SSRC reception state (only active when multi-SSRC
+  // reception is enabled).  The default implementations cover single NAL
+  // units, STAP-A and FU-A; subclasses can extend them.
+  virtual void resetReceptionState();
+
+private:
+  // redefined virtual functions:
+  virtual Boolean handleReceivedPacket(BufferedPacket* bPacket, u_int32_t rtpSSRC);
+  virtual void afterFrameDelivered();
+
+  // Used by H264MultiSSRCReception:
+  friend class H264MultiSSRCReception;
+  void noteReadyDataAvailable(); // a complete NAL became deliverable
+  BufferedPacket* acquireBufferedPacket();
+  void releaseAcquiredBufferedPacket(BufferedPacket* packet);
+  void deliverNextReadyNAL();
+  static void deliveryTask(void* clientData); // event-loop delivery trampoline
 
 private:
   friend class H264BufferedPacket;
   unsigned char fCurPacketNALUnitType;
+
+protected:
+  Boolean fMultiSSRCReceptionEnabled;
+  u_int32_t fCurPacketSSRC; // SSRC of the frame currently being delivered
+
+private:
+  H264MultiSSRCReception* fMultiSSRCReception;
+  Boolean fDeliveryTaskPending; // an afterGetting event-loop task is queued
 };
 
 class SPropRecord {

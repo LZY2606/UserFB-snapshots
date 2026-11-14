@@ -91,8 +91,9 @@ public:
   // RTP sequence numbers and timestamps are usually not useful to receivers.
   // (Our implementation of RTP reception already does all needed handling of RTP sequence numbers and timestamps.)
   u_int16_t curPacketRTPSeqNum() const { return fCurPacketRTPSeqNum; }
-private: friend class MediaSubsession; // "MediaSubsession" is the only outside class that ever needs to see RTP timestamps!
   u_int32_t curPacketRTPTimestamp() const { return fCurPacketRTPTimestamp; }
+      // RTP timestamp of the frame most recently delivered to the client (read-only)
+  friend class MediaSubsession; // "MediaSubsession" also needs to see RTP timestamps!
 
 protected:
   RTPSource(UsageEnvironment& env, Groupsock* RTPgs,

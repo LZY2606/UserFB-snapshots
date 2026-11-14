@@ -30,7 +30,7 @@ MISC_SINK_OBJS = MediaSink.$(OBJ) FileSink.$(OBJ) BasicUDPSink.$(OBJ) AMRAudioFi
 MISC_FILTER_OBJS = uLawAudioFilter.$(OBJ)
 TRANSPORT_STREAM_TRICK_PLAY_OBJS = MPEG2IndexFromTransportStream.$(OBJ) MPEG2TransportStreamIndexFile.$(OBJ) MPEG2TransportStreamTrickModeFilter.$(OBJ)
 
-RTP_SOURCE_OBJS = RTPSource.$(OBJ) MultiFramedRTPSource.$(OBJ) SimpleRTPSource.$(OBJ) H261VideoRTPSource.$(OBJ) H264VideoRTPSource.$(OBJ) H265VideoRTPSource.$(OBJ) QCELPAudioRTPSource.$(OBJ) AMRAudioRTPSource.$(OBJ) VorbisAudioRTPSource.$(OBJ) TheoraVideoRTPSource.$(OBJ) VP8VideoRTPSource.$(OBJ) VP9VideoRTPSource.$(OBJ) RawVideoRTPSource.$(OBJ)
+RTP_SOURCE_OBJS = RTPSource.$(OBJ) MultiFramedRTPSource.$(OBJ) SimpleRTPSource.$(OBJ) H261VideoRTPSource.$(OBJ) H264VideoRTPSource.$(OBJ) H264MultiSSRCReception.$(OBJ) H265VideoRTPSource.$(OBJ) QCELPAudioRTPSource.$(OBJ) AMRAudioRTPSource.$(OBJ) VorbisAudioRTPSource.$(OBJ) TheoraVideoRTPSource.$(OBJ) VP8VideoRTPSource.$(OBJ) VP9VideoRTPSource.$(OBJ) RawVideoRTPSource.$(OBJ)
 RTP_SINK_OBJS = RTPSink.$(OBJ) MultiFramedRTPSink.$(OBJ) AudioRTPSink.$(OBJ) VideoRTPSink.$(OBJ) TextRTPSink.$(OBJ)
 RTP_INTERFACE_OBJS = RTPInterface.$(OBJ)
 RTP_OBJS = $(RTP_SOURCE_OBJS) $(RTP_SINK_OBJS) $(RTP_INTERFACE_OBJS)
@@ -89,8 +89,9 @@ SimpleRTPSource.$(CPP):	include/SimpleRTPSource.hh
 include/SimpleRTPSource.hh:	include/MultiFramedRTPSource.hh
 H261VideoRTPSource.$(CPP):	include/H261VideoRTPSource.hh
 include/H261VideoRTPSource.hh:	include/MultiFramedRTPSource.hh
-H264VideoRTPSource.$(CPP):      include/H264VideoRTPSource.hh include/Base64.hh
+H264VideoRTPSource.$(CPP):      include/H264VideoRTPSource.hh H264MultiSSRCReception.hh include/Base64.hh
 include/H264VideoRTPSource.hh:  include/MultiFramedRTPSource.hh
+H264MultiSSRCReception.$(CPP):	H264MultiSSRCReception.hh include/H264VideoRTPSource.hh include/MultiFramedRTPSource.hh
 H265VideoRTPSource.$(CPP):      include/H265VideoRTPSource.hh
 include/H265VideoRTPSource.hh:  include/MultiFramedRTPSource.hh
 QCELPAudioRTPSource.$(CPP):	include/QCELPAudioRTPSource.hh include/MultiFramedRTPSource.hh include/FramedFilter.hh

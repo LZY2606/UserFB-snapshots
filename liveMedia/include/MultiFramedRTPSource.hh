@@ -47,6 +47,38 @@ protected:
 						    unsigned packetSize);
       // The default implementation returns True, but this can be redefined
 
+  // Called from the network read handler after the RTP header has been
+  // validated, reception stats have been recorded, and the packet descriptor
+  // has had its RTP parameters assigned.  If this returns True, the subclass
+  // has taken ownership of the packet (it must eventually free or consume it)
+  // and the base class's single-SSRC reordering/storage logic is skipped.
+  // Returning False gives the packet the normal single-SSRC treatment.
+  virtual Boolean handleReceivedPacket(BufferedPacket* bPacket, u_int32_t rtpSSRC);
+
+  // Called immediately after a complete frame has been delivered to the
+  // client.  A subclass that still holds more ready frames can arrange another
+  // delivery here by scheduling an afterGetting task.  Default: do nothing.
+  virtual void afterFrameDelivered();
+
+protected:
+  // Delivery state used by subclasses that implement their own packet
+  // reassembly (see "handleReceivedPacket()"):
+  unsigned char*& savedToRef() { return fSavedTo; }
+  unsigned& savedMaxSizeRef() { return fSavedMaxSize; }
+  unsigned& frameSizeRef() { return fFrameSize; }
+  unsigned& numTruncatedBytesRef() { return fNumTruncatedBytes; }
+  void setCurrentDeliveryParams(u_int16_t seqNum, u_int32_t rtpTimestamp,
+				struct timeval presentationTime,
+				Boolean hasBeenSyncedUsingRTCP,
+				Boolean markerBit);
+  void deliverCurrentFrame(); // invoke the client's afterGetting callback
+
+  // Packet-descriptor pool, backed by the same reordering buffer as the
+  // normal receive path.  Subclasses that consume packets themselves (see
+  // "handleReceivedPacket()") use these instead of allocating descriptors:
+  BufferedPacket* getFreeBufferedPacket();
+  void releaseBufferedPacket(BufferedPacket* packet);
+
 protected:
   Boolean fCurrentPacketBeginsFrame;
   Boolean fCurrentPacketCompletesFrame;
@@ -55,9 +87,6 @@ protected:
   // redefined virtual functions:
   virtual void doGetNextFrame();
   virtual void doStopGettingFrames();
-
-private:
-  // redefined virtual functions:
   virtual void setPacketReorderingThresholdTime(unsigned uSeconds);
 
 private:
@@ -108,6 +137,9 @@ public:
   BufferedPacket*& nextPacket() { return fNextPacket; }
 
   unsigned short rtpSeqNo() const { return fRTPSeqNo; }
+  unsigned rtpTimestamp() const { return fRTPTimestamp; }
+  struct timeval const& presentationTime() const { return fPresentationTime; }
+  Boolean hasBeenSyncedUsingRTCP() const { return fHasBeenSyncedUsingRTCP; }
   struct timeval const& timeReceived() const { return fTimeReceived; }
 
   unsigned char* data() const { return &fBuf[fHead]; }

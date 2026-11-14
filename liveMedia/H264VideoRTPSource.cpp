@@ -19,7 +19,9 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 // Implementation
 
 #include "H264VideoRTPSource.hh"
+#include "H264MultiSSRCReception.hh"
 #include "Base64.hh"
+#include <string.h>
 
 ////////// H264BufferedPacket and H264BufferedPacketFactory //////////
 
@@ -48,7 +50,7 @@ H264VideoRTPSource::createNew(UsageEnvironment& env, Groupsock* RTPgs,
 			      unsigned char rtpPayloadFormat,
 			      unsigned rtpTimestampFrequency) {
   return new H264VideoRTPSource(env, RTPgs, rtpPayloadFormat,
-				rtpTimestampFrequency);
+					rtpTimestampFrequency);
 }
 
 H264VideoRTPSource
@@ -56,10 +58,156 @@ H264VideoRTPSource
 		     unsigned char rtpPayloadFormat,
 		     unsigned rtpTimestampFrequency)
   : MultiFramedRTPSource(env, RTPgs, rtpPayloadFormat, rtpTimestampFrequency,
-			 new H264BufferedPacketFactory) {
+			 new H264BufferedPacketFactory),
+    fCurPacketNALUnitType(0), fMultiSSRCReceptionEnabled(False),
+    fCurPacketSSRC(0), fMultiSSRCReception(NULL),
+    fDeliveryTaskPending(False) {
 }
 
 H264VideoRTPSource::~H264VideoRTPSource() {
+  delete fMultiSSRCReception;
+}
+
+void H264VideoRTPSource::enableMultiSSRCReception(Boolean enable) {
+  if (enable == fMultiSSRCReceptionEnabled) return;
+
+  fMultiSSRCReceptionEnabled = enable;
+  if (enable) {
+    if (fMultiSSRCReception == NULL) {
+      fMultiSSRCReception = new H264MultiSSRCReception(*this);
+    }
+  } else {
+    delete fMultiSSRCReception;
+    fMultiSSRCReception = NULL;
+  }
+  fCurPacketSSRC = 0;
+}
+
+void H264VideoRTPSource::resetReceptionState() {
+  if (fMultiSSRCReception != NULL) fMultiSSRCReception->reset();
+  fCurPacketSSRC = 0;
+}
+
+void H264VideoRTPSource::doGetNextFrame() {
+  fDeliveryTaskPending = False;
+  // The base implementation starts background network reading (if needed)
+  // and drives the single-SSRC reordering buffer.  In multi-SSRC mode that
+  // buffer stays empty because every usable packet is claimed by
+  // handleReceivedPacket(), so this simply prepares the delivery request:
+  MultiFramedRTPSource::doGetNextFrame();
+
+  if (fMultiSSRCReceptionEnabled) deliverNextReadyNAL();
+}
+
+void H264VideoRTPSource::doStopGettingFrames() {
+  // First the base teardown: stop network reads, drop the base reordering
+  // buffer and any in-flight packet descriptor (this also cancels nextTask):
+  MultiFramedRTPSource::doStopGettingFrames();
+  fDeliveryTaskPending = False;
+
+  // Then forget every per-SSRC reordering queue, half-assembled FU-A NAL and
+  // NAL unit waiting for delivery, so a later getNextFrame() starts clean:
+  resetReceptionState();
+}
+
+Boolean H264VideoRTPSource
+::handleReceivedPacket(BufferedPacket* bPacket, u_int32_t rtpSSRC) {
+  if (!fMultiSSRCReceptionEnabled || fMultiSSRCReception == NULL) {
+    return False; // normal single-SSRC processing in the base class
+  }
+  fMultiSSRCReception->handleReceivedPacket(bPacket, rtpSSRC);
+  return True; // we own the packet now
+}
+
+void H264VideoRTPSource::afterFrameDelivered() {
+  if (fMultiSSRCReceptionEnabled) deliverNextReadyNAL();
+}
+
+void H264VideoRTPSource
+::setPacketReorderingThresholdTime(unsigned uSeconds) {
+  MultiFramedRTPSource::setPacketReorderingThresholdTime(uSeconds);
+  if (fMultiSSRCReception != NULL) {
+    fMultiSSRCReception->setThresholdTime(uSeconds);
+  }
+}
+
+BufferedPacket* H264VideoRTPSource::acquireBufferedPacket() {
+  return getFreeBufferedPacket();
+}
+
+void H264VideoRTPSource
+::releaseAcquiredBufferedPacket(BufferedPacket* packet) {
+  releaseBufferedPacket(packet);
+}
+
+void H264VideoRTPSource::noteReadyDataAvailable() {
+  // Only deliver if a client is currently waiting for a frame; otherwise the
+  // NAL stays queued until the next getNextFrame():
+  if (isCurrentlyAwaitingData()) deliverNextReadyNAL();
+}
+
+void H264VideoRTPSource::deliverNextReadyNAL() {
+  if (!fMultiSSRCReceptionEnabled || fMultiSSRCReception == NULL) return;
+  if (!isCurrentlyAwaitingData()) return;
+  // A frame already assembled into the client's buffer is waiting for its
+  // event-loop delivery.  Do not pop another NAL over it; the pending task
+  // drains the queue when it runs:
+  if (fDeliveryTaskPending) return;
+
+  H264ReadyNAL* nal = fMultiSSRCReception->popReadyNAL();
+  if (nal == NULL) return; // nothing ready yet; the network handler will wake us
+
+  // Assemble the frame into the client's buffer, with the same truncation
+  // semantics as the normal BufferedPacket delivery path:
+  unsigned char* savedTo = savedToRef();
+  unsigned savedMaxSize = savedMaxSizeRef();
+  unsigned nalSize = nal->size();
+  unsigned bytesUsed = nalSize <= savedMaxSize ? nalSize : savedMaxSize;
+  numTruncatedBytesRef() = nalSize - bytesUsed;
+  memmove(savedTo, nal->data(), bytesUsed);
+  frameSizeRef() = bytesUsed;
+
+  if (numTruncatedBytesRef() > 0) {
+    envir() << "H264VideoRTPSource::deliverNextReadyNAL(): The received NAL unit size exceeds the client's buffer size ("
+	    << savedMaxSize << ").  "
+	    << numTruncatedBytesRef() << " bytes of trailing data will be dropped!\n";
+  }
+
+  // Metadata of the delivered frame.  For FU-A the timestamp/presentation
+  // time come from the start fragment and the sequence number/marker from
+  // the end fragment; H264ReadyNAL already recorded exactly those values.
+  fCurPacketSSRC = nal->ssrc();
+  setCurrentDeliveryParams(nal->endSeqNum(), nal->rtpTimestamp(),
+			   nal->presentationTime(),
+			   nal->hasBeenSyncedUsingRTCP(), nal->markerBit());
+  delete nal;
+
+  if (fMultiSSRCReception->hasReadyData()) {
+    // More NAL units are queued.  Deliver this one through the event loop to
+    // avoid unbounded recursion through the client's callback.  The guard
+    // ensures a packet arriving re-entrantly while a delivery task is already
+    // queued never overwrites "nextTask()" with a second task:
+    if (!fDeliveryTaskPending) {
+      fDeliveryTaskPending = True;
+      nextTask() = envir().taskScheduler()
+	.scheduleDelayedTask(0, (TaskFunc*)deliveryTask, this);
+    }
+  } else {
+    // Common case: nothing else is queued, so a direct callback is safe.
+    deliverCurrentFrame();
+  }
+}
+
+void H264VideoRTPSource::deliveryTask(void* clientData) {
+  H264VideoRTPSource* source = static_cast<H264VideoRTPSource*>(clientData);
+  source->fDeliveryTaskPending = False;
+
+  // Deliver the frame already assembled into the client's buffer:
+  FramedSource::afterGetting(source);
+
+  // The client callback has either re-armed a read or stopped.  Keep draining
+  // any further ready NAL units while a read is still outstanding:
+  if (source->isCurrentlyAwaitingData()) source->deliverNextReadyNAL();
 }
 
 Boolean H264VideoRTPSource
