@@ -1,0 +1,10 @@
+--- a/silk/decode_parameters.c
++++ b/silk/decode_parameters.c
+@@ -60,6 +60,7 @@
+         psDec->indices.NLSFInterpCoef_Q2 = 4;
+     }
+ 
++    silk_memcpy( psDec->prevNLSF_Q15, pNLSF_Q15, psDec->LPC_order * sizeof( opus_int16 ) );
+     if( psDec->indices.NLSFInterpCoef_Q2 < 4 ) {
+         /* Calculation of the interpolated NLSF0 vector from the interpolation factor, */
+         /* the previous NLSF1, and the current NLSF1                                   */
