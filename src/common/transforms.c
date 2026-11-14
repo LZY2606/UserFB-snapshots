@@ -79,6 +79,26 @@ void tform_vector_transpose(struct vector *vec, const struct matrix4x4 mat) {
 	tform_vector(vec, t);
 }
 
+struct vector tform_point_error(const struct matrix4x4 m, const struct vector point, const struct vector localError) {
+	// Worst-case propagated error of the linear part: the absolute-value matrix
+	// applied to the per-axis local error, which stays valid under non-uniform
+	// scale, shear and a negative determinant.
+	struct vector propagated;
+	propagated.x = fabsf(m.mtx[0][0]) * localError.x + fabsf(m.mtx[0][1]) * localError.y + fabsf(m.mtx[0][2]) * localError.z;
+	propagated.y = fabsf(m.mtx[1][0]) * localError.x + fabsf(m.mtx[1][1]) * localError.y + fabsf(m.mtx[1][2]) * localError.z;
+	propagated.z = fabsf(m.mtx[2][0]) * localError.x + fabsf(m.mtx[2][1]) * localError.y + fabsf(m.mtx[2][2]) * localError.z;
+
+	// Rounding error incurred while evaluating the affine point expression itself.
+	// A handful of ulps of the (possibly large) transformed point covers the fused
+	// multiply-adds in tform_point() without depending on a scene-wide epsilon.
+	const struct vector rounding = {
+		fabsf(point.x) * (4.0f * FLT_EPSILON) + FLT_MIN,
+		fabsf(point.y) * (4.0f * FLT_EPSILON) + FLT_MIN,
+		fabsf(point.z) * (4.0f * FLT_EPSILON) + FLT_MIN,
+	};
+	return vec_add(propagated, rounding);
+}
+
 struct transform tform_new_rot_x(float rads) {
 	struct transform transform = tform_new();
 	float cosRads = cosf(rads);

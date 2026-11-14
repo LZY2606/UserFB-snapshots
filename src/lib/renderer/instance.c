@@ -43,12 +43,26 @@ static bool intersectSphere(const struct instance *instance, const struct lightR
 	struct lightRay copy = *ray;
 	tform_ray(&copy, instance->composite.Ainv);
 	struct sphere *sphere = &(*((struct sphere **)instance->object_arr))[instance->object_idx];
-	copy.start = vec_add(copy.start, vec_scale(copy.direction, sphere->rayOffset));
+	// The ray origin is no longer shifted by a bounding-box-sized epsilon here;
+	// self-intersection handling lives in spawn_surface_ray() where the hit record's
+	// conservative point error is available.  Because tform_ray() applies Ainv to both
+	// origin and direction, a point at parameter t on the local ray is exactly the
+	// inverse image of the world-ray point at the same t, so distance keeps its meaning
+	// as the original ray parameter even under non-uniform scale.
 	if (rayIntersectsWithSphere(&copy, sphere, isect)) {
+		const struct vector localError = isect->pointError;
+		const struct vector localGeometric = isect->geometricNormal;
 		isect->uv = getTexMapSphere(isect);
 		isect->polygon = NULL;
 		isect->bsdf = instance->bbuf->bsdfs[0];
 		tform_point(&isect->hitPoint, instance->composite.A);
+		isect->pointError = tform_point_error(instance->composite.A, isect->hitPoint, localError);
+		// Outward unit normal of the transformed implicit surface.  The inverse
+		// transpose maps the local gradient; it stays outward for mirrored (negative
+		// determinant) transforms as well.
+		struct vector geometric = localGeometric;
+		tform_vector_transpose(&geometric, instance->composite.Ainv);
+		isect->geometricNormal = vec_normalize(geometric);
 		tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv);
 		return true;
 	}
@@ -157,10 +171,22 @@ static bool intersectMesh(const struct instance *instance, const struct lightRay
 	struct lightRay copy = *ray;
 	tform_ray(&copy, instance->composite.Ainv);
 	struct mesh *mesh = &(*((struct mesh **)instance->object_arr))[instance->object_idx];
-	copy.start = vec_add(copy.start, vec_scale(copy.direction, mesh->rayOffset));
+	// No bounding-box-based origin shift: the ray parameter must stay comparable
+	// across instances and the spawned secondary ray handles self-intersection.
 	if (traverse_bottom_level_bvh(mesh, &copy, isect, sampler)) {
+		const struct vector localError = isect->pointError;
+		const struct vector localGeometric = isect->geometricNormal;
 		isect->bsdf = instance->bbuf->bsdfs[isect->polygon->materialIndex];
 		tform_point(&isect->hitPoint, instance->composite.A);
+		isect->pointError = tform_point_error(instance->composite.A, isect->hitPoint, localError);
+		// The geometric normal comes from the transformed oriented edge cross product:
+		// inverse-transpose of the unit local normal, then re-normalized.  A negative
+		// determinant flips orientation consistently because both edges pick up the same
+		// mirroring.  The smoothed surfaceNormal uses the same transform but is kept
+		// separate and is never used to decide the spawned ray side.
+		struct vector geometric = localGeometric;
+		tform_vector_transpose(&geometric, instance->composite.Ainv);
+		isect->geometricNormal = vec_normalize(geometric);
 		tform_vector_transpose(&isect->surfaceNormal, instance->composite.Ainv);
 		isect->surfaceNormal = vec_normalize(isect->surfaceNormal);
 		// Repopulate uv with actual texture mapping

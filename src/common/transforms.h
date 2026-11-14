@@ -9,6 +9,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <float.h>
 
 /*
  C-ray's matrices use a *row-major* notation.
@@ -58,3 +59,10 @@ bool mat_eq(struct matrix4x4, struct matrix4x4);
 void tform_point(struct vector *vec, struct matrix4x4);
 void tform_vector(struct vector *vec, struct matrix4x4);
 void tform_vector_transpose(struct vector *vec, struct matrix4x4);
+
+// Transform a per-axis, non-negative conservative position error of a point through
+// an affine transform.  The linear part L maps the local error box |e_local| to
+// |L| * e_local (component-wise absolute values), and rounding of the transformed
+// point itself is folded in through a few ulps.  Valid for non-uniform scale, shear
+// and negative determinants alike.
+struct vector tform_point_error(const struct matrix4x4 m, const struct vector point, const struct vector localError);

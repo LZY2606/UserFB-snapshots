@@ -13,6 +13,7 @@
 #include <datatypes/scene.h>
 #include <datatypes/poly.h>
 #include <renderer/instance.h>
+#include <renderer/ray_spawn.h>
 #include <accelerators/bvh.h>
 #include <common/transforms.h>
 #include "samplers/sampler.h"
@@ -45,7 +46,18 @@ struct color path_trace(struct lightRay incident, const struct world *scene, int
 		// }
 		if (bounce == max_bounces) break;
 
-		currentRay = sample.out;
+		if (vec_dot(sample.out.direction, sample.out.direction) > 0.0f) {
+			// A real surface scattering event.  The origin is derived from the hit
+			// record's geometric normal and point error here, so the shader's own
+			// hitPoint-based start never reaches the intersection code.  Reflection
+			// stays on the incident side while transmission and glass refraction
+			// continue through the surface.
+			currentRay = spawn_surface_ray(&isect, sample.out.direction, sample.out.type);
+		} else {
+			// No surface event (e.g. a background sample): never extrapolate an
+			// origin from the hit point.
+			currentRay = sample.out;
+		}
 		const struct color attenuation = sample.weight;
 		
 		// Russian Roulette - Abort a path early if it won't contribute much to the final image
