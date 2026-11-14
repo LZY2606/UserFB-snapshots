@@ -26,9 +26,9 @@ Things to keep in mind:
 
 	GLint part;
 	GLint dx1, dy1, dx2, dy2;
-#if TGL_FEATURE_POLYGON_STIPPLE == 1
+	/* current integer scanline: stipple row, and the y at which the texture
+	 * plane coefficients are evaluated (always tracked, stipple or not) */
 	GLint the_y;
-#endif
 	GLint error, derror;
 	GLint x1, dxdy_min, dxdy_max;
 	/* warning: x2 is multiplied by 2^16 */
@@ -47,9 +47,15 @@ Things to keep in mind:
 	GLint t1, dtdx, dtdy, dtdl_min, dtdl_max;
 #endif
 #ifdef INTERP_STZ
-	GLfloat sz1, dszdx, dszdy, dszdl_min, dszdl_max;
-	GLfloat tz1, dtzdx, dtzdy, dtzdl_min, dtzdl_max;
-	GLfloat fdzdx, fndzdx, ndszdx, ndtzdx;
+	/*
+	 * Screen-space planes for s/w, t/w and 1/w.  They are evaluated at
+	 * the integer sample point of each scanline; keeping them in double
+	 * is what makes the per-pixel rational division agree with the
+	 * reference to well under one texel even for strong perspective.
+	 */
+	double dszdx, dszdy;
+	double dtzdx, dtzdy;
+	double dwzdx, dwzdy;
 #endif
 
 	/* we sort the vertex with increasing y */
@@ -139,37 +145,48 @@ Things to keep in mind:
 
 #ifdef INTERP_STZ
 		{
-			GLfloat zedzed;
-			zedzed = (GLfloat)p0->z;
-			p0->sz = (GLfloat)p0->s * zedzed;
-			p0->tz = (GLfloat)p0->t * zedzed;
-			zedzed = (GLfloat)p1->z;
-			p1->sz = (GLfloat)p1->s * zedzed;
-			p1->tz = (GLfloat)p1->t * zedzed;
-			zedzed = (GLfloat)p2->z;
-			p2->sz = (GLfloat)p2->s * zedzed;
-			p2->tz = (GLfloat)p2->t * zedzed;
-		}
-		{
-			d1 = p1->sz - p0->sz;
-			d2 = p2->sz - p0->sz;
-			dszdx = (fdy2 * d1 - fdy1 * d2);
-			dszdy = (fdx1 * d2 - fdx2 * d1);
-		}
-		{
-			d1 = p1->tz - p0->tz;
-			d2 = p2->tz - p0->tz;
-			dtzdx = (fdy2 * d1 - fdy1 * d2);
-			dtzdy = (fdx1 * d2 - fdx2 * d1);
+			/*
+			 * Recompute the inverse-area coefficients in double from the
+			 * integer screen vertices.  The float ones above are fine for
+			 * colour/z, but the texture values are O(1e8) fixed-point and
+			 * a 1e-7 relative error in the slope is already a visible
+			 * fraction of a texel far from the first vertex.
+			 */
+			double tdx1 = (double)(p1->x - p0->x);
+			double tdy1 = (double)(p1->y - p0->y);
+			double tdx2 = (double)(p2->x - p0->x);
+			double tdy2 = (double)(p2->y - p0->y);
+			double tdet = tdx1 * tdy2 - tdx2 * tdy1;
+			double tfdx1, tfdy1, tfdx2, tfdy2;
+			if (tdet != 0.0) {
+				tfdx1 = tdx1 / tdet;
+				tfdy1 = tdy1 / tdet;
+				tfdx2 = tdx2 / tdet;
+				tfdy2 = tdy2 / tdet;
+			} else {
+				/* Degenerate on screen: there is no plane to evaluate. */
+				tfdx1 = tfdy1 = tfdx2 = tfdy2 = 0.0;
+			}
+			double dd1, dd2;
+			dd1 = 1.0 / (double)p1->w - 1.0 / (double)p0->w;
+			dd2 = 1.0 / (double)p2->w - 1.0 / (double)p0->w;
+			dwzdx = (tfdy2 * dd1 - tfdy1 * dd2);
+			dwzdy = (tfdx1 * dd2 - tfdx2 * dd1);
+			dd1 = (double)p1->s / (double)p1->w - (double)p0->s / (double)p0->w;
+			dd2 = (double)p2->s / (double)p2->w - (double)p0->s / (double)p0->w;
+			dszdx = (tfdy2 * dd1 - tfdy1 * dd2);
+			dszdy = (tfdx1 * dd2 - tfdx2 * dd1);
+			dd1 = (double)p1->t / (double)p1->w - (double)p0->t / (double)p0->w;
+			dd2 = (double)p2->t / (double)p2->w - (double)p0->t / (double)p0->w;
+			dtzdx = (tfdy2 * dd1 - tfdy1 * dd2);
+			dtzdy = (tfdx1 * dd2 - tfdx2 * dd1);
 		}
 #endif
 	} 
 	/* screen coordinates */
 
 	pp1 = (PIXEL*)(zb->pbuf) + zb->xsize * p0->y; 
-#if TGL_FEATURE_POLYGON_STIPPLE == 1
 	the_y = p0->y;
-#endif
 	pz1 = zb->zbuf + p0->y * zb->xsize;
 
 	DRAW_INIT();
@@ -257,14 +274,6 @@ Things to keep in mind:
 				t1 = l1->t;
 				dtdl_min = (dtdy + dtdx * dxdy_min);
 				dtdl_max = dtdl_min + dtdx;
-#endif
-#ifdef INTERP_STZ
-				sz1 = l1->sz;
-				dszdl_min = (dszdy + dszdx * dxdy_min);
-				dszdl_max = dszdl_min + dszdx;
-				tz1 = l1->tz;
-				dtzdl_min = (dtzdy + dtzdx * dxdy_min);
-				dtzdl_max = dtzdl_min + dtzdx;
 #endif
 			}
 			/* compute values for the right edge */
@@ -366,10 +375,6 @@ Things to keep in mind:
 				s1 += dsdl_max;
 				t1 += dtdl_max;
 #endif
-#ifdef INTERP_STZ
-				sz1 += dszdl_max;
-				tz1 += dtzdl_max;
-#endif
 			} else {
 				x1 += dxdy_min;
 #ifdef INTERP_Z
@@ -384,10 +389,6 @@ Things to keep in mind:
 				s1 += dsdl_min;
 				t1 += dtdl_min;
 #endif
-#ifdef INTERP_STZ
-				sz1 += dszdl_min;
-				tz1 += dtzdl_min;
-#endif
 			}
 
 			/* right edge */
@@ -396,9 +397,7 @@ Things to keep in mind:
 			/* screen coordinates */
 			
 			pp1 += zb->xsize;
-#if TGL_FEATURE_POLYGON_STIPPLE == 1
 			the_y++;
-#endif
 			pz1 += zb->xsize;
 		}
 	}

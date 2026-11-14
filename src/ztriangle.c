@@ -265,6 +265,21 @@ void ZB_setTexture(ZBuffer* zb, PIXEL* texture) { zb->current_texture = texture;
 
 #if 1
 
+/*
+ * Textured scanline filler.
+ *
+ * The per-scanline locals sz/tz/wz hold s/w, t/w and 1/w at the integer
+ * sample point (x1, the_y); w is the homogeneous clip-space w.  They are
+ * rebuilt for every scanline from the double-precision plane equations,
+ * then stepped by dszdx/dtzdx/dwzdx along the span.  For every covered
+ * pixel the texture coordinates come from one division:
+ *
+ *     u = (sum lambda_i * u_i / w_i) / (sum lambda_i / w_i)
+ *
+ * which is the exact perspective-correct rational interpolation.  Window z
+ * is interpolated separately and is used only by the depth test and depth
+ * buffer; it never takes part in the texture lookup.
+ */
 #define DRAW_LINE_TRI_TEXTURED()                                                                                                                               \
 	{                                                                                                                                                          \
 		register GLushort* pz;                                                                                                                                 \
@@ -272,62 +287,31 @@ void ZB_setTexture(ZBuffer* zb, PIXEL* texture) { zb->current_texture = texture;
 		register GLuint s, t, z;                                                                                                                               \
 		register GLint n;                                                                                                                                      \
 		OR1OG1OB1DECL                                                                                                                                          \
-		GLfloat sz, tz, fzl, zinv;                                                                                                                             \
+		double sz, tz, wz;                                                                                                                                     \
+		GLint line_y = the_y;                                                                                                                                  \
+		/*                                                                                                                                                     \
+		 * Anchor s/w, t/w and 1/w at the integer sample (x1, line_y) with the                                                                                 \
+		 * exact plane equations through the three integer vertex samples.                                                                                    \
+		 * This evaluates the rational interpolation at the sampled pixel                                                                                     \
+		 * itself instead of accumulating edge-walk rounding.                                                                                                 \
+		 */                                                                                                                                                   \
+		sz = (double)p0->s / (double)p0->w + dszdx * (x1 - p0->x) + dszdy * (line_y - p0->y);                                                                 \
+		tz = (double)p0->t / (double)p0->w + dtzdx * (x1 - p0->x) + dtzdy * (line_y - p0->y);                                                                 \
+		wz = 1.0 / (double)p0->w + dwzdx * (x1 - p0->x) + dwzdy * (line_y - p0->y);                                                                           \
 		n = (x2 >> 16) - x1;                                                                                                                                   \
-		fzl = (GLfloat)z1;                                                                                                                                     \
-		zinv = 1.0 / fzl;                                                                                                                                      \
 		pp = (PIXEL*)((GLbyte*)pp1 + x1 * PSZB);                                                                                                               \
 		pz = pz1 + x1;                                                                                                                                         \
 		z = z1;                                                                                                                                                \
-		sz = sz1;                                                                                                                                              \
-		tz = tz1;                                                                                                                                              \
-		while (n >= (NB_INTERP - 1)) {                                                                                                                         \
-			register GLint dsdx, dtdx;                                                                                                                         \
-			{                                                                                                                                                  \
-				GLfloat ss, tt;                                                                                                                                \
-				ss = (sz * zinv);                                                                                                                              \
-				tt = (tz * zinv);                                                                                                                              \
-				s = (GLint)ss;                                                                                                                                 \
-				t = (GLint)tt;                                                                                                                                 \
-				dsdx = (GLint)((dszdx - ss * fdzdx) * zinv);                                                                                                   \
-				dtdx = (GLint)((dtzdx - tt * fdzdx) * zinv);                                                                                                   \
-			}                                                                                                                                                  \
-			fzl += fndzdx;                                                                                                                                     \
-			zinv = 1.0 / fzl;                                                                                                                                  \
-			PUT_PIXEL(0); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(1); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(2); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(3); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(4); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(5); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(6); /*the_x++;*/                                                                                                                         \
-			PUT_PIXEL(7); /*the_x-=7;*/                                                                                                                        \
-			pz += NB_INTERP;                                                                                                                                   \
-			pp += NB_INTERP; /*the_x+=NB_INTERP * PSZB;*/                                                                                                      \
-			n -= NB_INTERP;                                                                                                                                    \
-			sz += ndszdx;                                                                                                                                      \
-			tz += ndtzdx;                                                                                                                                      \
+		while (n >= 0) {                                                                                                                                       \
+			double winv = 1.0 / wz;                                                                                                                            \
+			s = (GLint)(sz * winv);                                                                                                                            \
+			t = (GLint)(tz * winv);                                                                                                                            \
+			PUT_PIXEL(0);                                                                                                                                      \
+			pz += 1;                                                                                                                                           \
+			pp++;                                                                                                                                              \
+			n -= 1;                                                                                                                                            \
 		}                                                                                                                                                      \
-		{                                                                                                                                                      \
-			register GLint dsdx, dtdx;                                                                                                                         \
-			{                                                                                                                                                  \
-				GLfloat ss, tt;                                                                                                                                \
-				ss = (sz * zinv);                                                                                                                              \
-				tt = (tz * zinv);                                                                                                                              \
-				s = (GLint)ss;                                                                                                                                 \
-				t = (GLint)tt;                                                                                                                                 \
-				dsdx = (GLint)((dszdx - ss * fdzdx) * zinv);                                                                                                   \
-				dtdx = (GLint)((dtzdx - tt * fdzdx) * zinv);                                                                                                   \
-			}                                                                                                                                                  \
-			while (n >= 0) {                                                                                                                                   \
-				PUT_PIXEL(0);                                                                                                                                  \
-				pz += 1;                                                                                                                                       \
-				/*pp = (PIXEL*)((GLbyte*)pp + PSZB);*/                                                                                                         \
-				pp++;                                                                                                                                          \
-				n -= 1;                                                                                                                                        \
-			}                                                                                                                                                  \
-		}                                                                                                                                                      \
-	} 
+	}
 
 void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
 	PIXEL* texture;
@@ -340,17 +324,9 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 #define INTERP_STZ
 #define INTERP_RGB
 
-
-#define NB_INTERP 8
-
 #define DRAW_INIT()                                                                                                                                            \
-	{                                                                                                                                                          \
-		texture = zb->current_texture;                                                                                                                         \
-		fdzdx = (GLfloat)dzdx;                                                                                                                                 \
-		fndzdx = NB_INTERP * fdzdx;                                                                                                                            \
-		ndszdx = NB_INTERP * dszdx;                                                                                                                            \
-		ndtzdx = NB_INTERP * dtzdx;                                                                                                                            \
-	}
+	{ texture = zb->current_texture; }
+
 #if TGL_FEATURE_LIT_TEXTURES == 1
 #define OR1OG1OB1DECL                                                                                                                                          \
 	register GLint or1, og1, ob1;                                                                                                                              \
@@ -382,8 +358,9 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		sz += dszdx;                                                                                                                                           \
+		tz += dtzdx;                                                                                                                                           \
+		wz += dwzdx;                                                                                                                                           \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #else
@@ -399,8 +376,9 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		sz += dszdx;                                                                                                                                           \
+		tz += dtzdx;                                                                                                                                           \
+		wz += dwzdx;                                                                                                                                           \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #endif
@@ -420,16 +398,8 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 #define INTERP_STZ
 #define INTERP_RGB
 
-#define NB_INTERP 8
-
 #define DRAW_INIT()                                                                                                                                            \
-	{                                                                                                                                                          \
-		texture = zb->current_texture;                                                                                                                         \
-		fdzdx = (GLfloat)dzdx;                                                                                                                                 \
-		fndzdx = NB_INTERP * fdzdx;                                                                                                                            \
-		ndszdx = NB_INTERP * dszdx;                                                                                                                            \
-		ndtzdx = NB_INTERP * dtzdx;                                                                                                                            \
-	}
+	{ texture = zb->current_texture; }
 #if TGL_FEATURE_LIT_TEXTURES == 1
 #define OR1OG1OB1DECL                                                                                                                                          \
 	register GLint or1, og1, ob1;                                                                                                                              \
@@ -459,8 +429,9 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		sz += dszdx;                                                                                                                                           \
+		tz += dtzdx;                                                                                                                                           \
+		wz += dwzdx;                                                                                                                                           \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #else
@@ -477,8 +448,9 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
-		s += dsdx;                                                                                                                                             \
-		t += dtdx;                                                                                                                                             \
+		sz += dszdx;                                                                                                                                           \
+		tz += dtzdx;                                                                                                                                           \
+		wz += dwzdx;                                                                                                                                           \
 		OR1G1B1INCR                                                                                                                                            \
 	}
 #endif

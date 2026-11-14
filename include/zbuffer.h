@@ -279,8 +279,21 @@ typedef struct {
   GLint x,y,z;     /* integer coordinates in the zbuffer */
   GLint s,t;       /* coordinates for the mapping */
   GLint r,g,b;     /* color indexes */
-  
-  GLfloat sz,tz;   /* temporary coordinates for mapping */
+
+  /*
+   * w is the homogeneous clip-space w of the vertex (the fourth
+   * component produced by the projection, before the perspective
+   * divide).  The textured rasterizer interpolates s/w, t/w and 1/w in
+   * screen space and divides per pixel, so window-space z is only used
+   * for the depth test/store.
+   *
+   * Any code that builds a ZBufferPoint directly and calls
+   * ZB_fillTriangleMappingPerspective[NOBLEND]() must initialise w to
+   * the projected homogeneous w.  Orthographic/affine callers which
+   * have no separate projection w should pass 1.0.  It must be positive
+   * for a rasterizable vertex.
+   */
+  GLfloat w;
 } ZBufferPoint;
 
 /* zbuffer.c */

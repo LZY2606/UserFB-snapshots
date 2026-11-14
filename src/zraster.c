@@ -53,6 +53,7 @@ void glopRasterPos(GLParam* p) {
 			v.zp.x = (GLint)(v.pc.X * winv * c->viewport.scale.X + c->viewport.trans.X);
 			v.zp.y = (GLint)(v.pc.Y * winv * c->viewport.scale.Y + c->viewport.trans.Y);
 			v.zp.z = (GLint)(v.pc.Z * winv * c->viewport.scale.Z + c->viewport.trans.Z);
+			v.zp.w = v.pc.W;
 		}
 		c->rasterpos.v[0] = v.zp.x;
 		c->rasterpos.v[1] = v.zp.y;

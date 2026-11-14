@@ -575,6 +575,47 @@ texture objects.
   src/zfeatures.h can be used to remove some unused features from
   TinyGL.
 
+### Perspective-correct texture mapping and the low-level ZBufferPoint
+
+Textured triangles are perspective corrected using the vertex's
+homogeneous clip-space `w` (the fourth component produced by the
+projection, before the perspective divide).  The rasterizer interpolates
+`s/w`, `t/w` and `1/w` across the integer screen triangle and performs one
+division per covered pixel:
+
+```
+u = (sum_i lambda_i * u_i / w_i) / (sum_i lambda_i / w_i)
+```
+
+with `lambda_i` the screen-space barycentric weights.  Window `z` is
+interpolated and compared independently and is used only for the depth test
+and the depth buffer, so changing vertex depth (or the clip `z`) under an
+orthographic projection never moves the texture.  `u` and `v` are then
+quantised to the existing fixed-point texture coordinates, which keeps the
+existing repeat/nearest addressing and colour modulation untouched.
+
+The interpolation itself is done in double precision on purpose: the
+fixed-point `s`/`t` values are around 1e8 and the plane evaluation cancels
+large products, so single-precision slopes would drift by up to a texel
+across a scanline.  Every covered pixel therefore matches the rational
+quotient to within a single nearest-neighbour rounding (the only
+disagreements are UVs exactly on a texel-sampling tie).
+
+`ZBufferPoint` gained a `w` member.  If you call
+`ZB_fillTriangleMappingPerspective()` or
+`ZB_fillTriangleMappingPerspectiveNOBLEND()` directly (bypassing
+`glVertex*`), you must set `zp.w` on all three vertices:
+
+* perspective vertices: the projected homogeneous `w` (positive),
+* orthographic/affine vertices: `1.0`.
+
+The library's own vertex paths (`glVertex*`, arrays, and both sides of the
+clipper) fill `w` automatically, including vertices created by near-plane
+and side-plane clipping.  Nothing else in `ZBufferPoint` is part of the
+perspective state; there are no persistent per-context perspective
+coefficients, so changing texture, projection or replaying a display list
+cannot carry over values from a previous triangle.
+
 - C sources for GCC on 32/64 bit architectures. It has been tested
 succesfully on x86-Linux and sparc-Solaris.
 
