@@ -1,0 +1,38 @@
+--- a/codec/matrix_dec.c
++++ b/codec/matrix_dec.c
+@@ -69,7 +69,7 @@
+ 		{
+ 			int32_t		l, r;
+ 
+-			l = u[j] + v[j] - ((mixres * v[j]) >> mixbits);
++			l = u[j] + v[j] - ((mixres * v[j]) / (1 << mixbits));
+ 			r = l - v[j];
+ 
+ 			op[0] = (int16_t) l;
+@@ -104,7 +104,7 @@
+ 		{
+ 			int32_t		l, r;
+ 
+-			l = u[j] + v[j] - ((mixres * v[j]) >> mixbits);
++			l = u[j] + v[j] - ((mixres * v[j]) / (1 << mixbits));
+ 			r = l - v[j];
+ 
+ 			l <<= 4;
+@@ -163,7 +163,7 @@
+ 		{
+ 			for ( j = 0, k = 0; j < numSamples; j++, k += 2 )
+ 			{
+-				l = u[j] + v[j] - ((mixres * v[j]) >> mixbits);
++				l = u[j] + v[j] - ((mixres * v[j]) / (1 << mixbits));
+ 				r = l - v[j];
+ 
+ 				l = (l << shift) | (uint32_t) shiftUV[k + 0];
+@@ -185,7 +185,7 @@
+ 		{
+ 			for ( j = 0; j < numSamples; j++ )
+ 			{
+-				l = u[j] + v[j] - ((mixres * v[j]) >> mixbits);
++				l = u[j] + v[j] - ((mixres * v[j]) / (1 << mixbits));
+ 				r = l - v[j];
+ 
+ 				op[HBYTE] = (uint8_t)((l >> 16) & 0xffu);
