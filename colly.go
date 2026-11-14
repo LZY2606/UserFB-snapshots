@@ -138,6 +138,7 @@ type Collector struct {
 	requestCount             atomic.Uint32
 	responseCount            atomic.Uint32
 	backend                  *httpBackend
+	digest                   *digestState
 	wg                       *sync.WaitGroup
 	lock                     *sync.RWMutex
 	// CacheExpiration sets the maximum age for cache files.
@@ -509,6 +510,7 @@ func (c *Collector) Init() {
 	jar, _ := cookiejar.New(nil)
 	c.backend.Init(jar)
 	c.backend.Client.CheckRedirect = c.checkRedirectFunc()
+	c.digest = newDigestState()
 	c.wg = &sync.WaitGroup{}
 	c.lock = &sync.RWMutex{}
 	c.robotsMap = make(map[string]*robotstxt.RobotsData)
@@ -745,7 +747,7 @@ func (c *Collector) fetch(u, method string, depth int, requestData io.Reader, ct
 		c.handleOnRequestHeaders(request)
 		return !request.abort
 	}
-	response, err := c.backend.Cache(req, c.MaxBodySize, checkRequestHeadersFunc, checkResponseHeadersFunc, c.CacheDir, c.CacheExpiration)
+	response, err := c.doRequest(req, c.MaxBodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
 	if proxyURL, ok := req.Context().Value(ProxyURLKey).(string); ok {
 		request.ProxyURL = proxyURL
 	}
@@ -1460,6 +1462,7 @@ func (c *Collector) Clone() *Collector {
 		Context:                c.Context,
 		store:                  c.store,
 		backend:                c.backend,
+		digest:                 c.digest,
 		debugger:               c.debugger,
 		Async:                  c.Async,
 		redirectHandler:        c.redirectHandler,

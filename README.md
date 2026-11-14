@@ -94,6 +94,34 @@ func main() {
 
 See [examples folder](https://github.com/gocolly/colly/tree/master/_examples) for more detailed examples.
 
+### HTTP Digest authentication
+
+`SetDigestAuth` registers ASCII credentials for an origin. Credentials are sent
+only after a `401` carrying a supported Digest challenge (SHA-256 /
+SHA-256-sess, `qop=auth` or `qop=auth-int`); the challenge/response exchange is
+transparent to callbacks and supports `auth-int` body replay and `stale`
+nonce refreshes. Configure origins before scraping.
+
+```go
+c := colly.NewCollector()
+
+// origin: absolute http(s) URL, no userinfo/query/fragment, path empty or "/"
+if err := c.SetDigestAuth("https://reports.example.com", "collector", "s3cret"); err != nil {
+	log.Fatal(err)
+}
+
+c.OnResponse(func(r *colly.Response) {
+	fmt.Println("authenticated:", r.StatusCode)
+})
+
+c.Visit("https://reports.example.com/reports/monthly")
+```
+
+Requests whose origin has credentials bypass `CacheDir`, and a request that
+already carries an `Authorization` header keeps the old behavior. Collectors
+created with `Clone` share one authentication session (and its nonce counters),
+while separately created collectors each get their own.
+
 ## Installation
 
 `go get github.com/gocolly/colly/v2`

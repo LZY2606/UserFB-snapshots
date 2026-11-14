@@ -155,8 +155,12 @@ func (h *httpBackend) GetMatchingRule(domain string) *LimitRule {
 }
 
 func (h *httpBackend) Cache(request *http.Request, bodySize int, checkRequestHeadersFunc checkRequestHeadersFunc, checkResponseHeadersFunc checkResponseHeadersFunc, cacheDir string, cacheExpiration time.Duration) (*Response, error) {
+	return h.cacheWithClient(h.Client, request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc, cacheDir, cacheExpiration)
+}
+
+func (h *httpBackend) cacheWithClient(client *http.Client, request *http.Request, bodySize int, checkRequestHeadersFunc checkRequestHeadersFunc, checkResponseHeadersFunc checkResponseHeadersFunc, cacheDir string, cacheExpiration time.Duration) (*Response, error) {
 	if cacheDir == "" || request.Method != "GET" || request.Header.Get("Cache-Control") == "no-cache" {
-		return h.Do(request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
+		return h.doWithClient(client, request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
 	}
 	sum := sha1.Sum([]byte(request.URL.String()))
 	hash := hex.EncodeToString(sum[:])
@@ -178,7 +182,7 @@ func (h *httpBackend) Cache(request *http.Request, bodySize int, checkRequestHea
 			return resp, err
 		}
 	}
-	resp, err := h.Do(request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
+	resp, err := h.doWithClient(client, request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
 	if err != nil || resp.StatusCode >= 500 {
 		return resp, err
 	}
@@ -200,6 +204,10 @@ func (h *httpBackend) Cache(request *http.Request, bodySize int, checkRequestHea
 }
 
 func (h *httpBackend) Do(request *http.Request, bodySize int, checkRequestHeadersFunc checkRequestHeadersFunc, checkResponseHeadersFunc checkResponseHeadersFunc) (*Response, error) {
+	return h.doWithClient(h.Client, request, bodySize, checkRequestHeadersFunc, checkResponseHeadersFunc)
+}
+
+func (h *httpBackend) doWithClient(client *http.Client, request *http.Request, bodySize int, checkRequestHeadersFunc checkRequestHeadersFunc, checkResponseHeadersFunc checkResponseHeadersFunc) (*Response, error) {
 	r := h.GetMatchingRule(request.URL.Host)
 	if r != nil {
 		r.waitChan <- true
@@ -215,7 +223,7 @@ func (h *httpBackend) Do(request *http.Request, bodySize int, checkRequestHeader
 	if !checkRequestHeadersFunc(request) {
 		return nil, ErrAbortedBeforeRequest
 	}
-	res, err := h.Client.Do(request)
+	res, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
