@@ -64,6 +64,37 @@
 
 - [RenderHelp](https://github.com/skywind3000/RenderHelp)：另外一个支持可编程渲染管线的精简软渲染器实现，详细见 [介绍](https://skywind.me/blog/archives/2589)。
 
+## 连续快门（运动模糊）
+
+快速运动的三角形按单帧绘制会一闪一闪。`motion_render` 提供一个离线的连续快门入口，按整个曝光期间真正看得见的颜色成像，而不是对几个时刻的画面取平均。
+
+* 头文件：`mini3d.h` 暴露原来的核心类型与函数；`motion.h` 暴露连续快门接口，实现在 `motion.c`。
+* 入口：`int motion_render(device_t *device, const motion_triangle *triangles, size_t count, double *rgb)`。
+* 输入：每个 `motion_triangle` 含 `open[3]` / `close[3]` 两组 `vertex_t`，两端下标相同的是同一个顶点；世界位置随 `t∈[0,1]` 线性移动，顶点 RGB 在快门期间不变并取 `open` 的 `color`。
+* 前提：调用方已更新 `device->transform`，合成矩阵是有限仿射矩阵且保持 `w=1`；所有端点都在原 CVV 内；颜色有限且在 `[0,1]`。坐标约定复用 `transform_apply` / `transform_homogenize`，按 `(x+.5, y+.5)` 看像素，双面、不透明、无纹理。
+* 成像规则：每时刻用屏幕重心坐标插值 window-z 与 RGB，z 小的遮住 z 大的；深度恰好相等时输入下标小的优先；无覆盖处取 `device->background` 的 RGB/255。共边按左上角半开规则归属，不重复也不露背景缝。背景不带深度，不读旧 zbuffer。
+* 事件切分：边越过像素中心、投影朝向改变（面积过零）、覆盖面之间在该像素的深度交换，都会精确求根切分时间。深度差是重心有理函数，对应最高五次多项式，用 Sturm 序列隔离全部实根，不做固定时间采样、不靠加密采样猜事件。段内颜色用带误差控制的自适应 Simpson 积分，普通解析场景各通道绝对误差不超过 1e-7。
+* 输出：`rgb` 为 `width*height*3` 个 double、按行存放的 `[0,1]` 时间积分；随后逐通道夹取，用 `floor(255*c+.5)` 一次量化写入原 framebuffer，成功返回 1。`count=0` 生成背景；指针无效或分配失败返回 0 且不发布部分图像。函数不改输入、矩阵、render_state、纹理和 zbuffer，可连续调用、多设备交错。
+* 整段时间投影面积恒为零的面直接忽略；三角形允许在孤立时刻退化或翻转。
+
+### 编译与运行
+
+只依赖 C99 标准库和 libm：
+
+```
+# 测试（编译 motion.c 与 tests/motion_target.c，并跑原单帧对照）
+bash task_support/run.sh target
+
+# 示例：输出有快门 / 没快门两张 PPM
+cc -std=c99 -O2 -DMINI3D_HEADLESS -I. examples/motion.c \
+   mini3d.c motion.c -lm -o motion_example
+./motion_example
+# 生成 motion_instant.ppm（单帧）与 motion_shutter.ppm（连续快门）
+```
+
+测试在 `tests/motion_target.c`，分 `events`、`integrals`、`pipeline` 三组，期望值均为独立手算，覆盖短暂穿越、快门内前后交换、非恒定顶点色积分、中途退化、共边网格、时间反转以及设备状态隔离等场景。
+
+
 ## 欢迎捐赠
 
 ![](https://raw.githubusercontent.com/skywind3000/mini3d/master/images/donation.png)
