@@ -13,6 +13,10 @@
 #include "fifo.h"
 #include "vr-coefs.h"
 
+/* Logical (source) time is tracked separately from the filter machinery, so
+ * finite-fragment endpoint handling and delay queries never move a filter
+ * phase.  The operating ratio range [1/8, 8] is enforced at the public API. */
+
 #define FADE_LEN_BITS     9
 #define PHASE_BITS_D      10
 #define PHASE_BITS_U      9
@@ -286,6 +290,17 @@ typedef struct {
   fifo_t output_fifo;
   half_iir_t halfer;
   stream_t current, fadeout; /* Current/fade-in, fadeout streams. */
+
+  /* Finite-fragment, logical-time state (independent of filter phases): */
+  double next_ratio;      /* Ratio to be used by the next output frame. */
+  double slew_target;     /* Ratio being slewed towards. */
+  double slew_start;      /* Ratio at frame 0 of the current slew. */
+  int slew_remaining;     /* Output frames left in the current slew. */
+  int slew_len_orig;      /* Length the current slew started with. */
+  double logical_time;    /* Sum of the ratios of all delivered frames. */
+  int64_t total_input;    /* Real input frames supplied (padding excluded). */
+  int eof;                /* End of the finite input has been signalled. */
+  int exhausted;          /* No further output can be generated. */
 } rate_t;
 
 static float fade_coefs[(2 << FADE_LEN_BITS) + 1];
@@ -310,6 +325,8 @@ static void vr_init(rate_t * p, double default_io_ratio, int num_stages, double 
   }
   fifo_create(&p->output_fifo, sizeof(float));
   p->default_io_ratio = default_io_ratio;
+  p->next_ratio = default_io_ratio;
+  p->slew_target = default_io_ratio;
   if (fade_coefs[0]==0) {
     for (i = 0; i < iAL(fade_coefs); ++i)
       fade_coefs[i] = (float)(.5 * (1 + cos(M_PI * i / (AL(fade_coefs) - 1))));
@@ -348,9 +365,22 @@ static bool set_step_step(stream_t * p, double io_ratio, int slew_len)
   return p->step_step.all != 0;
 }
 
+/* Ratio used by the next output frame under the logical-time rule: a slew of
+ * length L from r0 to rt uses r0 + (rt-r0)*k/L for k = 0..L-1, then rt. */
+static double vr_current_ratio(rate_t const * p)
+{
+  if (!p->slew_remaining)
+    return p->next_ratio;
+  return p->slew_start + (p->slew_target - p->slew_start) *
+      (double)(p->slew_len_orig - p->slew_remaining) / p->slew_len_orig;
+}
+
 static void vr_set_io_ratio(rate_t * p, double io_ratio, size_t slew_len)
 {
   assert(io_ratio > 0);
+  /* The [1/8, 8] operating range is enforced at the public API boundary; the
+   * ratio handed here at first use may be the (unconstrained) create-time
+   * value that only sizes the stage pipeline. */
   if (slew_len) {
     if (!set_step_step(&p->current, io_ratio, p->slew_len = (int)slew_len))
       p->slew_len = 0, p->new_io_ratio = 0, p->fadeout.step_step.all = 0;
@@ -358,6 +388,16 @@ static void vr_set_io_ratio(rate_t * p, double io_ratio, size_t slew_len)
       p->new_io_ratio = io_ratio;
       if (p->fade_len)
         set_step_step(&p->fadeout, io_ratio, p->slew_len);
+    }
+    /* Logical-time slew: continues from the ratio of the next frame; if the
+     * filter judged the change too small to slew, take the new ratio at once. */
+    p->slew_start = vr_current_ratio(p);
+    p->slew_target = io_ratio;
+    if (p->slew_len) {
+      p->slew_remaining = p->slew_len_orig = (int)slew_len;
+    } else {
+      p->slew_remaining = p->slew_len_orig = 0;
+      p->next_ratio = io_ratio;
     }
   }
   else {
@@ -371,7 +411,77 @@ static void vr_set_io_ratio(rate_t * p, double io_ratio, size_t slew_len)
     set_step(&p->current, io_ratio);
     if (p->default_io_ratio!=0) FRAC(p->current.at) = FRAC(p->current.step) >> 1;
     p->default_io_ratio = 0;
+    p->next_ratio = p->slew_target = io_ratio;
+    p->slew_remaining = p->slew_len_orig = 0;
   }
+}
+
+/* Advance the logical-time clock by n output frames actually generated. */
+static void vr_advance_logical(rate_t * p, int n)
+{
+  int i;
+  for (i = 0; i < n; ++i) {
+    double r = vr_current_ratio(p);
+    p->logical_time += r;
+    p->next_ratio = r;
+    if (p->slew_remaining) {
+      if (!--p->slew_remaining)
+        p->next_ratio = p->slew_target;
+    }
+  }
+}
+
+/* Logical source-time centre of the k-th future output frame (k = 0 is the
+ * next frame), using only logical-time state: local FIFO coordinates are
+ * never used as input time. */
+static double vr_future_center(rate_t const * p, int64_t k)
+{
+  double S = p->logical_time;
+  int rem = p->slew_remaining, orig = p->slew_len_orig;
+  double start = p->slew_start, target = p->slew_target, next = p->next_ratio;
+
+  if (rem) {
+    double d = (target - start) / orig;
+    double a = start + d * (orig - rem);
+    if (k < rem) {
+      double rk = a + d * (double)k;
+      double cum = a * (double)k + d * ((double)k * (double)(k - 1)) * .5;
+      return S + cum + rk * .5;
+    } {
+      double cum = a * (double)rem +
+          d * ((double)rem * (double)(rem - 1)) * .5;
+      return S + cum + target * (double)(k - rem) + target * .5;
+    }
+  }
+  return S + next * (double)k + next * .5;
+}
+
+/* Number of output frames whose logical source-time centre is <= n_in: */
+static int vr_logical_capacity(rate_t const * p, int64_t n_in)
+{
+  int64_t lo = 0, hi = 1, k;
+  if (n_in <= 0 || vr_future_center(p, 0) > (double)n_in)
+    return 0;
+  while (vr_future_center(p, hi) <= (double)n_in)
+    hi *= 2;
+  while (lo + 1 < hi) {
+    k = (lo + hi) >> 1;
+    if (vr_future_center(p, k) <= (double)n_in)
+      lo = k;
+    else
+      hi = k;
+  }
+  return (int)(lo + 1);
+}
+
+/* Output frames still deliverable from the current state if the input were to
+ * end (or has ended) with n_in real frames: the output FIFO contents plus all
+ * not-yet-generated frames whose logical source-time centre is <= n_in. */
+static int vr_remaining(rate_t * p, int64_t n_in)
+{
+  if (p->exhausted) /* The filter tail is spent; only the FIFO remains. */
+    return fifo_occupancy(&p->output_fifo);
+  return fifo_occupancy(&p->output_fifo) + vr_logical_capacity(p, n_in);
 }
 
 static bool do_input_stage(rate_t * p, int stage_num, int sign, int min_stage_num)
@@ -426,10 +536,22 @@ static int vr_process(rate_t * p, int olen0)
   assert(p->num_stages > 0);
   if (p->default_io_ratio!=0)
     vr_set_io_ratio(p, p->default_io_ratio, 0);
+  if (p->exhausted) /* Nothing more can be generated; FIFO is drained above. */
+    return 0;
+  if (p->eof) { /* Bound the request by the logical length rule:
+                             * only frames with source-time centre <= N. */
+    int cap = vr_logical_capacity(p, p->total_input);
+    olen0 = min(olen0, max(0, cap));
+  }
+  if (!olen0) {
+    if (p->eof)
+      p->exhausted = 1; /* Logical length reached: no more frames to come. */
+    return 0;
+  }
   {
     float * output = fifo_reserve(&p->output_fifo, olen0);
     int j, odone0 = 0, min_stage_num = p->current.stage_num;
-    int occupancy0, max_stage_num = min_stage_num;
+    int occupancy0, max_stage_num = min_stage_num, stalled = 0;
     if (p->fade_len) {
       min_stage_num = min(min_stage_num, p->fadeout.stage_num);
       max_stage_num = max(max_stage_num, p->fadeout.stage_num);
@@ -550,8 +672,12 @@ static int vr_process(rate_t * p, int olen0)
       odone0 += odone;
       if (p->slew_len)
         p->slew_len -= odone;
-      if (odone != olen)
+      vr_advance_logical(p, odone);
+      if (odone != olen) {
+        if (p->eof)
+          stalled = 1; /* In flush, under-production is the physical end. */
         break; /* Need more input. */
+      }
     } {
       int from = max(0, max_stage_num), to = min(0, min_stage_num);
       int i, idone = shiftr(INT(p->current.at), from - p->current.stage_num);
@@ -562,12 +688,17 @@ static int vr_process(rate_t * p, int olen0)
         fifo_read(&p->stages[i].fifo, idone, NULL);
     }
     fifo_trim_by(&p->output_fifo, olen0 - odone0);
+    if (stalled || (p->eof && !odone0))
+      p->exhausted = 1; /* Filter tail spent; no further frames can be made. */
     return odone0;
   }
 }
 
 static float * vr_input(rate_t * p, float const * input, size_t n)
 {
+  if (p->eof) /* After EOF, extra real input must be refused by the caller. */
+    return 0;
+  p->total_input += (int64_t)n;
   return fifo_write(&p->stages[0].fifo, (int)n, input);
 }
 
@@ -594,6 +725,9 @@ static void vr_flush(rate_t * p)
     stage_preload(&p->stages[0]);
     ++p->flushing;
   }
+  /* The finite fragment ends here: zero padding feeds the filter tail but
+   * does not extend the logical input length. */
+  p->eof = 1;
 }
 
 static void vr_close(rate_t * p)
@@ -610,8 +744,10 @@ static void vr_close(rate_t * p)
 
 static double vr_delay(rate_t * p)
 {
-  return 100; /* TODO */
-  (void)p;
+  /* Integer number of output frames still deliverable if the input were to
+   * end (or has ended) at this instant; includes output FIFO contents.  The
+   * query neither consumes sound nor advances the ratio gradient. */
+  return (double)vr_remaining(p, p->total_input);
 }
 
 static void vr_sizes(size_t * shared, size_t * channel)

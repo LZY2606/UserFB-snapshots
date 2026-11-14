@@ -5,6 +5,9 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${PROJECT_C_FLAGS}")
 link_libraries (${PROJECT_NAME} ${LIBM_LIBRARIES})
 
 file (GLOB SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.c)
+# vr_endpoint.c is driven by task_support/driver.c (see task_support/run.sh),
+# so it is not built as a standalone executable here.
+list (REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/vr_endpoint.c)
 foreach (fe ${SOURCES})
   get_filename_component (f ${fe} NAME_WE)
   add_executable (${f} ${fe})

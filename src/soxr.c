@@ -88,6 +88,8 @@ struct soxr {
   size_t clips;
   unsigned long seed;
   int flushing;
+  int is_vr;    /* Using the variable-rate engine. */
+  int eof;      /* End of the finite input fragment has been signalled. */
 };
 
 
@@ -466,6 +468,7 @@ soxr_t soxr_create(
     }
 #endif
     memcpy(&p->control_block, control_block, sizeof(p->control_block));
+    p->is_vr = control_block == &_soxr_vr32_cb;
 
     if (p->num_channels && io_ratio!=0)
       error = soxr_set_io_ratio(p, io_ratio, 0);
@@ -575,6 +578,12 @@ soxr_error_t soxr_set_io_ratio(soxr_t p, double io_ratio, size_t slew_len)
   if ((error = p->error)) return error;
   if (!p->num_channels)   return "must set # channels before O/I ratio";
   if (io_ratio <= 0)      return "I/O ratio out-of-range";
+  /* The operating ratio of the variable-rate engine is limited to [1/8, 8].
+   * The ratio given at creation time only sizes the stage pipeline, so it is
+   * not constrained here. */
+  if (p->is_vr && p->channel_ptrs && (io_ratio < 1./8 || io_ratio > 8.))
+    return "I/O ratio out-of-range";
+  if (p->eof)             return "end of input already signalled";
   if (!p->channel_ptrs) {
     p->io_ratio = io_ratio;
     return initialise(p);
@@ -613,6 +622,7 @@ soxr_error_t soxr_clear(soxr_t p) /* TODO: this, properly. */
     memcpy(p->control_block, tmp.control_block, sizeof(p->control_block));
     p->deinterleave = tmp.deinterleave;
     p->interleave = tmp.interleave;
+    p->is_vr = tmp.is_vr;
     return (p->q_spec.flags & RESET_ON_CLEAR)?
       soxr_set_io_ratio(p, tmp.io_ratio, 0) : 0;
   }
@@ -635,6 +645,10 @@ static size_t soxr_input(soxr_t p, void const * in, size_t len)
   unsigned i;
   if (!p || p->error) return 0;
   if (!in && len) {p->error = "null input buffer pointer"; return 0;}
+  if (p->eof && len) { /* End already signalled: keep the unread sound. */
+    p->error = "end of input already signalled";
+    return 0;
+  }
   if (!len) {
     p->flushing = true;
     return 0;
@@ -719,7 +733,13 @@ size_t soxr_output(soxr_t p, void * out, size_t len0)
     was_flushing = p->flushing;
     if (!in)
       p->error = "input function reported failure";
-    else soxr_input(p, in, idone);
+    else {
+      if (!idone) { /* Callback EOF: same endpoint as a NULL process input. */
+        p->eof = 1;
+        p->flushing = true;
+      }
+      soxr_input(p, in, idone);
+    }
   } while (odone || idone || (!was_flushing && p->flushing));
   return odone0;
 }
@@ -770,7 +790,25 @@ soxr_error_t soxr_process(soxr_t p,
     else
       ilen = ilen0/*, olen = soxr_o_for_i(p, ilen, olen)*/;
   }
-  p->flushing |= ilen == ilen0 && flush_requested;
+  /* End-of-fragment handling.  For the variable-rate engine, a NULL input (or
+   * the negated-ilength convention) marks the finite endpoint; a non-NULL,
+   * zero-length process call is only an output request and must not end the
+   * fragment.  Constant-ratio engines keep their original flush convention. */
+  if (p->is_vr) {
+    if (flush_requested && !(in && ilen))
+      p->eof = 1, p->flushing = true;
+  }
+  else
+    p->flushing |= ilen == ilen0 && flush_requested;
+
+  /* Variable-rate engine: once the endpoint is signalled, refuse any further
+   * sound (including a negated-length call carrying data); the unread sound
+   * stays in place and draining remains available. */
+  if (p->is_vr && p->eof && in && ilen) {
+    if (idone0) *idone0 = 0;
+    if (odone0) *odone0 = 0;
+    return "end of input already signalled";
+  }
 
   if (!out && !in)
     idone = ilen;
@@ -781,7 +819,7 @@ soxr_error_t soxr_process(soxr_t p,
 #pragma omp parallel for
     for (i = 0; i < (int)p->num_channels; ++i) {
       size_t done;
-      if (in)
+      if (in && ilen && (!p->eof || flush_requested))
         soxr_input_1ch(p, (unsigned)i, ((soxr_cbufs_t)in)[i], ilen);
       done = soxr_output_1ch(p, (unsigned)i, ((soxr_bufs_t)out)[i], olen, true);
       if (!i)
@@ -789,14 +827,44 @@ soxr_error_t soxr_process(soxr_t p,
     } else
 #endif
     for (u = 0; u < p->num_channels; ++u) {
-      if (in)
+      if (in && ilen) {
+        if (p->eof && !flush_requested) { /* Refuse; keep unread sound. */
+          idone = 0, odone = 0;
+          break;
+        }
         soxr_input_1ch(p, u, ((soxr_cbufs_t)in)[u], ilen);
+      }
       odone = soxr_output_1ch(p, u, ((soxr_bufs_t)out)[u], olen, true);
     }
-    idone = ilen;
+    if (in && ilen && p->eof && !flush_requested) {
+      if (idone0) *idone0 = 0;
+      if (odone0) *odone0 = 0;
+      return "end of input already signalled";
+    }
+    if (p->is_vr && flush_requested && in && ilen) { /* Final data, then EOF. */
+      p->eof = 1;
+      p->flushing = true;
+      idone = ilen;
+    }
+    else
+      idone = (in && ilen && !p->eof)? ilen : 0;
   }
   else {
+    if (p->is_vr && ilen && p->eof && !flush_requested) { /* Refuse; keep sound. */
+      if (idone0) *idone0 = 0;
+      if (odone0) *odone0 = 0;
+      return "end of input already signalled";
+    }
     idone = ilen? soxr_input (p, in , ilen) : 0;
+    if (p->is_vr && p->error) {
+      if (idone0) *idone0 = 0;
+      if (odone0) *odone0 = 0;
+      return p->error;
+    }
+    if (p->is_vr && flush_requested && in && ilen) { /* Final data, then EOF. */
+      p->eof = 1;
+      p->flushing = true;
+    }
     odone = soxr_output(p, out, olen);
   }
   if (idone0) *idone0 = idone;

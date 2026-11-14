@@ -43,6 +43,43 @@ configuration to resample between 44100Hz and 48000Hz, the latency is
 around 1000 output samples, i.e. roughly 20ms (though passband and FFT-
 size configuration parameters may be used to reduce this figure).
 
+Finite fragments with the variable-rate engine
+-----------------------------------------------
+
+When a SOXR_VR resampler is used on a signal of known, finite length, the
+logical source-time of each output frame is tracked independently of the
+filter stages, so the endpoint and the filter tail are handled together.
+
+  * The operating input/output ratio is limited to the range [1/8, 8].
+    A slew of length L moves the ratio, one output frame at a time, from
+    its current value to the new value over the next L frames; L = 0
+    applies the new ratio immediately.  Re-setting the ratio mid-slew
+    continues from the ratio of the next frame.
+
+  * Given N real input frames, only output frames whose logical
+    source-time centre is at or before N are delivered; an empty fragment
+    produces no output.  Zero samples appended internally to flush the
+    filter do not extend N, so a normal filter tail is never trimmed to
+    make the output length match.
+
+  * Signal the end of the input by calling soxr_process() with a NULL
+    input buffer (or by an input function that returns a length of zero).
+    A non-NULL, zero-length soxr_process() call is merely a request for
+    more output and does not end the fragment.  After the end is signalled,
+    continue draining until soxr_process() reports zero output frames;
+    repeating the drain produces no further sound.
+
+  * soxr_delay() returns, as an integer, the number of output frames that
+    could still be delivered if the input were to end at the instant of the
+    query, including any sound already held in the output FIFO.  The query
+    consumes nothing and does not advance a ratio slew.  It is 0 for a
+    freshly created or cleared resampler and for one that has been fully
+    drained.
+
+  * After the end is signalled, non-empty input and further ratio changes
+    are rejected (an error is returned and the unread sound is retained);
+    soxr_clear() resets the endpoint state and allows reuse.
+
 For build and installation instructions, see the file `INSTALL'; for
 copyright and licensing information, see the file `LICENCE'.
 
