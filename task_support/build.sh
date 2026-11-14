@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+rm -rf .task-build
+cmake -S . -B .task-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+ -DENABLE_ENCRYPTION=OFF -DENABLE_APPS=OFF -DENABLE_TESTING=OFF \
+ -DENABLE_UNITTESTS=OFF -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
+ -DENABLE_BONDING=OFF -DENABLE_LOGGING=OFF -DENABLE_CXX11=ON
+cmake --build .task-build --target srt_static --parallel 4
