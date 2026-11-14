@@ -477,7 +477,8 @@ class Ray {
   Ray()
       : min_t(static_cast<T>(0.0)),
         max_t(std::numeric_limits<T>::max()),
-        type(RAY_TYPE_NONE) {
+        type(RAY_TYPE_NONE),
+        time(static_cast<T>(0.0)) {
     org[0] = static_cast<T>(0.0);
     org[1] = static_cast<T>(0.0);
     org[2] = static_cast<T>(0.0);
@@ -491,6 +492,7 @@ class Ray {
   T min_t;            // minimum ray hit distance.
   T max_t;            // maximum ray hit distance.
   unsigned int type;  // ray type
+  T time;             // ray time (for motion blur). 0.0 by default.
 
   // TODO(LTE): Align sizeof(Ray)
 };
@@ -627,8 +629,7 @@ class BVHTraceOptions {
 /// @brief Bounding box.
 ///
 template <typename T>
-class BBox {
- public:
+class BBox { public:
   real3<T> bmin;
   real3<T> bmax;
 
@@ -686,6 +687,68 @@ class NodeHitComparator {
   }
 };
 
+// Forward declaration of the motion(deforming) triangle mesh.
+// The full definition lives in `nanort_motion.h`.
+template <typename T = float>
+class MotionTriangleMesh;
+
+///
+/// @brief Locate the motion segment `[times[k], times[k+1]]` containing `time`.
+///
+/// Shared by BVH node culling and primitive intersection so that both use the
+/// same segment for a given ray time.
+///
+/// @param[in] times Strictly increasing array of key times (`num_times` >= 2).
+/// @param[in] num_times Number of key times.
+/// @param[in] time Query time.
+/// @param[out] segment Index k such that times[k] <= time <= times[k+1].
+/// @param[out] alpha Interpolation factor in [0, 1] within the segment.
+///
+/// @return false when `time` is non-finite or lies outside the key time
+///         domain. When `time` exactly equals a key time, the segment is
+///         chosen so that the interpolated result equals that key frame
+///         exactly.
+///
+template <typename T>
+inline bool MotionTimeSegment(const T *times, size_t num_times, T time,
+                              size_t *segment, T *alpha) {
+  if ((num_times < 2) || (times == NULL)) {
+    return false;
+  }
+
+  // Rejects NaN and +/-inf as well (comparisons fail for non-finite values).
+  if (!(time >= times[0]) || !(time <= times[num_times - 1])) {
+    return false;
+  }
+
+  if (time == times[num_times - 1]) {
+    // Exact last key time: use the last frame exactly.
+    (*segment) = num_times - 2;
+    (*alpha) = static_cast<T>(1.0);
+    return true;
+  }
+
+  // Binary search for k such that times[k] <= time < times[k+1].
+  size_t lo = 0;
+  size_t hi = num_times - 1;
+  while (hi - lo > 1) {
+    size_t mid = lo + (hi - lo) / 2;
+    if (times[mid] <= time) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+
+  (*segment) = lo;
+  T dt = times[hi] - times[lo];
+  // `dt` > 0 for strictly increasing times; guard anyway.
+  (*alpha) = (dt > static_cast<T>(0.0))
+                 ? (time - times[lo]) / dt
+                 : static_cast<T>(0.0);
+  return true;
+}
+
 ///
 /// @brief Bounding Volume Hierarchy acceleration.
 ///
@@ -698,7 +761,7 @@ class NodeHitComparator {
 template <typename T>
 class BVHAccel {
  public:
-  BVHAccel() : pad0_(0) { (void)pad0_; }
+  BVHAccel() : pad0_(0), motion_enabled_(false) { (void)pad0_; }
   ~BVHAccel() {}
 
   ///
@@ -716,6 +779,55 @@ class BVHAccel {
   template <class Prim, class Pred>
   bool Build(const unsigned int num_primitives, const Prim &p, const Pred &pred,
              const BVHBuildOptions<T> &options = BVHBuildOptions<T>());
+
+  ///
+  /// Build BVH for a motion(deforming) triangle mesh with multiple key
+  /// times. The tree is built once over the whole shutter interval; each node
+  /// additionally stores conservative bounds at every key time so that
+  /// `Traverse()` can cull nodes with time-varying bounds interpolated at
+  /// `Ray::time`.
+  ///
+  /// The definition is provided by `nanort_motion.h`.
+  ///
+  /// @param[in] mesh Motion triangle mesh. The referenced arrays must be kept
+  /// alive while the built tree is queried.
+  /// @param[in] options BVH build options.
+  ///
+  /// @return true upon success.
+  ///
+  bool BuildMotion(const MotionTriangleMesh<T> &mesh,
+                   const BVHBuildOptions<T> &options = BVHBuildOptions<T>());
+
+  ///
+  /// Returns true when this tree was built by `BuildMotion()` and carries
+  /// per-key-time node bounds.
+  ///
+  bool HasMotion() const { return motion_enabled_; }
+
+  ///
+  /// Number of key times of the motion tree (0 for a static tree).
+  ///
+  size_t GetNumMotionKeyTimes() const { return motion_times_.size(); }
+
+  ///
+  /// Key times of the motion tree (empty for a static tree).
+  ///
+  const std::vector<T> &GetMotionKeyTimes() const { return motion_times_; }
+
+  ///
+  /// Read the conservative bounding box of node `node_index` at key time
+  /// `key_index`. Returns false for static trees or out-of-range arguments.
+  ///
+  bool GetMotionNodeBoundingBox(unsigned int node_index, size_t key_index,
+                                T bmin[3], T bmax[3]) const;
+
+  ///
+  /// Read the conservative bounding box of node `node_index` interpolated at
+  /// `time`. Returns false for static trees, out-of-range node indices, or
+  /// non-finite/out-of-domain `time`.
+  ///
+  bool GetMotionNodeBoundingBoxAtTime(unsigned int node_index, T time,
+                                      T bmin[3], T bmax[3]) const;
 
   ///
   /// Get statistics of built BVH tree. Valid after `Build()`
@@ -857,6 +969,15 @@ class BVHAccel {
   BVHBuildOptions<T> options_;
   BVHBuildStatistics stats_;
   unsigned int pad0_;
+
+  // Motion BVH data. Valid only when `motion_enabled_` is true.
+  // `motion_bboxes_` is laid out as [node_index * num_key_times + key_index]
+  // and stores the conservative node bounds at each key time.
+  // These are read-only during traversal, so interleaved queries at different
+  // times can share the tree.
+  bool motion_enabled_;
+  std::vector<T> motion_times_;
+  std::vector<BBox<T> > motion_bboxes_;
 };
 
 // Predefined SAH predicator for triangle.
@@ -1888,6 +2009,12 @@ bool BVHAccel<T>::Build(unsigned int num_primitives, const Prim &p,
 
   nodes_.clear();
   bboxes_.clear();
+
+  // A static build invalidates any previously built motion data, so that
+  // subsequent static queries never use a stale time axis.
+  motion_enabled_ = false;
+  motion_times_.clear();
+  motion_bboxes_.clear();
 #if defined(NANORT_ENABLE_PARALLEL_BUILD)
   shallow_node_infos_.clear();
 #endif
@@ -2152,6 +2279,11 @@ void BVHAccel<T>::Debug() {
 }
 
 #if defined(NANORT_ENABLE_SERIALIZATION)
+// File trailer magic identifying optional motion BVH data appended after the
+// classic (numNodes, nodes, numIndices, indices) payload. Files written by
+// older versions have no trailer and load as static trees.
+#define kNANORT_MOTION_TRAILER_MAGIC "NMBV"
+
 template <typename T>
 bool BVHAccel<T>::Dump(const char *filename) const {
   FILE *fp = fopen(filename, "wb");
@@ -2160,27 +2292,11 @@ bool BVHAccel<T>::Dump(const char *filename) const {
     return false;
   }
 
-  size_t numNodes = nodes_.size();
-  assert(nodes_.size() > 0);
-
-  size_t numIndices = indices_.size();
-
-  size_t r = 0;
-  r = fwrite(&numNodes, sizeof(size_t), 1, fp);
-  assert(r == 1);
-
-  r = fwrite(&nodes_.at(0), sizeof(BVHNode<T>), numNodes, fp);
-  assert(r == numNodes);
-
-  r = fwrite(&numIndices, sizeof(size_t), 1, fp);
-  assert(r == 1);
-
-  r = fwrite(&indices_.at(0), sizeof(unsigned int), numIndices, fp);
-  assert(r == numIndices);
+  bool ret = Dump(fp);
 
   fclose(fp);
 
-  return true;
+  return ret;
 }
 
 template <typename T>
@@ -2203,6 +2319,28 @@ bool BVHAccel<T>::Dump(FILE *fp) const {
   r = fwrite(&indices_.at(0), sizeof(unsigned int), numIndices, fp);
   assert(r == numIndices);
 
+  // Motion trailer. Always written by this version so that motion trees keep
+  // their time axis and per-key node bounds; static trees write a zero key
+  // count. Older loaders simply stop after the indices and ignore it.
+  r = fwrite(kNANORT_MOTION_TRAILER_MAGIC, 1, 4, fp);
+  assert(r == 4);
+
+  size_t numKeys = motion_enabled_ ? motion_times_.size() : 0;
+  r = fwrite(&numKeys, sizeof(size_t), 1, fp);
+  assert(r == 1);
+
+  if (numKeys > 0) {
+    r = fwrite(&motion_times_.at(0), sizeof(T), numKeys, fp);
+    assert(r == numKeys);
+
+    size_t numBoxes = motion_bboxes_.size();
+    r = fwrite(&numBoxes, sizeof(size_t), 1, fp);
+    assert(r == 1);
+
+    r = fwrite(&motion_bboxes_.at(0), sizeof(BBox<T>), numBoxes, fp);
+    assert(r == numBoxes);
+  }
+
   return true;
 }
 
@@ -2214,29 +2352,11 @@ bool BVHAccel<T>::Load(const char *filename) {
     return false;
   }
 
-  size_t numNodes;
-  size_t numIndices;
-
-  size_t r = 0;
-  r = fread(&numNodes, sizeof(size_t), 1, fp);
-  assert(r == 1);
-  assert(numNodes > 0);
-
-  nodes_.resize(numNodes);
-  r = fread(&nodes_.at(0), sizeof(BVHNode<T>), numNodes, fp);
-  assert(r == numNodes);
-
-  r = fread(&numIndices, sizeof(size_t), 1, fp);
-  assert(r == 1);
-
-  indices_.resize(numIndices);
-
-  r = fread(&indices_.at(0), sizeof(unsigned int), numIndices, fp);
-  assert(r == numIndices);
+  bool ret = Load(fp);
 
   fclose(fp);
 
-  return true;
+  return ret;
 }
 
 template <typename T>
@@ -2260,6 +2380,45 @@ bool BVHAccel<T>::Load(FILE *fp) {
 
   r = fread(&indices_.at(0), sizeof(unsigned int), numIndices, fp);
   assert(r == numIndices);
+
+  // Optional motion trailer. Older files end after the indices, in which case
+  // the tree stays static.
+  motion_enabled_ = false;
+  motion_times_.clear();
+  motion_bboxes_.clear();
+
+  char magic[4];
+  r = fread(magic, 1, 4, fp);
+  if ((r == 4) && (memcmp(magic, kNANORT_MOTION_TRAILER_MAGIC, 4) == 0)) {
+    size_t numKeys = 0;
+    if (fread(&numKeys, sizeof(size_t), 1, fp) != 1) {
+      return false;
+    }
+
+    if (numKeys > 0) {
+      motion_times_.resize(numKeys);
+      if (fread(&motion_times_.at(0), sizeof(T), numKeys, fp) != numKeys) {
+        return false;
+      }
+
+      size_t numBoxes = 0;
+      if (fread(&numBoxes, sizeof(size_t), 1, fp) != 1) {
+        return false;
+      }
+
+      if (numBoxes != numKeys * nodes_.size()) {
+        return false;
+      }
+
+      motion_bboxes_.resize(numBoxes);
+      if (fread(&motion_bboxes_.at(0), sizeof(BBox<T>), numBoxes, fp) !=
+          numBoxes) {
+        return false;
+      }
+
+      motion_enabled_ = true;
+    }
+  }
 
   return true;
 }
@@ -2510,17 +2669,53 @@ bool BVHAccel<T>::Traverse(const Ray<T> &ray, const I &intersector, H *isect,
   ray_org[1] = ray.org[1];
   ray_org[2] = ray.org[2];
 
+  // For a motion tree, resolve the time segment of this ray once, so that
+  // node culling below and primitive intersection (via the intersector) use
+  // the same segment. When the ray time is non-finite or outside the key
+  // time domain, the traversal is skipped entirely and reports a miss
+  // without touching any primitive.
+  size_t motion_segment = 0;
+  T motion_alpha = static_cast<T>(0.0);
+  const size_t num_motion_keys = motion_times_.size();
+  bool motion_valid = true;
+  if (motion_enabled_) {
+    motion_valid =
+        MotionTimeSegment(&motion_times_.at(0), num_motion_keys, ray.time,
+                          &motion_segment, &motion_alpha);
+  }
+
   T min_t = std::numeric_limits<T>::max();
   T max_t = -std::numeric_limits<T>::max();
 
-  while (node_stack_index >= 0) {
+  while (motion_valid && node_stack_index >= 0) {
     unsigned int index = node_stack[node_stack_index];
     const BVHNode<T> &node = nodes_[index];
 
     node_stack_index--;
 
-    bool hit = IntersectRayAABB(&min_t, &max_t, ray.min_t, hit_t, node.bmin,
-                                node.bmax, ray_org, ray_inv_dir, dir_sign);
+    // For a motion tree, use the conservative node bounds interpolated at
+    // the ray time instead of the whole-shutter swept bounds stored in the
+    // node itself.
+    const T *node_bmin = node.bmin;
+    const T *node_bmax = node.bmax;
+    T motion_bmin[3];
+    T motion_bmax[3];
+    if (motion_enabled_) {
+      const BBox<T> &box0 =
+          motion_bboxes_[size_t(index) * num_motion_keys + motion_segment];
+      const BBox<T> &box1 =
+          motion_bboxes_[size_t(index) * num_motion_keys + motion_segment + 1];
+      const T w0 = static_cast<T>(1.0) - motion_alpha;
+      for (int k = 0; k < 3; k++) {
+        motion_bmin[k] = w0 * box0.bmin[k] + motion_alpha * box1.bmin[k];
+        motion_bmax[k] = w0 * box0.bmax[k] + motion_alpha * box1.bmax[k];
+      }
+      node_bmin = motion_bmin;
+      node_bmax = motion_bmax;
+    }
+
+    bool hit = IntersectRayAABB(&min_t, &max_t, ray.min_t, hit_t, node_bmin,
+                                node_bmax, ray_org, ray_inv_dir, dir_sign);
 
     if (hit) {
       // Branch node
@@ -2543,6 +2738,58 @@ bool BVHAccel<T>::Traverse(const Ray<T> &ray, const I &intersector, H *isect,
   intersector.PostTraversal(ray, hit, isect);
 
   return hit;
+}
+
+template <typename T>
+bool BVHAccel<T>::GetMotionNodeBoundingBox(unsigned int node_index,
+                                           size_t key_index, T bmin[3],
+                                           T bmax[3]) const {
+  if (!motion_enabled_) {
+    return false;
+  }
+  if ((node_index >= nodes_.size()) || (key_index >= motion_times_.size())) {
+    return false;
+  }
+
+  const BBox<T> &box =
+      motion_bboxes_[size_t(node_index) * motion_times_.size() + key_index];
+  bmin[0] = box.bmin[0];
+  bmin[1] = box.bmin[1];
+  bmin[2] = box.bmin[2];
+  bmax[0] = box.bmax[0];
+  bmax[1] = box.bmax[1];
+  bmax[2] = box.bmax[2];
+  return true;
+}
+
+template <typename T>
+bool BVHAccel<T>::GetMotionNodeBoundingBoxAtTime(unsigned int node_index,
+                                                 T time, T bmin[3],
+                                                 T bmax[3]) const {
+  if (!motion_enabled_) {
+    return false;
+  }
+  if (node_index >= nodes_.size()) {
+    return false;
+  }
+
+  size_t segment = 0;
+  T alpha = static_cast<T>(0.0);
+  if (!MotionTimeSegment(&motion_times_.at(0), motion_times_.size(), time,
+                         &segment, &alpha)) {
+    return false;
+  }
+
+  const size_t num_keys = motion_times_.size();
+  const BBox<T> &box0 = motion_bboxes_[size_t(node_index) * num_keys + segment];
+  const BBox<T> &box1 =
+      motion_bboxes_[size_t(node_index) * num_keys + segment + 1];
+  const T w0 = static_cast<T>(1.0) - alpha;
+  for (int k = 0; k < 3; k++) {
+    bmin[k] = w0 * box0.bmin[k] + alpha * box1.bmin[k];
+    bmax[k] = w0 * box0.bmax[k] + alpha * box1.bmax[k];
+  }
+  return true;
 }
 
 template <typename T>
