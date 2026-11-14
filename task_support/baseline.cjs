@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const tgen=require('../index.js');
+const g=tgen.init(64,64,'pingpong');
+g.do('waves',{blend:'screen',rgba:[255,128,64,1],level:50,xsines:4,ysines:4});
+assert.equal(g.texture.data[0],191);
+assert.equal(g.texture.data[1],127.5);
+assert.ok(Math.abs(g.texture.data[4]-203.1501922607422)<1e-8);
+const config=JSON.parse(JSON.stringify(g.params('baseline')));
+const h=tgen.init(64,64,'pingpong').render(config);
+assert.deepEqual(h.texture.data,g.texture.data);
+const a=tgen.init(13,11,'limitless'),b=tgen.init(13,11,'limitless');
+const params={seed:9876,mode:'color',blend:'',channels:[255,127,63],opacity:255};
+a.do('noise',{...params});b.do('noise',{...params});
+assert.deepEqual(a.texture.data,b.texture.data);
+assert.equal(a.texture.data.length,13*11*4);
+assert.ok(new Set(a.texture.data).size>10);
+console.log('BASELINE_TGEN_OK checks=7');
