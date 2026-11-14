@@ -1,0 +1,61 @@
+minimp4_test.c:112:27: warning: using the result of an assignment as a condition without parentheses [-Wparentheses]
+  112 |             while (spspps = MP4D_read_sps(&mp4, ntrack, i, &spspps_bytes))
+      |                    ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+minimp4_test.c:112:27: note: place parentheses around the assignment to silence this warning
+  112 |             while (spspps = MP4D_read_sps(&mp4, ntrack, i, &spspps_bytes))
+      |                           ^                                              
+      |                    (                                                     )
+minimp4_test.c:112:27: note: use '==' to turn this assignment into an equality comparison
+  112 |             while (spspps = MP4D_read_sps(&mp4, ntrack, i, &spspps_bytes))
+      |                           ^
+      |                           ==
+minimp4_test.c:119:27: warning: using the result of an assignment as a condition without parentheses [-Wparentheses]
+  119 |             while (spspps = MP4D_read_pps(&mp4, ntrack, i, &spspps_bytes))
+      |                    ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+minimp4_test.c:119:27: note: place parentheses around the assignment to silence this warning
+  119 |             while (spspps = MP4D_read_pps(&mp4, ntrack, i, &spspps_bytes))
+      |                           ^                                              
+      |                    (                                                     )
+minimp4_test.c:119:27: note: use '==' to turn this assignment into an equality comparison
+  119 |             while (spspps = MP4D_read_pps(&mp4, ntrack, i, &spspps_bytes))
+      |                           ^
+      |                           ==
+2 warnings generated.
+CASE framing case_framing_multi_stream checks=9
+CASE framing case_framing_bad_lengths checks=8
+CASE framing case_framing_duration_mismatch checks=6
+CASE framing case_framing_code3 checks=11
+CASE framing case_framing_edges checks=13
+CASE framing case_framing_reject_keeps_sequential checks=17
+CASE framing case_framing_head_validation checks=13
+CASE framing case_framing_put_sample_rejected checks=7
+CASE framing case_framing_finish_rules checks=11
+CASE framing case_framing_unfinished_close checks=5
+GROUP framing cases=10 checks=100 COMPLETE
+CASE container case_container_dops checks=16
+CASE container case_container_sample_entry checks=7
+CASE container case_container_ftyp_iso2 checks=4
+CASE container case_container_mvhd checks=6
+CASE container case_container_elst checks=11
+CASE container case_container_stts_no_stss checks=9
+CASE container case_container_roll checks=15
+CASE container case_container_sequential checks=4
+CASE container case_container_mixed_video checks=24
+CASE container case_container_family0 checks=25
+GROUP container cases=10 checks=121 COMPLETE
+CASE demux case_demux_roundtrip checks=34
+CASE demux case_demux_sequential_roundtrip checks=5
+CASE demux case_demux_tail_trim checks=10
+CASE demux case_demux_handmade checks=32
+CASE demux case_demux_cross_packet_start checks=14
+CASE demux case_demux_handmade_tail checks=5
+CASE demux case_demux_missing_dops checks=3
+CASE demux case_demux_duplicate_dops checks=2
+CASE demux case_demux_truncated checks=3
+CASE demux case_demux_bad_timescale checks=4
+CASE demux case_demux_missing_elst checks=3
+CASE demux case_demux_bad_edit checks=4
+CASE demux case_demux_aac_unchanged checks=13
+GROUP demux cases=13 checks=132 COMPLETE
+TARGET_COMPLETE cases=33
+LEGACY_OK mux=4 demux=3

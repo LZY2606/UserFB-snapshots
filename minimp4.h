@@ -296,6 +296,22 @@ typedef struct
     unsigned timestamp_count;
 #endif
 
+    /* Opus reader additions (see task_support/opus-contract.md). */
+    unsigned sample_entry;      // fourcc of the sample description entry; 0x4f707573 for Opus
+    unsigned opus_trim_start;   // elst media_time, in 48 kHz sample frames
+    unsigned opus_trim_end;     // raw media duration - media_time - display duration
+
+    /* Private Opus parse state (not part of the public contract). */
+    unsigned opus_dops_seen;
+    unsigned stsd_entry_count;
+    unsigned opus_elst_count;
+    unsigned opus_elst_seen;
+    unsigned opus_elst_bad;      // elst was present but not in the supported shape
+    uint64_t opus_elst_segment;  // display duration, movie timescale units
+    int64_t opus_elst_media_time;
+    unsigned opus_elst_rate_int;
+    unsigned opus_elst_rate_frac;
+
 } MP4D_track_t;
 
 typedef struct MP4D_demux_tag
@@ -504,6 +520,47 @@ int MP4E_set_pps(MP4E_mux_t *mux, int track_id, const void *pps, int bytes);
 */
 int MP4E_set_text_comment(MP4E_mux_t *mux, const char *comment);
 
+/**
+*   Add a new Opus track.
+*
+*   'head' points to a complete OpusHead identification header (RFC 7845
+*   section 5.1). Only version 1 and channel mapping family 0 or 255 are
+*   accepted. Family 0 requires exactly 19 bytes and 1 or 2 output
+*   channels; family 255 requires exactly 21 + output_channels bytes.
+*   The header is validated and copied, so the caller may reuse the buffer
+*   immediately. Fragmented muxing mode does not support Opus tracks.
+*
+*   return zero-based track number on success, or MP4E_STATUS_* on failure
+*/
+int MP4E_add_opus_track(MP4E_mux_t *mux, const void *head, int head_bytes);
+
+/**
+*   Add one complete multi-stream Opus packet to an Opus track.
+*
+*   For a track with N streams, the first N-1 streams use the
+*   self-delimiting framing of RFC 6716 Appendix B and the last stream
+*   uses the regular framing of section 3. The whole input is validated
+*   (frame count, lengths, VBR/CBR, padding, per-stream durations) before
+*   any bytes are written or any pending sequential-mode predecessor is
+*   flushed. The original bytes are stored as a single MP4 sample.
+*
+*   return MP4E_STATUS_OK on success, or MP4E_STATUS_* on failure
+*/
+int MP4E_put_opus_packet(MP4E_mux_t *mux, int track, const void *packet, int bytes);
+
+/**
+*   Finalize an Opus track.
+*
+*   'end_trim' is the number of 48 kHz sample frames (per output channel)
+*   to discard from the end of the last packet. Requires at least one
+*   packet, end_trim < last packet's full duration, and
+*   accumulated_duration >= head.pre_skip + end_trim. After success the
+*   track cannot receive more packets or be finished again.
+*
+*   return MP4E_STATUS_OK on success, or MP4E_STATUS_* on failure
+*/
+int MP4E_finish_opus(MP4E_mux_t *mux, int track, uint32_t end_trim);
+
 #ifdef __cplusplus
 }
 #endif
@@ -578,6 +635,13 @@ enum
     BOX_sowt    = FOUR_CHAR_INT( 's', 'o', 'w', 't' ),//QuickTime uncompressed 16-bit little-endian PCM sample entry
     BOX_chan    = FOUR_CHAR_INT( 'c', 'h', 'a', 'n' ),//QuickTime channel layout box (inside 'sowt')
     BOX_mp4v    = FOUR_CHAR_INT( 'm', 'p', '4', 'v' ),//MPEGVisualSampleEntryAtomType
+
+    // Opus in ISO BMFF
+    BOX_Opus    = FOUR_CHAR_INT( 'O', 'p', 'u', 's' ),//OpusSampleEntry
+    BOX_dOps    = FOUR_CHAR_INT( 'd', 'O', 'p', 's' ),//OpusDecoderConfigurationRecord
+    BOX_roll    = FOUR_CHAR_INT( 'r', 'o', 'l', 'l' ),//audio pre-roll group type
+    BOX_sgpd    = FOUR_CHAR_INT( 's', 'g', 'p', 'd' ),//SampleGroupDescriptionBox
+    BOX_sbgp    = FOUR_CHAR_INT( 's', 'b', 'g', 'p' ),//SampleToGroupBox
 
     // http://www.itscj.ipsj.or.jp/sc29/open/29view/29n7644t.doc
     BOX_avc1    = FOUR_CHAR_INT( 'a', 'v', 'c', '1' ),
@@ -707,6 +771,22 @@ typedef struct
     minimp4_vector_t vpps;  // not used for audio
     minimp4_vector_t vvps;  // used for HEVC
 
+    /* Opus state (see MP4E_add_opus_track). */
+    int is_opus;
+    unsigned char opus_head[21 + 255];  // validated copy of OpusHead
+    int opus_head_bytes;
+    unsigned opus_streams;              // channel mapping table N
+    unsigned opus_coupled;              // channel mapping table M
+    unsigned opus_output_channels;      // OpusHead C
+    unsigned opus_pre_skip;             // 48 kHz sample frames
+    unsigned opus_input_rate;           // OpusHead input sample rate field
+    unsigned opus_gain;                 // OpusHead output gain field
+    unsigned opus_family;               // channel mapping family
+    unsigned opus_end_trim;             // set by MP4E_finish_opus
+    uint64_t opus_total_duration;       // sum of full packet durations at 48 kHz
+    unsigned opus_last_duration;        // full duration of the most recent packet
+    int opus_finished;
+
 } track_t;
 
 typedef struct MP4E_mux_tag
@@ -721,6 +801,9 @@ typedef struct MP4E_mux_tag
     int sequential_mode_flag;
     int enable_fragmentation; // flag, indicating streaming-friendly 'fragmentation' mode
     int fragments_count;      // # of fragments in 'fragmentation' mode
+    int ftyp_extended;        // ftyp was widened to advertise the iso2 brand
+    int opus_seen;            // an Opus track has been added (brand already ensured)
+    unsigned ftyp_size;       // size of the currently written ftyp box
 
 } MP4E_mux_t;
 
@@ -736,6 +819,16 @@ static const unsigned char box_ftyp[] = {
     'm','p','4','1','i','s','o','m',
     'i','s','o','2','a','v','c','1',
 #endif
+};
+
+// ftyp used when the file contains an Opus track: same major brand and
+// minor version as box_ftyp above (which keeps legacy bytes untouched
+// when no Opus track is present), plus the iso2 compatible brand.
+static const unsigned char box_ftyp_iso2[] = {
+    0,0,0,0x1c,'f','t','y','p',
+    'm','p','4','2',0,0,0,0,
+    'm','p','4','2','i','s','o','m',
+    'i','s','o','2'
 };
 
 /**
@@ -842,6 +935,9 @@ MP4E_mux_t *MP4E_open(int sequential_mode_flag, int enable_fragmentation, void *
     mux->sequential_mode_flag = sequential_mode_flag || enable_fragmentation;
     mux->enable_fragmentation = enable_fragmentation;
     mux->fragments_count = 0;
+    mux->ftyp_extended = 0;
+    mux->opus_seen = 0;
+    mux->ftyp_size = sizeof(box_ftyp);
     mux->write_callback = write_callback;
     mux->token = token;
     mux->text_comment = NULL;
@@ -964,6 +1060,27 @@ static unsigned get_duration(const track_t *tr)
         sum_duration += s[i].duration;
     }
     return sum_duration;
+}
+
+// Display duration of an Opus track, in its media timescale (48000): the
+// full packet schedule less the encoder pre-skip and the end trim. Other
+// tracks keep the existing "sum of media durations" meaning.
+static unsigned get_track_tkhd_duration(const track_t *tr)
+{
+    if (tr->is_opus)
+    {
+        uint64_t d = tr->opus_total_duration;
+        if (d > tr->opus_pre_skip)
+            d -= tr->opus_pre_skip;
+        else
+            d = 0;
+        if (d > tr->opus_end_trim)
+            d -= tr->opus_end_trim;
+        else
+            d = 0;
+        return (unsigned)d;
+    }
+    return get_duration(tr);
 }
 
 static int write_pending_data(MP4E_mux_t *mux, track_t *tr)
@@ -1126,6 +1243,8 @@ int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_b
     if (!mux || !data)
         return MP4E_STATUS_BAD_ARGUMENTS;
     tr = ((track_t*)mux->tracks.data) + track_num;
+    if (tr->is_opus)
+        return MP4E_STATUS_BAD_ARGUMENTS;   // Opus samples go through MP4E_put_opus_packet only
 
     if (mux->enable_fragmentation)
     {
@@ -1159,7 +1278,7 @@ int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_b
         if (!mux->sequential_mode_flag)
         {
             sample_t *smpl_desc;
-            if (tr->smpl.bytes < sizeof(sample_t))
+            if (tr->smpl.bytes < (int)sizeof(sample_t))
                 return MP4E_STATUS_NO_MEMORY; // write continuation, but there are no samples in the index
             // Accumulate size of the continuation in the sample descriptor
             smpl_desc = (sample_t*)(tr->smpl.data + tr->smpl.bytes) - 1;
@@ -1176,6 +1295,493 @@ int MP4E_put_sample(MP4E_mux_t *mux, int track_num, const void *data, int data_b
         ERR(mux->write_callback(mux->write_pos, data, data_bytes, mux->token));
         mux->write_pos += data_bytes;
     }
+    return MP4E_STATUS_OK;
+}
+
+/**
+*   Opus support: packet framing validation (RFC 6716 section 3 and
+*   Appendix B) and the two new muxer entry points. Everything here is
+*   validation-first: no bytes are written, and no pending sequential-mode
+*   sample is flushed, until the whole multi-stream packet has been
+*   accepted.
+*/
+static unsigned opus_config_samples(unsigned config)
+{
+    static const unsigned silk[4] = { 480, 960, 1920, 2880 };  // 10, 20, 40, 60 ms
+    static const unsigned celt[4] = { 120, 240, 480, 960 };    // 2.5, 5, 10, 20 ms
+    if (config < 12)
+        return silk[config & 3];
+    if (config < 16)
+        return (config & 1) ? 960 : 480;    // hybrid 10 / 20 ms
+    return celt[config & 3];
+}
+
+// RFC 6716 section 3.2.1: 0 -> 0 bytes, 1...251 -> that many,
+// 252...255 -> second_byte*4 + first_byte (max 1275).
+static int opus_read_frame_length(const unsigned char *p, int avail, unsigned *len, int *used)
+{
+    unsigned first;
+    if (avail < 1)
+        return 0;
+    first = p[0];
+    if (first < 252)
+    {
+        *len = first;
+        *used = 1;
+        return 1;
+    }
+    if (avail < 2)
+        return 0;
+    *len = p[1]*4 + first;
+    *used = 2;
+    return 1;
+}
+
+/**
+*   Parse one Opus stream's packet at p with avail bytes available.
+*   self_delim selects Appendix B framing (an extra frame-length field)
+*   instead of the regular framing of section 3.
+*
+*   Returns the number of bytes consumed (> 0) on success, or 0 if the
+*   packet is malformed. *samples_out receives the packet's duration in
+*   48 kHz sample frames for a single output channel. The boundary is
+*   derived from the explicit framing fields only -- never by searching
+*   for a plausible TOC byte.
+*/
+static int opus_parse_packet(const unsigned char *p, int avail, int self_delim, unsigned *samples_out)
+{
+    unsigned toc, config, code, frame_samples, frames, end;
+    unsigned padding = 0, padding_length_bytes = 0;
+    int pos = 1, vbr = 0, padding_flag = 0;
+    unsigned m = 1;
+
+    if (avail < 1)
+        return 0;
+    toc = p[0];
+    config = toc >> 3;
+    code = toc & 3;
+    frame_samples = opus_config_samples(config);
+
+    if (code == 3)
+    {
+        unsigned fc;
+        if (avail < 2)
+            return 0;
+        fc = p[1];
+        pos = 2;
+        vbr = (fc >> 7) & 1;
+        padding_flag = (fc >> 6) & 1;
+        m = fc & 0x3f;
+        if (!m)
+            return 0;
+        if (padding_flag)
+        {
+            for (;;)
+            {
+                unsigned b;
+                if (pos >= avail)
+                    return 0;
+                b = p[pos++];
+                padding_length_bytes++;
+                if (b == 255)
+                {
+                    // "255" means 254 bytes plus the value in the next byte.
+                    padding += 254;
+                    continue;
+                }
+                padding += b;
+                break;
+            }
+        }
+    }
+
+    switch (code)
+    {
+    case 0:
+    {
+        unsigned len;
+        if (self_delim)
+        {
+            int used;
+            if (!opus_read_frame_length(p + pos, avail - pos, &len, &used))
+                return 0;
+            pos += used;
+            if (len > 1275 || len > (unsigned)(avail - pos))
+                return 0;
+            end = (unsigned)pos + len;
+        } else
+        {
+            len = (unsigned)(avail - pos);
+            if (len > 1275)
+                return 0;
+            end = (unsigned)avail;
+        }
+        frames = 1;
+        break;
+    }
+    case 1:
+    {
+        unsigned len;
+        if (self_delim)
+        {
+            int used;
+            if (!opus_read_frame_length(p + pos, avail - pos, &len, &used))
+                return 0;
+            pos += used;
+            if (len > 1275 || 2u*len > (unsigned)(avail - pos))
+                return 0;
+            end = (unsigned)pos + 2u*len;
+        } else
+        {
+            unsigned r = (unsigned)(avail - pos);   // [R3]: N-1 must be even
+            if (r & 1)
+                return 0;
+            len = r/2;
+            if (len > 1275)
+                return 0;
+            end = (unsigned)avail;
+        }
+        frames = 2;
+        break;
+    }
+    case 2:
+    {
+        unsigned n1, n2;
+        int used;
+        if (avail - pos < 1)
+            return 0;
+        if (!opus_read_frame_length(p + pos, avail - pos, &n1, &used))
+            return 0;
+        pos += used;
+        if (n1 > 1275)
+            return 0;
+        if (self_delim)
+        {
+            if (!opus_read_frame_length(p + pos, avail - pos, &n2, &used))
+                return 0;
+            pos += used;
+            if (n2 > 1275)
+                return 0;
+            if ((uint64_t)pos + n1 + n2 > (uint64_t)avail)
+                return 0;
+            end = (unsigned)pos + n1 + n2;
+        } else
+        {
+            unsigned rem = (unsigned)(avail - pos);    // [R4]: N1 <= remaining payload
+            if (n1 > rem)
+                return 0;
+            n2 = rem - n1;
+            if (n2 > 1275)
+                return 0;
+            end = (unsigned)avail;
+        }
+        frames = 2;
+        break;
+    }
+    case 3:
+    default:
+    {
+        unsigned i, sum = 0;
+        frames = m;
+        if (vbr)
+        {
+            for (i = 0; i + 1 < m; i++)
+            {
+                unsigned len;
+                int used;
+                if (!opus_read_frame_length(p + pos, avail - pos, &len, &used))
+                    return 0;
+                pos += used;
+                if (len > 1275)
+                    return 0;
+                sum += len;
+            }
+            if (self_delim)
+            {
+                unsigned len;
+                int used;
+                if (!opus_read_frame_length(p + pos, avail - pos, &len, &used))
+                    return 0;
+                pos += used;
+                if (len > 1275)
+                    return 0;
+                sum += len;
+                if ((uint64_t)pos + sum + padding > (uint64_t)avail)
+                    return 0;
+                end = (unsigned)pos + sum + padding;
+            } else
+            {
+                unsigned rem;
+                if (padding > (unsigned)(avail - pos))
+                    return 0;
+                rem = (unsigned)(avail - pos) - padding;
+                if (sum > rem)
+                    return 0;
+                if (rem - sum > 1275)
+                    return 0;
+                end = (unsigned)avail;
+            }
+        } else
+        {
+            unsigned len;
+            if (self_delim)
+            {
+                int used;
+                if (!opus_read_frame_length(p + pos, avail - pos, &len, &used))
+                    return 0;
+                pos += used;
+                if (len > 1275)
+                    return 0;
+                if ((uint64_t)pos + (uint64_t)m*len + padding > (uint64_t)avail)
+                    return 0;
+                end = (unsigned)pos + m*len + padding;
+            } else
+            {
+                unsigned r;
+                if (padding > (unsigned)(avail - pos))
+                    return 0;
+                r = (unsigned)(avail - pos) - padding;   // [R6]: R must be a multiple of M
+                if (r % m)
+                    return 0;
+                if (r/m > 1275)
+                    return 0;
+                end = (unsigned)avail;
+            }
+        }
+        break;
+    }
+    }
+
+    // [R5]: packet duration must not exceed 120 ms (5760 frames at 48 kHz).
+    if (!frames || !frame_samples)
+        return 0;
+    if ((uint64_t)frames * frame_samples > 5760)
+        return 0;
+    // [R6,R7]: header padding-length bytes plus padding bytes must be <= N-2.
+    // (N here is the stream packet's own size, not the enclosing sample.)
+    if (code == 3 && padding_flag && (uint64_t)padding + padding_length_bytes > (uint64_t)end - 2)
+        return 0;
+
+    *samples_out = frames * frame_samples;
+    return (int)end;
+}
+
+/**
+*   Make sure the file advertises the iso2 compatible brand before an Opus
+*   track is added. The ftyp was emitted by MP4E_open(); it can only be
+*   widened while no media has followed it, i.e. before the first sample
+*   and while the mux is still empty.
+*/
+static int mp4e_ensure_opus_brand(MP4E_mux_t *mux)
+{
+    int64_t expected;
+    if (mux->ftyp_extended)
+        return MP4E_STATUS_OK;
+    // Adding a track writes nothing, so this still holds after other tracks
+    // were registered; only media bytes (video included) make it fail.
+    expected = mux->sequential_mode_flag ? (int64_t)sizeof(box_ftyp)
+                                         : (int64_t)sizeof(box_ftyp) + 16;
+    if (mux->write_pos != expected)
+        return MP4E_STATUS_BAD_ARGUMENTS;   // media already written
+    if (mux->write_callback(0, box_ftyp_iso2, sizeof(box_ftyp_iso2), mux->token))
+        return MP4E_STATUS_FILE_WRITE_ERROR;
+    mux->ftyp_size = sizeof(box_ftyp_iso2);
+    mux->write_pos = mux->ftyp_size;
+    if (!mux->sequential_mode_flag)
+    {
+        if (mux->write_callback(mux->write_pos, box_ftyp, 8, mux->token))
+            return MP4E_STATUS_FILE_WRITE_ERROR;
+        mux->write_pos += 16;
+    }
+    mux->ftyp_extended = 1;
+    mux->opus_seen = 1;
+    return MP4E_STATUS_OK;
+}
+
+/**
+*   Add a new Opus track. See the declaration in the API section.
+*/
+int MP4E_add_opus_track(MP4E_mux_t *mux, const void *head, int head_bytes)
+{
+    const unsigned char *h = (const unsigned char *)head;
+    track_t *tr;
+    unsigned output_channels, streams, coupled, pre_skip, input_rate, gain, family;
+    int ntr;
+
+    if (!mux || !head || head_bytes < 19)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (mux->enable_fragmentation)
+        return MP4E_STATUS_BAD_ARGUMENTS;   // fragmented Opus is out of scope
+    if (memcmp(h, "OpusHead", 8) || h[8] != 1)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+
+    output_channels = h[9];
+    if (!output_channels)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    pre_skip = (unsigned)h[10] | ((unsigned)h[11] << 8);
+    input_rate = (unsigned)h[12] | ((unsigned)h[13] << 8) | ((unsigned)h[14] << 16) | ((unsigned)h[15] << 24);
+    gain = (unsigned)h[16] | ((unsigned)h[17] << 8);
+    family = h[18];
+
+    if (family == 0)
+    {
+        if (head_bytes != 19 || (output_channels != 1 && output_channels != 2))
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        streams = 1;
+        coupled = output_channels - 1;
+    } else if (family == 255)
+    {
+        unsigned i;
+        if (head_bytes != 21 + (int)output_channels ||
+            head_bytes > (int)sizeof(tr->opus_head))
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        streams = h[19];
+        coupled = h[20];
+        if (!streams || coupled > streams || streams + coupled > 255)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        for (i = 0; i < output_channels; i++)
+        {
+            unsigned v = h[21 + i];
+            if (v != 255 && v >= streams + coupled)
+                return MP4E_STATUS_BAD_ARGUMENTS;
+        }
+    } else
+    {
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    }
+
+    ntr = mux->tracks.bytes / sizeof(track_t);
+    ERR(mp4e_ensure_opus_brand(mux));
+    tr = (track_t*)minimp4_vector_alloc_tail(&mux->tracks, sizeof(track_t));
+    if (!tr)
+        return MP4E_STATUS_NO_MEMORY;
+    memset(tr, 0, sizeof(track_t));
+    if (!minimp4_vector_init(&tr->smpl, 256) ||
+        !minimp4_vector_init(&tr->vsps, 0) ||
+        !minimp4_vector_init(&tr->vpps, 0) ||
+        !minimp4_vector_init(&tr->pending_sample, 0))
+    {
+        // Do not leave a half-initialized track behind.
+        minimp4_vector_reset(&tr->smpl);
+        minimp4_vector_reset(&tr->vsps);
+        minimp4_vector_reset(&tr->vpps);
+        minimp4_vector_reset(&tr->pending_sample);
+        mux->tracks.bytes -= sizeof(track_t);
+        return MP4E_STATUS_NO_MEMORY;
+    }
+
+    memset(&tr->info, 0, sizeof(tr->info));
+    tr->info.object_type_indication = 0;
+    tr->info.language[0] = 'u';
+    tr->info.language[1] = 'n';
+    tr->info.language[2] = 'd';
+    tr->info.language[3] = 0;
+    tr->info.track_media_kind = e_audio;
+    tr->info.time_scale = 48000;
+    tr->info.default_duration = 0;
+    tr->info.u.a.channelcount = streams + coupled;
+
+    tr->is_opus = 1;
+    memcpy(tr->opus_head, h, head_bytes);
+    tr->opus_head_bytes = head_bytes;
+    tr->opus_streams = streams;
+    tr->opus_coupled = coupled;
+    tr->opus_output_channels = output_channels;
+    tr->opus_pre_skip = pre_skip;
+    tr->opus_input_rate = input_rate;
+    tr->opus_gain = gain;
+    tr->opus_family = family;
+    return ntr;
+}
+
+/**
+*   Commit one fully validated Opus packet as a single MP4 sample.
+*   Mirrors MP4E_put_sample's storage logic but bypasses its framing
+*   assumptions; the caller guarantees validation already succeeded.
+*/
+static int opus_put_sample(MP4E_mux_t *mux, track_t *tr, const void *packet, int bytes, unsigned duration)
+{
+    if (mux->sequential_mode_flag)
+        ERR(write_pending_data(mux, tr));
+    if (!add_sample_descriptor(mux, tr, bytes, (int)duration, MP4E_SAMPLE_DEFAULT))
+        return MP4E_STATUS_NO_MEMORY;
+    if (mux->sequential_mode_flag)
+    {
+        if (!minimp4_vector_alloc_tail(&tr->pending_sample, bytes))
+            return MP4E_STATUS_NO_MEMORY;
+        memcpy(tr->pending_sample.data + tr->pending_sample.bytes - bytes, packet, bytes);
+    } else
+    {
+        ERR(mux->write_callback(mux->write_pos, packet, bytes, mux->token));
+        mux->write_pos += bytes;
+    }
+    return MP4E_STATUS_OK;
+}
+
+int MP4E_put_opus_packet(MP4E_mux_t *mux, int track, const void *packet, int bytes)
+{
+    track_t *tr;
+    const unsigned char *p = (const unsigned char *)packet;
+    int remain, i, err;
+    unsigned common_samples = 0;
+
+    if (!mux || !packet || bytes <= 0)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (track < 0 || (unsigned)track >= mux->tracks.bytes / sizeof(track_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr = ((track_t*)mux->tracks.data) + track;
+    if (!tr->is_opus || tr->opus_finished || mux->enable_fragmentation)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+
+    // Validate every stream before touching the output. This is what keeps
+    // a rejected packet from flushing the previous sequential-mode sample.
+    remain = bytes;
+    for (i = 0; i < (int)tr->opus_streams; i++)
+    {
+        unsigned samples = 0;
+        int consumed = opus_parse_packet(p, remain, i + 1 < (int)tr->opus_streams, &samples);
+        if (consumed <= 0 || consumed > remain)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        if (!i)
+            common_samples = samples;
+        else if (samples != common_samples)
+            return MP4E_STATUS_BAD_ARGUMENTS;
+        p += consumed;
+        remain -= consumed;
+    }
+    // The final stream uses regular framing and therefore consumes exactly
+    // the bytes that are left.
+    if (remain != 0 || !common_samples)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if ((uint64_t)tr->opus_total_duration + common_samples > 0xffffffffu)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+
+    err = opus_put_sample(mux, tr, packet, bytes, common_samples);
+    if (err)
+        return err;
+    tr->opus_total_duration += common_samples;
+    tr->opus_last_duration = common_samples;
+    return MP4E_STATUS_OK;
+}
+
+int MP4E_finish_opus(MP4E_mux_t *mux, int track, uint32_t end_trim)
+{
+    track_t *tr;
+    if (!mux)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (track < 0 || (unsigned)track >= mux->tracks.bytes / sizeof(track_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr = ((track_t*)mux->tracks.data) + track;
+    if (!tr->is_opus || tr->opus_finished || mux->enable_fragmentation)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if (tr->smpl.bytes < (int)sizeof(sample_t))
+        return MP4E_STATUS_BAD_ARGUMENTS;   // no packet recorded yet
+    if (end_trim >= tr->opus_last_duration)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    if ((uint64_t)tr->opus_pre_skip + end_trim > tr->opus_total_duration)
+        return MP4E_STATUS_BAD_ARGUMENTS;
+    tr->opus_finished = 1;
+    tr->opus_end_trim = end_trim;
     return MP4E_STATUS_OK;
 }
 
@@ -1205,6 +1811,122 @@ int MP4E_set_text_comment(MP4E_mux_t *mux, const char *comment)
     mux->text_comment = strdup(comment);
     if (!mux->text_comment)
         return MP4E_STATUS_NO_MEMORY;
+    return MP4E_STATUS_OK;
+}
+
+/**
+*   Write one Opus decoder configuration record ('dOps' payload) at p.
+*   Multi-byte fields are big-endian in the box even though OpusHead
+*   stores them little-endian. Return the number of bytes written.
+*/
+static int opus_write_dops(unsigned char *p, const track_t *tr)
+{
+    unsigned char *start = p;
+    const unsigned char *h = tr->opus_head;
+    unsigned i;
+    WRITE_1(0);                                                   // version
+    WRITE_1(tr->opus_output_channels);                            // OutputChannelCount
+    WRITE_2(tr->opus_pre_skip);                                   // PreSkip
+    WRITE_4(tr->opus_input_rate);                                 // InputSampleRate
+    WRITE_2(tr->opus_gain);                                       // OutputGain
+    WRITE_1(tr->opus_family);                                     // ChannelMappingFamily
+    if (tr->opus_family != 0)
+    {
+        WRITE_1(tr->opus_streams);                                // StreamCount
+        WRITE_1(tr->opus_coupled);                                // CoupledCount
+        for (i = 0; i < tr->opus_output_channels; i++)
+            WRITE_1(h[21 + i]);                                   // ChannelMapping
+    }
+    return (int)(p - start);
+}
+
+/**
+*   Number of 48 kHz frames covered by the k packets that precede sample i.
+*   Returns the minimal k whose total covers 3840 frames, or i + 1 when
+*   every preceding packet together still falls short.
+*/
+static unsigned opus_roll_distance(const sample_t *samples, unsigned i)
+{
+    uint64_t sum = 0;
+    unsigned k = 0;
+    while (k < i && sum < 3840)
+    {
+        k++;
+        sum += samples[i - k].duration;
+    }
+    return sum < 3840 ? i + 1 : k;
+}
+
+/**
+*   Write 'roll' sample group description and sample-to-group boxes.
+*   See the contract: sgpd version 1 with default_length 2, sbgp version 0,
+*   adjacent equal distances merged into runs, repeated distances reuse a
+*   single description entry.
+*/
+static int opus_write_roll_boxes(unsigned char **pp, const sample_t *samples, unsigned count)
+{
+    unsigned char *p = *pp;
+    unsigned char *stack_base[4];
+    unsigned char **stack = stack_base;
+    unsigned i, j, run_count = 0, desc_count = 0;
+    unsigned short *dist;
+    unsigned *desc_index;
+
+    dist = (unsigned short *)malloc((count ? count : 1) * sizeof(*dist));
+    desc_index = (unsigned *)malloc((count ? count : 1) * sizeof(*desc_index));
+    if (!dist || !desc_index)
+    {
+        free(dist);
+        free(desc_index);
+        return MP4E_STATUS_NO_MEMORY;
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        unsigned d = opus_roll_distance(samples, i);
+        unsigned short sd = (unsigned short)(-(int)d);
+        unsigned k;
+        for (k = 0; k < desc_count; k++)
+            if (dist[k] == sd)
+                break;
+        if (k == desc_count)
+            dist[desc_count++] = sd;
+        desc_index[i] = k + 1;   // 1-based description index
+    }
+    for (i = 0; i < count; i = j)
+    {
+        for (j = i + 1; j < count && desc_index[j] == desc_index[i]; j++)
+            ;
+        run_count++;
+    }
+
+    ATOM(BOX_sgpd);
+        WRITE_4(0x01000000); // version 1, flags 0
+        WRITE_4(BOX_roll);   // grouping_type
+        WRITE_4(2);          // default_length
+        WRITE_4(desc_count); // entry_count
+        for (i = 0; i < desc_count; i++)
+        {
+            WRITE_2(dist[i]);
+        }
+    END_ATOM;
+
+    ATOM(BOX_sbgp);
+        WRITE_4(0);          // version 0, flags 0
+        WRITE_4(BOX_roll);   // grouping_type
+        WRITE_4(run_count);  // entry_count
+        for (i = 0; i < count; i = j)
+        {
+            for (j = i + 1; j < count && desc_index[j] == desc_index[i]; j++)
+                ;
+            WRITE_4(j - i);             // sample_count
+            WRITE_4(desc_index[i]);     // group_description_index
+        }
+    END_ATOM;
+
+    free(dist);
+    free(desc_index);
+    *pp = p;
     return MP4E_STATUS_OK;
 }
 
@@ -1239,6 +1961,13 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
         index_bytes += tr->vsps.bytes;
         index_bytes += tr->vpps.bytes;
         index_bytes += tr->vvps.bytes;
+        if (tr->is_opus)
+        {
+            // Edit list, dOps record, and the roll sgpd/sbgp tables: one
+            // sbgp run per distinct instance is bounded by the sample count,
+            // so allow 12 bytes per sample on top of the fixed track size.
+            index_bytes += 128 + tr->opus_head_bytes + 12 * tr->smpl.bytes / sizeof(sample_t);
+        }
 
         ERR(write_pending_data(mux, tr));
     }
@@ -1255,7 +1984,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
         // Second is optional duration update at beginning of file in fragmentation mode.
         // This can be avoided using "till eof" size code, but in this case indexes must be
         // written before the mdat....
-        int64_t size = mux->write_pos - sizeof(box_ftyp);
+        int64_t size = mux->write_pos - (int64_t)mux->ftyp_size;
         const int64_t size_limit = (int64_t)(uint64_t)0xfffffffe;
         if (size > size_limit)
         {
@@ -1270,12 +1999,17 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
             WRITE_4(size - 8);
             WRITE_4(BOX_mdat);
         }
-        ERR(mux->write_callback(sizeof(box_ftyp), base, p - base, mux->token));
+        ERR(mux->write_callback(mux->ftyp_size, base, p - base, mux->token));
         p = base;
     }
 
     // Write index atoms; order taken from Table 1 of [1]
 #define MOOV_TIMESCALE 1000
+    // Files containing Opus use a 48 kHz movie timescale so the edit list
+    // can express 48 kHz sample-frame trims exactly. Legacy files keep the
+    // historical 1000 Hz movie timescale and therefore their exact bytes.
+    {
+    unsigned movie_timescale = mux->opus_seen ? 48000 : MOOV_TIMESCALE;
     ATOM(BOX_moov);
         ATOM_FULL(BOX_mvhd, 0);
         WRITE_4(0); // creation_time
@@ -1283,11 +2017,23 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
 
         if (ntracks)
         {
-            track_t *tr = ((track_t*)mux->tracks.data) + 0;    // take 1st track
-            unsigned duration = get_duration(tr);
-            duration = (unsigned)(duration * 1LL * MOOV_TIMESCALE / tr->info.time_scale);
-            WRITE_4(MOOV_TIMESCALE); // duration
-            WRITE_4(duration); // duration
+            // Without Opus this keeps the historical "first track" behavior.
+            // With Opus present the movie duration is the longest displayed
+            // track, with every track converted from its own timescale.
+            unsigned movie_duration;
+            for (ntr = 0, movie_duration = 0; ntr < ntracks; ntr++)
+            {
+                track_t *tr = ((track_t*)mux->tracks.data) + ntr;
+                unsigned track_duration;
+                if (!mux->opus_seen && ntr)
+                    continue;
+                track_duration = get_track_tkhd_duration(tr);
+                track_duration = (unsigned)(track_duration * 1LL * movie_timescale / tr->info.time_scale);
+                if (track_duration > movie_duration)
+                    movie_duration = track_duration;
+            }
+            WRITE_4(movie_timescale); // timescale
+            WRITE_4(movie_duration); // duration
         }
 
         WRITE_4(0x00010000); // rate
@@ -1315,6 +2061,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
     {
         track_t *tr = ((track_t*)mux->tracks.data) + ntr;
         unsigned duration = get_duration(tr);
+        unsigned tkhd_duration = get_track_tkhd_duration(tr);
         int samples_count = tr->smpl.bytes / sizeof(sample_t);
         const sample_t *sample = (const sample_t *)tr->smpl.data;
         unsigned handler_type;
@@ -1349,7 +2096,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
             WRITE_4(0);             // modification_time
             WRITE_4(ntr + 1);       // track_ID
             WRITE_4(0);             // reserved
-            WRITE_4((unsigned)(duration * 1LL * MOOV_TIMESCALE / tr->info.time_scale));
+            WRITE_4((unsigned)(tkhd_duration * 1LL * movie_timescale / tr->info.time_scale));
             WRITE_4(0); WRITE_4(0); // reserved[2]
             WRITE_2(0);             // layer
             WRITE_2(0);             // alternate_group
@@ -1371,6 +2118,22 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                 WRITE_4(tr->info.u.v.height*0x10000); // height
             }
             END_ATOM;
+
+            if (tr->is_opus)
+            {
+                // Single edit: the encoder pre-skip is discarded from the
+                // start, and the edit's duration is the displayed length
+                // (full packet schedule minus pre-skip minus end trim).
+                ATOM(BOX_edts);
+                    ATOM_FULL(BOX_elst, 0);
+                    WRITE_4(1); // entry_count
+                    WRITE_4((unsigned)(tkhd_duration * 1LL * movie_timescale / tr->info.time_scale)); // segment_duration
+                    WRITE_4(tr->opus_pre_skip); // media_time, in 48 kHz frames
+                    WRITE_2(1); // media_rate_integer
+                    WRITE_2(0); // media_rate_fraction
+                    END_ATOM;
+                END_ATOM;
+            }
 
             ATOM(BOX_mdia);
                 ATOM_FULL(BOX_mdhd, 0);
@@ -1440,7 +2203,25 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                         ATOM_FULL(BOX_stsd, 0);
                         WRITE_4(1); // entry_count;
 
-                        if (tr->info.track_media_kind == e_audio || tr->info.track_media_kind == e_private)
+                        if (tr->is_opus)
+                        {
+                            // OpusSampleEntry: a plain AudioSampleEntry carrying
+                            // the channel count of the *encoded* channels
+                            // (streams + coupled), not the output channel count.
+                            ATOM(BOX_Opus);
+                                WRITE_4(0); WRITE_2(0); // reserved[6]
+                                WRITE_2(1); // data_reference_index
+                                WRITE_4(0); WRITE_4(0); // reserved[2]
+                                WRITE_2(tr->info.u.a.channelcount); // channelcount
+                                WRITE_2(16); // samplesize
+                                WRITE_4(0);  // pre_defined+reserved
+                                WRITE_4((tr->info.time_scale << 16));  // samplerate = 48000 << 16
+                                ATOM(BOX_dOps);
+                                p += opus_write_dops(p, tr);
+                                END_ATOM;
+                            END_ATOM;
+                        }
+                        else if (tr->info.track_media_kind == e_audio || tr->info.track_media_kind == e_private)
                         {
                             // AudioSampleEntry() assume MP4E_HANDLER_TYPE_SOUN
                             if (tr->info.track_media_kind == e_audio)
@@ -1712,6 +2493,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                         END_ATOM;
 
                         // Sync Sample Box
+                        if (!tr->is_opus)
                         {
                             int ra_count = 0;
                             for (i = 0; i < samples_count; i++)
@@ -1731,6 +2513,16 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
                                     }
                                 }
                                 END_ATOM;
+                            }
+                        } else
+                        {
+                            // Every Opus sample is a sync sample and the roll
+                            // group describes the pre-roll instead; see
+                            // opus_write_roll_boxes().
+                            if (opus_write_roll_boxes(&p, sample, samples_count))
+                            {
+                                free(base);
+                                return MP4E_STATUS_NO_MEMORY;
                             }
                         }
                     END_ATOM;
@@ -1788,6 +2580,7 @@ static int mp4e_flush_index(MP4E_mux_t *mux)
         END_ATOM;
     }
     END_ATOM;   // moov atom
+    }
 
     assert((unsigned)(p - base) <= index_bytes);
 
@@ -1803,11 +2596,23 @@ int MP4E_close(MP4E_mux_t *mux)
     unsigned ntr, ntracks;
     if (!mux)
         return MP4E_STATUS_BAD_ARGUMENTS;
-    if (!mux->enable_fragmentation)
+    ntracks = mux->tracks.bytes / sizeof(track_t);
+    // An Opus track must be sealed by MP4E_finish_opus() (or be empty): a
+    // half-configured track has no valid edit list yet, so refuse to emit a
+    // final moov and just release everything instead.
+    for (ntr = 0; ntr < ntracks; ntr++)
+    {
+        track_t *tr = ((track_t*)mux->tracks.data) + ntr;
+        // Every Opus track must be sealed by MP4E_finish_opus(); without
+        // that there is no valid edit list, so refuse to emit a final moov
+        // and just release everything instead.
+        if (tr->is_opus && !tr->opus_finished)
+            err = MP4E_STATUS_BAD_ARGUMENTS;
+    }
+    if (!mux->enable_fragmentation && err == MP4E_STATUS_OK)
         err = mp4e_flush_index(mux);
     if (mux->text_comment)
         free(mux->text_comment);
-    ntracks = mux->tracks.bytes / sizeof(track_t);
     for (ntr = 0; ntr < ntracks; ntr++)
     {
         track_t *tr = ((track_t*)mux->tracks.data) + ntr;
@@ -2643,6 +3448,52 @@ static void *minimp4_bounded_malloc(size_t size)
 
 typedef enum { BOX_ATOM, BOX_OD } boxtype_t;
 
+/**
+*   Validate the Opus tracks of a just-parsed file and derive their trim
+*   fields. Runs after the box walk because elst may legitimately precede
+*   mdhd/stts (or come after, for independently constructed files). Only
+*   single-description tracks with a 48 kHz media/movie timescale and one
+*   non-negative rate-1 edit inside a representable range are accepted.
+*   Returns 1 when every track (Opus or not) can be handed to the caller.
+*/
+static int mp4d_finalize_opus(MP4D_demux_t *mp4)
+{
+    unsigned i;
+    for (i = 0; i < mp4->track_count; i++)
+    {
+        MP4D_track_t *tr = mp4->track + i;
+        uint64_t raw_duration, display;
+        int64_t media_time;
+        if (tr->sample_entry != BOX_Opus)
+            continue;
+        if (tr->stsd_entry_count != 1)
+            return 0;   // only a single description is in the supported subset
+        if (!tr->opus_dops_seen || !tr->dsi || tr->dsi_bytes < 19 ||
+            tr->timescale != 48000 || mp4->timescale != 48000)
+            return 0;
+        raw_duration = ((uint64_t)tr->duration_hi << 32) | tr->duration_lo;
+        if (!raw_duration || raw_duration > 0xffffffffu)
+            return 0;
+        if (!tr->opus_elst_seen || tr->opus_elst_bad)
+            return 0;   // the trim information is mandatory and must be unambiguous
+        if (tr->opus_elst_count != 1 || tr->opus_elst_rate_int != 1 ||
+            tr->opus_elst_rate_frac != 0)
+            return 0;
+        if (tr->opus_elst_media_time < 0)
+            return 0;
+        // segment_duration is in movie timescale units; the movie and media
+        // timescales are both required to be 48000 for Opus, so the values
+        // are directly comparable. It must not exceed the raw duration.
+        display = tr->opus_elst_segment;
+        media_time = tr->opus_elst_media_time;
+        if (media_time > (int64_t)raw_duration || display > raw_duration - (uint64_t)media_time)
+            return 0;
+        tr->opus_trim_start = (unsigned)media_time;
+        tr->opus_trim_end = (unsigned)(raw_duration - (uint64_t)media_time - display);
+    }
+    return 1;
+}
+
 int MP4D_open(MP4D_demux_t *mp4, int (*read_callback)(int64_t offset, void *buffer, size_t size, void *token), void *token, int64_t file_size)
 {
     // box stack size
@@ -2709,7 +3560,13 @@ int MP4D_open(MP4D_demux_t *mp4, int (*read_callback)(int64_t offset, void *buff
             {BOX_stco, 0, 1},
             {BOX_co64, 0, 1},
             {BOX_stsd, 0, 0},
-            {BOX_esds, 0, 1}    // esds does not use track, but switches to OD mode. Check here, to avoid OD check
+            {BOX_elst, 1, 1},
+            {BOX_sgpd, 2, 1},
+            {BOX_sbgp, 1, 1}
+            // NOTE: 'dOps' is deliberately absent: it is a plain box whose
+            // first byte is the record version, not a FullBox version/flags
+            // word, so it is parsed by its own case below.
+            ,{BOX_esds, 0, 1}    // esds does not use track, but switches to OD mode. Check here, to avoid OD check
         };
 
         // List of boxes, which contains other boxes ('envelopes')
@@ -2737,6 +3594,8 @@ int MP4D_open(MP4D_demux_t *mp4, int (*read_callback)(int64_t offset, void *buff
             {BOX_stsd, BOX_ATOM},
             {BOX_mp4a, BOX_ATOM},
             {BOX_mp4s, BOX_ATOM},
+            {BOX_Opus, BOX_ATOM},
+            {BOX_edts, BOX_ATOM},
 #if MP4D_AVC_SUPPORTED
             {BOX_mp4v, BOX_ATOM},
             {BOX_avc1, BOX_ATOM},
@@ -3158,7 +4017,10 @@ broken_android_meta_hack:
 #endif
 
         case BOX_stsd:
-            SKIP(4); // entry_count, BOX_mp4a & BOX_mp4v boxes follows immediately
+            if (tr)
+                tr->stsd_entry_count = READ(4); // entry_count; entries follow immediately
+            else
+                SKIP(4);
             break;
 
         case BOX_mp4s:  // private stream
@@ -3182,6 +4044,171 @@ broken_android_meta_hack:
 #else
             SKIP(28);
 #endif
+            break;
+
+        case BOX_Opus:  // OpusSampleEntry: AudioSampleEntry plus a 'dOps' child
+            if (!tr)
+            {
+                ERROR("broken file structure!");
+            }
+            {
+                tr->sample_entry = BOX_Opus;
+                tr->handler_type = MP4E_HANDLER_TYPE_SOUN;
+                tr->object_type_indication = MP4_OBJECT_TYPE_USER_PRIVATE;
+#if MP4D_INFO_SUPPORTED
+                SKIP(6*1 + 2/*Base SampleEntry*/ + 4*2);
+                tr->SampleDescription.audio.channelcount = READ(2);
+                SKIP(2/*samplesize*/ + 2 + 2);
+                tr->SampleDescription.audio.samplerate_hz = READ(4) >> 16;
+#else
+                SKIP(28);
+#endif
+                // The 'dOps' child is parsed by its own case below.
+            }
+            break;
+
+        case BOX_dOps:  // OpusDecoderConfigurationRecord
+            if (!tr)
+            {
+                ERROR("broken file structure!");
+            }
+            {
+                unsigned version, output_channels, pre_skip, input_rate, gain, family;
+                unsigned streams = 1, coupled = 0;
+                unsigned i;
+                unsigned char head[21 + 255];
+
+                if (payload_bytes < 11 || payload_bytes > (boxsize_t)sizeof(head))
+                {
+                    ERROR("bad Opus decoder configuration record");
+                }
+                version = READ(1);
+                output_channels = READ(1);
+                pre_skip = READ(2);
+                input_rate = READ(4);
+                gain = READ(2);
+                family = READ(1);
+                if (version != 0 || !output_channels ||
+                    (family != 0 && family != 255))
+                {
+                    ERROR("bad Opus decoder configuration record");
+                }
+                if (family == 0)
+                {
+                    if (output_channels != 1 && output_channels != 2)
+                    {
+                        ERROR("bad Opus decoder configuration record");
+                    }
+                    // 11 fixed bytes and no mapping table.
+                    if (payload_bytes != 0)
+                    {
+                        ERROR("bad Opus decoder configuration record");
+                    }
+                    streams = 1;
+                    coupled = output_channels - 1;
+                } else
+                {
+                    // StreamCount, CoupledCount and one mapping byte per
+                    // output channel remain after the fixed 10 bytes.
+                    if (payload_bytes != 2 + (boxsize_t)output_channels)
+                    {
+                        ERROR("bad Opus decoder configuration record");
+                    }
+                    streams = READ(1);
+                    coupled = READ(1);
+                    if (!streams || coupled > streams || streams + coupled > 255)
+                    {
+                        ERROR("bad Opus decoder configuration record");
+                    }
+                    for (i = 0; i < output_channels; i++)
+                    {
+                        unsigned v = READ(1);
+                        if (v != 255 && v >= streams + coupled)
+                        {
+                            ERROR("bad Opus decoder configuration record");
+                        }
+                        head[21 + i] = (unsigned char)v;
+                    }
+                }
+                if (tr->dsi)
+                {
+                    // Missing/duplicate dOps: a second record is as invalid as
+                    // none at all (only one channel mapping can apply).
+                    ERROR("duplicate Opus decoder configuration record");
+                }
+                tr->dsi_bytes = (unsigned)(family == 0 ? 19 : 21 + output_channels);
+                tr->dsi = (unsigned char*)minimp4_bounded_malloc(tr->dsi_bytes);
+                if (!tr->dsi)
+                {
+                    ERROR("out of memory");
+                }
+                memcpy(tr->dsi, "OpusHead", 8);
+                tr->dsi[8] = 1;
+                tr->dsi[9] = (unsigned char)output_channels;
+                tr->dsi[10] = (unsigned char)(pre_skip & 0xff);
+                tr->dsi[11] = (unsigned char)((pre_skip >> 8) & 0xff);
+                tr->dsi[12] = (unsigned char)(input_rate & 0xff);
+                tr->dsi[13] = (unsigned char)((input_rate >> 8) & 0xff);
+                tr->dsi[14] = (unsigned char)((input_rate >> 16) & 0xff);
+                tr->dsi[15] = (unsigned char)((input_rate >> 24) & 0xff);
+                tr->dsi[16] = (unsigned char)(gain & 0xff);
+                tr->dsi[17] = (unsigned char)((gain >> 8) & 0xff);
+                tr->dsi[18] = (unsigned char)family;
+                if (family != 0)
+                {
+                    tr->dsi[19] = (unsigned char)streams;
+                    tr->dsi[20] = (unsigned char)coupled;
+                    for (i = 0; i < output_channels; i++)
+                        tr->dsi[21 + i] = head[21 + i];
+                }
+                if (eof_flag)
+                {
+                    ERROR("truncated Opus decoder configuration record");
+                }
+                tr->opus_dops_seen = 1;
+                tr->sample_entry = BOX_Opus;
+                tr->handler_type = MP4E_HANDLER_TYPE_SOUN;
+            }
+            break;
+
+        case BOX_elst:  // EditListBox
+            if (!tr)
+            {
+                ERROR("broken file structure!");
+            }
+            {
+                unsigned version = FullAtomVersionAndFlags >> 24;
+                unsigned entry_count = READ(4);
+                unsigned k;
+                if (!entry_count || payload_bytes == 0)
+                {
+                    ERROR("bad edit list");
+                }
+                if (version == 1)
+                {
+                    // 64-bit segment duration / media time
+                    uint64_t seg = ((uint64_t)READ(4) << 32);
+                    seg |= READ(4);
+                    uint64_t mt = ((uint64_t)READ(4) << 32);
+                    mt |= READ(4);
+                    tr->opus_elst_segment = seg;
+                    tr->opus_elst_media_time = (int64_t)mt;
+                } else
+                {
+                    tr->opus_elst_segment = READ(4);
+                    tr->opus_elst_media_time = (int32_t)READ(4);
+                }
+                tr->opus_elst_rate_int = READ(2);
+                tr->opus_elst_rate_frac = READ(2);
+                // Any further entries are outside the supported subset; fail
+                // open() later rather than guessing which one applies.
+                if (entry_count != 1)
+                    tr->opus_elst_bad = 1;
+                for (k = 1; k < entry_count; k++)
+                    SKIP((version == 1) ? 16 + 4 : 8 + 4);
+                tr->opus_elst_count = entry_count;
+                tr->opus_elst_seen = 1;
+            }
             break;
 
 #if MP4D_AVC_SUPPORTED
@@ -3419,6 +4446,11 @@ broken_android_meta_hack:
     if (!mp4->track_count)
     {
         RETURN_ERROR("no tracks found");
+    }
+    if (!mp4d_finalize_opus(mp4))
+    {
+        MP4D_close(mp4);
+        return 0;
     }
     return 1;
 }
