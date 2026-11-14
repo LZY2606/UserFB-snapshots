@@ -413,6 +413,12 @@ class BinaryReaderDelegate {
   virtual Result OnLocalName(Index function_index,
                              Index local_index,
                              std::string_view local_name) = 0;
+  virtual Result OnLabelNameFunctionCount(Index num_functions) = 0;
+  virtual Result OnLabelNameFunction(Index function_index,
+                                     Index num_labels) = 0;
+  virtual Result OnLabelName(Index function_index,
+                             Index label_index,
+                             std::string_view label_name) = 0;
   virtual Result OnNameSubsection(Index index,
                                   NameSectionSubsection subsection_type,
                                   Offset subsection_size) = 0;

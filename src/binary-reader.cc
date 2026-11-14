@@ -210,7 +210,6 @@ class BinaryReader {
   CatchClauseVector catches_;
   const ReadBinaryOptions& options_;
   BinarySection last_known_section_ = BinarySection::Invalid;
-  bool did_read_names_section_ = false;
   bool reading_custom_section_ = false;
   Index num_func_imports_ = 0;
   Index num_table_imports_ = 0;
@@ -2154,8 +2153,43 @@ Result BinaryReader::ReadNameSection(Offset section_size) {
         }
         break;
       case NameSectionSubsection::Label:
-        // TODO(sbc): Implement label names. These are slightly more complicated
-        // since they refer to offsets in the code section / instruction stream.
+        if (subsection_size) {
+          Index num_funcs;
+          CHECK_RESULT(ReadCount(&num_funcs, "label function count"));
+          CALLBACK(OnLabelNameFunctionCount, num_funcs);
+          Index last_function_index = kInvalidIndex;
+          for (Index j = 0; j < num_funcs; ++j) {
+            Index function_index;
+            CHECK_RESULT(ReadIndex(&function_index, "function index"));
+            ERROR_UNLESS(function_index < NumTotalFuncs(),
+                         "invalid function index: %u", function_index);
+            ERROR_UNLESS(function_index != last_function_index,
+                         "duplicate label function index: %u", function_index);
+            ERROR_UNLESS(last_function_index == kInvalidIndex ||
+                             function_index > last_function_index,
+                         "label function index out of order: %u",
+                         function_index);
+            last_function_index = function_index;
+            Index num_labels;
+            CHECK_RESULT(ReadCount(&num_labels, "label count"));
+            CALLBACK(OnLabelNameFunction, function_index, num_labels);
+            Index last_label_index = kInvalidIndex;
+            for (Index k = 0; k < num_labels; ++k) {
+              Index label_index;
+              std::string_view label_name;
+
+              CHECK_RESULT(ReadIndex(&label_index, "named label index"));
+              ERROR_UNLESS(label_index != last_label_index,
+                           "duplicate label index: %u", label_index);
+              ERROR_UNLESS(last_label_index == kInvalidIndex ||
+                               label_index > last_label_index,
+                           "label index out of order: %u", label_index);
+              last_label_index = label_index;
+              CHECK_RESULT(ReadStr(&label_name, "label name"));
+              CALLBACK(OnLabelName, function_index, label_index, label_name);
+            }
+          }
+        }
         state_.offset = subsection_end;
         break;
       case NameSectionSubsection::Type:
@@ -2632,8 +2666,10 @@ Result BinaryReader::ReadCustomSection(Index section_index,
   }
 
   if (options_.read_debug_names && section_name == WABT_BINARY_SECTION_NAME) {
+    // The name section is a custom section and may legally appear either
+    // before or after the code section. The IR reader defers applying label
+    // names until EndModule so both positions resolve identically.
     CHECK_RESULT(ReadNameSection(section_size));
-    did_read_names_section_ = true;
   } else if (section_name == WABT_BINARY_SECTION_DYLINK0) {
     CHECK_RESULT(ReadDylink0Section(section_size));
   } else if (section_name == WABT_BINARY_SECTION_DYLINK) {
@@ -3201,10 +3237,6 @@ Result BinaryReader::ReadSections(const ReadSectionsOptions& options) {
             section == BinarySection::Custom ||
             GetSectionOrder(section) > GetSectionOrder(last_known_section_),
         "section %s out of order", GetSectionName(section));
-
-    ERROR_UNLESS(!did_read_names_section_ || section == BinarySection::Custom,
-                 "%s section can not occur after Name section",
-                 GetSectionName(section));
 
     CALLBACK(BeginSection, section_index, section, section_size);
 

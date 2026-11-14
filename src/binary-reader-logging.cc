@@ -518,6 +518,29 @@ Result BinaryReaderLogging::OnLocalName(Index func_index,
   return reader_->OnLocalName(func_index, local_index, name);
 }
 
+Result BinaryReaderLogging::OnLabelNameFunctionCount(Index num_functions) {
+  LOGF("OnLabelNameFunctionCount(num_functions: %" PRIindex ")\n",
+       num_functions);
+  return reader_->OnLabelNameFunctionCount(num_functions);
+}
+
+Result BinaryReaderLogging::OnLabelNameFunction(Index function_index,
+                                                Index num_labels) {
+  LOGF("OnLabelNameFunction(function_index: %" PRIindex
+       ", num_labels: %" PRIindex ")\n",
+       function_index, num_labels);
+  return reader_->OnLabelNameFunction(function_index, num_labels);
+}
+
+Result BinaryReaderLogging::OnLabelName(Index function_index,
+                                        Index label_index,
+                                        std::string_view name) {
+  LOGF("OnLabelName(func_index: %" PRIindex ", label_index: %" PRIindex
+       ", name: \"" PRIstringview "\")\n",
+       function_index, label_index, WABT_PRINTF_STRING_VIEW_ARG(name));
+  return reader_->OnLabelName(function_index, label_index, name);
+}
+
 Result BinaryReaderLogging::OnNameSubsection(
     Index index,
     NameSectionSubsection subsection_type,

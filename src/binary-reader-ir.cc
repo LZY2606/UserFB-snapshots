@@ -28,6 +28,7 @@
 #include "wabt/cast.h"
 #include "wabt/common.h"
 #include "wabt/ir.h"
+#include "label-names.h"
 
 namespace wabt {
 
@@ -97,7 +98,10 @@ class BinaryReaderIR : public BinaryReaderNop {
   static constexpr size_t kMaxFunctionResults = 1000;  // matches V8
 
  public:
-  BinaryReaderIR(Module* out_module, const char* filename, Errors* errors);
+  BinaryReaderIR(Module* out_module,
+                 const char* filename,
+                 Errors* errors,
+                 const ReadBinaryOptions& options);
 
   bool OnError(const Error&) override;
 
@@ -322,6 +326,12 @@ class BinaryReaderIR : public BinaryReaderNop {
   Result OnLocalName(Index function_index,
                      Index local_index,
                      std::string_view local_name) override;
+  Result OnLabelNameFunctionCount(Index num_functions) override;
+  Result OnLabelNameFunction(Index function_index, Index num_labels) override;
+  Result OnLabelName(Index function_index,
+                     Index label_index,
+                     std::string_view label_name) override;
+  Result EndModule() override;
   Result OnNameEntry(NameSectionSubsection type,
                      Index index,
                      std::string_view name) override;
@@ -399,14 +409,20 @@ class BinaryReaderIR : public BinaryReaderNop {
   Func* current_func_ = nullptr;
   std::vector<LabelNode> label_stack_;
 
+  // Raw Label subsection, applied to the IR once the whole module has been
+  // read so the name section may appear before or after the code section.
+  LabelNameTable label_name_table_;
+  const ReadBinaryOptions& options_;
+
   CodeMetadataExprQueue code_metadata_queue_;
   std::string_view current_metadata_name_;
 };
 
 BinaryReaderIR::BinaryReaderIR(Module* out_module,
                                const char* filename,
-                               Errors* errors)
-    : errors_(errors), module_(out_module) {
+                               Errors* errors,
+                               const ReadBinaryOptions& options)
+    : errors_(errors), module_(out_module), options_(options) {
   out_module->filename = filename;
 }
 
@@ -1778,6 +1794,39 @@ Result BinaryReaderIR::OnLocalName(Index func_index,
   return Result::Ok;
 }
 
+Result BinaryReaderIR::OnLabelNameFunctionCount(Index num_functions) {
+  // The structural validation of function and label indices happens while
+  // reading; this callback exists so other delegates can observe the count.
+  WABT_USE(num_functions);
+  return Result::Ok;
+}
+
+Result BinaryReaderIR::OnLabelNameFunction(Index function_index,
+                                           Index num_labels) {
+  // Record the position of the function index for later, positioned errors.
+  label_name_table_.AddFunction(function_index, GetLocation());
+  WABT_USE(num_labels);
+  return Result::Ok;
+}
+
+Result BinaryReaderIR::OnLabelName(Index function_index,
+                                   Index label_index,
+                                   std::string_view label_name) {
+  // The string points into the input buffer; copy it so naming still works
+  // after the input bytes have been released.
+  label_name_table_.AddEntry(label_index, label_name, GetLocation());
+  WABT_USE(function_index);
+  return Result::Ok;
+}
+
+Result BinaryReaderIR::EndModule() {
+  if (!options_.read_debug_names || label_name_table_.empty()) {
+    return Result::Ok;
+  }
+  return label_name_table_.Apply(module_, errors_,
+                                 options_.fail_on_custom_section_error);
+}
+
 Result BinaryReaderIR::OnTagType(Index index, Index sig_index) {
   auto field = std::make_unique<TagModuleField>(GetLocation());
   Tag& tag = field->tag;
@@ -1899,7 +1948,7 @@ Result ReadBinaryIr(const char* filename,
   // bodies here leaves each function's label unclosed, because the end marker
   // that would pop it is never read.
   assert(!options.skip_function_bodies);
-  BinaryReaderIR reader(out_module, filename, errors);
+  BinaryReaderIR reader(out_module, filename, errors, options);
   return ReadBinary(data, &reader, options);
 }
 

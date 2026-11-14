@@ -24,6 +24,9 @@
 #include "wabt/cast.h"
 #include "wabt/expr-visitor.h"
 #include "wabt/ir.h"
+#include "label-names.h"
+
+#include <unordered_set>
 
 namespace wabt {
 
@@ -53,9 +56,6 @@ class NameGenerator : public ExprVisitor::DelegateNop {
                     unsigned disambiguator,
                     std::string* out_str);
 
-  // Like GenerateName, but only generates a name if |out_str| is empty.
-  void MaybeGenerateName(const char* prefix, Index index, std::string* out_str);
-
   // Generate a name via GenerateName and bind it to the given binding hash. If
   // the name already exists, the name will be disambiguated until it can be
   // added.
@@ -78,6 +78,13 @@ class NameGenerator : public ExprVisitor::DelegateNop {
                            Index index,
                            std::string* out_str);
 
+  // Like MaybeGenerateName, but picks another name if the generated one would
+  // collide with a label already present in the function (in particular a
+  // debug name given to a node that has not been visited yet).
+  void MaybeGenerateUniqueLabelName(const char* prefix,
+                                    Index index,
+                                    std::string* out_str);
+
   void GenerateAndBindLocalNames(Func* func);
 
   template <typename T>
@@ -98,6 +105,10 @@ class NameGenerator : public ExprVisitor::DelegateNop {
   Module* module_ = nullptr;
   ExprVisitor visitor_;
   Index label_count_ = 0;
+
+  // All label identifiers already present in the current function, including
+  // debug names assigned to nodes that the visitor has not reached yet.
+  std::unordered_set<std::string> reserved_label_names_;
 
   Index num_func_imports_ = 0;
   Index num_table_imports_ = 0;
@@ -139,13 +150,21 @@ void NameGenerator::GenerateName(const char* prefix,
   }
 }
 
-void NameGenerator::MaybeGenerateName(const char* prefix,
-                                      Index index,
-                                      std::string* str) {
-  if (!HasName(*str)) {
-    // There's no bindings hash, so the name can't be a duplicate. Therefore it
-    // doesn't need a disambiguating number.
-    GenerateName(prefix, index, 0, str);
+void NameGenerator::MaybeGenerateUniqueLabelName(const char* prefix,
+                                                 Index index,
+                                                 std::string* str) {
+  if (HasName(*str)) {
+    // A debug (or previously generated) name is already present.
+    return;
+  }
+  unsigned disambiguator = 0;
+  while (true) {
+    GenerateName(prefix, index, disambiguator, str);
+    if (reserved_label_names_.find(*str) == reserved_label_names_.end()) {
+      reserved_label_names_.insert(*str);
+      return;
+    }
+    ++disambiguator;
   }
 }
 
@@ -216,27 +235,27 @@ void NameGenerator::GenerateAndBindLocalNames(Func* func) {
 }
 
 Result NameGenerator::BeginBlockExpr(BlockExpr* expr) {
-  MaybeGenerateName("B", label_count_++, &expr->block.label);
+  MaybeGenerateUniqueLabelName("B", label_count_++, &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginTryExpr(TryExpr* expr) {
-  MaybeGenerateName("T", label_count_++, &expr->block.label);
+  MaybeGenerateUniqueLabelName("T", label_count_++, &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginTryTableExpr(TryTableExpr* expr) {
-  MaybeGenerateName("T", label_count_++, &expr->block.label);
+  MaybeGenerateUniqueLabelName("T", label_count_++, &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginLoopExpr(LoopExpr* expr) {
-  MaybeGenerateName("L", label_count_++, &expr->block.label);
+  MaybeGenerateUniqueLabelName("L", label_count_++, &expr->block.label);
   return Result::Ok;
 }
 
 Result NameGenerator::BeginIfExpr(IfExpr* expr) {
-  MaybeGenerateName("I", label_count_++, &expr->true_.label);
+  MaybeGenerateUniqueLabelName("I", label_count_++, &expr->true_.label);
   return Result::Ok;
 }
 
@@ -244,6 +263,13 @@ Result NameGenerator::VisitFunc(Index func_index, Func* func) {
   MaybeGenerateAndBindName(&module_->func_bindings, "f", func_index,
                            &func->name);
   GenerateAndBindLocalNames(func);
+
+  // Reserve every identifier already carried by a block-like node, so names
+  // generated below cannot collide with a debug name on a later node.
+  reserved_label_names_.clear();
+  ForEachBlockLabel(func, [this](const std::string& label) {
+    reserved_label_names_.insert(label);
+  });
 
   label_count_ = 0;
   CHECK_RESULT(visitor_.VisitFunc(func));
