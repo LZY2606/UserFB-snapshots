@@ -1,0 +1,7 @@
+This runtime export is from https://github.com/keith2018/SoftGLRender at 7efae8d50a5aedb473f5a1284d85c6fb04453dbf. Production files retain their upstream bytes. The author-side seed-export.json records each original Git blob and SHA256.
+
+The export includes the CPU renderer, shared rendering interfaces and Base headers, Geometry/Logger/ImageUtils production implementations, vendored GLM headers and copying.txt, stb image/read-write headers with their embedded MIT/public-domain licenses, and the original RSA Data Security, Inc. MD5 Message-Digest Algorithm sources with embedded notices. The project's MIT LICENSE is retained. No target implementation or target tests are supplied.
+
+Viewer/Application code, GPU backends, platform/window integrations, models, renderdoc binaries and unrelated third_party build/test trees do not participate in this CPU renderer build and were not exported. No submodules or Git LFS pointers occur in the selected source tree. The original fixed tree had no .gitmodules or 160000 gitlinks.
+
+Use bash task_support/run.sh baseline for the existing CPU drawing path. The build selects the renderer's existing scalar path and GLM pure aligned types, without changing production source or requiring AVX. System C/C++11 compilers, bash and pthreads suffice. The -D_MSC_EXTENSIONS flag activates GLM's aligned-type declarations under its pure configuration; it does not select a Windows compiler or backend. Standard-library headers are supplied explicitly for upstream transitive-include assumptions. No build step fetches packages.
