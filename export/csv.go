@@ -48,10 +48,17 @@ func (e *CSV) Export(exports chan interface{}) error {
 			sort.Strings(values)
 		}
 		if err := writer.Write(values); err != nil {
-			internal.Logger.Printf("CSV writing error on exporter: %v\n", err)
+			return fmt.Errorf("csv write error: %w", err)
 		}
 	}
 	writer.Flush()
+
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("csv flush error: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("csv close error: %w", err)
+	}
 
 	return nil
 }

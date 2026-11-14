@@ -4,12 +4,12 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/geziyor/geziyor/cache"
 	"github.com/geziyor/geziyor/client"
-	"github.com/geziyor/geziyor/export"
 	"github.com/geziyor/geziyor/internal"
 	"github.com/geziyor/geziyor/metrics"
 	"github.com/geziyor/geziyor/middleware"
 	"golang.org/x/time/rate"
 
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http/cookiejar"
@@ -37,6 +37,9 @@ type Geziyor struct {
 		hostSems map[string]chan struct{}
 	}
 	shutdown bool
+
+	startMu sync.Mutex
+	started bool
 }
 
 // NewGeziyor creates new Geziyor with default values.
@@ -138,8 +141,26 @@ func NewGeziyor(opt *Options) *Geziyor {
 	return geziyor
 }
 
-// Start starts scraping
+// Start starts scraping and logs any error reported by StartE.
 func (g *Geziyor) Start() {
+	if err := g.StartE(); err != nil {
+		internal.Logger.Println(err)
+	}
+}
+
+// StartE starts scraping and returns the combined errors from the cleaning
+// step and from every exporter. It returns only after the start request
+// callbacks have finished, the dispatcher has closed every exporter's input,
+// and every Export call has returned.
+func (g *Geziyor) StartE() error {
+	g.startMu.Lock()
+	if g.started {
+		g.startMu.Unlock()
+		return ErrAlreadyStarted
+	}
+	g.started = true
+	g.startMu.Unlock()
+
 	internal.Logger.Println("Scraping Started")
 
 	// Metrics
@@ -148,8 +169,8 @@ func (g *Geziyor) Start() {
 		defer metricsServer.Close()
 	}
 
-	// Start Exporters
-	g.startExporters()
+	// Start Exporters and the single export dispatcher
+	dispatcher := g.startExporters()
 
 	// Wait for SIGINT (interrupt) signal.
 	shutdownChan := make(chan os.Signal, 1)
@@ -168,9 +189,12 @@ func (g *Geziyor) Start() {
 
 	g.wgRequests.Wait()
 	close(g.Exports)
+	<-dispatcher.done
 	g.wgExporters.Wait()
 	shutdownDoneChan <- struct{}{}
 	internal.Logger.Println("Scraping Finished")
+
+	return errors.Join(dispatcher.errors()...)
 }
 
 // Get issues a GET to the specified URL.
@@ -320,45 +344,5 @@ func (g *Geziyor) interruptSignalWaiter(shutdownChan chan os.Signal, shutdownDon
 		case <-shutdownDoneChan:
 			return
 		}
-	}
-}
-
-func (g *Geziyor) startExporters() {
-	if len(g.Opt.Exporters) != 0 {
-		var exporterChans []chan interface{}
-
-		g.wgExporters.Add(len(g.Opt.Exporters))
-		for _, exporter := range g.Opt.Exporters {
-			exporterChan := make(chan interface{})
-			exporterChans = append(exporterChans, exporterChan)
-			go func(exporter export.Exporter) {
-				defer g.wgExporters.Done()
-				if err := exporter.Export(exporterChan); err != nil {
-					internal.Logger.Printf("exporter error: %s\n", err)
-				}
-			}(exporter)
-		}
-		go func() {
-			// When exports closed, close the exporter chans.
-			// Exports chan will be closed after all requests are handled.
-			defer func() {
-				for _, exporterChan := range exporterChans {
-					close(exporterChan)
-				}
-			}()
-			// Send incoming data from exports to all of the exporter's chans
-			for data := range g.Exports {
-				for _, exporterChan := range exporterChans {
-					exporterChan <- data
-				}
-			}
-		}()
-	} else {
-		g.wgExporters.Add(1)
-		go func() {
-			for range g.Exports {
-			}
-			g.wgExporters.Done()
-		}()
 	}
 }

@@ -26,15 +26,24 @@ func (e *JSONLine) Export(exports chan interface{}) error {
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.SetEscapeHTML(e.EscapeHTML)
-	encoder.SetIndent(e.Prefix, e.Indent)
-
 	// Export data as responses came
 	for res := range exports {
+		// Encode first so encoding failures and file write failures can be
+		// reported distinctly, and neither is silently treated as success.
+		var buf bytes.Buffer
+		encoder := json.NewEncoder(&buf)
+		encoder.SetEscapeHTML(e.EscapeHTML)
+		encoder.SetIndent(e.Prefix, e.Indent)
 		if err := encoder.Encode(res); err != nil {
-			internal.Logger.Printf("JSON encoding error on exporter: %v\n", err)
+			return fmt.Errorf("json encoding error: %w", err)
 		}
+		if _, err := file.Write(buf.Bytes()); err != nil {
+			return fmt.Errorf("json write error: %w", err)
+		}
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("json close error: %w", err)
 	}
 
 	return nil

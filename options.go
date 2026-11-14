@@ -51,6 +51,13 @@ type Options struct {
 	// If not defined, all errors will be logged.
 	ErrorFunc func(g *Geziyor, r *client.Request, err error)
 
+	// CleanFunc is called by the single export dispatcher before data is
+	// handed to Exporters. It may filter an input by returning no results,
+	// or split an input into several results. If it returns an error, the
+	// whole input (including any returned results) is dropped, the error is
+	// recorded, and processing continues with later inputs.
+	CleanFunc func(interface{}) ([]interface{}, error)
+
 	// For extracting data
 	Exporters []export.Exporter
 
