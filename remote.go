@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blang/semver"
@@ -54,6 +55,17 @@ type remoteWD struct {
 	storedActions  Actions
 	browser        string
 	browserVersion semver.Version
+
+	// webSocketURL is the WebDriver BiDi endpoint negotiated at session
+	// creation through the webSocketUrl capability, if any.
+	webSocketURL string
+	// webSocketSession is the session ID that negotiated webSocketURL.
+	webSocketSession string
+	// networkMu guards networkOpened.
+	networkMu sync.Mutex
+	// networkOpened records whether OpenNetwork has already handed out the
+	// single network connection allowed per driver.
+	networkOpened bool
 }
 
 // HTTPClient is the default client to use to communicate with the WebDriver
@@ -359,6 +371,7 @@ var w3cCapabilityNames = []string{
 	"setWindowRect",
 	"timeouts",
 	"unhandledPromptBehavior",
+	"webSocketUrl",
 }
 
 var chromeCapabilityNames = []string{
@@ -468,7 +481,10 @@ func (wd *remoteWD) NewSession() (string, error) {
 				Version          string
 				PageLoadStrategy string
 				Proxy            Proxy
-				Timeouts         struct {
+				// WebSocketURL is the WebDriver BiDi endpoint returned
+				// when the webSocketUrl capability was requested.
+				WebSocketURL string `json:"webSocketUrl"`
+				Timeouts     struct {
 					Implicit       float32
 					PageLoadLegacy float32 `json:"page load"`
 					PageLoad       float32
@@ -512,6 +528,11 @@ func (wd *remoteWD) NewSession() (string, error) {
 					continue
 				}
 				wd.browserVersion = v
+			}
+
+			if caps.WebSocketURL != "" {
+				wd.webSocketURL = caps.WebSocketURL
+				wd.webSocketSession = wd.id
 			}
 		}
 

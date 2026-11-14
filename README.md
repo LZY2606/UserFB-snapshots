@@ -48,6 +48,61 @@ Re-run this periodically to get up-to-date versions of these binaries.
 
 The API documentation is at https://godoc.org/github.com/tebeka/selenium. See [the example](https://github.com/tebeka/selenium/blob/master/example_test.go) and unit tests(for [sauce](https://github.com/tebeka/selenium/blob/master/sauce_test.go), [selenium](https://github.com/tebeka/selenium/blob/master/selenium_test.go) and [service](https://github.com/tebeka/selenium/blob/master/service_test.go)) for better usage information.
 
+## Network interception (WebDriver BiDi)
+
+When the remote end negotiates a `webSocketUrl` capability, `OpenNetwork`
+attaches to that WebDriver BiDi endpoint and lets you intercept requests: a
+paused request can be continued (optionally with rewritten headers) or
+failed, per intercept phase. The plain HTTP WebDriver session is unaffected.
+
+```go
+caps := selenium.Capabilities{"browserName": "firefox", "webSocketUrl": true}
+wd, err := selenium.NewRemote(caps, selenium.DefaultURLPrefix)
+if err != nil {
+	log.Fatal(err)
+}
+defer wd.Quit()
+
+net, err := selenium.OpenNetwork(wd)
+if err != nil {
+	log.Fatal(err)
+}
+defer net.Close()
+
+// Pause form submissions before they are sent and when the response
+// starts arriving.
+rule, err := net.Add(
+	[]string{"beforeRequestSent", "responseStarted"},
+	[]string{"https://example.com/order"},
+)
+if err != nil {
+	log.Fatal(err)
+}
+defer rule.Remove()
+
+pause, err := net.Next(context.Background())
+if err != nil {
+	log.Fatal(err)
+}
+if pause.Phase == "beforeRequestSent" {
+	// Rewrite a header, keeping order and duplicates intact. A nil
+	// slice leaves headers untouched, an empty nonnil slice clears
+	// them; pause.Fail() would abort the request instead.
+	err = pause.Continue([]selenium.NetworkHeader{
+		{Name: "X-Order", Value: selenium.NetworkBytes{Type: "string", Value: "42"}},
+	})
+} else {
+	err = pause.Continue(nil)
+}
+if err != nil {
+	log.Fatal(err)
+}
+```
+
+Each pause accepts exactly one decision; a pause superseded by a later
+phase or redirect of its request can no longer be decided. See
+`network_bidi.go` for the full API.
+
 ## Known Issues
 
 Any issues are usually because the underlying browser automation framework has a
