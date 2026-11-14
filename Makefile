@@ -237,6 +237,9 @@ clusterfuzz: tools/clusterfuzz.cpp src/clusterizer.cpp src/partition.cpp
 simplifyfuzz: tools/simplifyfuzz.cpp src/simplifier.cpp
 	$(CXX) $^ -fsanitize=fuzzer,address,undefined -O1 -g -o $@
 
+pose_simplify: examples/pose_simplify.cpp $(LIBRARY)
+	$(CXX) $^ $(CXXFLAGS) -I src -o $@
+
 $(LIBRARY): $(LIBRARY_OBJECTS)
 	ar rcs $@ $^
 

@@ -615,6 +615,62 @@ MESHOPTIMIZER_API size_t meshopt_simplifyPoints(unsigned int* destination, const
 MESHOPTIMIZER_API float meshopt_simplifyScale(const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
 
 /**
+ * Multi-pose simplifier session
+ * Simplifies a mesh that shares connectivity and vertex identities across multiple discrete poses.
+ * The session preserves a single index buffer and a single vertex identity space so that all resulting LODs can share the same vertex numbering.
+ * Each pose is normalized independently by its own full-vertex bounding box, and the error for a candidate collapse is the maximum of the per-pose quadric errors.
+ */
+typedef struct meshopt_PoseSimplifier meshopt_PoseSimplifier;
+
+/**
+ * Creates a multi-pose simplification session
+ * All input data is copied; the caller can modify or release the source buffers after this call.
+ * The input is expected to be 1 to 8 poses of finite coordinates, where each pose is an oriented manifold with non-degenerate faces; open boundaries and duplicated positions are allowed.
+ * The initial quadrics only use the face plane terms from the existing simplifier (no attribute or regularization terms).
+ * Geometric identity is determined by comparing the full XYZ trajectory across all poses; vertices that coincide in one pose but separate in another are not welded.
+ *
+ * indices must reference vertices in the provided positions, with index_count a multiple of 3
+ * positions must contain pose_count pointers, each to a float3 position in the first 12 bytes of each vertex
+ * strides must contain pose_count strides, in bytes, one for each pose
+ * pose_count must be in [1, 8]
+ * vertex_lock can be NULL; when it's not NULL, it should have a value for each vertex; any non-zero value prevents the corresponding cluster from being a collapse source
+ * Returns a session pointer or NULL when the input is invalid.
+ */
+MESHOPTIMIZER_API meshopt_PoseSimplifier* meshopt_createPoseSimplifier(const unsigned int* indices, size_t index_count, size_t vertex_count, const float* const* positions, const size_t* strides, size_t pose_count, const unsigned char* vertex_lock);
+
+/**
+ * Performs one multi-pose simplification step
+ * Reduces the current index buffer towards target_index_count while keeping the maximum accepted collapse cost within target_error.
+ * The step stops when the target is reached or when no legal candidate collapses remain; it is not required to reach the target in one step.
+ * The session is persistent: quadrics from previous clusters and the accumulated error are retained across steps, so subsequent calls must not re-run a plain simplifier from scratch.
+ * If target_index_count is not smaller than the current index count, or target_error is below the error already accumulated in the session, the state is left unchanged.
+ * Raising target_error later allows the session to continue.
+ *
+ * target_error represents the maximum linear error relative to the per-pose mesh extents, e.g. 0.1 = 10% deformation in the worst pose
+ * Returns the current number of indices after the step
+ */
+MESHOPTIMIZER_API size_t meshopt_simplifyPoseStep(meshopt_PoseSimplifier* state, size_t target_index_count, float target_error);
+
+/**
+ * Reads the current state of a multi-pose simplification session
+ * Copies the current index buffer and the complete remap from every original vertex to its current representative.
+ * Unreferenced vertices map to themselves. Vertices that were collapsed away map to the representative that remains referenced.
+ * Each successful step updates the session in place; reading does not modify the session.
+ *
+ * destination must contain enough space for the original index count
+ * remap must contain enough space for vertex_count elements
+ * result_error can be NULL; when it's not NULL, it will contain the maximum accepted collapse cost so far, which only increases
+ * Returns the current number of indices copied to destination
+ */
+MESHOPTIMIZER_API size_t meshopt_readPoseSimplifier(const meshopt_PoseSimplifier* state, unsigned int* destination, unsigned int* remap, float* result_error);
+
+/**
+ * Destroys a multi-pose simplification session
+ * Releases all memory associated with the session; the pointer must not be used afterwards.
+ */
+MESHOPTIMIZER_API void meshopt_destroyPoseSimplifier(meshopt_PoseSimplifier* state);
+
+/**
  * Mesh stripifier
  * Converts a previously vertex cache optimized triangle list to triangle strip, stitching strips using restart index or degenerate triangles
  * Returns the number of indices in the resulting strip, with destination containing new index data

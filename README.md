@@ -673,6 +673,33 @@ Simplification currently assumes that the input mesh is using the same material 
 
 When generating a LOD chain, you can either re-simplify each LOD from the original mesh or use the previous LOD as the starting point for the next level. The latter approach is more efficient and produces smoother visual transitions between LOD levels while preserving mesh attributes better. With this method, resulting error values from previous levels should be accumulated for LOD selection. Additionally, consider using `meshopt_SimplifySparse` to improve performance when generating deep LOD chains.
 
+### Multi-pose simplification
+
+Meshes that are deformed by animation or skinning often need a LOD chain that shares a single index buffer across multiple poses. Simplifying a deformable mesh independently in each pose is problematic because the resulting LODs use different vertex identities, while simplifying a single (typically the bind) pose can erase features that only matter in another pose.
+
+The `meshopt_createPoseSimplifier` / `meshopt_simplifyPoseStep` / `meshopt_readPoseSimplifier` / `meshopt_destroyPoseSimplifier` family provides a persistent multi-pose simplification session. All poses share connectivity and vertex identity, but each pose is normalized independently by its own full-vertex bounding box. The cost of a candidate edge collapse is the maximum of the accumulated quadric errors over all poses, and a collapse is accepted only if every pose remains non-degenerate and non-flipped. Vertex identity is determined by the complete XYZ trajectory across all poses, so vertices that coincide in one pose but separate in another are never welded together.
+
+```c++
+// positions[k] points at the float3 positions of pose k, strides[k] is the byte stride of pose k
+std::vector<unsigned int> indices = ...;
+std::vector<unsigned int> lod(indices.size());
+std::vector<unsigned int> remap(vertex_count);
+
+meshopt_PoseSimplifier* session = meshopt_createPoseSimplifier(&indices[0], indices.size(), vertex_count,
+    &positions[0], &strides[0], pose_count, &vertex_lock[0]);
+
+// each step is persistent: quadrics and accepted error are retained from previous steps
+size_t count = meshopt_simplifyPoseStep(session, target_index_count, target_error);
+count = meshopt_simplifyPoseStep(session, count / 2, target_error * 2);
+
+meshopt_readPoseSimplifier(session, &lod[0], &remap[0], &result_error);
+meshopt_destroyPoseSimplifier(session);
+```
+
+`meshopt_simplifyPoseStep` is incremental: unlike calling `meshopt_simplify` on the previous result, it keeps the sum of the original cluster quadrics, so repeated steps continue to accumulate error from the original surface. Each step stops when the target index count is reached or when no legal candidate remains; `target_error` is a relative linear error limit, and `result_error` only increases over the lifetime of the session. Calling a step with a target that isn't below the current index count, or with an error limit below the already accumulated error, leaves the session unchanged; raising the error limit later allows progress to continue. The session stores roughly `pose_count * vertex_count` quadric state plus the shared indices/adjacency, and never keeps full per-LOD mesh snapshots.
+
+`meshopt_readPoseSimplifier` copies the current index buffer and the complete map from each original vertex to its current representative (unreferenced vertices map to themselves); the caller provides space for the original `index_count` and `vertex_count` respectively. The resulting indices still reference the original vertices, so no positions are moved; multiple sessions are independent and the source buffers can be modified or released after creation.
+
 ### Point cloud simplification
 
 In addition to triangle mesh simplification, this library provides a function to simplify point clouds. The algorithm reduces the point cloud to a specified number of points while preserving the overall appearance, and can optionally take per-point colors into account:
@@ -1012,6 +1039,7 @@ Currently, the following APIs are experimental:
 - `meshopt_generateNormals` function
 - `meshopt_remesh` function and `meshopt_Remesh*` flags
 - `meshopt_setAllocatorCache` function
+- `meshopt_createPoseSimplifier` / `meshopt_simplifyPoseStep` / `meshopt_readPoseSimplifier` / `meshopt_destroyPoseSimplifier` functions
 
 ## License
 
