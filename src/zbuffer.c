@@ -59,6 +59,13 @@ ZBuffer* ZB_open(GLint xsize, GLint ysize, GLint mode,
 
 	zb->current_texture = NULL;
 
+	/* integer depth is the default mode; logarithmic depth is opt-in */
+	zb->log_depth = NULL;
+	zb->log_near = 0.0f;
+	zb->log_far = 0.0f;
+	zb->log_inv_range = 0.0f;
+	zb->log_clear = 0.0f;
+
 	return zb;
 error:
 	gl_free(zb);
@@ -70,12 +77,18 @@ void ZB_close(ZBuffer* zb) {
 	if (zb->frame_buffer_allocated)
 		gl_free(zb->pbuf);
 
+	gl_free(zb->log_depth);
 	gl_free(zb->zbuf);
 	gl_free(zb);
 }
 
 void ZB_resize(ZBuffer* zb, void* frame_buffer, GLint xsize, GLint ysize) {
 	GLint size;
+	GLint log_was_active = (zb->log_depth != NULL);
+	GLfloat saved_near = zb->log_near;
+	GLfloat saved_far = zb->log_far;
+	GLfloat saved_inv_range = zb->log_inv_range;
+	GLfloat saved_clear = zb->log_clear;
 
 	/* xsize must be a multiple of 4 */
 	xsize = xsize & ~3;
@@ -90,6 +103,24 @@ void ZB_resize(ZBuffer* zb, void* frame_buffer, GLint xsize, GLint ysize) {
 	zb->zbuf = gl_malloc(size);
 	if (zb->zbuf == NULL)
 		exit(1);
+	memset(zb->zbuf, 0, size);
+
+	/* rebuild the logarithmic depth storage, keeping the active mode
+	   and its configured range, and clear it for the new surface */
+	gl_free(zb->log_depth);
+	zb->log_depth = NULL;
+	if (log_was_active) {
+		GLint float_size = zb->xsize * zb->ysize * sizeof(GLfloat);
+		zb->log_depth = gl_malloc(float_size);
+		if (zb->log_depth == NULL)
+			exit(1);
+		memset(zb->log_depth, 0, float_size);
+		zb->log_near = saved_near;
+		zb->log_far = saved_far;
+		zb->log_inv_range = saved_inv_range;
+		zb->log_clear = saved_clear;
+	}
+
 	if (zb->frame_buffer_allocated)
 		gl_free(zb->pbuf);
 
@@ -360,7 +391,17 @@ void ZB_clear(ZBuffer* zb, GLint clear_z, GLint z, GLint clear_color, GLint r, G
 	GLint y;
 	PIXEL* pp;
 	if (clear_z) {
-		memset_s(zb->zbuf, z, zb->xsize * zb->ysize);
+		if (zb->log_depth != NULL) {
+			/* logarithmic mode: the float clear value comes from
+			   glClearDepth through zb->log_clear, not the fixed zero
+			   used by the integer path */
+			GLint i, count = zb->xsize * zb->ysize;
+			GLfloat clearv = zb->log_clear;
+			for (i = 0; i < count; i++)
+				zb->log_depth[i] = clearv;
+		} else {
+			memset_s(zb->zbuf, z, zb->xsize * zb->ysize);
+		}
 	}
 	if (clear_color) {
 		pp = zb->pbuf;
@@ -386,4 +427,43 @@ void ZB_clear(ZBuffer* zb, GLint clear_z, GLint z, GLint clear_color, GLint r, G
 			pp = (PIXEL*)((GLbyte*)pp + zb->linesize);
 		}
 	}
+}
+
+int ZB_setLogDepth(ZBuffer* zb, float near_distance, float far_distance) {
+	GLint count;
+	int both_zero = (near_distance == 0.0f && far_distance == 0.0f);
+	int valid_enable = isfinite(near_distance) && isfinite(far_distance) && near_distance > 0.0f && far_distance > 0.0f && near_distance < far_distance;
+
+	/* anything other than a valid range or (0,0) is rejected and keeps
+	   the depth mode that is currently in effect */
+	if (!valid_enable && !both_zero)
+		return 0;
+
+	if (both_zero) {
+		/* return to the default integer depth storage */
+		gl_free(zb->log_depth);
+		zb->log_depth = NULL;
+		zb->log_near = 0.0f;
+		zb->log_far = 0.0f;
+		zb->log_inv_range = 0.0f;
+		zb->log_clear = 0.0f;
+		memset(zb->zbuf, 0, zb->xsize * zb->ysize * sizeof(GLushort));
+		return 1;
+	}
+
+	count = zb->xsize * zb->ysize;
+	if (zb->log_depth == NULL) {
+		GLfloat* fresh = gl_malloc(count * sizeof(GLfloat));
+		if (fresh == NULL)
+			return 0; /* keep the previous mode intact */
+		zb->log_depth = fresh;
+	}
+	zb->log_near = near_distance;
+	zb->log_far = far_distance;
+	zb->log_inv_range = 1.0f / logf(far_distance / near_distance);
+	zb->log_clear = 0.0f;
+
+	/* reset the depth to 0; the color buffer is left untouched */
+	memset(zb->log_depth, 0, count * sizeof(GLfloat));
+	return 1;
 }

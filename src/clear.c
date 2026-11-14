@@ -20,7 +20,16 @@ void glopClear(GLParam* p) {
 	GLint g = (GLint)(c->clear_color.v[1] * COLOR_MULT_MASK);
 	GLint b = (GLint)(c->clear_color.v[2] * COLOR_MULT_MASK);
 
-	/* TODO : correct value of Z */
+	/* logarithmic mode honors glClearDepth: store 1-clamp(v,0,1); the
+	   integer path keeps its fixed zero write below via z = 0 */
+	if (c->zb->log_depth != NULL) {
+		GLfloat v = c->clear_depth;
+		if (v < 0.0f)
+			v = 0.0f;
+		else if (v > 1.0f)
+			v = 1.0f;
+		c->zb->log_clear = 1.0f - v;
+	}
 
 	ZB_clear(c->zb, mask & GL_DEPTH_BUFFER_BIT, z, mask & GL_COLOR_BUFFER_BIT, r, g, b);
 }

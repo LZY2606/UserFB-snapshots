@@ -134,11 +134,20 @@ void glopBegin(GLParam* p) {
 
 static void gl_transform_to_viewport_vertex_c(GLVertex* v) {
 	GLContext* c = gl_get_context();
+	GLfloat winv;
 	{
-		GLfloat winv = 1.0 / v->pc.W;
+		winv = 1.0 / v->pc.W;
 		v->zp.x = (GLint)(v->pc.X * winv * c->viewport.scale.X + c->viewport.trans.X);
 		v->zp.y = (GLint)(v->pc.Y * winv * c->viewport.scale.Y + c->viewport.trans.Y);
 		v->zp.z = (GLint)(v->pc.Z * winv * c->viewport.scale.Z + c->viewport.trans.Z);
+	}
+
+	/* logarithmic depth channel: carry the real clip-w weight and the
+	   eye-space distance d=-eye.z from the vertex transform. The integer
+	   window z above is never reused for this channel. */
+	if (c->zb->log_depth != NULL) {
+		v->zp.winv = winv;
+		v->zp.dist = -v->ec.Z;
 	}
 
 	v->zp.r = (GLint)(v->color.v[0] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
@@ -146,8 +155,8 @@ static void gl_transform_to_viewport_vertex_c(GLVertex* v) {
 	v->zp.b = (GLint)(v->color.v[2] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
 
 	if (c->texture_2d_enabled) {
-		v->zp.s = (GLint)(v->tex_coord.X * (ZB_POINT_S_MAX - ZB_POINT_S_MIN) + ZB_POINT_S_MIN); 
-		v->zp.t = (GLint)(v->tex_coord.Y * (ZB_POINT_T_MAX - ZB_POINT_T_MIN) + ZB_POINT_T_MIN); 
+		v->zp.s = (GLint)(v->tex_coord.X * (ZB_POINT_S_MAX - ZB_POINT_S_MIN) + ZB_POINT_S_MIN);
+		v->zp.t = (GLint)(v->tex_coord.Y * (ZB_POINT_T_MAX - ZB_POINT_T_MIN) + ZB_POINT_T_MIN);
 	}
 }
 
@@ -186,7 +195,19 @@ static void gl_vertex_transform(GLVertex* v) {
 	}
 
 	else {
-		/* no eye coordinates needed, no normal */
+		/* eye coordinates are only needed by the logarithmic depth
+		   distance d=-eye.z; the lighting branch above computes them
+		   unconditionally. With every projection this engine supports,
+		   clip-w equals -eye.z, which the clipping path relies on. */
+		if (c->zb->log_depth != NULL) {
+			m = &c->matrix_stack_ptr[0]->m[0][0];
+			v->ec.X = (v->coord.X * m[0] + v->coord.Y * m[1] + v->coord.Z * m[2] + v->coord.W * m[3]);
+			v->ec.Y = (v->coord.X * m[4] + v->coord.Y * m[5] + v->coord.Z * m[6] + v->coord.W * m[7]);
+			v->ec.Z = (v->coord.X * m[8] + v->coord.Y * m[9] + v->coord.Z * m[10] + v->coord.W * m[11]);
+			v->ec.W = (v->coord.X * m[12] + v->coord.Y * m[13] + v->coord.Z * m[14] + v->coord.W * m[15]);
+		}
+
+		/* no lighting normal needed */
 		/* NOTE: W = 1 is assumed */
 		m = &c->matrix_model_projection.m[0][0];
 

@@ -12,13 +12,24 @@
 
 static void gl_transform_to_viewport_clip_c(GLVertex* v) { /* MARK: NOT_INLINED_IN_OG*/
 	GLContext* c = gl_get_context();
+	GLfloat winv;
 	/* coordinates */
 	{
-		GLfloat winv = 1.0 / v->pc.W;
+		winv = 1.0 / v->pc.W;
 		v->zp.x = (GLint)(v->pc.X * winv * c->viewport.scale.X + c->viewport.trans.X);
 		v->zp.y = (GLint)(v->pc.Y * winv * c->viewport.scale.Y + c->viewport.trans.Y);
 		v->zp.z = (GLint)(v->pc.Z * winv * c->viewport.scale.Z + c->viewport.trans.Z);
 	}
+
+	/* Clipped vertices keep the logarithmic depth channel. Their eye
+	   coordinates are not retained through clipping, but with this
+	   projection clip-w equals the eye-space distance d=-eye.z, so the
+	   distance is recovered directly from the interpolated clip-w. */
+	if (c->zb->log_depth != NULL) {
+		v->zp.winv = winv;
+		v->zp.dist = v->pc.W;
+	}
+
 	/* color */
 	v->zp.r = (GLint)(v->color.v[0] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
 	v->zp.g = (GLint)(v->color.v[1] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
@@ -396,8 +407,32 @@ int count_triangles, count_triangles_textured, count_pixels;
 #endif
 
 /* see vertex.c to see how the draw functions are assigned.*/
-void gl_draw_triangle_fill(GLVertex* p0, GLVertex* p1, GLVertex* p2) { 
+void gl_draw_triangle_fill(GLVertex* p0, GLVertex* p1, GLVertex* p2) {
 	GLContext* c = gl_get_context();
+	if (c->zb->log_depth != NULL) {
+		/* logarithmic depth contract: one float rasterizer per shading
+		   style, covering both blend and NOBLEND through the shared
+		   ZB_LOG_SUBMIT path. */
+		if (c->texture_2d_enabled) {
+#if TGL_FEATURE_LIT_TEXTURES == 1
+			if (c->current_shade_model != GL_SMOOTH) {
+				p1->zp.r = p2->zp.r;
+				p1->zp.g = p2->zp.g;
+				p1->zp.b = p2->zp.b;
+				p0->zp.r = p2->zp.r;
+				p0->zp.g = p2->zp.g;
+				p0->zp.b = p2->zp.b;
+			}
+#endif
+			ZB_setTexture(c->zb, c->current_texture->images[0].pixmap);
+			ZB_fillTriangleMappingPerspectiveLog(c->zb, &p0->zp, &p1->zp, &p2->zp);
+		} else if (c->current_shade_model == GL_SMOOTH) {
+			ZB_fillTriangleSmoothLog(c->zb, &p0->zp, &p1->zp, &p2->zp);
+		} else {
+			ZB_fillTriangleFlatLog(c->zb, &p0->zp, &p1->zp, &p2->zp);
+		}
+		return;
+	}
 	if (c->texture_2d_enabled) {
 		/* if(c->current_texture)*/
 #if TGL_FEATURE_LIT_TEXTURES == 1

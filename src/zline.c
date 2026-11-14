@@ -1,12 +1,70 @@
 #include "../include/zbuffer.h"
 #include <stdlib.h>
+#include "zlog.h"
 
 #define ZCMP(z, zpix) (!(zbdt) || z >= (zpix))
 
 /* TODO: Implement point size. */
 /* TODO: Implement blending for lines and points. */
 
+/* logarithmic depth point: the distance is carried on the vertex, so the
+   single fragment reconstructs d directly and enters the shared log depth
+   contract (range test, compare and masked store). */
+static void ZB_plot_log(ZBuffer* zb, ZBufferPoint* p) {
+	GLint y, x;
+	GLfloat d = ZB_logReconstruct(p->winv, ZB_logDistOverW(p));
+
+	if (zb->pointsize == 1) {
+		if (p->x < 0 || p->y < 0 || p->x >= zb->xsize || p->y >= zb->ysize)
+			return;
+		{
+			GLint index = p->y * zb->xsize + p->x;
+			PIXEL* pp = (PIXEL*)((GLbyte*)zb->pbuf + zb->linesize * p->y + p->x * PSZB);
+#if TGL_FEATURE_BLEND == 1
+			if (!zb->enable_blend)
+				ZB_LOG_SUBMIT(zb, index, d, *pp = RGB_TO_PIXEL(p->r, p->g, p->b));
+			else {
+				TGL_BLEND_VARS
+				ZB_LOG_SUBMIT(zb, index, d, TGL_BLEND_FUNC_RGB(p->r, p->g, p->b, (*pp)));
+			}
+#else
+			ZB_LOG_SUBMIT(zb, index, d, *pp = RGB_TO_PIXEL(p->r, p->g, p->b));
+#endif
+		}
+	} else {
+		GLfloat hzbps = zb->pointsize / 2.0f;
+		GLint bx = (GLfloat)p->x - hzbps;
+		GLint ex = (GLfloat)p->x + hzbps;
+		GLint by = (GLfloat)p->y - hzbps;
+		GLint ey = (GLfloat)p->y + hzbps;
+		bx = (bx < 0) ? 0 : bx;
+		by = (by < 0) ? 0 : by;
+		ex = (ex > zb->xsize) ? zb->xsize : ex;
+		ey = (ey > zb->ysize) ? zb->ysize : ey;
+		for (y = by; y < ey; y++)
+			for (x = bx; x < ex; x++) {
+				GLint index = y * zb->xsize + x;
+				PIXEL* pp = (PIXEL*)((GLbyte*)zb->pbuf + zb->linesize * y + x * PSZB);
+#if TGL_FEATURE_BLEND == 1
+				if (!zb->enable_blend)
+					ZB_LOG_SUBMIT(zb, index, d, *pp = RGB_TO_PIXEL(p->r, p->g, p->b));
+				else {
+					TGL_BLEND_VARS
+					ZB_LOG_SUBMIT(zb, index, d, TGL_BLEND_FUNC_RGB(p->r, p->g, p->b, (*pp)));
+				}
+#else
+				ZB_LOG_SUBMIT(zb, index, d, *pp = RGB_TO_PIXEL(p->r, p->g, p->b));
+#endif
+			}
+	}
+}
+
 void ZB_plot(ZBuffer* zb, ZBufferPoint* p) {
+
+	if (zb->log_depth != NULL) {
+		ZB_plot_log(zb, p);
+		return;
+	}
 
 	GLint zz, y, x;
 	GLubyte zbdw = zb->depth_write;
@@ -67,7 +125,7 @@ void ZB_plot(ZBuffer* zb, ZBufferPoint* p) {
 
 #define INTERP_Z
 static void ZB_line_flat_z(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2, GLint color) {
-	
+
 	GLubyte zbdt = zb->depth_test;
 	GLubyte zbdw = zb->depth_write;
 #include "zline.h"
@@ -97,9 +155,34 @@ static void ZB_line_interp(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2) {
 #include "zline.h"
 }
 
+/* logarithmic depth line. The integer Bresenham walk in zline.h is reused,
+   but each fragment affine-interpolates the perspective weights 1/w and
+   d/w and reconstructs d. No vertex logarithm is interpolated and the
+   integer window z is never touched. */
+#define INTERP_LOG
+static void ZB_line_flat_log(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2, GLint color) {
+#include "zline.h"
+}
+
+#define INTERP_LOG
+#define INTERP_RGB
+static void ZB_line_interp_log(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2) {
+#include "zline.h"
+}
+
 void ZB_line_z(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2) {
 	GLint color1, color2;
-	
+
+	if (zb->log_depth != NULL) {
+		color1 = RGB_TO_PIXEL(p1->r, p1->g, p1->b);
+		color2 = RGB_TO_PIXEL(p2->r, p2->g, p2->b);
+		if (color1 == color2)
+			ZB_line_flat_log(zb, p1, p2, color1);
+		else
+			ZB_line_interp_log(zb, p1, p2);
+		return;
+	}
+
 	color1 = RGB_TO_PIXEL(p1->r, p1->g, p1->b);
 	color2 = RGB_TO_PIXEL(p2->r, p2->g, p2->b);
 
@@ -113,6 +196,16 @@ void ZB_line_z(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2) {
 
 void ZB_line(ZBuffer* zb, ZBufferPoint* p1, ZBufferPoint* p2) {
 	GLint color1, color2;
+
+	if (zb->log_depth != NULL) {
+		color1 = RGB_TO_PIXEL(p1->r, p1->g, p1->b);
+		color2 = RGB_TO_PIXEL(p2->r, p2->g, p2->b);
+		if (color1 == color2)
+			ZB_line_flat_log(zb, p1, p2, color1);
+		else
+			ZB_line_interp_log(zb, p1, p2);
+		return;
+	}
 
 	color1 = RGB_TO_PIXEL(p1->r, p1->g, p1->b);
 	color2 = RGB_TO_PIXEL(p2->r, p2->g, p2->b);

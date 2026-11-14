@@ -7,12 +7,18 @@
 	register GLuint r, g, b;
 #endif
 #ifdef INTERP_RGB
-	register GLuint rinc, ginc, binc;
+	register GLint rinc, ginc, binc;
 #endif
 #ifdef INTERP_Z
 	register GLushort* pz;
 	GLint zinc;
 	register GLint z, zz;
+#endif
+#ifdef INTERP_LOG
+	/* perspective weights for logarithmic depth: u = 1/w, v = d/w.
+	   They are affine in screen space; d is reconstructed per fragment. */
+	register GLfloat u, v, uinc, vinc;
+	GLint log_index;
 #endif
 
 	if (p1->y > p2->y || (p1->y == p2->y && p1->x > p2->x)) {
@@ -27,6 +33,11 @@
 	pz = zb->zbuf + (p1->y * sx + p1->x);
 	z = p1->z;
 #endif
+#ifdef INTERP_LOG
+	u = p1->winv;
+	v = ZB_logDistOverW(p1);
+	log_index = p1->y * sx + p1->x;
+#endif
 
 	dx = p2->x - p1->x;
 	dy = p2->y - p1->y;
@@ -39,7 +50,7 @@
 #ifdef INTERP_RGB
 #define RGB(x) x
 #define RGBPIXEL *pp = RGB_TO_PIXEL(r >> 8, g >> 8, b >> 8)
-	
+
 
 #else /* INTERP_RGB */
 #define RGB(x)
@@ -63,14 +74,26 @@
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 	}
+#elif defined(INTERP_LOG)
+#define ZZ(x)
+#define ZZ_LOG(x) x
+#define PUTPIXEL()                                                                                                                                             \
+	{                                                                                                                                                          \
+		ZB_LOG_SUBMIT(zb, log_index, ZB_logReconstruct(u, v), RGBPIXEL);                                                                                       \
+	}
 #else /* INTERP_Z */
 #define ZZ(x)
 #define PUTPIXEL() RGBPIXEL
 #endif /* INTERP_Z */
 
+#ifndef ZZ_LOG
+#define ZZ_LOG(x)
+#endif
+
 #define DRAWLINE(dx, dy, inc_1, inc_2)                                                                                                                         \
 	n = dx;                                                                                                                                                    \
 	ZZ(zinc = (p2->z - p1->z) / n);                                                                                                                            \
+	ZZ_LOG(uinc = (p2->winv - p1->winv) / n; vinc = (ZB_logDistOverW(p2) - ZB_logDistOverW(p1)) / n);                                                         \
 	RGB(rinc = ((p2->r - p1->r) << 8) / n; ginc = ((p2->g - p1->g) << 8) / n; binc = ((p2->b - p1->b) << 8) / n);                                              \
 	a = 2 * dy - dx;                                                                                                                                           \
 	dy = 2 * dy;                                                                                                                                               \
@@ -80,14 +103,17 @@
 	do {                                                                                                                                                       \
 		PUTPIXEL();                                                                                                                                            \
 		ZZ(z += zinc);                                                                                                                                         \
+		ZZ_LOG(u += uinc; v += vinc);                                                                                                                           \
 		RGB(r += rinc; g += ginc; b += binc);                                                                                                                  \
 		if (a > 0) {                                                                                                                                           \
 			pp = (PIXEL*)((GLbyte*)pp + pp_inc_1);                                                                                                             \
 			ZZ(pz += (inc_1));                                                                                                                                 \
+			ZZ_LOG(log_index += (inc_1));                                                                                                                       \
 			a -= dx;                                                                                                                                           \
 		} else {                                                                                                                                               \
 			pp = (PIXEL*)((GLbyte*)pp + pp_inc_2);                                                                                                             \
 			ZZ(pz += (inc_2));                                                                                                                                 \
+			ZZ_LOG(log_index += (inc_2));                                                                                                                       \
 			a += dy;                                                                                                                                           \
 		}                                                                                                                                                      \
 	} while (--n >= 0);
@@ -113,11 +139,13 @@
 }
 
 #undef INTERP_Z
+#undef INTERP_LOG
 #undef INTERP_RGB
 
 /* GLinternal defines */
 #undef DRAWLINE
 #undef PUTPIXEL
 #undef ZZ
+#undef ZZ_LOG
 #undef RGB
 #undef RGBPIXEL

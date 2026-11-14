@@ -7,6 +7,8 @@
 
 #include "zfeatures.h"
 #include "GL/gl.h"
+#include <math.h>
+#include <stddef.h>
 
 
 #define ZB_Z_BITS 16
@@ -248,6 +250,8 @@ typedef struct {
     
     
     GLushort *zbuf;
+    /* per-pixel logarithmic depth: one float per pixel while enabled, NULL otherwise */
+    GLfloat *log_depth;
     PIXEL *pbuf;
     PIXEL *current_texture;
     
@@ -272,6 +276,11 @@ typedef struct {
     /* depth */
     GLint depth_test;
     GLint depth_write;
+    /* logarithmic depth state, used only while log_depth is allocated */
+    GLfloat log_near;        /* near_distance given to ZB_setLogDepth */
+    GLfloat log_far;         /* far_distance given to ZB_setLogDepth */
+    GLfloat log_inv_range;   /* 1 / log(far/near), cached for encoding */
+    GLfloat log_clear;       /* encoded value written by a depth clear */
     GLubyte frame_buffer_allocated;
 } ZBuffer;
 
@@ -279,8 +288,13 @@ typedef struct {
   GLint x,y,z;     /* integer coordinates in the zbuffer */
   GLint s,t;       /* coordinates for the mapping */
   GLint r,g,b;     /* color indexes */
-  
+
   GLfloat sz,tz;   /* temporary coordinates for mapping */
+
+  /* logarithmic depth channel. winv is 1/clip-w (perspective weight) and
+     dist is the eye-space distance d=-eye.z; both are carried from the
+     real vertex transform and never borrowed from the integer window z. */
+  GLfloat winv, dist;
 } ZBufferPoint;
 
 /* zbuffer.c */
@@ -297,6 +311,25 @@ void ZB_close(ZBuffer *zb);
 void ZB_resize(ZBuffer *zb,void *frame_buffer,GLint xsize,GLint ysize);
 void ZB_clear(ZBuffer *zb,GLint clear_z,GLint z,
 	      GLint clear_color,GLint r,GLint g,GLint b);
+
+/* Select the optional floating point logarithmic depth buffer.
+ * Enable with two finite positive distances where near_distance <
+ * far_distance, disable by passing zero for both. Any other combination is
+ * rejected (returns 0) and leaves the current depth mode untouched.
+ * Successful enable, range change or disable resets the depth storage to 0
+ * while preserving the color buffer. */
+int ZB_setLogDepth(ZBuffer *zb, float near_distance, float far_distance);
+
+/* Encode an eye-space distance d into the logarithmic depth value
+ * D = 1 - log(d/near)/log(far/near). Larger D means closer to the eye, so
+ * the existing "larger value in front, equal passes" depth rule is kept. */
+static inline float ZB_logEncode(const ZBuffer *zb, float d) {
+	return 1.0f - (logf(d / zb->log_near) * zb->log_inv_range);
+}
+
+/* True while the logarithmic depth buffer is the active depth storage. */
+static inline int ZB_logActive(const ZBuffer *zb) { return zb->log_depth != NULL; }
+
 /* linesize is in BYTES */
 void ZB_copyFrameBuffer(ZBuffer *zb,void *buf,GLint linesize);
 
@@ -342,6 +375,15 @@ void ZB_fillTriangleMappingPerspective(ZBuffer *zb,
 
 void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer *zb,
                     ZBufferPoint *p0,ZBufferPoint *p1,ZBufferPoint *p2);
+
+/* logarithmic depth triangle variants, selected automatically while
+   ZB_setLogDepth has allocated zb->log_depth */
+void ZB_fillTriangleFlatLog(ZBuffer *zb,
+             ZBufferPoint *p1,ZBufferPoint *p2,ZBufferPoint *p3);
+void ZB_fillTriangleSmoothLog(ZBuffer *zb,
+             ZBufferPoint *p1,ZBufferPoint *p2,ZBufferPoint *p3);
+void ZB_fillTriangleMappingPerspectiveLog(ZBuffer *zb,
+             ZBufferPoint *p0,ZBufferPoint *p1,ZBufferPoint *p2);
 
 typedef void (*ZB_fillTriangleFunc)(ZBuffer  *,
 	    ZBufferPoint *,ZBufferPoint *,ZBufferPoint *);
