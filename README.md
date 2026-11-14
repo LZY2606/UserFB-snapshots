@@ -882,6 +882,82 @@ Close the connection to the remote instance.
 
 When `callback` is omitted a `Promise` object is returned.
 
+#### client.dragAndDrop(options)
+
+Perform a native drag and drop of a business record from one area of the page
+to another, using drag interception to obtain the browser-provided `DragData`
+and replaying the drop with `Input.dispatchDragEvent`. This is a `Promise`
+method; `client.send` and the generated API are unaffected.
+
+`options` is an object with the following fields:
+
+- `source`, `capture`, `target`: `{x, y}` points in the main frame viewport,
+  in CSS pixels; all the coordinates must be finite numbers. `capture` must
+  differ from `source` and it is the caller's responsibility to pick a
+  position far enough to trigger the drag;
+- `via`: optional array of intermediate `{x, y}` points (defaults to `[]`);
+- `captureTimeoutMs`: optional positive integer (defaults to `1000`);
+- `sessionId`: optional non-empty string; when omitted the root session is
+  used.
+
+All the options are validated upfront: invalid input rejects the returned
+promise before any command is sent. Only one call at a time is allowed per
+client and session, reentrant calls are rejected before any command is sent,
+while calls on different sessions may run in parallel. The caller guarantees
+that no mouse button is pressed at the start, that drag interception is
+disabled, and that no external raw `Input` commands are mixed in.
+
+The command sequence is the following, each command is sent only after the
+successful reply of the previous one:
+
+1. `Input.setInterceptDrags({enabled: true})`;
+2. `mouseMoved` to `source` (`buttons: 0`);
+3. `mousePressed` at `source` (`button: 'left'`, `buttons: 1`, `clickCount: 1`);
+4. `mouseMoved` to `capture` (`buttons: 1`).
+
+Only the first `Input.dragIntercepted` event whose top-level `sessionId`
+matches this call's scope (the root session does not collect child session
+events) received after the capture move has been issued is considered, and the
+browser-provided `data` is stored as an independent snapshot. Both the
+successful reply of the capture move and the intercepted data — in any
+order — are required before proceeding; the timeout starts when the capture
+move is sent and expires with an `Error` whose `code` is
+`ERR_CDP_DRAG_CAPTURE_TIMEOUT`. The route `[...via, target]` is then walked:
+`dragEnter` on the first point, `dragOver` on every point (consecutive
+duplicates are not merged) and `drop` on `target`, each with an independent
+copy of the captured data. On success the promise fulfills with a copy of the
+captured `DragData`.
+
+The call tracks its own confirmation state (interception enabled, mouse
+pressed, capture move sent, last confirmed mouse position). After a
+successful route the mouse is released (`button: 'left'`, `buttons: 0`,
+`clickCount: 1`) at the last confirmed position and the interception is
+disabled. After a business failure no further route actions are sent and the
+compensation happens in order: `Input.cancelDragging` if the capture move had
+been sent, `mouseReleased` if the press was confirmed, and
+`Input.setInterceptDrags({enabled: false})` if enabling the interception was
+confirmed. Each cleanup item is attempted at most once and a failing item does
+not prevent the following ones. The first business error is rethrown as is
+with the cleanup errors collected in its `cleanupErrors` array; when there is
+no business error the first cleanup error rejects the promise and the
+remaining ones are collected in its `cleanupErrors` array. If the underlying
+connection is closed (including `client.close()`) the capture wait ends and no
+unexecutable compensation commands are sent. Timers and listeners installed by
+a call are always removed when it settles, and the exclusivity is held until
+the cleanup is complete.
+
+For example:
+
+```js
+const data = await client.dragAndDrop({
+    source: {x: 100, y: 200},
+    capture: {x: 120, y: 220},
+    via: [{x: 300, y: 300}],
+    target: {x: 500, y: 400}
+});
+console.log(data.items);
+```
+
 #### client['`<domain>`.`<name>`']
 
 Just a shorthand for:
