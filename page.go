@@ -18,7 +18,8 @@ import (
 // *WebDriver.Page() method or by calling the NewPage or SauceLabs functions.
 type Page struct {
 	selectable
-	logs map[string][]Log
+	logs   map[string][]Log
+	frames *frameContext
 }
 
 // A Log represents a single log message
@@ -57,7 +58,19 @@ func JoinPage(url string, options ...Option) *Page {
 }
 
 func newPage(session *api.Session) *Page {
-	return &Page{selectable{session, nil}, nil}
+	frames := newFrameContext(session)
+	return &Page{selectable{session, nil, frames, nil}, nil, frames}
+}
+
+// InFrames returns a FrameScope rooted at the page and describing the
+// provided nested iframe path. Each argument is a CSS selector that must
+// match exactly one iframe within the frame resolved by the preceding
+// selectors. An empty argument list describes the root page itself.
+//
+// No request is sent until a terminal operation (Count, Text, Click or Fill)
+// runs on a selection derived from the returned scope.
+func (p *Page) InFrames(css ...string) *FrameScope {
+	return &FrameScope{page: p, path: append([]string(nil), css...)}
 }
 
 // String returns a string representation of the Page. Currently: "page"
@@ -352,9 +365,16 @@ func (p *Page) SwitchToParentFrame() error {
 // to Selection.Frame were made. After switching, all new and existing selections
 // will refer to the root frame. All further Page methods will apply to this frame
 // as well.
+//
+// A successful switch also clears the uncertain-frame state recorded after a
+// frame-scoped operation failed to return to the root frame, unblocking the
+// frame-aware Selection operations of this Page.
 func (p *Page) SwitchToRootFrame() error {
 	if err := p.session.Frame(nil); err != nil {
 		return fmt.Errorf("failed to switch to original page frame: %s", err)
+	}
+	if p.frames != nil {
+		p.frames.markRecovered()
 	}
 	return nil
 }

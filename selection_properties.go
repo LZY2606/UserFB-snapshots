@@ -8,16 +8,20 @@ import (
 
 // Text returns the entirety of the text content for exactly one element.
 func (s *Selection) Text() (string, error) {
-	selectedElement, err := s.elements.GetExactlyOne()
-	if err != nil {
-		return "", fmt.Errorf("failed to select element from %s: %s", s, err)
-	}
+	var text string
+	err := s.runFrameOperation(func() error {
+		selectedElement, err := s.elements.GetExactlyOne()
+		if err != nil {
+			return fmt.Errorf("failed to select element from %s: %s", s, err)
+		}
 
-	text, err := selectedElement.GetText()
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve text for %s: %s", s, err)
-	}
-	return text, nil
+		text, err = selectedElement.GetText()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve text for %s: %s", s, err)
+		}
+		return nil
+	})
+	return text, err
 }
 
 // Active returns true if the single element that the selection refers to is active.

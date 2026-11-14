@@ -32,9 +32,9 @@ type elementRepository interface {
 	GetExactlyOne() (element.Element, error)
 }
 
-func newSelection(session apiSession, selectors target.Selectors) *Selection {
+func newSelection(session apiSession, frames *frameContext, framePath []string, selectors target.Selectors) *Selection {
 	return &Selection{
-		selectable{session, selectors},
+		selectable{session, selectors, frames, framePath},
 		&element.Repository{
 			Client:    session,
 			Selectors: selectors,
@@ -64,12 +64,16 @@ func (s *Selection) Elements() ([]*api.Element, error) {
 
 // Count returns the number of elements that the selection refers to.
 func (s *Selection) Count() (int, error) {
-	elements, err := s.elements.Get()
-	if err != nil {
-		return 0, fmt.Errorf("failed to select elements from %s: %s", s, err)
-	}
-
-	return len(elements), nil
+	var count int
+	err := s.runFrameOperation(func() error {
+		elements, err := s.elements.Get()
+		if err != nil {
+			return fmt.Errorf("failed to select elements from %s: %s", s, err)
+		}
+		count = len(elements)
+		return nil
+	})
+	return count, err
 }
 
 // EqualsElement returns whether or not two selections of exactly

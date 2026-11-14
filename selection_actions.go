@@ -27,11 +27,13 @@ func (s *Selection) forEachElement(actions actionsFunc) error {
 
 // Click clicks on all of the elements that the selection refers to.
 func (s *Selection) Click() error {
-	return s.forEachElement(func(selectedElement element.Element) error {
-		if err := selectedElement.Click(); err != nil {
-			return fmt.Errorf("failed to click on %s: %s", s, err)
-		}
-		return nil
+	return s.runFrameOperation(func() error {
+		return s.forEachElement(func(selectedElement element.Element) error {
+			if err := selectedElement.Click(); err != nil {
+				return fmt.Errorf("failed to click on %s: %s", s, err)
+			}
+			return nil
+		})
 	})
 }
 
@@ -59,13 +61,22 @@ func (s *Selection) Clear() error {
 }
 
 // Fill fills all of the fields the selection refers to with the provided text.
+// The element snapshot and its order are fixed for the whole operation; if a
+// Value call fails the operation returns immediately without clearing again.
 func (s *Selection) Fill(text string) error {
-	return s.forEachElement(func(selectedElement element.Element) error {
-		if err := selectedElement.Clear(); err != nil {
-			return fmt.Errorf("failed to clear %s: %s", s, err)
+	return s.runFrameOperation(func() error {
+		elements, err := s.elements.GetAtLeastOne()
+		if err != nil {
+			return fmt.Errorf("failed to select elements from %s: %s", s, err)
 		}
-		if err := selectedElement.Value(text); err != nil {
-			return fmt.Errorf("failed to enter text into %s: %s", s, err)
+
+		for _, selectedElement := range elements {
+			if err := selectedElement.Clear(); err != nil {
+				return fmt.Errorf("failed to clear %s: %s", s, err)
+			}
+			if err := selectedElement.Value(text); err != nil {
+				return fmt.Errorf("failed to enter text into %s: %s", s, err)
+			}
 		}
 		return nil
 	})
