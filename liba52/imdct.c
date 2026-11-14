@@ -73,6 +73,12 @@ static sample_t a52_imdct_window[256];
 static void (* ifft128) (complex_t * buf);
 static void (* ifft64) (complex_t * buf);
 
+#ifdef A52_MATRIX_TEST
+/* test-only call counters, absent from normal builds */
+unsigned long a52_test_imdct_256_calls = 0;
+unsigned long a52_test_imdct_512_calls = 0;
+#endif
+
 static inline void ifft2 (complex_t * buf)
 {
     double r, i;
@@ -247,7 +253,11 @@ void a52_imdct_512 (sample_t * data, sample_t * delay, sample_t bias)
     sample_t t_r, t_i, a_r, a_i, b_r, b_i, w_1, w_2;
     const sample_t * window = a52_imdct_window;
     complex_t buf[128];
-	
+
+#ifdef A52_MATRIX_TEST
+    a52_test_imdct_512_calls++;
+#endif
+
     for (i = 0; i < 128; i++) {
 	k = fftorder[i];
 	t_r = pre1[i].real;
@@ -291,6 +301,10 @@ void a52_imdct_256(sample_t * data, sample_t * delay, sample_t bias)
     sample_t t_r, t_i, a_r, a_i, b_r, b_i, c_r, c_i, d_r, d_i, w_1, w_2;
     const sample_t * window = a52_imdct_window;
     complex_t buf1[64], buf2[64];
+
+#ifdef A52_MATRIX_TEST
+    a52_test_imdct_256_calls++;
+#endif
 
     /* Pre IFFT complex multiply plus IFFT cmplx conjugate */
     for (i = 0; i < 64; i++) {

@@ -32,6 +32,24 @@ typedef struct {
     int8_t bap[256];		/* derived channel bit allocation */
 } expbap_t;
 
+/*
+ * Matrix listening mode state. The extra memory is bounded by the
+ * number of channels times one block of samples; it does not grow
+ * with the number of blocks decoded.
+ */
+typedef struct {
+    int rows;			/* active output rows: 1 (mono) or 2 (stereo) */
+    int queued_rows;		/* rows of the matrix queued for next frame */
+    int pending;		/* queued matrix waiting for next a52_frame */
+    int dirty;			/* matrix changed, delays must be rebuilt */
+    int have_prev;		/* previous block spectra/types are valid */
+    sample_t active[2][6];	/* matrix in use for the current frame */
+    sample_t queued[2][6];	/* matrix queued for the next frame */
+    uint8_t prev_blksw[5];	/* previous block fbw block-switch flags */
+    sample_t prev_spectrum[6][256];	/* previous block scaled spectra */
+    sample_t delay[2][2][256];	/* imdct delays: [row][0 = long, 1 = short] */
+} a52_matrix_t;
+
 struct a52_state_s {
     uint8_t fscod;		/* sample rate */
     uint8_t halfrate;		/* halfrate factor */
@@ -85,6 +103,9 @@ struct a52_state_s {
 
     sample_t * samples;
     int downmixed;
+
+    a52_matrix_t * matrix;	/* matrix listening mode, NULL if off */
+    int started;		/* a52_frame() succeeded at least once */
 };
 
 #define LEVEL_PLUS6DB 2.0
@@ -118,3 +139,14 @@ void a52_upmix (sample_t * samples, int acmod, int output);
 void a52_imdct_init (uint32_t mm_accel);
 void a52_imdct_256 (sample_t * data, sample_t * delay, sample_t bias);
 void a52_imdct_512 (sample_t * data, sample_t * delay, sample_t bias);
+
+void a52_matrix_adopt (a52_state_t * state);
+void a52_matrix_synth (a52_state_t * state, uint8_t * blksw);
+
+#ifdef A52_MATRIX_TEST
+/* test-only observation and injection hooks, absent from normal builds */
+extern unsigned long a52_test_imdct_256_calls;
+extern unsigned long a52_test_imdct_512_calls;
+void a52_test_matrix_inject (a52_state_t * state, const sample_t * spectra,
+			     const uint8_t * blksw, sample_t bias);
+#endif

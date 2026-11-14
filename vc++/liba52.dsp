@@ -101,6 +101,10 @@ SOURCE=..\liba52\imdct.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\liba52\matrix.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\liba52\parse.c
 # End Source File
 # End Group

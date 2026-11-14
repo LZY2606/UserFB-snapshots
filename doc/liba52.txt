@@ -186,6 +186,55 @@ this channel is skipped and the following channels are shifted so
 liba52 does not leave an empty space between channels.
 
 
+Matrix listening mode
+---------------------
+
+int a52_set_matrix (a52_state_t * state, const sample_t * matrix,
+		    unsigned rows);
+
+Matrix mode replaces the fixed downmix configurations with a
+caller-defined listening matrix, so an application can switch its
+monitoring mix on the same 5.1 soundtrack without going through a
+separate full-channel decode. Bitstream parsing, decoupling and the
+transforms are the same as in the normal decode path; the matrix is
+applied to the source spectra in the frequency domain, grouped by
+block type, before the inverse transforms run.
+
+matrix is stored row by row; each row has six coefficients applied to
+L, C, R, Ls, Rs and LFE respectively. rows must be 1 (mono) or 2
+(stereo). Coefficients may be negative but must be finite and may not
+exceed an absolute value of 2. The matrix is copied, so the caller
+keeps ownership of the array it passed and may reuse or free it right
+away.
+
+The first call switches the instance into matrix mode and must happen
+before the first a52_frame() call on that instance; once decoded
+frames exist, enabling matrix mode fails. There is no way to leave
+matrix mode other than a52_free(). Later calls queue an updated
+matrix which takes effect at the next a52_frame() call; all six
+blocks of a frame always use the same matrix version, so a call made
+between a52_block() calls only takes effect at the following frame.
+When the matrix changes, the overlap from the previous block is
+reinterpreted with the new matrix - no audio is dropped or replayed.
+
+a52_set_matrix() returns 0 on success. It returns 1 when the
+parameters are invalid or when enabling the mode after frames have
+already been decoded; in that case both the matrix currently in use
+and any queued update are left untouched.
+
+Matrix mode decodes A/52 3F2R input, with or without a coded LFE
+channel; when there is no LFE, the sixth matrix column is treated as
+zero. a52_frame() then reports A52_MONO or A52_STEREO in the flags
+(the A52_LFE bit is never added) and ignores the requested flags,
+including A52_ADJUST_LEVEL: the level you pass is used as given, with
+none of the automatic anti-clipping gain the fixed downmixes may
+apply. The bias is added exactly once to each final output sample.
+Dynamic range compression (a52_dynrng()) keeps working and is applied
+to the source channels before the matrix, without any implicit clev
+or slev factors. After each a52_block() call, a52_samples() returns
+the rows output planes of 256 samples each.
+
+
 Pseudocode example
 ------------------
 

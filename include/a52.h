@@ -59,4 +59,27 @@ void a52_dynrng (a52_state_t * state,
 int a52_block (a52_state_t * state);
 void a52_free (a52_state_t * state);
 
+/*
+ * Matrix listening mode.
+ *
+ * Selects a caller-defined downmix matrix instead of one of the fixed
+ * output configurations. matrix is stored row by row, each row has six
+ * coefficients applied to L, C, R, Ls, Rs and LFE respectively. rows
+ * must be 1 (mono) or 2 (stereo). Coefficients may be negative but
+ * must be finite with an absolute value not exceeding 2.
+ *
+ * The first call switches the instance into matrix mode and must
+ * happen before the first a52_frame() call on this instance; the mode
+ * then stays in effect until a52_free(). Later calls queue an updated
+ * matrix which takes effect at the next a52_frame() call; all six
+ * blocks of a frame always use the same matrix. The matrix is copied,
+ * so the caller keeps ownership of the array it passed.
+ *
+ * Returns 0 on success, 1 on invalid parameters or when enabling the
+ * mode after frames have already been decoded; on failure both the
+ * active and the queued matrix are left untouched.
+ */
+int a52_set_matrix (a52_state_t * state, const sample_t * matrix,
+		    unsigned rows);
+
 #endif /* A52_H */

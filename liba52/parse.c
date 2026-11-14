@@ -71,6 +71,9 @@ a52_state_t * a52_init (uint32_t mm_accel)
 
     state->downmixed = 1;
 
+    state->matrix = NULL;
+    state->started = 0;
+
     state->lfsr_state = 1;
 
     a52_imdct_init (mm_accel);
@@ -154,13 +157,24 @@ int a52_frame (a52_state_t * state, uint8_t * buf, int * flags,
 
     state->lfeon = bitstream_get (state, 1);
 
-    state->output = a52_downmix_init (acmod, *flags, level,
-				      state->clev, state->slev);
-    if (state->output < 0)
-	return 1;
-    if (state->lfeon && (*flags & A52_LFE))
-	state->output |= A52_LFE;
-    *flags = state->output;
+    if (state->matrix) {
+	/* matrix mode decodes 3F2R input (with or without LFE) only;
+	   the caller's flags and level are used as given, no automatic
+	   downmix gain is applied */
+	if (acmod != A52_3F2R)
+	    return 1;
+	a52_matrix_adopt (state);
+	state->output = (state->matrix->rows == 2) ? A52_STEREO : A52_MONO;
+	*flags = state->output;
+    } else {
+	state->output = a52_downmix_init (acmod, *flags, level,
+					  state->clev, state->slev);
+	if (state->output < 0)
+	    return 1;
+	if (state->lfeon && (*flags & A52_LFE))
+	    state->output |= A52_LFE;
+	*flags = state->output;
+    }
     /* the 2* compensates for differences in imdct */
     state->dynrng = state->level = 2 * *level;
     state->bias = bias;
@@ -196,6 +210,8 @@ int a52_frame (a52_state_t * state, uint8_t * buf, int * flags,
 	    bitstream_get (state, 8);	/* addbsi */
 	} while (addbsil--);
     }
+
+    state->started = 1;
 
     return 0;
 }
@@ -762,8 +778,17 @@ int a52_block (a52_state_t * state)
     if (state->output & A52_LFE)
 	samples += 256;	/* shift for LFE channel */
 
-    chanbias = a52_downmix_coeff (coeff, state->acmod, state->output,
-				  state->dynrng, state->clev, state->slev);
+    if (state->matrix) {
+	/* every source channel is scaled by the dynamic range value
+	   only; the matrix itself is applied later, in the frequency
+	   domain, and no clev/slev is folded in */
+	for (i = 0; i < nfchans; i++)
+	    coeff[i] = state->dynrng;
+	chanbias = 0;
+    } else {
+	chanbias = a52_downmix_coeff (coeff, state->acmod, state->output,
+				      state->dynrng, state->clev, state->slev);
+    }
 
     quantizer.q1_ptr = quantizer.q2_ptr = quantizer.q4_ptr = -1;
     done_cpl = 0;
@@ -817,6 +842,23 @@ int a52_block (a52_state_t * state)
 		(samples+256)[j] = tmp0 - tmp1;
 	    } while (++j < band);
 	} while (j < end);
+    }
+
+    if (state->matrix) {
+	/* the LFE spectrum goes to scratch plane 5, scaled like the
+	   other sources; without a coded LFE it stays zero so that the
+	   sixth matrix column has no effect */
+	if (state->lfeon) {
+	    coeff_get (state, samples + 1280, &state->lfe_expbap, &quantizer,
+		       state->dynrng, 0, 7);
+	    for (i = 7; i < 256; i++)
+		(samples + 1280)[i] = 0;
+	} else {
+	    for (i = 0; i < 256; i++)
+		(samples + 1280)[i] = 0;
+	}
+	a52_matrix_synth (state, blksw);
+	return 0;
     }
 
     if (state->lfeon) {
@@ -896,6 +938,7 @@ int a52_block (a52_state_t * state)
 
 void a52_free (a52_state_t * state)
 {
+    free (state->matrix);
     free (state->samples);
     free (state);
 }

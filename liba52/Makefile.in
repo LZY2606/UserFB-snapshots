@@ -93,7 +93,7 @@ am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 liba52_la_DEPENDENCIES =
 am_liba52_la_OBJECTS = bitstream.lo imdct.lo bit_allocate.lo parse.lo \
-	downmix.lo
+	downmix.lo matrix.lo
 liba52_la_OBJECTS = $(am_liba52_la_OBJECTS)
 liba52_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
@@ -242,7 +242,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = liba52.la
-liba52_la_SOURCES = bitstream.c imdct.c bit_allocate.c parse.c downmix.c
+liba52_la_SOURCES = bitstream.c imdct.c bit_allocate.c parse.c downmix.c matrix.c
 liba52_la_LIBADD = @LIBA52_LIBS@ -lm
 liba52_la_LDFLAGS = -no-undefined
 EXTRA_DIST = configure.incl a52_internal.h bitstream.h tables.h
