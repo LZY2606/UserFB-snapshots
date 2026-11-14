@@ -631,6 +631,14 @@ rtp_error_t uvgrtp::media_stream_internal::stop()
 
     if (reception_flow_)
     {
+        /* Release this stream's TWCC configuration so the shared state of the
+         * receive socket is cleared once the last stream stops */
+        rtp_error_t twcc_ret = RTP_OK;
+        (void)reception_flow_->configure_twcc(0, (uintptr_t)this, twcc_ret);
+        if (rtcp_) {
+            rtcp_->pimpl_->set_twcc(nullptr);
+        }
+
         (void)reception_flow_->remove_handlers(remote_ssrc_);
 
         if (reception_flow_->clear_stream_from_flow(remote_ssrc_) == 1) {
@@ -798,6 +806,24 @@ rtp_error_t uvgrtp::media_stream_internal::install_user_receive_hook(void* arg, 
     return reception_flow_->install_user_hook(arg, hook);;
 
 }*/
+
+rtp_error_t uvgrtp::media_stream_internal::configure_twcc(uint8_t extension_id)
+{
+    if (!initialized_) {
+        UVG_LOG_ERROR("RTP context has not been initialized fully, cannot continue!");
+        return RTP_NOT_INITIALIZED;
+    }
+
+    rtp_error_t ret = RTP_OK;
+    std::shared_ptr<uvgrtp::twcc> twcc =
+        reception_flow_->configure_twcc(extension_id, (uintptr_t)this, ret);
+
+    if (ret == RTP_OK && rtcp_) {
+        rtcp_->pimpl_->set_twcc(twcc);
+    }
+
+    return ret;
+}
 
 uvgrtp::frame::rtp_frame* uvgrtp::media_stream_internal::pull_frame()
 {

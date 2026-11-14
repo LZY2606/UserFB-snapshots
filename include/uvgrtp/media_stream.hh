@@ -256,6 +256,36 @@ namespace uvgrtp {
 
             /**
              * \ingroup CORE_API
+             * \brief Configure transport-wide congestion control (TWCC) feedback for this stream
+             *
+             * \details Enables recording of transport-wide sequence numbers carried in the
+             * <a href="https://www.rfc-editor.org/rfc/rfc8285" target="_blank">RFC 8285</a>
+             * one-byte RTP header extension with ID "extension_id" (1-14) on this stream's
+             * receive socket, and allows sending RTCP TWCC feedback packets
+             * (RTPFB/FMT=15) with uvgrtp::rtcp::send_twcc_feedback().
+             *
+             * When several media streams (e.g. audio and video) share the same receive
+             * socket, the transport sequence numbers belong to the whole transport, so all
+             * streams of the socket share one extension ID, one arrival ledger and one
+             * feedback packet count: configuring another stream of the same socket with the
+             * same ID reuses the existing configuration, while a conflicting ID is an error.
+             * Streams on other sockets are independent. Passing 0 releases this stream's
+             * configuration; when the last stream of the socket releases, the shared state
+             * is cleared. When TWCC is not configured, reception behaves as before.
+             *
+             * Only plaintext RTP/RTCP is supported.
+             *
+             * \param extension_id One-byte header extension ID 1-14, 0 to release
+             *
+             * \retval RTP_OK On success
+             * \retval RTP_INVALID_VALUE If the extension ID is invalid or conflicts with
+             * the ID already in use on the shared receive socket
+             * \retval RTP_NOT_INITIALIZED If the stream has not been initialized
+             */
+            rtp_error_t configure_twcc(uint8_t extension_id);
+
+            /**
+             * \ingroup CORE_API
              * \brief Get pointer to the RTCP object of the media stream
              *
              * \details This object is used to control all RTCP-related functionality

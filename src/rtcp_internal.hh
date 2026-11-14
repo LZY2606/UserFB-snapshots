@@ -31,6 +31,7 @@ namespace uvgrtp {
     class socket;
     class socketfactory;
     class rtcp_reader;
+    class twcc;
 
 
 
@@ -198,6 +199,22 @@ namespace uvgrtp {
 
         rtp_error_t send_app_packet(const char* name, uint8_t subtype, uint32_t payload_len, const uint8_t* payload);
         rtp_error_t send_bye_packet(std::vector<uint32_t> ssrcs);
+
+        /* Give this RTCP instance access to the shared TWCC state of the receive
+         * socket (nullptr detaches it). Called by media_stream_internal when the
+         * owning stream configures or releases TWCC. */
+        void set_twcc(std::shared_ptr<uvgrtp::twcc> twcc);
+
+        /* Send one RTCP transport-wide congestion control feedback packet
+         * (RTPFB/FMT=15) covering the oldest unreported continuous prefix of
+         * received transport-wide sequence numbers that fits into max_bytes
+         * (the whole RTCP packet). Only a stream that has configured TWCC with
+         * media_stream::configure_twcc() may trigger feedback.
+         *
+         * Return RTP_OK on success
+         * Return RTP_NOT_FOUND if TWCC is not configured or there is nothing to report
+         * Return RTP_INVALID_VALUE if max_bytes cannot hold even the first status chunk */
+        rtp_error_t send_twcc_feedback(size_t max_bytes);
 
         /* Return the latest RTCP packet received from participant of "ssrc"
          * Return nullptr if we haven't received this kind of packet or if "ssrc" doesn't exist
@@ -648,6 +665,11 @@ namespace uvgrtp {
         std::shared_ptr<uvgrtp::socket> rtcp_socket_;
         std::shared_ptr<uvgrtp::socketfactory> sfp_;
         std::shared_ptr<uvgrtp::rtcp_reader> rtcp_reader_;
+
+        /* Shared TWCC state of the receive socket, set when the owning stream
+         * has configured TWCC with media_stream::configure_twcc() */
+        std::shared_ptr<uvgrtp::twcc> twcc_;
+        std::mutex twcc_mutex_;
 
         bool is_active() const
         {

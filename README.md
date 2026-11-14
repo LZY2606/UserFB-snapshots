@@ -14,6 +14,7 @@ Currently supported specifications:
    * [RFC draft: RTP Payload Format for Visual Volumetric Video-based Coding (V3C)](https://datatracker.ietf.org/doc/draft-ietf-avtcore-rtp-v3c/)
    * [RFC 3711: The Secure Real-time Transport Protocol (SRTP)](https://datatracker.ietf.org/doc/html/rfc3711)
    * [RFC 6189: ZRTP: Media Path Key Agreement for Unicast Secure RTP](https://datatracker.ietf.org/doc/html/rfc6189)
+   * [RFC 8285: A General Mechanism for RTP Header Extensions](https://datatracker.ietf.org/doc/html/rfc8285) (receive-side transport-wide sequence numbers)
 
 You are welcome to contact us in our Discord if you have questions or comments regarding the library [![Discord](https://img.shields.io/discord/973260924288901140?style=plastic)](https://discord.gg/fZpub7BPUA)
 
@@ -32,6 +33,49 @@ You are welcome to contact us in our Discord if you have questions or comments r
 ## Building and linking
 
 See [BUILDING.md](BUILDING.md) for instructions on how to build and use uvgRTP.
+
+## Transport-wide congestion control (TWCC) feedback
+
+uvgRTP can generate receiver-side transport-wide congestion control feedback
+(RTPFB/FMT=15) for incoming RTP streams, following a fixed subset of
+[draft-holmer-rmcat-transport-wide-cc-extensions-01](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01).
+The sender must mark every RTP packet with a two-byte transport-wide sequence
+number in an [RFC 8285](https://datatracker.ietf.org/doc/html/rfc8285) one-byte
+header extension (profile 0xBEDE, element data length 2).
+
+Because the transport sequence number space belongs to the whole transport,
+all media streams that share one receive socket (e.g. audio and video muxed
+into a single UDP socket) share one extension ID, one arrival ledger and one
+feedback packet count. Enable it on each stream of the socket with the same
+one-byte extension ID (1-14):
+
+```cpp
+uvgrtp::media_stream* audio = sess->create_stream(8888, 9999, RTP_FORMAT_OPUS, RCE_RTCP);
+uvgrtp::media_stream* video = sess->create_stream(8888, 9999, RTP_FORMAT_H264, RCE_RTCP);
+
+audio->configure_twcc(3);           // enable with one-byte extension ID 3
+video->configure_twcc(3);           // same ID reuses the shared configuration
+// video->configure_twcc(4);        // conflicting ID on the same socket: RTP_INVALID_VALUE
+```
+
+Feedback packets are generated only on application request. Each call sends
+one RTCP packet covering the oldest unreported continuous prefix of received
+transport sequence numbers that fits into the given budget (the whole RTCP
+packet including padding); call again to continue with the remaining range:
+
+```cpp
+audio->get_rtcp()->send_twcc_feedback(1200);  // max_bytes of the RTCP packet
+```
+
+`configure_twcc(0)` releases the calling stream's configuration; when the last
+stream of the socket releases it, the shared state is cleared. When TWCC is
+not configured, reception behaves as before and media delivery is not affected
+in any case. The arrival ledger keeps at most the newest 8192 sequence
+numbers; older ranges are dropped and never reported.
+
+Scope and limitations: only plaintext RTP/RTCP is supported (no SRTP/SRTCP).
+Bandwidth estimation, sender-side rate control and SDP negotiation of the
+extension are out of scope and must be handled by the application.
 
 ## Learning to use uvgRTP
 

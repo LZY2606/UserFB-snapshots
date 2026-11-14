@@ -197,6 +197,11 @@ rtp_error_t uvgrtp::rtcp::send_app_packet(const char* name, uint8_t subtype,
     return pimpl_->send_app_packet(name, subtype, payload_len, payload);
 }
 
+rtp_error_t uvgrtp::rtcp::send_twcc_feedback(size_t max_bytes)
+{
+    return pimpl_->send_twcc_feedback(max_bytes);
+}
+
 uvgrtp::frame::rtcp_sr* uvgrtp::rtcp::get_sr(uint32_t ssrc)
 {
     // Retrieve the internal sender report

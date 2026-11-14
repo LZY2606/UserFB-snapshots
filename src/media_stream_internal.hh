@@ -359,6 +359,29 @@ namespace uvgrtp {
          */
         int get_configuration_value(int rcc_flag);
 
+        /**
+         * \brief Configure transport-wide congestion control (TWCC) feedback for this stream
+         *
+         * \details Enables recording of transport-wide sequence numbers carried in the
+         * RFC 8285 one-byte RTP header extension with ID "extension_id" (1-14) and allows
+         * sending RTCP TWCC feedback with uvgrtp::rtcp::send_twcc_feedback().
+         *
+         * All media streams that share the same receive socket use one common extension ID,
+         * arrival ledger and feedback packet count: configuring another stream of the same
+         * socket with the same ID reuses the existing configuration, a conflicting ID is an
+         * error. Sockets are independent of each other. Passing 0 releases this stream's
+         * configuration; when the last stream of the socket releases, the shared state is
+         * cleared.
+         *
+         * \param extension_id One-byte header extension ID 1-14, 0 to release
+         *
+         * \retval RTP_OK On success
+         * \retval RTP_INVALID_VALUE If the extension ID is invalid or conflicts with the ID
+         * already in use on the shared receive socket
+         * \retval RTP_NOT_INITIALIZED If the stream has not been initialized
+         */
+        rtp_error_t configure_twcc(uint8_t extension_id);
+
         /// \cond DO_NOT_DOCUMENT
 
         /* Get unique key of the media stream

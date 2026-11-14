@@ -11,6 +11,7 @@
 #include "rtcp_packets.hh"
 #include "socketfactory.hh"
 #include "rtcp_reader.hh"
+#include "twcc.hh"
 
 #include "global.hh"
 
@@ -67,6 +68,7 @@ uvgrtp::rtcp_internal::rtcp_internal(std::shared_ptr<uvgrtp::rtp> rtp, std::shar
     //fb_hook_u_(nullptr),
     sfp_(sfp),
     rtcp_reader_(nullptr),
+    twcc_(nullptr),
     active_(false),
     interval_ms_(DEFAULT_RTCP_INTERVAL_MS),
     rtp_ptr_(rtp),
@@ -2265,6 +2267,38 @@ rtp_error_t uvgrtp::rtcp_internal::send_app_packet(const char* name, uint8_t sub
     packet_mutex_.unlock();
 
     return RTP_OK;
+}
+
+void uvgrtp::rtcp_internal::set_twcc(std::shared_ptr<uvgrtp::twcc> twcc)
+{
+    std::lock_guard<std::mutex> lg(twcc_mutex_);
+    twcc_ = std::move(twcc);
+}
+
+rtp_error_t uvgrtp::rtcp_internal::send_twcc_feedback(size_t max_bytes)
+{
+    std::shared_ptr<uvgrtp::twcc> twcc;
+    {
+        std::lock_guard<std::mutex> lg(twcc_mutex_);
+        twcc = twcc_;
+    }
+
+    /* Only a stream that has configured TWCC may trigger feedback */
+    if (!twcc) {
+        return RTP_NOT_FOUND;
+    }
+
+    std::shared_ptr<uvgrtp::socket> socket = rtcp_socket_;
+    if (!socket) {
+        UVG_LOG_ERROR("Cannot send TWCC feedback, RTCP socket does not exist");
+        return RTP_NOT_INITIALIZED;
+    }
+
+    uint32_t sender_ssrc = ssrc_->load();
+    return twcc->send_feedback(sender_ssrc, max_bytes,
+        [this, &socket](uint8_t* packet, size_t size) -> rtp_error_t {
+            return socket->sendto(socket_address_, socket_address_ipv6_, packet, size, 0);
+        });
 }
 
 uint32_t uvgrtp::rtcp_internal::get_rtcp_interval_ms() const

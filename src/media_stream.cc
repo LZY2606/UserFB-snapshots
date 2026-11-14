@@ -77,6 +77,11 @@ int uvgrtp::media_stream::get_configuration_value(int rcc_flag)
     return impl_->get_configuration_value(rcc_flag);
 }
 
+rtp_error_t uvgrtp::media_stream::configure_twcc(uint8_t extension_id)
+{
+    return impl_->configure_twcc(extension_id);
+}
+
 uvgrtp::rtcp *uvgrtp::media_stream::get_rtcp()
 {
     return impl_->get_rtcp();

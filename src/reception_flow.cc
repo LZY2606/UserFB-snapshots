@@ -6,6 +6,7 @@
 #include "socket.hh"
 #include "debug.hh"
 #include "random.hh"
+#include "twcc.hh"
 #include "uvgrtp/rtcp.hh"
 
 #include "global.hh"
@@ -43,6 +44,8 @@ uvgrtp::reception_flow::reception_flow(bool ipv6) :
     ring_read_index_(-1), // invalid first index that will increase to a valid one
     last_ring_write_index_(-1),
     socket_(),
+    twcc_(nullptr),
+    twcc_active_(false),
     buffer_size_kbytes_(DEFAULT_INITIAL_BUFFER_SIZE),
     payload_size_(MAX_IPV4_PAYLOAD),
     active_(false),
@@ -86,7 +89,7 @@ void uvgrtp::reception_flow::create_ring_buffer()
         uint8_t* data = new uint8_t[payload_size_];
         if (data)
         {
-            ring_buffer_.push_back({ data, 0});
+            ring_buffer_.push_back({ data, 0, 0});
         }
         else
         {
@@ -374,6 +377,44 @@ rtp_error_t uvgrtp::reception_flow::install_getter(std::shared_ptr<std::atomic<s
     return RTP_OK;
 }
 
+std::shared_ptr<uvgrtp::twcc> uvgrtp::reception_flow::configure_twcc(uint8_t extension_id, uintptr_t user, rtp_error_t& ret)
+{
+    std::lock_guard<std::mutex> lg(twcc_mutex_);
+
+    if (extension_id == 0) {
+        if (twcc_) {
+            ret = twcc_->configure(0, user);
+            twcc_active_ = twcc_->has_users();
+        }
+        return nullptr;
+    }
+
+    if (!twcc_) {
+        twcc_ = std::shared_ptr<uvgrtp::twcc>(new uvgrtp::twcc());
+    }
+
+    ret = twcc_->configure(extension_id, user);
+    if (ret != RTP_OK) {
+        return nullptr;
+    }
+
+    twcc_active_ = true;
+    return twcc_;
+}
+
+void uvgrtp::reception_flow::record_twcc_packet(const uint8_t* packet, size_t size, uint64_t arrival_us)
+{
+    std::shared_ptr<uvgrtp::twcc> twcc;
+    {
+        std::lock_guard<std::mutex> lg(twcc_mutex_);
+        twcc = twcc_;
+    }
+
+    if (twcc) {
+        twcc->record_packet(packet, size, arrival_us);
+    }
+}
+
 rtp_error_t uvgrtp::reception_flow::remove_handlers(std::shared_ptr<std::atomic<std::uint32_t>> remote_ssrc)
 {
     std::lock_guard<std::mutex> lg(handlers_mutex_);
@@ -519,6 +560,11 @@ void uvgrtp::reception_flow::receiver(std::shared_ptr<uvgrtp::socket> socket)
                     break;
                 }
 
+                /* Sample the arrival time at the receive point. TWCC feedback must
+                 * use the receive time even if packet processing falls behind. */
+                ring_buffer_[next_write_index].arrival_us = (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+
                 ++read_packets;
                 last_ring_write_index_ = next_write_index;
             }
@@ -650,6 +696,14 @@ void uvgrtp::reception_flow::process_packet(int rce_flags)
                     }
                     else if (version == 0x2 && (rtp_payload_type < 72 || 76 < rtp_payload_type)) { // RTP, RFC 3550
                         retval = RTP_PKT_MODIFIED;
+
+                        /* Record the transport-wide sequence number (if configured) before
+                         * handing the packet to the stream handlers. The transport sequence
+                         * belongs to the whole shared receive socket, not to a single media
+                         * SSRC, and the arrival time was sampled at the receive point. */
+                        if (twcc_active_) {
+                            record_twcc_packet(&ptr[0], size, ring_buffer_[ring_read_index_].arrival_us);
+                        }
 
                         /* Create RTP header */
                         if (handlers->rtp.handler != nullptr) {

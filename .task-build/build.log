@@ -1,0 +1,83 @@
+-- Set version string to 4.0.1-source
+-- Selecting build type: Release
+PKG_CONFIG_PATH is not set. Setting it to lib/pkgconfig
+libcrypto++ not found. Encryption will be disabled
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/.task-build/cmake
+[  2%] Building CXX object CMakeFiles/uvgrtp_version.dir/version.cc.o
+[  2%] Built target uvgrtp_version
+[  4%] Building CXX object CMakeFiles/uvgrtp.dir/src/frame.cc.o
+[  6%] Building CXX object CMakeFiles/uvgrtp.dir/src/crypto.cc.o
+[ 10%] Building CXX object CMakeFiles/uvgrtp.dir/src/media_stream.cc.o
+[ 10%] Building CXX object CMakeFiles/uvgrtp.dir/src/context.cc.o
+[ 13%] Building CXX object CMakeFiles/uvgrtp.dir/src/reception_flow.cc.o
+[ 15%] Building CXX object CMakeFiles/uvgrtp.dir/src/poll.cc.o
+[ 17%] Building CXX object CMakeFiles/uvgrtp.dir/src/frame_queue.cc.o
+[ 19%] Building CXX object CMakeFiles/uvgrtp.dir/src/rtcp.cc.o
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.cc:495:9: warning: variable 'read_packets' set but not used [-Wunused-but-set-variable]
+  495 |     int read_packets = 0;
+      |         ^
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.cc:593:9: warning: variable 'processed_packets' set but not used [-Wunused-but-set-variable]
+  593 |     int processed_packets = 0;
+      |         ^
+[ 21%] Building CXX object CMakeFiles/uvgrtp.dir/src/rtcp_packets.cc.o
+In file included from /Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.cc:1:
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.hh:226:19: warning: private field 'user_hook_arg_' is not used [-Wunused-private-field]
+  226 |             void* user_hook_arg_;
+      |                   ^
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.hh:227:20: warning: private field 'user_hook_' is not used [-Wunused-private-field]
+  227 |             void (*user_hook_)(void* arg, uint8_t* data, uint32_t len);
+      |                    ^
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/reception_flow.hh:257:18: warning: private field 'ipv6_' is not used [-Wunused-private-field]
+  257 |             bool ipv6_;
+      |                  ^
+[ 23%] Building CXX object CMakeFiles/uvgrtp.dir/src/rtp.cc.o
+[ 26%] Building CXX object CMakeFiles/uvgrtp.dir/src/session.cc.o
+5 warnings generated.
+[ 28%] Building CXX object CMakeFiles/uvgrtp.dir/src/socket.cc.o
+[ 30%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp.cc.o
+[ 32%] Building CXX object CMakeFiles/uvgrtp.dir/src/holepuncher.cc.o
+[ 34%] Building CXX object CMakeFiles/uvgrtp.dir/src/media_stream_internal.cc.o
+[ 36%] Building CXX object CMakeFiles/uvgrtp.dir/src/rtcp_internal.cc.o
+[ 39%] Building CXX object CMakeFiles/uvgrtp.dir/src/frame_internal.cc.o
+[ 41%] Building CXX object CMakeFiles/uvgrtp.dir/src/twcc.cc.o
+[ 43%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/media.cc.o
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/twcc.cc:240:13: warning: variable 'cut' set but not used [-Wunused-but-set-variable]
+  240 |     int64_t cut = report_begin - 1; /* last sequence included in this report */
+      |             ^
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/rtcp_internal.cc:333:9: warning: variable 'report_number' set but not used [-Wunused-but-set-variable]
+  333 |     int report_number = 0;
+      |         ^
+In file included from /Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/rtcp_internal.cc:1:
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/rtcp_internal.hh:593:14: warning: private field 'initial_' is not used [-Wunused-private-field]
+  593 |         bool initial_;
+      |              ^
+1 warning generated.
+[ 45%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/h26x.cc.o
+[ 47%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/h264.cc.o
+[ 50%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/h265.cc.o
+2 warnings generated.
+[ 52%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/h266.cc.o
+[ 54%] Building CXX object CMakeFiles/uvgrtp.dir/src/formats/v3c.cc.o
+[ 56%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/zrtp_receiver.cc.o
+[ 58%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/hello.cc.o
+[ 60%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/hello_ack.cc.o
+[ 63%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/commit.cc.o
+[ 65%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/dh_kxchng.cc.o
+[ 67%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/confirm.cc.o
+[ 69%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/confack.cc.o
+[ 71%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/error.cc.o
+[ 73%] Building CXX object CMakeFiles/uvgrtp.dir/src/zrtp/zrtp_message.cc.o
+[ 76%] Building CXX object CMakeFiles/uvgrtp.dir/src/srtp/base.cc.o
+[ 78%] Building CXX object CMakeFiles/uvgrtp.dir/src/srtp/srtp.cc.o
+[ 80%] Building CXX object CMakeFiles/uvgrtp.dir/src/srtp/srtcp.cc.o
+[ 82%] Building CXX object CMakeFiles/uvgrtp.dir/src/wrapper_c.cc.o
+[ 84%] Building CXX object CMakeFiles/uvgrtp.dir/src/socketfactory.cc.o
+[ 86%] Building CXX object CMakeFiles/uvgrtp.dir/src/rtcp_reader.cc.o
+/Users/lzy/pro/UserFB/workspace/Z2019/attempts/20261114T163821125158Z/repo/src/socketfactory.cc:28:18: warning: unused variable 'DEFAULT_INITIAL_BUFFER_SIZE' [-Wunused-const-variable]
+   28 | constexpr size_t DEFAULT_INITIAL_BUFFER_SIZE = 4194304;
+      |                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 warning generated.
+[ 89%] Linking CXX static library libuvgrtp.a
+[100%] Built target uvgrtp

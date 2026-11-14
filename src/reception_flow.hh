@@ -28,6 +28,7 @@ namespace uvgrtp {
 
     class socket;
     class rtcp;
+    class twcc;
 
     typedef void (*recv_hook)(void* arg, uvgrtp::frame::rtp_frame* frame);
 
@@ -151,6 +152,17 @@ namespace uvgrtp {
              * Return RTP_OK on success */
             rtp_error_t update_remote_ssrc(uint32_t old_remote_ssrc, uint32_t new_remote_ssrc);
 
+            /* Configure transport-wide congestion control (TWCC) feedback for one media
+             * stream of this receive flow. "extension_id" is the RFC 8285 one-byte header
+             * extension ID (1-14) carrying the transport-wide sequence number, 0 releases
+             * the configuration of this stream. "user" is an opaque token identifying the
+             * stream. All streams of this flow share one extension ID, one arrival ledger
+             * and one feedback packet count.
+             *
+             * On success "ret" is RTP_OK and the shared TWCC state is returned (nullptr
+             * when releasing). On error "ret" holds the error and nullptr is returned. */
+            std::shared_ptr<uvgrtp::twcc> configure_twcc(uint8_t extension_id, uintptr_t user, rtp_error_t& ret);
+
             /// \cond DO_NOT_DOCUMENT
             void set_buffer_size(const ssize_t& value);
             ssize_t get_buffer_size() const;
@@ -181,6 +193,10 @@ namespace uvgrtp {
 
             void clear_frames();
 
+            /* Record a transport-wide sequence number from a received RTP packet
+             * if TWCC has been configured for this flow */
+            void record_twcc_packet(const uint8_t* packet, size_t size, uint64_t arrival_us);
+
             /* If receive hook has not been installed, frames are pushed to "frames_"
              * and they can be retrieved using pull_frame() */
             std::deque<uvgrtp::frame::rtp_frame *> frames_;
@@ -202,6 +218,7 @@ namespace uvgrtp {
             {
                 uint8_t* data;
                 int read;
+                uint64_t arrival_us; // arrival time sampled at the receive point
                 //sockaddr_in6 from6;
                 //sockaddr_in from;
             };
@@ -228,6 +245,11 @@ namespace uvgrtp {
 
             std::condition_variable process_cond_;
             std::shared_ptr<uvgrtp::socket> socket_;
+
+            /* Shared TWCC state of this receive flow, created on first configure */
+            std::shared_ptr<uvgrtp::twcc> twcc_;
+            std::mutex twcc_mutex_;
+            std::atomic<bool> twcc_active_;
 
             ssize_t buffer_size_kbytes_;
             size_t payload_size_;
