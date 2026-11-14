@@ -36,6 +36,20 @@ struct OverlappingWFCOptions {
 };
 
 /**
+ * Result of the exact strip inference on an overlapping model.
+ * Same as StripResult, except that the sample is rebuilt into an image
+ * through the usual pattern-to-image path. The marginals still refer to
+ * the wave anchors, not to the output pixels.
+ */
+template <typename T> struct StripImageResult {
+  StripStatus status;
+  double log_partition;
+  std::vector<double> marginals;
+  std::optional<Array2D<T>> sample;
+  size_t peak_states;
+};
+
+/**
  * Class generating a new image with the overlapping WFC algorithm.
  */
 template <typename T> class OverlappingWFC {
@@ -353,6 +367,24 @@ public:
       return to_image(*result);
     }
     return std::nullopt;
+  }
+
+  /**
+   * Exact inference on the underlying wave, see WFC::analyze_strip.
+   * The sampled assignment is rebuilt into an image with to_image.
+   */
+  StripImageResult<T> analyze_strip(size_t state_limit,
+                                    int sample_seed) const noexcept {
+    StripResult result = wfc.analyze_strip(state_limit, sample_seed);
+    StripImageResult<T> image_result;
+    image_result.status = result.status;
+    image_result.log_partition = result.log_partition;
+    image_result.marginals = std::move(result.marginals);
+    image_result.peak_states = result.peak_states;
+    if (result.sample.has_value()) {
+      image_result.sample = to_image(*result.sample);
+    }
+    return image_result;
   }
 };
 

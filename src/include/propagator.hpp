@@ -88,6 +88,18 @@ public:
    * Propagate the information given with add_to_propagator.
    */
   void propagate(Wave &wave) noexcept;
+
+  /**
+   * Read-only access to the compatibility table.
+   */
+  const PropagatorState &get_propagator_state() const noexcept {
+    return propagator_state;
+  }
+
+  /**
+   * True if the wave and the output is toric.
+   */
+  bool is_periodic() const noexcept { return periodic_output; }
 };
 
 #endif // FAST_WFC_PROPAGATOR_HPP_
