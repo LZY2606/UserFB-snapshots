@@ -34,9 +34,422 @@
 
 #include <OpenVolumeMesh/Mesh/TetrahedralMeshTopologyKernel.hh>
 
+#include <algorithm>
+#include <array>
 #include <iostream>
+#include <map>
+#include <set>
 
 namespace OpenVolumeMesh {
+
+namespace {
+
+bool same_vertex_set(const std::vector<VertexHandle>& _halfface_vertices,
+                     std::array<VertexHandle, 3> _triple)
+{
+    if(_halfface_vertices.size() != 3)
+        return false;
+    std::set<VertexHandle> lhs(_halfface_vertices.begin(), _halfface_vertices.end());
+    std::set<VertexHandle> rhs(_triple.begin(), _triple.end());
+    return lhs == rhs && lhs.size() == 3;
+}
+
+// Whether a live edge connects the two given vertices.
+bool edge_exists(const TopologyKernel& _mesh, VertexHandle _v0, VertexHandle _v1)
+{
+    return _mesh.find_halfedge(_v0, _v1).is_valid();
+}
+
+// Whether a live triangular face with the given vertex set exists,
+// independent of its orientation.
+bool face_exists(const TopologyKernel& _mesh,
+                 VertexHandle _v0, VertexHandle _v1, VertexHandle _v2)
+{
+    return _mesh.find_halfface(std::vector<VertexHandle>{_v0, _v1, _v2}).is_valid() ||
+           _mesh.find_halfface(std::vector<VertexHandle>{_v0, _v2, _v1}).is_valid();
+}
+
+// Reject duplicate edges or triangular faces among the cavity vertices:
+// every pair of cavity vertices may be joined by at most one live edge,
+// and every vertex triple of cavity vertices may span at most one live
+// face.
+bool has_duplicate_simplices(const TopologyKernel& _mesh,
+                             const std::array<VertexHandle, 5>& _vertices)
+{
+    for(size_t i = 0; i < _vertices.size(); ++i) {
+        for(size_t j = i + 1; j < _vertices.size(); ++j) {
+            unsigned edge_count = 0;
+            for(EdgeHandle eh : _mesh.edges()) {
+                if(_mesh.is_deleted(eh))
+                    continue;
+                const TopologyKernel::Edge& ed = _mesh.edge(eh);
+                if((ed.from_vertex() == _vertices[i] && ed.to_vertex() == _vertices[j]) ||
+                   (ed.from_vertex() == _vertices[j] && ed.to_vertex() == _vertices[i]))
+                    ++edge_count;
+            }
+            if(edge_count > 1u)
+                return true;
+        }
+    }
+
+    std::map<std::set<VertexHandle>, unsigned> face_counts;
+    for(FaceHandle fh : _mesh.faces()) {
+        if(_mesh.is_deleted(fh) || _mesh.valence(fh) != 3u)
+            continue;
+        std::set<VertexHandle> fvs;
+        bool inside = true;
+        for(VertexHandle vh : _mesh.get_halfface_vertices(_mesh.halfface_handle(fh, 0))) {
+            if(std::find(_vertices.begin(), _vertices.end(), vh) == _vertices.end()) {
+                inside = false;
+                break;
+            }
+            fvs.insert(vh);
+        }
+        if(inside && fvs.size() == 3u)
+            ++face_counts[fvs];
+    }
+    for(const auto& entry : face_counts) {
+        if(entry.second > 1u)
+            return true;
+    }
+    return false;
+}
+
+} // anonymous namespace
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::plan_flip23(FaceHandle _fh, FlipPlan& _plan) const
+{
+    _plan = FlipPlan{};
+    _plan.kind = FlipPlan::Kind::Flip23;
+
+    if(!deferred_deletion_enabled() || !has_full_bottom_up_incidences())
+        return false;
+
+    if(!is_valid(_fh) || is_deleted(_fh) || valence(_fh) != 3u)
+        return false;
+
+    // The shared face must not lie on the mesh boundary.
+    if(is_boundary(_fh))
+        return false;
+
+    const HalfFaceHandle h0 = halfface_handle(_fh, 0);
+    const HalfFaceHandle h1 = halfface_handle(_fh, 1);
+    const CellHandle c0 = incident_cell(h0);
+    const CellHandle c1 = incident_cell(h1);
+
+    // The face has to be interior, shared by two distinct live tets.
+    if(!c0.is_valid() || !c1.is_valid() || c0 == c1)
+        return false;
+    if(is_deleted(c0) || is_deleted(c1))
+        return false;
+    if(valence(c0) != 4u || valence(c1) != 4u)
+        return false;
+
+    const std::vector<VertexHandle> fvs = get_halfface_vertices(h0);
+    if(fvs.size() != 3u)
+        return false;
+    const VertexHandle a = fvs[0], b = fvs[1], c = fvs[2];
+    if(a == b || b == c || a == c)
+        return false;
+
+    const std::vector<VertexHandle> vs0 = get_cell_vertices(c0);
+    const std::vector<VertexHandle> vs1 = get_cell_vertices(c1);
+    if(vs0.size() != 4u || vs1.size() != 4u)
+        return false;
+    if(std::set<VertexHandle>(vs0.begin(), vs0.end()).size() != 4u ||
+       std::set<VertexHandle>(vs1.begin(), vs1.end()).size() != 4u)
+        return false;
+
+    auto pick_opposite = [&](const std::vector<VertexHandle>& _cell_vs) {
+        for(VertexHandle v : _cell_vs)
+            if(v != a && v != b && v != c)
+                return v;
+        return InvalidVertexHandle;
+    };
+    const VertexHandle d = pick_opposite(vs0);
+    const VertexHandle e = pick_opposite(vs1);
+    if(!d.is_valid() || !e.is_valid() || d == e)
+        return false;
+    if(d == a || d == b || d == c || e == a || e == b || e == c)
+        return false;
+
+    _plan.vertices = {a, b, c, d, e};
+    _plan.old_cells = {c0, c1};
+    _plan.old_internal_faces = {_fh};
+
+    // Collect the six shell faces, keeping the halfface that pointed
+    // into the cavity.
+    std::set<FaceHandle> shell_set;
+    for(CellHandle ch : _plan.old_cells) {
+        for(HalfFaceHandle hfh : cell(ch).halffaces()) {
+            const FaceHandle fh = face_handle(hfh);
+            if(fh == _fh)
+                continue;
+            if(is_deleted(fh))
+                return false;
+            if(!shell_set.insert(fh).second)
+                return false; // two shell faces coincide: non-spherical link
+            _plan.shell_faces.push_back({fh, hfh});
+        }
+    }
+    if(_plan.shell_faces.size() != 6u || shell_set.size() != 6u)
+        return false;
+
+    // Reject duplicate edges or faces within the cavity.
+    if(has_duplicate_simplices(*this, _plan.vertices))
+        return false;
+
+    // The new internal edge and the three new internal faces must not
+    // already be occupied by live entities.
+    if(edge_exists(*this, d, e))
+        return false;
+    if(face_exists(*this, d, e, a) || face_exists(*this, d, e, b) ||
+       face_exists(*this, d, e, c))
+        return false;
+
+    // Build the three replacement tets, each oriented through one of
+    // the old shell halffaces so that shell orientations are preserved.
+    const std::array<std::array<VertexHandle, 3>, 3> shell_triples = {{
+        {{a, b, d}}, {{b, c, d}}, {{c, a, d}}
+    }};
+    for(const auto& tri : shell_triples) {
+        const HalfFaceHandle* shell_hfh = nullptr;
+        for(const auto& sf : _plan.shell_faces) {
+            if(same_vertex_set(get_halfface_vertices(sf.inner_halfface), tri)) {
+                shell_hfh = &sf.inner_halfface;
+                break;
+            }
+        }
+        if(shell_hfh == nullptr)
+            return false;
+        const std::vector<VertexHandle> oriented = get_halfface_vertices(*shell_hfh);
+        VertexHandle w = InvalidVertexHandle;
+        for(VertexHandle v : {d, e})
+            if(v != oriented[0] && v != oriented[1] && v != oriented[2])
+                w = v;
+        if(!w.is_valid())
+            return false;
+        _plan.new_tets.push_back({oriented[0], oriented[1], oriented[2], w});
+    }
+
+    return _plan.new_tets.size() == 3u;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::plan_flip32(EdgeHandle _eh, FlipPlan& _plan) const
+{
+    _plan = FlipPlan{};
+    _plan.kind = FlipPlan::Kind::Flip32;
+
+    if(!deferred_deletion_enabled() || !has_full_bottom_up_incidences())
+        return false;
+
+    if(!is_valid(_eh) || is_deleted(_eh))
+        return false;
+
+    // The edge must be interior: flipping a boundary edge would change
+    // the mesh boundary instead of only reorganizing a cavity.
+    if(is_boundary(_eh))
+        return false;
+
+    const VertexHandle u = edge(_eh).from_vertex();
+    const VertexHandle v = edge(_eh).to_vertex();
+
+    // Exactly three distinct, live incident cells.
+    std::vector<CellHandle> incident;
+    for(HalfEdgeCellIter it = hec_iter(halfedge_handle(_eh, 0)); it.valid(); ++it) {
+        const CellHandle ch = *it;
+        if(is_deleted(ch))
+            return false;
+        if(std::find(incident.begin(), incident.end(), ch) == incident.end())
+            incident.push_back(ch);
+    }
+    if(incident.size() != 3u)
+        return false;
+
+    std::set<VertexHandle> link_set;
+    std::set<FaceHandle> internal_set;
+    for(CellHandle ch : incident) {
+        if(valence(ch) != 4u)
+            return false;
+        const std::vector<VertexHandle> cvs = get_cell_vertices(ch);
+        if(cvs.size() != 4u ||
+           std::set<VertexHandle>(cvs.begin(), cvs.end()).size() != 4u)
+            return false;
+        const bool has_u = std::find(cvs.begin(), cvs.end(), u) != cvs.end();
+        const bool has_v = std::find(cvs.begin(), cvs.end(), v) != cvs.end();
+        if(!has_u || !has_v)
+            return false;
+        for(VertexHandle x : cvs)
+            if(x != u && x != v)
+                link_set.insert(x);
+        for(HalfFaceHandle hfh : cell(ch).halffaces()) {
+            const FaceHandle fh = face_handle(hfh);
+            if(is_deleted(fh))
+                return false;
+            const std::vector<VertexHandle> fvs = get_halfface_vertices(hfh);
+            const bool contains_u = std::find(fvs.begin(), fvs.end(), u) != fvs.end();
+            const bool contains_v = std::find(fvs.begin(), fvs.end(), v) != fvs.end();
+            if(contains_u && contains_v) {
+                if(is_boundary(fh))
+                    return false;
+                internal_set.insert(fh);
+            }
+        }
+    }
+
+    // Spherical link: three internal faces separating exactly three
+    // tets, three distinct link vertices.
+    if(internal_set.size() != 3u || link_set.size() != 3u)
+        return false;
+
+    for(FaceHandle fh : internal_set) {
+        const CellHandle i0 = incident_cell(halfface_handle(fh, 0));
+        const CellHandle i1 = incident_cell(halfface_handle(fh, 1));
+        if(!i0.is_valid() || !i1.is_valid() || i0 == i1)
+            return false;
+        if(std::find(incident.begin(), incident.end(), i0) == incident.end() ||
+           std::find(incident.begin(), incident.end(), i1) == incident.end())
+            return false;
+    }
+
+    std::vector<VertexHandle> link(link_set.begin(), link_set.end());
+    const VertexHandle a = link[0], b = link[1], c = link[2];
+    if(a == u || a == v || b == u || b == v || c == u || c == v)
+        return false;
+
+    _plan.vertices = {u, v, a, b, c};
+    _plan.old_cells = incident;
+    _plan.old_internal_edge = _eh;
+    _plan.old_internal_faces.assign(internal_set.begin(), internal_set.end());
+
+    // Six shell faces.
+    std::set<FaceHandle> shell_set;
+    for(CellHandle ch : incident) {
+        for(HalfFaceHandle hfh : cell(ch).halffaces()) {
+            const FaceHandle fh = face_handle(hfh);
+            if(internal_set.count(fh) != 0u)
+                continue;
+            if(!shell_set.insert(fh).second)
+                return false;
+            _plan.shell_faces.push_back({fh, hfh});
+        }
+    }
+    if(_plan.shell_faces.size() != 6u || shell_set.size() != 6u)
+        return false;
+
+    // Reject duplicate edges or faces within the cavity.
+    if(has_duplicate_simplices(*this, _plan.vertices))
+        return false;
+
+    // The link edges have to exist (they are shell edges) and the
+    // candidate internal face must not be occupied by a live face.
+    if(!edge_exists(*this, a, b) || !edge_exists(*this, b, c) ||
+       !edge_exists(*this, c, a))
+        return false;
+    if(face_exists(*this, a, b, c))
+        return false;
+
+    // Two replacement tets, each oriented through one of its old shell
+    // halffaces. The u-tet is oriented by a face containing u, the
+    // v-tet by one containing v.
+    for(VertexHandle apex : {u, v}) {
+        const HalfFaceHandle* shell_hfh = nullptr;
+        for(const auto& sf : _plan.shell_faces) {
+            const std::vector<VertexHandle> tri = get_halfface_vertices(sf.inner_halfface);
+            const bool has_apex = std::find(tri.begin(), tri.end(), apex) != tri.end();
+            if(has_apex) {
+                shell_hfh = &sf.inner_halfface;
+                break;
+            }
+        }
+        if(shell_hfh == nullptr)
+            return false;
+        const std::vector<VertexHandle> oriented = get_halfface_vertices(*shell_hfh);
+        VertexHandle w = InvalidVertexHandle;
+        for(VertexHandle x : link)
+            if(x != oriented[0] && x != oriented[1] && x != oriented[2])
+                w = x;
+        if(!w.is_valid())
+            return false;
+        _plan.new_tets.push_back({oriented[0], oriented[1], oriented[2], w});
+    }
+
+    return _plan.new_tets.size() == 2u;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::execute_flip(const FlipPlan& _plan,
+                                                 std::vector<CellHandle>& _created)
+{
+    // 1) Remove the old cells (deferred: only flags + incidence updates).
+    for(CellHandle ch : _plan.old_cells)
+        delete_cell(ch);
+
+    // 2) Remove the old internal simplices. For a 32 flip the edge is
+    //    deleted non-cascadingly, since its faces and cells were
+    //    removed above and shell faces must stay untouched.
+    for(FaceHandle fh : _plan.old_internal_faces)
+        delete_face(fh);
+    if(_plan.kind == FlipPlan::Kind::Flip32)
+        delete_detached_edge(_plan.old_internal_edge);
+
+    // 3) Create the new internal edge of a 23 flip.
+    if(_plan.kind == FlipPlan::Kind::Flip23) {
+        const VertexHandle d = _plan.vertices[3];
+        const VertexHandle e = _plan.vertices[4];
+        add_edge(d, e);
+    }
+
+    // 4) Create the replacement tets. Existing shell halffaces are
+    //    reused, new internal faces are created with default properties.
+    CellHandle property_template = _plan.old_cells.front();
+    for(CellHandle ch : _plan.old_cells)
+        if(ch < property_template)
+            property_template = ch;
+
+    std::vector<CellHandle> created;
+    created.reserve(_plan.new_tets.size());
+    for(const auto& tet : _plan.new_tets) {
+        CellHandle ch = add_cell(tet[0], tet[1], tet[2], tet[3]);
+        if(!ch.is_valid())
+            return false;
+        created.push_back(ch);
+        // New cells inherit every cell property of the smallest-handled
+        // removed cell, including caller-defined property types.
+        copy_property_elements(property_template, ch);
+    }
+
+    std::sort(created.begin(), created.end());
+    _created = std::move(created);
+    return true;
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::flip23(FaceHandle _fh, std::vector<CellHandle>& _created)
+{
+    FlipPlan plan;
+    if(!plan_flip23(_fh, plan))
+        return false;
+    return execute_flip(plan, _created);
+}
+
+//========================================================================================
+
+bool TetrahedralMeshTopologyKernel::flip32(EdgeHandle _eh, std::vector<CellHandle>& _created)
+{
+    FlipPlan plan;
+    if(!plan_flip32(_eh, plan))
+        return false;
+    return execute_flip(plan, _created);
+}
+
+//========================================================================================
 
 FaceHandle TetrahedralMeshTopologyKernel::add_face(std::vector<HalfEdgeHandle> _halfedges, bool _topologyCheck) {
 

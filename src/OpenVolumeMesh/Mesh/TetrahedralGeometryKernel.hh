@@ -97,7 +97,109 @@ public:
         return e1.dot(e2.cross(e3)) / 6.;
     }
 
+    /// \brief Geometry-checked in-place 2-to-3 flip (specialized for
+    /// Vec3d-style point types).
+    ///
+    /// Runs the same combinatorial validation as
+    /// TetrahedralMeshTopologyKernel::flip23 and, additionally, checks
+    /// the signed volumes before any entity is written:
+    ///   - every old cavity tetrahedron must be positively oriented
+    ///     (signed volume > 0);
+    ///   - every candidate tetrahedron must have a signed volume larger
+    ///     than \p _rel_volume_threshold times the cube of the longest
+    ///     edge length of the cavity. The threshold is relative, so the
+    ///     check is scale independent.
+    /// A candidate that would invert the cavity (negative or zero
+    /// signed volume) is therefore rejected instead of being accepted
+    /// on its absolute volume. On failure nothing is changed.
+    ///
+    /// Example:
+    /// \code
+    /// std::vector<CellHandle> created;
+    /// if (!mesh.flip23(shared_face, created)) {
+    ///     // boundary face, bad topology or degenerate geometry
+    /// }
+    /// \endcode
+    bool flip23(FaceHandle _fh, std::vector<CellHandle>& _created,
+                double _rel_volume_threshold = 1e-12)
+    {
+        typename TopologyKernelT::FlipPlan plan;
+        if(!TopologyKernelT::plan_flip23(_fh, plan))
+            return false;
+        if(!flip_geometry_acceptable(plan, _rel_volume_threshold))
+            return false;
+        return TopologyKernelT::execute_flip(plan, _created);
+    }
+
+    /// \brief Geometry-checked in-place 3-to-2 flip.
+    ///
+    /// See flip23() for the volume checks. This is the geometry-aware
+    /// inverse operation that restores a positively oriented two-tet
+    /// cavity around a new interior face.
+    bool flip32(EdgeHandle _eh, std::vector<CellHandle>& _created,
+                double _rel_volume_threshold = 1e-12)
+    {
+        typename TopologyKernelT::FlipPlan plan;
+        if(!TopologyKernelT::plan_flip32(_eh, plan))
+            return false;
+        if(!flip_geometry_acceptable(plan, _rel_volume_threshold))
+            return false;
+        return TopologyKernelT::execute_flip(plan, _created);
+    }
+
 protected:
+
+    using ScalarT = typename VecT::value_type;
+
+    ScalarT candidate_signed_volume(const std::array<VertexHandle, 4>& _tet) const
+    {
+        const PointT& p0 = ParentT::vertex(_tet[0]);
+        const PointT e1 = ParentT::vertex(_tet[1]) - p0;
+        const PointT e2 = ParentT::vertex(_tet[2]) - p0;
+        const PointT e3 = ParentT::vertex(_tet[3]) - p0;
+        return e1.dot(e2.cross(e3)) / ScalarT(6.);
+    }
+
+    bool flip_geometry_acceptable(const typename TopologyKernelT::FlipPlan& _plan,
+                                  double _rel_volume_threshold)
+    {
+        // All old cavity tets must be positively oriented.
+        for(CellHandle ch : _plan.old_cells) {
+            if(!(this->signed_volume(ch) > ScalarT(0.)))
+                return false;
+        }
+
+        // Longest edge length of the cavity, measured over all pairs
+        // of the five cavity vertices, so the threshold scales with
+        // the mesh (works for non-unit scales).
+        ScalarT longest = ScalarT(0.);
+        for(size_t i = 0; i < _plan.vertices.size(); ++i) {
+            for(size_t j = i + 1; j < _plan.vertices.size(); ++j) {
+                const ScalarT len =
+                    (ParentT::vertex(_plan.vertices[j]) -
+                     ParentT::vertex(_plan.vertices[i])).norm();
+                if(len > longest)
+                    longest = len;
+            }
+        }
+        if(!(longest > ScalarT(0.)))
+            return false;
+
+        const ScalarT limit =
+            static_cast<ScalarT>(_rel_volume_threshold) *
+            longest * longest * longest;
+
+        // Every candidate must keep the orientation induced by the
+        // preserved shell halffaces (strictly positive signed volume).
+        for(const auto& tet : _plan.new_tets) {
+            if(!(candidate_signed_volume(tet) > limit))
+                return false;
+        }
+        return true;
+    }
+
+public:
+
 
 };
 

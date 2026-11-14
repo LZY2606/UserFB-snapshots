@@ -2273,6 +2273,16 @@ CellHandle TopologyKernel::incident_cell(HalfFaceHandle _halfFaceHandle) const
 
 //========================================================================================
 
+EdgeIter TopologyKernel::delete_detached_edge(EdgeHandle _h)
+{
+    assert(deferred_deletion_enabled());
+    assert(is_valid(_h));
+    assert(!is_deleted(_h));
+    return delete_edge_core(_h);
+}
+
+//========================================================================================
+
 void TopologyKernel::compute_vertex_bottom_up_incidences() {
 
     // Clear incidences

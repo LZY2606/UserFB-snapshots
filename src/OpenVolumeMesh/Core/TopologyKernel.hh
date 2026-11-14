@@ -995,6 +995,12 @@ protected:
 
     void compute_face_bottom_up_incidences();
 
+    /// Deferred-delete an edge whose incident faces and cells have
+    /// already been removed. Unlike delete_edge() this never cascades
+    /// to neighboring faces or cells. Only valid while deferred
+    /// deletion is enabled.
+    EdgeIter delete_detached_edge(EdgeHandle _h);
+
     // Outgoing halfedges per vertex
     VertexVector<std::vector<HalfEdgeHandle> > outgoing_hes_per_vertex_;
 

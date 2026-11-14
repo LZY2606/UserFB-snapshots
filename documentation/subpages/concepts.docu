@@ -248,4 +248,63 @@ StatusAttrib status(myMesh);
 status[VertexHandle(0)].set_selected(true);
 \endcode
 
+\subsection local_flips Local 2-to-3 and 3-to-2 flips of tetrahedral meshes
+
+For local quality optimization of tetrahedralizations,
+OpenVolumeMesh::TetrahedralMeshTopologyKernel offers two in-place
+edge/face flips that neither add vertices nor change coordinates:
+
+\li flip23(FaceHandle, std::vector<CellHandle>&): replaces the two
+    tetrahedra sharing an interior triangular face by three tetrahedra
+    arranged around the newly created edge that connects the two
+    opposite vertices.
+\li flip32(EdgeHandle, std::vector<CellHandle>&): the inverse operation,
+    replacing the three tetrahedra around an interior, valence-three
+    edge by two tetrahedra sharing a newly created interior face.
+
+Both operations only reorganize a single five-vertex cavity. The six
+boundary ("shell") faces keep their handles, halfface orientations and
+all their properties; entities outside the cavity are never rebuilt.
+New internal edges and faces get default properties, and each new cell
+copies all cell properties of the removed cell with the smallest
+handle. Removed cells and internal simplices are only marked as deleted
+(deferred deletion); no garbage collection is triggered, so the switches
+of the mesh are left unchanged. The flips require deferred deletion and
+all bottom-up incidences to be enabled, otherwise they return \c false.
+The same happens for boundary input, edges whose valence differs from
+three, non-spherical links, duplicate edges/faces, five not mutually
+distinct vertices or already occupied candidate simplices. On failure
+the mesh, the output vector and all deletion flags remain untouched.
+
+The geometric kernel OpenVolumeMesh::TetrahedralGeometryKernel provides
+overloads with the same signature plus an optional relative volume
+threshold (default \c 1e-12). They additionally require all old cavity
+tetrahedra to be positively oriented and every candidate tetrahedron to
+have a signed volume larger than the threshold times the cube of the
+longest cavity edge, so degenerate or outward-flipping candidates are
+rejected before the mesh is modified.
+
+Example:
+
+\code
+#include <OpenVolumeMesh/Mesh/TetrahedralGeometryKernel.hh>
+
+using Mesh = OpenVolumeMesh::TetrahedralGeometryKernel<OpenVolumeMesh::Geometry::Vec3d>;
+
+void optimize(Mesh& mesh, OpenVolumeMesh::FaceHandle shared_face) {
+    std::vector<OpenVolumeMesh::CellHandle> created;
+    if (!mesh.flip23(shared_face, created))
+        return; // boundary face, bad topology or degenerate geometry
+
+    // The two opposite vertices of the old tets are now joined by the
+    // new interior edge; use it to flip the cavity back immediately.
+    auto old_vertices = mesh.get_cell_vertices(created.front());
+    OpenVolumeMesh::VertexHandle v0, v1;
+    // ... identify the two vertices that were opposite shared_face ...
+    OpenVolumeMesh::HalfEdgeHandle heh = mesh.find_halfedge(v0, v1);
+    std::vector<OpenVolumeMesh::CellHandle> back;
+    mesh.flip32(heh.edge_handle(), back);
+}
+\endcode
+
 **/

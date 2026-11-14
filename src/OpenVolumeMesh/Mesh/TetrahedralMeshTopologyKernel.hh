@@ -101,9 +101,109 @@ public:
 
 
     VertexHandle collapse_edge(HalfEdgeHandle _heh);
+
+    /// \brief In-place 2-to-3 flip.
+    ///
+    /// Replaces the two tetrahedra sharing the interior face \p _fh by
+    /// three tetrahedra arranged around the edge that connects the two
+    /// vertices opposite to \p _fh. No vertices are created and no
+    /// coordinates change. The six boundary (cavity shell) faces keep
+    /// their handles, halfface orientations and all their properties;
+    /// the new internal edge and the new internal faces are created with
+    /// default properties. Every new cell copies all cell properties of
+    /// the removed cell with the smallest handle. Old cells and old
+    /// internal simplices are only marked as deleted (deferred deletion,
+    /// no garbage collection).
+    ///
+    /// Requires deferred deletion and all bottom-up incidences to be
+    /// enabled. The request is rejected (returns \c false and changes
+    /// nothing) for boundary faces, non-manifold or non-spherical
+    /// neighborhoods, duplicate edges/faces, five not mutually distinct
+    /// vertices or already occupied candidate simplices.
+    ///
+    /// \param _fh      Interior face shared by exactly two cells.
+    /// \param _created On success, all replacement cells, sorted by
+    ///                 handle. Untouched on failure.
+    /// \return \c true if the flip was performed.
+    ///
+    /// Example:
+    /// \code
+    /// std::vector<CellHandle> new_cells;
+    /// if (mesh.flip23(shared_face, new_cells)) {
+    ///     // new_cells.size() == 3, the two old cells are tagged deleted
+    /// }
+    /// \endcode
+    bool flip23(FaceHandle _fh, std::vector<CellHandle>& _created);
+
+    /// \brief In-place 3-to-2 flip.
+    ///
+    /// Replaces the three tetrahedra around the interior, valence-three
+    /// edge \p _eh by two tetrahedra sharing the new face that connects
+    /// the three vertices of the edge's link. This is the inverse of
+    /// flip23(). The same preservation and rejection rules as for
+    /// flip23() apply: six shell faces keep their handles and
+    /// orientations, new internal simplices get default properties, new
+    /// cells copy the cell properties of the smallest-handled removed
+    /// cell and nothing is garbage collected.
+    ///
+    /// \param _eh      Interior edge with exactly three incident cells.
+    /// \param _created On success, the two replacement cells sorted by
+    ///                 handle. Untouched on failure.
+    /// \return \c true if the flip was performed.
+    ///
+    /// Example:
+    /// \code
+    /// std::vector<CellHandle> created_23, created_32;
+    /// mesh.flip23(face_handle, created_23);
+    /// // flip back immediately:
+    /// mesh.flip32(new_internal_edge, created_32);
+    /// \endcode
+    bool flip32(EdgeHandle _eh, std::vector<CellHandle>& _created);
+
 protected:
     void split_edge(HalfEdgeHandle _heh, VertexHandle _vh);
     void split_face(FaceHandle _fh, VertexHandle _vh);
+
+    /// Fully validated description of a flip cavity that is ready to be
+    /// written. Built by the planning methods without mutating the mesh
+    /// so that geometry kernels can inspect the candidate tets before
+    /// committing via execute_flip().
+    struct FlipPlan {
+        enum class Kind { Flip23, Flip32 } kind = Kind::Flip23;
+
+        // The five cavity vertices (for a 23: three shared face vertices
+        // plus the two opposite vertices; for a 32: the edge endpoints
+        // plus the three link vertices).
+        std::array<VertexHandle, 5> vertices{};
+
+        // Cells, internal faces and (32 only) internal edge to remove.
+        std::vector<CellHandle> old_cells;
+        std::vector<FaceHandle> old_internal_faces;
+        EdgeHandle old_internal_edge = InvalidEdgeHandle;
+
+        // Oriented vertex quadruples of the replacement tets. The order
+        // is chosen such that add_cell(v[0], v[1], v[2], v[3]) reuses
+        // the existing, identically oriented shell halffaces.
+        std::vector<std::array<VertexHandle, 4>> new_tets;
+
+        // Shell faces: the face handle together with the halfface that
+        // pointed into the cavity, whose orientation is reused by the
+        // corresponding replacement tet.
+        struct ShellFace {
+            FaceHandle face;
+            HalfFaceHandle inner_halfface;
+        };
+        std::vector<ShellFace> shell_faces;
+    };
+
+    /// Validate a 23 request and fill \p _plan without touching the mesh.
+    bool plan_flip23(FaceHandle _fh, FlipPlan& _plan) const;
+
+    /// Validate a 32 request and fill \p _plan without touching the mesh.
+    bool plan_flip32(EdgeHandle _eh, FlipPlan& _plan) const;
+
+    /// Apply a previously planned flip to the mesh.
+    bool execute_flip(const FlipPlan& _plan, std::vector<CellHandle>& _created);
 
 public:
 

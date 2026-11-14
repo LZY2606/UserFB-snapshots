@@ -1,0 +1,15 @@
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/test.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/OpenVolumeMesh.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/test.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1994/attempts/20261114T153438246442Z/repo/.task-build/lib/src/CMakeFiles/install/strip.dir
