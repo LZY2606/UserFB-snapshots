@@ -5,3 +5,5 @@ gocrawl.test
 *.swp
 tags
 cmd/example/example
+# Local task harness caches and mutation-check artifacts/logs
+.task-build/

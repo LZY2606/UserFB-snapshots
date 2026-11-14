@@ -109,6 +109,69 @@ func ExampleCrawl() {
 }
 ```
 
+### Minimal custom Extender: observing crawl events
+
+The smallest useful customization embeds `DefaultExtender` (so every hook has
+a working default) and overrides only the events you want to observe. The
+example below logs enqueue decisions, robots rejections, visited pages and
+errors without changing how the crawl itself behaves:
+
+```Go
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/PuerkitoBio/gocrawl"
+	"github.com/PuerkitoBio/goquery"
+)
+
+type observer struct {
+	gocrawl.DefaultExtender // default behaviour for every hook we do not override
+}
+
+func (o *observer) Enqueued(ctx *gocrawl.URLContext) {
+	log.Printf("enqueue: %s (source: %v, state: %v)",
+		ctx.NormalizedURL(), ctx.SourceURL(), ctx.State)
+}
+
+func (o *observer) Disallowed(ctx *gocrawl.URLContext) {
+	log.Printf("blocked by robots.txt: %s", ctx.NormalizedURL())
+}
+
+func (o *observer) Visit(ctx *gocrawl.URLContext, res *http.Response, doc *goquery.Document) (interface{}, bool) {
+	log.Printf("visit: %s (%d)", ctx.NormalizedURL(), res.StatusCode)
+	// Returning (nil, true) lets gocrawl harvest the page's links itself.
+	return nil, true
+}
+
+func (o *observer) Visited(ctx *gocrawl.URLContext, harvested interface{}) {
+	log.Printf("done: %s", ctx.NormalizedURL())
+}
+
+func (o *observer) Error(err *gocrawl.CrawlError) {
+	log.Printf("error on %v: %v", err.Ctx, err)
+}
+
+func main() {
+	opts := gocrawl.NewOptions(&observer{})
+	opts.RobotUserAgent = "example-observer"
+	opts.CrawlDelay = time.Second
+	opts.LogFlags = gocrawl.LogNone
+
+	c := gocrawl.NewCrawlerWithOptions(opts)
+	if err := c.Run("https://example.com/"); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Each hook receives a `*gocrawl.URLContext`, which exposes the URL, its
+normalized form, its source URL and the optional per-URL `State`, so an
+observer can reconstruct exactly how a URL entered the crawl.
+
 ## API
 
 Gocrawl can be described as a minimalist web crawler (hence the "slim" tag, at ~1000 sloc), providing the basic engine upon which to build a full-fledged indexing machine with caching, persistence and staleness detection logic, or to use as is for quick and easy crawling. Gocrawl itself does not attempt to detect staleness of a page, nor does it implement a caching mechanism. If an URL is enqueued to be processed, it *will* make a request to fetch it (provided it is allowed by robots.txt - hence the "polite" tag). And there is no prioritization among the URLs to process, it assumes that all enqueued URLs must be visited at some point, and that the order in which they are is unimportant.
