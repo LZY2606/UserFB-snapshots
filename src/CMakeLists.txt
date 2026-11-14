@@ -17,6 +17,7 @@ set(tinygl_srcs
   msghandling.c
   select.c
   specbuf.c
+  splat.c
   texture.c
   vertex.c
   zbuffer.c
