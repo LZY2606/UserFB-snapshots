@@ -7,10 +7,12 @@ message(STATUS "VERSION file: ${PROJECT_SOURCE_DIR}/../VERSION")
 list(APPEND PEPARSERLIB_SOURCEFILES
   include/pe-parse/parse.h
   include/pe-parse/nt-headers.h
+  include/pe-parse/relocation_preview.h
   include/pe-parse/to_string.h
 
   src/buffer.cpp
   src/parse.cpp
+  src/relocation_preview.cpp
 )
 
 # NOTE(ww): On Windows we use the Win32 API's built-in UTF16 conversion
