@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -65,29 +66,27 @@ If sitemap.xml or sitemapindex.xml has some problems, This function return error
 ・When sitemapindex.xml contains a sitemap.xml that is empty
 ・When sitemapindex.xml contains a sitemap.xml that has format problems.
 
+Nested sitemapindex documents are expanded recursively. A document referenced
+from several indexes is downloaded only once per call.
+
 If you want to ignore these errors, use the ForceGet function.
 */
 func Get(URL string, options interface{}) (Sitemap, error) {
-	data, err := fetch(URL, options)
+	fetcher := newDocFetcher(options)
+	data, err := fetcher.fetchDoc(URL, true)
 	if err != nil {
 		return Sitemap{}, err
 	}
 
-	idx, idxErr := ParseIndex(data)
-	smap, smapErr := Parse(data)
-
-	if idxErr != nil && smapErr != nil {
-		return Sitemap{}, fmt.Errorf("URL is not a sitemap or sitemapindex: %s", URL)
-	} else if idxErr != nil {
+	isIndex, idx, smap, err := classifyRoot(URL, data)
+	if err != nil {
+		return Sitemap{}, err
+	} else if !isIndex {
 		return smap, nil
 	}
 
-	smap, err = idx.get(options, false)
-	if err != nil {
-		return Sitemap{}, err
-	}
-
-	return smap, nil
+	crawl := &indexCrawl{fetcher: fetcher, ignoreErr: false}
+	return crawl.run(URL, idx)
 }
 
 /*
@@ -106,49 +105,215 @@ Errors not to Ignore:
 ・When sitemap.xml/sitemapindex.xml is empty.
 ・When sitemap.xml/sitemapindex.xml has format problems.
 
+Nested sitemapindex documents are expanded recursively. A document referenced
+from several indexes is downloaded only once per call.
+
 If you want **not** to ignore some errors, use the Get function.
 */
 func ForceGet(URL string, options interface{}) (Sitemap, error) {
-	data, err := fetch(URL, options)
+	fetcher := newDocFetcher(options)
+	data, err := fetcher.fetchDoc(URL, true)
 	if err != nil {
 		return Sitemap{}, err
 	}
 
+	isIndex, idx, smap, err := classifyRoot(URL, data)
+	if err != nil {
+		return Sitemap{}, err
+	} else if !isIndex {
+		return smap, nil
+	}
+
+	crawl := &indexCrawl{fetcher: fetcher, ignoreErr: true}
+	return crawl.run(URL, idx)
+}
+
+// docFetcher is the single production download path used by Get, ForceGet and
+// Session. A document is downloaded at most once per run and options are
+// passed through to the configured fetch closure.
+type docFetcher struct {
+	options interface{}
+	// cache holds every body known this round, freshly downloaded or reused.
+	cache map[string][]byte
+	// fresh marks documents actually downloaded this round. A reused body in
+	// cache can therefore be replaced by a later fresh download.
+	fresh map[string]bool
+}
+
+func newDocFetcher(options interface{}) *docFetcher {
+	return &docFetcher{options: options, cache: map[string][]byte{}, fresh: map[string]bool{}}
+}
+
+// fetchDoc downloads a document, honoring the per-run cache. Root documents are
+// fetched immediately; every other fetch waits for the configured interval,
+// matching the historical Index.get behavior.
+func (f *docFetcher) fetchDoc(docURL string, isRoot bool) ([]byte, error) {
+	if body, ok := f.cache[docURL]; ok {
+		return body, nil
+	}
+	if !isRoot {
+		time.Sleep(interval)
+	}
+
+	body, err := fetch(docURL, f.options)
+	if err != nil {
+		return nil, err
+	}
+	f.cache[docURL] = body
+	f.fresh[docURL] = true
+	return body, nil
+}
+
+// fetchFresh downloads a document unless it was already downloaded this round.
+// A body that was only reused from a previous round is bypassed so later,
+// conflicting evidence can force the download the rules require.
+func (f *docFetcher) fetchFresh(docURL string) ([]byte, error) {
+	if f.fresh[docURL] {
+		return f.cache[docURL], nil
+	}
+
+	time.Sleep(interval)
+	body, err := fetch(docURL, f.options)
+	if err != nil {
+		return nil, err
+	}
+	f.cache[docURL] = body
+	f.fresh[docURL] = true
+	return body, nil
+}
+
+// cacheReused records a body carried over from a previous round without
+// counting it as a download.
+func (f *docFetcher) cacheReused(docURL string, body []byte) {
+	f.cache[docURL] = body
+}
+
+// classifyRoot identifies the type of an entry document using Parse and
+// ParseIndex, preserving the historical root-document error behavior.
+func classifyRoot(docURL string, data []byte) (bool, Index, Sitemap, error) {
 	idx, idxErr := ParseIndex(data)
 	smap, smapErr := Parse(data)
 
 	if idxErr != nil && smapErr != nil {
-		return Sitemap{}, fmt.Errorf("URL is not a sitemap or sitemapindex: %s", URL)
+		return false, Index{}, Sitemap{}, fmt.Errorf("URL is not a sitemap or sitemapindex: %s", docURL)
 	} else if idxErr != nil {
-		return smap, nil
+		return false, idx, smap, nil
 	}
+	return true, idx, smap, nil
+}
 
-	smap, err = idx.get(options, true)
+// classifyChild identifies the type of a document referenced from an index.
+// Raw xml.Unmarshal is used so parse errors keep their historical wording
+// (e.g. EOF for an empty referenced document).
+func classifyChild(data []byte) (bool, Index, Sitemap, error) {
+	var idx Index
+	idxErr := xml.Unmarshal(data, &idx)
+
+	var smap Sitemap
+	smapErr := xml.Unmarshal(data, &smap)
+
+	if idxErr != nil && smapErr != nil {
+		return false, idx, smap, smapErr
+	} else if idxErr != nil {
+		return false, idx, smap, nil
+	}
+	return true, idx, smap, nil
+}
+
+// indexCrawl recursively expands sitemapindex documents.
+type indexCrawl struct {
+	fetcher   *docFetcher
+	ignoreErr bool
+}
+
+func (c *indexCrawl) run(rootURL string, root Index) (Sitemap, error) {
+	urls, err := c.visitIndex(rootURL, root, map[string]bool{})
 	if err != nil {
 		return Sitemap{}, err
 	}
-
-	return smap, nil
+	return Sitemap{URL: urls}, nil
 }
 
-// Get Sitemap data from sitemapindex file
-func (idx *Index) get(options interface{}, ignoreErr bool) (Sitemap, error) {
-	var smap Sitemap
+func (c *indexCrawl) visitIndex(docURL string, idx Index, ancestors map[string]bool) ([]URL, error) {
+	var collected []URL
 
 	for _, s := range idx.Sitemap {
-		time.Sleep(interval)
-		data, err := fetch(s.Loc, options)
-		if !ignoreErr && err != nil {
-			return smap, fmt.Errorf("failed to retrieve %s in sitemapindex.xml: %v", s.Loc, err)
+		childURL, err := resolveDocURL(docURL, s.Loc)
+		if err != nil {
+			if c.ignoreErr {
+				continue
+			}
+			return nil, fmt.Errorf("failed to parse %s in sitemapindex.xml: %v", s.Loc, err)
 		}
 
-		err = xml.Unmarshal(data, &smap)
-		if !ignoreErr && err != nil {
-			return smap, fmt.Errorf("failed to parse %s in sitemapindex.xml: %v", s.Loc, err)
+		if ancestors[childURL] {
+			return nil, fmt.Errorf("sitemapindex cycle detected at %s", childURL)
+		}
+
+		data, err := c.fetcher.fetchDoc(childURL, false)
+		if err != nil {
+			if c.ignoreErr {
+				continue
+			}
+			return nil, fmt.Errorf("failed to retrieve %s in sitemapindex.xml: %v", childURL, err)
+		}
+
+		isIndex, childIdx, childSmap, err := classifyChild(data)
+		if err != nil {
+			if c.ignoreErr {
+				continue
+			}
+			return nil, fmt.Errorf("failed to parse %s in sitemapindex.xml: %v", childURL, err)
+		}
+
+		if isIndex {
+			nextAncestors := make(map[string]bool, len(ancestors)+1)
+			for k := range ancestors {
+				nextAncestors[k] = true
+			}
+			nextAncestors[docURL] = true
+
+			more, err := c.visitIndex(childURL, childIdx, nextAncestors)
+			if err != nil {
+				return nil, err
+			}
+			collected = append(collected, more...)
+		} else {
+			collected = append(collected, childSmap.URL...)
 		}
 	}
 
-	return smap, nil
+	return collected, nil
+}
+
+// resolveDocURL resolves a loc declared in a sitemap document against the
+// declaring document's absolute URL. Fragments are removed from the identity
+// and query strings are never merged: standard reference resolution keeps the
+// parent query only when the child loc does not declare one.
+func resolveDocURL(parentURL, loc string) (string, error) {
+	base, err := url.Parse(parentURL)
+	if err != nil {
+		return "", err
+	}
+
+	ref, err := url.Parse(loc)
+	if err != nil {
+		return "", err
+	}
+
+	resolved := base.ResolveReference(ref)
+	resolved.Fragment = ""
+	return resolved.String(), nil
+}
+
+// docIdentity strips the fragment from an absolute document URL.
+func docIdentity(docURL string) (string, error) {
+	u, err := url.Parse(docURL)
+	if err != nil {
+		return "", err
+	}
+	u.Fragment = ""
+	return u.String(), nil
 }
 
 // ReadSitemap is a function that reads a file and returns a Sitemap structure.
