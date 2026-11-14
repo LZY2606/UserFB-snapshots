@@ -1,0 +1,12 @@
+{
+  "width": 62,
+  "height": 46,
+  "frames": 8,
+  "generator": "FFmpeg/libx264, commands retained",
+  "sha256": {
+    "fixtures/clip422.264": "01032f8c7a1546646cbd2885ed932179b9e833d1381e511757878a9a5280e159",
+    "fixtures/clip420.264": "ab6eab1eb14a9d409dda5a0d208c36b81ccbd8075f904f7d20a43b1f27ab5797",
+    "fixtures/clip422.yuv": "531bbca664ca3df0f2f44f9463a62d63cb1cba8f1199d3b7bff9aa2449055562",
+    "fixtures/clip420.yuv": "ba26a8cdd6da444d9f5ada728e20346ab5486a12672679668acefee5bbb42ac5"
+  }
+}
