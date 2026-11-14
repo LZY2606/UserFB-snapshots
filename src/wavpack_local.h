@@ -409,6 +409,10 @@ struct WavpackContext {
     unsigned char file_format, *channel_reordering, *channel_identities;
     uint32_t channel_layout, dsd_multiplier;
     void *decimation_context;
+    int32_t *decimation_buffer;         // DSD frames decoded & decimated, but not yet delivered to the app
+    uint32_t decimation_pending;        // number of frames currently stored in decimation_buffer
+    uint32_t decimation_offset;         // offset of the first undelivered frame in decimation_buffer
+    uint32_t decimation_drop;           // decoded frames to discard before delivery (seek preroll)
     char file_extension [8];
 
 #ifdef ENABLE_THREADS
@@ -511,6 +515,13 @@ void *decimate_dsd_init (int num_channels);
 void decimate_dsd_reset (void *decimate_context);
 void decimate_dsd_run (void *decimate_context, int32_t *samples, int num_samples);
 void decimate_dsd_destroy (void *decimate_context);
+
+// When a DSD file is opened as PCM, the decoded frames are decimated into a pending
+// buffer in chunks of this many frames so that the decimation filter output (and its
+// initial extrapolation, which requires up to 26 visible frames) does not depend on
+// the buffer sizes requested by the application.
+
+#define DSD_PCM_BUFFER_FRAMES 32
 
 ///////////////////////////////// CPU feature detection ////////////////////////////////
 

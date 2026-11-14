@@ -45,7 +45,7 @@ int WavpackSeekSample64 (WavpackContext *wpc, int64_t sample)
     int stream_index = 0;
     int32_t *buffer;
 
-    if (wpc->total_samples == -1 || sample >= wpc->total_samples ||
+    if (wpc->total_samples == -1 || sample < 0 || sample >= wpc->total_samples ||
         !wpc->reader->can_seek (wpc->wv_in) || (wpc->open_flags & OPEN_STREAMING) ||
         (wpc->wvc_flag && !wpc->reader->can_seek (wpc->wvc_in)))
             return FALSE;
@@ -65,6 +65,11 @@ int WavpackSeekSample64 (WavpackContext *wpc, int64_t sample)
             samples_to_decode = 16;
             sample -= 16;
         }
+
+        // any frames decoded but not yet delivered to the application are stale now
+        wpc->decimation_pending = 0;
+        wpc->decimation_offset = 0;
+        wpc->decimation_drop = 0;
     }
 #endif
 
@@ -236,16 +241,15 @@ int WavpackSeekSample64 (WavpackContext *wpc, int64_t sample)
     }
 
 #ifdef ENABLE_DSD
-    if (wpc->decimation_context)
+    if (wpc->decimation_context) {
+        // Restart the decimation filter and arrange for the preroll frames (which are
+        // required to reconstruct the filter state, but precede the seek target) to be
+        // decoded and discarded by the regular unpacking path before anything is
+        // delivered to the application. This keeps the post-seek PCM identical to
+        // sequentially decoding to the same position.
+
         decimate_dsd_reset (wpc->decimation_context);
-
-    if (samples_to_decode) {
-        buffer = (int32_t *)calloc (1, samples_to_decode * wpc->config.num_channels * 4);
-
-        if (buffer) {
-            WavpackUnpackSamples (wpc, buffer, samples_to_decode);
-            free (buffer);
-        }
+        wpc->decimation_drop = samples_to_decode;
     }
 #endif
 

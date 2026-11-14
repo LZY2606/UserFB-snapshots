@@ -91,21 +91,11 @@ static void unpack_samples_interleave (WavpackStream *wps, int32_t *outbuf, int 
     }
 }
 
-// Unpack the specified number of samples from the current file position.
-// Note that "samples" here refers to "complete" samples, which would be
-// 2 longs for stereo files or even more for multichannel files, so the
-// required memory at "buffer" is 4 * samples * num_channels bytes. The
-// audio data is returned right-justified in 32-bit longs in the endian
-// mode native to the executing processor. So, if the original data was
-// 16-bit, then the values returned would be +/-32k. Floating point data
-// can also be returned if the source was floating point data (and this
-// can be optionally normalized to +/-1.0 by using the appropriate flag
-// in the call to WavpackOpenFileInput ()). The actual number of samples
-// unpacked is returned, which should be equal to the number requested unless
-// the end of file is encountered or an error occurs. After all samples have
-// been unpacked then 0 will be returned.
+// Unpack the specified number of samples from the current file position. This is
+// the raw decoding engine used by WavpackUnpackSamples(); it returns the native
+// (integer, float or DSD) samples without any DSD-to-PCM decimation applied.
 
-uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t samples)
+static uint32_t unpack_samples_internal (WavpackContext *wpc, int32_t *buffer, uint32_t samples)
 {
     int num_channels = wpc->config.num_channels, file_done = FALSE;
     uint32_t bcount, samples_unpacked = 0, samples_to_unpack;
@@ -469,12 +459,105 @@ uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t sa
     worker_threads_finish (wpc);    // we don't return until all decoding by worker threads is complete
 #endif
 
+    return samples_unpacked;
+}
+
 #ifdef ENABLE_DSD
-    if (wpc->decimation_context)    // TODO: this could be parallelized too
-        decimate_dsd_run (wpc->decimation_context, buffer, samples_unpacked);
+
+// Decode more DSD frames into the pending buffer and decimate them to PCM. The
+// decimation filter is always presented with chunks of DSD_PCM_BUFFER_FRAMES frames
+// (except for a short final chunk at the end of the file), which makes its output
+// independent of the read sizes requested by the application. After a seek, the
+// first decimation_drop decoded frames are preroll (they reconstruct the filter
+// state) and are discarded instead of being delivered. Returns the number of
+// frames now pending delivery (zero means the end of the file has been reached).
+
+static uint32_t dsd_pcm_fill_pending (WavpackContext *wpc)
+{
+    int num_channels = wpc->reduced_channels ? wpc->reduced_channels : wpc->config.num_channels;
+
+    while (!wpc->decimation_pending) {
+        uint32_t frames = unpack_samples_internal (wpc, wpc->decimation_buffer, DSD_PCM_BUFFER_FRAMES);
+
+        if (!frames)
+            break;
+
+        decimate_dsd_run (wpc->decimation_context, wpc->decimation_buffer, frames);
+
+        if (wpc->decimation_drop) {
+            uint32_t drop = wpc->decimation_drop;
+
+            if (drop > frames)
+                drop = frames;
+
+            wpc->decimation_drop -= drop;
+
+            if ((frames -= drop))
+                memmove (wpc->decimation_buffer, wpc->decimation_buffer + (size_t) drop * num_channels,
+                    frames * num_channels * sizeof (int32_t));
+        }
+
+        wpc->decimation_pending = frames;
+        wpc->decimation_offset = 0;
+    }
+
+    return wpc->decimation_pending;
+}
+
 #endif
 
-    return samples_unpacked;
+// Unpack the specified number of samples from the current file position.
+// Note that "samples" here refers to "complete" samples, which would be
+// 2 longs for stereo files or even more for multichannel files, so the
+// required memory at "buffer" is 4 * samples * num_channels bytes. The
+// audio data is returned right-justified in 32-bit longs in the endian
+// mode native to the executing processor. So, if the original data was
+// 16-bit, then the values returned would be +/-32k. Floating point data
+// can also be returned if the source was floating point data (and this
+// can be optionally normalized to +/-1.0 by using the appropriate flag
+// in the call to WavpackOpenFileInput ()). The actual number of samples
+// unpacked is returned, which should be equal to the number requested unless
+// the end of file is encountered or an error occurs. After all samples have
+// been unpacked then 0 will be returned.
+
+uint32_t WavpackUnpackSamples (WavpackContext *wpc, int32_t *buffer, uint32_t samples)
+{
+#ifdef ENABLE_DSD
+
+    // For DSD files opened as PCM, decoded frames are decimated into a pending
+    // buffer in fixed-size chunks and delivered from there, so that the PCM
+    // output does not depend on the buffer sizes requested by the application.
+
+    if (wpc->decimation_context) {
+        int num_channels = wpc->reduced_channels ? wpc->reduced_channels : wpc->config.num_channels;
+        uint32_t delivered = 0;
+
+        memset (buffer, 0, (size_t) num_channels * samples * sizeof (int32_t));
+
+        while (delivered < samples && dsd_pcm_fill_pending (wpc)) {
+            uint32_t count = wpc->decimation_pending;
+
+            if (count > samples - delivered)
+                count = samples - delivered;
+
+            memcpy (buffer + (size_t) delivered * num_channels,
+                wpc->decimation_buffer + (size_t) wpc->decimation_offset * num_channels,
+                count * num_channels * sizeof (int32_t));
+
+            wpc->decimation_offset += count;
+            wpc->decimation_pending -= count;
+
+            if (!wpc->decimation_pending)
+                wpc->decimation_offset = 0;
+
+            delivered += count;
+        }
+
+        return delivered;
+    }
+#endif
+
+    return unpack_samples_internal (wpc, buffer, samples);
 }
 
 ///////////////////////////// multithreading code ////////////////////////////////

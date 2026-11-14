@@ -205,8 +205,17 @@ WavpackContext *WavpackOpenFileInputEx64 (WavpackStreamReader64 *reader, void *w
             wpc->config.bits_per_sample = 8;
         }
         else if (flags & OPEN_DSD_AS_PCM) {
-            wpc->decimation_context = decimate_dsd_init (wpc->reduced_channels ?
-                wpc->reduced_channels : wpc->config.num_channels);
+            int num_channels = wpc->reduced_channels ? wpc->reduced_channels : wpc->config.num_channels;
+
+            wpc->decimation_context = decimate_dsd_init (num_channels);
+
+            if (wpc->decimation_context)
+                wpc->decimation_buffer = (int32_t *) malloc (DSD_PCM_BUFFER_FRAMES * num_channels * sizeof (int32_t));
+
+            if (!wpc->decimation_buffer) {
+                if (error) strcpy (error, "can't allocate memory!");
+                return WavpackCloseFile (wpc);
+            }
 
             wpc->config.bytes_per_sample = 3;
             wpc->config.bits_per_sample = 24;

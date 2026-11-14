@@ -167,12 +167,21 @@ int64_t WavpackGetSampleIndex64 (WavpackContext *wpc)
 #ifdef ENABLE_LEGACY
         if (wpc->stream3)
             return get_sample_index3 (wpc);
-        else if (wpc->streams && wpc->streams [0])
-            return wpc->streams [0]->sample_index;
-#else
-        if (wpc->streams && wpc->streams [0])
-            return wpc->streams [0]->sample_index;
 #endif
+        if (wpc->streams && wpc->streams [0]) {
+            int64_t sample_index = wpc->streams [0]->sample_index;
+
+#ifdef ENABLE_DSD
+            // For DSD files decoded to PCM, the decoding position can run ahead of
+            // the samples actually delivered to the application (pending buffer and
+            // seek preroll), so report the delivered position instead.
+
+            if (wpc->decimation_context)
+                sample_index += wpc->decimation_drop - (int64_t) wpc->decimation_pending;
+#endif
+
+            return sample_index;
+        }
     }
 
     return -1;
@@ -455,6 +464,9 @@ WavpackContext *WavpackCloseFile (WavpackContext *wpc)
 #ifdef ENABLE_DSD
     if (wpc->decimation_context)
         decimate_dsd_destroy (wpc->decimation_context);
+
+    if (wpc->decimation_buffer)
+        free (wpc->decimation_buffer);
 #endif
 
 #ifdef ENABLE_THREADS
