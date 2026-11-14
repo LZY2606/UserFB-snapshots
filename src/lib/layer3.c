@@ -2,6 +2,7 @@
 
 #include "layer3.h"
 #include "bitstream.h"
+#include "intensity.h"
 #include "l3bitstream.h"
 #include "l3loop.h"
 #include "l3mdct.h"
@@ -112,6 +113,14 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   config->mpeg.mode_ext = 0;
   config->mpeg.bits_per_slot = 8;
 
+  /* Intensity stereo starts disabled; the configured mode is remembered so
+   * it can be restored after a disable. */
+  config->initial_mode = config->mpeg.mode;
+  config->intensity_on = 0;
+  config->intensity_first_sfb = -1;
+  config->intensity_position[0] = 0;
+  config->intensity_position[1] = 0;
+
   config->mpeg.samplerate_index =
       shine_find_samplerate_index(config->wave.samplerate);
   config->mpeg.version = shine_mpeg_version(config->mpeg.samplerate_index);
@@ -161,8 +170,15 @@ static unsigned char *shine_encode_buffer_internal(shine_global_config *config,
   config->mean_bits = (config->mpeg.bits_per_frame - config->sideinfo_len) /
                       config->mpeg.granules_per_frame;
 
+  /* Select the frame header mode for this frame (joint/intensity or the
+   * mode chosen at initialisation). */
+  shine_intensity_set_header(config);
+
   /* apply mdct to the polyphase output */
   shine_mdct_sub(config, stride);
+
+  /* Merge the high frequency bands into a single intensity spectrum. */
+  shine_intensity_merge(config);
 
   /* bit and noise allocation */
   shine_iteration_loop(config);

@@ -3,6 +3,7 @@
 #include "l3loop.h"
 #include "bitstream.h"
 #include "huffman.h"
+#include "intensity.h"
 #include "l3bitstream.h"
 #include "layer3.h"
 #include "reservoir.h"
@@ -19,7 +20,6 @@
 
 static void calc_scfsi(shine_psy_xmin_t *l3_xmin, int ch, int gr,
                        shine_global_config *config);
-static int part2_length(int gr, int ch, shine_global_config *config);
 static int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE],
                                gr_info *cod_info, shine_global_config *config);
 static int count_bit(int ix[GRANULE_SIZE], unsigned int start, unsigned int end,
@@ -81,7 +81,7 @@ int shine_outer_loop(
   cod_info->quantizerStepSize =
       bin_search_StepSize(max_bits, ix, cod_info, config);
 
-  cod_info->part2_length = part2_length(gr, ch, config);
+  cod_info->part2_length = shine_part2_length(gr, ch, config);
   huff_bits = max_bits - cod_info->part2_length;
 
   bits = shine_inner_loop(ix, huff_bits, cod_info, gr, ch, config);
@@ -126,6 +126,16 @@ void shine_iteration_loop(shine_global_config *config) {
       if (config->mpeg.version == MPEG_I)
         calc_scfsi(&l3_xmin, ch, gr, config);
 
+      /* Intensity stereo positions reuse the right channel scalefactor
+       * slots, one position per granule: they must never be copied from
+       * granule 0 through SCFSI. */
+      if (config->intensity_on && ch == 1 && gr == 1) {
+        config->side_info.scfsi[1][0] = 0;
+        config->side_info.scfsi[1][1] = 0;
+        config->side_info.scfsi[1][2] = 0;
+        config->side_info.scfsi[1][3] = 0;
+      }
+
       /* calculation of number of available bit( per granule ) */
       max_bits = shine_max_reservoir_bits(&config->pe[ch][gr], config);
 
@@ -152,10 +162,18 @@ void shine_iteration_loop(shine_global_config *config) {
       cod_info->scalefac_scale = 0;
       cod_info->count1table_select = 0;
 
+      /* Intensity positions occupy the right channel scalefactor slots:
+       * fix their width at 3 bits before the budget is computed. */
+      if (config->intensity_on && ch == 1)
+        cod_info->scalefac_compress = SHINE_INTENSITY_SFC;
+
       /* all spectral values zero ? */
       if (config->l3loop.xrmax)
         cod_info->part2_3_length =
             shine_outer_loop(max_bits, &l3_xmin, ix, gr, ch, config);
+
+      if (config->intensity_on && ch == 1)
+        shine_intensity_finish_granule(config, gr);
 
       shine_ResvAdjust(cod_info, config);
       cod_info->global_gain = cod_info->quantizerStepSize + 210;
@@ -269,12 +287,12 @@ void calc_scfsi(shine_psy_xmin_t *l3_xmin, int ch, int gr,
 }
 
 /*
- * part2_length:
+ * shine_part2_length:
  * -------------
  * calculates the number of bits needed to encode the scalefacs in the
  * main data block.
  */
-int part2_length(int gr, int ch, shine_global_config *config) {
+int shine_part2_length(int gr, int ch, shine_global_config *config) {
   int slen1, slen2, bits;
   gr_info *gi = &config->side_info.gr[gr].ch[ch].tt;
 

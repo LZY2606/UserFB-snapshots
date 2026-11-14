@@ -175,6 +175,12 @@ typedef struct shine_global_flags {
   l3loop_t l3loop;
   mdct_t mdct;
   subband_t subband;
+
+  /* MPEG-1 intensity stereo state (long blocks, two channels only). */
+  int initial_mode;            /* stereo mode requested at initialise */
+  int intensity_on;            /* currently active for the next frame */
+  int intensity_first_sfb;     /* first merged scalefactor band, 11..20 */
+  int intensity_position[MAX_GRANULES]; /* per granule position, 0..6 */
 } shine_global_config;
 
 #endif

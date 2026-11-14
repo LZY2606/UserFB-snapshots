@@ -139,6 +139,25 @@ unsigned char *shine_encode_buffer_interleaved(shine_t s, int16_t *data,
  * closing the encoder, to make all encoded data has been written. */
 unsigned char *shine_flush(shine_t s, int *written);
 
+/* Enable or disable MPEG-1 Layer III intensity stereo for the next and
+ * following encoded frames.  Only long-block, two-channel MPEG-I streams
+ * (32, 44.1 or 48 kHz) initialized in STEREO or JOINT_STEREO mode support
+ * it; any other configuration rejects the call and keeps the previous
+ * setting.
+ *
+ * first_sfb selects the first scalefactor band merged into intensity
+ * stereo and must be in 11..20; from that band up to the top band the L and
+ * R spectra are combined and only one set of high frequency spectral values
+ * is transmitted.  position0 and position1 are the MPEG-1 intensity
+ * positions (0..6) used by granule 0 and 1 respectively: 0 pans fully to
+ * the right, 3 splits equally and 6 pans fully to the left.  first_sfb ==
+ * -1 disables intensity stereo (positions are then ignored) and restores
+ * the mode selected at initialization.
+ *
+ * Returns 0 on success, -1 when the request is rejected. */
+int shine_set_intensity(shine_t s, int first_sfb, int position0,
+                        int position1);
+
 /* Close an encoder, freeing all associated memory. Encoder handler is not
  * valid after this call. */
 void shine_close(shine_t s);

@@ -39,6 +39,43 @@ write(written, data);
 shine_close(s);
 ```
 
+### Intensity stereo (MPEG-1, two channels)
+
+For narrow-band links the high frequency scalefactor bands can be encoded
+with MPEG-1 Layer III intensity stereo, which transmits a single merged
+spectrum plus a per-granule pan position instead of two independent
+spectra. It is available on MPEG-1 stereo streams (32, 44.1 or 48 kHz)
+initialized in `STEREO` or `JOINT_STEREO` mode and can be switched on or off
+between frames; the constant frame size is unchanged.
+
+```c
+#include <shine/layer3.h>
+
+(...)
+
+shine_t s = shine_initialise(&config);
+
+/* Merge bands 11..20 into intensity stereo.
+ * position0/position1 select the pan of granule 0/1:
+ *   0 = fully right, 3 = equal split, 6 = fully left
+ *   (the other values use the standard tangent ratios). */
+if (shine_set_intensity(s, 11, 0, 6) != 0) {
+  /* Rejected: unsupported sample rate, channel count or mode,
+   * or an out of range first_sfb (11..20) / position (0..6). */
+}
+
+/* ... encode frames as usual; the setting stays active ... */
+
+/* Switch back to the stereo mode selected at initialisation. */
+shine_set_intensity(s, -1, 0, 0);
+```
+
+Bands below `first_sfb` keep normal left/right coding, so a silent or
+early-terminating right channel in the low bands is never mistaken for an
+intensity band. `first_sfb == -1` disables intensity stereo (the position
+arguments are then ignored); an invalid call returns `-1` and leaves the
+previous setting untouched.
+
 How fast is it?
 ---------------
 
