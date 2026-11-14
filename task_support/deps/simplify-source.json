@@ -1,0 +1,94 @@
+{
+  "repo": "fogleman/simplify",
+  "commit": "d32f302d50469376eae60b2cd5a328c26888fade",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "mode": "100644",
+      "blob": "d7b4099fa83233cdf18dd37a8e5976d40e8f1461",
+      "sha256": "9bf806ce0d03d1b41dc2fc9805a558ec9b3d3dce75f59156d065b4456e66ccda"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "79fe5b87dc6c64829f332ec124fbd6671eaba624",
+      "sha256": "3245912ed6fc271a7a05be4477f441e8d1cec51bf30aba654a81122567d7cdb2"
+    },
+    {
+      "path": "cmd/simplify/main.go",
+      "mode": "100644",
+      "blob": "2e1f08927d80d528df627b24f377dc8272be4f5d",
+      "sha256": "08c1c4c26019f0b84462d5dbe516cb632462a72f35a45a2651659d5a30873dfe"
+    },
+    {
+      "path": "face.go",
+      "mode": "100644",
+      "blob": "763f5e2eabbb1d8d9c1a1e928e2816c84b6e5386",
+      "sha256": "3d18c90353d1ff3bb142ff8a021e3f4d3a2f6b4eba7790bd545e1239126ccd89"
+    },
+    {
+      "path": "matrix.go",
+      "mode": "100644",
+      "blob": "7fa0923b004160764f61e442b3708b97d38a932b",
+      "sha256": "c45d41308d8ab98f6c3a9a7444f585769eb0b2ebf02418934e1296931f7a7470"
+    },
+    {
+      "path": "mesh.go",
+      "mode": "100644",
+      "blob": "72c2f96890ed8484faf9bfbd71a898e7133e7783",
+      "sha256": "fc91ab3ad452a4928d1217006b532982151993d0f3e9321b05ad217011955b4b"
+    },
+    {
+      "path": "pair.go",
+      "mode": "100644",
+      "blob": "7a032df198ccecbd5376c5928f89fc08ce7d11d9",
+      "sha256": "bb6ef8f14b771470b94a2786b8294cbe649bb36a14a1c430bf10edf3fbd01f78"
+    },
+    {
+      "path": "queue.go",
+      "mode": "100644",
+      "blob": "48eed934e33dbda48b6d13c28498331446f430e6",
+      "sha256": "44f302b972fd7c72f6c86a3faa7b557493e80e900f7f75763d59f9b0dba88dbb"
+    },
+    {
+      "path": "simplify.go",
+      "mode": "100644",
+      "blob": "365faf065cbb9a5f730de41b84e3da3b6086f61b",
+      "sha256": "e14ca8661f51eaeec001d2c844885b2cd784d97b2913e0d8a221edbe32461d69"
+    },
+    {
+      "path": "stl.go",
+      "mode": "100644",
+      "blob": "7eaeaa113f022a872b07813f1412df02e96aa847",
+      "sha256": "bda5d829809e05d89a5f5dfda94995c7a51d7efaf8a0103d0509b50411ac8b72"
+    },
+    {
+      "path": "triangle.go",
+      "mode": "100644",
+      "blob": "8496c421eee4d2f2ff53ad2d4330a6b1cf5d680e",
+      "sha256": "d03706c4afaceb9459f2867a68ad6391f97ae731b1e80b4ed4ff4efd174e8c0d"
+    },
+    {
+      "path": "util.go",
+      "mode": "100644",
+      "blob": "0692553da2d9e1b82f5a03aacf7c5ed774a01bfa",
+      "sha256": "260a4a56f1529c3089d6755dbe5c9557e10213112d24b059d4475b62a5918dd1"
+    },
+    {
+      "path": "vector.go",
+      "mode": "100644",
+      "blob": "2cb9e2fc1a95b3305ef4a1dd30df9a05696a8f36",
+      "sha256": "7c449fb19880d93d275ab2667504c0f0e547e78c5b4384331fd0496dfa3c7af1"
+    },
+    {
+      "path": "vertex.go",
+      "mode": "100644",
+      "blob": "18937e4a88387080429ef725b0a3ec7b4398674c",
+      "sha256": "c7978c146f31e3d2d43a6fd9013390af5523a0d591b36f5908d9367d39b2b476"
+    }
+  ],
+  "added_files": [
+    "go.mod"
+  ]
+}
