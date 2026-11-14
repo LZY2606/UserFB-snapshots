@@ -36,6 +36,28 @@ Example usage:
 		}
 	}
 
+Atom feeds that only serve recent entries can link older entries through an RFC 5005 archive chain.
+[Reader.CaptureHistory] captures the subscription entry and the archives reachable through
+`prev-archive` links:
+
+	history, err := reader.CaptureHistory(ctx, "https://example.com/atom", nil, "full")
+	if err != nil {
+		// handle error.
+	}
+
+	// ... Later, reuse successfully captured archives ...
+
+	next, err := reader.CaptureHistory(ctx, "https://example.com/atom", history, "incremental")
+	if err != nil {
+		// handle error.
+	}
+
+With "full", the entire chain is fetched again. With "incremental", archives from the previous
+capture may be reused as long as they were captured successfully, carry the `fh:archive` marker, and
+are still reachable from the entry. Only the entry and the archives reached in this capture are
+merged, by `atom:id`, with the newer feed-level `updated` time winning. Read state is kept from
+`previous.Feed`.
+
 The library does its best to follow the appropriate specifications and not to set the `NextUpdate` time
 too soon. It currently follows all update time management methods in the RSS 1.0, 2.0, and Atom 1.0
 specifications. If one is not provided, it defaults to 12 hour intervals. If you are having issues
@@ -59,6 +81,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,6 +106,12 @@ type Reader struct {
 	defaultUpdateInterval        time.Duration // Minimum time before updating a feed that hasn't specified an interval.
 	timeLayouts                  []string
 	timeLayoutsWithNamedLocation []string
+
+	// History archive cache, keyed by normalized entry
+	// address and then by normalized archive request
+	// address. Values are immutable once stored.
+	historyMu sync.Mutex
+	history   map[string]map[string]*historyDocument
 }
 
 // NewReader is used to configure a [Reader]. The

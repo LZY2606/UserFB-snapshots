@@ -10,6 +10,19 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+// Atom namespaces used by feed and archive metadata.
+const (
+	// AtomNamespace is the namespace of Atom 1.0 elements.
+	AtomNamespace = "http://www.w3.org/2005/Atom"
+
+	// HistoryNamespace is the namespace used by RFC 5005
+	// archive markers and archive links.
+	HistoryNamespace = "http://purl.org/syndication/history/1.0"
+
+	// XMLNamespace is the namespace of the xml:base attribute.
+	XMLNamespace = "http://www.w3.org/XML/1998/namespace"
+)
+
 // Parse decodes data from r as an Atom 1.0 feed.
 func Parse(r io.Reader) (*Feed, error) {
 	var feed Feed
@@ -33,6 +46,20 @@ type (
 		Image       *Image   `xml:"image"`
 		Items       []Item   `xml:"entry"`
 		Updated     string   `xml:"updated"`
+
+		// XMLBase is the xml:base attribute on the feed
+		// element. It is not part of the Atom data model
+		// and is only used when resolving relative links.
+		XMLBase string `xml:"http://www.w3.org/XML/1998/namespace base,attr" json:"-"`
+
+		// Archive reports whether the feed declares the
+		// RFC 5005 fh:archive marker as a direct child.
+		Archive *Archive `xml:"http://purl.org/syndication/history/1.0 archive" json:"-"`
+	}
+
+	// Archive is the RFC 5005 archive marker element.
+	Archive struct {
+		XMLName xml.Name `xml:"archive"`
 	}
 
 	Author struct {
@@ -43,10 +70,16 @@ type (
 	}
 
 	Link struct {
-		Href   string `xml:"href,attr"`
-		Rel    string `xml:"rel,attr"`
-		Type   string `xml:"type,attr"`
-		Length uint   `xml:"length,attr"`
+		XMLName xml.Name `xml:"link" json:"-"`
+		Href    string   `xml:"href,attr"`
+		Rel     string   `xml:"rel,attr"`
+		Type    string   `xml:"type,attr"`
+		Length  uint     `xml:"length,attr"`
+
+		// XMLBase is the xml:base attribute on the link
+		// element. It is not part of the Atom data model
+		// and is only used when resolving relative links.
+		XMLBase string `xml:"http://www.w3.org/XML/1998/namespace base,attr" json:"-"`
 	}
 
 	Image struct {
