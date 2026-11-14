@@ -1,0 +1,7 @@
+module github.com/fogleman/fauxgl
+
+go 1.22
+
+require github.com/fogleman/simplify v0.0.0
+
+replace github.com/fogleman/simplify => ./third_party/simplify
