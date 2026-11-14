@@ -4156,6 +4156,7 @@ read_function_info (struct backtrace_state *state, struct dwarf_data *ddata,
 
 static int
 report_inlined_functions (struct backtrace_state *state, uintptr_t pc,
+			  uintptr_t report_pc,
 			  struct function *function,
 			  backtrace_full_callback callback, void *data,
 			  const char **filename, int *lineno,
@@ -4212,13 +4213,13 @@ report_inlined_functions (struct backtrace_state *state, uintptr_t pc,
   inlined = match->function;
 
   /* Report any calls inlined into this one.  */
-  ret = report_inlined_functions (state, pc, inlined, callback, data,
-				  filename, lineno, disc, decl_lineno);
+  ret = report_inlined_functions (state, pc, report_pc, inlined, callback,
+				  data, filename, lineno, disc, decl_lineno);
   if (ret != 0)
     return ret;
 
   /* Report this inlined call.  */
-  ret = call_callback (state, callback, data, pc, *filename, *lineno,
+  ret = call_callback (state, callback, data, report_pc, *filename, *lineno,
 		       inlined->name, *disc, *decl_lineno);
   if (ret != 0)
     return ret;
@@ -4239,10 +4240,12 @@ report_inlined_functions (struct backtrace_state *state, uintptr_t pc,
    0 if not.  */
 
 static int
-dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
-		 uintptr_t pc, backtrace_full_callback callback,
-		 backtrace_error_callback error_callback, void *data,
-		 int *found)
+dwarf_lookup_pc_internal (struct backtrace_state *state,
+			  struct dwarf_data *ddata, uintptr_t pc,
+			  uintptr_t report_pc,
+			  backtrace_full_callback callback,
+			  backtrace_error_callback error_callback, void *data,
+			  int *found)
 {
   struct unit_addrs *entry;
   int found_entry;
@@ -4396,9 +4399,10 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
 	 try again to see if there is a better compilation unit for
 	 this PC.  */
       if (new_data)
-	return dwarf_lookup_pc (state, ddata, pc, callback, error_callback,
-				data, found);
-      return call_callback (state, callback, data, pc, NULL, 0, NULL, 0, 0);
+	return dwarf_lookup_pc_internal (state, ddata, pc, report_pc,
+					 callback, error_callback, data,
+					 found);
+      return call_callback (state, callback, data, report_pc, NULL, 0, NULL, 0, 0);
     }
 
   /* Search for PC within this unit.  */
@@ -4445,15 +4449,15 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
 	  entry->u->abs_filename = filename;
 	}
 
-      return call_callback (state, callback, data, pc, entry->u->abs_filename,
-			    0, NULL, 0, 0);
+      return call_callback (state, callback, data, report_pc,
+			    entry->u->abs_filename, 0, NULL, 0, 0);
     }
 
   /* Search for function name within this unit.  */
 
   if (entry->u->function_addrs_count == 0)
-    return call_callback (state, callback, data, pc, ln->filename, ln->lineno,
-			  NULL, ln->disc, 0);
+    return call_callback (state, callback, data, report_pc, ln->filename,
+			  ln->lineno, NULL, ln->disc, 0);
 
   p = ((struct function_addrs *)
        bsearch (&pc, entry->u->function_addrs,
@@ -4461,8 +4465,8 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
 		sizeof (struct function_addrs),
 		function_addrs_search));
   if (p == NULL)
-    return call_callback (state, callback, data, pc, ln->filename, ln->lineno,
-			  NULL, ln->disc, 0);
+    return call_callback (state, callback, data, report_pc, ln->filename,
+			  ln->lineno, NULL, ln->disc, 0);
 
   /* Here pc >= p->low && pc < (p + 1)->low.  The function_addrs are
      sorted by low, so if pc > p->low we are at the end of a range of
@@ -4486,8 +4490,8 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
       --p;
     }
   if (fmatch == NULL)
-    return call_callback (state, callback, data, pc, ln->filename, ln->lineno,
-			  NULL, ln->disc, 0);
+    return call_callback (state, callback, data, report_pc, ln->filename,
+			  ln->lineno, NULL, ln->disc, 0);
 
   function = fmatch->function;
 
@@ -4496,12 +4500,12 @@ dwarf_lookup_pc (struct backtrace_state *state, struct dwarf_data *ddata,
   disc = ln->disc;
   decl_lineno = function->decl_lineno;
 
-  ret = report_inlined_functions (state, pc, function, callback, data,
+  ret = report_inlined_functions (state, pc, report_pc, function, callback, data,
 				  &filename, &lineno, &disc, &decl_lineno);
   if (ret != 0)
     return ret;
 
-  return call_callback (state, callback, data, pc, filename, lineno,
+  return call_callback (state, callback, data, report_pc, filename, lineno,
 			function->name, disc, decl_lineno);
 }
 
@@ -4524,8 +4528,9 @@ dwarf_fileline (struct backtrace_state *state, uintptr_t pc,
 	   ddata != NULL;
 	   ddata = ddata->next)
 	{
-	  ret = dwarf_lookup_pc (state, ddata, pc, callback, error_callback,
-				 data, &found);
+	  ret = dwarf_lookup_pc_internal (state, ddata, pc, pc, callback,
+					  error_callback, data,
+					  &found);
 	  if (ret != 0 || found)
 	    return ret;
 	}
@@ -4541,8 +4546,9 @@ dwarf_fileline (struct backtrace_state *state, uintptr_t pc,
 	  if (ddata == NULL)
 	    break;
 
-	  ret = dwarf_lookup_pc (state, ddata, pc, callback, error_callback,
-				 data, &found);
+	  ret = dwarf_lookup_pc_internal (state, ddata, pc, pc, callback,
+					  error_callback, data,
+					  &found);
 	  if (ret != 0 || found)
 	    return ret;
 
@@ -4606,6 +4612,42 @@ build_dwarf_data (struct backtrace_state *state,
   memset (&fdata->fvec, 0, sizeof fdata->fvec);
 
   return fdata;
+}
+
+/* Build file/line information for one DWARF module, without adding it
+   to any list in STATE.  Return NULL on failure.  This is used by
+   offline modules, which own their DWARF data themselves.  */
+
+struct dwarf_data *
+backtrace_dwarf_add_module (struct backtrace_state *state,
+			    struct libbacktrace_base_address base_address,
+			    const struct dwarf_sections *dwarf_sections,
+			    int is_bigendian,
+			    struct dwarf_data *fileline_altlink,
+			    backtrace_error_callback error_callback,
+			    void *data)
+{
+  return build_dwarf_data (state, base_address, dwarf_sections, is_bigendian,
+			   fileline_altlink, error_callback, data);
+}
+
+/* Look up PC in a single DWARF module.  This is like dwarf_lookup_pc,
+   but it only examines DDATA.  All PC values passed to CALLBACK are
+   REPORT_PC, which may differ from PC when PC is in link time
+   coordinates and REPORT_PC is in runtime coordinates.  On success
+   call CALLBACK and return whatever it returns.  Sets *FOUND to 1 if
+   PC was found.  */
+
+int
+backtrace_dwarf_lookup_pc (struct backtrace_state *state,
+			   struct dwarf_data *ddata, uintptr_t pc,
+			   uintptr_t report_pc,
+			   backtrace_full_callback callback,
+			   backtrace_error_callback error_callback,
+			   void *data, int *found)
+{
+  return dwarf_lookup_pc_internal (state, ddata, pc, report_pc, callback,
+				   error_callback, data, found);
 }
 
 /* Build our data structures from the DWARF sections for a module.

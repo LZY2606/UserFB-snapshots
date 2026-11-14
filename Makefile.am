@@ -45,6 +45,7 @@ libbacktrace_la_SOURCES = \
 	dwarf.c \
 	fileline.c \
 	internal.h \
+	offline.c \
 	posix.c \
 	print.c \
 	sort.c \

@@ -135,8 +135,53 @@ typedef void (*syminfo) (struct backtrace_state *state, uintptr_t pc,
 			 backtrace_syminfo_callback callback,
 			 backtrace_error_callback error_callback, void *data);
 
-/* What the backtrace state pointer points to.  */
+/* Offline module information.  This is defined in offline.c.  */
 
+struct backtrace_offline_module;
+
+/* Per-file ELF symbol information.  This is defined in elf.c.  */
+
+struct elf_syminfo_data;
+
+/* The DWARF and symbol data for an offline module, as filled in by
+   backtrace_elf_add_offline.  The DWARF and symbol addresses are link
+   time addresses; the offline module code translates between link and
+   runtime addresses.  */
+
+struct elf_offline_info
+{
+  struct dwarf_data *dwarf_data;
+  struct elf_syminfo_data *syminfo_data;
+};
+
+/* Common state creation, shared between backtrace_create_state and
+   backtrace_create_offline_state.  OFFLINE is non-zero to create an
+   offline state.  */
+
+extern struct backtrace_state *backtrace_create_state_common (
+    const char *filename, int flags, int offline,
+    backtrace_error_callback error_callback, void *data);
+
+/* The offline ELF reader.  This is defined in elf.c.  It reads
+   FILENAME, which has already been opened as DESCRIPTOR, and fills in
+   INFO.  Only the file contents are read: external debug files are
+   never consulted.  Returns 1 on success, 0 on error.  */
+
+extern int backtrace_elf_add_offline (struct backtrace_state *state,
+				      const char *filename, int descriptor,
+				      backtrace_error_callback error_callback,
+				      void *data,
+				      struct elf_offline_info *info);
+
+/* Look up an address in a single module's ELF symbol table.  ADDR and
+   the returned VALUE are link time addresses.  Returns 1 and sets the
+   outputs if a symbol is found, 0 otherwise.  */
+
+extern int backtrace_elf_syminfo_lookup (struct elf_syminfo_data *sdata,
+					 uintptr_t addr, const char **name,
+					 uintptr_t *value, size_t *size);
+
+/* What the backtrace state pointer points to.  */
 struct backtrace_state
 {
   /* The name of the executable.  */
@@ -145,6 +190,12 @@ struct backtrace_state
   int threaded;
   /* Non-zero if passing additional data.  */
   int moredata;
+  /* Non-zero if this is an offline state created by
+     backtrace_create_offline_state.  */
+  int offline;
+  /* The modules registered in an offline state, sorted by
+     runtime_low.  */
+  struct backtrace_offline_module *offline_modules;
   /* The master lock for fileline_fn, fileline_data, syminfo_fn,
      syminfo_data, fileline_initialization_failed and everything the
      data pointers point to.  */
@@ -374,6 +425,29 @@ extern int backtrace_dwarf_add (struct backtrace_state *state,
 				backtrace_error_callback error_callback,
 				void *data, fileline *fileline_fn,
 				struct dwarf_data **fileline_entry);
+
+/* Build file/line information for a DWARF module without adding it to
+   STATE.  Returns NULL on error.  This is used for offline modules,
+   which keep their own DWARF data rather than sharing the lists in
+   STATE.  */
+
+extern struct dwarf_data *backtrace_dwarf_add_module (
+    struct backtrace_state *state,
+    struct libbacktrace_base_address base_address,
+    const struct dwarf_sections *dwarf_sections, int is_bigendian,
+    struct dwarf_data *fileline_altlink,
+    backtrace_error_callback error_callback, void *data);
+
+/* Look up PC in a single DWARF module's data.  This behaves like
+   dwarf_fileline but only examines DDATA.  Sets *FOUND to 1 if PC was
+   found.  All PC values passed to CALLBACK are REPORT_PC.  */
+
+extern int backtrace_dwarf_lookup_pc (struct backtrace_state *state,
+				      struct dwarf_data *ddata, uintptr_t pc,
+				      uintptr_t report_pc,
+				      backtrace_full_callback callback,
+				      backtrace_error_callback error_callback,
+				      void *data, int *found);
 
 /* A data structure to pass to backtrace_syminfo_to_full.  */
 

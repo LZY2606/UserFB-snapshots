@@ -170,6 +170,7 @@ dl_iterate_phdr (int (*callback) (struct dl_phdr_info *,
 #undef ELFDATA2MSB
 #undef EV_CURRENT
 #undef ET_DYN
+#undef ET_EXEC
 #undef EM_PPC64
 #undef EF_PPC64_ABI
 #undef SHN_LORESERVE
@@ -252,6 +253,7 @@ typedef struct {
 
 #define EV_CURRENT 1
 
+#define ET_EXEC 2
 #define ET_DYN 3
 
 #define EM_PPC64 21
@@ -6600,7 +6602,12 @@ backtrace_uncompress_lzma (struct backtrace_state *state,
    0 on failure (in both cases descriptor is closed) or -1 if exe
    is non-zero and the ELF file is ET_DYN, which tells the caller that
    elf_add will need to be called on the descriptor again after
-   base_address is determined.  */
+   base_address is determined.
+
+   If OFFLINE_INFO is not NULL, this is reading a module for an offline
+   state.  In that case the DWARF and symbol data are stored in
+   OFFLINE_INFO rather than in STATE's lists, and no external debug
+   files are consulted.  */
 
 static int
 elf_add (struct backtrace_state *state, const char *filename, int descriptor,
@@ -6610,7 +6617,8 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	 backtrace_error_callback error_callback, void *data,
 	 fileline *fileline_fn, int *found_sym, int *found_dwarf,
 	 struct dwarf_data **fileline_entry, int exe, int debuginfo,
-	 const char *with_buildid_data, uint32_t with_buildid_size)
+	 const char *with_buildid_data, uint32_t with_buildid_size,
+	 struct elf_offline_info *offline_info)
 {
   struct elf_view ehdr_view;
   b_elf_ehdr ehdr;
@@ -6731,6 +6739,17 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
       && ehdr.e_ident[EI_DATA] != ELFDATA2MSB)
     {
       error_callback (data, "executable file has unknown endianness", 0);
+      goto fail;
+    }
+
+  /* An offline module must be a normal executable or shared object.
+     We do not accept relocatable files or core files.  */
+  if (offline_info != NULL
+      && ehdr.e_type != ET_EXEC
+      && ehdr.e_type != ET_DYN)
+    {
+      error_callback (data,
+		      "offline module is not ET_EXEC or ET_DYN", 0);
       goto fail;
     }
 
@@ -6866,7 +6885,8 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
       /* Read the build ID if present.  This could check for any
 	 SHT_NOTE section with the right note name and type, but gdb
 	 looks for a specific section name.  */
-      if ((!debuginfo || with_buildid_data != NULL)
+      if (offline_info == NULL
+	  && (!debuginfo || with_buildid_data != NULL)
 	  && !buildid_view_valid
 	  && strcmp (name, ".note.gnu.build-id") == 0)
 	{
@@ -6898,8 +6918,10 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	    }
 	}
 
-      /* Read the debuglink file if present.  */
-      if (!debuginfo
+      /* An offline module must not use external debug files: only the
+	 contents of the registered file are read.  */
+      if (offline_info == NULL
+	  && !debuginfo
 	  && !debuglink_view_valid
 	  && strcmp (name, ".gnu_debuglink") == 0)
 	{
@@ -6922,7 +6944,8 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	    }
 	}
 
-      if (!debugaltlink_view_valid
+      if (offline_info == NULL
+	  && !debugaltlink_view_valid
 	  && strcmp (name, ".gnu_debugaltlink") == 0)
 	{
 	  const char *debugaltlink_data;
@@ -6948,7 +6971,8 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	    }
 	}
 
-      if (!debuginfo
+      if (offline_info == NULL
+	  && !debuginfo
 	  && !gnu_debugdata_view_valid
 	  && strcmp (name, ".gnu_debugdata") == 0)
 	{
@@ -7038,7 +7062,10 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 
       *found_sym = 1;
 
-      elf_add_syminfo_data (state, sdata);
+      if (offline_info != NULL)
+	offline_info->syminfo_data = sdata;
+      else
+	elf_add_syminfo_data (state, sdata);
     }
 
   elf_release_view (state, &shdrs_view, error_callback, data);
@@ -7046,9 +7073,10 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
   elf_release_view (state, &names_view, error_callback, data);
   names_view_valid = 0;
 
-  /* If the debug info is in a separate file, read that one instead.  */
+  /* If the debug info is in a separate file, read that one instead.
+     Offline modules never look for external debug files.  */
 
-  if (buildid_data != NULL)
+  if (offline_info == NULL && buildid_data != NULL)
     {
       int d;
 
@@ -7065,7 +7093,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	    elf_release_view (state, &debugaltlink_view, error_callback, data);
 	  ret = elf_add (state, "", d, NULL, 0, base_address, opd,
 			 error_callback, data, fileline_fn, found_sym,
-			 found_dwarf, NULL, 0, 1, NULL, 0);
+			 found_dwarf, NULL, 0, 1, NULL, 0, NULL);
 	  if (ret < 0)
 	    backtrace_close (d, error_callback, data);
 	  else if (descriptor >= 0)
@@ -7080,7 +7108,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
       buildid_view_valid = 0;
     }
 
-  if (debuglink_name != NULL)
+  if (offline_info == NULL && debuglink_name != NULL)
     {
       int d;
 
@@ -7096,7 +7124,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	    elf_release_view (state, &debugaltlink_view, error_callback, data);
 	  ret = elf_add (state, "", d, NULL, 0, base_address, opd,
 			 error_callback, data, fileline_fn, found_sym,
-			 found_dwarf, NULL, 0, 1, NULL, 0);
+			 found_dwarf, NULL, 0, 1, NULL, 0, NULL);
 	  if (ret < 0)
 	    backtrace_close (d, error_callback, data);
 	  else if (descriptor >= 0)
@@ -7112,7 +7140,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
     }
 
   struct dwarf_data *fileline_altlink = NULL;
-  if (debugaltlink_name != NULL)
+  if (offline_info == NULL && debugaltlink_name != NULL)
     {
       int d;
 
@@ -7125,7 +7153,8 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	  ret = elf_add (state, filename, d, NULL, 0, base_address, opd,
 			 error_callback, data, fileline_fn, found_sym,
 			 found_dwarf, &fileline_altlink, 0, 1,
-			 debugaltlink_buildid_data, debugaltlink_buildid_size);
+			 debugaltlink_buildid_data, debugaltlink_buildid_size,
+			 NULL);
 	  elf_release_view (state, &debugaltlink_view, error_callback, data);
 	  debugaltlink_view_valid = 0;
 	  if (ret < 0)
@@ -7142,7 +7171,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
       debugaltlink_view_valid = 0;
     }
 
-  if (gnu_debugdata_view_valid)
+  if (offline_info == NULL && gnu_debugdata_view_valid)
     {
       int ret;
 
@@ -7161,7 +7190,7 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
 	  ret = elf_add (state, filename, -1, gnu_debugdata_uncompressed,
 			 gnu_debugdata_uncompressed_size, base_address, opd,
 			 error_callback, data, fileline_fn, found_sym,
-			 found_dwarf, NULL, 0, 0, NULL, 0);
+			 found_dwarf, NULL, 0, 0, NULL, 0, NULL);
 	  if (ret >= 0 && descriptor >= 0)
 	    backtrace_close(descriptor, error_callback, data);
 	  return ret;
@@ -7386,11 +7415,24 @@ elf_add (struct backtrace_state *state, const char *filename, int descriptor,
       dwarf_sections.size[i] = sections[i].size;
     }
 
-  if (!backtrace_dwarf_add (state, base_address, &dwarf_sections,
-			    ehdr.e_ident[EI_DATA] == ELFDATA2MSB,
-			    fileline_altlink,
-			    error_callback, data, fileline_fn,
-			    fileline_entry))
+  if (offline_info != NULL)
+    {
+      /* Keep the DWARF data in the module rather than in the state.
+	 The debug view (or split views) must stay valid for as long
+	 as the module is registered, so they are intentionally not
+	 released.  */
+      offline_info->dwarf_data
+	= backtrace_dwarf_add_module (state, base_address, &dwarf_sections,
+				      ehdr.e_ident[EI_DATA] == ELFDATA2MSB,
+				      fileline_altlink, error_callback, data);
+      if (offline_info->dwarf_data == NULL)
+	goto fail;
+    }
+  else if (!backtrace_dwarf_add (state, base_address, &dwarf_sections,
+				 ehdr.e_ident[EI_DATA] == ELFDATA2MSB,
+				 fileline_altlink,
+				 error_callback, data, fileline_fn,
+				 fileline_entry))
     goto fail;
 
   *found_dwarf = 1;
@@ -7489,7 +7531,7 @@ phdr_callback (struct dl_phdr_info *info, size_t size ATTRIBUTE_UNUSED,
   base_address.m = info->dlpi_addr;
   if (elf_add (pd->state, filename, descriptor, NULL, 0, base_address, NULL,
 	       pd->error_callback, pd->data, &elf_fileline_fn, pd->found_sym,
-	       &found_dwarf, NULL, 0, 0, NULL, 0))
+	       &found_dwarf, NULL, 0, 0, NULL, 0, NULL))
     {
       if (found_dwarf)
 	{
@@ -7526,7 +7568,7 @@ backtrace_initialize (struct backtrace_state *state, const char *filename,
       memset (&zero_base_address, 0, sizeof zero_base_address);
       ret = elf_add (state, filename, descriptor, NULL, 0, zero_base_address,
 		     NULL, error_callback, data, &elf_fileline_fn, &found_sym,
-		     &found_dwarf, NULL, 1, 0, NULL, 0);
+		     &found_dwarf, NULL, 1, 0, NULL, 0, NULL);
       if (!ret)
 	return 0;
     }
@@ -7565,6 +7607,95 @@ backtrace_initialize (struct backtrace_state *state, const char *filename,
 
   if (*fileline_fn == NULL || *fileline_fn == elf_nodebug)
     *fileline_fn = elf_fileline_fn;
+
+  return 1;
+}
+
+/* A callback that records the symbol found by a per-module symbol
+   lookup.  This is used by backtrace_elf_syminfo_lookup.  */
+
+struct elf_syminfo_lookup_data
+{
+  const char *name;
+  uintptr_t value;
+  size_t size;
+  int found;
+};
+
+static void
+elf_syminfo_lookup_callback (void *data, uintptr_t pc ATTRIBUTE_UNUSED,
+			     const char *symname, uintptr_t symval,
+			     uintptr_t symsize)
+{
+  struct elf_syminfo_lookup_data *ldata =
+    (struct elf_syminfo_lookup_data *) data;
+
+  if (symname != NULL)
+    {
+      ldata->name = symname;
+      ldata->value = symval;
+      ldata->size = symsize;
+      ldata->found = 1;
+    }
+}
+
+/* Look up ADDR in the symbol table of a single module.  ADDR is in
+   link time coordinates, as are the symbols.  Returns 1 and sets
+   *NAME, *VALUE, and *SIZE if a symbol was found, 0 otherwise.  */
+
+int
+backtrace_elf_syminfo_lookup (struct elf_syminfo_data *sdata,
+			      uintptr_t addr, const char **name,
+			      uintptr_t *value, size_t *size)
+{
+  struct elf_symbol *sym;
+  struct elf_syminfo_lookup_data ldata;
+
+  sym = ((struct elf_symbol *)
+	 bsearch (&addr, sdata->symbols, sdata->count,
+		  sizeof (struct elf_symbol), elf_symbol_search));
+  if (sym == NULL)
+    return 0;
+
+  memset (&ldata, 0, sizeof ldata);
+  elf_syminfo_lookup_callback (&ldata, addr, sym->name, sym->address,
+			       sym->size);
+  if (!ldata.found)
+    return 0;
+
+  *name = ldata.name;
+  *value = ldata.value;
+  *size = ldata.size;
+  return 1;
+}
+
+/* Read one ELF file for an offline state.  FILENAME has been opened as
+   DESCRIPTOR.  Fill in INFO with the DWARF and symbol information.
+   Only the contents of the file are read: external debug files are
+   never consulted, and no code is executed or relocated.  Returns 1
+   on success, 0 on error.  */
+
+int
+backtrace_elf_add_offline (struct backtrace_state *state, const char *filename,
+			   int descriptor,
+			   backtrace_error_callback error_callback, void *data,
+			   struct elf_offline_info *info)
+{
+  int found_sym;
+  int found_dwarf;
+  fileline fileline_fn;
+  struct libbacktrace_base_address base_address;
+
+  memset (info, 0, sizeof *info);
+  memset (&base_address, 0, sizeof base_address);
+  fileline_fn = elf_nodebug;
+  found_sym = 0;
+  found_dwarf = 0;
+
+  if (!elf_add (state, filename, descriptor, NULL, 0, base_address, NULL,
+		error_callback, data, &fileline_fn, &found_sym, &found_dwarf,
+		NULL, 0, 0, NULL, 0, info))
+    return 0;
 
   return 1;
 }

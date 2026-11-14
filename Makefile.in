@@ -223,15 +223,15 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(includedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 am__DEPENDENCIES_1 =
-am_libbacktrace_la_OBJECTS = atomic.lo dwarf.lo fileline.lo posix.lo \
-	print.lo sort.lo state.lo
+am_libbacktrace_la_OBJECTS = atomic.lo dwarf.lo fileline.lo offline.lo \
+	posix.lo print.lo sort.lo state.lo
 libbacktrace_la_OBJECTS = $(am_libbacktrace_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-am__objects_1 = atomic.lo dwarf.lo fileline.lo posix.lo print.lo \
-	sort.lo state.lo
+am__objects_1 = atomic.lo dwarf.lo fileline.lo offline.lo posix.lo \
+	print.lo sort.lo state.lo
 @NATIVE_TRUE@am_libbacktrace_alloc_la_OBJECTS = $(am__objects_1)
 libbacktrace_alloc_la_OBJECTS = $(am_libbacktrace_alloc_la_OBJECTS)
 @NATIVE_TRUE@am_libbacktrace_alloc_la_rpath =
@@ -1020,6 +1020,7 @@ libbacktrace_la_SOURCES = \
 	dwarf.c \
 	fileline.c \
 	internal.h \
+	offline.c \
 	posix.c \
 	print.c \
 	sort.c \
@@ -2884,6 +2885,7 @@ simple.lo: config.h backtrace.h internal.h
 sort.lo: config.h backtrace.h internal.h
 stest.lo: config.h backtrace.h internal.h
 state.lo: config.h backtrace.h backtrace-supported.h internal.h
+offline.lo: config.h backtrace.h backtrace-supported.h internal.h
 unknown.lo: config.h backtrace.h internal.h
 xcoff_32.lo: config.h backtrace.h internal.h
 xcoff_64.lo: config.h backtrace.h internal.h

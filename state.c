@@ -43,9 +43,9 @@ POSSIBILITY OF SUCH DAMAGE.  */
    other routines.  */
 
 struct backtrace_state *
-backtrace_create_state (const char *filename, int flags,
-			backtrace_error_callback error_callback,
-			void *data)
+backtrace_create_state_common (const char *filename, int flags, int offline,
+			       backtrace_error_callback error_callback,
+			       void *data)
 {
   int threaded;
   int moredata;
@@ -72,6 +72,7 @@ backtrace_create_state (const char *filename, int flags,
   init_state.filename = filename;
   init_state.threaded = threaded;
   init_state.moredata = moredata;
+  init_state.offline = offline;
 
   state = ((struct backtrace_state *)
 	   backtrace_alloc (&init_state, sizeof *state, error_callback, data));
@@ -80,4 +81,13 @@ backtrace_create_state (const char *filename, int flags,
   *state = init_state;
 
   return state;
+}
+
+struct backtrace_state *
+backtrace_create_state (const char *filename, int flags,
+			backtrace_error_callback error_callback,
+			void *data)
+{
+  return backtrace_create_state_common (filename, flags, 0, error_callback,
+					data);
 }

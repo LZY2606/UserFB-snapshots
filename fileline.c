@@ -388,11 +388,17 @@ backtrace_pcinfo (struct backtrace_state *state, uintptr_t pc,
 		  backtrace_full_callback callback,
 		  backtrace_error_callback error_callback, void *data)
 {
-  if (!fileline_initialize (state, error_callback, data))
-    return 0;
+  /* An offline state has its dispatch function set at creation and
+     never refers to the current process, so we must not attempt to
+     initialize file/line information.  */
+  if (!state->offline)
+    {
+      if (!fileline_initialize (state, error_callback, data))
+	return 0;
 
-  if (state->fileline_initialization_failed)
-    return 0;
+      if (state->fileline_initialization_failed)
+	return 0;
+    }
 
   return state->fileline_fn (state, pc, callback, error_callback, data);
 }
@@ -404,11 +410,14 @@ backtrace_syminfo (struct backtrace_state *state, uintptr_t pc,
 		   backtrace_syminfo_callback callback,
 		   backtrace_error_callback error_callback, void *data)
 {
-  if (!fileline_initialize (state, error_callback, data))
-    return 0;
+  if (!state->offline)
+    {
+      if (!fileline_initialize (state, error_callback, data))
+	return 0;
 
-  if (state->fileline_initialization_failed)
-    return 0;
+      if (state->fileline_initialization_failed)
+	return 0;
+    }
 
   state->syminfo_fn (state, pc, callback, error_callback, data);
   return 1;

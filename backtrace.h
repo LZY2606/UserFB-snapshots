@@ -114,6 +114,53 @@ extern struct backtrace_state *backtrace_create_state (
     const char *filename, int threaded,
     backtrace_error_callback error_callback, void *data);
 
+/* Create a state that queries a fixed table of ELF modules by
+   address, without referring to the current process.  This is
+   intended for tools that inspect firmware images whose modules live
+   in a different address space than the tool itself.
+
+   FLAGS is interpreted as in backtrace_create_state: bit 1 is the
+   THREADED flag and bit 2 is the MOREDATA flag.  The returned state
+   can be passed to backtrace_pcinfo and backtrace_syminfo.  It only
+   reads the files registered with backtrace_offline_add_module; it
+   does not search /proc, the executable of the current process,
+   loaded shared libraries, global debug directories, or external
+   .gnu_debuglink or .gnu_debugaltlink files.  It does not execute
+   code from those files and does not apply relocations.
+
+   Modules must be registered and queried from a single thread.
+   Returns NULL on error, after calling ERROR_CALLBACK.  */
+
+extern struct backtrace_state *backtrace_create_offline_state (
+    int flags, backtrace_error_callback error_callback, void *data);
+
+/* Register a module with an offline state created by
+   backtrace_create_offline_state.
+
+   FILENAME names the ELF file.  It must be an ET_EXEC or ET_DYN file
+   whose ELF class matches this build of the library.  Symbols and
+   DWARF debug information are read from the file itself.
+
+   [RUNTIME_LOW, RUNTIME_HIGH) is the half-open range of runtime
+   addresses occupied by the module.  LINK_LOW is the link-time
+   address that corresponds to RUNTIME_LOW.  All three are
+   uintptr_t.  The module's link-time addresses are mapped to runtime
+   addresses by adding RUNTIME_LOW - LINK_LOW.  Ranges of modules
+   already registered must not overlap; adjacent ranges are
+   permitted.
+
+   The file is read at registration time.  Source line information
+   may be read lazily, but continues to work if the file is renamed
+   or removed after registration.  A failed registration does not
+   affect modules already registered.
+
+   Returns 1 on success, 0 on error, after calling ERROR_CALLBACK.  */
+
+extern int backtrace_offline_add_module (
+    struct backtrace_state *state, const char *filename,
+    uintptr_t runtime_low, uintptr_t runtime_high, uintptr_t link_low,
+    backtrace_error_callback error_callback, void *data);
+
 /* The type of the callback argument to the backtrace_full function.
    DATA is either the argument passed to backtrace_full (if the MOREDATA
    flag was not set when calling backtrace_create_state) or a pointer to

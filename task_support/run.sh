@@ -6,8 +6,7 @@ if [[ $mode == target ]]; then test -s tests/offline_task.c; fi
 bash task_support/build.sh "$mode"
 if [[ $mode == target ]]; then
   cc -std=c11 -O0 -g -I. -I task_support task_support/driver.c tests/offline_task.c task_support/basic_fixture.c .task-build/libbacktrace.a -o .task-build/target
-  output_log=$(mktemp)
-  trap 'rm -f "$output_log"' EXIT
+  output_log=.task-build/target.log
   set +e
   .task-build/target >"$output_log" 2>&1
   status=$?
