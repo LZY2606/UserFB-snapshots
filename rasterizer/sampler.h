@@ -63,8 +63,8 @@ T sample_texture(const TextureStorage<T>& textureStorage, const Vec2& uv, eWrap 
     }
     else if(wrap == eWrap::REPEAT)
     {
-        proj_uv = { std::fmod<float>(uv.x, 1.0f), std::fmod<float>(uv.y, 1.0f) };
-        proj_uv = { std::fmod<float>(1.0 + proj_uv.x, 1.0f), std::fmod<float>(1.0 + proj_uv.y, 1.0f) };
+        proj_uv = { std::fmod(uv.x, 1.0f), std::fmod(uv.y, 1.0f) };
+        proj_uv = { static_cast<float>(std::fmod(1.0 + proj_uv.x, 1.0)), static_cast<float>(std::fmod(1.0 + proj_uv.y, 1.0)) };
     }
 
     /* query texture data with filter */

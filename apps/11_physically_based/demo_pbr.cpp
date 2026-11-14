@@ -10,7 +10,10 @@
 #include <model.h>
 #include <objload.h>
 
+#include "pbr_shading.h"
+
 #include <random>
+#include <vector>
 
 
 struct Vertex
@@ -59,6 +62,9 @@ struct Uniforms
     Sampler<RGBAF> irradiance;
     Sampler<RGBAF> prefilter_radiance;
     Sampler<RGBAF> brdf;
+
+    /* rectangular area lights (LTC), world space */
+    std::vector<pbr::RectLight> lights;
 };
 
 int main(int argc, char** argv)
@@ -115,10 +121,8 @@ int main(int argc, char** argv)
         float metallic = metal_rough.z;
         float roughness = metal_rough.y;
 
-        /* determine metallic / diffuse color values */
-        const Vec3 DIELECTRIC_F0 = {0.04f, 0.04f, 0.04f};
-        Vec3 f0 = mix(DIELECTRIC_F0, albedo, metallic);
-        albedo = albedo * (1.0 - DIELECTRIC_F0.x) * (1.0 - metallic);
+        /* dielectric F0 = 0.04, metallic blend and diffuse attenuation */
+        auto material = pbr::make_material(albedo, metallic, roughness);
 
         /* retrieve irradiance and radiance from precomputed maps */
         Vec3 radiance = Vec3(textureLod(uniform.prefilter_radiance, equirectangularUV(r), roughness * uniform.prefilter_radiance.m_texture->num_mipmaps()));
@@ -126,11 +130,15 @@ int main(int argc, char** argv)
         auto env_brdf  = Vec2(texture(uniform.brdf, Vec2(nv, roughness)));
 
         /* https://www.jcgt.org/published/0008/01/03/paper.pdf */
-        Vec3 Fr = max(Vec3(1.0 - roughness), f0) - f0;
-        Vec3 k_S = f0 + Fr * pow(1.0 - nv, 5.0);
+        Vec3 Fr = max(Vec3(1.0 - roughness), material.f0) - material.f0;
+        Vec3 k_S = material.f0 + Fr * pow(1.0 - nv, 5.0);
         auto fss_ess = (k_S * env_brdf.x + Vec3(env_brdf.y));
 
-        Vec3 illuminance = (fss_ess * radiance + albedo * irradiance);
+        Vec3 ambient = (fss_ess * radiance + material.diffuse_color * irradiance);
+
+        /* precomputed ambient + direct rectangular area lights (LTC) */
+        Vec3 illuminance = pbr::shade(material, in.world_position, n, v, ambient,
+                                      uniform.lights.data(), uniform.lights.size());
 
         out = Vec4(illuminance, 1.0f);
     });
@@ -151,6 +159,26 @@ int main(int argc, char** argv)
     uniforms.prefilter_radiance.wrap = eWrap::CLAMP_EDGE;
     uniforms.brdf = texture_brdf;
     uniforms.brdf.wrap = eWrap::CLAMP_EDGE;
+
+    /* rectangular area lights: warm key above, emitting downward (single-sided),
+       cool fill from the side (double-sided) */
+    pbr::RectLight key;
+    key.corners[0] = {-1.2f, 2.0f, -0.5f};
+    key.corners[1] = { 1.2f, 2.0f, -0.5f};
+    key.corners[2] = { 1.2f, 2.0f,  1.5f};
+    key.corners[3] = {-1.2f, 2.0f,  1.5f};
+    key.radiance = {5.0f, 4.0f, 3.0f};
+    key.two_sided = false;
+
+    pbr::RectLight fill;
+    fill.corners[0] = {-2.5f, -0.5f, 0.0f};
+    fill.corners[1] = {-2.5f,  1.5f, 0.0f};
+    fill.corners[2] = {-2.5f,  1.5f, 2.0f};
+    fill.corners[3] = {-2.5f, -0.5f, 2.0f};
+    fill.radiance = {0.6f, 1.0f, 1.8f};
+    fill.two_sided = true;
+
+    uniforms.lights = {key, fill};
 
 
     /* rasterizer */
