@@ -10,6 +10,7 @@ silk/x86/main_sse.h \
 silk/PLC.h \
 silk/structs.h \
 silk/tables.h \
+silk/task_nlsf_test.h \
 silk/tuning_parameters.h \
 silk/Inlines.h \
 silk/MacroCount.h \

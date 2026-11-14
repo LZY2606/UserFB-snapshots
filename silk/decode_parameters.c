@@ -31,6 +31,14 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main.h"
 
+#ifdef TASK_NLSF_TEST
+/* Read-only observation point for the NLSF contract tests.  The callback
+   pointer defaults to NULL; nothing is invoked unless a test registers
+   a callback, and normal builds are compiled without this block. */
+#include "task_nlsf_test.h"
+task_nlsf_hook_fn silk_task_nlsf_hook = 0;
+#endif
+
 /* Decode parameters from payload */
 void silk_decode_parameters(
     silk_decoder_state          *psDec,                         /* I/O  State                                       */
@@ -60,6 +68,12 @@ void silk_decode_parameters(
         psDec->indices.NLSFInterpCoef_Q2 = 4;
     }
 
+#ifdef TASK_NLSF_TEST
+    if( silk_task_nlsf_hook ) {
+        silk_task_nlsf_hook( TASK_NLSF_EVENT_NLSF, psDec, 0, pNLSF_Q15 );
+    }
+#endif
+
     if( psDec->indices.NLSFInterpCoef_Q2 < 4 ) {
         /* Calculation of the interpolated NLSF0 vector from the interpolation factor, */
         /* the previous NLSF1, and the current NLSF1                                   */
@@ -77,11 +91,23 @@ void silk_decode_parameters(
 
     silk_memcpy( psDec->prevNLSF_Q15, pNLSF_Q15, psDec->LPC_order * sizeof( opus_int16 ) );
 
+#ifdef TASK_NLSF_TEST
+    if( silk_task_nlsf_hook ) {
+        silk_task_nlsf_hook( TASK_NLSF_EVENT_LPC, psDec, psDecCtrl, 0 );
+    }
+#endif
+
     /* After a packet loss do BWE of LPC coefs */
     if( psDec->lossCnt ) {
         silk_bwexpander( psDecCtrl->PredCoef_Q12[ 0 ], psDec->LPC_order, BWE_AFTER_LOSS_Q16 );
         silk_bwexpander( psDecCtrl->PredCoef_Q12[ 1 ], psDec->LPC_order, BWE_AFTER_LOSS_Q16 );
     }
+
+#ifdef TASK_NLSF_TEST
+    if( silk_task_nlsf_hook ) {
+        silk_task_nlsf_hook( TASK_NLSF_EVENT_LPC_FINAL, psDec, psDecCtrl, 0 );
+    }
+#endif
 
     if( psDec->indices.signalType == TYPE_VOICED ) {
         /*********************/
