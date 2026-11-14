@@ -1,0 +1,3 @@
+Author-generated synthetic subtitle material, no captured broadcast or personal content.
+PID=256, page=888, PTS seconds=1,3,5. basic_N.pes is PES.Data including data_identifier; basic.ts wraps exactly these three payloads.
+The first two pages read hello/world. Last page has no rows. Charset packets use designation 0, first decoded triplet 0 or 4096. ETSI EN 300 706 v1.2.1 sections 8.3, 9.4.2 and 9.5.1; parity bit positions 1,2,4,8,16,24, transmission-order bits LSB first. Each first-triplet byte is bit-reversed from the ETSI transmission-order integer into DVB payload representation, as are the Hamming8/4 and row bytes.
