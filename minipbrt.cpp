@@ -25,13 +25,17 @@ SOFTWARE.
 #include "minipbrt.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #ifndef _WIN32
 #include <errno.h>
@@ -4304,23 +4308,647 @@ namespace minipbrt {
   // LoopSubdiv methods
   //
 
+  namespace {
+
+    // --- Small vector helpers (shapes stay in local coordinates) ---
+
+    typedef std::array<float, 3> V3;
+
+    static const float kPi = 3.14159265358979323846f;
+
+    static inline V3 v3_sub(const V3& a, const V3& b) {
+      return V3{{a[0] - b[0], a[1] - b[1], a[2] - b[2]}};
+    }
+    static inline V3 v3_add(const V3& a, const V3& b) {
+      return V3{{a[0] + b[0], a[1] + b[1], a[2] + b[2]}};
+    }
+    static inline V3 v3_scale(const V3& a, float s) {
+      return V3{{a[0] * s, a[1] * s, a[2] * s}};
+    }
+    static inline float v3_dot(const V3& a, const V3& b) {
+      return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+    static inline V3 v3_cross(const V3& a, const V3& b) {
+      return V3{{a[1] * b[2] - a[2] * b[1],
+                 a[2] * b[0] - a[0] * b[2],
+                 a[0] * b[1] - a[1] * b[0]}};
+    }
+    static inline bool v3_finite(const V3& a) {
+      return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
+    }
+
+    // --- Topology helpers. Vertex identity is purely the index; coincident
+    //     vertices belonging to separate components are never welded. ---
+
+    struct LoopEdge {
+      uint32_t a;
+      uint32_t b;
+    };
+
+    struct LoopEdgeHash {
+      size_t operator()(const LoopEdge& e) const {
+        uint64_t x = (uint64_t(e.a) << 32) | uint64_t(e.b);
+        x ^= x >> 33;
+        x *= 0xff51afd7ed558ccdULL;
+        x ^= x >> 33;
+        x *= 0xc4ceb9fe1a85ec53ULL;
+        x ^= x >> 33;
+        return size_t(x);
+      }
+    };
+
+    struct LoopFaceKey {
+      uint32_t v[3];
+    };
+
+    struct LoopFaceKeyHash {
+      size_t operator()(const LoopFaceKey& k) const {
+        uint64_t h = uint64_t(k.v[0]) * 0x9e3779b97f4a7c15ULL;
+        h ^= uint64_t(k.v[1]) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        h ^= uint64_t(k.v[2]) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        return size_t(h);
+      }
+    };
+
+    struct LoopFaceKeyEq {
+      bool operator()(const LoopFaceKey& l, const LoopFaceKey& r) const {
+        return l.v[0] == r.v[0] && l.v[1] == r.v[1] && l.v[2] == r.v[2];
+      }
+    };
+
+    struct LoopEdgeEq {
+      bool operator()(const LoopEdge& l, const LoopEdge& r) const {
+        return l.a == r.a && l.b == r.b;
+      }
+    };
+
+    struct LoopEdgeInfo {
+      uint32_t dir[2][2];   // Directed endpoints as encountered in each face.
+      int face[2];          // Incident face indices.
+      uint32_t opposite[2]; // Vertex opposite this edge in each incident face.
+      int count;
+    };
+
+    struct LoopNeighbor {
+      uint32_t to;  // Adjacent vertex.
+      int face;     // Face through which the directed edge (vertex, to) runs.
+    };
+
+    typedef std::unordered_map<LoopEdge, LoopEdgeInfo, LoopEdgeHash, LoopEdgeEq> LoopEdgeMap;
+
+    static inline LoopEdge loop_edge_key(uint32_t u, uint32_t v) {
+      return (u < v) ? LoopEdge{u, v} : LoopEdge{v, u};
+    }
+
+    struct LoopMesh {
+      std::vector<V3> P;
+      std::vector<std::array<uint32_t, 3> > faces;
+      LoopEdgeMap edges;
+      std::vector<std::vector<LoopNeighbor> > neighbors;
+      std::vector<bool> boundary;
+      std::vector<std::vector<uint32_t> > rings; // Ordered 1-ring of each vertex.
+
+      uint32_t numVerts() const { return uint32_t(P.size()); }
+      uint32_t numFaces() const { return uint32_t(faces.size()); }
+
+      // Build adjacency, edge info and ordered 1-rings for the current faces.
+      // Assumes the face list has already passed manifold validation.
+      bool deriveTopology() {
+        uint32_t nv = numVerts();
+        edges.clear();
+        neighbors.assign(nv, std::vector<LoopNeighbor>());
+        boundary.assign(nv, false);
+        rings.assign(nv, std::vector<uint32_t>());
+
+        for (uint32_t f = 0; f < numFaces(); f++) {
+          const std::array<uint32_t, 3>& fc = faces[f];
+          for (int i = 0; i < 3; i++) {
+            uint32_t u = fc[i];
+            uint32_t v = fc[(i + 1) % 3];
+            uint32_t opp = fc[(i + 2) % 3];
+            neighbors[u].push_back(LoopNeighbor{v, int(f)});
+
+            LoopEdge key = loop_edge_key(u, v);
+            LoopEdgeMap::iterator it = edges.find(key);
+            if (it == edges.end()) {
+              LoopEdgeInfo info;
+              info.face[0] = int(f);
+              info.face[1] = -1;
+              info.opposite[0] = opp;
+              info.dir[0][0] = u;
+              info.dir[0][1] = v;
+              info.count = 1;
+              edges.insert(std::make_pair(key, info));
+            }
+            else {
+              if (it->second.count != 1) {
+                return false; // Non-manifold edge.
+              }
+              it->second.face[1] = int(f);
+              it->second.opposite[1] = opp;
+              it->second.dir[1][0] = u;
+              it->second.dir[1][1] = v;
+              it->second.count = 2;
+            }
+          }
+        }
+
+        std::vector<int> boundaryEdges(nv, 0);
+        std::vector<uint32_t> degree(nv, 0);
+        for (LoopEdgeMap::const_iterator it = edges.begin(); it != edges.end(); ++it) {
+          degree[it->first.a]++;
+          degree[it->first.b]++;
+          if (it->second.count == 1) {
+            boundaryEdges[it->first.a]++;
+            boundaryEdges[it->first.b]++;
+          }
+        }
+
+        for (uint32_t v = 0; v < nv; v++) {
+          if (neighbors[v].empty()) {
+            return false; // Isolated vertex.
+          }
+          int bc = boundaryEdges[v];
+          if (bc != 0 && bc != 2) {
+            return false; // Boundary fan does not connect up into a single chain.
+          }
+          boundary[v] = (bc == 2);
+
+          // Valence is the undirected edge degree. The directed neighbor list
+          // misses neighbors reached only through an incoming boundary edge, so
+          // it cannot be used to count valence at boundary vertices.
+          uint32_t valence = degree[v];
+
+          std::vector<uint32_t>& ring = rings[v];
+          if (!boundary[v]) {
+            // Walk around the fan following face adjacency across each edge.
+            uint32_t start = neighbors[v][0].to;
+            int curFace = neighbors[v][0].face;
+            uint32_t cur = start;
+            do {
+              if (ring.size() > valence) {
+                return false; // 1-ring does not close into a single fan.
+              }
+              ring.push_back(cur);
+              const LoopEdgeInfo& info = edges.find(loop_edge_key(v, cur))->second;
+              int nextFace = (info.face[0] == curFace) ? info.face[1] : info.face[0];
+              if (nextFace < 0) {
+                return false; // Interior fan hits a boundary edge: broken ring.
+              }
+              const std::array<uint32_t, 3>& fc = faces[uint32_t(nextFace)];
+              uint32_t next = fc[0];
+              for (int k = 0; k < 3; k++) {
+                if (fc[k] != v && fc[k] != cur) {
+                  next = fc[k];
+                  break;
+                }
+              }
+              curFace = nextFace;
+              cur = next;
+            } while (cur != start);
+            if (ring.size() != valence) {
+              return false; // 1-ring splits into more than one fan.
+            }
+          }
+          else {
+            // Find one of the two boundary neighbors and walk from it across
+            // the fan until we reach the other boundary neighbor.
+            uint32_t start = kInvalidIndex;
+            int startFace = -1;
+            for (size_t i = 0; i < neighbors[v].size(); i++) {
+              uint32_t to = neighbors[v][i].to;
+              const LoopEdgeInfo& info = edges.find(loop_edge_key(v, to))->second;
+              if (info.count == 1) {
+                start = to;
+                startFace = neighbors[v][i].face;
+                break;
+              }
+            }
+            if (start == kInvalidIndex) {
+              return false;
+            }
+            int curFace = startFace;
+            uint32_t cur = start;
+            ring.push_back(cur);
+            for (uint32_t steps = 0; steps < valence; steps++) {
+              const std::array<uint32_t, 3>& fc = faces[uint32_t(curFace)];
+              uint32_t next = fc[0];
+              for (int k = 0; k < 3; k++) {
+                if (fc[k] != v && fc[k] != cur) {
+                  next = fc[k];
+                  break;
+                }
+              }
+              ring.push_back(next);
+              const LoopEdgeInfo& info = edges.find(loop_edge_key(v, next))->second;
+              if (info.count == 1) {
+                break; // Reached the other boundary neighbor.
+              }
+              curFace = (info.face[0] == curFace) ? info.face[1] : info.face[0];
+              cur = next;
+            }
+            if (ring.size() != valence) {
+              return false; // Boundary fan is fragmented.
+            }
+          }
+        }
+        return true;
+      }
+
+      // Validate a raw control cage and construct a mesh from it.
+      // Returns nullptr for any unsupported or malformed input.
+      static LoopMesh* build(const float* points, uint32_t numPoints,
+                             const int* indices, uint32_t numIndices) {
+        if (numPoints == 0 || numIndices == 0 || points == nullptr || indices == nullptr) {
+          return nullptr;
+        }
+        if (numIndices % 3 != 0) {
+          return nullptr;
+        }
+        if (numPoints > uint32_t(std::numeric_limits<uint32_t>::max() / 3u)) {
+          return nullptr;
+        }
+        if (uint64_t(numPoints) * 3u > uint64_t(std::numeric_limits<size_t>::max() / sizeof(float))) {
+          return nullptr;
+        }
+        for (uint32_t i = 0; i < numPoints * 3u; i++) {
+          if (!std::isfinite(points[i])) {
+            return nullptr;
+          }
+        }
+
+        uint32_t numFaces = numIndices / 3u;
+        std::vector<std::array<uint32_t, 3> > faceList(numFaces);
+        std::unordered_set<LoopFaceKey, LoopFaceKeyHash, LoopFaceKeyEq> faceKeys;
+        faceKeys.reserve(numFaces);
+        for (uint32_t f = 0; f < numFaces; f++) {
+          std::array<uint32_t, 3>& fc = faceList[f];
+          for (int k = 0; k < 3; k++) {
+            int idx = indices[uint64_t(f) * 3u + uint32_t(k)];
+            if (idx < 0 || uint32_t(idx) >= numPoints) {
+              return nullptr; // Index out of range.
+            }
+            fc[k] = uint32_t(idx);
+          }
+          if (fc[0] == fc[1] || fc[1] == fc[2] || fc[2] == fc[0]) {
+            return nullptr; // Repeated corner in a face.
+          }
+          LoopFaceKey faceKey{{ fc[0], fc[1], fc[2] }};
+          std::sort(faceKey.v, faceKey.v + 3);
+          if (!faceKeys.insert(faceKey).second) {
+            return nullptr; // Duplicate face.
+          }
+          const V3& p0 = {{ points[fc[0] * 3u], points[fc[0] * 3u + 1], points[fc[0] * 3u + 2] }};
+          const V3& p1 = {{ points[fc[1] * 3u], points[fc[1] * 3u + 1], points[fc[1] * 3u + 2] }};
+          const V3& p2 = {{ points[fc[2] * 3u], points[fc[2] * 3u + 1], points[fc[2] * 3u + 2] }};
+          V3 normal = v3_cross(v3_sub(p1, p0), v3_sub(p2, p0));
+          if (normal[0] == 0.0f && normal[1] == 0.0f && normal[2] == 0.0f) {
+            return nullptr; // Zero-area control face.
+          }
+        }
+
+        LoopMesh* mesh = new LoopMesh();
+        mesh->P.resize(numPoints);
+        for (uint32_t i = 0; i < numPoints; i++) {
+          mesh->P[i] = V3{{ points[i * 3u], points[i * 3u + 1], points[i * 3u + 2] }};
+        }
+        mesh->faces.swap(faceList);
+
+        // Edge manifold validation, including consistent winding: two faces
+        // sharing an edge must traverse it in opposite directions.
+        for (uint32_t f = 0; f < mesh->numFaces(); f++) {
+          const std::array<uint32_t, 3>& fc = mesh->faces[f];
+          for (int i = 0; i < 3; i++) {
+            uint32_t u = fc[i];
+            uint32_t v = fc[(i + 1) % 3];
+            LoopEdge key = loop_edge_key(u, v);
+            LoopEdgeMap::iterator it = mesh->edges.find(key);
+            if (it == mesh->edges.end()) {
+              LoopEdgeInfo info;
+              info.face[0] = int(f);
+              info.face[1] = -1;
+              info.opposite[0] = fc[(i + 2) % 3];
+              info.dir[0][0] = u;
+              info.dir[0][1] = v;
+              info.count = 1;
+              mesh->edges.insert(std::make_pair(key, info));
+            }
+            else {
+              LoopEdgeInfo& info = it->second;
+              if (info.count != 1) {
+                delete mesh;
+                return nullptr; // Non-manifold edge.
+              }
+              if (info.dir[0][0] == u && info.dir[0][1] == v) {
+                delete mesh;
+                return nullptr; // Same-oriented shared edge.
+              }
+              info.face[1] = int(f);
+              info.opposite[1] = fc[(i + 2) % 3];
+              info.dir[1][0] = u;
+              info.dir[1][1] = v;
+              info.count = 2;
+            }
+          }
+        }
+
+        if (!mesh->deriveTopology()) {
+          delete mesh;
+          return nullptr;
+        }
+        return mesh;
+      }
+
+      // Check that `levels` more subdivision steps can never overflow the
+      // index/count fields or the allocator. Done up front, before any large
+      // mesh is allocated. Counts evolve as V' = V+E, E' = 2E+3F, F' = 4F.
+      bool checkGrowth(int levels) const {
+        uint64_t v = numVerts();
+        uint64_t f = numFaces();
+        uint64_t e = uint64_t(edges.size());
+        const uint64_t kMaxCount = uint64_t(INT_MAX);
+        const uint64_t kMaxFloatFloats = uint64_t(std::numeric_limits<size_t>::max() / sizeof(float));
+        const uint64_t kMaxInts = uint64_t(std::numeric_limits<size_t>::max() / sizeof(int));
+        for (int i = 0; i < levels; i++) {
+          uint64_t nv = v + e;
+          uint64_t ne = 2u * e + 3u * f;
+          uint64_t nf = 4u * f;
+          if (nv > kMaxCount || nf > kMaxCount || 3u * nf > kMaxCount ||
+              nv * 3u > kMaxFloatFloats || 3u * nf > kMaxInts) {
+            return false;
+          }
+          v = nv;
+          e = ne;
+          f = nf;
+        }
+        return true;
+      }
+
+      // One Loop subdivision step, computed synchronously from the positions
+      // and adjacency at the start of the step.
+      bool subdivide() {
+        uint32_t oldV = numVerts();
+        uint32_t oldF = numFaces();
+        uint32_t edgeCount = uint32_t(edges.size());
+        uint64_t newV64 = uint64_t(oldV) + edgeCount;
+        uint64_t newIdx64 = uint64_t(oldF) * 12u;
+        if (newV64 > uint64_t(INT_MAX) || newIdx64 > uint64_t(INT_MAX) ||
+            newV64 * 3u > uint64_t(std::numeric_limits<size_t>::max() / sizeof(float)) ||
+            newIdx64 > uint64_t(std::numeric_limits<size_t>::max() / sizeof(int))) {
+          return false;
+        }
+        uint32_t newV = uint32_t(newV64);
+
+        // Assign each old edge a single, shared odd-vertex index.
+        std::unordered_map<LoopEdge, uint32_t, LoopEdgeHash, LoopEdgeEq> edgeVertex;
+        edgeVertex.reserve(size_t(edgeCount) * 2u);
+        uint32_t next = oldV;
+        for (LoopEdgeMap::const_iterator it = edges.begin(); it != edges.end(); ++it) {
+          edgeVertex.insert(std::make_pair(it->first, next++));
+        }
+
+        std::vector<V3> newP(newV);
+
+        // Odd vertices.
+        for (LoopEdgeMap::const_iterator it = edges.begin(); it != edges.end(); ++it) {
+          const LoopEdgeInfo& info = it->second;
+          const V3& pa = P[it->first.a];
+          const V3& pb = P[it->first.b];
+          V3 pos;
+          if (info.count == 1) {
+            // Boundary edge: midpoint.
+            pos = v3_scale(v3_add(pa, pb), 0.5f);
+          }
+          else {
+            // Interior edge: 3/8 at each endpoint, 1/8 at each opposite vertex.
+            const V3& po0 = P[info.opposite[0]];
+            const V3& po1 = P[info.opposite[1]];
+            V3 sum = v3_add(v3_add(v3_scale(v3_add(pa, pb), 3.0f / 8.0f),
+                                   v3_scale(po0, 1.0f / 8.0f)),
+                            v3_scale(po1, 1.0f / 8.0f));
+            pos = sum;
+          }
+          newP[edgeVertex.find(it->first)->second] = pos;
+        }
+
+        // Even vertices.
+        for (uint32_t v = 0; v < oldV; v++) {
+          const std::vector<uint32_t>& ring = rings[v];
+          uint32_t n = uint32_t(ring.size());
+          V3 sumQ{{0.0f, 0.0f, 0.0f}};
+          for (uint32_t k = 0; k < n; k++) {
+            sumQ = v3_add(sumQ, P[ring[k]]);
+          }
+          if (boundary[v]) {
+            // 3P/4 + (Q0 + Qlast)/8.
+            newP[v] = v3_add(v3_scale(P[v], 3.0f / 4.0f),
+                             v3_scale(v3_add(P[ring.front()], P[ring.back()]), 1.0f / 8.0f));
+          }
+          else {
+            float beta = (n == 3) ? (3.0f / 16.0f) : (3.0f / (8.0f * float(n)));
+            newP[v] = v3_add(v3_scale(P[v], 1.0f - float(n) * beta),
+                             v3_scale(sumQ, beta));
+          }
+        }
+
+        // Split every old face into four, preserving the old winding.
+        std::vector<std::array<uint32_t, 3> > newFaces(oldF * 4u);
+        for (uint32_t f = 0; f < oldF; f++) {
+          const std::array<uint32_t, 3>& fc = faces[f];
+          uint32_t a = fc[0];
+          uint32_t b = fc[1];
+          uint32_t c = fc[2];
+          uint32_t eab = edgeVertex.find(loop_edge_key(a, b))->second;
+          uint32_t ebc = edgeVertex.find(loop_edge_key(b, c))->second;
+          uint32_t eca = edgeVertex.find(loop_edge_key(c, a))->second;
+          uint32_t base = f * 4u;
+          newFaces[base + 0] = std::array<uint32_t, 3>{{ a, eab, eca }};
+          newFaces[base + 1] = std::array<uint32_t, 3>{{ b, ebc, eab }};
+          newFaces[base + 2] = std::array<uint32_t, 3>{{ c, eca, ebc }};
+          newFaces[base + 3] = std::array<uint32_t, 3>{{ eab, ebc, eca }};
+        }
+
+        P.swap(newP);
+        faces.swap(newFaces);
+        if (!deriveTopology()) {
+          return false;
+        }
+        for (uint32_t v = 0; v < numVerts(); v++) {
+          if (!v3_finite(P[v])) {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      // Project every vertex onto the Loop limit surface, deriving a unit
+      // normal from the limit tangent plane (not from averaged face normals).
+      // The limit positions are written to a separate array so that all
+      // vertices are still evaluated from the same pre-projection mesh.
+      // Returns false if any tangent plane degenerates.
+      bool projectToLimit(std::vector<V3>& outPositions, std::vector<V3>& outNormals) {
+        outPositions.resize(numVerts());
+        outNormals.resize(numVerts());
+
+        // Deterministic reference face for the normal sign of each vertex:
+        // the lowest-indexed non-degenerate incident face.
+        std::vector<uint32_t> firstFace(numVerts(), kInvalidIndex);
+        for (uint32_t f = 0; f < numFaces(); f++) {
+          for (int k = 0; k < 3; k++) {
+            uint32_t v = faces[f][k];
+            if (firstFace[v] == kInvalidIndex) {
+              firstFace[v] = f;
+            }
+          }
+        }
+
+        for (uint32_t v = 0; v < numVerts(); v++) {
+          const std::vector<uint32_t>& ring = rings[v];
+          uint32_t n = uint32_t(ring.size());
+          V3 S{{0.0f, 0.0f, 0.0f}};
+          V3 T{{0.0f, 0.0f, 0.0f}};
+          V3 limitPos;
+
+          if (!boundary[v]) {
+            float beta = (n == 3) ? (3.0f / 16.0f) : (3.0f / (8.0f * float(n)));
+            float gamma = 1.0f / (float(n) + 3.0f / (8.0f * beta));
+            V3 sumQ{{0.0f, 0.0f, 0.0f}};
+            for (uint32_t k = 0; k < n; k++) {
+              sumQ = v3_add(sumQ, P[ring[k]]);
+              float angle = 2.0f * kPi * float(k) / float(n);
+              float cw = std::cos(angle);
+              float sw = std::sin(angle);
+              S = v3_add(S, v3_scale(P[ring[k]], cw));
+              T = v3_add(T, v3_scale(P[ring[k]], sw));
+            }
+            limitPos = v3_add(v3_scale(P[v], 1.0f - float(n) * gamma),
+                              v3_scale(sumQ, gamma));
+          }
+          else {
+            const V3& q0 = P[ring.front()];
+            const V3& ql = P[ring.back()];
+            limitPos = v3_add(v3_scale(P[v], 3.0f / 5.0f),
+                              v3_scale(v3_add(q0, ql), 1.0f / 5.0f));
+            S = v3_sub(ql, q0);
+            if (n == 2) {
+              T = v3_sub(v3_add(q0, P[ring[1]]), v3_scale(P[v], 2.0f));
+            }
+            else if (n == 3) {
+              T = v3_sub(P[ring[1]], P[v]);
+            }
+            else if (n == 4) {
+              // -Q0 + 2Q1 + 2Q2 - Q3 - 2P
+              T = v3_sub(v3_add(v3_add(v3_scale(q0, -1.0f),
+                                        v3_scale(P[ring[1]], 2.0f)),
+                                v3_add(v3_scale(P[ring[2]], 2.0f),
+                                       v3_scale(P[ring[3]], -1.0f))),
+                         v3_scale(P[v], 2.0f));
+            }
+            else {
+              float theta = kPi / float(n - 1);
+              float st = std::sin(theta);
+              float ct = std::cos(theta);
+              V3 inner{{0.0f, 0.0f, 0.0f}};
+              for (uint32_t k = 1; k + 1 < n; k++) {
+                inner = v3_add(inner, v3_scale(P[ring[k]], std::sin(float(k) * theta)));
+              }
+              T = v3_add(v3_scale(v3_add(q0, ql), -st),
+                         v3_scale(inner, 2.0f - 2.0f * ct));
+            }
+          }
+
+          V3 normal = v3_cross(S, T);
+          float len2 = v3_dot(normal, normal);
+          if (!std::isfinite(len2) || len2 <= 0.0f) {
+            return false; // Degenerate tangent plane.
+          }
+          float invLen = 1.0f / std::sqrt(len2);
+          normal = v3_scale(normal, invLen);
+
+          // Match the sign to the orientation of the reference face.
+          if (firstFace[v] == kInvalidIndex) {
+            return false; // No oriented face available to fix the normal sign.
+          }
+          const std::array<uint32_t, 3>& refFace = faces[firstFace[v]];
+          V3 ref = v3_cross(v3_sub(P[refFace[1]], P[refFace[0]]),
+                            v3_sub(P[refFace[2]], P[refFace[0]]));
+          if (v3_dot(ref, ref) <= 0.0f) {
+            return false; // Degenerate reference face.
+          }
+          if (v3_dot(normal, ref) < 0.0f) {
+            normal = v3_scale(normal, -1.0f);
+          }
+
+          outPositions[v] = limitPos;
+          outNormals[v] = normal;
+        }
+        return true;
+      }
+
+      TriangleMesh* makeTriangleMesh(const Shape* src,
+                                     const std::vector<V3>& positions,
+                                     const std::vector<V3>& normals) const {
+        TriangleMesh* mesh = new TriangleMesh();
+        mesh->num_vertices = numVerts();
+        mesh->num_indices = numFaces() * 3u;
+        mesh->P = new float[numVerts() * 3u];
+        mesh->N = new float[numVerts() * 3u];
+        mesh->indices = new int[mesh->num_indices];
+        for (uint32_t i = 0; i < numVerts(); i++) {
+          mesh->P[i * 3u + 0] = positions[i][0];
+          mesh->P[i * 3u + 1] = positions[i][1];
+          mesh->P[i * 3u + 2] = positions[i][2];
+          mesh->N[i * 3u + 0] = normals[i][0];
+          mesh->N[i * 3u + 1] = normals[i][1];
+          mesh->N[i * 3u + 2] = normals[i][2];
+        }
+        for (uint32_t f = 0; f < numFaces(); f++) {
+          for (int k = 0; k < 3; k++) {
+            mesh->indices[f * 3u + uint32_t(k)] = int(faces[f][k]);
+          }
+        }
+        mesh->copy_common_properties(src);
+        return mesh;
+      }
+    };
+
+  } // anonymous namespace
+
+
   TriangleMesh* LoopSubdiv::triangle_mesh() const
   {
-    // For now we just return the control mesh, we don't subdivide it at all.
+    if (levels < 0) {
+      return nullptr;
+    }
+    if (num_points == 0 || num_indices == 0 || P == nullptr || indices == nullptr) {
+      return nullptr;
+    }
 
-    TriangleMesh* trimesh = new TriangleMesh();
+    LoopMesh* mesh = LoopMesh::build(P, num_points, indices, num_indices);
+    if (mesh == nullptr) {
+      return nullptr;
+    }
+    if (!mesh->checkGrowth(levels)) {
+      delete mesh;
+      return nullptr;
+    }
+    for (int step = 0; step < levels; step++) {
+      if (!mesh->subdivide()) {
+        delete mesh;
+        return nullptr;
+      }
+    }
 
-    trimesh->num_vertices = num_points;
-    trimesh->P = new float[num_points * 3];
-    std::memcpy(trimesh->P, P, sizeof(float) * num_points * 3);
+    std::vector<V3> positions;
+    std::vector<V3> normals;
+    if (!mesh->projectToLimit(positions, normals)) {
+      delete mesh;
+      return nullptr;
+    }
 
-    trimesh->num_indices = num_indices;
-    trimesh->indices = new int[num_indices];
-    std::memcpy(trimesh->indices, indices, sizeof(int) * num_indices);
-
-    trimesh->copy_common_properties(this);
-
-    return trimesh;
+    TriangleMesh* result = mesh->makeTriangleMesh(this, positions, normals);
+    delete mesh;
+    return result;
   }
 
 
@@ -5896,11 +6524,20 @@ namespace minipbrt {
           delete loopsubdiv;
           return false;
         }
-        if (!float_vector_param("P", ParamType::Point3, &loopsubdiv->num_points, &loopsubdiv->P, true)) {
+        uint32_t numFloats = 0;
+        if (!float_vector_param("P", ParamType::Point3, &numFloats, &loopsubdiv->P, true)) {
           m_tokenizer.set_error("Required parameter \"P\" is missing");
           delete loopsubdiv;
           return false;
         }
+        if (numFloats % 3u != 0u) {
+          m_tokenizer.set_error("loopsubdiv parameter \"P\" must contain a whole number of 3-component points");
+          delete loopsubdiv;
+          return false;
+        }
+        // P stores 3 floats per vertex: keep the count in the same units as a
+        // directly constructed LoopSubdiv, not the raw float component count.
+        loopsubdiv->num_points = numFloats / 3u;
         shape = loopsubdiv;
       }
       break;

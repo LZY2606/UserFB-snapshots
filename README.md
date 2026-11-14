@@ -137,6 +137,93 @@ scanning `scene-shapes` a second time to see whether it still contains any
 PLYMesh shapes.
 
 
+Loop subdivision surfaces (`loopsubdiv`)
+----------------------------------------
+
+Calling `triangle_mesh()` on a `LoopSubdiv` shape runs `levels` rounds of
+smooth Loop subdivision on the triangle control cage and then projects every
+vertex onto the Loop limit surface. The returned `TriangleMesh` carries the
+limit positions in `P`, one unit limit normal per vertex in `N`, and the
+refined triangle indices in `indices`. `S` and `uv` are left empty (no
+tangents or UVs are generated). The original `LoopSubdiv` object is never
+modified and the returned arrays are owned exclusively by the new mesh.
+
+Supported input is an orientable, consistently wound two-manifold triangle
+control cage with finite coordinates. It may have boundaries and may consist
+of several disconnected components. Topology is determined purely by vertex
+indices: distinct components whose vertices happen to share coordinates are
+never welded together.
+
+Subdivision rules (each round is computed synchronously from the positions and
+adjacency at the start of the round):
+
+- Each old edge produces exactly one shared odd vertex. For an interior edge
+  the odd vertex is `3/8` of each endpoint plus `1/8` of each opposite vertex;
+  for a boundary edge it is the edge midpoint.
+- Even vertices: an interior vertex is `(1 - n*beta)*P + beta*sum(Q)`, with
+  `beta = 3/16` when the valence `n == 3` and `beta = 3/(8n)` otherwise; a
+  boundary vertex is `3P/4 + (Q0 + Qlast)/8`.
+- Every old triangle is split into four, keeping the original winding.
+- With `levels == 0` no faces are split, but the limit projection below is
+  still performed.
+
+After subdivision, the tangent vectors are derived from the ordered 1-ring of
+that round and the position is projected to the limit surface:
+
+- Interior limit point: `(1 - n*gamma)*P + gamma*sum(Q)` where
+  `gamma = 1 / (n + 3/(8*beta))`. The tangent plane uses
+  `S = sum cos(2*pi*k/n) * Qk` and `T = sum sin(2*pi*k/n) * Qk`.
+- Boundary limit point: `3P/5 + (Q0 + Qlast)/5`, with `S = Qlast - Q0` and the
+  boundary tangent `T` given by the valence-specific boundary formulas.
+- The output normal `N` is the unit normal of this tangent plane, with its
+  sign matched to the face winding. It is *not* an average of output face
+  normals. Positions and normals stay in shape-local coordinates;
+  `reverseOrientation` is kept as a flag (normals are not pre-flipped), and
+  both ends of the shape-to-world transform are left untouched.
+
+`triangle_mesh()` returns `nullptr` (without throwing or over-allocating)
+when the cage cannot be represented or the result would be degenerate,
+including:
+
+- an empty cage, a nonzero count with no `P`/`indices` array, `num_indices`
+  not divisible by 3, out-of-range or repeated face corners, duplicate faces,
+  non-manifold edges, two faces sharing an edge with the same winding, a
+  vertex whose 1-ring breaks into multiple fans, an isolated vertex, a
+  zero-area control face, or a non-finite coordinate;
+- a negative `levels` value, a result whose vertex/index counts cannot fit in
+  the existing index/count fields (checked up front, before any large mesh is
+  allocated), or a vertex whose limit tangent plane degenerates.
+
+The loader follows the same vertex units as a directly constructed object:
+each point in `P` has three float components, so `num_points` is the number of
+floats divided by three. Loading fails when the number of float components in
+`P` is not a multiple of three, which also guarantees conversion never reads
+past the end of the array.
+
+Scene conversion works through the existing entry points:
+
+```cpp
+  // Convert one shape. On failure the original Shape is retained and the
+  // call returns false.
+  if (!scene->to_triangle_mesh(shapeIndex)) {
+    // scene->shapes[shapeIndex] is still the original LoopSubdiv.
+  }
+
+  // Convert every LoopSubdiv, choosing whether to stop at the first error or
+  // keep going and convert everything that is convertible.
+  bool allOK = scene->shapes_to_triangle_mesh(
+      minipbrt::Bits<minipbrt::ShapeType>(minipbrt::ShapeType::LoopSubdiv),
+      /*stopOnFirstError=*/false);
+```
+
+On success the replacement `TriangleMesh` keeps the source shape's
+`material`, `areaLight`, `insideMedium`, `outsideMedium`, `object`,
+`reverseOrientation` and `shapeToWorld`, and object shape ranges and instance
+references remain valid. On failure the original shape is left in place, so
+retrying the conversion after repairing it is safe. Other shape types are
+unaffected.
+
+
 Implementation notes
 --------------------
 
