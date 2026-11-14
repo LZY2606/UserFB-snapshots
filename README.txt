@@ -97,6 +97,61 @@ The "demo" program shows a simple rendering example using OpenGL fixed-function 
 The "gpu-demo" program shows GPU-accelerated skinning using OpenGL GLSL rendering and GLUT.
 
 
+*** Detail-preserving skinning (demo/delta_mush.h) ***
+
+The delta-mush module replaces per-frame linear blend skinning with a local
+rigid fit that preserves mesh detail through joint bends. Minimal call flow:
+
+  1. Once per model, build a binding from the rest-pose mesh data:
+       DeltaMushBinding *b = deltamush_bind(positions, normals, tangents,
+           triangles, numtriangles, blendindices, blendweights,
+           numverts, numjoints, lambda, power);
+     positions/normals are 3 floats per vertex, tangents 4 (xyz plus the
+     bitangent sign), triangles 3 vertex indices per triangle, and the blend
+     arrays follow the IQM convention (4 bytes per vertex, weights sum to
+     255, used influences first). lambda > 0 controls the smoothing radius
+     and power >= 1 the number of diffusion steps. The binding copies
+     everything it needs; the source arrays may be changed or freed
+     afterwards. It returns null on invalid input or failed precomputation.
+  2. Per frame, evaluate against the joint palette (model-space joint
+     transforms times inverse-bind, any finite affine 3x4 matrices):
+       deltamush_evaluate(b, palette, &output, &accumulations, &fallbacks);
+     The output object owns the resulting position/normal/tangent/bitangent
+     arrays. Bindings and outputs are independent, so several bindings can
+     be evaluated interleaved. Alternatively, call
+     deltamush_switch(binding, true) once and animateiqm will fill
+     outposition/outnormal/outtangent/outbitangent from the binding;
+     deltamush_switch(0, false) restores the classic algorithm.
+
+How it works: at bind time the neighbourhood diffusion S = (I+lambda*L)^(-p)
+of the combinatorial mesh Laplacian is folded with the blend weights into
+per-vertex/per-joint moments Omega_ij = sum_k S_ik w_kj u_k u_k^T with
+u_k = (x_k, 1). Evaluation only accumulates these moments against the
+palette to recover the weighted centres and the centred cross-covariance of
+the rest neighbourhood and its skinned image, then fits the optimal rigid
+transform (det = +1; reflection configurations are fixed by flipping the
+smallest singular value direction) and applies it to the rest attributes.
+Normals and tangents are rotated by the same transform, and the bitangent
+is rebuilt as cross(normal, tangent) * tangent.w.
+
+Degeneracy rules: if the smallest singular value of the rest covariance
+(bind time) or of the current-frame cross-covariance (evaluation) is not
+greater than 1e-9 times the largest one - including the all-zero case, e.g.
+isolated vertices - that vertex falls back to plain CPU linear blend
+skinning (position through the blended matrix, directions through the
+adjoint-transpose rule). A degenerate vertex never affects other vertices.
+deltamush_degeneratecount reports bind-time degenerate vertices, and the
+fallbacks out-parameter of deltamush_evaluate reports the per-frame count.
+
+Costs: binding pays a one-time precomputation - building the graph and the
+diffusion matrix (a dense Cholesky factorization plus one solve per vertex
+and diffusion step) and folding the moments, O(numverts * numjoints)
+moments in the worst case. Evaluation costs exactly one accumulation per
+stored nonzero moment (reported via the accumulations out-parameter) plus a
+3x3 SVD per vertex; no diffusion system is solved and no mesh neighbourhood
+is traversed per frame.
+
+
 *** LICENSE INFO ***
 
 The IQM compiler and upgrader source code as well as the IQM blender exporters (blender-*/iqm_export.py) are licensed as specified by the LICENSE file included with this distribution.

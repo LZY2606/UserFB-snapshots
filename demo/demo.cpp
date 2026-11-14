@@ -14,6 +14,7 @@ typedef unsigned int GLuint;
 #include "util.h"
 #include "geom.h"
 #include "iqm.h"
+#include "delta_mush.h"
 
 #ifndef IQM_HEADLESS
 extern GLuint loadtexture(const char *name, int clamp);
@@ -39,8 +40,28 @@ iqmanim *anims = NULL;
 iqmbounds *bounds = NULL;
 Matrix3x4 *baseframe = NULL, *inversebaseframe = NULL, *outframe = NULL, *frames = NULL;
 
+// Delta-mush switch state. The binding is owned by the caller; while the
+// switch is enabled and the binding matches the loaded model, animateiqm
+// fills the output attribute arrays from deltamush_evaluate instead of the
+// classic linear blend skinning below.
+static DeltaMushBinding *dmbinding = NULL;
+static bool dmenabled = false;
+
+void deltamush_switch(DeltaMushBinding *binding, bool enabled)
+{
+    dmbinding = binding;
+    dmenabled = enabled && binding != NULL;
+}
+
+bool deltamush_switched()
+{
+    return dmenabled && dmbinding != NULL;
+}
+
 void cleanupiqm()
 {
+    dmbinding = NULL;
+    dmenabled = false;
     if(textures)
     {
 #ifndef IQM_HEADLESS
@@ -248,6 +269,21 @@ void animateiqm(float curframe)
         Matrix3x4 mat = mat1[i]*(1 - frameoffset) + mat2[i]*frameoffset;
         if(joints[i].parent >= 0) outframe[i] = outframe[joints[i].parent] * mat;
         else outframe[i] = mat;
+    }
+    // Optional detail-preserving skinning: consume the freshly computed
+    // palette (model-space joint transforms times inverse-bind) through the
+    // delta-mush binding instead of the classic path below.
+    if(dmenabled && dmbinding && deltamush_numverts(dmbinding) == numverts)
+    {
+        static DeltaMushOutput dmoutput;
+        if(deltamush_evaluate(dmbinding, outframe, &dmoutput))
+        {
+            memcpy(outposition, &dmoutput.position[0], 3*numverts*sizeof(float));
+            memcpy(outnormal, &dmoutput.normal[0], 3*numverts*sizeof(float));
+            memcpy(outtangent, &dmoutput.tangent[0], 3*numverts*sizeof(float));
+            memcpy(outbitangent, &dmoutput.bitangent[0], 3*numverts*sizeof(float));
+            return;
+        }
     }
     // The actual vertex generation based on the matrixes follows...
     const Vec3 *srcpos = (const Vec3 *)inposition, *srcnorm = (const Vec3 *)innormal;
