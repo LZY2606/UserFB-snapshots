@@ -151,6 +151,18 @@ static	unsigned long	heap_check_c = 0;	/* count of heap-checks */
 static	unsigned long	user_block_c = 0;	/* count of blocks */
 static	unsigned long	admin_block_c = 0;	/* count of admin blocks */
 
+/*
+ * Heap generation counter.  It is bumped after every successful
+ * operation that changes the heap layout (allocation, free, in-place or
+ * moving realloc/recalloc) and when the diagnostic configuration
+ * actually changes.  Incremental verify cursors capture the generation
+ * at begin time so a later change invalidates the scan before any of
+ * the cursor's saved pointers are dereferenced.  Read-only operations
+ * such as dmalloc_mark(), dmalloc_examine(), or the checks themselves
+ * do not bump it.
+ */
+static	unsigned long	heap_generation = 0;
+
 /* alloc counts */
 static	unsigned long	func_malloc_c = 0;	/* count the mallocs */
 static	unsigned long	func_calloc_c = 0;	/* # callocs, done in alloc */
@@ -1279,7 +1291,7 @@ static	skip_alloc_t	*use_free_memory(const unsigned int size,
 					 skip_alloc_t *update_p)
 {
   skip_alloc_t	*slot_p;
-  
+
 #if FREED_POINTER_DELAY
   /*
    * check the free wait list to see if any of the waiting pointers
@@ -1287,19 +1299,26 @@ static	skip_alloc_t	*use_free_memory(const unsigned int size,
    */
   for (slot_p = free_wait_list_head; slot_p != NULL; ) {
     skip_alloc_t	*next_p;
-    
+
     /* we are done if we find a pointer delay in the future */
     if (slot_p->sa_use_iter + FREED_POINTER_DELAY > _dmalloc_iter_c) {
       break;
     }
-    
+
     /* put slot on free list */
     next_p = slot_p->sa_next_p[0];
     if (! insert_slot(slot_p, 1 /* free list */)) {
       /* error dumped in insert_slot */
       return NULL;
     }
-    
+
+    /*
+     * Moving a delayed slot onto the free list rearranges the heap even
+     * if the surrounding allocation later fails, so any in-progress
+     * incremental scan must go stale rather than keep its old position.
+     */
+    heap_generation++;
+
     /* adjust our linked list */
     slot_p = next_p;
     free_wait_list_head = slot_p;
@@ -1308,7 +1327,7 @@ static	skip_alloc_t	*use_free_memory(const unsigned int size,
     }
   }
 #endif
-  
+
   /* find a free block which matches the size */ 
   slot_p = find_free_size(size, update_p);
   if (slot_p == NULL) {
@@ -2099,6 +2118,349 @@ int	_dmalloc_chunk_heap_check(void)
   return final;
 }
 
+/************************** incremental heap checking ************************/
+
+/*
+ * The routines below split the work of _dmalloc_chunk_heap_check()
+ * into per-node steps driven by a caller-owned cursor.  The scan
+ * order and the diagnostics applied to each node are identical to the
+ * full heap check: administration entry blocks first (one node per
+ * block), then every used slot, every free slot, and, when
+ * FREED_POINTER_DELAY is configured, every slot on the delayed-free
+ * list.  Empty stages and the switches between stages do not consume
+ * any of the caller's node budget.
+ */
+
+/* tag written into a cursor that dmalloc_verify_begin initialized */
+#define DMALLOC_VERIFY_MAGIC	0x76766375U
+
+/*
+ * static int check_admin_block
+ *
+ * Check one administration entry block.  This is the per-node body of
+ * the administration loop in _dmalloc_chunk_heap_check().
+ *
+ * Returns 1 if the block is okay or 0 if a problem was detected.
+ */
+static	int	check_admin_block(entry_block_t *block_p, const int level_c)
+{
+  unsigned int	*magic3_p, magic3;
+  skip_alloc_t	*slot_p;
+
+  /* better be in the heap */
+  if (! IS_IN_HEAP(block_p)) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* get the magic3 at the end of the block */
+  magic3_p = (unsigned int *)((char *)block_p + BLOCK_SIZE -
+			      sizeof(*magic3_p));
+  memcpy(&magic3, magic3_p, sizeof(magic3));
+
+  /* check magics */
+  if (block_p->eb_magic1 != ENTRY_BLOCK_MAGIC1
+      || block_p->eb_magic2 != ENTRY_BLOCK_MAGIC2
+      || magic3 != ENTRY_BLOCK_MAGIC3) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* check for a valid level */
+  if (block_p->eb_level_n != level_c) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* now we look up the block and make sure it exists and is valid */
+  slot_p = find_address(block_p, 0 /* used list */, 1 /* exact */,
+			skip_update);
+  if (slot_p == NULL) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+  if ((! BIT_IS_SET(slot_p->sa_flags, ALLOC_FLAG_ADMIN))
+      || slot_p->sa_mem != block_p
+      || slot_p->sa_total_size != BLOCK_SIZE
+      || slot_p->sa_level_n != level_c) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  return 1;
+}
+
+/*
+ * static int check_list_slot
+ *
+ * Check one slot on the used, free, or delayed-free list.  It mirrors
+ * the per-slot body of _dmalloc_chunk_heap_check().
+ *
+ * Returns 1 if the slot is okay or 0 if a problem was detected.
+ */
+static	int	check_list_slot(skip_alloc_t *slot_p, const int used_b)
+{
+  skip_alloc_t	*block_slot_p;
+  entry_block_t	*block_p;
+  int		ret;
+
+  /* better be in the heap */
+  if (! IS_IN_HEAP(slot_p)) {
+    dmalloc_errno = DMALLOC_ERROR_ADDRESS_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /*
+   * now we look up the slot pointer itself and make sure it exists
+   * in a valid block
+   */
+  block_slot_p = find_address(slot_p, 0 /* used list */,
+			      0 /* not exact pointer */, skip_update);
+  if (block_slot_p == NULL) {
+    dmalloc_errno = DMALLOC_ERROR_ADMIN_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* point at the block */
+  block_p = block_slot_p->sa_mem;
+
+  /* check block magic */
+  if (block_p->eb_magic1 != ENTRY_BLOCK_MAGIC1) {
+    dmalloc_errno = DMALLOC_ERROR_ADDRESS_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* make sure the slot level matches */
+  if (slot_p->sa_level_n != block_p->eb_level_n) {
+    dmalloc_errno = DMALLOC_ERROR_ADDRESS_LIST;
+    dmalloc_error("_dmalloc_chunk_verify_next");
+    return 0;
+  }
+
+  /* now check the allocation itself */
+  if (used_b) {
+    ret = check_used_slot(slot_p, NULL /* no user pnt */,
+			  0 /* loose pnt checking */, 0 /* no strlen */,
+			  0 /* no min-size */);
+    if (! ret) {
+      /* error set in check_slot */
+      log_error_info(NULL, 0, NULL, slot_p, "checking user pointer",
+		     "_dmalloc_chunk_verify_next");
+    }
+  }
+  else {
+    ret = check_free_slot(slot_p);
+    if (! ret) {
+      /* error set in check_slot */
+      log_error_info(NULL, 0, NULL, slot_p, "checking free pointer",
+		     "_dmalloc_chunk_verify_next");
+    }
+  }
+
+  return ret;
+}
+
+/*
+ * unsigned long _dmalloc_chunk_verify_generation
+ *
+ * Return the current heap generation.  Incremental scans capture it at
+ * begin time and compare it on every next call so that a heap or
+ * configuration change is noticed before any saved pointer is used.
+ */
+unsigned long	_dmalloc_chunk_verify_generation(void)
+{
+  return heap_generation;
+}
+
+/*
+ * void _dmalloc_chunk_verify_generation_bump
+ *
+ * Mark every in-progress incremental scan stale.  Used when the
+ * diagnostic configuration genuinely changes.  Successful heap
+ * mutations bump the generation directly inside their own routines.
+ */
+void	_dmalloc_chunk_verify_generation_bump(void)
+{
+  heap_generation++;
+}
+
+/*
+ * int _dmalloc_chunk_verify_begin
+ *
+ * Initialize a caller-owned incremental scan cursor.  This only
+ * prepares the scan: it examines no nodes, never allocates, and does
+ * not run a full heap check.
+ *
+ * Returns 1 on success or 0 if cursor is NULL.
+ */
+int	_dmalloc_chunk_verify_begin(dmalloc_verify_cursor *cursor)
+{
+  if (cursor == NULL) {
+    return 0;
+  }
+
+  cursor->vc_magic = DMALLOC_VERIFY_MAGIC;
+  cursor->vc_stage = DMALLOC_SCAN_STAGE_ADMIN;
+  cursor->vc_level = 0;
+  cursor->vc_state = DMALLOC_SCAN_MORE;
+  cursor->vc_generation = heap_generation;
+  cursor->vc_pos = NULL;
+
+  return 1;
+}
+
+/*
+ * int _dmalloc_chunk_verify_next
+ *
+ * Check up to budget nodes of the heap behind cursor.  Returns one of
+ * the DMALLOC_SCAN_* codes.  The number of nodes checked in this call
+ * is stored through checked.  Stage switches and empty stages never
+ * charge a node; a call that only performs such a switch (or finishes
+ * the scan) reports 0 checked nodes.
+ */
+int	_dmalloc_chunk_verify_next(dmalloc_verify_cursor *cursor,
+				   const unsigned long budget,
+				   unsigned long *checked)
+{
+  unsigned long	done = 0;
+  int		ret;
+
+  /* checked is reset first so invalid calls leave it at zero */
+  if (checked != NULL) {
+    *checked = 0;
+  }
+  if (cursor == NULL || checked == NULL || budget == 0) {
+    return DMALLOC_SCAN_INVALID;
+  }
+  if (cursor->vc_magic != DMALLOC_VERIFY_MAGIC) {
+    return DMALLOC_SCAN_INVALID;
+  }
+
+  /* DONE, ERROR, and STALE are sticky: never read nodes again */
+  if (cursor->vc_state != DMALLOC_SCAN_MORE) {
+    return cursor->vc_state;
+  }
+
+  /*
+   * A change after begin invalidates the saved position.  This runs
+   * before any dereference of vc_pos so a stale cursor never follows a
+   * pointer into a rearranged heap.
+   */
+  if (cursor->vc_generation != heap_generation) {
+    cursor->vc_state = DMALLOC_SCAN_STALE;
+    cursor->vc_pos = NULL;
+    return DMALLOC_SCAN_STALE;
+  }
+
+  while (done < budget) {
+
+    if (cursor->vc_stage == DMALLOC_SCAN_STAGE_ADMIN) {
+      entry_block_t	*block_p = (entry_block_t *)cursor->vc_pos;
+      int		level_c = (int)cursor->vc_level;
+
+      if (block_p == NULL) {
+	/*
+	 * Reached only at the start of a call (done == 0): walk past
+	 * empty admin levels without charging a node.
+	 */
+	while (level_c < MAX_SKIP_LEVEL && entry_blocks[level_c] == NULL) {
+	  level_c++;
+	}
+	cursor->vc_level = (unsigned int)level_c;
+	if (level_c >= MAX_SKIP_LEVEL) {
+	  /* admin stage is empty: start the used-slot stage */
+	  cursor->vc_stage = DMALLOC_SCAN_STAGE_USED;
+	  cursor->vc_pos = skip_address_list->sa_next_p[0];
+	  continue;
+	}
+	cursor->vc_pos = entry_blocks[level_c];
+	continue;
+      }
+
+      /* check the current administration block: one node */
+      ret = check_admin_block(block_p, level_c);
+      done++;
+      if (! ret) {
+	cursor->vc_state = DMALLOC_SCAN_ERROR;
+	cursor->vc_pos = block_p;
+	*checked = done;
+	return DMALLOC_SCAN_ERROR;
+      }
+
+      /* advance inside this level; a level boundary resumes next call */
+      block_p = block_p->eb_next_p;
+      if (block_p == NULL) {
+	cursor->vc_level++;
+	cursor->vc_pos = NULL;
+	*checked = done;
+	return DMALLOC_SCAN_MORE;
+      }
+      cursor->vc_pos = block_p;
+    }
+    else {
+      skip_alloc_t	*slot_p = (skip_alloc_t *)cursor->vc_pos;
+      int		used_b;
+
+      if (slot_p == NULL) {
+	/*
+	 * Reached only at the start of a call (done == 0): move to
+	 * the next stage without charging a node.  An empty list must
+	 * not cause a later stage to be skipped.
+	 */
+	if (cursor->vc_stage == DMALLOC_SCAN_STAGE_USED) {
+	  cursor->vc_stage = DMALLOC_SCAN_STAGE_FREE;
+	  cursor->vc_pos = skip_free_list->sa_next_p[0];
+	  continue;
+	}
+#if FREED_POINTER_DELAY
+	if (cursor->vc_stage == DMALLOC_SCAN_STAGE_FREE) {
+	  cursor->vc_stage = DMALLOC_SCAN_STAGE_DELAY;
+	  cursor->vc_pos = free_wait_list_head;
+	  continue;
+	}
+#endif
+	/* free list (or delay list) was the last stage: scan finished */
+	cursor->vc_stage = DMALLOC_SCAN_STAGE_DONE;
+	cursor->vc_state = DMALLOC_SCAN_DONE;
+	cursor->vc_pos = NULL;
+	return DMALLOC_SCAN_DONE;
+      }
+
+      used_b = (cursor->vc_stage == DMALLOC_SCAN_STAGE_USED);
+
+      /* check the current slot: one node */
+      ret = check_list_slot(slot_p, used_b);
+      done++;
+      if (! ret) {
+	cursor->vc_state = DMALLOC_SCAN_ERROR;
+	cursor->vc_pos = slot_p;
+	*checked = done;
+	return DMALLOC_SCAN_ERROR;
+      }
+
+      /* a list boundary resumes on the next call so DONE reports 0 */
+      slot_p = slot_p->sa_next_p[0];
+      cursor->vc_pos = slot_p;
+      if (slot_p == NULL) {
+	*checked = done;
+	return DMALLOC_SCAN_MORE;
+      }
+    }
+  }
+
+  /* budget spent with nodes still remaining */
+  *checked = done;
+  return DMALLOC_SCAN_MORE;
+}
+
 /*
  * int _dmalloc_chunk_pnt_check
  *
@@ -2342,7 +2704,10 @@ void	*_dmalloc_chunk_malloc(const char *file, const unsigned int line,
   alloc_cur_pnts++;
   alloc_max_pnts = MAX(alloc_max_pnts, alloc_cur_pnts);
   alloc_tot_pnts++;
-  
+
+  /* a successful allocation changes the heap: stale any active scans */
+  heap_generation++;
+
   return pnt_info.pi_user_start;
 }
 
@@ -2546,7 +2911,10 @@ int	_dmalloc_chunk_free(const char *file, const unsigned int line,
     }
 #endif
   }
-  
+
+  /* a successful free changes the heap: stale any active scans */
+  heap_generation++;
+
   return FREE_NOERROR;
 }
 
@@ -2694,6 +3062,13 @@ void	*_dmalloc_chunk_realloc(const char *file, const unsigned int line,
      */
     slot_p->sa_file = file;
     slot_p->sa_line = line;
+
+    /*
+     * The moving branch above bumps the generation inside its malloc
+     * and free calls.  The in-place branch has to do it itself since it
+     * changed the slot without either of them.
+     */
+    heap_generation++;
   }
   
   if (BIT_IS_SET(_dmalloc_flags, DMALLOC_DEBUG_LOG_TRANS)) {

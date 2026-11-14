@@ -1354,6 +1354,68 @@ int	malloc_verify(const DMALLOC_PNT pnt)
 }
 
 /*
+ * int dmalloc_verify_begin
+ *
+ * Start an incremental heap check.  This only initializes the
+ * caller's cursor: it does not examine any nodes, run a full heap
+ * check, or allocate memory.
+ *
+ * Returns 1 on success or 0 if cursor is NULL.
+ */
+int	dmalloc_verify_begin(dmalloc_verify_cursor *cursor)
+{
+  int	ret;
+
+  if (cursor == NULL) {
+    return 0;
+  }
+
+  /* check_heap_b is 0: the incremental scan must not trigger a full one */
+  if (! dmalloc_in(DMALLOC_DEFAULT_FILE, DMALLOC_DEFAULT_LINE, 0)) {
+    return 0;
+  }
+
+  ret = _dmalloc_chunk_verify_begin(cursor);
+
+  dmalloc_out();
+
+  return ret;
+}
+
+/*
+ * int dmalloc_verify_next
+ *
+ * Continue an incremental heap check, examining at most budget nodes.
+ * See dmalloc.h for the meaning of the return codes and the checked
+ * counter.
+ */
+int	dmalloc_verify_next(dmalloc_verify_cursor *cursor,
+			    const unsigned long budget,
+			    unsigned long *checked)
+{
+  int	ret;
+
+  /* checked must be reset first and invalid calls never move the scan */
+  if (checked != NULL) {
+    *checked = 0;
+  }
+  if (cursor == NULL || checked == NULL || budget == 0) {
+    return DMALLOC_SCAN_INVALID;
+  }
+
+  /* check_heap_b is 0: the incremental scan must not trigger a full one */
+  if (! dmalloc_in(DMALLOC_DEFAULT_FILE, DMALLOC_DEFAULT_LINE, 0)) {
+    return DMALLOC_SCAN_INVALID;
+  }
+
+  ret = _dmalloc_chunk_verify_next(cursor, budget, checked);
+
+  dmalloc_out();
+
+  return ret;
+}
+
+/*
  * int dmalloc_verify_pnt
  *
  * This function is mainly used by the arg_check.c functions to verify
@@ -1470,16 +1532,26 @@ int	dmalloc_verify_pnt(const char *file, const int line, const char *func,
 unsigned int	dmalloc_debug(const unsigned int flags)
 {
   unsigned int	old_flags;
-  
+
   if (! enabled_b) {
     (void)dmalloc_startup(NULL /* no options string */);
   }
-  
+
   old_flags = _dmalloc_flags;
-  
+
   /* add the new flags */
   _dmalloc_flags = flags;
-  
+
+  /*
+   * A real change of the diagnostic configuration invalidates any
+   * in-progress incremental scan.  Writing the same value back does
+   * not, and pure queries such as dmalloc_debug_current() never get
+   * here.
+   */
+  if (old_flags != flags) {
+    _dmalloc_chunk_verify_generation_bump();
+  }
+
   return old_flags;
 }
 
@@ -1537,19 +1609,60 @@ char	*dmalloc_debug_current_env(char *env_buf, const int env_buf_size)
  */
 void	dmalloc_debug_setup(const char *options_str)
 {
+  unsigned int	old_flags;
+  unsigned long	old_check_interval, old_memory_limit, old_lock_on;
+  unsigned long	old_address_seen_n, old_start_iter, old_start_size;
+  int		old_start_line;
+  const char	*old_start_file;
+  DMALLOC_PNT	old_address;
+  char		*old_logpath;
+
   if (! enabled_b) {
     (void)dmalloc_startup(options_str);
     /* if we just started up then we don't have to do anything else */
     return;
   }
-  
+
   /* we need to lock */
   if (! dmalloc_in(NULL /* no file-name */, 0 /* no line-number */,
 		   0 /* don't-check-heap */)) {
     return;
   }
-  
+
+  /*
+   * Snapshot the diagnostic state so we can tell afterwards whether
+   * the configuration actually changed.  A scan must only go stale on
+   * a real change, not on every API entry, and dmalloc_mark() style
+   * transaction counters do not participate here at all.
+   */
+  old_flags = _dmalloc_flags;
+  old_check_interval = _dmalloc_check_interval;
+  old_memory_limit = _dmalloc_memory_limit;
+  old_lock_on = (unsigned long)thread_lock_c;
+  old_logpath = dmalloc_logpath;
+  old_address = _dmalloc_address;
+  old_address_seen_n = _dmalloc_address_seen_n;
+  old_start_file = start_file;
+  old_start_line = start_line;
+  old_start_iter = start_iter;
+  old_start_size = start_size;
+
   process_environ(options_str);
+
+  if (old_flags != _dmalloc_flags
+      || old_check_interval != _dmalloc_check_interval
+      || old_memory_limit != _dmalloc_memory_limit
+      || old_lock_on != (unsigned long)thread_lock_c
+      || old_logpath != dmalloc_logpath
+      || old_address != _dmalloc_address
+      || old_address_seen_n != _dmalloc_address_seen_n
+      || old_start_file != start_file
+      || old_start_line != start_line
+      || old_start_iter != start_iter
+      || old_start_size != start_size) {
+    _dmalloc_chunk_verify_generation_bump();
+  }
+
   dmalloc_out();
 }
 

@@ -175,4 +175,16 @@ typedef struct {
   void		*pi_alloc_bounds;	/* pnt past end of total allocation */
 } pnt_info_t;
 
+/*
+ * Stages of an incremental heap scan.  The order matches the full
+ * _dmalloc_chunk_heap_check() scan: administration blocks first, then
+ * used slots, free slots, and finally the freed-pointer delay list.
+ * The dmalloc_verify_cursor structure itself is defined in dmalloc.h.
+ */
+#define DMALLOC_SCAN_STAGE_ADMIN	0
+#define DMALLOC_SCAN_STAGE_USED		1
+#define DMALLOC_SCAN_STAGE_FREE		2
+#define DMALLOC_SCAN_STAGE_DELAY	3
+#define DMALLOC_SCAN_STAGE_DONE		4
+
 #endif /* ! __CHUNK_LOC_H__ */

@@ -345,6 +345,66 @@ extern
 int	malloc_verify(const DMALLOC_PNT pnt);
 
 /*
+ * int dmalloc_verify_begin
+ *
+ * Start an incremental heap check and initialize the caller-provided
+ * cursor.  This only prepares the scan; it does not examine the heap
+ * itself and does not allocate any memory.  Follow it with repeated
+ * dmalloc_verify_next() calls.  The heap must stay unchanged (no
+ * successful allocation, realloc/recalloc, or free, and no diagnostic
+ * configuration change) for the scan to reach DMALLOC_SCAN_DONE;
+ * otherwise the next call reports DMALLOC_SCAN_STALE.
+ *
+ * Returns 1 on success or 0 if cursor is NULL.
+ *
+ * ARGUMENTS:
+ *
+ * cursor <-> Caller-owned cursor, typically allocated on the stack,
+ * which is initialized for a fresh incremental scan.
+ */
+extern
+int	dmalloc_verify_begin(dmalloc_verify_cursor *cursor);
+
+/*
+ * int dmalloc_verify_next
+ *
+ * Continue the incremental heap check associated with cursor.  Up to
+ * budget diagnostic nodes are checked per call: each administrative
+ * entry block counts as one node and each used, free, or delayed-free
+ * slot counts as one node.  The checks performed on each node are the
+ * same ones run by a full dmalloc_verify(0L) heap check.  Empty lists
+ * and the switches between scan stages do not consume the budget.
+ * Each node is examined at most once per scan.
+ *
+ * A budget bounds the number of nodes, not the amount of work done
+ * inside a node: checking one node may still scan many bytes (fence
+ * posts, blank areas, and so on), so no fixed wall-clock time per call
+ * is promised.
+ *
+ * Returns DMALLOC_SCAN_MORE while nodes remain, DMALLOC_SCAN_DONE when
+ * every node has been checked, DMALLOC_SCAN_ERROR when a checked node
+ * failed its diagnostics, DMALLOC_SCAN_STALE when the heap or its
+ * diagnostic configuration changed after dmalloc_verify_begin(), or
+ * DMALLOC_SCAN_INVALID for bad arguments.  DONE, ERROR, and STALE are
+ * terminal states for the cursor; further calls do not touch the heap.
+ *
+ * ARGUMENTS:
+ *
+ * cursor <-> Cursor previously initialized by dmalloc_verify_begin().
+ *
+ * budget -> Maximum number of diagnostic nodes to check in this call.
+ * Must be greater than 0.
+ *
+ * checked <- Must be non-NULL.  Set to 0 on entry and then to the
+ * number of nodes actually checked in this call (0 on a terminal
+ * return, including DMALLOC_SCAN_DONE).
+ */
+extern
+int	dmalloc_verify_next(dmalloc_verify_cursor *cursor,
+			    const unsigned long budget,
+			    unsigned long *checked);
+
+/*
  * int dmalloc_verify_pnt
  *
  * This function is mainly used by the arg_check.c functions to verify

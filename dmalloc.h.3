@@ -30,6 +30,32 @@
 #define MALLOC_VERIFY_NOERROR	DMALLOC_VERIFY_NOERROR
 
 /*
+ * Return codes for the incremental heap-check routines
+ * dmalloc_verify_begin() and dmalloc_verify_next().
+ */
+#define DMALLOC_SCAN_MORE	0		/* more nodes remain to check */
+#define DMALLOC_SCAN_DONE	1		/* the whole heap was checked */
+#define DMALLOC_SCAN_ERROR	-1		/* a checked node reported an error */
+#define DMALLOC_SCAN_STALE	-2		/* the heap changed since begin */
+#define DMALLOC_SCAN_INVALID	-3		/* a bad argument was passed */
+
+/*
+ * Cursor for an incremental heap check.  It is designed to live on the
+ * caller's stack: dmalloc_verify_begin() initializes it and repeated
+ * dmalloc_verify_next() calls walk the heap a few diagnostic nodes at
+ * a time.  The fields are internal to the library and must not be
+ * touched by callers.
+ */
+typedef struct dmalloc_verify_cursor_st {
+  unsigned int	vc_magic;	/* internal: initialized-cursor tag */
+  unsigned int	vc_stage;	/* internal: current scan stage */
+  unsigned int	vc_level;	/* internal: admin level being walked */
+  int		vc_state;	/* internal: current terminal state */
+  unsigned long	vc_generation;	/* internal: heap generation at begin */
+  void		*vc_pos;	/* internal: next node to check */
+} dmalloc_verify_cursor;
+
+/*
  * Dmalloc function IDs for the dmalloc_track_t callback function.
  */
 #define DMALLOC_FUNC_MALLOC	10	/* malloc function called */

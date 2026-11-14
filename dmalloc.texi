@@ -942,6 +942,77 @@ fence-post checking is not enabled, @samp{dmalloc_verify()} cannot check the fen
 
 @c --------------------------------
 
+@cindex dmalloc_verify_begin function
+@cindex dmalloc_verify_next function
+@cindex incremental heap check
+@cindex partial heap check
+
+The incremental heap-check routines split the work of a full
+@samp{dmalloc_verify(0)} into small steps so a long-lived server can do a
+little diagnosis between bursts of normal work instead of scanning the whole
+heap in one call.
+
+@deftypefun int dmalloc_verify_begin ( dmalloc_verify_cursor * @var{cursor} )
+
+Initialize a caller-provided @var{cursor} for a fresh incremental scan.  The
+cursor is designed to live on the caller's stack; this routine only sets it
+up, examines no memory, and never allocates.  It returns 1 on success or 0 if
+@var{cursor} is NULL.
+@end deftypefun
+
+@deftypefun int dmalloc_verify_next ( dmalloc_verify_cursor * @var{cursor}, unsigned long @var{budget}, unsigned long * @var{checked} )
+
+Continue the scan started by @samp{dmalloc_verify_begin()}, checking at most
+@var{budget} diagnostic nodes in this call, and write the number of nodes
+actually checked into @code{*@var{checked}} (which is always reset first).
+An administrative entry block counts as one node, and each used, free, or
+delayed-free slot counts as one node.  The checks applied to each node are
+the same ones a full @samp{dmalloc_verify(0)} runs; no node is skipped, and
+each real node is examined exactly once per scan.  Switching between the
+administration, used, free, and delayed-free stages, and walking an empty
+stage, do not consume the budget.
+
+The return value is one of:
+
+@table @code
+@item DMALLOC_SCAN_MORE (0)
+At least one node remains and the scan should be continued with another
+call.
+@item DMALLOC_SCAN_DONE (1)
+Every node has been checked.  This terminal call reports zero nodes in
+@code{*@var{checked}}.
+@item DMALLOC_SCAN_ERROR (-1)
+A checked node failed its diagnostics.  @samp{dmalloc_errno} and the log
+keep their usual meanings.
+@item DMALLOC_SCAN_STALE (-2)
+The heap changed after @samp{dmalloc_verify_begin()} so the saved position
+can no longer be trusted.  No old node is read in this call and
+@code{*@var{checked}} is zero.  Call @samp{dmalloc_verify_begin()} again to
+restart.
+@item DMALLOC_SCAN_INVALID (-3)
+A bad argument was supplied: a NULL cursor, a NULL @var{checked}, or a zero
+@var{budget}.  A scan's stored progress is not advanced by an invalid call.
+@end table
+
+A scan can only reach @samp{DMALLOC_SCAN_DONE} while the heap stays stable.
+A successful allocation, free, or in-place or moving realloc/recalloc
+invalidates every scan in progress, as does a real change to the diagnostic
+configuration; failed requests that leave the heap alone do not.  Read-only
+operations such as @samp{dmalloc_mark()}, @samp{dmalloc_examine()}, and the
+checks themselves do not invalidate a scan.  @samp{DMALLOC_SCAN_DONE},
+@samp{DMALLOC_SCAN_ERROR}, and @samp{DMALLOC_SCAN_STALE} are terminal
+states for a cursor; further calls return the same state without touching
+the heap until @samp{dmalloc_verify_begin()} is called again.
+
+@emph{Node budget versus byte scanning}: the @var{budget} bounds the number
+of diagnostic nodes, not the amount of work inside one node.  A single node
+may still scan many bytes (fence posts, blank areas, and the like), so the
+budget does not promise a fixed wall-clock time per call, only a fixed
+number of nodes.
+@end deftypefun
+
+@c --------------------------------
+
 @cindex dmalloc_debug function
 @cindex override debug settings
 @cindex set debug functionality flags
