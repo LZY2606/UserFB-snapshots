@@ -1,0 +1,16 @@
+# github.com/s0rg/compflag v1.1.1
+## explicit; go 1.24
+github.com/s0rg/compflag
+# github.com/s0rg/set v1.2.4
+## explicit; go 1.24
+github.com/s0rg/set
+# github.com/tdewolff/parse/v2 v2.8.13
+## explicit; go 1.11
+github.com/tdewolff/parse/v2
+github.com/tdewolff/parse/v2/buffer
+github.com/tdewolff/parse/v2/css
+github.com/tdewolff/parse/v2/js
+# golang.org/x/net v0.56.0
+## explicit; go 1.25.0
+golang.org/x/net/html
+golang.org/x/net/html/atom

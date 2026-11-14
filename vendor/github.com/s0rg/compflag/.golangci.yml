@@ -1,0 +1,46 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: all
+  disable:
+    - nonamedreturns
+    - paralleltest
+    - testpackage
+    - varnamelen
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gocritic:
+      enabled-tags:
+        - performance
+        - opinionated
+        - diagnostic
+        - style
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - cyclop
+          - funlen
+        path: ._test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
