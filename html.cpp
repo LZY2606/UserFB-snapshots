@@ -2,6 +2,13 @@
 
 namespace html {
 
+const std::string ns_uri::html = "http://www.w3.org/1999/xhtml";
+const std::string ns_uri::svg = "http://www.w3.org/2000/svg";
+const std::string ns_uri::mathml = "http://www.w3.org/1998/Math/MathML";
+const std::string ns_uri::xlink = "http://www.w3.org/1999/xlink";
+const std::string ns_uri::xml = "http://www.w3.org/XML/1998/namespace";
+const std::string ns_uri::xmlns = "http://www.w3.org/2000/xmlns/";
+
 const std::unordered_set<std::string> inline_tags = {"b", "big", "i", "small", "tt",
 	"abbr", "acronym", "cite", "code", "dfn", "em", "kbd", "strong", "samp",
 	"time", "var", "a", "bdo", "br", "img", "map", "object", "q",
@@ -15,11 +22,191 @@ const std::unordered_set<std::string> rawtext_tags = {"title", "textarea", "styl
 
 const std::string space_chars(" \f\n\r\t\v");
 
-selector::selector(const std::string& s) {
+namespace {
+
+// HTML Standard "adjust SVG tag names" (foreign content).
+const std::map<std::string, std::string>& svg_tag_names() {
+	static const std::map<std::string, std::string> table = {
+		{"altglyph", "altGlyph"}, {"altglyphdef", "altGlyphDef"}, {"altglyphitem", "altGlyphItem"},
+		{"animatecolor", "animateColor"}, {"animatemotion", "animateMotion"},
+		{"animatetransform", "animateTransform"}, {"clippath", "clipPath"}, {"feblend", "feBlend"},
+		{"fecolormatrix", "feColorMatrix"}, {"fecomponenttransfer", "feComponentTransfer"},
+		{"fecomposite", "feComposite"}, {"feconvolvematrix", "feConvolveMatrix"},
+		{"fediffuselighting", "feDiffuseLighting"}, {"fedisplacementmap", "feDisplacementMap"},
+		{"fedistantlight", "feDistantLight"}, {"fedropshadow", "feDropShadow"}, {"feflood", "feFlood"},
+		{"fefunca", "feFuncA"}, {"fefuncb", "feFuncB"}, {"fefuncg", "feFuncG"}, {"fefuncr", "feFuncR"},
+		{"fegaussianblur", "feGaussianBlur"}, {"feimage", "feImage"}, {"femerge", "feMerge"},
+		{"femergenode", "feMergeNode"}, {"femorphology", "feMorphology"}, {"feoffset", "feOffset"},
+		{"fepointlight", "fePointLight"}, {"fespecularlighting", "feSpecularLighting"},
+		{"fespotlight", "feSpotLight"}, {"fetile", "feTile"}, {"feturbulence", "feTurbulence"},
+		{"foreignobject", "foreignObject"}, {"glyphref", "glyphRef"},
+		{"lineargradient", "linearGradient"}, {"radialgradient", "radialGradient"},
+		{"textpath", "textPath"}
+	};
+	return table;
+}
+
+// HTML Standard "adjust SVG attributes".
+const std::map<std::string, std::string>& svg_attr_names() {
+	static const std::map<std::string, std::string> table = {
+		{"attributename", "attributeName"}, {"attributetype", "attributeType"},
+		{"basefrequency", "baseFrequency"}, {"baseprofile", "baseProfile"}, {"calcmode", "calcMode"},
+		{"clippathunits", "clipPathUnits"}, {"diffuseconstant", "diffuseConstant"},
+		{"edgemode", "edgeMode"}, {"filterunits", "filterUnits"}, {"glyphref", "glyphRef"},
+		{"gradienttransform", "gradientTransform"}, {"gradientunits", "gradientUnits"},
+		{"kernelmatrix", "kernelMatrix"}, {"kernelunitlength", "kernelUnitLength"},
+		{"keypoints", "keyPoints"}, {"keysplines", "keySplines"}, {"keytimes", "keyTimes"},
+		{"lengthadjust", "lengthAdjust"}, {"limitingconeangle", "limitingConeAngle"},
+		{"markerheight", "markerHeight"}, {"markerunits", "markerUnits"},
+		{"markerwidth", "markerWidth"}, {"maskcontentunits", "maskContentUnits"},
+		{"maskunits", "maskUnits"}, {"numoctaves", "numOctaves"}, {"pathlength", "pathLength"},
+		{"patterncontentunits", "patternContentUnits"}, {"patterntransform", "patternTransform"},
+		{"patternunits", "patternUnits"}, {"pointsatx", "pointsAtX"}, {"pointsaty", "pointsAtY"},
+		{"pointsatz", "pointsAtZ"}, {"preservealpha", "preserveAlpha"},
+		{"preserveaspectratio", "preserveAspectRatio"}, {"primitiveunits", "primitiveUnits"},
+		{"refx", "refX"}, {"refy", "refY"}, {"repeatcount", "repeatCount"}, {"repeatdur", "repeatDur"},
+		{"requiredextensions", "requiredExtensions"}, {"requiredfeatures", "requiredFeatures"},
+		{"specularconstant", "specularConstant"}, {"specularexponent", "specularExponent"},
+		{"spreadmethod", "spreadMethod"}, {"startoffset", "startOffset"},
+		{"stddeviation", "stdDeviation"}, {"stitchtiles", "stitchTiles"},
+		{"surfacescale", "surfaceScale"}, {"systemlanguage", "systemLanguage"},
+		{"tablevalues", "tableValues"}, {"targetx", "targetX"}, {"targety", "targetY"},
+		{"textlength", "textLength"}, {"viewbox", "viewBox"}, {"viewtarget", "viewTarget"},
+		{"xchannelselector", "xChannelSelector"}, {"ychannelselector", "yChannelSelector"},
+		{"zoomandpan", "zoomAndPan"}
+	};
+	return table;
+}
+
+// HTML Standard "adjust foreign attributes": qualified name -> namespace URI.
+const std::map<std::string, std::string>& foreign_attr_names() {
+	static const std::map<std::string, std::string> table = {
+		{"xlink:actuate", ns_uri::xlink}, {"xlink:arcrole", ns_uri::xlink},
+		{"xlink:href", ns_uri::xlink}, {"xlink:role", ns_uri::xlink},
+		{"xlink:show", ns_uri::xlink}, {"xlink:title", ns_uri::xlink},
+		{"xlink:type", ns_uri::xlink},
+		{"xml:base", ns_uri::xml}, {"xml:lang", ns_uri::xml}, {"xml:space", ns_uri::xml},
+		{"xmlns", ns_uri::xmlns}, {"xmlns:xlink", ns_uri::xmlns}
+	};
+	return table;
+}
+
+// Start tags that force a breakout from foreign content (HTML Standard).
+const std::unordered_set<std::string>& breakout_tags() {
+	static const std::unordered_set<std::string> table = {"b", "big", "blockquote", "body",
+		"br", "center", "code", "dd", "div", "dl", "dt", "em", "embed", "h1", "h2", "h3",
+		"h4", "h5", "h6", "head", "hr", "i", "img", "li", "listing", "menu", "meta",
+		"nobr", "ol", "p", "pre", "ruby", "s", "small", "span", "strong", "strike",
+		"sub", "sup", "table", "tt", "u", "ul", "var"};
+	return table;
+}
+
+std::string adjust_svg_tag(const std::string& name) {
+	auto it = svg_tag_names().find(name);
+	return it == svg_tag_names().end() ? name : it->second;
+}
+
+// Canonical attribute key for an element in the given namespace, applying the
+// SVG/MathML case adjustments and the foreign attribute namespace mapping.
+std::string adjust_foreign_attr_key(const std::string& element_ns, const std::string& key) {
+	std::string lower;
+	lower.reserve(key.size());
+	for(char c : key) {
+		lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	if(element_ns == ns_uri::svg) {
+		auto it = svg_attr_names().find(lower);
+		if(it != svg_attr_names().end()) {
+			return it->second;
+		}
+	} else if(element_ns == ns_uri::mathml) {
+		if(lower == "definitionurl") {
+			return "definitionURL";
+		}
+	}
+	if(foreign_attr_names().count(lower)) {
+		return lower;
+	}
+	return key;
+}
+
+bool is_mathml_text_integration_point(const node* n) {
+	static const std::unordered_set<std::string> text_ips = {"mi", "mo", "mn", "ms", "mtext"};
+	return n->type_node == node_t::tag && n->ns == ns_uri::mathml && text_ips.count(n->tag_name);
+}
+
+bool is_html_integration_point(const node* n) {
+	if(n->type_node != node_t::tag) {
+		return false;
+	}
+	if(n->ns == ns_uri::svg) {
+		return n->tag_name == "foreignObject" || n->tag_name == "desc" || n->tag_name == "title";
+	}
+	if(n->ns == ns_uri::mathml && n->tag_name == "annotation-xml") {
+		std::string encoding = n->get_attr("encoding");
+		return utils::ieq(encoding, "text/html") || utils::ieq(encoding, "application/xhtml+xml");
+	}
+	return false;
+}
+
+bool is_breakout_start_tag(const node* n) {
+	if(breakout_tags().count(n->tag_name)) {
+		return true;
+	}
+	return n->tag_name == "font" &&
+		(n->has_attr("color") || n->has_attr("face") || n->has_attr("size"));
+}
+
+bool close_name_matches(const node* el, const std::string& close_name) {
+	if(el->tag_name == close_name) {
+		return true;
+	}
+	// End tags are tokenized in lowercase; recover the canonical foreign name.
+	return el->ns != ns_uri::html && !el->ns.empty() && el->tag_name == adjust_svg_tag(close_name);
+}
+
+// Wrap text so it survives a reparse inside foreign content.
+std::string cdata_wrap(const std::string& content) {
+	std::string out = "<![CDATA[";
+	size_t pos = 0, found;
+	while((found = content.find("]]>", pos)) != std::string::npos) {
+		out.append(content, pos, found - pos);
+		out += "]]]]><![CDATA[>";
+		pos = found + 3;
+	}
+	out.append(content, pos, std::string::npos);
+	out += "]]>";
+	return out;
+}
+
+bool needs_cdata(const std::string& content) {
+	return content.find('<') != std::string::npos || content.find('&') != std::string::npos;
+}
+
+bool is_foreign_text_parent(const node* parent) {
+	return parent && parent->type_node == node_t::tag && !parent->ns.empty() && parent->ns != ns_uri::html;
+}
+
+template<class InputIt>
+bool look_ahead_cs(InputIt it, InputIt end, const char* str, size_t len) {
+	for(size_t i = 0; i < len; i++, it++) {
+		if(it == end || *it != str[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+}
+
+selector::selector(const std::string& s) : selector(s, std::map<std::string, std::string>()) {}
+
+selector::selector(const std::string& s, const std::map<std::string, std::string>& bindings) {
 	selector_matcher matcher;
 	condition match_condition;
 	char c = 0;
 	bool reconsume = false;
+	bool parse_error = false;
 	state_t state = state_t::tag;
 	if(s == "*") {
 		matcher.all_match = true;
@@ -38,6 +225,21 @@ selector::selector(const std::string& s) {
 				matcher.conditions.emplace_back();
 			}
 			matcher.conditions.back().push_back(std::move(match_condition));
+		}
+	};
+	auto resolve_prefix = [&](const std::string& prefix, ns_t& mode, std::string& uri) {
+		if(prefix.empty()) {
+			mode = ns_t::none;
+		} else if(prefix == "*") {
+			mode = ns_t::any;
+		} else {
+			auto bound = bindings.find(prefix);
+			if(bound == bindings.end()) {
+				parse_error = true;
+			} else {
+				mode = ns_t::uri;
+				uri = bound->second;
+			}
 		}
 	};
 	do {
@@ -72,11 +274,18 @@ selector::selector(const std::string& s) {
 			break;
 			case state_t::tag:
 				if(is_state_route(c)) {
+					if(match_condition.tag_ns != ns_t::unset && match_condition.tag_name.empty()) {
+						parse_error = true; // incomplete qualified name, e.g. "svg|"
+					}
 					save_cond(match_condition.tag_name);
 					reconsume = true;
 					state = state_t::route;
-				} else if(utils::is_uppercase_alpha(c)) {
-					match_condition.tag_name += std::tolower(c);
+				} else if(c == '|') {
+					if(match_condition.tag_ns != ns_t::unset) {
+						parse_error = true;
+					}
+					resolve_prefix(match_condition.tag_name, match_condition.tag_ns, match_condition.tag_ns_uri);
+					match_condition.tag_name.clear();
 				} else {
 					match_condition.tag_name += c;
 				}
@@ -122,13 +331,28 @@ selector::selector(const std::string& s) {
 			break;
 			case state_t::attr:
 				if(c == ']') {
+					if(match_condition.attr_ns != ns_t::unset && match_condition.attr.empty()) {
+						parse_error = true; // incomplete qualified name, e.g. "[x|]"
+					}
 					save_cond(match_condition.attr);
 					state = state_t::route;
+				} else if(c == '*' && match_condition.attr.empty() && it != s.end() && *it == '|') {
+					// wildcard namespace prefix "[*|name]", not the *= operator
+					if(match_condition.attr_ns != ns_t::unset) {
+						parse_error = true;
+					}
+					match_condition.attr_ns = ns_t::any;
+					it++; // consume the '|'
+				} else if(c == '|' && !(it != s.end() && *it == '=')) {
+					// namespace separator; "|=" stays the dash-match operator
+					if(match_condition.attr_ns != ns_t::unset) {
+						parse_error = true;
+					}
+					resolve_prefix(match_condition.attr, match_condition.attr_ns, match_condition.attr_ns_uri);
+					match_condition.attr.clear();
 				} else if(c == '=' || c == '*' || c == '^' || c == '$' || c == '!' || c == '~' || c == '|') {
 					reconsume = true;
 					state = state_t::attr_operator;
-				} else if(utils::is_uppercase_alpha(c)) {
-					match_condition.attr += std::tolower(c);
 				} else {
 					match_condition.attr += c;
 				}
@@ -150,21 +374,60 @@ selector::selector(const std::string& s) {
 			break;
 		}
 	} while(c || reconsume);
+	if(parse_error) {
+		matchers.clear();
+		valid = false;
+		return;
+	}
+	auto default_ns = bindings.find("");
+	for(auto& m : matchers) {
+		for(auto& group : m.conditions) {
+			// The default namespace constrains the compound's type selector;
+			// a compound with an explicit p|name type keeps its own constraint.
+			bool explicit_type = false;
+			for(auto& cond : group) {
+				if(cond.tag_ns != ns_t::unset) {
+					explicit_type = true;
+				}
+			}
+			for(auto& cond : group) {
+				if(cond.tag_ns == ns_t::unset) {
+					if(!explicit_type && default_ns != bindings.end()) {
+						cond.tag_ns = ns_t::uri;
+						cond.tag_ns_uri = default_ns->second;
+					} else {
+						cond.tag_ns = ns_t::any;
+					}
+				}
+				if(cond.attr_ns == ns_t::unset) {
+					cond.attr_ns = ns_t::none;
+				}
+			}
+		}
+	}
 }
 
 selector::condition::condition(condition&& c) noexcept
 	: tag_name(std::move(c.tag_name))
+	, tag_ns(c.tag_ns)
+	, tag_ns_uri(std::move(c.tag_ns_uri))
 	, id(std::move(c.id))
 	, class_name(std::move(c.class_name))
 	, index(std::move(c.index))
 	, attr(std::move(c.attr))
+	, attr_ns(c.attr_ns)
+	, attr_ns_uri(std::move(c.attr_ns_uri))
 	, attr_value(std::move(c.attr_value))
 	, attr_operator(std::move(c.attr_operator)) {
 	c.tag_name.clear();
+	c.tag_ns = ns_t::unset;
+	c.tag_ns_uri.clear();
 	c.id.clear();
 	c.class_name.clear();
 	c.index = "0";
 	c.attr.clear();
+	c.attr_ns = ns_t::unset;
+	c.attr_ns_uri.clear();
 	c.attr_value.clear();
 	c.attr_operator.clear();
 }
@@ -182,8 +445,21 @@ selector::selector_matcher::selector_matcher(selector_matcher&& m) noexcept
 
 bool selector::condition::operator()(const node& d) const {
 	const int i = std::stoi(index);
+	// Element namespace constraint applies to every condition of the compound.
+	if(tag_ns == ns_t::none && !d.ns.empty()) {
+		return false;
+	}
+	if(tag_ns == ns_t::uri && d.ns != tag_ns_uri) {
+		return false;
+	}
+	// HTML element and attribute names compare ASCII case-insensitively;
+	// foreign names compare exactly as adjusted.
+	const bool html_el = d.ns.empty() || d.ns == ns_uri::html;
 	if(!tag_name.empty()) {
-		return d.tag_name == tag_name;
+		if(tag_name == "*") {
+			return true;
+		}
+		return html_el ? utils::ieq(d.tag_name, tag_name) : d.tag_name == tag_name;
 	}
 	if(!id.empty()) {
 		auto it = d.attributes.find("id");
@@ -213,25 +489,46 @@ bool selector::condition::operator()(const node& d) const {
 		return d.index < i;
 	}
 	if(!attr.empty()) {
-		auto it = d.attributes.find(attr);
-		if(it == d.attributes.end()) {
+		const std::string* value = nullptr;
+		for(auto& a : d.attributes) {
+			auto ns_it = d.attr_ns.find(a.first);
+			std::string ans = ns_it == d.attr_ns.end() ? std::string() : ns_it->second;
+			if(attr_ns == ns_t::none && !ans.empty()) {
+				continue;
+			}
+			if(attr_ns == ns_t::uri && ans != attr_ns_uri) {
+				continue;
+			}
+			std::string local = a.first;
+			if(!ans.empty()) {
+				auto colon = a.first.find(':');
+				if(colon != std::string::npos) {
+					local = a.first.substr(colon + 1);
+				}
+			}
+			if(html_el ? utils::ieq(local, attr) : local == attr) {
+				value = &a.second;
+				break;
+			}
+		}
+		if(!value) {
 			return attr_operator == "!=";
 		}
 		if(attr_operator == "=") {
-			return it->second == attr_value;
+			return *value == attr_value;
 		} else if(attr_operator == "^=") {
-			return it->second.find(attr_value) == 0;
+			return value->find(attr_value) == 0;
 		} else if(attr_operator == "$=") {
-			return attr_value.size() <= it->second.size() && it->second.find(attr_value) == it->second.size() - attr_value.size();
+			return attr_value.size() <= value->size() && value->find(attr_value) == value->size() - attr_value.size();
 		} else if(attr_operator == "!=") {
-			return it->second != attr_value;
+			return *value != attr_value;
 		} else if(attr_operator == "*=") {
-			return it->second.find(attr_value) != std::string::npos;
+			return value->find(attr_value) != std::string::npos;
 		} else if(attr_operator == "~=") {
-			return utils::contains_word(it->second, attr_value);
+			return utils::contains_word(*value, attr_value);
 		} else if(attr_operator == "|=") {
-			return it->second.find(attr_value) == 0 && 
-				(attr_value.size() == it->second.size() || it->second[attr_value.size()] == '-');
+			return value->find(attr_value) == 0 &&
+				(attr_value.size() == value->size() || (*value)[attr_value.size()] == '-');
 		}
 		return true;
 	}
@@ -264,9 +561,11 @@ node::node(const node& d)
 	, type_tag(d.type_tag)
 	, self_closing(d.self_closing)
 	, tag_name(d.tag_name)
+	, ns(d.ns)
 	, content(d.content)
 	, bogus_comment(d.bogus_comment)
-	, attributes(d.attributes) {
+	, attributes(d.attributes)
+	, attr_ns(d.attr_ns) {
 	for(auto& n : d.children) {
 		copy(n.get(), this);
 	}
@@ -329,12 +628,20 @@ void node::to_html(std::ostream& out, bool child, bool text, int level, int& dee
 			c->to_html(out, child, text, 0, deep, ind, last_is_block, sibling_is_block);
 		}
 	} else if(type_node == node_t::text) {
-		if(text && std::any_of(content.begin(), content.end(), [](char c) {
+		bool foreign = is_foreign_text_parent(parent);
+		if(text && (foreign ? !content.empty() : std::any_of(content.begin(), content.end(), [](char c) {
 			return !utils::is_space(c);
-		})) {
+		}))) {
 			auto str = content;
-			if(parent && rawtext_tags.find(parent->tag_name) == rawtext_tags.end()) {
+			bool preserve = foreign;
+			if(!preserve && parent && parent->ns == ns_uri::html && rawtext_tags.find(parent->tag_name) != rawtext_tags.end()) {
+				preserve = true;
+			}
+			if(!preserve) {
 				str = utils::replace_any_copy(str, space_chars, " ");
+			}
+			if(foreign && needs_cdata(str)) {
+				str = cdata_wrap(str);
 			}
 			if(last_is_block) {
 				out << '\n' << std::string(deep, ind);
@@ -344,7 +651,7 @@ void node::to_html(std::ostream& out, bool child, bool text, int level, int& dee
 		}
 	} else if(type_node == node_t::tag) {
 		bool old_is_block = last_is_block;
-		last_is_block = inline_tags.find(tag_name) == inline_tags.end();
+		last_is_block = !(ns == ns_uri::html && inline_tags.find(tag_name) != inline_tags.end());
 		if(pos && (old_is_block || last_is_block)) {
 			out << '\n' << std::string(deep, ind);
 			if(level && last_is_block && !sibling_is_block) {
@@ -397,12 +704,20 @@ void node::to_raw_html(std::ostream& out, bool child, bool text) const {
 			c->to_raw_html(out, child, text);
 		}
 	} else if(type_node == node_t::text) {
-		if(text && std::any_of(content.begin(), content.end(), [](char c) {
+		bool foreign = is_foreign_text_parent(parent);
+		if(text && (foreign ? !content.empty() : std::any_of(content.begin(), content.end(), [](char c) {
 			return !utils::is_space(c);
-		})) {
+		}))) {
 			auto str = content;
-			if(parent && rawtext_tags.find(parent->tag_name) == rawtext_tags.end()) {
+			bool preserve = foreign;
+			if(!preserve && parent && parent->ns == ns_uri::html && rawtext_tags.find(parent->tag_name) != rawtext_tags.end()) {
+				preserve = true;
+			}
+			if(!preserve) {
 				str = utils::replace_any_copy(str, space_chars, " ");
+			}
+			if(foreign && needs_cdata(str)) {
+				str = cdata_wrap(str);
 			}
 			out << str;
 		}
@@ -461,10 +776,10 @@ void node::to_text(std::ostream& out, bool& is_block) const {
 		}
 		out << content;
 	} else if(type_node == node_t::tag) {
-		if(tag_name == "br") {
+		if(ns == ns_uri::html && tag_name == "br") {
 			out << '\n';
 		}
-		bool is_block_n = inline_tags.find(tag_name) == inline_tags.end();
+		bool is_block_n = !(ns == ns_uri::html && inline_tags.find(tag_name) != inline_tags.end());
 		if(is_block_n) {
 			is_block = true;
 		}
@@ -500,16 +815,79 @@ std::string node::get_attr(const std::string& attr) const {
 	return it->second;
 }
 
+bool node::has_attr_ns(const std::string& uri, const std::string& local) const {
+	for(auto& a : attributes) {
+		auto ns_it = attr_ns.find(a.first);
+		std::string ans = ns_it == attr_ns.end() ? std::string() : ns_it->second;
+		if(ans != uri) {
+			continue;
+		}
+		std::string lname = a.first;
+		if(!ans.empty()) {
+			auto colon = a.first.find(':');
+			if(colon != std::string::npos) {
+				lname = a.first.substr(colon + 1);
+			}
+		}
+		if(lname == local) {
+			return true;
+		}
+	}
+	return false;
+}
+
+std::string node::get_attr_ns(const std::string& uri, const std::string& local) const {
+	for(auto& a : attributes) {
+		auto ns_it = attr_ns.find(a.first);
+		std::string ans = ns_it == attr_ns.end() ? std::string() : ns_it->second;
+		if(ans != uri) {
+			continue;
+		}
+		std::string lname = a.first;
+		if(!ans.empty()) {
+			auto colon = a.first.find(':');
+			if(colon != std::string::npos) {
+				lname = a.first.substr(colon + 1);
+			}
+		}
+		if(lname == local) {
+			return a.second;
+		}
+	}
+	return std::string();
+}
+
 void node::set_attr(const std::string& key, const std::string& val) {
-	attributes[key] = val;
+	if(type_node == node_t::tag && !ns.empty() && ns != ns_uri::html) {
+		std::string canonical = adjust_foreign_attr_key(ns, key);
+		attributes[canonical] = val;
+		auto ns_it = foreign_attr_names().find(canonical);
+		if(ns_it != foreign_attr_names().end()) {
+			attr_ns[canonical] = ns_it->second;
+		} else {
+			attr_ns.erase(canonical);
+		}
+	} else {
+		attributes[key] = val;
+	}
 }
 
 void node::set_attr(const std::map<std::string, std::string>& attr) {
-	attributes = attr;
+	attributes.clear();
+	attr_ns.clear();
+	for(auto& a : attr) {
+		set_attr(a.first, a.second);
+	}
 }
 
 void node::del_attr(const std::string& key) {
-	attributes.erase(key);
+	if(type_node == node_t::tag && !ns.empty() && ns != ns_uri::html) {
+		std::string canonical = adjust_foreign_attr_key(ns, key);
+		attributes.erase(canonical);
+		attr_ns.erase(canonical);
+	} else {
+		attributes.erase(key);
+	}
 }
 
 void node::copy(const node* n, node* p) {
@@ -519,8 +897,10 @@ void node::copy(const node* n, node* p) {
 	new_node->type_tag = n->type_tag;
 	new_node->self_closing = n->self_closing;
 	new_node->tag_name = n->tag_name;
+	new_node->ns = n->ns;
 	new_node->content = n->content;
 	new_node->attributes = n->attributes;
+	new_node->attr_ns = n->attr_ns;
 	new_node->bogus_comment = n->bogus_comment;
 	if(new_node->type_node == node_t::tag) {
 		new_node->index = p->node_count++;
@@ -538,8 +918,12 @@ node& node::append(const node& n) {
 
 void parser::operator()(node& nodeptr) {
 	for(auto& c : callback_node) {
-		if(!c.first) {
-			c.second(nodeptr);
+		if(c.first.matchers.empty()) {
+			// An unfiltered (default) selector still matches everything;
+			// an invalid selector never degrades into an all-node callback.
+			if(c.first.valid) {
+				c.second(nodeptr);
+			}
 			continue;
 		}
 		auto it = c.first.begin();
@@ -576,12 +960,62 @@ void parser::handle_node() {
 	node* new_node_ptr = new_node.get();
 	if(new_node_ptr->type_node == node_t::tag) {
 		if(new_node_ptr->type_tag == tag_t::open) {
+			// Resolve namespace, canonical name and attribute identity before
+			// the node is inserted and before any callback observes it.
+			bool html_content = true;
+			if(current_ptr->type_node == node_t::tag && current_ptr->ns != ns_uri::html) {
+				html_content = false;
+				if(is_html_integration_point(current_ptr)) {
+					html_content = true;
+				} else if(is_mathml_text_integration_point(current_ptr) &&
+						new_node_ptr->tag_name != "mglyph" && new_node_ptr->tag_name != "malignmark") {
+					html_content = true;
+				} else if(current_ptr->ns == ns_uri::mathml && current_ptr->tag_name == "annotation-xml" &&
+						new_node_ptr->tag_name == "svg") {
+					html_content = true;
+				} else if(is_breakout_start_tag(new_node_ptr)) {
+					// Foreign breakout: pop back to HTML context and reprocess.
+					while(current_ptr->type_node == node_t::tag && current_ptr->ns != ns_uri::html &&
+							!is_html_integration_point(current_ptr) &&
+							!is_mathml_text_integration_point(current_ptr) && current_ptr->parent) {
+						current_ptr = current_ptr->parent;
+					}
+					html_content = true;
+				}
+			}
+			if(html_content) {
+				if(new_node_ptr->tag_name == "svg") {
+					new_node_ptr->ns = ns_uri::svg;
+				} else if(new_node_ptr->tag_name == "math") {
+					new_node_ptr->ns = ns_uri::mathml;
+				} else {
+					new_node_ptr->ns = ns_uri::html;
+				}
+			} else {
+				new_node_ptr->ns = current_ptr->ns;
+			}
+			if(new_node_ptr->ns == ns_uri::svg) {
+				new_node_ptr->tag_name = adjust_svg_tag(new_node_ptr->tag_name);
+			}
+			if(new_node_ptr->ns != ns_uri::html) {
+				std::map<std::string, std::string> adjusted;
+				for(auto& a : new_node_ptr->attributes) {
+					std::string key = adjust_foreign_attr_key(new_node_ptr->ns, a.first);
+					adjusted[key] = a.second;
+					auto ns_it = foreign_attr_names().find(key);
+					if(ns_it != foreign_attr_names().end()) {
+						new_node_ptr->attr_ns[key] = ns_it->second;
+					}
+				}
+				new_node_ptr->attributes = std::move(adjusted);
+			}
+			new_node_ptr->parent = current_ptr;
 			new_node_ptr->index = current_ptr->node_count++;
 			current_ptr->children.push_back(std::move(new_node));
 			if(!new_node_ptr->self_closing) {
-				if(void_tags.find(new_node_ptr->tag_name) != void_tags.end()) {
+				if(new_node_ptr->ns == ns_uri::html && void_tags.find(new_node_ptr->tag_name) != void_tags.end()) {
 					new_node_ptr->self_closing = true;
-				} else if(rawtext_tags.find(new_node_ptr->tag_name) != rawtext_tags.end()) {
+				} else if(new_node_ptr->ns == ns_uri::html && rawtext_tags.find(new_node_ptr->tag_name) != rawtext_tags.end()) {
 					current_ptr = new_node_ptr;
 					state = state_t::rawtext;
 				} else {
@@ -592,11 +1026,11 @@ void parser::handle_node() {
 		} else if(new_node_ptr->type_tag == tag_t::close) {
 			auto _current_ptr = current_ptr;
 			std::vector<node*> not_closed;
-			while(_current_ptr->parent && _current_ptr->tag_name != new_node_ptr->tag_name) {
+			while(_current_ptr->parent && !close_name_matches(_current_ptr, new_node_ptr->tag_name)) {
 				not_closed.push_back(_current_ptr);
 				_current_ptr = _current_ptr->parent;
 			}
-			if(_current_ptr->parent && _current_ptr->tag_name == new_node_ptr->tag_name) {
+			if(_current_ptr->parent && close_name_matches(_current_ptr, new_node_ptr->tag_name)) {
 				for(auto& c : callback_err) {
 					for(auto n : not_closed) {
 						c(err_t::tag_not_closed, *n);
@@ -609,6 +1043,9 @@ void parser::handle_node() {
 					new_node_ptr->content.clear();
 					current_ptr->children.push_back(std::move(text_node));
 				}
+				// Report the canonical identity of the matched element.
+				new_node_ptr->tag_name = _current_ptr->tag_name;
+				new_node_ptr->ns = _current_ptr->ns;
 				current_ptr = _current_ptr->parent;
 				(*this)(*new_node_ptr);
 			}
@@ -631,7 +1068,9 @@ node_ptr html::parser::parse(const std::string& html) {
 }
 
 node_ptr html::parser::parse(std::istream& html) {
-	return parser::parse(std::istreambuf_iterator<char>(html), std::istreambuf_iterator<char>());
+	// Buffer first so look-ahead behaves exactly like the string entry point.
+	std::string buffered((std::istreambuf_iterator<char>(html)), std::istreambuf_iterator<char>());
+	return parser::parse(buffered.begin(), buffered.end());
 }
 
 template<class InputIt>
@@ -914,12 +1353,47 @@ node_ptr html::parser::parse(InputIt it, InputIt end) {
 					handle_node();
 					new_node->type_node = node_t::doctype;
 					reconsume = true;
+				} else if(c == '[' && current_ptr->type_node == node_t::tag && current_ptr->ns != ns_uri::html &&
+						look_ahead_cs(it, end, "[CDATA[", 7)) {
+					// CDATA is text only while the adjusted current node is
+					// non-HTML; in HTML it stays a bogus comment.
+					std::advance(it, 7);
+					state = state_t::cdata;
+					reconsume = true;
 				} else {
 					state = state_t::bogus_comment;
 					handle_node();
 					new_node->type_node = node_t::comment;
 					new_node->bogus_comment = true;
 					new_node->content += c;
+				}
+			break;
+			case state_t::cdata:
+				if(c == ']') {
+					state = state_t::cdata_bracket;
+				} else {
+					new_node->content += c;
+				}
+			break;
+			case state_t::cdata_bracket:
+				if(c == ']') {
+					state = state_t::cdata_end;
+				} else {
+					new_node->content += ']';
+					reconsume = true;
+					state = state_t::cdata;
+				}
+			break;
+			case state_t::cdata_end:
+				if(c == '>') {
+					state = state_t::data;
+				} else if(c == ']') {
+					new_node->content += ']';
+				} else {
+					new_node->content += ']';
+					new_node->content += ']';
+					reconsume = true;
+					state = state_t::cdata;
 				}
 			break;
 			case state_t::comment_start: // 43
@@ -1015,6 +1489,7 @@ node utils::make_node(node_t type, const std::string& str, const std::map<std::s
 	node.type_node = type;
 	if(type == node_t::tag) {
 		node.tag_name = str;
+		node.ns = ns_uri::html;
 		if(void_tags.find(str) != void_tags.end()) {
 			node.self_closing = true;
 		}
@@ -1060,5 +1535,9 @@ std::string utils::replace_any_copy(const std::string& subject, const std::strin
     ret.append(subject, prev, std::string::npos);
     return ret;
 }
+
+// Explicit instantiations for the parse entry points used through the header.
+template node_ptr html::parser::parse<std::string::const_iterator>(std::string::const_iterator, std::string::const_iterator);
+template node_ptr html::parser::parse<std::string::iterator>(std::string::iterator, std::string::iterator);
 
 }

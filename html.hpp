@@ -21,6 +21,16 @@ namespace html {
 
 	using node_ptr = std::unique_ptr<node>;
 
+	// Standard namespace URIs used for element/attribute identity.
+	namespace ns_uri {
+		extern const std::string html;    // http://www.w3.org/1999/xhtml
+		extern const std::string svg;     // http://www.w3.org/2000/svg
+		extern const std::string mathml;  // http://www.w3.org/1998/Math/MathML
+		extern const std::string xlink;   // http://www.w3.org/1999/xlink
+		extern const std::string xml;     // http://www.w3.org/XML/1998/namespace
+		extern const std::string xmlns;   // http://www.w3.org/2000/xmlns/
+	}
+
 	enum class node_t {
 		none,
 		text,
@@ -48,11 +58,13 @@ namespace html {
 		, type_tag(d.type_tag)
 		, self_closing(d.self_closing)
 		, tag_name(std::move(d.tag_name))
+		, ns(std::move(d.ns))
 		, content(std::move(d.content))
 		, parent(nullptr)
 		, bogus_comment(d.bogus_comment)
 		, children(std::move(d.children))
 		, attributes(std::move(d.attributes))
+		, attr_ns(std::move(d.attr_ns))
 		, index(0)
 		, node_count(d.node_count) {}
 		node* at(size_t i) const {
@@ -92,8 +104,16 @@ namespace html {
 		node* get_parent() const {
 			return parent;
 		}
+		// Element namespace URI (HTML/SVG/MathML); empty for non-elements.
+		std::string namespace_uri() const {
+			return type_node == node_t::tag ? ns : std::string();
+		}
 		bool has_attr(const std::string&) const;
 		std::string get_attr(const std::string&) const;
+		// Attribute lookup by namespace URI + local name. Plain attributes
+		// have an empty URI; missing attributes return an empty string.
+		bool has_attr_ns(const std::string& uri, const std::string& local) const;
+		std::string get_attr_ns(const std::string& uri, const std::string& local) const;
 		void set_attr(const std::string&, const std::string&);
 		void set_attr(const std::map<std::string, std::string>& attributes);
 		void del_attr(const std::string&);
@@ -103,12 +123,14 @@ namespace html {
 		tag_t type_tag = tag_t::none;
 		bool self_closing = false;
 		std::string tag_name;
+		std::string ns;
 		std::string content;
 	private:
 		node* parent = nullptr;
 		bool bogus_comment = false;
 		std::vector<node_ptr> children;
 		std::map<std::string, std::string> attributes;
+		std::map<std::string, std::string> attr_ns;
 		int index = 0;
 		int node_count = 0;
 		void copy(const node*, node*);
@@ -124,20 +146,30 @@ namespace html {
 	public:
 		selector() = default;
 		selector(const std::string&);
+		// bindings: prefix -> namespace URI snapshot taken at compile time;
+		// the empty prefix declares the default element namespace.
+		selector(const std::string&, const std::map<std::string, std::string>& bindings);
 		selector(const char* s) : selector(std::string(s)) {}
 		operator bool() const {
 			return !matchers.empty();
 		}
 	private:
+		enum class ns_t {
+			unset, any, none, uri
+		};
 		struct condition {
 			condition() = default;
 			condition(const condition& d) = default;
 			condition(condition&&) noexcept;
 			std::string tag_name;
+			ns_t tag_ns = ns_t::unset;
+			std::string tag_ns_uri;
 			std::string id;
 			std::string class_name;
 			std::string index = "0";
 			std::string attr;
+			ns_t attr_ns = ns_t::unset;
+			std::string attr_ns_uri;
 			std::string attr_value;
 			std::string attr_operator;
 			bool operator()(const node&) const;
@@ -161,6 +193,7 @@ namespace html {
 			return matchers.end();
 		}
 		std::vector<selector_matcher> matchers;
+		bool valid = true;
 		enum class state_t {
 			route, tag, st_class, id, st_operator, index, attr, attr_operator, attr_val
 		};
@@ -189,11 +222,11 @@ namespace html {
 		std::vector<std::pair<selector, std::function<void(node&)>>> callback_node;
 		std::vector<std::function<void(err_t, node&)>> callback_err;
 		enum class state_t {
-			data, rawtext, tag_open, end_tag_open, tag_name, rawtext_less_than_sign, rawtext_end_tag_open, rawtext_end_tag_name, 
-			before_attribute_name, attribute_name, after_attribute_name, before_attribute_value, attribute_value_double, 
-			attribute_value_single, attribute_value_unquoted, after_attribute_value_quoted, self_closing, bogus_comment, 
-			markup_dec_open_state, comment_start, comment_start_dash, comment, comment_end_dash, comment_end, 
-			before_doctype_name, doctype_name
+			data, rawtext, tag_open, end_tag_open, tag_name, rawtext_less_than_sign, rawtext_end_tag_open, rawtext_end_tag_name,
+			before_attribute_name, attribute_name, after_attribute_name, before_attribute_value, attribute_value_double,
+			attribute_value_single, attribute_value_unquoted, after_attribute_value_quoted, self_closing, bogus_comment,
+			markup_dec_open_state, comment_start, comment_start_dash, comment, comment_end_dash, comment_end,
+			before_doctype_name, doctype_name, cdata, cdata_bracket, cdata_end
 		} state;
 	};
 
@@ -230,6 +263,11 @@ namespace html {
 		}
 		inline bool is_space(char c) {
 			return c == 0x09 || c == 0x0A || c == 0x0C || c == 0x20 || c == 0x0D;
+		}
+		inline bool ieq(const std::string& a, const std::string& b) {
+			return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+				return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+			});
 		}
 
 	}
