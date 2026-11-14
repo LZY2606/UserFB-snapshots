@@ -156,6 +156,36 @@ void par_shapes_merge_and_free(par_shapes_mesh* dst, par_shapes_mesh* src);
 // a Cornell Box.  Pass 0 for nfaces to reverse every face in the mesh.
 void par_shapes_invert(par_shapes_mesh*, int startface, int nfaces);
 
+// Re-orient the closed shells of a triangle soup so that the mesh describes
+// solid boundaries consistently.  Connectivity is determined by vertex index
+// only; coincident positions are never welded.  Every edge must be shared by
+// exactly two triangles, the faces around each vertex must form a single
+// ring, and each connected component must be consistently orientable.  These
+// conditions are validated, not repaired: invalid input (out-of-range
+// indices, non-finite points, zero-area or duplicate faces, open or
+// over-shared edges, multi-ring vertex fans, non-orientable components)
+// makes the function return false.  The caller guarantees that the shells
+// are embedded (no self-intersections) and separated by positive gaps;
+// intersections are not detected.
+//
+// On success, shared edges wind consistently and each shell faces according
+// to its nesting depth: shells contained by an even number of other shells
+// (outer boundaries) face away from the bounded region they enclose, while
+// shells at odd depth (cavity walls) face into it.  Containment is decided
+// against the actual triangle surfaces, never bounding boxes.  Face order
+// and the first index of each face are preserved; a face is only ever
+// modified by swapping its second and third indices.  Points and texture
+// coordinates are never modified.  If the mesh has normals, they are
+// recomputed from the final winding (area-weighted, unit length, zero for
+// unreferenced vertices); otherwise normals stays null.
+//
+// If face_depth is not null, it must point to ntriangles ints owned by the
+// caller, which receive the nesting depth of each face's shell (0 for
+// outermost).  It is written only on success.  On failure (invalid input or
+// allocation failure) the mesh and face_depth are left untouched and false
+// is returned.  An empty mesh is trivially valid and returns true.
+bool par_shapes_orient_solid(par_shapes_mesh* mesh, int* face_depth);
+
 // Remove all triangles whose area is less than minarea.
 void par_shapes_remove_degenerate(par_shapes_mesh*, float minarea);
 
@@ -891,6 +921,461 @@ void par_shapes_invert(par_shapes_mesh* m, int face, int nfaces)
         PAR_SWAP(PAR_SHAPES_T, tri[0], tri[2]);
         tri += 3;
     }
+}
+
+typedef struct {
+    uint32_t lo;
+    uint32_t hi;
+    uint64_t fc; // Flattened corner index: 3 * face + corner.
+} par_shapes__oredge;
+
+static int par_shapes__cmp_oredge(const void* pa, const void* pb)
+{
+    par_shapes__oredge const* a = (par_shapes__oredge const*) pa;
+    par_shapes__oredge const* b = (par_shapes__oredge const*) pb;
+    if (a->lo != b->lo) return a->lo < b->lo ? -1 : 1;
+    if (a->hi != b->hi) return a->hi < b->hi ? -1 : 1;
+    return 0;
+}
+
+static int par_shapes__cmp_uvec3(const void* pa, const void* pb)
+{
+    uint32_t const* a = (uint32_t const*) pa;
+    uint32_t const* b = (uint32_t const*) pb;
+    for (int i = 0; i < 3; i++) {
+        if (a[i] != b[i]) return a[i] < b[i] ? -1 : 1;
+    }
+    return 0;
+}
+
+bool par_shapes_orient_solid(par_shapes_mesh* mesh, int* face_depth)
+{
+    if (!mesh) {
+        return false;
+    }
+    int np = mesh->npoints;
+    int nt = mesh->ntriangles;
+    if (np < 0 || nt < 0 || (np > 0 && !mesh->points) ||
+        (nt > 0 && !mesh->triangles)) {
+        return false;
+    }
+    float const* points = mesh->points;
+    PAR_SHAPES_T* tris = mesh->triangles;
+    for (int64_t i = 0, n = 3 * (int64_t) np; i < n; i++) {
+        if (!(points[i] >= -FLT_MAX && points[i] <= FLT_MAX)) {
+            return false;
+        }
+    }
+    if (nt == 0) {
+        if (mesh->normals) {
+            memset(mesh->normals, 0, sizeof(float) * 3 * (size_t) np);
+        }
+        return true;
+    }
+    if (np == 0) {
+        return false;
+    }
+
+    // Validate indices and areas, and measure the bounding box diagonal.
+    double bmin[3] = {points[0], points[1], points[2]};
+    double bmax[3] = {points[0], points[1], points[2]};
+    for (int i = 1; i < np; i++) {
+        for (int a = 0; a < 3; a++) {
+            double v = points[3 * i + a];
+            bmin[a] = PAR_MIN(bmin[a], v);
+            bmax[a] = PAR_MAX(bmax[a], v);
+        }
+    }
+    double diag2 = PAR_SQR(bmax[0] - bmin[0]) + PAR_SQR(bmax[1] - bmin[1]) +
+        PAR_SQR(bmax[2] - bmin[2]);
+    double mincross = 1e-10 * diag2;
+    for (int f = 0; f < nt; f++) {
+        int64_t v[3];
+        for (int c = 0; c < 3; c++) {
+            v[c] = (int64_t) tris[3 * f + c];
+            if (v[c] < 0 || v[c] >= np) {
+                return false;
+            }
+        }
+        if (v[0] == v[1] || v[1] == v[2] || v[0] == v[2]) {
+            return false;
+        }
+        double e1[3], e2[3], cr[3];
+        for (int a = 0; a < 3; a++) {
+            e1[a] = (double) points[3 * v[1] + a] - points[3 * v[0] + a];
+            e2[a] = (double) points[3 * v[2] + a] - points[3 * v[0] + a];
+        }
+        cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        double len2 = cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2];
+        if (!(len2 > mincross * mincross)) {
+            return false;
+        }
+    }
+
+    bool ok = false;
+    int nc = 0;
+    size_t ne3 = 3 * (size_t) nt;
+    uint32_t* stri = 0;
+    par_shapes__oredge* edges = 0;
+    int* cnext = 0;
+    signed char* cpar = 0;
+    int64_t* voff = 0;
+    int64_t* vcur = 0;
+    int* vlist = 0;
+    int* mark = 0;
+    int* comp = 0;
+    signed char* flip = 0;
+    int* queue = 0;
+    int* coff = 0;
+    int* ccur = 0;
+    int* clist = 0;
+    double* crep = 0;
+    double* cbox = 0;
+    double* cvol = 0;
+    int* cdepth = 0;
+    signed char* cflip = 0;
+    float* newnorm = 0;
+    stri = PAR_MALLOC(uint32_t, ne3);
+    edges = PAR_MALLOC(par_shapes__oredge, ne3);
+    cnext = PAR_MALLOC(int, ne3);
+    cpar = PAR_MALLOC(signed char, ne3);
+    if (!stri || !edges || !cnext || !cpar) {
+        goto cleanup;
+    }
+
+    // Reject duplicate faces (in either winding) via sorted vertex triples.
+    for (int f = 0; f < nt; f++) {
+        uint32_t s[3];
+        s[0] = (uint32_t) tris[3 * f + 0];
+        s[1] = (uint32_t) tris[3 * f + 1];
+        s[2] = (uint32_t) tris[3 * f + 2];
+        if (s[0] > s[1]) PAR_SWAP(uint32_t, s[0], s[1]);
+        if (s[1] > s[2]) PAR_SWAP(uint32_t, s[1], s[2]);
+        if (s[0] > s[1]) PAR_SWAP(uint32_t, s[0], s[1]);
+        stri[3 * f + 0] = s[0];
+        stri[3 * f + 1] = s[1];
+        stri[3 * f + 2] = s[2];
+        for (int c = 0; c < 3; c++) {
+            uint32_t a = (uint32_t) tris[3 * f + c];
+            uint32_t b = (uint32_t) tris[3 * f + (c + 1) % 3];
+            edges[3 * f + c].lo = PAR_MIN(a, b);
+            edges[3 * f + c].hi = PAR_MAX(a, b);
+            edges[3 * f + c].fc = 3 * (uint64_t) f + (uint64_t) c;
+        }
+    }
+    qsort(stri, (size_t) nt, 3 * sizeof(uint32_t), par_shapes__cmp_uvec3);
+    for (int f = 1; f < nt; f++) {
+        if (!par_shapes__cmp_uvec3(stri + 3 * (f - 1), stri + 3 * f)) {
+            goto cleanup;
+        }
+    }
+
+    // Every undirected edge must be shared by exactly two faces.  Record,
+    // per corner, the neighboring face across the edge and whether the two
+    // faces traverse the edge in the same direction.
+    qsort(edges, ne3, sizeof(par_shapes__oredge), par_shapes__cmp_oredge);
+    for (size_t e = 0; e < ne3; ) {
+        size_t e2 = e + 1;
+        while (e2 < ne3 && edges[e2].lo == edges[e].lo &&
+            edges[e2].hi == edges[e].hi) {
+            e2++;
+        }
+        if (e2 - e != 2) {
+            goto cleanup;
+        }
+        uint64_t fc1 = edges[e].fc;
+        uint64_t fc2 = edges[e + 1].fc;
+        int same = ((uint32_t) tris[fc1] == edges[e].lo) ==
+            ((uint32_t) tris[fc2] == edges[e].lo);
+        cnext[fc1] = (int) (fc2 / 3);
+        cnext[fc2] = (int) (fc1 / 3);
+        cpar[fc1] = cpar[fc2] = (signed char) same;
+        e = e2;
+    }
+
+    // The faces incident to each vertex must form a single ring.  Each face
+    // touches a vertex through exactly two edges, so the link of a vertex is
+    // a union of cycles; check connectivity with a flood fill that ignores
+    // winding.
+    voff = PAR_CALLOC(int64_t, ((size_t) np + 1));
+    vcur = PAR_MALLOC(int64_t, np);
+    vlist = PAR_MALLOC(int, ne3);
+    mark = PAR_MALLOC(int, nt);
+    queue = PAR_MALLOC(int, nt);
+    if (!voff || !vcur || !vlist || !mark || !queue) {
+        goto cleanup;
+    }
+    for (int f = 0; f < nt; f++) {
+        mark[f] = -1;
+    }
+    for (size_t x = 0; x < ne3; x++) {
+        voff[(size_t) tris[x] + 1]++;
+    }
+    for (int v = 0; v < np; v++) {
+        voff[v + 1] += voff[v];
+    }
+    memcpy(vcur, voff, sizeof(int64_t) * (size_t) np);
+    for (size_t x = 0; x < ne3; x++) {
+        vlist[vcur[(size_t) tris[x]]++] = (int) (x / 3);
+    }
+    for (int v = 0; v < np; v++) {
+        int64_t count = voff[v + 1] - voff[v];
+        if (count == 0) {
+            continue;
+        }
+        int head = 0, tail = 0;
+        int start = vlist[voff[v]];
+        mark[start] = v;
+        queue[tail++] = start;
+        while (head < tail) {
+            int f = queue[head++];
+            int c = 0;
+            while (c < 3 && (int) tris[3 * f + c] != v) {
+                c++;
+            }
+            if (c == 3) {
+                goto cleanup;
+            }
+            for (int d = 0; d < 3; d += 2) {
+                int g = cnext[3 * f + (c + d) % 3];
+                if (mark[g] != v) {
+                    mark[g] = v;
+                    queue[tail++] = g;
+                }
+            }
+        }
+        if (tail != count) {
+            goto cleanup;
+        }
+    }
+
+    // Flood fill connected components, propagating flip parity so that
+    // shared edges wind in opposite directions.
+    comp = PAR_MALLOC(int, nt);
+    flip = PAR_MALLOC(signed char, nt);
+    if (!comp || !flip) {
+        goto cleanup;
+    }
+    for (int f = 0; f < nt; f++) {
+        comp[f] = -1;
+    }
+    for (int f0 = 0; f0 < nt; f0++) {
+        if (comp[f0] >= 0) {
+            continue;
+        }
+        int head = 0, tail = 0;
+        comp[f0] = nc;
+        flip[f0] = 0;
+        queue[tail++] = f0;
+        while (head < tail) {
+            int f = queue[head++];
+            for (int c = 0; c < 3; c++) {
+                int g = cnext[3 * f + c];
+                int want = flip[f] ^ cpar[3 * f + c];
+                if (comp[g] < 0) {
+                    comp[g] = nc;
+                    flip[g] = (signed char) want;
+                    queue[tail++] = g;
+                } else if (flip[g] != want) {
+                    goto cleanup;
+                }
+            }
+        }
+        nc++;
+    }
+
+    // Gather per-component data: face lists, a representative surface point,
+    // a bounding box, and the signed volume under the propagated winding.
+    coff = PAR_CALLOC(int, ((size_t) nc + 1));
+    ccur = PAR_MALLOC(int, nc);
+    clist = PAR_MALLOC(int, nt);
+    crep = PAR_MALLOC(double, 3 * (size_t) nc);
+    cbox = PAR_MALLOC(double, 6 * (size_t) nc);
+    cvol = PAR_CALLOC(double, nc);
+    cdepth = PAR_CALLOC(int, nc);
+    cflip = PAR_MALLOC(signed char, nc);
+    if (!coff || !ccur || !clist || !crep || !cbox || !cvol || !cdepth ||
+        !cflip) {
+        goto cleanup;
+    }
+    for (int f = 0; f < nt; f++) {
+        coff[comp[f] + 1]++;
+    }
+    for (int ci = 0; ci < nc; ci++) {
+        coff[ci + 1] += coff[ci];
+    }
+    memcpy(ccur, coff, sizeof(int) * (size_t) nc);
+    for (int f = 0; f < nt; f++) {
+        clist[ccur[comp[f]]++] = f;
+    }
+    for (int ci = 0; ci < nc; ci++) {
+        int f0 = clist[coff[ci]];
+        double o[3];
+        unsigned rv = (unsigned) tris[3 * f0];
+        o[0] = points[3 * rv + 0];
+        o[1] = points[3 * rv + 1];
+        o[2] = points[3 * rv + 2];
+        crep[3 * ci + 0] = o[0];
+        crep[3 * ci + 1] = o[1];
+        crep[3 * ci + 2] = o[2];
+        double* bb = cbox + 6 * ci;
+        bb[0] = bb[3] = o[0];
+        bb[1] = bb[4] = o[1];
+        bb[2] = bb[5] = o[2];
+        double vol = 0;
+        for (int x = coff[ci]; x < coff[ci + 1]; x++) {
+            int f = clist[x];
+            double p[3][3];
+            for (int c = 0; c < 3; c++) {
+                unsigned vi = (unsigned) tris[3 * f + c];
+                for (int a = 0; a < 3; a++) {
+                    double val = points[3 * vi + a];
+                    p[c][a] = val - o[a];
+                    bb[a] = PAR_MIN(bb[a], val);
+                    bb[3 + a] = PAR_MAX(bb[3 + a], val);
+                }
+            }
+            double cr[3];
+            cr[0] = p[1][1] * p[2][2] - p[1][2] * p[2][1];
+            cr[1] = p[1][2] * p[2][0] - p[1][0] * p[2][2];
+            cr[2] = p[1][0] * p[2][1] - p[1][1] * p[2][0];
+            double v6 = p[0][0] * cr[0] + p[0][1] * cr[1] + p[0][2] * cr[2];
+            vol += flip[f] ? -v6 : v6;
+        }
+        cvol[ci] = vol;
+    }
+
+    // The nesting depth of a shell is the number of other shells whose
+    // interior contains it, tested with the solid angle of the true
+    // triangle surface around a point on the shell.
+    for (int bi = 0; bi < nc; bi++) {
+        double px = crep[3 * bi + 0];
+        double py = crep[3 * bi + 1];
+        double pz = crep[3 * bi + 2];
+        int depth = 0;
+        for (int ai = 0; ai < nc; ai++) {
+            if (ai == bi) {
+                continue;
+            }
+            double const* bb = cbox + 6 * ai;
+            if (px < bb[0] || px > bb[3] || py < bb[1] || py > bb[4] ||
+                pz < bb[2] || pz > bb[5]) {
+                continue;
+            }
+            double w = 0;
+            for (int x = coff[ai]; x < coff[ai + 1]; x++) {
+                int f = clist[x];
+                double d[3][3], len[3];
+                for (int c = 0; c < 3; c++) {
+                    unsigned vi = (unsigned) tris[3 * f + c];
+                    d[c][0] = (double) points[3 * vi + 0] - px;
+                    d[c][1] = (double) points[3 * vi + 1] - py;
+                    d[c][2] = (double) points[3 * vi + 2] - pz;
+                    len[c] = sqrt(d[c][0] * d[c][0] + d[c][1] * d[c][1] +
+                        d[c][2] * d[c][2]);
+                }
+                double det = d[0][0] * (d[1][1] * d[2][2] - d[1][2] * d[2][1])
+                    - d[0][1] * (d[1][0] * d[2][2] - d[1][2] * d[2][0])
+                    + d[0][2] * (d[1][0] * d[2][1] - d[1][1] * d[2][0]);
+                double den = len[0] * len[1] * len[2] +
+                    (d[0][0] * d[1][0] + d[0][1] * d[1][1] +
+                        d[0][2] * d[1][2]) * len[2] +
+                    (d[1][0] * d[2][0] + d[1][1] * d[2][1] +
+                        d[1][2] * d[2][2]) * len[0] +
+                    (d[2][0] * d[0][0] + d[2][1] * d[0][1] +
+                        d[2][2] * d[0][2]) * len[1];
+                double term = 2.0 * atan2(det, den);
+                w += flip[f] ? -term : term;
+            }
+            if (fabs(w) > 2.0 * PAR_PI) {
+                depth++;
+            }
+        }
+        cdepth[bi] = depth;
+    }
+
+    // Even depths face outward (positive signed volume), odd depths inward.
+    for (int ci = 0; ci < nc; ci++) {
+        int outward = cvol[ci] > 0;
+        int want = (cdepth[ci] & 1) == 0;
+        cflip[ci] = (signed char) (outward != want);
+    }
+
+    // This is the last allocation that can fail; the mesh is mutated next.
+    if (mesh->normals) {
+        newnorm = PAR_CALLOC(float, 3 * (size_t) np);
+        if (!newnorm) {
+            goto cleanup;
+        }
+    }
+    for (int f = 0; f < nt; f++) {
+        if (flip[f] != cflip[comp[f]]) {
+            PAR_SWAP(PAR_SHAPES_T, tris[3 * f + 1], tris[3 * f + 2]);
+        }
+    }
+    if (newnorm) {
+        for (int f = 0; f < nt; f++) {
+            float const* pa = points + 3 * tris[3 * f + 0];
+            float const* pb = points + 3 * tris[3 * f + 1];
+            float const* pc = points + 3 * tris[3 * f + 2];
+            float e1[3], e2[3], cr[3];
+            for (int a = 0; a < 3; a++) {
+                e1[a] = pb[a] - pa[a];
+                e2[a] = pc[a] - pa[a];
+            }
+            cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
+            cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
+            cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
+            for (int c = 0; c < 3; c++) {
+                float* dst = newnorm + 3 * tris[3 * f + c];
+                dst[0] += cr[0];
+                dst[1] += cr[1];
+                dst[2] += cr[2];
+            }
+        }
+        for (int v = 0; v < np; v++) {
+            float* n = newnorm + 3 * v;
+            float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len > 0) {
+                n[0] /= len;
+                n[1] /= len;
+                n[2] /= len;
+            }
+        }
+        PAR_FREE(mesh->normals);
+        mesh->normals = newnorm;
+        newnorm = 0;
+    }
+    if (face_depth) {
+        for (int f = 0; f < nt; f++) {
+            face_depth[f] = cdepth[comp[f]];
+        }
+    }
+    ok = true;
+cleanup:
+    PAR_FREE(stri);
+    PAR_FREE(edges);
+    PAR_FREE(cnext);
+    PAR_FREE(cpar);
+    PAR_FREE(voff);
+    PAR_FREE(vcur);
+    PAR_FREE(vlist);
+    PAR_FREE(mark);
+    PAR_FREE(comp);
+    PAR_FREE(flip);
+    PAR_FREE(queue);
+    PAR_FREE(coff);
+    PAR_FREE(ccur);
+    PAR_FREE(clist);
+    PAR_FREE(crep);
+    PAR_FREE(cbox);
+    PAR_FREE(cvol);
+    PAR_FREE(cdepth);
+    PAR_FREE(cflip);
+    PAR_FREE(newnorm);
+    return ok;
 }
 
 par_shapes_mesh* par_shapes_create_icosahedron()

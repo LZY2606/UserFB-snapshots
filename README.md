@@ -16,6 +16,41 @@ library    | description  | link
 
 There are more libraries too but they're probably less useful; scroll to the bottom of this README.
 
+## orienting solid shells (par_shapes.h)
+
+`bool par_shapes_orient_solid(par_shapes_mesh* mesh, int* face_depth)` repairs
+the winding of a triangle soup that is known to be a set of closed solid
+boundary shells, e.g. output by an importer that glued several shells
+together with inconsistent facing.
+
+Geometric preconditions (validated where cheap, otherwise assumed):
+
+- Connectivity is by vertex index only; coincident positions are never welded.
+- Every edge is shared by exactly two triangles, the faces around each vertex
+  form a single ring, and every connected component is orientable.  Invalid
+  input (out-of-range indices, non-finite points, zero-area or duplicate
+  faces, open or over-shared edges, multi-ring fans, non-orientable
+  components) makes the function return `false`.
+- The caller guarantees the shells are embedded (no self-intersections) and
+  separated by positive gaps; intersections are not detected.
+
+On success the winding of every shell is made consistent and each shell faces
+according to its nesting depth: shells contained by an even number of other
+shells (outer boundaries) face away from the bounded region they enclose,
+while shells at odd depth (cavity walls) face into it.  Containment is
+decided against the actual triangle surfaces, never bounding boxes.  Face
+order and the first index of each face are preserved (a face is only ever
+modified by swapping its second and third indices), points and texture
+coordinates are never touched, and normals are recomputed from the final
+winding if the mesh has them (area-weighted, unit length, zero for
+unreferenced vertices).
+
+`face_depth` may be null; otherwise it must point to `ntriangles` ints owned
+by the caller, which receive the nesting depth of each face's shell (0 for
+outermost).  It is written only on success.  On failure (invalid input or
+allocation failure) the mesh and `face_depth` are left untouched and `false`
+is returned.  An empty mesh is trivially valid and returns `true`.
+
 ## tests
 
 To run tests, you need CMake and pkg-config.  On macOS, these can be installed with homebrew:
