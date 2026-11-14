@@ -28,10 +28,16 @@ public:
 	VP9RtpPacketizer(shared_ptr<RtpPacketizationConfig> rtpConfig,
 	                 size_t maxFragmentSize = DefaultMaxFragmentSize);
 
+	void outgoing(message_vector &messages, const message_callback &send) override;
+
 private:
 	std::vector<binary> fragment(binary frame) override;
 
 	const size_t mMaxFragmentSize;
+
+	// Counters for non-flexible spatial layer packetization
+	uint16_t mPictureId = 0; // 15 bits
+	uint8_t mTl0PicIdx = 0;
 };
 
 } // namespace rtc

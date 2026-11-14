@@ -9,8 +9,10 @@
 #if RTC_ENABLE_MEDIA
 
 #include "vp9rtppacketizer.hpp"
+#include "vp9spatiallayers.hpp"
 
 #include <cstring>
+#include <stdexcept>
 
 namespace rtc {
 
@@ -104,6 +106,62 @@ std::vector<binary> VP9RtpPacketizer::fragment(binary frame) {
 	}
 
 	return payloads;
+}
+
+void VP9RtpPacketizer::outgoing(message_vector &messages,
+                                [[maybe_unused]] const message_callback &send) {
+	message_vector result;
+	for (auto &message : messages) {
+		const auto &frameInfo = message->frameInfo;
+		if (!frameInfo || frameInfo->vp9SpatialLayers.empty()) {
+			// Legacy single-layer path, identical to the base implementation
+			message_vector single{std::move(message)};
+			RtpPacketizer::outgoing(single, send);
+			for (auto &packet : single)
+				result.push_back(std::move(packet));
+			continue;
+		}
+
+		if (frameInfo->payloadType && frameInfo->payloadType != rtpConfig->payloadType)
+			continue;
+
+		// Resolve the timestamp for this picture without consuming anything yet
+		uint32_t timestamp;
+		if (frameInfo->timestampSeconds)
+			timestamp = rtpConfig->startTimestamp +
+			            rtpConfig->secondsToTimestamp(
+			                std::chrono::duration<double>(*frameInfo->timestampSeconds).count());
+		else
+			timestamp = frameInfo->timestamp;
+
+		// Packetize the picture. Validation throws std::invalid_argument before
+		// any state (sequence number, timestamp, PictureID, TL0PICIDX) is consumed,
+		// so a failed picture leaves subsequent pictures unaffected.
+		auto payloads = vp9spatial::fragmentSpatialLayers(frameInfo->vp9SpatialLayers, *message,
+		                                                  mMaxFragmentSize, mPictureId, mTl0PicIdx);
+
+		// Commit picture-level state
+		rtpConfig->timestamp = timestamp;
+		const uint16_t pictureId = mPictureId;
+		const uint8_t tl0PicIdx = mTl0PicIdx;
+
+		for (size_t i = 0; i < payloads.size(); ++i) {
+			if (rtpConfig->dependencyDescriptorContext.has_value()) {
+				auto &ctx = *rtpConfig->dependencyDescriptorContext;
+				ctx.descriptor.startOfFrame = i == 0;
+				ctx.descriptor.endOfFrame = i == payloads.size() - 1;
+			}
+			// The marker is only set on the last packet of the highest layer
+			bool mark = i == payloads.size() - 1;
+			result.push_back(packetize(payloads[i], mark, frameInfo));
+		}
+
+		// Advance once per successful spatial picture
+		mPictureId = (pictureId + 1) & 0x7FFF;
+		mTl0PicIdx = uint8_t(tl0PicIdx + 1);
+	}
+
+	messages.swap(result);
 }
 
 } // namespace rtc

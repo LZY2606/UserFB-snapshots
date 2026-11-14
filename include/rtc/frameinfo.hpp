@@ -15,6 +15,17 @@
 
 namespace rtc {
 
+/// Description of one spatial layer inside a VP9 frame.
+///
+/// When a FrameInfo carries a non-empty vp9SpatialLayers vector, the frame data
+/// is interpreted as the concatenation of the spatial layer frames in increasing
+/// SID order (without a VP9 superframe index).
+struct RTC_CPP_EXPORT VP9SpatialLayer {
+	size_t size = 0;                     // Size of this spatial layer's frame data in bytes
+	bool interPicturePredicted = false;  // P bit: predicted from a previous picture
+	bool interLayerPredicted = false;    // D bit: predicted from a lower spatial layer
+};
+
 struct RTC_CPP_EXPORT FrameInfo {
 	FrameInfo(uint32_t timestamp) : timestamp(timestamp) {};
 	template<typename Period = std::ratio<1>> FrameInfo(std::chrono::duration<double, Period> timestamp) : timestampSeconds(timestamp) {}
@@ -37,6 +48,11 @@ struct RTC_CPP_EXPORT FrameInfo {
 	/// latency.
 	/// https://webrtc.googlesource.com/src/+/refs/heads/main/docs/native-code/rtp-hdrext/abs-capture-time
 	optional<uint64_t> absCaptureTimeNtp;
+
+	/// VP9 spatial layers carried by this frame, in increasing SID order.
+	/// When empty, the frame follows the legacy single-layer packetization path.
+	/// When non-empty, sizes must be positive and sum to the frame data size.
+	std::vector<VP9SpatialLayer> vp9SpatialLayers;
 };
 
 } // namespace rtc

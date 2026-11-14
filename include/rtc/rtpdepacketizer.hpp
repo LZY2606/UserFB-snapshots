@@ -50,9 +50,9 @@ protected:
 
 	virtual message_ptr reassemble(message_buffer &messages) = 0;
 
-private:
 	void incoming(message_vector &messages, const message_callback &send) override;
 
+private:
 	message_buffer mBuffer;
 };
 

@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mode=${1:-baseline}
 if [[ $mode == target ]]; then test -s task_tests/vp9_spatial.cpp; fi
+if [[ $mode == example ]]; then test -s examples/vp9_spatial_example.cpp; fi
 mkdir -p .task-build
 CPP_FLAGS=(-std=c++17 -O1 -pthread -DRTC_ENABLE_MEDIA=1 -DRTC_ENABLE_WEBSOCKET=0 -DRTC_STATIC -I. -Isrc -Iinclude/rtc -Ideps/plog/include)
 objects=()
@@ -27,5 +28,9 @@ if [[ $mode == target ]]; then
     grep -Eq "^GROUP ${group} cases=[1-9][0-9]* checks=[1-9][0-9]* COMPLETE$" "$output_log"
   done
   grep -Eq '^TARGET_COMPLETE cases=[1-9][0-9]*$' "$output_log"
+fi
+if [[ $mode == example ]]; then
+  c++ "${CPP_FLAGS[@]}" examples/vp9_spatial_example.cpp "${objects[@]}" -o .task-build/example
+  .task-build/example
 fi
 .task-build/baseline
