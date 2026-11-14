@@ -1,0 +1,11 @@
+CASE equivalence closed_mixed_sequence checks=16
+CASE equivalence open_crease_sequence checks=10
+CASE equivalence depth_sweep checks=15
+GROUP equivalence cases=3 checks=41 COMPLETE
+CASE locality grid_drag_locality checks=21672
+GROUP locality cases=1 checks=21672 COMPLETE
+CASE ownership source_release checks=5
+CASE ownership dual_plan_interleave checks=7
+CASE ownership reject_then_resume checks=19
+GROUP ownership cases=3 checks=31 COMPLETE
+TARGET_COMPLETE cases=7
