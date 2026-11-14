@@ -36,8 +36,15 @@
 
 bool pe_can_read(const pe_ctx_t *ctx, const void *ptr, size_t size) {
 	const uintptr_t start = (uintptr_t)ptr;
-	const uintptr_t end = start + size;
-	return start >= (uintptr_t)ctx->map_addr && end <= (uintptr_t)ctx->map_end;
+	const uintptr_t map_start = (uintptr_t)ctx->map_addr;
+	const uintptr_t map_end = (uintptr_t)ctx->map_end;
+	// The mapped range is the half-open interval [map_start, map_end).
+	// Reject starts outside of it (a zero-length read exactly at map_end
+	// is still allowed) and compute the remaining bytes by subtraction
+	// so that no address or length arithmetic can wrap around.
+	if (start < map_start || start > map_end)
+		return false;
+	return size <= (size_t)(map_end - start);
 }
 
 pe_err_e pe_load_file(pe_ctx_t *ctx, const char *path) {
