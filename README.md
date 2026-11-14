@@ -55,6 +55,69 @@ Here is an example for crawling github content. You can have a try of the crawl 
 More examples here: [examples](https://github.com/hu17889/go_spider/tree/master/example).
 
 
+## Mirror racing
+
+Sometimes the same public resource is served by several equivalent mirrors, and
+the primary address occasionally stalls half-way through its body. A Request
+can list mirrors explicitly; the downloader then races them and delivers the
+first *complete* representation.
+
+``` Go
+req := request.NewRequest("https://primary.example.com/api/catalog", "json",
+    "catalog", "GET", "", nil, nil, nil, nil)
+req.MirrorURLs = []string{
+    "https://mirror-a.example.com/api/catalog",
+    "https://mirror-b.example.com/api/catalog",
+}
+req.MirrorDelay = 2 * time.Second // measured from the primary actually being sent
+
+spider.NewSpider(NewMyPageProcesser(), "TaskName").
+    SetThreadnum(4). // also caps physical requests on the HttpDownloader
+    AddRequest(req).
+    Run()
+```
+
+- The primary is requested immediately. Mirrors are only opened once
+  `MirrorDelay` has elapsed without a winner, or as soon as the primary fails.
+- Only a candidate whose response is 2xx, whose body was read in full (gzip and
+  charset handling included) and whose body parses as the request's `RespType`
+  can win. Early headers, truncated bodies, malformed JSON and a `503` with a
+  valid JSON body do not count.
+- `Page.GetRequest()`, `GetUrlTag()` and the request `Meta` still describe the
+  original logical request. `Page.GetFetchedURL()` returns the final URL of the
+  winning response after redirects; it is also set for ordinary downloads and
+  empty when the download failed.
+- Mirrors reuse the request's headers, cookies, proxy and redirect callback.
+  Each candidate gets its own copies, so the caller's `Header` and `Cookies`
+  are never rewritten.
+- Only the winner reaches `Process` and the pipelines, and its discovered links
+  are enqueued once. When every candidate fails the Page reports the addresses
+  and reasons, and Spider's usual three download attempts still apply.
+- Mirror racing supports body-less `GET` requests with `html`, `json`, `jsonp`
+  or `text`. Other methods, non-empty `Postdata`, relative/non-http URLs and a
+  negative `MirrorDelay` are rejected before any address is contacted.
+- An empty `MirrorURLs` keeps the original single-request behaviour.
+
+A complete runnable example lives in `example/mirror_catalog`.
+
+### Physical request limit
+
+`HttpDownloader.SetMaxConcurrentRequests(n)` caps how many physical HTTP
+requests one downloader keeps in flight (`0`, the default, means unlimited). The
+slot is held until the response body is closed, and ordinary downloads, the
+primary and every mirror all count against the same limit. A candidate still
+waiting for a slot never sends after another candidate has won. Configure it
+while the downloader is idle:
+
+``` Go
+dl := downloader.NewHttpDownloader().SetMaxConcurrentRequests(4)
+spider.NewSpider(NewMyPageProcesser(), "TaskName").SetDownloader(dl).Run()
+```
+
+`Spider.Run` wires its `SetThreadnum` value into this limit automatically when
+the configured downloader is an `*HttpDownloader`; custom `Downloader`
+implementations keep their existing interface.
+
 ## Make your spider
 
 ``` Go
@@ -128,7 +191,7 @@ These key-value pairs will be saved in PageItems and urls will be pushed in Sche
 **Functions:** 
 
 - Get result: GetJson, GetHtmlParser, GetBodyStr(plain text)
-- Get information of objective: GetRequest, GetCookies, GetHeader
+- Get information of objective: GetRequest, GetCookies, GetHeader, GetFetchedURL(final URL after redirects)
 - Get Status of crawl process: IsSucc(Download success or not), Errormsg(Get error info in Downloader)
 - Set config:SetSkip, GetSkip(if skip is true, do not output result in Pipeline), AddTargetRequest, AddTargetRequests(Save urls to be crawled next stage), AddTargetRequestWithParams, AddTargetRequestsWithParams, AddField(Save key-value pairs after parsing)
 

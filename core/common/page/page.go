@@ -22,6 +22,9 @@ type Page struct {
     // The request is crawled by spider that contains url and relevent information.
     req *request.Request
 
+    // fetchedURL is the final URL of the winning response after redirects.
+    fetchedURL string
+
     // The body is plain text of crawl result.
     body string
 
@@ -113,6 +116,18 @@ func (this *Page) SetRequest(r *request.Request) *Page {
 // GetRequest returns request oject of this page.
 func (this *Page) GetRequest() *request.Request {
     return this.req
+}
+
+// SetFetchedURL saves the final URL of the successful response after redirects.
+func (this *Page) SetFetchedURL(fetchedURL string) *Page {
+    this.fetchedURL = fetchedURL
+    return this
+}
+
+// GetFetchedURL returns the final URL of the successful response after any
+// redirects, ordinary downloads included. It is empty when the download failed.
+func (this *Page) GetFetchedURL() string {
+    return this.fetchedURL
 }
 
 // GetUrlTag returns name of url.

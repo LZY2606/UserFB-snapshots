@@ -6,6 +6,7 @@ import (
     "io/ioutil"
     "net/http"
     "os"
+    "time"
 
     "github.com/hu17889/go_spider/core/common/mlog"
 )
@@ -42,6 +43,15 @@ type Request struct {
     checkRedirect func(req *http.Request, via []*http.Request) error
 
     Meta interface{}
+
+    // MirrorURLs enables mirror racing when non-empty. The primary Url is
+    // requested immediately; after MirrorDelay the remaining mirrors join the
+    // race. An empty list keeps the original single-request behaviour.
+    MirrorURLs []string
+
+    // MirrorDelay is how long the primary request is given before mirrors may
+    // start. The timer starts when the primary is actually sent.
+    MirrorDelay time.Duration
 }
 
 // NewRequest returns initialized Request object.
@@ -56,14 +66,17 @@ func NewRequest(url string, respType string, urltag string, method string,
     postdata string, header http.Header, cookies []*http.Cookie,
     checkRedirect func(req *http.Request, via []*http.Request) error,
     meta interface{}) *Request {
-    return &Request{url, respType, method, postdata, urltag, header, cookies, "", checkRedirect, meta}
+    return &Request{Url: url, RespType: respType, Urltag: urltag, Method: method,
+        Postdata: postdata, Header: header, Cookies: cookies, checkRedirect: checkRedirect, Meta: meta}
 }
 
 func NewRequestWithProxy(url string, respType string, urltag string, method string,
     postdata string, header http.Header, cookies []*http.Cookie, proxyHost string,
     checkRedirect func(req *http.Request, via []*http.Request) error,
     meta interface{}) *Request {
-    return &Request{url, respType, method, postdata, urltag, header, cookies, proxyHost, checkRedirect, meta}
+    return &Request{Url: url, RespType: respType, Urltag: urltag, Method: method,
+        Postdata: postdata, Header: header, Cookies: cookies, ProxyHost: proxyHost,
+        checkRedirect: checkRedirect, Meta: meta}
 }
 
 func NewRequestWithHeaderFile(url string, respType string, headerFile string) *Request {
@@ -160,4 +173,14 @@ func (this *Request) GetRedirectFunc() func(req *http.Request, via []*http.Reque
 
 func (this *Request) GetMeta() interface{} {
     return this.Meta
+}
+
+// GetMirrorURLs returns the configured mirror addresses in their original order.
+func (this *Request) GetMirrorURLs() []string {
+    return this.MirrorURLs
+}
+
+// GetMirrorDelay returns how long the primary request runs before mirrors open.
+func (this *Request) GetMirrorDelay() time.Duration {
+    return this.MirrorDelay
 }

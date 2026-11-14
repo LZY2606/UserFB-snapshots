@@ -124,6 +124,14 @@ func (this *Spider) Run() {
     if this.threadnum == 0 {
         this.threadnum = 1
     }
+    // The threadnum limits logical pages processed concurrently. Mirror racing
+    // can issue several physical requests per page, so bind the same number to
+    // the downloader's physical cap when it supports one.
+    if setter, ok := this.pDownloader.(interface {
+        SetMaxConcurrentRequests(uint) *downloader.HttpDownloader
+    }); ok {
+        setter.SetMaxConcurrentRequests(this.threadnum)
+    }
     this.mc = resource_manage.NewResourceManageChan(this.threadnum)
 
     //init db  by sorawa
