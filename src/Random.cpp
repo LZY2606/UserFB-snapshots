@@ -72,6 +72,61 @@ Random::Random()
 }
 
 
+Random::Random
+(
+   const int32u state[4]
+)
+{
+   z_m[0] = state[0];
+   z_m[1] = state[1];
+   z_m[2] = state[2];
+   z_m[3] = state[3];
+}
+
+
+Random Random::makeIdentified
+(
+   const int32u baseSeed,
+   const int32u pixelX,
+   const int32u pixelY,
+   const int32u sampleIndex,
+   const int32u streamKind
+)
+{
+   // Mix the full sampling identity into four independent 32-bit LFSR113
+   // state words. SplitMix64 (Steele/Lea) gives independent, well-mixed words
+   // for every distinct identity tuple, so a path can be replayed byte-for-byte
+   // and neighbouring identities do not share state.
+   int32u h = baseSeed;
+   h = static_cast<int32u>(h * 2246822519u) ^ pixelX;
+   h = static_cast<int32u>(h * 3266489917u) ^ pixelY;
+   h = static_cast<int32u>(h * 668265263u)  ^ sampleIndex;
+   h = static_cast<int32u>(h * 374761393u)  ^ streamKind;
+
+   int32u state[4];
+   for( int i = 0;  i < 4;  ++i )
+   {
+      unsigned long long z = (static_cast<unsigned long long>(h) << 1) |
+         static_cast<unsigned long long>(i + 1u);
+      z += 0x9E3779B97F4A7C15ull;
+      z  = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+      z  = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+      z  =  z ^ (z >> 31);
+      state[i] = static_cast<int32u>(z & 0xFFFFFFFFull);
+   }
+
+   /* *** VERY IMPORTANT ***
+      The initial seeds z1, z2, z3, z4 MUST be larger
+      than 1, 7, 15, and 127 respectively. */
+   state[0] |= 2u;
+   state[1] |= 8u;
+   state[2] |= 16u;
+   state[3] |= 128u;
+
+   return Random( state );
+}
+
+
 
 
 /// queries --------------------------------------------------------------------

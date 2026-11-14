@@ -40,6 +40,22 @@ public:
              */
             Random();
 
+            /**
+             * Create a replayable stream from a full sampling identity.
+             *
+             * The generator state is derived solely from the base seed, the
+             * full-image pixel coordinates, the pixel's own sample serial and
+             * the stream kind (pilot/production). It is built afresh from that
+             * identity, never copied from another live stream, so the number
+             * of random draws made by one path cannot change another pixel's
+             * sequence.
+             */
+   static  Random makeIdentified( int32u baseSeed,
+                                  int32u pixelX,
+                                  int32u pixelY,
+                                  int32u sampleIndex,
+                                  int32u streamKind );
+
 // use defaults
 //         ~Random();
 //          Random( const Random& );
@@ -75,6 +91,8 @@ public:
 
 /// fields ---------------------------------------------------------------------
 private:
+   explicit Random( const int32u state[4] );
+
    mutable int32u z_m[4];
 // char           id_m[9];
 };

@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <iostream>
+#include <stdexcept>
 
 #include "Image.hpp"
 
@@ -45,6 +46,7 @@ Image::Image
 (
    std::istream& in
 )
+ : adaptive_m( false )
 {
    // read width and height
    in >> width_m >> height_m;
@@ -59,6 +61,37 @@ Image::Image
 }
 
 
+Image Image::createAdaptive
+(
+   const int32 width,
+   const int32 height
+)
+{
+   return Image( width, height, true );
+}
+
+
+Image::Image
+(
+   const int32 width,
+   const int32 height,
+   const bool  adaptive
+)
+ : width_m  ( width  < 1 ? 1 :
+              (width  > DIMENSION_MAX() ? DIMENSION_MAX() : width ) )
+ , height_m ( height < 1 ? 1 :
+              (height > DIMENSION_MAX() ? DIMENSION_MAX() : height) )
+ , adaptive_m( adaptive )
+{
+   const int32u pixelCount = static_cast<int32u>(width_m * height_m);
+   pixels_m.resize( pixelCount );
+   if( adaptive_m )
+   {
+      sampleCounts_m.resize( pixelCount, 0u );
+   }
+}
+
+
 
 
 /// commands -------------------------------------------------------------------
@@ -70,11 +103,64 @@ void Image::addToPixel
    const Vector3f& radiance
 )
 {
+   if( adaptive_m )
+   {
+      // one Image must not mix the two accumulation schemes
+      throw std::logic_error(
+         "Image::addToPixel: adaptive images use addAdaptiveSample" );
+   }
+
    if( (x >= 0) & (x < width_m) & (y >= 0) & (y < height_m) )
    {
       const int32u index = static_cast<int32u>(
          x + ((height_m - 1 - y) * width_m));
       pixels_m[ index ] = pixels_m[ index ] + radiance;
+   }
+}
+
+
+void Image::addAdaptiveSample
+(
+   const int32     x,
+   const int32     y,
+   const Vector3f& radiance
+)
+{
+   if( !adaptive_m )
+   {
+      throw std::logic_error(
+         "Image::addAdaptiveSample: legacy images use addToPixel" );
+   }
+
+   if( (x >= 0) & (x < width_m) & (y >= 0) & (y < height_m) )
+   {
+      const int32u index = static_cast<int32u>(
+         x + ((height_m - 1 - y) * width_m));
+
+      // running mean of the production samples; pilot radiance never arrives
+      const int32u previous = sampleCounts_m[index];
+      const int32u next     = previous + 1u;
+      const real64  weight   = 1.0 / static_cast<real64>(next);
+
+      pixels_m[index] = (pixels_m[index] * static_cast<real64>(previous) +
+         radiance) * weight;
+      sampleCounts_m[index] = next;
+   }
+}
+
+
+void Image::resetAdaptive()
+{
+   if( !adaptive_m )
+   {
+      throw std::logic_error(
+         "Image::resetAdaptive: legacy images have no adaptive accumulator" );
+   }
+
+   for( int32u i = 0;  i < pixels_m.size();  ++i )
+   {
+      pixels_m[i]       = Vector3f::ZERO();
+      sampleCounts_m[i] = 0u;
    }
 }
 
@@ -95,12 +181,61 @@ int32 Image::getHeight() const
 }
 
 
+bool Image::isAdaptive() const
+{
+   return adaptive_m;
+}
+
+
+int32u Image::getPixelSampleCount
+(
+   const int32 x,
+   const int32 y
+) const
+{
+   if( !adaptive_m || (x < 0) || (x >= width_m) || (y < 0) ||
+      (y >= height_m) )
+   {
+      return 0u;
+   }
+
+   const int32u index = static_cast<int32u>(
+      x + ((height_m - 1 - y) * width_m));
+   return sampleCounts_m[index];
+}
+
+
+Vector3f Image::getPixelMean
+(
+   const int32 x,
+   const int32 y
+) const
+{
+   if( !adaptive_m || (x < 0) || (x >= width_m) || (y < 0) ||
+      (y >= height_m) )
+   {
+      return Vector3f::ZERO();
+   }
+
+   // the accumulator already holds the running mean (zero when unsampled)
+   const int32u index = static_cast<int32u>(
+      x + ((height_m - 1 - y) * width_m));
+   return pixels_m[index];
+}
+
+
 void Image::getFormatted
 (
    std::ostream& out,
    const int32   iteration
 ) const
 {
+   if( adaptive_m )
+   {
+      throw std::logic_error(
+         "Image::getFormatted: adaptive images use getAdaptiveFormatted" );
+   }
+
    // make pixel value accumulation divider
    const real64 divider = 1.0 / static_cast<real64>(
       iteration >= 1 ? iteration : 1);
@@ -134,6 +269,49 @@ void Image::getFormatted
          const real64 quantized = ::floor( (gammaed * 255.0) + 0.5 );
 
          // output as byte
+         out << static_cast<byteu>( quantized <= 255.0 ? quantized : 255.0 );
+      }
+   }
+}
+
+
+void Image::getAdaptiveFormatted
+(
+   std::ostream& out
+) const
+{
+   if( !adaptive_m )
+   {
+      throw std::logic_error(
+         "Image::getAdaptiveFormatted: legacy images use getFormatted" );
+   }
+
+   // adaptation and channel values come straight from the per-pixel means,
+   // which already incorporate each pixel's own production count -- there is
+   // no uniform per-iteration divider here.
+   const real64 tonemapScaling =
+      calculateToneMappingFromMeans( pixels_m );
+
+   // write PPM P6 format
+
+   // write header
+   {
+      out << "P6" << '\n' << "# " << MINILIGHT_URI << "\n\n";
+      out << width_m <<  ' ' << height_m << '\n' << 255 << '\n';
+   }
+
+   // write pixels
+   for( int32u i = 0;  i < pixels_m.size();  ++i )
+   {
+      for( int c = 0;  c < 3;  ++c )
+      {
+         const real64 mapped = pixels_m[i][c] * tonemapScaling;
+
+         const real64 gammaed = ::pow( (mapped > 0.0 ? mapped : 0.0),
+            GAMMA_ENCODE );
+
+         const real64 quantized = ::floor( (gammaed * 255.0) + 0.5 );
+
          out << static_cast<byteu>( quantized <= 255.0 ? quantized : 255.0 );
       }
    }
@@ -222,6 +400,33 @@ real64 Image::calculateToneMapping
    // ratio of minimum visible differences in luminance, in display-adapted
    // and world-adapted perception (discluding the constant that cancelled),
    // divided by display max to yield a [0,1] range
+   const real64 a = 1.219 + ::pow( DISPLAY_LUMINANCE_MAX * 0.25, 0.4 );
+   const real64 b = 1.219 + ::pow( adaptLuminance, 0.4 );
+
+   return ::pow( a / b, 2.5 ) / DISPLAY_LUMINANCE_MAX;
+}
+
+
+real64 Image::calculateToneMappingFromMeans
+(
+   const std::vector<Vector3f>& means
+)
+{
+   // identical Ward adaptation to calculateToneMapping(), but the pixel
+   // entries are already per-pixel means, so no uniform divider is applied.
+   real64 adaptLuminance = 1e-4;
+   {
+      real64 sumOfLogs = 0.0;
+      for( int32u i = 0;  i < means.size();  ++i )
+      {
+         const real64 Y = means[i].dot( RGB_LUMINANCE );
+         sumOfLogs += ::log10( Y > 1e-4 ? Y : 1e-4 );
+      }
+
+      adaptLuminance = ::pow( 10.0, sumOfLogs /
+         static_cast<real64>(means.size()) );
+   }
+
    const real64 a = 1.219 + ::pow( DISPLAY_LUMINANCE_MAX * 0.25, 0.4 );
    const real64 b = 1.219 + ::pow( adaptLuminance, 0.4 );
 
