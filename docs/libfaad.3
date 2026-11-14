@@ -37,6 +37,11 @@ libfaad \- C library for AAC Decoding
 .BI "unsigned long " "SizeOfDecoderSpecificInfo" ","
 .BI "unsigned long *" "samplerate" ", unsigned char *"channels" ");"
 .HP
+/* Update the program_config_element between two complete frames */
+.B "int NEAACDECAPI NeAACDecUpdatePCE("
+.BI "NeAACDecHandle " "hDecoder" ", const unsigned char *" "asc" ","
+.BI "unsigned long " "size" ");"
+.HP
 /* Init the library for DRM */
 .B "char NEAACDECAPI NeAACDecInitDRM("
 .BI "NeAACDecHandle *" "hDecoder" ", unsigned long " "samplerate" ", unsigned char " "channels" ");"
@@ -173,6 +178,71 @@ Return values:
 .PP
 This function fills the samplerate and channels parameters with the
 detected values.
+.PP
+.B NeAACDecUpdatePCE
+.PP
+int NEAACDECAPI NeAACDecUpdatePCE(NeAACDecHandle hDecoder, const unsigned char
+*asc, unsigned long size);
+.PP
+Updates the program_config_element of a decoder that was initialised by
+NeAACDecInit2 with an explicit PCE (channelConfiguration == 0), so that a
+stream can switch its channel layout without reopening the decoder.
+.PP
+asc must point to a complete AudioSpecificConfig with
+channelConfiguration == 0. The PCE profile and sample rate must match the
+ASC, and the active sample rate and 1024 sample frame length are kept.
+Only SCE/CPE elements in the front, side and back lists are accepted
+(1 to 8 channels in total, at least one front element); LFE elements,
+associated data, coupling elements, mixdowns, extension objects and
+incomplete configurations are rejected.
+.PP
+The update takes effect between two complete NeAACDecDecode calls.
+Element identities (SCE/CPE type + tag) that are kept retain their
+synthesis history (overlap and previous window shape) wherever they move
+in the new layout, new identities start with a clean history and dropped
+identities are released. After the update every active element must occur
+exactly once in each access unit, in any order. Interleaved PCM and the
+channel description follow the front, side, back order of the new PCE.
+.PP
+The capability is limited to the floating point build, plain AAC-LC raw
+access units and an unchanged sample rate; HE-AAC, ADTS/LATM and
+in-stream PCE conventions are not extended. Handles that never call this
+function keep the initialisation-only behaviour.
+.PP
+Return values:
+.PP
+\-1 \[en] Error (the active layout and all decoder state are left
+untouched)
+.PP
+0 \- OK
+.PP
+Example: switching from SCE0+CPE0 to CPE0+SCE9 between two frames
+.PP
+// hAac was initialised with NeAACDecInit2 from an ASC whose PCE
+.PP
+// lists a front SCE with tag 0 and a front CPE with tag 0
+.PP
+samplebuffer = NeAACDecDecode(hAac, &hInfo, frame1, frame1_size);
+.PP
+\
+.PP
+// new AudioSpecificConfig, channelConfiguration == 0, PCE with
+.PP
+// a front CPE (tag 0) followed by a front SCE (tag 9)
+.PP
+if (NeAACDecUpdatePCE(hAac, asc2, asc2_size) == 0)
+.PP
+{
+.PP
+\ // CPE0 keeps its overlap history, SCE9 starts clean; the next
+.PP
+\ // access units carry CPE0 and SCE9 exactly once, in any order
+.PP
+\ samplebuffer = NeAACDecDecode(hAac, &hInfo, frame2, frame2_size);
+.PP
+\ // hInfo.channels and hInfo.samples follow the new layout
+.PP
+}
 .PP
 .B NeAACDecInitDRM
 .PP

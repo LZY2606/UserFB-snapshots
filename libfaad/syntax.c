@@ -326,8 +326,41 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
                            NeAACDecFrameInfo *hInfo, bitfile *ld,
                            uint8_t id_syn_ele)
 {
-    uint8_t channels = hDecoder->fr_channels;
+    uint8_t channels;
     uint8_t tag = 0;
+    uint8_t ele; /* element slot: encounter order, or PCE identity when locked */
+
+    if (hDecoder->pce_layout_locked)
+    {
+        /* Identity-keyed decoding: the decode slot is derived from the
+           (type, tag) identity in the active PCE, not from the encounter
+           order inside the access unit */
+        if (id_syn_ele != ID_SCE)
+        {
+            /* element inconsistency */
+            hInfo->error = 21;
+            return;
+        }
+        tag = (uint8_t)faad_showbits(ld, LEN_TAG);
+        if ((hDecoder->pce_sce_mask & (1u << tag)) == 0)
+        {
+            /* element inconsistency */
+            hInfo->error = 21;
+            return;
+        }
+        ele = tag;
+        channels = hDecoder->pce.sce_channel[tag];
+        if (hDecoder->pce_seen & (1u << ele))
+        {
+            /* element occurs twice in this access unit */
+            hInfo->error = 21;
+            return;
+        }
+        hDecoder->pce_seen |= (1u << ele);
+    } else {
+        ele = hDecoder->fr_ch_ele;
+        channels = hDecoder->fr_channels;
+    }
 
     /* One or two channels are used;
        exact number will be known after single_lfe_channel_element
@@ -337,7 +370,7 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
         hInfo->error = 12;
         return;
     }
-    if (hDecoder->fr_ch_ele+1 > MAX_SYNTAX_ELEMENTS)
+    if (ele+1 > MAX_SYNTAX_ELEMENTS)
     {
         hInfo->error = 13;
         return;
@@ -347,8 +380,8 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
        can become 2 when some form of Parametric Stereo coding is used
     */
 
-    if (hDecoder->element_id[hDecoder->fr_ch_ele] != INVALID_ELEMENT_ID &&
-        hDecoder->element_id[hDecoder->fr_ch_ele] != id_syn_ele)
+    if (hDecoder->element_id[ele] != INVALID_ELEMENT_ID &&
+        hDecoder->element_id[ele] != id_syn_ele)
     {
         /* element inconsistency */
         hInfo->error = 21;
@@ -356,13 +389,15 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
     }
 
     /* save the syntax element id */
-    hDecoder->element_id[hDecoder->fr_ch_ele] = id_syn_ele;
+    hDecoder->element_id[ele] = id_syn_ele;
+    /* slot used by the reconstruction for this element */
+    hDecoder->fr_ch_ele = ele;
 
     /* decode the element */
     hInfo->error = single_lfe_channel_element(hDecoder, ld, channels, &tag);
 
     /* map output channels position to internal data channels */
-    if (hDecoder->element_output_channels[hDecoder->fr_ch_ele] == 2)
+    if (hDecoder->element_output_channels[ele] == 2)
     {
         /* this might be faulty when pce_set is true */
         hDecoder->internal_channel[channels] = channels;
@@ -381,22 +416,50 @@ static void decode_sce_lfe(NeAACDecStruct *hDecoder,
         }
     }
 
-    hDecoder->fr_channels += hDecoder->element_output_channels[hDecoder->fr_ch_ele];
-    hDecoder->fr_ch_ele++;
+    hDecoder->fr_channels += hDecoder->element_output_channels[ele];
+    if (!hDecoder->pce_layout_locked)
+        hDecoder->fr_ch_ele++;
 }
 
 static void decode_cpe(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo, bitfile *ld,
                        uint8_t id_syn_ele)
 {
-    uint8_t channels = hDecoder->fr_channels;
+    uint8_t channels;
     uint8_t tag = 0;
+    uint8_t ele; /* element slot: encounter order, or PCE identity when locked */
+
+    if (hDecoder->pce_layout_locked)
+    {
+        /* Identity-keyed decoding: the decode slot is derived from the
+           (type, tag) identity in the active PCE, not from the encounter
+           order inside the access unit */
+        tag = (uint8_t)faad_showbits(ld, LEN_TAG);
+        if ((hDecoder->pce_cpe_mask & (1u << tag)) == 0)
+        {
+            /* element inconsistency */
+            hInfo->error = 21;
+            return;
+        }
+        ele = 16 + tag;
+        channels = hDecoder->pce.cpe_channel[tag];
+        if (hDecoder->pce_seen & (1u << ele))
+        {
+            /* element occurs twice in this access unit */
+            hInfo->error = 21;
+            return;
+        }
+        hDecoder->pce_seen |= (1u << ele);
+    } else {
+        ele = hDecoder->fr_ch_ele;
+        channels = hDecoder->fr_channels;
+    }
 
     if (channels+2 > MAX_CHANNELS)
     {
         hInfo->error = 12;
         return;
     }
-    if (hDecoder->fr_ch_ele+1 > MAX_SYNTAX_ELEMENTS)
+    if (ele+1 > MAX_SYNTAX_ELEMENTS)
     {
         hInfo->error = 13;
         return;
@@ -408,18 +471,18 @@ static void decode_cpe(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo, bitfi
     }
 
     /* for CPE the number of output channels is always 2 */
-    if (hDecoder->element_output_channels[hDecoder->fr_ch_ele] == 0)
+    if (hDecoder->element_output_channels[ele] == 0)
     {
         /* element_output_channels not set yet */
-        hDecoder->element_output_channels[hDecoder->fr_ch_ele] = 2;
-    } else if (hDecoder->element_output_channels[hDecoder->fr_ch_ele] != 2) {
+        hDecoder->element_output_channels[ele] = 2;
+    } else if (hDecoder->element_output_channels[ele] != 2) {
         /* element inconsistency */
         hInfo->error = 21;
         return;
     }
 
-    if (hDecoder->element_id[hDecoder->fr_ch_ele] != INVALID_ELEMENT_ID &&
-        hDecoder->element_id[hDecoder->fr_ch_ele] != id_syn_ele)
+    if (hDecoder->element_id[ele] != INVALID_ELEMENT_ID &&
+        hDecoder->element_id[ele] != id_syn_ele)
     {
         /* element inconsistency */
         hInfo->error = 21;
@@ -427,7 +490,9 @@ static void decode_cpe(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo, bitfi
     }
 
     /* save the syntax element id */
-    hDecoder->element_id[hDecoder->fr_ch_ele] = id_syn_ele;
+    hDecoder->element_id[ele] = id_syn_ele;
+    /* slot used by the reconstruction for this element */
+    hDecoder->fr_ch_ele = ele;
 
     /* decode the element */
     hInfo->error = channel_pair_element(hDecoder, ld, channels, &tag);
@@ -443,7 +508,8 @@ static void decode_cpe(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo, bitfi
     }
 
     hDecoder->fr_channels += 2;
-    hDecoder->fr_ch_ele++;
+    if (!hDecoder->pce_layout_locked)
+        hDecoder->fr_ch_ele++;
 }
 
 void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
@@ -456,6 +522,7 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
     hDecoder->fr_ch_ele = 0;
     hDecoder->first_syn_ele = 25;
     hDecoder->has_lfe = 0;
+    hDecoder->pce_seen = 0;
 
 #ifdef ERROR_RESILIENCE
     if (hDecoder->object_type < ER_OBJECT_START)
@@ -518,7 +585,14 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
                 ele_this_frame++;
                 /* 14496-4: 5.6.4.1.2.1.3: */
                 /* program_configuration_element()'s in access units shall be ignored */
-                program_config_element(pce, ld);
+                if (hDecoder->pce_layout_locked)
+                {
+                    /* ignored, and it must not clobber the active layout */
+                    program_config scratch_pce;
+                    program_config_element(&scratch_pce, ld);
+                } else {
+                    program_config_element(pce, ld);
+                }
                 //if ((hInfo->error = program_config_element(pce, ld)) > 0)
                 //    return;
                 //hDecoder->pce_set = 1;
@@ -642,6 +716,19 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
 #endif
     {
         faad_byte_align(ld);
+    }
+
+    if (hDecoder->pce_layout_locked)
+    {
+        /* every identity of the active PCE must have occurred exactly
+           once in this access unit */
+        uint32_t expect = (uint32_t)hDecoder->pce_sce_mask |
+            ((uint32_t)hDecoder->pce_cpe_mask << 16);
+        if (hDecoder->pce_seen != expect)
+        {
+            hInfo->error = 21;
+            return;
+        }
     }
 
     return;

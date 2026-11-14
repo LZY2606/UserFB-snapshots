@@ -423,6 +423,14 @@ typedef struct
     /* Program Config Element */
     uint8_t pce_set;
     program_config pce;
+    /* frame-boundary PCE layout update (NeAACDecUpdatePCE):
+       when pce_layout_locked is set, decode slots are keyed by the
+       (element type, tag) identity from the active PCE instead of the
+       encounter order inside the access unit */
+    uint8_t pce_layout_locked;
+    uint16_t pce_sce_mask; /* SCE tags present in the active PCE */
+    uint16_t pce_cpe_mask; /* CPE tags present in the active PCE */
+    uint32_t pce_seen;     /* identities already decoded in this access unit */
     uint8_t element_id[MAX_CHANNELS];
     uint8_t internal_channel[MAX_CHANNELS];
 

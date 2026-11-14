@@ -224,6 +224,21 @@ NEAACDECAPI char NeAACDecInit2(NeAACDecHandle hDecoder,
                                unsigned long *samplerate,
                                unsigned char *channels);
 
+/* Update the program_config_element of a decoder that was initialised by
+   NeAACDecInit2 with an explicit PCE (channelConfiguration == 0).
+   Takes a complete AudioSpecificConfig with channelConfiguration == 0 and
+   takes effect between two complete NeAACDecDecode calls. Element
+   identities (SCE/CPE type + tag) that are kept retain their synthesis
+   history, new identities start clean, dropped identities are released.
+   Limited to the floating point build, plain AAC-LC raw access units,
+   1024 sample frames and an unchanged sample rate.
+   Returns 0 on success, -1 on failure; a failure leaves the active
+   layout and all decoder state untouched. */
+NEAACDECAPI int NeAACDecUpdatePCE(NeAACDecHandle hDecoder,
+                                  const unsigned char *asc,
+                                  unsigned long size);
+
+
 /* Init the library for DRM */
 NEAACDECAPI char NeAACDecInitDRM(NeAACDecHandle *hDecoder, unsigned long samplerate,
                                  unsigned char channels);
