@@ -33,6 +33,38 @@ Crawls web pages and prints any link it can find.
 - tag filter - allow to specify tags to crawl for (single: `-tag a -tag form`, multiple: `-tag a,form`, or mixed)
 - url ignore - allow to ignore urls with matched substrings from crawling (i.e.: `-ignore logout`)
 - subdomains support - allow depth crawling for subdomains as well (e.g. `crawley http://some-test.site` will be able to crawl `http://www.some-test.site`)
+- canonical links support (library-only) - merge URL aliases declared via `<link rel="canonical">` in HTML head, skip duplicate fetches and emit final representatives
+
+
+# library usage
+
+Crawley can be used as a Go library. Canonical-links mode (disabled by default,
+no CLI flag) merges page aliases declared in HTML head into a single identity:
+already-dispatched alias groups are not fetched again, and results are emitted
+once - deduped, resolved to final representatives and sorted:
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/s0rg/crawley/internal/crawler"
+)
+
+func main() {
+	c := crawler.New(
+		crawler.WithMaxCrawlDepth(-1),
+		crawler.WithCanonicalLinks(true), // default: false
+	)
+
+	if err := c.Run("http://some-test.site", func(uri string) {
+		fmt.Println(uri)
+	}); err != nil {
+		panic(err)
+	}
+}
+```
 
 
 # examples

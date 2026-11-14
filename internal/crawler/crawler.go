@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,13 @@ type crawlClient interface {
 	Head(context.Context, string) (http.Header, error)
 }
 
+// crawlClientEx is an optional client extension able to report
+// the final (after redirects) URL of a GET request.
+type crawlClientEx interface {
+	crawlClient
+	GetURL(context.Context, string) (io.ReadCloser, http.Header, string, error)
+}
+
 const (
 	chMult     = 256
 	chTimeout  = 100 * time.Millisecond
@@ -41,12 +49,15 @@ const (
 	TaskCrawl
 	// TaskDone marks result as final - crawling ends here.
 	TaskDone
+	// TaskEdge marks result as an identity edge between two URLs.
+	TaskEdge
 )
 
 type crawlResult struct {
 	URI  string
 	Hash uint64
 	Flag taskFlag
+	Edge string // edge target, for TaskEdge only
 }
 
 // Crawler holds crawling process config and state.
@@ -116,6 +127,12 @@ func (c *Crawler) Run(uri string, urlcb func(string)) (err error) {
 
 	c.crawlCh <- base
 
+	if c.cfg.Canonical {
+		c.runCanonical(base, urlcb)
+
+		return nil
+	}
+
 	var t crawlResult
 
 	for w := 1; w > 0; {
@@ -136,18 +153,59 @@ func (c *Crawler) Run(uri string, urlcb func(string)) (err error) {
 	return nil
 }
 
+// runCanonical is the scheduler loop for canonical-links mode: identity edges
+// are merged as they arrive, dispatch dedup happens per equivalence group and
+// all output is deferred until every dispatched task and its discovery events
+// are fully processed.
+func (c *Crawler) runCanonical(base *url.URL, urlcb func(string)) {
+	cs := newCanonicalState()
+	cs.dispatch(urlIdentity(base.String()))
+
+	for w := 1; w > 0; {
+		t := <-c.resultCh
+
+		switch t.Flag {
+		case TaskDone:
+			w--
+
+		case TaskEdge:
+			cs.addEdge(t.URI, t.Edge)
+
+		default:
+			if c.showable(t.URI) {
+				cs.addCandidate(t.URI)
+			}
+
+			if t.Flag == TaskCrawl &&
+				!cs.dispatchedTo(urlIdentity(t.URI)) &&
+				c.tryEnqueue(base, &t) {
+				w++
+				cs.dispatch(urlIdentity(t.URI))
+			}
+		}
+	}
+
+	if urlcb == nil {
+		return
+	}
+
+	for _, u := range cs.results() {
+		urlcb(u)
+	}
+}
+
 // DumpConfig returns internal config representation.
 func (c *Crawler) DumpConfig() string {
 	return c.cfg.String()
 }
 
-func (c *Crawler) tryHandle(u string) {
-	show := true
-
+func (c *Crawler) showable(u string) (show bool) {
 	idx := strings.LastIndexByte(u, '/')
 	if idx == -1 {
 		return
 	}
+
+	show = true
 
 	switch c.cfg.Dirs {
 	case DirsHide:
@@ -156,7 +214,11 @@ func (c *Crawler) tryHandle(u string) {
 		show = !isResorce(u[idx:])
 	}
 
-	if !show {
+	return
+}
+
+func (c *Crawler) tryHandle(u string) {
+	if !c.showable(u) {
 		return
 	}
 
@@ -286,6 +348,13 @@ func (c *Crawler) linkHandler(a atom.Atom, s string) {
 		r.Flag = TaskCrawl
 	}
 
+	if c.cfg.Canonical {
+		// no timed sends in canonical mode - discoveries must not be lost
+		c.resultCh <- r
+
+		return
+	}
+
 	t := time.NewTimer(chTimeout)
 	defer t.Stop()
 
@@ -303,13 +372,126 @@ func (c *Crawler) crawlHandler(s string) {
 	c.linkHandler(atom.A, s)
 }
 
+func (c *Crawler) fetch(
+	ctx context.Context,
+	web crawlClient,
+	uri string,
+) (body io.ReadCloser, hdrs http.Header, finalURL string, err error) {
+	if c.cfg.Canonical {
+		if ex, ok := web.(crawlClientEx); ok {
+			return ex.GetURL(ctx, uri)
+		}
+	}
+
+	body, hdrs, err = web.Get(ctx, uri)
+	finalURL = uri
+
+	return
+}
+
+func (c *Crawler) staticResolver(scheme, docURL string) links.URLHandler {
+	return func(s string) {
+		var ok bool
+
+		switch {
+		case strings.HasPrefix(s, doubleDash):
+			s, ok = scheme+s, true
+		case strings.Contains(s, doubleDash):
+			ok = true
+		default:
+			s, ok = resolveRef(docURL, s)
+		}
+
+		if ok {
+			c.staticHandler(s)
+		}
+	}
+}
+
+func (c *Crawler) emitEdge(from, to string) {
+	c.resultCh <- crawlResult{
+		Flag: TaskEdge,
+		URI:  from,
+		Edge: to,
+	}
+}
+
+// recordRedirect stores request-start -> final-document identity edge,
+// both endpoints must share the same origin.
+func (c *Crawler) recordRedirect(req string, doc *url.URL) {
+	from, ok := normalizeURL(req)
+	if !ok {
+		return
+	}
+
+	to := urlIdentity(doc.String())
+	if from == to {
+		return
+	}
+
+	src, err := url.Parse(req)
+	if err != nil || !sameOrigin(src, doc) {
+		return
+	}
+
+	c.emitEdge(from, to)
+}
+
+// processHTMLCanonical handles HTML body in canonical mode: head control
+// declarations (only from successful responses) become identity edges,
+// ordinary links are resolved against the effective head base.
+func (c *Crawler) processHTMLCanonical(body io.Reader, doc *url.URL, declare bool) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return
+	}
+
+	base := doc
+
+	if declare {
+		head := links.ExtractHead(bytes.NewReader(data))
+		base = resolveHeadBase(doc, head)
+
+		if target, ok := pickCanonical(doc, base, head.Canonicals); ok {
+			c.emitEdge(urlIdentity(doc.String()), urlIdentity(target))
+		}
+	}
+
+	links.ExtractHTML(bytes.NewReader(data), base, links.HTMLParams{
+		Brute:        c.cfg.Brute,
+		ScanJS:       c.cfg.ScanJS,
+		ScanCSS:      c.cfg.ScanCSS,
+		Filter:       withoutCanonicalLinks(c.filter),
+		HandleHTML:   c.linkHandler,
+		HandleStatic: c.staticResolver(doc.Scheme, doc.String()),
+	})
+}
+
+func (c *Crawler) processCanonical(
+	body io.ReadCloser,
+	content, uri string,
+	doc *url.URL,
+	success bool,
+) {
+	switch {
+	case isHTML(content):
+		c.processHTMLCanonical(body, doc, success)
+	case isSitemap(uri):
+		links.ExtractSitemap(body, doc, c.crawlHandler)
+	case c.cfg.ScanJS && isJS(content, uri):
+		links.ExtractJS(body, c.staticResolver(doc.Scheme, doc.String()))
+	case c.cfg.ScanCSS && isCSS(content, uri):
+		links.ExtractCSS(body, c.staticResolver(doc.Scheme, doc.String()))
+	}
+}
+
 func (c *Crawler) process(
 	ctx context.Context,
 	web crawlClient,
 	base *url.URL,
 	uri string,
 ) {
-	body, hdrs, err := web.Get(ctx, uri)
+	body, hdrs, finalURL, err := c.fetch(ctx, web, uri)
 	if err != nil {
 		var herr client.HTTPError
 
@@ -321,24 +503,26 @@ func (c *Crawler) process(
 		}
 	}
 
-	handleStatic := func(s string) {
-		var ok bool
+	content := hdrs.Get(contentType)
 
-		switch {
-		case strings.HasPrefix(s, doubleDash):
-			s, ok = base.Scheme+s, true
-		case strings.Contains(s, doubleDash):
-			ok = true
-		default:
-			s, ok = resolveRef(uri, s)
+	if c.cfg.Canonical {
+		doc := base
+
+		if u, perr := url.Parse(finalURL); perr == nil {
+			doc = u
 		}
 
-		if ok {
-			c.staticHandler(s)
+		if err == nil {
+			c.recordRedirect(uri, doc)
 		}
+
+		c.processCanonical(body, content, uri, doc, err == nil)
+		client.Discard(body)
+
+		return
 	}
 
-	content := hdrs.Get(contentType)
+	handleStatic := c.staticResolver(base.Scheme, uri)
 
 	switch {
 	case isHTML(content):

@@ -66,6 +66,28 @@ func (h *HTTP) Get(ctx context.Context, url string) (body io.ReadCloser, hdrs ht
 	return body, hdrs, nil
 }
 
+// GetURL sends http GET request, returns non-closed body, headers and
+// final (after any redirects) request URL or error.
+func (h *HTTP) GetURL(ctx context.Context, url string) (
+	body io.ReadCloser,
+	hdrs http.Header,
+	finalURL string,
+	err error,
+) {
+	var req *http.Request
+
+	if req, err = http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		url,
+		http.NoBody,
+	); err != nil {
+		return
+	}
+
+	return h.requestEx(req)
+}
+
 // Head sends http HEAD request, return response headers or error.
 func (h *HTTP) Head(ctx context.Context, url string) (hdrs http.Header, err error) {
 	var req *http.Request
@@ -97,6 +119,17 @@ func Discard(rc io.ReadCloser) {
 }
 
 func (h *HTTP) request(req *http.Request) (body io.ReadCloser, hdrs http.Header, err error) {
+	body, hdrs, _, err = h.requestEx(req)
+
+	return
+}
+
+func (h *HTTP) requestEx(req *http.Request) (
+	body io.ReadCloser,
+	hdrs http.Header,
+	finalURL string,
+	err error,
+) {
 	req.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.8")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -115,7 +148,7 @@ func (h *HTTP) request(req *http.Request) (body io.ReadCloser, hdrs http.Header,
 		err = ErrFromResp(resp)
 	}
 
-	return resp.Body, resp.Header, err
+	return resp.Body, resp.Header, resp.Request.URL.String(), err
 }
 
 func (h *HTTP) enrich(req *http.Request) {

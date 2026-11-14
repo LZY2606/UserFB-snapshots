@@ -134,3 +134,13 @@ func WithSubdomains(v bool) Option {
 		c.Subdomains = v
 	}
 }
+
+// WithCanonicalLinks enables canonical-link based URL identity merging:
+// head canonical declarations from successful HTML GET responses are used
+// to merge URL aliases, suppress duplicate fetches and emit final
+// representatives (deduped and sorted) at the end of the run.
+func WithCanonicalLinks(v bool) Option {
+	return func(c *config) {
+		c.Canonical = v
+	}
+}
