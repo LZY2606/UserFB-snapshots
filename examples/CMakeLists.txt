@@ -40,6 +40,10 @@ add_executable(vttdump vttdump.c)
 target_link_libraries(vttdump caption)
 install(TARGETS vttdump DESTINATION bin)
 
+add_executable(vttkaraoke vttkaraoke.c)
+target_link_libraries(vttkaraoke caption)
+install(TARGETS vttkaraoke DESTINATION bin)
+
 add_executable(rollup rollup.c flv.c)
 target_link_libraries(rollup caption)
 install(TARGETS rollup DESTINATION bin)

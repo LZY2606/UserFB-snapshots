@@ -29,6 +29,11 @@
 
 vtt_block_t* vtt_block_free_head(vtt_block_t* head);
 
+// Structured cue payload lifecycle, implemented in vtt_text.c
+int vtt_cue_text_ensure(vtt_block_t* cue);
+void vtt_cue_text_detach(vtt_block_t* cue);
+libcaption_stauts_t vtt_cue_render_final(vtt_block_t* cue, caption_frame_t* frame);
+
 vtt_t* vtt_new()
 {
     vtt_t* vtt = malloc(sizeof(vtt_t));
@@ -59,6 +64,7 @@ vtt_block_t* vtt_block_new(vtt_t* vtt, const utf8_char_t* data, size_t size, enu
     block->duration = 0.0;
     block->cue_settings = NULL;
     block->cue_id = NULL;
+    block->cue_text = NULL;
     block->text_size = size;
 
     switch (type) {
@@ -110,6 +116,7 @@ vtt_block_t* vtt_block_free_head(vtt_block_t* head)
     if (head->cue_settings != NULL) {
         free(head->cue_settings);
     }
+    vtt_cue_text_detach(head);
     free(head);
     return next;
 }
@@ -295,8 +302,16 @@ vtt_t* _vtt_parse(const utf8_char_t* data, size_t size, int srt_mode)
 
 int vtt_cue_to_caption_frame(vtt_block_t* cue, caption_frame_t* frame)
 {
-    const char* data = vtt_block_data(cue);
-    return caption_frame_from_text(frame, data);
+    // The structured payload interprets markup and time tags, so a broken
+    // inline time tag can never leak onto the screen as literal text.
+    // An unparseable cue yields an empty frame and an error status; the
+    // original bytes stay available through vtt_block_data().
+    if (vtt_cue_text_ensure(cue)) {
+        return LIBCAPTION_OK == vtt_cue_render_final(cue, frame) ? 0 : -1;
+    }
+
+    caption_frame_init(frame);
+    return -1;
 }
 
 vtt_block_t* vtt_cue_from_caption_frame(caption_frame_t* frame, vtt_t* vtt)
@@ -350,7 +365,21 @@ static void _dump(vtt_t* vtt)
             printf(" %s", block->cue_settings);
         }
 
-        printf("\r\n%s\r\n", vtt_block_data(block));
+        // Emit the edited structured payload, never the stale original bytes
+        size_t out_size = vtt_cue_serialize(block, NULL, 0);
+        utf8_char_t* out_text = NULL;
+
+        if ((size_t)-1 != out_size) {
+            out_text = malloc(out_size + 1);
+
+            if (out_text && (size_t)-1 != vtt_cue_serialize(block, out_text, out_size + 1)) {
+                printf("\r\n%s", out_text);
+            }
+
+            free(out_text);
+        }
+
+        printf("\r\n");
         block = block->next;
     }
 }

@@ -57,6 +57,7 @@ set(CAPTION_SOURCES
   src/srt.c
   src/utf8.c
   src/vtt.c
+  src/vtt_text.c
   src/xds.c
 )
 

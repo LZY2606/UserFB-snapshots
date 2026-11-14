@@ -54,6 +54,15 @@ static inline libcaption_stauts_t libcaption_status_update(libcaption_stauts_t o
 #define SCREEN_ROWS 15
 #define SCREEN_COLS 32
 
+// Karaoke phase of a single cell.
+// NONE is used for plain text/608 decoded frames, PAST/FUTURE only by
+// vtt_cue_to_caption_frame_at() preview frames.
+typedef enum {
+    caption_phase_none = 0,
+    caption_phase_past = 1,
+    caption_phase_future = 2
+} caption_frame_phase_t;
+
 typedef struct {
     unsigned int uln : 1; //< underline
     unsigned int sty : 3; //< style
@@ -62,6 +71,9 @@ typedef struct {
 
 typedef struct {
     caption_frame_cell_t cell[SCREEN_ROWS][SCREEN_COLS];
+    // parallel array of karaoke phases; zero (caption_phase_none) for
+    // frames produced by caption_frame_from_text() or 608 decoding
+    unsigned char phase[SCREEN_ROWS][SCREEN_COLS];
 } caption_frame_buffer_t;
 
 typedef struct {
@@ -88,6 +100,9 @@ typedef struct {
     \param frame Pointer to prealocated caption_frame_t object
 */
 void caption_frame_init(caption_frame_t* frame);
+/*! \brief Promotes the back buffer to the front buffer and clears the back buffer
+*/
+libcaption_stauts_t caption_frame_end(caption_frame_t* frame);
 /*! \brief
     \param
 */
@@ -118,6 +133,21 @@ int caption_frame_write_char(caption_frame_t* frame, int row, int col, eia608_st
     \param
 */
 const utf8_char_t* caption_frame_read_char(caption_frame_t* frame, int row, int col, eia608_style_t* style, int* underline);
+/*! \brief Reads the karaoke phase of the cell at row/col of the front buffer
+    \param frame A pointer to an allocated and initialized caption_frame_t object
+    \param row Row position, must be between 0 and SCREEN_ROWS-1
+    \param col Column position, must be between 0 and SCREEN_COLS-1
+    \return caption_phase_none for plain/608 frames and empty cells,
+            caption_phase_past/caption_phase_future for VTT preview frames
+*/
+static inline caption_frame_phase_t caption_frame_read_phase(caption_frame_t* frame, int row, int col)
+{
+    if (!frame || 0 > row || SCREEN_ROWS <= row || 0 > col || SCREEN_COLS <= col) {
+        return caption_phase_none;
+    }
+
+    return (caption_frame_phase_t)frame->front.phase[row][col];
+}
 /*! \brief
     \param
 */

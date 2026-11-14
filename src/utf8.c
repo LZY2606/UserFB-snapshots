@@ -146,14 +146,22 @@ size_t _utf8_newline(const utf8_char_t* data)
 // auto detects between windows(CRLF), unix(LF), mac(CR) and riscos (LFCR) line endings
 size_t utf8_line_length(const utf8_char_t* data)
 {
-    size_t n, len = 0;
+    // Keep a single byte cursor. The previous implementation advanced a
+    // second pointer by utf8 character length while indexing the original
+    // pointer, so the index fell behind on multi-byte text and long lines
+    // (e.g. the 26-byte VTT timestamp line) were reported as truncated.
+    size_t len = 0;
 
-    for (len = 0; 0 != data[len]; ++len) {
-        if (0 < (n = _utf8_newline(data))) {
+    while (0 != data[len]) {
+        size_t n = _utf8_newline(data + len);
+
+        if (0 < n) {
             return len + n;
         }
 
-        data += utf8_char_length(data);
+        size_t char_len = utf8_char_length(data + len);
+        // a stray continuation byte still advances one byte, as before
+        len += char_len ? char_len : 1;
     }
 
     return len;

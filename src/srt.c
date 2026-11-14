@@ -53,7 +53,24 @@ void srt_dump(srt_t* srt)
         vtt_crack_time(block->timestamp, &hh1, &mm1, &ss1, &ms1);
         vtt_crack_time(block->timestamp + block->duration, &hh2, &mm2, &ss2, &ms2);
 
-        printf("%02d\r\n%d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d\r\n%s\r\n", i,
-            hh1, mm1, ss1, ms1, hh2, mm2, ss2, ms2, vtt_block_data(block));
+        printf("%02d\r\n%d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d\r\n", i,
+            hh1, mm1, ss1, ms1, hh2, mm2, ss2, ms2);
+
+        // Emit the edited structured payload when one exists
+        size_t out_size = vtt_cue_serialize(block, NULL, 0);
+
+        if ((size_t)-1 != out_size) {
+            utf8_char_t* out_text = malloc(out_size + 1);
+
+            if (out_text && (size_t)-1 != vtt_cue_serialize(block, out_text, out_size + 1)) {
+                printf("%s", out_text);
+            }
+
+            free(out_text);
+        } else {
+            printf("%s", vtt_block_data(block));
+        }
+
+        printf("\r\n");
     }
 }
