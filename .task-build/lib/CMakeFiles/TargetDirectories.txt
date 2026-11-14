@@ -1,0 +1,14 @@
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/dist.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/CMakeFiles/install/strip.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/de265.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1693/attempts/20261114T000628117660Z/repo/.task-build/lib/libde265/CMakeFiles/install/strip.dir
