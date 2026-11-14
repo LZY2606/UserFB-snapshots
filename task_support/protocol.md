@@ -1,0 +1,13 @@
+这是此次明文 live rendezvous 的协议范围说明，依据 Haivision 的 SRT 协议草案 Rendezvous Handshake、Cookie Contest 和 SRT Buffer Latency，以及参考实现区分本地/对端ISN的行为整理；不是要求采用某一种内部类结构。来源：
+https://haivision.github.io/srt-rfc/draft-sharabayko-srt.html
+https://github.com/Haivision/srt/blob/master/srtcore/core.cpp
+
+双方使用v5，绑定本地IPv4 UDP地址并只与指定对端交互，不建立listener。WAVEHAND携带稳定的本端socket ID、cookie、本端31位ISN、MSS和FC；不带扩展，EncryptionField为0。首个WAVEHAND的DestinationSocketId为0；知道对端ID以后使用对端ID。整个尝试内本端身份、cookie和ISN不变。cookie按32位二补码有符号数比较，先符号扩展再比较；较大者是initiator，较小者是responder，相等时本次尝试明确失败，不任意选角色。
+
+收到WAVEHAND后：initiator发送带HSREQ的CONCLUSION，responder先发送不带扩展的CONCLUSION。收到的第一条消息也可以是CONCLUSION，仍能从cookie确定角色并继续对应流程。initiator持续用CONCLUSION+HSREQ推进，收到有效HSRSP后发送无扩展AGREEMENT，才向调用者交付Conn。responder收到有效HSREQ后发送CONCLUSION+HSRSP，收到AGREEMENT后交付Conn。responder在已经处理HSREQ的阶段收到合法的对端数据或已连接阶段控制包，可以用它确认连接，保留该包并交给正常接收路径，不丢首包。
+
+WAVEHAND/CONCLUSION每250ms重发当前阶段应发的报文，受Config.ConnectionTimeout和ctx约束；重复包不重复分配连接，不移动协商基准、不清空已建媒体状态。已连接initiator收到迟到CONCLUSION/HSRSP仍回复AGREEMENT，让丢失最后确认的对端结束握手。初始握手时间戳和对端媒体时基按既有TSBPD规则关联，重发不能重新采样首个基准。当阶段、扩展方向或已记录的对端socket ID/cookie不一致时，不据此推进状态；截断扩展也不能使状态前进。收到非指定UDP来源的数据不接纳。
+
+packet.CIFHandshake往返编码后，HasHS与IsRequest须区分HSREQ/HSRSP。协商采用既有live兼容检查：MinVersion、必需flags、STREAM拒绝、有效MSS/FC。双方发送都用各自本地ISN，接收都从对端ISN开始；不要为复用旧构造器把两端ISN改成同一个值。MSS应在仓库MIN_MSS_SIZE至MAX_MSS_SIZE之间，FC须非零；有效MSS与FC分别取双方声明的较小值，MSS变化须更新有效payload size。每个方向的接收延迟取本地ReceiverLatency与对端PeerLatency的较大值，发送方向取本地PeerLatency与对端ReceiverLatency的较大值。双方可配置不同的MSS和latency。已有caller/listener构造路径仍兼容其原有共享ISN方式。
+
+本次不支持v4 rendezvous、加密、FEC和StreamId；RendezvousWithContext在这些不受支持的配置下明确返回错误，不能静默忽略。localAddress须带非零端口，local/remote须是IPv4地址。失败或ctx结束后释放本次创建的UDP资源；成功返回的Conn继续满足现有Read/Write/ReadPacket/WritePacket/Close接口。
