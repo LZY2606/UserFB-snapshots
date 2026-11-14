@@ -1,0 +1,16 @@
+--- a/ilbc/create_augmented_vec.c
++++ b/ilbc/create_augmented_vec.c
+@@ -47,9 +47,10 @@
+   /* perform cbVec[ilow+k] = ((ppi[k]*alphaTbl[k])>>15) + ((ppo[k]*alphaTbl[3-k])>>15);
+      for k = 0..3
+   */
+-  WebRtcSpl_ElementwiseVectorMult(&cbVec[ilow], ppi, WebRtcIlbcfix_kAlpha, 4, 15);
+-  WebRtcSpl_ReverseOrderMultArrayElements(cbVecTmp, ppo, &WebRtcIlbcfix_kAlpha[3], 4, 15);
+-  WebRtcSpl_AddVectorsAndShift(&cbVec[ilow], &cbVec[ilow], cbVecTmp, 4, 0);
++  for (int j=0; j<4; ++j) {
++    cbVec[ilow+j] = (int16_t)(((int32_t)ppi[j]*WebRtcIlbcfix_kAlpha[j]
++                         + (int32_t)ppo[j]*WebRtcIlbcfix_kAlpha[3-j]) >> 15);
++  }
+ 
+   /* copy the second noninterpolated part */
+   ppo = buffer - index;

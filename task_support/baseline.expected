@@ -1,0 +1,2 @@
+ILBC_BASELINE_OK mode=20 frames=96 bytes=3648 samples=15360 stream=f69d611553a70983 pcm=c8b3dd4729b36513 state_first=46/50 starts=24,46,26
+ILBC_BASELINE_OK mode=30 frames=96 bytes=4800 samples=23040 stream=ad7d5a1cb70781dd pcm=dec88291268e1e45 state_first=43/53 starts=16,17,26,20,17
