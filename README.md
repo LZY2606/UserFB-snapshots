@@ -109,6 +109,39 @@ func ExampleCrawl() {
 }
 ```
 
+### Streaming links while reading a page
+
+Set `Options.StreamLinks` to `true` to dispatch a page's `a[href]` links as soon as each complete tag is read, so other hosts can be fetched while a long response body is still transferring:
+
+```Go
+type StreamExtender struct {
+    gocrawl.DefaultExtender
+}
+
+// Visit still runs once per page, at clean EOF, with a re-readable body
+// containing the full document.
+func (x *StreamExtender) Visit(ctx *gocrawl.URLContext, res *http.Response, doc *goquery.Document) (interface{}, bool) {
+    return nil, true
+}
+
+func ExampleStreamLinks() {
+    opts := gocrawl.NewOptions(new(StreamExtender))
+    opts.RobotUserAgent = "Example"
+    opts.CrawlDelay = 0
+    opts.SameHostOnly = false
+    opts.LogFlags = gocrawl.LogError
+
+    // Enqueue a[href] links as they are tokenized from the body instead of
+    // waiting for the parent response to finish.
+    opts.StreamLinks = true
+
+    c := gocrawl.NewCrawlerWithOptions(opts)
+    if err := c.Run("http://example.com/directory"); err != nil {
+        log.Print(err)
+    }
+}
+```
+
 ## API
 
 Gocrawl can be described as a minimalist web crawler (hence the "slim" tag, at ~1000 sloc), providing the basic engine upon which to build a full-fledged indexing machine with caching, persistence and staleness detection logic, or to use as is for quick and easy crawling. Gocrawl itself does not attempt to detect staleness of a page, nor does it implement a caching mechanism. If an URL is enqueued to be processed, it *will* make a request to fetch it (provided it is allowed by robots.txt - hence the "polite" tag). And there is no prioritization among the URLs to process, it assumes that all enqueued URLs must be visited at some point, and that the order in which they are is unimportant.
@@ -175,6 +208,8 @@ The `Options` type provides the hooks and customizations offered by gocrawl. All
 *    **SameHostOnly** : Limit the URLs to enqueue only to those links targeting the same host, which is `true` by default.
 
 *    **HeadBeforeGet** : Asks the crawler to issue a HEAD request (and a subsequent `RequestGet()` extender method call) before making the eventual GET request. This is set to `false` by default. See also the `URLContext` structure explained below.
+
+*    **StreamLinks** : Set to `true` to enqueue each `a[href]` link as soon as its full tag is read from the response body, instead of waiting for the parent response to end. The streamed links go through the exact same `Filter`, `Enqueued`, normalization, de-duplication, same-host, robots.txt and host crawl-delay machinery as links harvested after a visit, and each host is still processed serially by its single worker. The base URL is determined from the first valid head-section `base[href]` (falling back to the response's request URL). At clean EOF, the whole document is still parsed and passed to `Visit` once with a re-readable body; that final visit does not trigger a second scan for links. A body read error is reported once as `CekReadBody` and does not count as a visit, while the links already streamed keep processing. Defaults to `false`, which preserves the legacy whole-document behaviour.
 
 *    **URLNormalizationFlags** : The flags to apply when normalizing the URL using the [purell][] library. The URLs are normalized before being enqueued and passed around to the `Extender` methods in the `URLContext` structure. Defaults to the most aggressive normalization allowed by purell, `purell.FlagsAllGreedy`.
 

@@ -66,6 +66,16 @@ type Options struct {
 	// GET should be issued.
 	HeadBeforeGet bool
 
+	// StreamLinks enables incremental link discovery while a response
+	// body is still being read. As soon as a complete a[href] tag is
+	// tokenized from the stream, the link is enqueued through the same
+	// Filter, normalization, robots and politeness machinery as
+	// harvested links, instead of waiting for the parent response to be
+	// fully read and visited. The parent page is still visited once with
+	// its complete, re-readable body when EOF is reached. It defaults to
+	// false, in which case the legacy whole-document behaviour is used.
+	StreamLinks bool
+
 	// URLNormalizationFlags controls the normalization of URLs.
 	// See the purell package for details.
 	URLNormalizationFlags purell.NormalizationFlags
@@ -92,6 +102,7 @@ func NewOptions(ext Extender) *Options {
 		DefaultCrawlDelay,
 		DefaultIdleTTL,
 		true,
+		false,
 		false,
 		DefaultNormalizationFlags,
 		LogError,

@@ -319,6 +319,15 @@ func (c *Crawler) collectUrls() error {
 
 		case enq := <-c.enqueue:
 			// Received a command to enqueue a URL, proceed
+			if sl, ok := enq.(*streamedLinks); ok {
+				// Links streamed from an in-flight response body. enqueueUrls
+				// accounts for the new pending work in pushPopRefCount (and
+				// each child settles it via its worker response), so Run does
+				// not return while the child requests are still in flight.
+				// The page being read stays their source URL, never the base.
+				c.enqueueUrls(c.toURLContexts(sl.urls, sl.source.url))
+				continue
+			}
 			ctxs := c.toURLContexts(enq, nil)
 			c.logFunc(LogTrace, "receive url(s) to enqueue %v", toStringArrayContextURL(ctxs))
 			c.enqueueUrls(ctxs)

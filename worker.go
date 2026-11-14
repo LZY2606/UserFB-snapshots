@@ -131,8 +131,12 @@ func (w *worker) requestURL(ctx *URLContext, headRequest bool) {
 		// Any 2xx status code is good to go
 		if res.StatusCode >= 200 && res.StatusCode < 300 {
 			// Success, visit the URL
-			harvested = w.visitURL(ctx, res)
-			visited = true
+			if w.opts.StreamLinks {
+				harvested, visited = w.streamVisitURL(ctx, res)
+			} else {
+				harvested = w.visitURL(ctx, res)
+				visited = true
+			}
 		} else {
 			// Error based on status code received
 			w.opts.Extender.Error(newCrawlErrorMessage(ctx, res.Status, CekHttpStatusCode))
