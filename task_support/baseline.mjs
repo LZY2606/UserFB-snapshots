@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import {once} from 'node:events';
+import Crawler from '../dist/index.js';
+const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/plain');res.end(req.url);});
+server.listen(0,'127.0.0.1');await once(server,'listening');
+const url=`http://127.0.0.1:${server.address().port}/item`;
+const crawler=new Crawler({maxConnections:1,retries:0,jQuery:false,silence:true});
+const seen=[];const draining=once(crawler,'drain');
+for(const revision of [1,2])crawler.add({url,headers:{'x-revision':String(revision)},callback(error,response,done){assert.ifError(error);assert.equal(response.body,'/item');seen.push(revision);done();}});
+await draining;
+assert.deepEqual(seen,[1,2]);
+console.log(`BASELINE_OK callbacks=${seen.length} same_url=/item`);
+console.log(`REVISION_API=${typeof crawler.addRevision}`);
+await new Promise(resolve=>server.close(resolve));

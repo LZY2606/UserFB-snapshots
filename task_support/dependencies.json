@@ -1,0 +1,454 @@
+{
+  "upstream_commit": "29d547e3423821088968cf44a784ebd68bde86d3",
+  "runtime_packages": [
+    {
+      "name": "@keyv/serialize",
+      "version": "1.1.1",
+      "license": "MIT",
+      "path": "node_modules/@keyv/serialize",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "@sec-ant/readable-stream",
+      "version": "0.4.1",
+      "license": "MIT",
+      "path": "node_modules/@sec-ant/readable-stream",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "@sindresorhus/is",
+      "version": "8.1.0",
+      "license": "MIT",
+      "path": "node_modules/@sindresorhus/is",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "@types/http-cache-semantics",
+      "version": "4.2.0",
+      "license": "MIT",
+      "path": "node_modules/@types/http-cache-semantics",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "boolbase",
+      "version": "1.0.0",
+      "license": "ISC",
+      "path": "node_modules/boolbase",
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_origin": "https://raw.githubusercontent.com/fb55/boolbase/54811f01c797a6bb1c263183ae90b7dd627e0638/LICENSE"
+    },
+    {
+      "name": "byte-counter",
+      "version": "0.1.0",
+      "license": "MIT",
+      "path": "node_modules/byte-counter",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "cacheable-lookup",
+      "version": "7.0.0",
+      "license": "MIT",
+      "path": "node_modules/cacheable-lookup",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "cacheable-request",
+      "version": "13.0.19",
+      "license": "MIT",
+      "path": "node_modules/cacheable-request",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "cheerio",
+      "version": "1.2.0",
+      "license": "MIT",
+      "path": "node_modules/cheerio",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "cheerio-select",
+      "version": "2.1.0",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/cheerio-select",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "chunk-data",
+      "version": "0.1.0",
+      "license": "MIT",
+      "path": "node_modules/chunk-data",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "css-select",
+      "version": "5.2.2",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/css-select",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "css-what",
+      "version": "6.2.2",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/css-what",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "decompress-response",
+      "version": "10.0.0",
+      "license": "MIT",
+      "path": "node_modules/decompress-response",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "dom-serializer",
+      "version": "2.0.0",
+      "license": "MIT",
+      "path": "node_modules/dom-serializer",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "domelementtype",
+      "version": "2.3.0",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/domelementtype",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "domhandler",
+      "version": "5.0.3",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/domhandler",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "domutils",
+      "version": "3.2.2",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/domutils",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "encoding-sniffer",
+      "version": "0.2.1",
+      "license": "MIT",
+      "path": "node_modules/encoding-sniffer",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "entities",
+      "version": "4.5.0",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/entities",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "get-stream",
+      "version": "9.0.1",
+      "license": "MIT",
+      "path": "node_modules/get-stream",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "got",
+      "version": "15.1.0",
+      "license": "MIT",
+      "path": "node_modules/got",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "hpagent",
+      "version": "1.2.0",
+      "license": "MIT",
+      "path": "node_modules/hpagent",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "htmlparser2",
+      "version": "10.1.0",
+      "license": "MIT",
+      "path": "node_modules/htmlparser2",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "http-cache-semantics",
+      "version": "4.3.0",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/http-cache-semantics",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "http2-wrapper",
+      "version": "2.2.4",
+      "license": "MIT",
+      "path": "node_modules/http2-wrapper",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "iconv-lite",
+      "version": "0.7.3",
+      "license": "MIT",
+      "path": "node_modules/iconv-lite",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "is-stream",
+      "version": "4.0.1",
+      "license": "MIT",
+      "path": "node_modules/is-stream",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "keyv",
+      "version": "5.6.0",
+      "license": "MIT",
+      "path": "node_modules/keyv",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "lowercase-keys",
+      "version": "4.0.1",
+      "license": "MIT",
+      "path": "node_modules/lowercase-keys",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "mimic-response",
+      "version": "4.0.0",
+      "license": "MIT",
+      "path": "node_modules/mimic-response",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "node-url-utils",
+      "version": "0.4.0",
+      "license": "MIT",
+      "path": "node_modules/node-url-utils",
+      "license_files": [
+        "License"
+      ]
+    },
+    {
+      "name": "normalize-url",
+      "version": "8.1.1",
+      "license": "MIT",
+      "path": "node_modules/normalize-url",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "nth-check",
+      "version": "2.1.1",
+      "license": "BSD-2-Clause",
+      "path": "node_modules/nth-check",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "parse5",
+      "version": "7.3.0",
+      "license": "MIT",
+      "path": "node_modules/parse5",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "parse5-htmlparser2-tree-adapter",
+      "version": "7.1.0",
+      "license": "MIT",
+      "path": "node_modules/parse5-htmlparser2-tree-adapter",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "parse5-parser-stream",
+      "version": "7.1.2",
+      "license": "MIT",
+      "path": "node_modules/parse5-parser-stream",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "quick-lru",
+      "version": "5.1.1",
+      "license": "MIT",
+      "path": "node_modules/quick-lru",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "resolve-alpn",
+      "version": "1.2.1",
+      "license": "MIT",
+      "path": "node_modules/resolve-alpn",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "responselike",
+      "version": "4.0.2",
+      "license": "MIT",
+      "path": "node_modules/responselike",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "license": "MIT",
+      "path": "node_modules/safer-buffer",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "seenreq",
+      "version": "3.0.0",
+      "license": "MIT",
+      "path": "node_modules/seenreq",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "tagged-tag",
+      "version": "1.0.0",
+      "license": "MIT",
+      "path": "node_modules/tagged-tag",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "tslog",
+      "version": "4.11.0",
+      "license": "MIT",
+      "path": "node_modules/tslog",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "type-fest",
+      "version": "5.10.0",
+      "license": "(MIT OR CC0-1.0)",
+      "path": "node_modules/type-fest",
+      "license_files": [
+        "license-cc0",
+        "license-mit"
+      ]
+    },
+    {
+      "name": "uint8array-extras",
+      "version": "1.6.0",
+      "license": "MIT",
+      "path": "node_modules/uint8array-extras",
+      "license_files": [
+        "license"
+      ]
+    },
+    {
+      "name": "undici",
+      "version": "7.30.2",
+      "license": "MIT",
+      "path": "node_modules/undici",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "whatwg-encoding",
+      "version": "3.1.1",
+      "license": "MIT",
+      "path": "node_modules/whatwg-encoding",
+      "license_files": [
+        "LICENSE.txt"
+      ]
+    },
+    {
+      "name": "whatwg-mimetype",
+      "version": "4.0.0",
+      "license": "MIT",
+      "path": "node_modules/whatwg-mimetype",
+      "license_files": [
+        "LICENSE.txt"
+      ]
+    }
+  ],
+  "compiler": {
+    "name": "typescript",
+    "version": "5.7.3",
+    "license": "Apache-2.0"
+  },
+  "provenance": "All files match the earlier input scaffold byte-for-byte; seed-export.json records each path and SHA256; no cache install performed."
+}
