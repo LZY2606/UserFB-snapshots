@@ -1,0 +1,15 @@
+diff --git a/src/surface/flip_geodesics.cpp b/src/surface/flip_geodesics.cpp
+index 43c1165..5ba3934 100644
+--- a/src/surface/flip_geodesics.cpp
++++ b/src/surface/flip_geodesics.cpp
+@@ -970,7 +970,9 @@ void FlipEdgeNetwork::iterativeShorten(size_t maxIterations, double maxRelativeL
+     }
+ 
+     // Shorten about that wedge
+-    locallyShortenAt(pathSegment, angleType);
++    // DEFECT(skip-valid-shortening): diagnostic defect, never actually shorten
++    (void)pathSegment;
++    (void)angleType;
+ 
+     // validate();
+ 

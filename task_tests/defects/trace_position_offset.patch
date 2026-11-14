@@ -1,0 +1,18 @@
+diff --git a/src/surface/flip_geodesics.cpp b/src/surface/flip_geodesics.cpp
+index 43c1165..57eb3ac 100644
+--- a/src/surface/flip_geodesics.cpp
++++ b/src/surface/flip_geodesics.cpp
+@@ -1598,6 +1598,13 @@ std::vector<std::vector<SurfacePoint>> FlipEdgeNetwork::getPathPolyline(bool& wa
+     for (Halfedge he : heList) {
+       std::vector<SurfacePoint> thisTrace = tri->traceIntrinsicHalfedgeAlongInput(he);
+ 
++      // DEFECT(trace-position-offset): diagnostic defect, shift retraced points
++      // by a finite amount while keeping them on the same mesh elements
++      for (SurfacePoint& p : thisTrace) {
++        if (p.type == SurfacePointType::Edge) p.tEdge = 0.9 * p.tEdge + 0.05;
++        if (p.type == SurfacePointType::Face) p.faceCoords = 0.9 * p.faceCoords + 0.1 * Vector3{1. / 3., 1. / 3., 1. / 3.};
++      }
++
+       // Check success
+       SurfacePoint& lastP = thisTrace.back();
+       bool thisTraceSuccess = onSameElement(lastP, tri->vertexLocations[he.twin().vertex()]);

@@ -1,0 +1,15 @@
+diff --git a/src/surface/flip_geodesics.cpp b/src/surface/flip_geodesics.cpp
+index 43c1165..e79ceb2 100644
+--- a/src/surface/flip_geodesics.cpp
++++ b/src/surface/flip_geodesics.cpp
+@@ -824,7 +824,9 @@ void FlipEdgeNetwork::locallyShortenAt(FlipPathSegment& pathSegment, SegmentAngl
+ 
+         // track data to support rewinding
+         if (supportRewinding) {
+-          rewindRecord.emplace_back(currEdge, oldLen, oldAngleA, oldAngleB, oldIsOrig);
++          // DEFECT(rewind-stale-metric): diagnostic defect, record a corrupted
++          // length; rewind still restores connectivity but the metric is wrong
++          rewindRecord.emplace_back(currEdge, oldLen * 1.02, oldAngleA, oldAngleB, oldIsOrig);
+         }
+ 
+         // Flip happened! Update data and continue processing
