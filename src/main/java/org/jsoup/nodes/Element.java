@@ -1390,6 +1390,25 @@ public class Element extends Node {
         return StringUtil.releaseBuilder(accum).trim();
     }
 
+    /**
+     Gets the <b>normalized, combined text</b> of this element and its children, along with a mapping from each
+     character back to the position in the original input source.
+     <p>The {@link TextSource#text()} is exactly equal to {@link #text()} of this element at the time of the call, and
+     the returned {@link TextSource} is a snapshot that is not affected by later DOM changes.</p>
+     <p>Source positions are only available when the parser was configured with
+     {@link org.jsoup.parser.Parser#setTrackPosition(boolean)}. Layout-generated spaces (between block elements and at
+     {@code <br>}), and text that was not tracked (programmatically created, or set with {@link #text(String)}), are
+     mapped to {@code -1, -1}.</p>
+
+     @return a snapshot of the normalized text and its source spans
+     @see #text()
+     @see TextSource
+     @since 1.18.3
+     */
+    public TextSource textWithSource() {
+        return TextSource.of(this);
+    }
+
     private static class TextAccumulator implements NodeVisitor {
         private final StringBuilder accum;
 

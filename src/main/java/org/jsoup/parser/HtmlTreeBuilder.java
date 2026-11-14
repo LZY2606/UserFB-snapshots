@@ -2,7 +2,9 @@ package org.jsoup.parser;
 
 import org.jsoup.helper.Validate;
 import org.jsoup.internal.Normalizer;
+import org.jsoup.internal.SharedConstants;
 import org.jsoup.internal.StringUtil;
+import org.jsoup.internal.TextSourceMap;
 import org.jsoup.nodes.Attributes;
 import org.jsoup.nodes.CDataNode;
 import org.jsoup.nodes.Comment;
@@ -425,6 +427,11 @@ public class HtmlTreeBuilder extends TreeBuilder {
             node = new DataNode(data);
         else
             node = new TextNode(data);
+        if (node instanceof TextNode) {
+            TextSourceMap map = characterToken.getSourceMap();
+            if (map != null) // stored as internal user data, so it survives clone and node moves
+                ((TextNode) node).attributes().userData(SharedConstants.TextSourceKey, map);
+        }
         el.appendChild(node); // doesn't use insertNode, because we don't foster these; and will always have a stack.
         onNodeInserted(node);
     }

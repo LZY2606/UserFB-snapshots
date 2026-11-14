@@ -2,8 +2,12 @@ package org.jsoup.nodes;
 
 import org.jsoup.helper.Validate;
 import org.jsoup.internal.StringUtil;
+import org.jsoup.internal.TextSourceMap;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
+
+import static org.jsoup.internal.SharedConstants.TextSourceKey;
 
 /**
  A text node.
@@ -40,6 +44,7 @@ public class TextNode extends LeafNode {
      */
     public TextNode text(String text) {
         coreValue(text);
+        sourceMap(null); // the new text does not correspond to the original source
         return this;
     }
 
@@ -49,6 +54,30 @@ public class TextNode extends LeafNode {
      */
     public String getWholeText() {
         return coreValue();
+    }
+
+    /**
+     Get the map from this node's UTF-16 character positions back to the original input source, if the parser tracked
+     positions and the content is unchanged since parsing.
+     @return the source map, or {@code null} if untracked
+     */
+    @Nullable TextSourceMap sourceMap() {
+        if (!hasAttributes()) return null;
+        Object map = attributes().userData(TextSourceKey);
+        if (map instanceof TextSourceMap && ((TextSourceMap) map).text().equals(coreValue()))
+            return (TextSourceMap) map;
+        return null; // untracked, or content changed without going through text(String)
+    }
+
+    /**
+     Set the source map for this node. Internal to jsoup; used by the parser when position tracking is enabled.
+     @param map the source map, or null to clear
+     */
+    void sourceMap(@Nullable TextSourceMap map) {
+        if (map != null)
+            attributes().userData(TextSourceKey, map);
+        else if (hasAttributes())
+            attributes().remove(TextSourceKey);
     }
 
     /**
@@ -72,8 +101,19 @@ public class TextNode extends LeafNode {
 
         String head = text.substring(0, offset);
         String tail = text.substring(offset);
+        TextSourceMap currentMap = sourceMap();
         text(head);
         TextNode tailNode = new TextNode(tail);
+        if (currentMap != null) {
+            // both sides retain their original source positions. If the split is not on a code point boundary, the
+            // halves are not valid characters; drop tracking rather than present a misleading mapping.
+            boolean onBoundary = offset == 0 || offset == text.length()
+                || !(Character.isLowSurrogate(text.charAt(offset)) && Character.isHighSurrogate(text.charAt(offset - 1)));
+            if (onBoundary) {
+                sourceMap(currentMap.slice(0, offset));
+                tailNode.sourceMap(currentMap.slice(offset, text.length()));
+            }
+        }
         if (parentNode != null)
             parentNode.addChildren(siblingIndex()+1, tailNode);
 

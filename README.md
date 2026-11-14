@@ -30,6 +30,32 @@ for (Element headline : newsHeadlines) {
 ```
 [Online sample](https://try.jsoup.org/~LGB7rk_atM2roavV0d-czMt3J_g), [full source](https://github.com/jhy/jsoup/blob/master/src/main/java/org/jsoup/examples/Wikipedia.java).
 
+### Mapping text back to the original HTML
+
+`Element.text()` returns decoded, whitespace-normalized text, which is ideal for finding a value, but it no longer
+lines up with the raw HTML. To find where a piece of that text came from, enable position tracking and use
+`Element.textWithSource()`. It returns a `TextSource` with the same text, plus one `Span` per Unicode code point that
+maps the output back to a half-open `[start, end)` range in the original input (UTF-16 offsets):
+
+```java
+String html = "<p>Our partner <b>Acme &amp; Co</b> announced it.</p>";
+Element p = Parser.htmlParser().setTrackPosition(true).parseInput(html, "").selectFirst("p");
+
+TextSource ts = p.textWithSource();
+int at = ts.text().indexOf("Acme");
+TextSource.Span first = ts.spans().get(at);                    // one span per code point
+TextSource.Span last = ts.spans().get(at + "Acme & Co".length() - 1);
+System.out.println(html.substring(first.sourceStart(), last.sourceEnd())); // "Acme &amp; Co"
+```
+
+Character references map to their full source form (`&amp;`), a reference that expands to two code points maps both to
+the same reference, retained collapsed whitespace maps to the first contributing character, and spaces inserted for
+layout between block elements or at `<br>` are reported as `-1, -1`. Text that was not tracked, was created
+programmatically, or was replaced with `text(String)` is also `-1, -1`. Positions work with both String and Reader
+input, and survive `clone()`, node moves, and `splitText()` at a code point boundary. A `TextSource` is a snapshot and
+is unaffected by later DOM changes. See [`TextSourceExample`](src/main/java/org/jsoup/examples/TextSourceExample.java)
+for a fuller example.
+
 ## Open source
 jsoup is an open source project distributed under the liberal [MIT license](https://jsoup.org/license). The source code is available on [GitHub](https://github.com/jhy/jsoup).
 

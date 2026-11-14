@@ -133,6 +133,7 @@ enum TokeniserState {
             } else if (r.matches('>')) {
                 t.error(this);
                 t.advanceTransition(Data);
+                t.discardMarkup(); // "</>" produces no output; the next text starts after it
             } else {
                 t.error(this);
                 t.createBogusCommentPending();
@@ -928,6 +929,7 @@ enum TokeniserState {
                 // todo: should actually check current namespace, and only non-html allows cdata. until namespace
                 // is implemented properly, keep handling as cdata
                 //} else if (!t.currentNodeInHtmlNS() && r.matchConsume("[CDATA[")) {
+                t.cdataDataStart(r.pos());
                 t.createTempBuffer();
                 t.transition(CdataSection);
             } else {

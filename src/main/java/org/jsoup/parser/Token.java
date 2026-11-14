@@ -2,6 +2,7 @@ package org.jsoup.parser;
 
 import org.jsoup.helper.Validate;
 import org.jsoup.internal.Normalizer;
+import org.jsoup.internal.TextSourceMap;
 import org.jsoup.nodes.Attributes;
 import org.jsoup.nodes.Range;
 import org.jspecify.annotations.Nullable;
@@ -439,6 +440,7 @@ abstract class Token {
 
     static class Character extends Token implements Cloneable {
         private String data;
+        private @Nullable TextSourceMap sourceMap; // optional per-character map into the original input
 
         Character() {
             super(TokenType.Character);
@@ -448,6 +450,7 @@ abstract class Token {
         Token reset() {
             super.reset();
             data = null;
+            sourceMap = null;
             return this;
         }
 
@@ -458,6 +461,15 @@ abstract class Token {
 
         String getData() {
             return data;
+        }
+
+        /** The per-UTF-16-unit source map for this token's data, or null if untracked. */
+        @Nullable TextSourceMap getSourceMap() {
+            return sourceMap;
+        }
+
+        void sourceMap(@Nullable TextSourceMap sourceMap) {
+            this.sourceMap = sourceMap;
         }
 
         @Override

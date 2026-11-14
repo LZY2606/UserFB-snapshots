@@ -2,6 +2,7 @@ package org.jsoup.parser;
 
 import org.jsoup.helper.Validate;
 import org.jsoup.internal.StringUtil;
+import org.jsoup.internal.TextSourceMap;
 import org.jsoup.nodes.Entities;
 import org.jspecify.annotations.Nullable;
 
@@ -50,12 +51,20 @@ final class Tokeniser {
     @Nullable private String lastStartCloseSeq; // "</" + lastStartTag, so we can quickly check for that in RCData
 
     private int markupStartPos, charStartPos = 0; // reader pos at the start of markup / characters. markup updated on state transition, char on token emit.
+    private final boolean trackSource;
+    // Maps each emitted UTF-16 unit of text back to its source position. sourceCursor is the source position of the
+    // next unconsumed output character; it resets to the reader position whenever markup is emitted as a token.
+    private final TextSourceMap.Builder sourceBuilder = new TextSourceMap.Builder();
+    private int sourceCursor = 0;
+    private int refSourceStart = -1, refSourceEnd = -1; // span of the last text character reference consumed
+    private int cdataDataStart = -1; // source position of the current CDATA section's data
 
     Tokeniser(TreeBuilder treeBuilder) {
         tagPending = startPending  = new Token.StartTag(treeBuilder);
         endPending = new Token.EndTag(treeBuilder);
         this.reader = treeBuilder.reader;
         this.errors = treeBuilder.parser.getErrors();
+        this.trackSource = treeBuilder.trackSourceRange;
     }
 
     Token read() {
@@ -70,16 +79,46 @@ final class Tokeniser {
             cb.delete(0, cb.length());
             Token token = charPending.data(str);
             charsString = null;
-            return token;
+            return withSourceMap(token);
         } else if (charsString != null) {
             Token token = charPending.data(charsString);
             charsString = null;
-            return token;
+            return withSourceMap(token);
         } else {
             isEmitPending = false;
             assert emitPending != null;
+            if (emitPending instanceof Token.CData)
+                mapCData((Token.CData) emitPending);
             return emitPending;
         }
+    }
+
+    private Token withSourceMap(Token token) {
+        if (trackSource && token instanceof Token.Character) {
+            Token.Character character = (Token.Character) token;
+            // If emitted text does not match the consumed input, leave it untracked rather than give a false mapping.
+            TextSourceMap map = sourceBuilder.buildOrNull(character.getData());
+            character.sourceMap(map);
+            sourceBuilder.reset();
+        }
+        return token;
+    }
+
+    /**
+     Attach a linear source map to a CDATA token. The token's content is the verbatim input between
+     {@code <![CDATA[} and the closing {@code ]]>}, so it maps one-to-one from the start of the data.
+     */
+    private void mapCData(Token.CData cdata) {
+        if (!trackSource) return;
+        int dataStart = cdataDataStart;
+        int length = cdata.getData().length();
+        if (length == 0) return;
+        if (dataStart < 0 || dataStart + length > reader.pos())
+            return; // unexpected layout; leave untracked rather than guess
+        TextSourceMap.Builder builder = new TextSourceMap.Builder();
+        for (int i = 0; i < length; i++)
+            builder.add(dataStart + i, dataStart + i + 1);
+        cdata.sourceMap(builder.buildOrNull(cdata.getData()));
     }
 
     void emit(Token token) {
@@ -90,6 +129,11 @@ final class Tokeniser {
         token.startPos(markupStartPos);
         token.endPos(reader.pos());
         charStartPos = reader.pos(); // update char start when we complete a token emit
+        if (trackSource) {
+            // any buffered text precedes this markup; the next emitted text starts after the reader has passed it
+            sourceCursor = reader.pos();
+            refSourceStart = refSourceEnd = -1;
+        }
 
         if (token.type == Token.TokenType.StartTag) {
             Token.StartTag startTag = (Token.StartTag) token;
@@ -115,6 +159,7 @@ final class Tokeniser {
         }
         charPending.startPos(charStartPos);
         charPending.endPos(reader.pos());
+        trackEmitted(str.length());
     }
 
     // variations to limit need to create temp strings
@@ -129,6 +174,7 @@ final class Tokeniser {
         }
         charPending.startPos(charStartPos);
         charPending.endPos(reader.pos());
+        trackEmitted(str.length());
     }
 
     void emit(char c) {
@@ -142,6 +188,7 @@ final class Tokeniser {
         }
         charPending.startPos(charStartPos);
         charPending.endPos(reader.pos());
+        trackEmitted(1);
     }
 
     void emit(char[] chars) {
@@ -150,6 +197,42 @@ final class Tokeniser {
 
     void emit(int[] codepoints) {
         emit(new String(codepoints, 0, codepoints.length));
+    }
+
+    /**
+     Record the source positions for emitted characters. Emitted text is normally an exact copy of the characters
+     consumed from the reader, in which case they map one-to-one. Character references expand to a different number of
+     code points (e.g. {@code &amp;} to {@code &}, or {@code &NotEqualTilde;} to two code points); each emitted code
+     point then maps to the whole reference. Text reconstructed from consumed markup (e.g. an unterminated
+     {@code </name}) maps linearly across the consumed span.
+     */
+    private void trackEmitted(int emittedUnits) {
+        if (!trackSource || emittedUnits == 0) return;
+
+        if (refSourceStart >= 0) {
+            // the emitted characters are the expansion of a character reference
+            for (int i = 0; i < emittedUnits; i++)
+                sourceBuilder.add(refSourceStart, refSourceEnd);
+            sourceCursor = Math.max(sourceCursor, refSourceEnd);
+            refSourceStart = refSourceEnd = -1;
+            return;
+        }
+
+        int available = Math.max(0, reader.pos() - sourceCursor); // consumed but not yet mapped
+        int direct = Math.min(emittedUnits, available);
+        for (int i = 0; i < direct; i++)
+            sourceBuilder.add(sourceCursor + i, sourceCursor + i + 1);
+
+        int forward = emittedUnits - direct;
+        if (forward > 0) {
+            // characters that have not been consumed yet (e.g. emitted before an advanceTransition)
+            int base = Math.max(reader.pos(), sourceCursor);
+            for (int i = 0; i < forward; i++)
+                sourceBuilder.add(base + i, base + i + 1);
+            sourceCursor = base + forward;
+        } else {
+            sourceCursor += direct;
+        }
     }
 
     TokeniserState getState() {
@@ -169,6 +252,16 @@ final class Tokeniser {
         reader.advance();
     }
 
+    /**
+     Called when consumed markup produced neither text nor a token (e.g. an ignored {@code </>}), so the next text
+     starts after it rather than continuing from the markup's position.
+     */
+    void discardMarkup() {
+        if (!trackSource) return;
+        sourceCursor = reader.pos();
+        refSourceStart = refSourceEnd = -1;
+    }
+
     final private int[] codepointHolder = new int[1]; // holder to not have to keep creating arrays
     final private int[] multipointHolder = new int[2];
     @Nullable int[] consumeCharacterReference(@Nullable Character additionalAllowedCharacter, boolean inAttribute) {
@@ -179,6 +272,8 @@ final class Tokeniser {
         if (reader.matchesAnySorted(notCharRefCharsSorted))
             return null;
 
+        // include the leading '&' in the reference's source span (it has already been consumed)
+        final int refStart = reader.pos() - 1;
         final int[] codeRef = codepointHolder;
         reader.mark();
         if (reader.matchConsume("#")) { // numbered
@@ -193,6 +288,7 @@ final class Tokeniser {
             reader.unmark();
             if (!reader.matchConsume(";"))
                 characterReferenceError("missing semicolon on [&#%s]", numRef); // missing semi
+            if (!inAttribute) latchRefRange(refStart);
             int charval = -1;
             try {
                 int base = isHexMode ? 16 : 10;
@@ -244,6 +340,7 @@ final class Tokeniser {
             reader.unmark();
             if (!reader.matchConsume(";"))
                 characterReferenceError("missing semicolon on [&%s]", nameRef); // missing semi
+            if (!inAttribute) latchRefRange(refStart);
             int numChars = Entities.codepointsForName(nameRef, multipointHolder);
             if (numChars == 1) {
                 codeRef[0] = multipointHolder[0];
@@ -255,6 +352,13 @@ final class Tokeniser {
                 return multipointHolder;
             }
         }
+    }
+
+    /** Record the source span of a resolved character reference, for the next text emit. */
+    private void latchRefRange(int start) {
+        if (!trackSource) return;
+        refSourceStart = start;
+        refSourceEnd = reader.pos();
     }
 
     Token.Tag createTagPending(boolean start) {
@@ -290,6 +394,10 @@ final class Tokeniser {
 
     void createTempBuffer() {
         Token.reset(dataBuffer);
+    }
+
+    void cdataDataStart(int pos) {
+        cdataDataStart = pos;
     }
 
     boolean isAppropriateEndTagToken() {
