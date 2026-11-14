@@ -1,0 +1,10 @@
+# github.com/abbot/go-http-auth v0.4.1-0.20220112235402-e1cee1c72f2f
+## explicit; go 1.14
+github.com/abbot/go-http-auth
+# golang.org/x/crypto v0.21.0
+## explicit; go 1.18
+golang.org/x/crypto/bcrypt
+golang.org/x/crypto/blowfish
+# golang.org/x/net v0.23.0
+## explicit; go 1.18
+golang.org/x/net/websocket

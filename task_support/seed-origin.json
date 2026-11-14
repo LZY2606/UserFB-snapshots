@@ -1,0 +1,19 @@
+{
+  "repo": "https://github.com/aerokube/ggr",
+  "commit": "5adb7fc43fdb741fa3cee1a3aa9caf457c19744d",
+  "license": "Apache-2.0",
+  "original_source_paths": [
+    "main.go",
+    "proxy.go",
+    "config.go",
+    "pprof.go",
+    "doc.go",
+    "config/data.go"
+  ],
+  "dependencies": {
+    "github.com/abbot/go-http-auth": "v0.4.1-0.20220112235402-e1cee1c72f2f",
+    "golang.org/x/net": "v0.23.0",
+    "golang.org/x/crypto": "v0.21.0"
+  },
+  "support": "bootstrap_test.go只为原main.init设置空guest配置；baseline_test.go调用原生产route/proxy；原认证fixture未复制。"
+}
