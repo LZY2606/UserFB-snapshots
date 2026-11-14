@@ -79,6 +79,11 @@ static int entry_producer_changed(playlist_entry *entry)
     unsigned int revision = mlt_properties_revision(MLT_PRODUCER_PROPERTIES(entry->producer));
     int changed = revision != entry->revision;
     entry->revision = revision;
+    // A cut that follows a cut window derives its points from its parent's
+    // current length, so it must be re-evaluated on every refresh.
+    if (!changed
+        && mlt_properties_get_int(MLT_PRODUCER_PROPERTIES(entry->producer), "_cut_window"))
+        changed = 1;
     return changed;
 }
 
@@ -498,7 +503,11 @@ static mlt_service mlt_playlist_virtual_seek(mlt_playlist self,
         *progressive = count == 1;
         mlt_producer_seek(producer, (int) position % count);
     } else if (!strcmp(eof, "pause") && total > 0) {
-        playlist_entry *entry = self->list[self->count - 1];
+        // Select the last entry that actually has frames; zero length entries are skipped.
+        int j = self->count - 1;
+        while (j > 0 && self->list[j]->frame_count < 1)
+            j--;
+        playlist_entry *entry = self->list[j];
         int count = entry->frame_count / entry->repeat;
         mlt_producer self_producer = MLT_PLAYLIST_PRODUCER(self);
         mlt_producer_seek(self_producer, original - 1);
@@ -508,7 +517,11 @@ static mlt_service mlt_playlist_virtual_seek(mlt_playlist self,
         mlt_producer_set_speed(producer, 0);
         *progressive = count == 1;
     } else if (!strcmp(eof, "loop") && total > 0) {
-        playlist_entry *entry = self->list[0];
+        // Select the first entry that actually has frames; zero length entries are skipped.
+        int j = 0;
+        while (j < self->count - 1 && self->list[j]->frame_count < 1)
+            j++;
+        playlist_entry *entry = self->list[j];
         mlt_producer self_producer = MLT_PLAYLIST_PRODUCER(self);
         mlt_producer_seek(self_producer, 0);
         producer = entry->producer;

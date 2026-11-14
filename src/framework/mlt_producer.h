@@ -49,6 +49,9 @@
  * \properties \em _cut set if this producer is a "cut" producer
  * \properties \em mlt_mix stores the data for a "mix" producer
  * \properties \em _cut_parent holds a reference to the cut's parent producer
+ * \properties \em _cut_window set to 1 if this cut follows a "cut window" (see mlt_producer_set_cut_window)
+ * \properties \em _cut_window_in the requested starting source frame of a cut window
+ * \properties \em _cut_window_out the requested ending source frame of a cut window, or -1 to follow the end of the parent
  * \properties \em ignore_points Set this to temporarily disable the in and out points.
  * \properties \em use_clone holds a reference to a clone's producer, as created by mlt_producer_optimise
  * \properties \em _clone is the index of the clone in the list of clones stored on the clone's producer
@@ -137,6 +140,7 @@ MLT_EXPORT int mlt_producer_attach(mlt_producer self, mlt_filter filter);
 MLT_EXPORT int mlt_producer_detach(mlt_producer self, mlt_filter filter);
 MLT_EXPORT mlt_filter mlt_producer_filter(mlt_producer self, int index);
 MLT_EXPORT mlt_producer mlt_producer_cut(mlt_producer self, int in, int out);
+MLT_EXPORT int mlt_producer_set_cut_window(mlt_producer cut, mlt_position in, mlt_position out);
 MLT_EXPORT int mlt_producer_is_cut(mlt_producer self);
 MLT_EXPORT int mlt_producer_is_mix(mlt_producer self);
 MLT_EXPORT int mlt_producer_is_blank(mlt_producer self);

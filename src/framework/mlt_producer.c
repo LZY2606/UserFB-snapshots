@@ -300,6 +300,172 @@ mlt_producer mlt_producer_cut(mlt_producer self, int in, int out)
     return result;
 }
 
+/** Determine if a cut follows a cut window.
+ *
+ * \private \memberof mlt_producer_s
+ * \param self a producer
+ * \return true if \p self is a cut with a cut window enabled
+ * \see mlt_producer_set_cut_window
+ */
+
+static int mlt_producer_cut_window_active(mlt_producer self)
+{
+    return self != NULL && mlt_properties_get_int(MLT_PRODUCER_PROPERTIES(self), "_cut_window");
+}
+
+/** Compute the effective in and out points of a cut window.
+ *
+ * The requested window is intersected with [0, parent length - 1]. An empty
+ * intersection is normalized to in = 0 and out = -1 (playtime 0).
+ *
+ * \private \memberof mlt_producer_s
+ * \param self a cut with a cut window
+ * \param[out] in the effective starting point
+ * \param[out] out the effective ending point
+ */
+
+static void mlt_producer_cut_window_effective(mlt_producer self, mlt_position *in, mlt_position *out)
+{
+    mlt_properties properties = MLT_PRODUCER_PROPERTIES(self);
+    mlt_producer parent = mlt_producer_cut_parent(self);
+    mlt_position request_in = mlt_properties_get_position(properties, "_cut_window_in");
+    mlt_position request_out = mlt_properties_get_position(properties, "_cut_window_out");
+    mlt_position length = parent != NULL ? mlt_producer_get_length(parent) : 0;
+    mlt_position effective_in = request_in;
+    mlt_position effective_out = request_out < 0 ? length - 1 : request_out;
+
+    if (effective_out > length - 1)
+        effective_out = length - 1;
+    if (length < 1 || effective_in > effective_out) {
+        effective_in = 0;
+        effective_out = -1;
+    }
+    *in = effective_in;
+    *out = effective_out;
+}
+
+/** Apply a cut window to the cut's stored points and propagate the change.
+ *
+ * The stored in, out, and length properties are synchronized with the
+ * effective window and the parent's current length. Anything is only written
+ * when it actually changed, which both terminates the recursive event
+ * propagation and avoids spurious notifications.
+ *
+ * \private \memberof mlt_producer_s
+ * \param self a cut with a cut window
+ */
+
+static void mlt_producer_cut_window_apply(mlt_producer self)
+{
+    mlt_properties properties = MLT_PRODUCER_PROPERTIES(self);
+    mlt_producer parent = mlt_producer_cut_parent(self);
+    mlt_position length = parent != NULL ? mlt_producer_get_length(parent) : 0;
+    mlt_position in = 0;
+    mlt_position out = -1;
+
+    mlt_producer_cut_window_effective(self, &in, &out);
+
+    if (mlt_properties_get_position(properties, "in") != in
+        || mlt_properties_get_position(properties, "out") != out
+        || mlt_properties_get_position(properties, "length") != length) {
+        mlt_properties_set_position(properties, "in", in);
+        mlt_properties_set_position(properties, "out", out);
+        mlt_properties_set_position(properties, "length", length);
+
+        // Notify containers of the parent (e.g. a playlist holding this cut)
+        // and services that reference the cut itself (e.g. a multitrack).
+        // A cut's own property-changed listener may be blocked since its
+        // construction, so the notification is fired explicitly.
+        if (parent != NULL)
+            mlt_events_fire(MLT_PRODUCER_PROPERTIES(parent),
+                            "producer-changed",
+                            mlt_event_data_none());
+        mlt_events_fire(properties, "producer-changed", mlt_event_data_none());
+    }
+}
+
+/** Listener for changes of the parent of a cut with a cut window.
+ *
+ * \private \memberof mlt_producer_s
+ * \param owner the parent's properties (ignored)
+ * \param self the cut
+ * \param event_data the event data (ignored)
+ */
+
+static void mlt_producer_cut_window_changed(mlt_properties owner,
+                                            mlt_producer self,
+                                            mlt_event_data event_data)
+{
+    mlt_producer_cut_window_apply(self);
+}
+
+/** Make a cut follow a window of source frames of its parent producer.
+ *
+ * The cut window is a closed interval of source frames. \p out may be -1 to
+ * follow the end of the parent. On every change of the parent's length the
+ * requested window is intersected with [0, parent length - 1] and the cut's
+ * in, out, playtime, and length reflect the intersection. An empty
+ * intersection is normalized to in = 0, out = -1, and playtime 0 while the
+ * requested window is retained, so the cut recovers when the parent grows
+ * again. Calling this again on an enabled cut replaces the requested window.
+ * Calling mlt_producer_set_in_and_out() on an enabled cut disables the
+ * following and applies fixed points by the usual rules.
+ *
+ * \public \memberof mlt_producer_s
+ * \param cut an existing cut producer (not blank, not a mix)
+ * \param in the requested starting source frame; must be non-negative
+ * \param out the requested ending source frame; -1 follows the end of the
+ * parent, otherwise it must be greater than or equal to \p in
+ * \return true if the arguments are invalid (state is left unchanged)
+ * \see mlt_producer_cut
+ */
+
+int mlt_producer_set_cut_window(mlt_producer cut, mlt_position in, mlt_position out)
+{
+    // Only existing, non-blank, non-mix cuts are supported.
+    int error = cut == NULL || !mlt_producer_is_cut(cut) || mlt_producer_is_blank(cut)
+                || mlt_producer_is_mix(cut) || mlt_producer_is_mix(mlt_producer_cut_parent(cut));
+
+    // The window is a closed interval of source frames; out == -1 follows the end.
+    error = error || in < 0 || (out != -1 && out < in);
+
+    if (error == 0) {
+        mlt_producer parent = mlt_producer_cut_parent(cut);
+        mlt_properties properties = MLT_PRODUCER_PROPERTIES(cut);
+
+        if (parent == NULL)
+            return 1;
+
+        if (!mlt_producer_cut_window_active(cut)) {
+            // Follow length changes of the parent. The event is owned by the
+            // cut and closed when the cut is destroyed or the window is
+            // disabled, so parent and cut never hold each other alive.
+            mlt_event event = mlt_events_listen(MLT_PRODUCER_PROPERTIES(parent),
+                                                cut,
+                                                "producer-changed",
+                                                (mlt_listener) mlt_producer_cut_window_changed);
+            if (event == NULL)
+                return 1;
+            mlt_event_inc_ref(event);
+            mlt_properties_set_data(properties,
+                                    "_cut_window_event",
+                                    event,
+                                    0,
+                                    (mlt_destructor) mlt_event_close,
+                                    NULL);
+            mlt_properties_set_int(properties, "_cut_window", 1);
+        }
+
+        // Store the requested window; the effective points are always derived
+        // from this request, never from a previous effective out point.
+        mlt_properties_set_position(properties, "_cut_window_in", in);
+        mlt_properties_set_position(properties, "_cut_window_out", out);
+        mlt_producer_cut_window_apply(cut);
+    }
+    return error;
+}
+
+
 /** Get the parent service object.
  *
  * \public \memberof mlt_producer_s
@@ -493,6 +659,13 @@ int mlt_producer_set_in_and_out(mlt_producer self, mlt_position in, mlt_position
 
     mlt_properties properties = MLT_PRODUCER_PROPERTIES(self);
 
+    // Setting fixed points on a cut that follows a cut window ends the
+    // following: the listener is released and the cut becomes static.
+    if (mlt_producer_cut_window_active(self)) {
+        mlt_properties_set_data(properties, "_cut_window_event", NULL, 0, NULL, NULL);
+        mlt_properties_set_int(properties, "_cut_window", 0);
+    }
+
     // Correct ins and outs if necessary
     if (in < 0)
         in = 0;
@@ -551,7 +724,14 @@ int mlt_producer_clear(mlt_producer self)
 
 mlt_position mlt_producer_get_in(mlt_producer self)
 {
-    return mlt_properties_get_position(MLT_PRODUCER_PROPERTIES(self), "in");
+    mlt_properties properties = MLT_PRODUCER_PROPERTIES(self);
+    if (mlt_producer_cut_window_active(self)) {
+        mlt_position in = 0;
+        mlt_position out = -1;
+        mlt_producer_cut_window_effective(self, &in, &out);
+        return in;
+    }
+    return mlt_properties_get_position(properties, "in");
 }
 
 /** Get the out point.
@@ -563,7 +743,14 @@ mlt_position mlt_producer_get_in(mlt_producer self)
 
 mlt_position mlt_producer_get_out(mlt_producer self)
 {
-    return mlt_properties_get_position(MLT_PRODUCER_PROPERTIES(self), "out");
+    mlt_properties properties = MLT_PRODUCER_PROPERTIES(self);
+    if (mlt_producer_cut_window_active(self)) {
+        mlt_position in = 0;
+        mlt_position out = -1;
+        mlt_producer_cut_window_effective(self, &in, &out);
+        return out;
+    }
+    return mlt_properties_get_position(properties, "out");
 }
 
 /** Get the total play time.
@@ -589,6 +776,11 @@ mlt_position mlt_producer_get_playtime(mlt_producer self)
 
 mlt_position mlt_producer_get_length(mlt_producer self)
 {
+    // A cut that follows a cut window tracks its parent's length.
+    if (mlt_producer_cut_window_active(self)) {
+        mlt_producer parent = mlt_producer_cut_parent(self);
+        return parent != NULL ? mlt_producer_get_length(parent) : 0;
+    }
     return mlt_properties_get_position(MLT_PRODUCER_PROPERTIES(self), "length");
 }
 
@@ -687,6 +879,17 @@ static int producer_get_frame(mlt_service service, mlt_frame_ptr frame, int inde
         mlt_properties_set_int(properties, "test_image", mlt_frame_is_test_card(*frame));
         if (mlt_properties_get_data(properties, "_producer", NULL) == NULL)
             mlt_properties_set_data(properties, "_producer", service, 0, NULL, NULL);
+    } else if (self != NULL && mlt_producer_get_playtime(self) < 1) {
+        // A cut with no usable frames (e.g. an empty cut window) produces a
+        // blank test frame without consuming its parent.
+        *frame = mlt_frame_init(service);
+
+        // Set the position
+        result = mlt_frame_set_position(*frame, mlt_producer_position(self));
+
+        // Mark as a test card
+        mlt_properties_set_int(MLT_FRAME_PROPERTIES(*frame), "test_image", 1);
+        mlt_properties_set_int(MLT_FRAME_PROPERTIES(*frame), "test_audio", 1);
     } else if (self != NULL) {
         // Get the speed of the cut
         double speed = mlt_producer_get_speed(self);
