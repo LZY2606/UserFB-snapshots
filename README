@@ -36,3 +36,45 @@ TODO:
    Modify DN Requests / Responses
    Implement Tests / Benchmarks
    Timeouts (connect Go 1.1?), Timeout Operations.
+Automatic Referral Chasing:
+
+   Set ReferralPolicy on a connection to make Search and
+   SearchWithHandler follow SearchResultReference URIs automatically.
+   URIs inside one reference are alternative servers tried in order;
+   distinct references are branches that all have to complete. The
+   policy's Dial builds a ready connection for one referral URL
+   (including any TLS the scheme needs); no bind state is copied from
+   the connection that received the reference. Dialed connections are
+   closed by the call; the connection the search started on is only
+   borrowed. With a nil ReferralPolicy references are still delivered
+   to the handler one by one.
+
+   conn := ldap.NewLDAPConnection("ldap.example.com", 389)
+   err := conn.Connect()
+   if err != nil { ... }
+
+   conn.ReferralPolicy = &ldap.ReferralPolicy{
+       Dial: func(u *url.URL) (*ldap.LDAPConnection, error) {
+           port := uint16(389)
+           if u.Scheme == "ldaps" {
+               port = 636
+           }
+           c := ldap.NewLDAPConnection(u.Hostname(), port)
+           if u.Scheme == "ldaps" {
+               c.IsSSL = true
+               c.TlsConfig = &tls.Config{ServerName: u.Hostname()}
+           }
+           if err := c.Connect(); err != nil {
+               return nil, err
+           }
+           return c, nil
+       },
+   }
+
+   // Referrals are chased automatically; result.Referrals is empty and
+   // entries from every completed branch are returned in depth-first
+   // reference order.
+   req := ldap.NewSimpleSearchRequest("dc=example,dc=com",
+       ldap.ScopeWholeSubtree, "(objectClass=*)", []string{"cn"})
+   result, err := conn.Search(req)
+   if err != nil { ... } // e.g. ldap.ErrReferralLoop

@@ -70,6 +70,11 @@ type LDAPConnection struct {
 
 	Dialer Dialable
 
+	// ReferralPolicy, when non-nil, makes Search and SearchWithHandler
+	// chase SearchResultReference URIs automatically. nil keeps the
+	// default behaviour of delivering references one by one.
+	ReferralPolicy *ReferralPolicy
+
 	conn               net.Conn
 	chanResults        map[uint64]chan *ber.Packet
 	lockChanResults    sync.RWMutex

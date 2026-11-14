@@ -295,6 +295,9 @@ func sendError(errChannel chan<- error, err error) error {
 func (l *LDAPConnection) SearchWithHandler(
 	searchRequest *SearchRequest, resultHandler SearchResultHandler, errorChan chan<- error,
 ) error {
+	if l.ReferralPolicy != nil {
+		return searchFollowingReferrals(l, l.ReferralPolicy, searchRequest, resultHandler, errorChan)
+	}
 	messageID, ok := l.nextMessageID()
 	if !ok {
 		err := NewLDAPError(ErrorClosing, "MessageID channel is closed.")
