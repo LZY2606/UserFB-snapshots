@@ -1,0 +1,2319 @@
+[
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/ByteBuffers.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/ByteBuffers.java",
+    "sha256": "972b69a0d2802a505600ed9ea46cde7df07cca7fa5fac2e0e22db443fb6c6ebb"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/ByteOrderMark.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/ByteOrderMark.java",
+    "sha256": "198cdce49ea1b785756f2848cd0dd70cfc8a9c28c7e1c1b33dc2fb6f653a334a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/ByteOrderParser.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/ByteOrderParser.java",
+    "sha256": "829cdd29be218eddef03860c1acb7ccb83f5a71c2e97531248fc69956aeb0034"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/Charsets.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/Charsets.java",
+    "sha256": "01ebe1bf1950c31a8df85d68356a98e1d72fec5376887fb1906e855700cfdc68"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/CloseableURLConnection.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/CloseableURLConnection.java",
+    "sha256": "5fd5608bcb74058eedfd0ce91d934132255d8cdba08858c4da2f25af7ecb1119"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/CopyUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/CopyUtils.java",
+    "sha256": "3e6cc9dd7e94a148b6baa761ddec1b61011936c3b6f2c1ec3b4e37de17375c72"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/DirectoryWalker.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/DirectoryWalker.java",
+    "sha256": "cb415874cbbbb988e10bb4c55955618a65eb0847eb3b8779d324902a2df26fbd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/EndianUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/EndianUtils.java",
+    "sha256": "9e43c39b8383a427282a581eafcf6d86ce8235d72a603e1c1af88dcd55efebab"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileCleaner.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileCleaner.java",
+    "sha256": "f332aa4f54daf3a168553c6813dd58e28f92c059caa858ef44df67eb799cc2c0"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileCleaningTracker.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileCleaningTracker.java",
+    "sha256": "1cbfacec8100299101080bbf51cbef53e4eed85f91df3e47d72cc2bf31ccba82"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileDeleteStrategy.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileDeleteStrategy.java",
+    "sha256": "39078a0ce0716d8ccd4b2594961d851233e23785c6832dc257f9c6a14aceb136"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileExistsException.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileExistsException.java",
+    "sha256": "683137cf75e394ddcdb5cd6a30628bc60f5c2cb5c3cff2110ee3089d28e155aa"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileSystem.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileSystem.java",
+    "sha256": "5f0b8367957d5fb2a162b43e8ecad1e309da52a5c509ed13c3acde7b1906825b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileSystemUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileSystemUtils.java",
+    "sha256": "796190a9247bab31cfd03c01e1be7a62b504bcadfcdc647c12212269e46edf56"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FileUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FileUtils.java",
+    "sha256": "e91c93b401b1bd78c3c8c7d4768ccf94130a3080402e505cf131d4ddf98f15db"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/FilenameUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/FilenameUtils.java",
+    "sha256": "94327755223b9628b20df44ab98e372ecf7b06f12a71c1691e13f4052fc599ac"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/HexDump.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/HexDump.java",
+    "sha256": "f8be571edc4d2ce1bcc7f7ec88dc2b3420979f217fad6c2372ad644076d98d29"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IO.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IO.java",
+    "sha256": "5e299527ad1b93ae4d3d8e63ce4484958ae082d27ffea6c2f9fbfd1666a0108a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IOCase.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IOCase.java",
+    "sha256": "ba9c77875f4bed05655817291933868582c2e21753f28001306a4f019a63fd54"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IOExceptionList.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IOExceptionList.java",
+    "sha256": "bfd8b5ec4f7ab12e112913a28d056571fa2350ac3e64a7b11d482f200941e9d3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IOExceptionWithCause.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IOExceptionWithCause.java",
+    "sha256": "6a688dcb53db57dbcf051667b058e25e315bcefbb1b125e8f046bff1041022fb"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IOIndexedException.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IOIndexedException.java",
+    "sha256": "f574e3538ca7a3dd268d17c42468017f0c75cfbce4cdeadbc57ad056dc97ba6d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IORandomAccessFile.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IORandomAccessFile.java",
+    "sha256": "93b5dee5d5feff66288f02814ea96c025aaf8fc1bef96039e6c3acac29d940ee"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/IOUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/IOUtils.java",
+    "sha256": "6de5a8a501461317b2923dc8e9d54a2f3bd1a1053ba625326f859688da70c40a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/LineIterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/LineIterator.java",
+    "sha256": "b2ccf22700befe7dfd87b52fd66cd1cf3b30301c61d3b3191bb139c0b67a7a33"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/RandomAccessFileMode.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/RandomAccessFileMode.java",
+    "sha256": "8b5d35c8fe0c7c5963f16da8f7c5e773d6b3bddef90bb98193d2d1d02b0805f5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/RandomAccessFiles.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/RandomAccessFiles.java",
+    "sha256": "90cabc59d94e8287986f1f9dd815fa72fa6fb7111d4f2b73a74abe4509b0bb9b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/StandardLineSeparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/StandardLineSeparator.java",
+    "sha256": "85c8066bb8c5e310996ba323c7a02bd3d9ca22bdd92e41fc6ba66268473a2904"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/StreamIterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/StreamIterator.java",
+    "sha256": "f534ce04b567f1ca91f6334358c6608b426e499e564c9694add6287856cec4de"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/TaggedIOException.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/TaggedIOException.java",
+    "sha256": "7f62dcceb308df049b26c4ce69ee5214f1605872276d01aac65bf5348879165a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/ThreadMonitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/ThreadMonitor.java",
+    "sha256": "e042a4723087c94ddc2fd8cf2b9ba0e361a8a4a7b72c30c86532ef3c2bf89382"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/ThreadUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/ThreadUtils.java",
+    "sha256": "f29185903206b774d2de88de1f8d2ef4fcdf4fcbcde27803420a21b185fd2084"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/UncheckedIOExceptions.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/UncheckedIOExceptions.java",
+    "sha256": "aa88454563de55c36b1150312574bf6d9989d7f9a6ec5d1499d23bbe431b9854"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/build/AbstractOrigin.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/build/AbstractOrigin.java",
+    "sha256": "bf0bea21a5f58c5f9760361baf62c2753dff54794c07addccea3f86a541a6d9e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/build/AbstractOriginSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/build/AbstractOriginSupplier.java",
+    "sha256": "f4ec29e589f194f2a1c2be3b72d80c09c28b817a4805bd8c65784647f091f730"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/build/AbstractStreamBuilder.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/build/AbstractStreamBuilder.java",
+    "sha256": "7fd58fa3e15e54eb62b2ba8e38c1da7db8418a5f9c116d654a03e3710f92bcac"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/build/AbstractSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/build/AbstractSupplier.java",
+    "sha256": "9b45b451694581ea16a18ded449eebee264905f3a000acae140bc50d9cf51a8a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/build/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/build/package-info.java",
+    "sha256": "bb0be198f43cce885014d22404202d4a51b37cb0daeb9507204b2a83d6ff73f5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/ByteArraySeekableByteChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/ByteArraySeekableByteChannel.java",
+    "sha256": "d5ebb77157b85b4e3f2a9ff72177f44d412534db44d4be1eea70a1683b74d061"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/CloseShieldChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/CloseShieldChannel.java",
+    "sha256": "f3f905cf60b7612302406ad76e6e5aeefde0ac8665da30254db5869820eebafe"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/CloseShieldChannelHandler.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/CloseShieldChannelHandler.java",
+    "sha256": "108d832f47e38a8842d7a3fd929f7160dfa80837c9e62cf066f0a7f4f083561f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FileChannels.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FileChannels.java",
+    "sha256": "c2c350823706ec8b91f2a72d1d4a7963bf27395ade213bdd35469d2fa12471a1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterByteChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterByteChannel.java",
+    "sha256": "b14d8af8fff85b8548dc978de6ec734829bd249ea85f60c33406653357024275"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterChannel.java",
+    "sha256": "4e019d1175e32fa0dbe1599359fead51d5b672853ef6d64424c0e75e9b480e32"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterFileChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterFileChannel.java",
+    "sha256": "0e447cb156ef09143b70b99586ed520e9739a6021081352b9f7b95ccc229b03e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterReadableByteChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterReadableByteChannel.java",
+    "sha256": "c19af483a6a6b52213b999769b2ba94e83e5ae6bbef963afb5ce6933ef368d97"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterSeekableByteChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterSeekableByteChannel.java",
+    "sha256": "99f325d26b1436bf2f8cca0238eb87af1244233263974c59d82e57a0bcd18bb8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/FilterWritableByteChannel.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/FilterWritableByteChannel.java",
+    "sha256": "b762adffe2b2494d0bc65981884a45b0e48b9163d5c161e5072d1bd2bda9c733"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/channels/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/channels/package-info.java",
+    "sha256": "eeb2fa070a10eb4072a362b0f2f8bcb41b8582d63486c2e76326f4fe8f4cfbe5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/charset/CharsetDecoders.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/charset/CharsetDecoders.java",
+    "sha256": "cb9c62709caedab7ee2ec0f6e00e9a9445e4b52756c2649c578daf0d92c8f490"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/charset/CharsetEncoders.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/charset/CharsetEncoders.java",
+    "sha256": "295bb7127bc10c7362a6e00bd2fb81daee45a0e426373d1a6421f9c091418826"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/charset/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/charset/package-info.java",
+    "sha256": "2c9f7853dcf0f0e759b81208e646803f14a120373bd077abd2e9e9d22cf720b8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/AbstractFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/AbstractFileComparator.java",
+    "sha256": "16c932df0273d492c58313d16800768904724da392794ece28766f6996c418f6"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/CompositeFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/CompositeFileComparator.java",
+    "sha256": "7065e062bf359956d3a60913713aae0f01d3294ee0638e8852955d8754b75f1c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/DefaultFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/DefaultFileComparator.java",
+    "sha256": "fc9bf2b67ec1887451670f3e14b6972f9d8bd9c137875bfc770aa502224fc995"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/DirectoryFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/DirectoryFileComparator.java",
+    "sha256": "fe335109e0f1f2b84e1379812069495da4d1c6ae0b76cf441a9a6b544a79a5f8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/ExtensionFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/ExtensionFileComparator.java",
+    "sha256": "99d752b075b8c6f37185798e403112dfa6ca0158580dda87b25859ce0a81fa54"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/LastModifiedFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/LastModifiedFileComparator.java",
+    "sha256": "d8f3ab802ec66fb182dd170e0b5fae8b9ab128bb424440a0329514bb628285f4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/NameFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/NameFileComparator.java",
+    "sha256": "80fb7e628879eac80e35b36a4431db15e43a87ee8dc243b2b39f246c8bc5ff2b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/PathFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/PathFileComparator.java",
+    "sha256": "3ef64a1cdd14f4e00ec75b748d8694faa285e10d007f66e56941aa23902095df"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/ReverseFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/ReverseFileComparator.java",
+    "sha256": "2fd191aab30a3ff2a16adbfd80ade51ce65552083a0b2e555054dda0a7beaf6f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/SizeFileComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/SizeFileComparator.java",
+    "sha256": "c9e75baf162ae3cb8324f3e30beb3365bcc7e7924462149f03f8fabffb99dcc5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/comparator/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/comparator/package-info.java",
+    "sha256": "4d8783a9cf82c0ac8d7375f40a0508b0a4437888a54d1c7a392b238e7be22801"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/doc-files/leaf.svg",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/doc-files/leaf.svg",
+    "sha256": "e0559f14e57d557e55e33276fdff9aa6d1992cac60f714e65a836a95b01e7f9e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/doc-files/logo.png",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/doc-files/logo.png",
+    "sha256": "f321ee7220d546a028ee9269a37126f36da377270fd4502004ed05e306f5b690"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/AccumulatorPathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/AccumulatorPathVisitor.java",
+    "sha256": "97a418f16ff864f8866972f032b3e2249244b213b1929227b8513c934553c79a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/CleaningPathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/CleaningPathVisitor.java",
+    "sha256": "8358799f922af61a0e4f9c305b4447ecb674564a64389809523d09ead21d54ad"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/CopyDirectoryVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/CopyDirectoryVisitor.java",
+    "sha256": "196cf8e7fbb6a683648cadddbce789341c9e46cd253729cd7d77f9b522452718"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/Counters.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/Counters.java",
+    "sha256": "3917a752355428ee76ff2a9ab421e066c65d6f7f1951ba1bde3337ae86a38370"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/CountingPathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/CountingPathVisitor.java",
+    "sha256": "24afbc084bb8e7b49c011067b507da55e1621fc3a4b22c3603f2bc94d40e21bd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/DeleteOption.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/DeleteOption.java",
+    "sha256": "02dcdec80524c176d0dc746de93acf83efb5af5138e5c8775460718004679e15"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/DeletingPathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/DeletingPathVisitor.java",
+    "sha256": "a26ad0848ebfa40f54a384556427ebfb60712c464b143e6fd15a1a0771764eea"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/DirectoryStreamFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/DirectoryStreamFilter.java",
+    "sha256": "59b409b4f3aeda51a7012691c0d4ce42ea5c42db03f262379b111fd5d0e0f338"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/FilesUncheck.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/FilesUncheck.java",
+    "sha256": "ff43d2606c5076484f3b8cb741edfbd213e11909152b7041cd70d94766cce606"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/NoopPathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/NoopPathVisitor.java",
+    "sha256": "c41ef02de2dbac680c609fad57f4ffc230be4824f3b45277b6ce06e3e875bdb1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/PathFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/PathFilter.java",
+    "sha256": "807701c0453c417f992085e0c7a3d1f199f50ae76ba62a6121eada91201ca012"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/PathUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/PathUtils.java",
+    "sha256": "dac64f437b5e68da08311e3d8308143067d30ed1c159cdd7384bda68f5c90d5d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/PathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/PathVisitor.java",
+    "sha256": "6525398a3c611d0aa4d9e281cfcf9a4f3d86c477f20c14f100a966c11d22a71e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/SimplePathVisitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/SimplePathVisitor.java",
+    "sha256": "a645adb80b497bc00c83238031b124bebcbf78eb5f36c2616de001c66d94f33c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/StandardDeleteOption.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/StandardDeleteOption.java",
+    "sha256": "63ba7d61120d4d114e7d78a09e3f086eb5fdf07e136154de70b97a7b30e46703"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/attribute/FileTimes.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/attribute/FileTimes.java",
+    "sha256": "7376595ee8d41db49149665e8dc8f90343b2d0c957ebf0b59f538d0c921c9542"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/attribute/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/attribute/package-info.java",
+    "sha256": "cb12d7fe2b2e7a85481ec23627530594799f70d770d08252d6d26a1809be1247"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/package-info.java",
+    "sha256": "40b8e0297408557db55da1288f4443aff63108691b3127f347b4fc4634ed78d8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/spi/FileSystemProviders.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/spi/FileSystemProviders.java",
+    "sha256": "5d44730b1d5231d068c2745418eb4a34a24e84b5e40b4a79eeeb5abdf67d1f68"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/file/spi/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/file/spi/package-info.java",
+    "sha256": "886363499dc6aecc36164e80c46102c871e4e90ea26c3a8b94d2dbf5bb92aaf3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/AbstractFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/AbstractFileFilter.java",
+    "sha256": "178a54a8bb7bb1cb73cf4e679481ad0b5d4c83734e68d4e4cac8f157b7a49213"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/AgeFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/AgeFileFilter.java",
+    "sha256": "fbafd7bef47165fd7573e0e756d1ba4e3cdd4bdc03d1f7d87fca554be8047ca3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/AndFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/AndFileFilter.java",
+    "sha256": "af75a848c4f4c9d91d5c76890c2ca94aa07b89688110701dcb8378506c38602a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/CanExecuteFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/CanExecuteFileFilter.java",
+    "sha256": "a7e8d78f256f2cc2f531527ff4c6caee253d87875f55fc804972dfead7ddd9df"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/CanReadFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/CanReadFileFilter.java",
+    "sha256": "c3ce92156c4c5d164e54dfc7d70d69b3b73aa1cbc812f5e4f21811cec89a360c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/CanWriteFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/CanWriteFileFilter.java",
+    "sha256": "45b846052a65a173051dcc567fb938846db315c5ff0311153388cbb71320163a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/ConditionalFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/ConditionalFileFilter.java",
+    "sha256": "fced1604ad9f0952c63705f17d3aaf0951ae54705e661a796b770f63b960fa8a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/DelegateFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/DelegateFileFilter.java",
+    "sha256": "ef44465e490e33cf0a1fdd06e974c710e5f4d75fa48e844e4c435037057009c0"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/DirectoryFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/DirectoryFileFilter.java",
+    "sha256": "101fd3de5ca97eb77be6bdcac0386ee92f870eaba43ee604b98db0f24f9e39b7"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/EmptyFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/EmptyFileFilter.java",
+    "sha256": "5c5c1919468f7b3b52394289cef295541bc483ece01fdc1b22b27291de85ee94"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/FalseFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/FalseFileFilter.java",
+    "sha256": "bab1284fa9e8ae1733e94190d832cdeeeaf695a280ffae50b953a904efd595e2"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/FileEqualsFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/FileEqualsFileFilter.java",
+    "sha256": "ac9d3696864b7e524f59ebbfcc2845975a3cbaa608d196d8856474167855a426"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/FileFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/FileFileFilter.java",
+    "sha256": "277587059b4215a34a8fb63fe461e2ff39a5b9ec2bb18bdc8a5f95548d16a696"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/FileFilterUtils.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/FileFilterUtils.java",
+    "sha256": "bafb5aa4e96e8c153cd3757717abd17e41c9a1dd2b3d93f0d0bf03240bd353d8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/HiddenFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/HiddenFileFilter.java",
+    "sha256": "ec43e7d4b30ad2064a169db7fd601ed2b584570ac26fdcab52f2d1440fb64bce"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/IOFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/IOFileFilter.java",
+    "sha256": "6318eb511465c2907368decc05ff1e868945551e0ebfab665f15b14eed38e75d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/MagicNumberFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/MagicNumberFileFilter.java",
+    "sha256": "226018b039d25864c5892d71798f8ce87ca4c7348441623c9af4cde1945875cd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/NameFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/NameFileFilter.java",
+    "sha256": "963e36dc2aa628f695fd07ffdad536e578d7b54907377a4643c0b1b44ee2443f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/NotFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/NotFileFilter.java",
+    "sha256": "71ece5db45adc020ab2bd988ccb534e9226d181565af4d5abd6708db1dc2e1a5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/OrFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/OrFileFilter.java",
+    "sha256": "8e004ef7d6775889d3b319ff53f4a2e9bcd14c5f80b364bca1d7a5b2ee672194"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/PathEqualsFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/PathEqualsFileFilter.java",
+    "sha256": "5d3d3da500c728bb1d4a4b1131459ed057e1107fb8f389024841d5016ad95ddd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/PathMatcherFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/PathMatcherFileFilter.java",
+    "sha256": "c9f7b98cb3dd7e1ee43209e28c10ec9df61dceda8a0136f84c43abb4089a6fc1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/PathVisitorFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/PathVisitorFileFilter.java",
+    "sha256": "67d690ae5bc2fd89fbfd7a51842998b867a8de0e148417435fd0c70e90bb5d0b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/PrefixFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/PrefixFileFilter.java",
+    "sha256": "04087b0c707c8706898c2e16368841fa0120aca5213e9544c7e99364e3bbe273"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/RegexFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/RegexFileFilter.java",
+    "sha256": "19738c611f50bf5a90b566836c3f322257508109cebcae958fe4972e7fa59b4f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/SizeFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/SizeFileFilter.java",
+    "sha256": "1e8a0e9fa9bb5cec8122bd22a17b1d9df47cd30039a4d3499673818a6cf89226"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/SuffixFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/SuffixFileFilter.java",
+    "sha256": "da243fc9b725fe319833cbc154c205a6bef0a5df1b33b30c3e1e85b4e639079b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/SymbolicLinkFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/SymbolicLinkFileFilter.java",
+    "sha256": "b30c7cd29066411d0922647cd9c588ed64d0c13b1fbed20b39ab59fb8d46eb1c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/TrueFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/TrueFileFilter.java",
+    "sha256": "4fa98fda532b27f830f7d2fb50f65b4461af7983ed6e4d95edafb4ec9ea33458"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/WildcardFileFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/WildcardFileFilter.java",
+    "sha256": "1c274cce1f103a1997995aa77feeb1e922a01d974a0d60ffa2fdf36954e217e1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/WildcardFilter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/WildcardFilter.java",
+    "sha256": "90672d2d2aad5f7f973963b1b533067752403dfe2d10c2018f64353ba7a91b98"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/filefilter/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/filefilter/package-info.java",
+    "sha256": "c6b2f70c8e4f7ba6815747835bbb423060e4e0391fbfcb96dcb15df9a49684a3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/Constants.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/Constants.java",
+    "sha256": "eea02585e0f931f832cfa8b9aee6183c6ed26cce374648caf464e0e19703073a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/Erase.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/Erase.java",
+    "sha256": "07d33d3cbf33f79a3c376c9f2fecddb192e8961721c3e692c9c1b58ee0b4c087"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBaseStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBaseStream.java",
+    "sha256": "a85e1039c1ca55c34ec178279f49bb2ace18bf5fa5fb3c7d2b8b846e00652748"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBaseStreamAdapter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBaseStreamAdapter.java",
+    "sha256": "caa301e6d26b44c357e9f8169fa8a7208ab9874d6b220ed2ce7f86d5a75fda22"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBiConsumer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBiConsumer.java",
+    "sha256": "2f9049ba4e17050c87aa21a4daad759029194e869f286a2a53cdd6418f1988ae"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBiFunction.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBiFunction.java",
+    "sha256": "4d6fb8c854a4934a0a76f7e41ad3397a9e1b51fc6df446fcb1530793e7183bcd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBinaryOperator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBinaryOperator.java",
+    "sha256": "d82403570c04aa786b503244b5b904b3760004e0dc5b1512d01f74a8aba978b5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOBooleanSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOBooleanSupplier.java",
+    "sha256": "21bf8aba0a12cd370ea02381e0a759e3de52ec4a2109ab121239a9932c3bd1ac"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOComparator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOComparator.java",
+    "sha256": "c9fd54308dea7aba1887c4db4dc0a494136b66c5f411e66192777ad2261209a1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOConsumer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOConsumer.java",
+    "sha256": "bf87f474121e6532161f3e9af328b6e7e179b2c73cdbd07dfe9fd7a44178525f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOFunction.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOFunction.java",
+    "sha256": "6c9b2884c96278ec478d05497116547711974a362be51e4afe058f32e07b2754"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOIntConsumer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOIntConsumer.java",
+    "sha256": "d8d7a82bd7ea5d1e35980c0b4e11f1225e31ba6e5530719272481a0b0610a061"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOIntSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOIntSupplier.java",
+    "sha256": "b9ca78c15a9695974c5474f04e169acbc14aefbbf318a481960b6802fc861666"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOIterable.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOIterable.java",
+    "sha256": "27cbc8f16d492872079a1e2fa7f70fab488237c427bdc2d9671765cb23e7389d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOIterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOIterator.java",
+    "sha256": "7da8dc99c8efa00e77e34dafa49213809fb7d21e2251aca84445a665419d6e7a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOIteratorAdapter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOIteratorAdapter.java",
+    "sha256": "86ed7712b210c20fff4203936ac2faa1134aab904df283beb155489fb04964b9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOLongSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOLongSupplier.java",
+    "sha256": "69d2a70b1ed59ab49accfde2072d8fa47470e337885133bba05338192054bca4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOPredicate.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOPredicate.java",
+    "sha256": "8be27f1dfdfc3d976db2d32c34c19570477f917eaf19c6bd8bd7afd51b8a7f70"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOQuadFunction.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOQuadFunction.java",
+    "sha256": "e4ef034d562948b6afe06880b180c37a9550e477b0d72d4bba4f6939a87ced63"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IORunnable.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IORunnable.java",
+    "sha256": "401f91a5f338e6984ccc19e85306d3da6f845610fd503106c924cd464c03cd70"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOSpliterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOSpliterator.java",
+    "sha256": "0d84adbc54782b4a4b2ea6b8ef7a9e4ac68da4465f6ea7cb672e4d30b947ea72"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOSpliteratorAdapter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOSpliteratorAdapter.java",
+    "sha256": "826befd7e13735b63b6996729bda40be3641f5c03401000babaffe49feb4a7c3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOStream.java",
+    "sha256": "5d2650799418205536a432cb3bd078ad1b3eb78163c000ed1a414d4e970a92ab"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOStreamAdapter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOStreamAdapter.java",
+    "sha256": "df047fcc67856dc996cbaa4d146105305e848828ce0872c6870fc03638766484"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOStreams.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOStreams.java",
+    "sha256": "541063deee3c823420596176392f8daca3c74fa67fef23ce7feeb90d5ff59c6f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOSupplier.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOSupplier.java",
+    "sha256": "ad32f7d6789992250b2813eb18e9d2d57a7561af841c9785f73fe0ca09950320"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOTriConsumer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOTriConsumer.java",
+    "sha256": "8f1597f48ca950695a418dd7065e9297e62895a88209fd24f74789c1aaaee60c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOTriFunction.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOTriFunction.java",
+    "sha256": "dfede9d99606e9e4be768672b2eda079ee96620776c89a24901f344684a1618f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/IOUnaryOperator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/IOUnaryOperator.java",
+    "sha256": "62e95ecb0dfdfdd144f0e10745350c8c75661f55ef5b0bcf529ba1182f1d685b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/Uncheck.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/Uncheck.java",
+    "sha256": "8c7e914fe9004f5f60f3be8605df8dd51d376f038bb1fed19a399026c77d2a5e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/UncheckedIOBaseStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/UncheckedIOBaseStream.java",
+    "sha256": "ca69535ad560075ce0debad78c6662896b1e261479790bb1b22e914f004910bb"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/UncheckedIOIterable.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/UncheckedIOIterable.java",
+    "sha256": "8ce48b660af9217fe2e242aa1e7f8a5ebc5f96f932d75c7873c9db1f35cb0da7"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/UncheckedIOIterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/UncheckedIOIterator.java",
+    "sha256": "0ab1db85d59c7e5df09118f81fb5e3e3ef70f5f665fa61aa79c1826b6bde0900"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/UncheckedIOSpliterator.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/UncheckedIOSpliterator.java",
+    "sha256": "1d8dadbc0596f11143666d9a93c9b21c1a0115bdc1db3776ab9af502e1ef8470"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/function/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/function/package-info.java",
+    "sha256": "80d70231e39b63df79a0c4d042e6a6f607977172237fef6400900f3952434c0f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/AbstractCharacterFilterReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/AbstractCharacterFilterReader.java",
+    "sha256": "3695781ad8e883e172b027d53eb976e78a1607f2ddfc6e33cfdb95702aef20ba"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/AbstractInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/AbstractInputStream.java",
+    "sha256": "96f8c96d1e1da42add54c21f1438627271e5bcca950c2a1a81482ea50c98390a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/AbstractLineEndingInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/AbstractLineEndingInputStream.java",
+    "sha256": "9763e59db1677118d81b406a289dc380d253c5e318e70edf690a3a6335f09f7f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/AutoCloseInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/AutoCloseInputStream.java",
+    "sha256": "0c07347f2c1366412da392ee4ed06bfb5b38db0b2ae9e00afacd98ed9bca56fb"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BOMInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BOMInputStream.java",
+    "sha256": "67e8308044e0638f7360cff1578f8085da2f427f4094d61b58784f4d50b423cd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BoundedInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BoundedInputStream.java",
+    "sha256": "e1652bc1d63072db58fb237c04b68e9ed38fd548e71c4bd4db185f472275af66"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BoundedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BoundedReader.java",
+    "sha256": "ddf95a201205c694cfabe2610ec674484e446c56385fe7b6e09dad1742dfd4de"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BrokenInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BrokenInputStream.java",
+    "sha256": "7e2925e9e7c2dfe7df0c6ac7835550086915155e9bd74a1177bcd9ea54212ac4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BrokenReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BrokenReader.java",
+    "sha256": "2a12de58f640b135ae807f4618c0cb252a9facd1679251f4e9448246ce9de5a9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/BufferedFileChannelInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/BufferedFileChannelInputStream.java",
+    "sha256": "610229d1bce5f9c945e0eb6fb889080e45616f1bbb5d8e37875c130a13c9d141"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ByteBufferCleaner.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ByteBufferCleaner.java",
+    "sha256": "6d4d579ff050018a05c1bee2394256b417eefc4a680b0f6778656710e4b53d5e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CharSequenceInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CharSequenceInputStream.java",
+    "sha256": "1a699df3f736c8b842ec20b7636bf115030c1ab3b6d6e2230e11afc3421ad425"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CharSequenceReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CharSequenceReader.java",
+    "sha256": "723839f759c17db1f207e91de948172717104fc5cbf2b01192f2188c2302a07b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CharacterFilterReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CharacterFilterReader.java",
+    "sha256": "9997cab7c99721f06caeb1597f0e7c6c5cd086764c91566d8da31f20b935a82e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CharacterSetFilterReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CharacterSetFilterReader.java",
+    "sha256": "5c023ec9a308df3b1fec80147ea4fc13fbbb40a82cf3c0cf11e5ca6f31c45349"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ChecksumInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ChecksumInputStream.java",
+    "sha256": "1430e19687b88f9bf868a72d73088d391dcdd61ca23337e45c7b12ebcaa9904b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CircularInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CircularInputStream.java",
+    "sha256": "26f2a12855acef3ed9f4434d4ce4bb8f072843084ff2fcb3bd2b81059f797370"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ClassLoaderObjectInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ClassLoaderObjectInputStream.java",
+    "sha256": "a765ca3ef0142d231bd69ef77b8fdd32d061daeba9743b8b15590e6058b9ac1a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CloseShieldInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CloseShieldInputStream.java",
+    "sha256": "a62871f66dd7d3500e6a328ede2fbbe14970d6764cc921027e2b6bb2da916817"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CloseShieldReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CloseShieldReader.java",
+    "sha256": "bb7b7c196427e39192f9df740e04fb2e2292a141d243da9dbcdba7a8f2bedd3b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ClosedInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ClosedInputStream.java",
+    "sha256": "3478a96df876b14daeee39d51ad2fafac79644865e46d15530428d57d7c9cef9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ClosedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ClosedReader.java",
+    "sha256": "1f0017faa915a585c4957b9b9323cbe34f0830741bc6072d0271f59401c50a83"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/CountingInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/CountingInputStream.java",
+    "sha256": "bf755c08623219e71933b34e506201b6be56e617ad9fb421e3dd26255429ff55"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/DemuxInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/DemuxInputStream.java",
+    "sha256": "8ba51bbff75497dca7092edbb65196056c9dba7602a64cd8e254e965ddfaad9a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/InfiniteCircularInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/InfiniteCircularInputStream.java",
+    "sha256": "adc6e16fcb156aa5e628806e8998c0a5b7926d12ccb24ab39ed4417c4b009804"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/Input.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/Input.java",
+    "sha256": "5d21527a7f4d7790e4a40bed981f8a6578a6e23bbc66c1a0b5e1769d04b8ee81"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/MarkShieldInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/MarkShieldInputStream.java",
+    "sha256": "a8954c67293ce93ba162e4969cd9bccc62d7d9f6b61dc0d5ec016873755f4472"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/MemoryMappedFileInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/MemoryMappedFileInputStream.java",
+    "sha256": "595ff4bef55a0bd4fa5ed8eb3eca2cf65f294fb62e8d81667383757642d360e3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/MessageDigestCalculatingInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/MessageDigestCalculatingInputStream.java",
+    "sha256": "d17a1c5507d1354967351d2569225f23841cea5d62a6b756d04bc4730a200fae"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/MessageDigestInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/MessageDigestInputStream.java",
+    "sha256": "1f779dbbf42661ee3298bffe95b6fb5d8776d5b7ab145a1edd6da5589ee445b4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/NullInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/NullInputStream.java",
+    "sha256": "1c4b5220982658d8b0c02b4b45bbd344c731c7c01e142dd3a3ec995c50c3aabb"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/NullReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/NullReader.java",
+    "sha256": "fa0879d8f4895d62e982c8977968ddddec610412ff4141eb59a04569e1ad901c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ObservableInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ObservableInputStream.java",
+    "sha256": "631540ce22cefe0e2dbfeaaaa910ab2857960b85eedb55eb2a26a61f44361b8a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ProxyInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ProxyInputStream.java",
+    "sha256": "021e8d2285d697d33c76f45885fca655cfb22835cb4f661456cd01c27baae96c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ProxyReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ProxyReader.java",
+    "sha256": "dcbc3261c37ac96a35bd69caec5c77d73f631f3b1d49ef3b0781d6383329f757"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/QueueInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/QueueInputStream.java",
+    "sha256": "5526ff7821ecf371f191e04edb78cd713c9459275431a905c94736dce02d0e85"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/RandomAccessFileInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/RandomAccessFileInputStream.java",
+    "sha256": "441f2b1dab550a61f2d4ae36357e87f00c6b474d87cc017a880181aa64e222e3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ReadAheadInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ReadAheadInputStream.java",
+    "sha256": "334a9f6a3474cd6c9fbe7f9d858ac9dd522cad0cf0811eaf5a98736d2e656093"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ReaderInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ReaderInputStream.java",
+    "sha256": "f861c792b3ab8cc5960ef9cc4080e4964ba789c49c1ad58e067d7b1d43a76aad"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ReversedLinesFileReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ReversedLinesFileReader.java",
+    "sha256": "676e114a03bcf9b7e5e6f59837853db4fc64cc9d2dce90dce8853c71cb289c1d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/SequenceReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/SequenceReader.java",
+    "sha256": "00ac06d2796c301dd57ff9bcbc0d73891e74de19c7c29872995dba38b0dfc0e1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/SwappedDataInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/SwappedDataInputStream.java",
+    "sha256": "0704210d4c2b7f4d690ba4841ec5107f74b1e4459b9e15c41fbdb651d9c4a25e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TaggedInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TaggedInputStream.java",
+    "sha256": "335db65d6e3026d1ec2e3910903c260eeeb468e33c428caec85a07f23d4e7e0b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TaggedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TaggedReader.java",
+    "sha256": "aabf73c8de8e0840272748ecc27ea867f51a92ffc2e4d655c048cc263e7dc60e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/Tailer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/Tailer.java",
+    "sha256": "3cebe5c6313d285cd89d3a28174e0e0accef356a0d16c154f0fe4d7d748205d8"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TailerListener.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TailerListener.java",
+    "sha256": "26a6107d6094bbf14fe2f04beae7549603e0ec9af770e62924d52c30dfbd4282"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TailerListenerAdapter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TailerListenerAdapter.java",
+    "sha256": "325e0318e69cbcadeda8f0af01730fd402a91bff4eb8e88898adf375203e417e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TeeInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TeeInputStream.java",
+    "sha256": "9893ff7f366656c3b3587542b2026e1d9957392b1e70aa0c893f305f5151046e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TeeReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TeeReader.java",
+    "sha256": "5848a9526cd1f9c1a45888608b92e150925a6e64df13fbbceabbaaeba9b9603b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/ThrottledInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/ThrottledInputStream.java",
+    "sha256": "f850068bab7f71a9061db996f84390b86fbf6c380b3c2ec1fd5209b01396efac"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/TimestampedObserver.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/TimestampedObserver.java",
+    "sha256": "b907264c4042098f2005c803c604dd43e096af9fc29b0dbafdcf37aa80270bdc"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UncheckedBufferedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UncheckedBufferedReader.java",
+    "sha256": "3ab2e8a87460bbabba94e2411aad1298a3eb5d7031cb64691a1764e986dbe2c3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UncheckedFilterInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UncheckedFilterInputStream.java",
+    "sha256": "6251fd9a0798c47f89311e9579d53bf8ba34796700d210e04627212deff0d42e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UncheckedFilterReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UncheckedFilterReader.java",
+    "sha256": "11962d777c4e30fbfa787a2c87d75941cf4b3d6a559917914dfecb52fa599671"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnixLineEndingInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnixLineEndingInputStream.java",
+    "sha256": "d30b0588de367445dfaddbc3598308fc6e4e3d6c061a124927b77e9e4dd7d2c2"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsupportedOperationExceptions.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsupportedOperationExceptions.java",
+    "sha256": "de109482a54d3afa43e03db0ee1abb89d486489ec1a5dc9841d5cf3262ce487e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsynchronizedBufferedInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsynchronizedBufferedInputStream.java",
+    "sha256": "86f8453900a3f1583fd0ff7c968a1fdfb49507e57874928147c800872b4d92cc"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsynchronizedBufferedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsynchronizedBufferedReader.java",
+    "sha256": "504930db969214073dc0e817afde8177b3d44b959e8f638fab28f1f44f00f266"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsynchronizedByteArrayInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsynchronizedByteArrayInputStream.java",
+    "sha256": "57b85fb7c7f14c1b7380b56128ac9c73b71cb5fa69f9deca6a7df5a52f37217e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsynchronizedFilterInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsynchronizedFilterInputStream.java",
+    "sha256": "f81c742e680db0cebb55064d5bef6e2e3591ffc9d6bc7e6aa48b95e25a88c250"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/UnsynchronizedReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/UnsynchronizedReader.java",
+    "sha256": "3ea113f4c081746abf6983bf3823d62ca3e4eb5b3ecc514e246596b2e4cfacf5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/WindowsLineEndingInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/WindowsLineEndingInputStream.java",
+    "sha256": "9f7720811a603fc6dd819fa22cc8d01813cedf4f40aa8151d3b1eeaba56b0a49"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/XmlStreamReader.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/XmlStreamReader.java",
+    "sha256": "725dbb624bd4d24b6747a8b284da8ebf33723b01cc41ad47f064271a94a44799"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/XmlStreamReaderException.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/XmlStreamReaderException.java",
+    "sha256": "1a124c55ee17e4d57d6e8ef4dfdc19212ac2d9331902d4477dbbb421ae513ed5"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/buffer/CircularBufferInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/buffer/CircularBufferInputStream.java",
+    "sha256": "e6def37465d54ce5e183b49c6fc2b3917b2a2bc7f1696fce0cb2cedf0880e0e2"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/buffer/CircularByteBuffer.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/buffer/CircularByteBuffer.java",
+    "sha256": "163dd98d355f7ec7226cfd384a74a577e00b769cb41954fbfbdbe0f1eb5da54e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/buffer/PeekableInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/buffer/PeekableInputStream.java",
+    "sha256": "6afa39aec6efde3e34d255047f1f31f546e9a404f479cc6bf860e0ab0a1d766c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/buffer/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/buffer/package-info.java",
+    "sha256": "675d88b2c38f5f79df095772adc36b323233b3cc13a6a3c7e2554daf749b2a78"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/input/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/input/package-info.java",
+    "sha256": "bda525c14866dcc5f45a00045e19ceabfcf23ff470741cd9aec3bce9b445b377"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/FileAlterationListener.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/FileAlterationListener.java",
+    "sha256": "f30893404dda0dcf32ce749f4810a156a9c86683a504bf1ddb85ad686953f628"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/FileAlterationListenerAdaptor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/FileAlterationListenerAdaptor.java",
+    "sha256": "0f35b52e555cf18ff0e652fae587ac2f5388b90b2c7df60528d7c5c08fc83040"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/FileAlterationMonitor.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/FileAlterationMonitor.java",
+    "sha256": "ff18eb2e079711dffd4c1ab23ed94f59c80cf1810c628991b52e7782c0c69dcd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/FileAlterationObserver.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/FileAlterationObserver.java",
+    "sha256": "50d6f60dbfffeddbc5f6d8494b9adc98b0ea23ad054501b6c3d5a67feb168777"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/FileEntry.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/FileEntry.java",
+    "sha256": "0cff8d253f1602f725acc681eeadc996922cd111f16bb1dd220a4d3121b73fec"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/SerializableFileTime.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/SerializableFileTime.java",
+    "sha256": "5c1b7f76a8df5f032a03814e095a6af62beffb4a29565091c91944a9cd864439"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/monitor/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/monitor/package-info.java",
+    "sha256": "ea07afe10b9c2d4292e4d383857523d21f9bbddcf3136c1eca337841cef1769e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/AbstractByteArrayOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/AbstractByteArrayOutputStream.java",
+    "sha256": "a567f98493086e86b358494e2d503d44a45c9f8049f2443bd7db15fc053ecf49"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/AppendableOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/AppendableOutputStream.java",
+    "sha256": "153dc0182ec52b6f63409ca03688b2c96db0b79be08717f3fb3409e47a12c734"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/AppendableWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/AppendableWriter.java",
+    "sha256": "0195f079b482afdf1e5cfa66ea8ce792db15cd5a37ac95451febba6e32cbc9e4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/BrokenOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/BrokenOutputStream.java",
+    "sha256": "aef24fc09a7c9cde3ba783ec4e6de08043ac00a8fcf6a2e4129abafd9110d58b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/BrokenWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/BrokenWriter.java",
+    "sha256": "5757d03a76ea96b487e0dd09ef506d420f3903243e7ba16899a01c60cb055d6b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ByteArrayOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ByteArrayOutputStream.java",
+    "sha256": "3d645d6114c08635ed38a94a9f1db4d92f2e97f33c63c7811bad4dbeeb18924b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ChunkedOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ChunkedOutputStream.java",
+    "sha256": "634dfc25a4dbaa51b19ca012f46948d778187a8b0e320f88cd8c1ba7a74b561a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ChunkedWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ChunkedWriter.java",
+    "sha256": "1898d9a18487cfd28866a7e43957abb348f9be8d91ebf2aa791a7ae2e0477a43"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/CloseShieldOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/CloseShieldOutputStream.java",
+    "sha256": "3bc8be89a08b88c3eee77c204cb76fd6e7df6168dfff3cf1068ff5b7e999bb7b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/CloseShieldWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/CloseShieldWriter.java",
+    "sha256": "11f0fb811597e4355d6b346c2c31ac44f44e882690d2a57a8a8eebb01a9809df"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ClosedOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ClosedOutputStream.java",
+    "sha256": "0a1b6669987463d1756f2c2e5107492cc4c93af29f51f7f51e00ddf48edd8ddd"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ClosedWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ClosedWriter.java",
+    "sha256": "648b1daa88433c30353ff8dc013b207a213a1b09bd515e46a0449860b356e48e"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/CountingOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/CountingOutputStream.java",
+    "sha256": "a458aa5d06aa37ce74a532237c645899e24ea8118aca357f71e629673de571b3"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/DeferredFileOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/DeferredFileOutputStream.java",
+    "sha256": "2dff7874bb2d3838aaac42fbed85c00cf716962d8c009adb2062de3ab31f64d4"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/DemuxOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/DemuxOutputStream.java",
+    "sha256": "1bcd01500b6169334a73c74a5d96d6ff66db81cfe23c93e9edbf5ecd76186a43"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/FileWriterWithEncoding.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/FileWriterWithEncoding.java",
+    "sha256": "04a54af6e1389d865a5a9b237c1f532addefa9b7d26a1d88c9f440d4f96d2a23"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/FilterCollectionWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/FilterCollectionWriter.java",
+    "sha256": "7858f3dace092ea0312edb63bde95d9d62edb493da2e5e432a618ff81cb52af9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/FlushShieldOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/FlushShieldOutputStream.java",
+    "sha256": "756257f2d54fdce9a112db28bfb8da2dcd3aef6ac5473cb29455d8ef5c43fd8a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/LockableFileWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/LockableFileWriter.java",
+    "sha256": "1ec3c6ad6da04ab6c05ac7e8b8c0872160c0d7d2c8c2629e23d07fe7023b56df"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/NullAppendable.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/NullAppendable.java",
+    "sha256": "feab44fb1e45862d662193bd70d5bb934622cff722a6d1a947e5ad6a3341715d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/NullOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/NullOutputStream.java",
+    "sha256": "72eceb563f366969263578c0915a16cb206433b15726cf1ca0a7b7fafd49af95"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/NullPrintStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/NullPrintStream.java",
+    "sha256": "2c850b0c714de60190ee97e76e08be423cfefd323c7b642738e4a5cb147bd311"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/NullWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/NullWriter.java",
+    "sha256": "7a45b6945c257d6cc26b8c96c72f7c255815071e3ba9a496740eed36276297f9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ProxyCollectionWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ProxyCollectionWriter.java",
+    "sha256": "2ca478e3bb194a095a19e6929955b7ac1c7a9b6f025d275dd81cc2c524112719"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ProxyOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ProxyOutputStream.java",
+    "sha256": "fbd5987a8d14511fc623cd662daf3f1ec696a73526840372bfef4df7aef4ea75"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ProxyWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ProxyWriter.java",
+    "sha256": "6b47d5424520b6570a0170df16673de99e936b10629b4d86bf7d63c1969f045d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/QueueOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/QueueOutputStream.java",
+    "sha256": "0106d94968e26760acf68503f372d6c764f2b790435a1c5ab12c354860c6ccb6"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/RandomAccessFileOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/RandomAccessFileOutputStream.java",
+    "sha256": "b34c4731d7a9fc5c15d0f6a97690794cc914b8dad8c1dc46396925a52a272dc1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/StringBuilderWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/StringBuilderWriter.java",
+    "sha256": "402ebde7789908e5d0ca52173113408584b0ed89733ef6f3049b375a2c8e1cd9"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/TaggedOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/TaggedOutputStream.java",
+    "sha256": "b787e39f295c9b8acb0030af3bb796d593113fcf0bd667673d8564eb44bb5fd7"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/TaggedWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/TaggedWriter.java",
+    "sha256": "ae00abb63186be2412865e6f0f0b8ec1a958f6f4a7cf3075ce271391141c0654"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/TeeOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/TeeOutputStream.java",
+    "sha256": "ef2d24ded6df2728af792ef9a59ba64d9c0b4b49bf60dafe6095b479e2ffef2a"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/TeeWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/TeeWriter.java",
+    "sha256": "94a4dc2bd6c76007aab645e5ad47eb9f01178af6be7500cdd0803622bba6d49f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/ThresholdingOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/ThresholdingOutputStream.java",
+    "sha256": "ce4cea5e7c28fdc37e27a63349eb39c99e011f707fedced4a39ecd64497f777d"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/UncheckedAppendable.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/UncheckedAppendable.java",
+    "sha256": "ea671935d0dcf0c0bcebf009c5459764afc9a2d0aa88cc5d29ff34e2b298e863"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/UncheckedAppendableImpl.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/UncheckedAppendableImpl.java",
+    "sha256": "d6959bd7c3b94a79cf71a452bbc76173e85b0e90efac5aadc2be9f346c1e35c6"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/UncheckedFilterOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/UncheckedFilterOutputStream.java",
+    "sha256": "94466180cf44963544451bd669bb1d1d54d44afd2d87a5a594510397968d80fa"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/UncheckedFilterWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/UncheckedFilterWriter.java",
+    "sha256": "2a495d05cf02aa486a68eccab21e2804431ac4c43ccc558b68f7c6d6827dd77b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/UnsynchronizedByteArrayOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/UnsynchronizedByteArrayOutputStream.java",
+    "sha256": "84ce5583efd260cafd3e141ad7cccf349635e7cb6003337a482f12b5c7543502"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/WriterOutputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/WriterOutputStream.java",
+    "sha256": "ab5e55333410c9e9a8ae951ab878a711bde792790aa9afa6c98dc3b693bf89ae"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/XmlStreamWriter.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/XmlStreamWriter.java",
+    "sha256": "4dbde0a140a0c1e80558890d233e2601ae6a1cbed27df3401f6153fe83762a2f"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/output/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/output/package-info.java",
+    "sha256": "a27e597e6888d4aab9ea554cafaa163587846057030ccc26c603510192dc524c"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/package-info.java",
+    "sha256": "f793aab2d539791bb055cad61b16e874ef51b830223df5839823c579daf751e1"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/ClassNameMatcher.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/ClassNameMatcher.java",
+    "sha256": "1e2f0e04b97e0052cffb4c4968aa2a67657042891f9111d5f200dcfa45bdda86"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/FullClassNameMatcher.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/FullClassNameMatcher.java",
+    "sha256": "1e6024fbc967e681eaa6e4f447c55a910194667157fba08043d0b86a7c9ad183"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/ObjectStreamClassPredicate.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/ObjectStreamClassPredicate.java",
+    "sha256": "9b3df74f167e5487bd3d02532c0393a3c50b817979ec94d4e7511ad0d7676b3b"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/RegexpClassNameMatcher.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/RegexpClassNameMatcher.java",
+    "sha256": "7f1c7288b7794470fe8b49b26f0ba205f75bc867fe19f6a56bd83c7167524b91"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/ValidatingObjectInputStream.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/ValidatingObjectInputStream.java",
+    "sha256": "72ff0e9f78bd15729ce4e863d368032cff35cb5e38d07edc8ba69c7f68abc6cc"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/WildcardClassNameMatcher.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/WildcardClassNameMatcher.java",
+    "sha256": "d2ccc81a2f5f035c390dfcf9b9551e7f2de87031b906107391d9cf5fa1722287"
+  },
+  {
+    "path": "vendor/commons-io/src/main/java/org/apache/commons/io/serialization/package-info.java",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "src/main/java/org/apache/commons/io/serialization/package-info.java",
+    "sha256": "2bcea273561c1d4947cb4aa945af6f28fced9cee0776eaa429397f0c4169a75d"
+  },
+  {
+    "path": "vendor/commons-io/LICENSE.txt",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "LICENSE.txt",
+    "sha256": "c1d1a38c99c48ccad170890ade6066e2e240bb6ce59861d4eb7f672eddd2a4c6"
+  },
+  {
+    "path": "vendor/commons-io/NOTICE.txt",
+    "repo": "https://github.com/apache/commons-io",
+    "commit": "c14acc16f73e44a75b2062b17aacb26c4feda746",
+    "source": "NOTICE.txt",
+    "sha256": "85394d154ee5c7b48057f0a29329b6d4c80d2513d4c02b233a69207c522763cf"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/ILoggerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/ILoggerFactory.java",
+    "sha256": "b0871ac46827c5eee75becb95b2ab943a8e20dc257cf52e946cf6a0f1b267b36"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/IMarkerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/IMarkerFactory.java",
+    "sha256": "b2df0e3208e01004b2979813f64e4ebd7db3fe2284722d1e68bafd9d6e86ee99"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/Logger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/Logger.java",
+    "sha256": "70d8bd6e07685c4592f9d88229439fee0f66fe5ad8d1ab7fa19559d67b52210b"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/LoggerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/LoggerFactory.java",
+    "sha256": "c170f8ee06e56b4be13ab57fb4e7a78c986a50a4e7b50e4ae403d189c1988a44"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/LoggerFactoryFriend.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/LoggerFactoryFriend.java",
+    "sha256": "47ad4804a9aca1a78ed9b62a281c0b70622d71ea37ea4a9c989a1eff9ca8d858"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/MDC.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/MDC.java",
+    "sha256": "cb71a7d43cd2158286df7df1d543e28c2259d6d04f0d7b69efdbff32769193e4"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/Marker.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/Marker.java",
+    "sha256": "4b1b2d8e623ab8ff6851c0b9b83402d7e49a66a567aeb541485c5056d91f528a"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/MarkerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/MarkerFactory.java",
+    "sha256": "f04db58b4ac5034a25649977b4b3c8a0baffa51ff69a8953998cf63c0688f6d8"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/DefaultLoggingEvent.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/DefaultLoggingEvent.java",
+    "sha256": "df0236007eff91b06aa098cb60acb590da4bf2f3868a1d0e8df68368e26cea12"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/EventConstants.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/EventConstants.java",
+    "sha256": "43b495f3093b98f2876a06e67738589bd770ac31d8bbcfc86d803e1958fbb3f1"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/EventRecordingLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/EventRecordingLogger.java",
+    "sha256": "ca509c28a7aa3d265c9094581d14bce0e79b87ca6c8fac48f7714275064a9c9c"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/KeyValuePair.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/KeyValuePair.java",
+    "sha256": "30ca4c6900663eb784d41547de958f223ecda0579997923ee2a8096406fc3fd2"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/Level.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/Level.java",
+    "sha256": "ed3b79e765c02e069bbe910922812dc2d4cf5a330ecec0cbe0c006e156e5461f"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/LoggingEvent.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/LoggingEvent.java",
+    "sha256": "e0a42d65bd33c07530f82fcf943de457778dadbc2bfab43c90bd032b0a4216f0"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/event/SubstituteLoggingEvent.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/event/SubstituteLoggingEvent.java",
+    "sha256": "c131d1145e38f3b7c641308ec5c55a53999b71a7840190e499e4c58dfc3e4094"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/AbstractLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/AbstractLogger.java",
+    "sha256": "feeeaa9155c7f414c257dc7556e84ad12a6d087ba25ff6b364e437920fe5dcae"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/BasicMDCAdapter.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/BasicMDCAdapter.java",
+    "sha256": "d0c680d2b14367eec690e1ea292eadbc3a0648b05ac56848b85393d782761d0c"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/BasicMarker.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/BasicMarker.java",
+    "sha256": "54abdf3a16b41c3e879cb00ff3b33dc4821da65d9b467285b4a86146f7b7575f"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/BasicMarkerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/BasicMarkerFactory.java",
+    "sha256": "e247dc334ca7e74071c21d27e9fcba8614765990ed6704ed00f4056502d1c0a4"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/CheckReturnValue.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/CheckReturnValue.java",
+    "sha256": "808eff47cdba71fa1721fb4e1feba3a5163a5623dd116c14b6a25fdb25512837"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/FormattingTuple.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/FormattingTuple.java",
+    "sha256": "60163a11d3c244a1e129fff09068f56df69f10498f7fb984e950c616e0a22210"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/LegacyAbstractLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/LegacyAbstractLogger.java",
+    "sha256": "64abb8b682600276f326f478c34b5892073cea715e1afbeb8ffaa85e4c3a594a"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/MarkerIgnoringBase.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/MarkerIgnoringBase.java",
+    "sha256": "79c792e8edd9ab380981c96a651cae874f7adf13c7bf5adb198eb12bbe74cc4a"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/MessageFormatter.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/MessageFormatter.java",
+    "sha256": "a8d9af8ffd2bb43e57991da167db60acceddf5065c3096f82268160dbdf357b8"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NOPLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NOPLogger.java",
+    "sha256": "ee916641c3eee16f408c66ecf255ac08b41f736402395bce286b456b6dbe7f67"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NOPLoggerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NOPLoggerFactory.java",
+    "sha256": "6ead6e6dac132870d72fc1eaff71bcaf9866de485991264a5c924cb772e53ce9"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NOPMDCAdapter.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NOPMDCAdapter.java",
+    "sha256": "93fe8fbb51538ab0a11dc30af2102493fc84b5d753073da4521bed6b9c7df6a6"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NOP_FallbackServiceProvider.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NOP_FallbackServiceProvider.java",
+    "sha256": "ac5a3787e84bf4663014532cca559045698092e8f74b6328d8caedf390de6cb9"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NamedLoggerBase.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NamedLoggerBase.java",
+    "sha256": "ae1ad5c6c43ddd1047d46dafc9a1b3197e66dfd1fc822a6f02aa30d2d5697cda"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/NormalizedParameters.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/NormalizedParameters.java",
+    "sha256": "5b1c2715a228085b8561c163bde2cedf8a0e42f631cdb7ebcb37ae8cb2b8afa0"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/Reporter.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/Reporter.java",
+    "sha256": "bf6bde6188085c3fd3d06e3ef605e649089fdd2fdf3a1a9a5fde445c4a071701"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/Slf4jEnvUtil.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/Slf4jEnvUtil.java",
+    "sha256": "9febca76e87d09113d888685e2924232f883560be0eed0d14894370590454e94"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/SubstituteLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/SubstituteLogger.java",
+    "sha256": "4d6fd1c8597fa6730caf15e44f9a1008fe06de6878f5d34fbb0832d193ab91be"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/SubstituteLoggerFactory.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/SubstituteLoggerFactory.java",
+    "sha256": "be9f409f44bf604ff9ba414dedae9276164037e63ef5230aafaf30c77a698ff4"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/SubstituteServiceProvider.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/SubstituteServiceProvider.java",
+    "sha256": "8b67590549dcb054ced7a3f354f425d7ce4141d57b8c7902edc74e410f67ac6c"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/ThreadLocalMapOfStacks.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/ThreadLocalMapOfStacks.java",
+    "sha256": "45cb62e373bf8b06de32b6ec6bccca12230ee9d047fe7e3f655bea55af934bd8"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/Util.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/Util.java",
+    "sha256": "9ce4a7425456f78cd83e00534756f5bdfc3730ec78820696b6823394f61d28cb"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/helpers/package.html",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/helpers/package.html",
+    "sha256": "fbea9ee525aac5731d8a1c59c8ebc4a94aec82895b586d285b5d0878f087a524"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/package.html",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/package.html",
+    "sha256": "62582cf7cd6a25e023b23483699340cdeea866529cf4989be223285e27bfcdb9"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/CallerBoundaryAware.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/CallerBoundaryAware.java",
+    "sha256": "6ef1690a172676363e9b0fe0f6a53742dda7cedee1d631f53dd595d7e1cdf25b"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/DefaultLoggingEventBuilder.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/DefaultLoggingEventBuilder.java",
+    "sha256": "d9216b17873d0203d026f28cfb6084eef5259300ecd01a079c957c184d0bde78"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/LocationAwareLogger.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/LocationAwareLogger.java",
+    "sha256": "957b7f89de58008c480c349e09720686e197c8fd508b72e4197170666c2eb863"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/LoggerFactoryBinder.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/LoggerFactoryBinder.java",
+    "sha256": "3192408cb40cef594758da2c4939f5f3591d8247ff70dfd7a024bc7db7e768b4"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/LoggingEventAware.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/LoggingEventAware.java",
+    "sha256": "61d6f65f52d3baf0662194966adb7cd48622ccc009534ec335fbbbb44e977fd5"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/LoggingEventBuilder.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/LoggingEventBuilder.java",
+    "sha256": "c2d5e4b7c340c4a1a1d2643b6c06f238fae0bc1e50c01d0ff70f8b82b31fd5d4"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/MDCAdapter.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/MDCAdapter.java",
+    "sha256": "e2d6db0c510873d0555f9dd670b716f2b1b0ccfe5ed23bcfdc8c150405f99e53"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/MarkerFactoryBinder.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/MarkerFactoryBinder.java",
+    "sha256": "dae2f453146ac5112c32afc8892ff3831527fb5bb573058e5bbd0e3189d7eddc"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/NOPLoggingEventBuilder.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/NOPLoggingEventBuilder.java",
+    "sha256": "bcb60ed1d5b125eb323789be326cb1b2a94a202a39ddf313e49bb9f79e1f8086"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/SLF4JServiceProvider.java",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/SLF4JServiceProvider.java",
+    "sha256": "0a9694c77394e35a0fd40bd00e903f13bff834dcaabbbbc92aa272bc7bbc12d1"
+  },
+  {
+    "path": "vendor/slf4j/src/main/java/org/slf4j/spi/package.html",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "slf4j-api/src/main/java/org/slf4j/spi/package.html",
+    "sha256": "3088a34f98130bfd63e4be86bb817a32a31f8db868f0f8956d2e2ff8094f5614"
+  },
+  {
+    "path": "vendor/slf4j/LICENSE.txt",
+    "repo": "https://github.com/qos-ch/slf4j",
+    "commit": "58d80a4fe8f2e811707fcfba4d292b5d62fc2fe9",
+    "source": "LICENSE.txt",
+    "sha256": "6fbe2eaf44b193b8a40eed9208f52848572224ad8d7672dd09418aa174847e73"
+  }
+]
