@@ -47,6 +47,12 @@
 
 #include "q_pulse.h"
 
+#ifdef PULSE_TRACE
+/* Test-only observation point; absent from normal library builds. */
+#include "pulse_trace.h"
+void (*pulse_trace_cb)(const pulse_obs_t * obs) = (void *)0;
+#endif
+
 static Word16 tipos[36] = {
 	0, 1, 2, 3,                            /* starting point &ipos[0], 1st iter */
 	1, 2, 3, 0,                            /* starting point &ipos[4], 2nd iter */
@@ -814,6 +820,22 @@ void ACELP_4t64_fx(
 			k += NPMAXPT;
 		}
 	}
+#ifdef PULSE_TRACE
+	/* Read-only observation: raw excitation and indices are final here,
+	 * before the coder runs Preemph()/Pit_shrp() on code[]. */
+	if (pulse_trace_cb != (void *)0 &&
+	    (nbbits == 20 || nbbits == 36 || nbbits == 44 || nbbits == 52))
+	{
+		pulse_obs_t obs;
+		obs.nbbits = nbbits;
+		obs.pulse_amp = val;
+		for (track = 0; track < NB_TRACK; track++)
+			obs.index[track] = _index[track];
+		for (i = 0; i < L_SUBFR; i++)
+			obs.code[i] = code[i];
+		pulse_trace_cb(&obs);
+	}
+#endif
 	return;
 }
 
