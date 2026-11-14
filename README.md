@@ -488,6 +488,38 @@ Controls whether the crawler is allowed to change the
 [host](#Crawler+host) setting if the first response is a redirect to
 another domain.
 
+<a name="Crawler+h2cOrigins"></a>
+
+#### crawler.h2cOrigins : <code>Array</code>
+Controls which cleartext HTTP origins are fetched over HTTP/2 with prior
+knowledge (h2c) instead of HTTP/1, using node's built-in `http2` module.
+Entries must be origin strings without a path, query string, fragment or
+credentials, and are validated when the crawl starts. The default port and
+an explicit port of 80 normalize to the same origin. Both pages and
+robots.txt files of matching origins are fetched over h2c, with one
+session per origin, honoring the server's `maxConcurrentStreams` setting
+and migrating eligible requests to a new session when a GOAWAY frame is
+received. Origins not listed here keep using the existing HTTP/1 code
+path, and redirects select a transport based on the redirect target's
+origin - an h2c request never silently falls back to HTTP/1.
+
+```js
+var crawler = new Crawler("http://example.com:8080/");
+
+crawler.h2cOrigins = [
+    "http://example.com:8080",
+    "http://api.example.com"
+];
+
+crawler.on("fetchcomplete", function(queueItem, responseBody) {
+    console.log("Fetched %s (%d bytes)", queueItem.url, responseBody.length);
+});
+
+crawler.start();
+```
+
+**Default**: <code>[]</code>
+
 <a name="Crawler+decompressResponses"></a>
 
 #### crawler.decompressResponses : <code>Boolean</code>
