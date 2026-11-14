@@ -140,6 +140,32 @@ public:
         int32_t seqno[2];
         int32_t msgno;
     };
+
+    /// Result of an application-requested message drop (srt_dropmsg).
+    struct DropMsgResult
+    {
+        bool    found;   // At least one block of the message is still in the buffer.
+        int     bytes;   // Payload bytes newly marked as dropped.
+        int     blocks;  // Number of blocks newly marked as dropped.
+        int32_t seqlo;   // First sequence number of the message range (valid when @a found).
+        int32_t seqhi;   // Last sequence number of the message range (valid when @a found).
+
+        DropMsgResult() : found(false), bytes(0), blocks(0),
+                          seqlo(SRT_SEQNO_NONE), seqhi(SRT_SEQNO_NONE) {}
+    };
+
+    /// Mark all blocks of the given message that are still in the sending
+    /// buffer as revoked. The blocks themselves are kept until normally
+    /// acknowledged, so no sender window slot is released and no ACK
+    /// statistics are forged. Original sends and retransmissions of the
+    /// marked blocks stop returning payload; retransmission requests are
+    /// answered with DROPREQ. Repeated calls for the same message, as well
+    /// as calls for a message that has been fully ACK-recycled, report zero
+    /// newly dropped bytes.
+    /// @param [in] msgno message number as returned by srt_sendmsg2().
+    /// @return Drop description, see DropMsgResult.
+    SRT_ATTR_EXCLUDES(m_BufLock)
+    DropMsgResult dropMessage(int32_t msgno);
     /// Find data position to pack a DATA packet for a retransmission.
     /// IMPORTANT: @a packet is [in,out] because it is expected to get set
     /// the sequence number of the packet expected to be sent next. The sender
@@ -229,6 +255,7 @@ private:
         time_point m_tsOriginTime; // block origin time (either provided from above or equals the time a message was submitted for sending.
         time_point m_tsRexmitTime; // packet retransmission time
         int        m_iTTL; // time to live (milliseconds)
+        bool       m_bDropped; // application-requested revocation (srt_dropmsg); payload must never be sent again
 
         Block* m_pNext; // next block
 

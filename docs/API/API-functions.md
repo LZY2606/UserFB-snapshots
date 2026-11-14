@@ -84,6 +84,7 @@ Since SRT v1.5.0.
 | [srt_send](#srt_send)                             | Sends a payload to a remote party over a given socket                                                          |
 | [srt_sendmsg](#srt_sendmsg)                       | Sends a payload to a remote party over a given socket                                                          |
 | [srt_sendmsg2](#srt_sendmsg2)                     | Sends a payload to a remote party over a given socket                                                          |
+| [srt_dropmsg](#srt_dropmsg)                       | Revokes a message still held in the sender buffer                                                              |
 | [srt_recv](#srt_recv)                             | Extracts the payload waiting to be received                                                                    |
 | [srt_recvmsg](#srt_recvmsg)                       | Extracts the payload waiting to be received                                                                    |
 | [srt_recvmsg2](#srt_recvmsg2)                     | Extracts the payload waiting to be received                                                                    |
@@ -1881,6 +1882,7 @@ to be mutable, as they use some fields to output values.
 ## Transmission
 
 * [srt_send, srt_sendmsg, srt_sendmsg2](#srt_send-srt_sendmsg-srt_sendmsg2)
+* [srt_dropmsg](#srt_dropmsg)
 * [srt_recv, srt_recvmsg, srt_recvmsg2](#srt_recv-srt_recvmsg-srt_recvmsg2)
 * [srt_sendfile, srt_recvfile](#srt_sendfile-srt_recvfile)
 
@@ -1950,6 +1952,78 @@ In both **file/message** and **live mode** the successful return is always equal
 | [`SRT_ETIMEOUT`](#srt_etimeout)               | The condition described above still persists and the timeout has passed. This is only reported in <br/>blocking mode when [`SRTO_SNDTIMEO`](API-socket-options.md#SRTO_SNDTIMEO) is set to a value other than -1. |
 | [`SRT_EPEERERR`](#srt_epeererr)               | This is reported only in the case where, as a stream is being received by a peer, the <br/>[`srt_recvfile`](#srt_recvfile) function encounters an error during a write operation on a file. This is reported by <br/>a `UMSG_PEERERROR` message from the peer, and the agent sets the appropriate flag internally. <br/>This flag persists up to the moment when the connection is broken or closed. |
 | <img width=240px height=1px/>                 | <img width=710px height=1px/>                      |
+
+
+[:arrow_up: &nbsp; Back to List of Functions & Structures](#srt-api-functions)
+
+---
+
+### srt_dropmsg
+
+```
+int srt_dropmsg(SRTSOCKET u, int32_t msgno);
+```
+
+Revokes a message that has already been scheduled with
+[`srt_sendmsg2`](#srt_sendmsg2) but is still held in the local sender buffer.
+Use this when the application has decided that an enqueued message (for
+example an outdated video frame) must never be sent, without waiting for the
+whole sender window to drain or closing the connection.
+
+The `msgno` argument is the message number reported back in the
+[`SRT_MSGCTRL::msgno`](#SRT_MSGCTRL) field by `srt_sendmsg2`.
+
+Only a connected socket running the **message API**
+([`SRTO_MESSAGEAPI`](API-socket-options.md#SRTO_MESSAGEAPI) enabled, as in
+file/message and live modes) is supported. Socket groups (bonding) and the
+byte-stream API are not supported and report an error.
+
+On success the remaining fragments of the message are marked as revoked:
+
+* the original payload of the revoked fragments is never transmitted again,
+  neither as a unique send nor as a retransmission;
+* a `UMSG_DROPREQ` control packet carries the remaining sequence number range
+  of the message to the peer, which skips the gap and continues delivering the
+  following in-order messages;
+* if that notification is lost, a later retransmission request (NAK) for the
+  range is answered with another `UMSG_DROPREQ` instead of the original payload;
+* the connection and every other message keep working normally.
+
+Revocation is **not an acknowledgement**. The revoked blocks stay in the sender
+buffer and keep their sender-window slots occupied; no ACK statistics are
+produced. They are recycled only when the peer actually acknowledges the
+sequence numbers through the normal ACK flow, after which sending continues as
+usual. Repeatedly calling `srt_dropmsg` for the same message, or calling it for
+a message that has already been fully acknowledged and recycled, is a
+successful no-op.
+
+**In-flight boundary.** Packets already handed to the sending thread before the
+call may still reach the peer, and a complete message already delivered to the
+receiver application is not recalled. Only data still resident in the sender
+buffer is affected.
+
+**Arguments**:
+
+* [`u`](#u): Connected, message-API, single (non-group) socket.
+* `msgno`: Message number as returned by [`srt_sendmsg2`](#srt_sendmsg2).
+  Must be in the range `1..MSGNO_SEQ_MAX`; `0` is the control message number
+  and negative values (including `SRT_MSGNO_NONE`) are invalid.
+
+|      Returns                  |                                                                                                    |
+|:----------------------------- |:-------------------------------------------------------------------------------------------------- |
+|       Bytes (>= 0)            | Payload bytes newly marked as revoked and still present in the sender buffer.                      |
+|             0                 | Nothing was revoked: the message was already revoked, or fully acknowledged and recycled.          |
+|    `SRT_ERROR`                | (-1) when an error occurs, see below.                                                              |
+| <img width=240px height=1px/> | <img width=710px height=1px/>                                                                      |
+
+|       Errors                                  |                                                                                                                     |
+|:--------------------------------------------- |:------------------------------------------------------------------------------------------------------------------- |
+| [`SRT_EINVSOCK`](#srt_einvsock)               | Socket [`u`](#u) does not identify an existing socket.                                                              |
+| [`SRT_ENOCONN`](#srt_enoconn)                 | Socket [`u`](#u) is not connected.                                                                                  |
+| [`SRT_ECONNLOST`](#srt_econnlost)             | Socket [`u`](#u) has lost its connection or is closing.                                                             |
+| [`SRT_EINVALBUFFERAPI`](#srt_einvalbufferapi) | The socket uses the byte-stream API instead of the message API.                                                     |
+| [`SRT_EINVPARAM`](#srt_einvparam)             | `msgno` is outside the valid user message number range (0 or negative), or the socket belongs to a group.          |
+| <img width=240px height=1px/>                 | <img width=710px height=1px/>                                                                                       |
 
 
 [:arrow_up: &nbsp; Back to List of Functions & Structures](#srt-api-functions)

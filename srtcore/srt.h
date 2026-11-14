@@ -840,6 +840,31 @@ SRT_API int srt_send    (SRTSOCKET u, const char* buf, int len);
 SRT_API int srt_sendmsg (SRTSOCKET u, const char* buf, int len, int ttl/* = -1*/, int inorder/* = false*/);
 SRT_API int srt_sendmsg2(SRTSOCKET u, const char* buf, int len, SRT_MSGCTRL *mctrl);
 
+// Revoke a message that is still held in the sender buffer of a connected,
+// message-API, single (non-group) socket. The @a msgno is the value reported
+// back in SRT_MSGCTRL::msgno by srt_sendmsg2().
+//
+// On success the remaining fragments of the message are marked as dropped:
+// they are neither sent originally nor retransmitted, and a UMSG_DROPREQ
+// control packet informs the peer of the sequence range so that it can skip
+// the gap and keep delivering the following in-order messages. If that
+// notification is lost, later retransmission requests for the range are
+// answered with another DROPREQ instead of the original payload.
+//
+// This is not an acknowledgement: sender window slots stay occupied and ACK
+// statistics are untouched until the peer actually acknowledges the sequence
+// numbers, at which point the blocks are recycled normally. Packets already
+// handed to the sending thread before the call may still arrive at the peer,
+// and complete messages already delivered to the receiver application are
+// not recalled.
+//
+// @return number of payload bytes newly marked as dropped and still present
+//         in the sender buffer; 0 if the message was already revoked or has
+//         been fully acknowledged and recycled. On error, SRT_ERROR and the
+//         last error is set (SRT_EINVSOCK, SRT_ENOCONN, SRT_EINVALBUFFERAPI,
+//         SRT_EINVPARAM, ...).
+SRT_API int srt_dropmsg(SRTSOCKET u, int32_t msgno);
+
 //
 // Receiving functions
 //

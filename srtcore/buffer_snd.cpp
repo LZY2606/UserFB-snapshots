@@ -95,6 +95,7 @@ CSndBuffer::CSndBuffer(int ip_family, int size, int maxpld, int authtag)
         pb->m_iMsgNoBitset = 0;
         pb->m_pcData       = pc;
         pc                += m_iBlockLen;
+        pb->m_bDropped     = false;
 
         if (i < m_iSize - 1)
         {
@@ -212,6 +213,7 @@ void CSndBuffer::addBuffer(const char* data, int len, SRT_MSGCTRL& w_mctrl)
         s->m_iTTL = ttl;
         s->m_tsRexmitTime = time_point();
         s->m_tsOriginTime = m_tsLastOriginTime;
+        s->m_bDropped = false;
         
         // Should never happen, as the call to increase() should ensure enough buffers.
         SRT_ASSERT(s->m_pNext);
@@ -286,6 +288,7 @@ int CSndBuffer::addBufferFromFile(fstream& ifs, int len)
 
         s->m_iLength = pktlen;
         s->m_iTTL    = SRT_MSGTTL_INF;
+        s->m_bDropped = false;
         s            = s->m_pNext;
 
         total += pktlen;
@@ -346,6 +349,18 @@ int CSndBuffer::readData(CPacket& w_packet, steady_clock::time_point& w_srctime,
         w_packet.set_msgflags(m_pCurrBlock->m_iMsgNoBitset);
         w_srctime = m_pCurrBlock->m_tsOriginTime;
         m_pCurrBlock = m_pCurrBlock->m_pNext;
+
+        if (p->m_bDropped)
+        {
+            // Revoked by srt_dropmsg before the original send. The payload must
+            // never go out; the peer is told about the gap by DROPREQ instead.
+            // The sequence number is consumed so that later packets keep theirs.
+            HLOGC(bslog.Debug, log << CONID() << "CSndBuffer: skipping revoked packet %"
+                  << p->m_iSeqNo << " #" << p->getMsgSeq());
+            readlen = 0;
+            ++w_seqnoinc;
+            continue;
+        }
 
         if ((p->m_iTTL >= 0) && (count_milliseconds(steady_clock::now() - w_srctime) > p->m_iTTL))
         {
@@ -453,6 +468,36 @@ int CSndBuffer::readData(const int offset, CPacket& w_packet, steady_clock::time
 
     // Check if the block that is the next candidate to send (m_pCurrBlock pointing) is stale.
 
+    // Application-requested revocation takes precedence over everything: the
+    // payload must never be retransmitted. Answer with the remaining sequence
+    // range of this message so that the peer is notified by DROPREQ. The
+    // walk starts at @a p, which may lie in the middle of the message if its
+    // head was already ACK-recycled, and stops at the first block belonging
+    // to another message, so adjacent messages keep their sequence ownership.
+    if (p->m_bDropped)
+    {
+        w_drop.msgno = p->getMsgSeq();
+        int msglen   = 1;
+        Block* q     = p->m_pNext;
+        // dropMessage marks every block of the message together, so msgno
+        // ownership alone delimits the range; adjacent messages are spared.
+        while (q != m_pLastBlock && w_drop.msgno == q->getMsgSeq())
+        {
+            ++msglen;
+            q = q->m_pNext;
+        }
+
+        w_drop.seqno[DropRange::BEGIN] = w_packet.seqno();
+        w_drop.seqno[DropRange::END]   = CSeqNo::incseq(w_packet.seqno(), msglen - 1);
+
+        HLOGC(qslog.Debug,
+              log << "CSndBuffer::readData: revoked message #" << w_drop.msgno << " requested for rexmit, range %("
+                  << w_drop.seqno[DropRange::BEGIN] << " - " << w_drop.seqno[DropRange::END] << ")");
+
+        SRT_ASSERT(q == m_pLastBlock || w_drop.seqno[DropRange::END] == CSeqNo::decseq(q->m_iSeqNo));
+        return READ_DROP;
+    }
+
     // If so, then inform the caller that it should first take care of the whole
     // message (all blocks with that message id). Shift the m_pCurrBlock pointer
     // to the position past the last of them. Then return -1 and set the
@@ -528,6 +573,70 @@ int CSndBuffer::readData(const int offset, CPacket& w_packet, steady_clock::time
               << " size=" << readlen << " to send [REXMIT]");
 
     return readlen;
+}
+
+CSndBuffer::DropMsgResult CSndBuffer::dropMessage(int32_t msgno)
+{
+    DropMsgResult result;
+
+    ScopedLock bufferguard(m_BufLock);
+
+    // The occupied region is [m_pFirstBlock, m_pLastBlock). Blocks of the
+    // message may only start at the head of the region: the sender buffer is
+    // released from the front on ACK, and messages are enqueued in order.
+    Block* p = m_pFirstBlock;
+    Block* first = NULL;
+    Block* last  = NULL; // one past the last block belonging to the message
+
+    while (p != m_pLastBlock)
+    {
+        if (p->getMsgSeq() == msgno)
+        {
+            if (!first)
+                first = p;
+            last = p->m_pNext;
+        }
+        else if (first)
+        {
+            // Blocks of one message are contiguous; the first foreign block
+            // after the match ends the range.
+            break;
+        }
+        p = p->m_pNext;
+    }
+
+    if (!first)
+    {
+        // Nothing of this message remains in the buffer: it was fully
+        // ACK-recycled, the msgno is out of the live range, or it never existed.
+        return result;
+    }
+
+    result.found = true;
+
+    // The blocks are contiguous and carry monotonic sequence numbers that
+    // wrap at 31 bits, so the range boundaries are the first and last block.
+    Block* lastblock = first;
+    for (Block* q = first; q != last; q = q->m_pNext)
+    {
+        lastblock = q;
+        if (!q->m_bDropped)
+        {
+            q->m_bDropped = true;
+            result.bytes += q->m_iLength;
+            ++result.blocks;
+        }
+    }
+
+    result.seqlo = first->m_iSeqNo;
+    result.seqhi = lastblock->m_iSeqNo;
+
+    HLOGC(bslog.Debug,
+          log << CONID() << "CSndBuffer::dropMessage: #" << msgno << " range %(" << result.seqlo << " - "
+              << result.seqhi << ") newly dropped " << result.blocks << " blocks / " << result.bytes
+              << " bytes" << (result.blocks == 0 ? " (already dropped)" : ""));
+
+    return result;
 }
 
 sync::steady_clock::time_point CSndBuffer::getPacketRexmitTime(const int offset)

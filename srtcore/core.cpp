@@ -9568,6 +9568,14 @@ bool srt::CUDT::processCtrlDropReq(const CPacket& ctrlpkt)
             HLOGP(inlog.Debug, "DROPREQ: signal TSBPD");
             rcvtscc.notify_one();
         }
+        else
+        {
+            // No TSBPD thread drives delivery. A recvmsg2() blocked while
+            // waiting for the gapped message must be woken to re-check
+            // readiness and deliver the in-order messages past the gap.
+            HLOGP(inlog.Debug, "DROPREQ: signal RecvData");
+            m_RecvDataCond.notify_all();
+        }
     }
 
     dropFromLossLists(dropdata[0], dropdata[1]);

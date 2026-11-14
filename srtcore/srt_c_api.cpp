@@ -240,6 +240,11 @@ int srt_sendmsg2(SRTSOCKET u, const char * buf, int len, SRT_MSGCTRL *mctrl)
     return CUDT::sendmsg2(u, buf, len, (mignore));
 }
 
+int srt_dropmsg(SRTSOCKET u, int32_t msgno)
+{
+    return CUDT::dropmsg(u, msgno);
+}
+
 int srt_recvmsg2(SRTSOCKET u, char * buf, int len, SRT_MSGCTRL *mctrl)
 {
     if (mctrl)

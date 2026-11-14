@@ -353,6 +353,9 @@ public: //API
     static int recvmsg(SRTSOCKET u, char* buf, int len, int64_t& srctime);
     static int sendmsg2(SRTSOCKET u, const char* buf, int len, SRT_MSGCTRL& mctrl);
     static int recvmsg2(SRTSOCKET u, char* buf, int len, SRT_MSGCTRL& w_mctrl);
+
+    /// Revoke a message still held in the sender buffer. See srt_dropmsg().
+    static int dropmsg(SRTSOCKET u, int32_t msgno);
     static int64_t sendfile(SRTSOCKET u, std::fstream& ifs, int64_t& offset, int64_t size, int block = SRT_DEFAULT_SENDFILE_BLOCK);
     static int64_t recvfile(SRTSOCKET u, std::fstream& ofs, int64_t& offset, int64_t size, int block = SRT_DEFAULT_RECVFILE_BLOCK);
     static int select(int nfds, UDT::UDSET* readfds, UDT::UDSET* writefds, UDT::UDSET* exceptfds, const timeval* timeout);
@@ -795,6 +798,11 @@ private:
     /// @return Actual size of data received.
 
     SRT_ATR_NODISCARD int sendmsg2(const char* data, int len, SRT_MSGCTRL& w_m);
+
+    /// Revoke a message still held in the sender buffer.
+    /// @return payload bytes newly marked as revoked, 0 if nothing was done.
+    /// @throws CUDTException on invalid socket/mode/msgno.
+    SRT_ATR_NODISCARD int dropmsg(int32_t msgno);
 
     SRT_ATR_NODISCARD int recvmsg(char* data, int len, int64_t& srctime);
     SRT_ATR_NODISCARD int recvmsg2(char* data, int len, SRT_MSGCTRL& w_m);
