@@ -57,6 +57,8 @@ struct tsDeBoorNetImpl
 	size_t h; /**< Number of insertions required to obtain result. */
 	size_t dim; /**< Dimensionality of the points (2D => x, y). */
 	size_t n_points; /** Number of points in `points'. */
+	size_t max_points; /** Capacity of `points' and of the private
+	                        homogeneous storage. */
 };
 
 void
@@ -70,7 +72,8 @@ ts_int_bspline_sof_state(const tsBSpline *spline)
 {
 	return sizeof(struct tsBSplineImpl) +
 	       ts_bspline_sof_control_points(spline) +
-	       ts_bspline_sof_knots(spline);
+	       ts_bspline_sof_knots(spline) +
+	       ts_bspline_num_control_points(spline) * sizeof(tsReal);
 }
 
 tsReal *
@@ -84,6 +87,32 @@ ts_int_bspline_access_knots(const tsBSpline *spline)
 {
 	return ts_int_bspline_access_ctrlp(spline) +
 	       ts_bspline_len_control_points(spline);
+}
+
+static tsReal *
+ts_int_bspline_access_weights(const tsBSpline *spline)
+{
+	return ts_int_bspline_access_knots(spline) +
+	       ts_bspline_num_knots(spline);
+}
+
+static int
+ts_int_bspline_weights_constant(const tsBSpline *spline, tsReal *value)
+{
+	const size_t num = ts_bspline_num_control_points(spline);
+	const tsReal *weights = ts_int_bspline_access_weights(spline);
+	size_t i;
+
+	if (num == 0) {
+		*value = (tsReal) 1.0;
+		return 1;
+	}
+	*value = weights[0];
+	for (i = 1; i < num; i++) {
+		if (weights[i] != weights[0])
+			return 0;
+	}
+	return 1;
 }
 
 tsError
@@ -130,15 +159,29 @@ ts_int_deboornet_init(tsDeBoorNet *net)
 size_t
 ts_int_deboornet_sof_state(const tsDeBoorNet *net)
 {
+	const size_t max_points = net->pImpl->max_points;
 	return sizeof(struct tsDeBoorNetImpl) +
-	       ts_deboornet_sof_points(net) +
-	       ts_deboornet_sof_result(net);
+	       max_points * net->pImpl->dim * sizeof(tsReal) +
+	       /* Private homogeneous storage. */
+	       max_points * (net->pImpl->dim + 1) * sizeof(tsReal);
 }
 
 tsReal *
 ts_int_deboornet_access_points(const tsDeBoorNet *net)
 {
 	return (tsReal *) (& net->pImpl[1]);
+}
+
+/*
+ * Private homogeneous storage used internally for rational evaluation and
+ * knot insertion. The public point array (::ts_int_deboornet_access_points)
+ * always stores euclidean coordinates.
+ */
+tsReal *
+ts_int_deboornet_access_hom(const tsDeBoorNet *net)
+{
+	return ts_int_deboornet_access_points(net) +
+	       net->pImpl->max_points * net->pImpl->dim;
 }
 
 tsReal *
@@ -258,6 +301,62 @@ ts_bspline_set_control_point_at(tsBSpline *spline,
 		size = ts_bspline_dimension(spline) * sizeof(tsReal);
 		memcpy(to, ctrlp, size);
 	TS_END_TRY_RETURN(err)
+}
+
+const tsReal *
+ts_bspline_weights_ptr(const tsBSpline *spline)
+{
+	return ts_int_bspline_access_weights(spline);
+}
+
+size_t
+ts_bspline_num_weights(const tsBSpline *spline)
+{
+	return ts_bspline_num_control_points(spline);
+}
+
+tsError
+ts_bspline_weights(const tsBSpline *spline,
+                   tsReal **weights,
+                   tsStatus *status)
+{
+	const size_t num = ts_bspline_num_control_points(spline);
+	const size_t size = num * sizeof(tsReal);
+	*weights = (tsReal*) malloc(size);
+	if (!*weights) TS_RETURN_0(status, TS_MALLOC, "out of memory")
+	memcpy(*weights, ts_int_bspline_access_weights(spline), size);
+	TS_RETURN_SUCCESS(status)
+}
+
+tsError
+ts_bspline_set_weights(tsBSpline *spline,
+                       const tsReal *weights,
+                       size_t count,
+                       tsStatus *status)
+{
+	const size_t num = ts_bspline_num_control_points(spline);
+	size_t i;
+
+	if (count != num) {
+		TS_RETURN_2(status, TS_NO_RESULT,
+		            "count(weights) (%lu) != num(control_points) (%lu)",
+		            (unsigned long) count, (unsigned long) num)
+	}
+	for (i = 0; i < count; i++) {
+		if (!isfinite(weights[i])) {
+			TS_RETURN_1(status, TS_NO_RESULT,
+			            "weight at index %lu is not finite",
+			            (unsigned long) i)
+		}
+		if (!(weights[i] > (tsReal) 0.0)) {
+			TS_RETURN_2(status, TS_NO_RESULT,
+			            "weight at index %lu (%f) is not > 0",
+			            (unsigned long) i, weights[i])
+		}
+	}
+	memmove(ts_int_bspline_access_weights(spline), weights,
+	        count * sizeof(tsReal));
+	TS_RETURN_SUCCESS(status)
 }
 
 size_t
@@ -471,7 +570,10 @@ ts_bspline_new(size_t num_control_points,
 	const size_t sof_impl = sizeof(struct tsBSplineImpl);
 	const size_t sof_ctrlp_vec = len_ctrlp * sof_real;
 	const size_t sof_knots_vec = num_knots * sof_real;
-	const size_t sof_spline = sof_impl + sof_ctrlp_vec + sof_knots_vec;
+	const size_t sof_spline = sof_impl + sof_ctrlp_vec + sof_knots_vec +
+	                         num_control_points * sof_real;
+	tsReal *weights;
+	size_t i;
 	tsError err;
 
 	ts_int_bspline_init(spline);
@@ -498,6 +600,10 @@ ts_bspline_new(size_t num_control_points,
 	spline->pImpl->dim = dimension;
 	spline->pImpl->n_ctrlp = num_control_points;
 	spline->pImpl->n_knots = num_knots;
+
+	weights = ts_int_bspline_access_weights(spline);
+	for (i = 0; i < num_control_points; i++)
+		weights[i] = (tsReal) 1.0;
 
 	TS_TRY(try, err, status)
 		TS_CALL(try, err, ts_int_bspline_generate_knots(
@@ -711,8 +817,10 @@ ts_int_deboornet_new(const tsBSpline *spline,
 
 	const size_t sof_real = sizeof(tsReal);
 	const size_t sof_impl = sizeof(struct tsDeBoorNetImpl);
+	/* Public euclidean points plus private homogeneous points. */
 	const size_t sof_points_vec = fixed_num_points * dim * sof_real;
-	const size_t sof_net = sof_impl + sof_points_vec;
+	const size_t sof_hom_vec = fixed_num_points * (dim + 1) * sof_real;
+	const size_t sof_net = sof_impl + sof_points_vec + sof_hom_vec;
 
 	net->pImpl = (struct tsDeBoorNetImpl *) malloc(sof_net);
 	if (!net->pImpl) TS_RETURN_0(status, TS_MALLOC, "out of memory")
@@ -723,6 +831,7 @@ ts_int_deboornet_new(const tsBSpline *spline,
 	net->pImpl->h = deg;
 	net->pImpl->dim = dim;
 	net->pImpl->n_points = fixed_num_points;
+	net->pImpl->max_points = fixed_num_points;
 	TS_RETURN_SUCCESS(status)
 }
 
@@ -1236,15 +1345,24 @@ ts_int_bspline_eval_woa(const tsBSpline *spline,
                         tsDeBoorNet *net,
                         tsStatus *status)
 {
+	/* Homogeneous de Boor: the net and all interpolation steps are
+	 * computed in (dim + 1)-dimensional homogeneous coordinates so that
+	 * both polynomial and rational splines are handled uniformly. The
+	 * public net points are projected back to euclidean coordinates as
+	 * soon as a point is final. */
 	const size_t deg = ts_bspline_degree(spline);
 	const size_t order = ts_bspline_order(spline);
 	const size_t dim = ts_bspline_dimension(spline);
 	const size_t num_knots = ts_bspline_num_knots(spline);
-	const size_t sof_ctrlp = dim * sizeof(tsReal);
+	const size_t hdim = dim + 1;
+	const size_t sof_ctrlp = hdim * sizeof(tsReal);
+	const size_t num_ctrlp = ts_bspline_num_control_points(spline);
 
-	const tsReal *ctrlp = ts_int_bspline_access_ctrlp(spline);
 	const tsReal *knots = ts_int_bspline_access_knots(spline);
-	tsReal *points = NULL;  /**< Pointer to the points of \p net. */
+	const tsReal *euclid = ts_int_bspline_access_ctrlp(spline);
+	const tsReal *weights = ts_int_bspline_access_weights(spline);
+	tsReal *points = NULL;  /**< Public (euclidean) points of \p net. */
+	tsReal *hom = NULL;     /**< Private homogeneous points of \p net. */
 
 	size_t k;        /**< Index of \p u. */
 	size_t s;        /**< Multiplicity of \p u. */
@@ -1262,75 +1380,101 @@ ts_int_bspline_eval_woa(const tsBSpline *spline,
 	tsReal ui;       /**< Knot value at index i. */
 	tsReal a, a_hat; /**< Weighting factors of control points. */
 
+	tsReal ctrlp[64]; /**< Homogeneous control points (<= order + 1). */
+	tsReal *heap_ctrlp = NULL;
+
 	tsError err;
 
-	points = ts_int_deboornet_access_points(net);
-
-	/* 1. Find index k such that u is in between [u_k, u_k+1).
-	 * 2. Setup already known values.
-	 * 3. Decide by multiplicity of u how to calculate point P(u). */
-
-	/* 1. */
+	/* 1. Find index k such that u is in between [u_k, u_k+1). */
 	k = s = 0;
-	TS_CALL_ROE(err, ts_int_bspline_find_knot(
-	            spline, &u, &k, &s, status))
+	err = ts_int_bspline_find_knot(spline, &u, &k, &s, status);
+	if (err) return err;
 
-	/* 2. */
+	/* 2. Setup already known values. */
 	net->pImpl->u = u;
 	net->pImpl->k = k;
 	net->pImpl->s = s;
 	net->pImpl->h = deg < s ? 0 : deg-s; /* prevent underflow */
 
-	/* 3. (by 1. s <= order)
-	 *
-	 * 3a) Check for s = order.
-	 *     Take the two points k-s and k-s + 1. If one of
-	 *     them doesn't exist, take only the other.
-	 * 3b) Use de boor algorithm to find point P(u). */
+	/* Determine the relevant control point range before building the
+	 * homogeneous control points. The `s == order' case needs at most two
+	 * points, the regular case at most `order' points. */
 	if (s == order) {
-		/* only one of the two control points exists */
-		if (k == deg || /* only the first */
-		    k == num_knots - 1) { /* only the last */
-			from = k == deg ? 0 : (k-s) * dim;
+		if (k == deg || k == num_knots - 1) {
+			from = (k == deg) ? 0 : (k-s);
 			net->pImpl->n_points = 1;
-			memcpy(points, ctrlp + from, sof_ctrlp);
 		} else {
-			from = (k-s) * dim;
+			from = k-s;
 			net->pImpl->n_points = 2;
-			memcpy(points, ctrlp + from, 2 * sof_ctrlp);
 		}
-	} else { /* by 3a) s <= deg (order = deg+1) */
+		N = net->pImpl->n_points;
+	} else {
 		fst = k-deg; /* by 1. k >= deg */
 		lst = k-s; /* s <= deg <= k */
 		N = lst-fst + 1; /* lst <= fst implies N >= 1 */
-
+		from = fst;
 		net->pImpl->n_points = (size_t)(N * (N+1) * 0.5f);
+	}
 
-		/* copy initial values to output */
-		memcpy(points, ctrlp + fst*dim, N * sof_ctrlp);
+	/* Build homogeneous control points in a stack buffer if possible. */
+	if (N * hdim > (sizeof(ctrlp) / sizeof(ctrlp[0]))) {
+		heap_ctrlp = (tsReal *) malloc(N * sof_ctrlp);
+		if (!heap_ctrlp) TS_RETURN_0(status, TS_MALLOC, "out of memory")
+	}
+	{
+		tsReal *buf = heap_ctrlp ? heap_ctrlp : ctrlp;
+		size_t j;
+		for (i = 0; i < N; i++) {
+			const size_t idx = from + i;
+			for (j = 0; j < dim; j++)
+				buf[i*hdim + j] =
+					euclid[idx*dim + j] * weights[idx];
+			buf[i*hdim + dim] = weights[idx];
+		}
+		/* 3. Compute the net in homogeneous coordinates. */
+		points = ts_int_deboornet_access_points(net);
+		hom = ts_int_deboornet_access_hom(net);
+		if (s == order) {
+			memcpy(hom, buf, N * sof_ctrlp);
+		} else {
+			memcpy(hom, buf, N * sof_ctrlp);
+			lidx = 0;
+			ridx = hdim;
+			tidx = N*hdim; /* N >= 1 implies tidx > 0 */
+			r = 1;
+			for (; r <= ts_deboornet_num_insertions(net); r++) {
+				i = fst + r;
+				for (; i <= lst; i++) {
+					ui = knots[i];
+					a = (ts_deboornet_knot(net) - ui) /
+						(knots[i+deg-r+1] - ui);
+					a_hat = 1.f-a;
 
-		lidx = 0;
-		ridx = dim;
-		tidx = N*dim; /* N >= 1 implies tidx > 0 */
-		r = 1;
-		for (;r <= ts_deboornet_num_insertions(net); r++) {
-			i = fst + r;
-			for (; i <= lst; i++) {
-				ui = knots[i];
-				a = (ts_deboornet_knot(net) - ui) /
-					(knots[i+deg-r+1] - ui);
-				a_hat = 1.f-a;
-
-				for (d = 0; d < dim; d++) {
-					points[tidx++] =
-						a_hat * points[lidx++] +
-						a     * points[ridx++];
+					for (d = 0; d < hdim; d++) {
+						hom[tidx++] =
+							a_hat * hom[lidx++] +
+							a     * hom[ridx++];
+					}
 				}
+				lidx += hdim;
+				ridx += hdim;
 			}
-			lidx += dim;
-			ridx += dim;
 		}
 	}
+
+	/* Project each homogeneous point to euclidean coordinates. */
+	for (i = 0; i < ts_deboornet_num_points(net); i++) {
+		tsReal w = hom[i*hdim + dim];
+		if (!(w > (tsReal) 0.0)) {
+			free(heap_ctrlp);
+			TS_RETURN_0(status, TS_NO_RESULT,
+			            "non-positive homogeneous weight")
+		}
+		for (d = 0; d < dim; d++)
+			points[i*dim + d] = hom[i*hdim + d] / w;
+	}
+
+	free(heap_ctrlp);
 	TS_RETURN_SUCCESS(status)
 }
 
@@ -1413,6 +1557,322 @@ ts_bspline_sample(const tsBSpline *spline,
 	TS_FINALLY
 		free(knots);
 	TS_END_TRY_RETURN(err)
+}
+
+/*
+ * Evaluates the Bernstein basis of degree `n' at `t'. `buf' must hold
+ * `n + 1' values.
+ */
+static void
+ts_int_bernstein(size_t n, tsReal t, tsReal *buf)
+{
+	size_t i;
+	tsReal binom = 1.0; /* C(n, i) */
+	tsReal pow_t = 1.0;
+	tsReal pow_1mt = 1.0;
+	size_t j;
+
+	/* Handle the endpoints explicitly: the iterative formula below
+	 * divides by (1 - t). */
+	if (t <= (tsReal) 0.0) {
+		for (i = 0; i <= n; i++)
+			buf[i] = (tsReal) 0.0;
+		buf[0] = (tsReal) 1.0;
+		return;
+	}
+	if (t >= (tsReal) 1.0) {
+		for (i = 0; i <= n; i++)
+			buf[i] = (tsReal) 0.0;
+		buf[n] = (tsReal) 1.0;
+		return;
+	}
+
+	/* Compute (1 - t)^n iteratively. */
+	for (j = 0; j < n; j++)
+		pow_1mt *= (tsReal) 1.0 - t;
+	for (i = 0; i <= n; i++) {
+		buf[i] = binom * pow_t * pow_1mt;
+		/* Update for the next index. */
+		binom = binom * (tsReal) (n - i) / (tsReal) (i + 1);
+		pow_t *= t;
+		pow_1mt /= (tsReal) 1.0 - t;
+	}
+}
+
+/*
+ * Evaluates the derivatives of order 0..`order' of a Bezier curve (given by
+ * `n = deg + 1' homogeneous control points in `ctrlp') at local parameter
+ * `t'. The results are stored in `hs' (one block of `hdim' values per
+ * derivative order).
+ */
+static void
+ts_int_beziers_derivs(const tsReal *ctrlp,
+                      size_t hdim,
+                      size_t deg,
+                      tsReal t,
+                      size_t order,
+                      tsReal *hs)
+{
+	tsReal *diff = (tsReal *) malloc((deg + 1) * hdim * sizeof(tsReal));
+	tsReal *bern = (tsReal *) malloc((deg + 1) * sizeof(tsReal));
+	tsReal falling = 1.0; /* deg! / (deg - k)! */
+	size_t k, i, d;
+
+	/* diff holds the current order forward differences. */
+	for (i = 0; i <= deg; i++)
+		for (d = 0; d < hdim; d++)
+			diff[i*hdim + d] = ctrlp[i*hdim + d];
+
+	for (k = 0; k <= order; k++) {
+		const size_t bdeg = deg - k;
+		if (k > 0) {
+			/* One order of forward differences. `bdeg + 1' values
+			 * are required. */
+			for (i = 0; i <= bdeg; i++)
+				for (d = 0; d < hdim; d++)
+					diff[i*hdim + d] =
+						diff[(i+1)*hdim + d] -
+						diff[i*hdim + d];
+			falling *= (tsReal) (deg - k + 1);
+		}
+		ts_int_bernstein(bdeg, t, bern);
+		for (d = 0; d < hdim; d++) {
+			tsReal sum = 0.0;
+			for (i = 0; i <= bdeg; i++)
+				sum += bern[i] * diff[i*hdim + d];
+			hs[k*hdim + d] = falling * sum;
+		}
+	}
+
+	free(diff);
+	free(bern);
+}
+
+/*
+ * Evaluates the euclidean derivatives of order 0..`order' of `spline' at
+ * `knot'. The caller must have verified that the requested order is
+ * continuous at `knot'.
+ */
+static tsError
+ts_int_beziers_eval_rational(const tsBSpline *spline,
+                             tsReal knot,
+                             size_t order,
+                             tsReal *out,
+                             tsStatus *status)
+{
+	const size_t dim = ts_bspline_dimension(spline);
+	const size_t deg = ts_bspline_degree(spline);
+	const size_t order_ctrlp = deg + 1;
+	const size_t hdim = dim + 1;
+	const size_t num_ctrlp = ts_bspline_num_control_points(spline);
+	const tsReal *euclid = ts_int_bspline_access_ctrlp(spline);
+	const tsReal *weights = ts_int_bspline_access_weights(spline);
+	const tsReal *knots = ts_int_bspline_access_knots(spline);
+
+	tsBSpline hom = ts_bspline_init();
+	tsBSpline bez = ts_bspline_init();
+	tsReal *hom_ctrlp = NULL;
+	tsReal *hs = NULL;
+	size_t num_segments, seg;
+	tsReal a, b, t;
+	size_t i, d;
+	tsError err;
+
+	/* Build a homogeneous spline (dimension hdim, unit weights) so that
+	 * the Bezier decomposition below is a purely linear operation. */
+	hom_ctrlp = (tsReal *) malloc(num_ctrlp * hdim * sizeof(tsReal));
+	hs = (tsReal *) malloc((order + 1) * hdim * sizeof(tsReal));
+	if (!hom_ctrlp || !hs) {
+		free(hom_ctrlp);
+		free(hs);
+		TS_RETURN_0(status, TS_MALLOC, "out of memory")
+	}
+	for (i = 0; i < num_ctrlp; i++) {
+		for (d = 0; d < dim; d++)
+			hom_ctrlp[i*hdim + d] =
+				euclid[i*dim + d] * weights[i];
+		hom_ctrlp[i*hdim + dim] = weights[i];
+	}
+
+	err = ts_bspline_new(num_ctrlp, hdim, deg, TS_OPENED,
+	                     &hom, status);
+	if (!err)
+		err = ts_bspline_set_control_points(&hom, hom_ctrlp,
+		                                    status);
+	if (!err)
+		err = ts_bspline_set_knots(&hom, knots, status);
+	if (!err)
+		err = ts_bspline_to_beziers(&hom, &bez, status);
+	if (err) {
+		free(hom_ctrlp);
+		free(hs);
+		ts_bspline_free(&hom);
+		ts_bspline_free(&bez);
+		return err;
+	}
+
+	/* Find the Bezier segment that contains `knot'. A decomposed spline
+	 * has groups of `order_ctrlp' equal knots per segment boundary. */
+	num_segments = ts_bspline_num_control_points(&bez) / order_ctrlp;
+	if (num_segments == 0) {
+		free(hom_ctrlp);
+		free(hs);
+		ts_bspline_free(&hom);
+		ts_bspline_free(&bez);
+		TS_RETURN_0(status, TS_NO_RESULT,
+		            "empty bezier decomposition")
+	}
+	{
+		const tsReal *bez_knots = ts_int_bspline_access_knots(&bez);
+		/* Pick the segment whose left boundary is strictly less than
+		 * `knot' (or the first segment for the domain minimum). At an
+		 * internal break, this is the left segment, matching
+		 * ::ts_bspline_eval, which returns the left-hand limit for
+		 * discontinuous splines. If the requested derivative order is
+		 * continuous, both sides yield the same result anyway. */
+		seg = 0;
+		for (i = 1; i < num_segments; i++) {
+			const tsReal left = bez_knots[i*order_ctrlp];
+			if (left < knot && !ts_knots_equal(left, knot))
+				seg = i;
+			else
+				break;
+		}
+		a = bez_knots[seg*order_ctrlp];
+		b = bez_knots[(seg+1)*order_ctrlp];
+	}
+	if (!(b > a)) {
+		free(hom_ctrlp);
+		free(hs);
+		ts_bspline_free(&hom);
+		ts_bspline_free(&bez);
+		TS_RETURN_0(status, TS_NO_RESULT,
+		            "degenerate bezier segment")
+	}
+	t = (knot - a) / (b - a);
+	if (t < (tsReal) 0.0) t = (tsReal) 0.0;
+	if (t > (tsReal) 1.0) t = (tsReal) 1.0;
+
+	ts_int_beziers_derivs(
+		ts_int_bspline_access_ctrlp(&bez) + seg*order_ctrlp*hdim,
+		hdim, deg, t, order, hs);
+
+	/* Convert local derivatives (w.r.t. t) to derivatives w.r.t. `knot'
+	 * and then apply the quotient rule to obtain euclidean derivatives:
+	 *
+	 *     C(u)   = A(u) / w(u)
+	 *     C'(u)  = (A' - w' C) / w
+	 *     C''(u) = (A'' - 2 w' C' - w'' C) / w
+	 */
+	{
+		tsReal fac = (tsReal) 1.0 / (b - a);
+		size_t k;
+		tsReal w0, w1, w2, c0, c1;
+		for (k = 1; k <= order; k++) {
+			for (d = 0; d < hdim; d++)
+				hs[k*hdim + d] *= fac;
+			fac *= (tsReal) 1.0 / (b - a);
+		}
+
+		w0 = hs[dim];
+		if (!(w0 > (tsReal) 0.0)) {
+			free(hom_ctrlp);
+			free(hs);
+			ts_bspline_free(&hom);
+			ts_bspline_free(&bez);
+			TS_RETURN_0(status, TS_NO_RESULT,
+			            "non-positive homogeneous weight")
+		}
+		for (d = 0; d < dim; d++)
+			out[d] = hs[d] / w0;
+
+		if (order >= 1) {
+			w1 = hs[hdim + dim];
+			for (d = 0; d < dim; d++) {
+				c0 = out[d];
+				out[dim + d] =
+					(hs[hdim + d] - w1 * c0) / w0;
+			}
+		}
+		if (order >= 2) {
+			w1 = hs[hdim + dim];
+			w2 = hs[2*hdim + dim];
+			for (d = 0; d < dim; d++) {
+				c0 = out[d];
+				c1 = out[dim + d];
+				out[2*dim + d] =
+					(hs[2*hdim + d]
+					 - (tsReal) 2.0 * w1 * c1
+					 - w2 * c0) / w0;
+			}
+		}
+	}
+
+	free(hom_ctrlp);
+	free(hs);
+	ts_bspline_free(&hom);
+	ts_bspline_free(&bez);
+	TS_RETURN_SUCCESS(status)
+}
+
+tsError
+ts_bspline_eval_derivatives(const tsBSpline *spline,
+                            tsReal u,
+                            size_t order,
+                            tsReal **values,
+                            tsStatus *status)
+{
+	const size_t deg = ts_bspline_degree(spline);
+	const size_t dim = ts_bspline_dimension(spline);
+
+	tsReal *out = NULL;
+	tsReal min, max, knot;
+	size_t idx, s, max_order;
+	int at_min, at_max;
+	tsError err;
+
+	*values = NULL;
+
+	if (order > 2)
+		TS_RETURN_1(status, TS_NO_RESULT,
+		            "unsupported derivative order: %lu > 2",
+		            (unsigned long) order)
+
+	/* Find the evaluated knot and its multiplicity. This also checks
+	 * whether `u' is within the domain of `spline'. */
+	knot = u;
+	err = ts_int_bspline_find_knot(spline, &knot, &idx, &s, status);
+	if (err) return err;
+
+	ts_bspline_domain(spline, &min, &max);
+	at_min = ts_knots_equal(knot, min);
+	at_max = ts_knots_equal(knot, max);
+	if (at_min || at_max) {
+		/* One-sided derivatives at the endpoints. */
+		max_order = deg;
+	} else if (s <= deg) {
+		/* C^(deg - s) continuous at an internal knot. */
+		max_order = deg - s;
+	} else {
+		/* Discontinuous: only the position exists. */
+		max_order = 0;
+	}
+	if (order > max_order)
+		TS_RETURN_2(status, TS_NO_RESULT,
+		            "derivative order %lu > continuity %lu",
+		            (unsigned long) order,
+		            (unsigned long) max_order)
+
+	out = (tsReal *) malloc((order + 1) * dim * sizeof(tsReal));
+	if (!out) TS_RETURN_0(status, TS_MALLOC, "out of memory")
+
+	err = ts_int_beziers_eval_rational(spline, knot, order, out, status);
+	if (err) {
+		free(out);
+		return err;
+	}
+	*values = out;
+	TS_RETURN_SUCCESS(status)
 }
 
 tsError
@@ -1545,20 +2005,28 @@ ts_bspline_compute_rmf(const tsBSpline *spline,
 	size_t i;
 	tsReal fx, fy, fz, fmin;
 	tsReal xc[3], xn[3], v1[3], c1, v2[3], c2, rL[3], tL[3];
-	tsBSpline deriv = ts_bspline_init();
+	tsReal *tan = NULL;
 	tsDeBoorNet curr = ts_deboornet_init();
 	tsDeBoorNet next = ts_deboornet_init();
 
 	if (num < 1)
 		TS_RETURN_SUCCESS(status);
 
+	/* The knots must be strictly increasing. */
+	for (i = 1; i < num; i++) {
+		if (!(knots[i] > knots[i-1])) {
+			TS_RETURN_1(status, TS_KNOTS_DECR,
+			            "knots are not strictly increasing at "
+			            "index %lu",
+			            (unsigned long) i)
+		}
+	}
+
 	TS_TRY(try, err, status)
 		TS_CALL(try, err, ts_int_deboornet_new(
 		        spline, &curr, status))
 		TS_CALL(try, err, ts_int_deboornet_new(
 		        spline, &next, status))
-		TS_CALL(try, err, ts_bspline_derive(
-		        spline, 1, (tsReal) -1.0, &deriv, status))
 
 		/* Set position. */
 		TS_CALL(try, err, ts_int_bspline_eval_woa(
@@ -1566,13 +2034,17 @@ ts_bspline_compute_rmf(const tsBSpline *spline,
 		ts_vec3_set(frames[0].position,
 		            ts_int_deboornet_access_result(&curr),
 		            ts_bspline_dimension(spline));
-		/* Set tangent. */
-		TS_CALL(try, err, ts_int_bspline_eval_woa(
-		        &deriv, knots[0], &curr, status))
+		/* Set tangent, using the analytic rational derivative. */
+		TS_CALL(try, err, ts_bspline_eval_derivatives(
+		        spline, knots[0], 1, &tan, status))
 		ts_vec3_set(frames[0].tangent,
-		            ts_int_deboornet_access_result(&curr),
-		            ts_bspline_dimension(&deriv));
+		            tan + ts_bspline_dimension(spline),
+		            ts_bspline_dimension(spline));
 		ts_vec_norm(frames[0].tangent, 3, frames[0].tangent);
+		if (ts_vec_mag(frames[0].tangent, 3) < TS_LENGTH_ZERO) {
+			TS_THROW_1(try, err, status, TS_NO_RESULT,
+			           "zero tangent at knot: %f", knots[0])
+		}
 		/* Set normal. */
 		if (!has_first_normal) {
 			fx = (tsReal) fabs(frames[0].tangent[0]);
@@ -1653,12 +2125,21 @@ ts_bspline_compute_rmf(const tsBSpline *spline,
 			ts_vec_sub(frames[i].tangent, tL, 3, tL);
 
 			/* Compute reflection vector of R_{2}. */
-			TS_CALL(try, err, ts_int_bspline_eval_woa(
-			        &deriv, knots[i+1], &next, status))
+			free(tan);
+			tan = NULL;
+			TS_CALL(try, err, ts_bspline_eval_derivatives(
+			        spline, knots[i+1], 1, &tan, status))
 			ts_vec3_set(xn, /* xn is now the next tangent */
-			            ts_int_deboornet_access_result(&next),
-			            ts_bspline_dimension(&deriv));
+			            tan + ts_bspline_dimension(spline),
+			            ts_bspline_dimension(spline));
+			free(tan);
+			tan = NULL;
 			ts_vec_norm(xn, 3, xn);
+			if (ts_vec_mag(xn, 3) < TS_LENGTH_ZERO) {
+				TS_THROW_1(try, err, status, TS_NO_RESULT,
+				           "zero tangent at knot: %f",
+				           knots[i+1])
+			}
 			ts_vec_sub(xn, tL, 3, v2);
 			c2 = ts_vec_dot(v2, v2, 3);
 
@@ -1680,7 +2161,7 @@ ts_bspline_compute_rmf(const tsBSpline *spline,
 			ts_vec3_set(frames[i+1].normal, xc, 3);
 		}
 	TS_FINALLY
-		ts_bspline_free(&deriv);
+		free(tan);
 		ts_deboornet_free(&curr);
 		ts_deboornet_free(&next);
 	TS_END_TRY_RETURN(err)
@@ -1751,7 +2232,7 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 	tsReal min, max; /* domain of `spline` */
 	size_t dim, deg, order; /* properties of `spline` (and `sub`) */
 	tsBSpline worker; /* stores the result of the `split' operations */
-	tsReal *ctrlp, *knots; /* control points and knots of `worker` */
+	tsReal *ctrlp, *knots, *weights; /* of `worker` */
 	size_t k0, k1; /* indices returned by the `split' operations */
 	size_t c0, c1; /* indices of the control points to be moved */
 	size_t nc, nk; /* number of control points and knots of `sub` */
@@ -1815,6 +2296,7 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 			/* Needed in `reverse mode'. */
 			ctrlp = ts_int_bspline_access_ctrlp(&worker);
 			knots = ts_int_bspline_access_knots(&worker);
+			weights = ts_int_bspline_access_weights(&worker);
 			nc = ts_bspline_num_control_points(&worker);
 		} else {
 			c0 = (k0-deg) * dim;
@@ -1825,6 +2307,7 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 			/* Also needed in `reverse mode'. */
 			ctrlp = ts_int_bspline_access_ctrlp(&worker);
 			knots = ts_int_bspline_access_knots(&worker);
+			weights = ts_int_bspline_access_weights(&worker);
 
 			/* Move control points. */
 			memmove(ctrlp,
@@ -1834,7 +2317,12 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 			memmove(ctrlp + nc * dim,
 			        knots + (k0-deg),
 			        nk * sizeof(tsReal));
-
+			/* Move weights (their old location is after the
+			 * knots). */
+			memmove((tsReal *) (ctrlp + nc * dim) + nk,
+			        weights + (k0-deg),
+			        nc * sizeof(tsReal));
+			weights = (tsReal *) (ctrlp + nc * dim) + nk;
 			/* Remove superfluous control points and knots from
 			 * the memory of `worker`. */
 			worker.pImpl->n_knots = nk;
@@ -1845,6 +2333,9 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 				TS_THROW_0(try, err, status, TS_MALLOC,
 				           "out of memory")
 			}
+			ctrlp = ts_int_bspline_access_ctrlp(&worker);
+			knots = ts_int_bspline_access_knots(&worker);
+			weights = ts_int_bspline_access_weights(&worker);
 		}
 
 		/* Reverse control points (if necessary). */
@@ -1859,6 +2350,9 @@ ts_bspline_sub_spline(const tsBSpline *spline,
 				memcpy(ctrlp  + (nc-1 - i) * dim,
 				       tmp,
 				       dim * sizeof(tsReal));
+				memcpy(tmp, weights + i, sizeof(tsReal));
+				weights[i] = weights[nc-1 - i];
+				weights[nc-1 - i] = *tmp;
 			}
 		}
 
@@ -1947,12 +2441,16 @@ ts_int_bspline_resize(const tsBSpline *spline,
 
 	const size_t sof_min_num_ctrlp = min_num_ctrlp_vec * dim * sof_real;
 	const size_t sof_min_num_knots = min_num_knots_vec * sof_real;
+	const size_t min_num_weights = n < 0 ? nnum_ctrlp : num_ctrlp;
+	const size_t sof_min_num_weights = min_num_weights * sof_real;
 
 	tsBSpline tmp; /**< Temporarily stores the result. */
 	const tsReal* from_ctrlp = ts_int_bspline_access_ctrlp(spline);
 	const tsReal* from_knots = ts_int_bspline_access_knots(spline);
+	const tsReal* from_weights = ts_int_bspline_access_weights(spline);
 	tsReal* to_ctrlp = NULL; /**< Pointer to the control points of tmp. */
 	tsReal* to_knots = NULL; /**< Pointer to the knots of tmp. */
+	tsReal* to_weights = NULL; /**< Pointer to the weights of tmp. */
 
 	tsError err;
 
@@ -1964,18 +2462,22 @@ ts_int_bspline_resize(const tsBSpline *spline,
 	            &tmp, status))
 	to_ctrlp = ts_int_bspline_access_ctrlp(&tmp);
 	to_knots = ts_int_bspline_access_knots(&tmp);
+	to_weights = ts_int_bspline_access_weights(&tmp);
 
 	/* Copy control points and knots. */
 	if (!back && n < 0) {
 		memcpy(to_ctrlp, from_ctrlp - n*dim, sof_min_num_ctrlp);
 		memcpy(to_knots, from_knots - n    , sof_min_num_knots);
+		memcpy(to_weights, from_weights - n, sof_min_num_weights);
 	} else if (!back && n > 0) {
 		memcpy(to_ctrlp + n*dim, from_ctrlp, sof_min_num_ctrlp);
 		memcpy(to_knots + n    , from_knots, sof_min_num_knots);
+		memcpy(to_weights + n  , from_weights, sof_min_num_weights);
 	} else {
 		/* n != 0 implies back == true */
 		memcpy(to_ctrlp, from_ctrlp, sof_min_num_ctrlp);
 		memcpy(to_knots, from_knots, sof_min_num_knots);
+		memcpy(to_weights, from_weights, sof_min_num_weights);
 	}
 
 	if (spline == resized)
@@ -2012,6 +2514,19 @@ ts_bspline_derive(const tsBSpline *spline,
 	tsError err;
 
 	INIT_OUT_BSPLINE(spline, deriv)
+
+	/* Deriving a rational spline with non-constant weights is not
+	 * supported. */
+	{
+		tsReal w;
+		if (!ts_int_bspline_weights_constant(spline, &w)) {
+			TS_RETURN_1(status, TS_NO_RESULT,
+			            "%s is not supported for rational splines "
+			            "with non-constant weights",
+			            "ts_bspline_derive")
+		}
+	}
+
 	TS_CALL_ROE(err, ts_bspline_copy(spline, &worker, status))
 	ctrlp = ts_int_bspline_access_ctrlp(&worker);
 	knots = ts_int_bspline_access_knots(&worker);
@@ -2101,7 +2616,8 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 	const size_t k = ts_deboornet_index(net);
 	const size_t mult = ts_deboornet_multiplicity(net);
 	const size_t sof_real = sizeof(tsReal);
-	const size_t sof_ctrlp = dim * sof_real;
+	const size_t hdim = dim + 1;
+	const size_t sof_ctrlp = hdim * sizeof(tsReal);
 
 	size_t N;     /**< Number of affected control points. */
 	tsReal* from; /**< Pointer to copy the values from. */
@@ -2109,10 +2625,14 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 	int stride;   /**< Stride of the next pointer to copy. */
 	size_t i;     /**< Used in for loops. */
 
-	tsReal *ctrlp_spline, *ctrlp_result;
+	tsReal *euclid_spline, *euclid_result;
+	tsReal *weights_spline, *weights_result;
+	tsReal *hom_spline = NULL, *hom_result = NULL;
 	tsReal *knots_spline, *knots_result;
-	size_t num_ctrlp_result;
+	size_t num_ctrlp_spline, num_ctrlp_result;
 	size_t num_knots_result;
+	tsReal w;
+	size_t d;
 
 	tsError err;
 
@@ -2128,12 +2648,37 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 
 	TS_CALL_ROE(err, ts_int_bspline_resize(
 	            spline, (int)n, 1, result, status))
-	ctrlp_spline = ts_int_bspline_access_ctrlp(spline);
+	/* `ts_int_bspline_resize' may modify `spline' if `spline == result'
+	 * (in-place insertion). Hence, the number of original control points
+	 * must be derived from the resized spline. */
+	num_ctrlp_spline = ts_bspline_num_control_points(result) - n;
+	euclid_spline = ts_int_bspline_access_ctrlp(spline);
 	knots_spline = ts_int_bspline_access_knots(spline);
-	ctrlp_result = ts_int_bspline_access_ctrlp(result);
+	euclid_result = ts_int_bspline_access_ctrlp(result);
 	knots_result = ts_int_bspline_access_knots(result);
+	weights_spline = ts_int_bspline_access_weights(spline);
+	weights_result = ts_int_bspline_access_weights(result);
 	num_ctrlp_result = ts_bspline_num_control_points(result);
 	num_knots_result = ts_bspline_num_knots(result);
+
+	/* For the computation below, control points are handled in homogeneous
+	 * coordinates: knot insertion then is exact for rational splines. */
+	hom_spline = (tsReal *) malloc(num_ctrlp_spline * sof_ctrlp);
+	hom_result = (tsReal *) malloc(num_ctrlp_result * sof_ctrlp);
+	if (!hom_spline || !hom_result) {
+		free(hom_spline);
+		free(hom_result);
+		ts_bspline_free(result);
+		TS_RETURN_0(status, TS_MALLOC, "out of memory")
+	}
+	for (i = 0; i < num_ctrlp_spline; i++) {
+		w = weights_spline[i];
+		for (d = 0; d < dim; d++)
+			hom_spline[i*hdim + d] = euclid_spline[i*dim + d] * w;
+		hom_spline[i*hdim + dim] = w;
+	}
+	/* `hom_result' is fully overwritten below (left hand side, net, right
+	 * hand side), so it needs no initialization. */
 
 	/* mult + n <= deg + 1 (order) with n >= 1
 	 * =>  mult <= deg
@@ -2141,8 +2686,10 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 	 * =>  N = h + 1 is valid */
 	N = ts_deboornet_num_insertions(net) + 1;
 
-	/* 1. Copy the relevant control points and knots from `spline'.
-	 * 2. Copy the relevant control points and knots from `net'. */
+	/* 1. Copy the relevant (homogeneous) control points and knots from
+	 * `spline'.
+	 * 2. Copy the relevant (homogeneous) control points and knots from
+	 * `net'. */
 
 	/* 1.
 	 *
@@ -2151,11 +2698,13 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 	 * c) Copy left hand side knots from `spline'.
 	 * d) Copy right hand side knots form `spline'. */
 	/*** Copy Control Points ***/
-	memmove(ctrlp_result, ctrlp_spline, (k-deg) * sof_ctrlp);      /* a) */
-	from = (tsReal *) ctrlp_spline + dim*(k-deg+N);
+	memmove(hom_result, hom_spline, (k-deg) * sof_ctrlp);          /* a) */
+	from = hom_spline + hdim*(k-deg+N);
 	/* n >= 0 implies to >= from */
-	to = ctrlp_result + dim*(k-deg+N+n);
-	memmove(to, from, (num_ctrlp_result-n-(k-deg+N)) * sof_ctrlp); /* b) */
+	to = hom_result + hdim*(k-deg+N+n);
+	if (num_ctrlp_result > n + (k-deg+N))
+		memmove(to, from,
+		        (num_ctrlp_result-n-(k-deg+N)) * sof_ctrlp);   /* b) */
 	/*** Copy Knots ***/
 	memmove(knots_result, knots_spline, (k+1) * sof_real);         /* c) */
 	from = (tsReal *) knots_spline + k+1;
@@ -2169,34 +2718,35 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 	 * b) Copy middle part control points from `net'.
 	 * c) Copy right hand side control points from `net'.
 	 * d) Copy knot from `net' (`knot'). */
-	from = ts_int_deboornet_access_points(net);
-	to = ctrlp_result + (k-deg)*dim;
-	stride = (int)(N*dim);
+	from = ts_int_deboornet_access_hom(net);
+	to = hom_result + (k-deg)*hdim;
+	stride = (int)(N*hdim);
 
 	/*** Copy Control Points ***/
 	for (i = 0; i < n; i++) {                                      /* a) */
 		memcpy(to, from, sof_ctrlp);
 		from += stride;
-		to += dim;
-		stride -= (int)dim;
+		to += hdim;
+		stride -= (int)hdim;
 	}
-	memcpy(to, from, (N-n) * sof_ctrlp);                           /* b) */
+	if (N > n)
+		memcpy(to, from, (N-n) * sof_ctrlp);                   /* b) */
 
-	from -= dim;
-	to += (N-n)*dim;
+	from -= hdim;
+	to += (N-n)*hdim;
 	/* N = h+1 with h = deg-mult (ts_int_bspline_eval)
 	 * =>  N = deg-mult+1 = order-mult.
 	 *
 	 * n <= order-mult
 	 * =>  N-n+1 >= order-mult - order-mult + 1 = 1
 	 * =>  -(int)(N-n+1) <= -1. */
-	stride = -(int)(N-n+1) * (int)dim;
+	stride = -(int)(N-n+1) * (int)hdim;
 
 	for (i = 0; i < n; i++) {                                      /* c) */
 		memcpy(to, from, sof_ctrlp);
 		from += stride;
-		stride -= (int)dim;
-		to += dim;
+		stride -= (int)hdim;
+		to += hdim;
 	}
 	/*** Copy Knot ***/
 	to = knots_result + k+1;
@@ -2204,6 +2754,25 @@ ts_int_bspline_insert_knot(const tsBSpline *spline,
 		*to = knot;
 		to++;
 	}
+
+	/* Project the homogeneous control points of the result back to
+	 * euclidean coordinates. */
+	for (i = 0; i < num_ctrlp_result; i++) {
+		w = hom_result[i*hdim + dim];
+		if (!(w > (tsReal) 0.0)) {
+			free(hom_spline);
+			free(hom_result);
+			ts_bspline_free(result);
+			TS_RETURN_0(status, TS_NO_RESULT,
+			            "non-positive homogeneous weight")
+		}
+		for (d = 0; d < dim; d++)
+			euclid_result[i*dim + d] = hom_result[i*hdim + d] / w;
+		weights_result[i] = w;
+	}
+
+	free(hom_spline);
+	free(hom_result);
 	TS_RETURN_SUCCESS(status)
 }
 
@@ -2286,6 +2855,18 @@ ts_bspline_tension(const tsBSpline *spline,
 	tsReal vec; /**< Straightening vector. */
 	tsError err;
 
+	/* Straightening rational splines with non-constant weights is not
+	 * supported. */
+	{
+		tsReal w;
+		if (!ts_int_bspline_weights_constant(spline, &w)) {
+			TS_RETURN_1(status, TS_NO_RESULT,
+			            "%s is not supported for rational splines "
+			            "with non-constant weights",
+			            "ts_bspline_tension")
+		}
+	}
+
 	TS_CALL_ROE(err, ts_bspline_copy(spline, out, status))
 	ctrlp = ts_int_bspline_access_ctrlp(out);
 	if (beta < (tsReal) 0.0) beta = (tsReal) 0.0;
@@ -2325,6 +2906,10 @@ ts_bspline_to_beziers(const tsBSpline *spline,
 	TS_CALL_ROE(err, ts_bspline_copy(spline, &tmp, status))
 	knots = ts_int_bspline_access_knots(&tmp);
 	num_knots = ts_bspline_num_knots(&tmp);
+
+	/* Note: knot insertion and resizing are exact in homogeneous
+	 * coordinates, so this decomposition is also exact for rational
+	 * splines (weights are carried along unchanged). */
 
 	TS_TRY(try, err, status)
 		/* DO NOT FORGET TO UPDATE knots AND num_knots AFTER EACH
@@ -2390,6 +2975,18 @@ ts_bspline_elevate_degree(const tsBSpline *spline,
 	/* Trivial case. */
 	if (amount == 0)
 		return ts_bspline_copy(spline, elevated, status);
+
+	/* Degree elevation operates on euclidean control points: doing so
+	 * would silently discard non-constant weights. */
+	{
+		tsReal w;
+		if (!ts_int_bspline_weights_constant(spline, &w)) {
+			TS_RETURN_1(status, TS_NO_RESULT,
+			            "%s is not supported for rational splines "
+			            "with non-constant weights",
+			            "ts_bspline_elevate_degree")
+		}
+	}
 
 	/* An overview of this algorithm can be found at:
 	 * https://pages.mtu.edu/~shene/COURSES/cs3621/LAB/curve/elevation.html */
@@ -2608,8 +3205,24 @@ ts_bspline_elevate_degree(const tsBSpline *spline,
 		worker.pImpl->deg = order - 1;
 		worker.pImpl->n_knots -= d;
 		worker.pImpl->n_ctrlp = ts_bspline_num_knots(&worker) - order;
-		memmove(ts_int_bspline_access_knots(&worker),
-		        knots, ts_bspline_sof_knots(&worker));
+		/* The control point array was shrunk by `d' entries, so the
+		 * knots and weights must be moved to their new positions. */
+		{
+			const size_t new_nctrlp = worker.pImpl->n_ctrlp;
+			const size_t new_nknots = worker.pImpl->n_knots;
+			tsReal *new_knots = ts_int_bspline_access_knots(&worker);
+			tsReal *new_weights = new_knots + new_nknots;
+			tsReal w;
+			size_t j;
+
+			memmove(new_knots, knots,
+			        new_nknots * sizeof(tsReal));
+			/* For constant weights, the elevated spline has the
+			 * same constant weight. */
+			ts_int_bspline_weights_constant(spline, &w);
+			for (j = 0; j < new_nctrlp; j++)
+				new_weights[j] = w;
+		}
 		worker.pImpl = realloc(worker.pImpl,
 		                       ts_int_bspline_sof_state(&worker));
 		if (worker.pImpl == NULL) {
@@ -2749,6 +3362,20 @@ ts_bspline_morph(const tsBSpline *origin,
 
 	origin_al = ts_bspline_init();
 	target_al = ts_bspline_init();
+
+	/* Morphing interpolates euclidean control points and knots, which
+	 * would silently discard non-constant weights. */
+	{
+		tsReal w;
+		if (!ts_int_bspline_weights_constant(origin, &w) ||
+		    !ts_int_bspline_weights_constant(target, &w)) {
+			TS_RETURN_1(status, TS_NO_RESULT,
+			            "%s is not supported for rational splines "
+			            "with non-constant weights",
+			            "ts_bspline_morph")
+		}
+	}
+
 	TS_TRY(try, err, status)
 		/* Clamp `t' to domain [0, 1] and set up `t_hat'. */
 		if (t < (tsReal) 0.0) t = (tsReal) 0.0;
@@ -2808,6 +3435,19 @@ ts_bspline_morph(const tsBSpline *origin,
 			knots[i] = t * target_al_k[i] +
 			           t_hat * origin_al_k[i];
 		}
+
+		/* Interpolate weights. Both splines have constant weights here
+		 * (checked above), but the constants may differ. */
+		{
+			const tsReal *ow = ts_int_bspline_access_weights(
+			        &origin_al);
+			const tsReal *tw = ts_int_bspline_access_weights(
+			        &target_al);
+			tsReal *out_w = ts_int_bspline_access_weights(out);
+			for (i = 0; i < num_ctrlp; i++) {
+				out_w[i] = t * tw[i] + t_hat * ow[i];
+			}
+		}
 	TS_FINALLY
 		if (origin->pImpl != origin_al.pImpl)
 			ts_bspline_free(&origin_al);
@@ -2832,19 +3472,23 @@ ts_int_bspline_to_json(const tsBSpline *spline,
 	const size_t dim = ts_bspline_dimension(spline);
 	const size_t len_ctrlp = ts_bspline_len_control_points(spline);
 	const size_t len_knots = ts_bspline_num_knots(spline);
+	const size_t num_ctrlp = ts_bspline_num_control_points(spline);
 	const tsReal *ctrlp = ts_int_bspline_access_ctrlp(spline);
 	const tsReal *knots = ts_int_bspline_access_knots(spline);
+	const tsReal *weights = ts_int_bspline_access_weights(spline);
 
 	size_t i; /**< Used in loops */
 	tsError err;
 
 	JSON_Value  *ctrlp_value;
 	JSON_Value  *knots_value;
+	JSON_Value  *weights_value;
 	JSON_Object *spline_object;
 	JSON_Array  *ctrlp_array;
 	JSON_Array  *knots_array;
+	JSON_Array  *weights_array;
 
-	*value = ctrlp_value = knots_value = NULL;
+	*value = ctrlp_value = knots_value = weights_value = NULL;
 	TS_TRY(values, err, status)
 		/* Init memory. */
 		*value = json_value_init_object();
@@ -2859,6 +3503,11 @@ ts_int_bspline_to_json(const tsBSpline *spline,
 		}
 		knots_value = json_value_init_array();
 		if (!knots_value) {
+			TS_THROW_0(values, err, status, TS_MALLOC,
+			           "out of memory")
+		}
+		weights_value = json_value_init_array();
+		if (!weights_value) {
 			TS_THROW_0(values, err, status, TS_MALLOC,
 			           "out of memory")
 		}
@@ -2927,6 +3576,26 @@ ts_int_bspline_to_json(const tsBSpline *spline,
 				           "out of memory")
 			}
 		}
+
+		/* Set weights. */
+		if (JSONSuccess != json_object_set_value(spline_object,
+		                                         "weights",
+		                                         weights_value)) {
+			TS_THROW_0(values, err, status, TS_MALLOC,
+			           "out of memory")
+		}
+		weights_array = json_array(weights_value);
+		if (!weights_array) {
+			TS_THROW_0(values, err, status, TS_MALLOC,
+			           "out of memory")
+		}
+		for (i = 0; i < num_ctrlp; i++) {
+			if (JSONSuccess != json_array_append_number(
+				    weights_array, (double) weights[i])) {
+				TS_THROW_0(values, err, status, TS_MALLOC,
+				           "out of memory")
+			}
+		}
 	TS_CATCH(err)
 		if (*value)
 			json_value_free(*value);
@@ -2934,6 +3603,8 @@ ts_int_bspline_to_json(const tsBSpline *spline,
 			json_value_free(ctrlp_value);
 		if (knots_value && !json_value_get_parent(knots_value))
 			json_value_free(knots_value);
+		if (weights_value && !json_value_get_parent(weights_value))
+			json_value_free(weights_value);
 		*value = NULL;
 	TS_END_TRY_RETURN(err)
 }
@@ -2944,7 +3615,7 @@ ts_int_bspline_parse_json(const JSON_Value *spline_value,
                           tsStatus *status)
 {
 	size_t deg, dim, len_ctrlp, num_knots;
-	tsReal *ctrlp, *knots;
+	tsReal *ctrlp, *knots, *weights;
 
 	JSON_Object *spline_object;
 	JSON_Value *deg_value;
@@ -2953,6 +3624,7 @@ ts_int_bspline_parse_json(const JSON_Value *spline_value,
 	JSON_Array *ctrlp_array;
 	JSON_Value *knots_value;
 	JSON_Array *knots_array;
+	JSON_Value *weights_value;
 	JSON_Value *real_value;
 	size_t i;
 	tsError err;
@@ -3013,6 +3685,14 @@ ts_int_bspline_parse_json(const JSON_Value *spline_value,
 	knots_array = json_value_get_array(knots_value);
 	num_knots = json_array_get_count(knots_array);
 
+	/* Read weights (optional; defaults to 1 if absent). */
+	weights_value = json_object_get_value(spline_object, "weights");
+	if (weights_value &&
+	    json_value_get_type(weights_value) != JSONArray) {
+		TS_RETURN_0(status, TS_PARSE_ERROR,
+		            "weights is not an array")
+	}
+
 	/* Create spline. */
 	TS_TRY(try, err, status)
 		TS_CALL(try, err, ts_bspline_new(
@@ -3049,6 +3729,55 @@ ts_int_bspline_parse_json(const JSON_Value *spline_value,
 		}
 		TS_CALL(try, err, ts_bspline_set_knots(
 		        spline, knots, status))
+
+		/* Set weights (if present). */
+		if (weights_value) {
+			JSON_Array *weights_array =
+				json_value_get_array(weights_value);
+			const size_t num_ctrlp = len_ctrlp / dim;
+			if (json_array_get_count(weights_array)
+			    != num_ctrlp) {
+				TS_THROW_2(try, err, status,
+				           TS_PARSE_ERROR,
+				           "unexpected num(weights): "
+				           "(%lu) != (%lu)",
+				           (unsigned long)
+				           json_array_get_count(
+				                   weights_array),
+				           (unsigned long) num_ctrlp)
+			}
+			weights = (tsReal *) malloc(
+				num_ctrlp * sizeof(tsReal));
+			if (!weights) {
+				TS_THROW_0(try, err, status, TS_MALLOC,
+				           "out of memory")
+			}
+			for (i = 0; i < num_ctrlp; i++) {
+				real_value = json_array_get_value(
+				        weights_array, i);
+				if (json_value_get_type(real_value)
+				    != JSONNumber) {
+					free(weights);
+					weights = NULL;
+					TS_THROW_1(try, err, status,
+					           TS_PARSE_ERROR,
+					           "weights: value at "
+					           "index %lu is not a "
+					           "number",
+					           (unsigned long) i)
+				}
+				weights[i] = (tsReal)
+					json_value_get_number(real_value);
+			}
+			err = ts_bspline_set_weights(spline, weights,
+			                             num_ctrlp, status);
+			free(weights);
+			weights = NULL;
+			if (err) {
+				TS_THROW_0(try, err, status, TS_PARSE_ERROR,
+				           "invalid weights")
+			}
+		}
 	TS_CATCH(err)
 		ts_bspline_free(spline);
 	TS_END_TRY_RETURN(err)

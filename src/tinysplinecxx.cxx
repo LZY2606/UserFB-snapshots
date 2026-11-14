@@ -1086,6 +1086,14 @@ tinyspline::BSpline::knotAt(size_t idx) const
 	return knot;
 }
 
+std::vector<tinyspline::real>
+tinyspline::BSpline::weights() const
+{
+	const real *weights = ts_bspline_weights_ptr(&m_spline);
+	size_t num = ts_bspline_num_weights(&m_spline);
+	return std::vector<real>(weights, weights + num);
+}
+
 size_t
 tinyspline::BSpline::numControlPoints() const
 {
@@ -1140,6 +1148,24 @@ tinyspline::BSpline::sample(size_t num) const
 	real *last = first + actualNum * dimension();
 	std_real_vector_init(vec)(first, last);
 	std::free(points);
+	return vec;
+}
+
+tinyspline::std_real_vector_out
+tinyspline::BSpline::evalDerivatives(real knot, size_t order) const
+{
+	real *values = nullptr;
+	tsStatus status;
+	if (ts_bspline_eval_derivatives(&m_spline,
+	                                knot,
+	                                order,
+	                                &values,
+	                                &status)) {
+		throw std::runtime_error(status.message);
+	}
+	const size_t len = (order + 1) * dimension();
+	std_real_vector_init(vec)(values, values + len);
+	std::free(values);
 	return vec;
 }
 
@@ -1373,6 +1399,23 @@ tinyspline::BSpline::setKnotAt(size_t idx, real knot)
 		throw std::runtime_error(status.message);
 }
 
+void
+tinyspline::BSpline::setWeights(const std::vector<real> &weights)
+{
+	std::ostringstream oss;
+	tsStatus status;
+	if (weights.size() != numControlPoints()) {
+		oss << "expected " << numControlPoints()
+		    << " weights but got " << weights.size();
+		throw std::runtime_error(oss.str());
+	}
+	if (ts_bspline_set_weights(&m_spline,
+	                           weights.data(),
+	                           weights.size(),
+	                           &status))
+		throw std::runtime_error(status.message);
+}
+
 tinyspline::BSpline
 tinyspline::BSpline::insertKnot(real knot, size_t num) const
 {
@@ -1478,8 +1521,6 @@ std::string tinyspline::BSpline::toString() const
 	return oss.str();
 }
 /*! @} */
-
-
 
 /*! @name Morphism
  *

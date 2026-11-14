@@ -570,6 +570,15 @@ public:
  *
  * Wrapper class for ::tsBSpline.
  *
+ * Since ::tsBSpline stores weights per control point, this class supports
+ * rational (NURBS) splines: ::controlPoints returns the euclidean coordinates
+ * of the control points, while ::weights returns the corresponding
+ * (strictly positive) weights. All query functions (::eval, ::evalAll,
+ * ::sample, ::evalDerivatives, and ::computeRMF) return rational euclidean
+ * results. Spline transformations such as ::insertKnot, ::split, and
+ * ::toBeziers operate in homogeneous coordinates and thus preserve rational
+ * geometry exactly.
+ *
  * @{
  */
 class Morphism;
@@ -618,11 +627,34 @@ public:
 	std::vector<real> knots() const;
 	real knotAt(size_t idx) const;
 
+	/**
+	 * Returns the weights of the control points. Every control point has
+	 * exactly one weight; ordinary (polynomial) splines use weights of
+	 * \c 1. The returned vector has the same size as ::controlPoints
+	 * divided by ::dimension.
+	 */
+	std::vector<real> weights() const;
+
 	/* Query */
 	size_t numControlPoints() const;
 	DeBoorNet eval(real knot) const;
 	std_real_vector_out evalAll(std_real_vector_in knots) const;
 	std_real_vector_out sample(size_t num = 0) const;
+
+	/**
+	 * Evaluates the derivatives of order \c 0 up to \p order at \p knot
+	 * and returns the euclidean values. The result is arranged as position,
+	 * first derivative, second derivative, and so on, each block having
+	 * ::dimension components. The derivatives are computed analytically.
+	 * Derivatives at the bounds of ::domain are one-sided, whereas an
+	 * internal knot yields a derivative only if the spline is continuous
+	 * enough at that knot.
+	 *
+	 * @throws std::runtime_error
+	 * 	If \p order > 2 or if the requested derivative is not continuous
+	 * 	at \p knot.
+	 */
+	std_real_vector_out evalDerivatives(real knot, size_t order) const;
 	DeBoorNet bisect(real value,
 	                 real epsilon = (real) 0.0,
 	                 bool persnickety = false,
@@ -651,6 +683,18 @@ public:
 	void setControlPointVec4At(size_t idx, Vec4 &cp);
 	void setKnots(const std::vector<real> &knots);
 	void setKnotAt(size_t idx, real knot);
+
+	/**
+	 * Sets the weights of the control points. The weights must be finite
+	 * and strictly positive. On success, all editing operations (such as
+	 * ::insertKnot and ::split) preserve the resulting rational geometry
+	 * exactly.
+	 *
+	 * @throws std::runtime_error
+	 * 	If the size of \p weights differs from ::numControlPoints or if
+	 * 	a weight is not finite or not strictly positive.
+	 */
+	void setWeights(const std::vector<real> &weights);
 
 	/* Transformations */
 	BSpline insertKnot(real knot, size_t num) const;
@@ -915,6 +959,8 @@ EMSCRIPTEN_BINDINGS(tinyspline) {
 	        .property("controlPoints", &BSpline::controlPoints,
 			&BSpline::setControlPoints)
 	        .property("knots", &BSpline::knots, &BSpline::setKnots)
+	        .property("weights", &BSpline::weights,
+			&BSpline::setWeights)
 	        .property("domain", &BSpline::domain)
 
 	        /* Property by index */
@@ -925,6 +971,7 @@ EMSCRIPTEN_BINDINGS(tinyspline) {
 	        .function("numControlPoints", &BSpline::numControlPoints)
 	        .function("eval", &BSpline::eval)
 	        .function("evalAll", &BSpline::evalAll)
+	        .function("evalDerivatives", &BSpline::evalDerivatives)
 	        .function("sample",
 			select_overload<std_real_vector_out() const>
 			(&BSpline::sample0))

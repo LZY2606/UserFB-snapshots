@@ -690,13 +690,14 @@ typedef struct
  */
 /**
  * Represents a B-Spline, which may also be used for NURBS, Bezier curves,
- * lines, and points. NURBS use homogeneous coordinates to store their control
- * points (i.e. the last component of a control point stores the weight).
- * Bezier curves are B-Splines with 'num_control_points == order' and a
- * clamped knot vector, which lets them pass through their first and last
- * control point (a property which does not necessarily apply to B-Splines and
- * NURBS). Lines and points, on that basis, are Bezier curves of degree 1
- * (lines) and 0 (points).
+ * lines, and points. NURBS store one weight per control point in addition to
+ * the (euclidean) control points. The weights are accessed with
+ * ::ts_bspline_weights_ptr and ::ts_bspline_set_weights and default to \c 1
+ * (i.e., an ordinary polynomial B-Spline). Bezier curves are B-Splines with
+ * 'num_control_points == order' and a clamped knot vector, which lets them
+ * pass through their first and last control point (a property which does not
+ * necessarily apply to B-Splines and NURBS). Lines and points, on that basis,
+ * are Bezier curves of degree 1 (lines) and 0 (points).
  *
  * Two dimensional control points are stored as follows:
  *
@@ -706,13 +707,11 @@ typedef struct
  *
  *     [x_0, y_0, z_0, x_1, y_1, z_1, ..., x_n-1, y_n-1, z_n-1]
  *
- * ... and so on. As already mentioned, NURBS use homogeneous coordinates to
- * store their control points. For example, a NURBS in 2D stores its control
- * points as follows:
- *
- *     [x_0*w_0, y_0*w_0, w_0, x_1*w_1, y_1*w_1, w_1, ...]
- *
- * where 'w_i' is the weight of the i'th control point.
+ * ... and so on. Note that the control points always store euclidean
+ * coordinates, regardless of the weights. The evaluation functions (e.g.,
+ * ::ts_bspline_eval) project the weights internally and return euclidean
+ * results, whereas transformations such as ::ts_bspline_insert_knot operate
+ * in homogeneous space and thus preserve rational geometry exactly.
  */
 typedef struct
 {
@@ -897,6 +896,84 @@ ts_bspline_set_control_point_at(tsBSpline *spline,
                                 size_t index,
                                 const tsReal *ctrlp,
                                 tsStatus *status);
+
+/**
+ * Returns the number of weights of \p spline. This is equal to the number of
+ * control points of \p spline.
+ *
+ * @param[in] spline
+ * 	The spline whose number of weights is read.
+ * @return
+ * 	The number of weights of \p spline.
+ */
+size_t TINYSPLINE_API
+ts_bspline_num_weights(const tsBSpline *spline);
+
+/**
+ * Returns the pointer to the weight array of \p spline. Every control point
+ * (see ::ts_bspline_control_points) has exactly one weight. The control
+ * points of \p spline are interpreted as the euclidean coordinates of a
+ * rational (NURBS) spline; the weights are stored separately and default to
+ * \c 1 for ordinary (polynomial) splines. Note that the return type of this
+ * function is \c const for a reason. Clients should only read the returned
+ * array. If the weights need to be changed, use ::ts_bspline_weights to
+ * obtain a copy of the weight array and ::ts_bspline_set_weights to copy the
+ * changed values back to the spline.
+ *
+ * @param[in] spline
+ * 	The spline whose pointer to the weight array is returned.
+ * @return
+ * 	Pointer to the weight array of \p spline.
+ */
+const tsReal TINYSPLINE_API *
+ts_bspline_weights_ptr(const tsBSpline *spline);
+
+/**
+ * Returns a deep copy of the weights of \p spline.
+ *
+ * @param[in] spline
+ * 	The spline whose weights are read.
+ * @param[out] weights
+ * 	The output array. \b Note: It is the responsibility of the client to
+ * 	release the allocated memory after use.
+ * @param[out] status
+ * 	The status of this function. May be NULL.
+ * @return TS_SUCCESS
+ * 	On success.
+ * @return TS_MALLOC
+ * 	If allocating memory failed.
+ */
+tsError TINYSPLINE_API
+ts_bspline_weights(const tsBSpline *spline,
+                   tsReal **weights,
+                   tsStatus *status);
+
+/**
+ * Sets the weights of \p spline. Creates a deep copy of \p weights. Every
+ * weight must be finite and strictly positive. If \p count does not match the
+ * number of control points of \p spline, or if any weight is invalid, \p
+ * spline is left unchanged and ::TS_NO_RESULT is returned.
+ *
+ * @param[out] spline
+ * 	The spline whose weights are set.
+ * @param[in] weights
+ * 	The values.
+ * @param[in] count
+ * 	The number of values in \p weights. Must be equal to
+ * 	::ts_bspline_num_control_points.
+ * @param[out] status
+ * 	The status of this function. May be NULL.
+ * @return TS_SUCCESS
+ * 	On success.
+ * @return TS_NO_RESULT
+ * 	If \p count does not match the number of control points or if a weight
+ * 	is not finite or not strictly positive.
+ */
+tsError TINYSPLINE_API
+ts_bspline_set_weights(tsBSpline *spline,
+                       const tsReal *weights,
+                       size_t count,
+                       tsStatus *status);
 
 /**
  * Returns the number of knots of \p spline.
@@ -1258,8 +1335,8 @@ ts_bspline_free(tsBSpline *spline);
  *
  *     [x_0, y_0, z_0, x_1, y_1, z_1, ..., x_n-1, y_n-1, z_n-1]
  *
- * ... and so on. The output also supports homogeneous coordinates
- * (cf. ::tsBSpline).
+ * ... and so on. All points are euclidean; the weights of a rational spline
+ * are projected out before they are stored here (cf. ::tsBSpline).
  *
  * There is a special case in which the evaluation of a knot \c u returns two
  * results instead of one. It occurs when the multiplicity of \c u (\c s(u)) is
@@ -1815,6 +1892,52 @@ ts_bspline_sample(const tsBSpline *spline,
                   tsReal **points,
                   size_t *actual_num,
                   tsStatus *status);
+
+/**
+ * Evaluates the \p order'th derivative of \p spline at \p knot and stores the
+ * euclidean values of all derivatives from order \c 0 up to \p order in
+ * \p values. The result is an array of <tt>(order + 1) * dimension</tt>
+ * values, arranged as position, first derivative, second derivative, and so
+ * on (each block has ::ts_bspline_dimension components). The memory is
+ * allocated with \e malloc and must be released by the caller with \e free.
+ *
+ * The derivatives are computed analytically (not by finite differences). For
+ * rational splines, the quotient rule is applied to the homogeneous
+ * derivatives. Derivatives at the lower and upper bound of the domain are
+ * one-sided. At an internal knot, the derivative is computed according to
+ * the continuity of \p spline at that knot, that is, a derivative of order
+ * \c k is available only if the multiplicity of the knot is less than or
+ * equal to <tt>degree - k</tt>. If \p order exceeds the continuity, or if
+ * \p order is greater than \c 2, ::TS_NO_RESULT is returned and \p values is
+ * set to \c NULL.
+ *
+ * @param[in] spline
+ * 	The spline to evaluate.
+ * @param[in] knot
+ * 	The knot to evaluate \p spline at.
+ * @param[in] order
+ * 	The highest derivative order to compute. Must be in [0, 2].
+ * @param[out] values
+ * 	The output array. \b Note: It is the responsibility of the client to
+ * 	release the allocated memory after use.
+ * @param[out] status
+ * 	The status of this function. May be NULL.
+ * @return TS_SUCCESS
+ * 	On success.
+ * @return TS_U_UNDEFINED
+ * 	If \p spline is not defined at \p knot.
+ * @return TS_NO_RESULT
+ * 	If \p order > 2 or if the requested derivative is not continuous at
+ * 	\p knot.
+ * @return TS_MALLOC
+ * 	If allocating memory failed.
+ */
+tsError TINYSPLINE_API
+ts_bspline_eval_derivatives(const tsBSpline *spline,
+                            tsReal knot,
+                            size_t order,
+                            tsReal **values,
+                            tsStatus *status);
 
 /**
  * Tries to find a point P on \p spline such that:
