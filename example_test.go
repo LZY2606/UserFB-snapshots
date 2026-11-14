@@ -146,3 +146,32 @@ func ExampleText() {
 	// Output:
 	// Hello world
 }
+
+// This example streams a long listing page and consumes each batch of records
+// as soon as the parser can safely hand it off, instead of waiting for the
+// whole page to be parsed.
+func ExampleStreamBody() {
+	// A page usually comes from res.Body; a string stands in for the example.
+	page := `<html><head><title>records</title></head><body>` +
+		`<article id="r1"><h2>first</h2></article>` +
+		`<article id="r2"><h2>second</h2></article>` +
+		`<article id="r3"><h2>third</h2></article>` +
+		`</body></html>`
+
+	stats, err := goquery.StreamBody(strings.NewReader(page), func(doc *goquery.Document) error {
+		doc.Find("article").Each(func(_ int, s *goquery.Selection) {
+			fmt.Println(s.Find("h2").Text())
+		})
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("batches=%d nodes=%d\n", stats.Batches, stats.Nodes)
+
+	// Output:
+	// first
+	// second
+	// third
+	// batches=3 nodes=9
+}
