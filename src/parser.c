@@ -26,6 +26,7 @@
 #include "gumbo.h"
 #include "insertion_mode.h"
 #include "parser.h"
+#include "script_replay.h"
 #include "tokenizer.h"
 #include "tokenizer_states.h"
 #include "utf8.h"
@@ -3056,8 +3057,12 @@ static bool handle_text(GumboParser* parser, GumboToken* token) {
       parser_add_parse_error(parser, token);
       parser->_parser_state->_reprocess_current_token = true;
     }
-    pop_current_node(parser);
+    GumboNode* closed_node = pop_current_node(parser);
     set_insertion_mode(parser, parser->_parser_state->_original_insertion_mode);
+    // Give the script-replay extension a chance to splice archived script
+    // output into the input stream ahead of the unconsumed input.  This is a
+    // no-op for ordinary parses and for non-script elements.
+    gumbo_script_replay_closed(parser, closed_node, token);
   }
   return true;
 }
@@ -4072,10 +4077,12 @@ GumboOutput* gumbo_parse(const char* buffer) {
       &kGumboDefaultOptions, buffer, strlen(buffer));
 }
 
-GumboOutput* gumbo_parse_with_options(
-    const GumboOptions* options, const char* buffer, size_t length) {
+GumboOutput* gumbo_parse_internal(const GumboOptions* options,
+    const char* buffer, size_t length,
+    struct GumboInternalReplayState* replay) {
   GumboParser parser;
   parser._options = options;
+  parser._replay = replay;
   output_init(&parser);
   gumbo_tokenizer_state_init(&parser, buffer, length);
   parser_state_init(&parser);
@@ -4170,11 +4177,17 @@ GumboOutput* gumbo_parse_with_options(
   return parser._output;
 }
 
+GumboOutput* gumbo_parse_with_options(
+    const GumboOptions* options, const char* buffer, size_t length) {
+  return gumbo_parse_internal(options, buffer, length, NULL);
+}
+
 void gumbo_destroy_node(GumboOptions* options, GumboNode* node) {
   // Need a dummy GumboParser because the allocator comes along with the
   // options object.
   GumboParser parser;
   parser._options = options;
+  parser._replay = NULL;
   destroy_node(&parser, node);
 }
 
@@ -4183,6 +4196,7 @@ void gumbo_destroy_output(const GumboOptions* options, GumboOutput* output) {
   // options object.
   GumboParser parser;
   parser._options = options;
+  parser._replay = NULL;
   destroy_node(&parser, output->document);
   for (unsigned int i = 0; i < output->errors.length; ++i) {
     gumbo_error_destroy(&parser, output->errors.data[i]);

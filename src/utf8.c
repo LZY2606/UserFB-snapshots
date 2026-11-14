@@ -125,6 +125,12 @@ static void add_error(Utf8Iterator* iter, GumboErrorType type) {
 // When this method returns, iter->_width and iter->_current will be set
 // appropriately, as well as any error flags.
 static void read_char(Utf8Iterator* iter) {
+  // Remember how many errors existed before this code point was decoded, so
+  // that the script-replay extension can roll back decoding errors produced
+  // by a read-ahead character whose bytes are about to be replaced.
+  if (iter->_parser->_output) {
+    iter->_errors_before_current = iter->_parser->_output->errors.length;
+  }
   if (iter->_start >= iter->_end) {
     // No input left to consume; emit an EOF and set width = 0.
     iter->_current = -1;
@@ -268,3 +274,5 @@ void utf8iterator_fill_error_at_mark(Utf8Iterator* iter, GumboError* error) {
   error->position = iter->_mark_pos;
   error->original_text = iter->_mark;
 }
+
+void utf8iterator_reread_current(Utf8Iterator* iter) { read_char(iter); }

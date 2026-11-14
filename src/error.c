@@ -164,6 +164,14 @@ GumboError* gumbo_add_error(GumboParser* parser) {
   return error;
 }
 
+void gumbo_rewind_errors(GumboParser* parser, unsigned int count) {
+  GumboVector* errors = &parser->_output->errors;
+  while (errors->length > count) {
+    GumboError* error = gumbo_vector_pop(parser, errors);
+    gumbo_error_destroy(parser, error);
+  }
+}
+
 void gumbo_error_to_string(
     GumboParser* parser, const GumboError* error, GumboStringBuffer* output) {
   print_message(

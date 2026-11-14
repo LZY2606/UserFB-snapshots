@@ -20,6 +20,8 @@
 #ifndef GUMBO_PARSER_H_
 #define GUMBO_PARSER_H_
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,6 +29,7 @@ extern "C" {
 struct GumboInternalParserState;
 struct GumboInternalOutput;
 struct GumboInternalOptions;
+struct GumboInternalReplayState;
 struct GumboInternalTokenizerState;
 
 // An overarching struct that's threaded through (nearly) all functions in the
@@ -48,7 +51,20 @@ typedef struct GumboInternalParser {
   // The internal parser state.  Initialized on parse start and destroyed on
   // parse end; end-users will never see a non-garbage value in this pointer.
   struct GumboInternalParserState* _parser_state;
+
+  // Script-replay state for gumbo_parse_with_script_replay, or NULL for
+  // ordinary parses.  Owned by the caller of gumbo_parse_internal and lives
+  // on its stack frame for the duration of the parse.
+  struct GumboInternalReplayState* _replay;
 } GumboParser;
+
+// Shared parse driver behind gumbo_parse_with_options and
+// gumbo_parse_with_script_replay.  When replay is non-NULL, the tree builder
+// consults it whenever a script element is closed, splicing recorded script
+// output into the input stream.
+struct GumboInternalOutput* gumbo_parse_internal(
+    const struct GumboInternalOptions* options, const char* buffer,
+    size_t length, struct GumboInternalReplayState* replay);
 
 #ifdef __cplusplus
 }

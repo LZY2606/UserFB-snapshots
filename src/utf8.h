@@ -70,6 +70,12 @@ typedef struct GumboInternalUtf8Iterator {
   // The SourcePosition for the mark.
   GumboSourcePosition _mark_pos;
 
+  // The number of parse errors that had been recorded before the current
+  // code point was decoded.  The script-replay extension uses this to roll
+  // back decoding errors produced by the one-character read-ahead when it
+  // splices input bytes at the current position.
+  unsigned int _errors_before_current;
+
   // Pointer back to the GumboParser instance, for configuration options and
   // error recording.
   struct GumboInternalParser* _parser;
@@ -125,6 +131,13 @@ void utf8iterator_reset(Utf8Iterator* iter);
 // mark.
 void utf8iterator_fill_error_at_mark(
     Utf8Iterator* iter, struct GumboInternalError* error);
+
+// Re-decodes the character at the iterator's current position.  Used by the
+// script-replay extension after splicing bytes into the input buffer exactly
+// at the current position: the previously decoded current character is stale
+// and must be recomputed from the modified buffer.  Position bookkeeping is
+// left untouched (read_char's CR/LF folding still applies to the new bytes).
+void utf8iterator_reread_current(Utf8Iterator* iter);
 
 #ifdef __cplusplus
 }

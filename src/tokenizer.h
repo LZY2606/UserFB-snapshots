@@ -26,6 +26,7 @@
 #include "gumbo.h"
 #include "token_type.h"
 #include "tokenizer_states.h"
+#include "utf8.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,6 +116,39 @@ bool gumbo_lex(struct GumboInternalParser* parser, GumboToken* output);
 // other data structure - for example, a parse tree - these do not need to be
 // freed.
 void gumbo_token_destroy(struct GumboInternalParser* parser, GumboToken* token);
+
+// Returns a pointer to the tokenizer's input iterator.  Internal use only:
+// the script-replay extension uses this to splice recorded script output into
+// the input stream at the current read position.
+Utf8Iterator* gumbo_tokenizer_input_iterator(
+    struct GumboInternalParser* parser);
+
+// Undoes the tokenizer's one-character read-ahead at the current position, so
+// that bytes can be spliced into the input buffer at
+// gumbo_tokenizer_input_iterator(parser)->_start.  In particular, if the
+// current character is a line feed produced by folding a carriage return
+// immediately before it, the iterator is rewound to that carriage return, so
+// the spliced bytes land before the whole CR/LF pair; and any decoding errors
+// recorded for the read-ahead character are rolled back.  buffer_start is the
+// start of the input buffer.  Must only be called between tokens; call
+// utf8iterator_reread_current and gumbo_tokenizer_sync_token_start after
+// modifying the buffer.
+void gumbo_tokenizer_unread_current(
+    struct GumboInternalParser* parser, const char* buffer_start);
+
+// Re-marks the next token's start at the iterator's current position.
+// Internal use only: the script-replay extension calls this after splicing
+// bytes into the input buffer and re-decoding the current character, so the
+// next token's original text and position start exactly at the insertion
+// point (mirroring how a token boundary is normally marked).
+void gumbo_tokenizer_sync_token_start(struct GumboInternalParser* parser);
+
+// Shifts every internal pointer into the input buffer by 'delta' bytes.
+// Internal use only: the script-replay extension calls this after moving the
+// input buffer to a new address while growing it.  Must only be called
+// between tokens, when no token is being lexed.
+void gumbo_tokenizer_shift_input_pointers(
+    struct GumboInternalParser* parser, ptrdiff_t delta);
 
 #ifdef __cplusplus
 }

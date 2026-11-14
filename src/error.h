@@ -187,6 +187,12 @@ typedef struct GumboInternalError {
 // already over the max_errors field specified in GumboOptions.
 GumboError* gumbo_add_error(struct GumboInternalParser* parser);
 
+// Removes and destroys all errors past the first 'count' entries of the
+// parser's error list.  Used by the script-replay extension to roll back
+// decoding errors produced by the tokenizer's one-character read-ahead when
+// the bytes that character was decoded from are about to be replaced.
+void gumbo_rewind_errors(struct GumboInternalParser* parser, unsigned int count);
+
 // Initializes the errors vector in the parser.
 void gumbo_init_errors(struct GumboInternalParser* errors);
 

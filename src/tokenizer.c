@@ -858,6 +858,7 @@ void gumbo_tokenizer_state_init(
   tokenizer->_temporary_buffer_emit = NULL;
 
   mark_tag_state_as_empty(&tokenizer->_tag_state);
+  tokenizer->_tag_state._original_text = NULL;
 
   gumbo_string_buffer_init(parser, &tokenizer->_script_data_buffer);
   tokenizer->_token_start = text;
@@ -878,6 +879,44 @@ void gumbo_tokenizer_state_destroy(GumboParser* parser) {
 
 void gumbo_tokenizer_set_state(GumboParser* parser, GumboTokenizerEnum state) {
   parser->_tokenizer_state->_state = state;
+}
+
+Utf8Iterator* gumbo_tokenizer_input_iterator(GumboParser* parser) {
+  return &parser->_tokenizer_state->_input;
+}
+
+void gumbo_tokenizer_unread_current(
+    GumboParser* parser, const char* buffer_start) {
+  GumboTokenizerState* tokenizer = parser->_tokenizer_state;
+  Utf8Iterator* input = &tokenizer->_input;
+  // A line feed decoded from a CR/LF pair leaves _start pointing at the \n,
+  // with the \r logically belonging to the same character.  Rewind to the
+  // \r so that spliced bytes are inserted before the whole pair.
+  if (input->_current == '\n' && input->_start > buffer_start &&
+      input->_start[-1] == '\r') {
+    --input->_start;
+    --input->_pos.offset;
+  }
+  // Roll back any decoding errors produced by the read-ahead of the current
+  // character; its bytes are about to be replaced, and the replacement bytes
+  // will be decoded (and reported) afresh.
+  gumbo_rewind_errors(parser, input->_errors_before_current);
+}
+
+void gumbo_tokenizer_sync_token_start(GumboParser* parser) {
+  GumboTokenizerState* tokenizer = parser->_tokenizer_state;
+  reset_token_start_point(tokenizer);
+}
+
+void gumbo_tokenizer_shift_input_pointers(GumboParser* parser, ptrdiff_t delta) {
+  GumboTokenizerState* tokenizer = parser->_tokenizer_state;
+  tokenizer->_input._start += delta;
+  tokenizer->_input._mark += delta;
+  tokenizer->_input._end += delta;
+  tokenizer->_token_start += delta;
+  if (tokenizer->_tag_state._original_text) {
+    tokenizer->_tag_state._original_text += delta;
+  }
 }
 
 void gumbo_tokenizer_set_is_current_node_foreign(
