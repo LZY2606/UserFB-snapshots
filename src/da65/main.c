@@ -62,9 +62,11 @@
 #include "labels.h"
 #include "opctable.h"
 #include "opc45GS02.h"
+#include "opc65816.h"
 #include "output.h"
 #include "scanner.h"
 #include "segment.h"
+#include "widthflow.h"
 
 
 static unsigned PrevAddrMode;
@@ -95,6 +97,7 @@ static void Usage (void)
             "\n"
             "Long options:\n"
             "  --argument-column n\tSpecify argument start column\n"
+            "  --auto-65816 e,m,x,c\tTrack 65816 processor state from entry\n"
             "  --comment-column n\tSpecify comment start column\n"
             "  --comments n\t\tSet the comment level for the output\n"
             "  --cpu type\t\tSet cpu type\n"
@@ -170,6 +173,35 @@ static void OptArgumentColumn (const char* Opt, const char* Arg)
 
     /* Use the value */
     ACol = (unsigned char) Val;
+}
+
+
+
+static void OptAuto65816 (const char* Opt, const char* Arg)
+/* Handle the --auto-65816 option */
+{
+    /* The argument is four comma separated 0/1 values: E,M,X,C */
+    if (strlen (Arg) != 7 ||
+        Arg[1] != ',' || Arg[3] != ',' || Arg[5] != ',' ||
+        (Arg[0] != '0' && Arg[0] != '1') ||
+        (Arg[2] != '0' && Arg[2] != '1') ||
+        (Arg[4] != '0' && Arg[4] != '1') ||
+        (Arg[6] != '0' && Arg[6] != '1')) {
+        Error ("Argument for %s must be four comma separated 0/1 values "
+               "(E,M,X,C): %s", Opt, Arg);
+    }
+
+    AutoStateE = Arg[0] - '0';
+    AutoStateM = Arg[2] - '0';
+    AutoStateX = Arg[4] - '0';
+    AutoStateC = Arg[6] - '0';
+
+    /* In emulation mode, M and X are forced to 1 by the hardware */
+    if (AutoStateE && (AutoStateM == 0 || AutoStateX == 0)) {
+        Error ("Argument for %s: E=1 requires M=1 and X=1", Opt);
+    }
+
+    Auto65816 = 1;
 }
 
 
@@ -418,12 +450,12 @@ static unsigned HandleChangedLength(const OpcDesc* D, unsigned PC)
                 }
             }
         } else if (CPU == CPU_65816) {
-            if ((D->Handler == OH_Immediate65816M &&
-                GetAttr (PC) & atMem16) ||
-                (D->Handler == OH_Immediate65816X &&
-                GetAttr (PC) & atIdx16)) {
-                PC++;
-            }
+            /* Use the shared opcode layer query with the M/X attributes */
+            attr_t Attr = GetAttr (PC);
+            unsigned Size = Opc65816InsnSize (GetCodeByte (PC),
+                                              (Attr & atMem8) != 0,
+                                              (Attr & atIdx8) != 0);
+            PC += Size - D->Size;
         }
     }
     return PC;
@@ -596,6 +628,51 @@ static void OneOpcode (unsigned RemainingBytes)
 
 
 
+static void Auto65816Mark (void)
+/* Run the 65816 state flow analysis and mark the reachable code with the
+** resulting attributes. Aborts the disassembly if the code is ambiguous.
+*/
+{
+    WfResult Res;
+    uint32_t Len = CodeEnd - CodeStart + 1;
+    uint32_t I;
+
+    if (!WfAnalyze (CodeBuf + CodeStart, Len, CodeStart,
+                    AutoStateE, AutoStateM, AutoStateX, AutoStateC, &Res)) {
+        unsigned D;
+        for (D = 0; D < Res.DiagCount; ++D) {
+            fprintf (stderr, "Error: %s\n", Res.Diags[D].Text);
+        }
+        WfDone (&Res);
+        Error ("--auto-65816: refusing to disassemble ambiguous code");
+    }
+
+    /* Mark every reachable instruction as code with its M/X attributes.
+    ** Bytes that are not reached remain data.
+    */
+    for (I = 0; I < Len; ++I) {
+        if (Res.LenCandidates[I] != 0) {
+            /* All states agree on the length here; use the first state
+            ** for the M/X attributes (positions where the flags matter
+            ** for the instruction size are unambiguous by construction).
+            */
+            unsigned Mask = Res.StateSets[I];
+            unsigned State = 0;
+            attr_t Attr = atCode;
+            while ((Mask & 1u) == 0) {
+                Mask >>= 1;
+                ++State;
+            }
+            Attr |= (State & WF_M)? atMem8 : atMem16;
+            Attr |= (State & WF_X)? atIdx8 : atIdx16;
+            MarkAddr (CodeStart + I, Attr);
+        }
+    }
+    WfDone (&Res);
+}
+
+
+
 static void OnePass (void)
 /* Make one pass through the code */
 {
@@ -659,6 +736,7 @@ int main (int argc, char* argv [])
     /* Program long options */
     static const LongOpt OptTab[] = {
         { "--argument-column",  1,      OptArgumentColumn       },
+        { "--auto-65816",       1,      OptAuto65816            },
         { "--bytes-per-line",   1,      OptBytesPerLine         },
         { "--comment-column",   1,      OptCommentColumn        },
         { "--comments",         1,      OptComments             },
@@ -765,6 +843,16 @@ int main (int argc, char* argv [])
         ++I;
     }
 
+    /* Check the --auto-65816 option for consistency */
+    if (Auto65816) {
+        if (CPU != CPU_65816) {
+            AbEnd ("--auto-65816 requires --cpu 65816");
+        }
+        if (InfoAvail ()) {
+            AbEnd ("--auto-65816 cannot be combined with an info file");
+        }
+    }
+
     /* Try to read the info file */
     ReadInfoFile ();
 
@@ -800,6 +888,11 @@ int main (int argc, char* argv [])
 
     /* Load the input file */
     LoadCode ();
+
+    /* Run the 65816 state flow analysis if requested */
+    if (Auto65816) {
+        Auto65816Mark ();
+    }
 
     /* Open the output file */
     OpenOutput (OutFile);

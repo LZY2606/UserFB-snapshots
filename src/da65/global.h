@@ -68,6 +68,11 @@ extern uint32_t         StartAddr;      /* Start/load address of the program */
 extern unsigned char    SyncLines;      /* Accept line markers in the info file */
 extern long             InputOffs;      /* Offset into input file */
 extern long             InputSize;      /* Number of bytes to read from input */
+extern unsigned char    Auto65816;      /* Run the 65816 state flow analysis */
+extern unsigned char    AutoStateE;     /* Initial emulation flag */
+extern unsigned char    AutoStateM;     /* Initial M flag */
+extern unsigned char    AutoStateX;     /* Initial X flag */
+extern unsigned char    AutoStateC;     /* Initial carry flag */
 
 /* Stuff needed by many routines */
 #define PASS_PREP       1               /* Preparation pass */

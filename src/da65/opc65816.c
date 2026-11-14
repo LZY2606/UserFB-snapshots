@@ -33,6 +33,8 @@
 
 
 
+#include <string.h>
+
 /* da65 */
 #include "handler.h"
 #include "opc65816.h"
@@ -304,3 +306,92 @@ const OpcDesc OpcTable_65816[256] = {
     {   "inc",  3,  flUseLabel|flAbsOverride, OH_AbsoluteX             }, /* $fe */
     {   "sbc",  4,  flUseLabel|flFarOverride, OH_AbsoluteLongX         }, /* $ff */
 };
+
+
+
+/*****************************************************************************/
+/*                                   Code                                    */
+/*****************************************************************************/
+
+
+
+unsigned Opc65816InsnSize (unsigned char Opc, unsigned M8, unsigned X8)
+/* Return the size of the given instruction in bytes. M8 and X8 are the
+** values of the M and X status bits (nonzero = 8 bit) on entry to the
+** instruction.
+*/
+{
+    const OpcDesc* D = &OpcTable_65816[Opc];
+    unsigned Size = D->Size;
+    if (D->Flags & flSizeChanges) {
+        if ((D->Handler == OH_Immediate65816M && !M8) ||
+            (D->Handler == OH_Immediate65816X && !X8)) {
+            ++Size;
+        }
+    }
+    return Size;
+}
+
+
+
+Opc65816StateFx Opc65816StateEffect (unsigned char Opc)
+/* Return the effect of the given opcode on the tracked processor state */
+{
+    const char* Mnemo = OpcTable_65816[Opc].Mnemo;
+
+    /* Instructions with a direct effect on the tracked status bits */
+    if (strcmp (Mnemo, "rep") == 0) return fxRep;
+    if (strcmp (Mnemo, "sep") == 0) return fxSep;
+    if (strcmp (Mnemo, "clc") == 0) return fxClc;
+    if (strcmp (Mnemo, "sec") == 0) return fxSec;
+    if (strcmp (Mnemo, "xce") == 0) return fxXce;
+    if (strcmp (Mnemo, "plp") == 0) return fxPlp;
+
+    /* Instructions that compute a new carry: ADC, SBC, the compares and
+    ** the shifts/rotates.
+    */
+    if (strcmp (Mnemo, "adc") == 0 || strcmp (Mnemo, "sbc") == 0 ||
+        strcmp (Mnemo, "cmp") == 0 || strcmp (Mnemo, "cpx") == 0 ||
+        strcmp (Mnemo, "cpy") == 0 || strcmp (Mnemo, "asl") == 0 ||
+        strcmp (Mnemo, "lsr") == 0 || strcmp (Mnemo, "rol") == 0 ||
+        strcmp (Mnemo, "ror") == 0) {
+        return fxCarry;
+    }
+    return fxNone;
+}
+
+
+
+Opc65816Flow Opc65816FlowKind (unsigned char Opc)
+/* Return the control flow classification of the given opcode */
+{
+    const OpcDesc* D = &OpcTable_65816[Opc];
+    const char* Mnemo = D->Mnemo;
+
+    /* Barriers: calls, returns, halts and indirect transfers */
+    if (strcmp (Mnemo, "brk") == 0 || strcmp (Mnemo, "cop") == 0 ||
+        strcmp (Mnemo, "wai") == 0 || strcmp (Mnemo, "stp") == 0 ||
+        strcmp (Mnemo, "rts") == 0 || strcmp (Mnemo, "rti") == 0 ||
+        strcmp (Mnemo, "rtl") == 0 || strcmp (Mnemo, "jsr") == 0 ||
+        strcmp (Mnemo, "jsl") == 0 || strcmp (Mnemo, "jml") == 0) {
+        return fkStop;
+    }
+    if (strcmp (Mnemo, "jmp") == 0) {
+        /* Only the direct absolute jump has a known target */
+        return (D->Handler == OH_JmpAbsolute)? fkJump : fkStop;
+    }
+    if (strcmp (Mnemo, "bra") == 0 || strcmp (Mnemo, "brl") == 0) {
+        return fkJump;
+    }
+    if (strcmp (Mnemo, "bcc") == 0) {
+        return fkCondC0;
+    }
+    if (strcmp (Mnemo, "bcs") == 0) {
+        return fkCondC1;
+    }
+    if (D->Handler == OH_Relative) {
+        /* Remaining conditional branches (Z/N/V flags are not tracked) */
+        return fkCond;
+    }
+    return fkNormal;
+}

@@ -63,6 +63,11 @@ uint32_t      StartAddr       = 0;      /* Start/load address of the program */
 unsigned char SyncLines       = 0;      /* Accept line markers in the info file */
 long          InputOffs       = -1L;    /* Offset into input file */
 long          InputSize       = -1L;    /* Number of bytes to read from input */
+unsigned char Auto65816       = 0;      /* Run the 65816 state flow analysis */
+unsigned char AutoStateE      = 0;      /* Initial emulation flag */
+unsigned char AutoStateM      = 0;      /* Initial M flag */
+unsigned char AutoStateX      = 0;      /* Initial X flag */
+unsigned char AutoStateC      = 0;      /* Initial carry flag */
 
 /* Stuff needed by many routines */
 unsigned      Pass            = 0;      /* Disassembler pass */

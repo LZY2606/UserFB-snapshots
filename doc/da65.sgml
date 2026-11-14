@@ -60,6 +60,7 @@ Short options:
 
 Long options:
   --argument-column n   Specify argument start column
+  --auto-65816 e,m,x,c  Track 65816 processor state from entry
   --comment-column n    Specify comment start column
   --comments n          Set the comment level for the output
   --cpu type            Set cpu type
@@ -93,6 +94,57 @@ Here is a description of all the command line options:
 
   Specifies the column where the argument for a mnemonic or pseudo instruction
   starts.
+
+
+  <label id="option--auto-65816">
+  <tag><tt>--auto-65816 e,m,x,c</tt></tag>
+
+  Run the 65816 processor state flow analysis instead of relying on an info
+  file. The option is only valid together with
+  <tt><ref id="option--cpu" name="--cpu 65816"></tt> and cannot be combined
+  with an <tt><ref id="option--info" name="info file"></tt>. The argument is
+  four comma separated 0/1 values that give the processor state at the start
+  address (which is the only entry point): the emulation flag E, the M flag
+  (memory/accumulator width), the X flag (index width) and the carry flag C.
+  Since emulation mode forces 8 bit registers, E=1 requires M=1 and X=1.
+
+  The disassembler follows the instruction stream from the start address and
+  tracks the E, M, X and C flags for every reachable location. REP, SEP,
+  CLC, SEC, XCE and PLP update the state; instructions that compute a new
+  carry (ADC, SBC, the compares, shifts and rotates) propagate both carry
+  values. Conditional branches keep both edges (BCC/BCS drop the edge that a
+  known carry makes impossible), BRA/BRL and direct JMP follow only the
+  target, and JSR/JSL, indirect jumps, returns, BRK/COP and WAI/STP stop the
+  analysis. The width of the 65816 immediate operands is derived from the
+  state on entry to each instruction, so the generated <tt/.a8/, <tt/.a16/,
+  <tt/.i8/ and <tt/.i16/ commands are placed automatically. Bytes that are
+  not reached by the analysis remain data. If the code is ambiguous (an
+  address would need two different instruction lengths, or an instruction
+  start lies inside the operand of another instruction) or an instruction is
+  truncated at the end of the input, da65 prints a diagnostic with the
+  involved addresses and exits with an error instead of emitting a wrong
+  disassembly.
+
+  Example: Disassemble a 65816 ROM snippet loaded at $8000 that is entered
+  in native mode with 8 bit accumulator and index registers, and rebuild the
+  binary from the generated assembly. With a linker config file
+  <tt/rom.cfg/ that maps the ROM area
+
+  <tscreen><verb>
+  MEMORY { ROM: start = $8000, size = $8000; }
+  SEGMENTS { CODE: load = ROM; }
+  </verb></tscreen>
+
+  the commands
+
+  <tscreen><verb>
+  da65 --cpu 65816 --start-addr 0x8000 --auto-65816 0,1,1,0 -o rom.s rom.bin
+  ca65 -o rom.o rom.s
+  ld65 -o rom-rebuilt.bin -C rom.cfg rom.o
+  </verb></tscreen>
+
+  recreate the input: The rebuilt binary is byte identical to
+  <tt/rom.bin/ if the analysis could decode the code unambiguously.
 
 
   <label id="option--comment-column">
