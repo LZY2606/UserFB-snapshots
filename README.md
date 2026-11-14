@@ -157,6 +157,51 @@ webdavFilePath := "folder/subfolder/file.txt"
 c.Remove(webdavFilePath)
 ```
 
+### Incremental collection with sync tokens (RFC 6578)
+`CollectSync` runs a `sync-collection` REPORT and returns a `SyncSnapshot`.
+Instead of re-listing and re-downloading everything, it only fetches the
+bodies of files whose strong ETag changed, handles deletions, modified
+members and paged responses in one update, and protects every download with
+`If-Match`.
+
+The first call passes a `nil` snapshot for a full collection. Keep the
+returned snapshot around and pass it back on the next call; its `Token` is
+opaque XML text and is never parsed by the client. Both `Collection` and the
+keys of `Resources` are absolute URLs.
+```go
+ctx := context.Background()
+
+var previous *gowebdav.SyncSnapshot // nil on the first run
+
+snapshot, err := c.CollectSync(ctx, "folder/subfolder", previous, 1000)
+if err != nil {
+    // Keep using previous: on failure CollectSync returns nil and never
+    // modifies the snapshot you passed in.
+    log.Printf("sync failed, retaining the old snapshot: %v", err)
+    return
+}
+
+for url, resource := range snapshot.Resources {
+    if resource.IsDir {
+        fmt.Println("directory:", url)
+        continue
+    }
+    fmt.Println("file:", url, "etag:", resource.ETag, "bytes:", len(resource.Data))
+}
+
+// Only publish the new snapshot after the call succeeded, so the next run
+// retries from the last known good token.
+previous = snapshot
+```
+
+On any failure (expired token that cannot be re-collected, a failed `GET`,
+a cancelled context, malformed XML, ...) the returned snapshot is `nil` and
+the input snapshot stays untouched. Do not overwrite your stored snapshot
+until the call returns successfully; simply keep the old one and retry the
+same `CollectSync` call later. When the server answers with
+`DAV:valid-sync-token`, one automatic full re-collection is performed and
+unchanged bodies are reused from the old snapshot.
+
 ## Links
 
 More details about WebDAV server you can read from following resources:

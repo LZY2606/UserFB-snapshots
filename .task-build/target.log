@@ -1,0 +1,12 @@
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+=== RUN   TestSyncPages
+TASK_GROUP TestSyncPages assertions=73 complete
+--- PASS: TestSyncPages (0.00s)
+=== RUN   TestSyncBodies
+TASK_GROUP TestSyncBodies assertions=37 complete
+--- PASS: TestSyncBodies (0.00s)
+=== RUN   TestSyncRecovery
+TASK_GROUP TestSyncRecovery assertions=28 complete
+--- PASS: TestSyncRecovery (0.00s)
+PASS
+ok  	command-line-arguments	0.270s

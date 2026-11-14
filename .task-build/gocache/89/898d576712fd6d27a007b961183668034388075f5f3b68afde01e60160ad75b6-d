@@ -1,0 +1,11 @@
+./auth.go
+./basicAuth.go
+./client.go
+./digestAuth.go
+./doc.go
+./errors.go
+./file.go
+./netrc.go
+./passportAuth.go
+./requests.go
+./utils.go
