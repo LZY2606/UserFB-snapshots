@@ -22,6 +22,15 @@
 #undef  SBC_BITS_TRACE
 #include "bits.h"
 
+#ifdef TASK_SYNTH_TRACE
+/* Read-only observation point used by tests/synthesis_contract.c.
+ * Exposes the sub-band samples and scale actually handed to the
+ * synthesizer; the hook carries no state, allocation or callback in
+ * ordinary builds, where TASK_SYNTH_TRACE is undefined. */
+void task_synth_trace(const struct sbc *sbc, int channel,
+    int nblocks, int nsubbands, const int16_t *in, int scale);
+#endif
+
 
 /**
  * SBC Frame header size
@@ -905,12 +914,22 @@ int sbc_decode(struct sbc *sbc,
         }
     }
 
+#ifdef TASK_SYNTH_TRACE
+    task_synth_trace(sbc, 0, sbc->nblocks, sbc->nsubbands,
+        sb_samples[0], sb_scale[0]);
+#endif
+
     synthesize(&sbc->dstates[0], sbc->nblocks, sbc->nsubbands,
         sb_samples[0], sb_scale[0], pcml, pitchl);
 
-    if (frame->mode != SBC_MODE_MONO)
+    if (frame->mode != SBC_MODE_MONO) {
+#ifdef TASK_SYNTH_TRACE
+        task_synth_trace(sbc, 1, sbc->nblocks, sbc->nsubbands,
+            sb_samples[1], sb_scale[1]);
+#endif
         synthesize(&sbc->dstates[1], sbc->nblocks, sbc->nsubbands,
             sb_samples[1], sb_scale[1], pcmr, pitchr);
+    }
 
     return 0;
 }
