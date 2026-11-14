@@ -1,0 +1,22 @@
+CASE select loclist_base_switch_and_gaps checks=11
+CASE select direct_addr_expression checks=2
+GROUP select cases=2 checks=13 COMPLETE
+CASE ownership cross_cu_specification_owns_location checks=4
+CASE ownership same_offset_different_sections checks=2
+GROUP ownership cases=2 checks=6 COMPLETE
+CASE frame register_frame_base_changes_by_pc checks=8
+CASE frame literal_frame_base_used_directly checks=3
+CASE frame register_location_needs_no_frame_base checks=3
+CASE frame missing_frame_base_is_error checks=1
+GROUP frame cases=4 checks=15 COMPLETE
+CASE errors missing_debug_loc_section checks=1
+CASE errors bad_tail_validated_even_when_first_entry_matches checks=1
+CASE errors truncated_expression checks=1
+CASE errors unterminated_list checks=1
+CASE errors reversed_range checks=1
+CASE errors base_address_wrap checks=1
+CASE errors scan_stops_at_terminator checks=1
+CASE errors circular_frame_base checks=1
+CASE errors normal_query_after_errors checks=2
+GROUP errors cases=9 checks=10 COMPLETE
+TARGET_COMPLETE cases=17

@@ -1,0 +1,3 @@
+#!/bin/bash
+# Sandbox shim: honor TMPDIR (system mktemp ignores it here).
+exec /usr/bin/perl -e 'use File::Temp qw(tempfile); use POSIX; $d=$ENV{TMPDIR}||"/tmp"; my($fh,$fn)=tempfile("tmp.XXXXXXXX",DIR=>$d); print "$fn\n";'

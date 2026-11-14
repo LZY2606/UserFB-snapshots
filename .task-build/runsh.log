@@ -1,0 +1,617 @@
+clang++: warning: treating 'c' input as 'c++' when in C++ mode, this behavior is deprecated [-Wdeprecated]
+In file included from dwarf/abbrev.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/attrs.cc:5:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/cursor.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/die.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/die.cc:48:15: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   48 |         attrs.reserve(abbrev->attributes.size());
+      |               ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/die_str_map.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/dwarf++.hh:347:46: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+  347 |         die& operator=(const die &o) = default;
+      |                                              ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/dwarf.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/dwarf.cc:257:52: warning: unqualified call to 'std::move' [-Wunqualified-std-cast-call]
+  257 |                         abbrevs_vec[entry.first] = move(entry.second);
+      |                                                    ^
+      |                                                    std::
+In file included from dwarf/dwarf.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/dwarf++.hh:348:41: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+  348 |         die& operator=(die &&o) = default;
+      |                                         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+4 warnings generated.
+In file included from dwarf/elf.cc:5:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/expr.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/expr.cc:64:15: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 8>::reserve' requested here
+   64 |         stack.reserve(arguments.size());
+      |               ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+4 warnings generated.
+In file included from dwarf/line.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/line.cc:132:58: warning: unqualified call to 'std::move' [-Wunqualified-std-cast-call]
+  132 |                         m->include_directories.push_back(move(incdir));
+      |                                                          ^
+      |                                                          std::
+dwarf/line.cc:221:41: warning: unqualified call to 'std::move' [-Wunqualified-std-cast-call]
+  221 |                 file_names.emplace_back(move(file_name), mtime, length);
+      |                                         ^
+      |                                         std::
+In file included from dwarf/line.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+5 warnings generated.
+In file included from dwarf/location.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/rangelist.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/to_string.cc:2:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from dwarf/value.cc:5:
+In file included from dwarf/internal.hh:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+In file included from tests/location_at_contract.cc:8:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+CASE select loclist_base_switch_and_gaps checks=11
+CASE select direct_addr_expression checks=2
+CASE select empty_first_overlap_does_not_fall_through checks=3
+GROUP select cases=3 checks=16 COMPLETE
+CASE ownership cross_cu_specification_owns_location checks=4
+CASE ownership same_offset_different_sections checks=2
+GROUP ownership cases=2 checks=6 COMPLETE
+CASE frame register_frame_base_changes_by_pc checks=8
+CASE frame literal_frame_base_used_directly checks=3
+CASE frame register_location_needs_no_frame_base checks=3
+CASE frame missing_frame_base_is_error checks=1
+CASE frame unsuitable_frame_base_type_is_error checks=1
+GROUP frame cases=5 checks=16 COMPLETE
+CASE errors missing_debug_loc_section checks=1
+CASE errors bad_tail_validated_even_when_first_entry_matches checks=1
+CASE errors truncated_expression checks=1
+CASE errors unterminated_list checks=1
+CASE errors reversed_range checks=1
+CASE errors base_address_wrap checks=1
+CASE errors scan_stops_at_terminator checks=1
+CASE errors circular_frame_base checks=3
+CASE errors normal_query_after_errors checks=2
+GROUP errors cases=9 checks=12 COMPLETE
+TARGET_COMPLETE cases=19
+In file included from task_support/baseline.cc:2:
+In file included from dwarf/dwarf++.hh:14:
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+LIBELFIN_SEED_CU seed low_pc=0 sections=4
+In file included from task_support/expression_baseline.cc:1:
+In file included from ./dwarf/dwarf++.hh:14:
+./dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+./dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+./dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+./dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+./dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+./dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+./dwarf/small_vector.hh:96:50: warning: variable length arrays in C++ are a Clang extension [-Wvla-cxx-extension]
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^~~~~~
+./dwarf/small_vector.hh:68:17: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::reserve' requested here
+   68 |                 reserve(osize);
+      |                 ^
+./dwarf/small_vector.hh:43:31: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::operator=' requested here
+   43 |                         *this = o;
+      |                               ^
+./dwarf/dwarf++.hh:345:9: note: in instantiation of member function 'dwarf::small_vector<unsigned long long, 6>::small_vector' requested here
+  345 |         die(die &&o) = default;
+      |         ^
+./dwarf/small_vector.hh:96:50: note: read of non-const variable 'target' is not allowed in a constant expression
+   96 |                 char *newbuf = new char[sizeof(T[target])];
+      |                                                  ^
+./dwarf/small_vector.hh:90:27: note: declared here
+   90 |                 size_type target = cap - base;
+      |                           ^
+3 warnings generated.
+DWARF_REGISTER_BASELINE_OK
+ELF_GOLDEN_SECTIONS_OK

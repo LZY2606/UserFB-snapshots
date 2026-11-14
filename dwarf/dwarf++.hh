@@ -34,6 +34,7 @@ class expr_context;
 class expr_result;
 class rangelist;
 class line_table;
+struct frame_base_resolver;
 
 // Internal type forward-declarations
 struct section;
@@ -594,6 +595,17 @@ public:
         }
 
         /**
+         * Return the unit that contains this value.  This may differ
+         * from the unit of the DIE the value was resolved from when
+         * an attribute was inherited through abstract_origin or
+         * specification.
+         */
+        const unit &get_unit() const
+        {
+                return *cu;
+        }
+
+        /**
          * Return this value's byte offset within its section.
          */
         section_offset get_section_offset() const;
@@ -766,14 +778,37 @@ public:
          */
         expr_result evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments) const;
 
+        /**
+         * \internal Like evaluate(), but uses fbreg (if non-null) to
+         * resolve DW_OP_fbreg operations.  The resolver is invoked
+         * lazily, only when the expression actually executes
+         * DW_OP_fbreg.  When fbreg is null, DW_OP_fbreg retains its
+         * previous behavior of throwing an expr_error.
+         */
+        expr_result evaluate_with_frame(expr_context *ctx,
+                                        const std::initializer_list<taddr> &arguments,
+                                        frame_base_resolver *fbreg) const;
+
 private:
         // XXX This will need more information for some operations
         expr(const unit *cu,
              section_offset offset, section_length len);
+        // Construct an expression whose bytes are read from bytesec
+        // rather than the unit's .debug_info subsection (used for
+        // expressions embedded in .debug_loc).  cu still supplies the
+        // target context (address size, etc.).
+        expr(const unit *cu, const std::shared_ptr<section> &bytesec,
+             section_offset offset, section_length len);
 
         friend class value;
+        friend expr make_section_expr(const unit *,
+                                      const std::shared_ptr<section> &,
+                                      section_offset, section_length);
 
         const unit *cu;
+        // Section holding the expression bytes.  When null, the bytes
+        // live in cu's own .debug_info subsection (the normal case).
+        std::shared_ptr<section> bytesec;
         section_offset offset;
         section_length len;
 };
@@ -896,6 +931,29 @@ public:
 
 std::string
 to_string(expr_result::type v);
+
+/**
+ * \internal Interface used by the expression engine to obtain the
+ * frame base for DW_OP_fbreg.  It is implemented by the location
+ * lookup machinery and passed to expr::evaluate_with_frame; ordinary
+ * callers of expr::evaluate never need it.
+ *
+ * The resolver is invoked lazily, only when an expression actually
+ * executes a DW_OP_fbreg operation, so variables located without a
+ * frame base do not require one to be available.
+ */
+struct frame_base_resolver
+{
+        virtual ~frame_base_resolver() { }
+
+        /**
+         * Return the frame base address for the program counter of
+         * the location being evaluated.  Throws expr_error if no
+         * frame base is available, its result type is unsuitable, or
+         * the dependency is circular.
+         */
+        virtual taddr resolve() = 0;
+};
 
 //////////////////////////////////////////////////////////////////
 // Range lists
@@ -1363,6 +1421,41 @@ uint64_t at_bit_size(const die &d, expr_context *ctx);
 uint64_t at_bit_stride(const die &d, expr_context *ctx);
 uint64_t at_byte_size(const die &d, expr_context *ctx);
 uint64_t at_byte_stride(const die &d, expr_context *ctx);
+
+/**
+ * Return the location of variable at program counter pc, or an
+ * expr_result with location_type expr_result::type::empty if the
+ * variable has no location at pc.
+ *
+ * The variable's DW_AT_location and the function's
+ * DW_AT_frame_base are resolved through die::resolve's normal
+ * concrete/abstract_origin/specification rules.  A location may be a
+ * direct expression (exprloc or legacy block) or a DWARF 2-4
+ * .debug_loc location list.  Location lists are interpreted using the
+ * address size, byte order, and initial low_pc of the compilation
+ * unit that owns the location attribute (which may differ from the
+ * unit of variable when the attribute was inherited).
+ *
+ * The whole selected location list is structurally validated before
+ * the selected expression is evaluated; malformed lists throw
+ * format_error naming the section and entry offset.  No selection is
+ * cached between calls.
+ *
+ * DW_OP_fbreg is supported: when the selected expression uses it, the
+ * function's DW_AT_frame_base at pc is evaluated and used as the
+ * frame base.  A frame base that itself (transitively) uses
+ * DW_OP_fbreg is reported as a circular dependency.  Variables whose
+ * location does not use DW_OP_fbreg never require a usable frame
+ * base.
+ *
+ * Only legacy .debug_loc location lists are supported; DWARF 5
+ * loclists, composite (piece) locations, and reading the live
+ * target process are not.  The returned expr_result only describes
+ * the location; register values and implicit values are not read
+ * automatically.
+ */
+expr_result at_location(const die &variable, const die &function,
+                        taddr pc, expr_context *ctx);
 DW_CC at_calling_convention(const die &d);
 die at_common_reference(const die &d);
 std::string at_comp_dir(const die &d);

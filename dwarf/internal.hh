@@ -292,6 +292,60 @@ struct name_entry
         }
 };
 
+//////////////////////////////////////////////////////////////////
+// Legacy .debug_loc location lists (DWARF 2-4, section 2.6.2)
+//
+
+/**
+ * The result of scanning a legacy location list for a program
+ * counter.  Only describes which entry was selected; the expression
+ * itself is not evaluated.
+ */
+struct loclist_selection
+{
+        /** True if pc fell within one of the list's ranges. */
+        bool found;
+        /** True if the matching entry had a zero-length expression. */
+        bool empty_expr;
+        /** Offset of the selected expression within .debug_loc. */
+        section_offset expr_offset;
+        /** Length in bytes of the selected expression. */
+        section_length expr_len;
+};
+
+/**
+ * Validate the entire legacy location list beginning at list_off in
+ * sec and return the first entry whose half-open range contains pc.
+ *
+ * addr_size gives the target address size of the compilation unit
+ * that owns the list and ord its byte order; cu_low_pc is the unit's
+ * initial base address (DW_AT::low_pc of its root DIE, or 0).  The
+ * scan honors maximum-address base-address selection entries,
+ * relative half-open ranges (including zero-length ranges) and the
+ * (0, 0) terminator.  It stops at the terminator and never inspects
+ * the following list.
+ *
+ * Any structural problem (truncated address pair, expression length
+ * or expression bytes, a missing terminator, a reversed range, or
+ * base-address arithmetic that wraps the target address space)
+ * throws format_error naming the section and the absolute offset of
+ * the offending entry.
+ */
+loclist_selection
+select_loclist_entry(const std::shared_ptr<section> &sec,
+                     section_offset list_off, unsigned addr_size,
+                     taddr cu_low_pc, taddr pc, section_type sec_type);
+
+/**
+ * Construct an expr whose bytes live in an arbitrary section (such as
+ * .debug_loc), not in the compilation unit's .debug_info subsection.
+ * The expr still records cu so DW_OP_addr and the other operations
+ * keep the compilation unit's context.
+ */
+expr
+make_section_expr(const unit *cu, const std::shared_ptr<section> &sec,
+                  section_offset offset, section_length len);
+
 DWARFPP_END_NAMESPACE
 
 #endif

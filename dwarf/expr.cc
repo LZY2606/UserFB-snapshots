@@ -16,6 +16,19 @@ expr::expr(const unit *cu,
 {
 }
 
+expr::expr(const unit *cu, const std::shared_ptr<section> &bytesec,
+           section_offset offset, section_length len)
+        : cu(cu), bytesec(bytesec), offset(offset), len(len)
+{
+}
+
+expr
+make_section_expr(const unit *cu, const std::shared_ptr<section> &sec,
+                  section_offset offset, section_length len)
+{
+        return expr(cu, sec, offset, len);
+}
+
 expr_result
 expr::evaluate(expr_context *ctx) const
 {
@@ -30,6 +43,14 @@ expr::evaluate(expr_context *ctx, taddr argument) const
 
 expr_result
 expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments) const
+{
+        return evaluate_with_frame(ctx, arguments, nullptr);
+}
+
+expr_result
+expr::evaluate_with_frame(expr_context *ctx,
+                          const std::initializer_list<taddr> &arguments,
+                          frame_base_resolver *fbreg) const
 {
         // The stack machine's stack.  The top of the stack is
         // stack.back().
@@ -46,14 +67,24 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
                 stack.push_back(*elt);
 
         // Create a subsection for just this expression so we can
-        // easily detect the end (including premature end).
-        auto cusec = cu->data();
-        shared_ptr<section> subsec
-                (make_shared<section>(cusec->type,
-                                      cusec->begin + offset, len,
-                                      cusec->ord, cusec->fmt,
-                                      cusec->addr_size));
-        cursor cur(subsec);
+        // easily detect the end (including premature end).  The bytes
+        // usually come from the unit's .debug_info subsection, but
+        // location-list expressions are read from .debug_loc while
+        // keeping the unit's format and target address size.
+        std::shared_ptr<section> src;
+        if (bytesec) {
+                src = make_shared<section>(
+                        bytesec->type, bytesec->begin + offset, len,
+                        bytesec->ord, bytesec->fmt, cu->data()->addr_size);
+        } else {
+                auto cusec = cu->data();
+                src = make_shared<section>(cusec->type,
+                                           cusec->begin + offset, len,
+                                           cusec->ord, cusec->fmt,
+                                           cusec->addr_size);
+        }
+        cursor cur(src);
+        std::shared_ptr<section> subsec = src;
 
         // Prepare the expression result.  Some location descriptions
         // create the result directly, rather than using the top of
@@ -128,8 +159,15 @@ expr::evaluate(expr_context *ctx, const std::initializer_list<taddr> &arguments)
 
                         // 2.5.1.2 Register based addressing
                 case DW_OP::fbreg:
-                        // XXX
-                        throw runtime_error("DW_OP_fbreg not implemented");
+                        // The frame base resolver is only supplied by
+                        // higher-level location lookups (at_location).
+                        // Without one, preserve the old failure for
+                        // standalone expression evaluation.
+                        if (!fbreg)
+                                throw expr_error("DW_OP_fbreg not implemented without a frame base");
+                        tmp2.s = cur.sleb128();
+                        stack.push_back((int64_t)fbreg->resolve() + tmp2.s);
+                        break;
                 case DW_OP::breg0...DW_OP::breg31:
                         tmp1.u = (unsigned)op - (unsigned)DW_OP::breg0;
                         tmp2.s = cur.sleb128();
