@@ -1,0 +1,604 @@
+{
+  "repo": "https://github.com/xelatihy/yocto-gl",
+  "commit": "7e35c631b5ee29f1a7ee1010c5dcf0879aa3dcf3",
+  "scope": "未改动libs/yocto完整模块、readme及五个完整随仓依赖目录；无目标算法或目标测试。",
+  "upstream_files": [
+    {
+      "path": "exts/cgltf/CMakeLists.txt",
+      "sha256": "6eb27381d05ed8c6b539a306a065d87e0f1134425f4b2e3497a92925c94277da",
+      "git_blob": "2ea52552af6177521cfa66b671182ab8ca42aa07"
+    },
+    {
+      "path": "exts/cgltf/cgltf/LICENSE",
+      "sha256": "f619925f80ef862497aaf8e8155ef218fa6a2190055129523ca3df9119a9ba95",
+      "git_blob": "599d9341a7d681d7f68b614625c0664c949a6a90"
+    },
+    {
+      "path": "exts/cgltf/cgltf/README.md",
+      "sha256": "08aeb44e1ef16bd13be35a69f1105424e58a55a2109161ecd454ff803761d198",
+      "git_blob": "9783e9739bcdc2523c7678fc50bb5c3f2505e699"
+    },
+    {
+      "path": "exts/cgltf/cgltf/cgltf.c",
+      "sha256": "149dd821322912dcb70008699c2f89af309498f4d81f074732ecbbac7215dea7",
+      "git_blob": "35c9809a1fe0567ca87842f1010a637e3670322d"
+    },
+    {
+      "path": "exts/cgltf/cgltf/cgltf.h",
+      "sha256": "2d35714a3b7ada9d73182cd715a4be2a10ab608cfb7354be21af717f06fc95cc",
+      "git_blob": "ee1ac1f3fa5a687eeebbffec9a25a85e1422b8c7"
+    },
+    {
+      "path": "exts/cgltf/cgltf/cgltf_write.c",
+      "sha256": "3cbb5e7adb970801835ca05dbd34d0dbc46647320188fd84fba7395c5a0c6a99",
+      "git_blob": "ac90b5bbcdba3775c9cc7d10116fb93ca29654a5"
+    },
+    {
+      "path": "exts/cgltf/cgltf/cgltf_write.h",
+      "sha256": "5a1e3c2c16b07018222da5ac6fe27899ace77e15465de74b70e39d1f2d735f9e",
+      "git_blob": "430f693b299f6047419c95483102394ce472d3d0"
+    },
+    {
+      "path": "exts/fast_float/.gitignore",
+      "sha256": "af13c266969d01c162a78a225609fe02201d8cfdeecb8f562c54d84d36d3e40e",
+      "git_blob": "15665575e7d52bf722e789e6925fa7a9e1c09356"
+    },
+    {
+      "path": "exts/fast_float/AUTHORS",
+      "sha256": "ed249424bce4e318fa190dd6d8becf60cfc37287132ad3f89e16e0f28d878dcf",
+      "git_blob": "60c9425823208d8fe9400445ffcd648cc03480fe"
+    },
+    {
+      "path": "exts/fast_float/CMakeLists.txt",
+      "sha256": "4663fcfa092453935e5426d9c78f4299cfa96b361548d820ded94f705446414b",
+      "git_blob": "d2c40bc382484c572c7ef7f3e66d8ba1d30a264a"
+    },
+    {
+      "path": "exts/fast_float/CONTRIBUTORS",
+      "sha256": "b5bf0f013f31f95902a29b3249b85809ceeb492734dc5f663f875a1e4fd33ba3",
+      "git_blob": "58a037cc551e0440e3041d25064d8b7ed6b01ab5"
+    },
+    {
+      "path": "exts/fast_float/LICENSE-APACHE",
+      "sha256": "097a889aa954d04e088b790b10a4014d6189561d0a6013935a73ce3d4ddaaf06",
+      "git_blob": "26f4398f24999c3908a11653e3b5ba6f9d681123"
+    },
+    {
+      "path": "exts/fast_float/LICENSE-MIT",
+      "sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6",
+      "git_blob": "2fb2a37ad7fda521092c8b7b16911176c3f8a81b"
+    },
+    {
+      "path": "exts/fast_float/README.md",
+      "sha256": "502e7a2ddce2398f73ea53932e84f5e3bcd4a45c811d3668af00d3e7b3d6898a",
+      "git_blob": "1e1c06d0a3effc176803dcdbd067f7fc1e70c9db"
+    },
+    {
+      "path": "exts/fast_float/cmake/config.cmake.in",
+      "sha256": "73b9705f76279c3879dcdb03b408a3ae81fa0aa8b2befcc7e4bfb027a609c960",
+      "git_blob": "035dc0fa0b54c0628ac9b546c8e6e6ad89cd5868"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/ascii_number.h",
+      "sha256": "f570a188cad686e7a70d7c8bc245ee97ec93b32b5ebe03db66c6ec29858adba3",
+      "git_blob": "3e6bb3e9ef3c7fb35a9f82da745dd5bd40d18f94"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/bigint.h",
+      "sha256": "02872e78d16951cded94f27f1bcc5927d1de44d5f7661093fd822e28b05598d4",
+      "git_blob": "b56cb9b03b340e40ebfb3f6a83b904c1cf668b70"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/decimal_to_binary.h",
+      "sha256": "b995dd37411391f11e699be7e815f51d67f3e82130e519d35ca1239f1beaad17",
+      "git_blob": "6da6c66a3ac0c5a2aecaee9a4cdbad6450b8bbad"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/digit_comparison.h",
+      "sha256": "0903ae25692e3dafae777ccf2dd0d871e841b43fac12ec22cdf8bbe6856dd44e",
+      "git_blob": "3202718bc1838d16804e5b1b69062c6f20c3c8c2"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/fast_float.h",
+      "sha256": "6c41afb26d8c64b977fcba89978d847480d68a3c24c3218b8334102b765bb570",
+      "git_blob": "3c483803af3d18531780882925b714908436a1c6"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/fast_table.h",
+      "sha256": "b1ba4fd6001e5534620c286b9e66e3ec59a5a224e628b40d5a67db487f5641d6",
+      "git_blob": "5766274ca410b174af8696ca3cc2b703709f12c4"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/float_common.h",
+      "sha256": "7e9b4aeaee5dfa3ffdb1b35e11ad38e1207051de8cb452f9dacd2194e88280cc",
+      "git_blob": "9374cdffd450941652de675f0778f75ed6cc5dc8"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/parse_number.h",
+      "sha256": "fd64022fcdbb6d12084257b1fae98903dadfc5241ef8bb2b0e8a5cf9d9755797",
+      "git_blob": "62ae3b039e61b95db299c3437c85357a9ea683fb"
+    },
+    {
+      "path": "exts/fast_float/include/fast_float/simple_decimal_conversion.h",
+      "sha256": "fd626e9adbc24fc8d159dee01b5ca6509ba836a80633312df3f5b285428a980e",
+      "git_blob": "e87801480b2e54de05de6358350e42d3d3489cb5"
+    },
+    {
+      "path": "exts/nlohmann_json/CMakeLists.txt",
+      "sha256": "c5f1b9b60d08164f2b55b72f0e0f47a67d966321472a3ffbf91334b34d104db1",
+      "git_blob": "b93c6e47fafaf0c85c9bb4d6a4b8df4cbd81a189"
+    },
+    {
+      "path": "exts/nlohmann_json/LICENSE.MIT",
+      "sha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14",
+      "git_blob": "1c1f7a690d815db3a79ea3d4c9138a497e2e7702"
+    },
+    {
+      "path": "exts/nlohmann_json/cmake/ci.cmake",
+      "sha256": "8cf4c72db2f97e4da3334792d0f107f238499b7f91e5311e2f7029bae8e0bc53",
+      "git_blob": "f748c760cc87fcab4afb711c4a417d56f11ee80f"
+    },
+    {
+      "path": "exts/nlohmann_json/cmake/config.cmake.in",
+      "sha256": "de73a6e0cdfc9cb1fc28a6156d7e2660f498c9f30ad7d4de5600ba279da0a3f3",
+      "git_blob": "9a17a7d7b2d5502f7d829b2f679d88fd0c9fa932"
+    },
+    {
+      "path": "exts/nlohmann_json/cmake/download_test_data.cmake",
+      "sha256": "a9e2d7c1ca9e4163835663824745c4ce546061dc1be3c68126d311a46fb214d2",
+      "git_blob": "f516a7c3b2a65155961d50a1aeea52152ce3caf4"
+    },
+    {
+      "path": "exts/nlohmann_json/cmake/nlohmann_jsonConfigVersion.cmake.in",
+      "sha256": "f3e940fc8846a483a5f35b9d47fa9ae700765b60a3d17eed2229a0bd7818f567",
+      "git_blob": "10910859734e88f236ae92cb99a50458cc7f73c7"
+    },
+    {
+      "path": "exts/nlohmann_json/cmake/pkg-config.pc.in",
+      "sha256": "796c801c759eb4d5e165afa2441481fff5487a2fd35bbfcec841367d9772f760",
+      "git_blob": "d36317f09aad122bdd9b7777e409e2fd42500925"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/adl_serializer.hpp",
+      "sha256": "11fa1edc01753910dba091d4e96f5fb2a2155abb1a323548ce3dc9b169a24018",
+      "git_blob": "030063ea5f7b88e2b96ea2e99b080842dad1527e"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/byte_container_with_subtype.hpp",
+      "sha256": "a67843c9de0e19ab6d28b356ec06350febe757ccb9d62b794cb02e91827bfd8a",
+      "git_blob": "6e9e38d16f9035575898793a20b3a1904df7bc75"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/conversions/from_json.hpp",
+      "sha256": "12cc521ca690d5097bf1a811da82a7109e338cc32dc87ef7baa2f1b75dbc7929",
+      "git_blob": "207d3e3024a51952a0e871b6138a08cee5577904"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/conversions/to_chars.hpp",
+      "sha256": "c90f3568eee135b39c0fc9093c8e76d55d14eb5be0a0a9400efeb2e640395185",
+      "git_blob": "f6c729b079eb983a288c5f2b195b0a4e029f9ebe"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/conversions/to_json.hpp",
+      "sha256": "2ed86af93bcc6900585130a3be362d8c7bbdbcc47a788c17066d9d39d8ec2107",
+      "git_blob": "7628ae011662b95d4e41cb65e373a23a52e5a398"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/exceptions.hpp",
+      "sha256": "f63df2d041329d82f05448a43daa145dd7d28266b4e70621a8491e6ed2c373e2",
+      "git_blob": "b4b1804963dca709ea434863262db0671768b6e3"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/hash.hpp",
+      "sha256": "c3df85b0e0678145b99baaf10c98291937dc25d295bc3a03bfb5c9cdc06e2442",
+      "git_blob": "776b9ca61c5795559f1daf302717c939ed426f05"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/binary_reader.hpp",
+      "sha256": "b800a7f80b32d038ca64e2524c4541a7b36c1c44aa4f77334ea52a7365916192",
+      "git_blob": "65e0047ac7eddc42734a82401d38e6a710fbe044"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/input_adapters.hpp",
+      "sha256": "e5f815c6c96a0781616af2df832de89cde3d4eac0c2585e32e04a0b8907a070b",
+      "git_blob": "d196aec543cd22a3dab5fcafa3caf94504818393"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/json_sax.hpp",
+      "sha256": "fb4a20edf3fdcc59f830383a5816df853d0c12e038c544367e672653af2b1f7a",
+      "git_blob": "fd9dab87a9a149cb532d1a029d99690320dbfb53"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/lexer.hpp",
+      "sha256": "f130ad1700612f048b0d879937e843017b374b12e1cf17a5a4abaa066398b8ae",
+      "git_blob": "d0c063a1cf889bc7095f259d6f232b81a77529e0"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/parser.hpp",
+      "sha256": "381ea6773194135dc754be65b3a92e3f0c1cb7a95d2e81e633b21f48bd483c38",
+      "git_blob": "024dd040f775d13a923e1a3518bdacda11308b2e"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/input/position_t.hpp",
+      "sha256": "74165b5bfc846ec864a1a925f2581954b138156412fe55ec3d777117acd344d9",
+      "git_blob": "14e9649fb295dbacb9fdd79e24988a02492e6cab"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/internal_iterator.hpp",
+      "sha256": "ac86431bcf82d1b91e6d49124bb8a03d04837ebfdf5ef50ec72ff71995b6e79b",
+      "git_blob": "2c81f723fd2ed735960305c51da08712c7030a07"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/iter_impl.hpp",
+      "sha256": "0a47b194b99f22c963ceb33f3fe637ec941b7128486ec6a234d276158551c2a2",
+      "git_blob": "434a62d3e5851792248b939538e5e8eff4daf046"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/iteration_proxy.hpp",
+      "sha256": "208e4b039625682497efb84137bc90cf23c3bd45ebdbdeae6681cace60b3cec7",
+      "git_blob": "9994b364c47092b958e4dda3b4b9186ba212c1fe"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/iterator_traits.hpp",
+      "sha256": "76ffa1c26019b858a89dfc1bc4c2257c9ef7232601f5f3eacf2c8148b465fcb0",
+      "git_blob": "da5636188f58bc8650e02a00a5b1596efc2ec371"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/json_reverse_iterator.hpp",
+      "sha256": "d312900dd5cd5e8ed6ceb7bad33ed4972c9ca7e8eb8a9a682825a8894113a624",
+      "git_blob": "e787fdbcd7b5387f116ef77d49123ce450511ddd"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/iterators/primitive_iterator.hpp",
+      "sha256": "b9c28ded6b26f1f4a9f05a2be28c7b8f1a5ce4ee6ec10e44f1add08a4787d840",
+      "git_blob": "15aa2f08aa43a0d4db95d5a3f5b504b79e65e0b0"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/json_pointer.hpp",
+      "sha256": "d6b18d22003660f33dcadaee2f57da5f995aff92b827a127a2f4241b196790db",
+      "git_blob": "caed67c9e7f73913586e986694e36b6eddc62b42"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/json_ref.hpp",
+      "sha256": "6b58be24543d20016bf29e656b168a2349e403bb2c1d29968faecb1704a92453",
+      "git_blob": "b4e5dabaf7973a029e4c568daf254e58342658d2"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/macro_scope.hpp",
+      "sha256": "cfcc9928b3c8cb1d7be8dc840e146c5d74868d1e8a077c496690f06e287565ca",
+      "git_blob": "b2843f067f834747bda872a62412e606116adbcb"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/macro_unscope.hpp",
+      "sha256": "c1752a1bda02bf6813dbeccc322d270c2934792f0d9828e7d6eb26cc545cf86a",
+      "git_blob": "1a29fb5e0035fa02f5f54d1c2d29aaac2adce963"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/call_std/begin.hpp",
+      "sha256": "8af4d4514fd8994c47daad0e4962e2233d349642d603b9738c2a152a79dba3ec",
+      "git_blob": "da937144c85fcbb26af0c6ecfbeed772b81d8726"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/call_std/end.hpp",
+      "sha256": "d496c413cc108d194918838f1c4f22c4820c91fd56e8684ec22638bc912738f5",
+      "git_blob": "1909007398040a8588773f75e8fa3649fd83ba23"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/cpp_future.hpp",
+      "sha256": "c8ea57ed8cb7f3b4421df19c707b376092daecc4e166dab5626d2de711fec09e",
+      "git_blob": "147f2fa357da76f5914ab2697e5965a244d00eef"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/detected.hpp",
+      "sha256": "47753a00f0ccfa77e1b8798a5d45f78d1677b59949083edc17193b17e6cfe47e",
+      "git_blob": "8480e1c055d150a6b604b30e77e2f26a0fdfe358"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/identity_tag.hpp",
+      "sha256": "ff3cf9ed5a429c0e47a0e191426038a464f66d7cea34180e30204acb54c4f7dc",
+      "git_blob": "73a3e91700da2310744eaf8b2c3ef55e50f45330"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/is_sax.hpp",
+      "sha256": "e61d51ba39415a1af6fb335db7eacd8967304566e165fe91d8d0d29f240f7af8",
+      "git_blob": "e1e48a0bae11211d63fc52d2c9c741ebb5765da1"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/type_traits.hpp",
+      "sha256": "720d31380101c6cecdc0a3a6d7e4e332eb516cb2be698ee94ad85787ebded12c",
+      "git_blob": "984ca19319b616d26fdfcd89195b81281291d937"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/meta/void_t.hpp",
+      "sha256": "4f4920f2a4a6e01aca3c6e67f23bc95488ea4a5659c240d4bedb4e4653c09037",
+      "git_blob": "4ee2c86f0d096c3b8de28a3934871f6eaad0e320"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/output/binary_writer.hpp",
+      "sha256": "ca3f44113749e4c13b6d0cb5f437132726ff9c515df50d09d675d19bd15826cf",
+      "git_blob": "598587141f0049fcab2bd81fa3a6433ebea2eaa7"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/output/output_adapters.hpp",
+      "sha256": "40b264badf502dbea29591e2b2c40af51c8059bfa9ba2e4f9b8b763c4ebdf651",
+      "git_blob": "1cad57b19a56cd0648e3c8ba86b234ff47271083"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/output/serializer.hpp",
+      "sha256": "1ee543573c19b73918c427e4d61011d49d73fe74c94ced7fd94ad2451a73163c",
+      "git_blob": "7cce7d5c7c189890c9878af1d0f0773062a72910"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/string_escape.hpp",
+      "sha256": "9dcac101923af37532865f9b04552e54093f21e46b98f4fc0ceb615f2f91384c",
+      "git_blob": "84f7da52e0919888fd46ecff143b5163eda5a25a"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/detail/value_t.hpp",
+      "sha256": "24fef9cdccad9a593db17e366f6e5f97f759ab80748771da9f9533bc2ef90fe4",
+      "git_blob": "a98c4355a0b8dff11cbd1517716be427f4416583"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/json.hpp",
+      "sha256": "7262f190c3a2f2bb334236b3b74acaa1ac1ffb72920c4654bcaf02a7db1a4ec0",
+      "git_blob": "a79be2dbd22f0a5734650e73d8864ff361769c80"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/json_fwd.hpp",
+      "sha256": "f72caa6116635d2a5e644d292f2df742deeca0b2515ea73a530723d3814abb5e",
+      "git_blob": "2d5ba384bec79e03ffc4234ce18a966f113092f5"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/ordered_map.hpp",
+      "sha256": "9dcd7ae8d310f725fb31755dc51c18c9104086628c48b1f5343a6f40a2e18ba9",
+      "git_blob": "bfcf89a40f2c7505d00ab08be9d018e0ac131166"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/thirdparty/hedley/hedley.hpp",
+      "sha256": "f64ebead5217e6521cc34a78d66ccc2e2bad1ccb2c284d9cff0ea78f78115956",
+      "git_blob": "b309e989fc76badf208192448f9e38361e28e526"
+    },
+    {
+      "path": "exts/nlohmann_json/include/nlohmann/thirdparty/hedley/hedley_undef.hpp",
+      "sha256": "17e28db134fd4d5e2127967850ee485aafb79f57583c0b3d092dac244ec3c67f",
+      "git_blob": "d2b37a16d67eec5c84102808f30efaddfb8866e0"
+    },
+    {
+      "path": "exts/nlohmann_json/nlohmann_json.natvis",
+      "sha256": "208e916615dbdacd38edf56f80885df97e0d0b9bb58651348574c8a84648b4b1",
+      "git_blob": "557717663b8dfbd8cf4f344ea908ea0073874158"
+    },
+    {
+      "path": "exts/nlohmann_json/single_include/nlohmann/json.hpp",
+      "sha256": "e832d339d9e0c042e7dff807754769d778cf5d6ae9730ce21eed56de99cb5e86",
+      "git_blob": "cb27e058119257b63be7e3285ac14814af730b94"
+    },
+    {
+      "path": "exts/stb_image/CMakeLists.txt",
+      "sha256": "29da76d0c92bd001d15b4fff7c02c00cdd3782102763f0f5150c90dfd159b590",
+      "git_blob": "c36556949215ffdc7f4cd6e7f6d7831365c17365"
+    },
+    {
+      "path": "exts/stb_image/stb_image/LICENSE",
+      "sha256": "bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63",
+      "git_blob": "a77ae91f3ec0abb0028c9d9bd8d34d880b454d38"
+    },
+    {
+      "path": "exts/stb_image/stb_image/stb_image.cpp",
+      "sha256": "ed981138a3965c296051eb5cff8869534f2528da353343e7e4497dd16740fe4d",
+      "git_blob": "1d0c5e2351d6e6d72a890128c6e6fc7730aa23e0"
+    },
+    {
+      "path": "exts/stb_image/stb_image/stb_image.h",
+      "sha256": "91f435e0fc6a620018b878b9859c74dff60d28046f87e649191ad6f35a98c722",
+      "git_blob": "d60371b95f50a8758000a78f09ab22b939d46b11"
+    },
+    {
+      "path": "exts/stb_image/stb_image/stb_image_resize.h",
+      "sha256": "6a0e75adbabb48df9031c2e39ccd97437bb226fe31e7d4a01c7bf70a18d32ec6",
+      "git_blob": "ef9e6fe87049f96b8bf9cc1f63fce03effa6c899"
+    },
+    {
+      "path": "exts/stb_image/stb_image/stb_image_write.h",
+      "sha256": "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05",
+      "git_blob": "e4b32ed1bc32ef9c962acbf47a9d10af01939e08"
+    },
+    {
+      "path": "exts/tinyexr/CMakeLists.txt",
+      "sha256": "ada77c253454c20691e92e21e8c419472233d331248f167c097542158e9683f2",
+      "git_blob": "e9fa6b4550663f3b03fa6fc495a9d26865deed6b"
+    },
+    {
+      "path": "exts/tinyexr/tinyexr/tinyexr.cpp",
+      "sha256": "691a9e2ba43f8ad883db2ff243731a796bea3a0f17b1312afc142b9f85d325ce",
+      "git_blob": "ba45d96c7d4175f3c2a551a96176caa7d859c8b3"
+    },
+    {
+      "path": "exts/tinyexr/tinyexr/tinyexr.h",
+      "sha256": "855a41c40c221735ba62393870b40128049095626396c4a90d6ffa3fbcc114e0",
+      "git_blob": "66643185ec6e8e83fd5b946497cdf24160d834a0"
+    },
+    {
+      "path": "libs/yocto/CMakeLists.txt",
+      "sha256": "f9301d871ce75918e90caff31908f9a2d3978074964a2034d5b2f92b111dab84",
+      "git_blob": "d53ed41817c4530598bb61188d35540cb4003dd5"
+    },
+    {
+      "path": "libs/yocto/yocto_bvh.cpp",
+      "sha256": "6da8d36902597cb607e57aa4afbfb245a2b9fd769f8807088f4a2e85c95323ae",
+      "git_blob": "93cad4a5fd90720ddd51319ab7668ef6d9f82b92"
+    },
+    {
+      "path": "libs/yocto/yocto_bvh.h",
+      "sha256": "7295596f3dfe500ebd00773f9f3263c56e3fb21504c751a1fcbbdff50adfc47c",
+      "git_blob": "1fe6cffc4f38b6e2273c72fa49ec0b0007839429"
+    },
+    {
+      "path": "libs/yocto/yocto_cli.h",
+      "sha256": "e3794a9f4140b8e0e42bb3c20d646ab7d71748c956812f708ef2b0de31b8f940",
+      "git_blob": "5d172cbb89df5aa813863094504dcdb8a7c43d6c"
+    },
+    {
+      "path": "libs/yocto/yocto_color.h",
+      "sha256": "f7f589522c6eaf1593f828e67a2b8eb6f17e8ee7de147b6e29626e6a4c141644",
+      "git_blob": "8d67bcd278ce699f9d8ee7901fffcf8c274886c3"
+    },
+    {
+      "path": "libs/yocto/yocto_cutrace.cpp",
+      "sha256": "b83cfc078359b4cf5172813942f2fa70501099c685c907bd4592f762090fa8f9",
+      "git_blob": "5e22a904e49ea6b0658da2c14a14110e280851e7"
+    },
+    {
+      "path": "libs/yocto/yocto_cutrace.cu",
+      "sha256": "2043422fbeac08e0ef5c09eb384528f6dcb213db48f9c534142b4ee5767d1b96",
+      "git_blob": "f2d2f1ae844063c827b0ce2bd5088c9d781f1a5b"
+    },
+    {
+      "path": "libs/yocto/yocto_cutrace.h",
+      "sha256": "b409810ddb85cb7fec155316bc661ab8f503ea60f17881eefb02a9a29d9e2d43",
+      "git_blob": "70c93ba3228c9cd95cc9f1d1ae0115a053b4eb10"
+    },
+    {
+      "path": "libs/yocto/yocto_geometry.h",
+      "sha256": "6d66f702b55722aab7d9bdc7828694741fa03fcd02372df52795b95bfae70d0f",
+      "git_blob": "5fdf61520c6b43270202f5437f3fd8203fe76fe9"
+    },
+    {
+      "path": "libs/yocto/yocto_geometryt.h",
+      "sha256": "196428809a3ced9a1fed517bb10f139c40a028d19eb8766b4c3a6a99ceea5164",
+      "git_blob": "2db823ec7391b73ffc97401e6e387a4181d9d788"
+    },
+    {
+      "path": "libs/yocto/yocto_gui.cpp",
+      "sha256": "434ddd5518d6baa628e6103c701fa41e92ecf8106976e66499b965c58f2b8a92",
+      "git_blob": "7667d83c0cb412d33ea3947cc9e4eeda9132624a"
+    },
+    {
+      "path": "libs/yocto/yocto_gui.h",
+      "sha256": "5d7e8996c6cd8cf979677d12d3ed96bf8a8181c2aa2a027c2a6401d6b01afebf",
+      "git_blob": "b7a0ef04a3d3005e78711377cfafc965ff257077"
+    },
+    {
+      "path": "libs/yocto/yocto_image.cpp",
+      "sha256": "a40574f51a62dc3195b02ff0872fcc91d14fc4960356627523ed0d8fd83ad6dc",
+      "git_blob": "82788952aa9cca1058e2054c6bc0b0e443d92143"
+    },
+    {
+      "path": "libs/yocto/yocto_image.h",
+      "sha256": "d4f30b0314aea921d32967e9fdb454df6337ec1978faca8a58b0f6fd707648b5",
+      "git_blob": "8f095879e557c16e0c72078668e5a1bebca424cc"
+    },
+    {
+      "path": "libs/yocto/yocto_math.h",
+      "sha256": "faea133d922a0731f6e874b55eefff2670ba0ff7792de50d446db4001666ba30",
+      "git_blob": "b96b4b6a1dd9074a3ff82705ff4430ae14fa9317"
+    },
+    {
+      "path": "libs/yocto/yocto_matht.h",
+      "sha256": "aa70d74c27c8008d82d24aac6dac28fc49caaa83b0d33bca9c82bb5cd3d1f797",
+      "git_blob": "df09d94a0b45bdc6a21ef83d61ed920e95eb4338"
+    },
+    {
+      "path": "libs/yocto/yocto_modelio.cpp",
+      "sha256": "e2338b17f0dc240cc371c54641a2c0635627c0fbce9739caf5a02f38a8b1b335",
+      "git_blob": "bf6fa7f4ee3f064c0bb2ed5e68f1dc421550949a"
+    },
+    {
+      "path": "libs/yocto/yocto_modelio.h",
+      "sha256": "ec0a65c70d44d52322817c1b0038ad52facd2f1cec2a4135f44a0c3ee353ce50",
+      "git_blob": "e7b5538e19c0aef02f8f4d8be31522a70e58b252"
+    },
+    {
+      "path": "libs/yocto/yocto_noise.h",
+      "sha256": "2079eca0489852b88a7c42f05dd76c70a12e732f46e54a406f5a0a04fb5bfea1",
+      "git_blob": "4cde35f1980b0fbf451b57c8be3481516730b9bf"
+    },
+    {
+      "path": "libs/yocto/yocto_parallel.h",
+      "sha256": "8819fc7418b8e70fe68abf43022d78067bdf57d12d20dd6112b27be197631899",
+      "git_blob": "3bc908acf8ecc68a3c9dc66956da846dcc764b6d"
+    },
+    {
+      "path": "libs/yocto/yocto_pbrtio.cpp",
+      "sha256": "b12c85bea72690d283cf8422de7ef42f7972cc42299b6c121fc36bc9a9fdfe24",
+      "git_blob": "a05d2ddf4903031db2b1d9362471576b6b57a090"
+    },
+    {
+      "path": "libs/yocto/yocto_pbrtio.h",
+      "sha256": "68aa163bacde32975130b9b54eb6e37e32d079ffacb4abac19514e0a99d79155",
+      "git_blob": "dd143f1b33a81ee71616ab216c7919c4a87b17e1"
+    },
+    {
+      "path": "libs/yocto/yocto_sampling.h",
+      "sha256": "2885fa26993e8196fe0ea3b61dd3f28142eb38bcbf31ad2aa506fea2d97ae2e3",
+      "git_blob": "fc99e22aa3496ca20733ee37af487d8797c42169"
+    },
+    {
+      "path": "libs/yocto/yocto_scene.cpp",
+      "sha256": "d6649b88796cfa58cedb3209170a077b27b93b2c634168296591d8c171e9caa6",
+      "git_blob": "4b0b4170eb880823e027863dca8cf965a7ef8a8a"
+    },
+    {
+      "path": "libs/yocto/yocto_scene.h",
+      "sha256": "fbfc7a696d589ad9a1297695160b82d2387e30c8a010b28f77ed2381cccc37a5",
+      "git_blob": "0c9a5d7054a95ac194c5c267926229d1d407f2bb"
+    },
+    {
+      "path": "libs/yocto/yocto_sceneio.cpp",
+      "sha256": "f0695219dce87698bf83c20ac4336ea2660a5321e712309ac39a219170d36b19",
+      "git_blob": "95cadc754305eec048f9b8a373d5c5c3b8695efe"
+    },
+    {
+      "path": "libs/yocto/yocto_sceneio.h",
+      "sha256": "3baa1ee925d8d8906178bdd495effe41be1b96496423dc145379afdcf30bcb4a",
+      "git_blob": "c12414df66a29de8667c3e0941083c82f6bf721a"
+    },
+    {
+      "path": "libs/yocto/yocto_shading.h",
+      "sha256": "f5f0b48e95eee8352ff98450b5c0b0573aa2501eb51b537aebf6396c1cd74b6b",
+      "git_blob": "3681856db6644d3099477efed3209b29d9086f0c"
+    },
+    {
+      "path": "libs/yocto/yocto_shape.cpp",
+      "sha256": "45db2ee5a605aed6517bf28c1156ab8fe1622a6cc5ed279d737c099c8fe730a3",
+      "git_blob": "0cc3a17d5841f0a9ca26dde4057cd99f99e40b7f"
+    },
+    {
+      "path": "libs/yocto/yocto_shape.h",
+      "sha256": "7feada86fcf6bc15547b9ed21cf45d21c047300f104156f636a145cdbbbb7fdd",
+      "git_blob": "cd16db616b29fcf0c560a8958665f696c2f17d7d"
+    },
+    {
+      "path": "libs/yocto/yocto_trace.cpp",
+      "sha256": "92a184cafed53e354cc6daa8d59f3be39fb86a05cf39f11f6a38022109812dba",
+      "git_blob": "67942867af40213d8c84ca6f930cef5e162a9392"
+    },
+    {
+      "path": "libs/yocto/yocto_trace.h",
+      "sha256": "5a4c6ed897a688efe45038f59652e6ed955981691b8b00ed8619bc26ca3bb6e9",
+      "git_blob": "db972fa35be216e71743970007b575dd27cce451"
+    },
+    {
+      "path": "readme.md",
+      "sha256": "95bcd63f4de89715e4c744738d3f83b394f12fad098159a287d47fcfd61796b2",
+      "git_blob": "4c233bd3e8708071b90f424498c32cec91e82377"
+    }
+  ],
+  "task_support_files": {
+    "task_support/run.sh": "2566f1604eb2efde8ac2b9116dfa39ea87f14a64e298e192328ab3095faa3fb2",
+    "task_support/baseline.cpp": "1c2fdc512f1bbad72b78806b8f8e20aec5b48aabfb3691156104e230cc54bdbb",
+    "task_support/check.h": "e9abf82969c20adb4d566011d8f6aeb6f80a8ea502f81877ccef63547d7a4085",
+    "task_support/historical_z1059.cpp": "dca0d365fda8826fe9e205b3603d16904ae83f653bfa4b94df2c635bf04bcfd5",
+    "task_support/build.mk": "a1e7998d8d8808a4d6e7321fdb5169bf6ae86c7fa08f524ced993fd6549bc7f0",
+    "task_support/driver.c": "046fbd312d871d82044e02e78d1adddb8d0381e818f94ba6635744f48e8e2831",
+    "task_support/scene_baseline.cpp": "28460cec33cd78458978954856b633f37372a2219929856a9830d236080f7e2c"
+  },
+  "dependencies": [
+    "cgltf (MIT)",
+    "stb_image (MIT/Public Domain)",
+    "tinyexr (BSD-3-Clause including OpenEXR notices; embedded miniz v1.15 Public Domain)",
+    "nlohmann_json (MIT)",
+    "fast_float (MIT/Apache-2.0)"
+  ],
+  "version_lock": "以上依赖均为同一上游固定commit内的完整源码，逐文件hash如上；无在线安装。"
+}
