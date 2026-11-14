@@ -24,6 +24,7 @@ It doesn't use your graphics card, only your CPU. So it's slow and unsuitable fo
 - triangle & line meshes
 - depth biasing
 - wireframe rendering
+- dashed, bevel-joined polylines
 - built-in shapes (plane, sphere, cube, cylinder, cone)
 - anti-aliasing (via supersampling)
 - voxel rendering
@@ -112,5 +113,40 @@ func main() {
 	SavePNG("out.png", image)
 }
 ```
+
+### Stroked Polylines
+
+`DrawPolyline` renders a measurement-style polyline as one continuous stroke
+instead of separate `DrawLine` calls. Width and dash lengths are in final
+screen pixels, dashes keep a single phase across every edge and the closing
+seam, and it goes through the same shader, depth and color rules as the rest
+of the context.
+
+```go
+context := NewContext(width, height)
+context.Shader = NewSolidColorShader(matrix, HexColor("#FF5500"))
+
+vertices := []Vertex{
+    {Position: V(-1, -1, 0)},
+    {Position: V(0, 1, 0)},
+    {Position: V(1, -1, 0)},
+}
+
+// 3 px wide, 8 px on / 4 px off, starting 2 px inside the pattern, closed.
+style := StrokeStyle{
+    Width:      3,
+    Dashes:     []float64{8, 4},
+    DashOffset: 2,
+    Closed:     true,
+}
+if _, err := context.DrawPolyline(vertices, style); err != nil {
+    panic(err)
+}
+```
+
+An empty `Dashes` slice draws a solid stroke. The dash array must otherwise be
+an even number of strictly positive, finite lengths. Vertices must transform
+to finite coordinates with `w > 0`; invalid style or transform results return
+an error before any buffer is modified.
 
 ![Teapot](http://i.imgur.com/DaqbkLR.png)
