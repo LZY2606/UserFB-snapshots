@@ -1,0 +1,11 @@
+./cmd.go
+./doc.go
+./fetch.go
+./handler.go
+./iq_slice.go
+./warc_handler.go
+./baseline_test.go
+./cmd_test.go
+./fetch_test.go
+./handler_test.go
+./warc_handler_test.go
