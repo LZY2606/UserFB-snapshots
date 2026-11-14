@@ -13,7 +13,7 @@ if [[ -f radiosity.c ]]; then
   objects+=(.task-build/radiosity.o)
 fi
 cc -std=c99 -O2 -I. task_support/driver.c tests/radiosity_target.c "${objects[@]}" -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/task-radiosity.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

@@ -36,3 +36,7 @@
 *.jpeg
 *.png
 *.bmp
+*.ppm
+
+# Local task build output
+/.task-build/

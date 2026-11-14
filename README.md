@@ -55,6 +55,53 @@
 * 从 BMP/TGA 文件加载纹理
 * 载入 BSP 场景并实现漫游
 
+## 半立方体渐进辐射度（离线漫反射间接光）
+
+在不引入窗口库和外部素材的前提下，工程新增了纯 C99 的离线辐射度模块，
+复用 mini3d 原有的矩阵、梯形拆分和扫描线：
+
+* `mini3d.h`：把原核心的数学、变换、梯形/扫描线和 `device_t` 类型与函数
+  暴露出来，头文件可被 C++ 直接包含。
+* `radiosity.h` / `radiosity.c`：C99 接口（头文件带 `extern "C"` 守护）。
+  `radiosity_scene` 为不透明类型，`radiosity_create` 深拷贝三角面并建立
+  半立方体传输矩阵，几何创建后不可变，也不使用任何全局场景状态。
+* 每个源面在面积质心沿法线偏移后放置半立方体，顶面加四个 90 度侧面，
+  侧面只积分朝法线的上半部；五个视图共用同一套离散权重归一化，并使用
+  独立清除的图元 ID 目标和投影深度目标，不借用主相机缓冲。
+* 源面不参与自遮挡，其余面双面遮挡；最近命中若为背面则只吸收能量，
+  只有接收面正面得到传输。近面为 `offset/4`，跨越近面或侧界的三角形
+  经齐次裁剪后保留可见部分。
+* `radiosity_step` 按面积加权挑选未发射能量最大的面逐步射击，
+  面积比 `Ai/Aj` 只在射击时换算，浮点辐射度全程不夹取。
+* `radiosity_draw` 把当前辐射度乘以曝光作为恒定顶点色，仍走原来的
+  三角形绘制管线，只在最终字节颜色上截断，并在结束后恢复调用方的
+  变换和渲染状态、不清空调用方已有的颜色与深度。
+
+### 纯 C 示例：一次反射与多次反射 PPM
+
+`examples/radiosity_example.c` 完全用 C 构造一个小场景：一块发光顶面、
+地板和后墙两块接收面、一块遮挡片，分别输出一次反射和迭代到收敛的
+PPM 图像：
+
+```
+cc -std=c99 -O2 -DMINI3D_HEADLESS -I. \
+   examples/radiosity_example.c mini3d.c radiosity.c -lm \
+   -o radiosity_example
+./radiosity_example .
+# 生成 radiosity_one.ppm（一次反射）和 radiosity_multi.ppm（多次反射）
+```
+
+### 测试
+
+`tests/radiosity_target.c` 注册 visibility、transport、integration 三组
+用例，分别用独立逐像素射线/三角形参照核对五个面的 ID 积分、用解析面积
+和读出的 F 矩阵独立递推传输过程、以及校验分次推进/reset/双场景和原绘制
+管线对照：
+
+```
+bash task_support/run.sh target
+```
+
 ## 原理讲解
 
 - [韦易笑：OpenGL 和 DirectX 是如何在只知道顶点的情况下得出像素位置的？](https://skywind.me/blog/archives/2594)
