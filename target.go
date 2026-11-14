@@ -41,7 +41,7 @@ type Target struct {
 	exposed    map[string]struct{}
 	exposedSeq int
 
-	// frameMu protects frames, execContexts, and cur.
+	// frameMu protects frames, execContexts, cur and frameSessions.
 	frameMu sync.RWMutex
 	// frames is the set of encountered frames.
 	frames       map[cdp.FrameID]*Frame
@@ -51,6 +51,13 @@ type Target struct {
 	execUniqueIDs map[cdp.FrameID]string
 	// cur is the current top level frame.
 	cur cdp.FrameID
+
+	// parent is the target that adopted this target for one of its iframes.
+	// It is nil for a target of the browser itself.
+	parent *Target
+	// frameSessions are the iframe sessions that this target adopted with
+	// Target.setAutoAttach. Keys are their session IDs.
+	frameSessions map[target.SessionID]*frameTarget
 
 	// logging funcs
 	logf, errf func(string, ...any)

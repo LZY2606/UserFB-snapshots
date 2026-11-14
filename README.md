@@ -358,6 +358,43 @@ allocator. Then `FromNode` and the events of the page reach the iframe. This
 turns off a security feature of Chrome. Use it only for pages that you trust. See
 [`docs/decisions/2026-10-04-keep-site-isolation-on.md`](docs/decisions/2026-10-04-keep-site-isolation-on.md).
 
+> Run a query inside a cross-site iframe without a second context
+
+`FromFrame` runs the whole query inside the frame of an `iframe` element, while
+site isolation stays on. First find the `iframe` element in the page, then pass
+it to `FromFrame`. A same-process iframe uses its `ContentDocument` and its
+execution context. A cross-site iframe runs in its own target. chromedp adopts
+the session that `Target.setAutoAttach` brings, initializes its Runtime, Page
+and DOM domains, frame tree and document, and runs the lookup, the reads and
+the input on that session. `CSS`, `CSSAll` and `ID` support `FromFrame`.
+`Search`, `JSPath` and `NodeIDs` do not. `FromFrame` and `FromNode` cannot be
+set together.
+
+```go
+// Find the iframe element in the page.
+iframes, err := chromedp.Run(ctx, chromedp.Nodes(chromedp.CSS("iframe#payment")))
+if err != nil {
+	log.Fatal(err)
+}
+
+// Read and type inside the cross-site iframe. Every command goes to the
+// adopted iframe session, not to the parent session.
+text, err := chromedp.Run(ctx, chromedp.TextContent(chromedp.CSS("#amount"), chromedp.FromFrame(iframes[0])))
+if err != nil {
+	log.Fatal(err)
+}
+err = chromedp.Do(ctx, chromedp.SendKeys(chromedp.CSS("#card"), "4242", chromedp.FromFrame(iframes[0])))
+```
+
+If the iframe navigates and Chrome swaps its process, a query whose result has
+not been used yet waits for the new session of the same frame and reads its
+fresh document. When the `iframe` element is removed, the parent document is
+replaced, or the node belongs to another target, the query returns an error
+that wraps `chromedp.ErrFrameDetached` instead of falling back to the root
+document. After the function of `After` or `QueryAfter`, or an action such as
+`SendKeys`, has started, it runs once. A detach then returns the original
+error without replaying it. The manual `WithTargetID` way above keeps working.
+
 > SendKeys with a new line inserts two line breaks
 
 `SendKeys` sends the character `\n` as the Enter key, in the form `\r`. That is a

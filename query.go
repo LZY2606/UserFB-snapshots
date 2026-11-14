@@ -78,11 +78,15 @@ type Selector struct {
 	text          string
 	ids           []cdp.NodeID
 	fromNode      *Node
+	frame         *frameQuery
 	retryInterval time.Duration
 	exp           int
-	by            func(context.Context, *Target, *Node) ([]cdp.NodeID, error)
-	wait          func(context.Context, *Target, *Frame, runtime.ExecutionContextID, ...cdp.NodeID) ([]*Node, error)
-	after         []func(context.Context, *Target, []*Node) error
+	// err is a mistake in the options, such as FromFrame with an unsupported
+	// selector. run returns it at once.
+	err   error
+	by    func(context.Context, *Target, *Node) ([]cdp.NodeID, error)
+	wait  func(context.Context, *Target, *Frame, runtime.ExecutionContextID, ...cdp.NodeID) ([]*Node, error)
+	after []func(context.Context, *Target, []*Node) error
 }
 
 // Query is an action that queries the browser for element nodes that match the
@@ -196,9 +200,9 @@ func QueryAfter[T any, S Selectable](sel S, f func(ctx context.Context, t *Targe
 	s := newSelector(sel, opts)
 	return func(ctx context.Context, t *Target) (T, error) {
 		var res T
-		err := s.run(ctx, t, func(ctx context.Context, nodes []*Node) error {
+		err := s.run(ctx, t, func(ctx context.Context, qt *Target, nodes []*Node) error {
 			var err error
-			res, err = f(ctx, t, nodes)
+			res, err = f(ctx, qt, nodes)
 			return err
 		})
 		return res, err
@@ -245,6 +249,20 @@ func newSelector[S Selectable](sel S, opts []QueryOption) *Selector {
 		o(s)
 	}
 
+	if s.err != nil {
+		return s
+	}
+	if s.frame != nil {
+		// FromFrame reaches a frame through its document. Only the DOM
+		// selectors query a document node.
+		switch any(sel).(type) {
+		case CSS, CSSAll, ID:
+		default:
+			s.err = fmt.Errorf("FromFrame does not support the %T selector; use CSS, CSSAll or ID", sel)
+			return s
+		}
+	}
+
 	if s.wait == nil {
 		NodeReady(s)
 	}
@@ -255,76 +273,160 @@ func newSelector[S Selectable](sel S, opts []QueryOption) *Selector {
 // run executes the selector. It finishes only when the by, wait, after, and
 // last funcs succeed, or when the context is canceled. The last func can be
 // nil.
-func (s *Selector) run(ctx context.Context, t *Target, last func(context.Context, []*Node) error) error {
+//
+// With the FromFrame option the whole query runs against the target of the
+// selected frame: its lookup, wait, after and last funcs, and the target that
+// the funcs receive. A same-process iframe stays on this target. An iframe
+// from another process runs on the session that the target adopted.
+func (s *Selector) run(ctx context.Context, t *Target, last func(context.Context, *Target, []*Node) error) error {
+	if s.err != nil {
+		return s.err
+	}
 	return retryWithSleep(ctx, s.retryInterval, func(ctx context.Context) (bool, error) {
-		frame, root, execCtx, ok := t.ensureFrame()
-		if !ok {
-			return false, nil
+		if s.frame != nil {
+			return s.runInFrame(ctx, t, last)
 		}
-
-		fromNode := s.fromNode
-		if fromNode == nil {
-			fromNode = root
-		} else {
-			frameID := t.enclosingFrame(fromNode)
-			t.frameMu.RLock()
-			execCtx = t.execContexts[frameID]
-			t.frameMu.RUnlock()
-
-			// TODO: we probably want to use the nested frame
-			// instead. Note that util.go stores the nodes of the
-			// nested frame in the Nodes map of the root frame.
-			// frame = t.frames[fromNode.FrameID]
-			// if frame == nil {
-			// 	return fmt.Errorf("FromNode provided does not belong to any active frame")
-			// }
-		}
-
-		// If this is an iframe node, we want to run the query
-		// on its "content document" node instead. Otherwise,
-		// queries will return no results.
-		if doc := fromNode.ContentDocument; doc != nil {
-			fromNode = doc
-		}
-
-		ids, err := s.by(ctx, t, fromNode)
-		if err != nil {
-			var e *cdproto.Error
-			// When the selector is invalid (for example, "#a:b" or "#3"), the
-			// browser always fails with "DOM Error while querying". It makes no
-			// sense to retry in this case.
-			// "DOM Error while querying" can also mean other errors. But the
-			// response has nothing else that tells them apart. So we have to go
-			// with it.
-			if errors.As(err, &e) && e.Message == "DOM Error while querying" {
-				return true, err
-			}
-			// A JSPath value of the wrong type does not change by itself.
-			if errors.Is(err, errNotNode) {
-				return true, err
-			}
-			return false, nil
-		}
-		if len(ids) < s.exp {
-			return false, nil
-		}
-		nodes, err := s.wait(ctx, t, frame, execCtx, ids...)
-		// if nodes==nil, we are not yet ready
-		if nodes == nil || err != nil {
-			return false, nil
-		}
-		for _, f := range s.after {
-			if err := f(ctx, t, nodes); err != nil {
-				return true, err
-			}
-		}
-		if last != nil {
-			if err := last(ctx, nodes); err != nil {
-				return true, err
-			}
-		}
-		return true, nil
+		return s.runInTarget(ctx, t, t, nil, last)
 	})
+}
+
+// runInTarget runs one lookup-and-wait attempt against qt. When frameRoot is
+// non-nil the query starts at that document node instead of the root document.
+func (s *Selector) runInTarget(ctx context.Context, t, qt *Target, frameRoot *Node, last func(context.Context, *Target, []*Node) error) (bool, error) {
+	frame, root, execCtx, ok := qt.ensureFrame()
+	if !ok {
+		return false, nil
+	}
+
+	fromNode := s.fromNode
+	if fromNode == nil {
+		fromNode = root
+	} else {
+		frameID := qt.enclosingFrame(fromNode)
+		qt.frameMu.RLock()
+		execCtx = qt.execContexts[frameID]
+		qt.frameMu.RUnlock()
+
+		// TODO: we probably want to use the nested frame
+		// instead. Note that util.go stores the nodes of the
+		// nested frame in the Nodes map of the root frame.
+		// frame = t.frames[fromNode.FrameID]
+		// if frame == nil {
+		// 	return fmt.Errorf("FromNode provided does not belong to any active frame")
+		// }
+	}
+
+	if frameRoot != nil {
+		// FromFrame: the lookup starts at the document of the selected frame.
+		fromNode = frameRoot
+		// A same-process iframe has its own execution context in this target.
+		// The node mirror still lives in the top frame (domEvent updates only
+		// that frame), so the wait keeps the top frame and only the context
+		// changes, as it does for FromNode.
+		if frameID := qt.enclosingFrame(frameRoot); frameID != "" {
+			qt.frameMu.RLock()
+			nestedCtx := qt.execContexts[frameID]
+			qt.frameMu.RUnlock()
+			if nestedCtx != 0 {
+				execCtx = nestedCtx
+			}
+		}
+	}
+
+	// If this is an iframe node, we want to run the query
+	// on its "content document" node instead. Otherwise,
+	// queries will return no results.
+	if doc := fromNode.ContentDocument; doc != nil {
+		fromNode = doc
+	}
+
+	ids, err := s.by(ctx, qt, fromNode)
+	if err != nil {
+		var e *cdproto.Error
+		// When the selector is invalid (for example, "#a:b" or "#3"), the
+		// browser always fails with "DOM Error while querying". It makes no
+		// sense to retry in this case.
+		// "DOM Error while querying" can also mean other errors. But the
+		// response has nothing else that tells them apart. So we have to go
+		// with it.
+		if errors.As(err, &e) && e.Message == "DOM Error while querying" {
+			return true, err
+		}
+		// A JSPath value of the wrong type does not change by itself.
+		if errors.Is(err, errNotNode) {
+			return true, err
+		}
+		return false, nil
+	}
+	if len(ids) < s.exp {
+		return false, nil
+	}
+	nodes, err := s.wait(ctx, qt, frame, execCtx, ids...)
+	// if nodes==nil, we are not yet ready
+	if nodes == nil || err != nil {
+		return false, nil
+	}
+	s.markStarted()
+	for _, f := range s.after {
+		if err := f(ctx, qt, nodes); err != nil {
+			return true, err
+		}
+	}
+	if last != nil {
+		if err := last(ctx, qt, nodes); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
+// runInFrame runs one attempt of a FromFrame query against the target that
+// owns the frame of the iframe node.
+func (s *Selector) runInFrame(ctx context.Context, t *Target, last func(context.Context, *Target, []*Node) error) (bool, error) {
+	n := s.frame.node
+
+	// The parent iframe element must still be part of the document of the
+	// target or of an adopted frame subtree. A removed element, a replaced
+	// parent document, or a node from another target ends the query.
+	if !t.iframeNodeLive(n) {
+		return true, ErrFrameDetached
+	}
+
+	qt, _, root, err := t.frameForNode(ctx, n)
+	if err != nil {
+		if errors.Is(err, ErrFrameDetached) {
+			return true, err
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return true, err
+		}
+		// The child session detached while it was looked up. Wait for a new
+		// session of the same frame unless the query funcs already ran.
+		if s.frame.didStart() {
+			return true, err
+		}
+		return false, nil
+	}
+
+	stop, err := s.runInTarget(ctx, t, qt, root, last)
+	if err == nil {
+		return stop, nil
+	}
+	// A command on the child session can fail with ErrTargetDetached after a
+	// process swap. Before the funcs started, wait for the new session instead
+	// of returning, and never use the old document mirror again.
+	if errors.Is(err, ErrTargetDetached) && !s.frame.didStart() {
+		return false, nil
+	}
+	return stop, err
+}
+
+// markStarted notes that the query reached its after or last func. Those run
+// once, even when the frame detaches afterwards.
+func (s *Selector) markStarted() {
+	if s.frame != nil {
+		s.frame.markStarted()
+	}
 }
 
 // waitReady waits for the specified nodes to be ready.
@@ -383,10 +485,60 @@ type QueryOption = func(*Selector)
 // FromNode does not reach into an iframe from another site. Chrome runs such an
 // iframe in its own process, as a separate target, and the node of the iframe
 // element has no ContentDocument. A query from that node finds nothing and
-// waits until its context ends. See [WithTargetID] for how to attach to the
-// iframe.
+// waits until its context ends. Use [FromFrame] to run the query in the
+// adopted session of such an iframe, or see [WithTargetID] for how to attach to
+// the iframe with a context of its own.
 func FromNode(node *Node) QueryOption {
-	return func(s *Selector) { s.fromNode = node }
+	return func(s *Selector) {
+		if s.frame != nil {
+			s.err = errors.New("FromNode and FromFrame cannot be set together")
+			return
+		}
+		s.fromNode = node
+	}
+}
+
+// FromFrame is an element query option that runs the whole query inside the
+// frame of an iframe element. The node must be an iframe element that the
+// target found in its own document, or in the document of a frame subtree that
+// it adopted. CSS, CSSAll and ID selectors support it. Search, JSPath and
+// NodeIDs return an error, because they do not query a document node.
+//
+// An iframe from the same process stays in the target: the query uses its
+// ContentDocument and its execution context. An iframe from another site runs
+// in its own process as a separate target. The browser attaches to that target
+// with Target.setAutoAttach, and the parent target adopts the session and
+// initializes its Runtime, Page and DOM domains, its frame tree and its
+// document mirror. The query then runs against the adopted session, matching
+// the FrameID of node with the real main FrameID of the child target. Nodes,
+// TextContent, SendKeys, After and QueryAfter all use that target, so reading
+// and typing do not fall back to the parent session.
+//
+// FromFrame and [FromNode] cannot be set together. A query with FromFrame does
+// not fall back to the root document. When the iframe element is removed, the
+// whole parent document is replaced, or the node belongs to another target,
+// the query returns an error that wraps [ErrFrameDetached]. While the parent
+// iframe element stays valid, the query survives a process swap of the frame:
+// it waits for the new session of the same frame and uses its fresh document
+// and execution context, never the old mirror. After the func of After or
+// QueryAfter, or the action itself, has started, it runs once. A detach then
+// returns the original error instead of replaying the action.
+//
+// FromFrame does not translate mouse coordinates across frames and does not
+// turn off site isolation. The manual [WithTargetID] way of attaching to an
+// iframe keeps working.
+func FromFrame(node *Node) QueryOption {
+	return func(s *Selector) {
+		if s.fromNode != nil {
+			s.err = errors.New("FromFrame and FromNode cannot be set together")
+			return
+		}
+		if s.frame != nil {
+			s.err = errors.New("FromFrame set more than once")
+			return
+		}
+		s.frame = &frameQuery{node: node}
+	}
 }
 
 // ByFunc is an element query action option that sets the func that selects

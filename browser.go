@@ -85,6 +85,15 @@ type Browser struct {
 	// that the tests can read the map after a browser closes.
 	pages map[target.SessionID]*Target
 
+	// allSessions tracks every session that the browser routes messages to:
+	// the page targets in pages and the iframe sessions that a target adopted
+	// with Target.setAutoAttach. Only the run loop of the browser reads and
+	// writes this map. The helper targetForSession reads it through sessionMu.
+	allSessions map[target.SessionID]*Target
+
+	// sessionMu protects allSessions for readers outside the run loop.
+	sessionMu sync.RWMutex
+
 	listenersMu sync.Mutex
 	listeners   []cancelableListener
 
@@ -221,6 +230,137 @@ func (b *Browser) newTarget(ctx context.Context, targetID target.ID, sessionID t
 	case b.newTabQueue <- t:
 	}
 	return t, nil
+}
+
+// targetForSession returns the target that routes the session, whether it is
+// a page target or an adopted iframe session.
+func (b *Browser) targetForSession(sessionID target.SessionID) (*Target, bool) {
+	b.sessionMu.RLock()
+	defer b.sessionMu.RUnlock()
+	t, ok := b.allSessions[sessionID]
+	return t, ok
+}
+
+// registerSession adds a session that the run loop routes.
+func (b *Browser) registerSession(sessionID target.SessionID, t *Target) {
+	b.sessionMu.Lock()
+	b.allSessions[sessionID] = t
+	b.sessionMu.Unlock()
+}
+
+// unregisterSession removes a session that the run loop no longer routes.
+func (b *Browser) unregisterSession(sessionID target.SessionID) {
+	b.sessionMu.Lock()
+	delete(b.allSessions, sessionID)
+	b.sessionMu.Unlock()
+}
+
+// newChildTarget builds the target of an iframe session that another target
+// adopted with Target.setAutoAttach. Unlike newTarget it does not go through
+// newTabQueue: the run loop of the browser registers it while it dispatches
+// the Target.attachedToTarget event, so no message of the new session is
+// routed before the target exists.
+func (b *Browser) newChildTarget(targetID target.ID, sessionID target.SessionID, parent *Target) *Target {
+	return &Target{
+		browser:   b,
+		TargetID:  targetID,
+		SessionID: sessionID,
+		parent:    parent,
+
+		messageQueue:  make(chan *cdproto.Message, 1024),
+		detached:      make(chan struct{}),
+		frames:        make(map[cdp.FrameID]*Frame),
+		execContexts:  make(map[cdp.FrameID]runtime.ExecutionContextID),
+		execUniqueIDs: make(map[cdp.FrameID]string),
+		cur:           cdp.FrameID(targetID),
+
+		logf: b.logf,
+		errf: b.errf,
+	}
+}
+
+// handleChildAttach adopts the iframe session of a Target.attachedToTarget
+// event that the browser routed to a parent session. It runs on the run loop
+// of the browser, before the event reaches the parent target, so the child
+// target exists before any message of its session is routed.
+//
+// Only iframe targets are adopted. Workers, popups and targets of another type
+// stay untouched, so a query can never borrow a session that does not belong
+// to the frame subtree.
+func (b *Browser) handleChildAttach(ctx context.Context, msg *cdproto.Message) {
+	ev, err := cdproto.UnmarshalMessage(msg, DefaultUnmarshalOptions)
+	if err != nil {
+		b.errf("could not unmarshal attachedToTarget event: %v", err)
+		return
+	}
+	e, ok := ev.(*target.EventAttachedToTarget)
+	if !ok || e.TargetInfo == nil || e.TargetInfo.Type != "iframe" {
+		return
+	}
+	if _, exists := b.targetForSession(e.SessionID); exists {
+		return
+	}
+	parent, ok := b.targetForSession(msg.SessionID)
+	if !ok {
+		b.errf("attachedToTarget for %q has no parent session %q", e.SessionID, msg.SessionID)
+		return
+	}
+
+	child := b.newChildTarget(e.TargetInfo.TargetID, e.SessionID, parent)
+	b.registerSession(e.SessionID, child)
+
+	ft := &frameTarget{
+		target: child,
+		ready:  make(chan struct{}),
+		dead:   make(chan struct{}),
+	}
+	parent.frameMu.Lock()
+	if parent.frameSessions == nil {
+		parent.frameSessions = make(map[target.SessionID]*frameTarget)
+	}
+	parent.frameSessions[e.SessionID] = ft
+	parent.frameMu.Unlock()
+
+	go child.run(ctx)
+	go parent.initFrameTarget(ctx, ft, e.WaitingForDebugger)
+}
+
+// handleChildDetach ends an adopted iframe session after the parent session
+// received Target.detachedFromTarget. The browser-level detach is handled by
+// the run loop directly.
+func (b *Browser) handleChildDetach(ctx context.Context, msg *cdproto.Message) {
+	ev, err := cdproto.UnmarshalMessage(msg, DefaultUnmarshalOptions)
+	if err != nil {
+		b.errf("could not unmarshal detachedFromTarget event: %v", err)
+		return
+	}
+	e, ok := ev.(*target.EventDetachedFromTarget)
+	if !ok {
+		return
+	}
+	b.detachChildSession(ctx, e.SessionID)
+}
+
+// detachChildSession sends the detach marker to the child target, forgets the
+// session, and tells the parent that the session went away. It is a no-op for
+// page targets and unknown sessions.
+func (b *Browser) detachChildSession(ctx context.Context, sessionID target.SessionID) {
+	if _, isPage := b.pages[sessionID]; isPage {
+		return
+	}
+	child, ok := b.targetForSession(sessionID)
+	if !ok {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case child.messageQueue <- detachedMessage:
+	}
+	if child.parent != nil {
+		child.parent.dropFrameTarget(sessionID)
+	}
+	b.unregisterSession(sessionID)
 }
 
 // Call sends the command to the browser, waits for the response, and decodes
@@ -404,6 +544,7 @@ func (b *Browser) run(ctx context.Context) {
 	}()
 
 	b.pages = make(map[target.SessionID]*Target, 32)
+	b.allSessions = make(map[target.SessionID]*Target, 32)
 	for {
 		select {
 		case <-ctx.Done():
@@ -420,13 +561,11 @@ func (b *Browser) run(ctx context.Context) {
 				b.errf("executor for %q already exists", t.SessionID)
 			}
 			b.pages[t.SessionID] = t
+			b.registerSession(t.SessionID, t)
 
 		case m := <-incomingQueue:
 			if m.msg == nil {
 				sessionID := m.detached
-				if _, ok := b.pages[sessionID]; !ok {
-					b.errf("executor for %q doesn't exist", sessionID)
-				}
 				if page, ok := b.pages[sessionID]; ok {
 					// Tell the target after its last routed message. The target
 					// then ends the commands that wait for a reply that never comes.
@@ -435,12 +574,34 @@ func (b *Browser) run(ctx context.Context) {
 						return
 					case page.messageQueue <- detachedMessage:
 					}
+					delete(b.pages, sessionID)
+					b.unregisterSession(sessionID)
+					continue
 				}
-				delete(b.pages, sessionID)
+				// A detach of an adopted iframe session.
+				if _, ok := b.targetForSession(sessionID); ok {
+					b.detachChildSession(ctx, sessionID)
+				} else {
+					b.errf("executor for %q doesn't exist", sessionID)
+				}
 				continue
 			}
 
-			page, ok := b.pages[m.msg.SessionID]
+			// Auto-attach events that arrive on a parent session create or end
+			// the adopted child session before the event itself is routed. The
+			// child target must exist before any of its messages are routed.
+			switch m.msg.Method {
+			case "Target.attachedToTarget":
+				if _, ok := b.targetForSession(m.msg.SessionID); ok {
+					b.handleChildAttach(ctx, m.msg)
+				}
+			case "Target.detachedFromTarget":
+				if _, ok := b.targetForSession(m.msg.SessionID); ok {
+					b.handleChildDetach(ctx, m.msg)
+				}
+			}
+
+			page, ok := b.targetForSession(m.msg.SessionID)
 			if !ok {
 				// A page that we closed recently still sends events.
 				continue

@@ -601,9 +601,21 @@ wg.Wait()
 
 ### 19. Work in an iframe from another site
 
-Chrome runs an iframe from another site (a cross-site iframe) in its own process, as a separate target of the type `iframe`. The node of the `iframe` element has no `ContentDocument`, so `FromNode` finds nothing in it. `chromedp` does not attach to the iframe target by itself, because it ignores `Target.attachedToTarget` for it. The network events of the iframe do not reach the context of the page. An iframe from the same site is not affected. This example has no Before block, because the old API had the same limit.
+Chrome runs an iframe from another site (a cross-site iframe) in its own process, as a separate target of the type `iframe`. The node of the `iframe` element has no `ContentDocument`, so `FromNode` finds nothing in it. An iframe from the same site is not affected. This example has no Before block, because the old API had the same limit.
 
-To work in the iframe, attach to its target with `WithTargetID`. The new context runs actions in the iframe and gets its events. The parent context must have run once, so that it has a browser.
+`FromFrame` runs a query inside the frame of an `iframe` element. It works with a `CSS`, a `CSSAll` or an `ID` selector, and it does not work with `FromNode` at the same time. For a cross-site iframe, chromedp adopts the session that `Target.setAutoAttach` attaches. It initializes the Runtime, Page and DOM domains, the frame tree and the document of the session, and runs the lookup, the reads and the input on that session. `Nodes`, `TextContent`, `SendKeys`, `After` and `QueryAfter` all use the target of the frame. First find the `iframe` element, then pass it to `FromFrame`.
+
+```go
+iframes, err := chromedp.Run(ctx, chromedp.Nodes(chromedp.CSS("iframe#payment")))
+if err != nil {
+	log.Fatal(err)
+}
+text, err := chromedp.Run(ctx, chromedp.TextContent(chromedp.CSS("#amount"), chromedp.FromFrame(iframes[0])))
+```
+
+When the `iframe` element is removed, the parent document is replaced, or the node belongs to another target, the query returns an error that wraps `ErrFrameDetached`. It does not fall back to the root document. After the function of `After` or `QueryAfter`, or an action such as `SendKeys`, has started, it runs once. A detach then returns the original error without replaying it.
+
+To attach to the target with a context of its own, use `WithTargetID`. The new context runs actions in the iframe and gets its events. The parent context must have run once, so that it has a browser. Both ways keep working.
 
 ```go
 infos, err := chromedp.Targets(ctx)

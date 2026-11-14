@@ -122,4 +122,11 @@ const (
 
 	// ErrJSNull is the error that the value of RemoteObject is null.
 	ErrJSNull Error = "encountered a null value"
+
+	// ErrFrameDetached is the error of a [FromFrame] query whose iframe element
+	// is no longer part of the document of the target or of a frame subtree that
+	// the target adopted. It happens when the browser removed the iframe
+	// element, replaced the parent document, or the node belongs to another
+	// target. A query does not fall back to the root document in these cases.
+	ErrFrameDetached Error = "frame detached"
 )
