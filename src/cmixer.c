@@ -41,8 +41,36 @@
 #define BUFFER_MASK       (BUFFER_SIZE - 1)
 
 
+typedef struct cm_Edge {
+  struct cm_Edge *next;         /* Next edge in the source's outgoing list */
+  struct cm_Edge *innext;       /* Next edge in the destination's incoming list */
+  cm_Bus *from;                 /* Upstream bus */
+  cm_Bus *to;                   /* Downstream bus */
+  double gain;                  /* Edge gain */
+} cm_Edge;
+
+
+struct cm_Bus {
+  cm_Bus *next;                 /* Next bus in the list */
+  int delay;                    /* Delay in output frames (0 = plain bus) */
+  double feedback;              /* Delay feedback, in [0, 1) */
+  double gain;                  /* Bus output gain */
+  int nofree;                   /* Set for the permanent master bus */
+  double *histx;                /* Effect input history, interleaved L/R */
+  double *histy;                /* Effect output history, interleaved L/R */
+  int histlen;                  /* Delay history length in frames */
+  int pos;                      /* Current delay history write index */
+  int done;                     /* Set while mixing the current chunk */
+  double *acc;                  /* Current chunk input sum */
+  double *outbuf;               /* Current chunk output */
+  cm_Edge *in_edges;            /* Incoming (upstream) edges */
+  cm_Edge *out_edges;           /* Outgoing (downstream) edges */
+};
+
+
 struct cm_Source {
-  cm_Source *next;              /* Next source in list */
+  cm_Source *next;              /* Next source in the playing list */
+  cm_Source *allnext;           /* Next source in the list of all sources */
   cm_Int16 buffer[BUFFER_SIZE]; /* Internal buffer with raw stereo PCM */
   cm_EventHandler handler;      /* Event handler */
   void *udata;          /* Stream's udata (from cm_SourceInfo) */
@@ -59,6 +87,7 @@ struct cm_Source {
   int active;           /* Whether the source is part of `sources` list */
   double gain;          /* Gain set by `cm_set_gain()` */
   double pan;           /* Pan set by `cm_set_pan()` */
+  cm_Bus *bus;          /* Destination bus */
 };
 
 
@@ -66,9 +95,14 @@ static struct {
   const char *lasterror;        /* Last error message */
   cm_EventHandler lock;         /* Event handler for lock/unlock events */
   cm_Source *sources;           /* Linked list of active (playing) sources */
+  cm_Source *allsources;        /* Linked list of all live sources */
   cm_Int32 buffer[BUFFER_SIZE]; /* Internal master buffer */
   int samplerate;               /* Master samplerate */
   int gain;                     /* Master gain (fixed point) */
+  cm_Bus *buses;                /* Linked list of all buses */
+  cm_Bus master;                /* Permanent master output bus */
+  double master_acc[BUFFER_SIZE];  /* Master bus input accumulator */
+  double master_out[BUFFER_SIZE];  /* Master bus output */
 } cmixer;
 
 
@@ -104,11 +138,402 @@ static const char* error(const char *msg) {
 }
 
 
+static void cm_dsp_init(void) {
+  memset(&cmixer.master, 0, sizeof(cmixer.master));
+  cmixer.master.gain = 1.;
+  cmixer.master.nofree = 1;
+  cmixer.master.next = NULL;
+  cmixer.master.acc = cmixer.master_acc;
+  cmixer.master.outbuf = cmixer.master_out;
+  cmixer.buses = &cmixer.master;
+}
+
+
 void cm_init(int samplerate) {
   cmixer.samplerate = samplerate;
   cmixer.lock = dummy_handler;
   cmixer.sources = NULL;
+  cmixer.allsources = NULL;
   cmixer.gain = FX_UNIT;
+  cm_dsp_init();
+}
+
+
+/*============================================================================
+** Bus routing
+**============================================================================*/
+
+static cm_Edge* find_edge(cm_Bus *from, cm_Bus *to) {
+  cm_Edge *e;
+  for (e = from->out_edges; e; e = e->next) {
+    if (e->to == to) {
+      return e;
+    }
+  }
+  return NULL;
+}
+
+
+static int is_finite(double x) {
+  /* Written without relying on `isfinite()` so that it also builds without
+  ** `-lm` on platforms that lack it; NaN and infinity both fail here. */
+  return x == x && x - x == 0.;
+}
+
+
+/* Returns non-zero if `to` can be reached from `from` by following edges. */
+static int reaches(cm_Bus *from, cm_Bus *to) {
+  cm_Edge *e;
+  for (e = from->out_edges; e; e = e->next) {
+    if (e->to == to || reaches(e->to, to)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+/* Pulls the output of one bus for the current chunk. All upstream buses must
+** already have been mixed; their outputs are summed into this bus input.
+** `len` is rounded down to a whole number of stereo frames, matching the
+** source mixer's handling of an odd sample count. */
+static void mix_bus(cm_Bus *bus, int len) {
+  cm_Edge *e;
+  int i;
+
+  len &= ~1;
+  for (e = bus->in_edges; e; e = e->innext) {
+    for (i = 0; i < len; i++) {
+      bus->acc[i] += e->from->outbuf[i] * e->gain;
+    }
+  }
+
+  for (i = 0; i < len; i += 2) {
+    if (bus->delay > 0) {
+      double l, r;
+      int rp = bus->pos - bus->delay;
+      if (rp < 0) {
+        rp += bus->histlen;
+      }
+      /* y[n] = x[n-D] + f * y[n-D], per channel; an input frame with a
+      ** negative index reads zero. The current frame's input is stored
+      ** afterwards and never fed back, and bus/edge gains are applied to
+      ** the output only, never to this state. */
+      l = bus->histx[rp * 2    ] + bus->feedback * bus->histy[rp * 2    ];
+      r = bus->histx[rp * 2 + 1] + bus->feedback * bus->histy[rp * 2 + 1];
+      bus->histx[bus->pos * 2    ] = bus->acc[i    ];
+      bus->histx[bus->pos * 2 + 1] = bus->acc[i + 1];
+      bus->histy[bus->pos * 2    ] = l;
+      bus->histy[bus->pos * 2 + 1] = r;
+      bus->pos++;
+      if (bus->pos >= bus->histlen) {
+        bus->pos = 0;
+      }
+      bus->outbuf[i    ] = l * bus->gain;
+      bus->outbuf[i + 1] = r * bus->gain;
+    } else {
+      /* A plain bus outputs the sum of its current inputs */
+      bus->outbuf[i    ] = bus->acc[i    ] * bus->gain;
+      bus->outbuf[i + 1] = bus->acc[i + 1] * bus->gain;
+    }
+  }
+  bus->done = 1;
+}
+
+
+/* Rounds a mixed sample to the nearest long, keeping huge (but finite) values
+** away from the undefined floating-to-integer conversion range. */
+static cm_Int32 to_int32(double x) {
+  if (!(x > -2147483000.)) {
+    return x != x ? 0 : -2147483000;
+  }
+  if (x > 2147483000.) {
+    return 2147483000;
+  }
+  return (cm_Int32) (x + (x >= 0. ? 0.5 : -0.5));
+}
+
+
+/* Mixes the whole graph. The order is computed with Kahn's algorithm over the
+** bus linked lists, so no allocation or recursion is needed during rendering.
+** Every bus is mixed once per chunk, even if it is disconnected from the
+** master: this keeps the effects' clocks advancing. */
+static void mix_graph(int len) {
+  int count = 0, pass;
+  cm_Bus *b;
+
+  for (b = cmixer.buses; b; b = b->next) {
+    b->done = 0;
+    count++;
+  }
+  for (pass = 0; pass < count; pass++) {
+    int progressed = 0;
+    for (b = cmixer.buses; b; b = b->next) {
+      cm_Edge *e;
+      int ready = 1;
+      if (b->done) {
+        continue;
+      }
+      for (e = b->in_edges; e; e = e->innext) {
+        if (!e->from->done) {
+          ready = 0;
+          break;
+        }
+      }
+      if (ready) {
+        mix_bus(b, len);
+        progressed = 1;
+      }
+    }
+    if (!progressed) {
+      break;
+    }
+  }
+}
+
+
+/*============================================================================
+** Auxiliary buses
+**============================================================================*/
+
+static int valid_bus(cm_Bus *bus) {
+  cm_Bus *b;
+  for (b = cmixer.buses; b; b = b->next) {
+    if (b == bus) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+static cm_Bus* new_bus(int delay, double feedback, double gain) {
+  cm_Bus *bus = calloc(1, sizeof(*bus));
+  if (!bus) {
+    error("allocation failed");
+    return NULL;
+  }
+  bus->delay = delay;
+  bus->feedback = feedback;
+  bus->gain = gain;
+  bus->acc = calloc(BUFFER_SIZE, sizeof(bus->acc[0]));
+  bus->outbuf = calloc(BUFFER_SIZE, sizeof(bus->outbuf[0]));
+  if (delay > 0) {
+    bus->histlen = delay;
+    bus->histx = calloc((size_t) bus->histlen * 2, sizeof(bus->histx[0]));
+    bus->histy = calloc((size_t) bus->histlen * 2, sizeof(bus->histy[0]));
+  }
+  if (!bus->acc || !bus->outbuf || (delay > 0 && (!bus->histx || !bus->histy))) {
+    free(bus->acc);
+    free(bus->outbuf);
+    free(bus->histx);
+    free(bus->histy);
+    free(bus);
+    error("allocation failed");
+    return NULL;
+  }
+  bus->next = cmixer.master.next;
+  cmixer.master.next = bus;
+  return bus;
+}
+
+
+cm_Bus* cm_get_master_bus(void) {
+  return &cmixer.master;
+}
+
+
+cm_Bus* cm_new_bus(double gain) {
+  if (!is_finite(gain)) {
+    error("invalid gain");
+    return NULL;
+  }
+  return new_bus(0, 0., gain);
+}
+
+
+cm_Bus* cm_new_delay_bus(int delay, double feedback) {
+  if (delay <= 0) {
+    error("invalid delay");
+    return NULL;
+  }
+  if (!is_finite(feedback) || feedback < 0. || feedback >= 1.) {
+    error("invalid feedback");
+    return NULL;
+  }
+  return new_bus(delay, feedback, 1.);
+}
+
+
+void cm_set_bus_gain(cm_Bus *bus, double gain) {
+  if (!valid_bus(bus) || !is_finite(gain)) {
+    error("invalid bus or gain");
+    return;
+  }
+  bus->gain = gain;
+}
+
+
+int cm_destroy_bus(cm_Bus *bus) {
+  cm_Bus *b;
+  cm_Source *src;
+
+  if (!valid_bus(bus) || bus->nofree) {
+    error("cannot destroy bus");
+    return 0;
+  }
+  for (src = cmixer.allsources; src; src = src->allnext) {
+    if (src->bus == bus) {
+      error("bus is in use");
+      return 0;
+    }
+  }
+  if (bus->in_edges || bus->out_edges) {
+    error("bus has edges");
+    return 0;
+  }
+  for (b = cmixer.buses; b; b = b->next) {
+    if (b->next == bus) {
+      b->next = bus->next;
+      break;
+    }
+  }
+  free(bus->acc);
+  free(bus->outbuf);
+  free(bus->histx);
+  free(bus->histy);
+  free(bus);
+  return 1;
+}
+
+
+cm_Bus* cm_get_source_bus(cm_Source *src) {
+  return src->bus;
+}
+
+
+void cm_set_source_bus(cm_Source *src, cm_Bus *bus) {
+  if (!valid_bus(bus)) {
+    error("invalid bus");
+    return;
+  }
+  src->bus = bus;
+}
+
+
+void cm_set_source_master(cm_Source *src) {
+  src->bus = &cmixer.master;
+}
+
+
+/* Returns non-zero if a new edge `from -> to` would close a cycle. */
+static int would_cycle(cm_Bus *from, cm_Bus *to) {
+  return from == to || reaches(to, from);
+}
+
+
+int cm_connect_bus(cm_Bus *from, cm_Bus *to, double gain) {
+  cm_Edge *e;
+
+  if (!valid_bus(from) || !valid_bus(to)) {
+    error("invalid bus");
+    return 0;
+  }
+  if (!is_finite(gain)) {
+    error("invalid gain");
+    return 0;
+  }
+  if (from == &cmixer.master) {
+    error("master output cannot be an edge source");
+    return 0;
+  }
+  if (from == to) {
+    error("edge would create a cycle");
+    return 0;
+  }
+  e = find_edge(from, to);
+  if (e) {
+    e->gain = gain;
+    return 1;
+  }
+  if (would_cycle(from, to)) {
+    error("edge would create a cycle");
+    return 0;
+  }
+  e = calloc(1, sizeof(*e));
+  if (!e) {
+    error("allocation failed");
+    return 0;
+  }
+  e->from = from;
+  e->to = to;
+  e->gain = gain;
+  e->next = from->out_edges;
+  from->out_edges = e;
+  e->innext = to->in_edges;
+  to->in_edges = e;
+  return 1;
+}
+
+
+int cm_set_edge_gain(cm_Bus *from, cm_Bus *to, double gain) {
+  cm_Edge *e;
+  if (!valid_bus(from) || !valid_bus(to)) {
+    error("invalid bus");
+    return 0;
+  }
+  e = find_edge(from, to);
+  if (!e) {
+    error("no such edge");
+    return 0;
+  }
+  if (!is_finite(gain)) {
+    error("invalid gain");
+    return 0;
+  }
+  e->gain = gain;
+  return 1;
+}
+
+
+int cm_disconnect_bus(cm_Bus *from, cm_Bus *to) {
+  cm_Edge **p;
+  cm_Edge **q;
+  cm_Edge *e;
+
+  if (!valid_bus(from) || !valid_bus(to)) {
+    error("invalid bus");
+    return 0;
+  }
+  p = &from->out_edges;
+  while (*p && (*p)->to != to) {
+    p = &(*p)->next;
+  }
+  e = *p;
+  if (!e) {
+    error("no such edge");
+    return 0;
+  }
+  *p = e->next;
+  q = &to->in_edges;
+  while (*q && *q != e) {
+    q = &(*q)->innext;
+  }
+  if (*q) {
+    *q = e->innext;
+  }
+  free(e);
+  return 1;
+}
+
+
+void cm_clear_bus_history(cm_Bus *bus) {
+  if (!valid_bus(bus) || bus->delay <= 0) {
+    return;
+  }
+  memset(bus->histx, 0, (size_t) bus->histlen * 2 * sizeof(bus->histx[0]));
+  memset(bus->histy, 0, (size_t) bus->histlen * 2 * sizeof(bus->histy[0]));
+  bus->pos = 0;
 }
 
 
@@ -144,10 +569,9 @@ static void fill_source_buffer(cm_Source *src, int offset, int length) {
 }
 
 
-static void process_source(cm_Source *src, int len) {
+static void process_source(cm_Source *src, int len, double *dst) {
   int i, n, a, b, p;
   int frame, count;
-  cm_Int32 *dst = cmixer.buffer;
 
   /* Do rewind if flag is set */
   if (src->rewind) {
@@ -190,7 +614,7 @@ static void process_source(cm_Source *src, int len) {
     count = MIN(count, len / 2);
     len -= count * 2;
 
-    /* Add audio to master buffer */
+    /* Add audio to the destination bus */
     if (src->rate == FX_UNIT) {
       /* Add audio to buffer -- basic */
       n = frame * 2;
@@ -237,11 +661,22 @@ void cm_process(cm_Int16 *dst, int len) {
   /* Zeroset internal buffer */
   memset(cmixer.buffer, 0, len * sizeof(cmixer.buffer[0]));
 
-  /* Process active sources */
+  /* Clear the input accumulators of all buses. The source loop below runs
+  ** before the graph mix, so only the non-master buses need clearing here. */
+  {
+    cm_Bus *b;
+    for (b = cmixer.buses; b; b = b->next) {
+      if (b->acc) {
+        memset(b->acc, 0, len * sizeof(b->acc[0]));
+      }
+    }
+  }
+
+  /* Process active sources into their destination buses */
   lock();
   s = &cmixer.sources;
   while (*s) {
-    process_source(*s, len);
+    process_source(*s, len, (*s)->bus->acc);
     /* Remove source from list if it is no longer playing */
     if ((*s)->state != CM_STATE_PLAYING) {
       (*s)->active = 0;
@@ -251,6 +686,13 @@ void cm_process(cm_Int16 *dst, int len) {
     }
   }
   unlock();
+
+  /* Mix the bus graph. Every node is mixed after all of its upstream nodes;
+  ** effects advance for every chunk, even if nothing is connected to them. */
+  mix_graph(len);
+  for (i = 0; i < len; i++) {
+    cmixer.buffer[i] = to_int32(cmixer.master.outbuf[i]);
+  }
 
   /* Copy internal buffer to destination and clip */
   for (i = 0; i < len; i++) {
@@ -274,6 +716,9 @@ cm_Source* cm_new_source(const cm_SourceInfo *info) {
   cm_set_pan(src, 0);
   cm_set_pitch(src, 1);
   cm_set_loop(src, 0);
+  src->bus = &cmixer.master;
+  src->allnext = cmixer.allsources;
+  cmixer.allsources = src;
   cm_stop(src);
   return src;
 }
@@ -381,6 +826,7 @@ cm_Source* cm_new_source_from_mem(void *data, int size) {
 
 void cm_destroy_source(cm_Source *src) {
   cm_Event e;
+  cm_Source **a;
   lock();
   if (src->active) {
     cm_Source **s = &cmixer.sources;
@@ -390,6 +836,16 @@ void cm_destroy_source(cm_Source *src) {
         break;
       }
     }
+  }
+  /* Detach from the list of all live sources so that routing never refers
+  ** to freed memory */
+  a = &cmixer.allsources;
+  while (*a) {
+    if (*a == src) {
+      *a = src->allnext;
+      break;
+    }
+    a = &(*a)->allnext;
   }
   unlock();
   e.type = CM_EVENT_DESTROY;

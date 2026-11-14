@@ -18,6 +18,7 @@ typedef unsigned short  cm_UInt16;
 typedef unsigned        cm_UInt32;
 
 typedef struct cm_Source cm_Source;
+typedef struct cm_Bus cm_Bus;
 
 typedef struct {
   int type;
@@ -72,5 +73,29 @@ void cm_set_loop(cm_Source *src, int loop);
 void cm_play(cm_Source *src);
 void cm_pause(cm_Source *src);
 void cm_stop(cm_Source *src);
+
+/* Auxiliary buses.
+
+** The master output is a permanent summing bus. A source contributes its
+** post-resampling, post-gain and post-pan stereo signal to a bus; buffers are
+** summed, never clipped, between buses. A delay bus applies the effect
+**     y[n] = x[n - D] + feedback * y[n - D]
+** per channel, where D is the delay length in frames. Bus and edge gains are
+** applied to the bus output and never written back into the delay history.
+** The routing graph must stay acyclic; the master output cannot be an edge
+** source. All bus functions must be called between cm_process() calls from a
+** single thread. */
+cm_Bus* cm_new_bus(double gain);
+cm_Bus* cm_new_delay_bus(int delay, double feedback);
+int cm_destroy_bus(cm_Bus *bus);
+void cm_set_bus_gain(cm_Bus *bus, double gain);
+cm_Bus* cm_get_master_bus(void);
+cm_Bus* cm_get_source_bus(cm_Source *src);
+void cm_set_source_bus(cm_Source *src, cm_Bus *bus);
+void cm_set_source_master(cm_Source *src);
+int cm_connect_bus(cm_Bus *from, cm_Bus *to, double gain);
+int cm_set_edge_gain(cm_Bus *from, cm_Bus *to, double gain);
+int cm_disconnect_bus(cm_Bus *from, cm_Bus *to);
+void cm_clear_bus_history(cm_Bus *bus);
 
 #endif

@@ -1,6 +1,7 @@
 
 # cmixer API
 * [Functions](#functions)
+* [Auxiliary buses](#auxiliary-buses)
 * [Events](#events)
 
 
@@ -24,7 +25,10 @@ outputted by `cm_process()`. This is `1` by default.
 ##### void cm_process(cm_Int16 \*dst, int len)
 Processes and mixes all the current streams and outputs the result to `dst`.
 This function always outputs signed 16bit stereo interlaced. `len` is the number
-of samples to process, this should always be an even number.
+of samples to process, this should always be an even number. Sources are
+summed into their destination buses, then the bus graph is mixed and the master
+bus is converted to 16-bit and clipped. With no auxiliary buses the output is
+byte-for-byte the same as the classic direct-to-master mixing.
 
 ##### cm_Source\* cm_new_source(const cm_SourceInfo \*info)
 Creates a new source using the information stored in `info`. All fields of the
@@ -92,6 +96,85 @@ position, calling `cm_play()` will continue playing where it left off.
 
 ##### void cm_stop(cm_Source \*src)
 Stops playing and rewinds the stream's play position back to the beginning.
+
+
+## Auxiliary buses
+Sources contribute their post-resampling, post-gain and post-pan stereo signal
+to a bus. Buses are summed into downstream buses, and the permanent master bus
+is the final summing point. Intermediate buffers are floating point and are
+never clipped; clipping only happens once, on the final 16-bit master output,
+after the master gain is applied.
+
+A plain bus's output is the sum of its current inputs multiplied by its gain. A
+delay bus applies, independently per channel,
+
+```
+y[n] = x[n - D] + feedback * y[n - D]
+```
+
+for output frame `n`, where `D` is the delay length in frames and frames with a
+negative index read as zero. The delay is timed against the master samplerate.
+`feedback` must be in `[0, 1)`. Bus and edge gains are applied to the bus output
+and are never written back into the delay history. A bus with no path to the
+master still advances its effect clock, so an empty read keeps tails decaying.
+
+All bus functions must be called between `cm_process()` calls, from the same
+thread that drives rendering. They do not take the lock callback.
+
+##### cm_Bus\* cm_new_bus(double gain)
+Creates a plain summing bus with the given output gain. Returns NULL on
+allocation failure or if `gain` is not finite.
+
+##### cm_Bus\* cm_new_delay_bus(int delay, double feedback)
+Creates a delay bus. `delay` must be a positive number of frames and `feedback`
+must be finite and in `[0, 1)`. Invalid arguments are rejected before any state
+is created and NULL is returned.
+
+##### int cm_destroy_bus(cm_Bus \*bus)
+Frees a bus. The master bus and buses referenced by a live source, or having an
+incoming or outgoing edge, cannot be freed. A rejected destroy changes nothing
+and returns `0`; success returns `1`. Destroying a source removes its reference,
+so a bus freed afterwards never has a dangling route.
+
+##### void cm_set_bus_gain(cm_Bus \*bus, double gain)
+Sets the bus output gain. Non-finite values are rejected and leave the gain
+unchanged.
+
+##### cm_Bus\* cm_get_master_bus(void)
+Returns the permanent master output bus. It is always present, is the final
+summing point, and cannot be destroyed or used as an edge source.
+
+##### cm_Bus\* cm_get_source_bus(cm_Source \*src)
+Returns the bus the source currently feeds. New sources feed the master bus.
+
+##### void cm_set_source_bus(cm_Source \*src, cm_Bus \*bus)
+Routes the source into `bus`. The source is still decoded and advanced exactly
+once; only its contribution changes destination. Passing a bus that is not part
+of the graph leaves the routing unchanged.
+
+##### void cm_set_source_master(cm_Source \*src)
+Restores the default route of the source: the master output bus.
+
+##### int cm_connect_bus(cm_Bus \*from, cm_Bus \*to, double gain)
+Connects `from` to `to` with the given gain. Returns `0` and leaves the graph
+untouched if the edge would create a cycle, if `from` is the master bus, if
+either bus is invalid, or if `gain` is not finite. Connecting an already
+connected pair only updates its gain (the same as `cm_set_edge_gain()`).
+Multiple upstream buses are summed at the destination.
+
+##### int cm_set_edge_gain(cm_Bus \*from, cm_Bus \*to, double gain)
+Updates the gain of an existing edge. Returns `0` if the edge does not exist or
+the gain is not finite.
+
+##### int cm_disconnect_bus(cm_Bus \*from, cm_Bus \*to)
+Removes an edge. Disconnecting an input edge does not clear the destination's
+delay history; the effect keeps advancing, and reconnecting does not replay the
+tail from the disconnected period. Returns `0` if the edge does not exist.
+
+##### void cm_clear_bus_history(cm_Bus \*bus)
+Clears the delay history of one delay bus. Only that bus's two channel states
+(and its read/write clock) are reset; source positions and other buses are
+left untouched. Has no effect on plain or invalid buses.
 
 
 ## Events
