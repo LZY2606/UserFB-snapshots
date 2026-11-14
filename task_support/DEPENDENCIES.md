@@ -1,0 +1,3 @@
+Upstream: https://github.com/mafredri/cdp @ 715c982e8fafa3792ddfa061cef2bcac064cfa15, MIT. Original source, tests, go.mod, go.sum and LICENSE remain unchanged.
+
+Vendor was produced with go mod vendor using task-private empty preparation caches. Runtime uses a separate initially empty .task-cache with GOPROXY=off, GOTOOLCHAIN=local, GOFLAGS=-mod=vendor. go.mod/go.sum/vendor/modules.txt fix dependencies and vendor retains upstream license files. Source-manifest.json outside the seed records hashes. No Python, browser, credentials or download needed at runtime. Tool dependencies in the original module are retained as vendored source but not built by the support entry.
