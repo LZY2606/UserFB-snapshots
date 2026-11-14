@@ -60,6 +60,7 @@ void ArrayKernel::garbage_collection(std_API_Container_VHandlePointer& vh_to_upd
                                      std_API_Container_FHandlePointer& fh_to_update,
                                      bool _v, bool _e, bool _f)
 {
+  check_garbage_collection_allowed();
 
 #ifdef DEBUG
   #ifndef OM_GARBAGE_NO_STATUS_WARNING

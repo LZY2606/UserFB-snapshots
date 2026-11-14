@@ -40,13 +40,15 @@
 \*===========================================================================*/
 
 #include <OpenMesh/Core/Mesh/ArrayKernel.hh>
+#include <stdexcept>
 
 namespace OpenMesh
 {
 
 ArrayKernel::ArrayKernel()
 : refcount_vstatus_(0), refcount_hstatus_(0),
-  refcount_estatus_(0), refcount_fstatus_(0)
+  refcount_estatus_(0), refcount_fstatus_(0),
+  history_session_active_(false)
 {
   init_bit_masks(); //Status bit masks initialization
 }
@@ -164,10 +166,44 @@ unsigned int ArrayKernel::delete_isolated_vertices()
 
 void ArrayKernel::garbage_collection(bool _v, bool _e, bool _f)
 {
+  check_garbage_collection_allowed();
   std::vector<VertexHandle*> empty_vh;
   std::vector<HalfedgeHandle*> empty_hh;
   std::vector<FaceHandle*> empty_fh;
   garbage_collection( empty_vh,empty_hh,empty_fh,_v, _e, _f);
+}
+
+//-----------------------------------------------------------------------------
+
+void ArrayKernel::register_history_session()
+{
+  if (history_session_active_)
+    throw std::logic_error("ArrayKernel: a decimater history session is "
+                           "already bound to this mesh");
+  history_session_active_ = true;
+}
+
+//-----------------------------------------------------------------------------
+
+void ArrayKernel::unregister_history_session()
+{
+  history_session_active_ = false;
+}
+
+//-----------------------------------------------------------------------------
+
+bool ArrayKernel::has_history_session() const
+{
+  return history_session_active_;
+}
+
+//-----------------------------------------------------------------------------
+
+void ArrayKernel::check_garbage_collection_allowed() const
+{
+  if (history_session_active_)
+    throw std::logic_error("ArrayKernel::garbage_collection: not allowed "
+                           "while a decimater collapse history is enabled");
 }
 
 void ArrayKernel::clean()

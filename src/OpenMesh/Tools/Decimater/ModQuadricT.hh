@@ -168,6 +168,16 @@ public: // specific methods
   /// Return value of max. allowed error.
   double max_err() const { return max_err_; }
 
+  /** Read access to the error quadric currently accumulated at \p _vh.
+   *
+   *  The decimater history restores these quadrics together with the
+   *  other vertex properties on undo/redo; this accessor allows callers
+   *  (and tests) to observe the quadric at a given history position.
+   */
+  Geometry::QuadricT<double>& quadric(
+      typename MeshT::VertexHandle _vh)
+  { return Base::mesh().property(quadrics_, _vh); }
+
 
 private:
 

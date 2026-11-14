@@ -58,6 +58,29 @@
 
 namespace OpenMesh {
 
+//== TYPE-ERASED PROPERTY VALUE ===============================================
+
+/** Concrete, typed single-element snapshot used by BaseProperty::snapshot().
+ *
+ *  Every type \c T that can be copy-constructed gets this support for free,
+ *  independently of whether it supports binary IO.
+ */
+template <class T>
+class PropertyValueTImpl : public PropertyValueT
+{
+public:
+  explicit PropertyValueTImpl(const T& _value) : value_(_value) {}
+
+  virtual PropertyValueT* clone() const
+  { return new PropertyValueTImpl<T>(value_); }
+
+  const T& value() const { return value_; }
+  T&       value()       { return value_; }
+
+private:
+  T value_;
+};
+
 //== CLASS DEFINITION =========================================================
 
 /** \class PropertyT Property.hh <OpenMesh/Core/Utils/PropertyT.hh>
@@ -198,6 +221,16 @@ public: // data access interface
     PropertyT<T>* p = new PropertyT<T>( *this );
     return p;
   }
+
+public: // local history support
+
+  virtual bool can_snapshot() const { return true; }
+
+  virtual PropertyValueT* snapshot(size_t _idx) const
+  { return new PropertyValueTImpl<T>(data_[_idx]); }
+
+  virtual void restore(size_t _idx, const PropertyValueT* _value)
+  { data_[_idx] = static_cast<const PropertyValueTImpl<T>*>(_value)->value(); }
 
 
 private:
@@ -363,6 +396,16 @@ public:
     return p;
   }
 
+public: // local history support
+
+  virtual bool can_snapshot() const { return true; }
+
+  virtual PropertyValueT* snapshot(size_t _idx) const
+  { return new PropertyValueTImpl<bool>(bool(data_[_idx])); }
+
+  virtual void restore(size_t _idx, const PropertyValueT* _value)
+  { data_[_idx] = static_cast<const PropertyValueTImpl<bool>*>(_value)->value(); }
+
 
 private:
 
@@ -449,6 +492,17 @@ public:
     PropertyT<value_type>* p = new PropertyT<value_type>( *this );
     return p;
   }
+
+public: // local history support
+
+  virtual bool can_snapshot() const { return true; }
+
+  virtual PropertyValueT* snapshot(size_t _idx) const
+  { return new PropertyValueTImpl<std::string>(data_[_idx]); }
+
+  virtual void restore(size_t _idx, const PropertyValueT* _value)
+  { data_[_idx] = static_cast<const PropertyValueTImpl<std::string>*>(_value)->value(); }
+
 private:
 
   vector_type data_;

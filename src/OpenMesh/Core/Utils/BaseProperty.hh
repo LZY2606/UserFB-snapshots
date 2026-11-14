@@ -48,6 +48,44 @@
 
 namespace OpenMesh {
 
+//== FORWARD DECLARATIONS ======================================================
+
+/** Type-erased copy of a single property element.
+ *
+ *  Instances are created by BaseProperty::snapshot() and consumed by
+ *  BaseProperty::restore().  The class is reference counted so that the
+ *  same value can be shared between the before/after images of several
+ *  history records without copying the wrapped value again.
+ */
+class OPENMESHDLLEXPORT PropertyValueT
+{
+public:
+  PropertyValueT() : refcount_(1) {}
+
+  /// Polymorphic deep copy of the wrapped value.
+  virtual PropertyValueT* clone() const = 0;
+
+  /// Virtual destructor, the value owns its storage.
+  virtual ~PropertyValueT() {}
+
+  /** Reference counting used by the history implementation.
+   *  retain() increments the use count, release() decrements it and
+   *  deletes the object when the count reaches zero.
+   */
+  void retain() { ++refcount_; }
+  void release()
+  {
+    if (--refcount_ == 0)
+      delete this;
+  }
+
+private:
+  PropertyValueT(const PropertyValueT&);
+  PropertyValueT& operator=(const PropertyValueT&);
+
+  unsigned int refcount_;
+};
+
 //== CLASS DEFINITION =========================================================
 
 /** \class BaseProperty Property.hh <OpenMesh/Core/Utils/PropertyT.hh>
@@ -111,6 +149,33 @@ public: // synchronized array interface
   
   /// Return a deep copy of self.
   virtual BaseProperty* clone () const = 0;
+
+  /** \name Local history support
+   *
+   *  The following three methods implement type-erased access to single
+   *  property elements.  They are used by the decimater history to store
+   *  and restore local before/after images of individual slots without
+   *  having to know the value type at compile time.  The default
+   *  implementation reports that snapshots are not available; the generic
+   *  PropertyT implementation overrides them for every copyable type
+   *  (including bool, std::string and user types without IO support).
+   */
+  //@{
+
+  /// Returns true if single-element snapshots are supported by this property.
+  virtual bool can_snapshot() const { return false; }
+
+  /** Return an opaque copy of the value stored at element index \p _idx.
+   *
+   *  The returned object is owned by the caller and must be released with
+   *  delete.  Only call this if can_snapshot() returns true.
+   */
+  virtual class PropertyValueT* snapshot(size_t /* _idx */) const { return 0; }
+
+  /// Restore a value previously obtained from snapshot() at element index \p _idx.
+  virtual void restore(size_t /* _idx */, const class PropertyValueT* /* _value */) {}
+
+  //@}
 
 public: // named property interface
 

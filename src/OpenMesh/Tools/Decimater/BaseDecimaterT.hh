@@ -215,6 +215,12 @@ protected: //---------------------------------------------------- private method
    */
   void reset(){ initialized_ = false; };
 
+  /// The current priority (non-binary) module; valid only when initialized.
+  Module* priority_module() const { return cmodule_; }
+
+  /// The list of binary modules participating in each collapse decision.
+  const ModuleList& binary_modules() const { return bmodules_; }
+
 
 private: //------------------------------------------------------- private data
 

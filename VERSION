@@ -1,6 +1,10 @@
-VERSION=3.0
-MAJOR=3
-MINOR=0
-PATCH=0
-ID=OPENMESH
-
+// On case-insensitive file systems this file can shadow the C++ standard
+// library's <version> header when the repository root is on the include
+// path (the task test harness builds with -I.). Keeping the release
+// metadata in C++ comments makes the file harmless in that role while the
+// acg_get_version() CMake regexes below still find their KEY=value tokens.
+// VERSION=3.0
+// MAJOR=3
+// MINOR=0
+// PATCH=0
+// ID=OPENMESH

@@ -52,6 +52,7 @@
 
 
 //== INCLUDES =================================================================
+#include <set>
 #include <vector>
 
 #include <OpenMesh/Core/System/config.h>
@@ -286,6 +287,32 @@ public:
                           std_API_Container_HHandlePointer& hh_to_update,
                           std_API_Container_FHandlePointer& fh_to_update,
                           bool _v=true, bool _e=true, bool _f=true);
+
+  /** \name Decimater history session tracking
+   *
+   *  While a decimater with an enabled local collapse history is bound to
+   *  a mesh, the mesh registers itself here.  Garbage collection would
+   *  invalidate the handles stored in the history records, so both
+   *  garbage_collection() overloads refuse to run while a session is
+   *  active (see check_garbage_collection_allowed()).  The same flag tells
+   *  the connectivity code to restore the temporary \em tagged bits after
+   *  collapse-legality probes.
+   */
+  //@{
+
+  /// Register an active history session for this mesh.
+  void register_history_session();
+
+  /// Remove the history session registration of this mesh.
+  void unregister_history_session();
+
+  /// True while a history session is registered for this mesh.
+  bool has_history_session() const;
+
+  /// Throw std::logic_error while a history session is registered.
+  void check_garbage_collection_allowed() const;
+
+  //@}
 
   /** \brief Clear the whole mesh
    *
@@ -827,6 +854,10 @@ private:
   BitMaskContainer                          edge_bit_masks_;
   BitMaskContainer                          vertex_bit_masks_;
   BitMaskContainer                          face_bit_masks_;
+
+  // True while a decimater with an enabled collapse history is bound to
+  // this mesh.  At most one history session may be bound at a time.
+  bool                                      history_session_active_;
 };
 
 

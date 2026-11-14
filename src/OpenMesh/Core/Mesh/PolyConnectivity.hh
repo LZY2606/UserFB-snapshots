@@ -266,7 +266,8 @@ public:
       \attention This method need the Attributes::Status attribute and
       changes the \em tagged bit.  */
   bool is_collapse_ok(HalfedgeHandle _he);
-    
+
+
     
   /** Mark vertex and all incident edges and faces deleted.
       Items marked deleted will be removed by garbageCollection().

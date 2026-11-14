@@ -44,9 +44,44 @@
 
 #include <OpenMesh/Core/Mesh/TriConnectivity.hh>
 #include <OpenMesh/Core/System/omstream.hh>
+#include <utility>
+#include <vector>
 
 namespace OpenMesh
 {
+
+namespace {
+
+/// Restores tagged bits touched by is_collapse_ok() during history sessions.
+class TriTaggedBitGuard
+{
+public:
+  explicit TriTaggedBitGuard(TriConnectivity& _mesh)
+    : mesh_(_mesh), active_(_mesh.has_history_session())
+  {}
+
+  ~TriTaggedBitGuard()
+  {
+    if (!active_) return;
+    for (size_t i = 0; i < saved_.size(); ++i)
+      mesh_.status(saved_[i].first).set_tagged(saved_[i].second);
+  }
+
+  void remember(TriConnectivity::VertexHandle _vh)
+  {
+    if (!active_) return;
+    for (size_t i = 0; i < saved_.size(); ++i)
+      if (saved_[i].first == _vh) return;
+    saved_.push_back(std::make_pair(_vh, mesh_.status(_vh).tagged()));
+  }
+
+private:
+  TriConnectivity&                                  mesh_;
+  bool                                              active_;
+  std::vector<std::pair<TriConnectivity::VertexHandle, bool> > saved_;
+};
+
+} // anonymous namespace
 
 TriConnectivity::FaceHandle
 TriConnectivity::add_face(const VertexHandle* _vertex_handles, size_t _vhs_size)
@@ -101,6 +136,9 @@ FaceHandle TriConnectivity::add_face(VertexHandle _vh0, VertexHandle _vh1, Verte
 
 bool TriConnectivity::is_collapse_ok(HalfedgeHandle v0v1)
 {
+  // In history mode the temporary tagged bits must not leak to callers.
+  TriTaggedBitGuard tagged_guard(*this);
+
   // is the edge already deleted?
   if ( status(edge_handle(v0v1)).deleted() )
     return false;
@@ -154,10 +192,16 @@ bool TriConnectivity::is_collapse_ok(HalfedgeHandle v0v1)
 
   // test intersection of the one-rings of v0 and v1
   for (vv_it = vv_iter(v0); vv_it.is_valid(); ++vv_it)
+  {
+    tagged_guard.remember(*vv_it);
     status(*vv_it).set_tagged(false);
+  }
 
   for (vv_it = vv_iter(v1); vv_it.is_valid(); ++vv_it)
+  {
+    tagged_guard.remember(*vv_it);
     status(*vv_it).set_tagged(true);
+  }
 
   for (vv_it = vv_iter(v0); vv_it.is_valid(); ++vv_it)
     if (status(*vv_it).tagged() && *vv_it != vl && *vv_it != vr)

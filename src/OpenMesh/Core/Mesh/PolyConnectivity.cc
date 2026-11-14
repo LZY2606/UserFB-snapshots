@@ -42,8 +42,45 @@
 //== IMPLEMENTATION ==========================================================
 #include <OpenMesh/Core/Mesh/PolyConnectivity.hh>
 #include <set>
+#include <utility>
+#include <vector>
 
 namespace OpenMesh {
+
+namespace {
+
+/// Remembers and restores the temporary tagged bits touched by
+/// is_collapse_ok() while a decimater history session is active, so that
+/// legality probes cannot leak temporary state to the caller.
+class TaggedBitGuard
+{
+public:
+  explicit TaggedBitGuard(PolyConnectivity& _mesh)
+    : mesh_(_mesh), active_(_mesh.has_history_session())
+  {}
+
+  ~TaggedBitGuard()
+  {
+    if (!active_) return;
+    for (size_t i = 0; i < saved_.size(); ++i)
+      mesh_.status(saved_[i].first).set_tagged(saved_[i].second);
+  }
+
+  void remember(PolyConnectivity::VertexHandle _vh)
+  {
+    if (!active_) return;
+    for (size_t i = 0; i < saved_.size(); ++i)
+      if (saved_[i].first == _vh) return;
+    saved_.push_back(std::make_pair(_vh, mesh_.status(_vh).tagged()));
+  }
+
+private:
+  PolyConnectivity&                                     mesh_;
+  bool                                                  active_;
+  std::vector<std::pair<PolyConnectivity::VertexHandle, bool> > saved_;
+};
+
+} // anonymous namespace
 
 const PolyConnectivity::VertexHandle    PolyConnectivity::InvalidVertexHandle;
 const PolyConnectivity::HalfedgeHandle  PolyConnectivity::InvalidHalfedgeHandle;
@@ -320,7 +357,11 @@ FaceHandle PolyConnectivity::add_face(const std::vector<VertexHandle>& _vhandles
 //-----------------------------------------------------------------------------
 bool PolyConnectivity::is_collapse_ok(HalfedgeHandle v0v1)
 {
-  //is edge already deleteed?
+  // In history mode the tagged bits used below must be restored on every
+  // exit path, including the early failure returns.
+  TaggedBitGuard tagged_guard(*this);
+
+  // is edge already deleteed?
   if (status(edge_handle(v0v1)).deleted())
   {
     return false;
@@ -390,11 +431,13 @@ bool PolyConnectivity::is_collapse_ok(HalfedgeHandle v0v1)
   // test intersection of the one-rings of v0 and v1
   for (vv_it = vv_iter(v0); vv_it.is_valid(); ++vv_it)
   {
+    tagged_guard.remember(*vv_it);
     status(*vv_it).set_tagged(false);
   }
 
   for (vv_it = vv_iter(v1); vv_it.is_valid(); ++vv_it)
   {
+    tagged_guard.remember(*vv_it);
     status(*vv_it).set_tagged(true);
   }
 

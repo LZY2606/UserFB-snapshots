@@ -81,13 +81,104 @@
   non-binary module must be registrated with the decimater.
 
   See \ref DecimaterExa.
-        
+
+\section DecimaterHistory Local, replayable collapse history
+
+  OpenMesh::Decimater::DecimaterT can additionally keep a local,
+  replayable history of the halfedge collapses it performs, so a modeling
+  application can drag a simplification slider back and forth on the very
+  same mesh object.  Unlike OpenMesh::Decimater::ModProgMeshT, which only
+  stores vertex numbers for progressive mesh export, the history stores
+  local before/after images of every affected slot, hence halfedge slots,
+  per-corner attributes, status bits, boundary links, representative
+  halfedges, points, normals, dynamic properties and the accumulated
+  ModQuadricT quadrics can all be restored in place.
+
+  The API on the decimater is:
+  - <b>enable_history()</b>: starts a history session.  It only succeeds
+    when the decimater is already initialized, no history is currently
+    enabled on this decimater or its mesh, and the module setup is a
+    non-binary OpenMesh::Decimater::ModQuadricT used alone or together
+    with an OpenMesh::Decimater::ModNormalFlippingT.  Any other module
+    combination is rejected with \c false and leaves the mesh and the
+    modules untouched.
+  - <b>disable_history()</b>: discards all records, releases the session
+    and restores ordinary garbage collection behavior.  The destructor
+    does the same.
+  - <b>undo(n)</b> / <b>redo(n)</b>: move up to \p n records, returning
+    the number actually moved; moving past either end simply stops, and
+    \p n == 0 changes nothing.  Replay restores the stored images
+    directly and never re-runs priorities, collapses, module callbacks or
+    the transfer callback.
+  - <b>history_size()</b>, <b>history_position()</b> and
+    <b>history_stored_elements()</b>: const inspection of the current
+    branch length, the number of applied records, and the number of
+    individual property values retained across all records (one value of
+    one property on one slot counts as one).
+
+  Each record covers only the local support domain of its collapse (the
+  two endpoints, their adjacent faces and all vertices, edges and
+  halfedges of those faces).  No full-mesh or full-property-column copies
+  are taken, the model is never serialized, and no shadow slots are
+  appended to the mesh; the required storage therefore does not grow with
+  unrelated, distant geometry.
+
+  <b>Transfer callback.</b> Before enabling, an optional callback of type
+  \code std::function<void(const CollapseInfo&)> \endcode can be
+  registered with set_history_transfer().  It is invoked exactly once per
+  recorded collapse, after module post-processing, and its effects are
+  part of the stored after image (so undo/redo reproduce them without
+  calling the callback again).  Through the mesh reference it captures,
+  the callback transfers ordinary V/H/E/F properties onto the surviving
+  elements.  It may write the slots adjacent to either endpoint before the
+  collapse, including slots that become deleted.  It must not throw, must
+  not change topology, points, status bits, normals or the property
+  structure, must not touch module-private properties, and must not have
+  external business side effects.
+
+  <b>Usage protocol and preconditions.</b>
+  -# Add all properties and modules.
+  -# Call initialize().
+  -# Optionally call set_history_transfer().
+  -# Call enable_history().
+  -# Drive decimation with decimate(), decimate_to() or
+     decimate_to_faces(), and navigate with undo()/redo().
+  -# Call disable_history() (or destroy the decimater) before using
+     garbage collection.
+
+  While a session is enabled the application must not edit the mesh
+  topology, points, status bits or normals outside the decimater, must not
+  edit property values or the property structure outside the transfer
+  callback, must not add/remove modules, change module parameters or
+  re-initialize, and must not replace the transfer callback.  Both
+  garbage_collection() overloads throw std::logic_error while a session is
+  enabled (an empty history included); compression works normally again
+  after disable_history() or destruction.  The mesh must outlive the
+  decimater, and at most one history session may be bound to a mesh at any
+  time.  Decimating again from an undone position opens a new branch: the
+  old future is discarded on the first successful collapse, while a call
+  that performs no collapse never discards it.  Slots already deleted
+  before the session are never resurrected by an undo.
+
+  The legality check temporarily uses the vertices' \em tagged status bit;
+  in history mode those temporary bits are always restored, so candidate
+  probing never leaks tagged state to the caller.
+
+  A complete example is in \ref DecimaterHistoryExa.
+
 \section DecimaterExa Basic Setup
 
   The following small example show the basic steps to setup up a
   decimater:
 
 \include decimater.cc
+
+\section DecimaterHistoryExa History Setup
+
+  The following example shows the history enable/transfer/undo/redo
+  workflow:
+
+\include decimater_history.cc
 
 */
 
