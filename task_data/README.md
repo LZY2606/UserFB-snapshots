@@ -1,0 +1,1 @@
+Data from the cited paper. Columns are column-major. Table row indexing is a + t*64. This file contains precomputed numeric matrices and amplitudes only. Original redistribution terms are in LTC-LICENSE.
