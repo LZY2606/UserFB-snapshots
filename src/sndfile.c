@@ -287,6 +287,7 @@ ErrorStruct SndfileErrors [] =
 	{	SFE_MPEG_BAD_SAMPLERATE	, "Error : MPEG-1/2/2.5 only supports sample rates of 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, and 48000." },
 
 	{	SFE_CAF_NOT_CAF			, "Error : Not a CAF file." },
+	{	SFE_CAF_ALAC_BAD_PACKET	, "Error : CAF ALAC packet metadata does not match the encoded data." },
 	{	SFE_CAF_NO_DESC			, "Error : No 'desc' marker in CAF file." },
 	{	SFE_CAF_BAD_PEAK		, "Error : Bad 'PEAK' chunk in CAF file." },
 

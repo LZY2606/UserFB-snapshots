@@ -42,6 +42,31 @@ From version 1.0.29, libsndfile can read and write
 
 From version 1.1.0, libsndfile can read and write MP3.
 
+### Apple CAF / ALAC packet tables
+
+CAF files using Apple Lossless (ALAC) store their audio as a sequence of
+packets described by the `pakt` chunk. libsndfile reads both layouts:
+
+* Fixed packet duration: `desc` declares a non-zero `frames per packet` and
+  each `pakt` entry is a single byte count. This layout remains readable and
+  writable as before; the frame count is derived from the packet table.
+* Variable packet duration: `desc` sets both `bytes per packet` and
+  `frames per packet` to zero, and every `pakt` entry is a pair of
+  seven-bit, big-endian continuation integers holding that packet's byte
+  count and frame count.
+
+Variable packet reading is supported for seekable CAF files, ALAC 16 and
+24 bit, mono and stereo, with zero priming and remainder frames. Each packet
+must declare between 1 and the maximum frame length advertised in the ALAC
+magic cookie, up to 4096 frames. The packet count, valid frame count, packet
+byte total and the actual `data` payload must agree, and every packet must
+decode to exactly the declared number of frames; otherwise opening or
+reading fails with an error instead of treating the mismatch as end of file.
+Reading allocates scratch space only for one maximum-length packet per
+channel, while the packet directory grows with the packet count. Seeking
+operates on the same zero-based frame axis as `sf_readf_*`, including packet
+boundaries and `SEEK_END`. Writing variable packet files is not supported.
+
 32 bit PCM in FLAC requires libFLAC 1.4.0 or later.
 
 Some of the file formats I am also interested in adding are:

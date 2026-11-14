@@ -21,6 +21,7 @@
 #include	<stdio.h>
 #include	<stdlib.h>
 #include	<string.h>
+#include	<stdint.h>
 #include	<math.h>
 #include	<errno.h>
 
@@ -36,6 +37,13 @@
 
 typedef struct
 {	uint32_t	current, count, allocated ;
+
+	/* Variable packet duration support. These arrays are NULL for fixed
+	** duration packets (the traditional CAF/ALAC layout). */
+	uint32_t	*packet_frames ;
+	sf_count_t	*packet_byte_offset ;
+	sf_count_t	*packet_frame_offset ;
+
 	uint32_t	packet_size [] ;
 } PAKT_INFO ;
 
@@ -48,7 +56,10 @@ typedef struct
 
 	uint32_t	frames_this_block, partial_block_frames, frames_per_block ;
 	uint32_t	bits_per_sample, kuki_size ;
+	uint32_t	pcm_frames ;		/* Capacity of the flexible `buffer` array, in frames. */
 
+	int			variable ;		/* Non-zero when each packet has its own frame count. */
+	uint32_t	max_packet_frames ;
 
 	/* Can't have a decoder and an encoder at the same time so stick
 	** them in a union.
@@ -63,7 +74,7 @@ typedef struct
 
 	uint8_t	byte_buffer [ALAC_MAX_CHANNEL_COUNT * ALAC_BYTE_BUFFER_SIZE] ;
 
-	int	buffer	[] ;
+	int	*buffer ;
 
 } ALAC_PRIVATE ;
 
@@ -74,6 +85,7 @@ static int alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info) ;
 static int alac_writer_init (SF_PRIVATE *psf) ;
 
 static sf_count_t alac_reader_calc_frames (SF_PRIVATE *psf, ALAC_PRIVATE *plac) ;
+static sf_count_t alac_reader_calc_frames_variable (ALAC_PRIVATE *plac) ;
 
 static sf_count_t alac_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len) ;
 static sf_count_t alac_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len) ;
@@ -90,16 +102,20 @@ static sf_count_t	alac_seek	(SF_PRIVATE *psf, int mode, sf_count_t offset) ;
 static int	alac_close		(SF_PRIVATE *psf) ;
 static int	alac_byterate	(SF_PRIVATE *psf) ;
 
+static int alac_ensure_pcm_buffer (ALAC_PRIVATE *plac, uint32_t frames) ;
 static int alac_decode_block (SF_PRIVATE *psf, ALAC_PRIVATE *plac) ;
+static int alac_decode_block_variable (SF_PRIVATE *psf, ALAC_PRIVATE *plac) ;
 static int alac_encode_block (ALAC_PRIVATE *plac) ;
 
 static uint32_t alac_kuki_read (SF_PRIVATE * psf, uint32_t kuki_offset, uint8_t * kuki, size_t kuki_maxlen) ;
 
 static PAKT_INFO * alac_pakt_alloc (uint32_t initial_count) ;
-static PAKT_INFO * alac_pakt_read_decode (SF_PRIVATE * psf, uint32_t pakt_offset) ;
+static PAKT_INFO * alac_pakt_read_decode (SF_PRIVATE * psf, uint32_t max_packet_frames, int variable) ;
 static PAKT_INFO * alac_pakt_append (PAKT_INFO * info, uint32_t value) ;
 static uint8_t * alac_pakt_encode (const SF_PRIVATE *psf, uint32_t * pakt_size) ;
 static sf_count_t alac_pakt_block_offset (const PAKT_INFO *info, uint32_t block) ;
+static void alac_pakt_free (PAKT_INFO * info) ;
+static int alac_pakt_read_uint (const uint8_t * data, uint32_t limit, uint32_t *pos, uint64_t *value) ;
 
 static const char * alac_error_string (int error) ;
 
@@ -111,7 +127,9 @@ int
 alac_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 {	int error ;
 
-	if ((psf->codec_data = calloc (1, sizeof (ALAC_PRIVATE) + psf->sf.channels * sizeof (int) * ALAC_MAX_FRAME_SIZE)) == NULL)
+	/* The PCM scratch buffer is allocated in the mode-specific initialiser,
+	** sized from the packet geometry (one ALAC block per channel). */
+	if ((psf->codec_data = calloc (1, sizeof (ALAC_PRIVATE))) == NULL)
 		return SFE_MALLOC_FAILED ;
 
 	psf->codec_close = alac_close ;
@@ -214,8 +232,12 @@ alac_close	(SF_PRIVATE *psf)
 		} ;
 
 	if (plac->pakt_info)
-		free (plac->pakt_info) ;
+		alac_pakt_free (plac->pakt_info) ;
 	plac->pakt_info = NULL ;
+
+	free (plac->buffer) ;
+	plac->buffer = NULL ;
+	plac->pcm_frames = 0 ;
 
 	return 0 ;
 } /* alac_close */
@@ -236,7 +258,7 @@ alac_byterate	(SF_PRIVATE *psf)
 static int
 alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 {	ALAC_PRIVATE	*plac ;
-	uint32_t		kuki_size ;
+	uint32_t		kuki_size, packet_frames_per_block ;
 	int				error ;
 	union			{ uint8_t kuki [512] ; uint32_t alignment ; } u ;
 
@@ -245,25 +267,28 @@ alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 		return SFE_INTERNAL ;
 		} ;
 
-	if (info->frames_per_packet > ALAC_FRAME_LENGTH)
-	{	psf_log_printf (psf, "*** Error : frames_per_packet (%u) is too big. ***\n", info->frames_per_packet) ;
-		return SFE_INTERNAL ;
-		} ;
-
+	/* A 'desc' with zero frames per packet and zero bytes per packet
+	** announces that each 'pakt' entry carries both the byte count and the
+	** frame count of its packet. Anything else is the traditional fixed
+	** block layout (one byte count per packet, all packets the same length).
+	*/
 	plac = psf->codec_data ;
 
+	if (info->frames_per_packet == 0 && info->bytes_per_packet == 0)
+		{	plac->variable = 1 ;
+			packet_frames_per_block = ALAC_FRAME_LENGTH ;
+			}
+	else
+		{	if (info->frames_per_packet > ALAC_FRAME_LENGTH)
+			{	psf_log_printf (psf, "*** Error : frames_per_packet (%u) is too big. ***\n", info->frames_per_packet) ;
+				return SFE_INTERNAL ;
+				} ;
+			packet_frames_per_block = info->frames_per_packet ;
+			} ;
+
 	plac->channels			= psf->sf.channels ;
-	plac->frames_per_block	= info->frames_per_packet ;
+	plac->frames_per_block	= packet_frames_per_block ;
 	plac->bits_per_sample	= info->bits_per_sample ;
-
-	if (plac->pakt_info != NULL)
-		free (plac->pakt_info) ;
-	plac->pakt_info = alac_pakt_read_decode (psf, info->pakt_offset) ;
-
-	if (plac->pakt_info == NULL)
-	{	psf_log_printf (psf, "%s : alac_pkt_read() returns NULL.\n", __func__) ;
-		return SFE_INTERNAL ;
-		} ;
 
 	/* Read in the ALAC cookie data and pass it to the init function. */
 	kuki_size = alac_kuki_read (psf, info->kuki_offset, u.kuki, sizeof (u.kuki)) ;
@@ -277,6 +302,47 @@ alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 	if (plac->u.decoder.mNumChannels != (unsigned) psf->sf.channels)
 	{	psf_log_printf (psf, "*** Initialized decoder has %u channels, but it should be %d. ***\n", plac->u.decoder.mNumChannels, psf->sf.channels) ;
 		return SFE_INTERNAL ;
+		} ;
+
+	if (plac->variable)
+	{	/* The decoder's frame length is the largest packet the file can
+		** contain. A partial frame shorter than it is legal, longer is not.
+		*/
+		if (plac->u.decoder.mConfig.frameLength == 0
+				|| plac->u.decoder.mConfig.frameLength > ALAC_FRAME_LENGTH)
+		{	psf_log_printf (psf, "*** Bad ALAC frame length %u in cookie. ***\n", plac->u.decoder.mConfig.frameLength) ;
+			return SFE_CAF_ALAC_BAD_PACKET ;
+			} ;
+		plac->max_packet_frames = plac->u.decoder.mConfig.frameLength ;
+		}
+	else if (plac->frames_per_block == 0)
+	{	psf_log_printf (psf, "*** ALAC declares zero frames per packet. ***\n") ;
+		return SFE_CAF_ALAC_BAD_PACKET ;
+		} ;
+
+	/* The decoder honours the frame count embedded in the bitstream, which
+	** may be as large as a whole ALAC block. Size the scratch buffer for one
+	** such block per channel so a lying packet is decoded (and then
+	** rejected) without overrunning it. This does not grow with the packet
+	** count.
+	*/
+	if ((error = alac_ensure_pcm_buffer (plac, ALAC_MAX_FRAME_SIZE)) != 0)
+		return error ;
+
+	if (plac->pakt_info != NULL)
+		alac_pakt_free (plac->pakt_info) ;
+	plac->pakt_info = alac_pakt_read_decode (psf, plac->max_packet_frames, plac->variable) ;
+
+	if (plac->pakt_info == NULL)
+	{	psf_log_printf (psf, "%s : alac_pkt_read() returns NULL.\n", __func__) ;
+		return plac->variable ? SFE_CAF_ALAC_BAD_PACKET : SFE_INTERNAL ;
+		} ;
+
+	/* Translating a seek position to a packet offset means the reader needs
+	** random access to the whole packet table, not just the current entry. */
+	if (plac->variable && ! psf->sf.seekable)
+	{	psf_log_printf (psf, "**** Variable packet ALAC requires a seekable file.\n") ;
+		return SFE_CAF_ALAC_BAD_PACKET ;
 		} ;
 
 	switch (info->bits_per_sample)
@@ -298,7 +364,13 @@ alac_reader_init (SF_PRIVATE *psf, const ALAC_DECODER_INFO * info)
 	psf->codec_close	= alac_close ;
 	psf->seek			= alac_seek ;
 
-	psf->sf.frames		= alac_reader_calc_frames (psf, plac) ;
+	if (plac->variable)
+	{	psf->sf.frames = alac_reader_calc_frames_variable (plac) ;
+		}
+	else
+	{	psf->sf.frames = alac_reader_calc_frames (psf, plac) ;
+		} ;
+
 	alac_seek (psf, SFM_READ, 0) ;
 
 	return 0 ;
@@ -316,6 +388,9 @@ alac_writer_init (SF_PRIVATE *psf)
 
 	plac->channels	= psf->sf.channels ;
 	plac->kuki_size = alac_get_magic_cookie_size (psf->sf.channels) ;
+
+	if (alac_ensure_pcm_buffer (plac, ALAC_MAX_FRAME_SIZE) != 0)
+		return SFE_MALLOC_FAILED ;
 
 	psf->write_short	= alac_write_s ;
 	psf->write_int		= alac_write_i ;
@@ -400,6 +475,41 @@ alac_reader_calc_frames (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
 	return frames ;
 } /* alac_reader_calc_frames */
 
+static sf_count_t
+alac_reader_calc_frames_variable (ALAC_PRIVATE *plac)
+{
+	PAKT_INFO *info = plac->pakt_info ;
+
+	if (info->count == 0)
+		return 0 ;
+
+	return info->packet_frame_offset [info->count - 1] + info->packet_frames [info->count - 1] ;
+} /* alac_reader_calc_frames_variable */
+
+/* The PCM scratch buffer holds one packet. Size it from the packet geometry
+** so it scales with the maximum packet length and channel count only.
+*/
+static int
+alac_ensure_pcm_buffer (ALAC_PRIVATE *plac, uint32_t frames)
+{	void *ptr ;
+	size_t bytes ;
+
+	if (frames <= plac->pcm_frames)
+		return 0 ;
+
+	if (frames > ALAC_MAX_FRAME_SIZE || (size_t) frames > SIZE_MAX / sizeof (int) / (size_t) plac->channels)
+		return SFE_MALLOC_FAILED ;
+
+	bytes = (size_t) frames * (size_t) plac->channels * sizeof (int) ;
+	if ((ptr = realloc (plac->buffer, bytes)) == NULL)
+		return SFE_MALLOC_FAILED ;
+
+	plac->buffer = ptr ;
+	plac->pcm_frames = frames ;
+
+	return 0 ;
+} /* alac_ensure_pcm_buffer */
+
 static int
 alac_decode_block (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
 {	ALAC_DECODER *pdec = &plac->u.decoder ;
@@ -439,6 +549,71 @@ alac_decode_block (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
 	return 1 ;
 } /* alac_decode_block */
 
+static int
+alac_decode_block_variable (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
+{	ALAC_DECODER *pdec = &plac->u.decoder ;
+	PAKT_INFO	*info = plac->pakt_info ;
+	uint32_t	index, packet_size, expected_frames ;
+	BitBuffer	bit_buffer ;
+	int32_t		error ;
+
+	index = info->current ;
+	if (index >= info->count)
+		return 0 ;
+
+	/* Drop any buffered frames from the previous packet first: a failed
+	** packet must never republish stale PCM. */
+	plac->frames_this_block = 0 ;
+
+	packet_size = info->packet_size [index] ;
+	expected_frames = info->packet_frames [index] ;
+
+	if (packet_size == 0 || expected_frames == 0 || expected_frames > plac->max_packet_frames)
+	{	psf_log_printf (psf, "*** Bad ALAC packet %u : %u bytes, %u frames. ***\n", index, packet_size, expected_frames) ;
+		psf->error = SFE_CAF_ALAC_BAD_PACKET ;
+		return 0 ;
+		} ;
+
+	if (packet_size > sizeof (plac->byte_buffer))
+	{	psf_log_printf (psf, "*** ALAC packet %u is too large (%u bytes). ***\n", index, packet_size) ;
+		psf->error = SFE_CAF_ALAC_BAD_PACKET ;
+		return 0 ;
+		} ;
+
+	if (psf_fseek (psf, psf->dataoffset + info->packet_byte_offset [index], SEEK_SET)
+			!= psf->dataoffset + info->packet_byte_offset [index])
+	{	psf->error = SFE_SEEK_FAILED ;
+		return 0 ;
+		} ;
+
+	if (packet_size != psf_fread (plac->byte_buffer, 1, packet_size, psf))
+	{	psf_log_printf (psf, "*** Short read for ALAC packet %u. ***\n", index) ;
+		psf->error = SFE_CAF_ALAC_BAD_PACKET ;
+		return 0 ;
+		} ;
+
+	BitBufferInit (&bit_buffer, plac->byte_buffer, packet_size) ;
+
+	plac->frames_this_block = 0 ;
+	/* Ask the decoder for the largest packet the cookie allows so a packet
+	** whose bitstream carries a different frame count (partial or full) is
+	** reported as a mismatch instead of being silently truncated. */
+	error = alac_decode (pdec, &bit_buffer, plac->buffer, plac->max_packet_frames, &plac->frames_this_block) ;
+	if (error != ALAC_noErr || plac->frames_this_block != expected_frames)
+	{	psf_log_printf (psf, "*** ALAC packet %u decoded to %u frames, packet table says %u (%s). ***\n",
+				index, plac->frames_this_block, expected_frames, alac_error_string (error)) ;
+		psf->error = SFE_CAF_ALAC_BAD_PACKET ;
+		plac->frames_this_block = 0 ;
+		return 0 ;
+		} ;
+
+	info->current++ ;
+	plac->input_data_pos = psf->dataoffset + info->packet_byte_offset [index] + packet_size ;
+	plac->partial_block_frames = 0 ;
+
+	return 1 ;
+} /* alac_decode_block_variable */
+
 
 static int
 alac_encode_block (ALAC_PRIVATE *plac)
@@ -459,6 +634,11 @@ alac_encode_block (ALAC_PRIVATE *plac)
 	return 1 ;
 } /* alac_encode_block */
 
+static inline int
+alac_decode_next_block (SF_PRIVATE *psf, ALAC_PRIVATE *plac)
+{	return plac->variable ? alac_decode_block_variable (psf, plac) : alac_decode_block (psf, plac) ;
+} /* alac_decode_next_block */
+
 /*============================================================================================
 ** ALAC read functions.
 */
@@ -474,7 +654,7 @@ alac_read_s (SF_PRIVATE *psf, short *ptr, sf_count_t len)
 		return 0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_next_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
@@ -504,7 +684,7 @@ alac_read_i (SF_PRIVATE *psf, int *ptr, sf_count_t len)
 		return 0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_next_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
@@ -537,7 +717,7 @@ alac_read_f (SF_PRIVATE *psf, float *ptr, sf_count_t len)
 	normfact = (psf->norm_float == SF_TRUE) ? 1.0 / ((float) 0x80000000) : 1.0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_next_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
@@ -570,7 +750,7 @@ alac_read_d (SF_PRIVATE *psf, double *ptr, sf_count_t len)
 	normfact = (psf->norm_double == SF_TRUE) ? 1.0 / ((float) 0x80000000) : 1.0 ;
 
 	while (len > 0)
-	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_block (psf, plac) == 0)
+	{	if (plac->partial_block_frames >= plac->frames_this_block && alac_decode_next_block (psf, plac) == 0)
 			break ;
 
 		readcount = (plac->frames_this_block - plac->partial_block_frames) * plac->channels ;
@@ -613,6 +793,61 @@ alac_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		plac->input_data_pos = psf->dataoffset ;
 		plac->pakt_info->current = 0 ;
 		return 0 ;
+		} ;
+
+	if (plac->variable)
+	{	PAKT_INFO *info = plac->pakt_info ;
+		sf_count_t total = 0, low, high ;
+		uint32_t packet ;
+
+		if (info->count > 0)
+			total = info->packet_frame_offset [info->count - 1] + info->packet_frames [info->count - 1] ;
+
+		if (offset < 0 || offset > total)
+		{	psf->error = SFE_BAD_SEEK ;
+			return	PSF_SEEK_ERROR ;
+			} ;
+
+		if (offset == total)
+		{	/* One past the last sample is a valid seek target. */
+			plac->frames_this_block = 0 ;
+			plac->partial_block_frames = 0 ;
+			plac->pakt_info->current = info->count ;
+			plac->input_data_pos = psf->dataoffset + info->packet_byte_offset [info->count - 1]
+										+ info->packet_size [info->count - 1] ;
+			psf_fseek (psf, plac->input_data_pos, SEEK_SET) ;
+			return offset ;
+			} ;
+
+		/* Find the packet containing `offset` (last packet whose frame
+		** offset is <= offset). */
+		low = 0 ;
+		high = (sf_count_t) info->count - 1 ;
+		while (low < high)
+		{	sf_count_t mid = low + (high - low + 1) / 2 ;
+
+			if (info->packet_frame_offset [mid] <= offset)
+				low = mid ;
+			else
+				high = mid - 1 ;
+			} ;
+		packet = (uint32_t) low ;
+
+		if (mode == SFM_READ)
+		{	plac->pakt_info->current = packet ;
+			if (alac_decode_block_variable (psf, plac) == 0)
+			{	if (psf->error == 0)
+					psf->error = SFE_BAD_SEEK ;
+				return PSF_SEEK_ERROR ;
+				} ;
+			plac->partial_block_frames = (uint32_t) (offset - info->packet_frame_offset [packet]) ;
+			}
+		else
+		{	psf->error = SFE_BAD_SEEK ;
+			return	PSF_SEEK_ERROR ;
+			} ;
+
+		return offset ;
 		} ;
 
 	if (offset < 0 || offset > plac->pakt_info->count * plac->frames_per_block)
@@ -789,32 +1024,120 @@ alac_pakt_alloc (uint32_t initial_count)
 	return info ;
 } /* alac_pakt_alloc */
 
+static void
+alac_pakt_free (PAKT_INFO * info)
+{	if (info == NULL)
+		return ;
+
+	free (info->packet_frames) ;
+	free (info->packet_byte_offset) ;
+	free (info->packet_frame_offset) ;
+	free (info) ;
+} /* alac_pakt_free */
+
+/* Grow a packet table. New storage is allocated before the old table is
+** touched, so on failure the caller still owns the original table.
+*/
+static PAKT_INFO *
+alac_pakt_grow (PAKT_INFO * info, uint32_t newcount)
+{	PAKT_INFO * n ;
+	uint32_t *frames = NULL ;
+	sf_count_t *byte_offset = NULL, *frame_offset = NULL ;
+	size_t base ;
+
+	base = sizeof (PAKT_INFO) + (size_t) newcount * sizeof (n->packet_size [0]) ;
+	if (newcount < info->allocated || (n = malloc (base)) == NULL)
+		return NULL ;
+
+	memcpy (n, info, sizeof (PAKT_INFO) + (size_t) info->count * sizeof (n->packet_size [0])) ;
+	n->allocated = newcount ;
+
+	if (info->packet_frames != NULL)
+	{	frames = malloc ((size_t) newcount * sizeof (frames [0])) ;
+		byte_offset = malloc ((size_t) newcount * sizeof (byte_offset [0])) ;
+		frame_offset = malloc ((size_t) newcount * sizeof (frame_offset [0])) ;
+		if (frames == NULL || byte_offset == NULL || frame_offset == NULL)
+		{	free (frames) ;
+			free (byte_offset) ;
+			free (frame_offset) ;
+			free (n) ;
+			return NULL ;
+			} ;
+
+		memcpy (frames, info->packet_frames, (size_t) info->count * sizeof (frames [0])) ;
+		memcpy (byte_offset, info->packet_byte_offset, (size_t) info->count * sizeof (byte_offset [0])) ;
+		memcpy (frame_offset, info->packet_frame_offset, (size_t) info->count * sizeof (frame_offset [0])) ;
+
+		free (info->packet_frames) ;
+		free (info->packet_byte_offset) ;
+		free (info->packet_frame_offset) ;
+		n->packet_frames = frames ;
+		n->packet_byte_offset = byte_offset ;
+		n->packet_frame_offset = frame_offset ;
+		} ;
+
+	free (info) ;
+	return n ;
+} /* alac_pakt_grow */
+
 static PAKT_INFO *
 alac_pakt_append (PAKT_INFO * info, uint32_t value)
 {
 	if (info->count >= info->allocated)
-	{	PAKT_INFO * temp ;
-		uint32_t newcount = info->allocated + info->allocated / 2 ;
+	{	uint32_t newcount = info->allocated + info->allocated / 2 ;
 
-		if ((temp = realloc (info, sizeof (PAKT_INFO) + newcount * sizeof (info->packet_size [0]))) == NULL)
+		if (newcount <= info->allocated)
+			newcount = info->allocated + 1 ;
+
+		if ((info = alac_pakt_grow (info, newcount)) == NULL)
 			return NULL ;
-
-		info = temp ;
-		info->allocated = newcount ;
 		} ;
 
 	info->packet_size [info->count++] = value ;
 	return info ;
 } /* alac_pakt_append */
 
-static PAKT_INFO *
-alac_pakt_read_decode (SF_PRIVATE * psf, uint32_t UNUSED (pakt_offset))
-{	SF_CHUNK_INFO chunk_info ;
-	PAKT_INFO * info = NULL, * temp ;
-	uint8_t *pakt_data = NULL ;
-	uint32_t bcount, value = 1, pakt_size ;
-	SF_CHUNK_ITERATOR * chunk_iterator ;
+/* Read a big-endian, seven-bit continuation encoded integer from `data`. The
+** value may be up to 64 bits so that overflow in malicious tables is detected
+** rather than silently truncated.
+*/
+static int
+alac_pakt_read_uint (const uint8_t * data, uint32_t limit, uint32_t *pos, uint64_t *value)
+{	uint64_t v = 0 ;
+	uint32_t count = 0 ;
 
+	while (1)
+	{	uint8_t byte ;
+
+		if (*pos >= limit)
+			return 0 ;
+
+		byte = data [*pos] ;
+		(*pos)++ ;
+
+		if (count >= 9 || (v >> 57) != 0)
+			return 0 ;
+		v = (v << 7) | (byte & 0x7F) ;
+		count++ ;
+
+		if ((byte & 0x80) == 0)
+			break ;
+		} ;
+
+	*value = v ;
+	return 1 ;
+} /* alac_pakt_read_uint */
+
+static PAKT_INFO *
+alac_pakt_read_decode (SF_PRIVATE * psf, uint32_t max_packet_frames, int variable)
+{	SF_CHUNK_INFO chunk_info ;
+	PAKT_INFO * info_out = NULL, * temp ;
+	uint8_t *pakt_data = NULL ;
+	uint32_t pakt_size, pos ;
+	uint64_t declared_packets, declared_frames, value ;
+	sf_count_t packet_bytes = 0, packet_frames = 0 ;
+	SF_CHUNK_ITERATOR * chunk_iterator ;
+	int64_t k ;
 
 	memset (&chunk_info, 0, sizeof (chunk_info)) ;
 	snprintf (chunk_info.id, sizeof (chunk_info.id), "pakt") ;
@@ -822,66 +1145,143 @@ alac_pakt_read_decode (SF_PRIVATE * psf, uint32_t UNUSED (pakt_offset))
 
 	if ((chunk_iterator = psf_get_chunk_iterator (psf, chunk_info.id)) == NULL)
 	{	psf_log_printf (psf, "%s : no chunk iterator found\n", __func__) ;
-		free (chunk_info.data) ;
-		chunk_info.data = NULL ;
 		return NULL ;
 		} ;
 
 	psf->get_chunk_size (psf, chunk_iterator, &chunk_info) ;
 
 	pakt_size = chunk_info.datalen ;
-	if (pakt_size > UINT32_MAX-5 )
-		return NULL;
-	chunk_info.data = pakt_data = malloc (pakt_size + 5) ;
-	if (!chunk_info.data)
-		return NULL ;
-
-	if ((bcount = psf->get_chunk_data (psf, chunk_iterator, &chunk_info)) != SF_ERR_NO_ERROR)
-	{	while (chunk_iterator)
-			chunk_iterator = psf->next_chunk_iterator (psf, chunk_iterator) ;
-		free (chunk_info.data) ;
-		chunk_info.data = NULL ;
-		return NULL ;
+	if (pakt_size < 24 || pakt_size > UINT32_MAX - 5)
+	{	psf_log_printf (psf, "%s : bad 'pakt' chunk size %u.\n", __func__, pakt_size) ;
+		goto Cleanup ;
 		} ;
 
+	chunk_info.data = pakt_data = malloc (pakt_size + 5) ;
+	if (!chunk_info.data)
+		goto Cleanup ;
+	memset (pakt_data, 0, pakt_size + 5) ;
+
+	if (psf->get_chunk_data (psf, chunk_iterator, &chunk_info) != SF_ERR_NO_ERROR)
+		goto Cleanup ;
+
+	declared_packets	= (uint64_t) psf_get_be64 (pakt_data, 0) ;
+	declared_frames		= (uint64_t) psf_get_be64 (pakt_data, 8) ;
+
+	if (! variable)
+	{	/* Traditional layout: one byte count per packet, all packets have
+		** the same number of frames. Keep the historical lenient behaviour.
+		*/
+		info_out = alac_pakt_alloc (pakt_size / 4) ;
+		if (info_out == NULL)
+			goto Cleanup ;
+
+		for (pos = 24 ; pos < pakt_size ; )
+		{	if (! alac_pakt_read_uint (pakt_data, pakt_size, &pos, &value))
+				break ;
+			if (value == 0 || value > UINT32_MAX)
+				break ;
+			if ((temp = alac_pakt_append (info_out, (uint32_t) value)) == NULL)
+				goto Cleanup ;
+			info_out = temp ;
+			} ;
+		}
+	else
+	{	/* The supported variable packet subset uses no priming or remainder
+		** frames; the packet table frame total is the playable length.
+		*/
+		if (psf_get_be32 (pakt_data, 16) != 0 || psf_get_be32 (pakt_data, 20) != 0)
+		{	psf_log_printf (psf, "%s : priming/remainder frames are not supported.\n", __func__) ;
+			goto Cleanup ;
+			} ;
+
+		if (declared_packets == 0 || declared_packets > UINT32_MAX
+				|| declared_packets > (uint64_t) (pakt_size - 24) / 2)
+		{	psf_log_printf (psf, "%s : bad packet count %" PRIu64 ".\n", __func__, declared_packets) ;
+			goto Cleanup ;
+			} ;
+		if (declared_frames > (uint64_t) SF_COUNT_MAX)
+		{	psf_log_printf (psf, "%s : bad valid frame count %" PRIu64 ".\n", __func__, declared_frames) ;
+			goto Cleanup ;
+			} ;
+
+		info_out = alac_pakt_alloc ((uint32_t) declared_packets) ;
+		if (info_out == NULL)
+			goto Cleanup ;
+
+		info_out->packet_frames = calloc ((size_t) declared_packets, sizeof (info_out->packet_frames [0])) ;
+		info_out->packet_byte_offset = calloc ((size_t) declared_packets, sizeof (info_out->packet_byte_offset [0])) ;
+		info_out->packet_frame_offset = calloc ((size_t) declared_packets, sizeof (info_out->packet_frame_offset [0])) ;
+		if (info_out->packet_frames == NULL || info_out->packet_byte_offset == NULL || info_out->packet_frame_offset == NULL)
+			goto Cleanup ;
+
+		pos = 24 ;
+		for (k = 0 ; k < (int64_t) declared_packets ; k++)
+		{	if (! alac_pakt_read_uint (pakt_data, pakt_size, &pos, &value) || value > UINT32_MAX)
+				{	psf_log_printf (psf, "%s : truncated packet size entry %" PRIi64 ".\n", __func__, k) ;
+					goto Cleanup ;
+					} ;
+			if (value == 0)
+				{	psf_log_printf (psf, "%s : zero length packet %" PRIi64 ".\n", __func__, k) ;
+					goto Cleanup ;
+					} ;
+			info_out->packet_size [k] = (uint32_t) value ;
+			info_out->packet_byte_offset [k] = packet_bytes ;
+			if ((sf_count_t) value > SF_COUNT_MAX - packet_bytes)
+			{	psf_log_printf (psf, "%s : cumulative packet bytes overflow.\n", __func__) ;
+				goto Cleanup ;
+				} ;
+			packet_bytes += (sf_count_t) value ;
+
+			if (! alac_pakt_read_uint (pakt_data, pakt_size, &pos, &value) || value > UINT32_MAX)
+				{	psf_log_printf (psf, "%s : truncated frame count entry %" PRIi64 ".\n", __func__, k) ;
+					goto Cleanup ;
+					} ;
+			if (value == 0 || value > max_packet_frames)
+				{	psf_log_printf (psf, "%s : bad frame count %" PRIu64 " for packet %" PRIi64 ".\n", __func__, value, k) ;
+					goto Cleanup ;
+					} ;
+			info_out->packet_frames [k] = (uint32_t) value ;
+			info_out->packet_frame_offset [k] = packet_frames ;
+			if ((sf_count_t) value > SF_COUNT_MAX - packet_frames)
+			{	psf_log_printf (psf, "%s : cumulative frame count overflow.\n", __func__) ;
+				goto Cleanup ;
+				} ;
+			packet_frames += (sf_count_t) value ;
+			} ;
+		info_out->count = (uint32_t) declared_packets ;
+
+		/* Any bytes left in the table after the declared entries must be
+		** zero padding. Anything else means the table has more packets than
+		** the header claims. */
+		for ( ; pos < pakt_size ; pos++)
+			if (pakt_data [pos] != 0)
+			{	psf_log_printf (psf, "%s : packet table has data after %" PRIu64 " packets.\n", __func__, declared_packets) ;
+				goto Cleanup ;
+				} ;
+
+		if (declared_frames != (uint64_t) packet_frames)
+		{	psf_log_printf (psf, "%s : valid frames %" PRIu64 " != packet frame total %" PRIi64 ".\n", __func__, declared_frames, packet_frames) ;
+			goto Cleanup ;
+			} ;
+		if (packet_bytes > psf->datalength)
+		{	psf_log_printf (psf, "%s : packet bytes %" PRIi64 " exceed data chunk %" PRIi64 ".\n", __func__, packet_bytes, psf->datalength) ;
+			goto Cleanup ;
+			} ;
+		if (packet_bytes != psf->datalength)
+		{	psf_log_printf (psf, "%s : packet bytes %" PRIi64 " != data chunk %" PRIi64 ".\n", __func__, packet_bytes, psf->datalength) ;
+			goto Cleanup ;
+			} ;
+		} ;
+
+	free (pakt_data) ;
 	while (chunk_iterator)
 		chunk_iterator = psf->next_chunk_iterator (psf, chunk_iterator) ;
 
-	info = alac_pakt_alloc (pakt_size / 4) ;
+	return info_out ;
 
-	/* Start at 24 bytes in, skipping over the 'pakt' chunks header. */
-	for (bcount = 24 ; bcount < pakt_size && value != 0 ; )
-	{	uint8_t byte ;
-		int32_t count = 0 ;
-
-		value = 0 ;
-		do
-		{	byte = pakt_data [bcount + count] ;
-			value = (value << 7) + (byte & 0x7F) ;
-
-			count ++ ;
-			if (count > 5 || bcount + count > pakt_size)
-			{	printf ("%s %d : Ooops! count %" PRIi32 "    bcount %" PRIu32 "\n", __func__, __LINE__, count, bcount) ;
-				value = 0 ;
-				break ;
-				} ;
-			}
-			while (byte & 0x80) ;
-
-		bcount += count ;
-
-		if ((temp = alac_pakt_append (info, value)) == NULL)
-			goto FreeExit ;
-		info = temp ;
-		} ;
-
+Cleanup :
 	free (pakt_data) ;
-
-	return info ;
-
-FreeExit :
-	free (pakt_data) ;
-	free (info) ;
+	alac_pakt_free (info_out) ;
 	return NULL ;
 } /* alac_pakt_read_decode */
 

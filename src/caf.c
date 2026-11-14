@@ -279,6 +279,19 @@ decode_desc_chunk (SF_PRIVATE *psf, const DESC_CHUNK *desc)
 				} ;
 
 			pcaf->alac.frames_per_packet = desc->frames_per_packet ;
+			pcaf->alac.bytes_per_packet = desc->pkt_bytes ;
+
+			/* Variable packet durations need an exact packet table to
+			** locate and verify each packet, which requires a seekable file.
+			*/
+			if (desc->frames_per_packet == 0 && desc->pkt_bytes == 0 && ! psf->sf.seekable)
+			{	psf_log_printf (psf, "**** Variable packet ALAC requires a seekable file.\n") ;
+				return 0 ;
+				} ;
+			if (desc->frames_per_packet == 0 && desc->pkt_bytes != 0)
+			{	psf_log_printf (psf, "**** Unsupported ALAC packet layout (bytes/packet %u, frames/packet 0).\n", desc->pkt_bytes) ;
+				return 0 ;
+				} ;
 			} ;
 
 		return format ;
@@ -462,7 +475,10 @@ caf_read_header (SF_PRIVATE *psf)
 				psf_binheader_readf (psf, "E4", &k) ;
 				if (chunk_size == -1)
 				{	psf_log_printf (psf, "%M : -1\n") ;
+					/* The chunk extends to the end of file; `header.indx` is
+					** already past the 'edit' field, so what remains is payload. */
 					chunk_size = psf->filelength - psf->header.indx ;
+					psf->datalength = chunk_size ;
 					}
 				else if (psf->filelength > 0 && chunk_size > psf->filelength - psf->header.indx + 10)
 				{	psf_log_printf (psf, "%M : %D (should be %D)\n", marker, chunk_size, psf->filelength - psf->header.indx - 8) ;

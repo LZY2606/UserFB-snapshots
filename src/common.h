@@ -189,6 +189,7 @@ typedef struct
 
 	unsigned	bits_per_sample ;
 	unsigned	frames_per_packet ;
+	unsigned	bytes_per_packet ;
 
 	int64_t 	packets ;
 	int64_t 	valid_frames ;
@@ -718,6 +719,8 @@ enum
 	SFE_MPC_NO_MARKER,
 
 	SFE_MPEG_BAD_SAMPLERATE,
+
+	SFE_CAF_ALAC_BAD_PACKET,
 
 	SFE_MAX_ERROR			/* This must be last in list. */
 } ;
