@@ -1,0 +1,11 @@
+./atom1.go
+./feed.go
+./rss.go
+./rss1.go
+./rss2.go
+./time.go
+./utils.go
+./websub.go
+./rss_test.go
+./time_test.go
+./utils_test.go
