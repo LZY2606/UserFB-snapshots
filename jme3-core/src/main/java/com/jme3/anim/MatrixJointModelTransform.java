@@ -34,6 +34,7 @@ package com.jme3.anim;
 import com.jme3.anim.util.JointModelTransform;
 import com.jme3.math.Matrix4f;
 import com.jme3.math.Transform;
+import com.jme3.math.Vector3f;
 
 /**
  * An implementation of {@link JointModelTransform} that accumulates joint transformations
@@ -61,11 +62,29 @@ public class MatrixJointModelTransform implements JointModelTransform {
 
     @Override
     public void updateModelTransform(Transform localTransform, Joint parent) {
+        updateModelTransform(localTransform, parent, false);
+    }
+
+    @Override
+    public void updateModelTransform(Transform localTransform, Joint parent,
+            boolean segmentScaleCompensate) {
         // Reset the affine row after matrix inversions performed by applyBindPose().
         modelTransformMatrix.loadIdentity();
         localTransform.toTransformMatrix(modelTransformMatrix);
         if (parent != null) {
             MatrixJointModelTransform transform = (MatrixJointModelTransform) parent.getJointModelTransform();
+            if (segmentScaleCompensate) {
+                /*
+                 * Insert inverse(parent local scale) between the local
+                 * translation and the local rotation/scale, yielding
+                 * T(t) * inverse(S_parent_local) * R(q) * S(s).
+                 * The translation (the last column) is deliberately left
+                 * untouched so bone-segment length still follows parent scale.
+                 */
+                Vector3f parentScale = parent.getLocalScale();
+                SegmentScaleUtil.leftScaleRotationRows(modelTransformMatrix,
+                        1f / parentScale.x, 1f / parentScale.y, 1f / parentScale.z);
+            }
             transform.getModelTransformMatrix().mult(modelTransformMatrix, modelTransformMatrix);
         }
     }
@@ -77,12 +96,35 @@ public class MatrixJointModelTransform implements JointModelTransform {
 
     @Override
     public void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix, Joint parent) {
+        applyBindPose(localTransform, inverseModelBindMatrix, parent, false);
+    }
+
+    @Override
+    public void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix,
+            Joint parent, boolean segmentScaleCompensate) {
         modelTransformMatrix.set(inverseModelBindMatrix).invertLocal(); // model transform = model bind
         if (parent != null) {
             MatrixJointModelTransform transform = (MatrixJointModelTransform) parent.getJointModelTransform();
-            transform.getModelTransformMatrix().invert().mult(modelTransformMatrix, modelTransformMatrix);
+            Matrix4f parentModelMatrix = transform.getModelTransformMatrix();
+            // Undo the parent's model transform. invert() creates a new matrix
+            // and leaves the parent's model matrix unaffected.
+            parentModelMatrix.invert().mult(modelTransformMatrix, modelTransformMatrix);
+            if (segmentScaleCompensate) {
+                /*
+                 * Undo the compensation applied while accumulating. The
+                 * accumulated compensated local matrix is T(t) * S_parent^-1
+                 * * R * S, and T(t) leaves the translation unchanged, so
+                 * scaling only the 3x3 block restores T(t) * R * S.
+                 */
+                SegmentScaleUtil.leftScaleRotationRows(modelTransformMatrix, parent.getLocalScale());
+            }
         }
-        localTransform.fromTransformMatrix(modelTransformMatrix);
+        if (segmentScaleCompensate) {
+            // Compensation must survive negative parent scales and reflections.
+            SegmentScaleUtil.decompose(localTransform, modelTransformMatrix);
+        } else {
+            localTransform.fromTransformMatrix(modelTransformMatrix);
+        }
     }
 
     /**

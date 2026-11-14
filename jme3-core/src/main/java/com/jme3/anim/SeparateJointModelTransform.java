@@ -4,6 +4,7 @@ import com.jme3.anim.util.JointModelTransform;
 import com.jme3.math.Matrix4f;
 import com.jme3.math.Quaternion;
 import com.jme3.math.Transform;
+import com.jme3.math.Vector3f;
 
 /**
  * This JointModelTransform implementation accumulates model transform in a Transform class
@@ -18,8 +19,25 @@ public class SeparateJointModelTransform implements JointModelTransform {
 
     @Override
     public void updateModelTransform(Transform localTransform, Joint parent) {
+        updateModelTransform(localTransform, parent, false);
+    }
+
+    @Override
+    public void updateModelTransform(Transform localTransform, Joint parent,
+            boolean segmentScaleCompensate) {
         modelTransform.set(localTransform);
         if (parent != null) {
+            if (segmentScaleCompensate) {
+                /*
+                 * Cancel the parent's local scale (not its model scale) from
+                 * the model scale. combineWithParent() then multiplies by the
+                 * parent's model scale and applies the parent's scale to the
+                 * translation as usual, so the bone-segment length still
+                 * follows the parent's scaling. Position and rotation are
+                 * unaffected.
+                 */
+                modelTransform.getScale().divideLocal(parent.getLocalScale());
+            }
             modelTransform.combineWithParent(parent.getModelTransform());
         }
     }
@@ -31,7 +49,19 @@ public class SeparateJointModelTransform implements JointModelTransform {
 
     @Override
     public void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix, Joint parent) {
-        localTransform.fromTransformMatrix(inverseModelBindMatrix.invert());
+        applyBindPose(localTransform, inverseModelBindMatrix, parent, false);
+    }
+
+    @Override
+    public void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix,
+            Joint parent, boolean segmentScaleCompensate) {
+        Matrix4f inverse = inverseModelBindMatrix.invert();
+        if (segmentScaleCompensate) {
+            // Compensation must survive negative parent scales and reflections.
+            SegmentScaleUtil.decompose(localTransform, inverse);
+        } else {
+            localTransform.fromTransformMatrix(inverse);
+        }
         if (parent != null) {
             // Undo the parent transform without decomposing its potentially sheared inverse.
             Transform parentTransform = parent.getModelTransform();
@@ -39,7 +69,13 @@ public class SeparateJointModelTransform implements JointModelTransform {
                     localTransform.getTranslation(), localTransform.getTranslation());
             Quaternion inverseRotation = parentTransform.getRotation().inverse();
             inverseRotation.mult(localTransform.getRotation(), localTransform.getRotation());
-            localTransform.getScale().divideLocal(parentTransform.getScale());
+            Vector3f parentModelScale = parentTransform.getScale();
+            localTransform.getScale().divideLocal(parentModelScale);
+            if (segmentScaleCompensate) {
+                // Re-apply the parent's local scale, which was canceled during
+                // accumulation, so the result is the original local TRS.
+                localTransform.getScale().multLocal(parent.getLocalScale());
+            }
         }
     }
 

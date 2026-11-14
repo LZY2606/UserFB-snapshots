@@ -50,6 +50,23 @@ public interface JointModelTransform {
     void updateModelTransform(Transform localTransform, Joint parent);
 
     /**
+     * Update the joint's transform in model space, optionally compensating for
+     * the local scale of the joint's immediate parent.
+     * <p>
+     * The default implementation ignores the compensation flag and delegates
+     * to {@link #updateModelTransform(Transform, Joint)}, preserving the
+     * behavior of existing implementations.
+     *
+     * @param localTransform the joint's local transform (not null, unaffected)
+     * @param parent the joint's parent, or null for a root joint
+     * @param segmentScaleCompensate true to cancel the parent's local scale
+     */
+    default void updateModelTransform(Transform localTransform, Joint parent,
+            boolean segmentScaleCompensate) {
+        updateModelTransform(localTransform, parent);
+    }
+
+    /**
      * Determine the joint's skinning transform.
      *
      * @param outTransform storage for the result (modified if not null)
@@ -67,6 +84,25 @@ public interface JointModelTransform {
      * @param parent the joint's parent, or null for a root joint
      */
     void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix, Joint parent);
+
+    /**
+     * Configure the joint's local transform for the bind pose, optionally
+     * compensating for the local scale of the joint's immediate parent.
+     * <p>
+     * The default implementation ignores the compensation flag and delegates
+     * to {@link #applyBindPose(Transform, Matrix4f, Joint)}, preserving the
+     * behavior of existing implementations.
+     *
+     * @param localTransform the joint's local transform (not null, modified)
+     * @param inverseModelBindMatrix the joint's inverse model bind matrix (not
+     * null, unaffected)
+     * @param parent the joint's parent, or null for a root joint
+     * @param segmentScaleCompensate true to cancel the parent's local scale
+     */
+    default void applyBindPose(Transform localTransform, Matrix4f inverseModelBindMatrix,
+            Joint parent, boolean segmentScaleCompensate) {
+        applyBindPose(localTransform, inverseModelBindMatrix, parent);
+    }
 
     /**
      * Determine the joint's transform in model space.

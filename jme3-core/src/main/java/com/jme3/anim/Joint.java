@@ -89,6 +89,73 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
     private Matrix4f inverseModelBindMatrix = new Matrix4f();
 
     /**
+     * Enables or disables segment-scale compensation for this joint.
+     * <p>
+     * The flag belongs to the child joint: when enabled, this joint's model
+     * matrix cancels the local scale of its immediate parent, so that a parent
+     * bone being stretched does not scale this bone's own geometry. The
+     * translation still goes through the parent's model transform, so the
+     * length of the bone segment (the offset to this joint) still changes.
+     * A root joint has no parent, so its flag has no effect.
+     * <p>
+     * The default is {@code false}, which preserves the legacy behavior.
+     * Joints within one armature may use different values.
+     */
+    private boolean segmentScaleCompensate = false;
+
+    /**
+     * The local transform captured when the bind pose was saved, or null when
+     * no bind transform has been captured (for example when the bind matrices
+     * were supplied by an importer without calling saveBindPose()).
+     * <p>
+     * Compensation divides by the parent's local scale while accumulating. A
+     * reflection (negative scale) decomposes ambiguously, so restoring the bind
+     * pose from matrices alone can choose a sign pattern that differs from the
+     * one in effect when the bind matrices were captured. Keeping this
+     * snapshot lets applyBindPose() restore exactly the transform that
+     * produced the bind matrices.
+     */
+    private transient Transform bindLocalTransform;
+
+    /**
+     * The model matrix captured when the bind pose was saved, or null. Used to
+     * detect that the inverse model bind matrix has been replaced since.
+     */
+    private transient Matrix4f bindModelMatrix;
+
+    /**
+     * Determine whether segment-scale compensation is enabled for this joint.
+     * <p>
+     * The flag belongs to the child joint: when enabled, this joint's model
+     * matrix cancels the local scale of its immediate parent. A root joint has
+     * no parent, so its flag has no effect on the result.
+     *
+     * @return {@code true} if compensation is enabled, otherwise {@code false}
+     */
+    public boolean isSegmentScaleCompensate() {
+        return segmentScaleCompensate;
+    }
+
+    /**
+     * Enable or disable segment-scale compensation for this joint.
+     * <p>
+     * The flag belongs to the child joint: when enabled, this joint's model
+     * matrix cancels the local scale of its immediate parent, so that the
+     * parent's scaling does not scale this joint's own geometry. The
+     * translation is not compensated, so the length of the bone segment still
+     * follows the parent's scaling. A root joint has no parent, so its flag
+     * has no effect on the result.
+     * <p>
+     * The default is {@code false}. Changing the flag takes effect on the next
+     * armature update.
+     *
+     * @param segmentScaleCompensate {@code true} to enable compensation
+     */
+    public void setSegmentScaleCompensate(boolean segmentScaleCompensate) {
+        this.segmentScaleCompensate = segmentScaleCompensate;
+    }
+
+    /**
      * Instantiate a nameless Joint.
      */
     public Joint() {
@@ -122,7 +189,8 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      * model transform with this bone's local transform.
      */
     public final void updateModelTransforms() {
-        jointModelTransform.updateModelTransform(localTransform, parent);
+        jointModelTransform.updateModelTransform(localTransform, parent,
+                parent != null && segmentScaleCompensate);
         updateAttachNode();
     }
 
@@ -182,6 +250,9 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         inverseModelBindMatrix.loadIdentity();
         jointModelTransform.getOffsetTransform(inverseModelBindMatrix, Matrix4f.IDENTITY);
         inverseModelBindMatrix.invertLocal();
+        // Remember the local transform and model matrix that produced this bind.
+        bindLocalTransform = localTransform.clone();
+        bindModelMatrix = new Matrix4f(inverseModelBindMatrix).invertLocal();
     }
 
     /**
@@ -195,12 +266,37 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      * Sets the local transform with the bind transforms
      */
     public void applyBindPose() {
-        jointModelTransform.applyBindPose(localTransform, inverseModelBindMatrix, parent);
+        if (bindLocalTransform != null && bindPoseMatchesSnapshot()) {
+            /*
+             * A snapshot exists and still matches the bind matrix: restore the
+             * exact local transform captured by saveBindPose(). This is both
+             * lossless and idempotent, and it does not depend on the
+             * compensation flag (or on being a root joint).
+             */
+            localTransform.set(bindLocalTransform);
+        } else {
+            jointModelTransform.applyBindPose(localTransform, inverseModelBindMatrix, parent,
+                    parent != null && segmentScaleCompensate);
+        }
         updateModelTransforms();
 
         for (Joint child : children.getArray()) {
             child.applyBindPose();
         }
+    }
+
+    /**
+     * Determine whether the cached bind snapshot still corresponds to the
+     * current inverse model bind matrix.
+     *
+     * @return true if the snapshot is consistent with the bind matrix
+     */
+    private boolean bindPoseMatchesSnapshot() {
+        if (bindModelMatrix == null) {
+            return false;
+        }
+        Matrix4f modelBind = new Matrix4f(inverseModelBindMatrix).invertLocal();
+        return bindModelMatrix.isSimilar(modelBind, 1e-4f);
     }
 
     /**
@@ -323,6 +419,9 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
      */
     public void setInverseModelBindMatrix(Matrix4f inverseModelBindMatrix) {
         this.inverseModelBindMatrix = inverseModelBindMatrix;
+        // Any snapshot taken at saveBindPose() no longer describes this matrix.
+        this.bindLocalTransform = null;
+        this.bindModelMatrix = null;
     }
 
     /**
@@ -473,6 +572,9 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         this.localTransform = cloner.clone(localTransform);
         this.initialTransform = cloner.clone(initialTransform);
         this.inverseModelBindMatrix = cloner.clone(inverseModelBindMatrix);
+        this.segmentScaleCompensate = ((Joint) original).segmentScaleCompensate;
+        this.bindLocalTransform = cloner.clone(bindLocalTransform);
+        this.bindModelMatrix = cloner.clone(bindModelMatrix);
     }
 
     /**
@@ -492,6 +594,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         targetGeometry = (Geometry) input.readSavable("targetGeometry", null);
         initialTransform = (Transform) input.readSavable("initialTransform", new Transform());
         inverseModelBindMatrix = (Matrix4f) input.readSavable("inverseModelBindMatrix", inverseModelBindMatrix);
+        segmentScaleCompensate = input.readBoolean("segmentScaleCompensate", false);
 
         ArrayList<Joint> childList = input.readSavableArrayList("children", null);
         for (int i = childList.size() - 1; i >= 0; i--) {
@@ -516,6 +619,7 @@ public class Joint implements Savable, JmeCloneable, HasLocalTransform {
         output.write(targetGeometry, "targetGeometry", null);
         output.write(initialTransform, "initialTransform", new Transform());
         output.write(inverseModelBindMatrix, "inverseModelBindMatrix", new Matrix4f());
+        output.write(segmentScaleCompensate, "segmentScaleCompensate", false);
         output.writeSavableArrayList(new ArrayList(children), "children", null);
     }
 
