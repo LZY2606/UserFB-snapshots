@@ -1,0 +1,13 @@
+--- a/ilbc/decode_residual.c
++++ b/ilbc/decode_residual.c
+@@ -154,8 +154,8 @@
+       meml_gotten=CB_MEML;
+     }
+ 
+-    WebRtcSpl_MemCpyReversedOrder(mem+CB_MEML-1,
+-                                  decresidual+(iLBC_encbits->startIdx-1)*SUBL, meml_gotten);
++    WEBRTC_SPL_MEMCPY_W16(mem+CB_MEML-meml_gotten,
++                          decresidual+(iLBC_encbits->startIdx-1)*SUBL, meml_gotten);
+     WebRtcSpl_MemSetW16(mem, 0, (int16_t)(CB_MEML-meml_gotten));
+ 
+     /* loop over subframes to decode */
