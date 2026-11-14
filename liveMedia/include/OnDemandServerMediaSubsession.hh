@@ -77,6 +77,31 @@ protected: // redefined virtual functions
 				 RTPSink*& rtpSink, RTCPInstance*& rtcp);
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
 
+  // Transport reconfiguration: plain, unicast, on-demand subsessions support moving an
+  // already-set-up track between UDP and RTP/AVP/TCP without recreating the media source,
+  // RTP sink or RTCP instance (so SSRC, sequence numbers, timestamps and RTCP statistics
+  // all continue uninterrupted).
+  virtual Boolean supportsTransportReconfiguration() const;
+
+protected:
+  // Specialized subclasses (e.g. the back-end proxy) whose transport is not a plain, unicast
+  // RTP/AVP flow can opt out, making "RTSPServer" fall back to the legacy SETUP behavior.
+  void setTransportReconfigurationEnabled(Boolean enabled) {
+    fTransportReconfigurationEnabled = enabled;
+  }
+
+public:
+  virtual Boolean reconfigureStreamTransport(unsigned clientSessionId, void* streamToken,
+						   int newTcpSocketNum, // <0 => UDP; >=0 => RTP/AVP/TCP
+						   unsigned char newRtpChannelId,
+						   unsigned char newRtcpChannelId,
+						   TLSState* tlsState,
+						   struct sockaddr_storage const& newClientAddress,
+						   Port const& newClientRTPPort,
+						   Port const& newClientRTCPPort,
+						   Port& serverRTPPort, Port& serverRTCPPort,
+						   Boolean& transportWasUnchanged);
+
 protected: // new virtual functions, possibly redefined by subclasses
   virtual char const* getAuxSDPLine(RTPSink* rtpSink,
 				    FramedSource* inputSource);
@@ -139,6 +164,7 @@ protected:
 
 private:
   Boolean fReuseFirstSource;
+  Boolean fTransportReconfigurationEnabled; // default True; specialized subclasses may disable
   portNumBits fInitialPortNum;
   Boolean fMultiplexRTCPWithRTP;
   void* fLastStreamToken;
@@ -158,13 +184,27 @@ public:
   Destinations(struct sockaddr_storage const& destAddr,
                Port const& rtpDestPort,
                Port const& rtcpDestPort)
-    : isTCP(False), addr(destAddr), rtpPort(rtpDestPort), rtcpPort(rtcpDestPort) {
+    : isTCP(False), addr(destAddr), rtpPort(rtpDestPort), rtcpPort(rtcpDestPort),
+      handlersApplied(False),
+      rrHandler(NULL), rrHandlerClientData(NULL),
+      altByteHandler(NULL), altByteHandlerClientData(NULL) {
   }
   Destinations(int tcpSockNum, unsigned char rtpChanId, unsigned char rtcpChanId,
 	       TLSState* tlsSt)
     : isTCP(True), rtpPort(0) /*dummy*/, rtcpPort(0) /*dummy*/,
       tcpSocketNum(tcpSockNum), rtpChannelId(rtpChanId), rtcpChannelId(rtcpChanId),
-      tlsState(tlsSt) {
+      tlsState(tlsSt), handlersApplied(False),
+      rrHandler(NULL), rrHandlerClientData(NULL),
+      altByteHandler(NULL), altByteHandlerClientData(NULL) {
+  }
+
+  // Copy the per-destination playback handlers (but not the "attached" state), so a transport
+  // reconfiguration's replacement record inherits the callbacks established by the last PLAY.
+  void copyPlaybackHandlersFrom(Destinations const& other) {
+    rrHandler = other.rrHandler;
+    rrHandlerClientData = other.rrHandlerClientData;
+    altByteHandler = other.altByteHandler;
+    altByteHandlerClientData = other.altByteHandlerClientData;
   }
 
 public:
@@ -175,6 +215,18 @@ public:
   int tcpSocketNum;
   unsigned char rtpChannelId, rtcpChannelId;
   TLSState* tlsState;
+  // True once "StreamState::startPlaying()" has attached this destination to the RTP sink and
+  // RTCP instance; False for a SETUP that has not been PLAYed yet.  Per-destination (not per
+  // StreamState) so that, with "reuseFirstSource", one subscriber's PLAY state never leaks into
+  // another subscriber's re-SETUP.
+  Boolean handlersApplied;
+  // The handlers for this destination, captured by "startPlaying()".  Kept per-destination so a
+  // transport reconfiguration re-registers THIS client's RR callback even when several
+  // subscribers share one StreamState ("reuseFirstSource").
+  TaskFunc* rrHandler;
+  void* rrHandlerClientData;
+  ServerRequestAlternativeByteHandler* altByteHandler;
+  void* altByteHandlerClientData;
 };
 
 class StreamState {
@@ -194,6 +246,14 @@ public:
   void sendRTCPAppPacket(u_int8_t subtype, char const* name,
 			 u_int8_t* appDependentData, unsigned appDependentDataSize);
   void endPlaying(Destinations* destinations, unsigned clientSessionId);
+
+  // Replace one client's destination (UDP<->TCP or channel/port change) while keeping the same
+  // media source, RTP sink and RTCP instance.  Does not stop/restart the sink, so an in-flight
+  // stream keeps flowing (to the new destination); a paused stream stays paused.
+  void switchDestinations(Destinations* oldDestinations,
+			  Destinations* newDestinations, unsigned clientSessionId);
+
+  Boolean isCurrentlyPlaying() const { return fAreCurrentlyPlaying; }
   void reclaim();
 
   unsigned& referenceCount() { return fReferenceCount; }
@@ -208,6 +268,12 @@ public:
 
   FramedSource* mediaSource() const { return fMediaSource; }
   float& startNPT() { return fStartNPT; }
+
+private:
+  // Per-destination attach/detach, shared by "startPlaying()", "endPlaying()" and
+  // "switchDestinations()".  These never start/stop the sink itself.
+  void attachDestination(Destinations* dests, unsigned clientSessionId);
+  void detachDestination(Destinations* dests, unsigned clientSessionId);
 
 private:
   OnDemandServerMediaSubsession& fMaster;

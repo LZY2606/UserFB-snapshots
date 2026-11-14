@@ -415,6 +415,26 @@ void ServerMediaSubsession::deleteStream(unsigned /*clientSessionId*/,
   // default implementation: do nothing
 }
 
+// By default, in-place transport reconfiguration is not supported.
+// "OnDemandServerMediaSubsession" redefines these.
+Boolean ServerMediaSubsession::supportsTransportReconfiguration() const {
+  return False;
+}
+
+Boolean ServerMediaSubsession
+::reconfigureStreamTransport(unsigned /*clientSessionId*/, void* /*streamToken*/,
+			     int /*newTcpSocketNum*/,
+			     unsigned char /*newRtpChannelId*/,
+			     unsigned char /*newRtcpChannelId*/,
+			     TLSState* /*tlsState*/,
+			     struct sockaddr_storage const& /*newClientAddress*/,
+			     Port const& /*newClientRTPPort*/,
+			     Port const& /*newClientRTCPPort*/,
+			     Port& /*serverRTPPort*/, Port& /*serverRTCPPort*/,
+			     Boolean& /*transportWasUnchanged*/) {
+  return False;
+}
+
 void ServerMediaSubsession::testScaleFactor(float& scale) {
   // default implementation: Support scale = 1 only
   scale = 1;

@@ -503,6 +503,19 @@ static void deregisterSocket(UsageEnvironment& env, int sockNum, unsigned char s
   }
 }
 
+void RTPInterface::resumeDatagramReadingIfNoTCPStreams() {
+  // Defensive guarantee for TCP->UDP transport reconfiguration: once the last interleaved channel
+  // is gone, make sure the datagram-socket read handler is armed.  In the current server flow
+  // "RTCPInstance::addStreamSocket()" re-arms datagram reading via startNetworkReading(), so this
+  // is usually a no-op, but it makes the TCP->UDP transition correct without relying on that
+  // implicit re-arm surviving future changes.  All operations here are idempotent.
+  if (fTCPStreams != NULL) return;            // still streaming over TCP
+  if (fReadHandlerProc == NULL) return;      // no datagram reader was ever installed
+  if (fGS == NULL || fGS->socketNum() < 0) return; // datagram socket was retired (e.g. client-side setStreamSocket)
+
+  envir().taskScheduler().turnOnBackgroundReadHandling(fGS->socketNum(), fReadHandlerProc, fOwner);
+}
+
 void RTPInterface::removeStreamSocket(int sockNum,
 				      unsigned char streamChannelId) {
   // Remove - from our list of 'TCP streams' - the record of the (sockNum,streamChannelId) pair.
@@ -525,7 +538,13 @@ void RTPInterface::removeStreamSocket(int sockNum,
 	// And 'deregister' this socket,channelId pair:
 	deregisterSocket(envir(), sockNum, streamChannelIdToRemove);
 
-	if (streamChannelId != 0xFF) return; // we're done
+	if (streamChannelId != 0xFF) {
+	  // A specific channel was removed.  If this was the interface's last interleaved
+	  // channel, resume reading on the datagram socket so UDP transport works again
+	  // (needed for TCP->UDP transport reconfiguration).
+	  resumeDatagramReadingIfNoTCPStreams();
+	  return; // we're done
+	}
 	break; // start again from the beginning of the list, in case the list has changed
       } else {
 	streamsPtr = &((*streamsPtr)->fNext);
@@ -533,6 +552,8 @@ void RTPInterface::removeStreamSocket(int sockNum,
     }
     if (*streamsPtr == NULL) break;
   }
+  // A bulk removal (streamChannelId == 0xFF) may also have taken away the last TCP channel:
+  resumeDatagramReadingIfNoTCPStreams();
 }
 
 void RTPInterface::setServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum,

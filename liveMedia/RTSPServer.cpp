@@ -22,6 +22,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "RTSPCommon.hh"
 #include "RTSPRegisterSender.hh"
 #include "Base64.hh"
+#include "TransportReconfiguration.hh"
 #include <GroupsockHelper.hh>
 
 ////////// RTSPServer implementation //////////
@@ -183,6 +184,7 @@ RTSPServer::RTSPServer(UsageEnvironment& env,
     fPendingRegisterOrDeregisterRequests(HashTable::create(ONE_WORD_HASH_KEYS)),
     fRegisterOrDeregisterRequestCounter(0), fAuthDB(authDatabase),
     fAllowStreamingRTPOverTCP(True),
+    fEnableTransportReconfiguration(False),
     fOurConnectionsUseTLS(False), fWeServeSRTP(False) {
 }
 
@@ -1338,12 +1340,6 @@ void RTSPServer::RTSPClientSession::reclaimStreamStates() {
   fNumStreamStates = 0;
 }
 
-typedef enum StreamingMode {
-  RTP_UDP,
-  RTP_TCP,
-  RAW_UDP
-} StreamingMode;
-
 static void parseTransportHeader(char const* buf,
 				 StreamingMode& streamingMode,
 				 char*& streamingModeString,
@@ -1567,6 +1563,10 @@ void RTSPServer::RTSPClientSession
 	fStreamStates[i].subsession = subsession;
 	fStreamStates[i].tcpSocketNum = -1; // for now; may get set for RTP-over-TCP streaming
 	fStreamStates[i].streamToken = NULL; // for now; it may be changed by the "getStreamParameters()" call that comes later
+	fStreamStates[i].rtpInterleavedChannel = -1; // not using TCP interleaving yet
+	fStreamStates[i].rtcpInterleavedChannel = -1;
+	fStreamStates[i].rtpClientPort = 0;
+	fStreamStates[i].rtcpClientPort = 0;
       }
 #ifdef LOG_RTSPSERVER_ACCESS
        FILE* logfid = fopen("live555.log", "a");
@@ -1607,15 +1607,11 @@ void RTSPServer::RTSPClientSession
     // ASSERT: subsession != NULL
     
     void*& token = fStreamStates[trackNum].streamToken; // alias
-    if (token != NULL) {
-      // We already handled a "SETUP" for this track (to the same client),
-      // so stop any existing streaming of it, before we set it up again:
-      subsession->pauseStream(fOurSessionId, token);
-      fOurRTSPServer.unnoteTCPStreamingOnSocket(fStreamStates[trackNum].tcpSocketNum, this, trackNum);
-      subsession->deleteStream(fOurSessionId, token);
-    }
 
-    // Look for a "Transport:" header in the request string, to extract client parameters:
+    // Look for a "Transport:" header in the request string, to extract client parameters.
+    // This is parsed *before* the legacy pause/delete below, so that a re-SETUP on an
+    // already-established track can be reconfigured in place (when enabled) rather than torn
+    // down and recreated.
     StreamingMode streamingMode;
     char* streamingModeString = NULL; // set when RAW_UDP streaming is specified
     char* clientsDestinationAddressStr;
@@ -1626,6 +1622,41 @@ void RTSPServer::RTSPClientSession
 			 clientsDestinationAddressStr, clientsDestinationTTL,
 			 clientRTPPortNum, clientRTCPPortNum,
 			 rtpChannelId, rtcpChannelId);
+
+    if (token != NULL
+	&& fOurRTSPServer.fEnableTransportReconfiguration
+	// Only plaintext (no TLS), non-tunnelled (input and output socket are the same)
+	// connections, and only subsessions that implement in-place reconfiguration:
+	&& ourClientConnection->fClientOutputSocket == ourClientConnection->fClientInputSocket
+	&& !fOurRTSPServer.fOurConnectionsUseTLS
+	&& !fIsMulticast
+	&& subsession->supportsTransportReconfiguration()) {
+      Boolean reconfigRejected = False;
+      if (handleTransportReconfiguration(ourClientConnection, trackNum,
+					 streamingMode,
+					 clientRTPPortNum, clientRTCPPortNum,
+					 rtpChannelId, rtcpChannelId,
+					 reconfigRejected)) {
+	// The re-SETUP has been fully answered (200) or rejected (461); the legacy
+	// pause/delete/recreate path below must not run.  NULL the strings so the shared
+	// "delete[]" after the do/while loop becomes a no-op for them.
+	delete[] clientsDestinationAddressStr; clientsDestinationAddressStr = NULL;
+	delete[] streamingModeString; streamingModeString = NULL;
+	break;
+      }
+      // Not eligible for in-place handling (e.g. an unsupported transport flavour): fall
+      // through to the original code path, whose behavior is unchanged.
+      (void)reconfigRejected;
+    }
+
+    if (token != NULL) {
+      // We already handled a "SETUP" for this track (to the same client),
+      // so stop any existing streaming of it, before we set it up again:
+      subsession->pauseStream(fOurSessionId, token);
+      fOurRTSPServer.unnoteTCPStreamingOnSocket(fStreamStates[trackNum].tcpSocketNum, this, trackNum);
+      subsession->deleteStream(fOurSessionId, token);
+    }
+
     if ((streamingMode == RTP_TCP && rtpChannelId == 0xFF) ||
 	(streamingMode != RTP_TCP && ourClientConnection->fClientOutputSocket != ourClientConnection->fClientInputSocket)) {
       // An anomolous situation, caused by a buggy client.  Either:
@@ -1695,7 +1726,16 @@ void RTSPServer::RTSPClientSession
 				    destinationAddress, destinationTTL, fIsMulticast,
 				    serverRTPPort, serverRTCPPort,
 				    fStreamStates[trackNum].streamToken);
-    
+
+    if (!fIsMulticast) {
+      // Remember the transport now in effect, so a later re-SETUP on this track can be validated
+      // (and interleaved-channel collisions with other tracks detected).
+      recordTransportForTrack(trackNum, streamingMode,
+			      clientRTPPortNum, clientRTCPPortNum,
+			      rtpChannelId, rtcpChannelId,
+			      fStreamStates[trackNum].tcpSocketNum);
+    }
+
     AddressString destAddrStr(destinationAddress);
     AddressString sourceAddrStr(sourceAddr);
     char timeoutParameterString[100];
@@ -1789,6 +1829,181 @@ void RTSPServer::RTSPClientSession
     }
     delete[] streamingModeString;
   } while (0);
+}
+
+Boolean RTSPServer::RTSPClientSession
+::interleavedChannelIsInUse(unsigned trackNum,
+				   unsigned char rtpChannelId,
+				   unsigned char rtcpChannelId) const {
+  // The channels must not collide with any *other* already-established track that is interleaved
+  // over the same RTSP control connection.
+  for (unsigned i = 0; i < fNumStreamStates; ++i) {
+    if (i == trackNum) continue;
+    struct streamState const& other = fStreamStates[i];
+    if (other.rtpInterleavedChannel < 0) continue; // not using TCP interleaving
+    // Every interleaved track in one session shares the same control-connection socket, so a
+    // channel-id comparison against the other tracks is sufficient.
+    if ((int)rtpChannelId == other.rtpInterleavedChannel
+	|| (int)rtcpChannelId == other.rtpInterleavedChannel
+	|| (int)rtpChannelId == other.rtcpInterleavedChannel
+	|| (int)rtcpChannelId == other.rtpInterleavedChannel) {
+      return True;
+    }
+  }
+  return False;
+}
+
+void RTSPServer::RTSPClientSession
+::recordTransportForTrack(unsigned trackNum, StreamingMode streamingMode,
+				 portNumBits clientRTPPortNum, portNumBits clientRTCPPortNum,
+				 unsigned char rtpChannelId, unsigned char rtcpChannelId,
+				 int tcpSocketNum) {
+  struct streamState& st = fStreamStates[trackNum];
+  if (streamingMode == RTP_TCP) {
+    st.tcpSocketNum = tcpSocketNum;
+    st.rtpInterleavedChannel = rtpChannelId;
+    st.rtcpInterleavedChannel = rtcpChannelId;
+    st.rtpClientPort = st.rtcpClientPort = 0;
+
+    // Keep the auto-allocation cursor ahead of every explicitly chosen channel, so a later
+    // first-SETUP on another track never auto-picks a channel already in use here.
+    unsigned char const top = rtpChannelId > rtcpChannelId ? rtpChannelId : rtcpChannelId;
+    if ((int)fTCPStreamIdCount <= (int)top) fTCPStreamIdCount = (unsigned char)(top + 1);
+  } else {
+    st.tcpSocketNum = -1;
+    st.rtpInterleavedChannel = st.rtcpInterleavedChannel = -1;
+    st.rtpClientPort = (int)clientRTPPortNum;
+    st.rtcpClientPort = (int)clientRTCPPortNum;
+  }
+}
+
+Boolean RTSPServer::RTSPClientSession
+::handleTransportReconfiguration(RTSPClientConnection* ourClientConnection,
+				 unsigned trackNum,
+				 StreamingMode streamingMode,
+				 portNumBits clientRTPPortNum,
+				 portNumBits clientRTCPPortNum,
+				 unsigned char rtpChannelId,
+				 unsigned char rtcpChannelId,
+				 Boolean& rejected) {
+  rejected = False;
+
+  ServerMediaSubsession* subsession = fStreamStates[trackNum].subsession;
+  if (subsession == NULL || fStreamStates[trackNum].streamToken == NULL) return False;
+
+  // Only the two complete, explicit unicast transports are accepted on this path.  RAW_UDP,
+  // multicast, implicit TCP channels, malformed ports and unknown transports are refused with
+  // 461, leaving the existing transport fully in effect.
+  if (streamingMode == RTP_TCP) {
+    if (!fOurRTSPServer.fAllowStreamingRTPOverTCP) {
+      ourClientConnection->handleCmd_unsupportedTransport();
+      rejected = True; return True;
+    }
+    if (rtpChannelId == 0xFF || rtcpChannelId == 0xFF // no explicit "interleaved=" pair
+	|| !transportReconfig_isValidTcpChannelPair(rtpChannelId, rtcpChannelId)) {
+      ourClientConnection->handleCmd_unsupportedTransport();
+      rejected = True; return True;
+    }
+    // Check against the other tracks already interleaved on this control connection.  The current
+    // track's own existing channels are excluded (reusing them is a legitimate TCP->TCP change or
+    // an identical re-SETUP).
+    if (interleavedChannelIsInUse(trackNum, rtpChannelId, rtcpChannelId)) {
+      ourClientConnection->handleCmd_unsupportedTransport();
+      rejected = True; return True;
+    }
+  } else if (streamingMode == RTP_UDP) {
+    // A complete pair of distinct, non-zero 16-bit UDP ports is mandatory:
+    if (!transportReconfig_isValidUdpPortPair(clientRTPPortNum, clientRTCPPortNum)) {
+      ourClientConnection->handleCmd_unsupportedTransport();
+      rejected = True; return True;
+    }
+  } else {
+    // RAW_UDP (and anything else) is outside the supported reconfiguration scope:
+    ourClientConnection->handleCmd_unsupportedTransport();
+    rejected = True; return True;
+  }
+
+  int const newTcpSocketNum = streamingMode == RTP_TCP
+    ? ourClientConnection->fClientOutputSocket : -1;
+  TLSState* tlsState = &ourClientConnection->fTLS;
+
+  // For UDP, the destination is the client's control-connection address with the requested ports
+  // (mirroring "getStreamParameters()", which ignores "destination=" unless the compile-time
+  // client-destination override is enabled).
+  struct sockaddr_storage destinationAddress = ourClientConnection->fClientAddr;
+  Port newClientRTPPort(clientRTPPortNum);
+  Port newClientRTCPPort(clientRTCPPortNum);
+  Port serverRTPPort(0), serverRTCPPort(0);
+  Boolean transportWasUnchanged = False;
+
+  Boolean ok = subsession->reconfigureStreamTransport(fOurSessionId,
+					 fStreamStates[trackNum].streamToken,
+					 newTcpSocketNum, rtpChannelId, rtcpChannelId, tlsState,
+					 destinationAddress, newClientRTPPort, newClientRTCPPort,
+					 serverRTPPort, serverRTCPPort, transportWasUnchanged);
+  if (!ok) {
+    // The subsession declined (defensive); nothing was changed:
+    ourClientConnection->handleCmd_unsupportedTransport();
+    rejected = True; return True;
+  }
+
+  if (!transportWasUnchanged) {
+    // Swap the RTSP-level socket/track registration.  Remove the old TCP record (if any) before
+    // (re)registering, so no stale channel/track mapping survives a UDP<->TCP move.
+    int const oldTcpSocketNum = fStreamStates[trackNum].tcpSocketNum;
+    if (oldTcpSocketNum >= 0) {
+      fOurRTSPServer.unnoteTCPStreamingOnSocket(oldTcpSocketNum, this, trackNum);
+    }
+    if (streamingMode == RTP_TCP) {
+      fOurRTSPServer.noteTCPStreamingOnSocket(newTcpSocketNum, this, trackNum);
+    }
+    recordTransportForTrack(trackNum, streamingMode,
+			    clientRTPPortNum, clientRTCPPortNum,
+			    rtpChannelId, rtcpChannelId, newTcpSocketNum);
+  }
+
+  // A re-SETUP never starts playback; whatever PLAY/PAUSE state existed continues unchanged.
+  fStreamAfterSETUP = False;
+
+  // Build the success response carrying the new Transport; the Session id is unchanged.
+  struct sockaddr_storage sourceAddr; SOCKLEN_T namelen = sizeof sourceAddr;
+  getsockname(ourClientConnection->fClientInputSocket, (struct sockaddr*)&sourceAddr, &namelen);
+  AddressString destAddrStr(destinationAddress);
+  AddressString sourceAddrStr(sourceAddr);
+  char timeoutParameterString[100];
+  if (fOurRTSPServer.fReclamationSeconds > 0) {
+    sprintf(timeoutParameterString, ";timeout=%u", fOurRTSPServer.fReclamationSeconds);
+  } else {
+    timeoutParameterString[0] = '\0';
+  }
+
+  if (streamingMode == RTP_TCP) {
+    snprintf((char*)ourClientConnection->fResponseBuffer, sizeof ourClientConnection->fResponseBuffer,
+	     "RTSP/1.0 200 OK\r\n"
+	     "CSeq: %s\r\n"
+	     "%s"
+	     "Transport: RTP/AVP/TCP;unicast;destination=%s;source=%s;interleaved=%d-%d\r\n"
+	     "Session: %08X%s\r\n\r\n",
+	     ourClientConnection->fCurrentCSeq,
+	     dateHeader(),
+	     destAddrStr.val(), sourceAddrStr.val(), rtpChannelId, rtcpChannelId,
+	     fOurSessionId, timeoutParameterString);
+  } else {
+    snprintf((char*)ourClientConnection->fResponseBuffer, sizeof ourClientConnection->fResponseBuffer,
+	     "RTSP/1.0 200 OK\r\n"
+	     "CSeq: %s\r\n"
+	     "%s"
+	     "Transport: RTP/AVP;unicast;destination=%s;source=%s;client_port=%d-%d;server_port=%d-%d\r\n"
+	     "Session: %08X%s\r\n\r\n",
+	     ourClientConnection->fCurrentCSeq,
+	     dateHeader(),
+	     destAddrStr.val(), sourceAddrStr.val(),
+	     ntohs(newClientRTPPort.num()), ntohs(newClientRTCPPort.num()),
+	     ntohs(serverRTPPort.num()), ntohs(serverRTCPPort.num()),
+	     fOurSessionId, timeoutParameterString);
+  }
+
+  return True;
 }
 
 void RTSPServer::RTSPClientSession

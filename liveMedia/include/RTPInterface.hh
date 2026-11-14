@@ -56,6 +56,11 @@ public:
   void setStreamSocket(int sockNum, unsigned char streamChannelId, TLSState* tlsState);
   void addStreamSocket(int sockNum, unsigned char streamChannelId, TLSState* tlsState);
   void removeStreamSocket(int sockNum, unsigned char streamChannelId);
+  Boolean hasTCPStreams() const { return fTCPStreams != NULL; }
+  // After the last interleaved (TCP) channel is removed, re-enable reading on the underlying
+  // datagram socket - "addStreamSocket()" had turned it off while TCP was in use.  No-op if TCP
+  // streams remain, there is no datagram socket, or no read handler was ever installed.
+  void resumeDatagramReadingIfNoTCPStreams();
   static void setServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum,
 						     ServerRequestAlternativeByteHandler* handler, void* clientData);
   static void clearServerRequestAlternativeByteHandler(UsageEnvironment& env, int socketNum);

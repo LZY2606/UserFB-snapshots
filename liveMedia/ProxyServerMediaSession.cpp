@@ -1409,6 +1409,10 @@ ProxyServerMediaSubsession
 				  initialPortNum, multiplexRTCPWithRTP),
     fClientMediaSubsession(mediaSubsession), fCodecName(strDup(mediaSubsession.codecName())),
     fNext(NULL), fHaveSetupStream(False) {
+  // A proxy track is tied to a separate back-end RTSPClient connection with its own transport
+  // wiring, so in-place re-SETUP of the front-end transport is out of scope here.  Opt out so the
+  // legacy pause/delete/recreate SETUP behavior is used unchanged.
+  setTransportReconfigurationEnabled(False);
 }
 
 UsageEnvironment& operator<<(UsageEnvironment& env, const ProxyServerMediaSubsession& psmss) { // used for debugging

@@ -1,6 +1,9 @@
 .DS_Store
 tmp/
 
+# task_support/run.sh build output (per-arch objects, static libs and test binaries).
+.task-build/
+
 # Deployment-specific build/self-test drivers. Kept OUT of this public fork because they carry
 # site-specific values (host serials, LAN camera URLs, credentials) that must never enter a public
 # git history — once committed, a password stays in the history forever even after deletion.

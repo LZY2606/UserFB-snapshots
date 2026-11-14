@@ -30,6 +30,7 @@ OnDemandServerMediaSubsession
   : ServerMediaSubsession(env),
     fSDPLines(NULL), fMIKEYStateMessage(NULL), fMIKEYStateMessageSize(0),
     fReuseFirstSource(reuseFirstSource),
+    fTransportReconfigurationEnabled(True),
     fMultiplexRTCPWithRTP(multiplexRTCPWithRTP), fLastStreamToken(NULL),
     fAppHandlerTask(NULL), fAppHandlerClientData(NULL) {
   fDestinationsHashTable = HashTable::create(ONE_WORD_HASH_KEYS);
@@ -403,6 +404,87 @@ void OnDemandServerMediaSubsession::deleteStream(unsigned clientSessionId,
   delete destinations;
 }
 
+Boolean OnDemandServerMediaSubsession::supportsTransportReconfiguration() const {
+  // Plain, unicast, on-demand subsessions can move a live track between UDP and TCP
+  // interleaving without rebuilding any media object.  Specialized subclasses may turn this off.
+  return fTransportReconfigurationEnabled;
+}
+
+Boolean OnDemandServerMediaSubsession
+::reconfigureStreamTransport(unsigned clientSessionId, void* streamToken,
+			     int newTcpSocketNum, // <0 => UDP; >=0 => RTP/AVP/TCP
+			     unsigned char newRtpChannelId,
+			     unsigned char newRtcpChannelId,
+			     TLSState* tlsState,
+			     struct sockaddr_storage const& newClientAddress,
+			     Port const& newClientRTPPort,
+			     Port const& newClientRTCPPort,
+			     Port& serverRTPPort, Port& serverRTCPPort,
+			     Boolean& transportWasUnchanged) {
+  transportWasUnchanged = False;
+
+  StreamState* streamState = (StreamState*)streamToken;
+  if (streamState == NULL) return False;
+
+  // The client must already have a SETUP on this track:
+  Destinations* oldDestinations
+    = (Destinations*)(fDestinationsHashTable->Lookup((char const*)clientSessionId));
+  if (oldDestinations == NULL) return False;
+
+  // Build the replacement destination description (nothing is attached yet):
+  Destinations* newDestinations = newTcpSocketNum >= 0
+    ? new Destinations(newTcpSocketNum, newRtpChannelId, newRtcpChannelId, tlsState)
+    : new Destinations(newClientAddress, newClientRTPPort, newClientRTCPPort);
+
+  // A re-issued SETUP with the very same transport parameters is a no-op: do not add a second
+  // destination or a second RR callback, and do not touch the media plane at all.
+  Boolean unchanged = oldDestinations->isTCP == newDestinations->isTCP;
+  if (unchanged) {
+    if (newDestinations->isTCP) {
+      unchanged = oldDestinations->tcpSocketNum == newDestinations->tcpSocketNum
+		&& oldDestinations->rtpChannelId == newDestinations->rtpChannelId
+		&& oldDestinations->rtcpChannelId == newDestinations->rtcpChannelId;
+    } else {
+      unchanged = (oldDestinations->addr == newDestinations->addr)
+		&& oldDestinations->rtpPort.num() == newDestinations->rtpPort.num()
+		&& oldDestinations->rtcpPort.num() == newDestinations->rtcpPort.num();
+    }
+  }
+
+  serverRTPPort = streamState->serverRTPPort();
+  serverRTCPPort = streamState->serverRTCPPort();
+
+  if (unchanged) {
+    transportWasUnchanged = True;
+    delete newDestinations;
+    return True;
+  }
+
+  // Replace the per-session destination record.  "Add()" returns the previous entry for this key,
+  // which is the old "Destinations" we looked up above.
+  // Carry over the per-destination playback handlers (RR callback etc.) so the replacement keeps
+  // working without another PLAY.
+  newDestinations->copyPlaybackHandlersFrom(*oldDestinations);
+  Destinations* displaced
+    = (Destinations*)(fDestinationsHashTable->Add((char const*)clientSessionId, newDestinations));
+
+  // Re-point the live media plane at the new destination, but only if the old one had been
+  // attached by a PLAY.  If the track is still only SETUP (never PLAYed), nothing is attached yet,
+  // so the next "startStream()" simply uses the replacement record.  With "reuseFirstSource",
+  // this touches only this client's destination and RR handler; other subscribers keep their own.
+  Boolean const oldWasApplied = oldDestinations->handlersApplied;
+  if (oldWasApplied) {
+    streamState->switchDestinations(oldDestinations, newDestinations, clientSessionId);
+  } else {
+    newDestinations->handlersApplied = False;
+  }
+
+  if (displaced != NULL && displaced != oldDestinations) delete displaced; // defensive
+  delete oldDestinations;
+
+  return True;
+}
+
 char const* OnDemandServerMediaSubsession
 ::getAuxSDPLine(RTPSink* rtpSink, FramedSource* /*inputSource*/) {
   // Default implementation:
@@ -560,6 +642,14 @@ void StreamState
 	       void* serverRequestAlternativeByteHandlerClientData) {
   if (dests == NULL) return;
 
+  // Remember the handlers on this destination record, so a later in-place transport
+  // reconfiguration can re-register them (in particular the per-destination RTCP RR handler)
+  // on the replacement destination.
+  dests->rrHandler = rtcpRRHandler;
+  dests->rrHandlerClientData = rtcpRRHandlerClientData;
+  dests->altByteHandler = serverRequestAlternativeByteHandler;
+  dests->altByteHandlerClientData = serverRequestAlternativeByteHandlerClientData;
+
   if (fRTCPInstance == NULL && fRTPSink != NULL) {
     // Create (and start) a 'RTCP instance' for this RTP sink:
     fRTCPInstance = fMaster.createRTCP(fRTCPgs, fTotalBW, (unsigned char*)fMaster.fCNAME, fRTPSink);
@@ -567,36 +657,7 @@ void StreamState
     if (fRTCPInstance != NULL) fRTCPInstance->setAppHandler(fMaster.fAppHandlerTask, fMaster.fAppHandlerClientData);
   }
 
-  if (dests->isTCP) {
-    // Change RTP and RTCP to use the TCP socket instead of UDP:
-    if (fRTPSink != NULL) {
-      fRTPSink->addStreamSocket(dests->tcpSocketNum, dests->rtpChannelId, dests->tlsState);
-      RTPInterface
-	::setServerRequestAlternativeByteHandler(fRTPSink->envir(), dests->tcpSocketNum,
-						 serverRequestAlternativeByteHandler, serverRequestAlternativeByteHandlerClientData);
-        // So that we continue to handle RTSP commands from the client
-    }
-    if (fRTCPInstance != NULL) {
-      fRTCPInstance->addStreamSocket(dests->tcpSocketNum, dests->rtcpChannelId, dests->tlsState);
-
-      struct sockaddr_storage tcpSocketNumAsAddress; // hack
-      tcpSocketNumAsAddress.ss_family = AF_INET;
-      ((sockaddr_in&)tcpSocketNumAsAddress).sin_addr.s_addr = dests->tcpSocketNum;
-      fRTCPInstance->setSpecificRRHandler(tcpSocketNumAsAddress, dests->rtcpChannelId,
-					  rtcpRRHandler, rtcpRRHandlerClientData);
-    }
-  } else {
-    // Tell the RTP and RTCP 'groupsocks' about this destination
-    // (in case they don't already have it):
-    if (fRTPgs != NULL) fRTPgs->addDestination(dests->addr, dests->rtpPort, clientSessionId);
-    if (fRTCPgs != NULL && !(fRTCPgs == fRTPgs && dests->rtcpPort.num() == dests->rtpPort.num())) {
-      fRTCPgs->addDestination(dests->addr, dests->rtcpPort, clientSessionId);
-    }
-    if (fRTCPInstance != NULL) {
-      fRTCPInstance->setSpecificRRHandler(dests->addr, dests->rtcpPort,
-					  rtcpRRHandler, rtcpRRHandlerClientData);
-    }
-  }
+  attachDestination(dests, clientSessionId);
 
   if (fRTCPInstance != NULL) {
     // Hack: Send an initial RTCP "SR" packet, before the initial RTP packet, so that receivers will (likely) be able to
@@ -617,6 +678,85 @@ void StreamState
     }
     fAreCurrentlyPlaying = True;
   }
+}
+
+// Attach one destination (UDP address/port pair, or TCP interleaved channels) to the existing
+// RTP sink and RTCP instance, registering the saved per-destination handlers.  Does not touch the
+// sink's playing state, so it is safe to call while a stream is already flowing.
+void StreamState::attachDestination(Destinations* dests, unsigned clientSessionId) {
+  if (dests == NULL) return;
+
+  if (dests->isTCP) {
+    // Change RTP and RTCP to use the TCP socket instead of UDP:
+    if (fRTPSink != NULL) {
+      fRTPSink->addStreamSocket(dests->tcpSocketNum, dests->rtpChannelId, dests->tlsState);
+      RTPInterface
+	::setServerRequestAlternativeByteHandler(fRTPSink->envir(), dests->tcpSocketNum,
+						 dests->altByteHandler, dests->altByteHandlerClientData);
+        // So that we continue to handle RTSP commands from the client
+    }
+    if (fRTCPInstance != NULL) {
+      fRTCPInstance->addStreamSocket(dests->tcpSocketNum, dests->rtcpChannelId, dests->tlsState);
+
+      struct sockaddr_storage tcpSocketNumAsAddress; // hack
+      tcpSocketNumAsAddress.ss_family = AF_INET;
+      ((sockaddr_in&)tcpSocketNumAsAddress).sin_addr.s_addr = dests->tcpSocketNum;
+      fRTCPInstance->setSpecificRRHandler(tcpSocketNumAsAddress, dests->rtcpChannelId,
+					  dests->rrHandler, dests->rrHandlerClientData);
+    }
+  } else {
+    // Tell the RTP and RTCP 'groupsocks' about this destination
+    // (in case they don't already have it):
+    if (fRTPgs != NULL) fRTPgs->addDestination(dests->addr, dests->rtpPort, clientSessionId);
+    if (fRTCPgs != NULL && !(fRTCPgs == fRTPgs && dests->rtcpPort.num() == dests->rtpPort.num())) {
+      fRTCPgs->addDestination(dests->addr, dests->rtcpPort, clientSessionId);
+    }
+    if (fRTCPInstance != NULL) {
+      fRTCPInstance->setSpecificRRHandler(dests->addr, dests->rtcpPort,
+					  dests->rrHandler, dests->rrHandlerClientData);
+    }
+  }
+
+  dests->handlersApplied = True;
+}
+
+// Detach one destination from the existing RTP sink / RTCP instance, removing its interleaved
+// channels (or groupsock destinations) and its specific RR handler.  Does not stop the sink.
+void StreamState::detachDestination(Destinations* dests, unsigned clientSessionId) {
+  if (dests == NULL) return;
+
+  if (dests->isTCP) {
+    if (fRTPSink != NULL) {
+      fRTPSink->removeStreamSocket(dests->tcpSocketNum, dests->rtpChannelId);
+    }
+    if (fRTCPInstance != NULL) {
+      fRTCPInstance->removeStreamSocket(dests->tcpSocketNum, dests->rtcpChannelId);
+
+      struct sockaddr_storage tcpSocketNumAsAddress; // hack
+      tcpSocketNumAsAddress.ss_family = AF_INET;
+      ((sockaddr_in&)tcpSocketNumAsAddress).sin_addr.s_addr = dests->tcpSocketNum;
+      fRTCPInstance->unsetSpecificRRHandler(tcpSocketNumAsAddress, dests->rtcpChannelId);
+    }
+  } else {
+    // Tell the RTP and RTCP 'groupsocks' to stop using these destinations:
+    if (fRTPgs != NULL) fRTPgs->removeDestination(clientSessionId);
+    if (fRTCPgs != NULL && fRTCPgs != fRTPgs) fRTCPgs->removeDestination(clientSessionId);
+    if (fRTCPInstance != NULL) {
+      fRTCPInstance->unsetSpecificRRHandler(dests->addr, dests->rtcpPort);
+    }
+  }
+
+  dests->handlersApplied = False;
+}
+
+// Move one client's track from "oldDests" to "newDests" without recreating any media object.
+// The old destination stops receiving RTP and periodic RTCP (and its RR no longer refreshes this
+// track); the new destination is attached immediately, reusing the handlers from the last PLAY.
+// If the stream is playing it keeps flowing to the new destination; if paused it stays paused.
+void StreamState::switchDestinations(Destinations* oldDests,
+					    Destinations* newDests, unsigned clientSessionId) {
+  detachDestination(oldDests, clientSessionId);
+  attachDestination(newDests, clientSessionId);
 }
 
 void StreamState::pause() {
@@ -640,26 +780,7 @@ void StreamState::endPlaying(Destinations* dests, unsigned clientSessionId) {
   }
 #endif
 
-  if (dests->isTCP) {
-    if (fRTPSink != NULL) {
-      fRTPSink->removeStreamSocket(dests->tcpSocketNum, dests->rtpChannelId);
-    }
-    if (fRTCPInstance != NULL) {
-      fRTCPInstance->removeStreamSocket(dests->tcpSocketNum, dests->rtcpChannelId);
-
-      struct sockaddr_storage tcpSocketNumAsAddress; // hack
-      tcpSocketNumAsAddress.ss_family = AF_INET;
-      ((sockaddr_in&)tcpSocketNumAsAddress).sin_addr.s_addr = dests->tcpSocketNum;
-      fRTCPInstance->unsetSpecificRRHandler(tcpSocketNumAsAddress, dests->rtcpChannelId);
-    }
-  } else {
-    // Tell the RTP and RTCP 'groupsocks' to stop using these destinations:
-    if (fRTPgs != NULL) fRTPgs->removeDestination(clientSessionId);
-    if (fRTCPgs != NULL && fRTCPgs != fRTPgs) fRTCPgs->removeDestination(clientSessionId);
-    if (fRTCPInstance != NULL) {
-      fRTCPInstance->unsetSpecificRRHandler(dests->addr, dests->rtcpPort);
-    }
-  }
+  detachDestination(dests, clientSessionId);
 }
 
 void StreamState::sendRTCPAppPacket(u_int8_t subtype, char const* name,

@@ -172,6 +172,21 @@ public:
      // using the "startStream()" and "deleteStream()" functions.
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
 
+  // Transport reconfiguration (in-place re-SETUP of an already-set-up track, keeping the same
+  // media source, RTP sink and RTCP instance).  The default implementation returns False,
+  // which makes "RTSPServer" fall back to the legacy pause/delete/recreate behavior.
+  virtual Boolean supportsTransportReconfiguration() const;
+  virtual Boolean reconfigureStreamTransport(unsigned clientSessionId, void* streamToken,
+						   int newTcpSocketNum, // <0 => UDP; >=0 => RTP/AVP/TCP
+						   unsigned char newRtpChannelId,
+						   unsigned char newRtcpChannelId,
+						   TLSState* tlsState,
+						   struct sockaddr_storage const& newClientAddress,
+						   Port const& newClientRTPPort,
+						   Port const& newClientRTCPPort,
+						   Port& serverRTPPort, Port& serverRTCPPort,
+						   Boolean& transportWasUnchanged);
+
   virtual void testScaleFactor(float& scale); // sets "scale" to the actual supported scale
   virtual float duration() const;
     // returns 0 for an unbounded session (the default)

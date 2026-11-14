@@ -28,6 +28,14 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "DigestAuthentication.hh"
 #endif
 
+// RTP transport requested in a SETUP "Transport:" header.  Defined here (rather than only in
+// "RTSPServer.cpp") so the in-place transport-reconfiguration routines can name it.
+typedef enum StreamingMode {
+  RTP_UDP,
+  RTP_TCP,
+  RAW_UDP
+} StreamingMode;
+
 class RTSPServer: public GenericMediaServer {
 public:
   static RTSPServer* createNew(UsageEnvironment& env, Port ourPort = 554,
@@ -100,6 +108,17 @@ public:
   void disableStreamingRTPOverTCP() {
     fAllowStreamingRTPOverTCP = False;
   }
+
+  void enableTransportReconfiguration(Boolean enable) {
+    // When enabled, a second SETUP for an already-set-up track of a plain, unicast
+    // "OnDemandServerMediaSubsession" reconfigures its transport in place (UDP<->TCP
+    // interleaved, or new channels/ports) instead of pausing, deleting and recreating the
+    // stream.  Must be set before the server accepts clients.  Default: disabled.
+    fEnableTransportReconfiguration = enable;
+  }
+  Boolean transportReconfigurationIsEnabled() const { return fEnableTransportReconfiguration; }
+
+  portNumBits serverPortNum() const { return ntohs(fServerPort.num()); } // host byte order
 
   Boolean setUpTunnelingOverHTTP(Port httpPort);
       // (Attempts to) enable RTSP-over-HTTP tunneling on the specified port.
@@ -279,6 +298,26 @@ public: // should be protected, but some old compilers complain otherwise
     void reclaimStreamStates();
     Boolean isMulticast() const { return fIsMulticast; }
 
+    // Returns True if this re-SETUP was handled as an in-place transport reconfiguration (a
+    // response has then been written).  Returns False to make the caller use the legacy
+    // pause/delete/recreate SETUP path instead.  On a 461 rejection, "rejected" is set True, a
+    // response has been written, and the existing transport is left fully intact.
+    Boolean handleTransportReconfiguration(RTSPClientConnection* ourClientConnection,
+						  unsigned trackNum,
+						  StreamingMode streamingMode,
+						  portNumBits clientRTPPortNum,
+						  portNumBits clientRTCPPortNum,
+						  unsigned char rtpChannelId,
+						  unsigned char rtcpChannelId,
+						  Boolean& rejected);
+    Boolean interleavedChannelIsInUse(unsigned trackNum,
+					    unsigned char rtpChannelId,
+					    unsigned char rtcpChannelId) const;
+    void recordTransportForTrack(unsigned trackNum, StreamingMode streamingMode,
+					portNumBits clientRTPPortNum, portNumBits clientRTCPPortNum,
+					unsigned char rtpChannelId, unsigned char rtcpChannelId,
+					int tcpSocketNum);
+
     // Shortcuts for setting up a RTSP response (prior to sending it):
     void setRTSPResponse(RTSPClientConnection* ourClientConnection, char const* responseStr) { ourClientConnection->setRTSPResponse(responseStr); }
     void setRTSPResponse(RTSPClientConnection* ourClientConnection, char const* responseStr, u_int32_t sessionId) { ourClientConnection->setRTSPResponse(responseStr, sessionId); }
@@ -295,6 +334,13 @@ public: // should be protected, but some old compilers complain otherwise
       ServerMediaSubsession* subsession;
       int tcpSocketNum;
       void* streamToken;
+      // Transport parameters of the SETUP currently in effect for this track.  Used to validate
+      // re-SETUP requests and to detect interleaved-channel collisions across tracks.  -1 means
+      // the track is not currently using RTP/AVP/TCP.
+      int rtpInterleavedChannel;
+      int rtcpInterleavedChannel;
+      int rtpClientPort;   // host order, 0 if not UDP
+      int rtcpClientPort;  // host order, 0 if not UDP
     } * fStreamStates;
 
     // Member variables used to implement "handleCmd_SETUP()":
@@ -336,6 +382,7 @@ private:
   unsigned fRegisterOrDeregisterRequestCounter;
   UserAuthenticationDatabase* fAuthDB;
   Boolean fAllowStreamingRTPOverTCP; // by default, True
+  Boolean fEnableTransportReconfiguration; // by default, False
   Boolean fOurConnectionsUseTLS; // by default, False
   Boolean fWeServeSRTP; // used only if "fOurConnectionsUseTLS" is True
   Boolean fWeEncryptSRTP; // used only if "fWeServeSRTP" is True
