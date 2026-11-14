@@ -618,6 +618,7 @@ var oplut = map[Opcode]stackfn{
 	DW_OP_deref_size:     deref,
 	DW_OP_xderef_size:    deref,
 	DW_OP_call_frame_cfa: callframecfa,
+	DW_OP_bit_piece:      bitpiece,
 	DW_OP_implicit_value: implicitvalue,
 	DW_OP_stack_value:    stackvalue,
 }

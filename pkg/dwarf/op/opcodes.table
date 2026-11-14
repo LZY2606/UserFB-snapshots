@@ -170,6 +170,6 @@ DW_OP_call4	0x99	"4"
 DW_OP_call_ref	0x9a	"4"
 DW_OP_form_tls_address	0x9b	""
 DW_OP_call_frame_cfa	0x9c	""	callframecfa
-DW_OP_bit_piece	0x9d	"uu"
+DW_OP_bit_piece	0x9d	"uu"	bitpiece
 DW_OP_implicit_value	0x9e	"B"	implicitvalue
 DW_OP_stack_value	0x9f	""	stackvalue

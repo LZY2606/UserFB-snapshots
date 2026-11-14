@@ -30,6 +30,11 @@ type context struct {
 
 	DwarfRegisters
 	readMemory ReadMemoryFunc
+
+	// bitPieces selects the bit-piece-aware interpretation of DW_OP_piece
+	// and DW_OP_bit_piece used by the location write planner; when false the
+	// historical byte-only behavior is preserved.
+	bitPieces bool
 }
 
 // Piece is a piece of memory stored either at an address or in a register.
@@ -38,6 +43,25 @@ type Piece struct {
 	Kind  PieceKind
 	Val   uint64
 	Bytes []byte
+
+	// BitSize and BitOffset are populated only by the bit-piece-aware
+	// evaluation path (see PlanLocationWrite). BitSize is the length of the
+	// piece in bits and BitOffset is the source bit offset (the second
+	// ULEB128 operand of DW_OP_bit_piece). Both are zero on pieces produced
+	// by the legacy ExecuteStackProgram path, which keeps reporting byte
+	// sizes through Size.
+	BitSize   uint64
+	BitOffset uint64
+
+	// bitSized reports whether a piece terminator explicitly gave the piece
+	// a length, including a zero-length one. A false value means the piece
+	// is a single location expression without any piece terminator.
+	bitSized bool
+
+	// unavailable marks a synthetic trailing piece that fills the part of
+	// the logical object not covered by the location expression. Selecting
+	// any of its bits fails planning.
+	unavailable bool
 }
 
 // PieceKind describes the kind of a piece.
@@ -70,24 +94,8 @@ func ExecuteStackProgram(regs DwarfRegisters, instructions []byte, ptrSize int, 
 		readMemory:     readMemory,
 	}
 
-	for tick := 0; tick < len(instructions)*arbitraryExecutionLimitFactor; tick++ {
-		opcodeByte, err := ctxt.buf.ReadByte()
-		if err != nil {
-			break
-		}
-		opcode := Opcode(opcodeByte)
-		if opcode == DW_OP_nop {
-			continue
-		}
-		fn, ok := oplut[opcode]
-		if !ok {
-			return 0, nil, fmt.Errorf("invalid instruction %#v", opcode)
-		}
-
-		err = fn(opcode, ctxt)
-		if err != nil {
-			return 0, nil, err
-		}
+	if err := ctxt.run(); err != nil {
+		return 0, nil, err
 	}
 
 	if ctxt.pieces != nil {
@@ -102,6 +110,66 @@ func ExecuteStackProgram(regs DwarfRegisters, instructions []byte, ptrSize int, 
 	}
 
 	return ctxt.stack[len(ctxt.stack)-1], nil, nil
+}
+
+// run drives the shared opcode interpreter. Both ExecuteStackProgram and the
+// location write planner go through this loop and the same opcode handlers,
+// including the piece/bit_piece terminator logic in closeLoc; the two paths
+// only differ in how terminators are interpreted (ctxt.bitPieces).
+func (ctxt *context) run() error {
+	limit := len(ctxt.prog) * arbitraryExecutionLimitFactor
+	for tick := 0; tick < limit; tick++ {
+		off := ctxt.offset()
+		opcodeByte, err := ctxt.buf.ReadByte()
+		if err != nil {
+			break
+		}
+		opcode := Opcode(opcodeByte)
+		if opcode == DW_OP_nop {
+			continue
+		}
+		fn, ok := oplut[opcode]
+		if !ok {
+			return ctxt.exprErrorf(off, "invalid instruction %#v", opcode)
+		}
+
+		if err = fn(opcode, ctxt); err != nil {
+			return ctxt.exprError(off, err)
+		}
+	}
+	if len(ctxt.prog) > 0 && ctxt.offset() < len(ctxt.prog) {
+		// The only way to leave unread instructions is to exhaust the
+		// execution step budget (jumps keep the buffer moving otherwise).
+		return ctxt.exprErrorf(ctxt.offset(), "execution step limit exhausted")
+	}
+	return nil
+}
+
+// offset is the byte position in the location expression at which the next
+// opcode would be read.
+func (ctxt *context) offset() int {
+	return len(ctxt.prog) - ctxt.buf.Len()
+}
+
+// exprError wraps err with the expression offset at which the failing opcode
+// started, so callers can locate truncated or malformed expressions.
+func (ctxt *context) exprError(off int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("DWARF expression error at offset %d: %w", off, err)
+}
+
+func (ctxt *context) exprErrorf(off int, format string, args ...interface{}) error {
+	return ctxt.exprError(off, fmt.Errorf(format, args...))
+}
+
+// mul8Checked converts a byte length to a bit length without overflowing.
+func mul8Checked(bytes uint64) (uint64, bool) {
+	if bytes > (^uint64(0))/8 {
+		return 0, true
+	}
+	return bytes * 8, false
 }
 
 // PrettyPrint prints the DWARF stack program instructions to `out`.
@@ -191,17 +259,91 @@ func (ctxt *context) closeLoc(opcode0 Opcode, piece Piece) error {
 
 	switch opcode {
 	case DW_OP_piece:
-		sz, _ := leb128.DecodeUnsigned(ctxt.buf)
-		piece.Size = int(sz)
+		sz, err := ctxt.decodePieceSize(opcode)
+		if err != nil {
+			return err
+		}
+		if ctxt.bitPieces {
+			bits, overflow := mul8Checked(sz)
+			if overflow {
+				return fmt.Errorf("%#v size overflows uint64 bits", opcode)
+			}
+			piece.BitSize = bits
+			piece.bitSized = true
+		} else {
+			piece.Size = int(sz)
+		}
 		ctxt.pieces = append(ctxt.pieces, piece)
 		return nil
 
 	case DW_OP_bit_piece:
-		// not supported
-		return fmt.Errorf("invalid instruction %#v", opcode)
+		if !ctxt.bitPieces {
+			// The legacy byte-only consumer cannot interpret bit pieces,
+			// reject them explicitly rather than silently dropping bits.
+			return fmt.Errorf("invalid instruction %#v", opcode)
+		}
+		nbits, err := ctxt.decodePieceSize(opcode)
+		if err != nil {
+			return err
+		}
+		boff, err := ctxt.decodePieceSize(opcode)
+		if err != nil {
+			return err
+		}
+		piece.BitSize = nbits
+		piece.BitOffset = boff
+		piece.bitSized = true
+		ctxt.pieces = append(ctxt.pieces, piece)
+		return nil
 	default:
 		return fmt.Errorf("invalid instruction %#v after %#v", opcode, opcode0)
 	}
+}
+
+// decodePieceSize reads one ULEB128 operand of a piece terminator, turning
+// truncated encodings and values that do not fit in uint64 into errors
+// instead of the panic/zero that a bare leb128 read yields on a short
+// buffer.
+func (ctxt *context) decodePieceSize(opcode Opcode) (uint64, error) {
+	var (
+		result uint64
+		shift  uint
+		n      uint32
+	)
+	for {
+		b, err := ctxt.buf.ReadByte()
+		if err != nil {
+			return 0, fmt.Errorf("truncated %#v operand", opcode)
+		}
+		n++
+		if shift < 64 {
+			if shift == 63 && b&0x7e != 0 {
+				return 0, fmt.Errorf("%#v operand overflows uint64", opcode)
+			}
+			result |= uint64(b&0x7f) << shift
+		}
+		if b&0x80 == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			// Keep consuming the rest of the malformed encoding so the
+			// buffer position stays consistent, then reject it.
+			for {
+				b, err := ctxt.buf.ReadByte()
+				if err != nil {
+					return 0, fmt.Errorf("truncated %#v operand", opcode)
+				}
+				if b&0x80 == 0 {
+					return 0, fmt.Errorf("%#v operand overflows uint64", opcode)
+				}
+			}
+		}
+	}
+	if n > 10 {
+		return 0, fmt.Errorf("%#v operand overflows uint64", opcode)
+	}
+	return result, nil
 }
 
 func callframecfa(opcode Opcode, ctxt *context) error {
@@ -267,17 +409,80 @@ func bregister(opcode Opcode, ctxt *context) error {
 }
 
 func piece(opcode Opcode, ctxt *context) error {
-	sz, _ := leb128.DecodeUnsigned(ctxt.buf)
+	sz, err := ctxt.decodePieceSize(opcode)
+	if err != nil {
+		return err
+	}
 
 	if len(ctxt.stack) == 0 {
 		// nothing on the stack means this piece is unavailable (padding,
 		// optimized away...), see DWARFv4 sec. 2.6.1.3 page 30.
-		ctxt.pieces = append(ctxt.pieces, Piece{Size: int(sz), Kind: ImmPiece, Val: 0})
+		p := Piece{Kind: ImmPiece, Val: 0}
+		if ctxt.bitPieces {
+			// A terminator is always consumed, even for a zero-length
+			// piece; the (already empty) operand stack is cleared below.
+			bits, overflow := mul8Checked(sz)
+			if overflow {
+				return fmt.Errorf("%#v size overflows uint64 bits", opcode)
+			}
+			p.BitSize = bits
+			p.bitSized = true
+			p.unavailable = true
+		} else {
+			p.Size = int(sz)
+		}
+		ctxt.pieces = append(ctxt.pieces, p)
+		ctxt.stack = ctxt.stack[:0]
 		return nil
 	}
 
 	addr := ctxt.stack[len(ctxt.stack)-1]
-	ctxt.pieces = append(ctxt.pieces, Piece{Size: int(sz), Kind: AddrPiece, Val: uint64(addr)})
+	p := Piece{Kind: AddrPiece, Val: uint64(addr)}
+	if ctxt.bitPieces {
+		bits, overflow := mul8Checked(sz)
+		if overflow {
+			return fmt.Errorf("%#v size overflows uint64 bits", opcode)
+		}
+		p.BitSize = bits
+		p.bitSized = true
+	} else {
+		p.Size = int(sz)
+	}
+	ctxt.pieces = append(ctxt.pieces, p)
+	ctxt.stack = ctxt.stack[:0]
+	return nil
+}
+
+// bitpiece handles a DW_OP_bit_piece terminator following an address
+// expression (the register/immediate/stack_value forms go through
+// closeLoc). Like piece(), an empty operand stack means an unavailable
+// piece; zero-length pieces still consume both operands.
+func bitpiece(opcode Opcode, ctxt *context) error {
+	nbits, err := ctxt.decodePieceSize(opcode)
+	if err != nil {
+		return err
+	}
+	boff, err := ctxt.decodePieceSize(opcode)
+	if err != nil {
+		return err
+	}
+	if !ctxt.bitPieces {
+		// Keep the legacy byte-only path rejecting bit pieces even when
+		// the terminator follows an address expression.
+		return fmt.Errorf("invalid instruction %#v", opcode)
+	}
+
+	if len(ctxt.stack) == 0 {
+		// Unavailable piece (padding, optimized away...), see DWARFv4
+		// sec. 2.6.1.3. The terminator was consumed above and the
+		// (already empty) stack is cleared.
+		ctxt.pieces = append(ctxt.pieces, Piece{Kind: ImmPiece, Val: 0, BitSize: nbits, BitOffset: boff, bitSized: true, unavailable: true})
+		ctxt.stack = ctxt.stack[:0]
+		return nil
+	}
+
+	addr := ctxt.stack[len(ctxt.stack)-1]
+	ctxt.pieces = append(ctxt.pieces, Piece{Kind: AddrPiece, Val: uint64(addr), BitSize: nbits, BitOffset: boff, bitSized: true})
 	ctxt.stack = ctxt.stack[:0]
 	return nil
 }
