@@ -28,6 +28,7 @@
 #include <iterator>
 
 #include "alc/effects/base.h"
+#include "AL/efx.h"
 #include "alcomplex.h"
 #include "almalloc.h"
 #include "alnumbers.h"
@@ -39,6 +40,7 @@
 #include "core/effectslot.h"
 #include "core/mixer.h"
 #include "core/mixer/defs.h"
+#include "core/phase_lock.h"
 #include "intrusive_ptr.h"
 
 struct ContextBase;
@@ -87,6 +89,14 @@ struct PshifterState final : public EffectState {
     uint mPitchShiftI;
     float mPitchShift;
 
+    /* Pending phase-lock settings, latched at the start of an analysis hop so
+     * a hop in progress is never processed with two different settings.
+     */
+    bool mPendingPhaseLock;
+    float mPendingTransientThreshold;
+    bool mActivePhaseLock;
+    float mActiveTransientThreshold;
+
     /* Effects buffers */
     std::array<float,StftSize> mFIFO;
     std::array<float,StftHalfSize+1> mLastPhase;
@@ -97,6 +107,9 @@ struct PshifterState final : public EffectState {
 
     std::array<FrequencyBin,StftHalfSize+1> mAnalysisBuffer;
     std::array<FrequencyBin,StftHalfSize+1> mSynthesisBuffer;
+
+    std::array<al::PhaseLockBin,al::PhaseLock1024::BinCount> mPhaseLockBins;
+    al::PhaseLock1024 mPhaseLock;
 
     alignas(16) FloatBufferLine mBufferOut;
 
@@ -122,6 +135,12 @@ void PshifterState::deviceUpdate(const DeviceBase*, const BufferStorage*)
     mPitchShiftI = MixerFracOne;
     mPitchShift  = 1.0f;
 
+    mPendingPhaseLock = false;
+    mPendingTransientThreshold = AL_PITCH_SHIFTER_DEFAULT_TRANSIENT_THRESHOLD_SOFT;
+    mActivePhaseLock = false;
+    mActiveTransientThreshold = AL_PITCH_SHIFTER_DEFAULT_TRANSIENT_THRESHOLD_SOFT;
+    mPhaseLock.reset();
+
     mFIFO.fill(0.0f);
     mLastPhase.fill(0.0f);
     mSumPhase.fill(0.0f);
@@ -129,6 +148,7 @@ void PshifterState::deviceUpdate(const DeviceBase*, const BufferStorage*)
     mFftBuffer.fill(complex_f{});
     mAnalysisBuffer.fill(FrequencyBin{});
     mSynthesisBuffer.fill(FrequencyBin{});
+    mPhaseLockBins.fill(al::PhaseLockBin{});
 
     std::fill(std::begin(mCurrentGains), std::end(mCurrentGains), 0.0f);
     std::fill(std::begin(mTargetGains),  std::end(mTargetGains),  0.0f);
@@ -141,6 +161,9 @@ void PshifterState::update(const ContextBase*, const EffectSlot *slot,
     const float pitch{std::pow(2.0f, static_cast<float>(tune) / 1200.0f)};
     mPitchShiftI = clampu(fastf2u(pitch*MixerFracOne), MixerFracHalf, MixerFracOne*2);
     mPitchShift  = static_cast<float>(mPitchShiftI) * float{1.0f/MixerFracOne};
+
+    mPendingPhaseLock = (props->Pshifter.PhaseLock != 0);
+    mPendingTransientThreshold = props->Pshifter.TransientThreshold;
 
     static constexpr auto coeffs = CalcDirectionCoeffs({0.0f, 0.0f, -1.0f});
 
@@ -162,6 +185,18 @@ void PshifterState::process(const size_t samplesToDo,
 
     for(size_t base{0u};base < samplesToDo;)
     {
+        /* A new analysis hop starts here: latch the pending settings so a hop
+         * split across render chunks keeps one consistent configuration. The
+         * phase-lock history is only reset on an enable/disable switch.
+         */
+        if(mCount == 0)
+        {
+            if(mActivePhaseLock != mPendingPhaseLock)
+                mPhaseLock.reset();
+            mActivePhaseLock = mPendingPhaseLock;
+            mActiveTransientThreshold = mPendingTransientThreshold;
+        }
+
         const size_t todo{minz(StftStep-mCount, samplesToDo-base)};
 
         /* Retrieve the output samples from the FIFO and fill in the new input
@@ -248,7 +283,9 @@ void PshifterState::process(const size_t samplesToDo,
         }
 
         /* Reconstruct the frequency-domain signal from the adjusted frequency
-         * bins.
+         * bins. This keeps running even while phase lock is active, so the
+         * legacy analysis/output phases advance every hop and switching back
+         * to the old spectrum continues seamlessly.
          */
         for(size_t k{0u};k < StftHalfSize+1;k++)
         {
@@ -268,6 +305,23 @@ void PshifterState::process(const size_t samplesToDo,
 
             mFftBuffer[k] = std::polar(mSynthesisBuffer[k].Magnitude, mSumPhase[k]);
         }
+
+        if(mActivePhaseLock)
+        {
+            /* Feed the phase-lock kernel the same window/FFT/instantaneous-
+             * frequency analysis the legacy path uses, with the measured input
+             * phases (mLastPhase was just updated above).
+             */
+            for(size_t k{0u};k < al::PhaseLock1024::BinCount;++k)
+            {
+                mPhaseLockBins[k].magnitude = mAnalysisBuffer[k].Magnitude;
+                mPhaseLockBins[k].phase = mLastPhase[k];
+                mPhaseLockBins[k].frequency = mAnalysisBuffer[k].FreqBin;
+            }
+            mPhaseLock.process(mPhaseLockBins.data(), mPitchShift,
+                mActiveTransientThreshold, mFftBuffer.data());
+        }
+
         for(size_t k{StftHalfSize+1};k < StftSize;++k)
             mFftBuffer[k] = std::conj(mFftBuffer[StftSize-k]);
 

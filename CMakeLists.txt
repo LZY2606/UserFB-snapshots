@@ -679,6 +679,8 @@ set(CORE_OBJS
     core/mastering.h
     core/mixer.cpp
     core/mixer.h
+    core/phase_lock.cpp
+    core/phase_lock.h
     core/resampler_limits.h
     core/uhjfilter.cpp
     core/uhjfilter.h

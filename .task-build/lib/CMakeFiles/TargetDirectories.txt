@@ -1,0 +1,9 @@
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/common.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/OpenAL.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/ex-common.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1807/attempts/20261114T131231075035Z/repo/.task-build/lib/CMakeFiles/install/strip.dir

@@ -1,6 +1,8 @@
 
 #include "config.h"
 
+#include <cmath>
+
 #include "AL/al.h"
 #include "AL/efx.h"
 
@@ -16,13 +18,25 @@
 
 namespace {
 
-void Pshifter_setParamf(EffectProps*, ALenum param, float)
-{ throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float property 0x%04x", param}; }
-void Pshifter_setParamfv(EffectProps*, ALenum param, const float*)
+void Pshifter_setParamf(EffectProps *props, ALenum param, float val)
 {
-    throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float-vector property 0x%04x",
-        param};
+    switch(param)
+    {
+    case AL_PITCH_SHIFTER_TRANSIENT_THRESHOLD_SOFT:
+        if(!std::isfinite(val) || !(val >= AL_PITCH_SHIFTER_MIN_TRANSIENT_THRESHOLD_SOFT
+            && val <= AL_PITCH_SHIFTER_MAX_TRANSIENT_THRESHOLD_SOFT))
+            throw effect_exception{AL_INVALID_VALUE,
+                "Pitch shifter transient threshold out of range"};
+        props->Pshifter.TransientThreshold = val;
+        break;
+
+    default:
+        throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float property 0x%04x",
+            param};
+    }
 }
+void Pshifter_setParamfv(EffectProps *props, ALenum param, const float *vals)
+{ Pshifter_setParamf(props, param, vals[0]); }
 
 void Pshifter_setParami(EffectProps *props, ALenum param, int val)
 {
@@ -38,6 +52,13 @@ void Pshifter_setParami(EffectProps *props, ALenum param, int val)
         if(!(val >= AL_PITCH_SHIFTER_MIN_FINE_TUNE && val <= AL_PITCH_SHIFTER_MAX_FINE_TUNE))
             throw effect_exception{AL_INVALID_VALUE, "Pitch shifter fine tune out of range"};
         props->Pshifter.FineTune = val;
+        break;
+
+    case AL_PITCH_SHIFTER_PHASE_LOCK_SOFT:
+        if(!(val >= AL_PITCH_SHIFTER_MIN_PHASE_LOCK_SOFT
+            && val <= AL_PITCH_SHIFTER_MAX_PHASE_LOCK_SOFT))
+            throw effect_exception{AL_INVALID_VALUE, "Pitch shifter phase lock out of range"};
+        props->Pshifter.PhaseLock = val;
         break;
 
     default:
@@ -58,6 +79,9 @@ void Pshifter_getParami(const EffectProps *props, ALenum param, int *val)
     case AL_PITCH_SHIFTER_FINE_TUNE:
         *val = props->Pshifter.FineTune;
         break;
+    case AL_PITCH_SHIFTER_PHASE_LOCK_SOFT:
+        *val = props->Pshifter.PhaseLock;
+        break;
 
     default:
         throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter integer property 0x%04x",
@@ -67,19 +91,29 @@ void Pshifter_getParami(const EffectProps *props, ALenum param, int *val)
 void Pshifter_getParamiv(const EffectProps *props, ALenum param, int *vals)
 { Pshifter_getParami(props, param, vals); }
 
-void Pshifter_getParamf(const EffectProps*, ALenum param, float*)
-{ throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float property 0x%04x", param}; }
-void Pshifter_getParamfv(const EffectProps*, ALenum param, float*)
+void Pshifter_getParamf(const EffectProps *props, ALenum param, float *val)
 {
-    throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float vector-property 0x%04x",
-        param};
+    switch(param)
+    {
+    case AL_PITCH_SHIFTER_TRANSIENT_THRESHOLD_SOFT:
+        *val = props->Pshifter.TransientThreshold;
+        break;
+
+    default:
+        throw effect_exception{AL_INVALID_ENUM, "Invalid pitch shifter float property 0x%04x",
+            param};
+    }
 }
+void Pshifter_getParamfv(const EffectProps *props, ALenum param, float *vals)
+{ Pshifter_getParamf(props, param, vals); }
 
 EffectProps genDefaultProps() noexcept
 {
     EffectProps props{};
     props.Pshifter.CoarseTune = AL_PITCH_SHIFTER_DEFAULT_COARSE_TUNE;
     props.Pshifter.FineTune   = AL_PITCH_SHIFTER_DEFAULT_FINE_TUNE;
+    props.Pshifter.PhaseLock  = AL_PITCH_SHIFTER_DEFAULT_PHASE_LOCK_SOFT;
+    props.Pshifter.TransientThreshold = AL_PITCH_SHIFTER_DEFAULT_TRANSIENT_THRESHOLD_SOFT;
     return props;
 }
 

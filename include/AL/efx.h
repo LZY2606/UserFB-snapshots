@@ -120,6 +120,12 @@ extern "C" {
 #define AL_PITCH_SHIFTER_COARSE_TUNE             0x0001
 #define AL_PITCH_SHIFTER_FINE_TUNE               0x0002
 
+/* Local OpenAL Soft pitch shifter extensions. These are not part of the
+ * OpenAL standard and may change between releases.
+ */
+#define AL_PITCH_SHIFTER_PHASE_LOCK_SOFT          0x0003
+#define AL_PITCH_SHIFTER_TRANSIENT_THRESHOLD_SOFT 0x0004
+
 /* Ringmodulator effect parameters */
 #define AL_RING_MODULATOR_FREQUENCY              0x0001
 #define AL_RING_MODULATOR_HIGHPASS_CUTOFF        0x0002
@@ -641,6 +647,15 @@ AL_API void AL_APIENTRY alGetAuxiliaryEffectSlotfv(ALuint effectslot, ALenum par
 #define AL_PITCH_SHIFTER_MIN_FINE_TUNE           (-50)
 #define AL_PITCH_SHIFTER_MAX_FINE_TUNE           (50)
 #define AL_PITCH_SHIFTER_DEFAULT_FINE_TUNE       (0)
+
+/* Local OpenAL Soft pitch shifter extension limits (not part of OpenAL). */
+#define AL_PITCH_SHIFTER_MIN_PHASE_LOCK_SOFT     (0)
+#define AL_PITCH_SHIFTER_MAX_PHASE_LOCK_SOFT     (1)
+#define AL_PITCH_SHIFTER_DEFAULT_PHASE_LOCK_SOFT (0)
+
+#define AL_PITCH_SHIFTER_MIN_TRANSIENT_THRESHOLD_SOFT (0.0f)
+#define AL_PITCH_SHIFTER_MAX_TRANSIENT_THRESHOLD_SOFT (2.0f)
+#define AL_PITCH_SHIFTER_DEFAULT_TRANSIENT_THRESHOLD_SOFT (0.5f)
 
 /* Ring modulator effect */
 #define AL_RING_MODULATOR_MIN_FREQUENCY          (0.0f)

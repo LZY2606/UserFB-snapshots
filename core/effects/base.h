@@ -152,6 +152,8 @@ union EffectProps {
     struct {
         int CoarseTune;
         int FineTune;
+        int PhaseLock;
+        float TransientThreshold;
     } Pshifter;
 
     struct {
