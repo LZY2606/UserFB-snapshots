@@ -1,0 +1,28 @@
+{
+  "license": "CC0-1.0",
+  "origin": "Original deterministic integer PCM from generate_audio.c; offline-encoded",
+  "source_samples_per_channel": 9216,
+  "frames": 8,
+  "ffmpeg_version": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "commands": [
+    "cc -std=c99 -O2 generate_audio.c -o generate_audio",
+    "./generate_audio mono.raw 1",
+    "./generate_audio stereo.raw 2",
+    "ffmpeg -nostdin -y -v error -f s16le -ar 44100 -ac 1 -i mono.raw -c:a mp2 -b:a 96k -f mp2 mono.mp2",
+    "ffmpeg -nostdin -y -v error -f s16le -ar 48000 -ac 2 -i stereo.raw -c:a mp2 -b:a 192k -f mp2 stereo.mp2",
+    "ffmpeg -nostdin -y -v error -f s16le -ar 32000 -ac 1 -i mono.raw -c:a mp2 -b:a 96k -f mp2 mono32.mp2",
+    "cc -std=c99 -O2 make_ps.c -o make_ps",
+    "./make_ps mono32.mp2 stereo.mp2 dual.ps"
+  ],
+  "sha256": {
+    "stereo.mp2": "e7c72d887f9b126bf749f245c12e8c62211427ba02706ec675b7a9943945a5a2",
+    "mono.mp2": "367c54d84ca41abd97f1bf2ffb8b72413f5a10ac5c2a3244fd399dfd2c4dfb52",
+    "README.md": "152e59e75dbb07cd069b68eb244cc0a6cba913f91fabba0d68a3580254b50e4c",
+    "generate_audio.c": "d70e977cd28500acfeb08c66d3352333ed2c83de04fc3c3f2d7f4da2710a319d",
+    "mono32.mp2": "1bf3f241c3b6de57952344bc29590a9265cfd09b998ef9dea4444e633b22e03f",
+    "make_ps.c": "407ab7b46f61f9a224aac119616b2380177da682a6342df5633c32da421d3e6b",
+    "dual.ps": "5d2b0b140f43737b0a284598d77a14d41ab187ba2d161661c3d6b47a00cfaad9"
+  },
+  "runtime": "reads fixed mp2 bytes; ffmpeg not required",
+  "ps": "16 one-audio-frame PES packets, sorted explicit PTS, no video"
+}

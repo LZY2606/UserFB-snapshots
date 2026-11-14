@@ -1,0 +1,1 @@
+Original deterministic PCM and encoded clips: CC0-1.0. See provenance.json for commands, source and digests. FFmpeg is used only to prepare these fixed assets, never at task runtime. Eight MPEG-1 Layer II frames per clip. These clips are normal decoding smoke checks, not an independent numerical oracle.
