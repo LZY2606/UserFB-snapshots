@@ -510,24 +510,11 @@ static uint64_t xm_fnv1a(const unsigned char* data, uint32_t length) {
 	} while(0)
 
 void xm_dump_context(xm_context_t* restrict ctx, char* restrict out) {
-	/* Reset internal pointers and playback position to 0 (normally not
-	   needed with correct usage of this function) */
-	for(uint16_t i = 0; i < NUM_CHANNELS(&ctx->module); ++i) {
-		xm_channel_context_t* ch = ctx->channels + i;
-		#if HAS_INSTRUMENTS
-		ch->instrument = 0;
-		#endif
-		ch->next_instrument = 0;
-		ch->sample = 0;
-		ch->current = 0;
-	}
-	/* Force next generated samples to call xm_row() and refill
-	  ch->current */
-	ctx->current_tick = 0;
-	ctx->remaining_samples_in_tick = 0;
-
 	/* (*) Everything done after this should be deterministically
-	   reversible */
+	   reversible, so the source context keeps producing exactly the same
+	   sound after the dump (including a position partway through a
+	   tick). The per-channel pointers and the playback position are
+	   preserved instead of being reset. */
 	uint32_t ctx_size = xm_dump_size(ctx);
 	[[maybe_unused]] uint64_t old_hash = xm_fnv1a((void*)ctx, ctx_size);
 
@@ -549,6 +536,18 @@ void xm_dump_context(xm_context_t* restrict ctx, char* restrict out) {
 
 	CALC_OFFSET(ctx->samples, ctx);
 	CALC_OFFSET(ctx->samples_data, ctx);
+
+	/* Do this while ctx->channels is still a valid pointer; the CALC
+	   macros below only need the ctx base address. */
+	for(uint16_t i = 0; i < NUM_CHANNELS(&ctx->module); ++i) {
+		xm_channel_context_t* ch = ctx->channels + i;
+		#if HAS_INSTRUMENTS
+		if(ch->instrument) CALC_OFFSET(ch->instrument, ctx);
+		#endif
+		if(ch->sample) CALC_OFFSET(ch->sample, ctx);
+		if(ch->current) CALC_OFFSET(ch->current, ctx);
+	}
+
 	CALC_OFFSET(ctx->channels, ctx);
 
 	#if XM_LOOPING_TYPE == 2
@@ -579,6 +578,15 @@ xm_context_t* xm_restore_context(char* data) {
 	APPLY_OFFSET(ctx->samples_data, ctx);
 	APPLY_OFFSET(ctx->channels, ctx);
 
+	for(uint16_t i = 0; i < NUM_CHANNELS(&ctx->module); ++i) {
+		xm_channel_context_t* ch = ctx->channels + i;
+		#if HAS_INSTRUMENTS
+		if(ch->instrument) APPLY_OFFSET(ch->instrument, ctx);
+		#endif
+		if(ch->sample) APPLY_OFFSET(ch->sample, ctx);
+		if(ch->current) APPLY_OFFSET(ch->current, ctx);
+	}
+
 	#if XM_LOOPING_TYPE == 2
 	APPLY_OFFSET(ctx->row_loop_count, ctx);
 	#endif
@@ -599,11 +607,12 @@ xm_context_t* xm_restore_context(char* data) {
 /* Read module header:
 
    0x00: u8, header size (in 8 byte blocks)
-   0x01: u8, format version (0: bump when breaking forward compat)
+   0x01: u8, format version (0: mono only; 1: may contain stereo samples.
+         A version 0 file is always read as mono)
    0x02: u8[8], 'LIBXMIF', '\xFF'
    0x0A: u16, number of pattern orders
    0x0C: u32, number of rows
-   0x10: u32, number of sample frames
+   0x10: u32, number of scalar sample points (a stereo frame counts as two)
    0x14: u16, number of patterns
    0x16: u16, number of samples
    0x18: u8, number of instruments
@@ -647,10 +656,11 @@ xm_context_t* xm_restore_context(char* data) {
    Forward $(instrument stride)*8 bytes to the next instrument until $(number of
    instruments) records are read, then read samples:
 
-   0x00: u32, index of sample frames
-   0x04: u32, sample length in frames
-   0x08: u32, loop length
-   0x0C: u8, sample flags (bit 0: ping pong loop)
+   0x00: u32, index of the left plane, in scalar sample points
+   0x04: u32, sample length in frames (one frame per plane position)
+   0x08: u32, loop length (in frames)
+   0x0C: u8, sample flags (bit 0: ping pong loop, bit 1: stereo, only
+         meaningful in version 1)
    0x0D: u8, base volume
    0x0E: u8, base panning
    0x0F: s8, finetune
@@ -659,10 +669,12 @@ xm_context_t* xm_restore_context(char* data) {
    Forward $(sample stride)*8 bytes to the next sample until $(number of samples)
    records are read, then read sample frames:
 
-   0x00: f32, sample frame (mono, -1..1)
+   0x00: f32, sample point (mono, -1..1)
 
-   Forward 4 bytes to the next sample frame until $(number of sample frames)
-   records are read, then read pattern order table:
+   Forward 4 bytes to the next sample point until header 0x10 scalar points are
+   read. A stereo sample stores its full retained left plane first and its right
+   plane immediately after; version 0 files and mono version 1 records hold a
+   single plane. Then read pattern order table:
 
    0x00: u16, pattern index
 
@@ -673,7 +685,7 @@ xm_context_t* xm_restore_context(char* data) {
 static bool xm_prescan_xmif(const char* restrict moddata,
                             uint32_t moddata_length,
                             xm_prescan_data_t* restrict out) {
-	if(READ_U8(1) > 0) {
+	if(READ_U8(1) > 1) {
 		NOTICE("version too new");
 		return false;
 	}
@@ -697,6 +709,7 @@ static bool xm_prescan_xmif(const char* restrict moddata,
 static void xm_load_xmif(xm_context_t* restrict ctx,
                          const char* restrict moddata,
                          uint32_t moddata_length) {
+	uint8_t version = READ_U8(1);
 	uint32_t offset = (uint32_t)(READ_U8(0) << 3);
 	uint16_t pattern_sz = (uint16_t)(READ_U8(0x20) << 3),
 		pattern_slot_sz = (uint16_t)(READ_U8(0x21) << 3),
@@ -826,6 +839,10 @@ static void xm_load_xmif(xm_context_t* restrict ctx,
 		#if HAS_FEATURE(FEATURE_PINGPONG_LOOPS)
 		ctx->samples[i].ping_pong = (READ_U8(offset + 0x0C) & 1) > 0;
 		#endif
+		/* Version 0 has no stereo records; the stereo flag only exists
+		   in version 1. */
+		ctx->samples[i].num_channels =
+			(version >= 1 && (READ_U8(offset + 0x0C) & 2)) ? 2 : 1;
 		ctx->samples[i].volume = (unsigned)READ_U8(offset + 0x0D) & 0x7F;
 		#if HAS_SAMPLE_PANNINGS
 		ctx->samples[i].panning = READ_U8(offset + 0x0E);
@@ -889,8 +906,15 @@ static_assert(sizeof(float) == 4);
 void xm_save_context(const xm_context_t* restrict ctx, char* restrict out) {
 	__builtin_memset(out, 0, xm_save_size(ctx));
 
+	bool has_stereo = false;
+	for(uint16_t i = 0; i < ctx->module.num_samples; ++i) {
+		has_stereo |= ctx->samples[i].num_channels > 1;
+	}
+
 	WRITE_U8(out, XMIF_HEADER_SZ / 8);
-	WRITE_U8(out + 0x01, 0); /* version */
+	/* Version 1 only when at least one stereo sample is present; a purely
+	   mono module keeps the exact version 0 byte stream. */
+	WRITE_U8(out + 0x01, has_stereo ? 1 : 0); /* version */
 	__builtin_memcpy(out + 0x02, "LIBXMIF\xFF", 8); /* magic */
 	WRITE_U16(out + 0x0A, ctx->module.length);
 	WRITE_U32(out + 0x0C, ctx->module.num_rows);
@@ -988,7 +1012,11 @@ void xm_save_context(const xm_context_t* restrict ctx, char* restrict out) {
 		WRITE_U32(out, ctx->samples[i].index);
 		WRITE_U32(out + 0x04, ctx->samples[i].length);
 		WRITE_U32(out + 0x08, ctx->samples[i].loop_length);
-		WRITE_U8(out + 0x0C, PING_PONG(ctx->samples + i));
+		/* Bit 0: ping-pong, bit 1: stereo. Index points at the left
+		   plane; length/loop_length stay frame counts. */
+		WRITE_U8(out + 0x0C,
+		         (uint8_t)(PING_PONG(ctx->samples + i)
+		                   | ((ctx->samples[i].num_channels > 1) << 1)));
 		WRITE_U8(out + 0x0D, ctx->samples[i].volume);
 		WRITE_U8(out + 0x0E, PANNING(ctx->samples + i));
 		WRITE_U8(out + 0x0F, FINETUNE(ctx->samples + i));
@@ -1670,6 +1698,7 @@ static uint32_t xm_load_xm0104_sample_header(xm_sample_t* sample, bool* is_16bit
 	sample->index = sample->length; /* Keep original length around, replace
 	                                   it later after sample data is
 	                                   loaded */
+	sample->num_channels = 1; /* XM 0104 samples are always mono */
 	uint32_t loop_start = READ_U32(offset + 4);
 	sample->loop_length = READ_U32(offset + 8);
 	uint8_t flags = READ_U8(offset + 14);
@@ -1961,6 +1990,7 @@ static void xm_load_mod(xm_context_t* restrict ctx,
 
 		smp->length = (uint32_t)(READ_U16BE(offset + 22) * 2);
 		smp->index = smp->length;
+		smp->num_channels = 1; /* MOD samples are always mono */
 		uint32_t loop_start = (uint32_t)(READ_U16BE(offset + 26) * 2);
 		uint32_t loop_length = (uint32_t)(READ_U16BE(offset + 28) * 2);
 		if(loop_length > 2) {
@@ -2340,25 +2370,40 @@ static bool xm_prescan_s3m(const char* restrict moddata,
 		uint8_t ins_type = READ_U8(ins_offset);
 		/* Only care about PCM data */
 		if(ins_type != 1) continue;
+		/* Lengths are per-channel frame counts even for 16-bit samples,
+		   so they are never divided by 2. */
 		uint32_t length = READ_U32(ins_offset + 16);
 		uint32_t loop_start = READ_U32(ins_offset + 20);
 		uint32_t loop_end = READ_U32(ins_offset + 24);
 		uint8_t smp_flags = READ_U8(ins_offset + 31);
-		if(smp_flags & 4) {
-			length /= 2;
-			loop_start /= 2;
-			loop_end /= 2;
-		}
-		length = TRIM_SAMPLE_LENGTH(length, loop_start,
-		                            loop_end - loop_start,
-		                            (smp_flags & 1) ?
-		                            SAMPLE_FLAG_FORWARD : 0);
-		if(length > MAX_SAMPLE_LENGTH) {
+		/* Compressed samples (bit 3) are not decoded: keep no PCM data
+		   for them. */
+		if(smp_flags & 8) continue;
+		uint32_t frames = TRIM_SAMPLE_LENGTH(length, loop_start,
+		                                     loop_end - loop_start,
+		                                     (smp_flags & 1) ?
+		                                     SAMPLE_FLAG_FORWARD : 0);
+		if(frames > MAX_SAMPLE_LENGTH) {
 			NOTICE("sample %u too long (%u > %u)",
-			       i, length, MAX_SAMPLE_LENGTH);
+			       i, frames, MAX_SAMPLE_LENGTH);
 			return false;
 		}
-		out->samples_data_length += length;
+		/* The right plane origin (computed again in the loader) is based on
+		   the file-declared, untrimmed length; allocation only needs to
+		   cover the frames actually retained, which are identical on both
+		   planes. */
+		uint32_t points = frames;
+		if(smp_flags & 2) {
+			if(ckd_mul(&points, points, 2u)) {
+				NOTICE("sample %u too long", i);
+				return false;
+			}
+		}
+		if(ckd_add(&out->samples_data_length,
+		           out->samples_data_length, points)) {
+			NOTICE("sample %u too long", i);
+			return false;
+		}
 	}
 
 	return true;
@@ -2509,6 +2554,9 @@ static void xm_load_s3m(xm_context_t* restrict ctx,
 		#define S3M_DEFAULT_PAN(x) ((x) < 8 ? 0x33 : 0xCC)
 		for(uint8_t ch = 0; ch < 32; ++ch) {
 			uint8_t x = channel_settings[ch];
+			/* Values >= 16 are disabled/AdLib slots with no libxm
+			   channel; they must not index channel_map. */
+			if(x >= 16) continue;
 			ctx->module.default_channel_panning[channel_map[x]]
 				= S3M_DEFAULT_PAN(x);
 		}
@@ -2520,11 +2568,14 @@ static void xm_load_s3m(xm_context_t* restrict ctx,
 		                   + ctx->module.num_patterns),
 		            32);
 		for(uint8_t ch = 0; ch < 32; ++ch) {
-			uint8_t* pan = ctx->module.default_channel_panning
-				+ channel_map[channel_settings[ch]];
+			uint8_t x = channel_settings[ch];
+			if(x >= 16) continue; /* disabled/AdLib, no libxm channel */
+			uint8_t mapped = channel_map[x];
+			if(mapped >= 16) continue;
+			uint8_t* pan = ctx->module.default_channel_panning + mapped;
 			if((*pan & 0b00100000) == 0) {
 				/* Ignore custom value, use default */
-				*pan = S3M_DEFAULT_PAN(channel_settings[ch]);
+				*pan = S3M_DEFAULT_PAN(x);
 			} else {
 				/* Use custom value */
 				*pan &= 0xF;
@@ -2592,12 +2643,15 @@ void xm_load_s3m_instrument(xm_context_t* restrict ctx,
 	bool is_stereo = base_flags & 2;
 	bool is_16bit = base_flags & 4;
 
-	if(is_stereo) {
-		NOTICE("sample %x has stereo data, this is not supported", idx);
-	}
 	if(base_flags & 0b11111000) {
 		NOTICE("ignoring sample %x flags (%x)",
 		       idx, base_flags & 0b11111000);
+	}
+	if(base_flags & 8) {
+		/* Compressed PCM is not decoded. */
+		NOTICE("sample %x uses compressed PCM, loading it empty", idx);
+		ctx->samples[idx].num_channels = 1;
+		return;
 	}
 
 	uint32_t base_c_frequency = READ_U32(offset + 32);
@@ -2615,6 +2669,8 @@ void xm_load_s3m_instrument(xm_context_t* restrict ctx,
 	smp->finetune = (int8_t)(rel_finetune & 0xF);
 	#endif
 
+	/* All S3M lengths are frame counts per channel, including for 16-bit
+	   samples, so no division by two happens here. */
 	smp->length = TRIM_SAMPLE_LENGTH(base_length, base_loop_start,
 	                                 base_loop_end - base_loop_start,
 	                                 is_looped ?
@@ -2625,6 +2681,7 @@ void xm_load_s3m_instrument(xm_context_t* restrict ctx,
 			smp->loop_length = smp->length;
 		}
 	}
+	smp->num_channels = is_stereo ? 2 : 1;
 
 	if(base_volume > MAX_VOLUME) {
 		NOTICE("clamping volume of sample %u (%u -> %u)",
@@ -2637,28 +2694,34 @@ void xm_load_s3m_instrument(xm_context_t* restrict ctx,
 	smp->panning = MAX_PANNING / 2;
 	#endif
 
-	/* Now read sample data */
+	/* Now read sample data. Uncompressed PCM stores the whole left plane
+	   first, then the whole right plane; each plane holds base_length
+	   frames regardless of the trimmed loop length. */
 	smp->index = ctx->module.samples_data_length;
 	xm_sample_point_t* out = ctx->samples_data
 		+ ctx->module.samples_data_length;
-	offset = 16 * ((((uint32_t)READ_U8(offset + 13)) << 16)
-	               + READ_U16(offset + 14));
-	if(is_16bit) {
-		smp->length /= 2;
-		smp->loop_length /= 2;
+	uint32_t data_offset = 16 * ((((uint32_t)READ_U8(offset + 13)) << 16)
+	                             + READ_U16(offset + 14));
+	const uint32_t point_size = is_16bit ? 2 : 1;
+
+	for(uint8_t plane = 0; plane < smp->num_channels; ++plane) {
+		/* The right plane origin is computed from the declared, untrimmed
+		   base_length. */
+		uint32_t plane_offset = data_offset
+			+ plane * base_length * point_size;
+		for(uint32_t k = 0; k < smp->length; ++k) {
+			*out++ = is_16bit
+				? SAMPLE_POINT_FROM_S16((int16_t)
+				                        (READ_U16(plane_offset + 2*k)
+				                         + (signed_smp_data
+				                            ? 0 : INT16_MIN)))
+				: SAMPLE_POINT_FROM_S8((int8_t)
+				                       (READ_U8(plane_offset + k)
+				                        + (signed_smp_data
+				                           ? 0 : INT8_MIN)));
+		}
 	}
-	for(uint32_t k = 0; k < smp->length; ++k) {
-		*out++ = is_16bit
-			? SAMPLE_POINT_FROM_S16((int16_t)
-			                        (READ_U16(offset + 2*k)
-			                         + (signed_smp_data
-			                            ? 0 : INT16_MIN)))
-			: SAMPLE_POINT_FROM_S8((int8_t)
-			                       (READ_U8(offset + k)
-			                        + (signed_smp_data
-			                           ? 0 : INT8_MIN)));
-	}
-	ctx->module.samples_data_length += smp->length;
+	ctx->module.samples_data_length += smp->length * smp->num_channels;
 }
 
 static void xm_load_s3m_pattern(xm_context_t* restrict ctx,

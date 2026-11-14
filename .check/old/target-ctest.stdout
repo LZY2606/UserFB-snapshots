@@ -1,0 +1,83 @@
+Test project /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+      Start  1: test_arpeggio
+ 1/39 Test  #1: test_arpeggio .........................   Passed    0.33 sec
+      Start  2: test_autovibrato_turnoff
+ 2/39 Test  #2: test_autovibrato_turnoff ..............   Passed    0.03 sec
+      Start  3: test_combo_effects
+ 3/39 Test  #3: test_combo_effects ....................   Passed    0.04 sec
+      Start  4: test_effect_memory
+ 4/39 Test  #4: test_effect_memory ....................   Passed    0.02 sec
+      Start  5: test_finetune
+ 5/39 Test  #5: test_finetune .........................   Passed    0.02 sec
+      Start  6: test_ghosts
+ 6/39 Test  #6: test_ghosts ...........................   Passed    0.02 sec
+      Start  7: test_glissando_control
+ 7/39 Test  #7: test_glissando_control ................   Passed    0.13 sec
+      Start  8: test_instrument_fadeout
+ 8/39 Test  #8: test_instrument_fadeout ...............   Passed    0.01 sec
+      Start  9: test_key_off
+ 9/39 Test  #9: test_key_off ..........................   Passed    0.17 sec
+      Start 10: test_note_delay
+10/39 Test #10: test_note_delay .......................   Passed    0.04 sec
+      Start 11: test_note_delay_sample_change
+11/39 Test #11: test_note_delay_sample_change .........   Passed    0.01 sec
+      Start 12: test_note_limits
+12/39 Test #12: test_note_limits ......................   Passed    0.03 sec
+      Start 13: test_panning_law
+13/39 Test #13: test_panning_law ......................   Passed    0.03 sec
+      Start 14: test_pattern_delay
+14/39 Test #14: test_pattern_delay ....................   Passed    0.08 sec
+      Start 15: test_pattern_loop_s3m
+15/39 Test #15: test_pattern_loop_s3m .................   Passed    0.14 sec
+      Start 16: test_period_clamp
+16/39 Test #16: test_period_clamp .....................   Passed    0.05 sec
+      Start 17: test_period_clamp_amiga
+17/39 Test #17: test_period_clamp_amiga ...............   Passed    0.05 sec
+      Start 18: test_pitch_slides
+18/39 Test #18: test_pitch_slides .....................   Passed    0.06 sec
+      Start 19: test_pitch_slides_s3m
+19/39 Test #19: test_pitch_slides_s3m .................   Passed    0.08 sec
+      Start 20: test_pitch_slides_amiga
+20/39 Test #20: test_pitch_slides_amiga ...............   Passed    0.01 sec
+      Start 21: test_position_jump
+21/39 Test #21: test_position_jump ....................   Passed    0.07 sec
+      Start 22: test_protracker_quirks
+22/39 Test #22: test_protracker_quirks ................   Passed    0.07 sec
+      Start 23: test_retrigger_effect
+23/39 Test #23: test_retrigger_effect .................   Passed    0.02 sec
+      Start 24: test_retrigger_effect_multi
+24/39 Test #24: test_retrigger_effect_multi ...........   Passed    0.05 sec
+      Start 25: test_retrigger_effect_sample_change
+25/39 Test #25: test_retrigger_effect_sample_change ...   Passed    0.01 sec
+      Start 26: test_sample_offset
+26/39 Test #26: test_sample_offset ....................   Passed    0.02 sec
+      Start 27: test_sample_offset_beyond_loop
+27/39 Test #27: test_sample_offset_beyond_loop ........   Passed    0.02 sec
+      Start 28: test_sample_ping_pong
+28/39 Test #28: test_sample_ping_pong .................   Passed    0.01 sec
+      Start 29: test_tremolo
+29/39 Test #29: test_tremolo ..........................   Passed    0.02 sec
+      Start 30: test_tremor
+30/39 Test #30: test_tremor ...........................   Passed    0.03 sec
+      Start 31: test_trigger_empty_sample
+31/39 Test #31: test_trigger_empty_sample .............   Passed    0.00 sec
+      Start 32: test_trigger_types
+32/39 Test #32: test_trigger_types ....................   Passed    0.07 sec
+      Start 33: test_trigger_types_invalid
+33/39 Test #33: test_trigger_types_invalid ............   Passed    0.04 sec
+      Start 34: test_vibrato
+34/39 Test #34: test_vibrato ..........................   Passed    0.25 sec
+      Start 35: test_vibrato_amiga
+35/39 Test #35: test_vibrato_amiga ....................   Passed    0.04 sec
+      Start 36: test_vibrato_fine
+36/39 Test #36: test_vibrato_fine .....................   Passed    0.30 sec
+      Start 37: test_volume_envelope
+37/39 Test #37: test_volume_envelope ..................   Passed    0.09 sec
+      Start 38: test_volume_slides_s3m
+38/39 Test #38: test_volume_slides_s3m ................   Passed    0.04 sec
+      Start 39: test_volume_slides_fast_s3m
+39/39 Test #39: test_volume_slides_fast_s3m ...........   Passed    0.04 sec
+
+100% tests passed, 0 tests failed out of 39
+
+Total Test time (real) =   2.57 sec

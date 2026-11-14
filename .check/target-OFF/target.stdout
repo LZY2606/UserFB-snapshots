@@ -1,0 +1,5 @@
+CHECK_GROUP load checks=27 DONE
+CHECK_GROUP play checks=2874 DONE
+CHECK_GROUP ramp checks=6 DONE
+CHECK_GROUP formats checks=21 DONE
+CHECK_TARGET groups=4 DONE

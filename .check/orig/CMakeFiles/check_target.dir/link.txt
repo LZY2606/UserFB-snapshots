@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/check_target.dir/driver.c.o CMakeFiles/check_target.dir/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/stereo_samples.c.o -o check_target  xm_build/libxm.a -lm /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libm.tbd

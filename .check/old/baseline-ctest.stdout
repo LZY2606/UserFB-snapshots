@@ -1,0 +1,15 @@
+Test project /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+    Start 23: test_pitch_slides_s3m
+1/5 Test #23: test_pitch_slides_s3m .................   Passed    0.09 sec
+    Start 29: test_retrigger_effect_sample_change
+2/5 Test #29: test_retrigger_effect_sample_change ...   Passed    0.01 sec
+    Start 30: test_sample_offset
+3/5 Test #30: test_sample_offset ....................   Passed    0.02 sec
+    Start 31: test_sample_offset_beyond_loop
+4/5 Test #31: test_sample_offset_beyond_loop ........   Passed    0.02 sec
+    Start 32: test_sample_ping_pong
+5/5 Test #32: test_sample_ping_pong .................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =   0.16 sec

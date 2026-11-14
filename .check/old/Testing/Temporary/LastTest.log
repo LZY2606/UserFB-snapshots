@@ -1,0 +1,588 @@
+Start testing: Nov 15 03:34 JST
+----------------------------------------------------------
+1/39 Testing: test_arpeggio
+1/39 Test: test_arpeggio
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/arpeggio.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_arpeggio" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"test_arpeggio" end time: Nov 15 03:34 JST
+"test_arpeggio" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/39 Testing: test_autovibrato_turnoff
+2/39 Test: test_autovibrato_turnoff
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/autovibrato-turnoff.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_autovibrato_turnoff" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"test_autovibrato_turnoff" end time: Nov 15 03:34 JST
+"test_autovibrato_turnoff" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/39 Testing: test_combo_effects
+3/39 Test: test_combo_effects
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/combo-effects.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_combo_effects" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_combo_effects" end time: Nov 15 03:34 JST
+"test_combo_effects" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/39 Testing: test_effect_memory
+4/39 Test: test_effect_memory
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/effect-memory.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_effect_memory" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_effect_memory" end time: Nov 15 03:34 JST
+"test_effect_memory" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/39 Testing: test_finetune
+5/39 Test: test_finetune
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/finetune.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_finetune" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_finetune" end time: Nov 15 03:34 JST
+"test_finetune" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/39 Testing: test_ghosts
+6/39 Test: test_ghosts
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/ghosts.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_ghosts" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_ghosts" end time: Nov 15 03:34 JST
+"test_ghosts" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/39 Testing: test_glissando_control
+7/39 Test: test_glissando_control
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/glissando-control.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_glissando_control" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"test_glissando_control" end time: Nov 15 03:34 JST
+"test_glissando_control" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/39 Testing: test_instrument_fadeout
+8/39 Test: test_instrument_fadeout
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/instrument-fadeout.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_instrument_fadeout" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_instrument_fadeout" end time: Nov 15 03:34 JST
+"test_instrument_fadeout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/39 Testing: test_key_off
+9/39 Test: test_key_off
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/key-off.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_key_off" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"test_key_off" end time: Nov 15 03:34 JST
+"test_key_off" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/39 Testing: test_note_delay
+10/39 Test: test_note_delay
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/note-delay.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_note_delay" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_note_delay" end time: Nov 15 03:34 JST
+"test_note_delay" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/39 Testing: test_note_delay_sample_change
+11/39 Test: test_note_delay_sample_change
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/note-delay-sample-change.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_note_delay_sample_change" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_note_delay_sample_change" end time: Nov 15 03:34 JST
+"test_note_delay_sample_change" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/39 Testing: test_note_limits
+12/39 Test: test_note_limits
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/note-limits.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_note_limits" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"test_note_limits" end time: Nov 15 03:34 JST
+"test_note_limits" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/39 Testing: test_panning_law
+13/39 Test: test_panning_law
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_leql" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/panning-law.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_panning_law" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"test_panning_law" end time: Nov 15 03:34 JST
+"test_panning_law" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/39 Testing: test_pattern_delay
+14/39 Test: test_pattern_delay
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/pattern-delay.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_pattern_delay" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"test_pattern_delay" end time: Nov 15 03:34 JST
+"test_pattern_delay" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/39 Testing: test_pattern_loop_s3m
+15/39 Test: test_pattern_loop_s3m
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/pattern-loop.s3m"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_pattern_loop_s3m" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"test_pattern_loop_s3m" end time: Nov 15 03:34 JST
+"test_pattern_loop_s3m" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/39 Testing: test_period_clamp
+16/39 Test: test_period_clamp
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/period-clamp.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_period_clamp" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"test_period_clamp" end time: Nov 15 03:34 JST
+"test_period_clamp" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/39 Testing: test_period_clamp_amiga
+17/39 Test: test_period_clamp_amiga
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/period-clamp-amiga.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_period_clamp_amiga" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"test_period_clamp_amiga" end time: Nov 15 03:34 JST
+"test_period_clamp_amiga" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/39 Testing: test_pitch_slides
+18/39 Test: test_pitch_slides
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/pitch-slides.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_pitch_slides" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"test_pitch_slides" end time: Nov 15 03:34 JST
+"test_pitch_slides" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/39 Testing: test_pitch_slides_s3m
+19/39 Test: test_pitch_slides_s3m
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/pitch-slides.s3m"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_pitch_slides_s3m" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"test_pitch_slides_s3m" end time: Nov 15 03:34 JST
+"test_pitch_slides_s3m" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/39 Testing: test_pitch_slides_amiga
+20/39 Test: test_pitch_slides_amiga
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/pitch-slides-amiga.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_pitch_slides_amiga" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_pitch_slides_amiga" end time: Nov 15 03:34 JST
+"test_pitch_slides_amiga" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/39 Testing: test_position_jump
+21/39 Test: test_position_jump
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/position-jump.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_position_jump" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"test_position_jump" end time: Nov 15 03:34 JST
+"test_position_jump" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/39 Testing: test_protracker_quirks
+22/39 Test: test_protracker_quirks
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/protracker-quirks.mod"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_protracker_quirks" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"test_protracker_quirks" end time: Nov 15 03:34 JST
+"test_protracker_quirks" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/39 Testing: test_retrigger_effect
+23/39 Test: test_retrigger_effect
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/retrigger-effect.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_retrigger_effect" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_retrigger_effect" end time: Nov 15 03:34 JST
+"test_retrigger_effect" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/39 Testing: test_retrigger_effect_multi
+24/39 Test: test_retrigger_effect_multi
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/retrigger-effect-multi.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_retrigger_effect_multi" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"test_retrigger_effect_multi" end time: Nov 15 03:34 JST
+"test_retrigger_effect_multi" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/39 Testing: test_retrigger_effect_sample_change
+25/39 Test: test_retrigger_effect_sample_change
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/retrigger-effect-sample-change.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_retrigger_effect_sample_change" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_retrigger_effect_sample_change" end time: Nov 15 03:34 JST
+"test_retrigger_effect_sample_change" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/39 Testing: test_sample_offset
+26/39 Test: test_sample_offset
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/sample-offset.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_sample_offset" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_sample_offset" end time: Nov 15 03:34 JST
+"test_sample_offset" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/39 Testing: test_sample_offset_beyond_loop
+27/39 Test: test_sample_offset_beyond_loop
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/sample-offset-beyond-loop.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_sample_offset_beyond_loop" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_sample_offset_beyond_loop" end time: Nov 15 03:34 JST
+"test_sample_offset_beyond_loop" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/39 Testing: test_sample_ping_pong
+28/39 Test: test_sample_ping_pong
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/sample-ping-pong.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_sample_ping_pong" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_sample_ping_pong" end time: Nov 15 03:34 JST
+"test_sample_ping_pong" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/39 Testing: test_tremolo
+29/39 Test: test_tremolo
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/tremolo.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_tremolo" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_tremolo" end time: Nov 15 03:34 JST
+"test_tremolo" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/39 Testing: test_tremor
+30/39 Test: test_tremor
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/tremor.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_tremor" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"test_tremor" end time: Nov 15 03:34 JST
+"test_tremor" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/39 Testing: test_trigger_empty_sample
+31/39 Test: test_trigger_empty_sample
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/trigger-empty-sample.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_trigger_empty_sample" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"test_trigger_empty_sample" end time: Nov 15 03:34 JST
+"test_trigger_empty_sample" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/39 Testing: test_trigger_types
+32/39 Test: test_trigger_types
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/trigger-types.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_trigger_types" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"test_trigger_types" end time: Nov 15 03:34 JST
+"test_trigger_types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+33/39 Testing: test_trigger_types_invalid
+33/39 Test: test_trigger_types_invalid
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/trigger-types-invalid.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_trigger_types_invalid" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_trigger_types_invalid" end time: Nov 15 03:34 JST
+"test_trigger_types_invalid" time elapsed: 00:00:00
+----------------------------------------------------------
+
+34/39 Testing: test_vibrato
+34/39 Test: test_vibrato
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/vibrato.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_vibrato" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.25 sec
+----------------------------------------------------------
+Test Passed.
+"test_vibrato" end time: Nov 15 03:34 JST
+"test_vibrato" time elapsed: 00:00:00
+----------------------------------------------------------
+
+35/39 Testing: test_vibrato_amiga
+35/39 Test: test_vibrato_amiga
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_pitcheq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/vibrato-amiga.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_vibrato_amiga" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_vibrato_amiga" end time: Nov 15 03:34 JST
+"test_vibrato_amiga" time elapsed: 00:00:00
+----------------------------------------------------------
+
+36/39 Testing: test_vibrato_fine
+36/39 Test: test_vibrato_fine
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/vibrato-fine.s3m"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_vibrato_fine" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.30 sec
+----------------------------------------------------------
+Test Passed.
+"test_vibrato_fine" end time: Nov 15 03:34 JST
+"test_vibrato_fine" time elapsed: 00:00:00
+----------------------------------------------------------
+
+37/39 Testing: test_volume_envelope
+37/39 Test: test_volume_envelope
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "channelpairs_lreqrl" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/volume-envelope.xm"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_volume_envelope" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"test_volume_envelope" end time: Nov 15 03:34 JST
+"test_volume_envelope" time elapsed: 00:00:00
+----------------------------------------------------------
+
+38/39 Testing: test_volume_slides_s3m
+38/39 Test: test_volume_slides_s3m
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/volume-slides.s3m"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_volume_slides_s3m" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_volume_slides_s3m" end time: Nov 15 03:34 JST
+"test_volume_slides_s3m" time elapsed: 00:00:00
+----------------------------------------------------------
+
+39/39 Testing: test_volume_slides_fast_s3m
+39/39 Test: test_volume_slides_fast_s3m
+Command: "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old/test-libxm" "pat0_pat1_eq" "/Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/tests/volume-slides-fast.s3m"
+Directory: /Users/lzy/pro/UserFB/workspace/Z1589/attempts/20261114T090558182790Z/repo/.check/old
+"test_volume_slides_fast_s3m" start time: Nov 15 03:34 JST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"test_volume_slides_fast_s3m" end time: Nov 15 03:34 JST
+"test_volume_slides_fast_s3m" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 15 03:34 JST

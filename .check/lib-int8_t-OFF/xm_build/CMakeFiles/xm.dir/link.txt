@@ -1,0 +1,2 @@
+"/usr/bin/ar" qc libxm.a CMakeFiles/xm.dir/xm.c.o CMakeFiles/xm.dir/load.c.o CMakeFiles/xm.dir/play.c.o CMakeFiles/xm.dir/analyze.c.o
+"/usr/bin/ranlib" libxm.a

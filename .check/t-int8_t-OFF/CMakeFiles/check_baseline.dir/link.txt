@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/check_baseline.dir/baseline.c.o -o check_baseline  xm_build/libxm.a -lm /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libm.tbd

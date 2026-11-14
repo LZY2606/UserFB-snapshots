@@ -271,7 +271,10 @@ struct xm_sample_s {
 	uint32_t latest_trigger;
 	#endif
 
-	/* ctx->samples_data[index..(index+length)] */
+	/* ctx->samples_data[index..(index+length*num_channels)]: for stereo
+	   samples the left plane occupies index..(index+length) and the right
+	   plane immediately follows. length is always a count of frames, never
+	   a count of scalar sample points. */
 	uint32_t index;
 	uint32_t length; /* same as loop_end (seeking beyond a loop with 9xx is
 	                    invalid anyway) */
@@ -286,6 +289,12 @@ struct xm_sample_s {
 	#define PING_PONG(smp) false
 	uint8_t volume;
 	#endif
+
+	/* Number of independent planes per frame: 1 for mono, 2 for stereo.
+	   A mono frame enters both output sides; a stereo frame sends its left
+	   plane through the left gain and its right plane through the right
+	   gain. */
+	uint8_t num_channels;
 
 	#define HAS_PANNING (XM_PANNING_TYPE == 8 && ( \
 		HAS_FEATURE(FEATURE_PANNING_ENVELOPES) \
@@ -329,8 +338,8 @@ struct xm_sample_s {
 		!HAS_FEATURE(FEATURE_SAMPLE_FINETUNES) \
 		+ !HAS_FEATURE(FEATURE_SAMPLE_RELATIVE_NOTES)	\
 		+ !HAS_SAMPLE_PANNINGS)
-	#if SAMPLE_PADDING % 4
-	char __pad[SAMPLE_PADDING % 4];
+	#if (SAMPLE_PADDING + 1) % 4
+	char __pad[(SAMPLE_PADDING + 1) % 4];
 	#endif
 };
 typedef struct xm_sample_s xm_sample_t;
@@ -583,7 +592,10 @@ struct xm_channel_context_s {
 	float target_volume[2];
 	uint32_t frame_count; /* Gets reset after every note */
 	static_assert(RAMPING_POINTS % 2 == 1);
-	float end_of_previous_sample[RAMPING_POINTS];
+	/* One tail per output plane: when switching notes the old left and
+	 * right sounds are remembered independently, so a stereo sample is
+	 * never ramped out with a mono tail (or vice versa). */
+	float end_of_previous_sample[2][RAMPING_POINTS];
 	#endif
 
 	uint16_t period; /* 1/64 semitone increments (linear frequencies) */

@@ -326,7 +326,10 @@ __attribute__((nonnull));
 /** Get the internal buffer for a given sample waveform.
  *
  * This buffer can be read from or written to, at any time, but the
- * length cannot change.
+ * length cannot change. For a stereo sample this returns the left plane
+ * (use xm_get_sample_waveform_channel() to get the right plane); the
+ * returned length is always a number of frames, one scalar point per
+ * frame and per plane.
  *
  * @note Sample numbers go from 0 to xm_get_number_of_samples(...)-1.
  *
@@ -338,6 +341,34 @@ xm_sample_point_t* xm_get_sample_waveform(xm_context_t*,
 __attribute__((warn_unused_result))
 __attribute__((returns_nonnull))
 __attribute__((nonnull));
+
+/** Get the number of independent planes of a sample.
+ *
+ * @returns 1 for a mono sample, 2 for a stereo sample, or 0 when the
+ * sample number is invalid.
+ */
+uint8_t xm_get_sample_channels(const xm_context_t*, uint16_t sample)
+__attribute__((warn_unused_result))
+__attribute__((nonnull));
+
+/** Get the internal, writeable buffer of one plane of a sample.
+ *
+ * Channel 0 is the left plane and channel 1 the right plane; mono
+ * samples only have channel 0 (their data feeds both output sides).
+ * The returned pointer aliases the live sample data, so edits are
+ * immediately audible and no temporary copy is made per query.
+ *
+ * @param out_length if not NULL, receives the plane length in frames
+ * (0 on an invalid query)
+ *
+ * @returns the plane buffer, or NULL on an invalid sample or channel.
+ */
+xm_sample_point_t* xm_get_sample_waveform_channel(xm_context_t*,
+                                                   uint16_t sample,
+                                                   uint8_t channel,
+                                                   uint32_t* out_length)
+__attribute__((warn_unused_result))
+__attribute__((nonnull(1)));
 
 
 

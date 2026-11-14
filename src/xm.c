@@ -140,7 +140,32 @@ xm_sample_point_t* xm_get_sample_waveform(xm_context_t* ctx,
 	assert(sample <= ctx->module.num_samples);
 	xm_sample_t* s = ctx->samples + sample;
 	*length = s->length;
+	/* Mono data, or the left plane of a stereo sample. */
 	return ctx->samples_data + s->index;
+}
+
+uint8_t xm_get_sample_channels(const xm_context_t* ctx, uint16_t sample) {
+	if(sample >= ctx->module.num_samples) {
+		return 0;
+	}
+	return ctx->samples[sample].num_channels;
+}
+
+xm_sample_point_t* xm_get_sample_waveform_channel(xm_context_t* ctx,
+                                                   uint16_t sample,
+                                                   uint8_t channel,
+                                                   uint32_t* out_length) {
+	if(out_length) *out_length = 0;
+	if(sample >= ctx->module.num_samples) {
+		return NULL;
+	}
+	xm_sample_t* s = ctx->samples + sample;
+	if(channel >= s->num_channels) {
+		return NULL;
+	}
+	if(out_length) *out_length = s->length;
+	/* Points straight into the live, editable plane: no per-query copy. */
+	return ctx->samples_data + s->index + channel * s->length;
 }
 
 
