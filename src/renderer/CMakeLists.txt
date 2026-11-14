@@ -20,7 +20,9 @@ set(SOURCE_FILES
 	VertexConfig.h
 	VertexProcessor.cpp
 	VertexProcessor.h
-	VertexShaderBase.h)
+	VertexShaderBase.h
+	VolumeRenderer.cpp
+	VolumeRenderer.h)
 
 find_package(OpenMP)
 if (OPENMP_FOUND)

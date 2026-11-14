@@ -124,7 +124,9 @@ protected:
 		PixelData pi;
 		pi.equations = po.equations;  // Copy the equations pointer
 		if (Derived::InterpolateZ) pi.z = po.z;
-		if (Derived::InterpolateW) { pi.w = po.w; pi.invw = po.invw; }
+		// invw is also maintained when perspective correct variables are used
+		// (see PixelData::init/stepX/stepY), so copy it in that case as well.
+		if (Derived::InterpolateW || Derived::PVarCount > 0) { pi.w = po.w; pi.invw = po.invw; }
 		for (int i = 0; i < Derived::AVarCount; ++i)
 			pi.avar[i] = po.avar[i];
 		for (int i = 0; i < Derived::PVarCount; ++i) 

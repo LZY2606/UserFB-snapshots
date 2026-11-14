@@ -1,0 +1,4 @@
+#!/bin/sh
+# Sandbox shim: macOS mktemp's default temp dir is not writable in this
+# environment; redirect to the sandbox-writable TMPDIR.
+exec /usr/bin/mktemp "${TMPDIR:-/tmp}/runlog.XXXXXXXX"
