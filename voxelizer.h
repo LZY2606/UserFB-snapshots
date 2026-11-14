@@ -31,6 +31,11 @@
 //  #include "voxelizer.h"
 //
 // HISTORY:
+//  - 0.11.0 (15-11-2026): Closed-box occupancy over the full integer lattice
+//                         (candidate range inflated by half voxel + precision,
+//                         exact zero-area degeneracy test, no epsilon cell
+//                         merging) and surface-area weighted colors integrated
+//                         over the clipped triangle/box intersection
 //  - 0.10.0 (20-03-2017): Add vx_voxelize_snap_3d_grid to voxelize to 3d-textures
 //  - 0.9.2  (03-01-2017): Fix triangle bounding bouxes bounds for bbox-triangle
 //                         intersection test
@@ -162,7 +167,6 @@ void vx_point_cloud_free(vx_point_cloud_t* pointcloud);
 #include <stdbool.h>    // hughh
 #include <string.h>     // memcpy
 
-#define VOXELIZER_EPSILON               (0.0000001)
 #define VOXELIZER_NORMAL_INDICES_SIZE   (6)
 #define VOXELIZER_INDICES_SIZE          (36)
 #define VOXELIZER_HASH_TABLE_SIZE       (4096)
@@ -228,9 +232,16 @@ typedef struct vx_hash_table {
     size_t size;
 } vx_hash_table_t;
 
+// Fixed size per-voxel accumulation state. The integer lattice key (kx, ky, kz)
+// identifies the cell exactly; two distinct cells are never merged.
 typedef struct vx_voxel_data {
-    vx_vec3_t position;
-    vx_color_t color;
+    vx_vec3_t position;     // Voxel center (kx*sx, ky*sy, kz*sz)
+    vx_color_t color;       // Resolved on extraction from area/accum
+    long long kx;
+    long long ky;
+    long long kz;
+    double area;            // Total clipped surface area touching this cell
+    double accum[3];        // Integral of the linear color fields over that area
 } vx_voxel_data_t;
 
 vx_hash_table_t* vx__hash_table_alloc(size_t size)
@@ -247,18 +258,11 @@ void vx__hash_table_free(vx_hash_table_t* table)
     for (size_t i = 0; i < table->size; ++i) {
         vx_hash_table_node_t* node = table->elements[i];
 
-        if (node) {
-            if (node->next) {
-                while (node->next) {
-                    node = node->next;
-                    VX_FREE(node->prev->data);
-                    VX_FREE(node->prev);
-                }
-                VX_FREE(node);
-            } else {
-                VX_FREE(node->data);
-                VX_FREE(node);
-            }
+        while (node) {
+            vx_hash_table_node_t* next = node->next;
+            VX_FREE(node->data);
+            VX_FREE(node);
+            node = next;
         }
     }
 
@@ -266,39 +270,42 @@ void vx__hash_table_free(vx_hash_table_t* table)
     VX_FREE(table);
 }
 
-bool vx__hash_table_insert(vx_hash_table_t* table,
+void vx__hash_table_insert(vx_hash_table_t* table,
     size_t hash,
-    void* data,
-    bool (*compfunc)(void* d1, void* d2))
+    void* data)
 {
-    if (!table->elements[hash]) {
-        table->elements[hash] = VX_MALLOC(vx_hash_table_node_t, 1);
-        table->elements[hash]->prev = NULL;
-        table->elements[hash]->next = NULL;
-        table->elements[hash]->data = data;
-    } else {
-        vx_hash_table_node_t* node = table->elements[hash];
+    vx_hash_table_node_t* node = VX_MALLOC(vx_hash_table_node_t, 1);
 
-        if (compfunc && compfunc(node->data, data)) {
-            return false;
-        }
+    node->prev = NULL;
+    node->next = table->elements[hash];
+    node->data = data;
 
-        while (node->next) {
-            node = node->next;
-            if (compfunc && compfunc(node->data, data)) {
-                return false;
-            }
-        }
-
-        vx_hash_table_node_t* nnode = VX_MALLOC(vx_hash_table_node_t, 1);
-
-        nnode->prev = node;
-        nnode->next = NULL;
-        nnode->data = data;
-        node->next = nnode;
+    if (table->elements[hash]) {
+        table->elements[hash]->prev = node;
     }
 
-    return true;
+    table->elements[hash] = node;
+}
+
+vx_voxel_data_t* vx__hash_table_find_voxel(vx_hash_table_t* table,
+    size_t hash,
+    long long kx,
+    long long ky,
+    long long kz)
+{
+    vx_hash_table_node_t* node = table->elements[hash];
+
+    while (node) {
+        vx_voxel_data_t* data = (vx_voxel_data_t*) node->data;
+
+        if (data->kx == kx && data->ky == ky && data->kz == kz) {
+            return data;
+        }
+
+        node = node->next;
+    }
+
+    return NULL;
 }
 
 void vx_mesh_free(vx_mesh_t* mesh)
@@ -345,54 +352,10 @@ vx_mesh_t* vx_mesh_alloc(int nvertices, int nindices)
 vx_mesh_t* vx_color_mesh_alloc(int nvertices, int nindices)
 {
     vx_mesh_t* mesh = vx_mesh_alloc(nvertices, nindices);
-    mesh->colors = VX_CALLOC(vx_color_t, nvertices);
-    if (!mesh->colors) { return NULL; }
+    if (!mesh->colors) {
+        mesh->colors = VX_CALLOC(vx_color_t, nvertices);
+    }
     return mesh;
-}
-
-float vx__map_to_voxel(float position, float voxelSize, bool min)
-{
-    float vox = (position + (position < 0.f ? -1.f : 1.f) * voxelSize * 0.5f) / voxelSize;
-    return (min ? floor(vox) : ceil(vox)) * voxelSize;
-}
-
-vx_vec3_t vx__vec3_cross(vx_vec3_t* v1, vx_vec3_t* v2)
-{
-    vx_vec3_t cross;
-    cross.x = v1->y * v2->z - v1->z * v2->y;
-    cross.y = v1->z * v2->x - v1->x * v2->z;
-    cross.z = v1->x * v2->y - v1->y * v2->x;
-    return cross;
-}
-
-bool vx__vertex_equals_epsilon(vx_vertex_t* v1, vx_vertex_t* v2) {
-    return fabs(v1->x - v2->x) < VOXELIZER_EPSILON &&
-           fabs(v1->y - v2->y) < VOXELIZER_EPSILON &&
-           fabs(v1->z - v2->z) < VOXELIZER_EPSILON;
-}
-
-bool vx__vertex_comp_func(void* a, void* b)
-{
-    return vx__vertex_equals_epsilon((vx_vertex_t*) a, (vx_vertex_t*) b);
-}
-
-void vx__vec3_sub(vx_vec3_t* a, vx_vec3_t* b)
-{
-    a->x -= b->x;
-    a->y -= b->y;
-    a->z -= b->z;
-}
-
-float vx__vec3_length2(vx_vec3_t* v)
-{
-    return v->x * v->x + v->y * v->y + v->z * v->z;
-}
-
-void vx__vec3_add(vx_vec3_t* a, vx_vec3_t* b)
-{
-    a->x += b->x;
-    a->y += b->y;
-    a->z += b->z;
 }
 
 void vx__vec3_multiply(vx_vec3_t* a, float v)
@@ -402,207 +365,197 @@ void vx__vec3_multiply(vx_vec3_t* a, float v)
     a->z *= v;
 }
 
-float vx__vec3_dot(vx_vec3_t* v1, vx_vec3_t* v2)
+void vx__dcross(double out[3], const double a[3], const double b[3])
 {
-    return v1->x * v2->x + v1->y * v2->y + v1->z * v2->z;
+    out[0] = a[1] * b[2] - a[2] * b[1];
+    out[1] = a[2] * b[0] - a[0] * b[2];
+    out[2] = a[0] * b[1] - a[1] * b[0];
 }
 
-int vx__plane_box_overlap(vx_vec3_t* normal,
-    float d,
-    vx_vertex_t* halfboxsize)
+// Closed triangle/box overlap test (Akenine-Moller separating axis test),
+// evaluated in double precision. A triangle touching the box on a single
+// edge or point is still considered overlapping.
+int vx__triangle_box_overlap_d(const double center[3],
+    const double half[3],
+    const double tri[3][3])
 {
-    vx_vertex_t vmin, vmax;
+    double v[3][3];
+    double e[3][3];
 
-    for (int dim = 0; dim <= 2; dim++) {
-        if (normal->v[dim] > 0.0f) {
-            vmin.v[dim] = -halfboxsize->v[dim];
-            vmax.v[dim] = halfboxsize->v[dim];
-        } else {
-            vmin.v[dim] = halfboxsize->v[dim];
-            vmax.v[dim] = -halfboxsize->v[dim];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            v[i][j] = tri[i][j] - center[j];
         }
     }
 
-    if (vx__vec3_dot(normal, &vmin) + d > 0.0f) {
-        return false;
+    for (int i = 0; i < 3; ++i) {
+        int n = (i + 1) % 3;
+        for (int j = 0; j < 3; ++j) {
+            e[i][j] = v[n][j] - v[i][j];
+        }
     }
 
-    if (vx__vec3_dot(normal, &vmax) + d >= 0.0f) {
-        return true;
+    // 9 separating axes: cross product of each edge with each coordinate axis
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double a[3];
+            double mn, mx, rad, p;
+            int j1 = (j + 1) % 3;
+            int j2 = (j + 2) % 3;
+
+            a[j] = 0.0;
+            a[j1] = e[i][j2];
+            a[j2] = -e[i][j1];
+
+            mn = mx = a[0] * v[0][0] + a[1] * v[0][1] + a[2] * v[0][2];
+            for (int k = 1; k < 3; ++k) {
+                p = a[0] * v[k][0] + a[1] * v[k][1] + a[2] * v[k][2];
+                if (p < mn) mn = p;
+                if (p > mx) mx = p;
+            }
+
+            rad = half[0] * fabs(a[0]) + half[1] * fabs(a[1]) + half[2] * fabs(a[2]);
+
+            if (mn > rad || mx < -rad) {
+                return 0;
+            }
+        }
     }
 
-    return false;
+    // 3 separating axes: the coordinate axes
+    for (int j = 0; j < 3; ++j) {
+        double mn, mx;
+        VX_FINDMINMAX(v[0][j], v[1][j], v[2][j], mn, mx);
+        if (mn > half[j] || mx < -half[j]) {
+            return 0;
+        }
+    }
+
+    // 1 separating axis: the triangle plane normal
+    {
+        double n[3];
+        double vmin[3], vmax[3];
+        double d, dmin, dmax;
+
+        vx__dcross(n, e[0], e[1]);
+        d = -(n[0] * v[0][0] + n[1] * v[0][1] + n[2] * v[0][2]);
+
+        for (int j = 0; j < 3; ++j) {
+            if (n[j] > 0.0) {
+                vmin[j] = -half[j];
+                vmax[j] = half[j];
+            } else {
+                vmin[j] = half[j];
+                vmax[j] = -half[j];
+            }
+        }
+
+        dmin = n[0] * vmin[0] + n[1] * vmin[1] + n[2] * vmin[2] + d;
+        dmax = n[0] * vmax[0] + n[1] * vmax[1] + n[2] * vmax[2] + d;
+
+        if (dmin > 0.0) {
+            return 0;
+        }
+
+        if (dmax >= 0.0) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
-#define AXISTEST_X01(a, b, fa, fb)                 \
-    p1 = a * v1.y - b * v1.z;                      \
-    p3 = a * v3.y - b * v3.z;                      \
-    if (p1 < p3) {                                 \
-        min = p1; max = p3;                        \
-    } else {                                       \
-        min = p3; max = p1;                        \
-    }                                              \
-    rad = fa * halfboxsize.y + fb * halfboxsize.z; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }                                              \
-
-#define AXISTEST_X2(a, b, fa, fb)                  \
-    p1 = a * v1.y - b * v1.z;                      \
-    p2 = a * v2.y - b * v2.z;                      \
-    if (p1 < p2) {                                 \
-        min = p1; max = p2;                        \
-    } else {                                       \
-        min = p2; max = p1;                        \
-    }                                              \
-    rad = fa * halfboxsize.y + fb * halfboxsize.z; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }                                              \
-
-#define AXISTEST_Y02(a, b, fa, fb)                 \
-    p1 = -a * v1.x + b * v1.z;                     \
-    p3 = -a * v3.x + b * v3.z;                     \
-    if (p1 < p3) {                                 \
-        min = p1; max = p3;                        \
-    } else {                                       \
-        min = p3; max = p1;                        \
-    }                                              \
-    rad = fa * halfboxsize.x + fb * halfboxsize.z; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }                                              \
-
-#define AXISTEST_Y1(a, b, fa, fb)                  \
-    p1 = -a * v1.x + b * v1.z;                     \
-    p2 = -a * v2.x + b * v2.z;                     \
-    if (p1 < p2) {                                 \
-        min = p1; max = p2;                        \
-    } else {                                       \
-        min = p2; max = p1;                        \
-    }                                              \
-    rad = fa * halfboxsize.x + fb * halfboxsize.z; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }
-
-#define AXISTEST_Z12(a, b, fa, fb)                 \
-    p2 = a * v2.x - b * v2.y;                      \
-    p3 = a * v3.x - b * v3.y;                      \
-    if (p3 < p2) {                                 \
-        min = p3; max = p2;                        \
-    } else {                                       \
-        min = p2; max = p3;                        \
-    }                                              \
-    rad = fa * halfboxsize.x + fb * halfboxsize.y; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }
-
-#define AXISTEST_Z0(a, b, fa, fb)                  \
-    p1 = a * v1.x - b * v1.y;                      \
-    p2 = a * v2.x - b * v2.y;                      \
-    if (p1 < p2) {                                 \
-        min = p1; max = p2;                        \
-    } else {                                       \
-        min = p2; max = p1;                        \
-    }                                              \
-    rad = fa * halfboxsize.x + fb * halfboxsize.y; \
-    if (min > rad || max < -rad) {                 \
-        return false;                              \
-    }
-
-int vx__triangle_box_overlap(vx_vertex_t boxcenter,
-    vx_vertex_t halfboxsize,
-    vx_triangle_t triangle)
+// Clips a triangle against the closed box and accumulates the area of the
+// intersection polygon plus the integral of the linear color field over it.
+// Clipped vertices inherit the linearly interpolated colors of the original
+// triangle. A degenerate (edge/point only) intersection contributes zero area.
+void vx__clip_accumulate(const double tri[3][3],
+    const double tcol[3][3],
+    const double center[3],
+    const double half[3],
+    double* out_area,
+    double out_accum[3])
 {
-    vx_vec3_t v1, v2, v3, normal, e1, e2, e3;
-    float min, max, d, p1, p2, p3, rad, fex, fey, fez;
+    double poly[12][3];
+    double col[12][3];
+    double area = 0.0;
+    double accum[3] = {0.0, 0.0, 0.0};
+    int n = 3;
 
-    v1 = triangle.p1;
-    v2 = triangle.p2;
-    v3 = triangle.p3;
-
-    vx__vec3_sub(&v1, &boxcenter);
-    vx__vec3_sub(&v2, &boxcenter);
-    vx__vec3_sub(&v3, &boxcenter);
-
-    e1 = v2;
-    e2 = v3;
-    e3 = v1;
-
-    vx__vec3_sub(&e1, &v1);
-    vx__vec3_sub(&e2, &v2);
-    vx__vec3_sub(&e3, &v3);
-
-    fex = fabs(e1.x);
-    fey = fabs(e1.y);
-    fez = fabs(e1.z);
-
-    AXISTEST_X01(e1.z, e1.y, fez, fey);
-    AXISTEST_Y02(e1.z, e1.x, fez, fex);
-    AXISTEST_Z12(e1.y, e1.x, fey, fex);
-
-    fex = fabs(e2.x);
-    fey = fabs(e2.y);
-    fez = fabs(e2.z);
-
-    AXISTEST_X01(e2.z, e2.y, fez, fey);
-    AXISTEST_Y02(e2.z, e2.x, fez, fex);
-    AXISTEST_Z0(e2.y, e2.x, fey, fex);
-
-    fex = fabs(e3.x);
-    fey = fabs(e3.y);
-    fez = fabs(e3.z);
-
-    AXISTEST_X2(e3.z, e3.y, fez, fey);
-    AXISTEST_Y1(e3.z, e3.x, fez, fex);
-    AXISTEST_Z12(e3.y, e3.x, fey, fex);
-
-    VX_FINDMINMAX(v1.x, v2.x, v3.x, min, max);
-    if (min > halfboxsize.x || max < -halfboxsize.x) {
-        return false;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            poly[i][j] = tri[i][j];
+            col[i][j] = tcol[i][j];
+        }
     }
 
-    VX_FINDMINMAX(v1.y, v2.y, v3.y, min, max);
-    if (min > halfboxsize.y || max < -halfboxsize.y) {
-        return false;
+    for (int axis = 0; axis < 3 && n > 0; ++axis) {
+        for (int side = 0; side < 2 && n > 0; ++side) {
+            double bound = side == 0 ? center[axis] - half[axis]
+                                     : center[axis] + half[axis];
+            double npoly[12][3];
+            double ncol[12][3];
+            int m = 0;
+
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                double di = poly[i][axis];
+                double dj = poly[j][axis];
+                int ini = side == 0 ? di >= bound : di <= bound;
+                int inj = side == 0 ? dj >= bound : dj <= bound;
+
+                if (ini) {
+                    for (int c = 0; c < 3; ++c) {
+                        npoly[m][c] = poly[i][c];
+                        ncol[m][c] = col[i][c];
+                    }
+                    m++;
+                }
+
+                if (ini != inj) {
+                    double t = (bound - di) / (dj - di);
+                    for (int c = 0; c < 3; ++c) {
+                        npoly[m][c] = poly[i][c] + t * (poly[j][c] - poly[i][c]);
+                        ncol[m][c] = col[i][c] + t * (col[j][c] - col[i][c]);
+                    }
+                    m++;
+                }
+            }
+
+            n = m;
+            if (n > 0) {
+                memcpy(poly, npoly, (size_t) n * 3 * sizeof(double));
+                memcpy(col, ncol, (size_t) n * 3 * sizeof(double));
+            }
+        }
     }
 
-    VX_FINDMINMAX(v1.z, v2.z, v3.z, min, max);
-    if (min > halfboxsize.z || max < -halfboxsize.z) {
-        return false;
+    for (int i = 1; i + 1 < n; ++i) {
+        double u[3], w[3], cr[3];
+        double a;
+
+        for (int c = 0; c < 3; ++c) {
+            u[c] = poly[i][c] - poly[0][c];
+            w[c] = poly[i + 1][c] - poly[0][c];
+        }
+
+        vx__dcross(cr, u, w);
+        a = 0.5 * sqrt(cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]);
+
+        if (a == 0.0) {
+            continue;
+        }
+
+        area += a;
+        for (int c = 0; c < 3; ++c) {
+            accum[c] += a * (col[0][c] + col[i][c] + col[i + 1][c]) / 3.0;
+        }
     }
 
-    normal = vx__vec3_cross(&e1, &e2);
-    d = -vx__vec3_dot(&normal, &v1);
-
-    if (!vx__plane_box_overlap(&normal, d, &halfboxsize)) {
-        return false;
-    }
-
-    return true;
-}
-
-#undef AXISTEST_X2
-#undef AXISTEST_X01
-#undef AXISTEST_Y1
-#undef AXISTEST_Y02
-#undef AXISTEST_Z0
-#undef AXISTEST_Z12
-
-float vx__triangle_area(vx_triangle_t* triangle) {
-    vx_vec3_t ab = triangle->p2;
-    vx_vec3_t ac = triangle->p3;
-
-    vx__vec3_sub(&ab, &triangle->p1);
-    vx__vec3_sub(&ac, &triangle->p1);
-
-    float a0 = ab.y * ac.z - ab.z * ac.y;
-    float a1 = ab.z * ac.x - ab.x * ac.z;
-    float a2 = ab.x * ac.y - ab.y * ac.x;
-
-    return sqrtf(powf(a0, 2.f) + powf(a1, 2.f) + powf(a2, 2.f)) * 0.5f;
+    *out_area = area;
+    out_accum[0] = accum[0];
+    out_accum[1] = accum[1];
+    out_accum[2] = accum[2];
 }
 
 void vx__aabb_init(vx_aabb_t* aabb)
@@ -627,26 +580,6 @@ vx_aabb_t vx__triangle_aabb(vx_triangle_t* triangle)
     return aabb;
 }
 
-vx_vertex_t vx__aabb_center(vx_aabb_t* a)
-{
-    vx_vertex_t boxcenter = a->min;
-    vx__vec3_add(&boxcenter, &a->max);
-    vx__vec3_multiply(&boxcenter, 0.5f);
-
-    return boxcenter;
-}
-
-vx_vertex_t vx__aabb_half_size(vx_aabb_t* a)
-{
-    vx_vertex_t size;
-
-    size.x = fabs(a->max.x - a->min.x) * 0.5f;
-    size.y = fabs(a->max.y - a->min.y) * 0.5f;
-    size.z = fabs(a->max.z - a->min.z) * 0.5f;
-
-    return size;
-}
-
 vx_aabb_t vx__aabb_merge(vx_aabb_t* a, vx_aabb_t* b)
 {
     vx_aabb_t merge;
@@ -662,13 +595,16 @@ vx_aabb_t vx__aabb_merge(vx_aabb_t* a, vx_aabb_t* b)
     return merge;
 }
 
-size_t vx__vertex_hash(vx_vertex_t pos, size_t n)
+size_t vx__voxel_hash(long long kx,
+    long long ky,
+    long long kz,
+    size_t n)
 {
-    size_t a = (size_t)(pos.x * 73856093);
-    size_t b = (size_t)(pos.y * 19349663);
-    size_t c = (size_t)(pos.z * 83492791);
+    unsigned long long a = (unsigned long long) kx * 73856093ull;
+    unsigned long long b = (unsigned long long) ky * 19349663ull;
+    unsigned long long c = (unsigned long long) kz * 83492791ull;
 
-    return (a ^ b ^ c) % n;
+    return (size_t) ((a ^ b ^ c) % n);
 }
 
 void vx__add_voxel(vx_mesh_t* mesh,
@@ -713,12 +649,33 @@ vx_hash_table_t* vx__voxelize(vx_mesh_t const* m,
     size_t* nvoxels)
 {
     vx_hash_table_t* table = NULL;
+    double half[3];
+    double s[3];
 
     table = vx__hash_table_alloc(VOXELIZER_HASH_TABLE_SIZE);
 
+    // Intersection box half widths: half a voxel extended by the precision
+    // length on every axis
+    half[0] = (double) hvs.x + (double) precision;
+    half[1] = (double) hvs.y + (double) precision;
+    half[2] = (double) hvs.z + (double) precision;
+
+    s[0] = (double) vs.x;
+    s[1] = (double) vs.y;
+    s[2] = (double) vs.z;
+
+    // Non-positive voxel sizes describe no valid lattice
+    if (!(s[0] > 0.0) || !(s[1] > 0.0) || !(s[2] > 0.0)) {
+        return table;
+    }
+
     for (size_t i = 0; i < m->nindices; i += 3) {
-        vx_triangle_t triangle;
         unsigned int i1, i2, i3;
+        double tri[3][3];
+        double tcol[3][3];
+        double e1[3], e2[3], n[3];
+        double tmin[3], tmax[3];
+        long long kmin[3], kmax[3];
 
         VX_ASSERT(m->indices[i+0] < m->nvertices);
         VX_ASSERT(m->indices[i+1] < m->nvertices);
@@ -728,108 +685,119 @@ vx_hash_table_t* vx__voxelize(vx_mesh_t const* m,
         i2 = m->indices[i+1];
         i3 = m->indices[i+2];
 
-        triangle.p1 = m->vertices[i1];
-        triangle.p2 = m->vertices[i2];
-        triangle.p3 = m->vertices[i3];
-
-        if (m->colors) {
-            triangle.colors[0] = m->colors[i1];
-            triangle.colors[1] = m->colors[i2];
-            triangle.colors[2] = m->colors[i3];
+        for (int j = 0; j < 3; ++j) {
+            tri[0][j] = (double) m->vertices[i1].v[j];
+            tri[1][j] = (double) m->vertices[i2].v[j];
+            tri[2][j] = (double) m->vertices[i3].v[j];
         }
 
-        if (vx__triangle_area(&triangle) < VOXELIZER_EPSILON) {
-            // triangle with 0 area
+        if (m->colors) {
+            for (int j = 0; j < 3; ++j) {
+                tcol[0][j] = (double) m->colors[i1].v[j];
+                tcol[1][j] = (double) m->colors[i2].v[j];
+                tcol[2][j] = (double) m->colors[i3].v[j];
+            }
+        }
+
+        // Skip truly degenerate (collinear or repeated vertices, zero area)
+        // triangles; any positive area triangle is kept, however small
+        for (int j = 0; j < 3; ++j) {
+            e1[j] = tri[1][j] - tri[0][j];
+            e2[j] = tri[2][j] - tri[0][j];
+        }
+        vx__dcross(n, e1, e2);
+
+        if (n[0] == 0.0 && n[1] == 0.0 && n[2] == 0.0) {
             continue;
         }
 
-        vx_aabb_t aabb = vx__triangle_aabb(&triangle);
+        // Candidate cells: every lattice cell whose closed intersection box
+        // may share a point with the triangle
+        for (int j = 0; j < 3; ++j) {
+            tmin[j] = VX_MIN(tri[0][j], VX_MIN(tri[1][j], tri[2][j]));
+            tmax[j] = VX_MAX(tri[0][j], VX_MAX(tri[1][j], tri[2][j]));
+            kmin[j] = (long long) floor((tmin[j] - half[j]) / s[j]);
+            kmax[j] = (long long) ceil((tmax[j] + half[j]) / s[j]);
+        }
 
-        aabb.min.x = vx__map_to_voxel(aabb.min.x, vs.x, true);
-        aabb.min.y = vx__map_to_voxel(aabb.min.y, vs.y, true);
-        aabb.min.z = vx__map_to_voxel(aabb.min.z, vs.z, true);
+        for (long long kx = kmin[0]; kx <= kmax[0]; ++kx) {
+            for (long long ky = kmin[1]; ky <= kmax[1]; ++ky) {
+                for (long long kz = kmin[2]; kz <= kmax[2]; ++kz) {
+                    double center[3];
+                    double area = 0.0;
+                    double accum[3] = {0.0, 0.0, 0.0};
+                    vx_voxel_data_t* nodedata;
+                    size_t hash;
 
-        aabb.max.x = vx__map_to_voxel(aabb.max.x, vs.x, false);
-        aabb.max.y = vx__map_to_voxel(aabb.max.y, vs.y, false);
-        aabb.max.z = vx__map_to_voxel(aabb.max.z, vs.z, false);
+                    center[0] = (double) kx * s[0];
+                    center[1] = (double) ky * s[1];
+                    center[2] = (double) kz * s[2];
 
-        for (float x = aabb.min.x; x <= aabb.max.x; x += vs.x) {
-            for (float y = aabb.min.y; y <= aabb.max.y; y += vs.y) {
-                for (float z = aabb.min.z; z <= aabb.max.z; z += vs.z) {
-                    vx_aabb_t saabb;
+                    if (!vx__triangle_box_overlap_d(center, half, tri)) {
+                        continue;
+                    }
 
-                    saabb.min.x = x - hvs.x;
-                    saabb.min.y = y - hvs.y;
-                    saabb.min.z = z - hvs.z;
-                    saabb.max.x = x + hvs.x;
-                    saabb.max.y = y + hvs.y;
-                    saabb.max.z = z + hvs.z;
+                    if (m->colors != NULL) {
+                        vx__clip_accumulate(tri, tcol, center, half, &area, accum);
+                    }
 
-                    vx_vertex_t boxcenter = vx__aabb_center(&saabb);
-                    vx_vertex_t halfsize = vx__aabb_half_size(&saabb);
+                    hash = vx__voxel_hash(kx, ky, kz, table->size);
+                    nodedata = vx__hash_table_find_voxel(table, hash, kx, ky, kz);
 
-                    // HACK: some holes might appear, this
-                    // precision factor reduces the artifact
-                    halfsize.x += precision;
-                    halfsize.y += precision;
-                    halfsize.z += precision;
-
-                    if (vx__triangle_box_overlap(boxcenter, halfsize, triangle)) {
-                        vx_vec3_t v1, v2, v3;
-                        vx_color_t c1, c2, c3;
-                        vx_voxel_data_t* nodedata;
-                        float a1, a2, a3;
-                        float area;
-
+                    if (nodedata) {
+                        // Repeated key: accumulate into the existing cell
+                        nodedata->area += area;
+                        nodedata->accum[0] += accum[0];
+                        nodedata->accum[1] += accum[1];
+                        nodedata->accum[2] += accum[2];
+                    } else {
                         nodedata = VX_MALLOC(vx_voxel_data_t, 1);
 
-                        if (m->colors != NULL) {
-                            // Perform barycentric interpolation of colors
-                            v1 = triangle.p1;
-                            v2 = triangle.p2;
-                            v3 = triangle.p3;
+                        nodedata->kx = kx;
+                        nodedata->ky = ky;
+                        nodedata->kz = kz;
 
-                            c1 = triangle.colors[0];
-                            c2 = triangle.colors[1];
-                            c3 = triangle.colors[2];
+                        nodedata->position.x = (float) center[0];
+                        nodedata->position.y = (float) center[1];
+                        nodedata->position.z = (float) center[2];
 
-                            vx_triangle_t t1 = {{{v1, v2, boxcenter}}, {{{{0.0f, 0.0f, 0.0f}}}}};
-                            vx_triangle_t t2 = {{{v2, v3, boxcenter}}, {{{{0.0f, 0.0f, 0.0f}}}}};
-                            vx_triangle_t t3 = {{{v3, v1, boxcenter}}, {{{{0.0f, 0.0f, 0.0f}}}}};
+                        nodedata->color.r = 0.0f;
+                        nodedata->color.g = 0.0f;
+                        nodedata->color.b = 0.0f;
 
-                            a1 = vx__triangle_area(&t1);
-                            a2 = vx__triangle_area(&t2);
-                            a3 = vx__triangle_area(&t3);
+                        nodedata->area = area;
+                        nodedata->accum[0] = accum[0];
+                        nodedata->accum[1] = accum[1];
+                        nodedata->accum[2] = accum[2];
 
-                            area = a1 + a2 + a3;
-
-                            vx__vec3_multiply(&c1, a2 / area);
-                            vx__vec3_multiply(&c2, a3 / area);
-                            vx__vec3_multiply(&c3, a1 / area);
-
-                            vx__vec3_add(&c1, &c2);
-                            vx__vec3_add(&c1, &c3);
-
-                            nodedata->color = c1;
-                        }
-
-                        nodedata->position = boxcenter;
-
-                        size_t hash = vx__vertex_hash(boxcenter, VOXELIZER_HASH_TABLE_SIZE);
-
-                        bool insert = vx__hash_table_insert(table, hash, nodedata,
-                                vx__vertex_comp_func);
-
-                        if (insert) {
-                            (*nvoxels)++;
-                        }
-                   }
+                        vx__hash_table_insert(table, hash, nodedata);
+                        (*nvoxels)++;
+                    }
                 }
             }
         }
     }
 
     return table;
+}
+
+vx_color_t vx__voxel_final_color(vx_voxel_data_t* voxeldata)
+{
+    vx_color_t color;
+
+    color.r = 0.0f;
+    color.g = 0.0f;
+    color.b = 0.0f;
+
+    // Cells only touched on an edge or point have zero accumulated area and
+    // resolve to black; no clamping is applied to out of [0, 1] colors
+    if (voxeldata->area > 0.0) {
+        color.r = (float) (voxeldata->accum[0] / voxeldata->area);
+        color.g = (float) (voxeldata->accum[1] / voxeldata->area);
+        color.b = (float) (voxeldata->accum[2] / voxeldata->area);
+    }
+
+    return color;
 }
 
 vx_mesh_t* vx_voxelize(vx_mesh_t const* m,
@@ -881,7 +849,8 @@ vx_mesh_t* vx_voxelize(vx_mesh_t const* m,
 
             while (node) {
                 voxeldata = (vx_voxel_data_t*) node->data;
-                vx__add_voxel(outmesh, &voxeldata->position, voxeldata->color, vertices);
+                vx__add_voxel(outmesh, &voxeldata->position,
+                        vx__voxel_final_color(voxeldata), vertices);
                 node = node->next;
             }
         }
@@ -922,7 +891,7 @@ vx_point_cloud_t* vx_voxelize_pc(vx_mesh_t const* mesh,
 
         while (node) {
             voxeldata = (vx_voxel_data_t*) node->data;
-            if (pc->colors) { pc->colors[pc->nvertices] = voxeldata->color; }
+            if (pc->colors) { pc->colors[pc->nvertices] = vx__voxel_final_color(voxeldata); }
             pc->vertices[pc->nvertices++] = voxeldata->position;
 
             node = node->next;
@@ -1071,7 +1040,6 @@ unsigned int* vx_voxelize_snap_3dgrid(vx_mesh_t const* m,
     return data;
 }
 
-#undef VOXELIZER_EPSILON
 #undef VOXELIZER_INDICES_SIZE
 #undef VOXELIZER_HASH_TABLE_SIZE
 
