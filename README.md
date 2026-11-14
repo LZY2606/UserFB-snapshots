@@ -6,6 +6,9 @@ We have forked the debug/ folder from the standard library, to take direct contr
 - `debug/macho`: `AddRelocation`, `AddRelocations`, `ReplaceRelocations`, `RemoveRelocations`, `AddScatteredRelocation`, `AddRelocationForSymbol`, `AddRelocationForSymbolWithDylibOrdinal`, `SetDylibOrdinalForSymbol`, `SetBindKindForSymbol`
 - `debug/pe`: `AddBaseRelocation`, `ReplaceBaseRelocations`, `RemoveBaseRelocations`, `AddBaseReloc`, `AddSectionRelocation`, `AddSectionRelocationForSymbol`, `ReplaceSectionRelocations`, `RemoveSectionRelocations`
 
+## Reading dyld bindings
+- `debug/macho`: `File.ReadBindings(kind BindKind) ([]Binding, error)` decodes the classic normal, weak and lazy dyld binding streams offline, reporting the symbol, flags, ordinal, addend, bind type, segment and virtual/file location of every bind. See [docs/bindings.md](docs/bindings.md).
+
 
 ## Read more about the project here:
 https://www.symbolcrash.com/2019/02/23/introducing-symbol-crash/

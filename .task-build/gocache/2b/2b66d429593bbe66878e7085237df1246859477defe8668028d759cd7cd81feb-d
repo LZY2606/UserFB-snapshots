@@ -1,0 +1,10 @@
+./bindings.go
+./exports.go
+./fat.go
+./file.go
+./macho.go
+./reloc_edit.go
+./reloc_write.go
+./reloctype.go
+./reloctype_string.go
+./write.go

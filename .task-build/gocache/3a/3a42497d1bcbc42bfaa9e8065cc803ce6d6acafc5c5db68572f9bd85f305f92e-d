@@ -1,0 +1,16 @@
+./cert.go
+./exports.go
+./file.go
+./imports.go
+./net.go
+./pe.go
+./reloc.go
+./reloc_edit.go
+./reloc_write.go
+./section.go
+./string.go
+./symbol.go
+./write.go
+./file_cgo_test.go
+./file_test.go
+./reloc_edit_test.go

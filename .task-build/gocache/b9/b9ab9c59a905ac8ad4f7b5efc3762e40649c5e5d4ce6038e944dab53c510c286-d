@@ -1,0 +1,14 @@
+./bindings.go
+./exports.go
+./fat.go
+./file.go
+./macho.go
+./reloc_edit.go
+./reloc_write.go
+./reloctype.go
+./reloctype_string.go
+./write.go
+./baseline_test.go
+./bindings_contract_test.go
+./file_test.go
+./reloc_edit_test.go
