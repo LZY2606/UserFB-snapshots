@@ -542,6 +542,60 @@ void  mwFree_( void* );
 char* mwStrdup( const char *, const char*, int );
 
 /*
+** Trusted-ledger metadata rebuild.
+**
+** A separate ledger, stored outside the observed heap, remembers the
+** canonical identity of every delivered allocation.  mwHeapPrepare()
+** snapshots the current (possibly damaged) management headers and the
+** ledger truth into an opaque, immutable plan without modifying the
+** heap; mwHeapCommit() re-validates every observed field and, only if
+** nothing moved, rewrites the headers and chain links atomically.
+**
+** Once header inconsistency has been detected, the normal allocation,
+** reallocation, free and check entry points refuse to operate until an
+** explicit commit succeeds.  Plans are generation-tagged: any real
+** heap change after prepare makes the plan stale and the commit writes
+** nothing.  After mwTerm()/mwInit() an old plan may only be previewed
+** (via the mw_recovery.h accessors) or released; it can never touch
+** the old addresses.
+*/
+struct mwPlan; /* defined by mw_recovery.h; opaque here */
+
+#define MW_HEAP_OK       0  /* plan built / still valid / applied */
+#define MW_HEAP_STALE    1  /* heap or ledger changed since prepare */
+#define MW_HEAP_INVALID  2  /* ledger or observed headers not well formed */
+#define MW_HEAP_NOMEM    3  /* plan storage could not be allocated */
+#define MW_HEAP_NOTREADY 4  /* MEMWATCH is not initialized */
+
+int  mwHeapPrepare( struct mwPlan **out_plan );
+int  mwHeapCommit( struct mwPlan *plan );
+int  mwHeapPlanFree( struct mwPlan *plan );
+
+/*
+** Read-only layout/count observation and deterministic failure seams
+** for the recovery contract tests.  These never replace a production
+** code path: real allocations still go through mwMalloc()/mwFree(),
+** and no test may write a real management header, guard or freed area.
+*/
+#ifdef MW_HEAP_TESTING
+#include <stddef.h>
+size_t        mwTestLedgerCount( void );
+int           mwTestInited( void );
+void          mwTestLayout( size_t *data_size, size_t *guard_size );
+int           mwTestIsDegraded( void );
+unsigned      mwTestHeapEpoch( void );
+unsigned      mwTestLedgerVersion( void );
+void          mwTestSetPrepFailure( int onoff );
+void          mwTestMarkDegraded( void );
+unsigned long mwTestReclaimedNMLCount( void );
+void          mwTestResetReclaimedNML( void );
+unsigned long mwTestForceReclaim( void );
+int           mwTestLedgerInfo( size_t ord, void **sys, size_t *syslen,
+                                void **user, size_t *req, int *nml,
+                                unsigned long *count );
+#endif
+
+/*
 ** Enable/disable precompiler block
 **  This block of defines and if(n)defs make sure that references
 **  to MEMWATCH is completely removed from the code if the MEMWATCH

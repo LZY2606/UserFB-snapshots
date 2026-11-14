@@ -33,3 +33,6 @@
 *.su
 
 memwatch.log
+
+# task harness build output
+.task-build/

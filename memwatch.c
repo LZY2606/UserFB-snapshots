@@ -115,7 +115,9 @@
 #include <setjmp.h>
 #include <time.h>
 #include <limits.h>
+#include <stdint.h>
 #include "memwatch.h"
+#include "mw_recovery.h"
 
 #ifndef toupper
 #include <ctype.h>
@@ -376,9 +378,6 @@ static void     mwFlushW( int );
 static void     mwFlush( void );
 static void     mwIncErr( void );
 static void     mwUnlink( mwData*, const char* file, int line );
-static int      mwRelink( mwData*, const char* file, int line );
-static int      mwIsHeapOK( mwData *mw );
-static int      mwIsOwned( mwData* mw, const char* file, int line );
 static int      mwTestBuf( mwData* mw, const char* file, int line );
 static void     mwDefaultOutFunc( int );
 static void     mwWrite( const char* format, ... );
@@ -407,6 +406,428 @@ static void		mwMutexUnlock( void );
 #endif
 
 /***********************************************************************
+** Trusted ledger
+**
+** A side table, allocated with the system allocator and never passed
+** through mwMalloc(), that records the canonical identity of every
+** delivered system allocation.  The management headers (mwData) stay
+** diagnostic; the ledger is the only source of truth used by the
+** metadata rebuild and the final teardown.
+***********************************************************************/
+
+typedef struct mwLedgerEntry_ {
+    void          *sys_ptr;   /* raw system allocation address */
+    size_t         sys_len;   /* raw system allocation length */
+    void          *user_ptr;  /* exact delivered user pointer */
+    size_t         req_size;  /* requested user area size */
+    unsigned long  count;     /* allocation action count */
+    const char    *file;      /* owning source file */
+    int            line;      /* owning source line */
+    int            nml;       /* nonzero once converted to NML */
+} mwLedgerEntry;
+
+static mwLedgerEntry *mwLedger = NULL;
+static size_t         mwLedgerCount = 0;
+static size_t         mwLedgerCap = 0;
+static unsigned       mwLedgerVersion = 0;  /* bumped on any fact change */
+static unsigned       mwHeapGeneration = 0; /* same timeline as version */
+static unsigned       mwHeapEpoch = 0;      /* bumped at each (re)init */
+static int            mwHeapDegraded = 0;   /* header damage detected */
+
+#ifdef MW_HEAP_TESTING
+static int            mwTestPrepFailure = 0;
+static unsigned long  mwTestReclaimedNML = 0;
+#endif
+
+static int  mwLedgerEnsure( size_t need );
+static int  mwLedgerAdd( void *sys, size_t syslen, void *user,
+                         size_t req, unsigned long count,
+                         const char *file, int line );
+static int  mwLedgerFindUser( const void *user );
+static int  mwLedgerFindSys( const void *sys );
+static void mwLedgerRemoveAt( size_t idx );
+static void mwLedgerMarkNML( size_t idx );
+static void mwLedgerBump( void );
+static void mwMarkDegraded( const char *what, const void *id );
+static int  mwHeaderAgrees( const mwLedgerEntry *e );
+static void mwTrustedGuardCheck( const mwLedgerEntry *e );
+static int  mwHeapAdapterRead( void *ctx, mwToken id, mwObsHead *out );
+static int  mwHeapAdapterEnds( void *ctx, mwObsEnds *out );
+static long mwHeapAdapterCheck( void *ctx, const mwFact *fact,
+                                const mwObsHead *wanted );
+static int  mwHeapAdapterValid( void *ctx, mwToken token );
+static int  mwHeapAdapterApply( void *ctx, const mwObsHead *writes,
+                                size_t write_count,
+                                const mwObsEnds *ends );
+
+static void mwLedgerBump( void ) {
+    mwLedgerVersion ++;
+    mwHeapGeneration ++;
+}
+
+/* Grow the side table.  Failure is reported, never papered over by
+** triggering NML reclamation: metadata storage must not recurse into
+** the pressure-reclaim path. */
+static int mwLedgerEnsure( size_t need ) {
+    mwLedgerEntry *grown;
+    size_t newcap;
+#ifdef MW_HEAP_TESTING
+    if( mwTestPrepFailure ) return 0;
+#endif
+    if( need <= mwLedgerCap ) return 1;
+    newcap = mwLedgerCap ? mwLedgerCap : 16;
+    while( newcap < need ) {
+        if( newcap > ( (size_t)-1 ) / 2 ) return 0;
+        newcap *= 2;
+    }
+    grown = (mwLedgerEntry*) realloc( mwLedger,
+                                      newcap * sizeof(mwLedgerEntry) );
+    if( grown == NULL ) return 0;
+    mwLedger = grown;
+    mwLedgerCap = newcap;
+    return 1;
+}
+
+static int mwLedgerAdd( void *sys, size_t syslen, void *user,
+                        size_t req, unsigned long count,
+                        const char *file, int line ) {
+    if( !mwLedgerEnsure( mwLedgerCount + 1 ) ) return 0;
+    mwLedger[mwLedgerCount].sys_ptr = sys;
+    mwLedger[mwLedgerCount].sys_len = syslen;
+    mwLedger[mwLedgerCount].user_ptr = user;
+    mwLedger[mwLedgerCount].req_size = req;
+    mwLedger[mwLedgerCount].count = count;
+    mwLedger[mwLedgerCount].file = file;
+    mwLedger[mwLedgerCount].line = line;
+    mwLedger[mwLedgerCount].nml = 0;
+    mwLedgerCount ++;
+    mwLedgerBump();
+    return 1;
+}
+
+/* Ownership is decided by the exact user start address only; an
+** unknown address never causes memory in front of it to be read. */
+static int mwLedgerFindUser( const void *user ) {
+    size_t i;
+    for( i = 0; i < mwLedgerCount; ++i )
+        if( mwLedger[i].user_ptr == user ) return (int) i;
+    return -1;
+}
+
+static int mwLedgerFindSys( const void *sys ) {
+    size_t i;
+    for( i = 0; i < mwLedgerCount; ++i )
+        if( mwLedger[i].sys_ptr == sys ) return (int) i;
+    return -1;
+}
+
+static void mwLedgerRemoveAt( size_t idx ) {
+    if( idx >= mwLedgerCount ) return;
+    mwLedger[idx] = mwLedger[mwLedgerCount - 1];
+    mwLedgerCount --;
+    mwLedgerBump();
+}
+
+static void mwLedgerMarkNML( size_t idx ) {
+    if( idx >= mwLedgerCount ) return;
+    if( !mwLedger[idx].nml ) {
+        mwLedger[idx].nml = 1;
+        mwLedgerBump();
+    }
+}
+
+static void mwMarkDegraded( const char *what, const void *id ) {
+    if( !mwHeapDegraded ) {
+        mwHeapDegraded = 1;
+        mwWrite( "recovery: heap metadata inconsistent (%s at %p); "
+                 "alloc/realloc/free/check refused until mwHeapCommit()\n",
+                 what ? what : "header", id );
+        mwIncErr();
+        FLUSH();
+    }
+}
+
+/* Read-only comparison of a live header against the ledger truth. */
+static int mwHeaderAgrees( const mwLedgerEntry *e ) {
+    mwData *mw = (mwData*) e->sys_ptr;
+    if( !mwIsSafeAddr( mw, mwDataSize ) ) return 0;
+    if( mw->check != CHKVAL(mw) ) return 0;
+    if( mw->count != (long) e->count ) return 0;
+    if( mw->size != e->req_size ) return 0;
+    if( mw->line != e->line ) return 0;
+    if( mw->file != e->file ) return 0;
+    if( ( mw->flag & MW_NML ) != ( e->nml ? MW_NML : 0 ) ) return 0;
+    if( mw->prev ) {
+        if( !mwIsSafeAddr( mw->prev, mwDataSize ) ) return 0;
+        if( mw->prev->next != mw ) return 0;
+    }
+    else if( mwHead != mw ) return 0;
+    if( mw->next ) {
+        if( !mwIsSafeAddr( mw->next, mwDataSize ) ) return 0;
+        if( mw->next->prev != mw ) return 0;
+    }
+    else if( mwTail != mw ) return 0;
+    return 1;
+}
+
+/* Guard and NML-fill checks positioned entirely from trusted sizes. */
+static void mwTrustedGuardCheck( const mwLedgerEntry *e ) {
+    char *base = (char*) e->sys_ptr;
+    char *pre = base + mwDataSize;
+    char *post;
+    if( mwCheckOF( pre ) ) {
+        mwIncErr();
+        mwWrite( "underflow: <%lu> %s(%d), %lu bytes alloc'd at <%lu>\n",
+                 e->count, e->file, e->line, (unsigned long)e->req_size,
+                 e->count );
+    }
+    post = pre + mwOverflowZoneSize + e->req_size;
+    if( mwIsReadAddr( post, mwOverflowZoneSize ) && mwCheckOF( post ) ) {
+        mwIncErr();
+        mwWrite( "overflow: <%lu> %s(%d), %lu bytes alloc'd at <%lu>\n",
+                 e->count, e->file, e->line, (unsigned long)e->req_size,
+                 e->count );
+    }
+}
+
+/* ---- real-heap adapter: safe field access + write-set application ---- */
+
+static int mwHeapAdapterRead( void *ctx, mwToken id, mwObsHead *out ) {
+    mwData *mw;
+    (void) ctx;
+    mw = (mwData*)(void*) id;
+    if( !mwIsSafeAddr( mw, mwDataSize ) ) return 0;
+    out->identity = id;
+    out->prev = (mwToken)(uintptr_t) mw->prev;
+    out->next = (mwToken)(uintptr_t) mw->next;
+    out->count = mw->count;
+    out->line = mw->line;
+    out->flag = mw->flag;
+    out->size = mw->size;
+    out->check = mw->check;
+    /* copied as a token; the file pointer is never probed */
+    out->source_token = (mwToken)(uintptr_t) mw->file;
+    return 1;
+}
+
+static int mwHeapAdapterEnds( void *ctx, mwObsEnds *out ) {
+    (void) ctx;
+    out->head = (mwToken)(uintptr_t) mwHead;
+    out->tail = (mwToken)(uintptr_t) mwTail;
+    return 1;
+}
+
+static long mwHeapAdapterCheck( void *ctx, const mwFact *fact,
+                                const mwObsHead *wanted ) {
+    (void) ctx;
+    (void) fact;
+    return (long)( 0xFE0180UL
+                   ^ (unsigned long) wanted->count
+                   ^ (unsigned long) wanted->size
+                   ^ (unsigned long) wanted->line );
+}
+
+static int mwHeapAdapterValid( void *ctx, mwToken token ) {
+    (void) ctx;
+    return mwLedgerFindSys( (void*)(uintptr_t) token ) >= 0;
+}
+
+static int mwHeapAdapterApply( void *ctx, const mwObsHead *writes,
+                               size_t write_count,
+                               const mwObsEnds *ends ) {
+    size_t i;
+    (void) ctx;
+    /* only mwData fields are written; user areas and guard bytes are
+    ** never touched by the rebuild. */
+    for( i = 0; i < write_count; ++i ) {
+        mwData *mw = (mwData*)(void*) writes[i].identity;
+        mw->prev = (mwData*)(void*) writes[i].prev;
+        mw->next = (mwData*)(void*) writes[i].next;
+        mw->file = (const char*)(void*) writes[i].source_token;
+        mw->count = writes[i].count;
+        mw->check = writes[i].check;
+        mw->size = writes[i].size;
+        mw->line = writes[i].line;
+        mw->flag = writes[i].flag;
+    }
+    mwHead = (mwData*)(void*) ends->head;
+    mwTail = (mwData*)(void*) ends->tail;
+    return 1;
+}
+
+static const mwPlanAdapter mwHeapPlanAdapter = {
+    mwHeapAdapterRead,
+    mwHeapAdapterEnds,
+    mwHeapAdapterCheck,
+    mwHeapAdapterValid,
+    NULL
+};
+
+static int mwMapPlanRC( int rc ) {
+    switch( rc ) {
+        case MW_RC_OK:       return MW_HEAP_OK;
+        case MW_RC_STALE:    return MW_HEAP_STALE;
+        case MW_RC_NOMEM:    return MW_HEAP_NOMEM;
+        case MW_RC_NOTREADY: return MW_HEAP_NOTREADY;
+        default:             return MW_HEAP_INVALID;
+    }
+}
+
+static int mwFactCountDesc( const void *a, const void *b ) {
+    const mwFact *fa = (const mwFact*) a;
+    const mwFact *fb = (const mwFact*) b;
+    if( fa->count > fb->count ) return -1;
+    if( fa->count < fb->count ) return 1;
+    return 0;
+}
+
+int mwHeapPrepare( struct mwPlan **out_plan ) {
+    mwFact *facts;
+    mwPlanAdapter ad;
+    size_t i;
+    int rc;
+
+    if( out_plan == NULL ) return MW_HEAP_INVALID;
+    *out_plan = NULL;
+    mwAutoInit();
+    MW_MUTEX_LOCK();
+
+    if( !mwInited ) {
+        MW_MUTEX_UNLOCK();
+        return MW_HEAP_NOTREADY;
+    }
+
+    facts = NULL;
+    if( mwLedgerCount ) {
+        facts = (mwFact*) malloc( mwLedgerCount * sizeof(mwFact) );
+        if( facts == NULL ) {
+            MW_MUTEX_UNLOCK();
+            return MW_HEAP_NOMEM;
+        }
+    }
+
+    /* ledger order is newest-first; the canonical chain is rebuilt in
+    ** descending allocation-count order. */
+    for( i = 0; i < mwLedgerCount; ++i ) {
+        const mwLedgerEntry *e = &mwLedger[i];
+        facts[i].system_base = (mwToken)(uintptr_t) e->sys_ptr;
+        facts[i].system_len = e->sys_len;
+        facts[i].user_base = (mwToken)(uintptr_t) e->user_ptr;
+        facts[i].user_len = e->req_size;
+        facts[i].count = (long) e->count;
+        facts[i].source_token = (mwToken)(uintptr_t) e->file;
+        facts[i].line = e->line;
+        facts[i].state = e->nml ? MW_ENTRY_NML : MW_ENTRY_LIVE;
+        facts[i].identity = (mwToken)(uintptr_t) e->sys_ptr;
+    }
+
+    /* the canonical chain is newest-first, by descending allocation
+    ** count; the ledger's physical array order is irrelevant */
+    qsort( facts, mwLedgerCount, sizeof(mwFact), mwFactCountDesc );
+
+    ad = mwHeapPlanAdapter;
+    rc = mwPlanBuild( facts, mwLedgerCount, mwLedgerVersion,
+                      mwHeapGeneration, &ad, out_plan );
+    free( facts );
+
+    if( rc == MW_RC_OK ) {
+        mwWrite( "recovery: plan prepared, %lu registered block(s), "
+                 "%lu field discrepancy(ies)\n",
+                 (unsigned long) mwPlanItemCount( *out_plan ),
+                 (unsigned long) mwPlanDiscrepancyCount( *out_plan ) );
+        FLUSH();
+    }
+
+    MW_MUTEX_UNLOCK();
+    return mwMapPlanRC( rc );
+}
+
+int mwHeapCommit( struct mwPlan *plan ) {
+    mwPlanAdapter ad;
+    int rc;
+
+    if( plan == NULL ) return MW_HEAP_INVALID;
+    mwAutoInit();
+    MW_MUTEX_LOCK();
+
+    if( !mwInited ) {
+        MW_MUTEX_UNLOCK();
+        return MW_HEAP_NOTREADY;
+    }
+
+    ad = mwHeapPlanAdapter;
+    rc = mwPlanCommit( plan, &ad, mwHeapGeneration, mwLedgerVersion,
+                       mwHeapAdapterApply );
+    if( rc == MW_RC_OK ) {
+        mwHeapDegraded = 0;
+        /* a published rebuild is itself a heap change: all other,
+        ** older plans become stale */
+        mwLedgerBump();
+        mwWrite( "recovery: commit successful, canonical chain restored\n" );
+        FLUSH();
+    }
+    else if( rc == MW_RC_STALE ) {
+        mwWrite( "recovery: commit refused, plan is stale\n" );
+        FLUSH();
+    }
+
+    MW_MUTEX_UNLOCK();
+    return mwMapPlanRC( rc );
+}
+
+int mwHeapPlanFree( struct mwPlan *plan ) {
+    /* releasing a plan touches no observed storage and is allowed even
+    ** after the heap that produced it has been terminated */
+    mwPlanRelease( plan );
+    return MW_HEAP_OK;
+}
+
+#ifdef MW_HEAP_TESTING
+size_t mwTestLedgerCount( void ) { return mwLedgerCount; }
+int mwTestInited( void ) { return mwInited; }
+void mwTestLayout( size_t *data_size, size_t *guard_size ) {
+    if( data_size ) *data_size = (size_t) mwDataSize;
+    if( guard_size ) *guard_size = (size_t) mwOverflowZoneSize;
+}
+int mwTestIsDegraded( void ) { return mwHeapDegraded; }
+unsigned mwTestHeapEpoch( void ) { return mwHeapEpoch; }
+unsigned mwTestLedgerVersion( void ) { return mwLedgerVersion; }
+void mwTestSetPrepFailure( int onoff ) { mwTestPrepFailure = onoff ? 1 : 0; }
+/* raises the degraded state deterministically without touching any
+** real management header, guard byte or freed region */
+void mwTestMarkDegraded( void ) {
+    MW_MUTEX_LOCK();
+    mwMarkDegraded( "test seam", NULL );
+    MW_MUTEX_UNLOCK();
+}
+unsigned long mwTestReclaimedNMLCount( void ) { return mwTestReclaimedNML; }
+void mwTestResetReclaimedNML( void ) { mwTestReclaimedNML = 0; }
+/* deterministic NML pressure-reclaim seam: invokes the production
+** reclamation routine directly so tests can drive real evictions */
+unsigned long mwTestForceReclaim( void ) {
+    size_t before = mwLedgerCount;
+    MW_MUTEX_LOCK();
+    (void) mwFreeUp( (size_t) -1, 0 );
+    MW_MUTEX_UNLOCK();
+    return (unsigned long)( before - mwLedgerCount );
+}
+int mwTestLedgerInfo( size_t ord, void **sys, size_t *syslen,
+                      void **user, size_t *req, int *nml,
+                      unsigned long *count ) {
+    const mwLedgerEntry *e;
+    if( ord >= mwLedgerCount ) return 0;
+    e = &mwLedger[ord];
+    if( sys ) *sys = e->sys_ptr;
+    if( syslen ) *syslen = e->sys_len;
+    if( user ) *user = e->user_ptr;
+    if( req ) *req = e->req_size;
+    if( nml ) *nml = e->nml;
+    if( count ) *count = e->count;
+    return 1;
+}
+#endif
+
+/***********************************************************************
 ** System functions
 ***********************************************************************/
 
@@ -416,6 +837,19 @@ void mwInit( void ) {
     if( mwInited++ > 0 ) return;
 
 	MW_MUTEX_INIT();
+
+    /* a fresh observation epoch starts; the ledger (if any) was fully
+    ** drained by the matching mwAbort(), and monotonic generation
+    ** numbers ensure plans from an older epoch can never recommit */
+    mwLedger = NULL;
+    mwLedgerCount = mwLedgerCap = 0;
+    mwHeapDegraded = 0;
+    mwHeapEpoch ++;
+    mwLedgerBump();
+#ifdef MW_HEAP_TESTING
+    mwTestPrepFailure = 0;
+    mwTestReclaimedNML = 0;
+#endif
 
     /* start a log if none is running */
     if( mwLogR() == NULL ) mwLogFile( "memwatch.log" );
@@ -515,12 +949,11 @@ void mwInit( void ) {
     }
 
 void mwAbort( void ) {
-    mwData *mw;
     mwMarker *mrk;
     char *data;
     time_t tid;
     int c, i, j;
-	int errors;
+    size_t li;
 
     tid = time( NULL );
     mwWrite( "\nStopped at %s\n", ctime( &tid) );
@@ -541,68 +974,57 @@ void mwAbort( void ) {
         mwErrors ++;
         }
 
-    /* release all still allocated memory */
-	errors = 0;
-    while( mwHead != NULL && errors < 3 ) {
-		if( !mwIsOwned(mwHead, __FILE__, __LINE__ ) ) {
-			if( errors < 3 )
-			{
-				errors ++;
-				mwWrite( "internal: NML/unfreed scan restarting\n" );
-				FLUSH();
-				mwHead = mwHead;
-				continue;
-			}
-			mwWrite( "internal: NML/unfreed scan aborted, heap too damaged\n" );
-			FLUSH();
-			break;
-			}
-        mwFlushW(0);
-        if( !(mwHead->flag & MW_NML) ) {
+    /*
+    ** Release every delivered system allocation straight from the
+    ** trusted ledger.  The management headers and the prev/next chain
+    ** are never followed, so a trashed header cannot lose a block,
+    ** truncate the scan or cause a double free.  Each system pointer is
+    ** visited exactly once.
+    */
+    mwFlushW(0);
+    for( li = 0; li < mwLedgerCount; ++li ) {
+        mwLedgerEntry *e = &mwLedger[li];
+        char *base = (char*) e->sys_ptr;
+        char *user = base + mwDataSize + mwOverflowZoneSize;
+
+        if( !e->nml ) {
             mwErrors++;
-            data = ((char*)mwHead)+mwDataSize;
-            mwWrite( "unfreed: <%ld> %s(%d), %ld bytes at %p ",
-                mwHead->count, mwHead->file, mwHead->line, (long)mwHead->size, data+mwOverflowZoneSize );
-            if( mwCheckOF( data ) ) {
-                mwWrite( "[underflowed] ");
-                FLUSH();
-                }
-            if( mwCheckOF( (data+mwOverflowZoneSize+mwHead->size) ) ) {
-                mwWrite( "[overflowed] ");
-                FLUSH();
-                }
+            mwTrustedGuardCheck( e );
+            mwWrite( "unfreed: <%lu> %s(%d), %lu bytes at %p ",
+                e->count, e->file, e->line,
+                (unsigned long)e->req_size, user );
             mwWrite( " \t{" );
-            j = 16; if( mwHead->size < 16 ) j = (int) mwHead->size;
+            j = 16; if( e->req_size < 16 ) j = (int) e->req_size;
             for( i=0;i<16;i++ ) {
                 if( i<j ) mwWrite( "%02X ",
-                    (unsigned char) *(data+mwOverflowZoneSize+i) );
+                    (unsigned char) user[i] );
                 else mwWrite( ".. " );
                 }
             for( i=0;i<j;i++ ) {
-                c = *(data+mwOverflowZoneSize+i);
+                c = (unsigned char) user[i];
                 if( c < 32 || c > 126 ) c = '.';
                 mwWrite( "%c", c );
                 }
             mwWrite( "}\n" );
-			mw = mwHead;
-			mwUnlink( mw, __FILE__, __LINE__ );
-            free( mw );
-            }
+        }
         else {
-            data = ((char*)mwHead) + mwDataSize + mwOverflowZoneSize;
-            if( mwTestMem( data, mwHead->size, MW_VAL_NML ) ) {
+            data = base + mwDataSize + mwOverflowZoneSize;
+            if( mwTestMem( data, (unsigned) e->req_size, MW_VAL_NML ) ) {
                 mwErrors++;
-                mwWrite( "wild pointer: <%ld> NoMansLand %p alloc'd at %s(%d)\n",
-                    mwHead->count, data + mwOverflowZoneSize, mwHead->file, mwHead->line );
+                mwWrite( "wild pointer: <%lu> NoMansLand %p alloc'd at %s(%d)\n",
+                    e->count, user, e->file, e->line );
                 FLUSH();
                 }
-			mwNmlNumAlloc --;
-			mwNmlCurAlloc -= mwHead->size;
-			mw = mwHead;
-			mwUnlink( mw, __FILE__, __LINE__ );
-            free( mw );
-            }
+            mwNmlNumAlloc --;
+            mwNmlCurAlloc -= (long) e->req_size;
         }
+        free( e->sys_ptr );
+    }
+
+    /* the side table itself was never part of the observed heap */
+    free( mwLedger );
+    mwLedger = NULL;
+    mwLedgerCount = mwLedgerCap = 0;
 
 	if( mwNmlNumAlloc ) mwWrite("internal: NoMansLand block counter %ld, not zero\n", mwNmlNumAlloc );
 	if( mwNmlCurAlloc ) mwWrite("internal: NoMansLand byte counter %ld, not zero\n", mwNmlCurAlloc );
@@ -613,6 +1035,11 @@ void mwAbort( void ) {
 
     mwInited = 0;
     mwHead = mwTail = NULL;
+    mwHeapDegraded = 0;
+    /* the ledger version changes, so plans prepared against the old
+    ** heap cannot recommit; the epoch itself advances at the next
+    ** mwInit() */
+    mwLedgerBump();
     if( mwErrors )
         fprintf(mwSTDERR,"MEMWATCH detected %ld anomalies\n",mwErrors);
     mwLogFile( NULL );
@@ -694,17 +1121,34 @@ int mwTest( const char *file, int line, int items ) {
 */
 int mwTestBuffer( const char *file, int line, void *p ) {
     mwData* mw;
+    int lidx;
+    int retv;
 
     mwAutoInit();
 
-    /* do the quick ownership test */
-    mw = (mwData*) mwBUFFER_TO_MW( p );
+    /* resolve ownership through the trusted ledger only; for an
+    ** unknown pointer nothing in front of it is read */
+    lidx = mwLedgerFindUser( p );
+    if( lidx < 0 )
+        return 1;
 
-    if( mwIsOwned( mw, file, line ) ) {
-        return mwTestBuf( mw, file, line );
-		}
-	return 1;
-	}
+    mw = (mwData*) mwLedger[lidx].sys_ptr;
+    retv = mwTestBuf( mw, file, line );
+    mwTrustedGuardCheck( &mwLedger[lidx] );
+    if( mwLedger[lidx].nml ) {
+        char *data = ((char*)mw)+mwDataSize+mwOverflowZoneSize;
+        if( mwTestMem( data, (unsigned) mwLedger[lidx].req_size,
+                       MW_VAL_NML ) ) {
+            mwIncErr();
+            mwWrite( "wild pointer: <%lu> NoMansLand %p alloc'd at %s(%d)\n",
+                mwLedger[lidx].count,
+                data + mwOverflowZoneSize,
+                mwLedger[lidx].file, mwLedger[lidx].line );
+            retv ++;
+        }
+    }
+    return retv;
+}
 
 void mwBreakOut( const char* cause ) {
     fprintf(mwSTDERR, "breakout: %s\n", cause);
@@ -870,6 +1314,17 @@ void* mwMalloc( size_t size, const char* file, int line) {
 
 	MW_MUTEX_LOCK();
 
+    /* while metadata is known inconsistent, refuse rather than copy a
+    ** damaged size/file/chain into new bookkeeping */
+    if( mwHeapDegraded ) {
+        mwWrite( "recovery: <%lu> %s(%d), allocation refused; heap "
+                 "metadata awaits mwHeapCommit()\n",
+                 (unsigned long) (mwCounter + 1), file, line );
+        FLUSH();
+        MW_MUTEX_UNLOCK();
+        return NULL;
+    }
+
     TESTS(file,line);
 
     mwCounter ++;
@@ -877,6 +1332,7 @@ void* mwMalloc( size_t size, const char* file, int line) {
     if( needed < size )
     {
     	/* theoretical case: req size + mw overhead exceeded size_t limits */
+    	MW_MUTEX_UNLOCK();
     	return NULL;
     }
 
@@ -889,6 +1345,18 @@ void* mwMalloc( size_t size, const char* file, int line) {
 		MW_MUTEX_UNLOCK();
         return NULL;
         }
+
+    /* reserve the ledger slot before touching the system heap, so a
+    ** metadata failure can never deliver a half-registered object, and
+    ** never recurses into NML pressure reclamation */
+    if( !mwLedgerEnsure( mwLedgerCount + 1 ) ) {
+        mwWrite( "fail: <%ld> %s(%d), trusted ledger unavailable\n",
+            mwCounter, file, line );
+        mwIncErr();
+        FLUSH();
+        MW_MUTEX_UNLOCK();
+        return NULL;
+    }
 
     mw = (mwData*) malloc( needed );
     if( mw == NULL ) {
@@ -931,6 +1399,20 @@ void* mwMalloc( size_t size, const char* file, int line) {
     ptr += size;
     mwWriteOF( ptr ); /* '*(long*)ptr = POSTCHK;' */
 
+    /* publish the canonical identity only after the block is fully
+    ** prepared; if this last step fails, withdraw the system block */
+    if( !mwLedgerAdd( mw, needed, p, size, mwCounter, file, line ) ) {
+        mwUnlink( mw, file, line );
+        free( mw );
+        if( mwHead == NULL ) mwTail = NULL;
+        mwWrite( "fail: <%ld> %s(%d), trusted ledger registration failed\n",
+            mwCounter, file, line );
+        mwIncErr();
+        FLUSH();
+        MW_MUTEX_UNLOCK();
+        return NULL;
+    }
+
     mwNumCurAlloc ++;
     mwStatCurAlloc += (long) size;
     mwStatTotAlloc += (long) size;
@@ -945,9 +1427,11 @@ void* mwMalloc( size_t size, const char* file, int line) {
     }
 
 void* mwRealloc( void *p, size_t size, const char* file, int line) {
-    int oldUseLimit, i;
+    int oldUseLimit;
     mwData *mw;
     char *ptr;
+    int lidx;
+    mwLedgerEntry *le;
 
     mwAutoInit();
 
@@ -956,23 +1440,44 @@ void* mwRealloc( void *p, size_t size, const char* file, int line) {
 
 	MW_MUTEX_LOCK();
 
-    /* do the quick ownership test */
-    mw = (mwData*) mwBUFFER_TO_MW( p );
-    if( mwIsOwned( mw, file, line ) ) {
+    if( mwHeapDegraded ) {
+        mwWrite( "recovery: <%lu> %s(%d), realloc refused; heap "
+                 "metadata awaits mwHeapCommit()\n",
+                 (unsigned long) (mwCounter + 1), file, line );
+        FLUSH();
+        MW_MUTEX_UNLOCK();
+        return NULL;
+    }
+
+    /* ownership comes from the exact user start address; for an
+    ** unknown pointer the memory in front of it is never read */
+    lidx = mwLedgerFindUser( p );
+    if( lidx >= 0 ) {
+        le = &mwLedger[lidx];
+        mw = (mwData*) le->sys_ptr;
 
 		/* if the buffer is an NML, treat this as a double-free */
-		if( mw->flag & MW_NML )
+		if( le->nml )
 		{
             mwIncErr();
-			if( *((unsigned char*)(mw)+mwDataSize+mwOverflowZoneSize) != MW_VAL_NML )
-			{
+            if( !mwTestMem( (char*)mw + mwDataSize + mwOverflowZoneSize,
+                            1, MW_VAL_NML ) )
+            {
 				mwWrite( "internal: <%ld> %s(%d), no-mans-land MW-%p is corrupted\n",
 					mwCounter, file, line, mw );
 			}
 			goto check_dbl_free;
 		}
 
-        /* if this allocation would violate the limit, fail it */
+        /* refuse if the header has drifted from the canonical fact */
+        if( !mwHeaderAgrees( le ) ) {
+            mwMarkDegraded( "realloc ownership check", mw );
+            MW_MUTEX_UNLOCK();
+            return NULL;
+        }
+
+        /* if this allocation would violate the limit, fail it; the
+        ** old live block is retained */
         if( mwUseLimit && ((long)size + mwStatCurAlloc - (long)mw->size > mwAllocLimit) ) {
             TESTS(file,line);
             mwCounter ++;
@@ -984,7 +1489,8 @@ void* mwRealloc( void *p, size_t size, const char* file, int line) {
             return NULL;
             }
 
-        /* fake realloc operation */
+        /* fake realloc operation: mwMalloc publishes the new identity,
+        ** mwFree retires the old one through the same ledger */
         oldUseLimit = mwUseLimit;
         mwUseLimit = 0;
         ptr = (char*) mwMalloc( size, file, line );
@@ -1004,7 +1510,7 @@ void* mwRealloc( void *p, size_t size, const char* file, int line) {
 
     /* using free'd pointer? */
 check_dbl_free:
-    for(i=0;i<MW_FREE_LIST;i++) {
+    for(int i=0;i<MW_FREE_LIST;i++) {
         if( mwLastFree[i] == p ) {
             mwIncErr();
             mwWrite( "realloc: <%ld> %s(%d), %p was"
@@ -1052,6 +1558,8 @@ void mwFree( void* p, const char* file, int line ) {
     int i;
     mwData* mw;
     char buffer[ sizeof(mwData) + (mwROUNDALLOC*3) + 64 ];
+    int lidx;
+    mwLedgerEntry *le;
 
     /* this code is in support of C++ delete */
     if( file == NULL ) {
@@ -1075,14 +1583,38 @@ void mwFree( void* p, const char* file, int line ) {
         return;
         }
 
-    /* do the quick ownership test */
-    mw = (mwData*) mwBUFFER_TO_MW( p );
+    /* ownership is established solely from the ledger keyed by the
+    ** exact user start address; no memory in front of an unknown
+    ** pointer is dereferenced */
+    lidx = mwLedgerFindUser( p );
 
-    if( mwIsOwned( mw, file, line ) ) {
+    if( lidx >= 0 ) {
+        le = &mwLedger[lidx];
+        mw = (mwData*) le->sys_ptr;
+
+        if( mwHeapDegraded ) {
+            mwWrite( "recovery: <%ld> %s(%d), free of %p refused; "
+                     "heap metadata awaits mwHeapCommit()\n",
+                     mwCounter, file, line, p );
+            FLUSH();
+            MW_MUTEX_UNLOCK();
+            return;
+        }
+
+        /* a damaged header blocks the free rather than being copied,
+        ** reported through a trashed size or silently repaired */
+        if( !mwHeaderAgrees( le ) ) {
+            mwMarkDegraded( "free ownership check", mw );
+            MW_MUTEX_UNLOCK();
+            return;
+        }
+
         (void) mwTestBuf( mw, file, line );
+        /* guard zones are located from the trusted ledger size */
+        mwTrustedGuardCheck( le );
 
 		/* if the buffer is an NML, treat this as a double-free */
-		if( mw->flag & MW_NML )
+		if( le->nml )
 		{
 			if( *(((unsigned char*)mw)+mwDataSize+mwOverflowZoneSize) != MW_VAL_NML )
 			{
@@ -1097,12 +1629,15 @@ void mwFree( void* p, const char* file, int line ) {
         mwStatCurAlloc -= (long) mw->size;
         if( mwStatLevel ) mwStatFree( mw->size, mw->file, mw->line );
 
-        /* we should either free the allocation or keep it as NML */
+        /* we should either free the allocation or keep it as NML.
+        ** NML blocks stay in the ledger until the raw block is really
+        ** returned; normal frees leave the ledger immediately. */
         if( mwNML ) {
             mw->flag |= MW_NML;
 			mwNmlNumAlloc ++;
 			mwNmlCurAlloc += (long) mw->size;
             memset( ((char*)mw)+mwDataSize+mwOverflowZoneSize, MW_VAL_NML, mw->size );
+            mwLedgerMarkNML( (size_t) lidx );
             }
         else {
             /* unlink the allocation, and enter the post-free data */
@@ -1115,6 +1650,7 @@ void mwFree( void* p, const char* file, int line ) {
                 strncpy( (char*)(void*)mw, buffer, mwDataSize + mwOverflowZoneSize );
                 }
             free( mw );
+            mwLedgerRemoveAt( (size_t) lidx );
             }
 
         /* add the pointer to the last-free track */
@@ -1597,399 +2133,17 @@ static void mwUnlink( mwData* mw, const char* file, int line ) {
         }
     }
 
-/*
-** Relinking tries to repair a damaged mw block.
-** Returns nonzero if it thinks it successfully
-** repaired the heap chain.
-*/
-static int mwRelink( mwData* mw, const char* file, int line ) {
-    int fails;
-    mwData *mw1, *mw2;
-    long count, size;
-    mwStat *ms;
-
-	if( file == NULL ) file = "unknown";
-
-    if( mw == NULL ) {
-        mwWrite("relink: cannot repair MW at NULL\n");
-        FLUSH();
-        goto emergency;
-        }
-
-    if( !mwIsSafeAddr(mw, mwDataSize) ) {
-        mwWrite("relink: MW-%p is a garbage pointer\n", mw);
-        FLUSH();
-        goto emergency;
-        }
-
-    mwWrite("relink: <%ld> %s(%d) attempting to repair MW-%p...\n", mwCounter, file, line, mw );
-    FLUSH();
-    fails = 0;
-
-    /* Repair from head */
-    if( mwHead != mw ) {
-        if( !mwIsSafeAddr( mwHead, mwDataSize ) ) {
-            mwWrite("relink: failed for MW-%p; head pointer destroyed\n", mw );
-            FLUSH();
-            goto emergency;
-            }
-        for( mw1=mwHead; mw1; mw1=mw1->next ) {
-            if( mw1->next == mw ) {
-                mw->prev = mw1;
-                break;
-                }
-            if( mw1->next &&
-                ( !mwIsSafeAddr(mw1->next, mwDataSize ) || mw1->next->prev != mw1) ) {
-                mwWrite("relink: failed for MW-%p; forward chain fragmented at MW-%p: 'next' is %p\n", mw, mw1, mw1->next );
-                FLUSH();
-                goto emergency;
-                }
-            }
-        if( mw1 == NULL ) {
-            mwWrite("relink: MW-%p not found in forward chain search\n", mw );
-            FLUSH();
-            fails ++;
-            }
-        }
-	else
-	{
-		mwWrite( "relink: MW-%p is the head (first) allocation\n", mw );
-		if( mw->prev != NULL )
-		{
-			mwWrite( "relink: MW-%p prev pointer is non-NULL, you have a wild pointer\n", mw );
-			mw->prev = NULL;
-		}
-	}
-
-    /* Repair from tail */
-    if( mwTail != mw ) {
-        if( !mwIsSafeAddr( mwTail, mwDataSize ) ) {
-            mwWrite("relink: failed for MW-%p; tail pointer destroyed\n", mw );
-            FLUSH();
-            goto emergency;
-            }
-        for( mw1=mwTail; mw1; mw1=mw1->prev ) {
-            if( mw1->prev == mw ) {
-                mw->next = mw1;
-                break;
-                }
-            if( mw1->prev && (!mwIsSafeAddr(mw1->prev, mwDataSize ) || mw1->prev->next != mw1) ) {
-                mwWrite("relink: failed for MW-%p; reverse chain fragmented at MW-%p, 'prev' is %p\n", mw, mw1, mw1->prev );
-                FLUSH();
-                goto emergency;
-                }
-            }
-        if( mw1 == NULL ) {
-            mwWrite("relink: MW-%p not found in reverse chain search\n", mw );
-            FLUSH();
-            fails ++;
-            }
-        }
-	else
-	{
-		mwWrite( "relink: MW-%p is the tail (last) allocation\n", mw );
-		if( mw->next != NULL )
-		{
-			mwWrite( "relink: MW-%p next pointer is non-NULL, you have a wild pointer\n", mw );
-			mw->next = NULL;
-		}
-	}
-
-    if( fails > 1 ) {
-        mwWrite("relink: heap appears intact, MW-%p probably garbage pointer\n", mw );
-        FLUSH();
-        goto verifyok;
-        }
-
-    /* restore MW info where possible */
-    if( mwIsReadAddr( mw->file, 1 ) ) {
-        ms = mwStatGet( mw->file, -1, 0 );
-        if( ms == NULL ) mw->file = "<relinked>";
-        }
-    mw->check = CHKVAL(mw);
-    goto verifyok;
-
-    /* Emergency repair */
-    emergency:
-
-    if( mwHead == NULL && mwTail == NULL )
-    {
-        if( mwStatCurAlloc == 0 )
-            mwWrite("relink: <%ld> %s(%d) heap is empty, nothing to repair\n", mwCounter, file, line );
-        else
-            mwWrite("relink: <%ld> %s(%d) heap damaged beyond repair\n", mwCounter, file, line );
-        FLUSH();
-        return 0;
-    }
-
-    mwWrite("relink: <%ld> %s(%d) attempting emergency repairs...\n", mwCounter, file, line );
-    FLUSH();
-
-	if( mwHead == NULL || mwTail == NULL )
-	{
-		if( mwHead == NULL ) mwWrite("relink: mwHead is NULL, but mwTail is %p\n", mwTail );
-		else mwWrite("relink: mwTail is NULL, but mwHead is %p\n", mwHead );
-	}
-
-    mw1=NULL;
-    if( mwHead != NULL )
-	{
-		if( !mwIsReadAddr( mwHead, mwDataSize ) || mwHead->check != CHKVAL(mwHead) )
-		{
-			mwWrite("relink: mwHead (MW-%p) is damaged, skipping forward scan\n", mwHead );
-			mwHead = NULL;
-			goto scan_reverse;
-		}
-		if( mwHead->prev != NULL )
-		{
-			mwWrite("relink: the mwHead pointer's 'prev' member is %p, not NULL\n", mwHead->prev );
-		}
-        for( mw1=mwHead; mw1; mw1=mw1->next )
-		{
-			if( mw1->next )
-			{
-				if( !mwIsReadAddr(mw1->next,mwDataSize) ||
-					!mw1->next->check != CHKVAL(mw1) ||
-					mw1->next->prev != mw1 )
-				{
-					mwWrite("relink: forward chain's last intact MW is MW-%p, %ld %sbytes at %s(%d)\n",
-						mw1, mw1->size, (mw->flag & MW_NML)?"NoMansLand ":"", mw1->file, mw1->line );
-					if( mwIsReadAddr(mw1->next,mwDataSize ) )
-					{
-						mwWrite("relink: forward chain's first damaged MW is MW-%p, %ld %sbytes at %s(%d)\n",
-							mw1->next, mw1->size, (mw->flag & MW_NML)?"NoMansLand ":"",
-							mwIsReadAddr(mw1->file,16)?mw1->file:"<garbage-pointer>", mw1->line );
-					}
-					else
-					{
-						mwWrite("relink: the 'next' pointer of this MW points to %p, which is out-of-legal-access\n",
-							mw1->next );
-					}
-					break;
-				}
-			}
-        }
-	}
-
-
-scan_reverse:
-    mw2=NULL;
-    if( mwTail != NULL )
-	{
-		if( !mwIsReadAddr(mwTail,mwDataSize) || mwTail->check != CHKVAL(mwTail) )
-		{
-			mwWrite("relink: mwTail (%p) is damaged, skipping reverse scan\n", mwTail );
-			mwTail = NULL;
-			goto analyze;
-		}
-		if( mwTail->next != NULL )
-		{
-			mwWrite("relink: the mwTail pointer's 'next' member is %p, not NULL\n", mwTail->next );
-		}
-        for( mw2=mwTail; mw2; mw2=mw2->prev )
-		{
-            if( mw2->prev )
-			{
-				if( !mwIsReadAddr(mw2->prev,mwDataSize) ||
-					!mw2->prev->check != CHKVAL(mw2) ||
-					mw2->prev->next != mw2 )
-				{
-					mwWrite("relink: reverse chain's last intact MW is MW-%p, %ld %sbytes at %s(%d)\n",
-						mw2, mw2->size, (mw->flag & MW_NML)?"NoMansLand ":"", mw2->file, mw2->line );
-					if( mwIsReadAddr(mw2->prev,mwDataSize ) )
-					{
-						mwWrite("relink: reverse chain's first damaged MW is MW-%p, %ld %sbytes at %s(%d)\n",
-							mw2->prev, mw2->size, (mw->flag & MW_NML)?"NoMansLand ":"",
-							mwIsReadAddr(mw2->file,16)?mw2->file:"<garbage-pointer>", mw2->line );
-					}
-					else
-					{
-						mwWrite("relink: the 'prev' pointer of this MW points to %p, which is out-of-legal-access\n",
-							mw2->prev );
-					}
-					break;
-				}
-			}
-        }
-	}
-
-analyze:
-	if( mwHead == NULL && mwTail == NULL )
-	{
-        mwWrite("relink: both head and tail pointers damaged, aborting program\n");
-        mwFlushW(1);
-        FLUSH();
-        abort();
-	}
-	if( mwHead == NULL )
-	{
-		mwHead = mw2;
-		mwWrite("relink: heap truncated, MW-%p designated as new mwHead\n", mw2 );
-		mw2->prev = NULL;
-		mw1 = mw2 = NULL;
-	}
-	if( mwTail == NULL )
-	{
-		mwTail = mw1;
-		mwWrite("relink: heap truncated, MW-%p designated as new mwTail\n", mw1 );
-		mw1->next = NULL;
-		mw1 = mw2 = NULL;
-	}
-    if( mw1 == NULL && mw2 == NULL &&
-        mwHead->prev == NULL && mwTail->next == NULL ) {
-        mwWrite("relink: verifying heap integrity...\n" );
-        FLUSH();
-        goto verifyok;
-        }
-    if( mw1 && mw2 && mw1 != mw2 ) {
-        mw1->next = mw2;
-        mw2->prev = mw1;
-        mwWrite("relink: emergency repairs successful, assessing damage...\n");
-        FLUSH();
-        }
-    else {
-        mwWrite("relink: heap totally destroyed, aborting program\n");
-        mwFlushW(1);
-        FLUSH();
-        abort();
-        }
-
-    /* Verify by checking that the number of active allocations */
-    /* match the number of entries in the chain */
-verifyok:
-    if( !mwIsHeapOK( NULL ) ) {
-        mwWrite("relink: heap verification FAILS - aborting program\n");
-        mwFlushW(1);
-        FLUSH();
-        abort();
-        }
-    for( size=count=0, mw1=mwHead; mw1; mw1=mw1->next ) {
-        count ++;
-        size += (long) mw1->size;
-        }
-    if( count == mwNumCurAlloc ) {
-        mwWrite("relink: successful, ");
-        if( size == mwStatCurAlloc ) {
-            mwWrite("no allocations lost\n");
-            }
-        else {
-            if( mw != NULL ) {
-                mwWrite("size information lost for MW-%p\n", mw);
-                mw->size = 0;
-                }
-            }
-        }
-    else {
-        mwWrite("relink: partial, %ld MW-blocks of %ld bytes lost\n",
-			mwNmlNumAlloc+mwNumCurAlloc-count, mwNmlCurAlloc+mwStatCurAlloc-size );
-        return 0;
-        }
-
-    return 1;
-    }
-
-/*
-**  If mwData* is NULL:
-**      Returns 0 if heap chain is broken.
-**      Returns 1 if heap chain is intact.
-**  If mwData* is not NULL:
-**      Returns 0 if mwData* is missing or if chain is broken.
-**      Returns 1 if chain is intact and mwData* is found.
-*/
-static int mwIsHeapOK( mwData *includes_mw ) {
-    int found = 0;
-    mwData *mw;
-
-    for( mw = mwHead; mw; mw=mw->next ) {
-        if( includes_mw == mw ) found++;
-        if( !mwIsSafeAddr( mw, mwDataSize ) ) return 0;
-        if( mw->prev ) {
-            if( !mwIsSafeAddr( mw->prev, mwDataSize ) ) return 0;
-            if( mw==mwHead || mw->prev->next != mw ) return 0;
-            }
-        if( mw->next ) {
-            if( !mwIsSafeAddr( mw->next, mwDataSize ) ) return 0;
-            if( mw==mwTail || mw->next->prev != mw ) return 0;
-            }
-        else if( mw!=mwTail ) return 0;
-        }
-
-    if( includes_mw != NULL && !found ) return 0;
-
-    return 1;
-    }
-
-static int mwIsOwned( mwData* mw, const char *file, int line ) {
-    int retv;
-    mwStat *ms;
-
-    /* see if the address is legal according to OS */
-    if( !mwIsSafeAddr( mw, mwDataSize ) ) return 0;
-
-    /* make sure we have _anything_ allocated */
-    if( mwHead == NULL && mwTail == NULL && mwStatCurAlloc == 0 )
-        return 0;
-
-    /* calculate checksum */
-    if( mw->check != CHKVAL(mw) ) {
-        /* may be damaged checksum, see if block is in heap */
-        if( mwIsHeapOK( mw ) ) {
-            /* damaged checksum, repair it */
-            mwWrite( "internal: <%ld> %s(%d), checksum for MW-%p is incorrect\n",
-                mwCounter, file, line, mw );
-            mwIncErr();
-            if( mwIsReadAddr( mw->file, 1 ) ) {
-                ms = mwStatGet( mw->file, -1, 0 );
-                if( ms == NULL ) mw->file = "<relinked>";
-                }
-            else mw->file = "<unknown>";
-            mw->size = 0;
-            mw->check = CHKVAL(mw);
-            return 1;
-            }
-        /* no, it's just some garbage data */
-        return 0;
-        }
-
-	/* check that the non-NULL pointers are safe */
-	if( mw->prev && !mwIsSafeAddr( mw->prev, mwDataSize ) ) mwRelink( mw, file, line );
-	if( mw->next && !mwIsSafeAddr( mw->next, mwDataSize ) ) mwRelink( mw, file, line );
-
-    /* safe address, checksum OK, proceed with heap checks */
-
-    /* see if the block is in the heap */
-    retv = 0;
-    if( mw->prev ) { if( mw->prev->next == mw ) retv ++; }
-    else { if( mwHead == mw ) retv++; }
-    if( mw->next ) { if( mw->next->prev == mw ) retv ++; }
-    else { if( mwTail == mw ) retv++; }
-    if( mw->check == CHKVAL(mw) ) retv ++;
-    if( retv > 2 ) return 1;
-
-    /* block not in heap, check heap for corruption */
-
-    if( !mwIsHeapOK( mw ) ) {
-        if( mwRelink( mw, file, line ) )
-            return 1;
-        }
-
-    /* unable to repair */
-    mwWrite( "internal: <%ld> %s(%d), mwIsOwned fails for MW-%p\n",
-       mwCounter, file, line, mw );
-    mwIncErr();
-
-    return 0;
-    }
 
 /*
 ** mwTestBuf:
-**  Checks a buffers links and pre/postfixes.
-**  Writes errors found to the log.
-**  Returns zero if no errors found.
+**  Read-only check of one buffer's header links and checksum.
+**  Guard zones are deliberately not located from mw->size here; the
+**  caller pairs this with mwTrustedGuardCheck(), which positions the
+**  pre/post zones from the ledger's trusted request size.  This
+**  function never rewrites a link or invokes the old heuristic relink.
 */
 static int mwTestBuf( mwData* mw, const char* file, int line ) {
     int retv = 0;
-    char *p;
 
     if( file == NULL ) file = "unknown";
 
@@ -1997,42 +2151,32 @@ static int mwTestBuf( mwData* mw, const char* file, int line ) {
         mwWrite( "internal: <%ld> %s(%d): pointer MW-%p is invalid\n",
             mwCounter, file, line, mw );
         mwIncErr();
+        mwMarkDegraded( "invalid header pointer", mw );
         return 2;
         }
 
     if( mw->check != CHKVAL(mw) ) {
-        mwWrite( "internal: <%ld> %s(%d), info trashed; relinking\n",
+        mwWrite( "internal: <%ld> %s(%d), info trashed; explicit "
+                 "mwHeapCommit() required\n",
             mwCounter, file, line );
         mwIncErr();
-        if( !mwRelink( mw, file, line ) ) return 2;
+        mwMarkDegraded( "bad checksum", mw );
+        retv = 2;
         }
 
     if( mw->prev && mw->prev->next != mw ) {
         mwWrite( "internal: <%ld> %s(%d), buffer <%ld> %s(%d) link1 broken\n",
             mwCounter,file,line, (long)mw->size, mw->count, mw->file, mw->line );
         mwIncErr();
-        if( !mwRelink( mw, file, line ) ) retv = 2;
+        mwMarkDegraded( "prev link", mw );
+        retv = 2;
         }
     if( mw->next && mw->next->prev != mw ) {
         mwWrite( "internal: <%ld> %s(%d), buffer <%ld> %s(%d) link2 broken\n",
             mwCounter,file,line, (long)mw->size, mw->count, mw->file, mw->line );
         mwIncErr();
-        if( !mwRelink( mw, file, line ) ) retv = 2;
-        }
-
-    p = ((char*)mw) + mwDataSize;
-    if( mwCheckOF( p ) ) {
-        mwWrite( "underflow: <%ld> %s(%d), %ld bytes alloc'd at <%ld> %s(%d)\n",
-            mwCounter,file,line, (long)mw->size, mw->count, mw->file, mw->line );
-        mwIncErr();
-        retv = 1;
-        }
-    p += mwOverflowZoneSize + mw->size;
-    if( mwIsReadAddr( p, mwOverflowZoneSize ) && mwCheckOF( p ) ) {
-        mwWrite( "overflow: <%ld> %s(%d), %ld bytes alloc'd at <%ld> %s(%d)\n",
-            mwCounter,file,line, (long)mw->size, mw->count, mw->file, mw->line );
-        mwIncErr();
-        retv = 1;
+        mwMarkDegraded( "next link", mw );
+        retv = 2;
         }
 
     return retv;
@@ -2106,7 +2250,20 @@ static size_t mwFreeUp( size_t needed, int urgent ) {
                 }
             mw2 = mw->next;
             mwUnlink( mw, "mwFreeUp", 0 );
+            /* the block really leaves the heap now, so its canonical
+            ** fact is removed as well; an NML that was actually
+            ** evicted is always honestly accounted.  The cumulative
+            ** NML statistics keep their original meaning and are
+            ** reconciled at mwAbort() against what remains. */
+            {
+                int evicted = mwLedgerFindSys( mw );
+                if( evicted >= 0 )
+                    mwLedgerRemoveAt( (size_t) evicted );
+            }
             free( mw );
+#ifdef MW_HEAP_TESTING
+            mwTestReclaimedNML ++;
+#endif
             mw = mw2;
             p = malloc( needed );
             if( p == NULL ) continue;
@@ -2153,7 +2310,7 @@ static int mwStrCmpI( const char *s1, const char *s2 ) {
 
 static int mwTestNow( const char *file, int line, int always_invoked ) {
     int retv = 0;
-    mwData *mw;
+    size_t li;
     char *data;
 
     if( file && !always_invoked )
@@ -2164,68 +2321,91 @@ static int mwTestNow( const char *file, int line, int always_invoked ) {
 		    (mwTestFlags & MW_TEST_NML) ? "nomansland ": ""
 			);
 
+    /* the scan is driven by the trusted ledger; the prev/next chain
+    ** is only observed, never repaired while checking */
     if( mwTestFlags & MW_TEST_CHAIN ) {
-        for( mw = mwHead; mw; mw=mw->next ) {
-			if( !mwIsSafeAddr(mw, mwDataSize) ) {
-				AIPH();
-				mwWrite("check: heap corruption detected\n");
-				mwIncErr();
-				return retv + 1;
-				}
-			if( mw->prev ) {
-				if( !mwIsSafeAddr(mw->prev, mwDataSize) ) {
-					AIPH();
-					mwWrite("check: heap corruption detected\n");
-					mwIncErr();
-					return retv + 1;
-					}
-				if( mw==mwHead || mw->prev->next != mw ) {
-					AIPH();
-					mwWrite("check: heap chain broken, prev link incorrect\n");
-					mwIncErr();
-					retv ++;
-					}
-				}
-			if( mw->next ) {
-				if( !mwIsSafeAddr(mw->next, mwDataSize) ) {
-					AIPH();
-					mwWrite("check: heap corruption detected\n");
-					mwIncErr();
-					return retv + 1;
-					}
-				if( mw==mwTail || mw->next->prev != mw ) {
-					AIPH();
-					mwWrite("check: heap chain broken, next link incorrect\n");
-					mwIncErr();
-					retv ++;
-					}
-				}
-			else if( mw!=mwTail ) {
-				AIPH();
-				mwWrite("check: heap chain broken, tail incorrect\n");
-				mwIncErr();
-				retv ++;
-				}
+        for( li = 0; li < mwLedgerCount; ++li ) {
+            const mwLedgerEntry *e = &mwLedger[li];
+            mwData *mw = (mwData*) e->sys_ptr;
+            if( !mwIsSafeAddr(mw, mwDataSize) ) {
+                AIPH();
+                mwWrite("check: heap corruption detected\n");
+                mwIncErr();
+                mwMarkDegraded( "unreadable header", mw );
+                return retv + 1;
             }
-        }
-    if( mwTestFlags & MW_TEST_ALLOC ) {
-        for( mw = mwHead; mw; mw=mw->next ) {
-            if( mwTestBuf( mw, file, line ) ) retv ++;
-            }
-        }
-    if( mwTestFlags & MW_TEST_NML ) {
-        for( mw = mwHead; mw; mw=mw->next ) {
-            if( (mw->flag & MW_NML) ) {
-                data = ((char*)mw)+mwDataSize+mwOverflowZoneSize;
-                if( mwTestMem( data, mw->size, MW_VAL_NML ) ) {
+            if( mw->prev ) {
+                if( !mwIsSafeAddr(mw->prev, mwDataSize) ) {
+                    AIPH();
+                    mwWrite("check: heap corruption detected\n");
                     mwIncErr();
-                    mwWrite( "wild pointer: <%ld> NoMansLand %p alloc'd at %s(%d)\n",
-                        mw->count, data + mwOverflowZoneSize, mw->file, mw->line );
-                    }
+                    mwMarkDegraded( "unreadable prev link", mw );
+                    return retv + 1;
+                }
+                if( mw->prev->next != mw ) {
+                    AIPH();
+                    mwWrite("check: heap chain broken, prev link incorrect\n");
+                    mwIncErr();
+                    mwMarkDegraded( "prev link", mw );
+                    retv ++;
+                }
+            }
+            else if( mwHead != mw ) {
+                AIPH();
+                mwWrite("check: heap chain broken, head incorrect\n");
+                mwIncErr();
+                mwMarkDegraded( "head link", mw );
+                retv ++;
+            }
+            if( mw->next ) {
+                if( !mwIsSafeAddr(mw->next, mwDataSize) ) {
+                    AIPH();
+                    mwWrite("check: heap corruption detected\n");
+                    mwIncErr();
+                    mwMarkDegraded( "unreadable next link", mw );
+                    return retv + 1;
+                }
+                if( mw->next->prev != mw ) {
+                    AIPH();
+                    mwWrite("check: heap chain broken, next link incorrect\n");
+                    mwIncErr();
+                    mwMarkDegraded( "next link", mw );
+                    retv ++;
+                }
+            }
+            else if( mwTail != mw ) {
+                AIPH();
+                mwWrite("check: heap chain broken, tail incorrect\n");
+                mwIncErr();
+                mwMarkDegraded( "tail link", mw );
+                retv ++;
+            }
+        }
+    }
+    if( mwTestFlags & MW_TEST_ALLOC ) {
+        for( li = 0; li < mwLedgerCount; ++li ) {
+            if( mwTestBuf( (mwData*) mwLedger[li].sys_ptr,
+                           file, line ) ) retv ++;
+            /* guard positions come from the trusted request size */
+            mwTrustedGuardCheck( &mwLedger[li] );
+        }
+    }
+    if( mwTestFlags & MW_TEST_NML ) {
+        for( li = 0; li < mwLedgerCount; ++li ) {
+            const mwLedgerEntry *e = &mwLedger[li];
+            if( e->nml ) {
+                mwData *mw = (mwData*) e->sys_ptr;
+                data = ((char*)mw)+mwDataSize+mwOverflowZoneSize;
+                if( mwTestMem( data, (unsigned) e->req_size,
+                               MW_VAL_NML ) ) {
+                    mwIncErr();
+                    mwWrite( "wild pointer: <%lu> NoMansLand %p alloc'd at %s(%d)\n",
+                        e->count, data + mwOverflowZoneSize,
+                        e->file, e->line );
                 }
             }
         }
-
+    }
 
 	if( file && !always_invoked && !retv )
         mwWrite("check: <%ld> %s(%d), complete; no errors\n",
