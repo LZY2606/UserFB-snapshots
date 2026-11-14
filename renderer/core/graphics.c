@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "graphics.h"
+#include "graphics_internal.h"
 #include "macro.h"
 #include "maths.h"
 
@@ -425,24 +426,18 @@ static void interpolate_varyings(
     }
 }
 
-static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
-                          int backface, int index, float depth) {
-    vec4_t color;
-    int discard;
+/* shared fragment commit path, see graphics_internal.h */
 
-    /* execute fragment shader */
-    discard = 0;
-    color = program->fragment_shader(program->shader_varyings,
-                                     program->shader_uniforms,
-                                     &discard,
-                                     backface);
-    if (discard) {
-        return;
-    }
+int graphics_test_depth(framebuffer_t *framebuffer, int index, float depth) {
+    return depth <= framebuffer->depth_buffer[index];
+}
+
+void graphics_commit_fragment(framebuffer_t *framebuffer, int index,
+                              float depth, vec4_t color, int enable_blend) {
     color = vec4_saturate(color);
 
     /* perform blending */
-    if (program->enable_blend) {
+    if (enable_blend) {
         /* out_color = src_color * src_alpha + dst_color * (1 - src_alpha) */
         unsigned char dst_r = framebuffer->color_buffer[index * 4 + 0];
         unsigned char dst_g = framebuffer->color_buffer[index * 4 + 1];
@@ -457,6 +452,25 @@ static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
     framebuffer->color_buffer[index * 4 + 1] = float_to_uchar(color.y);
     framebuffer->color_buffer[index * 4 + 2] = float_to_uchar(color.z);
     framebuffer->depth_buffer[index] = depth;
+}
+
+static void draw_fragment(framebuffer_t *framebuffer, program_t *program,
+                          int backface, int index, float depth) {
+    vec4_t color;
+    int discard;
+
+    /* execute fragment shader */
+    discard = 0;
+    color = program->fragment_shader(program->shader_varyings,
+                                     program->shader_uniforms,
+                                     &discard,
+                                     backface);
+    if (discard) {
+        return;
+    }
+
+    graphics_commit_fragment(framebuffer, index, depth, color,
+                             program->enable_blend);
 }
 
 static int rasterize_triangle(framebuffer_t *framebuffer, program_t *program,
@@ -508,7 +522,7 @@ static int rasterize_triangle(framebuffer_t *framebuffer, program_t *program,
                 int index = y * width + x;
                 float depth = interpolate_depth(screen_depths, weights);
                 /* early depth testing */
-                if (depth <= framebuffer->depth_buffer[index]) {
+                if (graphics_test_depth(framebuffer, index, depth)) {
                     interpolate_varyings(varyings, program->shader_varyings,
                                          program->sizeof_varyings,
                                          weights, recip_w);

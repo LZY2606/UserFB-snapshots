@@ -14,6 +14,7 @@ minimal dependencies, available for Windows, macOS, and Linux.
 * Homogeneous clipping
 * Back-face culling
 * Perspective correct interpolation
+* Analytic ellipsoid ray casting
 * Depth testing
 * Alpha testing
 * Alpha blending
@@ -133,6 +134,56 @@ Viewer [test_name [scene_name]]
 For PBR scenes, a material inspector that is very similar to the layers view
 of [Marmoset Viewer](https://marmoset.co/viewer/) is provided. Double click
 to bring it up.
+
+## Analytic ellipsoid primitive
+
+For offline scientific visualization, `renderer/core/ellipsoid.h` provides
+`graphics_draw_ellipsoid()`, which ray-casts an ellipsoid analytically per
+pixel instead of tessellating it into triangles. It shares the framebuffer
+with the triangle pipeline and follows the same visibility and color commit
+rules (half-pixel centers, `<=` depth comparison, color saturation, RGB
+alpha blending, untouched target alpha byte). It is plain C99 plus the
+standard library - no window system, GPU, or runtime downloads - and can be
+exercised with `bash task_support/run.sh target`.
+
+Coordinate conventions:
+
+* The local geometry is the unit sphere `x^2 + y^2 + z^2 = 1`.
+* `object_to_world` is a finite, invertible, affine matrix (last row
+  `0 0 0 1`); non-uniform scaling, shearing, and reflection are allowed.
+* `world_to_clip` is a finite perspective or orthographic projection
+  multiplied by the view transform, using the renderer's NDC convention
+  (x, y, z in `[-1, 1]`, window depth `[0, 1]`).
+* Each pixel center is unprojected to a world-space segment from the near
+  plane to the far plane. Only intersections on that segment count, the
+  nearest one wins, a tangent ray counts as a hit, and when the near plane
+  already cuts into the ellipsoid the exit intersection is used (no
+  near-plane cap is synthesized).
+* The shader receives `local_position` (on the unit sphere),
+  `world_position` (on the true ellipsoid surface), the outward
+  inverse-transpose `world_normal`, the reprojected `[0, 1]` `depth`, and
+  a `backface` flag that is set when the outward normal points along the
+  near-to-far view ray. The callback only runs for true surface hits that
+  pass the depth test; setting `*discard` suppresses both the color and
+  the depth write.
+* The function returns 0 on success and non-zero - before shading or
+  writing anything - for a NULL shader, non-finite matrices, a singular or
+  non-affine `object_to_world`, or a non-invertible `world_to_clip`.
+
+```c
+framebuffer_t *fb = framebuffer_create(320, 240);
+ellipsoid_draw_t draw;
+draw.object_to_world = mat4_mul_mat4(mat4_translate(0, 0, -3),
+                                     mat4_scale(1.5f, 0.5f, 1.0f));
+draw.world_to_clip = mat4_ortho(-2, 2, -2, 2, 1, 5);
+draw.shader = my_ellipsoid_shader;   /* vec4_t fn(const ellipsoid_hit_t *,
+                                      *          void *, int *) */
+draw.uniforms = &my_uniforms;        /* may be NULL */
+draw.enable_blend = 0;
+if (graphics_draw_ellipsoid(fb, &draw) != 0) {
+    /* invalid configuration: nothing was drawn */
+}
+```
 
 ## Screenshots
 
