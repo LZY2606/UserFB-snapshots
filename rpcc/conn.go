@@ -264,6 +264,17 @@ type Conn struct {
 	// Encodes and decodes JSON onto conn. Encoding is
 	// guarded by mutex and decoding is done by recv.
 	codec Codec
+
+	// recvSeq is the number of notifications dispatched on the
+	// connection. It is protected by dispatchMu and establishes the
+	// order in which events arrived for SyncPreserve.
+	recvSeq uint64
+
+	// dispatchMu serializes notification dispatch with SyncPreserve's
+	// listener swap, so that the merge has a clear boundary: messages
+	// before the swap are replayed, and messages after it go to the
+	// merged group.
+	dispatchMu sync.Mutex
 }
 
 // Response represents an RPC response or notification sent by the server.
@@ -440,25 +451,41 @@ func (c *Conn) send(ctx context.Context, call *rpcCall) (err error) {
 // notify handles RPC notifications and sends them
 // to the appropriate stream listeners.
 func (c *Conn) notify(method string, data []byte) {
+	// The listener lookup and the dispatch must be atomic with respect
+	// to SyncPreserve's listener swap, otherwise a notification could
+	// be dispatched to a listener that was just replaced.
+	c.dispatchMu.Lock()
+	defer c.dispatchMu.Unlock()
+
 	c.mu.Lock()
 	stream := c.streams[method]
 	c.mu.Unlock()
-	if stream != nil {
-		// Stream writer must be able to handle incoming writes
-		// even after it has been removed (unsubscribed).
-		stream.write(method, data)
+	if stream == nil {
+		return
 	}
+
+	// The sequence is assigned on the receiving side, in the order the
+	// notifications are dispatched, which reflects actual arrival.
+	c.recvSeq++
+	stream.write(method, data, c.recvSeq)
 }
 
-// listen registers a new stream listener (chan) for the RPC notification
-// method. Returns a function for removing the listener. Error if the
-// connection is closed.
-func (c *Conn) listen(method string, w streamWriter) (func(), error) {
+// isClosed reports whether the connection has been closed.
+func (c *Conn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+// register adds w as a listener for the RPC notification method and
+// returns the streamClients and subscription sequence. Returns an error
+// if the connection is closed.
+func (c *Conn) register(method string, w streamWriter) (*streamClients, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.streams == nil {
-		return nil, c.err
+		return nil, 0, c.err
 	}
 
 	stream, ok := c.streams[method]
@@ -467,7 +494,17 @@ func (c *Conn) listen(method string, w streamWriter) (func(), error) {
 		c.streams[method] = stream
 	}
 	seq := stream.add(w)
+	return stream, seq, nil
+}
 
+// listen registers a new stream listener (chan) for the RPC notification
+// method. Returns a function for removing the listener. Error if the
+// connection is closed.
+func (c *Conn) listen(method string, w streamWriter) (func(), error) {
+	stream, seq, err := c.register(method, w)
+	if err != nil {
+		return nil, err
+	}
 	unsub := func() { stream.remove(seq) }
 	return unsub, nil
 }

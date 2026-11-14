@@ -11,10 +11,13 @@ import (
 // the stream is closing and there are no pending messages.
 var ErrStreamClosing = &closeError{msg: "rpcc: the stream is closing"}
 
-// message contains the invoked method name, data and next func.
+// message contains the invoked method name, data, the sequence
+// number assigned when the notification arrived on the connection
+// and next func.
 type message struct {
 	method string
 	data   []byte
+	seq    uint64
 	next   func()
 }
 
@@ -58,6 +61,24 @@ func (b *messageBuffer) load() {
 		default:
 		}
 	}
+}
+
+// takeAll removes and returns all buffered messages without
+// invoking their next funcs. Messages are returned in the same
+// order as they were stored: the channel holds the oldest message.
+func (b *messageBuffer) takeAll() []*message {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var msgs []*message
+	select {
+	case m := <-b.c:
+		msgs = append(msgs, m)
+	default:
+	}
+	msgs = append(msgs, b.backlog...)
+	b.backlog = nil
+	return msgs
 }
 
 // clear removes all messages from buffer.
@@ -131,11 +152,14 @@ func newStreamClient(ctx context.Context, method string, conn *Conn) (*streamCli
 		done:   make(chan struct{}),
 	}
 
-	remove, err := conn.listen(method, s)
+	sc, seq, err := conn.register(method, s)
 	if err != nil {
 		return nil, err
 	}
-	s.remove = remove
+
+	s.sc = sc
+	s.subSeq = seq
+	s.remove = func() { sc.remove(seq) }
 
 	go s.watch()
 
@@ -146,6 +170,8 @@ type streamClient struct {
 	// Used to sync streams.
 	conn   *Conn
 	method string
+	sc     *streamClients
+	subSeq uint64
 
 	// User provided context.
 	ctx context.Context
@@ -161,6 +187,7 @@ type streamClient struct {
 
 	mu     sync.Mutex // Protects following.
 	remove func()     // Unsubscribes from messages.
+	group  *syncMessageStore
 	done   chan struct{}
 	err    error
 }
@@ -264,10 +291,54 @@ func (s *streamClient) write(m message) {
 	s.mbuf.store(&m)
 }
 
+// isClosed reports whether Close has already been called.
+func (s *streamClient) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.remove == nil
+}
+
+// groupStore returns the synchronous group the stream belongs to, or nil.
+func (s *streamClient) groupStore() *syncMessageStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.group
+}
+
+// takeBufferedForMerge removes and returns all messages buffered in the
+// stream's own buffer, without invoking their next funcs. Readiness is reset
+// so that the merged group can re-establish it when the messages are
+// replayed: only a message that is actually next-in-line for this stream may
+// signal Ready.
+func (s *streamClient) takeBufferedForMerge() []*message {
+	msgs := s.mbuf.takeAll()
+	s.resetReadyForReplay()
+	return msgs
+}
+
+// discardBuffered removes messages queued in the stream's buffer and
+// resets its readiness. It must only be called while the owning group has
+// taken responsibility for advancing past the message.
+func (s *streamClient) discardBuffered() {
+	s.mbuf.takeAll()
+	s.resetReadyForReplay()
+}
+
+// resetReadyForReplay re-opens the ready channel if it was closed for
+// buffered messages that have been removed from the stream.
+func (s *streamClient) resetReadyForReplay() {
+	s.readyMu.Lock()
+	if s.seq != 0 && !s.readyClosed {
+		s.seq = 0
+		s.ready = make(chan struct{})
+	}
+	s.readyMu.Unlock()
+}
 func (s *streamClient) close(err error) error {
 	s.mu.Lock()
 	remove := s.remove
 	s.remove = nil
+	group := s.group
 	s.mu.Unlock()
 
 	if remove == nil {
@@ -278,7 +349,13 @@ func (s *streamClient) close(err error) error {
 		err = ErrStreamClosing
 	}
 
-	remove()    // Unsubscribe to prevent new messages.
+	if group != nil && group.managed {
+		// Remove the stream from the group, discarding its unconsumed
+		// messages and advancing the remaining members if needed.
+		group.removeStream(s)
+	} else {
+		remove() // Unsubscribe to prevent new messages.
+	}
 	s.err = err // Set err before cancel as reads are protected by context.
 	close(s.done)
 
@@ -331,8 +408,9 @@ func (s *streamClients) remove(seq uint64) {
 	s.mu.Unlock()
 }
 
-func (s *streamClients) write(method string, args []byte) {
-	m := message{method: method, data: args}
+// write dispatches a notification to all subscribed writers.
+func (s *streamClients) write(method string, args []byte, seq uint64) {
+	m := message{method: method, data: args, seq: seq}
 
 	s.mu.Lock()
 	for _, w := range s.writers {

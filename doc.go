@@ -112,6 +112,19 @@ events is important:
 Use the Ready channel to detect which synchronized event client is ready to
 Recv.
 
+Sync discards events that are already buffered by the event clients. When
+events buffered before synchronization must be kept, for example when the set
+of observed events grows while a workflow is in progress, use SyncPreserve:
+
+	err := cdp.SyncPreserve(domContentEventFired, loadEventFired, frameNavigated)
+	if err != nil {
+		// Handle error.
+	}
+
+SyncPreserve merges the buffered events of the clients, and of any group they
+already belong to, and delivers them in the order the connection received
+them. All live members of an existing group must be passed together.
+
 The session package can be used to control multiple targets (e.g. pages) with a
 single websocket connection.
 
