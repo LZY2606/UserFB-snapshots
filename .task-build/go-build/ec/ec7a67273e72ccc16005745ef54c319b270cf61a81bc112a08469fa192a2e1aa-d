@@ -1,0 +1,7 @@
+./elf.go
+./exports.go
+./file.go
+./reader.go
+./reloc_edit.go
+./relocations.go
+./write.go

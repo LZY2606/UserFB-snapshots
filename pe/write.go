@@ -8,6 +8,9 @@ import (
 )
 
 func (peFile *File) Bytes() ([]byte, error) {
+	if peFile.bigObj {
+		return nil, errors.New("pe: writing BigObj objects is not supported")
+	}
 	var bytesWritten uint64
 	peBuf := bytes.NewBuffer(nil)
 
@@ -148,9 +151,16 @@ func (peFile *File) Bytes() ([]byte, error) {
 		bytesWritten += uint64(len(pad))
 	}
 
-	// write symbols
-	binary.Write(peBuf, binary.LittleEndian, peFile.COFFSymbols)
-	bytesWritten += uint64(binary.Size(peFile.COFFSymbols))
+	// write symbols. Ordinary COFF/PE records stay 18 bytes on disk even
+	// though COFFSymbol.SectionNumber is held in a 32-bit field in memory
+	// to accommodate BigObj, so serialize each record explicitly rather
+	// than binary.Write-ing the widened struct.
+	for i := range peFile.COFFSymbols {
+		if err := writeCOFFSymbol18(peBuf, &peFile.COFFSymbols[i]); err != nil {
+			return nil, err
+		}
+		bytesWritten += uint64(COFFSymbolSize)
+	}
 
 	// write the string table
 	binary.Write(peBuf, binary.LittleEndian, peFile.StringTable)

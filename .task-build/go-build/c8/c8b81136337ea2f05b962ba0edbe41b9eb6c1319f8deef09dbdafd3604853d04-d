@@ -1,0 +1,11 @@
+./exports.go
+./fat.go
+./file.go
+./macho.go
+./reloc_edit.go
+./reloc_write.go
+./reloctype.go
+./reloctype_string.go
+./write.go
+./file_test.go
+./reloc_edit_test.go

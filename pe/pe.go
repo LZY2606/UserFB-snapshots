@@ -36,6 +36,36 @@ type FileHeader struct {
 	Characteristics      uint16
 }
 
+// BigObjHeader carries the fields of the 56-byte ANLONI BigObj v2 object
+// header that are not represented by FileHeader. It is only populated for
+// BigObj files; ordinary COFF objects and PE images leave it nil. The
+// standard 20-byte FileHeader is still populated from the corresponding
+// BigObj fields, so existing header-based code keeps working.
+type BigObjHeader struct {
+	Sig1             uint16
+	Sig2             uint16
+	Version          uint16
+	ClassID          [16]byte
+	SizeOfData       uint32
+	Flags            uint32
+	MetaDataSize     uint32
+	MetaDataOffset   uint32
+	NumberOfSections uint32
+}
+
+const (
+	// bigObjHeaderSize is the on-disk size of a BigObj v2 header.
+	bigObjHeaderSize = 56
+	// bigObjSig1 and bigObjSig2 open both BigObj and short import objects.
+	bigObjSig1 = 0x0000
+	bigObjSig2 = 0xffff
+	// bigObjVersion2 is the only BigObj version understood by this package.
+	bigObjVersion2 = 2
+	// bigObjSymbolSize is the stride of a BigObj symbol slot: an ordinary
+	// 18-byte COFFSymbol with SectionNumber widened from int16 to int32.
+	bigObjSymbolSize = 20
+)
+
 type DataDirectory struct {
 	VirtualAddress uint32
 	Size           uint32

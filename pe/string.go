@@ -25,11 +25,18 @@ func cstring(b []byte) string {
 type StringTable []byte
 
 func readStringTable(fh *FileHeader, r io.ReadSeeker) (StringTable, error) {
+	return readStringTableStride(fh, COFFSymbolSize, r)
+}
+
+// readStringTableStride reads the string table that immediately follows the
+// symbol table. Ordinary COFF records have an 18-byte stride while BigObj
+// records use 20 bytes, so the table location depends on symbolStride.
+func readStringTableStride(fh *FileHeader, symbolStride uint32, r io.ReadSeeker) (StringTable, error) {
 	// COFF string table is located right after COFF symbol table.
 	if fh.PointerToSymbolTable <= 0 {
 		return nil, nil
 	}
-	offset := fh.PointerToSymbolTable + COFFSymbolSize*fh.NumberOfSymbols
+	offset := fh.PointerToSymbolTable + symbolStride*fh.NumberOfSymbols
 	_, err := r.Seek(int64(offset), seekStart)
 	if err != nil {
 		return nil, fmt.Errorf("fail to seek to string table: %v", err)

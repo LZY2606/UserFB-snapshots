@@ -29,6 +29,11 @@ type File struct {
 	DosStub    [64]byte // TODO(capnspacehook) make slice and correctly parse any DOS stub
 	RichHeader []byte
 	FileHeader
+	// BigObjHeader is populated for BigObj v2 object files only. The
+	// embedded FileHeader still mirrors the corresponding fields as they
+	// would appear in a standard 20-byte COFF header; BigObjHeader keeps
+	// the values that do not fit it, including the real section count.
+	BigObjHeader        *BigObjHeader
 	OptionalHeader      interface{} // of type *OptionalHeader32 or *OptionalHeader64
 	Sections            []*Section
 	BaseRelocationTable *[]RelocationTableEntry
@@ -44,6 +49,36 @@ type File struct {
 	Net Net //If a managed executable, Net provides an interface to some of the metadata
 
 	closer io.Closer
+
+	// readerAt is the underlying source, retained so disk-layout queries
+	// such as COFFReference can read raw symbol and auxiliary slots.
+	readerAt io.ReaderAt
+	// bigObj reports whether this is a BigObj v2 object, whose symbol
+	// slots are 20 bytes wide and whose section count is 32-bit.
+	bigObj bool
+	// symbolStride is the on-disk size of one symbol slot: 18 bytes for
+	// ordinary COFF/PE files and 20 bytes for BigObj.
+	symbolStride uint32
+	// sectionCount32 is the real, potentially 32-bit, section count.
+	sectionCount32 uint32
+	// auxSlot marks indexes in COFFSymbols that are auxiliary records
+	// rather than primary symbols.
+	auxSlot []bool
+}
+
+// SectionCount returns the number of section headers in the file. Unlike
+// FileHeader.NumberOfSections, which is a 16-bit field of the standard
+// COFF header, the result keeps the full 32-bit count of BigObj files.
+func (f *File) SectionCount() uint32 {
+	if f.bigObj {
+		return f.sectionCount32
+	}
+	return uint32(f.FileHeader.NumberOfSections)
+}
+
+// IsBigObj reports whether f was decoded from a BigObj v2 object.
+func (f *File) IsBigObj() bool {
+	return f.bigObj
 }
 
 // Open opens the named file using os.Open and prepares it for use as a PE binary.
@@ -93,7 +128,25 @@ func NewFileFromMemory(r io.ReaderAt) (*File, error) {
 // NewFile creates a new File for accessing a PE binary in an underlying reader.
 func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 
+	// BigObj (and short import) objects begin with the 00 00 ff ff
+	// signature instead of an ordinary machine value or an MZ stub. The
+	// signature alone is not enough: short import objects share it, so the
+	// BigObj version field must be checked as well.
+	var sig [8]byte
+	if n, err := r.ReadAt(sig[:], 0); err != nil && err != io.EOF {
+		return nil, err
+	} else if n == len(sig) &&
+		binary.LittleEndian.Uint16(sig[0:2]) == bigObjSig1 &&
+		binary.LittleEndian.Uint16(sig[2:4]) == bigObjSig2 {
+		version := binary.LittleEndian.Uint16(sig[4:6])
+		if version != bigObjVersion2 {
+			return nil, fmt.Errorf("pe: 00 00 ff ff signature with version %d is a short import or unsupported object, not a BigObj v2", version)
+		}
+		return newBigObjFile(r)
+	}
+
 	f := new(File)
+	f.readerAt = r
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
 	binary.Read(sr, binary.LittleEndian, &f.DosHeader)
@@ -305,7 +358,27 @@ func newFileInternal(r io.ReaderAt, memoryMode bool) (*File, error) {
 
 	}
 
+	f.symbolStride = COFFSymbolSize
+	f.sectionCount32 = uint32(f.FileHeader.NumberOfSections)
+	f.auxSlot = markAuxSlots(f.COFFSymbols)
+
 	return f, nil
+}
+
+// markAuxSlots reports, for every slot of the raw symbol table, whether it
+// is an auxiliary record owned by the preceding primary symbol.
+func markAuxSlots(syms []COFFSymbol) []bool {
+	aux := make([]bool, len(syms))
+	pending := 0
+	for i := range syms {
+		if pending > 0 {
+			aux[i] = true
+			pending--
+			continue
+		}
+		pending = int(syms[i].NumberOfAuxSymbols)
+	}
+	return aux
 }
 
 // zeroReaderAt is ReaderAt that reads 0s.
