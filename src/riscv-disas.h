@@ -515,6 +515,19 @@ typedef struct {
 
 size_t inst_length(rv_inst inst);
 void inst_fetch(const uint8_t *data, rv_inst *instp, size_t *length);
+
+/*
+ * Canonical structured decode.
+ *
+ * Runs the production decode pipeline (opcode, operands, compressed
+ * decompression) but stops before pseudo-instruction lifting, so the
+ * returned op is the canonical base opcode (e.g. C.MV becomes ADDI with
+ * imm == 0, C.J becomes JAL with rd == x0). The caller owns *dec.
+ * Returns the raw instruction length in bytes.
+ */
+size_t rv_decode_canonical(rv_decode *dec, rv_isa isa, uint64_t pc,
+    rv_inst inst);
+
 void disasm_inst(char *buf, size_t buflen, rv_isa isa, uint64_t pc, rv_inst inst);
 
 #endif

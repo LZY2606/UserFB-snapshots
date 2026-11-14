@@ -3,7 +3,11 @@ project(riscv-disassembler VERSION 0.0.1)
 enable_testing()
 
 include_directories(src)
-add_library(rvasm src/riscv-disas.c)
+add_library(rvasm
+    src/riscv-disas.c
+    src/rv_struct_decode.c
+    src/rv_lrsc.c
+)
 
 foreach(test t1 t2)
 	add_executable(${test} tests/${test}.c)
