@@ -221,6 +221,53 @@ feed, _ := fp.ParseString(feedData)
 fmt.Println(feed.Author) // Valentine Wiggin
 ```
 
+#### Collecting and Deduplicating Feeds
+
+`gofeed.Collection` keeps the raw observations of several sources in a local
+directory and recomputes which observations are the same article after every
+change. Each source is stored separately: there is no ever-growing global GUID
+or URL set, so when a source drops an item or corrects a link the old merge
+disappears instead of lingering as history.
+
+Inside one source, items are identified by their non-empty GUID (kept as its
+raw string and never shared across sources), or by their first valid link when
+the GUID is empty. Observations from different sources belong to the same
+article whenever they share any canonical link, including chains of indirect
+links. Canonicalization only drives matching; the original `Item` values are
+stored unchanged.
+
+```go
+dir := "/var/lib/my-feed-collection"
+parser := gofeed.NewParser()
+// The Parser's Client, authentication, byte limit and custom translators all
+// stay in effect for every Collect.
+collection, err := gofeed.OpenCollection(dir, parser)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Fetch, parse and replace the whole observation for one source.
+snapshot, err := collection.Collect(context.Background(), "https://example.com/feed.xml")
+if err != nil {
+    log.Fatal(err)
+}
+for _, record := range snapshot.Records {
+    // record.Item is the representative observation; record.Origins points at
+    // every source item that currently belongs to the same article.
+    fmt.Println(record.Item.Title, len(record.Origins))
+}
+
+// Withdrawing a source (or reopening later) rebuilds every group from scratch.
+if _, err := collection.Remove("https://example.com/feed.xml"); err != nil {
+    log.Fatal(err)
+}
+```
+
+The complete snapshot is persisted atomically as `collection.json` inside the
+directory. Reopening an existing collection reloads and verifies the file
+without issuing any requests; a corrupt or self-contradictory file is rejected
+rather than trusted.
+
 ## Dependencies
 
 * [goxpp](https://github.com/mmcdole/goxpp) - XML pull parser

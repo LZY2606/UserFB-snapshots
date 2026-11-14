@@ -37,3 +37,6 @@ cmd/ftest/ftest
 # Test coverage output
 coverage.out
 coverage.txt
+
+# Local task tooling cache (GOCACHE, GOPATH, temp files)
+.task-cache/
