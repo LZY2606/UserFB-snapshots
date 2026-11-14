@@ -1,0 +1,109 @@
+{
+  "repo": "https://github.com/antchfx/antch",
+  "commit": "b3a15a6691317f921d166f8103b57ff3fd1342d6",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "crawler.go",
+      "upstream_path": "crawler.go",
+      "sha256": "c5c6d0338a029a9ddfea63a9392444c9770a37ffaa91fd469a1755f73e6e39f1"
+    },
+    {
+      "path": "spider.go",
+      "upstream_path": "spider.go",
+      "sha256": "3f2422bc051bd832030492ee99ffa86977a03b43d3bcd0be976240d3f396bc71"
+    },
+    {
+      "path": "pipeline.go",
+      "upstream_path": "pipeline.go",
+      "sha256": "bbe2ff3158fd00bfd60a924b278001a09be33a58f5b53b037c04f9a937ac3da7"
+    },
+    {
+      "path": "middleware.go",
+      "upstream_path": "middleware.go",
+      "sha256": "00f06b885360f80f37fca53cd5bba59700b22de8a37876df88ec8e938579062e"
+    },
+    {
+      "path": "logger.go",
+      "upstream_path": "logger.go",
+      "sha256": "96bcaf1749d33a2957c666c30840d623ede6c8e65f4426b6020b385dccb2c04e"
+    },
+    {
+      "path": "cookies.go",
+      "upstream_path": "cookies.go",
+      "sha256": "92a213a5a0bb5fe86c5f9c3624bd6cc7396e8e5447ffebbb9e69fe1d281391cf"
+    },
+    {
+      "path": "compression.go",
+      "upstream_path": "compression.go",
+      "sha256": "f3b5fb8ac255bbeb4f29d94a0ee3a3b58993aac11b986fc7d0da58d031468e5c"
+    },
+    {
+      "path": "proxy.go",
+      "upstream_path": "proxy.go",
+      "sha256": "8ec38e18f5c49913c4d2e424b0b224bd9fb52cc8d995102a324e62616233b888"
+    },
+    {
+      "path": "robotstxt.go",
+      "upstream_path": "robotstxt.go",
+      "sha256": "c15b4acd2c0be8e2a3d3e720c8c1050ca9e4d78fc2526571614fac5004b3fb4b"
+    },
+    {
+      "path": "crawler_test.go",
+      "upstream_path": "crawler_test.go",
+      "sha256": "d6b60d425905c8d1e9cf348724e4379b14292cf2bed4bbe2c4d04e3efa1478ce"
+    },
+    {
+      "path": "cookies_test.go",
+      "upstream_path": "cookies_test.go",
+      "sha256": "815528788dc4eb1142ac3ace2a2919d159f2231a12c97e0414f904a5f6ac9481"
+    },
+    {
+      "path": "compression_test.go",
+      "upstream_path": "compression_test.go",
+      "sha256": "d22df7179c91e5dfd609d522a7990c99ca996c53866fbedf73a39cd444e759e7"
+    },
+    {
+      "path": "proxy_test.go",
+      "upstream_path": "proxy_test.go",
+      "sha256": "476098df783ff5569f6b01702201d441c31a02f363c3756f7ea60616821a850d"
+    },
+    {
+      "path": "robotstxt_test.go",
+      "upstream_path": "robotstxt_test.go",
+      "sha256": "f19487ab321e0eecb89bba3d75d7111c67a31d6b35266ae8dd599a2bacaff482"
+    },
+    {
+      "path": "main_test.go",
+      "upstream_path": "main_test.go",
+      "sha256": "7e62c3c90fc2a247c07bbd9c9d97831b71aa28a7abcc6c392c51b1fef2f42b31"
+    },
+    {
+      "path": "LICENSE",
+      "upstream_path": "LICENSE",
+      "sha256": "21a2121221d2a35df2d8d333d00a61ed240446b6107092741ff996941acdc919"
+    },
+    {
+      "path": "README.md",
+      "upstream_path": "README.md",
+      "sha256": "b7b2d021ec6df85775e63cf34b04735d19b1129480667b7dbeed1feb51436924"
+    },
+    {
+      "path": "Gopkg.lock",
+      "upstream_path": "Gopkg.lock",
+      "sha256": "013b2d8279aeac9f8d50b80f4c86a45c4e726711c4a46af18867730e75030edf"
+    },
+    {
+      "path": "Gopkg.toml",
+      "upstream_path": "Gopkg.toml",
+      "sha256": "f755046999debce1ab304c8556f2bf819a0be2f7ccaae2e163a322f30139dda9"
+    }
+  ],
+  "excluded_optional": [
+    "HTML/XML/JSON extraction adapters and their tests: not referenced by core scheduler or custom Handler",
+    "contrib/dupefilter: optional BloomFilter middleware, not referenced by core",
+    "Git metadata and CI"
+  ],
+  "changes_to_exported_production": "none",
+  "build_adaptation": "new go.mod/go.sum and vendor for the existing proxy/cookie/robots production imports"
+}
