@@ -57,7 +57,7 @@ func ParseRobots(site *url.URL, crawler *Crawler, c *colly.Collector, wg *sync.W
 				if crawler.Output != nil {
 					crawler.Output.WriteToFile(outputFormat)
 				}
-				_ = c.Visit(url)
+				crawler.EnqueuePage(url)
 			}
 		}
 	}

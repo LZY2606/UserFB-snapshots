@@ -1,0 +1,3 @@
+./doc.go
+./isatty_bsd.go
+./isatty_others.go

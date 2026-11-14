@@ -40,7 +40,7 @@ func ParseSiteMap(site *url.URL, crawler *Crawler, c *colly.Collector, wg *sync.
 			if crawler.Output != nil {
 				crawler.Output.WriteToFile(outputFormat)
 			}
-			_ = c.Visit(entry.GetLocation())
+			crawler.EnqueuePage(entry.GetLocation())
 			return nil
 		})
 	}

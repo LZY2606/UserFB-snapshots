@@ -80,6 +80,7 @@ Flags:
   -m, --timeout int               Request timeout (second) (default 10)
   -B, --base                      Disable all and only use HTML content
       --js                        Enable linkfinder in javascript file (default true)
+      --source-maps               Discover endpoints from JavaScript source maps (default false, requires --js)
       --subs                      Include subdomains
       --sitemap                   Try to crawl sitemap.xml
       --robots                    Try to crawl robots.txt (default true)
@@ -158,6 +159,60 @@ gospider -s "https://google.com/" -o output -c 10 -d 1 --blacklist ".(woff|pdf)"
 ```
 gospider -s "https://google.com/" -o output -c 10 -d 1 --length --filter-length "6871,24432"   
 ```
+
+## Source map discovery (`--source-maps`)
+
+Minified JavaScript can reference a source map whose `sourcesContent` holds
+the original, unminified source. Endpoints that only exist in that original
+source are invisible to ordinary script parsing. `--source-maps` (off by
+default) closes that gap.
+
+```
+gospider -s "https://google.com/" -o output -c 10 -d 1 --source-maps
+```
+
+Behaviour and supported scope:
+
+* Only `//# sourceMappingURL=...` and `/*# sourceMappingURL=... */`
+  directives that occupy their own line are followed; the last directive in
+  a script wins. The same text appearing inside an ordinary string is not a
+  directive and is ignored.
+* External references are resolved against the script's final response URL
+  and only HTTP(S) URLs are requested. Inline
+  `data:application/json;base64,...` payloads are also supported and use the
+  owning script's final response URL as their base.
+* Both Source Map Revision 3 **regular** maps and **indexed** maps are
+  understood. For regular maps, `sources` and `sourcesContent` are paired by
+  index; a missing or `null` content entry is skipped and the original source
+  is never downloaded. With a non-empty `sourceRoot`, sources are resolved
+  against that directory (itself resolved from the map base); otherwise they
+  resolve directly against the map base. The `mappings` VLQ and line/column
+  positions are never decoded.
+* For indexed maps, an embedded section map inherits the parent map's base,
+  while a `url` section uses its own final response URL. Section offsets do
+  not affect discovery. Within one crawler an external map URL is fetched at
+  most once (the fragment is stripped, the query is kept); cycles stop
+  expanding while shared child maps still contribute their content.
+* Bad JSON, unsupported versions, request failures and malformed sections
+  only terminate the affected branch (with a diagnostic naming the resource);
+  sibling sections and normal script findings still complete.
+* Every embedded original source is run through the existing Link Finder.
+  Relative endpoints are resolved only against that source's own address.
+  Map structure fields (`sources`, `file`, ...) are never treated as script
+  text or fetch targets.
+* Each distinct `(original source URL, absolute endpoint URL)` pair emits one
+  JSON record with `"type":"sourcemap"`, `"source"` set to the original
+  source URL and `"output"` set to the absolute endpoint URL. The same
+  endpoint from two sources keeps both provenance records, while the actual
+  request is still governed by the existing filters and de-duplication. These
+  records are also written to the `--output` folder.
+* All map requests reuse the collector's transport, concurrency limits and
+  filter configuration — no separate HTTP client is used.
+
+The feature rides on the JavaScript Link Finder pipeline, so it is disabled
+together with it: `--js=false` and `--base` never read maps even if the flag
+is supplied. Normal HTML findings, script Link Finder results and all other
+output are unchanged whether the flag is on or off.
 
 ## License
 

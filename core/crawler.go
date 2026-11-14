@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"strconv"
 
@@ -57,6 +58,22 @@ type Crawler struct {
 	length     bool
 	raw        bool
 	subs       bool
+
+	// sourceMaps gates source map discovery. It is forced off together with
+	// the Link Finder pipeline (--js=false or --base).
+	sourceMaps bool
+	// smu is only initialised while source map discovery is enabled.
+	smu *sourceMapEngine
+
+	// wg tracks every accepted request on both collectors. Each request is
+	// counted when Visit accepts it and released once in its terminal
+	// OnScraped/OnError callback, so a single Wait covers pages, scripts,
+	// nested maps and everything they derive without fixed rounds or sleeps.
+	wg sync.WaitGroup
+	// releasedOnce guarantees a request is released at most once: colly can
+	// invoke both OnError and OnScraped for the same request when HTML/XML
+	// parsing fails. Keyed by the per-request *colly.Request pointer.
+	releasedOnce sync.Map
 
 
 	filterLength_slice		[]int
@@ -284,7 +301,9 @@ func NewCrawler(site *url.URL, cmd *cobra.Command) *Crawler {
 		linkFinderCollector.URLFilters = append(linkFinderCollector.URLFilters, regexp.MustCompile("http(s)?://"+whiteListDomain))
 	}
 
-	return &Crawler{
+	sourceMaps, _ := cmd.Flags().GetBool("source-maps")
+
+	crawler := &Crawler{
 		cmd:                 cmd,
 		C:                   c,
 		LinkFinderCollector: linkFinderCollector,
@@ -302,7 +321,58 @@ func NewCrawler(site *url.URL, cmd *cobra.Command) *Crawler {
 		formSet:             stringset.NewStringFilter(),
 		awsSet:              stringset.NewStringFilter(),
 		filterLength_slice:  filterLength_slice,
+		sourceMaps:          sourceMaps,
+	}
+	if sourceMaps {
+		crawler.smu = newSourceMapEngine(crawler)
+	}
+	crawler.setupRequestTracking()
 
+	return crawler
+}
+
+// setupRequestTracking makes crawler.wg count every accepted request on the
+// page and Link Finder collectors. A request is added when Visit accepts it
+// and released exactly once in a terminal OnScraped/OnError callback, which
+// always runs even when an earlier callback returns early.
+func (crawler *Crawler) setupRequestTracking() {
+	track := func(collector *colly.Collector) {
+		collector.OnScraped(func(response *colly.Response) {
+			crawler.releaseRequest(response)
+		})
+		collector.OnError(func(response *colly.Response, _ error) {
+			crawler.releaseRequest(response)
+		})
+	}
+	track(crawler.C)
+	track(crawler.LinkFinderCollector)
+}
+
+// releaseRequest decrements the in-flight count once per request.
+func (crawler *Crawler) releaseRequest(response *colly.Response) {
+	if response == nil || response.Request == nil {
+		return
+	}
+	if _, loaded := crawler.releasedOnce.LoadOrStore(response.Request, struct{}{}); !loaded {
+		crawler.wg.Done()
+	}
+}
+
+// enqueuePage and enqueueJS count only requests the collector accepts. The
+// WaitGroup is incremented before Visit so a request can never complete its
+// terminal callback before it is counted; a rejected Visit (filter, dedup,
+// depth) releases the count immediately and spawns no request.
+func (crawler *Crawler) enqueuePage(address string) {
+	crawler.wg.Add(1)
+	if err := crawler.C.Visit(address); err != nil {
+		crawler.wg.Done()
+	}
+}
+
+func (crawler *Crawler) enqueueJS(address string) {
+	crawler.wg.Add(1)
+	if err := crawler.LinkFinderCollector.Visit(address); err != nil {
+		crawler.wg.Done()
 	}
 }
 
@@ -335,13 +405,13 @@ func (crawler *Crawler) feedLinkfinder(jsFileUrl string, OutputType string, sour
 		// If JS file is minimal format. Try to find original format
 		if strings.Contains(jsFileUrl, ".min.js") {
 			originalJS := strings.ReplaceAll(jsFileUrl, ".min.js", ".js")
-			_ = crawler.LinkFinderCollector.Visit(originalJS)
+			crawler.enqueueJS(originalJS)
 		}
 
 		// Send Javascript to Link Finder Collector
-		_ = crawler.LinkFinderCollector.Visit(jsFileUrl)
+		crawler.enqueueJS(jsFileUrl)
 
-	} 
+	}
 }
 
 func (crawler *Crawler) Start(linkfinder bool) {
@@ -376,7 +446,10 @@ func (crawler *Crawler) Start(linkfinder bool) {
 			if crawler.Output != nil {
 					crawler.Output.WriteToFile(outputFormat)
 			}
-			_ = e.Request.Visit(urlString)
+			crawler.wg.Add(1)
+			if err := e.Request.Visit(urlString); err != nil {
+				crawler.wg.Done()
+			}
 		}
 	})
 
@@ -536,10 +609,22 @@ func (crawler *Crawler) Start(linkfinder bool) {
 		}
 	})
 
-	err := crawler.C.Visit(crawler.site.String())
-	if err != nil {
-		Logger.Errorf("Failed to start %s: %s", crawler.site.String(), err)
-	}
+	crawler.enqueuePage(crawler.site.String())
+}
+
+// EnqueuePage schedules a page-collector request with completion tracking.
+// It is used by the seed producers (robots, sitemap, other sources).
+func (crawler *Crawler) EnqueuePage(address string) {
+	crawler.enqueuePage(address)
+}
+
+// Wait blocks until every page, script, nested map and the endpoint
+// requests derived from them have finished. Completion is driven by a single
+// WaitGroup released in the terminal OnScraped/OnError callback of each
+// accepted request, so later pages discovering more scripts join the same
+// drain: there is no fixed round count and no sleeping to guess completion.
+func (crawler *Crawler) Wait() {
+	crawler.wg.Wait()
 }
 
 // Find subdomains from response
@@ -601,11 +686,26 @@ func (crawler *Crawler) findAWSS3(resp string) {
 // Setup link finder
 func (crawler *Crawler) setupLinkFinder() {
 	crawler.LinkFinderCollector.OnResponse(func(response *colly.Response) {
+		// A URL scheduled as a map is parsed as a map rather than script.
+		// Failed fetches (404/429/5xx/transport) never reach here: colly
+		// routes them to OnError, which emits the map diagnostic below.
+		if crawler.smu != nil && crawler.smu.isMapRequest(response.Request.URL.String()) {
+			crawler.smu.handleMapResponse(response.Request.URL, append([]byte(nil), response.Body...))
+			return
+		}
+
 		if response.StatusCode == 404 || response.StatusCode == 429 || response.StatusCode < 100 {
 			return
 		}
 
 		respStr := string(response.Body)
+
+		// Source map discovery runs on every fetched script, independently
+		// of the Link Finder scope checks below. Map structure paths are
+		// handled inside the engine and never fed to Link Finder as text.
+		if crawler.smu != nil {
+			crawler.smu.handleScript(response.Request.URL, respStr)
+		}
 
 		if len(crawler.filterLength_slice) == 0 || !contains(crawler.filterLength_slice,len(respStr)) {
 
@@ -714,7 +814,7 @@ func (crawler *Crawler) setupLinkFinder() {
 						if crawler.Output != nil {
 							crawler.Output.WriteToFile(outputFormat)
 						}
-						_ = crawler.C.Visit(rebuildURL)
+						crawler.enqueuePage(rebuildURL)
 					}
 
 					// Try to generate URLs with the site where Javascript file host in (must be in main or sub domain)
@@ -747,7 +847,7 @@ func (crawler *Crawler) setupLinkFinder() {
 								if crawler.Output != nil {
 									crawler.Output.WriteToFile(outputFormat)
 								}
-								 _ = crawler.C.Visit(urlWithJSHostIn)  //not print care for lost link
+								crawler.enqueuePage(urlWithJSHostIn)  //not print care for lost link
 							}
 						}
 
@@ -769,4 +869,15 @@ func (crawler *Crawler) setupLinkFinder() {
 			}
 		}
 	})
+
+	// Diagnose failed external map fetches without aborting any sibling
+	// script or section. Only URLs scheduled as maps produce these.
+	if crawler.smu != nil {
+		crawler.LinkFinderCollector.OnError(func(response *colly.Response, err error) {
+			if response != nil && response.Request != nil &&
+				crawler.smu.isMapRequest(response.Request.URL.String()) {
+				crawler.smu.handleMapError(response, err)
+			}
+		})
+	}
 }

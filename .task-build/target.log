@@ -1,0 +1,126 @@
+error acquiring upload taken: statting token file: stat /Users/lzy/Library/Application Support/go/telemetry/local/upload.token: operation not permitted
+=== RUN   TestSourceMapDiscovery
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":4}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/a.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/b.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/c.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/a.js","status":200,"length":2}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/b.js","status":200,"length":2}
+{"input":"http://map.example/","source":"http://map.example/a.js","type":"linkfinder","output":"/api/normal","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/a.js","type":"linkfinder","output":"http://map.example/api/normal","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/deep/y.ts","type":"sourcemap","output":"http://map.example/api/inline","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/c.js","status":200,"length":2}
+{"input":"http://map.example/","source":"http://map.example/b.js","type":"linkfinder","output":"//# sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"javascript","type":"linkfinder","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.ts","type":"sourcemap","output":"http://map.example/api/fromb","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":200,"length":2}
+{"input":"http://map.example/","source":"http://map.example/x.ts","type":"sourcemap","output":"http://map.example/api/frommap","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js","type":"linkfinder","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js#%20sourceMappingURL=b.js.map","type":"linkfinder","output":"//# sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"javascript","type":"linkfinder","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js#%20sourceMappingURL=b.js.map","type":"linkfinder","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":200,"length":4}
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":4}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/a.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/b.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/c.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/c.js","status":200,"length":2}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/a.js","status":200,"length":2}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/b.js","status":200,"length":2}
+{"input":"http://map.example/","source":"http://map.example/a.js","type":"linkfinder","output":"/api/normal","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/a.js","type":"linkfinder","output":"http://map.example/api/normal","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js","type":"linkfinder","output":"//# sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"javascript","type":"linkfinder","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js","type":"linkfinder","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":200,"length":4}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":200,"length":2}
+{"input":"http://map.example/","source":"http://map.example/b.js#%20sourceMappingURL=b.js.map","type":"linkfinder","output":"//# sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"javascript","type":"linkfinder","output":"http://map.example/b.js#%20sourceMappingURL=b.js.map","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.js#%20sourceMappingURL=b.js.map","type":"linkfinder","output":"http://map.example/#%20sourceMappingURL=b.js.map","status":0,"length":0}
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":4}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/a.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/b.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/c.js","status":0,"length":0}
+    check.go:29: TASK_GROUP_DONE TestSourceMapDiscovery checks=18
+--- PASS: TestSourceMapDiscovery (0.00s)
+=== RUN   TestSourceMapProvenance
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/maps/app.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/maps/noroot.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/maps/noroot.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/maps/app.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/maps/z.ts","type":"sourcemap","output":"http://map.example/api/noroot","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/src/pkg/a.ts","type":"sourcemap","output":"http://map.example/api/shared","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/src/pkg/b.ts","type":"sourcemap","output":"http://map.example/api/shared","status":0,"length":0}
+    check.go:29: TASK_GROUP_DONE TestSourceMapProvenance checks=22
+--- PASS: TestSourceMapProvenance (0.00s)
+=== RUN   TestSourceMapGraph
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":14}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/idx.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/sh1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/sh2.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/cyc.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/bad.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/idx.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/v1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/missing.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/sh2.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/sh1.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/s1.ts","type":"sourcemap","output":"http://map.example/api/s1","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/v1.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/cyc.js","status":200,"length":1}
+[0;90m[0000][0m [0;33m WARN[0m[0;36m sourcemap:[0m unsupported source map version 1 in http://map.example/v1.map
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/q1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/missing.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/sh.ts","type":"sourcemap","output":"http://map.example/api/shared-child","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/bad.js","status":200,"length":1}
+[0;90m[0000][0m [0;33m WARN[0m[0;36m sourcemap:[0m request map http://map.example/gone.map failed: Not Found
+[0;90m[0000][0m [0;33m WARN[0m[0;36m sourcemap:[0m parse map http://map.example/bad.map failed: invalid character 'b' looking for beginning of object key string
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/q2.js","status":0,"length":0}
+[0;90m[0000][0m [0;33m WARN[0m[0;36m sourcemap:[0m bad section 2 of indexed map http://map.example/idx.map: empty map and url
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/q1.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/f1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/s2.ts","type":"sourcemap","output":"http://map.example/api/s2","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/q2.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/q1.ts","type":"sourcemap","output":"http://map.example/api/q1","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/q2.ts","type":"sourcemap","output":"http://map.example/api/q2","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/f2.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/f1.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/d1/s.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/f2.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/f.ts","type":"sourcemap","output":"http://map.example/api/f","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/d2/s.js","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/d1/u.ts","type":"sourcemap","output":"http://map.example/d1/rel/api","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/d2/u.ts","type":"sourcemap","output":"http://map.example/d2/rel/api","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/d1/s.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/d2/s.js","status":200,"length":1}
+    check.go:29: TASK_GROUP_DONE TestSourceMapGraph checks=19
+--- PASS: TestSourceMapGraph (0.00s)
+=== RUN   TestSourceMapCompletion
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/p.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/p.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/p.ts","type":"sourcemap","output":"http://map.example/chain/step1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/p.ts","type":"linkfinder","output":"http://map.example/chain/step1.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/chain/step1.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/chain/step.ts","type":"sourcemap","output":"http://map.example/chain/step2","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/chain/step2","status":200,"length":0}
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+[0;90m[0000][0m [0;32m INFO[0m Start crawling: http://map.example/
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/","status":200,"length":0}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/a.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/a.js","status":200,"length":1}
+{"input":"http://map.example/","source":"body","type":"javascript","output":"http://map.example/b.js","status":0,"length":0}
+{"input":"http://map.example/","source":"body","type":"url","output":"http://map.example/b.js","status":200,"length":1}
+{"input":"http://map.example/","source":"http://map.example/a.ts","type":"sourcemap","output":"http://map.example/api/a","status":0,"length":0}
+{"input":"http://map.example/","source":"http://map.example/b.ts","type":"sourcemap","output":"http://map.example/api/b","status":0,"length":0}
+    check.go:29: TASK_GROUP_DONE TestSourceMapCompletion checks=10
+--- PASS: TestSourceMapCompletion (0.00s)
+PASS
+ok  	github.com/jaeles-project/gospider/core	0.459s

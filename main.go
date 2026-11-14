@@ -45,6 +45,7 @@ func main() {
 
 	commands.Flags().BoolP("base", "B", false, "Disable all and only use HTML content")
 	commands.Flags().BoolP("js", "", true, "Enable linkfinder in javascript file")
+	commands.Flags().BoolP("source-maps", "", false, "Discover endpoints from JavaScript source maps (requires --js)")
 	commands.Flags().BoolP("sitemap", "", false, "Try to crawl sitemap.xml")
 	commands.Flags().BoolP("robots", "", true, "Try to crawl robots.txt")
 	commands.Flags().BoolP("other-source", "a", false, "Find URLs from 3rd party (Archive.org, CommonCrawl.org, VirusTotal.com, AlienVault.com)")
@@ -147,6 +148,11 @@ func run(cmd *cobra.Command, _ []string) {
 		includeSubs = false
 		includeOtherSourceResult = false
 	}
+	// Source map discovery rides on the JavaScript Link Finder pipeline, so
+	// --js=false and --base keep map reading off.
+	if !linkfinder {
+		_ = cmd.Flags().Set("source-maps", "false")
+	}
 
 	var wg sync.WaitGroup
 	inputChan := make(chan string, threads)
@@ -215,13 +221,15 @@ func run(cmd *cobra.Command, _ []string) {
 								}
 							}
 
-							_ = crawler.C.Visit(url)
+							crawler.EnqueuePage(url)
 						}
 					}()
 				}
 				siteWg.Wait()
-				crawler.C.Wait()
-				crawler.LinkFinderCollector.Wait()
+				// Seed production (sitemap, robots, other sources) is done;
+				// Wait drains pages, scripts, nested maps and every request
+				// derived from them before moving to the next site.
+				crawler.Wait()
 			}
 		}()
 	}
