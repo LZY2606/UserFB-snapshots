@@ -26,6 +26,15 @@ This file containts all the constraints of the ShapeOp libary.*/
 ///////////////////////////////////////////////////////////////////////////////
 namespace ShapeOp {
 ///////////////////////////////////////////////////////////////////////////////
+/** \brief Kinds of constraints supported by the inverse design (implicit differentiation) pipeline.
+All other ShapeOp constraints are explicitly rejected there.*/
+enum class InverseDesignType {
+  EdgeStrain,    ///< #ShapeOp::EdgeStrainConstraint
+  TriangleStrain,///< #ShapeOp::TriangleStrainConstraint
+  Closeness,     ///< #ShapeOp::ClosenessConstraint
+  Unsupported    ///< Any constraint not differentiable by the inverse design pipeline.
+};
+///////////////////////////////////////////////////////////////////////////////
 /** \brief Base class of any constraints. This class defines the interface of a ShapeOp constraint.*/
 class SHAPEOP_API Constraint {
  public:
@@ -60,6 +69,16 @@ class SHAPEOP_API Constraint {
   */
   Constraint(const std::vector<int> &idI, Scalar weight);
   virtual ~Constraint() {}
+  /** \brief Update the user supplied (positive) weight. The internal scaling stored in weight_ is
+      preserved, only the sqrt(user weight) factor is replaced.
+      The owning Solver must rebuild its system matrices afterwards
+      (see ShapeOp::Solver::setConstraintWeight).
+      \throw std::invalid_argument if weight is not strictly positive.*/
+  void setWeight(Scalar weight);
+  /** \brief Get the user supplied weight, including any later update through setWeight.*/
+  Scalar getWeight() const { return userWeight_; }
+  /** \brief Classify the constraint for the inverse design pipeline.*/
+  virtual InverseDesignType inverseDesignType() const { return InverseDesignType::Unsupported; }
   /** \brief Find the closest, in the least-squre sense, configuration from the input positions that satisfy the constraint.
       \param positions The positions of all the n vertices stacked in a 3 by n matrix.
       \param projections The projections of the vertices involved in the constraint.
@@ -72,11 +91,21 @@ class SHAPEOP_API Constraint {
   virtual void addConstraint(std::vector<Triplet> &triplets, int &idO) const = 0;
   /** \brief Number of indices of vertices involved in the constraint. */
   std::size_t nIndices() const { return idI_.size(); }
+  /** \brief Indices of the vertices involved in the constraint.*/
+  const std::vector<int> &indices() const { return idI_; }
+  /** \brief The effective weight used inside A and P: sqrt(user weight) times the geometric scaling.*/
+  Scalar scaledWeight() const { return weight_; }
+  /** \brief Geometric scaling factor (edge length, triangle area, ...) folded into the scaled weight.*/
+  Scalar weightScale() const { return weightScale_; }
  protected:
   /** \brief ids of the vertices involved in this constraint.*/
   std::vector<int> idI_;
   /** \brief weight for the constraint.*/
   Scalar weight_;
+  /** \brief user supplied (unscaled) weight, see setWeight.*/
+  Scalar userWeight_;
+  /** \brief geometric scaling folded into weight_, see scaledWeight.*/
+  Scalar weightScale_;
   /** \brief location of this constraint in the linear system.*/
   mutable int idO_;
 };
@@ -102,6 +131,14 @@ class SHAPEOP_API EdgeStrainConstraint : public Constraint {
   virtual void project(const Matrix3X &positions, Matrix3X &projections) const override final;
   /** \brief Add the constraint to the linear system.*/
   virtual void addConstraint(std::vector<Triplet> &triplets, int &idO) const override final;
+  /** \brief Inverse design classification.*/
+  virtual InverseDesignType inverseDesignType() const override final { return InverseDesignType::EdgeStrain; }
+  /** \brief Inverse of the rest edge length (the rest_ member).*/
+  Scalar inverseRestLength() const { return rest_; }
+  /** \brief Minimal length ratio.*/
+  Scalar rangeMin() const { return rangeMin_; }
+  /** \brief Maximal length ratio.*/
+  Scalar rangeMax() const { return rangeMax_; }
   /** \brief Set a new edge length.*/
   void setEdgeLength(Scalar length);
   /** \brief Set a new range minimum.*/
@@ -134,6 +171,14 @@ class SHAPEOP_API TriangleStrainConstraint : public Constraint {
   virtual void project(const Matrix3X &positions, Matrix3X &projections) const override final;
   /** \brief Add the constraint to the linear system.*/
   virtual void addConstraint(std::vector<Triplet> &triplets, int &idO) const override final;
+  /** \brief Inverse design classification.*/
+  virtual InverseDesignType inverseDesignType() const override final { return InverseDesignType::TriangleStrain; }
+  /** \brief Inverse of the reference edge matrix (the rest_ member).*/
+  const Matrix22 &inverseRestMatrix() const { return rest_; }
+  /** \brief Minimal singular value ratio.*/
+  Scalar rangeMin() const { return rangeMin_; }
+  /** \brief Maximal singular value ratio.*/
+  Scalar rangeMax() const { return rangeMax_; }
   /** \brief Set a new range minimum.*/
   void setRangeMin(Scalar rMin) { rangeMin_ = rMin; }
   /** \brief Set a new range maximum.*/
@@ -293,6 +338,8 @@ class SHAPEOP_API ClosenessConstraint : public Constraint {
   virtual void project(const Matrix3X & /*positions*/, Matrix3X &projections) const override final;
   /** \brief Add the constraint to the linear system.*/
   virtual void addConstraint(std::vector<Triplet> &triplets, int &idO) const override final;
+  /** \brief Inverse design classification.*/
+  virtual InverseDesignType inverseDesignType() const override final { return InverseDesignType::Closeness; }
   /** \brief Set a new closeness position.*/
   void setPosition(const Vector3 &position);
   /** \brief Get the closeness position.*/

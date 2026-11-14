@@ -13,6 +13,7 @@
 #include "LSSolver.h"
 #include "Constraint.h"
 #include "Force.h"
+#include <stdexcept>
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef SHAPEOP_OPENMP
 #ifdef SHAPEOP_MSVC
@@ -36,6 +37,31 @@ SHAPEOP_INLINE int Solver::addConstraint(const std::shared_ptr<Constraint> &c) {
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE std::shared_ptr<Constraint> &Solver::getConstraint(int id) {
   return constraints_[id];
+}
+///////////////////////////////////////////////////////////////////////////////
+SHAPEOP_INLINE void Solver::setConstraintWeight(int id, Scalar weight) {
+  if (id < 0 || id >= static_cast<int>(constraints_.size()))
+    throw std::out_of_range("setConstraintWeight: invalid constraint id");
+  constraints_[id]->setWeight(weight);
+  if (solver_ && !rebuildSystem())
+    throw std::runtime_error("setConstraintWeight: failed to refactorize the updated system");
+}
+///////////////////////////////////////////////////////////////////////////////
+SHAPEOP_INLINE bool Solver::rebuildSystem() {
+  int n_points = static_cast<int>(points_.cols());
+  std::vector<Triplet> triplets;
+  int idO = 0;
+  for (std::size_t i = 0; i < constraints_.size(); ++i)
+    constraints_[i]->addConstraint(triplets, idO);
+  projections_.setZero(3, idO);
+  SparseMatrix A = SparseMatrix(idO, n_points);
+  A.setFromTriplets(triplets.begin(), triplets.end());
+  At_ = A.transpose();
+  N_ = At_ * A;
+  if (dynamic_) N_ += M_;
+  solver_ = std::make_shared<ShapeOp::SimplicialLDLTSolver>();
+  solver_->initialize(N_);
+  return solver_->info() == Eigen::Success;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE int Solver::addForces(const std::shared_ptr<Force> &f) {

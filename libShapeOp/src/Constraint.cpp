@@ -12,6 +12,8 @@
 #include "Constraint.h"
 #include <cassert>
 #include <algorithm>
+#include <limits>
+#include <stdexcept>
 ///////////////////////////////////////////////////////////////////////////////
 #define SHAPEOP_INNER_ITERATIONS 4 //TODO: fix this
 ///////////////////////////////////////////////////////////////////////////////
@@ -50,7 +52,16 @@ SHAPEOP_INLINE std::shared_ptr<Constraint> Constraint::shapeConstraintFactory(co
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE Constraint::Constraint(const std::vector<int> &idI, Scalar weight) :
   idI_(idI),
-  weight_(std::sqrt(weight)) {
+  weight_(std::sqrt(weight)),
+  userWeight_(weight),
+  weightScale_(1.0) {
+  if (!(weight > 0.0)) throw std::invalid_argument("Constraint weight must be strictly positive");
+}
+///////////////////////////////////////////////////////////////////////////////
+SHAPEOP_INLINE void Constraint::setWeight(Scalar weight) {
+  if (!(weight > 0.0)) throw std::invalid_argument("Constraint weight must be strictly positive");
+  userWeight_ = weight;
+  weight_ = weightScale_ * std::sqrt(weight);
 }
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,9 +74,13 @@ SHAPEOP_INLINE EdgeStrainConstraint::EdgeStrainConstraint(const std::vector<int>
   rangeMin_(rangeMin),
   rangeMax_(rangeMax) {
   assert(idI.size() == 2);
+  if (!(rangeMin_ > 0.0 && rangeMax_ > 0.0 && rangeMin_ <= rangeMax_))
+    throw std::invalid_argument("EdgeStrainConstraint requires 0 < rangeMin <= rangeMax");
   Scalar length = (positions.col(idI_[1]) - positions.col(idI_[0])).norm();
+  if (!(length > 0.0)) throw std::invalid_argument("EdgeStrainConstraint: zero length reference edge");
   rest_ = 1.0f / length;
-  weight_ *= std::sqrt(length);
+  weightScale_ = std::sqrt(length);
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void EdgeStrainConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {
@@ -97,14 +112,20 @@ SHAPEOP_INLINE TriangleStrainConstraint::TriangleStrainConstraint(const std::vec
   rangeMin_(rangeMin),
   rangeMax_(rangeMax) {
   assert(idI.size() == 3);
+  if (!(rangeMin_ > 0.0 && rangeMax_ > 0.0 && rangeMin_ <= rangeMax_))
+    throw std::invalid_argument("TriangleStrainConstraint requires 0 < rangeMin <= rangeMax");
   Matrix32 edges, P;
   edges.col(0) = positions.col(idI_[1]) - positions.col(idI_[0]);
   edges.col(1) = positions.col(idI_[2]) - positions.col(idI_[0]);
   P.col(0) = edges.col(0).normalized();
   P.col(1) = (edges.col(1) - edges.col(1).dot(P.col(0)) * P.col(0)).normalized();
-  rest_ = (P.transpose() * edges).inverse();
-  Scalar A = (P.transpose() * edges).determinant() / 2.0f;
-  weight_ *= std::sqrt(std::abs(A));
+  Matrix22 E = P.transpose() * edges;
+  if (std::abs(E.determinant()) <= std::numeric_limits<Scalar>::epsilon())
+    throw std::invalid_argument("TriangleStrainConstraint: degenerate reference triangle");
+  rest_ = E.inverse();
+  Scalar A = E.determinant() / 2.0f;
+  weightScale_ = std::sqrt(std::abs(A));
+  weight_ *= weightScale_;
 }
 ///////////////////////////////////////////////////////////////////////////////
 SHAPEOP_INLINE void TriangleStrainConstraint::project(const Matrix3X &positions, Matrix3X &projections) const {

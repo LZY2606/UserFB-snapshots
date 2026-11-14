@@ -16,6 +16,7 @@
 #include <vector>
 #include <memory>
 #include "Types.h"
+#include "InverseDesign.h"
 ///////////////////////////////////////////////////////////////////////////////
 /** @file
 This file contains the main ShapeOp solver.*/
@@ -26,6 +27,7 @@ namespace ShapeOp {
 class LSSolver;
 class Constraint;
 class Force;
+class InverseDesignSnapshot;
 ///////////////////////////////////////////////////////////////////////////////
 /** \brief ShapeOp Solver. This class implements the main ShapeOp solver based on \cite Bouaziz2012 and \cite Bouaziz2014.*/
 class SHAPEOP_API Solver {
@@ -34,6 +36,23 @@ class SHAPEOP_API Solver {
   int addConstraint(const std::shared_ptr<Constraint> &c);
   /** \brief Get a constraint using its id.*/
   std::shared_ptr<Constraint> &getConstraint(int id);
+  /** \brief Update the user weight of the constraint with the given original
+      addConstraint id and rebuild the matrices participating in the solve.
+      The old solve() and the inverse design pipeline then use the new weight.
+      \throw std::out_of_range if id is not a valid constraint id.
+      \throw std::invalid_argument if weight is not strictly positive.*/
+  void setConstraintWeight(int id, Scalar weight);
+  /** \brief Static equilibrium entry point (no dynamics, no external forces).
+      Runs the original local projection / global merge path until the infinity
+      norm of the full energy gradient reaches options.tolerance, or the
+      iteration budget is spent. On success returns an owning
+      InverseDesignSnapshot and publishes the converged points; on failure the
+      points are left untouched and no snapshot is produced.
+      Only EdgeStrainConstraint, TriangleStrainConstraint and
+      ClosenessConstraint are accepted; anything else yields
+      EquilibriumStatus::InvalidInput.*/
+  std::shared_ptr<InverseDesignSnapshot> solveEquilibrium(const EquilibriumOptions &options,
+                                                          EquilibriumReport &report);
   /** \brief Add a force to the solver and get back its id.*/
   int addForces(const std::shared_ptr<Force> &f);
   /** \brief Get a force using its id.*/
@@ -55,6 +74,9 @@ class SHAPEOP_API Solver {
  private:
   typedef std::vector<std::shared_ptr<Constraint> > Constraints;
   typedef std::vector<std::shared_ptr<Force> > Forces;
+  /** \brief Rebuild A, A^T, the (static or dynamic) system matrix and its
+      factorization after a constraint weight change.*/
+  bool rebuildSystem();
 
 //Static
   Matrix3X points_;
