@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"io"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,12 +17,21 @@ type StreamReader struct {
 	r     io.Reader
 	pos   int
 	eof   bool
+
+	// Serialize Read calls (sequential handles must not be read
+	// concurrently) and make Close idempotent.
+	readMu  sync.Mutex
+	closeMu sync.Mutex
+	closed  bool
 }
 
 var _ io.ReadCloser = (*StreamReader)(nil)
 
 // NewStreamReader returns a reader for io.Streams that implements io.Reader
 // from the standard library.
+//
+// Every IO.read request carries an explicit offset, seeking to the current
+// position in the stream.
 func NewStreamReader(ctx context.Context, ioClient interface {
 	Read(context.Context, *ReadArgs) (*ReadReply, error)
 	Close(context.Context, *CloseArgs) error
@@ -33,13 +43,44 @@ func NewStreamReader(ctx context.Context, ioClient interface {
 			args.SetOffset(pos).SetSize(size)
 			return ioClient.Read(ctx, args)
 		},
-		close: func() error {
-			// TODO(mafredri): We should ideally allow the user to define a timeout here.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
+		close: newStreamCloseFunc(ioClient, handle),
+	}
+}
 
-			return ioClient.Close(ctx, NewCloseArgs(handle))
+// NewSequentialStreamReader returns a reader for io.Streams that implements
+// io.Reader from the standard library.
+//
+// Unlike NewStreamReader, the offset is omitted on every IO.read request.
+// This is required for sequential streams (e.g. those returned by
+// Fetch.takeResponseBodyAsStream) that reject positioned reads. Plain text
+// and base64 encoded chunks may be interleaved by the remote.
+func NewSequentialStreamReader(ctx context.Context, ioClient interface {
+	Read(context.Context, *ReadArgs) (*ReadReply, error)
+	Close(context.Context, *CloseArgs) error
+}, handle StreamHandle,
+) *StreamReader {
+	args := NewReadArgs(handle)
+	return &StreamReader{
+		next: func(pos, size int) (*ReadReply, error) {
+			// Deliberately do not set Offset: sequential streams
+			// forbid positioned IO.read requests.
+			args.SetSize(size)
+			return ioClient.Read(ctx, args)
 		},
+		close: newStreamCloseFunc(ioClient, handle),
+	}
+}
+
+func newStreamCloseFunc(ioClient interface {
+	Close(context.Context, *CloseArgs) error
+}, handle StreamHandle,
+) func() error {
+	return func() error {
+		// TODO(mafredri): We should ideally allow the user to define a timeout here.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		return ioClient.Close(ctx, NewCloseArgs(handle))
 	}
 }
 
@@ -55,6 +96,9 @@ func (r *StreamReader) read(p []byte) (n int, err error) {
 
 // Read a chunk of the stream.
 func (r *StreamReader) Read(p []byte) (n int, err error) {
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+
 	if r.r != nil {
 		// Continue reading from buffer.
 		return r.read(p)
@@ -87,6 +131,12 @@ func (r *StreamReader) Read(p []byte) (n int, err error) {
 		b := []byte(reply.Data)
 		size := base64.StdEncoding.DecodedLen(len(b))
 
+		// Validate up front so corrupt base64 is reported as an
+		// error instead of being silently truncated by the decoder.
+		if _, err := base64.StdEncoding.DecodeString(reply.Data); err != nil {
+			return 0, err
+		}
+
 		// Safety-check for fast-path to avoid panics.
 		if len(p) >= size {
 			n, err = base64.StdEncoding.Decode(p, b)
@@ -103,6 +153,15 @@ func (r *StreamReader) Read(p []byte) (n int, err error) {
 }
 
 // Close the stream, discard any temporary backing storage.
+//
+// Close is safe to call multiple times; only the first call invokes
+// IO.close on the remote.
 func (r *StreamReader) Close() error {
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
 	return r.close()
 }
