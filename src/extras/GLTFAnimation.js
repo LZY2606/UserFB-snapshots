@@ -11,6 +11,55 @@ const tmpQuatB = /* @__PURE__ */ new Quat();
 const tmpQuatC = /* @__PURE__ */ new Quat();
 const tmpQuatD = /* @__PURE__ */ new Quat();
 
+// Shared LINEAR/STEP sampler. Times are absolute seconds; values are held at
+// the endpoints outside the key range. Rotations take the shortest arc.
+// Returns an independent plain numeric array (length 3 or 4).
+function sampleChannelValue({ transform, interpolation, times, values }, t) {
+    const size = transform === 'quaternion' ? 4 : 3;
+    const last = times.length - 1;
+
+    let prevIndex = 0;
+    let nextIndex = last;
+    let alpha = 0;
+
+    if (last > 0) {
+        if (t <= times[0]) {
+            prevIndex = 0;
+            nextIndex = 0;
+        } else if (t >= times[last]) {
+            prevIndex = last;
+            nextIndex = last;
+        } else {
+            let i = 0;
+            while (i < last && times[i] <= t) i++;
+            prevIndex = i - 1;
+            nextIndex = i;
+            alpha = (t - times[prevIndex]) / (times[nextIndex] - times[prevIndex]);
+        }
+    }
+
+    if (interpolation === 'STEP') alpha = 0;
+
+    const out = new Array(size);
+    const prevOffset = prevIndex * size;
+    if (alpha === 0 || prevIndex === nextIndex) {
+        for (let i = 0; i < size; i++) out[i] = values[prevOffset + i];
+        return out;
+    }
+
+    if (size === 4) {
+        tmpQuatA.fromArray(values, prevOffset);
+        tmpQuatB.fromArray(values, nextIndex * size);
+        tmpQuatA.slerp(tmpQuatB, alpha);
+        return tmpQuatA.toArray(out);
+    }
+
+    tmpVec3A.fromArray(values, prevOffset);
+    tmpVec3B.fromArray(values, nextIndex * size);
+    tmpVec3A.lerp(tmpVec3B, alpha);
+    return tmpVec3A.toArray(out);
+}
+
 export class GLTFAnimation {
     constructor(data, weight = 1) {
         this.data = data;
@@ -25,6 +74,23 @@ export class GLTFAnimation {
         // Get largest final time in all channels to calculate duration
         this.endTime = data.reduce((a, { times }) => Math.max(a, times[times.length - 1]), 0);
         this.duration = this.endTime - this.startTime;
+    }
+
+    // Read-only absolute-time pose sampling. Ignores elapsed, loop and weight,
+    // and never writes to the channel nodes or key data. Returns the channels
+    // in their original order, each value being an independent numeric array.
+    samplePose(t) {
+        if (!Number.isFinite(t)) throw new Error(`GLTFAnimation.samplePose: t must be finite, got ${t}`);
+        return this.data.map((channel) => {
+            if (channel.interpolation !== 'LINEAR' && channel.interpolation !== 'STEP') {
+                throw new Error(`GLTFAnimation.samplePose: unsupported interpolation "${channel.interpolation}"`);
+            }
+            return {
+                node: channel.node,
+                transform: channel.transform,
+                value: sampleChannelValue(channel, t),
+            };
+        });
     }
 
     update(totalWeight = 1, isSet) {
@@ -47,33 +113,34 @@ export class GLTFAnimation {
                 return;
             }
 
-            // Get index of two time values elapsed is between
-            const prevIndex =
-                Math.max(
-                    1,
-                    times.findIndex((t) => t > elapsed)
-                ) - 1;
-            const nextIndex = prevIndex + 1;
-
-            // Get linear blend/alpha between the two
-            let alpha = (elapsed - times[prevIndex]) / (times[nextIndex] - times[prevIndex]);
-            if (interpolation === 'STEP') alpha = 0;
-
-            let prevVal = tmpVec3A;
-            let prevTan = tmpVec3B;
-            let nextTan = tmpVec3C;
-            let nextVal = tmpVec3D;
+            let prevVal;
             let size = 3;
 
-            if (transform === 'quaternion') {
-                prevVal = tmpQuatA;
-                prevTan = tmpQuatB;
-                nextTan = tmpQuatC;
-                nextVal = tmpQuatD;
-                size = 4;
-            }
-
             if (interpolation === 'CUBICSPLINE') {
+                // Get index of two time values elapsed is between
+                const prevIndex =
+                    Math.max(
+                        1,
+                        times.findIndex((t) => t > elapsed)
+                    ) - 1;
+                const nextIndex = prevIndex + 1;
+
+                // Get linear blend/alpha between the two
+                const alpha = (elapsed - times[prevIndex]) / (times[nextIndex] - times[prevIndex]);
+
+                prevVal = tmpVec3A;
+                let prevTan = tmpVec3B;
+                let nextTan = tmpVec3C;
+                let nextVal = tmpVec3D;
+
+                if (transform === 'quaternion') {
+                    prevVal = tmpQuatA;
+                    prevTan = tmpQuatB;
+                    nextTan = tmpQuatC;
+                    nextVal = tmpQuatD;
+                    size = 4;
+                }
+
                 // Get the prev and next values from the indices
                 prevVal.fromArray(values, prevIndex * size * 3 + size * 1);
                 prevTan.fromArray(values, prevIndex * size * 3 + size * 2);
@@ -84,13 +151,15 @@ export class GLTFAnimation {
                 prevVal = this.cubicSplineInterpolate(alpha, prevVal, prevTan, nextTan, nextVal);
                 if (size === 4) prevVal.normalize();
             } else {
-                // Get the prev and next values from the indices
-                prevVal.fromArray(values, prevIndex * size);
-                nextVal.fromArray(values, nextIndex * size);
-
-                // interpolate for final value
-                if (size === 4) prevVal.slerp(nextVal, alpha);
-                else prevVal.lerp(nextVal, alpha);
+                // LINEAR and STEP share the read-only sampler
+                const value = sampleChannelValue({ transform, interpolation, times, values }, elapsed);
+                if (transform === 'quaternion') {
+                    prevVal = tmpQuatA;
+                    size = 4;
+                } else {
+                    prevVal = tmpVec3A;
+                }
+                prevVal.fromArray(value);
             }
 
             // interpolate between multiple possible animations

@@ -6,6 +6,12 @@ export interface GLTFAnimationData {
     values: any;
 }
 
+export interface GLTFAnimationSample {
+    node: any;
+    transform: any;
+    value: number[];
+}
+
 /**
  * A class for animation.
  * @see {@link https://github.com/oframe/ogl/blob/master/src/extras/GLTFAnimation.js | Source}
@@ -20,6 +26,10 @@ export class GLTFAnimation {
     duration: number;
 
     constructor(data: GLTFAnimationData[], weight?: number);
+
+    // Read-only absolute-time sampling (seconds); ignores elapsed, loop and
+    // weight. Supports LINEAR and STEP channels only.
+    samplePose(t: number): GLTFAnimationSample[];
 
     update(totalWeight?: number, isSet?: boolean): void;
 
