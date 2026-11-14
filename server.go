@@ -82,15 +82,24 @@ func (m *FramebufferUpdate) Read(c *ClientConn) (ServerMessage, error) {
 		logging.Infof("numRects: %d", numRects)
 	}
 
-	// Extract rectangles.
+	// Extract rectangles. Parse the whole update before publishing any
+	// desktop layout change so a truncated or invalid update cannot leave
+	// a partially-applied layout behind.
 	rects := make([]Rectangle, numRects)
+	pending := &pendingDesktopUpdate{}
 	for i := 0; i < int(numRects); i++ {
 		rect := NewRectangle(c.Encodable)
 		if err := rect.Read(c); err != nil {
 			return nil, err
 		}
 		rects[i] = *rect
+		pending.add(*rect)
 	}
+
+	if err := pending.validate(); err != nil {
+		return nil, err
+	}
+	pending.publish(c)
 
 	return newFramebufferUpdate(rects), nil
 }
@@ -286,9 +295,9 @@ func (*SetColorMapEntries) Read(c *ClientConn) (ServerMessage, error) {
 		result.Colors[i] = Color{
 			pf: &c.pixelFormat,
 			cm: &c.colorMap,
-			R:    wireMsg.Colors[i].Red,
-			G:    wireMsg.Colors[i].Green,
-			B:    wireMsg.Colors[i].Blue,
+			R:  wireMsg.Colors[i].Red,
+			G:  wireMsg.Colors[i].Green,
+			B:  wireMsg.Colors[i].Blue,
 		}
 		c.colorMap[wireMsg.FirstColor+i] = result.Colors[i]
 	}

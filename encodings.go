@@ -8,8 +8,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/kward/go-vnc/encodings"
 	"github.com/kward/go-vnc/encoding"
+	"github.com/kward/go-vnc/encodings"
 )
 
 //=============================================================================
@@ -141,11 +141,10 @@ func (e *DesktopSizePseudoEncoding) Marshal() ([]byte, error) {
 	return []byte{}, nil
 }
 
-// Read implements the Encoding interface.
+// Read implements the Encoding interface. The new size is held in the
+// rectangle header; publication happens after the whole FramebufferUpdate has
+// been validated, in FramebufferUpdate.Read.
 func (*DesktopSizePseudoEncoding) Read(c *ClientConn, rect *Rectangle) (Encoding, error) {
-	c.fbWidth = rect.Width
-	c.fbHeight = rect.Height
-
 	return &DesktopSizePseudoEncoding{}, nil
 }
 

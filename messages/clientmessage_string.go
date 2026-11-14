@@ -14,11 +14,13 @@ func _() {
 	_ = x[KeyEvent-4]
 	_ = x[PointerEvent-5]
 	_ = x[ClientCutText-6]
+	_ = x[SetDesktopSize-251]
 }
 
 const (
 	_ClientMessage_name_0 = "SetPixelFormat"
 	_ClientMessage_name_1 = "SetEncodingsFramebufferUpdateRequestKeyEventPointerEventClientCutText"
+	_ClientMessage_name_2 = "SetDesktopSize"
 )
 
 var (
@@ -32,6 +34,8 @@ func (i ClientMessage) String() string {
 	case 2 <= i && i <= 6:
 		i -= 2
 		return _ClientMessage_name_1[_ClientMessage_index_1[i]:_ClientMessage_index_1[i+1]]
+	case i == 251:
+		return _ClientMessage_name_2
 	default:
 		return "ClientMessage(" + strconv.FormatInt(int64(i), 10) + ")"
 	}

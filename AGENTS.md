@@ -36,7 +36,8 @@
 ## Conventions
 - Wire structs: big-endian, explicit padding fields matching on-wire layout
 - Wire field size comments on every struct: `// Wire: field_name(type) + field_name2(type) + ...`
-- Default encodings: Raw only. For desktop resize support, include `DesktopSizePseudoEncoding` before calling SetEncodings
+- Default encodings: Raw only. For desktop resize support, include `DesktopSizePseudoEncoding` and/or `ExtendedDesktopSizePseudoEncoding` before calling SetEncodings
+- Desktop resizing lives in `desktop.go`: `Screen`, `DesktopLayout`, `CurrentDesktopLayout()`, `SetDesktopSize()`, `PointerEventOnScreen()`, and `ExtendedDesktopSizePseudoEncoding` (-308). FramebufferUpdate parses and validates all rectangles before publishing any layout change
 - Client input methods (KeyEvent, PointerEvent, ClientCutText) apply a UI settle delay; tests disable with `vnc.SetSettle(0)`
 - ClientCutText: Latin-1 only, \r chars stripped per RFC 6143
 - Context key `"vnc_max_proto_version"` with values `"3.3"` or `"3.8"` to cap protocol version during Connect

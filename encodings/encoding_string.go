@@ -16,34 +16,38 @@ func _() {
 	_ = x[ZRLE-16]
 	_ = x[ColorPseudo - -239]
 	_ = x[DesktopSizePseudo - -223]
+	_ = x[ExtendedDesktopSizePseudo - -308]
 }
 
 const (
-	_Encoding_name_0 = "ColorPseudo"
-	_Encoding_name_1 = "DesktopSizePseudo"
-	_Encoding_name_2 = "RawCopyRectRRE"
-	_Encoding_name_3 = "Hextile"
-	_Encoding_name_4 = "TRLEZRLE"
+	_Encoding_name_0 = "ExtendedDesktopSizePseudo"
+	_Encoding_name_1 = "ColorPseudo"
+	_Encoding_name_2 = "DesktopSizePseudo"
+	_Encoding_name_3 = "RawCopyRectRRE"
+	_Encoding_name_4 = "Hextile"
+	_Encoding_name_5 = "TRLEZRLE"
 )
 
 var (
-	_Encoding_index_2 = [...]uint8{0, 3, 11, 14}
-	_Encoding_index_4 = [...]uint8{0, 4, 8}
+	_Encoding_index_3 = [...]uint8{0, 3, 11, 14}
+	_Encoding_index_5 = [...]uint8{0, 4, 8}
 )
 
 func (i Encoding) String() string {
 	switch {
-	case i == -239:
+	case i == -308:
 		return _Encoding_name_0
-	case i == -223:
+	case i == -239:
 		return _Encoding_name_1
+	case i == -223:
+		return _Encoding_name_2
 	case 0 <= i && i <= 2:
-		return _Encoding_name_2[_Encoding_index_2[i]:_Encoding_index_2[i+1]]
+		return _Encoding_name_3[_Encoding_index_3[i]:_Encoding_index_3[i+1]]
 	case i == 5:
-		return _Encoding_name_3
+		return _Encoding_name_4
 	case 15 <= i && i <= 16:
 		i -= 15
-		return _Encoding_name_4[_Encoding_index_4[i]:_Encoding_index_4[i+1]]
+		return _Encoding_name_5[_Encoding_index_5[i]:_Encoding_index_5[i+1]]
 	default:
 		return "Encoding(" + strconv.FormatInt(int64(i), 10) + ")"
 	}

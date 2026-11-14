@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"reflect"
+	"sync"
 
 	"context"
 
@@ -133,6 +134,21 @@ type ClientConn struct {
 	// Width of the frame buffer in pixels, sent from the server.
 	fbWidth uint16
 
+	// mu guards the framebuffer dimensions and the desktop layout. Layout
+	// changes are published under this lock so a snapshot can never mix two
+	// updates.
+	mu sync.RWMutex
+
+	// desktop is the screen topology for the current framebuffer. It is
+	// only meaningful when desktopKnown is true.
+	desktop      DesktopLayout
+	desktopKnown bool
+
+	// desktopSupported reports whether a complete ExtendedDesktopSize
+	// rectangle has ever been received; only then may SetDesktopSize be
+	// used.
+	desktopSupported bool
+
 	// The pixel format associated with the connection. This shouldn't
 	// be modified. If you wish to set a new pixel format, use the
 	// SetPixelFormat method.
@@ -181,6 +197,8 @@ func (c *ClientConn) Encodings() Encodings {
 
 // FramebufferHeight returns the server provided framebuffer height.
 func (c *ClientConn) FramebufferHeight() uint16 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.fbHeight
 }
 
@@ -189,11 +207,15 @@ func (c *ClientConn) setFramebufferHeight(height uint16) {
 	if logging.V(logging.ResultLevel) {
 		logging.Infof("height: %d", height)
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.fbHeight = height
 }
 
 // FramebufferWidth returns the server provided framebuffer width.
 func (c *ClientConn) FramebufferWidth() uint16 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.fbWidth
 }
 
@@ -202,6 +224,8 @@ func (c *ClientConn) setFramebufferWidth(width uint16) {
 	if logging.V(logging.ResultLevel) {
 		logging.Infof("width: %d", width)
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.fbWidth = width
 }
 

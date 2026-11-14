@@ -532,11 +532,165 @@ func (w *DesktopSizeWire) WireUnmarshal(data []byte) error {
 	return nil
 }
 
+// ---- Screen model (SetDesktopSize / ExtendedDesktopSize) ----
+// Wire: id(4 BE) + x(2 BE) + y(2 BE) + width(2 BE) + height(2 BE) + flags(4 BE)
+
+type ScreenWire struct {
+	ID     uint32
+	X, Y   uint16
+	Width  uint16
+	Height uint16
+	Flags  uint32
+}
+
+func (w *ScreenWire) WireMarshal() ([]byte, error) {
+	buf := &bytes.Buffer{}
+	binary.Write(buf, binary.BigEndian, w.ID)
+	binary.Write(buf, binary.BigEndian, w.X)
+	binary.Write(buf, binary.BigEndian, w.Y)
+	binary.Write(buf, binary.BigEndian, w.Width)
+	binary.Write(buf, binary.BigEndian, w.Height)
+	binary.Write(buf, binary.BigEndian, w.Flags)
+	return buf.Bytes(), nil
+}
+
+func (w *ScreenWire) WireUnmarshal(data []byte) error {
+	if len(data) < 16 {
+		return fmt.Errorf("Screen: expected 16 bytes, got %d", len(data))
+	}
+	w.ID = binary.BigEndian.Uint32(data[0:4])
+	w.X = binary.BigEndian.Uint16(data[4:6])
+	w.Y = binary.BigEndian.Uint16(data[6:8])
+	w.Width = binary.BigEndian.Uint16(data[8:10])
+	w.Height = binary.BigEndian.Uint16(data[10:12])
+	w.Flags = binary.BigEndian.Uint32(data[12:16])
+	return nil
+}
+
+// ---- SetDesktopSizeRequestWire (§7.5.7 / RFB desktop extension) ----
+// Wire: msg_type(1) + pad(1) + width(2) + height(2) + num_screens(1) + pad(1)
+//       + [id(4) x(2) y(2) width(2) height(2) flags(4)] x num_screens
+
+type SetDesktopSizeRequestWire struct {
+	MsgType byte
+	Width   uint16
+	Height  uint16
+	Screens []ScreenWire
+}
+
+func (w *SetDesktopSizeRequestWire) WireMarshal() ([]byte, error) {
+	if len(w.Screens) > 255 {
+		return nil, fmt.Errorf("SetDesktopSize: too many screens (%d)", len(w.Screens))
+	}
+	buf := &bytes.Buffer{}
+	buf.WriteByte(w.MsgType)
+	buf.WriteByte(0) // padding
+	binary.Write(buf, binary.BigEndian, w.Width)
+	binary.Write(buf, binary.BigEndian, w.Height)
+	buf.WriteByte(uint8(len(w.Screens)))
+	buf.WriteByte(0) // padding
+	for i := range w.Screens {
+		b, err := w.Screens[i].WireMarshal()
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(b)
+	}
+	return buf.Bytes(), nil
+}
+
+func (w *SetDesktopSizeRequestWire) WireUnmarshal(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("SetDesktopSize: expected at least 8 bytes, got %d", len(data))
+	}
+	w.MsgType = data[0]
+	w.Width = binary.BigEndian.Uint16(data[2:4])
+	w.Height = binary.BigEndian.Uint16(data[4:6])
+	w.Screens = make([]ScreenWire, int(data[6]))
+	off := 8
+	for i := range w.Screens {
+		if off+16 > len(data) {
+			return fmt.Errorf("SetDesktopSize: screen %d: insufficient data", i)
+		}
+		if err := w.Screens[i].WireUnmarshal(data[off : off+16]); err != nil {
+			return err
+		}
+		off += 16
+	}
+	return nil
+}
+
+// ---- ExtendedDesktopSize Pseudo-Encoding body ----
+// The rectangle header carries reason (x), result (y), and the framebuffer
+// width/height. The body is:
+// Wire: num_screens(1) + pad(3) + [screen(16)] x num_screens
+
+type ExtendedDesktopSizeWire struct {
+	NumScreens uint8
+	Screens    []ScreenWire
+}
+
+func (w *ExtendedDesktopSizeWire) WireMarshal() ([]byte, error) {
+	if len(w.Screens) > 255 {
+		return nil, fmt.Errorf("ExtendedDesktopSize: too many screens (%d)", len(w.Screens))
+	}
+	buf := &bytes.Buffer{}
+	buf.WriteByte(uint8(len(w.Screens)))
+	buf.Write([]byte{0, 0, 0}) // padding
+	for i := range w.Screens {
+		b, err := w.Screens[i].WireMarshal()
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(b)
+	}
+	return buf.Bytes(), nil
+}
+
+func (w *ExtendedDesktopSizeWire) WireUnmarshal(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("ExtendedDesktopSize: expected at least 4 bytes, got %d", len(data))
+	}
+	w.NumScreens = data[0]
+	w.Screens = make([]ScreenWire, int(w.NumScreens))
+	for i := range w.Screens {
+		off := 4 + i*16
+		if off+16 > len(data) {
+			return fmt.Errorf("ExtendedDesktopSize: screen %d: insufficient data", i)
+		}
+		if err := w.Screens[i].WireUnmarshal(data[off : off+16]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadExtendedDesktopSizeWire reads the body of an ExtendedDesktopSize
+// rectangle from r. The rectangle header must already have been consumed.
+func ReadExtendedDesktopSizeWire(r io.Reader) (*ExtendedDesktopSizeWire, error) {
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return nil, err
+	}
+	w := &ExtendedDesktopSizeWire{NumScreens: header[0]}
+	w.Screens = make([]ScreenWire, int(w.NumScreens))
+	for i := range w.Screens {
+		screen := make([]byte, 16)
+		if _, err := io.ReadFull(r, screen); err != nil {
+			return nil, err
+		}
+		if err := w.Screens[i].WireUnmarshal(screen); err != nil {
+			return nil, err
+		}
+	}
+	return w, nil
+}
+
 // ---- CopyRect Pseudo-Encoding Wire (§7.7.2) ----
 // Wire: src_x(2 BE) + src_y(2 BE) + dest_x(2 BE) + dest_y(2 BE)
 
 type CopyRectWire struct {
-	SrcX, SrcY uint16
+	SrcX, SrcY   uint16
 	DestX, DestY uint16
 }
 

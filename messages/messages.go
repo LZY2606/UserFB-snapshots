@@ -22,6 +22,9 @@ const (
 	KeyEvent
 	PointerEvent
 	ClientCutText
+
+	// SetDesktopSize is defined by the RFB desktop resizing extension.
+	SetDesktopSize ClientMessage = 251
 )
 
 //-----------------------------------------------------------------------------
