@@ -124,6 +124,7 @@ vec3 cast_ray(const vec3 &orig, const vec3 &dir, const int depth=0) {
     return material.diffuse_color * diffuse_light_intensity * material.albedo[0] + vec3{1., 1., 1.}*specular_light_intensity * material.albedo[1] + reflect_color*material.albedo[2] + refract_color*material.albedo[3];
 }
 
+#ifndef TINYRT_NO_MAIN
 int main() {
     constexpr int   width  = 1024;
     constexpr int   height = 768;
@@ -147,3 +148,5 @@ int main() {
     return 0;
 }
 
+
+#endif // TINYRT_NO_MAIN
