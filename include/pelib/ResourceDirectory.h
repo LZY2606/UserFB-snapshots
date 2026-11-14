@@ -13,7 +13,10 @@
 #ifndef RESOURCEDIRECTORY_H
 #define RESOURCEDIRECTORY_H
 
+#include <algorithm>
+#include <cstdint>
 #include <set>
+#include <vector>
 
 #include "pelib/PeLibInc.h"
 #include "pelib/PeHeader.h"
@@ -23,6 +26,77 @@ namespace PeLib
 	class ResourceElement;
 	class ResourceDirectory;
 	template <int bits> class ResourceDirectoryT;
+	template <int bits> struct ResourceReader;
+
+	/// A contiguous range of RVAs and the file offset where its raw bytes start.
+	struct ResourceImageMapping
+	{
+		/// First RVA of the mapping.
+		std::uint64_t rvaBegin;
+		/// One past the last RVA of the mapping.
+		std::uint64_t rvaEnd;
+		/// File offset of the byte at rvaBegin.
+		std::uint64_t fileBegin;
+	};
+
+	/// Builds the RVA-to-file mapping of an image for the resource reader.
+	template <int bits>
+	struct ResourceReader
+	{
+		/// Returns the ranges of RVAs that are backed by real file bytes.
+		static std::vector<ResourceImageMapping> buildImageMappings(
+				const PeHeaderT<bits>& peHeader,
+				std::uint64_t uiFileSize)
+		{
+			std::vector<ResourceImageMapping> mappings;
+
+			// RVAs below SizeOfHeaders are mapped one-to-one onto the file, but
+			// only as far as real file bytes exist.
+			const std::uint64_t uiHeadersSize =
+					std::min<std::uint64_t>(peHeader.getSizeOfHeaders(), uiFileSize);
+			if (uiHeadersSize > 0)
+			{
+				mappings.push_back({0, uiHeadersSize, 0});
+			}
+
+			// Sections are not assumed to be sorted by virtual address. Only
+			// their raw bytes are mapped; the zero-filled tail implied by
+			// VirtualSize is not resource content.
+			for (word i = 0; i < peHeader.calcNumberOfSections(); ++i)
+			{
+				const std::uint64_t uiRawSize = peHeader.getSizeOfRawData(i);
+				const std::uint64_t uiRawOffset = peHeader.getPointerToRawData(i);
+				if (uiRawSize == 0 || uiRawOffset == 0 || uiRawOffset >= uiFileSize)
+				{
+					continue;
+				}
+
+				const std::uint64_t uiVirtualAddress = peHeader.getVirtualAddress(i);
+				const std::uint64_t uiAvailableRawSize =
+						std::min(uiRawSize, uiFileSize - uiRawOffset);
+				if (uiAvailableRawSize == 0)
+				{
+					continue;
+				}
+
+				mappings.push_back({
+					uiVirtualAddress,
+					uiVirtualAddress + uiAvailableRawSize,
+					uiRawOffset
+				});
+			}
+
+			std::sort(
+					mappings.begin(),
+					mappings.end(),
+					[](const ResourceImageMapping& left, const ResourceImageMapping& right) {
+						return left.rvaBegin < right.rvaBegin;
+					}
+			);
+
+			return mappings;
+		}
+	};
 
 	/// The class ResourceChild is used to store information about a resource node.
 	class ResourceChild
@@ -99,13 +173,14 @@ namespace PeLib
 		friend class ResourceChild;
 		friend class ResourceNode;
 		friend class ResourceLeaf;
+		friend class ResourceDirectory;
 
 		protected:
 		  /// Stores RVA of the resource element in the file.
 		  unsigned int uiElementRva;
 
-		  /// Reads the next resource element from the InputBuffer.
-		  virtual int read(std::istream&, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, ResourceDirectory* resDir) = 0;
+		  /// Reads the next resource element from the input stream.
+		  virtual int read(std::istream&, unsigned int, ResourceDirectory*) = 0;
 		  /// Writes the next resource element into the OutputBuffer.
 		  virtual void rebuild(OutputBuffer&, unsigned int, unsigned int, const std::string&) const = 0;
 		  /// Recalculates the tree for different RVA.
@@ -141,7 +216,7 @@ namespace PeLib
 		  PELIB_IMAGE_RESOURCE_DATA_ENTRY entry;
 
 		protected:
-		  int read(std::istream& inStream, unsigned int uiRsrcOffset, unsigned int uiOffset, unsigned int uiRva, unsigned int uiFileSize, unsigned int uiSizeOfImage, ResourceDirectory* resDir);
+		  int read(std::istream& inStream, unsigned int uiOffset, ResourceDirectory* resDir);
 		  /// Writes the next resource leaf into the OutputBuffer.
 		  void rebuild(OutputBuffer&, unsigned int uiOffset, unsigned int uiRva, const std::string&) const;
 		  /// Recalculates the tree for different RVA.
@@ -199,7 +274,7 @@ namespace PeLib
 
 		protected:
 		  /// Reads the next resource node.
-		  int read(std::istream& inStream, unsigned int uiRsrcOffset, unsigned int uiOffset, unsigned int uiRva, unsigned int uiFileSize, unsigned int uiSizeOfImage, ResourceDirectory* resDir);
+		  int read(std::istream& inStream, unsigned int uiOffset, ResourceDirectory* resDir);
 		  /// Writes the next resource node into the OutputBuffer.
 		  void rebuild(OutputBuffer&, unsigned int uiOffset, unsigned int uiRva, const std::string&) const;
 		  /// Recalculates the tree for different RVA.
@@ -341,6 +416,9 @@ namespace PeLib
 	**/
 	class ResourceDirectory
 	{
+		friend class ResourceNode;
+		friend class ResourceLeaf;
+
 		protected:
 		  /// Start offset of directory in file.
 		  unsigned int m_readOffset;
@@ -352,6 +430,45 @@ namespace PeLib
 		  std::vector<std::pair<unsigned int, unsigned int>> m_occupiedAddresses;
 		  /// Error detected by the import table parser
 		  LoaderError m_ldrError;
+
+		  /// RVA ranges of the image that are backed by real file bytes.
+		  std::vector<ResourceImageMapping> m_imageMappings;
+		  /// Size of the image file that is currently being read.
+		  std::uint64_t m_imageFileSize;
+		  /// SizeOfImage of the image that is currently being read.
+		  unsigned int m_sizeOfImage;
+		  /// RVA of the resource directory that is currently being read.
+		  unsigned int m_resourceDirRva;
+		  /// Relative directory offsets on the path from the root to the current node.
+		  std::vector<unsigned int> m_directoryAncestors;
+
+		  /// Reads a byte range from the image through the RVA-to-file mapping.
+		  int readMappedBytes(
+				  std::istream& inStream,
+				  std::uint64_t uiRva,
+				  std::uint64_t uiSize,
+				  std::vector<byte>& vData) const;
+
+		  /// Converts an RVA to a file offset using the image mappings.
+		  bool mapRvaToFileOffset(std::uint64_t uiRva, std::uint64_t& uiFileOffset) const;
+
+		  /// Records an occupied RVA range, clamping malformed ends to the last RVA.
+		  void addOccupiedAddressRangeU64(std::uint64_t start, std::uint64_t end);
+
+		  /// Resets all state that belongs to a single read.
+		  void resetReadState();
+
+		  /// Checks if a directory offset is on the current ancestor path.
+		  bool isDirectoryAncestor(unsigned int uiOffset) const;
+		  /// Adds a directory offset to the current ancestor path.
+		  void pushDirectoryAncestor(unsigned int uiOffset);
+		  /// Removes the last directory offset from the current ancestor path.
+		  void popDirectoryAncestor();
+
+		  /// Follows the first branch from an element down to its first leaf.
+		  static const ResourceLeaf* firstLeaf(const ResourceElement* element);
+		  /// Follows the first branch from an element down to its first leaf.
+		  static ResourceLeaf* firstLeaf(ResourceElement* element);
 
 		  // Prepare for some crazy syntax below to make Digital Mars happy.
 
@@ -707,9 +824,42 @@ namespace PeLib
 	template<typename S, typename T>
 	int ResourceDirectory::getResourceDataT(S restypeid, T resid, std::vector<byte>& data) const
 	{
-		std::vector<ResourceChild>::const_iterator ResIter = locateResourceT(restypeid, resid);
-		ResourceNode* currNode = static_cast<ResourceNode*>(ResIter->child);
-		ResourceLeaf* currLeaf = static_cast<ResourceLeaf*>(currNode->children[0].child);
+		data.clear();
+
+		auto TypeIter = std::find_if(
+				m_rnRoot.children.begin(),
+				m_rnRoot.children.end(),
+				[&](const auto& res) { return res.hasEqual(restypeid); }
+		);
+		if (TypeIter == m_rnRoot.children.end() || !TypeIter->child)
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
+		const ResourceNode* currNode = dynamic_cast<const ResourceNode*>(TypeIter->child);
+		if (!currNode)
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
+		auto ResIter = std::find_if(
+				currNode->children.begin(),
+				currNode->children.end(),
+				[&](const auto& res) { return res.hasEqual(resid); }
+		);
+		if (ResIter == currNode->children.end())
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
+		// The resource may be a leaf directly or a directory holding the
+		// language leaves.
+		const ResourceLeaf* currLeaf = firstLeaf(ResIter->child);
+		if (!currLeaf)
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
 		data.assign(currLeaf->m_data.begin(), currLeaf->m_data.end());
 
 		return ERROR_NONE;
@@ -725,8 +875,17 @@ namespace PeLib
 	int ResourceDirectory::setResourceDataT(S restypeid, T resid, std::vector<byte>& data)
 	{
 		std::vector<ResourceChild>::iterator ResIter = locateResourceT(restypeid, resid);
-		ResourceNode* currNode = static_cast<ResourceNode*>(ResIter->child);
-		ResourceLeaf* currLeaf = static_cast<ResourceLeaf*>(currNode->children[0].child);
+		if (ResIter == m_rnRoot.children.end())
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
+		ResourceLeaf* currLeaf = firstLeaf(ResIter->child);
+		if (!currLeaf)
+		{
+			return ERROR_ENTRY_NOT_FOUND;
+		}
+
 		currLeaf->m_data.assign(data.begin(), data.end());
 
 		return ERROR_NONE;
@@ -799,6 +958,22 @@ namespace PeLib
 
 	/**
 	* Reads the resource directory from a file.
+	*
+	* Coordinates: all bytes of the resource structure are addressed by RVAs.
+	* A directory header, an entry array, a UTF-16 name, and a data descriptor
+	* are located by adding their directory-relative offset to the RVA of the
+	* resource directory. A leaf's OffsetToData is an independent RVA and is
+	* never interpreted relative to the resource directory. File offsets are
+	* used only internally: each RVA is translated through the section mapping
+	* that backs it, so a structure may span two virtually adjacent sections
+	* whose raw data is not adjacent in the file. Sizes, CodePage, Reserved,
+	* and getElementRva() stay raw values and getOccupiedAddresses() stays in
+	* RVA space.
+	*
+	* Repeated reads: the same ResourceDirectory may read several images. The
+	* tree, node offsets, occupied ranges, and loader error are reset first,
+	* so after a successful read only the last image is visible.
+	*
 	* @param inStream Input stream.
 	* @param peHeader A valid PE header which is necessary because some RVA
 	* calculations need to be done.
@@ -809,11 +984,13 @@ namespace PeLib
 			const PeHeaderT<bits>& peHeader)
 	{
 		unsigned int uiResDirRva = peHeader.getIddResourceRva();
-		unsigned int uiOffset = peHeader.rvaToOffset(uiResDirRva);
 
-		m_resourceNodeOffsets.clear();
-		m_readOffset = uiOffset;
-		if (!uiOffset)
+		resetReadState();
+		m_resourceDirRva = uiResDirRva;
+		m_sizeOfImage = peHeader.getSizeOfImage();
+
+		// A zero RVA means the image has no resource directory.
+		if (uiResDirRva == 0)
 		{
 			return ERROR_INVALID_FILE;
 		}
@@ -825,15 +1002,30 @@ namespace PeLib
 			return ERROR_OPENING_FILE;
 		}
 
-		std::uint64_t ulFileSize = fileSize(inStream_w);
-		if (ulFileSize < uiOffset)
+		m_imageFileSize = fileSize(inStream_w);
+		m_imageMappings = ResourceReader<bits>::buildImageMappings(peHeader, m_imageFileSize);
+
+		std::uint64_t uiOffset = 0;
+		if (!mapRvaToFileOffset(uiResDirRva, uiOffset)
+			|| uiOffset >= m_imageFileSize
+			|| uiResDirRva >= m_sizeOfImage)
 		{
 			return ERROR_INVALID_FILE;
 		}
 
-		inStream_w.seekg(uiOffset, std::ios::beg);
+		m_readOffset = static_cast<unsigned int>(uiOffset);
 
-		return m_rnRoot.read(inStream_w, uiOffset, 0, uiResDirRva, ulFileSize, peHeader.getSizeOfImage(), this);
+		const int result = m_rnRoot.read(inStream_w, 0, this);
+		if (result != ERROR_NONE)
+		{
+			// Do not leave a partially-read tree behind after a failed read.
+			m_rnRoot.children.clear();
+			m_resourceNodeOffsets.clear();
+			m_occupiedAddresses.clear();
+			m_readOffset = 0;
+		}
+
+		return result;
 	}
 }
 

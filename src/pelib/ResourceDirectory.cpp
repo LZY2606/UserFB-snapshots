@@ -12,6 +12,10 @@
 
 #include "pelib/ResourceDirectory.h"
 
+#include <algorithm>
+#include <cstring>
+#include <limits>
+
 namespace PeLib
 {
 
@@ -302,35 +306,41 @@ namespace PeLib
 
 	/**
 	* Reads the next resource leaf from the input file.
+	* The leaf's data descriptor is addressed relative to the resource directory RVA.
+	* Its OffsetToData member is an independent RVA and is not translated through
+	* the resource directory.
 	* @param inStream An input stream.
-	* @param uiRsrcOffset Offset of resource directory in the file.
-	* @param uiOffset Offset of the resource leaf that's to be read.
-	* @param uiRva RVA of the beginning of the resource directory.
-	* @param uiFileSize Size of the input file.
+	* @param uiOffset Offset of the resource leaf relative to the resource directory.
 	* @param resDir Resource directory.
 	**/
 	int ResourceLeaf::read(
 			std::istream& inStream,
-			unsigned int uiRsrcOffset,
 			unsigned int uiOffset,
-			unsigned int uiRva,
-			unsigned int uiFileSize,
-			unsigned int /* uiSizeOfImage */,
 			ResourceDirectory* resDir)
 	{
-		IStreamWrapper inStream_w(inStream);
-
-		// Invalid leaf.
-		if (uiRsrcOffset + uiOffset + PELIB_IMAGE_RESOURCE_DATA_ENTRY::size() > fileSize(inStream_w))
+		if (!resDir)
 		{
 			return ERROR_INVALID_FILE;
 		}
 
-		uiElementRva = uiOffset + uiRva;
+		const std::uint64_t uiDescriptorRva =
+				static_cast<std::uint64_t>(resDir->m_resourceDirRva) + uiOffset;
+		if (uiDescriptorRva > std::numeric_limits<unsigned int>::max())
+		{
+			return ERROR_INVALID_FILE;
+		}
 
-		std::vector<unsigned char> vResourceDataEntry(PELIB_IMAGE_RESOURCE_DATA_ENTRY::size());
-		inStream_w.seekg(uiRsrcOffset + uiOffset, std::ios_base::beg);
-		inStream_w.read(reinterpret_cast<char*>(vResourceDataEntry.data()), PELIB_IMAGE_RESOURCE_DATA_ENTRY::size());
+		std::vector<byte> vResourceDataEntry;
+		if (resDir->readMappedBytes(
+				inStream,
+				uiDescriptorRva,
+				PELIB_IMAGE_RESOURCE_DATA_ENTRY::size(),
+				vResourceDataEntry) != ERROR_NONE)
+		{
+			return ERROR_INVALID_FILE;
+		}
+
+		uiElementRva = static_cast<unsigned int>(uiDescriptorRva);
 
 		InputBuffer inpBuffer(vResourceDataEntry);
 
@@ -343,32 +353,21 @@ namespace PeLib
 
 		m_data.clear();
 
-		unsigned int uiEntrySize = std::min(entry.Size, uiFileSize);
-
 		// No data.
-		if (!(entry.OffsetToData - uiRva + entry.Size))
-		{
-			return ERROR_NONE;
-		}
-		// Invalid leaf.
-		else if (uiRsrcOffset + (entry.OffsetToData - uiRva) + uiEntrySize > uiFileSize)
-		{
-			return ERROR_NONE;
-		}
-		else if (entry.OffsetToData < uiRva)
+		if (entry.Size == 0)
 		{
 			return ERROR_NONE;
 		}
 
-		m_data.resize(uiEntrySize);
-
-		inStream_w.seekg(uiRsrcOffset + (entry.OffsetToData - uiRva), std::ios_base::beg);
-		inStream_w.read(reinterpret_cast<char*>(m_data.data()), uiEntrySize);
-
-		if (uiEntrySize > 0)
+		// The payload is located through its own RVA. It may live before the
+		// resource directory, in the headers, or in a different section.
+		if (resDir->readMappedBytes(inStream, entry.OffsetToData, entry.Size, m_data) != ERROR_NONE)
 		{
-			resDir->addOccupiedAddressRange(entry.OffsetToData, entry.OffsetToData + uiEntrySize - 1);
+			m_data.clear();
+			return ERROR_INVALID_FILE;
 		}
+
+		resDir->addOccupiedAddressRangeU64(entry.OffsetToData, entry.OffsetToData + m_data.size() - 1);
 
 		return ERROR_NONE;
 	}
@@ -647,35 +646,44 @@ namespace PeLib
 
 	/**
 	* Reads the next resource node from the input file.
+	* All directory-relative offsets are relative to the resource directory RVA.
 	* @param inStream An input stream.
-	* @param uiRsrcOffset Offset of resource directory in the file.
-	* @param uiOffset Offset of the resource node that's to be read.
-	* @param uiRva RVA of the beginning of the resource directory.
-	* @param uiFileSize Size of the input file.
+	* @param uiOffset Offset of the resource node relative to the resource directory.
 	* @param resDir Resource directory.
 	**/
 	int ResourceNode::read(
 			std::istream& inStream,
-			unsigned int uiRsrcOffset,
 			unsigned int uiOffset,
-			unsigned int uiRva,
-			unsigned int uiFileSize,
-			unsigned int uiSizeOfImage,
 			ResourceDirectory* resDir)
 	{
-		IStreamWrapper inStream_w(inStream);
-
-		// Not enough space to be a valid node.
-		if (!resDir || uiRsrcOffset + uiOffset + PELIB_IMAGE_RESOURCE_DIRECTORY::size() > fileSize(inStream_w))
+		if (!resDir)
 		{
 			return ERROR_INVALID_FILE;
 		}
 
-		uiElementRva = uiOffset + uiRva;
+		const std::uint64_t uiDirectoryRva =
+				static_cast<std::uint64_t>(resDir->m_resourceDirRva) + uiOffset;
+		if (uiDirectoryRva > std::numeric_limits<unsigned int>::max())
+		{
+			return ERROR_INVALID_FILE;
+		}
 
-		std::vector<unsigned char> vResourceDirectory(PELIB_IMAGE_RESOURCE_DIRECTORY::size());
-		inStream_w.seekg(uiRsrcOffset + uiOffset, std::ios_base::beg);
-		inStream_w.read(reinterpret_cast<char*>(vResourceDirectory.data()), PELIB_IMAGE_RESOURCE_DIRECTORY::size());
+		uiElementRva = static_cast<unsigned int>(uiDirectoryRva);
+
+		// Directories are identified by the same relative offset scheme as the
+		// entries that reference them. This set is public bookkeeping; siblings
+		// may share a directory, so it never truncates traversal.
+		resDir->insertNodeOffset(uiOffset);
+
+		std::vector<byte> vResourceDirectory;
+		if (resDir->readMappedBytes(
+				inStream,
+				uiDirectoryRva,
+				PELIB_IMAGE_RESOURCE_DIRECTORY::size(),
+				vResourceDirectory) != ERROR_NONE)
+		{
+			return ERROR_INVALID_FILE;
+		}
 
 		InputBuffer inpBuffer(vResourceDirectory);
 
@@ -694,23 +702,23 @@ namespace PeLib
 		// If the total number of resource entries goes beyond the image, the file is refused to run
 		// Sample: 6318b0a1b57fc70bce5314aefb6cb06c90b7991afeae4e91ffc05ee0c88947d7
 		// However, such sample can still be executed in Windows XP - based emulator
-		if ((uiRva + (uiNumberOfEntries * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size())) > uiSizeOfImage)
+		if ((uiDirectoryRva + (uiNumberOfEntries * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size())) > resDir->m_sizeOfImage)
 		{
 			resDir->setLoaderError(LDR_ERROR_RSRC_OVER_END_OF_IMAGE);
 			return ERROR_NONE;
 		}
 
-		// Not enough space to be a valid node.
-		if (uiRsrcOffset + uiOffset + PELIB_IMAGE_RESOURCE_DIRECTORY::size() + uiNumberOfEntries * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size() > fileSize(inStream_w))
+		std::vector<byte> vResourceChildren;
+		const std::uint64_t uiChildrenRva =
+				uiDirectoryRva + PELIB_IMAGE_RESOURCE_DIRECTORY::size();
+		const std::uint64_t uiChildrenSize =
+				static_cast<std::uint64_t>(uiNumberOfEntries) * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size();
+		if (resDir->readMappedBytes(inStream, uiChildrenRva, uiChildrenSize, vResourceChildren) != ERROR_NONE)
 		{
 			return ERROR_INVALID_FILE;
 		}
-
-		std::vector<unsigned char> vResourceChildren(uiNumberOfEntries * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size());
-		inStream_w.read(reinterpret_cast<char*>(vResourceChildren.data()), uiNumberOfEntries * PELIB_IMAGE_RESOURCE_DIRECTORY_ENTRY::size());
 		InputBuffer childInpBuffer(vResourceChildren);
 
-		resDir->insertNodeOffset(uiOffset);
 		if (uiNumberOfEntries > 0)
 		{
 			resDir->addOccupiedAddressRange(
@@ -719,59 +727,70 @@ namespace PeLib
 				);
 		}
 
+		// A directory that refers back to one of its own ancestors is a cycle.
+		resDir->pushDirectoryAncestor(uiOffset);
+
 		for (unsigned int i = 0; i < uiNumberOfEntries; ++i)
 		{
 			ResourceChild rc;
 			childInpBuffer >> rc.entry.irde.Name;
 			childInpBuffer >> rc.entry.irde.OffsetToData;
 
-			unsigned int lastPos = inStream_w.tellg();
-
 			if (rc.entry.irde.Name & PELIB_IMAGE_RESOURCE_NAME_IS_STRING)
 			{
-				// Enough space to read string length?
-				if ((rc.entry.irde.Name & ~PELIB_IMAGE_RESOURCE_NAME_IS_STRING) + 2 < fileSize(inStream_w))
+				const std::uint64_t uiNameRva =
+						static_cast<std::uint64_t>(resDir->m_resourceDirRva)
+						+ (rc.entry.irde.Name & ~PELIB_IMAGE_RESOURCE_NAME_IS_STRING);
+
+				std::vector<byte> vNameLength;
+				if (resDir->readMappedBytes(inStream, uiNameRva, sizeof(word), vNameLength) != ERROR_NONE)
 				{
-					unsigned int uiNameOffset = rc.entry.irde.Name & ~PELIB_IMAGE_RESOURCE_NAME_IS_STRING;
-					if (uiRsrcOffset + uiNameOffset + sizeof(word) > fileSize(inStream_w))
-					{
-						return ERROR_INVALID_FILE;
-					}
-
-					inStream_w.seekg(uiRsrcOffset + uiNameOffset, std::ios_base::beg);
-
-					word len;
-					inStream_w.read(reinterpret_cast<char*>(&len), sizeof(word));
-
-					// Enough space to read string?
-					if (uiRsrcOffset + uiNameOffset + 2 * len > fileSize(inStream_w))
-					{
-						return ERROR_INVALID_FILE;
-					}
-
-					// jk: This construction is incorrect on 64bit systems
-					// wchar_t c;
-					word c;
-					for (word ii=0; ii<len; ++ii)
-					{
-						inStream_w.read(reinterpret_cast<char*>(&c), sizeof(word));
-						rc.entry.wstrName += c;
-					}
+					resDir->popDirectoryAncestor();
+					return ERROR_INVALID_FILE;
 				}
 
-				inStream_w.seekg(lastPos, std::ios_base::beg);
+				word len;
+				std::memcpy(&len, vNameLength.data(), sizeof(len));
+
+				// Each UTF-16 code unit is two bytes.
+				std::vector<byte> vName;
+				if (resDir->readMappedBytes(
+						inStream,
+						uiNameRva + sizeof(word),
+						static_cast<std::uint64_t>(len) * sizeof(word),
+						vName) != ERROR_NONE)
+				{
+					resDir->popDirectoryAncestor();
+					return ERROR_INVALID_FILE;
+				}
+
+				for (word ii = 0; ii < len; ++ii)
+				{
+					word c;
+					std::memcpy(&c, vName.data() + static_cast<std::size_t>(ii) * sizeof(word), sizeof(c));
+					rc.entry.wstrName += c;
+				}
+
+				// The name occupies a contiguous RVA range even when the bytes
+				// come from different file offsets.
+				const std::uint64_t uiNameSize =
+						sizeof(word) + static_cast<std::uint64_t>(len) * sizeof(word);
+				resDir->addOccupiedAddressRangeU64(uiNameRva, uiNameRva + uiNameSize - 1);
 			}
 
 			const auto value = (rc.entry.irde.OffsetToData & PELIB_IMAGE_RESOURCE_DATA_IS_DIRECTORY) ?
 				(rc.entry.irde.OffsetToData & ~PELIB_IMAGE_RESOURCE_DATA_IS_DIRECTORY) : rc.entry.irde.OffsetToData;
-			// Detect cycles to prevent infinite recursion.
-			if (resDir->hasNodeOffset(value))
-			{
-				return ERROR_NONE;
-			}
 
 			if (rc.entry.irde.OffsetToData & PELIB_IMAGE_RESOURCE_DATA_IS_DIRECTORY)
 			{
+				// A directory may legally be shared by two sibling entries, but a
+				// directory may never point back to one of its own ancestors.
+				if (resDir->isDirectoryAncestor(value))
+				{
+					resDir->popDirectoryAncestor();
+					return ERROR_INVALID_FILE;
+				}
+
 				rc.child = new ResourceNode;
 			}
 			else
@@ -779,14 +798,16 @@ namespace PeLib
 				rc.child = new ResourceLeaf;
 			}
 
-			if (rc.child->read(inStream_w, uiRsrcOffset, value, uiRva, uiFileSize, uiSizeOfImage, resDir) != ERROR_NONE)
+			if (rc.child->read(inStream, value, resDir) != ERROR_NONE)
 			{
+				resDir->popDirectoryAncestor();
 				return ERROR_INVALID_FILE;
 			}
 
 			children.push_back(rc);
-			inStream_w.seekg(lastPos, std::ios_base::beg);
 		}
+
+		resDir->popDirectoryAncestor();
 
 		return ERROR_NONE;
 	}
@@ -1041,7 +1062,9 @@ namespace PeLib
 	/**
 	* Constructor
 	*/
-	ResourceDirectory::ResourceDirectory() : m_readOffset(0), m_ldrError(LDR_ERROR_NONE)
+	ResourceDirectory::ResourceDirectory()
+		: m_readOffset(0), m_ldrError(LDR_ERROR_NONE),
+		  m_imageFileSize(0), m_sizeOfImage(0), m_resourceDirRva(0)
 	{
 
 	}
@@ -1575,9 +1598,25 @@ namespace PeLib
 	**/
 	void ResourceDirectory::getResourceDataByIndex(unsigned int uiResTypeIndex, unsigned int uiResIndex, std::vector<byte>& data) const
 	{
-		ResourceNode* currNode = static_cast<ResourceNode*>(m_rnRoot.children[uiResTypeIndex].child);
-		currNode = static_cast<ResourceNode*>(currNode->children[uiResIndex].child);
-		ResourceLeaf* currLeaf = static_cast<ResourceLeaf*>(currNode->children[0].child);
+		data.clear();
+
+		if (uiResTypeIndex >= m_rnRoot.children.size() || !m_rnRoot.children[uiResTypeIndex].child)
+		{
+			return;
+		}
+
+		const ResourceNode* typeNode = dynamic_cast<const ResourceNode*>(
+				m_rnRoot.children[uiResTypeIndex].child);
+		if (!typeNode || uiResIndex >= typeNode->children.size())
+		{
+			return;
+		}
+
+		const ResourceLeaf* currLeaf = firstLeaf(typeNode->children[uiResIndex].child);
+		if (!currLeaf)
+		{
+			return;
+		}
 
 		data.assign(currLeaf->m_data.begin(), currLeaf->m_data.end());
 	}
@@ -1637,9 +1676,24 @@ namespace PeLib
 	**/
 	void ResourceDirectory::setResourceDataByIndex(unsigned int uiResTypeIndex, unsigned int uiResIndex, std::vector<byte>& data)
 	{
-		ResourceNode* currNode = static_cast<ResourceNode*>(m_rnRoot.children[uiResTypeIndex].child);
-		currNode = static_cast<ResourceNode*>(currNode->children[uiResIndex].child);
-		ResourceLeaf* currLeaf = static_cast<ResourceLeaf*>(currNode->children[0].child);
+		if (uiResTypeIndex >= m_rnRoot.children.size() || !m_rnRoot.children[uiResTypeIndex].child)
+		{
+			return;
+		}
+
+		ResourceNode* typeNode = dynamic_cast<ResourceNode*>(
+				m_rnRoot.children[uiResTypeIndex].child);
+		if (!typeNode || uiResIndex >= typeNode->children.size())
+		{
+			return;
+		}
+
+		ResourceLeaf* currLeaf = firstLeaf(typeNode->children[uiResIndex].child);
+		if (!currLeaf)
+		{
+			return;
+		}
+
 		currLeaf->m_data.assign(data.begin(), data.end());
 	}
 
@@ -1846,8 +1900,237 @@ namespace PeLib
 		m_occupiedAddresses.emplace_back(start, end);
 	}
 
+	/**
+	* Records an occupied range that was computed in 64-bit arithmetic. The
+	* last addressable RVA is used as an upper clamp so malformed values cannot
+	* wrap around the 32-bit occupied-address representation.
+	**/
+	void ResourceDirectory::addOccupiedAddressRangeU64(std::uint64_t start, std::uint64_t end)
+	{
+		const std::uint64_t uiMax = std::numeric_limits<unsigned int>::max();
+		const unsigned int uiStart = static_cast<unsigned int>(std::min(start, uiMax));
+		const unsigned int uiEnd = static_cast<unsigned int>(std::min(end, uiMax));
+		m_occupiedAddresses.emplace_back(uiStart, std::max(uiStart, uiEnd));
+	}
+
 	const std::vector<std::pair<unsigned int, unsigned int>>& ResourceDirectory::getOccupiedAddresses() const
 	{
 		return m_occupiedAddresses;
+	}
+
+	/**
+	* Clears all state that belongs to one read. A ResourceDirectory can be
+	* read more than once; only the last image's tree, occupied ranges and loader
+	* error are retained.
+	**/
+	void ResourceDirectory::resetReadState()
+	{
+		m_rnRoot.children.clear();
+		m_rnRoot.header = PELIB_IMAGE_RESOURCE_DIRECTORY();
+		m_rnRoot.uiElementRva = 0;
+		m_resourceNodeOffsets.clear();
+		m_occupiedAddresses.clear();
+		m_ldrError = LDR_ERROR_NONE;
+		m_readOffset = 0;
+		m_imageMappings.clear();
+		m_imageFileSize = 0;
+		m_sizeOfImage = 0;
+		m_resourceDirRva = 0;
+		m_directoryAncestors.clear();
+	}
+
+	/**
+	* Follows the first branch of an element down to a leaf. A resource entry
+	* may point directly at a leaf or at a directory whose first child is the
+	* language leaf. Returns nullptr if the branch is malformed.
+	**/
+	const ResourceLeaf* ResourceDirectory::firstLeaf(const ResourceElement* element)
+	{
+		while (element && !element->isLeaf())
+		{
+			const ResourceNode* node = dynamic_cast<const ResourceNode*>(element);
+			if (!node || node->children.empty() || !node->children[0].child)
+			{
+				return nullptr;
+			}
+			element = node->children[0].child;
+		}
+
+		return dynamic_cast<const ResourceLeaf*>(element);
+	}
+
+	/**
+	* Follows the first branch of an element down to a leaf. A resource entry
+	* may point directly at a leaf or at a directory whose first child is the
+	* language leaf. Returns nullptr if the branch is malformed.
+	**/
+	ResourceLeaf* ResourceDirectory::firstLeaf(ResourceElement* element)
+	{
+		while (element && !element->isLeaf())
+		{
+			ResourceNode* node = dynamic_cast<ResourceNode*>(element);
+			if (!node || node->children.empty() || !node->children[0].child)
+			{
+				return nullptr;
+			}
+			element = node->children[0].child;
+		}
+
+		return dynamic_cast<ResourceLeaf*>(element);
+	}
+
+	/**
+	* Converts an RVA to a file offset through the image mappings.
+	* @return True if the RVA is backed by a single mapping.
+	**/
+	bool ResourceDirectory::mapRvaToFileOffset(std::uint64_t uiRva, std::uint64_t& uiFileOffset) const
+	{
+		const ResourceImageMapping* pSelected = nullptr;
+		for (const auto& mapping : m_imageMappings)
+		{
+			if (mapping.rvaBegin <= uiRva && uiRva < mapping.rvaEnd)
+			{
+				// More than one mapping describes the same RVA: the image is
+				// ambiguous and we cannot tell which bytes are authoritative.
+				if (pSelected)
+				{
+					return false;
+				}
+				pSelected = &mapping;
+			}
+		}
+
+		if (!pSelected)
+		{
+			return false;
+		}
+
+		uiFileOffset = pSelected->fileBegin + (uiRva - pSelected->rvaBegin);
+		return true;
+	}
+
+	/**
+	* Reads a byte range addressed by RVAs. The bytes are taken from whatever
+	* file-backed mapping contains each part of the range, so a descriptor or a
+	* payload may span two virtually adjacent sections with unrelated file
+	* offsets. A hole in the mapping or an ambiguous mapping is an error.
+	**/
+	int ResourceDirectory::readMappedBytes(
+			std::istream& inStream,
+			std::uint64_t uiRva,
+			std::uint64_t uiSize,
+			std::vector<byte>& vData) const
+	{
+		vData.clear();
+
+		if (uiSize == 0)
+		{
+			return ERROR_NONE;
+		}
+
+		if (uiRva > std::numeric_limits<std::uint64_t>::max() - uiSize)
+		{
+			return ERROR_INVALID_FILE;
+		}
+
+		// Every returned byte is a real file byte, so a range larger than the
+		// file itself cannot be genuine. Rejecting it also bounds allocation.
+		if (uiSize > m_imageFileSize)
+		{
+			return ERROR_INVALID_FILE;
+		}
+
+		const std::uint64_t uiEndRva = uiRva + uiSize;
+
+		// Validate the entire range first so that a huge declared size cannot
+		// cause an unreasonable allocation before the hole is discovered.
+		struct Chunk
+		{
+			std::uint64_t fileOffset;
+			std::uint64_t size;
+		};
+		std::vector<Chunk> chunks;
+
+		std::uint64_t uiCurrent = uiRva;
+		while (uiCurrent < uiEndRva)
+		{
+			// Pick exactly one mapping; if a second one also covers the same
+			// RVA, the image is ambiguous.
+			const ResourceImageMapping* pSelected = nullptr;
+			for (const auto& mapping : m_imageMappings)
+			{
+				if (mapping.rvaBegin <= uiCurrent && uiCurrent < mapping.rvaEnd)
+				{
+					if (pSelected)
+					{
+						return ERROR_INVALID_FILE;
+					}
+					pSelected = &mapping;
+				}
+			}
+
+			if (!pSelected)
+			{
+				return ERROR_INVALID_FILE;
+			}
+
+			// Consume the largest possible part of the request that stays in
+			// this mapping. Adjacent mappings are joined naturally by the loop.
+			const std::uint64_t uiChunkEnd = std::min(uiEndRva, pSelected->rvaEnd);
+			const std::uint64_t uiChunkSize = uiChunkEnd - uiCurrent;
+			const std::uint64_t uiFileOffset =
+					pSelected->fileBegin + (uiCurrent - pSelected->rvaBegin);
+
+			if (uiFileOffset > m_imageFileSize || uiChunkSize > m_imageFileSize - uiFileOffset)
+			{
+				return ERROR_INVALID_FILE;
+			}
+
+			chunks.push_back({uiFileOffset, uiChunkSize});
+			uiCurrent = uiChunkEnd;
+		}
+
+		vData.resize(static_cast<std::size_t>(uiSize));
+
+		std::size_t uiWritten = 0;
+		for (const auto& chunk : chunks)
+		{
+			inStream.clear();
+			inStream.seekg(static_cast<std::streamoff>(chunk.fileOffset), std::ios::beg);
+			inStream.read(
+					reinterpret_cast<char*>(vData.data() + uiWritten),
+					static_cast<std::streamsize>(chunk.size));
+
+			if (!inStream || static_cast<std::uint64_t>(inStream.gcount()) != chunk.size)
+			{
+				vData.clear();
+				return ERROR_INVALID_FILE;
+			}
+
+			uiWritten += static_cast<std::size_t>(chunk.size);
+		}
+
+		return ERROR_NONE;
+	}
+
+	bool ResourceDirectory::isDirectoryAncestor(unsigned int uiOffset) const
+	{
+		return std::find(
+				m_directoryAncestors.begin(),
+				m_directoryAncestors.end(),
+				uiOffset) != m_directoryAncestors.end();
+	}
+
+	void ResourceDirectory::pushDirectoryAncestor(unsigned int uiOffset)
+	{
+		m_directoryAncestors.push_back(uiOffset);
+	}
+
+	void ResourceDirectory::popDirectoryAncestor()
+	{
+		if (!m_directoryAncestors.empty())
+		{
+			m_directoryAncestors.pop_back();
+		}
 	}
 }
