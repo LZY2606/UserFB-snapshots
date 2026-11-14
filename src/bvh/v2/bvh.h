@@ -10,8 +10,22 @@
 #include <utility>
 #include <tuple>
 #include <algorithm>
+#include <type_traits>
 
 namespace bvh::v2 {
+
+/// True when `Node` is a wide node (e.g. `WideNode`), whose inner nodes can store more than two
+/// children and which therefore provides its own wide tree operations. Binary `Node`s keep using
+/// the regular two-child code paths below.
+template <typename Node, typename = void>
+struct is_wide_node : std::false_type {};
+
+template <typename Node>
+struct is_wide_node<Node, std::void_t<decltype(Node::max_children)>>
+    : std::bool_constant<(Node::max_children > 2)> {};
+
+template <typename Node>
+inline constexpr bool is_wide_node_v = is_wide_node<Node>::value;
 
 template <typename Node>
 struct Bvh {
@@ -92,6 +106,9 @@ template <typename Node>
 Bvh<Node> Bvh<Node>::extract_bvh(size_t root_id) const {
     assert(root_id != 0);
 
+    if constexpr (is_wide_node_v<Node>) {
+        return Node::wide_extract_bvh(*this, root_id);
+    } else {
     Bvh bvh;
     bvh.nodes.emplace_back();
 
@@ -119,12 +136,19 @@ Bvh<Node> Bvh<Node>::extract_bvh(size_t root_id) const {
         }
     }
     return bvh;
+    }
 }
 
 template <typename Node>
 template <bool IsAnyHit, typename Stack, typename LeafFn, typename InnerFn>
 void Bvh<Node>::traverse_top_down(Index start, Stack& stack, LeafFn&& leaf_fn, InnerFn&& inner_fn) const
 {
+    if constexpr (is_wide_node_v<Node>) {
+        Node::template wide_traverse_top_down<IsAnyHit>(
+            *this, start, stack,
+            std::forward<LeafFn>(leaf_fn), std::forward<InnerFn>(inner_fn));
+    } else {
+
     stack.push(start);
 restart:
     while (!stack.is_empty()) {
@@ -154,11 +178,18 @@ restart:
             if (was_hit) return;
         }
     }
+    }
 }
 
 template <typename Node>
 template <bool IsAnyHit, bool IsRobust, typename Stack, typename LeafFn, typename InnerFn>
 void Bvh<Node>::intersect(const Ray& ray, Index start, Stack& stack, LeafFn&& leaf_fn, InnerFn&& inner_fn) const {
+    if constexpr (is_wide_node_v<Node>) {
+        Node::template wide_intersect<IsAnyHit, IsRobust>(
+            *this, ray, start, stack,
+            std::forward<LeafFn>(leaf_fn), std::forward<InnerFn>(inner_fn));
+    } else {
+
     auto inv_dir = ray.template get_inv_dir<!IsRobust>();
     auto inv_org = -inv_dir * ray.org;
     auto inv_dir_pad = ray.pad_inv_dir(inv_dir);
@@ -179,11 +210,17 @@ void Bvh<Node>::intersect(const Ray& ray, Index start, Stack& stack, LeafFn&& le
             intr_right.first <= intr_right.second,
             !IsAnyHit && intr_left.first > intr_right.first);
     });
+    }
 }
 
 template <typename Node>
 template <typename LeafFn, typename InnerFn>
 void Bvh<Node>::traverse_bottom_up(LeafFn&& leaf_fn, InnerFn&& inner_fn) {
+    if constexpr (is_wide_node_v<Node>) {
+        Node::template wide_traverse_bottom_up<Bvh<Node>&, LeafFn, InnerFn>(
+            *this, std::forward<LeafFn>(leaf_fn), std::forward<InnerFn>(inner_fn));
+    } else {
+
     std::vector<size_t> parents(nodes.size(), 0);
     for (size_t i = 0; i < nodes.size(); ++i) {
         if (nodes[i].is_leaf())
@@ -205,16 +242,30 @@ void Bvh<Node>::traverse_bottom_up(LeafFn&& leaf_fn, InnerFn&& inner_fn) {
             seen[j] = true;
         }
     }
+    }
 }
 
 template <typename Node>
 template <typename LeafFn>
 void Bvh<Node>::refit(LeafFn&& leaf_fn) {
+    if constexpr (is_wide_node_v<Node>) {
+        // Reduces over all the real children (two to four), never over unused slots.
+        traverse_bottom_up(leaf_fn, [&] (Node& node) {
+            const auto first = node.index.first_id();
+            const auto count = node.child_count();
+            auto bbox = BBox<Scalar, Node::dimension>::make_empty();
+            for (size_t slot = 0; slot < count; ++slot)
+                bbox.extend(nodes[first + slot].get_bbox());
+            node.set_bbox(bbox);
+        });
+    } else {
+
     traverse_bottom_up(leaf_fn, [&] (Node& node) {
         const auto& left  = nodes[node.index.first_id()];
         const auto& right = nodes[node.index.first_id() + 1];
         node.set_bbox(left.get_bbox().extend(right.get_bbox()));
     });
+    }
 }
 
 template <typename Node>

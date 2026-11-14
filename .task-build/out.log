@@ -1,0 +1,22 @@
+CASE collapse empty checks=6
+CASE collapse single_leaf checks=8
+CASE collapse three_child checks=8
+CASE collapse four_and_two_child checks=13
+CASE collapse preserves_source checks=9
+CASE collapse multi_primitive_leaves checks=18
+GROUP collapse cases=6 checks=62 COMPLETE
+CASE traversal matches_brute_force checks=32
+CASE traversal any_hit_stops_early checks=6
+CASE traversal callback_shortens_tmax checks=3
+CASE traversal ordering_and_slots checks=11
+GROUP traversal cases=4 checks=52 COMPLETE
+CASE maintenance refit_after_deformation checks=33
+CASE maintenance extract_subtree checks=7
+CASE maintenance deform_then_extract checks=2
+GROUP maintenance cases=3 checks=42 COMPLETE
+CASE persistence roundtrip checks=25
+CASE persistence refit_extract_after_load checks=4
+CASE persistence legacy_binary_layout checks=8
+CASE persistence empty_single_roundtrip checks=5
+GROUP persistence cases=4 checks=42 COMPLETE
+TARGET_COMPLETE cases=17
