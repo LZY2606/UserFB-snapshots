@@ -318,6 +318,8 @@ EXTERN matvar_t *Mat_VarRead(mat_t *mat, const char *name);
 EXTERN int Mat_VarReadData(mat_t *mat, matvar_t *matvar, void *data, const int *start,
                            const int *stride, const int *edge);
 EXTERN int Mat_VarReadDataAll(mat_t *mat, matvar_t *matvar);
+EXTERN int Mat_VarReadSparseSlab(mat_t *mat, const matvar_t *source, const size_t start[2],
+                                 const size_t stride[2], const size_t edge[2], matvar_t **out);
 EXTERN int Mat_VarReadDataLinear(mat_t *mat, matvar_t *matvar, void *data, int start, int stride,
                                  int edge);
 EXTERN matvar_t *Mat_VarReadInfo(mat_t *mat, const char *name);

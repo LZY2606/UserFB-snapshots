@@ -52,6 +52,7 @@ Mat_VarReadNext
 Mat_VarReadNextPredicate
 Mat_VarReadNextInfo
 Mat_VarReadNextInfoPredicate
+Mat_VarReadSparseSlab
 Mat_VarSetCell
 Mat_VarSetStructFieldByIndex
 Mat_VarSetStructFieldByName

@@ -5078,6 +5078,608 @@ GetDataLinear(void *data_in, void *data_out, enum matio_classes class_type,
 #undef GET_DATA_LINEAR
 #endif
 
+/** @brief Reads a data element tag for the sparse slab reader (uncompressed)
+ *
+ * Reads the MAT5 data element tag at the current file position, records the
+ * offset of the element payload, and seeks past the whole element using the
+ * declared (padded) length so unselected data is never read.
+ *
+ * @param mat MAT file pointer
+ * @param elem_type Output: payload data type (MAT_T_UNKNOWN if invalid)
+ * @param elem_nbytes Output: payload length in bytes
+ * @param data_pos Output: file offset of the payload
+ * @param next_pos Output: file offset of the next element
+ * @retval 0 on success
+ */
+static int
+SparseSlabReadTag(mat_t *mat, enum matio_types *elem_type, mat_uint32_t *elem_nbytes,
+                  mat_off_t *data_pos, mat_off_t *next_pos)
+{
+    mat_uint32_t tag[2] = {0, 0};
+    mat_off_t pos;
+    int err;
+
+    err = Read(tag, 4, 1, mat, NULL);
+    if ( err )
+        return MATIO_E_GENERIC_READ_ERROR;
+    if ( mat->byteswap )
+        (void)Mat_uint32Swap(tag);
+    *elem_type = TYPE_FROM_TAG(tag[0]);
+    if ( tag[0] & 0xffff0000 ) { /* Small data element format */
+        *elem_nbytes = (tag[0] & 0xffff0000) >> 16;
+        if ( *elem_nbytes > 4 )
+            return MATIO_E_FILE_FORMAT_VIOLATION;
+        pos = MatTell(mat);
+        if ( pos == -1L )
+            return MATIO_E_GENERIC_READ_ERROR;
+        *data_pos = pos;
+        *next_pos = pos + 4;
+    } else {
+        mat_uint32_t pad;
+        err = Read(tag + 1, 4, 1, mat, NULL);
+        if ( err )
+            return MATIO_E_GENERIC_READ_ERROR;
+        if ( mat->byteswap )
+            (void)Mat_uint32Swap(tag + 1);
+        *elem_nbytes = tag[1];
+        pos = MatTell(mat);
+        if ( pos == -1L )
+            return MATIO_E_GENERIC_READ_ERROR;
+        *data_pos = pos;
+        pad = (*elem_nbytes % 8) ? 8 - (*elem_nbytes % 8) : 0;
+        *next_pos = pos + (mat_off_t)*elem_nbytes + (mat_off_t)pad;
+    }
+    /* Make sure the declared element length does not reach past EOF */
+    if ( *next_pos > pos ) {
+        err = CheckSeekFile(mat, *next_pos - pos);
+        if ( err )
+            return err;
+    }
+    if ( MatSeek(mat, *next_pos, SEEK_SET) )
+        return MATIO_E_GENERIC_READ_ERROR;
+    return MATIO_E_NO_ERROR;
+}
+
+/** @brief Validates the element type of an ir/jc sparse index element
+ * @retval 0 on success
+ */
+static int
+SparseSlabCheckIndexType(enum matio_types type)
+{
+    if ( type == MAT_T_UNKNOWN )
+        return MATIO_E_FILE_FORMAT_VIOLATION;
+    if ( type != MAT_T_INT32 && type != MAT_T_UINT32 )
+        return MATIO_E_OPERATION_NOT_SUPPORTED;
+    return MATIO_E_NO_ERROR;
+}
+
+/** @brief Validates the element type of a double sparse data element
+ * @retval 0 on success
+ */
+static int
+SparseSlabCheckDoubleType(enum matio_types type)
+{
+    if ( type == MAT_T_UNKNOWN )
+        return MATIO_E_FILE_FORMAT_VIOLATION;
+    if ( type != MAT_T_DOUBLE )
+        return MATIO_E_OPERATION_NOT_SUPPORTED;
+    return MATIO_E_NO_ERROR;
+}
+
+/** @brief Stable merge of (k, re, im) triples ordered by k
+ *
+ * Ties keep the source slot order so that values projecting to the same
+ * output coordinate accumulate in source slot order.  Only the integer
+ * coordinate is used for ordering.
+ */
+static void
+SparseSlabMerge(size_t *k, double *re, double *im, size_t *tk, double *tre, double *tim,
+                size_t left, size_t mid, size_t right, int iscomplex)
+{
+    size_t i = left, j = mid, n = left;
+    while ( i < mid && j < right ) {
+        size_t t;
+        if ( k[i] <= k[j] ) {
+            t = i++;
+        } else {
+            t = j++;
+        }
+        tk[n] = k[t];
+        tre[n] = re[t];
+        if ( iscomplex )
+            tim[n] = im[t];
+        n++;
+    }
+    while ( i < mid ) {
+        tk[n] = k[i];
+        tre[n] = re[i];
+        if ( iscomplex )
+            tim[n] = im[i];
+        i++;
+        n++;
+    }
+    while ( j < right ) {
+        tk[n] = k[j];
+        tre[n] = re[j];
+        if ( iscomplex )
+            tim[n] = im[j];
+        j++;
+        n++;
+    }
+    for ( i = left; i < right; i++ ) {
+        k[i] = tk[i];
+        re[i] = tre[i];
+        if ( iscomplex )
+            im[i] = tim[i];
+    }
+}
+
+static void
+SparseSlabSortRec(size_t *k, double *re, double *im, size_t *tk, double *tre, double *tim,
+                  size_t left, size_t right, int iscomplex)
+{
+    if ( right - left > 1 ) {
+        const size_t mid = left + (right - left) / 2;
+        SparseSlabSortRec(k, re, im, tk, tre, tim, left, mid, iscomplex);
+        SparseSlabSortRec(k, re, im, tk, tre, tim, mid, right, iscomplex);
+        SparseSlabMerge(k, re, im, tk, tre, tim, left, mid, right, iscomplex);
+    }
+}
+
+/** @brief Reads a strided 2-D slab of an uncompressed MAT5 sparse variable
+ *
+ * Selects the source entries at @c start[d] + k*stride[d] for
+ * k = 0..edge[d]-1 in each dimension and returns a new sparse variable whose
+ * dimensions are @c edge with coordinates renumbered from zero.  Only the
+ * selected columns are inspected; unselected data elements are skipped by
+ * their tag lengths.  The source variable must have been obtained from
+ * Mat_VarReadInfo (or Mat_VarReadNextInfo) on the same uncompressed MAT5
+ * file and must be a 2-D MAT_C_SPARSE variable with double real or split
+ * complex data on disk.  The file position is restored before returning.
+ *
+ * @ingroup MAT
+ * @param mat MAT file to read from
+ * @param source sparse variable information (not modified)
+ * @param start starting index in each dimension
+ * @param stride stride in each dimension (must be non-zero)
+ * @param edge number of selected indices in each dimension (may be zero)
+ * @param out Output: newly allocated sparse variable (NULL on failure)
+ * @retval 0 on success
+ */
+int
+Mat_VarReadSparseSlab(mat_t *mat, const matvar_t *source, const size_t start[2],
+                      const size_t stride[2], const size_t edge[2], matvar_t **out)
+{
+    int err = MATIO_E_NO_ERROR;
+    int d;
+    const int iscomplex = (NULL != source) ? source->isComplex : 0;
+    mat_off_t fpos = -1L;
+    mat_off_t ir_pos = 0, jc_pos = 0, pr_pos = 0, pi_pos = 0;
+    mat_off_t next_pos = 0;
+    enum matio_types ir_type = MAT_T_UNKNOWN, jc_type = MAT_T_UNKNOWN;
+    enum matio_types pr_type = MAT_T_UNKNOWN, pi_type = MAT_T_UNKNOWN;
+    mat_uint32_t ir_nbytes = 0, jc_nbytes = 0, pr_nbytes = 0, pi_nbytes = 0;
+    size_t nir = 0, njc = 0, ndata = 0;
+    size_t nsel, out_n = 0, out_cap = 0;
+    mat_uint32_t jc_final = 0;
+    mat_uint32_t *col_beg = NULL, *col_end = NULL;
+    mat_uint32_t *out_ir = NULL, *out_jc = NULL;
+    double *out_re = NULL, *out_im = NULL;
+    mat_uint32_t *ws_ir = NULL;
+    size_t *ws_k = NULL, *ws_tk = NULL;
+    double *ws_re = NULL, *ws_im = NULL, *ws_tre = NULL, *ws_tim = NULL;
+    size_t ws_cap = 0;
+    matvar_t *mv = NULL;
+    mat_sparse_t *sparse = NULL;
+
+    if ( NULL == out )
+        return MATIO_E_BAD_ARGUMENT;
+    *out = NULL;
+    if ( NULL == mat || (NULL == mat->fp && NULL == mat->memfile) || NULL == source ||
+         NULL == start || NULL == stride || NULL == edge )
+        return MATIO_E_BAD_ARGUMENT;
+
+    if ( mat->version != MAT_FT_MAT5 || source->class_type != MAT_C_SPARSE ||
+         source->compression != MAT_COMPRESSION_NONE || source->rank != 2 )
+        return MATIO_E_OPERATION_NOT_SUPPORTED;
+
+    if ( NULL == source->internal || source->internal->datapos <= 0 || NULL == source->dims )
+        return MATIO_E_BAD_ARGUMENT;
+
+    /* Validate the selection before touching the file */
+    for ( d = 0; d < 2; d++ ) {
+        if ( 0 == stride[d] )
+            return MATIO_E_BAD_ARGUMENT;
+        if ( edge[d] > 0 ) {
+            size_t last;
+            if ( edge[d] - 1 > (SIZE_MAX - start[d]) / stride[d] )
+                return MATIO_E_INDEX_TOO_BIG;
+            last = start[d] + (edge[d] - 1) * stride[d];
+            if ( last >= source->dims[d] )
+                return MATIO_E_BAD_ARGUMENT;
+        }
+    }
+
+    fpos = MatTell(mat);
+    if ( fpos == -1L )
+        return MATIO_E_GENERIC_READ_ERROR;
+
+    nsel = edge[1];
+
+    /* Locate the ir, jc, pr (and pi) elements without reading their data */
+    if ( MatSeek(mat, source->internal->datapos, SEEK_SET) ) {
+        err = MATIO_E_GENERIC_READ_ERROR;
+        goto cleanup;
+    }
+    {
+        err = SparseSlabReadTag(mat, &ir_type, &ir_nbytes, &ir_pos, &next_pos);
+        if ( err )
+            goto cleanup;
+        err = SparseSlabCheckIndexType(ir_type);
+        if ( err )
+            goto cleanup;
+        if ( ir_nbytes % 4 != 0 ) {
+            err = MATIO_E_FILE_FORMAT_VIOLATION;
+            goto cleanup;
+        }
+        nir = ir_nbytes / 4;
+        err = SparseSlabReadTag(mat, &jc_type, &jc_nbytes, &jc_pos, &next_pos);
+        if ( err )
+            goto cleanup;
+        err = SparseSlabCheckIndexType(jc_type);
+        if ( err )
+            goto cleanup;
+        if ( jc_nbytes % 4 != 0 || (size_t)(jc_nbytes / 4) != source->dims[1] + 1 ) {
+            err = MATIO_E_FILE_FORMAT_VIOLATION;
+            goto cleanup;
+        }
+        njc = jc_nbytes / 4;
+        err = SparseSlabReadTag(mat, &pr_type, &pr_nbytes, &pr_pos, &next_pos);
+        if ( err )
+            goto cleanup;
+        err = SparseSlabCheckDoubleType(pr_type);
+        if ( err )
+            goto cleanup;
+        if ( pr_nbytes % 8 != 0 ) {
+            err = MATIO_E_FILE_FORMAT_VIOLATION;
+            goto cleanup;
+        }
+        ndata = pr_nbytes / 8;
+        if ( iscomplex ) {
+            err = SparseSlabReadTag(mat, &pi_type, &pi_nbytes, &pi_pos, &next_pos);
+            if ( err )
+                goto cleanup;
+            err = SparseSlabCheckDoubleType(pi_type);
+            if ( err )
+                goto cleanup;
+            if ( pi_nbytes % 8 != 0 || (size_t)(pi_nbytes / 8) != ndata ) {
+                err = MATIO_E_FILE_FORMAT_VIOLATION;
+                goto cleanup;
+            }
+        }
+    }
+
+    /* Stream jc once, keeping only the ranges of the selected columns */
+    if ( nsel > 0 ) {
+        size_t alloc_sz;
+        err = Mul(&alloc_sz, nsel, sizeof(*col_beg));
+        if ( err )
+            goto cleanup;
+        col_beg = (mat_uint32_t *)malloc(alloc_sz);
+        col_end = (mat_uint32_t *)malloc(alloc_sz);
+        if ( NULL == col_beg || NULL == col_end ) {
+            err = MATIO_E_OUT_OF_MEMORY;
+            goto cleanup;
+        }
+    }
+    if ( MatSeek(mat, jc_pos, SEEK_SET) ) {
+        err = MATIO_E_GENERIC_READ_ERROR;
+        goto cleanup;
+    }
+    {
+        mat_uint32_t jbuf[256];
+        size_t idx = 0, next_sel = 0;
+        size_t c_target = (nsel > 0) ? start[1] : 0;
+        mat_uint32_t prev = 0;
+        while ( idx < njc ) {
+            size_t chunk = njc - idx, i;
+            if ( chunk > 256 )
+                chunk = 256;
+            err = ReadUInt32Data(mat, jbuf, jc_type, chunk);
+            if ( err )
+                goto cleanup;
+            for ( i = 0; i < chunk; i++, idx++ ) {
+                const mat_uint32_t v = jbuf[i];
+                if ( 0 == idx ) {
+                    if ( 0 != v ) {
+                        err = MATIO_E_FILE_FORMAT_VIOLATION;
+                        goto cleanup;
+                    }
+                } else if ( v < prev ) {
+                    err = MATIO_E_FILE_FORMAT_VIOLATION;
+                    goto cleanup;
+                }
+                prev = v;
+                if ( next_sel < nsel && idx == c_target )
+                    col_beg[next_sel] = v;
+                if ( next_sel < nsel && idx == c_target + 1 ) {
+                    col_end[next_sel] = v;
+                    next_sel++;
+                    if ( next_sel < nsel ) {
+                        c_target = start[1] + next_sel * stride[1];
+                        /* with stride[1] == 1 the same element also opens
+                         * the next selected column */
+                        if ( idx == c_target )
+                            col_beg[next_sel] = v;
+                    }
+                }
+            }
+        }
+        jc_final = prev;
+    }
+    if ( (size_t)jc_final > nir || (size_t)jc_final > ndata ) {
+        err = MATIO_E_FILE_FORMAT_VIOLATION;
+        goto cleanup;
+    }
+
+    /* Output column pointers */
+    {
+        size_t alloc_sz;
+        err = Mul(&alloc_sz, nsel + 1, sizeof(*out_jc));
+        if ( err )
+            goto cleanup;
+        out_jc = (mat_uint32_t *)calloc(alloc_sz, 1);
+        if ( NULL == out_jc ) {
+            err = MATIO_E_OUT_OF_MEMORY;
+            goto cleanup;
+        }
+    }
+
+    /* Extract the selected columns one at a time */
+    {
+        size_t j;
+        for ( j = 0; j < nsel; j++ ) {
+            const mat_uint32_t s = col_beg[j], e = col_end[j];
+            const size_t m = (size_t)e - s;
+            out_jc[j] = (mat_uint32_t)out_n;
+            if ( m > 0 ) {
+                size_t i, nmatch = 0;
+                if ( m > ws_cap ) {
+                    size_t new_cap = 2 * ws_cap;
+                    mat_uint32_t *t_ir;
+                    size_t *t_k, *t_tk;
+                    double *t_re, *t_im, *t_tre, *t_tim;
+                    if ( new_cap < m )
+                        new_cap = m;
+                    t_ir = (mat_uint32_t *)realloc(ws_ir, new_cap * sizeof(*ws_ir));
+                    if ( NULL == t_ir ) {
+                        err = MATIO_E_OUT_OF_MEMORY;
+                        goto cleanup;
+                    }
+                    ws_ir = t_ir;
+                    t_k = (size_t *)realloc(ws_k, new_cap * sizeof(*ws_k));
+                    if ( NULL == t_k ) {
+                        err = MATIO_E_OUT_OF_MEMORY;
+                        goto cleanup;
+                    }
+                    ws_k = t_k;
+                    t_tk = (size_t *)realloc(ws_tk, new_cap * sizeof(*ws_tk));
+                    if ( NULL == t_tk ) {
+                        err = MATIO_E_OUT_OF_MEMORY;
+                        goto cleanup;
+                    }
+                    ws_tk = t_tk;
+                    t_re = (double *)realloc(ws_re, new_cap * sizeof(*ws_re));
+                    if ( NULL == t_re ) {
+                        err = MATIO_E_OUT_OF_MEMORY;
+                        goto cleanup;
+                    }
+                    ws_re = t_re;
+                    t_tre = (double *)realloc(ws_tre, new_cap * sizeof(*ws_tre));
+                    if ( NULL == t_tre ) {
+                        err = MATIO_E_OUT_OF_MEMORY;
+                        goto cleanup;
+                    }
+                    ws_tre = t_tre;
+                    if ( iscomplex ) {
+                        t_im = (double *)realloc(ws_im, new_cap * sizeof(*ws_im));
+                        if ( NULL == t_im ) {
+                            err = MATIO_E_OUT_OF_MEMORY;
+                            goto cleanup;
+                        }
+                        ws_im = t_im;
+                        t_tim = (double *)realloc(ws_tim, new_cap * sizeof(*ws_tim));
+                        if ( NULL == t_tim ) {
+                            err = MATIO_E_OUT_OF_MEMORY;
+                            goto cleanup;
+                        }
+                        ws_tim = t_tim;
+                    }
+                    ws_cap = new_cap;
+                }
+                /* ir and pr/pi slices of this source column only */
+                if ( MatSeek(mat, ir_pos + (mat_off_t)s * 4, SEEK_SET) ) {
+                    err = MATIO_E_GENERIC_READ_ERROR;
+                    goto cleanup;
+                }
+                err = ReadUInt32Data(mat, ws_ir, ir_type, m);
+                if ( err )
+                    goto cleanup;
+                if ( MatSeek(mat, pr_pos + (mat_off_t)s * 8, SEEK_SET) ) {
+                    err = MATIO_E_GENERIC_READ_ERROR;
+                    goto cleanup;
+                }
+                err = ReadDoubleData(mat, ws_re, MAT_T_DOUBLE, m);
+                if ( err )
+                    goto cleanup;
+                if ( iscomplex ) {
+                    if ( MatSeek(mat, pi_pos + (mat_off_t)s * 8, SEEK_SET) ) {
+                        err = MATIO_E_GENERIC_READ_ERROR;
+                        goto cleanup;
+                    }
+                    err = ReadDoubleData(mat, ws_im, MAT_T_DOUBLE, m);
+                    if ( err )
+                        goto cleanup;
+                }
+                /* Project onto the selected rows, keeping source slot order */
+                for ( i = 0; i < m; i++ ) {
+                    const mat_uint32_t r = ws_ir[i];
+                    size_t dr;
+                    if ( (size_t)r >= source->dims[0] ) {
+                        err = MATIO_E_FILE_FORMAT_VIOLATION;
+                        goto cleanup;
+                    }
+                    if ( 0 == edge[0] || (size_t)r < start[0] )
+                        continue;
+                    dr = (size_t)r - start[0];
+                    if ( 0 == dr % stride[0] ) {
+                        const size_t k = dr / stride[0];
+                        if ( k < edge[0] ) {
+                            ws_k[nmatch] = k;
+                            ws_re[nmatch] = ws_re[i];
+                            if ( iscomplex )
+                                ws_im[nmatch] = ws_im[i];
+                            nmatch++;
+                        }
+                    }
+                }
+                /* Order matches by output row without disturbing the
+                 * source slot order of equal rows, then accumulate */
+                SparseSlabSortRec(ws_k, ws_re, ws_im, ws_tk, ws_tre, ws_tim, 0, nmatch,
+                                  iscomplex);
+                i = 0;
+                while ( i < nmatch ) {
+                    const size_t k0 = ws_k[i];
+                    double sum_re = 0.0, sum_im = 0.0;
+                    size_t j2 = i;
+                    while ( j2 < nmatch && ws_k[j2] == k0 ) {
+                        sum_re += ws_re[j2];
+                        if ( iscomplex )
+                            sum_im += ws_im[j2];
+                        j2++;
+                    }
+                    if ( sum_re != 0.0 || sum_im != 0.0 ) {
+                        if ( out_n == out_cap ) {
+                            const size_t new_cap = (0 == out_cap) ? 16 : 2 * out_cap;
+                            mat_uint32_t *t_ir = (mat_uint32_t *)realloc(
+                                out_ir, new_cap * sizeof(*out_ir));
+                            double *t_re;
+                            if ( NULL == t_ir ) {
+                                err = MATIO_E_OUT_OF_MEMORY;
+                                goto cleanup;
+                            }
+                            out_ir = t_ir;
+                            t_re = (double *)realloc(out_re, new_cap * sizeof(*out_re));
+                            if ( NULL == t_re ) {
+                                err = MATIO_E_OUT_OF_MEMORY;
+                                goto cleanup;
+                            }
+                            out_re = t_re;
+                            if ( iscomplex ) {
+                                double *t_im =
+                                    (double *)realloc(out_im, new_cap * sizeof(*out_im));
+                                if ( NULL == t_im ) {
+                                    err = MATIO_E_OUT_OF_MEMORY;
+                                    goto cleanup;
+                                }
+                                out_im = t_im;
+                            }
+                            out_cap = new_cap;
+                        }
+                        out_ir[out_n] = (mat_uint32_t)k0;
+                        out_re[out_n] = sum_re;
+                        if ( iscomplex )
+                            out_im[out_n] = sum_im;
+                        out_n++;
+                    }
+                    i = j2;
+                }
+            }
+        }
+    }
+    out_jc[nsel] = (mat_uint32_t)out_n;
+
+    /* Assemble the output variable */
+    mv = Mat_VarCalloc();
+    if ( NULL == mv ) {
+        err = MATIO_E_OUT_OF_MEMORY;
+        goto cleanup;
+    }
+    if ( NULL != source->name ) {
+        mv->name = strdup(source->name);
+        if ( NULL == mv->name ) {
+            err = MATIO_E_OUT_OF_MEMORY;
+            goto cleanup;
+        }
+    }
+    mv->rank = 2;
+    mv->dims = (size_t *)malloc(2 * sizeof(*mv->dims));
+    if ( NULL == mv->dims ) {
+        err = MATIO_E_OUT_OF_MEMORY;
+        goto cleanup;
+    }
+    mv->dims[0] = edge[0];
+    mv->dims[1] = edge[1];
+    mv->class_type = MAT_C_SPARSE;
+    mv->data_type = MAT_T_DOUBLE;
+    mv->isComplex = iscomplex;
+    mv->data_size = sizeof(mat_sparse_t);
+    mv->nbytes = out_n;
+    sparse = (mat_sparse_t *)calloc(1, sizeof(*sparse));
+    if ( NULL == sparse ) {
+        err = MATIO_E_OUT_OF_MEMORY;
+        goto cleanup;
+    }
+    mv->data = sparse;
+    sparse->nzmax = (mat_uint32_t)out_n;
+    sparse->nir = (mat_uint32_t)out_n;
+    sparse->ir = out_ir;
+    out_ir = NULL;
+    sparse->njc = (mat_uint32_t)(nsel + 1);
+    sparse->jc = out_jc;
+    out_jc = NULL;
+    sparse->ndata = (mat_uint32_t)out_n;
+    if ( iscomplex ) {
+        mat_complex_split_t *complex_data =
+            (mat_complex_split_t *)malloc(sizeof(*complex_data));
+        if ( NULL == complex_data ) {
+            err = MATIO_E_OUT_OF_MEMORY;
+            goto cleanup;
+        }
+        complex_data->Re = out_re;
+        out_re = NULL;
+        complex_data->Im = out_im;
+        out_im = NULL;
+        sparse->data = complex_data;
+    } else {
+        sparse->data = out_re;
+        out_re = NULL;
+    }
+
+    *out = mv;
+    mv = NULL;
+
+cleanup:
+    if ( fpos != -1L )
+        (void)MatSeek(mat, fpos, SEEK_SET);
+    free(col_beg);
+    free(col_end);
+    free(ws_ir);
+    free(ws_k);
+    free(ws_tk);
+    free(ws_re);
+    free(ws_im);
+    free(ws_tre);
+    free(ws_tim);
+    free(out_ir);
+    free(out_jc);
+    free(out_re);
+    free(out_im);
+    if ( NULL != mv )
+        Mat_VarFree(mv);
+    return err;
+}
+
 /** @if mat_devman
  * @brief Reads a slab of data from the mat variable @c matvar
  *
