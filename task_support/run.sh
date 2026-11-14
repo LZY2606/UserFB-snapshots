@@ -9,7 +9,7 @@ cmake --build .task-build/lib --target sndfile -j 2 >.task-build/build.log 2>&1
 cc -std=c99 -Iinclude task_support/baseline.c .task-build/lib/libsndfile.a -lm -o .task-build/baseline
 if [[ $mode == target ]]; then
   cc -std=c99 -I. -Iinclude -Itask_support tests/wav_ima_tail_cases.c task_support/driver.c .task-build/lib/libsndfile.a -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp .task-build/target-output.XXXXXX)
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

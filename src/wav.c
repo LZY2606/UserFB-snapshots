@@ -750,6 +750,8 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 					psf->sf.format = (SF_FORMAT_WAV | SF_FORMAT_IMA_ADPCM) ;
 					*blockalign = wav_fmt->ima.blockalign ;
 					*framesperblock = wav_fmt->ima.samplesperblock ;
+					if (parsestage & HAVE_fact)
+						psf->sf.frames = fact_chunk.frames ;
 					break ;
 
 		case WAVE_FORMAT_GSM610 :

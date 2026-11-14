@@ -33,6 +33,12 @@ typedef struct IMA_ADPCM_PRIVATE_tag
 
 	int				channels, blocksize, samplesperblock, blocks ;
 	int				blockcount, samplecount ;
+	/* Number of valid frames (per channel) in the currently decoded block.
+	** Equals samplesperblock for full blocks, less for a short tail block. */
+	int				blockframes ;
+	/* Effective total frames (per channel) and current read position, used
+	** to stop at the end of the decodable data or at a 'fact' imposed end. */
+	sf_count_t		framestotal, framepos ;
 	int				previous [2] ;
 	int				stepindx [2] ;
 	unsigned char	*block ;
@@ -85,6 +91,8 @@ static int	ima_close	(SF_PRIVATE *psf) ;
 static int wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 static int wavlike_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 
+static int wavlike_ima_block_frames (const IMA_ADPCM_PRIVATE *pima, int avail) ;
+
 /*-static int aiff_ima_reader_init (SF_PRIVATE *psf, int blockalign, int samplesperblock) ;-*/
 static int aiff_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
 static int aiff_ima_encode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima) ;
@@ -103,6 +111,37 @@ clamp_ima_step_index (int indx)
 /*============================================================================================
 ** IMA ADPCM Reader initialisation function.
 */
+
+/*
+**	Number of frames (per channel) that can be recovered from a WAV IMA block
+**	when only 'avail' bytes of the block are actually present in the data chunk.
+**	The 4 byte per channel header contributes one frame (the predictor) and each
+**	interleaved 4 byte per channel body group contributes eight frames per channel.
+**	A partial body group only helps the channels whose codewords are present, so
+**	the result is the minimum over all channels.
+*/
+
+static int
+wavlike_ima_block_frames (const IMA_ADPCM_PRIVATE *pima, int avail)
+{	int		chan, frames, body, unit ;
+
+	if (avail >= pima->blocksize)
+		return pima->samplesperblock ;
+
+	if (avail < 4 * pima->channels)
+		return 0 ;
+
+	body = avail - 4 * pima->channels ;
+	unit = 4 * pima->channels ;
+
+	frames = pima->samplesperblock ;
+	for (chan = 0 ; chan < pima->channels ; chan++)
+	{	int bytes = 4 * (body / unit) + SF_MIN (SF_MAX (body % unit - 4 * chan, 0), 4) ;
+		frames = SF_MIN (frames, 1 + 2 * bytes) ;
+		} ;
+
+	return frames ;
+} /* wavlike_ima_block_frames */
 
 int
 wavlike_ima_init (SF_PRIVATE *psf, int blockalign, int samplesperblock)
@@ -164,7 +203,19 @@ ima_close	(SF_PRIVATE *psf)
 		if (pima->samplecount && pima->samplecount < pima->samplesperblock)
 			pima->encode_block (psf, pima) ;
 
-		psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blockcount / psf->sf.channels ;
+		switch (SF_CONTAINER (psf->sf.format))
+		{	case SF_FORMAT_WAV :
+			case SF_FORMAT_W64 :
+					/* samplesperblock is per channel and blockcount counts
+					** blocks, so the product is the frame count. This value
+					** lands in the 'fact' chunk and must match the data. */
+					psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blockcount ;
+					break ;
+
+			default :
+					psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blockcount / psf->sf.channels ;
+					break ;
+			} ;
 		} ;
 
 	return 0 ;
@@ -232,13 +283,29 @@ ima_reader_init (SF_PRIVATE *psf, int blockalign, int samplesperblock)
 
 				pima->decode_block = wavlike_ima_decode_block ;
 
-				psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blocks ;
+				{	sf_count_t	factframes, physical ;
+
+					/* Frames decodable from the bytes actually present in the
+					** data chunk ; the final block may be short. */
+					physical = (sf_count_t) pima->samplesperblock * (psf->datalength / pima->blocksize)
+								+ wavlike_ima_block_frames (pima, (int) (psf->datalength % pima->blocksize)) ;
+
+					/* A non-zero 'fact' frame count smaller than the physical
+					** capacity marks the end of the valid audio. */
+					factframes = psf->sf.frames ;
+					psf->sf.frames = physical ;
+					if (factframes > 0 && factframes < physical)
+						psf->sf.frames = factframes ;
+					} ;
+
+				pima->framestotal = psf->sf.frames ;
 				break ;
 
 		case SF_FORMAT_AIFF :
 				psf_log_printf (psf, "still need to check block count\n") ;
 				pima->decode_block = aiff_ima_decode_block ;
 				psf->sf.frames = (sf_count_t) pima->samplesperblock * pima->blocks / pima->channels ;
+				pima->framestotal = psf->sf.frames ;
 				break ;
 
 		default :
@@ -267,8 +334,11 @@ aiff_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 
 	if (pima->blockcount > pima->blocks)
 	{	memset (pima->samples, 0, pima->samplesperblock * pima->channels * sizeof (short)) ;
+		pima->blockframes = 0 ;
 		return 1 ;
 		} ;
+
+	pima->blockframes = pima->samplesperblock ;
 
 	if ((k = (int) psf_fread (pima->block, 1, pima->blocksize * pima->channels, psf)) != pima->blocksize * pima->channels)
 		psf_log_printf (psf, "*** Warning : short read (%d != %d).\n", k, pima->blocksize) ;
@@ -389,17 +459,41 @@ static int
 wavlike_ima_decode_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima)
 {	int		chan, k, predictor, blockindx, indx, indxstart, diff ;
 	short	step, bytecode, stepindx [2] = { 0 } ;
+	int		avail ;
+	sf_count_t	blkstart ;
 
 	pima->blockcount ++ ;
 	pima->samplecount = 0 ;
 
 	if (pima->blockcount > pima->blocks)
 	{	memset (pima->samples, 0, pima->samplesperblock * pima->channels * sizeof (short)) ;
+		pima->blockframes = 0 ;
 		return 1 ;
 		} ;
 
-	if ((k = (int) psf_fread (pima->block, 1, pima->blocksize, psf)) != pima->blocksize)
-		psf_log_printf (psf, "*** Warning : short read (%d != %d).\n", k, pima->blocksize) ;
+	/*
+	**	Only the bytes of the data chunk that actually belong to this block may
+	**	take part in the decoding. The final block may be shorter than
+	**	blocksize ; the RIFF pad byte and any chunks following the data chunk
+	**	must never be fed to the predictor recursion.
+	*/
+	blkstart = (sf_count_t) (pima->blockcount - 1) * pima->blocksize ;
+	avail = pima->blocksize ;
+	if (psf->datalength - blkstart < pima->blocksize)
+		avail = (int) SF_MAX (0, psf->datalength - blkstart) ;
+
+	if (avail < pima->blocksize)
+		memset (pima->block + avail, 0, pima->blocksize - avail) ;
+
+	if ((k = (int) psf_fread (pima->block, 1, avail, psf)) != avail)
+	{	psf_log_printf (psf, "*** Warning : short read (%d != %d).\n", k, avail) ;
+		if (k < avail)
+		{	memset (pima->block + k, 0, avail - k) ;
+			avail = k ;
+			} ;
+		} ;
+
+	pima->blockframes = wavlike_ima_block_frames (pima, avail) ;
 
 	/* Read and check the block header. */
 
@@ -569,20 +663,28 @@ ima_read_block (SF_PRIVATE *psf, IMA_ADPCM_PRIVATE *pima, short *ptr, int len)
 {	int		count, total = 0, indx = 0 ;
 
 	while (indx < len)
-	{	if (pima->blockcount >= pima->blocks && pima->samplecount >= pima->samplesperblock)
+	{	if (pima->framepos >= pima->framestotal)
 		{	memset (&(ptr [indx]), 0, (size_t) ((len - indx) * sizeof (short))) ;
 			return total ;
 			} ;
 
-		if (pima->samplecount >= pima->samplesperblock)
-			pima->decode_block (psf, pima) ;
+		if (pima->samplecount >= pima->blockframes)
+		{	pima->decode_block (psf, pima) ;
+			if (pima->blockframes <= 0)
+			{	memset (&(ptr [indx]), 0, (size_t) ((len - indx) * sizeof (short))) ;
+				return total ;
+				} ;
+			} ;
 
-		count = (pima->samplesperblock - pima->samplecount) * pima->channels ;
+		count = (pima->blockframes - pima->samplecount) * pima->channels ;
+		if ((sf_count_t) count > (pima->framestotal - pima->framepos) * pima->channels)
+			count = (int) ((pima->framestotal - pima->framepos) * pima->channels) ;
 		count = (len - indx > count) ? count : len - indx ;
 
 		memcpy (&(ptr [indx]), &(pima->samples [pima->samplecount * pima->channels]), count * sizeof (short)) ;
 		indx += count ;
 		pima->samplecount += count / pima->channels ;
+		pima->framepos += count / pima->channels ;
 		total = indx ;
 		} ;
 
@@ -727,6 +829,7 @@ aiff_ima_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		pima->blockcount = 0 ;
 		pima->decode_block (psf, pima) ;
 		pima->samplecount = 0 ;
+		pima->framepos = 0 ;
 		return 0 ;
 		} ;
 
@@ -744,6 +847,7 @@ aiff_ima_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		pima->blockcount = newblockaiff ;
 		pima->decode_block (psf, pima) ;
 		pima->samplecount = newsample ;
+		pima->framepos = offset ;
 		}
 	else
 	{	/* What to do about write??? */
@@ -778,10 +882,11 @@ wavlike_ima_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		pima->blockcount = 0 ;
 		pima->decode_block (psf, pima) ;
 		pima->samplecount = 0 ;
+		pima->framepos = 0 ;
 		return 0 ;
 		} ;
 
-	if (offset < 0 || offset > pima->blocks * pima->samplesperblock)
+	if (offset < 0 || offset > pima->framestotal)
 	{	psf->error = SFE_BAD_SEEK ;
 		return	PSF_SEEK_ERROR ;
 		} ;
@@ -794,6 +899,7 @@ wavlike_ima_seek (SF_PRIVATE *psf, int mode, sf_count_t offset)
 		pima->blockcount = newblock ;
 		pima->decode_block (psf, pima) ;
 		pima->samplecount = newsample ;
+		pima->framepos = offset ;
 		}
 	else
 	{	/* What to do about write??? */
