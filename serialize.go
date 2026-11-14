@@ -133,6 +133,18 @@ func (c nthPseudoClassSelector) String() string {
 	return fmt.Sprintf(":%s(%dn%s)", name, c.a, s)
 }
 
+func (c nthColumnPseudoClassSelector) String() string {
+	name := "nth-col"
+	if c.last {
+		name = "nth-last-col"
+	}
+	s := fmt.Sprintf("+%d", c.b)
+	if c.b < 0 {
+		s = strconv.Itoa(c.b)
+	}
+	return fmt.Sprintf(":%s(%dn%s)", name, c.a, s)
+}
+
 func (c onlyChildPseudoClassSelector) String() string {
 	if c.ofType {
 		return ":only-of-type"
@@ -197,7 +209,12 @@ func (c compoundSelector) String() string {
 func (c combinedSelector) String() string {
 	start := c.first.String()
 	if c.second != nil {
-		start += fmt.Sprintf(" %s %s", string(c.combinator), c.second.String())
+		comb := string(c.combinator)
+		if c.combinator == '|' {
+			// The column combinator is "||", not two descendant pipes.
+			comb = "||"
+		}
+		start += fmt.Sprintf(" %s %s", comb, c.second.String())
 	}
 	return start
 }

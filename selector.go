@@ -507,6 +507,8 @@ func (t combinedSelector) Match(n *html.Node) bool {
 		return siblingMatch(t.first, t.second, true, n)
 	case '~':
 		return siblingMatch(t.first, t.second, false, n)
+	case '|':
+		return columnMatch(t.first, t.second, n)
 	default:
 		panic("unknown combinator")
 	}

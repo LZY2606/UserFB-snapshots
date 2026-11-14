@@ -434,6 +434,22 @@ func simpleNthLastChildMatch(b int, ofType bool, n *html.Node) bool {
 	return false
 }
 
+// nthColumnPseudoClassSelector implements :nth-col() and :nth-last-col().
+// These only match td/th elements and use the logical columns of the table
+// described in columns.go.
+type nthColumnPseudoClassSelector struct {
+	abstractPseudoClass
+	a, b int
+	last bool
+}
+
+func (s nthColumnPseudoClassSelector) Match(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	return columnPositionMatches(s.a, s.b, s.last, n)
+}
+
 type onlyChildPseudoClassSelector struct {
 	abstractPseudoClass
 	ofType bool

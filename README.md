@@ -142,3 +142,24 @@ Users: 30 users included
 Storage: 15 GB of storage
 Details: (No link available)
 ```
+
+## Columns
+
+For HTML reports where the table declares its structure with `col` / `colgroup`, Cascadia understands the logical columns of a table, including the `rowspan` and `colspan` of its cells. This lets a selector follow a column declaration directly instead of guessing with `td:nth-child(N)`:
+
+```go
+links := cascadia.QueryAll(doc, cascadia.MustCompile("table.report > colgroup > col.money || td > a"))
+for _, link := range links {
+	for _, a := range link.Attr {
+		if a.Key == "href" {
+			fmt.Println(a.Val)
+		}
+	}
+}
+```
+
+`col.money || td` matches the `td` cells whose rectangle intersects any logical column declared by `col.money`; a cell that spans several matching columns is still returned once. The right-hand side of `||` must be a `td` or `th` of the same table, and the left-hand side may use attributes and pseudo-classes (`table > colgroup > col.money || td > a` keeps the ordinary parent/child and descendant relations on both sides).
+
+`:nth-col(An+B)` and `:nth-last-col(An+B)` also match cells by logical column, using the existing `An+B` syntax. They accept no `of` clause. A cell matches when any of the columns it covers satisfies the expression; the reverse position is counted from the full table width (including declared but empty columns), not from the number of cells in the row. Tables without `col` / `colgroup` declarations still support both pseudo-classes.
+
+The logical grid is derived from the DOM only: direct row groups and rows of the nearest HTML table, cell placement for `rowspan`/`colspan`, and the column ranges declared by the table's direct `col` / `colgroup` children. Nested tables, SVG nodes and the columns of other tables never contribute. The layout is read from the current tree on every match, so a compiled selector can be reused on another table or after DOM changes, and concurrent read-only queries share no mutable layout state. `||` adds no specificity; `:nth-col()` and `:nth-last-col()` each count as one pseudo-class.

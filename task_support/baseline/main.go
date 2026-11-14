@@ -14,7 +14,8 @@ func main() {
  if len(cells)!=1 {panic("normal parser/selector baseline failed")}
  for _,a:=range cells[0].Attr {if a.Key=="id" {fmt.Println("BASELINE_OK DOM_SECOND="+a.Val)}}
  for _,s:=range []string{"col.money || td", "td:nth-col(2)", "td:nth-last-col(1)"} {
-  _,err=cascadia.Parse(s)
-  fmt.Printf("COLUMN_UNSUPPORTED %q=%t\n",s,err!=nil)
+  sel,parseErr:=cascadia.Parse(s)
+  if parseErr!=nil {panic("column syntax failed to parse: "+s)}
+  fmt.Printf("COLUMN_SUPPORTED %q nodes=%d\n",s,len(cascadia.QueryAll(d,sel)))
  }
 }

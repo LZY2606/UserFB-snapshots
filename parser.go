@@ -610,6 +610,20 @@ func (p *parser) parsePseudoclassSelector() (out Sel, pseudoElement string, err 
 
 		out = regexpPseudoClassSelector{own: name == "matchesown", regexp: rx}
 
+	case "nth-col", "nth-last-col":
+		if !p.consumeParenthesis() {
+			return out, "", errExpectedParenthesis
+		}
+		a, b, err := p.parseNth()
+		if err != nil {
+			return out, "", err
+		}
+		// No "of" clause is accepted for the column pseudo-classes.
+		if !p.consumeClosingParenthesis() {
+			return out, "", errExpectedClosingParenthesis
+		}
+		out = nthColumnPseudoClassSelector{a: a, b: b, last: name == "nth-last-col"}
+
 	case "nth-child", "nth-last-child", "nth-of-type", "nth-last-of-type":
 		if !p.consumeParenthesis() {
 			return out, "", errExpectedParenthesis
@@ -935,6 +949,14 @@ func (p *parser) parseSelector() (Sel, error) {
 			combinator = p.s[p.i]
 			p.i++
 			p.skipWhitespace()
+		case '|':
+			// The column combinator is written "||". A single pipe is not a
+			// combinator and is left for the caller to reject.
+			if p.i+1 < len(p.s) && p.s[p.i+1] == '|' {
+				combinator = '|'
+				p.i += 2
+				p.skipWhitespace()
+			}
 		case ',', ')':
 			// These characters can't begin a selector, but they can legally occur after one.
 			return result, nil
