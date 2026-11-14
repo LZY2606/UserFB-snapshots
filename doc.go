@@ -113,6 +113,18 @@ by a specific callback function. By default, the response is handled by the Fetc
 Handler, but if the Command implements this, this handler function takes precedence
 and the Fetcher's Handler is ignored.
 
+* RetryableCommand: Implement this interface to explicitly allow the Fetcher to
+replay the Command's request when the Fetcher is configured with RetryMax > 0.
+Only 429 (Too Many Requests) and 503 (Service Unavailable) responses are
+retried, at most RetryMax extra times; transport errors and other status codes
+are delivered as-is. Once the Command has passed the robots.txt admission and
+before the first attempt, the Fetcher takes a snapshot of the request data:
+each provider is called exactly once, the body is read exactly once, and every
+attempt sends the exact same bytes. A body larger than RetryBodyLimit cannot be
+replayed - no request is sent at all and the Handler receives
+ErrRetryBodyTooLarge. Intermediate responses never reach any Handler; only the
+final response (or error) is delivered, exactly once.
+
 Since the Command is an interface, it can be a custom struct that holds additional
 information, such as an ID for the URL (e.g. from a database), or a depth counter
 so that the crawling stops at a certain depth, etc. For basic commands that don't
@@ -145,6 +157,16 @@ long-running crawlers.
 reach 0.
 
 * DisablePoliteness : If true, ignores the robots.txt policies of the hosts.
+
+* RetryMax, RetryDelay, RetryMaxDelay, RetryBodyLimit : Configure the retry
+behavior of Commands that implement RetryableCommand. RetryMax is the number
+of extra attempts (0, the default, disables retries), RetryDelay the base
+wait between attempts, RetryMaxDelay the cap on a single wait (defaults to
+30 seconds and never shortens the host's crawl delay), and RetryBodyLimit the
+maximum size of a replayable body (defaults to 1 MiB). RetryDelay must be
+zero or positive and the two limits must be positive; set them before Start
+and leave them unchanged until the Queue is done. See /example/retry/ for a
+complete example.
 
 What fetchbot doesn't do - especially compared to gocrawl - is that it doesn't
 keep track of already visited URLs, and it doesn't normalize the URLs. This is outside

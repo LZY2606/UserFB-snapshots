@@ -1,0 +1,4 @@
+#!/bin/sh
+# Sandbox shim: macOS mktemp ignores TMPDIR and uses the per-user temp dir,
+# which is not writable here. Redirect to the repo-local writable dir.
+exec /usr/bin/mktemp "$PWD/.task-build/tmp/tmp.XXXXXXXXXX"

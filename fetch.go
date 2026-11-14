@@ -69,6 +69,31 @@ type Fetcher struct {
 	// crawl delay or if DisablePoliteness is true.
 	CrawlDelay time.Duration
 
+	// RetryMax is the number of extra attempts allowed for a Command that
+	// explicitly opts in to replays (it implements RetryableCommand and
+	// returns true). Zero (the default) disables retries: every Command is
+	// sent exactly once. Only 429 and 503 responses are retried.
+	RetryMax int
+
+	// RetryDelay is the base delay between two attempts of a retryable
+	// Command. The effective wait is the largest of the host's crawl delay,
+	// RetryDelay and the Retry-After response header, the two latter being
+	// capped by RetryMaxDelay. It must be zero or positive.
+	RetryDelay time.Duration
+
+	// RetryMaxDelay caps a single wait between two attempts of a retryable
+	// Command. It never shortens the host's crawl delay. It must be positive.
+	RetryMaxDelay time.Duration
+
+	// RetryBodyLimit is the maximum size, in bytes, of a Command body that
+	// can be captured for replay. A retryable Command with a larger body is
+	// not sent at all and its Handler receives ErrRetryBodyTooLarge. It must
+	// be positive.
+	//
+	// The retry options must be set before Start is called and left
+	// unchanged until the Queue is done.
+	RetryBodyLimit int64
+
 	// The *http.Client to use for the requests. If nil, defaults to the net/http
 	// package's default client. Should be HTTPClient to comply with go lint, but
 	// this is a breaking change, won't fix.
@@ -107,12 +132,14 @@ type DebugInfo struct {
 // New returns an initialized Fetcher.
 func New(h Handler) *Fetcher {
 	return &Fetcher{
-		Handler:       h,
-		CrawlDelay:    DefaultCrawlDelay,
-		HttpClient:    http.DefaultClient,
-		UserAgent:     DefaultUserAgent,
-		WorkerIdleTTL: DefaultWorkerIdleTTL,
-		dbg:           make(chan *DebugInfo, 1),
+		Handler:        h,
+		CrawlDelay:     DefaultCrawlDelay,
+		RetryMaxDelay:  DefaultRetryMaxDelay,
+		RetryBodyLimit: DefaultRetryBodyLimit,
+		HttpClient:     http.DefaultClient,
+		UserAgent:      DefaultUserAgent,
+		WorkerIdleTTL:  DefaultWorkerIdleTTL,
+		dbg:            make(chan *DebugInfo, 1),
 	}
 }
 
@@ -235,6 +262,18 @@ func (q *Queue) sendWithMethod(method string, rawurl []string) (int, error) {
 
 // Start starts the Fetcher, and returns the Queue to use to send Commands to be fetched.
 func (f *Fetcher) Start() *Queue {
+	// Normalize the retry configuration: RetryDelay cannot be negative and
+	// the two limits must be positive, invalid values fall back to the
+	// documented defaults.
+	if f.RetryDelay < 0 {
+		f.RetryDelay = 0
+	}
+	if f.RetryMaxDelay <= 0 {
+		f.RetryMaxDelay = DefaultRetryMaxDelay
+	}
+	if f.RetryBodyLimit <= 0 {
+		f.RetryBodyLimit = DefaultRetryBodyLimit
+	}
 	f.hosts = make(map[string]chan Command)
 
 	f.q = &Queue{
@@ -392,7 +431,12 @@ loop:
 
 			case agent == nil || agent.Test(v.URL().Path):
 				// Path allowed, process the request
-				res, err := f.doRequest(v)
+				res, err, deliver := f.doCommand(v, delay)
+				if !deliver {
+					// Cancelled while waiting between retry attempts: stop
+					// without delivering a terminal callback for this Command.
+					break loop
+				}
 				f.visit(v, res, err)
 				// No delay on error - the remote host was not reached
 				if err == nil {
