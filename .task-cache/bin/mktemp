@@ -1,0 +1,3 @@
+#!/bin/bash
+if [ $# -eq 0 ]; then exec /usr/bin/mktemp /Users/lzy/pro/UserFB/workspace/Z1796/attempts/20261114T132232369793Z/repo/.task-cache/tmp/XXXXXX; fi
+exec /usr/bin/mktemp "$@"

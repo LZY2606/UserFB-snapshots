@@ -1,0 +1,16 @@
+=== RUN   TestTimelineSlots
+    check.go:29: TASK_GROUP_DONE TestTimelineSlots checks=15
+--- PASS: TestTimelineSlots (0.00s)
+=== RUN   TestTimelineModules
+    check.go:29: TASK_GROUP_DONE TestTimelineModules checks=13
+--- PASS: TestTimelineModules (0.00s)
+=== RUN   TestTimelineEntrypoints
+    check.go:29: TASK_GROUP_DONE TestTimelineEntrypoints checks=25
+--- PASS: TestTimelineEntrypoints (0.00s)
+PASS
+ok  	github.com/n0madic/twitter-scraper	0.114s
+=== RUN   TestCollectionBaseline
+BASE_TWITTER_USER_SEARCH_THREAD requests=3 closed=3 text=offline views=17 cursor=next-page
+--- PASS: TestCollectionBaseline (0.00s)
+PASS
+ok  	github.com/n0madic/twitter-scraper	0.117s

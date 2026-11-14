@@ -1,0 +1,13 @@
+./api.go
+./auth.go
+./profile.go
+./scraper.go
+./search.go
+./timeline_v1.go
+./timeline_v2.go
+./trends.go
+./tweets.go
+./types.go
+./util.go
+./task_baseline_test.go
+./timeline_instructions_test.go

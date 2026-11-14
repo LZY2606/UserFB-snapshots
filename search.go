@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/url"
-	"strconv"
 )
 
 const searchURL = "https://twitter.com/i/api/graphql/nK1dw4oV3k4w5TdtcAdSww/SearchTimeline"
@@ -14,11 +13,7 @@ type searchTimeline struct {
 		SearchByRawQuery struct {
 			SearchTimeline struct {
 				Timeline struct {
-					Instructions []struct {
-						Type    string  `json:"type"`
-						Entries []entry `json:"entries"`
-						Entry   entry   `json:"entry,omitempty"`
-					} `json:"instructions"`
+					Instructions []timelineInstruction `json:"instructions"`
 				} `json:"timeline"`
 			} `json:"search_timeline"`
 		} `json:"search_by_raw_query"`
@@ -26,29 +21,9 @@ type searchTimeline struct {
 }
 
 func (timeline *searchTimeline) parseTweets() ([]*Tweet, string) {
-	tweets := make([]*Tweet, 0)
-	cursor := ""
-	for _, instruction := range timeline.Data.SearchByRawQuery.SearchTimeline.Timeline.Instructions {
-		if instruction.Type == "TimelineAddEntries" || instruction.Type == "TimelineReplaceEntry" {
-			if instruction.Entry.Content.CursorType == "Bottom" {
-				cursor = instruction.Entry.Content.Value
-				continue
-			}
-			for _, entry := range instruction.Entries {
-				if entry.Content.ItemContent.TweetDisplayType == "Tweet" {
-					if tweet := parseLegacyTweet(&entry.Content.ItemContent.TweetResults.Result.Core.UserResults.Result.Legacy, &entry.Content.ItemContent.TweetResults.Result.Legacy); tweet != nil {
-						if tweet.Views == 0 && entry.Content.ItemContent.TweetResults.Result.Views.Count != "" {
-							tweet.Views, _ = strconv.Atoi(entry.Content.ItemContent.TweetResults.Result.Views.Count)
-						}
-						tweets = append(tweets, tweet)
-					}
-				} else if entry.Content.CursorType == "Bottom" {
-					cursor = entry.Content.Value
-				}
-			}
-		}
-	}
-	return tweets, cursor
+	slots := newTimelineSlots()
+	slots.apply(timeline.Data.SearchByRawQuery.SearchTimeline.Timeline.Instructions)
+	return slots.expand(false), slots.cursor()
 }
 
 func (timeline *searchTimeline) parseUsers() ([]*Profile, string) {
