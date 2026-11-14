@@ -41,3 +41,50 @@ Documentation
 ====
 
 See [https://github.com/antchfx/antch/wiki](https://github.com/antchfx/antch/wiki)
+
+Collection crawls
+====
+
+`Crawler.Collect` supports full and incremental interface-catalog crawls. A
+page announces the next full page with `X-Crawl-Next` or, on the last page,
+the entry of the next incremental run with `X-Crawl-Delta`. Both headers are
+relative to the final response URL after redirects.
+
+`Collect` only saves a page after its registered Handler returned and every
+Item that Handler sent during the call finished in the existing Pipeline. The
+next page is requested after `Save` succeeds, so a failed `Save` leaves the
+previous cursor in place and the page can be replayed (business code should
+deduplicate its output).
+
+```go
+crawler := antch.NewCrawler()
+crawler.UsePipeline(myPipeline)
+crawler.Handle("example.com", myHandler)
+
+state := antch.CollectionState{}
+
+err := crawler.Collect(antch.CollectionOptions{
+	URL:  "https://example.com/items?page=1",
+	Full: true, // start at URL; false resumes at State.NextURL/DeltaURL
+	State: state,
+	Save: func(s antch.CollectionState) error {
+		state = s
+		return store.SaveCollectionState(s) // must support the next run
+	},
+})
+if err != nil {
+	log.Fatalf("collection failed, resume from %+v: %v", state, err)
+}
+
+// The returned state is the last successfully saved cursor. Run the next
+// incremental collection from state.DeltaURL:
+state = antch.CollectionState{
+	SourceURL: state.SourceURL,
+	DeltaURL:  state.DeltaURL,
+}
+```
+
+The same `Crawler` may run several `Collect` calls concurrently and ordinary
+`Crawl` requests can interleave with them; each collection only settles pages
+it fetched itself.
+

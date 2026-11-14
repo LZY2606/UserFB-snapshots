@@ -446,6 +446,7 @@ func (c *Crawler) getSpider(url *url.URL) *spider {
 		s = &spider{
 			c:           c,
 			reqch:       make(chan requestAndChan),
+			done:        make(chan struct{}),
 			key:         key,
 			idleTimeout: 120 * time.Second,
 		}
@@ -469,6 +470,7 @@ type responseAndError struct {
 type spider struct {
 	c           *Crawler
 	reqch       chan requestAndChan
+	done        chan struct{}
 	key         string
 	idleTimeout time.Duration
 }
@@ -523,6 +525,7 @@ func (s *spider) crawlLoop() {
 
 exit:
 	s.c.removeSpider(s)
+	close(s.done)
 	close(closeCh)
 	idleTimer.Stop()
 }

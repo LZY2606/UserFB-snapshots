@@ -94,6 +94,7 @@ func TestSpiderIdleTimeout(t *testing.T) {
 	spider := &spider{
 		key:         "test",
 		c:           &Crawler{},
+		done:        make(chan struct{}),
 		idleTimeout: timeout,
 	}
 	done := make(chan struct{})
