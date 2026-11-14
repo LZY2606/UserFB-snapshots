@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Read-only MIPS32 O32 PIC call-source recovery
+  (`analysis/RabbitizerPicCallAnalysis.h`).
+  - Recovers the callee, delay-slot-visible `a0`–`a3` arguments and unknown
+    reasons for every reachable `jal`/`jalr`, using a caller-provided CFG,
+    normalized relocations and GOT slot map; no machine code is executed and no
+    ELF is parsed.
+  - Tracks `lui`/`addiu`/`addu` cpload chains, `_gp_disp` HI16/LO16 pairs,
+    CALL16/GOT16 loads and local `%lo` adjustments by symbol identity, with a
+    configurable full-state cap and explicit saturation semantics.
+  - See `docs/pic_call_analysis.md` for the usage guide.
+
 ## [1.16.2] - 2026-05-29
 
 ### Fixed

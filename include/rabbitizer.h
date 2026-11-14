@@ -24,5 +24,6 @@
 #include "analysis/RabbitizerTrackedRegisterState.h"
 #include "analysis/RabbitizerLoPairingInfo.h"
 #include "analysis/RabbitizerRegistersTracker.h"
+#include "analysis/RabbitizerPicCallAnalysis.h"
 
 #endif
