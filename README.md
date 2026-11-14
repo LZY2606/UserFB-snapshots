@@ -31,6 +31,36 @@ Design
 
 The SDK is designed to be cross-platform. The code is very portable; it can be compiled with any sufficiently modern C++ compiler. The implementation does not rely on any external library. All the code necessary to compile the SDK and tools is included in the standard distribution. The standard distribution contains makefiles for unix-like operating systems, including Linux and Android, project files for Microsoft Visual Studio, and an XCode project for MacOS X and iOS. There is also support for building the library with the SCons build system.
 
+Seeking in Fragmented MP4 Files
+-------------------------------
+
+`AP4_LinearReader` can reposition a fragmented MP4 source (one with an `mfra`/`tfra`
+random access index) to a presentation time with `SeekTo`. For every enabled track,
+the reader independently selects the last `tfra` entry whose time is not later than
+the requested time (each track has its own index and media time scale), resolves the
+entry's `moof_offset`/`traf_number`/`trun_number`/`sample_number` coordinates to the
+exact sample they point to, and resumes reading from the fragment that comes first in
+the file. Tracks whose anchor lies in a later fragment do not deliver any sample until
+their anchor is reached; from the anchor on, samples are delivered continuously in
+storage order. Seeking only reads the index, box headers and the referenced `moof`
+boxes, never the media payload. After `SeekTo` returns, the next sample read is the
+sample the index pointed to:
+
+```cpp
+AP4_LinearReader reader(movie, fragment_stream);
+reader.EnableTrack(track_id);
+
+// reposition to a presentation time (in milliseconds)
+AP4_UI32 actual_time_ms = 0;
+if (AP4_SUCCEEDED(reader.SeekTo(30000, &actual_time_ms))) {
+    // the next sample read is the random access point selected by the index
+    AP4_Sample     sample;
+    AP4_DataBuffer sample_data;
+    while (AP4_SUCCEEDED(reader.ReadNextSample(track_id, sample, sample_data))) {
+        // process sample (sample.GetDts(), sample.GetCts(), sample_data, ...)
+    }
+}
+```
 
 License
 -------

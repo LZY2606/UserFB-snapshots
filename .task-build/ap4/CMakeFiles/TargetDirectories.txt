@@ -1,0 +1,7 @@
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/ap4.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/.task-build/ap4/CMakeFiles/install/strip.dir

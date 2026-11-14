@@ -117,12 +117,14 @@ protected:
             m_NextSampleIndex(0),
             m_NextDts(0),
             m_Reader(NULL) {
-                m_SeekPoint.m_Pending      = false;
-                m_SeekPoint.m_Time         = 0;
-                m_SeekPoint.m_MoofOffset   = 0;
-                m_SeekPoint.m_TrafNumber   = 0;
-                m_SeekPoint.m_TrunNumber   = 0;
-                m_SeekPoint.m_SampleNumber = 0;
+                m_SeekPoint.m_Pending         = false;
+                m_SeekPoint.m_Time            = 0;
+                m_SeekPoint.m_MoofOffset      = 0;
+                m_SeekPoint.m_TrafNumber      = 0;
+                m_SeekPoint.m_TrunNumber      = 0;
+                m_SeekPoint.m_SampleNumber    = 0;
+                m_SeekPoint.m_SampleIndex     = 0;
+                m_SeekPoint.m_SkippedDuration = 0;
             }
         Tracker(const Tracker& other) : 
             m_Eos(other.m_Eos),
@@ -152,6 +154,8 @@ protected:
             unsigned int m_TrafNumber;
             unsigned int m_TrunNumber;
             unsigned int m_SampleNumber;
+            AP4_Ordinal  m_SampleIndex;     // resolved index of the anchor sample in the track's fragment sample table
+            AP4_UI64     m_SkippedDuration; // decode duration of the samples skipped before the anchor sample
         } m_SeekPoint;
     };
     

@@ -1,0 +1,14 @@
+CMakeFiles/ap4.dir/Source/C++/Core/Ap4SLConfigDescriptor.cpp.o: \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/SDKSettings.json \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4SLConfigDescriptor.cpp \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4SLConfigDescriptor.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Types.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Config.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Descriptor.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Expandable.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4DataBuffer.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4List.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Results.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4DynamicCast.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4ByteStream.h \
+  /Users/lzy/pro/UserFB/workspace/Z1918/attempts/20261114T160647931604Z/repo/Source/C++/Core/Ap4Interfaces.h
