@@ -1,0 +1,68 @@
+# .goreleaser.yml
+version: 2
+project_name: crawley
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: crawley-bin
+    dir: .
+    main: ./cmd/crawley
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w
+      - -X main.GitTag={{.Tag}}
+      - -X main.GitHash={{.ShortCommit}}
+      - -X main.BuildDate={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: crawley
+    formats: ['tar.gz']
+    ids: [crawley-bin]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Tag }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+
+nfpms:
+  - id: packages
+    file_name_template: >-
+      {{ .ProjectName }}_
+      {{- .Tag }}_
+      {{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+    homepage: https://github.com/s0rg/crawley
+    description: Unix-way web crawler, written in Golang.
+    maintainer: s0rg
+    license: MIT
+    vendor: Crawley
+    formats:
+      - deb
+      - rpm
+
+changelog:
+  filters:
+    exclude:
+      - '^chore'
+      - '^docs'
+      - '^refactor'
+      - '^style'
+      - '^test'
