@@ -85,6 +85,38 @@ func main() {
 }
 ```
 
+### Multi-page articles
+
+For an article split into several pages, use `readability.FromURLPages`. It follows each page's own `rel="next"` link (the first one in the document `head` with a non-empty `href`), extracts every page independently with the readability parser, and merges the results into a single offline-readable `Article`. It stops when there is no next page, when `maxPages` has been collected, or when a page has already been visited; duplicates ids are rewritten to page-scoped ids (`p1-1`, `p1-2`, `p2-1`, ...) and fragment links between the collected pages are updated accordingly.
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	readability "github.com/go-shiori/go-readability"
+)
+
+func main() {
+	// Collect at most the first 10 pages.
+	article, err := readability.FromURLPages("https://example.com/article-part-1", 30*time.Second, 10)
+	if err != nil {
+		log.Fatalf("failed to collect the article: %v\n", err)
+	}
+
+	fmt.Printf("Title   : %s\n", article.Title)
+	fmt.Printf("Length  : %d\n", article.Length)
+
+	// article.Node is a div holding one extracted page per child,
+	// article.Content is its outer HTML and article.TextContent the
+	// trimmed, combined text of every page.
+	fmt.Println(article.TextContent)
+}
+```
+
 However, sometimes you want to parse an URL no matter if it's an article or not. For example is when you only want to get metadata of the page. To do that, you have to download the page manually using `http.Get`, then parse it using `readability.FromReader` :
 
 ```go

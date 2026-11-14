@@ -9,6 +9,7 @@
 package readability
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-shiori/dom"
 	"golang.org/x/net/html"
 )
 
@@ -36,7 +38,9 @@ func FromDocument(doc *html.Node, pageURL *nurl.URL) (Article, error) {
 type RequestWith func(r *http.Request)
 
 // FromURL fetch the web page from specified url then parses the response to find
-// the readable content.
+// the readable content. Relative references are resolved against the final
+// response URL (the address after any redirect), itself possibly overridden
+// by the first parseable HTTP(S) head/base[href], exactly like FromURLPages.
 func FromURL(pageURL string, timeout time.Duration, requestModifiers ...RequestWith) (Article, error) {
 	// Make sure URL is valid
 	parsedURL, err := nurl.ParseRequestURI(pageURL)
@@ -47,11 +51,11 @@ func FromURL(pageURL string, timeout time.Duration, requestModifiers ...RequestW
 	// Fetch page from URL
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest("GET", pageURL, nil)
-	for _, modifer := range requestModifiers {
-		modifer(req)
-	}
 	if err != nil {
 		return Article{}, fmt.Errorf("failed to fetch the page: %v", err)
+	}
+	for _, modifier := range requestModifiers {
+		modifier(req)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -65,9 +69,29 @@ func FromURL(pageURL string, timeout time.Duration, requestModifiers ...RequestW
 		return Article{}, fmt.Errorf("URL is not a HTML document")
 	}
 
+	// Read the body so the document can both be inspected for its base
+	// element and parsed by the readability parser.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Article{}, fmt.Errorf("failed to read the page: %v", err)
+	}
+
+	doc, err := dom.Parse(bytes.NewReader(body))
+	if err != nil {
+		return Article{}, fmt.Errorf("failed to parse input: %v", err)
+	}
+
+	// The redirected response URL is the page identity, and the first
+	// parseable HTTP(S) base element resolves against it.
+	finalURL := cloneURL(parsedURL)
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = cloneURL(resp.Request.URL)
+	}
+	baseURL := effectiveBaseURL(doc, finalURL)
+
 	// Parse content
 	parser := NewParser()
-	return parser.Parse(resp.Body, parsedURL)
+	return parser.ParseDocument(doc, baseURL)
 }
 
 // Check checks whether the input is readable without parsing the whole thing. It's the
