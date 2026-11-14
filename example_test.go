@@ -126,7 +126,7 @@ func Example() {
 	// selenium.MousePointer is used to identify the type of the pointer.
 	// The stored action chain will move the pointer and click on the code
 	// editor text box on the page.
-	selenium.StorePointerActions("mouse1",
+	wd.StorePointerActions("mouse1",
 		selenium.MousePointer,
 		// using selenium.FromViewport as the move origin
 		// which calculates the offset from 0,0.
@@ -143,7 +143,7 @@ func Example() {
 	// "keyboard1" is used as a unique virtual device identifier
 	// for this and future actions.
 	// The stored action chain will send keyboard inputs to the browser.
-	selenium.StoreKeyActions("keyboard1",
+	wd.StoreKeyActions("keyboard1",
 		selenium.KeyDownAction(selenium.ControlKey),
 		selenium.KeyPauseAction(50),
 		selenium.KeyDownAction("a"),
@@ -170,4 +170,57 @@ func Example() {
 		panic(err)
 	}
 
+}
+
+// ExampleWebDriver_DownloadSnapshot shows how to collect files that the remote
+// browser downloaded on a Selenium Grid node. The Grid and the session must be
+// started with the "se:downloadsEnabled" capability. DownloadSnapshot lists the
+// remote downloads once, fetches each of their ZIP archives, and publishes the
+// extracted files under a brand-new directory only after the whole batch has
+// been validated.
+//
+// Like Example, this is a documentation-only example: it is compiled but not
+// executed, because it requires a running Selenium Grid.
+func ExampleWebDriver_DownloadSnapshot() {
+	const gridURL = "http://localhost:4444"
+
+	caps := selenium.Capabilities{
+		"browserName":         "chrome",
+		"se:downloadsEnabled": true,
+	}
+	wd, err := selenium.NewRemote(caps, gridURL)
+	if err != nil {
+		panic(err)
+	}
+	defer wd.Quit()
+
+	// Drive the reporting page and trigger the export as usual. DownloadSnapshot
+	// does not wait for the browser to finish: only call it once the business
+	// page confirms the export is done.
+	exportButton, err := wd.FindElement(selenium.ByID, "export")
+	if err != nil {
+		panic(err)
+	}
+	if err := exportButton.Click(); err != nil {
+		panic(err)
+	}
+
+	// Reject anything beyond what this batch is expected to contain. Equality
+	// with a limit is accepted; directory entries do not count toward MaxFiles.
+	limits := selenium.DownloadLimits{
+		MaxArchiveBytes:  50 << 20, // at most 50 MiB per downloaded ZIP
+		MaxExpandedBytes: 200 << 20,
+		MaxFiles:         1000,
+	}
+
+	// The destination must not exist yet: its parent directory must exist.
+	files, err := wd.DownloadSnapshot("/var/lib/reports/2026-11-14", limits)
+	if err != nil {
+		panic(err)
+	}
+
+	// The whole batch is now on local disk; hand it to the downstream step.
+	for _, f := range files {
+		fmt.Printf("%s (%d bytes) <- %s\n", f.Path, f.Size, f.RemoteName)
+	}
 }

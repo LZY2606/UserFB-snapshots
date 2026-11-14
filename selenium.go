@@ -430,6 +430,16 @@ type WebDriver interface {
 
 	//Wait works like WaitWithTimeoutAndInterval, but using the default timeout and polling interval.
 	Wait(condition Condition) error
+
+	// DownloadSnapshot retrieves every download currently listed for the
+	// session through the Grid "se/files" endpoint (requires the
+	// "se:downloadsEnabled" capability) and publishes the extracted files under
+	// destination, which must not exist yet. limits bounds the archive sizes,
+	// the total number of extracted regular files and the total number of
+	// extracted bytes. The returned files are ordered by remote download name
+	// and then by each archive's central directory order; directories are not
+	// included.
+	DownloadSnapshot(destination string, limits DownloadLimits) ([]DownloadedFile, error)
 }
 
 // WebElement defines method supported by web elements.

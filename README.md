@@ -48,6 +48,48 @@ Re-run this periodically to get up-to-date versions of these binaries.
 
 The API documentation is at https://godoc.org/github.com/tebeka/selenium. See [the example](https://github.com/tebeka/selenium/blob/master/example_test.go) and unit tests(for [sauce](https://github.com/tebeka/selenium/blob/master/sauce_test.go), [selenium](https://github.com/tebeka/selenium/blob/master/selenium_test.go) and [service](https://github.com/tebeka/selenium/blob/master/service_test.go)) for better usage information.
 
+## Downloading files from a Selenium Grid
+
+When the browser runs on a remote Grid node, a file saved by the browser stays
+on that node. Selenium Grid can expose these downloads over the WebDriver
+protocol: start the Grid with downloads management enabled and request the
+`se:downloadsEnabled` capability when creating the session.
+
+```go
+caps := selenium.Capabilities{
+    "browserName":         "chrome",
+    "se:downloadsEnabled": true,
+}
+wd, err := selenium.NewRemote(caps, "http://grid.example:4444")
+```
+
+After the application page confirms that an export has finished, call
+`DownloadSnapshot`. It lists the session's downloads once, downloads each one
+in order as a base64-encoded ZIP archive, validates and extracts the archives
+into a private staging directory, and renames that directory to the
+destination only after the whole batch succeeds. On failure nothing is
+published and the staging directory is removed. A snapshot never polls, never
+replays the export action and never deletes remote files.
+
+```go
+files, err := wd.DownloadSnapshot("/var/lib/reports/2026-11-14", selenium.DownloadLimits{
+    MaxArchiveBytes:  50 << 20,  // maximum decoded size of one ZIP archive
+    MaxExpandedBytes: 200 << 20, // maximum total extracted file bytes
+    MaxFiles:         1000,      // maximum total number of regular files
+})
+```
+
+All limits must be positive; reaching a limit exactly is allowed. The
+destination must be an absolute path whose parent directory exists, and the
+destination itself must not exist (symlinks included). Entry names are
+validated as strict ZIP slash paths — absolute paths, backslashes, volume
+prefixes, NUL bytes, `.`/`..` or empty segments, and non-regular entry types
+are rejected — and the shared batch namespace rejects duplicate files and
+file/directory conflicts. Published files use mode `0600` and directories
+`0700`; archive permissions and owners are not restored. Each returned
+`DownloadedFile` records the opaque remote name, the absolute published local
+path and the number of bytes actually extracted.
+
 ## Known Issues
 
 Any issues are usually because the underlying browser automation framework has a
