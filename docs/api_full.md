@@ -15,6 +15,10 @@ int src_reset (SRC_STATE *state) ;
 int src_set_ratio (SRC_STATE *state, double new_ratio) ;
 ```
 
+The three sinc converters additionally support seamless run time quality
+switching through `src_prepare_sinc_switch()` and `src_set_sinc_quality()`,
+documented [here](api_sinc_switch.md).
+
 ## Initialisation
 
 ```c

@@ -129,6 +129,10 @@ typedef enum SRC_ERROR
 	SRC_ERR_NO_VARIABLE_RATIO,
 	SRC_ERR_SINC_PREPARE_DATA_BAD_LEN,
 	SRC_ERR_BAD_INTERNAL_STATE,
+	SRC_ERR_SINC_SWITCH_NOT_PREPARED,
+	SRC_ERR_SINC_SWITCH_ACTIVE,
+	SRC_ERR_SINC_SWITCH_NOT_PRISTINE,
+	SRC_ERR_BAD_FADE_LEN,
 
 	/* This must be the last error number. */
 	SRC_ERR_MAX_ERROR
@@ -150,6 +154,10 @@ typedef struct SRC_STATE_VT_tag
 
 	/* State close. */
 	void			(*close) (SRC_STATE *state) ;
+
+	/* Optional seamless sinc quality switching. NULL for non-sinc converters. */
+	SRC_ERROR		(*prepare_switch) (SRC_STATE *state) ;
+	SRC_ERROR		(*set_quality) (SRC_STATE *state, int converter_type, long fade_frames) ;
 } SRC_STATE_VT ;
 
 struct SRC_STATE_tag
@@ -179,6 +187,9 @@ const char* sinc_get_name (int src_enum) ;
 const char* sinc_get_description (int src_enum) ;
 
 SRC_STATE *sinc_state_new (int converter_type, int channels, SRC_ERROR *error) ;
+
+SRC_ERROR sinc_prepare_switch (SRC_STATE *state) ;
+SRC_ERROR sinc_set_quality (SRC_STATE *state, int converter_type, long fade_frames) ;
 
 /* In src_linear.c */
 const char* linear_get_name (int src_enum) ;

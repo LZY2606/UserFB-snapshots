@@ -75,9 +75,9 @@ dnl      to 0.
 
 dnl   This is libtool version of library, we add it to `--version-info` property.
 
-m4_define([lt_current], [2])
-m4_define([lt_revision], [2])
-m4_define([lt_age], [2])
+m4_define([lt_current], [3])
+m4_define([lt_revision], [0])
+m4_define([lt_age], [3])
 
 dnl This is ABI version for linker scripts, CMake uses the same format for
 dnl VERSION property of shared library.

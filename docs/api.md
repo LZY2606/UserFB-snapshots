@@ -28,6 +28,9 @@ The API allows three methods for accessing the capabilities of the library:
   calls a user supplied callback function to obtain its input. This interface is
   particularly well suited to applications where the output sample rate is
   varied with time.
+- Optional [seamless sinc quality switching](api_sinc_switch.md) which allows
+  the three sinc based converters to be changed at run time without rebuilding
+  the converter, losing audio history or moving the playback position.
 
 **NB :** All three access methods are able to process multi channel interleaved
 data.

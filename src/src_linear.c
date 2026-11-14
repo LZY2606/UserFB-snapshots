@@ -44,7 +44,9 @@ static SRC_STATE_VT linear_state_vt =
 	linear_vari_process,
 	linear_reset,
 	linear_copy,
-	linear_close
+	linear_close,
+	NULL,
+	NULL
 } ;
 
 /*----------------------------------------------------------------------------------------

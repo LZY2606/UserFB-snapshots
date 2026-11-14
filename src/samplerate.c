@@ -280,6 +280,34 @@ src_reset (SRC_STATE *state)
 } /* src_reset */
 
 /*==============================================================================
+**	Seamless sinc quality switching.
+*/
+
+int
+src_prepare_sinc_switch (SRC_STATE *state)
+{
+	if (state == NULL)
+		return SRC_ERR_BAD_STATE ;
+
+	if (state->vt->prepare_switch == NULL)
+		return SRC_ERR_BAD_CONVERTER ;
+
+	return state->vt->prepare_switch (state) ;
+} /* src_prepare_sinc_switch */
+
+int
+src_set_sinc_quality (SRC_STATE *state, int converter_type, long fade_frames)
+{
+	if (state == NULL)
+		return SRC_ERR_BAD_STATE ;
+
+	if (state->vt->set_quality == NULL)
+		return SRC_ERR_BAD_CONVERTER ;
+
+	return state->vt->set_quality (state, converter_type, fade_frames) ;
+} /* src_set_sinc_quality */
+
+/*==============================================================================
 **	Control functions.
 */
 
@@ -392,6 +420,14 @@ src_strerror (int error)
 				return "Internal error : Bad length in prepare_data ()." ;
 		case SRC_ERR_BAD_INTERNAL_STATE :
 				return "Error : Someone is trampling on my internal state." ;
+		case SRC_ERR_SINC_SWITCH_NOT_PREPARED :
+				return "src_prepare_sinc_switch() must be called before quality switching." ;
+		case SRC_ERR_SINC_SWITCH_ACTIVE :
+				return "A sinc quality crossfade is already in progress." ;
+		case SRC_ERR_SINC_SWITCH_NOT_PRISTINE :
+				return "src_prepare_sinc_switch() requires a new or reset, unused converter." ;
+		case SRC_ERR_BAD_FADE_LEN :
+				return "The fade_frames parameter must not be negative." ;
 
 		case SRC_ERR_MAX_ERROR :
 				return "Placeholder. No error defined for this error number." ;

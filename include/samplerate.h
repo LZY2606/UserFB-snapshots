@@ -138,6 +138,34 @@ int src_get_channels (SRC_STATE *state) ;
 int src_reset (SRC_STATE *state) ;
 
 /*
+**	Optional seamless quality switching for the three sinc based converters
+**	(SRC_SINC_BEST_QUALITY, SRC_SINC_MEDIUM_QUALITY and SRC_SINC_FASTEST).
+**
+**	src_prepare_sinc_switch() must be called on a freshly created or reset
+**	sinc converter before any input has been submitted. It allocates the
+**	extra storage required for later quality changes. A converter created
+**	with SRC_LINEAR or SRC_ZERO_ORDER_HOLD cannot be prepared.
+**
+**	After preparation, src_set_sinc_quality() changes the converter quality
+**	without rebuilding the converter, dropping audio history or moving the
+**	current source/playback position. With fade_frames == 0 the new quality
+**	is used from the next output frame onwards. With fade_frames == N > 0,
+**	the next N output frames are a crossfade, frame j (j = 1 .. N) being
+**	old_quality * (1 - j/N) + new_quality * j/N, using the same weight for
+**	all channels. Both results are evaluated at the same source coordinate
+**	with filter history continuing naturally from the start of the stream.
+**
+**	Only one crossfade may be active at a time; requesting another quality
+**	change while one is running returns an error and leaves the running
+**	crossfade untouched. Requesting the currently active quality is a no-op.
+**
+**	Both functions return zero on success and non-zero on error.
+*/
+
+int src_prepare_sinc_switch (SRC_STATE *state) ;
+int src_set_sinc_quality (SRC_STATE *state, int converter_type, long fade_frames) ;
+
+/*
 ** Return TRUE if ratio is a valid conversion ratio, FALSE
 ** otherwise.
 */

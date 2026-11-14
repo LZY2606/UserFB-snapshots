@@ -21,6 +21,11 @@ add_executable(misc_test misc_test.c util.c util.h)
 target_link_libraries(misc_test PRIVATE samplerate)
 add_test(NAME misc_test COMMAND misc_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)
 
+add_executable(sinc_switch_test sinc_switch_test.c ../task_support/driver.c ../task_support/check.h)
+target_include_directories(sinc_switch_test PRIVATE ${PROJECT_SOURCE_DIR}/task_support)
+target_link_libraries(sinc_switch_test PRIVATE samplerate)
+add_test(NAME sinc_switch_test COMMAND sinc_switch_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)
+
 add_executable(termination_test termination_test.c util.c util.h)
 target_link_libraries(termination_test PRIVATE samplerate)
 add_test(NAME termination_test COMMAND termination_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/src)

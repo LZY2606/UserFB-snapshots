@@ -89,6 +89,7 @@ TESTS = \
 	tests/nullptr_test \
 	tests/reset_test \
 	tests/simple_test \
+	tests/sinc_switch_test \
 	tests/snr_bw_test \
 	tests/termination_test \
 	tests/throughput_test \
@@ -139,6 +140,10 @@ tests_varispeed_test_LDADD = src/libsamplerate.la $(FFTW3_LIBS)
 
 tests_clone_test_SOURCES = tests/clone_test.c tests/util.c tests/util.h
 tests_clone_test_LDADD = src/libsamplerate.la
+
+tests_sinc_switch_test_SOURCES = tests/sinc_switch_test.c task_support/driver.c task_support/check.h
+tests_sinc_switch_test_CPPFLAGS = -I$(top_srcdir)/task_support
+tests_sinc_switch_test_LDADD = src/libsamplerate.la
 
 tests_nullptr_test_SOURCES = tests/nullptr_test.c tests/util.c tests/util.h
 tests_nullptr_test_LDADD = src/libsamplerate.la
