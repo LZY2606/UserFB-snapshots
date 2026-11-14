@@ -1,0 +1,9 @@
+{
+  "target": "test/scene-residency.test.cjs",
+  "groups": [
+    "hysteresis",
+    "closure",
+    "lifecycle"
+  ],
+  "baseline": "task_support/baseline.cjs"
+}
