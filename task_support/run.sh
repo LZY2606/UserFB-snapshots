@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s test/policy_contract.c; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   ${CC:-cc} -std=c99 -O0 -I. -Itask_support -Isrc -Isrc/common task_support/driver.c test/policy_contract.c .task-build/fd.o .task-build/fuzz.o .task-build/random.o .task-build/ranges.o -lm -o .task-build/target
-  output_log=$(mktemp)
+  output_log=$(mktemp "${TMPDIR:-/tmp}/zzuf-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
