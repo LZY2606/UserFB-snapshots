@@ -37,6 +37,7 @@
 #define CINO_SUBDIVISION_MIDPOINT_H
 
 #include <cinolib/meshes/meshes.h>
+#include <map>
 
 namespace cinolib
 {
@@ -55,6 +56,9 @@ void subdivision_midpoint(const AbstractPolyhedralMesh<M,V,E,F,P> & m_in,
 
 //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+// The three maps return the output id of the node created at each input edge
+// midpoint, quad face center and polyhedron center. They are std::map on both
+// declaration and definition, so the mapped call actually compiles and links.
 template<class M, class V, class E, class F, class P>
 CINO_INLINE
 void subdivision_midpoint(const AbstractPolyhedralMesh<M,V,E,F,P> & m_in,

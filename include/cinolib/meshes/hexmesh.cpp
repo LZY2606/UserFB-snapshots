@@ -41,6 +41,8 @@
 #include <cinolib/standard_elements_tables.h>
 #include <cinolib/vector_serialization.h>
 #include <cinolib/io/io_utilities.h>
+#include <cinolib/hex_sheet_subdivision.h>
+#include <cinolib/subdivision_legacy_hexa_schemes.h>
 
 #include <queue>
 #include <float.h>
@@ -403,6 +405,18 @@ template<class M, class V, class E, class F, class P>
 CINO_INLINE
 void Hexmesh<M,V,E,F,P>::poly_subdivide(const std::vector<std::vector<std::vector<uint>>> & poly_split_scheme)
 {
+    // The uniform 2x2x2 midpoint grid is exactly a sheet subdivision with
+    // every edge selected (all three local directions cut in every cell), so
+    // it reuses the same orientation, node placement and attribute rules.
+    if(poly_split_scheme == hex_to_grid_2x2x2)
+    {
+        std::vector<uint> all_edges;
+        all_edges.reserve(this->num_edges());
+        for(uint eid=0; eid<this->num_edges(); ++eid) all_edges.push_back(eid);
+        this->subdivide_sheets(all_edges);
+        return;
+    }
+
     std::vector<vec3d> new_verts;
     std::vector<uint>  new_polys;
     std::map<std::vector<uint>,uint> v_map;

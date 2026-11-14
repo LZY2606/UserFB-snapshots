@@ -35,6 +35,7 @@
 *********************************************************************************/
 #include <cinolib/subdivision_midpoint.h>
 #include <cinolib/sort_poly_vertices.h>
+#include <cinolib/hex_sheet_subdivision.h>
 #include <map>
 
 namespace cinolib
@@ -45,9 +46,9 @@ CINO_INLINE
 void subdivision_midpoint(const AbstractPolyhedralMesh<M,V,E,F,P> & m_in,
                                 AbstractPolyhedralMesh<M,V,E,F,P> & m_out)
 {
-    std::unordered_map<uint,uint> edge_verts;
-    std::unordered_map<uint,uint> face_verts;
-    std::unordered_map<uint,uint> poly_verts;
+    std::map<uint,uint> edge_verts;
+    std::map<uint,uint> face_verts;
+    std::map<uint,uint> poly_verts;
     subdivision_midpoint(m_in, m_out, edge_verts, face_verts, poly_verts);
 }
 
@@ -57,13 +58,24 @@ template<class M, class V, class E, class F, class P>
 CINO_INLINE
 void subdivision_midpoint(const AbstractPolyhedralMesh<M,V,E,F,P> & m_in,
                                 AbstractPolyhedralMesh<M,V,E,F,P> & m_out,
-                                std::unordered_map<uint,uint>     & edge_verts,
-                                std::unordered_map<uint,uint>     & face_verts,
-                                std::unordered_map<uint,uint>     & poly_verts)
+                                std::map<uint,uint>               & edge_verts,
+                                std::map<uint,uint>               & face_verts,
+                                std::map<uint,uint>               & poly_verts)
 {
     edge_verts.clear();
     face_verts.clear();
     poly_verts.clear();
+
+    // Hexahedral meshes use the same orientation/attribute rules as the sheet
+    // subdivider (uniform 3-direction cut), which also fixes the interior face
+    // windings and supports in-place (m_in == m_out) calls.
+    if(m_in.mesh_type() == HEXMESH)
+    {
+        subdivision_midpoint_hexa(static_cast<const Hexmesh<M,V,E,F,P>&>(m_in),
+                                  static_cast<      Hexmesh<M,V,E,F,P>&>(m_out),
+                                  edge_verts, face_verts, poly_verts);
+        return;
+    }
 
     std::vector<vec3d>             verts = m_in.vector_verts();
     std::vector<std::vector<uint>> faces;

@@ -9,3 +9,4 @@ examples/bin/*
 *.idea
 
 examples/CMakeLists.txt.user
+.task-build/

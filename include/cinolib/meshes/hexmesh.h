@@ -44,9 +44,23 @@
 #include <cinolib/meshes/abstract_polyhedralmesh.h>
 
 #include <unordered_set>
+#include <utility>
 
 namespace cinolib
 {
+
+// Result of Hexmesh::subdivide_sheets. All ids refer to the mesh as it was
+// right before the call. parent_poly has one entry per output hexahedron,
+// vertex_sources one entry per output vertex. Each vertex source is a pair
+// (input vertex id, non negative interpolation weight); the weights of each
+// list sum to one. Input vertices map to a single source with weight 1, edge
+// nodes to two sources of weight 1/2, face nodes to four of weight 1/4 and
+// cell center nodes to eight of weight 1/8.
+struct HexSheetSubdivision
+{
+    std::vector<uint>                                   parent_poly;
+    std::vector<std::vector<std::pair<uint,double>>>    vertex_sources;
+};
 
 template<class M = Mesh_std_attributes, // default template arguments
          class V = Vert_std_attributes,
@@ -117,6 +131,24 @@ class Hexmesh : public AbstractPolyhedralMesh<M,V,E,F,P>
         uint                     poly_face_opposite_to(const uint pid, const uint fid) const;
         uint                     poly_vert_opposite_to(const uint pid, const uint fid, const uint vid) const;
         void                     poly_subdivide       (const std::vector<std::vector<std::vector<uint>>> & split_scheme);
+
+        //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+        // Topological sheet subdivision. Each marked edge seeds a sheet: the
+        // selection propagates across every hexahedron from an edge to the
+        // locally opposite edge on each of the two incident quads, until the
+        // closure is reached. Propagation is purely topological: world-space
+        // parallelism is never used, rotated local numberings and curved or
+        // self-returning sheets are handled. A hexahedron hit by 1, 2 or 3
+        // sheet directions is split into 2, 4 or 8 sub hexahedra respectively;
+        // untouched hexahedra are kept as is. Repeated edge ids count once, an
+        // empty selection leaves the mesh unchanged, and an out-of-range id
+        // throws std::invalid_argument. New nodes are trilinear midpoint nodes
+        // (edge midpoints, quad face centers, cell centers), shared by every
+        // incident cell and face through topology, never coordinate welding.
+        // The returned HexSheetSubdivision uses the numbering in effect at the
+        // time of the call; a subsequent call takes the current mesh as input.
+        HexSheetSubdivision      subdivide_sheets     (const std::vector<uint> & marked_edges);
         double                   poly_volume          (const uint pid) const override;
         bool                     poly_fix_orientation ();
         void                     poly_local_frame     (const uint pid, vec3d & x, vec3d & y, vec3d & z);

@@ -127,6 +127,35 @@ The full list of callbacks exposed by `GLcanvas` to interact with user events (e
 ## Other examples
 A tutorial with detailed info on how to use the library is under developement. In the meanwhile, you can explore the [**examples**](https://github.com/mlivesu/cinolib/tree/master/examples#examples)  folder, which contains a constantly growing number of sample projects that showcase the core features of the library, and will be the backbone of the forthcoming tutorial.
 
+## Hexahedral sheet subdivision
+
+`Hexmesh::subdivide_sheets(const std::vector<uint> & marked_edges)` refines a hexahedral mesh along topological sheets instead of globally refining every cell. A fully worked headless sample is in `examples/49_hex_sheet_subdivision`.
+
+### Sheet propagation
+
+Each marked edge seeds a sheet. From a selected edge the selection propagates across every incident quadrilateral to its **topologically opposite edge** (the unique quad edge that shares no vertex with it), and the process repeats until the closure is reached. The relation is purely combinatorial: world-space parallelism is never used, so it works with curved meshes, rotated local eight-vertex numberings, singular interior edges and sheets that return to the same cell through a different local direction. Repeated edge ids count once, an empty selection leaves the mesh unchanged, and an out-of-range id throws `std::invalid_argument`. Selection order and duplicates never change the result.
+
+A hexahedron hit by one, two or three sheet directions is split into respectively **two, four or eight** sub hexahedra, arranged as the corresponding 1×2×2, 2×2×1 or 2×2×2 midpoint grid. Cells not hit by any sheet are kept untouched, including whole connected components: a component is never uniformly octasplit just because another component was refined.
+
+### Returned mapping
+
+The call returns a `HexSheetSubdivision`:
+
+* `parent_poly` has one entry per output hexahedron, giving the id of the cell it was refined from.
+* `vertex_sources` has one entry per output vertex. Each entry is a list of `(input vertex id, non negative weight)` pairs whose weights sum to one. Original vertices map to a single source of weight `1`; new edge midpoint nodes have two sources of weight `1/2`, quad face center nodes four sources of weight `1/4`, and cell center nodes eight sources of weight `1/8`. The actual coordinates (and the interpolated `uvw`/`color` fields) are exactly the weighted sum of the pre-call vertices.
+
+All ids in both structures refer to the numbering in effect **before** the call; the mesh itself is rewritten in place. Original vertices keep their ids, positions and all attributes, and new vertices are appended after them in deterministic order (edge nodes by input edge id, then face centers by input face id, then cell centers by input cell id). Parents are processed in ascending id and children are emitted in lexicographic grid order. Shared edges, quads and interfaces always reuse the same topological vertex and face (no coordinate welding, no hanging nodes); the two sides of every interior face receive opposite windings.
+
+### Attribute propagation
+
+Each child hexahedron copies the user attributes of its parent; derived quality is recomputed. Sub faces created on an input face copy that face's user attributes, while newly created internal faces use the attribute type defaults. New vertices interpolate `uvw` and `color` with the same weights as their coordinates; every other vertex field (including fields added by custom attribute types) keeps its default value. The method is a template on the same `M,V,E,F,P` attribute types as `Hexmesh`.
+
+### Valid geometry scope
+
+The input is assumed to be a finite, conforming, non degenerate hexahedral volume mesh whose per-cell trilinear maps have a positive Jacobian throughout the parameter cube (inverted cells are neither validated nor repaired). Under that assumption every output cell remains a valid positively oriented hexahedron: adjacency, surface flags, face/vertex normals, bounding box and per-cell quality are all rebuilt, so `poly_sheet`, `poly_volume` and the existing mesh queries work directly on the result. Refinement can be applied repeatedly; each call takes the mesh as it exists at that moment and returns mappings relative to that numbering.
+
+Selecting every edge is equivalent to the uniform midpoint subdivision: `Hexmesh::poly_subdivide(hex_to_grid_2x2x2)` and both `subdivision_midpoint` entry points (with and without the three `std::map<uint,uint>` node maps `edge_verts`, `face_verts`, `poly_verts`) use the same orientation and attribute rules and yield the same child geometry and connectivity. All midpoint entry points support passing the same object as input and output.
+
 ## Contributors
 Marco Livesu is the creator and lead developer of the library. CinoLib has also received contributions from: Daniela Cabiddu and Tommaso Sorgente (CNR IMATI), Claudio Mancinelli and Enrico Puppo (University of Genoa), Chrystiano Araújo (UBC), Thomas Alderighi (CNR ISTI), Fabrizio Corda, Gianmarco Cherchi and Federico Meloni (University of Cagliari).
 
