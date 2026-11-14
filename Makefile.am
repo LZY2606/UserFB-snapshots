@@ -23,6 +23,7 @@ EXTRA_DIST = \
 	USAGE \
 	configMS.h \
 	debian \
+	examples/abr_feedback.c \
 	lame.bat \
 	lame.spec.in \
 	lame.spec \

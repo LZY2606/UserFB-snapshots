@@ -109,6 +109,7 @@ struct lame_global_struct {
     int     VBR_hard_min;    /* strictly enforce VBR_min_bitrate
                                 normaly, it will be violated for analog
                                 silence                                 */
+    int     abr_feedback;    /* closed loop ABR budget feedback, default 0 */
 
 
     /* resampling and filtering */

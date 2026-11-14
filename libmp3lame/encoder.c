@@ -42,6 +42,7 @@
 #include "VbrTag.h"
 #include "quantize.h"
 #include "quantize_pvt.h"
+#include "abr_feedback.h"
 
 
 
@@ -329,6 +330,11 @@ lame_encode_mp3_frame(       /* Output */
     inbuf[0] = inbuf_l;
     inbuf[1] = inbuf_r;
 
+    /* an audio frame starts here; a target change made by the application
+     * since the previous frame becomes effective for this one
+     */
+    abr_feedback_frame_begin(gfc);
+
     if (gfc->lame_encode_frame_init == 0) {
         /*first run? */
         lame_encode_frame_init(gfc, inbuf);
@@ -542,6 +548,12 @@ lame_encode_mp3_frame(       /* Output */
 
     /*  write the frame to the bitstream  */
     (void) format_bitstream(gfc);
+
+    /* the physical size of this frame is fixed once formatted; account for
+     * it here rather than when its bytes eventually leave through
+     * copy_buffer(), which may happen several frames later
+     */
+    abr_feedback_frame_end(gfc, getframebits(gfc));
 
     /* copy mp3 bit buffer into array */
     mp3count = copy_buffer(gfc, mp3buf, mp3buf_size, 1);

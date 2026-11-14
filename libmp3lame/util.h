@@ -26,6 +26,7 @@
 #include "l3side.h"
 #include "id3tag.h"
 #include "lame_global_flags.h"
+#include "abr_feedback.h"
 
 #ifdef __cplusplus
 extern  "C" {
@@ -523,6 +524,8 @@ extern  "C" {
 
 
         VBR_seek_info_t VBR_seek_table; /* used for Xing VBR header */
+
+        AbrFeedbackState_t abr_feedback; /* optional ABR feedback loop */
 
         ATH_t  *ATH;         /* all ATH related stuff */
 

@@ -300,3 +300,7 @@ id3tag_set_fieldvalue_ucs2	@2023
 id3tag_set_comment_utf16	@2024
 id3tag_set_textinfo_utf16 @2025
 id3tag_set_fieldvalue_utf16	@2026
+
+lame_set_abr_feedback	@3000
+lame_set_abr_target	@3001
+lame_get_abr_feedback_stats	@3002

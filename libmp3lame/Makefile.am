@@ -36,6 +36,7 @@ EXTRA_DIST = \
 
 libmp3lame_la_SOURCES = \
         VbrTag.c \
+	abr_feedback.c \
 	bitstream.c \
 	encoder.c \
 	fft.c \
@@ -59,6 +60,7 @@ libmp3lame_la_SOURCES = \
 noinst_HEADERS= \
 	VbrTag.h \
 	VbrTagCrc.h \
+	abr_feedback.h \
 	bitstream.h \
 	encoder.h \
 	fft.h \

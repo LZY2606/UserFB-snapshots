@@ -78,6 +78,50 @@
         with more bits than necessary, but the result will always be equal to or better
         than that of CBR for the target bitrate.
     </p>
+    <h3>Closed loop ABR feedback (library API)</h3>
+    <p>
+        The library interface offers an optional feedback path on top of ABR.
+        It is disabled by default; enabling it leaves the existing encoder core,
+        psychoacoustic model, MDCT and bit reservoir untouched and only lets the
+        quantisation budget follow the frames which were actually encoded.
+    </p>
+    <blockquote class="code">int lame_set_abr_feedback(lame_global_flags *gfp, int enable);</blockquote>
+    <p>
+        Accepted before <code>lame_init_params()</code> only, with <code>enable</code>
+        equal to 0 or 1.  Feedback is defined for <code>vbr_abr</code> only; any
+        other VBR mode makes <code>lame_init_params()</code> fail.
+    </p>
+    <blockquote class="code">int lame_set_abr_target(lame_global_flags *gfp, int kbps);</blockquote>
+    <p>
+        Changes the target while encoding.  Valid only on an instance which was
+        initialised successfully with feedback enabled and which has not been
+        flushed; <code>kbps</code> must lie between the initialised VBR minimum and
+        maximum.  The initial target is the <code>VBR_mean_bitrate_kbps</code> value.
+        A new target takes effect with the next audio frame which is really encoded;
+        several calls before that frame use the last value.  Sampling rate, channels,
+        filter bandwidth and the existing reservoir are not modified and the encoder
+        is not reinitialised.  Returns 0 on success and -1, without changing state,
+        for an invalid call.
+    </p>
+    <blockquote class="code">int lame_get_abr_feedback_stats(lame_global_flags *gfp, lame_abr_feedback_stats *stats);</blockquote>
+    <p>
+        Copies the ledger of the feedback loop.  <code>frames</code> counts the audio
+        frames which were actually submitted, including frames encoded to pad out the
+        stream during <code>lame_encode_flush()</code>.  <code>encoded_bits</code> is
+        their total physical size, including frame header, CRC, side information and
+        padding, but excluding ID3 and Xing frames.  <code>budget_bit_samples</code>
+        accumulates <code>target_kbps * 1000 * samples_per_frame</code> for every such
+        frame.  The signed error in bits is
+        <code>encoded_bits * out_samplerate - budget_bit_samples</code>.
+        Returns 0 on success, or -1 for a null argument or when feedback is disabled.
+    </p>
+    <p>
+        Redirection keeps the accumulated error and feeds it back into subsequent
+        quantisation targets; the controller only shifts the budget, so the ABR logic
+        still picks bitrates from the signal complexity rather than behaving like CBR.
+        Silence is not padded to the target.  With feedback disabled the produced
+        stream is bit identical to a plain ABR stream.
+    </p>
 </div>
 <div id="footer">
 

@@ -96,6 +96,9 @@ lame_set_VBR_max_bitrate_kbps
 lame_get_VBR_max_bitrate_kbps
 lame_set_VBR_hard_min
 lame_get_VBR_hard_min
+lame_set_abr_feedback
+lame_set_abr_target
+lame_get_abr_feedback_stats
 lame_set_preset_expopts
 lame_set_lowpassfreq
 lame_get_lowpassfreq

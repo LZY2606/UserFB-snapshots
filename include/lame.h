@@ -28,6 +28,8 @@
 #include <stddef.h>
 /* for va_list typedef */
 #include <stdarg.h>
+/* for uint64_t typedef */
+#include <stdint.h>
 /* for FILE typedef, TODO: remove when removing lame_mp3_tags_fid */
 #include <stdio.h>
 
@@ -456,6 +458,49 @@ int CDECL lame_get_VBR_max_bitrate_kbps(const lame_global_flags *);
 */
 int CDECL lame_set_VBR_hard_min(lame_global_flags *, int);
 int CDECL lame_get_VBR_hard_min(const lame_global_flags *);
+
+/*
+ * Optional closed-loop feedback for ABR encoding.
+ *
+ * 1 = let the quantisation budget follow the actually encoded audio frames,
+ *     correcting the long term average towards the requested bitrate.
+ * Only vbr_abr is supported; lame_init_params() fails if feedback is
+ * enabled for any other VBR mode.  Must be set before lame_init_params().
+ * Default = 0, which leaves the existing ABR stream untouched.
+ */
+int CDECL lame_set_abr_feedback(lame_global_flags *, int);
+
+/*
+ * Change the ABR feedback target while encoding.  Only valid for a
+ * successfully initialised encoder with feedback enabled which has not
+ * been flushed yet; kbps must be within the initialised VBR minimum and
+ * maximum bitrates.  The new target takes effect with the next encoded
+ * audio frame; several settings before that frame use the last value.
+ * Returns 0 on success, -1 (without changing state) for invalid calls.
+ */
+int CDECL lame_set_abr_target(lame_global_flags *, int kbps);
+
+/*
+ * Statistics of the ABR feedback loop.
+ *   frames            submitted audio frames, including frames encoded to
+ *                     pad out the stream during lame_encode_flush()
+ *   encoded_bits      total physical bits of those frames; includes frame
+ *                     header, CRC, side information and padding, excludes
+ *                     ID3 and Xing frames
+ *   budget_bit_samples  sum over frames of target_kbps*1000*samples/frame
+ *   target_kbps       target currently in effect
+ * The signed error in bits is
+ *   encoded_bits*out_samplerate - budget_bit_samples.
+ * Returns 0 on success, -1 for a null argument or if feedback is disabled.
+ */
+typedef struct {
+    uint64_t frames;
+    uint64_t encoded_bits;
+    uint64_t budget_bit_samples;
+    int     target_kbps;
+} lame_abr_feedback_stats;
+
+int CDECL lame_get_abr_feedback_stats(lame_global_flags *, lame_abr_feedback_stats * stats);
 
 /* for preset */
 #if DEPRECATED_OR_OBSOLETE_CODE_REMOVED

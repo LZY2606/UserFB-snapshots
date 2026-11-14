@@ -37,6 +37,7 @@
 #include "bitstream.h"
 #include "vbrquantize.h"
 #include "quantize.h"
+#include "abr_feedback.h"
 #ifdef HAVE_XMMINTRIN_H
 #include "vector/lame_intrin.h"
 #endif
@@ -1786,12 +1787,23 @@ calc_target_bits(lame_internal_flags * gfc,
     mean_bits = getframebits(gfc) - cfg->sideinfo_len * 8;
     analog_silence_bits = mean_bits / (cfg->mode_gr * cfg->channels_out);
 
-    mean_bits = cfg->vbr_avg_bitrate_kbps * framesize * 1000;
+    if (cfg->vbr == vbr_abr && gfc->abr_feedback.enabled) {
+        /* follow the target which is currently in effect instead of the
+         * bitrate chosen at initialisation */
+        mean_bits = gfc->abr_feedback.current_frame_kbps * framesize * 1000;
+    }
+    else {
+        mean_bits = cfg->vbr_avg_bitrate_kbps * framesize * 1000;
+    }
     if (gfc->sv_qnt.substep_shaping & 1)
         mean_bits *= 1.09;
     mean_bits /= cfg->samplerate_out;
     mean_bits -= cfg->sideinfo_len * 8;
     mean_bits /= (cfg->mode_gr * cfg->channels_out);
+    if (cfg->vbr == vbr_abr && gfc->abr_feedback.enabled) {
+        /* the accumulated error corrects the steady state budget */
+        mean_bits = (int) (mean_bits * abr_feedback_quantizer_gain(gfc));
+    }
 
     /*
        res_factor is the percentage of the target bitrate that should
@@ -1809,14 +1821,22 @@ calc_target_bits(lame_internal_flags * gfc,
        5.5  (256kbps)         1.0      no need for bitreservoir
        11   (128kbps)         .93      7% held for reservoir
 
-       with linear interpolation for other values.
+       with linear interpolation for other values.  In feedback mode the
+       margin follows the target actually in effect rather than the
+       bitrate chosen at initialisation.
 
      */
-    res_factor = .93 + .07 * (11.0 - cfg->compression_ratio) / (11.0 - 5.5);
-    if (res_factor < .90)
-        res_factor = .90;
-    if (res_factor > 1.00)
-        res_factor = 1.00;
+    {
+        double ratio = cfg->compression_ratio;
+        if (cfg->vbr == vbr_abr && gfc->abr_feedback.enabled)
+            ratio = cfg->samplerate_out * 16.0 * cfg->channels_out /
+                (1.e3 * gfc->abr_feedback.current_frame_kbps);
+        res_factor = .93 + .07 * (11.0 - ratio) / (11.0 - 5.5);
+        if (res_factor < .90)
+            res_factor = .90;
+        if (res_factor > 1.00)
+            res_factor = 1.00;
+    }
 
     for (gr = 0; gr < cfg->mode_gr; gr++) {
         int     sum = 0;

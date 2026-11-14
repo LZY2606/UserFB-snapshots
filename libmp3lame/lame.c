@@ -46,6 +46,7 @@
 #include "version.h"
 #include "VbrTag.h"
 #include "tables.h"
+#include "abr_feedback.h"
 
 
 #if defined(__FreeBSD__) && !defined(__alpha__)
@@ -606,6 +607,8 @@ lame_init_params(lame_global_flags * gfp)
 
 
     cfg->vbr = gfp->VBR;
+    if (gfp->abr_feedback && cfg->vbr != vbr_abr)
+        return -1; /* closed loop feedback is only defined for ABR */
     cfg->error_protection = gfp->error_protection;
     cfg->copyright = gfp->copyright;
     cfg->original = gfp->original;
@@ -1124,6 +1127,9 @@ lame_init_params(lame_global_flags * gfp)
     cfg->avg_bitrate = gfp->brate;
     cfg->vbr_avg_bitrate_kbps = gfp->VBR_mean_bitrate_kbps;
     cfg->compression_ratio = gfp->compression_ratio;
+
+    if (gfp->abr_feedback)
+        abr_feedback_init(gfc, cfg->vbr_avg_bitrate_kbps);
 
     /* initialize internal qval settings */
     lame_init_qval(gfp);
@@ -2200,6 +2206,7 @@ lame_encode_flush(lame_global_flags * gfp, unsigned char *mp3buffer, int mp3buff
         /* some type of fatal error */
         return imp3;
     }
+    abr_feedback_mark_finished(gfc);
 
     mp3buffer_size_remaining = calc_mp3buffer_size_remaining(mp3buffer_size, mp3count);
 

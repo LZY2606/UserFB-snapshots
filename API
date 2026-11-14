@@ -102,6 +102,51 @@ will be all 0's.
 
 8. free the internal data structures.
 
-void lame_close(lame_global_flags *); 
+void lame_close(lame_global_flags *);
+
+
+=========================================================================
+
+Optional closed loop feedback for ABR (vbr_abr only)
+
+Plain ABR derives its bit budget from a fixed internal factor and can drift
+away from the requested average on material that mixes, for example, pure
+tones and noise.  An optional feedback path lets the quantisation budget
+follow the audio frames which were really encoded.
+
+   /* must be called before lame_init_params(); 0 or 1, default 0 */
+   int lame_set_abr_feedback(lame_global_flags *gfp, int enable);
+
+Feedback is only supported in vbr_abr mode.  Enabling it together with any
+other VBR mode makes lame_init_params() fail.  The psychoacoustic model, the
+MDCT and the bit reservoir are unchanged.
+
+   /* valid after a successful init, while feedback is enabled and before
+      the stream has been flushed */
+   int lame_set_abr_target(lame_global_flags *gfp, int kbps);
+
+The initial target is VBR_mean_bitrate_kbps.  kbps must be within the VBR
+minimum and maximum bitrates which were established at initialisation.
+The new target becomes effective with the next audio frame that is really
+encoded; several calls before that frame use the last value.  Sampling
+rate, channels, filter bandwidth and the existing reservoir are not
+modified.  Returns 0 on success, -1 (state unchanged) on an invalid call.
+
+   int lame_get_abr_feedback_stats(lame_global_flags *gfp,
+                                   lame_abr_feedback_stats *stats);
+
+The structure reports how many audio frames were submitted (including the
+frames encoded to pad out the stream during lame_encode_flush()), their
+total physical size in bits (frame header, CRC, side information and
+padding, excluding ID3 and Xing frames) and the accumulated budget in
+target_kbps*1000*samples_per_frame units.  The signed error in bits is
+
+   encoded_bits * out_samplerate - budget_bit_samples
+
+The error is kept across target changes and is fed back into the following
+quantisation targets.  Returns 0 on success, -1 for a null argument or when
+feedback is disabled.
+
+See examples/abr_feedback.c for a complete program.
 
 
