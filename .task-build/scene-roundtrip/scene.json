@@ -1,0 +1,58 @@
+{
+  "asset": {
+    "generator": "Yocto/GL - https://github.com/xelatihy/yocto-gl",
+    "version": "4.2"
+  },
+  "textures": [
+    {
+      "name": "height",
+      "uri": "textures/height.hdr",
+      "linear": true
+    }
+  ],
+  "materials": [
+    {
+      "name": "material"
+    }
+  ],
+  "shapes": [
+    {
+      "name": "surface",
+      "uri": "shapes/surface.ply"
+    }
+  ],
+  "subdivs": [
+    {
+      "name": "cage",
+      "shape": 0,
+      "uri": "subdivs/cage.obj",
+      "displacement": 1.0
+    }
+  ],
+  "instances": [
+    {
+      "name": "left",
+      "shape": 0,
+      "material": 0
+    },
+    {
+      "name": "right",
+      "frame": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        3.0,
+        0.0,
+        0.0
+      ],
+      "shape": 0,
+      "material": 0
+    }
+  ]
+}

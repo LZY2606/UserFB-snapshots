@@ -164,6 +164,15 @@ shape_data fvshape_to_shape(
     const fvshape_data& shape, bool as_triangles = false);
 fvshape_data shape_to_fvshape(const shape_data& shape);
 
+// Build the oriented double cover of a face-varying control cage. Each source
+// face is emitted twice, once with its own winding and once with the reversed
+// one. The copies are stitched along shared source edges so that orientable
+// components become two closed shells while non-orientable ones stay a single
+// connected surface. Texture coordinates form a separate topology that is
+// stitched only across edges whose source uv indices agree. Normals are
+// ignored and left empty in the result.
+fvshape_data make_orientation_cover(const fvshape_data& source);
+
 // Subdivision
 fvshape_data subdivide_fvshape(
     const fvshape_data& shape, int subdivisions, bool catmullclark);

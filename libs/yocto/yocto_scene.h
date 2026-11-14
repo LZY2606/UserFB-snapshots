@@ -170,9 +170,10 @@ struct subdiv_data {
   vector<vec2f> texcoords = {};
 
   // subdivision data
-  int  subdivisions = 0;
-  bool catmullclark = true;
-  bool smooth       = true;
+  int  subdivisions      = 0;
+  bool catmullclark      = true;
+  bool smooth            = true;
+  bool orientation_cover = false;
 
   // displacement data
   float displacement     = 0;

@@ -1,0 +1,7 @@
+CASE topology cover topology checks=169
+GROUP topology cases=1 checks=169 COMPLETE
+CASE pipeline cover pipeline checks=84
+GROUP pipeline cases=1 checks=84 COMPLETE
+CASE assets cover assets checks=289
+GROUP assets cases=1 checks=289 COMPLETE
+TARGET_COMPLETE cases=3

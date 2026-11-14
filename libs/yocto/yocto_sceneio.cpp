@@ -3632,6 +3632,39 @@ static bool load_json_scene(
   auto get_opt = [](const json_value& json, const string& key, auto& value) {
     value = json.value(key, value);
   };
+  // texture references are stored as integer indices in new outputs, but older
+  // writers used the texture name. Unknown names are reported as errors.
+  auto get_texture_ref = [&scene](const json_value& element, const string& key,
+                              int& value) -> bool {
+    if (!element.contains(key)) return true;
+    auto& reference = element.at(key);
+    if (reference.is_string()) {
+      auto name = reference.get<string>();
+      if (name.empty()) {
+        value = invalidid;
+        return true;
+      }
+      for (auto idx : range(scene.texture_names.size())) {
+        if (scene.texture_names[idx] == name) {
+          value = (int)idx;
+          return true;
+        }
+      }
+      return false;
+    }
+    value = element.value(key, value);
+    return true;
+  };
+  // shape references are stored as integer indices
+  auto get_shape_ref = [](const json_value& element, const string& key,
+                          int& value) -> bool {
+    if (!element.contains(key)) return true;
+    auto& reference = element.at(key);
+    if (!reference.is_number_integer()) return false;
+    value = element.value(key, value);
+    if (value < 0) value = invalidid;
+    return true;
+  };
 
   // filenames
   auto shape_filenames   = vector<string>{};
@@ -3710,11 +3743,17 @@ static bool load_json_scene(
         get_opt(element, "scattering", material.scattering);
         get_opt(element, "scanisotropy", material.scanisotropy);
         get_opt(element, "opacity", material.opacity);
-        get_opt(element, "emission_tex", material.emission_tex);
-        get_opt(element, "color_tex", material.color_tex);
-        get_opt(element, "roughness_tex", material.roughness_tex);
-        get_opt(element, "scattering_tex", material.scattering_tex);
-        get_opt(element, "normal_tex", material.normal_tex);
+        if (!get_texture_ref(element, "emission_tex", material.emission_tex))
+          return parse_error();
+        if (!get_texture_ref(element, "color_tex", material.color_tex))
+          return parse_error();
+        if (!get_texture_ref(element, "roughness_tex", material.roughness_tex))
+          return parse_error();
+        if (!get_texture_ref(
+                element, "scattering_tex", material.scattering_tex))
+          return parse_error();
+        if (!get_texture_ref(element, "normal_tex", material.normal_tex))
+          return parse_error();
       }
     }
     if (json.contains("shapes")) {
@@ -3741,12 +3780,16 @@ static bool load_json_scene(
         auto& uri    = subdiv_filenames.emplace_back();
         get_opt(element, "name", name);
         get_opt(element, "uri", uri);
-        get_opt(element, "shape", subdiv.shape);
+        if (!get_shape_ref(element, "shape", subdiv.shape))
+          return parse_error();
         get_opt(element, "subdivisions", subdiv.subdivisions);
         get_opt(element, "catmullclark", subdiv.catmullclark);
         get_opt(element, "smooth", subdiv.smooth);
+        get_opt(element, "orientation_cover", subdiv.orientation_cover);
         get_opt(element, "displacement", subdiv.displacement);
-        get_opt(element, "displacement_tex", subdiv.displacement_tex);
+        if (!get_texture_ref(element, "displacement_tex",
+                subdiv.displacement_tex))
+          return parse_error();
       }
     }
     if (json.contains("instances")) {
@@ -3758,8 +3801,13 @@ static bool load_json_scene(
         auto& name     = scene.instance_names.emplace_back();
         get_opt(element, "name", name);
         get_opt(element, "frame", instance.frame);
-        get_opt(element, "shape", instance.shape);
-        get_opt(element, "material", instance.material);
+        if (!get_shape_ref(element, "shape", instance.shape))
+          return parse_error();
+        if (element.contains("material")) {
+          auto& reference = element.at("material");
+          if (!reference.is_number_integer()) return parse_error();
+          get_opt(element, "material", instance.material);
+        }
         if (element.contains("lookat")) {
           get_opt(element, "lookat", (mat3f&)instance.frame);
           instance.frame = lookat_frame(
@@ -3777,7 +3825,8 @@ static bool load_json_scene(
         get_opt(element, "name", name);
         get_opt(element, "frame", environment.frame);
         get_opt(element, "emission", environment.emission);
-        get_opt(element, "emission_tex", environment.emission_tex);
+        if (!get_texture_ref(element, "emission_tex", environment.emission_tex))
+          return parse_error();
         if (element.contains("lookat")) {
           get_opt(element, "lookat", (mat3f&)environment.frame);
           environment.frame = lookat_frame(environment.frame.x,
@@ -4009,10 +4058,11 @@ static bool save_json_scene(const string& filename, const scene_data& scene,
       set_val(
           element, "catmullclark", subdiv.catmullclark, default_.catmullclark);
       set_val(element, "smooth", subdiv.smooth, default_.smooth);
+      set_val(element, "orientation_cover", subdiv.orientation_cover,
+          default_.orientation_cover);
       set_val(
           element, "displacement", subdiv.displacement, default_.displacement);
-      set_val(element, "displacement_tex",
-          get_texture_name(scene, subdiv.displacement_tex), "");
+      set_ref(element, "displacement_tex", subdiv.displacement_tex);
     }
   }
 

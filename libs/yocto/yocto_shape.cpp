@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <set>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -479,6 +480,376 @@ fvshape_data shape_to_fvshape(const shape_data& shape) {
   fvshape.quadstexcoord = !shape.texcoords.empty() ? fvshape.quadspos
                                                    : vector<vec4i>{};
   return fvshape;
+}
+
+// Validation and construction helpers for make_orientation_cover.
+namespace {
+
+// Normalized face rings. Triangles are stored with their last corner repeated,
+// so z == w always marks a triangle.
+vector<vec4i> make_cover_rings(const vector<vec4i>& quadspos) {
+  auto rings = vector<vec4i>{};
+  rings.reserve(quadspos.size());
+  for (auto& quad : quadspos) {
+    if (quad.x < 0 || quad.y < 0 || quad.z < 0)
+      throw std::invalid_argument{"invalid position index"};
+    if (quad.z == quad.w) {
+      rings.push_back({quad.x, quad.y, quad.z, quad.z});
+    } else {
+      if (quad.w < 0) throw std::invalid_argument{"invalid position index"};
+      rings.push_back(quad);
+    }
+  }
+  return rings;
+}
+
+// Number of corners of a face ring.
+int cover_num_corners(const vec4i& ring) { return ring.z == ring.w ? 3 : 4; }
+
+// Copy a face ring reversing its winding while keeping the first corner
+// pinned. Triangles stay triangles and keep their repeated last corner.
+vec4i cover_flip_ring(const vec4i& ring) {
+  auto x = ring.x, y = ring.y, z = ring.z, w = ring.w;
+  if (z == w) return {x, z, y, y};
+  return {x, w, z, y};
+}
+
+// Sorted corners of a ring, used to recognize repeated faces.
+vector<int> cover_sorted_corners(const vec4i& ring) {
+  auto corners = cover_num_corners(ring);
+  auto sorted  = vector<int>{};
+  sorted.reserve((size_t)corners);
+  for (auto c : range(4)) {
+    if (c < corners) sorted.push_back((&ring.x)[c]);
+  }
+  std::sort(sorted.begin(), sorted.end());
+  return sorted;
+}
+
+// Union-find over output corners.
+struct cover_union_find {
+  vector<int> parents = {};
+
+  explicit cover_union_find(size_t size) : parents(size) {
+    for (auto idx : range(parents.size())) parents[idx] = (int)idx;
+  }
+  int find(int idx) {
+    while (parents[idx] != idx) {
+      parents[idx] = parents[parents[idx]];
+      idx          = parents[idx];
+    }
+    return idx;
+  }
+  void merge(int first, int second) {
+    auto first_root = find(first), second_root = find(second);
+    if (first_root != second_root) parents[second_root] = first_root;
+  }
+};
+
+}  // namespace
+
+fvshape_data make_orientation_cover(const fvshape_data& source) {
+  // validate the source positions and faces
+  auto rings = make_cover_rings(source.quadspos);
+  for (auto& position : source.positions) {
+    if (!isfinite(position))
+      throw std::invalid_argument{"non finite position"};
+  }
+  auto face_keys = std::set<vector<int>>{};
+  for (auto fid : range(rings.size())) {
+    auto& ring    = rings[fid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(4)) {
+      if (c >= corners) continue;
+      auto idx = (&ring.x)[c];
+      if (idx < 0 || idx >= (int)source.positions.size())
+        throw std::invalid_argument{"invalid position index"};
+    }
+    auto sorted = cover_sorted_corners(ring);
+    for (auto c : range(sorted.size())) {
+      if (c > 0 && sorted[c] == sorted[c - 1])
+        throw std::invalid_argument{"repeated position in face"};
+    }
+    if (!face_keys.insert(sorted).second)
+      throw std::invalid_argument{"duplicated face"};
+  }
+
+  // validate the texture topology, which is independent from the geometry
+  auto has_texcoords = !source.quadstexcoord.empty();
+  auto texrings      = vector<vec4i>{};
+  if (has_texcoords) {
+    if (source.quadstexcoord.size() != source.quadspos.size())
+      throw std::invalid_argument{"invalid texture face count"};
+    if (source.texcoords.empty())
+      throw std::invalid_argument{"missing texture coordinates"};
+    for (auto& texcoord : source.texcoords) {
+      if (!isfinite(texcoord))
+        throw std::invalid_argument{"non finite texcoord"};
+    }
+    texrings.reserve(source.quadstexcoord.size());
+    for (auto fid : range(source.quadstexcoord.size())) {
+      auto& quad    = source.quadstexcoord[fid];
+      auto  corners = cover_num_corners(rings[fid]);
+      if ((quad.z == quad.w ? 3 : 4) != corners)
+        throw std::invalid_argument{"invalid texture face corners"};
+      auto ring = vec4i{quad.x, quad.y, quad.z, quad.z};
+      if (corners == 4) ring.w = quad.w;
+      for (auto c : range(corners)) {
+        auto idx = (&ring.x)[c];
+        if (idx < 0 || idx >= (int)source.texcoords.size())
+          throw std::invalid_argument{"invalid texture index"};
+      }
+      texrings.push_back(ring);
+    }
+  }
+
+  // emit both sides of every source face in source order
+  auto outfaces     = vector<vec4i>{};
+  auto outtexcoords = vector<vec4i>{};
+  outfaces.reserve(rings.size() * 2);
+  if (has_texcoords) outtexcoords.reserve(rings.size() * 2);
+  for (auto fid : range(rings.size())) {
+    outfaces.push_back(rings[fid]);
+    outfaces.push_back(cover_flip_ring(rings[fid]));
+    if (has_texcoords) {
+      outtexcoords.push_back(texrings[fid]);
+      outtexcoords.push_back(cover_flip_ring(texrings[fid]));
+    }
+  }
+
+  // corner offsets per output face
+  auto face_offsets = vector<int>(outfaces.size() + 1, 0);
+  for (auto fid : range(outfaces.size())) {
+    face_offsets[fid + 1] = face_offsets[fid] + cover_num_corners(outfaces[fid]);
+  }
+  auto num_corners = face_offsets.back();
+  auto corner_of   = [&](int ofid, int position) -> int {
+    auto& ring    = outfaces[ofid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(corners)) {
+      if ((&ring.x)[c] == position) return face_offsets[ofid] + c;
+    }
+    throw std::invalid_argument{"invalid position index"};
+  };
+
+  // collect the occurrences of every source edge, in source order
+  struct cover_edge {
+    int                    first       = 0;
+    int                    second      = 0;
+    vector<pair<int, int>> occurrences = {};  // face, first corner
+  };
+  auto edges       = vector<cover_edge>{};
+  auto edge_lookup = std::unordered_map<uint64_t, int>{};
+  auto edge_key    = [](int first, int second) -> uint64_t {
+    auto lo = first < second ? first : second;
+    auto hi = first < second ? second : first;
+    return ((uint64_t)(uint32_t)lo << 32) | (uint64_t)(uint32_t)hi;
+  };
+  for (auto fid : range(rings.size())) {
+    auto& ring    = rings[fid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(corners)) {
+      auto first  = (&ring.x)[c];
+      auto second = (&ring.x)[(c + 1) % corners];
+      auto key    = edge_key(first, second);
+      auto it     = edge_lookup.find(key);
+      auto index  = 0;
+      if (it == edge_lookup.end()) {
+        index = (int)edges.size();
+        edge_lookup.insert(it, {key, index});
+        auto& edge  = edges.emplace_back();
+        edge.first  = first < second ? first : second;
+        edge.second = first < second ? second : first;
+      } else {
+        index = it->second;
+      }
+      edges[index].occurrences.emplace_back(fid, first);
+    }
+  }
+
+  // stitch the geometry and the texture topology separately
+  auto geometry_stitch = cover_union_find((size_t)num_corners);
+  auto texture_stitch  = cover_union_find((size_t)num_corners);
+  auto direction_of    = [&](int fid, int first, int second) -> int {
+    auto& ring    = rings[fid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(corners)) {
+      auto a = (&ring.x)[c], b = (&ring.x)[(c + 1) % corners];
+      if (a == first && b == second) return 1;
+      if (a == second && b == first) return -1;
+    }
+    throw std::invalid_argument{"invalid position index"};
+  };
+  // texture corner paired with a geometry corner, used for uv seams
+  auto texcoord_at = [&](int fid, int position) -> int {
+    auto& ring    = rings[fid];
+    auto& texring = texrings[fid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(corners)) {
+      if ((&ring.x)[c] == position) return (&texring.x)[c];
+    }
+    throw std::invalid_argument{"invalid position index"};
+  };
+  for (auto& edge : edges) {
+    if (edge.occurrences.size() > 2)
+      throw std::invalid_argument{"non manifold edge"};
+    if (edge.occurrences.size() < 2) continue;
+    auto first_face  = edge.occurrences[0].first;
+    auto second_face = edge.occurrences[1].first;
+    auto same_direction =
+        direction_of(first_face, edge.first, edge.second) ==
+        direction_of(second_face, edge.first, edge.second);
+    // consistent winding glues each side to itself, an orientation flip swaps
+    // the two sides. This is what turns the flip obstruction into one band.
+    auto side_pairs = same_direction
+                          ? vector<pair<int, int>>{{0, 1}, {1, 0}}
+                          : vector<pair<int, int>>{{0, 0}, {1, 1}};
+    auto uv_connected =
+        has_texcoords &&
+        texcoord_at(first_face, edge.first) ==
+            texcoord_at(second_face, edge.first) &&
+        texcoord_at(first_face, edge.second) ==
+            texcoord_at(second_face, edge.second);
+    for (auto& sides : side_pairs) {
+      auto first_out  = first_face * 2 + sides.first;
+      auto second_out = second_face * 2 + sides.second;
+      auto first0     = corner_of(first_out, edge.first);
+      auto first1     = corner_of(first_out, edge.second);
+      auto second0    = corner_of(second_out, edge.first);
+      auto second1    = corner_of(second_out, edge.second);
+      geometry_stitch.merge(first0, second0);
+      geometry_stitch.merge(first1, second1);
+      if (uv_connected) {
+        texture_stitch.merge(first0, second0);
+        texture_stitch.merge(first1, second1);
+      }
+    }
+  }
+
+  // every referenced source position must have exactly two lifts and each
+  // lift must be a single face fan. The lift count follows from the stitching
+  // itself; the fan count is checked on the compacted geometry below.
+  auto lift_count = std::unordered_map<int, int>{};
+  {
+    auto seen = std::unordered_map<int, int>{};
+    for (auto ofid : range(outfaces.size())) {
+      auto& ring    = outfaces[ofid];
+      auto  corners = cover_num_corners(ring);
+      for (auto c : range(corners)) {
+        auto root = geometry_stitch.find(face_offsets[ofid] + c);
+        auto it   = seen.find(root);
+        if (it == seen.end()) {
+          seen.insert(it, {root, (&ring.x)[c]});
+          lift_count[(&ring.x)[c]] += 1;
+        } else if (it->second != (&ring.x)[c]) {
+          throw std::invalid_argument{"invalid position index"};
+        }
+      }
+    }
+  }
+  for (auto& entry : lift_count) {
+    if (entry.second != 2)
+      throw std::invalid_argument{"multiple face fans at position"};
+  }
+
+  // compact the correspondence classes into output vertices in first-seen
+  // order, which keeps the output deterministic
+  auto cover         = fvshape_data{};
+  auto geometry_ids  = std::unordered_map<int, int>{};
+  cover.quadspos.reserve(outfaces.size());
+  for (auto ofid : range(outfaces.size())) {
+    auto& ring    = outfaces[ofid];
+    auto  corners = cover_num_corners(ring);
+    auto  quad    = vec4i{-1, -1, -1, -1};
+    for (auto c : range(corners)) {
+      auto root = geometry_stitch.find(face_offsets[ofid] + c);
+      auto it   = geometry_ids.find(root);
+      if (it == geometry_ids.end()) {
+        auto id = (int)cover.positions.size();
+        geometry_ids.insert(it, {root, id});
+        cover.positions.push_back(source.positions[(&ring.x)[c]]);
+        (&quad.x)[c] = id;
+      } else {
+        (&quad.x)[c] = it->second;
+      }
+    }
+    if (corners == 3) quad.w = quad.z;
+    cover.quadspos.push_back(quad);
+  }
+  if (has_texcoords) {
+    auto texture_ids = std::unordered_map<int, int>{};
+    cover.quadstexcoord.reserve(outtexcoords.size());
+    for (auto ofid : range(outtexcoords.size())) {
+      auto& ring    = outtexcoords[ofid];
+      auto  corners = cover_num_corners(outfaces[ofid]);
+      auto  quad    = vec4i{-1, -1, -1, -1};
+      for (auto c : range(corners)) {
+        auto root = texture_stitch.find(face_offsets[ofid] + c);
+        auto it   = texture_ids.find(root);
+        if (it == texture_ids.end()) {
+          auto id = (int)cover.texcoords.size();
+          texture_ids.insert(it, {root, id});
+          cover.texcoords.push_back(source.texcoords[(&ring.x)[c]]);
+          (&quad.x)[c] = id;
+        } else {
+          (&quad.x)[c] = it->second;
+        }
+      }
+      if (corners == 3) quad.w = quad.z;
+      cover.quadstexcoord.push_back(quad);
+    }
+  }
+
+  // geometric validity of the produced cover: every edge has at most two faces
+  // and every vertex belongs to a single face fan
+  auto edge_faces   = std::unordered_map<uint64_t, vector<int>>{};
+  auto vertex_faces = std::unordered_map<int, vector<int>>{};
+  for (auto ofid : range(cover.quadspos.size())) {
+    auto& ring    = cover.quadspos[ofid];
+    auto  corners = cover_num_corners(ring);
+    for (auto c : range(corners)) {
+      auto a = (&ring.x)[c];
+      auto b = (&ring.x)[(c + 1) % corners];
+      if (a < 0 || b < 0) throw std::invalid_argument{"invalid position index"};
+      edge_faces[edge_key(a, b)].push_back((int)ofid);
+      vertex_faces[a].push_back((int)ofid);
+    }
+  }
+  for (auto& entry : edge_faces) {
+    if (entry.second.size() > 2)
+      throw std::invalid_argument{"non manifold edge"};
+  }
+  for (auto& entry : vertex_faces) {
+    auto& faces     = entry.second;
+    auto  seen      = std::set<int>{};
+    auto  fan_count = 0;
+    for (auto face : faces) {
+      if (seen.count(face)) continue;
+      fan_count++;
+      auto stack = vector<int>{face};
+      seen.insert(face);
+      while (!stack.empty()) {
+        auto current = stack.back();
+        stack.pop_back();
+        auto& ring    = cover.quadspos[current];
+        auto  corners = cover_num_corners(ring);
+        for (auto c : range(corners)) {
+          auto a = (&ring.x)[c];
+          auto b = (&ring.x)[(c + 1) % corners];
+          if (a != entry.first && b != entry.first) continue;
+          auto& sharing = edge_faces[edge_key(a, b)];
+          for (auto other : sharing) {
+            if (seen.count(other)) continue;
+            seen.insert(other);
+            stack.push_back(other);
+          }
+        }
+      }
+    }
+    if (fan_count != 1)
+      throw std::invalid_argument{"multiple face fans at position"};
+  }
+  return cover;
 }
 
 // Subdivision

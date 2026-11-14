@@ -1,0 +1,30 @@
+#
+# Written by Yocto/GL
+# https://github.com/xelatihy/yocto-gl
+#
+
+
+o 
+v 0 0 0
+v 1 0 0
+v 2 0 0
+v 0 1 0
+v 1 1 0
+v 2 1 0
+vn 0 0 1
+vn 0 0 1
+vn 0 0 1
+vn 0 0 1
+vn 0 0 1
+vn 0 0 1
+vt 0 1
+vt 0 1
+vt 0 1
+vt 0 1
+vt 0.5 1
+vt 0.5 1
+vt 0.5 1
+vt 0.5 1
+usemtl material0
+f 1/1/1 2/2/2 5/3/5 4/4/4
+f 2/5/2 3/6/3 6/7/6 5/8/5

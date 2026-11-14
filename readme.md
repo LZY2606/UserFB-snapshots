@@ -22,7 +22,8 @@ See each header file for documentation.
   tonemapping, color correction, procedural images, procedural sun-sky
 - `yocto/yocto_shape.{h,cpp}`: simple shape data structure, utilities 
   for manipulating triangle meshes, quads meshes and line sets, computation of 
-  normals and tangents, linear and Catmull-Clark subdivision, 
+  normals and tangents, linear and Catmull-Clark subdivision, oriented
+  double covers of control cages,
   procedural shapes generation, ray intersection and closest point queries
 - `yocto/yocto_scene.{h,cpp}`: scene representation and properties
   evaluation
@@ -59,6 +60,74 @@ included in the [project site](https://xelatihy.github.io/yocto-gl/).
 ![Example shapes: procedural shapes, Catmull-Clark subdivision, hairs, displacement mapping](images/features2.jpg)
 
 ![Image rendered with Yocto/GL path tracer. Model by Disney Animation Studios.](images/island.jpg)
+
+## Double-sided subdivision with orientation covers
+
+Thin double-sided sheets like Moebius bands cannot be represented by a plain
+face-varying control cage: duplicating the cage leaves two disconnected copies
+and gives the two sides no shared displacement. Yocto/GL exposes the oriented
+double cover as an option on `subdiv_data` and as a standalone cage transform.
+
+`fvshape_data make_orientation_cover(const fvshape_data& source)` lifts a control
+cage into its oriented double cover. Each source face is emitted twice, once
+with its own winding and once reversed, and the copies are stitched along shared
+source edges. Orientable components become two closed shells, while a Moebius
+band becomes a single connected band. Triangles written as `z == w` stay
+triangles, input normals are ignored (the result has empty `normals` and
+`quadsnorm`), and texture coordinates keep their own topology: lifted faces
+share texture corners only when the source uv indices match on both ends of
+the shared edge, so uv seams never merge the two sides or the original seam. All
+invalid inputs are reported with `std::invalid_argument`.
+
+Set `subdiv_data::orientation_cover` (default `false`) to run the same transform
+inside the regular pipeline. The cover is built before subdivision, so the two
+sides share the same topology through linear or Catmull-Clark subdivision and
+texture sampling. Displacement is applied after subdivision and before the
+face-varying split: each lifted vertex moves along its own oriented normal, so
+the two sides separate while a uv seam no longer tears the surface. With
+`smooth = true` oriented normals are rebuilt at every level, and with
+`smooth = false` the final shape carries no vertex normals.
+
+```cpp
+#include "libs/yocto/yocto_scene.h"
+#include "libs/yocto/yocto_shape.h"
+
+using namespace yocto;
+
+// a two-quad control strip with a uv seam on the shared edge
+fvshape_data cage = {};
+cage.positions = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {1, 1, 0},
+    {2, 1, 0}};
+cage.quadspos      = {{0, 1, 4, 3}, {1, 2, 5, 4}};
+cage.quadstexcoord = {{0, 1, 2, 3}, {4, 5, 6, 7}};
+cage.texcoords     = {{0, 0}, {0.5f, 0}, {0.5f, 1}, {0, 1}, {0.5f, 0},
+    {1, 0}, {1, 1}, {0.5f, 1}};
+
+// use the cover standalone: two shells, each position lifted twice
+auto cover = make_orientation_cover(cage);
+
+// or let the scene pipeline build it before subdivision and displacement
+scene_data scene = {};
+scene.shapes.resize(1);
+auto& subdiv             = scene.subdivs.emplace_back();
+subdiv.shape             = 0;
+subdiv.quadspos          = cage.quadspos;
+subdiv.quadstexcoord     = cage.quadstexcoord;
+subdiv.positions         = cage.positions;
+subdiv.texcoords         = cage.texcoords;
+subdiv.orientation_cover = true;
+subdiv.subdivisions      = 2;
+subdiv.catmullclark      = true;
+subdiv.smooth            = true;
+subdiv.displacement      = 0.1f;
+subdiv.displacement_tex  = 0;  // integer texture index
+tesselate_subdivs(scene);
+```
+
+The option is saved and loaded in the built-in 4.2 JSON format and defaults to
+`false`, so older assets keep their previous behaviour. Displacement textures
+are written as integer indices and legacy texture names are still accepted on
+load; unknown names are reported as errors.
 
 ## Design Considerations
 
