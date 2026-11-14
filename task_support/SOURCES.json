@@ -1,0 +1,19 @@
+{
+  "upstream": {
+    "kind": "oss",
+    "repo": "https://github.com/Forceflow/trimesh2",
+    "commit": "76bc89310b45279ff3c40415a6f6d5789479b42f",
+    "license": "GPL-2.0-only",
+    "patch": "seed.patch"
+  },
+  "scaffold": {
+    "id": "earlier-public-scaffold",
+    "commit": "76bc89310b45279ff3c40415a6f6d5789479b42f",
+    "files": [
+      "task_support/build.sh"
+    ],
+    "scope": "Only full CPU production library build, skips GLCamera/GLManager. New normal-function baseline required."
+  },
+  "source_archive_sha256": "80fe7d70e1cbb0689424a73c4c9b510be0f548ee30b6a1973b91dce6bae33aca",
+  "exported_cpu_files": "full fixed git blob tree"
+}
