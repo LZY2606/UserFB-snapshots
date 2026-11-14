@@ -161,6 +161,7 @@ set(HEADERS_COMMON
     include/capstone/arm64.h
     include/capstone/arm.h
     include/capstone/capstone.h
+    include/capstone/thumb_ir.h
     include/capstone/evm.h
     include/capstone/wasm.h
     include/capstone/mips.h
@@ -190,6 +191,7 @@ if(CAPSTONE_ARM_SUPPORT)
         arch/ARM/ARMInstPrinter.c
         arch/ARM/ARMMapping.c
         arch/ARM/ARMModule.c
+        arch/ARM/thumb_ir.c
     )
     set(HEADERS_ARM
         arch/ARM/ARMAddressingModes.h

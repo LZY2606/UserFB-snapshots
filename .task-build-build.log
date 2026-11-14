@@ -1,0 +1,9 @@
+[ 41%] Built target capstone
+[ 44%] Built target capstone_static
+[ 51%] Built target test_basic
+[ 65%] Built target test_skipdata
+[ 65%] Built target test_detail
+[ 79%] Built target test_arm
+[ 79%] Built target test_iter
+[ 86%] Built target test_arm_regression
+[100%] Built target fuzz_disasm
