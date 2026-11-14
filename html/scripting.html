@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Driving the httrack command-line program from shell and batch scripts.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>Scripting HTTrack</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html" aria-current="page" class="here">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>HTTrack Programming page - scripting</h1>
+
+<br>
+
+We will see here several examples, written in batch script (can be adapted to almost all batch script languages) or in C.
+
+<br><br>
+
+<br><br>
+
+<table width="100%" border="0" background="img/fade.gif">
+<tr><td>
+<b>How to get one single file</b><br><br>
+<tt>
+httrack --get http://localhost/
+</tt>
+</td></tr>
+</table>
+
+<br><br>
+
+<table width="100%" border="0" background="img/fade.gif">
+<tr><td>
+<b>How to get one single file and pipe it to stdout</b><br><br>
+<tt>
+httrack --quiet --get http://localhost/ -O tmpget -V "cat \$0" | grep -iE "TITLE"
+rm -rf tmpget
+</tt>
+</td></tr>
+</table>
+
+<br><br>
+
+<table width="100%" border="0" background="img/fade.gif">
+<tr><td>
+<b>How to search in all HTML files on a website</b><br><br>
+<tt>
+httrack --skeleton http://localhost/ -V "if grep -iE \"TITLE\" \"\$0\">/dev/null; then echo \"Match found at \$0\"; fi"<br>
+rm -rf tmpget<br>
+</tt>
+
+<br>Same thing but matches only the first file:<br>
+
+<tt>
+httrack --skeleton http://localhost/ -V "if grep -iE \"TITLE\" \"\$0\">/dev/null; then echo \"Match found at \$0\"; kill -9 \$PPID; fi"<br>
+rm -rf tmpget<br>
+</tt>
+
+</td></tr>
+</table>
+
+<br><br>
+
+<table width="100%" border="0" background="img/fade.gif">
+
+<tr><td>
+<b>Indexing a website, and using the index as a search engine</b><br><br>
+
+<tt>httrack localhost -%I</tt><br>
+
+Will generate an index.txt file, which contains all detected keywords, sorted and indexed using this format:<br>
+
+<br>
+<table border="0" bgcolor="white"><tr><td>
+<i>keyword</i><br>
+&lt;tab&gt; &nbsp; <i>number_of_hits_in_current_page_for_this_keyword</i> &nbsp; <i>page_location</i><br>
+&lt;tab&gt; &nbsp; <i>number_of_hits_in_current_page_for_this_keyword</i> &nbsp; <i>page_location</i><br>
+&lt;tab&gt; &nbsp; <i>number_of_hits_in_current_page_for_this_keyword</i> &nbsp; <i>page_location</i><br>
+...<br>
+=<i>total_number_of_hits_for_this_keyword</i><br>
+(<i>(total_number_of_hits_for_this_keyword*1000)/total_number_of_keywords</i>)<br>
+</td></tr></table>
+<br>
+
+Example:
+
+<table border="0" bgcolor="white"><tr><td>
+<pre>
+
+abilities
+	1 localhost/manual/mod/index-2.html
+	1 localhost/manual/mod/index.html
+	1 localhost/manual/mod/mod_negotiation.html
+	=3
+	(0)
+ability
+	2 localhost/manual/misc/FAQ.html
+	2 localhost/manual/suexec.html
+	1 localhost/manual/handler.html
+	1 localhost/manual/misc/security_tips.html
+	1 localhost/manual/mod/mod_rewrite.html
+	1 localhost/manual/mod/mod_setenvif.html
+	1 localhost/manual/multilogs.html
+	1 localhost/manual/netware.html
+	1 localhost/manual/new_features_1_3.html
+	1 localhost/manual/windows.html
+	=12
+	(0)
+able
+	4 localhost/manual/dso.html
+	4 localhost/manual/mod/core.html
+	3 localhost/manual/dns-caveats.html
+	3 localhost/manual/mod/mod_auth.html
+	3 localhost/manual/mod/mod_rewrite.html
+	3 localhost/manual/upgrading_to_1_3.html
+	2 localhost/manual/misc/API.html
+	2 localhost/manual/misc/FAQ.html
+	2 localhost/manual/misc/windoz_keepalive.html
+	2 localhost/manual/mod/mod_auth_db.html
+	2 localhost/manual/mod/mod_auth_dbm.html
+	1 localhost/manual/misc/descriptors.html
+	1 localhost/manual/misc/fin_wait_2.html
+	1 localhost/manual/misc/security_tips.html
+	1 localhost/manual/mod/mod_auth_digest.html
+	1 localhost/manual/mod/mod_cern_meta.html
+	1 localhost/manual/mod/mod_env.html
+	1 localhost/manual/mod/mod_example.html
+	1 localhost/manual/mod/mod_unique_id.html
+	1 localhost/manual/mod/mod_usertrack.html
+	1 localhost/manual/stopping.html
+	1 localhost/manual/suexec.html
+	1 localhost/manual/vhosts/ip-based.html
+	1 localhost/manual/windows.html
+	=43
+	(0)
+</pre>
+...
+</td></tr></table>
+<br>
+
+Script example: 
+<a href="div/search.sh">search.sh</a>
+
+</td></tr>
+</table>
+
+<br><br>
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

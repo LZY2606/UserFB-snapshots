@@ -1,0 +1,1130 @@
+LANGUAGE_NAME
+Türkçe
+LANGUAGE_FILE
+Turkish
+LANGUAGE_ISO
+tr
+LANGUAGE_AUTHOR
+Arman (Armish) Aksoy <armish@linux-sevenler.de>\r\nÜmit Solmaz <usncb@yandex.com>\r\n
+LANGUAGE_WINDOWSID
+Turkish
+OK
+Tamam
+Cancel
+Vazgeç
+Exit
+Çıkış
+Close
+Kapat
+Cancel changes
+Değişiklikleri kaydetme
+Click to confirm
+Onaylamak için tıklayın
+Click to get help!
+Yardım almak için Tıklayın
+Click to return to previous screen
+Önceki ekrana dönmek için tıklayın
+Click to go to next screen
+Sonraki ekrana gitmek için tıklayın
+Hide password
+Parolayı Gizle
+Save project
+Projeyi Kaydet
+Close current project?
+Açık proje kapatılsın mı?
+Delete this project?
+Bu proje silinsin mi?
+Delete empty project %s?
+%s boş projesi silinsin mi?
+Action not yet implemented
+Eylem henüz uygulanmadı
+Error deleting this project
+Bu proje silinirken hata oluştu
+Select a rule for the filter
+Filtre için bir kural seçin
+Enter keywords for the filter
+Filtre için anahtar kelimeleri giriniz
+Cancel
+Vazgeç
+Add this rule
+Bu kuralı ekle
+Please enter one or several keyword(s) for the rule
+Lütfen bu kural için bir veya daha fazla anahtar kelime giriniz
+Add Scan Rule
+Tarama Kuralı Ekle
+Criterion
+Kriter
+String
+Dizi
+Add
+Ekle
+Scan Rules
+Tarama Kuralları
+Use wildcards to exclude or include URLs or links.\nYou can put several scan strings on the same line.\nUse spaces as separators.\n\nExample: +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Adresleri veya bağlantıları almak veya almamak için özel sembolleri kullanın.\n Bir satırda birden çok kelime kullanabilirsiniz.\nAyıraç olarak boşluk kullanın.\n\nÖrnek: +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Exclude links
+Bağlantıları Alma
+Include link(s)
+Bağlantıları Al
+Tip: To have ALL GIF files included, use something like +www.someweb.com/*.gif. \n(+*.gif / -*.gif will include/exclude ALL GIFs from ALL sites)
+İpucu: Bir sitedeki tüm GIF dosyalarını almak için, +www.siteniz.com/*.gif benzeri bir şey kullanabilirsiniz. \n(+*.gif / -*.gif ile sitedeki GIF dosyalarının alınıp alınmayacağını belirtebilirsiniz)
+Save prefs
+Ayarları kaydet
+Matching links will be excluded:
+Eşleşen bu bağlantılar alınmayacaktır:
+Matching links will be included:
+Eşleşen bu bağlantılar alınacaktır:
+Example:
+Örnek:
+gif\r\nWill match all GIF files
+gif\r\nTüm GIF dosyalarını eşleştirecektir
+blue\r\nWill find all files with a matching 'blue' sub-string such as 'bluesky-small.jpeg'
+mavi\r\nTüm kelimeleri ve içerdiklerini 'mavi' sözcüğüyle karşılaştıracaktır, örneğin 'mavigokyuzu.jpeg'
+bigfile.mov\r\nWill match the file 'bigfile.mov', but not 'bigfile2.mov'
+buyukdosya.mov\r\nBu aramada 'buyukdosya.mov' eşleşecektir fakat 'buyukdosya2.mov' eşleşmeyecektir
+cgi\r\nWill find links with folder name matching sub-string 'cgi' such as /cgi-bin/somecgi.cgi
+cgi\r\n'cgi' sözcüğüyle eşleşen tüm bağlantıları bulacaktır, örneğin '/cgi-bin/somecgi.cgi'
+cgi-bin\r\nWill find links with folder name matching whole 'cgi-bin' string (but not cgi-bin-2, for example)
+cgi-bin\r\n'cgi-bin' ile eşleşen tüm dizin bağlantılarını bulacaktır, fakat 'cgi-bin-2' gibi bir kelime bu aramada eşleşmez
+someweb.com\r\nWill find links with matching sub-string such as www.someweb.com, private.someweb.com etc.
+siteniz.com\r\n'siteniz.com' içeren tüm bağlantıları bulacaktır, örneğin 'www.siteniz.com', 'ozel.siteniz.com'
+someweb\r\nWill find links with matching folder sub-string such as www.someweb.com, www.someweb.edu, private.someweb.otherweb.com etc.
+siteniz\r\n'siteniz' sözcüğünü içeren tüm bağlantıları bulacaktır, örneğin 'www.siteniz.com', 'ozel.siteniz.com', 'www.siteniz.edu'
+www.someweb.com\r\nWill find links matching whole 'www.someweb.com' sub-string (but not links such as private.someweb.com/..)
+www.siteniz.com\r\n'www.siteniz.com' içeren tüm adresleri bulacaktır, ama örneğin 'ozel.siteniz.com' bu aramada eşleşmeyecektir
+someweb\r\nWill find any links with matching sub-string such as www.someweb.com/.., www.test.abc/fromsomeweb/index.html, www.test.abc/test/someweb.html etc.
+siteniz\r\n'siteniz' ile eşleşen tüm alt ve ana bağlantıları bulacaktır, örneğin www.siteniz.com/blabla, www.deneme.abc/sitenizden/, www.deneme.com/siteniz.html
+www.test.com/test/someweb.html\r\nWill only find the 'www.test.com/test/someweb.html' file. Note that you have to type the complete path (URL + site path)
+www.deneme.com/deneme/adres.html\r\nSadece 'www.deneme.com/deneme/adres.html' dosyasını bulur. Bunun için tam adresi (Site adresi + site konumu) girmeniz gerektiğini unutmayınız
+All links will match
+Bütün bağlantılar eşleştirilecek
+Add exclusion filter
+Alınmayacaklar için filtre ekle
+Add inclusion filter
+Alınacaklar için filtre ekle
+Existing filters
+Filtreler
+Cancel changes
+Değişiklikleri kaydetme
+Save current preferences as default values
+Şu anki ayarları varsayılan değerler olarak kaydet
+Click to confirm
+Onaylamak için tıklayın
+No log files in %s!
+%s içinde kayıt dosyası yok!
+No 'index.html' file in %s!
+%s içinde 'index.html' yok!
+Click to quit WinHTTrack Website Copier
+WinHTTrack Website Copier'dan çıkmak için tıklayın
+View log files
+Kayıt Dosyalarını Göster
+Browse HTML start page
+HTML başlangıç sayfasını tara
+End of mirror
+Yansı Sonu
+View log files
+Kayıt Dosyalarını Göster
+Browse Mirrored Website
+Web Sitesinin Yansısını Tara
+New project...
+Yeni proje...
+View error and warning reports
+Hata ve uyarı raporlarını göster
+View report
+Raporu göster
+Close the log file window
+Kayıt Dosyası Penceresini Kapat
+Info type:
+Bilgi tipi:
+Errors
+Hatalar
+Infos
+Bilgiler
+Find
+Bul
+Find a word
+Sözcük bul
+Info log file
+Bilgi kayıt dosyası
+Warning/Errors log file
+Uyarı/Hata kayıt dosyası
+Unable to initialize the OLE system
+OLE sistemi yüklenemiyor
+WinHTTrack could not find any interrupted download file cache in the specified folder!
+WinHTTrack belirtilen dizinde hiç yarım kalmış indirme dosyası önbelleği bulamadı!
+Could not connect to provider
+Hizmet sağlayıcısına bağlanılamıyor
+receive
+al
+request
+iste
+connect
+bağlan
+search
+ara
+ready
+hazır
+error
+hata
+Receiving files..
+Dosyalar alınıyor..
+Parsing HTML file..
+HTML dosyası ayrıştırılıyor..
+Purging files..
+Dosyalar temizleniyor..
+Loading cache in progress..
+Önbellek yükleniyor..
+Parsing HTML file (testing links)..
+HTML dosyası ayrıştırılıyor (bağlantılar kontrol ediliyor)..
+Pause - Toggle [Mirror]/[Pause download] to resume operation
+Duraklat - İşleme devam etmek için [Yansı]/[İndirmeyi duraklat]'a geçin
+Finishing pending transfers - Select [Cancel] to stop now!
+Bekleyen aktarımlar sonlandırılıyor - Durdurmak için [İptal]'i seçin!
+scanning
+taranıyor
+Waiting for scheduled time..
+Planlanan zaman bekleniyor..
+Transferring data..
+Veri aktarılıyor..
+Connecting to provider
+Hizmet sağlayıcıya bağlanıyor
+[%d seconds] to go before start of operation
+İşlemin başlamasına [%d saniye]
+Site mirroring in progress [%s, %s bytes]
+Sitenin yansısı alınıyor [%s, %s bayt]
+Site mirroring finished!
+Sitenin yansısı alındı!
+A problem occurred during the mirroring operation\n
+Yansı işlemi sırasında bir hata oluştu\n
+\nDuring:\n
+\nŞu sırada:\n
+\nSee the log file if necessary.\n\nClick FINISH to quit WinHTTrack Website Copier.\n\nThanks for using WinHTTrack!
+\nGerekirse kayıt dosyasına bakabilirsiniz.\n\nWinHTTrack Website Copier'dan çıkmak için BİTİR'e tıklayın.\n\nWinHTTrack kullandığınız için teşekkürler!
+Mirroring operation complete.\nClick Exit to quit WinHTTrack.\nSee log file(s) if necessary to ensure that everything is OK.\n\nThanks for using WinHTTrack!
+Yansı işlemi tamamlandı.\nWinHTTrack'dan çıkmak için Çıkış'a tıklayın.\nHer şeyin düzgün yapıldığından emin olmak için kayıt dosyasına bakabilirsiniz.\n\nWinHTTrack kullandığınız için teşekkürler!
+* * MIRROR ERROR! * *\r\nHTTrack has detected that the current mirror is empty. If it was an update, the previous mirror has been restored.\r\nReason: the first page(s) either could not be found, or a connection problem occurred.\r\n=> Ensure that the website still exists, and/or check your proxy settings! <=
+* * YANSI İŞLEMİ HATASI! * *\r\nHTTrack, mevcut yansının boş olduğunu tespit etti. Eğer bu bir güncelleme ise, önceki yansı geri alındı.\r\nNedeni: Başlangıç sayfa(lar)ı bulunamadı veya bir bağlantı sorunu oluştu.\r\n=> Web sitesinin hâlâ var olup olmadığını ve/veya vekil sunucu ayarlarınızı kontrol edin! <=
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+\n\nTip: Click [View log file] to see warning or error messages
+\n\nİpucu: Hata ve uyarı mesajlarını görmek için [Kayıt dosyasını göster]'e tıklayın
+Do you really want to quit WinHTTrack Website Copier?
+WinHTTrack Website Copier'dan çıkmak istediğinize emin misiniz?
+- Mirroring Mode -\n\nEnter address(es) in URL box
+- Yansı Modu -\n\nAdresleri URL kutusuna giriniz
+- Interactive Wizard Mode (questions) -\n\nEnter address(es) in URL box
+- Etkileşimli Sihirbaz Modu (sorular) -\n\nAdresleri URL kutusuna giriniz
+- File Download Mode -\n\nEnter file address(es) in URL box
+- Dosya İndirme Modu -\n\nAdresleri URL kutusuna giriniz
+- Link Testing Mode -\n\nEnter Web address(es) with links to test in URL box
+- Bağlantı Test Modu -\n\nTest edilecek bağlantıları içeren web adreslerini URL kutusuna giriniz
+- Update Mode -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Güncelleme Modu -\n\nURL kutusundaki adresleri onaylayın, gerekirse parametreleri kontrol edip 'İLERİ' düğmesine tıklayın
+- Resume Mode (Interrupted Operation) -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Devam Modu (Kesilmiş İşlem) -\n\nURL kutusundaki adresleri onaylayın, gerekirse parametreleri kontrol edip 'İLERİ' düğmesine tıklayın
+Log files Path
+Kayıt dosyaları Konumu
+Path
+Konum
+- Links List Mode -\n\nUse URL box to enter address(es) of page(s) containing links to mirror
+- Bağlantı Listeleme Modu -\n\nYansılanacak bağlantıları içeren sayfaların adreslerini URL kutusuna giriniz
+New project / Import?
+Yeni proje / İçe Aktarılsın mı?
+Choose criterion
+Kriter seçiniz
+Maximum link scanning depth
+Maksimum bağlantı tarama derinliği
+Enter address(es) here
+Adresleri buraya giriniz
+Define additional filtering rules
+Ek filtre kuralları tanımla
+Proxy Name (if needed)
+Vekil Sunucu Adı (gerekirse)
+Proxy Port
+Vekil Sunucu Bağlantı Noktası (Port)
+Define proxy settings
+Vekil sunucu ayarlarını tanımlayın
+Use standard HTTP proxy as FTP proxy
+FTP vekil sunucusu için varsayılan HTTP sunucusunu kullan
+Path
+Konum
+Select Path
+Konum Seç
+Path
+Konum
+Select Path
+Konum Seç
+Quit WinHTTrack Website Copier
+WinHTTrack Website Copier'dan Çık
+About WinHTTrack
+WinHTTrack Hakkında
+Save current preferences as default values
+Şu anki ayarları varsayılan değerler olarak kaydet
+Click to continue
+Devam etmek için tıklayın
+Click to define options
+Seçenekleri tanımlamak için tıklayın
+Click to add a URL
+URL eklemek için tıklayın
+Load URL(s) from text file
+URL'leri metin dosyasından yükle
+WinHTTrack preferences (*.opt)|*.opt||
+WinHTTrack ayarları (*.opt)|*.opt||
+Address List text file (*.txt)|*.txt||
+Adres Listesi metin dosyası (*.txt)|*.txt||
+File not found!
+Dosya bulunamadı!
+Do you really want to change the project name/path?
+Proje adını/konumunu değiştirmek istediğinizden emin misiniz?
+Load user-default options?
+Kullanıcı varsayılan ayarları yüklensin mi?
+Save user-default options?
+Kullanıcı varsayılan ayarları kaydedilsin mi?
+Reset all default options?
+Tüm varsayılan ayarlar sıfırlansın mı?
+Welcome to WinHTTrack!
+WinHTTrack'a Hoş Geldiniz!
+Action:
+Eylem:
+Max Depth
+Maks. Derinlik
+Maximum external depth:
+Maksimum harici derinlik:
+Filters (refuse/accept links) :
+Filtreler (reddedilen/kabul edilen bağlantılar):
+Paths
+Konumlar
+Save prefs
+Ayarları kaydet
+Define..
+Tanımla..
+Set options..
+Ayarlar..
+Preferences and mirror options:
+Ayarlar ve yansı seçenekleri:
+Project name
+Proje adı
+Add a URL...
+URL ekle...
+Web Addresses: (URL)
+Web Adresleri: (URL)
+Stop WinHTTrack?
+WinHTTrack Durdurulsun mu?
+No log files in %s!
+%s içinde kayıt dosyası yok!
+Pause Download?
+İndirme duraklatılsın mı?
+Stop the mirroring operation
+Yansı işlemini durdur
+Minimize to System Tray
+Sistem tepsisine küçült
+Click to skip a link or stop parsing
+Bağlantıyı atlamak veya ayrıştırmayı durdurmak için tıklayın
+Click to skip a link
+Bağlantıyı atlamak için tıklayın
+Bytes saved
+Bayt kaydedildi
+Links scanned
+Bağlantı tarandı
+Time:
+Zaman:
+Connections:
+Bağlantılar:
+Running:
+Çalışıyor:
+Hide
+Gizle
+Transfer rate
+Aktarım hızı
+SKIP
+ATLA
+Information
+Bilgi
+Files written:
+Yazılan dosyalar:
+Files updated:
+Güncellenen dosyalar:
+Errors:
+Hatalar:
+In progress:
+İlerleme:
+Follow external links
+Harici bağlantıları izle
+Test all links in pages
+Sayfalardaki tüm bağlantıları test et
+Try to ferret out all links
+Tüm bağlantıları ortaya çıkarmaya çalış
+Download HTML files first (faster)
+Öncelikli olarak HTML dosyalarını indir (daha hızlı)
+Choose local site structure
+Yerel site yapısı seç
+Set user-defined structure on disk
+Diskte kullanıcı tanımlı yapıyı ata
+Use a cache for updates and retries
+Güncellemeler ve yeniden denemeler için önbellek kullan
+Do not update zero size or user-erased files
+Boyutu sıfır olan veya kullanıcı tarafından silinen dosyaları güncelleme
+Create a Start Page
+Başlangıç Sayfası Oluştur
+Create a word database of all html pages
+Tüm HTML sayfalarından bir sözcük veritabanı oluştur
+Build a complete RFC822 mail (MHT/EML) archive of the mirror
+Yansının tam bir RFC822 posta arşivini (MHT/EML) oluştur
+Create error logging and report files
+Hata kaydı ve rapor dosyaları oluştur
+Generate DOS 8-3 filenames ONLY
+YALNIZCA DOS 8-3 dosya adları üret
+Generate ISO9660 filenames ONLY for CDROM medias
+YALNIZCA CDROM'lar için ISO9660 dosya adları üret
+Do not create HTML error pages
+HTML hata sayfaları oluşturma
+Select file types to be saved to disk
+Diske kaydedilecek dosya türlerini seçin
+Select parsing direction
+Ayrıştırma yönünü seçin
+Select global parsing direction
+Genel ayrıştırma yönünü seçin
+Setup URL rewriting rules for internal links (downloaded ones) and external links (not downloaded ones)
+İç bağlantılar (indirilenler) ve dış bağlantılar (indirilmeyenler) için URL yeniden yazma kurallarını ayarlayın
+Max simultaneous connections
+Maksimum eşzamanlı bağlantı sayısı
+File timeout
+Dosya zaman aşımı
+Cancel all links from host if timeout occurs
+Zaman aşımı olursa sunucudaki tüm bağlantıları iptal et
+Minimum admissible transfer rate
+Kabul edilebilir minimum aktarım hızı
+Cancel all links from host if too slow
+Sunucu çok yavaşsa tüm bağlantıları iptal et
+Maximum number of retries on non-fatal errors
+Ölümcül olmayan hatalarda maksimum yeniden deneme sayısı
+Maximum size for any single HTML file
+Herhangi bir HTML dosyası için maksimum boyut
+Maximum size for any single non-HTML file
+HTML olmayan herhangi bir dosya için maksimum boyut
+Maximum amount of bytes to retrieve from the Web
+Web'den alınacak maksimum bayt miktarı
+Make a pause after downloading this amount of bytes
+Bu miktarda bayt indirdikten sonra duraklat
+Maximum duration time for the mirroring operation
+Yansılama işlemi için maksimum süre
+Maximum transfer rate
+Maksimum aktarım hızı
+Maximum connections/seconds (avoid server overload)
+Maksimum bağlantı/saniye (sunucu aşırı yüklenmesini önlemek için)
+Maximum number of links that can be tested (not saved!)
+Test edilebilecek maksimum bağlantı sayısı (kaydedilmeyen!)
+Browser identity
+Tarayıcı Kimliği
+Comment to be placed in each HTML file
+Her HTML dosyasının içine yerleştirilecek yorum
+Languages accepted by the browser
+Tarayıcının kabul ettiği diller
+Additional HTTP headers to be sent in each requests
+Her istekte gönderilecek ek HTTP başlıkları
+HTTP referer to be sent for initial URLs
+İlk adresler için gönderilecek HTTP referer
+Back to starting page
+Başlangıç sayfasına dön
+Save current preferences as default values
+Şu anki ayarları varsayılan değerler olarak kaydet
+Click to continue
+Devam etmek için tıklayın
+Click to cancel changes
+Değişiklikleri iptal etmek için tıklayın
+Follow local robots rules on sites
+Sitelerdeki yerel robot kurallarını izle
+Links to non-localised external pages will produce error pages
+Yerelleştirilmemiş harici sayfalara verilen bağlantılar hata sayfalarına yönlendirilsin
+Do not erase obsolete files after update
+Güncellemeden sonra eskimiş dosyaları silme
+Accept cookies?
+Çerezler kabul edilsin mi?
+Check document type when unknown?
+Bilinmeyen belge türleri kontrol edilsin mi?
+Parse java applets to retrieve included files that must be downloaded?
+İndirilmesi gereken Java uygulamaları (applet) ayrıştırılsın mı?
+Store all files in cache instead of HTML only
+Yalnızca HTML dosyaları yerine tüm dosyaları önbellekte sakla
+Log file type (if generated)
+Kayıt dosyası türü (oluşturulursa)
+Maximum mirroring depth from root address
+Kök adresten itibaren maksimum yansılama derinliği
+Maximum mirroring depth for external/forbidden addresses (0, that is, none, is the default)
+Harici/yasaklı adresler için maksimum yansılama derinliği (0, yani hiçbiri, varsayılandır)
+Create a debugging file
+Hata ayıklama dosyası oluştur
+Use non-standard requests to get round some server bugs
+Bazı sunucu hatalarını aşmak için standart dışı istekler kullan
+Use old HTTP/1.0 requests (limits engine power!)
+Eski HTTP/1.0 isteklerini kullan (motor gücünü sınırlar!)
+Attempt to limit retransfers through several tricks (file size test..)
+Çeşitli hilelerle yeniden aktarımları sınırlamaya çalış (dosya boyutu testi vb.)
+Attempt to limit the number of links by skipping similar URLs (www.foo.com==foo.com, http=https ..)
+Benzer URL'leri atlayarak bağlantı sayısını sınırlamaya çalış (www.foo.com==foo.com, http=https ..)
+Write external links without login/password
+Harici bağlantıları kullanıcı adı/parola istemeden yaz
+Write internal links without query string
+Sorgu dizesi olmadan dahili bağlantıları yaz
+Get non-HTML files related to a link, eg external .ZIP or pictures
+Bir bağlantıyla ilgili HTML dışı dosyaları da al, örn. harici .ZIP veya resimler
+Test all links (even forbidden ones)
+Tüm bağlantıları test et (yasak olanları bile)
+Try to catch all URLs (even in unknown tags/code)
+Tüm URL'leri yakalamaya çalış (bilinmeyen etiketler/kodlar içinde olsalar bile)
+Get HTML files first!
+Öncelikle HTML dosyalarını al!
+Structure type (how links are saved)
+Yapı türü (bağlantıların nasıl kaydedileceği)
+Use a cache for updates
+Güncellemeler için önbellek kullan
+Do not re-download locally erased files
+Yerel olarak silinen dosyaları yeniden indirme
+Make an index
+Bir dizin oluştur
+Make a word database
+Sözcük veritabanı hazırla
+Build a mail archive
+Posta arşivi oluştur
+Log files
+Kayıt dosyaları
+DOS names (8+3)
+DOS adları (8+3)
+ISO9660 names (CDROM)
+ISO9660 adları (CDROM)
+No error pages
+Hata sayfaları yok
+Primary Scan Rule
+Öncelikli Tarama Kuralı
+Travel mode
+Gezinme modu
+Global travel mode
+Genel gezinme modu
+These options should be modified only exceptionally
+Bu seçenekler yalnızca istisnai durumlarda değiştirilmelidir
+Activate Debugging Mode (winhttrack.log)
+Hata Ayıklama Modunu Etkinleştir (winhttrack.log)
+Rewrite links: internal / external
+Bağlantıları yeniden yaz: dahili / harici
+Flow control
+Akış kontrolü
+Limits
+Sınırlar
+Identity
+Kimlik
+HTML footer
+HTML alt bilgisi
+Languages
+Diller
+Additional HTTP Headers
+Ek HTTP başlıkları
+Default referer URL
+Varsayılan referer adresi
+N# connections
+N# bağlantı
+Abandon host if error
+Hata oluşursa sunucuyu terk et
+Minimum transfer rate (B/s)
+Minimum aktarım hızı (B/s)
+Abandon host if too slow
+Çok yavaşsa sunucuyu terk et
+Configure
+Yapılandır
+Use proxy for ftp transfers
+FTP aktarımları için vekil sunucu kullan
+TimeOut(s)
+Zaman Aşımı(s)
+Persistent connections (Keep-Alive)
+Kalıcı bağlantılar (Keep-Alive)
+Reduce connection time and type lookup time using persistent connections
+Kalıcı bağlantılar kullanarak bağlantı ve tür arama süresini azaltın
+Retries
+Yeniden Denemeler
+Size limit
+Boyut sınırı
+Max size of any HTML file (B)
+Herhangi bir HTML dosyasının maksimum boyutu (B)
+Max size of any non-HTML file
+HTML olmayan herhangi bir dosyanın maksimum boyutu
+Max site size
+Maksimum site boyutu
+Max time
+Maksimum süre
+Save prefs
+Ayarları kaydet
+Max transfer rate
+Maksimum aktarım hızı
+Follow robots.txt
+robots.txt'i takip et
+No external pages
+Harici sayfa yok
+Do not purge old files
+Eski dosyaları temizleme
+Accept cookies
+Çerezleri kabul et
+Check document type
+Belge türünü kontrol et
+Parse java files
+Java dosyalarını ayrıştır
+Store ALL files in cache
+TÜM dosyaları önbellekte sakla
+Tolerant requests (for servers)
+Toleranslı istekler (sunucular için)
+Update hack (limit re-transfers)
+Güncelleme düzenlemesi (yeniden aktarımları sınırla)
+URL hacks (join similar URLs)
+URL düzenlemeleri (benzer URL'leri birleştir)
+Force old HTTP/1.0 requests (no 1.1)
+Eski HTTP/1.0 isteklerine zorla (1.1 yok)
+Max connections / seconds
+Maksimum bağlantı / saniye
+Maximum number of links
+Maksimum bağlantı sayısı
+Pause after downloading..
+İndirme işleminden sonra duraklat..
+Hide passwords
+Parolaları gizle
+Hide query strings
+Sorgu dizelerini gizle
+Links
+Bağlantılar
+Build
+Yapılandır
+Experts Only
+Yalnızca Uzmanlar İçin
+Flow Control
+Akış Kontrolü
+Limits
+Sınırlar
+Browser ID
+Tarayıcı Kimliği
+Scan Rules
+Tarama Kuralları
+Spider
+Ağ Örümceği
+Log, Index, Cache
+Kayıt, Dizin, Önbellek
+Proxy
+Vekil Sunucu
+MIME Types
+MIME Türleri
+Do you really want to quit WinHTTrack Website Copier?
+WinHTTrack Website Copier'dan çıkmak istediğinize emin misiniz?
+Do not connect to a provider (already connected)
+Bir hizmet sağlayıcıya bağlanma (zaten bağlı)
+Do not use remote access connection
+Uzaktan erişim bağlantısı kullanma
+Schedule the mirroring operation
+Yansılama işlemini zamanla
+Quit WinHTTrack Website Copier
+WinHTTrack Website Copier'dan Çık
+Back to starting page
+Başlangıç sayfasına dön
+Click to start!
+Başlamak için tıklayın!
+No saved password for this connection!
+Bu bağlantı için kaydedilmiş parola yok!
+Can not get remote connection settings
+Uzaktan erişim ayarları alınamıyor
+Select a connection provider
+Bir bağlantı hizmet sağlayıcısı seçin
+Start
+Başlat
+Please adjust connection parameters if necessary,\nthen press FINISH to launch the mirroring operation.
+Lütfen gerekirse bağlantı parametrelerini ayarlayın,\nardından yansılama işlemini başlatmak için BİTİR'e basın.
+Save settings only, do not launch download now.
+Yalnızca ayarları kaydet, şimdi indirme işlemini başlatma.
+On hold
+Beklemede
+Transfer scheduled for: (hh/mm/ss)
+Aktarım zamanı: (ss/dd/yy)
+Start
+Başlat
+Connect to provider (RAS)
+Hizmet sağlayıcıya bağlan (RAS)
+Connect to this provider
+Bu hizmet sağlayıcıya bağlan
+Disconnect when finished
+Bittiğinde bağlantıyı kes
+Disconnect modem on completion
+İşlem tamamlandığında modem bağlantısını kes
+\r\n(Please notify us of any bug or problem)\r\n\r\nDevelopment:\r\nEngine and interfaces: Xavier Roche\r\nCode, documentation and packaging: many contributors\r\n\r\n(C) Xavier Roche and other contributors\r\nMANY THANKS for English translations to:\r\nXavier Roche, Robert Lagadec
+\r\n(Lütfen bize her türlü hatayı ve problemi aktarınız)\r\n\r\nGeliştirme:\r\nArayüz (Windows): Xavier Roche\r\nAğ: Xavier Roche\r\n\r\n(C) Xavier Roche ve diğerleri\r\nÇeviri ipuçları için teşekkürler: \r\nArman (Armish) Aksoy, Ümit Solmaz
+About WinHTTrack Website Copier
+WinHTTrack Website Copier Hakkında
+Please visit our Web page
+Lütfen web sitemizi ziyaret edin
+Wizard query
+Sihirbaz sorusu
+Your answer:
+Cevabınız:
+Link detected..
+Bağlantı bulundu..
+Choose a rule
+Bir kural seçin
+Ignore this link
+Bu bağlantıyı yoksay
+Ignore directory
+Bu dizini yoksay
+Ignore domain
+Bu alan adını yoksay
+Catch this page only
+Yalnızca bu sayfayı yakala
+Mirror site
+Siteyi yansıla
+Mirror domain
+Alan adını yansıla
+Ignore all
+Tümünü yoksay
+Wizard query
+Sihirbaz sorusu
+NO
+Hayır
+File
+Dosya
+Options
+Seçenekler
+Log
+Kayıt
+Window
+Pencere
+Help
+Yardım
+Pause transfer
+Aktarımı duraklat
+Exit
+Çıkış
+Modify options
+Seçenekleri değiştir
+View log
+Kaydı göster
+View error log
+Hata kaydını göster
+View file transfers
+Dosya aktarımlarını göster
+Hide
+Gizle
+About WinHTTrack Website Copier
+WinHTTrack Website Copier Hakkında
+Check program updates...
+Program güncellemelerini kontrol et...
+&Toolbar
+&Araç Çubuğu
+&Status Bar
+&Durum Çubuğu
+S&plit
+Bö&l
+File
+Dosya
+Preferences
+Ayarlar
+Mirror
+Yansı
+Log
+Kayıt
+Window
+Pencere
+Help
+Yardım
+Exit
+Çıkış
+Load default options
+Varsayılan ayarları yükle
+Save default options
+Varsayılan ayarları kaydet
+Reset to default options
+Varsayılan ayarlara dön
+Load options...
+Ayarları yükle...
+Save options as...
+Ayarları farklı kaydet...
+Language preference...
+Dil tercihi...
+Contents...
+İçindekiler...
+About WinHTTrack...
+WinHTTrack Hakkında...
+New project\tCtrl+N
+Yeni Proje\tCtrl+N
+&Open...\tCtrl+O
+&Aç...\tCtrl+O
+&Save\tCtrl+S
+&Kaydet\tCtrl+S
+Save &As...
+&Farklı Kaydet...
+&Delete...
+&Sil...
+&Browse sites...
+&Siteleri tara...
+User-defined structure
+Kullanıcı tanımlı yapı
+%n\tName of file without file type (ex: image)\r\n%N\tName of file including file type (ex: image.gif)\r\n%t\tFile type only (ex: gif)\r\n%p\tPath [without ending /] (ex: /someimages)\r\n%h\tHost name (ex: www.someweb.com)\r\n%M\tMD5 URL (128 bits, 32 ascii bytes)\r\n%Q\tMD5 query string (128 bits, 32 ascii bytes)\r\n%q\tMD5 small query string (16 bits, 4 ascii bytes)\r\n\r\n%s?\tShort name (ex: %sN)
+%n\tDosya türü olmadan dosya adı (ör: resim)\r\n%N\tDosya türüyle birlikte dosya adı (ör: resim.gif)\r\n%t\tYalnızca dosya türü (ör: gif)\r\n%p\tYol [sondaki / olmadan] (ör: /resimler)\r\n%h\tSunucu adı (ör: www.siteniz.com)\r\n%M\tMD5 URL (128 bit, 32 ascii bayt)\r\n%Q\tMD5 sorgu dizesi (128 bit, 32 ascii bayt)\r\n%q\tMD5 küçük sorgu dizesi (16 bit, 4 ascii bayt)\r\n\r\n%s?\tKısa ad (ör: %sN)
+Example:\t%h%p/%n%q.%t\n->\t\tc:\\mirror\\www.someweb.com\\someimages\\image.gif
+Örnek:\t%h%p/%n%q.%t\n->\t\tc:\\yansı\\www.siteniz.com\\resimler\\resim.gif
+Proxy settings
+Vekil sunucu ayarları
+Proxy address:
+Vekil sunucu adresi:
+Proxy port:
+Vekil sunucu bağlantı noktası (Port):
+Authentication (only if needed)
+Kimlik Doğrulama (yalnızca gerekirse)
+Login
+Kullanıcı Adı
+Password
+Parola
+Enter proxy address here
+Vekil sunucu adresini buraya girin
+Enter proxy port here
+Vekil sunucu bağlantı noktasını buraya girin
+Enter proxy login
+Vekil sunucu kullanıcı adını girin
+Enter proxy password
+Vekil sunucu parolasını girin
+Enter project name here
+Proje adını buraya girin
+Enter saving path here
+Kaydedilecek konumu buraya girin
+Select existing project to update
+Güncellenecek projeyi seçin
+Click here to select path
+Konumu seçmek için buraya tıklayın
+Select or create a new category name, to sort your mirrors in categories
+Yansılarınızı kategorilere ayırmak için bir kategori adı seçin veya oluşturun
+HTTrack Project Wizard...
+HTTrack Proje Sihirbazı...
+New project name:
+Yeni proje adı:
+Existing project name:
+Mevcut proje adı:
+Project name:
+Proje adı:
+Base path:
+Ana konum:
+Project category:
+Proje kategorisi:
+C:\\My Web Sites
+C:\\Web Sitelerim
+Type a new project name, \r\nor select existing project to update/resume
+Yeni bir proje adı yazın, \r\nveya güncellemek/devam etmek için mevcut projeyi seçin
+New project
+Yeni proje
+Insert URL
+URL ekle
+URL:
+URL:
+Authentication (only if needed)
+Kimlik Doğrulama (yalnızca gerekirse)
+Login
+Kullanıcı Adı
+Password
+Parola
+Forms or complex links:
+Formlar veya karmaşık bağlantılar:
+Capture URL...
+URL Yakala...
+Enter URL address(es) here
+URL adres(ler)ini buraya girin
+Enter site login
+Site kullanıcı adını girin
+Enter site password
+Site parolasını girin
+Use this capture tool for links that can only be accessed through forms or javascript code
+Yalnızca formlar veya JavaScript koduyla erişilebilen bağlantılar için bu yakalama aracını kullanın
+Choose language according to preference
+Dili tercihe göre seç
+Catch URL!
+URL Yakala!
+Please set temporary browser proxy settings to the following values (Copy/Paste Proxy Address and Port).\nThen click on the Form SUBMIT button in your browser page, or click on the specific link you want to capture.
+Lütfen geçici tarayıcı vekil sunucu ayarlarını aşağıdaki değerlere göre yapılandırın (Vekil Sunucu Adresi ve Bağlantı Noktasını Kopyala/Yapıştır yapın).\nArdından tarayıcınızdaki sayfada Form GÖNDER (SUBMIT) düğmesine veya yakalamak istediğiniz belirli bağlantıya tıklayın.
+This will send the desired link from your browser to WinHTTrack.
+Bu, istediğiniz bağlantıyı tarayıcınızdan WinHTTrack'e gönderecektir.
+ABORT
+İPTAL ET
+Copy/Paste the temporary proxy parameters here
+Geçici vekil sunucu parametrelerini buraya Kopyala/Yapıştır yapın
+Cancel
+Vazgeç
+Unable to find Help files!
+Yardım dosyaları bulunamadı!
+Unable to save parameters!
+Parametreler kaydedilemedi!
+Please drag only one folder at a time
+Lütfen bir seferde yalnızca bir klasör sürükleyin
+Please drag only folders, not files
+Lütfen dosyalar değil, yalnızca klasörler sürükleyin
+Please drag folders only
+Lütfen yalnızca klasörleri sürükleyin
+Select user-defined structure?
+Kullanıcı tanımlı yapı seçilsin mi?
+Please ensure that the user-defined-string is correct,\notherwise filenames will be bogus!
+Lütfen kullanıcı tanımlı dizenin doğru olduğundan emin olun,\naksi halde dosya adları geçersiz olacaktır!
+Do you really want to use a user-defined structure?
+Kullanıcı tanımlı bir yapı kullanmak istediğinizden emin misiniz?
+Too manu URLs, cannot handle so many links!!
+Çok fazla URL, bu kadar çok bağlantı işlenemiyor!!
+Not enough memory, fatal internal error..
+Yeterli bellek yok, ölümcül iç hata..
+Unknown operation!
+Bilinmeyen işlem!
+Add this URL?\r\n
+Bu URL eklensin mi?\r\n
+Warning: main process is still not responding, cannot add URL(s)..
+Uyarı: Ana işlem hâlâ yanıt vermiyor, URL eklenemiyor..
+Type/MIME associations
+Tür/MIME ilişkileri
+File types:
+Dosya türleri:
+MIME identity:
+MIME kimliği:
+Select or modify your file type(s) here
+Dosya tür(ler)inizi buradan seçin veya değiştirin
+Select or modify your MIME type(s) here
+MIME tür(ler)inizi buradan seçin veya değiştirin
+Go up
+Yukarı çık
+Go down
+Aşağı in
+File download information
+Dosya indirme bilgisi
+Freeze Window
+Pencereyi Dondur
+More information:
+Daha fazla bilgi:
+Welcome to WinHTTrack Website Copier!\n\nPlease click on the NEXT button to\n\n- start a new project\n- or resume a partial download
+WinHTTrack Website Copier'a Hoş Geldiniz!\n\nYeni bir proje başlatmak\nveya yarım kalmış bir indirmeye devam etmek için\nlütfen İLERİ düğmesine tıklayın\n
+File names with extension:\nFile names containing:\nThis file name:\nFolder names containing:\nThis folder name:\nLinks on this domain:\nLinks on domains containing:\nLinks from this host:\nLinks containing:\nThis link:\nALL LINKS
+Uzantılı dosya adları:\nİçinde şu olan dosya adları:\nBu dosya adı:\nİçinde şu olan klasör adları:\nBu klasör adı:\nBu alan adındaki bağlantılar:\nİçinde şu olan alan adlarındaki bağlantılar:\nBu sunucudaki bağlantılar:\nİçinde şu olan bağlantılar:\nBu bağlantı:\nTÜM BAĞLANTILAR
+Show all\nHide debug\nHide infos\nHide debug and infos
+Hepsini göster\nHata ayıklamayı gizle\nBilgileri gizle\nBilgileri ve hata ayıklamayı gizle
+Site-structure (default)\nHtml in web/,       images/other files in web/images/\nHtml in web/html,   images/other in web/images\nHtml in web/,       images/other in web/\nHtml in web/,       images/other in web/xxx, where xxx is the file extension\nHtml in web/html,   images/other in web/xxx\nSite-structure, without www.domain.xxx/\nHtml in site_name/, images/other files in site_name/images/\nHtml in site_name/html, images/other in site_name/images\nHtml in site_name/, images/other in site_name/\nHtml in site_name/, images/other in site_name/xxx\nHtml in site_name/html, images/other in site_name/xxx\nAll files in web/, with random names (gadget !)\nAll files in site_name/, with random names (gadget !)\nUser-defined structure..
+Site yapısı (varsayılan)\nweb/ içinde HTML,       web/images/ içinde resimler/diğer dosyalar\nweb/html içinde HTML,   web/images içinde resimler/diğer dosyalar\nweb/ içinde HTML,     web/ içinde resimler/diğer dosyalar\nweb/ içinde HTML,     web/xxx içindeki resimler/diğer dosyalar (xxx dosya uzantısıdır)\nweb/html içinde HTML,    web/xxx içindeki resimler\nwww.domain.xxx/ olmadan site yapısı\nsite_name/ içinde HTML, site_name/images/ içinde resimler/diğer dosyalar\nsite_name/html içinde HTML, site_name/images içinde resimler/diğer dosyalar\nsite_name/ içinde HTML, site_name/ içinde resimler/diğer dosyalar\nsite_name/ içinde HTML, site_name/xxx içinde resimler/diğer dosyalar\nsite_name/html içinde HTML, site_name/xxx içinde resimler/diğer dosyalar\nweb/ içindeki tüm dosyalar (rastgele adlarla!)\nsite_name/ içindeki tüm dosyalar (rastgele adlarla!)\nKullanıcı tanımlı yapı..
+Just scan\nStore html files\nStore non html files\nStore all files (default)\nStore html files first
+Sadece tara\nHTML dosyalarını sakla\nHTML olmayan dosyaları sakla\nTüm dosyaları sakla (varsayılan)\nÖnce HTML dosyalarını sakla
+Stay in the same directory\nCan go down (default)\nCan go up\nCan both go up & down
+Aynı dizinde kal\nAlt dizinlere gidebilir (varsayılan)\nÜst dizinlere gidebilir\nHem üst hem alt dizinlere gidebilir
+Stay on the same address (default)\nStay on the same domain\nStay on the same top level domain\nGo everywhere on the web
+Aynı adreste kal (varsayılan)\nAynı alan adında kal\nAynı üst düzey alan adında kal\nWeb üzerinde her yere git
+Never\nIf unknown (except /)\nIf unknown
+Asla\nBilinmiyorsa (/ hariç)\nBilinmiyorsa
+no robots.txt rules\nrobots.txt except wizard\nfollow robots.txt rules
+robots.txt kuralları yok\nsihirbaz hariç robots.txt\nrobots.txt kurallarını izle
+normal\nextended\ndebug
+normal\ngenişletilmiş\nhata ayıklama
+Download web site(s)\nDownload web site(s) + questions\nGet individual files\nDownload all sites in pages (multiple mirror)\nTest links in pages (bookmark test)\n* Continue interrupted download\n* Update existing download
+Web sitelerini indir\nWeb sitelerini + soruları indir\nTek tek dosyaları al\nSayfalardaki tüm siteleri indir (çoklu yansı)\nSayfalardaki bağlantıları test et (yer imi testi)\n* Kesintiye uğramış indirmeye devam et\n* Mevcut indirmeyi güncelle
+Relative URI / Absolute URL (default)\nAbsolute URL / Absolute URL\nAbsolute URI / Absolute URL\nOriginal URL / Original URL
+Göreli URI / Tam URL (varsayılan)\nTam URL / Tam URL\nTam URI / Tam URL\nÖzgün URL / Özgün URL
+Open Source offline browser
+Açık Kaynaklı Çevrimdışı Tarayıcı
+Website Copier/Offline Browser. Copy remote websites to your computer. Free.
+Web Sitesi Kopyalayıcı/Çevrimdışı Tarayıcı. Uzaktaki web sitelerini bilgisayarınıza kopyalayın. Bedava.
+httrack, winhttrack, webhttrack, offline browser
+httrack, winhttrack, webhttrack, çevrimdışı tarayıcı
+URL list (.txt)
+URL listesi (.txt)
+Previous
+Geri
+Next
+İleri
+URLs
+URL'ler
+Warning
+Uyarı
+Your browser does not currently support javascript. For better results, please use a javascript-aware browser.
+Tarayıcınız şu anda JavaScript'i desteklemiyor. Daha iyi sonuçlar için lütfen JavaScript destekli bir tarayıcı kullanın.
+Thank you
+Teşekkürler
+You can now close this window
+Artık bu pencereyi kapatabilirsiniz
+Server terminated
+Sunucu sonlandırıldı
+A fatal error has occurred during this mirror
+Bu yansılama işlemi sırasında ölümcül bir hata oluştu
+View Documentation
+Belgeleri görüntüle
+Go To HTTrack Website
+HTTrack web sitesine git
+Go To HTTrack Forum
+HTTrack forumuna git
+View License
+Lisansı görüntüle
+Beware: you local browser might be unable to browse files with embedded filenames
+Dikkat: yerel tarayıcınız gömülü dosya adları içeren dosyaları açamayabilir
+Recreated HTTrack internal cached resources
+HTTrack iç önbellek kaynakları yeniden oluşturuldu
+Could not create internal cached resources
+İç önbellek kaynakları oluşturulamadı
+Could not get the system external storage directory
+Sistemin dış depolama dizini bulunamadı
+Could not write to:
+Şuraya yazılamadı:
+Read-only media (SDCARD)
+Salt okunur ortam (SDCARD)
+No storage media (SDCARD)
+Depolama ortamı yok (SDCARD)
+HTTrack may not be able to download websites until this problem is fixed
+Bu sorun giderilene kadar HTTrack web sitelerini indiremeyebilir
+HTTrack: mirror '%s' stopped!
+HTTrack: "%s" yansısı durduruldu!
+Click on this notification to restart the interrupted mirror
+Yarım kalan yansıyı sürdürmek için bu bildirime dokunun
+HTTrack: could not save profile for '%s'!
+HTTrack: "%s" için profil kaydedilemedi!
+Proxy type:
+Proxy türü:
+Proxy protocol. HTTP: standard proxy. HTTP (CONNECT tunnel): sends every request through a CONNECT tunnel, for CONNECT-only proxies like Tor's HTTPTunnelPort. SOCKS5: default port 1080.
+Proxy protokolü. HTTP: standart proxy. HTTP (CONNECT tüneli): her isteği bir CONNECT tüneli üzerinden gönderir; Tor'un HTTPTunnelPort gibi yalnızca CONNECT destekleyen proxy'ler için. SOCKS5: varsayılan bağlantı noktası 1080.
+Load cookies from file:
+Çerezleri dosyadan yükle:
+Use a Netscape cookies.txt file as the cookie jar. HTTrack loads it before crawling, and writes it back at the end unless a line in it could not be loaded.
+Taramadan önce bir Netscape cookies.txt dosyasından çerezleri önceden yükle.
+Pause between files:
+Dosyalar arasında bekleme:
+Random delay between file downloads, in seconds. Use MIN:MAX for a random range (e.g. 2:8).
+Dosya indirmeleri arasında saniye cinsinden rastgele gecikme. Rastgele bir aralık için MIN:MAX kullanın (örn. 2:8).
+Keep the www. prefix (do not merge www.host with host)
+www. önekini koru (www.host ile host'u birleştirme)
+Do not treat www.host and host as the same site.
+www.host ve host'u aynı site olarak değerlendirme.
+Keep double slashes in URLs
+URL'lerdeki çift eğik çizgileri koru
+Do not collapse duplicate slashes in URLs.
+URL'lerdeki yinelenen eğik çizgileri birleştirme.
+Keep the original query-string order
+Özgün sorgu dizesi sırasını koru
+Do not reorder query-string parameters when deduplicating URLs.
+URL'lerin yinelenenlerini ayıklarken sorgu dizesi parametrelerini yeniden sıralama.
+Strip query keys:
+Sorgu anahtarlarını çıkar:
+Comma-separated query keys to drop from the saved-file naming (e.g. sid,utm_source).
+Kaydedilen dosya adlandırmasından çıkarılacak, virgülle ayrılmış sorgu anahtarları (örn. sid,utm_source).
+Write a WARC archive of the crawl
+Taramanın WARC arşivini yaz
+Also save every fetched response into an ISO-28500 WARC/1.1 archive, next to the mirror.
+İndirilen her yanıtı ayrıca aynanın yanına bir ISO-28500 WARC/1.1 arşivine kaydet.
+WARC archive name:
+WARC arşivi adı:
+Optional base name for the WARC archive; leave blank to auto-name it under the output directory.
+WARC arşivi için isteğe bağlı temel ad; çıktı dizininde otomatik adlandırma için boş bırakın.
+Report what changed since the previous mirror
+Önceki yansımadan bu yana değişenleri bildir
+Also write hts-changes.json listing what this crawl left new, changed, unchanged and gone compared to the previous mirror.
+Ayrıca hts-changes.json yazarak bu taramanın önceki yansımaya göre neyi yeni, değişmiş, değişmemiş veya kaybolmuş bıraktığını listele.
+Inline assets as data: URIs (self-contained pages)
+Kaynakları data: URI olarak göm (kendi kendine yeten sayfalar)
+Once the mirror is finished, rewrite every saved page with its stylesheets, scripts, images and fonts embedded, so a page can also be opened on its own.
+Yansılama bittiğinde, kaydedilen her sayfa stil sayfaları, betikleri, görselleri ve yazı tipleri gömülü olarak yeniden yazılır; böylece sayfa tek başına da açılabilir.
+Largest inlined asset (bytes):
+En büyük gömülü kaynak (bayt):
+An asset above this size keeps an ordinary link; leave blank for the 10485760-byte default.
+Bu boyutun üzerindeki bir kaynak sıradan bağlantısını korur; 10485760 baytlık varsayılan için boş bırakın.
+Seed the crawl from the site's sitemap
+Taramayı sitenin site haritasından başlat
+Read the site's sitemap (robots.txt Sitemap: lines, then /sitemap.xml) and add every URL it lists as a start URL.
+Sitenin site haritasını oku (robots.txt içindeki Sitemap: satırları, ardından /sitemap.xml) ve listelenen her URL'yi başlangıç adresi olarak ekle.
+Sitemap address:
+Site haritası adresi:
+Address of a sitemap to read instead of probing the site; leave blank to probe robots.txt then /sitemap.xml.
+Siteyi yoklamak yerine okunacak site haritasının adresi; robots.txt ve ardından /sitemap.xml yoklaması için boş bırakın.
+Write a CDXJ index of the WARC archive
+WARC arşivinin CDXJ dizinini yaz
+Also write a sorted CDXJ index listing every record in the WARC archive, for replay tools.
+WARC arşivindeki tüm kayıtları listeleyen sıralı bir CDXJ dizini de yaz; yeniden oynatma araçları için.
+Package the crawl as a WACZ file
+Taramayı WACZ dosyası olarak paketle
+Bundle the WARC archive, its CDXJ index and the mirrored pages into a single WACZ file; implies the WARC archive and the CDXJ index.
+WARC arşivini, CDXJ dizinini ve aynalanan sayfaları tek bir WACZ dosyasında topla; WARC arşivini ve CDXJ dizinini gerektirir.
+WARC segment size limit:
+WARC parça boyutu sınırı:
+Start a new WARC segment once the current one grows past this many bytes; leave blank or 0 to keep a single file.
+Geçerli parça bu bayt sayısını aştığında yeni bir WARC parçası başlat; tek dosya için boş bırakın veya 0 girin.
+Host aliases:
+Sunucu takma adları:
+Other hostnames serving this same site, folded onto one, one rule per line (e.g. www2.example.com,m.example.com=example.com).
+Aynı siteyi sunan ve tek bir ada indirgenen diğer sunucu adları; her satırda bir kural (örn. www2.example.com,m.example.com=example.com).
+Mirror %s and every host below it
+%s ve altındaki tüm sunucuları yansıla
+Ignore %s and every host below it
+%s ve altındaki tüm sunucuları yoksay
+Manual
+Kılavuz
+Max Retry-After(s)
+En çok Retry-After (sn)
+Longest delay to obey when a server sends a Retry-After header. Use 0 to retry without waiting.
+Bir sunucu Retry-After başlığı gönderdiğinde uyulacak en uzun bekleme. Beklemeden yeniden denemek için 0 girin.
+The rules you set here apply to the mirror now running. Removing a rule lets new links through again, but a link it already refused will not come back in this run.
+Burada belirlediğiniz kurallar şu anda çalışan yansıya uygulanır. Bir kuralı kaldırmak yeni bağlantıların yeniden geçmesine izin verir, ancak kuralın daha önce reddettiği bir bağlantı bu yansıda geri gelmez.
+This scan rule cannot be used. A rule starts with + or -, then a pattern, and holds one short line.
+Bu tarama kuralı kullanılamaz. Bir kural + veya - ile başlar, ardından bir desen gelir ve tek bir kısa satıra sığmalıdır.
+Theme:
+Tema:
+Classic
+Klasik
+Accept headers
+Accept üstbilgileri
+The Accept header sent for each kind of link. Automatic sends what the chosen browser sends.
+Her bağlantı türü için gönderilen Accept üstbilgisi. Otomatik, seçilen tarayıcının gönderdiğini gönderir.
+Automatic
+Otomatik
+Old HTTrack value
+Eski HTTrack değeri
+Default
+Varsayılan
+Pages
+Sayfalar
+Inline frames
+Satır içi çerçeveler
+Frames
+Çerçeveler
+Images
+Görüntüler
+Style sheets
+Stil sayfaları
+Scripts
+Betikler
+Fonts
+Yazı tipleri
+Audio
+Ses
+Video
+Video
+Objects
+Nesneler
+Embedded content
+Gömülü içerik
+Log in with a browser...
+Tarayıcıyla oturum aç...
+Log in to the site in a browser, and crawl with the cookies and the browser identity it was given
+Siteye bir tarayıcıda oturum açın ve yansılamayı onun aldığı çerezlerle ve tarayıcı kimliğiyle yapın
+No Microsoft Edge WebView2 runtime is installed on this computer
+Bu bilgisayarda Microsoft Edge WebView2 çalışma zamanı yüklü değil
+Log in with a browser
+Tarayıcıyla oturum aç
+Go
+Git
+Done
+Bitti
+Clear login
+Oturumu kapat
+The browser did not open: %s.
+Tarayıcı açılmadı: %s.
+The browser came back with no cookies. The address and the browser identity are saved with the project when the wizard finishes.
+Tarayıcı hiç çerez döndürmedi. Sihirbaz bittiğinde adres ve tarayıcı kimliği projeyle birlikte kaydedilecek.
+Cookies collected: %d. They are used when you press OK.
+Toplanan çerez sayısı: %d. Tamam'a bastığınızda kullanılacaklar.
+Cookies collected: %d. They are saved with the project when the wizard finishes.
+Toplanan çerez sayısı: %d. Sihirbaz bittiğinde projeyle birlikte kaydedilecekler.
+The login could not be written to %s.
+Oturum açma bilgisi %s dosyasına yazılamadı.
+%d of the browser's cookies were left out, because the engine would not read them.
+Tarayıcının çerezlerinden %d tanesi dışarıda bırakıldı, çünkü HTTrack onları okuyamazdı.
+Log in to the site in another tab of this browser. Open the developer tools (F12), then the Network tab, reload the page, right-click the first request and choose Copy as cURL (bash). Paste the text here. A cookies.txt export also works, for the first address in the list.
+Bu tarayıcının başka bir sekmesinde siteye giriş yapın. Geliştirici araçlarını (F12) ve ardından Ağ sekmesini açın, sayfayı yeniden yükleyin, ilk isteğe sağ tıklayın ve Copy as cURL (bash) seçeneğini seçin. Metni buraya yapıştırın. Bir cookies.txt dışa aktarımı da kullanılabilir; listedeki ilk adres için kullanılır.
+Cookies for: %s. Browser identity: %s.
+Çerezlerin ait olduğu siteler: %s. Tarayıcı kimliği: %s.
+A login cannot be saved for this address, so nothing was kept.
+Bu adres için oturum açma bilgisi kaydedilemiyor, bu yüzden hiçbir şey saklanmadı.
+Yes
+Evet

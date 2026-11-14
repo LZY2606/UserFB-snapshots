@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The change report HTTrack writes after an update, field by field.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>HTTrack change report format</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>On this page</h2>
+	<ul>
+		<li><a href="#what-changed-means">What "changed" means</a></li>
+		<li><a href="#with-the-cache-off">With the cache off</a></li>
+		<li><a href="#fields">Fields</a></li>
+		<li><a href="#encoding">Encoding</a></li>
+		<li><a href="#example">Example</a></li>
+		<li><a href="#notes">Notes</a></li>
+	</ul>
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html" aria-current="page" class="here">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>Change report format specification</h1>
+
+<br />
+
+Run with <tt>--changes</tt> (<tt>-%d</tt>), HTTrack writes <tt>hts-changes.json</tt>
+in the project directory, next to <tt>hts-log.txt</tt>, describing what the crawl
+left new, changed, unchanged and gone compared to the previous mirror. The file is
+rewritten from scratch at the end of every run, and the log carries a one-line
+summary of the same counts.
+
+<br /><br />
+
+<h3 id="what-changed-means">What "changed" means</h3>
+
+A resource is changed when its bytes differ, not when the server merely re-sent
+it. HTTrack compares the payload it just received against the copy the previous
+run left behind: for pages it parses, the previous payload comes from the cache
+(the file on disk carries the mirror footer and its crawl date, so its bytes
+differ on every run); for everything else, the mirrored file is the payload
+verbatim and is compared directly.
+
+<br /><br />
+
+Where no digest can be taken on either side, because the cache is disabled or
+the previous copy is gone, the report falls back to the transfer signal, and a
+server that answers 200 rather than 304 reads as changed. Keeping the cache on
+(the default) is what makes the report precise.
+
+<br /><br />
+
+<h3 id="with-the-cache-off">With the cache off</h3>
+
+<tt>--cache=0</tt> costs the report more than the digest of a parsed page. The
+mirror's file index (<tt>hts-cache/new.lst</tt>) is what records which files a
+run produced, so without it there is no previous mirror to subtract from: nothing
+is reported <tt>gone</tt>, and whether the run is a first crawl cannot be decided
+at all, which <tt>first_crawl</tt> states as <tt>null</tt> rather than guess. What
+is on disk is still compared byte for byte, so the other three lists stay
+meaningful, except for the pages HTTrack parses: those have no cached payload to
+compare against and fall back to the transfer signal.
+
+<br /><br />
+
+<h3 id="fields">Fields</h3>
+
+<ul>
+<li><tt>schema</tt>: format version, currently <tt>1</tt>. It is bumped only
+on an incompatible change; new fields may appear without one.</li>
+<li><tt>generator</tt>: the HTTrack build that wrote the file.</li>
+<li><tt>date</tt>: when the report was written, UTC, <tt>YYYY-MM-DDThh:mm:ssZ</tt>.</li>
+<li><tt>first_crawl</tt>: true when no index of a previous mirror
+(<tt>hts-cache/old.lst</tt>) was found, so there was nothing to compare against and
+everything is listed as new. Null when the run kept no index at all and the
+question cannot be answered (see above).</li>
+<li><tt>partial</tt>: true when the report ran out of memory and lists only
+part of the mirror.</li>
+<li><tt>purged</tt>: true when <tt>--purge-old</tt> was in effect, so the
+files under <tt>gone</tt> were also deleted from disk.</li>
+<li><tt>counts</tt>: the size of each of the four lists.</li>
+<li><tt>new</tt>, <tt>changed</tt>, <tt>unchanged</tt>, <tt>gone</tt>: the
+lists themselves. Every mirrored file appears in exactly one of them.</li>
+</ul>
+
+Each entry is an object:
+
+<ul>
+<li><tt>url</tt>: the absolute URL the file came from. Empty under
+<tt>gone</tt>: deletions are computed from the mirror's file index, which records
+paths, not URLs.</li>
+<li><tt>file</tt>: the path relative to the mirror root, with forward
+slashes. This is the entry's identity: a URL and a redirect that resolve to the
+same local file are one entry, not two.</li>
+<li><tt>size</tt>: the mirrored file's size in bytes, absent when the file
+is not on disk.</li>
+<li><tt>previous_size</tt>: under <tt>changed</tt> only, the size of the
+copy the previous run left.</li>
+</ul>
+
+<br />
+
+<h3 id="encoding">Encoding</h3>
+
+The file is JSON, UTF-8. URLs and local paths reach HTTrack as raw bytes and are
+not guaranteed to be valid UTF-8; any byte sequence that is not becomes
+U+FFFD (<tt>\ufffd</tt>), so the file always parses. Compare on <tt>file</tt>
+rather than on <tt>url</tt> when a mirror is known to carry legacy-charset URLs.
+
+<br /><br />
+
+<h3 id="example">Example</h3>
+
+One captured run; <tt>generator</tt> and <tt>date</tt> will read differently in yours.
+
+<pre>
+{
+  "schema": 1,
+  "generator": "HTTrack Website Copier/3.49-14",
+  "date": "2026-07-26T15:29:03Z",
+  "first_crawl": false,
+  "partial": false,
+  "purged": true,
+  "counts": { "new": 1, "changed": 1, "unchanged": 1, "gone": 1 },
+  "new": [
+    { "url": "http://example.com/d.html", "file": "example.com/d.html", "size": 280 }
+  ],
+  "changed": [
+    { "url": "http://example.com/a.html", "file": "example.com/a.html", "size": 281, "previous_size": 273 }
+  ],
+  "unchanged": [
+    { "url": "http://example.com/b.html", "file": "example.com/b.html", "size": 277 }
+  ],
+  "gone": [
+    { "url": "", "file": "example.com/c.html" }
+  ]
+}
+</pre>
+
+<br /><br />
+
+<h3 id="notes">Notes</h3>
+
+<ul>
+<li>A file listed under <tt>gone</tt> is only deleted when <tt>--purge-old</tt> is
+on. Left in place it drops out of the mirror's index, so it is reported once and
+not again.</li>
+<li>A resource whose local file name changed since the previous mirror (a new
+MIME type, say) is reported as <tt>new</tt> under its new name; the old name is
+reported as <tt>gone</tt> only if the file is still on disk. The two entries are
+not paired.</li>
+<li>A resource this run tried and failed to transfer also drops out of the
+mirror's index, but its previous copy is untouched, so it is reported
+<tt>unchanged</tt>. Under <tt>--purge-old</tt> that copy is deleted anyway, and
+the report says <tt>gone</tt> to match.</li>
+<li>A run that transfers no data at all is rolled back: HTTrack restores the
+previous cache generation and leaves the previous report in place, so a lost
+connection does not overwrite a good report with an empty one.</li>
+<li>Content diffs, and keeping the previous copy of a changed page, are out of
+scope: both change what a mirror directory contains.</li>
+</ul>
+
+<br /><br />
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

@@ -1,0 +1,63 @@
+--- zip.h.orig	2026-09-03 22:29:36.862585755 +0200
++++ zip.h	2026-09-03 22:38:26.836034035 +0200
+@@ -75,6 +75,9 @@
+ #define ZIP_PARAMERROR                  (-102)
+ #define ZIP_BADZIPFILE                  (-103)
+ #define ZIP_INTERNALERROR               (-104)
++/* httrack addition: rolled back by a rewind only, the member's bytes still
++   there. Past the UNZ_* codes (-105 is UNZ_CRCERROR), which share the space. */
++#define ZIP_NOTRUNCATED (-110)
+ 
+ #ifndef DEF_MEM_LEVEL
+ #  if MAX_MEM_LEVEL >= 8
+@@ -313,11 +316,24 @@
+   Write data in the zipfile
+ */
+ 
++extern int ZEXPORT zipFlush (zipFile file);
++/*
++  Flush the zipfile output
++*/
++
+ extern int ZEXPORT zipCloseFileInZip(zipFile file);
+ /*
+   Close the current file in the zipfile
+ */
+ 
++extern int ZEXPORT zipAbandonFileInZip(zipFile file);
++/*
++  Roll back the current file in the zipfile: the write position returns to its
++  local header and no central-directory record is created, so the partial
++  member never appears in the archive. ZIP_NOTRUNCATED when the file could only
++  be rewound, its bytes still past the end. (httrack addition, see zip.c.diff)
++*/
++
+ extern int ZEXPORT zipCloseFileInZipRaw(zipFile file,
+                                         uLong uncompressed_size,
+                                         uLong crc32);
+@@ -338,25 +354,6 @@
+   Close the zipfile
+ */
+ 
+-
+-extern int ZEXPORT zipRemoveExtraInfoBlock(char* pData, int* dataLen, short sHeader);
+-/*
+-  zipRemoveExtraInfoBlock -  Added by Mathias Svensson
+-
+-  Remove extra information block from a extra information data for the local file header or central directory header
+-
+-  It is needed to remove ZIP64 extra information blocks when before data is written if using RAW mode.
+-
+-  0x0001 is the signature header for the ZIP64 extra information blocks
+-
+-  usage.
+-                        Remove ZIP64 Extra information from a central director extra field data
+-              zipRemoveExtraInfoBlock(pCenDirExtraFieldData, &nCenDirExtraFieldDataLen, 0x0001);
+-
+-                        Remove ZIP64 Extra information from a Local File Header extra field data
+-        zipRemoveExtraInfoBlock(pLocalHeaderExtraFieldData, &nLocalHeaderExtraFieldDataLen, 0x0001);
+-*/
+-
+ #ifdef __cplusplus
+ }
+ #endif

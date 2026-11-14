@@ -1,0 +1,1130 @@
+LANGUAGE_NAME
+Hrvatski
+LANGUAGE_FILE
+Croatian
+LANGUAGE_ISO
+hr
+LANGUAGE_AUTHOR
+Dominko Aždajić (domazd@mail.ru) \r\n
+LANGUAGE_WINDOWSID
+Croatian
+OK
+U redu
+Cancel
+Odustati
+Exit
+Svršetak
+Close
+Zatvoriti
+Cancel changes
+Opozvati izmjene
+Click to confirm
+Preuzeti izmjene
+Click to get help!
+Kliknuti za pomoć!
+Click to return to previous screen
+Kliknuti za povratak na prethodni prikaz
+Click to go to next screen
+Kliknuti za povratak na slijedeći prikaz
+Hide password
+Sakriti lozinku
+Save project
+Pohraniti projekt
+Close current project?
+Zatvoriti tekući projekt?
+Delete this project?
+Izbrisati taj projekt?
+Delete empty project %s?
+Izbrisati prazni projekt %s?
+Action not yet implemented
+Funkcija još nije raspoloživa
+Error deleting this project
+Pogreška tijekom brisanja tog projekta
+Select a rule for the filter
+Izaberite neko pravilo za taj filtar
+Enter keywords for the filter
+Unesite ključne riječi za taj filtar
+Cancel
+Odustati
+Add this rule
+Dodati to pravilo
+Please enter one or several keyword(s) for the rule
+Unesite molim jednu ili više ključnih riječi za to pravilo
+Add Scan Rule
+Dodati pravilo filtriranja
+Criterion
+Pravilo filtra:
+String
+Unesite riječ:
+Add
+Dodati
+Scan Rules
+Pravila filtriranja
+Use wildcards to exclude or include URLs or links.\nYou can put several scan strings on the same line.\nUse spaces as separators.\n\nExample: +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Koristite višeznačnik za uključivanje ili isključivanje mrežnih adresa ili poveznica.\nU isti redak možete staviti i nekoliko filtarskih pravila uzastopno.\nUpotrijebite praznine kao razdjelnike.\n\nPrimjerice: +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Exclude links
+Izuzete poveznice
+Include link(s)
+Obuhvaćene poveznice
+Tip: To have ALL GIF files included, use something like +www.someweb.com/*.gif. \n(+*.gif / -*.gif will include/exclude ALL GIFs from ALL sites)
+Preporuka: Za obuhvaćanje SVIH datoteka GIF, upotrijebite nešto poput +www.neka-mreža.com/*.gif. \n(+*.gif / -*.gif će uključivat/isključivati SVE GIF-ove sa SVIH stranica)
+Save prefs
+Pohraniti postavke
+Matching links will be excluded:
+Shodne poveznice će biti izuzete:
+Matching links will be included:
+Shodne poveznice će biti obuhvaćene:
+Example:
+Primjer:
+gif\r\nWill match all GIF files
+gif\r\nPronalazi sve datoteke GIF
+blue\r\nWill find all files with a matching 'blue' sub-string such as 'bluesky-small.jpeg'
+blue\r\nPronalazi sve datoteke koje sadržavaju 'blue' kao primjerice 'bluesky-small.jpeg'
+bigfile.mov\r\nWill match the file 'bigfile.mov', but not 'bigfile2.mov'
+bigfile.mov\r\nPronalazi sve datoteke 'bigfile.mov', ali ne i 'bigfile2.mov'
+cgi\r\nWill find links with folder name matching sub-string 'cgi' such as /cgi-bin/somecgi.cgi
+cgi\r\nPronalazi sve poveznice s mapama koje u nazivu sadrže 'cgi' kao primjerice /cgi-bin/somecgi.cgi
+cgi-bin\r\nWill find links with folder name matching whole 'cgi-bin' string (but not cgi-bin-2, for example)
+cgi-bin\r\nPronalazi poveznice prema mapama koje u nazivu sadrže cijeli niz 'cgi-bin' (ali ne i primjerice cgi-bin-2)
+someweb.com\r\nWill find links with matching sub-string such as www.someweb.com, private.someweb.com etc.
+someweb.com\r\nPronalazi poveznice s pod-nizovima poput www.neka-mreža.com, privatno.neka-mreža.com itd.
+someweb\r\nWill find links with matching folder sub-string such as www.someweb.com, www.someweb.edu, private.someweb.otherweb.com etc.
+someweb\r\nPronalazi poveznice sa shodnim pod-nizom poput www.neka-mreža.com, www.neka-mreža.edu, private.neka-mreža.druga-mreža.com itd.
+www.someweb.com\r\nWill find links matching whole 'www.someweb.com' sub-string (but not links such as private.someweb.com/..)
+www.someweb.com\r\nPronalazi poveznice koje u nazivu sadrže cijeli pod-niz 'www.neka-mreža.com' (ali ne i poveznice poput privatno.neka-mreža.com/..)
+someweb\r\nWill find any links with matching sub-string such as www.someweb.com/.., www.test.abc/fromsomeweb/index.html, www.test.abc/test/someweb.html etc.
+someweb\r\nPronalazi bilo koju poveznicu sa shodnim pod-nizom poput www.neka-mreža.com/.., www.primjer.abc/s-neke-mreže/kazalo.html, www.primjer.abc/primjer/neka-mreža.html itd.
+www.test.com/test/someweb.html\r\nWill only find the 'www.test.com/test/someweb.html' file. Note that you have to type the complete path (URL + site path)
+www.test.com/test/someweb.html\r\nPronalazi samo datoteku 'www.primjer.com/primjer/neka-mreža.html'. Imajte na umu da morate unijeti potpunu putanju (URL + putanja do mrežnog mjesta)
+All links will match
+Obuhvaćene su sve poveznice
+Add exclusion filter
+Pridodati filtar izuzimanja
+Add inclusion filter
+Pridodati filtar obuhvaćanja
+Existing filters
+Postojeći filtri
+Cancel changes
+Opozvati izmjene
+Save current preferences as default values
+Tekuće postavke pohraniti kao polazne vrijednosti
+Click to confirm
+Kliknite za potvrđivanje
+No log files in %s!
+U %s nema datoteka zapisnika!
+No 'index.html' file in %s!
+U %s nema datoteke 'index.html'!
+Click to quit WinHTTrack Website Copier
+Kliknite za okončavanje rada s WinHTTrack Website Copierom
+View log files
+Prikazati zapisničke datoteke
+Browse HTML start page
+Prikazati početnu stranicu HTML-a
+End of mirror
+Zrcaljenje sadržaja je završeno
+View log files
+Prikazati zapisničke datoteke
+Browse Mirrored Website
+Prikazati zrcaljene sadržaje
+New project...
+Novi projekt...
+View error and warning reports
+Prikazati izvješća o pogreškama i upozorenjima
+View report
+Prikaz izvješća
+Close the log file window
+Zatvoriti okno zapisničke datoteke
+Info type:
+Vrsta informacija:
+Errors
+Pogreške
+Infos
+Informacije
+Find
+Pronaći
+Find a word
+Pronaći riječ
+Info log file
+Zapisnička info-datoteka
+Warning/Errors log file
+Datoteka zapisa o upozorenjima/pogreškama
+Unable to initialize the OLE system
+Sustav OLE-a nije mogao biti pokrenut
+WinHTTrack could not find any interrupted download file cache in the specified folder!
+WinHTTrack u navedenoj mapi nije mogao pronaći međupohranu nikakvog prekinutog preuzimanja datoteka!
+Could not connect to provider
+Povezivanje s dobavljačem nije uspjelo
+receive
+zaprimiti
+request
+zatražiti
+connect
+povezati
+search
+tražiti
+ready
+gotovo
+error
+pogreška
+Receiving files..
+Zaprimanje datoteka..
+Parsing HTML file..
+Raščlanjivanje datoteke HTML-a..
+Purging files..
+Čišćenje datoteka..
+Loading cache in progress..
+U tijeku je učitavanje međuspremnika..
+Parsing HTML file (testing links)..
+Raščlanjivanje datoteke HTML-a (provjeravanje poveznica)..
+Pause - Toggle [Mirror]/[Pause download] to resume operation
+Stanka - Nastavak putem izborničkih naredbi [Zrcaljenje]/[Stanka preuzimanja]
+Finishing pending transfers - Select [Cancel] to stop now!
+Završavaju se tekući prijenosi - Trenutna obustava pomoću [Odustati]
+scanning
+pregledavanje
+Waiting for scheduled time..
+Čeka se zadano vrijeme..
+Transferring data..
+Prenošenje podataka..
+Connecting to provider
+Povezivanje s dobavljačem
+[%d seconds] to go before start of operation
+[%d sekundi] do početka radnje
+Site mirroring in progress [%s, %s bytes]
+Zrcaljenje sadržaja je u tijeku [%s, %s bajta]
+Site mirroring finished!
+Zrcaljenje sadržaja je završeno!
+A problem occurred during the mirroring operation\n
+Tijekom zrcaljenja je nastao jedan problem\n
+\nDuring:\n
+\nTrajanje:\n
+\nSee the log file if necessary.\n\nClick FINISH to quit WinHTTrack Website Copier.\n\nThanks for using WinHTTrack!
+\nPojedinosti po potrebi pogledajte u zapisničkoj datoteci.\n\nKliknite na ZAVRŠITI za okončavanje rada WinHTTrack Website Copiera.\n\nHvala Vam na uporabi WinHTTracka!
+Mirroring operation complete.\nClick Exit to quit WinHTTrack.\nSee log file(s) if necessary to ensure that everything is OK.\n\nThanks for using WinHTTrack!
+Zrcaljenje je dovršeno.\nKliknite na Svršetak za okončavanje rada s WinHTTrackom.\nPogledajte po potrebi u zapisnik(e) kako bi se uvjerili da je sve u redu.\n\nHvala Vam na uporabi WinHTTracka!!
+* * MIRROR ERROR! * *\r\nHTTrack has detected that the current mirror is empty. If it was an update, the previous mirror has been restored.\r\nReason: the first page(s) either could not be found, or a connection problem occurred.\r\n=> Ensure that the website still exists, and/or check your proxy settings! <=
+* * POGREŠKA PRI ZRCALJENJU! * *\r\nHTTrack je zapazio da je tekuće zrcalo prazno. Ukoliko je to bila neka dogradnja, onda je prethodno zrcalo ponovno uspostavljeno.\r\nRazlog: ili prva stranica nije mogla biti pronađena, ili se pak pojavio neki problem.\r\n=> Uvjerite se da dotično mrežno mjesto još uvijek postoji, i/ili provjerite postavke Vašeg usmjerivača! <=
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+\n\nTip: Click [View log file] to see warning or error messages
+\n\nPreporuka: Kliknite na [Prikazati zapisničke datoteke], kako bi vidjeli upozorenja ili dojave pogreški
+Do you really want to quit WinHTTrack Website Copier?
+Doista želite okončati rad s WinHTTrack Website Copierom?
+- Mirroring Mode -\n\nEnter address(es) in URL box
+- Stanje zrcaljenja -\n\nUnesite adresu(-e) u polje URL-a
+- Interactive Wizard Mode (questions) -\n\nEnter address(es) in URL box
+- Interaktivno stanje vodiča s povratnim pitanjima -\n\nUnesite adresu(-e) u polje URL-a
+- File Download Mode -\n\nEnter file address(es) in URL box
+- Stanje preuzimanja datoteka -\n\nUnesite adresu(-e) datoteke u polje URL-a
+- Link Testing Mode -\n\nEnter Web address(es) with links to test in URL box
+- Stanje provjere poveznica -\n\nUnesite spletnu adresu(-e) s poveznicama za provjeravanje u polje URL-a
+- Update Mode -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Stanje nadograđivanja -\n\nOvjerite adresu(-e) u polje URL-a, provjerite po potrebi parametre a zatim kliknite na gumb 'SLIJEDEĆE'
+- Resume Mode (Interrupted Operation) -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Stanje nadovezivanja (prekinute radnje) -\n\nOvjerite adresu(-e) u polje URL-a, provjerite po potrebi parametre a zatim kliknite na gumb 'SLIJEDEĆE'
+Log files Path
+Putanja zapisničkih datoteka
+Path
+Putanja
+- Links List Mode -\n\nUse URL box to enter address(es) of page(s) containing links to mirror
+- Stanje nabrajanja poveznica -\n\nKoristite okvir URL-a za unos adrese(-a) stranice(-a) koje sadrže dotične poveznice
+New project / Import?
+Novi projekat / Uvoz?
+Choose criterion
+Odaberite kriterij
+Maximum link scanning depth
+Maksimum dubine grananja poveznica
+Enter address(es) here
+Ovdje unijeti adresu(-e)
+Define additional filtering rules
+Odrediti dodatna pravila filtriranja
+Proxy Name (if needed)
+Naziv posredničkog računalo (po potrebi)
+Proxy Port
+Posrednički port
+Define proxy settings
+Odredite postavke posrednika
+Use standard HTTP proxy as FTP proxy
+Koristiti standardni posrednik HTTP-a kao posrednik FTP-a
+Path
+Putanja
+Select Path
+Odabrati putanju
+Path
+Putanja
+Select Path
+Odabrati putanju
+Quit WinHTTrack Website Copier
+Okončati rad WinHTTrack Website Copiera
+About WinHTTrack
+O programu WinHTTrack
+Save current preferences as default values
+Tekuće postavke pohraniti kao polazne vrijednosti
+Click to continue
+Kliknite ovdje za nastavak
+Click to define options
+Kliknite ovdje za određivanje mogućnosti
+Click to add a URL
+Kliknite ovdje za dodavanje URL-a
+Load URL(s) from text file
+URL(-e) učitati iz tekstualne datoteke
+WinHTTrack preferences (*.opt)|*.opt||
+Postavke WinHTTracka (*.opt)|*.opt||
+Address List text file (*.txt)|*.txt||
+Tekstualna datoteka sa spiskom adresa (*.txt)|*.txt||
+File not found!
+Datoteka nije pronađena!
+Do you really want to change the project name/path?
+Doista želite izmijeniti naziv i putanju projekta?
+Load user-default options?
+Učitati korisnikom zadane polazne mogućnosti?
+Save user-default options?
+Pohraniti korisnikom zadane polazne mogućnosti?
+Reset all default options?
+Sve mogućnosti vratiti na polazno?
+Welcome to WinHTTrack!
+Dobrodošli u WinHTTrack!
+Action:
+Radnja:
+Max Depth
+Maksimum dubine
+Maximum external depth:
+Maksimum vanjske dubine:
+Filters (refuse/accept links) :
+Filtri (odbiti/pohraniti poveznice) :
+Paths
+Putanje
+Save prefs
+Postavke pohraniti
+Define..
+Odrediti..
+Set options..
+Postaviti mogućnosti..
+Preferences and mirror options:
+Postavke i mogućnosti zrcaljenja:
+Project name
+Naziv projekta
+Add a URL...
+Dodati mrežnu adresu...
+Web Addresses: (URL)
+Mrežne adrese: (URL)
+Stop WinHTTrack?
+Zaustaviti WinHTTrack?
+No log files in %s!
+U %s nema zapisničkih datoteka!
+Pause Download?
+Napraviti stanku preuzimanja?
+Stop the mirroring operation
+Zaustaviti postupak zrcaljenja
+Minimize to System Tray
+Minimizirati u sustavnu traku odlaganja
+Click to skip a link or stop parsing
+Kliknite za preskok poveznice ili zaustavljanje raščlanjivanja
+Click to skip a link
+Kliknite za preskok poveznice
+Bytes saved
+Pohranjeno bajta
+Links scanned
+Obrađene poveznice
+Time:
+Vrijeme:
+Connections:
+Veze:
+Running:
+Djelatno:
+Hide
+Sakriti
+Transfer rate
+Stopa prijenosa
+SKIP
+PRESKOČITI
+Information
+Informacija
+Files written:
+Zapisano datoteka:
+Files updated:
+Aktualizirano datoteka:
+Errors:
+Pogreške:
+In progress:
+U tijeku:
+Follow external links
+Slijediti vanjske poveznice
+Test all links in pages
+Na stranicama provjeriti sve poveznice
+Try to ferret out all links
+Pokušati slijediti sve poveznice
+Download HTML files first (faster)
+Najprije preuzimati datoteke HTML-a (brže)
+Choose local site structure
+Odaberite mjesnu strukturu sadržaja
+Set user-defined structure on disk
+Sâmi odredite strukturu na disku
+Use a cache for updates and retries
+Za dogradnje i ponavljanja koristiti međuspremnik
+Do not update zero size or user-erased files
+Ne nadopunjavati datoteke koje su prazne ili one koje je korisnik izbrisao
+Create a Start Page
+Napraviti početnu stranicu
+Create a word database of all html pages
+Napraviti spisak riječi sa svih stranica HTML-a
+Build a complete RFC822 mail (MHT/EML) archive of the mirror
+Izraditi potpunu poštansku arhivu RFC822 (MHT/EML) zrcala
+Create error logging and report files
+Napraviti datoteke zapisnika pogrešaka i izvješća o tijeku postupka
+Generate DOS 8-3 filenames ONLY
+Generirati nazive datoteka SAMO sukladno DOS-u 8-3
+Generate ISO9660 filenames ONLY for CDROM medias
+Generirati nazive datoteka SAMO sukladno ISO9660 za medije CDROM-a
+Do not create HTML error pages
+Ne stvarati stranice pogrešaka HTML-a
+Select file types to be saved to disk
+Odaberite vrste datoteka, koje treba pohranjivati na disku
+Select parsing direction
+Odaberite smjer raščlanjivanja
+Select global parsing direction
+Odaberite opći smjer raščlanjivanja
+Setup URL rewriting rules for internal links (downloaded ones) and external links (not downloaded ones)
+Postavke pravila prilagođavanja URL-a za unutarnje (jednom već preuzimane) i vanjske (ni jednom nisu preuzimane) poveznice
+Max simultaneous connections
+Maksimum istovremenih priključivanja/veza
+File timeout
+Vrijeme čekanja na datoteke
+Cancel all links from host if timeout occurs
+Pri prekoračenju vremena čekanja prekinuti sve poveznice prema dotičnom računalu 
+Minimum admissible transfer rate
+Najniža podnošljiva stopa prijenosa
+Cancel all links from host if too slow
+Prekinuti sve poveznice prema ugostiteljskom računalu ako je presporo
+Maximum number of retries on non-fatal errors
+Najviši broj pokušaja ponavljanja pri ne-fatalnim pogreškama
+Maximum size for any single HTML file
+Vrhunac veličine neke pojedinačne datoteke HTML-a
+Maximum size for any single non-HTML file
+Vrhunac veličine neke pojedinačne datoteke ne-HTML-a
+Maximum amount of bytes to retrieve from the Web
+Vrhunac iznosa u bajtima za dobaviti s mrežnih mjesta
+Make a pause after downloading this amount of bytes
+Napraviti stanku nakon preuzimanja tog iznosa u bajtima
+Maximum duration time for the mirroring operation
+Vrhunac vremena trajanja za postupak zrcaljenja
+Maximum transfer rate
+Vrhunac stope prijenosa
+Maximum connections/seconds (avoid server overload)
+Najviši broj veza/sekundi (sprječava preopterećivanje poslužitelja)
+Maximum number of links that can be tested (not saved!)
+Najviši broj poveznica, koje mogu biti provjeravane (za pohranjivanje nema ograničenja!)
+Browser identity
+Pregledničko obilježje
+Comment to be placed in each HTML file
+Komentar koji će biti smješten u svakoj datoteci HTML-a
+Languages accepted by the browser
+Jezici koje prihvaća preglednik
+Additional HTTP headers to be sent in each requests
+Dodatna HTTP zaglavlja koja se šalju u svakom zahtjevu
+HTTP referer to be sent for initial URLs
+HTTP referer koji se šalje za početne URL-ove
+Back to starting page
+Natrag na početnu stranicu
+Save current preferences as default values
+Tekuće postavke pohraniti kao polazne vrijednosti
+Click to continue
+Kliknite za nastavak
+Click to cancel changes
+Kliknuti za opoziv izmjena
+Follow local robots rules on sites
+Na mrežnim mjestima slijediti pravila mjesnih robota
+Links to non-localised external pages will produce error pages
+Poveznice prema nepreslikanim vanjskim stranicama će stvarati stranice pogreški
+Do not erase obsolete files after update
+Nakon dogradnje ne brisati zastarjele datoteke
+Accept cookies?
+Prihvatiti kolačić?
+Check document type when unknown?
+Provjeravati vrstu datoteke ukoliko je nepoznata?
+Parse java applets to retrieve included files that must be downloaded?
+Raščlanjivati java applete radi pronalaženja obuhvaćenih datoteka, koje još moraju biti preuzete?
+Store all files in cache instead of HTML only
+Spremati sve datoteke u međuspremnik a ne samo one u HTML-u
+Log file type (if generated)
+Vrsta datoteke zapisnika (ukoliko je načinjen)
+Maximum mirroring depth from root address
+Najveća dubina zrcaljenja od prve adrese
+Maximum mirroring depth for external/forbidden addresses (0, that is, none, is the default)
+Najveća dubina zrcaljenja za vanjske/zabranjene adrese (polazno je 0, tj. bez vanjskog preuzimanja)
+Create a debugging file
+Načiniti datoteku za traženje pogrešaka
+Use non-standard requests to get round some server bugs
+Koristiti nestandardne zahtjeve, kako bi se zaobišle neke poslužiteljske pogreške
+Use old HTTP/1.0 requests (limits engine power!)
+Koristiti zahtjeve starog HTTP/1.0 (ograničava brzinu rada!)
+Attempt to limit retransfers through several tricks (file size test..)
+Raznim varkama pokušati ograničiti opetovanja prijenosa (provjera veličine datoteka..)
+Attempt to limit the number of links by skipping similar URLs (www.foo.com==foo.com, http=https ..)
+Preskakanjem sličnih URL-a (www.foo.com==foo.com, http=https ..) pokušati ograničiti broj poveznica
+Write external links without login/password
+Vanjske poveznice zapisivati bez prijave/lozinke
+Write internal links without query string
+Unutarnje poveznice zapisivati bez teksta za upite
+Get non-HTML files related to a link, eg external .ZIP or pictures
+Dobavljati datoteke ne-HTML-a, združene s poveznicom (primjerice vanjski .ZIP ili slike)
+Test all links (even forbidden ones)
+Provjeravati sve poveznice (čak i one zabranjene)
+Try to catch all URLs (even in unknown tags/code)
+Pokušati pronaći sve URL-e (čak i u nepoznatim oznakama/skriptama)
+Get HTML files first!
+Dobaviti najprije datoteke HTML-a!
+Structure type (how links are saved)
+Vrsta strukture (kako se pohranjuju poveznice)
+Use a cache for updates
+Za dogradnje koristiti međuspremnik
+Do not re-download locally erased files
+Ne preuzimati ponovno datoteke, koje su već mjesno izbrisane
+Make an index
+Napraviti kazalo
+Make a word database
+Napraviti spisak riječi
+Build a mail archive
+Izraditi poštansku arhivu
+Log files
+Zapisničke datoteke
+DOS names (8+3)
+Nazivi sukladno DOS-u (8+3)
+ISO9660 names (CDROM)
+Nazivi prema ISO9660 (CDROM)
+No error pages
+Bez stranica pogrešaka
+Primary Scan Rule
+Glavno pravilo filtra
+Travel mode
+Način traženja
+Global travel mode
+Globalni način traženja
+These options should be modified only exceptionally
+Ove mogućnosti bi trebale biti preinačavane samo iznimno
+Activate Debugging Mode (winhttrack.log)
+Aktivirati postupak traženja pogrešaka (winhttrack.log)
+Rewrite links: internal / external
+Prilagoditi povezničke adrese: unutarnje / vanjske
+Flow control
+Nadzor toka
+Limits
+Granice
+Identity
+Obilježje
+HTML footer
+Podnožje HTML-a
+Languages
+Jezici
+Additional HTTP Headers
+Dodatna HTTP zaglavlja
+Default referer URL
+Zadani referer URL
+N# connections
+Broj veza
+Abandon host if error
+Pri pogreškama napustiti ugostitelja
+Minimum transfer rate (B/s)
+Minimum stope prijenosa (B/s)
+Abandon host if too slow
+Napustiti ugostitelja ukoliko je prespor
+Configure
+Prilagoditi
+Use proxy for ftp transfers
+Koristiti posrednika za prijenose putem FTP-a
+TimeOut(s)
+Vremenska ograničenja
+Persistent connections (Keep-Alive)
+Održavati veze (Keep-Alive)
+Reduce connection time and type lookup time using persistent connections
+Održavane veze smanjuju vrijeme povezivanja i vrijeme za traženje vrsta
+Retries
+Opetovanja
+Size limit
+Ograničenje veličine
+Max size of any HTML file (B)
+Najviši broj bajta u datotekama HTML-a
+Max size of any non-HTML file
+Najveća veličina datoteka ne-HTML-a
+Max site size
+Najveća veličina sadržaja
+Max time
+Najduže vrijeme
+Save prefs
+Pohraniti postavke
+Max transfer rate
+Vrhunac stope prijenosa
+Follow robots.txt
+Slijediti robots.txt
+No external pages
+Bez vanjskih stranica
+Do not purge old files
+Ne brisati stare datoteke
+Accept cookies
+Prihvaćati kolačiće
+Check document type
+Provjeravati vrstu dokumenata
+Parse java files
+Raščlanjivati datoteke Java
+Store ALL files in cache
+Spremati SVE datoteke u međuspremnik
+Tolerant requests (for servers)
+Snošljivi zahtjevi (za poslužitelje)
+Update hack (limit re-transfers)
+Iznuda dogradnji (ograničava opetovane prijenose)
+URL hacks (join similar URLs)
+URL hacks (združuje slične URL-e)
+Force old HTTP/1.0 requests (no 1.1)
+Nametati zahtjeve starog HTTP/1.0 (ne 1.1)
+Max connections / seconds
+Najviši broj veza / sekundi
+Maximum number of links
+Najviši broj poveznica
+Pause after downloading..
+Čekati nakon preuzimanja..
+Hide passwords
+Sakriti lozinke
+Hide query strings
+Sakriti tekst za upite
+Links
+Poveznice
+Build
+Građa
+Experts Only
+Samo za stručnjake
+Flow Control
+Nadzor toka
+Limits
+Ograničenja
+Browser ID
+Preglednički ID
+Scan Rules
+Pravila filtriranja
+Spider
+Pauk
+Log, Index, Cache
+Zapisnik, Kazalo, Međuspremnik
+Proxy
+Posrednik
+MIME Types
+Vrste MIME
+Do you really want to quit WinHTTrack Website Copier?
+Doista želite okončati rad WinHTTrack Website Copiera?
+Do not connect to a provider (already connected)
+Ne povezivati s dobaviteljem (već je povezano)
+Do not use remote access connection
+Ne koristiti vezu daljinskog pristupa
+Schedule the mirroring operation
+Odrediti vrijeme zrcaljenja
+Quit WinHTTrack Website Copier
+Okončati rad WinHTTrack Website Copiera
+Back to starting page
+Natrag na početnu stranicu
+Click to start!
+Kliknite za početak!
+No saved password for this connection!
+Za tu vezu nema pohranjene lozinke!
+Can not get remote connection settings
+Ne mogu se dobiti postavke daljinske veze
+Select a connection provider
+Odaberite dobavitelja veze
+Start
+Započeti
+Please adjust connection parameters if necessary,\nthen press FINISH to launch the mirroring operation.
+Po potrebi prilagodite molim parametre veze,\na zatim stisnite ZAVRŠITI kako bi pokrenuli zrcaljenje.
+Save settings only, do not launch download now.
+Samo pohraniti postavke, preuzimanje ne pokretati sada.
+On hold
+Na čekanju
+Transfer scheduled for: (hh/mm/ss)
+Prijenos je predviđen za: (hh/mm/ss)
+Start
+Započeti
+Connect to provider (RAS)
+Povezati s dobavljačem (RAS)
+Connect to this provider
+Povezati s tim dobavljačem
+Disconnect when finished
+Prekinuti vezu kada bude gotovo
+Disconnect modem on completion
+Po dovršetku odvojiti modemsku vezu
+\r\n(Please notify us of any bug or problem)\r\n\r\nDevelopment:\r\nEngine and interfaces: Xavier Roche\r\nCode, documentation and packaging: many contributors\r\n\r\n(C) Xavier Roche and other contributors\r\nMANY THANKS for English translations to:\r\nXavier Roche, Robert Lagadec
+\r\n(Molimo da nas obavijestite o svim pogreškama i poteškoćama)\r\n\r\nRazvoj:\r\nSučelje (Windows): Xavier Roche\r\nPauk: Xavier Roche\r\n\r\n(C) Xavier Roche i drugi suradnici\r\nPUNO HVALA za prijevodne preporuke upućujemo:\r\nDominko Aždajić
+About WinHTTrack Website Copier
+O programu WinHTTrack Website Copier
+Please visit our Web page
+Molimo da posjetite našu spletnu stranicu
+Wizard query
+Upit vodiča
+Your answer:
+Vaš odgovor:
+Link detected..
+Pronađena je poveznica..
+Choose a rule
+Birajte pravilo
+Ignore this link
+Zanemariti tu poveznicu
+Ignore directory
+Zanemariti mape
+Ignore domain
+Zanemariti domenu
+Catch this page only
+Dobaviti samo tu stranicu
+Mirror site
+Sadržaj zrcaljenja
+Mirror domain
+Domena zrcaljenja
+Ignore all
+Bez poveznica
+Wizard query
+Upit vodiča
+NO
+NE
+File
+Datoteka
+Options
+Mogućnosti
+Log
+Zapisnik
+Window
+Okno
+Help
+Pomoć
+Pause transfer
+Napraviti stanku prijenosa
+Exit
+Svršetak
+Modify options
+Izmijeniti mogućnosti
+View log
+Prikazati zapisnik
+View error log
+Prikazati zapisnik pogrešaka
+View file transfers
+Prikazati prijenose datoteka
+Hide
+Sakriti
+About WinHTTrack Website Copier
+O programu WinHTTrack Website Copier
+Check program updates...
+Potražiti programske dogradnje...
+&Toolbar
+&Traka alatki
+&Status Bar
+&Traka stanja
+S&plit
+Raz&dijeliti
+File
+Datoteka
+Preferences
+Postavke
+Mirror
+Zrcalo
+Log
+Zapisnik
+Window
+Okno
+Help
+Pomoć
+Exit
+Svršetak
+Load default options
+Učitati polazne mogućnosti
+Save default options
+Pohraniti polazne mogućnosti
+Reset to default options
+Vratiti polazne mogućnosti
+Load options...
+Učitati mogućnosti...
+Save options as...
+Mogućnosti pohraniti kao...
+Language preference...
+Jezične postavke...
+Contents...
+Sadržaji...
+About WinHTTrack...
+O programu WinHTTrack...
+New project\tCtrl+N
+Novi projekat\tCtrl+N
+&Open...\tCtrl+O
+&Otvoriti...\tCtrl+O
+&Save\tCtrl+S
+&Pohraniti\tCtrl+S
+Save &As...
+Pohraniti &kao...
+&Delete...
+&Izbrisati...
+&Browse sites...
+&Pregledati sadržaje...
+User-defined structure
+Korisnikom određena struktura
+%n\tName of file without file type (ex: image)\r\n%N\tName of file including file type (ex: image.gif)\r\n%t\tFile type only (ex: gif)\r\n%p\tPath [without ending /] (ex: /someimages)\r\n%h\tHost name (ex: www.someweb.com)\r\n%M\tMD5 URL (128 bits, 32 ascii bytes)\r\n%Q\tMD5 query string (128 bits, 32 ascii bytes)\r\n%q\tMD5 small query string (16 bits, 4 ascii bytes)\r\n\r\n%s?\tShort name (ex: %sN)
+%n\tNaziv datoteke bez nastavka (npr. slika)\r\n%N\tNaziv datoteke s nastavkom (npr. slika.gif)\r\n%t\tSamo nastavak naziva datoteke (npr. gif)\r\n%p\tPutanja [bez svršetka /] (npr. /nekeslike)\r\n%h\tNaziv ugostitelja (npr. www.nekisplet.com)\r\n%M\tMD5 URL (128 bita, 32 ascii bajta)\r\n%Q\tTekst upita MD5 (128 bita, 32 ascii bajta)\r\n%q\tKratki tekst upita MD5 (16 bita, 4 ascii bajta)\r\n\r\n%s?\tKratki naziv (npr. %sN)
+Example:\t%h%p/%n%q.%t\n->\t\tc:\\mirror\\www.someweb.com\\someimages\\image.gif
+Primjerice:\t%h%p/%n%q.%t\n->\t\tc:\\zrcaljenje\\www.nekisplet.com\\nekeslike\\slika.gif
+Proxy settings
+Postavke posrednika
+Proxy address:
+Adresa posrednika:
+Proxy port:
+Port posrednika:
+Authentication (only if needed)
+Ovjeravanje (samo po potrebi)
+Login
+Prijava
+Password
+Lozinka
+Enter proxy address here
+Ovdje unesite adresu posrednika
+Enter proxy port here
+Ovdje unesite port posrednika
+Enter proxy login
+Unesite prijavu na posredniku
+Enter proxy password
+Unesite lozinku na posredniku
+Enter project name here
+Ovdje unesite naziv projekta
+Enter saving path here
+Ovdje unesite putanju za pohranjivanje
+Select existing project to update
+Birajte postojeći projekt za dogradnju
+Click here to select path
+Ovdje kliknite za izbor putanje
+Select or create a new category name, to sort your mirrors in categories
+Odaberite ili nadjenite neki naziv novoj kategoriji, kako bi Vaša zrcaljenja svrstali u kategorije
+HTTrack Project Wizard...
+Pomočnik za projekte HTTracka...
+New project name:
+Naziv novog projekta:
+Existing project name:
+Naziv postojećeg projekta:
+Project name:
+Naziv projekta:
+Base path:
+Osnovna putanja:
+Project category:
+Kategorija projekta:
+C:\\My Web Sites
+C:\\Moji spletni sadržaji
+Type a new project name, \r\nor select existing project to update/resume
+Utipkajte naziv novog projekta, \r\nili odaberite postojeći projekat za dograditi/nadovezati
+New project
+Novi projekat
+Insert URL
+Umetnite URL
+URL:
+URL:
+Authentication (only if needed)
+Ovjeravanje (samo ako je nužno)
+Login
+Prijava
+Password
+Lozinka
+Forms or complex links:
+Obrasci ili kompleksne poveznice:
+Capture URL...
+Zahvatiti URL...
+Enter URL address(es) here
+Ovdje unesite adresu(-e) URL-a
+Enter site login
+Unesite prijavu za to mrežno mjesto
+Enter site password
+Unesite lozinku za to mrežno mjesto
+Use this capture tool for links that can only be accessed through forms or javascript code
+Koristite ovu funkciju za dobavu povezanih sadržaja, kojima se inače može pristupiti samo putem obrazaca ili kôda JavaScript
+Choose language according to preference
+Izaberite jezik
+Catch URL!
+Dobaviti URL!
+Please set temporary browser proxy settings to the following values (Copy/Paste Proxy Address and Port).\nThen click on the Form SUBMIT button in your browser page, or click on the specific link you want to capture.
+Molimo da privremeno izmijenite preglednikove postavke posredničkog poslužitelja na slijedeće vrijednosti (Adresu i port posrednika odavdje preslikati).\nKliknite zatim na stranici obrasca u Vašem pregledniku na gumb SUBMIT/POSLATI ili pak na određenu poveznicu, koju želite dobaviti.
+This will send the desired link from your browser to WinHTTrack.
+Time će željena poveznica iz Vašeg preglednika biti poslana u WinHTTrack.
+ABORT
+PREKINUTI
+Copy/Paste the temporary proxy parameters here
+Privremene postavke posredničkog poslužitelja preslikati odavdje
+Cancel
+Odustati
+Unable to find Help files!
+Nije bilo moguće pronaći datoteke Pomoći!
+Unable to save parameters!
+Nije bilo moguće pohraniti parametre!
+Please drag only one folder at a time
+Povucite mišom molim samo jednu mapu istovremeno
+Please drag only folders, not files
+Povucite mišom molim samo mape, ne datoteke
+Please drag folders only
+Povucite mišom molim samo mape
+Select user-defined structure?
+Za preslik sadržaja odabrati korisnikom određenu strukturu?
+Please ensure that the user-defined-string is correct,\notherwise filenames will be bogus!
+Provjerite molim je li korisnikom određeni znakovni niz ispravan,\nu suprotnom će nastati iskrivljeni nazivi datoteka!
+Do you really want to use a user-defined structure?
+Doista želite koristiti korisnikom određenu strukturu?
+Too manu URLs, cannot handle so many links!!
+Previše je URL-a, ne mogu obrađivati toliko poveznica!!
+Not enough memory, fatal internal error..
+Nema dovoljno spremnika, fatalna unutarnja pogreška..
+Unknown operation!
+Nepoznata operacija!
+Add this URL?\r\n
+Dodati taj URL?\r\n
+Warning: main process is still not responding, cannot add URL(s)..
+Warning: main process is still not responding, cannot add URL(s)..
+Type/MIME associations
+Type/MIME associations
+File types:
+Vrste datoteka:
+MIME identity:
+Istovjetnost MIME:
+Select or modify your file type(s) here
+Ovdje birajte ili izmijenite Vaše vrste datoteka
+Select or modify your MIME type(s) here
+Ovdje birajte ili izmijenite Vaše vrste MIME
+Go up
+Na gore
+Go down
+Na dolje
+File download information
+Informacije o preuzimanju datoteka
+Freeze Window
+Uglaviti okno
+More information:
+Više informacija:
+Welcome to WinHTTrack Website Copier!\n\nPlease click on the NEXT button to\n\n- start a new project\n- or resume a partial download
+Dobrodošli u program WinHTTrack Website Copier!\n\nKliknite molim na gumb SLIJEDEĆE kako bi\n\n- započeli novi projekat\n- ili nastavili nedovršeno preuzimanje
+File names with extension:\nFile names containing:\nThis file name:\nFolder names containing:\nThis folder name:\nLinks on this domain:\nLinks on domains containing:\nLinks from this host:\nLinks containing:\nThis link:\nALL LINKS
+Nazivi datoteka s proširenjem:\nNazivi datoteka sadržavaju:\nTaj naziv datoteke:\nNazivi mapa sadržavaju:\nTaj naziv mape:\nPoveznice u toj domeni:\nPoveznice u domenama sadržavaju:\nPoveznice s tog ugostitelja:\nPoveznice sadržavaju:\nTa poveznica:\nSVE POVEZNICE
+Show all\nHide debug\nHide infos\nHide debug and infos
+Prikazati sve\nSakriti debug\nSakriti informacije\nSakriti debug i informacije
+Site-structure (default)\nHtml in web/,       images/other files in web/images/\nHtml in web/html,   images/other in web/images\nHtml in web/,       images/other in web/\nHtml in web/,       images/other in web/xxx, where xxx is the file extension\nHtml in web/html,   images/other in web/xxx\nSite-structure, without www.domain.xxx/\nHtml in site_name/, images/other files in site_name/images/\nHtml in site_name/html, images/other in site_name/images\nHtml in site_name/, images/other in site_name/\nHtml in site_name/, images/other in site_name/xxx\nHtml in site_name/html, images/other in site_name/xxx\nAll files in web/, with random names (gadget !)\nAll files in site_name/, with random names (gadget !)\nUser-defined structure..
+Struktura sadržaja (polazno)\nHTML u web/,       slike/ostale datoteke u web/images/\nHTML u web/html,   slike/ostalo u web/images\nHTML u web/,       slike/ostalo u web/\nHTML u web/,       slike/ostalo u web/xxx, pri čemu je xxx proširenje naziva datoteke\nHTML u web/html,   slike/ostalo u web/xxx\nStruktura sadržaja, bez www.domain.xxx/\nHTML u site_name/, slike/ostale datoteke u site_name/images/\nHTML u site_name/html, slike/ostalo u site_name/images\nHTML u site_name/, slike/ostalo u site_name/\nHTML u site_name/, slike/ostalo u site_name/xxx\nHTML u site_name/html, slike/ostalo u site_name/xxx\nSve datoteke u web/, s nasumičnim nazivima (gadget !)\nSve datoteke u site_name/, s nasumičnim nazivima (gadget !)\nKorisnikom određena struktura..
+Just scan\nStore html files\nStore non html files\nStore all files (default)\nStore html files first
+Samo pregledati poveznice\nStpremiti datoteke HTML-a\nStpremiti datoteke ne-HTML-a\nSpremiti sve datoteke (polazno)\nSpremiti najprije datoteke HTML-a
+Stay in the same directory\nCan go down (default)\nCan go up\nCan both go up & down
+Ostati u istoj mapi\nMože ići dolje (polazno)\nMože ići gore\nMože ići i gore i dolje
+Stay on the same address (default)\nStay on the same domain\nStay on the same top level domain\nGo everywhere on the web
+Ostati na istoj adresi (polazno)\nOstati u istoj domeni\nOstati u istoj demeni vršne razine\nIći posvuda po spletu
+Never\nIf unknown (except /)\nIf unknown
+Nikada\nUkoliko je nepoznato (izuzev /)\nUkoliko je nepoznato
+no robots.txt rules\nrobots.txt except wizard\nfollow robots.txt rules
+bez pravila iz robots.txt\nslijediti pravila iz robots.txt s izuzetkom pomočnika\nslijediti pravila iz robots.txt
+normal\nextended\ndebug
+uobičajeno\nprošireno\ndebug
+Download web site(s)\nDownload web site(s) + questions\nGet individual files\nDownload all sites in pages (multiple mirror)\nTest links in pages (bookmark test)\n* Continue interrupted download\n* Update existing download
+Preuzimanje spletnih sadržaja\nPreuzimanje spletnih sadržaja + pitanja\nDobavljanje pojedinih datoteka\nPreuzimanje svih sadržaja sa stranica (višestruko zrcaljenje)\nProvjeriti poveznice u stranicama (provjera poveznica)\n* Nastaviti prekinuto preuzimanje\n* Aktualizirati postojeće preuzimanje
+Relative URI / Absolute URL (default)\nAbsolute URL / Absolute URL\nAbsolute URI / Absolute URL\nOriginal URL / Original URL
+Relativni URI / Apsolutni URL (polazno)\nApsolutni URL / Apsolutni URL\nApsolutni URI / Apsolutni URL\nIzvorni URL / Izvorni URL
+Open Source offline browser
+Open Source offline browser
+Website Copier/Offline Browser. Copy remote websites to your computer. Free.
+Preslikavatelj spletnih sadržaja/Preglednik mjesnih sadržaja. Preslikavanje internetskih sadržaja na Vaše računalo. Besplatno.
+httrack, winhttrack, webhttrack, offline browser
+httrack, winhttrack, webhttrack, offline browser
+URL list (.txt)
+Spisak URL-a (.txt)
+Previous
+Prethodno
+Next
+Slijedeće
+URLs
+URL-i
+Warning
+Upozorenje
+Your browser does not currently support javascript. For better results, please use a javascript-aware browser.
+Vaš preglednik trenutno ne podržava JavaScript. Za bolje rezultate koristite molim preglednik koji ovladava JavaScript.
+Thank you
+Hvala Vam
+You can now close this window
+Sada možete zatvoriti ovo okno
+Server terminated
+Poslužitelj je razriješen
+A fatal error has occurred during this mirror
+Tijekom ovog zrcaljenja je nastala fatalna pogreška
+View Documentation
+Prikaži dokumentaciju
+Go To HTTrack Website
+Otvori mrežno mjesto HTTrack
+Go To HTTrack Forum
+Otvori forum HTTrack
+View License
+Prikaži licencu
+Beware: you local browser might be unable to browse files with embedded filenames
+Pozor: vaš lokalni preglednik možda neće moći otvoriti datoteke s ugrađenim nazivima datoteka
+Recreated HTTrack internal cached resources
+Interni predmemorirani resursi HTTracka ponovno su stvoreni
+Could not create internal cached resources
+Interne predmemorirane resurse nije moguće stvoriti
+Could not get the system external storage directory
+Nije moguće pronaći vanjsku pohranu sustava
+Could not write to:
+Nije moguće pisati u:
+Read-only media (SDCARD)
+Medij samo za čitanje (SDCARD)
+No storage media (SDCARD)
+Nema medija za pohranu (SDCARD)
+HTTrack may not be able to download websites until this problem is fixed
+Dok se taj problem ne riješi, HTTrack možda neće moći preuzimati mrežna mjesta
+HTTrack: mirror '%s' stopped!
+HTTrack: zrcaljenje „%s” je zaustavljeno!
+Click on this notification to restart the interrupted mirror
+Dodirnite tu obavijest za nastavak prekinutog zrcaljenja
+HTTrack: could not save profile for '%s'!
+HTTrack: profil za „%s” nije moguće spremiti!
+Proxy type:
+Vrsta posrednika:
+Proxy protocol. HTTP: standard proxy. HTTP (CONNECT tunnel): sends every request through a CONNECT tunnel, for CONNECT-only proxies like Tor's HTTPTunnelPort. SOCKS5: default port 1080.
+Protokol posrednika. HTTP: standardni posrednik. HTTP (CONNECT tunel): šalje svaki zahtjev kroz CONNECT tunel, za posrednike koji podržavaju samo CONNECT poput Torovog HTTPTunnelPorta. SOCKS5: zadani port 1080.
+Load cookies from file:
+Učitati kolačiće iz datoteke:
+Use a Netscape cookies.txt file as the cookie jar. HTTrack loads it before crawling, and writes it back at the end unless a line in it could not be loaded.
+Prije zrcaljenja učitati kolačiće iz datoteke Netscape cookies.txt.
+Pause between files:
+Stanka između datoteka:
+Random delay between file downloads, in seconds. Use MIN:MAX for a random range (e.g. 2:8).
+Nasumična odgoda između preuzimanja datoteka, u sekundama. Za nasumični raspon koristiti MIN:MAX (npr. 2:8).
+Keep the www. prefix (do not merge www.host with host)
+Zadržati www. predmetak (ne spajati www.host s host)
+Do not treat www.host and host as the same site.
+www.host i host ne smatrati istim web-mjestom.
+Keep double slashes in URLs
+Zadržati dvostruke kose crte u URL-ovima
+Do not collapse duplicate slashes in URLs.
+Ne sažimati ponovljene kose crte u URL-ovima.
+Keep the original query-string order
+Zadržati izvorni redoslijed teksta za upite
+Do not reorder query-string parameters when deduplicating URLs.
+Ne mijenjati redoslijed parametara teksta za upite pri uklanjanju dvostrukih URL-ova.
+Strip query keys:
+Ukloniti ključeve upita:
+Comma-separated query keys to drop from the saved-file naming (e.g. sid,utm_source).
+Zarezom odvojeni ključevi upita koji se izostavljaju iz naziva spremljenih datoteka (npr. sid,utm_source).
+Write a WARC archive of the crawl
+Zapiši WARC arhivu obilaska
+Also save every fetched response into an ISO-28500 WARC/1.1 archive, next to the mirror.
+Spremi i svaki preuzeti odgovor u ISO-28500 WARC/1.1 arhivu, uz zrcalo.
+WARC archive name:
+Naziv WARC arhive:
+Optional base name for the WARC archive; leave blank to auto-name it under the output directory.
+Neobavezni osnovni naziv WARC arhive; ostavite prazno za automatsko imenovanje u izlaznom direktoriju.
+Report what changed since the previous mirror
+Prijavi što se promijenilo od prethodnog zrcaljenja
+Also write hts-changes.json listing what this crawl left new, changed, unchanged and gone compared to the previous mirror.
+Zapiši i hts-changes.json s popisom onoga što je u odnosu na prethodno zrcaljenje novo, promijenjeno, nepromijenjeno ili nestalo.
+Inline assets as data: URIs (self-contained pages)
+Ugradi resurse kao data: URI-je (samostalne stranice)
+Once the mirror is finished, rewrite every saved page with its stylesheets, scripts, images and fonts embedded, so a page can also be opened on its own.
+Nakon dovršetka zrcaljenja ponovno zapiši svaku spremljenu stranicu s ugrađenim stilskim listovima, skriptama, slikama i fontovima, tako da se stranica može otvoriti i zasebno.
+Largest inlined asset (bytes):
+Najveći ugrađeni resurs (bajtovi):
+An asset above this size keeps an ordinary link; leave blank for the 10485760-byte default.
+Resurs veći od ove veličine zadržava običnu poveznicu; ostavite prazno za zadanih 10485760 bajtova.
+Seed the crawl from the site's sitemap
+Pokreni pretraživanje iz karte web-mjesta
+Read the site's sitemap (robots.txt Sitemap: lines, then /sitemap.xml) and add every URL it lists as a start URL.
+Pročitaj kartu web-mjesta (retke Sitemap: iz robots.txt, zatim /sitemap.xml) i dodaj svaki navedeni URL kao početnu adresu.
+Sitemap address:
+Adresa karte web-mjesta:
+Address of a sitemap to read instead of probing the site; leave blank to probe robots.txt then /sitemap.xml.
+Adresa karte web-mjesta koju treba pročitati umjesto ispitivanja web-mjesta; ostavite prazno za ispitivanje robots.txt pa /sitemap.xml.
+Write a CDXJ index of the WARC archive
+Zapiši CDXJ indeks WARC arhive
+Also write a sorted CDXJ index listing every record in the WARC archive, for replay tools.
+Zapiši i sortirani CDXJ indeks sa svim zapisima WARC arhive, za alate za reprodukciju.
+Package the crawl as a WACZ file
+Zapakiraj obilazak u WACZ datoteku
+Bundle the WARC archive, its CDXJ index and the mirrored pages into a single WACZ file; implies the WARC archive and the CDXJ index.
+Objedini WARC arhivu, njezin CDXJ indeks i zrcaljene stranice u jednu WACZ datoteku; uključuje WARC arhivu i CDXJ indeks.
+WARC segment size limit:
+Najveća veličina WARC segmenta:
+Start a new WARC segment once the current one grows past this many bytes; leave blank or 0 to keep a single file.
+Započni novi WARC segment kada trenutni prijeđe ovaj broj bajtova; ostavite prazno ili 0 za jednu datoteku.
+Host aliases:
+Aliasi poslužitelja:
+Other hostnames serving this same site, folded onto one, one rule per line (e.g. www2.example.com,m.example.com=example.com).
+Ostala imena poslužitelja koja poslužuju isto mrežno mjesto, sažeta u jedno, jedno pravilo po retku (npr. www2.example.com,m.example.com=example.com).
+Mirror %s and every host below it
+Zrcali %s i sve poslužitelje ispod njega
+Ignore %s and every host below it
+Zanemari %s i sve poslužitelje ispod njega
+Manual
+Priručnik
+Max Retry-After(s)
+Najv. Retry-After (s)
+Longest delay to obey when a server sends a Retry-After header. Use 0 to retry without waiting.
+Najduže čekanje koje se poštuje kada poslužitelj pošalje zaglavlje Retry-After. Upišite 0 za ponovni pokušaj bez čekanja.
+The rules you set here apply to the mirror now running. Removing a rule lets new links through again, but a link it already refused will not come back in this run.
+Pravila koja ovdje postavite primjenjuju se na zrcaljenje koje je u tijeku. Uklanjanje pravila ponovno propušta nove poveznice, ali poveznica koju je pravilo već odbilo neće se vratiti u ovom zrcaljenju.
+This scan rule cannot be used. A rule starts with + or -, then a pattern, and holds one short line.
+Ovo pravilo filtriranja ne može se upotrijebiti. Pravilo počinje znakom + ili -, nakon čega slijedi uzorak, i mora stati u jedan kratki redak.
+Theme:
+Tema:
+Classic
+Klasična
+Accept headers
+Zaglavlja Accept
+The Accept header sent for each kind of link. Automatic sends what the chosen browser sends.
+Zaglavlje Accept koje se šalje za svaku vrstu poveznice. Automatski šalje ono što šalje odabrani preglednik.
+Automatic
+Automatski
+Old HTTrack value
+Stara vrijednost HTTracka
+Default
+Zadano
+Pages
+Stranice
+Inline frames
+Ugrađeni okviri
+Frames
+Okviri
+Images
+Slike
+Style sheets
+Stilske tablice
+Scripts
+Skripte
+Fonts
+Fontovi
+Audio
+Zvuk
+Video
+Video
+Objects
+Objekti
+Embedded content
+Ugrađeni sadržaj
+Log in with a browser...
+Prijaviti se u pregledniku...
+Log in to the site in a browser, and crawl with the cookies and the browser identity it was given
+Prijavite se na mrežno mjesto u pregledniku, a zrcaljenje će koristiti dobivene kolačiće i pregledničko obilježje
+No Microsoft Edge WebView2 runtime is installed on this computer
+Na ovom računalu nije instaliran Microsoft Edge WebView2 runtime
+Log in with a browser
+Prijava putem preglednika
+Go
+Idi
+Done
+Gotovo
+Clear login
+Odjava
+The browser did not open: %s.
+Preglednik se nije otvorio: %s.
+The browser came back with no cookies. The address and the browser identity are saved with the project when the wizard finishes.
+Preglednik nije vratio nijedan kolačić. Adresa i identitet preglednika spremit će se s projektom kada pomoćnik završi.
+Cookies collected: %d. They are used when you press OK.
+Prikupljeni kolačići: %d. Upotrijebit će se kada stisnete U redu.
+Cookies collected: %d. They are saved with the project when the wizard finishes.
+Prikupljeni kolačići: %d. Spremit će se s projektom kada pomoćnik završi.
+The login could not be written to %s.
+Prijavu nije moguće zapisati u %s.
+%d of the browser's cookies were left out, because the engine would not read them.
+%d preglednikovih kolačića je izostavljeno jer ih HTTrack nije mogao pročitati.
+Log in to the site in another tab of this browser. Open the developer tools (F12), then the Network tab, reload the page, right-click the first request and choose Copy as cURL (bash). Paste the text here. A cookies.txt export also works, for the first address in the list.
+Prijavite se na stranicu u drugoj kartici ovog preglednika. Otvorite alate za razvojne programere (F12), zatim karticu Mreža, ponovno učitajte stranicu, desnom tipkom kliknite prvi zahtjev i odaberite Copy as cURL (bash). Zalijepite tekst ovdje. Radi i izvoz cookies.txt, za prvu adresu na popisu.
+Cookies for: %s. Browser identity: %s.
+Kolačići za: %s. Identitet preglednika: %s.
+A login cannot be saved for this address, so nothing was kept.
+Prijava se ne može spremiti za ovu adresu, pa ništa nije spremljeno.
+Yes
+Da

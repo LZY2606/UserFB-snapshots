@@ -1,0 +1,3612 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: opt->c subroutines:                                 */
+/*       main routine (first called)                            */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+/* Internal engine bytecode */
+#define HTS_INTERNAL_BYTECODE
+
+#include "htscoremain.h"
+
+#include "httrack-library.h"
+#include "htsglobal.h"
+#include "htscore.h"
+#include "htsio.h"
+#include "htsdefines.h"
+#include "htsalias.h"
+#include "htscmdline.h"
+#include "htslines.h"
+#include "htswarc.h"
+#include "htschanges.h"
+#include "htsbauth.h"
+#include "htswrap.h"
+#include "htsmodules.h"
+#include <limits.h>
+#include <stdint.h>
+#include "htszlib.h"
+#include "htscharset.h"
+#include "htsselftest.h"
+#include "htscrashtest.h"
+#include "htsmd5.h"
+#include "htsthread.h"
+#include "htsfetch.h"
+#include "htsbundle.h"
+
+#include <ctype.h>
+/* hts_self_path() */
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+/* These BSDs name the running binary through sysctl, which needs no /proc.
+   OpenBSD has no equivalent and stays on argv[0]. */
+#if defined(HAVE_SYS_SYSCTL_H) &&                                              \
+    (defined(__FreeBSD__) || defined(__DragonFly__) || defined(__NetBSD__))
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#ifdef KERN_PROC_PATHNAME
+#define HTS_SELF_PATH_SYSCTL 1
+#endif
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#if USE_BEGINTHREAD
+#ifdef _WIN32
+#include <process.h>
+#endif
+#endif
+#ifdef _WIN32
+#else
+#ifndef HTS_DO_NOT_USE_UID
+/* setuid */
+#include <pwd.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#endif
+#endif
+
+/* Resolver */
+extern int IPV6_resolver;
+
+/* A data directory is one that carries the templates path_bin is read for. */
+static int datadir_has_templates(const char *dir) {
+  char catbuff[CATBUFF_SIZE];
+
+  return dir != NULL && *dir != '\0' &&
+         fexist(fconcat(catbuff, sizeof(catbuff), dir,
+                        "templates/index-header.html"));
+}
+
+/* htsbacktrace.c copies the Linux branch: it is program-side and cannot reach
+   this hidden symbol, so a fix here belongs there too (#997). */
+const char *hts_self_path(char *dst, size_t dstsize) {
+  /* No byte to write a terminator into, and readlink() below would otherwise
+     be handed dstsize - 1 as SIZE_MAX. */
+  if (dstsize == 0)
+    return NULL;
+#if defined(_WIN32)
+  const DWORD n = GetModuleFileNameA(NULL, dst, (DWORD) dstsize);
+
+  /* Pre-Win8 returns nSize on truncation without terminating: a full buffer
+     is a failure, not a path. */
+  if (n > 0 && (size_t) n < dstsize)
+    return dst;
+#elif defined(__APPLE__)
+  uint32_t n = (uint32_t) dstsize;
+
+  if (_NSGetExecutablePath(dst, &n) == 0)
+    return dst;
+#elif defined(HTS_SELF_PATH_SYSCTL)
+  /* FreeBSD and DragonFly put the pid last, NetBSD puts it third, and 9 is the
+     pathname on DragonFly but KERN_PROC_SV_NAME on FreeBSD (#1506). */
+#if defined(__NetBSD__)
+  int mib[4] = {CTL_KERN, KERN_PROC_ARGS, -1, KERN_PROC_PATHNAME};
+#else
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+#endif
+  size_t n = dstsize;
+
+  /* All three report strlen + 1, so 1 is the empty path and dst[n - 1] is the
+     kernel's own terminator. */
+  if (sysctl(mib, 4, dst, &n, NULL, 0) == 0 && n > 1 && n <= dstsize &&
+      dst[n - 1] == '\0')
+    return dst;
+#else
+  /* Linux; anywhere else this is simply absent and argv[0] has to do. */
+  const ssize_t n = readlink("/proc/self/exe", dst, dstsize - 1);
+
+  if (n > 0 && (size_t) n < dstsize - 1) {
+    dst[n] = '\0';
+    return dst;
+  }
+#endif
+  /* GetModuleFileNameA() and sysctl() both copy a clipped path into dst before
+     they report the clipping, and Windows terminates that copy, so a refusal
+     would otherwise read back as a shorter path. Emptying dst covers it, and
+     the other two arms share the exit so a fifth cannot forget the contract. */
+  dst[0] = '\0';
+  return NULL;
+}
+
+/* Directory part of path, trailing '/' kept, or NULL when it carries none: a
+   bare name came from a PATH lookup and locates nothing. */
+static const char *dirname_of(char *dst, size_t dstsize, const char *path) {
+  char catbuff[CATBUFF_SIZE];
+  const char *slashed, *sep;
+  size_t len;
+
+  if (path == NULL)
+    return NULL;
+  slashed = fslash(catbuff, sizeof(catbuff), path);
+  if ((sep = strrchr(slashed, '/')) == NULL)
+    return NULL;
+  len = (size_t) (sep - slashed) + 1;
+  if (len >= dstsize)
+    return NULL;
+  memcpy(dst, slashed, len);
+  dst[len] = '\0';
+  return dst;
+}
+
+void hts_resolve_datadir(char *dst, size_t dstsize, const char *selfpath,
+                         const char *builtin) {
+  /* An installed tree that was moved, then a flat one with templates/ beside
+     the binary. */
+  static const char *const layout[] = {"../share/httrack/", ""};
+  char exedir[HTS_URLMAXSIZE * 2];
+  const char *base = NULL;
+  const char *fallback;
+
+  if (!datadir_has_templates(builtin)) {
+    base = dirname_of(exedir, sizeof(exedir), selfpath);
+  }
+  if (base != NULL) {
+    size_t i;
+
+    for (i = 0; i < sizeof(layout) / sizeof(layout[0]); i++) {
+      char cand[HTS_URLMAXSIZE * 2];
+      /* snprintf, not the strlncatbuff idiom: appending to a non-empty buffer
+         aborts on overflow, and a long enough argv[0] reaches it. */
+      const int n = snprintf(cand, sizeof(cand), "%s%s", base, layout[i]);
+
+      if (n < 0 || (size_t) n >= sizeof(cand)) {
+        continue; /* truncated, so not the path we meant to probe */
+      }
+      if (datadir_has_templates(cand)) {
+        snprintf(dst, dstsize, "%s", cand);
+        return;
+      }
+    }
+  }
+  /* Windows has no compiled-in data directory, so there the executable's own
+     is all we have. */
+  fallback = (builtin != NULL && *builtin != '\0') ? builtin
+             : (base != NULL)                      ? base
+                                                   : "";
+  snprintf(dst, dstsize, "%s", fallback);
+}
+
+/* Append CMD's arguments to the pending request, each behind a space, ending
+   in " ..." if they do not all fit. Clipped rather than bounded because
+   HT_PRINT aborts on overflow and a command line outgrows HTbuff easily. */
+static void cmdl_print_args(httrackp *opt, const cmdl_argv *cmd) {
+  /* what the caller still has to append: "?", the line break, the NUL */
+  static const size_t tail = sizeof("?" LF);
+  int i;
+
+  for (i = 1; i < cmd->argc; i++) {
+    const size_t spare = sizeof(opt->state.HTbuff) - tail - sizeof(" ...");
+    const size_t used = strlen(opt->state.HTbuff);
+
+    if (used >= spare || strlen(cmd->argv[i]) >= spare - used) {
+      /* clipped rather than HT_PRINT'd, so the mark fits whatever the caller
+         wrote before it */
+      strlncatbuff(opt->state.HTbuff, " ...", sizeof(opt->state.HTbuff),
+                   sizeof(opt->state.HTbuff) - 1 - used);
+      return;
+    }
+    HT_PRINT(" ");
+    HT_PRINT(cmd->argv[i]);
+  }
+}
+
+/* Both halves NULL what they release, so a second expansion is a no-op. */
+#define htsmain_free()                                                         \
+  do {                                                                         \
+    freet(url);                                                                \
+    cmdl_free(&x_cmd);                                                         \
+  } while (0)
+
+#define ensureUrlCapacity(url, urlsize, size) do { \
+  if (urlsize < size || url == NULL) { \
+    urlsize = size; \
+    if (url == NULL) { \
+      url = (char*) malloct(urlsize); \
+      if (url != NULL) url[0]='\0'; \
+    } else { \
+      url = (char*) realloct(url, urlsize); \
+    } \
+    if (url == NULL) { \
+      HTS_PANIC_PRINTF("* memory exhausted"); \
+      htsmain_free(); \
+      return -1; \
+    } \
+  } \
+} while(0)
+
+/* Read the glued digits of the option at com into field, or refuse the
+   command line when they are above max. With no digits, nothing changes.
+   A refusal panics and returns -1 from hts_main_internal. */
+#define readGluedOpt_(reader, field, max)                                      \
+  do {                                                                         \
+    if (reader(&com, 0, (max), &(field)) == HTS_SCAN_REFUSED) {                \
+      char s_[256];                                                            \
+                                                                               \
+      snprintf(s_, sizeof(s_), "Value out of range in option %s", argv[na]);   \
+      HTS_PANIC_PRINTF(s_);                                                    \
+      htsmain_free();                                                          \
+      return -1;                                                               \
+    }                                                                          \
+  } while (0)
+#define readGluedInt(field, max) readGluedOpt_(cmdl_glued_int, field, max)
+#define readGluedLLint(field, max) readGluedOpt_(cmdl_glued_llint, field, max)
+/* readGluedInt() for an enum, narrower than an int under -fshort-enums. */
+#define readGluedEnum(field, max)                                              \
+  do {                                                                         \
+    int level_ = (field);                                                      \
+                                                                               \
+    readGluedInt(level_, max);                                                 \
+    (field) = level_;                                                          \
+  } while (0)
+
+hts_scan_result cmdl_glued_llint(char **com, LLint min, LLint max, LLint *out) {
+  const char *const digits = *com + 1;
+  const char *end;
+  const hts_boolean ok = hts_parse_llint(digits, &end, min, max, out);
+
+  if (end == digits)
+    return HTS_SCAN_NONE;
+  *com += end - digits; // Onto the last digit, which the caller steps past.
+  return ok ? HTS_SCAN_OK : HTS_SCAN_REFUSED;
+}
+
+hts_scan_result cmdl_glued_int(char **com, int min, int max, int *out) {
+  LLint value;
+  const hts_scan_result got = cmdl_glued_llint(com, min, max, &value);
+
+  if (got == HTS_SCAN_OK)
+    *out = (int) value;
+  return got;
+}
+
+/* Panic with msg, and ask to remove the quotes of value if it has any. */
+static void cmdl_panic_value(httrackp *opt, const char *msg,
+                             const char *value) {
+  char s[HTS_CDLMAXSIZE * 2 + 256];
+
+  char shown[HTS_CDLMAXSIZE];
+
+  if (hts_is_quoted(value, strlen(value)))
+    snprintf(s, sizeof(s), "%s: \"%s " HTS_QUOTED_HINT, msg,
+             adr_nologin_r(shown, sizeof(shown), value + 1));
+  else
+    snprintf(s, sizeof(s), "%s", msg);
+  HTS_PANIC_PRINTF(s);
+}
+
+/* Prints a --host-alias rule with the login of each of its names masked. */
+static void print_rule_nologin(const char *rule) {
+  while (*rule != '\0') {
+    char tok[HTS_CDLMAXSIZE];
+    char shown[HTS_CDLMAXSIZE + 8];
+    size_t n = strcspn(rule, ",=");
+
+    if (n >= sizeof(tok))
+      n = sizeof(tok) - 1;
+    memcpy(tok, rule, n);
+    tok[n] = '\0';
+    fputs(adr_nologin_r(shown, sizeof(shown), tok), stdout);
+    rule += n;
+    if (*rule == ',' || *rule == '=')
+      putchar(*rule++);
+  }
+  putchar('\n');
+}
+
+/* Panic on com, the end of option arg that no option takes. When com is
+   quoted, the message names the option before it. */
+static void cmdl_bad_option(httrackp *opt, const char *arg, const char *prefix,
+                            const char *com) {
+  char s[HTS_CDLMAXSIZE * 2 + 256];
+
+  if (hts_is_quoted(com, strlen(com)))
+    snprintf(s, sizeof(s), "Option %.*s: %s " HTS_QUOTED_HINT,
+             (int) (com - arg), arg, com);
+  else
+    snprintf(s, sizeof(s), "invalid option %s%c\n", prefix, *com);
+  HTS_PANIC_PRINTF(s);
+}
+
+HTSEXT_API int hts_main(int argc, char **argv) {
+  httrackp *opt = hts_create_opt();
+  int ret = hts_main2(argc, argv, opt);
+
+  hts_free_opt(opt);
+  return ret;
+}
+
+/* Write the progress lock at PATH, dated one second back so a request written
+   the instant the file appears sorts after it. False when it could not be
+   written at all. */
+static hts_boolean write_progress_lock(httrackp *opt, const char *path,
+                                       const char *t, int argc, char **argv) {
+  FILE *fp = hts_fopen_private(path, "wb"); /* it echoes argv */
+  int i;
+
+  if (fp == NULL)
+    return HTS_FALSE;
+  fprintf(fp, "Mirror in progress since %s .. please wait!" LF, t);
+  for (i = 0; i < argc; i++) {
+    if (strchr(argv[i], ' ') == NULL)
+      fprintf(fp, "%s ", argv[i]);
+    else // entre ""
+      fprintf(fp, "\"%s\" ", argv[i]);
+  }
+  fprintf(fp, LF);
+  fprintf(fp, "To pause the engine: create an empty file named "
+              "'" HTS_PAUSE_LOCKNAME "' (an earlier run's copy is"
+              " ignored, so create it again)" LF);
+  fprintf(fp, "To stop it and keep the mirror: create an empty file named "
+              "'" HTS_ABORT_LOCKNAME "' (an earlier run's copy is"
+              " ignored, so create it again)" LF);
+#if USE_BEGINTHREAD
+  fprintf(fp, "PID=%d\n", (int) getpid());
+#ifndef _WIN32
+  fprintf(fp, "UID=%d\n", (int) getuid());
+  fprintf(fp, "GID=%d\n", (int) getuid());
+#endif
+  fprintf(fp, "START=" LLintP "\n", (LLint) time(NULL));
+#endif
+  fclose(fp);
+  /* Whole-second filesystems tie two files written in the same second, and the
+     backdate is what breaks that tie. */
+  if (!hts_file_backdate(path, 1) && opt->log != NULL)
+    hts_log_print(opt, LOG_WARNING,
+                  "engine: could not date hts-in_progress.lock back, so a"
+                  " stop request written in this first second is ignored");
+  return HTS_TRUE;
+}
+
+static int hts_main_internal(int argc, char **argv, httrackp * opt);
+static hts_boolean cmdl_shortopt_has(const char *s, char c);
+static hts_boolean cmdl_shortopt_named(const char *s, const char *opt);
+static void cmdl_doit_line(String *line, const cmdl_argv *cmd);
+
+// Main, récupère les paramètres et appelle le robot
+HTSEXT_API int hts_main2(int argc, char **argv, httrackp * opt) {
+  int code;
+
+  // Set ended state (3.48-14)
+  hts_mutexlock(&opt->state.lock);
+  opt->state.is_ended = 0;
+  hts_mutexrelease(&opt->state.lock);
+
+  code = hts_main_internal(argc, argv, opt);
+
+  // Set ended state (3.48-14)
+  hts_mutexlock(&opt->state.lock);
+  opt->state.is_ended = 1;
+  hts_mutexrelease(&opt->state.lock);
+
+  return code;
+}
+
+/* Counts one more URL; a -1 count (-i, --continue) restarts from zero. */
+static void cmdl_count_url(int *count) {
+  if (*count < 0)
+    *count = 0;
+  (*count)++;
+}
+
+/* Steps *AT through cluster WORD as optcluster_next() does, setting *VALUE to
+   the index of the word the option takes from *NEXT on (-qO <path>), or -1. */
+static hts_boolean cmdl_cluster_step(const char *word, size_t *at, char *name,
+                                     size_t name_size, int argc,
+                                     char *const *argv, int *next, int *value) {
+  int pos;
+
+  if (!optcluster_next(word, at, name, name_size))
+    return HTS_FALSE;
+  pos = optreal_find(name);
+  *value = -1;
+  /* only a lone -N reads the next word; a clustered one reads its digits */
+  if (pos < 0 || strcmp(opttype_value(pos), "param1") != 0 ||
+      strcmp(name, "-N") == 0 || *next >= argc || argv[*next][0] == '-')
+    return HTS_TRUE;
+  *value = (*next)++;
+  return HTS_TRUE;
+}
+
+/* Copies to CMD each word, from ARGV[FIRST] on, that an option of cluster WORD
+   takes as its value (-qO <path>), counting a list's (-q%L) as URLs. Returns
+   how many, or -1 out of memory. */
+static int cmdl_cluster_params(cmdl_argv *cmd, const char *word, int argc,
+                               char **argv, int first, int *argv_url) {
+  char name[8];
+  size_t at = 1;
+  int next = first;
+  int value;
+
+  while (cmdl_cluster_step(word, &at, name, sizeof(name), argc, argv, &next,
+                           &value)) {
+    if (value < 0)
+      continue;
+    if (!cmdl_add(cmd, argv[value]))
+      return -1;
+    cmdl_mark_param(cmd, cmd->argc - 1);
+    if (strcmp(name, "-%L") == 0)
+      cmdl_count_url(argv_url);
+  }
+  return next - first;
+}
+
+/* Whether the option at NA may take the word after it though it begins with
+   '-': only where that word was put there as an option's parameter, which
+   optalias_check() emits having refused an option name in that position itself.
+   A clustered (-q%A) or quoted ("-%A") spelling resolves through none of that,
+   and the URL pass above reads the word after it as short options, so there it
+   stays the next option it always was (#1425). */
+static hts_boolean optparam_dash_ok(const cmdl_argv *cmd, int na) {
+  return na + 1 < cmd->argc && cmd->param[na + 1];
+}
+
+/* Store the --bundle-dir at na in opt and cmd as an absolute path, so doit.log
+   finds it from anywhere. HTS_FALSE after a panic. */
+static hts_boolean bundle_dir_set(httrackp *opt, cmdl_argv *cmd, int na) {
+  const char *const dir = na + 1 < cmd->argc ? cmd->argv[na + 1] : NULL;
+  const hts_boolean relative = dir != NULL && dir[0] != '/' && dir[0] != '\\' &&
+                               !(dir[0] != '\0' && dir[1] == ':');
+  char cwd[HTS_URLMAXSIZE] = "";
+  char abs[HTS_URLMAXSIZE];
+  char *copy;
+
+  if (dir == NULL || (dir[0] == '-' && !optparam_dash_ok(cmd, na)) ||
+      (relative && getcwd(cwd, sizeof(cwd)) == NULL) ||
+      !slprintfbuff(abs, sizeof(abs), "%s%s%s", cwd, relative ? "/" : "",
+                    dir) ||
+      (copy = hts_arena_strdup(&cmd->tokens, abs)) == NULL) {
+    HTS_PANIC_PRINTF("Option bundle-dir needs a blank space and a folder");
+    return HTS_FALSE;
+  }
+  cmd->argv[na + 1] = copy;
+  StringCopy(opt->bundle_dir, abs);
+  return HTS_TRUE;
+}
+
+/* Print the headers -#C lists for `url`, read back out of the ZIP cache. */
+static void cmdl_print_cache_entry(httrackp *opt, cache_back *cache,
+                                   const char *url, int sendb) {
+  lien_adrfilsave afs;
+  htsblk r;
+  char msg[256], cdate[256];
+
+  memset(&afs, 0, sizeof(afs));
+  /* the entry name is read back from the cache: list an unparsable or
+     unreadable one anyway, since its presence is what -#C is asked about */
+  if (ident_url_absolute(url, &afs.af) == -1) {
+    fprintf(stdout, "X-URL: %s\r\nX-Cache-Entry-Unreadable: yes\r\n\r\n", url);
+    return;
+  }
+  r = cache_read_ro(opt, cache, afs.af.adr, afs.af.fil, "", NULL);
+  if (r.statuscode == STATUSCODE_INVALID) {
+    fprintf(stdout, "X-URL: %s\r\nX-Cache-Entry-Unreadable: yes\r\n\r\n", url);
+    freet(r.adr);
+    return;
+  }
+
+  infostatuscode(msg, r.statuscode);
+  time_gmt_rfc822(cdate);
+
+  fprintf(stdout, "HTTP/1.1 %d %s\r\n", r.statuscode, r.msg[0] ? r.msg : msg);
+  fprintf(stdout, "X-Host: %s\r\n", afs.af.adr);
+  fprintf(stdout, "X-File: %s\r\n", afs.af.fil);
+  fprintf(stdout, "X-URL: %s\r\n", url);
+  if (url_savename(&afs, /*former */ NULL, /*referer_adr */ NULL,
+                   /*referer_fil */ NULL, /*opt */ opt, /*sback */ NULL,
+                   /*cache */ cache, /*hash */ NULL, /*ptr */ 0,
+                   /*numero_passe */ 0, /*mime_type */ NULL) != -1) {
+    if (fexist_utf8(afs.save)) {
+      fprintf(stdout, "Content-location: %s\r\n", afs.save);
+    }
+  }
+  fprintf(stdout, "Date: %s\r\n", cdate);
+  fprintf(stdout, "Server: HTTrack Website Copier/" HTTRACK_VERSION "\r\n");
+  if (r.lastmodified[0]) {
+    fprintf(stdout, "Last-Modified: %s\r\n", r.lastmodified);
+  }
+  if (r.etag[0]) {
+    fprintf(stdout, "Etag: %s\r\n", r.etag);
+  }
+  if (r.totalsize >= 0) {
+    fprintf(stdout, "Content-Length: " LLintP "\r\n", r.totalsize);
+  }
+  fprintf(stdout, "X-Content-Length: " LLintP "\r\n",
+          (r.size >= 0) ? r.size : (-r.size));
+  if (r.contenttype[0]) {
+    fprintf(stdout, "Content-Type: %s\r\n", hts_effective_mime(r.contenttype));
+  }
+  if (r.cdispo[0]) {
+    fprintf(stdout, "Content-Disposition: %s\r\n", r.cdispo);
+  }
+  if (r.contentencoding[0]) {
+    fprintf(stdout, "Content-Encoding: %s\r\n", r.contentencoding);
+  }
+  if (r.is_chunk) {
+    fprintf(stdout, "Transfer-Encoding: chunked\r\n");
+  }
+#if HTS_USEOPENSSL
+  if (r.ssl) {
+    fprintf(stdout, "X-SSL: yes\r\n");
+  }
+#endif
+  if (r.is_write) {
+    fprintf(stdout, "X-Direct-To-Disk: yes\r\n");
+  }
+  if (r.compressed) {
+    fprintf(stdout, "X-Compressed: yes\r\n");
+  }
+  if (r.notmodified) {
+    fprintf(stdout, "X-Not-Modified: yes\r\n");
+  }
+  if (r.is_chunk) {
+    fprintf(stdout, "X-Chunked: yes\r\n");
+  }
+  fprintf(stdout, "\r\n");
+  /* Send the body */
+  if (sendb && r.adr) {
+    fprintf(stdout, "%s\r\n", r.adr);
+  }
+  freet(r.adr);
+}
+
+/* Feeds the log backstop the passwords of the blank-separated start URLs,
+   but not of the +/- filters among them, of the proxy and --why, and the
+   secret -%X values. */
+static void hts_secret_learn_options(httrackp *opt, const char *urls) {
+  const char *u = urls;
+
+  while (*u != '\0') {
+    const size_t n = strcspn(u, " \t\r\n");
+
+    // a start URL never exceeds the URL buffers, so a longer word is no URL
+    if (n != 0 && *u != '+' && *u != '-' && n < HTS_URLMAXSIZE * 2) {
+      char word[HTS_URLMAXSIZE * 2];
+
+      memcpy(word, u, n);
+      word[n] = '\0';
+      hts_secret_add_login(opt, word);
+    }
+    u += n != 0 ? n : 1;
+  }
+  hts_secret_add_login(opt, StringBuff(opt->proxy.name));
+  hts_secret_add_login(opt, StringBuff(opt->why_url));
+  hts_secret_add_headers(opt, StringBuff(opt->headers));
+}
+
+static int hts_main_internal(int argc, char **argv, httrackp * opt) {
+  /* command line rebuilt from argv, config files and doit.log */
+  cmdl_argv x_cmd = {NULL, NULL, NULL, 0, 0, {NULL, 0, 0}};
+
+  //
+  int argv_url = -1;            // ==0 : utiliser cache et doit.log
+  char *argv_firsturl = NULL;   // utilisé pour nommage par défaut
+  char *url = NULL;             // URLS séparées par un espace
+  size_t url_sz = 65535;
+
+  /* 0, or HTS_EXIT_MIRROR_ABORTED for a mirror that started and did not end */
+  int exit_code = 0;
+
+  // the parametres
+  int httrack_logmode = 3;      // ONE log file
+
+  ensureUrlCapacity(url, url_sz, 65536);
+  /* a library caller may run twice on one opt */
+  hts_bundle_free(opt);
+  StringCopy(opt->bundle_dir, "");
+
+  // Create options
+  _DEBUG_HEAD = 0;              // pas de debuggage en têtes
+
+  /* command max-size check (3.43 ; 3.42-4) */
+  {
+    int i;
+
+    for(i = 0; i < argc; i++) {
+      if (strlen(argv[i]) >= HTS_CDLMAXSIZE) {
+        HTS_PANIC_PRINTF("argument too long");
+        htsmain_free();
+        return -1;
+      }
+    }
+  }
+
+  /* Init root dir */
+  hts_rootdir(argv[0]);
+
+#ifdef _WIN32
+#else
+  /* Terminal is a tty, may ask questions and display funny information */
+  if (hts_stdout_isterminal()) {
+    opt->quiet = 0;
+    opt->verbosedisplay = HTS_VERBOSE_SIMPLE;
+  }
+  /* Not a tty, no stdin input or funny output! */
+  else {
+    opt->quiet = 1;
+    opt->verbosedisplay = HTS_VERBOSE_NONE;
+  }
+#endif
+
+  // Data directory holding the HTML templates
+  {
+    char datadir[HTS_URLMAXSIZE * 2];
+    char selfbuff[HTS_URLMAXSIZE * 2];
+    const char *self = hts_self_path(selfbuff, sizeof(selfbuff));
+
+#ifdef HTS_HTTRACKDIR
+    const char *const builtin = HTS_HTTRACKDIR;
+#else
+    const char *const builtin = "";
+#endif
+
+    if (self == NULL && argc > 0) {
+      self = argv[0];
+    }
+    hts_resolve_datadir(datadir, sizeof(datadir), self, builtin);
+    StringCopy(opt->path_bin, datadir);
+  }
+
+  /* filter CR, LF, TAB.. */
+  {
+    int na;
+
+    for(na = 1; na < argc; na++) {
+      char *a;
+
+      while((a = strchr(argv[na], '\x0d')))
+        *a = ' ';
+      while((a = strchr(argv[na], '\x0a')))
+        *a = ' ';
+      while((a = strchr(argv[na], 9)))
+        *a = ' ';
+      /* equivalent to "empty parameter" */
+      if ((strcmp(argv[na], HTS_NOPARAM) == 0) || (strcmp(argv[na], HTS_NOPARAM2) == 0))        // (none)
+        /* replacing "(none)"/"\"(none)\"" with "\"\"" always fits in place */
+        strlcpybuff(argv[na], "\"\"", strlen(argv[na]) + 1);
+      if (strncmp(argv[na], "-&", 2) == 0)
+        argv[na][1] = '%';
+    }
+  }
+
+  /* create the token block for the transformed command line */
+  if (!cmdl_init(&x_cmd, argc)) {
+    HTS_PANIC_PRINTF("Error, not enough memory");
+    htsmain_free();
+    return -1;
+  }
+
+  /* Create new argc/argv, replace alias, count URLs, treat -h, -q, -i */
+  {
+    char BIGSTK _tmp_argv[2][HTS_CDLMAXSIZE];
+    char BIGSTK tmp_error[HTS_CDLMAXSIZE];
+    char *tmp_argv[2];
+    int tmp_argc;
+    int na;
+
+    tmp_argv[0] = _tmp_argv[0];
+    tmp_argv[1] = _tmp_argv[1];
+    //
+    argv_url = 0;               /* pour comptage */
+    //
+    if (!cmdl_add(&x_cmd, argv[0])) {
+      cmdl_free(&x_cmd);
+      HTS_PANIC_PRINTF("Error, not enough memory");
+      htsmain_free();
+      return -1;
+    }
+    na = 1;                     /* commencer après nom_prg */
+    while(na < argc) {
+      int result = 1;
+
+      tmp_argv[0][0] = tmp_argv[1][0] = '\0';
+
+      /* Vérifier argv[] non vide */
+      if (strnotempty(argv[na])) {
+
+        /* Resolve an option alias, if any */
+        result = optalias_check(argc, (const char *const *) argv, na, &tmp_argc,
+                                (char **) tmp_argv, sizeof(_tmp_argv[0]),
+                                tmp_error, sizeof(tmp_error));
+        if (!result) {
+          HTS_PANIC_PRINTF(tmp_error);
+          htsmain_free();
+          return -1;
+        }
+        /* an option that parsed, but not as asked (a --wide-/--tiny- prefix
+           the alias cannot carry) */
+        if (tmp_error[0] != '\0')
+          fprintf(stderr, "* %s\n", tmp_error);
+
+        /* Copier */
+        if (!cmdl_add(&x_cmd, tmp_argv[0]) ||
+            (tmp_argc > 1 && !cmdl_add(&x_cmd, tmp_argv[1]))) {
+          cmdl_free(&x_cmd);
+          HTS_PANIC_PRINTF("Error, not enough memory");
+          htsmain_free();
+          return -1;
+        }
+        if (tmp_argc > 1)
+          cmdl_mark_param(&x_cmd, x_cmd.argc - 1);
+
+        /* Compter URLs et détecter -i,-q.. */
+        if (tmp_argc == 1) {    /* pas -P & co */
+          if (!hts_rule_would_be_read_as_opt(tmp_argv[0])) { /* not -c0 & co */
+            cmdl_count_url(&argv_url);
+            if (!argv_firsturl)
+              argv_firsturl = x_cmd.argv[x_cmd.argc - 1];
+          } else {
+            if (strcmp(tmp_argv[0], "-h") == 0) {
+              help(argv[0], !opt->quiet);
+              htsmain_free();
+              return 0;
+            } else if (strcmp(tmp_argv[0], "-#h") == 0) {
+              printf("HTTrack version " HTTRACK_VERSION "%s\n",
+                     hts_get_version_info(opt));
+              htsmain_free();
+              return 0;
+            } else {
+              if (strncmp(tmp_argv[0], "--", 2)) { /* not a long option */
+                if (cmdl_shortopt_has(tmp_argv[0], 'q'))
+                  opt->quiet = HTS_TRUE; // never ask questions (nohup)
+                if (cmdl_shortopt_has(tmp_argv[0], 'i')) { // doit.log!
+                  argv_url = -1;
+                  opt->quiet = HTS_TRUE;
+                }
+                if (optreal_find(tmp_argv[0]) < 0) {
+                  const int taken = cmdl_cluster_params(
+                      &x_cmd, tmp_argv[0], argc, argv, na + result, &argv_url);
+
+                  if (taken < 0) {
+                    cmdl_free(&x_cmd);
+                    HTS_PANIC_PRINTF("Error, not enough memory");
+                    htsmain_free();
+                    return -1;
+                  }
+                  result += taken;
+                }
+              } else if (strcmp(tmp_argv[0] + 2, "quiet") == 0) {
+                opt->quiet = 1; // ne pas poser de questions! (nohup par exemple)
+              } else if (strcmp(tmp_argv[0] + 2, "continue") == 0) {
+                argv_url = -1;  /* forcer */
+                opt->quiet = 1;
+              }
+            }
+          }
+        } else if (tmp_argc == 2) {
+          if ((strcmp(tmp_argv[0], "-%L") == 0)) // URL list
+            cmdl_count_url(&argv_url);
+        }
+      }
+
+      na += result;
+    }
+    if (argv_url < 0)
+      argv_url = 0;
+
+    /* Nouveaux argc et argv */
+    argv = x_cmd.argv;
+    argc = x_cmd.argc;
+  }
+
+  // Option O and includerc
+  {
+    int loops = 0;
+
+    while (loops < 2) {
+      int na;
+
+      for(na = 1; na < argc; na++) {
+
+        /* another option's value is not an option (--user-agent -Oz) */
+        if (hts_rule_would_be_read_as_opt(argv[na]) &&
+            !x_cmd.param[na]) { // option
+          const char *const word = argv[na];
+          char name[8];
+          size_t at = 1;
+          int next = na + 1;
+          int value;
+
+          /* the word the parse loop gives -O, past -P's in -PO */
+          while (cmdl_cluster_step(word, &at, name, sizeof(name), argc, argv,
+                                   &next, &value)) {
+            if (strcmp(name, "-O") == 0) {
+              if (value < 0) {
+                HTS_PANIC_PRINTF
+                  ("Option O needs to be followed by a blank space, and a path (or path,path)");
+                printf("Example: -O /binary/\n");
+                printf("Example: -O /binary/,/log/\n");
+                htsmain_free();
+                return -1;
+              } else {
+                int i /*, j */ ;
+                int inQuote;
+                String *path;
+                hts_boolean one_path = HTS_FALSE;
+
+                if (word[at] == '1') /* only 1 arg */
+                  one_path = HTS_TRUE;
+                StringClear(opt->path_html);
+                StringClear(opt->path_log);
+                for (i = 0 /*, j = 0 */, inQuote = 0, path = &opt->path_html;
+                     argv[value][i] != 0; i++) {
+                  /* a plain -O strips quotes, which group a comma */
+                  if (!one_path && argv[value][i] == '"') {
+                    inQuote = !inQuote;
+                  } else if (!inQuote && !one_path && argv[value][i] == ',') {
+                    path = &opt->path_log;
+                  } else {
+                    StringAddchar(*path, argv[value][i]);
+                  }
+                }
+                if (StringLength(opt->path_log) == 0) {
+                  StringCopyS(opt->path_log, opt->path_html);
+                }
+
+                check_path(&opt->path_log, argv_firsturl);
+                if (check_path(&opt->path_html, argv_firsturl)) {
+                  opt->dir_topindex = 1;        // rebuilt top index
+                }
+              }
+            }
+          }
+
+        } // arg
+
+      }                         // for
+
+      // path_html is already UTF-8 (argv is UTF-8 on Windows via
+      // hts_argv_utf8), so no re-encoding.
+      StringCopyN(opt->path_html_utf8, StringBuff(opt->path_html),
+                  StringLength(opt->path_html));
+
+      /* if doit.log exists, or if new URL(s) defined, 
+         then DO NOT load standard config files */
+      /* (config files are added in doit.log) */
+#if DEBUG_STEPS
+      printf("Loading httrackrc/doit.log\n");
+#endif
+      /* recreate a doit.log (no old doit.log or new URLs (and parameters)) */
+      if ((strnotempty(StringBuff(opt->path_log)))
+          || (strnotempty(StringBuff(opt->path_html))))
+        loops++;                // do not loop once again and do not include rc file (O option exists)
+      else {
+        /* Pass 2 only looks for an -O the rc file gave, so read it once. */
+        if (loops == 0 &&
+            ((!fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                   StringBuff(opt->path_log),
+                                   "hts-cache/doit.log"))) ||
+             (argv_url > 0))) {
+          /* first rc file that exists wins */
+          cmdl_file_result res =
+              optinclude_file(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                      StringBuff(opt->path_log), HTS_HTTRACKRC),
+                              &x_cmd);
+
+          if (res == CMDL_FILE_MISSING)
+            res = optinclude_file(HTS_HTTRACKRC, &x_cmd);
+          if (res == CMDL_FILE_MISSING)
+            res = optinclude_file(fconcat(OPT_GET_BUFF(opt),
+                                          OPT_GET_BUFF_SIZE(opt), hts_gethome(),
+                                          "/" HTS_HTTRACKRC),
+                                  &x_cmd);
+#ifdef HTS_HTTRACKCNF
+          if (res == CMDL_FILE_MISSING)
+            res = optinclude_file(HTS_HTTRACKCNF, &x_cmd);
+#endif
+          if (res == CMDL_FILE_NOMEM) {
+            cmdl_free(&x_cmd);
+            HTS_PANIC_PRINTF("Error, not enough memory");
+            htsmain_free();
+            return -1;
+          }
+          /* the array may have been grown and moved */
+          argv = x_cmd.argv;
+          argc = x_cmd.argc;
+        } else
+          loops++;              // do not loop once again
+      }
+
+      loops++;
+    } // while
+
+  }                             // traiter -O
+
+  /* load doit.log and insert in current command line */
+  if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                          StringBuff(opt->path_log), "hts-cache/doit.log")) &&
+      (argv_url <= 0)) {
+    FILE *fp = FOPEN(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/doit.log"),
+                     "rb");
+    if (fp) {
+      int insert_after = 1; /* insert after the program name */
+
+      String buff = STRING_EMPTY;
+      char **tokens;
+      int ntokens = 0;
+      int i;
+      hts_boolean ok;
+      /* a TAB is argument data, since the writer leaves it unquoted */
+      const hts_boolean cut = hts_readline_alloc(
+          fp, &buff, HTS_READLINE_ALLOC_MAX, HTS_LINE_DROP_FF);
+
+      fclose(fp);
+      fp = NULL;
+      /* any argument dropped would resume a different mirror */
+      if (cut) {
+        StringFree(buff);
+        cmdl_free(&x_cmd);
+        HTS_PANIC_PRINTF("Error, hts-cache/doit.log is too long to resume "
+                         "the mirror");
+        htsmain_free();
+        return -1;
+      }
+      /* "" unquotes to empty but is still a real token (#106) */
+      tokens = hts_split_args(StringBuffRW(buff), &ntokens,
+                              HTS_SPLIT_STRIP_QUOTES | HTS_SPLIT_DROP_EMPTY);
+      for (i = 0; tokens != NULL && i < ntokens; i++) {
+        /* inserted in order, after the program name */
+        if (!cmdl_ins(&x_cmd, tokens[i], insert_after))
+          break;
+        /* this engine wrote the line and parsed it once already */
+        cmdl_mark_param(&x_cmd, insert_after);
+        insert_after++;
+      }
+      ok = tokens != NULL && i == ntokens;
+      freet(tokens);
+      StringFree(buff);
+      if (!ok) {
+        cmdl_free(&x_cmd);
+        HTS_PANIC_PRINTF("Error, not enough memory");
+        htsmain_free();
+        return -1;
+      }
+      /* the array may have been grown and moved */
+      argv = x_cmd.argv;
+      argc = x_cmd.argc;
+    }
+  }
+
+  // No new cache but an old one? promote it
+#if DEBUG_STEPS
+  printf("Checking cache\n");
+#endif
+  hts_cache_reconcile(opt, CACHE_RECONCILE_PROMOTE);
+
+  /* Interrupted mirror over a pre-3.31 (2003) cache: cache_init() refuses that
+     .dat/.ndx pair, so say so rather than send the user restoring it. */
+  if (!opt->quiet) {
+    if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                            StringBuff(opt->path_log),
+                            "hts-in_progress.lock"))) {
+      if ((fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                               StringBuff(opt->path_log),
+                               "hts-cache/old.dat"))) &&
+          (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                               StringBuff(opt->path_log),
+                               "hts-cache/old.ndx")))) {
+        if (opt->log != NULL) {
+          fprintf(opt->log, "Warning!\n");
+          fprintf(opt->log,
+                  "An aborted mirror has been detected, over a cache this "
+                  "version can no longer read: hts-cache/old.dat and old.ndx "
+                  "are the pre-3.31 format, dropped in 2003.\n");
+          fprintf(opt->log,
+                  "Restart HTTrack with --continue (-iC1) to go on; the site "
+                  "will be mirrored again from scratch.\n");
+        }
+        htsmain_free();
+        return 0;
+      }
+    }
+  }
+  // remplacer "macros" comme --spider
+  // permet de lancer httrack sans a avoir à se rappeler de syntaxes comme p0C0I0Qc32 ..
+#if DEBUG_STEPS
+  printf("Checking last macros\n");
+#endif
+  {
+    int i;
+
+    for(i = 0; i < argc; i++) {
+#if DEBUG_STEPS
+      printf("Checking #%d:\n", argv[i]);
+      printf("%s\n", argv[i]);
+#endif
+      if (argv[i][0] == '-') {
+        if (argv[i][1] == '-') {        // --xxx
+          if ((strfield2(argv[i] + 2, "clean")) || (strfield2(argv[i] + 2, "tide"))) {  // nettoyer
+            argv[i][1] = '\0';
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log), "hts-log.txt")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-log.txt"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log), "hts-err.txt")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-err.txt"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_html), "index.html")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_html), "index.html"));
+            /* */
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.zip")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.zip"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/old.zip")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/old.zip"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.dat")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.dat"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.ndx")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.ndx"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/old.dat")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/old.dat"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/old.ndx")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/old.ndx"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.lst")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.lst"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/old.lst")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/old.lst"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.txt")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.txt"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/old.txt")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/old.txt"));
+            {
+              static const char *const damaged[] = {"hts-cache/damaged.zip",
+                                                    "hts-cache/damaged.lst",
+                                                    "hts-cache/damaged.txt"};
+              size_t i;
+
+              for (i = 0; i < sizeof(damaged) / sizeof(damaged[0]); i++) {
+                const char *const name =
+                    fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                            StringBuff(opt->path_log), damaged[i]);
+
+                if (fexist_utf8(name))
+                  UNLINK(name);
+              }
+            }
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/doit.log")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/doit.log"));
+            if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-in_progress.lock")))
+              UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log),
+                             "hts-in_progress.lock"));
+            RMDIR(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                          StringBuff(opt->path_log), "hts-cache"));
+            //
+          } else if (strfield2(argv[i] + 2, "catchurl")) {      // capture d'URL via proxy temporaire!
+            argv_url = 1;       // forcer a passer les parametres
+            /* argv[i] is "--catchurl"; "#P" fits after its first char */
+            strlcpybuff(argv[i] + 1, "#P", strlen(argv[i] + 1) + 1);
+            //
+          } else if (strfield2(argv[i] + 2, "updatehttrack")) {
+            /* Never implemented anywhere, and refusing it stops the untouched
+               string being re-walked as the cluster -u -p -d -a -t -e -h, whose
+               h exits 0 with an empty mirror. */
+            char s[HTS_CDLMAXSIZE + 256];
+
+            slprintfbuff_clip(s, sizeof(s), "%s is not implemented", argv[i]);
+            HTS_PANIC_PRINTF(s);
+            htsmain_free();
+            return -1;
+          } else if (strfield2(argv[i] + 2, "bundle-dir")) {
+            i++; /* The option parser reads its value. */
+          }
+          //
+          else {
+            char s[HTS_CDLMAXSIZE + 256];
+
+            slprintfbuff_clip(s, sizeof(s), "%s not recognized", argv[i]);
+            HTS_PANIC_PRINTF(s);
+            htsmain_free();
+            return -1;
+          }
+        }
+      }
+    }
+  }
+
+  /* Engine self-tests: -#test lists them, -#test=NAME [args] runs one. Handled
+     here, ahead of the no-URL usage gate below, so they need no dummy URL. */
+  {
+    int k;
+
+    for (k = 1; k < argc; k++) {
+      const char *const a = argv[k];
+
+      if (a[0] == '-' && a[1] == '#' && strncmp(a + 2, "test", 4) == 0 &&
+          (a[6] == '\0' || a[6] == '=')) {
+#ifdef HTS_NO_SELFTEST
+        const int code = 1;
+
+        fprintf(stderr, "httrack: this build has no engine self-tests "
+                        "(built with HTS_NO_SELFTEST)\n");
+#else
+        const char *const name = a[6] == '=' ? a + 7 : NULL;
+        const int code = hts_selftest(opt, name, argc - (k + 1), &argv[k + 1]);
+#endif
+
+        htsmain_free();
+        return code;
+      }
+    }
+  }
+
+  /* -#c[=KIND]: crash on purpose, to test crash handlers only (see
+     htscrashtest.h). Handled here so it needs no dummy URL either. */
+#ifdef HTS_CRASH_TEST
+  {
+    int k;
+
+    for (k = 1; k < argc; k++) {
+      const char *const a = argv[k];
+
+      if (a[0] == '-' && a[1] == '#' && a[2] == 'c' &&
+          (a[3] == '\0' || a[3] == '=')) {
+        const hts_crash_test_result done =
+            hts_crash_test(a[3] == '=' ? a + 4 : NULL);
+
+        if (done == HTS_CRASH_UNKNOWN) {
+          char s[256];
+
+          snprintf(s, sizeof(s), "Option #c expects one of: %s",
+                   hts_crash_test_kinds());
+          HTS_PANIC_PRINTF(s);
+          htsmain_free();
+          return -1;
+        }
+        if (done == HTS_CRASH_RAN) {
+          htsmain_free();
+          return -1;
+        }
+        /* Armed: the fault waits for a worker, so the mirror has to run. The
+           option parser below takes the argument again, and skips it. */
+        break;
+      }
+    }
+  }
+#endif
+
+  // Pas d'URL
+#if DEBUG_STEPS
+  printf("Checking URLs\n");
+#endif
+  if (argv_url == 0) {
+    // Présence d'un cache, que faire?..
+    if ((fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log),
+                             "hts-cache/new.zip"))) ||
+        (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                             StringBuff(opt->path_log), "hts-cache/new.dat")) &&
+         fexist_utf8(
+             fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                     StringBuff(opt->path_log),
+                     "hts-cache/new.ndx")))) { // il existe déja un cache
+                                               // précédent.. renommer
+      if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                              StringBuff(opt->path_log),
+                              "hts-cache/doit.log"))) { // un cache est présent
+        if (x_cmd.tokens.chunks != NULL) {
+          int m;
+
+          // établir mode - mode cache: 1 (cache valide) 2 (cache à vérifier)
+          if (fexist_utf8(
+                  fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                          StringBuff(opt->path_log),
+                          "hts-in_progress.lock"))) { // cache prioritaire
+            m = 1;
+          } else {
+            m = 2;
+          }
+          opt->cache = m;
+
+          if (opt->quiet == 0) {        // sinon on continue automatiquement
+            HT_REQUEST_START;
+            HT_PRINT("A cache (hts-cache/) has been found in the directory ");
+            HT_PRINT(StringBuff(opt->path_log));
+            HT_PRINT(LF);
+            if (m == 1) {
+              HT_PRINT("That means that a transfer has been aborted" LF);
+              HT_PRINT("OK to Continue ");
+            } else {
+              HT_PRINT("That means you can update faster the remote site(s)"
+                       LF);
+              HT_PRINT("OK to Update ");
+            }
+            HT_PRINT("httrack");
+            cmdl_print_args(opt, &x_cmd);
+            HT_PRINT("?" LF);
+            HT_REQUEST_END;
+            if (!ask_continue(opt)) {
+              htsmain_free();
+              return 0;
+            }
+          }
+
+        } else {
+          HTS_PANIC_PRINTF("Error, not enough memory");
+          htsmain_free();
+          return -1;
+        }
+      } else { // log existe pas
+        HTS_PANIC_PRINTF("A cache has been found, but no command line");
+        printf
+          ("Please launch httrack with proper parameters to reuse the cache\n");
+        htsmain_free();
+        return -1;
+      }
+
+    } else { // no URL given and no cache to resume
+      HTS_PANIC_PRINTF("No URL to mirror, and no cache to resume from");
+      if (opt->quiet) {
+        help(argv[0], !opt->quiet);
+        htsmain_free();
+        return -1;
+      } else {
+        help_wizard(opt);
+        htsmain_free();
+        return -1;
+      }
+      htsmain_free();
+      return 0;
+    }
+  } else {                      // plus de 2 paramètres
+    // un fichier log existe?
+    if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                            StringBuff(opt->path_log),
+                            "hts-in_progress.lock"))) { // fichier lock?
+
+      opt->cache = HTS_CACHE_PRIORITY; // cache prioritaire
+      if (opt->quiet == 0) {
+        if ((fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.zip"))) ||
+            (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.dat")) &&
+             fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.ndx")))) {
+          HT_REQUEST_START;
+          HT_PRINT("There is a lock-file in the directory ");
+          HT_PRINT(StringBuff(opt->path_log));
+          HT_PRINT(LF "That means that a mirror has not been terminated" LF);
+          HT_PRINT("Be sure you call httrack with proper parameters" LF);
+          HT_PRINT("(The cache allows you to restart faster the transfer)" LF);
+          HT_REQUEST_END;
+          if (!ask_continue(opt)) {
+            htsmain_free();
+            return 0;
+          }
+        }
+      }
+    } else if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                   StringBuff(opt->path_html), "index.html"))) {
+      opt->cache = HTS_CACHE_TEST_UPDATE;
+      if (opt->quiet == 0) {
+        if ((fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.zip"))) ||
+            (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.dat")) &&
+             fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                 StringBuff(opt->path_log),
+                                 "hts-cache/new.ndx")))) {
+          HT_REQUEST_START;
+          HT_PRINT
+            ("There is an index.html and a hts-cache folder in the directory ");
+          HT_PRINT(StringBuff(opt->path_log));
+          HT_PRINT(LF
+                   "A site may have been mirrored here, that could mean that you want to update it"
+                   LF);
+          HT_PRINT("Be sure parameters are ok" LF);
+          HT_REQUEST_END;
+          if (!ask_continue(opt)) {
+            htsmain_free();
+            return 0;
+          }
+        } else {
+          HT_REQUEST_START;
+          HT_PRINT("There is an index.html in the directory ");
+          HT_PRINT(StringBuff(opt->path_log));
+          HT_PRINT(" but no cache" LF);
+          HT_PRINT("There is an index.html in the directory, but no cache" LF);
+          HT_PRINT("A site may have been mirrored here, and erased.." LF);
+          HT_PRINT("Be sure parameters are ok" LF);
+          HT_REQUEST_END;
+          if (!ask_continue(opt)) {
+            htsmain_free();
+            return 0;
+          }
+        }
+      }
+    }
+  }
+
+  // Treat parameters
+  // Traiter les paramètres
+#if DEBUG_STEPS
+  printf("Analyze parameters\n");
+#endif
+  {
+    char *com;
+    int na;
+    int prev_opt = 0;
+
+    /* the flags below are indexed with argv, which still aliases x_cmd */
+    assertf(argv == x_cmd.argv && argc == x_cmd.argc);
+
+    for(na = 1; na < argc; na++) {
+      /* the tokens the loop stepped over were the previous option's */
+      if (prev_opt != 0)
+        x_cmd.span[prev_opt] = na - prev_opt;
+      prev_opt = hts_rule_would_be_read_as_opt(argv[na]) ? na : 0;
+
+      if (strcmp(argv[na], "--bundle-dir") == 0) {
+        if (!bundle_dir_set(opt, &x_cmd, na)) {
+          htsmain_free();
+          return -1;
+        }
+        na++;
+        continue;
+      }
+      if (hts_rule_would_be_read_as_opt(argv[na])) { // option
+        com = argv[na] + 1;
+
+        while(*com) {
+          switch (*com) {
+          case ' ':
+          case 9:
+          case '-':
+          case '\0':
+            break;
+            //
+          case 'h':
+            help(argv[0], 0);
+            htsmain_free();
+            return 0;           // déja fait normalement
+            //
+          case 'g':            // récupérer un (ou plusieurs) fichiers isolés
+            opt->wizard = HTS_WIZARD_AUTO;
+            opt->cache = HTS_CACHE_NONE; // ni de cache
+            opt->makeindex = 0; // ni d'index
+            httrack_logmode = 1;        // erreurs à l'écran
+            opt->savename_type = 1003;  // mettre dans le répertoire courant
+            opt->depth = 0;     // ne pas explorer la page
+            opt->accept_cookie = 0;     // pas de cookies
+            opt->robots = HTS_ROBOTS_NEVER; // pas de robots
+            break;
+          case 'w':
+            opt->wizard = HTS_WIZARD_AUTO;
+            opt->travel = HTS_TRAVEL_SAME_ADDRESS;
+            opt->seeker = HTS_SEEKER_DOWN;
+            break;
+          case 'W':
+            opt->wizard = HTS_WIZARD_ASK; // Wizard-Help (pose des questions)
+            opt->travel = HTS_TRAVEL_SAME_ADDRESS;
+            opt->seeker = HTS_SEEKER_DOWN;
+            break;
+          case 'r':            // n'est plus le recurse get bestial mais wizard itou!
+            if (isdigit((unsigned char) *(com + 1))) {
+              // One short of INT_MAX, as the seed is queued at depth + 1.
+              readGluedInt(opt->depth, INT_MAX - 1);
+            } else
+              opt->depth = 3;
+            break;
+/*
+          case 'r': opt->wizard=0;
+            if (isdigit((unsigned char)*(com+1))) {
+              sscanf(com+1,"%d",&opt->depth);
+              while(isdigit((unsigned char)*(com+1))) com++;
+            } else opt->depth=3;
+            break;
+*/
+            //
+            // note: les tests opt->depth sont pour éviter de faire
+            // un miroir du web (:-O) accidentelement ;-)
+          case 'a':            /*if (opt->depth==9999) opt->depth=3; */
+            opt->travel =
+                HTS_TRAVEL_SAME_ADDRESS + (opt->travel & HTS_TRAVEL_TEST_ALL);
+            break;
+          case 'd':            /*if (opt->depth==9999) opt->depth=3; */
+            opt->travel =
+                HTS_TRAVEL_SAME_DOMAIN + (opt->travel & HTS_TRAVEL_TEST_ALL);
+            break;
+          case 'l':            /*if (opt->depth==9999) opt->depth=3; */
+            opt->travel =
+                HTS_TRAVEL_SAME_TLD + (opt->travel & HTS_TRAVEL_TEST_ALL);
+            break;
+          case 'e':            /*if (opt->depth==9999) opt->depth=3; */
+            opt->travel =
+                HTS_TRAVEL_EVERYWHERE + (opt->travel & HTS_TRAVEL_TEST_ALL);
+            break;
+          case 't':
+            opt->travel |= HTS_TRAVEL_TEST_ALL;
+            break;
+          case 'n':
+            opt->nearlink = 1;
+            break;
+          case 'x':
+            opt->external = 1;
+            break;
+            //
+          case 'U':
+            opt->seeker = HTS_SEEKER_UP;
+            break;
+          case 'D':
+            opt->seeker = HTS_SEEKER_DOWN;
+            break;
+          case 'S':
+            opt->seeker = 0;
+            break;
+          case 'B':
+            opt->seeker = HTS_SEEKER_DOWN | HTS_SEEKER_UP;
+            break;
+            //
+          case 'Y':
+            opt->mirror_first_page = 1;
+            break;
+            //
+          case 'q':
+          case 'i':
+            opt->quiet = 1;
+            break;
+            //
+          case 'Q':
+            httrack_logmode = 0;
+            opt->debug = LOG_NOTICE;
+            break;
+          case 'v':
+            httrack_logmode = 1;
+            break;
+          case 'f':
+            httrack_logmode = 2;
+            if (*(com + 1) == '2')
+              httrack_logmode = 3;
+            while(isdigit((unsigned char) *(com + 1)))
+              com++;
+            break;
+          case 'K':
+            opt->urlmode = HTS_URLMODE_ABSOLUTE;
+            if (isdigit((unsigned char) *(com + 1))) {
+              readGluedEnum(opt->urlmode, HTS_URLMODE_TRANSPARENT_PROXY);
+              if (opt->urlmode == HTS_URLMODE_ABSOLUTE) { // in fact K0 ==> K2
+                // and K ==> K0
+                opt->urlmode = HTS_URLMODE_RELATIVE;
+              }
+            }
+            break;
+          case 'c':
+            if (isdigit((unsigned char) *(com + 1))) {
+              readGluedInt(opt->maxsoc, INT_MAX);
+              opt->maxsoc = max(opt->maxsoc, 1); // At least one socket.
+            } else
+              opt->maxsoc = 4;
+
+            break;
+            //
+          case 'p':
+            readGluedInt(opt->getmode, INT_MAX);
+            break;
+            //        
+          case 'G':
+            readGluedLLint(opt->fragment, INT64_MAX);
+            break;
+          case 'M':
+            readGluedLLint(opt->maxsite, INT64_MAX);
+            break;
+          case 'm':
+            // -m,10000 variant
+            if (*(com + 1) != ',') {
+              readGluedLLint(opt->maxfile_nonhtml, INT64_MAX);
+            }
+            if (*(com + 1) == ',' && isdigit((unsigned char) *(com + 2))) {
+              com++;
+              readGluedLLint(opt->maxfile_html, INT64_MAX);
+            } else
+              opt->maxfile_html = -1;
+            break;
+            //
+          case 'T':
+            readGluedInt(opt->timeout, INT_MAX);
+            break;
+          case 'J':
+            readGluedInt(opt->rateout, INT_MAX);
+            break;
+          case 'R':
+            readGluedInt(opt->retry, INT_MAX);
+            break;
+          case 'E':
+            readGluedInt(opt->maxtime, INT_MAX);
+            break;
+          case 'H':
+            readGluedInt(opt->hostcontrol, INT_MAX);
+            break;
+          case 'A':
+            readGluedInt(opt->maxrate, INT_MAX);
+            break;
+
+          case 'j':
+            opt->parsejava = HTSPARSE_DEFAULT;
+            readGluedInt(opt->parsejava, INT_MAX);
+            break;
+            //
+          case 'I':
+            opt->makeindex = 1;
+            if (*(com + 1) == '0') {
+              opt->makeindex = 0;
+              com++;
+            }
+            break;
+            //
+          case 'X':
+            opt->delete_old = 1;
+            if (*(com + 1) == '0') {
+              opt->delete_old = 0;
+              com++;
+            }
+            break;
+            //
+          case 'y':
+            opt->background_on_suspend = 1;
+            if (*(com + 1) == '0') {
+              opt->background_on_suspend = 0;
+              com++;
+            }
+            break;
+            //
+          case 'b':
+            readGluedInt(opt->accept_cookie, HTS_TRUE);
+            break;
+            //
+          case 'N':
+            if (strcmp(argv[na], "-N") == 0) {  // Tout seul
+              if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {       // erreur
+                HTS_PANIC_PRINTF
+                  ("Option N needs a number, or needs to be followed by a blank space, and a string");
+                printf("Example: -N4\n");
+                htsmain_free();
+                return -1;
+              } else {
+                na++;
+                if (strlen(argv[na]) >= 127) {
+                  HTS_PANIC_PRINTF("Userdef structure string too long");
+                  htsmain_free();
+                  return -1;
+                }
+                StringCopy(opt->savename_userdef, argv[na]);
+                if (StringLength(opt->savename_userdef) > 0)
+                  opt->savename_type = -1;      // userdef!
+                else
+                  opt->savename_type = 0;       // -N "" : par défaut
+              }
+            } else {
+              /* A glued run is a preset, never userdef: sscanf("%d") past
+                 INT_MAX is negative on LP64 but INT_MAX on ILP32, so no clamp
+                 on its result is portable. */
+              const char *digits = com + 1;
+              int ndigits;
+
+              for (ndigits = 0; isdigit((unsigned char) *(com + 1)); ndigits++)
+                com++;
+              if (ndigits > 0)
+                opt->savename_type =
+                    optalias_digits_fit(digits, ndigits) ? atoi(digits) : 0;
+            }
+            break;
+          case 'L': {
+            /* L1 is the starred default, and what a bare -L selects; a run
+               too long to convert lands there too. */
+            const char *const digits = com + 1;
+            int ndigits, level = 1;
+
+            for (ndigits = 0; isdigit((unsigned char) *(com + 1)); ndigits++)
+              com++;
+            if (ndigits > 0 && optalias_digits_fit(digits, ndigits))
+              level = atoi(digits);
+            switch (level) {
+            case 0: // 8-3 (ISO9660 L1)
+              opt->savename_83 = HTS_SAVENAME_83_DOS;
+              break;
+            case 1:
+              opt->savename_83 = HTS_SAVENAME_83_LONG;
+              break;
+            default: // 2 == ISO9660 (ISO9660 L2)
+              opt->savename_83 = HTS_SAVENAME_83_ISO9660;
+              break;
+            }
+          } break;
+          case 's':
+            if (isdigit((unsigned char) *(com + 1))) {
+              readGluedEnum(opt->robots, HTS_ROBOTS_ALWAYS_STRICT);
+            } else
+              opt->robots = HTS_ROBOTS_SOMETIMES;
+#if DEBUG_ROBOTS
+            printf("robots.txt mode set to %d\n", opt->robots);
+#endif
+            break;
+          case 'o':
+            readGluedInt(opt->errpage, HTS_TRUE);
+            break;
+          case 'u':
+            readGluedInt(opt->check_type, 2);
+            break;
+            //
+          case 'C':
+            if (isdigit((unsigned char) *(com + 1))) {
+              readGluedEnum(opt->cache, HTS_CACHE_TEST_UPDATE);
+            } else
+              opt->cache = HTS_CACHE_PRIORITY;
+            break;
+          case 'k':
+            opt->all_in_cache = 1;
+            break;
+            //
+          case 'z':
+            if (opt->debug > LOG_INFO) {
+              opt->debug = LOG_DEBUG;  /* -Zz */
+            } else {
+              opt->debug = LOG_INFO;
+            }
+            break;              // petit debug
+          case 'Z':
+            if (opt->debug >= LOG_DEBUG) {
+              opt->debug = LOG_TRACE;  /* -Zz */
+            } else {
+              opt->debug = LOG_DEBUG;
+            }
+            break;              // GROS debug
+            //
+          case '&':
+          case '%':{           // deuxième jeu d'options
+              com++;
+              switch (*com) {
+              case 'M':
+                opt->mimehtml = 1;
+                if (*(com + 1) == '0') {
+                  opt->mimehtml = 0;
+                  com++;
+                }
+                if (opt->mimehtml && opt->single_file) {
+                  HTS_PANIC_PRINTF(
+                      "-%M and --single-file are two ways to make one "
+                      "self-contained file, so pick one: MIME (-%M) carries "
+                      "text parts without the base64 tax and stores a shared "
+                      "asset once; single-file HTML opens anywhere by "
+                      "double-click.");
+                  htsmain_free();
+                  return -1;
+                }
+                break;
+              case 'k':
+                opt->nokeepalive = 0;
+                if (*(com + 1) == '0') {
+                  opt->nokeepalive = 1;
+                  com++;
+                }
+                break;
+              case 'x':
+                opt->passprivacy = 1;
+                if (*(com + 1) == '0') {
+                  opt->passprivacy = 0;
+                  com++;
+                }
+                break;          // No passwords in html files
+              case 'q':
+                opt->includequery = 1;
+                if (*(com + 1) == '0') {
+                  opt->includequery = 0;
+                  com++;
+                }
+                break;          // No passwords in html files
+              case 'Q':
+                opt->browser_headers = HTS_TRUE;
+                if (*(com + 1) == '0') {
+                  opt->browser_headers = HTS_FALSE;
+                  com++;
+                }
+                break;
+              case 'I':
+                opt->kindex = 1;
+                if (isdigit((unsigned char) *(com + 1))) {
+                  readGluedInt(opt->kindex, 2);
+                }
+                break;          // Keyword Index
+              case 'c':
+                sscanf(com + 1, "%f", &opt->maxconn);
+                while(isdigit((unsigned char) *(com + 1)) || *(com + 1) == '.')
+                  com++;
+                break;
+              case 'e':
+                readGluedInt(opt->extdepth, INT_MAX);
+                break;
+              case 'B':
+                opt->tolerant = 1;
+                if (*(com + 1) == '0') {
+                  opt->tolerant = 0;
+                  com++;
+                }
+                break;          // HTTP/1.0 notamment
+              case 'h':
+                opt->http10 = 1;
+                if (*(com + 1) == '0') {
+                  opt->http10 = 0;
+                  com++;
+                }
+                break;          // HTTP/1.0
+              case 'z':
+                opt->nocompression = 1;
+                if (*(com + 1) == '0') {
+                  opt->nocompression = 0;
+                  com++;
+                }
+                break;          // pas de compression
+              case 'f':
+                opt->ftp_proxy = 1;
+                if (*(com + 1) == '0') {
+                  opt->ftp_proxy = 0;
+                  com++;
+                }
+                break;          // proxy http pour ftp
+              case 'P':
+                opt->parseall = 1;
+                if (*(com + 1) == '0') {
+                  opt->parseall = 0;
+                  com++;
+                }
+                break;          // tout parser
+              case 'n':
+                opt->norecatch = 1;
+                if (*(com + 1) == '0') {
+                  opt->norecatch = 0;
+                  com++;
+                }
+                break;          // ne pas reprendre fichiers effacés localement
+              case 's':
+                opt->sizehack = 1;
+                if (*(com + 1) == '0') {
+                  opt->sizehack = 0;
+                  com++;
+                }
+                break;          // hack sur content-length
+              case 'u':
+                opt->urlhack = 1;
+                if (*(com + 1) == '0') {
+                  opt->urlhack = 0;
+                  com++;
+                }
+                break;          // url hack
+              case 'j':
+                opt->no_www_dedup =
+                    HTS_TRUE; // --keep-www-prefix: keep www.X != X
+                if (*(com + 1) == '0') {
+                  opt->no_www_dedup = HTS_FALSE;
+                  com++;
+                }
+                break;
+              case 'o':
+                opt->no_slash_dedup =
+                    HTS_TRUE; // --keep-double-slashes: keep //
+                if (*(com + 1) == '0') {
+                  opt->no_slash_dedup = HTS_FALSE;
+                  com++;
+                }
+                break;
+              case 'y':
+                opt->no_query_dedup =
+                    HTS_TRUE; // --keep-query-order: keep ?b&a order
+                if (*(com + 1) == '0') {
+                  opt->no_query_dedup = HTS_FALSE;
+                  com++;
+                }
+                break;
+              case 'v':
+                opt->verbosedisplay = HTS_VERBOSE_FULL;
+                if (isdigit((unsigned char) *(com + 1))) {
+                  readGluedEnum(opt->verbosedisplay, HTS_VERBOSE_FULL);
+                }
+                break;
+              case 'i':
+                opt->dir_topindex = 1;
+                if (*(com + 1) == '0') {
+                  opt->dir_topindex = 0;
+                  com++;
+                }
+                break;
+              case 'N':
+                opt->savename_delayed = HTS_SAVENAME_DELAYED_HARD;
+                if (isdigit((unsigned char) *(com + 1))) {
+                  readGluedEnum(opt->savename_delayed,
+                                HTS_SAVENAME_DELAYED_HARD);
+                }
+                break;
+              case 'D':
+                opt->delayed_cached = 1;
+                if (*(com + 1) == '0') {
+                  opt->delayed_cached = 0;
+                  com++;
+                }
+                break;          // url hack
+              case 'T':
+                opt->convert_utf8 = 1;
+                if (*(com + 1) == '0') {
+                  opt->convert_utf8 = 0;
+                  com++;
+                }
+                break;          // convert to utf-8
+              case '!':
+                opt->bypass_limits = 1;
+                if (*(com + 1) == '0') {
+                  opt->bypass_limits = 0;
+                  com++;
+                }
+                break;
+              case 'w':        // disable specific plugin
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %w needs to be followed by a blank space, and a module name");
+                  printf("Example: -%%w httrack-plugin\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  StringCat(opt->mod_blacklist, argv[na]);
+                  StringCat(opt->mod_blacklist, "\n");
+                }
+                break;
+
+                // preserve: no footer, original links
+              case 'p':
+                StringClear(opt->footer);
+                opt->urlmode = HTS_URLMODE_KEEP_ORIGINAL;
+                break;
+              case 'L':        // URL list
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF
+                    ("Option %L needs to be followed by a blank space, and a text filename");
+                  printf("Example: -%%L \"mylist.txt\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_FILELIST_MAXSIZE) {
+                    HTS_PANIC_PRINTF("File list string too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->filelist, argv[na]);
+                }
+                break;
+              case 'b':        // bind
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %b needs to be followed by a blank space, and a local hostname");
+                  printf("Example: -%%b \"ip4.localhost\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_BINDHOST_MAXSIZE) {
+                    HTS_PANIC_PRINTF("Hostname string too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->proxy.bindhost, argv[na]);
+                }
+                break;
+              case 'S':        // Scan Rules list
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF
+                    ("Option %S needs to be followed by a blank space, and a text filename");
+                  printf("Example: -%%S \"myfilterlist.txt\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  LLint fz;
+
+                  na++;
+                  fz = fsize_utf8(argv[na]);
+                  if (fz < 0) {
+                    HTS_PANIC_PRINTF("File url list could not be opened");
+                    htsmain_free();
+                    return -1;
+                  } else {
+                    FILE *fp = FOPEN(argv[na], "rb");
+
+                    if (fp != NULL) {
+                      size_t cl = strlen(url);
+                      const size_t fzs = llint_to_size_t(fz);
+                      const size_t capa = llint_grow_size_t(cl, fz, 8192);
+
+                      if (capa == (size_t) -1) {
+                        fclose(fp);
+                        HTS_PANIC_PRINTF("File url list too large");
+                        htsmain_free();
+                        return -1;
+                      }
+                      ensureUrlCapacity(url, url_sz, capa);
+                      if (cl > 0) {     /* don't stick! (3.43) */
+                        url[cl] = ' ';
+                        cl++;
+                      }
+                      if (!hts_fread_exact(url + cl, (size_t) fzs, fp)) {
+                        fclose(fp);
+                        HTS_PANIC_PRINTF("File url list could not be read");
+                        htsmain_free();
+                        return -1;
+                      }
+                      fclose(fp);
+                      *(url + cl + fzs) = '\0';
+                    }
+                  }
+                }
+                break;
+              case 'A':        // assume
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF
+                    ("Option %A needs to be followed by a blank space, and a filesystemtype=mimetype/mimesubtype parameters");
+                  printf("Example: -%%A php3=text/html,asp=text/html\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  // --assume standard
+                  if (strcmp(argv[na], "standard") == 0) {
+                    StringCopy(opt->mimedefs, "\n");
+                    StringCat(opt->mimedefs, HTS_ASSUME_STANDARD);
+                    StringCat(opt->mimedefs, "\n");
+                  } else {
+                    char *a;
+
+                    for(a = argv[na]; *a != '\0'; a++) {
+                      if (*a == ';') {  /* next one */
+                        StringAddchar(opt->mimedefs, '\n');
+                        //*b++ = '\n';
+                      } else if (*a == ',' || *a == '\n' || *a == '\r'
+                                 || *a == '\t') {
+                        StringAddchar(opt->mimedefs, ' ');
+                        //*b++ = ' ';
+                      } else {
+                        StringAddchar(opt->mimedefs, *a);
+                        //*b++ = *a;
+                      }
+                    }
+                    StringAddchar(opt->mimedefs, '\n');
+                    //*b++ = '\n';    /* next def */
+                    //*b++ = '\0';
+                  }
+                }
+                break;
+                //
+              case 'l': // Accept-language
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %l needs to be followed by a blank space, and an ISO language code");
+                  printf("Example: -%%l \"en\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_LANGISO_MAXSIZE) {
+                    HTS_PANIC_PRINTF("Lang list string too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->lang_iso, argv[na]);
+                  opt->lang_given = HTS_TRUE;
+                }
+                break;
+                //
+              case 'a':  // Accept
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %a needs to be followed by a blank space, and a list of formats");
+                  printf("Example: -%%a \"text/html,*/*;q=0.1\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  const int kind = hts_accept_kind_of(argv[++na]);
+                  const char *const value =
+                      kind >= 0 ? strchr(argv[na], '=') + 1 : argv[na];
+
+                  if (strlen(value) >= HTS_ACCEPT_MAXSIZE) {
+                    HTS_PANIC_PRINTF("Accept list string too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  if (kind < 0) {
+                    StringCopy(opt->accept, argv[na]);
+                    opt->accept_given = HTS_TRUE;
+                  } else {
+                    if (StringNotEmpty(opt->accept_kinds))
+                      StringCat(opt->accept_kinds, "\n");
+                    StringCat(opt->accept_kinds, argv[na]);
+                  }
+                }
+                break;
+                //
+              case 'X':  // HTTP header line
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF
+                    ("Option %X needs to be followed by a blank space, and a raw HTTP header line");
+                  printf("Example: -%%X \"X-Magic: 42\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (argv[na][0] == '\0') {
+                    HTS_PANIC_PRINTF("Empty string given");
+                    htsmain_free();
+                    return -1;
+                  }
+                  {
+                    const char *const why = http_custom_header_warning(
+                        StringBuff(opt->headers), argv[na]);
+
+                    // with the -%H log's redaction of a login header
+                    if (why != NULL) {
+                      char shown[HTS_URLMAXSIZE * 2];
+
+                      /* one write, so a merged stdout cannot split it */
+                      fprintf(stderr, "warning: -%%X %s: %s\n", why,
+                              hts_header_shown(opt, argv[na], shown,
+                                               sizeof(shown)));
+                    }
+                  }
+                  /* A refused line goes in, so the request drops its folds. */
+                  if (StringNotEmpty(opt->headers) ||
+                      (argv[na][0] != ' ' && argv[na][0] != '\t')) {
+                    StringCat(opt->headers, argv[na]);
+                    StringCat(opt->headers, "\r\n"); /* separator */
+                  }
+                }
+                break;
+                //
+              case 'F':        // footer id
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF
+                    ("Option %F needs to be followed by a blank space, and a footer string");
+                  printf("Example: -%%F \"<!-- Mirrored from {addr}{path} by "
+                         "HTTrack Website Copier/"
+                         "{version} " HTTRACK_AFF_AUTHORS ", {date} -->\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_FOOTER_MAXSIZE) {
+                    HTS_PANIC_PRINTF("Footer string too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->footer, argv[na]);
+                }
+                break;
+              case 'H':        // debug headers
+                _DEBUG_HEAD = 1;
+                break;
+              case 'O':
+                printf
+                  ("Warning option -%%O is no longer supported\n");
+                break;
+              case 'U':        // setuid ; removed because insane
+                HTS_PANIC_PRINTF
+                  ("Option %U is no longer supported");
+                htsmain_free();
+                return -1;
+                break;
+
+              case 'W':        // Wrapper callback
+                // --wrapper check-link=obj.so:check_link
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %W needs to be followed by a blank space, and a <callback-name>=<myfile.so>:<function-name> field");
+                  printf("Example: -%%W check-link=checklink.so:check\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  char *pos;
+
+                  na++;
+                  for(pos = argv[na];
+                      *pos != '\0' && *pos != '=' && *pos != ',' && *pos != ':';
+                      pos++) ;
+                  /* httrack --wrapper callback[,foo] */
+                  if (*pos == 0 || *pos == ',' || *pos == ':') {
+                    int ret;
+                    char *moduleName;
+
+                    if (*pos == ',' || *pos == ':') {
+                      *pos = '\0';
+                      moduleName = strdupt(argv[na]);
+                      *pos = ',';       /* foce seperator to ',' */
+                    } else {
+                      moduleName = strdupt(argv[na]);
+                    }
+                    ret = plug_wrapper(opt, moduleName, argv[na]);
+                    freet(moduleName);
+                    if (ret == 0) {
+                      char BIGSTK tmp[1024 * 2];
+
+                      slprintfbuff_clip(tmp, sizeof(tmp),
+                                        "option %%W : unable to plug the "
+                                        "module %s (returncode != 1)",
+                                        argv[na]);
+                      HTS_PANIC_PRINTF(tmp);
+                      htsmain_free();
+                      return -1;
+                    } else if (ret == -1) {
+                      char BIGSTK tmp[1024 * 2];
+                      char errbuf[HTS_STRERROR_SIZE];
+                      const int last_errno = errno;
+
+                      slprintfbuff_clip(
+                          tmp, sizeof(tmp),
+                          "option %%W : unable to load the module %s: %s "
+                          "(check the library path ?)",
+                          argv[na],
+                          hts_strerror(last_errno, errbuf, sizeof(errbuf)));
+                      HTS_PANIC_PRINTF(tmp);
+                      htsmain_free();
+                      return -1;
+                    }
+                  }
+                  /* Old style */
+                  /* httrack --wrapper save-name=callback:process,string */
+                  else if (*pos == '=') {
+                    fprintf(stderr,
+                            "Syntax error in option %%W : the old (<3.41) API is no more supported!\n");
+                    HTS_PANIC_PRINTF
+                      ("Syntax error in option %W : the old (<3.41) API is no more supported!");
+                    printf("Example: -%%W check-link=checklink.so:check\n");
+                    htsmain_free();
+                    return -1;
+                  } else {
+                    HTS_PANIC_PRINTF
+                      ("Syntax error in option %W : this function needs to be followed by a blank space, and a module name");
+                    printf("Example: -%%W check-link=checklink.so:check\n");
+                    htsmain_free();
+                    return -1;
+                  }
+                }
+                break;
+
+              case 'R':        // Referer
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %R needs to be followed by a blank space, and a referer URL");
+                  printf("Example: -%%R \"http://www.example.com/\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_REFERER_MAXSIZE) {
+                    HTS_PANIC_PRINTF("Referer URL too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->referer, argv[na]);
+                }
+                break;
+              case 'E':        // From Email address
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF
+                    ("Option %E needs to be followed by a blank space, and an email");
+                  printf("Example: -%%E \"postmaster@example.com\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_FROMEMAIL_MAXSIZE) {
+                    HTS_PANIC_PRINTF("From email too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->from, argv[na]);
+                }
+                break;
+
+              case 'g': // strip-query: accumulate "[pattern=]keys" entries
+                /* a vetted pair's key may begin with '-' (#1179) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF("Option strip-query needs a blank space and "
+                                   "[host/pattern=]key1,key2,...");
+                  printf("Example: --strip-query "
+                         "\"www.example.com/*=utm_source,sid\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (StringNotEmpty(opt->strip_query))
+                    StringCat(opt->strip_query, "\n");
+                  StringCat(opt->strip_query, argv[na]);
+                }
+                break;
+
+              case 'C': // host-alias: accumulate "alias[,alias...]=host" rules
+                /* a vetted pair's alias may begin with '-' (#1179) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF("Option host-alias needs a blank space and "
+                                   "alias[,alias...]=canonical-host");
+                  printf("Example: --host-alias "
+                         "\"www2.example.com,m.example.com=example.com\"\n");
+                  printf("Example: --host-alias "
+                         "\"legacy.example.com=https://example.com\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (!hts_host_alias_rule_ok(argv[na])) {
+                    HTS_PANIC_PRINTF("Invalid host-alias rule: expected "
+                                     "alias[,alias...]=canonical-host");
+                    printf("Rejected: ");
+                    print_rule_nologin(argv[na]);
+                    printf("Each side names a host, optionally behind its "
+                           "scheme; a path is not part of an address\n");
+                    htsmain_free();
+                    return -1;
+                  }
+                  if (StringNotEmpty(opt->host_alias))
+                    StringCat(opt->host_alias, "\n");
+                  StringCat(opt->host_alias, argv[na]);
+                }
+                break;
+              case 'K': // cookies-file: the Netscape jar, rewritten at the end
+                /* a vetted pair's value may begin with '-' (#1425) */
+                if ((na + 1 >= argc) ||
+                    (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+                  HTS_PANIC_PRINTF(
+                      "Option cookies-file needs a blank space and "
+                      "a cookies.txt path");
+                  printf("Example: --cookies-file \"/home/me/cookies.txt\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= 1024) {
+                    HTS_PANIC_PRINTF("Cookie file path too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->cookies_file, argv[na]);
+                }
+                break;
+              case 'd': // --changes: report what this crawl changed
+                opt->changes = HTS_TRUE;
+                if (*(com + 1) == '0') {
+                  opt->changes = HTS_FALSE;
+                  com++;
+                }
+                break;
+              case 'r': // warc / warc-file: write an ISO-28500 WARC archive
+                if (*(com + 1) == 'f') { // --warc-file NAME: explicit basename
+                  com++;
+                  /* a vetted pair's value may begin with '-' (#1425) */
+                  if ((na + 1 >= argc) || (argv[na + 1][0] == '-' &&
+                                           !optparam_dash_ok(&x_cmd, na))) {
+                    HTS_PANIC_PRINTF(
+                        "Option warc-file needs a blank space and a WARC name");
+                    htsmain_free();
+                    return -1;
+                  }
+                  na++;
+                  if (strlen(argv[na]) >= 1024) {
+                    HTS_PANIC_PRINTF("WARC file name too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->warc_file, argv[na]);
+                } else if (*(com + 1) == 's') { // --warc-max-size N: rotation
+                  com++;
+                  if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                    HTS_PANIC_PRINTF(
+                        "Option warc-max-size needs a blank space and a size");
+                    htsmain_free();
+                    return -1;
+                  }
+                  na++;
+                  if (hts_is_quoted(argv[na], strlen(argv[na]))) {
+                    cmdl_panic_value(opt, "Option warc-max-size needs a size",
+                                     argv[na]);
+                    htsmain_free();
+                    return -1;
+                  }
+                  { // reject non-numeric/negative/overflow; keep default 0
+                    // (single file)
+                    char *end;
+                    LLint v;
+                    errno = 0;
+                    v = strtoll(argv[na], &end, 10);
+                    if (isdigit((unsigned char) argv[na][0]) && *end == '\0' &&
+                        errno != ERANGE)
+                      opt->warc_max_size = v;
+                  }
+                } else if (*(com + 1) == 'c') { // --warc-cdx: sorted CDXJ index
+                  com++;
+                  opt->warc_cdx = 1;
+                } else if (*(com + 1) == 'z') { // --wacz: WACZ package
+                  com++;
+                  opt->warc_wacz = 1;
+                  opt->warc_cdx = 1; // WACZ embeds the CDXJ index
+                  if (!StringNotEmpty(opt->warc_file))
+                    StringCopy(opt->warc_file, WARC_AUTONAME);
+                } else { // --warc: auto-named archive under the output dir
+                  StringCopy(opt->warc_file, WARC_AUTONAME);
+                }
+                break;
+              case 'Z': // single-file: inline each page's assets as data: URIs
+                if (*(com + 1) == 's') { // --single-file-max-size N
+                  com++;
+                  if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                    HTS_PANIC_PRINTF(
+                        "Option single-file-max-size needs a blank "
+                        "space and a size");
+                    htsmain_free();
+                    return -1;
+                  }
+                  na++;
+                  { // a typo must not enable single-file on the default cap
+                    char *end;
+                    LLint v;
+
+                    errno = 0;
+                    v = strtoll(argv[na], &end, 10);
+                    if (!isdigit((unsigned char) argv[na][0]) || *end != '\0' ||
+                        errno == ERANGE || v <= 0) {
+                      cmdl_panic_value(
+                          opt,
+                          "Option single-file-max-size needs a positive size",
+                          argv[na]);
+                      htsmain_free();
+                      return -1;
+                    }
+                    opt->single_file_max_size = v;
+                  }
+                  opt->single_file = HTS_TRUE;
+                } else {
+                  opt->single_file = HTS_TRUE;
+                  if (*(com + 1) == '0') {
+                    opt->single_file = HTS_FALSE;
+                    com++;
+                  }
+                }
+                if (opt->single_file && opt->mimehtml) {
+                  HTS_PANIC_PRINTF(
+                      "-%M and --single-file are two ways to make one "
+                      "self-contained file, so pick one: MIME (-%M) carries "
+                      "text parts without the base64 tax and stores a shared "
+                      "asset once; single-file HTML opens anywhere by "
+                      "double-click.");
+                  htsmain_free();
+                  return -1;
+                }
+                break;
+              case 'm': // sitemap / sitemap-url: seed the crawl from sitemaps
+                if (*(com + 1) == 'u') { // --sitemap-url URL: explicit sitemap
+                  com++;
+                  if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                    HTS_PANIC_PRINTF(
+                        "Option sitemap-url needs a blank space and a URL");
+                    htsmain_free();
+                    return -1;
+                  }
+                  na++;
+                  if (strlen(argv[na]) >= HTS_URLMAXSIZE) {
+                    HTS_PANIC_PRINTF("Sitemap URL too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->sitemap_url, argv[na]);
+                } else { // --sitemap: robots.txt probe, then /sitemap.xml
+                  opt->sitemap = HTS_TRUE;
+                }
+                break;
+              case 'Y': // why: explain the filter verdict for a URL, no crawl
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF("Option why needs a blank space and a URL");
+                  printf(
+                      "Example: --why \"http://www.example.com/file.zip\"\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  na++;
+                  if (strlen(argv[na]) >= HTS_URLMAXSIZE) {
+                    HTS_PANIC_PRINTF("why URL too long");
+                    htsmain_free();
+                    return -1;
+                  }
+                  StringCopy(opt->why_url, argv[na]);
+                }
+                break;
+              case 'J': // --max-retry-after: cap on an obeyed Retry-After
+              {
+                char *end;
+                LLint secs;
+
+                /* strtoll, not sscanf("%d"): the upper bound used to reject an
+                   overflowed value by accident, and clipping loses that. */
+                errno = 0;
+                secs = strtoll(com + 1, &end, 10);
+                if (end == com + 1 || errno == ERANGE || secs < 0) {
+                  cmdl_panic_value(opt,
+                                   "Invalid --max-retry-after (expected a "
+                                   "non-negative delay in seconds)",
+                                   com + 1);
+                  htsmain_free();
+                  return -1;
+                }
+                /* Clip rather than abort, as back_set_retry_after does for the
+                   server's own value. */
+                if (secs > HTS_MAX_RETRY_AFTER_LIMIT) {
+                  opt->max_retry_after = HTS_MAX_RETRY_AFTER_LIMIT;
+                  /* Report what was stored, so a test can see the clip. */
+                  hts_log_print(opt, LOG_NOTICE,
+                                "--max-retry-after " LLintP
+                                "s is above the limit, using %ds",
+                                secs, opt->max_retry_after);
+                } else {
+                  opt->max_retry_after = (int) secs;
+                }
+                while (isdigit((unsigned char) *(com + 1)))
+                  com++;
+              } break;
+              case 'G': // pause: randomized inter-file delay MIN[:MAX] seconds
+                if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+                  HTS_PANIC_PRINTF("Option pause needs a blank space and a "
+                                   "delay in seconds (MIN[:MAX])");
+                  printf("Example: --pause 5:10\n");
+                  htsmain_free();
+                  return -1;
+                } else {
+                  double pmin = 0, pmax = 0;
+                  int nf;
+
+                  na++;
+                  nf = sscanf(argv[na], "%lf:%lf", &pmin, &pmax);
+                  if (nf < 2)
+                    pmax = pmin; /* a single value means a fixed delay */
+                  /* positive-form bounds: NaN fails every comparison, so this
+                     rejects it before the undefined (int)(NaN*1000) cast */
+                  if (nf < 1 || !(pmin >= 0 && pmax >= pmin && pmax <= 86400)) {
+                    cmdl_panic_value(opt,
+                                     "Invalid --pause range (expected "
+                                     "MIN[:MAX] seconds, 0<=MIN<=MAX<=86400)",
+                                     argv[na]);
+                    htsmain_free();
+                    return -1;
+                  }
+                  opt->pause_min_ms = (int) (pmin * 1000.0);
+                  opt->pause_max_ms = (int) (pmax * 1000.0);
+                }
+                break;
+              case 't':        /* do not change type (ending) of filenames according to the MIME type */
+                opt->no_type_change = 1;
+                if (*(com+1)=='0') { opt->no_type_change = 0; com++; }
+                break;
+
+              default:{
+                cmdl_bad_option(opt, argv[na], "%", com);
+                htsmain_free();
+                return -1;
+                }
+                break;
+
+              }
+            }
+            break;
+            //
+          case '@':{           // troisième jeu d'options
+              com++;
+              switch (*com) {
+              case 'i':
+#if HTS_INET6==0
+                /* Or -@i2's 2 is read as an option and refused (#615). */
+                while (isdigit((unsigned char) *(com + 1)))
+                  com++;
+                printf
+                  ("Warning, option @i has no effect (v6 routines not compiled)\n");
+#else
+                {
+                  int res = 0;
+
+                  readGluedInt(res, INT_MAX);
+                  switch (res) {
+                  case 1:
+                  case 4:
+                    IPV6_resolver = 1;
+                    break;
+                  case 2:
+                  case 6:
+                    IPV6_resolver = 2;
+                    break;
+                  case 0:
+                    IPV6_resolver = 0;
+                    break;
+                  default: {
+                    char s[64];
+
+                    snprintf(s, sizeof(s), "Unknown value for -@i: %d", res);
+                    HTS_PANIC_PRINTF(s);
+                    htsmain_free();
+                    return -1;
+                  } break;
+                  }
+                }
+#endif
+                break;
+
+              case 'm': { // --mptcp: Multipath TCP where the system has it
+                int on = 1;
+
+                readGluedInt(on, INT_MAX);
+                if (on != 0 && on != 1) {
+                  char s[64];
+
+                  snprintf(s, sizeof(s), "Unknown value for -@m: %d", on);
+                  HTS_PANIC_PRINTF(s);
+                  htsmain_free();
+                  return -1;
+                }
+                opt->mptcp = on != 0 ? HTS_TRUE : HTS_FALSE;
+                if (on != 0 && !hts_mptcp_available())
+                  printf("Warning, option @m has no effect "
+                         "(no Multipath TCP on this system)\n");
+              } break;
+
+              default:{
+                cmdl_bad_option(opt, argv[na], "@", com);
+                htsmain_free();
+                return -1;
+              } break;
+              }
+            }
+            break;
+
+            //
+          case '#':{           // non documenté
+              com++;
+              switch (*com) {
+#ifdef HTS_CRASH_TEST
+              case 'c':
+                /* Read by the -#c pre-pass above, which may have armed a
+                   worker. This exact form only: anything else never reached the
+                   pre-pass, so it keeps the verdict it always had. */
+                if (com == argv[na] + 2 && (com[1] == '\0' || com[1] == '=')) {
+                  while (com[1] != '\0')
+                    com++;
+                }
+                break;
+#endif
+              case 'C':        // list cache files : httrack -#C '*spid*.gif' will attempt to find the matching file
+                {
+                  int hasFilter = 0;
+                  int found = 0;
+                  char *filter = NULL;
+                  cache_back cache;
+                  coucal cache_hashtable = coucal_new(0);
+                  int sendb = 0;
+
+                  readGluedInt(sendb, INT_MAX);
+                  if (!((na + 1 >= argc) || (argv[na + 1][0] == '-'))) {
+                    na++;
+                    hasFilter = 1;
+                    filter = argv[na];
+                  }
+
+                  memset(&cache, 0, sizeof(cache_back));
+                  cache.type = 1;       // cache?
+                  cache.log = stdout;   // log?
+                  cache.errlog = stderr;        // err log?
+                  cache.ptr_ant = cache.ptr_last = 0;   // pointeur pour anticiper
+                  cache.hashtable = (void *) cache_hashtable;   /* copy backcache hash */
+                  cache.ro = 1; /* read only */
+                  if (cache.hashtable) {
+                    /* CACHE_ENTRYNAME_SIZE bounds a stored entry name; the
+                       "http://" a schemeless one gets back needs the slack */
+                    char BIGSTK url[CACHE_ENTRYNAME_SIZE + 8];
+
+                    cache_init(&cache, opt);    /* load cache */
+                    /* cache_init() indexed every ZIP member into
+                       cache.hashtable, keyed by the stored entry name minus any
+                       "http://"; walk that index rather than the .ndx dropped
+                       after 3.31 */
+                    if (cache.zipInput != NULL) {
+                      struct_coucal_enum e = coucal_enum_new(cache.hashtable);
+                      coucal_item *item;
+
+                      while ((item = coucal_enum_next(&e)) != NULL) {
+                        const char *const key = (const char *) item->name;
+
+                        /* a name read back from the cache can be anything, and
+                           strlncatbuff aborts rather than truncates: bound each
+                           append by what is left so an over-long one clips */
+                        url[0] = '\0';
+                        if (!link_has_authority(key))
+                          strlncatbuff(url, "http://", sizeof(url),
+                                       sizeof(url) - 1);
+                        strlncatbuff(url, key, sizeof(url),
+                                     sizeof(url) - 1 - strlen(url));
+                        if (hasFilter &&
+                            strjoker(url, filter, NULL, NULL) == NULL)
+                          continue;
+                        found++;
+                        if (!hasFilter) {
+                          fprintf(stdout, "%s\r\n", url);
+                        } else {
+                          cmdl_print_cache_entry(opt, &cache, url, sendb);
+                        }
+                      }
+                    }
+                  }
+                  if (!found) {
+                    fprintf(stderr, "No cache entry found%s%s%s\r\n",
+                            (hasFilter) ? " for '" : "",
+                            (hasFilter) ? filter : "", (hasFilter) ? "'" : "");
+                  }
+                  if (cache.zipInput != NULL)
+                    unzClose(cache.zipInput);
+                  coucal_delete(&cache_hashtable);
+                  htsmain_free();
+                  return 0;
+                }
+                break;
+              case 'E':        // extract cache
+                if (!hts_extract_meta(StringBuff(opt->path_log))) {
+                  fprintf(stderr, "* error extracting meta-data\n");
+                  htsmain_free();
+                  return 1;
+                }
+                fprintf(stderr, "* successfully extracted meta-data\n");
+                htsmain_free();
+                return 0;
+                break;
+              case 'X':
+                fprintf(stderr, "warning: option has no effect\n");
+                if (*(com + 1) == '0') {
+                  com++;
+                }
+                break;
+              case 'R':
+                {
+                  char *name;
+                  const char *why;
+                  unsigned long repaired = 0;
+                  unsigned long repairedBytes = 0;
+
+                  if (fexist_utf8(fconcat(
+                          OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                          StringBuff(opt->path_log), "hts-cache/new.zip"))) {
+                    name =
+                      fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt), StringBuff(opt->path_log),
+                              "hts-cache/new.zip");
+                  } else if (fexist_utf8(fconcat(OPT_GET_BUFF(opt),
+                                                 OPT_GET_BUFF_SIZE(opt),
+                                                 StringBuff(opt->path_log),
+                                                 "hts-cache/old.zip"))) {
+                    name =
+                      fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt), StringBuff(opt->path_log),
+                              "hts-cache/old.zip");
+                  } else {
+                    fprintf(stderr, "* error: no cache found in %s\n",
+                            fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log),
+                                    "hts-cache/new.zip"));
+                    htsmain_free();
+                    return 1;
+                  }
+                  fprintf(stderr, "Cache: trying to repair %s\n", name);
+                  why = cache_repair(opt, name, &repaired, &repairedBytes);
+                  if (why != NULL) {
+                    fprintf(stderr, "Cache: %s\n", why);
+                    htsmain_free();
+                    return 1;
+                  }
+                  fprintf(
+                      stderr,
+                      "Cache: %d bytes successfully recovered in %d entries\n",
+                      (int) repairedBytes, (int) repaired);
+                  htsmain_free();
+                }
+                return 0;
+                break;
+              case '~':        /* internal lib test */
+                HTS_PANIC_PRINTF("Option #~ is disabled for security reasons");
+                break;
+              case 'f':
+                opt->flush = 1;
+                break;
+              case 'h':
+                printf("HTTrack version " HTTRACK_VERSION "%s\n",
+                       hts_get_version_info(opt));
+                htsmain_free();
+                return 0;
+                break;
+              case 'p':        /* opt->aff_progress=1; deprecated */
+                break;
+              case 'S':
+                opt->shell = 1;
+                break;          // stdin sur un shell
+              case 'K':
+                opt->keyboard = 1;
+                break;          // vérifier stdin
+                //
+              case 'L':
+                readGluedInt(opt->maxlink, INT_MAX);
+                break;
+              case 'F':
+                readGluedInt(opt->maxfilter, HTS_FILTERS_MAX);
+                break;
+              case 'Z':
+                opt->makestat = 1;
+                break;
+              case 'T':
+                opt->maketrack = 1;
+                break;
+              case 'u':
+                readGluedInt(opt->waittime, INT_MAX);
+                break;
+
+                /*case 'R':    // ohh ftp, catch->ftpget
+                   HTS_PANIC_PRINTF("Unexpected internal error with -#R command");
+                   htsmain_free();
+                   return -1;        
+                   break;
+                 */
+              case 'P':{       // catchurl
+                  help_catchurl(StringBuff(opt->path_log));
+                  htsmain_free();
+                  return 0;
+                }
+                break;
+
+              case '!':
+                HTS_PANIC_PRINTF
+                  ("Option #! is disabled for security reasons");
+                htsmain_free();
+                return -1;
+                break;
+              case 'd':
+                opt->parsedebug = 1;
+                break;
+
+                /* autotest */
+              case 't':        /* not yet implemented */
+                fprintf(stderr, "** AUTOCHECK OK\n");
+                htsmain_free();
+                return 0;
+                break;
+
+              default:
+                printf("Internal option %c not recognized\n", *com);
+                break;
+              }
+            }
+            break;
+          case 'O':            // output path
+            while(isdigit(com[1])) {
+              com++;
+            }
+            na++;               // sauter, déja traité
+            break;
+          case 'P':            // proxy
+            if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+              HTS_PANIC_PRINTF
+                ("Option P needs to be followed by a blank space, and a proxy proxy:port or user:id@proxy:port");
+              printf("Example: -P proxy.example.com:8080\n");
+              htsmain_free();
+              return -1;
+            } else {
+              char BIGSTK pname[HTS_URLMAXSIZE * 2];
+
+              na++;
+              opt->proxy.active = 1;
+              hts_parse_proxy(argv[na], pname, sizeof(pname), &opt->proxy.port);
+              StringCopy(opt->proxy.name, pname);
+            }
+            break;
+          case 'F':            // user-agent field
+            /* a vetted pair's value may begin with '-' (#1425) */
+            if ((na + 1 >= argc) ||
+                (argv[na + 1][0] == '-' && !optparam_dash_ok(&x_cmd, na))) {
+              HTS_PANIC_PRINTF
+                ("Option F needs to be followed by a blank space, and a user-agent name");
+              printf("Example: -F \"my_user_agent/1.0\"\n");
+              htsmain_free();
+              return -1;
+            } else {
+              na++;
+              StringCopy(opt->user_agent, argv[na]);
+              if (StringNotEmpty(opt->user_agent))
+                opt->user_agent_send = 1;
+              else
+                opt->user_agent_send = 0;       // -F "" désactive l'option
+            }
+            break;
+            //
+          case 'V':            // execute command
+            if ((na + 1 >= argc) || (argv[na + 1][0] == '-')) {
+              HTS_PANIC_PRINTF
+                ("Option V needs to be followed by a system-command string");
+              printf("Example: -V \"tar uvf some.tar \\$0\"\n");
+              htsmain_free();
+              return -1;
+            } else {
+              na++;
+              if (strlen(argv[na]) >= 2048) {
+                HTS_PANIC_PRINTF("System-command length too long");
+                htsmain_free();
+                return -1;
+              }
+              StringCopy(opt->sys_com, argv[na]);
+              if (StringNotEmpty(opt->sys_com))
+                opt->sys_com_exec = 1;
+              else
+                opt->sys_com_exec = 0;  // -V "" désactive l'option
+            }
+            break;
+            //
+          default:{
+            cmdl_bad_option(opt, argv[na], "", com);
+            htsmain_free();
+            return -1;
+            }
+            break;
+          }                     // switch
+          com++;
+        }                       // while
+
+      } else { // URL/filters
+        char catbuff[CATBUFF_SIZE];
+        /* doit.log keeps argv, so the bundle suffix is cut from a copy */
+        char word[HTS_CDLMAXSIZE];
+        const size_t urlSize = strlen(argv[na]);
+        const size_t capa = strlen(url) + urlSize + 32;
+
+        if (hts_is_quoted(argv[na], urlSize)) {
+          cmdl_panic_value(opt, "Argument refused", argv[na]);
+          htsmain_free();
+          return -1;
+        }
+        /* a filter may hold a quote on purpose, but usually it is a leftover */
+        if ((argv[na][0] == '+' || argv[na][0] == '-') &&
+            strchr(argv[na], '"') != NULL)
+          fprintf(stderr, "* Warning: filter %s holds a quote, kept as is\n",
+                  argv[na]);
+        assertf(urlSize < HTS_URLMAXSIZE);
+        strcpybuff(word, argv[na]);
+        if (argv[na][0] != '+' && argv[na][0] != '-') {
+          const char *const why = hts_bundle_take(opt, word);
+
+          if (why != NULL) {
+            cmdl_panic_value(opt, why, argv[na]);
+            htsmain_free();
+            return -1;
+          }
+        }
+        if (urlSize < HTS_URLMAXSIZE) {
+          ensureUrlCapacity(url, url_sz, capa);
+          if (strnotempty(url))
+            strlcatbuff(url, " ", url_sz); // separator space
+          /* a rule is decoded once, where the engine splits the rules */
+          append_escape_spc_url(
+              word[0] == '+' || word[0] == '-'
+                  ? word
+                  : unescape_http_unharm(catbuff, sizeof(catbuff), word, 1),
+              url, url_sz);
+        }
+      } // if argv=- etc.
+
+    }                           // for
+    if (prev_opt != 0)
+      x_cmd.span[prev_opt] = na - prev_opt;
+  }
+
+#if BDEBUG==3
+  printf("URLs/filters=%s\n", url);
+#endif
+
+#if DEBUG_STEPS
+  printf("Analyzing parameters done\n");
+#endif
+
+#ifdef _WIN32
+#else
+#ifndef HTS_DO_NOT_USE_UID
+  /* Check we do not run as r00t */
+  {
+    uid_t userid = getuid();
+
+    if (userid == 0) {              /* running as r00t */
+      printf("WARNING! You are running this program as root!\n");
+      printf
+        ("It might be a good idea to run as a different user\n");
+    }
+  }
+#endif
+#endif
+
+  io_flush;
+
+#if DEBUG_STEPS
+  printf("Cache & log settings\n");
+#endif
+
+  // If both cache generations exist, keep the most complete one
+  hts_cache_reconcile(opt, CACHE_RECONCILE_INTERRUPTED);
+  {
+    /* Sized to the concat-buffer capacity so it can always hold the lock-file
+       path produced by fconcat(), even with a long log path (issue #183). */
+    char n_lock[OPT_GET_BUFF_SIZE(opt)];
+
+    char n_lock_staged[OPT_GET_BUFF_SIZE(opt)];
+
+    // on peut pas avoir un affichage ET un fichier log
+    // ca sera pour la version 2
+    if (httrack_logmode == 1) {
+      opt->log = stdout;
+      opt->errlog = stderr;
+    } else if (httrack_logmode >= 2) {
+      // deux fichiers log
+      // path_log holds UTF-8 bytes (argv is UTF-8): the ANSI file calls would
+      // read them as the codepage and drop the logs into a mangled twin (#630).
+      structcheck_utf8(StringBuff(opt->path_log));
+      if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                              StringBuff(opt->path_log), "hts-log.txt")))
+        UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                       StringBuff(opt->path_log), "hts-log.txt"));
+      if (fexist_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                              StringBuff(opt->path_log), "hts-err.txt")))
+        UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                       StringBuff(opt->path_log), "hts-err.txt"));
+
+      /* Check FS directory structure created */
+      structcheck_utf8(StringBuff(opt->path_log));
+
+      /* owner-only: the log echoes the command line and URLs with passwords */
+      opt->log =
+          hts_fopen_private(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                    StringBuff(opt->path_log), "hts-log.txt"),
+                            "w");
+      if (httrack_logmode == 2)
+        opt->errlog =
+            hts_fopen_private(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                      StringBuff(opt->path_log), "hts-err.txt"),
+                              "w");
+      else
+        opt->errlog = opt->log;
+      if (opt->log == NULL) {
+        /* path_log is not argv-gated: ~ expansion admits 2047 bytes */
+        char s[HTS_CDLMAXSIZE + 256];
+
+        snprintf(s, sizeof(s), "Unable to create log file %s",
+                 fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                         StringBuff(opt->path_log), "hts-log.txt"));
+        HTS_PANIC_PRINTF(s);
+        htsmain_free();
+        return -1;
+      } else if (opt->errlog == NULL) {
+        char s[HTS_CDLMAXSIZE + 256];
+
+        snprintf(s, sizeof(s), "Unable to create log file %s",
+                 fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                         StringBuff(opt->path_log), "hts-err.txt"));
+        HTS_PANIC_PRINTF(s);
+        htsmain_free();
+        return -1;
+      }
+
+    } else {
+      opt->log = NULL;
+      opt->errlog = NULL;
+    }
+
+    // -%H may run before path_log exists, so create it first.
+    if (_DEBUG_HEAD) {
+      structcheck_utf8(StringBuff(opt->path_log));
+      /* owner-only: it records request headers, Authorization included */
+      ioinfo = hts_fopen_private(
+          fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                  StringBuff(opt->path_log), "hts-ioinfo.txt"),
+          "wb");
+      if (ioinfo == NULL)
+        hts_log_print(opt, LOG_WARNING | LOG_ERRNO,
+                      "unable to create header debug file %s",
+                      fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                              StringBuff(opt->path_log), "hts-ioinfo.txt"));
+    }
+
+    // un petit lock-file pour indiquer un miroir en cours, ainsi qu'un éventuel fichier log
+    {
+      char t[256];
+      char *masked_url;
+      const char *shown_url;
+
+      time_local_rfc822(t);     // faut bien que ca serve quelque part l'heure RFC1945 arf'
+
+      /* readme for information purpose */
+      {
+        FILE *fp =
+            FOPEN(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                          StringBuff(opt->path_log), "hts-cache/readme.txt"),
+                  "wb");
+        if (fp) {
+          fprintf(fp, "What's in this folder?" LF);
+          fprintf(fp, "" LF);
+          fprintf(fp,
+                  "This folder (hts-cache) has been generated by WinHTTrack "
+                  HTTRACK_VERSION "%s" LF, hts_get_version_info(opt));
+          fprintf(fp, "and is used for updating this website." LF);
+          fprintf(fp,
+                  "(The HTML website structure is stored here to allow fast updates)"
+                  LF "" LF);
+          fprintf(fp,
+                  "DO NOT delete this folder unless you do not want to update the mirror in the future!!"
+                  LF);
+          fprintf(fp,
+                  "(you can safely delete old.zip and old.lst files, however)"
+                  LF);
+          fprintf(fp, "" LF);
+          fprintf(fp, HTS_LOG_SECURITY_WARNING);
+          fclose(fp);
+        }
+      }
+
+      strcpybuff(n_lock,
+                 fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                         StringBuff(opt->path_log), "hts-in_progress.lock"));
+      /*do {
+         if (!n)
+         sprintf(n_lock,fconcat(OPT_GET_BUFF(opt), StringBuff(opt->path_log),"hts-in_progress.lock"),n);
+         else
+         sprintf(n_lock,fconcat(OPT_GET_BUFF(opt), StringBuff(opt->path_log),"hts-in_progress%d.lock"),n);
+         n++;
+         } while((fexist(n_lock)) && opt->quiet);      
+         if (fexist(n_lock)) {
+         if (!recuperer) {
+         remove(n_lock);
+         }
+         } */
+
+      // vérifier existence de la structure (path_html/path_log are UTF-8, use
+      // the UTF-8 mkdir path)
+      structcheck_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                               StringBuff(opt->path_html), "/"));
+      structcheck_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                               StringBuff(opt->path_log), "/"));
+
+      // reprise/update
+      if (opt->cache) {
+        FILE *fp;
+
+#ifdef _WIN32
+        hts_mkdir_utf8(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                               StringBuff(opt->path_log), "hts-cache"));
+#else
+        mkdir(fconcat
+              (OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt), StringBuff(opt->path_log), "hts-cache"),
+              HTS_PROTECT_FOLDER);
+#endif
+        /* owner-only: the command line may carry credentials */
+        fp = hts_fopen_private(
+            fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                    StringBuff(opt->path_log), "hts-cache/doit.log"),
+            "wb");
+        if (fp) {
+          String line = STRING_EMPTY;
+
+          cmdl_doit_line(&line, &x_cmd);
+          if (StringLength(line) != 0)
+            fwrite(StringBuff(line), 1, StringLength(line), fp);
+          StringFree(line);
+          fprintf(fp, LF);
+          fprintf(fp, "File generated automatically on %s, do NOT edit" LF, t);
+          fprintf(fp, LF);
+          fprintf(fp,
+                  "To update a mirror, just launch httrack without any parameters"
+                  LF);
+          fprintf(fp, "The existing cache will be used (and modified)" LF);
+          fprintf(fp,
+                  "To have other options, retype all parameters and launch HTTrack"
+                  LF);
+          fprintf(fp,
+                  "To continue an interrupted mirror, just launch httrack without any parameters"
+                  LF);
+          fprintf(fp, LF);
+          fclose(fp);
+          fp = NULL;
+        }
+      }
+      // petit message dans le lock
+      strcpybuff(n_lock_staged,
+                 fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                         StringBuff(opt->path_log), "hts-in_progress.tmp"));
+      /* The lock is written aside and moved on, so it is already dated back
+         when it appears under the name scripts watch. A move that fails falls
+         back to writing it in place, which is what the engine always did. */
+      if (!write_progress_lock(opt, n_lock_staged, t, argc, argv) ||
+          !hts_rename_over(opt, n_lock_staged, n_lock)) {
+        UNLINK(n_lock_staged);
+        if (!write_progress_lock(opt, n_lock, t, argc, argv) &&
+            opt->log != NULL)
+          hts_log_print(opt, LOG_WARNING,
+                        "engine: could not create hts-in_progress.lock, so"
+                        " this mirror cannot be stopped or paused by a file");
+      }
+      hts_secret_learn_options(opt, url);
+      masked_url = hts_mask_passwords(url, HTS_MASK_LIST);
+      shown_url = masked_url != NULL ? masked_url : "(out of memory)";
+      // hts-log.txt
+      if (opt->log) {
+        int i, opt_at = 0;
+
+        fprintf(opt->log,
+                "HTTrack" HTTRACK_VERSION "%s launched on %s at %s" LF,
+                hts_get_version_info(opt), t, shown_url);
+        fprintf(opt->log, "(");
+        for(i = 0; i < argc; i++) {
+          const char *arg = argv[i]; // already UTF-8 on every platform
+          // quoted if it holds a blank and no quote
+          const hts_boolean quote =
+              strchr(arg, ' ') != NULL && strchr(arg, '\"') == NULL;
+          // a start URL, or a -P, -%mu, -%R or --why value, is one address
+          hts_boolean addr;
+          char *masked;
+
+          if (x_cmd.span[i] != 0) {
+            opt_at = x_cmd.span[i] > 1 ? i : 0;
+            addr = HTS_FALSE;
+          } else if (opt_at != 0 && i < opt_at + x_cmd.span[opt_at]) {
+            addr = cmdl_shortopt_has(argv[opt_at], 'P') ||
+                   cmdl_shortopt_named(argv[opt_at], "-%mu") ||
+                   cmdl_shortopt_named(argv[opt_at], "-%R") ||
+                   cmdl_shortopt_named(argv[opt_at], "-%Y");
+          } else {
+            opt_at = 0;
+            addr = i != 0 && arg[0] != '+' && arg[0] != '-';
+          }
+          masked = addr ? hts_mask_passwords(arg, HTS_MASK_ADDR) : NULL;
+
+          if (quote)
+            fputc('"', opt->log);
+          // a -%X login header gets the -%H log's redaction
+          if (!addr || masked != NULL)
+            fprintfio(opt->log, addr ? masked : arg, "", opt);
+          fputs(quote ? "\" " : " ", opt->log);
+          freet(masked);
+        }
+        fprintf(opt->log, ")" LF);
+        fprintf(opt->log, LF);
+        fprintf(opt->log,
+                "Information, Warnings and Errors reported for this mirror:"
+                LF);
+        fprintf(opt->log, HTS_LOG_SECURITY_WARNING);
+        fprintf(opt->log, LF);
+      }
+
+      if (httrack_logmode) {
+        printf("Mirror launched on %s by HTTrack Website Copier/"
+               HTTRACK_VERSION "%s " HTTRACK_AFF_AUTHORS "" LF, t,
+               hts_get_version_info(opt));
+        if (opt->wizard == HTS_WIZARD_NONE) {
+          printf("mirroring %s with %d levels, %d "
+                 "sockets,t=%d,s=%d,logm=%d,lnk=%d,mdg=%d\n",
+                 shown_url, opt->depth, opt->maxsoc, opt->travel, opt->seeker,
+                 httrack_logmode, opt->urlmode, opt->getmode);
+        } else { // the magic wizard
+          printf("mirroring %s with the wizard help..\n", shown_url);
+        }
+      }
+      freet(masked_url);
+    }
+
+    io_flush;
+
+    /* Enforce limits to avoid bandwidth abuse. The bypass_limits should only be used by administrators and experts. */
+    if (!opt->bypass_limits) {
+      if (opt->maxsoc <= 0 || opt->maxsoc > 8) {
+        opt->maxsoc = 8;
+        hts_log_print(opt, LOG_WARNING,
+                      "* security warning: maximum number of simultaneous connections limited to %d to avoid server overload",
+                      (int) opt->maxsoc);
+      }
+      if (opt->maxrate <= 0 || opt->maxrate > 10000000) {
+        opt->maxrate = 10000000;
+        hts_log_print(opt, LOG_WARNING,
+                      "* security warning: maximum bandwidth limited to %d to avoid server overload",
+                      (int) opt->maxrate);
+      }
+      if (opt->maxconn <= 0 || opt->maxconn > 5.0) {
+        opt->maxconn = 5.0;
+        hts_log_print(opt, LOG_WARNING,
+                      "* security warning: maximum number of connections per second limited to %f to avoid server overload",
+                      (float) opt->maxconn);
+      }
+    } else {
+      hts_log_print(opt, LOG_WARNING,
+                    "* security warning: !!! BYPASSING SECURITY LIMITS - MONITOR THIS SESSION WITH EXTREME CARE !!!");
+    }
+
+    /* --host-alias rules pointing in a circle have no canonical host */
+    {
+      char BIGSTK looping[HTS_URLMAXSIZE * 2];
+
+      if (hts_host_alias_looping(hts_host_alias_rules(opt),
+                                 hts_host_alias_collapse_www(opt), looping,
+                                 sizeof(looping)) != NULL) {
+        hts_log_print(opt, LOG_WARNING,
+                      "* host-alias rules for '%s' point in a circle: those "
+                      "hosts are left alone, point them all at one host",
+                      looping);
+      }
+    }
+
+    /* httpmirror()'s own verdict on whether the mirror ran to the end; the
+       cache reconcile below is the only reader outside the mirror block. */
+    hts_boolean completed = HTS_FALSE;
+
+    /* Info for wrappers */
+    hts_log_print(opt, LOG_DEBUG, "engine: init");
+
+    /* Init external */
+    RUN_CALLBACK_NOARG(opt, init);
+
+    // détourner SIGHUP etc.
+#if DEBUG_STEPS
+    printf("Launching the mirror\n");
+#endif
+
+    // Lancement du miroir
+    // ------------------------------------------------------------
+    opt->state._hts_in_mirror = 1;
+    {
+      const int mirrored = httpmirror(url, opt, &completed);
+
+      if (mirrored == 0) {
+        printf("Error during operation (see log file), site has not been "
+               "successfully mirrored\n");
+        exit_code = HTS_EXIT_MIRROR_ABORTED;
+      } else if (opt->shell) {
+        /* Inert: TRANSFER DONE goes to the scratch buffer, never to stdout. */
+        HTT_REQUEST_START;
+        HT_PRINT("TRANSFER DONE" LF);
+        HTT_REQUEST_END
+      } else if (completed) {
+        printf("Done.\n");
+      } else {
+        /* The engine's verdict, so every kind of abort reads alike. */
+        printf("Mirror not completed (see log file)\n");
+      }
+      /* -v and -g put the log on stdout, where a reprint would double it */
+      if (!opt->shell && opt->log != stdout) {
+        char BIGSTK note[256];
+
+        if (hts_upper_links_note(opt, note, sizeof(note)))
+          printf("%s\n", note);
+      }
+    }
+    opt->state._hts_in_mirror = 0;
+    // ------------------------------------------------------------
+
+    //
+    // Build top index
+    if (opt->dir_topindex) {
+      char BIGSTK rpath[1024 * 2];
+      char *a;
+
+      strcpybuff(rpath, StringBuff(opt->path_html));
+      hts_striplastchar(rpath, '/');
+      a = strrchr(rpath, '/');
+      if (a) {
+        *a = '\0';
+        hts_buildtopindex(opt, rpath, StringBuff(opt->path_bin));
+        hts_log_print(opt, LOG_INFO, "Top index rebuilt (done)");
+      }
+    }
+
+    /* Only the exit status tells a wrapper the engine gave up mid-mirror. The
+       fault flag is read too, because a dozen sites write exit_xh = 1 for a
+       stop the user asked for and any of them can land after the abort. */
+    if (hts_load_acquire_int(&opt->state.exit_xh) == -1 ||
+        hts_worker_faulted()) {
+      exit_code = HTS_EXIT_MIRROR_ABORTED;
+      HTS_PANIC_PRINTF("mirror aborted before completion, see the log file");
+    }
+
+    /* Not after a fault: that mirror is not resumable. */
+    if (hts_load_acquire_int(&opt->state.exit_xh) == 1 &&
+        !hts_worker_faulted()) {
+      if (opt->log) {
+        fprintf(opt->log,
+                "* * MIRROR ABORTED! * *\nThe mirror stopped before the end. "
+                "Start it again with --continue to resume it.\nThe cache is "
+                "kept: nothing has to be restored or deleted by hand.\n");
+      }
+    }
+
+    /* The lock goes at the end of this block, and the startup arm needs it, so
+       an abort that returns normally has to reconcile here or never. A cap or a
+       ^C leaves exit_xh at 0, so ask the engine's verdict instead. */
+    if (!completed)
+      hts_cache_reconcile(opt, CACHE_RECONCILE_INTERRUPTED);
+
+    /* Not or cleanly interrupted; erase hts-cache/ref temporary directory.
+       A ^C or a cap leaves exit_xh at 0, so keep the ref when either cut a
+       transfer mid-body (#1595). */
+    if (hts_load_acquire_int(&opt->state.exit_xh) == 0 &&
+        !opt->abort_left_partial) {
+      // erase ref files if not interrupted
+      DIR *dir;
+      struct dirent *entry;
+
+      for(dir =
+          opendir(fconcat
+                  (OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt), StringBuff(opt->path_log),
+                   CACHE_REFNAME));
+          dir != NULL && (entry = readdir(dir)) != NULL;) {
+        if (entry->d_name[0] != '\0' && entry->d_name[0] != '.') {
+          char *f = OPT_GET_BUFF(opt);
+
+          sprintf(f, "%s/%s", CACHE_REFNAME, entry->d_name);
+          (void) UNLINK(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                                StringBuff(opt->path_log), f));
+        }
+      }
+      if (dir != NULL) {
+        (void) closedir(dir);
+      }
+      (void) RMDIR(fconcat(OPT_GET_BUFF(opt), OPT_GET_BUFF_SIZE(opt),
+                           StringBuff(opt->path_log), CACHE_REFNAME));
+    }
+
+    /* Info for wrappers */
+    hts_log_print(opt, LOG_DEBUG, "engine: free");
+
+    /* UnInit */
+    RUN_CALLBACK_NOARG(opt, uninit);
+
+    if (httrack_logmode != 1) {
+      if (opt->errlog == opt->log)
+        opt->errlog = NULL;
+      if (opt->log) {
+        fclose(opt->log);
+        opt->log = NULL;
+      }
+      if (opt->errlog) {
+        fclose(opt->errlog);
+        opt->errlog = NULL;
+      }
+    }
+    // Débuggage des en têtes
+    if (_DEBUG_HEAD) {
+      if (ioinfo) {
+        fclose(ioinfo);
+        ioinfo = NULL;
+      }
+    }
+    // supprimer lock
+    UNLINK(n_lock);
+  }
+
+  cmdl_free(&x_cmd);
+  if (url)
+    freet(url);
+
+#ifdef HTS_TRACE_MALLOC
+  hts_freeall();
+#endif
+
+  printf("Thanks for using HTTrack!\n");
+  io_flush;
+  htsmain_free();
+  return exit_code;
+}
+
+// main() subroutines
+
+// vérifier chemin path
+int check_path(String * s, char *defaultname) {
+  int i;
+  int return_value = 0;
+
+  // Replace name: ~/mywebsites/# -> /home/foo/mywebsites/#
+  expand_home(s);
+  for(i = 0; i < (int) StringLength(*s); i++)   // conversion \ -> /
+    if (StringSub(*s, i) == '\\')
+      StringSubRW(*s, i) = '/';
+
+  // remove ending /
+  if (StringNotEmpty(*s) && StringRight(*s, 1) == '/')
+    StringPopRight(*s);
+
+  // Replace name: /home/foo/mywebsites/# -> /home/foo/mywebsites/wonderfulsite
+  if (StringNotEmpty(*s)) {
+    if (StringRight(*s, 1) == '#') {
+      if (strnotempty((defaultname ? defaultname : ""))) {
+        char *a = strchr(defaultname, '#');     // we never know..
+
+        if (a)
+          *a = '\0';
+        StringPopRight(*s);
+        StringCat(*s, defaultname);
+      } else {
+        StringClear(*s);        // Clear path (no name/default url given)
+      }
+      return_value = 1;         // expanded
+    }
+  }
+  // ending /
+  if (StringNotEmpty(*s) && StringRight(*s, 1) != '/')  // ajouter slash à la fin
+    StringCat(*s, "/");
+
+  return return_value;
+}
+
+/* Append the token at i, with its parameters, quoted as doit.log holds it. */
+static void cmdl_quote_unit(String *out, const cmdl_argv *cmd, int i) {
+  const int span = cmd->span[i] > 1 ? cmd->span[i] : 1;
+  const int end = span < cmd->argc - i ? i + span : cmd->argc;
+
+  for (; i < end; i++) {
+    if (StringLength(*out) != 0)
+      StringAddchar(*out, ' ');
+    /* argv[] is final, so a leading quote is data */
+    hts_quote_arg(out, cmd->argv[i]);
+  }
+}
+
+/* Append cmd's arguments as doit.log's line, leaving out an option an
+   identical later one repeats, so each resume's -iC2 does not pile up. */
+static void cmdl_doit_line(String *line, const cmdl_argv *cmd) {
+  hts_boolean *drop =
+      (hts_boolean *) calloct((size_t) cmd->argc, sizeof(hts_boolean));
+  coucal seen = drop != NULL ? coucal_new(0) : NULL;
+  String unit = STRING_EMPTY;
+  int i;
+
+  for (i = cmd->argc - 1; seen != NULL && i > 0; i--) {
+    if (cmd->span[i] == 0)
+      continue;
+    StringClear(unit);
+    cmdl_quote_unit(&unit, cmd, i);
+    if (coucal_exists(seen, StringBuff(unit)))
+      drop[i] = HTS_TRUE;
+    else
+      coucal_write(seen, StringBuff(unit), 0);
+  }
+  for (i = 1; i < cmd->argc; i++) {
+    if (seen == NULL || !drop[i])
+      cmdl_quote_unit(line, cmd, i);
+    if (cmd->span[i] > 1)
+      i += cmd->span[i] - 1;
+  }
+  StringFree(unit);
+  if (seen != NULL)
+    coucal_delete(&seen);
+  freet(drop);
+}
+
+/* Does the short-option cluster s carry c from the main option set (-i, -iC2,
+   -%Mi)? The i of -%i belongs to another set. */
+static hts_boolean cmdl_shortopt_has(const char *s, char c) {
+  const char opt[3] = {'-', c, '\0'};
+
+  return cmdl_shortopt_named(s, opt);
+}
+
+/* Does the short option cluster s hold the option opt, such as "-%mu"? */
+static hts_boolean cmdl_shortopt_named(const char *s, const char *opt) {
+  char name[8];
+  size_t at = 1;
+
+  if (s[0] != '-' || s[1] == '-')
+    return HTS_FALSE;
+  while (optcluster_next(s, &at, name, sizeof(name)))
+    if (strcmp(name, opt) == 0)
+      return HTS_TRUE;
+  return HTS_FALSE;
+}
+
+HTSEXT_API hts_boolean hts_rule_would_be_read_as_opt(const char *arg) {
+  if (arg == NULL || arg[0] != '-')
+    return HTS_FALSE;
+  // A dot means a host (-www.a.com), but any '%' keeps -%c0.5 an option.
+  if (strchr(arg, '.') != NULL && strchr(arg, '%') == NULL)
+    return HTS_FALSE;
+  return strchr(arg, '/') == NULL && strchr(arg, '*') == NULL;
+}

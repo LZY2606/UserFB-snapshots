@@ -1,0 +1,3506 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: Mini-server                                            */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+/* specific definitions */
+/* specific definitions */
+
+/* Bypass internal definition protection */
+#define HTS_INTERNAL_BYTECODE
+#include "htsbase.h"
+#undef HTS_INTERNAL_BYTECODE
+
+#include "htsnet.h"
+#include "htslib.h"
+#include "htsio.h"
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <fcntl.h>
+#ifdef _WIN32
+#else
+#include <arpa/inet.h>
+#endif
+#ifndef _WIN32
+#include <signal.h>
+#endif
+/* END specific definitions */
+
+/* définitions globales */
+#include "htsglobal.h"
+
+/* htslib */
+/*#include "htslib.h"*/
+
+/* HTTrack Website Copier Library */
+#include "httrack-library.h"
+
+/* Language files */
+
+/* Bypass internal definition protection */
+#define HTS_INTERNAL_BYTECODE
+#include "coucal.h"
+#undef HTS_INTERNAL_BYTECODE
+
+int NewLangStrSz = 1024;
+coucal NewLangStr = NULL;
+int NewLangStrKeysSz = 1024;
+coucal NewLangStrKeys = NULL;
+int NewLangListSz = 1024;
+coucal NewLangList = NULL;
+
+/* Language files */
+
+#include "htsserver.h"
+#include "htscmdline.h"
+#include "htslines.h"
+#include "htsthread.h"
+
+/* This server's line readers drop TAB, form feed and NUL. */
+#define HTS_LINES_SERVER                                                       \
+  (HTS_LINE_DROP_TAB | HTS_LINE_DROP_FF | HTS_LINE_DROP_NUL)
+
+const char *gethomedir(void);
+int commandRunning = 0;
+int commandEndRequested = 0;
+int commandEnd = 0;
+int commandReturn = 0;
+char *commandReturnMsg = NULL;
+char *commandReturnCmdl = NULL;
+int commandReturnSet = 0;
+
+/* Written under webhttrack_lock(), and freed by the crawl thread. */
+httrackp *global_opt = NULL;
+
+/* Address the listening socket was bound to, as given: an authority we
+   answer for, whatever a request's Host header claims. */
+static char server_bound_addr[256 + 2] = "";
+
+/* Other names this host answers to, resolved once before we serve anything,
+   since a lookup a request could steer would reopen the rebinding hole. Room
+   for a hostname, its full name and one reverse-lookup result. */
+#define SELF_NAMES_MAX 8
+static char server_self_names[SELF_NAMES_MAX][256];
+static size_t server_self_names_count = 0;
+
+/* The request buffer starts at this size and shrinks back to it. */
+#define SMALLSERVER_BUFFER_SIZE ((size_t) 32768)
+
+/* This fits a 1 MiB profile line posted twice and tripled by encoding. */
+#define SMALLSERVER_BODY_MAX ((size_t) 8 * 1024 * 1024)
+
+static void (*pingFun)(void *, smallserver_client_event, const char *) = NULL;
+static void* pingFunArg = NULL;
+
+/* Report a client liveness event, if anybody is listening. */
+static void client_event(smallserver_client_event ev, const char *window) {
+  if (pingFun != NULL) {
+    pingFun(pingFunArg, ev, window);
+  }
+}
+
+/* Extern */
+extern void webhttrack_main(char *cmd);
+extern void webhttrack_lock(void);
+extern void webhttrack_release(void);
+
+/* Content types for the GUI tree and the mirror it serves. Not the engine's
+   get_httptype_sized(): it needs an httrackp the server has none of yet, and
+   would apply the user's --assume rules to the GUI's own pages. */
+static const struct {
+  const char *ext;
+  const char *type;
+} server_mime_types[] = {
+    {"html", "text/html"},
+    {"htm", "text/html"},
+    {"css", "text/css"},
+    {"js", "text/javascript"},
+    {"txt", "text/plain"},
+    {"xml", "application/xml"},
+    {"gif", "image/gif"},
+    {"png", "image/png"},
+    {"jpg", "image/jpeg"},
+    {"jpeg", "image/jpeg"},
+    {"webp", "image/webp"},
+    {"avif", "image/avif"},
+    {"svg", "image/svg+xml"},
+    /* x-icon, not the registered vnd.microsoft.icon: what browsers send. */
+    {"ico", "image/x-icon"},
+    {NULL, NULL},
+};
+
+/* Content type of file, NULL if its extension is unlisted. Matched on the last
+   segment's whole extension, never on a substring of the path. */
+static const char *server_content_type(const char *file) {
+  const char *const slash = strrchr(file, '/');
+  const char *const dot = strrchr(slash != NULL ? slash : file, '.');
+  int i;
+
+  if (dot == NULL) {
+    return NULL;
+  }
+  for (i = 0; server_mime_types[i].ext != NULL; i++) {
+    if (strfield2(dot + 1, server_mime_types[i].ext)) {
+      return server_mime_types[i].type;
+    }
+  }
+  return NULL;
+}
+
+/* Calls hts_setfilters() with the whitespace-separated rules in text. */
+static void setfilters_from_text(httrackp *opt, const char *text) {
+  char *copy = strdupt(text);
+  char **argv = NULL;
+  int argc = 0, i, k = 0;
+
+  if (copy != NULL && (argv = hts_split_cmdline(copy, &argc)) != NULL) {
+    /* consecutive separators leave empty fields, and a quoted rule keeps its
+       quotes, so hts_setfilters() refuses it */
+    for (i = 0; i < argc; i++) {
+      if (argv[i][0] != '\0')
+        argv[k++] = argv[i];
+    }
+    argv[k] = NULL;
+    hts_setfilters(opt, (const char *const *) argv);
+  }
+  freet(argv);
+  freet(copy);
+}
+
+/* Send all of buf, resuming after a short write. */
+static hts_boolean send_all(T_SOC soc, const char *buf, size_t len) {
+  while (len > 0) {
+    const int chunk = len > INT_MAX ? INT_MAX : (int) len;
+    const int n = (int) send(soc, buf, chunk, 0);
+
+    if (n <= 0) {
+#ifndef _WIN32
+      if (n < 0 && errno == EINTR)
+        continue;
+#endif
+      return HTS_FALSE;
+    }
+    buf += n;
+    len -= (size_t) n;
+  }
+  return HTS_TRUE;
+}
+
+static int is_html(const char *file) {
+  const char *const type = server_content_type(file);
+
+  return type != NULL && strcmp(type, "text/html") == 0;
+}
+
+/* Redundant separators an unnormalized request path carries into open(). */
+static const char *skip_separators(const char *p) {
+  for (;;) {
+    if (*p == '/')
+      p++;
+    else if (p[0] == '.' && p[1] == '/')
+      p += 2;
+    else
+      return p;
+  }
+}
+
+/* A wizard pane follows the run's state; the About box does not. Match every
+   spelling that opens the same file: the path is never normalized, and on a
+   case-insensitive filesystem "/Server/" is that same directory (#1444). */
+static hts_boolean is_wizard_pane(const char *file) {
+  const char *page;
+
+  file = skip_separators(file);
+  if (strfield(file, "server/") == 0)
+    return HTS_FALSE;
+  page = skip_separators(file + 7);
+  return strcmpnocase(page, "about.html") != 0;
+}
+
+static void sig_brpipe(int code) {
+  /* ignore */
+}
+
+HTS_UNUSED static int check_readinput_t(T_SOC soc, int timeout);
+HTS_UNUSED static int recv_bl(T_SOC soc, void *buffer, size_t len, int timeout);
+HTS_UNUSED static int linputsoc(T_SOC soc, char *s, int max);
+HTS_UNUSED static int check_readinput(htsblk * r);
+HTS_UNUSED static int linputsoc_t(T_SOC soc, char *s, int max, int timeout);
+HTS_UNUSED static int linput(FILE * fp, char *s, int max);
+
+/* Language files */
+HTS_UNUSED static int htslang_load(char *limit_to, size_t limit_size,
+                                   const char *apppath);
+HTS_UNUSED static void conv_printf(const char *from, char *to);
+HTS_UNUSED static void LANG_DELETE(void);
+HTS_UNUSED static void LANG_INIT(const char *path);
+HTS_UNUSED static int LANG_T(const char *path, int l);
+HTS_UNUSED static int QLANG_T(int l);
+HTS_UNUSED static const char *LANGSEL(const char *name);
+HTS_UNUSED static const char *LANGINTKEY(const char *name);
+HTS_UNUSED static int LANG_SEARCH(const char *path, const char *iso);
+HTS_UNUSED static int LANG_LIST(const char *path, char *buffer, size_t size);
+
+// URL Link catcher
+
+// 0- Init the URL catcher with standard port
+
+// smallserver_init(&port,&return_host);
+T_SOC smallserver_init_std(int *port_prox, char *adr_prox, size_t adr_size,
+                           int defaultPort, const char *bindAddr) {
+  T_SOC soc;
+
+  if (defaultPort <= 0) {
+    int try_to_listen_to[] =
+      { 8080, 8081, 8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089,
+      32000, 32001, 32002, 32003, 32004, 32006, 32006, 32007, 32008, 32009,
+      42000, 42001, 42002, 42003, 42004, 42006, 42006, 42007, 42008, 42009,
+      0, -1
+    };
+    int i = 0;
+
+    do {
+      soc =
+          smallserver_init(&try_to_listen_to[i], adr_prox, adr_size, bindAddr);
+      *port_prox = try_to_listen_to[i];
+      i++;
+    } while((soc == INVALID_SOCKET) && (try_to_listen_to[i] >= 0));
+  } else {
+    soc = smallserver_init(&defaultPort, adr_prox, adr_size, bindAddr);
+    *port_prox = defaultPort;
+  }
+  return soc;
+}
+
+// 1- Init the URL catcher
+
+// get hostname. return 1 upon success.
+static int gethost(const char *hostname, SOCaddr * server) {
+  if (hostname != NULL && *hostname != '\0') {
+#if HTS_INET6==0
+    /* ipV4 resolver */
+    struct hostent *hp = gethostbyname(hostname);
+
+    if (hp != NULL) {
+      if (hp->h_length) {
+        SOCaddr_copyaddr2(*server, hp->h_addr_list[0], hp->h_length);
+        return 1;
+      }
+    }
+#else
+    /* ipV6 resolver */
+    struct addrinfo *res = NULL;
+    struct addrinfo hints;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = PF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    if (getaddrinfo(hostname, NULL, &hints, &res) == 0) {
+      if (res) {
+        if ((res->ai_addr) && (res->ai_addrlen)) {
+          SOCaddr_copyaddr2(*server, res->ai_addr, res->ai_addrlen);
+          freeaddrinfo(res);
+          return 1;
+        }
+      }
+    }
+    if (res) {
+      freeaddrinfo(res);
+    }
+#endif
+  }
+  return 0;
+}
+
+/** Remember a name we answer to, if it is new and it fits. */
+static void add_self_name(const char *name) {
+  size_t i;
+
+  if (name == NULL || *name == '\0' ||
+      strlen(name) >= sizeof(server_self_names[0]) ||
+      server_self_names_count == SELF_NAMES_MAX) {
+    return;
+  }
+  for (i = 0; i < server_self_names_count; i++) {
+    if (strfield2(server_self_names[i], name) != 0) {
+      return;
+    }
+  }
+  strcpybuff(server_self_names[server_self_names_count++], name);
+}
+
+/** Add the canonical name our own hostname resolves to. */
+static void add_resolved_self_names(const char *hostname) {
+#if HTS_INET6 == 0
+  const struct hostent *const hp = gethostbyname(hostname);
+
+  if (hp != NULL) {
+    add_self_name(hp->h_name);
+  }
+#else
+  struct addrinfo *res = NULL;
+  struct addrinfo hints;
+  const struct addrinfo *ai;
+
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = PF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+  hints.ai_flags = AI_CANONNAME;
+  if (getaddrinfo(hostname, NULL, &hints, &res) == 0) {
+    for (ai = res; ai != NULL; ai = ai->ai_next) {
+      add_self_name(ai->ai_canonname);
+    }
+  }
+  if (res != NULL) {
+    freeaddrinfo(res);
+  }
+#endif
+}
+
+/** Add the name the bound address reverse-resolves to, kept only when that
+    name resolves back to the bound address: an unconfirmed reverse lookup
+    says whatever the address's owner likes. */
+static void add_reverse_self_name(SOCaddr *bound) {
+  char name[256];
+  char addr[256];
+  char back[256];
+  SOCaddr resolved;
+
+  SOCaddr_inetntoa(addr, sizeof(addr), *bound);
+  /* a wildcard is no address to ask about, and none can confirm back to it */
+  if (addr[0] == '\0' || strcmp(addr, "0.0.0.0") == 0 ||
+      strcmp(addr, "::") == 0 ||
+      getnameinfo(&SOCaddr_sockaddr(*bound), SOCaddr_size(*bound), name,
+                  sizeof(name), NULL, 0, NI_NAMEREQD) != 0) {
+    return;
+  }
+  memset(&resolved, 0, sizeof(resolved));
+  if (!gethost(name, &resolved)) {
+    return;
+  }
+  SOCaddr_inetntoa(back, sizeof(back), resolved);
+  if (back[0] != '\0' && strcmp(addr, back) == 0) {
+    add_self_name(name);
+  }
+}
+
+/** Gather the names this host answers to, for the address soc is bound to.
+    Resets the set, so a second call replaces it rather than adding to it. */
+static void collect_self_names(T_SOC soc) {
+  SOCaddr bound;
+  SOClen len = SOCaddr_capacity(bound);
+  char host[256];
+
+  server_self_names_count = 0;
+  if (getsockname(soc, &SOCaddr_sockaddr(bound), &len) != 0) {
+    return;
+  }
+  if (gethostname(host, sizeof(host)) == 0) {
+    host[sizeof(host) - 1] = '\0';
+    add_self_name(host);
+    add_resolved_self_names(host);
+  }
+  add_reverse_self_name(&bound);
+}
+
+/** Form of a bound address a client can actually open: a wildcard names no
+    reachable host, and an IPv6 literal needs its URL brackets. */
+static void advertised_host(char *dst, size_t size, const char *bound) {
+  const char *host = bound;
+
+  /* every address reaches us, and loopback is the one the local browser has */
+  if (strcmp(host, "0.0.0.0") == 0) {
+    host = "127.0.0.1";
+  } else if (strcmp(host, "::") == 0) {
+    host = "::1";
+  }
+  if (strchr(host, ':') != NULL) {
+    strlcpybuff(dst, "[", size);
+    strlcatbuff(dst, host, size);
+    strlcatbuff(dst, "]", size);
+  } else {
+    strlcpybuff(dst, host, size);
+  }
+}
+
+// smallserver_init(&port,&return_host);
+T_SOC smallserver_init(int *port, char *adr, size_t adr_size,
+                       const char *bindAddr) {
+  T_SOC soc = INVALID_SOCKET;
+  char h_loc[256 + 2];
+  SOCaddr server;
+
+  /* the watchdog thread may be polling it */
+  hts_store_release_int(&commandRunning, 0);
+  commandEnd = commandReturn = commandReturnSet = commandEndRequested = 0;
+  if (commandReturnMsg)
+    free(commandReturnMsg);
+  commandReturnMsg = NULL;
+  if (commandReturnCmdl)
+    free(commandReturnCmdl);
+  commandReturnCmdl = NULL;
+
+  /* Loopback unless asked otherwise: the handler trusts its client, and every
+     request is unauthenticated. --bind widens it deliberately. */
+  SOCaddr_initloopback(server);
+  strcpybuff(h_loc, "127.0.0.1");
+  if (bindAddr != NULL && *bindAddr != '\0') {
+    /* advertise the bound address, else the URL we print is unreachable */
+    if (strlen(bindAddr) >= sizeof(h_loc) || !gethost(bindAddr, &server)) {
+      return INVALID_SOCKET;
+    }
+    strcpybuff(h_loc, bindAddr);
+  }
+  strcpybuff(server_bound_addr, h_loc);
+
+  if ((soc = (T_SOC) socket(SOCaddr_sinfamily(server), SOCK_STREAM, 0)) !=
+      INVALID_SOCKET) {
+    SOCaddr_initport(server, *port);
+    if (bind(soc, &SOCaddr_sockaddr(server), SOCaddr_size(server)) == 0) {
+      if (listen(soc, 10) >= 0) {
+        char adv[sizeof(h_loc) + 2]; /* + the brackets of an IPv6 literal */
+
+        advertised_host(adv, sizeof(adv), h_loc);
+        strclipbuff(adr, adr_size, adv);
+      } else {
+#ifdef _WIN32
+        closesocket(soc);
+#else
+        close(soc);
+#endif
+        soc = INVALID_SOCKET;
+      }
+    } else {
+#ifdef _WIN32
+      closesocket(soc);
+#else
+      close(soc);
+#endif
+      soc = INVALID_SOCKET;
+    }
+  }
+  return soc;
+}
+
+// 2 - Wait for URL
+
+// check if data is available
+
+// smallserver
+// returns 0 if error
+// url: buffer where URL must be stored - or ip:port in case of failure
+// data: 32Kb
+
+typedef struct {
+  const char *name;
+  int value;
+} initIntElt;
+typedef struct {
+  const char *name;
+  const char *value;
+} initStrElt;
+
+#define SET_ERROR(err) do { \
+  coucal_write(NewLangList, "error", (intptr_t)strdup(err)); \
+  error_redirect = "/server/error.html"; \
+} while(0)
+
+/* Longest error message shown on the error page; the rest is clipped. */
+#define ERROR_MESSAGE_MAX 1024
+
+/* SET_ERROR() with a printf format. Clips: these messages quote posted fields,
+   whose length the client picks. */
+#define SET_ERRORF(...)                                                        \
+  do {                                                                         \
+    char errbuf[ERROR_MESSAGE_MAX];                                            \
+    slprintfbuff_clip(errbuf, sizeof(errbuf), __VA_ARGS__);                    \
+    SET_ERROR(errbuf);                                                         \
+  } while (0)
+
+/* Longest "sid" value worth unescaping: the expected one is an md5 hex digest,
+   so anything near this is already invalid and is rejected unread. */
+#define SID_VALUE_MAX 64
+
+/** Does this Origin name the panel itself?
+    Only our own plain-http authority passes: a sandboxed page sends "null", a
+    foreign one its own host, and an empty Host cannot be matched at all. */
+static hts_boolean origin_is_self(const char *origin, const char *host) {
+  const int p = strfield(origin, "http://");
+  const char *const authority = origin + p;
+
+  return host[0] != '\0' && p != 0 && strfield2(authority, host) != 0;
+}
+
+/** Hostname part of a Host header value, URL brackets and ":port" removed.
+    False, and dst empty, when it names no host or does not fit. */
+static hts_boolean host_hostname(char *dst, size_t size, const char *host) {
+  const char *start = host;
+  const char *end;
+
+  dst[0] = '\0';
+  if (*start == '[') {
+    end = strchr(++start, ']');
+    if (end == NULL || (end[1] != '\0' && end[1] != ':')) {
+      return HTS_FALSE;
+    }
+  } else if ((end = strchr(start, ':')) == NULL) {
+    end = start + strlen(start);
+  }
+  if (end == start || (size_t) (end - start) >= size) {
+    return HTS_FALSE;
+  }
+  memcpy(dst, start, (size_t) (end - start));
+  dst[end - start] = '\0';
+  return HTS_TRUE;
+}
+
+/** Is this an address literal rather than a DNS name? A colon survived
+    host_hostname only from inside brackets, so it means IPv6. */
+static hts_boolean host_is_address(const char *name) {
+  size_t i;
+
+  if (strchr(name, ':') != NULL) {
+    return HTS_TRUE;
+  }
+  for (i = 0; name[i] != '\0'; i++) {
+    if (!isdigit((unsigned char) name[i]) && name[i] != '.') {
+      return HTS_FALSE;
+    }
+  }
+  return i != 0 ? HTS_TRUE : HTS_FALSE;
+}
+
+/** May a request presenting this authority drive the panel?
+    A page can point a name of its own at our address and have the browser call
+    us same-origin, which an unauthenticated panel must refuse. That always
+    presents a name. An address literal is whoever opened the socket, and the
+    names we vouch for are localhost, whatever --bind was given, and this
+    host's own names. */
+static hts_boolean host_is_self(const char *host, const char *bound) {
+  char name[256];
+  size_t i;
+
+  if (!host_hostname(name, sizeof(name), host)) {
+    return HTS_FALSE;
+  }
+  if (strfield2(name, "localhost") != 0 || host_is_address(name) ||
+      (bound[0] != '\0' && strfield2(name, bound) != 0)) {
+    return HTS_TRUE;
+  }
+  for (i = 0; i < server_self_names_count; i++) {
+    if (strfield2(server_self_names[i], name) != 0) {
+      return HTS_TRUE;
+    }
+  }
+  return HTS_FALSE;
+}
+
+/** Header value with leading blanks dropped, clipped to fit dst. */
+static void copy_header_value(char *dst, size_t size, const char *value) {
+  value += strspn(value, HTS_TABORSPACES);
+  dst[0] = '\0';
+  strlncatbuff(dst, value, size, size - 1);
+}
+
+/** Copy query parameter "name"'s alphanumeric value into dst, of size >= 1;
+    true when a non-empty one fit, and dst is left empty otherwise.
+    Query-string counterpart to the POST-body checker below. */
+static hts_boolean query_alnum_value(char *dst, size_t size, const char *query,
+                                     const char *name) {
+  hts_query_field f;
+  size_t n = 0;
+
+  dst[0] = '\0';
+  if (!hts_query_find(query, name, &f)) {
+    return HTS_FALSE;
+  }
+  while (n < f.vallen && n + 1 < size && isalnum((unsigned char) f.val[n])) {
+    dst[n] = f.val[n];
+    n++;
+  }
+  dst[n] = '\0';
+  /* Truncated, or not alphanumeric to its end, is no value at all: it must
+     not reach a caller that trusted the return. */
+  if (n > 0 && n == f.vallen) {
+    return HTS_TRUE;
+  }
+  dst[0] = '\0';
+  return HTS_FALSE;
+}
+
+/** Does the urlencoded request body present the expected session id?
+    True only if at least one "sid" field is present and every occurrence
+    matches, so it holds whichever one a later last-write-wins parse keeps.
+    Non-destructive: it runs before the body is tokenized in place. */
+static hts_boolean body_sid_is_valid(const char *body, const char *expected) {
+  const char *cur = body;
+  hts_query_field f;
+  hts_boolean seen = HTS_FALSE;
+
+  while (hts_query_next(&cur, &f)) {
+    if (f.val != NULL && f.keylen == 3 && strncmp(f.key, "sid", 3) == 0) {
+      hts_boolean match = HTS_FALSE;
+
+      if (f.vallen < SID_VALUE_MAX) {
+        char raw[SID_VALUE_MAX];
+        String value = STRING_EMPTY;
+
+        memcpy(raw, f.val, f.vallen);
+        raw[f.vallen] = '\0';
+        hts_unescapehttp(raw, &value);
+        /* StringBuff is NULL until written, so an empty value lands here. */
+        if (StringBuff(value) != NULL &&
+            strcmp(StringBuff(value), expected) == 0) {
+          match = HTS_TRUE;
+        }
+        StringFree(value);
+      }
+      if (!match) {
+        return HTS_FALSE;
+      }
+      seen = HTS_TRUE;
+    }
+  }
+  return seen;
+}
+
+/** Append src to the NUL-terminated dst of capacity size (NUL included).
+    False, leaving dst untouched, if it would not fit: unlike strcatbuff() this
+    never aborts, because every piece appended here is client-supplied. */
+static hts_boolean path_append(char *dst, size_t size, const char *src) {
+  const size_t used = strlen(dst);
+  const size_t len = strlen(src);
+
+  /* dst holds at most size-1 bytes, so "size - used" is >= 1 and the untrusted
+     len stays alone: "used + len < size" could wrap and pass. */
+  if (len >= size - used) {
+    return HTS_FALSE;
+  }
+  memcpy(dst + used, src, len + 1);
+  return HTS_TRUE;
+}
+
+#ifdef _WIN32
+#define USER_STYLESHEET "/httrack.css"
+#else
+#define USER_STYLESHEET "/.httrack.css"
+#endif
+
+/* The fields the browser login popup posts. The paste can hold session
+   cookies, so it never enters the key store. */
+typedef struct browserlogin_post {
+  String paste;
+  String agent;
+  String url;
+  char action[8];  /* "preview" or "save", or "?" for any other value */
+  hts_boolean nul; /* a field held a NUL byte */
+} browserlogin_post;
+
+/* Take the posted field key into login when it is one of the popup's, and say
+   whether it was. */
+static hts_boolean browserlogin_field(browserlogin_post *login, const char *key,
+                                      String *value) {
+  String *dst = NULL;
+
+  if (strcmp(key, "blaction") == 0) {
+    strcpybuff(login->action, "?");
+    if (StringLength(*value) < sizeof(login->action) &&
+        strlen(StringBuff(*value)) == StringLength(*value))
+      strcpybuff(login->action, StringBuff(*value));
+    StringFree(*value);
+    return HTS_TRUE;
+  }
+  if (strcmp(key, "blpaste") == 0)
+    dst = &login->paste;
+  else if (strcmp(key, "blagent") == 0)
+    dst = &login->agent;
+  else if (strcmp(key, "blurl") == 0)
+    dst = &login->url;
+  if (dst == NULL)
+    return HTS_FALSE;
+  // a NUL would cut the paste where the engine reads it
+  if (StringNotEmpty(*value) &&
+      strlen(StringBuff(*value)) != StringLength(*value))
+    login->nul = HTS_TRUE;
+  StringFree(*dst);
+  *dst = *value;
+  StringInit(*value);
+  return HTS_TRUE;
+}
+
+static void browserlogin_free(browserlogin_post *login) {
+  StringFree(login->paste);
+  StringFree(login->agent);
+  StringFree(login->url);
+}
+
+static void browserlogin_set(const char *key, const char *value) {
+  coucal_write(NewLangList, key, (intptr_t) strdupt(value));
+}
+
+/* Run the posted paste through hts_bundle_from_paste into res. */
+static hts_boolean browserlogin_paste(const browserlogin_post *login,
+                                      const String *folder, const String *url,
+                                      hts_boolean dry_run,
+                                      hts_paste_result *res) {
+  return hts_bundle_from_paste(
+      StringNotEmpty(login->paste) ? StringBuff(login->paste) : "",
+      StringNotEmpty(*folder) ? StringBuff(*folder) : NULL,
+      StringBuff(login->agent), StringNotEmpty(*url) ? StringBuff(*url) : NULL,
+      dry_run, res);
+}
+
+/* Preview the posted paste as a login bundle, or write it to <path>/<projname>
+   on "save", and leave the outcome in the bl* variables the popup reads. */
+static void browserlogin_run(const browserlogin_post *login) {
+  const hts_boolean save = strcmp(login->action, "save") == 0;
+  hts_paste_result *res = calloct(1, sizeof(*res));
+  String folder = STRING_EMPTY;
+  String url = STRING_EMPTY;
+  intptr_t adrpath = 0, adrproj = 0;
+  const char *error = NULL;
+  char count[32];
+
+  if (res != NULL)
+    res->size = sizeof(*res);
+  if (res == NULL) {
+    error = "out of memory";
+  } else if (!save && strcmp(login->action, "preview") != 0) {
+    error = "unknown action";
+  } else if (login->nul) {
+    error = "the paste holds a NUL byte";
+  } else if (coucal_readptr(NewLangList, "path", &adrpath) &&
+             coucal_readptr(NewLangList, "projname", &adrproj) &&
+             *(const char *) adrproj != '\0') {
+    StringCopy(folder, (const char *) adrpath);
+    StringCat(folder, "/");
+    StringCat(folder, (const char *) adrproj);
+  } else if (save) {
+    error = "no project name";
+  }
+  // the base path is the user's own choice, the project name is not
+  if (error == NULL && save &&
+      !hts_path_is_relative_contained((const char *) adrproj))
+    error = "the project name escapes the base path";
+  // step 3 reads an address without a scheme as http
+  if (StringNotEmpty(login->url)) {
+    const char *const u = StringBuff(login->url);
+    const size_t scheme = strspn(u, "abcdefghijklmnopqrstuvwxyz"
+                                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-");
+
+    if (scheme == 0 || strncmp(u + scheme, "://", 3) != 0)
+      StringCat(url, "http://");
+    StringCat(url, u);
+  }
+  // a refused paste must not leave an empty project folder behind
+  if (error == NULL && !browserlogin_paste(login, &folder, &url, HTS_TRUE, res))
+    error = res->error;
+  if (error == NULL && save) {
+    String dirs = STRING_EMPTY;
+
+    StringCopy(dirs, StringBuff(folder));
+    StringCat(dirs, "/");
+    if (structcheck(StringBuff(dirs)) != 0)
+      error = "cannot create the project folder";
+    else if (!browserlogin_paste(login, &folder, &url, HTS_FALSE, res))
+      error = res->error;
+    StringFree(dirs);
+  }
+  snprintf(count, sizeof(count), "%d", error == NULL ? res->cookies : 0);
+  browserlogin_set("blstate", error != NULL ? "error"
+                              : save        ? "saved"
+                                            : "preview");
+  browserlogin_set("blerror", error != NULL ? error : "");
+  browserlogin_set("blname", error == NULL ? res->name : "");
+  browserlogin_set("blstarturl", error == NULL ? res->url : "");
+  browserlogin_set("blagent", error == NULL ? res->agent : "");
+  browserlogin_set("blhosts", error == NULL ? res->hosts : "");
+  browserlogin_set("blcount", count);
+  StringFree(folder);
+  StringFree(url);
+  freet(res);
+}
+
+/* Finds the file served as the UI's user.css: the one in the home folder, then
+   in the mirror base path, then in sysconfdir. Returns HTS_FALSE, with dst
+   empty, when none exists, so the shipped user.css is served. */
+static hts_boolean find_user_stylesheet(char *dst, size_t size) {
+  intptr_t adr = 0;
+  const char *const mirror_base =
+      coucal_readptr(NewLangList, "path", &adr) ? (const char *) adr : NULL;
+#ifdef _WIN32
+  const char *const dirs[] = {gethomedir(), mirror_base};
+#else
+  const char *const dirs[] = {gethomedir(), mirror_base, HTS_ETCPATH};
+#endif
+  size_t i;
+
+  for (i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+    dst[0] = '\0';
+    if (dirs[i] != NULL && dirs[i][0] != '\0' &&
+        path_append(dst, size, dirs[i]) &&
+        path_append(dst, size, USER_STYLESHEET) && fexist(dst)) {
+      return HTS_TRUE;
+    }
+  }
+  dst[0] = '\0';
+  return HTS_FALSE;
+}
+
+#ifdef _WIN32
+#define UI_SETTINGS "/httrack-ui.ini"
+#else
+#define UI_SETTINGS "/.httrack-ui.ini"
+#endif
+
+#ifdef _WIN32
+#define USER_THEMES "/httrack/themes"
+#else
+#define USER_THEMES "/.httrack/themes"
+#endif
+
+#define THEME_CLASSIC "classic"
+#define THEME_NAME_MAX 32
+#define THEMES_URL "/server/themes/"
+
+/* This holds the chosen UI theme, which UI_SETTINGS keeps across runs. */
+static char ui_theme[THEME_NAME_MAX + 1] = THEME_CLASSIC;
+
+/* Is name usable as a theme folder name, and so safe inside a path? */
+static hts_boolean theme_name_is_valid(const char *name) {
+  const size_t len = strlen(name);
+
+  return len > 0 && len <= THEME_NAME_MAX &&
+         strspn(name, "abcdefghijklmnopqrstuvwxyz"
+                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") == len;
+}
+
+/* Writes the user's themes folder into dst, or returns false. */
+static hts_boolean user_themes_dir(char *dst, size_t size) {
+  dst[0] = '\0';
+  return path_append(dst, size, gethomedir()) &&
+         path_append(dst, size, USER_THEMES);
+}
+
+/* Writes the installed themes folder into dst, or returns false. */
+static hts_boolean installed_themes_dir(char *dst, size_t size,
+                                        const char *path) {
+  dst[0] = '\0';
+  return path_append(dst, size, path) &&
+         path_append(dst, size, "html/server/themes");
+}
+
+/* Is name a theme folder holding theme.css in dir? */
+static hts_boolean theme_in(const char *dir, const char *name) {
+  char file[1024];
+
+  file[0] = '\0';
+  return theme_name_is_valid(name) && strcmp(name, THEME_CLASSIC) != 0 &&
+         path_append(file, sizeof(file), dir) &&
+         path_append(file, sizeof(file), "/") &&
+         path_append(file, sizeof(file), name) &&
+         path_append(file, sizeof(file), "/theme.css") && fexist(file);
+}
+
+/* Is name a theme in the user's folder or the installed one? */
+static hts_boolean theme_exists(const char *path, const char *name) {
+  char dir[1024];
+
+  return (user_themes_dir(dir, sizeof(dir)) && theme_in(dir, name)) ||
+         (installed_themes_dir(dir, sizeof(dir), path) && theme_in(dir, name));
+}
+
+/* Is file under /server/themes/, in any spelling the filesystem opens? */
+static hts_boolean is_theme_url(const char *file) {
+  file = skip_separators(file);
+  return strfield(file, "server/") != 0 &&
+         strfield(skip_separators(file + 7), "themes/") != 0;
+}
+
+/* Maps a THEMES_URL "<name>/..." URL to the user's theme of that name, which
+   then serves all of the theme's files. Returns false otherwise. */
+static hts_boolean find_user_theme_file(char *dst, size_t size,
+                                        const char *file) {
+  const char *const start = file + sizeof(THEMES_URL) - 1;
+  const char *rest;
+  char name[THEME_NAME_MAX + 1];
+
+  if (strncmp(file, THEMES_URL, sizeof(THEMES_URL) - 1) != 0 ||
+      (rest = strchr(start, '/')) == NULL ||
+      (size_t) (rest - start) > THEME_NAME_MAX) {
+    return HTS_FALSE;
+  }
+  memcpy(name, start, rest - start);
+  name[rest - start] = '\0';
+  if (!user_themes_dir(dst, size) || !theme_in(dst, name) ||
+      !path_append(dst, size, "/") || !path_append(dst, size, name) ||
+      !path_append(dst, size, rest)) {
+    dst[0] = '\0';
+    return HTS_FALSE;
+  }
+  return HTS_TRUE;
+}
+
+/* Would the engine read value as a kind's --accept, not the default one? */
+static hts_boolean names_accept_kind(const char *value) {
+  const char *const eq = strchr(value, '=');
+  const char *const *k;
+
+  if (eq == NULL)
+    return HTS_FALSE;
+  for (k = hts_accept_kinds(); *k != NULL; k++) {
+    if (strlen(*k) == (size_t) (eq - value) &&
+        strncmp(*k, value, (size_t) (eq - value)) == 0)
+      return HTS_TRUE;
+  }
+  return HTS_FALSE;
+}
+
+/* Returns the chosen theme, or Classic while its folder is missing, which
+   keeps the choice for when the folder comes back. */
+static const char *effective_theme(const char *path) {
+  return theme_exists(path, ui_theme) ? ui_theme : THEME_CLASSIC;
+}
+
+/* Appends "name<TAB>label", labelling "solarized-dark" as "Solarized dark". */
+static void cat_theme_entry(String *list, const char *name) {
+  const char *p;
+
+  StringCat(*list, name);
+  StringCat(*list, "\t");
+  for (p = name; *p != '\0'; p++) {
+    const char c = *p == '-' || *p == '_' ? ' '
+                   : p == name            ? (char) toupper((unsigned char) *p)
+                                          : *p;
+
+    StringMemcat(*list, &c, 1);
+  }
+}
+
+static int theme_name_cmp(const void *a, const void *b) {
+  return strcmp(*(char *const *) a, *(char *const *) b);
+}
+
+/* Returns the themes of both folders, sorted and one "name<TAB>label" per
+   line, as a heap string that is empty when there are none. */
+static char *list_themes(const char *path) {
+  char dir[1024];
+  char **names = NULL;
+  size_t count = 0;
+  size_t capacity = 0;
+  size_t i;
+  int pass;
+  String list = STRING_EMPTY;
+  char *result;
+
+  for (pass = 0; pass < 2; pass++) {
+    find_handle h;
+
+    if (!(pass == 0 ? user_themes_dir(dir, sizeof(dir))
+                    : installed_themes_dir(dir, sizeof(dir), path)) ||
+        (h = hts_findfirst(dir)) == NULL) {
+      continue;
+    }
+    do {
+      const char *const name = hts_findgetname(h);
+
+      if (name != NULL && theme_in(dir, name)) {
+        if (count == capacity) {
+          char **const grown =
+              (char **) realloct(names, (capacity + 16) * sizeof(names[0]));
+
+          if (grown == NULL) {
+            break;
+          }
+          names = grown;
+          capacity += 16;
+        }
+        if ((names[count] = strdupt(name)) != NULL) {
+          count++;
+        }
+      }
+    } while (hts_findnext(h));
+    hts_findclose(h);
+  }
+  if (count != 0) {
+    qsort(names, count, sizeof(names[0]), theme_name_cmp);
+  }
+  for (i = 0; i < count; i++) {
+    /* a user's theme may share its name with an installed one */
+    if (i == 0 || strcmp(names[i], names[i - 1]) != 0) {
+      if (StringNotEmpty(list)) {
+        StringCat(list, "\n");
+      }
+      cat_theme_entry(&list, names[i]);
+    }
+  }
+  for (i = 0; i < count; i++) {
+    freet(names[i]);
+  }
+  freet(names);
+  result = strdupt(StringNotEmpty(list) ? StringBuff(list) : "");
+  StringFree(list);
+  return result;
+}
+
+/* Reads the chosen theme from UI_SETTINGS in the home folder. */
+static void load_ui_settings(void) {
+  char file[1024];
+  FILE *fp;
+
+  file[0] = '\0';
+  if (!path_append(file, sizeof(file), gethomedir()) ||
+      !path_append(file, sizeof(file), UI_SETTINGS) ||
+      (fp = fopen(file, "rb")) == NULL) {
+    return;
+  }
+  while (!feof(fp) && !ferror(fp)) {
+    char line[256];
+
+    if (linput(fp, line, sizeof(line) - 2) > 0 &&
+        strncmp(line, "uitheme=", 8) == 0 && theme_name_is_valid(line + 8)) {
+      strcpybuff(ui_theme, line + 8);
+    }
+  }
+  fclose(fp);
+}
+
+/* Chooses name as the theme. If UI_SETTINGS cannot be written, the choice
+   lasts until the server exits. */
+static void set_ui_theme(const char *name) {
+  char file[1024];
+  FILE *fp;
+
+  strcpybuff(ui_theme, name);
+  file[0] = '\0';
+  if (path_append(file, sizeof(file), gethomedir()) &&
+      path_append(file, sizeof(file), UI_SETTINGS) &&
+      (fp = fopen(file, "wb")) != NULL) {
+    fprintf(fp, "uitheme=%s\n", ui_theme);
+    fclose(fp);
+  }
+}
+
+/* Append c to dst as an HTML entity, or return HTS_FALSE if it needs none. */
+static hts_boolean cat_html_escaped(String *dst, char c) {
+  switch (c) {
+  case '<':
+    StringCat(*dst, "&lt;");
+    break;
+  case '>':
+    StringCat(*dst, "&gt;");
+    break;
+  case '&':
+    StringCat(*dst, "&amp;");
+    break;
+  case '\'':
+    StringCat(*dst, "&#39;");
+    break;
+  default:
+    return HTS_FALSE;
+  }
+  return HTS_TRUE;
+}
+
+/* Append the UTF-8 character at s as a numeric character reference, which names
+   a code point and survives any page charset, and return its length in bytes.
+   Zero if s does not start a valid character. (hts_readUTF8() decodes the same
+   thing, but is not HTSEXT_API, so this binary cannot link it.) */
+static size_t cat_html_ncr(String *dst, const char *s) {
+  const unsigned char *const p = (const unsigned char *) s;
+  unsigned int uc;
+  size_t extra, i;
+  char tmp[16];
+
+  if (p[0] >= 0xc2 && p[0] <= 0xdf) {
+    uc = p[0] & 0x1f;
+    extra = 1;
+  } else if ((p[0] & 0xf0) == 0xe0) {
+    uc = p[0] & 0x0f;
+    extra = 2;
+  } else if (p[0] >= 0xf0 && p[0] <= 0xf4) {
+    uc = p[0] & 0x07;
+    extra = 3;
+  } else {
+    return 0;
+  }
+  /* A NUL fails this before the next byte is read, so a sequence truncated at
+     the end of the string cannot run past it. */
+  for (i = 1; i <= extra; i++) {
+    if ((p[i] & 0xc0) != 0x80)
+      return 0;
+    uc = (uc << 6) | (p[i] & 0x3f);
+  }
+  /* Overlong and surrogate forms name nothing a browser will render. */
+  if (uc < 0x80 || (uc >= 0xd800 && uc <= 0xdfff))
+    return 0;
+  snprintf(tmp, sizeof(tmp), "&#%u;", uc);
+  StringCat(*dst, tmp);
+  return extra + 1;
+}
+
+/* Same, for a double-quoted attribute: the quote included, which
+   cat_html_escaped() leaves raw for the single-quoted tooltips. */
+static hts_boolean cat_attr_escaped_char(String *dst, char c) {
+  if (c == '\"') {
+    StringCat(*dst, "&#34;");
+    return HTS_TRUE;
+  }
+  return cat_html_escaped(dst, c);
+}
+
+/* Append value escaped for a double-quoted HTML attribute. */
+static void cat_attr_escaped(String *dst, const char *value) {
+  const char *a;
+
+  for (a = value; *a != '\0'; a++) {
+    if (!cat_attr_escaped_char(dst, *a)) {
+      StringMemcat(*dst, a, 1);
+    }
+  }
+}
+
+/* Append value escaped for a single-quoted JS literal inside a double-quoted
+   HTML attribute. Every escape is a \xNN group, so the only bytes it adds are
+   '\', 'x' and hex digits: nothing the attribute decode can expand back into a
+   quote, and no lone '\' for a DBCS trail byte to swallow. */
+static void cat_js_escaped(String *dst, const char *value) {
+  const char *a;
+
+  for (a = value; *a != '\0'; a++) {
+    char tmp[8];
+
+    switch (*a) {
+    case '\\':
+    case '\'':
+    case '\"':
+    case '&':
+    case '<':
+    case '>':
+      break;
+    default:
+      if ((unsigned char) *a >= 32) {
+        StringMemcat(*dst, a, 1);
+        continue;
+      }
+      break;
+    }
+    snprintf(tmp, sizeof(tmp), "\\x%02x", (unsigned char) *a);
+    StringCat(*dst, tmp);
+  }
+}
+
+/* Append LEN bytes of the value of a double-quoted command-line argument:
+   escaped for HTML, which the browser undoes when it posts the command line
+   back, and for the argv splitter, which does not. */
+static void cat_cmdline_argn(String *output, const char *value, size_t len) {
+  String escaped = STRING_EMPTY;
+  size_t i;
+
+  /* the HTML escape leaves the argument escapes alone, so they compose */
+  hts_escape_arg(&escaped, value, len);
+  for (i = 0; i < StringLength(escaped); i++) {
+    const char c = StringBuff(escaped)[i];
+
+    if (!cat_html_escaped(output, c)) {
+      StringMemcat(*output, &c, 1);
+    }
+  }
+  StringFree(escaped);
+}
+
+/* see cat_cmdline_argn() */
+static void cat_cmdline_arg(String *output, const char *value) {
+  cat_cmdline_argn(output, value, strlen(value));
+}
+
+/* Append FLAG "<rule>" once per rule in VALUE, the way the engine takes the
+   options it accumulates: one flag per rule. Any whitespace separates two
+   rules, as it separates two URLs in the wizard's URL box, except beside a ','
+   or '=' where it belongs to the rule the parser trims it out of. */
+static void cat_cmdline_arglist(String *output, const char *value,
+                                const char *flag) {
+  /* isspace()'s C-locale set, so a rules box splits the same here and in the
+     Android app, whose Java \s covers \v and \f too. */
+  static const char *const ws = " \t\r\n\v\f";
+  const char *p = value + strspn(value, ws);
+  hts_boolean first = HTS_TRUE;
+
+  while (*p != '\0') {
+    hts_boolean more = HTS_TRUE;
+
+    if (!first) {
+      StringCat(*output, "\n\t");
+    }
+    StringCat(*output, flag);
+    StringCat(*output, " \"");
+    first = HTS_FALSE;
+    while (more) {
+      const size_t len = strcspn(p, ws);
+      const char *const next = p + len + strspn(p + len, ws);
+
+      cat_cmdline_argn(output, p, len);
+      more = *next != '\0' &&
+                     (*next == ',' || *next == '=' ||
+                      (len != 0 && (p[len - 1] == ',' || p[len - 1] == '=')))
+                 ? HTS_TRUE
+                 : HTS_FALSE;
+      p = next;
+    }
+    StringCat(*output, "\"");
+  }
+}
+
+/* Close the value of a ${liststr:} entry, marking it selected when it equals
+   the selected value. Both are attribute-escaped. */
+static void cat_liststr_close(String *output, const String *item,
+                              const String *selected) {
+  StringCat(*output,
+            StringNotEmpty(*selected) &&
+                    strcmp(StringBuff(*item), StringBuff(*selected)) == 0
+                ? "\" selected>"
+                : "\">");
+}
+
+/* Append one <select> entry, unless its id is the hidden one. Ids reach
+   winprofile.ini one lower, so hiding one must not renumber the rest. */
+static void cat_list_option(String *output, const char *label, int id,
+                            int listDefault, int listHidden) {
+  char tag[48];
+
+  if (id == listHidden) {
+    return;
+  }
+  snprintf(tag, sizeof(tag), "<option value=%d%s>", id,
+           id == listDefault ? " selected" : "");
+  StringCat(*output, tag);
+  StringCat(*output, label);
+  StringCat(*output, "</option>\r\n");
+}
+
+/* step4.html writes these keys as ${ztest:<var>:0:1}; a cleared checkbox is
+   empty in session state, so only they need the 0-to-empty inverse here. */
+static const char *const ini_checkbox_keys[] = {
+    "Near",
+    "Test",
+    "ParseAll",
+    "HTMLFirst",
+    "Cache",
+    "NoRecatch",
+    "Index",
+    "WordIndex",
+    "Log",
+    "DebugMode",
+    "RemoveTimeout",
+    "RemoveRateout",
+    "KeepAlive",
+    "NoErrorPages",
+    "NoExternalPages",
+    "NoPwdInPages",
+    "NoQueryStrings",
+    "NoPurgeOldFiles",
+    "Cookies",
+    "ParseJava",
+    "HTTP10",
+    "TolerantRequests",
+    "UpdateHack",
+    "URLHack",
+    "KeepWww",
+    "KeepSlashes",
+    "KeepQueryOrder",
+    "StoreAllInCache",
+    "Sitemap",
+    "Warc",
+    "WarcCdx",
+    "Wacz",
+    "Changes",
+    "SingleFile",
+    "UseHTTPProxyForFTP",
+    /* Not a ${ztest:} key, but its HTTP entry is the empty one and
+       option10.html already reads 0 as that entry. */
+    "ProxyType",
+    NULL,
+};
+
+/* These hold a ${listid:} id, numbered from 1; winprofile.ini stores the
+   0-based combo index WinHTTrack writes instead. A file with no ProfileFormat
+   key is WinHTTrack's own, so it is read that way too (#1314). The name says
+   list; what membership marks is that shift, and ProxyType's ordinal already
+   agrees, so it stays out. */
+static const char *const ini_list_keys[] = {
+    "CurrentAction", "Build",     "PrimaryScan",     "Travel",  "GlobalTravel",
+    "RewriteLinks",  "CheckType", "FollowRobotsTxt", "LogType", NULL,
+};
+
+static hts_boolean ini_key_in(const char *const *keys, const char *key) {
+  size_t i;
+
+  for (i = 0; keys[i] != NULL; i++) {
+    if (strcmp(key, keys[i]) == 0)
+      return HTS_TRUE;
+  }
+  return HTS_FALSE;
+}
+
+/* A stored 0 means "unchecked" for these keys, not the number zero. */
+static hts_boolean ini_key_is_checkbox(const char *key) {
+  return ini_key_in(ini_checkbox_keys, key);
+}
+
+static hts_boolean ini_key_is_list(const char *key) {
+  return ini_key_in(ini_list_keys, key);
+}
+
+/* A value typed under a cleared checkbox: step4.html's command block reads
+   these as <value>_eff, so the flag goes and the stored value stays. */
+static const struct {
+  const char *value;
+  const char *gate;
+} ini_gated_values[] = {
+    /* clang-format off */
+    {"sitemapurl", "sitemap"},
+    {"warcfile", "warc"},
+    {"warcmaxsize", "warc"},
+    {"warccdx", "warc"},
+    {"singlefilemax", "singlefile"},
+    {NULL, NULL},
+    /* clang-format on */
+};
+
+/* The session value NAME holds, or "" when it is unset. */
+static const char *ini_value_of(const char *name) {
+  intptr_t adr = 0;
+
+  return coucal_readptr(NewLangList, name, &adr) && adr != 0
+             ? (const char *) adr
+             : "";
+}
+
+/* Publish each gated value as <value>_eff, empty unless its gate is on. Empty
+   is off for ${test:} too, so a flag and its gate cannot disagree. */
+static void ini_publish_gated_values(void) {
+  size_t i;
+
+  for (i = 0; ini_gated_values[i].value != NULL; i++) {
+    const hts_boolean on = *ini_value_of(ini_gated_values[i].gate) != '\0';
+    char name[64];
+
+    snprintf(name, sizeof(name), "%s_eff", ini_gated_values[i].value);
+    coucal_write(
+        NewLangList, name,
+        (intptr_t) strdup(on ? ini_value_of(ini_gated_values[i].value) : ""));
+  }
+}
+
+/* The first LEN bytes of VALUE shifted by DELTA, or -1 to leave it alone. An
+   empty, hand-edited or out-of-range id means whatever the reader makes of it.
+   So does 0, which already reads as the first entry on both sides. */
+static int ini_list_shift(const char *value, size_t len, int delta) {
+  char digits[16];
+  char *end;
+  long id;
+
+  if (len == 0 || len >= sizeof(digits))
+    return -1;
+  memcpy(digits, value, len);
+  digits[len] = '\0';
+  id = strtol(digits, &end, 10);
+  if (*end != '\0' || id < 0 || id > INT_MAX - 1)
+    return -1;
+  return (int) id + delta;
+}
+
+/* Copy INI to OUT with the ids of ini_list_keys shifted by DELTA, so what
+   reaches the file is the 0-based index WinHTTrack reads (#1314). */
+static void ini_rebase_lists(const char *ini, int delta, String *out) {
+  const hts_span all = hts_span_of(ini);
+  const char *cur;
+  hts_span line, key, value;
+
+  StringClear(*out);
+  for (cur = all.p; hts_span_next(&cur, all.p + all.len, '\n', &line);) {
+    char name[64];
+    char shifted[16];
+    int id = -1;
+
+    if (hts_span_split(line, '=', &key, &value)) {
+      /* Trim the CRs a textarea posts. */
+      value = hts_span_trim(value, "", "\r");
+      if (hts_span_copy(key, name, sizeof(name)) && ini_key_is_list(name))
+        id = ini_list_shift(value.p, value.len, delta);
+    }
+    /* Each line keeps its own CRs and newline, which [line.p, cur) holds. */
+    if (id >= 0) {
+      snprintf(shifted, sizeof(shifted), "%d", id);
+      StringMemcat(*out, line.p, key.len + 1);
+      StringCat(*out, shifted);
+      StringMemcat(*out, value.p + value.len,
+                   (size_t) (cur - (value.p + value.len)));
+    } else {
+      StringMemcat(*out, line.p, (size_t) (cur - line.p));
+    }
+  }
+}
+
+/* gmtime accepts the whole int range, where a footer can show four digits and
+   the tm_year + 1900 of a year past INT_MAX - 1900 overflows. */
+static hts_boolean tm_year_is_printable(const struct tm *tm) {
+  return tm->tm_year >= -1900 && tm->tm_year <= 8099 ? HTS_TRUE : HTS_FALSE;
+}
+
+/* Make *buf, of *size bytes, hold len bytes and a NUL. len is at most
+   SMALLSERVER_BODY_MAX + 1, so len + 1 cannot wrap. */
+static hts_boolean grow_buffer(char **buf, size_t *size, size_t len) {
+  char *grown;
+
+  if (len < *size)
+    return HTS_TRUE;
+  grown = (char *) realloct(*buf, len + 1);
+  if (grown == NULL)
+    return HTS_FALSE;
+  *buf = grown;
+  *size = len + 1;
+  return HTS_TRUE;
+}
+
+int smallserver(T_SOC soc, char *url, char *method, char *data, char *path) {
+  int timeout = 30;
+  int retour = 0;
+  int willexit = 0;
+  size_t buffer_size = SMALLSERVER_BUFFER_SIZE;
+  char *buffer = (char *) malloct(buffer_size);
+  String headers = STRING_EMPTY;
+  String output = STRING_EMPTY;
+  String tmpbuff = STRING_EMPTY;
+  String tmpbuff2 = STRING_EMPTY;
+  String fspath = STRING_EMPTY;
+  String profile = STRING_EMPTY;
+  /* Project directory this server set up; the only root /website/ serves from,
+     and deliberately not cleared between requests. */
+  String website = STRING_EMPTY;
+  hts_boolean path_from_cmdline;
+  char catbuff[CATBUFF_SIZE];
+
+  /* Not at bind time: the launcher prints the URL the moment smallserver_init
+     returns, and a stalled resolver would hold that line back. */
+  collect_self_names(soc);
+
+  /* Load strings */
+  htslang_init();
+  /* A non-empty command-line path outranks the default and httrack.ini's. */
+  {
+    intptr_t adr = 0;
+
+    path_from_cmdline = coucal_readptr(NewLangList, "path", &adr) &&
+                        strnotempty((const char *) adr);
+  }
+  if (!htslang_load(NULL, 0, path)) {
+    fprintf(stderr, "unable to find lang.def and/or lang/ strings in %s\n",
+            path);
+    freet(buffer);
+    return 0;
+  }
+  LANG_T(path, 0);
+
+  /* Init various values */
+  {
+    char pth[1024];
+
+    /* Field names only: a profile-key seed here is copied back over a box the
+       user cleared, by step2.html's ${do:copy}. */
+    const char *initOn[] = {"cache",   "ka",        "cookies", "logf",
+                            "ftpprox", "parsejava", "testall", "updhack",
+                            "urlhack", "index",     NULL};
+    const initIntElt initInt[] = {
+      {"filter", 4},
+      {"travel", 2},
+      {"travel2", 1},
+      {"travel3", 1},
+      /* */
+      {"connexion", 4},
+      /* */
+      {"maxrate", 100000},
+      /* */
+      {"build", 1},
+      /* */
+      {"checktype", 2},
+      {"robots", 3},
+
+      {NULL, 0}
+    };
+    initStrElt initStr[] = {{"user", HTS_DEFAULT_USER_AGENT},
+                            {"footer", HTS_DEFAULT_FOOTER},
+                            {"url2",
+                             "+*.png +*.gif +*.jpg +*.jpeg +*.webp +*.avif "
+                             "+*.svg +*.css +*.js +*.woff2 +*.woff +*.ttf "
+                             "+*.otf +*.mp4 +*.webm "
+                             "-ad.doubleclick.net/* -mime:application/foobar"},
+                            {NULL, NULL}};
+    int i = 0;
+
+    for(i = 0; initInt[i].name; i++) {
+      char tmp[32];
+
+      sprintf(tmp, "%d", initInt[i].value);
+      coucal_write(NewLangList, initInt[i].name, (intptr_t) strdup(tmp));
+    }
+    for(i = 0; initOn[i]; i++) {
+      coucal_write(NewLangList, initOn[i], (intptr_t) strdup("1"));    /* "on" */
+    }
+    for(i = 0; initStr[i].name; i++) {
+      coucal_write(NewLangList, initStr[i].name,
+                    (intptr_t) strdup(initStr[i].value));
+    }
+    if (!path_from_cmdline) {
+      strcpybuff(pth, gethomedir());
+      strcatbuff(pth, "/websites");
+      coucal_write(NewLangList, "path", (intptr_t) strdupt(pth));
+    }
+  }
+  load_ui_settings();
+
+  /* Lock */
+  webhttrack_lock();
+
+  // connexion (accept)
+  while(!willexit && buffer != NULL && soc != INVALID_SOCKET) {
+    char line1[1024];
+    char line[8192];
+    char line2[1024];
+    T_SOC soc_c;
+    LLint length = 0;
+    const char *error_redirect = NULL;
+    /* Why the request was refused, for the error page; NULL until it is. */
+    const char *denied = NULL;
+    /* The theme an authenticated body posted, or empty. */
+    char posted_theme[THEME_NAME_MAX + 1] = "";
+    const char *denied_status = "403 Forbidden";
+    /* A Content-length we cannot read as a size refuses the body. */
+    hts_boolean bad_length = HTS_FALSE;
+    /* The request proved it holds the session id. */
+    hts_boolean authed = HTS_FALSE;
+    char origin[256];
+    char host[256];
+
+    line[0] = '\0';
+    buffer[0] = '\0';
+    origin[0] = '\0';
+    host[0] = '\0';
+    StringClear(headers);
+    StringClear(output);
+    StringClear(tmpbuff);
+    StringClear(tmpbuff2);
+    StringClear(fspath);
+    StringCat(headers, "");
+    StringCat(output, "");
+    StringCat(tmpbuff, "");
+    StringCat(tmpbuff2, "");
+    StringCat(fspath, "");
+
+    /* UnLock */
+    webhttrack_release();
+
+    /* sigpipe */
+#ifndef _WIN32
+    signal(SIGPIPE, sig_brpipe);
+#endif
+
+    /* Accept */
+    while((soc_c = (T_SOC) accept(soc, NULL, NULL)) == INVALID_SOCKET) ;
+
+    /* Ping */
+    client_event(SMALLSERVER_CLIENT_REQUEST, NULL);
+
+    /* Lock */
+    webhttrack_lock();
+
+    if (linputsoc_t(soc_c, line1, sizeof(line1) - 2, timeout) > 0) {
+      int meth = 0;
+      /* meth is rewritten later, so HEAD needs its own flag */
+      hts_boolean is_head = HTS_FALSE;
+
+      if (strfield(line1, "get ")) {
+        meth = 1;
+      } else if (strfield(line1, "post ")) {
+        meth = 2;
+      } else if (strfield(line1, "head ")) {    /* yes, we can do that */
+        meth = 10;
+        is_head = HTS_TRUE;
+      } else {
+#ifdef _DEBUG
+#endif
+      }
+      if (meth) {
+        /* Flush headers */
+        length = -1;
+        while(linputsoc_t(soc_c, line, sizeof(line) - 2, timeout) > 0) {
+          int p;
+
+          if ((p = strfield(line, "Content-length:")) != 0) {
+            const char *a = line + p;
+
+            if (hts_scan_llint(&a, 0, INT64_MAX, &length) != HTS_SCAN_OK) {
+              length = -1;
+              bad_length = HTS_TRUE;
+            }
+          } else if ((p = strfield(line, "Accept-language:")) != 0) {
+            char tmp[32];
+            char *s = line + p;
+
+            /*int l; */
+            s += strspn(s, " ");
+            tmp[0] = '\0';
+            strncatbuff(tmp, s, 2);
+            /*l = LANG_SEARCH(path, tmp); */
+          } else if ((p = strfield(line, "Origin:")) != 0) {
+            copy_header_value(origin, sizeof(origin), line + p);
+          } else if ((p = strfield(line, "Host:")) != 0) {
+            /* A repeated header keeps the last value. Safe only because we are
+               loopback-direct: behind a proxy honouring the first, the two
+               would disagree. */
+            copy_header_value(host, sizeof(host), line + p);
+          }
+        }
+        if (meth == 2) {
+          /* With no length, one byte read past the cap shows an overrun. */
+          const size_t want =
+              length < 0 ? SMALLSERVER_BODY_MAX + 1 : (size_t) length;
+          int sz = 0;
+          hts_boolean too_large = length > (LLint) SMALLSERVER_BODY_MAX;
+
+          if (bad_length) {
+            meth = 0;
+            denied_status = "400 Bad Request";
+            denied = "Invalid Content-length.";
+          } else if (too_large || !grow_buffer(&buffer, &buffer_size, want)) {
+            too_large = HTS_TRUE;
+          } else if (want > 0 &&
+                     (sz = recv_bl(soc_c, buffer, want, timeout)) < 0) {
+            meth = 0;
+          } else if ((size_t) sz > SMALLSERVER_BODY_MAX) {
+            too_large = HTS_TRUE;
+          } else {
+            buffer[sz] = '\0';
+          }
+          if (too_large) {
+            meth = 0;
+            denied_status = "413 Payload Too Large";
+            denied = "Request body too large.";
+          }
+        }
+      }
+
+      /* Generated variables */
+      if (commandEnd && !commandReturnSet) {
+        commandReturnSet = 1;
+        if (commandReturn) {
+          char tmp[32];
+
+          sprintf(tmp, "%d", commandReturn);
+          coucal_write(NewLangList, "commandReturn", (intptr_t) strdup(tmp));
+          /* copies: the table frees its values, the crawl thread the originals
+           */
+          coucal_write(
+              NewLangList, "commandReturnMsg",
+              (intptr_t) (commandReturnMsg ? strdupt(commandReturnMsg) : NULL));
+          coucal_write(NewLangList, "commandReturnCmdl",
+                       (intptr_t) (commandReturnCmdl
+                                       ? strdupt(commandReturnCmdl)
+                                       : NULL));
+        } else {
+          coucal_write(NewLangList, "commandReturn", (intptr_t) NULL);
+          coucal_write(NewLangList, "commandReturnMsg", (intptr_t) NULL);
+          coucal_write(NewLangList, "commandReturnCmdl", (intptr_t) NULL);
+        }
+      }
+
+      /* SID check */
+      {
+        intptr_t adr = 0;
+
+        if (coucal_readptr(NewLangList, "_sid", &adr)) {
+          if (coucal_write
+              (NewLangList, "sid", (intptr_t) strdup((char *) adr))) {
+          }
+        }
+      }
+
+      /* Every method, not just POST: a GET hands out the session id. An absent
+         Host is allowed, since only a non-browser client omits it. */
+      if (meth && host[0] != '\0' && !host_is_self(host, server_bound_addr)) {
+        buffer[0] = '\0';
+        meth = 0;
+        denied = "Foreign Host header.";
+      }
+
+      /* CSP stops a mirrored page reading /server/, not posting to it blind:
+         a no-cors POST still runs the command. Origin is browser-set and script
+         cannot forge it. Absent is allowed, most non-browser clients send none.
+       */
+      if (meth == 2 && origin[0] != '\0' && !origin_is_self(origin, host)) {
+        buffer[0] = '\0';
+        meth = 0;
+        denied = "Foreign origin.";
+      }
+
+      /* Authenticate the body before parsing it: every field it carries is
+         written straight into the global key store below, "command" included,
+         and that one reaches the engine. Checking afterwards cannot work — the
+         damage is already done, and the pre-seeded "sid" above would compare
+         equal to itself for a request that simply omits the field. */
+      if (meth && buffer[0]) {
+        intptr_t expected = 0;
+
+        if (!coucal_readptr(NewLangList, "_sid", &expected) ||
+            !body_sid_is_valid(buffer, (const char *) expected)) {
+          buffer[0] = '\0';
+          meth = 0;
+          denied = "Missing or invalid session id.";
+        } else {
+          authed = HTS_TRUE;
+        }
+      }
+
+      /* check variables */
+      if (meth && buffer[0]) {
+        const char *cur = buffer;
+        hts_query_field f;
+        browserlogin_post login;
+
+        memset(&login, 0, sizeof(login));
+        /* A field without '=' has no value to store, so it is skipped. */
+        while (hts_query_next(&cur, &f)) {
+          if (f.val != NULL) {
+            char *const key = buffer + (f.key - buffer);
+            const char *ua = key + f.keylen + 1;
+            String sua = STRING_EMPTY;
+
+            /* Both ends are a separator or the NUL, already walked past. */
+            key[f.keylen] = '\0';
+            key[f.len] = '\0';
+            if (strfield2(ua, "on")) /* hack : "on" == 1 */
+              ua = "1";
+            hts_unescapehttp(ua, &sua);
+            /* Not stored: ini files fill the same table. */
+            if (strcmp(key, "uitheme") == 0) {
+              posted_theme[0] = '\0';
+              if (StringNotEmpty(sua) && StringLength(sua) <= THEME_NAME_MAX) {
+                strcpybuff(posted_theme, StringBuff(sua));
+              }
+              StringFree(sua);
+            } else if (!browserlogin_field(&login, key, &sua)) {
+              coucal_write(NewLangList, key, (intptr_t) StringAcquire(&sua));
+            }
+          }
+        }
+        if (meth == 2 && login.action[0] != '\0')
+          browserlogin_run(&login);
+        browserlogin_free(&login);
+      }
+
+      /* Check variables (internal) */
+      if (meth) {
+        int doLoad = 0;
+        intptr_t adr = 0;
+
+        if (coucal_readptr(NewLangList, "lang", &adr)) {
+          int n = 0;
+
+          if (sscanf((char *) adr, "%d", &n) == 1 && n > 0
+              && n - 1 != LANG_T(path, -1)) {
+            LANG_T(path, n - 1);
+            /* make a backup, because the GUI will override it */
+            coucal_write(NewLangList, "lang_",
+                          (intptr_t) strdup((char *) adr));
+          }
+        }
+
+        /* Only a change counts: the menu shows Classic while the chosen theme
+           is missing, and posting that back must not forget the choice. */
+        if (posted_theme[0] != '\0' &&
+            strcmp(posted_theme, effective_theme(path)) != 0 &&
+            (strcmp(posted_theme, THEME_CLASSIC) == 0 ||
+             theme_exists(path, posted_theme))) {
+          set_ui_theme(posted_theme);
+        }
+
+        /* Load existing project settings */
+        if (coucal_readptr(NewLangList, "loadprojname", &adr)) {
+          char *pname = (char *) adr;
+
+          if (*pname) {
+            coucal_write(NewLangList, "projname", (intptr_t) strdup(pname));
+          }
+          coucal_write(NewLangList, "loadprojname", (intptr_t) NULL);
+          doLoad = 1;
+        } else if (coucal_readptr(NewLangList, "loadprojcateg", &adr)) {
+          char *pname = (char *) adr;
+
+          if (*pname) {
+            coucal_write(NewLangList, "projcateg", (intptr_t) strdup(pname));
+          }
+          coucal_write(NewLangList, "loadprojcateg", (intptr_t) NULL);
+        }
+
+        /* intial configuration */
+        {
+          if (!coucal_read(NewLangList, "conf_file_loaded", NULL)) {
+            coucal_write(NewLangList, "conf_file_loaded",
+                          (intptr_t) strdup("true"));
+            doLoad = 2;
+          }
+        }
+
+        /* path : <path>/<project> */
+        if (!commandRunning) {
+          intptr_t adrpath = 0, adrprojname = 0;
+
+          if (coucal_readptr(NewLangList, "path", &adrpath)
+              && coucal_readptr(NewLangList, "projname", &adrprojname)) {
+            StringClear(fspath);
+            StringCat(fspath, (char *) adrpath);
+            StringCat(fspath, "/");
+            StringCat(fspath, (char *) adrprojname);
+          }
+        }
+
+        /* Load existing project settings */
+        if (doLoad) {
+          FILE *fp;
+
+          if (doLoad == 1) {
+            StringCat(fspath, "/hts-cache/winprofile.ini");
+          } else if (doLoad == 2) {
+            StringCopy(fspath, gethomedir());
+#ifdef _WIN32
+            StringCat(fspath, "/httrack.ini");
+#else
+            StringCat(fspath, "/.httrack.ini");
+#endif
+          }
+          /* fspath is two posted fields: a ".." would read a file outside the
+             mirror into the form. */
+          if (hts_path_is_contained(StringBuff(fspath))) {
+            fp = fopen(StringBuff(fspath), "rb");
+          } else {
+            fp = NULL;
+          }
+          if (fp) {
+            String sline = STRING_EMPTY;
+
+            /* Read file */
+            while (!feof(fp) && !ferror(fp)) {
+              char *entry;
+              char *pos;
+
+              /* a clipped value is not the saved one: keep the default */
+              if (hts_readline_alloc(fp, &sline, HTS_READLINE_ALLOC_MAX,
+                                     HTS_LINES_SERVER)) {
+                fprintf(stderr, "%s: line too long, ignored\n",
+                        StringBuff(fspath));
+                continue;
+              }
+              entry = StringBuffRW(sline);
+              pos = strchr(entry, '=');
+              if (pos) {
+                String escline = STRING_EMPTY;
+                char listid[16];
+
+                *pos++ = '\0';
+                /* Keep the command-line path over the saved one. */
+                if (doLoad == 2 && path_from_cmdline &&
+                    strcmp(entry, "path") == 0)
+                  continue;
+                /* Only a checkbox: elsewhere zero is the user's value, and
+                   emptying it silently restores the wizard default (#1177). */
+                if (pos[0] == '0' && pos[1] == '\0' &&
+                    ini_key_is_checkbox(entry))
+                  *pos = '\0';
+                if (ini_key_is_list(entry)) {
+                  const int id = ini_list_shift(pos, strlen(pos), 1);
+
+                  if (id >= 0) {
+                    snprintf(listid, sizeof(listid), "%d", id);
+                    pos = listid;
+                  }
+                }
+                /* A key in the file overwrites the default even when it is
+                   empty, and an acquired NULL reads back as absent (#1186). */
+                StringClear(escline);
+                hts_unescapeini(pos, &escline);
+                coucal_write(NewLangList, entry,
+                             (intptr_t) StringAcquire(&escline));
+              }
+            }
+
+            StringFree(sline);
+            fclose(fp);
+          }
+        }
+
+      }
+
+      /* Execute command */
+      {
+        intptr_t adr = 0;
+        int p = 0;
+
+        if (coucal_readptr(NewLangList, "command", &adr)) {
+          if (strcmp((char *) adr, "cancel") == 0) {
+            if (global_opt != NULL) {
+              if (!commandEndRequested) {
+                commandEndRequested = 1;
+                hts_request_stop(global_opt, 0);
+              } else {
+                /* a second press stops now, keeping the resume data */
+                hts_request_stop(global_opt, 1);
+                commandEndRequested = 2;        /* will break the loop() callback */
+              }
+            }
+          } else if ((p = strfield((char *) adr, "cancel-file="))) {
+            if (global_opt != NULL) {
+              hts_cancel_file_push(global_opt, (char *) adr + p);
+            }
+          } else if (strcmp((char *) adr, "cancel-parsing") == 0) {
+            if (global_opt != NULL) {
+              hts_cancel_parsing(global_opt);
+            }
+          } else if ((p = strfield((char *) adr, "pause="))) {
+            if (global_opt != NULL) {
+              hts_setpause(global_opt, 1);
+            }
+          } else if ((p = strfield((char *) adr, "unpause"))) {
+            if (global_opt != NULL) {
+              hts_setpause(global_opt, 0);
+            }
+          } else if (strcmp((char *) adr, "abort") == 0) {
+            if (global_opt != NULL) {
+              hts_request_stop(global_opt, 1);
+              commandEndRequested = 2;  /* will break the loop() callback */
+            }
+          } else if ((p = strfield((char *) adr, "add-url="))) {
+            if (global_opt != NULL) {
+              char *ptraddr[2];
+
+              ptraddr[0] = (char *) adr + p;
+              ptraddr[1] = NULL;
+              hts_addurl(global_opt, ptraddr);
+            }
+          } else if ((p = strfield((char *) adr, "set-filters="))) {
+            if (global_opt != NULL) {
+              setfilters_from_text(global_opt, (char *) adr + p);
+            }
+          } else if ((p = strfield((char *) adr, "add-filter="))) {
+            if (global_opt != NULL) {
+              hts_addfilter(global_opt, (char *) adr + p);
+            }
+          } else if ((p = strfield((char *) adr, "httrack"))) {
+            if (!commandRunning) {
+              intptr_t adrcd = 0;
+
+              if (coucal_readptr(NewLangList, "command_do", &adrcd)) {
+                intptr_t adrw = 0;
+
+                if (coucal_readptr(NewLangList, "winprofile", &adrw)) {
+
+                  /* User general profile */
+                  intptr_t adruserprofile = 0;
+
+                  if (coucal_readptr
+                      (NewLangList, "userprofile", &adruserprofile)
+                      && adruserprofile != 0) {
+                    int count = (int) strlen((char *) adruserprofile);
+
+                    if (count > 0) {
+                      FILE *fp;
+
+                      StringClear(tmpbuff);
+                      StringCopy(tmpbuff, gethomedir());
+#ifdef _WIN32
+                      StringCat(tmpbuff, "/httrack.ini");
+#else
+                      StringCat(tmpbuff, "/.httrack.ini");
+#endif
+                      fp = fopen(StringBuff(tmpbuff), "wb");
+                      if (fp != NULL) {
+                        (void) hts_fwrite_exact((const char *) adruserprofile,
+                                                (size_t) count, fp);
+                        fclose(fp);
+                      }
+                    }
+                  }
+
+                  /* Profile */
+                  StringClear(tmpbuff);
+                  StringCat(tmpbuff, StringBuff(fspath));
+                  StringCat(tmpbuff, "/hts-cache/");
+
+                  /* Create the structure, unless a ".." component in either
+                     posted half would put it outside the named directory. */
+                  if (!hts_path_is_contained(StringBuff(fspath))) {
+                    SET_ERRORF("Project path escapes its parent directory: %s",
+                               StringBuff(fspath));
+                  } else if (!structcheck(StringBuff(tmpbuff))) {
+                    FILE *fp;
+
+                    StringCopy(website, StringBuff(fspath));
+                    StringCat(tmpbuff, "winprofile.ini");
+                    /* owner-only: the profile may hold proxy credentials */
+                    fp = hts_fopen_private(StringBuff(tmpbuff), "wb");
+                    if (fp != NULL) {
+                      int count;
+
+                      /* The ids leave 0-based, matching how WinHTTrack stores
+                         them and this server reads them back (#1314). */
+                      ini_rebase_lists((char *) adrw, -1, &profile);
+                      count = (int) StringLength(profile);
+                      if (hts_fwrite_exact(StringBuff(profile), (size_t) count,
+                                           fp)) {
+
+                        /* Wipe the doit.log file, useless here (all options are replicated) and
+                           even a bit annoying (duplicate/ghost options)
+                           The behaviour is exactly the same as in WinHTTrack
+                         */
+                        StringClear(tmpbuff);
+                        StringCat(tmpbuff, StringBuff(fspath));
+                        StringCat(tmpbuff, "/hts-cache/doit.log");
+                        remove(StringBuff(tmpbuff));
+
+                        /*
+                           RUN THE SERVER
+                         */
+                        if (strcmp((char *) adrcd, "start") == 0) {
+                          /* The pages declare utf-8, so the POST body is
+                             already the utf-8 argv the engine wants (#629). */
+                          webhttrack_main((char *) adr + p);
+                        } else {
+                          hts_store_release_int(&commandRunning, 0);
+                          commandEnd = 1;
+                        }
+                      } else {
+                        SET_ERRORF(
+                            "Unable to write %d bytes in the the init file %s",
+                            count, StringBuff(fspath));
+                      }
+                      fclose(fp);
+                    } else {
+                      SET_ERRORF("Unable to create the init file %s",
+                                 StringBuff(fspath));
+                    }
+                  } else {
+                    SET_ERRORF("Unable to create the directory structure in %s",
+                               StringBuff(fspath));
+                  }
+
+                } else {
+                  SET_ERROR
+                    ("Internal server error: unable to fetch project name or path");
+                }
+              }
+            }
+          } else if (strcmp((char *) adr, "quit") == 0) {
+            willexit = 1;
+          }
+          coucal_write(NewLangList, "command", (intptr_t) NULL);
+        }
+      }
+
+      /* Response */
+      if (meth) {
+        hts_boolean virtualpath = HTS_FALSE;
+        hts_boolean overridden;
+        char *pos;
+        char *url = strchr(line1, ' ');
+
+        if (url && *++url == '/' && (pos = strchr(url, ' ')) && !(*pos = '\0')) {
+          char fsfile[1024];
+          const char *file;
+          const char *query = "";
+          FILE *fp;
+          char *qpos;
+
+          /* get the URL */
+          fsfile[0] = '\0';
+          if (error_redirect == NULL) {
+            if ((qpos = strchr(url, '?'))) {
+              *qpos = '\0';
+              query = qpos + 1;
+            }
+            if (strcmp(url, "/") == 0) {
+              file = "/server/index.html";
+              meth = 2;
+            } else {
+              file = url;
+            }
+          } else {
+            file = error_redirect;
+            meth = 2;
+          }
+
+          virtualpath = strncmp(file, "/website/", 9) == 0;
+
+          /* The documentation, the About box and the mirror stay reachable
+             throughout a run; only the wizard panes follow it (#1444). */
+          if (is_html(file) && is_wizard_pane(file)) {
+            if (commandRunning) {
+              file = "/server/refresh.html";
+            } else if (commandEnd && !willexit) {
+              file = "/server/finished.html";
+            }
+          }
+
+          /* user.css and the user's themes override the shipped files */
+          overridden =
+              !virtualpath &&
+              (strcmp(file, "/server/user.css") == 0
+                   ? find_user_stylesheet(fsfile, sizeof(fsfile))
+                   : find_user_theme_file(fsfile, sizeof(fsfile), file));
+          if (!virtualpath && !overridden) {
+            if (!path_append(fsfile, sizeof(fsfile), path) ||
+                !path_append(fsfile, sizeof(fsfile), "html") ||
+                !path_append(fsfile, sizeof(fsfile), file)) {
+              fsfile[0] = '\0';
+            }
+          } else if (virtualpath && StringNotEmpty(website)) {
+            /* Never the posted "projpath": a client root reads any file. */
+            if (!path_append(fsfile, sizeof(fsfile), StringBuff(website)) ||
+                !path_append(fsfile, sizeof(fsfile), "/") ||
+                !path_append(fsfile, sizeof(fsfile), file + 9)) {
+              fsfile[0] = '\0';
+            }
+          }
+
+          /* theme.css is generated below. A theme holds styles and assets, so
+             HTML in one is refused, not expanded with the session id. */
+          if (!virtualpath && (strcmp(file, "/server/theme.css") == 0 ||
+                               (is_theme_url(file) && is_html(file)))) {
+            fsfile[0] = '\0';
+          }
+
+          /* Regular files only: reading a directory or FIFO never ends, and
+             "path" may hold "..", so only the untrusted halves are checked. */
+          if (fsfile[0] && strstr(file, "..") == NULL && fexist(fsfile) &&
+              (fp = fopen(fsfile, "rb"))) {
+            char ok[] =
+              "HTTP/1.0 200 OK\r\n" "Connection: close\r\n"
+              "Server: httrack-small-server\r\n" "Content-type: text/html\r\n"
+              "Cache-Control: no-cache, must-revalidate, private\r\n"
+              "Pragma: no-cache\r\n";
+            char ok_other[] = "HTTP/1.0 200 OK\r\n"
+                              "Connection: close\r\n"
+                              "Server: httrack small server\r\n"
+                              "Content-type: ";
+
+            /* register current page */
+            coucal_write(NewLangList, "thisfile", (intptr_t) strdup(file));
+
+            /* Force GET for the last request */
+            if (meth == 2 && willexit) {
+              meth = 1;
+            }
+
+            /* posted data are redirected to get protocol */
+            if (meth == 2) {
+              char redir[] =
+                "HTTP/1.0 302 Redirect\r\n" "Connection: close\r\n"
+                "Server: httrack-small-server\r\n";
+              intptr_t adr = 0;
+              const char *newfile = file;
+
+              if (coucal_readptr(NewLangList, "redirect", &adr) && adr != 0) {
+                const char *newadr = (char *) adr;
+
+                if (*newadr) {
+                  newfile = newadr;
+                }
+              }
+              StringMemcat(headers, redir, strlen(redir));
+              /* client-supplied: a CR/LF here would split the response */
+              if (newfile[strcspn(newfile, "\r\n")] == '\0') {
+                StringCat(headers, "Location: ");
+                StringCat(headers, newfile);
+                StringCat(headers, "\r\n");
+              }
+              coucal_write(NewLangList, "redirect", (intptr_t) NULL);
+            } else if (!virtualpath && is_html(file)) {
+              /* GUI templates only: ${_sid} in a mirrored page would hand the
+                 crawled site the session id that authenticates commands */
+              int outputmode = 0;
+
+              ini_publish_gated_values();
+              StringMemcat(headers, ok, sizeof(ok) - 1);
+              while (!feof(fp) && !ferror(fp)) {
+                char *str = line;
+                size_t prevlen = StringLength(output);
+                int nocr = 0;
+
+                if (!linput(fp, line, sizeof(line) - 2)) {
+                  *str = '\0';
+                }
+                if (hts_lastchar(str) == '\\') {
+                  nocr = 1;
+                  hts_striplastchar(str, '\\');
+                }
+                while(*str) {
+                  char *pos;
+                  size_t n;
+
+                  if (*str == '$' && *++str == '{' && (pos = strchr(++str, '}'))
+                      && (n = (pos - str)) && n < 1024) {
+                    char name_[1024 + 2];
+                    char *name = name_;
+                    const char *langstr = NULL;
+                    int p;
+                    int format = 0;
+                    int listDefault = 0;
+                    int listHidden = 0; /* ids start at 1, so 0 hides none */
+                    /* ${liststr:} entry to mark selected, attribute-escaped */
+                    String listSelected = STRING_EMPTY;
+                    hts_boolean unquoted = HTS_FALSE;
+                    /* value comes from the template, not from the settings */
+                    hts_boolean literal = HTS_FALSE;
+                    /* value is UTF-8, so emit it as character references */
+                    hts_boolean needs_ncr = HTS_FALSE;
+                    /* ${listlabel:} entries are "value<TAB>label" */
+                    hts_boolean pairs = HTS_FALSE;
+                    hts_boolean in_label = HTS_FALSE;
+                    char datebuff[16];
+
+                    name[0] = '\0';
+                    strlncatbuff(name, str, sizeof(name_), n);
+
+                    if (strncmp(name, "/*", 2) == 0) {
+                      /* comments */
+                    } else if ((p = strfield(name, "html:"))) {
+                      name += p;
+                      format = 1;
+                    } else if ((p = strfield(name, "attr:"))) {
+                      name += p;
+                      format = 7;
+                      /* ${attr:acceptpreset:<browser>:<kind>} expands to the
+                         engine's Accept value, or to nothing. */
+                      if ((p = strfield(name, "acceptpreset:"))) {
+                        char *const colon = strchr(name + p, ':');
+                        const char *v;
+
+                        name += p;
+                        langstr = "";
+                        if (colon != NULL) {
+                          *colon = '\0';
+                          if ((v = hts_accept_preset(name, colon + 1)) != NULL)
+                            langstr = v;
+                        }
+                      }
+                    } else if ((p = strfield(name, "js:"))) {
+                      name += p;
+                      format = 6;
+                    } else if ((p = strfield(name, "unquoted:"))) {
+                      name += p;
+                      unquoted = HTS_TRUE;
+                    } else if ((p = strfield(name, "arg:"))) {
+                      name += p;
+                      format = 5;
+                    } else if ((p = strfield(name, "list:"))) {
+                      name += p;
+                      format = 2;
+                    } else if ((p = strfield(name, "liststr:")) ||
+                               (p = strfield(name, "listlabel:"))) {
+                      /* ${liststr:<var>:<key>} and ${listlabel:<var>:<key>}
+                         select the entry equal to <var>, as ${listid:} does */
+                      char *const colon = strchr(name + p, ':');
+
+                      pairs = strfield(name, "listlabel:") != 0;
+                      name += p;
+                      format = -2;
+                      if (colon != NULL) {
+                        intptr_t adr = 0;
+
+                        *colon = '\0';
+                        if (coucal_readptr(NewLangList, name, &adr)) {
+                          cat_attr_escaped(&listSelected, (const char *) adr);
+                        }
+                        name = colon + 1;
+                      }
+                    } else if ((p = strfield(name, "date:"))) {
+                      /* Expanded on each request, so the footer year cannot
+                         drift from the calendar the way a stamped one does
+                         (#1165). SOURCE_DATE_EPOCH pins it, so a test can ask
+                         for another year. */
+                      const char *epoch = getenv("SOURCE_DATE_EPOCH");
+                      struct tm tmv;
+                      hts_boolean ok = HTS_FALSE;
+
+                      name += p;
+                      format = 0;
+                      langstr = "";
+                      if (strcmp(name, "year") == 0) {
+                        if (epoch != NULL && *epoch) {
+                          char *end;
+                          const long long secs = strtoll(epoch, &end, 10);
+
+                          /* UTC, as the variable is defined; one that does not
+                             fit time_t would narrow into an unrelated date */
+                          if (*end == '\0' && secs >= 0 &&
+                              secs == (long long) (time_t) secs)
+                            ok = hts_gmtime((time_t) secs, &tmv) &&
+                                 tm_year_is_printable(&tmv);
+                        }
+                        /* an override we cannot use falls back to the clock: a
+                           footer reading 1998-1970 is worse than an ignored
+                           override */
+                        if (!ok)
+                          ok = hts_localtime(time(NULL), &tmv) &&
+                               tm_year_is_printable(&tmv);
+                        if (ok) {
+                          /* four digits, as test 185 exempts date: from the
+                             escaping it demands of runtime data */
+                          snprintf(datebuff, sizeof(datebuff), "%04d",
+                                   tmv.tm_year + 1900);
+                          langstr = datebuff;
+                        }
+                      }
+                    } else if ((p = strfield(name, "file-exists:"))) {
+                      char *pos2;
+
+                      name += p;
+                      format = 0;
+                      literal = HTS_TRUE;
+                      pos2 = strchr(name, ':');
+                      langstr = "";
+                      if (pos2 != NULL) {
+                        *pos2 = '\0';
+                        if (strstr(name, "..") == NULL) {
+                          if (fexist(fconcat(catbuff, sizeof(catbuff), path, name))) {
+                            langstr = pos2 + 1;
+                          }
+                        }
+                      }
+                    } else if ((p = strfield(name, "do:"))) {
+                      char *pos2;
+                      char empty[2] = "";
+
+                      name += p;
+                      format = 1;
+                      pos2 = strchr(name, ':');
+                      langstr = "";
+                      if (pos2 != NULL) {
+                        *pos2 = '\0';
+                        pos2++;
+                      } else {
+                        pos2 = empty;
+                      }
+                      if (strcmp(name, "output-mode") == 0) {
+                        if (strcmp(pos2, "html") == 0) {
+                          outputmode = 1;
+                        } else if (strcmp(pos2, "inifile") == 0) {
+                          outputmode = 2;
+                        } else if (strcmp(pos2, "html-urlescaped") == 0) {
+                          outputmode = 3;
+                        } else {
+                          outputmode = 0;
+                        }
+                      } else if (strcmp(name, "if-file-exists") == 0) {
+                        if (strstr(pos2, "..") == NULL) {
+                          if (!fexist(fconcat(catbuff, sizeof(catbuff), path, pos2))) {
+                            outputmode = -1;
+                          }
+                        }
+                      } else if (strcmp(name, "if-project-file-exists") == 0) {
+                        if (strstr(pos2, "..") == NULL) {
+                          if (!fexist
+                              (fconcat(catbuff, sizeof(catbuff), StringBuff(fspath), pos2))) {
+                            outputmode = -1;
+                          }
+                        }
+                      } else if (strcmp(name, "if-file-do-not-exists") == 0) {
+                        if (strstr(pos2, "..") == NULL) {
+                          if (fexist(fconcat(catbuff, sizeof(catbuff), path, pos2))) {
+                            outputmode = -1;
+                          }
+                        }
+                      } else if (strcmp(name, "if-not-empty") == 0) {
+                        intptr_t adr = 0;
+
+                        if (!coucal_readptr(NewLangList, pos2, &adr)
+                            || *((char *) adr) == 0) {
+                          outputmode = -1;
+                        }
+                      } else if (strcmp(name, "if-empty") == 0) {
+                        intptr_t adr = 0;
+
+                        if (coucal_readptr(NewLangList, pos2, &adr)
+                            && *((char *) adr) != 0) {
+                          outputmode = -1;
+                        }
+                      } else if (strcmp(name, "if-not-accept-kind") == 0) {
+                        intptr_t adr = 0;
+
+                        if (coucal_readptr(NewLangList, pos2, &adr) &&
+                            adr != 0 && names_accept_kind((char *) adr)) {
+                          outputmode = -1;
+                        }
+                      } else if (strcmp(name, "end-if") == 0) {
+                        outputmode = 0;
+                      } else if (strcmp(name, "loadthemes") == 0) {
+                        coucal_write(NewLangList, "uithemes",
+                                     (intptr_t) list_themes(path));
+                        coucal_write(NewLangList, "uitheme_shown",
+                                     (intptr_t) strdupt(effective_theme(path)));
+                      } else if (strcmp(name, "loadhash") == 0) {
+                        intptr_t adr = 0;
+
+                        if (coucal_readptr(NewLangList, "path", &adr)) {
+                          char *rpath = (char *) adr;
+
+                          //find_handle h;
+                          /* note: patching stored (inhash) value */
+                          hts_striplastchar(rpath, '/');
+                          {
+                            const char *profiles = hts_getcategories(rpath, 0);
+                            const char *categ = hts_getcategories(rpath, 1);
+
+                            coucal_write(NewLangList, "winprofile",
+                                          (intptr_t) profiles);
+                            coucal_write(NewLangList, "wincateg",
+                                          (intptr_t) categ);
+                          }
+                        }
+                      } else if (strcmp(name, "copy") == 0) {
+                        if (*pos2) {
+                          char *pos3 = strchr(pos2, ':');
+
+                          if (pos3 && *(pos3 + 1)) {
+                            intptr_t adr = 0;
+
+                            *pos3++ = '\0';
+                            if (coucal_readptr(NewLangList, pos2, &adr)) {
+                              coucal_write(NewLangList, pos3,
+                                            (intptr_t) strdup((char *) adr));
+                              coucal_write(NewLangList, pos2, (intptr_t) NULL);
+                            }
+                          }
+                        }
+                      } else if (strcmp(name, "set") == 0) {
+                        if (*pos2) {
+                          char *pos3 = strchr(pos2, ':');
+
+                          if (pos3) {
+                            *pos3++ = '\0';
+                            coucal_write(NewLangList, pos2,
+                                          (intptr_t) strdup(pos3));
+                          } else {
+                            coucal_write(NewLangList, pos2, (intptr_t) NULL);
+                          }
+                        }
+                      }
+                    }
+                    /* arglist:<field>:<flag>
+                       one "<flag> "rule"" per non-empty line of the field */
+                    else if ((p = strfield(name, "arglist:"))) {
+                      char *pos2;
+
+                      langstr = "";
+                      literal = HTS_TRUE;
+                      name += p;
+                      pos2 = strchr(name, ':');
+                      if (pos2 != NULL && outputmode != -1) {
+                        intptr_t adr = 0;
+
+                        *pos2 = '\0';
+                        if (coucal_readptr(NewLangList, name, &adr) &&
+                            adr != 0) {
+                          cat_cmdline_arglist(&output, (const char *) adr,
+                                              pos2 + 1);
+                        }
+                      }
+                    }
+                    /*
+                       test:<if exist>
+                       test:<if ==0>:<if ==1>:<if == 2>..
+                       ztest:<if == 0 || !exist>:<if == 1>:<if == 2>..
+                     */
+                    else if ((p = strfield(name, "test:")) ||
+                             (p = strfield(name, "ztest:"))) {
+                      intptr_t adr = 0;
+                      char *pos2;
+                      int ztest = (name[0] == 'z');
+
+                      langstr = "";
+                      literal = HTS_TRUE;
+                      name += p;
+                      pos2 = strchr(name, ':');
+                      if (pos2 != NULL) {
+                        *pos2 = '\0';
+                        if (coucal_readptr(NewLangList, name, &adr) || ztest) {
+                          const char *newadr = (char *) adr;
+
+                          if (!newadr)
+                            newadr = "";
+                          if (*newadr || ztest) {
+                            int npos = 0;
+
+                            name = pos2 + 1;
+                            format = 4;
+                            if (strchr(name, ':') == NULL) {
+                              npos = 0; /* first is good if only one : */
+                              format = 0;
+                            } else {
+                              if (sscanf(newadr, "%d", &npos) != 1) {
+                                if (strfield(newadr, "on")) {
+                                  npos = 1;
+                                } else {
+                                  npos = 0;     /* first one will be ok */
+                                  format = 0;
+                                }
+                              }
+                            }
+                            while(*name && *name != '}' && npos >= 0) {
+                              int end = 0;
+                              char *fpos = strchr(name, ':');
+                              int n2;
+
+                              if (fpos == NULL) {
+                                fpos = name + strlen(name);
+                                end = 1;
+                              }
+                              n2 = (int) (fpos - name);
+                              if (npos == 0) {
+                                langstr = name;
+                                *fpos = '\0';
+                              } else if (end) {
+                                npos = 0;
+                              }
+                              name += n2 + 1;
+                              npos--;
+                            }
+                          }
+                        }
+                      }
+                    } else if ((p = strfield(name, "listid:"))) {
+                      char *pos2;
+
+                      name += p;
+                      format = 2;
+                      pos2 = strchr(name, ':');
+                      if (pos2) {
+                        char dname[32];
+                        int n2 = (int) (pos2 - name);
+
+                        if (n2 > 0 && (size_t) n2 < sizeof(dname) - 2) {
+                          intptr_t adr = 0;
+
+                          dname[0] = '\0';
+                          strncatbuff(dname, name, n2);
+                          if (coucal_readptr(NewLangList, dname, &adr)) {
+                            int n = 0;
+
+                            if (sscanf((char *) adr, "%d", &n) == 1) {
+                              listDefault = n;
+                            }
+                          }
+                          name += n2 + 1;
+                        }
+                      }
+                      /* ${listid:<var>:<key>:<id>}: <id> is an entry this front
+                         end cannot serve and must not offer. */
+                      pos2 = strrchr(name, ':');
+                      if (pos2 != NULL && pos2[1] != '\0' &&
+                          strspn(pos2 + 1, "0123456789") == strlen(pos2 + 1)) {
+                        listHidden = atoi(pos2 + 1);
+                        *pos2 = '\0';
+                      }
+                    } else if ((p = strfield(name, "checked:"))) {
+                      name += p;
+                      format = 3;
+                    }
+                    if (langstr == NULL) {
+                      if (strfield2(name, "#iso")) {
+                        langstr = line2;
+                        line2[0] = '\0';
+                        LANG_LIST(path, line2, sizeof(line2));
+                        assertf(strlen(langstr) < sizeof(line2) - 2);
+                        needs_ncr = HTS_TRUE;
+                      } else {
+                        langstr = LANGSEL(name);
+                        if (langstr == NULL || *langstr == '\0') {
+                          intptr_t adr = 0;
+
+                          if (coucal_readptr(NewLangList, name, &adr)) {
+                            char *newadr = (char *) adr;
+
+                            langstr = newadr;
+                          }
+                        }
+                      }
+                    }
+                    /* consumed here: it shares nothing with the list and
+                       option formats below */
+                    if (format == 5 && langstr != NULL && outputmode != -1) {
+                      cat_cmdline_arg(&output, langstr);
+                      langstr = NULL;
+                    }
+                    if (langstr && outputmode != -1) {
+                      switch (format) {
+                      case 0:
+                        {
+                          const char *a = langstr;
+
+                          while(*a) {
+                            /* the ini writer has no inverse for it, so a lone
+                               backslash in a settings value must stay one */
+                            if (literal && a[0] == '\\' && isxdigit(a[1]) &&
+                                isxdigit(a[2])) {
+                              int n;
+                              char c;
+
+                              if (sscanf(a + 1, "%x", &n) == 1) {
+                                c = (char) n;
+                                StringMemcat(output, &c, 1);
+                              }
+                              a += 2;
+                            } else if ((unquoted || outputmode == 3) &&
+                                       a[0] == '\"') {
+                              /* an entity decodes back to a quote, which opens
+                                 a quoted run in the argv splitter or ends the
+                                 attribute the URL sits in; no URI holds one */
+                              StringCat(output, "%22");
+                            } else if (outputmode &&
+                                       cat_html_escaped(&output, a[0])) {
+                              /* appended as an entity */
+                            } else if (outputmode == 3 && a[0] == ' ') {
+                              StringCat(output, "%20");
+                            } else if (outputmode >= 2 &&
+                                       ((unsigned char) a[0]) < 32) {
+                              char tmp[32];
+
+                              sprintf(tmp, "%%%02x", (unsigned char) a[0]);
+                              StringCat(output, tmp);
+                            } else if (outputmode == 2 && a[0] == '%') {
+                              StringCat(output, "%%");
+                            } else if (outputmode == 3 && a[0] == '%') {
+                              StringCat(output, "%25");
+                            } else {
+                              StringMemcat(output, a, 1);
+                            }
+                            a++;
+                          }
+                        }
+                        break;
+                      case 3:
+                        if (*langstr) {
+                          StringCat(output, "checked");
+                        }
+                        break;
+                      case 6:
+                        cat_js_escaped(&output, langstr);
+                        break;
+                      case 7:
+                        cat_attr_escaped(&output, langstr);
+                        break;
+                      default:
+                        if (*langstr) {
+                          int id = 1;
+                          size_t used;
+                          const char *fstr = langstr;
+
+                          StringClear(tmpbuff);
+                          if (format == -2) {
+                            StringCat(output, "<option value=\"");
+                          }
+                          while(*fstr) {
+                            switch (*fstr) {
+                            case 13:
+                              break;
+                            case 10:
+                              if (format == 1) {
+                                StringCat(output, StringBuff(tmpbuff));
+                                StringCat(output, "<br>\r\n");
+                              } else if (format == -2) {
+                                StringCat(output, StringBuff(tmpbuff));
+                                if (!in_label) {
+                                  cat_liststr_close(&output, &tmpbuff,
+                                                    &listSelected);
+                                  StringCat(output, StringBuff(tmpbuff));
+                                }
+                                in_label = HTS_FALSE;
+                                StringCat(output, "</option>\r\n");
+                                StringCat(output, "<option value=\"");
+                              } else {
+                                cat_list_option(&output, StringBuff(tmpbuff),
+                                                id++, listDefault, listHidden);
+                              }
+                              StringClear(tmpbuff);
+                              break;
+                            case 9:
+                              if (pairs && !in_label) {
+                                StringCat(output, StringBuff(tmpbuff));
+                                cat_liststr_close(&output, &tmpbuff,
+                                                  &listSelected);
+                                StringClear(tmpbuff);
+                                in_label = HTS_TRUE;
+                                break;
+                              }
+                              HTS_FALLTHROUGH;
+                            default:
+                              if (needs_ncr &&
+                                  (used = cat_html_ncr(&tmpbuff, fstr)) != 0) {
+                                /* the loop's own fstr++ takes the last byte */
+                                fstr += used - 1;
+                                break;
+                              }
+                              /* format -2 writes its value into the option's
+                                 value="" as well, so the quote must go too */
+                              if (!(format == -2
+                                        ? cat_attr_escaped_char(&tmpbuff, *fstr)
+                                        : cat_html_escaped(&tmpbuff, *fstr))) {
+                                StringMemcat(tmpbuff, fstr, 1);
+                              }
+                              break;
+                            }
+                            fstr++;
+                          }
+                          if (format == 2) {
+                            cat_list_option(&output, StringBuff(tmpbuff), id,
+                                            listDefault, listHidden);
+                          } else if (format == -2) {
+                            StringCat(output, StringBuff(tmpbuff));
+                            if (!in_label) {
+                              cat_liststr_close(&output, &tmpbuff,
+                                                &listSelected);
+                              StringCat(output, StringBuff(tmpbuff));
+                            }
+                            StringCat(output, "</option>");
+                          } else {
+                            StringCat(output, StringBuff(tmpbuff));
+                          }
+                          StringClear(tmpbuff);
+                        }
+                      }
+                    }
+                    StringFree(listSelected);
+                    str = pos;
+                  } else {
+                    if (outputmode != -1) {
+                      StringMemcat(output, str, 1);
+                    }
+                  }
+                  str++;
+                }
+                if (!nocr && prevlen != StringLength(output)) {
+                  StringCat(output, "\r\n");
+                }
+              }
+#ifdef _DEBUG
+              {
+                int len = (int) strlen((char *) StringBuff(output));
+
+                assert(len == (int) StringLength(output));
+              }
+#endif
+            } else {
+              if (is_html(file)) {
+                StringMemcat(headers, ok, sizeof(ok) - 1);
+              } else {
+                const char *const type = server_content_type(file);
+
+                StringMemcat(headers, ok_other, sizeof(ok_other) - 1);
+                StringCat(headers,
+                          type != NULL ? type : "application/octet-stream");
+                StringCat(headers, "\r\n");
+              }
+              if (virtualpath) {
+                /* No allow-same-origin: an opaque origin keeps script in a
+                   crawled page from reading the session id out of /server/ */
+                StringCat(headers, "Content-Security-Policy: sandbox "
+                                   "allow-scripts allow-forms allow-popups "
+                                   "allow-downloads\r\n");
+              }
+              while(!feof(fp)) {
+                int n = (int) fread(line, 1, sizeof(line) - 2, fp);
+
+                if (n <= 0) {
+                  break; /* short read: EOF or error, never a retry */
+                }
+                StringMemcat(output, line, n);
+              }
+            }
+            fclose(fp);
+          } else if (!virtualpath && strcmp(file, "/server/theme.css") == 0) {
+            /* An import keeps the theme's relative URLs relative to its own
+               folder. Not cached, so a switch shows on the next page. */
+            const char *const theme = effective_theme(path);
+
+            StringCat(headers, "HTTP/1.0 200 OK\r\n"
+                               "Server: httrack small server\r\n"
+                               "Content-type: text/css\r\n"
+                               "Cache-Control: no-cache, must-revalidate, "
+                               "private\r\n"
+                               "Pragma: no-cache\r\n");
+            if (strcmp(theme, THEME_CLASSIC) != 0) {
+              StringCat(output, "@import url(themes/");
+              StringCat(output, theme);
+              StringCat(output, "/theme.css);\n");
+            }
+          } else if (strcmp(file, "/ping") == 0) {
+            /* A cached heartbeat would never reach us again, and silence is
+               what the watchdog reads as a dead window. */
+            char error_hdr[] =
+                "HTTP/1.0 200 Pong\r\n"
+                "Server: httrack small server\r\n"
+                "Content-type: text/html\r\n"
+                "Cache-Control: no-cache, must-revalidate, private\r\n"
+                "Pragma: no-cache\r\n";
+
+            char window[SMALLSERVER_WINDOW_ID_MAX + 1];
+
+            StringCat(headers, error_hdr);
+            if (query_alnum_value(window, sizeof(window), query, "w")) {
+              char verb[SMALLSERVER_WINDOW_ID_MAX + 1];
+
+              /* Ending a session is a command, so it carries the session id
+                 like every other one. A heartbeat can only extend a life, and
+                 any local peer or visited page can send one of those. */
+              client_event(
+                  authed && query_alnum_value(verb, sizeof(verb), query, "e") &&
+                          strcmp(verb, "bye") == 0
+                      ? SMALLSERVER_CLIENT_LEAVING
+                      : SMALLSERVER_CLIENT_PING,
+                  window);
+            }
+          } else {
+            char error_hdr[] =
+              "HTTP/1.0 404 Not Found\r\n" "Server: httrack small server\r\n"
+              "Content-type: text/html\r\n";
+            char error[] = "Page not found.\r\n";
+
+            StringCat(headers, error_hdr);
+            StringCat(output, error);
+          }
+        }
+      } else if (denied != NULL) {
+        StringCat(headers, "HTTP/1.0 ");
+        StringCat(headers, denied_status);
+        StringCat(headers, "\r\n"
+                           "Server: httrack small server\r\n"
+                           "Content-type: text/html\r\n");
+        StringCat(output, denied);
+        StringCat(output, "\r\n");
+      } else {
+#ifdef _DEBUG
+        char error_hdr[] =
+          "HTTP/1.0 500 Server Error\r\n" "Server: httrack small server\r\n"
+          "Content-type: text/html\r\n";
+        char error[] = "Server error.\r\n";
+
+        StringCat(headers, error_hdr);
+        StringCat(output, error);
+#endif
+      }
+      {
+        char tmp[256];
+
+        sprintf(tmp, "Content-length: %d\r\n", (int) StringLength(output));
+        StringCat(headers, tmp);
+      }
+      StringCat(headers, "\r\n");
+      /* Only HEAD omits the body that Content-length announces. */
+      if (send_all(soc_c, StringBuff(headers), StringLength(headers)) &&
+          !is_head) {
+        (void) send_all(soc_c, StringBuff(output), StringLength(output));
+      }
+    } else {
+#ifdef _DEBUG
+#endif
+    }
+
+    /* Shutdown (FIN) and wait until confirmed */
+    {
+      char c[1024];
+
+#ifdef _WIN32
+      shutdown(soc_c, SD_SEND);
+#else
+      shutdown(soc_c, 1);
+#endif
+      /* IE may send a CRLF after the POST data, and a refused body is unread */
+      while (recv(soc_c, c, sizeof(c), 0) > 0)
+        ;
+    }
+
+#ifdef _WIN32
+    closesocket(soc_c);
+#else
+    close(soc_c);
+#endif
+
+    /* One large post must not pin its buffer for the life of the server. */
+    if (buffer_size > SMALLSERVER_BUFFER_SIZE) {
+      char *const small = (char *) realloct(buffer, SMALLSERVER_BUFFER_SIZE);
+
+      if (small != NULL) {
+        buffer = small;
+        buffer_size = SMALLSERVER_BUFFER_SIZE;
+      }
+    }
+  }
+
+  if (soc != INVALID_SOCKET) {
+#ifdef _WIN32
+    closesocket(soc);
+#else
+    close(soc);
+#endif
+  }
+
+  /* Only the UI asking to quit is a clean stop; losing the socket or the buffer
+     is what the caller reports as a failure. */
+  retour = willexit;
+
+  StringFree(headers);
+  StringFree(output);
+  StringFree(tmpbuff);
+  StringFree(tmpbuff2);
+  StringFree(fspath);
+  StringFree(profile);
+  StringFree(website);
+
+  freet(buffer);
+
+  if (commandReturnMsg)
+    free(commandReturnMsg);
+  commandReturnMsg = NULL;
+  if (commandReturnCmdl)
+    free(commandReturnCmdl);
+  commandReturnCmdl = NULL;
+
+  /* Unlock */
+  webhttrack_release();
+
+  return retour;
+}
+
+/* Language files */
+
+int htslang_init(void) {
+  if (NewLangList == NULL) {
+    NewLangList = coucal_new(0);
+    coucal_set_name(NewLangList, "NewLangList");
+    if (NewLangList == NULL) {
+      abortLog("Error in lang.h: not enough memory");
+    } else {
+      coucal_value_is_malloc(NewLangList, 1);
+    }
+  }
+  return 1;
+}
+
+void smallserver_setpinghandler(void (*fun)(void *, smallserver_client_event,
+                                            const char *),
+                                void *arg) {
+  pingFun = fun;
+  pingFunArg = arg;
+}
+
+int smallserver_setkey(const char *key, const char *value) {
+  return coucal_write(NewLangList, key, (intptr_t) strdup(value));
+}
+
+int smallserver_setkeyint(const char *key, LLint value) {
+  char tmp[256];
+
+  snprintf(tmp, sizeof(tmp), LLintP, value);
+  return coucal_write(NewLangList, key, (intptr_t) strdup(tmp));
+}
+int smallserver_setkeyarr(const char *key, int id, const char *key2, const char *value) {
+  char tmp[256];
+
+  snprintf(tmp, sizeof(tmp), "%s%d%s", key, id, key2);
+  return coucal_write(NewLangList, tmp, (intptr_t) strdup(value));
+}
+
+/* Read one key and value pair of a lang file into key and value, each of size
+   bytes. Returns HTS_FALSE when either line was cut, so the caller skips the
+   pair, and the next pair still lines up. */
+static hts_boolean lang_read_pair(FILE *fp, char *key, char *value,
+                                  size_t size) {
+  const hts_boolean key_cut = hts_readline_cpp(fp, key, size, HTS_LINES_SERVER);
+  const hts_boolean value_cut =
+      hts_readline_cpp(fp, value, size, HTS_LINES_SERVER);
+
+  if (key_cut || value_cut) {
+    fprintf(stderr, "lang: line too long, ignored\n");
+    return HTS_FALSE;
+  }
+  return HTS_TRUE;
+}
+
+/* Is this catalog key a symbol rather than English text from lang.def? */
+static hts_boolean lang_is_symbol(const char *key) {
+  return !strnotempty(LANGINTKEY(key)) &&
+         (strncmp(key, "LANG_", 5) == 0 || strncmp(key, "LISTDEF_", 8) == 0);
+}
+
+/* One pass over a catalog, taking either its symbol-keyed or its text-keyed
+   lines. The English fallback pass only fills strings still missing. */
+static void lang_load_catalog(FILE *fp, hts_boolean fallback,
+                              hts_boolean symbols) {
+  char extkey[8192];
+  char value[8192];
+
+  rewind(fp);
+  while (!feof(fp)) {
+    const char *intkey;
+
+    if (!lang_read_pair(fp, extkey, value, 8000) || !strnotempty(extkey) ||
+        !strnotempty(value) || lang_is_symbol(extkey) != symbols)
+      continue;
+    if (symbols) {
+      if (strnotempty(LANGSEL(extkey)))
+        continue;
+      intkey = extkey;
+    } else {
+      intkey = LANGINTKEY(extkey);
+      if (!strnotempty(intkey))
+        continue;
+      if (strnotempty(LANGSEL(intkey))) {
+        /* Repeated English text: lang.def keys its Nth copy as text + N. */
+        const size_t pos = strlen(extkey);
+        int increment = 0;
+
+        if (fallback)
+          continue;
+        do {
+          increment++;
+          snprintf(extkey + pos, sizeof(extkey) - pos, "%d", increment);
+          intkey = LANGINTKEY(extkey);
+        } while (strnotempty(intkey) && strnotempty(LANGSEL(intkey)));
+        if (!strnotempty(intkey))
+          continue;
+      }
+    }
+    {
+      char *const buff = malloct(strlen(value) + 1);
+
+      if (buff) {
+        conv_printf(value, buff);
+        coucal_add(NewLangStr, intkey, (intptr_t) buff);
+      }
+    }
+  }
+}
+
+/* Format "lang/<hashname>.txt" into dst, where hashname is the catalog name
+   lang.def gave this language. Refuses an empty name, one carrying a separator
+   or "..", and one too long for dst. */
+static HTS_CHECK_RESULT hts_boolean lang_catalog_path(char *dst, size_t size,
+                                                      const char *hashname) {
+  if (!strnotempty(hashname) || strpbrk(hashname, "/\\") != NULL ||
+      strstr(hashname, "..") != NULL) {
+    return HTS_FALSE;
+  }
+  return slprintfbuff(dst, size, "lang/%s.txt", hashname);
+}
+
+static int htslang_load(char *limit_to, size_t limit_size, const char *path) {
+  const char *hashname;
+  char catbuff[CATBUFF_SIZE];
+
+  //
+  int selected_lang = LANG_T(path, -1);
+
+  //
+  if (!limit_to) {
+    LANG_DELETE();
+    NewLangStr = coucal_new(0);
+    NewLangStrKeys = coucal_new(0);
+    coucal_set_name(NewLangStr, "NewLangStr");
+    coucal_set_name(NewLangStrKeys, "NewLangStrKeys");
+    if ((NewLangStr == NULL) || (NewLangStrKeys == NULL)) {
+      abortLog("Error in lang.h: not enough memory");
+    } else {
+      coucal_value_is_malloc(NewLangStr, 1);
+      coucal_value_is_malloc(NewLangStrKeys, 1);
+    }
+  }
+
+  /* Load master file (list of keys and internal keys) */
+  if (!limit_to) {
+    const char *mname = "lang.def";
+    FILE *fp = fopen(fconcat(catbuff, sizeof(catbuff), path, mname), "rb");
+
+    if (fp) {
+      char intkey[8192];
+      char key[8192];
+
+      while(!feof(fp)) {
+        if (!lang_read_pair(fp, intkey, key, 8000))
+          continue;
+        if (strnotempty(intkey) && strnotempty(key)) {
+          const char *test = LANGINTKEY(key);
+
+          /* Increment for multiple definitions */
+          if (strnotempty(test)) {
+            int increment = 0;
+            size_t pos = strlen(key);
+
+            do {
+              increment++;
+              sprintf(key + pos, "%d", increment);
+              test = LANGINTKEY(key);
+            } while(strnotempty(test));
+          }
+
+          if (!strnotempty(test)) { // éviter doublons
+            const size_t len = strlen(intkey);
+            char *const buff = (char *) malloc(len + 1);
+
+            if (buff) {
+              strlcpybuff(buff, intkey, len + 1);
+              coucal_add(NewLangStrKeys, key, (intptr_t) buff);
+            }
+          }
+        }                       // if
+      }                         // while
+      fclose(fp);
+    } else {
+      return 0;
+    }
+  }
+
+  /* Language Name? */
+  {
+    char name[256];
+
+    sprintf(name, "LANGUAGE_%d", selected_lang + 1);
+    hashname = LANGINTKEY(name);
+  }
+
+  /* Read the key named in limit_to from the selected catalog, not lang.def's
+     file name for it. Both come off disk, so every copy clips: the safe_
+     helpers abort, and a long line in a catalog must not kill the server. */
+  if (limit_to) {
+    char wanted[256];
+    char lbasename[1024]; /* the guard below writes it, so it outlives the if */
+
+    wanted[0] = '\0';
+    strlncatbuff(wanted, limit_to, sizeof(wanted), sizeof(wanted) - 1);
+    limit_to[0] = '\0';
+    /* Fallback: an empty result ends a caller's loop, so a catalog missing the
+       key must not look like the end of the list. */
+    if (hashname != NULL)
+      strlncatbuff(limit_to, hashname, limit_size, limit_size - 1);
+    if (limit_to[0] != '\0' &&
+        lang_catalog_path(lbasename, sizeof(lbasename), hashname)) {
+      FILE *fp;
+
+      fp = fopen(fconcat(catbuff, sizeof(catbuff), path, lbasename), "rb");
+      if (fp != NULL) {
+        char extkey[8192];
+        char value[8192];
+        hts_boolean found = HTS_FALSE;
+
+        while (!found && !feof(fp)) {
+          if (lang_read_pair(fp, extkey, value, 8000) &&
+              strcmp(extkey, wanted) == 0 && value[0] != '\0') {
+            limit_to[0] = '\0';
+            strlncatbuff(limit_to, value, limit_size, limit_size - 1);
+            found = HTS_TRUE;
+          }
+        }
+        fclose(fp);
+      }
+    }
+    return 0;
+  }
+
+  /* Error */
+  if (!hashname)
+    return 0;
+
+  /* Load specific language file */
+  {
+    int loops;
+
+    // 2nd loop: load undefined strings
+    for(loops = 0; loops < 2; loops++) {
+      FILE *fp;
+      char lbasename[1024];
+
+      {
+        char name[256];
+
+        sprintf(name, "LANGUAGE_%d", (loops == 0) ? (selected_lang + 1) : 1);
+        hashname = LANGINTKEY(name);
+      }
+      if (!lang_catalog_path(lbasename, sizeof(lbasename), hashname)) {
+        return 0;
+      }
+      fp = fopen(fconcat(catbuff, sizeof(catbuff), path, lbasename), "rb");
+      if (fp) {
+        /* Symbols go first so that a repeated text skips their slots. */
+        lang_load_catalog(fp, loops > 0, HTS_TRUE);
+        lang_load_catalog(fp, loops > 0, HTS_FALSE);
+        fclose(fp);
+      } else {
+        return 0;
+      }
+    }
+  }
+
+  // Control limit_to
+  if (limit_to)
+    limit_to[0] = '\0';
+
+  return 1;
+}
+
+/* NOTE : also contains the "webhttrack" hack */
+static void conv_printf(const char *from, char *to) {
+  int i = 0, j = 0, len;
+
+  len = (int) strlen(from);
+  while(i < len) {
+    switch (from[i]) {
+    case '\\':
+      i++;
+      switch (from[i]) {
+      case 'a':
+        to[j] = '\a';
+        break;
+      case 'b':
+        to[j] = '\b';
+        break;
+      case 'f':
+        to[j] = '\f';
+        break;
+      case 'n':
+        to[j] = '\n';
+        break;
+      case 'r':
+        to[j] = '\r';
+        break;
+      case 't':
+        to[j] = '\t';
+        break;
+      case 'v':
+        to[j] = '\v';
+        break;
+      case '\'':
+        to[j] = '\'';
+        break;
+      case '\"':
+        to[j] = '\"';
+        break;
+      case '\\':
+        to[j] = '\\';
+        break;
+      case '?':
+        to[j] = '\?';
+        break;
+      default:
+        to[j] = from[i];
+        break;
+      }
+      break;
+    default:
+      to[j] = from[i];
+      break;
+    }
+    i++;
+    j++;
+  }
+  to[j++] = '\0';
+  /* Dirty hack */
+  {
+    char *a = to;
+
+    while((a = strstr(a, "WinHTTrack"))) {
+      a[0] = 'W';
+      a[1] = 'e';
+      a[2] = 'b';
+      a++;
+    }
+  }
+  /* WinHTTrack's menus mark an accelerator with '&'; this panel renders it as
+     text, so Finnish read "O&hje". "&&" and "& " stay literal (#1444). */
+  {
+    char *r = to, *w = to;
+
+    while (*r != '\0') {
+      if (r[0] == '&' && (r[1] == '&' || (r[1] != '\0' && r[1] != ' ')))
+        r++;
+      *w++ = *r++;
+    }
+    *w = '\0';
+  }
+}
+
+static void LANG_DELETE(void) {
+  coucal_delete(&NewLangStr);
+  coucal_delete(&NewLangStrKeys);
+}
+
+// sélection de la langue
+static void LANG_INIT(const char *path) { LANG_T(path, 0); }
+
+static int LANG_T(const char *path, int l) {
+  if (l >= 0) {
+    QLANG_T(l);
+    htslang_load(NULL, 0, path);
+  }
+  return QLANG_T(-1);           // 0=default (english)
+}
+
+static int LANG_SEARCH(const char *path, const char *iso) {
+  char lang_str[1024];
+  int i = 0;
+  int curr_lng = LANG_T(path, -1);
+  int found = 0;
+
+  do {
+    QLANG_T(i);
+    strcpybuff(lang_str, "LANGUAGE_ISO");
+    htslang_load(lang_str, sizeof(lang_str), path);
+    if (strfield(iso, lang_str)) {
+      found = i;
+    }
+    i++;
+  } while(strlen(lang_str) > 0);
+  QLANG_T(curr_lng);
+  return found;
+}
+
+static int LANG_LIST(const char *path, char *buffer, size_t buffer_size) {
+  char lang_str[1024];
+  int i = 0;
+  int curr_lng = LANG_T(path, -1);
+
+  buffer[0] = '\0';
+  do {
+    QLANG_T(i);
+    strlcpybuff(lang_str, "LANGUAGE_NAME", sizeof(lang_str));
+    htslang_load(lang_str, sizeof(lang_str), path);
+    if (strlen(lang_str) > 0) {
+      if (buffer[0])
+        strlcatbuff(buffer, "\n", buffer_size);
+      strlcatbuff(buffer, lang_str, buffer_size);
+    }
+    i++;
+  } while(strlen(lang_str) > 0);
+  QLANG_T(curr_lng);
+  return i;
+}
+
+static int QLANG_T(int l) {
+  static int lng = 0;
+
+  if (l >= 0) {
+    lng = l;
+  }
+  return lng;                   // 0=default (english)
+}
+
+const char* LANGSEL(const char* name) {
+  coucal_value value;
+  if (NewLangStr != NULL 
+      && coucal_read_value(NewLangStr, name, &value) != 0
+      && value.ptr != NULL) {
+    return (char*) value.ptr;
+  } else {
+    return "";
+  }
+}
+
+const char* LANGINTKEY(const char* name) {
+  coucal_value value;
+  if (NewLangStrKeys != NULL
+      && coucal_read_value(NewLangStrKeys, name, &value) != 0
+      && value.ptr != NULL) {
+    return (char*) value.ptr;
+  } else {
+    return "";
+  }
+}
+
+/* *** Various functions *** */
+
+static int recv_bl(T_SOC soc, void *buffer, size_t len, int timeout) {
+  if (check_readinput_t(soc, timeout)) {
+    int n = 1;
+    size_t size = len;
+    size_t offs = 0;
+
+    while(n > 0 && size > 0) {
+      n = recv(soc, ((char *) buffer) + offs, (int) size, 0);
+      if (n > 0) {
+        offs += n;
+        size -= n;
+      }
+    }
+    return (int) offs;
+  }
+  return -1;
+}
+
+// check if data is available
+static int check_readinput(htsblk * r) {
+  if (r->soc != INVALID_SOCKET) {
+    fd_set fds;                 // poll structures
+    struct timeval tv;          // structure for select
+
+    FD_ZERO(&fds);
+    FD_SET(r->soc, &fds);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    select((int) r->soc + 1, &fds, NULL, NULL, &tv);
+    if (FD_ISSET(r->soc, &fds))
+      return 1;
+    else
+      return 0;
+  } else
+    return 0;
+}
+
+/*int strfield(const char* f,const char* s) {
+  int r=0;
+  while (streql(*f,*s) && ((*f)!=0) && ((*s)!=0)) { f++; s++; r++; }
+  if (*s==0)
+    return r;
+  else
+    return 0;
+}*/
+
+/* same, except + */

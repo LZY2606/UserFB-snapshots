@@ -1,0 +1,1130 @@
+LANGUAGE_NAME
+Română
+LANGUAGE_FILE
+Romanian
+LANGUAGE_ISO
+ro
+LANGUAGE_AUTHOR
+Alin Gheorghe Miron (miron.alin@personal.ro)
+LANGUAGE_WINDOWSID
+Romanian
+OK
+OK
+Cancel
+Anulează
+Exit
+Ieşire
+Close
+Închide
+Cancel changes
+Anulează schimbările
+Click to confirm
+Click pentru confirmare.
+Click to get help!
+Click pentru ajutor!
+Click to return to previous screen
+Click pentru revenire la fereastra precedentă
+Click to go to next screen
+Click pentru a trece la fereastra următoare!
+Hide password
+Ascunde parola
+Save project
+Salvează proiect
+Close current project?
+Închid proiectul curent?
+Delete this project?
+Şterg acest proiect?
+Delete empty project %s?
+Şterg proiectul gol %s?
+Action not yet implemented
+Funcţia nu este încă implementată
+Error deleting this project
+Eroare la ştergerea acestui proiect
+Select a rule for the filter
+Selectaţi o regulă pentru filtrare
+Enter keywords for the filter
+Introduceţi un cuvânt cheie pentru filtrare
+Cancel
+Anulare
+Add this rule
+Adaugă această regulă de filtrare
+Please enter one or several keyword(s) for the rule
+Introduceşi unul sau mai multe cuvinte cheie pentru regula de filtrare
+Add Scan Rule
+Adaugă o regulă de scanare
+Criterion
+Criteriu:
+String
+Cuvânt cheie
+Add
+Adaugă
+Scan Rules
+Reguli de scanare
+Use wildcards to exclude or include URLs or links.\nYou can put several scan strings on the same line.\nUse spaces as separators.\n\nExample: +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Folosiţi ? sau *pentru a exclude sau include URL-uri sau linkuri.\r\nPuteţi pune mai multe adrese pe aceeaşi linie.\r\nFolosiţi spaţiile ca separatori. \r\nExemplu +*.zip -www.*.com -www.*.edu/cgi-bin/*.cgi
+Exclude links
+Exclude link(uri)
+Include link(s)
+Include link(uri)
+Tip: To have ALL GIF files included, use something like +www.someweb.com/*.gif. \n(+*.gif / -*.gif will include/exclude ALL GIFs from ALL sites)
+Pentru a include toate fişierele GIF dintr-un singur site, folosiţi ceva de genul  +www.nume_site.com/*.gif.\r\n(+*.gif / -*.gif  va include/exclude toate fişierele GIF din toate siturile)
+Save prefs
+Salvează preferinţele
+Matching links will be excluded:
+Link-urile care se potrivesc acestei reguli vor fi excluse:
+Matching links will be included:
+Link-urile care se potrivesc acestei reguli vor fi incluse:
+Example:
+Exemplu:
+gif\r\nWill match all GIF files
+gif\r\nVa potrivi toate fişierele GIF
+blue\r\nWill find all files with a matching 'blue' sub-string such as 'bluesky-small.jpeg'
+blue\r\nVa găsi toate fişierele care conţin un subşir 'blue' cum ar fi  'bluesky-small.jpeg'
+bigfile.mov\r\nWill match the file 'bigfile.mov', but not 'bigfile2.mov'
+bigfile.mov\r\nVa detecta numai fişierul  'bigfile.mov', dar nu şi  'bigfile2.mov'
+cgi\r\nWill find links with folder name matching sub-string 'cgi' such as /cgi-bin/somecgi.cgi
+cgi\r\nVa găsi linkuri spre folderele în  numele  cărora  se găseşte subşirul "cgi" cum ar fi /cgi-bin/oricecgi.cgi
+cgi-bin\r\nWill find links with folder name matching whole 'cgi-bin' string (but not cgi-bin-2, for example)
+cgi-bin\r\nVa găsi linkuri spre folderele în  numele  cărora  se găseşte numai subşirul  'cgi-bin' (dar nu şi  cgi-bin-2, de exemplu)
+someweb.com\r\nWill find links with matching sub-string such as www.someweb.com, private.someweb.com etc.
+someweb.com\r\nVa găsi linkuri ce conţin acest subşir cum ar fi www.someweb.com, private.someweb.com etc.\r\n
+someweb\r\nWill find links with matching folder sub-string such as www.someweb.com, www.someweb.edu, private.someweb.otherweb.com etc.
+someweb\r\nVa găsi linkuri ce conţin acest subşir cum ar fi www.someweb.com,www.someweb.edu,private.someweb.otherweb.com etc.
+www.someweb.com\r\nWill find links matching whole 'www.someweb.com' sub-string (but not links such as private.someweb.com/..)
+www.someweb.com\r\nVa găsi linkurile care conţin tot subşirul 'www.someweb.com' ( dar nu şi linkuri de genul private.someweb.com/..)\r\n
+someweb\r\nWill find any links with matching sub-string such as www.someweb.com/.., www.test.abc/fromsomeweb/index.html, www.test.abc/test/someweb.html etc.
+someweb\r\nVa găsi orice link ce conţine subşirul dat, de exemplu: www.someweb.com/.., www.test.abc/fromsomeweb/index.html, www.test.abc/test/someweb.html etc.\r\n
+www.test.com/test/someweb.html\r\nWill only find the 'www.test.com/test/someweb.html' file. Note that you have to type the complete path (URL + site path)
+www.test.com/test/someweb.html\r\nVa găsi numai fişierul 'www.test.com/test/someweb.html' .Observaţi că trebuie să introduceţi calea completă (URL + site path)
+All links will match
+Toate linkurile vor fi căutate
+Add exclusion filter
+Adaugă filtru de excludere
+Add inclusion filter
+Adaugă un filtru de includere
+Existing filters
+Filtre existente
+Cancel changes
+Anulare schimbări
+Save current preferences as default values
+Salvează preferinţele curente ca valori implicite.
+Click to confirm
+Click pentru confirmare
+No log files in %s!
+Nu sunt fişiere jurnal (*.log) în %s!
+No 'index.html' file in %s!
+Nu există fişier "index.html" în %s!
+Click to quit WinHTTrack Website Copier
+Click pentru ieşire din WinHTTrack Website Copier
+View log files
+Vezi fişierul jurnal
+Browse HTML start page
+Răsfoieşte pagina HTML de start
+End of mirror
+Copiere terminată
+View log files
+Vezi fisierul jurnal (log)
+Browse Mirrored Website
+Răsfoieşte situl copiat.
+New project...
+Proiect nou...
+View error and warning reports
+Vezi raportul cu erori şi avertismente
+View report
+Vezi raportul
+Close the log file window
+Închide fereastra fişierului jurnal
+Info type:
+Tipul informaţiei
+Errors
+Erori
+Infos
+Informaţii
+Find
+Caută
+Find a word
+Caută un cuvânt
+Info log file
+Raportul copierii
+Warning/Errors log file
+Fişierul jurnal cu avertismente/erori
+Unable to initialize the OLE system
+Imposibil de iniţializat sistemul OLE
+WinHTTrack could not find any interrupted download file cache in the specified folder!
+WinHTTrack nu a putut găsi nici un fişier downloadat parţial, în folderul specificat !
+Could not connect to provider
+Nu mă pot conecta la furnizor
+receive
+recepţie
+request
+cerere
+connect
+conectare
+search
+căutare
+ready
+pregătit
+error
+eroare
+Receiving files..
+Recepţionez fişiere
+Parsing HTML file..
+Analizez link-urile din pagină
+Purging files..
+Curăţire fişiere
+Loading cache in progress..
+Încarcare cache în desfăşurare...
+Parsing HTML file (testing links)..
+Testarea link-urilor de pe pagină
+Pause - Toggle [Mirror]/[Pause download] to resume operation
+Pauză - selectati 'Suspendare download' din meniul 'Clonare' pentru a continua download-ul
+Finishing pending transfers - Select [Cancel] to stop now!
+Terminare transferuri curente - Selectaţi [Cancel] pentru a opri acum
+scanning
+scanare in progres
+Waiting for scheduled time..
+Aştept timpul programat pentru a continua...
+Transferring data..
+Transfer de date..
+Connecting to provider
+Mă conectez la furnizor
+[%d seconds] to go before start of operation
+Mai sunt (%d seconds) înainte de începerea operaţiei
+Site mirroring in progress [%s, %s bytes]
+Clonare sit în desfăşurare [%s %s octeţi]
+Site mirroring finished!
+Clonare site terminată!
+A problem occurred during the mirroring operation\n
+A survenit o eroare în timpul operaţiei de clonare
+\nDuring:\n
+\nDurează:\n
+\nSee the log file if necessary.\n\nClick FINISH to quit WinHTTrack Website Copier.\n\nThanks for using WinHTTrack!
+\nVezi jurnalul (log-ul)  dacă este necesar. \n\nClick TERMINARE pentru a ieşi din WinHTTrack Website Copier.\n\nVă mulţumim că folosiţi WinHTTrack!
+Mirroring operation complete.\nClick Exit to quit WinHTTrack.\nSee log file(s) if necessary to ensure that everything is OK.\n\nThanks for using WinHTTrack!
+Operaţia de clonare terminată. \nClick Ieşire pentru a părăsi WinHTTrack. \nVezi fişierele jurnal dacă este necesar, pentru a vă asigura că totul e OK. \n\nVă mulţumim că folosiţi WinHTTrack!
+* * MIRROR ERROR! * *\r\nHTTrack has detected that the current mirror is empty. If it was an update, the previous mirror has been restored.\r\nReason: the first page(s) either could not be found, or a connection problem occurred.\r\n=> Ensure that the website still exists, and/or check your proxy settings! <=
+* * EROARE CLONARE! * *\r\nHTTrack a detectat că, clona curentă este goală. Dacă a fost o actualizare, clona precedentă a fost restaurată.\r\nMotivul: Fie prima(ele) pagină(i) nu pot(ate) fi găsită(e), fie a intervenit o problemă de conectare.\r\n=>Asiguraţi-vă că situl există şi/sau verificaţi setările legate de proxy!<=
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+Mirroring operation stopped before the end.\nThe files already downloaded are kept.\nSee log file(s) if necessary.\n\nThanks for using WinHTTrack!
+\n\nTip: Click [View log file] to see warning or error messages
+\n\nSfat:Click [Vizualizează fişierul jurnal] pentru a vedea mesajele de avertizare sau eroare.
+Do you really want to quit WinHTTrack Website Copier?
+Chiar doriţi să părăsiţi WinHTTrack Website Copier?
+- Mirroring Mode -\n\nEnter address(es) in URL box
+- Faza de clonare (copiere automată) - \n\nIntroduceţi adresa(adresele) în caseta URL
+- Interactive Wizard Mode (questions) -\n\nEnter address(es) in URL box
+- Mod interactiv de copiere a siteurilor -\n\nIntroduceţi  adresa(adresele) în caseta URL
+- File Download Mode -\n\nEnter file address(es) in URL box
+- Modul de descărcare a fişierelor - \n\nIntroduceţi adresa (adresele) în caseta URL
+- Link Testing Mode -\n\nEnter Web address(es) with links to test in URL box
+- Modul de testare a link-urilor - \n\nIntroduceţi adresa (adresele) cu linkuri pentru testat.
+- Update Mode -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Modul de actualizare - \n\nVerificaţi adresa (adresele) în caseta URL, verificaţi opţiunile necesare, apoi daţi click pe "Next".
+- Resume Mode (Interrupted Operation) -\n\nVerify address(es) in URL box, check parameters if necessary then click on 'NEXT' button
+- Modul de recuperare (operaţie întreruptă) - \n\nVerificaţi adresa (adresele) în caseta URL, verificaţi opţiunile necesare, apoi daţi click pe "Next".
+Log files Path
+Calea fişierelor jurnal
+Path
+Calea
+- Links List Mode -\n\nUse URL box to enter address(es) of page(s) containing links to mirror
+- Modul de copiere a site-urilor după linkuri  - \n\nFolosiţi  caseta URL pentru a introduce adresa (adresele) paginii(lor) ce conţin linkurile de copiat.
+New project / Import?
+Proiect nou / Import?
+Choose criterion
+Alegeţi tipul acţiunii.
+Maximum link scanning depth
+Adâncimea maximă de scanare a link-urilor.
+Enter address(es) here
+Introduceţi adresa (adresele) aici
+Define additional filtering rules
+Definire reguli de filtrare suplimentare
+Proxy Name (if needed)
+Nume server proxy (dacă e necesar)
+Proxy Port
+Portul serverului proxy
+Define proxy settings
+Definiţi parametrii serverului proxy
+Use standard HTTP proxy as FTP proxy
+Foloseşte proxy-ul standard HTTP ca proxy FTP
+Path
+Calea
+Select Path
+Selectează calea
+Path
+Calea
+Select Path
+Selectează calea
+Quit WinHTTrack Website Copier
+Părăseşte WinHTTrack Website Copier
+About WinHTTrack
+Despre WinHTTrack
+Save current preferences as default values
+Salvează setările curente  ca valori implicite.
+Click to continue
+Click pentru a continua
+Click to define options
+Click pentru a defini opţiunile
+Click to add a URL
+Click pentru a asăuga o adresă URL
+Load URL(s) from text file
+Încarcă adresă(e) URL din fişierul text
+WinHTTrack preferences (*.opt)|*.opt||
+Preferinţe WinHTTrack (*.opt)|*.opt||
+Address List text file (*.txt)|*.txt||
+Fişier text cu lista de adrese (*.txt)|*.txt||
+File not found!
+Nu s-a găsit fişierul!
+Do you really want to change the project name/path?
+Chiar doriţi să schimbaşi numele/calea proiectului?
+Load user-default options?
+Încarc configuraţia personalizată implicită?
+Save user-default options?
+Salvez configuraţia personalizată implicită?
+Reset all default options?
+Reşetez toate opţiunile implicite?
+Welcome to WinHTTrack!
+Bine aţi venit în WinHTTrack!
+Action:
+Acţiune:
+Max Depth
+Adâncime maximă
+Maximum external depth:
+Adâncime externă maximă (link-uri externe) :
+Filters (refuse/accept links) :
+Filtre (refuză/acceptă) linkuri:
+Paths
+Căi
+Save prefs
+Salvează preferinţele
+Define..
+Defineşte...
+Set options..
+Setează opţiuni...
+Preferences and mirror options:
+Preferinţe şi opţiuni de clonare:
+Project name
+Numele proiectului
+Add a URL...
+Adaugă o adresă URL...
+Web Addresses: (URL)
+Adrese Web: (URL)
+Stop WinHTTrack?
+Opresc  WinHTTrack?
+No log files in %s!
+Nici un fişier jurnal în %s!
+Pause Download?
+Pauză descărcare?
+Stop the mirroring operation
+Opreşte operaţia de clonare
+Minimize to System Tray
+Minimizează în Sistem Tray
+Click to skip a link or stop parsing
+Click pentru salt peste un link sau oprirea copierii lui
+Click to skip a link
+Click pentru a sări peste un link
+Bytes saved
+Octeţi salvaţi
+Links scanned
+Link- uri scanate
+Time:
+Timp:
+Connections:
+Conexiuni:
+Running:
+Rulează:
+Hide
+Ascunde
+Transfer rate
+Rată de transfer
+SKIP
+SALT
+Information
+Informaţii
+Files written:
+Fişiere scrise:
+Files updated:
+Fişiere actualizate:
+Errors:
+Erori:
+In progress:
+În progres:
+Follow external links
+Recuperează fişierele până la linkurile externe
+Test all links in pages
+Testează toate link- urile care există în pagini
+Try to ferret out all links
+Încearcă reperarea tuturor link - urilor
+Download HTML files first (faster)
+Downloadează fişierele HTML înainte (mai rapid)
+Choose local site structure
+Alege structura locală de fişiere a sitului
+Set user-defined structure on disk
+Defineşte parametrii structurii personalizate pe disk
+Use a cache for updates and retries
+Foloseşte un cache pentru actualizări şi reîncercări
+Do not update zero size or user-erased files
+Nu actualiza fişierele de mărime 0 sau fişierele şterse de utilizator
+Create a Start Page
+Crează o Pagină de Start
+Create a word database of all html pages
+Creează o bază de date semantică a tuturor paginilor html
+Build a complete RFC822 mail (MHT/EML) archive of the mirror
+Construieste o arhiva de mail RFC822 (MHT/EML) completa a copiei
+Create error logging and report files
+Creează fişiere jurnal pentru mesajele de eroare şi fişiere raport
+Generate DOS 8-3 filenames ONLY
+Generează  NUMAI nume de fişier de format 8.3 (DOS)
+Generate ISO9660 filenames ONLY for CDROM medias
+Generează NUMAI nume de fişier ISO9660 pentru mediile CDROM
+Do not create HTML error pages
+Nu genera fişiere de eroare HTML
+Select file types to be saved to disk
+Selectează tipurile de fişiere care vor fi salvate pe disk
+Select parsing direction
+Selectaţi modul de parcurgere a link-urilor pe site
+Select global parsing direction
+Limitele zonei globale de explorare
+Setup URL rewriting rules for internal links (downloaded ones) and external links (not downloaded ones)
+Setaţi regulile de rescriere a adreselor URL pentru linkurile interne (cele descărcate) şi pentru linkurile externe (cele nedescărcate)
+Max simultaneous connections
+Număr maxim de conexiuni simultane
+File timeout
+Timp expirat (timeout) pentru fişier
+Cancel all links from host if timeout occurs
+Anulează toate link-urile de la gazdă dacă intervin timpi morţi
+Minimum admissible transfer rate
+Rată de transfer minimă admisibilă
+Cancel all links from host if too slow
+Anulează toate link- urile de la gazdă dacă transferul e prea lent
+Maximum number of retries on non-fatal errors
+Numărul maxim de încercări în cazul erorilor nefatale
+Maximum size for any single HTML file
+Mărimea maximă pentru un orice fişier HTML
+Maximum size for any single non-HTML file
+Mărimea maximă pentru orice fişier non HTML
+Maximum amount of bytes to retrieve from the Web
+Cantitatea maximă de octeţi de scos de pe site
+Make a pause after downloading this amount of bytes
+Fă o pauză după descărcarea acestei cantităţi de octeţi
+Maximum duration time for the mirroring operation
+Durata maximă a operaţiei de copiere
+Maximum transfer rate
+Rata maximă de transfer
+Maximum connections/seconds (avoid server overload)
+Nr. maxim de conexiuni /secunde (evită supraîncărcarea serverului)
+Maximum number of links that can be tested (not saved!)
+Numărul maxim de link-uri care pot fi testate (nu salvate!)
+Browser identity
+Identitatea browser-ului
+Comment to be placed in each HTML file
+Comentariu ce va fi plasat în fiecare fişier HTML
+Languages accepted by the browser
+Limbile acceptate de browser
+Additional HTTP headers to be sent in each requests
+Anteturi HTTP suplimentare de trimis în fiecare cerere
+HTTP referer to be sent for initial URLs
+Referer HTTP de trimis pentru URL-urile initiale
+Back to starting page
+Înapoi la pagina de start
+Save current preferences as default values
+Salvează preferinţele curente ca valori implicite
+Click to continue
+Click pentru continuare
+Click to cancel changes
+Click pentru anularea schimbărilor
+Follow local robots rules on sites
+Urmează regulile locale a roboţilor de pe site
+Links to non-localised external pages will produce error pages
+Link-urile spre pagini externe nelocalizate vor produce pagini de erori
+Do not erase obsolete files after update
+Nu şterge fişierele vechi, după actualizare
+Accept cookies?
+Să accept cookies-urile?
+Check document type when unknown?
+Verificaţi tipul documentului când acesta este necunoscut?
+Parse java applets to retrieve included files that must be downloaded?
+Analizez appleturile java pentru a recupera fişierele incluse ce trebuie descărcate?
+Store all files in cache instead of HTML only
+Stochează toate fişierele în cache, nu numai în HTML
+Log file type (if generated)
+Tipul fisierului jurnal (dacă s-a generat)
+Maximum mirroring depth from root address
+Adâncime maximă de clonare, plecând de la adresa rădăcină
+Maximum mirroring depth for external/forbidden addresses (0, that is, none, is the default)
+Adresă maximă de clonare pentru adresele externe/interzise (0= nici una, implicit)
+Create a debugging file
+Creează un fişier de depanare
+Use non-standard requests to get round some server bugs
+Încearcă evitarea bugurilor de pe unele servere, folosind cereri nestandard
+Use old HTTP/1.0 requests (limits engine power!)
+Foloseşte vechile cereri HTTP/1.0 (limitează puterea!)
+Attempt to limit retransfers through several tricks (file size test..)
+Încearcă să limitezi retransferurile prin folosirea unor trucuri (file size test...)
+Attempt to limit the number of links by skipping similar URLs (www.foo.com==foo.com, http=https ..)
+
+Write external links without login/password
+Scrie linkurile externe fără login/password
+Write internal links without query string
+Scrie link- urile interne fără  sirul de interogare (query string)
+Get non-HTML files related to a link, eg external .ZIP or pictures
+Scoate fişierele non-HTML apropiate (şi din link- uri), ex arhive sau imagini.
+Test all links (even forbidden ones)
+Testează toate linkurile (chiar şi cele interzise)
+Try to catch all URLs (even in unknown tags/code)
+Încearcă să detectezi toate adresele URL (chiar şi tagurile/codul necunoscut(e))
+Get HTML files first!
+Descarcă întâi fişierele HTML!
+Structure type (how links are saved)
+Tipul structurii (cum sunt salvate link-urile)
+Use a cache for updates
+Foloseşte un cache pentru actualizare
+Do not re-download locally erased files
+Nu redescărca fişierele şterse local
+Make an index
+Construieşte un index
+Make a word database
+Construieşte o bază de date semantică
+Build a mail archive
+Construieste o arhiva de mail
+Log files
+Fişiere jurnal
+DOS names (8+3)
+Nume DOS (8.3)
+ISO9660 names (CDROM)
+Nume ISO9660 (CDROM)
+No error pages
+Fără pagini de eroare
+Primary Scan Rule
+Regulă de scanare principală
+Travel mode
+Mod de parcurgere
+Global travel mode
+Mod de parcurgere globală
+These options should be modified only exceptionally
+Aceste opţiuni nu se vor modifica decât în cazuri excepţionale.
+Activate Debugging Mode (winhttrack.log)
+Activează modul de depanare
+Rewrite links: internal / external
+Rescrie link - uri: interne/externe
+Flow control
+Controlul fluxului
+Limits
+Limite
+Identity
+Identitate
+HTML footer
+Subsol HTML
+Languages
+Limbi
+Additional HTTP Headers
+Anteturi HTTP suplimentare
+Default referer URL
+URL referer implicit
+N# connections
+Număr de conexiuni
+Abandon host if error
+Abandonează gazdă în caz de eroare
+Minimum transfer rate (B/s)
+Rată de transfer minimă (B/s)
+Abandon host if too slow
+Abandonează gazda dacă transferul este prea lent
+Configure
+Configurează
+Use proxy for ftp transfers
+Foloseşte serverul proxy pentru transferurile FTP
+TimeOut(s)
+TimeOut(-uri)
+Persistent connections (Keep-Alive)
+Conexiuni persistente [menţine active]
+Reduce connection time and type lookup time using persistent connections
+Redu timpul de conectare şi timpul de căutare a tipului folosind conexiuni persistente.
+Retries
+Încercări
+Size limit
+Limită de dimensiune
+Max size of any HTML file (B)
+Dimensiune maximă a oricărui fişier HTML (B)
+Max size of any non-HTML file
+Dimensiunea maximă a oricărui fişier non-HTML
+Max site size
+Dimensiunea maximă a site-ului
+Max time
+Timp maxim
+Save prefs
+Salvează preferinţele
+Max transfer rate
+Rată maximă de transfer
+Follow robots.txt
+Urmează robots.txt
+No external pages
+Fără pagini externe
+Do not purge old files
+Nu elimina fişierele vechi
+Accept cookies
+Acceptă cookies-uri
+Check document type
+Verifică tipul documentului
+Parse java files
+Analizează fişierele java
+Store ALL files in cache
+Stochează toate fişierele în cache
+Tolerant requests (for servers)
+Cereri tolerante (pentru servere)
+Update hack (limit re-transfers)
+Actualizare forţată (limitează re-transferurile)
+URL hacks (join similar URLs)
+
+Force old HTTP/1.0 requests (no 1.1)
+Forţează vechile cereri HTTP/1.0 (fără cereri HTTP/1.1)
+Max connections / seconds
+Numărul maxim de conexiuni/secundă
+Maximum number of links
+Numărul maxim de link-uri
+Pause after downloading..
+Pauză după descarcarea...
+Hide passwords
+Ascunde parole
+Hide query strings
+Ascunde 'query string'-urile
+Links
+Link-uri
+Build
+Structurează
+Experts Only
+Pentru experţi
+Flow Control
+Controlul fluxului
+Limits
+Limite
+Browser ID
+Identifică HTTrack Web Copier ca:
+Scan Rules
+Reguli de scanare:
+Spider
+Păianjen (spider)
+Log, Index, Cache
+Jurnal, Index, Cache
+Proxy
+Server proxy
+MIME Types
+Tipuri MIME
+Do you really want to quit WinHTTrack Website Copier?
+Chiar doriţi să părăsiţi WinHTTrack Website Copier ?
+Do not connect to a provider (already connected)
+Nu conecta la un furnizor (deja conectat)
+Do not use remote access connection
+Nu folosi conexiune cu acces la distanţă
+Schedule the mirroring operation
+Programează operaţia de clonare (copiere) a site-ului
+Quit WinHTTrack Website Copier
+Ieşire din WinHTTrack Website Copier
+Back to starting page
+Înapoi la pagina de start
+Click to start!
+Click pentru pornire!
+No saved password for this connection!
+Nici o parolă salvată pentru această conexiune!
+Can not get remote connection settings
+Nu pot obţine şetările conexiunii la distanţă
+Select a connection provider
+Alege un furnizor de conexiune
+Start
+Start
+Please adjust connection parameters if necessary,\nthen press FINISH to launch the mirroring operation.
+Ajustaţi parametrii conexiunii dacă este necesar, \napoi apăsaţi FINISH pentru a începe clonarea sit-ului
+Save settings only, do not launch download now.
+Salvează setările dar nu porni descărcarea acum.
+On hold
+În aşteptare
+Transfer scheduled for: (hh/mm/ss)
+Transfer programat pentru:(hh/mm/ss)
+Start
+Start
+Connect to provider (RAS)
+Conectează la furnizorul de internet (RAS)
+Connect to this provider
+Conectează la acest furnizor de internet
+Disconnect when finished
+Deconectează şa terminare
+Disconnect modem on completion
+Deconectează modemul la terminare
+\r\n(Please notify us of any bug or problem)\r\n\r\nDevelopment:\r\nEngine and interfaces: Xavier Roche\r\nCode, documentation and packaging: many contributors\r\n\r\n(C) Xavier Roche and other contributors\r\nMANY THANKS for English translations to:\r\nXavier Roche, Robert Lagadec
+\r\n(Please notify us of any bug or problem)\r\n\r\nDevelopment:\r\nEngine and interfaces: Xavier Roche\r\nCode, documentation and packaging: many contributors\r\n\r\n(C) Xavier Roche and other contributors\r\nMANY THANKS for Romanian translations to:\r\nAlin Gheorghe Miron
+About WinHTTrack Website Copier
+Despre WinHTTrack Website Copier
+Please visit our Web page
+Vizitaţi pagina noastră Web
+Wizard query
+Vrăjitor de interogare
+Your answer:
+Răspunsul d-voastră:
+Link detected..
+S-a detectat un link.
+Choose a rule
+Alege o regulă
+Ignore this link
+Ignoră acest link
+Ignore directory
+Ignoră director
+Ignore domain
+Ignoră domeniu
+Catch this page only
+Capturează doar această pagină
+Mirror site
+Clonează site
+Mirror domain
+Clonează domeniu
+Ignore all
+Ignoră tot
+Wizard query
+Vrăjitor de interogare
+NO
+NU
+File
+Fişier
+Options
+Opţiuni
+Log
+Jurnal
+Window
+Fereastră
+Help
+Ajutor
+Pause transfer
+Suspendă transfer
+Exit
+Ieşire
+Modify options
+Modifică opţiuni
+View log
+Vezi fişierul jurnal.
+View error log
+Vezi fişierul jurnal cu erori
+View file transfers
+Vezi transferurile de fişiere
+Hide
+Ascunde
+About WinHTTrack Website Copier
+Despre WinHTTrack Website Copier
+Check program updates...
+Verifică actualizările pentru WinHTTrack...
+&Toolbar
+&Bara de instrumente
+&Status Bar
+Bara de &Stare
+S&plit
+Îm&parte
+File
+Fişier
+Preferences
+Preferinţe
+Mirror
+Clonare (copiere sit)
+Log
+Jurnal
+Window
+Fereastră
+Help
+Ajutor
+Exit
+Ieşire
+Load default options
+Încarcă opţiunile implicite
+Save default options
+Salvează optiunile implicite
+Reset to default options
+Resetează la opţiunile implicite
+Load options...
+Încarcă opţiunile...
+Save options as...
+Salvează opţiunile ca...
+Language preference...
+Alegere Limbă
+Contents...
+Conţinut...
+About WinHTTrack...
+Despre WinHTTrack...
+New project\tCtrl+N
+Proiect nou\tCtrl+N
+&Open...\tCtrl+O
+&Deschide...\tCtrl+O
+&Save\tCtrl+S
+&Salvează\tCtrl+S
+Save &As...
+Salvează C&a...
+&Delete...
+Şt&erge...
+&Browse sites...
+&Răsfoire situri...
+User-defined structure
+Structură definită de utilizator
+%n\tName of file without file type (ex: image)\r\n%N\tName of file including file type (ex: image.gif)\r\n%t\tFile type only (ex: gif)\r\n%p\tPath [without ending /] (ex: /someimages)\r\n%h\tHost name (ex: www.someweb.com)\r\n%M\tMD5 URL (128 bits, 32 ascii bytes)\r\n%Q\tMD5 query string (128 bits, 32 ascii bytes)\r\n%q\tMD5 small query string (16 bits, 4 ascii bytes)\r\n\r\n%s?\tShort name (ex: %sN)
+%n\tNumele fişierului fără extensie (ex: image)\r\n%N\tNumele fişierului cu extensie (ex: image.gif)\r\n%t\tNumai tipul fişierului (extensia) (ex: gif)\r\n%p\tCalea [fără / la sfârşit] (ex: /someimages)\r\n%h\tNumele Gazdei (ex: www.someweb.com)\r\n%M\tMD5 URL (128 bits, 32 ascii bytes)\r\n%Q\tMD5 query string (128 bits, 32 ascii bytes)\r\n%q\tMD5 small query string (16 bits, 4 ascii bytes)\r\n\r\n%s?\tDenumire scurtă DOS (ex: %sN)\r\n
+Example:\t%h%p/%n%q.%t\n->\t\tc:\\mirror\\www.someweb.com\\someimages\\image.gif
+Exemplu:\t%h%p/%n%q.%t\n->\t\tc:\\mirror\\www.someweb.com\\someimages\\image.gif
+Proxy settings
+Setări ale serverului proxy:
+Proxy address:
+Adresa serverului proxy:
+Proxy port:
+Portul serverului proxy:
+Authentication (only if needed)
+Autentificare (numai dacă este necesară)
+Login
+Nume utilizator (Login)
+Password
+Parola
+Enter proxy address here
+Introduceţi aici adresa serverului proxy
+Enter proxy port here
+Introduceţi aici portul serverului proxy
+Enter proxy login
+Introduceţi numele utilizatorului (login) serverului proxy
+Enter proxy password
+Introduceţi parola de conectare la serverul proxy
+Enter project name here
+Introduceţi numele proiectului aici
+Enter saving path here
+Introduceţi calea pentru salvarea proiectului
+Select existing project to update
+Selectează un proiect existent pentru actualizare
+Click here to select path
+Click aici pentru a selecta calea
+Select or create a new category name, to sort your mirrors in categories
+
+HTTrack Project Wizard...
+Vrăjitor  proiect HTTrack...
+New project name:
+Nume proiect nou:
+Existing project name:
+Numele proiectului existent:
+Project name:
+Nume proiect:
+Base path:
+Calea de bază:
+Project category:
+
+C:\\My Web Sites
+C:\\Siturile Mele
+Type a new project name, \r\nor select existing project to update/resume
+Introduceţi numele unui proiect nou,\r\nsau selectaţi un proiect existent pentru actiualizare/continuare
+New project
+Proiect nou
+Insert URL
+Introduceţi o adresă URL
+URL:
+URL:
+Authentication (only if needed)
+Autentificare (doar dacă e necesară)
+Login
+Nume utilizator (Login) :
+Password
+Parola
+Forms or complex links:
+Formulare sau link- uri complexe
+Capture URL...
+Capturează URL...
+Enter URL address(es) here
+Introduceţi adresa (adresele) URL aici
+Enter site login
+Introduceţi numele de utilizator pentru site
+Enter site password
+Introduceţi parola pentru site
+Use this capture tool for links that can only be accessed through forms or javascript code
+Foloseşte această unealtă de captură pentru link- uri care pot fi accesate numai prin formulare sau cod javascript
+Choose language according to preference
+Alege limba de aici...
+Catch URL!
+Capturează această adresă URL!
+Please set temporary browser proxy settings to the following values (Copy/Paste Proxy Address and Port).\nThen click on the Form SUBMIT button in your browser page, or click on the specific link you want to capture.
+Setaţi proprietăţile temporar serverului proxy a browserului vostru cu următoarele valori (Copy/Paste Adresa Proxy şi Portul).\nApoi daţi click pe butonul Trimite din formular, sau faceţi click pe un link specific, pe care doriţi sa îl capturaţi.
+This will send the desired link from your browser to WinHTTrack.
+Aceasta va trimite link-ul dorit, din browser către WinHTTrack.
+ABORT
+RENUNŢĂ
+Copy/Paste the temporary proxy parameters here
+Copiază/Lipeşte parametrii temporari ai serverului proxy aici
+Cancel
+Anulare
+Unable to find Help files!
+Nu găsesc fişierele de Ajutor!
+Unable to save parameters!
+Nu pot să salvez parametrii!
+Please drag only one folder at a time
+Vă rog trageţi numai un fişier o dată
+Please drag only folders, not files
+Trageţi numai dosare, nu fişiere
+Please drag folders only
+Trageţi numai dosare
+Select user-defined structure?
+Alegeţi o structură definită de utilizator pentru copierea sit-ului ?
+Please ensure that the user-defined-string is correct,\notherwise filenames will be bogus!
+Asiguraţi-vă că şirul definit de utilizator este corect,\n altfel numele fişierelor vor fi eronate !
+Do you really want to use a user-defined structure?
+Chiar doriţi să folosiţi o structură personalizată (user-defined)?
+Too manu URLs, cannot handle so many links!!
+Prea multe adrese URL, nu pot manipula aşa multe link-uri
+Not enough memory, fatal internal error..
+Memorie insuficientă, eroare internă fatală...
+Unknown operation!
+Operaţie necunoscută!
+Add this URL?\r\n
+Adaug această adresă URL?\r\n
+Warning: main process is still not responding, cannot add URL(s)..
+ATENŢIE: Procesul principal tot nu răspunde, nu pot adăuga adresa (adresele) URL..
+Type/MIME associations
+Asocieri de tip/MIME
+File types:
+Tipuri de fişiere:
+MIME identity:
+Identitate MIME:
+Select or modify your file type(s) here
+Alege sau modifică tip(urile) de fişier(e) aici
+Select or modify your MIME type(s) here
+Alege sau modifică tipul (tipurile) MIME aici
+Go up
+Urcă
+Go down
+Coboară
+File download information
+Informaţii despre fişierele descărcate
+Freeze Window
+Îngheaţă fereastra
+More information:
+Mai multe informaţii:
+Welcome to WinHTTrack Website Copier!\n\nPlease click on the NEXT button to\n\n- start a new project\n- or resume a partial download
+Bine aţi venit la WinHTTrack Website Copier!\n\nClick pe butonul Next pentru\n\n- a începe un proiect nou\n-  sau a continua o descărcare parţială
+File names with extension:\nFile names containing:\nThis file name:\nFolder names containing:\nThis folder name:\nLinks on this domain:\nLinks on domains containing:\nLinks from this host:\nLinks containing:\nThis link:\nALL LINKS
+Nume de fişier cu extensie:\nNume de fişiere ce conţin:\nAcest nume de fişier:\nNume de directoare ce conţin:\nAcest nume de director:\nLinkurile din acest domeniu:\nLinkurile din acest domeniu care conţin:\nLink-urile de la această gazdă:\nLink-urile care conţin:\nAcest link:\nTOATE LINK-URILE
+Show all\nHide debug\nHide infos\nHide debug and infos
+Arată tot\nAscunde informaţiile de depanare\nAscunde informaţiile generale\nAscunde şi informaţiile de depanare şi cele generale
+Site-structure (default)\nHtml in web/,       images/other files in web/images/\nHtml in web/html,   images/other in web/images\nHtml in web/,       images/other in web/\nHtml in web/,       images/other in web/xxx, where xxx is the file extension\nHtml in web/html,   images/other in web/xxx\nSite-structure, without www.domain.xxx/\nHtml in site_name/, images/other files in site_name/images/\nHtml in site_name/html, images/other in site_name/images\nHtml in site_name/, images/other in site_name/\nHtml in site_name/, images/other in site_name/xxx\nHtml in site_name/html, images/other in site_name/xxx\nAll files in web/, with random names (gadget !)\nAll files in site_name/, with random names (gadget !)\nUser-defined structure..
+Structura site-ului (implicit)\nHtml în web/,       imagini/alte fişiere din web/images/\nHtml în web/html,   imagini/altele în web/images\nHtml în web/,       imagini/altele în web/\nHtml în web/,       imagini/altele în web/xxx, unde xxx este extensia fişierului\nHtml în web/html,   imagini/altele în web/xxx\nStructura-site, fără www.domain.xxx/\nHtml în site_name/, imagini/alte fişiere în site_name/images/\nHtml în site_name/html, imagini/altele  în site_name/images\nHtml în site_name/, imagini/altele în site_name/\nHtml în site_name/, imagini/altele în site_name/xxx\nHtml în site_name/html, imagini/alte în site_name/xxx\nToate fişierele în web/, cu nume aleatoare (gadget !)\nToate fişierele în site_name/, cu nume aleatoare (gadget !)\nStructură personalizată (definită de utilizator )..
+Just scan\nStore html files\nStore non html files\nStore all files (default)\nStore html files first
+Doar scanează\nStochează fişiere\nStochează fişiere non HTML\nStochează toate fişierele (implicit)\nStochează întâi fişierele html
+Stay in the same directory\nCan go down (default)\nCan go up\nCan both go up & down
+Rămâi în acelaşi director\nCoborâre permisă\nUrcare permisă\nUrcare şi coborâre permisă
+Stay on the same address (default)\nStay on the same domain\nStay on the same top level domain\nGo everywhere on the web
+Rămâi la aceeaşi adresă (implicit)\nRămâi pe acelaşi domeniu\nRămâi la acelaşi domeniu de nivel superior\nMergi oriunde pe web
+Never\nIf unknown (except /)\nIf unknown
+Niciodată\nDacă este necunoscut (excepţie /)\nDacă este necunoscut
+no robots.txt rules\nrobots.txt except wizard\nfollow robots.txt rules
+Fără regulile robots.txt\nrobots.txt exceptând filtrele\n urmează regulile din robots.txt
+normal\nextended\ndebug
+normal\nextins\ndepanare
+Download web site(s)\nDownload web site(s) + questions\nGet individual files\nDownload all sites in pages (multiple mirror)\nTest links in pages (bookmark test)\n* Continue interrupted download\n* Update existing download
+Descarcă site(-uri) web\nDescărcare interactivă site(-uri) web\nDescarcă fişiere individuale\nDescarcă toate şite-urile din pagini  (clonări multiple)\nTestează linkurile din pagini (testează semnele de carte)\n* Continuă o descărcare întreruptă \n* Actualizează o descărcare existentă
+Relative URI / Absolute URL (default)\nAbsolute URL / Absolute URL\nAbsolute URI / Absolute URL\nOriginal URL / Original URL
+Adresă URI relativă / Adresă URL absolută (implicit)\nAdresă URL absolută / Adresă URL absolută\nAdresă URI absolută / Adresă URL absolută \n Adresă URL originală / Adresă URL originală
+Open Source offline browser
+Browser offline open source.
+Website Copier/Offline Browser. Copy remote websites to your computer. Free.
+Copiator de situri web/Browser offline. Copiază situri web pe calculatorul dumneavoastră.Gratuit
+httrack, winhttrack, webhttrack, offline browser
+httrack, winhttrack, webhttrack, offline browser
+URL list (.txt)
+Lista URL (.txt)
+Previous
+Anterior
+Next
+Următor
+URLs
+URL- uri
+Warning
+Avertisment
+Your browser does not currently support javascript. For better results, please use a javascript-aware browser.
+Browserul dumneavoastră nu suportă javascript. Pentru rezultate mai bune, vă rugăm sa folosiţi un browser ce suportă javascript.
+Thank you
+Vă mulţumim
+You can now close this window
+Acum puteţi închide această fereastră.
+Server terminated
+Server terminat
+A fatal error has occurred during this mirror
+A survenit o eroare fatală în timpul acestei clonări.
+View Documentation
+Vezi documentaţia
+Go To HTTrack Website
+Mergi la site-ul HTTrack
+Go To HTTrack Forum
+Mergi la forumul HTTrack
+View License
+Vezi licenţa
+Beware: you local browser might be unable to browse files with embedded filenames
+Atenţie: navigatorul local ar putea să nu poată deschide fişiere cu nume de fişier încorporate
+Recreated HTTrack internal cached resources
+Resursele interne din cache ale HTTrack au fost recreate
+Could not create internal cached resources
+Resursele interne din cache nu au putut fi create
+Could not get the system external storage directory
+Directorul de stocare externă al sistemului nu a putut fi găsit
+Could not write to:
+Nu se poate scrie în:
+Read-only media (SDCARD)
+Suport numai pentru citire (SDCARD)
+No storage media (SDCARD)
+Niciun suport de stocare (SDCARD)
+HTTrack may not be able to download websites until this problem is fixed
+Cât timp această problemă persistă, HTTrack ar putea să nu poată descărca site-uri
+HTTrack: mirror '%s' stopped!
+HTTrack: clona "%s" a fost oprită!
+Click on this notification to restart the interrupted mirror
+Atinge această notificare pentru a relua clona întreruptă
+HTTrack: could not save profile for '%s'!
+HTTrack: profilul pentru "%s" nu a putut fi salvat!
+Proxy type:
+Tip proxy:
+Proxy protocol. HTTP: standard proxy. HTTP (CONNECT tunnel): sends every request through a CONNECT tunnel, for CONNECT-only proxies like Tor's HTTPTunnelPort. SOCKS5: default port 1080.
+Protocol proxy. HTTP: proxy standard. HTTP (tunel CONNECT): trimite fiecare cerere printr-un tunel CONNECT, pentru proxy care accepta doar CONNECT precum HTTPTunnelPort al lui Tor. SOCKS5: port implicit 1080.
+Load cookies from file:
+Încarca cookies dintr-un fisier:
+Use a Netscape cookies.txt file as the cookie jar. HTTrack loads it before crawling, and writes it back at the end unless a line in it could not be loaded.
+Preîncarca cookies dintr-un fisier Netscape cookies.txt înainte de copiere.
+Pause between files:
+Pauza între fisiere:
+Random delay between file downloads, in seconds. Use MIN:MAX for a random range (e.g. 2:8).
+Întârziere aleatoare între descarcari de fisiere, în secunde. Folositi MIN:MAX pentru un interval aleatoriu (de ex. 2:8).
+Keep the www. prefix (do not merge www.host with host)
+Pastreaza prefixul www. (nu combina www.host cu host)
+Do not treat www.host and host as the same site.
+Nu trata www.host si host ca fiind acelasi site.
+Keep double slashes in URLs
+Pastreaza barele duble din URL-uri
+Do not collapse duplicate slashes in URLs.
+Nu comprima barele duplicate din URL-uri.
+Keep the original query-string order
+Pastreaza ordinea originala din query string
+Do not reorder query-string parameters when deduplicating URLs.
+Nu reordona parametrii din query string la eliminarea URL-urilor duplicate.
+Strip query keys:
+Elimina cheile din query string:
+Comma-separated query keys to drop from the saved-file naming (e.g. sid,utm_source).
+Chei din query string, separate prin virgula, de eliminat din denumirea fisierelor salvate (de ex. sid,utm_source).
+Write a WARC archive of the crawl
+Scrie o arhiva WARC a parcurgerii
+Also save every fetched response into an ISO-28500 WARC/1.1 archive, next to the mirror.
+Salveaza si fiecare raspuns descarcat intr-o arhiva WARC/1.1 ISO-28500, langa oglinda.
+WARC archive name:
+Numele arhivei WARC:
+Optional base name for the WARC archive; leave blank to auto-name it under the output directory.
+Nume de baza optional pentru arhiva WARC; lasati gol pentru a-l denumi automat in directorul de iesire.
+Report what changed since the previous mirror
+Raporteaza ce s-a schimbat fata de copia anterioara
+Also write hts-changes.json listing what this crawl left new, changed, unchanged and gone compared to the previous mirror.
+Scrie si hts-changes.json, care listeaza ce este nou, modificat, nemodificat sau disparut fata de copia anterioara.
+Inline assets as data: URIs (self-contained pages)
+Încorporeaza resursele ca URI data: (pagini de sine statatoare)
+Once the mirror is finished, rewrite every saved page with its stylesheets, scripts, images and fonts embedded, so a page can also be opened on its own.
+Dupa terminarea copiei, fiecare pagina salvata este rescrisa cu foile de stil, scripturile, imaginile si fonturile încorporate, astfel încât pagina sa poata fi deschisa si singura.
+Largest inlined asset (bytes):
+Cea mai mare resursa încorporata (octeti):
+An asset above this size keeps an ordinary link; leave blank for the 10485760-byte default.
+O resursa mai mare decât aceasta dimensiune pastreaza o legatura obisnuita; lasati gol pentru valoarea implicita de 10485760 de octeti.
+Seed the crawl from the site's sitemap
+Porneste explorarea de la harta sitului
+Read the site's sitemap (robots.txt Sitemap: lines, then /sitemap.xml) and add every URL it lists as a start URL.
+Citeste harta sitului (liniile Sitemap: din robots.txt, apoi /sitemap.xml) si adauga fiecare URL listat ca adresa de pornire.
+Sitemap address:
+Adresa hartii sitului:
+Address of a sitemap to read instead of probing the site; leave blank to probe robots.txt then /sitemap.xml.
+Adresa unei harti a sitului care sa fie citita în loc de sondarea sitului; lasati gol pentru a sonda robots.txt, apoi /sitemap.xml.
+Write a CDXJ index of the WARC archive
+Scrie un index CDXJ al arhivei WARC
+Also write a sorted CDXJ index listing every record in the WARC archive, for replay tools.
+Scrie si un index CDXJ sortat cu toate inregistrarile arhivei WARC, pentru instrumentele de redare.
+Package the crawl as a WACZ file
+Impacheteaza parcurgerea intr-un fisier WACZ
+Bundle the WARC archive, its CDXJ index and the mirrored pages into a single WACZ file; implies the WARC archive and the CDXJ index.
+Reuneste arhiva WARC, indexul sau CDXJ si paginile oglindite intr-un singur fisier WACZ; implica arhiva WARC si indexul CDXJ.
+WARC segment size limit:
+Dimensiunea maxima a unui segment WARC:
+Start a new WARC segment once the current one grows past this many bytes; leave blank or 0 to keep a single file.
+Incepe un nou segment WARC cand cel curent depaseste acest numar de octeti; lasati gol sau 0 pentru un singur fisier.
+Host aliases:
+Alias-uri gazdă:
+Other hostnames serving this same site, folded onto one, one rule per line (e.g. www2.example.com,m.example.com=example.com).
+Alte nume de gazdă care servesc acelaşi site, reunite într-unul singur, o regulă pe linie (ex. www2.example.com,m.example.com=example.com).
+Mirror %s and every host below it
+Clonează %s şi toate gazdele de sub el
+Ignore %s and every host below it
+Ignoră %s şi toate gazdele de sub el
+Manual
+Manual
+Max Retry-After(s)
+Max. Retry-After (s)
+Longest delay to obey when a server sends a Retry-After header. Use 0 to retry without waiting.
+Cea mai lungă aşteptare respectată când un server trimite un antet Retry-After. Folosiţi 0 pentru a reîncerca fără aşteptare.
+The rules you set here apply to the mirror now running. Removing a rule lets new links through again, but a link it already refused will not come back in this run.
+Regulile pe care le setaţi aici se aplică clonării aflate în desfăşurare. Eliminarea unei reguli lasă din nou să treacă linkurile noi, dar un link pe care regula l-a refuzat deja nu va reveni în această clonare.
+This scan rule cannot be used. A rule starts with + or -, then a pattern, and holds one short line.
+Această regulă de scanare nu poate fi folosită. O regulă începe cu + sau -, continuă cu un tipar şi trebuie să încapă pe un singur rând scurt.
+Theme:
+Temă:
+Classic
+Clasică
+Accept headers
+Antete Accept
+The Accept header sent for each kind of link. Automatic sends what the chosen browser sends.
+Antetul Accept trimis pentru fiecare tip de legătură. Automat trimite ce trimite browserul ales.
+Automatic
+Automat
+Old HTTrack value
+Valoarea veche HTTrack
+Default
+Implicit
+Pages
+Pagini
+Inline frames
+Cadre încorporate
+Frames
+Cadre
+Images
+Imagini
+Style sheets
+Foi de stil
+Scripts
+Scripturi
+Fonts
+Fonturi
+Audio
+Audio
+Video
+Video
+Objects
+Obiecte
+Embedded content
+Conținut încorporat
+Log in with a browser...
+Autentificare cu un browser...
+Log in to the site in a browser, and crawl with the cookies and the browser identity it was given
+Autentificaţi-vă pe sit într-un browser, iar clonarea va folosi cookies şi identitatea browser-ului primite
+No Microsoft Edge WebView2 runtime is installed on this computer
+Pe acest calculator nu este instalat mediul de rulare Microsoft Edge WebView2
+Log in with a browser
+Autentificare cu un browser
+Go
+Mergi
+Done
+Gata
+Clear login
+Deconectare
+The browser did not open: %s.
+Browserul nu s-a deschis: %s.
+The browser came back with no cookies. The address and the browser identity are saved with the project when the wizard finishes.
+Browserul nu a returnat cookies. Adresa şi identitatea browserului vor fi salvate cu proiectul când se termină vrăjitorul.
+Cookies collected: %d. They are used when you press OK.
+Cookies colectate: %d. Vor fi folosite când apăsaţi OK.
+Cookies collected: %d. They are saved with the project when the wizard finishes.
+Cookies colectate: %d. Vor fi salvate cu proiectul când se termină vrăjitorul.
+The login could not be written to %s.
+Autentificarea nu a putut fi scrisă în %s.
+%d of the browser's cookies were left out, because the engine would not read them.
+%d dintre cookies-urile browserului au fost lăsate deoparte, deoarece HTTrack nu le-a putut citi.
+Log in to the site in another tab of this browser. Open the developer tools (F12), then the Network tab, reload the page, right-click the first request and choose Copy as cURL (bash). Paste the text here. A cookies.txt export also works, for the first address in the list.
+Autentificați-vă pe site într-o altă filă a acestui browser. Deschideți instrumentele pentru dezvoltatori (F12), apoi fila Rețea, reîncărcați pagina, faceți clic dreapta pe prima cerere și alegeți Copy as cURL (bash). Lipiți textul aici. Merge și un export cookies.txt, pentru prima adresă din listă.
+Cookies for: %s. Browser identity: %s.
+Cookies pentru: %s. Identitatea browserului: %s.
+A login cannot be saved for this address, so nothing was kept.
+Pentru această adresă nu se poate salva o autentificare, aşa că nu s-a păstrat nimic.
+Yes
+Da

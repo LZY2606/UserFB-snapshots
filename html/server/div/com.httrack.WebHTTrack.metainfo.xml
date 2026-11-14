@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Xavier Roche <roche@httrack.com> -->
+<component type="desktop-application">
+  <id>com.httrack.WebHTTrack</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>WebHTTrack Website Copier</name>
+  <summary>Copy websites to your computer for offline browsing</summary>
+  <description>
+    <p>
+      WebHTTrack is the web interface to HTTrack, an offline browser utility.
+      It downloads a website from the Internet to a local directory, fetching
+      the HTML, images, and other files and rebuilding the site's link
+      structure so you can browse it offline.
+    </p>
+    <p>
+      A step-by-step web interface guides you through choosing the addresses
+      to mirror and the options to apply. Mirrors can be updated in place and
+      interrupted downloads resumed.
+    </p>
+    <p>Typical uses include:</p>
+    <ul>
+      <li>Keeping an offline copy of a website for reading without a connection</li>
+      <li>Archiving or preserving sites and capturing them for later reference</li>
+      <li>Updating an existing local mirror without downloading it again</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">WebHTTrack.desktop</launchable>
+  <categories>
+    <category>Network</category>
+  </categories>
+  <keywords>
+    <keyword>offline browser</keyword>
+    <keyword>website copier</keyword>
+    <keyword>mirror</keyword>
+    <keyword>crawl</keyword>
+    <keyword>archiving</keyword>
+  </keywords>
+  <url type="homepage">https://www.httrack.com/</url>
+  <url type="bugtracker">https://github.com/xroche/httrack/issues</url>
+  <developer id="com.httrack">
+    <name>Xavier Roche</name>
+  </developer>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Choosing the addresses and options for a new mirror</caption>
+      <!-- A guide asset, so every screenshot reshoot refreshes this too.
+           appstream-network.yml resolves the URL weekly if the name moves; it
+           cannot see a stale deploy, since the name survives a reshoot. -->
+      <image>https://www.httrack.com/html/img/guide-web-project-setup.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <!-- Newest first; tests/01_engine-version-macros.test enforces it. -->
+  <releases>
+    <release version="3.51.0" date="2026-10-28">
+      <description>
+        <ul>
+          <li>Mirror a site that needs a login: log in with your browser, use its "Copy as cURL", and paste the result into WebHTTrack. The login is saved and used again for the same site</li>
+          <li>The cookies file keeps each cookie's scope and expiry, and is written back at the end of the crawl</li>
+          <li>Requests look more like a real browser's, with the Accept and Sec-Fetch headers a browser sends</li>
+          <li>WebHTTrack has a dark mode, themes and a user stylesheet</li>
+          <li>Passwords in addresses and headers are hidden from the logs, and the logs can only be read by their owner</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.5" date="2026-10-02">
+      <description>
+        <ul>
+          <li>Pages are no longer saved outside the mirror folder, whatever name a plugin or a cache file gives them</li>
+          <li>Stopping a mirror is more reliable: Ctrl+C no longer hangs, and the time limit is kept even when a host name lookup is stuck</li>
+          <li>A mirror no longer gains empty folders for pages that failed, and the next run removes temporary files that a stopped run left</li>
+          <li>The size limit holds when several FTP downloads run at once</li>
+          <li>Stylesheets that use image-url() no longer make httrack download files the browser never loads</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.4" date="2026-09-24">
+      <description>
+        <ul>
+          <li>Mirrors of sites built on a JavaScript framework keep their modules, where the wrong address was fetched and its error page was stored instead</li>
+          <li>A server asking the crawler to wait and come back is obeyed now, where the page used to be given up at once. The Flow control page caps how long that wait may be</li>
+          <li>The log says when a site's bot protection refused the crawl, and when links above the starting page were left out of the mirror</li>
+          <li>A Windows build no longer leaves a shortened message unfinished, which could stop the program</li>
+          <li>Connections can use Multipath TCP on Linux and macOS, so a mirror carries on when one network path goes away</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.3" date="2026-09-18">
+      <description>
+        <ul>
+          <li>The capture proxy that takes a URL from your browser listens on this machine only, where any host on your network could reach it before</li>
+          <li>A page saved under a name the crawled site chose can no longer run commands of its own through the option that runs a program for each saved file</li>
+          <li>A site that writes a rule for HTTrack and then a rule for every crawler is read the way the standard says, so pages it allows are no longer skipped</li>
+          <li>A crawl no longer stops when the file that reports its progress to the interface cannot be opened, or when a damaged cache is repaired</li>
+          <li>More fixes to how the engine bounds what a hostile page or server sends it</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.2" date="2026-09-10">
+      <description>
+        <ul>
+          <li>Cookies exported from a browser are read correctly, so a mirror of a site that needs a login keeps its session</li>
+          <li>Stopping a mirror keeps what a later resume needs, where Abort and a second Cancel used to throw it away</li>
+          <li>Pages and scripts that a browser refused to run in the mirror are fixed, sites built on a JavaScript framework included</li>
+          <li>Many fixes to how the engine bounds what a hostile page or server sends it</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.1" date="2026-09-02">
+      <description>
+        <ul>
+          <li>A bug-fix release with no new features. A mirroring run behaves exactly as 3.50.0 did</li>
+          <li>Quitting WebHTTrack on macOS no longer leaves its icon bouncing in the Dock</li>
+          <li>In a packaged install, the Help link in these pages reaches the manual again</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.50.0" date="2026-09-01">
+      <description>
+        <ul>
+          <li>The version number moves to 3.50, matching the Windows and Android releases built on this engine</li>
+          <li>WebHTTrack itself is unchanged since 3.49.25</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.25" date="2026-08-28">
+      <description>
+        <ul>
+          <li>The About box credits the people who translated your language</li>
+          <li>A crash report prints the signal number the right way round</li>
+          <li>Links to httrack.com open over https</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.24" date="2026-08-26">
+      <description>
+        <ul>
+          <li>A mirror the engine gave up on no longer reports success</li>
+          <li>Updating a mirror no longer deletes pages the site still has</li>
+          <li>A full disk is reported instead of being read as the end of a file</li>
+          <li>Scripts are scanned for links whichever content type the server gives them</li>
+          <li>An option written as --name=value is read as it was written</li>
+          <li>WebHTTrack help and the File menu stay reachable once a crawl has started</li>
+          <li>Every language file is now stored in Unicode</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.23" date="2026-08-21">
+      <description>
+        <ul>
+          <li>A header you add by hand is no longer sent twice</li>
+          <li>Rebuilding the top index no longer leaves it blank while it is being written</li>
+          <li>WebHTTrack now saves and restores the proxy, and no longer offers a mirror mode it cannot run</li>
+          <li>Settings saved in one interface reopen unchanged in the others</li>
+          <li>The language menu shows every language in its own name and script</li>
+          <li>A long address or a long robots.txt rule no longer stops or misreads the mirror</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.22" date="2026-08-16">
+      <description>
+        <ul>
+          <li>When the mirror asks whether to follow a link, you can now answer for a whole domain instead of that one address</li>
+          <li>Your answer is applied to the rest of the mirror and written to the log, instead of deciding a single link</li>
+          <li>The footer added to mirrored pages takes named fields, so a custom one keeps working when the list grows</li>
+          <li>A long address, a long filter, a large cookies file or a large robots.txt no longer stops the mirror</li>
+          <li>A redirection to a long address is followed instead of being refused</li>
+          <li>Every language now has the text added since 3.49, and WebHTTrack quits when its window is closed</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.21" date="2026-08-12">
+      <description>
+        <ul>
+          <li>A site that answers to several names is mirrored once, instead of once per name</li>
+          <li>Stopping a mirror ends the transfers under way instead of reporting them as network errors</li>
+          <li>A mirror that ends early no longer deletes files the update pass never reached</li>
+          <li>Reloading a project keeps the boxes you cleared and the values you set to zero</li>
+          <li>Clearing the option to build an index page now turns it off</li>
+          <li>A very long address, or a very large settings file, no longer stops the mirror</li>
+          <li>Refreshed screenshots throughout the documentation</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.20" date="2026-08-10">
+      <description>
+        <ul>
+          <li>A link pointing to another site is no longer mistaken for a page of your own and mirrored in full</li>
+          <li>A mirror told to quit while an FTP file is being received now stops, instead of hanging</li>
+          <li>Stopping an FTP download no longer closes its connection twice, which could interrupt another download</li>
+          <li>The welcome page's language menu shows the language in use</li>
+          <li>The macOS download says in its name that it is for Apple Silicon</li>
+          <li>Refreshed screenshots and typography throughout the documentation</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.19" date="2026-08-08">
+      <description>
+        <ul>
+          <li>Stopping a mirror now takes effect at once, instead of waiting for connections that were still being opened</li>
+          <li>A mirror that stops early keeps its web archive and its list of changes</li>
+          <li>A partly downloaded file the server refuses to resume is fetched again rather than lost</li>
+          <li>An FTP site that stops responding no longer blocks a download for five minutes</li>
+          <li>A very long web address or FTP path no longer crashes the mirror</li>
+          <li>Stopping a mirror while an FTP file is downloading no longer crashes</li>
+          <li>An FTP address carrying an over-long user name could sign in as a different account</li>
+          <li>Updated Turkish translation</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.18" date="2026-08-05">
+      <description>
+        <ul>
+          <li>The program itself is unchanged: this release only fixes building HTTrack from source on some Linux distributions and processors</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.17" date="2026-08-05">
+      <description>
+        <ul>
+          <li>A mirrored page opened in your browser can no longer take control of the WebHTTrack interface</li>
+          <li>Web addresses shown while a mirror runs no longer break the progress page</li>
+          <li>Settings keep values containing quotes or ampersands, and Windows paths such as C:\ab</li>
+          <li>A malformed link on a crawled site can no longer alter the requests HTTrack sends</li>
+          <li>Crash reports name the function and source line where the problem occurred</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.16" date="2026-08-04">
+      <description>
+        <ul>
+          <li>The application has its own icon in the desktop menu, at any screen size</li>
+          <li>Option tooltips no longer break in languages whose text contains quotes or other special characters</li>
+          <li>Croatian, Macedonian, Polish, Slovak, Slovenian and Swedish text no longer shows as mangled characters</li>
+          <li>Pages that failed with an "Invalid chunk" error now download correctly</li>
+          <li>A very long web address no longer aborts the whole mirror</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.15" date="2026-07-30">
+      <description>
+        <ul>
+          <li>Save a page and everything it needs as one self-contained file</li>
+          <li>Read a site's sitemap, so pages nothing links to are still found</li>
+          <li>See what a new pass added, updated or removed</li>
+          <li>Updating a mirror no longer destroys a good local copy when a download fails or is interrupted</li>
+          <li>In the web interface, options ticked by default can be un-ticked again, the size limit applies to the whole site, and the finished mirror opens from its link</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.14" date="2026-07-24">
+      <description>
+        <ul>
+          <li>Save a mirror as a web archive, indexed and packaged for replay</li>
+          <li>Choose what the page footer says</li>
+          <li>A mirror saved to a folder with accented characters in its name lands in the right place</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.13" date="2026-07-18">
+      <description>
+        <ul>
+          <li>Mirror through a SOCKS5 proxy</li>
+          <li>Files of 2 GB and over are handled correctly on Windows and on 32-bit systems</li>
+          <li>The web interface offers options that used to be command-line only, among them a cookies file and a pause between downloads</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.12" date="2026-07-10">
+      <description>
+        <p>Links carrying accented characters are followed again, a page wrongly labelled as compressed is no longer lost, and a new option explains why a given address is kept or skipped.</p>
+      </description>
+    </release>
+    <release version="3.49.11" date="2026-07-05">
+      <description>
+        <ul>
+          <li>Audio and video sources are mirrored along with the page</li>
+          <li>A site's robots.txt is followed more closely, including its Allow rules and wildcards</li>
+          <li>A time limit now stops a slow download instead of waiting for it to end</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.10" date="2026-06-28">
+      <description>
+        <ul>
+          <li>Start from a cookies file, and space downloads out with a random pause</li>
+          <li>Ignore chosen query parameters when naming saved files</li>
+          <li>Resuming a partial download no longer duplicates bytes</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.49.9" date="2026-06-21">
+      <description>
+        <p>Saved files get the right type when the server and the address disagree about it.</p>
+      </description>
+    </release>
+    <release version="3.49.8" date="2026-06-20">
+      <description>
+        <ul>
+          <li>Secure downloads can go through a plain web proxy</li>
+          <li>Every size of a responsive image is fetched</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

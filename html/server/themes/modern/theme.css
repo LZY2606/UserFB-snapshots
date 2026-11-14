@@ -1,0 +1,620 @@
+/* WebHTTrack Modern theme.
+   Uses the native WebHTTrack pages, shared palette and theme hooks only.
+   Page and attribute tests sit in :where(), so a user stylesheet's plain
+   #pageContent rules override them. */
+
+:root {
+  color-scheme: light;
+
+  /* Shared palette tokens from palette.css. */
+  --field: #f1f5fa;
+  --panel: #ffffff;
+  --accent: #eaf1ff;
+  --ink: #17263f;
+  --ink-soft: #607087;
+  --rule: #dfe7f2;
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+  --code-bg: #f8faff;
+  --chip: #eaf1ff;
+  --shadow: rgba(22, 45, 82, .12);
+
+  /* Native WebHTTrack hooks from style.css. */
+  --ui-ink: var(--ink);
+  --ui-link: var(--link);
+  --ui-visited: #52647f;
+  --ui-alert: #c7352d;
+  --ui-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --ui-font-size: 14px;
+  --ui-bar: #172a4e;
+  --ui-bar-ink: #ffffff;
+  --ui-panel-image: none;
+  --ui-title-filter: none;
+
+  --modern-raised: var(--code-bg);
+  --modern-primary: var(--link);
+  --modern-radius: 16px;
+  --modern-control-rule: #cbd7e7;
+  --modern-primary-glow: rgba(37, 99, 235, .12);
+  --modern-action-bg: linear-gradient(180deg, #2f6ee8, #2563eb);
+  --modern-action-hover: #1d4ed8;
+  --modern-action-ink: #ffffff;
+  /* Translucent over --field, so a user.css --field shows through. */
+  --modern-page-glow: radial-gradient(ellipse at 6% 0%, rgba(191, 218, 255, .3) 0, transparent 43%),
+                      radial-gradient(ellipse at 100% 20%, rgba(204, 248, 255, .3) 0, transparent 40%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --field: #0c1525;
+    --panel: #142138;
+    --accent: #213d64;
+    --ink: #e6edfb;
+    --ink-soft: #9aadca;
+    --rule: #30415e;
+    --link: #7faaff;
+    --link-hover: #a8c5ff;
+    --code-bg: #192b45;
+    --chip: #213d64;
+    --shadow: rgba(0, 0, 0, .32);
+    --ui-visited: #c1cce0;
+    --ui-alert: #ff8e8e;
+    --ui-bar: #1b3156;
+    --ui-title-filter: invert(1);
+    --modern-control-rule: #425a78;
+    --modern-primary-glow: rgba(127, 170, 255, .16);
+    --modern-action-bg: #8bb5ff;
+    --modern-action-hover: #a9c8ff;
+    --modern-action-ink: #071830;
+    --modern-page-glow: radial-gradient(ellipse at 0 0, rgba(48, 130, 237, .22) 0, transparent 50%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 22px 20px 24px;
+  background: var(--modern-page-glow), var(--field);
+  color: var(--ui-ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+body > table {
+  width: min(1120px, 100%);
+  min-width: 0;
+  max-width: 1120px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tableWidth {
+  min-width: 0;
+}
+
+#title {
+  width: min(350px, 66vw);
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 10px 4px;
+}
+
+/* Native title/help bar. */
+#subTitle {
+  padding: 13px 18px;
+  letter-spacing: .02em;
+}
+
+#subTitle:first-child {
+  border-radius: var(--modern-radius) 0 0 0;
+}
+
+#subTitle:last-child {
+  border-radius: 0 var(--modern-radius) 0 0;
+}
+
+#subTitle:only-child {
+  border-radius: var(--modern-radius) var(--modern-radius) 0 0;
+}
+
+#subTitle a,
+#subTitle a:link,
+#subTitle a:visited {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .08);
+  color: var(--ui-bar-ink);
+  text-decoration: none;
+}
+
+#subTitle a:hover,
+#subTitle a:focus-visible {
+  background: rgba(255, 255, 255, .18);
+}
+
+#pageContent a:focus-visible,
+#pageContent input:focus-visible,
+#pageContent select:focus-visible,
+#pageContent textarea:focus-visible,
+#subTitle a:focus-visible,
+#footer a:focus-visible {
+  outline: 2px solid var(--modern-primary);
+  outline-offset: 2px;
+}
+
+#subTitle a:focus-visible {
+  outline-color: var(--ui-bar-ink);
+}
+
+.blak {
+  background: transparent;
+}
+
+#pageContent {
+  min-width: 0;
+  padding: 26px 34px 34px;
+  border: 1px solid var(--rule);
+  border-top: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0 0 var(--modern-radius) var(--modern-radius);
+  background: var(--panel);
+  background-image: none;
+  box-shadow: 0 16px 46px var(--shadow);
+  color: var(--ink);
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+
+#pageContent h1,
+#pageContent h2,
+#pageContent h3,
+#pageContent h4 {
+  color: var(--ink);
+  line-height: 1.24;
+  letter-spacing: -.025em;
+}
+
+#pageContent h2 {
+  margin: 2px 0 8px;
+  font-size: clamp(20px, 2.6vw, 28px);
+  font-weight: 750;
+}
+
+#pageContent h3 {
+  font-size: 18px;
+}
+
+#pageContent h2[align="center"] {
+  text-align: left;
+}
+
+#pageContent h2 em {
+  font-style: normal;
+}
+
+#pageContent p,
+#footer {
+  color: var(--ink-soft);
+}
+
+#pageContent form,
+#pageContent table {
+  max-width: 100%;
+}
+
+#pageContent td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+#pageContent td:where(#pageContent td td) {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Page heading row, with its help link on the right. */
+#pageContent > table:where(:first-of-type) {
+  margin: 0 0 13px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+#pageContent td:where(#pageContent > table:first-of-type td) {
+  padding: 4px 0;
+}
+
+#pageContent td:where(#pageContent > table:first-of-type td:last-child) {
+  text-align: right;
+}
+
+#pageContent h2:where(#pageContent > table:first-of-type h2) {
+  min-height: 1.2em;
+  margin: 0;
+}
+
+#pageContent a:where(#pageContent > table:first-of-type td:last-child a) {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 11px;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--modern-raised);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+#pageContent input,
+#pageContent select,
+#pageContent textarea,
+#pageContent button {
+  font: inherit;
+}
+
+#pageContent input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+#pageContent select,
+#pageContent textarea {
+  max-width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--modern-control-rule);
+  border-radius: 10px;
+  background-color: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(12, 31, 60, .025);
+  line-height: 1.4;
+  transition: border-color .15s, box-shadow .15s, background-color .15s;
+}
+
+#pageContent input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):focus,
+#pageContent select:focus,
+#pageContent textarea:focus {
+  border-color: var(--modern-primary);
+  outline: 2px solid var(--modern-primary);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--modern-primary-glow);
+}
+
+#pageContent input[type="checkbox"],
+#pageContent input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  margin: 0 6px 0 2px;
+  accent-color: var(--modern-primary);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+#pageContent input[type="submit"],
+#pageContent input[type="button"] {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 40px;
+  max-width: 100%;
+  margin: 3px 2px;
+  padding: 9px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--modern-raised);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(17, 38, 68, .04);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: normal;
+  cursor: pointer;
+  transition: background .16s, border-color .16s, box-shadow .16s, transform .16s;
+}
+
+#pageContent input[type="submit"]:hover,
+#pageContent input[type="button"]:hover {
+  border-color: var(--modern-primary);
+  background: var(--accent);
+  box-shadow: 0 3px 9px var(--modern-primary-glow);
+}
+
+#pageContent input[type="submit"]:active,
+#pageContent input[type="button"]:active {
+  transform: translateY(1px);
+}
+
+/* The main button of each page. */
+#pageContent input:is([type="submit"], [type="button"]):where(.primary) {
+  border-color: var(--modern-primary);
+  background: var(--modern-action-bg);
+  color: var(--modern-action-ink);
+  box-shadow: 0 4px 12px var(--modern-primary-glow);
+}
+
+#pageContent input:is([type="submit"], [type="button"]):where(.primary):hover {
+  border-color: var(--modern-action-hover);
+  background: var(--modern-action-hover);
+}
+
+#pageContent textarea {
+  display: block;
+  width: min(100%, 790px);
+  min-height: 130px;
+  margin-top: 12px;
+  resize: vertical;
+}
+
+#pageContent textarea[style*="visibility:hidden"] {
+  display: none;
+}
+
+#pageContent select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 110px;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%23607087' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 17px 17px;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  #pageContent select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%239aadca' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+@media (forced-colors: active) {
+  #pageContent select {
+    appearance: auto;
+    -webkit-appearance: auto;
+    padding-right: 12px;
+    background-image: none;
+  }
+}
+
+:where(.page-index) #pageContent select,
+:where(.page-option9) #pageContent select:where([name="logtype"]),
+:where(.page-option10) #pageContent select:where([name="proxytype"]),
+:where(.page-step2) #pageContent select:where([name="loadprojname"], [name="loadprojcateg"]),
+:where(.page-step3) #pageContent select:where([name="todo"]) {
+  margin-inline-start: 11px;
+}
+
+:where(.page-option2) #pageContent select:where([name="build"]),
+:where(.page-option3, .page-option8) #pageContent select {
+  margin-top: 9px;
+}
+
+#pageContent pre {
+  max-width: 100%;
+  padding: 14px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--code-bg);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+:where(.page-option5) #pageContent input:where([name="pausefiles"]) {
+  width: 8ch;
+}
+
+/* Native option tabs; no generated navigation or JavaScript. */
+#pageContent .tabCtrl {
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+#pageContent .tabCtrl a,
+#pageContent .tabCtrl a:link,
+#pageContent .tabCtrl a:visited {
+  display: block;
+  padding: 9px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--modern-raised);
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+#pageContent .tabCtrl a:hover,
+#pageContent .tabCtrl a:focus-visible {
+  border-color: var(--modern-primary);
+  background: var(--accent);
+  color: var(--modern-primary);
+}
+
+#pageContent .tabCtrl a:where([aria-current]):is(:link, :visited) {
+  border-color: var(--modern-primary);
+  background: var(--modern-action-bg);
+  color: var(--modern-action-ink);
+  box-shadow: 0 3px 8px var(--modern-primary-glow);
+}
+
+@media (forced-colors: active) {
+  #pageContent .tabCtrl a:where([aria-current]):is(:link, :visited) {
+    border-color: Highlight;
+  }
+}
+
+#footer {
+  padding: 10px 6px;
+  text-align: center;
+  font-size: 12px;
+}
+
+#footer small {
+  font-size: 12px;
+}
+
+/* The welcome page keeps the server-provided language and theme menus. */
+.page-index #pageContent select[name="lang"],
+.page-index #pageContent select[name="uitheme"] {
+  min-width: 150px;
+}
+
+.page-index #pageContent form > table {
+  margin-top: 10px;
+}
+
+/* Existing page hooks keep the native forms usable on narrow screens. */
+@media (max-width: 720px) {
+  body {
+    padding: 12px 9px 20px;
+  }
+
+  #title {
+    width: min(260px, 61vw);
+  }
+
+  #subTitle {
+    padding: 11px 13px;
+  }
+
+  #pageContent {
+    padding: 18px 16px 24px;
+  }
+
+  #pageContent h2 {
+    font-size: 21px;
+  }
+
+  #pageContent input[size],
+  #pageContent textarea[cols] {
+    max-width: 100%;
+  }
+
+  #pageContent td {
+    overflow-wrap: anywhere;
+  }
+
+  :where(.page-option2) #pageContent select:where([name="build"]),
+  :where(.page-option3, .page-option8) #pageContent select,
+  :where(.page-option9) #pageContent select:where([name="logtype"]),
+  :where(.page-option10) #pageContent select:where([name="proxytype"]),
+  :where(.page-step2) #pageContent select:where([name="loadprojname"], [name="loadprojcateg"]),
+  :where(.page-step3) #pageContent select:where([name="todo"]) {
+    display: block;
+    width: min(100%, 320px);
+    min-width: 0;
+    margin-inline-start: 0;
+    margin-top: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* Native option tabs stay within the viewport without changing their markup. */
+  body[class^="page-option"] #pageContent > table.tableWidth {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  body[class^="page-option"] #pageContent > table.tableWidth .tabCtrl {
+    width: 16.666%;
+    min-width: 0;
+  }
+
+  body[class^="page-option"] #pageContent > table.tableWidth .tabCtrl a {
+    min-width: 0;
+    padding: 7px 3px;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  #title {
+    width: min(205px, 55vw);
+  }
+
+  #pageContent {
+    padding: 16px 12px 22px;
+  }
+
+  .page-step3 #pageContent form table table td:first-child {
+    white-space: nowrap;
+  }
+
+  .page-step3 #pageContent input[name="filelist"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-option2 #pageContent select[name="build"],
+  .page-option2 #pageContent form > input[type="button"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-option6 #pageContent form > table:first-of-type {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .page-option6 #pageContent form > table:first-of-type td:first-child {
+    width: 34%;
+  }
+
+  .page-option6 #pageContent form > table:first-of-type td:last-child {
+    width: 66%;
+  }
+
+  .page-option6 #pageContent input[name="user"],
+  .page-option6 #pageContent input[name="footer"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-option11 #pageContent form > table:first-of-type {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .page-option11 #pageContent form > table:first-of-type td:first-child,
+  .page-option11 #pageContent form > table:first-of-type td:last-child {
+    width: 46%;
+  }
+
+  .page-option11 #pageContent form > table:first-of-type td:nth-child(2) {
+    width: 8%;
+    text-align: center;
+  }
+
+  .page-option11 #pageContent input[name^="ext"],
+  .page-option11 #pageContent input[name^="mime"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-option2b #pageContent input[name="BuildString"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-option2b #pageContent pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

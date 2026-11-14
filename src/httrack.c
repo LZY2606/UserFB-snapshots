@@ -1,0 +1,1147 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: htsshow.c console progress info                        */
+/* Only used on Linux & FreeBSD versions                        */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+#ifndef _WIN32
+#ifndef Sleep
+#define Sleep(a) { if (((a)*1000)%1000000) usleep(((a)*1000)%1000000); if (((a)*1000)/1000000) sleep(((a)*1000)/1000000); }
+#endif
+#endif
+
+#include "httrack-library.h"
+
+#include "htsglobal.h"
+#include "htsbase.h"
+#include "htsopt.h"
+#include "htsdefines.h"
+#include "httrack.h"
+#include "htslib.h"
+#include "htscharset.h"
+#include "htsbacktrace.h"
+#include "htsthread.h"
+
+/* Static definitions */
+static int fexist(const char *s);
+static int linput(FILE * fp, char *s, int max);
+
+// htswrap_add
+#include "htswrap.h"
+
+/* specific definitions */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <time.h>
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#ifdef HAVE_SYS_IOCTL_H
+#include <sys/ioctl.h>
+#endif
+#ifdef _WIN32
+#include <io.h>    /* _isatty, _setmode */
+#include <fcntl.h> /* _O_BINARY */
+#endif
+#include <ctype.h>
+/* END specific definitions */
+
+static void __cdecl htsshow_init(t_hts_callbackarg * carg);
+static void __cdecl htsshow_uninit(t_hts_callbackarg * carg);
+static int __cdecl htsshow_start(t_hts_callbackarg * carg, httrackp * opt);
+static int __cdecl htsshow_chopt(t_hts_callbackarg * carg, httrackp * opt);
+static int __cdecl htsshow_end(t_hts_callbackarg * carg, httrackp * opt);
+static int __cdecl htsshow_preprocesshtml(t_hts_callbackarg * carg,
+                                          httrackp * opt, char **html, int *len,
+                                          const char *url_address,
+                                          const char *url_file);
+static int __cdecl htsshow_postprocesshtml(t_hts_callbackarg * carg,
+                                           httrackp * opt, char **html,
+                                           int *len, const char *url_address,
+                                           const char *url_file);
+static int __cdecl htsshow_checkhtml(t_hts_callbackarg * carg, httrackp * opt,
+                                     char *html, int len,
+                                     const char *url_address,
+                                     const char *url_file);
+static int __cdecl htsshow_loop(t_hts_callbackarg * carg, httrackp * opt,
+                                lien_back * back, int back_max, int back_index,
+                                int lien_n, int lien_tot, int stat_time,
+                                hts_stat_struct * stats);
+static const char *__cdecl htsshow_query(t_hts_callbackarg * carg,
+                                         httrackp * opt, const char *question);
+static const char *__cdecl htsshow_query2(t_hts_callbackarg * carg,
+                                          httrackp * opt, const char *question);
+static const char *__cdecl htsshow_query3(t_hts_callbackarg * carg,
+                                          httrackp * opt, const char *question);
+static int __cdecl htsshow_check(t_hts_callbackarg * carg, httrackp * opt,
+                                 const char *adr, const char *fil, int status);
+static int __cdecl htsshow_check_mime(t_hts_callbackarg * carg, httrackp * opt,
+                                      const char *adr, const char *fil,
+                                      const char *mime, int status);
+static void __cdecl htsshow_pause(t_hts_callbackarg * carg, httrackp * opt,
+                                  const char *lockfile);
+static void __cdecl htsshow_filesave(t_hts_callbackarg * carg, httrackp * opt,
+                                     const char *file);
+static void __cdecl htsshow_filesave2(t_hts_callbackarg * carg, httrackp * opt,
+                                      const char *adr, const char *fil,
+                                      const char *save, int is_new,
+                                      int is_modified, int not_updated);
+static int __cdecl htsshow_linkdetected(t_hts_callbackarg * carg,
+                                        httrackp * opt, char *link);
+static int __cdecl htsshow_linkdetected2(t_hts_callbackarg * carg,
+                                         httrackp * opt, char *link,
+                                         const char *start_tag);
+static int __cdecl htsshow_xfrstatus(t_hts_callbackarg * carg, httrackp * opt,
+                                     lien_back * back);
+static int __cdecl htsshow_savename(t_hts_callbackarg * carg, httrackp * opt,
+                                    const char *adr_complete,
+                                    const char *fil_complete,
+                                    const char *referer_adr,
+                                    const char *referer_fil, char *save);
+static int __cdecl htsshow_sendheader(t_hts_callbackarg * carg, httrackp * opt,
+                                      char *buff, const char *adr,
+                                      const char *fil, const char *referer_adr,
+                                      const char *referer_fil,
+                                      htsblk * outgoing);
+static int __cdecl htsshow_receiveheader(t_hts_callbackarg * carg,
+                                         httrackp * opt, char *buff,
+                                         const char *adr, const char *fil,
+                                         const char *referer_adr,
+                                         const char *referer_fil,
+                                         htsblk * incoming);
+
+static void vt_clear(void);
+static void vt_home(void);
+
+// ISO VT100/220 definitions
+#define VT_COL_TEXT_BLACK    "30"
+#define VT_COL_TEXT_RED      "31"
+#define VT_COL_TEXT_GREEN    "32"
+#define VT_COL_TEXT_YELLOW   "33"
+#define VT_COL_TEXT_BLUE     "34"
+#define VT_COL_TEXT_MAGENTA  "35"
+#define VT_COL_TEXT_CYAN     "36"
+#define VT_COL_TEXT_WHITE    "37"
+#define VT_COL_BACK_BLACK    "40"
+#define VT_COL_BACK_RED      "41"
+#define VT_COL_BACK_GREEN    "42"
+#define VT_COL_BACK_YELLOW   "43"
+#define VT_COL_BACK_BLUE     "44"
+#define VT_COL_BACK_MAGENTA  "45"
+#define VT_COL_BACK_CYAN     "46"
+#define VT_COL_BACK_WHITE    "47"
+//
+#define VT_GOTOXY(X,Y)  "\33["Y";"X"f"
+#define VT_COLOR(C)     "\33["C"m"
+#define VT_RESET        "\33[m"
+#define VT_REVERSE      "\33[7m"
+#define VT_UNREVERSE    "\33[27m"
+#define VT_BOLD         "\33[1m"
+#define VT_UNBOLD       "\33[22m"
+#define VT_BLINK        "\33[5m"
+#define VT_UNBLINK      "\33[25m"
+//
+#define VT_CLREOL       "\33[K"
+#define VT_CLRSOL       "\33[1K"
+#define VT_CLRLIN       "\33[2K"
+#define VT_CLREOS       "\33[J"
+#define VT_CLRSOS       "\33[1J"
+#define VT_CLRSCR       "\33[2J"
+//
+#define csi(X)          printf(s_csi( X ));
+static void vt_clear(void) {
+  printf("%s%s%s", VT_RESET, VT_CLRSCR, VT_GOTOXY("1", "0"));
+}
+static void vt_home(void) {
+  printf("%s%s", VT_RESET, VT_GOTOXY("1", "0"));
+}
+
+/* Last known terminal geometry; the defaults are the classic VT100 size. */
+static int term_cols = 80;
+static int term_rows = 24;
+
+/* The library's hts_stdout_isterminal() is hidden by -fvisibility=hidden. */
+static hts_boolean stdout_isterminal(void) {
+#ifdef _WIN32
+  return _isatty(_fileno(stdout)) ? HTS_TRUE : HTS_FALSE;
+#else
+  return isatty(fileno(stdout)) ? HTS_TRUE : HTS_FALSE;
+#endif
+}
+
+/* Returns HTS_TRUE if the terminal size changed since the last call. */
+static hts_boolean vt_size_refresh(void) {
+  int cols = 0;
+  int rows = 0;
+
+#ifdef _WIN32
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  const HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+
+  if (console != INVALID_HANDLE_VALUE &&
+      GetConsoleScreenBufferInfo(console, &info)) {
+    cols = info.srWindow.Right - info.srWindow.Left + 1;
+    rows = info.srWindow.Bottom - info.srWindow.Top + 1;
+  }
+#elif defined(TIOCGWINSZ)
+  struct winsize ws;
+
+  if (ioctl(fileno(stdout), TIOCGWINSZ, &ws) == 0) {
+    cols = ws.ws_col;
+    rows = ws.ws_row;
+  }
+#endif
+  if (cols <= 0)
+    cols = 80;
+  if (rows <= 0)
+    rows = 24;
+  if (cols == term_cols && rows == term_rows)
+    return HTS_FALSE;
+  term_cols = cols;
+  term_rows = rows;
+  return HTS_TRUE;
+}
+
+//
+
+/*
+#define STYLE_STATVALUES VT_COLOR(VT_COL_TEXT_BLACK)
+#define STYLE_STATTEXT   VT_COLOR(VT_COL_TEXT_BLUE)   
+*/
+#define STYLE_STATVALUES VT_BOLD
+#define STYLE_STATTEXT   VT_UNBOLD
+#define STYLE_STATRESET VT_UNBOLD
+/* Rows the stats block and "Current job" take above the in-progress list. */
+#define NStatsHeaderRows 7
+
+static int use_show;
+static httrackp *global_opt = NULL;
+
+/* Raised by sig_leave(), drained from the engine's own thread: the log line it
+   stands for goes through hts_log_print(), which allocates and takes locks. */
+static volatile sig_atomic_t stop_log_pending = 0;
+
+/* Write out what the ^C handler could only flag. */
+static void sig_drain_pending(httrackp *opt) {
+  if (stop_log_pending) {
+    stop_log_pending = 0;
+    hts_log_print(opt, LOG_ERROR, "Exit requested by shell or user");
+  }
+}
+
+static void signal_handlers(void);
+
+/* Seconds the exit wait may outlast what is left of --max-time. */
+#define EXIT_WAIT_GRACE 5
+
+static htsmutex exit_wait_lock = HTSMUTEX_INIT;
+static hts_boolean exit_wait_done = HTS_FALSE;
+/* Kept reachable once abandoned, so a leak checker at exit does not flag it. */
+static httrackp *volatile exit_abandoned_opt = NULL;
+
+/* Runs on its own worker, so it waits for every thread but itself. */
+static void exit_wait_thread(void *arg) {
+  (void) arg;
+  htsthread_wait_n(1);
+  hts_mutexlock(&exit_wait_lock);
+  exit_wait_done = HTS_TRUE;
+  hts_mutexrelease(&exit_wait_lock);
+}
+
+/* Bounded by --max-time plus a grace, because a stuck getaddrinfo() never
+   returns. HTS_FALSE when threads were left running, so opt must stay. */
+static hts_boolean exit_wait_threads(const httrackp *opt) {
+  TStamp left, deadline;
+
+  if (opt->maxtime <= 0 || hts_newthread(exit_wait_thread, NULL) != 0) {
+    htsthread_wait();
+    return HTS_TRUE;
+  }
+  left =
+      (TStamp) opt->maxtime - ((TStamp) time(NULL) - HTS_STAT.stat_timestart);
+  if (left < 0)
+    left = 0;
+  deadline = mtime_local() + (left + EXIT_WAIT_GRACE) * 1000;
+  for (;;) {
+    hts_boolean done;
+
+    hts_mutexlock(&exit_wait_lock);
+    done = exit_wait_done;
+    hts_mutexrelease(&exit_wait_lock);
+    if (done)
+      return HTS_TRUE;
+    if (mtime_local() >= deadline)
+      return HTS_FALSE;
+    Sleep(50);
+  }
+}
+
+#ifdef _WIN32
+/* Windows opens stdout in text mode, so every \n leaves as \r\n. A shell
+   reading that pipe sees the CR: MSYS folds it away, a Linux one under WSL2
+   does not, and the test suite then compares against a byte it never wrote.
+   Set by tests/ci-windows-suite.sh, so nothing changes for anyone else. */
+static void hts_binary_stdio(void) {
+  if (getenv("HTS_BINARY_STDIO") != NULL) {
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+  }
+}
+#endif
+
+int main(int argc, char **argv) {
+  int ret = 0;
+  httrackp *opt;
+
+#ifdef _WIN32
+  hts_binary_stdio();
+  hts_argv_utf8(&argc, &argv);
+  {
+    WORD wVersionRequested;     // requested version WinSock API
+    WSADATA wsadata;            // Windows Sockets API data
+    int stat;
+
+    wVersionRequested = 0x0101;
+    stat = WSAStartup(wVersionRequested, &wsadata);
+    if (stat != 0) {
+      printf("Winsock not found!\n");
+      return;
+    } else if (LOBYTE(wsadata.wVersion) != 1 && HIBYTE(wsadata.wVersion) != 1) {
+      printf("WINSOCK.DLL does not support version 1.1\n");
+      WSACleanup();
+      return;
+    }
+  }
+#endif
+
+  signal_handlers();
+  hts_init();
+
+  /* hts_create_opt() allocates the library's size, so a bigger caller would
+     run past it, but a smaller one only touches the prefix it knows. */
+  if (sizeof(httrackp) > hts_sizeof_opt()) {
+    fprintf(stderr,
+            "this httrack %s needs an option structure of %lu bytes, but "
+            "library version %s has %lu\n",
+            HTTRACK_VERSIONID, (unsigned long) sizeof(httrackp), hts_version(),
+            (unsigned long) hts_sizeof_opt());
+    abortLog("incompatible httrack library version, please update both httrack and its library");
+  }
+
+  opt = global_opt = hts_create_opt();
+  assert(opt->size_httrackp >= sizeof(httrackp));
+
+  CHAIN_FUNCTION(opt, init, htsshow_init, NULL);
+  CHAIN_FUNCTION(opt, uninit, htsshow_uninit, NULL);
+  CHAIN_FUNCTION(opt, start, htsshow_start, NULL);
+  CHAIN_FUNCTION(opt, end, htsshow_end, NULL);
+  CHAIN_FUNCTION(opt, chopt, htsshow_chopt, NULL);
+  CHAIN_FUNCTION(opt, preprocess, htsshow_preprocesshtml, NULL);
+  CHAIN_FUNCTION(opt, postprocess, htsshow_postprocesshtml, NULL);
+  CHAIN_FUNCTION(opt, check_html, htsshow_checkhtml, NULL);
+  CHAIN_FUNCTION(opt, query, htsshow_query, NULL);
+  CHAIN_FUNCTION(opt, query2, htsshow_query2, NULL);
+  CHAIN_FUNCTION(opt, query3, htsshow_query3, NULL);
+  CHAIN_FUNCTION(opt, loop, htsshow_loop, NULL);
+  CHAIN_FUNCTION(opt, check_link, htsshow_check, NULL);
+  CHAIN_FUNCTION(opt, check_mime, htsshow_check_mime, NULL);
+  CHAIN_FUNCTION(opt, pause, htsshow_pause, NULL);
+  CHAIN_FUNCTION(opt, filesave, htsshow_filesave, NULL);
+  CHAIN_FUNCTION(opt, filesave2, htsshow_filesave2, NULL);
+  CHAIN_FUNCTION(opt, linkdetected, htsshow_linkdetected, NULL);
+  CHAIN_FUNCTION(opt, linkdetected2, htsshow_linkdetected2, NULL);
+  CHAIN_FUNCTION(opt, xfrstatus, htsshow_xfrstatus, NULL);
+  CHAIN_FUNCTION(opt, savename, htsshow_savename, NULL);
+  CHAIN_FUNCTION(opt, sendhead, htsshow_sendheader, NULL);
+  CHAIN_FUNCTION(opt, receivehead, htsshow_receiveheader, NULL);
+
+  ret = hts_main2(argc, argv, opt);
+  if (ret) {
+    fprintf(stderr, "* %s\n", hts_errmsg(opt));
+  }
+  global_opt = NULL;
+  /* pending threads still read opt */
+  if (exit_wait_threads(opt)) {
+    hts_free_opt(opt);
+    hts_uninit();
+#ifdef _WIN32
+    WSACleanup();
+#endif
+  } else {
+    exit_abandoned_opt = opt;
+    fprintf(stderr, "* Exiting without waiting for engine threads still "
+                    "running after --max-time\n");
+  }
+
+  return ret;
+}
+
+/* CALLBACK FUNCTIONS */
+
+/* Initialize the Winsock */
+static void __cdecl htsshow_init(t_hts_callbackarg * carg) {
+}
+static void __cdecl htsshow_uninit(t_hts_callbackarg * carg) {
+}
+static int __cdecl htsshow_start(t_hts_callbackarg * carg, httrackp * opt) {
+  use_show = 0;
+  /* Cursor addressing needs a screen; the ENTER toggle re-enters here. */
+  if (opt->verbosedisplay == HTS_VERBOSE_FULL && stdout_isterminal()) {
+    use_show = 1;
+    (void) vt_size_refresh();
+    vt_clear();
+  }
+  return 1;
+}
+static int __cdecl htsshow_chopt(t_hts_callbackarg * carg, httrackp * opt) {
+  return htsshow_start(carg, opt);
+}
+static int __cdecl htsshow_end(t_hts_callbackarg * carg, httrackp * opt) {
+  sig_drain_pending(opt);
+  return 1;
+}
+static int __cdecl htsshow_preprocesshtml(t_hts_callbackarg * carg,
+                                          httrackp * opt, char **html, int *len,
+                                          const char *url_address,
+                                          const char *url_file) {
+  return 1;
+}
+static int __cdecl htsshow_postprocesshtml(t_hts_callbackarg * carg,
+                                           httrackp * opt, char **html,
+                                           int *len, const char *url_address,
+                                           const char *url_file) {
+  return 1;
+}
+static int __cdecl htsshow_checkhtml(t_hts_callbackarg * carg, httrackp * opt,
+                                     char *html, int len,
+                                     const char *url_address,
+                                     const char *url_file) {
+  return 1;
+}
+static int __cdecl htsshow_loop(t_hts_callbackarg * carg, httrackp * opt, lien_back * back, int back_max, int back_index, int lien_n, int lien_tot, int stat_time, hts_stat_struct * stats) {   // appelé à chaque boucle de HTTrack
+  static TStamp prev_mytime = 0;        /* ok */
+  static t_InpInfo SInfo;       /* ok */
+
+  //
+  TStamp mytime;
+  long int rate = 0;
+  char st[256];
+
+  //
+  int stat_written = -1;
+  int stat_updated = -1;
+  int stat_errors = -1;
+  int stat_warnings = -1;
+  int stat_infos = -1;
+  int nbk = -1;
+  int stat_nsocket = -1;
+  LLint stat_bytes = -1;
+  LLint stat_bytes_recv = -1;
+  int irate = -1;
+
+  sig_drain_pending(opt);
+
+  if (stats) {
+    stat_written = stats->stat_files;
+    stat_updated = stats->stat_updated_files;
+    stat_errors = stats->stat_errors;
+    stat_warnings = stats->stat_warnings;
+    stat_infos = stats->stat_infos;
+    nbk = stats->nbk;
+    stat_nsocket = stats->stat_nsocket;
+    irate = (int) stats->rate;
+    stat_bytes = stats->nb;
+    stat_bytes_recv = stats->HTS_TOTAL_RECV;
+  }
+
+  if (!use_show)
+    return 1;
+
+  mytime = mtime_local();
+  if ((stat_time > 0) && (stat_bytes_recv > 0))
+    rate = (int) (stat_bytes_recv / stat_time);
+  else
+    rate = 0;                   // pas d'infos
+
+  /* Infos */
+  if (stat_bytes >= 0)
+    SInfo.stat_bytes = stat_bytes;      // bytes
+  if (stat_time >= 0)
+    SInfo.stat_time = stat_time;        // time
+  if (lien_tot >= 0)
+    SInfo.lien_tot = lien_tot;  // nb liens
+  if (lien_n >= 0)
+    SInfo.lien_n = lien_n;      // scanned
+  SInfo.stat_nsocket = stat_nsocket;    // socks
+  if (rate > 0)
+    SInfo.rate = rate;          // rate
+  if (irate >= 0)
+    SInfo.irate = irate;        // irate
+  if (SInfo.irate < 0)
+    SInfo.irate = SInfo.rate;
+  if (nbk >= 0)
+    SInfo.stat_back = nbk;
+  if (stat_written >= 0)
+    SInfo.stat_written = stat_written;
+  if (stat_updated >= 0)
+    SInfo.stat_updated = stat_updated;
+  if (stat_errors >= 0)
+    SInfo.stat_errors = stat_errors;
+  if (stat_warnings >= 0)
+    SInfo.stat_warnings = stat_warnings;
+  if (stat_infos >= 0)
+    SInfo.stat_infos = stat_infos;
+
+  if (((mytime - prev_mytime) > 100) || ((mytime - prev_mytime) < 0)) {
+    strc_int2bytes2 strc, strc2, strc3;
+
+    prev_mytime = mytime;
+
+    /* A resize leaves stale wrapped text on screen: repaint everything. */
+    if (vt_size_refresh())
+      vt_clear();
+
+    st[0] = '\0';
+    qsec2str(st, stat_time);
+    vt_home();
+    printf(VT_GOTOXY("1", "1")
+           VT_CLREOL STYLE_STATTEXT "Bytes saved:" STYLE_STATVALUES " \t%s" "\t"
+           VT_CLREOL VT_GOTOXY("40", "1")
+           STYLE_STATTEXT "Links scanned:" STYLE_STATVALUES " \t%d/%d (+%d)"
+           VT_CLREOL "\n" VT_CLREOL VT_GOTOXY("1", "2")
+           STYLE_STATTEXT "Time:" " \t" STYLE_STATVALUES "%s" "\t" VT_CLREOL
+           VT_GOTOXY("40", "2")
+           STYLE_STATTEXT "Files written:" " \t" STYLE_STATVALUES "%d" VT_CLREOL
+           "\n" VT_CLREOL VT_GOTOXY("1", "3")
+           STYLE_STATTEXT "Transfer rate:" " \t" STYLE_STATVALUES "%s (%s)" "\t"
+           VT_CLREOL VT_GOTOXY("40", "3")
+           STYLE_STATTEXT "Files updated:" " \t" STYLE_STATVALUES "%d" VT_CLREOL
+           "\n" VT_CLREOL VT_GOTOXY("1", "4")
+           STYLE_STATTEXT "Active connections:" " \t" STYLE_STATVALUES "%d" "\t"
+           VT_CLREOL VT_GOTOXY("40", "4")
+           STYLE_STATTEXT "Errors:" STYLE_STATVALUES " \t" STYLE_STATVALUES "%d"
+           VT_CLREOL "\n" STYLE_STATRESET,
+           /* */
+           (char *) int2bytes(&strc, SInfo.stat_bytes), (int) lien_n,
+           (int) SInfo.lien_tot, (int) nbk, (char *) st,
+           (int) SInfo.stat_written, (char *) int2bytessec(&strc2, SInfo.irate),
+           (char *) int2bytessec(&strc3, SInfo.rate), (int) SInfo.stat_updated,
+           (int) SInfo.stat_nsocket, (int) SInfo.stat_errors
+           /* */
+      );
+
+    // parcourir registre des liens
+    if (back_index >= 0) {      // seulement si index passé
+      int j, k;
+      int index = 0;
+      int ok = 0;               // idem
+      int l;                    // idem
+
+      //
+      t_StatsBuffer StatsBuffer[NStatsBuffer];
+
+      /* Keep the frame within the terminal, or it scrolls the stats away. */
+      const int nstats =
+          min(NStatsBuffer, max(0, term_rows - NStatsHeaderRows));
+      /* URL budget: half the width, i.e. the historical 40 at 80 columns. */
+      const int maxurl =
+          min((int) sizeof(StatsBuffer[0].name) - 1, max(16, term_cols / 2));
+
+      {
+        int i;
+
+        for(i = 0; i < NStatsBuffer; i++) {
+          strcpybuff(StatsBuffer[i].state, "");
+          strcpybuff(StatsBuffer[i].name, "");
+          strcpybuff(StatsBuffer[i].file, "");
+          strcpybuff(StatsBuffer[i].url_sav, "");
+          StatsBuffer[i].back = 0;
+          StatsBuffer[i].size = 0;
+          StatsBuffer[i].sizetot = 0;
+        }
+      }
+      for(k = 0; k < 2; k++) {  // 0: lien en cours 1: autres liens
+        for (j = 0; (j < 3) && (index < nstats); j++) { // passe de priorité
+          int _i;
+
+          for (_i = 0 + k; (_i < max(back_max * k, 1)) && (index < nstats);
+               _i++) {                                  // no lien
+            int i = (back_index + _i) % back_max;       // commencer par le "premier" (l'actuel)
+            const int slot_status = hts_load_acquire_int(&back[i].status);
+
+            if (slot_status >= 0) { // an active slot
+              ok = 0;
+              switch (j) {
+              case 0:          // prioritaire
+                if ((slot_status > 0) && (slot_status < 99)) {
+                  strcpybuff(StatsBuffer[index].state, "receive");
+                  ok = 1;
+                }
+                break;
+              case 1:
+                if (slot_status == STATUS_WAIT_HEADERS) {
+                  strcpybuff(StatsBuffer[index].state, "request");
+                  ok = 1;
+                } else if (slot_status == STATUS_CONNECTING) {
+                  strcpybuff(StatsBuffer[index].state, "connect");
+                  ok = 1;
+                } else if (slot_status == STATUS_WAIT_DNS) {
+                  strcpybuff(StatsBuffer[index].state, "search");
+                  ok = 1;
+                } else if (slot_status == STATUS_FTP_TRANSFER) { // ftp
+                  snprintf(StatsBuffer[index].state, sizeof(StatsBuffer[index].state),
+                           "ftp: %s", back[i].info);
+                  ok = 1;
+                }
+                break;
+              default:
+                if (slot_status == STATUS_READY) { // ready
+                  if (back[i].r.statuscode == 200) {
+                    strcpybuff(StatsBuffer[index].state, "ready");
+                    ok = 1;
+                  } else if (back[i].r.statuscode >= 100
+                             && back[i].r.statuscode <= 599) {
+                    char tempo[256];
+
+                    tempo[0] = '\0';
+                    infostatuscode(tempo, back[i].r.statuscode);
+                    strcpybuff(StatsBuffer[index].state, tempo);
+                    ok = 1;
+                  } else {
+                    strcpybuff(StatsBuffer[index].state, "error");
+                    ok = 1;
+                  }
+                }
+                break;
+              }
+
+              if (ok) {
+                char BIGSTK s[HTS_URLMAXSIZE * 2];
+
+                //
+                StatsBuffer[index].back = i;    // index pour + d'infos
+                //
+                s[0] = '\0';
+                strcpybuff(StatsBuffer[index].url_sav, back[i].url_sav);        // pour cancel
+                if (strcmp(back[i].url_adr, "file://")) {
+                  size_t keep;
+                  const char *const host =
+                      stats_skip_login(back[i].url_adr, &keep);
+
+                  strncatbuff(s, back[i].url_adr, keep);
+                  strcatbuff(s, host);
+                } else
+                  strcatbuff(s, "localhost");
+                if (back[i].url_fil[0] != '/')
+                  strcatbuff(s, "/");
+                strcatbuff(s, back[i].url_fil);
+                hts_hide_secrets(opt, s, sizeof(s));
+
+                StatsBuffer[index].file[0] = '\0';
+                {
+                  char *a = strrchr(s, '/');
+
+                  if (a) {
+                    strncatbuff(StatsBuffer[index].file, a, 200);
+                    *a = '\0';
+                  }
+                }
+
+                if ((l = (int) strlen(s)) < maxurl)
+                  strcpybuff(StatsBuffer[index].name, s);
+                else {
+                  // couper
+                  StatsBuffer[index].name[0] = '\0';
+                  strncatbuff(StatsBuffer[index].name, s, maxurl / 2 - 2);
+                  strcatbuff(StatsBuffer[index].name, "...");
+                  strcatbuff(StatsBuffer[index].name, s + l - maxurl / 2 + 2);
+                }
+
+                /* An FTP worker may be writing the sizes right now. */
+                const LLint size = hts_load_relaxed_llint(&back[i].r.size);
+                const LLint totalsize =
+                    hts_load_relaxed_llint(&back[i].r.totalsize);
+
+                if (totalsize >= 0) { // known size
+                  StatsBuffer[index].sizetot = totalsize;
+                  StatsBuffer[index].size = size;
+                } else {                             // unknown size
+                  if (slot_status == STATUS_READY) { // ready
+                    StatsBuffer[index].sizetot = size;
+                    StatsBuffer[index].size = size;
+                  } else {
+                    StatsBuffer[index].sizetot = 8192;
+                    StatsBuffer[index].size = (size % 8192);
+                  }
+                }
+                index++;
+              }
+            }
+          }
+        }
+      }
+
+      /* LF */
+      printf("%s\n", VT_CLREOL);
+
+      /* Display current job */
+      {
+        int parsing = 0;
+
+        printf("Current job: ");
+        if (!(parsing = hts_is_parsing(opt, -1)))
+          printf("receiving files");
+        else {
+          switch (hts_is_testing(opt)) {
+          case 0:
+            printf("parsing HTML file (%d%%)", parsing);
+            break;
+          case 1:
+            printf("parsing HTML file: testing links (%d%%)", parsing);
+            break;
+          case 2:
+            printf("purging files");
+            break;
+          case 3:
+            printf("loading cache");
+            break;
+          case 4:
+            printf("waiting (scheduler)");
+            break;
+          case 5:
+            printf("waiting (throttle)");
+            break;
+          }
+        }
+        printf("%s\n", VT_CLREOL);
+      }
+
+      /* Display background jobs */
+      {
+        int i;
+
+        for (i = 0; i < nstats; i++) {
+          if (strnotempty(StatsBuffer[i].state)) {
+            printf(VT_CLREOL " %s - \t%s%s \t%s / \t%s", StatsBuffer[i].state,
+                   StatsBuffer[i].name, StatsBuffer[i].file, int2bytes(&strc,
+                                                                       StatsBuffer
+                                                                       [i].
+                                                                       size),
+                   int2bytes(&strc2, StatsBuffer[i].sizetot)
+              );
+          }
+          printf("%s\n", VT_CLREOL);
+        }
+      }
+
+    }
+
+  }
+
+  return 1;
+}
+static const char *__cdecl htsshow_query(t_hts_callbackarg * carg,
+                                         httrackp * opt, const char *question) {
+  static char s[12] = "";       /* ok */
+
+  printf("%s\nPress <Y><Enter> to confirm, <N><Enter> to abort\n", question);
+  io_flush;
+  linput(stdin, s, 4);
+  return s;
+}
+static const char *__cdecl htsshow_query2(t_hts_callbackarg * carg,
+                                          httrackp * opt,
+                                          const char *question) {
+  static char s[12] = "";       /* ok */
+
+  printf("%s\nPress <Y><Enter> to confirm, <N><Enter> to abort\n", question);
+  io_flush;
+  linput(stdin, s, 4);
+  return s;
+}
+static const char *__cdecl htsshow_query3(t_hts_callbackarg * carg,
+                                          httrackp * opt,
+                                          const char *question) {
+  static char line[256];        /* ok */
+
+  printf("\n" "A link, %s, is located beyond this mirror scope.\n"
+         "What should I do? (type in the choice + enter)\n\n"
+         "* Ignore all further links and do not ask any more questions\n"
+         "0 Ignore this link (default if empty entry)\n"
+         "1 Ignore directory and lower structures\n" "2 Ignore all domain\n"
+         "\n" "4 Get only this page/link, but not links inside this page\n"
+         "5 Mirror this link (useful)\n"
+         "6 Mirror all links located on the same domain as this link\n" "\n",
+         question);
+  /* the domain scopes are host-dependent, so the engine enumerates them */
+  {
+    char scope[HTS_URLMAXSIZE];
+    int k;
+
+    for (k = 0; hts_wizard_host_scope(question, k, scope, sizeof(scope)); k++)
+      printf("%d Mirror %s and every host below it\n",
+             HTS_WIZARD_SCOPE_INCLUDE + k, scope);
+    for (k = 0; hts_wizard_host_scope(question, k, scope, sizeof(scope)); k++)
+      printf("%d Ignore %s and every host below it\n",
+             HTS_WIZARD_SCOPE_EXCLUDE + k, scope);
+    if (k != 0)
+      printf("\n");
+  }
+  do {
+    printf(">> ");
+    io_flush;
+    linput(stdin, line, 200);
+    /* linput() reports neither EOF nor a read error, so an unanswerable prompt
+       would spin here; a closed stdin sets only ferror */
+    if (!strnotempty(line) && (feof(stdin) || ferror(stdin)))
+      strcpybuff(line, "*"); /* refuse this link and ask nothing more */
+  } while(!strnotempty(line));
+  printf("ok..\n");
+  return line;
+}
+static int __cdecl htsshow_check(t_hts_callbackarg * carg, httrackp * opt,
+                                 const char *adr, const char *fil, int status) {
+  return -1;
+}
+static int __cdecl htsshow_check_mime(t_hts_callbackarg * carg, httrackp * opt,
+                                      const char *adr, const char *fil,
+                                      const char *mime, int status) {
+  return -1;
+}
+static void __cdecl htsshow_pause(t_hts_callbackarg * carg, httrackp * opt,
+                                  const char *lockfile) {
+  String abortlock = STRING_EMPTY, progress = STRING_EMPTY;
+
+  /* Strings, because a truncated path would leave a paused engine polling one
+     nothing can create. */
+  StringCopy(abortlock, StringBuff(opt->path_log));
+  StringCat(abortlock, HTS_ABORT_LOCKNAME);
+  StringCopy(progress, StringBuff(opt->path_log));
+  StringCat(progress, "hts-in_progress.lock");
+  /* Leaving the wait is all this has to do, because the engine takes the
+     request at its next check. hts_file_is_newer() is the staleness rule
+     hts_take_lock_request() applies, or a request an earlier run left would
+     defeat the pause. */
+  while (fexist(lockfile) &&
+         !hts_file_is_newer(StringBuff(abortlock), StringBuff(progress))) {
+    Sleep(1000);
+  }
+  StringFree(progress);
+  StringFree(abortlock);
+}
+static void __cdecl htsshow_filesave(t_hts_callbackarg * carg, httrackp * opt,
+                                     const char *file) {
+}
+static void __cdecl htsshow_filesave2(t_hts_callbackarg * carg, httrackp * opt,
+                                      const char *adr, const char *fil,
+                                      const char *save, int is_new,
+                                      int is_modified, int not_updated) {
+}
+static int __cdecl htsshow_linkdetected(t_hts_callbackarg * carg,
+                                        httrackp * opt, char *link) {
+  return 1;
+}
+static int __cdecl htsshow_linkdetected2(t_hts_callbackarg * carg,
+                                         httrackp * opt, char *link,
+                                         const char *start_tag) {
+  return 1;
+}
+static int __cdecl htsshow_xfrstatus(t_hts_callbackarg * carg, httrackp * opt,
+                                     lien_back * back) {
+  return 1;
+}
+static int __cdecl htsshow_savename(t_hts_callbackarg * carg, httrackp * opt,
+                                    const char *adr_complete,
+                                    const char *fil_complete,
+                                    const char *referer_adr,
+                                    const char *referer_fil, char *save) {
+  return 1;
+}
+static int __cdecl htsshow_sendheader(t_hts_callbackarg * carg, httrackp * opt,
+                                      char *buff, const char *adr,
+                                      const char *fil, const char *referer_adr,
+                                      const char *referer_fil,
+                                      htsblk * outgoing) {
+  return 1;
+}
+static int __cdecl htsshow_receiveheader(t_hts_callbackarg * carg,
+                                         httrackp * opt, char *buff,
+                                         const char *adr, const char *fil,
+                                         const char *referer_adr,
+                                         const char *referer_fil,
+                                         htsblk * incoming) {
+  return 1;
+}
+
+/* *** Various functions *** */
+
+/* Note: utf-8 */
+static int fexist(const char *s) {
+  STRUCT_STAT st;
+
+  memset(&st, 0, sizeof(st));
+  if (STAT(s, &st) == 0) {
+    if (S_ISREG(st.st_mode)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int linput(FILE * fp, char *s, int max) {
+  int c;
+  int j = 0;
+
+  do {
+    c = fgetc(fp);
+    if (c != EOF) {
+      switch (c) {
+      case 13:
+        break;                  // sauter CR
+      case 10:
+        c = -1;
+        break;
+      case 9:
+      case 12:
+        break;                  // sauter ces caractères
+      default:
+        s[j++] = (char) c;
+        break;
+      }
+    }
+  } while((c != -1) && (c != EOF) && (j < (max - 1)));
+  s[j] = '\0';
+  return j;
+}
+
+// Signal handlers (SIGHUP & co, Unix)
+//
+/* A handler may only write(), and may only touch a volatile sig_atomic_t: both
+   printf and hts_log_print take a lock and allocate, so a signal arriving
+   while the interrupted thread holds the stdout lock deadlocks. Each one also
+   puts errno back, because the interrupted code was about to read it. */
+#define SIG_FD_OUT 1
+#define SIG_FD_ERR 2
+
+static void sig_print(int fd, const char *msg, size_t len) {
+  /* MSVC's write() counts in unsigned int and answers in int */
+  (void) (write(fd, msg, (unsigned int) len) == (int) len);
+}
+
+#define SIG_PRINT(fd, lit) sig_print((fd), (lit), sizeof(lit) - 1)
+
+/* "<prefix><code>)\n", the shape the two handlers below used to printf. */
+static void sig_print_code(int fd, const char *prefix, size_t len, int code) {
+  char buffer[256];
+  unsigned int size;
+
+  if (len > sizeof(buffer) - 16)
+    len = sizeof(buffer) - 16;
+  memcpy(buffer, prefix, len);
+  size = (unsigned int) len;
+  size += hts_print_num(&buffer[size], code);
+  buffer[size++] = ')';
+  buffer[size++] = '\n';
+  sig_print(fd, buffer, size);
+}
+
+#define SIG_PRINT_CODE(fd, lit, code)                                          \
+  sig_print_code((fd), (lit), sizeof(lit) - 1, (code))
+
+static void sig_ignore(int code) { // ignore the signal
+}
+
+static void sig_term(int code) { // quit at once (never returns)
+  SIG_PRINT_CODE(SIG_FD_ERR, "\nProgram terminated (signal ", code);
+  /* _exit, not exit: exit() runs OpenSSL's atexit teardown here, whose free()
+     can deadlock on the malloc lock the interrupted thread holds. */
+  _exit(0);
+}
+
+static void sig_finish(int code) { // finish the mirror, then quit
+  const int saved = errno;
+
+  signal(code, sig_term); // quit at once if asked again
+  if (global_opt != NULL) {
+    hts_store_release_int(&global_opt->state.exit_xh, 1);
+  }
+  SIG_PRINT_CODE(SIG_FD_ERR, "\nExit requested to engine (signal ", code);
+  errno = saved;
+}
+
+#ifndef _WIN32
+static void sig_doback(int blind);
+
+static void sig_back(int code) { // ^Z: suspend, or go to the background
+  const int saved = errno;
+
+  if (global_opt != NULL && !global_opt->background_on_suspend) {
+    signal(SIGTSTP, SIG_DFL);   // ^Z
+    SIG_PRINT(SIG_FD_OUT, "\nInterrupting the program.\n");
+    kill(getpid(), SIGTSTP);
+  } else {
+    // Background the process.
+    signal(code, sig_ignore);
+    sig_doback(0);
+  }
+  errno = saved;
+}
+
+static void sig_brpipe(int code) {      // treat if necessary
+  const int saved = errno;
+
+  signal(code, sig_brpipe);
+  errno = saved;
+}
+
+static void sig_doback(int blind) { // go to the background
+  int out = -1;
+
+  //
+  SIG_PRINT(SIG_FD_OUT, "\nMoving into background to complete the mirror...\n");
+
+  if (global_opt != NULL) {
+    // suppress logging and asking lousy questions
+    global_opt->quiet = 1;
+    global_opt->verbosedisplay = HTS_VERBOSE_NONE;
+  }
+
+  if (!blind)
+    out = open("hts-nohup.out", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+  if (out == -1)
+    out = open("/dev/null", O_WRONLY, S_IRUSR | S_IWUSR);
+  dup2(out, 0);
+  dup2(out, 1);
+  dup2(out, 2);
+  //
+  switch (fork()) {
+  case 0:
+    break;
+  case -1:
+    SIG_PRINT(SIG_FD_ERR, "Error: can not fork process\n");
+    break;
+  default:                     // pere
+    _exit(0);
+    break;
+  }
+}
+#endif
+
+static void sig_fatal(int code) {
+  const char msg[] = "\nCaught signal ";
+  const char msgreport[] =
+    "\nPlease report the problem at http://forum.httrack.com\n";
+  char buffer[256];
+  unsigned int size;
+
+  signal(code, SIG_DFL);
+  signal(SIGABRT, SIG_DFL);
+
+  memcpy(buffer, msg, sizeof(msg) - 1);
+  size = sizeof(msg) - 1;
+  size += hts_print_num(&buffer[size], code);
+  buffer[size++] = '\n';
+  sig_print(SIG_FD_ERR, buffer, size);
+  hts_print_backtrace();
+  SIG_PRINT(SIG_FD_ERR, msgreport);
+  abort();
+}
+
+static void sig_leave(int code) {
+  const int saved = errno;
+
+  if (global_opt != NULL && global_opt->state._hts_in_mirror) {
+    signal(code, sig_term); // quit at once if asked again
+    SIG_PRINT(SIG_FD_OUT,
+              "\n** Finishing pending transfers.. press again ^C to quit.\n");
+    // ask for stop, and leave the log line to sig_drain_pending()
+    stop_log_pending = 1;
+    hts_store_release_int(&global_opt->state.stop, 1);
+    errno = saved;
+  } else {
+    sig_term(code); /* never returns */
+  }
+}
+
+/* SA_ONSTACK, so a stack-overflow SIGSEGV still reaches sig_fatal: the faulting
+   stack has no room left for a signal frame, and the kernel then kills the
+   process with no diagnostic at all (#866). */
+static void install_fatal_handler(int code) {
+#ifdef SA_ONSTACK
+  struct sigaction sa;
+
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = sig_fatal;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_ONSTACK;
+  if (sigaction(code, &sa, NULL) == 0)
+    return;
+#endif
+  signal(code, sig_fatal);
+}
+
+static void signal_handlers(void) {
+  hts_backtrace_init();
+  (void) hts_backtrace_altstack();
+  /* The crawl recurses in the engine's workers, so they need one too (#969). */
+  hts_set_thread_hooks(hts_backtrace_altstack, hts_backtrace_altstack_release);
+#ifdef _WIN32
+  signal(SIGINT, sig_leave);    // ^C
+  signal(SIGTERM, sig_finish);  // kill <process>
+#else
+  signal(SIGTSTP, sig_back);    // ^Z
+  signal(SIGTERM, sig_finish);  // kill <process>
+  signal(SIGINT, sig_leave);    // ^C
+  signal(SIGPIPE, sig_brpipe);  // broken pipe (write into non-opened socket)
+  signal(SIGCHLD, sig_ignore);  // child change status
+#endif
+#ifdef SIGABRT
+  install_fatal_handler(SIGABRT); // abort
+#endif
+#ifdef SIGBUS
+  install_fatal_handler(SIGBUS); // bus error
+#endif
+#ifdef SIGILL
+  install_fatal_handler(SIGILL); // illegal instruction
+#endif
+#ifdef SIGSEGV
+  install_fatal_handler(SIGSEGV); // segmentation violation
+#endif
+}
+
+// fin routines de détournement de SIGHUP & co

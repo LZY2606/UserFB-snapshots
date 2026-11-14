@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Using HTTrack from a script, from the callbacks, or through the libhttrack library.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>Programming with HTTrack</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>On this page</h2>
+	<ul>
+		<li><a href="#programming">Programming</a></li>
+		<li><a href="#technical-references">Technical references</a></li>
+	</ul>
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html" aria-current="page" class="here">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>HTTrack Programming page</h1>
+
+<br>
+
+HTTrack can be used as a third-party program in batch files, or as library. 
+Depending on your needs, you may look:
+
+<br><br>
+
+<h3 id="programming">Programming</h3>
+
+<ul>
+<li><a href="scripting.html">Simple use: scripting examples using the httrack commandline program</a></li><br>
+You can use tens of options (see <tt>httrack --help</tt>) to control precisely the mirror, and used embedded commands in httrack.
+<br><br>
+<li><a href="plug.html">More complex use: plugging external C functions to the httrack library</a></li><br>
+For advanced functions, you may have to use external C wrappers ; for example when adding advanced crawl features, such as "tuned" filestructure type
+<br><i>Important note: please read the license information of httrack before developing add-ons</i><br />
+See also the page <a href="plug_330.html">for versions prior to 3.41</a>
+<br><br>
+<li><a href="library.html">Advanced use: using the library</a></li><br>
+The library can be used to write graphical GUIs for httrack, or to run mirrors from a program.
+<br><i>Important note: please read the license information of httrack before developing add-ons</i>
+</ul>
+
+<h3 id="technical-references">Technical references</h3>
+<ul>
+<li><a href="cache.html">Cache format</a></li><br>
+HTTrack stores original HTML data and references to downloaded files in a cache, located in the hts-cache directory.
+This page describes the HTTrack cache format.
+<li><a href="changes.html">Change report format</a></li><br>
+With --changes, HTTrack writes hts-changes.json describing what the crawl left new, changed, unchanged and gone
+compared to the previous mirror. This page describes that file.
+</ul>
+
+
+<br><br>
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

@@ -1,0 +1,63 @@
+
+exemplesdir = $(datadir)/httrack/libtest
+# Glob against $(srcdir), not the build dir: a bare "*.c" is resolved relative to
+# the build dir and stays unexpanded (breaking "make") in an out-of-tree build.
+exemples_DATA = $(srcdir)/*.c $(srcdir)/*.h $(srcdir)/*.txt
+EXTRA_DIST = $(exemples_DATA) libtest.mak libtest.vcproj
+
+AM_CPPFLAGS = \
+	@DEFAULT_CFLAGS@ \
+	@THREADS_CFLAGS@ \
+	@V6_FLAG@ \
+	@LFS_FLAG@ \
+	-DPREFIX=\""$(prefix)"\" \
+	-DSYSCONFDIR=\""$(sysconfdir)"\" \
+	-DDATADIR=\""$(datadir)"\" \
+	-DLIBDIR=\""$(libdir)"\"
+# Use $(top_srcdir)/src, not ../src: the latter is relative to the build dir and
+# misses the source headers (e.g. httrack-library.h) in an out-of-tree build.
+AM_CPPFLAGS += -I$(top_srcdir)/src
+
+# The callback examples reference libc only through libhttrack, so the direct
+# libc edge gets dropped from DT_NEEDED (library-not-linked-against-libc).
+# Force libc back; configure gates the flag since only a GNU-style linker
+# accepts it (LIBC_FORCE_LINK is empty on e.g. macOS).
+AM_LDFLAGS = \
+	@DEFAULT_LDFLAGS@ \
+	-L../src \
+	@LIBC_FORCE_LINK@
+
+# Examples; --disable-example-libs keeps the sources above and drops these.
+if EXAMPLE_LIBS
+libbaselinks_la_SOURCES =  callbacks-example-baselinks.c
+libbaselinks_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libbaselinks_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libchangecontent_la_SOURCES =  callbacks-example-changecontent.c
+libchangecontent_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libchangecontent_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libcontentfilter_la_SOURCES =  callbacks-example-contentfilter.c
+libcontentfilter_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libcontentfilter_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libdisplayheader_la_SOURCES =  callbacks-example-displayheader.c
+libdisplayheader_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libdisplayheader_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libfilename2_la_SOURCES =  callbacks-example-filename2.c
+libfilename2_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libfilename2_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libfilename_la_SOURCES =  callbacks-example-filename.c
+libfilename_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libfilename_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libfilenameiisbug_la_SOURCES =  callbacks-example-filenameiisbug.c
+libfilenameiisbug_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libfilenameiisbug_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+liblistlinks_la_SOURCES =  callbacks-example-listlinks.c
+liblistlinks_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+liblistlinks_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+liblog_la_SOURCES =  callbacks-example-log.c
+liblog_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+liblog_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+libsimple_la_SOURCES =  callbacks-example-simple.c
+libsimple_la_LIBADD = $(THREADS_LIBS) $(SOCKET_LIBS) $(top_builddir)/src/libhttrack.la
+libsimple_la_LDFLAGS = $(AM_LDFLAGS) -version-info 1:0:0
+pkglib_LTLIBRARIES = libbaselinks.la libchangecontent.la libcontentfilter.la libdisplayheader.la libfilename2.la libfilename.la libfilenameiisbug.la liblistlinks.la liblog.la libsimple.la
+endif

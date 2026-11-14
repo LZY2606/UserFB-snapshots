@@ -1,0 +1,281 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: ProxyTrack, httrack cache-based proxy                  */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+/* Standard includes */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <ctype.h>
+#ifdef _WIN32
+#include <io.h>    /* _setmode, _fileno */
+#include <fcntl.h> /* _O_BINARY */
+#endif
+
+#define HTSSAFE_ABORT_FUNCTION(A,B,C)
+#include "htsbase.h"
+#include "htsnet.h"
+#include "htslib.h"
+#include "coucal.h"
+#include "store.h"
+#include "proxytrack.h"
+
+/* HTS_LOG, the engine's own debug switch. */
+static hts_boolean proxytrack_verbose = HTS_FALSE;
+
+/* Without a handler coucal writes to stderr itself, prefixing the table
+   address; the per-enumeration statistics summary then lands on the operator's
+   console once per WebDAV request (#918). */
+static HTS_PRINTF_FUN(3, 0) void proxytrack_coucal_loghandler(
+    coucal_opaque arg, coucal_loglevel level, const char *format,
+    va_list args) {
+  const char *severity;
+
+  (void) arg;
+  if (level <= coucal_log_critical) {
+    severity = CRITICAL;
+  } else if (level <= coucal_log_warning) {
+    severity = WARNING;
+  } else {
+    /* not the DEBUG macro: it is NULL outside a debug build, voiding HTS_LOG */
+    severity = proxytrack_verbose ? "debug" : NULL;
+  }
+  proxytrack_vprint_log(severity, format, args);
+}
+
+#ifndef _WIN32
+#include <signal.h>
+static void sig_brpipe(int code) {
+  /* ignore */
+}
+#endif
+
+// split a "host:port" listen argument; FALSE sends the caller to the usage
+// screen. The port was unchecked, so a huge one wrapped into range (#614).
+static hts_boolean scanHostPort(const char *str, char *host, int *port) {
+  char *pos = strrchr(str, ':');
+
+  if (pos != NULL) {
+    int n = (int) (pos - str);
+
+    if (n < 256) {
+      host[0] = '\0';
+      strncat(host, str, n);
+      return hts_parse_url_port(pos + 1, port);
+    }
+  }
+  return HTS_FALSE;
+}
+
+#ifdef _WIN32
+/* Windows opens stdout in text mode, so every \n leaves as \r\n. A shell
+   reading that pipe sees the CR: MSYS folds it away, a Linux one under WSL2
+   does not, and the test suite then compares against a byte it never wrote.
+   Set by tests/ci-windows-suite.sh, so nothing changes for anyone else. */
+static void hts_binary_stdio(void) {
+  if (getenv("HTS_BINARY_STDIO") != NULL) {
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+  }
+}
+#endif
+
+/* --help prints this to stdout, a bad command line to stderr. */
+static void usage(FILE *fp, const char *argv0) {
+  fprintf(fp,
+          "usage: %s <proxy-addr:proxy-port> <ICP-addr:ICP-port> "
+          "[archive ..] [--list <file-list>]\n",
+          argv0);
+  fprintf(fp,
+          "usage: %s --convert <output> [archive ..] [--list <file-list>]\n",
+          argv0);
+  fprintf(fp, "Serves httrack archives as an HTTP proxy with ICP, or merges "
+              "them into one.\n");
+  fprintf(fp, "  archive                an httrack cache (new.zip, or new.ndx "
+              "with new.dat) or an .arc file\n");
+  fprintf(fp, "  --list <file-list>     read more archive paths from this "
+              "file, one per line\n");
+  fprintf(fp, "  --convert <output>     merge the archives into one .zip or "
+              ".arc file, then exit\n");
+  fprintf(fp, "  -h, --help             print this help and exit\n");
+  fprintf(fp, "  --version              print the version and exit\n");
+  fprintf(fp,
+          "example: %s localhost:8080 localhost:3130 "
+          "/home/archives/example.com/hts-cache/new.zip\n",
+          argv0);
+  fprintf(fp, "means: serve that mirror as a proxy on port 8080, and answer "
+              "ICP queries on port 3130\n");
+  fprintf(fp,
+          "example: %s --convert /home/archives/merged.zip "
+          "/home/archives/a/hts-cache/new.zip "
+          "/home/archives/b/hts-cache/new.zip\n",
+          argv0);
+  fprintf(fp, "means: merge two mirrors into merged.zip\n");
+}
+
+int main(int argc, char *argv[]) {
+  int i;
+  int ret = 0;
+  int proxyPort = 0, icpPort = 0;
+  char proxyAddr[256 + 1], icpAddr[256 + 1];
+  PT_Indexes index;
+
+  if (argc >= 2 &&
+      (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
+    usage(stdout, argv[0]);
+    return 0;
+  }
+  if (argc >= 2 && strcmp(argv[1], "--version") == 0) {
+    printf("ProxyTrack version %s (HTTrack %s)\n", PROXYTRACK_VERSION,
+           HTTRACK_VERSION);
+    return 0;
+  }
+
+#ifdef _WIN32
+  hts_binary_stdio();
+  {
+    WORD wVersionRequested;     // requested version WinSock API
+    WSADATA wsadata;            // Windows Sockets API data
+    int stat;
+
+    wVersionRequested = 0x0101;
+    stat = WSAStartup(wVersionRequested, &wsadata);
+    if (stat != 0) {
+      fprintf(stderr, "Winsock not found!\n");
+      return -1;
+    } else if (LOBYTE(wsadata.wVersion) != 1 && HIBYTE(wsadata.wVersion) != 1) {
+      fprintf(stderr, "WINSOCK.DLL does not support version 1.1\n");
+      WSACleanup();
+      return -1;
+    }
+  }
+#endif
+
+  /* Before the first table is built. */
+  {
+    const char *const dbg_env = getenv("HTS_LOG");
+    int level = 0;
+
+    if (dbg_env != NULL && sscanf(dbg_env, "%d", &level) == 1 && level > 0) {
+      proxytrack_verbose = HTS_TRUE;
+    }
+  }
+  coucal_set_global_assert_handler(proxytrack_coucal_loghandler, NULL);
+
+  /* Args */
+  printf("ProxyTrack %s, build proxies upon HTTrack Website Copier Archives\n",
+         PROXYTRACK_VERSION);
+  printf("Copyright (C) 1998-%s Xavier Roche and other contributors\n",
+         &__DATE__[7]);
+  printf("\n");
+  printf("This program is free software: you can redistribute it and/or modify\n");
+  printf("it under the terms of the GNU General Public License as published by\n");
+  printf("the Free Software Foundation, either version 3 of the License, or\n");
+  printf("(at your option) any later version.\n");
+  printf("\n");
+  printf("*** This version is a development release ***\n");
+  printf("\n");
+  if (argc < 3
+      || (strcmp(argv[1], "--convert") != 0
+          && (!scanHostPort(argv[1], proxyAddr, &proxyPort)
+              || !scanHostPort(argv[2], icpAddr, &icpPort)
+          )
+      )
+    ) {
+    usage(stderr, argv[0]);
+    return 1;
+  }
+  index = PT_New();
+  for(i = 3; i < argc; i++) {
+    if (argv[i][0] == '-') {
+      if (strcmp(argv[i], "--list") == 0) {
+        if (i + 1 < argc) {
+          char line[256 + 1];
+          FILE *fp = fopen(argv[++i], "rb");
+
+          if (fp == NULL) {
+            fprintf(stderr, "error: could not process list %s\n", argv[i]);
+            exit(1);
+          }
+          while(linput(fp, line, 256)) {
+            int itemsAdded = PT_AddIndex(index, line);
+
+            if (itemsAdded > 0) {
+              fprintf(stderr, "processed: %s (%d items added)\n", line,
+                      itemsAdded);
+            } else if (itemsAdded == 0) {
+              fprintf(stderr, "processed: %s (no items added)\n", line);
+            } else {
+              fprintf(stderr, "error: could not process %s\n", line);
+            }
+          }
+          fclose(fp);
+        }
+      } else {
+        fprintf(stderr, "* bad arg %s\n", argv[i]);
+        exit(1);
+      }
+    } else {
+      int itemsAdded = PT_AddIndex(index, argv[i]);
+
+      if (itemsAdded > 0) {
+        fprintf(stderr, "processed: %s (%d items added)\n", argv[i],
+                itemsAdded);
+      } else if (itemsAdded == 0) {
+        fprintf(stderr, "processed: %s (no items added)\n", argv[i]);
+      } else {
+        fprintf(stderr, "error: could not process %s\n", argv[i]);
+      }
+    }
+  }
+
+  /* sigpipe */
+#ifndef _WIN32
+  signal(SIGPIPE, sig_brpipe);  // broken pipe (write into non-opened socket)
+#endif
+
+  /* Go */
+  if (strcmp(argv[1], "--convert") != 0) {
+    ret = proxytrack_main(proxyAddr, proxyPort, icpAddr, icpPort, index);
+  } else {
+    if ((ret = PT_SaveCache(index, argv[2])) == 0) {
+      fprintf(stderr, "processed: '%s'\n", argv[2]);
+    } else {
+      fprintf(stderr, "error: could not save '%s'\n", argv[2]);
+    }
+  }
+
+  /* Wipe */
+  PT_Delete(index);
+
+#ifdef _WIN32
+  WSACleanup();
+#endif
+
+  return ret;
+}

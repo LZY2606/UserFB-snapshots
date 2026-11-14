@@ -1,0 +1,819 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 2026 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: htsdns_selftest.c subroutines:                         */
+/*       in-process self-test for the DNS resolver and cache    */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+/* Routes the resolver through a scripted getaddrinfo (hts_resolver_backend)
+   instead of the network, so resolution and the DNS cache are testable for a
+   fixed set of scenarios (IPv4/IPv6/dual-stack, errors, family filter,
+   cache reuse) with no live DNS. */
+
+#define HTS_INTERNAL_BYTECODE
+
+#include "htsdns_selftest.h"
+
+#include "htsselftest_int.h"
+
+#include <setjmp.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+
+#if HTS_INET6 != 0
+
+/* IPV6_resolver: 0 = v4+v6, 1 = v4 only, 2 = v6 only (htscoremain -@i). */
+extern int IPV6_resolver;
+
+/* One scripted host: either a getaddrinfo error, or an ordered address list. */
+typedef struct mock_addr {
+  int family;             /* AF_INET / AF_INET6 */
+  unsigned char addr[16]; /* 4 (v4) or 16 (v6) meaningful bytes */
+} mock_addr;
+
+typedef struct mock_host {
+  const char *name;
+  int gai_err; /* non-zero: getaddrinfo returns this */
+  int naddr;
+  mock_addr addr[6];
+  int calls;   /* times the backend resolved this host */
+  int slow_ms; /* non-zero: block this long, as a black-hole resolver would */
+} mock_host;
+
+/* Long enough to outlast the 1s --timeout the bounded resolve is checked
+   against, short enough to keep the self-test quick. The elapsed bounds below
+   sit halfway between a prompt return and this, so they are measured on
+   mtime_monotonic(), because an NTP correction mid-test would otherwise eat
+   most of that margin. */
+#define MOCK_SLOW_MS 3000
+
+static mock_host mock_hosts[] = {
+    {"v4only.test", 0, 1, {{AF_INET, {1, 2, 3, 4}}}, 0},
+    {"v6only.test", 0, 1, {{AF_INET6, {0x20, 0x01, 0x0d, 0xb8, [15] = 1}}}, 0},
+    /* dual stack, IPv6 first (RFC 6724 order) then IPv4 */
+    {"dual.test",
+     0,
+     2,
+     {{AF_INET6, {0x20, 0x01, 0x0d, 0xb8, [15] = 2}}, {AF_INET, {5, 6, 7, 8}}},
+     0},
+    /* dual stack, IPv4 first: distinguishes "keep the first address" from
+       "prefer a family", so the selection contract is actually pinned. */
+    {"dual4.test",
+     0,
+     2,
+     {{AF_INET, {9, 10, 11, 12}},
+      {AF_INET6, {0x20, 0x01, 0x0d, 0xb8, [15] = 3}}},
+     0},
+    /* more addresses than HTS_MAXADDRNUM: the list must clamp to the cap. */
+    {"many.test",
+     0,
+     6,
+     {{AF_INET, {10, 0, 0, 1}},
+      {AF_INET, {10, 0, 0, 2}},
+      {AF_INET, {10, 0, 0, 3}},
+      {AF_INET, {10, 0, 0, 4}},
+      {AF_INET, {10, 0, 0, 5}},
+      {AF_INET, {10, 0, 0, 6}}},
+     0},
+    {"nodns.test", EAI_NONAME, 0, {{0}}, 0},
+    /* the outage case: the resolver cannot answer, until the test says it can
+       (EAI_AGAIN, not EAI_NONAME, which is an answer about the name) */
+    {"flaky.test", EAI_AGAIN, 1, {{AF_INET, {192, 0, 2, 7}}}, 0},
+    /* the control: the resolver answers, and the answer is "no such host" */
+    {"dead.test", EAI_NONAME, 0, {{0}}, 0},
+    /* the same outage, seen across a backward clock step */
+    {"stepped.test", EAI_AGAIN, 1, {{AF_INET, {192, 0, 2, 8}}}, 0},
+    /* resolves, but only well after --timeout: the #606 wedge */
+    {"slow.test", 0, 1, {{AF_INET, {127, 0, 0, 9}}}, 0, MOCK_SLOW_MS},
+    /* a second one, so a cancelled resolve cannot cache an answer the next
+       case then reads instead of asking for */
+    {"slow2.test", 0, 1, {{AF_INET, {127, 0, 0, 10}}}, 0, MOCK_SLOW_MS},
+    /* two more for the cached entry point, checked with the mirror running and
+       then stopped: neither case may read the other's cached answer */
+    {"slow3.test", 0, 1, {{AF_INET, {127, 0, 0, 11}}}, 0, MOCK_SLOW_MS},
+    {"slow4.test", 0, 1, {{AF_INET, {127, 0, 0, 12}}}, 0, MOCK_SLOW_MS},
+    /* answers at once, but the backend below never lets the worker say so */
+    {"cut.test", 0, 1, {{AF_INET, {127, 0, 0, 13}}}, 0},
+};
+
+/* Serializes mock_host bookkeeping: a timed-out resolve is abandoned, so its
+   worker is still inside the backend while the test reads the counters. */
+static htsmutex mock_lock = HTSMUTEX_INIT;
+static int mock_finished = 0; /* backend calls that have returned */
+/* Uses of the backend that can no longer read hts_resolver: a worker reads it
+   again to free its answer, long after getaddrinfo() returned, so that is what
+   a swap has to wait for. */
+static int mock_released = 0;
+
+static mock_host *mock_find(const char *name) {
+  for (size_t i = 0; i < sizeof(mock_hosts) / sizeof(mock_hosts[0]); i++) {
+    if (strcmp(mock_hosts[i].name, name) == 0)
+      return &mock_hosts[i];
+  }
+  return NULL;
+}
+
+static void mock_reset_calls(void) {
+  hts_mutexlock(&mock_lock);
+  for (size_t i = 0; i < sizeof(mock_hosts) / sizeof(mock_hosts[0]); i++)
+    mock_hosts[i].calls = 0;
+  mock_finished = 0;
+  mock_released = 0;
+  hts_mutexrelease(&mock_lock);
+}
+
+static int mock_read_calls(const char *name) {
+  int calls;
+
+  hts_mutexlock(&mock_lock);
+  calls = mock_find(name)->calls;
+  hts_mutexrelease(&mock_lock);
+  return calls;
+}
+
+/* Backend calls that have returned, ordering their writes against ours. */
+static int mock_read_finished(void) {
+  int n;
+
+  hts_mutexlock(&mock_lock);
+  n = mock_finished;
+  hts_mutexrelease(&mock_lock);
+  return n;
+}
+
+/* Wait for n uses of the backend to be over, ordering their writes against
+   ours: what makes installing another backend safe. */
+static void mock_wait_released(int n) {
+  for (;;) {
+    hts_boolean done;
+
+    hts_mutexlock(&mock_lock);
+    done = (mock_released >= n) ? HTS_TRUE : HTS_FALSE;
+    hts_mutexrelease(&mock_lock);
+    if (done)
+      break;
+    Sleep(10);
+  }
+}
+
+/* Build one addrinfo node owning its sockaddr (freed by mock_freeaddrinfo). */
+static struct addrinfo *mock_mkai(const mock_addr *a) {
+  struct addrinfo *ai = calloct(1, sizeof(*ai));
+
+  ai->ai_family = a->family;
+  if (a->family == AF_INET) {
+    struct sockaddr_in *sin = calloct(1, sizeof(*sin));
+
+    sin->sin_family = AF_INET;
+    memcpy(&sin->sin_addr, a->addr, 4);
+    ai->ai_addr = (struct sockaddr *) sin;
+    ai->ai_addrlen = sizeof(*sin);
+  } else {
+    struct sockaddr_in6 *sin6 = calloct(1, sizeof(*sin6));
+
+    sin6->sin6_family = AF_INET6;
+    memcpy(&sin6->sin6_addr, a->addr, 16);
+    ai->ai_addr = (struct sockaddr *) sin6;
+    ai->ai_addrlen = sizeof(*sin6);
+  }
+  return ai;
+}
+
+static int HTS_RESOLVER_CALL mock_getaddrinfo_(const char *node,
+                                               const char *service,
+                                               const struct addrinfo *hints,
+                                               struct addrinfo **res) {
+  mock_host *const h = mock_find(node);
+  const int want = (hints != NULL) ? hints->ai_family : PF_UNSPEC;
+  struct addrinfo *head = NULL, *tail = NULL;
+
+  (void) service;
+  *res = NULL;
+  if (h == NULL)
+    return EAI_NONAME;
+  hts_mutexlock(&mock_lock);
+  h->calls++; /* a real backend hit; a cached host skips this */
+  hts_mutexrelease(&mock_lock);
+  if (h->slow_ms != 0)
+    Sleep(h->slow_ms);
+  if (h->gai_err != 0)
+    return h->gai_err;
+  for (int i = 0; i < h->naddr; i++) {
+    if (want != PF_UNSPEC && want != h->addr[i].family)
+      continue; /* honor the requested family (v4/v6 only) */
+    struct addrinfo *const ai = mock_mkai(&h->addr[i]);
+
+    if (head == NULL)
+      head = ai;
+    else
+      tail->ai_next = ai;
+    tail = ai;
+  }
+  if (head == NULL)
+    return EAI_NONAME; /* filtered to empty, as the libc resolver does */
+  *res = head;
+  return 0;
+}
+
+static int HTS_RESOLVER_CALL mock_getaddrinfo(const char *node,
+                                              const char *service,
+                                              const struct addrinfo *hints,
+                                              struct addrinfo **res) {
+  const int ret = mock_getaddrinfo_(node, service, hints, res);
+
+  hts_mutexlock(&mock_lock);
+  mock_finished++;
+  if (*res == NULL) /* nothing to free, so this caller is done with us */
+    mock_released++;
+  hts_mutexrelease(&mock_lock);
+  return ret;
+}
+
+static void HTS_RESOLVER_CALL mock_freeaddrinfo(struct addrinfo *res) {
+  hts_mutexlock(&mock_lock);
+  mock_released++;
+  hts_mutexrelease(&mock_lock);
+  while (res != NULL) {
+    struct addrinfo *const next = res->ai_next;
+
+    freet(res->ai_addr);
+    freet(res);
+    res = next;
+  }
+}
+
+static const hts_resolver_backend mock_backend = {mock_getaddrinfo,
+                                                  mock_freeaddrinfo};
+
+/* Where a front end's fault recovery lands, see hts_set_thread_runner(). */
+static jmp_buf dns_cut_jmp;
+
+/* Counts the call, then leaves the worker body the way a recovered fault does.
+   It frees what it asked for, because nothing downstream will. */
+static int HTS_RESOLVER_CALL cut_getaddrinfo(const char *node,
+                                             const char *service,
+                                             const struct addrinfo *hints,
+                                             struct addrinfo **res) {
+  if (mock_getaddrinfo(node, service, hints, res) == 0)
+    mock_freeaddrinfo(*res);
+  *res = NULL;
+  longjmp(dns_cut_jmp, 1);
+  return EAI_NONAME; /* not reached */
+}
+
+static const hts_resolver_backend cut_backend = {cut_getaddrinfo,
+                                                 mock_freeaddrinfo};
+
+static void dns_cut_runner(void (*fun)(void *arg), void *arg) {
+  if (setjmp(dns_cut_jmp) == 0)
+    fun(arg);
+}
+
+static int failures = 0;
+
+#define CHECK(cond)                                                            \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      failures++;                                                              \
+      fprintf(stderr, "dns-selftest: FAIL at %s:%d: %s\n", __FILE__, __LINE__, \
+              #cond);                                                          \
+    }                                                                          \
+  } while (0)
+
+/* Resolve via the uncached entry point; return the address family, or
+   AF_UNSPEC if the host did not resolve. */
+static int resolve_family_nocache(const char *host) {
+  SOCaddr addr;
+  const char *err = NULL;
+
+  if (hts_dns_resolve_nocache2(host, &addr, &err) == NULL)
+    return AF_UNSPEC;
+  return SOCaddr_sinfamily(addr);
+}
+
+int dns_selftests(httrackp *opt) {
+  failures = 0;
+  hts_dns_set_resolver_backend(&mock_backend);
+
+  /* IPv4-only / IPv6-only hosts map to the right family. */
+  IPV6_resolver = 0;
+  CHECK(resolve_family_nocache("v4only.test") == AF_INET);
+  CHECK(resolve_family_nocache("v6only.test") == AF_INET6);
+
+  /* Dual-stack: the single-address API returns the *first* resolved address.
+     Both orderings pin selection by position, not a family preference. The
+     multi-address API (resolve_all, below) exposes the whole list. */
+  CHECK(resolve_family_nocache("dual.test") == AF_INET6); /* v6 listed first */
+  CHECK(resolve_family_nocache("dual4.test") == AF_INET); /* v4 listed first */
+
+  /* Unknown host does not resolve. */
+  CHECK(resolve_family_nocache("nodns.test") == AF_UNSPEC);
+
+  /* Family filter (-@i4 / -@i6) selects v4 / v6 out of the dual-stack host. */
+  IPV6_resolver = 1;
+  CHECK(resolve_family_nocache("dual.test") == AF_INET);
+  IPV6_resolver = 2;
+  CHECK(resolve_family_nocache("dual.test") == AF_INET6);
+  IPV6_resolver = 0;
+
+  /* Cached driver resolves a host once and reuses the *same* address. */
+  mock_reset_calls();
+  {
+    SOCaddr a1, a2;
+    char ip1[64], ip2[64];
+    const char *err = NULL;
+
+    CHECK(hts_dns_resolve2(opt, "v4only.test", &a1, &err) != NULL);
+    CHECK(hts_dns_resolve2(opt, "v4only.test", &a2, &err) != NULL);
+    CHECK(mock_find("v4only.test")->calls == 1);
+    /* the cache returns the right address, not merely a hit for the key */
+    SOCaddr_inetntoa(ip1, sizeof(ip1), a1);
+    SOCaddr_inetntoa(ip2, sizeof(ip2), a2);
+    CHECK(strcmp(ip1, "1.2.3.4") == 0);
+    CHECK(strcmp(ip1, ip2) == 0);
+  }
+
+  /* A negative result is cached too: a second lookup does not re-resolve. */
+  {
+    SOCaddr a1, a2;
+    const char *err = NULL;
+
+    CHECK(hts_dns_resolve2(opt, "nodns.test", &a1, &err) == NULL);
+    CHECK(hts_dns_resolve2(opt, "nodns.test", &a2, &err) == NULL);
+    CHECK(mock_find("nodns.test")->calls == 1); /* resolved once, then cached */
+  }
+
+  /* But a failure the resolver could not answer expires: one outage must not
+     kill the whole crawl. The wait is minutes long and the test moves the clock
+     rather than sleeping, so no stall expires an entry a check needs. */
+  mock_reset_calls();
+  hts_dns_set_negative_ttl_ms(100000);
+  {
+    SOCaddr a;
+    const char *err = NULL;
+
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) == NULL);
+    CHECK(hts_dns_negative_failures(opt, "flaky.test") == 1);
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) == NULL);
+    CHECK(mock_read_calls("flaky.test") == 1); /* still inside the wait */
+    hts_dns_test_move_clock(opt, "flaky.test", 150000);
+    /* asking again after the wait counts, and lengthens the next one */
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) == NULL);
+    CHECK(mock_read_calls("flaky.test") == 2);
+    CHECK(hts_dns_negative_failures(opt, "flaky.test") == 2);
+    /* that next one is twice as long, so the same move no longer reaches it */
+    hts_dns_test_move_clock(opt, "flaky.test", 150000);
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) == NULL);
+    CHECK(mock_read_calls("flaky.test") == 2);
+    mock_find("flaky.test")->gai_err = 0; /* the network is back */
+    hts_dns_test_move_clock(opt, "flaky.test", 100000); /* now past it */
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) != NULL);
+    CHECK(mock_read_calls("flaky.test") == 3);
+    CHECK(hts_dns_negative_failures(opt, "flaky.test") == 0);
+    hts_dns_test_move_clock(opt, "flaky.test", 1000000);
+    CHECK(hts_dns_resolve2(opt, "flaky.test", &a, &err) != NULL);
+    CHECK(mock_read_calls("flaky.test") == 3); /* the answer does not expire */
+  }
+
+  /* The stamps are wall-clock, there being no monotonic clock here: a backward
+     step must expire them too, or it delays the retry by the size of the step,
+     which at the ceiling means the rest of the crawl. */
+  mock_reset_calls();
+  {
+    SOCaddr a;
+    const char *err = NULL;
+
+    CHECK(hts_dns_resolve2(opt, "stepped.test", &a, &err) == NULL);
+    CHECK(hts_dns_resolve2(opt, "stepped.test", &a, &err) == NULL);
+    CHECK(mock_read_calls("stepped.test") == 1); /* still inside the wait */
+    mock_find("stepped.test")->gai_err = 0;      /* the network is back */
+    hts_dns_test_move_clock(opt, "stepped.test", -600000); /* NTP steps back */
+    CHECK(hts_dns_resolve2(opt, "stepped.test", &a, &err) != NULL);
+    CHECK(mock_read_calls("stepped.test") == 2);
+    mock_find("stepped.test")->gai_err = EAI_AGAIN; /* leave the row as found */
+  }
+
+  /* The wait doubles per consecutive failure, up to the ceiling. Table-tested
+     rather than slept through: a resolver Android maps every failure onto,
+     NXDOMAIN included, would otherwise re-ask a dead host all crawl. */
+  {
+    const int first = 1000;
+
+    hts_dns_set_negative_ttl_ms(first);
+    CHECK(hts_dns_negative_wait_ms(1) == first);
+    CHECK(hts_dns_negative_wait_ms(2) == 2 * first);
+    CHECK(hts_dns_negative_wait_ms(3) == 4 * first);
+    CHECK(hts_dns_negative_wait_ms(99) == HTS_DNS_NEGATIVE_TTL_MAX_MS);
+    hts_dns_set_negative_ttl_ms(500);
+  }
+
+  /* "no such host" is an answer about the name, so it stands for the crawl. */
+  {
+    SOCaddr a;
+    const char *err = NULL;
+
+    hts_dns_set_negative_ttl_ms(200);
+    CHECK(hts_dns_resolve2(opt, "dead.test", &a, &err) == NULL);
+    Sleep(300);
+    CHECK(hts_dns_resolve2(opt, "dead.test", &a, &err) == NULL);
+    CHECK(mock_read_calls("dead.test") == 1);
+  }
+  hts_dns_set_negative_ttl_ms(HTS_DNS_NEGATIVE_TTL_MS);
+  mock_find("flaky.test")->gai_err = EAI_AGAIN; /* leave the row as found */
+
+  /* Multi-address resolution: count and order are the connect-fallback
+     contract. A dead first address is retried against the next, so both must be
+     exact. */
+  mock_reset_calls();
+  {
+    SOCaddr addrs[HTS_MAXADDRNUM];
+    char ip[64];
+    const char *err = NULL;
+
+    /* dual-stack, in resolver order: [0]=v6, [1]=v4 */
+    CHECK(hts_dns_resolve_all(opt, "dual.test", addrs, HTS_MAXADDRNUM, &err) ==
+          2);
+    CHECK(SOCaddr_sinfamily(addrs[0]) == AF_INET6);
+    CHECK(SOCaddr_sinfamily(addrs[1]) == AF_INET);
+    SOCaddr_inetntoa(ip, sizeof(ip), addrs[1]);
+    CHECK(strcmp(ip, "5.6.7.8") == 0);
+    CHECK(mock_find("dual.test")->calls ==
+          1); /* one backend hit for the list */
+
+    /* single-address host: count 1 */
+    CHECK(hts_dns_resolve_all(opt, "v4only.test", addrs, HTS_MAXADDRNUM,
+                              &err) == 1);
+    SOCaddr_inetntoa(ip, sizeof(ip), addrs[0]);
+    CHECK(strcmp(ip, "1.2.3.4") == 0);
+
+    /* does-not-resolve: count 0 (negative), no addresses */
+    CHECK(hts_dns_resolve_all(opt, "nodns.test", addrs, HTS_MAXADDRNUM, &err) ==
+          0);
+
+    /* more than the cap: the kept list is clamped to HTS_MAXADDRNUM, keeping
+       the FIRST addresses in resolver order (not some other window) */
+    CHECK(hts_dns_resolve_all(opt, "many.test", addrs, HTS_MAXADDRNUM, &err) ==
+          HTS_MAXADDRNUM);
+    SOCaddr_inetntoa(ip, sizeof(ip), addrs[0]);
+    CHECK(strcmp(ip, "10.0.0.1") == 0);
+    SOCaddr_inetntoa(ip, sizeof(ip), addrs[HTS_MAXADDRNUM - 1]);
+    CHECK(strcmp(ip, "10.0.0.4") == 0);
+
+    /* family filter still applies through the list path */
+    IPV6_resolver = 1;
+    CHECK(hts_dns_resolve_all(opt, "dual4.test", addrs, HTS_MAXADDRNUM, &err) ==
+          1);
+    CHECK(SOCaddr_sinfamily(addrs[0]) == AF_INET);
+    IPV6_resolver = 0;
+  }
+
+  /* "host:port" resolves as the bare host: the cache/connect path strips
+     ":port" before both the backend and the cache key (#181). */
+  mock_reset_calls();
+  {
+    SOCaddr a;
+    char ip[64];
+    const char *err = NULL;
+
+    /* cache miss: the backend is hit with the stripped host, not "host:port" */
+    CHECK(hts_dns_resolve2(opt, "v6only.test:8080", &a, &err) != NULL);
+    CHECK(mock_find("v6only.test")->calls == 1);
+    /* the bare host shares that one cache entry (stripped key) */
+    CHECK(hts_dns_resolve2(opt, "v6only.test", &a, &err) != NULL);
+    CHECK(mock_find("v6only.test")->calls == 1);
+    /* a port variant of an already-cached host also hits, right address */
+    CHECK(hts_dns_resolve2(opt, "v4only.test:1234", &a, &err) != NULL);
+    SOCaddr_inetntoa(ip, sizeof(ip), a);
+    CHECK(strcmp(ip, "1.2.3.4") == 0);
+  }
+
+  /* newhttp_addr() must connect to the addr_index-th address, not always the
+     first: this is what back_connect_next relies on to reach the fallback. */
+  {
+    htsblk r;
+    int count = -1;
+    T_SOC s;
+
+    hts_init_htsblk(&r);
+    s = newhttp_addr(opt, "dual.test", &r, 80, 0, 0, &count);
+    CHECK(count == 2);
+    CHECK(SOCaddr_sinfamily(r.address) == AF_INET6); /* index 0 = v6 */
+    if (s != INVALID_SOCKET)
+      deletesoc(s);
+
+    hts_init_htsblk(&r);
+    count = -1;
+    s = newhttp_addr(opt, "dual.test", &r, 80, 0, 1, &count);
+    CHECK(count == 2);
+    CHECK(SOCaddr_sinfamily(r.address) == AF_INET); /* index 1 = v4 */
+    if (s != INVALID_SOCKET)
+      deletesoc(s);
+
+    /* out-of-range index: no address selected (address stays unset) */
+    hts_init_htsblk(&r);
+    s = newhttp_addr(opt, "dual.test", &r, 80, 0, 2, NULL);
+    CHECK(s == INVALID_SOCKET);
+    if (s != INVALID_SOCKET)
+      deletesoc(s);
+  }
+
+  /* A URL port outside 1..65535 must refuse the link, not fold into range and
+     connect elsewhere (#614). *addr_count discriminates: 0 only if refused
+     before the resolve, still 2 for one merely truncated or defaulted. */
+  {
+    /* an empty "dual.test:" means the default port (WHATWG, curl): keep it */
+    static const char *const good[] = {"dual.test:1",    "dual.test:80",
+                                       "dual.test:8080", "dual.test:65535",
+                                       "dual.test:080",  "dual.test:"};
+    /* 65616 and 4294967376 are load-bearing: both wrap to a plausible 80 */
+    static const char *const bad[] = {
+        "dual.test:0",          "dual.test:65536",      "dual.test:65616",
+        "dual.test:99999",      "dual.test:2147483648", "dual.test:4294967296",
+        "dual.test:4294967376", "dual.test:-1",         "dual.test:-23437",
+        "dual.test:80x",        "dual.test:+80",        "dual.test: 80",
+        "dual.test:0x50"};
+    size_t k;
+
+    for (k = 0; k < sizeof(good) / sizeof(good[0]); k++) {
+      htsblk r;
+      int count = -1;
+      T_SOC s;
+
+      hts_init_htsblk(&r);
+      s = newhttp_addr(opt, good[k], &r, -1, 0, 0, &count);
+      CHECK(count == 2); /* accepted: reached the resolve */
+      if (s != INVALID_SOCKET)
+        deletesoc(s);
+    }
+
+    for (k = 0; k < sizeof(bad) / sizeof(bad[0]); k++) {
+      htsblk r;
+      int count = -1;
+      T_SOC s;
+
+      hts_init_htsblk(&r);
+      s = newhttp_addr(opt, bad[k], &r, -1, 0, 0, &count);
+      CHECK(s == INVALID_SOCKET);
+      CHECK(count == 0); /* refused before resolving, not a failed connect */
+      CHECK(strstr(r.msg, "Invalid port") != NULL);
+      if (s != INVALID_SOCKET)
+        deletesoc(s);
+    }
+  }
+
+  /* Connect-fallback decision (consumer of the multi-address list): when a
+     stuck connect should abandon the current address for the next one. */
+  {
+    /* no fallback for the last/only candidate, whatever the elapsed time */
+    CHECK(back_connect_fallback_due(0, 1, 9999, 120) == 0);
+    CHECK(back_connect_fallback_due(1, 2, 9999, 120) == 0);
+    CHECK(back_connect_fallback_due(3, 4, 9999, 120) == 0);
+    /* fallback available: wait the per-candidate deadline (cap 10s here) */
+    CHECK(back_connect_fallback_due(0, 2, 9, 120) == 0);
+    CHECK(back_connect_fallback_due(0, 2, 10, 120) == 1);
+    CHECK(back_connect_fallback_due(2, 4, 10, 120) == 1);
+    /* a shorter slot timeout shortens the deadline (min(timeout, cap)) */
+    CHECK(back_connect_fallback_due(0, 2, 4, 5) == 0);
+    CHECK(back_connect_fallback_due(0, 2, 5, 5) == 1);
+    /* no timeout management: never force a fallback */
+    CHECK(back_connect_fallback_due(0, 2, 9999, 0) == 0);
+  }
+
+  hts_dns_set_resolver_backend(NULL);
+  return failures;
+}
+
+/* Probes how long acquiring opt->state.lock takes while a resolve is in
+   flight. hts_has_stopped() takes that same lock and mutates nothing, and the
+   API promises it stays callable from another thread during a mirror. */
+typedef struct lock_probe {
+  httrackp *opt;
+  htsmutex lock;
+  hts_boolean done;
+  TStamp blocked_ms;
+} lock_probe;
+
+static void lock_probe_thread(void *arg) {
+  lock_probe *const p = (lock_probe *) arg;
+  TStamp start;
+
+  Sleep(MOCK_SLOW_MS / 10); /* let the resolve get under way first */
+  start = mtime_monotonic();
+  (void) hts_has_stopped(p->opt);
+  hts_mutexlock(&p->lock);
+  p->blocked_ms = mtime_monotonic() - start;
+  p->done = HTS_TRUE;
+  hts_mutexrelease(&p->lock);
+}
+
+int dns_timeout_selftests(httrackp *opt) {
+  SOCaddr addrs[HTS_MAXADDRNUM];
+  const char *err = NULL;
+  lock_probe probe;
+  TStamp start, elapsed;
+  int count, finished;
+
+  failures = 0;
+  hts_dns_set_resolver_backend(&mock_backend);
+  IPV6_resolver = 0;
+  mock_reset_calls();
+  opt->timeout = 1; /* the bound under test */
+
+  memset(&probe, 0, sizeof(probe));
+  probe.opt = opt;
+  probe.lock = HTSMUTEX_INIT;
+  hts_mutexinit(&probe.lock);
+  CHECK(hts_newthread(lock_probe_thread, &probe) == 0);
+
+  start = mtime_monotonic();
+  count = hts_dns_resolve_all(opt, "slow.test", addrs, HTS_MAXADDRNUM, &err);
+  elapsed = mtime_monotonic() - start;
+  finished = mock_read_finished();
+
+  /* the resolve returns on opt->timeout, not when the resolver deigns to
+     answer: this is what lets --max-time and --timeout fire (#606). A backend
+     that had not returned proves it, so the bound below need not be tight. */
+  CHECK(finished == 0);
+  /* midway to MOCK_SLOW_MS: the engine still deadlines on the wall clock, so a
+     step moves when it fires even though the measurement no longer moves. */
+  CHECK(elapsed < ((TStamp) opt->timeout * 1000 + MOCK_SLOW_MS) / 2);
+  CHECK(count == 0); /* a timeout is reported as "does not resolve" */
+
+  /* state.lock is not held across the resolve; a concurrent stop query, which
+     the mirror API promises stays live, is not blocked behind it */
+  for (;;) {
+    hts_boolean done;
+    TStamp blocked;
+
+    hts_mutexlock(&probe.lock);
+    done = probe.done;
+    blocked = probe.blocked_ms;
+    hts_mutexrelease(&probe.lock);
+    if (done) {
+      CHECK(blocked < 500);
+      break;
+    }
+    Sleep(20);
+  }
+  hts_mutexfree(&probe.lock);
+
+  /* a timeout is not an answer, so it must not be negative-cached: the host is
+     resolved again rather than written off for the rest of the crawl */
+  CHECK(mock_read_calls("slow.test") == 1);
+  count = hts_dns_resolve_all(opt, "slow.test", addrs, HTS_MAXADDRNUM, &err);
+  CHECK(count == 0);
+  CHECK(mock_read_calls("slow.test") == 2); /* re-resolved, not cached */
+
+  /* A raised cancel flag ends the wait where no deadline would, which is what
+     lets a stopped FTP worker leave a black-holed resolver (#1059). */
+  {
+    hts_boolean cancel = HTS_TRUE;
+
+    start = mtime_monotonic();
+    count = hts_dns_resolve_all_bounded(opt, "slow.test", addrs, HTS_MAXADDRNUM,
+                                        0, &cancel, &err);
+    elapsed = mtime_monotonic() - start;
+    CHECK(count == 0);
+    CHECK(elapsed < MOCK_SLOW_MS / 2);
+  }
+
+  /* And an unbounded resolve nobody cancels still waits for its answer: a
+     timeout of 0 must not be read back as a deadline of "now". */
+  {
+    hts_boolean cancel = HTS_FALSE;
+
+    start = mtime_monotonic();
+    count = hts_dns_resolve_all_bounded(opt, "slow2.test", addrs,
+                                        HTS_MAXADDRNUM, 0, &cancel, &err);
+    elapsed = mtime_monotonic() - start;
+    CHECK(count == 1);
+    CHECK(elapsed >= MOCK_SLOW_MS / 2);
+  }
+
+  /* The cached entry point takes the mirror's own stop flag as its cancel, so
+     a ^C ends a resolve nothing else would bound (#1073). Unbounded here, to
+     tell the stop apart from a deadline. */
+  opt->timeout = 0;
+  {
+    /* control first: with the mirror running, the same call still waits */
+    start = mtime_monotonic();
+    count = hts_dns_resolve_all(opt, "slow3.test", addrs, HTS_MAXADDRNUM, &err);
+    elapsed = mtime_monotonic() - start;
+    CHECK(count == 1);
+    CHECK(elapsed >= MOCK_SLOW_MS / 2);
+
+    opt->state.stop = 1; /* the flag, not hts_request_stop's log line */
+    start = mtime_monotonic();
+    count = hts_dns_resolve_all(opt, "slow4.test", addrs, HTS_MAXADDRNUM, &err);
+    elapsed = mtime_monotonic() - start;
+    opt->state.stop = 0;
+    CHECK(count == 0);
+    CHECK(elapsed < MOCK_SLOW_MS / 2);
+  }
+
+  /* Four of the six resolves were abandoned mid-backend; wait for their
+     workers to be out of it, freed answer included, before swapping it. */
+  mock_wait_released(6);
+
+  /* A worker a recovered fault cut short hands its verdict back at once. Left
+     to the caller, the wait runs to the deadline, and an unbounded one runs
+     until the user stops the mirror. */
+  {
+    hts_boolean cancel = HTS_FALSE;
+
+    mock_reset_calls();
+    hts_dns_set_resolver_backend(&cut_backend);
+    CHECK(hts_set_thread_runner(dns_cut_runner) == NULL);
+    start = mtime_monotonic();
+    count = hts_dns_resolve_all_bounded(opt, "cut.test", addrs, HTS_MAXADDRNUM,
+                                        MOCK_SLOW_MS / 1000, &cancel, &err);
+    elapsed = mtime_monotonic() - start;
+    hts_set_thread_runner(NULL);
+    /* the cut worker longjmps out of the backend after freeing its answer, so
+       it too has to be out before the swap below */
+    mock_wait_released(1);
+    hts_dns_set_resolver_backend(&mock_backend);
+    CHECK(count == 0);
+    CHECK(elapsed < MOCK_SLOW_MS / 2); /* the tail answered, not the deadline */
+    CHECK(mock_read_calls("cut.test") == 1);
+    /* no answer was had, so nothing may be cached in its place */
+    count = hts_dns_resolve_all_bounded(opt, "cut.test", addrs, HTS_MAXADDRNUM,
+                                        0, &cancel, &err);
+    CHECK(count == 1);
+    CHECK(mock_read_calls("cut.test") == 2);
+    /* and the mirror gives up on it, see back_checkmirror() */
+    CHECK(hts_worker_faulted());
+    hts_worker_fault_clear();
+  }
+  return failures;
+}
+
+#else
+
+int dns_selftests(httrackp *opt) {
+  (void) opt;
+  return 0; /* resolver seam only exists in the IPv6 build */
+}
+
+int dns_timeout_selftests(httrackp *opt) {
+  (void) opt;
+  return 0;
+}
+
+#endif
+
+static int st_dns(httrackp *opt, int argc, char **argv) {
+  const int err = dns_selftests(opt);
+
+  (void) argc;
+  (void) argv;
+  printf("dns-selftest: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static int st_dnstimeout(httrackp *opt, int argc, char **argv) {
+  const int err = dns_timeout_selftests(opt);
+
+  (void) argc;
+  (void) argv;
+  printf("dns-timeout-selftest: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* ------------------------------------------------------------ */
+/* Registry: this module's tests, in the order -#test lists them. */
+/* ------------------------------------------------------------ */
+
+const struct selftest_entry selftests_dns[] = {
+    {"dns", "", "DNS resolver/cache self-test", st_dns},
+    {"dnstimeout", "", "a slow DNS resolve is bounded and holds no lock",
+     st_dnstimeout},
+    {NULL, NULL, NULL, NULL},
+};
