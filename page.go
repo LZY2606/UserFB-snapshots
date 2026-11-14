@@ -83,7 +83,15 @@ func (p *Page) Destroy() error {
 // Unlike Destroy, Reset will permit the page to be re-used after it is called.
 // Reset is faster than Destroy, but any cookies from domains outside the current
 // domain will remain after a page is reset.
+//
+// If origin tracking was enabled with EnableOriginReset, Reset instead visits
+// every observed origin in first-observed order and clears its cookies, local
+// storage, and session storage before navigating to a blank page.
 func (p *Page) Reset() error {
+	if tracker := lookupOriginTracker(p.Session()); tracker != nil && tracker.isEnabled() {
+		return tracker.trackedReset()
+	}
+
 	p.ConfirmPopup()
 
 	url, err := p.URL()
@@ -254,9 +262,11 @@ func (p *Page) HTML() (string, error) {
 // Values provided in arguments are converted into javascript objects.
 // If the body returns a value, it will be unmarshalled into the result argument.
 // Simple example:
-//    var number int
-//    page.RunScript("return test;", map[string]interface{}{"test": 100}, &number)
-//    fmt.Println(number)
+//
+//	var number int
+//	page.RunScript("return test;", map[string]interface{}{"test": 100}, &number)
+//	fmt.Println(number)
+//
 // -> 100
 func (p *Page) RunScript(body string, arguments map[string]interface{}, result interface{}) error {
 	var (
