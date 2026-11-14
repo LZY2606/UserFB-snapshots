@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:urlset xmlns:s="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:aux="https://capture.invalid/extra">
+  <!-- This fixture is benign, immutable public-shaped collection input. -->
+  <s:url><s:loc>https://capture.invalid/猫?x=1&amp;y=2</s:loc><s:lastmod>2026-01-02</s:lastmod></s:url>
+  <s:url><s:loc><![CDATA[https://capture.invalid/b?q=一&x=2]]></s:loc><s:lastmod>2026-02-03</s:lastmod></s:url>
+  <s:url><s:loc>https://capture.invalid/final</s:loc><s:lastmod>2026-03-04</s:lastmod></s:url>
+</s:urlset>
