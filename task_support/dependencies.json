@@ -1,0 +1,89 @@
+{
+  "repo": "https://github.com/golang/net",
+  "version": "v0.55.0",
+  "go_sum": "golang.org/x/net v0.55.0; digest preserved in go.sum",
+  "license": "BSD-3-Clause",
+  "files": [
+    {
+      "path": "vendor/golang.org/x/net/LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "path": "vendor/golang.org/x/net/PATENTS",
+      "source_path": "PATENTS",
+      "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/atom/atom.go",
+      "source_path": "html/atom/atom.go",
+      "sha256": "86490b2027af4443dacfe96c313a6c632c03ea1acdf85f7f61c4fdde32bc2f3d"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/atom/table.go",
+      "source_path": "html/atom/table.go",
+      "sha256": "d7c4d0795fbc8dbec36504efcae14330b08e9a4bd8041e946f4b48ee45797e1d"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/const.go",
+      "source_path": "html/const.go",
+      "sha256": "44c814afac4b0206a4f2af92607f93a72b93919ec2c3884d372edcdc24507584"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/doc.go",
+      "source_path": "html/doc.go",
+      "sha256": "e5d486a3b703d17efdf30cc9b3af6649b262c89e74cd4de285e0f079797b3c6f"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/doctype.go",
+      "source_path": "html/doctype.go",
+      "sha256": "b629b17ed04bcab8d832d8caaee00f458c180fd31b6838e318a439a4bf87fffe"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/entity.go",
+      "source_path": "html/entity.go",
+      "sha256": "eca9e6cac4ddb939ddce98f64e9c2f16031accaead07f1bbce2f37991cd618bd"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/escape.go",
+      "source_path": "html/escape.go",
+      "sha256": "2a16f2a9c639c44721cedfc634081f5835ddca15a07e52ca404973607d08cbde"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/foreign.go",
+      "source_path": "html/foreign.go",
+      "sha256": "555e32d7c9e8a625923ea453527c76fe66a6a22423d52fb0de58becaf051b4f3"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/iter.go",
+      "source_path": "html/iter.go",
+      "sha256": "54299c163639df83f3dd22ff31643b6b6cedbedb0c388b1f53020146a10d7504"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/node.go",
+      "source_path": "html/node.go",
+      "sha256": "3acf739c450f61abd0fc45ccb19e4ddde2982b798791037a6a03c78603b6176f"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/nodetype_string.go",
+      "source_path": "html/nodetype_string.go",
+      "sha256": "747f99ad7577bc2e790097bf591b7e66c1856a496a5a2e515a40324659e0266c"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/parse.go",
+      "source_path": "html/parse.go",
+      "sha256": "07f21eab8256a6894d6d77e94e4dd32b4fb345edc7cf7a88b271be0ba8124ca8"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/render.go",
+      "source_path": "html/render.go",
+      "sha256": "c53cd811db01490a88a3932ad97e0d0622fa87a8533662fb9810bc06814c4af8"
+    },
+    {
+      "path": "vendor/golang.org/x/net/html/token.go",
+      "source_path": "html/token.go",
+      "sha256": "735d98bc7361ca38b582394211aed4b8c89727388c9da877b5b0d654ff822308"
+    }
+  ],
+  "selection": "go mod vendor自动导出的实际html及atom生产依赖及LICENSE/PATENTS，未使用主机模块缓存。"
+}
