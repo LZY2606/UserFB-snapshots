@@ -12,9 +12,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -28,6 +30,13 @@ public abstract class Node implements Cloneable {
     static final String EmptyString = "";
     @Nullable Node parentNode; // Nodes don't always have parents
     int siblingIndex;
+
+    /**
+     Incremented each time a node is detached from the tree (removed, replaced, or detached by emptying a parent).
+     Used to invalidate a form control's parse-time association with a form: once a control, or one of its ancestors, is
+     detached, that association is no longer valid.
+     */
+    private int detachVersion = 0;
 
     /**
      * Default constructor. Doesn't set up base uri, children, or attributes; use with caution.
@@ -533,6 +542,7 @@ public abstract class Node implements Cloneable {
         in.parentNode = this;
         in.setSiblingIndex(index);
         out.parentNode = null;
+        out.markDetached();
     }
 
     protected void removeChild(Node out) {
@@ -541,6 +551,26 @@ public abstract class Node implements Cloneable {
         ensureChildNodes().remove(index);
         reindexChildren(index);
         out.parentNode = null;
+        out.markDetached();
+    }
+
+    /**
+     Marks this node as having been detached from its parent. Called (recursively for descendants) whenever the node is
+     removed from the tree, so that parse-time form associations can be invalidated.
+     */
+    void markDetached() {
+        detachVersion++;
+        List<Node> children = ensureChildNodes();
+        for (int i = 0; i < children.size(); i++)
+            children.get(i).markDetached();
+    }
+
+    /**
+     Gets this node's detach version. Incremented whenever this node is detached from its parent.
+     @return the current detach version
+     */
+    int detachVersion() {
+        return detachVersion;
     }
 
     protected void addChildren(Node... children) {
@@ -882,16 +912,29 @@ public abstract class Node implements Cloneable {
         final LinkedList<Node> nodesToProcess = new LinkedList<>();
         nodesToProcess.add(thisClone);
 
+        // Track original -> clone, so that parse-time form associations can be mapped onto the copied subtree:
+        final Map<Node, Node> clones = new IdentityHashMap<>();
+        clones.put(this, thisClone);
+
         while (!nodesToProcess.isEmpty()) {
             Node currParent = nodesToProcess.remove();
 
             final int size = currParent.childNodeSize();
             for (int i = 0; i < size; i++) {
                 final List<Node> childNodes = currParent.ensureChildNodes();
-                Node childClone = childNodes.get(i).doClone(currParent);
+                Node origChild = childNodes.get(i);
+                Node childClone = origChild.doClone(currParent);
+                clones.put(origChild, childClone);
                 childNodes.set(i, childClone);
                 nodesToProcess.add(childClone);
             }
+        }
+
+        // Parse-time form associations may point outside of the cloned subtree; remap to the cloned counterparts where
+        // present, otherwise drop them so that the clone can't reference (or submit) the original document's controls.
+        for (Map.Entry<Node, Node> entry : clones.entrySet()) {
+            if (entry.getKey() instanceof Element)
+                ((Element) entry.getKey()).remapFormLink((Element) entry.getValue(), clones);
         }
 
         return thisClone;
@@ -922,6 +965,7 @@ public abstract class Node implements Cloneable {
 
         clone.parentNode = parent; // can be null, to create an orphan split
         clone.siblingIndex = parent == null ? 0 : siblingIndex;
+        clone.detachVersion = 0; // a fresh copy is not "detached"; its parse-time links are remapped by Node.clone
         // if not keeping the parent, shallowClone the ownerDocument to preserve its settings
         if (parent == null && !(this instanceof Document)) {
             Document doc = ownerDocument();

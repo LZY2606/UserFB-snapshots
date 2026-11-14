@@ -52,6 +52,12 @@ public class Element extends Node {
     List<Node> childNodes;
     @Nullable Attributes attributes; // field is nullable but all methods for attributes are non-null
 
+    // Form association established by the parser (or addElement()), which may point to a form that is not an ancestor of
+    // this control (e.g. a foster-parented input in a table). Valid only while neither end has been detached since linking.
+    private @Nullable FormElement formLink;
+    private int formLinkDetach;
+    private int formLinkFormDetach;
+
     /**
      * Create a new, standalone element, in the specified namespace.
      * @param tag tag name
@@ -252,6 +258,103 @@ public class Element extends Node {
         Validate.notNull(id);
         attr("id", id);
         return this;
+    }
+
+    /**
+     Get the form that this element is associated with, if any. This is the form that would be used to submit this
+     element's value.
+     <p>For a form-listed element (such as {@code input}, {@code select}, or {@code textarea}), the association is
+     determined by:</p>
+     <ol>
+     <li>the {@code form} attribute, if present and this element is in a Document: the first element in tree order in
+     that Document with that ID is found, and used only if it is a form. An empty value, no match, or a first match that
+     isn't a form means no association (no fallback to an ancestor);</li>
+     <li>a parse-time association, where the parser associated a control with a form that is not an ancestor (e.g. a
+     foster-parented control within a table). This association is valid until the control or one of its ancestors is
+     detached from the tree, or the form itself is detached;</li>
+     <li>the nearest ancestor form, if the element has no {@code form} attribute and no valid parse-time association;</li>
+     </ol>
+     <p>Within a tree that is not attached to a Document, a {@code form} ID is not resolved; the parse-time association
+     and ancestor forms are still considered.</p>
+     <p>The result is evaluated against the current DOM, so changes to the tree (moving controls, removing or inserting
+     elements, changing attributes) are reflected on the next call.</p>
+     @return the associated form element, or {@code null} if this element is not form-listed or has no associated form
+     @since 1.17.3
+     */
+    public @Nullable FormElement formOwner() {
+        if (!tag().isFormListed() || !elementIs(tag().normalName(), NamespaceHtml)) return null; // not an HTML form-listed control
+
+        Document doc = ownerDocument();
+        if (hasAttr("form")) {
+            if (doc != null) return resolveFormId(doc);
+            // A tree that isn't attached to a Document doesn't resolve explicit ids; fall through to local associations.
+        }
+
+        FormElement linked = parseTimeFormOwner();
+        if (linked != null) return linked;
+        return ancestorFormOwner();
+    }
+
+    /** Resolves a {@code form} attribute id against the Document; only a form is accepted. */
+    private @Nullable FormElement resolveFormId(Document doc) {
+        String formId = attr("form");
+        if (formId.length() == 0) return null; // empty form attribute: no fallback
+        Element first = doc.getElementById(formId); // the first element with this id, in tree order
+        return first instanceof FormElement ? (FormElement) first : null; // no fallback if the first match isn't a form
+    }
+
+    private @Nullable FormElement ancestorFormOwner() {
+        Element parent = parent();
+        while (parent != null) {
+            if (parent instanceof FormElement) return (FormElement) parent;
+            parent = parent.parent();
+        }
+        return null;
+    }
+
+    /**
+     Links this element to the form it was associated with during parsing (or via {@link FormElement#addElement(Element)}),
+     even if that form is not an ancestor of this element.
+     @param form the form to link to
+     @return this element, for chaining
+     */
+    Element setFormLink(FormElement form) {
+        formLink = form;
+        formLinkDetach = detachVersion();
+        formLinkFormDetach = form.detachVersion();
+        return this;
+    }
+
+    private @Nullable FormElement parseTimeFormOwner() {
+        FormElement form = formLink;
+        if (form == null) return null;
+        if (detachVersion() != formLinkDetach || form.detachVersion() != formLinkFormDetach) {
+            formLink = null; // either end (or an ancestor) has been detached since the link was made; invalid
+            return null;
+        }
+        return form;
+    }
+
+    /** Tests whether this element still has a live parse-time association to the supplied form (ignoring precedence). */
+    boolean formLinkIs(FormElement form) {
+        return parseTimeFormOwner() == form;
+    }
+
+    /**
+     Maps this element's parse-time form association onto a clone of this element, if the form was also cloned. Used
+     when deep-cloning a tree.
+     @param clone the cloned counterpart of this element
+     @param clones map of original nodes to their clones
+     */
+    void remapFormLink(Element clone, Map<Node, Node> clones) {
+        FormElement form = parseTimeFormOwner();
+        if (form == null) return;
+        Node mappedForm = clones.get(form);
+        if (mappedForm instanceof FormElement) {
+            FormElement formClone = (FormElement) mappedForm;
+            clone.setFormLink(formClone);
+            formClone.addLinkedControl(clone);
+        }
     }
 
     /**
@@ -882,6 +985,7 @@ public class Element extends Node {
         // Detach each of the children -> parent links:
         for (Node child : childNodes) {
             child.parentNode = null;
+            child.markDetached();
         }
         childNodes.clear();
         return this;
@@ -1854,6 +1958,9 @@ public class Element extends Node {
         clone.attributes = attributes != null ? attributes.clone() : null;
         clone.childNodes = new NodeList(clone, childNodes.size());
         clone.childNodes.addAll(childNodes); // the children then get iterated and cloned in Node.clone
+        clone.formLink = null; // remapped (or dropped) by the cloning document
+        clone.formLinkDetach = 0;
+        clone.formLinkFormDetach = 0;
 
         return clone;
     }
