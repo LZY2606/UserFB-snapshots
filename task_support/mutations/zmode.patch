@@ -1,0 +1,11 @@
+--- a/codec/ag_dec.c
++++ b/codec/ag_dec.c
+@@ -311,7 +311,7 @@
+ 
+         // least significant bit is sign bit
+         {
+-        	uint32_t	ndecode = n + zmode;
++        	uint32_t	ndecode = n;
+             int32_t		multiplier = (- (ndecode&1));
+ 
+             multiplier |= 1;
