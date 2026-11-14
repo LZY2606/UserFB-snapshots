@@ -28,6 +28,7 @@ It doesn't use your graphics card, only your CPU. So it's slow and unsuitable fo
 - anti-aliasing (via supersampling)
 - voxel rendering
 - parallel processing
+- linear HDR render target with exposure and bloom
 
 ### Performance
 
@@ -114,3 +115,56 @@ func main() {
 ```
 
 ![Teapot](http://i.imgur.com/DaqbkLR.png)
+
+### HDR Rendering and Bloom
+
+By default the context rasterizes into `ColorBuffer`, an `image.NRGBA` clamped
+to 8 bits per channel. That is fine for ordinary output, but a specular
+highlight is clipped to white at draw time, so exposure and bloom applied
+afterward have no headroom to work with.
+
+Call `EnableHDR` to render into a separate, linear, floating-point target
+instead. All draw entry points and the color clear operations then write that
+target, while `ColorBuffer` and `Image()` keep working as before (and stay
+empty until HDR is disabled and the scene is drawn again).
+
+```go
+context := NewContext(width, height)
+context.ClearColor = HexColor("#101820")
+context.EnableHDR()
+
+shader := NewPhongShader(matrix, light, eye)
+shader.ObjectColor = HexColor("#468966")
+shader.SpecularColor = Color{6, 6, 6, 1} // values above 1 survive
+shader.SpecularPower = 48
+context.Shader = shader
+context.DrawMesh(mesh)
+
+image, err := context.ResolveHDR(HDRSettings{
+    Background:     context.ClearColor, // must be opaque
+    Exposure:       0.9,                // > 0
+    BloomThreshold: 0.8,                // luminance threshold, >= 0
+    BloomStrength:  0.5,                // >= 0
+    BloomLevels:    5,                  // >= 1
+})
+if err != nil {
+    panic(err)
+}
+SavePNG("out.png", image)
+```
+
+Colors written to the HDR target are linear and premultiplied, and may exceed
+1. `HDRSnapshot` returns a row-major copy of that premultiplied linear data.
+`ResolveHDR` composites it over the background, extracts luminance-above-
+threshold highlights, builds a downsampled pyramid (area-averaging with true
+pixel overlap, so odd sizes are handled exactly), reconstructs the bloom image
+with bilinear upsampling, adds it, applies `1 - exp(-Exposure * color)` tone
+mapping and encodes with the standard sRGB transfer function. Resolving never
+mutates the target, the depth buffer, or a previously returned image, so
+exposure can be adjusted and re-resolved freely.
+
+`PhongShader` implements the optional `HDRShader` interface (an extra
+`FragmentHDR` method). Anything else implementing only `Shader` is rendered in
+HDR mode using its `Fragment` return value as-is. Run `go run examples/hdr` to
+write `hdr_without_bloom.png`, `hdr_with_bloom.png` and `ldr.png` for
+comparison.

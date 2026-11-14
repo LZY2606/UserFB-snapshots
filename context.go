@@ -55,6 +55,12 @@ type Context struct {
 	DepthBias    float64
 	screenMatrix Matrix
 	locks        []sync.Mutex
+
+	// hdrMu serializes calls made from outside the package. Batch draws may
+	// still use the per-pixel locks above to rasterize in parallel.
+	hdrMu      sync.Mutex
+	hdrEnabled bool
+	hdrBuffer  []Color // premultiplied linear RGBA, row-major
 }
 
 func NewContext(width, height int) *Context {
@@ -85,6 +91,8 @@ func (dc *Context) Image() image.Image {
 }
 
 func (dc *Context) DepthImage() image.Image {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
 	lo := math.MaxFloat64
 	hi := -math.MaxFloat64
 	for _, d := range dc.DepthBuffer {
@@ -117,6 +125,18 @@ func (dc *Context) DepthImage() image.Image {
 }
 
 func (dc *Context) ClearColorBufferWith(color Color) {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	dc.clearColorBufferWith(color)
+}
+
+func (dc *Context) clearColorBufferWith(color Color) {
+	if dc.hdrEnabled {
+		// HDR clear stores linear premultiplied values verbatim, without
+		// clamping them to the byte range.
+		dc.clearHDRBufferWith(color)
+		return
+	}
 	c := color.NRGBA()
 	for y := 0; y < dc.Height; y++ {
 		i := dc.ColorBuffer.PixOffset(0, y)
@@ -135,6 +155,12 @@ func (dc *Context) ClearColorBuffer() {
 }
 
 func (dc *Context) ClearDepthBufferWith(value float64) {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	dc.clearDepthBufferWith(value)
+}
+
+func (dc *Context) clearDepthBufferWith(value float64) {
 	for i := range dc.DepthBuffer {
 		dc.DepthBuffer[i] = value
 	}
@@ -148,8 +174,17 @@ func edge(a, b, c Vector) float64 {
 	return (b.X-c.X)*(a.Y-c.Y) - (b.Y-c.Y)*(a.X-c.X)
 }
 
+func isFinite(x float64) bool {
+	return !math.IsNaN(x) && !math.IsInf(x, 0)
+}
+
 func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo {
 	var info RasterizeInfo
+
+	area := edge(s0, s1, s2)
+	if !isFinite(area) || area == 0 {
+		return info
+	}
 
 	// integer bounding box
 	min := s0.Min(s1.Min(s2)).Floor()
@@ -158,6 +193,9 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 	x1 := int(max.X)
 	y0 := int(min.Y)
 	y1 := int(max.Y)
+	if x0 > x1 || y0 > y1 {
+		return info
+	}
 
 	// forward differencing variables
 	p := Vector{float64(x0) + 0.5, float64(y0) + 0.5, 0}
@@ -195,11 +233,18 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 		if w02 < 0 && d2 > d {
 			d = d2
 		}
-		d = float64(int(d))
-		if d < 0 {
+		// an axis-aligned edge can divide by zero during forward
+		// differencing, yielding a non-finite skip; clamp it to the bbox
+		// instead of converting an out-of-range float to int
+		maxSkip := float64(x1 - x0 + 1)
+		if math.IsNaN(d) || d < 0 {
 			// occurs in pathological cases
 			d = 0
 		}
+		if d > maxSkip {
+			d = maxSkip
+		}
+		d = float64(int(d))
 		w0 := w00 + a12*d
 		w1 := w01 + a20*d
 		w2 := w02 + a01*d
@@ -229,20 +274,34 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 			info.TotalPixels++
 			z := b0*s0.Z + b1*s1.Z + b2*s2.Z
 			bz := z + dc.DepthBias
-			if dc.ReadDepth && bz > dc.DepthBuffer[i] { // safe w/out lock?
+			lock := &dc.locks[(x+y)&255]
+			// early abort against the current depth value; this read must be
+			// synchronized since parallel workers may be writing it
+			lock.Lock()
+			if dc.ReadDepth && bz > dc.DepthBuffer[i] {
+				lock.Unlock()
 				continue
 			}
+			lock.Unlock()
 			// perspective-correct interpolation of vertex data
 			b := VectorW{b0 * r0, b1 * r1, b2 * r2, 0}
 			b.W = 1 / (b.X + b.Y + b.Z)
 			v := InterpolateVertexes(v0, v1, v2, b)
 			// invoke fragment shader
-			color := dc.Shader.Fragment(v)
+			var color Color
+			if dc.hdrEnabled {
+				if shader, ok := dc.Shader.(HDRShader); ok {
+					color = shader.FragmentHDR(v)
+				} else {
+					color = dc.Shader.Fragment(v)
+				}
+			} else {
+				color = dc.Shader.Fragment(v)
+			}
 			if color == Discard {
 				continue
 			}
 			// update buffers atomically
-			lock := &dc.locks[(x+y)&255]
 			lock.Lock()
 			// check depth buffer again
 			if bz <= dc.DepthBuffer[i] || !dc.ReadDepth {
@@ -252,8 +311,28 @@ func (dc *Context) rasterize(v0, v1, v2 Vertex, s0, s1, s2 Vector) RasterizeInfo
 					dc.DepthBuffer[i] = z
 				}
 				if dc.WriteColor {
-					// update color buffer
-					if dc.AlphaBlend && color.A < 1 {
+					if dc.hdrEnabled {
+						// keep full precision linear values; the target is
+						// stored premultiplied
+						c := Color{
+							color.R * color.A,
+							color.G * color.A,
+							color.B * color.A,
+							color.A,
+						}
+						if dc.AlphaBlend {
+							d := dc.hdrBuffer[i]
+							a := 1 - color.A
+							c = Color{
+								c.R + d.R*a,
+								c.G + d.G*a,
+								c.B + d.B*a,
+								c.A + d.A*a,
+							}
+						}
+						dc.hdrBuffer[i] = c
+					} else if dc.AlphaBlend && color.A < 1 {
+						// update color buffer
 						sr, sg, sb, sa := color.NRGBA().RGBA()
 						a := (0xffff - sa) * 0x101
 						j := dc.ColorBuffer.PixOffset(x, y)
@@ -348,7 +427,7 @@ func (dc *Context) drawClippedTriangle(v0, v1, v2 Vertex) RasterizeInfo {
 	}
 }
 
-func (dc *Context) DrawLine(t *Line) RasterizeInfo {
+func (dc *Context) drawLine(t *Line) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -367,7 +446,13 @@ func (dc *Context) DrawLine(t *Line) RasterizeInfo {
 	}
 }
 
-func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
+func (dc *Context) DrawLine(t *Line) RasterizeInfo {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	return dc.drawLine(t)
+}
+
+func (dc *Context) drawTriangle(t *Triangle) RasterizeInfo {
 	// invoke vertex shader
 	v1 := dc.Shader.Vertex(t.V1)
 	v2 := dc.Shader.Vertex(t.V2)
@@ -388,7 +473,13 @@ func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
 	}
 }
 
-func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
+func (dc *Context) DrawTriangle(t *Triangle) RasterizeInfo {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	return dc.drawTriangle(t)
+}
+
+func (dc *Context) drawLines(lines []*Line) RasterizeInfo {
 	wn := runtime.NumCPU()
 	ch := make(chan RasterizeInfo, wn)
 	for wi := 0; wi < wn; wi++ {
@@ -396,7 +487,35 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 			var result RasterizeInfo
 			for i, l := range lines {
 				if i%wn == wi {
-					info := dc.DrawLine(l)
+					info := dc.drawLine(l)
+					result = result.Add(info)
+				}
+			}
+			ch <- result
+		}(wi)
+	}
+	var result RasterizeInfo
+	for wi := 0; wi < wn; wi++ {
+		result = result.Add(<-ch)
+	}
+	return result
+}
+
+func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	return dc.drawLines(lines)
+}
+
+func (dc *Context) drawTriangles(triangles []*Triangle) RasterizeInfo {
+	wn := runtime.NumCPU()
+	ch := make(chan RasterizeInfo, wn)
+	for wi := 0; wi < wn; wi++ {
+		go func(wi int) {
+			var result RasterizeInfo
+			for i, t := range triangles {
+				if i%wn == wi {
+					info := dc.drawTriangle(t)
 					result = result.Add(info)
 				}
 			}
@@ -411,29 +530,19 @@ func (dc *Context) DrawLines(lines []*Line) RasterizeInfo {
 }
 
 func (dc *Context) DrawTriangles(triangles []*Triangle) RasterizeInfo {
-	wn := runtime.NumCPU()
-	ch := make(chan RasterizeInfo, wn)
-	for wi := 0; wi < wn; wi++ {
-		go func(wi int) {
-			var result RasterizeInfo
-			for i, t := range triangles {
-				if i%wn == wi {
-					info := dc.DrawTriangle(t)
-					result = result.Add(info)
-				}
-			}
-			ch <- result
-		}(wi)
-	}
-	var result RasterizeInfo
-	for wi := 0; wi < wn; wi++ {
-		result = result.Add(<-ch)
-	}
-	return result
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	return dc.drawTriangles(triangles)
+}
+
+func (dc *Context) drawMesh(mesh *Mesh) RasterizeInfo {
+	info1 := dc.drawTriangles(mesh.Triangles)
+	info2 := dc.drawLines(mesh.Lines)
+	return info1.Add(info2)
 }
 
 func (dc *Context) DrawMesh(mesh *Mesh) RasterizeInfo {
-	info1 := dc.DrawTriangles(mesh.Triangles)
-	info2 := dc.DrawLines(mesh.Lines)
-	return info1.Add(info2)
+	dc.hdrMu.Lock()
+	defer dc.hdrMu.Unlock()
+	return dc.drawMesh(mesh)
 }
