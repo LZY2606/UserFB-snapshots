@@ -96,9 +96,14 @@ enum ud_operand_code {
     OP_U,      OP_N,      OP_MU,      OP_H,
     OP_L,
 
-    OP_R,      OP_C,      OP_D,       
+    OP_R,      OP_C,      OP_D,
 
-    OP_MR
+    OP_MR,
+
+    /* AMX tile registers (tmm0-tmm7) */
+    OP_T,   /* tile in the ModR/M reg field */
+    OP_TU,  /* tile in the ModR/M r/m field, mod must be 11 */
+    OP_TH   /* tile in the VEX.vvvv field */
 } UD_ATTR_PACKED;
 
 
@@ -126,6 +131,13 @@ typedef uint16_t ud_operand_size_t;
 #define SZ_O   12
 #define SZ_DQ  128 /* double quad */
 #define SZ_QQ  256 /* quad quad */
+
+/*
+ * AMX tile register operand. Its concrete rows/colsb shape is not part
+ * of the instruction encoding; it is supplied at runtime by the tile
+ * configuration and therefore has no fixed bit size.
+ */
+#define SZ_TILE 9
 
 /*
  * Complex size types; that encode sizes for operands of type MR (memory or

@@ -58,6 +58,7 @@
 
 static int decode_ext(struct ud *u, uint16_t ptr);
 static int decode_opcode(struct ud *u);
+static void resolve_amx_roles(struct ud *u);
 
 enum reg_class { /* register classes */
   REGCLASS_GPR,
@@ -65,7 +66,8 @@ enum reg_class { /* register classes */
   REGCLASS_CR,
   REGCLASS_DB,
   REGCLASS_SEG,
-  REGCLASS_XMM
+  REGCLASS_XMM,
+  REGCLASS_TMM
 };
 
  /* 
@@ -439,6 +441,10 @@ decode_reg(struct ud *u,
     case REGCLASS_XMM :
       reg = num + (size == SZ_QQ ? UD_R_YMM0 : UD_R_XMM0);
       break;
+    case REGCLASS_TMM :
+      /* AMX tile registers occupy their own class, distinct from XMM/YMM */
+      reg = UD_R_TMM0 + (num & 7);
+      break;
     case REGCLASS_CR : reg = UD_R_CR0  + num; break;
     case REGCLASS_DB : reg = UD_R_DR0  + num; break;
     case REGCLASS_SEG : {
@@ -702,6 +708,20 @@ decode_vex_vvvv(struct ud *u, struct ud_operand *opr, unsigned size)
 }
 
 
+/*
+ * decode_vex_tile_vvvv
+ *    Decode an AMX tile register carried in the VEX.vvvv field.
+ */
+static void
+decode_vex_tile_vvvv(struct ud *u, struct ud_operand *opr, unsigned size)
+{
+  uint8_t vvvv;
+  UD_ASSERT(u->vex_op != 0);
+  vvvv = ((u->vex_op == 0xc4 ? u->vex_b2 : u->vex_b1) >> 3) & 0xf;
+  decode_reg(u, opr, REGCLASS_TMM, (0xf & ~vvvv), size);
+}
+
+
 /* 
  * decode_vex_immreg
  *    Decode source operand encoded in immediate byte [7:4]
@@ -785,6 +805,21 @@ decode_operand(struct ud           *u,
       break;
     case OP_V:
       decode_modrm_reg(u, operand, REGCLASS_XMM, size);
+      break;
+    case OP_T:
+      /* AMX tile register in the ModR/M reg field (tmm0-tmm7) */
+      decode_modrm_reg(u, operand, REGCLASS_TMM, size);
+      break;
+    case OP_TU:
+      /* AMX tile register in the ModR/M r/m field, mod must be 11 */
+      if (MODRM_MOD(modrm(u)) != 3) {
+        UDERR(u, "expected modrm.mod == 3\n");
+      }
+      decode_modrm_rm(u, operand, REGCLASS_TMM, size);
+      break;
+    case OP_TH:
+      /* AMX tile register in the VEX.vvvv field */
+      decode_vex_tile_vvvv(u, operand, size);
       break;
     case OP_H:
       decode_vex_vvvv(u, operand, size);
@@ -914,6 +949,7 @@ decode_operands(struct ud* u)
                         u->itab_entry->operand4.type,
                         u->itab_entry->operand4.size);
   }
+  resolve_amx_roles(u);
   return 0;
 }
     
@@ -940,6 +976,7 @@ clear_insn(register struct ud* u)
   u->br_far    = 0;
   u->vex_op    = 0;
   u->_rex      = 0;
+  u->amx_sib_stride = 0;
   u->operand[0].type = UD_NONE;
   u->operand[1].type = UD_NONE;
   u->operand[2].type = UD_NONE;
@@ -1025,6 +1062,42 @@ resolve_mode( struct ud* u )
   }
 
   return 0;
+}
+
+
+/*
+ * resolve_amx_roles()
+ *
+ *    Tile load/store instructions encode the per-row stride in the SIB
+ *    index register. Unlike ordinary SIB addressing, that index is not
+ *    a scaled addend of the effective address: the first row starts at
+ *    base+disp and every subsequent row is reached by adding the stride.
+ *    Flag the role so the generic decoder output and the read-only AMX
+ *    analysis can treat the index register as the stride register.
+ */
+static void
+resolve_amx_roles(struct ud *u)
+{
+  const struct ud_operand *mem;
+  int i;
+  u->amx_sib_stride = 0;
+  switch (u->mnemonic) {
+  case UD_Itileloadd:
+  case UD_Itileloaddt1:
+  case UD_Itilestored:
+    for (i = 0; i < 4; ++i) {
+      mem = &u->operand[i];
+      if (mem->type == UD_OP_MEM) {
+        if (mem->index != UD_NONE) {
+          u->amx_sib_stride = 1;
+        }
+        return;
+      }
+    }
+    return;
+  default:
+    return;
+  }
 }
 
 

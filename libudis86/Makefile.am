@@ -16,14 +16,17 @@ libudis86_la_SOURCES = \
 	syn-intel.c \
 	syn-att.c \
 	udis86.c \
+	amx_analysis.c \
 	udint.h \
 	syn.h \
-	decode.h
+	decode.h \
+	amx_analysis.h
 
 include_ladir = ${includedir}/libudis86
 include_la_HEADERS = \
 	types.h \
 	extern.h \
+	amx_analysis.h \
 	itab.h
 
 

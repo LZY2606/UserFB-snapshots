@@ -84,6 +84,9 @@ const char* ud_reg_tab[] =
   "ymm8", "ymm9", "ymm10",  "ymm11",
   "ymm12", "ymm13", "ymm14", "ymm15",
 
+  "tmm0", "tmm1", "tmm2", "tmm3",
+  "tmm4", "tmm5", "tmm6", "tmm7",
+
   "rip"
 };
 

@@ -10095,5 +10095,93 @@
             <cpuid>avx</cpuid>
         </def>
     </instruction>
- 
+
+    <!--
+        Intel AMX tile instructions (VEX-encoded, 64-bit mode only).
+        Tile registers tmm0-tmm7 use a distinct register class, never
+        XMM/YMM. The 49 opcode group carries the tile number in ModR/M
+        r/m (with the reg field as an opcode extension), the 4b group in
+        ModR/M reg, and tdpbssd uses reg / r-m / VEX.vvvv. The SIB index
+        register of tile load/store is the per-row stride, not an additive
+        component of the first row address.
+    -->
+    <instruction>
+        <mnemonic>ldtilecfg</mnemonic>
+        <def>
+            <pfx>aso rexx rexb</pfx>
+            <opc>/vex=0f38 49 /vexw=0 /mod=!11</opc>
+            <opr>M</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>sttilecfg</mnemonic>
+        <def>
+            <pfx>aso rexx rexb</pfx>
+            <opc>/vex=66_0f38 49 /vexw=0 /mod=!11</opc>
+            <opr>M</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tilerelease</mnemonic>
+        <def>
+            <opc>/vex=0f38 49 /vexw=0 /mod=11 /reg=0</opc>
+            <opr>NONE</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tilezero</mnemonic>
+        <def>
+            <pfx>rexb</pfx>
+            <opc>/vex=f2_0f38 49 /vexw=0 /mod=11 /reg=1</opc>
+            <opr>TU</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tileloadd</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb</pfx>
+            <opc>/vex=f2_0f38 4b /vexw=0 /mod=!11</opc>
+            <opr>T M</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tileloaddt1</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb</pfx>
+            <opc>/vex=66_0f38 4b /vexw=0 /mod=!11</opc>
+            <opr>T M</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tilestored</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb</pfx>
+            <opc>/vex=f3_0f38 4b /vexw=0 /mod=!11</opc>
+            <opr>M T</opr>
+            <cpuid>amx-tile</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>tdpbssd</mnemonic>
+        <def>
+            <pfx>rexr rexx rexb</pfx>
+            <opc>/vex=f2_0f38 5e /vexw=0 /mod=11</opc>
+            <opr>T TU TH</opr>
+            <cpuid>amx-int8</cpuid>
+        </def>
+    </instruction>
+
 </x86optable>

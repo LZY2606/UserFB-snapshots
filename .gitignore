@@ -3,6 +3,7 @@ Makefile.in
 *.lo
 *.o
 .*.swp
+.task-build/
 .deps
 .libs
 config.*
