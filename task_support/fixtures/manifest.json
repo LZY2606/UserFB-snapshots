@@ -1,0 +1,14 @@
+[
+  {
+    "path": "task_support/fixtures/legacy.wv",
+    "size": 7026,
+    "sha256": "1b35661449ed0e33aca26aca5b9211306c772445c696a46c41097952754a898a",
+    "source": "production baseline at fixed upstream commit; task_support/baseline.c; workers=2"
+  },
+  {
+    "path": "task_support/fixtures/legacy.wvc",
+    "size": 15582,
+    "sha256": "d8a11c3113bae491d93d29e4a5c8e6001e1dc7126f5d455c27614e76aa17c818",
+    "source": "production baseline at fixed upstream commit; task_support/baseline.c; workers=2"
+  }
+]
