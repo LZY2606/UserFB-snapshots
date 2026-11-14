@@ -54,6 +54,9 @@ type remoteWD struct {
 	storedActions  Actions
 	browser        string
 	browserVersion semver.Version
+	// bidiURL is the WebDriver BiDi endpoint returned in the capabilities of
+	// the successful session creation response, if any.
+	bidiURL string
 }
 
 // HTTPClient is the default client to use to communicate with the WebDriver
@@ -359,6 +362,7 @@ var w3cCapabilityNames = []string{
 	"setWindowRect",
 	"timeouts",
 	"unhandledPromptBehavior",
+	"webSocketUrl",
 }
 
 var chromeCapabilityNames = []string{
@@ -474,6 +478,9 @@ func (wd *remoteWD) NewSession() (string, error) {
 					PageLoad       float32
 					Script         float32
 				}
+				// WebSocketURL is the WebDriver BiDi endpoint, returned when
+				// the webSocketUrl capability was requested and accepted.
+				WebSocketURL string `json:"webSocketUrl"`
 			}
 
 			value := struct {
@@ -501,6 +508,7 @@ func (wd *remoteWD) NewSession() (string, error) {
 			} else {
 				caps = value.returnedCapabilities
 			}
+			wd.bidiURL = caps.WebSocketURL
 
 			for _, s := range []string{caps.Version, caps.BrowserVersion} {
 				if s == "" {

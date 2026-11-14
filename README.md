@@ -48,6 +48,54 @@ Re-run this periodically to get up-to-date versions of these binaries.
 
 The API documentation is at https://godoc.org/github.com/tebeka/selenium. See [the example](https://github.com/tebeka/selenium/blob/master/example_test.go) and unit tests(for [sauce](https://github.com/tebeka/selenium/blob/master/sauce_test.go), [selenium](https://github.com/tebeka/selenium/blob/master/selenium_test.go) and [service](https://github.com/tebeka/selenium/blob/master/service_test.go)) for better usage information.
 
+## WebDriver BiDi objects
+
+The HTTP `ExecuteScript` endpoint returns results by value, so it cannot keep
+a page object alive between calls. When the browser negotiates a
+`webSocketUrl` capability, `OpenBiDi` opens a WebDriver BiDi side connection
+that holds script objects with `root` ownership: evaluate once, then call
+methods on the object repeatedly, and release it when done. Objects become
+invalid automatically when their realm is destroyed (e.g. by navigating
+away). Closing the BiDi client never ends the WebDriver session.
+
+```go
+caps := selenium.Capabilities{"browserName": "firefox", "webSocketUrl": true}
+wd, err := selenium.NewRemote(caps, "http://localhost:4444")
+if err != nil {
+    log.Fatal(err)
+}
+defer wd.Quit()
+
+ctx := context.Background()
+bidi, err := selenium.OpenBiDi(ctx, wd)
+if err != nil {
+    log.Fatal(err)
+}
+defer bidi.Close()
+
+// Grab the order form once and keep it alive on the page.
+form, err := bidi.EvaluateObject(ctx, contextID, `document.querySelector("form#order")`)
+if err != nil {
+    log.Fatal(err)
+}
+defer form.Release(ctx)
+
+// Call its methods as often as needed; arguments are BiDi LocalValue JSON.
+_, err = form.Call(ctx, `function(name, value) { this.elements[name].value = value; }`,
+    []json.RawMessage{
+        json.RawMessage(`{"type": "string", "value": "sku"}`),
+        json.RawMessage(`{"type": "string", "value": "A-17"}`),
+    })
+if err != nil {
+    log.Fatal(err)
+}
+result, err := form.Call(ctx, `function() { return this.checkValidity(); }`, nil)
+if err != nil {
+    log.Fatal(err) // *selenium.BiDiScriptError or *selenium.BiDiProtocolError
+}
+fmt.Printf("valid: %s\n", result) // raw RemoteValue JSON, e.g. {"type":"boolean","value":true}
+```
+
 ## Known Issues
 
 Any issues are usually because the underlying browser automation framework has a
