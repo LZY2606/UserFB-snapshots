@@ -58,11 +58,18 @@ type Server struct {
 	HandlePublish func(*Conn)
 	HandlePlay    func(*Conn)
 	HandleConn    func(*Conn)
+
+	// HandlePublishSession optionally enables multi-publish mode: a single
+	// connection may create several message streams and publish on them
+	// concurrently. When set, HandlePublish/HandlePlay are not used.
+	HandlePublishSession func(*PublishSession)
 }
 
 func (self *Server) handleConn(conn *Conn) (err error) {
 	if self.HandleConn != nil {
 		self.HandleConn(conn)
+	} else if self.HandlePublishSession != nil {
+		err = self.handlePublishSession(conn)
 	} else {
 		if err = conn.prepare(stageCommandDone, 0); err != nil {
 			return
@@ -178,6 +185,10 @@ type Conn struct {
 	msgtypeid   uint8
 	datamsgvals []interface{}
 	avtag       flvio.Tag
+
+	// curmsgsid is the message stream id carried by the most recently
+	// received message header. It is independent of the chunk stream id.
+	curmsgsid uint32
 
 	eventtype uint16
 }
@@ -369,7 +380,28 @@ func (self *Conn) writeBasicConf() (err error) {
 
 func (self *Conn) readConnect() (err error) {
 	var connectpath string
+	var tcurl string
+	var connectparams flvio.AMFMap
 
+	if connectpath, tcurl, connectparams, err = self.readConnectPrologue(); err != nil {
+		return
+	}
+
+	for {
+		var done bool
+		if done, err = self.readConnectCommand(connectpath, tcurl, connectparams); err != nil {
+			return
+		}
+		if done {
+			return
+		}
+	}
+}
+
+// readConnectPrologue handles the connect command and the connection-level
+// configuration messages (window ack size, chunk size, ...). The returned
+// connect parameters are needed again while processing later commands.
+func (self *Conn) readConnectPrologue() (connectpath string, tcurl string, connectparams flvio.AMFMap, err error) {
 	// < connect("app")
 	if err = self.pollCommand(); err != nil {
 		return
@@ -391,14 +423,13 @@ func (self *Conn) readConnect() (err error) {
 	}
 	connectpath, _ = _app.(string)
 
-	var tcurl string
 	if _tcurl, ok = self.commandobj["tcUrl"]; !ok {
 		_tcurl, ok = self.commandobj["tcurl"]
 	}
 	if ok {
 		tcurl, _ = _tcurl.(string)
 	}
-	connectparams := self.commandobj
+	connectparams = self.commandobj
 
 	if err = self.writeBasicConf(); err != nil {
 		return
@@ -423,116 +454,119 @@ func (self *Conn) readConnect() (err error) {
 	if err = self.flushWrite(); err != nil {
 		return
 	}
+	return
+}
 
-	for {
-		if err = self.pollMsg(); err != nil {
+// readConnectCommand processes one command message of the legacy single
+// stream path. It returns done=true once publish or play has been accepted.
+func (self *Conn) readConnectCommand(connectpath string, tcurl string, connectparams flvio.AMFMap) (done bool, err error) {
+	if err = self.pollMsg(); err != nil {
+		return
+	}
+	if !self.gotcommand {
+		return
+	}
+	switch self.commandname {
+
+	// < createStream
+	case "createStream":
+		self.avmsgsid = uint32(1)
+		// > _result(streamid)
+		if err = self.writeCommandMsg(3, 0, "_result", self.commandtransid, nil, self.avmsgsid); err != nil {
 			return
 		}
-		if self.gotcommand {
-			switch self.commandname {
-
-			// < createStream
-			case "createStream":
-				self.avmsgsid = uint32(1)
-				// > _result(streamid)
-				if err = self.writeCommandMsg(3, 0, "_result", self.commandtransid, nil, self.avmsgsid); err != nil {
-					return
-				}
-				if err = self.flushWrite(); err != nil {
-					return
-				}
-
-			// < publish("path")
-			case "publish":
-				if Debug {
-					fmt.Println("rtmp: < publish")
-				}
-
-				if len(self.commandparams) < 1 {
-					err = fmt.Errorf("rtmp: publish params invalid")
-					return
-				}
-				publishpath, _ := self.commandparams[0].(string)
-
-				var cberr error
-				if self.OnPlayOrPublish != nil {
-					cberr = self.OnPlayOrPublish(self.commandname, connectparams)
-				}
-
-				// > onStatus()
-				if err = self.writeCommandMsg(5, self.avmsgsid,
-					"onStatus", self.commandtransid, nil,
-					flvio.AMFMap{
-						"level":       "status",
-						"code":        "NetStream.Publish.Start",
-						"description": "Start publishing",
-					},
-				); err != nil {
-					return
-				}
-				if err = self.flushWrite(); err != nil {
-					return
-				}
-
-				if cberr != nil {
-					err = fmt.Errorf("rtmp: OnPlayOrPublish check failed")
-					return
-				}
-
-				self.URL = createURL(tcurl, connectpath, publishpath)
-				self.publishing = true
-				self.reading = true
-				self.stage++
-				return
-
-			// < play("path")
-			case "play":
-				if Debug {
-					fmt.Println("rtmp: < play")
-				}
-
-				if len(self.commandparams) < 1 {
-					err = fmt.Errorf("rtmp: command play params invalid")
-					return
-				}
-				playpath, _ := self.commandparams[0].(string)
-
-				// > streamBegin(streamid)
-				if err = self.writeStreamBegin(self.avmsgsid); err != nil {
-					return
-				}
-
-				// > onStatus()
-				if err = self.writeCommandMsg(5, self.avmsgsid,
-					"onStatus", self.commandtransid, nil,
-					flvio.AMFMap{
-						"level":       "status",
-						"code":        "NetStream.Play.Start",
-						"description": "Start live",
-					},
-				); err != nil {
-					return
-				}
-
-				// > |RtmpSampleAccess()
-				if err = self.writeDataMsg(5, self.avmsgsid,
-					"|RtmpSampleAccess", true, true,
-				); err != nil {
-					return
-				}
-
-				if err = self.flushWrite(); err != nil {
-					return
-				}
-
-				self.URL = createURL(tcurl, connectpath, playpath)
-				self.playing = true
-				self.writing = true
-				self.stage++
-				return
-			}
-
+		if err = self.flushWrite(); err != nil {
+			return
 		}
+
+	// < publish("path")
+	case "publish":
+		if Debug {
+			fmt.Println("rtmp: < publish")
+		}
+
+		if len(self.commandparams) < 1 {
+			err = fmt.Errorf("rtmp: publish params invalid")
+			return
+		}
+		publishpath, _ := self.commandparams[0].(string)
+
+		var cberr error
+		if self.OnPlayOrPublish != nil {
+			cberr = self.OnPlayOrPublish(self.commandname, connectparams)
+		}
+
+		// > onStatus()
+		if err = self.writeCommandMsg(5, self.avmsgsid,
+			"onStatus", self.commandtransid, nil,
+			flvio.AMFMap{
+				"level":       "status",
+				"code":        "NetStream.Publish.Start",
+				"description": "Start publishing",
+			},
+		); err != nil {
+			return
+		}
+		if err = self.flushWrite(); err != nil {
+			return
+		}
+
+		if cberr != nil {
+			err = fmt.Errorf("rtmp: OnPlayOrPublish check failed")
+			return
+		}
+
+		self.URL = createURL(tcurl, connectpath, publishpath)
+		self.publishing = true
+		self.reading = true
+		self.stage++
+		done = true
+
+	// < play("path")
+	case "play":
+		if Debug {
+			fmt.Println("rtmp: < play")
+		}
+
+		if len(self.commandparams) < 1 {
+			err = fmt.Errorf("rtmp: command play params invalid")
+			return
+		}
+		playpath, _ := self.commandparams[0].(string)
+
+		// > streamBegin(streamid)
+		if err = self.writeStreamBegin(self.avmsgsid); err != nil {
+			return
+		}
+
+		// > onStatus()
+		if err = self.writeCommandMsg(5, self.avmsgsid,
+			"onStatus", self.commandtransid, nil,
+			flvio.AMFMap{
+				"level":       "status",
+				"code":        "NetStream.Play.Start",
+				"description": "Start live",
+			},
+		); err != nil {
+			return
+		}
+
+		// > |RtmpSampleAccess()
+		if err = self.writeDataMsg(5, self.avmsgsid,
+			"|RtmpSampleAccess", true, true,
+		); err != nil {
+			return
+		}
+
+		if err = self.flushWrite(); err != nil {
+			return
+		}
+
+		self.URL = createURL(tcurl, connectpath, playpath)
+		self.playing = true
+		self.writing = true
+		self.stage++
+		done = true
 	}
 
 	return
@@ -1362,6 +1396,7 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 	self.msgdata = msgdata
 	self.msgtypeid = msgtypeid
 	self.timestamp = timestamp
+	self.curmsgsid = msgsid
 
 	switch msgtypeid {
 	case msgtypeidCommandMsgAMF0:

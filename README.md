@@ -73,6 +73,72 @@ Go version >= 1.6
 
 ffmpeg version >= 3.0 (optional)
 
+# Receiving multiple published streams on one connection
+
+By default `Server.HandlePublish` serves the classic one-stream-per-connection
+flow. Set `Server.HandlePublishSession` instead to accept several streams that
+publish concurrently over a single RTMP connection (each created with its own
+`createStream` and identified by the message stream id). The handshake, chunk
+streaming and AMF0 encoding stay shared; only the per-stream probing and
+publishing state is kept per stream.
+
+```go
+package main
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/nareix/joy4/format/rtmp"
+)
+
+func main() {
+	server := &rtmp.Server{
+		Addr: ":1935",
+		HandlePublishSession: func(sess *rtmp.PublishSession) {
+			// One connection can carry several interleaved publishers.
+			// ReadEvent returns events of every stream on this connection.
+			for {
+				ev, err := sess.ReadEvent()
+				if err == io.EOF {
+					return
+				}
+				if err != nil {
+					panic(err)
+				}
+
+				switch ev.Kind {
+				case rtmp.PublishEventStart:
+					// ev.Name is the raw name from the publish command.
+					fmt.Printf("stream %d started: %s\n", ev.StreamID, ev.Name)
+
+				case rtmp.PublishEventHeader:
+					// ev.Streams holds the probed codecs of this stream.
+					fmt.Printf("stream %d header: %d track(s)\n", ev.StreamID, len(ev.Streams))
+
+				case rtmp.PublishEventPacket:
+					// ev.Packet keeps the stream's own track index, DTS,
+					// composition time and keyframe flag.
+					fmt.Printf("stream %d packet idx=%d time=%s\n",
+						ev.StreamID, ev.Packet.Idx, ev.Packet.Time)
+
+				case rtmp.PublishEventEnd:
+					fmt.Printf("stream %d ended\n", ev.StreamID)
+				}
+			}
+		},
+	}
+	if err := server.ListenAndServe(); err != nil {
+		panic(err)
+	}
+}
+```
+
+`ReadEvent` returns `io.EOF` once the connection is closed and every already
+received event has been drained; `Close` shuts down the whole connection. The
+single-stream `HandlePublish` / `HandlePlay` callbacks keep their original
+behavior and are used whenever `HandlePublishSession` is not set.
+
 # TODO
 
 HLS / MPEG-DASH Server
