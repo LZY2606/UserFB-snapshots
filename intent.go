@@ -29,4 +29,9 @@ type Intent struct {
 	// Headers to be sent with the HTTP request.
 	// If nil, default browser-like headers will be used.
 	Headers map[string]string
+
+	// CollectProducts turns on extraction of ProductGroup/Product/Offer
+	// entities from inline application/ld+json scripts.
+	// It is disabled by default and never affects legacy meta tag results.
+	CollectProducts bool
 }

@@ -47,10 +47,21 @@ type OpenGraph struct {
 	// Additional (unofficial)
 	Favicon Favicon `json:"favicon"`
 
+	// Products holds normalized product rows collected from inline
+	// application/ld+json scripts. It is only populated when
+	// Intent.CollectProducts is enabled; otherwise it is left untouched.
+	Products []map[string]any `json:"products,omitempty"`
+
 	// Intent represents how to fetch, parse, and complete properties
 	// of this OpenGraph object.
 	// This SHOULD NOT have any meaning for "OpenGraph Protocol".
 	Intent Intent `json:"-"`
+
+	// productDocURL is the document address used to resolve relative
+	// product IDs and offer URLs for a single Fetch/Parse/Walk run.
+	// Fetch fills it with the final response URL; other entries fall
+	// back to Intent.URL. It is never written back to Intent.
+	productDocURL string
 }
 
 // New constructs new OpenGraph struct and fill nullable fields.
@@ -122,6 +133,13 @@ func (og *OpenGraph) Fetch() error {
 		return fmt.Errorf("Content type must be text/html")
 	}
 
+	// Product extraction resolves relative IDs and offer URLs against
+	// the final response address; Intent.URL is only the fallback.
+	og.productDocURL = og.Intent.URL
+	if res.Request != nil && res.Request.URL != nil && res.Request.URL.String() != "" {
+		og.productDocURL = res.Request.URL.String()
+	}
+
 	if err = og.Parse(res.Body); err != nil {
 		return err
 	}
@@ -152,7 +170,16 @@ func (og *OpenGraph) Walk(node *html.Node) error {
 			og.Intent.TrustedTags = []string{HTMLMetaTag, HTMLTitleTag, HTMLLinkTag}
 		}
 	}
-	return og.walk(node)
+	if err := og.walk(node); err != nil {
+		return err
+	}
+	if !og.Intent.CollectProducts {
+		return nil
+	}
+	if og.productDocURL == "" {
+		og.productDocURL = og.Intent.URL
+	}
+	return og.collectProducts(node)
 }
 
 func (og *OpenGraph) walk(node *html.Node) error {

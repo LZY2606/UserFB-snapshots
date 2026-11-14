@@ -6,3 +6,5 @@ ogp
 
 # Agents
 .claude/settings.local.json
+# Task test harness build cache
+.task-build/
