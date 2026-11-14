@@ -186,6 +186,69 @@ void par_shapes__compute_welded_normals(par_shapes_mesh* m);
 void par_shapes__connect(par_shapes_mesh* scene, par_shapes_mesh* cylinder,
     int slices);
 
+// Cage Deformation ------------------------------------------------------------
+//
+// Nonlinear deformation of a fine triangle mesh driven by a coarse, closed
+// triangle "cage", using the 3D mean value coordinates of Ju, Schaefer and
+// Warren (2005).  Coordinates are computed in double precision and cached at
+// bind time, together with their analytic gradients with respect to the rest
+// position.  Non-convex cages are supported: the signed per-triangle
+// contributions are preserved, so some weights may legitimately be negative.
+// Reversing the winding of every cage triangle does not change the result.
+//
+// The opaque binding owns deep copies of the rest cage and fine mesh; it never
+// borrows caller pointers.  Fine mesh points must lie strictly inside the rest
+// cage (not on its surface).  Boundary limits and exterior points are not
+// supported and make par_shapes_cage_bind return NULL.
+//
+// Numerical contract (documented tolerances):
+//   - Cage triangles must have an area greater than 1e-12.
+//   - A point is accepted when its signed solid-angle sum satisfies
+//     |fabs(omega) - 4*pi| <= 1e-6, the partition of unity residual is at most
+//     1e-8, the gradient-sum residual is at most 1e-8 divided by the cage
+//     reference length, and the first-order identity residual
+//     |sum c_i (x) grad w_i - I| is at most 1e-7.
+//   - For unit-scale assets whose points stay at least 1e-3 away from the cage
+//     surface, coordinate identity errors stay below 1e-7 in double precision;
+//     analytic gradients match an independent central difference to 1e-5.
+//   - par_shapes_cage_apply reports a singular local Jacobian when
+//     fabs(det J) <= 1e-10 * (|J|_F^2 / 3)^(3/2).  Non-finite cage positions,
+//     non-finite coordinates and zero-length transformed normals also fail.
+//     Ordinary non-convex cages and reflection poses are never failures.
+//   - Float positions and unit normals are accurate to about 2e-5 for the
+//     unit-scale assets described above.
+
+typedef struct par_shapes_cage_binding_s par_shapes_cage_binding;
+
+// Build a binding between a rest cage (closed, connected, oriented 2-manifold
+// triangle mesh without degenerate faces, possibly non-convex) and a fine
+// mesh whose points lie strictly inside the cage.  Returns NULL on any
+// invalid input or when finite coordinates cannot be formed.
+par_shapes_cage_binding* par_shapes_cage_bind(
+    const par_shapes_mesh* cage, const par_shapes_mesh* mesh);
+
+// Release a binding, including all of its cached rest data.  NULL is allowed.
+void par_shapes_cage_free(par_shapes_cage_binding* binding);
+
+// Copy the n cage weights of fine-mesh point "point" into weights[0..n-1] and
+// the 3n gradient components into gradients[], with grad(w_i) stored as three
+// consecutive doubles.  Returns false for a NULL binding or bad point index.
+bool par_shapes_cage_coordinates(
+    const par_shapes_cage_binding* binding, int point,
+    double* weights, double* gradients);
+
+// Generate a new, independent mesh by moving the rest cage to the 3n positions
+// in cage_points.  On success *out receives a freshly allocated mesh and true
+// is returned; the previous value of *out is left untouched on failure.
+// Positions use the cached rest weights; per-point Jacobians are built from
+// the cached gradients, and existing normals are mapped with the cofactor
+// matrix det(J) * inverse(J)^T, which keeps oriented normals correct under
+// reflection.  Triangle indices, texture coordinates and per-vertex normal
+// identity (including UV-seam duplicates) are preserved.
+bool par_shapes_cage_apply(
+    const par_shapes_cage_binding* binding, const double* cage_points,
+    par_shapes_mesh** out);
+
 #ifndef PAR_PI
 #define PAR_PI (3.14159265359)
 #define PAR_MIN(a, b) (a > b ? b : a)
@@ -2151,6 +2214,668 @@ void par_shapes_remove_degenerate(par_shapes_mesh* mesh, float mintriarea)
     mesh->ntriangles = ntriangles;
     PAR_FREE(mesh->triangles);
     mesh->triangles = triangles;
+}
+
+// -----------------------------------------------------------------------------
+// CAGE DEFORMATION
+//
+// Mean value coordinates for a closed triangle cage after Ju, Schaefer and
+// Warren, "Mean Value Coordinates for Closed Triangular Meshes" (2005).
+// For a fine-mesh point x, each cage triangle (c0,c1,c2) contributes through
+// the mean-value integral over its spherical triangle.  Writing d_i = c_i - x,
+// r_i = |d_i| and u_i = d_i / r_i:
+//
+//   D   = det(u0, u1, u2)
+//   a_i = cross(u_j, u_k) / D                 (spherical basis coefficients)
+//   J   = 1/2 * sum_edges theta_e * (u_a x u_b) / |u_a x u_b|
+//         (integral of the unit direction over the spherical triangle)
+//   psi_i += (a_i . J) / r_i
+//
+// and w_i(x) = psi_i / sum_k psi_k.  Every quantity is evaluated with
+// forward-mode automatic differentiation so that the cached analytic gradients
+// never rely on finite differences.  The signed determinant keeps non-convex
+// contributions; reversing every triangle flips both D and J and leaves a_i.J
+// unchanged, so the coordinates are independent of the global winding.
+// -----------------------------------------------------------------------------
+
+#ifndef PAR_PI_DOUBLE
+#define PAR_PI_DOUBLE 3.14159265358979323846
+#endif
+
+struct par_shapes_cage_binding_s {
+    int ncage;        // Number of rest cage vertices
+    int ntris;        // Number of cage triangles
+    int npoints;      // Number of fine mesh points
+    int ntriangles;   // Number of fine mesh triangles
+    double* cage;     // Rest cage positions, 3 * ncage doubles
+    PAR_SHAPES_T* cage_tris;
+    float* points;    // Rest fine mesh snapshot
+    float* normals;   // NULL when the fine mesh has no normals
+    float* tcoords;   // NULL when the fine mesh has no UVs
+    PAR_SHAPES_T* triangles;
+    double* weights;    // npoints * ncage
+    double* gradients;  // npoints * ncage * 3, grad(w_i) packed per vertex
+};
+
+// Forward-mode automatic differentiation scalar: value plus its gradient
+// with respect to the three components of the fine-mesh rest position.
+typedef struct {
+    double v;
+    double g[3];
+} par_shapes__ad;
+
+static par_shapes__ad par_shapes__ad_const(double v)
+{
+    par_shapes__ad r;
+    r.v = v;
+    r.g[0] = r.g[1] = r.g[2] = 0.0;
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_seed(double v, int k)
+{
+    par_shapes__ad r;
+    r.v = v;
+    r.g[0] = r.g[1] = r.g[2] = 0.0;
+    r.g[k] = 1.0;
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_add(par_shapes__ad a, par_shapes__ad b)
+{
+    par_shapes__ad r;
+    r.v = a.v + b.v;
+    for (int k = 0; k < 3; k++) r.g[k] = a.g[k] + b.g[k];
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_sub(par_shapes__ad a, par_shapes__ad b)
+{
+    par_shapes__ad r;
+    r.v = a.v - b.v;
+    for (int k = 0; k < 3; k++) r.g[k] = a.g[k] - b.g[k];
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_mul(par_shapes__ad a, par_shapes__ad b)
+{
+    par_shapes__ad r;
+    r.v = a.v * b.v;
+    for (int k = 0; k < 3; k++) r.g[k] = b.v * a.g[k] + a.v * b.g[k];
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_div(par_shapes__ad a, par_shapes__ad b)
+{
+    par_shapes__ad r;
+    double b2 = b.v * b.v;
+    r.v = a.v / b.v;
+    for (int k = 0; k < 3; k++) r.g[k] = (a.g[k] * b.v - a.v * b.g[k]) / b2;
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_sqrt(par_shapes__ad a)
+{
+    par_shapes__ad r;
+    double s = sqrt(a.v);
+    r.v = s;
+    double inv = 0.5 / s;
+    for (int k = 0; k < 3; k++) r.g[k] = a.g[k] * inv;
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_acos(par_shapes__ad a)
+{
+    par_shapes__ad r;
+    double z = a.v;
+    if (z > 1.0) z = 1.0;
+    if (z < -1.0) z = -1.0;
+    r.v = acos(z);
+    double denom = sqrt(1.0 - z * z);
+    if (denom < 1e-300) denom = 1e-300;
+    for (int k = 0; k < 3; k++) r.g[k] = -a.g[k] / denom;
+    return r;
+}
+
+static par_shapes__ad par_shapes__ad_dot(const par_shapes__ad* a,
+    const par_shapes__ad* b)
+{
+    par_shapes__ad r = par_shapes__ad_const(0.0);
+    for (int k = 0; k < 3; k++)
+        r = par_shapes__ad_add(r, par_shapes__ad_mul(a[k], b[k]));
+    return r;
+}
+
+static void par_shapes__ad_cross(par_shapes__ad* out, const par_shapes__ad* a,
+    const par_shapes__ad* b)
+{
+    out[0] = par_shapes__ad_sub(par_shapes__ad_mul(a[1], b[2]),
+        par_shapes__ad_mul(a[2], b[1]));
+    out[1] = par_shapes__ad_sub(par_shapes__ad_mul(a[2], b[0]),
+        par_shapes__ad_mul(a[0], b[2]));
+    out[2] = par_shapes__ad_sub(par_shapes__ad_mul(a[0], b[1]),
+        par_shapes__ad_mul(a[1], b[0]));
+}
+
+static par_shapes__ad par_shapes__ad_norm(const par_shapes__ad* a)
+{
+    par_shapes__ad r = par_shapes__ad_const(0.0);
+    for (int k = 0; k < 3; k++)
+        r = par_shapes__ad_add(r, par_shapes__ad_mul(a[k], a[k]));
+    return par_shapes__ad_sqrt(r);
+}
+
+static int par_shapes__finite(double v)
+{
+    // False for NaN (v != v) and for +/- infinity (infinity * 0 is NaN).
+    return v == v && v * 0.0 == 0.0;
+}
+
+// Evaluate the unnormalized psi_i, their gradients, the normalized weights and
+// gradients, and the signed solid-angle sum used for the interior test.
+// psi_v / psi_g are caller-owned scratch of length ncage / 3*ncage.
+static int par_shapes__cage_solve_point(
+    const par_shapes_cage_binding* b, const double* x,
+    double* psi_v, double* psi_g, double* weights, double* gradients,
+    double* omega_out)
+{
+    const int ncage = b->ncage;
+    for (int i = 0; i < ncage; i++) {
+        psi_v[i] = 0.0;
+        psi_g[3 * i + 0] = psi_g[3 * i + 1] = psi_g[3 * i + 2] = 0.0;
+    }
+    double omega = 0.0;
+    par_shapes__ad xs[3] = {
+        par_shapes__ad_seed(x[0], 0),
+        par_shapes__ad_seed(x[1], 1),
+        par_shapes__ad_seed(x[2], 2)
+    };
+    for (int f = 0; f < b->ntris; f++) {
+        const PAR_SHAPES_T* tri = b->cage_tris + 3 * f;
+        par_shapes__ad d[3][3], r[3], u[3][3];
+        for (int q = 0; q < 3; q++) {
+            const double* c = b->cage + 3 * (int) tri[q];
+            for (int k = 0; k < 3; k++)
+                d[q][k] = par_shapes__ad_sub(par_shapes__ad_const(c[k]), xs[k]);
+            r[q] = par_shapes__ad_norm(d[q]);
+            if (!(r[q].v > 1e-300) || !par_shapes__finite(r[q].v)) return 0;
+            for (int k = 0; k < 3; k++)
+                u[q][k] = par_shapes__ad_div(d[q][k], r[q]);
+        }
+        par_shapes__ad cross01[3], D = par_shapes__ad_const(0.0);
+        par_shapes__ad_cross(cross01, u[0], u[1]);
+        D = par_shapes__ad_dot(cross01, u[2]);
+        if (!par_shapes__finite(D.v)) return 0;
+        // Signed solid angle of this spherical triangle (van Oosterom form).
+        double d01 = 0.0, d12 = 0.0, d20 = 0.0;
+        for (int k = 0; k < 3; k++) {
+            d01 += u[0][k].v * u[1][k].v;
+            d12 += u[1][k].v * u[2][k].v;
+            d20 += u[2][k].v * u[0][k].v;
+        }
+        omega += 2.0 * atan2(D.v, 1.0 + d01 + d12 + d20);
+        // A coplanar point outside the triangle spans a degenerate spherical
+        // triangle: both J and the basis coefficient vanish, so skip it.
+        if (fabs(D.v) < 1e-13) continue;
+        // Spherical basis coefficient vectors a_0, a_1, a_2.
+        par_shapes__ad cross12[3], cross20[3], av[3][3];
+        par_shapes__ad_cross(cross12, u[1], u[2]);
+        par_shapes__ad_cross(cross20, u[2], u[0]);
+        for (int k = 0; k < 3; k++) {
+            av[0][k] = par_shapes__ad_div(cross12[k], D);
+            av[1][k] = par_shapes__ad_div(cross20[k], D);
+            av[2][k] = par_shapes__ad_div(cross01[k], D);
+        }
+        // J = 1/2 sum over the three edges of arc-angle times edge normal.
+        par_shapes__ad J[3] = {
+            par_shapes__ad_const(0.0), par_shapes__ad_const(0.0),
+            par_shapes__ad_const(0.0)
+        };
+        const int edges[3][2] = {{0, 1}, {1, 2}, {2, 0}};
+        for (int e = 0; e < 3; e++) {
+            int ea = edges[e][0], eb = edges[e][1];
+            par_shapes__ad cr[3], crlen, theta, half_theta;
+            par_shapes__ad_cross(cr, u[ea], u[eb]);
+            crlen = par_shapes__ad_norm(cr);
+            // Parallel directions make a zero-length edge normal; such a
+            // degenerate edge carries no solid-angle contribution anyway.
+            if (!(crlen.v > 1e-300)) continue;
+            theta = par_shapes__ad_acos(par_shapes__ad_dot(u[ea], u[eb]));
+            half_theta = par_shapes__ad_mul(par_shapes__ad_const(0.5), theta);
+            for (int k = 0; k < 3; k++) {
+                par_shapes__ad eta = par_shapes__ad_div(cr[k], crlen);
+                J[k] = par_shapes__ad_add(J[k],
+                    par_shapes__ad_mul(half_theta, eta));
+            }
+        }
+        // psi_vertex += (a_local . J) / r_local
+        for (int q = 0; q < 3; q++) {
+            par_shapes__ad I = par_shapes__ad_dot(av[q], J);
+            par_shapes__ad contrib = par_shapes__ad_div(I, r[q]);
+            int vi = (int) tri[q];
+            if (!par_shapes__finite(contrib.v)) return 0;
+            psi_v[vi] += contrib.v;
+            for (int k = 0; k < 3; k++) psi_g[3 * vi + k] += contrib.g[k];
+        }
+    }
+    double psum = 0.0, psum_g[3] = {0.0, 0.0, 0.0};
+    double scale = 0.0;
+    for (int i = 0; i < ncage; i++) {
+        psum += psi_v[i];
+        scale += fabs(psi_v[i]);
+        for (int k = 0; k < 3; k++) psum_g[k] += psi_g[3 * i + k];
+    }
+    if (!par_shapes__finite(psum) || fabs(psum) < 1e-12 * (scale + 1e-300))
+        return 0;
+    for (int i = 0; i < ncage; i++) {
+        double wi = psi_v[i] / psum;
+        if (!par_shapes__finite(wi)) return 0;
+        weights[i] = wi;
+        for (int k = 0; k < 3; k++) {
+            double gv = (psi_g[3 * i + k] * psum - psi_v[i] * psum_g[k])
+                / (psum * psum);
+            if (!par_shapes__finite(gv)) return 0;
+            gradients[3 * i + k] = gv;
+        }
+    }
+    *omega_out = omega;
+    return 1;
+}
+
+typedef struct {
+    PAR_SHAPES_T lo, hi;
+    PAR_SHAPES_T a, b;
+} par_shapes__edge_rec;
+
+static int par_shapes__edge_cmp(const void* pa, const void* pb)
+{
+    const par_shapes__edge_rec* ea = (const par_shapes__edge_rec*) pa;
+    const par_shapes__edge_rec* eb = (const par_shapes__edge_rec*) pb;
+    if (ea->lo != eb->lo) return ea->lo < eb->lo ? -1 : 1;
+    if (ea->hi != eb->hi) return ea->hi < eb->hi ? -1 : 1;
+    return 0;
+}
+
+static int par_shapes__uf_find(int* parent, int i)
+{
+    while (parent[i] != i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+    }
+    return i;
+}
+
+static void par_shapes__uf_union(int* parent, int a, int b)
+{
+    a = par_shapes__uf_find(parent, a);
+    b = par_shapes__uf_find(parent, b);
+    if (a != b) parent[b] = a;
+}
+
+// Validate a rest cage: in-range indices, non-degenerate faces, a closed and
+// consistently oriented 2-manifold, connectedness and a positive reference
+// length.  On success writes the cage AABB diagonal length and returns 1.
+// All locals are declared before any goto so this is also valid C++.
+static int par_shapes__cage_validate(const par_shapes_mesh* cage, int ncage,
+    int ntris, double* ref_len_out)
+{
+    par_shapes__edge_rec* edges;
+    int* used;
+    int* parent;
+    int edge_count, f, q, k, i, j, forward, root, r;
+    PAR_SHAPES_T t[3], va, vb;
+    PAR_SHAPES_T directed[3][2];
+    const float* p0;
+    const float* p1;
+    const float* p2;
+    double e1[3], e2[3], cr[3], crlen, lo[3], hi[3], vv, ref_len;
+    par_shapes__edge_rec* rec;
+
+    edges = PAR_MALLOC(par_shapes__edge_rec, 3 * ntris);
+    used = PAR_CALLOC(int, ncage);
+    parent = PAR_MALLOC(int, ncage);
+    if (!edges || !used || !parent) goto fail;
+    for (i = 0; i < ncage; i++) parent[i] = i;
+    edge_count = 0;
+    for (f = 0; f < ntris; f++) {
+        for (q = 0; q < 3; q++) {
+            t[q] = cage->triangles[3 * f + q];
+            if ((int) t[q] < 0 || (int) t[q] >= ncage) goto fail;
+        }
+        if (t[0] == t[1] || t[1] == t[2] || t[2] == t[0]) goto fail;
+        p0 = cage->points + 3 * t[0];
+        p1 = cage->points + 3 * t[1];
+        p2 = cage->points + 3 * t[2];
+        for (k = 0; k < 3; k++) {
+            e1[k] = (double) p1[k] - p0[k];
+            e2[k] = (double) p2[k] - p0[k];
+        }
+        cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        crlen = sqrt(cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]);
+        if (crlen <= 2e-12) goto fail;
+        directed[0][0] = t[0]; directed[0][1] = t[1];
+        directed[1][0] = t[1]; directed[1][1] = t[2];
+        directed[2][0] = t[2]; directed[2][1] = t[0];
+        for (q = 0; q < 3; q++) {
+            va = directed[q][0];
+            vb = directed[q][1];
+            rec = edges + edge_count++;
+            rec->a = va;
+            rec->b = vb;
+            rec->lo = va < vb ? va : vb;
+            rec->hi = va < vb ? vb : va;
+            used[va] = used[vb] = 1;
+            par_shapes__uf_union(parent, va, vb);
+        }
+    }
+    // Closed, consistently oriented 2-manifold: every undirected edge appears
+    // exactly twice, once in each direction.
+    qsort(edges, edge_count, sizeof(par_shapes__edge_rec),
+        par_shapes__edge_cmp);
+    for (i = 0; i < edge_count;) {
+        j = i + 1;
+        while (j < edge_count && edges[j].lo == edges[i].lo &&
+            edges[j].hi == edges[i].hi) {
+            j++;
+        }
+        if (j - i != 2) goto fail;
+        forward = (edges[i].a == edges[i].lo && edges[i].b == edges[i].hi)
+            + (edges[j - 1].a == edges[j - 1].lo &&
+               edges[j - 1].b == edges[j - 1].hi);
+        if (forward != 1) goto fail;
+        i = j;
+    }
+    // Connected: every cage vertex belongs to one component.
+    root = -1;
+    for (i = 0; i < ncage; i++) {
+        if (!used[i]) goto fail;
+        r = par_shapes__uf_find(parent, i);
+        if (root < 0) root = r;
+        else if (r != root) goto fail;
+    }
+    lo[0] = cage->points[0]; lo[1] = cage->points[1];
+    lo[2] = cage->points[2];
+    hi[0] = lo[0]; hi[1] = lo[1]; hi[2] = lo[2];
+    for (i = 1; i < ncage; i++) {
+        for (k = 0; k < 3; k++) {
+            vv = (double) cage->points[3 * i + k];
+            if (vv < lo[k]) lo[k] = vv;
+            if (vv > hi[k]) hi[k] = vv;
+        }
+    }
+    ref_len = sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) +
+        (hi[1] - lo[1]) * (hi[1] - lo[1]) +
+        (hi[2] - lo[2]) * (hi[2] - lo[2]));
+    if (!(ref_len > 0.0)) goto fail;
+    *ref_len_out = ref_len;
+    PAR_FREE(edges);
+    PAR_FREE(used);
+    PAR_FREE(parent);
+    return 1;
+fail:
+    PAR_FREE(edges);
+    PAR_FREE(used);
+    PAR_FREE(parent);
+    return 0;
+}
+
+par_shapes_cage_binding* par_shapes_cage_bind(
+    const par_shapes_mesh* cage, const par_shapes_mesh* mesh)
+{
+    if (!cage || !mesh || !cage->points || !cage->triangles ||
+        !mesh->points || cage->npoints <= 0 || cage->ntriangles <= 0 ||
+        mesh->npoints <= 0) {
+        return 0;
+    }
+    const int ncage = cage->npoints;
+    const int ntris = cage->ntriangles;
+    const int npoints = mesh->npoints;
+
+    double ref_len = 0.0;
+    if (!par_shapes__cage_validate(cage, ncage, ntris, &ref_len)) return 0;
+
+    par_shapes_cage_binding* b = PAR_CALLOC(par_shapes_cage_binding, 1);
+    if (!b) return 0;
+    b->ncage = ncage;
+    b->ntris = ntris;
+    b->npoints = npoints;
+    b->ntriangles = mesh->ntriangles;
+    b->cage = PAR_MALLOC(double, 3 * ncage);
+    b->cage_tris = PAR_MALLOC(PAR_SHAPES_T, 3 * ntris);
+    b->points = PAR_MALLOC(float, 3 * npoints);
+    b->triangles = PAR_MALLOC(PAR_SHAPES_T,
+        3 * (mesh->ntriangles > 0 ? mesh->ntriangles : 1));
+    b->weights = PAR_MALLOC(double, (size_t) npoints * ncage);
+    b->gradients = PAR_MALLOC(double, (size_t) npoints * ncage * 3);
+    double* psi_v = PAR_MALLOC(double, ncage);
+    double* psi_g = PAR_MALLOC(double, 3 * ncage);
+    if (!b->cage || !b->cage_tris || !b->points || !b->triangles ||
+        !b->weights || !b->gradients || !psi_v || !psi_g) {
+        PAR_FREE(psi_v);
+        PAR_FREE(psi_g);
+        par_shapes_cage_free(b);
+        return 0;
+    }
+    for (int i = 0; i < 3 * ncage; i++) {
+        if (!par_shapes__finite((double) cage->points[i])) {
+            par_shapes_cage_free(b); PAR_FREE(psi_v); PAR_FREE(psi_g);
+            return 0;
+        }
+        b->cage[i] = (double) cage->points[i];
+    }
+    memcpy(b->cage_tris, cage->triangles,
+        sizeof(PAR_SHAPES_T) * 3 * ntris);
+    for (int i = 0; i < 3 * npoints; i++) {
+        if (!par_shapes__finite((double) mesh->points[i])) {
+            par_shapes_cage_free(b); PAR_FREE(psi_v); PAR_FREE(psi_g);
+            return 0;
+        }
+        b->points[i] = mesh->points[i];
+    }
+    memcpy(b->triangles, mesh->triangles,
+        sizeof(PAR_SHAPES_T) * 3 * mesh->ntriangles);
+    if (mesh->normals) {
+        b->normals = PAR_MALLOC(float, 3 * npoints);
+        if (!b->normals) {
+            par_shapes_cage_free(b); PAR_FREE(psi_v); PAR_FREE(psi_g);
+            return 0;
+        }
+        memcpy(b->normals, mesh->normals, sizeof(float) * 3 * npoints);
+    }
+    if (mesh->tcoords) {
+        b->tcoords = PAR_MALLOC(float, 2 * npoints);
+        if (!b->tcoords) {
+            par_shapes_cage_free(b); PAR_FREE(psi_v); PAR_FREE(psi_g);
+            return 0;
+        }
+        memcpy(b->tcoords, mesh->tcoords, sizeof(float) * 2 * npoints);
+    }
+
+    for (int p = 0; p < npoints; p++) {
+        double x[3] = {
+            (double) b->points[3 * p + 0],
+            (double) b->points[3 * p + 1],
+            (double) b->points[3 * p + 2]
+        };
+        double omega = 0.0;
+        double* w = b->weights + (size_t) p * ncage;
+        double* g = b->gradients + (size_t) p * ncage * 3;
+        int ok_point = par_shapes__cage_solve_point(b, x, psi_v, psi_g,
+            w, g, &omega);
+        double sum_w = 0.0;
+        double sum_g[3] = {0.0, 0.0, 0.0};
+        double ident[9] = {0};
+        if (ok_point) {
+            if (fabs(fabs(omega) - 4.0 * PAR_PI_DOUBLE) <= 1e-6) {
+                for (int i = 0; i < ncage; i++) sum_w += w[i];
+                if (fabs(sum_w - 1.0) <= 1e-8) {
+                    for (int i = 0; i < ncage; i++) {
+                        for (int k = 0; k < 3; k++)
+                            sum_g[k] += g[3 * i + k];
+                        for (int a = 0; a < 3; a++)
+                            for (int c = 0; c < 3; c++)
+                                ident[3 * a + c] +=
+                                    b->cage[3 * i + a] * g[3 * i + c];
+                    }
+                    double grad_tol = 1e-8 / ref_len;
+                    int grad_ok = 1, ident_ok = 1;
+                    for (int k = 0; k < 3; k++)
+                        if (fabs(sum_g[k]) > grad_tol) grad_ok = 0;
+                    for (int a = 0; a < 3 && ident_ok; a++)
+                        for (int c = 0; c < 3; c++)
+                            if (fabs(ident[3 * a + c] -
+                                (a == c ? 1.0 : 0.0)) > 1e-7) {
+                                ident_ok = 0;
+                                break;
+                            }
+                    if (grad_ok && ident_ok) continue;
+                }
+            }
+        }
+        PAR_FREE(psi_v);
+        PAR_FREE(psi_g);
+        par_shapes_cage_free(b);
+        return 0;
+    }
+    PAR_FREE(psi_v);
+    PAR_FREE(psi_g);
+    return b;
+}
+
+void par_shapes_cage_free(par_shapes_cage_binding* binding)
+{
+    if (!binding) return;
+    PAR_FREE(binding->cage);
+    PAR_FREE(binding->cage_tris);
+    PAR_FREE(binding->points);
+    PAR_FREE(binding->normals);
+    PAR_FREE(binding->tcoords);
+    PAR_FREE(binding->triangles);
+    PAR_FREE(binding->weights);
+    PAR_FREE(binding->gradients);
+    PAR_FREE(binding);
+}
+
+bool par_shapes_cage_coordinates(
+    const par_shapes_cage_binding* binding, int point,
+    double* weights, double* gradients)
+{
+    if (!binding || !weights || !gradients || point < 0 ||
+        point >= binding->npoints) {
+        return false;
+    }
+    const int ncage = binding->ncage;
+    memcpy(weights, binding->weights + (size_t) point * ncage,
+        sizeof(double) * ncage);
+    memcpy(gradients, binding->gradients + (size_t) point * ncage * 3,
+        sizeof(double) * 3 * ncage);
+    return true;
+}
+
+bool par_shapes_cage_apply(
+    const par_shapes_cage_binding* binding, const double* cage_points,
+    par_shapes_mesh** out)
+{
+    if (!binding || !cage_points || !out) return false;
+    const int ncage = binding->ncage;
+    const int npoints = binding->npoints;
+    const int ntriangles = binding->ntriangles;
+    for (int i = 0; i < 3 * ncage; i++) {
+        if (!par_shapes__finite(cage_points[i])) return false;
+    }
+
+    par_shapes_mesh* result = PAR_CALLOC(par_shapes_mesh, 1);
+    if (!result) return false;
+    result->npoints = npoints;
+    result->ntriangles = ntriangles;
+    result->points = PAR_MALLOC(float, 3 * npoints);
+    result->triangles = PAR_MALLOC(PAR_SHAPES_T,
+        3 * (ntriangles > 0 ? ntriangles : 1));
+    if (!result->points || !result->triangles) goto fail;
+    memcpy(result->triangles, binding->triangles,
+        sizeof(PAR_SHAPES_T) * 3 * ntriangles);
+    if (binding->normals) {
+        result->normals = PAR_MALLOC(float, 3 * npoints);
+        if (!result->normals) goto fail;
+    }
+    if (binding->tcoords) {
+        result->tcoords = PAR_MALLOC(float, 2 * npoints);
+        if (!result->tcoords) goto fail;
+        memcpy(result->tcoords, binding->tcoords,
+            sizeof(float) * 2 * npoints);
+    }
+
+    for (int p = 0; p < npoints; p++) {
+        const double* w = binding->weights + (size_t) p * ncage;
+        const double* g = binding->gradients + (size_t) p * ncage * 3;
+        double y[3] = {0.0, 0.0, 0.0};
+        double J[9] = {0.0};
+        for (int i = 0; i < ncage; i++) {
+            const double* C = cage_points + 3 * i;
+            for (int a = 0; a < 3; a++) {
+                y[a] += w[i] * C[a];
+                for (int b = 0; b < 3; b++)
+                    J[3 * a + b] += C[a] * g[3 * i + b];
+            }
+        }
+        for (int k = 0; k < 3; k++) {
+            if (!par_shapes__finite(y[k])) goto fail;
+        }
+        for (int k = 0; k < 9; k++) {
+            if (!par_shapes__finite(J[k])) goto fail;
+        }
+        // Singularity test on the relative determinant.
+        double det = J[0] * (J[4] * J[8] - J[5] * J[7])
+            - J[1] * (J[3] * J[8] - J[5] * J[6])
+            + J[2] * (J[3] * J[7] - J[4] * J[6]);
+        double frob2 = 0.0;
+        for (int k = 0; k < 9; k++) frob2 += J[k] * J[k];
+        double scale3 = frob2 / 3.0;
+        if (fabs(det) <= 1e-10 * scale3 * sqrt(scale3)) goto fail;
+        for (int k = 0; k < 3; k++) {
+            float fv = (float) y[k];
+            if (!par_shapes__finite((double) fv)) goto fail;
+            result->points[3 * p + k] = fv;
+        }
+        if (binding->normals) {
+            // Classical cofactor matrix C = det(J) * inverse(J), entry by 2x2
+            // minor.  Normals transform by det(J) * inverse(J)^T = C^T, which
+            // keeps the oriented sign correct under reflection (det J < 0).
+            double cof[9];
+            cof[0] = J[4] * J[8] - J[5] * J[7];
+            cof[1] = J[5] * J[6] - J[3] * J[8];
+            cof[2] = J[3] * J[7] - J[4] * J[6];
+            cof[3] = J[2] * J[7] - J[1] * J[8];
+            cof[4] = J[0] * J[8] - J[2] * J[6];
+            cof[5] = J[1] * J[6] - J[0] * J[7];
+            cof[6] = J[1] * J[5] - J[2] * J[4];
+            cof[7] = J[2] * J[3] - J[0] * J[5];
+            cof[8] = J[0] * J[4] - J[1] * J[3];
+            const float* nrest = binding->normals + 3 * p;
+            double nnew[3] = {0.0, 0.0, 0.0};
+            for (int a = 0; a < 3; a++) {
+                for (int b = 0; b < 3; b++)
+                    nnew[a] += cof[3 * b + a] * (double) nrest[b];
+                if (!par_shapes__finite(nnew[a])) goto fail;
+            }
+            double nlen = sqrt(nnew[0] * nnew[0] + nnew[1] * nnew[1] +
+                nnew[2] * nnew[2]);
+            if (!(nlen > 0.0)) goto fail;
+            for (int a = 0; a < 3; a++) {
+                float fv = (float) (nnew[a] / nlen);
+                if (!par_shapes__finite((double) fv)) goto fail;
+                result->normals[3 * p + a] = fv;
+            }
+        }
+    }
+    *out = result;
+    return true;
+
+fail:
+    par_shapes_free_mesh(result);
+    return false;
 }
 
 #endif // PAR_SHAPES_IMPLEMENTATION
