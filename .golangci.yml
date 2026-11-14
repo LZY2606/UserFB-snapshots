@@ -1,0 +1,79 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: all
+  disable:
+    - wsl
+    - depguard
+    - exhaustive
+    - exhaustruct
+    - gochecknoglobals
+    - inamedparam
+    - intrange
+    - ireturn
+    - nonamedreturns
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - noinlineerr
+  settings:
+    cyclop:
+      max-complexity: 15
+    gosec:
+      excludes:
+        - G704
+    errcheck:
+      check-type-assertions: true
+    gocritic:
+      enabled-tags:
+        - performance
+        - opinionated
+        - diagnostic
+        - style
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+    modernize:
+      disable:
+        - rangeint
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - gosec
+        path: internal/client/http.go
+        text: G402
+      - linters:
+          - canonicalheader
+          - cyclop
+          - dupl
+          - dupword
+          - funlen
+          - ifshort
+          - gosec
+          - goconst
+        path: ._test\.go
+      - linters:
+          - nakedret
+        path: cmd/crawley/main.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
