@@ -3,6 +3,7 @@ package grab
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -74,8 +75,13 @@ type Response struct {
 	writer io.Writer
 
 	// storeBuffer receives the contents of the transfer if Request.NoStore is
-	// enabled.
-	storeBuffer bytes.Buffer
+	// enabled. Its mutex keeps concurrent OpenStream readers safe while the
+	// transfer goroutine appends to it.
+	storeBuffer *streamBuffer
+
+	// stream coordinates growth and terminal notifications for every view
+	// opened via Response.OpenStream.
+	stream *streamState
 
 	// bytesCompleted specifies the number of bytes which were already
 	// transferred before this transfer began.
@@ -199,6 +205,44 @@ func (c *Response) Open() (io.ReadCloser, error) {
 		return nil, err
 	}
 	return c.openUnsafe()
+}
+
+// OpenStream returns an independent sequential view over the in-progress
+// transfer as soon as Client.Do has returned, without waiting for the download
+// to complete. Reads return only the bytes that have actually been written to
+// storage and block at the current end of the visible prefix until more data
+// arrives; the transfer is never paused waiting for a reader to consume.
+//
+// Multiple streams may be opened on one Response. Each starts at the beginning
+// of the file and keeps its own read offset; streams never share an offset and
+// neither the full body nor a per-reader copy is buffered. Disk transfers are
+// read directly from the destination file, while NoStore transfers are read
+// from the existing in-memory storage.
+//
+// The stream reaches io.EOF only after the network body, the AfterCopy hook,
+// checksum validation and response finalization have all completed
+// successfully. If the transfer fails, reads first drain the bytes that were
+// stored and then return the original download error, which remains
+// identifiable via errors.Is. Opening a stream after the transfer has already
+// failed returns that error directly; opening one after a successful
+// completion still yields the full result.
+//
+// Canceling ctx or calling Close ends only this stream: a blocked Read wakes
+// immediately, returning the context error or os.ErrClosed respectively. Close
+// is safe to repeat and never cancels the Response or any sibling stream. A
+// nil ctx is rejected. It is the caller's responsibility to Close the returned
+// stream.
+func (c *Response) OpenStream(ctx context.Context) (io.ReadCloser, error) {
+	if ctx == nil {
+		return nil, errors.New("grab: cannot open stream with nil context")
+	}
+	st, err := c.openStreamView(ctx)
+	if err != nil {
+		// Return an explicit nil so the io.ReadCloser interface itself is nil,
+		// rather than one wrapping a nil *stream pointer.
+		return nil, err
+	}
+	return st, nil
 }
 
 func (c *Response) openUnsafe() (io.ReadCloser, error) {

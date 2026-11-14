@@ -94,6 +94,7 @@ func (c *Client) Do(req *Request) *Response {
 		ctx:        ctx,
 		cancel:     cancel,
 		bufferSize: req.BufferSize,
+		stream:     newStreamState(),
 	}
 	if resp.bufferSize == 0 {
 		// default to Client.BufferSize
@@ -270,6 +271,11 @@ func (c *Client) validateLocal(resp *Response) (stateFunc, error) {
 		// local file matches remote file size - wrap it up
 		resp.DidResume = true
 		resp.bytesResumed = resp.fi.Size()
+		// This transfer never reaches openWriter, so mark storage ready and
+		// publish the already complete local prefix here: streams can read it
+		// while checksum validation runs.
+		resp.stream.markReady()
+		resp.stream.publish(resp.bytesResumed)
 		return c.checksumFile, nil
 	}
 
@@ -453,7 +459,11 @@ func (c *Client) openWriter(resp *Response) (stateFunc, error) {
 	}
 
 	if resp.Request.NoStore {
-		resp.writer = &resp.storeBuffer
+		resp.storeBuffer = &streamBuffer{}
+		resp.writer = &streamWriter{
+			dst:    resp.storeBuffer,
+			stream: resp.stream,
+		}
 	} else {
 		// compute write flags
 		flag := os.O_CREATE | os.O_WRONLY
@@ -472,7 +482,6 @@ func (c *Client) openWriter(resp *Response) (stateFunc, error) {
 		if err != nil {
 			return nil, err
 		}
-		resp.writer = f
 
 		// seek to start or end
 		whence := io.SeekStart
@@ -482,7 +491,23 @@ func (c *Client) openWriter(resp *Response) (stateFunc, error) {
 		if _, err := f.Seek(0, whence); err != nil {
 			return nil, err
 		}
+		resp.writer = &streamWriter{
+			dst:    f,
+			stream: resp.stream,
+		}
 	}
+
+	// Storage now exists and OpenStream views waiting in openStreamView may
+	// proceed. On the overwrite path this is still before truncation, which is
+	// fine: zero bytes have been published and the view blocks at offset zero
+	// until the first fresh write lands.
+	resp.stream.markReady()
+
+	// A resumed transfer starts with the bytes already present in storage.
+	// They are immediately visible to streams, but the old contents of a file
+	// that will be overwritten are not: in that case bytesResumed is zero and
+	// the truncation in copyFile still lies ahead, so nothing is published yet.
+	resp.stream.publish(resp.bytesResumed)
 
 	// init transfer
 	if resp.bufferSize < 1 {
@@ -531,7 +556,6 @@ func (c *Client) copyFile(resp *Response) (stateFunc, error) {
 	if err := closeWriter(resp); err != nil {
 		return nil, err
 	}
-
 	// set file timestamp
 	if !resp.Request.NoStore && !resp.Request.IgnoreRemoteTime {
 		if err := setLastModified(resp.HTTPResponse, resp.Filename); err != nil {
@@ -583,6 +607,13 @@ func (c *Client) closeResponse(resp *Response) (stateFunc, error) {
 	// would only mask the error that caused it.
 	_ = closeWriter(resp)
 	resp.closeResponseBody()
+
+	// The transfer is only terminal now that the body, hooks, checksum
+	// validation and all other states have run. Streams therefore keep blocking
+	// until success yields io.EOF or the original failure reaches them; an
+	// open view can still drain the stored prefix before a checksum failure
+	// deletes the destination file.
+	resp.stream.finish(resp.err)
 
 	resp.End = time.Now()
 	close(resp.Done)
