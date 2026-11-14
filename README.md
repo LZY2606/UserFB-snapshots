@@ -313,6 +313,7 @@ For information about options that've changed, there's always [the changelog](ht
  - `follow_max`  : (or `follow`) Number of redirects to follow. Defaults to `0`. See below for more redirect options.
  - `multipart`   : Enables multipart/form-data encoding. Defaults to `false`. Use it when uploading files.
  - `proxy`       : Forwards request through HTTP(s) proxy. Eg. `proxy: 'http://user:pass@proxy.server.com:3128'`. For more advanced proxying/tunneling use a custom `agent`, as described below.
+ - `proxy_tunnel`: Boolean, defaults to `false`. Only applies to HTTPS targets. When `true`, Needle opens an HTTP `CONNECT` to the proxy for the target `host:port`, then establishes the target TLS connection on that socket and sends the request through the tunnel. Only HTTP proxies are supported; combining this with a custom `agent`, or pointing `proxy` at a non-HTTP proxy, throws before any request is made. Plain HTTP targets keep the ordinary forward-proxy request, and leaving this `false` preserves the previous behaviour. See the tunneling example below.
  - `headers`     : Object containing custom HTTP headers for request. Overrides defaults described below.
  - `auth`        : Determines what to do with provided username/password. Options are `auto`, `digest` or `basic` (default). `auto` will detect the type of authentication depending on the response headers.
  - `stream_length`: When sending streams, this lets you manually set the Content-Length header --if the stream's bytecount is known beforehand--, preventing ECONNRESET (socket hang up) errors on some servers that misbehave when receiving payloads of unknown size. Set it to `0` and Needle will get and set the stream's length for you, or leave unset for the default behaviour, which is no Content-Length header for stream payloads.
@@ -499,6 +500,40 @@ needle.get('http://search.npmjs.org', { proxy: 'http://localhost:1234' }, functi
   // request passed through proxy
 });
 ```
+
+### GET an HTTPS API through a CONNECT-only proxy
+
+Some proxies only accept `CONNECT` and refuse the forward-style request where
+the full HTTPS URL is sent to the proxy. Set `proxy_tunnel: true` and Needle
+issues `CONNECT host:port`, performs the target TLS handshake on the resulting
+socket, and then sends the request with its normal path and headers.
+
+```js
+needle.get('https://api.example.com/v1/items?limit=10', {
+  proxy        : 'http://proxy-user:proxy-pass@proxy.corp:3128',
+  proxy_tunnel : true,
+  // target certificate verification stays on; pass your CA as usual.
+  ca           : fs.readFileSync('./corp-ca.pem'),
+  headers      : { authorization: 'Bearer target-token' }
+}, function(err, resp, body) {
+  if (err) {
+    // a rejected CONNECT arrives as:
+    // err.code === 'ERR_NEEDLE_TUNNEL_CONNECT'
+    // err.proxyStatusCode === <the proxy's status code>
+    return;
+  }
+  // resp/body are the target's response, exactly as without a proxy.
+});
+```
+
+The `CONNECT` request carries only its own `Host` and the proxy's
+`Proxy-Authorization`; target `Cookie`, `Authorization` and custom headers are
+sent inside the tunnel instead. Proxy credentials follow the same precedence as
+the regular `proxy` option (credentials embedded in the `proxy` URL win over
+`proxy_user`/`proxy_pass`). Tunnels are kept per target host and port for the
+duration of the call, so a redirect chain reuses them; they are released when
+the response is fully consumed, on error, or on `out.abort()`. Plain HTTP
+targets continue to use ordinary proxy forwarding.
 
 ### GET a very large document in a stream (from 0.7+)
 
