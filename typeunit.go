@@ -12,14 +12,18 @@ import (
 // Parse the type units stored in a DWARF4 .debug_types section. Each
 // type unit defines a single primary type and an 8-byte signature.
 // Other sections may then use formRefSig8 to refer to the type.
+//
+// DWARF 5 moves type units into .debug_info as DW_UT_type units; those
+// are registered by parseUnits and share the info offset space.
 
 // The typeUnit format is a single type with a signature. It holds
 // the same data as a compilation unit.
 type typeUnit struct {
 	unit
-	toff  Offset // Offset to signature type within data.
-	name  string // Name of .debug_type section.
-	cache Type   // Cache the type, nil to start.
+	toff   Offset // Offset to signature type within data.
+	name   string // Name of section containing the type unit.
+	inInfo bool   // Type unit lives in .debug_info (DWARF 5).
+	cache  Type   // Cache the type, nil to start.
 }
 
 // Parse a .debug_types section.
@@ -92,6 +96,26 @@ func (d *Data) sigToType(sig uint64) (Type, error) {
 	}
 	if tu.cache != nil {
 		return tu.cache, nil
+	}
+
+	if tu.inInfo {
+		// A DWARF 5 type unit lives in .debug_info and shares the
+		// section-wide offset space, so resolve its type through the
+		// shared info type cache. That keeps the type identical to
+		// the one returned by Type for the same offset, and lets
+		// mutually recursive type units terminate on entries that
+		// are already being built. The type offset must name an
+		// entry inside this unit, not a neighboring unit's.
+		if tu.toff < tu.off || tu.toff >= tu.off+Offset(len(tu.data)) {
+			return nil, fmt.Errorf("info: type offset %d for type signature %#x is outside its unit (DIEs span [%d, %d))",
+				tu.toff, sig, tu.off, tu.off+Offset(len(tu.data)))
+		}
+		t, err := d.readType("info", d.Reader(), tu.toff, d.typeCache, nil)
+		if err != nil {
+			return nil, err
+		}
+		tu.cache = t
+		return t, nil
 	}
 
 	b := makeBuf(d, tu, tu.name, tu.off, tu.data)

@@ -98,20 +98,41 @@ func (d *Data) parseUnits() ([]unit, error) {
 			u.asize = int(b.uint8())
 		}
 
+		var tsig uint64
+		var toff uint64
 		switch u.utype {
 		case utSkeleton, utSplitCompile:
 			b.uint64() // unit ID
 		case utType, utSplitType:
-			b.uint64()  // type signature
-			if u.is64 { // type offset
-				b.uint64()
+			tsig = b.uint64() // type signature
+			if u.is64 {       // type offset
+				toff = b.uint64()
 			} else {
-				b.uint32()
+				toff = uint64(b.uint32())
 			}
 		}
 
 		u.off = b.off
 		u.data = b.bytes(int(n - (b.off - dataOff)))
+
+		// A DWARF 5 type unit embedded in .debug_info defines a type
+		// that other units refer to with formRefSig8. Record it so
+		// that sigToType can find it. The type offset is relative to
+		// the start of this unit's header; keep it as an info offset.
+		if b.err == nil && u.utype == utType {
+			tu := &typeUnit{
+				unit:   *u,
+				name:   "info",
+				inInfo: true,
+			}
+			if toff == uint64(Offset(toff)) && u.base+Offset(toff) >= u.base {
+				tu.toff = u.base + Offset(toff)
+			}
+			// Otherwise tu.toff stays zero, which never falls inside
+			// the unit's DIEs, so sigToType reports it as out of range
+			// instead of reading a neighboring unit's entry.
+			d.typeSigs[tsig] = tu
+		}
 	}
 	if b.err != nil {
 		return nil, b.err
