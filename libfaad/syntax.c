@@ -633,13 +633,13 @@ void raw_data_block(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo,
 #endif
 
     /* new in corrigendum 14496-3:2002 */
+    /* LATM payloads are aligned relative to the payload start, the
+       caller skips to the declared payload end instead */
+    if (!hDecoder->latm_header_present
 #ifdef DRM
-    if (hDecoder->object_type != DRM_ER_LC
-#if 0
-        && !hDecoder->latm_header_present
+        && hDecoder->object_type != DRM_ER_LC
 #endif
         )
-#endif
     {
         faad_byte_align(ld);
     }

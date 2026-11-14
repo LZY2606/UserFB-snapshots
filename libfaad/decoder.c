@@ -41,6 +41,7 @@
 #include "output.h"
 #include "filtbank.h"
 #include "drc.h"
+#include "latm.h"
 #ifdef SBR_DEC
 #include "sbr_dec.h"
 #include "sbr_syntax.h"
@@ -64,8 +65,6 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
                               unsigned long buffer_size,
                               void **sample_buffer2,
                               unsigned long sample_buffer_size);
-static void create_channel_config(NeAACDecStruct *hDecoder,
-                                  NeAACDecFrameInfo *hInfo);
 
 
 int NeAACDecGetVersion(char **faad_id_string,
@@ -291,6 +290,13 @@ long NeAACDecInit(NeAACDecHandle hpDecoder,
         int is_latm;
         latm_header *l = &hDecoder->latm_config;
 #endif
+
+        /* Check if a LOAS/LATM header is present */
+        if ((buffer_size >= 3) && (buffer[0] == 0x56) && ((buffer[1] & 0xE0) == 0xE0))
+        {
+            return faad_latm_init(hDecoder, buffer, buffer_size,
+                samplerate, channels);
+        }
 
         faad_initbits(&ld, buffer, buffer_size);
 
@@ -584,7 +590,7 @@ void NeAACDecPostSeekReset(NeAACDecHandle hpDecoder, long frame)
     }
 }
 
-static void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
+void create_channel_config(NeAACDecStruct *hDecoder, NeAACDecFrameInfo *hInfo)
 {
     hInfo->num_front_channels = 0;
     hInfo->num_side_channels = 0;
@@ -879,6 +885,13 @@ static void* aac_frame_decode(NeAACDecStruct *hDecoder,
 
     memset(hInfo, 0, sizeof(NeAACDecFrameInfo));
     memset(hDecoder->internal_channel, 0, MAX_CHANNELS*sizeof(hDecoder->internal_channel[0]));
+
+    /* LOAS/LATM transport: decode exactly one complete LOAS frame */
+    if (hDecoder->latm_header_present)
+    {
+        return faad_latm_decode(hDecoder, hInfo, buffer, buffer_size,
+            sample_buffer2, sample_buffer_size);
+    }
 
 #ifdef USE_TIME_LIMIT
     if ((TIME_LIMIT * get_sample_rate(hDecoder->sf_index)) > hDecoder->TL_count)
