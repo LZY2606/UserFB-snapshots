@@ -284,6 +284,64 @@ func CreateBlogs(w http.ResponseWriter, r *http.Request) {
 ```
 
 
+### Graph decoding: `NewGraphDecoder`
+
+`UnmarshalPayload` and `UnmarshalManyPayload` allocate a fresh struct every
+time a relationship is walked. When several relationships point at the same
+resource — two articles sharing an author, an author pointing back at its
+articles, or a cycle of any shape — that resource is decoded into several
+independent Go values that happen to carry the same `type` and `id`.
+
+`GraphDecoder` instead preserves resource identity. A resource is the ordered
+`(type, id)` pair, and each identity is materialized into exactly one Go object
+per `Decode` call. Every relationship that names that identity holds a pointer
+to that single object, so self references, mutual references and resources
+shared across primary records become real shared pointers instead of copies.
+
+```go
+// Models use the same jsonapi tags as the rest of the library. The registry is
+// built once from typed nil pointers and is read-only afterwards, so one
+// decoder may serve many concurrent Decode calls.
+decoder, err := jsonapi.NewGraphDecoder(
+    (*Article)(nil),
+    (*Person)(nil),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Decode into *T for a data object or *[]*T for a data array. The destination
+// shape is validated before the reader is touched.
+var articles []*Article
+if err := decoder.Decode(resp.Body, &articles); err != nil {
+    log.Fatal(err)
+}
+```
+
+Relationships may be registered model pointers (`*Person`), slices of them
+(`[]*Person`), `interface{}` or `[]interface{}`. The two interface shapes are
+routed to a concrete registered pointer using the `type` in the response, so
+an `interface{}` field always holds a concrete `*T`, never a `map`. An
+identifier whose resource has no definition in `data` or `included` becomes a
+shared placeholder containing only the primary key.
+
+Key differences from the legacy entry points:
+
+| | `UnmarshalPayload` / `UnmarshalManyPayload` | `GraphDecoder.Decode` |
+| --- | --- | --- |
+| Same `(type, id)` reached twice | separate allocations | one shared Go pointer |
+| Cycles and back-references | independent copies | pointers to the same object |
+| Missing `included` definition | shallow node | shared primary-key-only placeholder |
+| Publication | fills the passed struct as it parses | writes the destination only after the whole document, every relationship and EOF succeed |
+| Reuse | stateless helpers | one read-only registry, safe for concurrent calls |
+
+On any failure — a malformed document, an attribute conversion error, a
+relationship type mismatch, a duplicate definition, a trailing second JSON
+value or a reader error — `Decode` leaves the destination and any previously
+attached objects untouched; nothing is published partially. The decoder reads
+the body you hand it but never sends requests and never closes the reader. The
+legacy `Marshal`/`Unmarshal` entry points remain available and unchanged.
+
 ### Links
 
 If you need to include [link objects](http://jsonapi.org/format/#document-links) along with response data, implement the `Linkable` interface for document-links, and `RelationshipLinkable` for relationship links:
