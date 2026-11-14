@@ -111,16 +111,13 @@ public:
             return false;
         }
 
-        if (dir == SrtCongestion::STAD_SEND)
-        {
-            // For sending, check if the size of data doesn't exceed the maximum live packet size.
-            if (size > m_zMaxPayloadSize)
-            {
-                LOGC(cclog.Error, log << "LiveCC: payload size: " << size << " exceeds maximum allowed " << m_zMaxPayloadSize);
-                return false;
-            }
-        }
-        else
+        // NOTE: For sending there is no size check here anymore. A live mode
+        // message may consist of multiple packets, fragmented by the sender
+        // buffer, so a single message is not limited to the maximum payload
+        // size of one packet (m_zMaxPayloadSize). The message size is limited
+        // by the total capacity of the sending buffer, which is verified in
+        // CUDT::sendmsg2 (SRT_ELARGEMSG).
+        if (dir == SrtCongestion::STAD_RECV)
         {
             // For receiving, check if the buffer has enough space to keep the payload.
             if (size < m_zMaxPayloadSize)

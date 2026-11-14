@@ -1142,6 +1142,16 @@ encrypted connection, they have to simply set the same passphrase.
 Sets the maximum declared size of a single call to sending function in Live
 mode. When set to 0, there's no limit for a single sending call.
 
+Note that this option limits the payload size of a single network **packet**,
+not the size of a whole **message**. In Live mode a message passed in one
+sending call may exceed the single-packet payload size, as long as it fits
+into the sending buffer (see [`SRTO_SNDBUF`](#SRTO_SNDBUF)); it is then
+fragmented into multiple packets, each not exceeding the negotiated payload
+size, and delivered as a whole by a single receiving call on the peer. This
+extension requires that both the sender and the receiver use a version of SRT
+that supports it. See "Message size vs. packet size in Live mode" in
+[Live Streaming guidelines](../features/live-streaming.md).
+
 For Live mode: Default value is 1316, but can be increased up to 1456. Note that
 with the `SRTO_PACKETFILTER` option additional header space is usually required,
 which decreases the maximum possible value for `SRTO_PAYLOADSIZE`. Likewise, the

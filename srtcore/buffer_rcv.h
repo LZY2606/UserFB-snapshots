@@ -82,6 +82,26 @@ public:
     /// @return number of dropped (missing) and discarded (available) packets as a pair(dropped, discarded).
     std::pair<int, int> dropUpTo(int32_t seqno);
 
+    /// @brief Find the sequence number up to which (exclusive) the receiver buffer
+    /// should be dropped in order to skip the whole first (head) message, when the
+    /// head message is incomplete and its play time has already passed (TLPKTDROP
+    /// in live message mode).
+    ///
+    /// The head message is considered skippable only if its end can be determined
+    /// from the packets currently held in the buffer, that is:
+    /// - the LAST packet of the head message is present, or
+    /// - a packet of a following message is present (its FIRST packet, or any
+    ///   packet of a later message, bounds the head message from above).
+    /// Missing packets at the head of the buffer (a gap before the first existing
+    /// packet) are covered by the returned drop range as well.
+    ///
+    /// @param [in] time_now current time to compare the play time against.
+    /// @return sequence number (exclusive) up to which to drop, or SRT_SEQNO_NONE
+    ///         if nothing should be dropped now: the buffer is empty, the head
+    ///         message is complete, its play time has not come yet, or the end
+    ///         of the head message cannot be determined yet (wait for more packets).
+    int32_t getOverdueMsgDropSeqNo(time_point time_now) const;
+
     /// @brief Drop all the packets in the receiver buffer.
     /// The starting position and seqno are shifted right after the last packet in the buffer.
     /// @return the number of dropped packets.
@@ -113,13 +133,19 @@ public:
 
     /// Read the whole message from one or several packets.
     ///
+    /// In live mode (TSBPD enabled, message API) the whole message must fit
+    /// into the provided buffer. If it doesn't, the message is NOT extracted
+    /// (nothing is consumed, @a data and @a msgctrl stay untouched) and -1 is
+    /// returned, so that the caller can retry with a larger buffer.
+    /// In other modes a message that doesn't fit is truncated to @a len.
+    ///
     /// @param [in,out] data buffer to write the message into.
     /// @param [in] len size of the buffer.
     /// @param [in,out] message control data
     ///
     /// @return actual number of bytes extracted from the buffer.
     ///          0 if nothing to read.
-    ///         -1 on failure.
+    ///         -1 if the ready message doesn't fit into the buffer (live mode).
     int readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl = NULL);
 
     /// Read acknowledged data into a user buffer.

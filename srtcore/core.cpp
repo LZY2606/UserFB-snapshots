@@ -5710,7 +5710,73 @@ void * srt::CUDT::tsbpd(void* param)
         }
 #endif
 
-        if (!self->m_bTLPktDrop)
+        if (self->m_config.bMessageAPI)
+        {
+            // Live message mode: a message may consist of multiple packets.
+            if (self->m_bTLPktDrop)
+            {
+                // Skip overdue incomplete head messages as a whole, but only
+                // when the end of such a message can be determined from the
+                // packets currently held in the buffer (its LAST packet, or a
+                // packet of a following message). Otherwise wait for new
+                // packets to provide the boundary instead of spinning around
+                // the passed deadline.
+                for (;;)
+                {
+                    const int32_t dropseq = self->m_pRcvBuffer->getOverdueMsgDropSeqNo(tnow);
+                    if (dropseq == SRT_SEQNO_NONE)
+                        break;
+
+                    const int iDropCnt SRT_ATR_UNUSED = self->rcvDropTooLateUpTo(dropseq);
+#if ENABLE_BONDING
+                    shall_update_group = true;
+#endif
+
+#if ENABLE_LOGGING
+                    string why;
+                    if (self->frequentLogAllowed(FREQLOGFA_RCV_DROPPED, tnow, (why)))
+                    {
+                        LOGC(brlog.Warn, log << self->CONID() << "RCV-DROPPED " << iDropCnt
+                                << " packet(s) up to seqno %" << dropseq
+                                << " (overdue incomplete message). " << why);
+                    }
+#if SRT_ENABLE_FREQUENT_LOG_TRACE
+                    else
+                    {
+                        LOGC(brlog.Warn, log << "SUPPRESSED: RCV-DROPPED LOG: " << why);
+                    }
+#endif
+#endif
+                }
+            }
+
+            // (Re-)evaluate the readiness after the possible drops. Only a
+            // complete head message that reached its play time is delivered.
+            rxready = self->m_pRcvBuffer->isRcvDataReady(tnow);
+            if (rxready)
+            {
+                tsNextDelivery = steady_clock::time_point(); // Ready to read, nothing to wait for.
+            }
+            else
+            {
+                const srt::CRcvBuffer::PacketInfo rinfo = self->m_pRcvBuffer->getFirstValidPacketInfo();
+                if (is_zero(rinfo.tsbpd_time) || rinfo.tsbpd_time > tnow)
+                {
+                    // Nothing to play yet: wait until the play time of the
+                    // first packet in the buffer (or for new packets, if empty).
+                    tsNextDelivery = rinfo.tsbpd_time;
+                }
+                else
+                {
+                    // The head message is incomplete and already overdue (with
+                    // TLPKTDROP its end cannot be determined yet; without
+                    // TLPKTDROP it is waited to be completed). Wait for new
+                    // packets instead of spinning around the passed deadline.
+                    tsNextDelivery = steady_clock::time_point();
+                }
+            }
+        }
+        else if (!self->m_bTLPktDrop)
         {
             rxready = !info.seq_gap && is_time_to_deliver;
         }
@@ -7082,15 +7148,11 @@ int srt::CUDT::sendmsg2(const char *data, int len, SRT_MSGCTRL& w_mctrl)
     // For MESSAGE API the minimum outgoing buffer space required is
     // the size that can carry over the whole message as passed here.
     // Otherwise it is allowed to send less bytes.
+    // NOTE: In live mode (TSBPD) a message is also allowed to span multiple
+    // packets. The sender buffer fragments it into packets not exceeding the
+    // negotiated payload size, keeping one message number, one source time
+    // and the FIRST/LAST boundary flags for the whole message.
     const int iNumPktsRequired = m_config.bMessageAPI ? m_pSndBuffer->countNumPacketsRequired(len) : 1;
-
-    if (m_bTsbPd && iNumPktsRequired > 1)
-    {
-        LOGC(aslog.Error,
-            log << CONID() << "Message length (" << len << ") can't fit into a single data packet ("
-                << m_pSndBuffer->getMaxPacketLen() << " bytes max).");
-        throw CUDTException(MJ_NOTSUP, MN_XSIZE, 0);
-    }
 
     if (sndBuffersLeft() < iNumPktsRequired)
     {
@@ -7394,6 +7456,15 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
             : 0;
         leaveCS(m_RcvBufferLock);
 
+        if (res < 0)
+        {
+            // The ready message doesn't fit into the provided buffer. It has
+            // NOT been consumed, so a retry with a larger buffer is possible.
+            if (!by_exception)
+                return APIError(MJ_NOTSUP, MN_XSIZE, 0);
+            throw CUDTException(MJ_NOTSUP, MN_XSIZE, 0);
+        }
+
         // Kick TsbPd thread to schedule next wakeup (if running)
         if (m_bTsbPd)
         {
@@ -7434,6 +7505,16 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: AFTER readMessage: (NON-BLOCKING) result=" << res
                 << " %" << w_mctrl.pktseq << " #" << w_mctrl.msgno);
+
+        if (res < 0)
+        {
+            // The ready message doesn't fit into the provided buffer. It has
+            // NOT been consumed and the read-ready state is left unchanged,
+            // so a retry with a larger buffer will read the same message.
+            if (!by_exception)
+                return APIError(MJ_NOTSUP, MN_XSIZE, 0);
+            throw CUDTException(MJ_NOTSUP, MN_XSIZE, 0);
+        }
 
         if (res == 0)
         {
@@ -7552,6 +7633,16 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
         res = m_pRcvBuffer->readMessage((data), len, &w_mctrl);
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "AFTER readMsg: (BLOCKING) result=" << res);
+
+        if (res < 0)
+        {
+            // The ready message doesn't fit into the provided buffer. It has
+            // NOT been consumed and the read-ready state is left unchanged,
+            // so a retry with a larger buffer will read the same message.
+            if (!by_exception)
+                return APIError(MJ_NOTSUP, MN_XSIZE, 0);
+            throw CUDTException(MJ_NOTSUP, MN_XSIZE, 0);
+        }
 
         if (m_bBroken || m_bClosing)
         {
@@ -11261,6 +11352,7 @@ int srt::CUDT::processData(CUnit* in_unit)
 #endif
 
     bool new_inserted = false;
+    bool kick_tsbpd   = false;
 
     if (m_PacketFilter)
     {
@@ -11345,7 +11437,20 @@ int srt::CUDT::processData(CUnit* in_unit)
                 m_tsNextACKTime.store(steady_clock::now());
             }
         }
+
+        // In live message mode the TSBPD thread may be waiting for a packet
+        // that provides the end boundary of an incomplete head message (or
+        // completes it). Note if the head message is still incomplete after
+        // this insertion - the TSBPD thread is then kicked below (outside of
+        // this lock, to keep the m_RecvLock -> m_RcvBufferLock lock order).
+        kick_tsbpd = new_inserted && !m_pRcvBuffer->hasAvailablePackets();
     } // End of recvbuf_acklock
+
+    if (m_bTsbPd && kick_tsbpd)
+    {
+        HLOGC(qrlog.Debug, log << CONID() << "data: signaling TSBPD cond (head message incomplete)");
+        CSync::lock_notify_one(m_RcvTsbPdCond, m_RecvLock);
+    }
 
     // Separately report loss records of those reported by a filter.
     // ALWAYS report whatever has been reported back by a filter. Note that

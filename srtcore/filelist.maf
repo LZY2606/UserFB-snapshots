@@ -4,6 +4,7 @@ SOURCES
 api.cpp
 buffer_snd.cpp
 buffer_rcv.cpp
+buffer_rcv_msg.cpp
 buffer_tools.cpp
 cache.cpp
 channel.cpp

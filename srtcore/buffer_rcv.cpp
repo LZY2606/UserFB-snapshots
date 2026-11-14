@@ -422,6 +422,35 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
 
     const int readPos = canReadInOrder ? m_iStartPos : m_iFirstReadableOutOfOrder;
 
+    // In live mode (TSBPD with message API) the whole message must fit into
+    // the provided buffer. If it doesn't, report a failure without consuming
+    // the message and without touching the destination buffer and msgctrl,
+    // so that the application can retry the read with a larger buffer.
+    if (m_tsbpd.isEnabled() && m_bMessageAPI)
+    {
+        // With TSBPD the read always starts at m_iStartPos and the head
+        // message is guaranteed to be complete before m_iFirstNonreadPos.
+        size_t msgsize = 0;
+        for (int i = readPos; i != m_iFirstNonreadPos; i = incPos(i))
+        {
+            SRT_ASSERT(m_entries[i].pUnit);
+            if (!m_entries[i].pUnit)
+                break;
+
+            const CPacket& packet = packetAt(i);
+            msgsize += packet.getLength();
+            if (packet.getMsgBoundary() & PB_LAST)
+                break;
+        }
+
+        if (msgsize > len)
+        {
+            LOGC(rbuflog.Error, log << "CRcvBuffer::readMessage(): message of " << msgsize
+                    << " bytes doesn't fit into the buffer of " << len << " bytes. Message NOT consumed.");
+            return -1;
+        }
+    }
+
     IF_RCVBUF_DEBUG(ScopedLog scoped_log);
     IF_RCVBUF_DEBUG(scoped_log.ss << "CRcvBuffer::readMessage. m_iStartSeqNo " << m_iStartSeqNo << " m_iStartPos " << m_iStartPos << " readPos " << readPos);
 
@@ -462,13 +491,13 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
         if (msgctrl && (packet.getMsgBoundary() & PB_FIRST))
         {
             msgctrl->msgno  = packet.getMsgSeq(m_bPeerRexmitFlag);
+            // The sequence number of the FIRST packet of the message.
+            msgctrl->pktseq = pktseqno;
         }
         if (msgctrl && pbLast)
         {
             msgctrl->srctime = count_microseconds(getPktTsbPdTime(packet.getMsgTimeStamp()).time_since_epoch());
         }
-        if (msgctrl)
-            msgctrl->pktseq = pktseqno;
 
         releaseUnitInPos(i);
         if (updateStartPos)
@@ -877,6 +906,11 @@ void CRcvBuffer::updateNonreadPos()
         if (m_bMessageAPI && (packetAt(pos).getMsgBoundary() & PB_FIRST) == 0)
             break;
 
+        // NOTE: A message is complete only if the whole sequence of its
+        // packets, from PB_FIRST up to PB_LAST, is present in the buffer.
+        // A missing packet (also the PB_LAST one) always leaves an empty
+        // cell here, which stops the scan, so an incomplete message is
+        // never reported as readable, nor glued with the following one.
         for (int i = pos; i != end_pos; i = incPos(i))
         {
             if (!m_entries[i].pUnit || m_entries[pos].status != EntryState_Avail)

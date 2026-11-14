@@ -29,6 +29,46 @@ an extra header (this is an option that people often try with RTP) - note that
 
 However, the transmission must still satisfy the Live Streaming Requirements.
 
+## Message size vs. packet size in Live mode
+
+In Live mode there is an important distinction between a **message** (one call
+to a sending function, e.g. one compressed video frame) and a **packet** (a
+single network unit that fits into one UDP datagram):
+
+* The **packet payload size** is the maximum number of bytes carried by one
+  network packet. It is limited by the negotiated link payload size (derived
+  from `SRTO_MSS`, at most 1456 bytes for a 1500-byte MTU over IPv4, less any
+  extra header space required by `SRTO_PACKETFILTER` or AES-GCM). The
+  `SRTO_PAYLOADSIZE` option declares this per-packet payload limit.
+* The **message size** is the number of bytes passed in a single `srt_sendmsg`
+  / `srt_sendmsg2` call. A message larger than one packet is allowed, as long
+  as it still fits into the sending buffer (configurable with `SRTO_SNDBUF`).
+  The sender buffer transparently fragments such a message into multiple
+  packets, each not exceeding the negotiated payload size. All packets of one
+  message share one message number and one source time, and the usual
+  FIRST/LAST boundary flags mark the message extent. No private framing
+  headers are added to the payload.
+
+On the receiver side (with TSBPD enabled, which is the Live mode default) a
+multi-packet message is delivered as a whole: once the message is complete and
+its play time has come, a single `srt_recvmsg2` call returns the entire
+message. The buffer supplied to the receiving function must be large enough to
+hold the whole message (and at least as large as the `SRTO_PAYLOADSIZE`-based
+single-packet minimum, as before). If the buffer is too small for the complete
+message, the call fails with the `SRT_ELARGEMSG` error and the message is left
+in the receiver buffer, so the call can be retried with a larger buffer.
+
+With `SRTO_TLPKTDROP` enabled, an incomplete message whose play time has
+passed is skipped as a whole once its end can be determined (its LAST packet
+or the beginning of a following message has been seen), and the receiver
+continues with the next complete message.
+
+**NOTE:** Sending multi-packet messages in Live mode requires that **both**
+the sender and the receiver run a version of SRT with this extension. Older
+receivers do not reassemble fragmented live messages, and older senders reject
+a message larger than one packet with `SRT_ELARGEMSG`.
+
+
 ## Live Streaming Requirements
 
 The MPEG-TS stream, as a good example, consists of Frames. Each
