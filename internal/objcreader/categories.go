@@ -32,7 +32,9 @@ func (f *Reader) GetObjCCategories() ([]objc.Category, error) {
 			return nil, err
 		}
 		for _, ptr := range ptrs {
-			category, err := f.readObjCCategory(f.ConvertPointer(ptr))
+			// Fixup lookups inside the category use the field slot addresses,
+			// never the encoded value stored in this list slot.
+			category, err := f.readObjCCategory(ptr)
 			if err != nil {
 				return nil, err
 			}
@@ -58,7 +60,11 @@ func (f *Reader) readSectionPointers(sec *types.Section) ([]uint64, error) {
 	return ptrs, nil
 }
 
-func (f *Reader) readObjCCategory(vmaddr uint64) (*objc.Category, error) {
+// readObjCCategory reads the category_t selected by rawPtr, which is the raw
+// content of a __objc_catlist slot. Fixup lookups use the slot source
+// locations rather than the encoded slot values.
+func (f *Reader) readObjCCategory(rawPtr uint64) (*objc.Category, error) {
+	vmaddr := f.ConvertPointer(rawPtr)
 	offset, err := f.GetOffset(vmaddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert vmaddr: %v", err)
@@ -77,10 +83,12 @@ func (f *Reader) readObjCCategory(vmaddr uint64) (*objc.Category, error) {
 		return nil, fmt.Errorf("failed to read cstring: %v", err)
 	}
 	hasClass := ptr.ClsVMAddr != 0
+	classSlotAddr := category.VMAddr + uint64(unsafe.Offsetof(ptr.ClsVMAddr))
+	classRaw := ptr.ClsVMAddr
 	if hasClass {
 		ptr.ClsVMAddr = f.ConvertPointer(ptr.ClsVMAddr)
 	}
-	category.Class, err = f.objcCategoryClass(vmaddr, ptr.ClsVMAddr, hasClass)
+	category.Class, err = f.objcCategoryClass(classSlotAddr, classRaw, ptr.ClsVMAddr, hasClass)
 	if err != nil {
 		return nil, err
 	}
@@ -137,12 +145,15 @@ func (f *Reader) readObjCCategoryMethods(category *objc.Category, ptr *objc.Cate
 	return nil
 }
 
+// objcCategoryClass resolves the category's host class. classSlotAddr is the
+// source address of the category_t Class field; an external class is a bind at
+// that slot rather than a readable class record. classAddr is the converted
+// field value and classRaw its raw, encoded value.
 func (f *Reader) objcCategoryClass(
-	categoryAddr, classAddr uint64, hasClass bool,
+	classSlotAddr, classRaw, classAddr uint64, hasClass bool,
 ) (*objc.Class, error) {
 	if !hasClass {
-		var ptr objc.CategoryT
-		return f.objcCategoryBind(categoryAddr+uint64(unsafe.Offsetof(ptr.ClsVMAddr)), nil)
+		return f.objcCategoryBind(classSlotAddr, nil)
 	}
 	if value, ok := f.GetObjC(classAddr); ok {
 		return value.(*objc.Class), nil
@@ -155,7 +166,9 @@ func (f *Reader) objcCategoryClass(
 	if !f.HasFixups() {
 		return &objc.Class{}, nil
 	}
-	return f.objcCategoryBind(classAddr, err)
+	// Never treat the encoded field value as a class address or bind slot:
+	// the bind is located by the field's own source address.
+	return f.objcCategoryBind(classSlotAddr, errors.Join(err, fmt.Errorf("raw class field %#x", classRaw)))
 }
 
 func (f *Reader) objcCategoryBind(addr uint64, classErr error) (*objc.Class, error) {
@@ -190,52 +203,22 @@ func (f *Reader) GetObjCNonLazyCategories() ([]objc.Category, error) {
 				if err != nil {
 					return nil, err
 				}
-				for _, ptr := range ptrs {
-					ptr = f.ConvertPointer(ptr)
-					if c, ok := f.GetObjC(ptr); ok {
+				for _, rawPtr := range ptrs {
+					vmaddr := f.ConvertPointer(rawPtr)
+					if c, ok := f.GetObjC(vmaddr); ok {
 						cats = append(cats, *c.(*objc.Category))
-					} else {
-						cat, err := f.parseCategory(ptr)
-						if err != nil {
-							return nil, fmt.Errorf("failed to read non-lazy category_t at vmaddr %#x: %v", ptr, err)
-						}
-						cats = append(cats, *cat)
-						f.PutObjC(ptr, cat)
+						continue
 					}
+					cat, err := f.readObjCCategory(rawPtr)
+					if err != nil {
+						return nil, fmt.Errorf("failed to read non-lazy category_t at vmaddr %#x: %v", vmaddr, err)
+					}
+					cats = append(cats, *cat)
+					f.PutObjC(vmaddr, cat)
 				}
 			}
 		}
 	}
 
 	return cats, nil
-}
-
-func (f *Reader) parseCategory(vmaddr uint64) (*objc.Category, error) {
-
-	if err := f.DataReader().SeekToAddr(vmaddr); err != nil {
-		return nil, fmt.Errorf("failed to seek to objc category vmaddr: %#x; %v", vmaddr, err)
-	}
-
-	var categoryPtr objc.CategoryT
-	if err := binary.Read(f.DataReader(), f.ByteOrder(), &categoryPtr); err != nil {
-		return nil, fmt.Errorf("failed to read %T: %v", categoryPtr, err)
-	}
-
-	categoryPtr.NameVMAddr = f.ConvertPointer(categoryPtr.NameVMAddr)
-	categoryPtr.ClsVMAddr = f.ConvertPointer(categoryPtr.ClsVMAddr)
-	categoryPtr.InstanceMethodsVMAddr = f.ConvertPointer(categoryPtr.InstanceMethodsVMAddr)
-	categoryPtr.ClassMethodsVMAddr = f.ConvertPointer(categoryPtr.ClassMethodsVMAddr)
-	categoryPtr.ProtocolsVMAddr = f.ConvertPointer(categoryPtr.ProtocolsVMAddr)
-	categoryPtr.InstancePropertiesVMAddr = f.ConvertPointer(categoryPtr.InstancePropertiesVMAddr)
-
-	name, err := f.GetCString(categoryPtr.NameVMAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read cstring: %v", err)
-	}
-
-	return &objc.Category{
-		Name:      name,
-		VMAddr:    vmaddr,
-		CategoryT: categoryPtr,
-	}, nil
 }

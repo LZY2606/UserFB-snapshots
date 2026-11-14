@@ -23,6 +23,34 @@ const (
 	REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB = 0x80
 )
 
+// ThreadedPointerInfo describes one slot of an LC_DYLD_INFO(_ONLY) threaded
+// bind/rebase chain (the arm64e format that predates LC_DYLD_CHAINED_FIXUPS).
+// The fields only interpret the chain's raw slot bits; no pointer is
+// authenticated and no image is loaded or executed.
+type ThreadedPointerInfo struct {
+	// Target is the slot's decoded target as a preferred virtual address.
+	// Plain rebase slots encode the absolute preferred VM address;
+	// authenticated rebase slots encode a 32-bit image-relative offset, to
+	// which the image base is added. Unused by bind slots.
+	Target uint64
+	// Ordinal is the bind ordinal table index encoded in a bind slot. It is 0
+	// for rebase slots.
+	Ordinal uint16
+	// Authenticated reports whether the slot carries authenticated pointer
+	// metadata (the arm64e auth bit, slot bit 63).
+	Authenticated bool
+	// Key is the encoded ptrauth key as a raw 2-bit value: 0=IA, 1=IB, 2=DA,
+	// 3=DB. It is only meaningful when Authenticated is set.
+	Key uint8
+	// Diversity is the encoded 16-bit ptrauth discriminator, only meaningful
+	// when Authenticated is set.
+	Diversity uint16
+	// AddressDiversity reports whether the slot uses address diversity
+	// (ptrauth address discriminator), only meaningful when Authenticated is
+	// set.
+	AddressDiversity bool
+}
+
 type Rebase struct {
 	Type    uint8
 	Segment string
@@ -30,6 +58,9 @@ type Rebase struct {
 	Start   uint64
 	Offset  uint64
 	Value   uint64
+	// Threaded is set for slots walked by a threaded bind/rebase chain. It is
+	// nil for classic rebase opcode records.
+	Threaded *ThreadedPointerInfo
 }
 
 func (r Rebase) String() string {
@@ -120,6 +151,9 @@ type Bind struct {
 	Start     uint64
 	Dylib     string
 	Value     uint64
+	// Threaded is set for slots walked by a threaded bind/rebase chain. It is
+	// nil for classic bind opcode records.
+	Threaded *ThreadedPointerInfo
 }
 
 func (b Bind) Offset() uint64 {

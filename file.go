@@ -41,6 +41,7 @@ type File struct {
 	exp         []trie.TrieExport
 	exptrieData []byte
 	binds       types.Binds
+	bindsDone   bool
 	rebases     []types.Rebase
 	rebasesDone bool
 
@@ -48,6 +49,10 @@ type File struct {
 	dyldInfoRebaseTargets map[uint64]uint64
 	dyldInfoRebaseValues  map[uint64]struct{}
 	dyldInfoBindsByAddr   map[uint64]types.Bind
+
+	// threaded holds the parsed LC_DYLD_INFO(_ONLY) threaded bind/rebase chains
+	// (legacy arm64e). It is nil for classic bind streams and chained fixups.
+	threaded *threadedFixups
 
 	objc         *objcreader.Reader
 	swift        map[uint64]any
@@ -1792,12 +1797,14 @@ func (f *File) readPointerAtAddress(address uint64, size int) (uint64, error) {
 func (f *File) ResetFixupsCache() {
 	f.dcf = nil
 	f.binds = nil
+	f.bindsDone = false
 	f.rebases = nil
 	f.rebasesDone = false
 	f.dyldInfoCacheBuilt = false
 	f.dyldInfoRebaseTargets = nil
 	f.dyldInfoRebaseValues = nil
 	f.dyldInfoBindsByAddr = nil
+	f.threaded = nil
 	if f.vma != nil {
 		f.vma.ChainedPointerFormat = 0
 	}
@@ -1900,7 +1907,13 @@ func (f *File) buildDyldInfoFixupsCache() error {
 	}
 	for _, rebase := range rebases {
 		addr := rebase.Start + rebase.Offset
-		f.dyldInfoRebaseTargets[addr] = f.normalizeDyldInfoPointer(rebase.Value)
+		if rebase.Threaded != nil {
+			// Threaded rebase slots store encoded bits; the target is the
+			// decoded preferred VM address.
+			f.dyldInfoRebaseTargets[addr] = rebase.Threaded.Target
+		} else {
+			f.dyldInfoRebaseTargets[addr] = f.normalizeDyldInfoPointer(rebase.Value)
+		}
 		f.dyldInfoRebaseValues[rebase.Value] = struct{}{}
 	}
 
@@ -1948,6 +1961,12 @@ func (f *File) usesDyldInfoOnlyFixups() bool {
 func (f *File) decodeDyldInfoPointer(value uint64) (uint64, bool) {
 	if value == 0 || !f.usesDyldInfoOnlyFixups() {
 		return 0, false
+	}
+
+	// Legacy arm64e threaded rebase slots keep encoded target bits, not a raw
+	// VM address, so they must be decoded rather than normalized.
+	if target, ok := f.decodeThreadedRebaseValue(value); ok {
+		return target, true
 	}
 
 	if err := f.buildDyldInfoFixupsCache(); err != nil {
@@ -2015,8 +2034,10 @@ func (f *File) convertToVMAddr(value uint64) uint64 {
 	}
 	if resolved, ok := f.decodeDyldInfoPointer(value); ok {
 		return resolved
-	} else if f.isArm64e() {
-		// TODO: fix this dumb hack for SUPPORT_OLD_ARM64E_FORMAT
+	} else if f.isArm64e() && f.threaded == nil {
+		// TODO: fix this dumb hack for SUPPORT_OLD_ARM64E_FORMAT. Threaded
+		// chains are decoded by decodeDyldInfoPointer above; pointers not
+		// registered in a chain must remain ordinary reads.
 		dcf := fixupchains.DyldChainedFixups{
 			PointerFormat: fixupchains.DYLD_CHAINED_PTR_ARM64E,
 		}
@@ -3385,7 +3406,7 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 }
 
 func (f *File) GetBindInfo() (types.Binds, error) {
-	if f.binds != nil {
+	if f.bindsDone {
 		return f.binds, nil
 	}
 	if dinfo := f.DyldInfo(); dinfo != nil {
@@ -3460,6 +3481,7 @@ func (f *File) GetBindInfo() (types.Binds, error) {
 		return nil, ErrMachODyldInfoNotFound
 	}
 
+	f.bindsDone = true
 	return f.binds, nil
 }
 
@@ -3486,8 +3508,17 @@ func (f *File) GetRebaseInfo() ([]types.Rebase, error) {
 	}
 
 	if rebaseSize == 0 {
+		// Threaded images keep their rebase slots inside the bind bytecode;
+		// an empty classic rebase stream is therefore not the whole story.
+		var rebases []types.Rebase
+		if tf, err := f.ensureThreadedFixups(); err != nil {
+			return nil, err
+		} else if tf != nil {
+			rebases = append(rebases, tf.rebases...)
+		}
+		f.rebases = rebases
 		f.rebasesDone = true
-		return nil, nil
+		return f.rebases, nil
 	}
 
 	dat := make([]byte, rebaseSize)
@@ -3498,6 +3529,12 @@ func (f *File) GetRebaseInfo() ([]types.Rebase, error) {
 	rebases, err := f.parseRebase(bytes.NewReader(dat))
 	if err != nil {
 		return nil, err
+	}
+
+	if tf, err := f.ensureThreadedFixups(); err != nil {
+		return nil, err
+	} else if tf != nil {
+		rebases = append(rebases, tf.rebases...)
 	}
 
 	f.rebases = rebases
@@ -3532,8 +3569,8 @@ func (f *File) GetExports() ([]trie.TrieExport, error) {
 func (f *File) parseBinds(r *bytes.Reader, kind types.BindKind) ([]types.Bind, error) {
 	var binds []types.Bind
 	var ordinalTable []types.Bind
-	var ordinalTableSize uint64
 	var segOffset uint64
+	var segIndex int
 
 	useThreadedRebaseBind := false
 	bind := types.Bind{Kind: kind}
@@ -3591,6 +3628,10 @@ func (f *File) parseBinds(r *bytes.Reader, kind types.BindKind) ([]types.Bind, e
 			if err != nil {
 				return nil, err
 			}
+			if int(imm) >= len(f.Segments()) {
+				return nil, fmt.Errorf("bind segment index %d out of range", imm)
+			}
+			segIndex = int(imm)
 			bind.Start = f.Segments()[imm].Addr
 			bind.Segment = f.Segments()[imm].Name
 			bind.SegStart = f.Segments()[imm].Offset
@@ -3649,59 +3690,29 @@ func (f *File) parseBinds(r *bytes.Reader, kind types.BindKind) ([]types.Bind, e
 		case types.BIND_OPCODE_THREADED:
 			switch imm {
 			case types.BIND_SUBOPCODE_THREADED_SET_BIND_ORDINAL_TABLE_SIZE_ULEB:
-				ordinalTableSize, err = trie.ReadUleb128(r)
-				if err != nil {
+				if _, err = trie.ReadUleb128(r); err != nil {
 					return nil, err
 				}
 				useThreadedRebaseBind = true
-			case types.BIND_SUBOPCODE_THREADED_APPLY: // parse chain
-				delta := uint64(0)
-				for {
-					var ptr uint64
-					f.cr.Seek(int64(f.Segment(bind.Segment).Offset+segOffset), io.SeekStart)
-					if err := binary.Read(f.cr, f.ByteOrder, &ptr); err != nil {
-						return nil, fmt.Errorf("failed to read pointer: %v", err)
-					}
-					if (ptr & (1 << 62)) == 0 { // isRebase TODO: handle rebases
-						if (ptr & (1 << 63)) != 0 { // isAuthenticated
-							// uint16_t diversity = (uint16_t)(value >> 32);
-							// bool hasAddressDiversity = (value & (1ULL << 48)) != 0;
-							// uint8_t key = (uint8_t)((value >> 49) & 0x3);
-							// static const char* keyNames[] = {
-							// 	"IA", "IB", "DA", "DB"
-							// };
-							// printf("%-7s %-16s 0x%08llX %10s  %5lld %-16s %s%s with value 0x%016llX (JOP: diversity %d, address %s, %s)\n", segName, sectionName(segIndex, segStartAddr+segOffset), segStartAddr+segOffset, typeName, addend, fromDylib, symbolName, weak_import, value, diversity, hasAddressDiversity ? "true" : "false", keyNames[key]);
-						} else {
-							// // Regular pointer which needs to fit in 51-bits of value.
-							// // C++ RTTI uses the top bit, so we'll allow the whole top-byte
-							// // and the signed-extended bottom 43-bits to be fit in to 51-bits.
-							// uint64_t top8Bits = value & 0x0007F80000000000ULL;
-							// uint64_t bottom43Bits = value & 0x000007FFFFFFFFFFULL;
-							// uint64_t targetValue = ( top8Bits << 13 ) | (((intptr_t)(bottom43Bits << 21) >> 21) & 0x00FFFFFFFFFFFFFF);
-							// targetValue = targetValue + slide;
-							// *(uint64_t*)address = targetValue;
-						}
-					} else {
-						// the ordinal is bits [0..15]
-						ord := ptr & 0xFFFF
-						// XXX: there is a note in LIEF source about adding +1 to ordinalTableSize
-						// when parsing it because of ld64 - I haven't investigated yet - fG!
-						if ord > ordinalTableSize { // TODO: make sure this is right
-							return nil, fmt.Errorf("bind ordinal is out of range")
-						}
-						ordinalTable[ord].Value = ptr
-						ordinalTable[ord].SegOffset = segOffset
-						binds = append(binds, ordinalTable[ord])
-					}
-					// The delta is bits [51..61]
-					// And bit 62 is to tell us if we are a rebase (0) or bind (1)
-					ptr &= ^uint64(1 << 62)
-					delta = (ptr & 0x3FF8000000000000) >> 51
-					segOffset += delta * f.pointerSize()
-					if delta == 0 {
-						break
+				// The declared table size is informational; slot ordinals are
+				// validated against the ordinal table actually filled in.
+				if f.threaded == nil {
+					f.threaded = &threadedFixups{
+						rawRebases: make(map[uint64]*types.ThreadedPointerInfo),
 					}
 				}
+			case types.BIND_SUBOPCODE_THREADED_APPLY: // parse chain
+				if f.threaded == nil {
+					return nil, fmt.Errorf("threaded APPLY without a bind ordinal table")
+				}
+				// The ordinal table entries are templates; only the chain slots
+				// locate actual records.
+				f.threaded.ordinalTable = ordinalTable
+				previousBinds := len(f.threaded.binds)
+				if err := f.applyThreadedChain(f.threaded, segIndex, segOffset, kind); err != nil {
+					return nil, err
+				}
+				binds = append(binds, f.threaded.binds[previousBinds:]...)
 			default:
 				return nil, fmt.Errorf("bad threaded bind subopcode %#02x", imm)
 			}
