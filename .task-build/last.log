@@ -1,0 +1,22 @@
+Duplicate program number 7.
+ES PID 512 collides with another PID or is shared between programs.
+ES PID 256 collides with another PID or is shared between programs.
+Standalone PCR PID 80 collides with another PID.
+PCR PID 31 out of range.
+Multi-program transport streams require TS_TYPE_GENERIC, cbr and lowlatency.
+Multi-program transport streams require TS_TYPE_GENERIC, cbr and lowlatency.
+Multi-program transport streams require TS_TYPE_GENERIC, cbr and lowlatency.
+No more than 8 programs are supported in a multi-program transport stream.
+CASE mpts_tables pat_and_pmts checks=39
+CASE mpts_tables long_pmt_multipacket checks=13
+CASE mpts_tables config_conflicts checks=18
+GROUP mpts_tables cases=3 checks=70 COMPLETE
+CASE mpts_clocks per_program_pcrs checks=2926
+CASE mpts_clocks silent_program_pcr checks=2737
+GROUP mpts_clocks cases=2 checks=5663 COMPLETE
+CASE mpts_media overlapping_windows checks=8671
+CASE mpts_media batched_submission checks=2093
+CASE mpts_media single_program_regression checks=14
+GROUP mpts_media cases=3 checks=10778 COMPLETE
+TARGET_COMPLETE cases=8
+SINGLE_PROGRAM_OK packets=426 pat=4 pmt=4 pcr=17 pes=8 bytes=80088 fnv=1a31e3a3681f738e

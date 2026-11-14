@@ -62,6 +62,13 @@
 #define MAX_PROGRAMS   100
 #define MAX_STREAMS    100
 
+/* Static multi-program transport streams are limited to 2..8 programs */
+#define MPTS_MAX_PROGRAMS 8
+
+/* PID range allowed for PMT, ES and standalone PCR PIDs in an MPTS */
+#define MPTS_MIN_PID    0x0020
+#define MPTS_MAX_PID    0x1ffe
+
 /* DVB 40ms recommendation */
 #define PCR_MAX_RETRANS_TIME 40
 #define PAT_MAX_RETRANS_TIME 100
@@ -174,6 +181,8 @@ typedef struct
     int bytes;
 } ts_dvb_sub_b2_t;
 
+typedef struct ts_int_program_s ts_int_program_t;
+
 typedef struct
 {
     int pid;
@@ -248,6 +257,9 @@ typedef struct
     int hdmv_video_format;
     int hdmv_frame_rate;
     int hdmv_aspect_ratio;
+
+    /* program owning this stream */
+    ts_int_program_t *program;
 } ts_int_stream_t;
 
 typedef struct
@@ -276,7 +288,7 @@ typedef struct
     int pic_struct;
 } ts_int_pes_t;
 
-typedef struct
+struct ts_int_program_s
 {
     ts_int_stream_t pmt;
     int program_num;
@@ -299,7 +311,7 @@ typedef struct
 
     int sb_leak_rate;
     int sb_size;
-} ts_int_program_t;
+};
 
 struct ts_writer_t
 {

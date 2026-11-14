@@ -8,6 +8,54 @@ CBR and VBR TS muxing of AVC, AC-3, MP2 and AAC/HE-AAC.
 DVB AU_Information
 (Very likely MPEG-2 as well but not tested)
 
+Multi-program transport streams (TS_TYPE_GENERIC, constant bitrate, low latency)
+mux 2 to 8 static programs onto one output timeline. Each program has its own PMT,
+PCR PID and media queues. Multi-program mode requires one MPEG-2 or AVC video per
+program plus zero or more MPEG-1/2 audio streams; programs cannot be added or
+removed at runtime. The single-program API and byte output are unchanged.
+
+Minimal two-program example:
+
+    /* Program 0: MPEG-2 video on 0x100, standalone PCR on 0x110, PMT on 0x1000 */
+    ts_stream_t s0[2] = { { .pid = 0x100, .stream_format = LIBMPEGTS_VIDEO_MPEG2,
+                            .stream_id = LIBMPEGTS_STREAM_ID_MPEGVIDEO },
+                          { .pid = 0x101, .stream_format = LIBMPEGTS_AUDIO_MPEG1,
+                            .stream_id = LIBMPEGTS_STREAM_ID_MPEGAUDIO,
+                            .audio_frame_size = 2160 } };
+    ts_program_t p0 = { .pmt_pid = 0x1000, .program_num = 7, .pcr_pid = 0x110,
+                        .num_streams = 2, .streams = s0 };
+
+    /* Program 1: AVC video on 0x200 carrying the PCR, PMT on 0x1010 */
+    ts_stream_t s1[2] = { { .pid = 0x200, .stream_format = LIBMPEGTS_VIDEO_AVC,
+                            .stream_id = LIBMPEGTS_STREAM_ID_MPEGVIDEO },
+                          { .pid = 0x201, .stream_format = LIBMPEGTS_AUDIO_MPEG2,
+                            .stream_id = LIBMPEGTS_STREAM_ID_MPEGAUDIO,
+                            .audio_frame_size = 2160 } };
+    ts_program_t p1 = { .pmt_pid = 0x1010, .program_num = 8, .pcr_pid = 0x200,
+                        .num_streams = 2, .streams = s1 };
+
+    ts_program_t programs[2] = { p0, p1 };
+    ts_main_t params = { 0 };
+    params.num_programs = 2;
+    params.programs     = programs;
+    params.ts_id        = 23;
+    params.muxrate      = 12000000;
+    params.cbr          = 1;
+    params.lowlatency   = 1;
+    params.ts_type      = TS_TYPE_GENERIC;
+    params.pcr_period   = 20;   /* milliseconds */
+    params.pat_period   = 80;   /* milliseconds */
+
+    ts_writer_t *w = ts_create_writer();
+    if( ts_setup_transport_stream( w, &params ) < 0 )   /* returns < 0 on any PID/program conflict */
+        return -1;
+    ts_setup_mpegvideo_stream( w, 0x100, LIBMPEGTS_MPEG2_LEVEL_MAIN,
+                               LIBMPEGTS_MPEG2_PROFILE_MAIN, 1000000, 100000, 3 );
+    ts_setup_mpegvideo_stream( w, 0x200, 30, AVC_MAIN, 1000000, 100000, 0 );
+
+    /* feed ts_frame_t batches from either program; frames of both programs may be
+     * interleaved in one call. Finish by calling ts_write_frames with num_frames 0. */
+
 Things which don't work:
 
 Blu-Ray and associated formats

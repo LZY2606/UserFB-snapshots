@@ -1,0 +1,7 @@
+#!/bin/sh
+# Sandbox-only shim: macOS /usr/bin/mktemp ignores TMPDIR and targets a denied
+# system temp dir. Force temp files into the sandbox-provided TMPDIR.
+if [ "$#" -eq 0 ]; then
+    exec /usr/bin/mktemp -p "${TMPDIR:-/tmp}"
+fi
+exec /usr/bin/mktemp "$@"
