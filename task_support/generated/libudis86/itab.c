@@ -1968,7 +1968,7 @@ static const uint16_t ud_itab__329[] = {
   /* 84 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 88 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 8c */     INVALID,     INVALID,     INVALID,     INVALID,
-  /* 90 */     INVALID,     INVALID,     INVALID,     INVALID,
+  /* 90 */  GROUP(447),  GROUP(450),  GROUP(453),  GROUP(456),
   /* 94 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 98 */     INVALID,     INVALID,     INVALID,     INVALID,
   /* 9c */     INVALID,     INVALID,     INVALID,     INVALID,
@@ -2673,6 +2673,59 @@ static const uint16_t ud_itab__446[] = {
   /*  0 */        1658,     INVALID,
 };
 
+/* AVX2 gathers: VEX.66.0F38 90..93, split on VEX.W then VEX.L */
+/* 90: W0 VPGATHERDD, W1 VPGATHERDQ */
+static const uint16_t ud_itab__447[] = {
+  /*  0 */  GROUP(448),  GROUP(449),
+};
+
+static const uint16_t ud_itab__448[] = {
+  /*  0 */        1769,        1770,
+};
+
+static const uint16_t ud_itab__449[] = {
+  /*  0 */        1771,        1772,
+};
+
+/* 91: W0 VPGATHERQD, W1 VPGATHERQQ */
+static const uint16_t ud_itab__450[] = {
+  /*  0 */  GROUP(451),  GROUP(452),
+};
+
+static const uint16_t ud_itab__451[] = {
+  /*  0 */        1773,        1774,
+};
+
+static const uint16_t ud_itab__452[] = {
+  /*  0 */        1775,        1776,
+};
+
+/* 92: W0 VGATHERDPS, W1 VGATHERDPD */
+static const uint16_t ud_itab__453[] = {
+  /*  0 */  GROUP(454),  GROUP(455),
+};
+
+static const uint16_t ud_itab__454[] = {
+  /*  0 */        1761,        1762,
+};
+
+static const uint16_t ud_itab__455[] = {
+  /*  0 */        1763,        1764,
+};
+
+/* 93: W0 VGATHERQPS, W1 VGATHERQPD */
+static const uint16_t ud_itab__456[] = {
+  /*  0 */  GROUP(457),  GROUP(458),
+};
+
+static const uint16_t ud_itab__457[] = {
+  /*  0 */        1765,        1766,
+};
+
+static const uint16_t ud_itab__458[] = {
+  /*  0 */        1767,        1768,
+};
+
 
 struct ud_lookup_table_list_entry ud_lookup_table_list[] = {
     /* 000 */ { ud_itab__0, UD_TAB__OPC_TABLE, "opctbl" },
@@ -3122,6 +3175,18 @@ struct ud_lookup_table_list_entry ud_lookup_table_list[] = {
     /* 444 */ { ud_itab__444, UD_TAB__OPC_OSIZE, "/o" },
     /* 445 */ { ud_itab__445, UD_TAB__OPC_OSIZE, "/o" },
     /* 446 */ { ud_itab__446, UD_TAB__OPC_MODE, "/m" },
+    /* 447 */ { ud_itab__447, UD_TAB__OPC_VEX_W, "/vexw" },
+    /* 448 */ { ud_itab__448, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 449 */ { ud_itab__449, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 450 */ { ud_itab__450, UD_TAB__OPC_VEX_W, "/vexw" },
+    /* 451 */ { ud_itab__451, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 452 */ { ud_itab__452, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 453 */ { ud_itab__453, UD_TAB__OPC_VEX_W, "/vexw" },
+    /* 454 */ { ud_itab__454, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 455 */ { ud_itab__455, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 456 */ { ud_itab__456, UD_TAB__OPC_VEX_W, "/vexw" },
+    /* 457 */ { ud_itab__457, UD_TAB__OPC_VEX_L, "/vexl" },
+    /* 458 */ { ud_itab__458, UD_TAB__OPC_VEX_L, "/vexl" },
 };
 
 /* itab entry operand definitions (for readability) */
@@ -3156,6 +3221,17 @@ struct ud_lookup_table_list_entry ud_lookup_table_list[] = {
 #define O_Gw      { OP_G,        SZ_W     }
 #define O_Gy      { OP_G,        SZ_Y     }
 #define O_Gz      { OP_G,        SZ_Z     }
+/* AVX2 gather operands (see decode.h VSIB_PACK layout) */
+#define O_GVD     { OP_GD,       SZ_NA    }
+#define O_GVDPDx  { OP_GV,       SZ_GATHER_DPD_X }
+#define O_GVDPDy  { OP_GV,       SZ_GATHER_DPD_Y }
+#define O_GVDPSx  { OP_GV,       SZ_GATHER_DPS_X }
+#define O_GVDPSy  { OP_GV,       SZ_GATHER_DPS_Y }
+#define O_GVK     { OP_GK,       SZ_NA    }
+#define O_GVQPDx  { OP_GV,       SZ_GATHER_QPD_X }
+#define O_GVQPDy  { OP_GV,       SZ_GATHER_QPD_Y }
+#define O_GVQPSx  { OP_GV,       SZ_GATHER_QPS_X }
+#define O_GVQPSy  { OP_GV,       SZ_GATHER_QPS_Y }
 #define O_H       { OP_H,        SZ_X     }
 #define O_Hqq     { OP_H,        SZ_QQ    }
 #define O_Hx      { OP_H,        SZ_X     }
@@ -5031,6 +5107,23 @@ struct ud_itab_entry ud_itab[] = {
   /* 1758 */ { UD_Ivpslld, O_H, O_V, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
   /* 1759 */ { UD_Ivpsllq, O_V, O_H, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
   /* 1760 */ { UD_Ivpsllq, O_H, O_V, O_W, O_NONE, P_aso|P_rexr|P_rexx|P_rexb },
+  /* AVX2 VEX.128/256 gathers (opcodes 0f38 90..93) */
+  /* 1761 */ { UD_Ivgatherdps, O_GVD, O_GVDPSx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1762 */ { UD_Ivgatherdps, O_GVD, O_GVDPSy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1763 */ { UD_Ivgatherdpd, O_GVD, O_GVDPDx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1764 */ { UD_Ivgatherdpd, O_GVD, O_GVDPDy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1765 */ { UD_Ivgatherqps, O_GVD, O_GVQPSx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1766 */ { UD_Ivgatherqps, O_GVD, O_GVQPSy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1767 */ { UD_Ivgatherqpd, O_GVD, O_GVQPDx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1768 */ { UD_Ivgatherqpd, O_GVD, O_GVQPDy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1769 */ { UD_Ivpgatherdd, O_GVD, O_GVDPSx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1770 */ { UD_Ivpgatherdd, O_GVD, O_GVDPSy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1771 */ { UD_Ivpgatherdq, O_GVD, O_GVDPDx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1772 */ { UD_Ivpgatherdq, O_GVD, O_GVDPDy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1773 */ { UD_Ivpgatherqd, O_GVD, O_GVQPSx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1774 */ { UD_Ivpgatherqd, O_GVD, O_GVQPSy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1775 */ { UD_Ivpgatherqq, O_GVD, O_GVQPDx, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
+  /* 1776 */ { UD_Ivpgatherqq, O_GVD, O_GVQPDy, O_GVK, O_NONE, P_aso|P_rexr|P_rexx|P_rexb|P_vexl },
 };
 
 
@@ -5942,5 +6035,14 @@ const char* ud_mnemonics_str[] = {
     "3dnow",
     "none",
     "db",
-    "pause"
+    "pause",
+    /* appended out of sort order to preserve existing enum values */
+    "vgatherdps",
+    "vgatherdpd",
+    "vgatherqps",
+    "vgatherqpd",
+    "vpgatherdd",
+    "vpgatherdq",
+    "vpgatherqd",
+    "vpgatherqq"
 };

@@ -92,11 +92,14 @@ enum ud_operand_code {
     OP_J,      OP_S,      OP_O,          
     OP_I1,     OP_I3,     OP_sI,
 
-    OP_V,      OP_W,      OP_Q,       OP_P, 
+    OP_V,      OP_W,      OP_Q,       OP_P,
     OP_U,      OP_N,      OP_MU,      OP_H,
     OP_L,
 
-    OP_R,      OP_C,      OP_D,       
+    /* AVX2 gather: destination vector, VSIB memory, VEX.vvvv mask */
+    OP_GD,     OP_GV,     OP_GK,
+
+    OP_R,      OP_C,      OP_D,
 
     OP_MR
 } UD_ATTR_PACKED;
@@ -140,6 +143,41 @@ typedef uint16_t ud_operand_size_t;
 #define SZ_WO  ((SZ_W << 8) | SZ_O)
 #define SZ_DO  ((SZ_D << 8) | SZ_O)
 #define SZ_QO  ((SZ_Q << 8) | SZ_O)
+
+/*
+ * AVX2 gather VSIB operand sizes.
+ *
+ * A gather memory operand needs three independent widths:
+ *   - the size of a single gathered data element (32 or 64 bits),
+ *     which is what struct ud_operand.size exports for OP_GV;
+ *   - the width of the destination/mask vector register (XMM/YMM);
+ *   - the width of the vector index register (XMM/YMM), which does
+ *     not always track VEX.L (e.g. VGATHERDPD ymm uses an xmm index).
+ *
+ * They are packed into one itab operand-size word.  The low byte
+ * holds the element size, bits 8..11 the destination/mask width code
+ * and bits 12..15 the vector-index width code, where 1 == SZ_DQ and
+ * 2 == SZ_QQ.
+ */
+#define VSIB_REG_DQ     1
+#define VSIB_REG_QQ     2
+
+#define VSIB_PACK(elem, dst, idx) \
+  ((ud_operand_size_t) ((elem) | ((dst) << 8) | ((idx) << 12)))
+#define VSIB_ELEM_SIZE(s)      ((unsigned int) ((s) & 0xff))
+#define VSIB_DST_REG_CODE(s)   ((unsigned int) (((s) >> 8) & 0xf))
+#define VSIB_IDX_REG_CODE(s)   ((unsigned int) (((s) >> 12) & 0xf))
+
+/* VEX.128 forms */
+#define SZ_GATHER_DPS_X  VSIB_PACK(SZ_D, VSIB_REG_DQ, VSIB_REG_DQ)
+#define SZ_GATHER_DPD_X  VSIB_PACK(SZ_Q, VSIB_REG_DQ, VSIB_REG_DQ)
+#define SZ_GATHER_QPS_X  VSIB_PACK(SZ_D, VSIB_REG_DQ, VSIB_REG_DQ)
+#define SZ_GATHER_QPD_X  VSIB_PACK(SZ_Q, VSIB_REG_DQ, VSIB_REG_DQ)
+/* VEX.256 forms; note the split index/destination widths */
+#define SZ_GATHER_DPS_Y  VSIB_PACK(SZ_D, VSIB_REG_QQ, VSIB_REG_QQ)
+#define SZ_GATHER_DPD_Y  VSIB_PACK(SZ_Q, VSIB_REG_QQ, VSIB_REG_DQ)
+#define SZ_GATHER_QPS_Y  VSIB_PACK(SZ_D, VSIB_REG_DQ, VSIB_REG_QQ)
+#define SZ_GATHER_QPD_Y  VSIB_PACK(SZ_Q, VSIB_REG_QQ, VSIB_REG_QQ)
 
 
 /* resolve complex size type.

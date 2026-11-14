@@ -48,6 +48,18 @@ class UdItabGenerator:
         "Gd"       : [    "OP_G"        , "SZ_D"     ],
         "Gq"       : [    "OP_G"        , "SZ_Q"     ],
         "Gz"       : [    "OP_G"        , "SZ_Z"     ],
+        # AVX2 gather operands; the GV* sizes are the VSIB-packed forms in
+        # libudis86/decode.h (element width + dst/mask width + index width).
+        "GVD"      : [    "OP_GD"       , "SZ_NA"    ],
+        "GVK"      : [    "OP_GK"       , "SZ_NA"    ],
+        "GVDPSx"   : [    "OP_GV"       , "SZ_GATHER_DPS_X" ],
+        "GVDPSy"   : [    "OP_GV"       , "SZ_GATHER_DPS_Y" ],
+        "GVDPDx"   : [    "OP_GV"       , "SZ_GATHER_DPD_X" ],
+        "GVDPDy"   : [    "OP_GV"       , "SZ_GATHER_DPD_Y" ],
+        "GVQPSx"   : [    "OP_GV"       , "SZ_GATHER_QPS_X" ],
+        "GVQPSy"   : [    "OP_GV"       , "SZ_GATHER_QPS_Y" ],
+        "GVQPDx"   : [    "OP_GV"       , "SZ_GATHER_QPD_X" ],
+        "GVQPDy"   : [    "OP_GV"       , "SZ_GATHER_QPD_Y" ],
         "M"        : [    "OP_M"        , "SZ_NA"    ],
         "Mb"       : [    "OP_M"        , "SZ_B"     ],
         "Mw"       : [    "OP_M"        , "SZ_W"     ],
@@ -196,6 +208,17 @@ class UdItabGenerator:
     }
 
     MnemonicAliases = ( "invalid", "3dnow", "none", "db", "pause" )
+
+    #
+    # Mnemonics appended after the historical enumerators rather than
+    # inserted in sort order, so regeneration never renumbers an existing
+    # public enum constant.  Keep this order identical to the trailing
+    # block in task_support/generated/libudis86/itab.h and itab.c.
+    #
+    AppendMnemonics = (
+        "vgatherdps", "vgatherdpd", "vgatherqps", "vgatherqpd",
+        "vpgatherdd", "vpgatherdq", "vpgatherqd", "vpgatherqq",
+    )
     
     def __init__(self, tables):
         self.tables = tables
@@ -286,8 +309,13 @@ class UdItabGenerator:
 
    
     def getMnemonicsList(self):
-        mnemonics = self.tables.getMnemonicsList()
+        # The appended mnemonics are deliberately kept out of the sorted
+        # block and added after the historical aliases so their enum
+        # constants are stable across regenerations.
+        mnemonics = [m for m in self.tables.getMnemonicsList()
+                       if m not in self.AppendMnemonics]
         mnemonics.extend(self.MnemonicAliases)
+        mnemonics.extend(self.AppendMnemonics)
         return mnemonics
 
     def genMnemonicsList(self):

@@ -701,6 +701,122 @@ decode_vex_vvvv(struct ud *u, struct ud_operand *opr, unsigned size)
   decode_reg(u, opr, REGCLASS_XMM, (0xf & ~vvvv), size);
 }
 
+/*
+ * The AVX2 gather operand layout is fixed as destination vector (ModRM.reg),
+ * VSIB memory (ModRM.rm + SIB) and mask (VEX.vvvv).  The memory operand
+ * carries the packed width description in the instruction table, so the
+ * register operands pull their widths from there.
+ */
+static unsigned int
+gather_packed_size(const struct ud *u)
+{
+  return u->itab_entry->operand2.size;
+}
+
+static UD_INLINE enum ud_type
+gather_vec_base(unsigned int reg_code)
+{
+  return reg_code == VSIB_REG_QQ ? UD_R_YMM0 : UD_R_XMM0;
+}
+
+/* OP_GD: gather destination, encoded in the ModRM.reg field. */
+static void
+decode_gather_dst(struct ud *u, struct ud_operand *op)
+{
+  unsigned int reg_code = VSIB_DST_REG_CODE(gather_packed_size(u));
+  uint8_t reg = (REX_R(u->_rex) << 3) | MODRM_REG(modrm(u));
+  op->type = UD_OP_REG;
+  op->base = gather_vec_base(reg_code) + reg;
+  op->size = reg_code == VSIB_REG_QQ ? SZ_QQ : SZ_DQ;
+}
+
+/* OP_GK: gather mask, encoded in the inverted VEX.vvvv field. */
+static void
+decode_gather_mask(struct ud *u, struct ud_operand *op)
+{
+  uint8_t vvvv;
+  unsigned int reg_code = VSIB_DST_REG_CODE(gather_packed_size(u));
+  UD_ASSERT(u->vex_op != 0);
+  vvvv = ((u->vex_op == 0xc4 ? u->vex_b2 : u->vex_b1) >> 3) & 0xf;
+  op->type = UD_OP_REG;
+  op->base = gather_vec_base(reg_code) + (0xf & ~vvvv);
+  op->size = reg_code == VSIB_REG_QQ ? SZ_QQ : SZ_DQ;
+}
+
+/*
+ * decode_vsib_mem() - OP_GV, the VSIB memory operand of an AVX2 gather.
+ *
+ * The byte stream is the ordinary ModRM/SIB sequence, but the SIB index
+ * field names a vector register (xmm/ymm); index value 4 therefore means
+ * xmm4/ymm4 and is not the scalar "no index" marker.  The base field and
+ * the displacement keep their normal general-register interpretation.
+ */
+static void
+decode_vsib_mem(struct ud *u, struct ud_operand *op, unsigned int size)
+{
+  unsigned char mod, rm, sib, scale_idx, idx, base;
+  size_t offset = 0;
+
+  mod = MODRM_MOD(modrm(u));
+  rm  = MODRM_RM(modrm(u));
+
+  /*
+   * A gather needs a genuine VSIB encoding: register form (mod == 3),
+   * 16-bit addressing (which has no SIB) and a missing SIB byte
+   * (rm != 4) are all invalid.
+   */
+  if (mod == 3 || u->adr_mode == 16 || (rm & 7) != 4) {
+    UDERR(u, "gather requires a VSIB memory operand\n");
+    return;
+  }
+
+  op->type = UD_OP_MEM;
+  op->size = VSIB_ELEM_SIZE(size);
+
+  sib       = inp_next(u);
+  if (u->error) {
+    return;
+  }
+  scale_idx = SIB_S(sib);
+  idx       = SIB_I(sib);
+  base      = SIB_B(sib);
+
+  op->scale = (1 << scale_idx) & ~1;
+  /* VEX.X (surfaced through _rex) extends the vector index number. */
+  op->index = gather_vec_base(VSIB_IDX_REG_CODE(size))
+              + (idx | (REX_X(u->_rex) << 3));
+
+  if (u->adr_mode == 64) {
+    op->base = UD_R_RAX + (base | (REX_B(u->_rex) << 3));
+    if (op->base == UD_R_RBP || op->base == UD_R_R13) {
+      if (mod == 0) {
+        /* no base: a disp32 follows, never RIP-relative with a SIB */
+        op->base = UD_NONE;
+      }
+      offset = (mod == 1) ? 8 : 32;
+    } else {
+      offset = (mod == 1) ? 8 : (mod == 2 ? 32 : 0);
+    }
+  } else {
+    /* 32-bit addressing, including 67h override in 64-bit mode. */
+    op->base = UD_R_EAX + (base | (REX_B(u->_rex) << 3));
+    if (op->base == UD_R_EBP) {
+      if (mod == 0) {
+        op->base = UD_NONE;
+      }
+      offset = (mod == 1) ? 8 : 32;
+    } else {
+      offset = (mod == 1) ? 8 : (mod == 2 ? 32 : 0);
+    }
+  }
+
+  if (offset) {
+    decode_mem_disp(u, (unsigned int) offset, op);
+  } else {
+    op->offset = 0;
+  }
+}
+
 
 /* 
  * decode_vex_immreg
@@ -878,11 +994,65 @@ decode_operand(struct ud           *u,
     case OP_L:
       decode_vex_immreg(u, operand, size);
       break;
+    case OP_GD:
+      decode_gather_dst(u, operand);
+      break;
+    case OP_GV:
+      decode_vsib_mem(u, operand, size);
+      break;
+    case OP_GK:
+      decode_gather_mask(u, operand);
+      break;
     default :
       operand->type = UD_NONE;
       break;
   }
   return operand->type;
+}
+
+
+/*
+ * Physical register number of an XMM/YMM operand.  XMM and YMM views of
+ * the same register share the number, which is exactly the aliasing the
+ * gather encoding forbids.
+ */
+static int
+vec_reg_num(enum ud_type reg)
+{
+  if (reg >= UD_R_YMM0) {
+    return reg - UD_R_YMM0;
+  }
+  return reg - UD_R_XMM0;
+}
+
+/*
+ * decode_gather_validate()
+ *    Gather requires the destination, vector index and mask to name three
+ *    distinct physical vector registers.  Same-numbered XMM/YMM views
+ *    count as a conflict and leave the instruction invalid.
+ */
+static int
+decode_gather_validate(struct ud *u)
+{
+  int dst, idx, mask;
+  if (u->itab_entry->operand1.type != OP_GD) {
+    return 0;
+  }
+  if (u->error ||
+      u->operand[0].type != UD_OP_REG ||
+      u->operand[1].type != UD_OP_MEM ||
+      u->operand[2].type != UD_OP_REG) {
+    UDERR(u, "malformed gather operands\n");
+    return -1;
+  }
+  dst  = vec_reg_num(u->operand[0].base);
+  idx  = vec_reg_num(u->operand[1].index);
+  mask = vec_reg_num(u->operand[2].base);
+  if (dst == idx || dst == mask || idx == mask) {
+    UDERR(u, "gather destination, index and mask must be distinct\n");
+    return -1;
+  }
+  return 0;
 }
 
 
@@ -1034,10 +1204,11 @@ decode_insn(struct ud *u, uint16_t ptr)
   UD_ASSERT((ptr & 0x8000) == 0);
   u->itab_entry = &ud_itab[ ptr ];
   u->mnemonic = u->itab_entry->mnemonic;
-  return (resolve_pfx_str(u)  == 0 &&
-          resolve_mode(u)     == 0 &&
-          decode_operands(u)  == 0 &&
-          resolve_mnemonic(u) == 0) ? 0 : -1;
+  return (resolve_pfx_str(u)      == 0 &&
+          resolve_mode(u)         == 0 &&
+          decode_operands(u)      == 0 &&
+          decode_gather_validate(u) == 0 &&
+          resolve_mnemonic(u)     == 0) ? 0 : -1;
 }
 
 
@@ -1107,11 +1278,48 @@ decode_ssepfx(struct ud *u)
 }
 
 
+/*
+ * gather_vex_probe()
+ *    In 16/32-bit mode 0xc4 is also the legacy LES opcode, and
+ *    decode_vex() only treats it as a VEX prefix when the following
+ *    ModRM byte has mod==3.  AVX2 gathers are VEX memory instructions
+ *    whose ModRM never has mod==3, so inspect the would-be VEX payload
+ *    without consuming it: a 0F38 map with opcode 0x90..0x93 identifies
+ *    a gather and the byte must be read as VEX rather than LES.
+ */
+static int
+gather_vex_probe(const struct ud *u)
+{
+  const uint8_t *buf = u->inp_buf;
+  size_t pos = u->inp_buf_index;
+  size_t end = u->inp_buf_size;
+  uint8_t b1, b2, opcode;
+  unsigned int map;
+
+  if (buf == NULL || pos + 3 > end) {
+    return 0;
+  }
+  b1     = buf[pos];        /* first byte after 0xc4 */
+  b2     = buf[pos + 1];
+  opcode = buf[pos + 2];
+  map    = b1 & 0x1f;       /* VEX.m-mmmm */
+  return map == 2 &&                 /* 0f38 */
+         (b2 & 0x3) == 1 &&          /* pp = 66 */
+         opcode >= 0x90 && opcode <= 0x93;
+}
+
+
 static int
 decode_vex(struct ud *u)
 {
   uint8_t index;
-  if (u->dis_mode != 64 && MODRM_MOD(inp_peek(u)) != 0x3) {
+  /* Gathers always use the three-byte VEX (c4, 0F38 map) and only exist in
+   * 32/64-bit mode, so the lookahead is limited to c4 in 32-bit mode; the
+   * two-byte c5 path and 16-bit LES decoding are left untouched. */
+  if (u->dis_mode != 64 &&
+      (u->dis_mode != 32 || inp_curr(u) != 0xc4 ||
+       !gather_vex_probe(u)) &&
+      MODRM_MOD(inp_peek(u)) != 0x3) {
     index = 0;
   } else {
     u->vex_op = inp_curr(u);

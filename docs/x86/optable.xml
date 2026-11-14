@@ -10095,5 +10095,140 @@
             <cpuid>avx</cpuid>
         </def>
     </instruction>
- 
+
+    <!--
+        AVX2 gathers.  The GV* memory operand is a VSIB address: its packed
+        size (decode.h) carries the element width plus independent destination
+        and vector-index widths, which do not always both track VEX.L.
+        Opcode map VEX.66.0F38, split on VEX.W (float vs integer / element
+        width) and VEX.L (128 vs 256 bit).
+    -->
+    <instruction>
+        <mnemonic>vgatherdps</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 92 /vexw=0 /vexl=0</opc>
+            <opr>GVD GVDPSx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 92 /vexw=0 /vexl=1</opc>
+            <opr>GVD GVDPSy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vgatherdpd</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 92 /vexw=1 /vexl=0</opc>
+            <opr>GVD GVDPDx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 92 /vexw=1 /vexl=1</opc>
+            <opr>GVD GVDPDy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vgatherqps</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 93 /vexw=0 /vexl=0</opc>
+            <opr>GVD GVQPSx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 93 /vexw=0 /vexl=1</opc>
+            <opr>GVD GVQPSy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vgatherqpd</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 93 /vexw=1 /vexl=0</opc>
+            <opr>GVD GVQPDx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 93 /vexw=1 /vexl=1</opc>
+            <opr>GVD GVQPDy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vpgatherdd</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 90 /vexw=0 /vexl=0</opc>
+            <opr>GVD GVDPSx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 90 /vexw=0 /vexl=1</opc>
+            <opr>GVD GVDPSy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vpgatherdq</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 90 /vexw=1 /vexl=0</opc>
+            <opr>GVD GVDPDx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 90 /vexw=1 /vexl=1</opc>
+            <opr>GVD GVDPDy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vpgatherqd</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 91 /vexw=0 /vexl=0</opc>
+            <opr>GVD GVQPSx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 91 /vexw=0 /vexl=1</opc>
+            <opr>GVD GVQPSy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
+    <instruction>
+        <mnemonic>vpgatherqq</mnemonic>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 91 /vexw=1 /vexl=0</opc>
+            <opr>GVD GVQPDx GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+        <def>
+            <pfx>aso rexr rexx rexb vexl</pfx>
+            <opc>/vex=66_0f38 91 /vexw=1 /vexl=1</opc>
+            <opr>GVD GVQPDy GVK</opr>
+            <cpuid>avx2</cpuid>
+        </def>
+    </instruction>
+
 </x86optable>
