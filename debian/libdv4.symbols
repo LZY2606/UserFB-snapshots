@@ -33,6 +33,10 @@ libdv.so.4 libdv4 #MINVER#
  dv_audio_deemphasis@Base 1.0.0
  dv_audio_mix4ch@Base 1.0.0
  dv_audio_new@Base 1.0.0
+ dv_audio_stream_feed@Base 1.0.0
+ dv_audio_stream_free@Base 1.0.0
+ dv_audio_stream_new@Base 1.0.0
+ dv_audio_stream_reset@Base 1.0.0
  dv_calculate_samples@Base 1.0.0
  dv_check_coeff_ranges@Base 1.0.0
  dv_cleanup@Base 1.0.0

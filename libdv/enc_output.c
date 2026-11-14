@@ -64,6 +64,141 @@ static int dv_audio_unshuffle_50[6][9] = {
   { 15, 33, 51, 10, 28, 46,  5, 23, 41 },
 };
 
+/* Reconstruct the 16 bit value a 12 bit non-linear DV audio code
+ * expands to.  This mirrors dv_upsample() in audio.c (see IEC 61834-2,
+ * Figure 16) and must stay in agreement with the decoder: code 0x800 is
+ * the reserved error code and is never produced by the encoder. */
+static int dv_12bit_reconstruct(int code)
+{
+	int sample = (code & 0x800) ? code - 0x1000 : code;
+	int shift  = (code & 0xf00) >> 8;
+
+	if (shift >= 0x2 && shift <= 0x7) {
+		shift--;
+		return (sample - (256 * shift)) << shift;
+	} else if (shift >= 0x8 && shift <= 0xd) {
+		shift = 0xe - shift;
+		return ((sample + ((256 * shift) + 1)) << shift) - 1;
+	}
+	return sample;
+}
+
+/* Map a code ordering index onto the actual 12 bit codes such that the
+ * reconstructed values are strictly increasing: indices 0..2046 are the
+ * negative codes 0x801..0xfff, indices 2047..4094 are 0x000..0x7ff. */
+static int dv_12bit_ordered_code(int index)
+{
+	return (index < 2047) ? (0x801 + index) : (index - 2047);
+}
+
+/* Quantize a 16 bit sample to the nearest 12 bit non-linear DV code.
+ * Ties are broken towards the smaller absolute reconstructed value, and
+ * then towards the smaller unsigned code.  The reserved error code
+ * 0x800 is excluded from the search space. */
+static unsigned int dv_12bit_encode(int sample)
+{
+	int lo, hi, mid, mid_code, mid_val;
+
+	/* clamp to the representable range */
+	if (sample <= dv_12bit_reconstruct(0x801))
+		return 0x801;
+	if (sample >= dv_12bit_reconstruct(0x7ff))
+		return 0x7ff;
+
+	/* binary search: find the first index whose reconstruction is
+	 * >= sample */
+	lo = 0;
+	hi = 4094;
+	while (lo < hi) {
+		mid = (lo + hi) / 2;
+		mid_val = dv_12bit_reconstruct(dv_12bit_ordered_code(mid));
+		if (mid_val < sample)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	mid_code = dv_12bit_ordered_code(lo);
+	mid_val  = dv_12bit_reconstruct(mid_code);
+	if (mid_val == sample || lo == 0)
+		return mid_code;
+
+	{
+		int lo_code = dv_12bit_ordered_code(lo - 1);
+		int lo_val  = dv_12bit_reconstruct(lo_code);
+		int d_lo    = sample - lo_val;
+		int d_hi    = mid_val - sample;
+		if (d_lo < d_hi)
+			return lo_code;
+		if (d_lo > d_hi)
+			return mid_code;
+		/* equal distance: prefer the smaller absolute
+		 * reconstructed value, then the smaller unsigned code */
+		if (abs(lo_val) != abs(mid_val))
+			return (abs(lo_val) < abs(mid_val)) ? lo_code : mid_code;
+		return (lo_code < mid_code) ? lo_code : mid_code;
+	}
+}
+
+static void put_12_bit(unsigned char * target, unsigned char* wave_buf,
+		dv_enc_audio_info_t * audio, int dif_seg, int isPAL,
+		int pair)
+{
+	int bp;
+	int audio_dif;
+	unsigned char* p = target;
+	int samples = audio->bytesperframe / (2 * audio->channels);
+
+	/* Two channels share each 3 byte group: channel 2*pair takes the
+	 * first 12 bit code, channel 2*pair+1 the second.  Physical slots
+	 * beyond the valid samples are written as zero codes so no stale
+	 * audio from a previous frame survives. */
+	if (isPAL) {
+		for (audio_dif = 0; audio_dif < 9; audio_dif++) {
+			for (bp = 8; bp < 80; bp += 3) {
+				int i = dv_audio_unshuffle_50[dif_seg]
+					[audio_dif] + (bp - 8)/3 * 54;
+				unsigned int cy = 0, cz = 0;
+				if (i < samples) {
+					const unsigned char *wy = wave_buf
+						+ audio->bytealignment * i
+						+ 4*pair;
+					const unsigned char *wz = wy + 2;
+					cy = dv_12bit_encode((int16_t)
+						((wy[0] << 8) | wy[1]));
+					cz = dv_12bit_encode((int16_t)
+						((wz[0] << 8) | wz[1]));
+				}
+				p[bp]     = cy >> 4;
+				p[bp + 1] = cz >> 4;
+				p[bp + 2] = ((cy & 0xf) << 4) | (cz & 0xf);
+			}
+			p += 16 * 80;
+		}
+	} else {
+		for (audio_dif = 0; audio_dif < 9; audio_dif++) {
+			for (bp = 8; bp < 80; bp += 3) {
+				int i = dv_audio_unshuffle_60[dif_seg]
+					[audio_dif] + (bp - 8)/3 * 45;
+				unsigned int cy = 0, cz = 0;
+				if (i < samples) {
+					const unsigned char *wy = wave_buf
+						+ audio->bytealignment * i
+						+ 4*pair;
+					const unsigned char *wz = wy + 2;
+					cy = dv_12bit_encode((int16_t)
+						((wy[0] << 8) | wy[1]));
+					cz = dv_12bit_encode((int16_t)
+						((wz[0] << 8) | wz[1]));
+				}
+				p[bp]     = cy >> 4;
+				p[bp + 1] = cz >> 4;
+				p[bp + 2] = ((cy & 0xf) << 4) | (cz & 0xf);
+			}
+			p += 16 * 80;
+		}
+	}
+}
+
 static void put_16_bit(unsigned char * target, unsigned char* wave_buf,
 		dv_enc_audio_info_t * audio, int dif_seg, int isPAL,
 		int channel)
@@ -283,9 +418,29 @@ int _dv_raw_insert_audio(unsigned char * frame_buf,
 		}
 
 		switch(bits_per_sample) {
-		case 12:
-			fprintf(stderr, "Unsupported bits: 12\n FIXME!\n");
-			return(-1);
+		case 12: {
+			int pair;
+			ds = dif_seg;
+			if(ds < dif_seg_max/2) {
+				pair = 0;
+			} else {
+				pair = 1;
+				ds -= dif_seg_max / 2;
+			}
+			put_12_bit(target, wave_buf,
+				   audio, ds, isPAL, pair);
+			if (!isPAL && dif_seg == 6) {
+				/* SMPTE 314M 525/60: the AAUX source and
+				 * source control packs of the second
+				 * channel pair live in audio blocks 0/1
+				 * of DIF sequence 6. */
+				unsigned char* q = target + 3;
+				memcpy(q, head_50, 5);
+				q[2] |= 1; /* second channel pair */
+				memcpy(q + 16*80, head_51, 5);
+			}
+			break;
+		}
 		case 16:
 			ds = dif_seg;
 			if(ds < dif_seg_max/2) {

@@ -1892,16 +1892,26 @@ void swab(const void*, void*, ssize_t);
  *
  * @param dv_enc A pointer to a dv_encoder_t struct containing relevant options:
  *        -isPAL  Set true (non-zero) to encode the data in PAL format.
+ *        -samples_this_frame For four channel audio: the actual number of
+ *          samples per channel to read from \c pcm.  If zero, a standard
+ *          default (1280 for PAL, 1066 for NTSC) is used.
  * @param pcm An array of buffers containing PCM audio data where each
  *          array entry corresponds to a single channel of audio.
- * @param channels The number of channels being used (<=4). Currently,
- *          only two channels are supported.
+ * @param channels The number of channels being used.  Two channels are
+ *          encoded as 16 bit linear audio.  Four channels are supported
+ *          at 32000 Hz and are encoded as 12 bit non-linear audio; each
+ *          stereo pair is stored in one half of the DIF sequences.
  * @param frequency The sampling rate of the input must be one of 32000,
  *          44100, or 48000.
  * @param frame_buf A pointer to a DV frame
  * @return -1 for failure, 0 for success
- * 
- * @todo handle 4 channels
+ *
+ * For four channels the number of samples per channel must lie within
+ * the DV "unlocked audio" window (PAL: 1264-1296, NTSC: 1053-1080).
+ * Any other four channel combination and any out-of-range sample count
+ * is rejected with -1 before \c frame_buf is modified.  Physical audio
+ * slots beyond the valid samples are written as zero codes, so no audio
+ * tail of a previously stored frame survives.
  */
 int dv_encode_full_audio(dv_encoder_t *dv_enc, int16_t **pcm,
 			int channels, int frequency, uint8_t *frame_buf)
@@ -1917,6 +1927,37 @@ int dv_encode_full_audio(dv_encoder_t *dv_enc, int16_t **pcm,
 
 	/* estimate the number of samples per frame if not specified. */
 	dv_enc->isPAL = frame_buf[ 3 ] & 0x80;
+
+	if (channels == 4) {
+		/* Four channels only exist as 32 kHz / 12 bit non-linear
+		 * audio.  Validate everything before touching the frame. */
+		int min_samples = dv_enc->isPAL ? 1264 : 1053;
+		int max_samples = dv_enc->isPAL ? 1296 : 1080;
+		int samples = dv_enc->samples_this_frame;
+
+		if (frequency != 32000)
+			return -1;
+		if (samples == 0)
+			samples = dv_enc->isPAL ? 1280 : 1066;
+		if (samples < min_samples || samples > max_samples)
+			return -1;
+
+		audio.bytealignment = 8;
+		audio.bytespersecond = frequency * audio.bytealignment;
+		audio.bytesperframe = samples * 2 * 4;
+
+		/* interleave the four channels, big endian; read only the
+		 * validated number of samples per channel */
+		for (i=0; i < samples; i++)
+			for (j=0; j < 4; j++) {
+				uint16_t v = (uint16_t) pcm[j][i];
+				audio.data[(i*4+j)*2]     = v >> 8;
+				audio.data[(i*4+j)*2 + 1] = v & 0xff;
+			}
+
+		return _dv_raw_insert_audio(frame_buf, &audio, dv_enc->isPAL);
+	}
+
 	if ( dv_enc->samples_this_frame == 0 )
 		audio.bytesperframe = audio.bytespersecond/(dv_enc->isPAL ? 25 : 30);
 	else

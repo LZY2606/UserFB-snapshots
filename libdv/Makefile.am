@@ -57,6 +57,7 @@ noinst_HEADERS=  YUY2.h      bitstream.h parse.h  rgb.h \
 libdv_la_SOURCES= dv.c dct.c idct_248.c weighting.c quant.c vlc.c place.c \
 	parse.c bitstream.c YUY2.c YV12.c rgb.c audio.c util.c \
         encode.c headers.c enc_input.c enc_audio_input.c enc_output.c \
+	dv_audio_stream.c \
 	$(libdv_la_ASMS)
 
 libdv_la_LDFLAGS = -version-info 4:3:0
