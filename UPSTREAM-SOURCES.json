@@ -1,0 +1,290 @@
+{
+  "main": {
+    "repo": "https://github.com/PuerkitoBio/goquery",
+    "destination_prefix": "",
+    "commit": "d6bfc7243c41c1428c8f4875d1817b0a11b11c1c",
+    "files": [
+      {
+        "path": "array.go",
+        "sha256": "c09c24e1145ab488768e113c8b9851ef3be29e0ed4f8890913224400a81a6d4e"
+      },
+      {
+        "path": "array_test.go",
+        "sha256": "7557704858768bad498b6093581ff80d7f91afe2fbdf683a94b0ec9b6fd78859"
+      },
+      {
+        "path": "bench_array_test.go",
+        "sha256": "80d67f126bc220eed83eede69c6d246baba56f6f68e8d1c75a6b7602edf79228"
+      },
+      {
+        "path": "bench_example_test.go",
+        "sha256": "a24618b177f00b767e3576716b0040782ec5efdc34c48cdbdc26007cfb2f0e41"
+      },
+      {
+        "path": "bench_expand_test.go",
+        "sha256": "e7422f3d488e42355dbe5c1c2d0adf94616e9e8c965819586868c09a98796601"
+      },
+      {
+        "path": "bench_filter_test.go",
+        "sha256": "59b873644d5ce97c679af239e1672975f4214c5a6c51f6695934d76cb241b45a"
+      },
+      {
+        "path": "bench_iteration_test.go",
+        "sha256": "71a02fb5b8d96fe63b50e15264ae775474d3cc4c634abcc72c7df6476d4c575d"
+      },
+      {
+        "path": "bench_property_test.go",
+        "sha256": "e4c06c4b82d383c8578c90560eb9e61b5957690ab01e2df809cc14ce0fb0adfe"
+      },
+      {
+        "path": "bench_query_test.go",
+        "sha256": "b469258a96bf18cd3ee1ff6b4f83e7174f6dd64c4c5cbe6aa0490a4b2a427037"
+      },
+      {
+        "path": "bench_traversal_test.go",
+        "sha256": "2fdb4d31f0412cb8a4797a6ac87f03a503bb04e3c29122ef059a35b19d34892d"
+      },
+      {
+        "path": "doc.go",
+        "sha256": "8ab141cc7e1979920f320233da187fa55cc8a18c8a0ad141001a28582a6dd002"
+      },
+      {
+        "path": "example_test.go",
+        "sha256": "7b1d12906a54e64d721e05dcf09d00acd630e149e6f377ceab0b070d21b83437"
+      },
+      {
+        "path": "expand.go",
+        "sha256": "ed168a7920d1c9c01de4d4bcbea4e59fb8570df224fe58d183d1bd9a999d9c01"
+      },
+      {
+        "path": "expand_test.go",
+        "sha256": "e562a6f82b172639521f670968633ff303d92f6cd8f12af510e750f758a56836"
+      },
+      {
+        "path": "filter.go",
+        "sha256": "fee964395f4430f6d73463a20bc9451c95242879a42b0696a93ffc0452c629a6"
+      },
+      {
+        "path": "filter_test.go",
+        "sha256": "26982eca6c5743a6f34d12d1aeddbf22540371629aa2f82bbe4fb239f8e30dc8"
+      },
+      {
+        "path": "iteration.go",
+        "sha256": "9e13987ba1b29dfd0fbe1915e96000fff842b949af4e7960c44f517f70b065f7"
+      },
+      {
+        "path": "iteration_test.go",
+        "sha256": "a652d5f3c10a3b1cc895f65067050f96ac92184e4e8947728466be1c5dc01d2d"
+      },
+      {
+        "path": "manipulation.go",
+        "sha256": "659771ad6878937b2cfd1564286ea10d4a2870ec049d9aca7360b1d9bd5be3cc"
+      },
+      {
+        "path": "manipulation_test.go",
+        "sha256": "c2dea9a2cd6af702153dede97dfbb7baf9b7444da1d95b9bc8f14338be8842ae"
+      },
+      {
+        "path": "property.go",
+        "sha256": "9b80640dff0127b91adc98c5453655248776a96cfd593fcf929114b803aea5f2"
+      },
+      {
+        "path": "property_attr_nodes_test.go",
+        "sha256": "c947c79007a1ee1ad37a4c5b8ab3ecf0ffc7ad3daa5fc45038fba2bc07e19312"
+      },
+      {
+        "path": "property_class_nodes_test.go",
+        "sha256": "30d4c80561bbbf1d3edf6ee4c5b5d132fe0942a88f53b352298df263f292303f"
+      },
+      {
+        "path": "property_test.go",
+        "sha256": "c7cd0aa7b006bf9bf7da613cbb9ba62f9359c7851ab8bfa05a6a3861e8a1b4a9"
+      },
+      {
+        "path": "property_unicode_class_test.go",
+        "sha256": "3c6e8fd86364b2a01fe18a53a6d55111f91fa7fa272306cb7b0da44e2ebba9b3"
+      },
+      {
+        "path": "query.go",
+        "sha256": "e9226a4285021018b3a159ba977ae73d95b4c76bc553229becd92b690d554a7d"
+      },
+      {
+        "path": "query_test.go",
+        "sha256": "719b0fa63f22af4f4c723f3b7593902c07858cfe843ea87a3fd6f88ffe58e1a9"
+      },
+      {
+        "path": "traversal.go",
+        "sha256": "fec36b1db4990e360b92dca41c20b63f0aa6e83fd9c17e04d8c468ae3d5e7301"
+      },
+      {
+        "path": "traversal_test.go",
+        "sha256": "086d5ef791927efbe9a6c2341278805e71965732a7bfd25a33c27c3e7a25f48b"
+      },
+      {
+        "path": "type.go",
+        "sha256": "42343c198441237dddaf24e9d4b3827c32cfd10c7d0abfd821a829de3b782926"
+      },
+      {
+        "path": "type_test.go",
+        "sha256": "1a648e717ed82741f282ae1e4d6599d8ba42abc3c17363118cbc30ff2d5eb35c"
+      },
+      {
+        "path": "utilities.go",
+        "sha256": "be7fd364dd82c9d4578094b9b183870387cb292d36b159c6962a15c4f856d04b"
+      },
+      {
+        "path": "utilities_test.go",
+        "sha256": "ecee8d3109336e33239c828da0359b1d46faa07e79eb50452bb61c43c23e6798"
+      },
+      {
+        "path": "go.mod",
+        "sha256": "4742eb07dcad4acee653e553f6fa4db3fd6c149b1570ceb59d99b4b7e3ef1b1c"
+      },
+      {
+        "path": "go.sum",
+        "sha256": "75d807d41c878f4c33f913f10f7064916875f2182c60cd70452b87f0d9db9366"
+      },
+      {
+        "path": "testdata/gotesting.html",
+        "sha256": "ed81fa61832ceaa2f9d529725298f752b602c948be1b47c1ab99566f751f9ab7"
+      },
+      {
+        "path": "testdata/gowiki.html",
+        "sha256": "0568ea71f9bf0cb3b789ef97fb1f3b7f7a2bf1498432eeb318eeacee9b4dbd6d"
+      },
+      {
+        "path": "testdata/metalreview.html",
+        "sha256": "249760a5f8a33f6d48c703e4f116122722adc51865649c493167c064058a0564"
+      },
+      {
+        "path": "testdata/page.html",
+        "sha256": "42c82adca34fee0dea3e8d64764a41654a372bdaea34bdfd21fe9fd0ee7a7e9b"
+      },
+      {
+        "path": "testdata/page2.html",
+        "sha256": "8d6f738985a8712f8485395867fd61f1a7d89c9a98dd57777c64d5e547f1e7a9"
+      },
+      {
+        "path": "testdata/page3.html",
+        "sha256": "bcd8d1d9f472fed36a5f2c09b0c5903720e56ea0920a2bc1a706a9be4e16b5de"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "ab79785bfa235ac1c5e16f75e0f85eb7ce0402fb72f4667fffa0729e694579b8"
+      },
+      {
+        "path": "README.md",
+        "sha256": "a29929e54d55dca64bec054544bc22741abb17db7efd8ce28cb8f0893f18c7ba"
+      }
+    ]
+  },
+  "cascadia": {
+    "repo": "https://github.com/andybalholm/cascadia",
+    "version": "v1.3.5",
+    "destination_prefix": "vendor/github.com/andybalholm/cascadia",
+    "commit": "caa0b274f513cca28d83d3a13d924eac07e28e84",
+    "files": [
+      {
+        "path": "parser.go",
+        "sha256": "eadf84e5685732cdf0f97aa85ab85759d4df8884633f77b4b53a83431533717a"
+      },
+      {
+        "path": "pseudo_classes.go",
+        "sha256": "f89e77f578dbbc6973e506aef944b5ab9d4e1834999c9249b9dffb70edf8eccb"
+      },
+      {
+        "path": "selector.go",
+        "sha256": "9be3feac068de59dfa265aa95a6cc0eb13211a80be44894b10987c857c329b33"
+      },
+      {
+        "path": "serialize.go",
+        "sha256": "76b908fb1530306fab679d77a7899749f3122db63c0c2e2f6a47bf5a8f190850"
+      },
+      {
+        "path": "specificity.go",
+        "sha256": "c6733e1e5278db3dcf2fa17afa82c03dd2264fc751e797e46668d9ccc27ad791"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "04a8e475337d6b9959a8c47956bf713dd3362d3aadf839e74b376afb07487167"
+      }
+    ]
+  },
+  "xnet": {
+    "repo": "https://github.com/golang/net",
+    "version": "v0.62.0",
+    "destination_prefix": "vendor/golang.org/x/net",
+    "commit": "3de643db506517b3e652a13cc0b56034cea6b8e6",
+    "files": [
+      {
+        "path": "html/const.go",
+        "sha256": "44c814afac4b0206a4f2af92607f93a72b93919ec2c3884d372edcdc24507584"
+      },
+      {
+        "path": "html/doc.go",
+        "sha256": "e5d486a3b703d17efdf30cc9b3af6649b262c89e74cd4de285e0f079797b3c6f"
+      },
+      {
+        "path": "html/doctype.go",
+        "sha256": "b629b17ed04bcab8d832d8caaee00f458c180fd31b6838e318a439a4bf87fffe"
+      },
+      {
+        "path": "html/entity.go",
+        "sha256": "680a9bb55e7eca9bc0cbee59755591ab9f97abf3fe39490211eb088cc2cd62c2"
+      },
+      {
+        "path": "html/escape.go",
+        "sha256": "d0dfaa8c3b36ef9d4578dfdf9480c654252afc6a09128d96d570e74c563c82c9"
+      },
+      {
+        "path": "html/foreign.go",
+        "sha256": "d227ce6839726bb85fc88ec95df265901da8a04d7e2f7261101bdc7b4d1af1ad"
+      },
+      {
+        "path": "html/iter.go",
+        "sha256": "54299c163639df83f3dd22ff31643b6b6cedbedb0c388b1f53020146a10d7504"
+      },
+      {
+        "path": "html/node.go",
+        "sha256": "3acf739c450f61abd0fc45ccb19e4ddde2982b798791037a6a03c78603b6176f"
+      },
+      {
+        "path": "html/nodetype_string.go",
+        "sha256": "747f99ad7577bc2e790097bf591b7e66c1856a496a5a2e515a40324659e0266c"
+      },
+      {
+        "path": "html/parse.go",
+        "sha256": "5ce8bf09eee2642e6d08ff4dcdd827fc7f51e2f943c744f901a874956056a2b2"
+      },
+      {
+        "path": "html/render.go",
+        "sha256": "04f69a7822d18a68e035204ef53de56993ffc87ba7960b85b0514c2fa0cc5d9a"
+      },
+      {
+        "path": "html/token.go",
+        "sha256": "28e4cab66406c656cd2ae007517bac998b3d68d18fce0e0717ed98bed44ed336"
+      },
+      {
+        "path": "html/atom/atom.go",
+        "sha256": "86490b2027af4443dacfe96c313a6c632c03ea1acdf85f7f61c4fdde32bc2f3d"
+      },
+      {
+        "path": "html/atom/gen.go",
+        "sha256": "76b4135dabd992ca913b9cbd4f4752eb8e1f472da52872a6bc6ab4069e98f209"
+      },
+      {
+        "path": "html/atom/table.go",
+        "sha256": "d7c4d0795fbc8dbec36504efcae14330b08e9a4bd8041e946f4b48ee45797e1d"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+      },
+      {
+        "path": "PATENTS",
+        "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+      }
+    ]
+  },
+  "excluded": "保留goquery生产、原测试及testdata；仅导出依赖实际使用的cascadia、x/net/html与atom生产路径及许可；不导出各上游联网构建/可选包。"
+}
