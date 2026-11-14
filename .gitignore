@@ -1,1 +1,4 @@
 framebuffer.tga
+.task-build/
+.task-cache/
+.task-tmp/

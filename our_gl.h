@@ -16,3 +16,26 @@ struct IShader {
 typedef vec4 Triangle[3]; // a triangle primitive is made of three ordered points
 void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer);
 
+// Shared rasterization math, used by both the legacy shader path and the sparse
+// virtual texture path. The legacy rasterize() below is just one consumer of
+// these helpers, so the two paths never re-implement coverage/barycentrics/depth.
+struct ProjectedTriangle {
+    vec2    screen[3]; // screen-space vertices
+    vec4    ndc[3];    // normalized device coordinates (clip / w)
+    mat<3,3> ABC;      // screen-space barycentric matrix
+};
+
+// Clip-to-screen projection. Returns false for back-facing / sub-pixel triangles
+// (determinant < 1), exactly matching the legacy rasterize() culling rule.
+bool project_triangle(const vec4 clip[3], const mat<4,4> &viewport, ProjectedTriangle &out);
+
+// Screen-space barycentric coordinates of pixel (x, y); components may be
+// negative, a negative component means the pixel is outside the triangle.
+vec3 screen_barycentric(const mat<3,3> &ABC, const double x, const double y);
+
+// Perspective-correct barycentrics: screen barycentrics divided by the clip-space
+// w of each vertex and renormalized.
+vec3 perspective_barycentric(const vec3 &bc_screen, const vec4 clip[3]);
+
+// NDC depth, linearly interpolated with the screen-space barycentrics.
+double interpolate_depth(const vec4 ndc[3], const vec3 &bc_screen);

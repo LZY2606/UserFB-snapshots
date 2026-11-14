@@ -99,3 +99,79 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+
+## Sparse virtual texturing
+
+Alongside the legacy shader path, the repository contains a sparse virtual
+texture (SVT) renderer in `virtual_texture.h` / `virtual_texture.cpp`. It keeps
+the old `IShader` / `rasterize` / command-line drawing bit-identical; both
+paths share the projection, coverage (area culling and backface culling),
+barycentric and depth math in `our_gl.cpp`, so there is no second rasterizer.
+
+### Interfaces (namespace `vtex`)
+
+- `TextureDesc` describes one logical texture: power-of-two base width/height
+  and a power-of-two fixed page edge. The mip chain halves every axis
+  independently until a 1x1 level; tail levels may be smaller than one page.
+- `SparseTexturePool` stores only the pages that have actually been uploaded —
+  a full logical image is never allocated. `declare_texture`, `upload_page`,
+  `replace_page` and `evict_page` validate sizes, page keys, pixel counts and
+  finiteness **before** mutating anything and throw `std::invalid_argument` on
+  rejection. The 1x1 last level is pinned and cannot be evicted.
+- `PageKey{texture, level, page_x, page_y}` identifies a page; `PageData` holds
+  its row-major linear-space double RGB pixels over the page's real extent.
+- `snapshot()` returns an immutable, owning `ResidencySnapshot`. Frames bind
+  one snapshot; later uploads, replacements or evictions never reach existing
+  snapshots or already produced frames.
+- `VirtualTextureFrame(width, height, snapshot, viewport)` owns every triangle
+  submitted to it (`submit` takes clip coordinates, per-corner uv, a texture id
+  and an optional discard flag; input must be finite, have positive w and lie in
+  the clip frustum). `resolve()` rasterizes the frame and `fragment(x, y)` /
+  `missing_pages()` report the results; resolving twice is idempotent.
+
+### Sampling, LOD and paging
+
+Sampling uses repeat wrapping with bilinear coordinates
+`(u*W-0.5, v*H-0.5)` and periodic texel modulo; zero-weight taps are never read
+and taps may cross pages and period boundaries without clamping. For each LOD
+band, all non-zero taps of the ideal level are checked first: if any page is
+missing, the whole footprint retreats one coarser level, recomputing its taps
+on the original uv, until every tap is resident. The missing-page list reports
+**only** the ideal level of each band (already-resident pages are not
+reported), sorted by texture, level, page y, page x and deduplicated.
+
+The fragment uv is the perspective-interpolated quotient, and the screen
+`du/dx`, `du/dy` are its analytic derivatives (no per-triangle constant, no
+affine approximation and no extra fragment invocations). With
+`rho = max(length((W0*du/dx, H0*dv/dx)), length((W0*du/dy, H0*dv/dy)))`,
+`LOD = clamp(log2(max(1, rho)), 0, last)`. The two bands are `floor(LOD)` and
+`min(floor(LOD)+1, last)`, blended by the fractional part; a zero-weight band
+is neither sampled nor reported. Each `FragmentResult` exposes the linear RGB,
+winning face id, depth, uv, derivatives, floating-point LOD and the level each
+band actually used. Only final winning fragments issue requests: occluded,
+discarded and background pixels produce no feedback, and an empty frame
+returns zero color, face `-1` and an empty list.
+
+### Tests and example
+
+The task cases live in `tests/virtual_texture_cases.cpp` and register the
+`paging`, `footprint` and `visibility` groups through
+`task_support/check.h` (no `main` of their own). They build and run together
+with the unchanged legacy baseline via:
+
+```sh
+bash task_support/run.sh target
+```
+
+`examples/virtual_texture.cpp` generates two procedural page-backed textures
+and two mutually occluding quads, then writes a fallback rendering and its
+missing-page list, uploads the requested pages and writes the high-resolution
+rendering. It takes exactly one argument, the output directory:
+
+```sh
+c++ -std=c++20 -O1 -I. examples/virtual_texture.cpp virtual_texture.cpp our_gl.cpp tgaimage.cpp -o virtual_texture
+./virtual_texture <output-directory>
+# writes virtual_texture_before.tga, virtual_texture_after.tga and missing_pages.txt
+```
+
+Only the C++ standard library and the in-repository sources are used.
