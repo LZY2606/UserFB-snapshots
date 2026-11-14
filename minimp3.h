@@ -1790,6 +1790,10 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
             {
                 i = 0;
                 L12_apply_scf_384(sci, sci->scf + igr, scratch.grbuf[0]);
+#ifdef MINIMP3_L2_TEST_OBSERVE
+                /* read-only test probe: no state or callback in normal builds */
+                mp3_l2_observe(igr, (const void *)sci, scratch.grbuf[0]);
+#endif
                 mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, pcm, scratch.syn[0]);
                 memset(scratch.grbuf[0], 0, 576*2*sizeof(float));
                 pcm += 384*info->channels;
