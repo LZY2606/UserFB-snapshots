@@ -38,6 +38,49 @@ Features:
  * Vec: a templated C++ class for constant-length vectors, with support for the usual arithmetic operations and XForm: a class for rigid-body transformations.
  * An OpenGL trackball/arcball implementation, with automatic selection of rotation center.
  * Algorithms for subdivision, smoothing, curvature estimation, triangle stripping, and various other simple mesh manipulations.
+ * Gradient-domain deformation transfer across topologically different meshes (see below).
+
+## Deformation transfer
+
+`include/DeformationTransfer.h` provides `trimesh::DeformationTransfer`, which
+transfers the per-frame deformation of a source triangle mesh onto a target
+triangle mesh of different topology.  Instead of copying vertex positions or
+transforming each target triangle independently (which cracks the surface),
+the transferred target is the global minimizer of a gradient-domain energy
+with exact positional anchor constraints.
+
+**Correspondence direction.**  Each correspondence
+`{ source_face, target_face, weight }` drives a *target* face with the
+deformation gradient of a *source* face: the energy term for the
+correspondence penalizes the mismatch between the target face's deformation
+gradient and the source face's deformation gradient (projected onto the
+target tangent plane), weighted by `A_target * weight`.  A target face may be
+driven by several source faces (the contributions accumulate), and every
+target face must be covered by at least one correspondence.  Correspondences
+and anchor vertex indices are fixed at construction; only the source pose and
+the anchor positions change per frame.
+
+**Gradient conventions.**  A triangle with vertices `p0, p1, p2` gets the
+frame `F = [e1, e2, a/sqrt(|a|)]` (columns) with `e1 = p1 - p0`,
+`e2 = p2 - p0`, `a = e1 x e2`.  The normal column uses the *sqrt-area* scale
+`a/sqrt(|a|)` - not a unit normal - so that the frame carries area
+information and uniform scaling is transferred correctly.  The source
+deformation gradient of a face is `S = F_current * F_rest^-1`.  With `g_i`
+the in-plane barycentric basis gradients of a target rest face, `P` its
+tangent-plane projection, and `A` its area, the minimized energy is
+
+    E = sum_correspondences  A * weight * || sum_i x_i g_i^T - S P ||_F^2
+
+subject to exact anchor constraints.  A global translation of the source
+never enters the gradient; global rigid motion and uniform scaling of the
+source are recovered on the target only through the anchors (at least one
+anchor per connected component of the target).
+
+The operator is assembled once (sparse, double precision) together with the
+anchor elimination and the preconditioner; solving a new frame only rebuilds
+the right-hand side.  See the header for the exact API contract and the test
+suite in `tests/deformation_transfer.cc` for usage examples.
+
 
 The following utility programs are included:
 
