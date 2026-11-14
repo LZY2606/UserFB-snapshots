@@ -1,0 +1,9 @@
+{
+  "target": "test/motion-warp.test.mjs",
+  "groups": [
+    "screw",
+    "contacts",
+    "replay"
+  ],
+  "baseline": "task_support/baseline.mjs"
+}
