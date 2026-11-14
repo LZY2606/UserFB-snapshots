@@ -1,0 +1,35 @@
+{
+  "repo": "https://github.com/jspecify/jspecify",
+  "commit": "4c7914bf3078da00b88ad8f85bcb12b6d4839a8d",
+  "license": "Apache-2.0",
+  "license_path": "task_support/JSPECIFY-LICENSE",
+  "files": [
+    {
+      "path": "task_support/offline/org/jspecify/annotations/NonNull.java",
+      "source_path": "src/main/java/org/jspecify/annotations/NonNull.java",
+      "sha256": "3b0e0e9a47cdd2d7c03de733c2c94210d632634264739e07bd2978fd631c4eb5"
+    },
+    {
+      "path": "task_support/offline/org/jspecify/annotations/NullMarked.java",
+      "source_path": "src/main/java/org/jspecify/annotations/NullMarked.java",
+      "sha256": "6dfa5619dc525927392c02fcd2902793220d8eafa3de5dca67d30e5950a02c02"
+    },
+    {
+      "path": "task_support/offline/org/jspecify/annotations/NullUnmarked.java",
+      "source_path": "src/main/java/org/jspecify/annotations/NullUnmarked.java",
+      "sha256": "8ed198fa7b3baf7aa8f6a0eb2e41554d81636c0e75dd7949da313ec9001100e4"
+    },
+    {
+      "path": "task_support/offline/org/jspecify/annotations/Nullable.java",
+      "source_path": "src/main/java/org/jspecify/annotations/Nullable.java",
+      "sha256": "83255c3d7fa0f8bb44501b0b9cdc27a2fa2453e2df614d3be2789ca426ee4258"
+    },
+    {
+      "path": "task_support/offline/org/jspecify/annotations/package-info.java",
+      "source_path": "src/main/java/org/jspecify/annotations/package-info.java",
+      "sha256": "520d0b925134260da18bc9e6552a1263dec33ad075eb8b163ba5dce1ba9ce4c5"
+    }
+  ],
+  "runtime_downloads": false,
+  "exclusions": "仅携带src/main/java注解定义和原LICENSE；Gradle、样例、集成测试不参与本次编译。"
+}
