@@ -1,0 +1,77 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.1.32210.238
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "graphengine", "graphengine\graphengine.vcxproj", "{933E3BAE-315D-4074-9AAE-70BD3FCAA932}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "testapp", "testapp\testapp.vcxproj", "{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}"
+	ProjectSection(ProjectDependencies) = postProject
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932} = {933E3BAE-315D-4074-9AAE-70BD3FCAA932}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unit_test", "unit_test\unit_test.vcxproj", "{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}"
+	ProjectSection(ProjectDependencies) = postProject
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932} = {933E3BAE-315D-4074-9AAE-70BD3FCAA932}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "filter_validation", "filter_validation\filter_validation.vcxproj", "{578385AC-4C01-426C-A621-7DA97BEAABD1}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "graphengine_srcs", "graphengine_srcs\graphengine_srcs.vcxitems", "{E6991282-4AD2-4CC1-8DA5-5B44D2053A3C}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "filter_validation_srcs", "filter_validation_srcs\filter_validation_srcs.vcxitems", "{41F372EC-398B-40BE-A743-791BC42EB60C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Debug|x64.ActiveCfg = Debug|x64
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Debug|x64.Build.0 = Debug|x64
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Debug|x86.ActiveCfg = Debug|Win32
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Debug|x86.Build.0 = Debug|Win32
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Release|x64.ActiveCfg = Release|x64
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Release|x64.Build.0 = Release|x64
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Release|x86.ActiveCfg = Release|Win32
+		{933E3BAE-315D-4074-9AAE-70BD3FCAA932}.Release|x86.Build.0 = Release|Win32
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Debug|x64.ActiveCfg = Debug|x64
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Debug|x64.Build.0 = Debug|x64
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Debug|x86.ActiveCfg = Debug|Win32
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Debug|x86.Build.0 = Debug|Win32
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Release|x64.ActiveCfg = Release|x64
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Release|x64.Build.0 = Release|x64
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Release|x86.ActiveCfg = Release|Win32
+		{9A9DAD49-5D41-432E-BEA4-55DC4490DDED}.Release|x86.Build.0 = Release|Win32
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Debug|x64.ActiveCfg = Debug|x64
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Debug|x64.Build.0 = Debug|x64
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Debug|x86.ActiveCfg = Debug|Win32
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Debug|x86.Build.0 = Debug|Win32
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Release|x64.ActiveCfg = Release|x64
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Release|x64.Build.0 = Release|x64
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Release|x86.ActiveCfg = Release|Win32
+		{A382C7AD-9BD2-4894-8FF2-2D4F3E027654}.Release|x86.Build.0 = Release|Win32
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Debug|x64.ActiveCfg = Debug|x64
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Debug|x64.Build.0 = Debug|x64
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Debug|x86.ActiveCfg = Debug|Win32
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Debug|x86.Build.0 = Debug|Win32
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Release|x64.ActiveCfg = Release|x64
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Release|x64.Build.0 = Release|x64
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Release|x86.ActiveCfg = Release|Win32
+		{578385AC-4C01-426C-A621-7DA97BEAABD1}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EA5DCF2B-A5D1-439B-8D12-A4E4837B4822}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		filter_validation_srcs\filter_validation_srcs.vcxitems*{41f372ec-398b-40be-a743-791bc42eb60c}*SharedItemsImports = 9
+		filter_validation_srcs\filter_validation_srcs.vcxitems*{578385ac-4c01-426c-a621-7da97beaabd1}*SharedItemsImports = 4
+		graphengine_srcs\graphengine_srcs.vcxitems*{933e3bae-315d-4074-9aae-70bd3fcaa932}*SharedItemsImports = 4
+		graphengine_srcs\graphengine_srcs.vcxitems*{e6991282-4ad2-4cc1-8da5-5b44d2053a3c}*SharedItemsImports = 9
+	EndGlobalSection
+EndGlobal

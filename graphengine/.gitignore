@@ -1,0 +1,17 @@
+# Output files.
+*.o
+*.lo
+*.bin
+*.bmp
+*.yuv
+
+# MSVC files.
+*.suo
+*.vcxproj.user
+_msvc/.vs
+Debug
+Release
+
+# autotools files.
+.deps/
+.dirstamp
