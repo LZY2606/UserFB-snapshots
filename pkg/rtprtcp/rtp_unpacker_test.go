@@ -33,14 +33,16 @@ func TestAvcCase1(t *testing.T) {
 	testHelperTemplete(t, base.AvPacketPtAvc, 90000, 128, ss, func(rtpPackets []RtpPacket) []base.AvPacket {
 		return []base.AvPacket{
 			{
-				Timestamp:   10340642,
-				PayloadType: base.AvPacketPtAvc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[0].Raw),
+				Timestamp:    10340642,
+				PayloadType:  base.AvPacketPtAvc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[0].Raw),
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   10340642,
-				PayloadType: base.AvPacketPtAvc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[1].Raw),
+				Timestamp:    10340642,
+				PayloadType:  base.AvPacketPtAvc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[1].Raw),
+				RtpTimestamp: rtpPackets[1].Header.Timestamp,
 			},
 		}
 	})
@@ -61,24 +63,28 @@ func TestHevcCase1(t *testing.T) {
 	testHelperTemplete(t, base.AvPacketPtHevc, 90000, 128, ss, func(rtpPackets []RtpPacket) []base.AvPacket {
 		return []base.AvPacket{
 			{
-				Timestamp:   25753900,
-				PayloadType: base.AvPacketPtHevc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[0].Raw),
+				Timestamp:    25753900,
+				PayloadType:  base.AvPacketPtHevc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[0].Raw),
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   25753900,
-				PayloadType: base.AvPacketPtHevc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[1].Raw),
+				Timestamp:    25753900,
+				PayloadType:  base.AvPacketPtHevc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[1].Raw),
+				RtpTimestamp: rtpPackets[1].Header.Timestamp,
 			},
 			{
-				Timestamp:   25753900,
-				PayloadType: base.AvPacketPtHevc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[2].Raw),
+				Timestamp:    25753900,
+				PayloadType:  base.AvPacketPtHevc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[2].Raw),
+				RtpTimestamp: rtpPackets[2].Header.Timestamp,
 			},
 			{
-				Timestamp:   25753900,
-				PayloadType: base.AvPacketPtHevc,
-				Payload:     testHelperAddPrefixLength(rtpPackets[3].Raw),
+				Timestamp:    25753900,
+				PayloadType:  base.AvPacketPtHevc,
+				Payload:      testHelperAddPrefixLength(rtpPackets[3].Raw),
+				RtpTimestamp: rtpPackets[3].Header.Timestamp,
 			},
 		}
 	})
@@ -95,9 +101,10 @@ func TestHevcCase2(t *testing.T) {
 	testHelperTemplete(t, base.AvPacketPtHevc, 90000, 128, ss, func(rtpPackets []RtpPacket) []base.AvPacket {
 		return []base.AvPacket{
 			{
-				Timestamp:   35347852,
-				PayloadType: base.AvPacketPtHevc,
-				Payload:     out,
+				Timestamp:    35347852,
+				PayloadType:  base.AvPacketPtHevc,
+				Payload:      out,
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 		}
 	})
@@ -114,19 +121,22 @@ func TestAacCase1(t *testing.T) {
 	testHelperTemplete(t, base.AvPacketPtAac, 48000, 128, ss, func(rtpPackets []RtpPacket) []base.AvPacket {
 		return []base.AvPacket{
 			{
-				Timestamp:   30239734,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[0].Raw[12+4:],
+				Timestamp:    30239734,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[0].Raw[12+4:],
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   30239756,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[1].Raw[12+4:],
+				Timestamp:    30239756,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[1].Raw[12+4:],
+				RtpTimestamp: rtpPackets[1].Header.Timestamp,
 			},
 			{
-				Timestamp:   30239777,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     append(rtpPackets[2].Raw[12+4:], rtpPackets[3].Raw[12+4:]...),
+				Timestamp:    30239777,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      append(rtpPackets[2].Raw[12+4:], rtpPackets[3].Raw[12+4:]...),
+				RtpTimestamp: rtpPackets[2].Header.Timestamp,
 			},
 		}
 	})
@@ -143,34 +153,40 @@ func TestAacCase2(t *testing.T) {
 	testHelperTemplete(t, base.AvPacketPtAac, 32000, 128, ss, func(rtpPackets []RtpPacket) []base.AvPacket {
 		return []base.AvPacket{
 			{
-				Timestamp:   69281105,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[0].Raw[12+2+6 : 12+2+6+24],
+				Timestamp:    69281105,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[0].Raw[12+2+6 : 12+2+6+24],
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   69281137,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[0].Raw[12+2+6+24 : 12+2+6+24+6],
+				Timestamp:    69281137,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[0].Raw[12+2+6+24 : 12+2+6+24+6],
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   69281169,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[0].Raw[12+2+6+24+6:],
+				Timestamp:    69281169,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[0].Raw[12+2+6+24+6:],
+				RtpTimestamp: rtpPackets[0].Header.Timestamp,
 			},
 			{
-				Timestamp:   69281201,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[1].Raw[12+4:],
+				Timestamp:    69281201,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[1].Raw[12+4:],
+				RtpTimestamp: rtpPackets[1].Header.Timestamp,
 			},
 			{
-				Timestamp:   69281233,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[2].Raw[12+4:],
+				Timestamp:    69281233,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[2].Raw[12+4:],
+				RtpTimestamp: rtpPackets[2].Header.Timestamp,
 			},
 			{
-				Timestamp:   69281265,
-				PayloadType: base.AvPacketPtAac,
-				Payload:     rtpPackets[3].Raw[12+4:],
+				Timestamp:    69281265,
+				PayloadType:  base.AvPacketPtAac,
+				Payload:      rtpPackets[3].Raw[12+4:],
+				RtpTimestamp: rtpPackets[3].Header.Timestamp,
 			},
 		}
 	})

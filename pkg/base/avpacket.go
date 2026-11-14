@@ -55,6 +55,10 @@ type AvPacket struct {
 	Timestamp   int64 // 如无特殊说明，此字段是Dts
 	Pts         int64
 	Payload     []byte
+
+	// RtpTimestamp 仅当本包由rtprtcp的rtp解包器产出时有效，记录本帧对应的原始RTP时间戳。
+	// 注意，对于由多个rtp包合成的帧（比如FU-A），这些rtp包的RTP时间戳相同，本字段记录的是同一个媒体时刻。
+	RtpTimestamp uint32
 }
 
 func (packet *AvPacket) IsAudio() bool {

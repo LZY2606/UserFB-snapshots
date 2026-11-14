@@ -67,6 +67,9 @@ type BaseInSession struct {
 	audioRrProducer *rtprtcp.RrProducer
 	videoRrProducer *rtprtcp.RrProducer
 
+	useSrClock bool
+	srClock    *senderReportClock
+
 	audioUnpacker rtprtcp.IRtpUnpacker
 	videoUnpacker rtprtcp.IRtpUnpacker
 
@@ -101,6 +104,19 @@ func NewBaseInSessionWithObserver(sessionType base.SessionType, cmdSession IInte
 	return s
 }
 
+// WithSenderReportClock 开启或关闭可选的Sender Report时钟模式，默认关闭。
+//
+// 开启后，每一轨用首个有效SR的NTP/RTP对应关系恢复媒体时间，
+// 所有已知轨道的锚点齐全后定出唯一零点，音视频首包之间的起播间隔会被保留，
+// 而不是像默认模式那样被AvPacketQueue各自归零。
+//
+// 目前支持H264/90000和PCMA/8000，可以只有其中一轨。
+//
+// 注意，必须在 InitWithSdp 之前调用。
+func (session *BaseInSession) WithSenderReportClock(enable bool) {
+	session.useSrClock = enable
+}
+
 func (session *BaseInSession) InitWithSdp(sdpCtx sdp.LogicContext) {
 	session.mu.Lock()
 	session.sdpCtx = sdpCtx
@@ -120,7 +136,25 @@ func (session *BaseInSession) InitWithSdp(sdpCtx sdp.LogicContext) {
 	session.audioRrProducer = rtprtcp.NewRrProducer(session.sdpCtx.AudioClockRate)
 	session.videoRrProducer = rtprtcp.NewRrProducer(session.sdpCtx.VideoClockRate)
 
-	if session.sdpCtx.IsAudioUnpackable() && session.sdpCtx.IsVideoUnpackable() {
+	if session.useSrClock {
+		// 注意，IsAudioUnpackable把缺省的音频类型(0值)也当成可解包，
+		// 所以这里额外要求sdp中确实存在该轨（有对应的a=control），sdp里没出现的轨道不会去等
+		audioKnown := session.sdpCtx.IsAudioUnpackable() && session.sdpCtx.HasAudioAControl()
+		videoKnown := session.sdpCtx.IsVideoUnpackable() && session.sdpCtx.HasVideoAControl()
+
+		var emit func(pkt base.AvPacket)
+		session.mu.Lock()
+		if audioKnown && videoKnown {
+			// 双轨时仍按现有双队列等另一轨的方式归并，只是不再逐轨归零
+			session.avPacketQueue = NewAvPacketQueueWithPreserveTs(session.onAvPacket)
+			emit = session.avPacketQueue.Feed
+		} else {
+			emit = session.onAvPacket
+		}
+		session.srClock = newSenderReportClock(audioKnown, session.sdpCtx.AudioClockRate,
+			videoKnown, session.sdpCtx.VideoClockRate, emit)
+		session.mu.Unlock()
+	} else if session.sdpCtx.IsAudioUnpackable() && session.sdpCtx.IsVideoUnpackable() {
 		session.mu.Lock()
 		if BaseInSessionTimestampFilterFlag {
 			session.avPacketQueue = NewAvPacketQueue(session.onAvPacket)
@@ -253,6 +287,11 @@ func (session *BaseInSession) onAvPacketUnpacked(pkt base.AvPacket) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
+	if session.srClock != nil {
+		session.srClock.onFrame(pkt)
+		return
+	}
+
 	if session.avPacketQueue != nil {
 		session.avPacketQueue.Feed(pkt)
 	} else {
@@ -299,14 +338,22 @@ func (session *BaseInSession) handleRtcpPacket(b []byte, rAddr *net.UDPAddr) err
 		return nazaerrors.Wrap(base.ErrRtsp)
 	}
 
-	packetType := b[1]
+	// 一个datagram里可能复合了多个子包。
+	// 先整体校验（完整边界、版本、长度、SR的report-count长度），校验通过后才使用里面的SR，
+	// 因此尾包子包被截断时，前面的SR也不会发布映射或者释放帧。
+	srs, err := rtprtcp.ParseCompoundSr(b)
+	if err != nil {
+		Log.Errorf("[%s] handleRtcpPacket but datagram invalid. err=%+v, len=%d, hex=%s",
+			session.UniqueKey(), err, len(b), hex.Dump(nazabytes.Prefix(b, 32)))
+		return err
+	}
 
-	switch packetType {
-	case rtprtcp.RtcpPacketTypeSr:
-		sr := rtprtcp.ParseSr(b)
+	for _, sr := range srs {
 		if session.dumpReadSr.ShouldDump() {
 			session.dumpReadSr.Outf("[%s] READ_RTCP. sr=%+v", session.UniqueKey(), sr)
 		}
+
+		// 原有的RR路径，所有SR（包括映射建立后的）都照常参与
 		var rrBuf []byte
 		switch sr.SenderSsrc {
 		case session.audioSsrc.Load():
@@ -340,10 +387,13 @@ func (session *BaseInSession) handleRtcpPacket(b []byte, rAddr *net.UDPAddr) err
 			//Log.Warnf("[%s] read rtcp sr but senderSsrc invalid. senderSsrc=%d, audio=%d, video=%d",
 			//	p.uniqueKey, sr.SenderSsrc, p.audioSsrc, p.videoSsrc)
 		}
-	default:
-		Log.Warnf("[%s] handleRtcpPacket but type unknown. type=%d, len=%d, hex=%s",
-			session.UniqueKey(), b[1], len(b), hex.Dump(nazabytes.Prefix(b, 32)))
-		return nazaerrors.Wrap(base.ErrRtsp)
+
+		// Sender Report时钟模式
+		if session.srClock != nil {
+			session.mu.Lock()
+			session.srClock.feedSr(sr)
+			session.mu.Unlock()
+		}
 	}
 
 	return nil
@@ -384,6 +434,9 @@ func (session *BaseInSession) handleRtpPacket(b []byte) error {
 		session.observer.OnRtpPacket(pkt)
 		session.mu.Lock()
 		session.audioRrProducer.FeedRtpPacket(h.Seq)
+		if session.srClock != nil {
+			session.srClock.feedRtpSsrc(true, h.Ssrc)
+		}
 		session.mu.Unlock()
 
 		if session.audioUnpacker != nil {
@@ -399,6 +452,9 @@ func (session *BaseInSession) handleRtpPacket(b []byte) error {
 		session.observer.OnRtpPacket(pkt)
 		session.mu.Lock()
 		session.videoRrProducer.FeedRtpPacket(h.Seq)
+		if session.srClock != nil {
+			session.srClock.feedRtpSsrc(false, h.Ssrc)
+		}
 		session.mu.Unlock()
 
 		if session.videoUnpacker != nil {

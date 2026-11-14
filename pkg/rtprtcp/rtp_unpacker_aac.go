@@ -78,6 +78,7 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 			var outPkt base.AvPacket
 			outPkt.PayloadType = unpacker.payloadType
 			outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+			outPkt.RtpTimestamp = p.Packet.Header.Timestamp
 			outPkt.Payload = b[aus[0].pos : aus[0].pos+aus[0].size]
 			unpacker.onAvPacket(outPkt)
 
@@ -135,6 +136,7 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 				var outPkt base.AvPacket
 				outPkt.PayloadType = unpacker.payloadType
 				outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+				outPkt.RtpTimestamp = timestamp
 				for _, a := range as {
 					outPkt.Payload = append(outPkt.Payload, a...)
 				}
@@ -157,6 +159,7 @@ func (unpacker *RtpUnpackerAac) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 		var outPkt base.AvPacket
 		outPkt.PayloadType = unpacker.payloadType
 		outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		outPkt.RtpTimestamp = p.Packet.Header.Timestamp
 		// TODO chef: 这里1024的含义
 		outPkt.Timestamp += int64(uint32(i * (1024 * 1000) / unpacker.clockRate))
 		outPkt.Payload = b[aus[i].pos : aus[i].pos+aus[i].size]

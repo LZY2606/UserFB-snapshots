@@ -10,6 +10,9 @@ package rtprtcp
 
 import (
 	"github.com/q191201771/naza/pkg/bele"
+	"github.com/q191201771/naza/pkg/nazaerrors"
+
+	"github.com/q191201771/lal/pkg/base"
 )
 
 // -------------------------------------------
@@ -142,4 +145,42 @@ func (r *RtcpHeader) PackTo(out []byte) {
 
 func (s *Sr) GetMiddleNtp() uint32 {
 	return uint32(((uint64(s.Msw)<<32 | uint64(s.Lsw)) << 16) >> 32)
+}
+
+// ParseCompoundSr 校验一个rtcp datagram（可能复合了多个子包），并返回其中所有的SR。
+//
+// 校验内容包括：每个子包的完整边界、版本、长度，以及SR子包的report-count长度。
+// 注意，只要任何一个子包校验失败（比如尾包子包被截断），整个datagram都不可用，
+// 也即前面已经解析出的SR也不能被使用。
+func ParseCompoundSr(b []byte) ([]Sr, error) {
+	var srs []Sr
+
+	for offset := 0; offset < len(b); {
+		if len(b)-offset < RtcpHeaderLength {
+			return nil, nazaerrors.Wrap(base.ErrRtpRtcpShortBuffer)
+		}
+
+		h := ParseRtcpHeader(b[offset:])
+		if h.Version != RtcpVersion {
+			return nil, nazaerrors.Wrap(base.ErrRtpRtcpVersionInvalid)
+		}
+
+		pktLen := (int(h.Length) + 1) * 4
+		if pktLen < RtcpHeaderLength || offset+pktLen > len(b) {
+			return nil, nazaerrors.Wrap(base.ErrRtpRtcpShortBuffer)
+		}
+
+		if h.PacketType == RtcpPacketTypeSr {
+			// sr子包 = 4字节头 + 24字节sender info + report-count个24字节report block
+			need := RtcpHeaderLength + 24 + int(h.CountOrFormat)*24
+			if pktLen < need {
+				return nil, nazaerrors.Wrap(base.ErrRtpRtcpShortBuffer)
+			}
+			srs = append(srs, ParseSr(b[offset:offset+pktLen]))
+		}
+
+		offset += pktLen
+	}
+
+	return srs, nil
 }

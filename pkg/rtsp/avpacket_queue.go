@@ -35,6 +35,9 @@ type AvPacketQueue struct {
 	audioQueue *circularqueue.CircularQueue // TODO chef: 特化成AvPacket类型
 	videoQueue *circularqueue.CircularQueue
 
+	// preserveTs 为true时，不再对音视频各自归零，直接使用输入的时间戳做双队列归并
+	preserveTs bool
+
 	audioBaseTs int64 // audio base timestamp
 	videoBaseTs int64 // video base timestamp
 
@@ -62,6 +65,16 @@ func NewAvPacketQueue(onAvPacket OnAvPacket) *AvPacketQueue {
 		audioPrevIntervalTs: -1,
 		videoPrevIntervalTs: -1,
 	}
+}
+
+// NewAvPacketQueueWithPreserveTs 归并方式与 NewAvPacketQueue 相同（双队列等待另一轨、按时间戳交替输出），
+// 但不修改输入包的时间戳，也即不做逐轨归零。
+//
+// 注意，本模块默认音频和视频都存在，如果只有音频或只有视频，则不要使用该模块
+func NewAvPacketQueueWithPreserveTs(onAvPacket OnAvPacket) *AvPacketQueue {
+	q := NewAvPacketQueue(onAvPacket)
+	q.preserveTs = true
+	return q
 }
 
 func (a *AvPacketQueue) adjustTsHandleRotate(pkt *base.AvPacket) {
@@ -156,7 +169,13 @@ func (a *AvPacketQueue) adjustTs(pkt *base.AvPacket) {
 func (a *AvPacketQueue) Feed(pkt base.AvPacket) {
 	//Log.Debugf("[AVQ] Feed. t=%d, ts=%d, Q(%d,%d), %s, base(%d,%d)", pkt.PayloadType, pkt.Timestamp, a.audioQueue.Size(), a.videoQueue.Size(), packetsReadable(peekQueuePackets(a)), a.audioBaseTs, a.videoBaseTs)
 
-	if TimestampFilterHandleRotateFlag {
+	if a.preserveTs {
+		if pkt.IsVideo() {
+			_ = a.videoQueue.PushBack(pkt)
+		} else {
+			_ = a.audioQueue.PushBack(pkt)
+		}
+	} else if TimestampFilterHandleRotateFlag {
 		a.adjustTsHandleRotate(&pkt)
 	} else {
 		a.adjustTs(&pkt)

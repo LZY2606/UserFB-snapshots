@@ -70,6 +70,7 @@ func NewErrRtmpShortBuffer(need, actual int, msg string) error {
 // ----- pkg/rtprtcp ---------------------------------------------------------------------------------------------------
 
 var ErrRtpRtcpShortBuffer = errors.New("lal.rtprtcp: buffer too short")
+var ErrRtpRtcpVersionInvalid = errors.New("lal.rtprtcp: version invalid")
 
 // ----- pkg/rtsp ------------------------------------------------------------------------------------------------------
 

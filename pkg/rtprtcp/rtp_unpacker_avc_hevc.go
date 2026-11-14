@@ -51,6 +51,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 		var pkt base.AvPacket
 		pkt.PayloadType = unpacker.payloadType
 		pkt.Timestamp = int64(first.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		pkt.RtpTimestamp = first.Packet.Header.Timestamp
 
 		pkt.Payload = make([]byte, len(first.Packet.Body())+4)
 		bele.BePutUint32(pkt.Payload, uint32(len(first.Packet.Body())))
@@ -72,6 +73,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 		var pkt base.AvPacket
 		pkt.PayloadType = unpacker.payloadType
 		pkt.Timestamp = int64(first.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+		pkt.RtpTimestamp = first.Packet.Header.Timestamp
 
 		// 跳过前面的字节，并且将多nalu前的2字节长度，替换成4字节长度
 		// skip后：
@@ -126,6 +128,7 @@ func (unpacker *RtpUnpackerAvcHevc) TryUnpackOne(list *RtpPacketList) (unpackedF
 				var pkt base.AvPacket
 				pkt.PayloadType = unpacker.payloadType
 				pkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+				pkt.RtpTimestamp = first.Packet.Header.Timestamp
 
 				var naluTypeLen int
 				var naluType []byte

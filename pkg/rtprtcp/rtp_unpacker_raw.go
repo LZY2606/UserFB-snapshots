@@ -39,6 +39,7 @@ func (unpacker *RtpUnpackerRaw) TryUnpackOne(list *RtpPacketList) (unpackedFlag 
 	var outPkt base.AvPacket
 	outPkt.PayloadType = unpacker.payloadType
 	outPkt.Timestamp = int64(p.Packet.Header.Timestamp / uint32(unpacker.clockRate/1000))
+	outPkt.RtpTimestamp = p.Packet.Header.Timestamp
 	outPkt.Payload = b
 	unpacker.onAvPacket(outPkt)
 
