@@ -31,6 +31,7 @@
 #endif
 
 #include "twolame.h"
+#include "resample.h"
 
 
 
@@ -348,6 +349,9 @@ struct twolame_options_struct {
     /* Resampling stuff */
     FLOAT resample_ratio;
     void *resample_handle[2];
+    twolame_resampler *resampler;  /* NULL when input and output rates match */
+    unsigned long long resampled_samples; /* frames pushed into the encode buffer */
+    int flush_done;
 
 
     // memory for psycho models

@@ -285,6 +285,21 @@ TL_API int twolame_encode_flush(twolame_options * glopts,
                                     unsigned char *mp2buffer, int mp2buffer_size);
 
 
+/** Number of resampled frames already pushed into the encoder frame buffer.
+ *
+ *  Counts genuine resampled samples only; encoder zero padding for the
+ *  final MPEG frame is not counted. When the input and output sample
+ *  rates are identical, this counts the raw input samples consumed.
+ *  After twolame_encode_flush() it equals the logical resampled length
+ *  ceil(N * out_rate / in_rate), where N is the number of input samples
+ *  per channel.
+ *
+ *  \param glopts          twolame options pointer
+ *  \return                number of resampled frames fed to the encoder
+ */
+TL_API unsigned long long twolame_get_resampled_samples(const twolame_options * glopts);
+
+
 /** Shut down the twolame encoder.
  *
  *  Shuts down the twolame encoder and frees all memory

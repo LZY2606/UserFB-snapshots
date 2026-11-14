@@ -44,6 +44,7 @@
 #include "encode.h"
 #include "energy.h"
 #include "util.h"
+#include "resample.h"
 
 #include "bitbuffer_inline.h"
 
@@ -203,6 +204,13 @@ int twolame_init_params(twolame_options * glopts)
             fprintf(stderr,
                     "Error: twolame cannot encode files with more than 2 channels.\n");
         }
+        return -1;
+    }
+    // Check the input sample rate is an integer inside the supported range
+    if (glopts->samplerate_in < 8000 || glopts->samplerate_in > 96000) {
+        fprintf(stderr,
+                "twolame_init_params(): input samplerate %i is not supported (8000..96000 Hz).\n",
+                glopts->samplerate_in);
         return -1;
     }
     // If not output samplerate has been set, then set it to the input sample rate
@@ -382,11 +390,23 @@ int twolame_init_params(twolame_options * glopts)
     if (twolame_encode_init(glopts) < 0) {
         return -1;
     }
-    // Check input samplerate is same as output samplerate
+    // Create the streaming resampler when input and output rates differ.
+    // Equal rates keep the original path so the bit stream is unchanged.
+    glopts->resampler = NULL;
+    glopts->resampled_samples = 0;
+    glopts->flush_done = 0;
     if (glopts->samplerate_out != glopts->samplerate_in) {
-        fprintf(stderr,
-                "twolame_init_params(): sorry, twolame doesn't support resampling (yet).\n");
-        return -1;
+        glopts->resample_ratio =
+            (FLOAT) glopts->samplerate_out / (FLOAT) glopts->samplerate_in;
+        glopts->resampler =
+            twolame_resampler_create(glopts->samplerate_in, glopts->samplerate_out,
+                                     glopts->num_channels_in);
+        if (glopts->resampler == NULL) {
+            fprintf(stderr,
+                    "twolame_init_params(): failed to create resampler for %d -> %d Hz.\n",
+                    glopts->samplerate_in, glopts->samplerate_out);
+            return -1;
+        }
     }
 
     // Initialise internal variables
@@ -674,6 +694,50 @@ static int encode_frame(twolame_options * glopts, bit_stream * bs)
   mp2fill_size - how much mpeg data the library has put into the mp2buffer
 */
 
+/*
+  Feed converted samples into the 1152-sample frame buffer, emitting whole
+  MPEG frames as they complete. Scaling and channel mixing are applied once
+  per frame on the converted samples, inside encode_frame().
+  Returns 0 on success, -1 if a frame could not be encoded.
+*/
+static int feed_resampled(twolame_options * glopts, bit_stream * mybs,
+                          short *ch[], int n, int *mp2_size)
+{
+    while (n > 0) {
+        int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
+        int i;
+
+        if (n < samples_to_copy)
+            samples_to_copy = n;
+
+        if (glopts->num_channels_in == 2) {
+            for (i = 0; i < 2; i++) {
+                memcpy(&glopts->buffer[i][glopts->samples_in_buffer], ch[i],
+                       samples_to_copy * sizeof(short));
+                ch[i] += samples_to_copy;
+            }
+        } else {
+            memcpy(&glopts->buffer[0][glopts->samples_in_buffer], ch[0],
+                   samples_to_copy * sizeof(short));
+            ch[0] += samples_to_copy;
+        }
+
+        glopts->samples_in_buffer += samples_to_copy;
+        glopts->resampled_samples += samples_to_copy;
+        n -= samples_to_copy;
+
+        if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
+            int bytes = encode_frame(glopts, mybs);
+            if (bytes <= 0)
+                return -1;
+            *mp2_size += bytes;
+            glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
+        }
+    }
+    return 0;
+}
+
+
 int twolame_encode_buffer(twolame_options * glopts,
                           const short int leftpcm[],
                           const short int rightpcm[],
@@ -692,39 +756,56 @@ int twolame_encode_buffer(twolame_options * glopts,
     mybs = twolame_buffer_init(mp2buffer, mp2buffer_size);
 
     if (mybs != NULL) {
-        // Use up all the samples in in_buffer
-        while (num_samples) {
+        if (glopts->resampler != NULL) {
+            // Band-limited resampling path: the resampler owns the schedule
+            // and per-channel filter history.
+            const short *in[2];
+            short *out[2];
+            int out_n = 0;
 
-            // fill up glopts->buffer with as much as we can
-            int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
-            if (num_samples < samples_to_copy)
-                samples_to_copy = num_samples;
+            in[0] = leftpcm;
+            in[1] = rightpcm;
+            if (twolame_resampler_process(glopts->resampler, in, num_samples, out, &out_n) < 0
+                    || feed_resampled(glopts, mybs, out, out_n, &mp2_size) < 0) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+        } else {
+            // Use up all the samples in in_buffer
+            while (num_samples) {
 
-            /* Copy across samples */
-            if (glopts->num_channels_in == 2)
-                for (i = 0; i < samples_to_copy; i++) {
-                    glopts->buffer[0][glopts->samples_in_buffer + i] = *leftpcm++;
-                    glopts->buffer[1][glopts->samples_in_buffer + i] = *rightpcm++;
+                // fill up glopts->buffer with as much as we can
+                int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
+                if (num_samples < samples_to_copy)
+                    samples_to_copy = num_samples;
+
+                /* Copy across samples */
+                if (glopts->num_channels_in == 2)
+                    for (i = 0; i < samples_to_copy; i++) {
+                        glopts->buffer[0][glopts->samples_in_buffer + i] = *leftpcm++;
+                        glopts->buffer[1][glopts->samples_in_buffer + i] = *rightpcm++;
+                    }
+                else
+                    for (i = 0; i < samples_to_copy; i++)
+                        glopts->buffer[0][glopts->samples_in_buffer + i] = *leftpcm++;
+
+
+                /* Update sample counts */
+                glopts->samples_in_buffer += samples_to_copy;
+                glopts->resampled_samples += samples_to_copy;
+                num_samples -= samples_to_copy;
+
+
+                // is there enough to encode a whole frame ?
+                if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
+                    int bytes = encode_frame(glopts, mybs);
+                    if (bytes <= 0) {
+                        twolame_buffer_deinit(&mybs);
+                        return bytes;
+                    }
+                    mp2_size += bytes;
+                    glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
                 }
-            else
-                for (i = 0; i < samples_to_copy; i++)
-                    glopts->buffer[0][glopts->samples_in_buffer + i] = *leftpcm++;
-
-
-            /* Update sample counts */
-            glopts->samples_in_buffer += samples_to_copy;
-            num_samples -= samples_to_copy;
-
-
-            // is there enough to encode a whole frame ?
-            if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
-                int bytes = encode_frame(glopts, mybs);
-                if (bytes <= 0) {
-                    twolame_buffer_deinit(&mybs);
-                    return bytes;
-                }
-                mp2_size += bytes;
-                glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
             }
         }
 
@@ -753,39 +834,52 @@ int twolame_encode_buffer_interleaved(twolame_options * glopts,
     mybs = twolame_buffer_init(mp2buffer, mp2buffer_size);
 
     if (mybs != NULL) {
-        // Use up all the samples in in_buffer
-        while (num_samples) {
+        if (glopts->resampler != NULL) {
+            short *out[2];
+            int out_n = 0;
 
-            // fill up glopts->buffer with as much as we can
-            int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
-            if (num_samples < samples_to_copy)
-                samples_to_copy = num_samples;
+            if (twolame_resampler_process_interleaved(glopts->resampler, pcm, num_samples,
+                                                      glopts->num_channels_in, out, &out_n) < 0
+                    || feed_resampled(glopts, mybs, out, out_n, &mp2_size) < 0) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+        } else {
+            // Use up all the samples in in_buffer
+            while (num_samples) {
 
-            /* Copy across samples */
-            if (glopts->num_channels_in == 2)
-                for (i = 0; i < samples_to_copy; i++) {
-                    glopts->buffer[0][glopts->samples_in_buffer + i] = *pcm++;
-                    glopts->buffer[1][glopts->samples_in_buffer + i] = *pcm++;
+                // fill up glopts->buffer with as much as we can
+                int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
+                if (num_samples < samples_to_copy)
+                    samples_to_copy = num_samples;
+
+                /* Copy across samples */
+                if (glopts->num_channels_in == 2)
+                    for (i = 0; i < samples_to_copy; i++) {
+                        glopts->buffer[0][glopts->samples_in_buffer + i] = *pcm++;
+                        glopts->buffer[1][glopts->samples_in_buffer + i] = *pcm++;
+                    }
+                else
+                    for (i = 0; i < samples_to_copy; i++)
+                        glopts->buffer[0][glopts->samples_in_buffer + i] = *pcm++;
+
+
+                /* Update sample counts */
+                glopts->samples_in_buffer += samples_to_copy;
+                glopts->resampled_samples += samples_to_copy;
+                num_samples -= samples_to_copy;
+
+
+                // is there enough to encode a whole frame ?
+                if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
+                    int bytes = encode_frame(glopts, mybs);
+                    if (bytes <= 0) {
+                        twolame_buffer_deinit(&mybs);
+                        return bytes;
+                    }
+                    mp2_size += bytes;
+                    glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
                 }
-            else
-                for (i = 0; i < samples_to_copy; i++)
-                    glopts->buffer[0][glopts->samples_in_buffer + i] = *pcm++;
-
-
-            /* Update sample counts */
-            glopts->samples_in_buffer += samples_to_copy;
-            num_samples -= samples_to_copy;
-
-
-            // is there enough to encode a whole frame ?
-            if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
-                int bytes = encode_frame(glopts, mybs);
-                if (bytes <= 0) {
-                    twolame_buffer_deinit(&mybs);
-                    return bytes;
-                }
-                mp2_size += bytes;
-                glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
             }
         }
 
@@ -841,37 +935,69 @@ int twolame_encode_buffer_float32(twolame_options * glopts,
     mybs = twolame_buffer_init(mp2buffer, mp2buffer_size);
 
     if (mybs != NULL) {
-        // Use up all the samples in in_buffer
-        while (num_samples) {
+        if (glopts->resampler != NULL) {
+            // Convert to short first, then share the planar short path.
+            const short *in[2];
+            short *out[2];
+            short *leftshort, *rightshort = NULL;
+            int out_n = 0;
 
-            // fill up glopts->buffer with as much as we can
-            int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
-            if (num_samples < samples_to_copy)
-                samples_to_copy = num_samples;
-
-            /* Copy across samples */
-            float32_to_short(leftpcm, &glopts->buffer[0][glopts->samples_in_buffer], samples_to_copy,
-                             1);
-            if (glopts->num_channels_in == 2)
-                float32_to_short(rightpcm, &glopts->buffer[1][glopts->samples_in_buffer],
-                                 samples_to_copy, 1);
-            leftpcm += samples_to_copy;
-            rightpcm += samples_to_copy;
-
-            /* Update sample counts */
-            glopts->samples_in_buffer += samples_to_copy;
-            num_samples -= samples_to_copy;
-
-
-            // is there enough to encode a whole frame ?
-            if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
-                int bytes = encode_frame(glopts, mybs);
-                if (bytes <= 0) {
+            leftshort = twolame_resampler_scratch(glopts->resampler, 0, num_samples);
+            if (leftshort == NULL) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+            float32_to_short(leftpcm, leftshort, num_samples, 1);
+            in[0] = leftshort;
+            if (glopts->num_channels_in == 2) {
+                rightshort = twolame_resampler_scratch(glopts->resampler, 1, num_samples);
+                if (rightshort == NULL) {
                     twolame_buffer_deinit(&mybs);
-                    return bytes;
+                    return -1;
                 }
-                mp2_size += bytes;
-                glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
+                float32_to_short(rightpcm, rightshort, num_samples, 1);
+                in[1] = rightshort;
+            }
+
+            if (twolame_resampler_process(glopts->resampler, in, num_samples, out, &out_n) < 0
+                    || feed_resampled(glopts, mybs, out, out_n, &mp2_size) < 0) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+        } else {
+            // Use up all the samples in in_buffer
+            while (num_samples) {
+
+                // fill up glopts->buffer with as much as we can
+                int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
+                if (num_samples < samples_to_copy)
+                    samples_to_copy = num_samples;
+
+                /* Copy across samples */
+                float32_to_short(leftpcm, &glopts->buffer[0][glopts->samples_in_buffer], samples_to_copy,
+                                 1);
+                if (glopts->num_channels_in == 2)
+                    float32_to_short(rightpcm, &glopts->buffer[1][glopts->samples_in_buffer],
+                                     samples_to_copy, 1);
+                leftpcm += samples_to_copy;
+                rightpcm += samples_to_copy;
+
+                /* Update sample counts */
+                glopts->samples_in_buffer += samples_to_copy;
+                glopts->resampled_samples += samples_to_copy;
+                num_samples -= samples_to_copy;
+
+
+                // is there enough to encode a whole frame ?
+                if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
+                    int bytes = encode_frame(glopts, mybs);
+                    if (bytes <= 0) {
+                        twolame_buffer_deinit(&mybs);
+                        return bytes;
+                    }
+                    mp2_size += bytes;
+                    glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
+                }
             }
         }
 
@@ -900,37 +1026,69 @@ int twolame_encode_buffer_float32_interleaved(twolame_options * glopts,
     mybs = twolame_buffer_init(mp2buffer, mp2buffer_size);
 
     if (mybs != NULL) {
-        // Use up all the samples in in_buffer
-        while (num_samples) {
+        if (glopts->resampler != NULL) {
+            // Convert to planar short first, then share the planar short path.
+            const short *in[2];
+            short *out[2];
+            short *leftshort, *rightshort = NULL;
+            int out_n = 0;
 
-            // fill up glopts->buffer with as much as we can
-            int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
-            if (num_samples < samples_to_copy)
-                samples_to_copy = num_samples;
-
-            /* Copy across samples */
-            float32_to_short(pcm, &glopts->buffer[0][glopts->samples_in_buffer], samples_to_copy,
-                             glopts->num_channels_in);
-            if (glopts->num_channels_in == 2)
-                float32_to_short(pcm + 1, &glopts->buffer[1][glopts->samples_in_buffer],
-                                 samples_to_copy, glopts->num_channels_in);
-            pcm += (samples_to_copy * glopts->num_channels_in);
-
-
-            /* Update sample counts */
-            glopts->samples_in_buffer += samples_to_copy;
-            num_samples -= samples_to_copy;
-
-
-            // is there enough to encode a whole frame ?
-            if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
-                int bytes = encode_frame(glopts, mybs);
-                if (bytes <= 0) {
+            leftshort = twolame_resampler_scratch(glopts->resampler, 0, num_samples);
+            if (leftshort == NULL) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+            float32_to_short(pcm, leftshort, num_samples, glopts->num_channels_in);
+            in[0] = leftshort;
+            if (glopts->num_channels_in == 2) {
+                rightshort = twolame_resampler_scratch(glopts->resampler, 1, num_samples);
+                if (rightshort == NULL) {
                     twolame_buffer_deinit(&mybs);
-                    return bytes;
+                    return -1;
                 }
-                mp2_size += bytes;
-                glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
+                float32_to_short(pcm + 1, rightshort, num_samples, glopts->num_channels_in);
+                in[1] = rightshort;
+            }
+
+            if (twolame_resampler_process(glopts->resampler, in, num_samples, out, &out_n) < 0
+                    || feed_resampled(glopts, mybs, out, out_n, &mp2_size) < 0) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
+        } else {
+            // Use up all the samples in in_buffer
+            while (num_samples) {
+
+                // fill up glopts->buffer with as much as we can
+                int samples_to_copy = TWOLAME_SAMPLES_PER_FRAME - glopts->samples_in_buffer;
+                if (num_samples < samples_to_copy)
+                    samples_to_copy = num_samples;
+
+                /* Copy across samples */
+                float32_to_short(pcm, &glopts->buffer[0][glopts->samples_in_buffer], samples_to_copy,
+                                 glopts->num_channels_in);
+                if (glopts->num_channels_in == 2)
+                    float32_to_short(pcm + 1, &glopts->buffer[1][glopts->samples_in_buffer],
+                                     samples_to_copy, glopts->num_channels_in);
+                pcm += (samples_to_copy * glopts->num_channels_in);
+
+
+                /* Update sample counts */
+                glopts->samples_in_buffer += samples_to_copy;
+                glopts->resampled_samples += samples_to_copy;
+                num_samples -= samples_to_copy;
+
+
+                // is there enough to encode a whole frame ?
+                if (glopts->samples_in_buffer >= TWOLAME_SAMPLES_PER_FRAME) {
+                    int bytes = encode_frame(glopts, mybs);
+                    if (bytes <= 0) {
+                        twolame_buffer_deinit(&mybs);
+                        return bytes;
+                    }
+                    mp2_size += bytes;
+                    glopts->samples_in_buffer -= TWOLAME_SAMPLES_PER_FRAME;
+                }
             }
         }
 
@@ -949,28 +1107,58 @@ int twolame_encode_flush(twolame_options * glopts, unsigned char *mp2buffer, int
     int mp2_size = 0;
     int i;
 
-    if (glopts->samples_in_buffer == 0) {
-        // No samples left over
+    /* A second flush never emits anything, even if the first one failed. */
+    if (glopts->flush_done) {
         return 0;
     }
+    glopts->flush_done = 1;
+
     // Create bit stream structure
     mybs = twolame_buffer_init(mp2buffer, mp2buffer_size);
 
     if (mybs != NULL) {
-        // Pad out the PCM buffers with 0 and encode the frame
-        for (i = glopts->samples_in_buffer; i < TWOLAME_SAMPLES_PER_FRAME; i++) {
-            glopts->buffer[0][i] = glopts->buffer[1][i] = 0;
+        if (glopts->resampler != NULL) {
+            // Zero-extend the source and produce the rest of the logical
+            // output interval. No filter tail is encoded beyond it.
+            short *out[2];
+            int out_n = 0;
+
+            if (twolame_resampler_flush(glopts->resampler, out, &out_n) < 0
+                    || feed_resampled(glopts, mybs, out, out_n, &mp2_size) < 0) {
+                twolame_buffer_deinit(&mybs);
+                return -1;
+            }
         }
 
-        // Encode the frame
-        mp2_size = encode_frame(glopts, mybs);
-        glopts->samples_in_buffer = 0;
+        if (glopts->samples_in_buffer > 0) {
+            // Pad out the PCM buffers with 0 and encode the final frame
+            for (i = glopts->samples_in_buffer; i < TWOLAME_SAMPLES_PER_FRAME; i++) {
+                glopts->buffer[0][i] = glopts->buffer[1][i] = 0;
+            }
+
+            // Encode the frame
+            int bytes = encode_frame(glopts, mybs);
+            if (bytes <= 0) {
+                twolame_buffer_deinit(&mybs);
+                return bytes;
+            }
+            mp2_size += bytes;
+            glopts->samples_in_buffer = 0;
+        }
 
         // free up the bit stream buffer structure
         twolame_buffer_deinit(&mybs);
     }
 
     return mp2_size;
+}
+
+
+unsigned long long twolame_get_resampled_samples(const twolame_options * glopts)
+{
+    if (glopts == NULL)
+        return 0;
+    return glopts->resampled_samples;
 }
 
 
@@ -997,6 +1185,9 @@ void twolame_close(twolame_options ** glopts)
     TWOLAME_FREE(opts->subband);
     TWOLAME_FREE(opts->j_sample);
     TWOLAME_FREE(opts->sb_sample);
+
+    twolame_resampler_destroy(opts->resampler);
+    opts->resampler = NULL;
 
     // Free the memory and zero the pointer
     TWOLAME_FREE(opts);

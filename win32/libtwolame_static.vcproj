@@ -229,6 +229,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\libtwolame\resample.h"
+				>
+			</File>
+			<File
 				RelativePath="..\libtwolame\subband.h"
 				>
 			</File>
@@ -318,6 +322,10 @@
 			</File>
 			<File
 				RelativePath="..\libtwolame\psycho_n1.c"
+				>
+			</File>
+			<File
+				RelativePath="..\libtwolame\resample.c"
 				>
 			</File>
 			<File

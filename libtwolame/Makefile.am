@@ -43,6 +43,8 @@ libtwolame_la_SOURCES = \
 	psycho_4.h \
 	psycho_n1.c \
 	psycho_n1.h \
+	resample.c \
+	resample.h \
 	subband.c \
 	subband.h \
 	twolame.c \
