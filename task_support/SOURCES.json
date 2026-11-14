@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/otherlab/openmesh",
+  "commit": "1b57069ba1902edf5c1d27e5a5f61c13c1b82787",
+  "license": {
+    "LICENSE/COPYING": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+    "LICENSE/COPYING.LESSER": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+    "LICENSE/COPYING.EXCEPTIONS": "86ed0983efe9069e3b9ae56f6b0ba3e2f761788e65292b43ed3cdd6e4654a112"
+  },
+  "dependencies": "C++14 standard library only; all Core sources and TestFiles are tracked upstream. No install/download commands.",
+  "support_files": "baseline.cpp is a new normal Quadric path witness; three unmodified unittests_decimater.cc cases run through a local non-GTest adapter. The adapter structure is derived from an earlier public seed.patch, not its target or outcomes.",
+  "adapter_source_sha256": "902f5210e2a81d45c683bbf0837a05d6c4442db46e4d556be02216478d4cc83f",
+  "target_pending": "checks/test_decimation_history.cpp and all history production APIs are absent."
+}
