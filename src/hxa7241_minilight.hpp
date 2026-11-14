@@ -29,6 +29,7 @@ namespace hxa7241_minilight
    class Scene;
    class SurfacePoint;
    class RayTracer;
+   class Bidirectional;
    class Camera;
 }
 

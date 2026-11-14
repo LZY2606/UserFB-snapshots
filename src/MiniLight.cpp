@@ -54,7 +54,11 @@ const char HELP_MESSAGE[] =
 "MiniLight is a minimal global illumination renderer.\n"
 "\n"
 "usage:\n"
-"  minilight modelFilePathName\n"
+"  minilight modelFilePathName [--bidir maxVertices]\n"
+"\n"
+"--bidir uses the limited-depth bidirectional path connection estimator\n"
+"with the given surface-vertex limit (1..12) instead of the default\n"
+"unidirectional ray tracer.\n"
 "\n"
 "The model text file format is:\n"
 "  #MiniLight\n"
@@ -147,6 +151,21 @@ int main
          // HDRI
          //const std::string imageFilePathname( modelFilePathname + ".rgbe" );
 
+         // parse optional arguments
+         int32 bidirMaxVertices = 0;
+         for( int a = 2;  a < argc; )
+         {
+            if( (std::string(argv[a]) == "--bidir") & (a + 1 < argc) )
+            {
+               bidirMaxVertices = std::atoi( argv[a + 1] );
+               a += 2;
+            }
+            else
+            {
+               throw std::runtime_error( "unrecognised argument" );
+            }
+         }
+
          // open model file
          std::ifstream modelFile( modelFilePathname.c_str() );
          modelFile.exceptions( std::ios::badbit | std::ios::eofbit );
@@ -182,7 +201,14 @@ int main
             (std::cout << "\riteration: " << frameNo).flush();
 
             // render a frame
-            camera.getFrame( scene, random, image );
+            if( bidirMaxVertices > 0 )
+            {
+               camera.getFrame( scene, random, image, bidirMaxVertices );
+            }
+            else
+            {
+               camera.getFrame( scene, random, image );
+            }
 
             // save image at twice error-halving rate, and at start and end
             if( ((frameNo & (frameNo - 1)) == 0) | (iterations == frameNo) )

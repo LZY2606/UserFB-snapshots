@@ -72,6 +72,22 @@ Random::Random()
 }
 
 
+Random::Random
+(
+   const int32u seed
+)
+{
+   /* mix the seed into four state words (LCG + xor-fold), keeping each
+      above the maximum minimum seed (127) required by the generator */
+   int32u s = seed;
+   for( int i = 4;  i-- > 0; )
+   {
+      s       = (s * 1664525u) + 1013904223u;
+      z_m[i]  = (s ^ (s >> 16)) | 0x80u;
+   }
+}
+
+
 
 
 /// queries --------------------------------------------------------------------

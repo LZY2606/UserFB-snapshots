@@ -36,9 +36,17 @@ class Random
 /// standard object services ---------------------------------------------------
 public:
             /**
-             * Create Random object.
+             * Create Random object, with default seed.
              */
             Random();
+
+            /**
+             * Create Random object, with explicit seed.<br/><br/>
+             *
+             * The default constructor sequence is left unchanged; this only
+             * adds an alternative, independently-seeded sequence.
+             */
+   explicit Random( int32u seed );
 
 // use defaults
 //         ~Random();

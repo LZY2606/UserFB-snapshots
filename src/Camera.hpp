@@ -60,6 +60,15 @@ public:
                            const Random&,
                            Image& )                                       const;
 
+           /**
+            * As getFrame, but using the limited-depth bidirectional
+            * connection estimator with the given surface-vertex limit.
+            */
+           void  getFrame( const Scene&,
+                           const Random&,
+                           Image&,
+                           int32          bidirMaxVertices )              const;
+
 
 /// constants ------------------------------------------------------------------
    static  real64 VIEW_ANGLE_MIN();
