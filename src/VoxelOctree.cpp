@@ -32,6 +32,9 @@ freely, subject to the following restrictions:
 #include <iostream>
 #include <stdio.h>
 #include <cmath>
+#include <functional>
+#include <unordered_map>
+#include <vector>
 
 static const uint32 BitCount[] = {
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
@@ -343,4 +346,280 @@ bool VoxelOctree::raymarch(const Vec3 &o, const Vec3 &d, float rayScale, uint32 
 
     t = minT;
     return true;
+}
+
+namespace {
+
+// One parsed descriptor of the old layout. Only records reachable from the
+// root are ever visited. A node owns one child block: the contiguous group of
+// child records referenced by its descriptor.
+struct CompactNode {
+    uint32 childMask;
+    uint32 leafMask;
+    uint32 depth;
+    int recordCount;
+    bool recordIsLeaf[8];   // per stored record, in storage (decreasing octant) order
+    uint32 recordValue[8];  // complete 32-bit material for leaves
+    int recordChild[8];     // parsed node index for internal children
+    int canonical;
+};
+
+// Full identity of a subtree: the current depth, the occupancy of the eight
+// ordered children, and the identity of every child (complete material word
+// for leaves, canonical child identity otherwise). Records stay in their
+// stored order, so octant positions are never sorted away.
+struct SubtreeKey {
+    uint32 depth;
+    uint32 childMask;
+    uint32 leafMask;
+    uint64 rec[8]; // leaf: (material << 1) | 1, internal: canonical << 1
+
+    bool operator==(const SubtreeKey &o) const {
+        if (depth != o.depth || childMask != o.childMask || leafMask != o.leafMask)
+            return false;
+        int count = BitCount[childMask];
+        for (int i = 0; i < count; i++)
+            if (rec[i] != o.rec[i])
+                return false;
+        return true;
+    }
+};
+
+struct SubtreeKeyHash {
+    size_t operator()(const SubtreeKey &k) const {
+        uint64 h = 0x9E3779B97F4A7C15ull;
+        h = (h ^ k.depth)*0x100000001B3ull;
+        h = (h ^ k.childMask)*0x100000001B3ull;
+        h = (h ^ k.leafMask)*0x100000001B3ull;
+        int count = BitCount[k.childMask];
+        for (int i = 0; i < count; i++)
+            h = (h ^ k.rec[i])*0x100000001B3ull;
+        return size_t(h);
+    }
+};
+
+// One unique subtree after deduplication. Its child block is stored exactly
+// once; the descriptor records referencing it may appear in many parent blocks.
+struct CanonicalNode {
+    uint32 childMask;
+    uint32 leafMask;
+    int recordCount;
+    bool recordIsLeaf[8];
+    uint32 recordValue[8];
+    int recordChild[8]; // canonical id of internal children
+    uint64 blockAddr;   // assigned during layout
+    bool longRecords;   // 0x10000: this node's child records come in pairs
+};
+
+} // namespace
+
+VoxelOctree::CompactStats VoxelOctree::compact() {
+    CompactStats stats;
+    stats.wordsBefore = _octreeSize;
+    stats.wordsAfter = _octreeSize;
+    stats.uniqueBlocks = 0;
+    stats.sharedReferences = 0;
+
+    if (!_octree || _octreeSize == 0)
+        return stats;
+
+    const uint32 *old = _octree.get();
+
+    // Parse the reachable records. Already-shared subtrees (from a previous
+    // compact) are visited once per child block via this memo.
+    std::vector<CompactNode> nodes;
+    std::unordered_map<uint64, int> parsed;
+
+    std::function<int(uint64, uint32)> parseNode = [&](uint64 recordAddr, uint32 depth) -> int {
+        uint32 desc = old[recordAddr];
+        uint64 childOffset = desc >> 18;
+        if (desc & 0x20000)
+            childOffset = (childOffset << 32) | uint64(old[recordAddr + 1]);
+        uint64 blockAddr = recordAddr + childOffset;
+
+        uint64 memoKey = (blockAddr << 6) | uint64(depth & 63);
+        auto it = parsed.find(memoKey);
+        if (it != parsed.end())
+            return it->second;
+
+        int id = int(nodes.size());
+        nodes.push_back(CompactNode());
+        // NOTE: recursion below may reallocate `nodes`; never hold a reference.
+        nodes[id].childMask = (desc >> 8) & 0xFF;
+        nodes[id].leafMask = desc & 0xFF;
+        nodes[id].depth = depth;
+        nodes[id].recordCount = BitCount[nodes[id].childMask];
+        nodes[id].canonical = -1;
+
+        uint64 stride = (desc & 0x10000) ? 2 : 1;
+        int record = 0;
+        for (int octant = 7; octant >= 0; octant--) {
+            if (!(nodes[id].childMask & (128 >> octant)))
+                continue;
+            uint64 recAddr = blockAddr + uint64(record)*stride;
+            uint32 w = old[recAddr];
+            // leafMask bit set means the child is an internal node (matches
+            // buildOctree and raymarch); a clear bit marks a leaf material.
+            bool isLeaf = (nodes[id].leafMask & (128 >> octant)) == 0;
+            nodes[id].recordIsLeaf[record] = isLeaf;
+            if (isLeaf) {
+                nodes[id].recordValue[record] = w;
+                nodes[id].recordChild[record] = -1;
+            } else {
+                int childId = parseNode(recAddr, depth + 1);
+                nodes[id].recordValue[record] = 0;
+                nodes[id].recordChild[record] = childId;
+            }
+            record++;
+        }
+
+        parsed[memoKey] = id;
+        return id;
+    };
+
+    int rootId = parseNode(0, 0);
+
+    // Canonicalize bottom-up: a subtree identity can only be completed once
+    // the identities of its children are known.
+    std::vector<int> order(nodes.size());
+    for (size_t i = 0; i < nodes.size(); i++)
+        order[i] = int(i);
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return nodes[a].depth > nodes[b].depth;
+    });
+
+    std::vector<CanonicalNode> canonNodes;
+    std::unordered_map<SubtreeKey, int, SubtreeKeyHash> canonMap;
+    for (size_t i = 0; i < order.size(); i++) {
+        CompactNode &node = nodes[order[i]];
+        SubtreeKey key;
+        key.depth = node.depth;
+        key.childMask = node.childMask;
+        key.leafMask = node.leafMask;
+        for (int r = 0; r < node.recordCount; r++) {
+            if (node.recordIsLeaf[r])
+                key.rec[r] = (uint64(node.recordValue[r]) << 1) | 1;
+            else
+                key.rec[r] = uint64(nodes[node.recordChild[r]].canonical) << 1;
+        }
+        auto it = canonMap.find(key);
+        if (it != canonMap.end()) {
+            node.canonical = it->second;
+        } else {
+            int canonId = int(canonNodes.size());
+            canonNodes.push_back(CanonicalNode());
+            CanonicalNode &c = canonNodes.back();
+            c.childMask = node.childMask;
+            c.leafMask = node.leafMask;
+            c.recordCount = node.recordCount;
+            c.blockAddr = 0;
+            c.longRecords = false;
+            for (int r = 0; r < node.recordCount; r++) {
+                c.recordIsLeaf[r] = node.recordIsLeaf[r];
+                c.recordValue[r] = node.recordValue[r];
+                c.recordChild[r] = node.recordIsLeaf[r] ? -1 : nodes[node.recordChild[r]].canonical;
+            }
+            canonMap[key] = canonId;
+            node.canonical = canonId;
+        }
+    }
+
+    // Emit blocks breadth-first from the root so that offsets stay small and
+    // every canonical node sits at a fixed depth level. Each unique child
+    // block is emitted exactly once, no matter how many parents reference it.
+    std::vector<int> emitOrder;
+    std::vector<char> emitted(canonNodes.size(), 0);
+    if (nodes[rootId].recordCount > 0) {
+        emitOrder.push_back(nodes[rootId].canonical);
+        emitted[nodes[rootId].canonical] = 1;
+        for (size_t i = 0; i < emitOrder.size(); i++) {
+            const CanonicalNode &c = canonNodes[emitOrder[i]];
+            for (int r = 0; r < c.recordCount; r++) {
+                if (c.recordIsLeaf[r] || emitted[c.recordChild[r]])
+                    continue;
+                emitted[c.recordChild[r]] = 1;
+                emitOrder.push_back(c.recordChild[r]);
+            }
+        }
+    }
+
+    // Assign addresses. Whether a node's child records need the long (paired)
+    // form depends on the final offsets, which in turn depend on record sizes,
+    // so iterate to a fixpoint. Sizes and offsets only ever grow, hence this
+    // terminates.
+    bool changed = true;
+    uint64 totalSize = 1;
+    while (changed) {
+        changed = false;
+        uint64 addr = 1;
+        for (size_t i = 0; i < emitOrder.size(); i++) {
+            CanonicalNode &c = canonNodes[emitOrder[i]];
+            c.blockAddr = addr;
+            addr += uint64(c.recordCount)*(c.longRecords ? 2 : 1);
+        }
+        totalSize = addr;
+        for (size_t i = 0; i < emitOrder.size(); i++) {
+            CanonicalNode &c = canonNodes[emitOrder[i]];
+            if (c.longRecords)
+                continue;
+            uint64 stride = 1;
+            for (int r = 0; r < c.recordCount; r++) {
+                if (c.recordIsLeaf[r])
+                    continue;
+                uint64 recAddr = c.blockAddr + uint64(r)*stride;
+                uint64 offset = canonNodes[c.recordChild[r]].blockAddr - recAddr;
+                if (offset > 0x3FFF) {
+                    c.longRecords = true;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Emit the new layout. The root stays in word 0 and every offset is
+    // recomputed against the final addresses.
+    std::unique_ptr<uint32[]> compacted(new uint32[totalSize]);
+    {
+        const CanonicalNode &root = canonNodes[nodes[rootId].canonical];
+        uint32 desc = (root.childMask << 8) | root.leafMask | (1 << 18);
+        if (root.longRecords)
+            desc |= 0x10000;
+        compacted[0] = desc;
+    }
+    uint64 totalReferences = 0;
+    for (size_t i = 0; i < emitOrder.size(); i++) {
+        const CanonicalNode &c = canonNodes[emitOrder[i]];
+        uint64 stride = c.longRecords ? 2 : 1;
+        for (int r = 0; r < c.recordCount; r++) {
+            uint64 recAddr = c.blockAddr + uint64(r)*stride;
+            if (c.recordIsLeaf[r]) {
+                compacted[recAddr] = c.recordValue[r];
+                continue;
+            }
+            totalReferences++;
+            const CanonicalNode &child = canonNodes[c.recordChild[r]];
+            uint64 offset = child.blockAddr - recAddr;
+            uint32 desc = (child.childMask << 8) | child.leafMask;
+            if (child.longRecords)
+                desc |= 0x10000;
+            if (c.longRecords) {
+                desc |= 0x20000 | (uint32(offset >> 32) << 18);
+                compacted[recAddr] = desc;
+                compacted[recAddr + 1] = uint32(offset);
+            } else {
+                compacted[recAddr] = desc | (uint32(offset) << 18);
+            }
+        }
+    }
+
+    _octree = std::move(compacted);
+    _octreeSize = totalSize;
+
+    stats.wordsAfter = totalSize;
+    stats.uniqueBlocks = emitOrder.size();
+    if (!emitOrder.empty())
+        totalReferences++; // the root descriptor references the first block
+    stats.sharedReferences = totalReferences - stats.uniqueBlocks;
+    return stats;
 }

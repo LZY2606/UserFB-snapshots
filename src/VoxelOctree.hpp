@@ -46,11 +46,27 @@ class VoxelOctree {
     uint64 buildOctree(ChunkedAllocator<uint32> &allocator, int x, int y, int z, int size, uint64 descriptorIndex);
 
 public:
+    struct CompactStats {
+        uint64 wordsBefore;      // words (uint32 units) occupied before this compact() call
+        uint64 wordsAfter;       // words occupied after this compact() call
+        uint64 uniqueBlocks;     // non-empty child blocks actually stored after the root
+        uint64 sharedReferences; // references to those blocks beyond the first reference per block
+    };
+
     VoxelOctree(const char *path);
     VoxelOctree(VoxelData *voxels);
 
     void save(const char *path);
     bool raymarch(const Vec3 &o, const Vec3 &d, float rayScale, uint32 &normal, float &t);
+
+    // Offline structural compression: identical subtrees are merged into a DAG
+    // and a complete new layout is committed in place. Only reachable records
+    // are visited; the original raymarch/save/load keep working unchanged.
+    CompactStats compact();
+
+    uint64 wordCount() const {
+        return _octreeSize;
+    }
 
     Vec3 center() const {
         return _center;
