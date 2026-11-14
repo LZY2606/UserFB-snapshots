@@ -213,7 +213,7 @@ func (f *elfFile) readSectionRelUncached(s *elfSection) ([]Reloc, error) {
 	return relocs, nil
 }
 
-var nullSection = elfSection{Section: &Section{}}
+var nullSection = elfSection{Section: &Section{}, elf: &elf.Section{}}
 
 // populateAddends populates the Addend fields of relocs for SHT_REL sections,
 // which store their addends implicitly in section data. s must be an SHT_REL
@@ -234,19 +234,21 @@ func (f *elfFile) populateAddends(s *elfSection, relocs []Reloc) error {
 		if size == -1 {
 			return fmt.Errorf("relocation %d in section %s: can't read addend for unknown relocation type %s", i, s, relocs[i].Type)
 		}
-		off := relocs[i].Addr - target.Addr
-		if size != 0 && off >= target.Size || off+uint64(size) > target.Size {
+		// Relocation addresses and the caches are all in link-time
+		// coordinates, so use the link-time section bounds here.
+		off := relocs[i].Addr - target.elf.Addr
+		if size != 0 && off >= target.elf.Size || off+uint64(size) > target.elf.Size {
 			if global {
 				// This is a global relocation section, so this just means we've
 				// moved on to a different target section.
-				t := f.ResolveAddr(relocs[i].Addr)
+				t := f.resolveLinkAddr(relocs[i].Addr)
 				if t == nil {
 					return fmt.Errorf("relocation %d in section %s: address %#x is not in any section", i, s, relocs[i].Addr)
 				}
 				target, bytes = f.sections[t.ID], nil
-				off = relocs[i].Addr - target.Addr
+				off = relocs[i].Addr - target.elf.Addr
 			} else {
-				return fmt.Errorf("relocation %d in section %s: address %#x out of section bounds [%#x,%#x)", i, s, relocs[i].Addr, target.Addr, target.Addr+target.Size)
+				return fmt.Errorf("relocation %d in section %s: address %#x out of section bounds [%#x,%#x)", i, s, relocs[i].Addr, target.elf.Addr, target.elf.Addr+target.elf.Size)
 			}
 		}
 
@@ -312,7 +314,10 @@ func (f *elfFile) sectionRelocs(s *elfSection) ([]Reloc, error) {
 			if len(r) == 0 {
 				continue
 			}
-			if r[0].Addr <= s.Addr+s.Size && r[len(r)-1].Addr > s.Addr {
+			// Relocation addresses are cached in link-time
+			// coordinates, so compare against the link-time
+			// bounds of s.
+			if r[0].Addr <= s.elf.Addr+s.elf.Size && r[len(r)-1].Addr > s.elf.Addr {
 				todo = append(todo, r)
 			}
 		}

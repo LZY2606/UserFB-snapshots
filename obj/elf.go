@@ -39,6 +39,13 @@ type elfFile struct {
 	// section-relative offsets instead of virtual addresses.
 	relocatable bool
 
+	// loadBias is the current load bias: an absolute offset from the
+	// file's link-time addresses applied to the observed addresses of
+	// mapped sections and the symbols defined in them. Internally,
+	// cached data and relocations are always kept in link-time
+	// coordinates and translated at the interface boundary.
+	loadBias int64
+
 	// sections contains the sections of this object file, indexed by
 	// internal ID (not ELF section number).
 	sections []*elfSection
@@ -368,9 +375,37 @@ func (f *elfFile) Section(i SectionID) *Section {
 }
 
 func (f *elfFile) sectionData(s *Section, addr, size uint64, d *Data) (*Data, error) {
-	err := f.elfSectionData(f.sections[s.ID], addr, size, d)
-	if err != nil {
+	es := f.sections[s.ID]
+
+	// Translate the observed address to the link-time coordinates used
+	// by the caches and the file itself.
+	bias := f.sectionBias(es)
+	linkAddr := addr
+	if bias != 0 {
+		var ok bool
+		linkAddr, ok = addLoadBias(addr, -bias)
+		if !ok {
+			panic(fmt.Sprintf("requested data [0x%x, 0x%x) is outside section %s", addr, addr+size, es))
+		}
+	}
+
+	if err := f.elfSectionData(es, linkAddr, size, d); err != nil {
 		return nil, err
+	}
+
+	if bias != 0 {
+		// Present the data in observed coordinates. Copy the
+		// relocations before shifting them so previously returned
+		// Data (and the caches) keep their original coordinates.
+		d.Addr = addr
+		if len(d.R) != 0 {
+			relocs := make([]Reloc, len(d.R))
+			for i, r := range d.R {
+				r.Addr, _ = addLoadBias(r.Addr, bias)
+				relocs[i] = r
+			}
+			d.R = relocs
+		}
 	}
 	return d, nil
 }
@@ -471,13 +506,28 @@ func (f *elfFile) ResolveAddr(addr uint64) *Section {
 		return nil
 	}
 
+	// addr is in observed coordinates; translate to the link-time
+	// coordinates used internally.
+	if f.loadBias != 0 {
+		var ok bool
+		addr, ok = addLoadBias(addr, -f.loadBias)
+		if !ok {
+			return nil
+		}
+	}
+	return f.resolveLinkAddr(addr)
+}
+
+// resolveLinkAddr finds the mapped section containing link-time address
+// addr, or nil if there is none.
+func (f *elfFile) resolveLinkAddr(addr uint64) *Section {
 	for _, es := range f.sections {
 		// Only consider sections that will be loaded into the address space.
 		if es.elf.Flags&elf.SHF_ALLOC == 0 {
 			continue
 		}
 
-		if es.Addr <= addr && addr-es.Addr < es.Size {
+		if es.elf.Addr <= addr && addr-es.elf.Addr < es.elf.Size {
 			return es.Section
 		}
 	}

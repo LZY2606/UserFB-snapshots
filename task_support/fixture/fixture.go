@@ -16,6 +16,34 @@ type section struct {
 	entsize     uint64
 }
 
+// WithType returns a copy of an image with its e_type field set to typ,
+// allowing the same layout to pose as, for example, an ET_EXEC.
+func WithType(raw []byte, typ elf.Type) []byte {
+	out := append([]byte(nil), raw...)
+	binary.LittleEndian.PutUint16(out[16:], uint16(typ))
+	return out
+}
+
+// Relocatable returns a copy of an image rewritten as an ET_REL
+// relocatable object. The global relocation section is retargeted to
+// .data, since relocatable files require every relocation section to
+// name a target section.
+func Relocatable(raw []byte) []byte {
+	out := WithType(raw, elf.ET_REL)
+	bo := binary.LittleEndian
+	var shoff, shentsize, infoOff uint64
+	if out[4] == 2 { // ELFCLASS64
+		shoff = bo.Uint64(out[0x28:])
+		shentsize, infoOff = 64, 44
+	} else { // ELFCLASS32
+		shoff = uint64(bo.Uint32(out[0x20:]))
+		shentsize, infoOff = 40, 28
+	}
+	// Section 8 is the global relocation section; section 2 is .data.
+	bo.PutUint32(out[shoff+8*shentsize+infoOff:], 2)
+	return out
+}
+
 // Image returns a little-endian ELF32/i386 or ELF64/x86-64 shared object.
 // Physical section IDs: text=1, data=2, bss=3, meta=4, tls=5,
 // strtab=6, symtab=7, global relocations=8, targeted relocations=9, shstrtab=10.

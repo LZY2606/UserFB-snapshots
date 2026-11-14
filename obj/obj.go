@@ -74,6 +74,9 @@ type File interface {
 	// files don't have any mapped address space at all (for example,
 	// ELF relocatable objects).
 	//
+	// For files that support it, LoadBiasFile can shift the mapped
+	// address space that ResolveAddr resolves against.
+	//
 	// TODO: Reconsider this API. Eventually it would be nice to be able
 	// to handle addresses from relocated PIE images and core files. Do
 	// those just implement the File interface and present the
@@ -101,6 +104,36 @@ type File interface {
 type AsDebugDwarf interface {
 	File
 	AsDebugDwarf() (*dwarf.Data, error)
+}
+
+// LoadBiasFile is implemented by File types that can shift the addresses
+// at which their contents appear to be loaded, such as executables and
+// position-independent executables loaded at an address other than their
+// link-time address.
+//
+// The load bias only changes the coordinates used to observe the file:
+// the Addr of mapped Sections, the Value of symbols defined in them,
+// Data.Addr, and the addresses of relocations in Data.R, as well as the
+// addresses accepted by Section.Data and ResolveAddr. It does not apply
+// relocations or otherwise modify the file's bytes, and it does not
+// affect relocation addends or symbol numbering. Views of the underlying
+// file, such as AsDebugElf and AsDebugDwarf, continue to use the file's
+// own (link-time) coordinates.
+type LoadBiasFile interface {
+	File
+
+	// SetLoadBias sets the load bias of this file to bias, an absolute
+	// offset from the file's link-time addresses. Setting the bias
+	// replaces any previous bias; it does not accumulate.
+	//
+	// SetLoadBias returns an error if this file does not support load
+	// biasing (for example, relocatable objects), or if applying bias
+	// would move any affected address or interval end out of the range
+	// of a uint64. On error, the current bias is left unchanged.
+	SetLoadBias(bias int64) error
+
+	// LoadBias returns the current load bias of this file.
+	LoadBias() int64
 }
 
 type FileInfo struct {

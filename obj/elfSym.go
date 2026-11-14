@@ -120,5 +120,11 @@ func (f *elfFile) Sym(i SymID) Sym {
 
 	sym.SetLocal(elf.ST_BIND(info) == elf.STB_LOCAL)
 
+	// Present the value in observed coordinates. This was validated
+	// when the load bias was set, so it cannot overflow.
+	if f.loadBias != 0 && f.symShiftsWithLoadBias(info, shn) {
+		sym.Value, _ = addLoadBias(sym.Value, f.loadBias)
+	}
+
 	return sym
 }
