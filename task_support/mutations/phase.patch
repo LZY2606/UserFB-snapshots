@@ -1,0 +1,11 @@
+--- a/src/sbc.c
++++ b/src/sbc.c
+@@ -754,7 +754,7 @@
+ 
+     /* --- IDCT and windowing --- */
+ 
+-    int dct_idx = state->idx ? 10 - state->idx : 0, odd = dct_idx & 1;
++    int dct_idx = state->idx ? 10 - state->idx : 0, odd = 0;
+ 
+     dct4(in, scale, state->v[odd], state->v[!odd], dct_idx);
+     apply_window(state->v[odd], 4, window, state->idx, out, pitch);
