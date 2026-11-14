@@ -34,7 +34,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -314,11 +313,15 @@ type RemoteDebugger struct {
 	sync.Mutex           // Mutex for thread safety
 	closed     chan bool // Channel to signal connection closure
 
-	requests  chan Params                  // Channel for outgoing requests
-	responses map[int]chan json.RawMessage // Map of request IDs to response channels
-	callbacks map[string]EventCallback     // Map of event names to callback functions
-	domains   map[string]bool              // Map of enabled protocol domains
-	events    chan wsMessage               // Channel for incoming events
+	requests     chan Params                    // Channel for outgoing requests
+	navRequests  chan *navigationWait           // Channel for NavigateAndWait commands
+	responses    map[int]chan json.RawMessage   // Map of request IDs to response channels
+	navCalls     map[int]*navCall               // Pending NavigateAndWait calls by request id
+	navObservers map[string]*navigationObserver // Pending lifecycle observers by loaderId
+	navEvents    []navigationLifecycleEvent     // Lifecycle events seen before their command reply
+	callbacks    map[string]EventCallback       // Map of event names to callback functions
+	domains      map[string]bool                // Map of enabled protocol domains
+	events       chan wsMessage                 // Channel for incoming events
 }
 
 // Connect to the remote debugger and return `RemoteDebugger` object.
@@ -341,14 +344,17 @@ func Connect(port string, verbose bool, options ...ConnectOption) (*RemoteDebugg
 	}
 
 	remote := &RemoteDebugger{
-		http:      client,
-		requests:  make(chan Params),
-		responses: map[int]chan json.RawMessage{},
-		callbacks: map[string]EventCallback{},
-		domains:   map[string]bool{},
-		events:    make(chan wsMessage, 256),
-		closed:    make(chan bool),
-		verbose:   verbose,
+		http:         client,
+		requests:     make(chan Params),
+		navRequests:  make(chan *navigationWait),
+		responses:    map[int]chan json.RawMessage{},
+		navCalls:     map[int]*navCall{},
+		navObservers: map[string]*navigationObserver{},
+		callbacks:    map[string]EventCallback{},
+		domains:      map[string]bool{},
+		events:       make(chan wsMessage, 256),
+		closed:       make(chan bool),
+		verbose:      verbose,
 	}
 
 	// remote.http.Verbose = verbose
@@ -453,6 +459,7 @@ func (remote *RemoteDebugger) Close() (err error) {
 	remote.Unlock()
 
 	if ws != nil { // already closed
+		remote.failAllNavCalls(ErrNavigationClosed)
 		close(remote.requests)
 		close(remote.closed)
 		err = ws.Close()
@@ -517,35 +524,46 @@ func (remote *RemoteDebugger) sendRawReplyRequest(method string, params Params) 
 }
 
 func (remote *RemoteDebugger) sendMessages() {
-	for message := range remote.requests {
-		ws := remote.socket()
-		if ws == nil { // the socket is now closed
-			break
+	// A single goroutine owns websocket writes: regular requests and
+	// NavigateAndWait commands are multiplexed here so WriteJSON calls never
+	// race. navRequests is never closed, so shutdown is driven by remote.closed.
+	for {
+		select {
+		case <-remote.closed:
+			return
+
+		case message, ok := <-remote.requests:
+			if !ok {
+				remote.requests = nil
+			} else if err := remote.writeJSON(message); err != nil {
+				log.Println("write message:", err)
+			}
+
+		case nav, ok := <-remote.navRequests:
+			if !ok {
+				remote.navRequests = nil
+			} else {
+				remote.sendNavigation(nav)
+			}
 		}
 
-		if remote.verbose {
-			log.Printf("SEND %#v\n", message)
-		}
-
-		err := ws.WriteJSON(message)
-		if err != nil {
-			log.Println("write message:", err)
+		if remote.requests == nil && remote.navRequests == nil {
+			return
 		}
 	}
 }
 
-func permanentError(err error) bool {
-	if websocket.IsUnexpectedCloseError(err) {
-		log.Println("unexpected close error")
-		return true
+func (remote *RemoteDebugger) writeJSON(message Params) error {
+	ws := remote.socket()
+	if ws == nil { // the socket is now closed
+		return ErrorClose
 	}
 
-	if neterr, ok := err.(net.Error); ok && !neterr.Temporary() {
-		log.Println("permanent network error")
-		return true
+	if remote.verbose {
+		log.Printf("SEND %#v\n", message)
 	}
 
-	return false
+	return ws.WriteJSON(message)
 }
 
 func (remote *RemoteDebugger) readMessages(ws *websocket.Conn) {
@@ -572,12 +590,21 @@ loop:
 				}
 
 				log.Println("read message:", err)
-				if permanentError(err) {
-					break loop
-				}
+				// A websocket read error is not recoverable: the next read
+				// cannot succeed, so stop and let the cleanup below fail the
+				// pending navigation waiters and report the disconnect.
+				break loop
 			} else if message.Method != "" {
 				if remote.verbose {
 					log.Println("EVENT", message.Method, string(message.Params), len(remote.events))
+				}
+
+				// Navigation observation is fed directly from the read loop,
+				// independently of user callbacks: it never installs or
+				// replaces a CallbackEvent and keeps making progress even if
+				// the user callback goroutine is blocked.
+				if message.Method == "Page.lifecycleEvent" {
+					remote.dispatchLifecycleEvent(message.Params)
 				}
 
 				remote.Lock()
@@ -604,8 +631,16 @@ loop:
 				}
 
 				remote.Lock()
+				nav := remote.navCalls[message.ID]
 				ch := remote.responses[message.ID]
 				remote.Unlock()
+
+				if nav != nil {
+					// Tracked Page.navigate reply: owns its own channel and
+					// loader matching, never the generic responses map.
+					remote.deliverNavReply(message.ID, message.Result)
+					continue
+				}
 
 				if ch != nil {
 					ch <- message.Result
@@ -615,6 +650,9 @@ loop:
 	}
 
 	// log.Println("exit readMessages", remoteClosed)
+
+	// Any navigation still waiting cannot complete anymore.
+	remote.failAllNavCalls(ErrNavigationClosed)
 
 	if remoteClosed {
 		remote.events <- wsMessage{Method: EventClosed, Params: []byte("{}")}
