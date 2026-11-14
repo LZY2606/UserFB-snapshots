@@ -1,0 +1,126 @@
+# hts-cache/winprofile.ini
+
+The project settings a HTTrack front end saves beside a mirror, so reopening the project restores the wizard. Four programs touch it, in three repositories:
+
+- **WinHTTrack** (httrack-windows, `WinHTTrack/Shell.cpp`) writes it from the dialog fields and reads it back. It is the original writer, and its conventions are the ones below.
+- **WebHTTrack** (`src/htsserver.c`, `html/server/step[24].html`) writes it from the posted form and reads it into the wizard's session state.
+- **HTTrack for Android** (httrack-android, `app/src/main/java/com/httrack/android/OptionsMapper.java`) reads and writes the same keys, with its own table of key to flag and key to default.
+- The **engine** reads two keys with its own reader: the first occurrence wins, and the key name ignores case (`src/htstools.c`). It groups projects in the top index by `Category`, which it decodes with `unescapehttp` rather than `unescapeini`, so a `+` becomes a space. It reads `Charset` to know how that category is encoded.
+
+Neither GUI needs the file to run a mirror: the command line the wizard builds is what the engine takes, and `hts-cache/doit.log` records it. Getting the file wrong loses settings on reopen; it does not corrupt a mirror.
+
+## Syntax
+
+`key=value`, one per line, CRLF, no `[section]` header despite the extension. The first `=` separates; later ones belong to the value. Lines are capped at 8192 bytes by WebHTTrack and 32000 by WinHTTrack; Android caps nothing.
+
+Neither GUI writes the other's full key set, so a missing key is the normal case rather than an edge: a WebHTTrack save drops `MailIndex`, `AcceptLanguage`, `OtherHeaders` and `DefaultReferer`, and WinHTTrack drops `WarcFile` and `WarcMaxSize`. **A reader that does not find a key falls back to its own default, which is often not "off" or "zero"**: WinHTTrack defaults `ParseAll`, `Cache`, `Index`, `Log`, `KeepAlive`, `Cookies`, `CheckType` and `Travel` to 1, `FollowRobotsTxt` to 2 and `PrimaryScan` to 3 (the `MyGetProfileInt` defaults in `Read_profile`). Omission happens inside one GUI too: WinHTTrack skips a list key when its combo has no selection (`GetCurSel() != CB_ERR`). Write a key whenever you have a value for it.
+
+Two more divergences, both older than this document:
+
+- **Duplicate keys resolve differently.** WebHTTrack and Android take the last occurrence, WinHTTrack the first (`MyGetProfileStringFile` returns on its first match). Write each key once.
+- **The escapes are not the same set.** WinHTTrack escapes `%`, `=`, TAB, CR and LF and passes every other byte through, so its decoder is the exact inverse and turns **every other** `%xx` into a space; that decode is also case-sensitive, and `%0D` or `%3D` becomes a space. WebHTTrack escapes `%` and any byte under 32, writes `=` raw, and writes `%22` for a double quote in the 18 `${unquoted:}` fields. Android's `profileEncode` is WebHTTrack's set without the quote case. A footer or a filter list holding a quote therefore survives a WebHTTrack round trip and degrades in WinHTTrack, and an `=` inside a value survives only in the other direction. WebHTTrack collapses a `%0d%0a` pair to a lone CR; Android keeps CRLF. Android also **throws** on an escape it cannot parse or a raw control byte, abandoning the whole profile where the other two degrade one value.
+
+Neither side transcodes, and the file declares no encoding, so each front end guesses. WinHTTrack is an ANSI build and writes local-codepage bytes. WebHTTrack writes back whatever the browser posted, which is UTF-8. The two therefore disagree on every non-ASCII value; until 3.50 moved the catalogs and the served pages to UTF-8 they agreed whenever the host codepage matched the catalog's charset, which was common but never guaranteed. A profile written by one and read by the other keeps its ASCII and loses its accents.
+
+`Charset=UTF-8` declares that every value in the file is UTF-8. The first `Charset` line decides. Its value is not percent-decoded, case does not matter, and `utf8` is accepted too. When the key is absent, or has any other value, the file is legacy, which on Windows means the host ANSI codepage. The engine reads the key, and it does not convert a declared UTF-8 category from ANSI when it builds the top index.
+
+No front end writes the key yet. An old reader ignores an unknown key, so the key alone breaks nothing. What breaks an old reader is a writer that switches its bytes to UTF-8, which is WinHTTrack's later step, so the readers ship first. WebHTTrack already writes UTF-8 and could declare the key at once. When it does, `step4.html` must write `Charset` back, or a re-save drops the declaration.
+
+## Value conventions
+
+Four kinds of value, and the kind decides how `0` reads:
+
+| Kind | Spelling | Notes |
+| --- | --- | --- |
+| String | verbatim, escaped as above | `CurrentUrl`, `Category`, `UserID`, `Footer`, the `MIMEDefs*` pairs. `Depth`, `MaxRate` and `Sockets` are numbers written as strings, so empty is legal and means unset |
+| Checkbox | `1` on, explicit `0` off | Listed in `ini_checkbox_keys[]` in `src/htsserver.c` |
+| List | the **0-based** index of the entry, in `LISTDEF_N` order (`lang.def`) | Listed in `ini_list_keys[]` |
+| Bitmask | `Dos` only: bit 0 DOS 8.3 names, bit 1 ISO 9660 | In neither table. See below |
+
+The list keys are `CurrentAction`, `Build`, `PrimaryScan`, `Travel`, `GlobalTravel`, `RewriteLinks`, `CheckType`, `FollowRobotsTxt` and `LogType`. WinHTTrack stores the combo box's `GetCurSel()`, which is where 0-based comes from. WebHTTrack numbers the same `<select>` from 1, because id 0 is how its templates spell "no value". It shifts by one at the file boundary rather than renumbering the options, and leaves a value alone that is not a plain number.
+
+That last clause is load-bearing: a WinHTTrack older than httrack-windows#124 saved `CheckType`, `FollowRobotsTxt` and `LogType` with `GetDlgItemText`, so those keys carry the combo's displayed **text** rather than its index (and `Cookies` and `StoreAllInCache` the control's caption). Its own reader took them with `atoi`, so such a file silently reopened on the reader's default. Those files exist, so a reader still has to tolerate both spellings.
+
+Three checkbox keys were rotated in WebHTTrack until #1324: it filed the "test all links" box under `Near`, the "catch all URLs" box under `Test`, and the "get non-HTML files near a link" box under `ParseAll`. WinHTTrack's names match their meanings on all three, and Android's table agrees with it key for key, so WebHTTrack was the lone outlier. Files WebHTTrack saved before that fix carry the rotation and nothing marks them, so those three settings come back shuffled once.
+
+Android spells three keys that already had WinHTTrack names differently: `ProxyProtocol` for `ProxyType`, `KeepWwwPrefix` for `KeepWww`, `KeepDoubleSlashes` for `KeepSlashes` (its field-to-key tables). The values agree, so only the name keeps those settings from crossing.
+
+`Dos` is the one key that is not a number, a checkbox or a list. WinHTTrack packs two independent boxes into it, `m_dos | (m_iso9660 << 1)`, and reads them back with `& 1` and `& 2`, so it alone can write 3. The other two lose it in different places. WebHTTrack has no "both" entry, so it shows 3 as DOS names and drops the ISO bit on re-save; Android decodes only an exact `1`, so 2 and 3 arrive as neither. `Dos=0` is neither box and so means long names, not DOS names, which is why a front end that cannot show 3 must fall back on 1: storing 0 turns the setting into its opposite on the next reopen. Both bits set means DOS names on every side, since that is the precedence WinHTTrack applies when it builds `-L`.
+
+A `default_state` of `none` means do not substitute one. `MaxRate`, `Sockets` and `MaxRetryAfter` carry it: a reader that fills in 100000 for an absent `MaxRate` passes `-A100000` where a front end holding no value passes nothing at all, and the two mirror differently as soon as the engine's own default moves or `bypass_limits` applies. httrack-windows dropped its reader default in #105 for that reason, since a substituted value cannot be told from a chosen one once it reaches a file. HTTrack for Android no longer seeds it. Its `fieldsDefaults` carried `MaxRate=25000` (`OptionsMapper.java`) until httrack-android#234. A new project there now sends no `-A`, so the engine's own default applies. A profile from another front end omitting `MaxRate` no longer opens as a 25000 cap. Android shows `100000` under that field as a hint, not a value, so only a typed value reaches the file. Two things survive the change. A project saved before that change states `MaxRate` in its own profile, so it keeps its cap. Anyone who tapped "save default" on an earlier build still holds 25000 in Android's preferences. Their new projects are capped too and write the key. The `MaxRate` and `Sockets` cells describe the target rather than what the front ends do today: `initInt` still seeds `maxrate` and `connexion` (`src/htsserver.c`), so here an absent key still yields `--max-rate=100000` where an empty one yields no flag at all, and the two coincide only once those seeds go. `tests/324_winprofile-table.test` asserts the seeds so the rows are corrected when they do. `MaxRetryAfter` needs no such correction. Nothing seeds it here, so an empty key passes no flag and the engine's own 60 seconds apply.
+
+`CurrentPath1` and `CurrentPath2` have no writer at all. WinHTTrack reads them live; its own write sites are commented out and neither other front end produces them. A front end that starts writing either will be consumed there, and the `owners` column cannot say so, since it names writers.
+
+A consumer checking its own bindings against this table has to count what its candidate list skipped. A sweep reporting no mismatches over a list that silently dropped the keys it could not bind proves nothing, and that is how `ProxyType` survived one: it was the only key with no options page to bind it.
+
+`ProxyType` is a tenth 0-based combo index (`0` HTTP, `1` SOCKS5, `2` HTTP CONNECT), written by all three and deliberately **outside** `ini_list_keys[]`: WebHTTrack's proxy page already reads `0` as its own first entry, so the two agree and a shift would break them. It sits in `ini_checkbox_keys[]` only for the 0-to-empty coercion, which does not make it boolean: a reader treating it as one normalises a CONNECT tunnel into a plain HTTP proxy. Adding an entry to that list in one GUI alone is #1314 over again.
+
+`ProfileFormat=1` marks the current conventions. Nothing reads it yet, so its presence changes no behaviour. It is there so a later format change can be told apart, which needs every writer to stamp it first.
+
+## The machine-readable form
+
+`winprofile-keys.tsv` at the repository root states every key as data: which
+front ends write it, its scope and kind, the engine options it produces, its
+default, what a present-but-empty value means, and the key it is an old spelling
+of. `winprofile-escapes.tsv` does the same for the codec, carrying the vectors
+all three encode identically and marking the cases where they diverge.
+
+`composed_with` names the other keys a row is read with, in either of two
+senses. One is a value split across keys that mean nothing apart. `Proxy`,
+`Port` and `ProxyType` are one proxy. `Build` picks a layout of which
+`BuildString` is the custom case. The other is a gate: the checkbox is
+necessary for its value to reach the command line (`ini_gated_values[]` in
+`src/htsserver.c`). `Warc` gates `WarcFile`, `WarcMaxSize` and `WarcCdx`,
+`Sitemap` gates `SitemapUrl`, `SingleFile` gates `SingleFileMaxSize`. A
+cleared box keeps the typed value in the file and emits no flag, so reopening
+the project finds the field as the user left it. The relation is symmetric,
+and `tools/gen-winprofile-keys.py` rejects an edge only one end names.
+
+`Wacz` is deliberately not in that group, though WinHTTrack gates it. `--wacz`
+fills in an automatic archive name of its own. It needs no `Warc`, and the
+tooltip on the box says it implies the WARC archive. WinHTTrack can gate it
+because its dialog nests the box under WARC. WebHTTrack and Android list the
+three as siblings, where the same rule drops a flag with nothing on screen to
+explain it. `WarcCdx` is in the group because `--warc-cdx` only
+indexes an archive it cannot name.
+
+Necessary is not sufficient, and the column says nothing about which flags
+appear together. A ticked box does not oblige a front end to emit the value:
+HTTrack for Android drops a non-numeric `SingleFileMaxSize` even with the box
+set, because the engine refuses a size it cannot scan. `Sitemap` also composes
+differently from the other two, since `htscore.c` ORs `opt->sitemap` with
+`sitemap_url`: WinHTTrack emits `--sitemap-url` instead of `--sitemap` where
+WebHTTrack and Android emit both. Read the column as a gate and nothing more.
+WinHTTrack reads neither `WarcFile` nor `WarcMaxSize`. A custom archive name
+therefore survives a round trip through it on disk, while a mirror run from it
+writes an auto-named archive.
+
+`DebugMode` names no flag, because the box does more than add one. Both front
+ends emit `--debug-headers`, and WinHTTrack also writes its own `winhttrack.log`.
+
+A `default_state` of `derived` means the value is computed at run time, so no
+fixed default can be stated. Two rows have one: `AcceptLanguage`, built from the
+device locale, and `UserID`, which carries the engine's own version. A consumer
+must count a `derived` row as a skip, the same as an `unresolved` one, rather
+than pass it silently.
+
+`BuildString` and `WildCardFilters` describe the target rather than every front
+end today, the way `MaxRate` and `Sockets` do. Both take WinHTTrack's value
+under the rule that its keys are the source of truth; WebHTTrack adopted the
+filter list here, and HTTrack for Android has yet to add the `+*.jpeg` its own
+copy is missing. A consumer's test reds until it converges, which is the point.
+
+`tools/gen-winprofile-keys.py` turns the table into `src/winprofile-keys.h`, and
+`tests/324_winprofile-table.test` regenerates that header, diffs it, and checks
+this repository's own templates and tables against the rows. Generation only
+runs that way round: parsing the header back is how three hand-kept copies
+drifted in the first place.
+
+Read a row rather than trusting prose here, and where the two disagree the table
+is the one with a test.
+
+## Changing the format
+
+httrack-windows asserts the lossy decode in its own self-test, so converging the two escape sets means moving that expectation in the same breath. A new key needs the same value on both sides or it is worse than no key. Adding one to WebHTTrack alone is fine and common (`WarcFile`, `WarcMaxSize`); adding one whose *meaning* differs between the GUIs is what #1314 was.
+
+`tests/322_webhttrack-list-ids.test` and `tests/274_wizard-profile-load.test` hold the two tables in `src/htsserver.c` against the keys `step4.html` writes. Nothing checks either against `Shell.cpp`, so a change to WinHTTrack's side still has to be read across by hand.

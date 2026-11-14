@@ -1,0 +1,85 @@
+// Tell the server this window is alive, so an abandoned server stops instead of
+// outliving the session. The period is the one htsweb.c sizes its timeout from.
+var PING_PERIOD = 5000;
+
+// Identifies this window for as long as it is open. The server counts windows,
+// so closing one of two must not read as the session ending.
+var PING_WINDOW =
+    String(Math.random()).replace(/[^0-9]/g, "") + String(new Date().getTime());
+
+function ping_url(extra) {
+  // Unique, or a cached response would never reach the server again.
+  return "/ping?w=" + PING_WINDOW + "&t=" + new Date().getTime() +
+         (extra ? "&" + extra : "");
+}
+
+// An iframe is the fallback only: reassigning its src can push a history entry,
+// which would turn the Back button into a walk through past heartbeats.
+function ping_send(url) {
+  if (window.fetch) {
+    fetch(url, {cache : "no-store"});
+    return true;
+  }
+  var iframe = document.getElementById('pingiframe');
+  if (!iframe) {
+    return false;
+  }
+  iframe.src = url;
+  return true;
+}
+
+function ping_server() {
+  if (ping_send(ping_url())) {
+    setTimeout(ping_server, PING_PERIOD);
+  }
+}
+
+// The session id this page carries, empty on the few pages that hold no form.
+function ping_sid() {
+  var f = document.getElementsByName('sid');
+  return f && f.length ? f[0].value : "";
+}
+
+// Closing the window is the common case, and waiting out the timeout for it
+// would hold the server open long after the user considers it gone. The server
+// takes this only from a request holding the session id, so it goes as a POST;
+// a page without one falls back to the timeout.
+function ping_leaving() {
+  var sid = ping_sid();
+  if (!sid) {
+    return;
+  }
+  var url = ping_url("e=bye");
+  var body = "sid=" + encodeURIComponent(sid);
+  var type = "application/x-www-form-urlencoded";
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(url, new Blob([ body ], {type : type}));
+  } else if (window.XMLHttpRequest) {
+    // Synchronous: the page is going away, and an async send dies with it.
+    var x = new XMLHttpRequest();
+    x.open("POST", url, false);
+    x.setRequestHeader("Content-Type", type);
+    x.send(body);
+  }
+}
+
+// Old browsers reach none of this and stay on the legacy "wait for the launcher
+// to die" mode.
+if (document && document.createElement && document.body &&
+    document.body.appendChild && document.getElementById) {
+  if (!window.fetch) {
+    var iframe = document.createElement('iframe');
+    if (iframe) {
+      iframe.id = 'pingiframe';
+      iframe.style.display = "none";
+      iframe.style.visibility = "hidden";
+      iframe.width = iframe.height = 0;
+      document.body.appendChild(iframe);
+    }
+  }
+  ping_server();
+  // pagehide, not unload: Safari's back/forward cache never fires unload.
+  if (window.addEventListener) {
+    window.addEventListener('pagehide', ping_leaving, false);
+  }
+}

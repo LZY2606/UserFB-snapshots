@@ -1,0 +1,43 @@
+# HTTrack Website Copier - Development Repository
+
+[![CI](https://github.com/xroche/httrack/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/xroche/httrack/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/xroche/httrack)](COPYING)
+
+## About
+_Copy websites to your computer (Offline browser)_
+
+<img src="https://www.httrack.com/htsw/screenshot_w1.jpg" width="34%">
+
+*HTTrack* is an _offline browser_ utility, allowing you to download a World Wide website from the Internet to a local directory, building recursively all directories, getting html, images, and other files from the server to your computer.
+ 
+*HTTrack* arranges the original site's relative link-structure. Simply open a page of the "mirrored" website in your browser, and you can browse the site from link to link, as if you were viewing it online.
+
+HTTrack can also update an existing mirrored site, and resume interrupted downloads. HTTrack is fully configurable, and has an integrated help system.
+
+*WinHTTrack* is the Windows front end and *WebHTTrack* the one for Linux, BSD and macOS, where it also arrives with `brew install httrack` and in the release DMG. There is an [Android app](https://play.google.com/store/apps/details?id=com.httrack.android) too, and underneath all of them the `httrack` command line.
+
+## Website
+
+*Main Website:*
+https://www.httrack.com/
+
+## Compile trunk release
+
+A git checkout ships only the autotools sources, so `./bootstrap` (which runs
+`autoreconf`) regenerates `configure` first; this needs autoconf, automake and
+libtool. Released tarballs already include `configure`, so building from a
+tarball skips `./bootstrap`.
+
+```sh
+git clone https://github.com/xroche/httrack.git --recurse-submodules
+cd httrack
+./bootstrap
+./configure --prefix=$HOME/usr && make -j8 && make install
+```
+
+Or use the one-shot wrapper (bootstrap + configure + make), which forwards its
+arguments to `configure`:
+
+```sh
+./build.sh --prefix=$HOME/usr
+```

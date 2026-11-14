@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A task-oriented guide to the httrack command line: scope, filters, limits, logins, proxies, updates and recipes.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>HTTrack command-line guide</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>On this page</h2>
+	<ul>
+		<li><a href="#quickstart">1. Quick start</a></li>
+		<li><a href="#scope">2. Scope: how far the crawl reaches</a></li>
+		<li><a href="#filters">3. Filters and scan rules</a></li>
+		<li><a href="#limits">4. Limits and politeness</a></li>
+		<li><a href="#names">5. File names and types</a></li>
+		<li><a href="#links">6. Links and page building</a></li>
+		<li><a href="#identity">7. Identity, cookies and login</a></li>
+		<li><a href="#proxy">8. Proxy and network</a></li>
+		<li><a href="#update">9. Update and cache</a></li>
+		<li><a href="#experts">10. Experts and scripting</a></li>
+		<li><a href="#recipes">11. Recipes</a></li>
+	</ul>
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html" aria-current="page" class="here">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>Command-Line Guide</h1>
+
+<p>This is a task-oriented guide to the <tt>httrack</tt> command line: how to do the
+things people actually ask for, and the handful of defaults that surprise
+newcomers. It sits on top of the
+<a href="httrack.man.html">generated manual page</a>, which lists every option in
+full. When you want the exhaustive detail for a flag, that page is the reference;
+this one is the map.</p>
+
+<p>Two habits before anything else. First, HTTrack has its own options: they are not
+wget or curl flags, so reach for the tables here rather than guessing. Second,
+when a mirror does something you did not expect, the answer is almost always in
+the log. Every project writes <tt>hts-log.txt</tt> (and <tt>hts-err.txt</tt>) into
+its output directory, and those files name every URL that was refused, redirected,
+or filtered out. Read them first.</p>
+
+<h3 id="quickstart">1. Quick start</h3>
+
+<p>A mirror is one command: a start URL and an output directory.</p>
+
+<p><tt>httrack https://example.com/ --path mydir</tt></p>
+
+<p>With no other options HTTrack mirrors that site, stays on the same host, follows
+links to any depth, rebuilds them to browse offline, and stores everything under
+<tt>mydir</tt>. The same directory also holds the log files and the
+<tt>hts-cache/</tt> folder that makes a later update or resume possible.</p>
+
+<p>Two defaults are worth knowing up front, because both catch people out:</p>
+<ul>
+  <li>HTTrack throttles itself to about <b>100 KB/s</b> even when you pass no rate
+  option. If a mirror feels slow, that is why. See
+  <a href="#limits">Limits</a> for how to lift it.</li>
+  <li>The download proceeds as a well-behaved robot: it identifies itself as
+  <tt>HTTrack</tt>, obeys <tt>robots.txt</tt>, and sends a Referer with each
+  request. A site that blocks that behavior needs the levers in
+  <a href="#identity">Identity</a>, not brute force.</li>
+</ul>
+
+<p>An option spelled <tt>--name=N</tt> takes a number, and also reads <tt>on</tt> and
+<tt>off</tt>. Anything else is refused by name, rather than run with the option left at its
+default: <tt>--long-names=yes</tt> used to mirror in DOS 8.3 names and say nothing.</p>
+
+<h3 id="scope">2. Scope: how far the crawl reaches</h3>
+
+<p>Scope decides which links HTTrack is even willing to follow, before any filter
+you write. Get this right and most "it downloaded too much" or "it only grabbed
+the index" problems disappear.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--depth (-r)</tt></td><td>Maximum link depth. <b>The start page is level 1</b>, so one level of links out is <tt>-r2</tt>, not <tt>-r1</tt>.</td></tr>
+  <tr><td><tt>--stay-on-same-address (-a), --stay-on-same-domain (-d), --stay-on-same-tld (-l), --go-everywhere (-e)</tt></td><td>How far off the starting host the crawl may travel: same address (host), same principal domain, same top-level domain (for example .com), or everywhere. The default keeps you on the starting host.</td></tr>
+  <tr><td><tt>--host-alias (-%C)</tt></td><td>Declares that several hostnames serve the same site, for example <tt>--host-alias "www2.example.com,m.example.com=example.com"</tt>. Those names then count as the starting host: their links travel under the same-address rules, are fetched from the canonical host, and are saved once rather than once per name. The left side takes filter-style globs and comma-separated names, the right side one literal host, port included. Either side may name a scheme (<tt>legacy.example.com=https://example.com</tt> reaches a host that only answers over HTTPS, and <tt>https://www.example.com=ftp://files.example.com</tt> matches only the HTTPS form). A path is refused: this maps hosts, not URLs.</td></tr>
+  <tr><td><tt>--can-go-down (-D), --can-go-up (-U), --stay-on-same-dir (-S), --can-go-up-and-down (-B)</tt></td><td>Directory travel: down into subdirectories only, up to parent directories only, stay in the same directory, or both up and down.</td></tr>
+  <tr><td><tt>--near (-n)</tt></td><td>Also fetch non-HTML files "near" a followed link, such as an image linked from a page you kept but hosted elsewhere.</td></tr>
+  <tr><td><tt>--ext-depth (-%e)</tt></td><td>How many levels of external links to follow once the crawl leaves your scope (default 0).</td></tr>
+  <tr><td><tt>--test (-t)</tt></td><td>Also HEAD-test links that fall outside the scope, which are normally refused, without downloading them: a way to see what scope is excluding.</td></tr>
+  <tr><td><tt>--sitemap (-%m), --sitemap-url URL (-%mu)</tt></td><td>Also take start URLs from the site's sitemap, for pages nothing links to. Off by default.</td></tr>
+</table>
+
+<p>Link-following only finds what something links to. Anything a site publishes
+solely in its sitemap is invisible to HTTrack unless you ask for it.
+<tt>--sitemap</tt> reads the start host's <tt>robots.txt</tt> for
+<tt>Sitemap:</tt> lines and falls back to <tt>/sitemap.xml</tt>;
+<tt>--sitemap-url</tt> names one directly. Nested <tt>sitemapindex</tt> files
+and gzipped <tt>.xml.gz</tt> sitemaps are followed. The URLs found become start
+URLs with the full depth budget, but they still go through your filters and
+scope rules, so a sitemap cannot widen a crawl you deliberately narrowed. It is
+off by default because a sitemap can list thousands of pages nothing links
+to.</p>
+
+<p>One surprise worth knowing: a sitemap you name with <tt>--sitemap-url</tt>,
+and one the site itself declares in <tt>robots.txt</tt>, are fetched even when
+<tt>robots.txt</tt> disallows that path, because naming or declaring a sitemap
+is an invitation to read it. Only the guessed <tt>/sitemap.xml</tt> obeys a
+<tt>Disallow</tt>. The URLs listed inside are gated normally either way.</p>
+
+<p>The single most common surprise is "only the home page came down." That is
+usually not a scope option at all: it is an off-host redirect. A start URL of
+<tt>http://example.com/</tt> that redirects to <tt>https://www.example.com/</tt>
+lands you on a different host, and same-host scope stops the crawl there. Start
+from the final URL, or add a filter that re-admits the real host (see
+<a href="#filters">Filters</a>). The log will show the redirect. When both names
+really are one site, <tt>--host-alias</tt> says so once and the mirror stops
+depending on which one you started from.</p>
+
+<p><tt>-n</tt> is the fix for pages that render locally without their images or
+stylesheets: it lets HTTrack pull in requisites that sit just outside scope. Note
+that its embedded-asset handling (following <tt>img</tt>, <tt>link</tt>,
+<tt>script</tt>, <tt>style</tt> and HTML5 <tt>source</tt>/<tt>track</tt> targets
+past the normal depth and filter limits) applies only when <tt>-n</tt> is on; it
+is not automatic. It can also over-fetch by dragging in a whole external host from
+a single link, in which case name the assets you want with a filter instead.</p>
+
+<h3 id="filters">3. Filters and scan rules</h3>
+
+<p>Filters are the number-one source of confusion, and also the tool that solves
+most scope problems once you understand them. A filter is a rule that accepts
+(<tt>+</tt>) or rejects (<tt>-</tt>) URLs by pattern. The sign is mandatory:
+<tt>+pattern</tt> adds, <tt>-pattern</tt> removes, and a bare pattern is an error.</p>
+
+<p>The rules that matter:</p>
+<ul>
+  <li><b>Last match wins.</b> Rules are applied in order and the last one that
+  matches a URL decides its fate. Order your rules from general to specific.</li>
+  <li><b>Wildcards.</b> <tt>*</tt> matches any run of characters;
+  <tt>*[a-z]</tt>, <tt>*[0-9]</tt> and similar classes match a run of characters from a set, and the run may be empty. So
+  <tt>+*.pdf</tt> means "any URL ending in .pdf".</li>
+  <li><b>Whitelisting.</b> To keep one site and nothing else, deny everything then
+  re-admit the host: <tt>"-*" "+example.com/*"</tt>. A lone <tt>+</tt> rule only
+  adds to the default scope; it never restricts.</li>
+  <li><b>Size rules.</b> <tt>*[&gt;100000]</tt> and <tt>*[&lt;1000]</tt> filter by
+  byte size. Because size is only known once the transfer starts, an oversize file
+  is fetched partway and then aborted, not skipped for free.</li>
+  <li><b>mime: rules.</b> A rule like <tt>-mime:video/*</tt> matches the
+  <tt>Content-Type</tt>. That type is only known after the response headers arrive,
+  so a mime rule <b>cannot stop a request</b>; it can only abort the body. Use a
+  URL pattern when you want to avoid the fetch entirely.</li>
+</ul>
+
+<p>Quote your filters. Shells treat <tt>*</tt>, <tt>[</tt> and sometimes <tt>+</tt>
+specially, so wrap each rule in quotes as shown above. The full pattern language,
+with tables for wildcards, size and mime, is in
+<a href="filters.html">the filters page</a>, and the
+<a href="faq.html">FAQ</a> has a worked tutorial.</p>
+
+<p><b>robots.txt.</b> By default HTTrack obeys <tt>robots.txt</tt> (<tt>-s2</tt>).
+<tt>-s0</tt> ignores it entirely, <tt>-s1</tt> obeys it but lets one of your
+<tt>+</tt> filters override a disallow for a URL you explicitly asked for. Note
+that a <tt>403 Forbidden</tt> is a server refusal, not a robots rule: robots
+options will not help there. That is an
+<a href="#identity">identity</a> problem.</p>
+
+<h4>Filter wildcards</h4>
+<p>Inside a filter pattern, <tt>*</tt> matches any run of characters; a few
+bracket forms match narrower sets. The full table, with size and mime rules, is on
+<a href="filters.html">the filters page</a>.</p>
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Wildcard</b></td><td><b>Matches</b></td><td><b>Example</b></td></tr>
+  <tr><td><tt>*</tt></td><td>any run of characters</td><td><tt>+*.pdf</tt> &mdash; any URL ending <tt>.pdf</tt></td></tr>
+  <tr><td><tt>*[file]</tt>, <tt>*[name]</tt></td><td>one path segment (any char but <tt>/</tt> and <tt>?</tt>)</td><td><tt>example.com/*[file]/</tt> &mdash; a directory-index page</td></tr>
+  <tr><td><tt>*[path]</tt></td><td>a path, slashes allowed (any char but <tt>?</tt>)</td><td><tt>example.com/*[path].zip</tt></td></tr>
+  <tr><td><tt>*[param]</tt></td><td>an optional query string</td><td><tt>page.html*[param]</tt> matches with or without <tt>?...</tt></td></tr>
+  <tr><td><tt>*[a,b,c]</tt></td><td>a run of characters from the set</td><td><tt>*[a,b,c].txt</tt></td></tr>
+  <tr><td><tt>*[a-z]</tt></td><td>a run of characters from the range, lowercase only</td><td><tt>img*[0-9].gif</tt></td></tr>
+  <tr><td><tt>*[\x]</tt></td><td>the literal character x (escapes <tt>* [ ] \</tt>)</td><td><tt>*[\*]</tt> matches a real <tt>*</tt></td></tr>
+  <tr><td><tt>*[&lt;NN]</tt>, <tt>*[&gt;NN]</tt>, <tt>*[&gt;MM&lt;NN]</tt></td><td>file size in KB below / above NN; two bounds in one clause combine with "and"</td><td><tt>-*.gif*[&lt;5]</tt> skips GIFs under 5&nbsp;KB, <tt>+*.gif*[&gt;1&lt;80]</tt> keeps the 1&ndash;80&nbsp;KB ones</td></tr>
+  <tr><td><tt>*[]</tt></td><td>end anchor: nothing may follow</td><td><tt>*.html*[]</tt> rejects <tt>i.html?p=1</tt></td></tr>
+</table>
+
+<h3 id="limits">4. Limits and politeness</h3>
+
+<p>HTTrack ships cautious on purpose: it is easy to hammer a small site by
+accident, and the <a href="abuse.html">abuse page</a> is worth a read. The limits
+below let you go faster when you own the target, and slower when you do not.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--max-rate (-A)</tt></td><td>Maximum transfer rate in bytes/sec. <b>The default is about 100 KB/s even without this flag.</b> Raise it to go faster.</td></tr>
+  <tr><td><tt>--sockets (-c)</tt></td><td>Number of parallel connections (default 4). <tt>--tiny</tt>, <tt>--wide</tt> and <tt>--ultrawide</tt> are presets. The <tt>wide-</tt>/<tt>tiny-</tt> prefix carries one onto a plain alias, so <tt>--wide-mirror</tt> is <tt>--mirror</tt> at 32 connections; an alias that cannot take a clustered count runs without it and says so.</td></tr>
+  <tr><td><tt>--connection-per-second (-%c)</tt></td><td>New connections opened per second (default 5).</td></tr>
+  <tr><td><tt>--max-size (-M)</tt></td><td>Stop after N bytes <b>received from the network</b> across the whole mirror (this counts what was transferred, not what was saved).</td></tr>
+  <tr><td><tt>--max-time (-E)</tt></td><td>Stop after N seconds of wall-clock time.</td></tr>
+  <tr><td><tt>--max-files (-m)</tt></td><td>Per-file size caps.</td></tr>
+  <tr><td><tt>--timeout (-T), --retries (-R), --min-rate (-J), --host-control (-H)</tt></td><td>Idle timeout, retry count, minimum acceptable rate, and host-ban behavior for slow or dead hosts.</td></tr>
+  <tr><td><tt>--max-pause (-G), --pause (-%G)</tt></td><td>Pause the mirror at N bytes, or pause between files, to spread the load.</td></tr>
+</table>
+
+<p><b>The security clamps.</b> To keep an accidental typo from turning into a flood,
+HTTrack silently caps a few values: at most 8 connections (<tt>-c</tt>), at most
+10 MB/s (<tt>-A</tt>), and at most 5 new connections per second (<tt>-%c</tt>).
+Ask for more and you get the ceiling, quietly. The single flag
+<tt>--disable-security-limits</tt> lifts all three (the short form <tt>-%!</tt>
+also works, but the bare <tt>!</tt> is awkward to type safely in a shell). Use it
+only against infrastructure you are allowed to load that hard.</p>
+
+<h3 id="names">5. File names and types</h3>
+
+<p>Where local files land, and what they are called, is controlled by the naming
+options. This is the second-biggest source of "why did it do that" questions,
+usually about a URL like <tt>/article?id=42</tt> or a <tt>.php</tt> page that is
+really HTML.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--structure (-N), --user-structure</tt></td><td>The local path and name layout. Presets are numeric, and you can also give a template such as <tt>--structure "%h%p/%n%q.%t"</tt>. <tt>--structure</tt> reads a value that opens with digits as a preset, and refuses one with no <tt>%</tt> in it, since that would map every URL onto a single local name. It also refuses a preset carrying more short options behind it (<tt>--structure=1L0</tt>), which reads as one value but asks for two; the short form <tt>-N1L0</tt> still clusters the way every short run does. <tt>--user-structure</tt> takes its value as a template whatever it looks like, which is the way to ask for either of those on purpose.</td></tr>
+  <tr><td><tt>--long-names (-L)</tt></td><td>Long names, 8.3 names, or ISO9660 for CD masters.</td></tr>
+  <tr><td><tt>--assume (-%A)</tt></td><td>Assume a MIME type for an extension, for example <tt>--assume php=text/html</tt>. This also skips the extra HEAD probe HTTrack would otherwise send to learn the type.</td></tr>
+  <tr><td><tt>--delayed-type-check (-%N), --cached-delayed-type-check (-%D), --check-type (-u), -%t</tt></td><td>When and how the content type is checked, and whether the original extension is kept.</td></tr>
+  <tr><td><tt>--include-query-string (-%q), --strip-query (-%g)</tt></td><td>Whether the query string appears in the local filename, and whether query keys are stripped when deciding if two URLs are the same file.</td></tr>
+</table>
+
+<p>The <tt>-N</tt> presets are built from modular arithmetic on the name fields, so
+undocumented number combinations often "work" by accident. If you care about the
+exact layout, use an explicit template (the <tt>%h %p %n %q %t</tt> placeholders)
+rather than a magic number, and check the result on a small crawl first.</p>
+
+<p>A dynamic page served as <tt>.php</tt> or <tt>.asp</tt> that is actually HTML is
+the classic case: without help it can be saved with an extension a browser will
+not open locally. <tt>--assume php=text/html</tt> fixes both the extension and the
+naming.</p>
+
+<h3 id="links">6. Links and page building</h3>
+
+<p>After a page is downloaded, HTTrack parses it for more links and rewrites the
+ones it kept so the local copy browses offline. These options tune both halves.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--keep-links (-K)</tt></td><td>How links are rewritten in saved pages. The numbering is inverted from what you might guess: bare <tt>-K</tt> keeps <b>absolute</b> URLs, and <tt>-K0</tt> is the <b>relative</b> default. <tt>-K3</tt> keeps absolute URIs, <tt>-K4</tt> keeps the original links.</td></tr>
+  <tr><td><tt>--replace-external (-x), --generate-errors (-o)</tt></td><td>Replace external links with an error page, and generate an error page for links that failed.</td></tr>
+  <tr><td><tt>--preserve (-%p), --disable-passwords (-%x)</tt></td><td>Leave HTML untouched (no rewriting), and strip passwords out of saved links.</td></tr>
+  <tr><td><tt>--extended-parsing (-%P), --parse-java (-j)</tt></td><td>Aggressive link discovery, and how much script content is parsed for links.</td></tr>
+  <tr><td><tt>--mime-html (-%M)</tt></td><td>Save the whole mirror as a single MIME-encapsulated <tt>.mht</tt> archive (<tt>index.mht</tt>). The archive names the first page it saves as its root, so that is what a reader opens.</td></tr>
+  <tr><td><tt>--single-file (-%Z), --single-file-max-size N</tt></td><td>Once the mirror is finished, rewrite every saved page with its stylesheets, scripts, images and fonts embedded as <tt>data:</tt> URIs. Assets over the cap (10&nbsp;MB by default) keep their link, as do audio, video, and the links from one page to another. A sibling of <tt>-%M</tt>, not a replacement: see the recipe below for which to pick.</td></tr>
+  <tr><td><tt>--index (-I), --build-top-index (-%i), --search-index (-%I)</tt></td><td>Build a per-mirror index, a top index across projects, and a searchable keyword index.</td></tr>
+</table>
+
+<p>HTTrack finds links by parsing HTML and CSS. It does not run JavaScript, so any
+URL a page builds at runtime in script (a lazy-loaded image, a
+JavaScript-assembled path) is invisible to the crawler and will be missing from
+the mirror. There is no flag that fixes this; the asset has to appear in the
+static HTML or CSS to be found. <tt>-%P</tt> widens discovery for links that are
+present but awkwardly formatted, not for links that do not exist until script
+runs.</p>
+
+<h3 id="identity">7. Identity, cookies and login</h3>
+
+<p>By default HTTrack is an honest robot: it sends a <tt>User-Agent</tt> of
+<tt>HTTrack</tt>, a Referer with each link (which reveals the crawl path to the
+server), and obeys robots. Plenty of sites filter exactly that profile. These
+options control what HTTrack says about itself.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--user-agent (-F)</tt></td><td>The <tt>User-Agent</tt>. Set a browser string to get past crawler blocks; <tt>--user-agent ""</tt> sends none.</td></tr>
+  <tr><td><tt>--referer (-%R), --from (-%E), --language (-%l), --accept (-%a)</tt></td><td>Referer, From, Accept-Language and Accept headers.</td></tr>
+  <tr><td><tt>--headers (-%X)</tt></td><td>Add raw header lines to every request.</td></tr>
+  <tr><td><tt>--browser-headers (-%Q)</tt></td><td>When <tt>-F</tt> names a browser (<tt>Mozilla/5.0 ...</tt>), send over HTTPS the headers it adds. Chrome and Edge get their client hints, and every browser gets <tt>Sec-Fetch-*</tt>. A link httrack cannot classify gets no <tt>Sec-Fetch-*</tt>, since a wrong value can get it refused. On by default, and <tt>-%Q0</tt> turns it off.</td></tr>
+  <tr><td><tt>--footer (-%F)</tt></td><td>A footer written into saved pages (on disk, not a network header). See <b>Footer fields</b> below.</td></tr>
+  <tr><td><tt>--cookies (-b), --cookies-file (-%K)</tt></td><td>Accept cookies, and use a Netscape <tt>cookies.txt</tt> as the jar, rewritten at the end. A document.cookie string also works, for the first start URL's domain, and is never rewritten.</td></tr>
+</table>
+
+<p><b>Footer fields.</b> A footer with no <tt>%s</tt> may reference named fields:
+<tt>{addr}</tt>, <tt>{path}</tt>, <tt>{url}</tt>, <tt>{date}</tt> (mirror time),
+<tt>{lastmodified}</tt> (the page's Last-Modified), <tt>{version}</tt>,
+<tt>{mime}</tt>, <tt>{charset}</tt>, <tt>{status}</tt> and <tt>{size}</tt>; write
+<tt>{{</tt> or <tt>}}</tt> for a literal brace. A footer that contains <tt>%s</tt>
+keeps the older positional form (host, path, date in that order). Example:
+<tt>-%F "&lt;!-- Mirrored from {url} on {date} --&gt;"</tt>.</p>
+
+<p><b>Login.</b> For HTTP Basic auth, put the credentials in the URL:
+<tt>http://user:pass@host/</tt>. An <tt>@</tt> inside the username must be written
+<tt>%40</tt>. Only Basic is supported, not Digest.</p>
+
+<p>For cookie or form logins, the simplest path is to log in with a browser, export
+its <tt>cookies.txt</tt>, and drop that file in the project directory so HTTrack
+sends the session cookie. For a form that needs a POST, <tt>--catchurl</tt> can
+capture the exact request your browser sends and replay it. A few cookie caveats
+to know: expiry is ignored, there is a silent cap of about 8 cookies sent per
+request, and <tt>-b0</tt> disables cookies and the reuse of Basic credentials
+across links at the same time.</p>
+
+<p>The page <a href="login.html">Mirror a site behind a login or a CAPTCHA</a>
+gives the full method, with the User-Agent and the logout filters.</p>
+
+<h3 id="proxy">8. Proxy and network</h3>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--proxy (-P)</tt></td><td>Route through a proxy. HTTP, SOCKS5 and CONNECT are supported: <tt>-P host:8080</tt>, <tt>-P socks5://host:1080</tt>, <tt>-P connect://host:443</tt>, with optional <tt>user:pass@</tt>.</td></tr>
+  <tr><td><tt>--httpproxy-ftp (-%f)</tt></td><td>Send FTP requests through the HTTP proxy.</td></tr>
+  <tr><td><tt>--protocol (-@i)</tt></td><td>Prefer IPv4 or IPv6.</td></tr>
+  <tr><td><tt>--http-10 (-%h), --keep-alive (-%k), --disable-compression (-%z)</tt></td><td>Force HTTP/1.0 (drops keep-alive and compression, useful for fragile CGI), toggle keep-alive, and toggle compression.</td></tr>
+  <tr><td><tt>--bind (-%b), --tolerant (-%B)</tt></td><td>Bind to a local address, and accept technically-bogus responses some servers send.</td></tr>
+</table>
+
+<p>Two network facts worth stating plainly. Over SOCKS5, HTTrack always resolves
+host names at the proxy (remote DNS) for both <tt>socks5://</tt> and
+<tt>socks5h://</tt>, so your local resolver is never consulted. And HTTrack does
+not verify TLS certificates: HTTPS gives you an encrypted transport, but not an
+authenticated one. That is a deliberate choice for a mirroring tool, not a bug,
+but it is worth knowing if you are relying on it for trust.</p>
+
+<h3 id="update">9. Update and cache</h3>
+
+<p>Every project keeps a cache under <tt>hts-cache/</tt>. It records every URL that
+was fetched, together with the options you used, and it is what makes resuming and
+updating possible. It is not a size-limited scratch area you can delete: throw it
+away and you lose the ability to continue or update the mirror.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--continue</tt></td><td>Carry on an interrupted mirror, trusting the cache: it does not re-check pages already stored.</td></tr>
+  <tr><td><tt>--update</tt></td><td>Re-run the mirror, revalidating each page with the server (If-Modified-Since / If-None-Match) and downloading only what changed.</td></tr>
+  <tr><td><tt>--purge-old=0 (-X0)</tt></td><td>Do not purge. By default an update deletes local files that are no longer part of the mirror; <tt>--purge-old=0</tt> keeps them.</td></tr>
+  <tr><td><tt>--cache (-C)</tt></td><td>Cache mode. The default already does the right thing and switches to update-checking when it detects an existing mirror.</td></tr>
+  <tr><td><tt>--urlhack (-%u), --keep-www-prefix (-%j), --keep-double-slashes (-%o), --keep-query-order (-%y), --do-not-recatch (-%n), --updatehack (-%s), --store-all-in-cache (-k)</tt></td><td>URL-deduplication behavior and cache storage details.</td></tr>
+  <tr><td><tt>--debug-cache (-#C), --repair-cache (-#R), --clean</tt></td><td>Inspect the cache, repair its ZIP, and erase cache plus logs.</td></tr>
+</table>
+
+<p><b>The purge trap.</b> An <tt>--update</tt> run rebuilds the list of files the
+mirror should contain, then deletes any previously-mirrored file that is not on the
+new list. This is what keeps a mirror in sync with a shrinking site, but it means a
+partial or interrupted update can delete files you meant to keep. If an update might
+not complete cleanly, add <tt>-X0</tt> to protect the existing tree, and expect
+dynamic pages to look "changed" on every run. See the
+<a href="cache.html">cache page</a> for the details.</p>
+
+<h3 id="experts">10. Experts and scripting</h3>
+
+<p>HTTrack is also a scriptable fetch-and-scan tool. These options turn off the
+mirror behavior and expose the engine.</p>
+
+<table class="tblRegular tableWidth" border="0">
+  <tr class="head"><td><b>Option</b></td><td><b>What it controls</b></td></tr>
+  <tr><td><tt>--get URL</tt></td><td>Fetch a single file and stop. Cache, index, depth, cookies and robots are all off for this mode.</td></tr>
+  <tr><td><tt>--spider --testlinks --skeleton</tt></td><td>Scan without saving, test links at depth 1, or keep HTML only. Handy for checking a site before a real crawl.</td></tr>
+  <tr><td><tt>--userdef-cmd (-V)</tt></td><td>Run a shell command on each downloaded file; <tt>$0</tt> is the file path. Good for on-the-fly processing.</td></tr>
+  <tr><td><tt>--callback (-%W)</tt></td><td>Load an external callback module to hook the engine.</td></tr>
+  <tr><td><tt>--do-not-log (-Q), --quiet (-q), --verbose (-v), --file-log (-f), --extra-log (-z), --debug-log (-Z)</tt></td><td>Logging: quiet, no questions, verbose on screen, and the various log-to-file levels.</td></tr>
+</table>
+
+<p>The <a href="dev.html">developer page</a> covers the callback API and batch use
+in more depth.</p>
+
+<h3 id="recipes">11. Recipes</h3>
+
+<p>Copy-ready command lines for the tasks people ask about most. Each has the one
+gotcha that trips it up.</p>
+
+<h4>Mirror one site, nothing off-host</h4>
+<p><tt>httrack https://example.com/ --path mydir</tt><br>
+<small>Same-host is already the default. The usual failure is a
+<tt>www.</tt>-to-apex or <tt>http</tt>-to-<tt>https</tt> redirect that moves you off
+host and stops the crawl; start from the final URL, or add
+<tt>"+finalhost/*"</tt>.</small></p>
+
+<h4>One level of links only</h4>
+<p><tt>httrack https://example.com/ --depth=2 --path mydir</tt><br>
+<small>Depth counts the start page as level 1, so one level out is <tt>--depth=2</tt>.</small></p>
+
+<h4>This site only, deny everything else</h4>
+<p><tt>httrack https://example.com/ "-*" "+example.com/*" --path mydir</tt><br>
+<small>You must deny-all first; a lone <tt>+</tt> only adds, and the last matching
+rule wins.</small></p>
+
+<h4>Download the PDFs on a site</h4>
+<p><tt>httrack https://example.com/ "-*" "+https://example.com/*.html" "+https://example.com/*[path]/" "+https://example.com/*.pdf" --path mydir</tt><br>
+<small>HTTrack finds PDFs by parsing the site's HTML, so a plain
+<tt>"-*" "+example.com/*.pdf"</tt> is wrong: it prunes the pages that carry the
+links and keeps only PDFs reachable from the front page. Instead admit the HTML as
+scaffolding (<tt>*.html</tt> and <tt>*[path]/</tt> for directory-index pages at any
+depth, e.g. <tt>docs/</tt> or <tt>a/b/deep/</tt>; <tt>*[file]/</tt> would stop at one
+level), keep the PDFs, and let <tt>-*</tt> drop everything else (images,
+archives, off-site assets). PDFs on another host (a CDN or docs subdomain) are not
+included by default; allow that host too, e.g. <tt>"+docs.example.com/*.pdf"</tt>,
+or widen to <tt>"+*.pdf"</tt> for PDFs anywhere.</small></p>
+
+<h4>Keep page requisites, including off-host images</h4>
+<p><tt>httrack https://example.com/blog/ --near --path mydir</tt><br>
+<small><tt>--near</tt> can over-fetch by pulling in an entire external host from one
+link; if it does, name the assets with <tt>"+cdn.example.com/*"</tt> instead.</small></p>
+
+<h4>Resume an interrupted crawl</h4>
+<p><tt>httrack --continue --path mydir</tt><br>
+<small>Needs an intact <tt>hts-cache/</tt>. Deleting it loses the URL list and your
+options.</small></p>
+
+<h4>Update a mirror, downloading only what changed</h4>
+<p><tt>httrack --update --path mydir</tt><br>
+<small>Purge deletes any previously-mirrored file not seen this run; add
+<tt>--purge-old=0</tt> to protect the tree against a partial update.</small></p>
+
+<h4>Reach a section behind a login cookie</h4>
+<p><small>Export your browser's <tt>cookies.txt</tt> into the project directory,
+then:</small><br>
+<tt>httrack https://example.com/members/ --path mydir</tt><br>
+<small>The file must be Netscape <tt>cookies.txt</tt> in the project folder;
+<tt>--cookies=0</tt> would disable cookies and Basic-auth reuse together.</small></p>
+
+<h4>Get past a crawler-UA block</h4>
+<p><tt>httrack https://example.com/ --user-agent "Mozilla/5.0 (Windows NT 10.0)" --path mydir</tt><br>
+<small>A 403 is server-side, not robots: change the User-Agent, and add
+<tt>--http-10</tt> for fragile CGI. Do not reach for <tt>--robots=0</tt>.</small></p>
+
+<h4>Full-speed mirror on your own server</h4>
+<p><tt>httrack https://example.com/ --max-rate=2000000 --sockets=8 --disable-security-limits --path mydir</tt><br>
+<small>The default throttles to about 100 KB/s. <tt>--disable-security-limits</tt>
+lifts the built-in caps; use it only against infrastructure you are allowed to
+load.</small></p>
+
+<h4>Save a WARC archive of the crawl</h4>
+<p><tt>httrack https://example.com/ --warc --path mydir</tt><br>
+<small>Writes a standard WARC/1.1 file (<tt>httrack-&lt;timestamp&gt;.warc.gz</tt>) in
+the project folder alongside the browsable mirror, not instead of it. Set the name
+with <tt>--warc-file NAME</tt> and split a large crawl with <tt>--warc-max-size N</tt>;
+add <tt>--warc-cdx</tt> for a sorted CDXJ index, or <tt>--wacz</tt> to bundle the
+archive, index and pages into one WACZ for replay tools such as
+replayweb.page.</small></p>
+
+<h4>See what a re-crawl changed</h4>
+<p><tt>httrack https://example.com/ --update --changes --path mydir</tt><br>
+<small>Writes <tt>hts-changes.json</tt> in the project folder, listing every
+mirrored file as new, changed, unchanged or gone, plus a one-line summary in the
+log. &quot;Changed&quot; means the bytes really differ: a server that answers 200
+with the same content it served last time lands in <tt>unchanged</tt>. Deletions
+are reported whether or not <tt>--purge-old</tt> is deleting them. The format is
+documented in <a href="changes.html">the change report specification</a>.</small></p>
+
+<h4>Pages you can hand to someone as one file</h4>
+<p><tt>httrack https://example.com/ --single-file --path mydir</tt><br>
+<small>Rewrites each saved page after the crawl so its stylesheets, scripts,
+images and fonts are embedded as <tt>data:</tt> URIs. The mirror stays a normal
+browsable tree, with links between pages relative and the assets still on disk,
+but any single <tt>.html</tt> file can now be mailed or archived on its own.
+Raise or lower the 10&nbsp;MB per-asset limit with
+<tt>--single-file-max-size N</tt>; anything over it, plus audio and video, keeps
+its link. One caveat if you raise it: an inlined stylesheet becomes a
+<tt>data:</tt> URL, whose path is opaque, so an asset it referenced that stayed
+over the cap no longer resolves from inside it. Raising the cap past that asset
+embeds it too and the question goes away.<br>
+Reach for this when the file has to open for someone you cannot make assumptions
+about: it is plain HTML and needs no add-on. Reach for <tt>--mime-html</tt>
+instead when a Chromium-family browser is a given and the mirror is large: MIME
+carries text parts without the base64 tax and stores a shared asset once rather
+than re-embedding it in every page that uses it.</small></p>
+
+<h4>HTTrack as a fetch tool</h4>
+<p><tt>httrack --get https://host/file.bin --path tmp</tt><br>
+<small><tt>--get</tt> fetches one file with cache, index, depth, cookies and robots
+all disabled.</small></p>
+
+<p><br>For the complete, always-current option list, see
+<a href="httrack.man.html">the manual page</a>. For the filter language, see
+<a href="filters.html">filters</a>; for the cache and updates, see
+<a href="cache.html">cache</a>; for the change report, see
+<a href="changes.html">changes</a>.</p>
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

@@ -1,0 +1,333 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: Unpacking subroutines using Jean-loup Gailly's Zlib    */
+/*       for http compressed data                               */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+/* Internal engine bytecode */
+#define HTS_INTERNAL_BYTECODE
+
+/* specific definitions */
+#include "htsbase.h"
+#include "htscore.h"
+#include "htsio.h"
+#include "htscodec.h"
+#include "htszlib.h"
+
+/* zlib */
+/*
+#include <zlib.h>
+#include "htszlib.h"
+*/
+
+/* Note: utf-8 */
+int hts_zunpack(const char *filename, const char *newfile) {
+  int ret = -1;
+  /* a local failure's errno, 0 when the coded body was the problem */
+  int io_errno = 0;
+
+  if (filename != NULL && newfile != NULL && filename[0] && newfile[0]) {
+    char catbuff[CATBUFF_SIZE];
+    FILE *const in = FOPEN(fconv(catbuff, sizeof(catbuff), filename), "rb");
+
+    if (in != NULL) {
+      unsigned char BIGSTK inbuf[8192];
+      const LLint maxout = hts_codec_maxout(hts_codec_coded_size(in));
+      size_t navail = fread(inbuf, 1, sizeof(inbuf), in);
+      /* gzip/zlib headers -> +32 windowBits; else raw deflate (RFC1951) */
+      const hts_boolean wrapped =
+          (navail >= 2 &&
+           ((inbuf[0] == 0x1f && inbuf[1] == 0x8b) ||
+            ((inbuf[0] & 0x0f) == Z_DEFLATED &&
+             (((unsigned) inbuf[0] << 8 | inbuf[1]) % 31) == 0)));
+      int attempt;
+      /* not_deflate: the raw attempt hit a data error, so the body is in no
+         deflate framing at all. env_error: local I/O or memory failure. */
+      hts_boolean not_deflate = HTS_FALSE;
+      hts_boolean env_error = HTS_FALSE;
+      hts_boolean bomb = HTS_FALSE;
+
+      /* deflate is ambiguous; on failure retry with the other windowBits */
+      for (attempt = 0; attempt < 2 && ret < 0 && !bomb; attempt++) {
+        const int windowBits =
+            (attempt == 0 ? wrapped : !wrapped) ? (32 + MAX_WBITS) : -MAX_WBITS;
+        FILE *fpout;
+        z_stream strm;
+
+        if (attempt > 0) {
+          /* rewind input; reopening fpout "wb" discards the partial output */
+          if (fseek(in, 0, SEEK_SET) != 0) {
+            io_errno = errno;
+            env_error = HTS_TRUE;
+            break;
+          }
+          navail = fread(inbuf, 1, sizeof(inbuf), in);
+        }
+        fpout = FOPEN(fconv(catbuff, sizeof(catbuff), newfile), "wb");
+        if (fpout == NULL) {
+          io_errno = errno;
+          env_error = HTS_TRUE;
+          break;
+        }
+        memset(&strm, 0, sizeof(strm));
+        if (inflateInit2(&strm, windowBits) != Z_OK) {
+          env_error = HTS_TRUE;
+          fclose(fpout);
+          break;
+        }
+        {
+          hts_boolean ok = HTS_TRUE;
+          LLint size = 0;
+          int zerr = Z_OK;
+
+          /* chunked inflate; first chunk in inbuf, single member */
+          do {
+            strm.next_in = inbuf;
+            strm.avail_in = (uInt) navail;
+            do {
+              unsigned char BIGSTK outbuf[8192];
+              size_t produced;
+
+              strm.next_out = outbuf;
+              strm.avail_out = sizeof(outbuf);
+              zerr = inflate(&strm, Z_NO_FLUSH);
+              if (zerr == Z_NEED_DICT || zerr == Z_DATA_ERROR ||
+                  zerr == Z_MEM_ERROR || zerr == Z_STREAM_ERROR) {
+                if (zerr == Z_MEM_ERROR || zerr == Z_STREAM_ERROR)
+                  env_error = HTS_TRUE;
+                else if (windowBits < 0)
+                  not_deflate = HTS_TRUE;
+                ok = HTS_FALSE;
+                break;
+              }
+              produced = sizeof(outbuf) - strm.avail_out;
+              size += (LLint) produced;
+              if (size > maxout) { /* decompression bomb: no retry, no copy */
+                bomb = HTS_TRUE;
+                ok = HTS_FALSE;
+                break;
+              }
+              if (produced > 0 && !hts_fwrite_exact(outbuf, produced, fpout)) {
+                io_errno = errno;
+                env_error = HTS_TRUE;
+                ok = HTS_FALSE;
+                break;
+              }
+            } while (strm.avail_out == 0);
+            if (!ok || zerr == Z_STREAM_END)
+              break;
+            navail = fread(inbuf, 1, sizeof(inbuf), in);
+          } while (navail > 0);
+          if (ok && zerr == Z_STREAM_END)
+            ret = (int) size;
+        }
+        inflateEnd(&strm);
+        /* stdio may still hold the tail, so the close is a write of its own */
+        if (fclose(fpout) != 0) {
+          io_errno = errno;
+          env_error = HTS_TRUE;
+          ret = -1;
+        }
+      }
+      /* keep a mislabeled identity body verbatim only when provably not
+         deflate; truncation or a local failure must keep failing (#47) */
+      if (ret < 0 && !bomb && !wrapped && not_deflate && !env_error &&
+          !ferror(in)) {
+        FILE *const fpout =
+            FOPEN(fconv(catbuff, sizeof(catbuff), newfile), "wb");
+
+        if (fpout != NULL && fseek(in, 0, SEEK_SET) == 0) {
+          int size = 0;
+
+          while ((navail = fread(inbuf, 1, sizeof(inbuf), in)) > 0) {
+            if (!hts_fwrite_exact(inbuf, navail, fpout)) {
+              io_errno = errno;
+              size = -1;
+              break;
+            }
+            size += (int) navail;
+          }
+          if (size >= 0 && !ferror(in))
+            ret = size;
+        }
+        if (fpout != NULL && fclose(fpout) != 0) {
+          io_errno = errno;
+          ret = -1;
+        }
+      }
+      fclose(in);
+    }
+  }
+  if (ret < 0)
+    errno = io_errno; /* the cleanup above clobbered it */
+  return ret;
+}
+
+size_t hts_zhead(const void *in, size_t in_len, void *out, size_t out_len) {
+  z_stream zs;
+  size_t n = 0;
+  int err;
+
+  memset(&zs, 0, sizeof(zs));
+  if (inflateInit2(&zs, 47) != Z_OK) /* 47: gzip or zlib, autodetected */
+    return 0;
+  zs.next_in = (const Bytef *) in;
+  zs.avail_in = (uInt) in_len;
+  zs.next_out = (Bytef *) out;
+  zs.avail_out = (uInt) out_len;
+  err = inflate(&zs, Z_SYNC_FLUSH);
+  if (err == Z_OK || err == Z_STREAM_END || err == Z_BUF_ERROR)
+    n = out_len - zs.avail_out;
+  inflateEnd(&zs);
+  return n;
+}
+
+int hts_extract_meta(const char *path) {
+  char catbuff[CATBUFF_SIZE];
+  unzFile zFile = hts_unzOpen_utf8(
+      fconcat(catbuff, sizeof(catbuff), path, "hts-cache/new.zip"));
+  zipFile zFileOut = hts_zipOpen_utf8(
+      fconcat(catbuff, sizeof(catbuff), path, "hts-cache/meta.zip"), 0);
+
+  if (zFile != NULL && zFileOut != NULL) {
+    if (unzGoToFirstFile(zFile) == Z_OK) {
+      zip_fileinfo fi;
+      unz_file_info ufi;
+      char BIGSTK filename[HTS_URLMAXSIZE * 4];
+      char BIGSTK comment[8192];
+
+      memset(comment, 0, sizeof(comment));      // for truncated reads
+      memset(&fi, 0, sizeof(fi));
+      memset(&ufi, 0, sizeof(ufi));
+      do {
+        int readSizeHeader;
+
+        filename[0] = '\0';
+        comment[0] = '\0';
+
+        if (unzOpenCurrentFile(zFile) == Z_OK) {
+          if ((readSizeHeader =
+               unzGetLocalExtrafield(zFile, comment, sizeof(comment) - 2)) > 0
+              && unzGetCurrentFileInfo(zFile, &ufi, filename,
+                                       sizeof(filename) - 2, NULL, 0, NULL,
+                                       0) == Z_OK) {
+            comment[readSizeHeader] = '\0';
+            fi.dosDate = ufi.dosDate;
+            fi.internal_fa = ufi.internal_fa;
+            fi.external_fa = ufi.external_fa;
+            if (zipOpenNewFileInZip(zFileOut, filename, &fi, NULL, 0, NULL, 0, NULL,    /* comment */
+                                    Z_DEFLATED, Z_DEFAULT_COMPRESSION) == Z_OK) {
+              if (zipWriteInFileInZip(zFileOut, comment, (int) strlen(comment))
+                  != Z_OK) {
+              }
+              if (zipCloseFileInZip(zFileOut) != Z_OK) {
+              }
+            }
+          }
+          unzCloseCurrentFile(zFile);
+        }
+      } while(unzGoToNextFile(zFile) == Z_OK);
+    }
+    zipClose(zFileOut, "Meta-data extracted by HTTrack/" HTTRACK_VERSION);
+    unzClose(zFile);
+    return 1;
+  }
+  if (zFileOut != NULL)
+    zipClose(zFileOut, NULL);
+  if (zFile != NULL)
+    unzClose(zFile);
+  return 0;
+}
+
+const char *hts_get_zerror(int err, char *buf, size_t size) {
+  switch (err) {
+  case UNZ_OK:
+    return "no error";
+    break;
+  case UNZ_END_OF_LIST_OF_FILE:
+    return "end of list of file";
+    break;
+  case UNZ_ERRNO:
+    return hts_strerror(errno, buf, size);
+    break;
+  case UNZ_PARAMERROR:
+    return "parameter error";
+    break;
+  case UNZ_BADZIPFILE:
+    return "bad zip file";
+    break;
+  case UNZ_INTERNALERROR:
+    return "internal error";
+    break;
+  case UNZ_CRCERROR:
+    return "crc error";
+    break;
+  default:
+    return "unknown error";
+    break;
+  }
+}
+
+/* Open a ZIP through hts_fopen_utf8 so a non-ASCII path isn't mangled to ANSI
+   on Windows (#630); the 64-bit funcs keep multi-GB archives whole on LLP64. */
+static voidpf ZCALLBACK hts_zip_fopen_utf8(voidpf opaque, const void *filename,
+                                           int mode) {
+  const char *mode_fopen = NULL;
+
+  (void) opaque;
+  if ((mode & ZLIB_FILEFUNC_MODE_READWRITEFILTER) == ZLIB_FILEFUNC_MODE_READ)
+    mode_fopen = "rb";
+  else if (mode & ZLIB_FILEFUNC_MODE_EXISTING)
+    mode_fopen = "r+b";
+  else if (mode & ZLIB_FILEFUNC_MODE_CREATE)
+    mode_fopen = "wb";
+  if (filename == NULL || mode_fopen == NULL)
+    return NULL;
+  return (voidpf) FOPEN((const char *) filename, mode_fopen);
+}
+
+void hts_zip_filefunc64(zlib_filefunc64_def *ff) {
+  fill_fopen64_filefunc(ff);
+  ff->zopen64_file = hts_zip_fopen_utf8;
+}
+
+unzFile hts_unzOpen_utf8(const char *path) {
+  zlib_filefunc64_def ff;
+
+  hts_zip_filefunc64(&ff);
+  return unzOpen2_64(path, &ff);
+}
+
+zipFile hts_zipOpen_utf8(const char *path, int append) {
+  zlib_filefunc64_def ff;
+
+  hts_zip_filefunc64(&ff);
+  return zipOpen2_64(path, append, NULL, &ff);
+}

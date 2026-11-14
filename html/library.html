@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Linking against the libhttrack library.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>The libhttrack library</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>On this page</h2>
+	<ul>
+		<li><a href="#headers">The headers an install gives you</a></li>
+		<li><a href="#examples">Worked examples</a></li>
+	</ul>
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html" aria-current="page" class="here">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>HTTrack Programming page - using the library</h1>
+
+<br>
+
+Every library prototype is declared in <tt>httrack-library.h</tt>. Build against it with
+<tt>pkg-config --cflags --libs libhttrack</tt>, which adds <tt>$(includedir)/httrack</tt> to the
+include path and links <tt>-lhttrack</tt>.
+
+<br><br>
+
+<h3 id="headers">The headers an install gives you</h3>
+
+<p>Installing the library puts these headers in <tt>$(includedir)/httrack</tt>, and no others:</p>
+
+<ul>
+<li><tt>httrack-library.h</tt></li>
+<li><tt>htsglobal.h</tt></li>
+<li><tt>htsopt.h</tt></li>
+<li><tt>htswrap.h</tt></li>
+<li><tt>htsconfig.h</tt></li>
+<li><tt>htsfeatures.h</tt></li>
+<li><tt>htsmodules.h</tt></li>
+<li><tt>htsbasenet.h</tt></li>
+<li><tt>htsnet.h</tt></li>
+<li><tt>htsbauth.h</tt></li>
+<li><tt>htsdefines.h</tt></li>
+<li><tt>htsstrings.h</tt></li>
+<li><tt>htsarrays.h</tt></li>
+<li><tt>htssafe.h</tt></li>
+</ul>
+
+<p>Every other header under <tt>src/</tt> is engine-internal, so a file that includes one of them
+compiles only inside the source tree.</p>
+
+<h3 id="examples">Worked examples</h3>
+
+<p>The examples install next to the library, in <tt>$(datadir)/httrack/libtest</tt>, and they
+include no header an install does not carry. <tt>example-main.c</tt> drives a whole mirror from a
+program, and each <tt>callbacks-example-*.c</tt> file shows one callback. The
+<a href="plug.html">callbacks page</a> documents the hooks themselves.</p>
+
+<p>The command-line front end <tt>src/httrack.c</tt> is not one of them. It ships in the source
+tarball only, and it includes engine-internal headers (<tt>htsbase.h</tt>, <tt>httrack.h</tt>,
+<tt>htslib.h</tt>, <tt>htscharset.h</tt>, <tt>htsbacktrace.h</tt> and <tt>htsthread.h</tt>) that an
+install does not carry.</p>
+
+<br><br>
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

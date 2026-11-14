@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The format of the HTTrack cache in hts-cache, and how to read it.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>HTTrack cache format</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html" aria-current="page" class="here">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>Cache format specification</h1>
+
+<br />
+
+For updating purpose, HTTrack stores original (untouched) HTML data, 
+references to downloaded files, and other meta-data (especially parts of the HTTP headers) in a cache, 
+located in the hts-cache directory. Because local html pages are always modified to "fit" the local
+filesystem structure, and because meta-data such as the last-Modified date and Etag can not be stored
+with the associated files, the cache is absolutely mandatory for reprocessing (update/continue) phases.
+
+<br /><br />
+
+<h3 id="the-new-cache-zip-format">The (new) cache.zip format</h3>
+
+The 3.31 release of HTTrack introduces a new cache format, more extensible and efficient than the previous one (ndx/dat format).
+
+The main advantages of this cache are:
+
+<ul>
+<li>One single file for a complete website cache archive</li>
+<li>Standard <a href="https://support.pkware.com/pkzip/appnote" target="_blank">ZIP</a> format, that can be easily reused on most platforms and languages</li>
+<li>Compressed data with the efficient and opened <a href="https://zlib.net/" target="_blank">zlib</a> format</li>
+</ul>
+
+The cache is made of ZIP files entries ; with one ZIP file entry per fetched URL (successfully or not - errors are also stored).<br />
+For each entry:
+<ul>
+<li>The ZIP file name is the original URL [<small><a href="#orig">see notes below</a></small>]</li>
+<li>The ZIP file contents, <b>if available</b>, is the original (compressed, using the deflate algorythm) data</li>
+<li>The ZIP file extra field (in the local file header) contains a list of meta-fields, very similar to the <a href="http://www.ietf.org/rfc/rfc2616.txt?number=2616" target="_blank">HTTP</a> headers fields. See also <a href="http://www.ietf.org/rfc/rfc2396.txt?number=2396" target="_blank">RFC</a>.</li><br />
+<li>The ZIP file timestamp follows the "Last-Modified-Since" field given for this URL, if any</li>
+</ul>
+
+Example of cache file:
+<br />
+
+<pre>
+$ unzip -l hts-cache/new.zip
+Archive:  hts-cache/new.zip
+HTTrack Website Copier/3.31-ALPHA-4 mirror complete in 3 seconds : 5 links scanned, 
+3 files written (16109 bytes overall) [17690 bytes received at 5896 bytes/sec]
+(1 errors, 0 warnings, 0 messages)
+  Length     Date   Time    Name
+ --------    ----   ----    ----
+       94  07-18-03 08:59   http://www.httrack.com/robots.txt
+     9866  01-17-04 01:09   http://www.httrack.com/html/cache.html
+        0  05-11-03 13:31   http://www.httrack.com/html/images/bg_rings.gif
+      207  01-19-04 05:49   http://www.httrack.com/html/fade.gif
+        0  05-11-03 13:31   http://www.httrack.com/html/images/header_title_4.gif
+ --------                   -------
+    10167                   5 files
+</pre>
+
+Example of cache file meta-data:
+<br />
+
+<pre>
+HTTP/1.1 200 OK
+X-In-Cache: 1
+X-StatusCode: 200
+X-StatusMessage: OK
+X-Size: 94
+Content-Type: text/plain
+Last-Modified: Fri, 18 Jul 2003 08:59:11 GMT
+Etag: "40ebb5-5e-3f17b6df"
+X-Addr: www.httrack.com
+X-Fil: /robots.txt
+</pre>
+
+There are also specific issues regarding this format:
+
+<ul>
+<li>The data in the central directory (such as CD extra field, and CD comments) are not used</li>
+<li>The ZIP archive is allowed to contains more than 2^16 files (65535) ; in such case the total number of entries in the 32-bit central directory is 65536 (0xffff), but the presence of the 64-bit central directory is not mandatory</li>
+<li>The ZIP archive is allowed to contains more than 2^32 bytes (4GiB) ; in such case the 64-bit central directory is emitted automatically (a single stored entry of 4GiB or more is not supported)</li>
+</ul>
+
+<br />
+<b>Meta-data stored in the "extra field" of the local file headers</b><br />
+
+The extra field is composed of text data, and this text data is composed of distinct lines of headers.
+The end of text, <b>or</b> a double CR/LF, mark the end of this zone.
+This method allows you to optionally store original HTTP headers just after the "meta-data" headers for informational use.<br />
+
+<br />
+<b>The status line (the first headers line)</b><br />
+
+Status-Line = HTTP-Version SP Status-Code SP X-Reason-Phrase CRLF<br />
+
+<br />
+<b>Other lines:</b><br />
+
+<br />
+<b>Specific fields:</b><br />
+<ul>
+<li>X-In-Cache</li><br>
+Indicates if the data are present (value=1) in the cache (that is, as ZIP data), or in an external file (value=0).
+This field MUST be the first field.
+
+<li>X-StatusCode</li><br>
+The modified (by httrack) status code after processing. 304 error codes ("Not modified"), for example, are transformed into "200" codes after processing.
+
+<li>X-StatusMessage</li><br>
+The modified (by httrack) status message.
+
+<li>X-Size</li><br>
+The stored (either in cache, or in an external file) data size.
+
+<li>X-Charset</li><br>
+The original charset.
+
+<li>X-Addr</li><br>
+The original URL address part.
+
+<li>X-Fil</li><br>
+The original URL path part.
+
+<li>X-Save</li><br>
+The local filename, depending on user's "build structure" preferences.
+
+</ul>
+
+<br />
+<b>Standard (RFC 2616) "useful" fields:</b><br />
+<ul>
+<li>Content-Type</li>
+<li>Last-Modified</li>
+<li>Etag</li>
+<li>Location</li>
+<li>Content-Disposition</li>
+</ul>
+
+<br />
+<b>Specific fields in "BNF-like" grammar:</b><br />
+
+<pre>
+X-In-Cache          = "X-In-Cache" ":" 1*DIGIT
+X-StatusCode        = "X-StatusCode" ":" 1*DIGIT
+X-StatusMessage     = "X-StatusMessage" ":" *&lt;TEXT, excluding CR, LF&gt;
+X-Size              = "X-Size" ":" 1*DIGIT
+X-Charset           = "X-Charset" ":" value
+X-Addr              = "X-Addr" ":" scheme ":" "//" authority
+X-Fil               = "X-Fil" ":" rel_path
+X-Save              = "X-Save" ":" rel_path
+</pre>
+
+<b>RFC standard fields:</b><br />
+
+<pre>
+Content-Type        = "Content-Type" ":" media-type
+Last-Modified       = "Last-Modified" ":" HTTP-date
+Etag                = "ETag" ":" entity-tag
+Location            = "Location" ":" absoluteURI
+Content-Disposition = "Content-Disposition" ":" disposition-type *( ";" disposition-parm )
+</pre>
+
+<br />
+And, for your information,
+<pre>
+X-Reason-Phrase     = *&lt;TEXT, with a maximum of 32 characters, and excluding CR, LF&gt;
+</pre>
+
+
+<a name="orig">Note: Because the URLs may have an unexpected format, especially with double "/" inside, and other reserved characters ("?", "&" ..),
+various ZIP uncompressors can potentially have troubles accessing or decompressing the data.
+Libraries should generally handle this peculiar format, however.
+</a>
+
+<br /><br />
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

@@ -1,0 +1,1824 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 2026 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: htsback_selftest.c subroutines:                        */
+/*       self-tests for the backlog and its worker threads      */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+#include <limits.h> /* INT_MAX, the backing count back_new() must refuse */
+
+#include "htsselftest_int.h"
+
+/* hts_mirror_completed() answers HTS_DEFAULT until a mirror has run, so a GUI
+   whose hts_main2() bailed out early does not read that as an abort. The
+   verdict is live state, so copy_htsopt() must not carry it between opts. */
+static int st_mirrorcompleted(httrackp *opt, int argc, char **argv) {
+  httrackp *from = hts_create_opt();
+  httrackp *to = hts_create_opt();
+  int err = 0;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  if (hts_mirror_completed(from) != HTS_DEFAULT)
+    err = 1;
+  if (hts_mirror_completed(to) != HTS_DEFAULT)
+    err = 1;
+
+  /* A verdict never travels onto an opt that has none. */
+  from->mirror_completed = HTS_TRUE;
+  to->mirror_completed = HTS_DEFAULT;
+  copy_htsopt(from, to);
+  if (hts_mirror_completed(to) != HTS_DEFAULT)
+    err = 1;
+  /* A verdict never overwrites one the target earned itself, which is what a
+     copy_htsopt change would silently break. */
+  from->mirror_completed = HTS_FALSE;
+  to->mirror_completed = HTS_TRUE;
+  copy_htsopt(from, to);
+  if (hts_mirror_completed(to) != HTS_TRUE)
+    err = 1;
+
+  hts_free_opt(from);
+  hts_free_opt(to);
+  printf("mirror-completed: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* stat_errors reads the same for a 404 as for a timeout. A front end deciding
+   whether a resume is owed needs the failed transfers apart, and per mirror, so
+   copy_htsopt() must not carry the count between opts. */
+static int st_transportfailures(httrackp *opt, int argc, char **argv) {
+  httrackp *from = hts_create_opt();
+  httrackp *to = hts_create_opt();
+  const hts_stat_struct *stats;
+  int err = 0;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  if (from->transport_failures != 0 || to->transport_failures != 0)
+    err = 1;
+
+  /* Published beside stat_errors, which is where a front end reads it. */
+  to->transport_failures = 7;
+  stats = hts_get_stats(to);
+  if (stats == NULL || stats->stat_transport_failures != 7)
+    err = 1;
+
+  /* A count never travels onto another opt. */
+  from->transport_failures = 3;
+  to->transport_failures = 0;
+  copy_htsopt(from, to);
+  if (to->transport_failures != 0)
+    err = 1;
+
+  hts_free_opt(from);
+  hts_free_opt(to);
+  printf("transport-failures: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static int st_pause(httrackp *opt, int argc, char **argv) {
+  int err = 0, i, seen_low = 0, seen_high = 0;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+  /* Consecutive-ms seeds (production shape: launch timestamps a few ms apart)
+     must stay in range and spread, not collapse to a bound -- worst case for a
+     weak low-bit mixer. */
+  for (i = 0; i < 10000; i++) {
+    int t = hts_pause_target_ms((TStamp) (1719500000000LL + i), 5000, 10000);
+
+    if (t < 5000 || t > 10000)
+      err = 1;
+    seen_low |= (t < 6000);
+    seen_high |= (t > 9000);
+  }
+  if (!seen_low || !seen_high)
+    err = 1;
+  if (hts_pause_target_ms(12345, 8000, 8000) != 8000) /* equal bounds = fixed */
+    err = 1;
+  /* deterministic: a seed yields the same target even after an intervening call
+     with another seed (no global PRNG state to perturb it) */
+  {
+    int a = hts_pause_target_ms(99, 5000, 10000);
+
+    (void) hts_pause_target_ms(54321, 5000, 10000);
+    if (hts_pause_target_ms(99, 5000, 10000) != a)
+      err = 1;
+  }
+  printf("pause: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* #747: a thread is outstanding from the moment hts_newthread() returns, not
+   from the moment it starts running, or a wait right after the spawn joins
+   nothing. One thread per round is what makes the old bug visible: the wait
+   had to find the counter at zero, and a batch of spawns gives the earlier
+   threads time to raise it. Unfixed, one round in two caught it, so the round
+   count is what turns that into a reliable failure. */
+#define THREADWAIT_N 8
+#define THREADWAIT_ROUNDS 16
+#define THREADWAIT_SLEEP_MS 50
+#define THREADWAIT_GATE_MS 10000
+
+static htsmutex threadwait_lock = HTSMUTEX_INIT;
+static int threadwait_done = 0;
+static hts_boolean threadwait_gated = HTS_FALSE;
+
+static int threadwait_count(void) {
+  int n;
+
+  hts_mutexlock(&threadwait_lock);
+  n = threadwait_done;
+  hts_mutexrelease(&threadwait_lock);
+  return n;
+}
+
+static void threadwait_thread(void *arg) {
+  (void) arg;
+  Sleep(THREADWAIT_SLEEP_MS);
+  hts_mutexlock(&threadwait_lock);
+  threadwait_done++;
+  hts_mutexrelease(&threadwait_lock);
+}
+
+/* Stays outstanding until the gate clears, so wait_n() can be asked to leave a
+   known number of live threads behind. Bounded: a wait_n() that wrongly drains
+   them would otherwise never return, and hang the suite instead of failing. */
+static void threadwait_gated_thread(void *arg) {
+  int waited;
+
+  (void) arg;
+  for (waited = 0; waited < THREADWAIT_GATE_MS; waited += 10) {
+    hts_boolean gated;
+
+    hts_mutexlock(&threadwait_lock);
+    gated = threadwait_gated;
+    hts_mutexrelease(&threadwait_lock);
+    if (!gated)
+      break;
+    Sleep(10);
+  }
+  hts_mutexlock(&threadwait_lock);
+  threadwait_done++;
+  hts_mutexrelease(&threadwait_lock);
+}
+
+static int st_backswap(httrackp *opt, int argc, char **argv) {
+  (void) opt;
+  (void) argc;
+  (void) argv;
+  return back_selftest_slot_swap();
+}
+
+typedef enum { ST_CAP_FAIL, ST_CAP_OK, ST_CAP_SKIPPED } st_cap_result;
+
+/* Fail one spool write at a 4 KB file size cap, and check it left nothing. */
+static st_cap_result st_spool_capped_write(httrackp *opt,
+                                           const lien_back *back) {
+#ifdef _WIN32
+  (void) opt;
+  (void) back;
+  return ST_CAP_SKIPPED;
+#else
+  char name[HTS_URLMAXSIZE * 2];
+  struct rlimit saved, tight;
+  void (*oldxfsz)(int);
+  hts_boolean written;
+
+  if (!back_spoolname(opt, name, sizeof(name))) {
+    fprintf(stderr, "spoolwrite: naming failed\n");
+    return ST_CAP_FAIL;
+  }
+  if (getrlimit(RLIMIT_FSIZE, &saved) != 0)
+    return ST_CAP_SKIPPED;
+  tight = saved;
+  tight.rlim_cur = 4096;
+  /* a capped write then fails with EFBIG instead of killing us */
+  oldxfsz = signal(SIGXFSZ, SIG_IGN);
+  if (setrlimit(RLIMIT_FSIZE, &tight) != 0) {
+    signal(SIGXFSZ, oldxfsz);
+    return ST_CAP_SKIPPED;
+  }
+  written = back_spool_write(opt, name, back);
+  (void) setrlimit(RLIMIT_FSIZE, &saved);
+  signal(SIGXFSZ, oldxfsz);
+  if (written) { /* the cap did not bite */
+    (void) UNLINK(name);
+    back_tmpdir_drop(name);
+    return ST_CAP_SKIPPED;
+  }
+  if (fexist_utf8(name)) {
+    fprintf(stderr, "spoolwrite: failed write left %s\n", name);
+    return ST_CAP_FAIL;
+  }
+  if (dir_exists(name)) { /* checks name's parent directory */
+    fprintf(stderr, "spoolwrite: failed write left the directory of %s\n",
+            name);
+    return ST_CAP_FAIL;
+  }
+  return ST_CAP_OK;
+#endif
+}
+
+// -#test=spoolwrite <dir>: a spool write that fails leaves no partial file.
+static int st_spoolwrite(httrackp *opt, int argc, char **argv) {
+  char base[HTS_URLMAXSIZE];
+  char name[HTS_URLMAXSIZE * 2];
+  const size_t bodysize = 256 * 1024;
+  lien_back back;
+  int err = 0;
+
+  if (argc < 1) {
+    fprintf(stderr, "spoolwrite: needs a writable base dir\n");
+    return 1;
+  }
+  snprintf(base, sizeof(base), "%s/", argv[0]);
+  StringCopy(opt->path_html_utf8, base);
+  memset(&back, 0, sizeof(back));
+  back.status = STATUS_READY;
+  strcpybuff(back.url_adr, "example.com");
+  strcpybuff(back.url_fil, "/spool.html");
+  back.r.adr = calloct(1, bodysize);
+  back.r.size = (LLint) bodysize;
+  if (back.r.adr == NULL) {
+    fprintf(stderr, "spoolwrite: no memory\n");
+    return 1;
+  }
+
+  switch (st_spool_capped_write(opt, &back)) {
+  case ST_CAP_FAIL:
+    err++;
+    break;
+  case ST_CAP_OK:
+    printf("spoolwrite: failed write cleaned up\n");
+    break;
+  case ST_CAP_SKIPPED:
+    printf("spoolwrite: no file size cap here, failure case skipped\n");
+    break;
+  }
+
+  /* control: an unhindered write keeps its file */
+  if (!back_spoolname(opt, name, sizeof(name)) ||
+      !back_spool_write(opt, name, &back) || !fexist_utf8(name)) {
+    fprintf(stderr, "spoolwrite: a good write did not keep %s\n", name);
+    err++;
+  }
+  (void) UNLINK(name);
+  back_tmpdir_drop(name);
+  freet(back.r.adr);
+  printf("spoolwrite: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static hts_boolean st_spool_plant(const char *path) {
+  FILE *const fp = filecreate(NULL, path);
+
+  if (fp == NULL) {
+    fprintf(stderr, "spoolsweep: could not plant %s\n", path);
+    return HTS_FALSE;
+  }
+  return fclose(fp) == 0 ? HTS_TRUE : HTS_FALSE;
+}
+
+/* As pid 1, init's file is our own, so the sweep rightly removes it. */
+static hts_boolean st_spool_keep_applies(const char *name) {
+#ifndef _WIN32
+  if (getpid() == 1 && strcmp(name, "tmpfile1-0.tmp") == 0)
+    return HTS_FALSE;
+#endif
+  (void) name;
+  return HTS_TRUE;
+}
+
+// -#test=spoolsweep <dir>: startup removes the spool of a dead process only.
+static int st_spoolsweep(httrackp *opt, int argc, char **argv) {
+  /* no process has this pid on any platform */
+  static const char *const dead = "tmpfile2147483646-3.tmp";
+  /* the sweep must keep each of these */
+  static const char *const keep[] = {
+      "tmpfile2147483646-3.tmpx", /* suffix */
+      "tmpfile7.tmp",             /* no pid */
+      "tmp2147483646-1.tmp",      /* prefix */
+      "tmpfile2147483646-.tmp",   /* no counter */
+#if ULONG_MAX == 0xfffffffful
+      "tmpfile6442450942-1.tmp", /* would wrap to 2147483646 */
+#else
+      "tmpfile18446744075857035262-1.tmp", /* would wrap to 2147483646 */
+#endif
+#ifdef _WIN32
+      "tmpfile4-0.tmp", /* System: always running */
+#else
+      "tmpfile1-0.tmp",          /* init: alive, and EPERM unless root */
+      "tmpfile3000000000-1.tmp", /* a negative pid_t */
+#endif
+  };
+  char base[HTS_URLMAXSIZE];
+  char path[HTS_URLMAXSIZE * 2];
+  char own[HTS_URLMAXSIZE * 2];
+  char live[HTS_URLMAXSIZE * 2];
+  lien_back back;
+  size_t i;
+  int err = 0;
+
+  if (argc < 1) {
+    fprintf(stderr, "spoolsweep: needs a writable base dir\n");
+    return 1;
+  }
+  snprintf(base, sizeof(base), "%s/", argv[0]);
+  StringCopy(opt->path_html_utf8, base);
+  /* a file of our own pid predates this run, so it is stale */
+  memset(&back, 0, sizeof(back));
+  back.status = STATUS_READY;
+  if (!back_spoolname(opt, own, sizeof(own)) ||
+      !back_spool_write(opt, own, &back)) {
+    fprintf(stderr, "spoolsweep: could not plant %s\n", own);
+    return 1;
+  }
+  live[0] = '\0';
+#ifndef _WIN32
+  snprintf(live, sizeof(live), "%s~hts-tmp/tmpfile%lu-0.tmp", base,
+           (unsigned long) getppid());
+  if (!st_spool_plant(live))
+    return 1;
+#endif
+  snprintf(path, sizeof(path), "%s~hts-tmp/%s", base, dead);
+  if (!st_spool_plant(path))
+    return 1;
+  for (i = 0; i < sizeof(keep) / sizeof(keep[0]); i++) {
+    if (!st_spool_keep_applies(keep[i]))
+      continue;
+    snprintf(path, sizeof(path), "%s~hts-tmp/%s", base, keep[i]);
+    if (!st_spool_plant(path))
+      return 1;
+  }
+
+  back_spool_sweep(opt);
+
+  snprintf(path, sizeof(path), "%s~hts-tmp/%s", base, dead);
+  if (fexist_utf8(path)) {
+    fprintf(stderr, "spoolsweep: dead process's %s survived\n", dead);
+    err++;
+  }
+  if (fexist_utf8(own)) {
+    fprintf(stderr, "spoolsweep: earlier run's %s survived\n", own);
+    err++;
+  }
+  if (live[0] != '\0' && !fexist_utf8(live)) {
+    fprintf(stderr, "spoolsweep: live parent's %s was removed\n", live);
+    err++;
+  }
+  for (i = 0; i < sizeof(keep) / sizeof(keep[0]); i++) {
+    if (!st_spool_keep_applies(keep[i]))
+      continue;
+    snprintf(path, sizeof(path), "%s~hts-tmp/%s", base, keep[i]);
+    if (!fexist_utf8(path)) {
+      fprintf(stderr, "spoolsweep: %s was removed\n", keep[i]);
+      err++;
+    }
+    (void) UNLINK(path);
+  }
+  if (live[0] != '\0')
+    (void) UNLINK(live);
+
+  /* the empty directory goes too */
+  snprintf(path, sizeof(path), "%s~hts-tmp/%s", base, dead);
+  if (!st_spool_plant(path))
+    return 1;
+  back_spool_sweep(opt);
+  if (dir_exists(path)) {
+    fprintf(stderr, "spoolsweep: emptied ~hts-tmp was kept\n");
+    err++;
+  }
+  printf("spoolsweep: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* TEST-NET-1: routed nowhere, so a connect to it stays pending. */
+#define ST_BACKSTOP_DEADHOST "192.0.2.1"
+
+/* Open a connect that is still in flight, or INVALID_SOCKET where the network
+   answers for the blackhole instead of dropping. */
+static T_SOC st_backstop_pending(httrackp *opt, htsblk *r) {
+  T_SOC soc;
+
+  hts_init_htsblk(r);
+  soc = newhttp_addr(opt, ST_BACKSTOP_DEADHOST, r, 80, 0, 0, NULL);
+  if (soc == INVALID_SOCKET)
+    return INVALID_SOCKET;
+  r->soc = soc;
+  if (check_socket_connect(soc) != 0) {
+    strcpybuff(r->msg, "the network answers for this address");
+    deletehttp(r);
+    return INVALID_SOCKET;
+  }
+  return soc;
+}
+
+/* Is the descriptor still an open socket? Clearing r.soc proves nothing about
+   the connection: an abort that forgets deletehttp() leaks one fd per slot. */
+static hts_boolean st_backstop_soc_open(T_SOC soc) {
+  int type = 0;
+  socklen_t len = (socklen_t) sizeof(type);
+
+  return getsockopt(soc, SOL_SOCKET, SO_TYPE, (char *) &type, &len) == 0
+             ? HTS_TRUE
+             : HTS_FALSE;
+}
+
+static void st_backstop_slot(struct_back *sback, int p, int status,
+                             const htsblk *r) {
+  lien_back *const back = &sback->lnk[p];
+
+  back->r = *r;
+  back->r.location = back->location_buffer;
+  back->status = status;
+  back->timeout = -1; /* only the stop may end these slots */
+  back->rateout = -1;
+  /* poisoned, so the expected outcome cannot be the value the slot came with */
+  back->r.statuscode = STATUSCODE_TIMEOUT;
+  strcpybuff(back->r.msg, "untouched");
+  strcpybuff(back->url_adr, ST_BACKSTOP_DEADHOST);
+  strcpybuff(back->url_fil, "/stalled.html");
+  /* address list already probed, as it is for a live connect: re-probing it
+     would resolve, and the fd churn would spoil the closed-socket check */
+  sback->connect_fallback[p].addr_count = 1;
+}
+
+/* A network that rejects TEST-NET-1 instead of dropping it answers in ms. */
+#define ST_BACKSTOP_SETTLE_MS 500
+
+/* Bytes the size cap allows. back_maxsize_grace() spares running transfers a
+   further tenth, so the past-grace case below doubles it. */
+#define ST_BACKSTOP_CAP 1000
+
+/* Refill every slot: a fresh pending connect for each state that owns a socket,
+   plus the poison the assertions read back. False if the blackhole answered. */
+static hts_boolean st_backstop_arm(httrackp *opt, struct_back *sback,
+                                   const int *status, htsblk *r, int slots,
+                                   int dnsslot) {
+  int i;
+
+  for (i = 0; i < slots; i++) {
+    deletehttp(&sback->lnk[i].r); /* whatever the previous round left */
+    if (i == dnsslot) {
+      hts_init_htsblk(&r[i]);
+    } else if (st_backstop_pending(opt, &r[i]) == INVALID_SOCKET) {
+      printf("backstop: SKIP (no stalled connect to " ST_BACKSTOP_DEADHOST
+             ": %s)\n",
+             r[i].msg);
+      return HTS_FALSE;
+    }
+    st_backstop_slot(sback, i, status[i], &r[i]);
+  }
+  /* The readback above is too early to see a refusal, and back_wait() then
+     ends slots the caller asserts are intact (the powerpc buildds). */
+  Sleep(ST_BACKSTOP_SETTLE_MS);
+  for (i = 0; i < slots; i++) {
+    if (i != dnsslot && check_socket_connect(sback->lnk[i].r.soc) != 0) {
+      printf("backstop: SKIP (the network answered for " ST_BACKSTOP_DEADHOST
+             " within %d ms)\n",
+             ST_BACKSTOP_SETTLE_MS);
+      return HTS_FALSE;
+    }
+  }
+  return HTS_TRUE;
+}
+
+/* back_delete_all(), the shutdown every exit reaches, on its own slot table. A
+   capped mirror can end through the link loop before either sweep runs
+   (htscore.c, on back_checkmirror), and the partial is on disk just the same.
+   Returns 77 on an allocation failure, as st_backstop() does. */
+static int st_backstop_check_shutdown(httrackp *opt) {
+  /* back_delete_all() raises the flag only for a live slot writing a file of
+     its own. back_is_live() is a RANGE, 0 < status < STATUS_FTP_TRANSFER, so
+     the rows walk it: one on each side, and two inside it far enough apart that
+     narrowing the range to its first status fails. */
+  static const struct {
+    const char *what;
+    int status;
+    hts_boolean is_write;
+    const char *url_sav;
+    hts_boolean kept;
+  } shutdown[] = {{"a free slot", STATUS_FREE, HTS_TRUE,
+                   "hts-backstop-selftest.tmp", HTS_FALSE},
+                  {"a slot already finished", STATUS_READY, HTS_TRUE,
+                   "hts-backstop-selftest.tmp", HTS_FALSE},
+                  {"an FTP slot", STATUS_FTP_TRANSFER, HTS_TRUE,
+                   "hts-backstop-selftest.tmp", HTS_FALSE},
+                  {"a slot writing nothing to disk", STATUS_TRANSFER, HTS_FALSE,
+                   "", HTS_FALSE},
+                  {"a .delayed placeholder", STATUS_TRANSFER, HTS_TRUE,
+                   "hts-backstop-selftest.tmp." DELAYED_EXT, HTS_FALSE},
+                  {"a partial file", STATUS_TRANSFER, HTS_TRUE,
+                   "hts-backstop-selftest.tmp", HTS_TRUE},
+                  {"a partial file awaiting its next chunk", STATUS_CHUNK_WAIT,
+                   HTS_TRUE, "hts-backstop-selftest.tmp", HTS_TRUE}};
+
+  int err = 0;
+  size_t c;
+
+  for (c = 0; c < sizeof(shutdown) / sizeof(shutdown[0]) && !err; c++) {
+    struct_back *shut = back_new(opt, 1);
+    cache_back shutcache;
+
+    if (shut == NULL) {
+      printf("backstop: SKIP (no slot table for the shutdown cases)\n");
+      return 77;
+    }
+    memset(&shutcache, 0, sizeof(shutcache));
+    shutcache.hashtable = coucal_new(0);
+    shut->lnk[0].status = shutdown[c].status;
+    shut->lnk[0].r.soc = INVALID_SOCKET;
+    shut->lnk[0].r.is_write = shutdown[c].is_write;
+    strcpybuff(shut->lnk[0].url_sav, shutdown[c].url_sav);
+    opt->abort_left_partial = HTS_FALSE;
+
+    back_delete_all(opt, &shutcache, shut);
+
+    if (opt->abort_left_partial != shutdown[c].kept) {
+      printf("  FAIL line %d: %s must %s the resume data at shutdown\n",
+             __LINE__, shutdown[c].what, shutdown[c].kept ? "keep" : "drop");
+      err = 1;
+    }
+    back_free(&shut);
+    coucal_delete(&shutcache.hashtable);
+  }
+  return err;
+}
+
+/* A user stop must drop every slot but the FTP one (#1073, #1110). */
+static int st_backstop(httrackp *opt, int argc, char **argv) {
+  /* the states a stop sweeps, pre-connect then receive, and last the FTP one
+     whose socket another thread owns */
+  enum {
+    SLOT_DNS = 0,
+    SLOT_CONNECT,
+    SLOT_SSL,
+    SLOT_HEADERS,
+    SLOT_XFER,
+    SLOT_CHUNK,
+    SLOT_FTP,
+    SLOTS
+  };
+
+  static const int status[SLOTS] = {
+      STATUS_WAIT_DNS,     STATUS_CONNECTING, STATUS_SSL_WAIT_HANDSHAKE,
+      STATUS_WAIT_HEADERS, STATUS_TRANSFER,   STATUS_CHUNK_WAIT,
+      STATUS_FTP_TRANSFER};
+  T_SOC swept[SLOTS];
+  htsblk r[SLOTS];
+  struct_back *sback = NULL;
+  cache_back cache;
+  lien_back *back;
+  int err = 0;
+  int skipped = 0;
+  int round;
+  int i;
+
+  (void) argc;
+  (void) argv;
+
+  /* no quota may fire instead of the stop, and no slot may time out */
+  opt->maxtime = 0;
+  opt->maxsite = 0;
+  opt->timeout = 0;
+  opt->state.stop = 0;
+
+  memset(&cache, 0, sizeof(cache));
+
+#define CHECK(cond)                                                            \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      printf("  FAIL line %d: %s\n", __LINE__, #cond);                         \
+      err = 1;                                                                 \
+    }                                                                          \
+  } while (0)
+
+  /* before the cleanup label has anything to free */
+  sback = back_new(opt, SLOTS);
+  if (sback == NULL)
+    return 77;
+  cache.hashtable = coucal_new(0);
+  back = sback->lnk;
+  if (!st_backstop_arm(opt, sback, status, r, SLOTS, SLOT_DNS)) {
+    skipped = 1;
+    goto cleanup;
+  }
+
+  /* Control: with the mirror running, back_wait ends nothing. A sweep that
+     fired unconditionally would strand every connect the crawl opens. Only the
+     states back_wait leaves alone are checked; it advances the resolution and
+     handshake waits by itself, the first to connect and the second to an error
+     for want of a TLS session this fixture cannot build. */
+  back_wait(sback, opt, &cache, 0);
+  CHECK(back[SLOT_CONNECT].status == STATUS_CONNECTING);
+  for (i = SLOT_HEADERS; i < SLOTS; i++)
+    CHECK(back[i].status == status[i]);
+  for (i = SLOT_CONNECT; i < SLOTS; i++) {
+    if (i == SLOT_SSL)
+      continue;
+    CHECK(back[i].r.statuscode == STATUSCODE_TIMEOUT);
+    CHECK(strcmp(back[i].r.msg, "untouched") == 0);
+  }
+
+  /* Twice, re-armed in between: the sweep runs on every wait, not once. A slot
+     that was connecting when the user hit ^C is the case under test, so the
+     flag goes up after the slots are in place. */
+  for (round = 0; round < 2 && !err; round++) {
+    opt->state.stop = 0;
+    if (!st_backstop_arm(opt, sback, status, r, SLOTS, SLOT_DNS)) {
+      skipped = 1;
+      goto cleanup;
+    }
+    for (i = 0; i < SLOTS; i++)
+      swept[i] = r[i].soc;
+    hts_request_stop(opt, 0);
+
+    back_wait(sback, opt, &cache, 0);
+
+    /* every slot but the FTP one is gone, its socket closed rather than merely
+       forgotten, and reported as fatal so the link is not queued again */
+    for (i = SLOT_DNS; i < SLOT_FTP; i++) {
+      CHECK(back[i].status == STATUS_READY);
+      CHECK(back[i].r.soc == INVALID_SOCKET);
+      CHECK(back[i].r.statuscode == STATUSCODE_INVALID);
+      CHECK(strcmp(back[i].r.msg, "mirror stopped by user") == 0);
+      if (swept[i] != INVALID_SOCKET)
+        CHECK(!st_backstop_soc_open(swept[i]));
+    }
+    /* control: an FTP worker is still writing through this slot, so a sweep
+       reaching it frees a socket and a buffer under a live thread */
+    CHECK(back[SLOT_FTP].status == status[SLOT_FTP]);
+    CHECK(back[SLOT_FTP].r.soc == swept[SLOT_FTP]);
+    CHECK(st_backstop_soc_open(back[SLOT_FTP].r.soc));
+    CHECK(back[SLOT_FTP].r.statuscode == STATUSCODE_TIMEOUT);
+    CHECK(strcmp(back[SLOT_FTP].r.msg, "untouched") == 0);
+  }
+
+  /* back_abort_stopped(), still in grace. A cap raises the stop flag itself and
+     leaves the transfers already running a grace (#77, #481), so the sweep
+     takes the pre-connect slots only and back_abort_limit() ends the rest
+     later. */
+  if (!err) {
+    const LLint recv_was = hts_stat_recv_get();
+
+    opt->state.stop = 0;
+    if (!st_backstop_arm(opt, sback, status, r, SLOTS, SLOT_DNS)) {
+      skipped = 1;
+      goto cleanup;
+    }
+    for (i = 0; i < SLOTS; i++)
+      swept[i] = r[i].soc;
+    /* cap reached, its whole grace still to overrun before the hard stop */
+    hts_stat_recv_set(ST_BACKSTOP_CAP);
+    opt->maxsite = ST_BACKSTOP_CAP;
+    /* already false here, but it keeps the check below local to this block */
+    opt->abort_left_partial = HTS_FALSE;
+    hts_request_stop(opt, 0);
+
+    back_wait(sback, opt, &cache, 0);
+
+    /* nothing it swept was writing, so there is no partial to describe */
+    CHECK(!opt->abort_left_partial);
+    for (i = SLOT_DNS; i < SLOT_HEADERS; i++) {
+      CHECK(back[i].status == STATUS_READY);
+      CHECK(back[i].r.statuscode == STATUSCODE_INVALID);
+    }
+    for (i = SLOT_HEADERS; i < SLOTS; i++) {
+      CHECK(back[i].status == status[i]);
+      CHECK(back[i].r.soc == swept[i]);
+      CHECK(st_backstop_soc_open(back[i].r.soc));
+      CHECK(back[i].r.statuscode == STATUSCODE_TIMEOUT);
+      CHECK(strcmp(back[i].r.msg, "untouched") == 0);
+    }
+    opt->maxsite = 0;
+    hts_stat_recv_set(recv_was);
+  }
+
+  /* back_abort_stopped() keeps hts-cache/ref for a partial that outlives the
+     stop, not for every slot it killed (#1595). A .delayed placeholder goes
+     with its own ref, so it is not one. */
+  {
+    static const struct {
+      const char *what;
+      hts_boolean is_write;
+      const char *url_sav;
+      hts_boolean kept;
+    } partial[] = {
+        {"a slot writing nothing to disk", HTS_FALSE, "", HTS_FALSE},
+        {"a .delayed placeholder", HTS_TRUE,
+         "hts-backstop-selftest.tmp." DELAYED_EXT, HTS_FALSE},
+        {"a partial file", HTS_TRUE, "hts-backstop-selftest.tmp", HTS_TRUE}};
+
+    int c;
+
+    for (c = 0; c < (int) (sizeof(partial) / sizeof(partial[0])) && !err; c++) {
+      opt->state.stop = 0;
+      if (!st_backstop_arm(opt, sback, status, r, SLOTS, SLOT_DNS)) {
+        skipped = 1;
+        goto cleanup;
+      }
+      back[SLOT_XFER].r.is_write = partial[c].is_write;
+      strcpybuff(back[SLOT_XFER].url_sav, partial[c].url_sav);
+      opt->abort_left_partial = HTS_FALSE;
+      hts_request_stop(opt, 0);
+
+      back_wait(sback, opt, &cache, 0);
+
+      if (opt->abort_left_partial != partial[c].kept) {
+        printf("  FAIL line %d: %s must %s the resume data\n", __LINE__,
+               partial[c].what, partial[c].kept ? "keep" : "drop");
+        err = 1;
+      }
+      back[SLOT_XFER].r.is_write = 0;
+      back[SLOT_XFER].url_sav[0] = '\0';
+    }
+  }
+
+  /* back_abort_limit(), past the grace. It tears down the transfers the grace
+     spared, through the same back_abort_slot(), so the partial it cuts keeps
+     its resume data like any other (#1595). */
+  if (!err) {
+    const LLint recv_was = hts_stat_recv_get();
+
+    opt->state.stop = 0;
+    if (!st_backstop_arm(opt, sback, status, r, SLOTS, SLOT_DNS)) {
+      skipped = 1;
+      goto cleanup;
+    }
+    back[SLOT_XFER].r.is_write = 1;
+    strcpybuff(back[SLOT_XFER].url_sav, "hts-backstop-selftest.tmp");
+    opt->abort_left_partial = HTS_FALSE;
+    /* well past any grace, so the limit block ends every live slot and tuning
+       back_maxsize_grace() cannot quietly put this case back inside it */
+    opt->maxsite = ST_BACKSTOP_CAP;
+    hts_stat_recv_set(ST_BACKSTOP_CAP * 2);
+    hts_request_stop(opt, 0);
+
+    back_wait(sback, opt, &cache, 0);
+
+    CHECK(back[SLOT_XFER].status == STATUS_READY);
+    /* not the statuscode: the arming poison is STATUSCODE_TIMEOUT too, so it
+       cannot tell an untouched slot from a swept one */
+    CHECK(strcmp(back[SLOT_XFER].r.msg, "Mirror Size Limit") == 0);
+    CHECK(opt->abort_left_partial);
+    back[SLOT_XFER].r.is_write = 0;
+    back[SLOT_XFER].url_sav[0] = '\0';
+    opt->maxsite = 0;
+    hts_stat_recv_set(recv_was);
+  }
+  if (!err) {
+    const int rc = st_backstop_check_shutdown(opt);
+
+    if (rc == 77) {
+      skipped = 1;
+      goto cleanup;
+    }
+    err = rc;
+  }
+#undef CHECK
+
+cleanup:
+  opt->maxsite = 0;
+  opt->state.stop = 0;
+  opt->abort_left_partial = HTS_FALSE;
+  for (i = 0; i < SLOTS; i++)
+    deletehttp(&back[i].r);
+  back_free(&sback);
+  coucal_delete(&cache.hashtable);
+  if (skipped)
+    return 77;
+
+  printf("backstop self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* back_new() sizes its slot table from -cN, so a user can ask for one that
+   does not fit. The contract is a NULL return, which httpmirror() turns into a
+   log line and a stopped mirror, where an abort loses that message. */
+static int st_backnew(httrackp *opt, int argc, char **argv) {
+  /* Too big to serve without the allocator asking the kernel for more. */
+  enum { slots = 4096 };
+
+  struct_back *sback;
+
+  (void) argc;
+  (void) argv;
+
+  /* Control: with memory available the same call hands back a whole table, so
+     a NULL below cannot be back_new refusing every size. */
+  sback = back_new(opt, slots);
+  if (sback == NULL || sback->count != slots || sback->lnk == NULL ||
+      sback->connect_fallback == NULL || sback->ready == NULL) {
+    printf("backnew: FAILED (control table incomplete)\n");
+    back_free(&sback);
+    return 1;
+  }
+  back_free(&sback);
+
+  /* A count whose back_max + 1 is not an int is refused before any allocation:
+     the sum used to be signed UB. */
+  if (back_new(opt, INT_MAX) != NULL || back_new(opt, -1) != NULL) {
+    printf("backnew: FAILED (a count it cannot express was accepted)\n");
+    return 1;
+  }
+
+  /* What -cN is turned into must always be something back_new() can express, so
+     check the clamp itself rather than an allocator's answer to an absurd
+     request: -cN is unclamped under --bypass-limits, maxsoc * 32 + 1024 used to
+     overflow, and how a platform refuses a 37 TB table is its own business. */
+  {
+    static const int maxsocs[] = {
+        -1, 0, 1, 8, 67108830, 67108831, 67108832, 2000000000, INT_MAX};
+    size_t i;
+
+    for (i = 0; i < sizeof(maxsocs) / sizeof(maxsocs[0]); i++) {
+      const int slots = back_max_slots(maxsocs[i]);
+
+      if (slots <= 0 || slots == INT_MAX) {
+        printf("backnew: FAILED (-c%d yields %d slots)\n", maxsocs[i], slots);
+        return 1;
+      }
+    }
+    /* Narrowing control: an ordinary -c is still sized from it, not capped. */
+    if (back_max_slots(8) != 8 * 32 + 1024) {
+      printf("backnew: FAILED (-c8 is capped: %d)\n", back_max_slots(8));
+      return 1;
+    }
+  }
+#ifndef _WIN32
+  {
+    struct rlimit saved, tight;
+
+    if (getrlimit(RLIMIT_AS, &saved) != 0) {
+      printf("backnew: cannot cap memory, skipped\n");
+      return 0;
+    }
+    tight = saved;
+    tight.rlim_cur = 1024 * 1024;
+    if (setrlimit(RLIMIT_AS, &tight) != 0) {
+      printf("backnew: cannot cap memory, skipped\n");
+      return 0;
+    }
+    sback = back_new(opt, slots);
+    (void) setrlimit(RLIMIT_AS, &saved);
+    if (sback != NULL) {
+      /* The cap is advisory here, so the run says nothing either way. */
+      back_free(&sback);
+      printf("backnew: cap did not bite, skipped\n");
+      return 0;
+    }
+    printf("backnew: oom OK\n");
+    return 0;
+  }
+#else
+  printf("backnew: cannot cap memory, skipped\n");
+  return 0;
+#endif
+}
+
+/* A link whose strings cannot be copied is dropped whole, not left half-built.
+ */
+static int st_recordoom(httrackp *opt, int argc, char **argv) {
+  static const size_t huge = 64 * 1024 * 1024;
+  struct_back *sback = NULL;
+  hash_struct hash;
+  cache_back cache;
+  char *big = NULL;
+  int rc = 1;
+  int before;
+  int recorded = 0, recorded_cod = 0, after = -1, after_cod = -1;
+
+  (void) argc;
+  (void) argv;
+  memset(&cache, 0, sizeof(cache));
+  st_mirror_wiring(opt, &sback, &hash, HTS_FALSE);
+  if (!hts_record_link(opt, "www.example.com", "/a.html", "/p/a.html", "", "",
+                       NULL)) {
+    printf("recordoom: FAILED (no first link)\n");
+    goto done;
+  }
+  before = opt->lien_tot;
+  big = malloct(huge);
+  assertf(big != NULL);
+  memset(big, 'x', huge - 1);
+  big[huge - 1] = '\0';
+#ifndef _WIN32
+  {
+    struct rlimit saved, tight;
+
+    if (getrlimit(RLIMIT_AS, &saved) != 0) {
+      printf("recordoom: cannot cap memory, skipped\n");
+      rc = 0;
+      goto done;
+    }
+    tight = saved;
+    tight.rlim_cur = 1024 * 1024;
+    if (setrlimit(RLIMIT_AS, &tight) != 0) {
+      printf("recordoom: cannot cap memory, skipped\n");
+      rc = 0;
+      goto done;
+    }
+    /* the address, then the codebase of a .class: the first and last copy */
+    recorded = hts_record_link(opt, big, "/b.html", "/p/b.html", "", "", NULL);
+    after = opt->lien_tot;
+    recorded_cod = hts_record_link(opt, "www.example.com", "/d.class",
+                                   "/p/d.class", "", "", big);
+    after_cod = opt->lien_tot;
+    (void) setrlimit(RLIMIT_AS, &saved);
+  }
+#else
+  printf("recordoom: cannot cap memory, skipped\n");
+  rc = 0;
+  goto done;
+#endif
+  if (recorded || recorded_cod) {
+    printf("recordoom: cap did not bite, skipped\n");
+    rc = 0;
+    goto done;
+  }
+  if (after != before || after_cod != before || opt->liens[before] != NULL) {
+    printf("recordoom: FAILED (refused links left %d then %d entries, want "
+           "%d)\n",
+           after, after_cod, before);
+    goto done;
+  }
+  if (!hts_record_link(opt, "www.example.com", "/c.html", "/p/c.html", "", "",
+                       NULL) ||
+      opt->lien_tot != before + 1 ||
+      strcmp(opt->liens[before]->fil, "/c.html") != 0) {
+    printf("recordoom: FAILED (no link recorded after the refusal)\n");
+    goto done;
+  }
+  printf("recordoom: oom OK\n");
+  rc = 0;
+
+done:
+  freet(big);
+  st_mirror_wiring_free(opt, &cache, &sback, &hash);
+  return rc;
+}
+
+/* Both 32-bit halves carry the step, so a torn read has unequal halves. */
+#define RELAXED_STEPS 100000
+#define RELAXED_VALUE(i) ((LLint) (i) * (LLint) 0x100000001)
+
+static volatile LLint relaxed_counter = 0;
+
+static void relaxed_writer(void *arg) {
+  int i;
+
+  (void) arg;
+  for (i = 1; i <= RELAXED_STEPS; i++)
+    hts_store_relaxed_llint(&relaxed_counter, RELAXED_VALUE(i));
+}
+
+static int st_relaxedcounter(httrackp *opt, int argc, char **argv) {
+  LLint last = 0;
+  long spins;
+  int err = 0;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  hts_store_relaxed_llint(&relaxed_counter, 0);
+  if (hts_newthread(relaxed_writer, NULL) != 0) {
+    fprintf(stderr, "relaxedcounter: cannot spawn\n");
+    return 1;
+  }
+  /* Read while the writer runs, as the progress display reads an FTP slot. */
+  for (spins = 0; last != RELAXED_VALUE(RELAXED_STEPS) && spins < 100000000L;
+       spins++) {
+    const LLint v = hts_load_relaxed_llint(&relaxed_counter);
+
+#ifdef HTS_LLINT_ATOMIC
+    const hts_boolean bad = v < last || (v >> 32) != (v & 0xffffffff);
+#else
+    const hts_boolean bad = HTS_FALSE; /* This host's plain access may tear. */
+#endif
+
+    if (bad) {
+      fprintf(stderr, "relaxedcounter: read " LLintP " after " LLintP "\n", v,
+              last);
+      err = 1;
+      break;
+    }
+    last = v;
+  }
+  htsthread_wait();
+  if (hts_load_relaxed_llint(&relaxed_counter) !=
+      RELAXED_VALUE(RELAXED_STEPS)) {
+    fprintf(stderr, "relaxedcounter: final value " LLintP "\n",
+            hts_load_relaxed_llint(&relaxed_counter));
+    err = 1;
+  }
+  printf("relaxedcounter self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static int st_threadwait(httrackp *opt, int argc, char **argv) {
+  int err = 0;
+  int i, round;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  /* htsthread_wait() joins a thread spawned just before it */
+  for (round = 0; round < THREADWAIT_ROUNDS && !err; round++) {
+    hts_mutexlock(&threadwait_lock);
+    threadwait_done = 0;
+    hts_mutexrelease(&threadwait_lock);
+    if (hts_newthread(threadwait_thread, NULL) != 0) {
+      fprintf(stderr, "threadwait: cannot spawn\n");
+      return 1;
+    }
+    htsthread_wait();
+    if (threadwait_count() != 1) {
+      fprintf(stderr, "threadwait: round %d returned before the thread ran\n",
+              round);
+      err = 1;
+    }
+  }
+
+  /* htsthread_wait_n(n) leaves n behind rather than draining everything */
+  hts_mutexlock(&threadwait_lock);
+  threadwait_done = 0;
+  threadwait_gated = HTS_TRUE;
+  hts_mutexrelease(&threadwait_lock);
+  for (i = 0; i < THREADWAIT_N; i++) {
+    if (hts_newthread(threadwait_gated_thread, NULL) != 0) {
+      fprintf(stderr, "threadwait: cannot spawn a gated thread\n");
+      return 1;
+    }
+  }
+  htsthread_wait_n(THREADWAIT_N);
+  if (threadwait_count() != 0) {
+    fprintf(stderr, "threadwait: wait_n(%d) joined %d gated threads\n",
+            THREADWAIT_N, threadwait_count());
+    err = 1;
+  }
+  hts_mutexlock(&threadwait_lock);
+  threadwait_gated = HTS_FALSE;
+  hts_mutexrelease(&threadwait_lock);
+  htsthread_wait();
+  if (threadwait_count() != THREADWAIT_N) {
+    fprintf(stderr, "threadwait: wait left %d/%d gated threads running\n",
+            THREADWAIT_N - threadwait_count(), THREADWAIT_N);
+    err = 1;
+  }
+
+  printf("threadwait self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* Confirms the runner encloses the body exactly once, on the worker. */
+#ifdef _WIN32
+typedef DWORD threadrunner_id;
+#define threadrunner_self() GetCurrentThreadId()
+#define threadrunner_same(a, b) ((a) == (b))
+#else
+typedef pthread_t threadrunner_id;
+#define threadrunner_self() pthread_self()
+#define threadrunner_same(a, b) (pthread_equal((a), (b)) != 0)
+#endif
+
+static htsmutex threadrunner_lock = HTSMUTEX_INIT;
+static int threadrunner_before = 0;
+static int threadrunner_after = 0;
+static int threadrunner_body = 0;
+/* What the runner had done when the body ran, 1 and 0 from inside it. */
+static int threadrunner_seen_before = 0;
+static int threadrunner_seen_after = 0;
+static threadrunner_id threadrunner_body_thread;
+static threadrunner_id threadrunner_runner_thread;
+static int threadrunner_tail = 0;
+static int threadrunner_body_at_tail = 0;
+static threadrunner_id threadrunner_tail_thread;
+/* Its address is the worker's arg, so a tail handed another pointer shows. */
+static int threadrunner_owner;
+static void *threadrunner_tail_arg = NULL;
+static jmp_buf threadrunner_jmp;
+
+static void threadrunner_count(int *what) {
+  hts_mutexlock(&threadrunner_lock);
+  (*what)++;
+  hts_mutexrelease(&threadrunner_lock);
+}
+
+static void threadrunner_reset(void) {
+  threadrunner_before = 0;
+  threadrunner_after = 0;
+  threadrunner_body = 0;
+  threadrunner_seen_before = 0;
+  threadrunner_seen_after = 0;
+  threadrunner_tail = 0;
+  threadrunner_body_at_tail = 0;
+  threadrunner_tail_arg = NULL;
+}
+
+static void threadrunner_body_fn(void *arg) {
+  (void) arg;
+  hts_mutexlock(&threadrunner_lock);
+  threadrunner_seen_before = threadrunner_before;
+  threadrunner_seen_after = threadrunner_after;
+  threadrunner_body_thread = threadrunner_self();
+  threadrunner_body++;
+  hts_mutexrelease(&threadrunner_lock);
+}
+
+/* Leaves the body the way a fault recovery does, so nothing after the jump
+   runs. A real runner gets there through siglongjmp(). */
+static void threadrunner_cut_fn(void *arg) {
+  (void) arg;
+  hts_mutexlock(&threadrunner_lock);
+  threadrunner_body_thread = threadrunner_self();
+  threadrunner_body++;
+  hts_mutexrelease(&threadrunner_lock);
+  longjmp(threadrunner_jmp, 1);
+}
+
+/* A worker an earlier mirror abandoned: the round moves on before the fault, so
+   the fault belongs to a mirror that is over. */
+static void threadrunner_stale_fn(void *arg) {
+  (void) arg;
+  hts_mutexlock(&threadrunner_lock);
+  threadrunner_body_thread = threadrunner_self();
+  threadrunner_body++;
+  hts_mutexrelease(&threadrunner_lock);
+  hts_worker_fault_clear(); /* as the next mirror does when it starts */
+  longjmp(threadrunner_jmp, 1);
+}
+
+static void threadrunner_tail_fn(void *arg) {
+  hts_mutexlock(&threadrunner_lock);
+  threadrunner_tail_arg = arg;
+  threadrunner_body_at_tail = threadrunner_body;
+  threadrunner_tail_thread = threadrunner_self();
+  threadrunner_tail++;
+  hts_mutexrelease(&threadrunner_lock);
+}
+
+static void threadrunner_runner(void (*fun)(void *arg), void *arg) {
+  threadrunner_runner_thread = threadrunner_self();
+  threadrunner_count(&threadrunner_before);
+  /* Stands in for a fault handler's own jump buffer. */
+  if (setjmp(threadrunner_jmp) == 0)
+    fun(arg);
+  threadrunner_count(&threadrunner_after);
+}
+
+static hts_boolean threadrunner_spawn_body(void (*fun)(void *arg),
+                                           void (*tail)(void *arg)) {
+  if (hts_newthread_tail(fun, &threadrunner_owner, tail) != 0) {
+    fprintf(stderr, "threadrunner: cannot spawn\n");
+    return HTS_FALSE;
+  }
+  htsthread_wait();
+  return HTS_TRUE;
+}
+
+static hts_boolean threadrunner_spawn(void) {
+  return threadrunner_spawn_body(threadrunner_body_fn, NULL);
+}
+
+static int st_threadrunner(httrackp *opt, int argc, char **argv) {
+  const threadrunner_id caller = threadrunner_self();
+  hts_boolean spawned;
+  int err = 0;
+
+  (void) argc;
+  (void) argv;
+
+  /* Unlocked, because htsthread_wait() published the worker's writes. */
+  threadrunner_reset();
+  if (hts_set_thread_runner(threadrunner_runner) != NULL) {
+    fprintf(stderr, "threadrunner: a runner was installed already\n");
+    return 1;
+  }
+  spawned = threadrunner_spawn();
+  /* Process-global, so clear it before any check can return early. */
+  if (hts_set_thread_runner(NULL) != threadrunner_runner) {
+    fprintf(stderr, "threadrunner: the setter did not hand back the runner\n");
+    err = 1;
+  }
+  if (!spawned)
+    return 1;
+
+  if (threadrunner_before != 1 || threadrunner_after != 1) {
+    fprintf(stderr, "threadrunner: runner entered %d time(s), left %d\n",
+            threadrunner_before, threadrunner_after);
+    err = 1;
+  }
+  if (threadrunner_body != 1) {
+    fprintf(stderr, "threadrunner: the body ran %d time(s), expected once\n",
+            threadrunner_body);
+    err = 1;
+  }
+  if (threadrunner_seen_before != 1 || threadrunner_seen_after != 0) {
+    fprintf(stderr, "threadrunner: the body saw the runner at %d/%d, not 1/0\n",
+            threadrunner_seen_before, threadrunner_seen_after);
+    err = 1;
+  }
+  /* A sigsetjmp on the caller's stack would catch nothing the worker does. */
+  if (threadrunner_same(threadrunner_body_thread, caller) ||
+      !threadrunner_same(threadrunner_body_thread,
+                         threadrunner_runner_thread)) {
+    fprintf(stderr,
+            "threadrunner: the body did not run on the runner's worker\n");
+    err = 1;
+  }
+
+  /* NULL restores the plain call. */
+  threadrunner_reset();
+  if (!threadrunner_spawn())
+    return 1;
+  if (threadrunner_body != 1) {
+    fprintf(stderr, "threadrunner: no runner, the body ran %d time(s)\n",
+            threadrunner_body);
+    err = 1;
+  }
+  if (threadrunner_before != 0 || threadrunner_after != 0) {
+    fprintf(stderr, "threadrunner: a cleared runner still entered %d time(s)\n",
+            threadrunner_before);
+    err = 1;
+  }
+  if (threadrunner_same(threadrunner_body_thread, caller)) {
+    fprintf(stderr, "threadrunner: the body ran on the caller's thread\n");
+    err = 1;
+  }
+
+  /* A tail runs on the worker once the body is over, whether or not the body
+     reached its own end. The FTP worker list is released there. */
+  threadrunner_reset();
+  if (!threadrunner_spawn_body(threadrunner_body_fn, threadrunner_tail_fn))
+    return 1;
+  if (threadrunner_body != 1 || threadrunner_tail != 1) {
+    fprintf(stderr, "threadrunner: body %d time(s) and tail %d, expected 1/1\n",
+            threadrunner_body, threadrunner_tail);
+    err = 1;
+  }
+  if (threadrunner_body_at_tail != 1) {
+    fprintf(stderr, "threadrunner: the tail ran before the body\n");
+    err = 1;
+  }
+  if (threadrunner_tail_arg != &threadrunner_owner) {
+    fprintf(stderr, "threadrunner: the tail got another worker's arg\n");
+    err = 1;
+  }
+  if (hts_worker_faulted()) {
+    fprintf(stderr, "threadrunner: a body that finished reads as a fault\n");
+    err = 1;
+  }
+
+  /* The body jumps out of threadrunner_cut_fn, so only the tail can reap the
+     worker. */
+  threadrunner_reset();
+  if (hts_set_thread_runner(threadrunner_runner) != NULL) {
+    fprintf(stderr, "threadrunner: a runner was installed already\n");
+    return 1;
+  }
+  spawned = threadrunner_spawn_body(threadrunner_cut_fn, threadrunner_tail_fn);
+  hts_set_thread_runner(NULL);
+  if (!spawned)
+    return 1;
+  /* The runner left normally, so the engine saw a worker whose body stopped
+     halfway and nothing else. */
+  if (threadrunner_body != 1 || threadrunner_after != 1) {
+    fprintf(stderr, "threadrunner: recovery ran the body %d time(s), left %d\n",
+            threadrunner_body, threadrunner_after);
+    err = 1;
+  }
+  if (threadrunner_tail != 1 || threadrunner_body_at_tail != 1) {
+    fprintf(stderr,
+            "threadrunner: a cut-short body ran the tail %d time(s), at %d\n",
+            threadrunner_tail, threadrunner_body_at_tail);
+    err = 1;
+  } else if (!threadrunner_same(threadrunner_tail_thread,
+                                threadrunner_body_thread)) {
+    fprintf(stderr, "threadrunner: the tail ran off the worker thread\n");
+    err = 1;
+  }
+  if (threadrunner_tail_arg != &threadrunner_owner) {
+    fprintf(stderr,
+            "threadrunner: a cut-short body gave the tail another arg\n");
+    err = 1;
+  }
+
+  /* The mirror gives up on it, and says so through the exit status rather than
+     reading as a stop the user asked for. */
+  if (!hts_worker_faulted()) {
+    fprintf(stderr, "threadrunner: a cut-short body raised no fault\n");
+    err = 1;
+  }
+  {
+    FILE *const saved_log = opt->log;
+
+    opt->log = NULL; /* the abort logs, and this test's own output is exact */
+    opt->state.stop = 0;
+    opt->state.exit_xh = 0;
+    back_checkmirror(opt);
+    if (opt->state.stop != 1 || opt->state.exit_xh != -1) {
+      fprintf(stderr, "threadrunner: the mirror read the fault as stop %d/%d\n",
+              opt->state.stop, opt->state.exit_xh);
+      err = 1;
+    }
+    /* a stop the user asked for exits 0, so the fault's verdict outranks it */
+    opt->state.stop = 1;
+    opt->state.exit_xh = 1;
+    back_check_worker_fault(opt);
+    if (opt->state.exit_xh != -1) {
+      fprintf(stderr, "threadrunner: a user stop swallowed the fault (%d)\n",
+              opt->state.exit_xh);
+      err = 1;
+    }
+    opt->state.stop = 0;
+    opt->state.exit_xh = 0;
+    hts_worker_fault_clear();
+    back_checkmirror(opt);
+    if (opt->state.exit_xh != 0) {
+      fprintf(stderr,
+              "threadrunner: a cleared fault still aborted the mirror\n");
+      err = 1;
+    }
+    opt->log = saved_log;
+  }
+
+  /* Round 0 is the only round the cases above ran in, and no mirror uses it:
+     each one takes the next round as it starts. */
+  hts_worker_fault_clear();
+  threadrunner_reset();
+  if (hts_set_thread_runner(threadrunner_runner) != NULL) {
+    fprintf(stderr, "threadrunner: a runner was installed already\n");
+    return 1;
+  }
+  spawned = threadrunner_spawn_body(threadrunner_cut_fn, threadrunner_tail_fn);
+  hts_set_thread_runner(NULL);
+  if (!spawned)
+    return 1;
+  if (!hts_worker_faulted()) {
+    fprintf(stderr, "threadrunner: no fault past the first round\n");
+    err = 1;
+  }
+  hts_worker_fault_clear();
+
+  /* A fault raised after its own mirror ended aborts nothing. */
+  threadrunner_reset();
+  if (hts_set_thread_runner(threadrunner_runner) != NULL) {
+    fprintf(stderr, "threadrunner: a runner was installed already\n");
+    return 1;
+  }
+  spawned =
+      threadrunner_spawn_body(threadrunner_stale_fn, threadrunner_tail_fn);
+  hts_set_thread_runner(NULL);
+  if (!spawned)
+    return 1;
+  if (threadrunner_body != 1 || threadrunner_tail != 1) {
+    fprintf(stderr, "threadrunner: the stale round ran %d body and %d tail\n",
+            threadrunner_body, threadrunner_tail);
+    err = 1;
+  }
+  if (hts_worker_faulted()) {
+    fprintf(stderr, "threadrunner: a fault from a finished mirror was kept\n");
+    err = 1;
+  }
+
+  printf("threadrunner self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static int st_ftpworker(httrackp *opt, int argc, char **argv) {
+  const int err = ftp_worker_selftests();
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+  printf("ftp-worker-selftest: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+static int st_ftphandoff(httrackp *opt, int argc, char **argv) {
+  const int err = ftp_handoff_selftests(opt);
+
+  (void) argc;
+  (void) argv;
+  printf("ftp-handoff-selftest: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* #1697: hts_strerror() must own its output. strerror() answers with a buffer
+   the next call in that thread reuses and thread exit frees, and POSIX lets it
+   be one static shared by every thread. */
+#define STRERROR_THREADS 8
+#define STRERROR_ROUNDS 20000
+
+/* Four errno values every libc names, then four codes none of them do: the
+   second group is what a libc formats into that buffer instead of answering
+   with a constant string of its own. */
+static const int strerror_codes[STRERROR_THREADS] = {
+    EACCES, ENOENT, EINVAL, EPERM, 4001, 4002, 4003, 4004};
+
+static char strerror_expected[STRERROR_THREADS][HTS_STRERROR_SIZE];
+static htsmutex strerror_lock = HTSMUTEX_INIT;
+static int strerror_bad = 0;
+
+static void strerror_thread(void *arg) {
+  const int i = *(const int *) arg;
+  int bad = 0, round;
+
+  for (round = 0; round < STRERROR_ROUNDS; round++) {
+    char buf[HTS_STRERROR_SIZE];
+
+    if (strcmp(hts_strerror(strerror_codes[i], buf, sizeof(buf)),
+               strerror_expected[i]) != 0)
+      bad++;
+  }
+  hts_mutexlock(&strerror_lock);
+  strerror_bad += bad;
+  hts_mutexrelease(&strerror_lock);
+}
+
+static int st_strerror(httrackp *opt, int argc, char **argv) {
+  static int idx[STRERROR_THREADS];
+  char first[HTS_STRERROR_SIZE], second[HTS_STRERROR_SIZE];
+  const char *kept;
+  int err = 0, i;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  for (i = 0; i < STRERROR_THREADS; i++) {
+    const char *const msg = hts_strerror(
+        strerror_codes[i], strerror_expected[i], sizeof(strerror_expected[i]));
+
+    if (msg != strerror_expected[i] || *msg == '\0') {
+      fprintf(stderr, "strerror: code %d gave no message of its own\n",
+              strerror_codes[i]);
+      err = 1;
+    }
+  }
+
+  /* A caller can hold two messages at once, where a shared buffer would have
+     lost the first to the second call. Codes 0 and 1 because musl answers
+     every unknown one alike, and strerror_expected[] because kept is first. */
+  kept = hts_strerror(strerror_codes[0], first, sizeof(first));
+  (void) hts_strerror(strerror_codes[1], second, sizeof(second));
+  if (strcmp(kept, strerror_expected[0]) != 0) {
+    fprintf(stderr,
+            "strerror: the next call changed an earlier message to \"%s\"\n",
+            kept);
+    err = 1;
+  }
+  if (strcmp(first, second) == 0) {
+    fprintf(stderr, "strerror: two different codes gave one message \"%s\"\n",
+            first);
+    err = 1;
+  }
+
+  /* Every capacity fills, terminates, and writes nothing past its end. The
+     bytes above it are poisoned non-zero, so a stray NUL shows up too. */
+  {
+    static const size_t sizes[] = {1, 2, 4, 20};
+
+    struct {
+      char dst[20];
+      char tail[8];
+    } s;
+
+    char ref[sizeof(s)];
+    size_t k;
+
+    memset(ref, '#', sizeof(ref));
+    for (k = 0; k < sizeof(sizes) / sizeof(sizes[0]); k++) {
+      const size_t cap = sizes[k];
+
+      memset(&s, '#', sizeof(s));
+      if (hts_strerror(EACCES, s.dst, cap) != s.dst ||
+          memchr(s.dst, '\0', cap) == NULL || (cap > 1 && s.dst[0] == '\0')) {
+        fprintf(stderr, "strerror: capacity %d was not filled and terminated\n",
+                (int) cap);
+        err = 1;
+      }
+      if (memcmp((const char *) &s + cap, ref, sizeof(s) - cap) != 0) {
+        fprintf(stderr, "strerror: capacity %d wrote past its end\n",
+                (int) cap);
+        err = 1;
+      }
+    }
+  }
+
+#if !HTS_STRERROR_REENTRANT
+  printf("strerror: this build kept plain strerror(), so the concurrent phase "
+         "below proves nothing here\n");
+#endif
+  for (i = 0; i < STRERROR_THREADS; i++) {
+    idx[i] = i;
+    if (hts_newthread(strerror_thread, &idx[i]) != 0) {
+      fprintf(stderr, "strerror: cannot spawn\n");
+      return 1;
+    }
+  }
+  htsthread_wait();
+  if (strerror_bad != 0) {
+    fprintf(stderr, "strerror: %d/%d concurrent messages were wrong\n",
+            strerror_bad, STRERROR_THREADS * STRERROR_ROUNDS);
+    err = 1;
+  }
+
+  printf("strerror self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* hts_mutexlock() builds a lock on first use, so threads meet an empty slot. */
+#define MUTEXLAZY_THREADS 8
+#define MUTEXLAZY_LOCKS 64
+#define MUTEXLAZY_ROUNDS 40
+
+/* Never initialized here: the first pass of every thread is what races. */
+static htsmutex mutexlazy_lock[MUTEXLAZY_LOCKS];
+
+/* Bumped under the lock, so a plain int is what proves the lock excluded. */
+static int mutexlazy_count[MUTEXLAZY_LOCKS];
+
+static void mutexlazy_thread(void *arg) {
+  int round, i;
+
+  (void) arg;
+  for (round = 0; round < MUTEXLAZY_ROUNDS; round++) {
+    for (i = 0; i < MUTEXLAZY_LOCKS; i++) {
+      hts_mutexlock(&mutexlazy_lock[i]);
+      mutexlazy_count[i]++;
+      hts_mutexrelease(&mutexlazy_lock[i]);
+    }
+  }
+}
+
+/* The ordering half only shows where loads are reordered: arm64, or any build
+   under ThreadSanitizer. What it pins everywhere is that the race yields one
+   working lock. */
+static int st_mutexlazyinit(httrackp *opt, int argc, char **argv) {
+  const int want = MUTEXLAZY_THREADS * MUTEXLAZY_ROUNDS;
+  int err = 0;
+  int i;
+
+  (void) opt;
+  (void) argc;
+  (void) argv;
+
+  for (i = 0; i < MUTEXLAZY_THREADS; i++) {
+    if (hts_newthread(mutexlazy_thread, NULL) != 0) {
+      fprintf(stderr, "mutexlazyinit: cannot spawn\n");
+      return 1;
+    }
+  }
+  htsthread_wait();
+
+  for (i = 0; i < MUTEXLAZY_LOCKS; i++) {
+    if (mutexlazy_lock[i] == HTSMUTEX_INIT) {
+      fprintf(stderr, "mutexlazyinit: lock %d was never built\n", i);
+      err = 1;
+    } else if (mutexlazy_count[i] != want) {
+      fprintf(stderr, "mutexlazyinit: lock %d counted %d of %d\n", i,
+              mutexlazy_count[i], want);
+      err = 1;
+    }
+    hts_mutexfree(&mutexlazy_lock[i]);
+    if (mutexlazy_lock[i] != HTSMUTEX_INIT) {
+      fprintf(stderr, "mutexlazyinit: lock %d survived the free\n", i);
+      err = 1;
+    }
+    mutexlazy_count[i] = 0;
+  }
+
+  printf("mutexlazyinit self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* ------------------------------------------------------------ */
+/* Registry: this module's tests, in the order -#test lists them. */
+/* ------------------------------------------------------------ */
+
+/* host_ban() must never end an FTP slot, which its worker thread is still
+ * writing. */
+#define ST_HOSTBAN_HOST "ftp.example.invalid"
+#define ST_HOSTBAN_POISON 4242
+
+static void st_hostban_slot(struct_back *sback, int p, int status,
+                            const char *adr) {
+  lien_back *const back = &sback->lnk[p];
+
+  back->status = status;
+  back->timeout = -1;
+  back->rateout = -1;
+  back->stop_ftp = HTS_FALSE;
+  back->r.soc = INVALID_SOCKET; /* or host_ban() would deletehttp() fd 0 */
+  /* open, so a wrong teardown is caught by the fclose it performs */
+  back->r.fp = tmpfile();
+  assertf(back->r.fp != NULL);
+  back->r.statuscode = ST_HOSTBAN_POISON;
+  strcpybuff(back->r.msg, "untouched");
+  strcpybuff(back->url_adr, adr);
+  strcpybuff(back->url_fil, "/pub/big.iso");
+}
+
+static int st_hostban(httrackp *opt, int argc, char **argv) {
+  enum { SLOT_FTP = 0, SLOT_HTTP, SLOTS };
+
+  struct_back *sback;
+  char **filters = NULL;
+  int filptr = 0;
+  int err = 0;
+
+  (void) argc;
+  (void) argv;
+  opt->maxfilter = 128;
+  if (filters_init(&filters, opt->maxfilter, 0) == 0) {
+    fprintf(stderr, "hostban: cannot allocate filters\n");
+    return 77;
+  }
+  filters_bind(opt, &filters, &filptr);
+  sback = back_new(opt, SLOTS);
+  if (sback == NULL) {
+    fprintf(stderr, "hostban: cannot allocate the backing table\n");
+    return 77;
+  }
+  /* An FTP slot's url_adr carries its scheme (htsback.c, on "ftp://"), an
+     http one does not, and host_ban() is handed a bare host. */
+  st_hostban_slot(sback, SLOT_FTP, STATUS_FTP_TRANSFER,
+                  "ftp://" ST_HOSTBAN_HOST);
+  st_hostban_slot(sback, SLOT_HTTP, STATUS_TRANSFER, ST_HOSTBAN_HOST);
+
+  host_ban(opt, 0, sback, ST_HOSTBAN_HOST);
+
+  /* The worker's slot, exactly as it was: poison intact, file still open. */
+  if (sback->lnk[SLOT_FTP].status != STATUS_FTP_TRANSFER) {
+    fprintf(stderr, "hostban: the worker's slot went to status %d\n",
+            sback->lnk[SLOT_FTP].status);
+    err++;
+  }
+  if (sback->lnk[SLOT_FTP].r.fp == NULL) {
+    fprintf(stderr, "hostban: the worker's file was closed under it\n");
+    err++;
+  }
+  if (sback->lnk[SLOT_FTP].r.statuscode != ST_HOSTBAN_POISON ||
+      strcmp(sback->lnk[SLOT_FTP].r.msg, "untouched") != 0) {
+    fprintf(stderr, "hostban: the worker's slot was rewritten as %d '%s'\n",
+            sback->lnk[SLOT_FTP].r.statuscode, sback->lnk[SLOT_FTP].r.msg);
+    err++;
+  }
+  /* The control: an http slot of the same host IS ended, so a test that stopped
+     ending anything fails rather than passing quietly. */
+  if (sback->lnk[SLOT_HTTP].status != STATUS_READY) {
+    fprintf(stderr, "hostban: the http slot was left at status %d\n",
+            sback->lnk[SLOT_HTTP].status);
+    err++;
+  }
+  if (sback->lnk[SLOT_HTTP].r.fp != NULL) {
+    fprintf(stderr, "hostban: the http slot's file was left open\n");
+    err++;
+  }
+  if (strcmp(sback->lnk[SLOT_HTTP].r.msg, "Link Cancelled by host control") !=
+      0) {
+    fprintf(stderr, "hostban: the http slot reads '%s'\n",
+            sback->lnk[SLOT_HTTP].r.msg);
+    err++;
+  }
+
+  if (sback->lnk[SLOT_FTP].r.fp != NULL) {
+    fclose(sback->lnk[SLOT_FTP].r.fp);
+    sback->lnk[SLOT_FTP].r.fp = NULL;
+  }
+  back_free(&sback);
+  freet(filters[0]);
+  freet(filters);
+  printf("hostban self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+/* The clock starts just before a wall-clock second ends, so a whole-second
+   -E count would stop 200ms in. */
+static int st_maxtime(httrackp *opt, int argc, char **argv) {
+  FILE *const saved_log = opt->log;
+  int err = 0;
+  int tries;
+  TStamp t0 = 0, elapsed = 0;
+
+  (void) argc;
+  (void) argv;
+  opt->log = NULL; /* the stop logs, and this test's own output is exact */
+  opt->maxtime = 1;
+  /* A starved host can oversleep past the cap, so retry. The window is timed
+     here, never through the clock under test. */
+  for (tries = 0; tries < 5; tries++) {
+    while (mtime_local() % 1000 < 850 || mtime_local() % 1000 >= 900)
+      Sleep(5);
+    hts_mirror_clock_start();
+    t0 = mtime_monotonic();
+    Sleep(200);
+    opt->state.stop = 0;
+    back_checkmirror(opt);
+    elapsed = mtime_monotonic() - t0;
+    if (elapsed < 1000)
+      break;
+  }
+  if (opt->state.stop && elapsed < 1000) {
+    fprintf(stderr, "maxtime: -E1 stopped %d ms in\n", (int) elapsed);
+    err = 1;
+  }
+  while (mtime_monotonic() - t0 < 1000)
+    Sleep(10);
+  back_checkmirror(opt);
+  if (!opt->state.stop) {
+    fprintf(stderr, "maxtime: -E1 had not stopped %d ms in\n",
+            (int) (mtime_monotonic() - t0));
+    err = 1;
+  }
+  opt->state.stop = 0;
+  opt->maxtime = 0;
+  opt->log = saved_log;
+  printf("maxtime self-test: %s\n", err ? "FAIL" : "OK");
+  return err;
+}
+
+const struct selftest_entry selftests_back[] = {
+    {"strerror", "",
+     "a thread's error message is its own, never another thread's (#1697)",
+     st_strerror},
+    {"maxtime", "",
+     "-E stops at its cap to the millisecond, not up to 1s early", st_maxtime},
+    {"threadrunner", "",
+     "a registered thread runner encloses each worker body exactly once",
+     st_threadrunner},
+    {"ftpworker", "", "an FTP worker's tail hands its backlog slot back",
+     st_ftpworker},
+    {"ftphandoff", "",
+     "an FTP worker's slot handoff is ordered against the crawl thread",
+     st_ftphandoff},
+    {"backnew", "",
+     "a backing table too big to allocate is a NULL, not an abort", st_backnew},
+    {"recordoom", "",
+     "a link whose strings cannot be allocated is dropped, not an abort",
+     st_recordoom},
+    {"mirrorcompleted", "",
+     "a fresh opt has no mirror verdict, and copy_htsopt carries none",
+     st_mirrorcompleted},
+    {"transportfailures", "",
+     "a failed transfer is counted apart from an answered error",
+     st_transportfailures},
+    {"threadwait", "", "htsthread_wait() joins threads spawned just before it",
+     st_threadwait},
+    {"relaxedcounter", "",
+     "a 64-bit counter another thread writes reads back whole and in order",
+     st_relaxedcounter},
+    {"mutexlazyinit", "",
+     "a lock built on first use serves every thread that raced for it",
+     st_mutexlazyinit},
+    {"backswap", "", "which backlog slots may be swapped to the ready table",
+     st_backswap},
+    {"spoolwrite", "<dir>", "a failed spool write leaves no partial file",
+     st_spoolwrite},
+    {"spoolsweep", "<dir>", "startup removes the spool of a dead process only",
+     st_spoolsweep},
+    {"backstop", "",
+     "a user stop drops the slots still waiting to connect (#1073)",
+     st_backstop},
+    {"pause", "", "randomized inter-file pause target self-test", st_pause},
+    {"hostban", "",
+     "a banned host's FTP slot is left to its worker, never ended here",
+     st_hostban},
+    {NULL, NULL, NULL, NULL},
+};

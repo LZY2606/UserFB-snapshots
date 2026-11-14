@@ -1,0 +1,260 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 2026 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* On-demand crash, for crash-handler testing. See htscrashtest.h.
+   Several kinds, because a handler coping with one fault is not proven to
+   cope with the others. */
+/* ------------------------------------------------------------ */
+
+#define HTS_INTERNAL_BYTECODE
+
+#include "htscrashtest.h"
+
+#include "htssafe.h"
+#include "htsthread.h"
+#include "httrack-library.h"
+
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef _WIN32
+#include <pthread.h>
+#define CRASH_HAS_ATFORK
+#endif
+
+#ifdef HTS_CRASH_TEST
+
+#if defined(_MSC_VER)
+#define CRASH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__)
+#define CRASH_NOINLINE __attribute__((noinline))
+#else
+#define CRASH_NOINLINE
+#endif
+
+/* Read through volatiles so the optimizer cannot see the UB and delete it. */
+static volatile uintptr_t crash_address = 0x42;
+static volatile int crash_keep_recursing = 1;
+
+static CRASH_NOINLINE void fourty_two(void) {
+  volatile char *const ptr = (volatile char *) crash_address;
+
+  (*ptr)++;
+}
+
+/* Nested, so the backtrace under test has more than one frame to name. */
+static CRASH_NOINLINE void crash_segv(void) { fourty_two(); }
+
+/* The engine's own fatal path (htssafe assertions land here). */
+static CRASH_NOINLINE void crash_abort(void) {
+  abortLog("deliberate crash test");
+}
+
+static CRASH_NOINLINE void crash_trap(void) {
+#if defined(_MSC_VER)
+  __debugbreak();
+#elif defined(__GNUC__)
+  __builtin_trap();
+#else
+  abort();
+#endif
+}
+
+/* Reading the frame *after* the call keeps it live across it: returning
+   frame[0] + f(...) instead lets gcc accumulate and loop, never overflowing. */
+static CRASH_NOINLINE char blow_the_stack(size_t depth) {
+  volatile char frame[4096];
+  char deeper;
+
+  frame[0] = (char) depth;
+  if (!crash_keep_recursing) {
+    return frame[0];
+  }
+  deeper = blow_the_stack(depth + 1);
+  return (char) (frame[0] + deeper);
+}
+
+/* Faults with no stack left for the handler, unless it runs on an altstack. */
+static CRASH_NOINLINE void crash_stack(void) { (void) blow_the_stack(0); }
+
+/* See htscrashtest.h. */
+void hts_crash_test_announce(const char *format, ...) {
+  va_list args;
+
+  va_start(args, format);
+  fprintf(stderr, "** ");
+  vfprintf(stderr, format, args);
+  fprintf(stderr, "\n");
+  fflush(stderr);
+  va_end(args);
+  /* NULL opt, so a worker reaches the front end's log without touching one. */
+  va_start(args, format);
+  hts_log_vprint(NULL, LOG_ERROR, format, args);
+  va_end(args);
+}
+
+/* Armed by an -#c kind, taken by the first worker of that kind the mirror
+   starts. Not on opt: the kinds are process-wide, like the option. */
+static volatile hts_crash_worker crash_armed = HTS_CRASH_WORKER_NONE;
+
+static void crash_arm_dns(void) { crash_armed = HTS_CRASH_WORKER_DNS; }
+
+static void crash_arm_ftp(void) { crash_armed = HTS_CRASH_WORKER_FTP; }
+
+/* See htscrashtest.h. */
+void hts_crash_test_worker(hts_crash_worker which) {
+  if (crash_armed == HTS_CRASH_WORKER_NONE || crash_armed != which)
+    return;
+  /* Once, so a front end that recovers the fault still reaches the end. */
+  crash_armed = HTS_CRASH_WORKER_NONE;
+  hts_crash_test_announce("Crash test: faulting a live %s worker",
+                          which == HTS_CRASH_WORKER_DNS ? "DNS" : "FTP");
+  crash_segv();
+}
+
+typedef void (*crash_fn)(void);
+
+static void crash_worker_thread(void *arg) {
+  const crash_fn fn = *(const crash_fn *) arg;
+
+  fprintf(stderr, "** Crash test worker thread started\n");
+  fflush(stderr);
+  fn();
+}
+
+/* Faults 'fn' on a worker. The wait below holds this frame until it returns. */
+static void crash_on_worker(crash_fn fn) {
+  /* Aborting on a spawn failure keeps the caller's exit status a crash, so the
+     test reads "no worker started" rather than "the handler never ran". */
+  if (hts_newthread(crash_worker_thread, &fn) != 0)
+    abortLog("crash test: cannot spawn a worker thread");
+  htsthread_wait_n(0); /* the worker takes the process down from there */
+}
+
+/* Same runaway recursion in an engine worker: the fatal handler needs an
+   alternate stack in every thread, not just the main one (#969). */
+static CRASH_NOINLINE void crash_threadstack(void) {
+  crash_on_worker(crash_stack);
+}
+
+/* Faults a worker with its stack intact, unlike threadstack. */
+static CRASH_NOINLINE void crash_threadsegv(void) {
+  crash_on_worker(crash_segv);
+}
+
+#ifdef CRASH_HAS_ATFORK
+static pthread_mutex_t crash_fork_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void crash_fork_prepare(void) { pthread_mutex_lock(&crash_fork_lock); }
+
+static void crash_fork_parent(void) { pthread_mutex_unlock(&crash_fork_lock); }
+#endif
+
+/* Faults holding a lock a pthread_atfork prepare handler wants (#968). Plain
+   segv where there is no atfork. */
+static CRASH_NOINLINE void crash_atfork(void) {
+#ifdef CRASH_HAS_ATFORK
+  pthread_atfork(crash_fork_prepare, crash_fork_parent, NULL);
+  pthread_mutex_lock(&crash_fork_lock);
+#endif
+  crash_segv();
+}
+
+static const struct {
+  const char *name;
+  void (*fn)(void);
+  /* Does fn() only arm the fault, leaving the mirror to take it? */
+  hts_boolean arms;
+} crash_kinds[] = {
+    {"segv", crash_segv, HTS_FALSE},
+    {"abort", crash_abort, HTS_FALSE},
+    {"trap", crash_trap, HTS_FALSE},
+    {"stack", crash_stack, HTS_FALSE},
+    {"threadstack", crash_threadstack, HTS_FALSE},
+    {"threadsegv", crash_threadsegv, HTS_FALSE},
+    {"atfork", crash_atfork, HTS_FALSE},
+    /* These two wait for a live worker, so the mirror has to run. The fault
+       lands where a recovered one is worth testing: before the resolver
+       publishes its answer, and with the FTP slot already registered. */
+    {"dnssegv", crash_arm_dns, HTS_TRUE},
+    {"ftpsegv", crash_arm_ftp, HTS_TRUE},
+};
+
+#define CRASH_KINDS_COUNT (sizeof(crash_kinds) / sizeof(crash_kinds[0]))
+
+/* Appends what fits and drops the rest, where strcatbuff() would abort. */
+static void kinds_append(char *dest, size_t size, const char *src) {
+  const size_t used = strlen(dest);
+
+  strlncatbuff(dest, src, size, size - used - 1);
+}
+
+const char *hts_crash_test_kinds(void) {
+  /* Clipped rather than aborted: a table outgrowing this must not cost the
+     process, the string only feeds a usage line. */
+  static char list[256];
+
+  if (list[0] == '\0') {
+    size_t i;
+
+    for (i = 0; i < CRASH_KINDS_COUNT; i++) {
+      if (i != 0) {
+        kinds_append(list, sizeof(list), ", ");
+      }
+      kinds_append(list, sizeof(list), crash_kinds[i].name);
+    }
+  }
+  return list;
+}
+
+hts_crash_test_result hts_crash_test(const char *kind) {
+  size_t i;
+
+  if (kind == NULL || *kind == '\0') {
+    kind = crash_kinds[0].name;
+  }
+  for (i = 0; i < CRASH_KINDS_COUNT; i++) {
+    if (strcmp(kind, crash_kinds[i].name) == 0) {
+      hts_crash_test_announce(
+          "Deliberate '%s' crash requested (-#c): crash handler test", kind);
+      crash_kinds[i].fn();
+      if (crash_kinds[i].arms) {
+        return HTS_CRASH_ARMED;
+      }
+      /* Reached only if a handler swallowed the fault and resumed. */
+      fprintf(stderr, "** Crash test '%s' did not crash the process\n", kind);
+      fflush(stderr);
+      return HTS_CRASH_RAN;
+    }
+  }
+  return HTS_CRASH_UNKNOWN;
+}
+
+#endif

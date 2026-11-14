@@ -1,0 +1,130 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: httrack.c subroutines:                                 */
+/*       savename routine (compute output filename)             */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+#ifndef HTSNAME_DEFH
+#define HTSNAME_DEFH
+
+#include "htsglobal.h"
+
+#define DELAYED_EXT "delayed"
+#define IS_DELAYED_EXT(a) ( ((a) != NULL) && ((a)[0] != 0) && strendwith_(a, "." DELAYED_EXT) )
+HTS_STATIC int strendwith_(const char *a, const char *b) {
+  int i, j;
+
+  for(i = 0; a[i] != 0; i++) ;
+  for(j = 0; b[j] != 0; j++) ;
+  while(i >= 0 && j >= 0 && a[i] == b[j]) {
+    i--;
+    j--;
+  }
+  return (j == -1);
+}
+
+#define CACHE_REFNAME "hts-cache/ref"
+
+/* Library internal definictions */
+#ifdef HTS_INTERNAL_BYTECODE
+
+/* Forward definitions */
+#ifndef HTS_DEF_FWSTRUCT_httrackp
+#define HTS_DEF_FWSTRUCT_httrackp
+typedef struct httrackp httrackp;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_url
+#define HTS_DEF_FWSTRUCT_lien_url
+typedef struct lien_url lien_url;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_struct_back
+#define HTS_DEF_FWSTRUCT_struct_back
+typedef struct struct_back struct_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_cache_back
+#define HTS_DEF_FWSTRUCT_cache_back
+typedef struct cache_back cache_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_hash_struct
+#define HTS_DEF_FWSTRUCT_hash_struct
+typedef struct hash_struct hash_struct;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_back
+#define HTS_DEF_FWSTRUCT_lien_back
+typedef struct lien_back lien_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_adrfil
+#define HTS_DEF_FWSTRUCT_lien_adrfil
+typedef struct lien_adrfil lien_adrfil;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_adrfilsave
+#define HTS_DEF_FWSTRUCT_lien_adrfilsave
+typedef struct lien_adrfilsave lien_adrfilsave;
+#endif
+
+// note: 'headers' can either be null, or incomplete (only r member filled)
+// note: 'sback' can be null: the type-probing request is then skipped
+int url_savename(lien_adrfilsave *const afs,
+                 lien_adrfil *const former,
+                 const char *referer_adr, const char *referer_fil, 
+                 httrackp * opt, struct_back * sback, cache_back * cache,
+                 hash_struct * hash, int ptr, int numero_passe,
+                 const lien_back * headers);
+void standard_name(char *b, size_t bsize, const char *dot_pos,
+                   const char *nom_pos, const char *fil_complete,
+                   int short_ver);
+/* Does url's query have a field with an '=' whose key is exactly name? Its
+   value, clipped to size - 1 bytes, goes to dst, of size >= 1. */
+hts_boolean url_query_value(const char *url, const char *name, char *dst,
+                            size_t size);
+/* Append s to d (mapping '\' to '/'), clipped to dsize bytes including the NUL.
+   Clips rather than aborts: s is a crawled link, hostile by construction. */
+void url_savename_addstr(char *d, size_t dsize, const char *s);
+/* Append sep+s to d whole, cutting d's tail (never inside a UTF-8 character)
+   for room, so the suffix always survives; nothing happens if it alone fills
+   dsize. */
+void url_savename_addtail(char *d, size_t dsize, const char *sep,
+                          const char *s);
+/* Leading len bytes of path into buf; returns how many were read (0 on any
+   failure), so a caller reading nothing decides for itself what that means. */
+size_t hts_read_file_head(const char *path, void *buf, size_t len);
+
+/* Contested wire-vs-ext verdict that a body sniff could settle (htssniff.h). */
+int hts_ext_sniff_wanted(httrackp *opt, const char *wiremime, const char *file);
+char *url_md5(char *digest_buffer, const char *fil_complete);
+void url_savename_refname(const char *adr, const char *fil, char *filename);
+char *url_savename_refname_fullpath(httrackp * opt, const char *adr,
+                                    const char *fil);
+/* Remove the temp-ref for (adr,fil); HTS_TRUE if it was removed. */
+hts_boolean url_savename_refname_remove(httrackp *opt, const char *adr,
+                                        const char *fil);
+#endif
+
+#endif

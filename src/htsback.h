@@ -1,0 +1,228 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: httrack.c subroutines:                                 */
+/*       backing system (multiple socket download)              */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+#ifndef HTSBACK_DEFH
+#define HTSBACK_DEFH
+
+#include "htsglobal.h"
+
+#include "htsopt.h"
+#include "htsthread.h"
+
+/* Forward definitions */
+#ifndef HTS_DEF_FWSTRUCT_httrackp
+#define HTS_DEF_FWSTRUCT_httrackp
+typedef struct httrackp httrackp;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_struct_back
+#define HTS_DEF_FWSTRUCT_struct_back
+typedef struct struct_back struct_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_cache_back
+#define HTS_DEF_FWSTRUCT_cache_back
+typedef struct cache_back cache_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_back
+#define HTS_DEF_FWSTRUCT_lien_back
+typedef struct lien_back lien_back;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_htsblk
+#define HTS_DEF_FWSTRUCT_htsblk
+typedef struct htsblk htsblk;
+#endif
+
+/* An FTP worker publishes a slot's status, so read it with an acquire load. */
+static HTS_INLINE HTS_UNUSED int back_status(const lien_back *b) {
+  return hts_load_acquire_int(&b->status);
+}
+
+/* Library internal definictions */
+#ifdef HTS_INTERNAL_BYTECODE
+
+// create/destroy
+/* Slots for maxsoc connections, clamped to what back_new() can size. */
+int back_max_slots(int maxsoc);
+struct_back *back_new(httrackp *opt, int back_max);
+void back_free(struct_back ** sback);
+
+// backing
+#define BACK_ADD_TEST "(dummy)"
+#define BACK_ADD_TEST2 "(dummy2)"
+/* Parse an external FTP helper's "<statuscode> <message>" result file into r,
+   clipping the message to r->msg. */
+void back_read_ftp_result(FILE *fp, htsblk *r);
+
+int back_index(httrackp * opt, struct_back * sback, const char *adr, const char *fil,
+               const char *sav);
+int back_available(const struct_back * sback);
+LLint back_incache(const struct_back * sback);
+int back_done_incache(const struct_back * sback);
+/* Like back_index(), but never loads a stored result into a slot. Returns
+   sback->count for one. */
+int back_index_peek(httrackp *opt, struct_back *sback, const char *adr,
+                    const char *fil, const char *sav);
+HTS_INLINE int back_exist(struct_back * sback, httrackp * opt, const char *adr,
+                          const char *fil, const char *sav);
+int back_nsoc(const struct_back * sback);
+int back_nsoc_overall(const struct_back * sback);
+/* refetch_whole: force a whole-file GET, ignoring any partial/temp-ref resume;
+   also the caller's latch marking this link's one free restart spent (#581). */
+int back_add(struct_back *sback, httrackp *opt, cache_back *cache,
+             const char *adr, const char *fil, const char *save,
+             const char *referer_adr, const char *referer_fil, int test,
+             hts_boolean refetch_whole, const hts_fetch_meta *fetch);
+int back_add_if_not_exists(struct_back *sback, httrackp *opt, cache_back *cache,
+                           const char *adr, const char *fil, const char *save,
+                           const char *referer_adr, const char *referer_fil,
+                           int test, const hts_fetch_meta *fetch);
+int back_stack_available(struct_back * sback);
+int back_search(httrackp * opt, struct_back * sback);
+int back_search_quick(struct_back * sback);
+void back_clean(httrackp * opt, cache_back * cache, struct_back * sback);
+int back_cleanup_background(httrackp * opt, cache_back * cache,
+                            struct_back * sback);
+void back_wait(struct_back * sback, httrackp * opt, cache_back * cache,
+               TStamp stat_timestart);
+int back_letlive(httrackp * opt, cache_back * cache, struct_back * sback,
+                 const int p);
+int back_searchlive(httrackp * opt, struct_back * sback, const char *search_addr);
+void back_connxfr(htsblk * src, htsblk * dst);
+void back_move(lien_back * src, lien_back * dst);
+void back_copy_static(const lien_back * src, lien_back * dst);
+/* The .ref record's framing, shared with the self-test that pins it. */
+#define HTS_REF_MAGIC "HTSREF1\n"
+#define HTS_REF_MAGIC_SIZE 8
+#define HTS_REF_VERSION 1
+/* Caps a declared length must clear: one response's header block, and a body
+   only an in-memory transfer ever carries. */
+#define HTS_REF_MAX_STR (1024 * 1024)
+#define HTS_REF_MAX_BLOB ((uint64_t) 1024 * 1024 * 1024)
+
+/* In-process slot spool: host-native, and meaningful only inside the run that
+   wrote it. */
+int back_serialize(FILE * fp, const lien_back * src);
+int back_unserialize(FILE * fp, lien_back ** dst);
+/* Resume state that outlives the run, so a portable little-endian record; a
+   file in any other shape is refused rather than misread. */
+int back_serialize_ref(httrackp * opt, const lien_back * src);
+int back_unserialize_ref(httrackp * opt, const char *adr, const char *fil,
+                         lien_back ** dst);
+void back_set_finished(httrackp *opt, struct_back *sback, const int p);
+/* lien_back.locked: 1 keeps a slot in the table with its body in memory, and
+   BACK_PINNED keeps it in the table but lets it write to disk.
+   back_set_unlocked() releases both. */
+#define BACK_PINNED 2
+void back_set_locked(struct_back * sback, const int p);
+void back_set_pinned(struct_back *sback, const int p);
+void back_set_unlocked(struct_back * sback, const int p);
+int back_delete(httrackp * opt, cache_back * cache, struct_back * sback,
+                const int p);
+/* Discard back's on-disk .delayed placeholder and its refname. */
+void back_delayed_discard(httrackp *opt, lien_back *back);
+/* Move back's .delayed placeholder (and open stream) to newname;
+   HTS_FALSE = file lost, slot flagged in error. */
+hts_boolean back_delayed_rename(httrackp *opt, lien_back *back,
+                                const char *newname);
+int back_clear_entry(lien_back * back);
+int back_flush_output(httrackp * opt, cache_back * cache, struct_back * sback,
+                      const int p);
+void back_delete_all(httrackp * opt, cache_back * cache, struct_back * sback);
+int back_maydelete(httrackp * opt, cache_back * cache, struct_back * sback,
+                   const int p);
+void back_maydeletehttp(httrackp * opt, cache_back * cache, struct_back * sback,
+                        const int p);
+int back_trylive(httrackp * opt, cache_back * cache, struct_back * sback,
+                 const int p);
+int back_finalize(httrackp * opt, cache_back * cache, struct_back * sback,
+                  const int p);
+/* Did the fetch fail to produce a response, as opposed to the engine
+   deliberately passing the resource over? Only the latter may be purged, so
+   this also decides whether the previous copy survives the update (#746). */
+hts_boolean back_transfer_failed(const int statuscode);
+/* Commit a decoded body size onto r, refusing in memory what http_xfread1()
+   refuses: hts_codec_maxout() caps at INT_MAX inclusive, so the one size the
+   receive guard rejects is reachable through a content coding. A refusal
+   classes and names r, drops its still-coded body, and returns HTS_FALSE. */
+hts_boolean back_set_decoded_size(htsblk *r, LLint size);
+/* Move the previous copy of back->url_sav to back->tmpfile so back_finalize()
+   can put it back when the re-fetch fails (#77 follow-up). Call right before
+   truncating url_sav; tmpfile stays NULL when there is nothing to save. */
+void back_refetch_backup(httrackp *opt, lien_back *const back);
+/* Commit or restore a re-fetch backup (#77 follow-up): a re-fetch over an
+   existing file moved the good copy to back->tmpfile before truncating url_sav.
+   commit keeps the new file and drops the backup, unless url_sav was never
+   created; else restore it so an aborted transfer leaves the previous copy
+   intact. Skips the zlib .z temp. HTS_FALSE when a requested commit had to
+   restore instead: the caller then holds the OLD body and must not cache this
+   response's validators against it. */
+hts_boolean back_finalize_backup(httrackp *opt, lien_back *const back,
+                                 hts_boolean commit);
+/* Remove the reserved directory a temporary sat in, once the last slot sharing
+   it is done; a non-empty one just refuses. No-op outside that directory. */
+void back_tmpdir_drop(const char *tmp);
+/* Name the spool file of a frozen backlog slot, in ~hts-tmp at the mirror
+   root, carrying this process's pid. Consumes an opt->state.tmpnameid.
+   Returns HTS_FALSE (dest emptied) if the name does not fit. Note: utf-8. */
+hts_boolean back_spoolname(httrackp *opt, char *dest, size_t size);
+/* Returns this process's id, as back_spoolname() writes it. */
+unsigned long back_self_pid(void);
+/* Write a slot to its spool file. Returns HTS_FALSE, leaving no file, on
+   failure. */
+hts_boolean back_spool_write(httrackp *opt, const char *filename,
+                             const lien_back *back);
+/* Remove spool files whose process is gone or is this one. Call before this
+   run spools anything. */
+void back_spool_sweep(httrackp *opt);
+/* -#test=backswap: slots eligible for the on-disk ready table. */
+int back_selftest_slot_swap(void);
+void back_info(struct_back * sback, int i, int j, FILE * fp);
+void back_infostr(struct_back *sback, int i, int j, char *s, size_t size);
+LLint back_transferred(LLint add, struct_back * sback);
+
+// hostback
+#if HTS_XGETHOST
+int host_wait(httrackp * opt, lien_back * sback);
+#endif
+int back_checksize(httrackp * opt, lien_back * eback, int check_only_totalsize);
+/* Enforce -M/-E quotas: smooth-stops when reached; returns 0 once the -M cap
+   or -E deadline overruns its grace period (callers must stop waiting). */
+int back_checkmirror(httrackp * opt);
+/* Give up the mirror where a thread runner recovered from a fault, because the
+   worker it cut short left state nothing can audit. Crawl thread only, because
+   it is the one that holds opt. Idempotent, and back_checkmirror() already
+   calls it on every crawl iteration. */
+void back_check_worker_fault(httrackp *opt);
+
+#endif
+
+#endif

@@ -1,0 +1,9 @@
+# Races ThreadSanitizer reports that are deliberate, so the leg stays green and
+# a new report means a new bug. Delete an entry once its reader no longer races.
+#
+# No entry remains: every read of lien_back.status is an acquire load, and
+# every access to a live FTP slot's r.size and r.totalsize is a relaxed atomic.
+#
+# A new entry names a READER, never the writer. Suppressing the FTP worker would
+# also hide a missing release store to lien_back.status, which is the regression
+# this leg catches.

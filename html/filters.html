@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- doc-chrome:head -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="HTTrack filter syntax: wildcards, and the size and MIME-type forms of a scan rule.">
+<link rel="stylesheet" href="doc.css">
+<script src="doc.js" defer></script>
+<!-- /doc-chrome:head -->
+<title>HTTrack filter syntax</title>
+</head>
+<body>
+
+<!-- doc-chrome:top -->
+<!-- doc-chrome:masthead -->
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+	<img src="images/wordmark.svg" width="400" height="36" alt="HTTrack Website Copier">
+	<div class="tagline">Free software offline browser</div>
+</header>
+<!-- /doc-chrome:masthead -->
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Documentation">
+	<h2>Start here</h2>
+	<ul>
+		<li><a href="guide.html">Interface guide</a></li>
+		<li><a href="faq.html">FAQ and troubleshooting</a></li>
+		<li><a href="login.html">Sites behind a login</a></li>
+		<li><a href="abuse.html">Using HTTrack responsibly</a></li>
+	</ul>
+	<h2>Command line</h2>
+	<ul>
+		<li><a href="cmdguide.html">Command-line guide</a></li>
+		<li><a href="httrack.man.html">Option reference</a></li>
+		<li><a href="filters.html" aria-current="page" class="here">Filter syntax</a></li>
+	</ul>
+	<h2>Developers</h2>
+	<ul>
+		<li><a href="dev.html">Programming</a></li>
+		<li><a href="library.html">libhttrack API</a></li>
+		<li><a href="plug.html">Callbacks</a></li>
+		<li><a href="scripting.html">Scripting</a></li>
+		<li><a href="cache.html">Cache format</a></li>
+		<li><a href="changes.html">Change report format</a></li>
+	</ul>
+	<h2>More</h2>
+	<ul>
+		<li><a href="fcguide.html">Users Guide (3.10)</a></li>
+		<li><a href="contact.html">Contact and credits</a></li>
+		<li><a href="index.html">All documentation</a></li>
+	</ul>
+</nav>
+
+<main id="main">
+<!-- /doc-chrome:top -->
+
+<h1>Filters: Advanced</h1>
+
+<br>
+
+See also: The <a href="faq.html#VF1">FAQ</a><br>
+
+<br>
+
+    <i>You have to know that once you have defined
+    starts links, the default mode is to mirror these links - i.e. if one of your start page is
+    www.example.com/test/index.html, all links starting with www.example.com/test/ will be
+    accepted. But links directly in www.example.com/.. will not be accepted, however, because
+    they are in a higher structure. This prevent HTTrack from mirroring the whole site. (A sibling
+    such as www.example.com/other/ is refused too, being no lower than the start page.)<br>
+    </i>
+    <br>
+    <b>But</b> you may want to download files that are not directly in the subfolders, or on the 
+    contrary refuse files of a particular type. That is the purpose of filters.
+    <br>
+
+<p>    
+    <h4>Scan rules based on URL or extension (e.g. accept or refuse all .zip or .gif files)</h4>
+</p>    
+    
+    To accept a family of links (for example, all links with a specific name or type), you just have to add 
+    an authorization filter, like <b><tt>+*.gif</tt></b>. The pattern is a plus (this one: <b><tt>+</tt></b>),
+    followed by a pattern composed of letters and wildcards (this one: <b><tt>*</tt></b>). 
+    <br><br>
+    To forbid a family of links, define
+    an authorization filter, like <b><tt>-*.gif</tt></b>. The pattern is a dash (this one: <b><tt>-</tt></b>),
+    followed by a the same kind of pattern as for the authorization filter.
+    <br><br>
+    Example: +*.gif will accept all files finished by .gif<br>
+    Example: -*.gif will refuse all files finished by .gif<br>
+    <br>
+    To see which rule accepted or blocked a given URL, run HTTrack with the <b><tt>--why</tt></b> (<b><tt>-%Y</tt></b>) option, described in <a href="httrack.man.html#OPTIONS">the manual page</a>.<br>
+    <br>
+    
+<p>    
+    <h4>Scan rules based on size (e.g. accept or refuse files bigger/smaller than a certain size)</h4>
+</p>    
+
+    Once a link is scheduled for download, you can still refuse it (i.e. abort the download) by checking its 
+    size to ensure that you won't reach a defined limit.
+    
+    Example: You may want to accept all files on the domain www.example.com, using '+www.example.com/*', 
+    including gif files inside this domain and outside (external images), but not take to large images, 
+    or too small ones (thumbnails)<br>
+    Excluding gif images smaller than 5KB and images larger than 100KB is therefore a good option;
+    +www.example.com/* +*.gif -*.gif*[<5] -*.gif*[>100] 
+    
+    <br>
+    
+    Important notice: size scan rules are checked <b>after</b> the link was scheduled for download, 
+    allowing to abort the connection. 
+
+
+<p>    
+    <h4>Scan rules based on MIME types (e.g. accept or refuse all files of type audio/mp3)</h4>
+</p>    
+    
+    Once a link is scheduled for download, you can still refuse it (i.e. abort the download) by matching its MIME 
+    type against certain patterns.
+    
+    Example: You may want to accept all files on the domain www.example.com, using '+www.example.com/*', and
+    exclude all gif files, using '-*.gif'. But some dynamic scripts (such as www.example.com/dynamic.php) can
+    both generate html content, or image data content, depending on the context. Excluding this script, using
+    the scan rule '-www.example.com/dynamic.php', is therefore not a good solution.
+    
+    <br>
+    The only reliable way in such cases is to exclude the specific mime type 'image/gif', using the scan rule
+    syntax:<br>
+    -mime:image/gif
+    <br>
+    
+    Important notice: MIME types scan rules are <b>only</b> checked against links that were
+    scheduled for download, i.e. links <b>already authorized</b> by url scan rules. 
+    Hence, using '+mime:image/gif' will only be a hint to accept images that were already authorized, 
+    if previous MIME scan rules excluded them - such as in '-mime:*/* +mime:text/html +mime:image/gif'
+    
+    <br>
+
+    <br>
+    <h3 id="scan-rules-patterns">Scan rules patterns:</h3>
+
+<p>    
+    <h4>1.a. Scan rules based on URL or extension</h4>
+</p>    
+
+    <br>
+    Filters are analyzed by HTTrack from the first filter to the last one. The complete URL
+    name is compared to filters defined by the user or added automatically by HTTrack. <br><br>
+    A scan rule has a higher priority if it is declared later - hierarchy is important: <br>
+
+    <br>
+    <table BORDER="1" CELLPADDING="2">
+    <tr><td nowrap>
+    <tt>+*.gif -*image*.gif</tt>
+    </td><td>
+    Will accept all gif files BUT image1.gif,imageblue.gif,imagery.gif and so on
+    </tr>
+    <tr><td nowrap>
+    <tt>-*image*.gif +*.gif</tt>
+    </td><td>
+    Will accept all gif files, because the second pattern is prioritary (because it is defined AFTER the first one)
+    </tr>
+    </table>
+    <br>
+
+    Note: these scan rules can be mixed with scan rules based on size (see 1.b)<br>
+
+    <br>
+    We saw that patterns are composed of letters and wildcards (<b><tt>*</tt></b>), as in */image*.gif
+
+    <p align="JUSTIFY"><br>
+    Special wild cards can be used for specific characters: (*[..]). Each of these matches a
+    run of characters, and the run may be empty; <tt>*(..)</tt> matches exactly one.</p>
+    <table BORDER="1" CELLPADDING="2">
+      <tr>
+        <td nowrap><tt>*</tt></td>
+        <td>any characters (the most commonly used)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[file] or *[name]</tt></td>
+        <td>a run of any characters, stopping at / or ?</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[path]</tt></td>
+        <td>a run of any characters, stopping at ? (/ is allowed)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[a,z,e,r,t,y]</tt></td>
+        <td>any letters among a,z,e,r,t,y</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[a-z]</tt></td>
+        <td>any lowercase letters from a to z (a range, and case-sensitive)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[0-9,a,z,e,r,t,y]</tt></td>
+        <td>any characters among 0..9 and a,z,e,r,t,y</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[\*]</tt></td>
+        <td>the * character</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[\\]</tt></td>
+        <td>the \ character</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[\[,\]]</tt></td>
+        <td>the [ or ] character</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[]</tt></td>
+        <td>no characters must be present after</a></td>
+      </tr>
+    </table>
+
+
+    <p align="JUSTIFY"><br>
+    Here are some example patterns (they can also be generated automatically using the
+    interface). A pattern becomes a scan rule only once you prefix it with <tt>+</tt> to
+    accept or <tt>-</tt> to refuse. On its own it is not a filter: HTTrack reads it as one
+    more URL to crawl.</p>
+    <table BORDER="1" CELLPADDING="2">
+      <tr>
+        <td nowrap><tt>www.thisweb.com* </tt></td>
+        <td>This will refuse/accept this web site, and any longer hostname too, such as
+        www.thisweb.com.example.org; use www.thisweb.com/* to pin it to the site itself</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*.com/*</tt></td>
+        <td>This will refuse/accept links where .com is followed by a /, so a .com host but also a path
+        such as www.example.org/dir.com/page; a host given with a port is missed</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*cgi-bin* </tt></td>
+        <td>This will refuse/accept all links that contains cgi-bin in them</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>www.*[path].com/*[path].zip </tt></td>
+        <td>This will refuse/accept all zip files on addresses starting with www. and containing .com/,
+        so not a .com host spelled without the www.</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*example*/*.tar*</tt></td>
+        <td>This will refuse/accept all tar (or tar.gz etc.) files whose URL contains example before some
+        /, in the host or in any directory of the path</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*/*somepage*</tt></td>
+        <td>This will refuse/accept all links containing somepage (but not in the address)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*.html</tt></td>
+        <td>This will refuse/accept all html files. <br>
+        Warning! With this filter you will accept ALL html files, even those in other addresses.
+        (causing a global (!) web mirror..) Use www.example.com/*.html to accept all html files from
+        a web.</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*.html*[]</tt></td>
+        <td>Identical to <tt>*.html</tt>, but the link must not have any supplemental characters
+        at the end (links with parameters, like <tt>www.example.com/index.html?page=10</tt>, will be
+        refused)</td>
+      </tr>
+    </table>
+
+<p>    
+    <h4>1.b. Scan rules based on size</h4>
+</p>    
+
+    <br>
+    Filters are analyzed by HTTrack from the first filter to the last one. The sizes
+    are compared against scan rules defined by the user.<br><br>
+    A scan rule has a higher priority if it is declared later - hierarchy is important.<br>
+    
+    Note: scan rules based on size can be mixed with regular URL patterns<br>
+
+    <p align="JUSTIFY"><br>
+    Size patterns:</p>
+    <table BORDER="1" CELLPADDING="2">
+      <tr>
+        <td nowrap><tt>*[&lt;NN]</tt></td>
+        <td>the file size must be smaller than NN KB
+        <br>(note: this may cause broken files during the download)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[&gt;NN]</tt></td>
+        <td>the file size must be greater than NN KB
+        <br>(note: this may cause broken files during the download)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>*[&lt;NN&gt;MM]</tt></td>
+        <td>the file size must be smaller than NN KB <b>and</b> greater than MM KB. The two bounds may
+        come in either order, and a comma between them is optional: <tt>*[&gt;MM&lt;NN]</tt> and
+        <tt>*[&gt;MM,&lt;NN]</tt> say the same thing. A window nothing can satisfy, such as
+        <tt>*[&gt;80&lt;1]</tt>, is accepted and never matches
+        <br>(note: this may cause broken files during the download)</td>
+      </tr>
+    </table>
+
+    <p align="JUSTIFY"><br>
+    Here are some examples of filters: (that can be generated automatically using the
+    interface)</p>
+    <table BORDER="1" CELLPADDING="2">
+      <tr>
+        <td nowrap><tt>-*[&lt;10]</tt></td>
+        <td>the file will be forbidden if its size is smaller than 10 KB</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-*[&gt;50]</tt></td>
+        <td>the file will be forbidden if its size is greater than 50 KB</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-*[&lt;10] -*[&gt;50]</tt></td>
+        <td>the file will be forbidden if its size is smaller than 10 KB <b>or</b> greater than 50 KB</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>+*[&lt;80]</tt></td>
+        <td>the file will be accepted if its size is smaller than 80 KB; a larger one is left to the
+        other rules, since an accepting rule refuses nothing</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>+*[&lt;80&gt;1]</tt></td>
+        <td>the file will be accepted if its size is smaller than 80 KB <b>and</b> greater than 1 KB</td>
+      </tr>
+    </table>
+
+
+<p>    
+    <h4>2. Scan rules based on MIME types</h4>
+</p>    
+
+    <br>
+    Filters are analyzed by HTTrack from the first filter to the last one. The complete MIME
+    type is compared against scan rules defined by the user.<br><br>
+    A scan rule has a higher priority if it is declared later - hierarchy is important<br>
+
+    Note: scan rules based on MIME types can <b>NOT</b> be mixed with regular URL patterns or size patterns within the same rule, but you can use both of them in distinct ones. HTTrack does not refuse such a rule, it simply never matches<br>
+
+    <p align="JUSTIFY"><br>
+    Here are some examples of filters: (that can be generated automatically using the
+    interface)</p>
+    <table BORDER="1" CELLPADDING="2">
+      <tr>
+        <td nowrap><tt>-mime:application/octet-stream</tt></td>
+        <td>This will refuse all links of type 'application/octet-stream' that were already scheduled for download
+        (i.e. the download will be aborted)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-mime:application/*</tt></td>
+        <td>This will refuse all links of type begining with 'application/' that were already scheduled for download
+        (i.e. the download will be aborted)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-mime:application/* +mime:application/pdf</tt></td>
+        <td>This will refuse all links of type begining with 'application/' that were already scheduled for download, except for 'application/pdf' ones
+        (i.e. all other 'application/' link download will be aborted)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-mime:video/*</tt></td>
+        <td>This will refuse all video links that were already scheduled for download
+        (i.e. the download will be aborted)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-mime:video/* -mime:audio/*</tt></td>
+        <td>This will refuse all audio and video links that were already scheduled for download
+        (i.e. the download will be aborted)</td>
+      </tr>
+      <tr>
+        <td nowrap><tt>-mime:*/* +mime:text/html +mime:image/*</tt></td>
+        <td>This will refuse all links that were already scheduled for download, except html pages, and images
+        (i.e. all other link download will be aborted). Note that this is a very unefficient way of filtering
+        files, as aborted downloads will generate useless requests to the server. You are strongly advised to
+        use additional URL scan rules</td>
+      </tr>
+    </table>
+      
+<p>    
+    <h4>2. Scan rules based on URL or size, and scan rules based on MIME types interactions</h4>
+</p>    
+
+    You must use scan rules based on MIME types very carefully, or you will end up with an imcomplete
+    mirror, or create an unefficient download session (generating costly and useless requests to the server)
+    <br>
+
+    <p align="JUSTIFY"><br>
+    Here are some examples of good/bad scan rules interactions:</p>
+    <table BORDER="1" CELLPADDING="1">
+      <tr>
+        <td>Purpose</td>
+        <td>Method</td>
+        <td>Result</td>
+      </tr>
+      <!-- -->
+      <tr>
+        <td rowspan=2>Download all html and images on www.example.com</td>
+        <td bgcolor="#55ff55"><tt>-*<br /> +www.example.com/*.html<br /> +www.example.com/*.php<br /> +www.example.com/*.asp<br /> +www.example.com/*.gif <br />+www.example.com/*.jpg <br />+www.example.com/*.png<br /> -mime:*/* +mime:text/html +mime:image/*</tt></td>
+        <td>Good: efficient download</td>
+      </tr>
+      <tr>
+        <td bgcolor="#FF5555"><tt>-*<br />+www.example.com/*<br />-mime:*/* +mime:text/html +mime:image/*</tt></td>    
+        <td>Bad: many aborted downloads, leading to poor performances and server load</td>
+      </tr>
+      <!-- -->
+      <tr>
+        <td rowspan=2>Download only html on www.example.com, plus ZIP files</td>
+        <td bgcolor="#55ff55"><tt>-*<br /> +www.example.com/*.html<br />+www.example.com/somedynamicscript.php<br />+www.example.com/*.zip<br>-mime:* +mime:text/html +mime:application/zip</tt></td>
+        <td>Good: ZIP files will be downloaded, even those generated by 'somedynamicscript.php'</td>
+      </tr>
+      <tr>
+        <td bgcolor="#FF5555"><tt>-*<br /> +www.example.com/*.html<br>-mime:* +mime:text/html +mime:application/zip</tt></td>
+        <td>Bad: ZIP files will never be scheduled for download, and hence the zip mime scan rule will never be used</td>
+      </tr>
+      <!-- -->
+      <tr>
+        <td rowspan=2>Download all html, and images smaller than 100KB on www.example.com</td>
+        <td bgcolor="#55ff55"><tt>-*<br /> +www.example.com/*.html<br /> +www.example.com/*.php<br /> +www.example.com/*.asp<br /> +www.example.com/*.gif*[<100] <br />+www.example.com/*.jpg*[<100] <br />+www.example.com/*.png*[<100]<br /> -mime:*/* +mime:text/html +mime:image/*</tt></td>
+        <td>Good: efficient download</td>
+      </tr>
+      <tr>
+        <td bgcolor="#FF5555"><tt>-*<br />+www.example.com/**[<100]<br />-mime:*/* +mime:text/html +mime:image/*</tt></td>    
+        <td>Bad: many aborted downloads, leading to poor performances and server load</td>
+      </tr>
+    </table>
+
+<br>
+
+<!-- doc-chrome:bottom -->
+</main>
+</div>
+
+<dialog id="zoom" aria-label="Enlarged image"><img src="" alt=""></dialog>
+<!-- /doc-chrome:bottom -->
+
+<!-- doc-chrome:footer -->
+<footer>
+	<small>&copy; 1998-2026 Xavier Roche &amp; other contributors - Web Design: Leto Kauler.</small>
+	<a href="https://endsoftwarepatents.org/innovating-without-patents/" target="_blank" rel="noopener" title="This site is innovating without patents!"><img src="images/esp_chicklet.png" width="91" height="17" alt="End Software Patents"></a>
+</footer>
+<!-- /doc-chrome:footer -->
+
+</body>
+</html>

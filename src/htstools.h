@@ -1,0 +1,172 @@
+/* ------------------------------------------------------------ */
+/*
+HTTrack Website Copier, Offline Browser for Windows and Unix
+Copyright (C) 1998 Xavier Roche and other contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Ethical use: we kindly ask that you NOT use this software to harvest email
+addresses or to collect any other private information about people. Doing so
+would dishonor our work and waste the many hours we have spent on it.
+
+Please visit our Website: http://www.httrack.com
+*/
+
+/* ------------------------------------------------------------ */
+/* File: httrack.c subroutines:                                 */
+/*       various tools (filename analyzing ..)                  */
+/* Author: Xavier Roche                                         */
+/* ------------------------------------------------------------ */
+
+#ifndef HTSTOOLS_DEFH
+#define HTSTOOLS_DEFH
+
+/* specific definitions */
+#include "htsglobal.h"
+#include "httrack-library.h"
+
+/* Forward definitions */
+#ifndef HTS_DEF_FWSTRUCT_httrackp
+#define HTS_DEF_FWSTRUCT_httrackp
+typedef struct httrackp httrackp;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_adrfil
+#define HTS_DEF_FWSTRUCT_lien_adrfil
+typedef struct lien_adrfil lien_adrfil;
+#endif
+#ifndef HTS_DEF_FWSTRUCT_lien_adrfilsave
+#define HTS_DEF_FWSTRUCT_lien_adrfilsave
+typedef struct lien_adrfilsave lien_adrfilsave;
+#endif
+
+/* Library internal definictions */
+#ifdef HTS_INTERNAL_BYTECODE
+int ident_url_relatif(const char *lien, const char *origin_adr,
+                      const char *origin_fil,
+                      lien_adrfil* const adrfil);
+/* Bounded substring search over data that may hold NUL bytes; NULL if absent.
+ */
+const char *hts_memstr(const char *hay, size_t haylen, const char *needle,
+                       size_t nlen);
+
+int lienrelatif(char *s, size_t ssize, const char *link, const char *curr);
+int link_has_authority(const char *lien);
+/* Does a base href with no authority name a host rather than the relative
+   reference RFC 3986 5.2 makes it? True only when its first segment holds a
+   dot or a colon, so a dotless "sub/" stays relative. */
+hts_boolean link_base_is_hostname(const char *lien);
+/* Does a string hold a path of more than one segment? A script string ending
+   in a slash is no evidence alone, because "/", "image/" and "$&/" all end
+   that way too. A second slash is. */
+hts_boolean link_dir_is_multisegment(const char *lien);
+/* Does a fragment or a query open right after a directory path? True for
+   "/#top" and "img/#x". False for "page.html#x", for "////#x" which has no
+   name, and for "//&num;/#x" where an entity hides an earlier marker. Pass
+   the source bytes, because unescape_amp forges a '#' out of "&#35;". */
+hts_boolean link_dir_has_fragment_or_query(const char *lien);
+int link_has_authorization(const char *lien);
+void long_to_83(int mode, char *n83, size_t n83size, char *save);
+void longfile_to_83(int mode, char *n83, size_t n83size, char *save);
+/* Byte before adr, or a space where adr[-1] would underflow, because the tag
+   guards read a space as a word boundary. */
+HTS_INLINE char html_prevc(const char *adr, const char *start);
+HTS_INLINE int __rech_tageq(const char *adr, const char *s);
+HTS_INLINE int __rech_tageqbegdigits(const char *adr, const char *s);
+HTS_INLINE int rech_tageq_all(const char *adr, const char *s);
+
+int hts_template_format(FILE *const out, const char *format, ...);
+int hts_template_format_str(char *buffer, size_t size, const char *format, ...);
+
+// Index of a footer {field} in the engine's name table (htstools.c), and the
+// slot its value occupies in the values[] handed to hts_footer_format().
+typedef enum {
+  HTS_FOOTER_ADDR = 0,
+  HTS_FOOTER_PATH,
+  HTS_FOOTER_URL,
+  HTS_FOOTER_DATE,
+  HTS_FOOTER_LASTMODIFIED,
+  HTS_FOOTER_VERSION,
+  HTS_FOOTER_MIME,
+  HTS_FOOTER_CHARSET,
+  HTS_FOOTER_STATUS,
+  HTS_FOOTER_SIZE,
+  HTS_FOOTER_FIELD_COUNT
+} hts_footer_field_id;
+
+// Join the field names as "{addr} {path} ..." into buffer (size includes the
+// NUL, and it aborts if they do not fit) and return it. Internal on purpose:
+// hts_footer_field_ok() is the exported surface, and a predicate cannot list.
+const char *hts_footer_field_list(char *buffer, size_t size);
+
+// Expand a footer template. A "%s" in it selects the legacy positional model,
+// consuming addr, path, date and version in that order; otherwise "{name}" is
+// substituted from values, indexed by hts_footer_field_id ("{{"/"}}" emit a
+// literal brace, an unknown "{...}" is left verbatim). A NULL slot expands
+// empty. Values must already be escaped for the target context by the caller.
+// Returns <0 on overflow.
+int hts_footer_format(char *buffer, size_t size, const char *footer,
+                      const char *const values[HTS_FOOTER_FIELD_COUNT]);
+
+/* prevc is the byte before adr, normally from html_prevc. */
+#define rech_tageq_at(adr, prevc, s)                                           \
+  ((((prevc) == '<') || (is_space(prevc)))                                     \
+       ? ((streql(*(adr), *(s))) ? (__rech_tageq((adr), (s))) : 0)             \
+       : 0)
+#define rech_tageq(adr, s) rech_tageq_at((adr), *((adr) - 1), (s))
+#define rech_tageqbegdigits(adr,s) \
+  ( \
+    ( (*((adr)-1)=='<') || (is_space(*((adr)-1))) ) ? \
+    ( \
+      (streql(*(adr),*(s))) ?   \
+      (__rech_tageqbegdigits((adr),(s))) \
+      : 0                       \
+    ) \
+    : 0\
+  )
+// HTS_INLINE int rech_tageq(const char* adr,const char* s);
+HTS_INLINE int rech_sampletag(const char *adr, const char *s);
+HTS_INLINE int rech_endtoken(const char *adr, const char **start);
+HTS_INLINE int check_tag(const char *from, const char *tag);
+int verif_backblue(httrackp * opt, const char *base);
+int verif_external(httrackp * opt, int nb, int test);
+
+int istoobig(httrackp * opt, LLint size, LLint maxhtml, LLint maxnhtml,
+             char *type);
+HTSEXT_API int hts_buildtopindex(httrackp * opt, const char *path,
+                                 const char *binpath);
+
+/* Move src onto dst, replacing an existing dst; HTS_TRUE on success. Both paths
+   are fconv()'d. A dst in the way is parked under a sibling name rather than
+   removed, so the old content survives a failure: back at dst, or under that
+   sibling (named in the log) when the move back failed too. Not atomic: a crash
+   between the two renames leaves dst absent and its content beside it. */
+hts_boolean hts_rename_over(httrackp *opt, const char *src, const char *dst);
+
+/* Selftest hook: run the aside fallback directly, on a platform whose rename()
+   never reaches it. Both paths are fconv()'d. */
+hts_boolean hts_rename_over_aside_selftest(httrackp *opt, const char *src,
+                                           const char *dst);
+
+/* Does the winprofile.ini at filename (system charset) declare UTF-8? */
+hts_boolean hts_profile_declares_utf8(const char *filename);
+
+/* True when stdout is a real terminal. Gate any VT escape or CR overwrite on
+   it: a redirected log keeps that noise forever. */
+hts_boolean hts_stdout_isterminal(void);
+
+#endif
+
+#endif
