@@ -1,0 +1,154 @@
+
+Editable ssdeep buffer (fuzzy_edit) - design and cost notes
+===========================================================
+
+This note describes the data structure behind fuzzy_edit.h, how its
+summaries merge, how much memory it uses, and what the two counters in
+fuzzy_edit_stats() measure.  The structure exists to keep an ordinary
+ssdeep signature (the same string fuzzy_new/fuzzy_update/fuzzy_digest
+would produce) up to date while bytes are inserted, deleted or replaced,
+without re-running the whole stream after every edit.
+
+1. Tree of bounded leaf blocks
+-------------------------------
+The private copy of the bytes is stored in leaf blocks of at most
+FE_LEAF_MAX bytes (4 KiB); interior leaves are kept at or above
+FE_LEAF_MIN bytes (1 KiB), and only the two end leaves may be smaller.
+The leaves are held in a height balanced (AVL) binary tree, so locating
+the leaf covering an offset takes O(log n) node visits and the tree
+height stays O(log n).  Every tree node carries a summary of its byte
+range; leaves additionally own the raw bytes.  No edit history and no
+per-edit-position tables are retained, so memory is linear in the
+current byte count, not in the number of edits performed.
+
+2. What a summary contains, and how summaries merge
+---------------------------------------------------
+An ssdeep signature is produced by two cooperating hashes.  Both are
+summarised per node so that two adjacent node summaries can be joined
+without touching their bytes again.
+
+2.1 Rolling hash (seven byte window)
+    Its state depends only on the last seven input bytes.  Each node
+    caches up to six bytes of prefix and suffix plus its ending rolling
+    state.  To merge adjacent ranges A and B, B's cached ending state is
+    reused when B is at least seven bytes long; otherwise the last seven
+    bytes of A||B (read from the cached seams) are replayed from a zeroed
+    rolling state.  This is what makes triggers inside the first seven
+    bytes of a block correct after an edit: every rebuilt leaf is primed
+    with the rolling state of the bytes that immediately precede it.
+
+2.2 FNV style block hash
+    For one byte, the six bit hash value is mapped through a permutation
+    of the 64 possible values (the same sum_table fuzzy.c uses).  A run
+    of bytes therefore acts as a permutation of 64 values, and
+    permutations compose by table lookup in O(64).  Each node stores one
+    "full" permutation for all of its bytes - the permutation is the same
+    for every blocksize level.
+
+    A rolling-hash reset point ("trigger") delimits a piece.  For each
+    blocksize level a node stores the exact trigger count, the
+    permutation from the node start to its first trigger ("head"), from
+    its last trigger to the node end ("tail"), and the b64 indices
+    emitted at the first triggers (at most 64, the component limit).
+    Joining A and B is a closed operation on these fields: counts add,
+    the head extends through A's full permutation when A has no trigger,
+    the tail extends through B's full permutation when B has none, and
+    when both trigger, the piece spanning the join is the composition of
+    A's open tail with B's head.
+
+2.3 Saturated hash threads
+    The streaming engine resets the main hash at the first 63 triggers
+    and the "half" hash at the first 31; after that each thread keeps
+    accumulating, and on later triggers it merely overwrites its retained
+    tail marker.  Each leaf keeps a small table giving the running value
+    at its end when a thread is restarted at any of its first triggers.
+    After a splice, fe_finalize_root() walks one root-to-leaf path per
+    level to the leaf holding the threshold trigger and carries the single
+    running value to the buffer end through the "full" permutations of the
+    O(log n) right-hand sibling subtrees - again without reading raw
+    bytes.  The value stored at the last trigger is recovered as the
+    inverse of the tail permutation applied to the ending value; every
+    piece permutation is a bijection, so the inverse exists.
+
+    The main and half threads are tracked independently, which keeps the
+    default second-component tail (half hash, truncated) distinct from the
+    FUZZY_FLAG_NOTRUNC tail (full hash).
+
+3. What one splice does
+-----------------------
+fuzzy_edit_splice() cuts the tree at offset and at offset+removed (a cut
+inside a leaf rebuilds only that one bounded leaf), reclaims the removed
+subtree, gathers the two boundary leaves and the inserted bytes into one
+"edit zone", rechunks that zone into bounded leaves while chaining the
+rolling state forward, then AVL-joins the unchanged prefix, the rebuilt
+zone and the unchanged suffix back together.  Leaves outside the zone are
+not rescanned and keep both their bytes and their summaries; the removed
+subtree is freed without reading its bytes.
+
+Blocksize growth after inserts and shrinkage after deletes need no
+special case: the chosen blocksize is derived at digest time from the
+exact trigger counts, so a length change can move it either way.
+
+4. Space
+--------
+Let n be the current buffer length.  Raw leaf bytes total n plus a
+bounded amount of per-leaf slack: interior leaves hold 1 KiB..4 KiB, so
+the number of leaves is O(n/1024) and the unused slack is at most a few
+KiB per leaf.  Each node holds fixed-size summary tables (31 levels of
+fixed fields, one 64-entry permutation, six seam bytes), so total space
+is O(n) with a constant independent of the edit history.  Nothing is kept
+per historical edit or per possible edit position.
+
+5. Work counters and their bounds
+----------------------------------
+fuzzy_edit_stats() returns cumulative counters since construction; a
+digest query adds nothing to either counter and never walks the leaves.
+
+raw_bytes
+    Incremented once for every data byte loaded for summary work:
+      - every byte of a leaf (re)build, including the initial scan and
+        the leaves rebuilt inside an edit zone (inserted bytes are thus
+        counted once, boundary original bytes once per rebuild);
+      - the cached prefix/suffix bytes replayed to merge rolling states
+        and to prime a split leaf.
+    A byte read more than once is counted each time; one load that
+    updates all 31 blocksize levels counts once.
+
+node_visits
+    Incremented in the single fe_touch() helper for every tree node
+    accessed while locating an offset, recomputing a summary during a
+    join/rotation, splitting or joining a path, rebalancing, and in
+    fe_reclaim() for every node of a reclaimed subtree.  Repeated visits
+    to the same node are counted repeatedly.
+
+For one splice (k inserted bytes, r removed) followed by the four flag
+queries, with n the larger of the pre- and post-edit length:
+
+    raw_bytes increase  <= k + 65536
+    node_visits increase <= 256 * (1 + ceil(log2(1 + ceil(n/1024))))
+                           + 16 * ceil((k + r)/1024)
+
+The raw bound follows because only the inserted bytes and a constant
+number of at-most-4 KiB boundary leaves are loaded.  The visit bound has
+a logarithmic part for the O(log n) split/join/rebalance/finalize paths
+and a linear-in-(k+r) part for building the new leaves and reclaiming the
+removed ones; deletions are paid by the number of leaf blocks reclaimed.
+The limits hold for every legal content, including all-zero and
+repeated-byte material, because they depend on block counts and tree
+shape rather than on trigger density.  Repeated digest calls read no raw
+bytes and visit no leaves: they only format the already folded root
+summary.
+
+6. Other properties
+-------------------
+- The output of fuzzy_edit_digest is byte-for-byte identical to running a
+  fresh fuzzy_new, feeding the complete current buffer through
+  fuzzy_update and calling fuzzy_digest with the same flags.
+- Digest calls do not mutate the object, so reading a signature never
+  changes the result of a later edit.
+- On any argument or allocation failure the constructor returns NULL and
+  splice/digest return -1; a failed splice reconstructs the original tree
+  from its surviving pieces, and a failed digest does not write result.
+- Buffers are capped at FUZZY_EDIT_MAX_LENGTH (8 MiB).
+- Thread safety, undo history and on-disk persistence are intentionally
+  out of scope: one object is used by one thread at a time.

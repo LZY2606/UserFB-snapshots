@@ -7,9 +7,10 @@ SUFFIXES = .rc
 	$(AM_V_GEN)$(LIBTOOL) --tag=RC --mode=compile $(WINDRES) $< -o $@
 
 lib_LTLIBRARIES = libfuzzy.la
-libfuzzy_la_SOURCES = fuzzy.c edit_dist.c
+libfuzzy_la_SOURCES = fuzzy.c edit_dist.c fuzzy_edit.c fuzzy_edit.h
 libfuzzy_la_LDFLAGS = -no-undefined -version-info 3:0:1
-fuzzy_dll_SOURCES_ = $(srcdir)/fuzzy.c $(srcdir)/edit_dist.c
+fuzzy_dll_SOURCES_ = $(srcdir)/fuzzy.c $(srcdir)/edit_dist.c \
+		     $(srcdir)/fuzzy_edit.c
 if WIN_WITH_WINDRES
 nodist_libfuzzy_la_SOURCES = fuzzy-win32res.rc
 endif
@@ -28,7 +29,7 @@ if WIN_WITH_WINDRES
 nodist_ssdeep_SOURCES = ssdeep-win32res.rc
 endif
 
-include_HEADERS = fuzzy.h edit_dist.h
+include_HEADERS = fuzzy.h edit_dist.h fuzzy_edit.h
 
 nodist_man_MANS = ssdeep.1
 
@@ -39,7 +40,7 @@ dll: $(fuzzy_dll_SOURCES_)
 
 CLEANFILES = fuzzy.dll fuzzy.def
 
-EXTRA_DIST = $(man_MANS) bootstrap sample.c FILEFORMAT m4/README
+EXTRA_DIST = $(man_MANS) bootstrap sample.c sample_edit.c FUZZY_EDIT.txt FILEFORMAT m4/README
 
 WINDOWSDOCS = README.TXT API.TXT FILEFORMAT.TXT NEWS.TXT
 
@@ -63,7 +64,7 @@ win-package: win-docs
 	$(MAKE) dll
 	$(STRIP) ssdeep.exe
 	mkdir $(distdir)
-	cp $(WINDOWSDOCS) ssdeep.exe fuzzy.dll fuzzy.def $(srcdir)/fuzzy.h $(srcdir)/sample.c $(distdir)
+	cp $(WINDOWSDOCS) ssdeep.exe fuzzy.dll fuzzy.def $(srcdir)/fuzzy.h $(srcdir)/fuzzy_edit.h $(srcdir)/sample.c $(distdir)
 	zip -lr9 $(distdir).zip $(distdir)
 	rm -rf $(distdir) $(WINDOWSDOCS)
 

@@ -115,9 +115,35 @@ C:\> cl sample.c fuzzy.lib
 
 ---
 
+## ✏️ Editable buffer with an incremental ssdeep
+
+For workflows that repeatedly insert, delete or replace bytes and need a
+fresh ssdeep after each edit (for example a redaction preview), the
+`fuzzy_edit.h` API keeps the summary incrementally instead of rehashing
+the whole buffer.
+
+```c
+#include <fuzzy_edit.h>
+
+struct fuzzy_edit *ed = fuzzy_edit_new(data, length);
+fuzzy_edit_splice(ed, offset, removed, insert, inserted);
+fuzzy_edit_digest(ed, result, flags);   /* same string as fuzzy_digest */
+fuzzy_edit_free(ed);
+```
+
+The digest is byte-for-byte identical to feeding the complete current
+buffer through `fuzzy_new`/`fuzzy_update`/`fuzzy_digest` with the same
+flags; the streaming interface and the command line tool are unchanged.
+Buffers are capped at 8 MiB and `fuzzy_edit_stats` reports the work done.
+See `sample_edit.c` for a worked example and `FUZZY_EDIT.txt` for the
+merging, space and work-bound design notes.
+
+---
+
 ## 💻 Sample Program
 
-A sample program that uses the API is in `sample.c`.
+A sample program that uses the API is in `sample.c`; the editable-buffer
+example is in `sample_edit.c`.
 
 ---
 
