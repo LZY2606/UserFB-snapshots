@@ -50,6 +50,21 @@ type Writer struct {
 	segCommitted int64 // the length the index vouches for
 
 	win *openWindow
+
+	// refresh, when non-nil, is the staging index of a full refresh in
+	// progress: windows commit into it instead of the live index, and it
+	// replaces the live index whole on CommitRefresh. Readers - this process
+	// included - keep seeing the live index until then. See refresh.go.
+	refresh *state
+}
+
+// index is the index windows currently commit into: the staging index of a
+// refresh in progress, or the live one.
+func (w *Writer) index() *state {
+	if w.refresh != nil {
+		return w.refresh
+	}
+	return w.st
 }
 
 // openWindow accumulates what a window will commit. What it does not accumulate
@@ -275,16 +290,17 @@ func (w *Writer) openSegment() error {
 		num       = 1
 		committed int64
 	)
-	if n := len(w.st.Segments); n > 0 {
-		last := w.st.Segments[n-1]
+	st := w.index()
+	if n := len(st.Segments); n > 0 {
+		last := st.Segments[n-1]
 		if last.Committed >= segMaxSize {
 			num = last.Num + 1 // Rotate; the old segment stays as it is.
 		} else {
 			num, committed = last.Num, last.Committed
 		}
 	}
-	if w.st.segment(num) == nil {
-		w.st.Segments = append(w.st.Segments, &segRow{Num: num})
+	if st.segment(num) == nil {
+		st.Segments = append(st.Segments, &segRow{Num: num})
 	}
 	path := filepath.Join(groupDir(w.shard, w.group.Format, w.group.Set), segFileName(num))
 	seg, err := openSegWriter(path, committed, w.enc)
@@ -295,12 +311,16 @@ func (w *Writer) openSegment() error {
 	return nil
 }
 
-// Close drops any open window, releases the group lock, and takes back the
-// directories if this writer never wrote anything into them.
+// Close drops any open window and any refresh in progress, releases the group
+// lock, and takes back the directories if this writer never wrote anything
+// into them.
 func (w *Writer) Close() error {
 	var errs []error
 	if w.win != nil {
 		errs = append(errs, w.Abort(nil))
+	}
+	if w.refresh != nil {
+		errs = append(errs, w.AbortRefresh())
 	}
 	if w.seg != nil {
 		errs = append(errs, w.seg.close())
@@ -461,9 +481,13 @@ func (w *Writer) Commit() error {
 	}
 	// This is the moment the shard becomes a thing that exists: a window is
 	// about to be recorded, so there is something for a listing to report.
-	// Before it, nothing has been written at all.
-	if err := w.announce(); err != nil {
-		return err
+	// Before it, nothing has been written at all. A refresh in progress
+	// announces itself only when it is committed whole, so until then the
+	// shard keeps describing the view readers can actually see.
+	if w.refresh == nil {
+		if err := w.announce(); err != nil {
+			return err
+		}
 	}
 	// A window that appended nothing has no segment to flush - an empty range
 	// costs a row and no bytes, and the first response of the harvest is what
@@ -487,7 +511,7 @@ func (w *Writer) Commit() error {
 	}
 	row := w.win.row(status)
 	if w.seg == nil {
-		if err := w.st.commitWindow(row, 0, 0); err != nil {
+		if err := w.index().commitWindow(row, 0, 0); err != nil {
 			return err
 		}
 		w.win = nil
@@ -499,7 +523,7 @@ func (w *Writer) Commit() error {
 	if n := w.seg.size - w.segCommitted; n > 0 {
 		row.Extents = []extent{{Seg: w.segNum, Off: w.segCommitted, Len: n}}
 	}
-	if err := w.st.commitWindow(row, w.segNum, w.seg.size); err != nil {
+	if err := w.index().commitWindow(row, w.segNum, w.seg.size); err != nil {
 		return err
 	}
 	w.segCommitted = w.seg.size
@@ -536,8 +560,13 @@ func (w *Writer) Abort(cause error) error {
 	// A failure is a thing worth recording, so it makes the shard visible the
 	// same way a commit does - a run that reached an endpoint and was refused
 	// has learned something, where one that never got a plan together has not.
-	if err := w.announce(); err != nil {
-		return err
+	// During a refresh the row goes to the staging index instead, which
+	// CommitRefresh replaces or AbortRefresh drops, so the shard's visibility
+	// is left to them.
+	if w.refresh == nil {
+		if err := w.announce(); err != nil {
+			return err
+		}
 	}
 	row := win.row(statusError)
 	// A failed window claims no records, whatever it had appended before it gave
@@ -547,7 +576,7 @@ func (w *Writer) Abort(cause error) error {
 	row.Err = cause.Error()
 	// The segment is back at the length the index already vouches for, so this
 	// records it unchanged rather than as a special case.
-	return w.st.commitWindow(row, w.segNum, w.segCommitted)
+	return w.index().commitWindow(row, w.segNum, w.segCommitted)
 }
 
 // row renders what a window accumulated as the index row for it.

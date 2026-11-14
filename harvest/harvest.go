@@ -39,6 +39,14 @@ var (
 	// URL rather than anything wrong with the cache, and because it has to be
 	// known before a shard is opened - see identify.
 	ErrNotAnEndpoint = errors.New("not an OAI-PMH endpoint")
+	// ErrIncompleteRefresh marks a full refresh that did not run to
+	// completion: the endpoint failed in a way the configuration tolerates on
+	// an incremental run, a resumption chain broke or went in circles, or a
+	// limit like MaxRequests stopped a window before its last page. A refresh
+	// publishes only a complete pass, so all of these end it with nothing
+	// switched over - the group keeps the view the last completed harvest or
+	// refresh left behind, and the error says why.
+	ErrIncompleteRefresh = errors.New("full refresh incomplete")
 )
 
 type Config struct {
@@ -58,6 +66,16 @@ type Config struct {
 	ExtraHeaders               http.Header
 	IgnoreUnexpectedEOF        bool
 	Delay                      time.Duration
+	// FullRefresh rebuilds the group's local view from scratch: the plan
+	// covers the whole span from the endpoint's earliest datestamp - or From -
+	// to Until, whatever the store already holds, and the result replaces
+	// everything the group has, ranges outside the span included. The switch
+	// is atomic: readers see the old view until every window and every
+	// resumption page has completed, and a run that cannot complete -
+	// including one a tolerance like IgnoreHTTPErrors would let an
+	// incremental run skip past - publishes nothing and fails with
+	// ErrIncompleteRefresh. The zero value keeps the incremental behaviour.
+	FullRefresh bool
 	// MaxBodyBytes bounds one response. Zero means oai.DefaultMaxBodyBytes.
 	MaxBodyBytes int
 	MaxRetries   int           // Maximum number of retry attempts
@@ -249,9 +267,11 @@ func sleep(ctx context.Context, d time.Duration) error {
 func (h *Harvest) run(ctx context.Context) (err error) {
 	cfg := h.planConfig()
 	var cov Coverage
-	if !cfg.Unbounded {
+	if !cfg.Unbounded && !h.Config.FullRefresh {
 		// An unbounded harvest covers whatever the endpoint chooses to send and
-		// resumes from nothing, so it never asks.
+		// resumes from nothing, so it never asks. A full refresh asks neither:
+		// its span comes from the endpoint and the configured bounds alone,
+		// whatever the store already covers.
 		cov = h.coverage()
 	}
 	windows, err := Plan(cov, h.Identify, h.Started, cfg)
@@ -260,6 +280,23 @@ func (h *Harvest) run(ctx context.Context) (err error) {
 	}
 	if n := len(windows); n > 0 && !windows[0].Boundless() {
 		log.Printf("plan: %d window(s), %v to %v", n, windows[0].Begin, windows[n-1].End)
+	}
+
+	if h.Config.FullRefresh {
+		// Every window from here commits into the staging index, invisible to
+		// readers; the defer switches the group over whole on success and
+		// drops the attempt on any failure, so a refresh publishes everything
+		// or nothing.
+		if err := h.Writer.BeginRefresh(); err != nil {
+			return fmt.Errorf("failed to start full refresh: %w", err)
+		}
+		defer func() {
+			if err != nil {
+				err = errors.Join(err, h.Writer.AbortRefresh())
+				return
+			}
+			err = h.Writer.CommitRefresh()
+		}()
 	}
 
 	for _, w := range windows {
@@ -278,7 +315,10 @@ func (h *Harvest) run(ctx context.Context) (err error) {
 		// nothing matches, and the new row is simply added beside the settled one
 		// it overlaps, so the records under the overlap are indexed twice and
 		// read twice.
-		if !w.Boundless() && h.Writer.HasWindow(w.Begin, w.End) {
+		//
+		// A full refresh skips none of this: refetching what is already
+		// covered is the point of it.
+		if !h.Config.FullRefresh && !w.Boundless() && h.Writer.HasWindow(w.Begin, w.End) {
 			log.Printf("already harvested, skipping: %v", w)
 			continue
 		}
@@ -287,6 +327,13 @@ func (h *Harvest) run(ctx context.Context) (err error) {
 			// the next run plans it again; the abort in runWindow already made
 			// sure it left nothing half-written behind.
 			if errors.Is(err, errSkipWindow) {
+				// A skipped window is a range the refresh does not hold, and a
+				// refresh that does not hold everything publishes nothing -
+				// the tolerance that lets an incremental run past a bad window
+				// would publish an incomplete view as a complete one.
+				if h.Config.FullRefresh {
+					return fmt.Errorf("%w: %w", ErrIncompleteRefresh, err)
+				}
 				// The error itself, not errors.Unwrap of it: this is built with
 				// two %w verbs, so it unwraps to a slice and the single-error
 				// Unwrap returns nil. Every skipped window was logging "skipping
@@ -342,6 +389,11 @@ requests:
 		// request and committed the range as empty - the same shape of bug the
 		// empty-response counter below had.
 		if h.Config.MaxRequests > 0 && i >= h.Config.MaxRequests {
+			// A limit that ends a window early is a page the refresh never
+			// saw, so the pass is not complete and nothing may be published.
+			if h.Config.FullRefresh {
+				return fmt.Errorf("%w: max requests limit (%d) reached", ErrIncompleteRefresh, h.Config.MaxRequests)
+			}
 			log.Printf("max requests limit (%d) reached", h.Config.MaxRequests)
 			break
 		}
@@ -382,6 +434,15 @@ requests:
 			// was reached for and answered, which is what a commit records; a
 			// window that answered with nothing at all commits as empty, which
 			// costs a row and no bytes.
+			//
+			// One of the two answers that lead here is not an end at all for a
+			// full refresh. noRecordsMatch is a legitimate empty range and
+			// commits as one, but a refused resumption token means the chain
+			// broke before the window was walked, and what came back is a
+			// prefix of it - exactly what a refresh must never publish.
+			if h.Config.FullRefresh && resp != nil && resp.Error.Code == "badResumptionToken" {
+				return fmt.Errorf("%w: endpoint refused a resumption token", ErrIncompleteRefresh)
+			}
 			break requests
 		case skipWindow:
 			return fmt.Errorf("%w: %w", errSkipWindow, err)
@@ -414,6 +475,12 @@ requests:
 			break
 		}
 		if prev == token {
+			// A token that does not advance ends an incremental window where it
+			// stands; a full refresh has not walked the window, so it has
+			// nothing to publish.
+			if h.Config.FullRefresh {
+				return fmt.Errorf("%w: token %q did not change", ErrIncompleteRefresh, token)
+			}
 			url, _ := req.URL()
 			log.Printf("token %q did not change, assume server issue, moving to next window for: %s", token, url)
 			break
@@ -432,6 +499,12 @@ requests:
 		// harvest configured in Go rather than through the flags stopped after
 		// one request.
 		if empty > 0 && empty >= h.Config.MaxEmptyResponses {
+			// Empty pages with tokens are a chain that stopped leading
+			// anywhere; an incremental run takes what it got, a full refresh
+			// cannot call the window walked.
+			if h.Config.FullRefresh {
+				return fmt.Errorf("%w: max number of empty responses reached", ErrIncompleteRefresh)
+			}
 			log.Printf("max number of empty responses reached")
 			break
 		}
