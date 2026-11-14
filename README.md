@@ -98,3 +98,60 @@ _ = remote.SaveScreenshot("screenshot.png", 0644, 0, true)
 _ = remote.SavePDF("page.pdf", 0644)
 
 ```
+
+## Saving a form submission receipt
+
+`WaitFormReceipt` observes the network events of a form submission on the
+current connection and returns a `FormReceipt` with every hop of the
+request: the original POST, each redirect and the final response, plus the
+wire-level status/headers reported via `Network.responseReceivedExtraInfo`
+(`FormHop.WireStatus` / `FormHop.ExtraHeaders`).
+
+The observer is installed first, then the given action is invoked once to
+trigger the submission. The observation starts at the first
+`Network.requestWillBeSent` that exactly matches frame id, URL and HTTP
+method; from then on the request id is fixed and cannot be taken over by
+later submissions of the same URL, sibling frames or unrelated requests.
+The receipt is delivered only when the final `Network.loadingFinished` for
+the request arrived, all declared extra info has been received and the
+action returned successfully.
+
+`NetworkEvents(true)` must be enabled by the caller beforehand; the method
+does not switch domains or tabs and does not interfere with callbacks
+registered via `CallbackEvent`.
+
+```go
+remote, err := godet.Connect("localhost:9222", false)
+if err != nil {
+    log.Fatal(err)
+}
+defer remote.Close()
+
+_ = remote.NetworkEvents(true)
+
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+receipt, err := remote.WaitFormReceipt(ctx, godet.FormRequestMatch{
+    FrameID: frameID,
+    URL:     "https://example.com/apply",
+    Method:  "POST",
+}, func() error {
+    // trigger the submission (native input methods work too)
+    _, err := remote.Evaluate(`document.querySelector("form").requestSubmit()`)
+    return err
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+for i, hop := range receipt.Hops {
+    fmt.Printf("hop %d: %s %s -> %d\n", i, hop.Method, hop.URL, hop.Status)
+    if hop.HasExtraInfo {
+        fmt.Printf("   wire status: %d\n", hop.WireStatus)
+    }
+}
+```
+
+A runnable version of this example is available at
+[`examples/form_receipt.go`](https://github.com/raff/godet/blob/master/examples/form_receipt.go).

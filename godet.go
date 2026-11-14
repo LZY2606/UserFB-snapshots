@@ -319,6 +319,7 @@ type RemoteDebugger struct {
 	callbacks map[string]EventCallback     // Map of event names to callback functions
 	domains   map[string]bool              // Map of enabled protocol domains
 	events    chan wsMessage               // Channel for incoming events
+	observers map[eventObserver]struct{}   // Internal observers for the event stream
 }
 
 // Connect to the remote debugger and return `RemoteDebugger` object.
@@ -347,6 +348,7 @@ func Connect(port string, verbose bool, options ...ConnectOption) (*RemoteDebugg
 		callbacks: map[string]EventCallback{},
 		domains:   map[string]bool{},
 		events:    make(chan wsMessage, 256),
+		observers: map[eventObserver]struct{}{},
 		closed:    make(chan bool),
 		verbose:   verbose,
 	}
@@ -582,9 +584,10 @@ loop:
 
 				remote.Lock()
 				_, ok := remote.callbacks[message.Method]
+				observed := len(remote.observers) > 0
 				remote.Unlock()
 
-				if !ok {
+				if !ok && !observed {
 					continue // don't queue unrequested events
 				}
 
@@ -628,7 +631,24 @@ func (remote *RemoteDebugger) processEvents() {
 	for ev := range remote.events {
 		remote.Lock()
 		cb := remote.callbacks[ev.Method]
+		observers := make([]eventObserver, 0, len(remote.observers))
+		for o := range remote.observers {
+			observers = append(observers, o)
+		}
 		remote.Unlock()
+
+		if len(observers) > 0 {
+			// observers get their own copy of the event, so user
+			// callbacks cannot alter what they have seen (and vice versa)
+			params, err := unmarshalEventParams(ev.Params)
+			if err != nil {
+				log.Println("unmarshal", string(ev.Params), len(ev.Params), err)
+			} else {
+				for _, o := range observers {
+					o.handleEvent(ev.Method, params)
+				}
+			}
+		}
 
 		if cb != nil {
 			var params Params
