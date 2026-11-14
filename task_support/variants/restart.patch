@@ -1,0 +1,11 @@
+--- a/src/unpack_seek.c
++++ b/src/unpack_seek.c
+@@ -224,7 +224,7 @@
+     if (samples_to_skip) {
+         buffer = (int32_t *)malloc (samples_to_skip * 8);
+ 
+-        for (stream_index = 0; stream_index < wpc->num_streams; stream_index++)
++        for (stream_index = 0; stream_index < 1; stream_index++)
+ #ifdef ENABLE_DSD
+             if (wpc->streams [stream_index]->wphdr.flags & DSD_FLAG)
+                 unpack_dsd_samples (wpc->streams [stream_index], buffer, samples_to_skip);
