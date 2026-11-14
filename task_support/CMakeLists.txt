@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.14)
+project(geodesic_task LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(SUITESPARSE OFF CACHE BOOL "" FORCE)
+set(GC_EIGEN_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../.deps/eigen" CACHE PATH "" FORCE)
+add_subdirectory(.. gc)
+add_executable(task_baseline baseline.cpp)
+target_link_libraries(task_baseline PRIVATE geometry-central)
