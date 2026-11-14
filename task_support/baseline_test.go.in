@@ -1,0 +1,90 @@
+package gowebdav
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type taskTransport func(*http.Request) (*http.Response, error)
+
+func (f taskTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type taskBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *taskBody) Close() error { b.closed = true; return nil }
+func TestTaskBaseline(t *testing.T) {
+	for _, race := range []bool{false, true} {
+		t.Run(fmt.Sprintf("changed=%v", race), func(t *testing.T) {
+			steps := 0
+			bodies := []*taskBody{}
+			cli := NewAuthClient("http://dav.invalid/base/", NewPreemptiveAuth(&noAuth{}))
+			cli.SetTransport(taskTransport(func(r *http.Request) (*http.Response, error) {
+				steps++
+				data := ""
+				status := 207
+				h := make(http.Header)
+				if steps == 1 {
+					if r.Method != "PROPFIND" || r.URL.Path != "/base/docs/" || r.Header.Get("Depth") != "1" {
+						t.Fatalf("unexpected directory request %s %s", r.Method, r.URL)
+					}
+					request, _ := io.ReadAll(r.Body)
+					if !strings.Contains(string(request), "getetag") {
+						t.Fatal("missing requested property")
+					}
+					data = `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/base/docs/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><d:response><d:href>/base/docs/report.txt</d:href><d:propstat><d:prop><d:resourcetype/><d:getetag>"v1"</d:getetag><d:getcontentlength>3</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`
+				} else if steps == 2 {
+					if r.Method != "GET" || r.URL.Path != "/base/docs/report.txt" {
+						t.Fatalf("unexpected body request %s %s", r.Method, r.URL)
+					}
+					if r.Header.Get("If-Match") != "" {
+						t.Fatal("upstream Read unexpectedly constrained a validator")
+					}
+					status = 200
+					data = "old"
+					h.Set("ETag", `"v1"`)
+					if race {
+						data = "new"
+						h.Set("ETag", `"v2"`)
+					}
+				} else {
+					t.Fatal("unexpected extra request")
+				}
+				b := &taskBody{Reader: strings.NewReader(data)}
+				bodies = append(bodies, b)
+				return &http.Response{StatusCode: status, Header: h, Body: b, Request: r}, nil
+			}))
+			files, err := cli.ReadDir("docs")
+			if err != nil || len(files) != 1 {
+				t.Fatalf("ReadDir: files=%d err=%v", len(files), err)
+			}
+			f, ok := files[0].(File)
+			if !ok || f.ETag() != `"v1"` || f.Path() != "/docs/report.txt" || f.IsDir() {
+				t.Fatalf("bad listing: %#v", files)
+			}
+			data, err := cli.Read("docs/report.txt")
+			want := "old"
+			if race {
+				want = "new"
+			}
+			if err != nil || string(data) != want || steps != 2 {
+				t.Fatalf("Read: %q err=%v steps=%d", data, err, steps)
+			}
+			for _, b := range bodies {
+				if !b.closed {
+					t.Fatal("body left open")
+				}
+			}
+			if race {
+				fmt.Println("BASELINE listing etag=v1 then unconstrained GET delivers v2 content")
+			} else {
+				fmt.Println("CONTROL ReadDir and Read deliver one listed resource; bodies closed")
+			}
+		})
+	}
+}
