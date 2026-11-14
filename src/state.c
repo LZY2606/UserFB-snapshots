@@ -1,5 +1,6 @@
 #include <spvm/state.h>
 #include <spvm/value.h>
+#include "forward_observe.h"
 #include <string.h>
 
 spvm_state_t spvm_state_create(spvm_program_t prog)
@@ -98,6 +99,8 @@ void spvm_state_set_extension(spvm_state_t state, const spvm_string name, spvm_e
 
 void spvm_state_prepare(spvm_state_t state, spvm_word fnLocation)
 {
+	spvm_forward_observe_prepare(state);
+
 	state->code_current = state->results[fnLocation].source_location;
 	state->current_function = &state->results[fnLocation];
 
@@ -203,11 +206,15 @@ void spvm_state_step_opcode(spvm_state_t state)
 	SpvOp opcode = (opcode_data & SpvOpCodeMask);
 	spvm_source cur_code = state->code_current;
 
+	spvm_forward_observe_pre(state, opcode, word_count, cur_code);
+
 	if (opcode >= 0 && opcode <= SPVM_OPCODE_TABLE_LENGTH && state->context->opcode_execute[opcode] != NULL) {
 		state->context->opcode_execute[opcode](word_count, state);
 		if (opcode != SpvOpLine && opcode != SpvOpNoLine)
 			state->instruction_count++;
 	}
+
+	spvm_forward_observe_post(state, opcode, word_count, cur_code);
 
 	if (!state->did_jump)
 		state->code_current = (cur_code + word_count);
@@ -241,11 +248,15 @@ void spvm_state_call_function(spvm_state_t state)
 		SpvOp opcode = (opcode_data & SpvOpCodeMask);
 		cur_code = state->code_current;
 
+		spvm_forward_observe_pre(state, opcode, word_count, cur_code);
+
 		if (opcode >= 0 && opcode <= SPVM_OPCODE_TABLE_LENGTH && state->context->opcode_execute[opcode] != NULL) {
 			state->context->opcode_execute[opcode](word_count, state);
 			if (opcode != SpvOpLine && opcode != SpvOpNoLine)
 				state->instruction_count++;
 		}
+
+		spvm_forward_observe_post(state, opcode, word_count, cur_code);
 
 		if (!state->did_jump)
 			state->code_current = (cur_code + word_count);
@@ -438,6 +449,7 @@ void spvm_state_pop_function_stack(spvm_state_t state)
 	if (state->return_id >= 0) {
 		spvm_word store_id = state->function_stack_returns[state->function_stack_current];
 		spvm_member_memcpy(state->results[store_id].members, state->results[state->return_id].members, state->results[store_id].member_count);
+		spvm_forward_observe_return(state, store_id, state->return_id);
 	}
 
 	state->function_stack_current--;
@@ -454,6 +466,8 @@ void spvm_state_pop_function_stack(spvm_state_t state)
 }
 void spvm_state_delete(spvm_state_t state)
 {
+	spvm_forward_observe_state_deleted(state);
+
 	for (spvm_word i = 0; i < state->owner->bound; i++) {
 		spvm_result_t res = &state->results[i];
 		spvm_result_delete(res);

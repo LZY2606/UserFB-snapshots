@@ -10,6 +10,7 @@ src/result.c
 src/state.c
 src/value.c
 src/context.c
+src/forward.c
 src/opcode_execute.c
 src/opcode_setup.c
 src/ext/GLSL450.c
