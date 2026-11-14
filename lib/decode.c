@@ -1977,6 +1977,125 @@ void th_decode_free(th_dec_ctx *_dec){
   }
 }
 
+th_dec_ctx *th_decode_fork(const th_dec_ctx *_dec){
+  oc_dec_ctx *fork;
+  ptrdiff_t   nfrags;
+  size_t      nmbs;
+  unsigned    nsbs;
+  int         qi;
+  int         pli;
+  int         qti;
+  if(_dec==NULL)return NULL;
+  /*Forking a context that has out-of-loop post-processing or a striped
+     decode callback installed is not supported.
+    The source context is left fully usable in this case.*/
+  if(_dec->pp_level>OC_PP_LEVEL_DISABLED||
+   _dec->stripe_cb.stripe_decoded!=NULL||_dec->dc_qis!=NULL||
+   _dec->variances!=NULL||_dec->pp_frame_data!=NULL){
+    return NULL;
+  }
+  fork=(oc_dec_ctx *)oc_aligned_malloc(sizeof(*fork),16);
+  if(fork==NULL)return NULL;
+  /*Copy all of the scalar state in one shot: the stream info, the granule
+     position counters, the reference frame role assignments, the embedded
+     dequantization tables, and the current output buffer pointers.*/
+  memcpy(fork,_dec,sizeof(*fork));
+  nfrags=_dec->state.nfrags;
+  nsbs=_dec->state.nsbs;
+  nmbs=_dec->state.nmbs;
+  /*NULL out every owned pointer so that oc_dec_clear() can be used to clean
+     up a partially constructed fork.*/
+  fork->state.frags=NULL;
+  fork->state.frag_mvs=NULL;
+  fork->state.sb_maps=NULL;
+  fork->state.sb_flags=NULL;
+  fork->state.mb_maps=NULL;
+  fork->state.mb_modes=NULL;
+  fork->state.coded_fragis=NULL;
+  fork->state.frag_buf_offs=NULL;
+  fork->dct_tokens=NULL;
+  fork->dc_qis=NULL;
+  fork->variances=NULL;
+  fork->pp_frame_data=NULL;
+  memset(fork->huff_tables,0,sizeof(fork->huff_tables));
+#if defined(HAVE_CAIRO)
+  fork->telemetry_frame_data=NULL;
+#endif
+  /*The bit packer holds pointers into the caller's packet memory, which is
+     only borrowed for the duration of th_decode_packetin(); do not carry
+     those pointers over.*/
+  memset(&fork->opb,0,sizeof(fork->opb));
+  /*The pipeline state is re-initialized from scratch for every frame.*/
+  memset(&fork->pipe,0,sizeof(fork->pipe));
+  /*Share the reference frame buffers with the source, read-only.
+    The fork's slot array was copied above; just bump the reference counts.
+    Each buffer is detached (replaced by a private copy) lazily, the first
+     time a context needs to write into it.*/
+  oc_state_ref_bufs_retain(&fork->state);
+  /*Copy the Huffman tables and the parsing/reconstruction workspaces so the
+     fork does not depend on the original th_setup_info, which the caller may
+     already have released.*/
+  if(oc_huff_trees_copy(fork->huff_tables,
+   (const ogg_int16_t *const *)_dec->huff_tables)<0){
+    memset(fork->huff_tables,0,sizeof(fork->huff_tables));
+    oc_dec_clear(fork);
+    oc_aligned_free(fork);
+    return NULL;
+  }
+  fork->state.frags=(oc_fragment *)_ogg_malloc(
+   nfrags*sizeof(*fork->state.frags));
+  fork->state.frag_mvs=(oc_mv *)_ogg_malloc(
+   nfrags*sizeof(*fork->state.frag_mvs));
+  fork->state.sb_maps=(oc_sb_map *)_ogg_malloc(
+   nsbs*sizeof(*fork->state.sb_maps));
+  fork->state.sb_flags=(oc_sb_flags *)_ogg_malloc(
+   nsbs*sizeof(*fork->state.sb_flags));
+  fork->state.mb_maps=(oc_mb_map *)_ogg_malloc(
+   nmbs*sizeof(*fork->state.mb_maps));
+  fork->state.mb_modes=(signed char *)_ogg_malloc(
+   nmbs*sizeof(*fork->state.mb_modes));
+  fork->state.coded_fragis=(ptrdiff_t *)_ogg_malloc(
+   nfrags*sizeof(*fork->state.coded_fragis));
+  fork->state.frag_buf_offs=(ptrdiff_t *)_ogg_malloc(
+   nfrags*sizeof(*fork->state.frag_buf_offs));
+  fork->dct_tokens=(unsigned char *)_ogg_malloc(
+   (64+64+1)*nfrags*sizeof(fork->dct_tokens[0]));
+  if(fork->state.frags==NULL||fork->state.frag_mvs==NULL||
+   fork->state.sb_maps==NULL||fork->state.sb_flags==NULL||
+   fork->state.mb_maps==NULL||fork->state.mb_modes==NULL||
+   fork->state.coded_fragis==NULL||fork->state.frag_buf_offs==NULL||
+   fork->dct_tokens==NULL){
+    oc_dec_clear(fork);
+    oc_aligned_free(fork);
+    return NULL;
+  }
+  memcpy(fork->state.frags,_dec->state.frags,
+   nfrags*sizeof(*fork->state.frags));
+  memcpy(fork->state.frag_mvs,_dec->state.frag_mvs,
+   nfrags*sizeof(*fork->state.frag_mvs));
+  memcpy(fork->state.sb_maps,_dec->state.sb_maps,
+   nsbs*sizeof(*fork->state.sb_maps));
+  memcpy(fork->state.sb_flags,_dec->state.sb_flags,
+   nsbs*sizeof(*fork->state.sb_flags));
+  memcpy(fork->state.mb_maps,_dec->state.mb_maps,
+   nmbs*sizeof(*fork->state.mb_maps));
+  memcpy(fork->state.mb_modes,_dec->state.mb_modes,
+   nmbs*sizeof(*fork->state.mb_modes));
+  memcpy(fork->state.coded_fragis,_dec->state.coded_fragis,
+   nfrags*sizeof(*fork->state.coded_fragis));
+  memcpy(fork->state.frag_buf_offs,_dec->state.frag_buf_offs,
+   nfrags*sizeof(*fork->state.frag_buf_offs));
+  memcpy(fork->dct_tokens,_dec->dct_tokens,
+   (64+64+1)*nfrags*sizeof(fork->dct_tokens[0]));
+  /*Repoint the dequantization tables at the fork's own embedded copies
+     (their contents were duplicated by the whole-struct copy above).*/
+  for(qi=0;qi<64;qi++)for(pli=0;pli<3;pli++)for(qti=0;qti<2;qti++){
+    fork->state.dequant_tables[qi][pli][qti]=
+     fork->state.dequant_table_data[qi][pli][qti];
+  }
+  return fork;
+}
+
 int th_decode_ctl(th_dec_ctx *_dec,int _req,void *_buf,
  size_t _buf_sz){
   switch(_req){
@@ -2050,7 +2169,7 @@ int th_decode_ctl(th_dec_ctx *_dec,int _req,void *_buf,
 /*We're decoding an INTER frame, but have no initialized reference
    buffers (i.e., decoding did not start on a key frame).
   We initialize them to a solid gray here.*/
-static void oc_dec_init_dummy_frame(th_dec_ctx *_dec){
+static int oc_dec_init_dummy_frame(th_dec_ctx *_dec){
   th_info   *info;
   size_t     yplane_sz;
   size_t     cplane_sz;
@@ -2059,6 +2178,11 @@ static void oc_dec_init_dummy_frame(th_dec_ctx *_dec){
   int        yheight;
   int        chstride;
   int        cheight;
+  int        ret;
+  /*The buffer may still be shared with a forked sibling; get a private copy
+     before writing to it.*/
+  ret=oc_state_ref_buf_detach(&_dec->state,0);
+  if(ret<0)return ret;
   _dec->state.ref_frame_idx[OC_FRAME_GOLD]=0;
   _dec->state.ref_frame_idx[OC_FRAME_PREV]=0;
   _dec->state.ref_frame_idx[OC_FRAME_SELF]=0;
@@ -2077,6 +2201,7 @@ static void oc_dec_init_dummy_frame(th_dec_ctx *_dec){
   cplane_sz=chstride*(size_t)cheight;
   yoffset=yhstride*(ptrdiff_t)(yheight-OC_UMV_PADDING-1)+OC_UMV_PADDING;
   memset(_dec->state.ref_frame_data[0]-yoffset,0x80,yplane_sz+2*cplane_sz);
+  return 0;
 }
 
 #if defined(HAVE_CAIRO)
@@ -2758,7 +2883,8 @@ int th_decode_packetin(th_dec_ctx *_dec,const ogg_packet *_op,
   if(_dec->state.frame_type!=OC_INTRA_FRAME&&
    (_dec->state.ref_frame_idx[OC_FRAME_GOLD]<0||
    _dec->state.ref_frame_idx[OC_FRAME_PREV]<0)){
-    oc_dec_init_dummy_frame(_dec);
+    ret=oc_dec_init_dummy_frame(_dec);
+    if(ret<0)return ret;
   }
   /*If this was an inter frame with no coded blocks...*/
   if(_dec->state.ntotal_coded_fragis<=0){
@@ -2789,6 +2915,10 @@ int th_decode_packetin(th_dec_ctx *_dec,const ogg_packet *_op,
     /*Select a free buffer to use for the reconstructed version of this frame.*/
     for(refi=0;refi==_dec->state.ref_frame_idx[OC_FRAME_GOLD]||
      refi==_dec->state.ref_frame_idx[OC_FRAME_PREV];refi++);
+    /*If the selected buffer is still shared with a forked sibling, swap in a
+       private buffer before anything can write to it.*/
+    ret=oc_state_ref_buf_detach(&_dec->state,refi);
+    if(ret<0)return ret;
     _dec->state.ref_frame_idx[OC_FRAME_SELF]=refi;
     _dec->state.ref_frame_data[OC_FRAME_SELF]=
      _dec->state.ref_frame_bufs[refi][0].data;

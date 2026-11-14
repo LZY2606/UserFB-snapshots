@@ -317,6 +317,36 @@ extern int th_decode_packetin(th_dec_ctx *_dec,const ogg_packet *_op,
  */
 extern int th_decode_ycbcr_out(th_dec_ctx *_dec,
  th_ycbcr_buffer _ycbcr);
+/**Creates an independent copy of a decoder context that shares its already
+ *  decoded reference frames.
+ * This may be called after any completed th_decode_packetin() call, or
+ *  before the first video packet has been submitted.
+ * The returned context is a full decoder in its own right: it can be used
+ *  with th_decode_packetin(), th_decode_ycbcr_out(), th_decode_ctl(), and
+ *  th_decode_free() exactly like a context created by th_decode_alloc(),
+ *  without re-submitting any headers or previously decoded packets.
+ * Immediately after the fork, both contexts yield the same decoded frame
+ *  (in fact th_decode_ycbcr_out() returns the same plane pointers) and the
+ *  same granule position state; from then on each context advances
+ *  independently according to the packets submitted to it, and divergent
+ *  packet sequences never disturb the sibling context.
+ * The reference frames decoded so far are shared between the two contexts
+ *  read-only and are only duplicated lazily when a context is about to
+ *  overwrite one, so forking does not copy any frame pixels.
+ * The two contexts may be used and freed in any order; the shared frames
+ *  are released when the last context referencing them is freed.
+ * Pointers returned by th_decode_ycbcr_out() on either context remain
+ *  subject to the usual lifetime rules: they are owned by libtheoradec and
+ *  may be freed or overwritten when subsequent frames are decoded with
+ *  that same context.
+ * \param _src The decoder context to fork.
+ *             This must currently have out-of-loop post-processing disabled
+ *              (the default) and no striped decode callback installed.
+ * \return A new #th_dec_ctx handle, or <tt>NULL</tt> if \a _src is
+ *          <tt>NULL</tt>, has post-processing or a striped decode callback
+ *          enabled, or an allocation fails.
+ *         When <tt>NULL</tt> is returned, \a _src remains fully usable.*/
+extern th_dec_ctx *th_decode_fork(const th_dec_ctx *_src);
 /**Frees an allocated decoder instance.
  * \param _dec A #th_dec_ctx handle.*/
 extern void th_decode_free(th_dec_ctx *_dec);

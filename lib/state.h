@@ -39,6 +39,7 @@ typedef struct oc_fragment              oc_fragment;
 typedef struct oc_fragment_plane        oc_fragment_plane;
 typedef struct oc_base_opt_vtable       oc_base_opt_vtable;
 typedef struct oc_base_opt_data         oc_base_opt_data;
+typedef struct oc_ref_buf               oc_ref_buf;
 typedef struct oc_state_dispatch_vtable oc_state_dispatch_vtable;
 typedef struct oc_theora_state          oc_theora_state;
 
@@ -376,6 +377,19 @@ struct oc_base_opt_data{
 };
 
 
+/*A single reference frame buffer, shared between decoder contexts.
+  The pixels are treated as read-only while the buffer is shared; a context
+   that wants to write into a shared buffer must first detach it with
+   oc_state_ref_buf_detach().*/
+struct oc_ref_buf{
+  /*The actual pixel storage (one full padded frame).*/
+  unsigned char *data;
+  /*The number of states whose slot arrays currently point at this buffer.*/
+  int            refs;
+};
+
+
+
 /*State information common to both the encoder and decoder.*/
 struct oc_theora_state{
   /*The stream information.*/
@@ -435,8 +449,12 @@ struct oc_theora_state{
     This is just ref_frame_bufs[ref_frame_idx[i]][0].data, but is cached here
      for faster look-up.*/
   unsigned char      *ref_frame_data[6];
-  /*The handle used to allocate the reference frame buffers.*/
-  unsigned char      *ref_frame_handle;
+  /*The handles used to allocate the reference frame buffers.
+    Each buffer is reference counted so that forked decoder contexts can share
+     them read-only; see oc_state_ref_buf_detach().*/
+  oc_ref_buf         *ref_frame_handles[6];
+  /*The number of reference frame buffers actually allocated.*/
+  int                 nref_frame_bufs;
   /*The strides for each plane in the reference frames.*/
   int                 ref_ystride[3];
   /*The number of unique border patterns.*/
@@ -489,6 +507,8 @@ extern const oc_set_chroma_mvs_func OC_SET_CHROMA_MVS_TABLE[TH_PF_NFORMATS];
 
 int oc_state_init(oc_theora_state *_state,const th_info *_info,int _nrefs);
 void oc_state_clear(oc_theora_state *_state);
+void oc_state_ref_bufs_retain(oc_theora_state *_state);
+int oc_state_ref_buf_detach(oc_theora_state *_state,int _refi);
 void oc_state_accel_init_c(oc_theora_state *_state);
 void oc_state_borders_fill_rows(oc_theora_state *_state,int _refi,int _pli,
  int _y0,int _yend);

@@ -7,6 +7,7 @@ _th_setup_free
 _th_decode_ctl
 _th_decode_packetin
 _th_decode_ycbcr_out
+_th_decode_fork
 _th_decode_free
 _th_packet_isheader
 _th_packet_iskeyframe

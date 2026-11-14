@@ -536,15 +536,41 @@ static void oc_state_frarray_clear(oc_theora_state *_state){
 }
 
 
+/*Computes the storage needed for a single reference frame buffer, including
+   padding and alignment slack.
+  _info: The stream information.
+  Return: The size in bytes of one reference frame buffer.*/
+static size_t oc_state_ref_frame_sz(const th_info *_info){
+  size_t yplane_sz;
+  size_t cplane_sz;
+  int    yhstride;
+  int    yheight;
+  int    chstride;
+  int    cheight;
+  int    hdec;
+  int    vdec;
+  hdec=!(_info->pixel_fmt&1);
+  vdec=!(_info->pixel_fmt&2);
+  yhstride=_info->frame_width+2*OC_UMV_PADDING;
+  yheight=_info->frame_height+2*OC_UMV_PADDING;
+  /*Require 16-byte aligned rows in the chroma planes.*/
+  chstride=(yhstride>>hdec)+15&~15;
+  cheight=yheight>>vdec;
+  yplane_sz=yhstride*(size_t)yheight;
+  cplane_sz=chstride*(size_t)cheight;
+  return yplane_sz+2*cplane_sz+16;
+}
+
 /*Initializes the buffers used for reconstructed frames.
   These buffers are padded with 16 extra pixels on each side, to allow
    unrestricted motion vectors without special casing the boundary.
   If chroma is decimated in either direction, the padding is reduced by a
    factor of 2 on the appropriate sides.
+  Each buffer gets its own reference-counted handle so that decoder contexts
+   created with th_decode_fork() can share the underlying storage read-only.
   _nrefs: The number of reference buffers to init; must be in the range 3...6.*/
 static int oc_state_ref_bufs_init(oc_theora_state *_state,int _nrefs){
   th_info       *info;
-  unsigned char *ref_frame_data;
   size_t         ref_frame_data_sz;
   size_t         ref_frame_sz;
   size_t         yplane_sz;
@@ -588,14 +614,33 @@ static int oc_state_ref_bufs_init(oc_theora_state *_state,int _nrefs){
    ref_frame_sz<yplane_sz||ref_frame_data_sz/_nrefs!=ref_frame_sz){
     return TH_EIMPL;
   }
-  ref_frame_data=oc_aligned_malloc(ref_frame_data_sz,16);
   frag_buf_offs=_state->frag_buf_offs=
    _ogg_malloc(_state->nfrags*sizeof(*frag_buf_offs));
-  if(ref_frame_data==NULL||frag_buf_offs==NULL){
+  if(frag_buf_offs==NULL)return TH_EFAULT;
+  /*Allocate each reference buffer in its own reference-counted handle.*/
+  for(rfi=0;rfi<_nrefs;rfi++){
+    oc_ref_buf *rbuf;
+    rbuf=(oc_ref_buf *)_ogg_malloc(sizeof(*rbuf));
+    if(rbuf==NULL)break;
+    rbuf->data=(unsigned char *)oc_aligned_malloc(ref_frame_sz,16);
+    if(rbuf->data==NULL){
+      _ogg_free(rbuf);
+      break;
+    }
+    rbuf->refs=1;
+    _state->ref_frame_handles[rfi]=rbuf;
+  }
+  if(rfi<_nrefs){
+    while(rfi-->0){
+      oc_aligned_free(_state->ref_frame_handles[rfi]->data);
+      _ogg_free(_state->ref_frame_handles[rfi]);
+      _state->ref_frame_handles[rfi]=NULL;
+    }
     _ogg_free(frag_buf_offs);
-    oc_aligned_free(ref_frame_data);
+    _state->frag_buf_offs=NULL;
     return TH_EFAULT;
   }
+  _state->nref_frame_bufs=_nrefs;
   /*Set up the width, height and stride for the image buffers.*/
   _state->ref_frame_bufs[0][0].width=info->frame_width;
   _state->ref_frame_bufs[0][0].height=info->frame_height;
@@ -610,15 +655,15 @@ static int oc_state_ref_bufs_init(oc_theora_state *_state,int _nrefs){
     memcpy(_state->ref_frame_bufs[rfi],_state->ref_frame_bufs[0],
      sizeof(_state->ref_frame_bufs[0]));
   }
-  _state->ref_frame_handle=ref_frame_data;
   /*Set up the data pointers for the image buffers.*/
   for(rfi=0;rfi<_nrefs;rfi++){
+    unsigned char *ref_frame_data;
+    ref_frame_data=_state->ref_frame_handles[rfi]->data;
     _state->ref_frame_bufs[rfi][0].data=ref_frame_data+yoffset;
     ref_frame_data+=yplane_sz+align;
     _state->ref_frame_bufs[rfi][1].data=ref_frame_data+coffset;
     ref_frame_data+=cplane_sz;
     _state->ref_frame_bufs[rfi][2].data=ref_frame_data+coffset;
-    ref_frame_data+=cplane_sz+(16-align);
     /*Flip the buffer upside down.
       This allows us to decode Theora's bottom-up frames in their natural
        order, yet return a top-down buffer with a positive stride to the user.*/
@@ -628,18 +673,19 @@ static int oc_state_ref_bufs_init(oc_theora_state *_state,int _nrefs){
   _state->ref_ystride[0]=-yhstride;
   _state->ref_ystride[1]=_state->ref_ystride[2]=-chstride;
   /*Initialize the fragment buffer offsets.*/
-  ref_frame_data=_state->ref_frame_bufs[0][0].data;
   fragi=0;
   for(pli=0;pli<3;pli++){
     th_img_plane      *iplane;
     oc_fragment_plane *fplane;
     unsigned char     *vpix;
+    unsigned char     *ref_frame_data;
     ptrdiff_t          stride;
     ptrdiff_t          vfragi_end;
     int                nhfrags;
     iplane=_state->ref_frame_bufs[0]+pli;
     fplane=_state->fplanes+pli;
     vpix=iplane->data;
+    ref_frame_data=_state->ref_frame_bufs[0][0].data;
     vfragi_end=fplane->froffset+fplane->nfrags;
     nhfrags=fplane->nhfrags;
     stride=iplane->stride;
@@ -671,8 +717,73 @@ static int oc_state_ref_bufs_init(oc_theora_state *_state,int _nrefs){
 }
 
 static void oc_state_ref_bufs_clear(oc_theora_state *_state){
+  int rfi;
   _ogg_free(_state->frag_buf_offs);
-  oc_aligned_free(_state->ref_frame_handle);
+  for(rfi=0;rfi<_state->nref_frame_bufs;rfi++){
+    oc_ref_buf *rbuf;
+    rbuf=_state->ref_frame_handles[rfi];
+    if(rbuf!=NULL&&--rbuf->refs<=0){
+      oc_aligned_free(rbuf->data);
+      _ogg_free(rbuf);
+    }
+    _state->ref_frame_handles[rfi]=NULL;
+  }
+  _state->nref_frame_bufs=0;
+}
+
+/*Marks every reference frame buffer of this state as being shared with one
+   more state.
+  The caller must have copied this state's ref_frame_handles array into the
+   new state beforehand.
+  The buffers themselves are not copied; they become read-only until all but
+   one of the sharing states have detached or released them.*/
+void oc_state_ref_bufs_retain(oc_theora_state *_state){
+  int rfi;
+  for(rfi=0;rfi<_state->nref_frame_bufs;rfi++){
+    _state->ref_frame_handles[rfi]->refs++;
+  }
+}
+
+/*Ensures that the reference frame buffer in the given slot is privately owned
+   by this state, so that decoding may write into it without disturbing other
+   states that still share it.
+  If the buffer is shared, it is replaced by a freshly allocated private
+   buffer and this state's share of the old buffer is released.
+  The pixel contents are not copied: a buffer is only ever detached just
+   before it is completely overwritten by a newly decoded frame.
+  _refi: The reference buffer slot to detach.
+  Return: 0 on success, TH_EFAULT if a replacement buffer could not be
+   allocated.*/
+int oc_state_ref_buf_detach(oc_theora_state *_state,int _refi){
+  oc_ref_buf *old_buf;
+  oc_ref_buf *new_buf;
+  int         pli;
+  int         i;
+  old_buf=_state->ref_frame_handles[_refi];
+  if(old_buf->refs<=1)return 0;
+  new_buf=(oc_ref_buf *)_ogg_malloc(sizeof(*new_buf));
+  if(new_buf==NULL)return TH_EFAULT;
+  new_buf->data=(unsigned char *)oc_aligned_malloc(
+   oc_state_ref_frame_sz(&_state->info),16);
+  if(new_buf->data==NULL){
+    _ogg_free(new_buf);
+    return TH_EFAULT;
+  }
+  new_buf->refs=1;
+  /*Point the slot at the same offsets inside the new buffer.*/
+  for(pli=0;pli<3;pli++){
+    _state->ref_frame_bufs[_refi][pli].data=new_buf->data+
+     (_state->ref_frame_bufs[_refi][pli].data-old_buf->data);
+  }
+  _state->ref_frame_handles[_refi]=new_buf;
+  old_buf->refs--;
+  /*Refresh the cached frame data pointers of any roles using this slot.*/
+  for(i=0;i<6;i++){
+    if(_state->ref_frame_idx[i]==_refi){
+      _state->ref_frame_data[i]=_state->ref_frame_bufs[_refi][0].data;
+    }
+  }
+  return 0;
 }
 
 
