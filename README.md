@@ -21,6 +21,7 @@ minimal dependencies, available for Windows, macOS, and Linux.
 * Skeletal animation
 * Tangent space normal mapping
 * Shadow mapping
+* Omnidirectional point-light shadows
 * ACES tone mapping
 * Blinn–Phong reflection model
 * Physically based rendering (PBR)
@@ -133,6 +134,70 @@ Viewer [test_name [scene_name]]
 For PBR scenes, a material inspector that is very similar to the layers view
 of [Marmoset Viewer](https://marmoset.co/viewer/) is provided. Double click
 to bring it up.
+
+### Point-light shadows
+
+Besides the default single directional shadow map, a scene can be given an
+optional omnidirectional point light through
+`renderer/core/point_shadow.h`. `scene_set_point_light(scene, position,
+near, far, size, bias)` creates six same-sized square depth framebuffers,
+one per cubemap face; passing `size == 0` disables the mode and releases the
+resources. A positive `size` requires `near > 0`, `far > near`, `bias >= 0`
+and finite floating point arguments. Invalid configurations return `0` and
+leave the previous configuration untouched.
+
+```c
+typedef struct {
+    vec3_t position;
+    float near;
+    float far;
+    float bias;
+    framebuffer_t *faces[6];
+} point_shadow_t;
+
+int scene_set_point_light(scene_t *scene, vec3_t position, float near,
+                          float far, int size, float bias);
+float point_shadow_visibility(const point_shadow_t *point_shadow,
+                              vec3_t world_position);
+```
+
+When the point light is enabled, every opaque model is rendered six times
+from the light position with a 90 degree perspective frustum, clearing each
+face depth to `1`. The existing model transforms, skeletal/attached
+animation, double-sided rendering and alpha cutoff are all reused, and the
+directional light and its 2D shadow are suppressed for that draw. The
+`near` and `far` values are positive distances along each face's viewing
+axis (not a spherical range); the stored values are the rasterizer's
+ordinary `[0, 1]` perspective depths, never quantized into a color buffer.
+
+The face order and axes follow the cubemap convention: `px, nx, py, ny, pz,
+nz`. With `s = 2u - 1` and `t = 2v - 1`, the inverse direction of each face
+is `(1,-t,-s)`, `(-1,-t,s)`, `(s,1,t)`, `(s,-1,-t)`, `(s,-t,1)` and
+`(-s,-t,-1)` respectively, and pixel center `(x, y)` maps to
+`u = (x + 0.5) / size`, `v = (y + 0.5) / size`. The capture matrices and
+the sampling mapping use this same convention, so no test asset needs to be
+rotated to compensate.
+
+`point_shadow_visibility` selects a face from the receiver's
+`world_position - position` vector (a receiver on the light itself, or
+whose major-axis distance falls outside `[near, far]`, is fully visible).
+It takes nine equal-weight taps offset by `{-1, 0, 1} / size` around the
+receiver's `u/v`. Out-of-range taps are turned back into a direction on the
+original face and re-projected onto the neighboring face; texel indices are
+floored and clamped only once the final face is known. A stored depth
+`d < 1` is converted back to an axis distance
+`near * far / (far - d * (far - near))`, then multiplied by the length of
+the actually-read texel center's inverse direction to obtain a radial
+occluder distance, which is compared against the receiver's Euclidean
+distance plus the world-space `bias`. The fraction of the nine taps that
+stay visible is the returned visibility value; a clear value of `1` means
+no occlusion.
+
+The Blinn, PBR metalness and PBR specular materials all share this one
+visibility term. The point light direction is the per-fragment unit vector
+toward the light and the direct intensity is `punctual_intensity / r^2`
+(zero at `r = 0`). Ambient/IBL lighting, emissive surfaces and the PBR
+layer-view preview are not multiplied by the point-light visibility.
 
 ## Screenshots
 

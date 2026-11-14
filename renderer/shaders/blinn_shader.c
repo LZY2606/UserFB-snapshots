@@ -220,15 +220,43 @@ static vec4_t common_fragment_shader(blinn_varyings_t *varyings,
         }
 
         if (uniforms->punctual_intensity > 0) {
-            vec3_t light_dir = vec3_negate(uniforms->light_dir);
-            float n_dot_l = vec3_dot(material.normal, light_dir);
-            if (n_dot_l > 0 && !is_in_shadow(varyings, uniforms, n_dot_l)) {
-                vec3_t view_dir = get_view_dir(varyings, uniforms);
-                vec3_t specular = get_specular(light_dir, view_dir, material);
-                vec3_t diffuse = vec3_mul(material.diffuse, n_dot_l);
-                vec3_t punctual = vec3_add(diffuse, specular);
-                float intensity = uniforms->punctual_intensity;
-                color = vec3_add(color, vec3_mul(punctual, intensity));
+            if (uniforms->point_shadow) {
+                vec3_t to_light = vec3_sub(uniforms->point_shadow->position,
+                                           varyings->world_position);
+                float light_distance = vec3_length(to_light);
+                if (light_distance > 0) {
+                    vec3_t light_dir = vec3_div(to_light, light_distance);
+                    float n_dot_l = vec3_dot(material.normal, light_dir);
+                    if (n_dot_l > 0) {
+                        float visibility = point_shadow_visibility(
+                            uniforms->point_shadow,
+                            varyings->world_position);
+                        if (visibility > 0) {
+                            vec3_t view_dir = get_view_dir(varyings, uniforms);
+                            vec3_t specular = get_specular(light_dir, view_dir,
+                                                           material);
+                            vec3_t diffuse = vec3_mul(material.diffuse,
+                                                      n_dot_l);
+                            vec3_t punctual = vec3_add(diffuse, specular);
+                            float intensity = uniforms->punctual_intensity /
+                                (light_distance * light_distance) *
+                                visibility;
+                            color = vec3_add(color,
+                                             vec3_mul(punctual, intensity));
+                        }
+                    }
+                }
+            } else {
+                vec3_t light_dir = vec3_negate(uniforms->light_dir);
+                float n_dot_l = vec3_dot(material.normal, light_dir);
+                if (n_dot_l > 0 && !is_in_shadow(varyings, uniforms, n_dot_l)) {
+                    vec3_t view_dir = get_view_dir(varyings, uniforms);
+                    vec3_t specular = get_specular(light_dir, view_dir, material);
+                    vec3_t diffuse = vec3_mul(material.diffuse, n_dot_l);
+                    vec3_t punctual = vec3_add(diffuse, specular);
+                    float intensity = uniforms->punctual_intensity;
+                    color = vec3_add(color, vec3_mul(punctual, intensity));
+                }
             }
         }
 
@@ -290,6 +318,7 @@ static void update_model(model_t *model, perframe_t *perframe) {
     uniforms->ambient_intensity = float_clamp(ambient_intensity, 0, 5);
     uniforms->punctual_intensity = float_clamp(punctual_intensity, 0, 5);
     uniforms->shadow_map = perframe->shadow_map;
+    uniforms->point_shadow = perframe->point_shadow;
 }
 
 static void draw_model(model_t *model, framebuffer_t *framebuffer,

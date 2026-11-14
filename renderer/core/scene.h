@@ -4,6 +4,7 @@
 #include "graphics.h"
 #include "maths.h"
 #include "mesh.h"
+#include "point_shadow.h"
 #include "skeleton.h"
 #include "texture.h"
 
@@ -20,6 +21,8 @@ typedef struct {
     float punctual_intensity;
     texture_t *shadow_map;
     int layer_view;
+    /* point-light mode; null means the original directional mode */
+    point_shadow_t *point_shadow;
 } perframe_t;
 
 typedef struct model {
@@ -46,14 +49,25 @@ typedef struct {
     /* light intensity */
     float ambient_intensity;
     float punctual_intensity;
-    /* shadow mapping */
+    /* directional shadow mapping */
     framebuffer_t *shadow_buffer;
     texture_t *shadow_map;
+    /* optional omnidirectional point light; null keeps directional mode */
+    point_shadow_t *point_shadow;
 } scene_t;
 
 scene_t *scene_create(vec3_t background, model_t *skybox, model_t **models,
                       float ambient_intensity, float punctual_intensity,
                       int shadow_width, int shadow_height);
 void scene_release(scene_t *scene);
+
+/*
+ * configure (or disable with size == 0) the point light. a positive size
+ * requires near > 0, far > near, bias >= 0, and finite floating point
+ * arguments; otherwise 0 is returned and the previous configuration stays
+ * untouched. returns 1 on success.
+ */
+int scene_set_point_light(scene_t *scene, vec3_t position, float near,
+                          float far, int size, float bias);
 
 #endif

@@ -391,6 +391,7 @@ perframe_t test_build_perframe(scene_t *scene, context_t *context) {
     perframe.punctual_intensity = scene->punctual_intensity;
     perframe.shadow_map = scene->shadow_map;
     perframe.layer_view = -1;
+    perframe.point_shadow = scene->point_shadow;
 
     return perframe;
 }
@@ -426,6 +427,61 @@ static void sort_models(model_t **models, mat4_t view_matrix) {
     }
 }
 
+static void draw_directional_shadow(scene_t *scene, model_t **models,
+                                    int num_models, perframe_t *perframe) {
+    int i;
+    sort_models(models, perframe->light_view_matrix);
+    framebuffer_clear_depth(scene->shadow_buffer, 1);
+    for (i = 0; i < num_models; i++) {
+        model_t *model = models[i];
+        if (model->opaque) {
+            model->draw(model, scene->shadow_buffer, 1);
+        }
+    }
+    texture_from_depthbuffer(scene->shadow_map, scene->shadow_buffer);
+}
+
+/*
+ * renders every opaque model six times, once per cubemap face, with a 90
+ * degree perspective frustum rooted at the light. each face owns its own
+ * view matrix, projection matrix, and depth buffer. the caller's perframe
+ * light matrices are restored afterwards and the model uniforms are rebuilt
+ * for the main camera, so no face matrix leaks into the main pass.
+ */
+static void draw_point_shadow(scene_t *scene, model_t **models,
+                              int num_models, perframe_t *perframe) {
+    point_shadow_t *point_shadow = scene->point_shadow;
+    mat4_t saved_view_matrix = perframe->light_view_matrix;
+    mat4_t saved_proj_matrix = perframe->light_proj_matrix;
+    mat4_t proj_matrix = point_shadow_proj_matrix(point_shadow);
+    int face, i;
+
+    for (face = 0; face < 6; face++) {
+        framebuffer_t *face_buffer = point_shadow->faces[face];
+
+        perframe->light_view_matrix =
+            point_shadow_view_matrix(point_shadow, face);
+        perframe->light_proj_matrix = proj_matrix;
+        for (i = 0; i < num_models; i++) {
+            models[i]->update(models[i], perframe);
+        }
+
+        framebuffer_clear_depth(face_buffer, 1);
+        for (i = 0; i < num_models; i++) {
+            model_t *model = models[i];
+            if (model->opaque) {
+                model->draw(model, face_buffer, 1);
+            }
+        }
+    }
+
+    perframe->light_view_matrix = saved_view_matrix;
+    perframe->light_proj_matrix = saved_proj_matrix;
+    for (i = 0; i < num_models; i++) {
+        models[i]->update(models[i], perframe);
+    }
+}
+
 void test_draw_scene(scene_t *scene, framebuffer_t *framebuffer,
                      perframe_t *perframe) {
     model_t *skybox = scene->skybox;
@@ -441,16 +497,10 @@ void test_draw_scene(scene_t *scene, framebuffer_t *framebuffer,
         skybox->update(skybox, perframe);
     }
 
-    if (scene->shadow_buffer && scene->shadow_map) {
-        sort_models(models, perframe->light_view_matrix);
-        framebuffer_clear_depth(scene->shadow_buffer, 1);
-        for (i = 0; i < num_models; i++) {
-            model_t *model = models[i];
-            if (model->opaque) {
-                model->draw(model, scene->shadow_buffer, 1);
-            }
-        }
-        texture_from_depthbuffer(scene->shadow_map, scene->shadow_buffer);
+    if (scene->point_shadow != NULL) {
+        draw_point_shadow(scene, models, num_models, perframe);
+    } else if (scene->shadow_buffer && scene->shadow_map) {
+        draw_directional_shadow(scene, models, num_models, perframe);
     }
 
     sort_models(models, perframe->camera_view_matrix);

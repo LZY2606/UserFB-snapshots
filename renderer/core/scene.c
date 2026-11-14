@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include "darray.h"
 #include "graphics.h"
@@ -23,7 +24,38 @@ scene_t *scene_create(vec3_t background, model_t *skybox, model_t **models,
         scene->shadow_buffer = NULL;
         scene->shadow_map = NULL;
     }
+    scene->point_shadow = NULL;
     return scene;
+}
+
+int scene_set_point_light(scene_t *scene, vec3_t position, float near,
+                          float far, int size, float bias) {
+    point_shadow_t *point_shadow;
+
+    if (size == 0) {
+        if (scene->point_shadow) {
+            point_shadow_release(scene->point_shadow);
+            scene->point_shadow = NULL;
+        }
+        return 1;
+    }
+
+    if (size < 0 || near <= 0 || far <= near || bias < 0 ||
+        !isfinite(position.x) || !isfinite(position.y) ||
+        !isfinite(position.z) || !isfinite(near) || !isfinite(far) ||
+        !isfinite(bias)) {
+        return 0;
+    }
+
+    point_shadow = point_shadow_create(position, near, far, size, bias);
+    if (point_shadow == NULL) {
+        return 0;
+    }
+    if (scene->point_shadow) {
+        point_shadow_release(scene->point_shadow);
+    }
+    scene->point_shadow = point_shadow;
+    return 1;
 }
 
 void scene_release(scene_t *scene) {
@@ -43,6 +75,9 @@ void scene_release(scene_t *scene) {
     }
     if (scene->shadow_map) {
         texture_release(scene->shadow_map);
+    }
+    if (scene->point_shadow) {
+        point_shadow_release(scene->point_shadow);
     }
     free(scene);
 }
