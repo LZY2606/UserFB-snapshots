@@ -1,0 +1,1010 @@
+{
+  "repo": "https://github.com/chromedp/chromedp",
+  "commit": "af31f0247ec680189aac7958456a84b002a76863",
+  "dependencies": [
+    {
+      "name": "cdproto",
+      "repo": "https://github.com/chromedp/cdproto",
+      "version": "v0.160.1",
+      "commit": "addaeda61ff9934e34804b85c09e8bba01fa29a4",
+      "license": "MIT",
+      "module": "github.com/chromedp/cdproto"
+    },
+    {
+      "name": "json",
+      "repo": "https://github.com/go-json-experiment/json",
+      "version": "v0.0.0-20260213210345-44df1a37e875",
+      "commit": "44df1a37e875e488af5305814494092b9eb3f38d",
+      "license": "BSD-3-Clause",
+      "module": "github.com/go-json-experiment/json"
+    }
+  ],
+  "method": "go mod vendor using exact upstream go.mod/go.sum; byte comparison against downloaded locked module source",
+  "files": [
+    {
+      "path": "vendor/github.com/chromedp/cdproto/.gitignore",
+      "sha256": "b1a5e9de6572000d8df374edc82d984cbbc37d82544b53976b14bf3db5a6e495",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:.gitignore"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/CHANGELOG.md",
+      "sha256": "57f16ff022be21e97986aaf86c2b105be02942f241fcc2d638807ccf46135b99",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:CHANGELOG.md"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/LICENSE",
+      "sha256": "825f37ca7b6235d5f40cea575ce2418b375fb87f295197a00c00dcaea99d82fd",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:LICENSE"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/README.md",
+      "sha256": "da5d7f7b9a73cd40c701fc2c0110fc9c96c2cacb309a80f2fd084cbd3bd66447",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:README.md"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/accessibility/accessibility.go",
+      "sha256": "4e4efda849b8a6f0fc0cc23003eaae323c5c8d051b801c6582d02e37dca04b9d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:accessibility/accessibility.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/accessibility/events.go",
+      "sha256": "c24bab39e98569ff7640c2bbd1e76a868c34ee9ae48a0035a0bd491eab200f11",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:accessibility/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/accessibility/types.go",
+      "sha256": "f74e532ae92e43ef9f37a6302f3665366668e9079cdc1f95aa62b9af314ce3a7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:accessibility/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/ads/ads.go",
+      "sha256": "f33ed1513e7d1e4cf9e5284773676ae29e86f3070362ff803fa5ebb78be5869e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:ads/ads.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/ads/types.go",
+      "sha256": "95550e4efe4162cca74abf6082d045889d0ea3d7cf557a0107487a8a0501f294",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:ads/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/animation/animation.go",
+      "sha256": "897881284f08bc3f128dd864c45674c1e1ee03b8c667483b00fa7c5b0653b616",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:animation/animation.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/animation/events.go",
+      "sha256": "2d2120451d94fab827fac74f823302a1742de7527be4c9c880768b6f55833ff2",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:animation/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/animation/types.go",
+      "sha256": "1a17c99b30024aa4d5e81e511832742fa555161d9310922ad4c8c9a5aa315979",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:animation/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/audits/audits.go",
+      "sha256": "c8f7cac861603f3c74982b2219c7f9a650474a8f52ebb9bf6d1591fbc77fbed7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:audits/audits.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/audits/events.go",
+      "sha256": "50d85dd07626f6ed59d39bbd90a2fb5a617a571bb429b9d684583f4b0821ec6a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:audits/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/audits/types.go",
+      "sha256": "801d6b58380c1c160ef11d31274299d5db2e19e4884958889b233f015788de1c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:audits/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/autofill/autofill.go",
+      "sha256": "862ed45fdc3036c8924ccc0b9546c37a0bb07f250635e3e90bc88af7d4a77f00",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:autofill/autofill.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/autofill/events.go",
+      "sha256": "0709a5e4ef9ed90cb6947a954df9ca8d068aad1977cd239217d901635cc5258e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:autofill/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/autofill/types.go",
+      "sha256": "bf9cd7f0df80cf5c03022d3d0771644523602014d5773bec660759141c3746d8",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:autofill/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/backgroundservice/backgroundservice.go",
+      "sha256": "4bf4424be1686872a5d885b1fd7cc7b5f15f64ba67750e5bac247f99202882ea",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:backgroundservice/backgroundservice.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/backgroundservice/events.go",
+      "sha256": "37faf1a591fa59e2f408a2d1236adc6e895fe5c462246532db15eb514c1f7370",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:backgroundservice/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/backgroundservice/types.go",
+      "sha256": "b958602bcf6a8376c92f8de1c468176a7942d6043ca03c4ccb2fa0395567502b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:backgroundservice/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/bluetoothemulation/bluetoothemulation.go",
+      "sha256": "4e1c9d46931581dfaa9dca6015385e44a49553d6382ffab24be1082fea37c05e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:bluetoothemulation/bluetoothemulation.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/bluetoothemulation/events.go",
+      "sha256": "c815ab3467e9ba5ea7c81977b31862a35d07e695d774c08845d298e25796f350",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:bluetoothemulation/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/bluetoothemulation/types.go",
+      "sha256": "0e961a523d934c012fffd0e1131da176c9a22a05f535f277bee16e70b1d1cc68",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:bluetoothemulation/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/browser/browser.go",
+      "sha256": "3eae162bc7be961fef50ff139b072a5bed6ff4a8e95d9bc93fcfeee155de90c7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:browser/browser.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/browser/events.go",
+      "sha256": "cd46c4c3a797319e528cda25349c5f61968e2bea980b52181e27d8e6a2070e9c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:browser/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/browser/types.go",
+      "sha256": "2c385b40c806ecf64eadef85c86619e98bcc753ee221931071ba0379265e4465",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:browser/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cachestorage/cachestorage.go",
+      "sha256": "15503c7848a742837e622f899f0eeb2ea09bdfc01914f7c857b069f6bfffba2d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cachestorage/cachestorage.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cachestorage/types.go",
+      "sha256": "072b12eb6840996b3c83af5f1965dbfe7e8a9ad354092ac5243158dd30a2448e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cachestorage/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cast/cast.go",
+      "sha256": "eb8f57967a0958c3d71eaa83fb04744eabf18ccef4531c1525885a54b7d6e925",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cast/cast.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cast/events.go",
+      "sha256": "c365ad45d14218da944a1576a089acc2532e1a18e665aec0dfcd6075fc2223c6",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cast/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cast/types.go",
+      "sha256": "44ae780c2628ab973313102a3f7ce36af171c0fbeeef66b34a4404643387652f",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cast/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cdp/jsonv2/doc.go",
+      "sha256": "0145329442253957d0f1cd1e70d82d2bf15efced74ec97de3a32dbea8f906a66",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cdp/jsonv2/doc.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cdp/jsonv2/json_compat.go",
+      "sha256": "b88c703319d1629e46dd6246615ff9f31cd417e0bf5306be28324ba442aad3d2",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cdp/jsonv2/json_compat.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cdp/jsonv2/json_std.go",
+      "sha256": "5ac9d95269d92788da8688f194fae01fc9417dc2845617d4f88cc7d3962becef",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cdp/jsonv2/json_std.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cdp/types.go",
+      "sha256": "2c68542ee4cfb46afbe22a4b52ca05e962ccea3377fe396041be17e9db2a712c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cdp/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/cdproto.go",
+      "sha256": "883e8944a21f40464c503d61bf8470383fe0757508008242420b2b136ea01ebc",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:cdproto.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/crashreportcontext/crashreportcontext.go",
+      "sha256": "774d685ad20b931cbf9ab070efdf411789ca4f648a43d7b4abd280a121a18fdb",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:crashreportcontext/crashreportcontext.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/crashreportcontext/types.go",
+      "sha256": "8ae7618bc5bb65b17b732fa19527fee433049eb7bca2d8e4a804a8ee9297010d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:crashreportcontext/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/css/css.go",
+      "sha256": "4e5fba65af21d506dbbdf2ad7bedd3b12b15b0ac6803620e6eebfe6649346a7f",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:css/css.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/css/events.go",
+      "sha256": "3533233dba1a4e09ead6fc6f71e40c705c6be9727408a70540b3e3d0e0351f7b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:css/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/css/types.go",
+      "sha256": "27cfa076bd99a3ba5b19f09a44bc61b8fea16282d816babb63c98eb7d152f8a7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:css/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/debugger/debugger.go",
+      "sha256": "d71a3c4f55519e684879633ca4dbb908fbb9860e4d0cbc3455cefff09e40914b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:debugger/debugger.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/debugger/events.go",
+      "sha256": "a62f56eb9ed9933022ff7a3142a8b681b00359e93b8df1f87d38a69949d9bbf8",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:debugger/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/debugger/types.go",
+      "sha256": "c14a229246aa0ee1bfaa8af8abab46fb68a9a211d7a1e9beaf5831a963b396f8",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:debugger/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/deviceaccess/deviceaccess.go",
+      "sha256": "524643474815df77a0e3cee15d557171f8b9a7215cb34f4c7aa4497ac28855bc",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:deviceaccess/deviceaccess.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/deviceaccess/events.go",
+      "sha256": "11be7016cb96d3aa0eaec0dea749800c945bef0dd2ddff5f6cab7cdfcf542003",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:deviceaccess/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/deviceaccess/types.go",
+      "sha256": "5f225bf2466cb30fb015269a8b4e61782895f99ff99bf2c03db4b8b30116e81f",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:deviceaccess/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/deviceorientation/deviceorientation.go",
+      "sha256": "1ed38e4f8ee3a11ff9d6a1016d64f7b9193bf6362abb5aa49ef2d5629e9a8573",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:deviceorientation/deviceorientation.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/digitalcredentials/digitalcredentials.go",
+      "sha256": "c8315d2ce6845e2a83d986289dbe89f2796973d8887c39b568e1e585c3771f1e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:digitalcredentials/digitalcredentials.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/digitalcredentials/types.go",
+      "sha256": "291da4d41b8ded094358fda57de56a2f12e085568a1de143def496fa94c11651",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:digitalcredentials/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/dom/dom.go",
+      "sha256": "63a429667ce5a311cd892b55951e4bc44bffe2018b242d6bcd5b9d5fd6b2fe71",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:dom/dom.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/dom/events.go",
+      "sha256": "fde639f0b622ada30813a9a7b9ee1c921816c8468df23b315a91fb0f9b083b2d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:dom/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/dom/types.go",
+      "sha256": "1acbea4d84044d9e4eef9fa7831a1cfed91d9f0d0cee2e1aa274ed14f5877756",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:dom/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domdebugger/domdebugger.go",
+      "sha256": "ded29a71b9f3dfad04f4702f2daf30ca84248217b1f38e420425a580ad2ba6e4",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domdebugger/domdebugger.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domdebugger/types.go",
+      "sha256": "717efa35bbea1471c688724522995946c649e4032da7ae2ae6392fe581dbb5e2",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domdebugger/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domsnapshot/domsnapshot.go",
+      "sha256": "a9363a90a7a9f027172f6bf8f75c19bf4864a5f14b83ae14a8bbf6628972b82a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domsnapshot/domsnapshot.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domsnapshot/types.go",
+      "sha256": "babec40b4b869ced36c439d021d1f1feefb14b22317e67574318468a005b9f3e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domsnapshot/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domstorage/domstorage.go",
+      "sha256": "ec3291e176006cf8d6e6671f309dc7bcfc0a658ffd79b61f9b5492089b842b71",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domstorage/domstorage.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domstorage/events.go",
+      "sha256": "90b4bd06b4e564e1037642dc81ae7d120ce73bcb2e66ff0d174a51ee50cadfb5",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domstorage/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/domstorage/types.go",
+      "sha256": "4eec5ea04e104214a9e229b16e9a0b7878a01d041842521528dbbe7c1a51dbac",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:domstorage/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/emulation/emulation.go",
+      "sha256": "c4c4ae78f6815c824c5535bde9bceeec4b4465c2caa35e0b72b9f3cacbf9b485",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:emulation/emulation.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/emulation/events.go",
+      "sha256": "ba836ce2ecefc156aaca05d07e2463283c89c2cd6c51da357cfd8ae86c67988c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:emulation/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/emulation/types.go",
+      "sha256": "43d9ea8ea34019ff0a8deea0bad848b8e0eb9724a9e8fdec74faf26f32021ae9",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:emulation/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/eventbreakpoints/eventbreakpoints.go",
+      "sha256": "c2f3195a66c72b71586267f03228be902ab022a0d0767e54245c4dffb4658729",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:eventbreakpoints/eventbreakpoints.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/extensions/extensions.go",
+      "sha256": "348e51b031f515f15c2858ca26ff56ebb4135c2b364ed101cd9af48e0cd71742",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:extensions/extensions.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/extensions/types.go",
+      "sha256": "641bdbcd2f16e931d95ce0bce2a93072510880792b6e44021bc79a4c977b8e71",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:extensions/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fedcm/events.go",
+      "sha256": "31a3db8f25bc6034ce7343dfb7c1573ba3321d344ba142f9cc66b6868b899a0a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fedcm/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fedcm/fedcm.go",
+      "sha256": "d701abfc8a036e6fce85a21caa244af4e6fd873d5f8a83fa9d5340c41a29c874",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fedcm/fedcm.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fedcm/types.go",
+      "sha256": "f081074aece46b009c08c419ebc0ec42f1d5821ecc8445e25467425ee115ca46",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fedcm/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fetch/events.go",
+      "sha256": "8f842533efa49ff8150463dc1b9626bcaed6cf5bf6ed0c1f2d9e545158bb1a90",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fetch/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fetch/fetch.go",
+      "sha256": "4aff1ab8f5d7b3306f4a52061f4ee06835e28377aa140a29b854a5b5c5f03151",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fetch/fetch.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/fetch/types.go",
+      "sha256": "973cfe29b4661a480b496a28beb116db91e6016afd476195d90e734487db814e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:fetch/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/filesystem/filesystem.go",
+      "sha256": "cb1a57b74de98d3d34a4c837bfa59cf554e0f92beb8e4fc99555ca25e91f1553",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:filesystem/filesystem.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/filesystem/types.go",
+      "sha256": "54a0bb34099370931bec127daca0b5b1257429d405bee17e2dacd26f669c6fa8",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:filesystem/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/findinpage/findinpage.go",
+      "sha256": "aa94762d89a36dbba1e8f127684323e2efdcea352945e0eb1b2740e6e089b473",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:findinpage/findinpage.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/headlessexperimental/headlessexperimental.go",
+      "sha256": "098a5c79d307f5cf162736fa72773f9f5bdda9f5ef23e6f4ef63bffe3f93625a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:headlessexperimental/headlessexperimental.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/headlessexperimental/types.go",
+      "sha256": "bf8e22d53c093e44a700473c7b121c78382f5fb06aeba80b81f375f5cd3239fd",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:headlessexperimental/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/heapprofiler/events.go",
+      "sha256": "8bea982c5a5c863ae89a61c8a0b451ffba4367adf7c2429cfec8abbaa0ba4e27",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:heapprofiler/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/heapprofiler/heapprofiler.go",
+      "sha256": "2e3545bbfc8e70bffc8b39cd898bd5cd74ebb48f7514ea15f32c59347fa6ce2e",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:heapprofiler/heapprofiler.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/heapprofiler/types.go",
+      "sha256": "6187378c0ec76fd43bfa0a2449753f0b16172e066119ccf684e4e89e7727405c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:heapprofiler/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/indexeddb/indexeddb.go",
+      "sha256": "0513beca17d972f2cd7ad7c7c62bfc4d7b2ce622b87ba9d5717de801562c1839",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:indexeddb/indexeddb.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/indexeddb/types.go",
+      "sha256": "3a44df63efcf0ab0f05bc7ce044c0a56c5e7e69c451efc211f03f31749ffcd2c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:indexeddb/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/input/events.go",
+      "sha256": "38ecd994ea99a4cf3345e08cf95298b6e8d072bb70372bd78404a1e0036c407f",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:input/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/input/input.go",
+      "sha256": "ddaa1577f49b0ce9e9630b08e5eb55d92e942d68babc72a0e3804ccf86984edd",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:input/input.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/input/types.go",
+      "sha256": "8ff81ac99be62d5b851913e07fc1f977a0079325d4883e44d6a8aab7ff53eed0",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:input/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/inspector/events.go",
+      "sha256": "46cab2ea7dc11d45c9e3152360c474b82206db3ebc3f90f5c6c4467c80792070",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:inspector/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/inspector/inspector.go",
+      "sha256": "0e78431686a40216acb5a09f9265faba0d08df6fbc51266be1d1fd09587bd955",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:inspector/inspector.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/io/io.go",
+      "sha256": "5f5b2af4a4c9cd28172cb94769f82b1130c29554eb5bbd29b00613c3db2f6898",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:io/io.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/io/types.go",
+      "sha256": "c1ece64fcb59d8651c7ea0fd0eb273add551648e52a7b829ad50539e63cd6c85",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:io/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/layertree/events.go",
+      "sha256": "2b408d2931d280f1b272114fa7dc0229b7cb10400a4bf348bbe5b21a784b39f0",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:layertree/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/layertree/layertree.go",
+      "sha256": "1cd345359a7c629ea091d37c0db48afa65bd1deab101b1616f4856c41d960f4f",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:layertree/layertree.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/layertree/types.go",
+      "sha256": "c5675b8777c7b0e769ed66ea9e75eb9e6fd0dc0bd8d06874537f8cd2449db459",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:layertree/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/log/events.go",
+      "sha256": "cff30ed8832d261e4174933c84296312bb4a15249b4035c94b8ec73345624c43",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:log/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/log/log.go",
+      "sha256": "30664ff45256ccbc53901feb7042e8a3b739dc3db35bdaeb43ff64c64dee5aa4",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:log/log.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/log/types.go",
+      "sha256": "bb62eb45148c178038a86d7b83ea4302444988580b2a3ebd09389b21e78c5da0",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:log/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/media/events.go",
+      "sha256": "249f4e5f9861ffb4a5583f4cc9c69c8c9b940d0c63b8b0e97bb4254415220504",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:media/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/media/media.go",
+      "sha256": "af72fe0dae10c6234c526c92f4e3e562cc437c5417a44715320954c17eec6312",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:media/media.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/media/types.go",
+      "sha256": "3ef22c11e8d5e638829080cf7a09518928e22081c4a84e8bf6cfbfca8e50f784",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:media/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/memory/memory.go",
+      "sha256": "d5b90ce97a18433304676c7158ce8a52629caf90b1a2bb37337d7e2443c48c40",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:memory/memory.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/memory/types.go",
+      "sha256": "335eb7d8c9e06949d7c06ba0fe4109d9397c846d4547f31ba0dba5ebc0e8714a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:memory/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/network/events.go",
+      "sha256": "383654e4c467ca99390f0d5b667b880c5d480934453fa42cb97f58ebcb2fc074",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:network/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/network/network.go",
+      "sha256": "5aab26db8dd665c6cf4c3f01935518b80f6c96cee6017111a4be5daf6d4b695c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:network/network.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/network/types.go",
+      "sha256": "87bdba2f7c328203699adb14fb9d7a597140e23fb4c6e2d5abd14751ecbe17e0",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:network/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/overlay/events.go",
+      "sha256": "48b07a384375fe7236fa2713faeeb5b75a8da9376ba6ffc7024f2f7cbdd18cd1",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:overlay/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/overlay/overlay.go",
+      "sha256": "0fd3f10ee1e5ce44aa452589a5bd952d7f8bc182b08fbe0cd5dccd4921942d19",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:overlay/overlay.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/overlay/types.go",
+      "sha256": "fe93e6be13d744c454704bfc93f30fdfc6d502e6e012b9a655c5704ee681a553",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:overlay/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/page/events.go",
+      "sha256": "7fceb0a08987dcfd1cfcfc48a35d89f87147873636aa78c3e428518ab202313b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:page/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/page/page.go",
+      "sha256": "2d2507131a88dc1791c9222fd94d1230fa42756e9cc1706dfd501873d72ce30b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:page/page.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/page/types.go",
+      "sha256": "af94d39a94e9b91ec39342bd5dfe9e4344a1cadd886587453defa68cef0b3b5d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:page/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performance/events.go",
+      "sha256": "c7d97748563b112deb04b9fa21e28ebfa3fc2cceec44d587d863ca9a801022cc",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performance/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performance/performance.go",
+      "sha256": "01e385a29495f67bbfa211a5fa1f9cc007b6d0db82a51207b242f4890d49707c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performance/performance.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performance/types.go",
+      "sha256": "8c452c68c1258b1a92dca624def68b82db33f9779693525b4c4732c1525c201d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performance/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performancetimeline/events.go",
+      "sha256": "4c8e646cb1cd3cdb9cc4879442bab2196e99205602ed5749de877af1192fd8b5",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performancetimeline/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performancetimeline/performancetimeline.go",
+      "sha256": "13fb105a97715e636c5707b931eb36d1aa4fc65e918da73fb01993d5ebe44c13",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performancetimeline/performancetimeline.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/performancetimeline/types.go",
+      "sha256": "111ca19051d519d5e709d965257b59a982a9f35073f4152259391a4521139b44",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:performancetimeline/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/preload/events.go",
+      "sha256": "727c02b759ea7bd0094cffe0a2d06e3d3cf6dd3874c56e4c4670e0cdf7ba7364",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:preload/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/preload/preload.go",
+      "sha256": "b016c40aa988120b5095871f61625464deacbcee07dac6944e8f1f21579ca3c7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:preload/preload.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/preload/types.go",
+      "sha256": "1cdf209d6f6913b73187b4276d7166be01455a379f99f2eae88ff1d0ffda7ed8",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:preload/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/profiler/events.go",
+      "sha256": "404f8f6e291817e42d47b121bd12dbcbcf0736d1c3a77e4ad0b1f5a809eb477a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:profiler/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/profiler/profiler.go",
+      "sha256": "ffd8dbd5ce7a4a4fbec978f197427d3eb516499e581b27c2c95c07b8164125ca",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:profiler/profiler.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/profiler/types.go",
+      "sha256": "3127256662b06d625f65e3fa23118a966d6bd9bfb2d35cfdc9ead5e0357c0c56",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:profiler/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/pwa/pwa.go",
+      "sha256": "8e05e5565eaf95170ff39799b938d5c4c05e3118fa7bce64104231297e035f49",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:pwa/pwa.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/pwa/types.go",
+      "sha256": "219b0dfdf27e96f14d167deeed325e58be623d43d5974ead575152a9f01e1a47",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:pwa/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/runtime/events.go",
+      "sha256": "18eb94d820c234fff5e81d8775e9cfae13304319f59be1ca0de290f14a22cb0c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:runtime/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/runtime/runtime.go",
+      "sha256": "541a02d8f1cbaf45731d6edb9d8b686f139ba6866866e67eb8dd3b996c335a41",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:runtime/runtime.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/runtime/types.go",
+      "sha256": "75dbbcc3c222e9c0aa32405726a515e4b681ee94aa7fd7ebbab36a097a4ff8cd",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:runtime/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/security/events.go",
+      "sha256": "0db863b6ce797fb7790a7b80915c9fd00e1bcdcea89027905b832c5e163415cf",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:security/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/security/security.go",
+      "sha256": "6ec89eb7154c5ecd488796970cb30e6821070208ca43fc2f2b896ef655aa6996",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:security/security.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/security/types.go",
+      "sha256": "8802858bf6c8e5556f1ecb83ec4d1e70e7a2e14a0aeebebd3901fba3d9d8aaab",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:security/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/serviceworker/events.go",
+      "sha256": "1f91855431c09966de93c4fb74958cacead5f4d098b07819ec06924771175a3c",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:serviceworker/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/serviceworker/serviceworker.go",
+      "sha256": "88482f0057b82652de63b1c62e38011b8f31d6f59677207a2dda3ffadca999d5",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:serviceworker/serviceworker.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/serviceworker/types.go",
+      "sha256": "b650ccc552a7a6bca4def304a6e1290dc754aa886e6c7649d74d38b453a8a94a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:serviceworker/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/smartcardemulation/events.go",
+      "sha256": "01d84accd404dfc7b5a715d1a539ee1c2d0da0696645f9260de633a78c9ac9c2",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:smartcardemulation/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/smartcardemulation/smartcardemulation.go",
+      "sha256": "b74a73d4693e896392352f43521d29ebe7c54fd48f07f21a944710c96d204519",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:smartcardemulation/smartcardemulation.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/smartcardemulation/types.go",
+      "sha256": "ed630d08c22d0f7b6390c3e69c5e8e8d060a4c13eade76c18d03c9996ee7a9ac",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:smartcardemulation/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/storage/events.go",
+      "sha256": "d75abc0bb695e316e732b2bc540bf44161e020be3203107afde8ec515832aabc",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:storage/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/storage/storage.go",
+      "sha256": "ca006ce344c1caaa71e6098e56d01faea64eab1e5bb963d9231842ccdfc76a09",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:storage/storage.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/storage/types.go",
+      "sha256": "bae2ad51a58d61ed4557d3c6fb25c93afaea5b9955563d9460d1c410c1425a0b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:storage/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/systeminfo/systeminfo.go",
+      "sha256": "ad2ffdb5e282bcc49470211fc0103d1d75cfe43da009dbecd5a1a29c1cf30c98",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:systeminfo/systeminfo.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/systeminfo/types.go",
+      "sha256": "26890d8bdde9fa08cd4e04e264c405ff100e5b973fd42b9542688b514b9f5f6d",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:systeminfo/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/target/events.go",
+      "sha256": "6a31713f8d359821e042525b9c48693f0fc88a8e53cd84e223a2a5f03a142ccc",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:target/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/target/target.go",
+      "sha256": "db5463b378ea9c766f935ceedff615c4e031d9fe3773efdc874bf08062ec3baf",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:target/target.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/target/types.go",
+      "sha256": "caf14c3e7851edb70f632a67567772545baa1a539cb35891dbd90d2011ab555a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:target/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/tethering/events.go",
+      "sha256": "1776c6a86187b042b7ccefb03762f2948c961f3b554028aeac9dabdbd43c05df",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:tethering/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/tethering/tethering.go",
+      "sha256": "41f99fd983077d47ea29602ddd6b75244925daa72d3887a53a9d6ab8d4c99101",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:tethering/tethering.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/tracing/events.go",
+      "sha256": "cc59cd78a879aa8854b26c2641d6634a26d81d0103d0299d1cf3e6d7fb76b074",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:tracing/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/tracing/tracing.go",
+      "sha256": "646ee48167d1d3e5691565aa50e2301aaf0a4454f1bcd5d7b1cc1fd0a5dbab08",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:tracing/tracing.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/tracing/types.go",
+      "sha256": "ef3f58f0cded76b2e120be994ea7352e35be0d50c2172c414074d0d4963b4479",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:tracing/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/version.go",
+      "sha256": "ea2c30b7f26ccf9129a9dac46c97a5ce03b248a307a9414407f2c768f50ed0fd",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:version.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webaudio/events.go",
+      "sha256": "a31a36cca08e9f931cead2603004d9c75774ed25f196d9595c4fd3dc2b78665a",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webaudio/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webaudio/types.go",
+      "sha256": "46e33915084252eb667f451f020b96dc60bfa1c08dd376bca12ac607b114c357",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webaudio/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webaudio/webaudio.go",
+      "sha256": "25a7e543bb4b999555ad3e8a38afe3d4f88dc4eecbe1fc4e8c374bbd01629639",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webaudio/webaudio.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webauthn/events.go",
+      "sha256": "7edcb3e651b2aabbfb9bf553dd0d94838691dea3324443a96a4e3551207d4c55",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webauthn/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webauthn/types.go",
+      "sha256": "448d5c1df484f0e82ec08e5cdf98f42d9b37d4330651a302eee4e1b1440ddd5b",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webauthn/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webauthn/webauthn.go",
+      "sha256": "def41cf8f136aab8bbcbf868dc03d1be9e5c4d0d00e738bb6ff4e0ce49be0783",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webauthn/webauthn.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webmcp/events.go",
+      "sha256": "3d9e7f20e794f1c5c9f46f9aa5f96e4d8a49666e1c50a5c16d0a6a2b5b46e5ed",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webmcp/events.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webmcp/types.go",
+      "sha256": "0f0251e07a67a5e31fb1b0679631ea7f13a4608f59287b4223c2b97d03223655",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webmcp/types.go"
+    },
+    {
+      "path": "vendor/github.com/chromedp/cdproto/webmcp/webmcp.go",
+      "sha256": "917d7a70e8f532452895eb99ab4141d0e07c1500cdd03b629e7dc861a0dc19f7",
+      "origin": "addaeda61ff9934e34804b85c09e8bba01fa29a4:webmcp/webmcp.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/AUTHORS",
+      "sha256": "5aa3167c44245f0b12b27195d85c6a8c8e067cfdd511059daa4d7b3c5b232129",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:AUTHORS"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/CONTRIBUTORS",
+      "sha256": "fa714cb1012a065fbe08b174eb1f5604327bd24d42dab2c461878ce36f68d0c9",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:CONTRIBUTORS"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/LICENSE",
+      "sha256": "14a34c4db2d21bf9cf80d028b802cd22fed9bf597a6c2db7ce30ee6ffd04967a",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:LICENSE"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/README.md",
+      "sha256": "1cd7266975ade328a7b198c9955e2d1dcac10aa97ddf4a7843dcc20924451a34",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:README.md"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/alias.go",
+      "sha256": "659d77d37d626b98bf89017f2c72548924b9ef2c55bc62690094eecc673c1b27",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:alias.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/api.png",
+      "sha256": "c267ed2b094bb62e7c324036ae51ec09c4f035c4dd9f5c1920ee43608488506c",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:api.png"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal.go",
+      "sha256": "09f7fee3cabd1c67ec1408f1104a02625ae3d0e7782a89825cd44568d768e937",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_any.go",
+      "sha256": "a6f6cd092a0ead09a7f72b06d034a3bdc9e922644216a0e0230e5da512610fa2",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_any.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_default.go",
+      "sha256": "567a2b6cf1c57fcded7bb26f90d34ab25d18259710946cac5091f09a8c1707bb",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_default.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_funcs.go",
+      "sha256": "2d0e09198d2d415cd540373b7d601f5e7dcc873f60463017978158ae8208a1bb",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_funcs.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_inlined.go",
+      "sha256": "95c635fa4aa5f77f98f4a791abbe38d5b8007481a482a55b4e8972051a106289",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_inlined.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_methods.go",
+      "sha256": "584cc3ebb99e2515e399955345741607fd503a2f018b94d019506b97d65a9785",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_methods.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/arshal_time.go",
+      "sha256": "46f46a4b5cb6431c660ec109b9dbe66982939827dd7b97373e6967db2aeb372a",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:arshal_time.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/doc.go",
+      "sha256": "1bf55c0b9a94c239f70738ef3c487eca3a79dc13ce48deee086f2ae3bc240715",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:doc.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/errors.go",
+      "sha256": "77e7cbee6a7ab48ea2d1cc2baca53ec91177c5d5e94041d596298daad55f8a90",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:errors.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/fields.go",
+      "sha256": "4d7beaa29bff5a34e0d18e5ba2c47afdf7d628d53f0f054b67f39c7ff88ce5d0",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:fields.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/fold.go",
+      "sha256": "14f299eb612fc4ed42d5c25601f4dd85dbcf0edbc3b1696e839fa6048a6ddf03",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:fold.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/intern.go",
+      "sha256": "f1e8e96fb59c5bc97f75d629864d846a10bbaf1e2deed9de85a076793aa998da",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:intern.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/internal.go",
+      "sha256": "e4e74e01cf3852c4da96c338db52572d9bc3bf9df2cba4328293e69bce153949",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/internal.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/jsonflags/flags.go",
+      "sha256": "30388272f0edeee8a5e2206e366416caf9458c5f5d3e9c0c5b943bb08e7cf53d",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/jsonflags/flags.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/jsonopts/options.go",
+      "sha256": "4f2dc1c53c70287216c4464985050886a46a5078595389ed8faac815068770ea",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/jsonopts/options.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/jsonwire/decode.go",
+      "sha256": "f51e3154a3e7f2ee77e3501f9a99a71195cc0f2a9b95dbda176fc16b28d9595d",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/jsonwire/decode.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/jsonwire/encode.go",
+      "sha256": "6c292ac72a691384adbc0e05e2ce6917d6d02fbe5156f598c728d8fe4e585a0a",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/jsonwire/encode.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/internal/jsonwire/wire.go",
+      "sha256": "22e13c0bfbfb0fde39727f29678738dffdaecb9f0866ec2517111e19c0323796",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:internal/jsonwire/wire.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/alias.go",
+      "sha256": "57c452d994964fff6a63534e112776c97c61eda8a8d719c732b73c913a1e72e4",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/alias.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/decode.go",
+      "sha256": "062dc0959fea81cfe693046af20fe2c1aff1dabde28eb9bfb888bd469c3d776e",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/decode.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/doc.go",
+      "sha256": "9774022220e26d0ad66d459fb4f1afc43244a959f8b7a87ba6a1b82b417876f4",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/doc.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/encode.go",
+      "sha256": "2cc2fb4b68564023f3aa33e3bf8d7b9f682683e176002f5306ce49160510c83b",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/encode.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/errors.go",
+      "sha256": "f941d77827c7cc9e524ab0f1886be141500a2bd16cb6e15ff961291728447103",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/errors.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/export.go",
+      "sha256": "1c0fc60c42de5a777ca626f922d08d552b918866daa5c08b660f55c0c1209c90",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/export.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/options.go",
+      "sha256": "9b6c03c4c3ef9478f9433d3db30f7d0ed8c41be5341e9ef357e4c82874f16155",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/options.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/pools.go",
+      "sha256": "f13c05542cb87b804ef63f5e8b0e937491d220b222c20f9ad85be5de057974c7",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/pools.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/quote.go",
+      "sha256": "fc0abd4ab7d39609f995f11bc7bca1b8b4e42c9ee99ffebf201e49fe4c4581e7",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/quote.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/state.go",
+      "sha256": "14cdf807d8c2610ef1a07906018522860a12ab954ab847964d6c503636f6a3a2",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/state.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/token.go",
+      "sha256": "a0435e57c85388e175178a8d62df42de81065c6dfe32f64444261ccf2eecbc53",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/token.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/jsontext/value.go",
+      "sha256": "84264989d0ca3d6fda6eaaefca95a700d94e6433b48fbf3a7d6877ac5d211392",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:jsontext/value.go"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/migrate.sh",
+      "sha256": "a4582872e8e04a8a27ef894556f8dc77171c6d168ea3a118e12f2c9c8912a674",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:migrate.sh"
+    },
+    {
+      "path": "vendor/github.com/go-json-experiment/json/options.go",
+      "sha256": "e431004c5f62acfe49894a54280adc930460ce7467aa4e63330e148cc0b2dd3d",
+      "origin": "44df1a37e875e488af5305814494092b9eb3f38d:options.go"
+    }
+  ]
+}
