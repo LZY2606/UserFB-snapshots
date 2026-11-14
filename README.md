@@ -449,7 +449,52 @@ as long as the number of open requests is under the
 
 #### crawler.maxConcurrency : <code>Number</code>
 Maximum request concurrency. If necessary, simplecrawler will increase
-node's http agent maxSockets value to match this setting.
+node's http agent maxSockets value to match this setting. When
+[originScheduling](#Crawler+originScheduling) is enabled this is still the
+shared cap across every origin combined.
+
+<a name="Crawler+originScheduling"></a>
+
+#### crawler.originScheduling : <code>Boolean</code>
+Turns on fair, per-origin scheduling. Defaults to `false`, in which case the
+original global queue scheduling is used unchanged.
+
+When enabled, send slots are handed out in round-robin order between origins.
+The rotation order is established by the first time each origin appears in the
+queue. Origins that have no sendable work, that have reached their
+[maxConcurrencyPerOrigin](#Crawler+maxConcurrencyPerOrigin) cap or whose
+robots.txt is still loading are skipped without blocking the origins behind
+them. Pages queued for the same origin are still sent in queue (FIFO) order.
+
+Origins are identified by the lowercased scheme and hostname plus the
+effective port; an omitted port and the scheme's default port (80 for HTTP,
+443 for HTTPS) count as the same origin.
+
+robots.txt requests count towards both the global and the per-origin
+concurrency caps. Each origin's robots.txt is fetched once; that origin's
+pages wait for the result while other origins keep crawling. A robots.txt
+failure keeps the existing `robotstxterror` policy of continuing to crawl.
+
+<a name="Crawler+maxConcurrencyPerOrigin"></a>
+
+#### crawler.maxConcurrencyPerOrigin : <code>Number</code>
+Maximum number of concurrent requests against a single origin when
+[originScheduling](#Crawler+originScheduling) is enabled. Defaults to `1`.
+Only positive integers are accepted; the value is validated when
+[start](#Crawler+start) is called. The global
+[maxConcurrency](#Crawler+maxConcurrency) cap always applies on top of it.
+
+Enabling per-origin scheduling looks like this:
+
+```js
+var crawler = new Crawler("http://example.com/");
+
+crawler.originScheduling = true;
+crawler.maxConcurrencyPerOrigin = 2;
+crawler.maxConcurrency = 6;
+
+crawler.start();
+```
 
 <a name="Crawler+timeout"></a>
 
@@ -1188,6 +1233,26 @@ Please see the [contributor guidelines](https://github.com/simplecrawler/simplec
 ## Contributors
 
 simplecrawler has benefited from the kind efforts of dozens of contributors, to whom we are incredibly grateful. We originally listed their individual contributions but it became pretty unwieldy - the [full list can be found here.](https://github.com/simplecrawler/simplecrawler/graphs/contributors)
+
+## Per-origin scheduling tests
+
+The per-origin scheduler and its tests live in `lib/origin-scheduler.js` and
+`test/origin-scheduler.cjs`. They run against two HTTP origins served by the
+controllable child-process server in `task_support/origin-server.cjs`.
+
+Run the baseline crawl demonstration (the original global scheduling behaviour)
+with:
+
+```sh
+node task_support/run.cjs baseline
+```
+
+Run the baseline together with the `Origin fairness`, `Robots isolation` and
+`Async queue lifecycle` `node:test` groups using:
+
+```sh
+node task_support/run.cjs target
+```
 
 ## License
 
