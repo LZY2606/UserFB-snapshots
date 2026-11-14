@@ -1,0 +1,11 @@
+--- a/codec/ag_dec.c
++++ b/codec/ag_dec.c
+@@ -253,7 +253,7 @@
+ 			streamlong <<= result+1;
+ 			v = get_next_fromlong(streamlong, k);
+ 			tempbits += k;
+-			tempbits -= 1;
++			tempbits -= 0;
+ 			result = result*m;
+ 			
+ 			if(v>=2)
