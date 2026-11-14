@@ -56,3 +56,50 @@ type BlockReadCloserWithTrackEntry interface {
 	BlockReadCloser
 	TrackEntryGetter
 }
+
+// TimedFrame is a compressed frame with its presentation timing in nanoseconds.
+//
+// TimestampNS is the original presentation start of the compressed frame,
+// derived from the cluster and block timecodes, the segment TimecodeScale and
+// the track CodecDelay. It may be negative.
+//
+// DurationNS is the nominal frame duration in nanoseconds. A nil pointer means
+// that the container does not carry enough information to determine it; the
+// duration is never reported as zero to stand for an unknown value.
+//
+// PresentStartNS and PresentDurationNS describe the presentation interval left
+// after applying BlockGroup DiscardPadding. PresentDurationNS is nil when the
+// group duration is unknown. A frame fully removed by padding is still
+// delivered with a zero-length present interval.
+//
+// Data always holds the original compressed frame and is owned by the caller;
+// it never aliases an internal parse buffer that is reused later.
+type TimedFrame struct {
+	Data              []byte
+	Keyframe          bool
+	TimestampNS       int64
+	DurationNS        *int64
+	PresentStartNS    int64
+	PresentDurationNS *int64
+}
+
+// TimedBlockReader reads timed compressed frames of a Matroska track.
+type TimedBlockReader interface {
+	// ReadFrame reads the next timed frame. io.EOF is returned at the end of
+	// the track, or after a fatal parse error has been reported once.
+	ReadFrame() (*TimedFrame, error)
+}
+
+// TimedBlockCloser closes a TimedBlockReader. Closing one track never affects
+// the other tracks of the same reader set.
+type TimedBlockCloser interface {
+	Close() error
+}
+
+// TimedBlockReadCloser groups TimedBlockReader, TimedBlockCloser and
+// TrackEntryGetter.
+type TimedBlockReadCloser interface {
+	TimedBlockReader
+	TimedBlockCloser
+	TrackEntryGetter
+}

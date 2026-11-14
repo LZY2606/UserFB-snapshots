@@ -86,5 +86,6 @@ type TrackEntry struct {
 	LanguageIETF       string
 	CodecID            string
 	CodecDecodeAll     uint8
+	CodecDelay         uint64
 	SeekPreRoll        uint64
 }
