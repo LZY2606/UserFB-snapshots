@@ -1,0 +1,13 @@
+[  6%] Built target opentime
+[ 18%] Built target Imath
+[ 20%] Building CXX object CMakeFiles/opentimelineio.dir/src/opentimelineio/trackAlgorithm.cpp.o
+[ 22%] Linking CXX static library libopentimelineio.a
+[ 95%] Built target opentimelineio
+[ 97%] Linking CXX executable baseline
+[100%] Built target baseline
+[  6%] Built target opentime
+[ 18%] Built target Imath
+[ 93%] Built target opentimelineio
+[ 95%] Building CXX object CMakeFiles/target.dir/task_support/slice_test.cpp.o
+[ 97%] Linking CXX executable target
+[100%] Built target target

@@ -1,0 +1,14 @@
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/opentime.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/opentimelineio.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/baseline.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/target.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/CMakeFiles/uninstall.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath/CMakeFiles/Imath.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath/CMakeFiles/rebuild_cache.dir

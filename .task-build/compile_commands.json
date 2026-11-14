@@ -1,0 +1,278 @@
+[
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentime.dir/src/opentime/errorStatus.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentime/errorStatus.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentime/errorStatus.cpp",
+  "output": "CMakeFiles/opentime.dir/src/opentime/errorStatus.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentime.dir/src/opentime/rationalTime.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentime/rationalTime.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentime/rationalTime.cpp",
+  "output": "CMakeFiles/opentime.dir/src/opentime/rationalTime.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/CORE_VERSION_MAP.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/CORE_VERSION_MAP.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/CORE_VERSION_MAP.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/CORE_VERSION_MAP.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/CORE_VERSION_MAP.last.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/CORE_VERSION_MAP.last.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/CORE_VERSION_MAP.last.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/CORE_VERSION_MAP.last.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/algo/editAlgorithm.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/algo/editAlgorithm.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/algo/editAlgorithm.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/algo/editAlgorithm.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/clip.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/clip.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/clip.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/clip.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/color.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/color.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/color.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/color.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/composable.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/composable.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/composable.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/composable.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/composition.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/composition.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/composition.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/composition.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/deserialization.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/deserialization.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/deserialization.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/deserialization.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/effect.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/effect.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/effect.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/effect.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/errorStatus.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/errorStatus.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/errorStatus.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/errorStatus.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/externalReference.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/externalReference.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/externalReference.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/externalReference.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/freezeFrame.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/freezeFrame.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/freezeFrame.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/freezeFrame.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/gap.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/gap.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/gap.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/gap.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/generatorReference.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/generatorReference.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/generatorReference.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/generatorReference.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/imageSequenceReference.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/imageSequenceReference.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/imageSequenceReference.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/imageSequenceReference.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/item.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/item.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/item.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/item.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/linearTimeWarp.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/linearTimeWarp.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/linearTimeWarp.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/linearTimeWarp.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/marker.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/marker.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/marker.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/marker.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/mediaReference.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/mediaReference.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/mediaReference.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/mediaReference.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/missingReference.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/missingReference.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/missingReference.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/missingReference.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/safely_typed_any.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/safely_typed_any.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/safely_typed_any.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/safely_typed_any.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableCollection.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableCollection.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableCollection.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableCollection.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableObject.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableObject.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableObject.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableObject.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableObjectWithMetadata.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableObjectWithMetadata.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serializableObjectWithMetadata.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/serializableObjectWithMetadata.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/serialization.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serialization.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/serialization.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/serialization.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/stack.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stack.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stack.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/stack.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/stackAlgorithm.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stackAlgorithm.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stackAlgorithm.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/stackAlgorithm.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/stringUtils.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stringUtils.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/stringUtils.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/stringUtils.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/timeEffect.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/timeEffect.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/timeEffect.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/timeEffect.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/timeline.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/timeline.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/timeline.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/timeline.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/track.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/track.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/track.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/track.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/trackAlgorithm.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/trackAlgorithm.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/trackAlgorithm.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/trackAlgorithm.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/transition.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/transition.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/transition.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/transition.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/transitionSlice.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/transitionSlice.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/transitionSlice.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/transitionSlice.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/typeRegistry.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/typeRegistry.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/typeRegistry.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/typeRegistry.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/rapidjson/include -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/opentimelineio.dir/src/opentimelineio/unknownSchema.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/unknownSchema.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src/opentimelineio/unknownSchema.cpp",
+  "output": "CMakeFiles/opentimelineio.dir/src/opentimelineio/unknownSchema.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/baseline.dir/task_support/baseline.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/baseline.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/baseline.cpp",
+  "output": "CMakeFiles/baseline.dir/task_support/baseline.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/. -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/target.dir/task_support/driver.c.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/driver.c",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/driver.c",
+  "output": "CMakeFiles/target.dir/task_support/driver.c.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build",
+  "command": "/usr/bin/c++ -DOPENTIME_STATIC -DOTIO_STATIC -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/. -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/target.dir/task_support/slice_test.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/slice_test.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/task_support/slice_test.cpp",
+  "output": "CMakeFiles/target.dir/task_support/slice_test.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath",
+  "command": "/usr/bin/c++  -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=c++17 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -o CMakeFiles/Imath.dir/half.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/half.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/half.cpp",
+  "output": "vendor/Imath/src/Imath/CMakeFiles/Imath.dir/half.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath",
+  "command": "/usr/bin/c++  -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=c++17 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -o CMakeFiles/Imath.dir/ImathColorAlgo.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathColorAlgo.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathColorAlgo.cpp",
+  "output": "vendor/Imath/src/Imath/CMakeFiles/Imath.dir/ImathColorAlgo.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath",
+  "command": "/usr/bin/c++  -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=c++17 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -o CMakeFiles/Imath.dir/ImathFun.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathFun.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathFun.cpp",
+  "output": "vendor/Imath/src/Imath/CMakeFiles/Imath.dir/ImathFun.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath",
+  "command": "/usr/bin/c++  -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=c++17 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -o CMakeFiles/Imath.dir/ImathMatrixAlgo.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathMatrixAlgo.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathMatrixAlgo.cpp",
+  "output": "vendor/Imath/src/Imath/CMakeFiles/Imath.dir/ImathMatrixAlgo.cpp.o"
+},
+{
+  "directory": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath",
+  "command": "/usr/bin/c++  -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath -I/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config -O3 -DNDEBUG -std=c++17 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -o CMakeFiles/Imath.dir/ImathRandom.cpp.o -c /Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathRandom.cpp",
+  "file": "/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/vendor/Imath/src/Imath/ImathRandom.cpp",
+  "output": "vendor/Imath/src/Imath/CMakeFiles/Imath.dir/ImathRandom.cpp.o"
+}
+]

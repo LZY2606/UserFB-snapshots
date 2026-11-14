@@ -26,6 +26,7 @@
 #include "opentimelineio/timeline.h"
 #include "opentimelineio/track.h"
 #include "opentimelineio/transition.h"
+#include "opentimelineio/transitionSlice.h"
 #include "opentimelineio/unknownSchema.h"
 #include "stringUtils.h"
 
@@ -91,6 +92,7 @@ TypeRegistry::TypeRegistry()
     register_type<Track>();
     register_type_from_existing_type("Sequence", 1, "Track", nullptr);
     register_type<Transition>();
+    register_type<TransitionSlice>();
 
     /*
      * Upgrade functions:

@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/config/cmake_install.cmake",
+		"/Users/lzy/pro/UserFB/workspace/Z2013/attempts/20261114T180059599685Z/repo/.task-build/vendor/Imath/src/Imath/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

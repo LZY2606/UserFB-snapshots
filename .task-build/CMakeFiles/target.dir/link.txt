@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/target.dir/task_support/driver.c.o CMakeFiles/target.dir/task_support/slice_test.cpp.o -o target  libopentimelineio.a libopentime.a vendor/Imath/src/Imath/libImath-3_2.a -lm
