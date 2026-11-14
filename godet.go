@@ -104,6 +104,9 @@ var (
 	ErrorNoResponse = errors.New("no response")
 	// ErrorClose is returned if a method is called after the connection has been close
 	ErrorClose = errors.New("closed")
+	// ErrorScreencastActive is returned by StartScreencast if this connection
+	// already owns a screencast stream (starting, running or stopping)
+	ErrorScreencastActive = errors.New("screencast already active")
 
 	MaxReadBufferSize  = 0          // default gorilla/websocket buffer size
 	MaxWriteBufferSize = 100 * 1024 // this should be large enough to send large scripts
@@ -314,11 +317,14 @@ type RemoteDebugger struct {
 	sync.Mutex           // Mutex for thread safety
 	closed     chan bool // Channel to signal connection closure
 
-	requests  chan Params                  // Channel for outgoing requests
-	responses map[int]chan json.RawMessage // Map of request IDs to response channels
-	callbacks map[string]EventCallback     // Map of event names to callback functions
-	domains   map[string]bool              // Map of enabled protocol domains
-	events    chan wsMessage               // Channel for incoming events
+	requests  chan Params              // Channel for outgoing requests
+	responses map[int]chan wsResponse  // Map of request IDs to response channels
+	callbacks map[string]EventCallback // Map of event names to callback functions
+	domains   map[string]bool          // Map of enabled protocol domains
+	events    chan wsMessage           // Channel for incoming events
+
+	screencast    *Screencast // Current screencast stream (starting, running or stopping), if any
+	screencastErr error       // Fatal stream error (ack failure); forbids new streams on this connection
 }
 
 // Connect to the remote debugger and return `RemoteDebugger` object.
@@ -343,7 +349,7 @@ func Connect(port string, verbose bool, options ...ConnectOption) (*RemoteDebugg
 	remote := &RemoteDebugger{
 		http:      client,
 		requests:  make(chan Params),
-		responses: map[int]chan json.RawMessage{},
+		responses: map[int]chan wsResponse{},
 		callbacks: map[string]EventCallback{},
 		domains:   map[string]bool{},
 		events:    make(chan wsMessage, 256),
@@ -472,9 +478,29 @@ func (remote *RemoteDebugger) Verbose(v bool) {
 type wsMessage struct {
 	ID     int             `json:"id"`
 	Result json.RawMessage `json:"result"`
+	Error  json.RawMessage `json:"error"`
 
 	Method string          `json:"Method"`
 	Params json.RawMessage `json:"Params"`
+}
+
+// ResponseError represents an error returned by the browser for a DevTools
+// protocol command. The Code and Message returned by the browser are preserved
+// so callers can inspect them.
+type ResponseError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// Error implements the error interface for ResponseError.
+func (err *ResponseError) Error() string {
+	return fmt.Sprintf("remote error %d: %s", err.Code, err.Message)
+}
+
+// wsResponse carries the reply to a protocol command: either a result or an error.
+type wsResponse struct {
+	result json.RawMessage
+	err    *ResponseError
 }
 
 // SendRequest sends a request and returns the reply as a a map.
@@ -494,7 +520,7 @@ func (remote *RemoteDebugger) sendRawReplyRequest(method string, params Params) 
 		return nil, ErrorClose
 	}
 
-	responseChan := make(chan json.RawMessage, 1)
+	responseChan := make(chan wsResponse, 1)
 	reqID := remote.reqID
 	remote.responses[reqID] = responseChan
 	remote.reqID++
@@ -513,7 +539,11 @@ func (remote *RemoteDebugger) sendRawReplyRequest(method string, params Params) 
 	delete(remote.responses, reqID)
 	remote.Unlock()
 
-	return reply, nil
+	if reply.err != nil {
+		return nil, reply.err
+	}
+
+	return reply.result, nil
 }
 
 func (remote *RemoteDebugger) sendMessages() {
@@ -582,7 +612,14 @@ loop:
 
 				remote.Lock()
 				_, ok := remote.callbacks[message.Method]
+				sc := remote.screencast
 				remote.Unlock()
+
+				if sc != nil && message.Method == screencastFrameEvent {
+					// handle the frame in the read loop (decode, acknowledge,
+					// update the mailbox) without ever blocking it
+					sc.handleFrame(message.Params)
+				}
 
 				if !ok {
 					continue // don't queue unrequested events
@@ -608,7 +645,16 @@ loop:
 				remote.Unlock()
 
 				if ch != nil {
-					ch <- message.Result
+					var resp wsResponse
+					if len(message.Error) > 0 {
+						resp.err = &ResponseError{}
+						if err := json.Unmarshal(message.Error, resp.err); err != nil {
+							resp.err = &ResponseError{Message: string(message.Error)}
+						}
+					} else {
+						resp.result = message.Result
+					}
+					ch <- resp
 				}
 			}
 		}

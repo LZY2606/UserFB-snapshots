@@ -98,3 +98,50 @@ _ = remote.SaveScreenshot("screenshot.png", 0644, 0, true)
 _ = remote.SavePDF("page.pdf", 0644)
 
 ```
+
+## Screencast
+Use `StartScreencast` to keep receiving the browser screen while automating
+the page (e.g. driving a form robot). A connection owns at most one stream at
+a time; frames are acknowledged automatically and the stream keeps only the
+most recent frame not yet taken.
+
+```go
+import "github.com/raff/godet"
+
+// connect to Chrome instance
+remote, err := godet.Connect("localhost:9222", true)
+if err != nil {
+    fmt.Println("cannot connect to Chrome instance:", err)
+    return
+}
+defer remote.Close()
+
+// start the screencast (Page.startScreencast, png, every frame)
+cast, err := remote.StartScreencast()
+if err != nil {
+    fmt.Println("cannot start screencast:", err)
+    return
+}
+
+// consume frames: frame.Data holds the raw PNG bytes,
+// frame.Metadata the metadata provided by the browser
+go func() {
+    for frame := range cast.Frames() {
+        fmt.Printf("frame %d: %d bytes\n", frame.SessionID, len(frame.Data))
+    }
+}()
+
+// keep interacting with the page as usual
+_, _ = remote.Navigate("https://www.google.com")
+_ = remote.MouseEvent(godet.MousePress, 10, 20, godet.LeftButton())
+
+// stop the screencast when done; this closes the Frames channel
+if err := cast.Stop(); err != nil {
+    fmt.Println("cannot stop screencast:", err)
+}
+
+// a fatal stream error (e.g. a failed acknowledgement) is reported by Err()
+if err := cast.Err(); err != nil {
+    fmt.Println("screencast failed:", err)
+}
+```
