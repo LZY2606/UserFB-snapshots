@@ -438,6 +438,17 @@ struct tsf_region
 	int freqModLFO, modLfoToPitch;
 	float delayVibLFO;
 	int freqVibLFO, vibLfoToPitch;
+
+	// Linked stereo sample pair (left/right). Only set when both shdr ends
+	// could be validated at load time; rendering never looks at shdr.
+	// End and loop_end values here are exclusive (one past the last sample).
+	unsigned char is_stereo;
+	unsigned int left_offset, left_end, left_loop_start, left_loop_end;
+	unsigned int right_offset, right_end, right_loop_start, right_loop_end;
+	// Signed wide accumulators for the fine/coarse address generators. These
+	// mirror the existing unsigned fields for the mono path but avoid relying
+	// on unsigned wraparound for overflow validation of linked pairs.
+	long long addrOffsetDelta, addrEndDelta, addrLoopStartDelta, addrLoopEndDelta;
 };
 
 struct tsf_preset
@@ -457,7 +468,7 @@ struct tsf_voice
 	float  noteGainDB, panFactorLeft, panFactorRight;
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
-	struct tsf_voice_lowpass lowpass;
+	struct tsf_voice_lowpass lowpass, lowpassRight;
 	struct tsf_voice_lfo modlfo, viblfo;
 };
 
@@ -623,8 +634,27 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		{
 			case GEN_FLOAT:      ((       float*)region)[offset]  = amount->shortAmount;     return;
 			case GEN_INT:        ((         int*)region)[offset]  = amount->shortAmount;     return;
-			case GEN_UINT_ADD:   ((unsigned int*)region)[offset] += amount->shortAmount;     return;
-			case GEN_UINT_ADD15: ((unsigned int*)region)[offset] += amount->shortAmount<<15; return;
+			case GEN_UINT_ADD:
+			{
+				unsigned int* val = &((unsigned int*)region)[offset];
+				*val += amount->shortAmount;
+				if      (val == &region->offset    ) region->addrOffsetDelta    += amount->shortAmount;
+				else if (val == &region->end       ) region->addrEndDelta       += amount->shortAmount;
+				else if (val == &region->loop_start) region->addrLoopStartDelta += amount->shortAmount;
+				else if (val == &region->loop_end  ) region->addrLoopEndDelta   += amount->shortAmount;
+				return;
+			}
+			case GEN_UINT_ADD15:
+			{
+				unsigned int* val = &((unsigned int*)region)[offset];
+				long long delta = (long long)amount->shortAmount * 32768LL;
+				*val += (unsigned int)delta;
+				if      (val == &region->offset    ) region->addrOffsetDelta    += delta;
+				else if (val == &region->end       ) region->addrEndDelta       += delta;
+				else if (val == &region->loop_start) region->addrLoopStartDelta += delta;
+				else if (val == &region->loop_end  ) region->addrLoopEndDelta   += delta;
+				return;
+			}
 			case GEN_KEYRANGE:   region->lokey = amount->range.lo; region->hikey = amount->range.hi; return;
 			case GEN_VELRANGE:   region->lovel = amount->range.lo; region->hivel = amount->range.hi; return;
 			case GEN_LOOPMODE:   region->loop_mode       = ((amount->wordAmount&3) == 3 ? TSF_LOOPMODE_SUSTAIN : ((amount->wordAmount&3) == 1 ? TSF_LOOPMODE_CONTINUOUS : TSF_LOOPMODE_NONE)); return;
@@ -678,12 +708,105 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 				}
 				case GEN_UINT_ADD:
 				{
-					((unsigned int*)region)[offset] += ((unsigned int*)merge_region)[offset];
+					unsigned int *val = &((unsigned int*)region)[offset];
+					*val += ((unsigned int*)merge_region)[offset];
+					if      (val == &region->offset    ) region->addrOffsetDelta    += merge_region->addrOffsetDelta;
+					else if (val == &region->end       ) region->addrEndDelta       += merge_region->addrEndDelta;
+					else if (val == &region->loop_start) region->addrLoopStartDelta += merge_region->addrLoopStartDelta;
+					else if (val == &region->loop_end  ) region->addrLoopEndDelta   += merge_region->addrLoopEndDelta;
 					continue;
 				}
 			}
 		}
 	}
+}
+
+// Validate an shdr pair referring to each other as left/right and populate
+// the region's fixed stereo sample descriptor. Returns 0 for a plain mono
+// sample (legacy path), 1 for a validated linked pair, -1 for a region that
+// must be skipped. End and loop boundaries are stored exclusive.
+static int tsf_region_pair_stereo(struct tsf_region* region, struct tsf_hydra* hydra, tsf_u16 sampleIndex, unsigned int fontSampleCount)
+{
+	struct tsf_hydra_shdr *a, *left, *right;
+	long long ls, le, lls, lle, rs, re, rls, rle;
+	tsf_u16 leftIndex, rightIndex;
+
+	if (sampleIndex >= (unsigned)hydra->shdrNum) return 0; // not a real sample: legacy path already guarded
+	a = &hydra->shdrs[sampleIndex];
+
+	// Only exact left (4) or right (2) sample types take the pairing path.
+	// A stereo marker combined with compression or ROM flags cannot be
+	// validated and skips the region. Everything else keeps the legacy
+	// mono behavior untouched.
+	if (a->sampleType != 4 && a->sampleType != 2)
+	{
+		if ((a->sampleType & 0x06) && (a->sampleType & 0x8030)) return -1;
+		return 0;
+	}
+
+	// The terminator record is never a playable end.
+	if ((unsigned)sampleIndex + 1 >= (unsigned)hydra->shdrNum) return -1;
+	if (a->sampleLink >= (unsigned)hydra->shdrNum) return -1;
+	if ((unsigned)a->sampleLink + 1 >= (unsigned)hydra->shdrNum) return -1;
+	leftIndex = (tsf_u16)(a->sampleType == 4 ? sampleIndex : a->sampleLink);
+	rightIndex = (tsf_u16)(a->sampleType == 4 ? a->sampleLink : sampleIndex);
+	left = &hydra->shdrs[leftIndex];
+	right = &hydra->shdrs[rightIndex];
+	if (left->sampleType != 4 || right->sampleType != 2) return -1;
+	if (left->sampleLink != rightIndex || right->sampleLink != leftIndex) return -1;
+	if (left->end <= left->start || right->end <= right->start) return -1;
+
+	// Shared properties.
+	if (left->sampleRate != right->sampleRate) return -1;
+	if (left->originalPitch != right->originalPitch) return -1;
+	if (left->pitchCorrection != right->pitchCorrection) return -1;
+
+	// Equal original lengths and equal loop geometry relative to the start.
+	if (left->end - left->start != right->end - right->start) return -1;
+	if (left->startLoop < left->start || left->startLoop > left->end) return -1;
+	if (right->startLoop < right->start || right->startLoop > right->end) return -1;
+	if (left->endLoop < left->startLoop || left->endLoop > left->end) return -1;
+	if (right->endLoop < right->startLoop || right->endLoop > right->end) return -1;
+	if (left->startLoop - left->start != right->startLoop - right->start) return -1;
+	if (left->endLoop - left->startLoop != right->endLoop - right->startLoop) return -1;
+	if (left->end > fontSampleCount || right->end > fontSampleCount) return -1;
+
+	// Apply the merged fine/coarse address generator deltas equally to both
+	// ends, in a signed wide domain so unsigned wraparound cannot turn an
+	// out-of-range result into an apparently valid one.
+	ls  = (long long)left->start     + region->addrOffsetDelta;
+	le  = (long long)left->end       + region->addrEndDelta;
+	lls = (long long)left->startLoop + region->addrLoopStartDelta;
+	lle = (long long)left->endLoop   + region->addrLoopEndDelta;
+	rs  = (long long)right->start     + region->addrOffsetDelta;
+	re  = (long long)right->end       + region->addrEndDelta;
+	rls = (long long)right->startLoop + region->addrLoopStartDelta;
+	rle = (long long)right->endLoop   + region->addrLoopEndDelta;
+
+	// Playback interval must stay within the original [start, end) and be non-empty.
+	if (ls < (long long)left->start || le > (long long)left->end) return -1;
+	if (rs < (long long)right->start || re > (long long)right->end) return -1;
+	if (ls >= le || rs >= re) return -1;
+
+	// An enabled loop must lie within the shortened interval and be non-empty.
+	if (region->loop_mode != TSF_LOOPMODE_NONE)
+	{
+		if (lls < ls || lle > le || lls >= lle) return -1;
+		if (rls < rs || rle > re || rls >= rle) return -1;
+	}
+
+	region->is_stereo = 1;
+	region->left_offset = (unsigned int)ls;  region->left_end = (unsigned int)le;
+	region->left_loop_start = (unsigned int)lls; region->left_loop_end = (unsigned int)lle;
+	region->right_offset = (unsigned int)rs; region->right_end = (unsigned int)re;
+	region->right_loop_start = (unsigned int)rls; region->right_loop_end = (unsigned int)rle;
+
+	// Keep the legacy fields pointing at the left end for voice initialization.
+	region->offset = region->left_offset;
+	region->end = region->left_end;
+	region->loop_start = region->left_loop_start;
+	region->loop_end = region->left_loop_end;
+	return 1;
 }
 
 static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
@@ -821,6 +944,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								zoneRegion.delayVibLFO = (zoneRegion.delayVibLFO < -11950.0f ? 0.0f : tsf_timecents2Secsf(zoneRegion.delayVibLFO));
 
 								// Fixup sample positions
+								if ((unsigned)pigen->genAmount.wordAmount >= (unsigned)hydra->shdrNum) { hadSampleID = 1; continue; }
 								pshdr = &hydra->shdrs[pigen->genAmount.wordAmount];
 								zoneRegion.offset += pshdr->start;
 								zoneRegion.end += pshdr->end;
@@ -833,6 +957,16 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								zoneRegion.sample_rate = pshdr->sampleRate;
 								if (zoneRegion.end && zoneRegion.end < fontSampleCount) zoneRegion.end++;
 								else zoneRegion.end = fontSampleCount;
+
+								// Detect and validate a linked left/right sample pair.
+								// Mono samples and non-stereo sample types keep the
+								// legacy path above untouched.
+								if (tsf_region_pair_stereo(&zoneRegion, hydra, pigen->genAmount.wordAmount, fontSampleCount) < 0)
+								{
+									// Bad pair: skip only this region, other layers still load.
+									hadSampleID = 1;
+									continue;
+								}
 
 								preset->regions[region_index] = zoneRegion;
 								region_index++;
@@ -860,6 +994,10 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 			if (ppbag == hydra->pbags + pphdr->presetBagNdx && !hadGenInstrument)
 				globalRegion = presetRegion;
 		}
+
+		// Regions of a pair that failed stereo validation are skipped at load;
+		// shrink the count so note_on only walks the loaded layers.
+		preset->regionNum = region_index;
 	}
 	return 1;
 }
@@ -1217,6 +1355,29 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
 }
 
+static void tsf_voice_applypan(struct tsf_voice* v, float p)
+{
+	if (v->region->is_stereo)
+	{
+		// Linked stereo: p is a stereo balance in [-0.5, 0.5]. At center both
+		// sides are delivered at unit gain, each side is attenuated as the
+		// balance moves toward it.
+		float left = 0.0f, right = 0.0f;
+		if (p >  0.5f) p =  0.5f;
+		if (p < -0.5f) p = -0.5f;
+		if (p > 0.0f) left = p; else right = p;
+		v->panFactorLeft  = TSF_SQRTF(1.0f - 2.0f * left);
+		v->panFactorRight = TSF_SQRTF(1.0f + 2.0f * right);
+	}
+	else
+	{
+		// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
+		if      (p <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
+		else if (p >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
+		else { v->panFactorLeft = TSF_SQRTF(0.5f - p); v->panFactorRight = TSF_SQRTF(0.5f + p); }
+	}
+}
+
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
@@ -1225,14 +1386,34 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
 	// Cache some values, to give them at least some chance of ending up in registers.
+	TSF_BOOL isStereo    = region->is_stereo;
 	TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
 	TSF_BOOL updateModLFO = (v->modlfo.delta && (region->modLfoToPitch || region->modLfoToFilterFc || region->modLfoToVolume));
 	TSF_BOOL updateVibLFO = (v->viblfo.delta && (region->vibLfoToPitch));
 	TSF_BOOL isLooping    = (v->loopStart < v->loopEnd);
 	unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
-	double tmpSampleEndDbl = (double)region->end, tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
+	unsigned int stereoEndRel = 0, leftOffset = 0, rightOffset = 0;
+	double tmpSampleEndDbl, tmpLoopEndDbl;
 	double tmpSourceSamplePosition = v->sourceSamplePosition;
-	struct tsf_voice_lowpass tmpLowpass = v->lowpass;
+	struct tsf_voice_lowpass tmpLowpass = v->lowpass, tmpLowpassRight = v->lowpassRight;
+
+	if (isStereo)
+	{
+		// The shared fractional position is relative to each side's start.
+		// Left and right lengths and relative loop geometry were validated
+		// equal at load time.
+		stereoEndRel = region->left_end - region->left_offset;
+		leftOffset = region->left_offset;
+		rightOffset = region->right_offset;
+		tmpSourceSamplePosition -= (double)leftOffset;
+		tmpSampleEndDbl = (double)stereoEndRel;
+		tmpLoopEndDbl = (double)tmpLoopEnd; // exclusive for stereo
+	}
+	else
+	{
+		tmpSampleEndDbl = (double)region->end;
+		tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
+	}
 
 	TSF_BOOL dynamicLowpass = (region->modLfoToFilterFc || region->modEnvToFilterFc);
 	float tmpSampleRate = f->outSampleRate, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
@@ -1264,7 +1445,13 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 			float fres = tmpInitialFilterFc + v->modlfo.level * tmpModLfoToFilterFc + v->modenv.level * tmpModEnvToFilterFc;
 			float lowpassFc = (fres <= 13500 ? tsf_cents2Hertz(fres) / tmpSampleRate : 1.0f);
 			tmpLowpass.active = (lowpassFc < 0.499f);
-			if (tmpLowpass.active) tsf_voice_lowpass_setup(&tmpLowpass, lowpassFc);
+			if (isStereo) tmpLowpassRight.active = tmpLowpass.active;
+			if (tmpLowpass.active)
+			{
+				tsf_voice_lowpass_setup(&tmpLowpass, lowpassFc);
+				// Right shares the coefficients but keeps its own history.
+				if (isStereo) tsf_voice_lowpass_setup(&tmpLowpassRight, lowpassFc);
+			}
 		}
 
 		if (dynamicPitchRatio)
@@ -1287,6 +1474,33 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		{
 			case TSF_STEREO_INTERLEAVED:
 				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+				if (isStereo)
+				{
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = pos + 1;
+						if (isLooping && nextPos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else if (!isLooping && nextPos >= stereoEndRel) nextPos = stereoEndRel - 1;
+						float alpha = (float)(tmpSourceSamplePosition - pos);
+						float valL = input[leftOffset + pos] * (1.0f - alpha) + input[leftOffset + nextPos] * alpha;
+						float valR = input[rightOffset + pos] * (1.0f - alpha) + input[rightOffset + nextPos] * alpha;
+						if (tmpLowpass.active)
+						{
+							valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+							valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+						}
+						*outL++ += valL * gainLeft;
+						*outL++ += valR * gainRight;
+
+						tmpSourceSamplePosition += pitchRatio;
+						if (isLooping && tmpSourceSamplePosition >= tmpLoopEndDbl)
+						{
+							double span = (double)(tmpLoopEnd - tmpLoopStart);
+							while (tmpSourceSamplePosition >= tmpLoopEndDbl) tmpSourceSamplePosition -= span;
+						}
+					}
+				}
+				else
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1308,6 +1522,33 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 
 			case TSF_STEREO_UNWEAVED:
 				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+				if (isStereo)
+				{
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = pos + 1;
+						if (isLooping && nextPos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else if (!isLooping && nextPos >= stereoEndRel) nextPos = stereoEndRel - 1;
+						float alpha = (float)(tmpSourceSamplePosition - pos);
+						float valL = input[leftOffset + pos] * (1.0f - alpha) + input[leftOffset + nextPos] * alpha;
+						float valR = input[rightOffset + pos] * (1.0f - alpha) + input[rightOffset + nextPos] * alpha;
+						if (tmpLowpass.active)
+						{
+							valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+							valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+						}
+						*outL++ += valL * gainLeft;
+						*outR++ += valR * gainRight;
+
+						tmpSourceSamplePosition += pitchRatio;
+						if (isLooping && tmpSourceSamplePosition >= tmpLoopEndDbl)
+						{
+							double span = (double)(tmpLoopEnd - tmpLoopStart);
+							while (tmpSourceSamplePosition >= tmpLoopEndDbl) tmpSourceSamplePosition -= span;
+						}
+					}
+				}
+				else
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1328,6 +1569,34 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				break;
 
 			case TSF_MONO:
+				if (isStereo)
+				{
+					gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+					while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
+					{
+						unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = pos + 1;
+						if (isLooping && nextPos >= tmpLoopEnd) nextPos = tmpLoopStart;
+						else if (!isLooping && nextPos >= stereoEndRel) nextPos = stereoEndRel - 1;
+						float alpha = (float)(tmpSourceSamplePosition - pos);
+						float valL = input[leftOffset + pos] * (1.0f - alpha) + input[leftOffset + nextPos] * alpha;
+						float valR = input[rightOffset + pos] * (1.0f - alpha) + input[rightOffset + nextPos] * alpha;
+						if (tmpLowpass.active)
+						{
+							valL = tsf_voice_lowpass_process(&tmpLowpass, valL);
+							valR = tsf_voice_lowpass_process(&tmpLowpassRight, valR);
+						}
+						// Mono is the weighted result of the two sides at half gain.
+						*outL++ += (valL * gainLeft + valR * gainRight) * 0.5f;
+
+						tmpSourceSamplePosition += pitchRatio;
+						if (isLooping && tmpSourceSamplePosition >= tmpLoopEndDbl)
+						{
+							double span = (double)(tmpLoopEnd - tmpLoopStart);
+							while (tmpSourceSamplePosition >= tmpLoopEndDbl) tmpSourceSamplePosition -= span;
+						}
+					}
+				}
+				else
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1354,8 +1623,9 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		}
 	}
 
-	v->sourceSamplePosition = tmpSourceSamplePosition;
+	v->sourceSamplePosition = (isStereo ? tmpSourceSamplePosition + leftOffset : tmpSourceSamplePosition);
 	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
+	if (isStereo && (tmpLowpassRight.active || dynamicLowpass)) v->lowpassRight = tmpLowpassRight;
 }
 
 TSFDEF tsf* tsf_load(struct tsf_stream* stream)
@@ -1625,18 +1895,25 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		else
 		{
 			tsf_voice_calcpitchratio(voice, 0, f->outSampleRate);
-			// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
-			voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
-			voice->panFactorRight = TSF_SQRTF(0.5f + region->pan);
+			tsf_voice_applypan(voice, region->pan);
 		}
 
 		// Offset/end.
-		voice->sourceSamplePosition = region->offset;
+		voice->sourceSamplePosition = (double)region->offset;
 
 		// Loop.
 		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
-		voice->loopStart = (doLoop ? region->loop_start : 0);
-		voice->loopEnd = (doLoop ? region->loop_end : 0);
+		if (region->is_stereo)
+		{
+			// Stereo loop bounds are shared and kept relative to the left start.
+			voice->loopStart = (doLoop ? region->left_loop_start - region->left_offset : 0);
+			voice->loopEnd = (doLoop ? region->left_loop_end - region->left_offset : 0);
+		}
+		else
+		{
+			voice->loopStart = (doLoop ? region->loop_start : 0);
+			voice->loopEnd = (doLoop ? region->loop_end : 0);
+		}
 
 		// Setup envelopes.
 		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
@@ -1649,6 +1926,8 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		voice->lowpass.z1 = voice->lowpass.z2 = 0;
 		voice->lowpass.active = (lowpassFc < 0.499f);
 		if (voice->lowpass.active) tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
+		// The right side shares coefficients but keeps its own filter history.
+		voice->lowpassRight = voice->lowpass;
 
 		// Setup LFO filters.
 		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
@@ -1751,9 +2030,7 @@ static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
 	v->playingChannel = f->channels->activeChannel;
 	v->noteGainDB += c->gainDB;
 	tsf_voice_calcpitchratio(v, (c->pitchWheel == 8192 ? c->tuning : ((c->pitchWheel / 16383.0f * c->pitchRange * 2.0f) - c->pitchRange + c->tuning)), f->outSampleRate);
-	if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
-	else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
-	else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
+	tsf_voice_applypan(v, newpan);
 }
 
 static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
@@ -1858,12 +2135,7 @@ TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan)
 	if (!c) return 0;
 	for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
 		if (v->playingPreset != -1 && v->playingChannel == channel)
-		{
-			float newpan = v->region->pan + pan - 0.5f;
-			if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
-			else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
-			else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
-		}
+			tsf_voice_applypan(v, v->region->pan + pan - 0.5f);
 	c->panOffset = pan - 0.5f;
 	return 1;
 }
