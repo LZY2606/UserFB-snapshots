@@ -19,6 +19,7 @@
 */
 
 #include "myhtml/myhtml.h"
+#include "myhtml/id_index.h"
 
 void myhtml_init_marker(myhtml_t* myhtml)
 {
@@ -1411,46 +1412,65 @@ myhtml_tree_attr_t * myhtml_attribute_by_key(myhtml_tree_node_t *node, const cha
 
 myhtml_tree_attr_t * myhtml_attribute_add(myhtml_tree_node_t *node, const char *key, size_t key_len, const char *value, size_t value_len, myencoding_t encoding)
 {
+    myhtml_tree_attr_t *attr;
+
     if(node == NULL)
         return NULL;
-    
+
     myhtml_tree_t *tree = node->tree;
-    
+
     if(node->token == NULL) {
         node->token = myhtml_token_node_create(tree->token, tree->mcasync_rules_token_id);
-        
+
         if(node->token == NULL)
             return NULL;
-        
+
         node->token->type |= MyHTML_TOKEN_TYPE_DONE;
     }
-    
-    return myhtml_token_node_attr_append_with_convert_encoding(tree->token, node->token, key, key_len,
+
+    attr = myhtml_token_node_attr_append_with_convert_encoding(tree->token, node->token, key, key_len,
                                                                value, value_len, tree->mcasync_rules_token_id, encoding);
+
+    myhtml_id_index_on_attribute_changed(node);
+
+    return attr;
 }
 
 myhtml_tree_attr_t * myhtml_attribute_remove(myhtml_tree_node_t *node, myhtml_tree_attr_t *attr)
 {
+    myhtml_tree_attr_t *removed;
+
     if(node == NULL || node->token == NULL)
         return NULL;
-    
-    return myhtml_token_attr_remove(node->token, attr);
+
+    removed = myhtml_token_attr_remove(node->token, attr);
+
+    myhtml_id_index_on_attribute_changed(node);
+
+    return removed;
 }
 
 myhtml_tree_attr_t * myhtml_attribute_remove_by_key(myhtml_tree_node_t *node, const char *key, size_t key_len)
 {
+    myhtml_tree_attr_t *removed;
+
     if(node == NULL || node->token == NULL)
         return NULL;
-    
-    return myhtml_token_attr_remove_by_name(node->token, key, key_len);
+
+    removed = myhtml_token_attr_remove_by_name(node->token, key, key_len);
+
+    myhtml_id_index_on_attribute_changed(node);
+
+    return removed;
 }
 
 void myhtml_attribute_delete(myhtml_tree_t *tree, myhtml_tree_node_t *node, myhtml_tree_attr_t *attr)
 {
     if(node == NULL || node->token == NULL)
         return;
-    
+
     myhtml_token_attr_remove(node->token, attr);
+    myhtml_id_index_on_attribute_changed(node);
     myhtml_attribute_free(tree, attr);
 }
 

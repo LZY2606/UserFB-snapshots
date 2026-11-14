@@ -90,7 +90,10 @@ struct myhtml_tree_node {
     
     myhtml_token_node_t* token;
     void* data;
-    
+
+    /* membership in the optional id index; NULL when not indexed */
+    void* id_index_entry;
+
     myhtml_tree_t* tree;
 };
 
@@ -251,7 +254,16 @@ struct myhtml_tree {
     
     void* callback_tree_node_insert_ctx;
     void* callback_tree_node_remove_ctx;
+
+    /* optional id index, NULL while disabled; see myhtml_get_nodes_by_id */
+    void* id_index;
 };
+
+// base
+mystatus_t myhtml_id_index_enable(myhtml_tree_t* tree);
+void myhtml_id_index_disable(myhtml_tree_t* tree);
+myhtml_collection_t * myhtml_get_nodes_by_id(myhtml_tree_t* tree, myhtml_collection_t* collection,
+                                             const char* value, size_t value_len, mystatus_t* status);
 
 // base
 myhtml_tree_t * myhtml_tree_create(void);

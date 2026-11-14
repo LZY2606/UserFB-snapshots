@@ -1097,6 +1097,59 @@ myhtml_get_nodes_by_name_in_scope(myhtml_tree_t* tree, myhtml_collection_t *coll
                                   mystatus_t *status);
 
 /**
+ * Enable the optional id index.
+ *
+ * Scans the already parsed document once and builds a value -> nodes map.
+ * The index follows node and attribute changes made through the public API
+ * afterwards. Calling it on an enabled tree does nothing and returns OK.
+ *
+ * @param[in] myhtml_tree_t*
+ *
+ * @return MyHTML_STATUS_OK if successful, otherwise an error status
+ */
+mystatus_t
+myhtml_id_index_enable(myhtml_tree_t* tree);
+
+/**
+ * Disable and release the optional id index.
+ *
+ * Safe to call on a tree where the index was never enabled, and repeated
+ * calls have no effect. A later enable scans the document again.
+ *
+ * @param[in] myhtml_tree_t*
+ */
+void
+myhtml_id_index_disable(myhtml_tree_t* tree);
+
+/**
+ * Get all in-document nodes whose first "id" attribute has exactly the
+ * given decoded UTF-8 value.
+ *
+ * Requires myhtml_id_index_enable; without it NULL is returned and the
+ * status is MyHTML_STATUS_ERROR.
+ *
+ * Results are ordered by actual document order (pre-order). A node appears
+ * at most once, even if it carries several "id" attributes (the first one
+ * wins, as with myhtml_attribute_by_key). Nodes detached from the document
+ * are not returned. An empty value (or length 0) yields an empty result.
+ *
+ * The value buffer only has to stay valid for the duration of the call.
+ * When collection is NULL a new one is created; when it is provided its
+ * previous length is reset first and ownership stays with the caller.
+ *
+ * @param[in] myhtml_tree_t*
+ * @param[in] myhtml_collection_t*, optional; creates new collection if NULL
+ * @param[in] id value, decoded UTF-8 bytes
+ * @param[in] id value length
+ * @param[out] status of this operation, optional
+ *
+ * @return myhtml_collection_t* if successful, otherwise an NULL value
+ */
+myhtml_collection_t*
+myhtml_get_nodes_by_id(myhtml_tree_t* tree, myhtml_collection_t* collection,
+                       const char* value, size_t value_len, mystatus_t* status);
+
+/**
  * Get next sibling node
  *
  * @param[in] myhtml_tree_node_t*

@@ -19,6 +19,7 @@
 */
 
 #include "myhtml/tree.h"
+#include "myhtml/id_index.h"
 
 myhtml_tree_t * myhtml_tree_create(void)
 {
@@ -151,6 +152,9 @@ mystatus_t myhtml_tree_init(myhtml_tree_t* tree, myhtml_t* myhtml)
 
 void myhtml_tree_clean(myhtml_tree_t* tree)
 {
+    /* the node and attribute pools are about to be reset */
+    myhtml_id_index_disable(tree);
+
 #ifndef MyCORE_BUILD_WITHOUT_THREADS
     myhtml_t* myhtml = tree->myhtml;
     
@@ -224,6 +228,8 @@ void myhtml_tree_clean(myhtml_tree_t* tree)
 
 void myhtml_tree_clean_all(myhtml_tree_t* tree)
 {
+    myhtml_id_index_disable(tree);
+
     mcobject_async_clean(tree->tree_obj);
     myhtml_token_clean(tree->token);
     mchar_async_clean(tree->mchar);
@@ -286,7 +292,9 @@ myhtml_tree_t * myhtml_tree_destroy(myhtml_tree_t* tree)
 {
     if(tree == NULL)
         return NULL;
-    
+
+    myhtml_id_index_disable(tree);
+
     /* destroy tags before other objects */
     tree->tags                  = myhtml_tag_destroy(tree->tags);
     tree->active_formatting     = myhtml_tree_active_formatting_destroy(tree);
@@ -392,11 +400,12 @@ void myhtml_tree_node_add_child(myhtml_tree_node_t* root, myhtml_tree_node_t* no
     else {
         root->child = node;
     }
-    
+
     node->parent     = root;
     root->last_child = node;
-    
+
     myhtml_tree_node_callback_insert(node->tree, node);
+    myhtml_id_index_on_attach(node);
 }
 
 void myhtml_tree_node_insert_before(myhtml_tree_node_t* root, myhtml_tree_node_t* node)
@@ -412,8 +421,9 @@ void myhtml_tree_node_insert_before(myhtml_tree_node_t* root, myhtml_tree_node_t
     node->parent = root->parent;
     node->next   = root;
     root->prev   = node;
-    
+
     myhtml_tree_node_callback_insert(node->tree, node);
+    myhtml_id_index_on_attach(node);
 }
 
 void myhtml_tree_node_insert_after(myhtml_tree_node_t* root, myhtml_tree_node_t* node)
@@ -425,12 +435,13 @@ void myhtml_tree_node_insert_after(myhtml_tree_node_t* root, myhtml_tree_node_t*
     else {
         root->parent->last_child = node;
     }
-    
+
     node->parent = root->parent;
     node->prev   = root;
     root->next   = node;
-    
+
     myhtml_tree_node_callback_insert(node->tree, node);
+    myhtml_id_index_on_attach(node);
 }
 
 myhtml_tree_node_t * myhtml_tree_node_find_parent_by_tag_id(myhtml_tree_node_t* node, myhtml_tag_id_t tag_id)
@@ -459,11 +470,14 @@ myhtml_tree_node_t * myhtml_tree_node_remove(myhtml_tree_node_t* node)
     }
     
     myhtml_tree_node_callback_remove(node->tree, node);
-    
+
+    /* the whole detached subtree leaves the index with it */
+    myhtml_id_index_on_detach(node);
+
     node->next = NULL;
     node->prev = NULL;
     node->parent = NULL;
-    
+
     return node;
 }
 
@@ -471,7 +485,9 @@ void myhtml_tree_node_free(myhtml_tree_node_t* node)
 {
     if(node == NULL)
         return;
-    
+
+    myhtml_id_index_on_node_free(node);
+
     if(node->token) {
         myhtml_token_attr_delete_all(node->tree->token, node->token);
         myhtml_token_delete(node->tree->token, node->token);
