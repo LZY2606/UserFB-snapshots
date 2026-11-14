@@ -110,18 +110,58 @@ func (pe *File) parseTLSDirectory(rva, size uint32) error {
 		}
 		tls.Struct = tlsDir
 
+		// The raw template addresses and the callback table are virtual
+		// addresses. In a loader-mapped image they have been fixed up to the
+		// actual loaded base, so reduce them back to RVAs width-safely.
+		if pe.opts.MemoryLayout {
+			if tlsDir.StartAddressOfRawData != 0 {
+				r, err := pe.vaToRVA64(tlsDir.StartAddressOfRawData)
+				if err != nil {
+					return err
+				}
+				tlsDir.StartAddressOfRawData = uint64(r)
+			}
+			if tlsDir.EndAddressOfRawData != 0 {
+				r, err := pe.vaToRVA64(tlsDir.EndAddressOfRawData)
+				if err != nil {
+					return err
+				}
+				tlsDir.EndAddressOfRawData = uint64(r)
+			}
+			if tlsDir.AddressOfIndex != 0 {
+				r, err := pe.vaToRVA64(tlsDir.AddressOfIndex)
+				if err != nil {
+					return err
+				}
+				tlsDir.AddressOfIndex = uint64(r)
+			}
+			if tlsDir.AddressOfCallBacks != 0 {
+				r, err := pe.vaToRVA64(tlsDir.AddressOfCallBacks)
+				if err != nil {
+					return err
+				}
+				tlsDir.AddressOfCallBacks = uint64(r)
+			}
+			tls.Struct = tlsDir
+		}
+
 		if tlsDir.AddressOfCallBacks != 0 {
 			callbacks := make([]uint64, 0)
-			rvaAddressOfCallBacks := uint32(tlsDir.AddressOfCallBacks -
-				pe.NtHeader.OptionalHeader.(ImageOptionalHeader64).ImageBase)
+			rvaAddressOfCallBacks := uint32(tlsDir.AddressOfCallBacks)
+			if !pe.opts.MemoryLayout {
+				rvaAddressOfCallBacks = uint32(tlsDir.AddressOfCallBacks -
+					pe.NtHeader.OptionalHeader.(ImageOptionalHeader64).ImageBase)
+			}
 			offset := pe.GetOffsetFromRva(rvaAddressOfCallBacks)
-			for {
-				c, err := pe.ReadUint64(offset)
-				if err != nil || c == 0 {
-					break
+			if offset != ^uint32(0) {
+				for {
+					c, err := pe.ReadUint64(offset)
+					if err != nil || c == 0 {
+						break
+					}
+					callbacks = append(callbacks, c)
+					offset += 8
 				}
-				callbacks = append(callbacks, c)
-				offset += 8
 			}
 			tls.Callbacks = callbacks
 		}
@@ -133,22 +173,58 @@ func (pe *File) parseTLSDirectory(rva, size uint32) error {
 		if err != nil {
 			return err
 		}
+
+		if pe.opts.MemoryLayout {
+			if tlsDir.StartAddressOfRawData != 0 {
+				r, err := pe.vaToRVA32(tlsDir.StartAddressOfRawData)
+				if err != nil {
+					return err
+				}
+				tlsDir.StartAddressOfRawData = r
+			}
+			if tlsDir.EndAddressOfRawData != 0 {
+				r, err := pe.vaToRVA32(tlsDir.EndAddressOfRawData)
+				if err != nil {
+					return err
+				}
+				tlsDir.EndAddressOfRawData = r
+			}
+			if tlsDir.AddressOfIndex != 0 {
+				r, err := pe.vaToRVA32(tlsDir.AddressOfIndex)
+				if err != nil {
+					return err
+				}
+				tlsDir.AddressOfIndex = r
+			}
+			if tlsDir.AddressOfCallBacks != 0 {
+				r, err := pe.vaToRVA32(tlsDir.AddressOfCallBacks)
+				if err != nil {
+					return err
+				}
+				tlsDir.AddressOfCallBacks = r
+			}
+		}
 		tls.Struct = tlsDir
 
 		// 94a9dc17d47b03f6fb01cb639e25503b37761b452e7c07ec6b6c2280635f1df9
 		// Callbacks may be empty.
 		if tlsDir.AddressOfCallBacks != 0 {
 			callbacks := make([]uint32, 0)
-			rvaAddressOfCallBacks := tlsDir.AddressOfCallBacks -
-				pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+			rvaAddressOfCallBacks := tlsDir.AddressOfCallBacks
+			if !pe.opts.MemoryLayout {
+				rvaAddressOfCallBacks = tlsDir.AddressOfCallBacks -
+					pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+			}
 			offset := pe.GetOffsetFromRva(rvaAddressOfCallBacks)
-			for {
-				c, err := pe.ReadUint32(offset)
-				if err != nil || c == 0 {
-					break
+			if offset != ^uint32(0) {
+				for {
+					c, err := pe.ReadUint32(offset)
+					if err != nil || c == 0 {
+						break
+					}
+					callbacks = append(callbacks, c)
+					offset += 4
 				}
-				callbacks = append(callbacks, c)
-				offset += 4
 			}
 			tls.Callbacks = callbacks
 		}

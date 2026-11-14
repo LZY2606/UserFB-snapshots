@@ -114,8 +114,18 @@ func (pe *File) parseDelayImportDirectory(rva, size uint32) error {
 
 		nameRVA := uint32(0)
 		if importDelayDesc.Attributes == 0 {
-			nameRVA = importDelayDesc.Name -
-				pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+			// Legacy descriptors encode every address as a VA rather than an
+			// RVA. A loader-mapped image holds the fixed-up VA based on the
+			// actual loaded base; an on-disk image holds the preferred base.
+			if pe.opts.MemoryLayout {
+				nameRVA, err = pe.vaToRVA32(importDelayDesc.Name)
+				if err != nil {
+					return err
+				}
+			} else {
+				nameRVA = importDelayDesc.Name -
+					pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+			}
 		} else {
 			nameRVA = importDelayDesc.Name
 		}

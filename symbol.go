@@ -280,6 +280,12 @@ type COFF struct {
 // such as communicating COMDAT information to the linker. Section names and
 // file names, as well as code and data symbols, are listed in the symbol table.
 func (pe *File) ParseCOFFSymbolTable() error {
+	// The COFF symbol table lives at a file offset and never participates in
+	// the mapped image; image indices with the same numeric value are not it.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		return errCOFFTableNotPresent
+	}
+
 	pointerToSymbolTable := pe.NtHeader.FileHeader.PointerToSymbolTable
 	if pointerToSymbolTable == 0 {
 		return errCOFFTableNotPresent

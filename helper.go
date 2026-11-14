@@ -204,7 +204,22 @@ func (pe *File) getSectionByOffset(offset uint32) *Section {
 }
 
 // GetOffsetFromRva returns the file offset corresponding to this RVA.
+//
+// For on-disk files the RVA is translated through the section table. For a
+// loader-mapped image (Options.MemoryLayout) the input is already indexed by
+// RVA, so a valid RVA maps to the same index; RVAs falling in section gaps,
+// past SizeOfImage or past the input length return the invalid marker.
 func (pe *File) GetOffsetFromRva(rva uint32) uint32 {
+
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		if !pe.rvaReadable(rva) {
+			return ^uint32(0)
+		}
+		if rva >= pe.size {
+			return ^uint32(0)
+		}
+		return rva
+	}
 
 	// Given a RVA, this method will find the section where the
 	// data lies and return the offset within the file.
@@ -221,7 +236,18 @@ func (pe *File) GetOffsetFromRva(rva uint32) uint32 {
 }
 
 // GetRVAFromOffset returns an RVA given an offset.
+//
+// On a loader-mapped image offsets and RVAs share the same coordinate system;
+// only readable image indices are accepted. File-only coordinates (overlay,
+// certificates, COFF symbols) have no RVA counterpart and stay invalid there.
 func (pe *File) GetRVAFromOffset(offset uint32) uint32 {
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		if offset >= pe.size || !pe.rvaReadable(offset) {
+			return ^uint32(0)
+		}
+		return offset
+	}
+
 	section := pe.getSectionByOffset(offset)
 	minAddr := ^uint32(0)
 	if section == nil {
@@ -269,6 +295,10 @@ func (pe *File) getStringAtRVA(rva, maxLen uint32) string {
 		return ""
 	}
 
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		return pe.getStringAtMemoryRVA(rva, maxLen)
+	}
+
 	section := pe.getSectionByRva(rva)
 	if section == nil {
 		if rva > pe.size {
@@ -283,6 +313,31 @@ func (pe *File) getStringAtRVA(rva, maxLen uint32) string {
 		return string(s)
 	}
 	s := pe.GetStringFromData(0, section.Data(rva, maxLen, pe))
+	return string(s)
+}
+
+// getStringAtMemoryRVA reads an ASCII string from a loader-mapped image. The
+// RVA must lie in a readable image range and the string cannot cross into a
+// section gap.
+func (pe *File) getStringAtMemoryRVA(rva, maxLen uint32) string {
+	if rva == 0 {
+		return ""
+	}
+
+	end := rva + maxLen
+	if end < rva || end > pe.size {
+		end = pe.size
+	}
+	for off := rva; off < end; off++ {
+		if !pe.rvaReadable(off) {
+			end = off
+			break
+		}
+	}
+	if rva >= end {
+		return ""
+	}
+	s := pe.GetStringFromData(0, pe.data[rva:end])
 	return string(s)
 }
 
@@ -349,6 +404,29 @@ func (pe *File) getStringAtOffset(offset, size uint32) (string, error) {
 // GetData returns the data given an RVA regardless of the section where it
 // lies on.
 func (pe *File) GetData(rva, length uint32) ([]byte, error) {
+
+	// In a loader-mapped image the input is indexed by RVA. The whole span
+	// must be readable: virtual zero fill inside a section is all-zero input
+	// and reads fine, but a section gap or an address past SizeOfImage/the
+	// input length is an error rather than unrelated bytes.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		if length == 0 {
+			if !pe.rvaReadable(rva) {
+				return nil, ErrMemoryLayoutRVA
+			}
+			return []byte{}, nil
+		}
+		end := rva + length
+		if end < rva || end > pe.size {
+			return nil, ErrMemoryLayoutRVA
+		}
+		for off := rva; off < end; off++ {
+			if !pe.rvaReadable(off) {
+				return nil, ErrMemoryLayoutRVA
+			}
+		}
+		return pe.data[rva:end], nil
+	}
 
 	// Given a RVA and the size of the chunk to retrieve, this method
 	// will find the section where the data lies and return the data.
@@ -561,13 +639,16 @@ func (pe *File) Checksum() uint32 {
 	// `CheckSum` field position in optional PE headers is always 64 for PE and PE+.
 	checksumOffset := optionalHeaderOffset + 64
 
-	// Verify the data is DWORD-aligned and add padding if needed
+	// Verify the data is DWORD-aligned and add padding if needed. The padding
+	// is allocated locally so the caller's input and the parsed buffer are
+	// never modified.
 	remainder := pe.size % 4
 	dataLen := pe.size
+	data := pe.data
 	if remainder > 0 {
 		dataLen = pe.size + (4 - remainder)
-		paddedBytes := make([]byte, 4-remainder)
-		pe.data = append(pe.data, paddedBytes...)
+		data = append(append([]byte(nil), pe.data...),
+			make([]byte, 4-remainder)...)
 	}
 
 	for i := uint32(0); i < dataLen; i += 4 {
@@ -577,7 +658,7 @@ func (pe *File) Checksum() uint32 {
 		}
 
 		// Read DWORD from file.
-		currentDword = binary.LittleEndian.Uint32(pe.data[i:])
+		currentDword = binary.LittleEndian.Uint32(data[i:])
 
 		// Calculate checksum.
 		checksum = (checksum & 0xffffffff) + uint64(currentDword) + (checksum >> 32)
@@ -598,7 +679,7 @@ func (pe *File) Checksum() uint32 {
 
 // ReadUint64 read a uint64 from a buffer.
 func (pe *File) ReadUint64(offset uint32) (uint64, error) {
-	if offset+8 > pe.size {
+	if offset > pe.size || pe.size-offset < 8 {
 		return 0, ErrOutsideBoundary
 	}
 
@@ -607,7 +688,7 @@ func (pe *File) ReadUint64(offset uint32) (uint64, error) {
 
 // ReadUint32 read a uint32 from a buffer.
 func (pe *File) ReadUint32(offset uint32) (uint32, error) {
-	if offset > pe.size-4 {
+	if offset > pe.size || pe.size-offset < 4 {
 		return 0, ErrOutsideBoundary
 	}
 
@@ -616,7 +697,7 @@ func (pe *File) ReadUint32(offset uint32) (uint32, error) {
 
 // ReadUint16 read a uint16 from a buffer.
 func (pe *File) ReadUint16(offset uint32) (uint16, error) {
-	if offset > pe.size-2 {
+	if offset > pe.size || pe.size-offset < 2 {
 		return 0, ErrOutsideBoundary
 	}
 

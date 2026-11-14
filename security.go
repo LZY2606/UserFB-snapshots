@@ -342,6 +342,14 @@ func (pe *File) AuthentihashExt(hashers ...hash.Hash) [][]byte {
 // bind an Authenticode-signed file to the identity of a software publisher.
 // This data are not loaded into memory as part of the image file.
 func (pe *File) parseSecurityDirectory(rva, size uint32) error {
+	// The certificate directory is addressed by a raw file offset and is not
+	// mapped into the loader image. In MemoryLayout mode the same-index bytes
+	// are unrelated section data and must not be interpreted as a signature.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		pe.logger.Debug("security directory skipped: file-only data is absent from a mapped image")
+		return nil
+	}
+
 	var certHeader WinCertificate
 	certSize := uint32(binary.Size(certHeader))
 	signatureContent := AuthenticodeContent{}

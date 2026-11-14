@@ -304,6 +304,24 @@ type ImageDebugMisc struct {
 	Data string `json:"data"`
 }
 
+// debugPayloadOffset returns the input index of the debug payload. On-disk
+// images address it through the file PointerToRawData; a loader-mapped image
+// only carries the AddressOfRawData RVA, which doubles as the image index.
+func (pe *File) debugPayloadOffset(debugDir ImageDebugDirectory) (uint32, bool) {
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		if debugDir.AddressOfRawData == 0 ||
+			!pe.rvaReadable(debugDir.AddressOfRawData) {
+			return 0, false
+		}
+		return debugDir.AddressOfRawData, true
+	}
+
+	if debugDir.PointerToRawData == 0 || debugDir.PointerToRawData >= pe.size {
+		return 0, false
+	}
+	return debugDir.PointerToRawData, true
+}
+
 // Image files contain an optional debug directory that indicates what form of
 // debug information is present and where it is. This directory consists of an
 // array of debug directory entries whose location and size are indicated in the
@@ -325,9 +343,14 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 			return errors.New(errorMsg)
 		}
 
+		payloadOffset, payloadOK := pe.debugPayloadOffset(debugDir)
+
 		switch debugDir.Type {
 		case ImageDebugTypeCodeView:
-			debugSignature, err := pe.ReadUint32(debugDir.PointerToRawData)
+			if !payloadOK {
+				continue
+			}
+			debugSignature, err := pe.ReadUint32(payloadOffset)
 			if err != nil {
 				continue
 			}
@@ -337,7 +360,7 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 				pdb := CVInfoPDB70{CVSignature: CVSignatureRSDS}
 
 				// Extract the GUID.
-				offset := debugDir.PointerToRawData + 4
+				offset := payloadOffset + 4
 				guidSize := uint32(binary.Size(pdb.Signature))
 				err = pe.structUnpack(&pdb.Signature, offset, guidSize)
 				if err != nil {
@@ -373,7 +396,7 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 			} else if debugSignature == CVSignatureNB10 {
 				// PDB 2.0.
 				cvHeader := CVHeader{}
-				offset := debugDir.PointerToRawData
+				offset := payloadOffset
 				err = pe.structUnpack(&cvHeader, offset, size)
 				if err != nil {
 					continue
@@ -408,7 +431,10 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 				debugEntry.Info = pdb
 			}
 		case ImageDebugTypePOGO:
-			pogoSignature, err := pe.ReadUint32(debugDir.PointerToRawData)
+			if !payloadOK {
+				continue
+			}
+			pogoSignature, err := pe.ReadUint32(payloadOffset)
 			if err != nil {
 				continue
 			}
@@ -420,7 +446,7 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 				// TODO: Some files like 00da1a2a9d9ebf447508bf6550f05f466f8eabb4ed6c4f2a524c0769b2d75bc1
 				// have a POGO signature of 0x0. To be reverse engineered.
 				pogo.Signature = POGOType(pogoSignature)
-				offset = debugDir.PointerToRawData + 4
+				offset = payloadOffset + 4
 				c := uint32(0)
 				for c < debugDir.SizeOfData-4 {
 					pogoEntry := ImagePGOItem{}
@@ -450,16 +476,22 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 				debugEntry.Info = pogo
 			}
 		case ImageDebugTypeVCFeature:
+			if !payloadOK {
+				continue
+			}
 			vcf := VCFeature{}
 			size := uint32(binary.Size(vcf))
-			err := pe.structUnpack(&vcf, debugDir.PointerToRawData, size)
+			err := pe.structUnpack(&vcf, payloadOffset, size)
 			if err != nil {
 				continue
 			}
 			debugEntry.Info = vcf
 		case ImageDebugTypeRepro:
+			if !payloadOK {
+				continue
+			}
 			repro := REPRO{}
-			offset := debugDir.PointerToRawData
+			offset := payloadOffset
 
 			// Extract the size.
 			repro.Size, err = pe.ReadUint32(offset)
@@ -474,7 +506,10 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 			}
 			debugEntry.Info = repro
 		case ImageDebugTypeFPO:
-			offset := debugDir.PointerToRawData
+			if !payloadOK {
+				continue
+			}
+			offset := payloadOffset
 			size := uint32(16)
 			fpoEntries := []FPOData{}
 			c := uint32(0)
@@ -539,7 +574,10 @@ func (pe *File) parseDebugDirectory(rva, size uint32) error {
 			}
 			debugEntry.Info = fpoEntries
 		case ImageDebugTypeExDllCharacteristics:
-			exDllChar, err := pe.ReadUint32(debugDir.PointerToRawData)
+			if !payloadOK {
+				continue
+			}
+			exDllChar, err := pe.ReadUint32(payloadOffset)
 			if err != nil {
 				continue
 			}

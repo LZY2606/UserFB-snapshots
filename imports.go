@@ -259,7 +259,16 @@ func (pe *File) getImportTable32(rva uint32, maxLen uint32,
 		offset := uint32(0)
 		if isOldDelayImport {
 			oh32 := pe.NtHeader.OptionalHeader.(ImageOptionalHeader32)
-			newRVA := rva - oh32.ImageBase
+			var newRVA uint32
+			if pe.opts.MemoryLayout {
+				r, convErr := pe.vaToRVA32(rva)
+				if convErr != nil {
+					return nil, convErr
+				}
+				newRVA = r
+			} else {
+				newRVA = rva - oh32.ImageBase
+			}
 			offset = pe.GetOffsetFromRva(newRVA)
 			if offset == ^uint32(0) {
 				return nil, nil
@@ -383,8 +392,17 @@ func (pe *File) getImportTable64(rva uint32, maxLen uint32,
 		// correct thing and changed the fields containing addresses to RVAs.
 		offset := uint32(0)
 		if isOldDelayImport {
-			oh64 := pe.NtHeader.OptionalHeader.(ImageOptionalHeader64)
-			newRVA := rva - uint32(oh64.ImageBase)
+			var newRVA uint32
+			if pe.opts.MemoryLayout {
+				r, convErr := pe.vaToRVA32(rva)
+				if convErr != nil {
+					return nil, convErr
+				}
+				newRVA = r
+			} else {
+				oh64 := pe.NtHeader.OptionalHeader.(ImageOptionalHeader64)
+				newRVA = rva - uint32(oh64.ImageBase)
+			}
 			offset = pe.GetOffsetFromRva(newRVA)
 			if offset == ^uint32(0) {
 				return nil, nil
@@ -533,8 +551,16 @@ func (pe *File) parseImports32(importDesc interface{}, maxLen uint32) (
 			} else {
 				imp.ByOrdinal = false
 				if isOldDelayImport {
-					table[idx].ImageThunkData.AddressOfData -=
-						pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+					if pe.opts.MemoryLayout {
+						r, convErr := pe.vaToRVA32(table[idx].ImageThunkData.AddressOfData)
+						if convErr != nil {
+							return nil, convErr
+						}
+						table[idx].ImageThunkData.AddressOfData = r
+					} else {
+						table[idx].ImageThunkData.AddressOfData -=
+							pe.NtHeader.OptionalHeader.(ImageOptionalHeader32).ImageBase
+					}
 				}
 
 				// Original Thunk
@@ -671,8 +697,16 @@ func (pe *File) parseImports64(importDesc interface{}, maxLen uint32) ([]ImportF
 				imp.ByOrdinal = false
 
 				if isOldDelayImport {
-					table[idx].ImageThunkData.AddressOfData -=
-						pe.NtHeader.OptionalHeader.(ImageOptionalHeader64).ImageBase
+					if pe.opts.MemoryLayout {
+						r, convErr := pe.vaToRVA64(table[idx].ImageThunkData.AddressOfData)
+						if convErr != nil {
+							return nil, convErr
+						}
+						table[idx].ImageThunkData.AddressOfData = uint64(r)
+					} else {
+						table[idx].ImageThunkData.AddressOfData -=
+							pe.NtHeader.OptionalHeader.(ImageOptionalHeader64).ImageBase
+					}
 				}
 
 				// Original Thunk

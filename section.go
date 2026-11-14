@@ -267,8 +267,13 @@ func (pe *File) ParseSectionHeader() (err error) {
 			return err
 		}
 
-		if secEnd := int64(secHeader.PointerToRawData) + int64(secHeader.SizeOfRawData); secEnd > pe.OverlayOffset {
-			pe.OverlayOffset = secEnd
+		// In a loader-mapped image PointerToRawData stays the original file
+		// coordinate, so it must not drive the overlay window, which is a
+		// file-only concept.
+		if !pe.opts.MemoryLayout {
+			if secEnd := int64(secHeader.PointerToRawData) + int64(secHeader.SizeOfRawData); secEnd > pe.OverlayOffset {
+				pe.OverlayOffset = secEnd
+			}
 		}
 
 		countErr := 0
@@ -396,6 +401,14 @@ func (section *Section) NextHeaderAddr(pe *File) uint32 {
 // Contains checks whether the section contains a given RVA.
 func (section *Section) Contains(rva uint32, pe *File) bool {
 
+	// A loader-mapped image is indexed directly by RVA: the section spans
+	// [VirtualAddress, VirtualAddress+max(VirtualSize, SizeOfRawData)),
+	// clamped by SizeOfImage and the actual input length.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		va, end := pe.sectionMemorySpan(section)
+		return va <= rva && rva < end
+	}
+
 	// Check if the SizeOfRawData is realistic. If it's bigger than the size of
 	// the whole PE file minus the start address of the section it could be
 	// either truncated or the SizeOfRawData contains a misleading value.
@@ -424,6 +437,29 @@ func (section *Section) Contains(rva uint32, pe *File) bool {
 
 // Data returns a data chunk from a section.
 func (section *Section) Data(start, length uint32, pe *File) []byte {
+
+	// Loader-mapped image: the section bytes already live at their
+	// VirtualAddress index, including the virtual zero fill at the tail.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		va, spanEnd := pe.sectionMemorySpan(section)
+		if start < va || start > spanEnd {
+			return nil
+		}
+
+		var end uint32
+		if length != 0 {
+			end = start + length
+			if end < start || end > spanEnd {
+				return nil
+			}
+		} else {
+			end = spanEnd
+		}
+		if start >= pe.size || end > pe.size {
+			return nil
+		}
+		return pe.data[start:end]
+	}
 
 	pointerToRawDataAdj := pe.adjustFileAlignment(
 		section.Header.PointerToRawData)

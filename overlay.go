@@ -5,6 +5,7 @@
 package pe
 
 import (
+	"bytes"
 	"errors"
 	"io"
 )
@@ -19,11 +20,27 @@ func (pe *File) NewOverlayReader() (*io.SectionReader, error) {
 	if pe.data == nil {
 		return nil, errors.New("pe: file reader is nil")
 	}
-	return io.NewSectionReader(pe.f, pe.OverlayOffset, 1<<63-1), nil
+
+	// Overlay is a strictly on-disk concept: a loader-mapped image has no
+	// bytes beyond SizeOfImage that could represent it.
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		return nil, ErrNoOverlayFound
+	}
+
+	var r io.ReaderAt
+	if pe.f != nil {
+		r = pe.f
+	} else {
+		r = bytes.NewReader(pe.data)
+	}
+	return io.NewSectionReader(r, pe.OverlayOffset, 1<<63-1), nil
 }
 
 // Overlay returns the overlay of the PE file.
 func (pe *File) Overlay() ([]byte, error) {
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		return nil, ErrNoOverlayFound
+	}
 	sr, err := pe.NewOverlayReader()
 	if err != nil {
 		return nil, err
@@ -40,5 +57,8 @@ func (pe *File) Overlay() ([]byte, error) {
 }
 
 func (pe *File) OverlayLength() int64 {
+	if pe.opts != nil && pe.opts.MemoryLayout {
+		return 0
+	}
 	return int64(pe.size) - pe.OverlayOffset
 }

@@ -115,6 +115,19 @@ type Options struct {
 
 	// OmitCLRMetadata determines if CLR metadata parsing is skipped, by default (false).
 	OmitCLRMetadata bool
+
+	// MemoryLayout treats the input as a loader-mapped image instead of an
+	// on-disk PE file: sections are already placed at their VirtualAddress and
+	// RVA coordinates equal the input indices. The section headers keep their
+	// original PointerToRawData values; only the read path changes. By
+	// default (false) the classic file-offset interpretation is used.
+	MemoryLayout bool
+
+	// LoadedImageBase is the base address the mapped image was loaded at.
+	// VA-shaped fields (TLS directory and legacy VA delay imports) are reduced
+	// to RVAs against this base. When zero, the optional header ImageBase is
+	// used. Ignored when MemoryLayout is false.
+	LoadedImageBase uint64
 }
 
 // New instantiates a file instance with options given a file name.
@@ -166,6 +179,7 @@ func NewFile(f *os.File, opts *Options) (*File, error) {
 }
 
 // NewBytes instantiates a file instance with options given a memory buffer.
+// The buffer is copied: parsing never writes back into the caller's input.
 func NewBytes(data []byte, opts *Options) (*File, error) {
 
 	file := File{}
@@ -191,7 +205,9 @@ func NewBytes(data []byte, opts *Options) (*File, error) {
 		file.logger = log.NewHelper(opts.Logger)
 	}
 
-	file.data = data
+	// Keep a private copy so that internal bookkeeping (for example the
+	// checksum padding in Checksum) can never alias the caller's slice.
+	file.data = append([]byte(nil), data...)
 	file.size = uint32(len(file.data))
 	return &file, nil
 }
@@ -222,6 +238,10 @@ func (pe *File) Parse() error {
 		return ErrInvalidPESize
 	}
 
+	// A File can be parsed more than once; drop the previous run so that
+	// directory entries (slices and maps) cannot accumulate.
+	pe.resetParseState()
+
 	// Parse the DOS header.
 	err := pe.ParseDOSHeader()
 	if err != nil {
@@ -237,6 +257,12 @@ func (pe *File) Parse() error {
 	// Parse the NT header.
 	err = pe.ParseNTHeader()
 	if err != nil {
+		return err
+	}
+
+	// Reject a loaded base that cannot be represented with the image's
+	// pointer width before any VA-shaped field is interpreted.
+	if err = pe.validateLoadedImageBase(); err != nil {
 		return err
 	}
 

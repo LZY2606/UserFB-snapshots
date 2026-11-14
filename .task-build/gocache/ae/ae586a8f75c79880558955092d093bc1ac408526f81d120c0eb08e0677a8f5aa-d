@@ -1,0 +1,7 @@
+./debug.go
+./doc.go
+./oid.go
+./parser.go
+./pkcs1.go
+./verify.go
+./x509.go
