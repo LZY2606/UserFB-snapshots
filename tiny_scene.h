@@ -95,9 +95,13 @@ THE SOFTWARE.
 // in these vectors. E.g.: Mesh::ID stores the index of a mesh in Scene::meshPool.
 //
 // Architectural limitations: There is very little support for *deleting* anything
-// in the scene. Adding this properly may require significant engineering.
-// Scene::RemoveNode exists, but it only removes nodes themselves, not any
-// linked materials or textures.
+// in the scene. Scene::RemoveNode removes a node and its descendants from the
+// graph, together with their instances, animation channels and triangle lights;
+// nodePool slots are left empty and node ids stay stable. Shared meshes,
+// materials and textures are not deleted, because other nodes may still use them.
+// Skinned / morphed meshes and external skin references are not supported by
+// removal; RemoveNode is intended for plain nodes and rigid mesh nodes. See the
+// documentation in Scene::RemoveNode for the guarantees.
 
 #define MIPLEVELCOUNT		5
 #define BINTEXFILEVERSION	0x10001001
@@ -334,7 +338,7 @@ public:
 	FatTri() { ::memset( this, 0, sizeof( FatTri ) ); ltriIdx = -1; }
 	// 128 bytes of data needed for basic shading with texture and normal interpolation.
 	float u0, u1, u2;					// 12 bytes for layer 0 texture coordinates
-	int ltriIdx;						// 4, set only for emissive triangles, used for MIS
+	int ltriIdx;						// 4, legacy field; light lookup is per node (Node::triLightIdx), not per triangle.
 	float v0, v1, v2;					// 12 bytes for layer 0 texture coordinates
 	uint32_t material;					// 4 bytes for triangle material index
 	ts_vec3 vN0;						// 12 bytes for vertex0 normal
@@ -477,6 +481,14 @@ public:
 	void UpdateTransformFromTRS();		// process T, R, S data to localTransform
 	void PrepareLights();				// create light trianslges from detected emissive triangles
 	void UpdateLights();				// fix light triangles when the transform changes
+	void SetID( const int id );			// assign the stable node id, and stamp it on this node's lights
+	void ResetInstance() { instanceID = -1; } // forget the (stale) instance slot; set again by UpdateSceneGraph
+	int GetInstanceID() const { return instanceID; } // current slot in Scene::instPool, or -1
+protected:
+	int instanceID = -1;				// for mesh nodes: location in the instance array. For internal use only.
+public:
+	// Scene::UpdateSceneGraph (and nothing else) writes instanceID.
+	friend class Scene;
 	// data members
 	::std::string name;					// node name as specified in the GLTF file
 	ts_vec3 translation = { 0 };		// T
@@ -489,13 +501,15 @@ public:
 	int meshID = -1;					// id of the mesh this node refers to (if any, -1 otherwise)
 	int skinID = -1;					// id of the skin this node refers to (if any, -1 otherwise)
 	::std::vector<float> weights;		// morph target weights
+	::std::vector<int> triLightIdx;		// per source triangle: index in Scene::triLights, or -1.
+										// Per node, because a mesh (and thus its triangles) may be
+										// shared between nodes: FatTri::ltriIdx cannot identify a light.
 	bool hasLights = false;				// true if this instance uses an emissive material
+	bool lightsNeedUpdate = false;		// lights were created from the local transform; refresh from the world transform
 	bool morphed = false;				// node mesh should update pose
 	bool transformed = false;			// local transform of node should be updated
 	bool treeChanged = false;			// this node or one of its children got updated
 	::std::vector<int> childIdx;		// child nodes of this node
-protected:
-	int instanceID = -1;				// for mesh nodes: location in the instance array. For internal use only.
 };
 
 //  +-----------------------------------------------------------------------------+
@@ -616,10 +630,12 @@ public:
 //  +-----------------------------------------------------------------------------+
 class Animation
 {
+public:
 	class Sampler
 	{
 	public:
 		enum { LINEAR = 0, SPLINE, STEP };
+		Sampler() = default;
 		Sampler( const ::tinygltf::AnimationSampler& gltfSampler, const ::tinygltf::Model& gltfModel );
 		void ConvertFromGLTFSampler( const ::tinygltf::AnimationSampler& gltfSampler, const ::tinygltf::Model& gltfModel );
 		float SampleFloat( float t, int k, int i, int count ) const;
@@ -629,15 +645,16 @@ class Animation
 		::std::vector<ts_vec3> vec3Key;	// vec3 key frames (location or scale)
 		::std::vector<ts_quat> vec4Key;	// vec4 key frames (rotation)
 		::std::vector<float> floatKey;	// float key frames (weight)
-		int interpolation;				// interpolation type: linear, spline, step
+		int interpolation = LINEAR;		// interpolation type: linear, spline, step
 	};
 	class Channel
 	{
 	public:
+		Channel() = default;
 		Channel( const ::tinygltf::AnimationChannel& gltfChannel, const int nodeBase );
-		int samplerIdx;					// sampler used by this channel
-		int nodeIdx;					// index of the node this channel affects
-		int target;						// 0: translation, 1: rotation, 2: scale, 3: weights
+		int samplerIdx = 0;				// sampler used by this channel
+		int nodeIdx = -1;				// index of the node this channel affects
+		int target = 0;					// 0: translation, 1: rotation, 2: scale, 3: weights
 		void Reset() { t = 0, k = 0; }
 		void SetTime( const float v ) { t = v, k = 0; }
 		void Update( const float t, const Sampler* sampler );	// apply this channel to the target nde for time t
@@ -647,6 +664,7 @@ class Animation
 		int k = 0;						// current keyframe
 	};
 public:
+	Animation() = default;
 	Animation( ::tinygltf::Animation& gltfAnim, ::tinygltf::Model& gltfModel, const int nodeBase );
 	::std::vector<Sampler*> sampler;	// animation samplers
 	::std::vector<Channel*> channel;	// animation channels
@@ -654,6 +672,8 @@ public:
 	void SetTime( const float t );
 	void Update( const float dt );		// advance and apply all channels
 	void ConvertFromGLTFAnim( ::tinygltf::Animation& gltfAnim, ::tinygltf::Model& gltfModel, const int nodeBase );
+	// delete the channels that target a node flagged in 'removedNodes'; samplers are kept.
+	void RemoveChannelsForNodes( const ::std::vector<char>& removedNodes );
 };
 
 //  +-----------------------------------------------------------------------------+
@@ -822,7 +842,9 @@ public:
 	static int AddChildNode( const int parentNodeId, const int childNodeId );
 	static int GetChildId( const int parentId, const int childIdx );
 	static int AddInstance( const int nodeId );
-	static void RemoveNode( const int instId );
+	static void RemoveNode( const int nodeId );
+	static int NodeIdFromInstance( const unsigned instanceIdx );
+	static int GetTriLightIndex( const int nodeId, const int triangleId );
 	static int AddMaterial( Material* material );
 	static int AddMaterial( const ts_vec3 color, const char* name = 0 );
 	static int AddPointLight( const ts_vec3 pos, const ts_vec3 radiance );
@@ -836,6 +858,7 @@ public:
 	static inline ::std::vector<Node*> nodePool;			// all scene nodes
 	static inline ::std::vector<Mesh*> meshPool;			// all scene meshes
 	static inline ::std::vector<tinybvh::BLASInstance> instPool; // all scene instances
+	static inline ::std::vector<int> instNodeIds;			// instance slot -> stable nodePool index
 	static inline ::std::vector<Skin*> skins;				// all scene skins
 	static inline ::std::vector<Animation*> animations;		// all scene animations
 	static inline ::std::vector<Material*> materials;		// all scene materials
@@ -1872,23 +1895,9 @@ Node::Node( const int meshIdx, const ts_mat4& transform )
 //  +-----------------------------------------------------------------------------+
 Node::~Node()
 {
-	if (meshID > -1 && hasLights)
-	{
-		// this node is an instance and has emissive materials;
-		// remove the relevant area lights.
-		Mesh* mesh = Scene::meshPool[meshID];
-		for (auto materialIdx : mesh->materialList)
-		{
-			Material* material = Scene::materials[materialIdx];
-			if (material->IsEmissive())
-			{
-				// mesh contains an emissive material; remove related area lights
-				vector<TriLight*>& lightList = Scene::triLights;
-				for (int s = (int)lightList.size(), i = 0; i < s; i++)
-					if (lightList[i]->instIdx == ID) lightList.erase( lightList.begin() + i-- );
-			}
-		}
-	}
+	// Light triangles are owned by the scene and indexed per node; Scene::RemoveNode
+	// releases this node's entries (also from the surviving nodes' tables) before it
+	// deletes a node. A destructor cannot do that safely, so nothing happens here.
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -1972,12 +1981,18 @@ void Node::Update( const ts_mat4& T )
 	{
 		UpdateTransformFromTRS();
 	}
+	const ts_mat4 previousTransform = combinedTransform;
 	combinedTransform = T * localTransform;
+	const bool moved = transformed;
+	// update light triangles for this node: also when only an ancestor moved, and when
+	// this node's own transform was animated (including non-uniform scaling).
+	if (hasLights && (moved || lightsNeedUpdate || memcmp( &previousTransform, &combinedTransform, sizeof( ts_mat4 ) ) != 0)) UpdateLights();
+	transformed = false;
 	// update the combined transforms of the children
 	for (int s = (int)childIdx.size(), i = 0; i < s; i++)
 	{
 		Node* child = Scene::nodePool[childIdx[i]];
-		child->Update( combinedTransform );
+		if (child) child->Update( combinedTransform );
 	}
 	// update animations
 	if (meshID > -1)
@@ -2127,23 +2142,9 @@ void Node::Update( const ts_mat4& T )
 			}
 			mesh->geomChanged = false;
 		}
-		// update instance
-		if (instanceID == -1)
-		{
-			instanceID = (int)Scene::instPool.size();
-			Scene::instPool.push_back( tinybvh::BLASInstance( meshID ) );
-			transformed = true;
-		}
-		tinybvh::BLASInstance& instance = Scene::instPool[instanceID];
-		bool transformChanged = false;
-		for (int i = 0; i < 16; i++) if (instance.transform[i] != combinedTransform[i]) transformChanged = true;
-		if (transformChanged)
-		{
-			instance.transform = *(tinybvh::bvhmat4*)&combinedTransform;
-			instance.Update( mesh->blas.dynamicBVH /* type doesn't matter */ );
-		}
+		// The instance slot and its world-space bounds are assigned by Scene::UpdateSceneGraph,
+		// after this walk, from the (now final) combinedTransform.
 	}
-	transformed = false;
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -2155,6 +2156,9 @@ void Node::PrepareLights()
 	if (meshID > -1)
 	{
 		Mesh* mesh = Scene::meshPool[meshID];
+		// Light associations are per node: the same mesh can be attached to several nodes,
+		// each with its own transform, and each must own its own light triangles.
+		triLightIdx.assign( mesh->triangles.size(), -1 );
 		for (int s = (int)mesh->triangles.size(), i = 0; i < s; i++)
 		{
 			FatTri* tri = &mesh->triangles[i];
@@ -2165,10 +2169,13 @@ void Node::PrepareLights()
 			{
 				tri->UpdateArea();
 				FatTri transformedTri = TransformedFatTri( tri, localTransform );
+				// The local transform is not the world transform yet: the light is refreshed
+				// by the first Node::Update of this node (lightsNeedUpdate).
 				TriLight* light = new TriLight( &transformedTri, i, ID );
-				tri->ltriIdx = (int)Scene::triLights.size(); // TODO: can't duplicate a light due to this.
+				triLightIdx[i] = (int)Scene::triLights.size();
 				Scene::triLights.push_back( light );
 				hasLights = true;
+				lightsNeedUpdate = true;
 				// Note: TODO:
 				// 1. if a mesh is deleted it should scan the list of area lights
 				//    to delete those that no longer exist.
@@ -2185,6 +2192,18 @@ void Node::PrepareLights()
 }
 
 //  +-----------------------------------------------------------------------------+
+//  |  Node::SetID                                                                |
+//  |  Assign this node its stable id. Light triangles created by the constructor |
+//  |  before the node was added carry the placeholder id; restamp them here.LH2'25|
+//  +-----------------------------------------------------------------------------+
+void Node::SetID( const int id )
+{
+	ID = id;
+	for (int lightIdx : triLightIdx)
+		if (lightIdx >= 0 && lightIdx < (int)Scene::triLights.size()) Scene::triLights[lightIdx]->instIdx = id;
+}
+
+//  +-----------------------------------------------------------------------------+
 //  |  Node::UpdateLights                                                         |
 //  |  Update light triangles belonging to this instance after the tansform for   |
 //  |  the node changed.                                                    LH2'25|
@@ -2193,17 +2212,19 @@ void Node::UpdateLights()
 {
 	if (!hasLights) return;
 	Mesh* mesh = Scene::meshPool[meshID];
-	for (int s = (int)mesh->triangles.size(), i = 0; i < s; i++)
+	// Only touch this node's own lights: the table is per node, and the triLights
+	// vector may have been compacted by a node removal since the last update.
+	for (int s = (int)triLightIdx.size(), i = 0; i < s; i++)
 	{
+		const int lightIdx = triLightIdx[i];
+		if (lightIdx < 0 || lightIdx >= (int)Scene::triLights.size()) continue;
+		if (i >= (int)mesh->triangles.size()) continue;
 		FatTri* tri = &mesh->triangles[i];
-		if (tri->ltriIdx > -1)
-		{
-			// triangle is light emitting; update it
-			tri->UpdateArea();
-			FatTri transformedTri = TransformedFatTri( tri, combinedTransform );
-			*Scene::triLights[tri->ltriIdx] = TriLight( &transformedTri, i, ID );
-		}
+		tri->UpdateArea();
+		FatTri transformedTri = TransformedFatTri( tri, combinedTransform );
+		*Scene::triLights[lightIdx] = TriLight( &transformedTri, i, ID );
 	}
+	lightsNeedUpdate = false;
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -2680,6 +2701,27 @@ void Animation::Update( const float dt )
 }
 
 //  +-----------------------------------------------------------------------------+
+//  |  Animation::RemoveChannelsForNodes                                          |
+//  |  Drop channels that target removed nodes. Samplers stay: surviving channels |
+//  |  reference them by index, which is not changed.                       LH2'25|
+//  +-----------------------------------------------------------------------------+
+void Animation::RemoveChannelsForNodes( const ::std::vector<char>& removedNodes )
+{
+	int kept = 0;
+	for (int i = 0; i < (int)channel.size(); i++)
+	{
+		Channel* c = channel[i];
+		if (c && c->nodeIdx >= 0 && c->nodeIdx < (int)removedNodes.size() && removedNodes[c->nodeIdx])
+		{
+			delete c;
+			continue;
+		}
+		channel[kept++] = c;
+	}
+	channel.resize( kept );
+}
+
+//  +-----------------------------------------------------------------------------+
 //  |  Texture::Texture                                                           |
 //  |  Constructor.                                                         LH2'25|
 //  +-----------------------------------------------------------------------------+
@@ -2904,12 +2946,12 @@ TriLight::TriLight( FatTri* origTri, int origIdx, int origInstance )
 	vertex1 = origTri->vertex1;
 	vertex2 = origTri->vertex2;
 	centre = 0.333333f * (vertex0 + vertex1 + vertex2);
-	N = ts_vec3( origTri->Nx, origTri->Ny, origTri->Nz );
-	const float a = ts_length( vertex1 - vertex0 );
-	const float b = ts_length( vertex2 - vertex1 );
-	const float c = ts_length( vertex0 - vertex2 );
-	const float s = (a + b + c) * 0.5f;
-	area = sqrtf( s * (s - a) * (s - b) * (s - c) ); // Heron's formula
+	// Derive the geometric normal from the (world-space) vertices, so that it stays
+	// unit length and correctly oriented under non-uniform scaling and animation.
+	const ts_vec3 e1 = vertex1 - vertex0, e2 = vertex2 - vertex0;
+	const ts_vec3 cross = ts_cross( e1, e2 );
+	N = ts_normalize( cross );
+	area = 0.5f * ts_length( cross );
 	radiance = Scene::materials[origTri->material]->color();
 	const ts_vec3 E = radiance * area;
 	energy = E.x + E.y + E.z;
@@ -3149,7 +3191,7 @@ int Scene::AddScene( const char* sceneFile, const char* dir, const ts_mat4& tran
 	{
 		tinygltf::Node& gltfNode = gltfModel.nodes[i];
 		Node* node = new Node( gltfNode, nodeBase, meshBase, skinBase );
-		node->ID = (int)nodePool.size();
+		node->SetID( (int)nodePool.size() );
 		nodePool.push_back( node );
 	}
 	// convert animations and skins
@@ -3246,7 +3288,7 @@ int Scene::AddInstance( const int nodeId )
 //  +-----------------------------------------------------------------------------+
 int Scene::AddNode( Node* newNode )
 {
-	newNode->ID = (int)nodePool.size();
+	newNode->SetID( (int)nodePool.size() );
 	nodePool.push_back( newNode );
 	return newNode->ID;
 }
@@ -3273,25 +3315,105 @@ int Scene::GetChildId( const int parentId, const int childIdx )
 
 //  +-----------------------------------------------------------------------------+
 //  |  Scene::RemoveNode                                                          |
-//  |  Remove a node from the scene.                                              |
-//  |  This also removes the node from the rootNodes vector. Note that this will  |
-//  |  only work correctly if the node is not part of a hierarchy, which is the   |
-//  |  case for nodes that have been created using AddInstance.                   |
-//  |  TODO: This will not delete any textures or materials.                LH2'25|
+//  |  Remove a node and its descendants from the scene.                          |
+//  |  The node is detached from rootNodes and from the childIdx list of its      |
+//  |  surviving parent, its animation channels and triangle lights are released, |
+//  |  and the nodePool slot is left empty: node ids are stable and are not       |
+//  |  renumbered. Removing an already-removed node is a no-op.                   |
+//  |  Meshes, materials and textures are shared and are not deleted.       LH2'25|
 //  +-----------------------------------------------------------------------------+
 void Scene::RemoveNode( const int nodeId )
 {
-	// remove the instance from the scene graph
-	for (int s = (int)rootNodes.size(), i = 0; i < s; i++) if (rootNodes[i] == nodeId)
+	if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) return; // empty slot: no-op
+
+	// 1. Collect the subtree (the input is a proper tree: each node has one parent).
+	std::vector<int> removed;
+	std::vector<char> isRemoved( nodePool.size(), 0 );
+	std::vector<int> stack( 1, nodeId );
+	while (!stack.empty())
 	{
-		rootNodes[i] = rootNodes[s - 1];
-		rootNodes.pop_back();
-		break;
+		const int id = stack.back();
+		stack.pop_back();
+		if (id < 0 || id >= (int)nodePool.size() || nodePool[id] == 0 || isRemoved[id]) continue;
+		isRemoved[id] = 1;
+		removed.push_back( id );
+		for (int child : nodePool[id]->childIdx) stack.push_back( child );
 	}
-	// delete the instance
-	Node* node = nodePool[nodeId];
-	nodePool[nodeId] = 0; // safe; we only access the nodes vector indirectly.
-	delete node;
+
+	// 2. Detach the subtree from rootNodes.
+	int writeIdx = 0;
+	for (int i = 0; i < (int)rootNodes.size(); i++)
+		if (rootNodes[i] >= 0 && rootNodes[i] < (int)isRemoved.size() && isRemoved[rootNodes[i]]) continue;
+		else rootNodes[writeIdx++] = rootNodes[i];
+	rootNodes.resize( writeIdx );
+
+	// 3. Detach the subtree from the childIdx lists of surviving nodes.
+	for (int i = 0; i < (int)nodePool.size(); i++)
+	{
+		if (nodePool[i] == 0 || isRemoved[i]) continue;
+		std::vector<int>& children = nodePool[i]->childIdx;
+		writeIdx = 0;
+		for (int c : children)
+			if (!(c >= 0 && c < (int)isRemoved.size() && isRemoved[c])) children[writeIdx++] = c;
+		children.resize( writeIdx );
+	}
+
+	// 4. Mark the light triangles owned by the removed nodes. A per-node triangle
+	//    table is the only thing that associates a light with its node, so the
+	//    surviving nodes' tables must be remapped when the table is compacted.
+	std::vector<int> lightRemap( triLights.size(), -1 );	// old index -> new index, -1 = released
+	for (int id : removed)
+		for (int lightIdx : nodePool[id]->triLightIdx)
+			if (lightIdx >= 0 && lightIdx < (int)triLights.size()) lightRemap[lightIdx] = -2; // -2: released
+	// 5. Drop animation channels that target a removed node. Samplers are kept: other
+	//    channels may still use them, and channel->samplerIdx is not renumbered.
+	for (Animation* anim : animations) if (anim) anim->RemoveChannelsForNodes( isRemoved );
+	// 6. Delete the nodes. The slots stay behind as holes; ids remain stable.
+	for (int id : removed) delete nodePool[id], nodePool[id] = 0;
+	// 7. Compact the light table and point the surviving nodes at the new positions.
+	//    Freed lights die only after the association tables have been patched.
+	std::vector<TriLight*> survivingLights;
+	survivingLights.reserve( triLights.size() );
+	for (int i = 0; i < (int)triLights.size(); i++)
+	{
+		if (lightRemap[i] == -2) delete triLights[i];
+		else lightRemap[i] = (int)survivingLights.size(), survivingLights.push_back( triLights[i] );
+	}
+	triLights.swap( survivingLights );
+	for (int i = 0; i < (int)nodePool.size(); i++)
+	{
+		if (nodePool[i] == 0 || isRemoved[i]) continue;
+		for (int& lightIdx : nodePool[i]->triLightIdx)
+			if (lightIdx >= 0 && lightIdx < (int)lightRemap.size()) lightIdx = lightRemap[lightIdx];
+	}
+}
+
+//  +-----------------------------------------------------------------------------+
+//  |  Scene::NodeIdFromInstance                                                  |
+//  |  Translate an instance index of the current TLAS back to the stable node    |
+//  |  id. Returns -1 if the instance does not belong to a live node.       LH2'25|
+//  +-----------------------------------------------------------------------------+
+int Scene::NodeIdFromInstance( const unsigned instanceIdx )
+{
+	if (instanceIdx >= instNodeIds.size()) return -1;
+	const int nodeId = instNodeIds[instanceIdx];
+	if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) return -1;
+	return nodeId;
+}
+
+//  +-----------------------------------------------------------------------------+
+//  |  Scene::GetTriLightIndex                                                    |
+//  |  Return the current index in triLights of the light of the specified source |
+//  |  triangle of the specified node, or -1 if there is no such light.     LH2'25|
+//  +-----------------------------------------------------------------------------+
+int Scene::GetTriLightIndex( const int nodeId, const int triangleId )
+{
+	if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) return -1;
+	const Node* node = nodePool[nodeId];
+	if (triangleId < 0 || triangleId >= (int)node->triLightIdx.size()) return -1;
+	const int lightIdx = node->triLightIdx[triangleId];
+	if (lightIdx < 0 || lightIdx >= (int)triLights.size()) return -1;
+	return lightIdx;
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -3411,7 +3533,7 @@ int Scene::FindNextMaterialID( const char* name, const int matID )
 //  +-----------------------------------------------------------------------------+
 int Scene::FindNode( const char* name )
 {
-	for (auto node : nodePool) if (node->name.compare( name ) == 0) return node->ID;
+	for (auto node : nodePool) if (node && node->name.compare( name ) == 0) return node->ID;
 	return -1;
 }
 
@@ -3537,7 +3659,7 @@ int Scene::CollapseMeshes( const int subtreeRoot )
 //  +-----------------------------------------------------------------------------+
 void Scene::SetNodeTransform( const int nodeId, const ts_mat4& transform )
 {
-	if (nodeId < 0 || nodeId >= nodePool.size()) return;
+	if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) return;
 	nodePool[nodeId]->localTransform = transform;
 }
 
@@ -3548,7 +3670,7 @@ void Scene::SetNodeTransform( const int nodeId, const ts_mat4& transform )
 const ts_mat4& Scene::GetNodeTransform( const int nodeId )
 {
 	static ts_mat4 dummyIdentity;
-	if (nodeId < 0 || nodeId >= nodePool.size()) return dummyIdentity;
+	if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) return dummyIdentity;
 	return nodePool[nodeId]->localTransform;
 }
 
@@ -3665,6 +3787,15 @@ int Scene::AddDirectionalLight( const ts_vec3 direction, const ts_vec3 radiance 
 	return light->ID;
 }
 
+// Helper: the bottom-level acceleration structure built for a mesh. Mesh::AccStruc
+// stores the active layout in a union; every layout derives from BVHBase, so the
+// union's pointer is a BVHBase* whichever member is live. Only aabbMin/aabbMax are
+// read here, to place the instance in the TLAS.
+static tinybvh::BVHBase* MeshBLAS( Mesh* mesh )
+{
+	return (tinybvh::BVHBase*)mesh->blas.dynamicBVH;
+}
+
 //  +-----------------------------------------------------------------------------+
 //  |  Scene::UpdateSceneGraph (formerly in RenderSystem)                         |
 //  |  Walk the scene graph, updating all node matrices.                    LH2'25|
@@ -3678,20 +3809,61 @@ void Scene::UpdateSceneGraph( const float deltaTime )
 	for (int nodeIdx : rootNodes)
 	{
 		Node* node = nodePool[nodeIdx];
+		if (node == 0) continue;	// a stale root entry can never happen, but stay defensive
 		ts_mat4 T;
 		node->Update( T /* start with an identity matrix */ );
+	}
+	// Rebuild the instance array from the live mesh nodes only. The pool stays dense:
+	// no instance slots are masked off, and each surviving node is told its new slot.
+	std::vector<tinybvh::BLASInstance> newInstPool;
+	std::vector<int> newInstNodeIds;
+	for (int nodeId : rootNodes)
+	{
+		if (nodeId < 0 || nodeId >= (int)nodePool.size() || nodePool[nodeId] == 0) continue;
+		// depth-first walk, so instances follow scene order
+		std::vector<int> stack( 1, nodeId );
+		while (!stack.empty())
+		{
+			const int id = stack.back();
+			stack.pop_back();
+			Node* node = nodePool[id];
+			if (node == 0) continue;
+			if (node->meshID > -1)
+			{
+				node->instanceID = (int)newInstPool.size();
+				newInstPool.push_back( tinybvh::BLASInstance( node->meshID ) );
+				newInstNodeIds.push_back( id );
+			}
+			for (int s = (int)node->childIdx.size(), i = s - 1; i >= 0; i--) stack.push_back( node->childIdx[i] );
+		}
+	}
+	instPool.swap( newInstPool );
+	instNodeIds.swap( newInstNodeIds );
+	// Refresh transforms and the world-space bounds of each instance. This also runs on
+	// the first UpdateSceneGraph call and when a node moved because an ancestor moved.
+	for (int i = 0; i < (int)instPool.size(); i++)
+	{
+		Node* node = nodePool[instNodeIds[i]];
+		tinybvh::BLASInstance& instance = instPool[i];
+		instance.blasIdx = (uint32_t)node->meshID;
+		instance.transform = *(tinybvh::bvhmat4*)&node->combinedTransform;
+		Mesh* mesh = meshPool[node->meshID];
+		tinybvh::BVHBase* blas = MeshBLAS( mesh );
+		if (blas) instance.Update( blas );
 	}
 	// update tlas
 	static tinybvh::BVHBase** bvhList = 0;
 	static uint32_t bvhListSize = 0;
 	if (bvhListSize != meshPool.size())
 	{
-		delete bvhList;
+		delete[] bvhList;
 		bvhList = new tinybvh::BVHBase * [meshPool.size()];
-		for (int i = 0; i < meshPool.size(); i++) if (meshPool[i])
-			bvhList[i] = meshPool[i]->blas.dynamicBVH;
+		for (int i = 0; i < meshPool.size(); i++) bvhList[i] = 0;
 		bvhListSize = (uint32_t)meshPool.size();
 	}
+	// Keep bvhList in sync with the mesh BLASses that exist now: a mesh BLAS may have
+	// been built (or rebuilt) since the list was last filled.
+	for (int i = 0; i < (int)meshPool.size(); i++) if (meshPool[i]) bvhList[i] = MeshBLAS( meshPool[i] );
 	if (defaultBVHType == GPU_DYNAMIC || defaultBVHType == GPU_RIGID || defaultBVHType == GPU_STATIC)
 	{
 		if (!gpuTlas) gpuTlas = new tinybvh::BVH_GPU();
@@ -3700,6 +3872,8 @@ void Scene::UpdateSceneGraph( const float deltaTime )
 	else
 	{
 		if (!tlas) tlas = new tinybvh::BVH();
+		// An empty instance list must also rebuild the existing TLAS: it turns empty
+		// in place, and a later instance can be added and found again.
 		tlas->Build( instPool.data(), (uint32_t)instPool.size(), bvhList, bvhListSize );
 	}
 }

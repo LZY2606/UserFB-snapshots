@@ -186,6 +186,8 @@ tlas.Intersect( ray );
 
 Changing the transforms and rebuilding the (small) TLAS gives cheap _rigid animation_ as well as instancing.
 
+`Build` also accepts zero instances (also with a null instance pointer): the TLAS then becomes validly empty, `Intersect` leaves the input hit record untouched and `IsOccluded` returns `false`. The same object can be rebuilt into a populated TLAS afterwards, and a pointer saved before the scene emptied stays usable.
+
 Custom primitives are supported through callbacks: supply the AABBs via a function pointer and point `customIntersect` and `customIsOccluded` at your own intersection code. This works for double-precision BVHs as well, and lets you mix triangles, custom geometry and voxel objects in one scene. Disable with `NO_CUSTOM_GEOMETRY`.
 
 # Maintaining a BVH
@@ -196,6 +198,59 @@ Custom primitives are supported through callbacks: supply the AABBs via a functi
 * **Tree surgery.** `Compact`, `MergeLeafs`, `SplitLeafs` and `CollectNodes` manipulate an existing tree.
 * **Quality metrics.** `SAHCost` and `EPOCost`; the latter implements the "End-Point Overlap" metric from ["On Quality Metrics of Bounding Volume Hierarchies"](https://users.aalto.fi/~ailat1/publications/aila2013hpg_paper.pdf), Aila et al., 2013, weighted by `W_EPO`.
 * **Serialization.** `::Save` and `::Load` for most layouts. Every layout additionally has a static `Load` factory that returns a finished object: a plain-BVH file is converted to the target layout, and only that layout's data is kept.
+
+# TinyScene: removing nodes
+
+`tinyscene::Scene` (in `tiny_scene.h`) wraps TinyBVH in a glTF-style scene graph: nodes hold a transform and optionally a mesh; instances reference the world-space bounds of the mesh BLAS in a TLAS. `Scene::RemoveNode` removes a node **and all its descendants**:
+
+```cpp
+#include "tiny_scene.h"
+using namespace tinyscene;
+
+// build: one mesh shared by two nodes, both attached under a parent
+const int mat = Scene::AddMaterial( ts_vec3( 0.5f ), "gray" );
+const int mesh = Scene::AddMesh( 0 );
+Scene::AddTriToMesh( mesh, ts_vec3( -1, -1, 4 ), ts_vec3( 1, -1, 4 ), ts_vec3( 0, 1, 4 ), mat );
+Scene::meshPool[mesh]->BuildMaterialList();
+ts_mat4 transformA;                       // identity; set your own if needed
+const int parent = Scene::AddNode( new Node( -1, transformA ) );
+const int left = Scene::AddNode( new Node( mesh, ts_mat4() ) );
+const int right = Scene::AddNode( new Node( mesh, ts_mat4() ) );
+Scene::AddChildNode( parent, left );
+Scene::AddChildNode( parent, right );
+Scene::AddInstance( parent );
+Scene::UpdateSceneGraph( 0.0f );
+
+// trace: ray.hit.inst is an index into Scene::instPool
+tinybvh::Ray ray( tinybvh::bvhvec3( 0, 0, 0 ), tinybvh::bvhvec3( 0, 0, 1 ) );
+Scene::tlas->Intersect( ray );
+const int hitNode = Scene::NodeIdFromInstance( (unsigned)ray.hit.inst ); // stable node id
+
+// remove the right branch: the left branch and the shared mesh survive
+Scene::RemoveNode( right );
+Scene::UpdateSceneGraph( 0.0f );   // instPool is rebuilt from live mesh nodes only
+```
+
+What removal guarantees:
+
+* The node and every descendant are deleted, and detached from `rootNodes` and from the `childIdx` list of their surviving parent.
+* `nodePool` slots stay in place as holes: node ids are stable, and removing an id twice is a no-op.
+* Animation channels that target removed nodes are deleted; their samplers stay, and surviving channels keep working.
+* `instPool` stays a dense array: the next `UpdateSceneGraph` lists only surviving mesh nodes, and each surviving node's internal instance slot is updated. No old instance is merely masked off.
+* Meshes, materials and textures are shared and are not deleted: removing one user never breaks another. Skinned / morphed meshes and external skin references are out of scope.
+* `Scene::NodeIdFromInstance( inst )` maps the instance index of a current TLAS hit back to the stable node id (or `-1`). The returned node is the one that produced the hit.
+
+Triangle lights (emissive meshes) are associated per node and per source triangle:
+
+```cpp
+const int lightIdx = Scene::GetTriLightIndex( nodeId, triangleId ); // -1 when there is none
+if ( lightIdx > -1 ) { /* Scene::triLights[lightIdx] */ }
+```
+
+Each node gets its own `TriLight` for each of its emissive source triangles, so sharing one emissive mesh between nodes (with different parent transforms) yields independent world-space lights. `TriLight::instIdx` is the stable node id and `TriLight::triIdx` the source triangle; the shared `FatTri::ltriIdx` is not used as a per-instance index. Lights are refreshed from the world transform (vertices, centre, unit geometric normal, area and energy), including ancestor motion and non-uniform scaling, and the table is compacted with surviving associations remapped when nodes are removed.
+
+When the last instance is deleted, `Scene::tlas` stays valid: the same object turns empty in place (`Intersect` leaves the input hit record as it was, `IsOccluded` returns `false`), and a newly added node makes it produce hits again. Empty GPU layouts are not supported.
+
 
 # Offline optimization: bvhopt
 

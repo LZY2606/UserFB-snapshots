@@ -778,6 +778,7 @@ public:
 	// Set to 0 to leave the decision to SAH.
 	uint32_t hqLeafPrims = 0;
 	Vec3 aabbMin, aabbMax;			// bounds of the root node of the BVH.
+	bool emptyTLAS = false;			// true after a zero-instance build; traversal returns without touching stale nodes.
 	// Opacity maps support.
 	uint32_t opmapN = 0;			// opacity micro map subdivision: 0 = no maps.
 	uint32_t* opmap = 0;			// opacity micro maps; opmapN^2 bits per triangle.
@@ -871,10 +872,12 @@ public:
 	using Base::hqLeafPrims;
 	using Base::aabbMin;
 	using Base::aabbMax;
+	using Base::emptyTLAS;
 	using Base::opmapN;
 	using Base::opmap;
 protected:
 	using Base::refittable;
+	using Base::rebuildable;
 	using Base::hasHoles;
 	using Base::orderedNodes;
 	using Base::bvhOverAabbs;
@@ -942,6 +945,9 @@ public:
 	void Build( BLASInstance* instances, const Index instCount, BVH** blasses, const Index blasCount );
 	void Build( void (*customGetAABB)(const Index, Vec3&, Vec3&, void*), const Index primCount );
 	void BuildAABB( const Vertex* aabbs, const Index primCount );
+	// Drop all tree data and leave a valid, empty object behind. A zero-instance TLAS
+	// build ends up in this state; it can be rebuilt into a populated TLAS later.
+	void Empty();
 	void BuildHQ( const Vertex* vertices, const Index primCount );
 	void BuildHQ( const Slice& vertices );
 	void BuildHQ( const Vertex* vertices, const Index* indices, const Index primCount );
@@ -967,9 +973,10 @@ public:
 	Index NodeCount() const;
 	Index LeafCount() const;
 	Index PrimCount( const Index nodeIdx = 0 ) const;
-	// BVH type identification
-	bool isTLAS() const { return instList != 0; }
-	bool isBLAS() const { return instList == 0; }
+	// BVH type identification. An empty TLAS has no instance list to point at but is
+	// still a TLAS: traversal must not fall through to the (stale) node pool.
+	bool isTLAS() const { return instList != 0 || emptyTLAS; }
+	bool isBLAS() const { return instList == 0 && !emptyTLAS; }
 	bool isIndexed() const { return vertIdx != 0; }
 	bool hasCustomGeom() const { return customIntersect != 0; }
 private:
@@ -1158,6 +1165,7 @@ public:
 	using Base::idxCount;
 	using Base::aabbMin;
 	using Base::aabbMax;
+	using Base::emptyTLAS;
 protected:
 	using Base::hasHoles;
 	using Base::orderedNodes;
@@ -2169,6 +2177,7 @@ TEMPLATED void BVH<Float, Index>::ReleaseOwnership()
 	bvhNode = 0, primIdx = 0, fragment = 0;
 	verts = Slice( nullptr, 0, 0 ), vertIdx = 0, ownsGeometry = false; // the new owner holds these now
 	allocatedNodes = usedNodes = triCount = idxCount = 0;
+	instList = 0, blasList = 0, blasCount = 0, emptyTLAS = false;
 }
 
 // FreeGeometry: release vertex data that came out of a file. Caller-supplied geometry is
@@ -2184,6 +2193,29 @@ TEMPLATED void BVH<Float, Index>::DropReference( BVHContext ctx )
 {
 	// Deliberately no destructor call: the buffers are not ours to release.
 	new (this) BVH( ctx ); // 'placement new': Call constructor on existing data (here: this).
+}
+
+// Empty: release the tree and geometry, and leave a valid object with no primitives.
+// Build settings, context and layout are kept, so the object can be rebuilt later.
+TEMPLATED void BVH<Float, Index>::Empty()
+{
+	FreeGeometry();
+	AlignedFree( bvhNode );
+	AlignedFree( primIdx );
+	AlignedFree( fragment );
+	bvhNode = 0, primIdx = 0, fragment = 0;
+	allocatedNodes = usedNodes = triCount = idxCount = 0;
+	newNodePtr = 0, nextFrag = 0;
+	verts = Slice( nullptr, 0, 0 ), vertIdx = 0;
+	instList = 0, blasList = 0, blasCount = 0;
+	customIntersect = 0, customIsOccluded = 0, customUserdata = 0;
+	aabbMin = Vec3( bvh_far<Float> ), aabbMax = Vec3( -bvh_far<Float> );
+	emptyTLAS = false;
+	refittable = true, rebuildable = true, hasHoles = false, orderedNodes = true;
+	bvhOverAabbs = false, bvhOverIndices = false;
+#ifdef ENABLE_THREADED_BUILDS
+	atomicNewNodePtr = 0, atomicNextFrag = 0;
+#endif
 }
 
 TEMPLATED BVH<Float, Index>::~BVH()
@@ -2247,10 +2279,10 @@ TEMPLATED bool BVH<Float, Index>::Load( const char* fileName, const Slice& verti
 	AlignedFree( fragment );
 	s.read( (char*)this, sizeof( BVH ) );
 	const bool fileIsIndexed = (vertIdx != nullptr);
-	const bool fileIsTLAS = (blasList != nullptr || instList != nullptr);
+	const bool fileIsTLAS = (blasList != nullptr || instList != nullptr || emptyTLAS);
 	bvhNode = 0, primIdx = 0, fragment = 0, ownsGeometry = false;
 	verts = Slice( nullptr, 0, 0 ), vertIdx = 0;
-	instList = 0, blasList = 0, blasCount = 0;
+	instList = 0, blasList = 0, blasCount = 0, emptyTLAS = false;
 	customIntersect = 0, customIsOccluded = 0, customUserdata = 0;
 #ifdef ENABLE_THREADED_BUILDS
 	atomicNewNodePtr = 0, atomicNextFrag = 0;
@@ -2351,7 +2383,14 @@ TEMPLATED void BVH<Float, Index>::Build( void (*customGetAABB)(const Index, Vec3
 TEMPLATED void BVH<Float, Index>::Build( BLASInstance* instances, const Index instCount, BVHBase<Float, Index>** blasses, const Index bCount )
 {
 	// TLAS builder. Build a BVH over a list of BLAS instances.
-	BVH_FATAL_ERROR_IF( instCount == 0, "BVH::Build( BLASInstance*, instCount ), instCount == 0." );
+	if (instCount == 0)
+	{
+		// A scene can run out of instances: allow an empty TLAS. Never enter the previous
+		// (or a zero-filled) tree for this case: traversal short-circuits on emptyTLAS.
+		Empty();
+		emptyTLAS = true;
+		return;
+	}
 	SetInput( Slice( nullptr, 0, 0 ), 0 );
 	instList = instances, blasList = blasses, blasCount = bCount;
 	BuildFromBounds( instCount, [&]( const Index i, Vec3& bmin, Vec3& bmax )
@@ -2398,6 +2437,7 @@ TEMPLATED void BVH<Float, Index>::SetInput( const Slice& vertices, const Index* 
 {
 	verts = vertices, vertIdx = (Index*)indices;
 	instList = 0, blasList = 0, blasCount = 0;
+	emptyTLAS = false;
 }
 
 // TLAS over BLASses of the same layout. BVH derives from BVHBase without offset, which makes the cast of the array safe.
@@ -4053,6 +4093,7 @@ TEMPLATED bool BVH<Float, Index>::IntersectSphere( const Vec3& pos, const Float 
 TEMPLATED int32_t BVH<Float, Index>::Intersect( Ray& ray ) const
 {
 	VALIDATE_RAY( ray );
+	if (emptyTLAS) return 0; // no instances: leave the input hit record untouched.
 	if (isTLAS()) OCTANT_DISPATCH( IntersectTLASOctant, ray )
 	else OCTANT_DISPATCH( IntersectOctant, ray )
 }
@@ -4222,6 +4263,7 @@ TEMPLATED PER_OCTANT int32_t BVH<Float, Index>::IntersectTLASOctant( Ray& ray ) 
 TEMPLATED bool BVH<Float, Index>::IsOccluded( const Ray& ray ) const
 {
 	VALIDATE_RAY( ray );
+	if (emptyTLAS) return false; // no instances: nothing can occlude.
 	if (isTLAS()) OCTANT_DISPATCH( IsOccludedTLASOctant, ray )
 	else OCTANT_DISPATCH( IsOccludedOctant, ray )
 }
@@ -4931,8 +4973,22 @@ TEMPLATED void BVH_GPU<Float, Index>::Build( BLASInstance* instances, const Inde
 	this->PassSettingsTo( bvh );
 	// build underlying layout
 	bvh.Build( instances, instCount, blasses, blasCount );
+	if (instCount == 0)
+	{
+		// There is no GPU layout for an empty scene; leave this object empty rather than
+		// converting (and traversing) a stale node pool. Query bvh.emptyTLAS for state.
+		AlignedFree( bvhNode );
+		bvhNode = 0;
+		AlignedFree( (void*)orderedVerts.data );
+		orderedVerts = Slice( nullptr, 0, 0 );
+		this->triCount = this->idxCount = 0;
+		this->aabbMin = Vec3( bvh_far<Float> ), this->aabbMax = Vec3( -bvh_far<Float> );
+		this->emptyTLAS = true;
+		return;
+	}
 	// convert to BVH_GPU layout
 	ConvertFrom( bvh, false );
+	this->emptyTLAS = false;
 }
 
 TEMPLATED void BVH_GPU<Float, Index>::Optimize( const uint32_t iterations, bool extreme )
@@ -5028,6 +5084,7 @@ TEMPLATED void BVH_GPU<Float, Index>::ConvertFrom( const BVH& original, bool com
 TEMPLATED int32_t BVH_GPU<Float, Index>::Intersect( Ray& ray ) const
 {
 	VALIDATE_RAY( ray );
+	if (emptyTLAS) return 0; // no instances: leave the input hit record untouched.
 	uint32_t nodeIdx = 0, stack[TINYBVH_STACK_SIZE], stackPtr = 0;
 	float cost = 0;
 	while (1)
