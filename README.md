@@ -124,6 +124,50 @@ mx.WriteData(&astits.MuxerData{
 })
 ```
 
+## Remux a single program
+
+When an archive packs several programs into one multi-program transport stream,
+`ProgramRemuxer` extracts a single program into a standalone, playable stream.
+The compressed audio and video is never decoded and PES packets are not
+regenerated: admitted packets are copied byte for byte and only the TS header
+PID and continuity counter are rewritten, so PCR, PTS and DTS are preserved.
+
+```go
+// Open the multi-program input and the single-program output
+in, _ := os.Open("/path/to/multi-program.ts")
+defer in.Close()
+out, _ := os.Create("/path/to/single-program.ts")
+defer out.Close()
+
+// Extract program 42. The generated PMT is carried on PID 0x1000 and the
+// remapped elementary/PCR PIDs are allocated starting at 0x0500.
+rmx, err := astits.NewProgramRemuxer(out, astits.ProgramRemuxConfig{
+    ProgramNumber: 42,
+    OutputPMTPID:  0x1000,
+    FirstMediaPID: 0x0500,
+})
+if err != nil {
+    panic(err)
+}
+
+// The input may be sliced at any byte boundary; the output is always made of
+// complete 188-byte packets.
+if _, err := io.Copy(rmx, in); err != nil {
+    panic(err)
+}
+
+// Flush reports a partial TS packet or an unfinished PSI section. Ending in
+// the middle of PES payload data is legal.
+if err := rmx.Flush(); err != nil {
+    panic(err)
+}
+```
+
+The input PAT/PMT are discovered from the stream itself. The remuxer waits for
+a complete, CRC-valid PAT and the selected program's PMT before admitting any
+media, follows PMT PID migrations, regenerates the output PAT/PMT sections and
+drops every other program along with the original tables and null packets.
+
 ## Options
 
 In order to pass options to the demuxer or the muxer, look for the methods prefixed with `DemuxerOpt` or `MuxerOpt` and add them upon calling `NewDemuxer` or `NewMuxer` :
@@ -168,6 +212,7 @@ This library provides 2 CLIs that will automatically get installed in `GOPATH/bi
 
 - [x] Add demuxer
 - [x] Add muxer
+- [x] Remux a single program out of a multi-program TS (`ProgramRemuxer`)
 - [x] Demux PES packets
 - [x] Mux PES packets
 - [x] Demux PAT packets
