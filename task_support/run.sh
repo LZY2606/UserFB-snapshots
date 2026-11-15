@@ -6,12 +6,16 @@ if [[ $mode == target ]]; then test -s task_support/transition_cases.c; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   test -s task_support/transition_oracle.c
-cc -std=c17 -O2 -Wall -Wextra task_support/transition_oracle.c -o .task-build/transition_oracle -lm
-cc -std=c17 -O2 -Wall -Wextra -I. task_support/driver.c task_support/transition_cases.c -o .task-build/target -lm
+  test -s task_support/transition_cases.c
+  test -s task_support/transition_spec.c
+cc -std=c17 -O2 -Wall -Wextra task_support/transition_spec.c task_support/transition_oracle.c -o .task-build/transition_oracle -lm
+cc -std=c17 -O2 -Wall -Wextra task_support/transition_spec.c task_support/transition_assets.c -o .task-build/transition_assets -lm
+cc -std=c17 -O2 -Wall -Wextra -I. -Itask_support task_support/driver.c task_support/transition_cases.c task_support/transition_spec.c -o .task-build/target -lm
 export FFMPEG_BIN="${FFMPEG_BIN:-$PWD/.task-build/ffmpeg/ffmpeg}"
 export FFPROBE_BIN="${FFPROBE_BIN:-$PWD/.task-build/ffmpeg/ffprobe}"
 export TRANSITION_ORACLE_BIN="$PWD/.task-build/transition_oracle"
-  output_log=$(mktemp)
+export TRANSITION_ASSETS_BIN="$PWD/.task-build/transition_assets"
+  output_log=$(mktemp "${TMPDIR:-/tmp}/transition-target.XXXXXX")
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1
