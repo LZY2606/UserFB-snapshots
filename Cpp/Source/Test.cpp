@@ -1,37 +1,45 @@
 #include "Config.h"
 #include "Test.h"
 #include "Maths.h"
+#include "Medium.h"
 #include <algorithm>
+#include <vector>
 #if CPU_CAN_DO_THREADS
 #include "enkiTS/TaskScheduler_c.h"
 #endif
 #include <atomic>
 
-// 46 spheres (2 emissive) when enabled; 9 spheres (1 emissive) when disabled
+// 46 spheres (2 emissive) when the big scene is enabled; 9 spheres (1 emissive) otherwise.
 #define DO_BIG_SCENE 1
 
-static Sphere s_Spheres[] =
+static std::vector<Sphere> MakeDefaultSpheres()
 {
-    {float3(0,-100.5,-1), 100},
-    {float3(2,0,-1), 0.5f},
-    {float3(0,0,-1), 0.5f},
-    {float3(-2,0,-1), 0.5f},
-    {float3(2,0,1), 0.5f},
-    {float3(0,0,1), 0.5f},
-    {float3(-2,0,1), 0.5f},
-    {float3(0.5f,1,0.5f), 0.5f},
-    {float3(-1.5f,1.5f,0.f), 0.3f},
+    std::vector<Sphere> spheres =
+    {
+        Sphere(float3(0,-100.5,-1), 100),
+        Sphere(float3(2,0,-1), 0.5f),
+        Sphere(float3(0,0,-1), 0.5f),
+        Sphere(float3(-2,0,-1), 0.5f),
+        Sphere(float3(2,0,1), 0.5f),
+        Sphere(float3(0,0,1), 0.5f),
+        Sphere(float3(-2,0,1), 0.5f),
+        Sphere(float3(0.5f,1,0.5f), 0.5f),
+        Sphere(float3(-1.5f,1.5f,0.f), 0.3f),
+    };
 #if DO_BIG_SCENE
-    {float3(4,0,-3), 0.5f}, {float3(3,0,-3), 0.5f}, {float3(2,0,-3), 0.5f}, {float3(1,0,-3), 0.5f}, {float3(0,0,-3), 0.5f}, {float3(-1,0,-3), 0.5f}, {float3(-2,0,-3), 0.5f}, {float3(-3,0,-3), 0.5f}, {float3(-4,0,-3), 0.5f},
-    {float3(4,0,-4), 0.5f}, {float3(3,0,-4), 0.5f}, {float3(2,0,-4), 0.5f}, {float3(1,0,-4), 0.5f}, {float3(0,0,-4), 0.5f}, {float3(-1,0,-4), 0.5f}, {float3(-2,0,-4), 0.5f}, {float3(-3,0,-4), 0.5f}, {float3(-4,0,-4), 0.5f},
-    {float3(4,0,-5), 0.5f}, {float3(3,0,-5), 0.5f}, {float3(2,0,-5), 0.5f}, {float3(1,0,-5), 0.5f}, {float3(0,0,-5), 0.5f}, {float3(-1,0,-5), 0.5f}, {float3(-2,0,-5), 0.5f}, {float3(-3,0,-5), 0.5f}, {float3(-4,0,-5), 0.5f},
-    {float3(4,0,-6), 0.5f}, {float3(3,0,-6), 0.5f}, {float3(2,0,-6), 0.5f}, {float3(1,0,-6), 0.5f}, {float3(0,0,-6), 0.5f}, {float3(-1,0,-6), 0.5f}, {float3(-2,0,-6), 0.5f}, {float3(-3,0,-6), 0.5f}, {float3(-4,0,-6), 0.5f},
-    {float3(1.5f,1.5f,-2), 0.3f},
-#endif // #if DO_BIG_SCENE
-};
-const int kSphereCount = sizeof(s_Spheres) / sizeof(s_Spheres[0]);
+    const float xs[] = {4,3,2,1,0,-1,-2,-3,-4};
+    for (int row = 0; row < 4; ++row)
+        for (int x = 0; x < 9; ++x)
+            spheres.push_back(Sphere(float3(float(xs[x]), 0, float(-3 - row)), 0.5f));
+    spheres.push_back(Sphere(float3(1.5f,1.5f,-2), 0.3f));
+#endif
+    return spheres;
+}
 
-static SpheresSoA s_SpheresSoA(kSphereCount);
+static std::vector<Sphere> s_Spheres = MakeDefaultSpheres();
+static int kSphereCount = (int)s_Spheres.size();
+
+static SpheresSoA* s_SpheresSoA = nullptr;
 
 struct Material
 {
@@ -43,27 +51,56 @@ struct Material
     float ri;
 };
 
-static Material s_SphereMats[kSphereCount] =
+static std::vector<Material> MakeDefaultMaterials()
 {
-    { Material::Lambert, float3(0.8f, 0.8f, 0.8f), float3(0,0,0), 0, 0, },
-    { Material::Lambert, float3(0.8f, 0.4f, 0.4f), float3(0,0,0), 0, 0, },
-    { Material::Lambert, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0, 0, },
-    { Material::Metal, float3(0.4f, 0.4f, 0.8f), float3(0,0,0), 0, 0 },
-    { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0, 0 },
-    { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0.2f, 0 },
-    { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0.6f, 0 },
-    { Material::Dielectric, float3(0.4f, 0.4f, 0.4f), float3(0,0,0), 0, 1.5f },
-    { Material::Lambert, float3(0.8f, 0.6f, 0.2f), float3(30,25,15), 0, 0 },
+    std::vector<Material> mats =
+    {
+        { Material::Lambert, float3(0.8f, 0.8f, 0.8f), float3(0,0,0), 0, 0, },
+        { Material::Lambert, float3(0.8f, 0.4f, 0.4f), float3(0,0,0), 0, 0, },
+        { Material::Lambert, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0, 0, },
+        { Material::Metal, float3(0.4f, 0.4f, 0.8f), float3(0,0,0), 0, 0 },
+        { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0, 0 },
+        { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0.2f, 0 },
+        { Material::Metal, float3(0.4f, 0.8f, 0.4f), float3(0,0,0), 0.6f, 0 },
+        { Material::Dielectric, float3(0.4f, 0.4f, 0.4f), float3(0,0,0), 0, 1.5f },
+        { Material::Lambert, float3(0.8f, 0.6f, 0.2f), float3(30,25,15), 0, 0 },
+    };
 #if DO_BIG_SCENE
-    { Material::Lambert, float3(0.1f, 0.1f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.2f, 0.2f, 0.2f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.3f, 0.3f, 0.3f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.4f, 0.4f, 0.4f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.5f, 0.5f, 0.5f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.6f, 0.6f, 0.6f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.7f, 0.7f, 0.7f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.8f, 0.8f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.9f, 0.9f, 0.9f), float3(0,0,0), 0, 0, },
-    { Material::Metal, float3(0.1f, 0.1f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.2f, 0.2f, 0.2f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.3f, 0.3f, 0.3f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.4f, 0.4f, 0.4f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.5f, 0.5f, 0.5f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.6f, 0.6f, 0.6f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.7f, 0.7f, 0.7f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.8f, 0.8f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.9f, 0.9f, 0.9f), float3(0,0,0), 0, 0, },
-    { Material::Metal, float3(0.8f, 0.1f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.8f, 0.5f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.8f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.4f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.1f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.1f, 0.8f, 0.5f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.1f, 0.8f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.1f, 0.1f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.5f, 0.1f, 0.8f), float3(0,0,0), 0, 0, },
-    { Material::Lambert, float3(0.8f, 0.1f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.8f, 0.5f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.8f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.4f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.1f, 0.8f, 0.1f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.1f, 0.8f, 0.5f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.1f, 0.8f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Lambert, float3(0.1f, 0.1f, 0.8f), float3(0,0,0), 0, 0, }, { Material::Metal, float3(0.5f, 0.1f, 0.8f), float3(0,0,0), 0, 0, },
-    { Material::Lambert, float3(0.1f, 0.2f, 0.5f), float3(3,10,20), 0, 0 },
+    for (int i = 1; i <= 9; ++i)
+    {
+        float g = i / 10.0f;
+        mats.push_back({ Material::Lambert, float3(g, g, g), float3(0,0,0), 0, 0 });
+    }
+    for (int i = 1; i <= 9; ++i)
+    {
+        float g = i / 10.0f;
+        mats.push_back({ Material::Metal, float3(g, g, g), float3(0,0,0), 0, 0 });
+    }
+    const float3 metalAlbedos[] =
+    {
+        float3(0.8f,0.1f,0.1f), float3(0.8f,0.5f,0.1f), float3(0.8f,0.8f,0.1f),
+        float3(0.4f,0.8f,0.1f), float3(0.1f,0.8f,0.1f), float3(0.1f,0.8f,0.5f),
+        float3(0.1f,0.8f,0.8f), float3(0.1f,0.1f,0.8f), float3(0.5f,0.1f,0.8f),
+    };
+    for (int i = 0; i < 9; ++i)
+        mats.push_back({ Material::Metal, metalAlbedos[i], float3(0,0,0), 0, 0 });
+    const float3 lambertAlbedos[] =
+    {
+        float3(0.8f,0.1f,0.1f), float3(0.8f,0.5f,0.1f), float3(0.8f,0.8f,0.1f),
+        float3(0.4f,0.8f,0.1f), float3(0.1f,0.8f,0.1f), float3(0.1f,0.8f,0.5f),
+        float3(0.1f,0.8f,0.8f), float3(0.1f,0.1f,0.8f), float3(0.5f,0.1f,0.8f),
+    };
+    for (int i = 0; i < 8; ++i)
+        mats.push_back({ Material::Lambert, lambertAlbedos[i], float3(0,0,0), 0, 0 });
+    mats.push_back({ Material::Metal, float3(0.5f, 0.1f, 0.8f), float3(0,0,0), 0, 0 });
+    mats.push_back({ Material::Lambert, float3(0.1f, 0.2f, 0.5f), float3(3,10,20), 0, 0 });
 #endif
-};
+    return mats;
+}
 
-static int s_EmissiveSpheres[kSphereCount];
+static std::vector<Material> s_SphereMats = MakeDefaultMaterials();
+
+static std::vector<int> s_EmissiveSpheres;
 static int s_EmissiveSphereCount;
 
 static Camera s_Cam;
@@ -75,12 +112,12 @@ const int kMaxDepth = 10;
 
 bool HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
 {
-    outID = HitSpheres(r, s_SpheresSoA, tMin, tMax, outHit);
+    outID = HitSpheres(r, *s_SpheresSoA, tMin, tMax, outHit);
     return outID != -1;
 }
 
 
-static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state)
+static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state, const std::vector<int>* mediumActive = nullptr)
 {
     outLightE = float3(0,0,0);
     if (mat.type == Material::Lambert)
@@ -128,7 +165,12 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
                 AssertUnit(rdir);
                 float3 nl = dot(rec.normal, rdir) < 0 ? rec.normal : -rec.normal;
                 float3 smatEmissive = smat.emissive.toFloat3();
-                outLightE += (matAlbedo * smatEmissive) * (std::max(0.0f, dot(l, nl)) * omega / kPI);
+                float3 lightContrib = (matAlbedo * smatEmissive) * (std::max(0.0f, dot(l, nl)) * omega / kPI);
+                // In priority-medium mode an unoccluded light segment still
+                // crosses media; glass boundaries keep occluding as before.
+                if (mediumActive)
+                    lightContrib = lightContrib * medium::ShadowAttenuation(rec.pos, l, lightHit.t, *mediumActive);
+                outLightE += lightContrib;
             }
         }
 #endif
@@ -194,6 +236,11 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
 
 static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state, bool doMaterialE = true)
 {
+    if (medium::MediumEnabled())
+    {
+        (void)doMaterialE; // the medium tracer carries the same emission de-duplication rules
+        return medium::TraceMedium(r, depth, inoutRayCount, state);
+    }
     Hit rec;
     int id = 0;
     ++inoutRayCount;
@@ -239,6 +286,7 @@ static enkiTaskScheduler* g_TS;
 
 void InitializeTest()
 {
+    s_SpheresSoA = new SpheresSoA(kSphereCount);
     #if CPU_CAN_DO_THREADS
     g_TS = enkiNewTaskScheduler();
     enkiInitTaskScheduler(g_TS);
@@ -250,6 +298,8 @@ void ShutdownTest()
     #if CPU_CAN_DO_THREADS
     enkiDeleteTaskScheduler(g_TS);
     #endif
+    delete s_SpheresSoA;
+    s_SpheresSoA = nullptr;
 }
 
 struct JobData
@@ -314,26 +364,26 @@ void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight, u
 #else
     float aperture = 0.1f;
 #endif
-#if DO_BIG_SCENE
-    aperture *= 0.2f;
-#endif
+    if (kSphereCount > 9)
+        aperture *= 0.2f;
 
     s_EmissiveSphereCount = 0;
+    s_EmissiveSpheres.clear();
     for (int i = 0; i < kSphereCount; ++i)
     {
         Sphere& s = s_Spheres[i];
         s.UpdateDerivedData();
-        s_SpheresSoA.centerX[i] = s.center.x;
-        s_SpheresSoA.centerY[i] = s.center.y;
-        s_SpheresSoA.centerZ[i] = s.center.z;
-        s_SpheresSoA.sqRadius[i] = s.radius * s.radius;
-        s_SpheresSoA.invRadius[i] = s.invRadius;
+        s_SpheresSoA->centerX[i] = s.center.x;
+        s_SpheresSoA->centerY[i] = s.center.y;
+        s_SpheresSoA->centerZ[i] = s.center.z;
+        s_SpheresSoA->sqRadius[i] = s.radius * s.radius;
+        s_SpheresSoA->invRadius[i] = s.invRadius;
 
         // Remember IDs of emissive spheres (light sources)
         const Material& smat = s_SphereMats[i];
         if (smat.emissive.x > 0 || smat.emissive.y > 0 || smat.emissive.z > 0)
         {
-            s_EmissiveSpheres[s_EmissiveSphereCount] = i;
+            s_EmissiveSpheres.push_back(i);
             s_EmissiveSphereCount++;
         }
     }
@@ -376,9 +426,90 @@ void GetObjectCount(int& outCount, int& outObjectSize, int& outMaterialSize, int
 
 void GetSceneDesc(void* outObjects, void* outMaterials, void* outCam, void* outEmissives, int* outEmissiveCount)
 {
-    memcpy(outObjects, s_Spheres, kSphereCount * sizeof(s_Spheres[0]));
-    memcpy(outMaterials, s_SphereMats, kSphereCount * sizeof(s_SphereMats[0]));
+    memcpy(outObjects, s_Spheres.data(), kSphereCount * sizeof(s_Spheres[0]));
+    memcpy(outMaterials, s_SphereMats.data(), kSphereCount * sizeof(s_SphereMats[0]));
     memcpy(outCam, &s_Cam, sizeof(s_Cam));
-    memcpy(outEmissives, s_EmissiveSpheres, s_EmissiveSphereCount * sizeof(s_EmissiveSpheres[0]));
+    memcpy(outEmissives, s_EmissiveSpheres.data(), s_EmissiveSphereCount * sizeof(s_EmissiveSpheres[0]));
     *outEmissiveCount = s_EmissiveSphereCount;
+}
+
+// ---------------------------------------------------------------------------
+// Priority-medium support surface (consumed by Cpp/Source/Medium.cpp).
+// The GPU layout exposed by GetSceneDesc above is unchanged; these are
+// CPU-only helpers for swapping in the small-ball medium scene.
+// ---------------------------------------------------------------------------
+
+const Sphere* ProductionSpheres()
+{
+    return s_Spheres.data();
+}
+
+int ProductionActiveCount()
+{
+    return kSphereCount;
+}
+
+int ProductionMaterialType(int id)
+{
+    return (int)s_SphereMats[id].type;
+}
+
+float3 ProductionMaterialEmissive(int id)
+{
+    return s_SphereMats[id].emissive.toFloat3();
+}
+
+bool ProductionLegacyScatter(int id, const Ray& rIn, const Hit& rec, float3& attenuation,
+                              Ray& scattered, float3& outLightE, int& inoutRayCount,
+                              uint32_t& state, const std::vector<int>& mediumActive)
+{
+    const std::vector<int>* activePtr = medium::MediumEnabled() ? &mediumActive : nullptr;
+    return Scatter(s_SphereMats[id], rIn, rec, attenuation, scattered, outLightE,
+                   inoutRayCount, state, activePtr);
+}
+
+bool ProductionInstallScene(const std::vector<Sphere>& spheres,
+                            const std::vector<medium::SceneMaterialDesc>& mats,
+                            const medium::MediumConfig& cfg)
+{
+    if (spheres.size() != mats.size())
+        return false;
+    if (!medium::ValidateConfig(cfg, (int)spheres.size()))
+        return false; // reject before touching the scene
+
+    std::vector<Sphere> newSpheres = spheres;
+    std::vector<Material> newMats;
+    newMats.reserve(mats.size());
+    for (const medium::SceneMaterialDesc& d : mats)
+    {
+        Material m;
+        m.type = (Material::Type)d.type;
+        m.albedo = d.albedo;
+        m.emissive = d.emissive;
+        m.roughness = d.roughness;
+        m.ri = d.ri;
+        newMats.push_back(m);
+    }
+
+    delete s_SpheresSoA;
+    s_Spheres = std::move(newSpheres);
+    s_SphereMats = std::move(newMats);
+    kSphereCount = (int)s_Spheres.size();
+    s_SpheresSoA = new SpheresSoA(kSphereCount);
+    if (!medium::SetMediumConfig(cfg))
+    {
+        // Validation already passed; keep the mode consistent if this ever fails.
+        return false;
+    }
+    return true;
+}
+
+void ProductionResetScene()
+{
+    medium::ClearMediumConfig();
+    delete s_SpheresSoA;
+    s_Spheres = MakeDefaultSpheres();
+    s_SphereMats = MakeDefaultMaterials();
+    kSphereCount = (int)s_Spheres.size();
+    s_SpheresSoA = new SpheresSoA(kSphereCount);
 }
