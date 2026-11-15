@@ -164,6 +164,11 @@ enum
 	GL_TRIANGLES_ADJACENCY,
 	GL_TRIANGLE_STRIP_ADJACENCY,
 
+	// PortableGL extension: each consecutive group of 3 vertices is one
+	// quadratic Bezier stroke, C(t)=(1-t)^2*C0+2t(1-t)*C1+t^2*C2 in clip
+	// space.  Control point w must be > 0.  Trailing vertices are ignored.
+	GL_QUADRATIC_CURVES_PGL,
+
 	//depth functions (and stencil funcs)
 	GL_LESS,
 	GL_LEQUAL,

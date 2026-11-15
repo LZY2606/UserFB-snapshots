@@ -2053,7 +2053,7 @@ PGLDEF void glVertexAttribDivisor(GLuint index, GLuint divisor)
 //TODO(rswinkle): Why is first, an index, a GLint and not GLuint or GLsizei?
 PGLDEF void glDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(count < 0, GL_INVALID_VALUE);
 	PGL_ERR(!pgl_draw_framebuffer_ok(), GL_INVALID_FRAMEBUFFER_OPERATION);
 
@@ -2065,7 +2065,7 @@ PGLDEF void glDrawArrays(GLenum mode, GLint first, GLsizei count)
 
 PGLDEF void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GLsizei drawcount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(drawcount < 0, GL_INVALID_VALUE);
 
 	for (GLsizei i=0; i<drawcount; i++) {
@@ -2076,7 +2076,7 @@ PGLDEF void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* co
 
 PGLDEF void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(count < 0, GL_INVALID_VALUE);
 
 	// TODO error not in the spec but says type must be one of these ... strange
@@ -2092,7 +2092,7 @@ PGLDEF void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
 // TODO fix
 PGLDEF void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices, GLsizei drawcount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(drawcount < 0, GL_INVALID_VALUE);
 
 	// TODO error not in the spec but says type must be one of these ... strange
@@ -2106,7 +2106,7 @@ PGLDEF void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, 
 
 PGLDEF void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	if (!count || !instancecount)
@@ -2119,7 +2119,7 @@ PGLDEF void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsiz
 
 PGLDEF void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount, GLuint baseinstance)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	if (!count || !instancecount)
@@ -2133,7 +2133,7 @@ PGLDEF void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei 
 
 PGLDEF void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLsizei instancecount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	// NOTE: error not in the spec but says type must be one of these ... strange
@@ -2149,7 +2149,7 @@ PGLDEF void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, con
 
 PGLDEF void glDrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLsizei instancecount, GLuint baseinstance)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	//error not in the spec but says type must be one of these ... strange

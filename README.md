@@ -107,6 +107,61 @@ and [reference pages](https://www.khronos.org/registry/OpenGL-Refpages/gl4/) are
 [4.5 comprehensive reference](https://www.khronos.org/registry/OpenGL-Refpages/gl4/)
 [tutorials and guides](https://www.khronos.org/opengl/wiki/Getting_Started#Tutorials_and_How_To_Guides)
 
+Quadratic Curves
+================
+PortableGL adds one non-standard primitive, `GL_QUADRATIC_CURVES_PGL`.  Every
+three consecutive vertices are one independent quadratic Bezier stroke whose
+control points `C0, C1, C2` are the vertices' clip-space positions; trailing
+vertices that do not complete a triple are ignored.  All existing draw entry
+points accept the mode and index, instance, base-instance and MultiDraw
+inputs behave exactly as for triangles (three vertices per primitive).
+
+The curve is `C(t) = (1-t)^2*C0 + 2t(1-t)*C1 + t^2*C2` for `t` in `[0,1]`;
+only after evaluation is the result divided by `w`.  Control-point `w` must be
+positive.  The center curve is clipped in parameter space against the six
+half-spaces `-w <= x, y, z <= w`, which may leave several disjoint visible
+parameter intervals; the stroke is drawn around those pieces with round caps,
+`glLineWidth` wide (0.5 to 8 px, default depth range, no depth clamp and no
+line smoothing).  A control point outside the frustum does not discard the
+whole stroke.  There is no fill, culling or polygon offset on this path.
+
+A pixel center is covered when its squared distance to the *projected* curve
+is at most half the line width, minimizing over every retained interval
+(endpoints and interior stationary points included).  Ties pick the smaller
+`t`.  Each original curve invokes the fragment shader at most once per pixel
+even when it folds or has several visible pieces; separate curves are
+submitted independently.  Smooth varyings use `sum(Bi*fi)`, noperspective
+varyings use `sum(Bi*wi*fi)/Cw(t)`, and flat varyings come from the triple's
+provoking vertex (first or last, per `glProvokingVertex`) even if that vertex
+was clipped.  `gl_FragCoord.xy` is the pixel center, `gl_FragCoord.w` is
+`1/Cw`, and depth is `Cz/Cw` mapped through the current depth range.
+
+Call it like any other primitive; three vec4 positions per stroke:
+
+```c
+// One arch in clip space: endpoints low and outside, middle control point high.
+float stroke[] = {
+    -1.4f, -0.8f, 0.0f, 1.0f,
+     0.0f,  0.9f, 0.0f, 1.0f,
+     1.4f, -0.8f, 0.0f, 1.0f,
+};
+
+glBindBuffer(GL_ARRAY_BUFFER, vbo);
+glBufferData(GL_ARRAY_BUFFER, sizeof(stroke), stroke, GL_STATIC_DRAW);
+glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+glEnableVertexAttribArray(0);
+
+glUseProgram(prog);      // vertex shader writes gl_Position and varyings
+glLineWidth(2.0f);
+glDrawArrays(GL_QUADRATIC_CURVES_PGL, 0, 3);
+```
+
+For a compound path, submit `3*N` vertices and draw them all in one call;
+each triple is rasterized and blended on its own.  Nothing else changes:
+indexed / instanced / MultiDraw entry points, scissor, blending, color masks,
+stencil, early and late depth, `discard` and shader-written `gl_FragDepth`
+all run through the existing fragment path.
+
 Building
 ========
 There are no dependencies for PortableGL itself, other than a compliant C99/C++ compiler.

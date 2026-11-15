@@ -2912,6 +2912,11 @@ enum
 	GL_TRIANGLES_ADJACENCY,
 	GL_TRIANGLE_STRIP_ADJACENCY,
 
+	// PortableGL extension: each consecutive group of 3 vertices is one
+	// quadratic Bezier stroke, C(t)=(1-t)^2*C0+2t(1-t)*C1+t^2*C2 in clip
+	// space.  Control point w must be > 0.  Trailing vertices are ignored.
+	GL_QUADRATIC_CURVES_PGL,
+
 	//depth functions (and stencil funcs)
 	GL_LESS,
 	GL_LEQUAL,
@@ -7489,6 +7494,7 @@ static void draw_triangle_fill(glVertex* v0, glVertex* v1,  glVertex* v2, unsign
 
 static void pgl_assemble_lines(GLenum mode, GLsizei count);
 static void pgl_assemble_tris(GLenum mode, GLsizei count);
+static void pgl_assemble_curves(GLenum mode, GLsizei count);
 static void pgl_update_clip_rect(void);
 
 // This is the prototype for either implementation; only one is defined based on
@@ -7872,6 +7878,8 @@ static void run_pipeline(GLenum mode, const GLvoid* indices, GLsizei count, GLsi
 		pgl_assemble_lines(mode, count);
 	} else if (mode == GL_TRIANGLES || mode == GL_TRIANGLE_STRIP || mode == GL_TRIANGLE_FAN) {
 		pgl_assemble_tris(mode, count);
+	} else if (mode == GL_QUADRATIC_CURVES_PGL) {
+		pgl_assemble_curves(mode, count);
 	}
 }
 
@@ -8408,6 +8416,627 @@ static void pgl_assemble_tris(GLenum mode, GLsizei count)
 		c->clip_arena.count = 0;
 	}
 }
+
+/* ---- GL_QUADRATIC_CURVES_PGL ------------------------------------------
+ * One stroke per 3 consecutive vertices.  The stroke is the quadratic
+ * Bezier C(t) = (1-t)^2 C0 + 2t(1-t) C1 + t^2 C2 of clip-space control
+ * points, divided by w only after evaluation.
+ *
+ * Everything here is done in double precision: the parameter-domain clip,
+ * the projection to pixels, and the nearest-point solve.  Float would not be
+ * accurate enough for the 1e-6 parameter / 1e-6 px^2 contract, and the cost
+ * only shows up on the curve path.
+ *
+ * The center curve is clipped in parameter space against the six half
+ * spaces -w <= x,y,z <= w.  Each of those is a quadratic inequality in t,
+ * so its solution is a union of at most two intervals.  Intersecting the six
+ * unions leaves a set of disjoint closed intervals; isolated tangency points
+ * (zero-width) are discarded.  A covered pixel is one whose center is within
+ * half the line width of the *projected* curve somewhere in those intervals,
+ * where the distance is minimized over the whole interval (endpoints and
+ * interior stationary points), not over a polyline approximation.
+ */
+#define PGL_CURVE_MAX_INTERVALS 128
+#define PGL_CURVE_MAX_ROOTS 8
+#define PGL_CURVE_BISECT_STEPS 80
+#define PGL_CURVE_ROOT_EPS 1e-13
+/* Two roots closer than this are one root, and a kept piece narrower than
+ * this is a tangency, not a visible run.  Both are far below the demanded
+ * 1e-6 parameter accuracy. */
+#define PGL_CURVE_PARAM_EPS 1e-9
+
+typedef struct pgl_curve_iv {
+	double lo, hi;
+} pgl_curve_iv;
+
+/* Power-basis polynomial c[0] + c[1] t + ... + c[n-1] t^(n-1), n terms. */
+static double pgl_poly_eval(const double* c, int n, double t)
+{
+	double v = 0.0;
+	int i;
+	for (i = n-1; i >= 0; --i)
+		v = v*t + c[i];
+	return v;
+}
+
+static void pgl_poly_deriv(const double* c, int n, double* d)
+{
+	int i;
+	for (i = 1; i < n; ++i)
+		d[i-1] = c[i] * (double)i;
+}
+
+static void pgl_poly_mul(const double* a, int na, const double* b, int nb, double* out)
+{
+	int i, j;
+	for (i = 0; i < na + nb - 1; ++i)
+		out[i] = 0.0;
+	for (i = 0; i < na; ++i)
+		for (j = 0; j < nb; ++j)
+			out[i+j] += a[i] * b[j];
+}
+
+/* Size of the polynomial at t, for a relative zero test. */
+static double pgl_poly_mag(const double* c, int n, double t)
+{
+	double v = 0.0, at = 1.0, at_abs = fabs(t) + 1.0;
+	int i;
+	for (i = 0; i < n; ++i) {
+		v += fabs(c[i]) * at;
+		at *= at_abs;
+	}
+	return v;
+}
+
+static int pgl_poly_is_zero(const double* c, int n, double t)
+{
+	return fabs(pgl_poly_eval(c, n, t)) <= PGL_CURVE_ROOT_EPS * pgl_poly_mag(c, n, t);
+}
+
+static double pgl_poly_bisect(const double* c, int n, double lo, double hi, int falo_neg)
+{
+	int i;
+	for (i = 0; i < PGL_CURVE_BISECT_STEPS; ++i) {
+		double mid = 0.5 * (lo + hi);
+		double fm = pgl_poly_eval(c, n, mid);
+		int neg;
+		if (fm == 0.0)
+			return mid;
+		neg = fm < 0.0;
+		if (neg != falo_neg)
+			hi = mid;
+		else
+			lo = mid;
+	}
+	return 0.5 * (lo + hi);
+}
+
+static void pgl_sort_doubles(double* v, int n)
+{
+	int i, j;
+	for (i = 1; i < n; ++i) {
+		double key = v[i];
+		for (j = i - 1; j >= 0 && v[j] > key; --j)
+			v[j+1] = v[j];
+		v[j+1] = key;
+	}
+}
+
+/* All real roots of c in [lo,hi].  Bounded isolation: the derivative's
+ * roots split the interval into pieces on which c is monotonic, so a sign
+ * change isolates one root and a root at an endpoint or critical point is
+ * tested directly.  Degree is at most 5 here; the recursion bottoms out at
+ * a linear polynomial. */
+static int pgl_poly_roots(const double* c, int n, double lo, double hi,
+                          double* out, int max_out)
+{
+	double crit[PGL_CURVE_MAX_ROOTS];
+	double deriv[PGL_CURVE_MAX_ROOTS];
+	double pts[PGL_CURVE_MAX_ROOTS + 2];
+	int ncrit, npts, i, nout = 0;
+	int dn = n - 1;
+
+	if (n <= 1 || lo >= hi)
+		return 0;
+	if (dn == 1) {
+		/* linear */
+		if (c[1] == 0.0)
+			return 0;
+		{
+			double r = -c[0] / c[1];
+			if (r >= lo && r <= hi && nout < max_out)
+				out[nout++] = r;
+		}
+		return nout;
+	}
+
+	pgl_poly_deriv(c, n, deriv);
+	ncrit = pgl_poly_roots(deriv, dn, lo, hi, crit, PGL_CURVE_MAX_ROOTS);
+
+	npts = 0;
+	pts[npts++] = lo;
+	for (i = 0; i < ncrit; ++i) {
+		if (crit[i] > lo && crit[i] < hi)
+			pts[npts++] = crit[i];
+	}
+	pts[npts++] = hi;
+	pgl_sort_doubles(pts, npts);
+
+	/* Roots at the partition points (endpoints and flat critical points). */
+	for (i = 0; i < npts; ++i) {
+		if (pgl_poly_is_zero(c, n, pts[i])) {
+			if (!nout || fabs(out[nout-1] - pts[i]) > PGL_CURVE_ROOT_EPS)
+				if (nout < max_out)
+					out[nout++] = pts[i];
+		}
+	}
+
+	/* One monotonic piece between consecutive partition points.  A piece
+	 * whose ends are (numerically) zero has no interior crossing: its
+	 * zeros are the partition points already recorded above. */
+	for (i = 0; i + 1 < npts; ++i) {
+		double a = pts[i], b = pts[i+1], fa, fb;
+		int fa_neg, fb_neg;
+		if (b - a <= PGL_CURVE_ROOT_EPS)
+			continue;
+		if (pgl_poly_is_zero(c, n, a) || pgl_poly_is_zero(c, n, b))
+			continue;
+		fa = pgl_poly_eval(c, n, a);
+		fb = pgl_poly_eval(c, n, b);
+		fa_neg = fa < 0.0;
+		fb_neg = fb < 0.0;
+		if (fa_neg != fb_neg) {
+			double r = pgl_poly_bisect(c, n, a, b, fa_neg);
+			int dup = 0;
+			int j;
+			for (j = 0; j < nout; ++j) {
+				if (fabs(out[j] - r) <= 1e-11) {
+					dup = 1;
+					break;
+				}
+			}
+			if (!dup && nout < max_out)
+				out[nout++] = r;
+		}
+	}
+
+	pgl_sort_doubles(out, nout);
+	return nout;
+}
+
+static void pgl_iv_add(pgl_curve_iv* iv, int* n, double lo, double hi)
+{
+	if (hi - lo <= 0.0)
+		return;
+	if (*n > 0 && lo <= iv[*n-1].hi) {
+		if (hi > iv[*n-1].hi)
+			iv[*n-1].hi = hi;
+		return;
+	}
+	if (*n < PGL_CURVE_MAX_INTERVALS) {
+		iv[*n].lo = lo;
+		iv[*n].hi = hi;
+		++*n;
+	}
+}
+
+/* Portion of [0,1] where the quadratic pol(t) >= 0, as closed intervals.
+ * Pieces are separated at roots and kept by the sign at the piece's
+ * interior, so an isolated tangency (both sides negative, or a double root
+ * that does not change sign) contributes no interval while a genuine run —
+ * however short — is retained. */
+static int pgl_halfspace_intervals(const double* pol, pgl_curve_iv* out)
+{
+	double roots[PGL_CURVE_MAX_ROOTS];
+	double br[PGL_CURVE_MAX_ROOTS + 2];
+	int nr, nb = 0, i, n = 0;
+
+	nr = pgl_poly_roots(pol, 3, 0.0, 1.0, roots, PGL_CURVE_MAX_ROOTS);
+	br[nb++] = 0.0;
+	for (i = 0; i < nr; ++i) {
+		if (roots[i] > 0.0 && roots[i] < 1.0) {
+			if (nb == 1 || roots[i] - br[nb-1] > PGL_CURVE_PARAM_EPS)
+				br[nb++] = roots[i];
+		}
+	}
+	br[nb++] = 1.0;
+
+	for (i = 0; i + 1 < nb; ++i) {
+		double a = br[i], b = br[i+1], mid;
+		if (b - a <= PGL_CURVE_PARAM_EPS)
+			continue;
+		mid = 0.5 * (a + b);
+		if (pgl_poly_eval(pol, 3, mid) >= 0.0)
+			pgl_iv_add(out, &n, a, b);
+	}
+	return n;
+}
+
+static int pgl_iv_intersect(const pgl_curve_iv* a, int na,
+                            const pgl_curve_iv* b, int nb,
+                            pgl_curve_iv* out)
+{
+	int i, j, n = 0;
+	for (i = 0; i < na; ++i) {
+		for (j = 0; j < nb; ++j) {
+			double lo = a[i].lo > b[j].lo ? a[i].lo : b[j].lo;
+			double hi = a[i].hi < b[j].hi ? a[i].hi : b[j].hi;
+			if (hi - lo > 1e-14) {
+				if (n == PGL_CURVE_MAX_INTERVALS)
+					return n;
+				pgl_iv_add(out, &n, lo, hi);
+			}
+		}
+	}
+	return n;
+}
+
+/* Quadratic power-basis coefficients of one component of C(t). */
+static void pgl_quad_bezier_coeff(double c0, double c1, double c2, double* p)
+{
+	p[0] = c0;
+	p[1] = 2.0 * (c1 - c0);
+	p[2] = c0 - 2.0 * c1 + c2;
+}
+
+/* Clip C(t) to the frustum.  Returns the number of surviving closed
+ * parameter intervals. */
+static int pgl_curve_clip(const double xc[3], const double yc[3],
+                          const double zc[3], const double wc[3],
+                          pgl_curve_iv* out)
+{
+	pgl_curve_iv a[PGL_CURVE_MAX_INTERVALS], b[PGL_CURVE_MAX_INTERVALS];
+	pgl_curve_iv hs[2];
+	int na = 1, i, k;
+	/* coord - w >= 0 and coord + w >= 0 encode w >= coord and coord >= -w. */
+	const double* comps[3];
+	const double* w = wc;
+
+	a[0].lo = 0.0;
+	a[0].hi = 1.0;
+
+	comps[0] = xc;
+	comps[1] = yc;
+	comps[2] = zc;
+
+	for (k = 0; k < 3; ++k) {
+		const double* cc = comps[k];
+		double pol[3];
+		int sign;
+
+		for (sign = 0; sign < 2; ++sign) {
+			int nh;
+			for (i = 0; i < 3; ++i)
+				pol[i] = sign ? (cc[i] + w[i]) : (w[i] - cc[i]);
+			/* Identically zero: this half-space imposes no restriction. */
+			if (pgl_poly_eval(pol, 3, 0.0) == 0.0 &&
+			    pgl_poly_eval(pol, 3, 1.0) == 0.0 &&
+			    pgl_poly_eval(pol, 3, 0.5) == 0.0)
+				continue;
+			nh = pgl_halfspace_intervals(pol, hs);
+			na = pgl_iv_intersect(a, na, hs, nh, b);
+			for (i = 0; i < na; ++i)
+				a[i] = b[i];
+			if (!na)
+				return 0;
+		}
+	}
+
+	for (i = 0; i < na; ++i)
+		out[i] = a[i];
+	return na;
+}
+
+typedef struct pgl_curve_px {
+	double ax, bx;  /* pixel x = ax * ndc_x + bx */
+	double ay, by;
+} pgl_curve_px;
+
+/* The viewport transform the renderer applies is affine in NDC.  Recover its
+ * x/y scale and offset from vp_mat by mapping the origin and the unit basis,
+ * so this follows the actual matrix layout and viewport. */
+static void pgl_curve_pixel_map(pgl_curve_px* m)
+{
+	vec4 o, ex, ey;
+	SET_V4(o, 0, 0, 0, 1);
+	SET_V4(ex, 1, 0, 0, 1);
+	SET_V4(ey, 0, 1, 0, 1);
+	o = mult_m4_v4(c->vp_mat, o);
+	ex = mult_m4_v4(c->vp_mat, ex);
+	ey = mult_m4_v4(c->vp_mat, ey);
+	m->ax = (double)ex.x - (double)o.x;
+	m->bx = (double)o.x;
+	m->ay = (double)ey.y - (double)o.y;
+	m->by = (double)o.y;
+}
+
+/* Minimum of |Q(t)-P|^2 over one retained interval.  Q is the projective
+ * image of a quadratic Bezier, so after clearing denominators the
+ * stationary equation is a quintic; the root isolator finds every interior
+ * candidate and endpoints are always tested. */
+static double pgl_curve_nearest(const double xc[3], const double yc[3],
+                                const double wc[3], const pgl_curve_px* map,
+                                double px, double py,
+                                double lo, double hi, double* best_t)
+{
+	double nx[3], ny[3], nx1[2], ny1[2], w1[2];
+	double m[6], d[6], t1[6], t2[6], q[6];
+	double cand[PGL_CURVE_MAX_ROOTS + 2];
+	int i, nr;
+	double best = 1e300, bt = lo;
+
+	/* Nx = ax*X + (bx-px)*W, Ny = ay*Y + (by-py)*W */
+	nx[0] = map->ax*xc[0] + (map->bx - px)*wc[0];
+	nx[1] = map->ax*xc[1] + (map->bx - px)*wc[1];
+	nx[2] = map->ax*xc[2] + (map->bx - px)*wc[2];
+	ny[0] = map->ay*yc[0] + (map->by - py)*wc[0];
+	ny[1] = map->ay*yc[1] + (map->by - py)*wc[1];
+	ny[2] = map->ay*yc[2] + (map->by - py)*wc[2];
+
+	pgl_poly_deriv(nx, 3, nx1);
+	pgl_poly_deriv(ny, 3, ny1);
+	pgl_poly_deriv(wc, 3, w1);
+
+	/* P(t) = (Nx*Nx' + Ny*Ny')*W - (Nx^2 + Ny^2)*W' */
+	pgl_poly_mul(nx, 3, nx1, 2, t1);       /* Nx*Nx' */
+	pgl_poly_mul(ny, 3, ny1, 2, t2);       /* Ny*Ny' */
+	for (i = 0; i < 4; ++i)
+		m[i] = t1[i] + t2[i];
+	pgl_poly_mul(m, 4, wc, 3, t1);         /* *W */
+	pgl_poly_mul(nx, 3, nx, 3, t2);        /* Nx^2 */
+	pgl_poly_mul(ny, 3, ny, 3, q);         /* Ny^2 */
+	for (i = 0; i < 5; ++i)
+		d[i] = t2[i] + q[i];
+	pgl_poly_mul(d, 5, w1, 2, t2);         /* *W' */
+	for (i = 0; i < 6; ++i)
+		q[i] = t1[i] - t2[i];
+
+	nr = pgl_poly_roots(q, 6, lo, hi, cand, PGL_CURVE_MAX_ROOTS);
+	if (nr < PGL_CURVE_MAX_ROOTS + 2) cand[nr++] = lo;
+	if (nr < PGL_CURVE_MAX_ROOTS + 2) cand[nr++] = hi;
+	pgl_sort_doubles(cand, nr);
+
+	for (i = 0; i < nr; ++i) {
+		double t = cand[i];
+		double X, Y, W, dx, dy, dist;
+		if (t < lo) t = lo;
+		if (t > hi) t = hi;
+		X = pgl_poly_eval(xc, 3, t);
+		Y = pgl_poly_eval(yc, 3, t);
+		W = pgl_poly_eval(wc, 3, t);
+		if (W == 0.0)
+			continue;
+		dx = (map->ax*X + map->bx*W) / W - px;
+		dy = (map->ay*Y + map->by*W) / W - py;
+		dist = dx*dx + dy*dy;
+		/* Candidates are visited in increasing t; a distance that is not
+		 * strictly smaller keeps the earlier (smaller) parameter, which is
+		 * the specified way to break an exact tie. */
+		if (dist < best) {
+			best = dist;
+			bt = t;
+		}
+	}
+
+	*best_t = bt;
+	return best;
+}
+
+static void pgl_curve_emit(glVertex* v0, glVertex* v1, glVertex* v2, unsigned provoke)
+{
+	double xc[3], yc[3], zc[3], wc[3];
+	double nx[3], ny[3], nx1[2], ny1[2], w1[2];
+	double ivx[4], ivy[4], t1[6], t2[6];
+	pgl_curve_iv iv[PGL_CURVE_MAX_INTERVALS];
+	pgl_curve_px map;
+	int niv, i, j;
+	double half_w, xmin, xmax, ymin, ymax;
+	int vp_l, vp_b, vp_r, vp_t;
+	float* vs_output = &c->vs_output.output_buf[0];
+	GLsizei stride = c->vs_output.size;
+
+	/* A non-positive w cannot be projected.  The API contract requires all
+	 * three control w to be positive; guard anyway so one bad curve cannot
+	 * poison the rest of the draw. */
+	if (!(v0->clip_space.w > 0.0f && v1->clip_space.w > 0.0f && v2->clip_space.w > 0.0f))
+		return;
+
+	pgl_quad_bezier_coeff(v0->clip_space.x, v1->clip_space.x, v2->clip_space.x, xc);
+	pgl_quad_bezier_coeff(v0->clip_space.y, v1->clip_space.y, v2->clip_space.y, yc);
+	pgl_quad_bezier_coeff(v0->clip_space.z, v1->clip_space.z, v2->clip_space.z, zc);
+	pgl_quad_bezier_coeff(v0->clip_space.w, v1->clip_space.w, v2->clip_space.w, wc);
+
+	niv = pgl_curve_clip(xc, yc, zc, wc, iv);
+	if (!niv)
+		return;
+
+	pgl_curve_pixel_map(&map);
+
+	half_w = (double)c->line_width * 0.5;
+
+	/* Conservative pixel-space bounds over the retained parameter pieces.
+	 * px(t) = (ax*X + bx*W)/W; its extrema are roots of the cubic
+	 * (ax*X + bx*W)' W - (ax*X + bx*W) W'. */
+	nx[0] = map.ax*xc[0] + map.bx*wc[0];
+	ny[0] = map.ay*yc[0] + map.by*wc[0];
+	nx[1] = map.ax*xc[1] + map.bx*wc[1];
+	ny[1] = map.ay*yc[1] + map.by*wc[1];
+	nx[2] = map.ax*xc[2] + map.bx*wc[2];
+	ny[2] = map.ay*yc[2] + map.by*wc[2];
+
+	pgl_poly_deriv(nx, 3, nx1);
+	pgl_poly_deriv(ny, 3, ny1);
+	pgl_poly_deriv(wc, 3, w1);
+	pgl_poly_mul(nx1, 2, wc, 3, t1);
+	pgl_poly_mul(nx, 3, w1, 2, t2);
+	for (j = 0; j < 4; ++j)
+		ivx[j] = t1[j] - t2[j];
+	pgl_poly_mul(ny1, 2, wc, 3, t1);
+	pgl_poly_mul(ny, 3, w1, 2, t2);
+	for (j = 0; j < 4; ++j)
+		ivy[j] = t1[j] - t2[j];
+
+	/* Include the curve endpoints as well as the interior extrema. */
+	xmin = 1e300; xmax = -1e300;
+	ymin = 1e300; ymax = -1e300;
+	for (i = 0; i < niv; ++i) {
+		double a = iv[i].lo, b = iv[i].hi;
+		double candx[PGL_CURVE_MAX_ROOTS + 2];
+		double candy[PGL_CURVE_MAX_ROOTS + 2];
+		int nxr, nyr;
+		nxr = pgl_poly_roots(ivx, 4, a, b, candx, PGL_CURVE_MAX_ROOTS);
+		nyr = pgl_poly_roots(ivy, 4, a, b, candy, PGL_CURVE_MAX_ROOTS);
+		candx[nxr++] = a; candx[nxr++] = b;
+		candy[nyr++] = a; candy[nyr++] = b;
+		for (j = 0; j < nxr; ++j) {
+			double t = candx[j], X, W, px;
+			if (t < a) t = a;
+			if (t > b) t = b;
+			X = pgl_poly_eval(xc, 3, t);
+			W = pgl_poly_eval(wc, 3, t);
+			if (W == 0.0) continue;
+			px = (map.ax*X + map.bx*W) / W;
+			if (px < xmin) xmin = px;
+			if (px > xmax) xmax = px;
+		}
+		for (j = 0; j < nyr; ++j) {
+			double t = candy[j], Y, W, py;
+			if (t < a) t = a;
+			if (t > b) t = b;
+			Y = pgl_poly_eval(yc, 3, t);
+			W = pgl_poly_eval(wc, 3, t);
+			if (W == 0.0) continue;
+			py = (map.ay*Y + map.by*W) / W;
+			if (py < ymin) ymin = py;
+			if (py > ymax) ymax = py;
+		}
+	}
+	if (xmin > xmax || ymin > ymax)
+		return;
+
+	/* Restrict to viewport ∩ framebuffer ∩ scissor.  The raster loop only
+	 * visits integers actually inside that rectangle. */
+	if (!pgl_viewport_raster_rect(&vp_l, &vp_b, &vp_r, &vp_t))
+		return;
+
+	{
+		int ix0 = (int)floor(xmin - half_w - 1.0);
+		int ix1 = (int)ceil (xmax + half_w + 1.0);
+		int iy0 = (int)floor(ymin - half_w - 1.0);
+		int iy1 = (int)ceil (ymax + half_w + 1.0);
+		if (ix0 < vp_l) ix0 = vp_l;
+		if (iy0 < vp_b) iy0 = vp_b;
+		if (ix1 > vp_r) ix1 = vp_r;
+		if (iy1 > vp_t) iy1 = vp_t;
+		if (ix0 >= ix1 || iy0 >= iy1)
+			return;
+
+		{
+			int fragdepth_or_discard = c->programs.a[c->cur_program].fragdepth_or_discard;
+			frag_func fragment_shader = c->programs.a[c->cur_program].fragment_shader;
+			void* uniform = c->programs.a[c->cur_program].uniform;
+			Shader_Builtins builtins;
+			float fs_input[GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+			double hw2 = half_w * half_w;
+
+			/* Curve-varying scratch: Bernstein weights and the w-weighted
+			 * versions used by the noperspective slot. */
+			double b0, b1, b2;
+
+			c->mip_uv_per_px = 0.0f;
+
+			for (int iy = iy0; iy < iy1; ++iy) {
+				for (int ix = ix0; ix < ix1; ++ix) {
+					double px = (double)ix + 0.5;
+					double py = (double)iy + 0.5;
+					double best = 1e300, best_t = 0.0;
+					int covered;
+
+					for (i = 0; i < niv; ++i) {
+						double t;
+						double d = pgl_curve_nearest(xc, yc, wc, &map,
+						                             px, py,
+						                             iv[i].lo, iv[i].hi, &t);
+						if (d < best) {
+							best = d;
+							best_t = t;
+						}
+					}
+					covered = (best <= hw2);
+
+					if (!covered)
+						continue;
+
+					{
+						double t = best_t, X, Y, Z, W, depth, ndc_z;
+						double cw;
+						X = pgl_poly_eval(xc, 3, t);
+						Y = pgl_poly_eval(yc, 3, t);
+						Z = pgl_poly_eval(zc, 3, t);
+						W = pgl_poly_eval(wc, 3, t);
+						if (W <= 0.0)
+							continue;
+						cw = W;
+						ndc_z = Z / W;
+						depth = rsw_mapf((float)ndc_z, -1.0f, 1.0f,
+						                 c->depth_range_near, c->depth_range_far);
+
+						if (!fragdepth_or_discard && !fragment_processing(ix, iy, (float)depth))
+							continue;
+
+						b0 = (1.0 - t)*(1.0 - t);
+						b1 = 2.0*t*(1.0 - t);
+						b2 = t*t;
+
+						for (int s = 0; s < stride; ++s) {
+							double f0 = v0->vs_out[s];
+							double f1 = v1->vs_out[s];
+							double f2 = v2->vs_out[s];
+							if (c->vs_output.interpolation[s] == PGL_SMOOTH) {
+								fs_input[s] = (float)(b0*f0 + b1*f1 + b2*f2);
+							} else if (c->vs_output.interpolation[s] == PGL_NOPERSPECTIVE) {
+								double num = b0*f0*(double)v0->clip_space.w
+								           + b1*f1*(double)v1->clip_space.w
+								           + b2*f2*(double)v2->clip_space.w;
+								fs_input[s] = (float)(num / cw);
+							} else {
+								fs_input[s] = vs_output[(size_t)provoke*stride + s];
+							}
+						}
+
+						SET_V4(builtins.gl_FragCoord, (float)px, (float)py,
+						       (float)depth, (float)(1.0/cw));
+						builtins.discard = GL_FALSE;
+						builtins.gl_FragDepth = (float)depth;
+						builtins.gl_InstanceID = c->builtins.gl_InstanceID;
+						builtins.gl_BaseInstance = c->builtins.gl_BaseInstance;
+						builtins.gl_FrontFacing = GL_TRUE;
+
+						fragment_shader(fs_input, &builtins, uniform);
+						if (!builtins.discard)
+							draw_fragment(&builtins, ix, iy, fragdepth_or_discard);
+					}
+				}
+			}
+		}
+	}
+}
+
+static void pgl_assemble_curves(GLenum mode, GLsizei count)
+{
+	GLsizei k, nprims = count / 3;
+	(void)mode;
+
+	for (k = 0; k < nprims; ++k) {
+		GLsizei i0 = k * 3;
+		unsigned provoke = (c->provoking_vert == GL_LAST_VERTEX_CONVENTION)
+		                 ? (unsigned)(i0 + 2) : (unsigned)i0;
+		pgl_curve_emit(&c->glverts.a[i0], &c->glverts.a[i0+1],
+		               &c->glverts.a[i0+2], provoke);
+	}
+}
+
+
 
 #ifndef PGL_BETTER_THICK_LINES
 static void draw_thick_line(vec3 hp1, vec3 hp2, float w1, float w2, float* v1_out, float* v2_out, unsigned int provoke, float poly_offset)
@@ -13993,7 +14622,7 @@ PGLDEF void glVertexAttribDivisor(GLuint index, GLuint divisor)
 //TODO(rswinkle): Why is first, an index, a GLint and not GLuint or GLsizei?
 PGLDEF void glDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(count < 0, GL_INVALID_VALUE);
 	PGL_ERR(!pgl_draw_framebuffer_ok(), GL_INVALID_FRAMEBUFFER_OPERATION);
 
@@ -14005,7 +14634,7 @@ PGLDEF void glDrawArrays(GLenum mode, GLint first, GLsizei count)
 
 PGLDEF void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GLsizei drawcount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(drawcount < 0, GL_INVALID_VALUE);
 
 	for (GLsizei i=0; i<drawcount; i++) {
@@ -14016,7 +14645,7 @@ PGLDEF void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* co
 
 PGLDEF void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(count < 0, GL_INVALID_VALUE);
 
 	// TODO error not in the spec but says type must be one of these ... strange
@@ -14032,7 +14661,7 @@ PGLDEF void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
 // TODO fix
 PGLDEF void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices, GLsizei drawcount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR(drawcount < 0, GL_INVALID_VALUE);
 
 	// TODO error not in the spec but says type must be one of these ... strange
@@ -14046,7 +14675,7 @@ PGLDEF void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, 
 
 PGLDEF void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	if (!count || !instancecount)
@@ -14059,7 +14688,7 @@ PGLDEF void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsiz
 
 PGLDEF void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount, GLuint baseinstance)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	if (!count || !instancecount)
@@ -14073,7 +14702,7 @@ PGLDEF void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei 
 
 PGLDEF void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLsizei instancecount)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	// NOTE: error not in the spec but says type must be one of these ... strange
@@ -14089,7 +14718,7 @@ PGLDEF void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, con
 
 PGLDEF void glDrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLsizei instancecount, GLuint baseinstance)
 {
-	PGL_ERR((mode < GL_POINTS || mode > GL_TRIANGLE_FAN), GL_INVALID_ENUM);
+	PGL_ERR((mode < GL_POINTS || (mode > GL_TRIANGLE_FAN && mode != GL_QUADRATIC_CURVES_PGL)), GL_INVALID_ENUM);
 	PGL_ERR((count < 0 || instancecount < 0), GL_INVALID_VALUE);
 
 	//error not in the spec but says type must be one of these ... strange
