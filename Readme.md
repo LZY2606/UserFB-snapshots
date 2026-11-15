@@ -152,6 +152,39 @@
 
 <br>
 
+#### Refresh rounds
+
+  Directory-style crawls can subscribe to page refresh notifications with
+  `RunRefresh` and `Refresh`. A refresh round crawls from the given entry
+  URLs until the frontier drains, while `Refresh` notifies the active round
+  that a URL changed and should be fetched again — notifications are never
+  swallowed by the visited set.
+
+  ```go
+  eng, err := ant.NewEngine(ant.EngineConfig{
+    Scraper: myscraper{},
+  })
+
+  // Full round, saves the representations (ETag, Last-Modified
+  // and outlinks) of all successfully processed pages.
+  err = eng.RunRefresh(ctx, ant.RefreshFull, "https://example.com")
+
+  // Later incremental rounds re-use the saved representations and
+  // send conditional requests (If-None-Match, If-Modified-Since),
+  // a 304 response keeps the old outlinks and skips the scraper.
+  err = eng.RunRefresh(ctx, ant.RefreshIncremental, "https://example.com")
+  ```
+
+  Notifications sent while a URL is being fetched or scraped coalesce into a
+  single successor fetch that starts once the callback returns, and a `full`
+  notification always takes priority over an `incremental` one. When no round
+  is active `Refresh` returns `ant.ErrRefreshInactive`.
+
+  Refresh rounds use their own in-memory frontier and exact de-duplication,
+  engines configured with a custom `Queue` or `Deduper` cannot use them.
+
+<br>
+
 #### Built-in Scrapers
 
   The whole point of scraping is to extract data from websites into a machine readable

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sync"
 
 	"github.com/yields/ant/internal/normalize"
 	"github.com/yields/ant/internal/robots"
@@ -90,6 +91,13 @@ type Engine struct {
 	impolite bool
 	workers  int
 	sema     *semaphore.Weighted
+
+	customQueue   bool
+	customDeduper bool
+
+	refreshMu sync.Mutex
+	round     *refreshRound
+	reps      map[string]*representation
 }
 
 // NewEngine returns a new engine.
@@ -97,6 +105,11 @@ func NewEngine(c EngineConfig) (*Engine, error) {
 	if c.Scraper == nil {
 		return nil, errors.New("ant: scraper is required")
 	}
+
+	// Note whether third-party queue or deduper state was
+	// configured, refresh rounds do not take it over.
+	var customQueue = c.Queue != nil
+	var customDeduper = c.Deduper != nil
 
 	if c.Deduper == nil {
 		c.Deduper = DedupeMap()
@@ -120,16 +133,18 @@ func NewEngine(c EngineConfig) (*Engine, error) {
 	}
 
 	return &Engine{
-		scraper:  c.Scraper,
-		deduper:  c.Deduper,
-		fetcher:  c.Fetcher,
-		queue:    c.Queue,
-		matcher:  c.Matcher,
-		limiter:  c.Limiter,
-		robots:   robots.NewCache(DefaultClient, 1000),
-		impolite: c.Impolite,
-		workers:  c.Workers,
-		sema:     sema,
+		scraper:       c.Scraper,
+		deduper:       c.Deduper,
+		fetcher:       c.Fetcher,
+		queue:         c.Queue,
+		matcher:       c.Matcher,
+		limiter:       c.Limiter,
+		robots:        robots.NewCache(DefaultClient, 1000),
+		impolite:      c.Impolite,
+		workers:       c.Workers,
+		sema:          sema,
+		customQueue:   customQueue,
+		customDeduper: customDeduper,
 	}, nil
 }
 
@@ -187,6 +202,17 @@ func (eng *Engine) Enqueue(ctx context.Context, rawurls ...string) error {
 		}
 
 		batch = append(batch, u)
+	}
+
+	// While a refresh round is active the URLs are fed into the
+	// round as one-time discoveries.
+	eng.refreshMu.Lock()
+	var round = eng.round
+	eng.refreshMu.Unlock()
+
+	if round != nil {
+		round.discover(batch)
+		return nil
 	}
 
 	return eng.enqueue(ctx, batch)
