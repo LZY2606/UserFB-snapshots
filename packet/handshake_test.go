@@ -2,6 +2,7 @@ package packet
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
@@ -223,6 +224,65 @@ func TestHandshakeV5UnsupportedExtension(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, cif, cif2)
+}
+
+func TestHandshakeExtensionDirection(t *testing.T) {
+	ip := srtnet.IP{}
+	ip.Parse("127.0.0.1")
+
+	base := func(isRequest bool) *CIFHandshake {
+		return &CIFHandshake{
+			IsRequest:                   isRequest,
+			Version:                     5,
+			EncryptionField:             0,
+			InitialPacketSequenceNumber: circular.New(7, MAX_SEQUENCENUMBER),
+			MaxTransmissionUnitSize:     1500,
+			MaxFlowWindowSize:           100,
+			HandshakeType:               HSTYPE_CONCLUSION,
+			SRTSocketId:                 0x274921,
+			SynCookie:                   0x123456,
+			PeerIP:                      ip,
+			HasHS:                       true,
+			SRTHS: &CIFHandshakeExtension{
+				SRTVersion: 0x010402,
+				SRTFlags: CIFHandshakeExtensionFlags{
+					TSBPDSND: true, TSBPDRCV: true, CRYPT: true,
+					TLPKTDROP: true, PERIODICNAK: true, REXMITFLG: true,
+				},
+				RecvTSBPDDelay: 100,
+				SendTSBPDDelay: 100,
+			},
+		}
+	}
+
+	for _, tc := range []struct {
+		name      string
+		isRequest bool
+		extType   CtrlSubType
+	}{
+		{"HSREQ", true, EXTTYPE_HSREQ},
+		{"HSRSP", false, EXTTYPE_HSRSP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			require.NoError(t, base(tc.isRequest).Marshal(&buf))
+
+			decoded := &CIFHandshake{}
+			require.NoError(t, decoded.Unmarshal(buf.Bytes()))
+
+			// The direction must survive the unmarshal/marshal round trip.
+			require.True(t, decoded.HasHS)
+			require.Equal(t, tc.isRequest, decoded.IsRequest)
+
+			var again bytes.Buffer
+			require.NoError(t, decoded.Marshal(&again))
+			require.Equal(t, buf.Bytes(), again.Bytes())
+
+			// The wire extension type matches the decoded direction.
+			require.Equal(t, tc.extType, CtrlSubType(binary.BigEndian.Uint16(again.Bytes()[48:])))
+			require.Equal(t, tc.isRequest, decoded.IsRequest)
+		})
+	}
 }
 
 func TestHandshakeString(t *testing.T) {

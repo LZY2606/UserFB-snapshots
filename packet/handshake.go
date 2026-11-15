@@ -163,6 +163,11 @@ func (c *CIFHandshake) Unmarshal(data []byte) error {
 
 			c.HasHS = true
 
+			// Preserve the direction of the handshake extension (HSREQ vs.
+			// HSRSP) across an unmarshal/marshal round trip. The wire extension
+			// type is authoritative: IsRequest is not encoded anywhere else.
+			c.IsRequest = extensionType == EXTTYPE_HSREQ
+
 			c.SRTHS = &CIFHandshakeExtension{}
 
 			if err := c.SRTHS.Unmarshal(pivot); err != nil {

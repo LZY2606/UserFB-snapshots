@@ -187,6 +187,10 @@ type srtConn struct {
 	haveACKedACK    bool
 
 	initialPacketSequenceNumber circular.Number
+	// receiveInitialPacketSequenceNumber is the peer's independent ISN for the
+	// receive congestion control (rendezvous only).
+	receiveInitialPacketSequenceNumber    circular.Number
+	hasReceiveInitialPacketSequenceNumber bool
 
 	tsbpdTimeBase       uint64 // microseconds
 	tsbpdWrapPeriod     bool
@@ -261,32 +265,41 @@ type srtConnConfig struct {
 	tsbpdDelay                  uint64 // microseconds
 	peerTsbpdDelay              uint64 // microseconds
 	initialPacketSequenceNumber circular.Number
-	crypto                      crypto.Crypto
-	keyBaseEncryption           packet.PacketEncryption
-	onSend                      func(p packet.Packet)
-	onShutdown                  func(*srtConn)
-	logger                      Logger
+	// receiveInitialPacketSequenceNumber, when hasReceiveInitialPacketSequenceNumber
+	// is set, gives the peer's independent ISN for the receive congestion
+	// control. Rendezvous uses it so the local sender keeps its own ISN while
+	// receiving starts at the peer's; caller/listener paths leave it unset and
+	// retain the shared ISN behavior.
+	receiveInitialPacketSequenceNumber    circular.Number
+	hasReceiveInitialPacketSequenceNumber bool
+	crypto                                crypto.Crypto
+	keyBaseEncryption                     packet.PacketEncryption
+	onSend                                func(p packet.Packet)
+	onShutdown                            func(*srtConn)
+	logger                                Logger
 }
 
 func newSRTConn(config srtConnConfig) *srtConn {
 	c := &srtConn{
-		version:                     config.version,
-		isCaller:                    config.isCaller,
-		localAddr:                   config.localAddr,
-		remoteAddr:                  config.remoteAddr,
-		config:                      config.config,
-		start:                       config.start,
-		socketId:                    config.socketId,
-		peerSocketId:                config.peerSocketId,
-		tsbpdTimeBase:               config.tsbpdTimeBase,
-		tsbpdDelay:                  config.tsbpdDelay,
-		peerTsbpdDelay:              config.peerTsbpdDelay,
-		initialPacketSequenceNumber: config.initialPacketSequenceNumber,
-		crypto:                      config.crypto,
-		keyBaseEncryption:           config.keyBaseEncryption,
-		onSend:                      config.onSend,
-		onShutdown:                  config.onShutdown,
-		logger:                      config.logger,
+		version:                               config.version,
+		isCaller:                              config.isCaller,
+		localAddr:                             config.localAddr,
+		remoteAddr:                            config.remoteAddr,
+		config:                                config.config,
+		start:                                 config.start,
+		socketId:                              config.socketId,
+		peerSocketId:                          config.peerSocketId,
+		tsbpdTimeBase:                         config.tsbpdTimeBase,
+		tsbpdDelay:                            config.tsbpdDelay,
+		peerTsbpdDelay:                        config.peerTsbpdDelay,
+		initialPacketSequenceNumber:           config.initialPacketSequenceNumber,
+		receiveInitialPacketSequenceNumber:    config.receiveInitialPacketSequenceNumber,
+		hasReceiveInitialPacketSequenceNumber: config.hasReceiveInitialPacketSequenceNumber,
+		crypto:                                config.crypto,
+		keyBaseEncryption:                     config.keyBaseEncryption,
+		onSend:                                config.onSend,
+		onShutdown:                            config.onShutdown,
+		logger:                                config.logger,
 	}
 
 	if c.onSend == nil {
@@ -337,10 +350,17 @@ func newSRTConn(config srtConnConfig) *srtConn {
 
 	c.tick = 10 * time.Millisecond
 
+	// Rendezvous connections give the receiver its own sequence space, starting
+	// at the peer's ISN; every other path keeps the shared ISN behavior.
+	receiveInitialSequenceNumber := c.initialPacketSequenceNumber
+	if c.hasReceiveInitialPacketSequenceNumber {
+		receiveInitialSequenceNumber = c.receiveInitialPacketSequenceNumber
+	}
+
 	// 4.8.1.  Packet Acknowledgement (ACKs, ACKACKs) -> periodicACK = 10 milliseconds
 	// 4.8.2.  Packet Retransmission (NAKs) -> periodicNAK at least 20 milliseconds
 	c.recv = live.NewReceiver(live.ReceiveConfig{
-		InitialSequenceNumber: c.initialPacketSequenceNumber,
+		InitialSequenceNumber: receiveInitialSequenceNumber,
 		PeriodicACKInterval:   10_000,
 		PeriodicNAKInterval:   20_000,
 		MaxDropDistance:       c.config.FC,
@@ -381,8 +401,8 @@ func newSRTConn(config srtConnConfig) *srtConn {
 	go c.writeQueueReader(c.ctx)
 	go c.ticker(c.ctx)
 
-	c.debug.expectedRcvPacketSequenceNumber = c.initialPacketSequenceNumber
-	c.debug.expectedReadPacketSequenceNumber = c.initialPacketSequenceNumber
+	c.debug.expectedRcvPacketSequenceNumber = receiveInitialSequenceNumber
+	c.debug.expectedReadPacketSequenceNumber = receiveInitialSequenceNumber
 
 	c.statistics.headerSize = 8 + 16 // 8 bytes UDP + 16 bytes SRT
 	if strings.Count(c.localAddr.String(), ":") < 2 {
