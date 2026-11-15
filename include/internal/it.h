@@ -432,6 +432,16 @@ struct IT_PLAYING_ENVELOPE {
 #define IT_PLAYING_DEAD 8
 #define IT_PLAYING_REVERSE 16
 
+/* Sustain crossfade state machine. Only forward sustain loops on samples
+ * without a normal loop ever leave XFADE_OFF. The virtual source sequence is
+ * described in dumb_it_set_sustain_crossfade()'s documentation.
+ */
+#define XFADE_OFF 0       /* feature inactive for this voice */
+#define XFADE_PRE 1       /* attack / steady part before the next crossfade */
+#define XFADE_MIX 2       /* inside a crossfade round, looping while held */
+#define XFADE_REL_MIX 3   /* keyed off mid-crossfade; finish this round */
+#define XFADE_REL_TAIL 4  /* keyed off; playing straight out to sample end */
+
 struct IT_PLAYING {
     int flags;
 
@@ -505,6 +515,20 @@ struct IT_PLAYING {
     IT_FILTER_STATE filter_state[2]; /* Left and right */
 
     DUMB_RESAMPLER resampler;
+
+    /* Optional sustain-loop crossfade (see dumb_it_set_sustain_crossfade).
+     * xfade_request is the renderer's requested width copied into the voice;
+     * xfade_width C is the width actually used after clamping to half the loop.
+     * xfade_state drives the virtual source sequence and key-off behaviour;
+     * XFADE_OFF means the legacy resampling path owns the resampler. When
+     * active, xfade_buf is the voice's private 24-bit virtual source (the
+     * original sample PCM is never edited) and the resampler points at it.
+     */
+    int xfade_request;
+    long xfade_width;
+    int xfade_state;
+    short *xfade_buf;
+    long xfade_buf_frames;
 
     /* time_lost is used to emulate Impulse Tracker's sample looping
      * characteristics. When time_lost is added to pos, the result represents
@@ -704,6 +728,14 @@ struct DUMB_IT_SIGRENDERER {
 
     int ramp_style;
 
+    /* Requested sustain crossfade width in source frames; zero disables it.
+     * Applied to each voice as it starts (see it_playing_reset_resamplers).
+     * generation_started latches once audio has been produced, after which the
+     * crossfade setting can no longer be changed.
+     */
+    int sustain_crossfade_frames;
+    int generation_started;
+
     // int max_output;
 };
 
@@ -870,5 +902,22 @@ void _dumb_init_cubic(void);
 #ifdef _USE_SSE
 void _dumb_init_sse(void);
 #endif
+
+/* Sustain-loop crossfade (itsusxfade.c). */
+int _dumb_it_xfade_quality_supported(int quality);
+void _dumb_it_xfade_start(IT_PLAYING *playing, long initial_pos);
+void _dumb_it_xfade_note_off(IT_PLAYING *playing);
+void _dumb_it_xfade_free(IT_PLAYING *playing);
+void _dumb_it_xfade_dup_fixup(IT_PLAYING *dst, const IT_PLAYING *src);
+void it_xfade_pickup_stop(DUMB_RESAMPLER *resampler, void *data);
+long _dumb_it_xfade_resample(IT_PLAYING *playing, int dst_channels,
+                             sample_t *dst, long dst_size,
+                             DUMB_VOLUME_RAMP_INFO *volume_left,
+                             DUMB_VOLUME_RAMP_INFO *volume_right,
+                             float delta);
+void _dumb_it_xfade_get_current_sample(IT_PLAYING *playing, int dst_channels,
+                                       DUMB_VOLUME_RAMP_INFO *volume_left,
+                                       DUMB_VOLUME_RAMP_INFO *volume_right,
+                                       sample_t *dst);
 
 #endif /* INTERNAL_IT_H */

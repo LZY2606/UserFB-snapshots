@@ -21,6 +21,16 @@
 
 # DUMB Changelog
 
+## Unreleased
+
+* Add `dumb_it_set_sustain_crossfade()`, an optional overlapping crossfade
+  across a forward sustain loop. It is realised as a per-voice virtual source,
+  so the shared sample PCM is never modified. Applies only to forward sustain
+  loops on samples without a normal loop, and only to the ALIASING, LINEAR and
+  CUBIC resampling qualities; ping-pong loops, normal loops and the other
+  qualities keep their existing behaviour. Must be enabled before any audio is
+  generated.
+
 ## v2.0.3, released 30 January 2018
 
 * Fix pattern n_entries calculation, which was broken when attempting to fix the

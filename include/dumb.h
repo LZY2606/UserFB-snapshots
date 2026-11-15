@@ -346,6 +346,42 @@ enum {
 
 void dumb_it_set_ramp_style(DUMB_IT_SIGRENDERER *sigrenderer, int ramp_style);
 
+/* Enable an optional overlapping crossfade across a sample's forward sustain
+ * loop. The original sample PCM is never modified, so a sample shared by
+ * several notes is unaffected.
+ *
+ * source_frames: requested crossfade width C in source frames. Zero (the
+ *   default) restores ordinary sustain-loop playback. The width actually used
+ *   by a voice is min(source_frames, (E-S)/2), where [S,E) is the half-open
+ *   sustain loop; a computed width of zero falls back to the legacy path.
+ *
+ * Scope and limits:
+ *   - Must be called on a freshly started renderer, before any audio has been
+ *     generated. A negative value, or any call after generation has begun, is
+ *     rejected and the previous setting is retained.
+ *   - Only forward (non-ping-pong) sustain loops on samples that have no
+ *     normal loop are affected. A ping-pong sustain loop, or the presence of a
+ *     normal loop, keeps the original playback behaviour.
+ *   - 8/16-bit, mono/stereo samples and mono/stereo output are all supported.
+ *     The DUMB_RQ_ALIASING, DUMB_RQ_LINEAR and DUMB_RQ_CUBIC resampling
+ *     qualities use the crossfade; other qualities retain the legacy path.
+ *
+ * With the sustain loop written as the half-open interval [S,E), playback
+ * follows the original attack. On reaching E-C, the next C source frames cross
+ * a tail segment over a head segment: frame j is
+ *     tail * (1 - j/C) + head * (j/C), j = 0..C-1,
+ * where tail is E-C+j and head is S+j. Playback then continues at S+C, giving
+ * a repeat period of E-S-C frames. Fractional playback positions resolve the
+ * required integer neighbours against this virtual source sequence before the
+ * selected interpolation is applied; the blend is never performed between two
+ * already-resampled outputs, and the intermediate blend is not clipped back to
+ * the 8/16-bit source range.
+ *
+ * Returns 0 on success and -1 if the request is rejected.
+ */
+int dumb_it_set_sustain_crossfade(DUMB_IT_SIGRENDERER *sigrenderer,
+                                  int source_frames);
+
 void dumb_it_set_loop_callback(DUMB_IT_SIGRENDERER *sigrenderer,
                                int (*callback)(void *data), void *data);
 void dumb_it_set_xm_speed_zero_callback(DUMB_IT_SIGRENDERER *sigrenderer,

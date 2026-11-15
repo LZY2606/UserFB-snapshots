@@ -1,0 +1,32 @@
+CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- The C compiler identification is AppleClang 21.0.0.21000401
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Performing Test CC_HAS_WNO_UNUSED_VARIABLE
+-- Performing Test CC_HAS_WNO_UNUSED_VARIABLE - Success
+-- Performing Test CC_HAS_WNO_UNUSED_BUT_SET_VARIABLE
+-- Performing Test CC_HAS_WNO_UNUSED_BUT_SET_VARIABLE - Success
+-- Performing Test CC_HAS_WALL
+-- Performing Test CC_HAS_WALL - Success
+-- Performing Test CC_HAS_GGDB
+-- Performing Test CC_HAS_GGDB - Success
+-- Performing Test CC_HAS_ZI
+-- Performing Test CC_HAS_ZI - Failed
+-- Performing Test CC_HAS_G
+-- Performing Test CC_HAS_G - Success
+-- Not building examples
+-- Not building Allegro 4 support
+-- Configuring done (1.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/lzy/pro/UserFB/workspace/Z2024/attempts/20261115T011839179058Z/repo/.task-build/cmake

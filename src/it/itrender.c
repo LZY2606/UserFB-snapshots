@@ -56,11 +56,17 @@ static IT_PLAYING *new_playing() {
             free(r);
             return NULL;
         }
+        r->xfade_request = 0;
+        r->xfade_width = 0;
+        r->xfade_state = XFADE_OFF;
+        r->xfade_buf = NULL;
+        r->xfade_buf_frames = 0;
     }
     return r;
 }
 
 static void free_playing(IT_PLAYING *r) {
+    _dumb_it_xfade_free(r);
     resampler_delete(r->resampler.fir_resampler[1]);
     resampler_delete(r->resampler.fir_resampler[0]);
     free(r);
@@ -169,6 +175,13 @@ static IT_PLAYING *dup_playing(IT_PLAYING *src, IT_CHANNEL *dstchannel,
         return NULL;
     }
     dst->time_lost = src->time_lost;
+
+    dst->xfade_request = src->xfade_request;
+    dst->xfade_width = src->xfade_width;
+    dst->xfade_state = src->xfade_state;
+    dst->xfade_buf = NULL;
+    dst->xfade_buf_frames = src->xfade_buf_frames;
+    _dumb_it_xfade_dup_fixup(dst, src);
 
     // dst->output = src->output;
 
@@ -341,6 +354,9 @@ static DUMB_IT_SIGRENDERER *dup_sigrenderer(DUMB_IT_SIGRENDERER *src,
     dst->sub_time_left = src->sub_time_left;
 
     dst->ramp_style = src->ramp_style;
+
+    dst->sustain_crossfade_frames = src->sustain_crossfade_frames;
+    dst->generation_started = src->generation_started;
 
     dst->click_remover = NULL;
 
@@ -1311,6 +1327,10 @@ static void it_pickup_stop_after_reverse(DUMB_RESAMPLER *resampler,
 }
 
 static void it_playing_update_resamplers(IT_PLAYING *playing) {
+    /* An active sustain crossfade drives its own virtual resampler; the legacy
+     * loop configuration must not overwrite it. */
+    if (playing->xfade_state != XFADE_OFF)
+        return;
     if ((playing->sample->flags & IT_SAMPLE_SUS_LOOP) &&
         !(playing->flags & IT_PLAYING_SUSTAINOFF)) {
         playing->resampler.start = playing->sample->sus_loop_start;
@@ -1359,7 +1379,12 @@ static void it_playing_reset_resamplers(IT_PLAYING *playing, long pos) {
     playing->resampler.pickup_data = playing;
     playing->time_lost = 0;
     playing->flags &= ~IT_PLAYING_DEAD;
-    it_playing_update_resamplers(playing);
+    /* The crossfade engine decides whether it owns the resampler. If it does
+     * (state != XFADE_OFF) it has already set the virtual loop; otherwise fall
+     * back to the legacy loop/stop configuration. */
+    _dumb_it_xfade_start(playing, pos);
+    if (playing->xfade_state == XFADE_OFF)
+        it_playing_update_resamplers(playing);
 }
 
 static void it_retrigger_note(DUMB_IT_SIGRENDERER *sigrenderer,
@@ -2013,6 +2038,7 @@ static void it_note_off(IT_PLAYING *playing) {
     if (playing) {
         playing->enabled_envelopes |= IT_ENV_VOLUME;
         playing->flags |= IT_PLAYING_BACKGROUND | IT_PLAYING_SUSTAINOFF;
+        _dumb_it_xfade_note_off(playing);
         fix_sample_looping(playing);
         it_playing_update_resamplers(playing);
         if (playing->instrument)
@@ -2033,6 +2059,7 @@ static void xm_note_off(DUMB_IT_SIGDATA *sigdata, IT_CHANNEL *channel) {
             // dunno what that was there for ...
             channel->volume = 0;
         channel->playing->flags |= IT_PLAYING_SUSTAINOFF | IT_PLAYING_FADING;
+        _dumb_it_xfade_note_off(channel->playing);
         it_playing_update_resamplers(channel->playing);
     }
 }
@@ -2203,6 +2230,8 @@ static void it_retrigger_note(DUMB_IT_SIGRENDERER *sigrenderer,
 
     channel->playing->flags = 0;
     channel->playing->resampling_quality = sigrenderer->resampling_quality;
+    channel->playing->xfade_request =
+        sigrenderer->sustain_crossfade_frames;
     channel->playing->channel = channel;
     channel->playing->sample = &sigdata->sample[channel->sample - 1];
     if (sigdata->flags & IT_USE_INSTRUMENTS)
@@ -5117,6 +5146,91 @@ static long render_playing(DUMB_IT_SIGRENDERER *sigrenderer,
         resampler_set_quality(playing->resampler.fir_resampler[1], quality);
     }
 
+    /* Sustain crossfade path: the resampler runs over the voice's own virtual
+     * (short) source, so it bypasses the 8/16-bit legacy dispatch below. The
+     * volume ramps, click removal and declick bookkeeping are applied once,
+     * exactly as on the legacy path. */
+    if (playing->xfade_state != XFADE_OFF) {
+        if (volume == 0) {
+            size_rendered = _dumb_it_xfade_resample(
+                playing, sigrenderer->n_channels, NULL, size, NULL, NULL,
+                delta);
+        } else {
+            lvol.volume = playing->ramp_volume[0];
+            rvol.volume = playing->ramp_volume[1];
+            lvol.delta = playing->ramp_delta[0] * main_delta;
+            rvol.delta = playing->ramp_delta[1] * main_delta;
+            lvol.target = playing->float_volume[0];
+            rvol.target = playing->float_volume[1];
+            rvol.mix = lvol.mix = volume;
+            lvol.declick_stage = rvol.declick_stage = playing->declick_stage;
+
+            if (sigrenderer->n_channels >= 2) {
+                sample_t *dst = samples[0] + pos * 2;
+                if (sigrenderer->click_remover) {
+                    sample_t click[2];
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 2, &lvol, &rvol, click);
+                    dumb_record_click(sigrenderer->click_remover[0], pos,
+                                      click[0]);
+                    dumb_record_click(sigrenderer->click_remover[1], pos,
+                                      click[1]);
+                }
+                size_rendered = _dumb_it_xfade_resample(
+                    playing, 2, dst, size, &lvol, &rvol, delta);
+                if (store_end_sample)
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 2, &lvol, &rvol,
+                        &samples[0][(pos + size_rendered) * 2]);
+                if (sigrenderer->click_remover) {
+                    sample_t click[2];
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 2, &lvol, &rvol, click);
+                    dumb_record_click(sigrenderer->click_remover[0],
+                                      pos + size_rendered, -click[0]);
+                    dumb_record_click(sigrenderer->click_remover[1],
+                                      pos + size_rendered, -click[1]);
+                }
+            } else {
+                sample_t *dst = samples[0] + pos;
+                if (sigrenderer->click_remover) {
+                    sample_t click;
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 1, &lvol, &rvol, &click);
+                    dumb_record_click(sigrenderer->click_remover[0], pos,
+                                      click);
+                }
+                size_rendered = _dumb_it_xfade_resample(
+                    playing, 1, dst, size, &lvol, &rvol, delta);
+                if (store_end_sample)
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 1, &lvol, &rvol,
+                        &samples[0][pos + size_rendered]);
+                if (sigrenderer->click_remover) {
+                    sample_t click;
+                    _dumb_it_xfade_get_current_sample(
+                        playing, 1, &lvol, &rvol, &click);
+                    dumb_record_click(sigrenderer->click_remover[0],
+                                      pos + size_rendered, -click);
+                }
+            }
+
+            playing->ramp_volume[0] = lvol.volume;
+            playing->ramp_volume[1] = rvol.volume;
+            playing->declick_stage = (lvol.declick_stage > rvol.declick_stage)
+                                         ? lvol.declick_stage
+                                         : rvol.declick_stage;
+            if (playing->declick_stage >= 4)
+                playing->flags |= IT_PLAYING_DEAD;
+            (*left_to_mix)--;
+        }
+
+        if (playing->resampler.dir == 0)
+            playing->flags |= IT_PLAYING_DEAD;
+
+        return size_rendered;
+    }
+
     bits = playing->sample->flags & IT_SAMPLE_16BIT ? 16 : 8;
 
     if (volume == 0) {
@@ -5715,6 +5829,8 @@ static DUMB_IT_SIGRENDERER *init_sigrenderer(DUMB_IT_SIGDATA *sigdata,
     sigrenderer->n_channels = n_channels;
     sigrenderer->resampling_quality = dumb_resampling_quality;
     sigrenderer->ramp_style = DUMB_IT_RAMP_FULL;
+    sigrenderer->sustain_crossfade_frames = 0;
+    sigrenderer->generation_started = 0;
     sigrenderer->globalvolume = sigdata->global_volume;
     sigrenderer->tempo = sigdata->tempo;
 
@@ -5920,6 +6036,14 @@ void dumb_it_set_ramp_style(DUMB_IT_SIGRENDERER *sigrenderer, int ramp_style) {
     }
 }
 
+int dumb_it_set_sustain_crossfade(DUMB_IT_SIGRENDERER *sigrenderer,
+                                  int source_frames) {
+    if (!sigrenderer || source_frames < 0 || sigrenderer->generation_started)
+        return -1;
+    sigrenderer->sustain_crossfade_frames = source_frames;
+    return 0;
+}
+
 void dumb_it_set_loop_callback(DUMB_IT_SIGRENDERER *sigrenderer,
                                int (*callback)(void *data), void *data) {
     if (sigrenderer) {
@@ -6065,6 +6189,12 @@ static long it_sigrenderer_get_samples(sigrenderer_t *vsigrenderer,
 
     if (!sigrenderer->tempo)
         return 0; // also problematic
+
+    /* Producing audio is irreversible: the sustain-crossfade setting must no
+     * longer change (see dumb_it_set_sustain_crossfade). Silent seeking with a
+     * null buffer does not count as generating sound. */
+    if (samples)
+        sigrenderer->generation_started = 1;
 
     pos = 0;
     dt = (int)(delta * 65536.0f + 0.5f);

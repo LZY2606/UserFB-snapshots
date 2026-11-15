@@ -1,0 +1,16 @@
+CASE source blend_and_period checks=221
+CASE source fractional_neighbours checks=20001
+CASE source width_clamping checks=7
+CASE source setter_validation checks=11
+GROUP source cases=4 checks=20240 COMPLETE
+CASE release before_blend checks=6
+CASE release during_blend checks=8
+CASE release chunk_invariant checks=7
+GROUP release cases=3 checks=21 COMPLETE
+CASE voices shared_sample_nna checks=6
+CASE voices retrigger_independent checks=4
+CASE voices format_quality_matrix checks=121
+CASE voices unsupported_keeps_legacy checks=6
+CASE voices unsupported_quality_keeps_legacy checks=13
+GROUP voices cases=5 checks=150 COMPLETE
+TARGET_COMPLETE cases=12

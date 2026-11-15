@@ -142,6 +142,7 @@ SET(SOURCES
     src/it/load669.c
     src/it/itunload.c
     src/it/itrender.c
+    src/it/itsusxfade.c
     src/it/itread2.c
     src/it/itread.c
     src/it/itorder.c
