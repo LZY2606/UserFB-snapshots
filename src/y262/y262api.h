@@ -173,6 +173,17 @@ typedef struct {
 	int32_t b_mpeg1;
 	int32_t b_cbr_padding; /* guarantee vbvrate rate, insert zero byte stuffing if needed */
 
+	/*
+	enable per picture quantizer matrix updates. when this is 0 ( the default ) the
+	two quantization matrix update fields in y262_input_picture_t are ignored completely
+	and the encoder behaves exactly as before.
+
+	when enabled the encoder has to be initialized with an 8 bit mpeg2 ( not mpeg1 )
+	progressive 4:2:0 configuration using constant quantizer ( BITRATE_CONTROL_CQ ).
+	otherwise y262_initialize returns Y262_INIT_ERROR_PICTURE_MATRICES.
+	*/
+	int32_t b_picture_quant_matrices;
+
 } y262_configuration_t;
 
 typedef struct {
@@ -198,6 +209,36 @@ typedef struct {
 #define Y262_USER_DATA_AFTER_GOP       1
 #define Y262_USER_DATA_BEFORE_SLICES   2
 	int32_t rgi_user_data_where[ Y262_MAX_NUM_USER_DATA ]; /* user data location, one of the Y262_USER_DATA_* defines */
+
+	/*
+	per picture quantization matrix update. only used when the encoder was initialized
+	with b_picture_quant_matrices set. otherwise both fields are ignored.
+
+	i_quant_matrix_update_mask: bits 0..3 select which of the four matrices below are
+	to be updated for this picture. bit 0 = luma intra, bit 1 = luma inter,
+	bit 2 = chroma intra, bit 3 = chroma inter. bits above the low four are ignored
+	but must be zero, otherwise the push is rejected.
+
+	rgui8_quant_matrices[ 4 ][ 64 ]: the four matrices, in the order luma intra,
+	luma inter, chroma intra, chroma inter. elements are in natural 8x8 frequency
+	coordinates ( row major, not zigzag ) and have to be in range 1..255. the first
+	element of both intra matrices has to be 8. only arrays selected by the mask
+	are looked at.
+
+	the values are copied by the encoder during y262_push_input_picture, so the caller
+	may overwrite the input structure and its arrays as soon as the push returns.
+	an enabled picture inherits the complete four matrices of the previous successfully
+	pushed picture and then applies the selected updates. the first picture starts from
+	the configured intra and inter matrices, with the chroma matrices copied from the
+	corresponding luma matrices.
+
+	if the mask or one of the selected matrices is invalid y262_push_input_picture
+	returns Y262_PUSH_INPUT_ERR_ARG and the picture is not consumed at all ( picture
+	order number, user data and input slot stay untouched and the inheritance state
+	does not advance ).
+	*/
+	uint32_t i_quant_matrix_update_mask;
+	uint8_t rgui8_quant_matrices[ 4 ][ 64 ];
 } y262_input_picture_t;
 
 
@@ -276,6 +317,8 @@ void *y262_create( y262_configuration_t *ps_config );
 #define Y262_INIT_ERROR_CONTEXT -29
 /* invalid chroma format for profile */
 #define Y262_INIT_ERROR_PROFILE_CHROMA_FORMAT -30
+/* picture quantizer matrix updates need mpeg2, 8 bit, progressive 4:2:0, CQ */
+#define Y262_INIT_ERROR_PICTURE_MATRICES -31
 
 /*
 initializes the encoder context p_y262 with the encoding configuration ps_config.

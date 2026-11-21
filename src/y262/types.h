@@ -314,6 +314,13 @@ typedef struct {
 	int32_t i_num_user_data;
 #define MAX_NUM_USER_DATA 4
 	y262_user_data_t *rgps_user_data[ MAX_NUM_USER_DATA ];
+
+	/*
+	per picture quantizer matrix snapshot, only used when per picture matrix
+	updates are enabled. order: 0 luma intra, 1 luma inter, 2 chroma intra,
+	3 chroma inter. natural 8x8 frequency coordinates.
+	*/
+	uint8_t rgui8_quant_matrices[ 4 ][ 64 ];
 } y262_picture_t;
 
 typedef struct {
@@ -767,5 +774,24 @@ typedef struct y262_s {
 	bool_t b_variance_aq;
 	int32_t i_psyrd_strength;
 	int32_t i_quality_for_speed;
+
+	/*
+	per picture quantizer matrix updates. order: 0 luma intra, 1 luma inter,
+	2 chroma intra, 3 chroma inter. natural 8x8 frequency coordinates.
+	*/
+	bool_t b_picture_quant_matrices;
+	/* inherited state of the last successfully pushed input picture */
+	uint8_t rgui8_picture_quant_matrices[ 4 ][ 64 ];
+	/* decode side state after all header units emitted so far in decode order */
+	uint8_t rgui8_emitted_quant_matrices[ 4 ][ 64 ];
+	/* matrices of the picture currently being encoded ( snapshot ) */
+	uint8_t rgui8_current_quant_matrices[ 4 ][ 64 ];
+	/* load flags of the quant matrix extension to write for the current picture */
+	int32_t i_quant_matrix_extension_flags;
+	/* plane class 0 = luma, 1 = chroma */
+	ALIGNED( 16 ) uint16_t rgui16_picture_intra_quantizer_matrices[ 2 ][ 122 ][ 64 ];
+	ALIGNED( 16 ) uint16_t rgui16_picture_intra_quantizer_matrices_bias[ 2 ][ 122 ][ 64 ];
+	ALIGNED( 16 ) uint16_t rgui16_picture_intra_quantizer_matrices_trellis_bias[ 2 ][ 122 ][ 64 ];
+	ALIGNED( 16 ) uint16_t rgui16_picture_inter_quantizer_matrices[ 2 ][ 122 ][ 64 ];
 
 } y262_t;

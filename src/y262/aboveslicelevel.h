@@ -34,6 +34,7 @@ void y262_write_sequence_display_extension( y262_t *ps_context );
 void y262_write_group_of_pictures_header( y262_t *ps_context );
 void y262_write_picture_header( y262_t *ps_context, int32_t i_picture_coding_type );
 void y262_write_picture_coding_extension( y262_t *ps_context );
+void y262_write_quant_matrix_extension( y262_t *ps_context );
 void y262_write_user_data( y262_t *ps_context, int32_t i_which );
 void y262_write_zero_stuffing( y262_t *ps_context, int32_t i_num_bytes );
 

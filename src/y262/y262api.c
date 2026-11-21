@@ -452,6 +452,16 @@ int32_t y262_initialize( void *p_y262, y262_configuration_t *ps_config )
 
 	ps_y262 = ( y262_t * )p_y262;
 
+	/*
+	the per picture matrix feature has its own restricted operating envelope. check
+	it first so an out of range mode always reports the dedicated error, even if
+	another configuration check would also fire.
+	*/
+	if( ps_config->b_picture_quant_matrices && !y262_picture_matrices_config_valid( ps_config ) )
+	{
+		return Y262_INIT_ERROR_PICTURE_MATRICES;
+	}
+
 	ps_y262->p_cb_handle = ps_config->p_cb_handle;
 	ps_y262->s_funcs.pf_error_callback = ps_config->pf_error_callback;
 	ps_y262->s_funcs.pf_result_callback = ps_config->pf_result_callback;
@@ -719,6 +729,8 @@ int32_t y262_initialize( void *p_y262, y262_configuration_t *ps_config )
 	ps_y262->i_psyrd_strength = ps_config->i_psyrd_strength;
 	ps_y262->i_quality_for_speed = ps_config->i_quality_for_speed;
 
+	ps_y262->b_picture_quant_matrices = !!ps_config->b_picture_quant_matrices;
+
 
 	memcpy( ps_y262->rgui8_intra_quantiser_matrix, rgui8_y262_default_intra_matrix, sizeof( rgui8_y262_default_intra_matrix ) );
 	memcpy( ps_y262->rgui8_non_intra_quantiser_matrix, rgui8_y262_default_non_intra_matrix, sizeof( rgui8_y262_default_non_intra_matrix ) );
@@ -769,6 +781,8 @@ int32_t y262_initialize( void *p_y262, y262_configuration_t *ps_config )
 			ps_y262->rgui16_non_intra_quantizer_matrices[ i_idx ][ i_qmat_idx ] = i_scale;
 		}
 	}
+
+	y262_picture_matrices_init( ps_y262 );
 
 
 	ps_y262->s_funcs.rgf_sad[ BLOCK_TYPE_16x16 ] = y262_sad_16x16;
@@ -1171,6 +1185,17 @@ int32_t y262_push_input_picture( void *p_y262, y262_input_picture_t *ps_picture,
 
 	if( ps_picture )
 	{
+		/*
+		validate the per picture matrix update before touching any encoder state.
+		an invalid update must leave the picture order number, user data, the input
+		slot and the matrix inheritance state untouched.
+		*/
+		if( ps_y262->b_picture_quant_matrices &&
+			!y262_picture_matrices_validate_update( ps_picture->i_quant_matrix_update_mask, ps_picture->rgui8_quant_matrices ) )
+		{
+			return Y262_PUSH_INPUT_ERR_ARG;
+		}
+
 		i_buf_idx = y262_get_free_input_frame_idx( ps_y262 );
 
 		if( ps_y262->b_multithreading )
@@ -1182,6 +1207,20 @@ int32_t y262_push_input_picture( void *p_y262, y262_input_picture_t *ps_picture,
 		ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].i_don = -1;
 		ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].i_pon = ps_y262->i_current_input_pon++;
 		ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].i_frame_type = -1;
+
+		if( ps_y262->b_picture_quant_matrices )
+		{
+			/*
+			inherit the complete four matrices of the previous successfully pushed
+			picture and then apply this picture's selected updates. the snapshot lives
+			in the buffered input picture, so the caller can overwrite its input
+			structure as soon as the push returns.
+			*/
+			y262_picture_matrices_apply_update( ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].rgui8_quant_matrices,
+				ps_y262->rgui8_picture_quant_matrices, ps_picture->i_quant_matrix_update_mask, ps_picture->rgui8_quant_matrices );
+			memcpy( ps_y262->rgui8_picture_quant_matrices, ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].rgui8_quant_matrices,
+				sizeof( ps_y262->rgui8_picture_quant_matrices ) );
+		}
 		ps_y262->rgs_buffered_input_pictures[ i_buf_idx ].b_progressive_frame = ps_picture->i_frame_structure != Y262_INPUT_PICTURE_FRAME_INTERLACED;
 		if( ps_picture->i_frame_structure != Y262_INPUT_PICTURE_FRAME_INTERLACED )
 		{

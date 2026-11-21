@@ -133,6 +133,57 @@ Possible -arinfo ( pixel aspect ratio ) values for -mpeg1:
 14: 1.2015
 ```
 
+# Per picture quantization matrices
+
+The encoder can switch the luma and chroma quantization matrices from picture to
+picture, which is useful for MPEG-2 streams that want independent luminance and
+chrominance frequency weightings or that need to change those weightings mid
+stream. It is disabled by default; with `b_picture_quant_matrices = 0` ( the
+default ) the bitstream and all callbacks are byte for byte unchanged, and the
+two new input fields are ignored.
+
+Enable it through `y262_configuration_t.b_picture_quant_matrices`. The feature
+is only available for 8 bit MPEG-2, progressive frames, 4:2:0 chroma and constant
+quantizer (`BITRATE_CONTROL_CQ`); any other configuration makes
+`y262_initialize` return `Y262_INIT_ERROR_PICTURE_MATRICES`.
+
+When enabled, each `y262_input_picture_t` carries
+
+* `i_quant_matrix_update_mask`: bits 0..3 select updates for luma intra, luma
+  inter, chroma intra and chroma inter respectively. Bits above the low four
+  must be zero.
+* `rgui8_quant_matrices[ 4 ][ 64 ]`: the four matrices in that order, elements in
+  natural 8x8 frequency coordinates, each in range 1..255. The first element of
+  both intra matrices has to be 8. Only arrays selected by the mask are read.
+
+A picture inherits the full four matrix state of the previously and successfully
+pushed picture, then applies its selected updates. The first picture starts from
+the configured intra / inter matrices, with the chroma matrices copied from the
+corresponding luma matrices. The encoder copies everything during
+`y262_push_input_picture`, so the caller may overwrite the input structure and
+pixel buffers as soon as the push returns. An invalid mask or matrix makes the
+push return `Y262_PUSH_INPUT_ERR_ARG` without consuming the picture order number,
+user data or input slot and without advancing the inheritance state; fixing the
+input and retrying gives the same result as pushing the valid input directly.
+
+Each encoded picture uses its own snapshot for fast forward quantization, trellis
+candidate and distortion costs, inverse quantization and local reconstruction,
+selecting the matrix by plane ( luma / chroma ) and coding type ( intra / inter ).
+When the matrices change the precomputed quantization tables are rebuilt.
+
+On the bitstream side a single `quant_matrix_extension` ( at most one per
+picture ) is emitted between the picture coding extension and the first slice
+whenever the picture's matrices differ from what the decoder already has in
+effect in decode order; unchanged pictures emit nothing. Matrix values are
+written in zigzag order. Loading a luma matrix also reloads the matching chroma
+matrix, both in the sequence header and in the extension, so those side effects
+are part of the differential emission and the picture's required chroma state is
+re-emitted explicitly when it differs from the implicit reload.
+
+The `examples/picture_matrices_example.c` file is a small standalone program that
+drives the feature. `tests/picture_matrices.c` covers the inheritance,
+coefficient and bitstream behaviour.
+
 # Notes
 
 This is an offline encoder. It may do some retries on bitrate control failure to prevent bad quality or video buffer violations. So on complex content it may slow down quite a lot. This is also the main reason for missing frame threading.

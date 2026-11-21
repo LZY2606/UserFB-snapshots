@@ -49,6 +49,7 @@ set(liby262_sources_basic
     ${CMAKE_CURRENT_SOURCE_DIR}/me.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pixelop.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pixelop_x86.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/picture_matrices.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ratectrl.h
     ${CMAKE_CURRENT_SOURCE_DIR}/tables.h
     ${CMAKE_CURRENT_SOURCE_DIR}/threads.h

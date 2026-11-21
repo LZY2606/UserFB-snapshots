@@ -745,7 +745,7 @@ void y262_trellis_shrink_trellis( y262_trellis_t *ps_trellis )
 
 
 
-int32_t y262_quant8x8_trellis_fw( y262_t *ps_y262, y262_slice_t *ps_slice, int16_t *pi_coeffs, int32_t i_stride, int32_t i_quantizer, bool_t b_intra )
+int32_t y262_quant8x8_trellis_fw( y262_t *ps_y262, y262_slice_t *ps_slice, int16_t *pi_coeffs, int32_t i_stride, int32_t i_quantizer, bool_t b_intra, int32_t i_plane_idx )
 {
 	int32_t i_dc, i_nz, i_num_active_nodes;
 	int32_t i_coeff, i_start, i_num_coeff, i_last_coeff, i_idx, i_run, i_level;
@@ -779,16 +779,16 @@ int32_t y262_quant8x8_trellis_fw( y262_t *ps_y262, y262_slice_t *ps_slice, int16
 	{
 		i_dc = rgi16_levels[ 0 ];
 		i_start = 1;
-		pui8_qmat = ps_y262->rgui8_intra_quantiser_matrix;
-		y262_quant8x8_intra_fw( ps_y262, rgi16_levels, 8, ps_y262->rgui16_intra_quantizer_matrices[ i_quantizer ], ps_y262->rgui16_intra_quantizer_matrices_trellis_bias[ i_quantizer ] );
+		pui8_qmat = y262_get_intra_quantiser_matrix( ps_y262, i_plane_idx );
+		y262_quant8x8_intra_fw( ps_y262, rgi16_levels, 8, y262_get_intra_quantizer_matrix( ps_y262, i_plane_idx, i_quantizer ), y262_get_intra_quantizer_matrix_trellis_bias( ps_y262, i_plane_idx, i_quantizer ) );
 		i_nz = 1;
 	}
 	else
 	{
 		i_dc = 0;
 		i_start = 0;
-		pui8_qmat = ps_y262->rgui8_non_intra_quantiser_matrix;
-		i_nz = y262_quant8x8_inter_fw( ps_y262, rgi16_levels, 8, ps_y262->rgui16_non_intra_quantizer_matrices[ i_quantizer ] );
+		pui8_qmat = y262_get_inter_quantiser_matrix( ps_y262, i_plane_idx );
+		i_nz = y262_quant8x8_inter_fw( ps_y262, rgi16_levels, 8, y262_get_inter_quantizer_matrix( ps_y262, i_plane_idx, i_quantizer ) );
 	}
 
 	if( i_nz )

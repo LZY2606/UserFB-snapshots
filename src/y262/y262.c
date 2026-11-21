@@ -215,11 +215,11 @@ void y262_encode_macroblock_intra( y262_t *ps_y262, y262_slice_t *ps_slice, bool
 			ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ][ 0 ] = ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ][ 0 ] >> ( 3 - ps_y262->i_intra_dc_precision );
 			if( ps_y262->i_quality_for_speed < 0 )
 			{
-				y262_quant8x8_intra_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_y262->rgui16_intra_quantizer_matrices[ ps_mb->i_scaled_quantizer ], ps_y262->rgui16_intra_quantizer_matrices_bias[ ps_mb->i_scaled_quantizer ] );
+				y262_quant8x8_intra_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, y262_get_intra_quantizer_matrix( ps_y262, i_plane_idx, ps_mb->i_scaled_quantizer ), y262_get_intra_quantizer_matrix_bias( ps_y262, i_plane_idx, ps_mb->i_scaled_quantizer ) );
 			}
 			else
 			{
-				y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, TRUE );
+				y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, TRUE, i_plane_idx );
 			}
 
 
@@ -235,9 +235,16 @@ void y262_encode_macroblock_intra( y262_t *ps_y262, y262_slice_t *ps_slice, bool
 			}
 
 			ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ][ 0 ] = ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ][ 0 ] << ( 3 - ps_y262->i_intra_dc_precision );
-			y262_quant8x8_intra_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, ps_y262->rgui8_intra_quantiser_matrix );
+			y262_quant8x8_intra_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, y262_get_intra_quantiser_matrix( ps_y262, i_plane_idx ) );
 
-			ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+			{
+				int16_t rgi16_dequant[ 64 ];
+				memcpy( rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], sizeof( rgi16_dequant ) );
+				ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+
+				y262_test_observe_block( ps_y262, ps_mb->i_mb_addr, i_plane_idx, i_blk_idx, TRUE, ps_mb->i_scaled_quantizer,
+					ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+			}
 
 			switch( i_plane_idx )
 			{
@@ -462,11 +469,11 @@ bool_t y262_encode_macroblock_inter( y262_t *ps_y262, y262_slice_t *ps_slice, in
 				ps_y262->s_funcs.f_fdct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ] );
 				if( ps_y262->i_quality_for_speed < 0 )
 				{
-					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_inter_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_y262->rgui16_non_intra_quantizer_matrices[ ps_mb->i_scaled_quantizer ] );
+					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_inter_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, y262_get_inter_quantizer_matrix( ps_y262, i_plane_idx, ps_mb->i_scaled_quantizer ) );
 				}
 				else
 				{
-					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, FALSE );
+					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, FALSE, i_plane_idx );
 				}
 
 				if( i_mbmode == Y262_MBMODE_SKIP )
@@ -489,10 +496,17 @@ bool_t y262_encode_macroblock_inter( y262_t *ps_y262, y262_slice_t *ps_slice, in
 						}
 					}
 
-					y262_quant8x8_inter_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, ps_y262->rgui8_non_intra_quantiser_matrix );
-					ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+					y262_quant8x8_inter_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, y262_get_inter_quantiser_matrix( ps_y262, i_plane_idx ) );
+					{
+						int16_t rgi16_dequant[ 64 ];
+						memcpy( rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], sizeof( rgi16_dequant ) );
+						ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
 
-					pui8_dst_blk = y262_blk_pointer_adjust( ps_y262, rgpui8_dst[ i_plane_idx ], rgi_dst_strides[ i_plane_idx ], i_plane_idx, i_blk_idx, FALSE, &i_dst_blk_stride );
+						pui8_dst_blk = y262_blk_pointer_adjust( ps_y262, rgpui8_dst[ i_plane_idx ], rgi_dst_strides[ i_plane_idx ], i_plane_idx, i_blk_idx, FALSE, &i_dst_blk_stride );
+
+						y262_test_observe_block( ps_y262, ps_mb->i_mb_addr, i_plane_idx, i_blk_idx, FALSE, ps_mb->i_scaled_quantizer,
+							ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+					}
 
 					if( ps_y262->i_quality_for_speed >= 8 )
 					{
@@ -657,11 +671,11 @@ bool_t y262_encode_macroblock_inter( y262_t *ps_y262, y262_slice_t *ps_slice, in
 				ps_y262->s_funcs.f_fdct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ] );
 				if( ps_y262->i_quality_for_speed < 0 )
 				{
-					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_inter_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_y262->rgui16_non_intra_quantizer_matrices[ ps_mb->i_scaled_quantizer ] );
+					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_inter_fw( ps_y262, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, y262_get_inter_quantizer_matrix( ps_y262, i_plane_idx, ps_mb->i_scaled_quantizer ) );
 				}
 				else
 				{
-					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, FALSE );
+					ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] = !!y262_quant8x8_trellis_fw( ps_y262, ps_slice, ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, FALSE, i_plane_idx );
 				}
 				ps_mb->i_cbp |= ps_mb->rgb_cbp[ i_plane_idx ][ i_blk_idx ] << ( i_plane_idx * 4 + i_blk_idx );
 
@@ -675,10 +689,17 @@ bool_t y262_encode_macroblock_inter( y262_t *ps_y262, y262_slice_t *ps_slice, in
 						}
 					}
 
-					y262_quant8x8_inter_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, ps_y262->rgui8_non_intra_quantiser_matrix );
-					ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+					y262_quant8x8_inter_bw( ps_y262, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], 8, ps_mb->i_scaled_quantizer, y262_get_inter_quantiser_matrix( ps_y262, i_plane_idx ) );
+					{
+						int16_t rgi16_dequant[ 64 ];
+						memcpy( rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], sizeof( rgi16_dequant ) );
+						ps_y262->s_funcs.f_idct_8x8( ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ], ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
 
-					pui8_blk = y262_blk_pointer_adjust( ps_y262, rgpui8_dst[ i_plane_idx ], rgi_dst_strides[ i_plane_idx ], i_plane_idx, i_blk_idx, TRUE, &i_blk_stride );
+						pui8_blk = y262_blk_pointer_adjust( ps_y262, rgpui8_dst[ i_plane_idx ], rgi_dst_strides[ i_plane_idx ], i_plane_idx, i_blk_idx, TRUE, &i_blk_stride );
+
+						y262_test_observe_block( ps_y262, ps_mb->i_mb_addr, i_plane_idx, i_blk_idx, FALSE, ps_mb->i_scaled_quantizer,
+							ps_mb->rgi16_coeffs[ i_plane_idx ][ i_blk_idx ], rgi16_dequant, ps_mb->rgi16_residual[ i_plane_idx ][ i_blk_idx ] );
+					}
 
 					/*
 					for( i_y = 0; i_y < 8; i_y++ )
@@ -3072,6 +3093,10 @@ int32_t y262_encode_unit( y262_t *ps_y262, int32_t i_unit_startcode, int32_t i_u
 	{
 		y262_write_picture_coding_extension( ps_y262 );
 	}
+	else if( i_unit_startcode == STARTCODE_EXTENSION && i_unit_extension_startcode == H262_QUANT_MATRIX_EXTENSION_ID )
+	{
+		y262_write_quant_matrix_extension( ps_y262 );
+	}
 	else if( i_unit_startcode == STARTCODE_SLICE_START )
 	{
 		/* deprecated */
@@ -3324,6 +3349,16 @@ void y262_encode_picture( y262_t *ps_y262, y262_picture_t *ps_picture, int32_t i
 
 	ps_y262->ps_input_picture = ps_picture;
 
+	if( ps_y262->b_picture_quant_matrices )
+	{
+		/*
+		a picture always uses its own complete matrix snapshot, taken when it was
+		accepted at input time, no matter where it ends up in decode order.
+		*/
+		memcpy( ps_y262->rgui8_current_quant_matrices, ps_picture->rgui8_quant_matrices, sizeof( ps_y262->rgui8_current_quant_matrices ) );
+		y262_picture_matrices_build_tables( ps_y262 );
+	}
+
 	i_accumulated_bits = 0;
 
 	if( i_picture_type == PICTURE_CODING_TYPE_I )
@@ -3359,6 +3394,14 @@ void y262_encode_picture( y262_t *ps_y262, y262_picture_t *ps_picture, int32_t i
 	if( !ps_y262->b_sequence_mpeg1 )
 	{
 		i_accumulated_bits += y262_encode_unit( ps_y262, STARTCODE_EXTENSION, H262_PICTURE_CODING_EXTENSION_ID, PICTURE_CODING_TYPE_I, 0 );
+	}
+	if( ps_y262->b_picture_quant_matrices )
+	{
+		ps_y262->i_quant_matrix_extension_flags = y262_picture_matrices_extension_flags( ps_y262 );
+		if( ps_y262->i_quant_matrix_extension_flags )
+		{
+			i_accumulated_bits += y262_encode_unit( ps_y262, STARTCODE_EXTENSION, H262_QUANT_MATRIX_EXTENSION_ID, 0, 0 );
+		}
 	}
 	i_accumulated_bits += y262_encode_possible_user_data_unit( ps_y262, Y262_USER_DATA_BEFORE_SLICES );
 

@@ -77,6 +77,54 @@ void y262_error( y262_t *ps_y262, int32_t i_error_code, int8_t* pi8_format, ... 
 void y262_encode_picture( y262_t *ps_y262, y262_picture_t *ps_picture, int32_t i_picture_type, int32_t i_pon );
 
 
+/*
+inert observation point used by the picture matrix tests to look at the real
+production quantized coefficients and reconstructed residuals. it does nothing
+unless a test registers a callback in y262_test_block_observer.
+*/
+typedef struct
+{
+	int32_t i_pon;
+	int32_t i_don;
+	int32_t i_picture_type;
+	int32_t i_mb_addr;
+	int32_t i_plane_idx;
+	int32_t i_blk_idx;
+	int32_t b_intra;
+	int32_t i_quantizer;
+	int32_t i_quality_for_speed;
+	uint8_t rgui8_luma_intra_matrix[ 64 ];
+	uint8_t rgui8_luma_inter_matrix[ 64 ];
+	uint8_t rgui8_chroma_intra_matrix[ 64 ];
+	uint8_t rgui8_chroma_inter_matrix[ 64 ];
+	const int16_t *pi16_levels; /* quantized coefficients, natural order, stride 8 */
+	const int16_t *pi16_dequant; /* production inverse quantized coefficients, natural order, stride 8 */
+	const int16_t *pi16_recon; /* reconstructed residual after idct, natural order, stride 8 */
+} y262_block_observation_t;
+typedef void ( *y262_block_observer_f ) ( const y262_block_observation_t *ps_obs );
+extern y262_block_observer_f y262_test_block_observer;
+void y262_test_observe_block( y262_t *ps_y262, int32_t i_mb_addr, int32_t i_plane_idx, int32_t i_blk_idx, bool_t b_intra,
+	int32_t i_quantizer, const int16_t *pi16_levels, const int16_t *pi16_dequant, const int16_t *pi16_recon );
+
+/* per picture quantization matrix helpers */
+void y262_picture_matrices_init( y262_t *ps_y262 );
+bool_t y262_picture_matrices_config_valid( y262_configuration_t *ps_config );
+bool_t y262_picture_matrices_validate_update( uint32_t ui_mask, uint8_t rgui8_matrices[ 4 ][ 64 ] );
+void y262_picture_matrices_apply_update( uint8_t rgui8_new[ 4 ][ 64 ], uint8_t rgui8_prev[ 4 ][ 64 ], uint32_t ui_mask, uint8_t rgui8_matrices[ 4 ][ 64 ] );
+void y262_picture_matrices_build_tables( y262_t *ps_y262 );
+void y262_picture_matrices_note_sequence_header( y262_t *ps_y262, bool_t b_load_intra, uint8_t *pui8_intra, bool_t b_load_non_intra, uint8_t *pui8_non_intra );
+int32_t y262_picture_matrices_extension_flags( y262_t *ps_y262 );
+void y262_picture_matrices_note_extension_written( y262_t *ps_y262 );
+
+uint16_t *y262_get_intra_quantizer_matrix( y262_t *ps_y262, int32_t i_plane_idx, int32_t i_scaled_quantizer );
+uint16_t *y262_get_intra_quantizer_matrix_bias( y262_t *ps_y262, int32_t i_plane_idx, int32_t i_scaled_quantizer );
+uint16_t *y262_get_intra_quantizer_matrix_trellis_bias( y262_t *ps_y262, int32_t i_plane_idx, int32_t i_scaled_quantizer );
+uint16_t *y262_get_inter_quantizer_matrix( y262_t *ps_y262, int32_t i_plane_idx, int32_t i_scaled_quantizer );
+uint8_t *y262_get_intra_quantiser_matrix( y262_t *ps_y262, int32_t i_plane_idx );
+uint8_t *y262_get_inter_quantiser_matrix( y262_t *ps_y262, int32_t i_plane_idx );
+
+
+
 #define MIN( x, y ) ( ( x ) < ( y ) ? ( x ) : ( y ) )
 #define MAX( x, y ) ( ( x ) > ( y ) ? ( x ) : ( y ) )
 

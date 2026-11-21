@@ -38,7 +38,7 @@ void y262_quant8x8_inter_bw( y262_t *ps_y262, int16_t *pi_coeffs, int32_t i_stri
 int32_t y262_quant8x8_intra_fw_mpeg2( int16_t *pi_coeffs, int32_t i_stride, uint16_t *pui16_qmat, uint16_t *pui16_bias );
 int32_t y262_quant8x8_inter_fw_mpeg2( int16_t *pi_coeffs, int32_t i_stride, uint16_t *pui16_qmat );
 
-int32_t y262_quant8x8_trellis_fw( y262_t *ps_y262, y262_slice_t *ps_slice, int16_t *pi_coeffs, int32_t i_stride, int32_t i_quantizer, bool_t b_intra );
+int32_t y262_quant8x8_trellis_fw( y262_t *ps_y262, y262_slice_t *ps_slice, int16_t *pi_coeffs, int32_t i_stride, int32_t i_quantizer, bool_t b_intra, int32_t i_plane_idx );
 
 void y262_fdct_c( int16_t *pi16_block, int16_t *pi16_dst );
 void y262_idct_c( int16_t *pi16_block, int16_t *pi16_dst );

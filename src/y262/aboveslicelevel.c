@@ -144,6 +144,18 @@ void y262_write_sequence_header( y262_t *ps_context )
 		}
 	}
 
+	if( ps_context->b_picture_quant_matrices )
+	{
+		/*
+		a sequence header resets the luma matrices to the defaults unless loaded and
+		always reloads the chroma matrices from the corresponding luma matrices.
+		keep the decode side matrix state in sync with these side effects.
+		*/
+		y262_picture_matrices_note_sequence_header( ps_context,
+			s_sequence_header.b_load_intra_quantiser_matrix, s_sequence_header.rgui8_intra_quantiser_matrix,
+			s_sequence_header.b_load_non_intra_quantiser_matrix, s_sequence_header.rgui8_non_intra_quantiser_matrix );
+	}
+
 }
 
 
@@ -426,6 +438,67 @@ void y262_write_picture_coding_extension( y262_t *ps_context )
 		y262_bitstream_write( ps_bitstream, s_picture_coding_extension.s_composite_display.i_sub_carrier_phase, 8 );
 	}
 
+}
+
+/*
+writes an mpeg2 quant_matrix_extension for the matrices that changed relative to
+what the decoder already has in effect in decode order. matrices are written in
+zigzag scan order.
+*/
+void y262_write_quant_matrix_extension( y262_t *ps_context )
+{
+	int32_t i_idx, i_flags;
+	y262_bitstream_t *ps_bitstream;
+
+	ps_bitstream = &ps_context->s_bitstream;
+
+	i_flags = ps_context->i_quant_matrix_extension_flags;
+
+	y262_bitstream_write( ps_bitstream, 1, 24 );
+	y262_bitstream_write( ps_bitstream, STARTCODE_EXTENSION, 8 );
+	y262_bitstream_write( ps_bitstream, H262_QUANT_MATRIX_EXTENSION_ID, 4 );
+
+	/* luma intra */
+	y262_bitstream_write( ps_bitstream, ( i_flags & 1 ) ? 1 : 0, 1 );
+	if( i_flags & 1 )
+	{
+		for( i_idx = 0; i_idx < 64; i_idx++ )
+		{
+			y262_bitstream_write( ps_bitstream, ps_context->rgui8_current_quant_matrices[ 0 ][ rgui8_y262_scan_0_table[ i_idx ] ], 8 );
+		}
+	}
+
+	/* luma non intra */
+	y262_bitstream_write( ps_bitstream, ( i_flags & 2 ) ? 1 : 0, 1 );
+	if( i_flags & 2 )
+	{
+		for( i_idx = 0; i_idx < 64; i_idx++ )
+		{
+			y262_bitstream_write( ps_bitstream, ps_context->rgui8_current_quant_matrices[ 1 ][ rgui8_y262_scan_0_table[ i_idx ] ], 8 );
+		}
+	}
+
+	/* chroma intra */
+	y262_bitstream_write( ps_bitstream, ( i_flags & 4 ) ? 1 : 0, 1 );
+	if( i_flags & 4 )
+	{
+		for( i_idx = 0; i_idx < 64; i_idx++ )
+		{
+			y262_bitstream_write( ps_bitstream, ps_context->rgui8_current_quant_matrices[ 2 ][ rgui8_y262_scan_0_table[ i_idx ] ], 8 );
+		}
+	}
+
+	/* chroma non intra */
+	y262_bitstream_write( ps_bitstream, ( i_flags & 8 ) ? 1 : 0, 1 );
+	if( i_flags & 8 )
+	{
+		for( i_idx = 0; i_idx < 64; i_idx++ )
+		{
+			y262_bitstream_write( ps_bitstream, ps_context->rgui8_current_quant_matrices[ 3 ][ rgui8_y262_scan_0_table[ i_idx ] ], 8 );
+		}
+	}
+
+	y262_picture_matrices_note_extension_written( ps_context );
 }
 
 void y262_write_user_data( y262_t *ps_context, int32_t i_which )
