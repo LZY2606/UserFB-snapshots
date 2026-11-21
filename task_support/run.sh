@@ -6,7 +6,7 @@ if [[ $mode == target ]]; then test -s task_tests/nak_pages.cpp; fi
 bash task_support/build.sh
 if [[ $mode == target ]]; then
   ${CXX:-c++} -std=c++11 -DENABLE_STDCXX_SYNC=1 -DENABLE_LOGGING=1 -I. -Isrtcore -Ihaicrypt -I.task-build/srt -x c++ task_support/driver.c task_tests/nak_pages.cpp -x none .task-build/srt/libsrt.a -pthread -o .task-build/target
-  output_log=$(mktemp)
+  output_log="${TMPDIR:-/tmp}/srt-task-$$.log"
   trap 'rm -f "$output_log"' EXIT
   set +e
   .task-build/target >"$output_log" 2>&1

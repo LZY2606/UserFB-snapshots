@@ -307,6 +307,7 @@ class CUDT
     friend class CUDTGroup;
     friend class TestMockCUDT; // unit tests
     friend class TestMockControlPackets; // unit tests
+    friend class NakPageTestAccess; // task_tests/nak_pages.cpp
 
     typedef sync::steady_clock::time_point time_point;
     typedef sync::steady_clock::duration duration;
@@ -1233,7 +1234,25 @@ private: // Common connection Congestion Control setup
     bool createCrypter(HandshakeSide side, bool bidi);
 
 private: // Generation and processing of packets
+    /// Callback delivering a fully packed, host-order control packet to the
+    /// transport (or a test sink). Returns the number of bytes sent, or -1 on
+    /// failure. Used by the cyclic periodic NAK path so that sending failures
+    /// are observable instead of being hidden by CSndQueue::sendto().
+    typedef std::function<int(const sockaddr_any&, CPacket&, const sockaddr_any&)> SendCallback;
+
+    /// Default transport sink: forwards through CSndQueue::sendtoResult().
+    int defaultControlSend(const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
+
     void sendCtrl(UDTMessageType pkttype, const int32_t* lparam = NULL, void* rparam = NULL, int size = 0);
+
+    /// One round of the cyclic periodic LOSSREPORT: prepare at most one page
+    /// from the receiver loss list, send it and, only after a successful
+    /// send of a non-empty page, count it in sentNak and commit the page.
+    /// Failures leave the report cursor and statistics untouched.
+    /// @param [in] currtime current time used for the NAK interval scheduling.
+    /// @param [in] sink packet sink; defaults to the real send queue.
+    void processPeriodicLossReport(const time_point& currtime,
+                                   const SendCallback& sink = SendCallback());
 
     /// Forms and sends ACK packet
     /// @note Assumes @ctrlpkt already has a timestamp.
@@ -1402,6 +1421,13 @@ private: // Timers functions
     void considerLegacySrtHandshake(const time_point &timebase);
     int checkACKTimer (const time_point& currtime);
     int checkNAKTimer(const time_point& currtime);
+    /// Narrow periodic-NAK entry used by tests: same scheduling and paging as
+    /// checkNAKTimer(), but the packed control packet is handed to @a sink
+    /// instead of the real send queue (which hides channel send failures).
+    int checkNAKTimer(const time_point& currtime, const SendCallback& sink);
+    /// Recalculate m_tdNAKInterval from RTT, the congestion controller and the
+    /// current loss length, clamped to m_tdMinNakInterval.
+    void updateNakInterval();
     bool checkExpTimer (const time_point& currtime, int check_reason);  // returns true if the connection is expired
     void checkRexmitTimer(const time_point& currtime);
 

@@ -141,6 +141,17 @@ In live streaming configurations, the SRT protocol maintains a constant end-to-e
   </p>
 </details>
 
+## Periodic NAK Loss Report Paging
+
+The receiver's **periodic** NAK (`LOSSREPORT`) feedback walks the receiver loss list in cyclic pages instead of always restarting from the oldest lost sequence number. A report cursor starts at the earliest loss and, after each successfully sent page, advances to the modular successor of the last reported sequence number, wrapping from the tail back to the head. When the oldest gaps stay unrecovered for a long time, later gaps therefore still get their turn within a bounded number of report periods.
+
+Paging changes **only the periodic feedback path**:
+
+- Immediate loss reports sent when a gap is first detected, and the delayed "belated" reports driven by the fresh-loss (`FreshLoss`) records, keep their original rules and encoding.
+- The existing restrictions are unchanged: periodic reports stay disabled when NAK reporting is switched off (`SRTO_NAKREPORT`) or when a packet filter runs at an ARQ level other than "always".
+- One page is sent per NAK period, sized by `floor(payload size / 4)` words; a failed send neither advances the cursor nor increments the NAK statistics, and the same page is retried on the next period.
+- The legacy `CRcvLossList::getLossArray()` prefix behavior is retained for all other callers.
+
 ## Getting Started with SRT
 
 |                                                                                                                               |                                                                                      |                                                                                   |

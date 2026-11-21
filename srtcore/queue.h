@@ -424,6 +424,12 @@ public:
     /// @return Size of data sent out.
     int sendto(const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
 
+    /// Variant of sendto() that propagates the real result of the underlying
+    /// CChannel send instead of always reporting the packet payload length
+    /// (which CSndQueue::sendto() keeps returning for historical callers).
+    /// @return the value returned by CChannel::sendto(): bytes sent, or -1 on failure.
+    int sendtoResult(const sockaddr_any& addr, CPacket& packet, const sockaddr_any& src);
+
     /// Get the IP TTL.
     /// @param [in] ttl IP Time To Live.
     /// @return TTL.

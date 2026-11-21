@@ -633,6 +633,14 @@ int srt::CSndQueue::sendto(const sockaddr_any& addr, CPacket& w_packet, const so
     return (int)w_packet.getLength();
 }
 
+int srt::CSndQueue::sendtoResult(const sockaddr_any& addr, CPacket& w_packet, const sockaddr_any& src)
+{
+    // Same as sendto(), except that the real CChannel result is propagated.
+    // sendto() above keeps returning the payload length for compatibility
+    // with callers that interpret any positive value as "handed over".
+    return m_pChannel->sendto(addr, w_packet, src);
+}
+
 //
 srt::CRcvUList::CRcvUList()
     : m_pUList(NULL)

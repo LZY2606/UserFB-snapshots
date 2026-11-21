@@ -18,6 +18,7 @@ logger_default.cpp
 logger_defs.cpp
 logging.cpp
 md5.cpp
+nak_report.cpp
 packet.cpp
 packetfilter.cpp
 queue.cpp

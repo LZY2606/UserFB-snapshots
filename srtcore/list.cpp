@@ -481,6 +481,8 @@ srt::CRcvLossList::CRcvLossList(int size)
     , m_iLength(0)
     , m_iSize(size)
     , m_iLargestSeq(SRT_SEQNO_NONE)
+    , m_iReportCursor(SRT_SEQNO_NONE)
+    , m_ullReportGeneration(0)
 {
     m_caSeq = new Seq[m_iSize];
 
@@ -502,6 +504,10 @@ int srt::CRcvLossList::insert(int32_t seqno1, int32_t seqno2)
     SRT_ASSERT(seqno1 != SRT_SEQNO_NONE && seqno2 != SRT_SEQNO_NONE);
     // Make sure that seqno2 isn't earlier than seqno1.
     SRT_ASSERT(CSeqNo::seqcmp(seqno1, seqno2) <= 0);
+
+    // Any modifying call invalidates prepared pages, even if the loss set
+    // does not actually change as a result of it.
+    invalidateReportPages();
 
     // Data to be inserted must be larger than all those in the list
     if (m_iLargestSeq != SRT_SEQNO_NONE && CSeqNo::seqcmp(seqno1, m_iLargestSeq) <= 0)
@@ -579,11 +585,18 @@ int srt::CRcvLossList::insert(int32_t seqno1, int32_t seqno2)
 
 bool srt::CRcvLossList::remove(int32_t seqno)
 {
+    // Any modifying call invalidates prepared pages, even if the loss set
+    // does not actually change as a result of it.
+    invalidateReportPages();
+
     if (m_iLargestSeq == SRT_SEQNO_NONE || CSeqNo::seqcmp(seqno, m_iLargestSeq) > 0)
         m_iLargestSeq = seqno;
 
     if (0 == m_iLength)
+    {
+        m_iReportCursor = SRT_SEQNO_NONE;
         return false;
+    }
 
     // locate the position of "seqno" in the list
     int offset = CSeqNo::seqoff(m_caSeq[m_iHead].seqstart, seqno);
@@ -654,7 +667,17 @@ bool srt::CRcvLossList::remove(int32_t seqno)
 
         m_iLength--;
         if (m_iLength == 0)
-            m_iLargestSeq = SRT_SEQNO_NONE;
+        {
+            m_iLargestSeq  = SRT_SEQNO_NONE;
+            m_iReportCursor = SRT_SEQNO_NONE;
+        }
+        else if (m_iReportCursor == seqno)
+        {
+            // The reported-away cursor sat on the removed packet: continue
+            // from its modular successor, re-anchoring if that is recovered.
+            m_iReportCursor = CSeqNo::incseq(seqno);
+            reanchorReportCursor();
+        }
 
         return true;
     }
@@ -711,7 +734,17 @@ bool srt::CRcvLossList::remove(int32_t seqno)
 
     m_iLength--;
     if (m_iLength == 0)
-        m_iLargestSeq = SRT_SEQNO_NONE;
+    {
+        m_iLargestSeq  = SRT_SEQNO_NONE;
+        m_iReportCursor = SRT_SEQNO_NONE;
+    }
+    else if (m_iReportCursor == seqno)
+    {
+        // The removed packet was the cursor target: carry on from its
+        // modular successor (which may start the split-off upper range).
+        m_iReportCursor = CSeqNo::incseq(seqno);
+        reanchorReportCursor();
+    }
 
     return true;
 }
@@ -720,6 +753,8 @@ bool srt::CRcvLossList::remove(int32_t seqno1, int32_t seqno2)
 {
     if (CSeqNo::seqcmp(seqno1, seqno2) > 0)
     {
+        // Still a modifying call: invalidate prepared pages regardless.
+        invalidateReportPages();
         return false;
     }
     for (int32_t i = seqno1; CSeqNo::seqcmp(i, seqno2) <= 0; i = CSeqNo::incseq(i))
@@ -731,10 +766,15 @@ bool srt::CRcvLossList::remove(int32_t seqno1, int32_t seqno2)
 
 int32_t srt::CRcvLossList::removeUpTo(int32_t seqno_last)
 {
+    // Any modifying call invalidates prepared pages, even when nothing
+    // actually gets removed.
+    invalidateReportPages();
+
     int32_t first = getFirstLostSeq();
     if (first == SRT_SEQNO_NONE)
     {
         //HLOGC(tslog.Debug, log << "rcv-loss: DROP to %" << seqno_last << " - empty list");
+        m_iReportCursor = SRT_SEQNO_NONE;
         return first; // empty, so nothing to remove
     }
 

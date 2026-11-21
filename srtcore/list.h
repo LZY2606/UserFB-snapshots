@@ -54,6 +54,7 @@ modified by
 #define INC_SRT_LIST_H
 
 #include <deque>
+#include <vector>
 
 #include "udt.h"
 #include "common.h"
@@ -208,6 +209,55 @@ public:
     /// @return physical length of the result array.
     int getLossArray(FixedArray<int32_t>& array);
 
+    /// A prepared page of a periodic (cyclic) NAK LOSSREPORT.
+    ///
+    /// A page is a snapshot token: it belongs to the loss list instance and to
+    /// the list state at prepareLossReport() time. Any modifying call on the
+    /// owning list (insert, remove, removeUpTo), or a successful commit of any
+    /// page, invalidates every previously prepared page. An invalid, empty,
+    /// already committed or foreign page is rejected by commitLossReport().
+    class LossReportPage
+    {
+        friend class CRcvLossList;
+
+    public:
+        LossReportPage()
+            : m_owner(NULL)
+            , m_generation(0)
+            , m_committed(false)
+            , m_lastSeq(SRT_SEQNO_NONE)
+        {}
+
+        /// Encoded NAK words, host byte order (the order used on the wire after
+        /// the regular control-packet byte-order conversion): a single lost
+        /// sequence number occupies one word, a closed continuous range
+        /// occupies two words, the range start carries the highest bit and
+        /// the range end does not.
+        const std::vector<int32_t>& words() const { return m_words; }
+
+        bool empty() const { return m_words.empty(); }
+
+    private:
+        const CRcvLossList*   m_owner;       // list this page was prepared from
+        uint64_t              m_generation;  // list state captured at preparation
+        mutable bool          m_committed;   // a page can be committed at most once
+        int32_t               m_lastSeq;     // last seqno represented, successor is the new cursor
+        std::vector<int32_t>  m_words;
+    };
+
+    /// Prepare a cyclic periodic-NAK report page starting at the current report
+    /// cursor, without moving the cursor and without changing the loss list.
+    /// Repeated preparations against the same state yield identical pages.
+    /// @param [in] max_words maximum number of encoded words in the page.
+    /// @return a prepared page (empty when max_words is 0 or the list is empty).
+    LossReportPage prepareLossReport(size_t max_words) const;
+
+    /// Commit a prepared page, advancing the report cursor to the strict
+    /// modular successor of the last represented sequence number.
+    /// @return true if the page was valid and got committed, false otherwise
+    /// (the cursor is left untouched in that case).
+    bool commitLossReport(const LossReportPage& page);
+
 private:
     struct Seq
     {
@@ -222,6 +272,22 @@ private:
     int m_iLength; // loss length
     int m_iSize;   // size of the static array
     int m_iLargestSeq; // largest seq ever seen
+
+    // Cyclic periodic LOSSREPORT state.
+    int32_t  m_iReportCursor;        // next seqno to report (SRT_SEQNO_NONE when unset/empty)
+    uint64_t m_ullReportGeneration;  // bumped on every structural change or successful commit
+
+    /// Bump the state generation, invalidating all prepared pages.
+    void invalidateReportPages() { ++m_ullReportGeneration; }
+
+    /// Re-anchor the report cursor on the first still-existing loss at or after
+    /// its current position in modular order, wrapping to the head if needed.
+    void reanchorReportCursor();
+
+    /// Find the node containing the given sequence number, walking backwards
+    /// from the modular slot, exactly like CRcvLossList::remove() does.
+    /// @return node index, or -1 if not contained in the list.
+    int findNodeForSeq(int32_t seqno) const;
 
 private:
     CRcvLossList(const CRcvLossList&);

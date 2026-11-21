@@ -8300,40 +8300,15 @@ void srt::CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rp
             m_stats.rcvr.sentNak.count(1);
             leaveCS(m_StatsLock);
         }
-        // Call with no arguments - get loss list from internal data.
+        // Call with no arguments - periodic report. The cyclic paging path
+        // (prepare -> send -> commit) lives in processPeriodicLossReport().
         else if (m_pRcvLossList->getLossLength() > 0)
         {
-            ScopedLock lock(m_RcvLossLock);
-            // this is periodically NAK report; make sure NAK cannot be sent back too often
-
-            // read loss list from the local receiver loss list
-            FixedArray<int32_t> data (m_iMaxDataPayloadSize / sizeof(int32_t));
-            int losslen = m_pRcvLossList->getLossArray(data);
-            if (losslen > 0)
-            {
-                ctrlpkt.pack(pkttype, /*lparam*/ NULL, data.data(), losslen * sizeof(int32_t));
-                ctrlpkt.set_id(m_PeerID);
-                nbsent = m_pSndQueue->sendto(m_PeerAddr, ctrlpkt, m_SourceAddr);
-
-                enterCS(m_StatsLock);
-                m_stats.rcvr.sentNak.count(1);
-                leaveCS(m_StatsLock);
-            }
+            processPeriodicLossReport(steady_clock::now());
         }
 
         // update next NAK time, which should wait enough time for the retansmission, but not too long
-        m_tdNAKInterval = microseconds_from(m_iSRTT + 4 * m_iRTTVar);
-
-        // Fix the NAKreport period according to the congctl
-        m_tdNAKInterval =
-            microseconds_from(m_CongCtl->updateNAKInterval(count_microseconds(m_tdNAKInterval),
-                                                                      m_RcvTimeWindow.getPktRcvSpeed(),
-                                                                      m_pRcvLossList->getLossLength()));
-
-        // This is necessary because a congctl need not wish to define
-        // its own minimum interval, in which case the default one is used.
-        if (m_tdNAKInterval < m_tdMinNakInterval)
-            m_tdNAKInterval = m_tdMinNakInterval;
+        updateNakInterval();
 
         break;
     }
@@ -12194,48 +12169,6 @@ int srt::CUDT::checkACKTimer(const steady_clock::time_point &currtime)
     }
 
     return because_decision;
-}
-
-int srt::CUDT::checkNAKTimer(const steady_clock::time_point& currtime)
-{
-    // XXX The problem with working NAKREPORT with SRT_ARQ_ONREQ
-    // is not that it would be inappropriate, but because it's not
-    // implemented. The reason for it is that the structure of the
-    // loss list container (m_pRcvLossList) is such that it is expected
-    // that the loss records are ordered by sequence numbers (so
-    // that two ranges sticking together are merged in place).
-    // Unfortunately in case of SRT_ARQ_ONREQ losses must be recorded
-    // as before, but they should not be reported, until confirmed
-    // by the filter. By this reason they appear often out of order
-    // and for adding them properly the loss list container wasn't
-    // prepared. This then requires some more effort to implement.
-    if (!m_config.bRcvNakReport || m_PktFilterRexmitLevel != SRT_ARQ_ALWAYS)
-        return BECAUSE_NO_REASON;
-
-    /*
-     * m_config.bRcvNakReport enables NAK reports for SRT.
-     * Retransmission based on timeout is bandwidth consuming,
-     * not knowing what to retransmit when the only NAK sent by receiver is lost,
-     * all packets past last ACK are retransmitted (rexmitMethod() == SRM_FASTREXMIT).
-     */
-    enterCS(m_RcvLossLock);
-    const int loss_len = m_pRcvLossList->getLossLength();
-    leaveCS(m_RcvLossLock);
-
-    SRT_ASSERT(loss_len >= 0);
-    int debug_decision = BECAUSE_NO_REASON;
-
-    if (loss_len > 0)
-    {
-        if (currtime <= m_tsNextNAKTime.load())
-            return BECAUSE_NO_REASON; // wait for next NAK time
-
-        sendCtrl(UMSG_LOSSREPORT);
-        debug_decision = BECAUSE_NAKREPORT;
-    }
-
-    m_tsNextNAKTime.store(currtime + m_tdNAKInterval);
-    return debug_decision;
 }
 
 bool srt::CUDT::checkExpTimer(const steady_clock::time_point& currtime, int check_reason SRT_ATR_UNUSED)
