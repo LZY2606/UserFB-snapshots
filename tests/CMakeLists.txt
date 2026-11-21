@@ -4,6 +4,9 @@ file (MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/audio-write-tests)
 set (AUDIOFILE_TESTS Tests)
 
 file (GLOB AUDIOFILE_TESTS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# bwf_loudness.cpp is a standalone regression driven by task_support/driver.c
+# (it supplies no main()), so it is not part of the doctest executable.
+list (REMOVE_ITEM AUDIOFILE_TESTS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/bwf_loudness.cpp")
 source_group (TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${AUDIOFILE_TESTS_SOURCES})
 
 add_executable (${AUDIOFILE_TESTS} ${AUDIOFILE_TESTS_SOURCES})

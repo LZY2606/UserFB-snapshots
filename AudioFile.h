@@ -51,6 +51,8 @@
 #include <cmath>
 #include <array>
 
+#include "BwfSupport.h"
+
 // disable some warnings on Windows
 #if defined (_MSC_VER)
     __pragma(warning (push))
@@ -76,7 +78,8 @@ enum class AudioFileFormat
     Error,
     NotLoaded,
     Wave,
-    Aiff
+    Aiff,
+    Bwf
 };
 
 //=============================================================
@@ -192,12 +195,24 @@ private:
     };
     
     //=============================================================
-    bool decodeWaveFile (const std::vector<uint8_t>& fileData);
     bool decodeAiffFile (const std::vector<uint8_t>& fileData);
+    bool decodeBwfWaveFile (const std::vector<uint8_t>& fileData);
 
     //=============================================================
     bool encodeWaveFile (std::vector<uint8_t>& fileData);
     bool encodeAiffFile (std::vector<uint8_t>& fileData);
+    bool encodeBwfFile (std::vector<uint8_t>& fileData);
+
+    //=============================================================
+    /** Writes the sample payload (the data chunk contents) using the
+     * existing integer PCM / IEEE float encoding rules. */
+    bool encodeWaveDataPayload (std::vector<uint8_t>& payload);
+
+    /** Recovers the sound represented by the finished data bytes, using
+     * standard full-scale normalisation rather than the reader's
+     * max-positive-integer convention. */
+    bool normaliseWrittenData (const std::vector<uint8_t>& payload,
+                               std::vector<std::vector<double> >& normalisedChannels);
     
     //=============================================================
     void clearAudioBuffer();
@@ -229,6 +244,12 @@ private:
     uint32_t sampleRate;
     int bitDepth;
     bool logErrorsToConsole {true};
+
+    //=============================================================
+    /** Preserved RIFF/WAVE container from the last strictly-parsed load.
+     *  This state is only replaced by a successful load. */
+    bool hasRiffContainer {false};
+    bwf_support::RiffContainer riffContainer;
 };
 
 //=============================================================
@@ -531,7 +552,7 @@ bool AudioFile<T>::loadFromMemory (const std::vector<uint8_t>& fileData)
     
     if (audioFileFormat == AudioFileFormat::Wave)
     {
-        return decodeWaveFile (fileData);
+        return decodeBwfWaveFile (fileData);
     }
     else if (audioFileFormat == AudioFileFormat::Aiff)
     {
@@ -546,159 +567,115 @@ bool AudioFile<T>::loadFromMemory (const std::vector<uint8_t>& fileData)
 
 //=============================================================
 template <class T>
-bool AudioFile<T>::decodeWaveFile (const std::vector<uint8_t>& fileData)
+bool AudioFile<T>::decodeBwfWaveFile (const std::vector<uint8_t>& fileData)
 {
-    // -----------------------------------------------------------
-    // HEADER CHUNK
-    std::string headerChunkID (fileData.begin(), fileData.begin() + 4);
-    //int32_t fileSizeInBytes = fourBytesToInt (fileData, 4) + 8;
-    std::string format (fileData.begin() + 8, fileData.begin() + 12);
-    
-    // -----------------------------------------------------------
-    // try and find the start points of key chunks
-    int indexOfDataChunk = getIndexOfChunk (fileData, "data", 12);
-    int indexOfFormatChunk = getIndexOfChunk (fileData, "fmt ", 12);
-    int indexOfXMLChunk = getIndexOfChunk (fileData, "iXML", 12);
-    
-    // if we can't find the data or format chunks, or the IDs/formats don't seem to be as expected
-    // then it is unlikely we'll able to read this file, so abort
-    if (indexOfDataChunk == -1 || indexOfFormatChunk == -1 || headerChunkID != "RIFF" || format != "WAVE")
+    // Strictly parse the container first. Nothing about the existing
+    // object is touched until the whole file has been validated, so a
+    // failed load leaves the previous audio and container intact.
+    bwf_support::RiffContainer parsed;
+    if (! bwf_support::parseRiffWave (fileData, parsed))
     {
-        reportError ("ERROR: this doesn't seem to be a valid .WAV file");
+        reportError ("ERROR: this doesn't seem to be a valid RIFF/WAVE file");
         return false;
     }
-    
-    // -----------------------------------------------------------
-    // FORMAT CHUNK
-    int f = indexOfFormatChunk;
-    std::string formatChunkID (fileData.begin() + f, fileData.begin() + f + 4);
-    //int32_t formatChunkSize = fourBytesToInt (fileData, f + 4);
-    uint16_t audioFormat = twoBytesToInt (fileData, f + 8);
-    uint16_t numChannels = twoBytesToInt (fileData, f + 10);
-    sampleRate = static_cast<uint32_t> (fourBytesToInt (fileData, f + 12));
-    uint32_t numBytesPerSecond = fourBytesToInt (fileData, f + 16);
-    uint16_t numBytesPerBlock = twoBytesToInt (fileData, f + 20);
-    bitDepth = static_cast<int> (twoBytesToInt (fileData, f + 22));
-    
-    if (bitDepth > sizeof (T) * 8)
+
+    const bwf_support::RiffChunk& dataChunk = parsed.chunks[static_cast<size_t> (parsed.dataIndex)];
+
+    const uint16_t audioFormat = parsed.formatTag;
+    const int numChannels = static_cast<int> (parsed.channels);
+    const int sourceBitDepth = static_cast<int> (parsed.bitsPerSample);
+
+    if (sourceBitDepth > static_cast<int> (sizeof (T)) * 8)
     {
         std::string message = "ERROR: you are trying to read a ";
-        message += std::to_string (bitDepth);
+        message += std::to_string (sourceBitDepth);
         message += "-bit file using a ";
         message += std::to_string (sizeof (T) * 8);
         message += "-bit sample type";
         reportError (message);
         return false;
     }
-    
-    uint16_t numBytesPerSample = static_cast<uint16_t> (bitDepth) / 8;
-    
-    // check that the audio format is PCM or Float or extensible
-    if (audioFormat != WavAudioFormat::PCM && audioFormat != WavAudioFormat::IEEEFloat && audioFormat != WavAudioFormat::Extensible)
-    {
-        reportError ("ERROR: this .WAV file is encoded in a format that this library does not support at present");
-        return false;
-    }
-    
-    // check the number of channels is mono or stereo
-    if (numChannels < 1 || numChannels > 128)
-    {
-        reportError ("ERROR: this WAV file seems to be an invalid number of channels (or corrupted?)");
-        return false;
-    }
-    
-    // check header data is consistent
-    if (numBytesPerSecond != static_cast<uint32_t> ((numChannels * sampleRate * bitDepth) / 8) || numBytesPerBlock != (numChannels * numBytesPerSample))
-    {
-        reportError ("ERROR: the header data in this WAV file seems to be inconsistent");
-        return false;
-    }
-    
-    // check bit depth is either 8, 16, 24 or 32 bit
-    if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
-    {
-        reportError ("ERROR: this file has a bit depth that is not 8, 16, 24 or 32 bits");
-        return false;
-    }
-    
-    // -----------------------------------------------------------
-    // DATA CHUNK
-    int d = indexOfDataChunk;
-    std::string dataChunkID (fileData.begin() + d, fileData.begin() + d + 4);
-    int32_t dataChunkSize = fourBytesToInt (fileData, d + 4);
-    
-    int numSamples = dataChunkSize / (numChannels * bitDepth / 8);
-    int samplesStartIndex = indexOfDataChunk + 8;
-    
-    clearAudioBuffer();
-    samples.resize (numChannels);
-    
+
+    const int numBytesPerSample = sourceBitDepth / 8;
+    const int numBytesPerBlock = numChannels * numBytesPerSample;
+    const int numSamples = static_cast<int> (dataChunk.size / static_cast<uint32_t> (numBytesPerBlock));
+    const bwf_support::Bytes& payload = dataChunk.payload;
+
+    AudioBuffer newSamples;
+    newSamples.resize (static_cast<size_t> (numChannels));
+    for (auto& channel : newSamples)
+        channel.reserve (static_cast<size_t> (numSamples));
+
     for (int i = 0; i < numSamples; i++)
     {
         for (int channel = 0; channel < numChannels; channel++)
         {
-            size_t sampleIndex = samplesStartIndex + (numBytesPerBlock * i) + channel * numBytesPerSample;
-            
-            if ((sampleIndex + (bitDepth / 8) - 1) >= fileData.size())
+            const size_t sampleIndex = static_cast<size_t> (i * numBytesPerBlock + channel * numBytesPerSample);
+
+            if (sourceBitDepth == 8)
             {
-                reportError ("ERROR: read file error as the metadata indicates more samples than there are in the file data");
-                return false;
+                T sample = AudioSampleConverter<T>::unsignedByteToSample (payload[sampleIndex]);
+                newSamples[static_cast<size_t> (channel)].push_back (sample);
             }
-            
-            if (bitDepth == 8)
+            else if (sourceBitDepth == 16)
             {
-                T sample = AudioSampleConverter<T>::unsignedByteToSample (fileData[sampleIndex]);
-                samples[channel].push_back (sample);
-            }
-            else if (bitDepth == 16)
-            {
-                int16_t sampleAsInt = twoBytesToInt (fileData, sampleIndex);
+                int16_t sampleAsInt = static_cast<int16_t> (static_cast<uint16_t> (payload[sampleIndex])
+                                                          | (static_cast<uint16_t> (payload[sampleIndex + 1]) << 8));
                 T sample = AudioSampleConverter<T>::sixteenBitIntToSample (sampleAsInt);
-                samples[channel].push_back (sample);
+                newSamples[static_cast<size_t> (channel)].push_back (sample);
             }
-            else if (bitDepth == 24)
+            else if (sourceBitDepth == 24)
             {
-                int32_t sampleAsInt = 0;
-                sampleAsInt = (fileData[sampleIndex + 2] << 16) | (fileData[sampleIndex + 1] << 8) | fileData[sampleIndex];
-                
-                if (sampleAsInt & 0x800000) //  if the 24th bit is set, this is a negative number in 24-bit world
-                    sampleAsInt = sampleAsInt | ~0xFFFFFF; // so make sure sign is extended to the 32 bit float
+                int32_t sampleAsInt = (payload[sampleIndex + 2] << 16)
+                                    | (payload[sampleIndex + 1] << 8)
+                                    | payload[sampleIndex];
+
+                if (sampleAsInt & 0x800000) // sign-extend the 24-bit value
+                    sampleAsInt = sampleAsInt | ~0xFFFFFF;
 
                 T sample = AudioSampleConverter<T>::twentyFourBitIntToSample (sampleAsInt);
-                samples[channel].push_back (sample);
+                newSamples[static_cast<size_t> (channel)].push_back (sample);
             }
-            else if (bitDepth == 32)
+            else if (sourceBitDepth == 32)
             {
-                int32_t sampleAsInt = fourBytesToInt (fileData, sampleIndex);
+                int32_t sampleAsInt = static_cast<int32_t> (bwf_support::rd32 (payload, sampleIndex));
                 T sample;
-                
-                if (audioFormat == WavAudioFormat::IEEEFloat && std::is_floating_point_v<T>) 
+
+                if (audioFormat == WavAudioFormat::IEEEFloat && std::is_floating_point_v<T>)
                 {
                     float floatValue;
-                    memcpy (&floatValue, &sampleAsInt, sizeof(int32_t));
+                    std::memcpy (&floatValue, &sampleAsInt, sizeof (float));
                     sample = static_cast<T> (floatValue);
                 }
                 else // assume PCM
                 {
                     sample = AudioSampleConverter<T>::thirtyTwoBitIntToSample (sampleAsInt);
                 }
-                
-                samples[channel].push_back (sample);
+
+                newSamples[static_cast<size_t> (channel)].push_back (sample);
             }
             else
             {
-                assert (false);
+                return false;
             }
         }
     }
 
-    // -----------------------------------------------------------
-    // iXML CHUNK
-    if (indexOfXMLChunk != -1)
+    std::string newIxml;
+    if (parsed.ixmlIndex != -1)
     {
-        int32_t chunkSize = fourBytesToInt (fileData, indexOfXMLChunk + 4);
-        iXMLChunk = std::string (reinterpret_cast<const char*> (&fileData[indexOfXMLChunk + 8]), chunkSize);
+        const bwf_support::Bytes& ixmlPayload = parsed.chunks[static_cast<size_t> (parsed.ixmlIndex)].payload;
+        newIxml.assign (reinterpret_cast<const char*> (ixmlPayload.data()), ixmlPayload.size());
     }
+
+    // Commit the validated load.
+    clearAudioBuffer();
+    samples = std::move (newSamples);
+    sampleRate = parsed.sampleRate;
+    bitDepth = sourceBitDepth;
+    iXMLChunk = std::move (newIxml);
+    riffContainer = std::move (parsed);
+    hasRiffContainer = true;
 
     return true;
 }
@@ -854,7 +831,11 @@ bool AudioFile<T>::decodeAiffFile (const std::vector<uint8_t>& fileData)
         int32_t chunkSize = fourBytesToInt (fileData, indexOfXMLChunk + 4);
         iXMLChunk = std::string (reinterpret_cast<const char*> (&fileData[indexOfXMLChunk + 8]), chunkSize);
     }
-    
+
+    // A successful AIFF load replaces any previously held RIFF container.
+    hasRiffContainer = false;
+    riffContainer = bwf_support::RiffContainer();
+
     return true;
 }
 
@@ -895,7 +876,11 @@ bool AudioFile<T>::saveToMemory (std::vector<uint8_t>& fileData, AudioFileFormat
     {
         return encodeAiffFile (fileData);
     }
-    
+    else if (format == AudioFileFormat::Bwf)
+    {
+        return encodeBwfFile (fileData);
+    }
+
     return false;
 }
 
@@ -1022,8 +1007,279 @@ bool AudioFile<T>::encodeWaveFile (std::vector<uint8_t>& fileData)
         reportError ("ERROR: Incorrect file or data chunk size.");
         return false;
     }
-    
+
     return true;
+}
+
+//=============================================================
+template <class T>
+bool AudioFile<T>::encodeWaveDataPayload (std::vector<uint8_t>& payload)
+{
+    const int16_t audioFormat = bitDepth == 32 && std::is_floating_point_v<T>
+                                ? WavAudioFormat::IEEEFloat : WavAudioFormat::PCM;
+
+    for (int i = 0; i < getNumSamplesPerChannel(); i++)
+    {
+        for (int channel = 0; channel < getNumChannels(); channel++)
+        {
+            if (bitDepth == 8)
+            {
+                payload.push_back (AudioSampleConverter<T>::sampleToUnsignedByte (samples[channel][i]));
+            }
+            else if (bitDepth == 16)
+            {
+                int16_t sampleAsInt = AudioSampleConverter<T>::sampleToSixteenBitInt (samples[channel][i]);
+                payload.push_back (static_cast<uint8_t> (sampleAsInt & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 8) & 0xFF));
+            }
+            else if (bitDepth == 24)
+            {
+                int32_t sampleAsInt = AudioSampleConverter<T>::sampleToTwentyFourBitInt (samples[channel][i]);
+                payload.push_back (static_cast<uint8_t> (sampleAsInt & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 8) & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 16) & 0xFF));
+            }
+            else if (bitDepth == 32)
+            {
+                int32_t sampleAsInt = 0;
+
+                if (audioFormat == WavAudioFormat::IEEEFloat)
+                {
+                    if constexpr (std::is_same_v<T, float>)
+                    {
+                        sampleAsInt = reinterpret_cast<int32_t&> (samples[channel][i]);
+                    }
+                    else if constexpr (std::is_same_v<T, double>)
+                    {
+                        auto sampleAsFloat = static_cast<float> (samples[channel][i]);
+                        float& referenceToSample = sampleAsFloat;
+                        sampleAsInt = reinterpret_cast<int32_t&> (referenceToSample);
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    sampleAsInt = AudioSampleConverter<T>::sampleToThirtyTwoBitInt (samples[channel][i]);
+                }
+
+                payload.push_back (static_cast<uint8_t> (sampleAsInt & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 8) & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 16) & 0xFF));
+                payload.push_back (static_cast<uint8_t> ((sampleAsInt >> 24) & 0xFF));
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+//=============================================================
+template <class T>
+bool AudioFile<T>::normaliseWrittenData (const std::vector<uint8_t>& payload,
+                                         std::vector<std::vector<double> >& normalisedChannels)
+{
+    const int numChannels = getNumChannels();
+    const int numFrames = getNumSamplesPerChannel();
+    const int bytesPerSample = bitDepth / 8;
+    const int bytesPerBlock = numChannels * bytesPerSample;
+
+    if (numChannels <= 0 || bytesPerSample <= 0
+        || payload.size() != static_cast<size_t> (numFrames) * static_cast<size_t> (bytesPerBlock))
+    {
+        return false;
+    }
+
+    normalisedChannels.clear();
+    normalisedChannels.resize (static_cast<size_t> (numChannels));
+    for (auto& channel : normalisedChannels)
+        channel.resize (static_cast<size_t> (numFrames));
+
+    const bool ieeeFloat = bitDepth == 32 && std::is_floating_point_v<T>;
+
+    for (int i = 0; i < numFrames; ++i)
+    {
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            const size_t p = static_cast<size_t> (i * bytesPerBlock + channel * bytesPerSample);
+            double value = 0.0;
+
+            if (bitDepth == 8)
+            {
+                // Unsigned 8-bit PCM: remove the 128 offset, then apply the
+                // standard full scale of 2^(bits-1) = 128.
+                value = static_cast<double> (static_cast<int> (payload[p]) - 128) / 128.0;
+            }
+            else if (bitDepth == 16)
+            {
+                const int16_t integer = static_cast<int16_t> (
+                    static_cast<uint16_t> (payload[p]) | (static_cast<uint16_t> (payload[p + 1]) << 8));
+                value = static_cast<double> (integer) / 32768.0;
+            }
+            else if (bitDepth == 24)
+            {
+                int32_t integer = (static_cast<int32_t> (payload[p + 2]) << 16)
+                                | (static_cast<int32_t> (payload[p + 1]) << 8)
+                                | static_cast<int32_t> (payload[p]);
+                if (integer & 0x800000)
+                    integer |= ~0xFFFFFF; // sign-extend
+                value = static_cast<double> (integer) / 8388608.0;
+            }
+            else if (bitDepth == 32)
+            {
+                const uint32_t raw = bwf_support::rd32 (payload, p);
+
+                if (ieeeFloat)
+                {
+                    float floatValue;
+                    std::memcpy (&floatValue, &raw, sizeof (float));
+                    value = static_cast<double> (floatValue);
+                }
+                else
+                {
+                    const int32_t integer = static_cast<int32_t> (raw);
+                    value = static_cast<double> (integer) / 2147483648.0;
+                }
+            }
+            else
+            {
+                return false;
+            }
+
+            normalisedChannels[static_cast<size_t> (channel)][static_cast<size_t> (i)] = value;
+        }
+    }
+
+    return true;
+}
+
+//=============================================================
+template <class T>
+bool AudioFile<T>::encodeBwfFile (std::vector<uint8_t>& fileData)
+{
+    if constexpr (! std::is_floating_point_v<T>)
+    {
+        reportError ("ERROR: BWF output is only supported for floating point AudioFile types");
+        return false;
+    }
+    else
+    {
+        const int numChannels = getNumChannels();
+        const int numFrames = getNumSamplesPerChannel();
+
+        // -----------------------------------------------------------
+        // Validate the configuration before anything is produced.
+        if (sampleRate != 48000u)
+        {
+            reportError ("ERROR: BWF output is only supported at 48 kHz");
+            return false;
+        }
+
+        if (numChannels != 1 && numChannels != 2)
+        {
+            reportError ("ERROR: BWF output is only supported for mono or stereo audio");
+            return false;
+        }
+
+        if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+        {
+            reportError ("ERROR: BWF output only supports 8, 16, 24 or 32 bit samples");
+            return false;
+        }
+
+        if (static_cast<int> (samples.size()) != numChannels)
+        {
+            reportError ("ERROR: BWF output found an inconsistent number of channels");
+            return false;
+        }
+
+        for (const auto& channel : samples)
+        {
+            if (static_cast<int> (channel.size()) != numFrames)
+            {
+                reportError ("ERROR: BWF output requires equal channel lengths");
+                return false;
+            }
+
+            for (T sample : channel)
+            {
+                if (! std::isfinite (static_cast<double> (sample)))
+                {
+                    reportError ("ERROR: BWF output cannot encode non-finite samples");
+                    return false;
+                }
+            }
+        }
+
+        const uint64_t bytesPerBlock = static_cast<uint64_t> (numChannels) * static_cast<uint64_t> (bitDepth / 8);
+        const uint64_t dataSize = static_cast<uint64_t> (numFrames) * bytesPerBlock;
+        if (numFrames < 0 || dataSize > static_cast<uint64_t> (std::numeric_limits<uint32_t>::max()))
+        {
+            reportError ("ERROR: BWF output size overflow");
+            return false;
+        }
+
+        // A preserved container must itself be within the supported BWF
+        // scope: no Extensible fmt chunk (RF64/RIFX/multiple data chunks
+        // never reach this point because they fail strict parsing).
+        const bwf_support::RiffContainer* container = hasRiffContainer ? &riffContainer : nullptr;
+        if (container != nullptr && container->formatTag == WavAudioFormat::Extensible)
+        {
+            reportError ("ERROR: BWF output does not support Extensible source files");
+            return false;
+        }
+
+        // -----------------------------------------------------------
+        // Produce the exact data bytes, then measure the sound those
+        // bytes represent rather than the pre-quantisation samples.
+        bwf_support::Bytes dataPayload;
+        dataPayload.reserve (static_cast<size_t> (dataSize));
+        if (! encodeWaveDataPayload (dataPayload) || dataPayload.size() != static_cast<size_t> (dataSize))
+        {
+            reportError ("ERROR: BWF data encoding failed");
+            return false;
+        }
+
+        std::vector<std::vector<double> > normalisedChannels;
+        if (! normaliseWrittenData (dataPayload, normalisedChannels))
+        {
+            reportError ("ERROR: BWF data normalisation failed");
+            return false;
+        }
+
+        const bwf_support::LoudnessMeasurements loudness = bwf_support::measureLoudness (normalisedChannels);
+
+        const uint16_t formatTag = bitDepth == 32 ? WavAudioFormat::IEEEFloat : WavAudioFormat::PCM;
+
+        // -----------------------------------------------------------
+        // Build into a local vector so the caller's output is untouched
+        // on any failure.
+        bwf_support::Bytes built;
+        const bool ok = bwf_support::buildBwfFile (container, iXMLChunk,
+                                                   static_cast<uint16_t> (formatTag),
+                                                   static_cast<uint16_t> (numChannels),
+                                                   sampleRate,
+                                                   static_cast<uint16_t> (bitDepth),
+                                                   dataPayload,
+                                                   static_cast<uint32_t> (numFrames),
+                                                   loudness,
+                                                   built);
+
+        if (! ok || built.size() > static_cast<size_t> (std::numeric_limits<uint32_t>::max()) + 8u)
+        {
+            reportError ("ERROR: BWF file construction failed");
+            return false;
+        }
+
+        fileData = std::move (built);
+        return true;
+    }
 }
 
 //=============================================================

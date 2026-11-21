@@ -27,3 +27,6 @@ xcuserdata/
 .vscode/
 
 audio-write-tests
+
+# Task harness build output
+.task-build/

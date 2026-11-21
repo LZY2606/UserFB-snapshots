@@ -130,6 +130,65 @@ Write the audio file data directly to a vector of bytes (without writing to a fi
 
     audioFile.saveToMemory (fileData, AudioFileFormat::Aiff);
 
+### Broadcast Wave Format (BWF)
+
+`AudioFileFormat::Bwf` writes a RIFF/WAVE file that also carries a `bext`
+chunk with loudness measurements recomputed from the current audio on every
+save. It is intended for the case where the samples have been shortened,
+re-gained or re-quantised, so that any loudness values stored in an earlier
+file no longer apply.
+
+Scope and rules:
+
+- Only `AudioFile<float>` and `AudioFile<double>` can save BWF, and only at
+  48 kHz with one or two channels.
+- The sample encoding is unchanged from ordinary WAVE saving: 8/16/24-bit
+  integer PCM or 32-bit IEEE float. The volume and the existing quantisation
+  rules are not redefined; saving never modifies the in-memory samples.
+- The loudness is measured from the **final data bytes that are written**,
+  not from the pre-quantisation samples. Integer PCM is normalised to the
+  standard full scale of `2^(bits-1)` (with the 8-bit 128 offset removed
+  first), and 32-bit output uses the actual `float` values written to disk.
+  This deliberately differs from the reading side, which normalises integers
+  by the maximum positive value.
+- Measurements are ITU-R BS.1770 K-weighting with dual gating
+  (Integrated, Max Momentary, Max Short-Term) plus EBU Tech 3342 Loudness
+  Range (LRA). Each channel is filtered independently from zero history and
+  the per-channel energies are summed; there is no down-mix, no channel
+  weighting for mono, and no true-peak interpolation. Windows are 400 ms and
+  3 s, frame-0 aligned, advanced every 100 ms, and only complete windows are
+  used.
+- `bext` is written with Version 2. The Integrated, LRA, Max Momentary and
+  Max Short-Term fields (offsets 412/414/418/420) are set to the measured
+  loudness in centi-LUFS (halves rounded away from zero). The true-peak field
+  (offset 416) is always the unknown marker `0x7fff`, because true peak is not
+  measured. Any value that cannot be determined (no complete window, no gated
+  set, non-finite result) or that does not fit a signed 16-bit field is also
+  written as `0x7fff`.
+
+How BWF saving differs from ordinary `Wave` saving:
+
+- `Wave` always rebuilds a minimal `RIFF/WAVE/fmt/data` file (plus iXML) and
+  writes no `bext`; its behaviour is unchanged.
+- `Bwf` preserves the loaded container skeleton. The `fmt` and `data` chunks
+  are replaced in place, `bext` is updated in place or inserted immediately
+  before `fmt`, iXML is updated in place or appended, and a `fact` chunk has
+  its frame count refreshed (a 32-bit float file without one gains a minimal
+  `fact` before `data`). Every other chunk - including unknown or repeated
+  FourCCs, chunk ordering and the original odd-byte padding - is copied
+  byte-for-byte; unknown payloads are never scanned for chunk names. A new
+  object with no loaded source is saved with a zero-initialised 602-byte
+  `bext`.
+- WAVE loading is strictly validated: one `fmt`, one whole-frame `data`, at
+  most one each of `bext` (>= 602 bytes, Version 0/1/2), `fact` (>= 4 bytes)
+  and iXML, with every RIFF boundary and chunk length checked. RF64, RIFX,
+  compressed formats, Extensible `fmt` chunks and multiple `data` chunks are
+  outside the BWF scope; a BWF save of an unsupported configuration,
+  non-finite samples, unequal channel lengths or a corrupt container returns
+  `false`, leaves a `saveToMemory` output vector untouched, and never creates
+  or truncates the target file of a `save`. A failed load never disturbs a
+  previously loaded file.
+
 ## Examples
 
 Please see the `examples` folder for some examples on library usage.
