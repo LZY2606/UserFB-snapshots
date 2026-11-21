@@ -42,3 +42,6 @@ install_manifest.txt
 
 # Editors
 .idea
+
+# Task harness build output
+.task-build/

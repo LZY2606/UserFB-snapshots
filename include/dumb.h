@@ -266,6 +266,54 @@ typedef struct DUH_SIGRENDERER DUH_SIGRENDERER;
 DUH_SIGRENDERER *duh_start_sigrenderer(DUH *duh, int sig, int n_channels,
                                        long pos);
 
+/*
+ * Deterministic, PCM-frame addressed playback.
+ *
+ * The normal duh_start_sigrenderer() interface starts from a time position
+ * and fast-forwards silently, which is not sample-exact and leaves random
+ * effects to the global rand() state.  The following optional entry points
+ * render from a caller-supplied seed instead:
+ *
+ *  - the resampling delta is fixed at (float)(65536.0 / rate);
+ *  - the mix volume is 1.0;
+ *  - playback stops at the end of the first pass (no looping);
+ *  - random waveforms, tremolo, vibrato, panbrello, sample auto-vibrato and
+ *    per-note random volume/panning all come from the seed, and are held for
+ *    a whole tracker tick, so they do not depend on how the caller splits its
+ *    generate_samples() calls or on other renderers.
+ *
+ * DUMB_IT_SEEK_INDEX is an opaque index of playback states captured while
+ * rendering one pass sequentially.  dumb_it_build_seek_index() renders up to
+ * frame_limit output frames (or the first-pass end, whichever comes first)
+ * and records a state every stride frames.  dumb_it_seek_index_start() then
+ * starts a fresh, independent renderer at an exact output frame by rewinding
+ * to the nearest recorded state and rendering less than stride frames of
+ * audio "preroll".  The returned renderer can be read like any other
+ * DUH_SIGRENDERER; once the true end of the song is reached, further reads
+ * produce zero frames.
+ *
+ * All functions return NULL / 0 on invalid arguments or when the requested
+ * frame cannot be represented.  The DUH must outlive the index and every
+ * renderer created from it; unload it only after freeing them.
+ */
+typedef struct DUMB_IT_SEEK_INDEX DUMB_IT_SEEK_INDEX;
+
+DUH_SIGRENDERER *duh_it_start_seeded(DUH *duh, int channels, int rate,
+                                     int quality, unsigned seed);
+
+DUMB_IT_SEEK_INDEX *dumb_it_build_seek_index(DUH *duh, int channels, int rate,
+                                             int quality, unsigned seed,
+                                             unsigned long long frame_limit,
+                                             unsigned stride);
+
+unsigned long long dumb_it_seek_index_frames(DUMB_IT_SEEK_INDEX *index);
+
+DUH_SIGRENDERER *dumb_it_seek_index_start(DUMB_IT_SEEK_INDEX *index,
+                                          unsigned long long frame,
+                                          unsigned *preroll);
+
+void dumb_it_free_seek_index(DUMB_IT_SEEK_INDEX *index);
+
 typedef void (*DUH_SIGRENDERER_SAMPLE_ANALYSER_CALLBACK)(
     void *data, const sample_t *const *samples, int n_channels, long length);
 
@@ -613,6 +661,7 @@ void dumb_record_click(DUMB_CLICK_REMOVER *cr, long pos, sample_t step);
 void dumb_remove_clicks(DUMB_CLICK_REMOVER *cr, sample_t *samples, long length,
                         int step, float halflife);
 sample_t dumb_click_remover_get_offset(DUMB_CLICK_REMOVER *cr);
+void dumb_click_remover_copy(DUMB_CLICK_REMOVER *dst, DUMB_CLICK_REMOVER *src);
 void dumb_destroy_click_remover(DUMB_CLICK_REMOVER *cr);
 
 DUMB_CLICK_REMOVER **dumb_create_click_remover_array(int n);

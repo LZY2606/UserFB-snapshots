@@ -180,6 +180,30 @@ sample_t dumb_click_remover_get_offset(DUMB_CLICK_REMOVER *cr) {
     return cr ? cr->offset : 0;
 }
 
+/* Internal: copy one click remover's state into another. */
+void dumb_click_remover_copy(DUMB_CLICK_REMOVER *dst, DUMB_CLICK_REMOVER *src) {
+    DUMB_CLICK *click;
+    if (!dst || !src)
+        return;
+    while (dst->click) {
+        DUMB_CLICK *next = dst->click->next;
+        free(dst->click);
+        dst->click = next;
+    }
+    dst->n_clicks = 0;
+    dst->offset = src->offset;
+    for (click = src->click; click; click = click->next) {
+        DUMB_CLICK *copy = malloc(sizeof(*copy));
+        if (!copy)
+            break;
+        copy->pos = click->pos;
+        copy->step = click->step;
+        copy->next = dst->click;
+        dst->click = copy;
+        dst->n_clicks++;
+    }
+}
+
 void dumb_destroy_click_remover(DUMB_CLICK_REMOVER *cr) {
     if (cr) {
         DUMB_CLICK *click = cr->click;

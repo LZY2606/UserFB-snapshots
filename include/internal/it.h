@@ -488,6 +488,15 @@ struct IT_PLAYING {
     unsigned char panbrello_waveform;
     signed char panbrello_random;
 
+    /* Random waveform values are drawn once per tracker tick and then held
+     * for the whole tick.  This keeps the output independent of how the
+     * caller chops the render into blocks.  Only used by seeded renderers;
+     * the legacy rendering path keeps calling rand() where it always did.
+     */
+    signed char tremolo_random;
+    signed char vibrato_random;
+    signed char sample_vibrato_random;
+
     unsigned char sample_vibrato_time;
     unsigned char sample_vibrato_waveform;
     int sample_vibrato_depth; /* Starts at rate?0:depth, increases by rate */
@@ -704,6 +713,13 @@ struct DUMB_IT_SIGRENDERER {
 
     int ramp_style;
 
+    /* Deterministic random effects (see duh_it_start_seeded()).  When
+     * seed_valid is zero the renderer uses the legacy global rand() path and
+     * behaves exactly like a renderer started by duh_start_sigrenderer().
+     */
+    unsigned long long rng_state;
+    int seed_valid;
+
     // int max_output;
 };
 
@@ -742,6 +758,17 @@ struct IT_CALLBACKS {
 
 void _dumb_it_end_sigrenderer(sigrenderer_t *sigrenderer);
 void _dumb_it_unload_sigdata(sigdata_t *vsigdata);
+
+/* Internals for the deterministic, PCM-frame seek module
+ * (src/it/itseek.c).  None of these are part of the public ABI. */
+DUMB_IT_SIGRENDERER *_dumb_it_init_seeded_sigrenderer(
+    DUMB_IT_SIGDATA *sigdata, int n_channels, int resampling_quality,
+    unsigned seed);
+DUMB_IT_SIGRENDERER *_dumb_it_dup_sigrenderer(DUMB_IT_SIGRENDERER *src,
+                                              int n_channels);
+void _dumb_it_free_sigrenderer(DUMB_IT_SIGRENDERER *sigrenderer);
+long _dumb_it_generate(DUMB_IT_SIGRENDERER *sigrenderer, float volume,
+                       float delta, long size, sample_t **samples);
 
 extern DUH_SIGTYPE_DESC _dumb_sigtype_it;
 

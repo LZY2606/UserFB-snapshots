@@ -34,6 +34,13 @@ struct DUH_SIGRENDERER {
 
     DUH_SIGRENDERER_SAMPLE_ANALYSER_CALLBACK callback;
     void *callback_data;
+
+    /* Nonzero for renderers from the deterministic seeded / seek API: the
+     * volume and delta passed to generate_samples() are ignored and these
+     * fixed values are used instead. */
+    int fixed_params;
+    float fixed_volume;
+    float fixed_delta;
 };
 
 DUH_SIGRENDERER *duh_start_sigrenderer(DUH *duh, int sig, int n_channels,
@@ -80,6 +87,10 @@ DUH_SIGRENDERER *duh_start_sigrenderer(DUH *duh, int sig, int n_channels,
     sigrenderer->subpos = 0;
 
     sigrenderer->callback = NULL;
+
+    sigrenderer->fixed_params = 0;
+    sigrenderer->fixed_volume = 1.0f;
+    sigrenderer->fixed_delta = 0.0f;
 
     return sigrenderer;
 }
@@ -137,6 +148,11 @@ long duh_sigrenderer_generate_samples(DUH_SIGRENDERER *sigrenderer,
 
     if (!sigrenderer)
         return 0;
+
+    if (sigrenderer->fixed_params) {
+        volume = sigrenderer->fixed_volume;
+        delta = sigrenderer->fixed_delta;
+    }
 
     rendered = (*sigrenderer->desc->sigrenderer_generate_samples)(
         sigrenderer->sigrenderer, volume, delta, size, samples);
@@ -199,6 +215,10 @@ DUH_SIGRENDERER *duh_encapsulate_raw_sigrenderer(sigrenderer_t *vsigrenderer,
 
     sigrenderer->callback = NULL;
 
+    sigrenderer->fixed_params = 0;
+    sigrenderer->fixed_volume = 1.0f;
+    sigrenderer->fixed_delta = 0.0f;
+
     return sigrenderer;
 }
 
@@ -208,6 +228,30 @@ sigrenderer_t *duh_get_raw_sigrenderer(DUH_SIGRENDERER *sigrenderer,
         return sigrenderer->sigrenderer;
 
     return NULL;
+}
+
+/* Internal: adjust the outer frame/subframe position of a renderer without
+ * touching the signal renderer.  Used by the PCM-frame seek API so that the
+ * reported position of a resumed renderer continues where the sequential
+ * playback left off.
+ */
+void _dumb_duh_sigrenderer_set_position(DUH_SIGRENDERER *sigrenderer,
+                                        long pos, int subpos) {
+    if (sigrenderer) {
+        sigrenderer->pos = pos;
+        sigrenderer->subpos = subpos & 65535;
+    }
+}
+
+/* Internal: pin the volume/delta used by generate_samples(). */
+void _dumb_duh_sigrenderer_set_fixed_params(DUH_SIGRENDERER *sigrenderer,
+                                            int enable, float volume,
+                                            float delta) {
+    if (sigrenderer) {
+        sigrenderer->fixed_params = enable;
+        sigrenderer->fixed_volume = volume;
+        sigrenderer->fixed_delta = delta;
+    }
 }
 
 #if 0

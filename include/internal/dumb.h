@@ -72,4 +72,12 @@ struct DUH {
 
 DUH_SIGTYPE_DESC *_dumb_get_sigtype_desc(long type);
 
+/* Adjust the outer (time/subframe) position of an encapsulated renderer.
+ * Used by the PCM-frame seek API to keep position accounting continuous. */
+void _dumb_duh_sigrenderer_set_position(DUH_SIGRENDERER *sigrenderer, long pos,
+                                        int subpos);
+void _dumb_duh_sigrenderer_set_fixed_params(DUH_SIGRENDERER *sigrenderer,
+                                            int enable, float volume,
+                                            float delta);
+
 #endif /* INTERNAL_DUMB_H */

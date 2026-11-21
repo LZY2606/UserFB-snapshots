@@ -142,6 +142,7 @@ SET(SOURCES
     src/it/load669.c
     src/it/itunload.c
     src/it/itrender.c
+    src/it/itseek.c
     src/it/itread2.c
     src/it/itread.c
     src/it/itorder.c
@@ -203,8 +204,10 @@ endif()
 if(BUILD_EXAMPLES)
     add_executable(dumbout examples/dumbout.c)
     add_executable(dumbplay examples/dumbplay.c)
+    add_executable(dumbseek examples/dumbseek.c)
     set_property(TARGET dumbout PROPERTY C_STANDARD 99)
     set_property(TARGET dumbplay PROPERTY C_STANDARD 99)
+    set_property(TARGET dumbseek PROPERTY C_STANDARD 99)
     if(MINGW)
         target_link_libraries(dumbplay mingw32)
     endif()
@@ -215,7 +218,9 @@ if(BUILD_EXAMPLES)
     target_include_directories(dumbplay PRIVATE ${ARGTABLE2_INCLUDE_DIR} ${SDL2_INCLUDE_DIR})
     target_link_libraries(dumbplay ${ARGTABLE2_LIBRARY} ${SDL2_LIBRARY} dumb)
 
-    list(APPEND DUMB_TARGETS "dumbout" "dumbplay")
+    target_link_libraries(dumbseek m dumb)
+
+    list(APPEND DUMB_TARGETS "dumbout" "dumbplay" "dumbseek")
 endif()
 
 # Make sure the dylib install name path is set on OSX so you can include dumb in app bundles

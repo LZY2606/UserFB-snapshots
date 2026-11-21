@@ -41,6 +41,34 @@
 
 // #define BIT_ARRAY_BULLSHIT
 
+/* Deterministic pseudo-random numbers for the seeded playback entry points.
+ * This is a plain 64-bit xorshift generator: it never touches the global
+ * rand() state, so independent renderers cannot disturb each other and the
+ * result does not depend on how the caller chunks its PCM reads.
+ */
+static unsigned it_rng_next(DUMB_IT_SIGRENDERER *sigrenderer) {
+    unsigned long long x = sigrenderer->rng_state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    sigrenderer->rng_state = x;
+    return (unsigned)(x >> 32);
+}
+
+/* Draw a value in [-range, range], matching the legacy (rand() % (2r+1)) - r
+ * arithmetic so the shape of the random distribution is unchanged.
+ */
+static int it_rng_signed(DUMB_IT_SIGRENDERER *sigrenderer, int range) {
+    if (range <= 0)
+        return 0;
+    return (int)(it_rng_next(sigrenderer) % (unsigned)(range * 2 + 1)) - range;
+}
+
+/* Random waveform sample in [-64, 64]. */
+static int it_random_wave(DUMB_IT_SIGRENDERER *sigrenderer) {
+    return (int)(it_rng_next(sigrenderer) % 129) - 64;
+}
+
 static IT_PLAYING *new_playing() {
     IT_PLAYING *r = (IT_PLAYING *)malloc(sizeof(*r));
     if (r) {
@@ -134,6 +162,10 @@ static IT_PLAYING *dup_playing(IT_PLAYING *src, IT_CHANNEL *dstchannel,
     dst->panbrello_time = src->panbrello_time;
     dst->panbrello_waveform = src->panbrello_waveform;
     dst->panbrello_random = src->panbrello_random;
+
+    dst->tremolo_random = src->tremolo_random;
+    dst->vibrato_random = src->vibrato_random;
+    dst->sample_vibrato_random = src->sample_vibrato_random;
 
     dst->sample_vibrato_time = src->sample_vibrato_time;
     dst->sample_vibrato_waveform = src->sample_vibrato_waveform;
@@ -356,6 +388,9 @@ static DUMB_IT_SIGRENDERER *dup_sigrenderer(DUMB_IT_SIGRENDERER *src,
 
     dst->gvz_time = src->gvz_time;
     dst->gvz_sub_time = src->gvz_sub_time;
+
+    dst->rng_state = src->rng_state;
+    dst->seed_valid = src->seed_valid;
 
     // dst->max_output = src->max_output;
 
@@ -1449,12 +1484,27 @@ static void update_retrig(DUMB_IT_SIGRENDERER *sigrenderer,
     }
 }
 
-static void update_smooth_effects_playing(IT_PLAYING *playing) {
+static void update_smooth_effects_playing(DUMB_IT_SIGRENDERER *sigrenderer,
+                                          IT_PLAYING *playing) {
     playing->vibrato_time += playing->vibrato_n * (playing->vibrato_speed << 2);
     playing->tremolo_time += playing->tremolo_speed << 2;
     playing->panbrello_time += playing->panbrello_speed;
-    if (playing->panbrello_waveform == 3)
-        playing->panbrello_random = (rand() % 129) - 64;
+    if (sigrenderer->seed_valid) {
+        /* Draw the whole tick's worth of random waveforms up front so that
+         * the values stay fixed for every sample rendered during the tick. */
+        if (playing->panbrello_waveform == 3)
+            playing->panbrello_random = (signed char)it_random_wave(sigrenderer);
+        if (playing->tremolo_waveform == 3)
+            playing->tremolo_random = (signed char)it_random_wave(sigrenderer);
+        if (playing->vibrato_waveform == 3)
+            playing->vibrato_random = (signed char)it_random_wave(sigrenderer);
+        if (playing->sample_vibrato_waveform == 3)
+            playing->sample_vibrato_random =
+                (signed char)it_random_wave(sigrenderer);
+    } else {
+        if (playing->panbrello_waveform == 3)
+            playing->panbrello_random = (rand() % 129) - 64;
+    }
 }
 
 static void update_smooth_effects(DUMB_IT_SIGRENDERER *sigrenderer) {
@@ -1465,7 +1515,7 @@ static void update_smooth_effects(DUMB_IT_SIGRENDERER *sigrenderer) {
         IT_PLAYING *playing = channel->playing;
 
         if (playing) {
-            update_smooth_effects_playing(playing);
+            update_smooth_effects_playing(sigrenderer, playing);
         }
     }
 
@@ -1473,7 +1523,7 @@ static void update_smooth_effects(DUMB_IT_SIGRENDERER *sigrenderer) {
         IT_PLAYING *playing = sigrenderer->playing[i];
 
         if (playing) {
-            update_smooth_effects_playing(playing);
+            update_smooth_effects_playing(sigrenderer, playing);
         }
     }
 }
@@ -2229,14 +2279,20 @@ static void it_retrigger_note(DUMB_IT_SIGRENDERER *sigrenderer,
             playing->enabled_envelopes |= IT_ENV_PANNING;
         if (instrument->pitch_envelope.flags & IT_ENVELOPE_ON)
             playing->enabled_envelopes |= IT_ENV_PITCH;
-        if (instrument->random_volume)
-            playing->volume_offset =
-                (rand() % (instrument->random_volume * 2 + 1)) -
-                instrument->random_volume;
-        if (instrument->random_pan)
-            playing->panning_offset =
-                (rand() % (instrument->random_pan * 2 + 1)) -
-                instrument->random_pan;
+        if (instrument->random_volume) {
+            int r = it_rng_signed(sigrenderer, instrument->random_volume);
+            if (!sigrenderer->seed_valid)
+                r = (rand() % (instrument->random_volume * 2 + 1)) -
+                    instrument->random_volume;
+            playing->volume_offset = (signed char)r;
+        }
+        if (instrument->random_pan) {
+            int r = it_rng_signed(sigrenderer, instrument->random_pan);
+            if (!sigrenderer->seed_valid)
+                r = (rand() % (instrument->random_pan * 2 + 1)) -
+                    instrument->random_pan;
+            playing->panning_offset = (signed char)r;
+        }
         // if (instrument->output) playing->output = instrument->output;
     }
     channel->playing->filter_cutoff = 127;
@@ -2257,10 +2313,13 @@ static void it_retrigger_note(DUMB_IT_SIGRENDERER *sigrenderer,
     channel->playing->panbrello_time = 0;
     channel->playing->panbrello_waveform = channel->panbrello_waveform;
     channel->playing->panbrello_random = 0;
+    channel->playing->tremolo_random = 0;
+    channel->playing->vibrato_random = 0;
     channel->playing->sample_vibrato_time = 0;
     channel->playing->sample_vibrato_waveform =
         channel->playing->sample->vibrato_waveform;
     channel->playing->sample_vibrato_depth = 0;
+    channel->playing->sample_vibrato_random = 0;
     channel->playing->slide = 0;
     channel->playing->finetune = channel->playing->sample->finetune;
 
@@ -3897,10 +3956,13 @@ static void process_xm_note_data(DUMB_IT_SIGRENDERER *sigrenderer,
             channel->playing->panbrello_time = 0;
             channel->playing->panbrello_waveform = 0;
             channel->playing->panbrello_random = 0;
+            channel->playing->tremolo_random = 0;
+            channel->playing->vibrato_random = 0;
             channel->playing->sample_vibrato_time = 0;
             channel->playing->sample_vibrato_waveform =
                 channel->playing->sample->vibrato_waveform;
             channel->playing->sample_vibrato_depth = 0;
+            channel->playing->sample_vibrato_random = 0;
             channel->playing->slide = 0;
             channel->playing->finetune = channel->playing->sample->finetune;
             it_reset_filter_state(
@@ -4450,7 +4512,9 @@ static void process_all_playing(DUMB_IT_SIGRENDERER *sigrenderer) {
                 vibrato_shift = it_squarewave[playing->vibrato_time];
                 break;
             case 3:
-                vibrato_shift = (rand() % 129) - 64;
+                vibrato_shift =
+                    sigrenderer->seed_valid ? playing->vibrato_random
+                                            : (rand() % 129) - 64;
                 break;
             case 4:
                 vibrato_shift = it_xm_squarewave[playing->vibrato_time];
@@ -4985,7 +5049,9 @@ static float calculate_volume(DUMB_IT_SIGRENDERER *sigrenderer,
             vol = it_squarewave[playing->tremolo_time];
             break;
         case 3:
-            vol = (rand() % 129) - 64;
+            vol = sigrenderer->seed_valid
+                      ? playing->tremolo_random
+                      : (rand() % 129) - 64;
             break;
         case 4:
             vol = it_xm_squarewave[playing->tremolo_time];
@@ -5275,7 +5341,7 @@ static int it_to_mix_compare(const void *e1, const void *e2) {
 
 static void apply_pitch_modifications(DUMB_IT_SIGDATA *sigdata,
                                       IT_PLAYING *playing, float *delta,
-                                      int *cutoff) {
+                                      int *cutoff, int seeded) {
     {
         int sample_vibrato_shift;
         switch (playing->sample_vibrato_waveform) {
@@ -5289,7 +5355,8 @@ static void apply_pitch_modifications(DUMB_IT_SIGDATA *sigdata,
             sample_vibrato_shift = it_squarewave[playing->sample_vibrato_time];
             break;
         case 3:
-            sample_vibrato_shift = (rand() % 129) - 64;
+            sample_vibrato_shift =
+                seeded ? playing->sample_vibrato_random : (rand() % 129) - 64;
             break;
         case 4:
             sample_vibrato_shift =
@@ -5398,7 +5465,7 @@ static void render_normal(DUMB_IT_SIGRENDERER *sigrenderer, float volume,
         // int output = min( playing->output, max_output );
 
         apply_pitch_modifications(sigrenderer->sigdata, playing, &note_delta,
-                                  &cutoff);
+                                  &cutoff, sigrenderer->seed_valid);
 
         if (cutoff != 127 << IT_ENVELOPE_SHIFT ||
             playing->filter_resonance != 0) {
@@ -5545,7 +5612,7 @@ static void render_surround(DUMB_IT_SIGRENDERER *sigrenderer, float volume,
         // int output = min( playing->output, max_output );
 
         apply_pitch_modifications(sigrenderer->sigdata, playing, &note_delta,
-                                  &cutoff);
+                                  &cutoff, sigrenderer->seed_valid);
 
         if (cutoff != 127 << IT_ENVELOPE_SHIFT ||
             playing->filter_resonance != 0) {
@@ -5604,7 +5671,7 @@ static void render_surround(DUMB_IT_SIGRENDERER *sigrenderer, float volume,
         // int output = min( playing->output, max_output );
 
         apply_pitch_modifications(sigrenderer->sigdata, playing, &note_delta,
-                                  &cutoff);
+                                  &cutoff, sigrenderer->seed_valid);
 
         if (cutoff != 127 << IT_ENVELOPE_SHIFT ||
             playing->filter_resonance != 0) {
@@ -5824,6 +5891,9 @@ static DUMB_IT_SIGRENDERER *init_sigrenderer(DUMB_IT_SIGDATA *sigdata,
     sigrenderer->processorder = startorder - 1;
     sigrenderer->tick = 1;
 
+    sigrenderer->rng_state = 0;
+    sigrenderer->seed_valid = 0;
+
 #ifdef BIT_ARRAY_BULLSHIT
     sigrenderer->played = bit_array_create(sigdata->n_orders * 256);
 
@@ -5981,6 +6051,47 @@ static DUMB_IT_SIGRENDERER *dumb_it_init_sigrenderer(DUMB_IT_SIGDATA *sigdata,
 
     return init_sigrenderer(sigdata, n_channels, startorder, callbacks,
                             dumb_create_click_remover_array(n_channels));
+}
+
+/* Start a renderer from frame 0 with deterministic random effects and a
+ * fixed resampling quality.  The caller (itseek.c) owns the object and frees
+ * it through _dumb_it_free_sigrenderer(). */
+DUMB_IT_SIGRENDERER *_dumb_it_init_seeded_sigrenderer(
+    DUMB_IT_SIGDATA *sigdata, int n_channels, int resampling_quality,
+    unsigned seed) {
+    IT_CALLBACKS *callbacks;
+    DUMB_IT_SIGRENDERER *sigrenderer;
+
+    if (!sigdata)
+        return NULL;
+
+    callbacks = create_callbacks();
+    if (!callbacks)
+        return NULL;
+
+    sigrenderer =
+        init_sigrenderer(sigdata, n_channels, 0, callbacks,
+                         dumb_create_click_remover_array(n_channels));
+    if (!sigrenderer)
+        return NULL;
+
+    dumb_it_set_resampling_quality(sigrenderer, resampling_quality);
+
+    /* Terminate on the first pass (no looping), like the seeded oracle the
+     * seek index is built against. */
+    sigrenderer->callbacks->loop = &dumb_it_callback_terminate;
+    sigrenderer->callbacks->xm_speed_zero = &dumb_it_callback_terminate;
+    sigrenderer->callbacks->global_volume_zero = &dumb_it_callback_terminate;
+
+    sigrenderer->seed_valid = 1;
+    /* xorshift64 must never be zero.  Mix the seed through a 64-bit constant
+     * so that seed 0 and nearby seeds all give distinct streams. */
+    sigrenderer->rng_state =
+        0x9E3779B97F4A7C15ULL ^ ((unsigned long long)seed * 0x2545F4914F6CDD1DULL);
+    if (sigrenderer->rng_state == 0)
+        sigrenderer->rng_state = 1;
+
+    return sigrenderer;
 }
 
 DUH_SIGRENDERER *dumb_it_start_at_order(DUH *duh, int n_channels,
@@ -6142,6 +6253,51 @@ static long it_sigrenderer_get_samples(sigrenderer_t *vsigrenderer,
     return pos;
 }
 
+/* -------------------------------------------------------------------------
+ * Hooks used by the deterministic PCM-frame seek module (itseek.c).
+ * ---------------------------------------------------------------------- */
+
+/* Duplicate a renderer, deep-copying playback state but sharing sigdata.
+ * The copy gets its own click-removal state and terminates at the end of the
+ * first pass, matching a renderer started by _dumb_it_init_seeded_sigrenderer.
+ */
+DUMB_IT_SIGRENDERER *_dumb_it_dup_sigrenderer(DUMB_IT_SIGRENDERER *src,
+                                              int n_channels) {
+    DUMB_IT_SIGRENDERER *dst;
+    IT_CALLBACKS *callbacks = create_callbacks();
+    if (!callbacks)
+        return NULL;
+    dst = dup_sigrenderer(src, n_channels, callbacks);
+    if (!dst)
+        return NULL;
+
+    dst->click_remover = dumb_create_click_remover_array(n_channels);
+    if (!dst->click_remover) {
+        _dumb_it_end_sigrenderer(dst);
+        return NULL;
+    }
+
+    dst->callbacks->loop = &dumb_it_callback_terminate;
+    dst->callbacks->xm_speed_zero = &dumb_it_callback_terminate;
+    dst->callbacks->global_volume_zero = &dumb_it_callback_terminate;
+
+    return dst;
+}
+
+/* Free a renderer without freeing the shared sigdata. */
+void _dumb_it_free_sigrenderer(DUMB_IT_SIGRENDERER *sigrenderer) {
+    _dumb_it_end_sigrenderer(sigrenderer);
+}
+
+/* Run the same chunked generate loop as it_sigrenderer_get_samples(), but on
+ * the raw IT renderer.  Used for rendering a caller-sized block exactly as the
+ * public API would. */
+long _dumb_it_generate(DUMB_IT_SIGRENDERER *sigrenderer, float volume,
+                       float delta, long size, sample_t **samples) {
+    return it_sigrenderer_get_samples(sigrenderer, volume, delta, size,
+                                      samples);
+}
+
 static void it_sigrenderer_get_current_sample(sigrenderer_t *vsigrenderer,
                                               float volume, sample_t *samples) {
     DUMB_IT_SIGRENDERER *sigrenderer = vsigrenderer;
@@ -6258,7 +6414,8 @@ void dumb_it_sr_get_channel_state(DUMB_IT_SIGRENDERER *sr, int channel,
 
     delta = playing->delta * 65536.0f;
     t = playing->filter_cutoff << IT_ENVELOPE_SHIFT;
-    apply_pitch_modifications(sr->sigdata, playing, &delta, &t);
+    apply_pitch_modifications(sr->sigdata, playing, &delta, &t,
+                              sr->seed_valid);
     state->freq = (int)delta;
     if (t == 127 << IT_ENVELOPE_SHIFT && playing->filter_resonance == 0) {
         state->filter_resonance = playing->true_filter_resonance;
