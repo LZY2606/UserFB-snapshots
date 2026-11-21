@@ -3,3 +3,4 @@ RayTracer
 *.gch
 *.out
 *.o
+.task-build/

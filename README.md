@@ -112,3 +112,105 @@ __Note:__ Images rendered on a 4-core machine using OpenMP.
 [<img src="https://raw.github.com/marczych/RayTracer/master/samples/ballsOnAPlaneClose_3_1_thumb.jpeg" />](https://raw.github.com/marczych/RayTracer/master/samples/ballsOnAPlaneClose_3_1.jpeg)
 [<img src="https://raw.github.com/marczych/RayTracer/master/samples/ballsOnAPlane_2_50_thumb.jpeg" />](https://raw.github.com/marczych/RayTracer/master/samples/ballsOnAPlane_2_50.jpeg)
 [<img src="https://raw.github.com/marczych/RayTracer/master/samples/triangleSpheres_4_300_thumb.jpeg" />](https://raw.github.com/marczych/RayTracer/master/samples/triangleSpheres_4_300.jpeg)
+
+## Tetrahedral Volumetric Lighting
+
+The tracer can render a deformable, glowing, smoke-like volume carried directly
+by a tetrahedral cage.  The volume is never baked into a dense grid or a
+triangle shell: it lives in `src/TetVolume.hpp` (resource and pose) and
+`src/TetTransport.hpp` (ray queries and analytic transport).
+
+### Resource lifetime
+
+A `tetvol::TetVolume` is a lightweight, reference-semantic handle over an
+immutable, reference-counted data block (`TetVolumeData`).  The block owns the
+rest vertices, the four-index cells, the per-vertex non-negative density, and
+each cell's non-negative RGB extinction `sigma` and source `S`, together with
+face/edge ownership and a vertex-to-incident-cell adjacency table.
+
+* Constructor inputs are validated (finite values, legal non-repeating
+  indices, non-negative density/sigma/source, positively oriented rest cells)
+  and then **copied**.  Mutating the arrays passed to the constructor after a
+  volume is built has no effect on the resource.
+* `volume.createPose()` returns a `shared_ptr<TetPose>`.  A pose copies the
+  resource handle, so the underlying data stays alive as long as any pose (or
+  the original handle) exists.  Two poses of one volume share the same
+  read-only source data but hold **independent** positions and independent
+  mutable caches (inverse barycentric maps, cell bounds, BVH); updating one
+  never touches the other.
+* A pose starts with its positions equal to the rest positions.  Density is a
+  scalar carried by rest barycentric coordinates, so it follows the cage
+  without any volume scaling.
+
+### Pose updates and ordering
+
+`TetPose::update(ids, positions)` submits a batch of absolute vertex positions
+keyed by unique vertex ids.  The operation is all-or-nothing and runs in this
+order:
+
+1. Validate the arguments (in-range unique ids, finite positions, matching
+   sizes).  An empty batch returns immediately and changes nothing, including
+   the generation.
+2. Look up only the incident cells through the resource adjacency; topology is
+   never rebuilt and unrelated cells are never inverted.
+3. Check every incident cell against the tentative positions.  If any cell
+   would become degenerate or flip orientation, throw `std::invalid_argument`
+   **before** any state changes, leaving the old geometry, caches, query
+   results and generation intact.
+4. Commit the positions, recompute just the incident cells' inverse
+   barycentric maps and bounds, and refit the existing BVH once along the
+   affected parent chains.
+5. Bump `generation` and `totalBuilds`, and accumulate
+   `inverseRecomputations` and `boundsRefits`.
+
+### Cursor invalidation
+
+A `tetvol::TetCursor` walks a finite ray (raw origin, a non-zero direction
+that need not be normalized, and a `[t0, t1]` window) lazily through the pose
+BVH, returning positive-length tetrahedral intervals in increasing entry
+parameter.  Rays starting inside a cell, axis-parallel rays and continuous
+crossings of shared faces are supported; a ray propagating exactly on a shared
+face or edge is attributed to the smallest owning cell.
+
+* The cursor captures the pose's `generation` when it is constructed.
+* Because a successful update is the only thing that bumps the generation, a
+  **rejected** update leaves every existing cursor valid and fully readable.
+* After a successful update, calling `next()` on an old cursor throws
+  `std::logic_error`, so stale interval candidates can never be combined with
+  the new inverse matrices.  Construct a fresh cursor for the new generation.
+* The cursor exposes its own `nodeTests` and `cellTests`; reaching the first
+  interval costs BVH work proportional to the traversed subtree, not to the
+  total number of cells.
+
+### Transport and integration
+
+Within one interval the barycentric density is affine along the ray.  Its
+integral `q = integral rho ds` (world arc length, evaluated in double
+precision) is computed analytically, then per channel
+`T = exp(-sigma * q)` and `C = S * (1 - T)` (with `C = 0` when `sigma = 0`).
+Intervals are composed near to far with `Cacc += Tacc * C; Tacc *= T`, so
+shared cell boundaries are never re-integrated and thin segments are retained.
+
+### Ray tracer integration
+
+`RayTracer::setVolume(pose)` attaches an optional pose; with no volume set the
+scene parsing, BSP, materials and ray-offset behavior are unchanged.  When set,
+`castRay` integrates only up to the nearest solid surface and returns
+`Cacc + Tacc *` the original surface radiance, while a miss still shows the
+volume's own glow.  Point-light diffuse/specular contributions are multiplied
+by the volume transmittance toward the light (solid occlusion is still
+honored), and shadow rays carry transmittance only, never volume glow.
+Reflected and refracted rays integrate their own recursive segments.
+`RayTracer::sampleRay` exposes the original `castRay` for programs and tests.
+Multiple scattering and the scene-file syntax are intentionally not extended.
+
+### Build and test
+
+`bash task_support/run.sh target` compiles the new headers and sources, runs
+the `geometry`, `updates` and `render` test groups in
+`tests/tet_transport.cpp`, builds and runs the headless example in
+`examples/tet_headless.cpp` (which writes the TGA named on its command line and
+prints two poses' linear colors and update counters), and then runs the
+original surface baseline.  Running without arguments
+(`bash task_support/run.sh`) builds and runs the surface-only baseline, which
+links without the tetrahedral translation units and keeps its original output.

@@ -116,14 +116,55 @@ Color RayTracer::castRayAtPoint(const Vector& point) {
    return color;
 }
 
+Color RayTracer::sampleRay(const Ray& ray) {
+   return castRay(ray);
+}
+
 Color RayTracer::castRay(const Ray& ray) {
    raysCast++;
    Intersection intersection = getClosestIntersection(ray);
 
+   // Optional volume transport over the segment before the nearest solid
+   // surface.  When no volume is attached this stays identity and every
+   // result below matches the original surface-only tracer.
+   tetvol::TetRayTransport transport;
+   transport.transmittance = tetvol::RGB(1.0, 1.0, 1.0);
+   transport.emission = tetvol::RGB(0.0, 0.0, 0.0);
+   if (volumePose) {
+      double lo, hi;
+      if (tetvol::rayAABB(ray.origin, ray.direction, 0.0, 1e30,
+                          volumePose->rootBounds(), lo, hi)) {
+         if (lo < 0.0) lo = 0.0; // ray may start inside the volume
+         double windowEnd = hi;
+         if (intersection.didIntersect &&
+             intersection.distance < windowEnd) {
+            windowEnd = intersection.distance;
+         }
+         if (windowEnd > lo && integrateRayHook_) {
+            transport = integrateRayHook_(ray.origin, ray.direction, lo,
+                                          windowEnd);
+         }
+      }
+   }
+
    if (intersection.didIntersect) {
-      return performLighting(intersection);
+      Color surface = performLighting(intersection);
+      if (!volumePose) {
+         return surface;
+      }
+      Color attenuated(surface.r * transport.transmittance.r,
+                       surface.g * transport.transmittance.g,
+                       surface.b * transport.transmittance.b);
+      Color emission(transport.emission.r, transport.emission.g,
+                     transport.emission.b);
+      return emission + attenuated;
    } else {
-      return Color();
+      if (!volumePose) {
+         return Color();
+      }
+      // No solid hit: the volume's own emission still reaches the camera.
+      return Color(transport.emission.r, transport.emission.g,
+                   transport.emission.b);
    }
 }
 
@@ -180,9 +221,26 @@ Color RayTracer::getDiffuseAndSpecularLighting(const Intersection& intersection,
             continue;
          }
 
-         diffuseColor = (diffuseColor + (color * dotProduct)) *
+         Color diffuseAdd = color * dotProduct;
+         Color specAdd = getSpecularLighting(intersection, light);
+
+         if (volumePose) {
+            // Point-light diffuse and specular contributions are attenuated
+            // by the volume transmittance up to the light.  Solid occlusion
+            // above is still honored; this segment carries no volume glow.
+            tetvol::RGB toLight = volumeTransmittance(intersection.intersection,
+             lightDirection, 0.0, lightDistance);
+            diffuseAdd = Color(diffuseAdd.r * toLight.r,
+                               diffuseAdd.g * toLight.g,
+                               diffuseAdd.b * toLight.b);
+            specAdd = Color(specAdd.r * toLight.r,
+                            specAdd.g * toLight.g,
+                            specAdd.b * toLight.b);
+         }
+
+         diffuseColor = (diffuseColor + diffuseAdd) *
           light->intensity;
-         specularColor = specularColor + getSpecularLighting(intersection, light);
+         specularColor = specularColor + specAdd;
       }
    }
 
