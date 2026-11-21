@@ -186,18 +186,30 @@ rtp_error_t uvgrtp::formats::h266::add_aggregate_packet(uint8_t* data, size_t da
 
 rtp_error_t uvgrtp::formats::h266::fu_division(uint8_t* data, size_t data_len, size_t payload_size)
 {
-    auto headers = (uvgrtp::formats::h266_headers*)fqueue_->get_media_headers();
+    /* The FU headers are referenced by the enqueued packets, so they must stay
+     * alive until the whole access unit has been sent. Each fragmented NAL unit
+     * gets its own copy from the frame queue. */
+    uint8_t* fu_storage = fqueue_->allocate_aux_buffer(HEADER_SIZE_H266_PAYLOAD + 3 * HEADER_SIZE_H266_FU);
 
-    headers->payload_header[0] = data[0];
-    headers->payload_header[1] = (H266_PKT_FRAG << 3) | (data[1] & 0x7);
+    if (!fu_storage) {
+        UVG_LOG_ERROR("Failed to allocate FU headers for H266 fragmentation!");
+        return RTP_MEMORY_ERROR;
+    }
 
-    initialize_fu_headers(get_nal_type(data), headers->fu_headers);
+    uint8_t* payload_header = fu_storage;
+    uint8_t* fu_headers     = fu_storage + HEADER_SIZE_H266_PAYLOAD;
+
+    payload_header[0] = data[0];
+    payload_header[1] = (H266_PKT_FRAG << 3) | (data[1] & 0x7);
+
+    initialize_fu_headers(get_nal_type(data), fu_headers);
 
     uvgrtp::buf_vec* buffers = fqueue_->get_buffer_vector();
 
-    buffers->push_back(std::make_pair(sizeof(headers->payload_header), headers->payload_header));
-    buffers->push_back(std::make_pair(sizeof(uint8_t), &headers->fu_headers[0]));
+    buffers->clear();
+    buffers->push_back(std::make_pair(HEADER_SIZE_H266_PAYLOAD, payload_header));
+    buffers->push_back(std::make_pair(sizeof(uint8_t), &fu_headers[0]));
     buffers->push_back(std::make_pair(payload_size, nullptr));
 
-    return divide_frame_to_fus(data, data_len, payload_size, *buffers, headers->fu_headers);
+    return divide_frame_to_fus(data, data_len, payload_size, *buffers, fu_headers);
 }

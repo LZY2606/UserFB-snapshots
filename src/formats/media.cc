@@ -120,7 +120,7 @@ rtp_error_t uvgrtp::formats::media::push_media_frame(sockaddr_in& addr, sockaddr
 
         if ((ret = fqueue_->enqueue_message(data, data_len, set_marker)) != RTP_OK) {
             UVG_LOG_ERROR("Failed to enqueue message: %d", ret);
-            (void)fqueue_->deinit_transaction();
+            (void)fqueue_->deinit_access_unit();
             return ret;
         }
 
@@ -134,6 +134,7 @@ rtp_error_t uvgrtp::formats::media::push_media_frame(sockaddr_in& addr, sockaddr
     while (data_left > (ssize_t)payload_size) {
         if ((ret = fqueue_->enqueue_message(data + data_pos, payload_size, set_marker)) != RTP_OK) {
             UVG_LOG_ERROR("Failed to enqueue packet when fragmenting generic frame");
+            (void)fqueue_->deinit_access_unit();
             return ret;
         }
 
@@ -144,6 +145,7 @@ rtp_error_t uvgrtp::formats::media::push_media_frame(sockaddr_in& addr, sockaddr
 
     if ((ret = fqueue_->enqueue_message(data + data_pos, data_left, true)) != RTP_OK) {
         UVG_LOG_ERROR("Failed to enqueue packet when fragmenting generic frame");
+        (void)fqueue_->deinit_access_unit();
         return ret;
     }
 
@@ -269,4 +271,10 @@ void uvgrtp::formats::media::set_fps(ssize_t numerator, ssize_t denominator)
 void uvgrtp::formats::media::set_pace(ssize_t numerator, ssize_t denominator)
 {
     fqueue_->set_pace(numerator, denominator);
+}
+
+void uvgrtp::formats::media::set_send_timing_hooks(std::function<int64_t()> now_ns,
+    std::function<void(int64_t)> wait_until_ns)
+{
+    fqueue_->set_send_timing_hooks(std::move(now_ns), std::move(wait_until_ns));
 }

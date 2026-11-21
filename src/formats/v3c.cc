@@ -122,18 +122,31 @@ void uvgrtp::formats::v3c::get_nal_header_from_fu_headers(size_t fptr, uint8_t* 
 
 rtp_error_t uvgrtp::formats::v3c::fu_division(uint8_t* data, size_t data_len, size_t payload_size)
 {
-    auto headers = (uvgrtp::formats::v3c_headers*)fqueue_->get_media_headers();
-    // 0x81 = 1000 0001
-    headers->payload_header[0] = (V3C_PKT_FRAG << 1) | (data[0] & 0x81);
-    headers->payload_header[1] = data[1];
+    /* The FU headers are referenced by the enqueued packets, so they must stay
+     * alive until the whole access unit has been sent. Each fragmented NAL unit
+     * gets its own copy from the frame queue. */
+    uint8_t* fu_storage = fqueue_->allocate_aux_buffer(HEADER_SIZE_V3C_PAYLOAD + 3 * HEADER_SIZE_V3C_FU);
 
-    initialize_fu_headers(get_nal_type(data), headers->fu_headers);
+    if (!fu_storage) {
+        UVG_LOG_ERROR("Failed to allocate FU headers for V3C fragmentation!");
+        return RTP_MEMORY_ERROR;
+    }
+
+    uint8_t* payload_header = fu_storage;
+    uint8_t* fu_headers     = fu_storage + HEADER_SIZE_V3C_PAYLOAD;
+
+    // 0x81 = 1000 0001
+    payload_header[0] = (V3C_PKT_FRAG << 1) | (data[0] & 0x81);
+    payload_header[1] = data[1];
+
+    initialize_fu_headers(get_nal_type(data), fu_headers);
 
     uvgrtp::buf_vec* buffers = fqueue_->get_buffer_vector();
 
-    buffers->push_back(std::make_pair(sizeof(headers->payload_header), headers->payload_header));
-    buffers->push_back(std::make_pair(sizeof(uint8_t), &headers->fu_headers[0]));
+    buffers->clear();
+    buffers->push_back(std::make_pair(HEADER_SIZE_V3C_PAYLOAD, payload_header));
+    buffers->push_back(std::make_pair(sizeof(uint8_t), &fu_headers[0]));
     buffers->push_back(std::make_pair(payload_size, nullptr));
 
-    return divide_frame_to_fus(data, data_len, payload_size, *buffers, headers->fu_headers);
+    return divide_frame_to_fus(data, data_len, payload_size, *buffers, fu_headers);
 }

@@ -1,0 +1,8 @@
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/uvgrtp_version.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/uvgrtp.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/edit_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/rebuild_cache.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/list_install_components.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/install.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/install/local.dir
+/Users/lzy/pro/UserFB/workspace/Z02158/attempts/20261121T010234230522Z/repo/.task-build/CMakeFiles/install/strip.dir

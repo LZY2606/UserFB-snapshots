@@ -321,8 +321,8 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
     if (!data || !data_len)
         return RTP_INVALID_VALUE;
 
-    /* This is the first call of init_transaction. It generates a new RTP timestamp. The init_transaction() calls
-       below will use the same RTP timestamp. */
+    /* This is the first call of init_transaction. It generates a new RTP timestamp. All
+       packets of this access unit share the same RTP timestamp. */
     if ((ret = fqueue_->init_transaction(data)) != RTP_OK) {
         UVG_LOG_ERROR("Invalid frame queue or failed to initialize transaction!");
         return ret;
@@ -353,6 +353,7 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
     if (nals.empty())
     {
         UVG_LOG_ERROR("Did not find any NAL units in frame. Cannot send.");
+        (void)fqueue_->deinit_access_unit();
         return RTP_INVALID_VALUE;
     }
 
@@ -361,7 +362,7 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
     if (should_aggregate && !do_not_aggr) // an aggregate packet is possible
     {
 
-        // use aggregation function that also may just send the packets as Single NAL units 
+        // use aggregation function that also may just send the packets as Single NAL units
         // if aggregates have not been implemented
 
         for (auto& nal : nals)
@@ -372,7 +373,7 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
                 if ((ret = add_aggregate_packet(data + nal.offset, nal.size)) != RTP_OK)
                 {
                     clear_aggregation_info();
-                    fqueue_->deinit_transaction();
+                    (void)fqueue_->deinit_access_unit();
                     return ret;
                 }
             }
@@ -382,19 +383,16 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
         }
 
         (void)finalize_aggregation_pkt();
-        // actually send the packets
-        ret = fqueue_->flush_queue(addr, addr6, ssrc);
-        clear_aggregation_info();
     }
 
+    /* The whole access unit is enqueued before anything is sent so that the send
+     * operation can be scheduled as one unit. If the packets do not fit into a
+     * single transaction, the frame queue rolls over to a new transaction
+     * internally without creating a new access unit boundary. */
     for (auto& nal : nals) // non-aggregatable NAL units
     {
         if (do_not_aggr || !nal.was_aggregated || !should_aggregate)
         {
-            if ((ret = fqueue_->init_transaction(data + nal.offset, true)) != RTP_OK) {
-                UVG_LOG_ERROR("Invalid frame queue or failed to initialize transaction!");
-                return ret;
-            }
             // single NAL unit uses the NAL unit header as the payload header meaning that it does not
             // add anything extra to the packet and we can just compare the NAL size with the payload size allowed
             if (nal.size <= payload_size) // send as a single NAL unit packet
@@ -409,12 +407,17 @@ rtp_error_t uvgrtp::formats::h26x::push_media_frame(sockaddr_in& addr, sockaddr_
             if (ret != RTP_OK)
             {
                 clear_aggregation_info();
-                fqueue_->deinit_transaction();
+                (void)fqueue_->deinit_access_unit();
                 return ret;
             }
-            ret = fqueue_->flush_queue(addr, addr6, ssrc);
         }
     }
+
+    /* Send the whole access unit as one unit: the marker bit is set only on the
+     * last RTP packet, frame rate limiting consumes one frame slot and fragment
+     * pacing spreads all packets of the access unit */
+    ret = fqueue_->flush_access_unit(addr, addr6, ssrc);
+    clear_aggregation_info();
     return ret;
 }
 

@@ -37,6 +37,32 @@ See [BUILDING.md](BUILDING.md) for instructions on how to build and use uvgRTP.
 
 To get started using uvgRTP, check out [usage](USAGE.md) file which contains a step-by-step tutorial for using uvgRTP. To see uvgRTP in action, the [examples](examples) folder contains many working examples to illustrate how to use uvgRTP in variety of situations. For a more detailed description, check the [documentation](docs/README.md) where you can find info on advanced topics and descriptions of all uvgRTP flags.
 
+### Sending H.264/H.265 access units
+
+For H.264 and H.265, one `push_frame()` call corresponds to one access unit: all NAL units of the call share a single RTP timestamp and the marker bit is set only on the last RTP packet of the access unit. When `RCE_FRAME_RATE` is enabled, each pushed access unit occupies exactly one frame slot, and with `RCE_PACE_FRAGMENT_SENDING` the packets of the whole access unit are paced over the frame interval:
+
+```cpp
+#include <uvgrtp/lib.hh>
+
+uvgrtp::context ctx;
+uvgrtp::session *sess = ctx.create_session("192.168.1.100");
+
+int flags = RCE_FRAME_RATE | RCE_PACE_FRAGMENT_SENDING;
+uvgrtp::media_stream *send = sess->create_stream(5004, RTP_FORMAT_H265, flags);
+
+if (send) {
+    /* integer frame rate used for frame slots and fragment pacing */
+    send->configure_ctx(RCC_FPS_NUMERATOR, 30);
+    send->configure_ctx(RCC_FPS_DENOMINATOR, 1);
+
+    /* "access_unit" holds one Annex B access unit (parameter sets + image
+     * NAL units). All of its packets share one RTP timestamp, only the last
+     * packet carries the marker bit and the whole call takes one frame slot */
+    if (send->push_frame(access_unit, access_unit_len, RTP_NO_FLAGS) != RTP_OK)
+        ; /* handle error */
+}
+```
+
 Furthermore, we also provide a Doxygen documentation of the [public API](https://ultravideo.github.io/uvgRTP/html/index.html) on Github.
 
 ## Contributing

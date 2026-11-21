@@ -174,19 +174,31 @@ rtp_error_t uvgrtp::formats::h265::add_aggregate_packet(uint8_t* data, size_t da
 
 rtp_error_t uvgrtp::formats::h265::fu_division(uint8_t* data, size_t data_len, size_t payload_size)
 {
-    auto headers = (uvgrtp::formats::h265_headers*)fqueue_->get_media_headers();
-    
-    headers->payload_header[0] = H265_PKT_FRAG << 1; /* fragmentation unit */
-    headers->payload_header[1] = data[1];                  /* temporal id */
+    /* The FU headers are referenced by the enqueued packets, so they must stay
+     * alive until the whole access unit has been sent. Each fragmented NAL unit
+     * gets its own copy from the frame queue. */
+    uint8_t* fu_storage = fqueue_->allocate_aux_buffer(HEADER_SIZE_H265_PAYLOAD + 3 * HEADER_SIZE_H265_FU);
 
-    initialize_fu_headers(get_nal_type(data), headers->fu_headers);
+    if (!fu_storage) {
+        UVG_LOG_ERROR("Failed to allocate FU headers for H265 fragmentation!");
+        return RTP_MEMORY_ERROR;
+    }
+
+    uint8_t* payload_header = fu_storage;
+    uint8_t* fu_headers     = fu_storage + HEADER_SIZE_H265_PAYLOAD;
+
+    payload_header[0] = H265_PKT_FRAG << 1; /* fragmentation unit */
+    payload_header[1] = data[1];            /* temporal id */
+
+    initialize_fu_headers(get_nal_type(data), fu_headers);
 
     uvgrtp::buf_vec* buffers = fqueue_->get_buffer_vector();
 
     // the default structure of one fragment
-    buffers->push_back(std::make_pair(sizeof(headers->payload_header), headers->payload_header));
-    buffers->push_back(std::make_pair(sizeof(uint8_t), &headers->fu_headers[0])); // first fragment
+    buffers->clear();
+    buffers->push_back(std::make_pair(HEADER_SIZE_H265_PAYLOAD, payload_header));
+    buffers->push_back(std::make_pair(sizeof(uint8_t), &fu_headers[0])); // first fragment
     buffers->push_back(std::make_pair(payload_size, nullptr));
 
-    return divide_frame_to_fus(data, data_len, payload_size, *buffers, headers->fu_headers);
+    return divide_frame_to_fus(data, data_len, payload_size, *buffers, fu_headers);
 }

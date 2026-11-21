@@ -3,6 +3,8 @@
 #include "uvgrtp/util.hh"
 
 #include <chrono>
+#include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <unordered_map>
@@ -80,6 +82,13 @@ namespace uvgrtp {
 
                 void set_fps(ssize_t numerator, ssize_t denominator);
                 void set_pace(ssize_t numerator, ssize_t denominator);
+
+                /* Replace the clock (monotonic nanoseconds) and the wait mechanism
+                 * used for access unit send scheduling. The hooks are forwarded to
+                 * the send queue and must be set before sending. Passing two empty
+                 * functions restores the default steady_clock + real waiting. */
+                void set_send_timing_hooks(std::function<int64_t()> now_ns,
+                    std::function<void(int64_t)> wait_until_ns);
 
             protected:
                 virtual rtp_error_t push_media_frame(sockaddr_in& addr, sockaddr_in6& addr6, uint8_t *data, size_t data_len, int rtp_flags, uint32_t ssrc);

@@ -4,8 +4,10 @@
 #include "uvgrtp/util.hh"
 
 #include "socket.hh"
+#include "send_scheduler.hh"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -119,6 +121,43 @@ namespace uvgrtp {
              * return RTP_SEND_ERROR if send fails */
             rtp_error_t flush_queue(sockaddr_in& addr, sockaddr_in6& addr6, uint32_t ssrc);
 
+            /* Flush all transactions of the current access unit as one unit.
+             *
+             * The marker bit is set only on the very last RTP packet of the
+             * access unit, frame rate limiting consumes exactly one frame slot
+             * for the whole access unit and fragment pacing spreads all of its
+             * packets using the access unit start as the reference point.
+             *
+             * If sending a packet fails, the rest of the access unit is not
+             * sent and the error is returned to the caller. An access unit
+             * that attempted sending occupies its frame slot and the sequence
+             * numbers of enqueued packets are not rolled back.
+             *
+             * Return RTP_OK on success
+             * Return RTP_INVALID_VALUE if the access unit has no packets
+             * Return RTP_SEND_ERROR if sending fails */
+            rtp_error_t flush_access_unit(sockaddr_in& addr, sockaddr_in6& addr6, uint32_t ssrc);
+
+            /* Release all transactions of the current access unit without
+             * sending anything (used on error paths) */
+            rtp_error_t deinit_access_unit();
+
+            /* Allocate a scratch buffer that stays valid until the current
+             * transaction is deinitialized. Used for media headers (f.ex. FU
+             * headers) that are referenced by enqueued packets and that must
+             * live until the access unit has been sent.
+             *
+             * Return pointer to the buffer on success
+             * Return nullptr if there is no active transaction */
+            uint8_t* allocate_aux_buffer(size_t size);
+
+            /* Replace the clock (monotonic nanoseconds) and the wait mechanism
+             * used by access unit scheduling. Passing two empty functions
+             * restores the defaults (steady_clock + real waiting). Must be
+             * called before sending. */
+            void set_send_timing_hooks(std::function<int64_t()> now_ns,
+                std::function<void(int64_t)> wait_until_ns);
+
             /* Media may have extra headers (f.ex. NAL and FU headers for HEVC).
              * These headers must be valid until the message is sent (ie. they cannot be saved to
              * caller's stack).
@@ -155,18 +194,27 @@ namespace uvgrtp {
                 {
                     frame_interval_ = std::chrono::nanoseconds(uint64_t(1.0 / double(numerator / denominator) * 1000*1000*1000));
                 }
-                frames_since_sync_ = 0; 
+                frames_since_sync_ = 0;
                 force_sync_ = rce_flags_ & RCE_FRAME_RATE;
+                scheduler_.set_fps(numerator, denominator);
             }
 
             void set_pace(ssize_t numerator, ssize_t denominator)
             {
                 pace_numerator_ = numerator;
                 pace_denominator_ = denominator;
+                scheduler_.set_pace(numerator, denominator);
             }
 
         private:
 
+            /* Move the full active transaction to the list of finished access
+             * unit transactions and start a new transaction that reuses the
+             * RTP timestamp of the access unit */
+            rtp_error_t rollover_transaction();
+
+            /* Deinitialize the transactions that have been rolled over */
+            void deinit_finished_transactions();
 
             void enqueue_finalize(uvgrtp::buf_vec& tmp);
 
@@ -175,6 +223,15 @@ namespace uvgrtp {
             inline void update_sync_point();
 
             transaction_t *active_;
+
+            /* Transactions of the current access unit that have been filled to
+             * capacity and rolled over. Their packets precede the packets of
+             * the active transaction and their memory is referenced by those
+             * packets, so they must live until the access unit has been sent */
+            std::vector<transaction_t*> au_transactions_;
+
+            /* Access-unit level frame slot and fragment pacing scheduling */
+            uvgrtp::send_scheduler scheduler_;
 
             /* Deallocation hook is stored here and copied to transaction upon initialization */
             void (*dealloc_hook_)(void *);

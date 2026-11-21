@@ -30,21 +30,20 @@ uvgrtp::frame_queue::frame_queue(std::shared_ptr<uvgrtp::socket> socket, std::sh
     dealloc_hook_(nullptr),
     max_mcount_(MAX_MSG_COUNT),
     max_ccount_(MAX_CHUNK_COUNT* max_mcount_),
-    rtp_(rtp), 
+    rtp_(rtp),
     socket_(socket),
     rce_flags_(rce_flags),
     fps_(false),
     frame_interval_(),
+    pace_numerator_(8),
+    pace_denominator_(10),
     fps_sync_point_(),
     frames_since_sync_(0)
 {}
 
 uvgrtp::frame_queue::~frame_queue()
 {
-    if (active_)
-    {
-        (void)deinit_transaction();
-    }
+    (void)deinit_access_unit();
 }
 
 rtp_error_t uvgrtp::frame_queue::init_transaction(bool use_old_rtp_ts)
@@ -210,6 +209,15 @@ rtp_error_t uvgrtp::frame_queue::enqueue_message(uint8_t *message, size_t messag
       return RTP_INVALID_VALUE;
     }
 
+    /* the transaction is full, start a new one within the same access unit */
+    if ((ssize_t)active_->rtphdr_ptr >= max_mcount_) {
+        rtp_error_t rollover_ret = rollover_transaction();
+        if (rollover_ret != RTP_OK) {
+            UVG_LOG_ERROR("Failed to roll over to a new transaction!");
+            return rollover_ret;
+        }
+    }
+
     /* Create buffer vector where the full packet is constructed
      * and which is then pushed to "active_"'s pkt_vec structure */
     uvgrtp::buf_vec tmp;
@@ -243,6 +251,15 @@ rtp_error_t uvgrtp::frame_queue::enqueue_message(buf_vec& buffers)
     {
         UVG_LOG_ERROR("Tried to enqueue an empty buffer");
         return RTP_INVALID_VALUE;
+    }
+
+    /* the transaction is full, start a new one within the same access unit */
+    if ((ssize_t)active_->rtphdr_ptr >= max_mcount_) {
+        rtp_error_t rollover_ret = rollover_transaction();
+        if (rollover_ret != RTP_OK) {
+            UVG_LOG_ERROR("Failed to roll over to a new transaction!");
+            return rollover_ret;
+        }
     }
 
     /* update the RTP header at "rtpheaders_ptr_" */
@@ -292,13 +309,23 @@ rtp_error_t uvgrtp::frame_queue::flush_queue(sockaddr_in& addr, sockaddr_in6& ad
 {
     if (active_->packets.empty()) {
         UVG_LOG_ERROR("Cannot send an empty packet!");
-        (void)deinit_transaction();
+        (void)deinit_access_unit();
         return RTP_INVALID_VALUE;
     }
 
     /* set the marker bit of the last packet to 1 */
     ((uint8_t *)&active_->rtp_headers[active_->rtphdr_ptr - 1])[1] |= (1 << 7);
-    
+
+    /* If the frame did not fit into a single transaction, the oldest packets are
+     * in finished transactions. Send them first, in their original order. */
+    for (auto* transaction : au_transactions_) {
+        if (socket_->sendto(ssrc, addr, addr6, transaction->packets, 0) != RTP_OK) {
+            UVG_LOG_ERROR("Failed to flush the message queue: %li", errno);
+            (void)deinit_access_unit();
+            return RTP_SEND_ERROR;
+        }
+    }
+
     std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
 
     if ((rce_flags_ & RCE_FRAME_RATE) && fps_)
@@ -361,7 +388,7 @@ rtp_error_t uvgrtp::frame_queue::flush_queue(sockaddr_in& addr, sockaddr_in6& ad
             //  send pkt vects
             if (socket_->sendto(ssrc, addr, addr6, active_->packets[i], 0) != RTP_OK) {
                 UVG_LOG_ERROR("Failed to send packet: %li", errno);
-                (void)deinit_transaction();
+                (void)deinit_access_unit();
                 return RTP_SEND_ERROR;
             }
         }
@@ -369,12 +396,164 @@ rtp_error_t uvgrtp::frame_queue::flush_queue(sockaddr_in& addr, sockaddr_in6& ad
     }
     else if (socket_->sendto(ssrc, addr, addr6, active_->packets, 0) != RTP_OK) {
         UVG_LOG_ERROR("Failed to flush the message queue: %li", errno);
-        (void)deinit_transaction();
+        (void)deinit_access_unit();
         return RTP_SEND_ERROR;
     }
 
     //UVG_LOG_DEBUG("full message took %zu chunks and %zu messages", active_->chunk_ptr, active_->hdr_ptr);
-    return deinit_transaction();
+    return deinit_access_unit();
+}
+
+rtp_error_t uvgrtp::frame_queue::flush_access_unit(sockaddr_in& addr, sockaddr_in6& addr6, uint32_t ssrc)
+{
+    size_t total_packets = 0;
+
+    for (auto* transaction : au_transactions_) {
+        total_packets += transaction->packets.size();
+    }
+
+    if (active_) {
+        total_packets += active_->packets.size();
+    }
+
+    if (total_packets == 0) {
+        UVG_LOG_ERROR("Cannot send an empty access unit!");
+        (void)deinit_access_unit();
+        return RTP_INVALID_VALUE;
+    }
+
+    /* The marker bit is set only on the very last RTP packet of the access unit.
+     * The active transaction always holds the newest packets (a transaction is
+     * rolled over only when more packets are enqueued) */
+    transaction_t* last = (active_ && !active_->packets.empty()) ? active_ : au_transactions_.back();
+    ((uint8_t*)&last->rtp_headers[last->rtphdr_ptr - 1])[1] |= (1 << 7);
+
+    bool use_frame_rate = (rce_flags_ & RCE_FRAME_RATE) && scheduler_.fps_valid();
+    bool use_pacing = (rce_flags_ & RCE_PACE_FRAGMENT_SENDING) && scheduler_.fps_valid();
+
+    int64_t au_start = 0;
+
+    if (use_frame_rate || use_pacing) {
+        /* The whole access unit occupies exactly one frame slot. When both frame
+         * rate limiting and pacing are enabled, the frame slot is the starting
+         * point for pacing the packets of this access unit */
+        au_start = scheduler_.begin_access_unit(use_frame_rate);
+    }
+
+    if (use_pacing) {
+        uint64_t index = 0;
+
+        for (auto* transaction : au_transactions_) {
+            for (auto& packet : transaction->packets) {
+                scheduler_.wait_until(scheduler_.packet_deadline(au_start, index, total_packets));
+
+                if (socket_->sendto(ssrc, addr, addr6, packet, 0) != RTP_OK) {
+                    UVG_LOG_ERROR("Failed to send a packet of an access unit: %li", errno);
+                    (void)deinit_access_unit();
+                    return RTP_SEND_ERROR;
+                }
+
+                ++index;
+            }
+        }
+
+        for (auto& packet : active_->packets) {
+            scheduler_.wait_until(scheduler_.packet_deadline(au_start, index, total_packets));
+
+            if (socket_->sendto(ssrc, addr, addr6, packet, 0) != RTP_OK) {
+                UVG_LOG_ERROR("Failed to send a packet of an access unit: %li", errno);
+                (void)deinit_access_unit();
+                return RTP_SEND_ERROR;
+            }
+
+            ++index;
+        }
+    }
+    else {
+        for (auto* transaction : au_transactions_) {
+            if (socket_->sendto(ssrc, addr, addr6, transaction->packets, 0) != RTP_OK) {
+                UVG_LOG_ERROR("Failed to send an access unit: %li", errno);
+                (void)deinit_access_unit();
+                return RTP_SEND_ERROR;
+            }
+        }
+
+        if (socket_->sendto(ssrc, addr, addr6, active_->packets, 0) != RTP_OK) {
+            UVG_LOG_ERROR("Failed to send an access unit: %li", errno);
+            (void)deinit_access_unit();
+            return RTP_SEND_ERROR;
+        }
+    }
+
+    return deinit_access_unit();
+}
+
+rtp_error_t uvgrtp::frame_queue::deinit_access_unit()
+{
+    rtp_error_t ret = RTP_OK;
+
+    if (active_) {
+        ret = deinit_transaction();
+    }
+
+    deinit_finished_transactions();
+    return ret;
+}
+
+void uvgrtp::frame_queue::deinit_finished_transactions()
+{
+    for (auto* transaction : au_transactions_) {
+        active_ = transaction;
+        (void)deinit_transaction();
+    }
+
+    au_transactions_.clear();
+}
+
+rtp_error_t uvgrtp::frame_queue::rollover_transaction()
+{
+    transaction_t* full = active_;
+    active_ = nullptr;
+
+    rtp_error_t ret = RTP_OK;
+
+    /* the new transaction reuses the RTP timestamp of the access unit */
+    if (full->data_raw) {
+        ret = init_transaction(full->data_raw, true);
+    }
+    else {
+        ret = init_transaction(true);
+    }
+
+    if (ret != RTP_OK) {
+        active_ = full;
+        UVG_LOG_ERROR("Failed to initialize a new transaction for the access unit!");
+        return ret;
+    }
+
+    au_transactions_.push_back(full);
+    return RTP_OK;
+}
+
+uint8_t* uvgrtp::frame_queue::allocate_aux_buffer(size_t size)
+{
+    if (!active_) {
+        UVG_LOG_ERROR("No active transaction for an auxiliary buffer!");
+        return nullptr;
+    }
+
+    /* the tmp vector is freed when the transaction is deinitialized, so the
+     * buffer stays valid until the access unit has been sent */
+    uint8_t* mem = new uint8_t[size];
+    active_->tmp.push_back(mem);
+
+    return mem;
+}
+
+void uvgrtp::frame_queue::set_send_timing_hooks(std::function<int64_t()> now_ns,
+    std::function<void(int64_t)> wait_until_ns)
+{
+    scheduler_.set_timing_hooks(std::move(now_ns), std::move(wait_until_ns));
 }
 
 inline std::chrono::high_resolution_clock::time_point uvgrtp::frame_queue::this_frame_time()
