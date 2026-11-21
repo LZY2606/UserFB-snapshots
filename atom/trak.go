@@ -17,21 +17,30 @@ type TrakBox struct {
 }
 
 func (b *TrakBox) parse() error {
-	boxes := readBoxes(b.Reader, b.Start+BoxHeaderSize, b.Size-BoxHeaderSize)
+	boxes, err := b.parseChildren()
+	if err != nil {
+		return err
+	}
 
 	for _, box := range boxes {
 		switch box.Name {
 		case "tkhd":
 			b.Tkhd = &TkhdBox{Box: box}
-			b.Tkhd.parse()
+			if err := b.Tkhd.parse(); err != nil {
+				return err
+			}
 
 		case "mdia":
 			b.Mdia = &MdiaBox{Box: box}
-			b.Mdia.parse()
+			if err := b.Mdia.parse(); err != nil {
+				return err
+			}
 
 		case "edts":
 			b.Edts = &EdtsBox{Box: box}
-			b.Edts.parse()
+			if err := b.Edts.parse(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -11,13 +11,18 @@ type EdtsBox struct {
 }
 
 func (b *EdtsBox) parse() error {
-	boxes := readBoxes(b.Reader, b.Start+BoxHeaderSize, b.Size-BoxHeaderSize)
+	boxes, err := b.parseChildren()
+	if err != nil {
+		return err
+	}
 
 	for _, box := range boxes {
 		switch box.Name {
 		case "elst":
 			b.Elst = &ElstBox{Box: box}
-			b.Elst.parse()
+			if err := b.Elst.parse(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

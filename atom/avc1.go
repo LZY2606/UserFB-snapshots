@@ -7,7 +7,13 @@ type Avc1Box struct {
 }
 
 func (b *Avc1Box) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 1); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	return nil
 }

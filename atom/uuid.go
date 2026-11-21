@@ -1,9 +1,5 @@
 package atom
 
-import (
-	"errors"
-)
-
 // UuidBox - Uuid Box
 // Box Type: uuid
 type UuidBox struct {
@@ -13,9 +9,12 @@ type UuidBox struct {
 }
 
 func (b *UuidBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
 	if len(data) < UuidSize {
-		return errors.New("not enough data")
+		return boxError(b.Name, b.Start, "truncated payload: need at least %d bytes, have %d", UuidSize, len(data))
 	}
 	b.Uuid = data[:UuidSize]
 	b.Data = data[UuidSize:]

@@ -19,7 +19,13 @@ type HmhdBox struct {
 }
 
 func (b *HmhdBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 12); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	b.MaxPDUSize = binary.BigEndian.Uint16(data[0:2])
 	b.AvgPDUSize = binary.BigEndian.Uint16(data[2:4])

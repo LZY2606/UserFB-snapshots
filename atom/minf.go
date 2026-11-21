@@ -17,21 +17,30 @@ type MinfBox struct {
 }
 
 func (b *MinfBox) parse() error {
-	boxes := readBoxes(b.Reader, b.Start+BoxHeaderSize, b.Size-BoxHeaderSize)
+	boxes, err := b.parseChildren()
+	if err != nil {
+		return err
+	}
 
 	for _, box := range boxes {
 		switch box.Name {
 		case "vmhd":
 			b.Vmhd = &VmhdBox{Box: box}
-			b.Vmhd.parse()
+			if err := b.Vmhd.parse(); err != nil {
+				return err
+			}
 
 		case "stbl":
 			b.Stbl = &StblBox{Box: box}
-			b.Stbl.parse()
+			if err := b.Stbl.parse(); err != nil {
+				return err
+			}
 
 		case "hmhd":
 			b.Hmhd = &HmhdBox{Box: box}
-			b.Hmhd.parse()
+			if err := b.Hmhd.parse(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

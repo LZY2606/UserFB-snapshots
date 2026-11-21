@@ -26,7 +26,13 @@ type MdhdBox struct {
 }
 
 func (b *MdhdBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 22); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	b.Flags = binary.BigEndian.Uint32(data[0:4])
 	b.CreationTime = binary.BigEndian.Uint32(data[4:8])

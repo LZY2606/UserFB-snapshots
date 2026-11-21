@@ -17,12 +17,22 @@ type SttsBox struct {
 }
 
 func (b *SttsBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 8); err != nil {
+		return err
+	}
 
 	b.Version = data[0]
 	b.Flags = binary.BigEndian.Uint32(data[0:4])
 
 	count := binary.BigEndian.Uint32(data[4:8])
+	needed := int64(8) + int64(count)*8
+	if int64(len(data)) < needed {
+		return boxError(b.Name, b.Start, "truncated stts entries: need %d bytes, have %d", needed, len(data))
+	}
 	b.SampleCounts = make([]uint32, count)
 	b.SampleDeltas = make([]uint32, count)
 

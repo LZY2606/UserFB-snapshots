@@ -25,7 +25,13 @@ type MvhdBox struct {
 }
 
 func (b *MvhdBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 26); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	b.Timescale = binary.BigEndian.Uint32(data[12:16])
 	b.Duration = binary.BigEndian.Uint32(data[16:20])

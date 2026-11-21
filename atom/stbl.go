@@ -12,17 +12,24 @@ type StblBox struct {
 }
 
 func (b *StblBox) parse() error {
-	boxes := readBoxes(b.Reader, b.Start+BoxHeaderSize, b.Size-BoxHeaderSize)
+	boxes, err := b.parseChildren()
+	if err != nil {
+		return err
+	}
 
 	for _, box := range boxes {
 		switch box.Name {
 		case "stts":
 			b.Stts = &SttsBox{Box: box}
-			b.Stts.parse()
+			if err := b.Stts.parse(); err != nil {
+				return err
+			}
 
 		case "stsd":
 			b.Stsd = &StsdBox{Box: box}
-			b.Stsd.parse()
+			if err := b.Stsd.parse(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

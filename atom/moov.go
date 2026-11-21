@@ -25,17 +25,24 @@ type MoovBox struct {
 }
 
 func (b *MoovBox) parse() error {
-	boxes := readBoxes(b.Reader, b.Start+BoxHeaderSize, b.Size-BoxHeaderSize)
+	boxes, err := b.parseChildren()
+	if err != nil {
+		return err
+	}
 
 	for _, box := range boxes {
 		switch box.Name {
 		case "mvhd":
 			b.Mvhd = &MvhdBox{Box: box}
-			b.Mvhd.parse()
+			if err := b.Mvhd.parse(); err != nil {
+				return err
+			}
 
 		case "trak":
 			trak := &TrakBox{Box: box}
-			trak.parse()
+			if err := trak.parse(); err != nil {
+				return err
+			}
 			b.Traks = append(b.Traks, trak)
 
 		case "mvex":

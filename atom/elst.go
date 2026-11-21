@@ -24,9 +24,19 @@ type elstEntry struct {
 }
 
 func (b *ElstBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 8); err != nil {
+		return err
+	}
 	b.Version = binary.BigEndian.Uint32(data[0:4])
 	b.EntryCount = binary.BigEndian.Uint32(data[4:8])
+	needed := int64(8) + int64(b.EntryCount)*12
+	if int64(len(data)) < needed {
+		return boxError(b.Name, b.Start, "truncated elst entries: need %d bytes, have %d", needed, len(data))
+	}
 	b.Entries = make([]elstEntry, b.EntryCount)
 
 	for i := 0; i < len(b.Entries); i++ {

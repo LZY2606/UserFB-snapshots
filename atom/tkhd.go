@@ -25,7 +25,13 @@ type TkhdBox struct {
 }
 
 func (b *TkhdBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 84); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	// b.Flags = [3]byte{data[1], data[2], data[3]}
 	b.Flags = binary.BigEndian.Uint32(data[0:4])

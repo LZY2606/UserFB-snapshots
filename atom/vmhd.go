@@ -16,7 +16,13 @@ type VmhdBox struct {
 }
 
 func (b *VmhdBox) parse() error {
-	data := b.ReadBoxData()
+	data, err := b.readPayload()
+	if err != nil {
+		return err
+	}
+	if err := b.requirePayload(data, 8); err != nil {
+		return err
+	}
 	b.Version = data[0]
 	b.Flags = binary.BigEndian.Uint32(data[0:4])
 	b.GraphicsMode = binary.BigEndian.Uint16(data[4:6])
