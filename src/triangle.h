@@ -13,11 +13,27 @@ struct Triangle {
     Vec e1, e2;         // Edge 1 and edge 2 of triangle
     Vec n, t0, t1, t2;  // Triangle normal and texture coordinates
     Material *m;        // Pointer to material
+    long slot;          // Scene add() slot of the owning mesh
+    long face;          // Original OBJ face order inside the owning mesh
 
-    Triangle(Vec v0_, Vec v1_, Vec v2_, Vec t0_=Vec(), Vec t1_=Vec(), Vec t2_=Vec(), Material *m_=NULL){
+    Triangle(Vec v0_, Vec v1_, Vec v2_, Vec t0_=Vec(), Vec t1_=Vec(), Vec t2_=Vec(),
+             Material *m_=NULL, long slot_=-1, long face_=-1){
         v0=v0_, v1=v1_, v2=v2_, e1=v1-v0, e2=v2-v0, n=e1.cross(e2).norm();
         t0=t0_, t1=t1_, t2=t2_;
         m=m_;
+        slot=slot_;
+        face=face_;
+    }
+
+    // True when the triangle has a well defined, non-zero geometric area
+    // and all of its vertices are finite.
+    bool valid() const {
+        Vec cr = e1.cross(e2);
+        return std::isfinite(cr.x) && std::isfinite(cr.y) && std::isfinite(cr.z)
+            && std::isfinite(v0.x) && std::isfinite(v0.y) && std::isfinite(v0.z)
+            && std::isfinite(v1.x) && std::isfinite(v1.y) && std::isfinite(v1.z)
+            && std::isfinite(v2.x) && std::isfinite(v2.y) && std::isfinite(v2.z)
+            && cr.dot(cr) > 0.0;
     }
 
     // Returns axis aligned bounding box that contains the triangle
@@ -65,6 +81,31 @@ struct Triangle {
             }
         }
         return false;
+    }
+
+    // Double sided nearest hit query used by the beam film and the
+    // deterministic IDEAL_MIRROR path. Returns the positive ray parameter of
+    // the first intersection and fills the geometric normal oriented against
+    // the ray. No tmin culling is performed here so segment start planes can
+    // be handled explicitly by the caller.
+    bool hit_point(const Ray &ray, double &t_out, Vec &norm_out) const {
+        Vec pvec = ray.direction.cross(e2);
+        double det = e1.dot(pvec);
+        if (det == 0.0) return false;
+        double invDet = 1.0 / det;
+        Vec tvec = ray.origin - v0;
+        double u = tvec.dot(pvec) * invDet;
+        if (u < 0.0 || u > 1.0) return false;
+        Vec qvec = tvec.cross(e1);
+        double v = ray.direction.dot(qvec) * invDet;
+        if (v < 0.0 || u + v > 1.0) return false;
+        double t = e2.dot(qvec) * invDet;
+        if (!(t > 1e-12) || !std::isfinite(t)) return false;
+        t_out = t;
+        // Mirrors are double sided: orient the geometric normal towards the
+        // incoming ray instead of returning a fixed winding normal.
+        norm_out = n.dot(ray.direction) < 0.0 ? n : n * -1.0;
+        return true;
     }
 
     // Returns barycentric coordinates of point p on the triangle

@@ -21,6 +21,14 @@ Vec Material::get_colour_at(double u, double v) const {
 }
 Vec Material::get_emission() const { return m_emission; }
 
+bool Material::has_texture() const { return m_texture.is_loaded(); }
+
+// Deterministic perfect mirror reflection about the geometric normal.
+Ray Material::ideal_reflected_ray(const Ray &r, const Vec &p, const Vec &n) const {
+    Vec reflected = r.direction - n * (2.0 * n.dot(r.direction));
+    return Ray(p, reflected.norm());
+}
+
 Ray Material::get_reflected_ray(const Ray &r, Vec &p, const Vec &n,	unsigned short *Xi) const {
 	// Ideal specular reflection
 	if (m_type == SPEC) {

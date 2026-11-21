@@ -14,8 +14,11 @@ struct ObjectIntersection {
 	double u;	// Distance to intersection along ray
 	Vec n;		// Normal of intersected face
 	Material m;	// Material of intersected face
+	long slot;	// Scene add() slot of the hit object
+	long face;	// Original OBJ face order for mesh triangles
 
-	ObjectIntersection(bool hit_=false, double u_=0, Vec n_=Vec(), Material m_=Material());
+	ObjectIntersection(bool hit_=false, double u_=0, Vec n_=Vec(), Material m_=Material(),
+	                   long slot_=-1, long face_=-1);
 };
 
 
@@ -51,12 +54,17 @@ private:
     std::vector<Triangle*> tris;
     Material m_m;	// Material
     KDNode *node;
+    long m_slot;
 	//BVH bvh;
 
 public:
 	Mesh(Vec p_, const char* file_path, Material m_);
 	virtual ObjectIntersection get_intersection(const Ray &r);
-
+	// Scene assigns the add() slot; triangles then carry their real identity.
+	void set_slot(long slot);
+	long get_slot() const;
+	KDNode* get_kd_root() const;
+	const std::vector<Triangle*>& get_triangles() const;
 };
 
 

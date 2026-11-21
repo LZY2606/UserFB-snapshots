@@ -1,6 +1,7 @@
 #include <vector>
 #include <stdio.h>
 #include <iostream>
+#include <stdexcept>
 
 #include "renderer.h"
 #include "../lib/lodepng/lodepng.h"
@@ -10,9 +11,8 @@ inline double clamp(double x){ return x<0 ? 0 : x>1 ? 1 : x; }
 // Clamp to between 0-255
 inline int toInt(double x){ return int(clamp(x)*255+.5); }
 
-Renderer::Renderer(Scene *scene, Camera *camera) {
-    m_scene = scene;
-    m_camera = camera;
+Renderer::Renderer(Scene *scene, Camera *camera)
+    : m_scene(scene), m_camera(camera), m_beam(*scene, *camera), m_has_beam_film(false) {
     m_pixel_buffer = new Vec[m_camera->get_width()*m_camera->get_height()];
 }
 
@@ -63,4 +63,20 @@ void Renderer::save_image(const char *file_path) {
     if(error) std::cout << "encoder error " << error << ": "<< lodepng_error_text(error) << std::endl;
 
     pixel_buffer.clear();
+}
+
+const BeamFilm& Renderer::render_beam(int depth) {
+    BeamFilm film = m_beam.render_frame(depth);
+    // The tracer already guarantees commit-on-success semantics; mirror that
+    // here so a failed render leaves the Renderer's stored film untouched.
+    m_beam_film = film;
+    m_has_beam_film = true;
+    return m_beam_film;
+}
+
+const BeamFilm& Renderer::beam_film() const {
+    if (!m_has_beam_film) {
+        throw std::invalid_argument("renderer: no beam film has been rendered yet");
+    }
+    return m_beam_film;
 }

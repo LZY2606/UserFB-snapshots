@@ -9,9 +9,12 @@
 //#include "../lib/fastbvh/BVH.h"
 
 
-ObjectIntersection::ObjectIntersection(bool hit_, double u_, Vec n_, Material m_)
+ObjectIntersection::ObjectIntersection(bool hit_, double u_, Vec n_, Material m_,
+                                       long slot_, long face_)
 {
 	hit=hit_, u=u_, n=n_, m=m_;
+	slot=slot_;
+	face=face_;
 }
 
 
@@ -44,6 +47,7 @@ ObjectIntersection Sphere::get_intersection(const Ray &ray) {
 Mesh::Mesh(Vec p_, const char* file_path, Material m_) {
 
 	m_p=p_, m_m=m_;
+	m_slot=-1;
 
     std::string mtlbasepath;
     std::string inputfile = file_path;
@@ -80,10 +84,13 @@ Mesh::Mesh(Vec p_, const char* file_path, Material m_) {
 
     }
 
-    // Load triangles from obj
+    // Load triangles from obj. The running face counter is the original OBJ
+    // face order; duplicate faces remain distinct because each gets its own
+    // Triangle with that order index. Zero area triangles are skipped.
+    long face_order = 0;
     for (int i = 0; i < shapes_size; i++) {
         indices_size = m_shapes[i].mesh.indices.size() / 3;
-        for (size_t f = 0; f < indices_size; f++) {
+        for (size_t f = 0; f < indices_size; f++, face_order++) {
 
             // Triangle vertex coordinates
             Vec v0_ = Vec(
@@ -132,10 +139,21 @@ Mesh::Mesh(Vec p_, const char* file_path, Material m_) {
                 t2_=Vec();
             }
 
-            if (m_shapes[i].mesh.material_ids[ f ] < materials.size())
-                tris.push_back(new Triangle(v0_, v1_, v2_, t0_, t1_, t2_, &materials[ m_shapes[i].mesh.material_ids[ f ] ]));
+            Material *mp;
+            if (f < m_shapes[i].mesh.material_ids.size() &&
+                m_shapes[i].mesh.material_ids[ f ] >= 0 &&
+                m_shapes[i].mesh.material_ids[ f ] < (int)materials.size())
+                mp = &materials[ m_shapes[i].mesh.material_ids[ f ] ];
             else
-                tris.push_back(new Triangle(v0_, v1_, v2_, t0_, t1_, t2_, &m_m));
+                mp = &m_m;
+
+            Triangle *tri = new Triangle(v0_, v1_, v2_, t0_, t1_, t2_, mp, m_slot, face_order);
+            if (!tri->valid()) {
+                // Finite, zero area triangles contribute nothing.
+                delete tri;
+                continue;
+            }
+            tris.push_back(tri);
         }
     }
 
@@ -149,11 +167,26 @@ Mesh::Mesh(Vec p_, const char* file_path, Material m_) {
 
 // Check if ray intersects with mesh. Returns ObjectIntersection data structure
 ObjectIntersection Mesh::get_intersection(const Ray &ray) {
-    double t=0, tmin=INFINITY;
+    double tmin = INFINITY;
     Vec normal = Vec();
-    Vec colour = Vec();
-    bool hit = node->hit(node, ray, t, tmin, normal, colour);
-    //bool hit = bvh.getIntersection(ray, t, tmin, normal);
-    return ObjectIntersection(hit, tmin, normal, Material(DIFF, colour, Vec()));
+    Triangle *tri = node->nearest(node, ray, 1e-12, tmin, normal);
+    if (tri == NULL) return ObjectIntersection();
 
+    // Preserve the original material (including IDEAL_MIRROR and EMIT) and
+    // carry the real face identity instead of flattening everything to DIFF.
+    Material m = tri->m != NULL ? *tri->m : m_m;
+    return ObjectIntersection(true, tmin, normal, m, tri->slot, tri->face);
 }
+
+void Mesh::set_slot(long slot) {
+    m_slot = slot;
+    for (size_t i = 0; i < tris.size(); ++i) {
+        tris[i]->slot = slot;
+    }
+}
+
+long Mesh::get_slot() const { return m_slot; }
+
+KDNode* Mesh::get_kd_root() const { return node; }
+
+const std::vector<Triangle*>& Mesh::get_triangles() const { return tris; }

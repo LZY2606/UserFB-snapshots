@@ -10,7 +10,9 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-enum MaterialType { DIFF, SPEC, EMIT };
+// IDEAL_MIRROR is appended so the original DIFF/SPEC/EMIT values keep
+// their numeric identities and their old Monte Carlo behaviour.
+enum MaterialType { DIFF, SPEC, EMIT, IDEAL_MIRROR };
 
 
 class Material {
@@ -28,6 +30,9 @@ public:
 	Vec get_colour() const;
 	Vec get_colour_at(double u, double v) const;
 	Vec get_emission() const;
+	bool has_texture() const;
+	// Perfect, roughness-free reflection used by IDEAL_MIRROR.
+	Ray ideal_reflected_ray(const Ray &r, const Vec &p, const Vec &n) const;
 	Ray get_reflected_ray( const Ray &r, Vec &p, const Vec &n, unsigned short *Xi ) const;
 
 };
