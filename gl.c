@@ -39,6 +39,8 @@ struct uniform {
     float ka;
     float kd;
     float ks;
+    void *probe_field;                          /* optional irradiance probes */
+    probe_sample_f probe_sample;
 };
 
 struct light {
@@ -963,6 +965,20 @@ phong(
     vec4_scale(tmp, Oa, ka);
     vec4_add(color, color, tmp);
 
+    /* indirect diffuse from bound irradiance probes.  the material
+     * and output colors are ARGB, so the RGB irradiance channels
+     * scale indices 1..3 while alpha follows the material */
+    if (uniform->probe_field && uniform->probe_sample) {
+        float E[3];
+        if (uniform->probe_sample(uniform->probe_field, pos, normal, E)) {
+            vec4_scale(tmp, Od, kd);
+            tmp[1] *= E[0] / M_PI;
+            tmp[2] *= E[1] / M_PI;
+            tmp[3] *= E[2] / M_PI;
+            vec4_add(color, color, tmp);
+        }
+    }
+
     for (int i = 0; i < GL_MAX_LIGHT_COUNT; i++) {
         if (uniform->light_state & (1 << i)) {
             struct light light = uniform->lights[i];
@@ -1236,4 +1252,17 @@ void
 gl_bind_phong_fs()
 {
     gl_bind_custom_fs(phong_fs);
+}
+
+/***********************
+ * gl_bind_probe_field *
+ ***********************/
+
+/* attaches an optional probe field sampled by the phong shader */
+
+void
+gl_bind_probe_field(void *probe_field, probe_sample_f sample)
+{
+    g_uniform.probe_field  = probe_field;
+    g_uniform.probe_sample = sample;
 }

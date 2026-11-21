@@ -123,6 +123,125 @@ And likewise to clean the example executables run
 $ make clean-examples
 ```
 
+### World-space irradiance probes
+
+`probe.h` / `probe.c` add a grid of world-space rule irradiance probes on
+top of the existing raster pipeline.  Each probe captures the scene into
+the six faces of a cube with `gl_render`, keeps a floating point HDR
+radiance and directional distance-moment image per texel, projects the
+radiance onto real spherical harmonics and stores Lambert-convolved
+irradiance.  Changing the camera never re-bakes a probe, because probes
+are independent of any view.
+
+```c
+struct probe_config cfg = {
+    .origin = {-1.5f, -1.5f, 0.0f},   /* world position of probe (0,0,0) */
+    .spacing = 1.0f,                  /* positive distance between probes */
+    .nx = 4, .ny = 4, .nz = 8,        /* 2..16 per axis */
+    .face_size = 16,                  /* 8..64 per face */
+    .near_plane = 0.05f,              /* positive */
+    .far_plane = 30.0f,               /* positive, > near */
+};
+
+struct probe_scene scene = {
+    .positions = verts,               /* 3 floats per vertex */
+    .vertex_count = nverts,
+    .triangles = tris,                /* indices + linear RGB radiance */
+    .triangle_count = ntris,
+};
+
+struct probe_set *set = probe_create(&cfg, &scene);  /* copies both */
+probe_begin_update(set, environment);                 /* freeze an update */
+while (probe_step(set, 16) == 0) { }                  /* 16 faces per call */
+```
+
+Triangle radiance is the light leaving a surface along the ray that hit
+it, so black surfaces block light and lit surfaces illuminate their
+surroundings.  Geometry is two sided.
+
+A probe set is double buffered.  `probe_begin_update` freezes a private
+copy of the scene plus the constant environment and starts a new pending
+generation, replacing any unfinished update.  `probe_step(set, budget)`
+completes at most `budget` whole cube faces and returns 1 on the step that
+publishes the new generation; a budget of zero does no work.  Only when
+every probe of the update owns all six faces and its coefficients does the
+new generation become visible.  Until then `probe_sample` keeps reading
+the last complete generation, and returns 0 when none exists.
+`probe_abort` drops unfinished work; both it and a replacement update keep
+the old generation readable.  The scene and environment are copied, so the
+caller may mutate or free its arrays immediately after
+`probe_create`/`probe_begin_update`.
+
+`probe_sample(set, p, n, bias, irradiance)` offsets `p` along the unit
+normal by `bias`, trilinearly selects the eight surrounding probes
+(clamping at the grid edge), and for each probe computes
+`r = |p - q|`.  The distance moments `mu` and `m2` are bilinearly read
+along `normalize(p - q)`; a tap outside its face is re-projected by its
+own direction onto the neighbouring face rather than clamped.  Visibility
+is 1 when `r <= mu`, otherwise
+`variance / (variance + (r - mu)^2)` with
+`variance = max(m2 - mu^2, 1e-4 * spacing^2)`.  Each probe contributes
+`v^3 * max(0.05, dot(n, normalize(q - p)))^2` of its SH irradiance
+evaluated for `n`; the weights are normalised, the mixed result is
+clamped to non-negative, and a zero total weight returns 0 instead of
+picking a nearest probe.
+
+`gl_bind_probe_volume(probe_gl_volume(set, bias))` binds the field to the
+standard phong shader, which adds `diffuse material * kd * E / pi` in the
+float domain while leaving ambient, explicit lights and specular intact.
+Binding `NULL` (or never binding) restores the classic output.  Capture
+uses its own framebuffer and uniform and does not disturb the caller's
+matrices, lights, material or framebuffer bindings.
+
+#### Spherical-harmonic ordering
+
+The nine coefficients per channel use the real SH basis
+
+| index | basis function |
+|-------|----------------|
+| 0 | `0.282095` |
+| 1 | `0.488603 y` |
+| 2 | `0.488603 z` |
+| 3 | `0.488603 x` |
+| 4 | `1.092548 x y` |
+| 5 | `1.092548 y z` |
+| 6 | `0.315392 (2z^2 - x^2 - y^2)` |
+| 7 | `1.092548 x z` |
+| 8 | `0.546274 (x^2 - y^2)` |
+
+Radiance is projected with the per-texel solid angle, then convolved for
+Lambert irradiance by `pi` (band 0), `2pi/3` (band 1) and `pi/4` (band 2).
+Each texel's solid angle is integrated from the four corners of the pixel
+on the unit cube, and all six faces sum to `4pi`.  `probe_read_capture`,
+`probe_read_coefficients` and `probe_read_distance_moment` expose the
+committed capture and coefficients.
+
+#### Running the example and tests
+
+The probe example writes three images into the directory given on the
+command line:
+
+```
+$ cc -std=c99 -O1 -Iinclude -I. examples/probe.c probe.c \
+     clip.c gl.c map.c mat.c obj.c pipe.c rast.c tga.c -lm -o probe_example
+$ ./probe_example out
+```
+
+`unbound.ppm` is the classic phong output, `partial.ppm` is the same image
+with a probe volume bound before any generation exists (no data, so it
+matches `unbound.ppm`), and `complete.ppm` receives indirect light from
+the glowing panel, including a soft shadow cast by the black wall.
+
+The probe tests live in `task_tests/probe.c` and are registered through
+`task_cases`/`task_case_count` in the `capture`, `visibility` and
+`publication` groups.  `bash task_support/run.sh target` builds the new
+header, implementation, tests and example, runs the example and checks
+the produced images, then runs the original off-screen baseline.  The
+probe tests cover the cube solid angle, constant-environment SH, radial
+distance, occlusion, HDR, seam interpolation, thin-wall visibility,
+whole-face vs per-face stepping, source-array lifetime, replacement/abort
+and two interleaved sets.
+
 ### Credits
 
 Happy Mask Salesman model & texture do not belong to me

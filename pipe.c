@@ -145,11 +145,13 @@ gl_render(
     /* setup variables */
     
     struct raster rast = {
-        .fbuf    = pipe->fbuf, 
-        .uniform = pipe->uniform,
-        .fs      = pipe->fs, 
-        .n_attr  = pipe->n_attr_out,
-        .winding = pipe->winding
+        .fbuf       = pipe->fbuf,
+        .uniform    = pipe->uniform,
+        .fs         = pipe->fs,
+        .n_attr     = pipe->n_attr_out,
+        .winding    = pipe->winding,
+        .depth_frag = pipe->depth_frag,
+        .depth_user = pipe->depth_user
     };
 
     int prim_size, n_prims;

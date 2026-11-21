@@ -113,6 +113,12 @@ draw_pt(struct raster *rast, float *pt)
     if (pt[2] < rast->fbuf->depths[fbuf_idx]) {  /* depth buffer */
         rast->fbuf->colors[fbuf_idx] = color;
         rast->fbuf->depths[fbuf_idx] = pt[2];
+
+        /* observers only see fragments that actually won the depth
+         * test, so they can keep the nearest real surface */
+        if (rast->depth_frag)
+            rast->depth_frag(rast->depth_user,
+                             (int)floorf(pt[0]), (int)floorf(pt[1]), pt);
     }
 }
 

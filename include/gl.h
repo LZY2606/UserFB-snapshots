@@ -13,6 +13,14 @@
 typedef void (*vs_f)(float* out, float* in, void* uniform);
 typedef void (*fs_f)(uint32_t *out, float *in, void *uniform);
 
+/* optional fragment observer run only when the depth test accepts a
+ * fragment, receiving the screen-space pixel and full attribute set */
+typedef void (*depth_frag_f)(void *user, int x, int y, float *frag);
+
+/* optional irradiance probe field consumed by the phong shader */
+typedef int (*probe_sample_f)(void *field, const float *pos,
+                              const float *normal, float irradiance[3]);
+
 enum gl_clip_plane {
     GL_CLIP_LEFT_PLANE = 1 << 0,
     GL_CLIP_BOTTOM_PLANE = 1 << 1,
@@ -79,7 +87,7 @@ struct gl_framebuffer {
 
 struct gl_pipeline {
     struct gl_framebuffer *fbuf;
-    void *uniform;        
+    void *uniform;
     vs_f vs;
     fs_f fs;
     float *pts_in;
@@ -87,6 +95,8 @@ struct gl_pipeline {
     int n_attr_in;
     int n_attr_out;
     int winding;
+    depth_frag_f depth_frag;  /* optional, called only on depth pass */
+    void *depth_user;
 };
 
 struct gl_obj {
@@ -139,5 +149,8 @@ void gl_bind_texture_vs();
 void gl_bind_texture_fs();
 void gl_bind_std_vs();
 void gl_bind_phong_fs();
+
+/* attaches an optional probe field consumed by the phong shader */
+void gl_bind_probe_field(void *probe_field, probe_sample_f sample);
 
 #endif    /* GL_H */

@@ -40,6 +40,8 @@ struct raster {
     fs_f fs;
     int n_attr;
     int winding;
+    depth_frag_f depth_frag;
+    void *depth_user;
 };
 
 void draw_pt(struct raster *rast, float *pt);
