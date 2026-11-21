@@ -1,0 +1,4 @@
+The published nalgebra-glm 0.10.0 package declares BSD-3-Clause but omits a license text.
+LICENSE-UPSTREAM-ROOT is copied verbatim from its exact .cargo_vcs_info.json source commit:
+https://github.com/rustsim/nalgebra/blob/b695aaa807c102f91c98a11669dbf9f236268846/LICENSE
+The repository root text is Apache-2.0. Both this discrepancy and the original package metadata are retained.
