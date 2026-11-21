@@ -49,7 +49,34 @@ bool Sphere::hit(const Ray &ray, float &t, ShadeInfo &s) const {
     s.normal.normalize();
     s.ray = ray;
     s.material_ptr = material_ptr;
+    s.hit_geometry = this;
+    s.bary_u = 0.0;
+    s.bary_v = 0.0;
+    s.front_face = (s.normal * (-ray.d)) > 0.0;
     return true;
+}
+
+Point3D Sphere::center() const { return c; }
+float Sphere::radius() const { return r; }
+
+bool Sphere::hit_segment(const Point3D &O, const Point3D &Q,
+                         double s_lo, double s_hi, double &s_hit) const {
+    // Quadratic in the segment parameter, double sided, open interval.
+    Vector3D seg(Q - O);
+    Vector3D oc = O - c;
+    double a = seg * seg;
+    double b = 2.0 * (oc * seg);
+    double c_coef = oc * oc - (double)r * r;
+    double disc = b * b - 4.0 * a * c_coef;
+    if (disc < 0.0 || a <= 0.0) return false;
+
+    double sqrt_disc = std::sqrt(disc);
+    double inv2a = 1.0 / (2.0 * a);
+    double s0 = (-b - sqrt_disc) * inv2a;
+    double s1 = (-b + sqrt_disc) * inv2a;
+    if (s0 > s_lo && s0 < s_hi) { s_hit = s0; return true; }
+    if (s1 > s_lo && s1 < s_hi) { s_hit = s1; return true; }
+    return false;
 }
 
 BBox Sphere::getBBox() const {

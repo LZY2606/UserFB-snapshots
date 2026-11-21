@@ -16,6 +16,7 @@
 #include "Vector3D.hpp"
 
 class Material;
+class Geometry;
 class World;
 
 class ShadeInfo {
@@ -28,6 +29,10 @@ public:
   int depth;              // recursion depth.
   float t;                // ray parameter at hit point.
   const World *w;         // pointer to the world.
+  const Geometry *hit_geometry; // identity of the actual hit primitive.
+  double bary_u;          // triangle barycentric coordinate of v1.
+  double bary_v;          // triangle barycentric coordinate of v2.
+  bool front_face;        // ray hit the side the normal points toward.
 
 public:
   // Constructor.

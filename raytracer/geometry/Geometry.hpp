@@ -11,6 +11,7 @@
 
 class BBox;
 class Material;
+class Point3D;
 class Ray;
 class ShadeInfo;
 
@@ -28,7 +29,7 @@ public:
 
   // Destructor.
   virtual ~Geometry() = default;
-  
+
   // String representation.
   virtual std::string to_string() const = 0;
 
@@ -38,6 +39,13 @@ public:
 
   // Ray intersection. Set t and sinfo as per intersection with this object.
   virtual bool hit(const Ray &ray, float &t, ShadeInfo &sinfo) const = 0;
+
+  // Finite segment intersection for visibility queries. The segment is
+  // O + s (Q - O), s in (s_lo, s_hi). Double sided: any intersection in that
+  // interval blocks. On a hit, s_hit receives the nearest blocking parameter.
+  // Rendering epsilons (kEpsilon) never cull blockers inside the interval.
+  virtual bool hit_segment(const Point3D &O, const Point3D &Q,
+                           double s_lo, double s_hi, double &s_hit) const = 0;
 
   // Get bounding box.
   virtual BBox getBBox() const = 0;

@@ -35,7 +35,11 @@ public:
 
   // Ray intersection. Set t and sinfo as per intersection with this object.
   virtual bool hit(const Ray &ray, float &t, ShadeInfo &s) const override;
-  
+
+  // Finite, double-sided segment intersection with an explicit open interval.
+  bool hit_segment(const Point3D &O, const Point3D &Q,
+                   double s_lo, double s_hi, double &s_hit) const override;
+
   // Get bounding box.
   virtual BBox getBBox() const override;
 };

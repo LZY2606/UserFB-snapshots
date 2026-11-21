@@ -114,6 +114,128 @@ Measured numbers are in `timings.txt` (8-thread CPU, -O3, OpenMP). Headline: bru
 - Shadow acne is handled with a single global `kEpsilon = 0.0001`, which is scene-scale dependent. It happens to work here; it would not survive a much larger or smaller scene.
 - There is no gamma correction or tone mapping stage, so light values were tuned by eye against clamped output. Fine for a stylized scene, wrong as a default.
 
+## Hierarchical diffuse indirect light
+
+A small-scene diffuse indirect-light mode lives in
+`raytracer/lighting/HierarchicalRadiosity.{hpp,cpp}` with its material in
+`raytracer/materials/HierarchicalDiffuse.{hpp,cpp}`. It adds lighting-only
+subdivision and hierarchical radiosity without storing a dense
+leaf-by-leaf transport matrix, and without replacing the real scene
+geometry.
+
+### Inputs, constraints and lifetime
+
+`HierarchicalRadiosity(world, triangles, reflectance, emission, depth, eta)`
+takes 1..32 distinct `Triangle*` that have already been added to the
+`World`, one RGB reflectance and one RGB emission per original face, a
+subdivision depth `D` in `[0, 4]` and a link tolerance `eta` in
+`[1e-4, 0.1]`. Reflectance channels must be in `[0, 0.8]` and emission
+channels in `[0, 4]`. Invalid inputs leave `ok()` false and `error()`
+populated; no partial solution is published.
+
+The source scene is assumed static and to outlive the radiosity object:
+the `World` and the registered `Triangle*` are referenced, never copied or
+deleted. Each original triangle is quartered through edge midpoints down
+to depth `D`, so every leaf has area `4^-D` of its original face and keeps
+the original winding's normal. The leaves exist only for lighting.
+
+### Hit identity and leaf lookup
+
+`ShadeInfo` now carries `hit_geometry` (the actual primitive), triangle
+barycentric weights `bary_u`/`bary_v`, and a `front_face` flag.
+`Triangle::hit` uses a scale-relative determinant cutoff instead of the old
+fixed `kEpsilon` threshold, so thin triangles are not dropped by segment
+queries. `leaf_for_hit(triangle, beta, gamma)` maps a Whitted hit on a
+registered triangle to its lighting leaf; shared sub-face boundaries are
+assigned to the deterministically smaller child index.
+
+### Visibility semantics
+
+All scene geometry is double sided for occlusion. A visibility test walks
+the open segment `O + s (Q - O)` for `s` in `(1e-8, 1 - 1e-8)` via
+`World::segment_occluded` (backed by `BVH::segment_occluded`, with a brute
+force fallback when no BVH is built). The two endpoint triangles are
+excluded as blockers, and geometry whose intersection parameter is at or
+beyond the far endpoint cannot shadow. `World::bundle_may_occlude` /
+`BVH::bundle_may_occlude` provide the conservative bundle test: a bundle is
+only clear when no non-skipped primitive's AABB overlaps it. A bundle is
+never declared visible from a few samples. Actual node and primitive test
+counts are exposed through `World::node_tests()` /
+`World::primitive_tests()` and reset with `reset_query_stats()`.
+
+### Links, kernel bounds and refinement
+
+For leaves of different original faces the reference kernel is
+`Kij = max(0, ni.d) max(0, -nj.d) Vij / (pi r^2)` between leaf centroids,
+with `Vij` the open-segment visibility; leaves of the same original face
+have zero kernel. During refinement a node pair is linked directly only
+when (a) no other geometry's AABB overlaps the convex-hull bundle AABB,
+and (b) a conservative kernel interval `[lo, hi]` computed from the node
+position ranges and angular cones satisfies `hi - lo <= eta * hi`. The
+interval encloses every descendant leaf-pair kernel; it is never a
+corner/centroid min-max sample. `hi == 0` drops the pair. Otherwise the
+larger splittable end is refined (ties split the smaller original index),
+and once both ends are leaves an exact open-segment query records the
+visible kernel. Each unordered node pair stores one `RadiosityLink`
+(holding both endpoints, the kernel and its bounds), shared by both
+transport directions; the full leaf-pair set is never enumerated or cached
+to fake compression.
+
+### Transport, solve and failure modes
+
+Transport uses area-weighted push/pull over the links: leaf powers
+`A_i B_i` are pulled up the quadtrees, each link adds
+`k * sum(A_j B_j)` to both ends, and the sums are pushed back down to
+produce leaf incident irradiance `I_i`. The radiosity equation
+`B_i = E_i + rho_i I_i` is solved per RGB channel in double precision with
+Jacobi iteration; success requires the infinity-norm residual to be at most
+`1e-9 * max(1, |E|_inf)`. Before solving, the same compressed operator is
+checked at `B = 1` for `max_i sum_j A_j K_ij <= 1.1`; a larger value
+refuses the build explicitly (no row normalization). Solved energy is never
+clamped into `[0, 1]`.
+
+`solve(max_iterations)` re-solves with a positive iteration budget, and
+`set_emission(original, emission)` updates one face's emission and re-solves
+while reusing the trees and links with no new occlusion queries. Invalid
+values or an exhausted iteration budget retain the previous complete
+solution.
+
+Diagnostics exposed include leaf area/original/barycentric sub-domain,
+link endpoints/kernel/bounds, exact leaf-pair visibility query count,
+storage peak in bytes, operator application count, and BVH node/primitive
+test counts.
+
+### Material and rendering
+
+`HierarchicalDiffuse` returns the hit leaf's radiosity divided by `pi` on a
+front-face hit of a registered triangle and black on a back face. It adds no
+ambient or point-light contribution and does not clamp. The legacy Matte,
+Phong, Reflective and Cosine materials, spheres, planes and triangles keep
+their previous behavior (covered by the baseline check).
+
+### Tests and example
+
+- `tests/hierarchical_radiosity.cpp` registers `links`, `transport` and
+  `render` groups through `task_support/check.h` (no `main`). Small-depth
+  cases are cross-checked against an independent leaf-centroid/segment
+  enumeration and a dense Jacobi system, including area reciprocity, kernel
+  interval containment, local shadows, back faces, behind-segment
+  geometry, unequal areas, reordered identity, emission reuse and the
+  `eta = 1e-4` accuracy bound (RGB max error <= 1e-3). A pair of edge-0.01
+  triangles 10 apart at `D = 4`, `eta = 1e-3` proves cross-level links with
+  fewer than a quarter of the dense leaf-pair queries and strictly less
+  storage than the dense matrix.
+- `examples/hierarchical_radiosity.cpp <output.ppm>` writes a 64x32 two-frame
+  P3 montage through the original `World`, BVH, Whitted tracer and sampler;
+  the second frame changes only emission and visibly changes indirect light.
+
+Run everything (forced compilation of both new headers and implementations,
+example, then the three test groups) with:
+
+```bash
+bash task_support/run.sh target
+```
+
 ## License
 
 GPLv2, inherited from the Kevin Suffern derived scaffold this engine is built on. See `LICENSE`.
