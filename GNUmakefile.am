@@ -91,6 +91,8 @@ libmp4v2_la_SOURCES = \
     src/mp4file.cpp                      \
     src/mp4file.h                        \
     src/mp4file_io.cpp                   \
+    src/mp4hintedcopy.cpp                \
+    src/mp4hintedcopy.h                  \
     src/mp4info.cpp                      \
     src/mp4property.cpp                  \
     src/mp4property.h                    \

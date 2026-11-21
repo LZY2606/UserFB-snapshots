@@ -75,6 +75,7 @@ set(HEADER_FILES
         src/mp4container.h
         src/mp4descriptor.h
         src/mp4file.h
+        src/mp4hintedcopy.h
         src/mp4property.h
         src/mp4track.h
         src/mp4util.h
@@ -195,6 +196,7 @@ set(SOURCE_FILES
         src/mp4descriptor.cpp
         src/mp4file.cpp
         src/mp4file_io.cpp
+        src/mp4hintedcopy.cpp
         src/mp4info.cpp
         src/mp4property.cpp
         src/mp4track.cpp

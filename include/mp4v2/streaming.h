@@ -158,6 +158,38 @@ bool MP4WriteRtpHint(
     MP4Duration   duration,
     bool          isSyncSample DEFAULT(true) );
 
+/** Copy a hinted media track pair, reordering media according to the
+ *  media track's edit list.
+ *
+ *  MP4CopyHintedTrack finds the single media track referenced by
+ *  @p srcHint and creates a pair of independently playable tracks in
+ *  @p dst: a media track holding the samples covered by the source
+ *  media edit list (empty edits are kept as gaps and carry no media),
+ *  and a hint track whose RTP hint samples are rewritten so every
+ *  sample-data reference points at the freshly copied media (or at the
+ *  hint sample itself for embedded data). Empty edits become
+ *  zero-packet hint samples with the same playback duration.
+ *
+ *  The source file is only read; the destination may already contain
+ *  other tracks. On failure no tracks are created in @p dst and both
+ *  output ids are set to #MP4_INVALID_TRACK_ID.
+ *
+ *  @param src handle of the source file.
+ *  @param srcHint track id of the source RTP hint track.
+ *  @param dst handle of the destination file.
+ *  @param mediaOut receives the new media track id.
+ *  @param hintOut receives the new hint track id.
+ *
+ *  @return <b>true</b> on success, <b>false</b> on failure.
+ */
+MP4V2_EXPORT
+bool MP4CopyHintedTrack(
+    MP4FileHandle src,
+    MP4TrackId    srcHint,
+    MP4FileHandle dst,
+    MP4TrackId*   mediaOut,
+    MP4TrackId*   hintOut );
+
 /** @} ***********************************************************************/
 
 #endif /* MP4V2_STREAMING_H */

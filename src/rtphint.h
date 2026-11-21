@@ -162,6 +162,14 @@ public:
 
     void AddData(MP4RtpData* pData);
 
+    uint16_t GetDataEntryCount() {
+        return m_rtpData.Size();
+    }
+
+    MP4RtpData* GetDataEntry(uint16_t index) {
+        return m_rtpData[index];
+    }
+
     uint32_t GetDataSize();
 
     void GetData(uint8_t* pDest);

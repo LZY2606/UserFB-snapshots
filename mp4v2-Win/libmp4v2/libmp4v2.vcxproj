@@ -236,6 +236,7 @@
     <ClInclude Include="..\..\src\mp4container.h" />
     <ClInclude Include="..\..\src\mp4descriptor.h" />
     <ClInclude Include="..\..\src\mp4file.h" />
+    <ClInclude Include="..\..\src\mp4hintedcopy.h" />
     <ClInclude Include="..\..\src\mp4property.h" />
     <ClInclude Include="..\..\src\mp4track.h" />
     <ClInclude Include="..\..\src\mp4util.h" />
@@ -352,6 +353,7 @@
     <ClCompile Include="..\..\src\mp4descriptor.cpp" />
     <ClCompile Include="..\..\src\mp4file.cpp" />
     <ClCompile Include="..\..\src\mp4file_io.cpp" />
+    <ClCompile Include="..\..\src\mp4hintedcopy.cpp" />
     <ClCompile Include="..\..\src\mp4info.cpp" />
     <ClCompile Include="..\..\src\mp4property.cpp" />
     <ClCompile Include="..\..\src\mp4track.cpp" />

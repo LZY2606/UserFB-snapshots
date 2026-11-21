@@ -1,0 +1,1 @@
+/usr/bin/c++ -fsanitize=address,undefined -fno-omit-frame-pointer -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/mp4info.dir/util/mp4info.cpp.o -o mp4info  libmp4v2.a

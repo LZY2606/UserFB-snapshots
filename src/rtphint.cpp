@@ -699,7 +699,7 @@ void MP4RtpHintTrack::InitStats()
 
 
 MP4RtpHint::MP4RtpHint(MP4RtpHintTrack& track)
-    : m_track(track)
+    : m_track(track), m_isBFrame(false), m_timestampOffset(0)
 {
     AddProperty( /* 0 */
         new MP4Integer16Property(this->GetTrack().GetTrakAtom(), "packetCount"));

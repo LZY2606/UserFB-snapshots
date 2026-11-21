@@ -37,6 +37,7 @@
  */
 
 #include "src/impl.h"
+#include "src/mp4hintedcopy.h"
 
 using namespace mp4v2::impl;
 
@@ -4017,6 +4018,41 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
             catch( ... ) {
                 mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
             }
+        }
+        return false;
+    }
+
+    bool MP4CopyHintedTrack(
+        MP4FileHandle srcFile,
+        MP4TrackId    srcHintTrackId,
+        MP4FileHandle dstFile,
+        MP4TrackId*   pDstMediaTrackId,
+        MP4TrackId*   pDstHintTrackId )
+    {
+        if (pDstMediaTrackId) {
+            *pDstMediaTrackId = MP4_INVALID_TRACK_ID;
+        }
+        if (pDstHintTrackId) {
+            *pDstHintTrackId = MP4_INVALID_TRACK_ID;
+        }
+        if (!MP4_IS_VALID_FILE_HANDLE(srcFile)
+                || !MP4_IS_VALID_FILE_HANDLE(dstFile)
+                || pDstMediaTrackId == NULL
+                || pDstHintTrackId == NULL) {
+            return false;
+        }
+        try {
+            return CopyHintedTrack(
+                (MP4File*)srcFile, srcHintTrackId,
+                (MP4File*)dstFile,
+                pDstMediaTrackId, pDstHintTrackId);
+        }
+        catch( Exception* x ) {
+            mp4v2::impl::log.errorf(*x);
+            delete x;
+        }
+        catch( ... ) {
+            mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
         }
         return false;
     }
