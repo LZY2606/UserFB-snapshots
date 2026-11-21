@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {compile,decompile,parse,stringify} from '../src/index.js';
+import {compiled,decompiled,compiled2,decompiled2} from '../test/fixtures/decompiler.js';
+import {text} from '../test/fixtures/index.js';
+assert.equal(decompile(structuredClone(compiled)),decompiled);
+assert.equal(decompile(structuredClone(compiled2)),decompiled2);
+const c=compile(text);
+assert.equal(c.dialogues.length,1);
+assert.equal(c.dialogues[0].end,5);
+assert.equal(c.dialogues[0].slices[0].fragments[0].text,'text');
+assert.equal(c.styles.Default.tag.fs,20);
+assert.equal(compile(stringify(parse(text))).dialogues[0].slices[0].fragments[0].text,'text');
+console.log('COMPATIBILITY_OK upstream_decompile_fixtures=2 compile_parse_stringify=ok');
