@@ -156,6 +156,37 @@ public class BaseAnimationController {
 		}
 	}
 
+	/** Apply several animations simultaneously using one set of blend weights shared by the whole skeleton, and update the
+	 * instance (local TRS, hierarchy and bone palette) to reflect the result. This uses the same multi-clip forward pose
+	 * implementation as {@link BlendWeightSolver}, so a pose committed here and a candidate evaluated by the solver are
+	 * numerically identical.
+	 * <p>
+	 * Per node, each clip's channels are sampled at its own fixed time (clamped to the channel's key range); missing
+	 * channels or node tracks contribute the node's rest TRS. Translations and scales are blended linearly, rotations are
+	 * aligned to the node's rest rotation hemisphere and blended as {@code normalize(sum_k weights[k] * q_k)}. The full
+	 * affine hierarchy is rebuilt through the real parent relations and {@link Node#inheritTransform}.
+	 * @param clips the animations to blend, must not be null/empty and must target this controller's instance
+	 * @param times sample time in seconds per clip
+	 * @param weights non-negative blend weights per clip, summing to one (tolerance {@code 1e-6}); the same weights apply to
+	 *           every node
+	 * @throws IllegalArgumentException if the arrays have mismatching lengths, the weights are not a valid simplex, or the
+	 *            clips, channels, keyframes, rest values or instance transform violate the pose constraints */
+	public void applyWeightedAnimations (final Animation[] clips, final float[] times, final double[] weights) {
+		if (applying) throw new GdxRuntimeException("Call end() first");
+		if (weights == null || clips == null || times == null || weights.length != clips.length
+			|| weights.length != times.length)
+			throw new IllegalArgumentException("clips, times and weights must be non-null and of equal length");
+		double sum = 0.0;
+		for (int i = 0; i < weights.length; i++) {
+			if (!Double.isFinite(weights[i]) || weights[i] < 0.0)
+				throw new IllegalArgumentException("weights must be finite and non-negative");
+			sum += weights[i];
+		}
+		if (Math.abs(sum - 1.0) > 1e-6) throw new IllegalArgumentException("weights must sum to one (sum=" + sum + ")");
+		final WeightedAnimationPose pose = new WeightedAnimationPose(target, clips, times);
+		pose.applyToInstance(weights);
+	}
+
 	private final static Transform tmpT = new Transform();
 
 	/** Find first key frame index just before a given time
