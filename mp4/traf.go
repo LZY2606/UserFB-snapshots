@@ -24,6 +24,12 @@ type TrafBox struct {
 	Trun     *TrunBox // The first TrunBox
 	Truns    []*TrunBox
 	Children []Box
+
+	// clockBase is the decode time of the first sample of the traf in continuous-clock mode, and
+	// hasClockBase tells whether it is set. Both are zero in the default mode, where the tfdt value or 0
+	// is the base. Decoding a traf resets them.
+	clockBase    uint64
+	hasClockBase bool
 }
 
 // DecodeTraf - box-specific decode
@@ -77,6 +83,18 @@ func (t *TrafBox) setChildren(children []Box) error {
 		return errors.New("traf without tfhd")
 	}
 	return nil
+}
+
+// baseMediaDecodeTime returns the decode time of the first sample of the traf: the continuous-clock base
+// if one is set, else the tfdt value if there is a tfdt box, else 0.
+func (t *TrafBox) baseMediaDecodeTime() uint64 {
+	if t.hasClockBase {
+		return t.clockBase
+	}
+	if t.Tfdt != nil {
+		return t.Tfdt.BaseMediaDecodeTime()
+	}
+	return 0
 }
 
 // ContainsSencBox - is there a senc box in traf and is it parsed

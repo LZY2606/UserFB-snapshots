@@ -127,6 +127,49 @@ It describes
 
 Sample numbers in the APIs start at 1, as in the ISOBMFF standard.
 
+### Continuous decode times for fragments without tfdt
+
+Some recorders write a `tfdt` box only in the first fragment of a track or when re-synchronizing, and let
+the following fragments continue from the end of the previous one. When such a stream is decoded
+sequentially, an optional continuous-clock mode keeps one decode-time clock per track instead of starting
+every `tfdt`-less fragment at 0. The mode is off by default and never changes the boxes: the `tfdt` box,
+the media bytes and the time fields of re-encoded output keep their original values, while the sample
+accessors report the effective decode times. A `tfdt` box re-anchors its track to the 64-bit `tfdt` value,
+forward or backward, and sample durations come from the `trun` per-sample fields, the `tfhd` default if
+present, or the `trex` default of the track. The mode covers unencrypted streams with one `mdat` after
+each `moof` and at most one `traf` per track in a `moof`.
+
+For decoding fragments from slices with `FragmentDecoder`, set the field, and clear the per-track clocks
+when the decoder is repurposed:
+
+```go
+d := mp4.FragmentDecoder{Moov: moov, ContinuousClock: true}
+f, err := d.DecodeSR(sr, pos)
+if err != nil {
+    log.Fatal(err)
+}
+samples, err := f.GetFullSamples(trex) // continuous decode times
+...
+d.ClearTrackClocks() // drop the clocks of all tracks
+```
+
+For streaming with `StreamFile`, use the option:
+
+```go
+sf, err := mp4.InitDecodeStream(r,
+    mp4.WithContinuousClock(),
+    mp4.WithFragmentCallback(func(f *mp4.Fragment, sa mp4.SampleAccessor) error {
+        samples, err := sa.GetSamples(trackID) // continuous decode times
+        return err
+    }))
+if err != nil {
+    log.Fatal(err)
+}
+if err := sf.ProcessFragments(); err != nil {
+    log.Fatal(err)
+}
+```
+
 ### Packages
 
 The packages in the mp4ff module are

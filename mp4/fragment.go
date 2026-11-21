@@ -239,7 +239,8 @@ func (f *Fragment) Size() uint64 {
 // GetFullSamples - Get full samples including media and accumulated time.
 // The decode times start at the tfdt time. A traf without tfdt has decode times relative to the start of the
 // fragment, since the absolute decode time of its first sample is the sum of the durations of all earlier samples
-// of the track.
+// of the track. For a fragment decoded in continuous-clock mode (see FragmentDecoder.ContinuousClock and
+// WithContinuousClock), the decode times instead start at the effective base that the mode gives the traf.
 func (f *Fragment) GetFullSamples(trex *TrexBox) ([]FullSample, error) {
 	samples, err := f.AppendFullSamples(nil, trex)
 	if err != nil {
@@ -265,10 +266,7 @@ func (f *Fragment) AppendFullSamples(dst []FullSample, trex *TrexBox) ([]FullSam
 		return dst, nil // This trackID may not exist for this fragment
 	}
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := traf.baseMediaDecodeTime()
 	origLen := len(dst)
 	walk := f.trunWalk(traf)
 	for _, trun := range traf.Truns {
@@ -338,10 +336,7 @@ func (f *Fragment) yieldSamples(trex *TrexBox, yield func(FullSample, error) boo
 			return
 		}
 	}
-	var decodeTime uint64
-	if traf.Tfdt != nil {
-		decodeTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	decodeTime := traf.baseMediaDecodeTime()
 	if walk != nil {
 		*walk = trunWalk{traf: traf} // start over
 	}

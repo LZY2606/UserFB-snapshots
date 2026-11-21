@@ -22,6 +22,21 @@ type FragmentDecoder struct {
 	// Moov is the movie box of the init segment, if known. It gives the per-sample IV size for parsing senc boxes.
 	Moov *MoovBox
 
+	// ContinuousClock switches on continuous-clock mode for tracks whose fragments omit the tfdt box, as
+	// some recorders write tfdt only at the start of a track or when re-synchronizing. The first sample of
+	// a traf without tfdt gets the decode time that follows the last sample of the previous fragment of
+	// the track, starting from 0 for a track that has not been seen, and a tfdt box re-anchors its track
+	// to the 64-bit tfdt value, forward or backward. Sample durations are resolved as the sample accessors
+	// resolve them: the trun per-sample field, then the tfhd default if its present flag is set (an
+	// explicit zero counts), then the trex default of the track, taken from Moov.Mvex. The clocks of the
+	// tracks of a fragment advance only when the whole fragment is decoded and every track passes the
+	// duration and overflow checks, so a truncated or rejected fragment, and io.EOF, leave them at the
+	// last good fragment. The mode covers unencrypted input with at most one traf per track in a moof; a
+	// moof with two trafs of one track is an error. The boxes are not modified: the effective base is what
+	// Fragment.GetFullSamples, Fragment.AppendFullSamples and Fragment.Samples report as DecodeTime, while
+	// the tfdt box and re-encoded output keep their original values. ClearTrackClocks drops the state.
+	ContinuousClock bool
+
 	frag Fragment
 	// boxes holds the top-level boxes of the last fragment, in order, and spareBoxes the storage for the next.
 	boxes, spareBoxes []Box
@@ -29,6 +44,14 @@ type FragmentDecoder struct {
 	// earlier fragments that the last one did not have, such as the styp that only the first fragment of a segment
 	// has. Each is reused at most once per fragment, by type. spareCands is the storage for the next list.
 	cands, spareCands []boxDecoderInto
+	// clocks is the continuous-clock state, used only when ContinuousClock is set.
+	clocks trackClocks
+}
+
+// ClearTrackClocks drops the continuous-clock state of all tracks, so that the next fragment without tfdt
+// starts from 0 again. It has no effect outside continuous-clock mode.
+func (d *FragmentDecoder) ClearTrackClocks() {
+	d.clocks.clear()
 }
 
 // maxReusedBoxes bounds the number of top-level boxes kept for reuse.
@@ -136,6 +159,15 @@ func (d *FragmentDecoder) DecodeSR(sr bits.SliceReader, startPos uint64) (*Fragm
 		}
 	}
 	f.StartPos = moof.StartPos
+	if d.ContinuousClock {
+		var mvex *MvexBox
+		if d.Moov != nil {
+			mvex = d.Moov.Mvex
+		}
+		if err := d.clocks.advance(moof, mvex); err != nil {
+			return nil, err
+		}
+	}
 	return f, nil
 }
 

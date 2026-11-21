@@ -158,6 +158,8 @@ type StreamFile struct {
 	maxFragments     int
 	streamPos        uint64
 	preFragmentBoxes []Box // Boxes read by InitDecodeStream that precede the first moof
+	continuousClock  bool
+	clocks           trackClocks
 }
 
 // FragmentCallback is called when a fragment's moof box has been parsed and mdat is ready to be accessed.
@@ -172,7 +174,9 @@ type FragmentDoneCallback func(f *Fragment) error
 type TrailingBoxesCallback func(lastFrag *Fragment, boxes []Box) error
 
 // SampleAccessor provides access to samples within a fragment.
-// The decode times of a traf without tfdt are relative to the start of the fragment, as in Fragment.GetFullSamples.
+// The decode times of a traf without tfdt are relative to the start of the fragment, as in
+// Fragment.GetFullSamples, unless the stream runs in continuous-clock mode (see WithContinuousClock),
+// which gives the traf an effective base instead.
 type SampleAccessor interface {
 	GetSample(trackID uint32, sampleNr uint32) (*FullSample, error)
 	GetSampleRange(trackID uint32, startSampleNr, endSampleNr uint32) ([]FullSample, error)
@@ -216,6 +220,20 @@ func WithMaxFragments(max int) StreamOption {
 	return func(sf *StreamFile) { sf.maxFragments = max }
 }
 
+// WithContinuousClock switches on continuous-clock mode for tracks whose fragments omit the tfdt box, as
+// some recorders write tfdt only at the start of a track or when re-synchronizing. The first sample of a
+// traf without tfdt gets the decode time that follows the last sample of the previous fragment of the
+// track, starting from 0 for a track that has not been seen, and a tfdt box re-anchors its track to the
+// 64-bit tfdt value, forward or backward. The clocks of the tracks of a fragment advance when its moof is
+// parsed, whether or not a fragment callback reads their samples, and a fragment that drops out of the
+// sliding window does not take its clock with it. The boxes are not modified: the effective base is what
+// the SampleAccessor methods and the Fragment sample methods report as DecodeTime, while the tfdt box and
+// re-encoded output keep their original values. See FragmentDecoder.ContinuousClock for the duration
+// resolution and the limits of the mode.
+func WithContinuousClock() StreamOption {
+	return func(sf *StreamFile) { sf.continuousClock = true }
+}
+
 // fragmentSampleAccessor implements SampleAccessor for a fragment using the boxSeekReader.
 type fragmentSampleAccessor struct {
 	fragment      *Fragment
@@ -251,10 +269,7 @@ func (fsa *fragmentSampleAccessor) GetSample(trackID uint32, sampleNr uint32) (*
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := traf.baseMediaDecodeTime()
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -341,10 +356,7 @@ func (fsa *fragmentSampleAccessor) GetSampleRange(trackID uint32, startSampleNr,
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := traf.baseMediaDecodeTime()
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -428,10 +440,7 @@ func (fsa *fragmentSampleAccessor) GetSamples(trackID uint32) ([]FullSample, err
 	}
 
 	tfhd := traf.Tfhd
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := traf.baseMediaDecodeTime()
 	moofStartPos := moof.StartPos
 	mdat := fsa.fragment.Mdat
 
@@ -530,10 +539,7 @@ func (fsa *fragmentSampleAccessor) appendSamples(dst []FullSample, buf []byte, t
 	dst = slices.Grow(dst, nrSamples)
 
 	// Second pass: read the selected samples of each trun into buf and append views of them.
-	var baseTime uint64
-	if traf.Tfdt != nil {
-		baseTime = traf.Tfdt.BaseMediaDecodeTime()
-	}
+	baseTime := traf.baseMediaDecodeTime()
 	sampleNr = 1
 	for _, trun := range traf.Truns {
 		offset := trunDataOffset(fsa.fragment.Moof.StartPos, tfhd, trun)
@@ -783,6 +789,16 @@ func keepsSlices(data []byte) bool {
 // preFragmentBoxes are boxes that appeared before the moof (sidx, emsg, styp, etc.)
 func (sf *StreamFile) processFragment(moof *MoofBox, moofStartPos uint64, preFragmentBoxes []Box) error {
 	moof.StartPos = moofStartPos
+
+	if sf.continuousClock {
+		var mvex *MvexBox
+		if sf.Moov != nil {
+			mvex = sf.Moov.Mvex
+		}
+		if err := sf.clocks.advance(moof, mvex); err != nil {
+			return err
+		}
+	}
 
 	// Peek at mdat box header
 	// Stream should already be positioned at moofEndPos (right after moof box)
