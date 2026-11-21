@@ -240,8 +240,9 @@ func (f *FlvReader) readFlvHeader(hdr []byte) error {
 }
 
 type FlvWriter struct {
-    writer io.Writer
-    muxer  *FlvMuxer
+    writer  io.Writer
+    muxer   *FlvMuxer
+    indexed *indexedRecorder // nil for the legacy non-indexed writer
 }
 
 func CreateFlvWriter(writer io.Writer) *FlvWriter {
@@ -253,6 +254,9 @@ func CreateFlvWriter(writer io.Writer) *FlvWriter {
 }
 
 func (f *FlvWriter) WriteFlvHeader() (err error) {
+    if f.indexed != nil {
+        return f.indexed.writeIndexedFlvHeader()
+    }
 
     var flvhdr [9]byte
     flvhdr[0] = 'F'
@@ -281,6 +285,9 @@ func (f *FlvWriter) WriteFlvHeader() (err error) {
 
 //adts aac frame
 func (f *FlvWriter) WriteAAC(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return f.writeIndexedAAC(data, pts, dts)
+    }
     if f.muxer.audioMuxer == nil {
         f.muxer.SetAudioCodeId(FLV_AAC)
     } else {
@@ -292,6 +299,9 @@ func (f *FlvWriter) WriteAAC(data []byte, pts uint32, dts uint32) error {
 }
 
 func (f *FlvWriter) WriteG711A(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return errIndexedCodec
+    }
     if f.muxer.audioMuxer == nil {
         f.muxer.SetAudioCodeId(FLV_G711A)
     } else {
@@ -303,6 +313,9 @@ func (f *FlvWriter) WriteG711A(data []byte, pts uint32, dts uint32) error {
 }
 
 func (f *FlvWriter) WriteG711U(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return errIndexedCodec
+    }
     if f.muxer.audioMuxer == nil {
         f.muxer.SetAudioCodeId(FLV_G711U)
     } else {
@@ -314,6 +327,9 @@ func (f *FlvWriter) WriteG711U(data []byte, pts uint32, dts uint32) error {
 }
 
 func (f *FlvWriter) WriteMp3(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return errIndexedCodec
+    }
     if f.muxer.audioMuxer == nil {
         f.muxer.SetAudioCodeId(FLV_MP3)
     } else {
@@ -343,6 +359,9 @@ func (f *FlvWriter) writeAudio(data []byte, pts uint32, dts uint32) error {
 
 //H264 Frame with startcode 0x0000001
 func (f *FlvWriter) WriteH264(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return f.writeIndexedH264(data, pts, dts)
+    }
     if f.muxer.videoMuxer == nil {
         f.muxer.SetVideoCodeId(FLV_AVC)
     } else {
@@ -355,6 +374,9 @@ func (f *FlvWriter) WriteH264(data []byte, pts uint32, dts uint32) error {
 }
 
 func (f *FlvWriter) WriteH265(data []byte, pts uint32, dts uint32) error {
+    if f.indexed != nil {
+        return errIndexedCodec
+    }
     if f.muxer.videoMuxer == nil {
         f.muxer.SetVideoCodeId(FLV_HEVC)
     } else {
