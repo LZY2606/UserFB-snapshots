@@ -1,0 +1,9 @@
+{
+  "repo": "https://github.com/minorninth/libresample",
+  "commit": "7cb7f9c3f72d4e6774d964dc324af827192df7c3",
+  "license": "BSD-3-Clause OR LGPL-2.1-or-later",
+  "excluded": [],
+  "gitlinks": [],
+  "binary_assets": [],
+  "dependencies": "C standard library, libm; optional upstream sndfile/samplerate test programs are not built"
+}
