@@ -287,6 +287,59 @@ version = versions.get(Math.random()*versions.size())
 MoovVersions.rollback(new File("my.mp4"), version)
 ```
 
+# Edit-aware MP4 playback with a common session clock
+
+`org.jcodec.containers.mp4.demuxer.EditedMP4Demuxer` opens a movie containing
+one ordinary video track and one signed 16-bit PCM audio track (`sowt`/`twos`,
+mono or stereo) and plays both tracks through their edit lists on a single
+common timescale: the exact LCM of the movie, video and audio timescales,
+rejected if it does not fit into a positive `int`. Rate-1 media segments may
+repeat or play backwards; `media_time = -1` empty segments produce zero-byte
+video gap packets and zero-filled PCM silence. Payload bytes always come from
+the native chunk/sample readers, PCM packets are cut on whole sample frame
+boundaries and never cross an edit or a physical chunk.
+
+```java
+try (SeekableByteChannel channel = NIOUtils.readableChannel(new File("movie.mp4"))) {
+    EditedMP4Demuxer session = EditedMP4Demuxer.create(channel); // channel stays caller-owned
+    long commonTimescale = session.getTimescale();
+    long duration = session.getDuration();        // on the common session clock
+
+    EditedMP4Demuxer.EditedVideoTrack video = session.getVideoTrack();
+    EditedMP4Demuxer.EditedAudioTrack audio = session.getAudioTrack();
+
+    // Reposition both tracks atomically; movieTick uses the source mvhd timescale.
+    // Returns false (without moving either track) for negative/end positions or
+    // PCM positions off a sample frame boundary. No media bytes are read.
+    session.seekMovie(movieTick);
+
+    MP4Packet frame;                              // timescale is always commonTimescale
+    while ((frame = video.nextFrame()) != null) {
+        ByteBuffer data = frame.getData();       // whole source frame bytes, even
+                                                 // when its display interval is clipped
+        long nextOutputTime = video.getPosition();
+    }
+
+    ByteBuffer storage = ByteBuffer.allocate(4096); // optional caller buffer
+    MP4Packet pcm;
+    while ((pcm = audio.getNextFrame(storage)) != null) {
+        // storage position/limit are preserved; returned data holds only this
+        // call's bytes. Smaller buffers shrink a packet to whole PCM frames,
+        // sub-frame buffers throw IllegalArgumentException without state change.
+    }
+}
+```
+
+Failed reads (short source or `IOException`) leave the track's logical position
+and sample/chunk cursors untouched, so retrying after the channel recovers
+returns the same packet. A runnable version lives in
+`samples/EditedPlayback.java` and exports the edited video and PCM byte
+streams:
+
+```
+java EditedPlayback input.mp4 video-payload.bin pcm-payload.bin
+```
+
 # Contact
 
 Feel free to communicate any questions or concerns to us. Dev team email: jcodecproject@gmail.com

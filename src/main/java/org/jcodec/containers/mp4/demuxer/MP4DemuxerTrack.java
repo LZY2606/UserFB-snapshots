@@ -21,11 +21,11 @@ import org.jcodec.containers.mp4.boxes.TrakBox;
 /**
  * This class is part of JCodec ( www.jcodec.org ) This software is distributed
  * under FreeBSD License
- * 
+ *
  * Regular MP4 track containing frames
- * 
+ *
  * @author The JCodec project
- * 
+ *
  */
 public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
 
@@ -47,6 +47,38 @@ public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
     private SeekableByteChannel input;
 
     private MovieBox movie;
+
+    /**
+     * Read pointer of a frames track: the shared sample table cursors plus the
+     * position inside the current chunk.
+     */
+    static final class FrameCursor extends Cursor {
+        final long offInChunk;
+        final int noInChunk;
+        final int ssOff;
+        final int psOff;
+        final int cttsInd;
+        final int cttsSubInd;
+
+        FrameCursor(int sttsInd, int sttsSubInd, int stcoInd, int stscInd, long pts, long curFrame, long offInChunk,
+                int noInChunk, int ssOff, int psOff, int cttsInd, int cttsSubInd) {
+            super(sttsInd, sttsSubInd, stcoInd, stscInd, pts, curFrame);
+            this.offInChunk = offInChunk;
+            this.noInChunk = noInChunk;
+            this.ssOff = ssOff;
+            this.psOff = psOff;
+            this.cttsInd = cttsInd;
+            this.cttsSubInd = cttsSubInd;
+        }
+    }
+
+    // Seek indexes, built once on demand. All O(sample count + chunk count).
+    private long[] samplePts;
+    private long[] sampleFileOff;
+    private long[] chunkFirstFrame;
+    private int[] chunkStscInd;
+    private int[] sttsCumCount;
+    private boolean seekIndexBuilt;
 
     public MP4DemuxerTrack(MovieBox mov, TrakBox trak, SeekableByteChannel input) {
         super(trak);
@@ -82,7 +114,21 @@ public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
 
     @Override
     public synchronized MP4Packet getNextFrame(ByteBuffer storage) throws IOException {
+        MP4Packet raw = readRawFrame(storage);
+        if (raw == null)
+            return null;
+        long editedPts = mediaToEdited(box, raw.getMediaPts(), movie.getTimescale());
+        return new MP4Packet(raw.data, editedPts, timescale, raw.duration, raw.frameNo, raw.frameType, null, 0,
+                raw.getMediaPts(), raw.getEntryNo(), raw.getFileOff(), raw.getSize(), raw.isPsync());
+    }
 
+    /**
+     * Reads the frame at the current cursor using the real payload loading
+     * logic, stamped with the native media timing (no edit remapping). On any
+     * read failure the cursor is rolled back to its pre-read state, so retrying
+     * with a recovered channel yields the very same frame.
+     */
+    synchronized MP4Packet readRawFrame(ByteBuffer storage) throws IOException {
         if (curFrame >= sizes.length)
             return null;
         int size = sizes[(int) curFrame];
@@ -91,12 +137,31 @@ public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
             throw new IllegalArgumentException("Buffer size is not enough to fit a packet");
         }
 
+        Cursor saved = prepareCursor();
+        int storagePos = storage == null ? 0 : storage.position();
+        int storageLimit = storage == null ? 0 : storage.limit();
         long pktPos = chunkOffsets[Math.min(chunkOffsets.length - 1, stcoInd)] + offInChunk;
 
-        ByteBuffer result = readPacketData(input, storage, pktPos, size);
+        ByteBuffer result;
+        try {
+            result = readPacketData(input, storage, pktPos, size);
+        } catch (IOException | RuntimeException e) {
+            restoreCursor(saved);
+            if (storage != null) {
+                storage.limit(storageLimit);
+                storage.position(storagePos);
+            }
+            throw e;
+        }
 
-        if (result != null && result.remaining() < size)
-            return null;
+        if (result == null || result.remaining() < size) {
+            restoreCursor(saved);
+            if (storage != null) {
+                storage.limit(storageLimit);
+                storage.position(storagePos);
+            }
+            throw new IOException("Short read of frame " + curFrame + " at offset " + pktPos);
+        }
 
         int duration = timeToSamples[sttsInd].getSampleDuration();
 
@@ -124,11 +189,9 @@ public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
         }
 
         ByteBuffer data = result == null ? null : convertPacket(result);
-        long _pts = mediaToEdited(box, realPts, movie.getTimescale());
-        FrameType ftype = sync ? FrameType.KEY : FrameType.INTER;
         int entryNo = sampleToChunks[stscInd].getEntry() - 1;
-        MP4Packet pkt = new MP4Packet(data, _pts, timescale, duration, curFrame, ftype, null, 0, realPts, entryNo,
-                pktPos, size, psync);
+        MP4Packet pkt = new MP4Packet(data, realPts, timescale, duration, curFrame,
+                sync ? FrameType.KEY : FrameType.INTER, null, 0, realPts, entryNo, pktPos, size, psync);
 
         offInChunk += size;
 
@@ -143,6 +206,137 @@ public class MP4DemuxerTrack extends AbstractMP4DemuxerTrack {
         shiftPts(1);
 
         return pkt;
+    }
+
+    @Override
+    protected Cursor prepareCursor() {
+        return new FrameCursor(sttsInd, sttsSubInd, stcoInd, stscInd, pts, curFrame, offInChunk, noInChunk, ssOff,
+                psOff, cttsInd, cttsSubInd);
+    }
+
+    @Override
+    protected void restoreCursor(Cursor cursor) {
+        super.restoreCursor(cursor);
+        FrameCursor c = (FrameCursor) cursor;
+        offInChunk = c.offInChunk;
+        noInChunk = c.noInChunk;
+        ssOff = c.ssOff;
+        psOff = c.psOff;
+        cttsInd = c.cttsInd;
+        cttsSubInd = c.cttsSubInd;
+    }
+
+    /**
+     * Builds cumulative sample/chunk indexes so cursor positioning is a set of
+     * binary searches instead of a prefix re-scan. Memory stays linear in the
+     * sample and chunk counts.
+     */
+    synchronized void buildSeekIndex() {
+        if (seekIndexBuilt)
+            return;
+        int n = sizes.length;
+        samplePts = new long[n];
+        sampleFileOff = new long[n];
+        sttsCumCount = new int[timeToSamples.length];
+        int stts = 0;
+        long cumulativePts = 0;
+        int cumulativeCount = 0;
+        for (int i = 0; i < timeToSamples.length; i++) {
+            cumulativeCount += timeToSamples[i].getSampleCount();
+            sttsCumCount[i] = cumulativeCount;
+        }
+        for (int i = 0; i < n; i++) {
+            while (stts < timeToSamples.length - 1 && i >= sttsCumCount[stts])
+                stts++;
+            samplePts[i] = cumulativePts;
+            cumulativePts += timeToSamples[stts].getSampleDuration();
+        }
+
+        int chunks = chunkOffsets.length;
+        chunkFirstFrame = new long[chunks];
+        chunkStscInd = new int[chunks];
+        int stsc = 0;
+        long firstFrame = 0;
+        long byteOff = 0;
+        for (int c = 0; c < chunks; c++) {
+            if (stsc + 1 < sampleToChunks.length && c + 1 == sampleToChunks[stsc + 1].getFirst())
+                stsc++;
+            chunkFirstFrame[c] = firstFrame;
+            chunkStscInd[c] = stsc;
+            int count = sampleToChunks[stsc].getCount();
+            long chunkBase = chunkOffsets[c];
+            for (int j = 0; j < count; j++) {
+                int sample = (int) (firstFrame + j);
+                sampleFileOff[sample] = chunkBase + byteOff;
+                byteOff += sizes[sample];
+            }
+            firstFrame += count;
+            byteOff = 0;
+        }
+        seekIndexBuilt = true;
+    }
+
+    private void requireSeekIndex() {
+        if (!seekIndexBuilt)
+            buildSeekIndex();
+    }
+
+    /**
+     * Computes the read pointer for an arbitrary frame in O(log sample count +
+     * log chunk count) without touching the active cursor. Commit it with
+     * {@link #commitCursor(Cursor)} once the move is confirmed.
+     */
+    synchronized FrameCursor cursorAtFrame(long frameNo) {
+        requireSeekIndex();
+        if (frameNo < 0 || frameNo >= sizes.length)
+            throw new IllegalArgumentException("Frame out of range: " + frameNo);
+        int sttsI = Arrays.binarySearch(sttsCumCount, (int) frameNo + 1);
+        if (sttsI < 0)
+            sttsI = -sttsI - 1;
+        int prevCount = sttsI == 0 ? 0 : sttsCumCount[sttsI - 1];
+        int sttsSub = (int) frameNo - prevCount;
+
+        int chunk = Arrays.binarySearch(chunkFirstFrame, frameNo);
+        if (chunk < 0)
+            chunk = -chunk - 2;
+        int stscI = chunkStscInd[chunk];
+        int noIn = (int) (frameNo - chunkFirstFrame[chunk]);
+        long off = sampleFileOff[(int) frameNo] - chunkOffsets[chunk];
+
+        int ss = syncSamples == null ? 0 : Arrays.binarySearch(syncSamples, (int) frameNo + 1);
+        if (ss < 0)
+            ss = -ss - 1;
+        int ps = partialSync == null ? 0 : Arrays.binarySearch(partialSync, (int) frameNo + 1);
+        if (ps < 0)
+            ps = -ps - 1;
+
+        int cttsI = 0;
+        int cttsSub = (int) frameNo;
+        if (compOffsets != null) {
+            while (cttsSub >= compOffsets[cttsI].getCount()) {
+                cttsSub -= compOffsets[cttsI].getCount();
+                cttsI++;
+            }
+        }
+        return new FrameCursor(sttsI, sttsSub, chunk, stscI, samplePts[(int) frameNo], frameNo, off, noIn, ss, ps,
+                cttsI, cttsSub);
+    }
+
+    int[] getSampleSizes() {
+        return sizes;
+    }
+
+    long[] samplePtsArray() {
+        requireSeekIndex();
+        return samplePts;
+    }
+
+    long frameDurationAt(int frame) {
+        requireSeekIndex();
+        int sttsI = Arrays.binarySearch(sttsCumCount, frame + 1);
+        if (sttsI < 0)
+            sttsI = -sttsI - 1;
+        return timeToSamples[sttsI].getSampleDuration();
     }
 
     @Override

@@ -231,6 +231,60 @@ public abstract class AbstractMP4DemuxerTrack implements SeekableDemuxerTrack {
         return result;
     }
 
+    /**
+     * Snapshot of the track's read pointer (sample table cursors and logical
+     * position). Prepared cursors let callers position the track without
+     * re-scanning the sample tables and let failed reads roll back to the exact
+     * pre-read state.
+     */
+    protected static class Cursor {
+        final int sttsInd;
+        final int sttsSubInd;
+        final int stcoInd;
+        final int stscInd;
+        final long pts;
+        final long curFrame;
+
+        Cursor(int sttsInd, int sttsSubInd, int stcoInd, int stscInd, long pts, long curFrame) {
+            this.sttsInd = sttsInd;
+            this.sttsSubInd = sttsSubInd;
+            this.stcoInd = stcoInd;
+            this.stscInd = stscInd;
+            this.pts = pts;
+            this.curFrame = curFrame;
+        }
+    }
+
+    /**
+     * Captures the current read pointer. Subclasses extend it to also snapshot
+     * their own cursor state (chunk offsets, sync sample pointers, ...).
+     */
+    protected Cursor prepareCursor() {
+        return new Cursor(sttsInd, sttsSubInd, stcoInd, stscInd, pts, curFrame);
+    }
+
+    /**
+     * Restores a read pointer previously taken with {@link #prepareCursor()}.
+     * Subclasses extend it to also restore their own cursor state.
+     */
+    protected void restoreCursor(Cursor cursor) {
+        sttsInd = cursor.sttsInd;
+        sttsSubInd = cursor.sttsSubInd;
+        stcoInd = cursor.stcoInd;
+        stscInd = cursor.stscInd;
+        pts = cursor.pts;
+        curFrame = cursor.curFrame;
+    }
+
+    /**
+     * Atomically replaces the active read pointer. Positioning work happens on
+     * a detached copy first, so a validation failure never moves the track even
+     * partially.
+     */
+    protected final void commitCursor(Cursor cursor) {
+        restoreCursor(cursor);
+    }
+
     public abstract MP4Packet getNextFrame(ByteBuffer storage) throws IOException;
     
     public ByteBuffer convertPacket(ByteBuffer _in) {
