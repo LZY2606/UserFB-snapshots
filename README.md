@@ -89,6 +89,53 @@ fn main() {
 
 This code can also be found in `examples/sphere.rs`. Note that the shadow is correctly tinted red due to [global illumination](https://en.wikipedia.org/wiki/Global_illumination). See the detailed [API documentation](https://docs.rs/rpt) for information about all of the features, and feel free to learn from the other examples!
 
+## Finite planar mirrors
+
+Rough materials can only discover specular paths by randomly sampling directions,
+which essentially never finds a discrete path that folds through a small set of
+finite mirrors. The `rpt::mirrors` module instead adds up to 8 finite, double-sided,
+ideal planar mirrors (`MirrorPanel`) and solves every valid point-light connection
+deterministically by unfolding the polyline into virtual mirror images. No copy of
+the panels is placed in `Scene.objects`; once attached to a `Renderer` with the
+`mirror_transport` builder, the panels are real geometry for eye paths, BSDF
+continuations and occlusion, without modifying the scene or any material.
+
+```rust
+use rpt::*;
+
+let panel = MirrorPanel {
+    center: glm::vec3(0.0, 0.0, 1.25),
+    edge_u: glm::vec3(0.0, 1.5, 0.0),   // orthogonal, nonzero half-edge
+    edge_v: glm::vec3(0.0, 0.0, 1.25),
+    reflectance: glm::vec3(0.9, 0.7, 0.45), // each channel in [0, 1]
+};
+let transport = MirrorTransport::new(vec![panel], 2 /* max reflections, 0..=4 */)?;
+let image = Renderer::new(&scene, camera)
+    .mirror_transport(&transport)
+    .max_bounces(3)
+    .render();
+```
+
+For every ordinary opaque receiver and each `Light::Point`, the direct path is kept
+and every ordered panel sequence up to the remaining bounce budget is enumerated
+(consecutive repeats of one panel collapse and are skipped, but `A -> B -> A` is
+kept). `MirrorTransport::connect` returns the solved `MirrorPath`s — panel indices,
+world-space fold vertices, total polyline length and reflectance product — and the
+renderer accumulates those exact paths: point-light intensity divided by the square
+of the *total* path length, times the product of RGB reflectances, evaluated with
+the receiver's existing BSDF and forward cosine. There is no separate diagnostic
+solver and no per-segment attenuation.
+
+Degenerate configurations produce no contribution rather than errors: parallel or
+coplanar unfolded lines, zero-length segments, folds outside a finite aperture, and
+segments blocked by an ordinary object or by a panel not at that segment's endpoint.
+Only endpoint self-intersections are ignored; an object behind the point light never
+blocks. The finite-segment predicates use fixed tolerances, documented on the
+`MIRROR_EPSILON`, `MIRROR_PARALLEL_EPSILON` and `MIRROR_TIME_EPSILON` constants.
+`Renderer::trace_ray_seeded` traces one ray through the same code path and returns
+the un-tonemapped linear color.
+
+
 ## References
 
 - [Physically Based Rendering, 3rd ed.](http://www.pbr-book.org/)

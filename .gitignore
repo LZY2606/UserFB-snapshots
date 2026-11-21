@@ -1,4 +1,6 @@
 /target
+/harness/target
+/.task-build
 Cargo.lock
 
 # Editor files
