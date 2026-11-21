@@ -102,6 +102,9 @@ namespace SoLoud
 		mDelaySamples = 0;
 		mOverallVolume = 0;
 		mOverallRelativePlaySpeed = 1;
+		mLatencyCompensation = 0;
+		mLatencyRing = 0;
+		mLatencyRingPos = 0;
 	}
 
 	AudioSourceInstance::~AudioSourceInstance()
@@ -110,7 +113,9 @@ namespace SoLoud
 		for (i = 0; i < FILTERS_PER_STREAM; i++)
 		{
 			delete mFilter[i];
-		}		
+		}
+		// Latency compensation rings are owned by the voice itself.
+		delete[] mLatencyRing;
 	}
 
 	void AudioSourceInstance::init(AudioSource &aSource, int aPlayIndex)

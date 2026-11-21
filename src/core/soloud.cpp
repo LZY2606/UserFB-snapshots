@@ -168,6 +168,9 @@ namespace SoLoud
 		mHighestVoice = 0;
 		mResampleData = NULL;
 		mResampleDataOwner = NULL;
+		mLatencyCompensationReady = false;
+		mLatencyCompensationTotal = 0;
+		mMixStarted = false;
 		for (i = 0; i < 3 * MAX_CHANNELS; i++)
 			m3dSpeakerPosition[i] = 0;
 	}
@@ -196,6 +199,10 @@ namespace SoLoud
 		unlockAudioMutex_internal();
 		SOLOUD_ASSERT(!mInsideAudioThreadMutex);
 		stopAll();
+		// Voices (and their compensation rings) are gone; drop the plan state
+		// so a later init/play/prepare cycle starts clean.
+		clearFilterLatencyCompensation_internal();
+		mMixStarted = false;
 		if (mBackendCleanupFunc)
 			mBackendCleanupFunc(this);
 		mBackendCleanupFunc = 0;
@@ -1713,6 +1720,17 @@ namespace SoLoud
 									mStreamTime);
 							}
 						}
+
+						// Filter latency compensation runs on the filtered PCM
+						// itself (the source is not read again), planar with an
+						// independent line per channel. This covers plain sources
+						// and Bus instances alike, because a bus' getAudio() ends
+						// up in this same path. Only freshly fetched blocks reach
+						// here, so a block is never delayed twice.
+						if (mLatencyCompensationReady && voice->mLatencyCompensation)
+						{
+							applyLatencyCompensation_internal(voice, voice->mResampleData[0], SAMPLE_GRANULARITY, SAMPLE_GRANULARITY);
+						}
 					}
 					else
 					{
@@ -2124,6 +2142,9 @@ namespace SoLoud
 		globalVolume[1] = mGlobalVolume;
 
 		lockAudioMutex_internal();
+
+		// A latency compensation plan can only be prepared before the first mix.
+		mMixStarted = true;
 
 		// Process faders. May change scratch size.
 		int i;

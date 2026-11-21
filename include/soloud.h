@@ -389,6 +389,19 @@ namespace SoLoud
 		// Set global filters. Set to NULL to clear the filter.
 		void setGlobalFilter(unsigned int aFilterId, Filter *aFilter);
 
+		// Build a filter latency compensation plan for the current, fixed voice
+		// graph. Must be called after every source and nested bus has been
+		// played and before the first mix() call; global filters are not
+		// supported. On success, branches arriving at each parent junction are
+		// delayed (with the already filtered PCM) so that frames originating
+		// from the same source frame line up. Returns INVALID_PARAMETER and
+		// leaves no partial plan when the configuration is not supported.
+		result prepareFilterLatencyCompensation();
+		// Total latency of the root output, in frames at the 48kHz engine rate,
+		// as computed by the last successful prepare call. 0 when no plan is
+		// active (original behavior).
+		unsigned int getFilterLatencyCompensationFrames() const;
+
 		// Enable or disable visualization data gathering
 		void setVisualizationEnable(bool aEnable);
 
@@ -589,6 +602,22 @@ namespace SoLoud
 		unsigned int mActiveVoiceCount;
 		// Active voices list needs to be recalculated
 		bool mActiveVoiceDirty;
+
+		// Filter latency compensation state (see soloud_latency.h).
+		// mLatencyCompensationReady marks a successfully prepared, still valid
+		// plan; mLatencyCompensationTotal is the root output latency in frames.
+		bool mLatencyCompensationReady;
+		unsigned int mLatencyCompensationTotal;
+		// True once mix_internal() has run; prepare is rejected afterwards.
+		bool mMixStarted;
+
+		// Sum of the serial filter latencies of one voice, in frames.
+		unsigned int voiceFilterLatencyFrames_internal(const AudioSourceInstance *aVoice) const;
+		// Push a voice's planar buffer through its compensation delay line.
+		// aBufferSize is the planar stride; only aSamples frames are valid.
+		void applyLatencyCompensation_internal(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamples, unsigned int aBufferSize);
+		// Discard every prepared plan (all voices and the engine state).
+		void clearFilterLatencyCompensation_internal();
 	};
 };
 

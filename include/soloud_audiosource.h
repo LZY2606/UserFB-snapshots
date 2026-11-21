@@ -188,6 +188,18 @@ namespace SoLoud
 		// When looping, start playing from this time
 		time mLoopPoint;
 
+		// Filter latency compensation (see soloud_latency.h). Zero when no
+		// compensation plan is active. mLatencyCompensation is the pure delay,
+		// in frames, inserted at this voice's parent input junction; the ring
+		// buffer is planar (one independent delay line per channel) and is
+		// allocated during prepareFilterLatencyCompensation(), never on the
+		// mixing path.
+		unsigned int mLatencyCompensation;
+		float *mLatencyRing;
+		unsigned int mLatencyRingPos;
+		// Reset all latency compensation state (also used when a plan fails).
+		void clearLatencyCompensation();
+
 		// Get N samples from the stream to the buffer. Report samples written.
 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize) = 0;
 		// Has the stream ended?

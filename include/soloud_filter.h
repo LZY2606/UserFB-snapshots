@@ -49,6 +49,11 @@ namespace SoLoud
 		virtual void setFilterParameter(unsigned int aAttributeId, float aValue);
 		virtual void fadeFilterParameter(unsigned int aAttributeId, float aTo, time aTime, time aStartTime);
 		virtual void oscillateFilterParameter(unsigned int aAttributeId, float aFrom, float aTo, time aTime, time aStartTime);
+		// Pure delay introduced by this filter instance, counted in frames at the
+		// 48kHz engine rate. Default implementation reports 0. Latencies of serial
+		// filters on the same stream are added together by the latency compensation
+		// planner (see soloud_latency.h).
+		virtual unsigned int getLatencyFrames() const;
 		virtual ~FilterInstance();
 	};
 

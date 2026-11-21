@@ -53,7 +53,7 @@ namespace SoLoud
 		}
 		
 		Soloud *s = mParent->mSoloud;
-		
+
 		s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);
 
 		int i;
