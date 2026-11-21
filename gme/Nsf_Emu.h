@@ -52,6 +52,25 @@ public:
 	Nsf_Emu();
 	~Nsf_Emu();
 	Nes_Apu* apu_() { return &apu; }
+
+	// Resumable frame-advance core, also used by run_clocks(). frame_begin()
+	// starts an internal frame of the given length in NES clocks. frame_step()
+	// executes at most instr_budget real 6502 instructions (unlimited if
+	// negative), reports how many it executed, and sets *frame_done once the
+	// frame's clocks are fully emulated; when the budget runs out it stops
+	// cleanly at an instruction boundary within the unfinished frame.
+	// frame_end() finishes a completed frame and returns the emulated clocks.
+	void        frame_begin( blip_time_t clocks );
+	long        frame_step( long instr_budget, bool* frame_done );
+	blip_time_t frame_end();
+
+	// Frame sizing and sample buffer services for resumable drivers
+	blip_time_t frame_length() const   { return frame_clocks(); }
+	nes_time_t  frame_time() const     { return time(); }
+	void        end_frame_samples( blip_time_t d ) { end_buf_frame( d ); }
+	long        read_samples( short* out, long count ) { return read_buf_samples( out, count ); }
+	long        samples_avail() const  { return buf_samples_avail(); }
+
 protected:
 	blargg_err_t track_info_( track_info_t*, int track ) const;
 	blargg_err_t load_( Data_Reader& );
@@ -73,6 +92,7 @@ protected:
 	Nes_Cpu::registers_t saved_state;
 	nes_time_t next_play;
 	nes_time_t play_period;
+	blip_time_t frame_duration_;
 	int play_extra;
 	int play_ready;
 

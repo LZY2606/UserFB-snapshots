@@ -58,11 +58,18 @@ public:
 	void clear_error_count()            { error_count_ = 0; }
 	unsigned long error_count() const   { return error_count_; }
 
+	// Maximum number of instructions the next run() call may execute before
+	// returning, or -1 for no limit (the default). run() stops cleanly at an
+	// instruction boundary when the limit is reached, and writes the
+	// remaining count back here.
+	void set_instr_limit( long n )      { instr_limit_ = n; }
+	long instr_limit() const            { return instr_limit_; }
+
 	// CPU invokes bad opcode handler if it encounters this
 	enum { bad_opcode = 0xF2 };
 
 public:
-	Nes_Cpu() { state = &state_; }
+	Nes_Cpu() : instr_limit_( -1 ) { state = &state_; }
 	enum { page_bits = 11 };
 	enum { page_count = 0x10000 >> page_bits };
 	enum { irq_inhibit = 0x04 };
@@ -77,6 +84,7 @@ private:
 	nes_time_t irq_time_;
 	nes_time_t end_time_;
 	unsigned long error_count_;
+	long instr_limit_;
 
 	void set_code_page( int, void const* );
 	inline int update_end_time( nes_time_t end, nes_time_t irq );

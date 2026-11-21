@@ -85,6 +85,26 @@ void Classic_Emu::change_clock_rate( uint32_t rate )
 	buf->clock_rate( rate );
 }
 
+blip_time_t Classic_Emu::frame_clocks() const
+{
+	return (int32_t) buf->length() * clock_rate_ / 1000;
+}
+
+void Classic_Emu::end_buf_frame( blip_time_t duration )
+{
+	buf->end_frame( duration );
+}
+
+long Classic_Emu::read_buf_samples( sample_t* out, long count )
+{
+	return buf->read_samples( out, count );
+}
+
+long Classic_Emu::buf_samples_avail() const
+{
+	return buf->samples_avail();
+}
+
 blargg_err_t Classic_Emu::setup_buffer( uint32_t rate )
 {
 	change_clock_rate( rate );
@@ -115,7 +135,7 @@ blargg_err_t Classic_Emu::play_( long count, sample_t* out )
 				remute_voices();
 			}
 			int msec = buf->length();
-			blip_time_t clocks_emulated = (int32_t) msec * clock_rate_ / 1000;
+			blip_time_t clocks_emulated = frame_clocks();
 			RETURN_ERR( run_clocks( clocks_emulated, msec ) );
 			assert( clocks_emulated );
 			buf->end_frame( clocks_emulated );

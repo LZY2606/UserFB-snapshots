@@ -22,6 +22,12 @@ protected:
 	long clock_rate() const { return clock_rate_; }
 	void change_clock_rate( uint32_t ); // experimental
 
+	// Internal frame services, also used by resumable drivers (Nsf_Pump)
+	blip_time_t frame_clocks() const;
+	void end_buf_frame( blip_time_t duration );
+	long read_buf_samples( sample_t* out, long count );
+	long buf_samples_avail() const;
+
 	// Overridable
 	virtual void set_voice( int index, Blip_Buffer* center,
 			Blip_Buffer* left, Blip_Buffer* right ) = 0;

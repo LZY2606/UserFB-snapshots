@@ -1,0 +1,30 @@
+[  7%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Classic_Emu.cpp.o
+[  7%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Blip_Buffer.cpp.o
+[ 11%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Data_Reader.cpp.o
+[ 14%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Dual_Resampler.cpp.o
+[ 18%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Effects_Buffer.cpp.o
+[ 22%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Fir_Resampler.cpp.o
+[ 25%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/gme.cpp.o
+[ 29%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Gme_File.cpp.o
+[ 33%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/M3u_Playlist.cpp.o
+[ 37%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Multi_Buffer.cpp.o
+[ 40%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Music_Emu.cpp.o
+[ 44%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Apu.cpp.o
+[ 48%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Cpu.cpp.o
+[ 51%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Fme7_Apu.cpp.o
+[ 55%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Namco_Apu.cpp.o
+[ 59%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Oscs.cpp.o
+[ 62%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Vrc6_Apu.cpp.o
+[ 66%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Fds_Apu.cpp.o
+[ 70%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nes_Vrc7_Apu.cpp.o
+[ 74%] Building C object upstream/gme/CMakeFiles/gme_static.dir/ext/emu2413.c.o
+[ 77%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nsf_Emu.cpp.o
+[ 81%] Building CXX object upstream/gme/CMakeFiles/gme_static.dir/Nsf_Pump.cpp.o
+[ 85%] Linking CXX static library libgme.a
+[ 85%] Built target gme_static
+[ 92%] Building CXX object CMakeFiles/baseline.dir/baseline.cpp.o
+[ 92%] Building CXX object CMakeFiles/api_consumer.dir/api_consumer.cpp.o
+[ 96%] Linking CXX executable baseline
+[100%] Linking CXX executable api_consumer
+[100%] Built target baseline
+[100%] Built target api_consumer

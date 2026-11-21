@@ -79,6 +79,7 @@ void Nes_Cpu::reset( void const* unmapped_page )
 	irq_time_ = future_nes_time;
 	end_time_ = future_nes_time;
 	error_count_ = 0;
+	instr_limit_ = -1;
 
 	blaarg_static_assert( page_size == 0x800, "NES set to use unhandled page size" ); // assumes this
 	set_code_page( page_count, unmapped_page );
@@ -124,6 +125,10 @@ bool Nes_Cpu::run( nes_time_t end_time )
 	// even on x86, using s.time in place of s_time was slower
 	int16_t s_time = s.time;
 
+	// instruction budget; -1 means unlimited
+	long instr_left = instr_limit_;
+	bool instr_stop = false;
+
 	// registers
 	uint16_t pc = r.pc;
 	uint8_t a = r.a;
@@ -162,6 +167,14 @@ dec_clock_loop:
 	s_time--;
 loop:
 
+	if ( instr_left == 0 )
+	{
+		instr_stop = true;
+		goto stop;
+	}
+	if ( instr_left > 0 )
+		instr_left--;
+
 	check( (unsigned) GET_SP() < 0x100 );
 	check( (unsigned) pc < 0x10000 );
 	check( (unsigned) a < 0x100 );
@@ -169,7 +182,8 @@ loop:
 	check( (unsigned) y < 0x100 );
 	check( -32768 <= s_time && s_time < 32767 );
 
-	uint8_t const* instr = s.code_map [pc >> page_bits];
+	uint8_t const* instr;
+	instr = s.code_map [pc >> page_bits];
 	uint8_t opcode;
 
 	// TODO: eliminate this special case
@@ -1104,6 +1118,7 @@ stop:
 	this->state_ = s;
 	this->state = &this->state_;
 
-	return s_time < 0;
+	instr_limit_ = instr_left;
+	return s_time < 0 && !instr_stop;
 }
 

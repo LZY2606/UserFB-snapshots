@@ -163,6 +163,8 @@ if(USE_GME_NSF OR USE_GME_NSFE)
                 ext/emu2413.h
                 Nsf_Emu.cpp
                 Nsf_Emu.h
+                Nsf_Pump.cpp
+                Nsf_Pump.h
         )
 endif()
 

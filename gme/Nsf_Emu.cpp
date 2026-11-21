@@ -615,14 +615,39 @@ blargg_err_t Nsf_Emu::start_track_( int track )
 	return 0;
 }
 
-blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
+void Nsf_Emu::frame_begin( blip_time_t clocks )
 {
 	set_time( 0 );
-	while ( time() < duration )
+	frame_duration_ = clocks;
+}
+
+long Nsf_Emu::frame_step( long instr_budget, bool* frame_done )
+{
+	long total = 0;
+	while ( time() < frame_duration_ )
 	{
-		nes_time_t end = min( (blip_time_t) next_play, duration );
+		if ( instr_budget >= 0 && total >= instr_budget )
+			break;
+
+		nes_time_t end = min( (blip_time_t) next_play, (blip_time_t) frame_duration_ );
 		end = min( end, time() + 32767 ); // allows CPU to use 16-bit time delta
-		if ( cpu::run( end ) )
+
+		long limit = -1;
+		if ( instr_budget >= 0 )
+			limit = instr_budget - total;
+		cpu::set_instr_limit( limit );
+
+		bool stopped_on_bad = cpu::run( end );
+
+		if ( limit >= 0 )
+		{
+			long ran = limit - cpu::instr_limit();
+			if ( stopped_on_bad && r.pc == badop_addr )
+				ran -= 1; // internal return sentinel is not a real instruction
+			total += ran;
+		}
+
+		if ( stopped_on_bad )
 		{
 			if ( r.pc != badop_addr )
 			{
@@ -662,14 +687,20 @@ blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 			}
 		}
 	}
+	cpu::set_instr_limit( -1 );
+	*frame_done = (time() >= frame_duration_);
+	return total;
+}
 
+blip_time_t Nsf_Emu::frame_end()
+{
 	if ( cpu::error_count() )
 	{
 		cpu::clear_error_count();
 		set_warning( "Emulation error (illegal instruction)" );
 	}
 
-	duration = time();
+	blip_time_t duration = time();
 	next_play -= duration;
 	check( next_play >= 0 );
 	if ( next_play < 0 )
@@ -688,5 +719,15 @@ blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
 	}
 	#endif
 
+	return duration;
+}
+
+blargg_err_t Nsf_Emu::run_clocks( blip_time_t& duration, int )
+{
+	frame_begin( duration );
+	bool done = false;
+	while ( !done )
+		frame_step( -1, &done );
+	duration = frame_end();
 	return 0;
 }

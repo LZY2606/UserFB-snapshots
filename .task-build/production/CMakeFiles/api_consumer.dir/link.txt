@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/api_consumer.dir/api_consumer.cpp.o -o api_consumer  upstream/gme/libgme.a
