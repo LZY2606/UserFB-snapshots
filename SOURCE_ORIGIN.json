@@ -1,0 +1,12 @@
+{
+  "repo": "https://github.com/libsndfile/libsndfile",
+  "commit": "396a715daeae7316f047ee220b364ab983b66df4",
+  "tree": "1e2f408f88a904642a39fed559499e9c8180a38c",
+  "archive_sha256": "2b517bd3a65c390bd867bb20dc8a86110b3a8bd1881c3069d7e5629b92c6eda9",
+  "license": "LGPL-2.1-or-later; bundled ALAC license at src/ALAC/LICENSE",
+  "excluded_tracked_paths": [],
+  "additions": [
+    "task_support/",
+    "SOURCE_ORIGIN.json"
+  ]
+}
