@@ -1,0 +1,236 @@
+{
+  "repo": "https://github.com/toots/shine",
+  "commit": "ab5e3526b64af1a2eaa43aa6f441a7312e013519",
+  "license": "GNU Library General Public License v2 (COPYING)",
+  "files": [
+    {
+      "path": "COPYING",
+      "git_mode": "100644",
+      "git_blob": "111a3bebf61821e84b7645e5fa2b767f883200d3",
+      "sha256": "517c8bbea53e7257be86efaaba4c0b83effc386e4d84e0b6a33e025266ddb74e"
+    },
+    {
+      "path": "ChangeLog",
+      "git_mode": "100644",
+      "git_blob": "071328280f2ea7f2545f4409cd6ef334e34ec650",
+      "sha256": "c7fce8abfbc6e586dfe013b52fc211424b0723b23218f4244dc682c667ace2b6"
+    },
+    {
+      "path": "Makefile.am",
+      "git_mode": "100644",
+      "git_blob": "538256c970805f930e2209376de669dabb2ff62c",
+      "sha256": "acf9b6504faf022d928dcace4fec92390b83618d4497702f49126ea90d2283e5"
+    },
+    {
+      "path": "README.md",
+      "git_mode": "100644",
+      "git_blob": "e9b781a16c144d1fd7a3b10909e94c14c249575c",
+      "sha256": "858f05cc0ca0be56a25a80a17c7aae195ee16e7a5d8cea13504c153ea9f7fc9b"
+    },
+    {
+      "path": "README.old",
+      "git_mode": "100644",
+      "git_blob": "3c114197c807fd51ae901df7e900ff33601046b7",
+      "sha256": "9be993211de131a690fab2732a5803a26372dc29005a305c6e9e2f0bedf30576"
+    },
+    {
+      "path": "bootstrap",
+      "git_mode": "100755",
+      "git_blob": "320f8d1cde1246ed78afea6c795c0eea50223db6",
+      "sha256": "45c944f499311bc159e09daf8e856e7521ec0003b66cdb76626efdddc7653d78"
+    },
+    {
+      "path": "configure.ac",
+      "git_mode": "100644",
+      "git_blob": "6d6cb2319775195385457236afbb8800358f0e70",
+      "sha256": "73fa49c863f3ec6eb32aa86b9ca4f6eed2df1f11ed635df29c138c295a34dafe"
+    },
+    {
+      "path": "libshine.sym",
+      "git_mode": "100644",
+      "git_blob": "1b23d52b9964b1ef0d900d4d1321de1cd87e3f30",
+      "sha256": "8ae74828b77693fdae5b7df9f36b86d42d16133854d050063936ffcedf73fb91"
+    },
+    {
+      "path": "shine.pc.in",
+      "git_mode": "100644",
+      "git_blob": "7a7e0881b72493019fbd736e78df200f61c6d369",
+      "sha256": "2d3635d3efa940fa40494c70518bcd008f56403dc75b1b005cf99123ac6786d3"
+    },
+    {
+      "path": "src/bin/main.c",
+      "git_mode": "100644",
+      "git_blob": "b7b70a409b20f63dc18159de8cdda2dc457aebea",
+      "sha256": "005834e7a6634f196f02e8412f60e5044c9a1ce22f15899b9a3c7f349459b522"
+    },
+    {
+      "path": "src/bin/main.h",
+      "git_mode": "100644",
+      "git_blob": "7ab9691d1ad4bf6cc85d5599e20933e112a33fcb",
+      "sha256": "010b0c7037dd211fa5b4404ab80b9fe00a41ca981ddb5c1fcfa87c6729abdf49"
+    },
+    {
+      "path": "src/bin/wave.c",
+      "git_mode": "100644",
+      "git_blob": "3c7ab81ce11333dd6da7402a687dcab27c88d6a8",
+      "sha256": "cf0e15fac5da85d1d9f16ff4f64686870a86364dc64801fbba3e2bf69a16f959"
+    },
+    {
+      "path": "src/bin/wave.h",
+      "git_mode": "100644",
+      "git_blob": "b77f0b5825224fd339a15c9e1b88e0ccc41a9ea2",
+      "sha256": "2846d219a5e3f65bd21223ec760ab1ba0079c9ce16c4c77b2a67e5eb9ab1662e"
+    },
+    {
+      "path": "src/lib/bitstream.c",
+      "git_mode": "100644",
+      "git_blob": "9408f2ca3f5d4546bf9d7f2b09a47d9e883289e0",
+      "sha256": "8d1dafb8df778839820268a2b8dbe5a97e79592fa25d3819768748fede9e515f"
+    },
+    {
+      "path": "src/lib/bitstream.h",
+      "git_mode": "100644",
+      "git_blob": "4f7efb6a819953888351c8857976a6b709af6751",
+      "sha256": "fd52bf0102a3280a3a67352c412f39d769174a5e2ebd30d2147b1e14d717fc4d"
+    },
+    {
+      "path": "src/lib/huffman.c",
+      "git_mode": "100644",
+      "git_blob": "854ae41a49e0e1e9cb6af5ae0354fb6ac351f894",
+      "sha256": "3cbd7f3a410870493b0bf68a42913b53c54eb8bbfc2e4c37f8a09c920b972df3"
+    },
+    {
+      "path": "src/lib/huffman.h",
+      "git_mode": "100644",
+      "git_blob": "6a341c71dffc121dbf4f99206e10364543ba9797",
+      "sha256": "5c0daa50a28c8ac836fd3e7be61df75d3e0506267e8e79b4f63b955c04a656d4"
+    },
+    {
+      "path": "src/lib/l3bitstream.c",
+      "git_mode": "100644",
+      "git_blob": "1b2849eee8266b2cc08130c14301552aba62de4a",
+      "sha256": "6b8d01088f823b2d4c7d926bdb9e078faf3d0a93ef976df3da141f5a2e08fe60"
+    },
+    {
+      "path": "src/lib/l3bitstream.h",
+      "git_mode": "100644",
+      "git_blob": "fa618993514a26fe91e5aaee5d3a26f8f6fcd0d3",
+      "sha256": "7d09cbf7107191de7692e4d9d07d261a7f8ab9bcc40df2b887658c83642bb880"
+    },
+    {
+      "path": "src/lib/l3loop.c",
+      "git_mode": "100644",
+      "git_blob": "d3799fbccae5065d18181ce1e4ae33f52a1e976e",
+      "sha256": "ffea073349856b364e0decc1b0274fcc599a6b300d15e55fa7da2ad5dd8b8e8b"
+    },
+    {
+      "path": "src/lib/l3loop.h",
+      "git_mode": "100644",
+      "git_blob": "94ecea33ac6b75b07233cfd577b925a3d9ba27b1",
+      "sha256": "1e4cc8d8200b1e7ab7445dcb2c8ccdc41f55873f2bc921e2b281b66f18502716"
+    },
+    {
+      "path": "src/lib/l3mdct.c",
+      "git_mode": "100644",
+      "git_blob": "a76b7023e8a3d23f2ad64378f9a32f9e78763a25",
+      "sha256": "d6c16ec6712b2ca5b9d0daab65b59f25a51448555b21a26c10ca2367c5eb64dc"
+    },
+    {
+      "path": "src/lib/l3mdct.h",
+      "git_mode": "100644",
+      "git_blob": "3018eb924cfe4bc4dd9dfbc9881405dfe3b9871b",
+      "sha256": "acf6ce1571ebee244044a68b24dd03777b789df7be733ea27e21a35d54530e6b"
+    },
+    {
+      "path": "src/lib/l3subband.c",
+      "git_mode": "100644",
+      "git_blob": "78f428eb9abbe2a6d7a354155b7e1c84290c181e",
+      "sha256": "b57f91616a2de613b837fead48d66d63bc5eda9b4470583c5f64c5077f2d7ba2"
+    },
+    {
+      "path": "src/lib/l3subband.h",
+      "git_mode": "100644",
+      "git_blob": "5cfbef5cbe59dffb751b5fb2b10bb42c973749ff",
+      "sha256": "d25f8a66fdc2401eb6d6f571d69594fae6a8fb34728d4efddf1d0b1212de4251"
+    },
+    {
+      "path": "src/lib/layer3.c",
+      "git_mode": "100644",
+      "git_blob": "f3d1ecd0396b2abdcb0447352c918c08a3457ea5",
+      "sha256": "de1a5d00cadf3b1d1a34de1473e71a9242869b2beeb108407f68861a8e4d2119"
+    },
+    {
+      "path": "src/lib/layer3.h",
+      "git_mode": "100644",
+      "git_blob": "d72b6a4f8993adb57420109b32cce6f0f20ae1bb",
+      "sha256": "666b502577b2e37ddc6704851a85b37bd4a6a58afb5f0349889ecdba90c6b47f"
+    },
+    {
+      "path": "src/lib/mult_mips_gcc.h",
+      "git_mode": "100644",
+      "git_blob": "d49d21589138873a07aefdd5d3796212cdae4e31",
+      "sha256": "3b69725742c3303ed2e899e92670373ecbcbee33605cf590e84e6a5fa1f4b56b"
+    },
+    {
+      "path": "src/lib/mult_noarch_gcc.h",
+      "git_mode": "100644",
+      "git_blob": "2ee207ef43df3fe640f54e8d6880b907c963ac56",
+      "sha256": "f6094c3ab0ad58130a027867ed8d1a646d63dd4c83ecddd751adec07c6c4e60a"
+    },
+    {
+      "path": "src/lib/mult_sarm_gcc.h",
+      "git_mode": "100644",
+      "git_blob": "0cf8e088edec672d0b20a93e4b6bca065871dcb0",
+      "sha256": "39b8c8166614b0b53bf8e63392ace988813dfe520149af5596a038f34af552e5"
+    },
+    {
+      "path": "src/lib/reservoir.c",
+      "git_mode": "100644",
+      "git_blob": "cea0a9b398ee1bd62b292cd85a4b2596c8e98bbc",
+      "sha256": "5754e370cc3dae68a02adf049fdf30a55628fe113191407d82ba32f8352c7770"
+    },
+    {
+      "path": "src/lib/reservoir.h",
+      "git_mode": "100644",
+      "git_blob": "2245778eef1628c0899d79c24c225d12aca62e43",
+      "sha256": "6a24ddb678f635b1d97703468c91d7209a76d47b8d5265d195b95f3222734b92"
+    },
+    {
+      "path": "src/lib/tables.c",
+      "git_mode": "100644",
+      "git_blob": "3c63b4fb8ae85500d037f5ada8f619224ce6ef3f",
+      "sha256": "94af116b5aa89c21116a7874f2d66b893dc8ec8342a19e03711c3a38a9bdd261"
+    },
+    {
+      "path": "src/lib/tables.h",
+      "git_mode": "100644",
+      "git_blob": "fe06502e162b347ea74758668fcf6174acf4943c",
+      "sha256": "c6e3872b6b480cea63989f6ddefe20409deb21b9207cde1e0616143981a3cd55"
+    },
+    {
+      "path": "src/lib/types.h",
+      "git_mode": "100644",
+      "git_blob": "11a05fcb5cacb8b783ec0f32ebb1281ca122b3c2",
+      "sha256": "eac166b7d9c9854290aa5299cc60d5d73dddedab0e42b55a7429f9f02cc35d53"
+    }
+  ],
+  "gitlinks": [],
+  "symlinks": [],
+  "dependencies": [
+    {
+      "repo": "https://github.com/lieff/minimp3",
+      "commit": "ea99364f61c14656440e8d77e9c233ccf3124633",
+      "license": "CC0-1.0",
+      "files": [
+        {
+          "path": "vendor/minimp3/minimp3.h",
+          "sha256": "57e437c5c1f0e8b243885d3929c8973b5e6c778451e0100ab4251d19915cb3ad"
+        },
+        {
+          "path": "vendor/minimp3/LICENSE",
+          "sha256": "6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01"
+        }
+      ]
+    }
+  ]
+}
