@@ -1,0 +1,11 @@
+CASE cursor budget_one_qcif checks=2044
+CASE cursor irregular_budget_cif checks=3741
+GROUP cursor cases=2 checks=5785 COMPLETE
+CASE output pull_capacity_patterns checks=180
+CASE output irregular_pulls_vbr checks=139
+GROUP output cases=2 checks=319 COMPLETE
+CASE commit updates_once_vbr checks=193
+CASE commit two_instances checks=1370
+CASE commit memory_bound checks=37
+GROUP commit cases=3 checks=1600 COMPLETE
+TARGET_COMPLETE cases=7
