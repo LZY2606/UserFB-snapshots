@@ -17,6 +17,10 @@
 #ifndef R8B_CDSPRESAMPLER_INCLUDED
 #define R8B_CDSPRESAMPLER_INCLUDED
 
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+
 #include "CDSPHBDownsampler.h"
 #include "CDSPHBUpsampler.h"
 #include "CDSPBlockConvolver.h"
@@ -54,6 +58,24 @@ namespace r8b {
 class CDSPResampler : public CDSPProcessor
 {
 public:
+	/**
+	 * @brief Source sample reader callback used by the seekToOutput()
+	 * function.
+	 *
+	 * The callback must return `count` samples starting at the absolute
+	 * source sample position `first` (negative positions are treated as
+	 * silence by the seek function). The callback must return `count` on
+	 * success; any other return value is reported as a `std::runtime_error`.
+	 * `count` never exceeds the `MaxInLen` value supplied to the constructor,
+	 * and `first` is never negative.
+	 *
+	 * The callback is only valid for the duration of the seekToOutput()
+	 * call: the resampler does not retain the pointer or call it later.
+	 */
+
+	typedef int ( * ReadAt )( void* user, int64_t first, double* dst,
+		int count );
+
 	/**
 	 * @brief Initalizes the resampler object.
 	 *
@@ -128,6 +150,10 @@ public:
 		: MaxInLen( aMaxInLen )
 		, CurMaxOutLen( aMaxInLen )
 		, LatencyFrac( 0.0 )
+		, SeekSrcRate( SrcSampleRate )
+		, SeekDstRate( DstSampleRate )
+		, SeekPhase( ReqPhase )
+		, SeekMode( false )
 	{
 		R8BASSERT( SrcSampleRate > 0.0 );
 		R8BASSERT( DstSampleRate > 0.0 );
@@ -393,6 +419,223 @@ public:
 	}
 
 	/**
+	 * @brief Positions the resampler at the specified output frame and
+	 * pre-rolls its internal state using a pull-style source reader.
+	 *
+	 * After the call, the next process() call returns an output stream whose
+	 * first returned sample is the sample that a conversion started at source
+	 * sample 0 and fed sequentially would have produced at output position
+	 * `frame`. The caller should continue supplying source samples starting
+	 * from the cursor value returned by this function.
+	 *
+	 * The work performed by this function does not grow with `frame`: only a
+	 * short window of source samples around the requested position is read.
+	 * Source positions before 0 are treated as silence. If the resampler was
+	 * previously positioned, the prior state is discarded and replaced.
+	 *
+	 * This function is currently supported only for linear-phase filters and
+	 * integral source and destination sample rates in the range 8000 to
+	 * 384000, inclusive, with `frame` in the range 0 to 2^40, inclusive.
+	 * Calling this function for any other configuration raises a
+	 * `std::invalid_argument` exception; sequential conversion (without
+	 * calling this function) remains available for such configurations.
+	 *
+	 * If `frame` is 0, the resampler is simply cleared and the returned
+	 * cursor is 0. If the source and destination sample rates are equal, the
+	 * returned cursor equals `frame` and no source is read.
+	 *
+	 * Any output samples produced by the pre-roll that lie at or after
+	 * `frame` are retained and returned by the following process() call
+	 * before any newly computed samples, so that no output sample is lost or
+	 * duplicated.
+	 *
+	 * The `reader` callback is used only during this call; no pointer to it
+	 * is retained and it is never called afterwards.
+	 *
+	 * @param frame Requested output frame position.
+	 * @param reader Source sample reader callback.
+	 * @param user Opaque pointer passed to `reader`.
+	 * @return The absolute source sample position from which the next
+	 * process() call should be fed.
+	 */
+
+	virtual int64_t seekToOutput( const int64_t frame, const ReadAt reader,
+		void* const user )
+	{
+		if( frame < 0 )
+		{
+			throw std::invalid_argument(
+				"CDSPResampler::seekToOutput: negative output frame." );
+		}
+
+		if( frame > ( (int64_t) 1 << 40 ))
+		{
+			throw std::invalid_argument(
+				"CDSPResampler::seekToOutput: output frame out of range." );
+		}
+
+		if( reader == R8B_NULL )
+		{
+			throw std::invalid_argument(
+				"CDSPResampler::seekToOutput: null reader." );
+		}
+
+		if( SeekPhase != fprLinearPhase )
+		{
+			throw std::invalid_argument(
+				"CDSPResampler::seekToOutput: only linear-phase filters "
+				"are supported." );
+		}
+
+		const double S = SeekSrcRate;
+		const double D = SeekDstRate;
+
+		if( !( S >= 8000.0 && S <= 384000.0 && D >= 8000.0 &&
+			D <= 384000.0 && floor( S ) == S && floor( D ) == D ))
+		{
+			throw std::invalid_argument(
+				"CDSPResampler::seekToOutput: unsupported sample rates." );
+		}
+
+		clear();
+
+		if( S == D )
+		{
+			SeekMode = true;
+			return( frame );
+		}
+
+		if( frame == 0 )
+		{
+			SeekMode = true;
+			return( 0 );
+		}
+
+		const int64_t SrcRate = (int64_t) S;
+		const int64_t DstRate = (int64_t) D;
+		const int64_t g = seekGCD( SrcRate, DstRate );
+		const int64_t a = SrcRate / g; // Source period, in samples.
+		const int64_t b = DstRate / g; // Output period, in samples.
+
+		// Compute the source position that corresponds to the requested
+		// output frame (rounded down). Up to 2^40 * 384000 fits into int64.
+
+		const int64_t Xf = frame * a / b;
+		const int64_t L = getInputRequiredForOutput( 1 );
+		const int64_t W = 4 * L + 1024; // Pre-roll window, in samples.
+
+		int64_t Rstart = Xf - W;
+
+		if( Rstart < 0 )
+		{
+			Rstart = 0;
+		}
+
+		// Align the pre-roll start to a whole number of source periods so
+		// that the resulting output stream is shifted by an integer number
+		// of output frames (`K0`). The gap between the aligned position and
+		// `Rstart` is fed as silence; it is outside the filter's support of
+		// the requested output frame.
+
+		const int64_t m = Rstart / a;
+		const int64_t P = m * a;
+		const int64_t K0 = m * b;
+		int64_t ZeroCount = Rstart - P;
+
+		// Bound the source-chunk size so that both the source staging buffer
+		// and the retained output PCM stay within the seek budget and the
+		// maximal input block length.
+
+		const int64_t Budget = 16 * L + 16384;
+		int64_t ChunkCap = (int64_t) ((double) Budget * S / D) + 1;
+
+		if( ChunkCap < 1 )
+		{
+			ChunkCap = 1;
+		}
+
+		if( ChunkCap > MaxInLen )
+		{
+			ChunkCap = MaxInLen;
+		}
+
+		if( ChunkCap > 4096 )
+		{
+			ChunkCap = 4096;
+		}
+
+		const int Chunk = (int) ChunkCap;
+		std::vector< double > Buf( (size_t) Chunk );
+		int64_t Pos = Rstart;
+		int64_t Produced = 0;
+
+		// Notes on the `Produced` counter: it counts all output samples
+		// generated by this pre-roll (not only the retained ones). Output
+		// sample number `K0 + Produced` lies at the requested output frame
+		// when `K0 + Produced == frame`.
+
+		int i;
+
+		for( i = 0; i < Chunk; i++ )
+		{
+			Buf[ (size_t) i ] = 0.0;
+		}
+
+		while( ZeroCount > 0 )
+		{
+			const int n = (int) ( ZeroCount < Chunk ? ZeroCount : Chunk );
+			double* op = R8B_NULL;
+			const int r = process( &Buf[ 0 ], n, op );
+
+			retainSeekOutput( op, r, K0, frame, Produced );
+			ZeroCount -= n;
+		}
+
+		while( K0 + Produced <= frame )
+		{
+			// Request only as much source data as is expected to be
+			// required to reach the requested frame. This keeps the number
+			// of overshoot samples (and hence the retained PCM) small even
+			// at high upsampling ratios.
+
+			const int64_t Remain = frame - ( K0 + Produced );
+			const double EstD = (double) Remain * S / D + 4.0;
+			int n;
+
+			if( EstD < (double) Chunk )
+			{
+				n = (int) EstD;
+
+				if( n < 1 )
+				{
+					n = 1;
+				}
+			}
+			else
+			{
+				n = Chunk;
+			}
+
+			const int rc = reader( user, Pos, &Buf[ 0 ], n );
+
+			if( rc != n )
+			{
+				throw std::runtime_error(
+					"CDSPResampler::seekToOutput: source reader failed." );
+			}
+
+			double* op = R8B_NULL;
+			const int r = process( &Buf[ 0 ], n, op );
+
+			retainSeekOutput( op, r, K0, frame, Produced );
+			Pos += n;
+		}
+
+		SeekMode = true;
+		return( Pos );
+	}
+
+	/**
 	 * @brief Returns the number of input samples required to advance to
 	 * the specified output sample position (so that the next process() call
 	 * passes this output position), starting at the cleared or
@@ -494,6 +737,9 @@ public:
 
 	virtual void clear()
 	{
+		SeekMode = false;
+		SeekPending.clear();
+
 		CDSPProcessor* ps = StepFirst;
 
 		while( ps != R8B_NULL )
@@ -535,21 +781,45 @@ public:
 	{
 		R8BASSERT( l >= 0 && l <= MaxInLen );
 
-		double* ip = ip0;
-		int tp = 0;
-		CDSPProcessor* ps = StepFirst;
-
-		while( ps != R8B_NULL )
+		if( l == 0 && SeekMode )
 		{
-			double* op = TmpBufs[ tp ];
-			l = ps -> process( ip, l, op );
-			ps = ps -> Next;
-			ip = op;
-			tp ^= 1;
+			// A zero-length process() call performed after seekToOutput()
+			// must neither advance the internal state nor emit samples that
+			// were retained by the seek operation but not yet returned.
+
+			op0 = ip0;
+			return( 0 );
 		}
 
-		op0 = ip;
-		return( l );
+		const int n = processChain( ip0, l, op0 );
+
+		if( SeekPending.empty() )
+		{
+			return( n );
+		}
+
+		// Prepend the output samples retained by seekToOutput() that were
+		// produced by the pre-roll but not yet returned to the caller.
+
+		const size_t pn = SeekPending.size();
+		SeekOutBuf.resize( pn + (size_t) n );
+
+		size_t i;
+
+		for( i = 0; i < pn; i++ )
+		{
+			SeekOutBuf[ i ] = SeekPending[ i ];
+		}
+
+		for( i = 0; i < (size_t) n; i++ )
+		{
+			SeekOutBuf[ pn + i ] = op0[ i ];
+		}
+
+		SeekPending.clear();
+		op0 = &SeekOutBuf[ 0 ];
+
+		return( (int) ( pn + (size_t) n ));
 	}
 
 	/**
@@ -630,6 +900,18 @@ private:
 	double LatencyFrac; ///< Current fractional latency. After object's
 		///< construction, equals to the remaining fractional latency in the
 		///< output.
+	double SeekSrcRate; ///< Source sample rate, kept for seekToOutput().
+	double SeekDstRate; ///< Destination sample rate, kept for seekToOutput().
+	EDSPFilterPhaseResponse SeekPhase; ///< Filter's phase response, kept for
+		///< the seekToOutput() range checks.
+	bool SeekMode; ///< `true` if seekToOutput() was used and the object has
+		///< not been cleared since. Enables strict zero-length process()
+		///< semantics and the pending-sample queue.
+	std::vector< double > SeekPending; ///< Output samples already produced by
+		///< the pre-roll of a seekToOutput() call that lie at or after the
+		///< requested output frame, but were not returned to the caller yet.
+	std::vector< double > SeekOutBuf; ///< Holds the concatenation of pending
+		///< samples and freshly processed samples, when required.
 
 	/**
 	 * @brief Adds processor, updates `MaxOutLen` variable and adjusts length
@@ -666,7 +948,6 @@ private:
 	/**
 	 * @brief Creates temporary buffers.
 	 */
-
 	void createTmpBuffers()
 	{
 		const int ol = TmpBufCapacities[ 0 ] + TmpBufCapacities[ 1 ];
@@ -679,6 +960,97 @@ private:
 		}
 
 		R8BCONSOLE( "* CDSPResampler: init done\n" );
+	}
+
+	/**
+	 * @brief Runs the processor chain without the seek pending-sample
+	 * handling.
+	 *
+	 * @param ip0 Input buffer pointer.
+	 * @param l Input sample count.
+	 * @param[out] op0 Output buffer pointer.
+	 * @return The number of output samples produced.
+	 */
+
+	int processChain( double* ip0, int l, double*& op0 )
+	{
+		double* ip = ip0;
+		int tp = 0;
+		CDSPProcessor* ps = StepFirst;
+
+		while( ps != R8B_NULL )
+		{
+			double* op = TmpBufs[ tp ];
+			l = ps -> process( ip, l, op );
+			ps = ps -> Next;
+			ip = op;
+			tp ^= 1;
+		}
+
+		op0 = ip;
+		return( l );
+	}
+
+	/**
+	 * @brief Returns the greatest common divisor of two positive integers.
+	 *
+	 * @param a First value.
+	 * @param b Second value.
+	 */
+
+	static int64_t seekGCD( int64_t a, int64_t b )
+	{
+		while( b != 0 )
+		{
+			const int64_t t = a % b;
+			a = b;
+			b = t;
+		}
+
+		return( a );
+	}
+
+	/**
+	 * @brief Retains output samples produced by the seekToOutput() pre-roll
+	 * that lie at or after the requested output frame.
+	 *
+	 * @param op Output buffer pointer.
+	 * @param Count Output sample count.
+	 * @param K0 Absolute output frame of the first produced sample of the
+	 * pre-roll.
+	 * @param frame Requested output frame.
+	 * @param[in,out] Produced Number of output samples produced so far by the
+	 * pre-roll; increased by `Count` on return.
+	 */
+
+	void retainSeekOutput( const double* const op, const int Count,
+		const int64_t K0, const int64_t frame, int64_t& Produced )
+	{
+		if( Count <= 0 )
+		{
+			return;
+		}
+
+		const int64_t First = K0 + Produced;
+
+		if( First + Count > frame )
+		{
+			int64_t Start = 0;
+
+			if( First < frame )
+			{
+				Start = frame - First;
+			}
+
+			int i;
+
+			for( i = (int) Start; i < Count; i++ )
+			{
+				SeekPending.push_back( op[ i ]);
+			}
+		}
+
+		Produced += Count;
 	}
 
 	/**
