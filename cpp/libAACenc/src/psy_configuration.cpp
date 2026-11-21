@@ -300,6 +300,12 @@ static FIXP_DBL FDKaacEnc_BarcLineValue(INT noOfLines, INT fftLine,
     case 480:
       center_freq = fMult(center_freq, INV480) << 4;  // q13
       break;
+    case 960:
+      center_freq = fMult(center_freq, INV480) << 3;  // q13
+      break;
+    case 120:
+      center_freq = fMult(center_freq, INV480) << 6;  // q13
+      break;
     default:
       center_freq = (FIXP_DBL)0;
   }
@@ -467,6 +473,14 @@ static void FDKaacEnc_initMinSnr(const LONG bitrate, const LONG samplerate,
     case 480:
       qperwin = qperwin - 9;
       pePerWindow = fMult(pePerWindow, FL2FXCONST_DBL(480.f / 512.f));
+      break;
+    case 960:
+      qperwin = qperwin - 10;
+      pePerWindow = fMult(pePerWindow, FL2FXCONST_DBL(960.f / 1024.f));
+      break;
+    case 120:
+      qperwin = qperwin - 7;
+      pePerWindow = fMult(pePerWindow, FL2FXCONST_DBL(120.f / 128.f));
       break;
   }
 

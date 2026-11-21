@@ -992,6 +992,19 @@ static AACENC_ERROR FDKaacEnc_AdjustEncSettings(HANDLE_AACENCODER hAacEncoder,
       break;
   }
 
+  /* Restrictions of the 960 samples frame length (AAC-LC only). */
+  if (hAacConfig->framelength == 960) {
+    /* SBR and PS are not supported with a 960 samples core frame. */
+    if (isSbrActive(hAacConfig)) {
+      return AACENC_INVALID_CONFIG;
+    }
+    /* ADTS/ADIF are not able to signal a 960 samples frame length. */
+    if (config->userTpType == TT_MP4_ADTS ||
+        config->userTpType == TT_MP4_ADIF) {
+      return AACENC_INVALID_CONFIG;
+    }
+  }
+
   /* Initialize SBR parameters */
   if ((config->userSbrRatio == 0) && (isSbrActive(hAacConfig))) {
     /* Automatic SBR ratio configuration
@@ -2257,6 +2270,10 @@ AACENC_ERROR aacEncoder_SetParam(const HANDLE_AACENCODER hAacEncoder,
     case AACENC_GRANULE_LENGTH:
       if (settings->userFramelength != value) {
         switch (value) {
+          case 960:
+            /* 960 is a native AAC-LC frame length, never a downscaled one. */
+            settings->userDownscaleFactor = 1;
+            FDK_FALLTHROUGH;
           case 1024:
           case 512:
           case 480:
