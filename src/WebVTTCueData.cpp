@@ -26,9 +26,42 @@
 //
 
 #include "WebVTTCueData.h"
+#include "NodeData.h"
+#include <TimedText/WebVTTParser.h>
 
 namespace TimedText
 {
+
+WebVTTCueData::WebVTTCueData(const WebVTTCueData &other)
+  : CueData(WebVTTCue, other.startTime, other.endTime, other.id, other.text),
+    _snapToLines(other._snapToLines),
+    _line(other._line),
+    _size(other._size),
+    _position(other._position),
+    _vertical(other._vertical),
+    _align(other._align),
+    _nodes(cloneNodeTree(other._nodes))
+{
+}
+
+CueData *
+WebVTTCueData::clone() const
+{
+  return new WebVTTCueData(*this);
+}
+
+void
+WebVTTCueData::setText(const String &_text)
+{
+  text = _text;
+  // The preview tree always reflects the current WebVTT text. Replacing
+  // the text rebuilds it immediately, so nodes() and visit() can never
+  // expose the previous draft's tree. Empty text yields an empty, but
+  // readable, InternalTextNode root.
+  Node parsed;
+  if(WebVTTParser::cuetextToNodes(text, parsed))
+    _nodes = parsed;
+}
 
 bool
 WebVTTCueData::setLine(int line, bool snapToLines)
@@ -302,7 +335,9 @@ WebVTTCueData::resetCueSettings()
 bool
 WebVTTCueData::nodes(Node &result) const
 {
-  result = _nodes;
+  // Hand back a private deep copy: mutating the result must never reach
+  // the cue's internal preview tree.
+  result = cloneNodeTree(_nodes);
   return true;
 }
 
@@ -310,16 +345,18 @@ bool
 WebVTTCueData::setNodes(const Node &nodes)
 {
   if(nodes.type() == EmptyNode) {
-    _nodes = nodes;
+    _nodes = cloneNodeTree(nodes);
     return true;
   } else if(nodes.element() != InternalTextNode) {
     Node root(InternalTextNode);
-    if(root.push(nodes)) {
+    if(root.push(cloneNodeTree(nodes))) {
       _nodes = root;
       return true;
     }
   } else {
-    _nodes = nodes;
+    // Store a deep copy, so later edits of the caller's tree (or ours)
+    // cannot reach across the boundary.
+    _nodes = cloneNodeTree(nodes);
     return true;
   }
   return false;

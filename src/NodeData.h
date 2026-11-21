@@ -155,6 +155,11 @@ public:
   Timestamp time;
 };
 
+// Deep-copy an entire node tree. Node handles themselves stay shared in
+// ordinary code, but Cues need their own private preview trees, so this
+// builds a fresh tree with independently editable NodeData objects.
+Node cloneNodeTree(Node node);
+
 } // TimedText
 
 #endif // __TimedText_NodeData__

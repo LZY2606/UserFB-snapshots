@@ -70,7 +70,12 @@ Cue::Cue(CueType type, Timestamp startTime, Timestamp endTime,
 Cue::Cue(const Cue &other)
   : d(other.d)
 {
-  d->ref.ref();
+  // The shared empty cue is immutable and shared freely. Any real cue is
+  // deep-copied, so each Cue owns an independently editable value.
+  if(d == &emptyCue)
+    d->ref.ref();
+  else
+    d = other.d->clone();
 }
 
 Cue::~Cue()
@@ -82,10 +87,16 @@ Cue::~Cue()
 Cue &Cue::operator=(const Cue &other)
 {
   if(d != other.d) {
-    other.d->ref.ref();
+    CueData *newData;
+    if(other.d == &emptyCue) {
+      other.d->ref.ref();
+      newData = other.d;
+    } else {
+      newData = other.d->clone();
+    }
     if(!d->ref.deref())
       delete d;
-    d = other.d;
+    d = newData;
   }
   return *this;
 }
@@ -270,8 +281,13 @@ void
 Cue::visit(NodeVisitor &visitor)
 {
   Node tree;
-  if(nodes(tree))
+  if(nodes(tree)) {
     tree.visit(visitor);
+    // Persist visitor edits on this cue's own preview tree. nodes()
+    // returned an isolated copy, and setNodes() isolates it again, so
+    // stored copies and trees already handed out are unaffected.
+    setNodes(tree);
+  }
 }
 
 } // TimedText

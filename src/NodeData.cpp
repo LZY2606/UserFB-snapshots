@@ -383,4 +383,46 @@ TimestampNodeData::setTimestamp(const Timestamp &ts)
   return true;
 }
 
+Node
+cloneNodeTree(Node node)
+{
+  // Empty nodes are shared singletons, and hold no state of their own.
+  if(node.type() == EmptyNode)
+    return Node();
+
+  if(node.type() == LeafNode) {
+    if(node.element() == TextNode) {
+      Node copy(TextNode);
+      copy.setText(node.text());
+      return copy;
+    }
+    if(node.element() == TimestampNode) {
+      Node copy(TimestampNode);
+      copy.setTimestamp(node.timestamp());
+      return copy;
+    }
+    return Node();
+  }
+
+  // Internal nodes: copy the element-specific payload, then recurse over
+  // the children so that every level of the tree is independently owned.
+  Node copy(InternalNode, node.element());
+  if(copy.type() != InternalNode)
+    return Node();
+  if(node.element() == VoiceNode)
+    copy.setVoice(node.voice());
+  else if(node.element() == LangNode)
+    copy.setLang(node.lang());
+  if(node.element() != InternalTextNode)
+    copy.setApplicableClasses(node.applicableClasses());
+
+  const List<Node> &children = node.children();
+  for(int i = 0; i < children.count(); ++i) {
+    Node child;
+    if(children.itemAt(i, child))
+      copy.push(cloneNodeTree(child));
+  }
+  return copy;
+}
+
 } // TimedText

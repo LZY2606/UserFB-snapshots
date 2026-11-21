@@ -74,6 +74,10 @@ public:
   virtual bool nodes(Node &result) const;
   virtual bool setNodes(const Node &nodes);
 
+  // Build an independent, deep-copied CueData, so that Cue copies can be
+  // edited without touching the cue they were copied from.
+  virtual CueData *clone() const;
+
   CueType type;
   AtomicInt ref;
   String id;

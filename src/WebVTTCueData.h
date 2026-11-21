@@ -37,24 +37,30 @@ class WebVTTCueData : public CueData
 {
 public:
   WebVTTCueData()
-    : CueData(WebVTTCue)
+    : CueData(WebVTTCue), _nodes(InternalTextNode)
   {
     resetCueSettings();
   }
   WebVTTCueData(const String &id, const String &text)
-    : CueData(WebVTTCue,id, text)
+    : CueData(WebVTTCue,id, text), _nodes(InternalTextNode)
   {
     resetCueSettings();
   }
   WebVTTCueData(const Timestamp &startTime, const Timestamp &endTime,
                 const String &id, const String &text)
-    : CueData(WebVTTCue,startTime, endTime, id, text)
+    : CueData(WebVTTCue,startTime, endTime, id, text),
+      _nodes(InternalTextNode)
   {
     resetCueSettings();
   }
 
+  // Deep-copy constructor: the new cue owns an independent preview tree.
+  WebVTTCueData(const WebVTTCueData &other);
+
+  CueData *clone() const;
+
   void setId(const String &_id) { id = _id; }
-  void setText(const String &_text) { text = _text; }
+  void setText(const String &_text);
   void setStartTime(const Timestamp &ts) { startTime = ts; }
   void setEndTime(const Timestamp &ts) { endTime = ts; }
 

@@ -204,4 +204,13 @@ CueData::setNodes(const Node &result)
   return false;
 }
 
+CueData *
+CueData::clone() const
+{
+  CueData *copy = new CueData(type, startTime, endTime, id, text);
+  if(copy)
+    copy->ref = 1;
+  return copy;
+}
+
 } // TimedText
