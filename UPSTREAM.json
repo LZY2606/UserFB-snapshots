@@ -1,0 +1,25 @@
+{
+  "repo": "https://github.com/j0r1/JRTPLIB",
+  "commit": "1062537be247625f82a34091931a6dae1c82c489",
+  "license": "MIT",
+  "archive_sha256": "93d08673f9b8f05a5b274f2ede24f2dd3e0d1aa5d71c63d6fc7c47ee25e5f1a8",
+  "excluded": [
+    "doc/jrtplib.tex",
+    "doc/Makefile.am",
+    "doc/Makefile.in",
+    "sphinxdoc/Makefile",
+    "sphinxdoc/README.md",
+    "sphinxdoc/source/conf.py",
+    "sphinxdoc/source/_templates/.dummy",
+    "sphinxdoc/source/_static/.dummy"
+  ],
+  "modifications": {
+    "src/rtprandom.cpp": "Two pointer casts via uintptr_t for 64-bit compilers; no media behavior change."
+  },
+  "support_patch": {
+    "patch_sha256": "b4b90485d66494bce41fa77d090cd19238b679e48cfcbe21f1bc8eb182ca828e",
+    "files": [
+      "task_support/build.sh"
+    ]
+  }
+}
