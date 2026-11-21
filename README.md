@@ -97,7 +97,7 @@ The module exports the following functions:
 
 ### parse
 
-- `parse(): DuplexStream`
+- `parse(options?: { preserveLayout?: boolean }): DuplexStream`
 
 It returns a Duplex stream for parsing subtitle contents (SRT or WebVTT).
 
@@ -117,7 +117,7 @@ Check out the [Examples](#examples) section for more use cases.
 
 ### parseSync
 
-- `parseSync(input: string): Node[]`
+- `parseSync(input: string, options?: { preserveLayout?: boolean }): Node[]`
 
 > **NOTE**: For better perfomance, consider using the stream-based `parse` function
 
@@ -157,7 +157,7 @@ parseSync(input)
 
 ### stringify
 
-- `stringify({ format: 'SRT' | 'WebVTT' }): DuplexStream`
+- `stringify({ format: 'SRT' | 'WebVTT', preserveLayout?: boolean }): DuplexStream`
 
 It returns a Duplex that receives parsed nodes and transmits the node formatted in SRT or WebVTT:
 
@@ -171,7 +171,7 @@ Check out the [Examples](#examples) section for more use cases.
 
 ### stringifySync
 
-- `stringify(nodes: Node[], options: { format: 'SRT' | 'WebVTT }): string`
+- `stringifySync(nodes: Node[], options: { format: 'SRT' | 'WebVTT', preserveLayout?: boolean }): string`
 
 > **NOTE**: For better perfomance, consider using the stream-based `stringify` function
 
@@ -315,15 +315,80 @@ This is what a list of nodes looks like:
     data: {
       start: 150066, // timestamp in milliseconds,
       end: 158952,
-      text: 'With great power comes great responsibility'
+      text: 'With great power comes great responsibility',
+      identifier: 'intro', // optional WebVTT cue identifier
+      settings: 'align:start' // optional WebVTT cue settings
     }
   },
   ...
 ]
 ```
 
-For now, it only supports two types of node: `header` and `cue`. Soon, it will support more types
-like `comment`.
+There are three types of node: `header`, `cue` and `metadata`. A `metadata` node represents a
+WebVTT `NOTE`, `STYLE` or `REGION` block:
+
+```ts
+{
+  type: 'metadata',
+  data: {
+    kind: 'NOTE', // 'NOTE' | 'STYLE' | 'REGION'
+    text: 'NOTE This is a comment\nwith two lines'
+  }
+}
+```
+
+### Preserving the original WebVTT layout
+
+By default `parseSync`/`parse` normalise the input and `stringifySync`/`stringify` regenerate every
+block. Passing `preserveLayout` keeps the original bytes for the blocks that were not edited:
+
+- parse and stringify accept `{ preserveLayout: true }`;
+- the UTF-8 BOM, LF/CRLF line endings, the number of blank lines, the header, `NOTE`/`STYLE`/
+  `REGION` blocks, cue identifiers and settings round-trip;
+- an untouched document is written back byte for byte, including a missing final newline.
+
+The parser still returns the same `header` and `cue` nodes, plus `metadata` nodes, and it adds an
+editable `identifier` to `Cue`. The layout information needed for the round-trip is stored on each
+node as a plain JSON-serialisable `layout` field, so it survives `JSON.stringify`/`JSON.parse`; it is
+not a global cache and the original file is never emitted as a whole.
+
+```ts
+import fs from 'fs'
+import { parseSync, stringifySync } from 'subtitle'
+
+const input = fs.readFileSync('captions.vtt', 'utf8')
+const nodes = parseSync(input, { preserveLayout: true })
+
+// Edit the cue in the middle of the file. Everything else keeps its original
+// bytes, identifier, line endings, comments and blank lines.
+const cue = nodes[2]
+cue.data.text = 'Corrected line'
+cue.data.identifier = '42'
+
+fs.writeFileSync(
+  'captions.vtt',
+  stringifySync(nodes, { format: 'WebVTT', preserveLayout: true })
+)
+
+// Read the result back: only the edited cue changed.
+const reparsed = parseSync(
+  fs.readFileSync('captions.vtt', 'utf8'),
+  { preserveLayout: true }
+)
+
+console.log(reparsed[2].data.text) // 'Corrected line'
+console.log(reparsed[2].data.identifier) // '42'
+```
+
+Nodes can also be deleted, duplicated, reordered and inserted. Untouched blocks keep their original
+text, and each original block carries the separator that followed it, so moving a block moves its
+blank line with it. Edited cues are regenerated with the existing timestamp rules and use their own
+line ending. New blocks use LF, are followed by one blank line when they are not last, and by a
+single newline when they are. Copying a node (for example through JSON) gives independent layout
+information, so editing the copy does not change the original.
+
+With SRT output, `metadata` nodes are ignored and cues keep the usual sequential numbering. The
+`preserveLayout` option has no effect when `format` is `'SRT'`.
 
 ### Convert SRT file to WebVTT
 

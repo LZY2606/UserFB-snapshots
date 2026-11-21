@@ -3,11 +3,13 @@ import { Formatter } from './Formatter'
 
 export const stringifySync = (
   list: NodeList,
-  options: FormatOptions
+  options: FormatOptions = { format: 'SRT' }
 ): string => {
   const formatter = new Formatter(options)
 
-  return list.reduce((buffer, node) => {
+  const output = list.reduce((buffer, node) => {
     return buffer + formatter.format(node)
   }, '')
+
+  return output + formatter.flush()
 }
