@@ -858,6 +858,43 @@ console.log(player.currentTime);  // seconds
 console.log(player.state);        // 'playing' | 'paused' | 'idle' | 'ended'
 ```
 
+### CPU preview in Node.js (in-memory frames)
+
+`CpuBackend` composites the timeline into plain RGBA buffers — no DOM, no
+canvas, no native dependencies.  You supply already-decoded video frames
+through `readFrame(clip, sourceTime)` (sync or async); each frame is
+`{ width, height, data }` with `data` a non-premultiplied RGBA
+`Uint8ClampedArray`, row by row.
+
+```js
+import { Project, PreviewRenderer, CpuBackend } from 'videoforge';
+
+const project = new Project({ fps: 30, width: 640, height: 360 });
+const track = project.addTrack('video');
+const clip = track.addVideo('intro.mp4', { inPoint: 0, outPoint: 5, startTime: 0 });
+clip.speed(2);  // plays source 0–5 s over 2.5 s of timeline
+
+// Stand-in decoder: map (clip, sourceTime) to decoded RGBA frames.
+const readFrame = async (clip, sourceTime) => decodeFrame(clip.asset.path, sourceTime);
+
+const renderer = new PreviewRenderer(project.timeline, {
+  backend: new CpuBackend({ width: 640, height: 360, readFrame }),
+});
+
+const frame = await renderer.render(1.25);
+// → { width: 640, height: 360, data: Uint8ClampedArray } — source time 2.5 s
+
+// Scrub a whole range frame by frame:
+await renderer.renderRange(0, 1, async (frame, frameNumber) => {
+  inspect(frame.data);
+});
+```
+
+Every render starts from a transparent canvas; tracks composite bottom →
+top (source-over), and clips joined by an enabled `Transition`
+(`crossDissolve`, `wipeLeft`) render as a single blended layer across the
+overlap.  Returned frames own fresh storage on every call.
+
 ---
 
 ## File Structure
@@ -931,11 +968,13 @@ src/
 │
 ├── preview/
 │   ├── PreviewPlayer.js    Playback driver (rAF / setInterval)
-│   └── PreviewRenderer.js  Frame compositor (backend-agnostic)
+│   ├── PreviewRenderer.js  Frame compositor (backend-agnostic)
+│   └── CpuBackend.js       Pure-JS RGBA compositor for Node.js
 │
 ├── utils/
 │   ├── IdGenerator.js     Prefixed unique IDs + UUID v4
-│   └── Constants.js       All enumerations and defaults
+│   ├── Constants.js       All enumerations and defaults
+│   └── FrameOps.js        Pure RGBA frame ops (source-over, dissolve, wipe)
 │
 └── index.js               Public surface — re-exports everything
 

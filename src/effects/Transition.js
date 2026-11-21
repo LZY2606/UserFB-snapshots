@@ -8,6 +8,7 @@
 
 import Effect from './Effect.js';
 import { EFFECT_TYPES, TRANSITION_TYPES, EASING } from '../utils/Constants.js';
+import { blendFrames, wipeLeftFrames } from '../utils/FrameOps.js';
 
 class Transition extends Effect {
   /**
@@ -74,15 +75,39 @@ class Transition extends Effect {
 
   /**
    * Apply the transition within a composite render context.
+   *
+   * Composites `context.fromFrame` and `context.toFrame` into a new frame
+   * written to `context.frame` of the returned context.  `context.time` is
+   * the number of seconds already elapsed inside the transition window.
+   * Frames are `{ width, height, data }` non-premultiplied RGBA byte
+   * buffers; the input frames are never mutated.
+   *
+   * Supported types: `crossDissolve`, `wipeLeft`.  Any other enabled type
+   * throws; a disabled transition is a no-op.
+   *
    * @param {object} context - { time, fromFrame, toFrame, ... }
-   * @returns {object}
+   * @returns {object} The same context, with `frame` populated.
    */
   apply(context) {
-    // TODO: Implement GPU/CPU compositing per transitionType.
-    //       crossDissolve: lerp alpha between fromFrame and toFrame.
-    //       wipe: reveal toFrame via a moving split line.
-    //       zoom: scale + fade toFrame in over fromFrame.
     if (!this.enabled) return context;
+    const { fromFrame, toFrame } = context ?? {};
+    if (!fromFrame || !toFrame) {
+      throw new Error('Transition.apply requires context.fromFrame and context.toFrame.');
+    }
+    const progress = this.getProgressAt(context.time ?? 0);
+    switch (this.transitionType) {
+      case TRANSITION_TYPES.CROSS_DISSOLVE:
+        context.frame = blendFrames(fromFrame, toFrame, progress);
+        break;
+      case TRANSITION_TYPES.WIPE_LEFT:
+        context.frame = wipeLeftFrames(fromFrame, toFrame, progress);
+        break;
+      default:
+        throw new Error(
+          `Transition type "${this.transitionType}" is not supported for preview. ` +
+          `Supported types: ${TRANSITION_TYPES.CROSS_DISSOLVE}, ${TRANSITION_TYPES.WIPE_LEFT}.`,
+        );
+    }
     return context;
   }
 

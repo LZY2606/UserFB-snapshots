@@ -66,6 +66,7 @@ export { default as XmlNamespaceManager, VF_NAMESPACE, VF_PREFIX } from './inter
 // ─── Preview ─────────────────────────────────────────────────────────────────
 export { default as PreviewPlayer }   from './preview/PreviewPlayer.js';
 export { default as PreviewRenderer } from './preview/PreviewRenderer.js';
+export { default as CpuBackend }      from './preview/CpuBackend.js';
 
 // ─── Caption & Motion Typography Engine ──────────────────────────────────────
 

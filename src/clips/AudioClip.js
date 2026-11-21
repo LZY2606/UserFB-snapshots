@@ -98,6 +98,32 @@ class AudioClip extends Clip {
     return this._muted;
   }
 
+  // ─── Clock ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Playback duration on the timeline (seconds): the trimmed source length
+   * divided by the playback rate.
+   * @returns {number}
+   */
+  get duration() {
+    return (this.outPoint - this.inPoint) / this._playbackRate;
+  }
+
+  /**
+   * Map a timeline-absolute time to the corresponding source-media time.
+   * @param {number} time - Timeline position in seconds.
+   * @returns {number} Source-media time in seconds.
+   */
+  getSourceTimeAt(time) {
+    return this.inPoint + (time - this.startTime) * this._playbackRate;
+  }
+
+  /** @protected */
+  _splitSourceRange(time) {
+    const cut = this.inPoint + (time - this.startTime) * this._playbackRate;
+    return { headIn: this.inPoint, headOut: cut, tailIn: cut, tailOut: this.outPoint };
+  }
+
   // ─── Protected ────────────────────────────────────────────────────────────────
 
   _createInstance() {

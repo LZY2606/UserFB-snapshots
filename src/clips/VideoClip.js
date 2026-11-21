@@ -100,6 +100,44 @@ class VideoClip extends Clip {
     return this._muted;
   }
 
+  // ─── Clock ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Playback duration on the timeline (seconds): the trimmed source length
+   * divided by the playback rate.
+   * @returns {number}
+   */
+  get duration() {
+    return (this.outPoint - this.inPoint) / this._playbackRate;
+  }
+
+  /**
+   * Map a timeline-absolute time to the corresponding source-media time.
+   * Forward playback samples from the in-point onwards; reversed playback
+   * samples from the out-point backwards (the first timeline instant maps
+   * to exactly `outPoint`).
+   *
+   * @param {number} time - Timeline position in seconds.
+   * @returns {number} Source-media time in seconds.
+   */
+  getSourceTimeAt(time) {
+    const offset = (time - this.startTime) * this._playbackRate;
+    return this._reversed ? this.outPoint - offset : this.inPoint + offset;
+  }
+
+  /** @protected */
+  _splitSourceRange(time) {
+    const offset = (time - this.startTime) * this._playbackRate;
+    if (this._reversed) {
+      // Reversed: source time decreases along the timeline, so the head
+      // keeps the out-point side and the tail keeps the in-point side.
+      const cut = this.outPoint - offset;
+      return { headIn: cut, headOut: this.outPoint, tailIn: this.inPoint, tailOut: cut };
+    }
+    const cut = this.inPoint + offset;
+    return { headIn: this.inPoint, headOut: cut, tailIn: cut, tailOut: this.outPoint };
+  }
+
   // ─── Protected ────────────────────────────────────────────────────────────────
 
   _createInstance() {

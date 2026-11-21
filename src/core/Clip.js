@@ -91,6 +91,18 @@ class Clip {
     return this.startTime + this.duration;
   }
 
+  /**
+   * Map a timeline-absolute time to the corresponding source-media time.
+   * The base mapping is 1:1 from the in-point; rate-aware clips
+   * (VideoClip, AudioClip) override this.
+   *
+   * @param {number} time - Timeline position in seconds.
+   * @returns {number} Source-media time in seconds.
+   */
+  getSourceTimeAt(time) {
+    return this.inPoint + (time - this.startTime);
+  }
+
   // ─── Editing verbs ────────────────────────────────────────────────────────────
 
   /**
@@ -138,22 +150,37 @@ class Clip {
       );
     }
 
-    const splitSourceOffset = this.inPoint + (time - this.startTime);
+    const range = this._splitSourceRange(time);
 
     // Tail: copy of this clip, re-pointed to the second half of the source.
     const tail = this.copy();
     tail.startTime = time;
-    tail.inPoint = splitSourceOffset;
-    tail.outPoint = this.outPoint;
+    tail.inPoint = range.tailIn;
+    tail.outPoint = range.tailOut;
 
     // Head (this clip): shortened.
-    this.outPoint = splitSourceOffset;
+    this.inPoint = range.headIn;
+    this.outPoint = range.headOut;
 
     if (this._track) {
       this._track._insertClipAfter(this, tail);
     }
 
     return { head: this, tail };
+  }
+
+  /**
+   * Source ranges for the two halves of a split at timeline time `time`.
+   * The base mapping is 1:1 from the in-point; rate-aware and reversed
+   * clips override this so that sampling stays continuous across the cut.
+   *
+   * @param {number} time - Absolute timeline time of the split (seconds).
+   * @returns {{ headIn: number, headOut: number, tailIn: number, tailOut: number }}
+   * @protected
+   */
+  _splitSourceRange(time) {
+    const cut = this.inPoint + (time - this.startTime);
+    return { headIn: this.inPoint, headOut: cut, tailIn: cut, tailOut: this.outPoint };
   }
 
   /**
