@@ -1,0 +1,500 @@
+# subedit: client-side subtitle editor (status)
+
+> **Status (2026-07-14): shipped.** Phases 0-6 are all done. subedit is public at
+> [github:hikashop-nicolas/subedit](https://github.com/hikashop-nicolas/subedit) (MIT),
+> lives at [hikashop-nicolas.github.io/subedit](https://hikashop-nicolas.github.io/subedit/),
+> and is wired into Omnitext as a git dependency. What remains is optional polish
+> (see the end of the Phases list) rather than core work.
+
+## Goal
+
+A standalone, framework-agnostic, browser-only subtitle editor library, same
+pattern as pdfedit / sheetedit / geoedit / mediaplay:
+
+- Public repo `github:hikashop-nicolas/subedit`, MIT (name checked free on npm
+  and GitHub on 2026-07-12).
+- Consumed by Omnitext as a git dependency for opening .srt / .ass / .ssa / .vtt (DONE).
+- Uses **mediaplay** as a dependency for the video/audio preview pane, which
+  brings for free: MKV/legacy container remux, AC-3/E-AC-3/DTS/TrueHD audio
+  decode, styled ASS rendering via libass with embedded fonts.
+- Everything runs locally; the video never leaves the machine (including
+  speech recognition, see ASR section).
+
+## UI layout (modeled on Subtitle Edit's main window)
+
+```
++------------------------------------------------------------------+
+| Toolbar: open video | +cue | -cue | shift times | fix overlaps.. |
++--------------------------------------+---------------------------+
+| Cue list (virtualized)               | Video preview             |
+| # | start | end | dur | CPS | text   | (mediaplay embed, or a    |
+|   ...                                |  "Load video/audio" button|
+|--------------------------------------|  when none is loaded)     |
+| Selected-cue detail editor:          |                           |
+| start/end/duration fields + textarea |                           |
++--------------------------------------+---------------------------+
+| Waveform / timeline (canvas): cue blocks, playhead, zoom, scrub  |
++------------------------------------------------------------------+
+```
+
+- Cue list: virtualized rows (must handle 5000+ cues), columns #, start, end,
+  duration, CPS, text preview. Click selects, double-click seeks the video.
+  CPS and line-length cells colored when over threshold.
+- Detail editor below the list: precise start/end/duration inputs and the text
+  area for the selected cue. ASS override tags ({\i1} etc.) are shown raw in
+  v1, like Aegisub, no WYSIWYG tag editing.
+- Video preview: an embedded mediaplay player. The video is session-local: it
+  is picked by the user, never persisted with the document (too big). The last
+  video filename can be stored in the subtitle doc's session metadata so we can
+  prompt "reload GITS_01.mkv?".
+- Waveform strip at the bottom: rendered peaks, cue blocks positioned on the
+  timeline, draggable edges (retime), draggable body (shift), click to seek,
+  wheel to zoom, playhead follows playback.
+
+## Keyboard model (editor-first)
+
+Space play/pause, arrows seek, [ and ] set selected cue start/end at the
+playhead, Enter inserts a cue at the playhead, standard list navigation.
+mediaplay's own capture-phase shortcuts must NOT swallow the editor's keys:
+the embed needs a mediaplay option to disable or scope its global keydown
+handler (upstream change, see below).
+
+## Formats and preservation
+
+Cue model: `{ startMs, endMs, text, styleRef?, layer?, actor?, effect?, raw? }`.
+
+- **SRT** and **VTT**: full parse + serialize. Simple formats, regenerating is
+  fine, but preserve BOM, line-ending flavor, and VTT header/NOTE/STYLE blocks.
+- **ASS/SSA**: in-place philosophy like the other libs. Only touched Dialogue
+  lines are rewritten; [Script Info], [V4+ Styles], [Fonts], [Graphics],
+  comments and section order stay byte-identical. Field order follows the
+  file's own Format: line. Style names surface as a dropdown per cue.
+- Golden round-trip fixtures from day one: parse then serialize an unedited
+  file and assert byte-identical output (SRT/VTT modulo none, ASS strictly).
+- mediaplay's existing srtToVtt/assToVtt converters are one-way display
+  helpers; subedit owns its own round-trip parsers.
+
+## Video preview: mediaplay integration
+
+Upstream additions needed in mediaplay (small, keeps subedit thin):
+
+1. `handle.getMediaElement(): HTMLMediaElement | undefined`, the escape hatch
+   giving subedit currentTime, seek, play/pause, timeupdate, captureStream.
+2. `handle.setSubtitleText(content: string, filename: string)`: programmatic
+   external-subtitle load (same path as the existing "load external subtitle"
+   button). subedit feeds the serialized in-progress document, debounced
+   (~300ms), so the preview always shows the edited subtitles, with full libass
+   styling when the doc is ASS.
+3. `opts.embedded?: boolean`: disables mediaplay's document-level capture-phase
+   shortcuts and hides the external-subtitle button (subedit owns both).
+
+Sync behaviors: double-click cue seeks; timeupdate highlights the current row
+(auto-scroll optional toggle); playhead drawn on the waveform.
+
+## Waveform
+
+- PCM source: `AudioContext.decodeAudioData` for plain audio files; for
+  containers (MKV/MP4) use mediabunny's AudioBufferSink through the mediaplay
+  dependency; Dolby/DTS tracks can reuse mediaplay's decoder path in a later
+  pass (not v1-blocking, the waveform is a nice-to-have per track type).
+- Downsample progressively to min/max peak pairs per bucket, render into
+  cached canvas tiles per zoom level; extraction runs chunked so the UI stays
+  responsive, waveform fills in left to right.
+- Interactions: drag cue edges (snap to other cues optional), drag cue body,
+  double-click empty area to insert a cue, click to seek.
+
+## Phase 4: ASR / automatic transcription
+
+Decision (2026-07-13): **Whisper via transformers.js is the v1 and only engine.**
+Web Speech is dropped, even as a fallback: it is real-time only (25 min video =
+25 min), Chrome-only, phrase-level timing, and spotty on-device language coverage.
+Whisper gives word-level timestamps (the thing that makes auto-segmentation good),
+faster-than-real-time inference on WebGPU, ~99-language multilingual support with
+auto-detection, and runs fully locally. The `TranscribeBackend` interface stays so
+another engine could be added later, but we build only the Whisper backend.
+
+### Model delivery: download-on-demand, never bundled
+
+No model ships in the subedit bundle. transformers.js fetches the weights from the
+Hugging Face CDN on first use and caches them in the browser (Cache Storage /
+IndexedDB); every later run is offline. This keeps the shipped binary tiny while
+allowing best-quality models.
+
+- **Multilingual models only** (not the `.en` variants) so all ~99 Whisper
+  languages work with auto-detection. Use the Xenova/onnx-community ONNX builds
+  that transformers.js consumes (quantized for browser size).
+- **Model-size selector**, remembered per user, each downloaded on demand when
+  first chosen:
+  - tiny ~40 MB (fastest, roughest)
+  - base ~75 MB (DEFAULT, good balance)
+  - small ~150 MB (best quality, slower)
+- **Privacy**: the only network call is the one-time model download from the HF
+  CDN; audio never leaves the device. Surface this in the UI ("downloads the model
+  once, then works offline, your audio is never uploaded"). Optional future: a
+  self-hosted-weights toggle for zero third-party contact.
+- **CSP note**: on subedit's own GitHub Pages site the fetch is unrestricted; a
+  strict-CSP host embedding subedit (Omnitext) must allowlist the HF origin.
+
+### Interface (pluggable, but only Whisper implements it)
+
+```ts
+interface TranscribeBackend {
+  available(): Promise<boolean>;                 // WebGPU/WASM support probe
+  listModels(): { id: string; label: string; sizeMb: number }[];
+  transcribe(
+    audio: Float32Array,                         // 16 kHz mono, extracted once up front
+    opts: { model: string; language?: string },  // language omitted = auto-detect
+    onSegment: (seg: { startMs: number; endMs: number; text: string; words?: WordTs[] }) => void,
+    onProgress: (p: { stage: "download" | "transcribe"; ratio: number }) => void,
+  ): { cancel(): void };
+}
+```
+
+### Inference details
+
+- Run transformers.js in a **Web Worker** so the UI (and the waveform/preview)
+  stays responsive; post progress + segments back to the main thread.
+- **Backend**: prefer WebGPU (`device: "webgpu"`, fp16), fall back to WASM (quantized
+  int8) when WebGPU is unavailable. Report which is in use, and warn that WASM is
+  much slower.
+- **Audio**: decode the media to a 16 kHz mono `Float32Array` once (reuse
+  mediaplay's decode path / extractWaveformPeaks plumbing, which already handles
+  MKV/Dolby/DTS and streams large files), then chunk into ~30 s windows for
+  Whisper with a small overlap; use `return_timestamps: "word"` for word-level
+  timing, `chunk_length_s`/`stride_length_s` for the long-form pipeline.
+- Emit segments incrementally so cues appear live as chunks finish.
+
+### Segmentation module (engine-agnostic, the quality lever)
+
+Separate, unit-tested `segmentToCues(words, opts)` that turns Whisper's word
+timestamps into readable cues, independent of the engine:
+
+- break on sentence-ending punctuation and on speech gaps over a threshold;
+- cap each cue at ~2 lines, ~42 chars/line, and a max CPS (reading speed); split
+  over-long spans at the nearest word boundary / punctuation;
+- snap cue start/end to the enclosing word timestamps; enforce a min duration and
+  a small inter-cue gap;
+- balance a 2-line cue's break near the middle at a word boundary.
+
+This is where subtitle quality lives; keep it pure and covered by golden tests.
+
+### UI / flow
+
+- **Entry points** (one "Auto-transcribe" action):
+  a) new empty doc: the empty-state panel offers "Load a video, then generate
+     subtitles"; b) existing doc: a toolbar button that appends, or replaces after
+     a confirm.
+- **Dialog**: model-size picker (with download size + cached state shown), language
+  = Auto by default with an override list, Start/Cancel.
+- **Progress**: two-phase bar (model download %, then transcription %), the WebGPU/
+  WASM badge, live partial cues streaming into the list, and a working Cancel that
+  aborts the worker.
+- Resulting cues land in the normal editor for correction; format defaults to SRT
+  for a fresh doc (convertible as usual).
+
+### New files / touch points
+
+- `src/transcribe/backend.ts` (interface + registry), `src/transcribe/whisper.ts`
+  (worker glue + model management), `src/transcribe/whisper.worker.ts` (transformers.js),
+  `src/transcribe/segment.ts` (+ `segment.test.ts`), `src/transcribe/ui.ts` (dialog);
+  editor.ts wires the toolbar button, empty-state action, and cue insertion, reusing
+  `loadPreviewMedia` and the audio-decode path.
+- transformers.js is a lazy dynamic import (kept out of the base bundle); the worker
+  and its WASM/WebGPU assets load only when transcription starts.
+
+### Spikes to de-risk early
+
+1. transformers.js Whisper in a Worker on GitHub Pages: model fetch + cache, WebGPU
+   path, `return_timestamps: "word"` shape, and cancellation.
+2. Decode-to-16kHz-mono from the existing mediaplay path for arbitrary containers.
+3. Segmentation quality on a couple of real clips (tune thresholds against goldens).
+
+## Media-anchored multi-track workflow (direction, 2026-07-13)
+
+Reframe: subedit is not only a single-file subtitle editor but a **project anchored
+to a media file** that holds several subtitle tracks. Motivating end-to-end case: open
+a fansub MKV (Japanese audio + an embedded English ASS sub track), generate a French
+track from the English one, and save a new MKV that keeps everything and adds the FR
+track. This unifies ASR, translation, and mux into one flow.
+
+### Data model
+
+- `Track = { id; label; language; doc: SubtitleDoc; origin: "opened" | "embedded" |
+  "transcribed" | "translated" }`. Each track is an independent, editable/re-timeable
+  `SubtitleDoc` (the existing editor model), so languages that need different
+  segmentation stay free.
+- The editor holds a `tracks: Track[]` + `activeTrackId`. Opening a single `.srt`/`.ass`
+  still yields a one-track project (byte-faithful as today). Opening a video yields a
+  multi-track project read from the container.
+- A generated track (MT/ASR) clones the source track's cue timing and fills text; after
+  that it is a normal independent track.
+
+### Open flows
+
+- Subtitle file: one track, unchanged.
+- Video (MKV first, the fansub norm): read the container with mediaplay's
+  `extractMkvInfo(bytes)` — it already returns `subtitles: [{ label, language, vtt,
+  assDoc? }]`, `audio: [...]`, and embedded `fonts`. Load each subtitle track (parse the
+  reconstructed `assDoc` for ASS, else the vtt) as a Track; wire the audio for
+  playback/waveform (existing path). MP4 text tracks: later.
+
+### Track switcher UI
+
+A tab/dropdown strip (EN | FR | JA | + generate) to switch the active track; switching
+re-points the cue list / detail / timeline / preview at that track's doc. Add-track menu:
+"Transcribe from audio…", "Translate this track…", "New empty track".
+
+### Generators (each makes a new track)
+
+- **Transcribe (ASR)** from the audio — Phase 4, done. Produces a source-language track.
+- **Translate (MT)** from an existing track — text→text, m2m100 (~500 MB, 100 langs) or
+  NLLB-200 (~800 MB, 200 langs), user-selectable; a second lazily-loaded worker mirroring
+  the Whisper one. Direct (src→tgt) when the source language is known, else pivot via
+  English. Reuses `wrapLines` to re-wrap translated text; timing carried from the source
+  track. (Model list + language-code maps already stubbed in transcribe/backend.ts.)
+
+### Save / export
+
+- Per-track: export any track as its own file (byte-faithful for opened tracks).
+- **Mux into the container** (the headline): mediabunny stream-copies video + audio and
+  writes ALL subtitle tracks — the originals (re-packed from their `assDoc`, so styling
+  survives) plus generated tracks. Streams to disk via showSaveFilePicker + StreamTarget
+  for multi-GB files. See the mux section for the required mediabunny ASS extension.
+
+### Build order
+
+1. Multi-track model + track switcher (refactor the editor to hold tracks; open-file stays
+   one track).
+2. Open-video → load embedded sub tracks + audio (extractMkvInfo).
+3. Translate-track-to-track (the MT subsystem, largely started).
+4. Mux-save with the mediabunny S_TEXT/ASS extension (see below).
+
+### Risks
+
+- The editor currently assumes a single doc; introducing tracks touches the list/detail/
+  timeline/preview wiring and the public API (getText → per-track). Keep single-file open
+  behaving exactly as now.
+- Large files (GITS ~1.7 GB, E-AC-3): demux + mux must stream, never buffer whole.
+- `extractMkvInfo`'s `assDoc` is a faithful reconstruction, not the original bytes, so an
+  embedded track's round-trip is content-faithful, not byte-faithful (acceptable).
+
+## Mux subtitles into the video file (export)
+
+"Save into video": remux the loaded video with the edited subtitles as
+embedded (soft) tracks. Always writes a NEW file (containers cannot be spliced
+in place, and it protects the source); output goes through
+showSaveFilePicker + StreamTarget so multi-GB files never sit in memory.
+
+- Engine: mediabunny (already present via mediaplay). Input from BlobSource,
+  video/audio tracks stream-copied packet-by-packet (no re-encode, disk-speed),
+  subtitle track added, existing subtitle track optionally replaced or kept.
+  Track metadata UI: language, track name, default/forced flags.
+- Container support (verified on mediabunny 1.50.8): MKV, WebM and MP4 accept
+  subtitle tracks, WebVTT codec only; MOV accepts none. So:
+  - SRT/VTT docs: converted to WebVTT and muxed, effectively lossless.
+  - ASS docs into MKV: REQUIRED (user priority). WebVTT would strip all styling
+    while MKV natively supports S_TEXT/ASS, and mediabunny cannot stream-copy an
+    existing ASS track either, so preserving embedded ASS tracks also depends on
+    this. Extend mediabunny's Matroska muxer, which is a BOUNDED fork (its muxer
+    already writes CodecID + CodecPrivate + subtitle blocks generically):
+    1. add `'ass' -> 'S_TEXT/ASS'` (and `'utf8' -> 'S_TEXT/UTF8'` for SRT) to
+       `CODEC_STRING_MAP` + the `SubtitleCodec` union;
+    2. add an ASS `SubtitleSource` that sets CodecPrivate = the ASS header (Script
+       Info + [V4+ Styles] + the [Events] Format line) and packs each cue into the
+       Matroska payload "ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,
+       Text" with block timestamp = start, BlockDuration = end - start.
+    This mirrors mediaplay's existing S_TEXT/ASS *reader*. Ship as a fork
+    (github:hikashop-nicolas/mediabunny, matching the mediaplay pattern) consumed
+    directly by subedit, and PR upstream. Embedded fonts from `extractMkvInfo`
+    can be re-attached so styled tracks render with their intended fonts.
+  - MP4 output soft subs: mediabunny's isobmff muxer already maps webvtt -> the
+    'wvtt' sample entry, but v1.50.8 ASSERTS during finalize when a WebVTT
+    subtitle track is present (video-only MP4 and MKV+webvtt both work). This is
+    a bug in an intended path, so the SAME fork fixes it. Policy: MP4 output
+    carries PLAIN-TEXT soft subs only (wvtt/tx3g) - MP4 cannot hold styled ASS -
+    so a styled ASS track saved to MP4 loses styling; steer styled tracks to MKV.
+  - Container / styling policy: MKV = full styled ASS (via the S_TEXT/ASS fork);
+    MP4 = plain-text soft subs (after the assert fix). Source container without
+    subtitle support (or MOV/AVI): offer "save as MKV" instead (stream-copy +
+    container swap).
+  - The fork (github:hikashop-nicolas/mediabunny, PR upstream later) thus has TWO
+    subtitle-write jobs: (1) Matroska S_TEXT/ASS + S_TEXT/UTF8; (2) fix the isobmff
+    WebVTT-into-MP4 finalize assert.
+- Round-trip check: reopen the produced file in the preview (mediaplay already
+  extracts embedded tracks) as a built-in verification step.
+- Hard-burn (rendering subtitles into the picture, re-encode) is OUT of scope;
+  it belongs with the transcode machinery in mediaplay's legacy-formats plan.
+
+## Omnitext integration
+
+- Formats .srt / .vtt / .ass / .ssa get a subedit editor module
+  (src/editors/subtitle.impl.ts, thin adapter like media.impl.ts, locale
+  synced via setLocale). CodeMirror remains available as the alternate raw
+  text editor through the existing editor switcher; subedit is the preferred
+  editor.
+- These are TEXT formats: Omnitext's normal text pipeline (autosave, recovery,
+  history) applies, unlike the read-only media viewer. getBytes() serializes
+  the current doc; onChange marks dirty.
+- New-file flow: rather than modifying Omnitext's new-file form to host a
+  video drop area, "New subtitle file" simply opens an empty doc in subedit,
+  whose empty state IS the video + auto-generate panel. Same result, zero
+  Omnitext-core surgery, and the standalone demo gets the identical flow.
+  (If we later want it in the form itself, the form can grow a per-format
+  extension slot, deferred.)
+- Assets: octopus + libav copies already handled for mediaplay; no new assets
+  unless/until the Whisper backend lands (model is fetched at runtime, not
+  bundled).
+
+## QA / utility tools (toolbar)
+
+v1: shift all times (offset +/-), fix overlaps, CPS + line-length warnings,
+find & replace. Later: change framerate, merge/split cues, remove HI text,
+translate mode (two-column original/translation).
+
+## Phases
+
+- **Phase 0, scaffold + formats [DONE]**: repo from the geoedit template (tsc to
+  dist/, prepare on git install, demo/, Pages deploy.yml, test.yml). SRT + VTT
+  parsers/serializers with golden fixtures, cue model, virtualized cue list,
+  detail editor, toolbar shell, i18n en/fr/ja. Usable as a video-less editor.
+- **Phase 1, preview [DONE]**: mediaplay upstream API (getMediaElement,
+  setSubtitleText, embedded option) shipped in mediaplay; embed + load-video
+  button, double-click-cue seek, current-cue highlight on timeupdate, live
+  subtitle re-push on edit (300ms debounced), space/arrows keyboard model.
+  handle.loadPreviewMedia(file) added for programmatic loading (ASR flow).
+- **Phase 2, waveform [DONE]**: bottom canvas timeline (src/waveform.ts) with cue
+  blocks, time ruler and playhead; click to seek, wheel to zoom (deltaY) / pan
+  (deltaX / shift), drag a cue body to move or its edges to retime. Waveform peaks
+  come from mediaplay's extractWaveformPeaks (streamed decode, every playable codec
+  incl. E-AC-3/DTS, no file-size cap), shown with an "extracting" progress label
+  and aborted when another file loads.
+- **Phase 3, ASS [DONE]**: src/ass.ts byte-preserving parse/serialize (Script
+  Info / styles / [Fonts] kept verbatim; Dialogue AND Comment lines parsed as cues
+  and rebuilt from fields via the section Format order, so an unedited canonical
+  line round-trips identically). Format switcher gained ASS with srt/vtt<->ass
+  conversion. Live preview renders styled ASS via libass (mediaplay). Extended ASS
+  editing shipped: full styles editor (create/edit/dup/delete, all common fields,
+  font datalist), per-cue Style picker + Edit button, per-cue actor/effect/layer/
+  margins + Comment(disable) toggle, inline B/I/U/colour, position picker (\pos via
+  clicking the preview), fade (\fad), karaoke (\k) editor, script-properties panel.
+  Word-based alignment labels. Also shipped: transform popover (\frz/\fscx/\fscy/
+  \fsp/\blur) with animate (\t); position picker click=\pos / drag=\move; timeline
+  block visuals (fade triangles + karaoke syllable marks); rectangular clip
+  (\clip/\iclip drag-a-rectangle + inverse); vector drawing tool (\p, click points
+  to build a polygon); actor column; effect dropdown with per-effect params; margins
+  group (vertical hidden for middle alignment); alignment "no alignment". FUTURE
+  (not built): decoding embedded [Fonts] to real font names, complex 7-arg \fade,
+  editing an existing drawing's points, bezier (b) drawing commands.
+- **Phase 4, ASR**: DONE. Whisper (transformers.js in a Worker, WebGPU/WASM,
+  multilingual auto-detect, download-on-demand + cache, model-size selector +
+  guidance, translate-to-English task); engine-agnostic segmentToCues; toolbar
+  generate dialog. Becomes a "generate a track" action under multi-track.
+- **Phase 5, media-anchored multi-track** DONE (the core): track model +
+  switcher; open video -> load embedded sub tracks (MKV + progressive/fragmented
+  MP4) + audio; transcribe (Whisper) and translate (m2m100/NLLB) into new tracks;
+  mux-save: styled ASS-in-MKV + WebVTT-in-MP4, saving back into the source
+  container, streamed to disk. Uses the mediabunny fork
+  github:hikashop-nicolas/mediabunny#subedit-s_text-ass (pinned), which adds
+  S_TEXT/ASS to the Matroska muxer AND fixes the ISOBMFF subtitle finalize
+  assert. Save streams via StreamTarget + showSaveFilePicker (blob-download
+  fallback). Remaining refinement: translation generation tuning (m2m100 over-
+  generates on very short inputs).
+- **Phase 6, Omnitext** DONE (2026-07-14): published subedit to GitHub
+  (hikashop-nicolas/subedit, public, Pages) and wired it into Omnitext:
+  editors/subtitle.ts + subtitle.impl.ts adapter, srt/vtt/ass/ssa format
+  descriptors (nativeEditor "subtitle", CodeMirror text fallback), removed
+  Omnitext's plain-text "subtitle" placeholder, bumped Omnitext's mediaplay
+  to the commit exporting decodeAudioToMono16k/extractWaveformPeaks. subedit
+  dist now rewrites new URL("./x.worker.ts") -> .js so a consumer bundler
+  (Vite) can resolve the transcription workers. Shipped to Pages + APK.
+  Post-integration hardening (all shipped): new *blank* .srt/.ass docs open
+  straight in the subedit cue editor in Omnitext (opt-in format flag +
+  MIME-derived filename so a blank .ass opens in ASS mode); mediaplay's libav
+  loader retries past a poisoned dynamic import (one transient failure had
+  silently killed AC-3/E-AC-3 audio, waveform and Dolby transcription for the
+  whole page session); and the transcribe/translate buttons now toast on a
+  failed dialog import instead of silently doing nothing. The standalone demo
+  header was cleaned up (styled Open + New-with-format buttons).
+- **Post-1.0 editor tools** DONE (2026-07-14): undo/redo (snapshot history, coalesced by
+  a 500ms window); video-timing workflow (set start/end at the playhead, play-from-cue,
+  follow-playback auto-scroll); editing power tools (merge/split cues, find-replace bar,
+  problems panel for overlaps / too-fast / over-long with click-to-jump); and more formats
+  (MicroDVD `.sub`, LRC, TTML/DFXP parse+serialize+detect+convert, SRT/VTT/ASS/MicroDVD
+  round-trip faithfully, LRC/TTML regenerate their lossy parts).
+- **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
+  extraction, progressive + fragmented, tx3g/wvtt, is DONE via codem-isoboxer),
+  image-based subtitles (VobSub/PGS need OCR), hard-burn subtitles, WYSIWYG ASS tag editing.
+
+## Risks
+
+- Whisper model download is 40-150 MB on first use; mitigate with an explicit
+  size picker, cached-state indicator, download progress, and a base default.
+- WebGPU is not everywhere; the WASM fallback works but is much slower. Detect,
+  report which backend is active, and warn on WASM for long media.
+- transformers.js is heavy; keep it a lazy dynamic import + Worker so the base
+  bundle and the editor stay light.
+- mediaplay embed keyboard conflicts: solved by the embedded option, but the
+  two projects now version-lock (subedit pins mediaplay like Omnitext pins its
+  libs; verify fixes in the consumer's node_modules dist).
+- ASS files in the wild are messy (mixed encodings, duplicate sections);
+  parser must be lenient on read, conservative on write.
+
+## Verification and CI (2026-07-29)
+
+Before this, every format test parsed a string written a few lines above the assertion,
+so the suite could only show subedit agreeing with itself: a file no other player
+understands passed all 121 of them. And `editor.ts`, the largest file here, had no test
+of any kind, because everything it does it does to the DOM.
+
+What runs now, in three CI jobs:
+
+- **test** — the unit suite plus the corpus tests (read, preserve, write).
+- **oracles** — rebuilds and re-validates the corpus against ffmpeg and pysubs2, then
+  checks what subedit *writes*: 13 of the 18 formats read back by an independent reader,
+  the XML formats through xmllint, and the muxed MKV/MP4 through ffprobe.
+- **e2e** — 16 Cypress specs driving the real editor in Chrome.
+
+**The corpus is never authored by subedit.** ffmpeg writes the fixtures it has a muxer
+for; the rest are written from the format's definition and then have to be recovered
+correctly by an independent reader before being accepted as ground truth. Five formats
+(SBV, Spruce, QuickTime Text, DVD Studio Pro, TTXT) have no such reader and are marked in
+`test-corpus/manifest.json` as golden files rather than left looking verified.
+
+**Which reader is authoritative was measured, not assumed**, and the disqualifying
+findings are recorded in `scripts/oracles.mjs`: ffmpeg's WebVTT muxer does not escape
+`<` or `&`, its SAMI reader does not decode them, pysubs2's WebVTT reader does not
+either, and ffmpeg's Spruce reader treats the frame field as hundredths of a second
+whatever the file declares.
+
+### Defects it found, all fixed
+
+- WebVTT character references counted as literal text, so `&amp;` read as five characters
+  in the reading-speed figure and converting to any other format carried the escaping
+  through as visible text. Converting *into* WebVTT then left a bare `>`, which a stricter
+  ffmpeg than the local build refused; escaping is now decided by scanning, since the same
+  `<` is markup in `<i>` and a literal in `5 < 4`.
+- SBV put the file's trailing newline inside the last cue.
+- TTXT wrote a line break as `&#10;` and had no numeric-reference decoding, so saving a
+  multi-line cue twice turned the break into a literal `&#10;` mid-line.
+- SubViewer trimmed the blank line after `[SUBTITLE]`, adding one back on save to every
+  file that did not have one.
+- Converting to a frame-based format wrote no frame rate, leaving every time in the file
+  dependent on the reader guessing the same default.
+- Muxing into an ordinary MP4 threw `Timestamps must be non-negative` and wrote nothing,
+  because an AAC track starts one frame before zero (encoder priming). Most .mp4 files
+  with sound have it, so this was not an edge case.
+
+### Left open, deliberately
+
+- **`S_TEXT/WEBVTT` in Matroska.** mediabunny writes that codec ID; libavformat knows only
+  the `D_WEBVTT/*` family, so ffmpeg cannot identify or extract the track, and a track
+  ffmpeg cannot identify is one many players cannot show. Changing it means changing the
+  mediabunny fork, which is a call about interop against the current registry rather than
+  a bug fix. subedit's own styled path (ASS in MKV) is unaffected and reads perfectly.
+- **WebVTT in MP4** is checked structurally only. mediabunny writes a conformant `wvtt`
+  sample entry with its `vttC` config, and ffmpeg has simply never demuxed it (no
+  occurrence of `wvtt` in libavformat), so there is no reader here to confirm the payload.
+- **A file whose timestamps are all negative** would want shifting rather than dropping
+  pre-roll. Raw transport-stream captures can look like that; nothing subedit opens has.
+- **Five formats have no independent reader at all.** Finding or writing one for SBV,
+  Spruce, QuickTime Text, DVD Studio Pro or TTXT would close the last real gap.

@@ -1,0 +1,55 @@
+{
+  "name": "subedit",
+  "version": "0.1.0",
+  "description": "Standalone client-side subtitle editor for SRT, VTT, ASS and SSA: edit cues and timings with a video/waveform preview, byte-preserving your file, all in the browser.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hikashop-nicolas/subedit.git"
+  },
+  "homepage": "https://hikashop-nicolas.github.io/subedit/",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs",
+    "build:demo": "npm run assets && vite build",
+    "typecheck": "node node_modules/tsgo/bin/tsc -p tsconfig.json --noEmit",
+    "assets": "node scripts/copy-octopus-assets.mjs && node scripts/copy-libav-assets.mjs",
+    "dev": "npm run assets && vite",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "npm run build:demo && start-server-and-test 'vite preview --port 5174 --strictPort' http://localhost:5174 'cypress run --browser chrome'",
+    "corpus": "node scripts/gen-corpus.mjs",
+    "check:writers": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-writers.mjs",
+    "check:xml": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-xml.mjs",
+    "check:mux": "vitest run src/corpus/mux-corpus.test.ts && node scripts/check-mux.mjs",
+    "check:setup": "python3 -m venv .cache/py && .cache/py/bin/pip install --quiet pysubs2",
+    "prepare": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "codem-isoboxer": "^0.3.10",
+    "localml": "github:hikashop-nicolas/localml",
+    "mediabunny": "github:hikashop-nicolas/mediabunny#3ccd321",
+    "mediaplay": "github:hikashop-nicolas/mediaplay#1b0c7fd"
+  },
+  "devDependencies": {
+    "cypress": "^15.19.0",
+    "start-server-and-test": "^2.1.5",
+    "tsgo": "npm:typescript@^7.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.0.0"
+  }
+}

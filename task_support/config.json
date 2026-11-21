@@ -1,0 +1,1 @@
+{"target":"test/clipboard.test.cjs","groups":["closure","collisions","formats","persistence","compatibility"],"production":["edit-ops.js","formats/ass.js"]}
