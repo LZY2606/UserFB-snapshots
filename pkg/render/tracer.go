@@ -52,6 +52,7 @@ type tracer struct {
 	local  *Sample
 	bounce int
 	direct bool
+	grad   *gradState // nil unless recording parameter gradients
 }
 
 func newTracer(s *Scene, o chan *Sample, w, h, bounce int, direct bool) *tracer {
@@ -98,6 +99,7 @@ func (t *tracer) process() {
 func (t *tracer) trace(ray *geom.Ray, depth int) rgb.Energy {
 	energy := rgb.Black
 	signal := rgb.White
+	g := t.grad
 
 	for d := 0; d < depth; d++ {
 		obj, dist := t.scene.Surface.Intersect(ray, infinity)
@@ -105,10 +107,18 @@ func (t *tracer) trace(ray *geom.Ray, depth int) rgb.Energy {
 		if obj == nil {
 			env := t.scene.Env.At(ray.Dir).Times(signal)
 			energy = energy.Plus(env)
+			if g != nil {
+				g.contribute(env)
+			}
 			break
 		}
 		if l := obj.Light(); !l.Zero() {
-			energy = energy.Plus(l.Times(signal))
+			e := l.Times(signal)
+			energy = energy.Plus(e)
+			if g != nil {
+				g.contribute(e)
+				g.emit(obj, signal)
+			}
 			break
 		}
 
@@ -132,12 +142,16 @@ func (t *tracer) trace(ray *geom.Ray, depth int) rgb.Energy {
 		wi, pdf, shadow := bsdf.Sample(wo, t.rnd)
 
 		if t.direct && shadow {
-			dir, light, coverage := t.shadow(pt, normal)
+			dir, light, coverage, hit := t.shadow(pt, normal)
 			wiDirect := toTan.MultDir(dir)
 			if coverage > 0 {
 				reflectance := bsdf.Eval(wiDirect, wo).Scaled(coverage)
 				e := light.Times(reflectance).Times(signal)
 				energy = energy.Plus(e)
+				if g != nil {
+					g.contribute(e)
+					g.emit(hit, reflectance.Times(signal))
+				}
 				indirect -= coverage
 			}
 		}
@@ -158,25 +172,25 @@ func (t *tracer) trace(ray *geom.Ray, depth int) rgb.Energy {
 }
 
 // https://blog.yiningkarlli.com/2013/04/importance-sampled-direct-lighting.html
-func (t *tracer) shadow(pt geom.Vec, normal geom.Dir) (wi geom.Dir, energy rgb.Energy, coverage float64) {
+func (t *tracer) shadow(pt geom.Vec, normal geom.Dir) (wi geom.Dir, energy rgb.Energy, coverage float64, obj Object) {
 	lights := t.scene.Surface.Lights()
 	if len(lights) < 1 {
-		return geom.Up, rgb.Black, 0
+		return geom.Up, rgb.Black, 0, nil
 	}
 	i := t.rnd.Intn(len(lights))
 	l := lights[i]
 
 	ray, coverage := l.Bounds().ShadowRay(pt, normal, t.rnd)
 	if coverage <= 0 {
-		return geom.Up, rgb.Black, 0
+		return geom.Up, rgb.Black, 0, nil
 	}
 
-	obj, _ := t.scene.Surface.Intersect(ray, infinity)
+	obj, _ = t.scene.Surface.Intersect(ray, infinity)
 	if obj == nil {
-		return geom.Up, rgb.Black, 0
+		return geom.Up, rgb.Black, 0, nil
 	}
 
-	return ray.Dir, obj.Light(), coverage
+	return ray.Dir, obj.Light(), coverage, obj
 }
 
 // Beer's Law.

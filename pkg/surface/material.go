@@ -49,3 +49,13 @@ func (l Lambert) Eval(wi, wo geom.Dir) rgb.Energy {
 func (l Lambert) Emit() rgb.Energy {
 	return rgb.Black
 }
+
+// emissionGradient exposes a material's emission derivative, if the
+// material supports it, keyed by the material's identity.
+func emissionGradient(m Material) (interface{}, rgb.Energy, bool) {
+	d, ok := m.(render.EmissionDeriver)
+	if !ok {
+		return nil, rgb.Black, false
+	}
+	return m, d.EmissionDeriv(), true
+}

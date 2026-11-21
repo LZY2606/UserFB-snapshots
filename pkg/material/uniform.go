@@ -33,7 +33,9 @@ func (un *Uniform) At(u, v float64, in, norm geom.Dir, rnd *rand.Rand) (geom.Dir
 			Multiplier: 1,
 		}
 	}
-	if rnd.Float64() <= un.Metalness {
+	metal := rnd.Float64() <= un.Metalness
+	un.recordMetalness(rnd, metal)
+	if metal {
 		return geom.Up, bsdf.Microfacet{
 			Specular:   un.Color,
 			Roughness:  un.Roughness,

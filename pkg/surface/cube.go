@@ -110,6 +110,11 @@ func (c *Cube) Light() rgb.Energy {
 	return c.mat.Light()
 }
 
+// EmissionGradient implements render.EmissionGradientSource.
+func (c *Cube) EmissionGradient() (interface{}, rgb.Energy, bool) {
+	return emissionGradient(c.mat)
+}
+
 func (c *Cube) Transmit() rgb.Energy {
 	return c.mat.Transmit()
 }

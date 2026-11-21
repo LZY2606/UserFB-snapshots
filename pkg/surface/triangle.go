@@ -113,6 +113,11 @@ func (t *Triangle) Light() rgb.Energy {
 	return t.Mat.Light()
 }
 
+// EmissionGradient implements render.EmissionGradientSource.
+func (t *Triangle) EmissionGradient() (interface{}, rgb.Energy, bool) {
+	return emissionGradient(t.Mat)
+}
+
 func (t *Triangle) Transmit() rgb.Energy {
 	return t.Mat.Transmit()
 }

@@ -115,6 +115,11 @@ func (s *Sphere) Light() rgb.Energy {
 	return s.mat.Light()
 }
 
+// EmissionGradient implements render.EmissionGradientSource.
+func (s *Sphere) EmissionGradient() (interface{}, rgb.Energy, bool) {
+	return emissionGradient(s.mat)
+}
+
 func (s *Sphere) Transmit() rgb.Energy {
 	return s.mat.Transmit()
 }

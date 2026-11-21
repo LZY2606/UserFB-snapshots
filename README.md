@@ -63,6 +63,63 @@ func main() {
 - https://github.com/Opioid/rgbe
 - https://github.com/fogleman/pt
 
+## Material parameter gradients
+
+For offline look-development, pbr can differentiate the rendered image with
+respect to shared material parameters. Two synchronous CPU entry points live
+in `pkg/render` (`gradient.go`):
+
+```go
+// Frame-level: fixed seed, fixed samples per pixel. Returns the averaged
+// linear beauty image plus one signed RGB gradient image per parameter.
+res, err := render.RenderGradient(scene, width, height, samples, depth, direct, seed, params)
+
+// Single-ray diagnostic: rnd drives the path, so callers can compare the
+// random stream (e.g. the next Float64) with recording on and off.
+energy, grads, err := render.TraceGradient(scene, ray, rnd, depth, direct, params)
+```
+
+Parameters are declared per shared material in `pkg/material` (`gradient.go`)
+and merged by material identity: several objects sharing one `*Uniform`, or
+several visits along one path, accumulate into the same channel.
+
+```go
+params := []render.GradientParam{
+	material.Metalness(shared), // channel 0: d/d(shared.Metalness)
+	material.Emission(lamp),    // channel 1: d/d(lamp.Emission)
+}
+```
+
+Scope and semantics:
+
+- Only `Uniform.Metalness` and `Uniform.Emission` are differentiable.
+  Color, Roughness, Specularity, Transmission, cameras, and geometry are
+  fixed. Metalness tracking requires `Transmission == 0`, `Roughness > 0`,
+  and `0 < Metalness < 1`; emission tracking requires `Emission > 0`.
+  Duplicate params, out-of-range or non-finite values, and invalid
+  sizes/sample counts are rejected before rendering.
+- Metalness is the probability of the discrete metal/non-metal branch in
+  `Uniform.At`. Gradients use the score (likelihood-ratio) method along each
+  real path: every contribution (direct light, emitter hit, environment
+  escape) is weighted by the log-probability derivative of the choices made
+  *before* it, and emission channels additionally keep the explicit term
+  `d Light()/d Emission = Color`. No finite differences, no re-rendering,
+  and no derivatives are added to direction sampling, Russian roulette, or
+  light selection.
+- The result estimates the same expectation as `trace` under the given
+  bounce limit and `direct` switch (weight caps, light selection,
+  absorption, and `RandomGain` included); only the frame-level `maxEnergy`
+  clamp is dropped. Beauty, gradient channels, and the sample count share
+  one normalization. Gradients are signed, linear, and never gamma-mapped
+  or clamped. Recording consumes no path randomness, and custom materials
+  that are not declared differentiable keep working unchanged.
+
+Example:
+
+```bash
+go run ./examples/material_gradient /tmp/grad   # writes beauty.ppm + gradients.csv
+```
+
 ## CLI
 
 ```
