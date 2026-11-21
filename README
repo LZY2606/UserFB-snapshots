@@ -76,3 +76,76 @@ design discussion:
         as it may grow and shrink.
 
 
+
+RFC 4588 retransmission repair window
+-------------------------------------
+
+    In addition to the legacy depth/timer driven jitter buffer, RTPJitter can
+    be switched into a repair mode that adds a fixed-frame retransmission
+    (RTX) window.  Repair mode is deterministic: the caller supplies every
+    clock reading as an int64 microsecond timestamp.  The buffer starts no
+    threads, performs no sleeps and never reads a system clock.
+
+    configuration
+
+        RepairConfig holds primary_ssrc, rtx_ssrc, primary_pt, rtx_pt,
+        clock_rate, packet_ms, delay_ms, retry_ms and window_packets.
+        configure_repair() validates the whole structure first; on failure
+        the existing configuration and buffered stream are left completely
+        untouched.  On success the old stream is cleared and repair mode is
+        entered.  reset() clears the stream and the timing anchor but keeps
+        the repair configuration, so the same instance can be reused.
+
+    call order
+
+        1. configure_repair(cfg) once.  Before configuration push_at/pop_at
+           return BAD_PACKET and nacks_at returns an empty vector.
+        2. Feed every received datagram, primary or RTX, to
+           push_at(packet, now_us).  The first legal primary packet anchors
+           the stream at arrival A, sequence S and timestamp T.
+        3. Call nacks_at(now_us) on your NACK timer and send the returned
+           original media sequence numbers, in play order.
+        4. Feed the resulting RTX packets back through push_at; each is
+           restored and merged into the same slot map.
+        5. Drive the player with pop_at(packet, now_us), one slot per call.
+        6. Call reset() between streams; the repair configuration survives.
+
+    repair scope and semantics
+
+        - One slot map is used end to end.  Received retransmissions, issued
+          NACKs and player dequeue all reference the original media sequence
+          number; no separate retransmission queue is kept.  Slot k has
+          sequence S+k (16-bit wrap), timestamp
+          T + k*clock_rate*packet_ms/1000 (32-bit wrap) and playout instant
+          A + delay_ms*1000 + k*packet_ms*1000, all integer arithmetic.
+        - Only packets within window_packets of the current play head are
+          accepted.  Too-old packets and timestamp mismatches return
+          BAD_PACKET; packets beyond the window return BUFFER_OVERFLOW.
+          Neither changes the buffer or any timing state.  A slot may still
+          be filled exactly at its playout instant; one microsecond later it
+          has expired.
+        - The first content accepted for a slot wins.  Duplicate primary or
+          RTX packets return SUCCESS without changing content, depth or
+          clocks.
+        - pop_at handles one known slot: BUFFERING before its deadline; at or
+          after the deadline SUCCESS with the packet or DROPPED_PACKET for a
+          gap, both advancing the head one slot; BUFFER_EMPTY past the newest
+          known slot without advancing.  The output is rewritten only on
+          SUCCESS.
+        - nacks_at reports revealed, unfilled, unexpired gaps.  A gap is
+          reported on the first query and again no sooner than retry_ms; the
+          same instant never double-reports and missed rounds are not
+          replayed.  Arriving repair cancels a gap immediately.  Queries
+          neither advance playout nor move the anchor.
+        - RTX packets carry the RFC 4588 two-byte big-endian OSN.  Outer
+          SSRC/PT must match the RTX configuration; the outer sequence does
+          not order anything.  CSRC and extension headers are traversed and
+          padding validated.  On hand-off the OSN is removed and sequence,
+          SSRC and PT are rewritten to primary values while marker,
+          timestamp, CSRC, extension, media bytes and legal padding are
+          preserved.  The caller's input object is never modified.
+
+    While repair mode is active the legacy push()/pop() entry points return
+    BAD_PACKET without touching state; outside repair mode they retain their
+    original behaviour unchanged.
+

@@ -26,10 +26,33 @@
 #define RTP_JITTER_H_cc8e302e_b008_4588_a29a_79a9f555804d
 
 #include <deque>
+#include <map>
 #include <memory>
+#include <vector>
 #include "stdinc.h"
 #include "rtp.h"
 
+
+// Configuration for the RFC 4588 retransmission repair window.  All timing
+//  is driven by the int64 microsecond timestamps handed to push_at/pop_at/
+//  nacks_at; the buffer never reads a system clock, sleeps or runs threads.
+struct RepairConfig
+{
+    uint32  primary_ssrc;
+    uint32  rtx_ssrc;
+    uint8   primary_pt;
+    uint8   rtx_pt;
+    uint32  clock_rate;         // samples per second
+    uint16  packet_ms;          // fixed frame duration, 1..65535
+    uint32  delay_ms;           // playout delay added to the anchor arrival
+    uint32  retry_ms;           // minimum gap between NACKs for one gap
+    uint16  window_packets;     // accept window measured from the play head
+
+    RepairConfig() :
+        primary_ssrc(0), rtx_ssrc(0), primary_pt(0), rtx_pt(0),
+        clock_rate(0), packet_ms(0), delay_ms(0), retry_ms(0),
+        window_packets(0) {}
+};
 
 
 class RTPJitter
@@ -66,6 +89,15 @@ public:
     int empty_count()           { return _stats.empty_count; }
     uint32 jitter()             { return (uint32)_stats.jitter; }
     uint32 max_jitter()         { return (uint32)_stats.max_jitter; }
+
+    // - RFC 4588 retransmission repair window.  A failed configuration
+    //  leaves the entire prior state untouched; a successful one clears the
+    //  old stream and switches the instance into repair mode.  While repair
+    //  mode is active the legacy push/pop entry points reject every call.
+    bool                    configure_repair(const RepairConfig& config);
+    RESULT                  push_at(rawrtp_ptr packet, int64 now_us);
+    RESULT                  pop_at(rawrtp_ptr& packet, int64 now_us);
+    std::vector<uint16>     nacks_at(int64 now_us);
 
 private:
     static const int DEFAULT_BUFFER_ELEMENTS = 18;  // 360ms given 20ms packets
@@ -108,6 +140,39 @@ private:
     uint8      *_get_payload(RTPHeader *packet);
     void        _log(std::string s);
     void        _reset_buffer_stats(const uint32 sample_rate);
+
+    // - repair mode state -------------------------------------------------
+    //  Slots are keyed by the full (wrapping) 16-bit primary sequence and
+    //  identified by an integer index anchored at the first legal primary
+    //  packet.  Every accepted packet -- primary or restored RTX -- lands in
+    //  the same slot map the player reads from; no side queue is kept.
+    struct RepairSlot
+    {
+        rawrtp_ptr packet;          // empty while the slot is a gap
+        int64      last_nack_us;    // last time the gap was reported
+        bool       nacked;          // whether last_nack_us is meaningful
+        RepairSlot() : last_nack_us(0), nacked(false) {}
+    };
+
+    RepairConfig                _repair_config;
+    bool                        _repair_enabled;
+    bool                        _repair_anchored;     // anchor packet seen
+    uint16                      _anchor_sequence;     // S
+    uint32                      _anchor_timestamp;    // T
+    int64                       _anchor_arrival_us;   // A
+    uint16                      _play_head;           // next slot to play
+    uint16                      _highest_known;       // newest revealed slot
+    std::map<uint16, RepairSlot> _repair_slots;
+
+    void        _repair_reset_stream();
+    RESULT      _repair_accept(rawrtp_ptr packet, int64 now_us,
+                               uint16 sequence, uint32 timestamp);
+    int64       _slot_playtime(uint16 sequence) const;
+    uint32      _slot_timestamp(uint16 sequence) const;
+    int         _slot_distance(uint16 from, uint16 to) const;
+    uint16      _sequence_forward(uint16 sequence, int distance) const;
+    bool        _repair_validate(rawrtp_ptr packet, RtpHeaderInfo& info,
+                                 bool& is_rtx, uint16& osn) const;
 };
 
 #endif  // RTP_JITTER_H_cc8e302e_b008_4588_a29a_79a9f555804d

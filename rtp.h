@@ -27,6 +27,7 @@
 #define RTP_H_a657e19c_e611_413c_86c1_e2263a9d1b07
 
 #include <cstring>
+#include <memory>
 #include "stdinc.h"
 
 // from RFC 3550, fixed headers for RTP.  This should be all
@@ -104,6 +105,29 @@ typedef struct {
 #pragma pack(pop)
 
 
+class RTPPacket;
+typedef std::shared_ptr<RTPPacket>  rawrtp_ptr;
+
+
+// Parsed view of an RTP fixed header, CSRC list and header extension.
+//  All multi-byte fields are presented in host order; header_len is the
+//  byte offset where the RTP payload begins.
+struct RtpHeaderInfo
+{
+    uint8       cc;
+    uint8       payload_type;
+    bool        marker;
+    bool        padding;
+    bool        extension;
+    uint16      sequence;
+    uint32      timestamp;
+    uint32      ssrc;
+    uint16      header_len;
+    uint16      payload_len;
+    uint8       padding_len;        // 0 when the padding bit is clear
+};
+
+
 
 class RTPPacket
 {
@@ -130,9 +154,22 @@ public:
         }
     }
     ~RTPPacket() { if (pData) delete[] pData; };
-};
 
-typedef std::shared_ptr<RTPPacket>  rawrtp_ptr;
+    // Validates version, minimum length, CSRC/extension coverage and the
+    //  padding count.  Returns false without touching anything on a
+    //  malformed packet, true and a filled RtpHeaderInfo otherwise.
+    static bool parse_header(const uint8 *data, uint16 len, RtpHeaderInfo& info);
+
+    // Builds the restored primary packet for an RFC 4588 retransmission:
+    //  the two-byte OSN is removed, sequence/SSRC/PT become the primary
+    //  values and marker, timestamp, CSRC, extension, media bytes and any
+    //  legal padding are preserved.  The input buffer is never modified;
+    //  an empty shared pointer is returned on a malformed RTX payload.
+    static rawrtp_ptr restore_rtx(const uint8 *data, uint16 len,
+                                  const RtpHeaderInfo& info, uint16 osn,
+                                  uint32 primary_ssrc, uint8 primary_pt,
+                                  uint16 packet_ms);
+};
 
 
 #endif  // RTP_H_a657e19c_e611_413c_86c1_e2263a9d1b07
