@@ -1,0 +1,63 @@
+// David Eberly, Geometric Tools, Redmond WA 98052
+// Copyright (c) 1998-2026
+// Distributed under the Boost Software License, Version 1.0.
+// https://www.boost.org/LICENSE_1_0.txt
+// https://www.geometrictools.com/License/Boost/LICENSE_1_0.txt
+// File Version: 8.0.2026.02.21
+
+#pragma once
+
+#include <cstdint>
+#include <chrono>
+
+namespace gte
+{
+    class Timer
+    {
+    public:
+        // Construction of a high-resolution timer (64-bit).
+        Timer()
+        {
+            Reset();
+        }
+
+        // Get the current time relative to the initial time.
+        int64_t GetNanoseconds() const
+        {
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                currentTime - mInitialTime).count();
+        }
+
+        int64_t GetMicroseconds() const
+        {
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            return std::chrono::duration_cast<std::chrono::microseconds>(
+                currentTime - mInitialTime).count();
+        }
+
+        int64_t GetMilliseconds() const
+        {
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - mInitialTime).count();
+        }
+
+        double GetSeconds() const
+        {
+            int64_t nsecs = GetNanoseconds();
+            return static_cast<double>(nsecs) / 1000000000.0;
+        }
+
+        // Reset so that the current time is the initial time.
+        void Reset()
+        {
+            mInitialTime = std::chrono::high_resolution_clock::now();
+        }
+
+    private:
+        std::chrono::high_resolution_clock::time_point mInitialTime;
+    };
+}
+
+
